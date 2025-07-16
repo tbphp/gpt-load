@@ -79,20 +79,40 @@ func (b *BaseChannel) getUpstreamURL() *url.URL {
 	return upstream.URL
 }
 
+// findUpstreamByID returns the UpstreamInfo that matches the given ID or nil if not found.
+func (b *BaseChannel) findUpstreamByID(id string) *UpstreamInfo {
+	for i := range b.Upstreams {
+		if b.Upstreams[i].ID == id {
+			return &b.Upstreams[i]
+		}
+	}
+	return nil
+}
+
 // BuildUpstreamURL constructs the target URL for the upstream service.
-func (b *BaseChannel) BuildUpstreamURL(originalURL *url.URL, group *models.Group) (string, error) {
-	base := b.getUpstreamURL()
+func (b *BaseChannel) BuildUpstreamURL(originalURL *url.URL, group *models.Group, upstreamID string) (string, error) {
+	var base *url.URL
+
+	// 1) Prefer the explicitly‑requested upstream.
+	if upstreamID != "" && upstreamID != "Default" {
+		if up := b.findUpstreamByID(upstreamID); up != nil {
+			base = up.URL
+		}
+	}
+
+	// 2) Otherwise fall back to the regular weighted selection.
+	if base == nil {
+		base = b.getUpstreamURL()
+	}
 	if base == nil {
 		return "", fmt.Errorf("no upstream URL configured for channel %s", b.Name)
 	}
 
+	// 3) Reconstruct the final target URL.
 	finalURL := *base
 	proxyPrefix := "/proxy/" + group.Name
-	requestPath := originalURL.Path
-	requestPath = strings.TrimPrefix(requestPath, proxyPrefix)
-
+	requestPath := strings.TrimPrefix(originalURL.Path, proxyPrefix)
 	finalURL.Path = strings.TrimRight(finalURL.Path, "/") + requestPath
-
 	finalURL.RawQuery = originalURL.RawQuery
 
 	return finalURL.String(), nil
