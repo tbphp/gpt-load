@@ -14,6 +14,9 @@ type ChannelProxy interface {
 	// BuildUpstreamURL constructs the target URL for the upstream service.
 	BuildUpstreamURL(originalURL *url.URL, group *models.Group) (string, error)
 
+	// GetSelectedUpstreamID returns the ID of the currently selected upstream.
+	GetSelectedUpstreamID() string
+
 	// IsConfigStale checks if the channel's configuration is stale compared to the provided group.
 	IsConfigStale(group *models.Group) bool
 

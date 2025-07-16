@@ -93,6 +93,10 @@ func (s *RedisStore) LRem(key string, count int64, value any) error {
 	return s.client.LRem(context.Background(), key, count, value).Err()
 }
 
+func (s *RedisStore) LLen(key string) (int64, error) {
+	return s.client.LLen(context.Background(), key).Result()
+}
+
 func (s *RedisStore) Rotate(key string) (string, error) {
 	val, err := s.client.RPopLPush(context.Background(), key, key).Result()
 	if err != nil {

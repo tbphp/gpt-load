@@ -125,7 +125,9 @@ func (ps *ProxyServer) executeRequestWithRetry(
 		return
 	}
 
-	apiKey, err := ps.keyProvider.SelectKey(group.ID)
+	upstreamID := channelHandler.GetSelectedUpstreamID()
+
+	apiKey, err := ps.keyProvider.SelectKey(group.ID, upstreamID)
 	if err != nil {
 		logrus.Errorf("Failed to select a key for group %s on attempt %d: %v", group.Name, retryCount+1, err)
 		response.Error(c, app_errors.NewAPIError(app_errors.ErrNoKeysAvailable, err.Error()))

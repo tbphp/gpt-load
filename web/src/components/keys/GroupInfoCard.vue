@@ -327,12 +327,15 @@ function resetPage() {
                     v-for="(upstream, index) in group?.upstreams ?? []"
                     :key="index"
                     class="upstream-item"
-                    :label="`上游 ${index + 1}:`"
+                    :label="`上游`"
                   >
-                    <span class="upstream-weight">
-                      <n-tag size="small" type="info">权重: {{ upstream.weight }}</n-tag>
-                    </span>
-                    <n-input class="upstream-url" :value="upstream.url" readonly size="small" />
+                    <div class="upstream-content">
+                      <div class="upstream-weight tag-row">
+                        <n-tag size="tiny" type="info">ID: {{ upstream.id }}</n-tag>
+                        <n-tag size="tiny" type="info">权重: {{ upstream.weight }}</n-tag>
+                      </div>
+                      <n-input class="upstream-url" :value="upstream.url" readonly size="small" />
+                    </div>
                   </n-form-item>
                 </n-form>
               </div>
@@ -474,15 +477,33 @@ function resetPage() {
   border-bottom: 2px solid rgba(102, 126, 234, 0.1);
 }
 
-.upstream-url {
-  font-family: monospace;
-  font-size: 0.9rem;
-  color: #374151;
-  margin-left: 5px;
+.upstream-content {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
 }
 
 .upstream-weight {
-  min-width: 70px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.upstream-url {
+  flex: 1;
+  font-family: monospace;
+  font-size: 0.9rem;
+  color: #374151;
+  min-width: 0;
+}
+
+.tag-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: nowrap;
+  align-items: center;
 }
 
 .config-json {

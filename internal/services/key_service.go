@@ -79,19 +79,21 @@ func (s *KeyService) AddMultipleKeys(groupID uint, keysText string) (*AddKeysRes
 	uniqueNewKeys := make(map[string]bool)
 
 	for _, keyVal := range keys {
-		trimmedKey := strings.TrimSpace(keyVal)
-		if trimmedKey == "" {
+		actualKeyValue, upstreamFilter := s.parseKeyWithUpstreamFilter(keyVal)
+		if actualKeyValue == "" {
 			continue
 		}
-		if existingKeyMap[trimmedKey] || uniqueNewKeys[trimmedKey] {
+
+		if existingKeyMap[actualKeyValue] || uniqueNewKeys[actualKeyValue] {
 			continue
 		}
-		if s.isValidKeyFormat(trimmedKey) {
-			uniqueNewKeys[trimmedKey] = true
+		if s.isValidKeyFormat(actualKeyValue) {
+			uniqueNewKeys[actualKeyValue] = true
 			newKeysToCreate = append(newKeysToCreate, models.APIKey{
-				GroupID:  groupID,
-				KeyValue: trimmedKey,
-				Status:   models.KeyStatusActive,
+				GroupID:        groupID,
+				KeyValue:       actualKeyValue,
+				UpstreamFilter: upstreamFilter,
+				Status:         models.KeyStatusActive,
 			})
 		}
 	}
@@ -154,12 +156,34 @@ func (s *KeyService) ParseKeysFromText(text string) []string {
 func (s *KeyService) filterValidKeys(keys []string) []string {
 	var validKeys []string
 	for _, key := range keys {
-		key = strings.TrimSpace(key)
-		if s.isValidKeyFormat(key) {
-			validKeys = append(validKeys, key)
+		actualKeyValue, _ := s.parseKeyWithUpstreamFilter(key)
+
+		if s.isValidKeyFormat(actualKeyValue) {
+			validKeys = append(validKeys, key) // 返回原始字符串（包含@@语法）
 		}
 	}
 	return validKeys
+}
+
+// parseKeyWithUpstreamFilter parses a key string that may contain @@ syntax
+// Returns the actual key value and upstream filter
+func (s *KeyService) parseKeyWithUpstreamFilter(keyStr string) (actualKey, upstreamFilter string) {
+	trimmedKey := strings.TrimSpace(keyStr)
+	upstreamFilter = "Default"
+	actualKey = trimmedKey
+
+	if strings.Contains(trimmedKey, "@@") {
+		parts := strings.SplitN(trimmedKey, "@@", 2)
+		if len(parts) == 2 {
+			prefix := strings.TrimSpace(parts[0])
+			actualKey = strings.TrimSpace(parts[1])
+			if prefix != "" {
+				upstreamFilter = prefix
+			}
+		}
+	}
+
+	return actualKey, upstreamFilter
 }
 
 // isValidKeyFormat performs basic validation on key format
@@ -187,13 +211,19 @@ func (s *KeyService) RestoreMultipleKeys(groupID uint, keysText string) (*Restor
 		return nil, fmt.Errorf("no valid keys found in the input text")
 	}
 
+	actualKeyValues := make([]string, 0, len(keysToRestore))
+	for _, key := range keysToRestore {
+		actualKeyValue, _ := s.parseKeyWithUpstreamFilter(key)
+		actualKeyValues = append(actualKeyValues, actualKeyValue)
+	}
+
 	var totalRestoredCount int64
-	for i := 0; i < len(keysToRestore); i += chunkSize {
+	for i := 0; i < len(actualKeyValues); i += chunkSize {
 		end := i + chunkSize
-		if end > len(keysToRestore) {
-			end = len(keysToRestore)
+		if end > len(actualKeyValues) {
+			end = len(actualKeyValues)
 		}
-		chunk := keysToRestore[i:end]
+		chunk := actualKeyValues[i:end]
 		restoredCount, err := s.KeyProvider.RestoreMultipleKeys(groupID, chunk)
 		if err != nil {
 			return nil, err
@@ -235,13 +265,19 @@ func (s *KeyService) DeleteMultipleKeys(groupID uint, keysText string) (*DeleteK
 		return nil, fmt.Errorf("no valid keys found in the input text")
 	}
 
+	actualKeyValues := make([]string, 0, len(keysToDelete))
+	for _, key := range keysToDelete {
+		actualKeyValue, _ := s.parseKeyWithUpstreamFilter(key)
+		actualKeyValues = append(actualKeyValues, actualKeyValue)
+	}
+
 	var totalDeletedCount int64
-	for i := 0; i < len(keysToDelete); i += chunkSize {
+	for i := 0; i < len(actualKeyValues); i += chunkSize {
 		end := i + chunkSize
-		if end > len(keysToDelete) {
-			end = len(keysToDelete)
+		if end > len(actualKeyValues) {
+			end = len(actualKeyValues)
 		}
-		chunk := keysToDelete[i:end]
+		chunk := actualKeyValues[i:end]
 		deletedCount, err := s.KeyProvider.RemoveKeys(groupID, chunk)
 		if err != nil {
 			return nil, err
@@ -290,13 +326,19 @@ func (s *KeyService) TestMultipleKeys(group *models.Group, keysText string) ([]k
 		return nil, fmt.Errorf("no valid keys found in the input text")
 	}
 
+	actualKeyValues := make([]string, 0, len(keysToTest))
+	for _, key := range keysToTest {
+		actualKeyValue, _ := s.parseKeyWithUpstreamFilter(key)
+		actualKeyValues = append(actualKeyValues, actualKeyValue)
+	}
+
 	var allResults []keypool.KeyTestResult
-	for i := 0; i < len(keysToTest); i += chunkSize {
+	for i := 0; i < len(actualKeyValues); i += chunkSize {
 		end := i + chunkSize
-		if end > len(keysToTest) {
-			end = len(keysToTest)
+		if end > len(actualKeyValues) {
+			end = len(actualKeyValues)
 		}
-		chunk := keysToTest[i:end]
+		chunk := actualKeyValues[i:end]
 		results, err := s.KeyValidator.TestMultipleKeys(group, chunk)
 		if err != nil {
 			return nil, err
