@@ -15,27 +15,27 @@ type ConfigManager interface {
 	ReloadConfig() error
 }
 
-// SystemSettings 定义所有系统配置项
+// SystemSettings defines all system configuration options
 type SystemSettings struct {
-	// 基础参数
-	AppUrl                         string `json:"app_url" default:"http://localhost:3001" name:"项目地址" category:"基础参数" desc:"项目的基础 URL，用于拼接分组终端节点地址。系统配置优先于环境变量 APP_URL。"`
-	RequestLogRetentionDays        int    `json:"request_log_retention_days" default:"7" name:"日志保留时长（天）" category:"基础参数" desc:"请求日志在数据库中的保留天数，0为不清理日志。" validate:"min=0"`
-	RequestLogWriteIntervalMinutes int    `json:"request_log_write_interval_minutes" default:"1" name:"日志延迟写入周期（分钟）" category:"基础参数" desc:"请求日志从缓存写入数据库的周期（分钟），0为实时写入数据。" validate:"min=0"`
+	// Basic parameters
+	AppUrl                         string `json:"app_url" default:"http://localhost:3001" name:"Project URL" category:"Basic Parameters" desc:"Base URL of the project, used to concatenate group endpoint addresses. System config takes precedence over APP_URL environment variable."`
+	RequestLogRetentionDays        int    `json:"request_log_retention_days" default:"7" name:"Log Retention Period (days)" category:"Basic Parameters" desc:"Number of days request logs are kept in the database, 0 means logs are not cleaned up." validate:"min=0"`
+	RequestLogWriteIntervalMinutes int    `json:"request_log_write_interval_minutes" default:"1" name:"Log Write Delay Interval (minutes)" category:"Basic Parameters" desc:"Interval (in minutes) for writing request logs from cache to database, 0 means real-time writing." validate:"min=0"`
 
-	// 请求设置
-	RequestTimeout        int `json:"request_timeout" default:"600" name:"请求超时（秒）" category:"请求设置" desc:"转发请求的完整生命周期超时（秒）等。" validate:"min=1"`
-	ConnectTimeout        int `json:"connect_timeout" default:"15" name:"连接超时（秒）" category:"请求设置" desc:"与上游服务建立新连接的超时时间（秒）。" validate:"min=1"`
-	IdleConnTimeout       int `json:"idle_conn_timeout" default:"120" name:"空闲连接超时（秒）" category:"请求设置" desc:"HTTP 客户端中空闲连接的超时时间（秒）。" validate:"min=1"`
-	ResponseHeaderTimeout int `json:"response_header_timeout" default:"600" name:"响应头超时（秒）" category:"请求设置" desc:"等待上游服务响应头的最长时间（秒）。" validate:"min=1"`
-	MaxIdleConns          int `json:"max_idle_conns" default:"100" name:"最大空闲连接数" category:"请求设置" desc:"HTTP 客户端连接池中允许的最大空闲连接总数。" validate:"min=1"`
-	MaxIdleConnsPerHost   int `json:"max_idle_conns_per_host" default:"50" name:"每主机最大空闲连接数" category:"请求设置" desc:"HTTP 客户端连接池对每个上游主机允许的最大空闲连接数。" validate:"min=1"`
+	// Request settings
+	RequestTimeout        int `json:"request_timeout" default:"600" name:"Request Timeout (seconds)" category:"Request Settings" desc:"Complete lifecycle timeout for forwarded requests (seconds)." validate:"min=1"`
+	ConnectTimeout        int `json:"connect_timeout" default:"15" name:"Connection Timeout (seconds)" category:"Request Settings" desc:"Timeout for establishing new connections to upstream services (seconds)." validate:"min=1"`
+	IdleConnTimeout       int `json:"idle_conn_timeout" default:"120" name:"Idle Connection Timeout (seconds)" category:"Request Settings" desc:"Timeout for idle connections in HTTP client (seconds)." validate:"min=1"`
+	ResponseHeaderTimeout int `json:"response_header_timeout" default:"600" name:"Response Header Timeout (seconds)" category:"Request Settings" desc:"Maximum time to wait for upstream service response headers (seconds)." validate:"min=1"`
+	MaxIdleConns          int `json:"max_idle_conns" default:"100" name:"Max Idle Connections" category:"Request Settings" desc:"Maximum number of idle connections allowed in HTTP client pool." validate:"min=1"`
+	MaxIdleConnsPerHost   int `json:"max_idle_conns_per_host" default:"50" name:"Max Idle Connections Per Host" category:"Request Settings" desc:"Maximum number of idle connections allowed per upstream host in HTTP client pool." validate:"min=1"`
 
-	// 密钥配置
-	MaxRetries                   int `json:"max_retries" default:"3" name:"最大重试次数" category:"密钥配置" desc:"单个请求使用不同 Key 的最大重试次数，0为不重试。" validate:"min=0"`
-	BlacklistThreshold           int `json:"blacklist_threshold" default:"3" name:"黑名单阈值" category:"密钥配置" desc:"一个 Key 连续失败多少次后进入黑名单，0为不拉黑。" validate:"min=0"`
-	KeyValidationIntervalMinutes int `json:"key_validation_interval_minutes" default:"60" name:"密钥验证间隔（分钟）" category:"密钥配置" desc:"后台验证密钥的默认间隔（分钟）。" validate:"min=30"`
-	KeyValidationConcurrency     int `json:"key_validation_concurrency" default:"10" name:"密钥验证并发数" category:"密钥配置" desc:"后台定时验证无效 Key 时的并发数。" validate:"min=1"`
-	KeyValidationTimeoutSeconds  int `json:"key_validation_timeout_seconds" default:"20" name:"密钥验证超时（秒）" category:"密钥配置" desc:"后台定时验证单个 Key 时的 API 请求超时时间（秒）。" validate:"min=5"`
+	// Key configuration
+	MaxRetries                   int `json:"max_retries" default:"3" name:"Max Retry Count" category:"Key Configuration" desc:"Maximum number of retries using different keys for a single request, 0 means no retry." validate:"min=0"`
+	BlacklistThreshold           int `json:"blacklist_threshold" default:"3" name:"Blacklist Threshold" category:"Key Configuration" desc:"Number of consecutive failures after which a key is blacklisted, 0 means no blacklisting." validate:"min=0"`
+	KeyValidationIntervalMinutes int `json:"key_validation_interval_minutes" default:"60" name:"Key Validation Interval (minutes)" category:"Key Configuration" desc:"Default interval (minutes) for background key validation." validate:"min=30"`
+	KeyValidationConcurrency     int `json:"key_validation_concurrency" default:"10" name:"Key Validation Concurrency" category:"Key Configuration" desc:"Concurrency level for periodic validation of invalid keys in the background." validate:"min=1"`
+	KeyValidationTimeoutSeconds  int `json:"key_validation_timeout_seconds" default:"20" name:"Key Validation Timeout (seconds)" category:"Key Configuration" desc:"API request timeout (seconds) when validating individual keys in the background." validate:"min=5"`
 }
 
 // ServerConfig represents server configuration

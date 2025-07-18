@@ -83,7 +83,7 @@ func isValidGroupName(name string) bool {
 	if name == "" {
 		return false
 	}
-	// 允许使用小写字母、数字、下划线和中划线，长度在 3 到 30 个字符之间
+	// Allow lowercase letters, numbers, underscores, and hyphens, with length between 3 and 30 characters
 	match, _ := regexp.MatchString("^[a-z0-9_-]{3,30}$", name)
 	return match
 }
@@ -151,7 +151,7 @@ func (s *Server) CreateGroup(c *gin.Context) {
 	// Data Cleaning and Validation
 	name := strings.TrimSpace(req.Name)
 	if !isValidGroupName(name) {
-		response.Error(c, app_errors.NewAPIError(app_errors.ErrValidation, "无效的分组名称。只能包含小写字母、数字、中划线或下划线，长度3-30位"))
+		response.Error(c, app_errors.NewAPIError(app_errors.ErrValidation, "Invalid group name. Can only contain lowercase letters, numbers, hyphens or underscores, length between 3-30 characters"))
 		return
 	}
 
@@ -265,7 +265,7 @@ func (s *Server) UpdateGroup(c *gin.Context) {
 	if req.Name != nil {
 		cleanedName := strings.TrimSpace(*req.Name)
 		if !isValidGroupName(cleanedName) {
-			response.Error(c, app_errors.NewAPIError(app_errors.ErrValidation, "无效的分组名称格式。只能包含小写字母、数字、中划线或下划线，长度3-30位"))
+			response.Error(c, app_errors.NewAPIError(app_errors.ErrValidation, "Invalid group name format. Can only contain lowercase letters, numbers, hyphens or underscores, length between 3-30 characters"))
 			return
 		}
 		group.Name = cleanedName
@@ -577,7 +577,7 @@ func (s *Server) GetGroupStats(c *gin.Context) {
 	}
 	groupID := uint(id)
 
-	// 1. 验证分组是否存在
+	// 1. Verify group exists
 	var group models.Group
 	if err := s.DB.First(&group, groupID).Error; err != nil {
 		response.Error(c, app_errors.ParseDBError(err))
@@ -589,9 +589,9 @@ func (s *Server) GetGroupStats(c *gin.Context) {
 	var mu sync.Mutex
 	var errors []error
 
-	// 并发执行所有统计查询
+	// Run all statistic queries concurrently
 
-	// 2. Key 统计
+	// 2. Key statistics
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -619,7 +619,7 @@ func (s *Server) GetGroupStats(c *gin.Context) {
 		mu.Unlock()
 	}()
 
-	// 3. 1小时请求统计 (查询 request_logs 表)
+	// 3. 1-hour request statistics (query request_logs table)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -645,16 +645,16 @@ func (s *Server) GetGroupStats(c *gin.Context) {
 		mu.Unlock()
 	}()
 
-	// 4. 24小时和7天统计 (查询 group_hourly_stats 表)
-	// 辅助函数，用于从 group_hourly_stats 查询
+	// 4. 24-hour and 7-day statistics (query group_hourly_stats table)
+	// Helper function for querying from group_hourly_stats
 	queryHourlyStats := func(duration time.Duration) (RequestStats, error) {
 		var result struct {
 			SuccessCount int64
 			FailureCount int64
 		}
 		now := time.Now()
-		// 结束时间为当前小时的整点，查询时不包含该小时
-		// 开始时间为结束时间减去统计周期
+		// End time is the current hour on the hour, query does not include this hour
+		// Start time is the end time minus the statistics period
 		endTime := now.Truncate(time.Hour)
 		startTime := endTime.Add(-duration)
 
@@ -668,7 +668,7 @@ func (s *Server) GetGroupStats(c *gin.Context) {
 		return calculateRequestStats(result.SuccessCount+result.FailureCount, result.FailureCount), nil
 	}
 
-	// 24小时统计
+	// 24-hour statistics
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -684,7 +684,7 @@ func (s *Server) GetGroupStats(c *gin.Context) {
 		mu.Unlock()
 	}()
 
-	// 7天统计
+	// 7-day statistics
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -703,7 +703,7 @@ func (s *Server) GetGroupStats(c *gin.Context) {
 	wg.Wait()
 
 	if len(errors) > 0 {
-		// 只记录第一个错误，但表明可能存在多个错误
+		// Only log the first error, but indicate there may be multiple errors
 		logrus.WithContext(c.Request.Context()).WithError(errors[0]).Error("Errors occurred while fetching group stats")
 		response.Error(c, app_errors.NewAPIError(app_errors.ErrDatabase, "Failed to retrieve some statistics"))
 		return
@@ -716,7 +716,7 @@ func (s *Server) GetGroupStats(c *gin.Context) {
 func (s *Server) List(c *gin.Context) {
 	var groups []models.Group
 	if err := s.DB.Select("id, name,display_name").Find(&groups).Error; err != nil {
-		response.Error(c, app_errors.NewAPIError(app_errors.ErrDatabase, "无法获取分组列表"))
+		response.Error(c, app_errors.NewAPIError(app_errors.ErrDatabase, "Unable to get group list"))
 		return
 	}
 	response.Success(c, groups)

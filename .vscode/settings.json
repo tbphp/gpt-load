@@ -1,5 +1,5 @@
 {
-  // 编辑器设置
+  // Editor settings
   "editor.formatOnSave": true,
   "editor.formatOnPaste": true,
   "editor.formatOnType": false,
@@ -16,7 +16,7 @@
   "files.insertFinalNewline": true,
   "files.trimFinalNewlines": true,
 
-  // 文件关联
+  // File associations
   "[vue]": {
     "editor.defaultFormatter": "esbenp.prettier-vscode"
   },
@@ -46,7 +46,7 @@
     "editor.wordWrap": "on"
   },
 
-  // ESLint 设置
+  // ESLint settings
   "eslint.workingDirectories": ["web"],
   "eslint.validate": [
     "javascript",
@@ -56,12 +56,12 @@
     "vue"
   ],
 
-  // TypeScript 设置
+  // TypeScript settings
   "typescript.preferences.importModuleSpecifier": "relative",
   "typescript.suggest.autoImports": true,
   "typescript.updateImportsOnFileMove.enabled": "always",
 
-  // 搜索排除
+  // Search exclusions
   "search.exclude": {
     "**/node_modules": true,
     "**/dist": true,
@@ -72,15 +72,15 @@
     "**/yarn.lock": true
   },
 
-  // 终端设置
+  // Terminal settings
   "terminal.integrated.defaultProfile.osx": "zsh",
 
-  // Git 设置
+  // Git settings
   "git.autofetch": true,
   "git.confirmSync": false,
   "git.enableSmartCommit": true,
 
-  // Emmet 设置
+  // Emmet settings
   "emmet.includeLanguages": {
     "vue": "html"
   }
