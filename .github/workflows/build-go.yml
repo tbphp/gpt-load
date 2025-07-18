@@ -1,0 +1,70 @@
+# .github/workflows/build.yml
+
+name: Build and Package gpt_load
+
+# 工作流触发条件
+on:
+  # 1. 自动触发：当代码推送到 main 分支时
+  push:
+    branches:
+      - main
+  # 2. 自动触发：当向 main 分支发起 Pull Request 时
+  pull_request:
+    branches:
+      - main
+  # 3. 手动触发：允许在 Actions 页面手动运行此工作流
+  workflow_dispatch:
+
+jobs:
+  build-and-package:
+    # 指定运行环境
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. 检出代码
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 2. 设置 Go 环境
+      - name: Setup Go environment
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22.x'
+
+      # 3. 设置 Node.js 环境 (用于编译 Vue)
+      - name: Setup Node.js environment
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: 'npm'
+          cache-dependency-path: 'web/package-lock.json'
+
+      # 4. 构建 Vue 前端
+      - name: Build Vue Frontend
+        run: npm install && npm run build
+        working-directory: ./web
+
+      # 5. 编译 Go 应用
+      # 我们将编译后的二进制文件命名为 gpt_load
+      - name: Build Go Application
+        run: go build -v -ldflags="-s -w" -o gpt_load ./main.go
+
+      # 6. 准备用于打包的目录
+      # 将 gpt_load 和 dist 目录移入打包目录
+      - name: Prepare Package Directory
+        run: |
+          mkdir release_package
+          mv gpt_load release_package/
+          mv web/dist release_package/
+
+      # 7. 创建压缩包
+      # 将压缩包命名为 gpt_load-linux-amd64.tar.gz
+      - name: Create Compressed Archive
+        run: tar -czvf gpt_load-linux-amd64.tar.gz -C release_package .
+
+      # 8. 上传最终的压缩包作为产物
+      - name: Upload Release Package
+        uses: actions/upload-artifact@v4
+        with:
+          name: gpt_load-package-linux-amd64 # Artifact的名称也更新
+          path: gpt_load-linux-amd64.tar.gz  # 上传更新后的压缩文件
