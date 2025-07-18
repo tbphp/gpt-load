@@ -51,7 +51,7 @@ func NewRouter(
 
 	router := gin.New()
 
-	// 注册全局中间件
+	// Register global middleware
 	router.Use(middleware.Recovery())
 	router.Use(middleware.ErrorHandler())
 	router.Use(middleware.Logger(configManager.GetLogConfig()))
@@ -63,7 +63,7 @@ func NewRouter(
 		c.Next()
 	})
 
-	// 注册路由
+	// Register routes
 	registerSystemRoutes(router, serverHandler)
 	registerAPIRoutes(router, serverHandler, configManager, groupManager, channelFactory)
 	registerProxyRoutes(router, proxyServer, configManager, groupManager, channelFactory)
@@ -72,12 +72,12 @@ func NewRouter(
 	return router
 }
 
-// registerSystemRoutes 注册系统级路由
+// registerSystemRoutes registers system-level routes
 func registerSystemRoutes(router *gin.Engine, serverHandler *handler.Server) {
 	router.GET("/health", serverHandler.Health)
 }
 
-// registerAPIRoutes 注册API路由
+// registerAPIRoutes registers API routes
 func registerAPIRoutes(
 	router *gin.Engine,
 	serverHandler *handler.Server,
@@ -88,21 +88,21 @@ func registerAPIRoutes(
 	api := router.Group("/api")
 	authConfig := configManager.GetAuthConfig()
 
-	// 公开
+	// Public
 	registerPublicAPIRoutes(api, serverHandler)
 
-	// 认证
+	// Authenticated
 	protectedAPI := api.Group("")
 	protectedAPI.Use(middleware.Auth(authConfig, groupManager, channelFactory))
 	registerProtectedAPIRoutes(protectedAPI, serverHandler)
 }
 
-// registerPublicAPIRoutes 公开API路由
+// registerPublicAPIRoutes registers public API routes
 func registerPublicAPIRoutes(api *gin.RouterGroup, serverHandler *handler.Server) {
 	api.POST("/auth/login", serverHandler.Login)
 }
 
-// registerProtectedAPIRoutes 认证API路由
+// registerProtectedAPIRoutes registers authenticated API routes
 func registerProtectedAPIRoutes(api *gin.RouterGroup, serverHandler *handler.Server) {
 	api.GET("/channel-types", serverHandler.CommonHandler.GetChannelTypes)
 
@@ -133,17 +133,17 @@ func registerProtectedAPIRoutes(api *gin.RouterGroup, serverHandler *handler.Ser
 	// Tasks
 	api.GET("/tasks/status", serverHandler.GetTaskStatus)
 
-	// 仪表板和日志
+	// Dashboard and logs
 	dashboard := api.Group("/dashboard")
 	{
 		dashboard.GET("/stats", serverHandler.Stats)
 		dashboard.GET("/chart", serverHandler.Chart)
 	}
 
-	// 日志
+	// Logs
 	api.GET("/logs", handler.GetLogs)
 
-	// 设置
+	// Settings
 	settings := api.Group("/settings")
 	{
 		settings.GET("", serverHandler.GetSettings)
@@ -151,7 +151,7 @@ func registerProtectedAPIRoutes(api *gin.RouterGroup, serverHandler *handler.Ser
 	}
 }
 
-// registerProxyRoutes 注册代理路由
+// registerProxyRoutes registers proxy routes
 func registerProxyRoutes(
 	router *gin.Engine,
 	proxyServer *proxy.ProxyServer,
@@ -167,7 +167,7 @@ func registerProxyRoutes(
 	proxyGroup.Any("/:group_name/*path", proxyServer.HandleProxy)
 }
 
-// registerFrontendRoutes 注册前端路由
+// registerFrontendRoutes registers frontend routes
 func registerFrontendRoutes(router *gin.Engine, buildFS embed.FS, indexPage []byte) {
 	router.Use(gzip.Gzip(gzip.DefaultCompression))
 	router.NoMethod(func(c *gin.Context) {

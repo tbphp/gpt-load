@@ -233,7 +233,7 @@ func (s *RequestLogService) writeLogsToDB(logs []*models.RequestLog) error {
 			}
 		}
 
-		// 更新统计表
+		// Update statistics table
 		hourlyStats := make(map[struct {
 			Time    time.Time
 			GroupID uint

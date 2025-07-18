@@ -7,13 +7,13 @@ import (
 	"gorm.io/datatypes"
 )
 
-// Key状态
+// Key status
 const (
 	KeyStatusActive  = "active"
 	KeyStatusInvalid = "invalid"
 )
 
-// SystemSetting 对应 system_settings 表
+// SystemSetting corresponds to system_settings table
 type SystemSetting struct {
 	ID           uint      `gorm:"primaryKey;autoIncrement" json:"id"`
 	SettingKey   string    `gorm:"type:varchar(255);not null;unique" json:"setting_key"`
@@ -23,7 +23,7 @@ type SystemSetting struct {
 	UpdatedAt    time.Time `json:"updated_at"`
 }
 
-// GroupConfig 存储特定于分组的配置
+// GroupConfig stores configuration specific to a group
 type GroupConfig struct {
 	RequestTimeout               *int `json:"request_timeout,omitempty"`
 	IdleConnTimeout              *int `json:"idle_conn_timeout,omitempty"`
@@ -38,7 +38,7 @@ type GroupConfig struct {
 	KeyValidationTimeoutSeconds  *int `json:"key_validation_timeout_seconds,omitempty"`
 }
 
-// Group 对应 groups 表
+// Group corresponds to groups table
 type Group struct {
 	ID              uint                 `gorm:"primaryKey;autoIncrement" json:"id"`
 	EffectiveConfig types.SystemSettings `gorm:"-" json:"effective_config,omitempty"`
@@ -58,7 +58,7 @@ type Group struct {
 	UpdatedAt       time.Time            `json:"updated_at"`
 }
 
-// APIKey 对应 api_keys 表
+// APIKey corresponds to api_keys table
 type APIKey struct {
 	ID           uint       `gorm:"primaryKey;autoIncrement" json:"id"`
 	KeyValue     string     `gorm:"type:varchar(512);not null;uniqueIndex:idx_group_key" json:"key_value"`
@@ -71,7 +71,7 @@ type APIKey struct {
 	UpdatedAt    time.Time  `json:"updated_at"`
 }
 
-// RequestLog 对应 request_logs 表
+// RequestLog corresponds to request_logs table
 type RequestLog struct {
 	ID           string    `gorm:"type:varchar(36);primaryKey" json:"id"`
 	Timestamp    time.Time `gorm:"not null;index" json:"timestamp"`
@@ -90,7 +90,7 @@ type RequestLog struct {
 	IsStream     bool      `gorm:"not null" json:"is_stream"`
 }
 
-// StatCard 用于仪表盘的单个统计卡片数据
+// StatCard used for individual statistical card data on the dashboard
 type StatCard struct {
 	Value         float64 `json:"value"`
 	SubValue      int64   `json:"sub_value,omitempty"`
@@ -99,7 +99,7 @@ type StatCard struct {
 	TrendIsGrowth bool    `json:"trend_is_growth"`
 }
 
-// DashboardStatsResponse 用于仪表盘基础统计的API响应
+// DashboardStatsResponse used for API response of basic dashboard statistics
 type DashboardStatsResponse struct {
 	KeyCount     StatCard `json:"key_count"`
 	GroupCount   StatCard `json:"group_count"`
@@ -107,23 +107,23 @@ type DashboardStatsResponse struct {
 	ErrorRate    StatCard `json:"error_rate"`
 }
 
-// ChartDataset 用于图表的数据集
+// ChartDataset used for chart dataset
 type ChartDataset struct {
 	Label string  `json:"label"`
 	Data  []int64 `json:"data"`
 	Color string  `json:"color"`
 }
 
-// ChartData 用于图表的API响应
+// ChartData used for chart API response
 type ChartData struct {
 	Labels   []string       `json:"labels"`
 	Datasets []ChartDataset `json:"datasets"`
 }
 
-// GroupHourlyStat 对应 group_hourly_stats 表，用于存储每个分组每小时的请求统计
+// GroupHourlyStat corresponds to group_hourly_stats table, used to store hourly request statistics for each group
 type GroupHourlyStat struct {
 	ID           uint      `gorm:"primaryKey;autoIncrement" json:"id"`
-	Time         time.Time `gorm:"not null;uniqueIndex:idx_group_time" json:"time"` // 整点时间
+	Time         time.Time `gorm:"not null;uniqueIndex:idx_group_time" json:"time"` // Hour timestamp
 	GroupID      uint      `gorm:"not null;uniqueIndex:idx_group_time" json:"group_id"`
 	SuccessCount int64     `gorm:"not null;default:0" json:"success_count"`
 	FailureCount int64     `gorm:"not null;default:0" json:"failure_count"`

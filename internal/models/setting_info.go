@@ -1,6 +1,6 @@
 package models
 
-// SystemSettingInfo 表示系统配置的详细信息（用于API返回）
+// SystemSettingInfo represents detailed system configuration information (for API response)
 type SystemSettingInfo struct {
 	Key          string   `json:"key"`
 	Name         string   `json:"name"`
