@@ -17,7 +17,7 @@ export function useAuthService() {
       authKey.value = key;
       return true;
     } catch (_error) {
-      // 错误已记录
+      // Error already logged
       return false;
     }
   };

@@ -23,27 +23,27 @@ const versionInfo = ref<VersionInfo>({
 
 const isChecking = ref(false);
 
-// 版本状态配置
+// Version status configuration
 const statusConfig = {
   checking: {
     color: "#0066cc",
     icon: TimeOutline,
-    text: "检查中...",
+    text: "Checking...",
   },
   latest: {
     color: "#18a058",
     icon: CheckmarkCircleOutline,
-    text: "最新版本",
+    text: "Latest version",
   },
   "update-available": {
     color: "#f0a020",
     icon: WarningOutline,
-    text: "有更新",
+    text: "Update available",
   },
   error: {
     color: "#d03050",
     icon: WarningOutline,
-    text: "检查失败",
+    text: "Check failed",
   },
 };
 
@@ -84,7 +84,7 @@ onMounted(() => {
 <template>
   <footer class="app-footer">
     <div class="footer-container">
-      <!-- 主要信息区 -->
+      <!-- Main information area -->
       <div class="footer-main">
         <span class="project-info">
           <a href="https://github.com/tbphp/gpt-load" target="_blank" rel="noopener noreferrer">
@@ -94,7 +94,7 @@ onMounted(() => {
 
         <n-divider vertical />
 
-        <!-- 版本信息 -->
+        <!-- Version information -->
         <div
           class="version-container"
           :class="{
@@ -125,7 +125,7 @@ onMounted(() => {
 
         <n-divider vertical />
 
-        <!-- 链接区 -->
+        <!-- Links area -->
         <div class="links-container">
           <n-tooltip trigger="hover" placement="top">
             <template #trigger>
@@ -136,10 +136,10 @@ onMounted(() => {
                 class="footer-link"
               >
                 <n-icon :component="DocumentTextOutline" :size="14" class="link-icon" />
-                <span>文档</span>
+                <span>Docs</span>
               </a>
             </template>
-            官方文档
+            Official Documentation
           </n-tooltip>
 
           <n-tooltip trigger="hover" placement="top">
@@ -154,7 +154,7 @@ onMounted(() => {
                 <span>GitHub</span>
               </a>
             </template>
-            查看源码
+            View Source Code
           </n-tooltip>
 
           <n-tooltip trigger="hover" placement="top">
@@ -166,16 +166,16 @@ onMounted(() => {
                 class="footer-link"
               >
                 <n-icon :component="BugOutline" :size="14" class="link-icon" />
-                <span>反馈</span>
+                <span>Feedback</span>
               </a>
             </template>
-            问题反馈
+            Issue Feedback
           </n-tooltip>
         </div>
 
         <n-divider vertical />
 
-        <!-- 版权信息 -->
+        <!-- Copyright information -->
         <div class="copyright-container">
           <span class="copyright-text">
             © 2025 by
@@ -234,7 +234,7 @@ onMounted(() => {
   text-decoration: underline;
 }
 
-/* 版本信息区域 */
+/* Version information area */
 .version-container {
   display: flex;
   align-items: center;
@@ -268,7 +268,7 @@ onMounted(() => {
   opacity: 0.7;
 }
 
-/* 链接区域 */
+/* Links area */
 .links-container {
   display: flex;
   align-items: center;
@@ -298,7 +298,7 @@ onMounted(() => {
   align-items: center;
 }
 
-/* 版权信息区域 */
+/* Copyright information area */
 .copyright-container {
   display: flex;
   align-items: center;
@@ -325,7 +325,7 @@ onMounted(() => {
   text-decoration: underline !important;
 }
 
-/* 响应式设计 */
+/* Responsive design */
 @media (max-width: 768px) {
   .app-footer {
     padding: 10px 16px;

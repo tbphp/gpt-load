@@ -4,21 +4,21 @@ import { defineConfig, loadEnv } from "vite";
 
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
-  // 加载环境变量
+  // Load environment variables
   const env = loadEnv(mode, path.resolve(__dirname, "../"), "");
 
   return {
     plugins: [vue()],
-    // 解析配置
+    // Resolution configuration
     resolve: {
-      // 配置路径别名
+      // Configure path aliases
       alias: {
         "@": path.resolve(__dirname, "./src"),
       },
     },
-    // 开发服务器配置
+    // Development server configuration
     server: {
-      // 代理配置示例
+      // Proxy configuration example
       proxy: {
         "/api": {
           target: env.VITE_API_BASE_URL || "http://127.0.0.1:3001",
@@ -26,7 +26,7 @@ export default defineConfig(({ mode }) => {
         },
       },
     },
-    // 构建配置
+    // Build configuration
     build: {
       outDir: "dist",
       assetsDir: "assets",

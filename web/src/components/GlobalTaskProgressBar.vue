@@ -8,7 +8,7 @@ import { onBeforeUnmount, onMounted, ref, watch } from "vue";
 const taskInfo = ref<TaskInfo>({ is_running: false });
 const visible = ref(false);
 let pollTimer: number | null = null;
-let isPolling = false; // 添加标志位
+let isPolling = false; // Add flag
 const message = useMessage();
 
 onMounted(() => {
@@ -47,7 +47,7 @@ async function pollOnce() {
         const lastTask = localStorage.getItem("last_closed_task");
         if (lastTask !== task.finished_at) {
           const { total_keys, valid_keys, invalid_keys } = task.result;
-          const msg = `任务已完成，处理了 ${total_keys} 个密钥，其中 ${valid_keys} 个有效密钥，${invalid_keys} 个无效密钥。`;
+          const msg = `Task completed, processed ${total_keys} keys, including ${valid_keys} valid keys and ${invalid_keys} invalid keys.`;
           message.info(msg, {
             closable: true,
             duration: 0,
@@ -60,10 +60,10 @@ async function pollOnce() {
       return;
     }
   } catch (_error) {
-    // 错误已记录
+    // Error already logged
   }
 
-  // 如果仍在轮询状态，1秒后发起下一次请求
+  // If still polling, make next request after 1 second
   if (isPolling) {
     pollTimer = setTimeout(pollOnce, 1000);
   }
@@ -102,14 +102,14 @@ function handleClose() {
           <span class="progress-icon">⚡</span>
           <div class="progress-details">
             <n-text strong class="progress-title">
-              正在处理分组 {{ taskInfo.group_name }} 的任务
+              Processing task for group {{ taskInfo.group_name }}
             </n-text>
             <n-text depth="3" class="progress-subtitle">
               {{ getProgressText() }} ({{ getProgressPercentage() }}%)
             </n-text>
           </div>
         </div>
-        <n-button quaternary circle size="small" @click="handleClose" title="隐藏进度条">
+        <n-button quaternary circle size="small" @click="handleClose" title="Hide progress bar">
           <template #icon>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
               <path

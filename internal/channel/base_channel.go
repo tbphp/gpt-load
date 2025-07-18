@@ -62,7 +62,7 @@ func (b *BaseChannel) getUpstreamURL() *url.URL {
 	}
 
 	if best == nil {
-		return b.Upstreams[0].URL // 降级到第一个可用的
+		return b.Upstreams[0].URL // Fallback to the first available one
 	}
 
 	best.CurrentWeight -= totalWeight

@@ -26,8 +26,8 @@ export default [
       sourceType: "module",
     },
     rules: {
-      // Vue 规则
-      "vue/multi-word-component-names": "off", // 允许单词组件名，适应现有代码
+      // Vue rules
+      "vue/multi-word-component-names": "off", // Allow single word component names to accommodate existing code
       "vue/no-unused-vars": "error",
       "vue/no-unused-components": "warn",
       "vue/component-definition-name-casing": ["error", "PascalCase"],
@@ -62,13 +62,13 @@ export default [
       ],
       "vue/component-tags-order": ["error", { order: ["script", "template", "style"] }],
 
-      // Vue 3 Composition API 规则
+      // Vue 3 Composition API rules
       "vue/no-setup-props-destructure": "error",
       "vue/prefer-import-from-vue": "error",
       "vue/no-deprecated-slot-attribute": "error",
       "vue/no-deprecated-slot-scope-attribute": "error",
 
-      // TypeScript 规则
+      // TypeScript rules
       "@typescript-eslint/no-unused-vars": [
         "error",
         {
@@ -83,18 +83,18 @@ export default [
       "@typescript-eslint/no-non-null-assertion": "warn",
       "@typescript-eslint/no-unused-expressions": "error",
 
-      // 通用 JavaScript/TypeScript 规则
+      // Common JavaScript/TypeScript rules
       "no-console": ["warn", { allow: ["warn", "error"] }],
       "no-debugger": "warn",
       "prefer-const": "error",
       "no-var": "error",
-      "no-unused-vars": "off", // 使用 TypeScript 版本
+      "no-unused-vars": "off", // Use TypeScript version
       eqeqeq: ["error", "always"],
       curly: ["error", "all"],
       "no-throw-literal": "error",
       "prefer-promise-reject-errors": "error",
 
-      // 开源项目最佳实践
+      // Open source project best practices
       "no-eval": "error",
       "no-implied-eval": "error",
       "no-new-func": "error",

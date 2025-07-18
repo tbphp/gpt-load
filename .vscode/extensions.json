@@ -1,44 +1,44 @@
 {
   "recommendations": [
-    // Vue 开发必备
+    // Essential for Vue development
     "vue.volar",
     "vue.vscode-typescript-vue-plugin",
 
-    // 代码格式化和质量
+    // Code formatting and quality
     "esbenp.prettier-vscode",
     "dbaeumer.vscode-eslint",
 
-    // TypeScript 支持
+    // TypeScript support
     "ms-vscode.vscode-typescript-next",
 
-    // Git 增强
+    // Git enhancements
     "eamodio.gitlens",
     "mhutchie.git-graph",
 
-    // 开发体验增强
+    // Development experience improvements
     "christian-kohler.path-intellisense",
     "visualstudioexptteam.vscodeintellicode",
     "ms-vscode.vscode-json",
 
-    // 文件图标
+    // File icons
     "vscode-icons-team.vscode-icons",
 
-    // 自动重命名标签
+    // Auto rename tags
     "formulahendry.auto-rename-tag",
 
-    // TODO 高亮
+    // TODO highlighting
     "wayou.vscode-todo-highlight",
 
-    // 注释增强
+    // Comment enhancements
     "aaron-bond.better-comments",
 
-    // 代码片段
+    // Code snippets
     "hollowtree.vue-snippets",
 
-    // 错误镜头
+    // Error lens
     "usernamehw.errorlens",
 
-    // 导入成本
+    // Import cost
     "wix.vscode-import-cost"
   ],
   "unwantedRecommendations": [

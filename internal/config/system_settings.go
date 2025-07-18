@@ -22,7 +22,7 @@ import (
 
 const SettingsUpdateChannel = "system_settings:updated"
 
-// SystemSettingsManager 管理系统配置
+// SystemSettingsManager manages system configuration
 type SystemSettingsManager struct {
 	syncer *syncer.CacheSyncer[types.SystemSettings]
 }
@@ -107,7 +107,7 @@ func (sm *SystemSettingsManager) Stop(ctx context.Context) {
 	}
 }
 
-// EnsureSettingsInitialized 确保数据库中存在所有系统设置的记录。
+// EnsureSettingsInitialized ensures all system settings records exist in the database.
 func (sm *SystemSettingsManager) EnsureSettingsInitialized() error {
 	defaultSettings := utils.DefaultSystemSettings()
 	metadata := utils.GenerateSettingsMetadata(&defaultSettings)
@@ -144,7 +144,7 @@ func (sm *SystemSettingsManager) EnsureSettingsInitialized() error {
 	return nil
 }
 
-// GetSettings 获取当前系统配置
+// GetSettings retrieves the current system configuration
 func (sm *SystemSettingsManager) GetSettings() types.SystemSettings {
 	if sm.syncer == nil {
 		logrus.Warn("SystemSettingsManager is not initialized, returning default settings.")
@@ -171,14 +171,14 @@ func (sm *SystemSettingsManager) GetAppUrl() string {
 	return fmt.Sprintf("http://%s:%s", host, port)
 }
 
-// UpdateSettings 更新系统配置
+// UpdateSettings updates the system configuration
 func (sm *SystemSettingsManager) UpdateSettings(settingsMap map[string]any) error {
-	// 验证配置项
+	// Validate configuration items
 	if err := sm.ValidateSettings(settingsMap); err != nil {
 		return err
 	}
 
-	// 更新数据库
+	// Update database
 	var settingsToUpdate []models.SystemSetting
 	for key, value := range settingsMap {
 		settingsToUpdate = append(settingsToUpdate, models.SystemSetting{
@@ -196,11 +196,11 @@ func (sm *SystemSettingsManager) UpdateSettings(settingsMap map[string]any) erro
 		}
 	}
 
-	// 触发所有实例重新加载
+	// Trigger all instances to reload
 	return sm.syncer.Invalidate()
 }
 
-// GetEffectiveConfig 获取有效配置 (系统配置 + 分组覆盖)
+// GetEffectiveConfig retrieves effective configuration (system config + group overrides)
 func (sm *SystemSettingsManager) GetEffectiveConfig(groupConfigJSON datatypes.JSONMap) types.SystemSettings {
 	effectiveConfig := sm.GetSettings()
 
@@ -238,7 +238,7 @@ func (sm *SystemSettingsManager) GetEffectiveConfig(groupConfigJSON datatypes.JS
 	return effectiveConfig
 }
 
-// ValidateSettings 验证系统配置的有效性
+// ValidateSettings validates the system configuration
 func (sm *SystemSettingsManager) ValidateSettings(settingsMap map[string]any) error {
 	tempSettings := utils.DefaultSystemSettings()
 	v := reflect.ValueOf(&tempSettings).Elem()

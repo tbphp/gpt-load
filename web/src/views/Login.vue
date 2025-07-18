@@ -14,7 +14,7 @@ const { login } = useAuthService();
 
 const handleLogin = async () => {
   if (!authKey.value) {
-    message.error("请输入授权密钥");
+    message.error("Please enter authorization key");
     return;
   }
   loading.value = true;
@@ -36,14 +36,14 @@ const handleLogin = async () => {
     <div class="login-content">
       <div class="login-header">
         <h1 class="login-title">GPT Load</h1>
-        <p class="login-subtitle">智能负载均衡管理平台</p>
+        <p class="login-subtitle">Intelligent Load Balancing Management Platform</p>
       </div>
 
       <n-card class="login-card modern-card" :bordered="false">
         <template #header>
           <div class="card-header">
-            <h2 class="card-title">欢迎回来</h2>
-            <p class="card-subtitle">请输入您的授权密钥以继续</p>
+            <h2 class="card-title">Welcome Back</h2>
+            <p class="card-subtitle">Please enter your authorization key to continue</p>
           </div>
         </template>
 
@@ -52,7 +52,7 @@ const handleLogin = async () => {
             v-model:value="authKey"
             type="password"
             size="large"
-            placeholder="请输入授权密钥"
+            placeholder="Enter authorization key"
             class="modern-input"
             @keyup.enter="handleLogin"
           >
@@ -71,7 +71,7 @@ const handleLogin = async () => {
             :disabled="loading"
           >
             <template v-if="!loading">
-              <span>立即登录</span>
+              <span>Login</span>
             </template>
           </n-button>
         </n-space>

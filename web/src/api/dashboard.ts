@@ -2,15 +2,15 @@ import type { ChartData, DashboardStatsResponse, Group } from "@/types/models";
 import http from "@/utils/http";
 
 /**
- * 获取仪表盘基础统计数据
+ * Get dashboard basic statistics data
  */
 export const getDashboardStats = () => {
   return http.get<DashboardStatsResponse>("/dashboard/stats");
 };
 
 /**
- * 获取仪表盘图表数据
- * @param groupId 可选的分组ID
+ * Get dashboard chart data
+ * @param groupId Optional group ID
  */
 export const getDashboardChart = (groupId?: number) => {
   return http.get<ChartData>("/dashboard/chart", {
@@ -19,7 +19,7 @@ export const getDashboardChart = (groupId?: number) => {
 };
 
 /**
- * 获取用于筛选的分组列表
+ * Get group list for filtering
  */
 export const getGroupList = () => {
   return http.get<Group[]>("/groups/list");

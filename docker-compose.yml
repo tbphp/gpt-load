@@ -30,8 +30,8 @@ services:
     #     condition: service_healthy
     #     restart: true
 
-  # 如果需要安装 MySQL、PostgreSQL 或 Redis，请取消以下注释并配置相应的环境变量。
-  # 并且要在上方的depends_on中取消注释相应的依赖服务。
+  # If you need to install MySQL, PostgreSQL, or Redis, please uncomment the following sections and configure the corresponding environment variables.
+  # Also uncomment the corresponding dependency services in the depends_on section above.
 
   # mysql:
   #   image: mysql:8.2

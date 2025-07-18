@@ -17,7 +17,7 @@ const handleLogout = () => {
     <template #icon>
       <n-icon :component="LogOutOutline" />
     </template>
-    退出登录
+    Logout
   </n-button>
 </template>
 

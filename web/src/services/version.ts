@@ -28,7 +28,7 @@ class VersionService {
   }
 
   /**
-   * 获取缓存的版本信息
+   * Get cached version information
    */
   private getCachedVersionInfo(): VersionInfo | null {
     try {
@@ -40,12 +40,12 @@ class VersionService {
       const versionInfo: VersionInfo = JSON.parse(cached);
       const now = Date.now();
 
-      // 检查缓存是否过期
+      // Check if cache is expired
       if (now - versionInfo.lastCheckTime > CACHE_DURATION) {
         return null;
       }
 
-      // 检查缓存中的版本号是否与当前应用版本号一致
+      // Check if the version in cache matches the current application version
       if (versionInfo.currentVersion !== this.currentVersion) {
         this.clearCache();
         return null;
@@ -60,7 +60,7 @@ class VersionService {
   }
 
   /**
-   * 缓存版本信息
+   * Cache version information
    */
   private setCachedVersionInfo(versionInfo: VersionInfo): void {
     try {
@@ -71,7 +71,7 @@ class VersionService {
   }
 
   /**
-   * 比较版本号 (简单的语义化版本比较)
+   * Compare versions (simple semantic versioning comparison)
    */
   private compareVersions(current: string, latest: string): number {
     const currentParts = current.replace(/^v/, "").split(".").map(Number);
@@ -93,7 +93,7 @@ class VersionService {
   }
 
   /**
-   * 从 GitHub API 获取最新版本
+   * Get the latest version from GitHub API
    */
   private async fetchLatestVersion(): Promise<GitHubRelease | null> {
     try {
@@ -119,16 +119,16 @@ class VersionService {
   }
 
   /**
-   * 检查版本更新
+   * Check for version updates
    */
   async checkForUpdates(): Promise<VersionInfo> {
-    // 先检查缓存
+    // Check cache first
     const cached = this.getCachedVersionInfo();
     if (cached) {
       return cached;
     }
 
-    // 创建初始状态
+    // Create initial state
     const versionInfo: VersionInfo = {
       currentVersion: this.currentVersion,
       latestVersion: null,
@@ -151,7 +151,7 @@ class VersionService {
         versionInfo.hasUpdate = comparison < 0;
         versionInfo.status = comparison < 0 ? "update-available" : "latest";
 
-        // 只在成功时缓存结果
+        // Only cache results on success
         this.setCachedVersionInfo(versionInfo);
       } else {
         versionInfo.status = "error";
@@ -165,14 +165,14 @@ class VersionService {
   }
 
   /**
-   * 获取当前版本号
+   * Get current version number
    */
   getCurrentVersion(): string {
     return this.currentVersion;
   }
 
   /**
-   * 清除缓存
+   * Clear cache
    */
   clearCache(): void {
     localStorage.removeItem(CACHE_KEY);

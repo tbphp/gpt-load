@@ -136,7 +136,7 @@ func (s *KeyService) ParseKeysFromText(text string) []string {
 		return s.filterValidKeys(keys)
 	}
 
-	// 通用解析：通过分隔符分割文本，不使用复杂的正则表达式
+	// General parsing: split text by delimiters, avoid using complex regular expressions
 	delimiters := regexp.MustCompile(`[\s,;|\n\r\t]+`)
 	splitKeys := delimiters.Split(strings.TrimSpace(text), -1)
 

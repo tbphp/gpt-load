@@ -31,24 +31,24 @@ func (s *Server) Stats(c *gin.Context) {
 		return
 	}
 
-	// 计算请求量趋势
+	// Calculate request volume trend
 	reqTrend := 0.0
 	reqTrendIsGrowth := true
 	if previousPeriod.TotalRequests > 0 {
-		// 有前期数据，计算百分比变化
+		// Have previous period data, calculate percentage change
 		reqTrend = (float64(currentPeriod.TotalRequests-previousPeriod.TotalRequests) / float64(previousPeriod.TotalRequests)) * 100
 		reqTrendIsGrowth = reqTrend >= 0
 	} else if currentPeriod.TotalRequests > 0 {
-		// 前期无数据，当前有数据，视为100%增长
+		// No previous period data, but current data exists, treat as 100% growth
 		reqTrend = 100.0
 		reqTrendIsGrowth = true
 	} else {
-		// 前期和当前都无数据
+		// No data for both previous and current periods
 		reqTrend = 0.0
 		reqTrendIsGrowth = true
 	}
 
-	// 计算当前和前期错误率
+	// Calculate current and previous period error rates
 	currentErrorRate := 0.0
 	if currentPeriod.TotalRequests > 0 {
 		currentErrorRate = (float64(currentPeriod.TotalFailures) / float64(currentPeriod.TotalRequests)) * 100
@@ -59,22 +59,22 @@ func (s *Server) Stats(c *gin.Context) {
 		previousErrorRate = (float64(previousPeriod.TotalFailures) / float64(previousPeriod.TotalRequests)) * 100
 	}
 
-	// 计算错误率趋势
+	// Calculate error rate trend
 	errorRateTrend := 0.0
 	errorRateTrendIsGrowth := false
 	if previousPeriod.TotalRequests > 0 {
-		// 有前期数据，计算百分点差异
+		// Have previous period data, calculate percentage point difference
 		errorRateTrend = currentErrorRate - previousErrorRate
-		errorRateTrendIsGrowth = errorRateTrend < 0 // 错误率下降是好事
+		errorRateTrendIsGrowth = errorRateTrend < 0 // Decreasing error rate is good
 	} else if currentPeriod.TotalRequests > 0 {
-		// 前期无数据，当前有数据
-		errorRateTrend = currentErrorRate // 显示当前错误率
-		errorRateTrendIsGrowth = false    // 有错误是坏事（如果错误率>0）
+		// No previous data, but current data exists
+		errorRateTrend = currentErrorRate // Show current error rate
+		errorRateTrendIsGrowth = false    // Having errors is bad (if error rate > 0)
 		if currentErrorRate == 0 {
-			errorRateTrendIsGrowth = true // 如果当前无错误，标记为正面
+			errorRateTrendIsGrowth = true // If no current errors, mark as positive
 		}
 	} else {
-		// 都无数据
+		// No data in either period
 		errorRateTrend = 0.0
 		errorRateTrendIsGrowth = true
 	}
@@ -83,7 +83,7 @@ func (s *Server) Stats(c *gin.Context) {
 		KeyCount: models.StatCard{
 			Value:       float64(activeKeys),
 			SubValue:    invalidKeys,
-			SubValueTip: "无效秘钥数量",
+			SubValueTip: "Number of invalid keys",
 		},
 		GroupCount: models.StatCard{
 			Value: float64(groupCount),
@@ -149,12 +149,12 @@ func (s *Server) Chart(c *gin.Context) {
 		Labels: labels,
 		Datasets: []models.ChartDataset{
 			{
-				Label: "成功请求",
+				Label: "Successful requests",
 				Data:  successData,
 				Color: "rgba(10, 200, 110, 1)",
 			},
 			{
-				Label: "失败请求",
+				Label: "Failed requests",
 				Data:  failureData,
 				Color: "rgba(255, 70, 70, 1)",
 			},

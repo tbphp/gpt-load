@@ -7,9 +7,9 @@ import (
 	"gorm.io/gorm"
 )
 
-// TODO: 更新迁移，待多个版本后旧版本都升级差不多之后移除。
+// TODO: Update migration, remove after multiple versions when all old versions have been upgraded.
 func V1_0_13_FixRequestLogs(db *gorm.DB) error {
-	// 如果有key_id，就执行修复
+	// If key_id exists, execute the fix
 	if !db.Migrator().HasColumn(&models.RequestLog{}, "key_id") {
 		return nil
 	}
