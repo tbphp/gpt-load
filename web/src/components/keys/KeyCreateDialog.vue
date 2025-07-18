@@ -22,7 +22,7 @@ const emit = defineEmits<Emits>();
 const loading = ref(false);
 const keysText = ref("");
 
-// 监听弹窗显示状态
+// Monitor dialog display status
 watch(
   () => props.show,
   show => {
@@ -32,17 +32,17 @@ watch(
   }
 );
 
-// 重置表单
+// Reset form
 function resetForm() {
   keysText.value = "";
 }
 
-// 关闭弹窗
+// Close dialog
 function handleClose() {
   emit("update:show", false);
 }
 
-// 提交表单
+// Submit form
 async function handleSubmit() {
   if (loading.value || !keysText.value.trim()) {
     return;
@@ -65,7 +65,7 @@ async function handleSubmit() {
   <n-modal :show="show" @update:show="handleClose" class="form-modal">
     <n-card
       style="width: 800px"
-      :title="`为 ${groupName || '当前分组'} 添加密钥`"
+      :title="`Add keys to ${groupName || 'current group'}`"
       :bordered="false"
       size="huge"
       role="dialog"
@@ -82,16 +82,16 @@ async function handleSubmit() {
       <n-input
         v-model:value="keysText"
         type="textarea"
-        placeholder="输入密钥，每行一个"
+        placeholder="Enter keys, one per line"
         :rows="8"
         style="margin-top: 20px"
       />
 
       <template #footer>
         <div style="display: flex; justify-content: flex-end; gap: 12px">
-          <n-button @click="handleClose">取消</n-button>
+          <n-button @click="handleClose">Cancel</n-button>
           <n-button type="primary" @click="handleSubmit" :loading="loading" :disabled="!keysText">
-            创建
+            Create
           </n-button>
         </div>
       </template>

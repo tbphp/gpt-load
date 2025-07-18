@@ -50,23 +50,23 @@ const total = ref(0);
 const totalPages = ref(0);
 const dialog = useDialog();
 
-// 状态过滤选项
+// Status filter options
 const statusOptions = [
-  { label: "全部", value: "all" },
-  { label: "有效", value: "active" },
-  { label: "无效", value: "invalid" },
+  { label: "All", value: "all" },
+  { label: "Valid", value: "active" },
+  { label: "Invalid", value: "invalid" },
 ];
 
-// 更多操作下拉菜单选项
+// More actions dropdown menu options
 const moreOptions = [
-  // { label: "导出所有密钥", key: "copyAll" },
-  // { label: "导出有效密钥", key: "copyValid" },
-  // { label: "导出无效密钥", key: "copyInvalid" },
+  // { label: "Export all keys", key: "copyAll" },
+  // { label: "Export valid keys", key: "copyValid" },
+  // { label: "Export invalid keys", key: "copyInvalid" },
   { type: "divider" },
-  { label: "恢复所有无效密钥", key: "restoreAll" },
-  { label: "清空所有无效密钥", key: "clearInvalid", props: { style: { color: "#d03050" } } },
+  { label: "Restore all invalid keys", key: "restoreAll" },
+  { label: "Clear all invalid keys", key: "clearInvalid", props: { style: { color: "#d03050" } } },
   { type: "divider" },
-  { label: "验证所有密钥", key: "validateAll" },
+  { label: "Validate all keys", key: "validateAll" },
 ];
 
 let testingMsg: MessageReactive | null = null;
@@ -80,10 +80,10 @@ watch(
   () => props.selectedGroup,
   async newGroup => {
     if (newGroup) {
-      // 检查重置页面是否会触发分页观察者。
+      // Check if resetting the page will trigger the pagination observer
       const willWatcherTrigger = currentPage.value !== 1 || statusFilter.value !== "all";
       resetPage();
-      // 如果分页观察者不触发，则手动加载。
+      // If pagination observer won't trigger, load manually
       if (!willWatcherTrigger) {
         await loadKeys();
       }
@@ -96,13 +96,13 @@ watch([currentPage, pageSize, statusFilter], async () => {
   await loadKeys();
 });
 
-// 处理搜索输入的防抖
+// Handle search input with debounce
 function handleSearchInput() {
-  currentPage.value = 1; // 搜索时重置到第一页
+  currentPage.value = 1; // Reset to first page when searching
   loadKeys();
 }
 
-// 处理更多操作菜单
+// Handle more actions menu
 function handleMoreAction(key: string) {
   switch (key) {
     case "copyAll":
@@ -144,7 +144,7 @@ async function loadKeys() {
     total.value = result.pagination.total_items;
     totalPages.value = result.pagination.total_pages;
   } catch (_error) {
-    window.$message.error("加载密钥失败");
+    window.$message.error("Failed to load keys");
   } finally {
     loading.value = false;
   }
@@ -153,9 +153,9 @@ async function loadKeys() {
 async function copyKey(key: KeyRow) {
   const success = await copy(key.key_value);
   if (success) {
-    window.$message.success("密钥已复制到剪贴板");
+    window.$message.success("Key copied to clipboard");
   } else {
-    window.$message.error("复制失败");
+    window.$message.error("Copy failed");
   }
 }
 
@@ -164,7 +164,7 @@ async function testKey(_key: KeyRow) {
     return;
   }
 
-  testingMsg = window.$message.info("正在测试密钥...", {
+  testingMsg = window.$message.info("Testing key...", {
     duration: 0,
   });
 
@@ -172,16 +172,16 @@ async function testKey(_key: KeyRow) {
     const res = await keysApi.testKeys(props.selectedGroup.id, _key.key_value);
     const curValid = res?.[0] || {};
     if (curValid.is_valid) {
-      window.$message.success("密钥测试成功");
+      window.$message.success("Key test successful");
     } else {
-      window.$message.error(curValid.error || "密钥测试失败: 无效的API密钥", {
+      window.$message.error(curValid.error || "Key test failed: Invalid API key", {
         keepAliveOnHover: true,
         duration: 5000,
         closable: true,
       });
     }
   } catch (_error) {
-    console.error("测试失败");
+    console.error("Test failed");
   } finally {
     testingMsg?.destroy();
     testingMsg = null;
@@ -198,10 +198,10 @@ async function restoreKey(key: KeyRow) {
   }
 
   const d = dialog.warning({
-    title: "恢复密钥",
-    content: `确定要恢复密钥"${maskKey(key.key_value)}"吗？`,
-    positiveText: "确定",
-    negativeText: "取消",
+    title: "Restore Key",
+    content: `Are you sure you want to restore the key "${maskKey(key.key_value)}"?`,
+    positiveText: "Confirm",
+    negativeText: "Cancel",
     onPositiveClick: async () => {
       if (!props.selectedGroup?.id) {
         return;
@@ -214,7 +214,7 @@ async function restoreKey(key: KeyRow) {
         await keysApi.restoreKeys(props.selectedGroup.id, key.key_value);
         await loadKeys();
       } catch (_error) {
-        console.error("恢复失败");
+        console.error("Restoration failed");
       } finally {
         d.loading = false;
         isRestoring.value = false;
@@ -229,10 +229,10 @@ async function deleteKey(key: KeyRow) {
   }
 
   const d = dialog.warning({
-    title: "删除密钥",
-    content: `确定要删除密钥"${maskKey(key.key_value)}"吗？`,
-    positiveText: "确定",
-    negativeText: "取消",
+    title: "Delete Key",
+    content: `Are you sure you want to delete the key "${maskKey(key.key_value)}"?`,
+    positiveText: "Confirm",
+    negativeText: "Cancel",
     onPositiveClick: async () => {
       if (!props.selectedGroup?.id) {
         return;
@@ -245,7 +245,7 @@ async function deleteKey(key: KeyRow) {
         await keysApi.deleteKeys(props.selectedGroup.id, key.key_value);
         await loadKeys();
       } catch (_error) {
-        console.error("删除失败");
+        console.error("Deletion failed");
       } finally {
         d.loading = false;
         isDeling.value = false;
@@ -256,7 +256,7 @@ async function deleteKey(key: KeyRow) {
 
 function formatRelativeTime(date: string) {
   if (!date) {
-    return "从未";
+    return "Never";
   }
   const now = new Date();
   const target = new Date(date);
@@ -266,18 +266,18 @@ function formatRelativeTime(date: string) {
   const diffDays = Math.floor(diffHours / 24);
 
   if (diffDays > 0) {
-    return `${diffDays}天前`;
+    return `${diffDays} days ago`;
   }
   if (diffHours > 0) {
-    return `${diffHours}小时前`;
+    return `${diffHours} hours ago`;
   }
   if (diffMinutes > 0) {
-    return `${diffMinutes}分钟前`;
+    return `${diffMinutes} minutes ago`;
   }
   if (diffSeconds > 0) {
-    return `${diffSeconds}秒前`;
+    return `${diffSeconds} seconds ago`;
   }
-  return "刚刚";
+  return "Just now";
 }
 
 function getStatusClass(status: KeyStatus): string {
@@ -321,10 +321,10 @@ async function restoreAllInvalid() {
   }
 
   const d = dialog.warning({
-    title: "恢复密钥",
-    content: "确定要恢复所有无效密钥吗？",
-    positiveText: "确定",
-    negativeText: "取消",
+    title: "Restore Keys",
+    content: "Are you sure you want to restore all invalid keys?",
+    positiveText: "Confirm",
+    negativeText: "Cancel",
     onPositiveClick: async () => {
       if (!props.selectedGroup?.id) {
         return;
@@ -336,7 +336,7 @@ async function restoreAllInvalid() {
         await keysApi.restoreAllInvalidKeys(props.selectedGroup.id);
         await loadKeys();
       } catch (_error) {
-        console.error("恢复失败");
+        console.error("Restoration failed");
       } finally {
         d.loading = false;
         isRestoring.value = false;
@@ -350,7 +350,7 @@ async function validateAllKeys() {
     return;
   }
 
-  testingMsg = window.$message.info("正在验证密钥...", {
+  testingMsg = window.$message.info("Validating keys...", {
     duration: 0,
   });
 
@@ -359,7 +359,7 @@ async function validateAllKeys() {
     localStorage.removeItem("last_closed_task");
     appState.taskPollingTrigger++;
   } catch (_error) {
-    console.error("测试失败");
+    console.error("Test failed");
   } finally {
     testingMsg?.destroy();
     testingMsg = null;
@@ -372,10 +372,10 @@ async function clearAllInvalid() {
   }
 
   const d = dialog.warning({
-    title: "清除密钥",
-    content: "确定要清除所有无效密钥吗？此操作不可恢复！",
-    positiveText: "确定",
-    negativeText: "取消",
+    title: "Clear Keys",
+    content: "Are you sure you want to clear all invalid keys? This action cannot be undone!",
+    positiveText: "Confirm",
+    negativeText: "Cancel",
     onPositiveClick: async () => {
       if (!props.selectedGroup?.id) {
         return;
@@ -385,10 +385,10 @@ async function clearAllInvalid() {
       d.loading = true;
       try {
         const { data } = await keysApi.clearAllInvalidKeys(props.selectedGroup.id);
-        window.$message.success(data?.message || "清除成功");
+        window.$message.success(data?.message || "Clear successful");
         await loadKeys();
       } catch (_error) {
-        console.error("删除失败");
+        console.error("Deletion failed");
       } finally {
         d.loading = false;
         isDeling.value = false;
@@ -415,20 +415,20 @@ function resetPage() {
 
 <template>
   <div class="key-table-container">
-    <!-- 工具栏 -->
+    <!-- Toolbar -->
     <div class="toolbar">
       <div class="toolbar-left">
         <n-button type="success" size="small" @click="createDialogShow = true">
           <template #icon>
             <n-icon :component="AddCircleOutline" />
           </template>
-          添加密钥
+          Add Key
         </n-button>
         <n-button type="error" size="small" @click="deleteDialogShow = true">
           <template #icon>
             <n-icon :component="RemoveCircleOutline" />
           </template>
-          删除密钥
+          Delete Key
         </n-button>
       </div>
       <div class="toolbar-right">
@@ -442,7 +442,7 @@ function resetPage() {
           <n-input-group>
             <n-input
               v-model:value="searchText"
-              placeholder="Key 模糊查询"
+              placeholder="Fuzzy key search"
               size="small"
               style="width: 180px"
               clearable
@@ -463,11 +463,11 @@ function resetPage() {
       </div>
     </div>
 
-    <!-- 密钥卡片网格 -->
+    <!-- Key card grid -->
     <div class="keys-grid-container">
       <n-spin :show="loading">
         <div v-if="keys.length === 0 && !loading" class="empty-container">
-          <n-empty description="没有找到匹配的密钥" />
+          <n-empty description="No matching keys found" />
         </div>
         <div v-else class="keys-grid">
           <div
@@ -476,20 +476,20 @@ function resetPage() {
             class="key-card"
             :class="getStatusClass(key.status)"
           >
-            <!-- 主要信息行：Key + 快速操作 -->
+            <!-- Main info row: Key + quick actions -->
             <div class="key-main">
               <div class="key-section">
                 <n-tag v-if="key.status === 'active'" type="success" :bordered="false" round>
                   <template #icon>
                     <n-icon :component="CheckmarkCircle" />
                   </template>
-                  有效
+                  Valid
                 </n-tag>
                 <n-tag v-else :bordered="false" round>
                   <template #icon>
                     <n-icon :component="AlertCircleOutline" />
                   </template>
-                  无效
+                  Invalid
                 </n-tag>
                 <n-input
                   class="key-text"
@@ -498,12 +498,12 @@ function resetPage() {
                   size="small"
                 />
                 <div class="quick-actions">
-                  <n-button size="tiny" text @click="toggleKeyVisibility(key)" title="显示/隐藏">
+                  <n-button size="tiny" text @click="toggleKeyVisibility(key)" title="Show/Hide">
                     <template #icon>
                       <n-icon :component="key.is_visible ? EyeOffOutline : EyeOutline" />
                     </template>
                   </n-button>
-                  <n-button size="tiny" text @click="copyKey(key)" title="复制">
+                  <n-button size="tiny" text @click="copyKey(key)" title="Copy">
                     <template #icon>
                       <n-icon :component="CopyOutline" />
                     </template>
@@ -512,19 +512,19 @@ function resetPage() {
               </div>
             </div>
 
-            <!-- 统计信息 + 操作按钮行 -->
+            <!-- Stats + action buttons row -->
             <div class="key-bottom">
               <div class="key-stats">
                 <span class="stat-item">
-                  请求
+                  Requests
                   <strong>{{ key.request_count }}</strong>
                 </span>
                 <span class="stat-item">
-                  失败
+                  Failures
                   <strong>{{ key.failure_count }}</strong>
                 </span>
                 <span class="stat-item">
-                  {{ key.last_used_at ? formatRelativeTime(key.last_used_at) : "未使用" }}
+                  {{ key.last_used_at ? formatRelativeTime(key.last_used_at) : "Unused" }}
                 </span>
               </div>
               <n-button-group class="key-actions">
@@ -534,19 +534,19 @@ function resetPage() {
                   type="info"
                   size="tiny"
                   @click="testKey(key)"
-                  title="测试密钥"
+                  title="Test key"
                 >
-                  测试
+                  Test
                 </n-button>
                 <n-button
                   v-if="key.status !== 'active'"
                   tertiary
                   size="tiny"
                   @click="restoreKey(key)"
-                  title="恢复密钥"
+                  title="Restore key"
                   type="warning"
                 >
-                  恢复
+                  Restore
                 </n-button>
                 <n-button
                   round
@@ -554,9 +554,9 @@ function resetPage() {
                   size="tiny"
                   type="error"
                   @click="deleteKey(key)"
-                  title="删除密钥"
+                  title="Delete key"
                 >
-                  删除
+                  Delete
                 </n-button>
               </n-button-group>
             </div>
@@ -565,17 +565,17 @@ function resetPage() {
       </n-spin>
     </div>
 
-    <!-- 分页 -->
+    <!-- Pagination -->
     <div class="pagination-container">
       <div class="pagination-info">
-        <span>共 {{ total }} 条记录</span>
+        <span>Total {{ total }} records</span>
         <n-select
           v-model:value="pageSize"
           :options="[
-            { label: '12条/页', value: 12 },
-            { label: '24条/页', value: 24 },
-            { label: '60条/页', value: 60 },
-            { label: '120条/页', value: 120 },
+            { label: '12 per page', value: 12 },
+            { label: '24 per page', value: 24 },
+            { label: '60 per page', value: 60 },
+            { label: '120 per page', value: 120 },
           ]"
           size="small"
           style="width: 100px; margin-left: 12px"
@@ -584,15 +584,15 @@ function resetPage() {
       </div>
       <div class="pagination-controls">
         <n-button size="small" :disabled="currentPage <= 1" @click="changePage(currentPage - 1)">
-          上一页
+          Previous
         </n-button>
-        <span class="page-info">第 {{ currentPage }} 页，共 {{ totalPages }} 页</span>
+        <span class="page-info">Page {{ currentPage }} of {{ totalPages }}</span>
         <n-button
           size="small"
           :disabled="currentPage >= totalPages"
           @click="changePage(currentPage + 1)"
         >
-          下一页
+          Next
         </n-button>
       </div>
     </div>
@@ -765,7 +765,7 @@ function resetPage() {
   box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
 }
 
-/* 密钥卡片网格 */
+/* Key card grid */
 .keys-grid-container {
   flex: 1;
   overflow-y: auto;
@@ -793,7 +793,7 @@ function resetPage() {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
-/* 状态相关样式 */
+/* Status related styles */
 .key-card.status-valid {
   border-color: #18a0584d;
   background: #18a0581a;
@@ -809,7 +809,7 @@ function resetPage() {
   background: #fffdf0;
 }
 
-/* 主要信息行 */
+/* Main info row */
 .key-main {
   display: flex;
   justify-content: space-between;
@@ -825,7 +825,7 @@ function resetPage() {
   min-width: 0;
 }
 
-/* 底部统计和按钮行 */
+/* Bottom stats and buttons row */
 .key-bottom {
   display: flex;
   justify-content: space-between;
@@ -890,7 +890,7 @@ function resetPage() {
   background: #e9ecef;
 }
 
-/* 统计信息行 */
+/* Stats row */
 
 .action-btn {
   padding: 2px 6px;
@@ -938,7 +938,7 @@ function resetPage() {
   color: white;
 }
 
-/* 加载和空状态 */
+/* Loading and empty states */
 .loading-state,
 .empty-state {
   display: flex;
@@ -956,7 +956,7 @@ function resetPage() {
   font-size: 14px;
 }
 
-/* 分页 */
+/* Pagination */
 .pagination-container {
   display: flex;
   justify-content: space-between;

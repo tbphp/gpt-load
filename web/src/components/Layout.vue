@@ -36,7 +36,7 @@ import NavBar from "@/components/NavBar.vue";
     <app-footer />
   </n-layout>
 
-  <!-- 全局任务进度条 -->
+  <!-- Global task progress bar -->
   <global-task-progress-bar />
 </template>
 

@@ -4,10 +4,10 @@ import { computed, h } from "vue";
 import { RouterLink, useRoute } from "vue-router";
 
 const menuOptions: MenuOption[] = [
-  renderMenuItem("dashboard", "仪表盘", "📊"),
-  renderMenuItem("keys", "密钥管理", "🔑"),
-  renderMenuItem("logs", "日志", "📋"),
-  renderMenuItem("settings", "系统设置", "⚙️"),
+  renderMenuItem("dashboard", "Dashboard", "📊"),
+  renderMenuItem("keys", "Key Management", "🔑"),
+  renderMenuItem("logs", "Logs", "📋"),
+  renderMenuItem("settings", "System Settings", "⚙️"),
 ];
 
 const route = useRoute();

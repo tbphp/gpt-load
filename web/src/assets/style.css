@@ -18,7 +18,7 @@
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 
-  /* 现代化颜色方案 */
+  /* Modern Color Scheme */
   --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   --secondary-gradient: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
   --success-gradient: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
@@ -26,13 +26,13 @@
   --surface-gradient: linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%);
   --dark-gradient: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
 
-  /* 阴影效果 */
+  /* Shadow Effects */
   --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
   --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
   --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
   --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
 
-  /* 边框半径 */
+  /* Border Radius */
   --border-radius-sm: 8px;
   --border-radius-md: 12px;
   --border-radius-lg: 16px;
@@ -61,7 +61,7 @@ body {
   position: relative;
 }
 
-/* 工具类 */
+/* Utility Classes */
 .flex {
   display: flex;
 }
@@ -118,7 +118,7 @@ body {
   flex-shrink: 1;
 }
 
-/* 动画和过渡 */
+/* Animations and Transitions */
 .fade-enter-active,
 .fade-leave-active {
   transition: opacity 0.2s ease;
@@ -141,7 +141,7 @@ body {
   transform: translateX(100%);
 }
 
-/* 美化滚动条 */
+/* Enhanced Scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -161,7 +161,7 @@ body {
   background: linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%);
 }
 
-/* 通用卡片样式 */
+/* Common Card Style */
 .modern-card {
   background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(10px);
@@ -176,7 +176,7 @@ body {
   box-shadow: var(--shadow-xl);
 }
 
-/* 按钮增强 */
+/* Enhanced Buttons */
 .modern-button {
   border-radius: var(--border-radius-md);
   transition: all 0.2s ease;
@@ -189,7 +189,7 @@ body {
   box-shadow: var(--shadow-md);
 }
 
-/* 输入框增强 */
+/* Enhanced Input Fields */
 .modern-input {
   border-radius: var(--border-radius-md);
   transition: all 0.2s ease;
@@ -199,7 +199,7 @@ body {
   box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
 }
 
-/* 选择文本样式 */
+/* Text Selection Style */
 ::selection {
   background: rgba(102, 126, 234, 0.2);
   color: #1e293b;
@@ -210,7 +210,7 @@ body {
   color: #1e293b;
 }
 
-/* Focus样式增强 */
+/* Enhanced Focus Style */
 *:focus {
   outline: none;
 }
@@ -220,7 +220,7 @@ body {
   outline-offset: 2px;
 }
 
-/* 加载状态样式 */
+/* Loading State Style */
 .loading-overlay {
   position: fixed;
   top: 0;
@@ -235,7 +235,7 @@ body {
   z-index: 9999;
 }
 
-/* 响应式网格 */
+/* Responsive Grid */
 .responsive-grid {
   display: grid;
   gap: 24px;
@@ -249,7 +249,7 @@ body {
   }
 }
 
-/* 文本渐变 */
+/* Text Gradient */
 .text-gradient {
   background: var(--primary-gradient);
   -webkit-background-clip: text;
@@ -257,14 +257,14 @@ body {
   background-clip: text;
 }
 
-/* 玻璃态效果 */
+/* Glassmorphism Effect */
 .glass-effect {
   background: rgba(255, 255, 255, 0.25);
   backdrop-filter: blur(16px);
   border: 1px solid rgba(255, 255, 255, 0.18);
 }
 
-/* 悬停效果增强 */
+/* Enhanced Hover Effect */
 .hover-lift {
   transition:
     transform 0.2s ease,
@@ -276,7 +276,7 @@ body {
   box-shadow: var(--shadow-xl);
 }
 
-/* 脉冲动画 */
+/* Pulse Animation */
 @keyframes pulse {
   0%,
   100% {
@@ -291,7 +291,7 @@ body {
   animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
-/* 旋转动画 */
+/* Rotation Animation */
 @keyframes spin {
   from {
     transform: rotate(0deg);
@@ -305,7 +305,7 @@ body {
   animation: spin 1s linear infinite;
 }
 
-/* 弹跳动画 */
+/* Bounce Animation */
 @keyframes bounce {
   0%,
   20%,

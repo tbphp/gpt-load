@@ -1,14 +1,14 @@
-// 通用 API 响应结构
+// Generic API response structure
 export interface ApiResponse<T> {
   code: number;
   message: string;
   data: T;
 }
 
-// 密钥状态
+// Key status
 export type KeyStatus = "active" | "invalid" | undefined;
 
-// 数据模型定义
+// Data model definitions
 export interface APIKey {
   id: number;
   group_id: number;
@@ -21,7 +21,7 @@ export interface APIKey {
   updated_at: string;
 }
 
-// 类型别名，用于兼容
+// Type alias for compatibility
 export type Key = APIKey;
 
 export interface UpstreamInfo {
@@ -146,7 +146,7 @@ export interface GroupRequestStat {
   request_count: number;
 }
 
-// 仪表盘统计卡片数据
+// Dashboard statistics card data
 export interface StatCard {
   value: number;
   sub_value?: number;
@@ -155,7 +155,7 @@ export interface StatCard {
   trend_is_growth: boolean;
 }
 
-// 仪表盘基础统计响应
+// Dashboard basic statistics response
 export interface DashboardStatsResponse {
   key_count: StatCard;
   group_count: StatCard;
@@ -163,14 +163,14 @@ export interface DashboardStatsResponse {
   error_rate: StatCard;
 }
 
-// 图表数据集
+// Chart dataset
 export interface ChartDataset {
   label: string;
   data: number[];
   color: string;
 }
 
-// 图表数据
+// Chart data
 export interface ChartData {
   labels: string[];
   datasets: ChartDataset[];

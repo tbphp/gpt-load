@@ -31,7 +31,7 @@ async function fetchSettings() {
     settingList.value = data || [];
     initForm();
   } catch (_error) {
-    message.error("获取设置失败");
+    message.error("Failed to get settings");
   }
 }
 
@@ -76,7 +76,7 @@ async function handleSubmit() {
             <n-grid-item v-for="item in category.settings" :key="item.key">
               <n-form-item
                 :path="item.key"
-                :rule="{ required: true, message: `请输入 ${item.name}` }"
+                :rule="{ required: true, message: `Please enter ${item.name}` }"
               >
                 <template #label>
                   <n-space align="center" :size="4" :wrap-item="false">
@@ -100,7 +100,7 @@ async function handleSubmit() {
                   :min="
                     item.min_value !== undefined && item.min_value >= 0 ? item.min_value : undefined
                   "
-                  placeholder="请输入数值"
+                  placeholder="Enter a number"
                   clearable
                   style="width: 100%"
                   size="small"
@@ -108,7 +108,7 @@ async function handleSubmit() {
                 <n-input
                   v-else
                   v-model:value="form[item.key] as string"
-                  placeholder="请输入内容"
+                  placeholder="Enter content"
                   clearable
                   size="small"
                 />
@@ -134,7 +134,7 @@ async function handleSubmit() {
         <template #icon>
           <n-icon :component="Save" />
         </template>
-        {{ isSaving ? "保存中..." : "保存设置" }}
+        {{ isSaving ? "Saving..." : "Save Settings" }}
       </n-button>
     </div>
   </n-space>

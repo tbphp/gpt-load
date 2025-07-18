@@ -85,10 +85,10 @@ async function handleDelete() {
   }
 
   const d = dialog.warning({
-    title: "删除分组",
-    content: `确定要删除分组 "${getGroupDisplayName(props.group)}" 吗？此操作不可恢复。`,
-    positiveText: "确定",
-    negativeText: "取消",
+    title: "Delete Group",
+    content: `Are you sure you want to delete the group "${getGroupDisplayName(props.group)}"? This action cannot be undone.`,
+    positiveText: "Confirm",
+    negativeText: "Cancel",
     onPositiveClick: async () => {
       d.loading = true;
       delLoading.value = true;
@@ -99,7 +99,7 @@ async function handleDelete() {
           emit("delete", props.group);
         }
       } catch (error) {
-        console.error("删除分组失败:", error);
+        console.error("Failed to delete group:", error);
       } finally {
         d.loading = false;
         delLoading.value = false;
@@ -131,9 +131,9 @@ async function copyUrl(url: string) {
   }
   const success = await copy(url);
   if (success) {
-    window.$message.success("地址已复制到剪贴板");
+    window.$message.success("Address copied to clipboard");
   } else {
-    window.$message.error("复制失败");
+    window.$message.error("Copy failed");
   }
 }
 
@@ -150,14 +150,14 @@ function resetPage() {
         <div class="card-header">
           <div class="header-left">
             <h3 class="group-title">
-              {{ group ? getGroupDisplayName(group) : "请选择分组" }}
+              {{ group ? getGroupDisplayName(group) : "Please select a group" }}
               <code v-if="group" class="group-url" @click="copyUrl(group?.endpoint || '')">
                 {{ group.endpoint }}
               </code>
             </h3>
           </div>
           <div class="header-actions">
-            <n-button quaternary circle size="small" @click="handleEdit" title="编辑分组">
+            <n-button quaternary circle size="small" @click="handleEdit" title="Edit group">
               <template #icon>
                 <n-icon :component="Pencil" />
               </template>
@@ -167,7 +167,7 @@ function resetPage() {
               circle
               size="small"
               @click="handleDelete"
-              title="删除分组"
+              title="Delete group"
               type="error"
               :disabled="!group"
             >
@@ -180,19 +180,19 @@ function resetPage() {
       </template>
 
       <n-divider style="margin: 0; margin-bottom: 12px" />
-      <!-- 统计摘要区 -->
+      <!-- Stats summary section -->
       <div class="stats-summary">
         <n-spin :show="loading" size="small">
           <n-grid :cols="4" :x-gap="12" :y-gap="12" responsive="screen">
             <n-grid-item span="1">
-              <n-statistic :label="`密钥数量：${stats?.key_stats?.total_keys ?? 0}`">
+              <n-statistic :label="`Key count: ${stats?.key_stats?.total_keys ?? 0}`">
                 <n-tooltip trigger="hover">
                   <template #trigger>
                     <n-gradient-text type="success" size="20">
                       {{ stats?.key_stats?.active_keys ?? 0 }}
                     </n-gradient-text>
                   </template>
-                  有效密钥数
+                  Valid keys
                 </n-tooltip>
                 <n-divider vertical />
                 <n-tooltip trigger="hover">
@@ -201,13 +201,13 @@ function resetPage() {
                       {{ stats?.key_stats?.invalid_keys ?? 0 }}
                     </n-gradient-text>
                   </template>
-                  无效密钥数
+                  Invalid keys
                 </n-tooltip>
               </n-statistic>
             </n-grid-item>
             <n-grid-item span="1">
               <n-statistic
-                :label="`1小时请求：${formatNumber(stats?.hourly_stats?.total_requests ?? 0)}`"
+                :label="`1h requests: ${formatNumber(stats?.hourly_stats?.total_requests ?? 0)}`"
               >
                 <n-tooltip trigger="hover">
                   <template #trigger>
@@ -215,7 +215,7 @@ function resetPage() {
                       {{ formatNumber(stats?.hourly_stats?.failed_requests ?? 0) }}
                     </n-gradient-text>
                   </template>
-                  近1小时失败请求
+                  Failed requests in last hour
                 </n-tooltip>
                 <n-divider vertical />
                 <n-tooltip trigger="hover">
@@ -224,13 +224,13 @@ function resetPage() {
                       {{ formatPercentage(stats?.hourly_stats?.failure_rate ?? 0) }}
                     </n-gradient-text>
                   </template>
-                  近1小时失败率
+                  Failure rate in last hour
                 </n-tooltip>
               </n-statistic>
             </n-grid-item>
             <n-grid-item span="1">
               <n-statistic
-                :label="`24小时请求：${formatNumber(stats?.daily_stats?.total_requests ?? 0)}`"
+                :label="`24h requests: ${formatNumber(stats?.daily_stats?.total_requests ?? 0)}`"
               >
                 <n-tooltip trigger="hover">
                   <template #trigger>
@@ -238,7 +238,7 @@ function resetPage() {
                       {{ formatNumber(stats?.daily_stats?.failed_requests ?? 0) }}
                     </n-gradient-text>
                   </template>
-                  近24小时失败请求
+                  Failed requests in last 24h
                 </n-tooltip>
                 <n-divider vertical />
                 <n-tooltip trigger="hover">
@@ -247,13 +247,13 @@ function resetPage() {
                       {{ formatPercentage(stats?.daily_stats?.failure_rate ?? 0) }}
                     </n-gradient-text>
                   </template>
-                  近24小时失败率
+                  Failure rate in last 24h
                 </n-tooltip>
               </n-statistic>
             </n-grid-item>
             <n-grid-item span="1">
               <n-statistic
-                :label="`近7天请求：${formatNumber(stats?.weekly_stats?.total_requests ?? 0)}`"
+                :label="`7d requests: ${formatNumber(stats?.weekly_stats?.total_requests ?? 0)}`"
               >
                 <n-tooltip trigger="hover">
                   <template #trigger>
@@ -261,7 +261,7 @@ function resetPage() {
                       {{ formatNumber(stats?.weekly_stats?.failed_requests ?? 0) }}
                     </n-gradient-text>
                   </template>
-                  近7天失败请求
+                  Failed requests in last 7 days
                 </n-tooltip>
                 <n-divider vertical />
                 <n-tooltip trigger="hover">
@@ -270,7 +270,7 @@ function resetPage() {
                       {{ formatPercentage(stats?.weekly_stats?.failure_rate ?? 0) }}
                     </n-gradient-text>
                   </template>
-                  近7天失败率
+                  Failure rate in last 7 days
                 </n-tooltip>
               </n-statistic>
             </n-grid-item>
@@ -279,42 +279,42 @@ function resetPage() {
       </div>
       <n-divider style="margin: 0" />
 
-      <!-- 详细信息区（可折叠） -->
+      <!-- Detail information section (collapsible) -->
       <div class="details-section">
         <n-collapse accordion v-model:expanded-names="expandedName">
-          <n-collapse-item title="详细信息" name="details">
+          <n-collapse-item title="Detailed Information" name="details">
             <div class="details-content">
               <div class="detail-section">
-                <h4 class="section-title">基础信息</h4>
+                <h4 class="section-title">Basic Information</h4>
                 <n-form label-placement="left" label-width="85px" label-align="right">
                   <n-grid :cols="2">
                     <n-grid-item>
-                      <n-form-item label="分组名称：">
+                      <n-form-item label="Group Name:">
                         {{ group?.name || "-" }}
                       </n-form-item>
                     </n-grid-item>
                     <n-grid-item>
-                      <n-form-item label="显示名称：">
+                      <n-form-item label="Display Name:">
                         {{ group?.display_name || "-" }}
                       </n-form-item>
                     </n-grid-item>
                     <n-grid-item>
-                      <n-form-item label="渠道类型：">
+                      <n-form-item label="Channel Type:">
                         {{ group?.channel_type || "-" }}
                       </n-form-item>
                     </n-grid-item>
                     <n-grid-item>
-                      <n-form-item label="测试模型：">
+                      <n-form-item label="Test Model:">
                         {{ group?.test_model || "-" }}
                       </n-form-item>
                     </n-grid-item>
                     <n-grid-item>
-                      <n-form-item label="排序：">
+                      <n-form-item label="Sort Order:">
                         {{ group?.sort || 0 }}
                       </n-form-item>
                     </n-grid-item>
                     <n-grid-item>
-                      <n-form-item label="描述：">
+                      <n-form-item label="Description:">
                         {{ group?.description || "-" }}
                       </n-form-item>
                     </n-grid-item>
@@ -323,16 +323,16 @@ function resetPage() {
               </div>
 
               <div class="detail-section">
-                <h4 class="section-title">上游地址</h4>
+                <h4 class="section-title">Upstream Addresses</h4>
                 <n-form label-placement="left" label-width="100px">
                   <n-form-item
                     v-for="(upstream, index) in group?.upstreams ?? []"
                     :key="index"
                     class="upstream-item"
-                    :label="`上游 ${index + 1}:`"
+                    :label="`Upstream ${index + 1}:`"
                   >
                     <span class="upstream-weight">
-                      <n-tag size="small" type="info">权重: {{ upstream.weight }}</n-tag>
+                      <n-tag size="small" type="info">Weight: {{ upstream.weight }}</n-tag>
                     </span>
                     <n-input class="upstream-url" :value="upstream.url" readonly size="small" />
                   </n-form-item>
@@ -345,7 +345,7 @@ function resetPage() {
                   (group?.config && Object.keys(group.config).length > 0) || group?.param_overrides
                 "
               >
-                <h4 class="section-title">高级配置</h4>
+                <h4 class="section-title">Advanced Configuration</h4>
                 <n-form label-placement="left">
                   <n-form-item
                     v-for="(value, key) in group?.config || {}"
@@ -354,7 +354,7 @@ function resetPage() {
                   >
                     {{ value || "-" }}
                   </n-form-item>
-                  <n-form-item v-if="group?.param_overrides" label="参数覆盖:" :span="2">
+                  <n-form-item v-if="group?.param_overrides" label="Parameter Overrides:" :span="2">
                     <pre class="config-json">{{
                       JSON.stringify(group?.param_overrides || "", null, 2)
                     }}</pre>

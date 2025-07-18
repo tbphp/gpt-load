@@ -29,7 +29,7 @@ interface Emits {
   (e: "success", value: Group): void;
 }
 
-// 配置项类型
+// Configuration item type
 interface ConfigItem {
   key: string;
   value: number;
@@ -45,7 +45,7 @@ const message = useMessage();
 const loading = ref(false);
 const formRef = ref();
 
-// 表单数据接口
+// Form data interface
 interface GroupFormData {
   name: string;
   display_name: string;
@@ -59,7 +59,7 @@ interface GroupFormData {
   configItems: ConfigItem[];
 }
 
-// 表单数据
+// Form data
 const formData = reactive<GroupFormData>({
   name: "",
   display_name: "",
@@ -83,31 +83,31 @@ const configOptions = ref<GroupConfigOption[]>([]);
 const channelTypesFetched = ref(false);
 const configOptionsFetched = ref(false);
 
-// 表单验证规则
+// Form validation rules
 const rules: FormRules = {
   name: [
     {
       required: true,
-      message: "请输入分组名称",
+      message: "Please enter a group name",
       trigger: ["blur", "input"],
     },
     {
       pattern: /^[a-z0-9_-]{3,30}$/,
-      message: "只能包含小写字母、数字、中划线或下划线，长度3-30位",
+      message: "Can only contain lowercase letters, numbers, hyphens, or underscores, length 3-30 characters",
       trigger: ["blur", "input"],
     },
   ],
   channel_type: [
     {
       required: true,
-      message: "请选择渠道类型",
+      message: "Please select a channel type",
       trigger: ["blur", "change"],
     },
   ],
   test_model: [
     {
       required: true,
-      message: "请输入测试模型",
+      message: "Please enter a test model",
       trigger: ["blur", "input"],
     },
   ],
@@ -115,13 +115,13 @@ const rules: FormRules = {
     {
       type: "array",
       min: 1,
-      message: "至少需要一个上游地址",
+      message: "At least one upstream address is required",
       trigger: ["blur", "change"],
     },
   ],
 };
 
-// 监听弹窗显示状态
+// Monitor dialog display status
 watch(
   () => props.show,
   show => {
@@ -140,7 +140,7 @@ watch(
   }
 );
 
-// 重置表单
+// Reset form
 function resetForm() {
   Object.assign(formData, {
     name: "",
@@ -156,7 +156,7 @@ function resetForm() {
   });
 }
 
-// 加载分组数据（编辑模式）
+// Load group data (edit mode)
 function loadGroupData() {
   if (!props.group) {
     return;
@@ -192,7 +192,7 @@ async function fetchChannelTypes() {
   channelTypesFetched.value = true;
 }
 
-// 添加上游地址
+// Add upstream address
 function addUpstream() {
   formData.upstreams.push({
     url: "",
@@ -200,7 +200,7 @@ function addUpstream() {
   });
 }
 
-// 删除上游地址
+// Remove upstream address
 function removeUpstream(index: number) {
   if (formData.upstreams.length > 1) {
     formData.upstreams.splice(index, 1);
@@ -213,7 +213,7 @@ async function fetchGroupConfigOptions() {
   configOptionsFetched.value = true;
 }
 
-// 添加配置项
+// Add config item
 function addConfigItem() {
   formData.configItems.push({
     key: "",
@@ -221,12 +221,12 @@ function addConfigItem() {
   });
 }
 
-// 删除配置项
+// Remove config item
 function removeConfigItem(index: number) {
   formData.configItems.splice(index, 1);
 }
 
-// 当配置项的key改变时，设置默认值
+// When the config item key changes, set the default value
 function handleConfigKeyChange(index: number, key: string) {
   const option = configOptions.value.find(opt => opt.key === key);
   if (option) {
@@ -234,12 +234,12 @@ function handleConfigKeyChange(index: number, key: string) {
   }
 }
 
-// 关闭弹窗
+// Close dialog
 function handleClose() {
   emit("update:show", false);
 }
 
-// 提交表单
+// Submit form
 async function handleSubmit() {
   if (loading.value) {
     return;
@@ -250,18 +250,18 @@ async function handleSubmit() {
 
     loading.value = true;
 
-    // 验证 JSON 格式
+    // Validate JSON format
     let paramOverrides = {};
     if (formData.param_overrides) {
       try {
         paramOverrides = JSON.parse(formData.param_overrides);
       } catch {
-        message.error("参数覆盖必须是有效的 JSON 格式");
+        message.error("Parameter overrides must be valid JSON format");
         return;
       }
     }
 
-    // 将configItems转换为config对象
+    // Convert configItems to config object
     const config: Record<string, number> = {};
     formData.configItems.forEach((item: ConfigItem) => {
       if (item.key && item.key.trim()) {
@@ -269,7 +269,7 @@ async function handleSubmit() {
       }
     });
 
-    // 构建提交数据
+    // Build submission data
     const submitData = {
       name: formData.name,
       display_name: formData.display_name,
@@ -284,10 +284,10 @@ async function handleSubmit() {
 
     let res: Group;
     if (props.group?.id) {
-      // 编辑模式
+      // Edit mode
       res = await keysApi.updateGroup(props.group.id, submitData);
     } else {
-      // 新建模式
+      // Create mode
       res = await keysApi.createGroup(submitData);
     }
 
@@ -303,7 +303,7 @@ async function handleSubmit() {
   <n-modal :show="show" @update:show="handleClose" class="group-form-modal">
     <n-card
       style="width: 800px"
-      :title="group ? '编辑分组' : '创建分组'"
+      :title="group ? 'Edit Group' : 'Create Group'"
       :bordered="false"
       size="huge"
       role="dialog"
@@ -325,46 +325,46 @@ async function handleSubmit() {
         label-width="120px"
         require-mark-placement="right-hanging"
       >
-        <!-- 基础信息 -->
+        <!-- Basic Information -->
         <div class="form-section">
-          <h4 class="section-title">基础信息</h4>
+          <h4 class="section-title">Basic Information</h4>
 
-          <n-form-item label="分组名称" path="name">
+          <n-form-item label="Group Name" path="name">
             <n-input
               v-model:value="formData.name"
-              placeholder="作为路由的一部分，如：gemini-pro-group"
+              placeholder="Used as part of the route, e.g.: gemini-pro-group"
             />
           </n-form-item>
 
-          <n-form-item label="显示名称" path="display_name">
-            <n-input v-model:value="formData.display_name" placeholder="可选，用于显示的友好名称" />
+          <n-form-item label="Display Name" path="display_name">
+            <n-input v-model:value="formData.display_name" placeholder="Optional, friendly name for display" />
           </n-form-item>
 
-          <n-form-item label="渠道类型" path="channel_type">
+          <n-form-item label="Channel Type" path="channel_type">
             <n-select
               v-model:value="formData.channel_type"
               :options="channelTypeOptions"
-              placeholder="请选择渠道类型"
+              placeholder="Please select channel type"
             />
           </n-form-item>
 
-          <n-form-item label="测试模型" path="test_model">
-            <n-input v-model:value="formData.test_model" placeholder="如：gpt-3.5-turbo" />
+          <n-form-item label="Test Model" path="test_model">
+            <n-input v-model:value="formData.test_model" placeholder="e.g.: gpt-3.5-turbo" />
           </n-form-item>
 
-          <n-form-item label="排序" path="sort">
+          <n-form-item label="Sort Order" path="sort">
             <n-input-number
               v-model:value="formData.sort"
               :min="0"
-              placeholder="排序值，数字越小越靠前"
+              placeholder="Sort value, smaller numbers appear first"
             />
           </n-form-item>
 
-          <n-form-item label="描述" path="description">
+          <n-form-item label="Description" path="description">
             <n-input
               v-model:value="formData.description"
               type="textarea"
-              placeholder="可选，分组描述信息"
+              placeholder="Optional, group description"
               :rows="2"
               :autosize="{ minRows: 2, maxRows: 2 }"
               style="resize: none"
@@ -372,14 +372,14 @@ async function handleSubmit() {
           </n-form-item>
         </div>
 
-        <!-- 上游地址 -->
+        <!-- Upstream Addresses -->
         <div class="form-section" style="margin-top: 10px">
-          <h4 class="section-title">上游地址</h4>
+          <h4 class="section-title">Upstream Addresses</h4>
 
           <n-form-item
             v-for="(upstream, index) in formData.upstreams"
             :key="index"
-            :label="`上游 ${index + 1}`"
+            :label="`Upstream ${index + 1}`"
             :path="`upstreams[${index}].url`"
             :rule="{
               required: true,
@@ -393,11 +393,11 @@ async function handleSubmit() {
                 placeholder="https://api.openai.com"
                 style="flex: 1"
               />
-              <span class="form-label">权重</span>
+              <span class="form-label">Weight</span>
               <n-input-number
                 v-model:value="upstream.weight"
                 :min="1"
-                placeholder="权重"
+                placeholder="Weight"
                 style="width: 100px"
               />
               <div style="width: 40px">
@@ -422,24 +422,24 @@ async function handleSubmit() {
               <template #icon>
                 <n-icon :component="Add" />
               </template>
-              添加上游地址
+              Add Upstream Address
             </n-button>
           </n-form-item>
         </div>
 
-        <!-- 高级配置 -->
+        <!-- Advanced Configuration -->
         <div class="form-section" style="margin-top: 10px">
           <n-collapse>
-            <n-collapse-item title="高级配置" name="advanced">
+            <n-collapse-item title="Advanced Configuration" name="advanced">
               <div class="config-section">
-                <h5 class="config-title">分组配置</h5>
+                <h5 class="config-title">Group Configuration</h5>
 
                 <div class="config-items">
                   <n-form-item
                     v-for="(configItem, index) in formData.configItems"
                     :key="index"
                     class="flex config-item"
-                    :label="`配置 ${index + 1}`"
+                    :label="`Config ${index + 1}`"
                     :path="`configItems[${index}].key`"
                     :rule="{
                       required: true,
@@ -460,14 +460,14 @@ async function handleSubmit() {
                                 ?.includes(opt.key) && opt.key !== configItem.key,
                           }))
                         "
-                        placeholder="请选择配置参数"
+                        placeholder="Please select config parameter"
                         style="min-width: 200px"
                         @update:value="value => handleConfigKeyChange(index, value)"
                         clearable
                       />
                       <n-input-number
                         v-model:value="configItem.value"
-                        placeholder="参数值"
+                        placeholder="Parameter value"
                         style="width: 180px; margin-left: 15px"
                         :precision="0"
                       />
@@ -497,18 +497,18 @@ async function handleSubmit() {
                     <template #icon>
                       <n-icon :component="Add" />
                     </template>
-                    添加配置参数
+                    Add Config Parameter
                   </n-button>
                 </div>
               </div>
               <div class="config-section">
-                <h5 class="config-title">参数覆盖</h5>
+                <h5 class="config-title">Parameter Overrides</h5>
                 <div class="config-items">
                   <n-form-item path="param_overrides">
                     <n-input
                       v-model:value="formData.param_overrides"
                       type="textarea"
-                      placeholder="JSON 格式的参数覆盖配置"
+                      placeholder="JSON format parameter override configuration"
                       :rows="4"
                     />
                   </n-form-item>
@@ -521,9 +521,9 @@ async function handleSubmit() {
 
       <template #footer>
         <div style="display: flex; justify-content: flex-end; gap: 12px">
-          <n-button @click="handleClose">取消</n-button>
+          <n-button @click="handleClose">Cancel</n-button>
           <n-button type="primary" @click="handleSubmit" :loading="loading">
-            {{ group ? "更新" : "创建" }}
+            {{ group ? "Update" : "Create" }}
           </n-button>
         </div>
       </template>

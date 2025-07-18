@@ -21,7 +21,7 @@ async function loadGroups() {
   try {
     loading.value = true;
     groups.value = await keysApi.getGroups();
-    // 选择默认分组
+    // Select default group
     if (groups.value.length > 0 && !selectedGroup.value) {
       const groupId = route.query.groupId;
       const found = groups.value.find(g => String(g.id) === String(groupId));
@@ -46,16 +46,16 @@ function handleGroupSelect(group: Group | null) {
 async function handleGroupRefresh() {
   await loadGroups();
   if (selectedGroup.value) {
-    // 重新加载当前选中的分组信息
+    // Reload the currently selected group information
     handleGroupSelect(groups.value.find(g => g.id === selectedGroup.value?.id) || null);
   }
 }
 
 function handleGroupDelete(deletedGroup: Group) {
-  // 从分组列表中移除已删除的分组
+  // Remove the deleted group from the group list
   groups.value = groups.value.filter(g => g.id !== deletedGroup.id);
 
-  // 如果删除的是当前选中的分组，则切换到第一个分组
+  // If the deleted group is currently selected, switch to the first group
   if (selectedGroup.value?.id === deletedGroup.id) {
     handleGroupSelect(groups.value.length > 0 ? groups.value[0] : null);
   }
@@ -74,9 +74,9 @@ function handleGroupDelete(deletedGroup: Group) {
       />
     </div>
 
-    <!-- 右侧主内容区域，占80% -->
+    <!-- Right main content area, 80% width -->
     <div class="main-content">
-      <!-- 分组信息卡片，更紧凑 -->
+      <!-- Group information card, more compact -->
       <div class="group-info">
         <group-info-card
           :group="selectedGroup"
@@ -85,7 +85,7 @@ function handleGroupDelete(deletedGroup: Group) {
         />
       </div>
 
-      <!-- 密钥表格区域，占主要空间 -->
+      <!-- Key table area, takes up main space -->
       <div class="key-table-section">
         <key-table :selected-group="selectedGroup" />
       </div>

@@ -11,7 +11,7 @@ import {
 } from "naive-ui";
 import { defineComponent, watch } from "vue";
 
-// 自定义主题配置
+// Custom theme configuration
 const themeOverrides: GlobalThemeOverrides = {
   common: {
     primaryColor: "#667eea",

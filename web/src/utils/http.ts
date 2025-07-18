@@ -2,7 +2,7 @@ import { useAuthService } from "@/services/auth";
 import axios from "axios";
 import { appState } from "./app-state";
 
-// 定义不需要显示 loading 的 API 地址列表
+// Define a list of API URLs that don't need to display loading indicator
 const noLoadingUrls = ["/tasks/status"];
 
 declare module "axios" {
@@ -17,9 +17,9 @@ const http = axios.create({
   headers: { "Content-Type": "application/json" },
 });
 
-// 请求拦截器
+// Request interceptor
 http.interceptors.request.use(config => {
-  // 检查当前请求的 URL 是否在屏蔽列表中
+  // Check if the current request URL is in the blocked list
   if (config.url && !noLoadingUrls.includes(config.url)) {
     appState.loading = true;
   }
@@ -30,12 +30,12 @@ http.interceptors.request.use(config => {
   return config;
 });
 
-// 响应拦截器
+// Response interceptor
 http.interceptors.response.use(
   response => {
     appState.loading = false;
     if (response.config.method !== "get" && !response.config.hideMessage) {
-      window.$message.success(response.data.message ?? "操作成功");
+      window.$message.success(response.data.message ?? "Operation successful");
     }
     return response.data;
   },
@@ -49,15 +49,15 @@ http.interceptors.response.use(
           window.location.href = "/login";
         }
       }
-      window.$message.error(error.response.data?.message || `请求失败: ${error.response.status}`, {
+      window.$message.error(error.response.data?.message || `Request failed: ${error.response.status}`, {
         keepAliveOnHover: true,
         duration: 5000,
         closable: true,
       });
     } else if (error.request) {
-      window.$message.error("网络错误，请检查您的连接");
+      window.$message.error("Network error, please check your connection");
     } else {
-      window.$message.error("请求设置错误");
+      window.$message.error("Request configuration error");
     }
     return Promise.reject(error);
   }

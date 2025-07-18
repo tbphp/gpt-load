@@ -23,7 +23,7 @@ const loading = ref(false);
 const keysText = ref("");
 const message = useMessage();
 
-// 监听弹窗显示状态
+// Monitor dialog display status
 watch(
   () => props.show,
   show => {
@@ -33,17 +33,17 @@ watch(
   }
 );
 
-// 重置表单
+// Reset form
 function resetForm() {
   keysText.value = "";
 }
 
-// 关闭弹窗
+// Close dialog
 function handleClose() {
   emit("update:show", false);
 }
 
-// 提交表单
+// Submit form
 async function handleSubmit() {
   if (loading.value || !keysText.value.trim()) {
     return;
@@ -54,7 +54,7 @@ async function handleSubmit() {
 
     const res = await keysApi.deleteKeys(props.groupId, keysText.value);
     const { deleted_count, ignored_count, total_in_group } = res || {};
-    const msg = `成功删除 ${deleted_count} 个密钥，忽略 ${ignored_count} 个密钥。当前分组共有 ${total_in_group} 个密钥。`;
+    const msg = `Successfully deleted ${deleted_count} keys, ignored ${ignored_count} keys. Current group has ${total_in_group} keys.`;
     message.info(msg, {
       closable: true,
       duration: 5000,
@@ -72,7 +72,7 @@ async function handleSubmit() {
   <n-modal :show="show" @update:show="handleClose" class="form-modal">
     <n-card
       style="width: 800px"
-      :title="`删除 ${groupName || '当前分组'} 的密钥`"
+      :title="`Delete keys from ${groupName || 'current group'}`"
       :bordered="false"
       size="huge"
       role="dialog"
@@ -89,16 +89,16 @@ async function handleSubmit() {
       <n-input
         v-model:value="keysText"
         type="textarea"
-        placeholder="输入要删除的密钥，每行一个"
+        placeholder="Enter keys to delete, one per line"
         :rows="8"
         style="margin-top: 20px"
       />
 
       <template #footer>
         <div style="display: flex; justify-content: flex-end; gap: 12px">
-          <n-button @click="handleClose">取消</n-button>
+          <n-button @click="handleClose">Cancel</n-button>
           <n-button type="error" @click="handleSubmit" :loading="loading" :disabled="!keysText">
-            删除
+            Delete
           </n-button>
         </div>
       </template>
