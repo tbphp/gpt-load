@@ -123,7 +123,9 @@ func (ps *ProxyServer) executeRequestWithRetry(
 		return
 	}
 
-	apiKey, err := ps.keyProvider.SelectKey(group.ID)
+	upstreamID := channelHandler.GetSelectedUpstreamID()
+
+	apiKey, err := ps.keyProvider.SelectKey(group.ID, upstreamID)
 	if err != nil {
 		logrus.Errorf("Failed to select a key for group %s on attempt %d: %v", group.Name, retryCount+1, err)
 		response.Error(c, app_errors.NewAPIError(app_errors.ErrNoKeysAvailable, err.Error()))
@@ -131,7 +133,7 @@ func (ps *ProxyServer) executeRequestWithRetry(
 		return
 	}
 
-	upstreamURL, err := channelHandler.BuildUpstreamURL(c.Request.URL, group)
+	upstreamURL, err := channelHandler.BuildUpstreamURL(c.Request.URL, group, upstreamID)
 	if err != nil {
 		response.Error(c, app_errors.NewAPIError(app_errors.ErrInternalServer, fmt.Sprintf("Failed to build upstream URL: %v", err)))
 		return

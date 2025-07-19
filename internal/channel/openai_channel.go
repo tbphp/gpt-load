@@ -9,6 +9,7 @@ import (
 	"gpt-load/internal/models"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -72,8 +73,16 @@ func (ch *OpenAIChannel) ExtractKey(c *gin.Context) string {
 }
 
 // ValidateKey checks if the given API key is valid by making a chat completion request.
-func (ch *OpenAIChannel) ValidateKey(ctx context.Context, key string) (bool, error) {
-	upstreamURL := ch.getUpstreamURL()
+func (ch *OpenAIChannel) ValidateKey(ctx context.Context, key *models.APIKey) (bool, error) {
+	// 1) If a specific upstream is selected, use it.
+	var upstreamURL *url.URL
+	if up := ch.findUpstreamByID(key.UpstreamFilter); up != nil {
+		upstreamURL = up.URL
+	}
+	// 2) Otherwise fall back to the regular weighted selection.
+	if upstreamURL == nil {
+		upstreamURL = ch.getUpstreamURL()
+	}
 	if upstreamURL == nil {
 		return false, fmt.Errorf("no upstream URL configured for channel %s", ch.Name)
 	}
@@ -97,7 +106,7 @@ func (ch *OpenAIChannel) ValidateKey(ctx context.Context, key string) (bool, err
 	if err != nil {
 		return false, fmt.Errorf("failed to create validation request: %w", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+key)
+	req.Header.Set("Authorization", "Bearer "+key.KeyValue)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := ch.HTTPClient.Do(req)

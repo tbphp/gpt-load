@@ -37,6 +37,7 @@ func isValidChannelType(channelType string) bool {
 
 // UpstreamDefinition defines the structure for an upstream in the request.
 type UpstreamDefinition struct {
+	ID     string `json:"id"`
 	URL    string `json:"url"`
 	Weight int    `json:"weight"`
 }
@@ -67,6 +68,9 @@ func validateAndCleanUpstreams(upstreams json.RawMessage) (datatypes.JSON, error
 		}
 		if defs[i].Weight <= 0 {
 			return nil, fmt.Errorf("upstream weight must be a positive integer")
+		}
+		if strings.TrimSpace(defs[i].ID) == "" {
+			defs[i].ID = fmt.Sprintf("%d", i+1)
 		}
 	}
 

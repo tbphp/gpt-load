@@ -12,7 +12,10 @@ import (
 // ChannelProxy defines the interface for different API channel proxies.
 type ChannelProxy interface {
 	// BuildUpstreamURL constructs the target URL for the upstream service.
-	BuildUpstreamURL(originalURL *url.URL, group *models.Group) (string, error)
+	BuildUpstreamURL(originalURL *url.URL, group *models.Group, upstreamID string) (string, error)
+
+	// GetSelectedUpstreamID returns the ID of the currently selected upstream.
+	GetSelectedUpstreamID() string
 
 	// IsConfigStale checks if the channel's configuration is stale compared to the provided group.
 	IsConfigStale(group *models.Group) bool
@@ -33,5 +36,5 @@ type ChannelProxy interface {
 	ExtractKey(c *gin.Context) string
 
 	// ValidateKey checks if the given API key is valid.
-	ValidateKey(ctx context.Context, key string) (bool, error)
+	ValidateKey(ctx context.Context, key *models.APIKey) (bool, error)
 }

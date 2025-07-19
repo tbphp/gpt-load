@@ -14,6 +14,7 @@ export interface APIKey {
   group_id: number;
   key_value: string;
   status: KeyStatus;
+  upstream_filter: string;
   request_count: number;
   failure_count: number;
   last_used_at?: string;
@@ -25,6 +26,7 @@ export interface APIKey {
 export type Key = APIKey;
 
 export interface UpstreamInfo {
+  id?: string;
   url: string;
   weight: number;
 }

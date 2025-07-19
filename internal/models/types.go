@@ -60,15 +60,16 @@ type Group struct {
 
 // APIKey 对应 api_keys 表
 type APIKey struct {
-	ID           uint       `gorm:"primaryKey;autoIncrement" json:"id"`
-	KeyValue     string     `gorm:"type:varchar(512);not null;uniqueIndex:idx_group_key" json:"key_value"`
-	GroupID      uint       `gorm:"not null;uniqueIndex:idx_group_key" json:"group_id"`
-	Status       string     `gorm:"type:varchar(50);not null;default:'active'" json:"status"`
-	RequestCount int64      `gorm:"not null;default:0" json:"request_count"`
-	FailureCount int64      `gorm:"not null;default:0" json:"failure_count"`
-	LastUsedAt   *time.Time `json:"last_used_at"`
-	CreatedAt    time.Time  `json:"created_at"`
-	UpdatedAt    time.Time  `json:"updated_at"`
+	ID             uint       `gorm:"primaryKey;autoIncrement" json:"id"`
+	KeyValue       string     `gorm:"type:varchar(512);not null;uniqueIndex:idx_group_key" json:"key_value"`
+	GroupID        uint       `gorm:"not null;uniqueIndex:idx_group_key" json:"group_id"`
+	Status         string     `gorm:"type:varchar(50);not null;default:'active'" json:"status"`
+	UpstreamFilter string     `gorm:"type:varchar(255);not null;default:'Default'" json:"upstream_filter"`
+	RequestCount   int64      `gorm:"not null;default:0" json:"request_count"`
+	FailureCount   int64      `gorm:"not null;default:0" json:"failure_count"`
+	LastUsedAt     *time.Time `json:"last_used_at"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
 }
 
 // RequestLog 对应 request_logs 表

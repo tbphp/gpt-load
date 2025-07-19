@@ -79,13 +79,20 @@ async function handleSubmit() {
         </n-button>
       </template>
 
-      <n-input
-        v-model:value="keysText"
-        type="textarea"
-        placeholder="输入密钥，每行一个"
-        :rows="8"
-        style="margin-top: 20px"
-      />
+      <div style="margin-top: 20px">
+        <n-input
+          v-model:value="keysText"
+          type="textarea"
+          placeholder="输入密钥，每行一个&#10;支持指定上游：上游ID@@密钥值&#10;例如：1@@sk-xxx 或 Default@@sk-xxx"
+          :rows="8"
+        />
+        <div style="margin-top: 8px; font-size: 12px; color: #999; line-height: 1.4">
+          <div>💡 <strong>使用提示：</strong></div>
+          <div>• 直接输入密钥：将使用默认上游</div>
+          <div>• 指定上游：使用格式 <code>上游ID@@密钥值</code></div>
+          <div>• 示例：<code>1@@sk-xxx</code> 或 <code>Default@@sk-xxx</code></div>
+        </div>
+      </div>
 
       <template #footer>
         <div style="display: flex; justify-content: flex-end; gap: 12px">

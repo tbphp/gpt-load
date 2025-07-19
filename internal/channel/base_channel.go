@@ -16,6 +16,7 @@ import (
 
 // UpstreamInfo holds the information for a single upstream server, including its weight.
 type UpstreamInfo struct {
+	ID            string
 	URL           *url.URL
 	Weight        int
 	CurrentWeight int
@@ -36,8 +37,8 @@ type BaseChannel struct {
 	effectiveConfig *types.SystemSettings
 }
 
-// getUpstreamURL selects an upstream URL using a smooth weighted round-robin algorithm.
-func (b *BaseChannel) getUpstreamURL() *url.URL {
+// getUpstreamInfo selects an upstream using a smooth weighted round-robin algorithm.
+func (b *BaseChannel) getUpstreamInfo() *UpstreamInfo {
 	b.upstreamLock.Lock()
 	defer b.upstreamLock.Unlock()
 
@@ -45,7 +46,7 @@ func (b *BaseChannel) getUpstreamURL() *url.URL {
 		return nil
 	}
 	if len(b.Upstreams) == 1 {
-		return b.Upstreams[0].URL
+		return &b.Upstreams[0]
 	}
 
 	totalWeight := 0
@@ -62,30 +63,68 @@ func (b *BaseChannel) getUpstreamURL() *url.URL {
 	}
 
 	if best == nil {
-		return b.Upstreams[0].URL // 降级到第一个可用的
+		return &b.Upstreams[0] // 降级到第一个可用的
 	}
 
 	best.CurrentWeight -= totalWeight
-	return best.URL
+	return best
+}
+
+// getUpstreamURL selects an upstream URL using a smooth weighted round-robin algorithm.
+func (b *BaseChannel) getUpstreamURL() *url.URL {
+	upstream := b.getUpstreamInfo()
+	if upstream == nil {
+		return nil
+	}
+	return upstream.URL
+}
+
+// findUpstreamByID returns the UpstreamInfo that matches the given ID or nil if not found.
+func (b *BaseChannel) findUpstreamByID(id string) *UpstreamInfo {
+	for i := range b.Upstreams {
+		if b.Upstreams[i].ID == id {
+			return &b.Upstreams[i]
+		}
+	}
+	return nil
 }
 
 // BuildUpstreamURL constructs the target URL for the upstream service.
-func (b *BaseChannel) BuildUpstreamURL(originalURL *url.URL, group *models.Group) (string, error) {
-	base := b.getUpstreamURL()
+func (b *BaseChannel) BuildUpstreamURL(originalURL *url.URL, group *models.Group, upstreamID string) (string, error) {
+	var base *url.URL
+
+	// 1) Prefer the explicitly‑requested upstream.
+	if upstreamID != "" && upstreamID != "Default" {
+		if up := b.findUpstreamByID(upstreamID); up != nil {
+			base = up.URL
+		}
+	}
+
+	// 2) Otherwise fall back to the regular weighted selection.
+	if base == nil {
+		base = b.getUpstreamURL()
+	}
 	if base == nil {
 		return "", fmt.Errorf("no upstream URL configured for channel %s", b.Name)
 	}
 
+	// 3) Reconstruct the final target URL.
 	finalURL := *base
 	proxyPrefix := "/proxy/" + group.Name
-	requestPath := originalURL.Path
-	requestPath = strings.TrimPrefix(requestPath, proxyPrefix)
-
+	requestPath := strings.TrimPrefix(originalURL.Path, proxyPrefix)
 	finalURL.Path = strings.TrimRight(finalURL.Path, "/") + requestPath
-
 	finalURL.RawQuery = originalURL.RawQuery
 
 	return finalURL.String(), nil
+}
+
+// GetSelectedUpstreamID returns the ID of the currently selected upstream.
+func (b *BaseChannel) GetSelectedUpstreamID() string {
+	upstream := b.getUpstreamInfo()
+	if upstream == nil {
+		return "Default"
+	}
+	return upstream.ID
 }
 
 // IsConfigStale checks if the channel's configuration is stale compared to the provided group.

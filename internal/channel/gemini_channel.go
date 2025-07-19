@@ -9,6 +9,7 @@ import (
 	"gpt-load/internal/models"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -39,7 +40,6 @@ func (ch *GeminiChannel) ModifyRequest(req *http.Request, apiKey *models.APIKey,
 	q.Set("key", apiKey.KeyValue)
 	req.URL.RawQuery = q.Encode()
 }
-
 
 // IsStreamRequest checks if the request is for a streaming response.
 func (ch *GeminiChannel) IsStreamRequest(c *gin.Context, bodyBytes []byte) bool {
@@ -75,13 +75,21 @@ func (ch *GeminiChannel) ExtractKey(c *gin.Context) string {
 }
 
 // ValidateKey checks if the given API key is valid by making a generateContent request.
-func (ch *GeminiChannel) ValidateKey(ctx context.Context, key string) (bool, error) {
-	upstreamURL := ch.getUpstreamURL()
+func (ch *GeminiChannel) ValidateKey(ctx context.Context, key *models.APIKey) (bool, error) {
+	// 1) If a specific upstream is selected, use it.
+	var upstreamURL *url.URL
+	if up := ch.findUpstreamByID(key.UpstreamFilter); up != nil {
+		upstreamURL = up.URL
+	}
+	// 2) Otherwise fall back to the regular weighted selection.
+	if upstreamURL == nil {
+		upstreamURL = ch.getUpstreamURL()
+	}
 	if upstreamURL == nil {
 		return false, fmt.Errorf("no upstream URL configured for channel %s", ch.Name)
 	}
 
-	reqURL := fmt.Sprintf("%s/v1beta/models/%s:generateContent?key=%s", upstreamURL.String(), ch.TestModel, key)
+	reqURL := fmt.Sprintf("%s/v1beta/models/%s:generateContent?key=%s", upstreamURL.String(), ch.TestModel, key.KeyValue)
 
 	payload := gin.H{
 		"contents": []gin.H{

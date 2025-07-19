@@ -48,6 +48,7 @@ type Store interface {
 	// LIST operations
 	LPush(key string, values ...any) error
 	LRem(key string, count int64, value any) error
+	LLen(key string) (int64, error)
 	Rotate(key string) (string, error)
 
 	// SET operations

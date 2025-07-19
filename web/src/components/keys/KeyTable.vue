@@ -23,6 +23,7 @@ import {
   NSelect,
   NSpace,
   NSpin,
+  NTag,
   useDialog,
   type MessageReactive,
 } from "naive-ui";
@@ -526,6 +527,19 @@ function resetPage() {
                 <span class="stat-item">
                   {{ key.last_used_at ? formatRelativeTime(key.last_used_at) : "未使用" }}
                 </span>
+                <span class="stat-item upstream-filter">
+                  <n-tag
+                    size="tiny"
+                    :type="key.upstream_filter === 'Default' ? 'default' : 'info'"
+                    :bordered="false"
+                  >
+                    {{
+                      key.upstream_filter === "Default"
+                        ? "上游ID: 默认"
+                        : `上游ID: ${key.upstream_filter}`
+                    }}
+                  </n-tag>
+                </span>
               </div>
               <n-button-group class="key-actions">
                 <n-button
@@ -774,8 +788,20 @@ function resetPage() {
 
 .keys-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
+}
+
+@media (max-width: 1200px) {
+  .keys-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 768px) {
+  .keys-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .key-card {
@@ -787,6 +813,8 @@ function resetPage() {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .key-card:hover {
@@ -835,20 +863,29 @@ function resetPage() {
 
 .key-stats {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   font-size: 11px;
   color: #6c757d;
   flex: 1;
   min-width: 0;
+  overflow: hidden;
 }
 
 .stat-item {
   white-space: nowrap;
+  flex-shrink: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .stat-item strong {
   color: #495057;
   font-weight: 600;
+}
+
+.stat-item.upstream-filter {
+  flex-shrink: 0;
+  margin-left: auto;
 }
 
 .key-actions {
