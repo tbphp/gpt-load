@@ -23,12 +23,13 @@ type SystemSettings struct {
 	RequestLogWriteIntervalMinutes int    `json:"request_log_write_interval_minutes" default:"1" name:"日志延迟写入周期（分钟）" category:"基础参数" desc:"请求日志从缓存写入数据库的周期（分钟），0为实时写入数据。" validate:"min=0"`
 
 	// 请求设置
-	RequestTimeout        int `json:"request_timeout" default:"600" name:"请求超时（秒）" category:"请求设置" desc:"转发请求的完整生命周期超时（秒）等。" validate:"min=1"`
-	ConnectTimeout        int `json:"connect_timeout" default:"15" name:"连接超时（秒）" category:"请求设置" desc:"与上游服务建立新连接的超时时间（秒）。" validate:"min=1"`
-	IdleConnTimeout       int `json:"idle_conn_timeout" default:"120" name:"空闲连接超时（秒）" category:"请求设置" desc:"HTTP 客户端中空闲连接的超时时间（秒）。" validate:"min=1"`
-	ResponseHeaderTimeout int `json:"response_header_timeout" default:"600" name:"响应头超时（秒）" category:"请求设置" desc:"等待上游服务响应头的最长时间（秒）。" validate:"min=1"`
-	MaxIdleConns          int `json:"max_idle_conns" default:"100" name:"最大空闲连接数" category:"请求设置" desc:"HTTP 客户端连接池中允许的最大空闲连接总数。" validate:"min=1"`
-	MaxIdleConnsPerHost   int `json:"max_idle_conns_per_host" default:"50" name:"每主机最大空闲连接数" category:"请求设置" desc:"HTTP 客户端连接池对每个上游主机允许的最大空闲连接数。" validate:"min=1"`
+	RequestTimeout        int    `json:"request_timeout" default:"600" name:"请求超时（秒）" category:"请求设置" desc:"转发请求的完整生命周期超时（秒）等。" validate:"min=1"`
+	ConnectTimeout        int    `json:"connect_timeout" default:"15" name:"连接超时（秒）" category:"请求设置" desc:"与上游服务建立新连接的超时时间（秒）。" validate:"min=1"`
+	IdleConnTimeout       int    `json:"idle_conn_timeout" default:"120" name:"空闲连接超时（秒）" category:"请求设置" desc:"HTTP 客户端中空闲连接的超时时间（秒）。" validate:"min=1"`
+	ResponseHeaderTimeout int    `json:"response_header_timeout" default:"600" name:"响应头超时（秒）" category:"请求设置" desc:"等待上游服务响应头的最长时间（秒）。" validate:"min=1"`
+	MaxIdleConns          int    `json:"max_idle_conns" default:"100" name:"最大空闲连接数" category:"请求设置" desc:"HTTP 客户端连接池中允许的最大空闲连接总数。" validate:"min=1"`
+	MaxIdleConnsPerHost   int    `json:"max_idle_conns_per_host" default:"50" name:"每主机最大空闲连接数" category:"请求设置" desc:"HTTP 客户端连接池对每个上游主机允许的最大空闲连接数。" validate:"min=1"`
+	Proxy                 string `json:"proxy" optional:"true" default:"" name:"代理服务器" category:"请求设置" desc:"请求代理服务器地址，留空则使用环境变量代理。"`
 
 	// 密钥配置
 	MaxRetries                   int `json:"max_retries" default:"3" name:"最大重试次数" category:"密钥配置" desc:"单个请求使用不同 Key 的最大重试次数，0为不重试。" validate:"min=0"`

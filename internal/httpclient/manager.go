@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"sync"
 	"time"
 )
@@ -23,6 +24,7 @@ type Config struct {
 	ForceAttemptHTTP2     bool
 	TLSHandshakeTimeout   time.Duration
 	ExpectContinueTimeout time.Duration
+	Proxy                 string
 }
 
 // HTTPClientManager manages the lifecycle of HTTP clients.
@@ -64,8 +66,23 @@ func (m *HTTPClientManager) GetClient(config *Config) *http.Client {
 	}
 
 	// Create a new transport and client with the specified configuration.
+	var proxyFunc func(*http.Request) (*url.URL, error)
+	if config.Proxy != "" {
+		proxyURL, err := url.Parse(config.Proxy)
+		if err != nil {
+			// If proxy URL is invalid, fall back to environment proxy
+			proxyFunc = http.ProxyFromEnvironment
+		} else {
+			proxyFunc = func(req *http.Request) (*url.URL, error) {
+				return proxyURL, nil
+			}
+		}
+	} else {
+		proxyFunc = http.ProxyFromEnvironment
+	}
+
 	transport := &http.Transport{
-		Proxy: http.ProxyFromEnvironment,
+		Proxy: proxyFunc,
 		DialContext: (&net.Dialer{
 			Timeout:   config.ConnectTimeout,
 			KeepAlive: 30 * time.Second,
@@ -94,7 +111,7 @@ func (m *HTTPClientManager) GetClient(config *Config) *http.Client {
 // getFingerprint generates a unique string representation of the client configuration.
 func (c *Config) getFingerprint() string {
 	return fmt.Sprintf(
-		"ct:%.0fs|rt:%.0fs|it:%.0fs|mic:%d|mich:%d|rht:%.0fs|dc:%t|wbs:%d|rbs:%d|fh2:%t|tlst:%.0fs|ect:%.0fs",
+		"ct:%.0fs|rt:%.0fs|it:%.0fs|mic:%d|mich:%d|rht:%.0fs|dc:%t|wbs:%d|rbs:%d|fh2:%t|tlst:%.0fs|ect:%.0fs|proxy:%s",
 		c.ConnectTimeout.Seconds(),
 		c.RequestTimeout.Seconds(),
 		c.IdleConnTimeout.Seconds(),
@@ -107,5 +124,6 @@ func (c *Config) getFingerprint() string {
 		c.ForceAttemptHTTP2,
 		c.TLSHandshakeTimeout.Seconds(),
 		c.ExpectContinueTimeout.Seconds(),
+		c.Proxy,
 	)
 }

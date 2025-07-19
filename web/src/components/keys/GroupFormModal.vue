@@ -32,7 +32,7 @@ interface Emits {
 // 配置项类型
 interface ConfigItem {
   key: string;
-  value: number;
+  value: number | string;
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -164,7 +164,7 @@ function loadGroupData() {
 
   const configItems = Object.entries(props.group.config || {}).map(([key, value]) => ({
     key,
-    value: Number(value) || 0,
+    value,
   }));
   Object.assign(formData, {
     name: props.group.name || "",
@@ -230,7 +230,7 @@ function removeConfigItem(index: number) {
 function handleConfigKeyChange(index: number, key: string) {
   const option = configOptions.value.find(opt => opt.key === key);
   if (option) {
-    formData.configItems[index].value = option.default_value || 0;
+    formData.configItems[index].value = option.default_value;
   }
 }
 
@@ -262,7 +262,7 @@ async function handleSubmit() {
     }
 
     // 将configItems转换为config对象
-    const config: Record<string, number> = {};
+    const config: Record<string, number | string> = {};
     formData.configItems.forEach((item: ConfigItem) => {
       if (item.key && item.key.trim()) {
         config[item.key] = item.value;
@@ -465,8 +465,18 @@ async function handleSubmit() {
                         @update:value="value => handleConfigKeyChange(index, value)"
                         clearable
                       />
+                      <n-input
+                        v-if="
+                          typeof configOptions.find(opt => opt.key === configItem.key)
+                            ?.default_value === 'string'
+                        "
+                        v-model:value="configItem.value as string"
+                        placeholder="参数值"
+                        style="width: 180px; margin-left: 15px"
+                      />
                       <n-input-number
-                        v-model:value="configItem.value"
+                        v-else
+                        v-model:value="configItem.value as number"
                         placeholder="参数值"
                         style="width: 180px; margin-left: 15px"
                         :precision="0"

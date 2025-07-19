@@ -76,7 +76,7 @@ async function handleSubmit() {
             <n-grid-item v-for="item in category.settings" :key="item.key">
               <n-form-item
                 :path="item.key"
-                :rule="{ required: true, message: `请输入 ${item.name}` }"
+                :rule="{ required: !item.optional, message: `请输入 ${item.name}` }"
               >
                 <template #label>
                   <n-space align="center" :size="4" :wrap-item="false">

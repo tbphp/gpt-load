@@ -117,6 +117,7 @@ func (f *Factory) newBaseChannel(name string, group *models.Group) (*BaseChannel
 		MaxIdleConns:          group.EffectiveConfig.MaxIdleConns,
 		MaxIdleConnsPerHost:   group.EffectiveConfig.MaxIdleConnsPerHost,
 		ResponseHeaderTimeout: time.Duration(group.EffectiveConfig.ResponseHeaderTimeout) * time.Second,
+		Proxy:                 group.EffectiveConfig.Proxy,
 		DisableCompression:    false,
 		WriteBufferSize:       32 * 1024,
 		ReadBufferSize:        32 * 1024,

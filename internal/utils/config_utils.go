@@ -32,6 +32,7 @@ func GenerateSettingsMetadata(s *types.SystemSettings) []models.SystemSettingInf
 		defaultTag := field.Tag.Get("default")
 		validateTag := field.Tag.Get("validate")
 		categoryTag := field.Tag.Get("category")
+		optionalTag := field.Tag.Get("optional")
 
 		var minValue *int
 		if strings.HasPrefix(validateTag, "min=") {
@@ -50,6 +51,7 @@ func GenerateSettingsMetadata(s *types.SystemSettings) []models.SystemSettingInf
 			Description:  descTag,
 			Category:     categoryTag,
 			MinValue:     minValue,
+			Optional:     optionalTag == "true",
 		}
 		settingsInfo = append(settingsInfo, info)
 	}

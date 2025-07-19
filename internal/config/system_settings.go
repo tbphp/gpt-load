@@ -320,21 +320,31 @@ func (sm *SystemSettingsManager) ValidateGroupConfigOverrides(configMap map[stri
 
 		validateTag := field.Tag.Get("validate")
 
-		floatVal, isFloat := value.(float64)
-		if !isFloat {
-			continue
-		}
-		intVal := int(floatVal)
-		if floatVal != float64(intVal) {
-			return fmt.Errorf("invalid value for %s: must be an integer", key)
-		}
-
-		if strings.HasPrefix(validateTag, "min=") {
-			minValStr := strings.TrimPrefix(validateTag, "min=")
-			minVal, _ := strconv.Atoi(minValStr)
-			if intVal < minVal {
-				return fmt.Errorf("value for %s (%d) is below minimum value (%d)", key, intVal, minVal)
+		switch field.Type.Kind() {
+		case reflect.Int:
+			floatVal, isFloat := value.(float64)
+			if !isFloat {
+				continue
 			}
+			intVal := int(floatVal)
+			if floatVal != float64(intVal) {
+				return fmt.Errorf("invalid value for %s: must be an integer", key)
+			}
+
+			if strings.HasPrefix(validateTag, "min=") {
+				minValStr := strings.TrimPrefix(validateTag, "min=")
+				minVal, _ := strconv.Atoi(minValStr)
+				if intVal < minVal {
+					return fmt.Errorf("value for %s (%d) is below minimum value (%d)", key, intVal, minVal)
+				}
+			}
+		case reflect.String:
+			if _, ok := value.(string); !ok {
+				return fmt.Errorf("invalid value for %s: must be a string", key)
+			}
+		default:
+			// Skip other types for now
+			continue
 		}
 	}
 
@@ -357,6 +367,7 @@ func (sm *SystemSettingsManager) DisplaySystemConfig(settings types.SystemSettin
 	logrus.Infof("    Idle Connection Timeout: %d seconds", settings.IdleConnTimeout)
 	logrus.Infof("    Max Idle Connections: %d", settings.MaxIdleConns)
 	logrus.Infof("    Max Idle Connections Per Host: %d", settings.MaxIdleConnsPerHost)
+	logrus.Infof("    Proxy: %s", settings.Proxy)
 
 	logrus.Info("  --- Key & Group Behavior ---")
 	logrus.Infof("    Max Retries: %d", settings.MaxRetries)

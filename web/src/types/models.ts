@@ -50,7 +50,7 @@ export interface GroupConfigOption {
   key: string;
   name: string;
   description: string;
-  default_value: number;
+  default_value: number | string;
 }
 
 // GroupStatsResponse defines the complete statistics for a group.

@@ -211,14 +211,15 @@ Dynamic configuration is stored in the database and supports real-time modificat
 
 #### Request Settings
 
-| Setting                       | Field Name                | Default | Group Override | Description                                                         |
-| ----------------------------- | ------------------------- | ------- | -------------- | ------------------------------------------------------------------- |
-| Request Timeout               | `request_timeout`         | 600     | ✅             | Forward request complete lifecycle timeout (seconds)                |
-| Connection Timeout            | `connect_timeout`         | 15      | ✅             | Timeout for establishing connection with upstream service (seconds) |
-| Idle Connection Timeout       | `idle_conn_timeout`       | 120     | ✅             | HTTP client idle connection timeout (seconds)                       |
-| Response Header Timeout       | `response_header_timeout` | 600     | ✅             | Timeout for waiting upstream response headers (seconds)             |
-| Max Idle Connections          | `max_idle_conns`          | 100     | ✅             | Connection pool maximum total idle connections                      |
-| Max Idle Connections Per Host | `max_idle_conns_per_host` | 50      | ✅             | Maximum idle connections per upstream host                          |
+| Setting                       | Field Name                | Default | Group Override | Description                                                                 |
+| ----------------------------- | ------------------------- | ------- | -------------- | --------------------------------------------------------------------------- |
+| Request Timeout               | `request_timeout`         | 600     | ✅             | Forward request complete lifecycle timeout (seconds)                        |
+| Connection Timeout            | `connect_timeout`         | 15      | ✅             | Timeout for establishing connection with upstream service (seconds)         |
+| Idle Connection Timeout       | `idle_conn_timeout`       | 120     | ✅             | HTTP client idle connection timeout (seconds)                               |
+| Response Header Timeout       | `response_header_timeout` | 600     | ✅             | Timeout for waiting upstream response headers (seconds)                     |
+| Max Idle Connections          | `max_idle_conns`          | 100     | ✅             | Connection pool maximum total idle connections                              |
+| Max Idle Connections Per Host | `max_idle_conns_per_host` | 50      | ✅             | Maximum idle connections per upstream host                                  |
+| Proxy Server                  | `proxy`                   | -       | ✅             | Request proxy server address, leave empty to use environment variable proxy |
 
 #### Key Configuration
 
