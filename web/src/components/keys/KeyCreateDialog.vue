@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { keysApi } from "@/api/keys";
+import { appState } from "@/utils/app-state";
 import { Close } from "@vicons/ionicons5";
 import { NButton, NCard, NInput, NModal } from "naive-ui";
 import { ref, watch } from "vue";
@@ -51,10 +52,11 @@ async function handleSubmit() {
   try {
     loading.value = true;
 
-    await keysApi.addMultipleKeys(props.groupId, keysText.value);
-
-    emit("success");
+    await keysApi.addKeysAsync(props.groupId, keysText.value);
+    resetForm();
     handleClose();
+    window.$message.success("密钥导入任务已开始，请稍后在下方查看进度。");
+    appState.taskPollingTrigger++;
   } finally {
     loading.value = false;
   }

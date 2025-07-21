@@ -5,7 +5,7 @@ import { appState } from "@/utils/app-state";
 import { NButton, NCard, NProgress, NText, useMessage } from "naive-ui";
 import { onBeforeUnmount, onMounted, ref, watch } from "vue";
 
-const taskInfo = ref<TaskInfo>({ is_running: false });
+const taskInfo = ref<TaskInfo>({ is_running: false, task_type: "KEY_VALIDATION" });
 const visible = ref(false);
 let pollTimer: number | null = null;
 let isPolling = false; // 添加标志位
@@ -46,8 +46,15 @@ async function pollOnce() {
       if (task.result) {
         const lastTask = localStorage.getItem("last_closed_task");
         if (lastTask !== task.finished_at) {
-          const { total_keys, valid_keys, invalid_keys } = task.result;
-          const msg = `任务已完成，处理了 ${total_keys} 个密钥，其中 ${valid_keys} 个有效密钥，${invalid_keys} 个无效密钥。`;
+          let msg = "任务已完成。";
+          if (task.task_type === "KEY_VALIDATION") {
+            const result = task.result as import("@/types/models").KeyValidationResult;
+            msg = `密钥验证完成，处理了 ${result.total_keys} 个密钥，其中 ${result.valid_keys} 个有效，${result.invalid_keys} 个无效。`;
+          } else if (task.task_type === "KEY_IMPORT") {
+            const result = task.result as import("@/types/models").KeyImportResult;
+            msg = `密钥导入完成，成功添加 ${result.added_count} 个密钥，忽略了 ${result.ignored_count} 个。`;
+          }
+
           message.info(msg, {
             closable: true,
             duration: 0,
@@ -92,6 +99,20 @@ function getProgressText(): string {
 function handleClose() {
   visible.value = false;
 }
+
+function getTaskTitle(): string {
+  if (!taskInfo.value) {
+    return "正在处理任务...";
+  }
+  switch (taskInfo.value.task_type) {
+    case "KEY_VALIDATION":
+      return `正在验证分组 [${taskInfo.value.group_name}] 的密钥`;
+    case "KEY_IMPORT":
+      return `正在向分组 [${taskInfo.value.group_name}] 导入密钥`;
+    default:
+      return "正在处理任务...";
+  }
+}
 </script>
 
 <template>
@@ -102,7 +123,7 @@ function handleClose() {
           <span class="progress-icon">⚡</span>
           <div class="progress-details">
             <n-text strong class="progress-title">
-              正在处理分组 {{ taskInfo.group_name }} 的任务
+              {{ getTaskTitle() }}
             </n-text>
             <n-text depth="3" class="progress-subtitle">
               {{ getProgressText() }} ({{ getProgressPercentage() }}%)

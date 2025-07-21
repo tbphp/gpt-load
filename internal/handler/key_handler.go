@@ -34,10 +34,6 @@ func validateKeysText(keysText string) error {
 		return fmt.Errorf("keys text cannot be empty")
 	}
 
-	if len(keysText) > 10*1024*1024 {
-		return fmt.Errorf("keys text is too large (max 10MB)")
-	}
-
 	return nil
 }
 
@@ -96,6 +92,33 @@ func (s *Server) AddMultipleKeys(c *gin.Context) {
 	}
 
 	response.Success(c, result)
+}
+
+// AddMultipleKeysAsync handles creating new keys from a text block within a specific group.
+func (s *Server) AddMultipleKeysAsync(c *gin.Context) {
+	var req KeyTextRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, app_errors.NewAPIError(app_errors.ErrInvalidJSON, err.Error()))
+		return
+	}
+
+	group, ok := s.findGroupByID(c, req.GroupID)
+	if !ok {
+		return
+	}
+
+	if err := validateKeysText(req.KeysText); err != nil {
+		response.Error(c, app_errors.NewAPIError(app_errors.ErrValidation, err.Error()))
+		return
+	}
+
+	taskStatus, err := s.KeyImportService.StartImportTask(group, req.KeysText)
+	if err != nil {
+		response.Error(c, app_errors.NewAPIError(app_errors.ErrTaskInProgress, err.Error()))
+		return
+	}
+
+	response.Success(c, taskStatus)
 }
 
 // ListKeysInGroup handles listing all keys within a specific group with pagination.

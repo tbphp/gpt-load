@@ -53,7 +53,7 @@ func (s *KeyManualValidationService) StartValidationTask(group *models.Group) (*
 
 	timeout := 30 * time.Minute
 
-	taskStatus, err := s.TaskService.StartTask(group.Name, len(keys), timeout)
+	taskStatus, err := s.TaskService.StartTask(TaskTypeKeyValidation, group.Name, len(keys), timeout)
 	if err != nil {
 		return nil, err
 	}

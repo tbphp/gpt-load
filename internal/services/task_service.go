@@ -9,12 +9,18 @@ import (
 )
 
 const (
-	globalTaskKey = "global_task:key_validation"
-	ResultTTL = 60 * time.Minute
+	globalTaskKey = "global_task"
+	ResultTTL     = 60 * time.Minute
+)
+
+const (
+	TaskTypeKeyValidation = "KEY_VALIDATION"
+	TaskTypeKeyImport     = "KEY_IMPORT"
 )
 
 // TaskStatus represents the full lifecycle of a long-running task.
 type TaskStatus struct {
+	TaskType        string     `json:"task_type"`
 	IsRunning       bool       `json:"is_running"`
 	GroupName       string     `json:"group_name,omitempty"`
 	Processed       int        `json:"processed"`
@@ -39,7 +45,7 @@ func NewTaskService(store store.Store) *TaskService {
 }
 
 // StartTask attempts to start a new task. It returns an error if a task is already running.
-func (s *TaskService) StartTask(groupName string, total int, timeout time.Duration) (*TaskStatus, error) {
+func (s *TaskService) StartTask(taskType, groupName string, total int, timeout time.Duration) (*TaskStatus, error) {
 	currentStatus, err := s.GetTaskStatus()
 	if err != nil {
 		return nil, fmt.Errorf("failed to check current task status before starting a new one: %w", err)
@@ -50,6 +56,7 @@ func (s *TaskService) StartTask(groupName string, total int, timeout time.Durati
 	}
 
 	status := &TaskStatus{
+		TaskType:  taskType,
 		IsRunning: true,
 		GroupName: groupName,
 		Total:     total,

@@ -12,7 +12,7 @@
 
 ## 功能特性
 
-- **透明代理**: 完全保留原生 API 格式，支持 OpenAI 和 Google Gemini 等多种格式（持续扩展中）
+- **透明代理**: 完全保留原生 API 格式，支持 OpenAI、Google Gemini 和 Anthropic Claude 等多种格式（持续扩展中）
 - **智能密钥管理**: 高性能密钥池，支持分组管理、自动轮换和故障恢复
 - **负载均衡**: 支持多上游端点的加权负载均衡，提升服务可用性
 - **智能故障处理**: 自动密钥黑名单管理和恢复机制，确保服务连续性
@@ -29,6 +29,7 @@ GPT-Load 作为透明代理服务，完整保留各 AI 服务商的原生 API �
 
 - **OpenAI 格式**: 官方 OpenAI API、Azure OpenAI、以及其他 OpenAI 兼容服务
 - **Google Gemini 格式**: Gemini Pro、Gemini Pro Vision 等模型的原生 API
+- **Anthropic Claude 格式**: Claude 系列模型，支持高质量的对话和文本生成
 - **扩展性**: 插件化架构设计，可快速集成新的 AI 服务提供商及其原生格式
 
 ## 快速开始
@@ -327,7 +328,36 @@ curl -X POST http://localhost:3001/proxy/gemini/v1beta/models/gemini-2.5-pro:gen
 - 将 `https://generativelanguage.googleapis.com` 替换为 `http://localhost:3001/proxy/gemini`
 - 将 URL 参数中的 `key=your-gemini-key` 替换为统一认证密钥 `sk-123456`（默认值）
 
-#### 5. 支持的接口
+#### 5. Anthropic 接口调用示例
+
+假设创建了名为 `anthropic` 的分组：
+
+**原始调用方式：**
+
+```bash
+curl -X POST https://api.anthropic.com/v1/messages \
+  -H "x-api-key: sk-ant-api03-your-anthropic-key" \
+  -H "anthropic-version: 2023-06-01" \
+  -H "Content-Type: application/json" \
+  -d '{"model": "claude-sonnet-4-20250514", "messages": [{"role": "user", "content": "Hello"}]}'
+```
+
+**代理调用方式：**
+
+```bash
+curl -X POST http://localhost:3001/proxy/anthropic/v1/messages \
+  -H "x-api-key: sk-123456" \
+  -H "anthropic-version: 2023-06-01" \
+  -H "Content-Type: application/json" \
+  -d '{"model": "claude-sonnet-4-20250514", "messages": [{"role": "user", "content": "Hello"}]}'
+```
+
+**变更说明：**
+
+- 将 `https://api.anthropic.com` 替换为 `http://localhost:3001/proxy/anthropic`
+- 将 `x-api-key` 头部中的原始 API Key 替换为统一认证密钥 `sk-123456`（默认值）
+
+#### 6. 支持的接口
 
 **OpenAI 格式：**
 
@@ -343,7 +373,13 @@ curl -X POST http://localhost:3001/proxy/gemini/v1beta/models/gemini-2.5-pro:gen
 - `/v1beta/models` - 模型列表
 - 以及其他所有 Gemini 原生接口
 
-#### 6. 客户端 SDK 配置
+**Anthropic 格式：**
+
+- `/v1/messages` - 消息对话
+- `/v1/models` - 模型列表（如果可用）
+- 以及其他所有 Anthropic 原生接口
+
+#### 7. 客户端 SDK 配置
 
 **OpenAI Python SDK：**
 
@@ -374,6 +410,22 @@ genai.configure(
 
 model = genai.GenerativeModel('gemini-2.5-pro')
 response = model.generate_content("Hello")
+```
+
+**Anthropic SDK (Python)：**
+
+```python
+from anthropic import Anthropic
+
+client = Anthropic(
+    api_key="sk-123456",  # 使用统一认证密钥
+    base_url="http://localhost:3001/proxy/anthropic"  # 使用代理端点
+)
+
+response = client.messages.create(
+    model="claude-sonnet-4-20250514",
+    messages=[{"role": "user", "content": "Hello"}]
+)
 ```
 
 > **重要提示**：作为透明代理服务，GPT-Load 完全保留各 AI 服务的原生 API 格式和认证方式，仅需要替换端点地址并使用统一密钥值即可无缝迁移。

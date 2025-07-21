@@ -17,7 +17,7 @@ import {
   useMessage,
   type FormRules,
 } from "naive-ui";
-import { reactive, ref, watch } from "vue";
+import { computed, reactive, ref, watch } from "vue";
 
 interface Props {
   show: boolean;
@@ -51,7 +51,7 @@ interface GroupFormData {
   display_name: string;
   description: string;
   upstreams: UpstreamInfo[];
-  channel_type: "openai" | "gemini";
+  channel_type: "openai" | "gemini" | "anthropic";
   sort: number;
   test_model: string;
   param_overrides: string;
@@ -82,6 +82,33 @@ const channelTypeOptions = ref<{ label: string; value: string }[]>([]);
 const configOptions = ref<GroupConfigOption[]>([]);
 const channelTypesFetched = ref(false);
 const configOptionsFetched = ref(false);
+
+// 根据渠道类型动态生成占位符提示
+const testModelPlaceholder = computed(() => {
+  switch (formData.channel_type) {
+    case "openai":
+      return "如：gpt-4.1-nano";
+    case "gemini":
+      return "如：gemini-2.0-flash-lite";
+    case "anthropic":
+      return "如：claude-3-haiku-20240307";
+    default:
+      return "请输入模型名称";
+  }
+});
+
+const upstreamPlaceholder = computed(() => {
+  switch (formData.channel_type) {
+    case "openai":
+      return "https://api.openai.com";
+    case "gemini":
+      return "https://generativelanguage.googleapis.com";
+    case "anthropic":
+      return "https://api.anthropic.com";
+    default:
+      return "请输入上游地址";
+  }
+});
 
 // 表单验证规则
 const rules: FormRules = {
@@ -330,10 +357,7 @@ async function handleSubmit() {
           <h4 class="section-title">基础信息</h4>
 
           <n-form-item label="分组名称" path="name">
-            <n-input
-              v-model:value="formData.name"
-              placeholder="作为路由的一部分，如：gemini-pro-group"
-            />
+            <n-input v-model:value="formData.name" placeholder="作为路由的一部分，如：gemini" />
           </n-form-item>
 
           <n-form-item label="显示名称" path="display_name">
@@ -349,7 +373,7 @@ async function handleSubmit() {
           </n-form-item>
 
           <n-form-item label="测试模型" path="test_model">
-            <n-input v-model:value="formData.test_model" placeholder="如：gpt-3.5-turbo" />
+            <n-input v-model:value="formData.test_model" :placeholder="testModelPlaceholder" />
           </n-form-item>
 
           <n-form-item label="排序" path="sort">
@@ -390,7 +414,7 @@ async function handleSubmit() {
             <div class="flex items-center gap-2" style="width: 100%">
               <n-input
                 v-model:value="upstream.url"
-                placeholder="https://api.openai.com"
+                :placeholder="upstreamPlaceholder"
                 style="flex: 1"
               />
               <span class="form-label">权重</span>

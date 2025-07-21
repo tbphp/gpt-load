@@ -36,7 +36,7 @@ export interface Group {
   description: string;
   sort: number;
   test_model: string;
-  channel_type: "openai" | "gemini";
+  channel_type: "openai" | "gemini" | "anthropic";
   upstreams: UpstreamInfo[];
   config: Record<string, unknown>;
   api_keys?: APIKey[];
@@ -75,18 +75,29 @@ export interface RequestStats {
   failure_rate: number;
 }
 
+export type TaskType = "KEY_VALIDATION" | "KEY_IMPORT";
+
+export interface KeyValidationResult {
+  invalid_keys: number;
+  total_keys: number;
+  valid_keys: number;
+}
+
+export interface KeyImportResult {
+  added_count: number;
+  ignored_count: number;
+}
+
 export interface TaskInfo {
+  task_type: TaskType;
   is_running: boolean;
   group_name?: string;
   processed?: number;
   total?: number;
   started_at?: string;
   finished_at?: string;
-  result?: {
-    invalid_keys: number;
-    total_keys: number;
-    valid_keys: number;
-  };
+  result?: KeyValidationResult | KeyImportResult;
+  error?: string;
 }
 
 // Based on backend response

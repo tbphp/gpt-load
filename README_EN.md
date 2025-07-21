@@ -12,7 +12,7 @@ For detailed documentation, please visit [Official Documentation](https://www.gp
 
 ## Features
 
-- **Transparent Proxy**: Complete preservation of native API formats, supporting OpenAI and Google Gemini among other formats (continuously expanding)
+- **Transparent Proxy**: Complete preservation of native API formats, supporting OpenAI, Google Gemini, and Anthropic Claude among other formats (continuously expanding)
 - **Intelligent Key Management**: High-performance key pool with group-based management, automatic rotation, and failure recovery
 - **Load Balancing**: Weighted load balancing across multiple upstream endpoints to enhance service availability
 - **Smart Failure Handling**: Automatic key blacklist management and recovery mechanisms to ensure service continuity
@@ -29,6 +29,7 @@ GPT-Load serves as a transparent proxy service, completely preserving the native
 
 - **OpenAI Format**: Official OpenAI API, Azure OpenAI, and other OpenAI-compatible services
 - **Google Gemini Format**: Native APIs for Gemini Pro, Gemini Pro Vision, and other models
+- **Anthropic Claude Format**: Claude series models, supporting high-quality conversations and text generation
 - **Extensibility**: Plugin-based architecture design for rapid integration of new AI service providers and their native formats
 
 ## Quick Start
@@ -327,7 +328,36 @@ curl -X POST http://localhost:3001/proxy/gemini/v1beta/models/gemini-2.5-pro:gen
 - Replace `https://generativelanguage.googleapis.com` with `http://localhost:3001/proxy/gemini`
 - Replace `key=your-gemini-key` in URL parameter with unified authentication key `sk-123456` (default value)
 
-#### 5. Supported Interfaces
+#### 5. Anthropic Interface Example
+
+Assuming a group named `anthropic` was created:
+
+**Original invocation:**
+
+```bash
+curl -X POST https://api.anthropic.com/v1/messages \
+  -H "x-api-key: sk-ant-api03-your-anthropic-key" \
+  -H "anthropic-version: 2023-06-01" \
+  -H "Content-Type: application/json" \
+  -d '{"model": "claude-sonnet-4-20250514", "messages": [{"role": "user", "content": "Hello"}]}'
+```
+
+**Proxy invocation:**
+
+```bash
+curl -X POST http://localhost:3001/proxy/anthropic/v1/messages \
+  -H "x-api-key: sk-123456" \
+  -H "anthropic-version: 2023-06-01" \
+  -H "Content-Type: application/json" \
+  -d '{"model": "claude-sonnet-4-20250514", "messages": [{"role": "user", "content": "Hello"}]}'
+```
+
+**Changes required:**
+
+- Replace `https://api.anthropic.com` with `http://localhost:3001/proxy/anthropic`
+- Replace the original API Key in `x-api-key` header with unified authentication key `sk-123456` (default value)
+
+#### 6. Supported Interfaces
 
 **OpenAI Format:**
 
@@ -343,7 +373,13 @@ curl -X POST http://localhost:3001/proxy/gemini/v1beta/models/gemini-2.5-pro:gen
 - `/v1beta/models` - Model list
 - And all other Gemini native interfaces
 
-#### 6. Client SDK Configuration
+**Anthropic Format:**
+
+- `/v1/messages` - Message conversations
+- `/v1/models` - Model list (if available)
+- And all other Anthropic native interfaces
+
+#### 7. Client SDK Configuration
 
 **OpenAI Python SDK:**
 
@@ -374,6 +410,22 @@ genai.configure(
 
 model = genai.GenerativeModel('gemini-2.5-pro')
 response = model.generate_content("Hello")
+```
+
+**Anthropic SDK (Python):**
+
+```python
+from anthropic import Anthropic
+
+client = Anthropic(
+    api_key="sk-123456",  # Use unified authentication key
+    base_url="http://localhost:3001/proxy/anthropic"  # Use proxy endpoint
+)
+
+response = client.messages.create(
+    model="claude-sonnet-4-20250514",
+    messages=[{"role": "user", "content": "Hello"}]
+)
 ```
 
 > **Important Note**: As a transparent proxy service, GPT-Load completely preserves the native API formats and authentication methods of various AI services. You only need to replace the endpoint address and use the unified key value for seamless migration.

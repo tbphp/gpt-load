@@ -23,6 +23,7 @@ type Server struct {
 	KeyManualValidationService *services.KeyManualValidationService
 	TaskService                *services.TaskService
 	KeyService                 *services.KeyService
+	KeyImportService           *services.KeyImportService
 	LogService                 *services.LogService
 	CommonHandler              *CommonHandler
 }
@@ -37,6 +38,7 @@ type NewServerParams struct {
 	KeyManualValidationService *services.KeyManualValidationService
 	TaskService                *services.TaskService
 	KeyService                 *services.KeyService
+	KeyImportService           *services.KeyImportService
 	LogService                 *services.LogService
 	CommonHandler              *CommonHandler
 }
@@ -51,6 +53,7 @@ func NewServer(params NewServerParams) *Server {
 		KeyManualValidationService: params.KeyManualValidationService,
 		TaskService:                params.TaskService,
 		KeyService:                 params.KeyService,
+		KeyImportService:           params.KeyImportService,
 		LogService:                 params.LogService,
 		CommonHandler:              params.CommonHandler,
 	}

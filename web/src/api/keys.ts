@@ -62,7 +62,7 @@ export const keysApi = {
     return res.data;
   },
 
-  // 批量添加密钥
+  // 批量添加密钥-已弃用
   async addMultipleKeys(
     group_id: number,
     keys_text: string
@@ -72,6 +72,15 @@ export const keysApi = {
     total_in_group: number;
   }> {
     const res = await http.post("/keys/add-multiple", {
+      group_id,
+      keys_text,
+    });
+    return res.data;
+  },
+
+  // 异步批量添加密钥
+  async addKeysAsync(group_id: number, keys_text: string): Promise<TaskInfo> {
+    const res = await http.post("/keys/add-async", {
       group_id,
       keys_text,
     });

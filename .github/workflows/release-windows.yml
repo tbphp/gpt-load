@@ -1,0 +1,46 @@
+name: Release Windows Build
+permissions:
+  contents: write
+
+on:
+  push:
+    tags:
+      - "*"
+jobs:
+  release:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20.x"
+          cache: "npm"
+          cache-dependency-path: "web/package-lock.json"
+      - name: Build Frontend
+        run: npm install && VITE_VERSION=${{ github.ref_name }} npm run build
+        working-directory: ./web
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.23.x"
+      - name: Build Backend
+        run: |
+          go mod download
+          go build -ldflags "-s -w -X gpt-load/internal/version.Version=${{ github.ref_name }}" -o gpt-load.exe
+      - name: Release
+        uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: |
+            gpt-load.exe
+          draft: true
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

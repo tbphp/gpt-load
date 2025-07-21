@@ -55,8 +55,8 @@ func NewKeyService(db *gorm.DB, keyProvider *keypool.KeyProvider, keyValidator *
 }
 
 // AddMultipleKeys handles the business logic of creating new keys from a text block.
+// deprecated: use KeyImportService for large imports
 func (s *KeyService) AddMultipleKeys(groupID uint, keysText string) (*AddKeysResult, error) {
-	// 1. Parse keys from the text block
 	keys := s.ParseKeysFromText(keysText)
 	if len(keys) > maxRequestKeys {
 		return nil, fmt.Errorf("batch size exceeds the limit of %d keys, got %d", maxRequestKeys, len(keys))
@@ -65,17 +65,40 @@ func (s *KeyService) AddMultipleKeys(groupID uint, keysText string) (*AddKeysRes
 		return nil, fmt.Errorf("no valid keys found in the input text")
 	}
 
-	// 2. Get existing keys in the group for deduplication
+	addedCount, ignoredCount, err := s.processAndCreateKeys(groupID, keys, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var totalInGroup int64
+	if err := s.DB.Model(&models.APIKey{}).Where("group_id = ?", groupID).Count(&totalInGroup).Error; err != nil {
+		return nil, err
+	}
+
+	return &AddKeysResult{
+		AddedCount:   addedCount,
+		IgnoredCount: ignoredCount,
+		TotalInGroup: totalInGroup,
+	}, nil
+}
+
+// processAndCreateKeys is the lowest-level reusable function for adding keys.
+func (s *KeyService) processAndCreateKeys(
+	groupID uint,
+	keys []string,
+	progressCallback func(processed int),
+) (addedCount int, ignoredCount int, err error) {
+	// 1. Get existing keys in the group for deduplication
 	var existingKeys []models.APIKey
 	if err := s.DB.Where("group_id = ?", groupID).Select("key_value").Find(&existingKeys).Error; err != nil {
-		return nil, err
+		return 0, 0, err
 	}
 	existingKeyMap := make(map[string]bool)
 	for _, k := range existingKeys {
 		existingKeyMap[k.KeyValue] = true
 	}
 
-	// 3. Prepare new keys for creation
+	// 2. Prepare new keys for creation
 	var newKeysToCreate []models.APIKey
 	uniqueNewKeys := make(map[string]bool)
 
@@ -98,14 +121,10 @@ func (s *KeyService) AddMultipleKeys(groupID uint, keysText string) (*AddKeysRes
 	}
 
 	if len(newKeysToCreate) == 0 {
-		return &AddKeysResult{
-			AddedCount:   0,
-			IgnoredCount: len(keys),
-			TotalInGroup: int64(len(existingKeys)),
-		}, nil
+		return 0, len(keys), nil
 	}
 
-	// 4. Use KeyProvider to add keys in chunks
+	// 3. Use KeyProvider to add keys in chunks
 	for i := 0; i < len(newKeysToCreate); i += chunkSize {
 		end := i + chunkSize
 		if end > len(newKeysToCreate) {
@@ -113,18 +132,16 @@ func (s *KeyService) AddMultipleKeys(groupID uint, keysText string) (*AddKeysRes
 		}
 		chunk := newKeysToCreate[i:end]
 		if err := s.KeyProvider.AddKeys(groupID, chunk); err != nil {
-			return nil, err
+			return addedCount, len(keys) - addedCount, err
+		}
+		addedCount += len(chunk)
+
+		if progressCallback != nil {
+			progressCallback(i + len(chunk))
 		}
 	}
 
-	// 5. Calculate new total count
-	totalInGroup := int64(len(existingKeys) + len(newKeysToCreate))
-
-	return &AddKeysResult{
-		AddedCount:   len(newKeysToCreate),
-		IgnoredCount: len(keys) - len(newKeysToCreate),
-		TotalInGroup: totalInGroup,
-	}, nil
+	return addedCount, len(keys) - addedCount, nil
 }
 
 // ParseKeysFromText parses a string of keys from various formats into a string slice.
