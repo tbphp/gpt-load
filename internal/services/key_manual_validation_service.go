@@ -41,10 +41,14 @@ func NewKeyManualValidationService(db *gorm.DB, validator *keypool.KeyValidator,
 }
 
 // StartValidationTask starts a new manual validation task for a given group.
-func (s *KeyManualValidationService) StartValidationTask(group *models.Group) (*TaskStatus, error) {
+func (s *KeyManualValidationService) StartValidationTask(group *models.Group, status string) (*TaskStatus, error) {
 	var keys []models.APIKey
-	if err := s.DB.Where("group_id = ?", group.ID).Find(&keys).Error; err != nil {
-		return nil, fmt.Errorf("failed to get keys for group %s: %w", group.Name, err)
+	query := s.DB.Where("group_id = ?", group.ID)
+	if status != "" {
+		query = query.Where("status = ?", status)
+	}
+	if err := query.Find(&keys).Error; err != nil {
+		return nil, fmt.Errorf("failed to get keys for group %s with status '%s': %w", group.Name, status, err)
 	}
 
 	if len(keys) == 0 {
@@ -59,13 +63,20 @@ func (s *KeyManualValidationService) StartValidationTask(group *models.Group) (*
 	}
 
 	// Run the validation in a separate goroutine
-	go s.runValidation(group, keys)
+	go s.runValidation(group, keys, status)
 
 	return taskStatus, nil
 }
 
-func (s *KeyManualValidationService) runValidation(group *models.Group, keys []models.APIKey) {
-	logrus.Infof("Starting manual validation for group %s", group.Name)
+func (s *KeyManualValidationService) runValidation(group *models.Group, keys []models.APIKey, status string) {
+	logFields := logrus.Fields{
+		"group":  group.Name,
+		"status": status,
+	}
+	if status == "" {
+		logFields["status"] = "all"
+	}
+	logrus.WithFields(logFields).Info("Starting manual validation")
 
 	jobs := make(chan models.APIKey, len(keys))
 	results := make(chan bool, len(keys))

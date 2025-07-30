@@ -62,6 +62,12 @@ type GroupIDRequest struct {
 	GroupID uint `json:"group_id" binding:"required"`
 }
 
+// ValidateGroupKeysRequest defines the payload for validating keys in a group.
+type ValidateGroupKeysRequest struct {
+	GroupID uint   `json:"group_id" binding:"required"`
+	Status  string `json:"status,omitempty"`
+}
+
 // AddMultipleKeys handles creating new keys from a text block within a specific group.
 func (s *Server) AddMultipleKeys(c *gin.Context) {
 	var req KeyTextRequest
@@ -258,9 +264,15 @@ func (s *Server) TestMultipleKeys(c *gin.Context) {
 
 // ValidateGroupKeys initiates a manual validation task for all keys in a group.
 func (s *Server) ValidateGroupKeys(c *gin.Context) {
-	var req GroupIDRequest
+	var req ValidateGroupKeysRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.Error(c, app_errors.NewAPIError(app_errors.ErrInvalidJSON, err.Error()))
+		return
+	}
+
+	// Validate status if provided
+	if req.Status != "" && req.Status != models.KeyStatusActive && req.Status != models.KeyStatusInvalid {
+		response.Error(c, app_errors.NewAPIError(app_errors.ErrValidation, "Invalid status value"))
 		return
 	}
 
@@ -275,7 +287,7 @@ func (s *Server) ValidateGroupKeys(c *gin.Context) {
 		return
 	}
 
-	taskStatus, err := s.KeyManualValidationService.StartValidationTask(group)
+	taskStatus, err := s.KeyManualValidationService.StartValidationTask(group, req.Status)
 	if err != nil {
 		response.Error(c, app_errors.NewAPIError(app_errors.ErrTaskInProgress, err.Error()))
 		return

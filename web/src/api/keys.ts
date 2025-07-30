@@ -175,14 +175,21 @@ export const keysApi = {
   },
 
   // 验证分组密钥
-  async validateGroupKeys(groupId: number): Promise<{
+  async validateGroupKeys(
+    groupId: number,
+    status?: "active" | "invalid"
+  ): Promise<{
     is_running: boolean;
     group_name: string;
     processed: number;
     total: number;
     started_at: string;
   }> {
-    const res = await http.post("/keys/validate-group", { group_id: groupId });
+    const payload: { group_id: number; status?: string } = { group_id: groupId };
+    if (status) {
+      payload.status = status;
+    }
+    const res = await http.post("/keys/validate-group", payload);
     return res.data;
   },
 

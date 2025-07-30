@@ -67,6 +67,8 @@ const moreOptions = [
   { label: "清空所有无效密钥", key: "clearInvalid", props: { style: { color: "#d03050" } } },
   { type: "divider" },
   { label: "验证所有密钥", key: "validateAll" },
+  { label: "验证有效密钥", key: "validateActive" },
+  { label: "验证无效密钥", key: "validateInvalid" },
 ];
 
 let testingMsg: MessageReactive | null = null;
@@ -139,7 +141,13 @@ function handleMoreAction(key: string) {
       restoreAllInvalid();
       break;
     case "validateAll":
-      validateAllKeys();
+      validateKeys("all");
+      break;
+    case "validateActive":
+      validateKeys("active");
+      break;
+    case "validateInvalid":
+      validateKeys("invalid");
       break;
     case "clearInvalid":
       clearAllInvalid();
@@ -384,17 +392,24 @@ async function restoreAllInvalid() {
   });
 }
 
-async function validateAllKeys() {
+async function validateKeys(status: "all" | "active" | "invalid") {
   if (!props.selectedGroup?.id || testingMsg) {
     return;
   }
 
-  testingMsg = window.$message.info("正在验证密钥...", {
+  let statusText = "所有";
+  if (status === "active") {
+    statusText = "有效";
+  } else if (status === "invalid") {
+    statusText = "无效";
+  }
+
+  testingMsg = window.$message.info(`正在验证${statusText}密钥...`, {
     duration: 0,
   });
 
   try {
-    await keysApi.validateGroupKeys(props.selectedGroup.id);
+    await keysApi.validateGroupKeys(props.selectedGroup.id, status === "all" ? undefined : status);
     localStorage.removeItem("last_closed_task");
     appState.taskPollingTrigger++;
   } catch (_error) {
