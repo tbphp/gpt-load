@@ -322,7 +322,14 @@ function changePageSize(size: number) {
         <!-- 表格 -->
         <div class="table-container">
           <n-spin :show="loading">
-            <n-data-table :columns="columns" :data="logs" :bordered="false" remote size="small" />
+            <n-data-table
+              :columns="columns"
+              :data="logs"
+              :bordered="false"
+              remote
+              size="small"
+              :scroll-x="1840"
+            />
           </n-spin>
         </div>
 
