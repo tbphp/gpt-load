@@ -57,12 +57,7 @@ function renderMenuItem(key: string, label: string, icon: string): MenuOption {
 
 <template>
   <div>
-    <n-menu
-      :mode="mode"
-      :options="menuOptions"
-      :value="activeMenu"
-      class="modern-menu"
-    />
+    <n-menu :mode="mode" :options="menuOptions" :value="activeMenu" class="modern-menu" />
   </div>
 </template>
 

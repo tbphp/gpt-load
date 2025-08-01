@@ -127,10 +127,7 @@ function handleGroupCreated(group: Group) {
         </n-button>
       </div>
     </n-card>
-    <group-form-modal
-      v-model:show="showGroupModal"
-      @success="handleGroupCreated"
-    />
+    <group-form-modal v-model:show="showGroupModal" @success="handleGroupCreated" />
   </div>
 </template>
 
