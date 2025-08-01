@@ -9,6 +9,14 @@ import { computed, onMounted, ref, watch } from "vue";
 const chartData = ref<ChartData | null>(null);
 const selectedGroup = ref<number | null>(null);
 const loading = ref(true);
+
+// 根据时间模式获取显示文案
+const getTimeLabel = (baseLabel: string) => {
+  if (!chartData.value) {
+    return baseLabel;
+  }
+  return chartData.value.time_mode === "daily" ? baseLabel.replace("24小时", "今日") : baseLabel;
+};
 const animationProgress = ref(0);
 const hoveredPoint = ref<{
   datasetIndex: number;
@@ -370,7 +378,7 @@ onMounted(() => {
   <div class="chart-container">
     <div class="chart-header">
       <div class="chart-title-section">
-        <h3 class="chart-title">24小时请求趋势</h3>
+        <h3 class="chart-title">{{ getTimeLabel("24小时请求趋势") }}</h3>
       </div>
       <n-select
         v-model:value="selectedGroup"

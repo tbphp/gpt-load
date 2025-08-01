@@ -174,6 +174,7 @@ export interface DashboardStatsResponse {
   rpm: StatCard;
   request_count: StatCard;
   error_rate: StatCard;
+  time_mode: string; // 时间模式: "rolling" 或 "daily"
 }
 
 // 图表数据集
@@ -187,4 +188,5 @@ export interface ChartDataset {
 export interface ChartData {
   labels: string[];
   datasets: ChartDataset[];
+  time_mode: string; // 时间模式: "rolling" 或 "daily"
 }

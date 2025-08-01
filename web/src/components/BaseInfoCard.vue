@@ -9,6 +9,14 @@ const stats = ref<DashboardStatsResponse | null>(null);
 const loading = ref(true);
 const animatedValues = ref<Record<string, number>>({});
 
+// 根据时间模式获取显示文案
+const getTimeLabel = (baseLabel: string) => {
+  if (!stats.value) {
+    return baseLabel;
+  }
+  return stats.value.time_mode === "daily" ? baseLabel.replace("24小时", "今日") : baseLabel;
+};
+
 // 格式化数值显示
 const formatValue = (value: number, type: "count" | "rate" = "count"): string => {
   if (type === "rate") {
@@ -145,7 +153,7 @@ onMounted(() => {
               <div class="stat-value">
                 {{ stats ? formatValue(stats.request_count.value) : "--" }}
               </div>
-              <div class="stat-title">24小时请求</div>
+              <div class="stat-title">{{ getTimeLabel("24小时请求") }}</div>
             </div>
 
             <div class="stat-bar">
@@ -178,7 +186,7 @@ onMounted(() => {
               <div class="stat-value">
                 {{ stats ? formatValue(stats.error_rate.value ?? 0, "rate") : "--" }}
               </div>
-              <div class="stat-title">24小时错误率</div>
+              <div class="stat-title">{{ getTimeLabel("24小时错误率") }}</div>
             </div>
 
             <div class="stat-bar">

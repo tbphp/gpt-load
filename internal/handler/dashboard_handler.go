@@ -9,6 +9,19 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// getTimeRange 根据时间模式计算时间范围
+func (s *Server) getTimeRange(timeMode string, now time.Time) (time.Time, time.Time) {
+	switch timeMode {
+	case "daily":
+		// 自然日：从当天0点到现在
+		startOfDay := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+		return startOfDay, now
+	default: // "rolling"
+		// 滚动24小时：从24小时前到现在
+		return now.Add(-24 * time.Hour), now
+	}
+}
+
 // Stats Get dashboard statistics
 func (s *Server) Stats(c *gin.Context) {
 	var activeKeys, invalidKeys int64
@@ -21,15 +34,35 @@ func (s *Server) Stats(c *gin.Context) {
 		response.Error(c, app_errors.NewAPIError(app_errors.ErrDatabase, "failed to get rpm stats"))
 		return
 	}
-	twentyFourHoursAgo := now.Add(-24 * time.Hour)
-	fortyEightHoursAgo := now.Add(-48 * time.Hour)
 
-	currentPeriod, err := s.getHourlyStats(twentyFourHoursAgo, now)
+	// 获取系统设置中的时间模式
+	settings := s.SettingsManager.GetSettings()
+	timeMode := settings.DashboardTimeMode
+
+	// 根据时间模式计算当前周期和上一周期的时间范围
+	var currentStart, currentEnd, previousStart, previousEnd time.Time
+
+	if timeMode == "daily" {
+		// 自然日模式
+		currentStart, currentEnd = s.getTimeRange("daily", now)
+		// 前一天的同一时间段（昨天0点到昨天的当前时间）
+		yesterday := now.AddDate(0, 0, -1)
+		previousStart = time.Date(yesterday.Year(), yesterday.Month(), yesterday.Day(), 0, 0, 0, 0, yesterday.Location())
+		previousEnd = time.Date(yesterday.Year(), yesterday.Month(), yesterday.Day(), now.Hour(), now.Minute(), now.Second(), 0, yesterday.Location())
+	} else {
+		// 滚动24小时模式（默认）
+		currentStart, currentEnd = s.getTimeRange("rolling", now)
+		// 前一个24小时周期
+		previousStart = currentStart.Add(-24 * time.Hour)
+		previousEnd = currentEnd.Add(-24 * time.Hour)
+	}
+
+	currentPeriod, err := s.getHourlyStats(currentStart, currentEnd)
 	if err != nil {
 		response.Error(c, app_errors.NewAPIError(app_errors.ErrDatabase, "failed to get current period stats"))
 		return
 	}
-	previousPeriod, err := s.getHourlyStats(fortyEightHoursAgo, twentyFourHoursAgo)
+	previousPeriod, err := s.getHourlyStats(previousStart, previousEnd)
 	if err != nil {
 		response.Error(c, app_errors.NewAPIError(app_errors.ErrDatabase, "failed to get previous period stats"))
 		return
@@ -100,6 +133,7 @@ func (s *Server) Stats(c *gin.Context) {
 			Trend:         errorRateTrend,
 			TrendIsGrowth: errorRateTrendIsGrowth,
 		},
+		TimeMode: timeMode,
 	}
 
 	response.Success(c, stats)
@@ -110,8 +144,27 @@ func (s *Server) Chart(c *gin.Context) {
 	groupID := c.Query("groupId")
 
 	now := time.Now()
-	endHour := now.Truncate(time.Hour)
-	startHour := endHour.Add(-23 * time.Hour)
+
+	// 获取系统设置中的时间模式
+	settings := s.SettingsManager.GetSettings()
+	timeMode := settings.DashboardTimeMode
+
+	var startHour, endHour time.Time
+	var hourCount int
+
+	if timeMode == "daily" {
+		// 自然日模式：从当天0点开始
+		startOfDay := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+		startHour = startOfDay.Truncate(time.Hour)
+		endHour = now.Truncate(time.Hour)
+		// 计算当天已过的小时数（+1是为了包含当前小时）
+		hourCount = int(endHour.Sub(startHour).Hours()) + 1
+	} else {
+		// 滚动24小时模式（默认）
+		endHour = now.Truncate(time.Hour)
+		startHour = endHour.Add(-23 * time.Hour)
+		hourCount = 24
+	}
 
 	var hourlyStats []models.GroupHourlyStat
 	query := s.DB.Where("time >= ? AND time < ?", startHour, endHour.Add(time.Hour))
@@ -136,7 +189,7 @@ func (s *Server) Chart(c *gin.Context) {
 	var labels []string
 	var successData, failureData []int64
 
-	for i := range 24 {
+	for i := 0; i < hourCount; i++ {
 		hour := startHour.Add(time.Duration(i) * time.Hour)
 		labels = append(labels, hour.Format(time.RFC3339))
 
@@ -163,6 +216,7 @@ func (s *Server) Chart(c *gin.Context) {
 				Color: "rgba(255, 70, 70, 1)",
 			},
 		},
+		TimeMode: timeMode,
 	}
 
 	response.Success(c, chartData)

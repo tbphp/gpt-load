@@ -12,6 +12,8 @@ import {
   NIcon,
   NInput,
   NInputNumber,
+  NRadio,
+  NRadioGroup,
   NSpace,
   NTooltip,
   useMessage,
@@ -110,6 +112,16 @@ async function handleSubmit() {
                   style="width: 100%"
                   size="small"
                 />
+                <n-radio-group
+                  v-else-if="item.key === 'dashboard_time_mode'"
+                  v-model:value="form[item.key] as string"
+                  size="small"
+                >
+                  <n-space>
+                    <n-radio value="rolling">滚动24小时</n-radio>
+                    <n-radio value="daily">自然日</n-radio>
+                  </n-space>
+                </n-radio-group>
                 <proxy-keys-input
                   v-else-if="item.key === 'proxy_keys'"
                   v-model="form[item.key] as string"
