@@ -110,6 +110,7 @@ type DashboardStatsResponse struct {
 	RPM          StatCard `json:"rpm"`
 	RequestCount StatCard `json:"request_count"`
 	ErrorRate    StatCard `json:"error_rate"`
+	TimeMode     string   `json:"time_mode"` // 时间模式: "rolling" 或 "daily"
 }
 
 // ChartDataset 用于图表的数据集
@@ -123,6 +124,7 @@ type ChartDataset struct {
 type ChartData struct {
 	Labels   []string       `json:"labels"`
 	Datasets []ChartDataset `json:"datasets"`
+	TimeMode string         `json:"time_mode"` // 时间模式: "rolling" 或 "daily"
 }
 
 // GroupHourlyStat 对应 group_hourly_stats 表，用于存储每个分组每小时的请求统计

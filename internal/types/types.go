@@ -38,6 +38,9 @@ type SystemSettings struct {
 	KeyValidationConcurrency     int `json:"key_validation_concurrency" default:"10" name:"密钥验证并发数" category:"密钥配置" desc:"后台定时验证无效 Key 时的并发数。" validate:"min=1"`
 	KeyValidationTimeoutSeconds  int `json:"key_validation_timeout_seconds" default:"20" name:"密钥验证超时（秒）" category:"密钥配置" desc:"后台定时验证单个 Key 时的 API 请求超时时间（秒）。" validate:"min=5"`
 
+	// 界面设置
+	DashboardTimeMode string `json:"dashboard_time_mode" default:"rolling" name:"仪表盘时间模式" category:"界面设置" desc:"仪表盘统计的时间范围计算方式：rolling(滚动24小时)、daily(自然日)"`
+
 	// For cache
 	ProxyKeysMap map[string]struct{} `json:"-"`
 }
