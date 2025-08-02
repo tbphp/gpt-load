@@ -864,6 +864,7 @@ async function handleSubmit() {
 
 <style scoped>
 .group-form-modal {
+  width: 800px;
   --n-color: rgba(255, 255, 255, 0.95);
 }
 
