@@ -104,8 +104,8 @@ func (ch *AnthropicChannel) ValidateKey(ctx context.Context, key string) (bool, 
 	}
 	defer resp.Body.Close()
 
-	// A 200 OK status code indicates the key is valid and can make requests.
-	if resp.StatusCode == http.StatusOK {
+	// Any 2xx status code indicates the key is valid.
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		return true, nil
 	}
 
