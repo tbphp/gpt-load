@@ -39,7 +39,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: |
-            gpt-load.exe
+            gpt-load-windows-amd64.exe
           draft: true
           generate_release_notes: true
         env:

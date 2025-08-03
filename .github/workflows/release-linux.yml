@@ -30,17 +30,17 @@ jobs:
       - name: Build Backend for amd64
         run: |
           go mod download
-          go build -ldflags "-s -w -X gpt-load/internal/version.Version=${{ github.ref_name }}" -o gpt-load
+          go build -ldflags "-s -w -X gpt-load/internal/version.Version=${{ github.ref_name }}" -o gpt-load-linux-amd64
       - name: Build Backend for arm64
         run: |
-          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags "-s -w -X gpt-load/internal/version.Version=${{ github.ref_name }}" -o gpt-load-arm64
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags "-s -w -X gpt-load/internal/version.Version=${{ github.ref_name }}" -o gpt-load-linux-arm64
       - name: Release
         uses: softprops/action-gh-release@v1
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: |
-            gpt-load
-            gpt-load-arm64
+            gpt-load-linux-amd64
+            gpt-load-linux-arm64
           draft: true
           generate_release_notes: true
         env:
