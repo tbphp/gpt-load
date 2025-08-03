@@ -33,7 +33,7 @@ jobs:
       - name: Build Backend
         run: |
           go mod download
-          go build -ldflags "-s -w -X gpt-load/internal/version.Version=${{ github.ref_name }}" -o gpt-load.exe
+          go build -ldflags "-s -w -X gpt-load/internal/version.Version=${{ github.ref_name }}" -o gpt-load-windows-amd64.exe
       - name: Release
         uses: softprops/action-gh-release@v1
         if: startsWith(github.ref, 'refs/tags/')
