@@ -35,7 +35,7 @@ type SystemSettings struct {
 	MaxRetries                   int `json:"max_retries" default:"3" name:"最大重试次数" category:"密钥配置" desc:"单个请求使用不同 Key 的最大重试次数，0为不重试。" validate:"min=0"`
 	BlacklistThreshold           int `json:"blacklist_threshold" default:"3" name:"黑名单阈值" category:"密钥配置" desc:"一个 Key 连续失败多少次后进入黑名单，0为不拉黑。" validate:"min=0"`
 	KeyValidationIntervalMinutes int `json:"key_validation_interval_minutes" default:"60" name:"密钥验证间隔（分钟）" category:"密钥配置" desc:"后台验证密钥的默认间隔（分钟）。" validate:"min=30"`
-	KeyValidationConcurrency     int `json:"key_validation_concurrency" default:"10" name:"密钥验证并发数" category:"密钥配置" desc:"后台定时验证无效 Key 时的并发数。" validate:"min=1"`
+	KeyValidationConcurrency     int `json:"key_validation_concurrency" default:"10" name:"密钥验证并发数" category:"密钥配置" desc:"后台定时验证无效 Key 时的并发数，如果使用SQLite或者运行环境性能不佳，请尽量保证20以下，避免过高的并发导致数据不一致问题。" validate:"min=1"`
 	KeyValidationTimeoutSeconds  int `json:"key_validation_timeout_seconds" default:"20" name:"密钥验证超时（秒）" category:"密钥配置" desc:"后台定时验证单个 Key 时的 API 请求超时时间（秒）。" validate:"min=5"`
 
 	// For cache

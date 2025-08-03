@@ -7,7 +7,9 @@ import (
 	app_errors "gpt-load/internal/errors"
 	"gpt-load/internal/models"
 	"gpt-load/internal/store"
+	"math/rand"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -88,6 +90,33 @@ func (p *KeyProvider) UpdateStatus(apiKey *models.APIKey, group *models.Group, i
 	}()
 }
 
+// executeTransactionWithRetry wraps a database transaction with a retry mechanism.
+func (p *KeyProvider) executeTransactionWithRetry(operation func(tx *gorm.DB) error) error {
+	const maxRetries = 3
+	const baseDelay = 50 * time.Millisecond
+	const maxJitter = 150 * time.Millisecond
+	var err error
+
+	for i := range maxRetries {
+		err = p.db.Transaction(operation)
+		if err == nil {
+			return nil
+		}
+
+		if strings.Contains(err.Error(), "database is locked") {
+			jitter := time.Duration(rand.Intn(int(maxJitter)))
+			totalDelay := baseDelay + jitter
+			logrus.Debugf("Database is locked, retrying in %v... (attempt %d/%d)", totalDelay, i+1, maxRetries)
+			time.Sleep(totalDelay)
+			continue
+		}
+
+		break
+	}
+
+	return err
+}
+
 func (p *KeyProvider) handleSuccess(keyID uint, keyHashKey, activeKeysListKey string) error {
 	keyDetails, err := p.store.HGetAll(keyHashKey)
 	if err != nil {
@@ -101,7 +130,7 @@ func (p *KeyProvider) handleSuccess(keyID uint, keyHashKey, activeKeysListKey st
 		return nil
 	}
 
-	return p.db.Transaction(func(tx *gorm.DB) error {
+	return p.executeTransactionWithRetry(func(tx *gorm.DB) error {
 		var key models.APIKey
 		if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&key, keyID).Error; err != nil {
 			return fmt.Errorf("failed to lock key %d for update: %w", keyID, err)
@@ -149,7 +178,7 @@ func (p *KeyProvider) handleFailure(apiKey *models.APIKey, group *models.Group, 
 	// 获取该分组的有效配置
 	blacklistThreshold := group.EffectiveConfig.BlacklistThreshold
 
-	return p.db.Transaction(func(tx *gorm.DB) error {
+	return p.executeTransactionWithRetry(func(tx *gorm.DB) error {
 		var key models.APIKey
 		if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&key, apiKey.ID).Error; err != nil {
 			return fmt.Errorf("failed to lock key %d for update: %w", apiKey.ID, err)
