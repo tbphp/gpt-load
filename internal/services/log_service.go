@@ -45,6 +45,9 @@ func logFiltersScope(c *gin.Context) func(db *gorm.DB) *gorm.DB {
 			}
 			db = db.Where("key_value LIKE ?", likePattern)
 		}
+		if model := c.Query("model"); model != "" {
+			db = db.Where("model LIKE ?", "%"+model+"%")
+		}
 		if isSuccessStr := c.Query("is_success"); isSuccessStr != "" {
 			if isSuccess, err := strconv.ParseBool(isSuccessStr); err == nil {
 				db = db.Where("is_success = ?", isSuccess)

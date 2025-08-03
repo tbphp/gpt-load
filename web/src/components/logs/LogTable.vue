@@ -33,6 +33,7 @@ const totalPages = computed(() => Math.ceil(total.value / pageSize.value));
 const filters = reactive({
   group_name: "",
   key_value: "",
+  model: "",
   is_success: "" as "true" | "false" | "",
   status_code: "",
   source_ip: "",
@@ -56,6 +57,7 @@ const loadLogs = async () => {
       page_size: pageSize.value,
       group_name: filters.group_name || undefined,
       key_value: filters.key_value || undefined,
+      model: filters.model || undefined,
       is_success: filters.is_success === "" ? undefined : filters.is_success === "true",
       status_code: filters.status_code ? parseInt(filters.status_code, 10) : undefined,
       source_ip: filters.source_ip || undefined,
@@ -130,6 +132,7 @@ const createColumns = () => [
   { title: "耗时(ms)", key: "duration_ms", width: 80 },
   { title: "重试", key: "retries", width: 50 },
   { title: "分组", key: "group_name", width: 120 },
+  { title: "模型", key: "model", width: 300 },
   {
     title: "Key",
     key: "key_value",
@@ -196,6 +199,7 @@ const handleSearch = () => {
 const resetFilters = () => {
   filters.group_name = "";
   filters.key_value = "";
+  filters.model = "";
   filters.is_success = "";
   filters.status_code = "";
   filters.source_ip = "";
@@ -209,6 +213,7 @@ const exportLogs = () => {
   const params: Omit<LogFilter, "page" | "page_size"> = {
     group_name: filters.group_name || undefined,
     key_value: filters.key_value || undefined,
+    model: filters.model || undefined,
     is_success: filters.is_success === "" ? undefined : filters.is_success === "true",
     status_code: filters.status_code ? parseInt(filters.status_code, 10) : undefined,
     source_ip: filters.source_ip || undefined,
@@ -238,21 +243,11 @@ function changePageSize(size: number) {
           <div class="filter-row">
             <div class="filter-grid">
               <div class="filter-item">
-                <n-input
-                  v-model:value="filters.group_name"
-                  placeholder="分组名"
+                <n-select
+                  v-model:value="filters.is_success"
+                  :options="successOptions"
                   size="small"
-                  clearable
-                  @keyup.enter="handleSearch"
-                />
-              </div>
-              <div class="filter-item">
-                <n-input
-                  v-model:value="filters.key_value"
-                  placeholder="密钥"
-                  size="small"
-                  clearable
-                  @keyup.enter="handleSearch"
+                  @update:value="handleSearch"
                 />
               </div>
               <div class="filter-item">
@@ -265,17 +260,27 @@ function changePageSize(size: number) {
                 />
               </div>
               <div class="filter-item">
-                <n-select
-                  v-model:value="filters.is_success"
-                  :options="successOptions"
+                <n-input
+                  v-model:value="filters.group_name"
+                  placeholder="分组名"
                   size="small"
-                  @update:value="handleSearch"
+                  clearable
+                  @keyup.enter="handleSearch"
                 />
               </div>
               <div class="filter-item">
                 <n-input
-                  v-model:value="filters.error_contains"
-                  placeholder="错误信息"
+                  v-model:value="filters.model"
+                  placeholder="模型"
+                  size="small"
+                  clearable
+                  @keyup.enter="handleSearch"
+                />
+              </div>
+              <div class="filter-item">
+                <n-input
+                  v-model:value="filters.key_value"
+                  placeholder="密钥"
                   size="small"
                   clearable
                   @keyup.enter="handleSearch"
@@ -299,21 +304,30 @@ function changePageSize(size: number) {
                   placeholder="结束时间"
                 />
               </div>
-            </div>
-            <div class="filter-actions">
-              <n-button ghost size="small" :disabled="loading" @click="handleSearch">
-                <template #icon>
-                  <n-icon :component="Search" />
-                </template>
-                搜索
-              </n-button>
-              <n-button size="small" @click="resetFilters">重置</n-button>
-              <n-button size="small" type="primary" ghost @click="exportLogs">
-                <template #icon>
-                  <n-icon :component="DownloadOutline" />
-                </template>
-                导出密钥
-              </n-button>
+              <div class="filter-item">
+                <n-input
+                  v-model:value="filters.error_contains"
+                  placeholder="错误信息"
+                  size="small"
+                  clearable
+                  @keyup.enter="handleSearch"
+                />
+              </div>
+              <div class="filter-actions">
+                <n-button ghost size="small" :disabled="loading" @click="handleSearch">
+                  <template #icon>
+                    <n-icon :component="Search" />
+                  </template>
+                  搜索
+                </n-button>
+                <n-button size="small" @click="resetFilters">重置</n-button>
+                <n-button size="small" type="primary" ghost @click="exportLogs">
+                  <template #icon>
+                    <n-icon :component="DownloadOutline" />
+                  </template>
+                  导出密钥
+                </n-button>
+              </div>
             </div>
           </div>
         </div>

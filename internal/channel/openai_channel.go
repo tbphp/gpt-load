@@ -60,6 +60,17 @@ func (ch *OpenAIChannel) IsStreamRequest(c *gin.Context, bodyBytes []byte) bool 
 	return false
 }
 
+func (ch *OpenAIChannel) ExtractModel(c *gin.Context, bodyBytes []byte) string {
+	type modelPayload struct {
+		Model string `json:"model"`
+	}
+	var p modelPayload
+	if err := json.Unmarshal(bodyBytes, &p); err == nil {
+		return p.Model
+	}
+	return ""
+}
+
 // ValidateKey checks if the given API key is valid by making a chat completion request.
 func (ch *OpenAIChannel) ValidateKey(ctx context.Context, key string) (bool, error) {
 	upstreamURL := ch.getUpstreamURL()

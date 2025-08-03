@@ -29,6 +29,9 @@ type ChannelProxy interface {
 	// IsStreamRequest checks if the request is for a streaming response,
 	IsStreamRequest(c *gin.Context, bodyBytes []byte) bool
 
+	// ExtractModel extracts the model name from the request.
+	ExtractModel(c *gin.Context, bodyBytes []byte) string
+
 	// ValidateKey checks if the given API key is valid.
 	ValidateKey(ctx context.Context, key string) (bool, error)
 }

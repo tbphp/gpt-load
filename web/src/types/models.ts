@@ -118,6 +118,7 @@ export interface RequestLog {
   retries: number;
   group_name?: string;
   key_value?: string;
+  model: string;
   upstream_addr: string;
   is_stream: boolean;
 }
@@ -139,6 +140,7 @@ export interface LogFilter {
   page_size?: number;
   group_name?: string;
   key_value?: string;
+  model?: string;
   is_success?: boolean | null;
   status_code?: number | null;
   source_ip?: string;
