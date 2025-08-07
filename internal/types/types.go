@@ -13,6 +13,7 @@ type ConfigManager interface {
 	Validate() error
 	DisplayServerConfig()
 	ReloadConfig() error
+	GetTrustedPlatform () string 
 }
 
 // SystemSettings 定义所有系统配置项

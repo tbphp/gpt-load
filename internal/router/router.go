@@ -61,6 +61,11 @@ func NewRouter(
 		c.Next()
 	})
 
+	trustedPlatform := configManager.GetTrustedPlatform()
+	if trustedPlatform != "" {
+			router.TrustedPlatform = trustedPlatform
+	}
+
 	// 注册路由
 	registerSystemRoutes(router, serverHandler)
 	registerAPIRoutes(router, serverHandler, configManager)

@@ -187,6 +187,11 @@ func (m *Manager) Validate() error {
 	return nil
 }
 
+
+func (m *Manager) GetTrustedPlatform () string {
+	return os.Getenv("TRUSTED_PLATFORM")
+}
+
 // DisplayServerConfig displays current server-related configuration information
 func (m *Manager) DisplayServerConfig() {
 	serverConfig := m.GetEffectiveServerConfig()
