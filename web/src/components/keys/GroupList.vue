@@ -101,6 +101,7 @@ function handleGroupCreated(group: Group) {
                 <span v-if="group.channel_type === 'openai'">🤖</span>
                 <span v-else-if="group.channel_type === 'gemini'">💎</span>
                 <span v-else-if="group.channel_type === 'anthropic'">🧠</span>
+                <span v-else-if="group.channel_type === 'anthropic_console'">🧠</span>
                 <span v-else>🔧</span>
               </div>
               <div class="group-content">
