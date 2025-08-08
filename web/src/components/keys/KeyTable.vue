@@ -218,10 +218,10 @@ async function testKey(_key: KeyRow) {
   });
 
   try {
-    const res = await keysApi.testKeys(props.selectedGroup.id, _key.key_value);
-    const curValid = res?.[0] || {};
+    const response = await keysApi.testKeys(props.selectedGroup.id, _key.key_value);
+    const curValid = response.results?.[0] || {};
     if (curValid.is_valid) {
-      window.$message.success("密钥测试成功");
+      window.$message.success(`密钥测试成功 (耗时: ${formatDuration(response.total_duration)})`);
     } else {
       window.$message.error(curValid.error || "密钥测试失败: 无效的API密钥", {
         keepAliveOnHover: true,
@@ -238,6 +238,29 @@ async function testKey(_key: KeyRow) {
     testingMsg?.destroy();
     testingMsg = null;
   }
+}
+
+function formatDuration(ms: number): string {
+  if (ms < 0) {
+    return "0ms";
+  }
+
+  const minutes = Math.floor(ms / 60000);
+  const seconds = Math.floor((ms % 60000) / 1000);
+  const milliseconds = ms % 1000;
+
+  let result = "";
+  if (minutes > 0) {
+    result += `${minutes}m`;
+  }
+  if (seconds > 0) {
+    result += `${seconds}s`;
+  }
+  if (milliseconds > 0 || result === "") {
+    result += `${milliseconds}ms`;
+  }
+
+  return result;
 }
 
 function toggleKeyVisibility(key: KeyRow) {
