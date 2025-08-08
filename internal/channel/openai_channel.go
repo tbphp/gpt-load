@@ -93,7 +93,6 @@ func (ch *OpenAIChannel) ValidateKey(ctx context.Context, key string) (bool, err
 		"messages": []gin.H{
 			{"role": "user", "content": "hi"},
 		},
-		"max_tokens": 100,
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {

@@ -832,15 +832,15 @@ async function handleSubmit() {
                         <template #trigger>
                           <n-icon :component="HelpCircleOutline" class="help-icon config-help" />
                         </template>
-                        使用JSON格式定义要覆盖的API请求参数。例如： {&quot;temperature&quot;: 0.7,
-                        &quot;max_tokens&quot;: 2000}。这些参数会在发送请求时合并到原始参数中
+                        使用JSON格式定义要覆盖的API请求参数。例如： {&quot;temperature&quot;:
+                        0.7}。这些参数会在发送请求时合并到原始参数中
                       </n-tooltip>
                     </div>
                   </template>
                   <n-input
                     v-model:value="formData.param_overrides"
                     type="textarea"
-                    placeholder='{"temperature": 0.7, "max_tokens": 2000}'
+                    placeholder='{"temperature": 0.7}'
                     :rows="4"
                   />
                 </n-form-item>

@@ -91,13 +91,14 @@ export const keysApi = {
   async testKeys(
     group_id: number,
     keys_text: string
-  ): Promise<
-    {
+  ): Promise<{
+    results: {
       key_value: string;
       is_valid: boolean;
       error: string;
-    }[]
-  > {
+    }[];
+    total_duration: number;
+  }> {
     const res = await http.post(
       "/keys/test-multiple",
       {
