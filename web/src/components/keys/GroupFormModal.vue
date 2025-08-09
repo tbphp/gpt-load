@@ -291,11 +291,9 @@ function loadGroupData() {
   }
 
   const configItems = Object.entries(props.group.config || {}).map(([key, value]) => {
-    const option = configOptions.value.find(opt => opt.key === key);
-    const isString = option ? typeof option.default_value === "string" : false;
     return {
       key,
-      value: isString ? String(value) : Number(value),
+      value,
     };
   });
   Object.assign(formData, {
