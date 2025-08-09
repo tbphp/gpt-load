@@ -34,7 +34,7 @@ interface Emits {
 // 配置项类型
 interface ConfigItem {
   key: string;
-  value: number;
+  value: number | string;
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -58,7 +58,7 @@ interface GroupFormData {
   test_model: string;
   validation_endpoint: string;
   param_overrides: string;
-  config: Record<string, number>;
+  config: Record<string, number | string>;
   configItems: ConfigItem[];
   proxy_keys: string;
 }
@@ -290,10 +290,12 @@ function loadGroupData() {
     return;
   }
 
-  const configItems = Object.entries(props.group.config || {}).map(([key, value]) => ({
-    key,
-    value: Number(value) || 0,
-  }));
+  const configItems = Object.entries(props.group.config || {}).map(([key, value]) => {
+    return {
+      key,
+      value,
+    };
+  });
   Object.assign(formData, {
     name: props.group.name || "",
     display_name: props.group.display_name || "",
@@ -349,7 +351,7 @@ async function fetchGroupConfigOptions() {
 function addConfigItem() {
   formData.configItems.push({
     key: "",
-    value: 0,
+    value: "",
   });
 }
 
@@ -362,7 +364,7 @@ function removeConfigItem(index: number) {
 function handleConfigKeyChange(index: number, key: string) {
   const option = configOptions.value.find(opt => opt.key === key);
   if (option) {
-    formData.configItems[index].value = option.default_value || 0;
+    formData.configItems[index].value = option.default_value;
   }
 }
 
@@ -398,10 +400,16 @@ async function handleSubmit() {
     }
 
     // 将configItems转换为config对象
-    const config: Record<string, number> = {};
+    const config: Record<string, number | string> = {};
     formData.configItems.forEach((item: ConfigItem) => {
       if (item.key && item.key.trim()) {
-        config[item.key] = item.value;
+        const option = configOptions.value.find(opt => opt.key === item.key);
+        if (option && typeof option.default_value === "number" && typeof item.value === "string") {
+          const numValue = Number(item.value);
+          config[item.key] = isNaN(numValue) ? 0 : numValue;
+        } else {
+          config[item.key] = item.value;
+        }
       }
     });
 
@@ -784,10 +792,13 @@ async function handleSubmit() {
                         <n-tooltip trigger="hover" placement="top">
                           <template #trigger>
                             <n-input-number
+                              v-if="typeof configItem.value === 'number'"
                               v-model:value="configItem.value"
                               placeholder="参数值"
                               :precision="0"
+                              style="width: 100%"
                             />
+                            <n-input v-else v-model:value="configItem.value" placeholder="参数值" />
                           </template>
                           {{ getConfigOption(configItem.key)?.description || "设置此配置项的值" }}
                         </n-tooltip>
@@ -1109,12 +1120,11 @@ async function handleSubmit() {
 }
 
 .config-select {
-  flex: 1;
-  min-width: 200px;
+  flex: 0 0 200px;
 }
 
 .config-value {
-  flex: 0 0 140px;
+  flex: 1;
 }
 
 .config-actions {
@@ -1129,7 +1139,7 @@ async function handleSubmit() {
   }
 
   .group-form {
-    label-width: auto !important;
+    width: auto !important;
   }
 
   .form-row {

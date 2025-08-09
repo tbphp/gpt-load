@@ -253,7 +253,7 @@ func (sm *SystemSettingsManager) ValidateSettings(settingsMap map[string]any) er
 	jsonToField := make(map[string]reflect.StructField)
 	for i := range t.NumField() {
 		field := t.Field(i)
-		jsonTag := field.Tag.Get("json")
+		jsonTag := strings.Split(field.Tag.Get("json"), ",")[0]
 		if jsonTag != "" {
 			jsonToField[jsonTag] = field
 		}
@@ -266,6 +266,7 @@ func (sm *SystemSettingsManager) ValidateSettings(settingsMap map[string]any) er
 		}
 
 		validateTag := field.Tag.Get("validate")
+		rules := strings.Split(validateTag, ",")
 
 		switch field.Type.Kind() {
 		case reflect.Int:
@@ -278,11 +279,15 @@ func (sm *SystemSettingsManager) ValidateSettings(settingsMap map[string]any) er
 				return fmt.Errorf("invalid value for %s: must be an integer", key)
 			}
 
-			if strings.HasPrefix(validateTag, "min=") {
-				minValStr := strings.TrimPrefix(validateTag, "min=")
-				minVal, _ := strconv.Atoi(minValStr)
-				if intVal < minVal {
-					return fmt.Errorf("value for %s (%d) is below minimum value (%d)", key, intVal, minVal)
+			// The 'required' check is implicitly handled by the type assertion above.
+			for _, rule := range rules {
+				trimmedRule := strings.TrimSpace(rule)
+				if strings.HasPrefix(trimmedRule, "min=") {
+					minValStr := strings.TrimPrefix(trimmedRule, "min=")
+					minVal, _ := strconv.Atoi(minValStr)
+					if intVal < minVal {
+						return fmt.Errorf("value for %s (%d) is below minimum value (%d)", key, intVal, minVal)
+					}
 				}
 			}
 		case reflect.Bool:
@@ -290,8 +295,17 @@ func (sm *SystemSettingsManager) ValidateSettings(settingsMap map[string]any) er
 				return fmt.Errorf("invalid type for %s: expected a boolean, got %T", key, value)
 			}
 		case reflect.String:
-			if _, ok := value.(string); !ok {
+			strVal, ok := value.(string)
+			if !ok {
 				return fmt.Errorf("invalid type for %s: expected a string, got %T", key, value)
+			}
+			for _, rule := range rules {
+				trimmedRule := strings.TrimSpace(rule)
+				if trimmedRule == "required" {
+					if strVal == "" {
+						return fmt.Errorf("value for %s is required", key)
+					}
+				}
 			}
 		default:
 			return fmt.Errorf("unsupported type for setting key validation: %s", key)
@@ -309,7 +323,7 @@ func (sm *SystemSettingsManager) ValidateGroupConfigOverrides(configMap map[stri
 	jsonToField := make(map[string]reflect.StructField)
 	for i := range t.NumField() {
 		field := t.Field(i)
-		jsonTag := field.Tag.Get("json")
+		jsonTag := strings.Split(field.Tag.Get("json"), ",")[0]
 		if jsonTag != "" {
 			jsonToField[jsonTag] = field
 		}
@@ -326,22 +340,45 @@ func (sm *SystemSettingsManager) ValidateGroupConfigOverrides(configMap map[stri
 		}
 
 		validateTag := field.Tag.Get("validate")
+		rules := strings.Split(validateTag, ",")
 
-		floatVal, isFloat := value.(float64)
-		if !isFloat {
-			continue
-		}
-		intVal := int(floatVal)
-		if floatVal != float64(intVal) {
-			return fmt.Errorf("invalid value for %s: must be an integer", key)
-		}
-
-		if strings.HasPrefix(validateTag, "min=") {
-			minValStr := strings.TrimPrefix(validateTag, "min=")
-			minVal, _ := strconv.Atoi(minValStr)
-			if intVal < minVal {
-				return fmt.Errorf("value for %s (%d) is below minimum value (%d)", key, intVal, minVal)
+		switch field.Type.Kind() {
+		case reflect.Int:
+			floatVal, ok := value.(float64)
+			if !ok {
+				continue
 			}
+			intVal := int(floatVal)
+			if floatVal != float64(intVal) {
+				return fmt.Errorf("invalid value for %s: must be an integer", key)
+			}
+
+			// The 'required' check is implicitly handled by the type assertion above.
+			for _, rule := range rules {
+				trimmedRule := strings.TrimSpace(rule)
+				if strings.HasPrefix(trimmedRule, "min=") {
+					minValStr := strings.TrimPrefix(trimmedRule, "min=")
+					minVal, _ := strconv.Atoi(minValStr)
+					if intVal < minVal {
+						return fmt.Errorf("value for %s (%d) is below minimum value (%d)", key, intVal, minVal)
+					}
+				}
+			}
+		case reflect.String:
+			strVal, ok := value.(string)
+			if !ok {
+				continue
+			}
+			for _, rule := range rules {
+				trimmedRule := strings.TrimSpace(rule)
+				if trimmedRule == "required" {
+					if strVal == "" {
+						return fmt.Errorf("value for %s is required", key)
+					}
+				}
+			}
+		default:
+			// Do not validate other types for group overrides
 		}
 	}
 

@@ -7,6 +7,7 @@ export interface Setting {
   type: "int" | "string";
   min_value?: number;
   description: string;
+  required: boolean;
 }
 
 export interface SettingCategory {
