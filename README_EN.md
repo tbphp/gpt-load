@@ -152,7 +152,7 @@ GPT-Load adopts a dual-layer configuration architecture:
 
 - **System Settings**: Stored in database, providing unified behavioral standards for the entire application
 - **Group Configuration**: Behavior parameters customized for specific groups, can override system settings
-- **Configuration Priority**: Group Configuration > System Settings
+- **Configuration Priority**: Group Configuration > System Settings > Environment Configuration
 - **Characteristics**: Supports hot-reload, takes effect immediately after modification without application restart
 
 <details>
@@ -238,6 +238,7 @@ Supported Proxy Protocol Formats:
 | Response Header Timeout       | `response_header_timeout` | 600     | ✅             | Timeout for waiting upstream response headers (seconds)             |
 | Max Idle Connections          | `max_idle_conns`          | 100     | ✅             | Connection pool maximum total idle connections                      |
 | Max Idle Connections Per Host | `max_idle_conns_per_host` | 50      | ✅             | Maximum idle connections per upstream host                          |
+| Proxy URL                     | `proxy_url`               | -       | ✅             | HTTP/HTTPS proxy for forwarding requests, uses environment if empty |
 
 **Key Configuration:**
 
