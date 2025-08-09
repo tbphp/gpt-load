@@ -10,6 +10,7 @@ type SystemSettingInfo struct {
 	Description  string   `json:"description"`
 	Category     string   `json:"category"`
 	MinValue     *int     `json:"min_value,omitempty"`
+	Required     bool     `json:"required"`
 }
 
 // CategorizedSettings a list of settings grouped by category

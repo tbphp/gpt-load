@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { settingsApi, type SettingCategory } from "@/api/settings";
+import { settingsApi, type Setting, type SettingCategory } from "@/api/settings";
 import ProxyKeysInput from "@/components/common/ProxyKeysInput.vue";
 import { HelpCircle, Save } from "@vicons/ionicons5";
 import {
@@ -15,6 +15,7 @@ import {
   NSpace,
   NTooltip,
   useMessage,
+  type FormItemRule,
 } from "naive-ui";
 import { ref } from "vue";
 
@@ -59,6 +60,36 @@ async function handleSubmit() {
     isSaving.value = false;
   }
 }
+
+function generateValidationRules(item: Setting): FormItemRule[] {
+  const rules: FormItemRule[] = [];
+  if (item.required) {
+    const rule: FormItemRule = {
+      required: true,
+      message: `请输入 ${item.name}`,
+      trigger: ["input", "blur"],
+    };
+    if (item.type === "int") {
+      rule.type = "number";
+    }
+    rules.push(rule);
+  }
+  if (item.type === "int" && item.min_value !== undefined && item.min_value !== null) {
+    rules.push({
+      validator: (_rule: FormItemRule, value: number) => {
+        if (value === null || value === undefined) {
+          return true;
+        }
+        if (item.min_value !== undefined && item.min_value !== null && value < item.min_value) {
+          return new Error(`值不能小于 ${item.min_value}`);
+        }
+        return true;
+      },
+      trigger: ["input", "blur"],
+    });
+  }
+  return rules;
+}
 </script>
 
 <template>
@@ -79,10 +110,7 @@ async function handleSubmit() {
               :key="item.key"
               :span="item.key === 'proxy_keys' ? 3 : 1"
             >
-              <n-form-item
-                :path="item.key"
-                :rule="{ required: true, message: `请输入 ${item.name}` }"
-              >
+              <n-form-item :path="item.key" :rule="generateValidationRules(item)">
                 <template #label>
                   <n-space align="center" :size="4" :wrap-item="false">
                     <n-tooltip trigger="hover" placement="top">

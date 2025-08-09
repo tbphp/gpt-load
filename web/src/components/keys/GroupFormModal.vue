@@ -794,18 +794,13 @@ async function handleSubmit() {
                         <n-tooltip trigger="hover" placement="top">
                           <template #trigger>
                             <n-input-number
-                              v-if="
-                                typeof getConfigOption(configItem.key)?.default_value === 'number'
-                              "
-                              v-model:value="configItem.value as number"
+                              v-if="typeof configItem.value === 'number'"
+                              v-model:value="configItem.value"
                               placeholder="参数值"
                               :precision="0"
+                              style="width: 100%"
                             />
-                            <n-input
-                              v-else
-                              v-model:value="configItem.value as string"
-                              placeholder="参数值"
-                            />
+                            <n-input v-else v-model:value="configItem.value" placeholder="参数值" />
                           </template>
                           {{ getConfigOption(configItem.key)?.description || "设置此配置项的值" }}
                         </n-tooltip>
@@ -1146,7 +1141,7 @@ async function handleSubmit() {
   }
 
   .group-form {
-    label-width: auto !important;
+    width: auto !important;
   }
 
   .form-row {
