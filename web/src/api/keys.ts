@@ -147,6 +147,17 @@ export const keysApi = {
     );
   },
 
+  // 清空所有密钥
+  clearAllKeys(group_id: number): Promise<{ data: { message: string } }> {
+    return http.post(
+      "/keys/clear-all",
+      { group_id },
+      {
+        hideMessage: true,
+      }
+    );
+  },
+
   // 导出密钥
   exportKeys(groupId: number, status: "all" | "active" | "invalid" = "all") {
     const authKey = localStorage.getItem("authKey");

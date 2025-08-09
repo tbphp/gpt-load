@@ -243,6 +243,11 @@ func (s *KeyService) ClearAllInvalidKeys(groupID uint) (int64, error) {
 	return s.KeyProvider.RemoveInvalidKeys(groupID)
 }
 
+// ClearAllKeys deletes all keys from a group.
+func (s *KeyService) ClearAllKeys(groupID uint) (int64, error) {
+	return s.KeyProvider.RemoveAllKeys(groupID)
+}
+
 // DeleteMultipleKeys handles the business logic of deleting keys from a text block.
 func (s *KeyService) DeleteMultipleKeys(groupID uint, keysText string) (*DeleteKeysResult, error) {
 	keysToDelete := s.ParseKeysFromText(keysText)

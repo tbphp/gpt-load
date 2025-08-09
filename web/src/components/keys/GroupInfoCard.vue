@@ -16,12 +16,13 @@ import {
   NGrid,
   NGridItem,
   NIcon,
+  NInput,
   NSpin,
   NTag,
   NTooltip,
   useDialog,
 } from "naive-ui";
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, h, onMounted, ref, watch } from "vue";
 import GroupFormModal from "./GroupFormModal.vue";
 
 interface Props {
@@ -42,6 +43,7 @@ const loading = ref(false);
 const dialog = useDialog();
 const showEditModal = ref(false);
 const delLoading = ref(false);
+const confirmInput = ref("");
 const expandedName = ref<string[]>([]);
 const configOptions = ref<GroupConfigOption[]>([]);
 const showProxyKeys = ref(false);
@@ -171,26 +173,55 @@ async function handleDelete() {
     return;
   }
 
-  const d = dialog.warning({
+  dialog.warning({
     title: "删除分组",
-    content: `确定要删除分组 "${getGroupDisplayName(props.group)}" 吗？此操作不可恢复。`,
+    content: `确定要删除分组 "${getGroupDisplayName(
+      props.group
+    )}" 吗？此操作将删除分组及其下所有密钥，且不可恢复。`,
     positiveText: "确定",
     negativeText: "取消",
-    onPositiveClick: async () => {
-      d.loading = true;
-      delLoading.value = true;
+    onPositiveClick: () => {
+      confirmInput.value = ""; // Reset before opening second dialog
+      dialog.create({
+        title: "请输入分组名称以确认删除",
+        content: () =>
+          h("div", null, [
+            h("p", null, [
+              "这是一个非常危险的操作。为防止误操作，请输入分组名称 ",
+              h("strong", { style: { color: "#d03050" } }, props.group!.name),
+              " 以确认删除。",
+            ]),
+            h(NInput, {
+              value: confirmInput.value,
+              "onUpdate:value": (v) => {
+                confirmInput.value = v;
+              },
+              placeholder: "请输入分组名称",
+            }),
+          ]),
+        positiveText: "确认删除",
+        negativeText: "取消",
+        onPositiveClick: async () => {
+          if (confirmInput.value !== props.group!.name) {
+            window.$message.error("分组名称输入不正确");
+            return false; // Prevent dialog from closing
+          }
 
-      try {
-        if (props.group?.id) {
-          await keysApi.deleteGroup(props.group.id);
-          emit("delete", props.group);
-        }
-      } catch (error) {
-        console.error("删除分组失败:", error);
-      } finally {
-        d.loading = false;
-        delLoading.value = false;
-      }
+          delLoading.value = true;
+          try {
+            if (props.group?.id) {
+              await keysApi.deleteGroup(props.group.id);
+              emit("delete", props.group);
+              window.$message.success("分组已成功删除");
+            }
+          } catch (error) {
+            console.error("删除分组失败:", error);
+            window.$message.error("删除分组失败，请稍后重试");
+          } finally {
+            delLoading.value = false;
+          }
+        },
+      });
     },
   });
 }
