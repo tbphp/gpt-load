@@ -442,27 +442,43 @@ func (p *KeyProvider) RestoreMultipleKeys(groupID uint, keyValues []string) (int
 
 // RemoveInvalidKeys 移除组内所有无效的 Key。
 func (p *KeyProvider) RemoveInvalidKeys(groupID uint) (int64, error) {
-	var invalidKeys []models.APIKey
+	return p.removeKeysByStatus(groupID, models.KeyStatusInvalid)
+}
+
+// RemoveAllKeys 移除组内所有的 Key。
+func (p *KeyProvider) RemoveAllKeys(groupID uint) (int64, error) {
+	return p.removeKeysByStatus(groupID)
+}
+
+// removeKeysByStatus is a generic function to remove keys by status.
+// If no status is provided, it removes all keys in the group.
+func (p *KeyProvider) removeKeysByStatus(groupID uint, status ...string) (int64, error) {
+	var keysToRemove []models.APIKey
 	var removedCount int64
 
 	err := p.db.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("group_id = ? AND status = ?", groupID, models.KeyStatusInvalid).Find(&invalidKeys).Error; err != nil {
+		query := tx.Where("group_id = ?", groupID)
+		if len(status) > 0 {
+			query = query.Where("status IN ?", status)
+		}
+
+		if err := query.Find(&keysToRemove).Error; err != nil {
 			return err
 		}
 
-		if len(invalidKeys) == 0 {
+		if len(keysToRemove) == 0 {
 			return nil
 		}
 
-		result := tx.Where("id IN ?", pluckIDs(invalidKeys)).Delete(&models.APIKey{})
+		result := tx.Where("id IN ?", pluckIDs(keysToRemove)).Delete(&models.APIKey{})
 		if result.Error != nil {
 			return result.Error
 		}
 		removedCount = result.RowsAffected
 
-		for _, key := range invalidKeys {
+		for _, key := range keysToRemove {
 			if err := p.removeKeyFromStore(key.ID, key.GroupID); err != nil {
-				logrus.WithFields(logrus.Fields{"keyID": key.ID, "error": err}).Error("Failed to remove invalid key from store after DB deletion, rolling back transaction")
+				logrus.WithFields(logrus.Fields{"keyID": key.ID, "error": err}).Error("Failed to remove key from store after DB deletion, rolling back transaction")
 				return err
 			}
 		}
