@@ -181,7 +181,8 @@ func (ps *ProxyServer) executeRequestWithRetry(
 	}
 
 	// Unified error handling for retries.
-	if err != nil || (resp != nil && resp.StatusCode >= 400) {
+	// Exclude 404 from being a retryable error.
+	if err != nil || (resp != nil && resp.StatusCode >= 400 && resp.StatusCode != http.StatusNotFound) {
 		if err != nil && app_errors.IsIgnorableError(err) {
 			logrus.Debugf("Client-side ignorable error for key %s, aborting retries: %v", utils.MaskAPIKey(apiKey.KeyValue), err)
 			ps.logRequest(c, group, apiKey, startTime, 499, retryCount+1, err, isStream, upstreamURL, channelHandler, bodyBytes)
