@@ -132,8 +132,7 @@ func (p *KeyProvider) shouldCountFailure(errorMsg string) bool {
 
 	// 不计入失败次数的错误模式
 	excludePatterns := []string{
-		"resource has been exhausted", // 配额耗尽
-		"exceeded",
+		"exhausted", // 配额耗尽
 	}
 
 	for _, pattern := range excludePatterns {
