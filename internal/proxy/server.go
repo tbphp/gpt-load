@@ -189,8 +189,6 @@ func (ps *ProxyServer) executeRequestWithRetry(
 			return
 		}
 
-		ps.keyProvider.UpdateStatus(apiKey, group, false)
-
 		var statusCode int
 		var errorMessage string
 		var parsedError string
@@ -198,6 +196,7 @@ func (ps *ProxyServer) executeRequestWithRetry(
 		if err != nil {
 			statusCode = 500
 			errorMessage = err.Error()
+			parsedError = errorMessage // 网络错误直接使用原始错误信息
 			logrus.Debugf("Request failed (attempt %d/%d) for key %s: %v", retryCount+1, cfg.MaxRetries, utils.MaskAPIKey(apiKey.KeyValue), err)
 		} else {
 			// HTTP-level error (status >= 400)
@@ -213,6 +212,9 @@ func (ps *ProxyServer) executeRequestWithRetry(
 			parsedError = app_errors.ParseUpstreamError(errorBody)
 			logrus.Debugf("Request failed with status %d (attempt %d/%d) for key %s. Parsed Error: %s", statusCode, retryCount+1, cfg.MaxRetries, utils.MaskAPIKey(apiKey.KeyValue), parsedError)
 		}
+
+		// 使用解析后的错误信息更新密钥状态
+		ps.keyProvider.UpdateStatus(apiKey, group, false, parsedError)
 
 		newRetryErrors := append(retryErrors, types.RetryError{
 			StatusCode:         statusCode,
