@@ -1,9 +1,12 @@
 services:
   gpt-load:
     image: ghcr.io/tbphp/gpt-load:latest
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile
     container_name: gpt-load
     ports:
-      - "59399:3001"
+      - "${PORT:-3001}:${PORT:-3001}"
     env_file:
       - .env
     restart: always
@@ -16,55 +19,56 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
-    depends_on:
-      mysql:
-        condition: service_healthy
-        restart: true
-      postgres:
-        condition: service_healthy
-        restart: true
-      redis:
-        condition: service_healthy
-        restart: true
+    # depends_on:
+    #   mysql:
+    #     condition: service_healthy
+    #     restart: true
+    #   postgres:
+    #     condition: service_healthy
+    #     restart: true
+    #   redis:
+    #     condition: service_healthy
+    #     restart: true
 
-  mysql:
-    image: mysql:8.2
-    container_name: gpt-load-mysql
-    restart: always
-    environment:
-      MYSQL_ROOT_PASSWORD: 123456
-      MYSQL_DATABASE: gpt-load
-    volumes:
-      - ./data/mysql:/var/lib/mysql
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
+  # 如果需要安装 MySQL、PostgreSQL 或 Redis，请取消以下注释并配置相应的环境变量。
+  # 并且要在上方的depends_on中取消注释相应的依赖服务。
 
-  postgres:
-    image: "postgres:16"
-    container_name: gpt-load-postgres
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: 123456
-      POSTGRES_DB: gpt-load
-    volumes:
-      - ./data/postgres:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d gpt-load"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
+  # mysql:
+  #   image: mysql:8.2
+  #   container_name: gpt-load-mysql
+  #   restart: always
+  #   environment:
+  #     MYSQL_ROOT_PASSWORD: 123456
+  #     MYSQL_DATABASE: gpt-load
+  #   volumes:
+  #     - ./data/mysql:/var/lib/mysql
+  #   healthcheck:
+  #     test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+  #     interval: 5s
+  #     timeout: 5s
+  #     retries: 10
 
-  redis:
-    image: redis:latest
-    container_name: gpt-load-redis
-    restart: always
-    volumes:
-      - ./data/redis:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 3
+  # postgres:
+  #   image: "postgres:16"
+  #   container_name: gpt-load-postgres
+  #   environment:
+  #     POSTGRES_USER: postgres
+  #     POSTGRES_PASSWORD: 123456
+  #     POSTGRES_DB: gpt-load
+  #   volumes:
+  #     - ./data/postgres:/var/lib/postgresql/data
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "pg_isready -U postgres -d gpt-load"]
+  #     interval: 5s
+  #     timeout: 5s
+  #     retries: 10
+
+  # redis:
+  #   image: redis:latest
+  #   container_name: gpt-load-redis
+  #   restart: always
+  #   healthcheck:
+  #     test: ["CMD", "redis-cli", "ping"]
+  #     interval: 5s
+  #     timeout: 3s
+  #     retries: 3
