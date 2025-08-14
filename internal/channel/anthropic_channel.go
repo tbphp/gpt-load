@@ -7,6 +7,7 @@ import (
 	"fmt"
 	app_errors "gpt-load/internal/errors"
 	"gpt-load/internal/models"
+	"gpt-load/internal/utils"
 	"io"
 	"net/http"
 	"net/url"
@@ -73,7 +74,7 @@ func (ch *AnthropicChannel) ExtractModel(c *gin.Context, bodyBytes []byte) strin
 }
 
 // ValidateKey checks if the given API key is valid by making a messages request.
-func (ch *AnthropicChannel) ValidateKey(ctx context.Context, key string) (bool, error) {
+func (ch *AnthropicChannel) ValidateKey(ctx context.Context, apiKey *models.APIKey, group *models.Group) (bool, error) {
 	upstreamURL := ch.getUpstreamURL()
 	if upstreamURL == nil {
 		return false, fmt.Errorf("no upstream URL configured for channel %s", ch.Name)
@@ -104,9 +105,18 @@ func (ch *AnthropicChannel) ValidateKey(ctx context.Context, key string) (bool, 
 	if err != nil {
 		return false, fmt.Errorf("failed to create validation request: %w", err)
 	}
-	req.Header.Set("x-api-key", key)
+	req.Header.Set("x-api-key", apiKey.KeyValue)
 	req.Header.Set("anthropic-version", "2023-06-01")
 	req.Header.Set("Content-Type", "application/json")
+
+	// Apply custom header rules if available
+	if group != nil && group.HeaderRules != nil && len(group.HeaderRules) > 0 {
+		var headerRules []models.HeaderRule
+		if err := json.Unmarshal(group.HeaderRules, &headerRules); err == nil && len(headerRules) > 0 {
+			headerCtx := utils.NewHeaderVariableContext(group, apiKey)
+			utils.ApplyHeaderRules(req, headerRules, headerCtx)
+		}
+	}
 
 	resp, err := ch.HTTPClient.Do(req)
 	if err != nil {

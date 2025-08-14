@@ -4,6 +4,7 @@ package handler
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"net/url"
 	"sync"
 
@@ -154,9 +155,25 @@ func (s *Server) validateAndCleanConfig(configMap map[string]any) (map[string]an
 	return finalMap, nil
 }
 
+// GroupCreateRequest defines the payload for creating a group.
+type GroupCreateRequest struct {
+	Name               string              `json:"name"`
+	DisplayName        string              `json:"display_name"`
+	Description        string              `json:"description"`
+	Upstreams          json.RawMessage     `json:"upstreams"`
+	ChannelType        string              `json:"channel_type"`
+	Sort               int                 `json:"sort"`
+	TestModel          string              `json:"test_model"`
+	ValidationEndpoint string              `json:"validation_endpoint"`
+	ParamOverrides     map[string]any      `json:"param_overrides"`
+	Config             map[string]any      `json:"config"`
+	HeaderRules        []models.HeaderRule `json:"header_rules"`
+	ProxyKeys          string              `json:"proxy_keys"`
+}
+
 // CreateGroup handles the creation of a new group.
 func (s *Server) CreateGroup(c *gin.Context) {
-	var req models.Group
+	var req GroupCreateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.Error(c, app_errors.NewAPIError(app_errors.ErrInvalidJSON, err.Error()))
 		return
@@ -182,7 +199,7 @@ func (s *Server) CreateGroup(c *gin.Context) {
 		return
 	}
 
-	cleanedUpstreams, err := validateAndCleanUpstreams(json.RawMessage(req.Upstreams))
+	cleanedUpstreams, err := validateAndCleanUpstreams(req.Upstreams)
 	if err != nil {
 		response.Error(c, app_errors.NewAPIError(app_errors.ErrValidation, err.Error()))
 		return
@@ -200,6 +217,48 @@ func (s *Server) CreateGroup(c *gin.Context) {
 		return
 	}
 
+	// Validate and normalize header rules if provided
+	var headerRulesJSON datatypes.JSON
+	if len(req.HeaderRules) > 0 {
+		normalizedHeaderRules := make([]models.HeaderRule, 0)
+		seenKeys := make(map[string]bool)
+
+		for _, rule := range req.HeaderRules {
+			key := strings.TrimSpace(rule.Key)
+			if key == "" {
+				continue
+			}
+
+			// Normalize to canonical form
+			canonicalKey := http.CanonicalHeaderKey(key)
+
+			// Check for duplicate keys
+			if seenKeys[canonicalKey] {
+				response.Error(c, app_errors.NewAPIError(app_errors.ErrValidation, fmt.Sprintf("Duplicate header key: %s", canonicalKey)))
+				return
+			}
+			seenKeys[canonicalKey] = true
+
+			normalizedHeaderRules = append(normalizedHeaderRules, models.HeaderRule{
+				Key:    canonicalKey,
+				Value:  rule.Value,
+				Action: rule.Action,
+			})
+		}
+
+		if len(normalizedHeaderRules) > 0 {
+			headerRulesBytes, err := json.Marshal(normalizedHeaderRules)
+			if err != nil {
+				response.Error(c, app_errors.NewAPIError(app_errors.ErrInternalServer, fmt.Sprintf("Failed to process header rules: %v", err)))
+				return
+			}
+			headerRulesJSON = headerRulesBytes
+		}
+	}
+	if headerRulesJSON == nil {
+		headerRulesJSON = datatypes.JSON("[]")
+	}
+
 	group := models.Group{
 		Name:               name,
 		DisplayName:        strings.TrimSpace(req.DisplayName),
@@ -211,6 +270,7 @@ func (s *Server) CreateGroup(c *gin.Context) {
 		ValidationEndpoint: validationEndpoint,
 		ParamOverrides:     req.ParamOverrides,
 		Config:             cleanedConfig,
+		HeaderRules:        headerRulesJSON,
 		ProxyKeys:          strings.TrimSpace(req.ProxyKeys),
 	}
 
@@ -244,17 +304,18 @@ func (s *Server) ListGroups(c *gin.Context) {
 // GroupUpdateRequest defines the payload for updating a group.
 // Using a dedicated struct avoids issues with zero values being ignored by GORM's Update.
 type GroupUpdateRequest struct {
-	Name               *string         `json:"name,omitempty"`
-	DisplayName        *string         `json:"display_name,omitempty"`
-	Description        *string         `json:"description,omitempty"`
-	Upstreams          json.RawMessage `json:"upstreams"`
-	ChannelType        *string         `json:"channel_type,omitempty"`
-	Sort               *int            `json:"sort"`
-	TestModel          string          `json:"test_model"`
-	ValidationEndpoint *string         `json:"validation_endpoint,omitempty"`
-	ParamOverrides     map[string]any  `json:"param_overrides"`
-	Config             map[string]any  `json:"config"`
-	ProxyKeys          *string         `json:"proxy_keys,omitempty"`
+	Name               *string             `json:"name,omitempty"`
+	DisplayName        *string             `json:"display_name,omitempty"`
+	Description        *string             `json:"description,omitempty"`
+	Upstreams          json.RawMessage     `json:"upstreams"`
+	ChannelType        *string             `json:"channel_type,omitempty"`
+	Sort               *int                `json:"sort"`
+	TestModel          string              `json:"test_model"`
+	ValidationEndpoint *string             `json:"validation_endpoint,omitempty"`
+	ParamOverrides     map[string]any      `json:"param_overrides"`
+	Config             map[string]any      `json:"config"`
+	HeaderRules        []models.HeaderRule `json:"header_rules"`
+	ProxyKeys          *string             `json:"proxy_keys,omitempty"`
 }
 
 // UpdateGroup handles updating an existing group.
@@ -357,6 +418,48 @@ func (s *Server) UpdateGroup(c *gin.Context) {
 		group.ProxyKeys = strings.TrimSpace(*req.ProxyKeys)
 	}
 
+	// Handle header rules update
+	if req.HeaderRules != nil {
+		var headerRulesJSON datatypes.JSON
+		normalizedHeaderRules := make([]models.HeaderRule, 0)
+		seenKeys := make(map[string]bool)
+
+		for _, rule := range req.HeaderRules {
+			key := strings.TrimSpace(rule.Key)
+			if key == "" {
+				continue
+			}
+
+			// Normalize to canonical form
+			canonicalKey := http.CanonicalHeaderKey(key)
+
+			// Check for duplicate keys
+			if seenKeys[canonicalKey] {
+				response.Error(c, app_errors.NewAPIError(app_errors.ErrValidation, fmt.Sprintf("Duplicate header key: %s", canonicalKey)))
+				return
+			}
+			seenKeys[canonicalKey] = true
+
+			normalizedHeaderRules = append(normalizedHeaderRules, models.HeaderRule{
+				Key:    canonicalKey,
+				Value:  rule.Value,
+				Action: rule.Action,
+			})
+		}
+
+		if len(normalizedHeaderRules) > 0 {
+			headerRulesBytes, err := json.Marshal(normalizedHeaderRules)
+			if err != nil {
+				response.Error(c, app_errors.NewAPIError(app_errors.ErrInternalServer, fmt.Sprintf("Failed to process header rules: %v", err)))
+				return
+			}
+			headerRulesJSON = headerRulesBytes
+		} else {
+			headerRulesJSON = datatypes.JSON("[]")
+		}
+		group.HeaderRules = headerRulesJSON
+	}
+
 	// Save the updated group object
 	if err := tx.Save(&group).Error; err != nil {
 		response.Error(c, app_errors.ParseDBError(err))
@@ -376,22 +479,23 @@ func (s *Server) UpdateGroup(c *gin.Context) {
 
 // GroupResponse defines the structure for a group response, excluding sensitive or large fields.
 type GroupResponse struct {
-	ID                 uint              `json:"id"`
-	Name               string            `json:"name"`
-	Endpoint           string            `json:"endpoint"`
-	DisplayName        string            `json:"display_name"`
-	Description        string            `json:"description"`
-	Upstreams          datatypes.JSON    `json:"upstreams"`
-	ChannelType        string            `json:"channel_type"`
-	Sort               int               `json:"sort"`
-	TestModel          string            `json:"test_model"`
-	ValidationEndpoint string            `json:"validation_endpoint"`
-	ParamOverrides     datatypes.JSONMap `json:"param_overrides"`
-	Config             datatypes.JSONMap `json:"config"`
-	ProxyKeys          string            `json:"proxy_keys"`
-	LastValidatedAt    *time.Time        `json:"last_validated_at"`
-	CreatedAt          time.Time         `json:"created_at"`
-	UpdatedAt          time.Time         `json:"updated_at"`
+	ID                 uint                `json:"id"`
+	Name               string              `json:"name"`
+	Endpoint           string              `json:"endpoint"`
+	DisplayName        string              `json:"display_name"`
+	Description        string              `json:"description"`
+	Upstreams          datatypes.JSON      `json:"upstreams"`
+	ChannelType        string              `json:"channel_type"`
+	Sort               int                 `json:"sort"`
+	TestModel          string              `json:"test_model"`
+	ValidationEndpoint string              `json:"validation_endpoint"`
+	ParamOverrides     datatypes.JSONMap   `json:"param_overrides"`
+	Config             datatypes.JSONMap   `json:"config"`
+	HeaderRules        []models.HeaderRule `json:"header_rules"`
+	ProxyKeys          string              `json:"proxy_keys"`
+	LastValidatedAt    *time.Time          `json:"last_validated_at"`
+	CreatedAt          time.Time           `json:"created_at"`
+	UpdatedAt          time.Time           `json:"updated_at"`
 }
 
 // newGroupResponse creates a new GroupResponse from a models.Group.
@@ -403,6 +507,15 @@ func (s *Server) newGroupResponse(group *models.Group) *GroupResponse {
 		if err == nil {
 			u.Path = strings.TrimRight(u.Path, "/") + "/proxy/" + group.Name
 			endpoint = u.String()
+		}
+	}
+
+	// Parse header rules from JSON
+	var headerRules []models.HeaderRule
+	if len(group.HeaderRules) > 0 {
+		if err := json.Unmarshal(group.HeaderRules, &headerRules); err != nil {
+			logrus.WithError(err).Error("Failed to unmarshal header rules")
+			headerRules = make([]models.HeaderRule, 0)
 		}
 	}
 
@@ -419,6 +532,7 @@ func (s *Server) newGroupResponse(group *models.Group) *GroupResponse {
 		ValidationEndpoint: group.ValidationEndpoint,
 		ParamOverrides:     group.ParamOverrides,
 		Config:             group.Config,
+		HeaderRules:        headerRules,
 		ProxyKeys:          group.ProxyKeys,
 		LastValidatedAt:    group.LastValidatedAt,
 		CreatedAt:          group.CreatedAt,

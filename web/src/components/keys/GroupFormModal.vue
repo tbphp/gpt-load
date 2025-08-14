@@ -37,6 +37,13 @@ interface ConfigItem {
   value: number | string;
 }
 
+// Header规则类型
+interface HeaderRuleItem {
+  key: string;
+  value: string;
+  action: "set" | "remove";
+}
+
 const props = withDefaults(defineProps<Props>(), {
   group: null,
 });
@@ -60,6 +67,7 @@ interface GroupFormData {
   param_overrides: string;
   config: Record<string, number | string>;
   configItems: ConfigItem[];
+  header_rules: HeaderRuleItem[];
   proxy_keys: string;
 }
 
@@ -81,6 +89,7 @@ const formData = reactive<GroupFormData>({
   param_overrides: "",
   config: {},
   configItems: [] as ConfigItem[],
+  header_rules: [] as HeaderRuleItem[],
   proxy_keys: "",
 });
 
@@ -272,6 +281,7 @@ function resetForm() {
     param_overrides: "",
     config: {},
     configItems: [],
+    header_rules: [],
     proxy_keys: "",
   });
 
@@ -310,6 +320,11 @@ function loadGroupData() {
     param_overrides: JSON.stringify(props.group.param_overrides || {}, null, 2),
     config: {},
     configItems,
+    header_rules: (props.group.header_rules || []).map((rule: HeaderRuleItem) => ({
+      key: rule.key || "",
+      value: rule.value || "",
+      action: (rule.action as "set" | "remove") || "set",
+    })),
     proxy_keys: props.group.proxy_keys || "",
   });
 }
@@ -358,6 +373,47 @@ function addConfigItem() {
 // 删除配置项
 function removeConfigItem(index: number) {
   formData.configItems.splice(index, 1);
+}
+
+// 添加Header规则
+function addHeaderRule() {
+  formData.header_rules.push({
+    key: "",
+    value: "",
+    action: "set",
+  });
+}
+
+// 删除Header规则
+function removeHeaderRule(index: number) {
+  formData.header_rules.splice(index, 1);
+}
+
+// 规范化Header Key到Canonical格式（模拟HTTP标准）
+function canonicalHeaderKey(key: string): string {
+  if (!key) {
+    return key;
+  }
+  return key
+    .split("-")
+    .map(part => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join("-");
+}
+
+// 验证Header Key唯一性（使用Canonical格式对比）
+function validateHeaderKeyUniqueness(
+  rules: HeaderRuleItem[],
+  currentIndex: number,
+  key: string
+): boolean {
+  if (!key.trim()) {
+    return true;
+  }
+
+  const canonicalKey = canonicalHeaderKey(key.trim());
+  return !rules.some(
+    (rule, index) => index !== currentIndex && canonicalHeaderKey(rule.key.trim()) === canonicalKey
+  );
 }
 
 // 当配置项的key改变时，设置默认值
@@ -425,6 +481,13 @@ async function handleSubmit() {
       validation_endpoint: formData.validation_endpoint,
       param_overrides: paramOverrides,
       config,
+      header_rules: formData.header_rules
+        .filter((rule: HeaderRuleItem) => rule.key.trim())
+        .map((rule: HeaderRuleItem) => ({
+          key: rule.key.trim(),
+          value: rule.value,
+          action: rule.action,
+        })),
       proxy_keys: formData.proxy_keys,
     };
 
@@ -834,6 +897,129 @@ async function handleSubmit() {
                   </n-button>
                 </div>
               </div>
+
+              <div class="config-section">
+                <h5 class="config-title-with-tooltip">
+                  自定义请求头
+                  <n-tooltip trigger="hover" placement="top">
+                    <template #trigger>
+                      <n-icon :component="HelpCircleOutline" class="help-icon config-help" />
+                    </template>
+                    <div>
+                      在代理请求转发至上游服务前，对 HTTP 请求头进行添加、覆盖或移除操作。
+                      <br />
+                      支持动态变量：
+                      <br />
+                      • ${CLIENT_IP} - 客户端IP地址
+                      <br />
+                      • ${GROUP_ID} - 分组ID
+                      <br />
+                      • ${GROUP_NAME} - 分组名称
+                      <br />
+                      • ${API_KEY_ID} - API密钥ID
+                      <br />
+                      • ${TIMESTAMP_MS} - 毫秒时间戳
+                      <br />
+                      • ${TIMESTAMP_S} - 秒时间戳
+                    </div>
+                  </n-tooltip>
+                </h5>
+
+                <div class="header-rules-items">
+                  <n-form-item
+                    v-for="(headerRule, index) in formData.header_rules"
+                    :key="index"
+                    class="header-rule-row"
+                    :label="`请求头 ${index + 1}`"
+                  >
+                    <template #label>
+                      <div class="form-label-with-tooltip">
+                        请求头 {{ index + 1 }}
+                        <n-tooltip trigger="hover" placement="top">
+                          <template #trigger>
+                            <n-icon :component="HelpCircleOutline" class="help-icon" />
+                          </template>
+                          配置HTTP请求头的名称、值和操作类型。移除操作会删除指定的请求头
+                        </n-tooltip>
+                      </div>
+                    </template>
+                    <div class="header-rule-content">
+                      <div class="header-name">
+                        <n-input
+                          v-model:value="headerRule.key"
+                          placeholder="Header名称"
+                          :status="
+                            !validateHeaderKeyUniqueness(
+                              formData.header_rules,
+                              index,
+                              headerRule.key
+                            )
+                              ? 'error'
+                              : undefined
+                          "
+                        />
+                        <div
+                          v-if="
+                            !validateHeaderKeyUniqueness(
+                              formData.header_rules,
+                              index,
+                              headerRule.key
+                            )
+                          "
+                          class="error-message"
+                        >
+                          Header名称重复
+                        </div>
+                      </div>
+                      <div class="header-value" v-if="headerRule.action === 'set'">
+                        <n-input
+                          v-model:value="headerRule.value"
+                          placeholder="支持变量，例如：${CLIENT_IP}"
+                        />
+                      </div>
+                      <div class="header-value removed-placeholder" v-else>
+                        <span class="removed-text">将从请求中移除</span>
+                      </div>
+                      <div class="header-action">
+                        <n-tooltip trigger="hover" placement="top">
+                          <template #trigger>
+                            <n-switch
+                              v-model:value="headerRule.action"
+                              :checked-value="'remove'"
+                              :unchecked-value="'set'"
+                              size="small"
+                            />
+                          </template>
+                          开启移除开关将删除此请求头，关闭则添加或覆盖此请求头
+                        </n-tooltip>
+                      </div>
+                      <div class="header-actions">
+                        <n-button
+                          @click="removeHeaderRule(index)"
+                          type="error"
+                          quaternary
+                          circle
+                          size="small"
+                        >
+                          <template #icon>
+                            <n-icon :component="Remove" />
+                          </template>
+                        </n-button>
+                      </div>
+                    </div>
+                  </n-form-item>
+                </div>
+
+                <div style="margin-top: 12px; padding-left: 120px">
+                  <n-button @click="addHeaderRule" dashed style="width: 100%">
+                    <template #icon>
+                      <n-icon :component="Add" />
+                    </template>
+                    添加请求头
+                  </n-button>
+                </div>
+              </div>
+
               <div class="config-section">
                 <n-form-item path="param_overrides">
                   <template #label>
@@ -1174,6 +1360,86 @@ async function handleSubmit() {
 
   .upstream-actions,
   .config-actions {
+    justify-content: flex-end;
+  }
+}
+
+/* Header规则相关样式 */
+.header-rule-row {
+  margin-bottom: 12px;
+}
+
+.header-rule-content {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+}
+
+.header-name {
+  flex: 0 0 200px;
+  position: relative;
+}
+
+.header-value {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  min-height: 34px;
+}
+
+.header-value.removed-placeholder {
+  justify-content: center;
+  background-color: #f5f5f5;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  padding: 0 12px;
+}
+
+.removed-text {
+  color: #999;
+  font-style: italic;
+  font-size: 13px;
+}
+
+.header-action {
+  flex: 0 0 50px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 34px;
+}
+
+.header-actions {
+  flex: 0 0 32px;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  height: 34px;
+}
+
+.error-message {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  font-size: 12px;
+  color: #d03050;
+  margin-top: 2px;
+}
+
+@media (max-width: 768px) {
+  .header-rule-content {
+    flex-direction: column;
+    gap: 8px;
+    align-items: stretch;
+  }
+
+  .header-name,
+  .header-value {
+    flex: 1;
+  }
+
+  .header-actions {
     justify-content: flex-end;
   }
 }

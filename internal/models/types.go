@@ -39,6 +39,13 @@ type GroupConfig struct {
 	KeyValidationTimeoutSeconds  *int    `json:"key_validation_timeout_seconds,omitempty"`
 }
 
+// HeaderRule defines a single rule for header manipulation.
+type HeaderRule struct {
+	Key    string `json:"key"`
+	Value  string `json:"value"`
+	Action string `json:"action"` // "set" or "remove"
+}
+
 // Group 对应 groups 表
 type Group struct {
 	ID                 uint                 `gorm:"primaryKey;autoIncrement" json:"id"`
@@ -55,6 +62,7 @@ type Group struct {
 	TestModel          string               `gorm:"type:varchar(255);not null" json:"test_model"`
 	ParamOverrides     datatypes.JSONMap    `gorm:"type:json" json:"param_overrides"`
 	Config             datatypes.JSONMap    `gorm:"type:json" json:"config"`
+	HeaderRules        datatypes.JSON       `gorm:"type:json" json:"header_rules"`
 	APIKeys            []APIKey             `gorm:"foreignKey:GroupID" json:"api_keys"`
 	LastValidatedAt    *time.Time           `json:"last_validated_at"`
 	CreatedAt          time.Time            `json:"created_at"`
