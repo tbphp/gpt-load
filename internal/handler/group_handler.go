@@ -753,6 +753,236 @@ func (s *Server) GetGroupStats(c *gin.Context) {
 	response.Success(c, resp)
 }
 
+// GroupCopyRequest defines the payload for copying a group.
+type GroupCopyRequest struct {
+	NewName             string `json:"new_name" binding:"required"`
+	DisplayName         string `json:"display_name"`
+	Description         string `json:"description"`
+	CopyConfig          bool   `json:"copy_config"`
+	CopyAdvancedConfig  bool   `json:"copy_advanced_config"`
+	CopyKeys            string `json:"copy_keys"` // "none"|"valid_only"|"all"
+}
+
+// GroupCopyStats defines the statistics for group copy operation.
+type GroupCopyStats struct {
+	CopiedKeysCount   int `json:"copied_keys_count"`
+	TotalSourceKeys   int `json:"total_source_keys"`
+	SkippedKeysCount  int `json:"skipped_keys_count"`
+}
+
+// GroupCopyResponse defines the response for group copy operation.
+type GroupCopyResponse struct {
+	Group *GroupResponse  `json:"group"`
+	Stats *GroupCopyStats `json:"stats"`
+}
+
+// generateUniqueGroupName generates a unique group name by appending numbers if needed.
+func (s *Server) generateUniqueGroupName(baseName string) string {
+	var groups []models.Group
+	if err := s.DB.Select("name").Find(&groups).Error; err != nil {
+		return baseName
+	}
+
+	// Create a map of existing names for quick lookup
+	existingNames := make(map[string]bool)
+	for _, group := range groups {
+		existingNames[group.Name] = true
+	}
+
+	// If base name is available, use it
+	if !existingNames[baseName] {
+		return baseName
+	}
+
+	// Try appending numbers
+	for i := 1; i <= 1000; i++ {
+		candidate := fmt.Sprintf("%s_%d", baseName, i)
+		if !existingNames[candidate] {
+			return candidate
+		}
+	}
+
+	return baseName
+}
+
+// CopyGroup handles copying a group with optional content.
+func (s *Server) CopyGroup(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		response.Error(c, app_errors.NewAPIError(app_errors.ErrBadRequest, "Invalid group ID format"))
+		return
+	}
+	sourceGroupID := uint(id)
+
+	var req GroupCopyRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, app_errors.NewAPIError(app_errors.ErrInvalidJSON, err.Error()))
+		return
+	}
+
+	// Validate copy keys option
+	if req.CopyKeys != "" && req.CopyKeys != "none" && req.CopyKeys != "valid_only" && req.CopyKeys != "all" {
+		response.Error(c, app_errors.NewAPIError(app_errors.ErrValidation, "Invalid copy_keys value. Must be 'none', 'valid_only', or 'all'"))
+		return
+	}
+	if req.CopyKeys == "" {
+		req.CopyKeys = "all" // Default value
+	}
+
+	// Check if source group exists
+	var sourceGroup models.Group
+	if err := s.DB.First(&sourceGroup, sourceGroupID).Error; err != nil {
+		response.Error(c, app_errors.ParseDBError(err))
+		return
+	}
+
+	// Generate unique group name
+	newName := s.generateUniqueGroupName(strings.TrimSpace(req.NewName))
+	if !isValidGroupName(newName) {
+		response.Error(c, app_errors.NewAPIError(app_errors.ErrValidation, "无法生成有效的分组名称"))
+		return
+	}
+
+	// Start transaction
+	tx := s.DB.Begin()
+	if tx.Error != nil {
+		response.Error(c, app_errors.ErrDatabase)
+		return
+	}
+	defer tx.Rollback()
+
+	// Get max sort value for new group
+	var maxSort int
+	if err := tx.Model(&models.Group{}).Select("COALESCE(MAX(sort), 0)").Scan(&maxSort).Error; err != nil {
+		response.Error(c, app_errors.ErrDatabase)
+		return
+	}
+
+	// Create new group
+	newGroup := models.Group{
+		Name:        newName,
+		DisplayName: strings.TrimSpace(req.DisplayName),
+		Description: strings.TrimSpace(req.Description),
+		Sort:        maxSort + 1,
+	}
+
+	// Copy configuration if requested
+	if req.CopyConfig {
+		newGroup.ChannelType = sourceGroup.ChannelType
+		newGroup.TestModel = sourceGroup.TestModel
+		newGroup.ValidationEndpoint = sourceGroup.ValidationEndpoint
+		newGroup.Upstreams = sourceGroup.Upstreams
+	} else {
+		// Set required fields with default values if not copying config
+		newGroup.ChannelType = "openai" // Default channel type
+		newGroup.TestModel = "gpt-3.5-turbo" // Default test model
+		newGroup.Upstreams = datatypes.JSON(`[{"url": "https://api.openai.com", "weight": 1}]`) // Default upstream
+	}
+
+	// Copy advanced configuration if requested
+	if req.CopyAdvancedConfig {
+		newGroup.Config = sourceGroup.Config
+		newGroup.ParamOverrides = sourceGroup.ParamOverrides
+		newGroup.ProxyKeys = sourceGroup.ProxyKeys
+	}
+
+	// Create the new group
+	if err := tx.Create(&newGroup).Error; err != nil {
+		response.Error(c, app_errors.ParseDBError(err))
+		return
+	}
+
+	// Initialize copy stats
+	copyStats := &GroupCopyStats{
+		CopiedKeysCount:  0,
+		TotalSourceKeys:  0,
+		SkippedKeysCount: 0,
+	}
+
+	// Prepare key data for async import task (outside the transaction)
+	var sourceKeyValues []string
+	copyKeysCount := 0
+	
+	if req.CopyKeys != "none" {
+		var sourceKeys []models.APIKey
+		query := tx.Where("group_id = ?", sourceGroupID)
+		
+		// Filter by status if only copying valid keys
+		if req.CopyKeys == "valid_only" {
+			query = query.Where("status = ?", models.KeyStatusActive)
+		}
+
+		if err := query.Find(&sourceKeys).Error; err != nil {
+			response.Error(c, app_errors.ParseDBError(err))
+			return
+		}
+
+		copyStats.TotalSourceKeys = len(sourceKeys)
+
+		if len(sourceKeys) > 0 {
+			// Extract key values for async import task
+			for _, sourceKey := range sourceKeys {
+				sourceKeyValues = append(sourceKeyValues, sourceKey.KeyValue)
+			}
+			copyKeysCount = len(sourceKeyValues)
+		}
+
+		// Calculate skipped keys for "valid_only" mode
+		if req.CopyKeys == "valid_only" {
+			var totalSourceKeys int64
+			if err := tx.Model(&models.APIKey{}).Where("group_id = ?", sourceGroupID).Count(&totalSourceKeys).Error; err != nil {
+				response.Error(c, app_errors.ParseDBError(err))
+				return
+			}
+			copyStats.TotalSourceKeys = int(totalSourceKeys)
+			copyStats.SkippedKeysCount = copyStats.TotalSourceKeys - copyKeysCount
+		}
+	}
+	
+	// Set initial copied keys count (will be updated by async task)
+	copyStats.CopiedKeysCount = copyKeysCount
+
+	// Commit transaction
+	if err := tx.Commit().Error; err != nil {
+		response.Error(c, app_errors.ErrDatabase)
+		return
+	}
+
+	// Update caches after successful transaction
+	if err := s.GroupManager.Invalidate(); err != nil {
+		logrus.WithContext(c.Request.Context()).WithError(err).Error("failed to invalidate group cache")
+	}
+
+	// Start async key import task if there are keys to copy (reuse existing logic)
+	if len(sourceKeyValues) > 0 {
+		// Convert key values array to text format expected by KeyImportService
+		keysText := strings.Join(sourceKeyValues, "\n")
+		
+		// Directly reuse the AddMultipleKeysAsync logic from key_handler.go
+		if _, err := s.KeyImportService.StartImportTask(&newGroup, keysText); err != nil {
+			logrus.WithFields(logrus.Fields{
+				"groupId": newGroup.ID,
+				"keyCount": len(sourceKeyValues),
+				"error": err,
+			}).Error("Failed to start async key import task for group copy")
+		} else {
+			logrus.WithFields(logrus.Fields{
+				"groupId": newGroup.ID,
+				"keyCount": len(sourceKeyValues),
+			}).Info("Started async key import task for group copy")
+		}
+	}
+
+	// Prepare response
+	groupResponse := s.newGroupResponse(&newGroup)
+	copyResponse := &GroupCopyResponse{
+		Group: groupResponse,
+		Stats: copyStats,
+	}
+
+	response.Success(c, copyResponse)
+}
+
 // List godoc
 func (s *Server) List(c *gin.Context) {
 	var groups []models.Group

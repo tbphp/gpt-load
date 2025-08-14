@@ -111,6 +111,7 @@ func registerProtectedAPIRoutes(api *gin.RouterGroup, serverHandler *handler.Ser
 		groups.PUT("/:id", serverHandler.UpdateGroup)
 		groups.DELETE("/:id", serverHandler.DeleteGroup)
 		groups.GET("/:id/stats", serverHandler.GetGroupStats)
+		groups.POST("/:id/copy", serverHandler.CopyGroup)
 	}
 
 	// Key Management Routes

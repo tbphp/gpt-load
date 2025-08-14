@@ -23,6 +23,7 @@ import {
   useDialog,
 } from "naive-ui";
 import { computed, h, onMounted, ref, watch } from "vue";
+import GroupCopyModal from "./GroupCopyModal.vue";
 import GroupFormModal from "./GroupFormModal.vue";
 
 interface Props {
@@ -32,6 +33,7 @@ interface Props {
 interface Emits {
   (e: "refresh", value: Group): void;
   (e: "delete", value: Group): void;
+  (e: "copy-success", group: Group): void;
 }
 
 const props = defineProps<Props>();
@@ -42,6 +44,7 @@ const stats = ref<GroupStatsResponse | null>(null);
 const loading = ref(false);
 const dialog = useDialog();
 const showEditModal = ref(false);
+const showCopyModal = ref(false);
 const delLoading = ref(false);
 const confirmInput = ref("");
 const expandedName = ref<string[]>([]);
@@ -161,10 +164,21 @@ function handleEdit() {
   showEditModal.value = true;
 }
 
+function handleCopy() {
+  showCopyModal.value = true;
+}
+
 function handleGroupEdited(newGroup: Group) {
   showEditModal.value = false;
   if (newGroup) {
     emit("refresh", newGroup);
+  }
+}
+
+function handleGroupCopied(newGroup: Group, _stats: any) {
+  showCopyModal.value = false;
+  if (newGroup) {
+    emit("copy-success", newGroup);
   }
 }
 
@@ -193,7 +207,7 @@ async function handleDelete() {
             ]),
             h(NInput, {
               value: confirmInput.value,
-              "onUpdate:value": (v) => {
+              "onUpdate:value": v => {
                 confirmInput.value = v;
               },
               placeholder: "请输入分组名称",
@@ -257,6 +271,7 @@ async function copyUrl(url: string) {
 
 function resetPage() {
   showEditModal.value = false;
+  showCopyModal.value = false;
   expandedName.value = [];
 }
 </script>
@@ -280,6 +295,18 @@ function resetPage() {
             </h3>
           </div>
           <div class="header-actions">
+            <n-button
+              quaternary
+              circle
+              size="small"
+              @click="handleCopy"
+              title="复制分组"
+              :disabled="!group"
+            >
+              <template #icon>
+                <n-icon :component="CopyOutline" />
+              </template>
+            </n-button>
             <n-button quaternary circle size="small" @click="handleEdit" title="编辑分组">
               <template #icon>
                 <n-icon :component="Pencil" />
@@ -547,6 +574,11 @@ function resetPage() {
     </n-card>
 
     <group-form-modal v-model:show="showEditModal" :group="group" @success="handleGroupEdited" />
+    <group-copy-modal
+      v-model:show="showCopyModal"
+      :source-group="group"
+      @success="handleGroupCopied"
+    />
   </div>
 </template>
 

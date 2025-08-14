@@ -44,6 +44,32 @@ export const keysApi = {
     return res.data || [];
   },
 
+  // 复制分组
+  async copyGroup(groupId: number, copyData: {
+    new_name: string;
+    display_name?: string;
+    description?: string;
+    copy_config: boolean;
+    copy_advanced_config: boolean;
+    copy_keys: "none" | "valid_only" | "all";
+  }): Promise<{
+    group: Group;
+    stats: {
+      copied_keys_count: number;
+      total_source_keys: number;
+      skipped_keys_count: number;
+    };
+  }> {
+    const res = await http.post(`/groups/${groupId}/copy`, copyData);
+    return res.data;
+  },
+
+  // 获取分组列表（简化版）
+  async listGroups(): Promise<Group[]> {
+    const res = await http.get("/groups/list");
+    return res.data || [];
+  },
+
   // 获取分组的密钥列表
   async getGroupKeys(params: {
     group_id: number;
