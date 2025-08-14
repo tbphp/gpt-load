@@ -69,7 +69,8 @@ type Group struct {
 	UpdatedAt          time.Time            `json:"updated_at"`
 
 	// For cache
-	ProxyKeysMap map[string]struct{} `gorm:"-" json:"-"`
+	ProxyKeysMap   map[string]struct{} `gorm:"-" json:"-"`
+	HeaderRuleList []HeaderRule        `gorm:"-" json:"-"`
 }
 
 // APIKey 对应 api_keys 表

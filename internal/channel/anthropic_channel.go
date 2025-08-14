@@ -110,12 +110,9 @@ func (ch *AnthropicChannel) ValidateKey(ctx context.Context, apiKey *models.APIK
 	req.Header.Set("Content-Type", "application/json")
 
 	// Apply custom header rules if available
-	if group != nil && group.HeaderRules != nil && len(group.HeaderRules) > 0 {
-		var headerRules []models.HeaderRule
-		if err := json.Unmarshal(group.HeaderRules, &headerRules); err == nil && len(headerRules) > 0 {
-			headerCtx := utils.NewHeaderVariableContext(group, apiKey)
-			utils.ApplyHeaderRules(req, headerRules, headerCtx)
-		}
+	if len(group.HeaderRuleList) > 0 {
+		headerCtx := utils.NewHeaderVariableContext(group, apiKey)
+		utils.ApplyHeaderRules(req, group.HeaderRuleList, headerCtx)
 	}
 
 	resp, err := ch.HTTPClient.Do(req)

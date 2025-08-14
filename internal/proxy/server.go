@@ -165,24 +165,11 @@ func (ps *ProxyServer) executeRequestWithRetry(
 	q.Del("key")
 	req.URL.RawQuery = q.Encode()
 
-	// Apply custom header rules before channel-specific modifications
-	if len(group.HeaderRules) > 0 {
-		var headerRules []models.HeaderRule
-		if err := json.Unmarshal(group.HeaderRules, &headerRules); err != nil {
-			logrus.WithError(err).Error("Failed to unmarshal header rules")
-		} else if len(headerRules) > 0 {
-			headerCtx := utils.NewHeaderVariableContextFromGin(c, group, apiKey)
-			utils.ApplyHeaderRules(req, headerRules, headerCtx)
-		}
+	// Apply custom header rules
+	if len(group.HeaderRuleList) > 0 {
+		headerCtx := utils.NewHeaderVariableContextFromGin(c, group, apiKey)
+		utils.ApplyHeaderRules(req, group.HeaderRuleList, headerCtx)
 	}
-
-	// Print all headers for debugging
-	// logrus.Debugf("Request headers for group %s:", group.Name)
-	// for headerName, headerValues := range req.Header {
-	// 	for _, headerValue := range headerValues {
-	// 		logrus.Debugf("  %s: %s", headerName, headerValue)
-	// 	}
-	// }
 
 	channelHandler.ModifyRequest(req, apiKey, group)
 

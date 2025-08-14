@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"gpt-load/internal/config"
 	"gpt-load/internal/models"
@@ -49,10 +50,22 @@ func (gm *GroupManager) Initialize() error {
 			g := *group
 			g.EffectiveConfig = gm.settingsManager.GetEffectiveConfig(g.Config)
 			g.ProxyKeysMap = utils.StringToSet(g.ProxyKeys, ",")
+
+			// Parse header rules with error handling
+			if len(group.HeaderRules) > 0 {
+				if err := json.Unmarshal(group.HeaderRules, &g.HeaderRuleList); err != nil {
+					logrus.WithError(err).WithField("group_name", g.Name).Warn("Failed to parse header rules for group")
+					g.HeaderRuleList = []models.HeaderRule{}
+				}
+			} else {
+				g.HeaderRuleList = []models.HeaderRule{}
+			}
+
 			groupMap[g.Name] = &g
 			logrus.WithFields(logrus.Fields{
-				"group_name":       g.Name,
-				"effective_config": g.EffectiveConfig,
+				"group_name":         g.Name,
+				"effective_config":   g.EffectiveConfig,
+				"header_rules_count": len(g.HeaderRuleList),
 			}).Debug("Loaded group with effective config")
 		}
 
