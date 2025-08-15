@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { keysApi } from "@/api/keys";
-import type { Group, GroupConfigOption, GroupStatsResponse, GroupCopyStats } from "@/types/models";
+import type { Group, GroupConfigOption, GroupStatsResponse } from "@/types/models";
 import { appState } from "@/utils/app-state";
 import { copy } from "@/utils/clipboard";
 import { getGroupDisplayName, maskProxyKeys } from "@/utils/display";
@@ -175,7 +175,7 @@ function handleGroupEdited(newGroup: Group) {
   }
 }
 
-function handleGroupCopied(newGroup: Group, _stats: GroupCopyStats) {
+function handleGroupCopied(newGroup: Group) {
   showCopyModal.value = false;
   if (newGroup) {
     emit("copy-success", newGroup);

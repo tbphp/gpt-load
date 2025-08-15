@@ -1,13 +1,12 @@
 <script setup lang="ts">
 import { keysApi } from "@/api/keys";
-import type { Group, GroupCopyStats } from "@/types/models";
+import type { Group } from "@/types/models";
 import { appState } from "@/utils/app-state";
 import { getGroupDisplayName } from "@/utils/display";
-import { CopyOutline } from "@vicons/ionicons5";
+import { CloseOutline, CopyOutline } from "@vicons/ionicons5";
 import {
   NButton,
   NCard,
-  NCheckbox,
   NForm,
   NFormItem,
   NIcon,
@@ -25,12 +24,10 @@ interface Props {
 
 interface Emits {
   (e: "update:show", value: boolean): void;
-  (e: "success", group: Group, stats: GroupCopyStats): void;
+  (e: "success", group: Group): void;
 }
 
 interface CopyFormData {
-  copyConfig: boolean;
-  copyAdvancedConfig: boolean;
   copyKeys: "all" | "valid_only" | "none";
 }
 
@@ -41,8 +38,6 @@ const message = useMessage();
 const loading = ref(false);
 
 const formData = ref<CopyFormData>({
-  copyConfig: true,
-  copyAdvancedConfig: true,
   copyKeys: "all",
 });
 
@@ -60,13 +55,11 @@ watchEffect(() => {
 
 function resetForm() {
   formData.value = {
-    copyConfig: true,
-    copyAdvancedConfig: true,
     copyKeys: "all",
   };
 }
 
-// 生成新分组名称
+// 生成新分组名称预览（仅用于显示）
 function generateNewGroupName(): string {
   if (!props.sourceGroup) {
     return "";
@@ -77,38 +70,30 @@ function generateNewGroupName(): string {
 }
 
 async function handleCopy() {
-  if (!props.sourceGroup) {
+  if (!props.sourceGroup?.id) {
+    message.error("源分组不存在");
     return;
   }
 
   loading.value = true;
   try {
-    const newName = generateNewGroupName();
     const copyData = {
-      new_name: newName,
-      display_name: props.sourceGroup.display_name ? `${props.sourceGroup.display_name}_copy` : "",
-      description: props.sourceGroup.description || "",
-      copy_config: formData.value.copyConfig,
-      copy_advanced_config: formData.value.copyAdvancedConfig,
       copy_keys: formData.value.copyKeys,
     };
-
-    if (!props.sourceGroup?.id) {
-      message.error("源分组不存在");
-      return;
-    }
     const result = await keysApi.copyGroup(props.sourceGroup.id, copyData);
 
-    message.success(
-      `复制成功！已创建新分组 "${result.group.display_name || result.group.name}"${result.stats.copied_keys_count > 0 ? `，密钥正在后台导入，请稍后查看进度` : ""}`
-    );
-
-    // Trigger task polling to show import progress (same as KeyCreateDialog)
-    if (result.stats.copied_keys_count > 0) {
+    // Show appropriate success message based on copy strategy
+    if (formData.value.copyKeys !== "none") {
+      message.success(
+        `复制成功！已创建新分组 "${result.group.display_name || result.group.name}"，密钥正在后台导入，请稍后查看进度`
+      );
+      // Trigger task polling to show import progress
       appState.taskPollingTrigger++;
+    } else {
+      message.success(`复制成功！已创建新分组 "${result.group.display_name || result.group.name}"`);
     }
 
-    emit("success", result.group, result.stats);
+    emit("success", result.group);
     modalVisible.value = false;
   } catch (error) {
     console.error(error);
@@ -121,36 +106,6 @@ async function handleCopy() {
 function handleCancel() {
   modalVisible.value = false;
 }
-
-// 复制选项说明
-const copyOptionsText = computed(() => {
-  const options: string[] = [];
-
-  if (formData.value.copyConfig) {
-    options.push("分组配置");
-  }
-
-  if (formData.value.copyAdvancedConfig) {
-    options.push("高级配置");
-  }
-
-  switch (formData.value.copyKeys) {
-    case "all":
-      options.push("所有密钥");
-      break;
-    case "valid_only":
-      options.push("仅有效密钥");
-      break;
-    case "none":
-      break;
-  }
-
-  if (options.length === 0) {
-    return "仅复制基础信息";
-  }
-
-  return `将复制: ${options.join("、")}`;
-});
 </script>
 
 <template>
@@ -166,7 +121,7 @@ const copyOptionsText = computed(() => {
       <template #header-extra>
         <n-button quaternary circle @click="handleCancel">
           <template #icon>
-            <n-icon :component="CopyOutline" />
+            <n-icon :component="CloseOutline" />
           </template>
         </n-button>
       </template>
@@ -180,23 +135,9 @@ const copyOptionsText = computed(() => {
         </div>
 
         <n-form :model="formData" label-placement="left" label-width="80px" class="group-copy-form">
-          <!-- 复制选项 -->
+          <!-- 密钥复制选项 -->
           <div class="copy-options">
-            <n-form-item label="分组配置">
-              <div class="checkbox-with-description">
-                <n-checkbox v-model:checked="formData.copyConfig">复制分组配置</n-checkbox>
-                <span class="option-description">包含: 上游地址、渠道类型、测试模型等</span>
-              </div>
-            </n-form-item>
-
-            <n-form-item label="高级配置">
-              <div class="checkbox-with-description">
-                <n-checkbox v-model:checked="formData.copyAdvancedConfig">复制高级配置</n-checkbox>
-                <span class="option-description">包含: config配置、参数覆盖、代理密钥</span>
-              </div>
-            </n-form-item>
-
-            <n-form-item label="密钥复制">
+            <n-form-item label="密钥处理">
               <n-radio-group v-model:value="formData.copyKeys" name="copyKeys">
                 <div class="radio-options">
                   <n-radio value="all" class="radio-option">复制所有密钥</n-radio>
@@ -205,16 +146,6 @@ const copyOptionsText = computed(() => {
                 </div>
               </n-radio-group>
             </n-form-item>
-          </div>
-
-          <!-- 复制摘要 -->
-          <div class="copy-summary">
-            <n-card size="small" class="summary-card">
-              <div class="summary-content">
-                <span class="summary-label">复制摘要:</span>
-                <span class="summary-text">{{ copyOptionsText }}</span>
-              </div>
-            </n-card>
           </div>
         </n-form>
       </div>
@@ -239,16 +170,6 @@ const copyOptionsText = computed(() => {
   width: 450px;
   max-width: 90vw;
   --n-color: rgba(255, 255, 255, 0.95);
-}
-
-.modal-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.header-icon {
-  color: #18a058;
 }
 
 .modal-content {
@@ -286,18 +207,6 @@ const copyOptionsText = computed(() => {
   margin-bottom: 16px;
 }
 
-.checkbox-with-description {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.option-description {
-  color: #888;
-  font-size: 12px;
-  margin-left: 20px;
-}
-
 .radio-options {
   display: flex;
   flex-direction: column;
@@ -306,30 +215,6 @@ const copyOptionsText = computed(() => {
 
 .radio-option {
   margin: 0;
-}
-
-.copy-summary {
-  margin-top: 16px;
-}
-
-.summary-card {
-  background: rgba(24, 160, 88, 0.05);
-  border: 1px solid rgba(24, 160, 88, 0.2);
-}
-
-.summary-content {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.summary-label {
-  font-weight: 600;
-  color: #18a058;
-}
-
-.summary-text {
-  color: #333;
 }
 
 .modal-actions {
@@ -342,18 +227,6 @@ const copyOptionsText = computed(() => {
 :deep(.n-form-item-label) {
   font-weight: 500;
   color: #374151;
-}
-
-:deep(.n-input) {
-  --n-border-radius: 8px;
-  --n-border: 1px solid #e5e7eb;
-  --n-border-hover: 1px solid #667eea;
-  --n-border-focus: 1px solid #667eea;
-  --n-box-shadow-focus: 0 0 0 2px rgba(102, 126, 234, 0.1);
-}
-
-:deep(.n-select) {
-  --n-border-radius: 8px;
 }
 
 :deep(.n-button) {
@@ -376,16 +249,5 @@ const copyOptionsText = computed(() => {
 
 :deep(.n-form-item-feedback-wrapper) {
   min-height: 10px;
-}
-
-/* 深色模式适配 */
-@media (prefers-color-scheme: dark) {
-  .summary-text {
-    color: #e0e0e0;
-  }
-
-  .option-description {
-    color: #999;
-  }
 }
 </style>

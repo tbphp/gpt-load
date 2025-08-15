@@ -76,12 +76,6 @@ export interface RequestStats {
   failed_requests: number;
   failure_rate: number;
 }
-export interface GroupCopyStats {
-  copied_keys_count: number;
-  total_source_keys: number;
-  skipped_keys_count: number;
-}
-
 
 export type TaskType = "KEY_VALIDATION" | "KEY_IMPORT";
 
