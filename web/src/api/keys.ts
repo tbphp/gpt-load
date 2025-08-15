@@ -45,14 +45,17 @@ export const keysApi = {
   },
 
   // 复制分组
-  async copyGroup(groupId: number, copyData: {
-    new_name: string;
-    display_name?: string;
-    description?: string;
-    copy_config: boolean;
-    copy_advanced_config: boolean;
-    copy_keys: "none" | "valid_only" | "all";
-  }): Promise<{
+  async copyGroup(
+    groupId: number,
+    copyData: {
+      new_name: string;
+      display_name?: string;
+      description?: string;
+      copy_config: boolean;
+      copy_advanced_config: boolean;
+      copy_keys: "none" | "valid_only" | "all";
+    }
+  ): Promise<{
     group: Group;
     stats: {
       copied_keys_count: number;

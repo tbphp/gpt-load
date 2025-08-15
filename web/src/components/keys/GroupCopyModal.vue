@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { keysApi } from "@/api/keys";
-import type { Group } from "@/types/models";
+import type { Group, GroupCopyStats } from "@/types/models";
 import { appState } from "@/utils/app-state";
 import { getGroupDisplayName } from "@/utils/display";
 import { CopyOutline } from "@vicons/ionicons5";
@@ -25,7 +25,7 @@ interface Props {
 
 interface Emits {
   (e: "update:show", value: boolean): void;
-  (e: "success", group: Group, stats: any): void;
+  (e: "success", group: Group, stats: GroupCopyStats): void;
 }
 
 interface CopyFormData {
@@ -93,7 +93,11 @@ async function handleCopy() {
       copy_keys: formData.value.copyKeys,
     };
 
-    const result = await keysApi.copyGroup(props.sourceGroup.id!, copyData);
+    if (!props.sourceGroup?.id) {
+      message.error("源分组不存在");
+      return;
+    }
+    const result = await keysApi.copyGroup(props.sourceGroup.id, copyData);
 
     message.success(
       `复制成功！已创建新分组 "${result.group.display_name || result.group.name}"${result.stats.copied_keys_count > 0 ? `，密钥正在后台导入，请稍后查看进度` : ""}`
@@ -106,11 +110,9 @@ async function handleCopy() {
 
     emit("success", result.group, result.stats);
     modalVisible.value = false;
-  } catch (error: any) {
-    console.error("复制分组失败:", error);
-    const errorMessage =
-      error?.response?.data?.error?.message || error?.message || "复制失败，请稍后重试";
-    message.error(errorMessage);
+  } catch (error) {
+    console.error(error);
+    message.error("复制分组失败，请稍后重试");
   } finally {
     loading.value = false;
   }

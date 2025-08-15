@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { keysApi } from "@/api/keys";
-import type { Group, GroupConfigOption, GroupStatsResponse } from "@/types/models";
+import type { Group, GroupConfigOption, GroupStatsResponse, GroupCopyStats } from "@/types/models";
 import { appState } from "@/utils/app-state";
 import { copy } from "@/utils/clipboard";
 import { getGroupDisplayName, maskProxyKeys } from "@/utils/display";
@@ -175,7 +175,7 @@ function handleGroupEdited(newGroup: Group) {
   }
 }
 
-function handleGroupCopied(newGroup: Group, _stats: any) {
+function handleGroupCopied(newGroup: Group, _stats: GroupCopyStats) {
   showCopyModal.value = false;
   if (newGroup) {
     emit("copy-success", newGroup);
@@ -202,7 +202,7 @@ async function handleDelete() {
           h("div", null, [
             h("p", null, [
               "这是一个非常危险的操作。为防止误操作，请输入分组名称 ",
-              h("strong", { style: { color: "#d03050" } }, props.group!.name),
+              h("strong", { style: { color: "#d03050" } }, props.group?.name),
               " 以确认删除。",
             ]),
             h(NInput, {
@@ -216,7 +216,7 @@ async function handleDelete() {
         positiveText: "确认删除",
         negativeText: "取消",
         onPositiveClick: async () => {
-          if (confirmInput.value !== props.group!.name) {
+          if (confirmInput.value !== props.group?.name) {
             window.$message.error("分组名称输入不正确");
             return false; // Prevent dialog from closing
           }
