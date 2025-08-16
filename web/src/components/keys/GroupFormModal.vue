@@ -14,6 +14,7 @@ import {
   NInputNumber,
   NModal,
   NSelect,
+  NSwitch,
   NTooltip,
   useMessage,
   type FormRules,
@@ -34,7 +35,7 @@ interface Emits {
 // 配置项类型
 interface ConfigItem {
   key: string;
-  value: number | string;
+  value: number | string | boolean;
 }
 
 // Header规则类型
@@ -65,7 +66,7 @@ interface GroupFormData {
   test_model: string;
   validation_endpoint: string;
   param_overrides: string;
-  config: Record<string, number | string>;
+  config: Record<string, number | string | boolean>;
   configItems: ConfigItem[];
   header_rules: HeaderRuleItem[];
   proxy_keys: string;
@@ -456,7 +457,7 @@ async function handleSubmit() {
     }
 
     // 将configItems转换为config对象
-    const config: Record<string, number | string> = {};
+    const config: Record<string, number | string | boolean> = {};
     formData.configItems.forEach((item: ConfigItem) => {
       if (item.key && item.key.trim()) {
         const option = configOptions.value.find(opt => opt.key === item.key);
@@ -860,6 +861,11 @@ async function handleSubmit() {
                               placeholder="参数值"
                               :precision="0"
                               style="width: 100%"
+                            />
+                            <n-switch
+                              v-else-if="typeof configItem.value === 'boolean'"
+                              v-model:value="configItem.value"
+                              size="small"
                             />
                             <n-input v-else v-model:value="configItem.value" placeholder="参数值" />
                           </template>

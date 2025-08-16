@@ -273,27 +273,48 @@ func (ps *ProxyServer) logRequest(
 
 	duration := time.Since(startTime).Milliseconds()
 
-	// 根据系统设置决定是否记录请求体和响应体
+	// 日志记录逻辑：系统开启 AND NOT 分组禁用 = 记录
 	var requestBodyToLog, responseBodyToLog string
-	if ps.settingsManager.GetSettings().EnableRequestBodyLogging {
+	var bodyLogStatus string
+	
+	systemEnabled := ps.settingsManager.GetSettings().EnableRequestBodyLogging
+	
+	// 检查分组配置中的禁用设置
+	groupDisabled := false
+	if group.Config != nil {
+		if disableValue, exists := group.Config["disable_request_body_logging"]; exists {
+			if disable, ok := disableValue.(bool); ok {
+				groupDisabled = disable
+			}
+		}
+	}
+	
+	// 设置日志状态
+	if !systemEnabled {
+		bodyLogStatus = "system_disabled"
+	} else if groupDisabled {
+		bodyLogStatus = "group_disabled"
+	} else {
+		bodyLogStatus = "enabled"
 		requestBodyToLog = string(bodyBytes)
 		responseBodyToLog = responseBody
 	}
 
 	logEntry := &models.RequestLog{
-		GroupID:      group.ID,
-		GroupName:    group.Name,
-		IsSuccess:    finalError == nil && statusCode < 400,
-		SourceIP:     c.ClientIP(),
-		StatusCode:   statusCode,
-		RequestPath:  utils.TruncateString(c.Request.URL.String(), 500),
-		Duration:     duration,
-		UserAgent:    c.Request.UserAgent(),
-		Retries:      retries,
-		IsStream:     isStream,
-		UpstreamAddr: utils.TruncateString(upstreamAddr, 500),
-		RequestBody:  requestBodyToLog,
-		ResponseBody: responseBodyToLog,
+		GroupID:       group.ID,
+		GroupName:     group.Name,
+		IsSuccess:     finalError == nil && statusCode < 400,
+		SourceIP:      c.ClientIP(),
+		StatusCode:    statusCode,
+		RequestPath:   utils.TruncateString(c.Request.URL.String(), 500),
+		Duration:      duration,
+		UserAgent:     c.Request.UserAgent(),
+		Retries:       retries,
+		IsStream:      isStream,
+		UpstreamAddr:  utils.TruncateString(upstreamAddr, 500),
+		RequestBody:   requestBodyToLog,
+		ResponseBody:  responseBodyToLog,
+		BodyLogStatus: bodyLogStatus,
 	}
 
 	if channelHandler != nil && bodyBytes != nil {

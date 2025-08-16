@@ -683,6 +683,15 @@ func (s *Server) GetGroupConfigOptions(c *gin.Context) {
 				DefaultValue: defaultValue,
 			}
 			options = append(options, option)
+		} else if key == "disable_request_body_logging" {
+			// 手动添加分组级日志记录禁用选项（仅在分组配置中显示）
+			option := ConfigOption{
+				Key:          key,
+				Name:         "禁用请求和响应体日志记录",
+				Description:  "禁用此分组的请求体和响应体日志记录，优先级高于系统设置",
+				DefaultValue: false,
+			}
+			options = append(options, option)
 		}
 	}
 

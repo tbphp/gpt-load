@@ -484,7 +484,15 @@ function changePageSize(size: number) {
             <n-tabs type="line" animated>
               <n-tab-pane name="request" tab="请求内容">
                 <div v-if="!selectedLog.request_body" style="text-align: center; color: #999; padding: 20px;">
-                  未记录请求内容（可能已在系统设置中关闭请求体记录功能）
+                  <template v-if="selectedLog.body_log_status === 'system_disabled'">
+                    未记录请求内容（系统设置中已关闭请求体记录功能）
+                  </template>
+                  <template v-else-if="selectedLog.body_log_status === 'group_disabled'">
+                    未记录请求内容（此分组已禁用请求体记录功能）
+                  </template>
+                  <template v-else>
+                    未记录请求内容
+                  </template>
                 </div>
                 <n-code
                   v-else
@@ -496,7 +504,15 @@ function changePageSize(size: number) {
               </n-tab-pane>
               <n-tab-pane name="response" tab="响应内容">
                 <div v-if="!selectedLog.response_body" style="text-align: center; color: #999; padding: 20px;">
-                  未记录响应内容（可能已在系统设置中关闭响应体记录功能）
+                  <template v-if="selectedLog.body_log_status === 'system_disabled'">
+                    未记录响应内容（系统设置中已关闭响应体记录功能）
+                  </template>
+                  <template v-else-if="selectedLog.body_log_status === 'group_disabled'">
+                    未记录响应内容（此分组已禁用响应体记录功能）
+                  </template>
+                  <template v-else>
+                    未记录响应内容
+                  </template>
                 </div>
                 <n-code
                   v-else
