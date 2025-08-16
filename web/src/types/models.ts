@@ -128,6 +128,9 @@ export interface RequestLog {
   model: string;
   upstream_addr: string;
   is_stream: boolean;
+  request_body?: string;
+  response_body?: string;
+  body_log_status?: "enabled" | "system_disabled" | "group_disabled";
 }
 
 export interface Pagination {
