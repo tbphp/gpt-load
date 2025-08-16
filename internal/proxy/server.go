@@ -273,6 +273,13 @@ func (ps *ProxyServer) logRequest(
 
 	duration := time.Since(startTime).Milliseconds()
 
+	// 根据系统设置决定是否记录请求体和响应体
+	var requestBodyToLog, responseBodyToLog string
+	if ps.settingsManager.GetSettings().EnableRequestBodyLogging {
+		requestBodyToLog = string(bodyBytes)
+		responseBodyToLog = responseBody
+	}
+
 	logEntry := &models.RequestLog{
 		GroupID:      group.ID,
 		GroupName:    group.Name,
@@ -285,8 +292,8 @@ func (ps *ProxyServer) logRequest(
 		Retries:      retries,
 		IsStream:     isStream,
 		UpstreamAddr: utils.TruncateString(upstreamAddr, 500),
-		RequestBody:  string(bodyBytes),
-		ResponseBody: responseBody,
+		RequestBody:  requestBodyToLog,
+		ResponseBody: responseBodyToLog,
 	}
 
 	if channelHandler != nil && bodyBytes != nil {

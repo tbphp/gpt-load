@@ -483,16 +483,24 @@ function changePageSize(size: number) {
           <n-card title="请求和响应内容" size="small">
             <n-tabs type="line" animated>
               <n-tab-pane name="request" tab="请求内容">
+                <div v-if="!selectedLog.request_body" style="text-align: center; color: #999; padding: 20px;">
+                  未记录请求内容（可能已在系统设置中关闭请求体记录功能）
+                </div>
                 <n-code
-                  :code="formatJsonString(selectedLog.request_body || '')"
+                  v-else
+                  :code="formatJsonString(selectedLog.request_body)"
                   language="json"
                   show-line-numbers
                   style="max-height: 400px; overflow-y: auto;"
                 />
               </n-tab-pane>
               <n-tab-pane name="response" tab="响应内容">
+                <div v-if="!selectedLog.response_body" style="text-align: center; color: #999; padding: 20px;">
+                  未记录响应内容（可能已在系统设置中关闭响应体记录功能）
+                </div>
                 <n-code
-                  :code="formatJsonString(selectedLog.response_body || '')"
+                  v-else
+                  :code="formatJsonString(selectedLog.response_body)"
                   language="json"
                   show-line-numbers
                   style="max-height: 400px; overflow-y: auto;"

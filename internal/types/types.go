@@ -21,6 +21,7 @@ type SystemSettings struct {
 	AppUrl                         string `json:"app_url" default:"http://localhost:3001" name:"项目地址" category:"基础参数" desc:"项目的基础 URL，用于拼接分组终端节点地址。系统配置优先于环境变量 APP_URL。" validate:"required"`
 	RequestLogRetentionDays        int    `json:"request_log_retention_days" default:"7" name:"日志保留时长（天）" category:"基础参数" desc:"请求日志在数据库中的保留天数，0为不清理日志。" validate:"required,min=0"`
 	RequestLogWriteIntervalMinutes int    `json:"request_log_write_interval_minutes" default:"1" name:"日志延迟写入周期（分钟）" category:"基础参数" desc:"请求日志从缓存写入数据库的周期（分钟），0为实时写入数据。" validate:"required,min=0"`
+	EnableRequestBodyLogging       bool   `json:"enable_request_body_logging" default:"true" name:"记录请求和响应体" category:"基础参数" desc:"是否在请求日志中记录完整的请求体和响应体内容。关闭此选项可以减少存储空间占用。"`
 	ProxyKeys                      string `json:"proxy_keys" name:"全局代理密钥" category:"基础参数" desc:"全局代理密钥，用于访问所有分组的代理端点。多个密钥请用逗号分隔。" validate:"required"`
 
 	// 请求设置
