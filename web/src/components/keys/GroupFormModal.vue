@@ -912,11 +912,9 @@ async function handleSubmit() {
                       <br />
                       • ${CLIENT_IP} - 客户端IP地址
                       <br />
-                      • ${GROUP_ID} - 分组ID
-                      <br />
                       • ${GROUP_NAME} - 分组名称
                       <br />
-                      • ${API_KEY_ID} - API密钥ID
+                      • ${API_KEY} - 当前轮询的API密钥
                       <br />
                       • ${TIMESTAMP_MS} - 毫秒时间戳
                       <br />

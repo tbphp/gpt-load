@@ -34,12 +34,11 @@ func ResolveHeaderVariables(value string, ctx *HeaderVariableContext) string {
 	}
 
 	if ctx.Group != nil {
-		variables["${GROUP_ID}"] = strconv.FormatUint(uint64(ctx.Group.ID), 10)
 		variables["${GROUP_NAME}"] = ctx.Group.Name
 	}
 
 	if ctx.APIKey != nil {
-		variables["${API_KEY_ID}"] = strconv.FormatUint(uint64(ctx.APIKey.ID), 10)
+		variables["${API_KEY}"] = ctx.APIKey.KeyValue
 	}
 
 	// Replace variables in the value
