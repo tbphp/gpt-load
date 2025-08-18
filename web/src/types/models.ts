@@ -29,6 +29,12 @@ export interface UpstreamInfo {
   weight: number;
 }
 
+export interface HeaderRule {
+  key: string;
+  value: string;
+  action: "set" | "remove";
+}
+
 export interface Group {
   id?: number;
   name: string;
@@ -43,6 +49,7 @@ export interface Group {
   api_keys?: APIKey[];
   endpoint?: string;
   param_overrides: Record<string, unknown>;
+  header_rules?: HeaderRule[];
   proxy_keys: string;
   created_at?: string;
   updated_at?: string;

@@ -69,6 +69,16 @@ function handleGroupDelete(deletedGroup: Group) {
     handleGroupSelect(groups.value.length > 0 ? groups.value[0] : null);
   }
 }
+
+async function handleGroupCopySuccess(newGroup: Group) {
+  // 重新加载分组列表以包含新创建的分组
+  await loadGroups();
+  // 自动切换到新创建的分组
+  const createdGroup = groups.value.find(g => g.id === newGroup.id);
+  if (createdGroup) {
+    handleGroupSelect(createdGroup);
+  }
+}
 </script>
 
 <template>
@@ -92,6 +102,7 @@ function handleGroupDelete(deletedGroup: Group) {
           :group="selectedGroup"
           @refresh="handleGroupRefresh"
           @delete="handleGroupDelete"
+          @copy-success="handleGroupCopySuccess"
         />
       </div>
 

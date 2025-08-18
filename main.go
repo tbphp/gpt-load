@@ -38,7 +38,7 @@ func main() {
 		logrus.Fatalf("Failed to provide indexPage: %v", err)
 	}
 
-	// Initialzie global logger
+	// Initialize global logger
 	if err := container.Invoke(func(configManager types.ConfigManager) {
 		utils.SetupLogger(configManager)
 	}); err != nil {

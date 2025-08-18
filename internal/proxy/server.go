@@ -165,6 +165,12 @@ func (ps *ProxyServer) executeRequestWithRetry(
 	q.Del("key")
 	req.URL.RawQuery = q.Encode()
 
+	// Apply custom header rules
+	if len(group.HeaderRuleList) > 0 {
+		headerCtx := utils.NewHeaderVariableContextFromGin(c, group, apiKey)
+		utils.ApplyHeaderRules(req, group.HeaderRuleList, headerCtx)
+	}
+
 	channelHandler.ModifyRequest(req, apiKey, group)
 
 	var client *http.Client

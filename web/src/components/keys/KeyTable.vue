@@ -66,7 +66,11 @@ const moreOptions = [
   { type: "divider" },
   { label: "恢复所有无效密钥", key: "restoreAll" },
   { label: "清空所有无效密钥", key: "clearInvalid", props: { style: { color: "#d03050" } } },
-  { label: "清空所有密钥", key: "clearAll", props: { style: { color: "red", fontWeight: "bold" } } },
+  {
+    label: "清空所有密钥",
+    key: "clearAll",
+    props: { style: { color: "red", fontWeight: "bold" } },
+  },
   { type: "divider" },
   { label: "验证所有密钥", key: "validateAll" },
   { label: "验证有效密钥", key: "validateActive" },
@@ -512,16 +516,12 @@ async function clearAll() {
               "这是一个非常危险的操作，将删除此分组下的",
               h("strong", null, "所有"),
               "密钥。为防止误操作，请输入分组名称 ",
-              h(
-                "strong",
-                { style: { color: "#d03050" } },
-                props.selectedGroup!.name
-              ),
+              h("strong", { style: { color: "#d03050" } }, props.selectedGroup?.name),
               " 以确认。",
             ]),
             h(NInput, {
               value: confirmInput.value,
-              "onUpdate:value": (v) => {
+              "onUpdate:value": v => {
                 confirmInput.value = v;
               },
               placeholder: "请输入分组名称",
@@ -530,7 +530,7 @@ async function clearAll() {
         positiveText: "确认清空",
         negativeText: "取消",
         onPositiveClick: async () => {
-          if (confirmInput.value !== props.selectedGroup!.name) {
+          if (confirmInput.value !== props.selectedGroup?.name) {
             window.$message.error("分组名称输入不正确");
             return false; // Prevent dialog from closing
           }

@@ -23,6 +23,7 @@ import {
   useDialog,
 } from "naive-ui";
 import { computed, h, onMounted, ref, watch } from "vue";
+import GroupCopyModal from "./GroupCopyModal.vue";
 import GroupFormModal from "./GroupFormModal.vue";
 
 interface Props {
@@ -32,6 +33,7 @@ interface Props {
 interface Emits {
   (e: "refresh", value: Group): void;
   (e: "delete", value: Group): void;
+  (e: "copy-success", group: Group): void;
 }
 
 const props = defineProps<Props>();
@@ -42,6 +44,7 @@ const stats = ref<GroupStatsResponse | null>(null);
 const loading = ref(false);
 const dialog = useDialog();
 const showEditModal = ref(false);
+const showCopyModal = ref(false);
 const delLoading = ref(false);
 const confirmInput = ref("");
 const expandedName = ref<string[]>([]);
@@ -56,6 +59,14 @@ const proxyKeysDisplay = computed(() => {
     return props.group.proxy_keys.replace(/,/g, "\n");
   }
   return maskProxyKeys(props.group.proxy_keys);
+});
+
+const hasAdvancedConfig = computed(() => {
+  return (
+    (props.group?.config && Object.keys(props.group.config).length > 0) ||
+    props.group?.param_overrides ||
+    (props.group?.header_rules && props.group.header_rules.length > 0)
+  );
 });
 
 async function copyProxyKeys() {
@@ -161,10 +172,21 @@ function handleEdit() {
   showEditModal.value = true;
 }
 
+function handleCopy() {
+  showCopyModal.value = true;
+}
+
 function handleGroupEdited(newGroup: Group) {
   showEditModal.value = false;
   if (newGroup) {
     emit("refresh", newGroup);
+  }
+}
+
+function handleGroupCopied(newGroup: Group) {
+  showCopyModal.value = false;
+  if (newGroup) {
+    emit("copy-success", newGroup);
   }
 }
 
@@ -188,12 +210,12 @@ async function handleDelete() {
           h("div", null, [
             h("p", null, [
               "这是一个非常危险的操作。为防止误操作，请输入分组名称 ",
-              h("strong", { style: { color: "#d03050" } }, props.group!.name),
+              h("strong", { style: { color: "#d03050" } }, props.group?.name),
               " 以确认删除。",
             ]),
             h(NInput, {
               value: confirmInput.value,
-              "onUpdate:value": (v) => {
+              "onUpdate:value": v => {
                 confirmInput.value = v;
               },
               placeholder: "请输入分组名称",
@@ -202,7 +224,7 @@ async function handleDelete() {
         positiveText: "确认删除",
         negativeText: "取消",
         onPositiveClick: async () => {
-          if (confirmInput.value !== props.group!.name) {
+          if (confirmInput.value !== props.group?.name) {
             window.$message.error("分组名称输入不正确");
             return false; // Prevent dialog from closing
           }
@@ -257,6 +279,7 @@ async function copyUrl(url: string) {
 
 function resetPage() {
   showEditModal.value = false;
+  showCopyModal.value = false;
   expandedName.value = [];
 }
 </script>
@@ -269,9 +292,9 @@ function resetPage() {
           <div class="header-left">
             <h3 class="group-title">
               {{ group ? getGroupDisplayName(group) : "请选择分组" }}
-              <n-tooltip trigger="hover" v-if="group">
+              <n-tooltip trigger="hover" v-if="group && group.endpoint">
                 <template #trigger>
-                  <code class="group-url" @click="copyUrl(group?.endpoint || '')">
+                  <code class="group-url" @click="copyUrl(group.endpoint)">
                     {{ group.endpoint }}
                   </code>
                 </template>
@@ -280,6 +303,18 @@ function resetPage() {
             </h3>
           </div>
           <div class="header-actions">
+            <n-button
+              quaternary
+              circle
+              size="small"
+              @click="handleCopy"
+              title="复制分组"
+              :disabled="!group"
+            >
+              <template #icon>
+                <n-icon :component="CopyOutline" />
+              </template>
+            </n-button>
             <n-button quaternary circle size="small" @click="handleEdit" title="编辑分组">
               <template #icon>
                 <n-icon :component="Pencil" />
@@ -500,12 +535,7 @@ function resetPage() {
                 </n-form>
               </div>
 
-              <div
-                class="detail-section"
-                v-if="
-                  (group?.config && Object.keys(group.config).length > 0) || group?.param_overrides
-                "
-              >
+              <div class="detail-section" v-if="hasAdvancedConfig">
                 <h4 class="section-title">高级配置</h4>
                 <n-form label-placement="left">
                   <n-form-item v-for="(value, key) in group?.config || {}" :key="key">
@@ -533,6 +563,28 @@ function resetPage() {
                     </template>
                     {{ value || "-" }}
                   </n-form-item>
+                  <n-form-item
+                    v-if="group?.header_rules && group.header_rules.length > 0"
+                    label="自定义请求头:"
+                    :span="2"
+                  >
+                    <div class="header-rules-display">
+                      <div
+                        v-for="(rule, index) in group.header_rules"
+                        :key="index"
+                        class="header-rule-item"
+                      >
+                        <n-tag :type="rule.action === 'remove' ? 'error' : 'default'" size="small">
+                          {{ rule.key }}
+                        </n-tag>
+                        <span class="header-separator">:</span>
+                        <span class="header-value" v-if="rule.action === 'set'">
+                          {{ rule.value || "(空值)" }}
+                        </span>
+                        <span class="header-removed" v-else>删除</span>
+                      </div>
+                    </div>
+                  </n-form-item>
                   <n-form-item v-if="group?.param_overrides" label="参数覆盖:" :span="2">
                     <pre class="config-json">{{
                       JSON.stringify(group?.param_overrides || "", null, 2)
@@ -547,6 +599,11 @@ function resetPage() {
     </n-card>
 
     <group-form-modal v-model:show="showEditModal" :group="group" @success="handleGroupEdited" />
+    <group-copy-modal
+      v-model:show="showCopyModal"
+      :source-group="group"
+      @success="handleGroupCopied"
+    />
   </div>
 </template>
 
@@ -766,5 +823,42 @@ function resetPage() {
   padding: 2px 6px;
   border-radius: 4px;
   display: inline-block;
+}
+
+/* Header rules display styles */
+.header-rules-display {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: rgba(102, 126, 234, 0.03);
+  border-radius: var(--border-radius-sm);
+  padding: 8px;
+}
+
+.header-rule-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.875rem;
+}
+
+.header-separator {
+  color: #6b7280;
+  font-weight: 500;
+}
+
+.header-value {
+  color: #374151;
+  font-family: monospace;
+  background: rgba(59, 130, 246, 0.08);
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 0.8rem;
+}
+
+.header-removed {
+  color: #dc2626;
+  font-style: italic;
+  font-size: 0.8rem;
 }
 </style>

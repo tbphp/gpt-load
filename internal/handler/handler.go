@@ -2,6 +2,7 @@
 package handler
 
 import (
+	"crypto/subtle"
 	"net/http"
 	"time"
 
@@ -83,7 +84,9 @@ func (s *Server) Login(c *gin.Context) {
 
 	authConfig := s.config.GetAuthConfig()
 
-	if req.AuthKey == authConfig.Key {
+	isValid := subtle.ConstantTimeCompare([]byte(req.AuthKey), []byte(authConfig.Key)) == 1
+
+	if isValid {
 		c.JSON(http.StatusOK, LoginResponse{
 			Success: true,
 			Message: "Authentication successful",
@@ -91,7 +94,7 @@ func (s *Server) Login(c *gin.Context) {
 	} else {
 		c.JSON(http.StatusUnauthorized, LoginResponse{
 			Success: false,
-			Message: "Invalid authentication key",
+			Message: "Authentication failed",
 		})
 	}
 }
