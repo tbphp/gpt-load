@@ -129,8 +129,6 @@ func (p *KeyProvider) shouldCountFailure(errorMsg string) bool {
 	// 不计入失败次数的错误模式
 	excludePatterns := []string{
 		"resource has been exhausted (e.g. check quota).", // Resource has been exhausted (e.g. check quota).
-		"the model is overloaded.", // The model is overloaded.
-		"you exceeded your current quota, please check your plan and billing details",
 	}
 
 	for _, pattern := range excludePatterns {
