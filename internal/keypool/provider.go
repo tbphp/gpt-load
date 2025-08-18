@@ -73,7 +73,7 @@ func (p *KeyProvider) SelectKey(groupID uint) (*models.APIKey, error) {
 }
 
 // UpdateStatus 异步地提交一个 Key 状态更新任务。
-func (p *KeyProvider) UpdateStatus(apiKey *models.APIKey, group *models.Group, isSuccess bool, errorMessage ...string) {
+func (p *KeyProvider) UpdateStatus(apiKey *models.APIKey, group *models.Group, isSuccess bool, errorMessage string) {
 	go func() {
 		keyHashKey := fmt.Sprintf("key:%d", apiKey.ID)
 		activeKeysListKey := fmt.Sprintf("group:%d:active_keys", group.ID)
@@ -83,11 +83,7 @@ func (p *KeyProvider) UpdateStatus(apiKey *models.APIKey, group *models.Group, i
 				logrus.WithFields(logrus.Fields{"keyID": apiKey.ID, "error": err}).Error("Failed to handle key success")
 			}
 		} else {
-			var errMsg string
-			if len(errorMessage) > 0 {
-				errMsg = errorMessage[0]
-			}
-			if err := p.handleFailure(apiKey, group, keyHashKey, activeKeysListKey, errMsg); err != nil {
+			if err := p.handleFailure(apiKey, group, keyHashKey, activeKeysListKey, errorMessage); err != nil {
 				logrus.WithFields(logrus.Fields{"keyID": apiKey.ID, "error": err}).Error("Failed to handle key failure")
 			}
 		}
@@ -132,16 +128,13 @@ func (p *KeyProvider) shouldCountFailure(errorMsg string) bool {
 
 	// 不计入失败次数的错误模式
 	excludePatterns := []string{
-		"exhausted", // Resource has been exhausted (e.g. check quota). 
-		"overloaded", // The model is overloaded. 
+		"resource has been exhausted (e.g. check quota).", // Resource has been exhausted (e.g. check quota).
+		"the model is overloaded.", // The model is overloaded.
+		"you exceeded your current quota, please check your plan and billing details",
 	}
 
 	for _, pattern := range excludePatterns {
 		if strings.Contains(errorLower, pattern) {
-			logrus.WithFields(logrus.Fields{
-				"errorMessage": errorMsg,
-				"pattern":      pattern,
-			}).Debug("Error excluded from failure count")
 			return false
 		}
 	}
