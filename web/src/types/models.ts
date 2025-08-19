@@ -6,7 +6,7 @@ export interface ApiResponse<T> {
 }
 
 // 密钥状态
-export type KeyStatus = "active" | "invalid" | undefined;
+export type KeyStatus = "active" | "invalid" | "rate_limited" | undefined;
 
 // 数据模型定义
 export interface APIKey {
@@ -16,7 +16,10 @@ export interface APIKey {
   status: KeyStatus;
   request_count: number;
   failure_count: number;
+  rate_limit_count: number;        // 429错误次数
   last_used_at?: string;
+  last_429_at?: string;           // 最后一次429错误时间
+  rate_limit_reset_at?: string;   // 预计配额重置时间
   created_at: string;
   updated_at: string;
 }
@@ -75,6 +78,7 @@ export interface KeyStats {
   total_keys: number;
   active_keys: number;
   invalid_keys: number;
+  rate_limited_keys: number;  // 429限流状态的密钥数量
 }
 
 // RequestStats defines the statistics for requests over a period.
@@ -196,4 +200,103 @@ export interface ChartDataset {
 export interface ChartData {
   labels: string[];
   datasets: ChartDataset[];
+}
+
+// Token池相关类型定义
+export interface PoolStats {
+  validation_pool: number;
+  ready_pool: number;
+  active_pool: number;
+  cooling_pool: number;
+  total_keys: number;
+  last_updated: string;
+}
+
+export interface PoolStatsResponse {
+  group_id: number;
+  group_name: string;
+  pool_stats: PoolStats;
+  performance_metrics: {
+    throughput: number;
+    avg_latency: number;
+    error_rate: number;
+    cache_hit_rate: number;
+  };
+  pool_health: {
+    status: "healthy" | "warning" | "critical";
+    issues: string[];
+  };
+  last_updated: string;
+}
+
+export interface RecoveryMetrics {
+  total_recovery_attempts: number;
+  successful_recoveries: number;
+  failed_recoveries: number;
+  overall_success_rate: number;
+  recent_success_rate: number;
+  avg_recovery_latency: number;
+  recoveries_per_hour: number;
+  last_recovery_at?: string;
+  error_stats: {
+    [key: string]: number;
+  };
+  hourly_stats: Array<{
+    hour: string;
+    attempts: number;
+    successes: number;
+    success_rate: number;
+  }>;
+}
+
+export interface RecoveryPlan {
+  id: string;
+  key_id: number;
+  group_id: number;
+  priority: "low" | "normal" | "high" | "critical";
+  scheduled_at: string;
+  estimated_delay: number;
+  strategy: string;
+  status: "pending" | "processing" | "completed" | "failed";
+  created_at: string;
+}
+
+export interface BatchRecoveryRequest {
+  priority?: "low" | "normal" | "high" | "critical";
+  max_concurrent?: number;
+  delay_between_batches?: number;
+  filter?: {
+    min_failure_count?: number;
+    max_failure_count?: number;
+    last_429_before?: string;
+    last_429_after?: string;
+  };
+}
+
+export interface PoolConfiguration {
+  pool_type: "redis" | "memory";
+  redis_config?: {
+    address: string;
+    password?: string;
+    db: number;
+    pool_size: number;
+  };
+  memory_config?: {
+    shard_count: number;
+    cache_size: number;
+    gc_interval: number;
+  };
+  recovery_config: {
+    enable_auto_recovery: boolean;
+    check_interval: number;
+    batch_size: number;
+    max_concurrent_recoveries: number;
+    recovery_timeout: number;
+  };
+  performance_config: {
+    enable_metrics: boolean;
+    metrics_interval: number;
+    enable_caching: boolean;
+    cache_ttl: number;
+  };
 }

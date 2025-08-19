@@ -58,15 +58,31 @@ func (p *KeyProvider) SelectKey(groupID uint) (*models.APIKey, error) {
 
 	// 3. Manually unmarshal the map into an APIKey struct
 	failureCount, _ := strconv.ParseInt(keyDetails["failure_count"], 10, 64)
+	rateLimitCount, _ := strconv.ParseInt(keyDetails["rate_limit_count"], 10, 64)
 	createdAt, _ := strconv.ParseInt(keyDetails["created_at"], 10, 64)
 
 	apiKey := &models.APIKey{
-		ID:           uint(keyID),
-		KeyValue:     keyDetails["key_string"],
-		Status:       keyDetails["status"],
-		FailureCount: failureCount,
-		GroupID:      groupID,
-		CreatedAt:    time.Unix(createdAt, 0),
+		ID:             uint(keyID),
+		KeyValue:       keyDetails["key_string"],
+		Status:         keyDetails["status"],
+		FailureCount:   failureCount,
+		RateLimitCount: rateLimitCount,
+		GroupID:        groupID,
+		CreatedAt:      time.Unix(createdAt, 0),
+	}
+
+	// 解析可选的时间字段
+	if last429AtStr := keyDetails["last_429_at"]; last429AtStr != "" {
+		if last429At, err := strconv.ParseInt(last429AtStr, 10, 64); err == nil {
+			t := time.Unix(last429At, 0)
+			apiKey.Last429At = &t
+		}
+	}
+	if resetAtStr := keyDetails["rate_limit_reset_at"]; resetAtStr != "" {
+		if resetAt, err := strconv.ParseInt(resetAtStr, 10, 64); err == nil {
+			t := time.Unix(resetAt, 0)
+			apiKey.RateLimitResetAt = &t
+		}
 	}
 
 	return apiKey, nil
@@ -86,6 +102,18 @@ func (p *KeyProvider) UpdateStatus(apiKey *models.APIKey, group *models.Group, i
 			if err := p.handleFailure(apiKey, group, keyHashKey, activeKeysListKey); err != nil {
 				logrus.WithFields(logrus.Fields{"keyID": apiKey.ID, "error": err}).Error("Failed to handle key failure")
 			}
+		}
+	}()
+}
+
+// UpdateStatusWithRateLimit 处理429错误的专门方法
+func (p *KeyProvider) UpdateStatusWithRateLimit(apiKey *models.APIKey, group *models.Group, rateLimitErr *app_errors.RateLimitError) {
+	go func() {
+		keyHashKey := fmt.Sprintf("key:%d", apiKey.ID)
+		activeKeysListKey := fmt.Sprintf("group:%d:active_keys", group.ID)
+
+		if err := p.handleRateLimit(apiKey, group, rateLimitErr, keyHashKey, activeKeysListKey); err != nil {
+			logrus.WithFields(logrus.Fields{"keyID": apiKey.ID, "error": err}).Error("Failed to handle rate limit")
 		}
 	}()
 }
@@ -209,6 +237,70 @@ func (p *KeyProvider) handleFailure(apiKey *models.APIKey, group *models.Group, 
 				return fmt.Errorf("failed to update key status to invalid in store: %w", err)
 			}
 		}
+
+		return nil
+	})
+}
+
+// handleRateLimit 处理429错误，更新密钥的429相关字段
+func (p *KeyProvider) handleRateLimit(apiKey *models.APIKey, group *models.Group, rateLimitErr *app_errors.RateLimitError, keyHashKey, activeKeysListKey string) error {
+	// 检查密钥是否已经无效
+	keyDetails, err := p.store.HGetAll(keyHashKey)
+	if err != nil {
+		return fmt.Errorf("failed to get key details: %w", err)
+	}
+
+	if keyDetails["status"] == models.KeyStatusInvalid {
+		return nil
+	}
+
+	return p.executeTransactionWithRetry(func(tx *gorm.DB) error {
+		var key models.APIKey
+		if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&key, apiKey.ID).Error; err != nil {
+			return fmt.Errorf("failed to lock key %d for update: %w", apiKey.ID, err)
+		}
+
+		// 更新429相关字段
+		now := time.Now()
+		updates := map[string]any{
+			"rate_limit_count": key.RateLimitCount + 1,
+			"last_429_at":      now,
+			"status":           models.KeyStatusRateLimited,
+		}
+
+		// 如果有重置时间，设置预计恢复时间
+		if rateLimitErr.ResetAt != nil {
+			updates["rate_limit_reset_at"] = *rateLimitErr.ResetAt
+		}
+
+		if err := tx.Model(&key).Updates(updates).Error; err != nil {
+			return fmt.Errorf("failed to update key in DB: %w", err)
+		}
+
+		// 更新Store中的密钥信息
+		storeUpdates := map[string]any{
+			"status":           models.KeyStatusRateLimited,
+			"rate_limit_count": key.RateLimitCount + 1,
+			"last_429_at":      now.Unix(),
+		}
+		if rateLimitErr.ResetAt != nil {
+			storeUpdates["rate_limit_reset_at"] = rateLimitErr.ResetAt.Unix()
+		}
+
+		if err := p.store.HSet(keyHashKey, storeUpdates); err != nil {
+			return fmt.Errorf("failed to update key details in store: %w", err)
+		}
+
+		// 从活跃密钥列表中移除（暂时不可用）
+		if err := p.store.LRem(activeKeysListKey, 0, apiKey.ID); err != nil {
+			logrus.WithFields(logrus.Fields{"keyID": apiKey.ID, "error": err}).Warn("Failed to remove rate-limited key from active list")
+		}
+
+		logrus.WithFields(logrus.Fields{
+			"keyID":      apiKey.ID,
+			"retryAfter": rateLimitErr.RetryAfter,
+			"resetAt":    rateLimitErr.ResetAt,
+		}).Info("Key marked as rate-limited")
 
 		return nil
 	})
@@ -563,14 +655,25 @@ func (p *KeyProvider) removeKeyFromStore(keyID, groupID uint) error {
 
 // apiKeyToMap converts an APIKey model to a map for HSET.
 func (p *KeyProvider) apiKeyToMap(key *models.APIKey) map[string]any {
-	return map[string]any{
-		"id":            fmt.Sprint(key.ID),
-		"key_string":    key.KeyValue,
-		"status":        key.Status,
-		"failure_count": key.FailureCount,
-		"group_id":      key.GroupID,
-		"created_at":    key.CreatedAt.Unix(),
+	result := map[string]any{
+		"id":               fmt.Sprint(key.ID),
+		"key_string":       key.KeyValue,
+		"status":           key.Status,
+		"failure_count":    key.FailureCount,
+		"rate_limit_count": key.RateLimitCount,
+		"group_id":         key.GroupID,
+		"created_at":       key.CreatedAt.Unix(),
 	}
+
+	// 处理可选的时间字段
+	if key.Last429At != nil {
+		result["last_429_at"] = key.Last429At.Unix()
+	}
+	if key.RateLimitResetAt != nil {
+		result["rate_limit_reset_at"] = key.RateLimitResetAt.Unix()
+	}
+
+	return result
 }
 
 // pluckIDs extracts IDs from a slice of APIKey.
@@ -580,4 +683,69 @@ func pluckIDs(keys []models.APIKey) []uint {
 		ids[i] = key.ID
 	}
 	return ids
+}
+
+// RecoverRateLimitedKeys 恢复已过期的429限流密钥
+func (p *KeyProvider) RecoverRateLimitedKeys() error {
+	// 查找所有rate_limited状态且已过期的密钥
+	var keysToRecover []models.APIKey
+	now := time.Now()
+
+	if err := p.db.Where("status = ? AND (rate_limit_reset_at IS NULL OR rate_limit_reset_at <= ?)",
+		models.KeyStatusRateLimited, now).Find(&keysToRecover).Error; err != nil {
+		return fmt.Errorf("failed to find rate-limited keys to recover: %w", err)
+	}
+
+	if len(keysToRecover) == 0 {
+		return nil
+	}
+
+	recoveredCount := 0
+	for _, key := range keysToRecover {
+		if err := p.recoverSingleKey(&key); err != nil {
+			logrus.WithFields(logrus.Fields{"keyID": key.ID, "error": err}).Error("Failed to recover rate-limited key")
+			continue
+		}
+		recoveredCount++
+	}
+
+	if recoveredCount > 0 {
+		logrus.WithFields(logrus.Fields{"recoveredCount": recoveredCount}).Info("Recovered rate-limited keys")
+	}
+
+	return nil
+}
+
+// recoverSingleKey 恢复单个429限流密钥
+func (p *KeyProvider) recoverSingleKey(key *models.APIKey) error {
+	return p.executeTransactionWithRetry(func(tx *gorm.DB) error {
+		// 更新数据库状态
+		updates := map[string]any{
+			"status":               models.KeyStatusActive,
+			"rate_limit_reset_at":  nil,
+		}
+
+		if err := tx.Model(key).Updates(updates).Error; err != nil {
+			return fmt.Errorf("failed to update key status in DB: %w", err)
+		}
+
+		// 更新Store中的密钥信息
+		keyHashKey := fmt.Sprintf("key:%d", key.ID)
+		storeUpdates := map[string]any{
+			"status": models.KeyStatusActive,
+		}
+
+		if err := p.store.HSet(keyHashKey, storeUpdates); err != nil {
+			return fmt.Errorf("failed to update key details in store: %w", err)
+		}
+
+		// 重新添加到活跃密钥列表
+		activeKeysListKey := fmt.Sprintf("group:%d:active_keys", key.GroupID)
+		if err := p.store.LPush(activeKeysListKey, key.ID); err != nil {
+			return fmt.Errorf("failed to add recovered key to active list: %w", err)
+		}
+
+		logrus.WithFields(logrus.Fields{"keyID": key.ID}).Info("Rate-limited key recovered")
+		return nil
+	})
 }

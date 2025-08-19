@@ -9,8 +9,9 @@ import (
 
 // Key状态
 const (
-	KeyStatusActive  = "active"
-	KeyStatusInvalid = "invalid"
+	KeyStatusActive     = "active"
+	KeyStatusInvalid    = "invalid"
+	KeyStatusRateLimited = "rate_limited" // 429限流状态
 )
 
 // SystemSetting 对应 system_settings 表
@@ -75,15 +76,18 @@ type Group struct {
 
 // APIKey 对应 api_keys 表
 type APIKey struct {
-	ID           uint       `gorm:"primaryKey;autoIncrement" json:"id"`
-	KeyValue     string     `gorm:"type:varchar(700);not null;uniqueIndex:idx_group_key" json:"key_value"`
-	GroupID      uint       `gorm:"not null;uniqueIndex:idx_group_key" json:"group_id"`
-	Status       string     `gorm:"type:varchar(50);not null;default:'active'" json:"status"`
-	RequestCount int64      `gorm:"not null;default:0" json:"request_count"`
-	FailureCount int64      `gorm:"not null;default:0" json:"failure_count"`
-	LastUsedAt   *time.Time `json:"last_used_at"`
-	CreatedAt    time.Time  `json:"created_at"`
-	UpdatedAt    time.Time  `json:"updated_at"`
+	ID                 uint       `gorm:"primaryKey;autoIncrement" json:"id"`
+	KeyValue           string     `gorm:"type:varchar(700);not null;uniqueIndex:idx_group_key" json:"key_value"`
+	GroupID            uint       `gorm:"not null;uniqueIndex:idx_group_key" json:"group_id"`
+	Status             string     `gorm:"type:varchar(50);not null;default:'active'" json:"status"`
+	RequestCount       int64      `gorm:"not null;default:0" json:"request_count"`
+	FailureCount       int64      `gorm:"not null;default:0" json:"failure_count"`
+	RateLimitCount     int64      `gorm:"not null;default:0" json:"rate_limit_count"`     // 429错误次数
+	LastUsedAt         *time.Time `json:"last_used_at"`
+	Last429At          *time.Time `json:"last_429_at"`           // 最后一次429错误时间
+	RateLimitResetAt   *time.Time `json:"rate_limit_reset_at"`   // 预计配额重置时间
+	CreatedAt          time.Time  `json:"created_at"`
+	UpdatedAt          time.Time  `json:"updated_at"`
 }
 
 // RequestLog 对应 request_logs 表

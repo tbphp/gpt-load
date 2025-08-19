@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"gpt-load/internal/config"
+	"gpt-load/internal/db"
 	"gpt-load/internal/keypool"
 	"gpt-load/internal/models"
 	"gpt-load/internal/proxy"
@@ -33,6 +34,7 @@ type App struct {
 	requestLogService *services.RequestLogService
 	cronChecker       *keypool.CronChecker
 	keyPoolProvider   *keypool.KeyProvider
+	providerManager   *keypool.ProviderManager
 	proxyServer       *proxy.ProxyServer
 	storage           store.Store
 	db                *gorm.DB
@@ -50,6 +52,7 @@ type AppParams struct {
 	RequestLogService *services.RequestLogService
 	CronChecker       *keypool.CronChecker
 	KeyPoolProvider   *keypool.KeyProvider
+	ProviderManager   *keypool.ProviderManager
 	ProxyServer       *proxy.ProxyServer
 	Storage           store.Store
 	DB                *gorm.DB
@@ -66,6 +69,7 @@ func NewApp(params AppParams) *App {
 		requestLogService: params.RequestLogService,
 		cronChecker:       params.CronChecker,
 		keyPoolProvider:   params.KeyPoolProvider,
+		providerManager:   params.ProviderManager,
 		proxyServer:       params.ProxyServer,
 		storage:           params.Storage,
 		db:                params.DB,
@@ -88,8 +92,10 @@ func (a *App) Start() error {
 		); err != nil {
 			return fmt.Errorf("database auto-migration failed: %w", err)
 		}
-		// 数据修复
-		// db.MigrateDatabase(a.db)
+		// 数据修复和迁移
+		if err := db.MigrateDatabase(a.db); err != nil {
+			return fmt.Errorf("database migration failed: %w", err)
+		}
 		logrus.Info("Database auto-migration completed.")
 
 		// 初始化系统设置
@@ -100,11 +106,10 @@ func (a *App) Start() error {
 
 		a.settingsManager.Initialize(a.storage, a.groupManager, a.configManager.IsMaster())
 
-		// 从数据库加载密钥到 Redis
-		if err := a.keyPoolProvider.LoadKeysFromDB(); err != nil {
-			return fmt.Errorf("failed to load keys into key pool: %w", err)
+		// 初始化密钥提供者管理器
+		if err := a.initializeKeyProviders(); err != nil {
+			return fmt.Errorf("failed to initialize key providers: %w", err)
 		}
-		logrus.Debug("API keys loaded into Redis cache by master.")
 
 		// 仅 Master 节点启动的服务
 		a.requestLogService.Start()
@@ -207,4 +212,56 @@ func (a *App) Stop(ctx context.Context) {
 	}
 
 	logrus.Info("Server exited gracefully")
+}
+
+// initializeKeyProviders 初始化密钥提供者
+func (a *App) initializeKeyProviders() error {
+	// 检查是否启用增强提供者
+	if a.shouldUseEnhancedProvider() {
+		logrus.Info("Initializing enhanced key provider")
+
+		// 切换到增强提供者
+		if err := a.providerManager.SwitchToEnhanced(); err != nil {
+			logrus.WithError(err).Warn("Failed to switch to enhanced provider, falling back to legacy")
+			if err := a.providerManager.SwitchToLegacy(); err != nil {
+				return fmt.Errorf("failed to fallback to legacy provider: %w", err)
+			}
+		}
+
+		// 使用增强提供者加载密钥
+		if enhanced := a.providerManager.GetEnhancedProvider(); enhanced != nil {
+			if err := enhanced.LoadKeysFromDB(); err != nil {
+				return fmt.Errorf("failed to load keys with enhanced provider: %w", err)
+			}
+			logrus.Info("API keys loaded with enhanced provider")
+		} else {
+			// 回退到传统提供者
+			if err := a.keyPoolProvider.LoadKeysFromDB(); err != nil {
+				return fmt.Errorf("failed to load keys with legacy provider: %w", err)
+			}
+			logrus.Info("API keys loaded with legacy provider (fallback)")
+		}
+	} else {
+		logrus.Info("Using legacy key provider")
+
+		// 确保使用传统提供者
+		if err := a.providerManager.SwitchToLegacy(); err != nil {
+			logrus.WithError(err).Warn("Failed to switch to legacy provider")
+		}
+
+		// 从数据库加载密钥到 Redis
+		if err := a.keyPoolProvider.LoadKeysFromDB(); err != nil {
+			return fmt.Errorf("failed to load keys into key pool: %w", err)
+		}
+		logrus.Debug("API keys loaded into Redis cache by master.")
+	}
+
+	return nil
+}
+
+// shouldUseEnhancedProvider 判断是否应该使用增强提供者
+func (a *App) shouldUseEnhancedProvider() bool {
+	// 这里可以根据配置文件、环境变量或系统设置来决定
+	// 暂时默认启用增强提供者进行测试
+	return true
 }

@@ -114,6 +114,52 @@ func (s *RedisStore) SPopN(key string, count int64) ([]string, error) {
 	return s.client.SPopN(context.Background(), key, count).Result()
 }
 
+func (s *RedisStore) SRem(key string, members ...any) error {
+	return s.client.SRem(context.Background(), key, members...).Err()
+}
+
+func (s *RedisStore) SMembers(key string) ([]string, error) {
+	return s.client.SMembers(context.Background(), key).Result()
+}
+
+// --- ZSET operations ---
+
+func (s *RedisStore) ZAdd(key string, members ...ZMember) error {
+	if len(members) == 0 {
+		return nil
+	}
+
+	zMembers := make([]redis.Z, len(members))
+	for i, member := range members {
+		zMembers[i] = redis.Z{
+			Score:  member.Score,
+			Member: member.Member,
+		}
+	}
+
+	return s.client.ZAdd(context.Background(), key, zMembers...).Err()
+}
+
+func (s *RedisStore) ZRem(key string, members ...any) error {
+	return s.client.ZRem(context.Background(), key, members...).Err()
+}
+
+func (s *RedisStore) ZRangeByScore(key string, min, max float64) ([]string, error) {
+	return s.client.ZRangeByScore(context.Background(), key, &redis.ZRangeBy{
+		Min: fmt.Sprintf("%f", min),
+		Max: fmt.Sprintf("%f", max),
+	}).Result()
+}
+
+func (s *RedisStore) ZRemRangeByScore(key string, min, max float64) (int64, error) {
+	return s.client.ZRemRangeByScore(context.Background(), key,
+		fmt.Sprintf("%f", min), fmt.Sprintf("%f", max)).Result()
+}
+
+func (s *RedisStore) ZCard(key string) (int64, error) {
+	return s.client.ZCard(context.Background(), key).Result()
+}
+
 // --- Pipeliner implementation ---
 
 type redisPipeliner struct {
@@ -123,6 +169,48 @@ type redisPipeliner struct {
 // HSet adds an HSET command to the pipeline.
 func (p *redisPipeliner) HSet(key string, values map[string]any) {
 	p.pipe.HSet(context.Background(), key, values)
+}
+
+// LPush adds an LPUSH command to the pipeline.
+func (p *redisPipeliner) LPush(key string, values ...any) {
+	p.pipe.LPush(context.Background(), key, values...)
+}
+
+// LRem adds an LREM command to the pipeline.
+func (p *redisPipeliner) LRem(key string, count int64, value any) {
+	p.pipe.LRem(context.Background(), key, count, value)
+}
+
+// SAdd adds an SADD command to the pipeline.
+func (p *redisPipeliner) SAdd(key string, members ...any) {
+	p.pipe.SAdd(context.Background(), key, members...)
+}
+
+// SRem adds an SREM command to the pipeline.
+func (p *redisPipeliner) SRem(key string, members ...any) {
+	p.pipe.SRem(context.Background(), key, members...)
+}
+
+// ZAdd adds a ZADD command to the pipeline.
+func (p *redisPipeliner) ZAdd(key string, members ...ZMember) {
+	if len(members) == 0 {
+		return
+	}
+
+	zMembers := make([]redis.Z, len(members))
+	for i, member := range members {
+		zMembers[i] = redis.Z{
+			Score:  member.Score,
+			Member: member.Member,
+		}
+	}
+
+	p.pipe.ZAdd(context.Background(), key, zMembers...)
+}
+
+// ZRem adds a ZREM command to the pipeline.
+func (p *redisPipeliner) ZRem(key string, members ...any) {
+	p.pipe.ZRem(context.Background(), key, members...)
 }
 
 // Exec executes all commands in the pipeline.

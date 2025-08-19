@@ -2,6 +2,7 @@ package store
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"sync"
 	"time"
@@ -11,6 +12,19 @@ import (
 type memoryStoreItem struct {
 	value     []byte
 	expiresAt int64 // Unix-nano timestamp. 0 for no expiry.
+}
+
+// zsetMember represents a member in a sorted set.
+type zsetMember struct {
+	Member string
+	Score  float64
+}
+
+// zset represents a sorted set in memory.
+type zset struct {
+	members map[string]float64 // member -> score
+	sorted  []zsetMember       // sorted by score
+	dirty   bool               // needs re-sorting
 }
 
 // MemoryStore is an in-memory key-value store that is safe for concurrent use.
@@ -326,6 +340,208 @@ func (s *MemoryStore) SAdd(key string, members ...any) error {
 		set[fmt.Sprint(member)] = struct{}{}
 	}
 	return nil
+}
+
+// SRem removes members from a set.
+func (s *MemoryStore) SRem(key string, members ...any) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	rawSet, exists := s.data[key]
+	if !exists {
+		return nil
+	}
+
+	set, ok := rawSet.(map[string]struct{})
+	if !ok {
+		return fmt.Errorf("type mismatch: key '%s' holds a different data type", key)
+	}
+
+	for _, member := range members {
+		delete(set, fmt.Sprint(member))
+	}
+	return nil
+}
+
+// SMembers returns all members of a set.
+func (s *MemoryStore) SMembers(key string) ([]string, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	rawSet, exists := s.data[key]
+	if !exists {
+		return []string{}, nil
+	}
+
+	set, ok := rawSet.(map[string]struct{})
+	if !ok {
+		return nil, fmt.Errorf("type mismatch: key '%s' holds a different data type", key)
+	}
+
+	members := make([]string, 0, len(set))
+	for member := range set {
+		members = append(members, member)
+	}
+	return members, nil
+}
+
+// --- ZSET operations ---
+
+// ZAdd adds members to a sorted set.
+func (s *MemoryStore) ZAdd(key string, members ...ZMember) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var zs *zset
+	rawZset, exists := s.data[key]
+	if !exists {
+		zs = &zset{
+			members: make(map[string]float64),
+			sorted:  make([]zsetMember, 0),
+			dirty:   false,
+		}
+		s.data[key] = zs
+	} else {
+		var ok bool
+		zs, ok = rawZset.(*zset)
+		if !ok {
+			return fmt.Errorf("type mismatch: key '%s' holds a different data type", key)
+		}
+	}
+
+	for _, member := range members {
+		memberStr := fmt.Sprint(member.Member)
+		oldScore, existed := zs.members[memberStr]
+		zs.members[memberStr] = member.Score
+
+		if !existed || oldScore != member.Score {
+			zs.dirty = true
+		}
+	}
+
+	return nil
+}
+
+// ZRem removes members from a sorted set.
+func (s *MemoryStore) ZRem(key string, members ...any) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	rawZset, exists := s.data[key]
+	if !exists {
+		return nil
+	}
+
+	zs, ok := rawZset.(*zset)
+	if !ok {
+		return fmt.Errorf("type mismatch: key '%s' holds a different data type", key)
+	}
+
+	for _, member := range members {
+		memberStr := fmt.Sprint(member)
+		if _, existed := zs.members[memberStr]; existed {
+			delete(zs.members, memberStr)
+			zs.dirty = true
+		}
+	}
+
+	return nil
+}
+
+// ZRangeByScore returns members with scores between min and max.
+func (s *MemoryStore) ZRangeByScore(key string, min, max float64) ([]string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	rawZset, exists := s.data[key]
+	if !exists {
+		return []string{}, nil
+	}
+
+	zs, ok := rawZset.(*zset)
+	if !ok {
+		return nil, fmt.Errorf("type mismatch: key '%s' holds a different data type", key)
+	}
+
+	s.ensureSorted(zs)
+
+	var result []string
+	for _, member := range zs.sorted {
+		if member.Score >= min && member.Score <= max {
+			result = append(result, member.Member)
+		}
+	}
+
+	return result, nil
+}
+
+// ZRemRangeByScore removes members with scores between min and max.
+func (s *MemoryStore) ZRemRangeByScore(key string, min, max float64) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	rawZset, exists := s.data[key]
+	if !exists {
+		return 0, nil
+	}
+
+	zs, ok := rawZset.(*zset)
+	if !ok {
+		return 0, fmt.Errorf("type mismatch: key '%s' holds a different data type", key)
+	}
+
+	var removed int64
+	for member, score := range zs.members {
+		if score >= min && score <= max {
+			delete(zs.members, member)
+			removed++
+		}
+	}
+
+	if removed > 0 {
+		zs.dirty = true
+	}
+
+	return removed, nil
+}
+
+// ZCard returns the number of members in a sorted set.
+func (s *MemoryStore) ZCard(key string) (int64, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	rawZset, exists := s.data[key]
+	if !exists {
+		return 0, nil
+	}
+
+	zs, ok := rawZset.(*zset)
+	if !ok {
+		return 0, fmt.Errorf("type mismatch: key '%s' holds a different data type", key)
+	}
+
+	return int64(len(zs.members)), nil
+}
+
+// ensureSorted ensures the sorted slice is up to date.
+func (s *MemoryStore) ensureSorted(zs *zset) {
+	if !zs.dirty {
+		return
+	}
+
+	zs.sorted = zs.sorted[:0] // clear but keep capacity
+	for member, score := range zs.members {
+		zs.sorted = append(zs.sorted, zsetMember{
+			Member: member,
+			Score:  score,
+		})
+	}
+
+	sort.Slice(zs.sorted, func(i, j int) bool {
+		return zs.sorted[i].Score < zs.sorted[j].Score
+	})
+
+	zs.dirty = false
 }
 
 // SPopN randomly removes and returns the given number of members from a set.

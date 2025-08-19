@@ -40,18 +40,30 @@ type RestoreKeysResult struct {
 
 // KeyService provides services related to API keys.
 type KeyService struct {
-	DB           *gorm.DB
-	KeyProvider  *keypool.KeyProvider
-	KeyValidator *keypool.KeyValidator
+	DB              *gorm.DB
+	KeyProvider     *keypool.KeyProvider
+	ProviderManager *keypool.ProviderManager
+	KeyValidator    *keypool.KeyValidator
 }
 
 // NewKeyService creates a new KeyService.
-func NewKeyService(db *gorm.DB, keyProvider *keypool.KeyProvider, keyValidator *keypool.KeyValidator) *KeyService {
+func NewKeyService(db *gorm.DB, keyProvider *keypool.KeyProvider, providerManager *keypool.ProviderManager, keyValidator *keypool.KeyValidator) *KeyService {
 	return &KeyService{
-		DB:           db,
-		KeyProvider:  keyProvider,
-		KeyValidator: keyValidator,
+		DB:              db,
+		KeyProvider:     keyProvider,
+		ProviderManager: providerManager,
+		KeyValidator:    keyValidator,
 	}
+}
+
+// getActiveProvider 获取当前活跃的密钥提供者
+func (s *KeyService) getActiveProvider() interface{} {
+	if s.ProviderManager != nil {
+		if enhanced := s.ProviderManager.GetEnhancedProvider(); enhanced != nil {
+			return enhanced
+		}
+	}
+	return s.KeyProvider
 }
 
 // AddMultipleKeys handles the business logic of creating new keys from a text block.
@@ -124,14 +136,27 @@ func (s *KeyService) processAndCreateKeys(
 		return 0, len(keys), nil
 	}
 
-	// 3. Use KeyProvider to add keys in chunks
+	// 3. Use active provider to add keys in chunks
 	for i := 0; i < len(newKeysToCreate); i += chunkSize {
 		end := i + chunkSize
 		if end > len(newKeysToCreate) {
 			end = len(newKeysToCreate)
 		}
 		chunk := newKeysToCreate[i:end]
-		if err := s.KeyProvider.AddKeys(groupID, chunk); err != nil {
+
+		// 使用当前活跃的提供者
+		activeProvider := s.getActiveProvider()
+		var err error
+		switch provider := activeProvider.(type) {
+		case *keypool.EnhancedKeyProvider:
+			err = provider.AddKeys(groupID, chunk)
+		case *keypool.KeyProvider:
+			err = provider.AddKeys(groupID, chunk)
+		default:
+			err = s.KeyProvider.AddKeys(groupID, chunk)
+		}
+
+		if err != nil {
 			return addedCount, len(keys) - addedCount, err
 		}
 		addedCount += len(chunk)
@@ -212,7 +237,21 @@ func (s *KeyService) RestoreMultipleKeys(groupID uint, keysText string) (*Restor
 			end = len(keysToRestore)
 		}
 		chunk := keysToRestore[i:end]
-		restoredCount, err := s.KeyProvider.RestoreMultipleKeys(groupID, chunk)
+
+		// 使用当前活跃的提供者
+		activeProvider := s.getActiveProvider()
+		var restoredCount int64
+		var err error
+		switch provider := activeProvider.(type) {
+		case *keypool.EnhancedKeyProvider:
+			// EnhancedKeyProvider没有RestoreMultipleKeys方法，使用传统提供者
+			restoredCount, err = provider.GetLegacyProvider().RestoreMultipleKeys(groupID, chunk)
+		case *keypool.KeyProvider:
+			restoredCount, err = provider.RestoreMultipleKeys(groupID, chunk)
+		default:
+			restoredCount, err = s.KeyProvider.RestoreMultipleKeys(groupID, chunk)
+		}
+
 		if err != nil {
 			return nil, err
 		}
@@ -235,17 +274,47 @@ func (s *KeyService) RestoreMultipleKeys(groupID uint, keysText string) (*Restor
 
 // RestoreAllInvalidKeys sets the status of all 'inactive' keys in a group to 'active'.
 func (s *KeyService) RestoreAllInvalidKeys(groupID uint) (int64, error) {
-	return s.KeyProvider.RestoreKeys(groupID)
+	// 使用当前活跃的提供者
+	activeProvider := s.getActiveProvider()
+	switch provider := activeProvider.(type) {
+	case *keypool.EnhancedKeyProvider:
+		// EnhancedKeyProvider没有RestoreKeys方法，使用传统提供者
+		return provider.GetLegacyProvider().RestoreKeys(groupID)
+	case *keypool.KeyProvider:
+		return provider.RestoreKeys(groupID)
+	default:
+		return s.KeyProvider.RestoreKeys(groupID)
+	}
 }
 
 // ClearAllInvalidKeys deletes all 'inactive' keys from a group.
 func (s *KeyService) ClearAllInvalidKeys(groupID uint) (int64, error) {
-	return s.KeyProvider.RemoveInvalidKeys(groupID)
+	// 使用当前活跃的提供者
+	activeProvider := s.getActiveProvider()
+	switch provider := activeProvider.(type) {
+	case *keypool.EnhancedKeyProvider:
+		// EnhancedKeyProvider没有RemoveInvalidKeys方法，使用传统提供者
+		return provider.GetLegacyProvider().RemoveInvalidKeys(groupID)
+	case *keypool.KeyProvider:
+		return provider.RemoveInvalidKeys(groupID)
+	default:
+		return s.KeyProvider.RemoveInvalidKeys(groupID)
+	}
 }
 
 // ClearAllKeys deletes all keys from a group.
 func (s *KeyService) ClearAllKeys(groupID uint) (int64, error) {
-	return s.KeyProvider.RemoveAllKeys(groupID)
+	// 使用当前活跃的提供者
+	activeProvider := s.getActiveProvider()
+	switch provider := activeProvider.(type) {
+	case *keypool.EnhancedKeyProvider:
+		// EnhancedKeyProvider没有RemoveAllKeys方法，使用传统提供者
+		return provider.GetLegacyProvider().RemoveAllKeys(groupID)
+	case *keypool.KeyProvider:
+		return provider.RemoveAllKeys(groupID)
+	default:
+		return s.KeyProvider.RemoveAllKeys(groupID)
+	}
 }
 
 // DeleteMultipleKeys handles the business logic of deleting keys from a text block.
@@ -265,7 +334,20 @@ func (s *KeyService) DeleteMultipleKeys(groupID uint, keysText string) (*DeleteK
 			end = len(keysToDelete)
 		}
 		chunk := keysToDelete[i:end]
-		deletedCount, err := s.KeyProvider.RemoveKeys(groupID, chunk)
+
+		// 使用当前活跃的提供者
+		activeProvider := s.getActiveProvider()
+		var deletedCount int64
+		var err error
+		switch provider := activeProvider.(type) {
+		case *keypool.EnhancedKeyProvider:
+			deletedCount, err = provider.RemoveKeys(groupID, chunk)
+		case *keypool.KeyProvider:
+			deletedCount, err = provider.RemoveKeys(groupID, chunk)
+		default:
+			deletedCount, err = s.KeyProvider.RemoveKeys(groupID, chunk)
+		}
+
 		if err != nil {
 			return nil, err
 		}

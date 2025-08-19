@@ -8,6 +8,12 @@ import (
 // ErrNotFound is the error returned when a key is not found in the store.
 var ErrNotFound = errors.New("store: key not found")
 
+// ZMember represents a member of a sorted set with its score.
+type ZMember struct {
+	Score  float64
+	Member interface{}
+}
+
 // Message is the struct for received pub/sub messages.
 type Message struct {
 	Channel string
@@ -52,7 +58,16 @@ type Store interface {
 
 	// SET operations
 	SAdd(key string, members ...any) error
+	SRem(key string, members ...any) error
 	SPopN(key string, count int64) ([]string, error)
+	SMembers(key string) ([]string, error)
+
+	// ZSET operations
+	ZAdd(key string, members ...ZMember) error
+	ZRem(key string, members ...any) error
+	ZRangeByScore(key string, min, max float64) ([]string, error)
+	ZRemRangeByScore(key string, min, max float64) (int64, error)
+	ZCard(key string) (int64, error)
 
 	// Close closes the store and releases any underlying resources.
 	Close() error
@@ -66,7 +81,22 @@ type Store interface {
 
 // Pipeliner defines an interface for executing a batch of commands.
 type Pipeliner interface {
+	// HASH operations
 	HSet(key string, values map[string]any)
+
+	// LIST operations
+	LPush(key string, values ...any)
+	LRem(key string, count int64, value any)
+
+	// SET operations
+	SAdd(key string, members ...any)
+	SRem(key string, members ...any)
+
+	// ZSET operations
+	ZAdd(key string, members ...ZMember)
+	ZRem(key string, members ...any)
+
+	// Execute all commands
 	Exec() error
 }
 

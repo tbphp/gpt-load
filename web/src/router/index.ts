@@ -1,6 +1,6 @@
+import Layout from "@/components/Layout.vue";
 import { useAuthService } from "@/services/auth";
 import { createRouter, createWebHistory, type RouteRecordRaw } from "vue-router";
-import Layout from "@/components/Layout.vue";
 
 const routes: Array<RouteRecordRaw> = [
   {
@@ -26,6 +26,11 @@ const routes: Array<RouteRecordRaw> = [
         path: "settings",
         name: "settings",
         component: () => import("@/views/Settings.vue"),
+      },
+      {
+        path: "token-pool",
+        name: "token-pool",
+        component: () => import("@/views/TokenPool.vue"),
       },
     ],
   },

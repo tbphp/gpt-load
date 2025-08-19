@@ -7,6 +7,7 @@ import (
 	"gpt-load/internal/config"
 	"gpt-load/internal/db"
 	"gpt-load/internal/handler"
+	"gpt-load/internal/handlers"
 	"gpt-load/internal/httpclient"
 	"gpt-load/internal/keypool"
 	"gpt-load/internal/proxy"
@@ -66,7 +67,19 @@ func BuildContainer() (*dig.Container, error) {
 	if err := container.Provide(services.NewGroupManager); err != nil {
 		return nil, err
 	}
-	if err := container.Provide(keypool.NewProvider); err != nil {
+	// 提供ProviderManager而不是直接的KeyProvider
+	if err := container.Provide(keypool.NewProviderManager); err != nil {
+		return nil, err
+	}
+	// 提供一个适配器函数，将ProviderManager转换为KeyProvider接口
+	if err := container.Provide(func(manager *keypool.ProviderManager) *keypool.KeyProvider {
+		// 获取当前提供者，如果是EnhancedKeyProvider，则返回其内部的legacyProvider
+		// 如果是传统KeyProvider，则直接返回
+		if enhanced := manager.GetEnhancedProvider(); enhanced != nil {
+			return enhanced.GetLegacyProvider()
+		}
+		return manager.GetLegacyProvider()
+	}); err != nil {
 		return nil, err
 	}
 	if err := container.Provide(keypool.NewKeyValidator); err != nil {
@@ -75,8 +88,17 @@ func BuildContainer() (*dig.Container, error) {
 	if err := container.Provide(keypool.NewCronChecker); err != nil {
 		return nil, err
 	}
+	if err := container.Provide(keypool.NewPoolManager); err != nil {
+		return nil, err
+	}
 
 	// Handlers
+	if err := container.Provide(handlers.NewPoolHandler); err != nil {
+		return nil, err
+	}
+	if err := container.Provide(handlers.NewRateLimitHandler); err != nil {
+		return nil, err
+	}
 	if err := container.Provide(handler.NewServer); err != nil {
 		return nil, err
 	}

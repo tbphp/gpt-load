@@ -5,26 +5,27 @@ import { appState, triggerSyncOperationRefresh } from "@/utils/app-state";
 import { copy } from "@/utils/clipboard";
 import { getGroupDisplayName, maskKey } from "@/utils/display";
 import {
-  AddCircleOutline,
-  AlertCircleOutline,
-  CheckmarkCircle,
-  CopyOutline,
-  EyeOffOutline,
-  EyeOutline,
-  RemoveCircleOutline,
-  Search,
+    AddCircleOutline,
+    AlertCircleOutline,
+    CheckmarkCircle,
+    CopyOutline,
+    EyeOffOutline,
+    EyeOutline,
+    RemoveCircleOutline,
+    Search,
+    TimeOutline
 } from "@vicons/ionicons5";
 import {
-  NButton,
-  NDropdown,
-  NEmpty,
-  NIcon,
-  NInput,
-  NSelect,
-  NSpace,
-  NSpin,
-  useDialog,
-  type MessageReactive,
+    NButton,
+    NDropdown,
+    NEmpty,
+    NIcon,
+    NInput,
+    NSelect,
+    NSpace,
+    NSpin,
+    useDialog,
+    type MessageReactive,
 } from "naive-ui";
 import { h, ref, watch } from "vue";
 import KeyCreateDialog from "./KeyCreateDialog.vue";
@@ -43,7 +44,7 @@ const props = defineProps<Props>();
 const keys = ref<KeyRow[]>([]);
 const loading = ref(false);
 const searchText = ref("");
-const statusFilter = ref<"all" | "active" | "invalid">("all");
+const statusFilter = ref<"all" | "active" | "invalid" | "rate_limited">("all");
 const currentPage = ref(1);
 const pageSize = ref(12);
 const total = ref(0);
@@ -56,6 +57,7 @@ const statusOptions = [
   { label: "全部", value: "all" },
   { label: "有效", value: "active" },
   { label: "无效", value: "invalid" },
+  { label: "限流中", value: "rate_limited" },
 ];
 
 // 更多操作下拉菜单选项
@@ -645,7 +647,13 @@ function resetPage() {
                   </template>
                   有效
                 </n-tag>
-                <n-tag v-else :bordered="false" round>
+                <n-tag v-else-if="key.status === 'rate_limited'" type="warning" :bordered="false" round>
+                  <template #icon>
+                    <n-icon :component="TimeOutline" />
+                  </template>
+                  限流中
+                </n-tag>
+                <n-tag v-else type="error" :bordered="false" round>
                   <template #icon>
                     <n-icon :component="AlertCircleOutline" />
                   </template>

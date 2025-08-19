@@ -28,27 +28,72 @@ import (
 // ProxyServer represents the proxy server
 type ProxyServer struct {
 	keyProvider       *keypool.KeyProvider
+	providerManager   *keypool.ProviderManager
 	groupManager      *services.GroupManager
 	settingsManager   *config.SystemSettingsManager
 	channelFactory    *channel.Factory
 	requestLogService *services.RequestLogService
+	rateLimitMonitor  *app_errors.RateLimitMonitor
 }
 
 // NewProxyServer creates a new proxy server
 func NewProxyServer(
 	keyProvider *keypool.KeyProvider,
+	providerManager *keypool.ProviderManager,
 	groupManager *services.GroupManager,
 	settingsManager *config.SystemSettingsManager,
 	channelFactory *channel.Factory,
 	requestLogService *services.RequestLogService,
 ) (*ProxyServer, error) {
+	// 创建429错误监控器
+	rateLimitMonitor := app_errors.NewRateLimitMonitor(nil)
+
 	return &ProxyServer{
 		keyProvider:       keyProvider,
+		providerManager:   providerManager,
 		groupManager:      groupManager,
 		settingsManager:   settingsManager,
 		channelFactory:    channelFactory,
 		requestLogService: requestLogService,
+		rateLimitMonitor:  rateLimitMonitor,
 	}, nil
+}
+
+// GetRateLimitMonitor 获取429错误监控器
+func (ps *ProxyServer) GetRateLimitMonitor() *app_errors.RateLimitMonitor {
+	return ps.rateLimitMonitor
+}
+
+// getActiveProvider 获取当前活跃的密钥提供者
+func (ps *ProxyServer) getActiveProvider() interface{} {
+	if ps.providerManager != nil {
+		if enhanced := ps.providerManager.GetEnhancedProvider(); enhanced != nil {
+			return enhanced
+		}
+	}
+	return ps.keyProvider
+}
+
+// StartRateLimitMonitor 启动429错误监控器的定期清理任务
+func (ps *ProxyServer) StartRateLimitMonitor() {
+	if ps.rateLimitMonitor == nil {
+		return
+	}
+
+	// 启动定期清理任务
+	go func() {
+		ticker := time.NewTicker(1 * time.Hour) // 每小时清理一次
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				ps.rateLimitMonitor.CleanupOldEvents()
+			}
+		}
+	}()
+
+	logrus.Info("Rate limit monitor cleanup task started")
 }
 
 // HandleProxy is the main entry point for proxy requests, refactored based on the stable .bak logic.
@@ -123,7 +168,19 @@ func (ps *ProxyServer) executeRequestWithRetry(
 		return
 	}
 
-	apiKey, err := ps.keyProvider.SelectKey(group.ID)
+	// 使用当前活跃的提供者选择密钥
+	var apiKey *models.APIKey
+	var err error
+
+	activeProvider := ps.getActiveProvider()
+	switch provider := activeProvider.(type) {
+	case *keypool.EnhancedKeyProvider:
+		apiKey, err = provider.SelectKey(group.ID)
+	case *keypool.KeyProvider:
+		apiKey, err = provider.SelectKey(group.ID)
+	default:
+		apiKey, err = ps.keyProvider.SelectKey(group.ID)
+	}
 	if err != nil {
 		logrus.Errorf("Failed to select a key for group %s on attempt %d: %v", group.Name, retryCount+1, err)
 		response.Error(c, app_errors.NewAPIError(app_errors.ErrNoKeysAvailable, err.Error()))
@@ -195,11 +252,10 @@ func (ps *ProxyServer) executeRequestWithRetry(
 			return
 		}
 
-		ps.keyProvider.UpdateStatus(apiKey, group, false)
-
 		var statusCode int
 		var errorMessage string
 		var parsedError string
+		var retryAfterHeader string
 
 		if err != nil {
 			statusCode = 500
@@ -217,7 +273,50 @@ func (ps *ProxyServer) executeRequestWithRetry(
 			errorBody = handleGzipCompression(resp, errorBody)
 			errorMessage = string(errorBody)
 			parsedError = app_errors.ParseUpstreamError(errorBody)
+			retryAfterHeader = resp.Header.Get("Retry-After")
 			logrus.Debugf("Request failed with status %d (attempt %d/%d) for key %s. Parsed Error: %s", statusCode, retryCount+1, cfg.MaxRetries, utils.MaskAPIKey(apiKey.KeyValue), parsedError)
+		}
+
+		// 检查是否为429错误
+		if app_errors.IsRateLimitError(statusCode, errorMessage) {
+			// 创建429错误对象
+			rateLimitErr := app_errors.CreateRateLimitError(statusCode, errorMessage, retryAfterHeader)
+
+			// 记录到429错误监控器
+			if ps.rateLimitMonitor != nil {
+				ps.rateLimitMonitor.RecordRateLimitError(apiKey.ID, group.ID, rateLimitErr)
+			}
+
+			// 使用专门的429错误处理方法
+			activeProvider := ps.getActiveProvider()
+			switch provider := activeProvider.(type) {
+			case *keypool.EnhancedKeyProvider:
+				provider.UpdateStatusWithRateLimit(apiKey, group, rateLimitErr)
+			case *keypool.KeyProvider:
+				provider.UpdateStatusWithRateLimit(apiKey, group, rateLimitErr)
+			default:
+				ps.keyProvider.UpdateStatusWithRateLimit(apiKey, group, rateLimitErr)
+			}
+
+			logrus.WithFields(logrus.Fields{
+				"keyID":      apiKey.ID,
+				"groupID":    group.ID,
+				"statusCode": statusCode,
+				"retryAfter": rateLimitErr.RetryAfter,
+				"resetAt":    rateLimitErr.ResetAt,
+				"pattern":    rateLimitErr.Message,
+			}).Info("429 rate limit error detected and handled")
+		} else {
+			// 普通错误处理
+			activeProvider := ps.getActiveProvider()
+			switch provider := activeProvider.(type) {
+			case *keypool.EnhancedKeyProvider:
+				provider.UpdateStatus(apiKey, group, false)
+			case *keypool.KeyProvider:
+				provider.UpdateStatus(apiKey, group, false)
+			default:
+				ps.keyProvider.UpdateStatus(apiKey, group, false)
+			}
 		}
 
 		newRetryErrors := append(retryErrors, types.RetryError{

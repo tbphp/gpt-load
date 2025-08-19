@@ -153,6 +153,30 @@ func registerProtectedAPIRoutes(api *gin.RouterGroup, serverHandler *handler.Ser
 		settings.GET("", serverHandler.GetSettings)
 		settings.PUT("", serverHandler.UpdateSettings)
 	}
+
+	// Token池管理
+	pool := api.Group("/pool")
+	{
+		pool.GET("/stats/:groupId", serverHandler.PoolHandler.GetPoolStats)
+		pool.GET("/recovery/metrics/:groupId", serverHandler.PoolHandler.GetRecoveryMetrics)
+		pool.POST("/recovery/manual/:groupId", serverHandler.PoolHandler.TriggerManualRecovery)
+		pool.POST("/refill/:groupId", serverHandler.PoolHandler.RefillPools)
+	}
+
+	// 429错误统计
+	rateLimit := api.Group("/rate-limit")
+	{
+		rateLimit.GET("/stats", serverHandler.RateLimitHandler.GetRateLimitStats)
+		rateLimit.GET("/summary", serverHandler.RateLimitHandler.GetRateLimitSummary)
+		rateLimit.GET("/trends", serverHandler.RateLimitHandler.GetRateLimitTrends)
+		rateLimit.GET("/events", serverHandler.RateLimitHandler.GetRecentRateLimitEvents)
+		rateLimit.GET("/keys/top", serverHandler.RateLimitHandler.GetTopRateLimitedKeys)
+		rateLimit.GET("/groups/top", serverHandler.RateLimitHandler.GetTopRateLimitedGroups)
+		rateLimit.GET("/keys/:keyId", serverHandler.RateLimitHandler.GetKeyRateLimitStats)
+		rateLimit.GET("/groups/:groupId", serverHandler.RateLimitHandler.GetGroupRateLimitStats)
+		rateLimit.POST("/cleanup", serverHandler.RateLimitHandler.CleanupRateLimitData)
+		rateLimit.POST("/reset", serverHandler.RateLimitHandler.ResetRateLimitMonitor)
+	}
 }
 
 // registerProxyRoutes 注册代理路由

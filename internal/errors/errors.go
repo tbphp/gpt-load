@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/go-sql-driver/mysql"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -22,6 +23,13 @@ func (e *APIError) Error() string {
 	return e.Message
 }
 
+// RateLimitError represents a 429 rate limit error with retry information
+type RateLimitError struct {
+	*APIError
+	RetryAfter time.Duration // 重试等待时间
+	ResetAt    *time.Time    // 配额重置时间（如果可用）
+}
+
 // Predefined API errors
 var (
 	ErrBadRequest         = &APIError{HTTPStatus: http.StatusBadRequest, Code: "BAD_REQUEST", Message: "Invalid request parameters"}
@@ -38,6 +46,7 @@ var (
 	ErrNoActiveKeys       = &APIError{HTTPStatus: http.StatusServiceUnavailable, Code: "NO_ACTIVE_KEYS", Message: "No active API keys available for this group"}
 	ErrMaxRetriesExceeded = &APIError{HTTPStatus: http.StatusBadGateway, Code: "MAX_RETRIES_EXCEEDED", Message: "Request failed after maximum retries"}
 	ErrNoKeysAvailable    = &APIError{HTTPStatus: http.StatusServiceUnavailable, Code: "NO_KEYS_AVAILABLE", Message: "No API keys available to process the request"}
+	ErrRateLimited        = &APIError{HTTPStatus: http.StatusTooManyRequests, Code: "RATE_LIMITED", Message: "API rate limit exceeded"}
 )
 
 // NewAPIError creates a new APIError with a custom message.
