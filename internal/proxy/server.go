@@ -273,26 +273,26 @@ func (ps *ProxyServer) logRequest(
 
 	duration := time.Since(startTime).Milliseconds()
 
-	// 日志记录逻辑：系统开启 AND NOT 分组禁用 = 记录
+	// 日志记录逻辑：系统开启 AND 分组开启 = 记录
 	var requestBodyToLog, responseBodyToLog string
 	var bodyLogStatus string
-	
+
 	systemEnabled := ps.settingsManager.GetSettings().EnableRequestBodyLogging
-	
-	// 检查分组配置中的禁用设置
-	groupDisabled := false
+	groupEnabled := true // 默认分组开启
+
+	// 检查分组配置中的设置
 	if group.Config != nil {
-		if disableValue, exists := group.Config["disable_request_body_logging"]; exists {
-			if disable, ok := disableValue.(bool); ok {
-				groupDisabled = disable
+		if enableValue, exists := group.Config["enable_request_body_logging"]; exists {
+			if enable, ok := enableValue.(bool); ok {
+				groupEnabled = enable
 			}
 		}
 	}
-	
-	// 设置日志状态
+
+	// 只有系统和分组都开启才记录
 	if !systemEnabled {
 		bodyLogStatus = "system_disabled"
-	} else if groupDisabled {
+	} else if !groupEnabled {
 		bodyLogStatus = "group_disabled"
 	} else {
 		bodyLogStatus = "enabled"

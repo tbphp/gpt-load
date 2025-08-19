@@ -334,14 +334,6 @@ func (sm *SystemSettingsManager) ValidateGroupConfigOverrides(configMap map[stri
 			continue
 		}
 
-		// 跳过分组特有的配置项（不在系统设置中的配置）
-		if key == "disable_request_body_logging" {
-			// 验证布尔类型
-			if _, ok := value.(bool); !ok {
-				return fmt.Errorf("invalid type for %s: expected boolean, got %T", key, value)
-			}
-			continue
-		}
 
 		field, ok := jsonToField[key]
 		if !ok {
