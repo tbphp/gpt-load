@@ -176,8 +176,7 @@ func (p *KeyProvider) handleFailure(apiKey *models.APIKey, group *models.Group, 
 	failureCount, _ := strconv.ParseInt(keyDetails["failure_count"], 10, 64)
 
 	// 判断是否应该计入失败次数
-	shouldCount := app_errors.IsUnCounted(errorMessage)
-	if !shouldCount {
+	if app_errors.IsUnCounted(errorMessage) {
 		logrus.WithFields(logrus.Fields{
 			"keyID":        apiKey.ID,
 			"errorMessage": errorMessage,
