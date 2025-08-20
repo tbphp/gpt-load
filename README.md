@@ -106,6 +106,14 @@ docker compose pull && docker compose down && docker compose up -d
 # 克隆并构建
 git clone https://github.com/tbphp/gpt-load.git
 cd gpt-load
+
+# 编译前端
+cd web
+npm install
+npm run build
+
+# 编译后端
+cd ..
 go mod tidy
 
 # 创建配置
@@ -115,6 +123,7 @@ cp .env.example .env
 # REDIS_DSN 为可选，如果不配置则启用内存存储
 
 # 运行
+# 或 go run main.go
 make run
 ```
 

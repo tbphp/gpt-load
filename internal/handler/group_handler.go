@@ -66,8 +66,8 @@ func validateAndCleanUpstreams(upstreams json.RawMessage) (datatypes.JSON, error
 		if !strings.HasPrefix(defs[i].URL, "http://") && !strings.HasPrefix(defs[i].URL, "https://") {
 			return nil, fmt.Errorf("invalid URL format for upstream: %s", defs[i].URL)
 		}
-		if defs[i].Weight <= 0 {
-			return nil, fmt.Errorf("upstream weight must be a positive integer")
+		if defs[i].Weight < 0 {
+			return nil, fmt.Errorf("upstream weight must be a non-negative integer")
 		}
 	}
 

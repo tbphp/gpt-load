@@ -757,12 +757,12 @@ async function handleSubmit() {
                   <template #trigger>
                     <n-input-number
                       v-model:value="upstream.weight"
-                      :min="1"
+                      :min="0"
                       placeholder="权重"
                       style="width: 100%"
                     />
                   </template>
-                  负载均衡权重，数值越大被选中的概率越高。例如：权重为2的上游被选中的概率是权重为1的两倍
+                  负载均衡权重，数值越大被选中的概率越高。例如：权重为2的上游被选中的概率是权重为1的两倍(设置为0可以暂时禁用该上游，而不需要删除它)
                 </n-tooltip>
               </div>
               <div class="upstream-actions">

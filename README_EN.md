@@ -106,6 +106,14 @@ Source build requires a locally installed database (SQLite, MySQL, or PostgreSQL
 # Clone and build
 git clone https://github.com/tbphp/gpt-load.git
 cd gpt-load
+
+# Compile frontend
+cd web
+npm install
+npm run build
+
+# Compile backend
+cd ..
 go mod tidy
 
 # Create configuration
