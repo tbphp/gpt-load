@@ -82,9 +82,16 @@ func (p *KeyProvider) UpdateStatus(apiKey *models.APIKey, group *models.Group, i
 			if err := p.handleSuccess(apiKey.ID, keyHashKey, activeKeysListKey); err != nil {
 				logrus.WithFields(logrus.Fields{"keyID": apiKey.ID, "error": err}).Error("Failed to handle key success")
 			}
-		} else if !app_errors.IsUnCounted(errorMessage) {
-			if err := p.handleFailure(apiKey, group, keyHashKey, activeKeysListKey); err != nil {
-				logrus.WithFields(logrus.Fields{"keyID": apiKey.ID, "error": err}).Error("Failed to handle key failure")
+		} else {
+			if app_errors.IsUnCounted(errorMessage) {
+				logrus.WithFields(logrus.Fields{
+					"keyID": apiKey.ID,
+					"error": errorMessage,
+				}).Debug("Uncounted error, skipping failure handling")
+			} else {
+				if err := p.handleFailure(apiKey, group, keyHashKey, activeKeysListKey); err != nil {
+					logrus.WithFields(logrus.Fields{"keyID": apiKey.ID, "error": err}).Error("Failed to handle key failure")
+				}
 			}
 		}
 	}()
