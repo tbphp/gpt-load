@@ -82,8 +82,8 @@ func (p *KeyProvider) UpdateStatus(apiKey *models.APIKey, group *models.Group, i
 			if err := p.handleSuccess(apiKey.ID, keyHashKey, activeKeysListKey); err != nil {
 				logrus.WithFields(logrus.Fields{"keyID": apiKey.ID, "error": err}).Error("Failed to handle key success")
 			}
-		} else {
-			if err := p.handleFailure(apiKey, group, keyHashKey, activeKeysListKey, errorMessage); err != nil {
+		} else if !app_errors.IsUnCounted(errorMessage) {
+			if err := p.handleFailure(apiKey, group, keyHashKey, activeKeysListKey); err != nil {
 				logrus.WithFields(logrus.Fields{"keyID": apiKey.ID, "error": err}).Error("Failed to handle key failure")
 			}
 		}
@@ -163,7 +163,7 @@ func (p *KeyProvider) handleSuccess(keyID uint, keyHashKey, activeKeysListKey st
 	})
 }
 
-func (p *KeyProvider) handleFailure(apiKey *models.APIKey, group *models.Group, keyHashKey, activeKeysListKey string, errorMessage string) error {
+func (p *KeyProvider) handleFailure(apiKey *models.APIKey, group *models.Group, keyHashKey, activeKeysListKey string) error {
 	keyDetails, err := p.store.HGetAll(keyHashKey)
 	if err != nil {
 		return fmt.Errorf("failed to get key details from store: %w", err)
@@ -174,15 +174,6 @@ func (p *KeyProvider) handleFailure(apiKey *models.APIKey, group *models.Group, 
 	}
 
 	failureCount, _ := strconv.ParseInt(keyDetails["failure_count"], 10, 64)
-
-	// 判断是否应该计入失败次数
-	if app_errors.IsUnCounted(errorMessage) {
-		logrus.WithFields(logrus.Fields{
-			"keyID":        apiKey.ID,
-			"errorMessage": errorMessage,
-		}).Debug("Error not counted towards failure threshold")
-		return nil
-	}
 
 	// 获取该分组的有效配置
 	blacklistThreshold := group.EffectiveConfig.BlacklistThreshold
