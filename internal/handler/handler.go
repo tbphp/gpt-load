@@ -27,6 +27,7 @@ type Server struct {
 	KeyImportService           *services.KeyImportService
 	LogService                 *services.LogService
 	CommonHandler              *CommonHandler
+	GeminiHandler              *GeminiHandler  // 新增 Gemini 处理器
 }
 
 // NewServerParams defines the dependencies for the NewServer constructor.
@@ -42,6 +43,7 @@ type NewServerParams struct {
 	KeyImportService           *services.KeyImportService
 	LogService                 *services.LogService
 	CommonHandler              *CommonHandler
+	GeminiHandler              *GeminiHandler  // 新增 Gemini 处理器依赖
 }
 
 // NewServer creates a new handler instance with dependencies injected by dig.
@@ -57,6 +59,7 @@ func NewServer(params NewServerParams) *Server {
 		KeyImportService:           params.KeyImportService,
 		LogService:                 params.LogService,
 		CommonHandler:              params.CommonHandler,
+		GeminiHandler:              params.GeminiHandler,  // 新增 Gemini 处理器
 	}
 }
 

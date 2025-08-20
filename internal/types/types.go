@@ -39,6 +39,16 @@ type SystemSettings struct {
 	KeyValidationConcurrency     int `json:"key_validation_concurrency" default:"10" name:"密钥验证并发数" category:"密钥配置" desc:"后台定时验证无效 Key 时的并发数，如果使用SQLite或者运行环境性能不佳，请尽量保证20以下，避免过高的并发导致数据不一致问题。" validate:"required,min=1"`
 	KeyValidationTimeoutSeconds  int `json:"key_validation_timeout_seconds" default:"20" name:"密钥验证超时（秒）" category:"密钥配置" desc:"后台定时验证单个 Key 时的 API 请求超时时间（秒）。" validate:"required,min=1"`
 
+	// Gemini 专用配置
+	GeminiMaxRetries               int  `json:"gemini_max_retries" default:"100" name:"Gemini最大重试次数" category:"Gemini配置" desc:"Gemini流式响应的最大连续重试次数，用于处理流中断问题。" validate:"required,min=1,max=200"`
+	GeminiRetryDelayMs            int  `json:"gemini_retry_delay_ms" default:"750" name:"Gemini重试延迟(毫秒)" category:"Gemini配置" desc:"Gemini重试之间的延迟时间（毫秒）。" validate:"required,min=100,max=10000"`
+	GeminiSwallowThoughtsAfterRetry bool `json:"gemini_swallow_thoughts_after_retry" default:"true" name:"重试后过滤思考内容" category:"Gemini配置" desc:"在重试后是否自动过滤Gemini的思考过程内容。"`
+	GeminiEnablePunctuationHeuristic bool `json:"gemini_enable_punctuation_heuristic" default:"true" name:"启用标点启发式" category:"Gemini配置" desc:"使用标点符号启发式判断内容是否完整。"`
+	GeminiEnableDetailedLogging    bool `json:"gemini_enable_detailed_logging" default:"false" name:"启用详细日志" category:"Gemini配置" desc:"启用Gemini处理的详细调试日志。"`
+	GeminiSaveRetryRequests        bool `json:"gemini_save_retry_requests" default:"false" name:"保存重试请求" category:"Gemini配置" desc:"保存重试请求的详细内容用于调试。"`
+	GeminiMaxOutputChars           int  `json:"gemini_max_output_chars" default:"0" name:"最大输出字符数" category:"Gemini配置" desc:"限制Gemini输出的最大字符数，0表示无限制。" validate:"required,min=0"`
+	GeminiStreamTimeout            int  `json:"gemini_stream_timeout" default:"300" name:"流超时时间(秒)" category:"Gemini配置" desc:"Gemini流式响应的超时时间（秒）。" validate:"required,min=30,max=3600"`
+
 	// For cache
 	ProxyKeysMap map[string]struct{} `json:"-"`
 }

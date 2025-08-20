@@ -8,12 +8,15 @@ import (
 	app_errors "gpt-load/internal/errors"
 	"gpt-load/internal/models"
 	"gpt-load/internal/utils"
+	"gpt-load/internal/channel/gemini"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 
 	"github.com/gin-gonic/gin"
+	"github.com/sirupsen/logrus"
 )
 
 func init() {
@@ -22,6 +25,15 @@ func init() {
 
 type GeminiChannel struct {
 	*BaseChannel
+
+	// Gemini 专用增强功能
+	streamProcessor   *gemini.StreamProcessor
+	configManager     *gemini.ConfigManager
+	logger           *logrus.Logger
+
+	// 初始化状态
+	mutex            sync.RWMutex
+	initialized      bool
 }
 
 func newGeminiChannel(f *Factory, group *models.Group) (ChannelProxy, error) {
@@ -30,9 +42,49 @@ func newGeminiChannel(f *Factory, group *models.Group) (ChannelProxy, error) {
 		return nil, err
 	}
 
-	return &GeminiChannel{
+	// 创建 Gemini 频道实例
+	channel := &GeminiChannel{
 		BaseChannel: base,
-	}, nil
+		logger:      logrus.WithField("channel", "gemini"),
+		initialized: false,
+	}
+
+	// 延迟初始化 Gemini 专用组件
+	if err := channel.initializeGeminiComponents(group); err != nil {
+		logrus.WithError(err).Error("Failed to initialize Gemini components")
+		// 不返回错误，允许基础功能正常工作
+	}
+
+	return channel, nil
+}
+
+// initializeGeminiComponents 初始化 Gemini 专用组件
+func (ch *GeminiChannel) initializeGeminiComponents(group *models.Group) error {
+	ch.mutex.Lock()
+	defer ch.mutex.Unlock()
+
+	if ch.initialized {
+		return nil
+	}
+
+	// 创建配置管理器
+	ch.configManager = gemini.NewConfigManager(ch.logger)
+
+	// 获取 Gemini 配置
+	config := ch.configManager.GetConfig()
+
+	// 创建流处理器
+	ch.streamProcessor = gemini.NewStreamProcessor(config, ch.logger)
+
+	// 验证配置
+	if err := ch.streamProcessor.ValidateConfiguration(); err != nil {
+		return fmt.Errorf("invalid Gemini configuration: %w", err)
+	}
+
+	ch.initialized = true
+	ch.logger.Info("Gemini enhanced components initialized successfully")
+
+	return nil
 }
 
 // ModifyRequest adds the API key as a query parameter for Gemini requests.
@@ -154,4 +206,160 @@ func (ch *GeminiChannel) ValidateKey(ctx context.Context, apiKey *models.APIKey,
 	parsedError := app_errors.ParseUpstreamError(errorBody)
 
 	return false, fmt.Errorf("[status %d] %s", resp.StatusCode, parsedError)
+}
+
+// ==================== Gemini 增强功能方法 ====================
+
+// ProcessStreamWithRetry 使用智能重试处理流式响应
+func (ch *GeminiChannel) ProcessStreamWithRetry(
+	ctx context.Context,
+	reader io.Reader,
+	writer io.Writer,
+	originalRequest map[string]interface{},
+	upstreamURL string,
+	headers http.Header,
+) error {
+	ch.mutex.RLock()
+	initialized := ch.initialized
+	ch.mutex.RUnlock()
+
+	// 如果未初始化，使用简单流处理
+	if !initialized || ch.streamProcessor == nil {
+		ch.logger.Warn("Gemini enhanced features not available, using simple stream processing")
+		return ch.processSimpleStream(ctx, reader, writer)
+	}
+
+	// 使用增强的流处理器
+	return ch.streamProcessor.ProcessStreamWithRetry(
+		ctx,
+		reader,
+		writer,
+		originalRequest,
+		upstreamURL,
+		headers,
+	)
+}
+
+// processSimpleStream 简单的流处理（回退模式）
+func (ch *GeminiChannel) processSimpleStream(ctx context.Context, reader io.Reader, writer io.Writer) error {
+	if ch.streamProcessor != nil {
+		return ch.streamProcessor.ProcessSimpleStream(ctx, reader, writer)
+	}
+
+	// 最基础的流复制
+	_, err := io.Copy(writer, reader)
+	return err
+}
+
+// GetGeminiStats 获取 Gemini 处理统计
+func (ch *GeminiChannel) GetGeminiStats() *gemini.StreamStats {
+	ch.mutex.RLock()
+	defer ch.mutex.RUnlock()
+
+	if !ch.initialized || ch.streamProcessor == nil {
+		return &gemini.StreamStats{}
+	}
+
+	return ch.streamProcessor.GetStats()
+}
+
+// GetGeminiDetailedStats 获取详细的 Gemini 统计
+func (ch *GeminiChannel) GetGeminiDetailedStats() *gemini.DetailedStats {
+	ch.mutex.RLock()
+	defer ch.mutex.RUnlock()
+
+	if !ch.initialized || ch.streamProcessor == nil {
+		return &gemini.DetailedStats{}
+	}
+
+	return ch.streamProcessor.GetDetailedStats()
+}
+
+// GetGeminiHealthStatus 获取 Gemini 健康状态
+func (ch *GeminiChannel) GetGeminiHealthStatus() *gemini.HealthStatus {
+	ch.mutex.RLock()
+	defer ch.mutex.RUnlock()
+
+	if !ch.initialized || ch.streamProcessor == nil {
+		return &gemini.HealthStatus{
+			Status: "disabled",
+		}
+	}
+
+	return ch.streamProcessor.GetHealthStatus()
+}
+
+// UpdateGeminiConfig 更新 Gemini 配置
+func (ch *GeminiChannel) UpdateGeminiConfig(update *gemini.ConfigUpdate) error {
+	ch.mutex.Lock()
+	defer ch.mutex.Unlock()
+
+	if !ch.initialized || ch.configManager == nil {
+		return fmt.Errorf("Gemini components not initialized")
+	}
+
+	// 更新配置
+	if err := ch.configManager.UpdateConfig(update); err != nil {
+		return fmt.Errorf("failed to update Gemini config: %w", err)
+	}
+
+	// 更新流处理器配置
+	if ch.streamProcessor != nil {
+		config := ch.configManager.GetConfig()
+		if err := ch.streamProcessor.UpdateConfig(config); err != nil {
+			return fmt.Errorf("failed to update stream processor config: %w", err)
+		}
+	}
+
+	ch.logger.Info("Gemini configuration updated successfully")
+	return nil
+}
+
+// ResetGeminiStats 重置 Gemini 统计
+func (ch *GeminiChannel) ResetGeminiStats() error {
+	ch.mutex.RLock()
+	defer ch.mutex.RUnlock()
+
+	if !ch.initialized || ch.streamProcessor == nil {
+		return fmt.Errorf("Gemini components not initialized")
+	}
+
+	ch.streamProcessor.ResetStats()
+	ch.logger.Info("Gemini statistics reset")
+	return nil
+}
+
+// IsGeminiEnhancedEnabled 检查 Gemini 增强功能是否启用
+func (ch *GeminiChannel) IsGeminiEnhancedEnabled() bool {
+	ch.mutex.RLock()
+	defer ch.mutex.RUnlock()
+
+	return ch.initialized && ch.streamProcessor != nil
+}
+
+// GetGeminiConfig 获取当前 Gemini 配置
+func (ch *GeminiChannel) GetGeminiConfig() map[string]interface{} {
+	ch.mutex.RLock()
+	defer ch.mutex.RUnlock()
+
+	if !ch.initialized || ch.configManager == nil {
+		return map[string]interface{}{
+			"enabled": false,
+			"error":   "Gemini components not initialized",
+		}
+	}
+
+	config := ch.configManager.GetConfigAsMap()
+	config["enabled"] = true
+	return config
+}
+
+// LogGeminiStats 记录 Gemini 统计信息
+func (ch *GeminiChannel) LogGeminiStats() {
+	ch.mutex.RLock()
+	defer ch.mutex.RUnlock()
+
+	if ch.initialized && ch.streamProcessor != nil {
+		ch.streamProcessor.LogStatsIfSignificant()
+	}
 }

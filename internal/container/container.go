@@ -66,6 +66,9 @@ func BuildContainer() (*dig.Container, error) {
 	if err := container.Provide(services.NewGroupManager); err != nil {
 		return nil, err
 	}
+	if err := container.Provide(services.NewGeminiService); err != nil {
+		return nil, err
+	}
 	if err := container.Provide(keypool.NewProvider); err != nil {
 		return nil, err
 	}
@@ -81,6 +84,9 @@ func BuildContainer() (*dig.Container, error) {
 		return nil, err
 	}
 	if err := container.Provide(handler.NewCommonHandler); err != nil {
+		return nil, err
+	}
+	if err := container.Provide(handler.NewGeminiHandler); err != nil {
 		return nil, err
 	}
 

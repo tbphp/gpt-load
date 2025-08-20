@@ -153,6 +153,18 @@ func registerProtectedAPIRoutes(api *gin.RouterGroup, serverHandler *handler.Ser
 		settings.GET("", serverHandler.GetSettings)
 		settings.PUT("", serverHandler.UpdateSettings)
 	}
+
+	// Gemini 专用路由
+	gemini := api.Group("/gemini")
+	{
+		gemini.GET("/settings", serverHandler.GeminiHandler.GetGeminiSettings)
+		gemini.PUT("/settings", serverHandler.GeminiHandler.UpdateGeminiSettings)
+		gemini.GET("/stats", serverHandler.GeminiHandler.GetGeminiStats)
+		gemini.GET("/logs", serverHandler.GeminiHandler.GetGeminiLogs)
+		gemini.GET("/recent-logs", serverHandler.GeminiHandler.GetRecentGeminiLogs)
+		gemini.POST("/reset-stats", serverHandler.GeminiHandler.ResetGeminiStats)
+		gemini.GET("/health", serverHandler.GeminiHandler.GetGeminiHealth)
+	}
 }
 
 // registerProxyRoutes 注册代理路由
