@@ -117,29 +117,6 @@ func (p *KeyProvider) executeTransactionWithRetry(operation func(tx *gorm.DB) er
 	return err
 }
 
-// shouldCountFailure 判断错误是否应该计入失败次数
-func (p *KeyProvider) shouldCountFailure(errorMsg string) bool {
-	if errorMsg == "" {
-		return true // 没有错误信息时默认计数
-	}
-
-	// 转换为小写进行匹配
-	errorLower := strings.ToLower(errorMsg)
-
-	// 不计入失败次数的错误模式
-	excludePatterns := []string{
-		"resource has been exhausted (e.g. check quota).", // Resource has been exhausted (e.g. check quota).
-	}
-
-	for _, pattern := range excludePatterns {
-		if strings.Contains(errorLower, pattern) {
-			return false
-		}
-	}
-
-	return true // 其他错误计入失败次数
-}
-
 func (p *KeyProvider) handleSuccess(keyID uint, keyHashKey, activeKeysListKey string) error {
 	keyDetails, err := p.store.HGetAll(keyHashKey)
 	if err != nil {
@@ -199,13 +176,13 @@ func (p *KeyProvider) handleFailure(apiKey *models.APIKey, group *models.Group, 
 	failureCount, _ := strconv.ParseInt(keyDetails["failure_count"], 10, 64)
 
 	// 判断是否应该计入失败次数
-	shouldCount := p.shouldCountFailure(errorMessage)
-	if !shouldCount {
+	ignorableCount := app_errors.IsIgnorableCount(errorMessage)
+	if ignorableCount {
 		logrus.WithFields(logrus.Fields{
-			"keyID":       apiKey.ID,
+			"keyID":        apiKey.ID,
 			"errorMessage": errorMessage,
 		}).Debug("Error not counted towards failure threshold")
-		return nil // 不计入失败次数，直接返回
+		return nil
 	}
 
 	// 获取该分组的有效配置
