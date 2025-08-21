@@ -334,7 +334,6 @@ func (sm *SystemSettingsManager) ValidateGroupConfigOverrides(configMap map[stri
 			continue
 		}
 
-
 		field, ok := jsonToField[key]
 		if !ok {
 			return fmt.Errorf("invalid setting key: %s", key)
