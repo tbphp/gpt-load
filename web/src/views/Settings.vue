@@ -39,12 +39,15 @@ async function fetchSettings() {
 }
 
 function initForm() {
-  form.value = settingList.value.reduce((acc: Record<string, string | number | boolean>, category) => {
-    category.settings?.forEach(setting => {
-      acc[setting.key] = setting.value;
-    });
-    return acc;
-  }, {});
+  form.value = settingList.value.reduce(
+    (acc: Record<string, string | number | boolean>, category) => {
+      category.settings?.forEach(setting => {
+        acc[setting.key] = setting.value;
+      });
+      return acc;
+    },
+    {}
+  );
 }
 
 async function handleSubmit() {

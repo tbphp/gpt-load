@@ -105,9 +105,8 @@ type RequestLog struct {
 	Retries      int       `gorm:"not null" json:"retries"`
 	UpstreamAddr string    `gorm:"type:varchar(500)" json:"upstream_addr"`
 	IsStream     bool      `gorm:"not null" json:"is_stream"`
-	RequestBody   string `gorm:"type:longtext" json:"request_body"`
-	ResponseBody  string `gorm:"type:longtext" json:"response_body"`
-	BodyLogStatus string `gorm:"type:varchar(50)" json:"body_log_status"` // "enabled", "system_disabled", "group_disabled"
+	RequestBody  string    `gorm:"type:longtext" json:"request_body"`
+	ResponseBody string    `gorm:"type:longtext" json:"response_body"`
 }
 
 // StatCard 用于仪表盘的单个统计卡片数据

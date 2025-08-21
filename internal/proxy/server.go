@@ -114,11 +114,11 @@ func (ps *ProxyServer) executeRequestWithRetry(
 			}
 			logrus.Debugf("Max retries exceeded for group %s after %d attempts. Parsed Error: %s", group.Name, retryCount, logMessage)
 
-			ps.logRequest(c, group, &models.APIKey{KeyValue: lastError.KeyValue}, startTime, lastError.StatusCode, retryCount, errors.New(logMessage), isStream, lastError.UpstreamAddr, channelHandler, bodyBytes, "")
+			ps.logRequest(c, group, &models.APIKey{KeyValue: lastError.KeyValue}, startTime, lastError.StatusCode, retryCount, errors.New(logMessage), isStream, lastError.UpstreamAddr, channelHandler, bodyBytes, nil)
 		} else {
 			response.Error(c, app_errors.ErrMaxRetriesExceeded)
 			logrus.Debugf("Max retries exceeded for group %s after %d attempts.", group.Name, retryCount)
-			ps.logRequest(c, group, nil, startTime, http.StatusServiceUnavailable, retryCount, app_errors.ErrMaxRetriesExceeded, isStream, "", channelHandler, bodyBytes, "")
+			ps.logRequest(c, group, nil, startTime, http.StatusServiceUnavailable, retryCount, app_errors.ErrMaxRetriesExceeded, isStream, "", channelHandler, bodyBytes, nil)
 		}
 		return
 	}
@@ -127,7 +127,7 @@ func (ps *ProxyServer) executeRequestWithRetry(
 	if err != nil {
 		logrus.Errorf("Failed to select a key for group %s on attempt %d: %v", group.Name, retryCount+1, err)
 		response.Error(c, app_errors.NewAPIError(app_errors.ErrNoKeysAvailable, err.Error()))
-		ps.logRequest(c, group, nil, startTime, http.StatusServiceUnavailable, retryCount, err, isStream, "", channelHandler, bodyBytes, "")
+		ps.logRequest(c, group, nil, startTime, http.StatusServiceUnavailable, retryCount, err, isStream, "", channelHandler, bodyBytes, nil)
 		return
 	}
 
@@ -191,7 +191,7 @@ func (ps *ProxyServer) executeRequestWithRetry(
 	if err != nil || (resp != nil && resp.StatusCode >= 400 && resp.StatusCode != http.StatusNotFound) {
 		if err != nil && app_errors.IsIgnorableError(err) {
 			logrus.Debugf("Client-side ignorable error for key %s, aborting retries: %v", utils.MaskAPIKey(apiKey.KeyValue), err)
-			ps.logRequest(c, group, apiKey, startTime, 499, retryCount+1, err, isStream, upstreamURL, channelHandler, bodyBytes, "")
+			ps.logRequest(c, group, apiKey, startTime, 499, retryCount+1, err, isStream, upstreamURL, channelHandler, bodyBytes, nil)
 			return
 		}
 
@@ -242,14 +242,14 @@ func (ps *ProxyServer) executeRequestWithRetry(
 	}
 	c.Status(resp.StatusCode)
 
-	var responseBody string
+	var responseBytes []byte
 	if isStream {
-		responseBody = ps.handleStreamingResponse(c, resp)
+		responseBytes = ps.handleStreamingResponse(c, resp, cfg.EnableRequestBodyLogging)
 	} else {
-		responseBody = ps.handleNormalResponse(c, resp)
+		responseBytes = ps.handleNormalResponse(c, resp, cfg.EnableRequestBodyLogging)
 	}
 
-	ps.logRequest(c, group, apiKey, startTime, resp.StatusCode, retryCount+1, nil, isStream, upstreamURL, channelHandler, bodyBytes, responseBody)
+	ps.logRequest(c, group, apiKey, startTime, resp.StatusCode, retryCount+1, nil, isStream, upstreamURL, channelHandler, bodyBytes, responseBytes)
 }
 
 // logRequest is a helper function to create and record a request log.
@@ -265,7 +265,7 @@ func (ps *ProxyServer) logRequest(
 	upstreamAddr string,
 	channelHandler channel.ChannelProxy,
 	bodyBytes []byte,
-	responseBody string,
+	responseBytes []byte,
 ) {
 	if ps.requestLogService == nil {
 		return
@@ -275,46 +275,26 @@ func (ps *ProxyServer) logRequest(
 
 	// 日志记录逻辑：系统开启 AND 分组开启 = 记录
 	var requestBodyToLog, responseBodyToLog string
-	var bodyLogStatus string
 
-	systemEnabled := ps.settingsManager.GetSettings().EnableRequestBodyLogging
-	groupEnabled := true // 默认分组开启
-
-	// 检查分组配置中的设置
-	if group.Config != nil {
-		if enableValue, exists := group.Config["enable_request_body_logging"]; exists {
-			if enable, ok := enableValue.(bool); ok {
-				groupEnabled = enable
-			}
-		}
-	}
-
-	// 只有系统和分组都开启才记录
-	if !systemEnabled {
-		bodyLogStatus = "system_disabled"
-	} else if !groupEnabled {
-		bodyLogStatus = "group_disabled"
-	} else {
-		bodyLogStatus = "enabled"
+	if group.EffectiveConfig.EnableRequestBodyLogging {
 		requestBodyToLog = string(bodyBytes)
-		responseBodyToLog = responseBody
+		responseBodyToLog = string(responseBytes)
 	}
 
 	logEntry := &models.RequestLog{
-		GroupID:       group.ID,
-		GroupName:     group.Name,
-		IsSuccess:     finalError == nil && statusCode < 400,
-		SourceIP:      c.ClientIP(),
-		StatusCode:    statusCode,
-		RequestPath:   utils.TruncateString(c.Request.URL.String(), 500),
-		Duration:      duration,
-		UserAgent:     c.Request.UserAgent(),
-		Retries:       retries,
-		IsStream:      isStream,
-		UpstreamAddr:  utils.TruncateString(upstreamAddr, 500),
-		RequestBody:   requestBodyToLog,
-		ResponseBody:  responseBodyToLog,
-		BodyLogStatus: bodyLogStatus,
+		GroupID:      group.ID,
+		GroupName:    group.Name,
+		IsSuccess:    finalError == nil && statusCode < 400,
+		SourceIP:     c.ClientIP(),
+		StatusCode:   statusCode,
+		RequestPath:  utils.TruncateString(c.Request.URL.String(), 500),
+		Duration:     duration,
+		UserAgent:    c.Request.UserAgent(),
+		Retries:      retries,
+		IsStream:     isStream,
+		UpstreamAddr: utils.TruncateString(upstreamAddr, 500),
+		RequestBody:  requestBodyToLog,
+		ResponseBody: responseBodyToLog,
 	}
 
 	if channelHandler != nil && bodyBytes != nil {

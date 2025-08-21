@@ -2,23 +2,29 @@
 import { logApi } from "@/api/logs";
 import type { LogFilter, RequestLog } from "@/types/models";
 import { maskKey } from "@/utils/display";
-import { DownloadOutline, EyeOffOutline, EyeOutline, Search, DocumentTextOutline } from "@vicons/ionicons5";
+import {
+  DocumentTextOutline,
+  DownloadOutline,
+  EyeOffOutline,
+  EyeOutline,
+  Search,
+} from "@vicons/ionicons5";
 import {
   NButton,
+  NCard,
+  NCode,
   NDataTable,
   NDatePicker,
   NEllipsis,
   NIcon,
   NInput,
+  NModal,
   NSelect,
   NSpace,
   NSpin,
-  NTag,
-  NModal,
-  NCard,
-  NCode,
-  NTabs,
   NTabPane,
+  NTabs,
+  NTag,
 } from "naive-ui";
 import { computed, h, onMounted, reactive, ref, watch } from "vue";
 
@@ -118,7 +124,9 @@ const closeDetailModal = () => {
 };
 
 const formatJsonString = (jsonStr: string) => {
-  if (!jsonStr) return "";
+  if (!jsonStr) {
+    return "";
+  }
   try {
     return JSON.stringify(JSON.parse(jsonStr), null, 2);
   } catch {
@@ -223,11 +231,11 @@ const createColumns = () => [
           size: "small",
           type: "primary",
           ghost: true,
-          onClick: () => viewLogDetails(row)
+          onClick: () => viewLogDetails(row),
         },
         {
           icon: () => h(NIcon, null, { default: () => h(DocumentTextOutline) }),
-          default: () => "详情"
+          default: () => "详情",
         }
       ),
   },
@@ -434,7 +442,12 @@ function changePageSize(size: number) {
     </n-space>
 
     <!-- 详情模态框 -->
-    <n-modal v-model:show="showDetailModal" preset="card" style="width: 90%; max-width: 1200px;" title="请求详情">
+    <n-modal
+      v-model:show="showDetailModal"
+      preset="card"
+      style="width: 90%; max-width: 1200px"
+      title="请求详情"
+    >
       <div v-if="selectedLog">
         <n-space vertical size="large">
           <!-- 基本信息 -->
@@ -447,7 +460,7 @@ function changePageSize(size: number) {
               <div class="detail-item">
                 <span class="detail-label">状态:</span>
                 <n-tag :type="selectedLog.is_success ? 'success' : 'error'" size="small">
-                  {{ selectedLog.is_success ? '成功' : '失败' }}
+                  {{ selectedLog.is_success ? "成功" : "失败" }}
                 </n-tag>
               </div>
               <div class="detail-item">
@@ -473,7 +486,7 @@ function changePageSize(size: number) {
               <div class="detail-item">
                 <span class="detail-label">类型:</span>
                 <n-tag :type="selectedLog.is_stream ? 'info' : 'default'" size="small">
-                  {{ selectedLog.is_stream ? '流式' : '非流式' }}
+                  {{ selectedLog.is_stream ? "流式" : "非流式" }}
                 </n-tag>
               </div>
             </div>
@@ -483,43 +496,33 @@ function changePageSize(size: number) {
           <n-card title="请求和响应内容" size="small">
             <n-tabs type="line" animated>
               <n-tab-pane name="request" tab="请求内容">
-                <div v-if="!selectedLog.request_body" style="text-align: center; color: #999; padding: 20px;">
-                  <template v-if="selectedLog.body_log_status === 'system_disabled'">
-                    未记录请求内容（系统设置中已关闭请求体记录功能）
-                  </template>
-                  <template v-else-if="selectedLog.body_log_status === 'group_disabled'">
-                    未记录请求内容（此分组已禁用请求体记录功能）
-                  </template>
-                  <template v-else>
-                    未记录请求内容
-                  </template>
+                <div
+                  v-if="!selectedLog.request_body"
+                  style="text-align: center; color: #999; padding: 20px"
+                >
+                  未记录请求内容
                 </div>
                 <n-code
                   v-else
                   :code="formatJsonString(selectedLog.request_body)"
                   language="json"
                   show-line-numbers
-                  style="max-height: 400px; overflow-y: auto;"
+                  style="max-height: 400px; overflow-y: auto"
                 />
               </n-tab-pane>
               <n-tab-pane name="response" tab="响应内容">
-                <div v-if="!selectedLog.response_body" style="text-align: center; color: #999; padding: 20px;">
-                  <template v-if="selectedLog.body_log_status === 'system_disabled'">
-                    未记录响应内容（系统设置中已关闭响应体记录功能）
-                  </template>
-                  <template v-else-if="selectedLog.body_log_status === 'group_disabled'">
-                    未记录响应内容（此分组已禁用响应体记录功能）
-                  </template>
-                  <template v-else>
-                    未记录响应内容
-                  </template>
+                <div
+                  v-if="!selectedLog.response_body"
+                  style="text-align: center; color: #999; padding: 20px"
+                >
+                  未记录响应内容
                 </div>
                 <n-code
                   v-else
                   :code="formatJsonString(selectedLog.response_body)"
                   language="json"
                   show-line-numbers
-                  style="max-height: 400px; overflow-y: auto;"
+                  style="max-height: 400px; overflow-y: auto"
                 />
               </n-tab-pane>
             </n-tabs>
@@ -530,7 +533,7 @@ function changePageSize(size: number) {
             <n-code
               :code="selectedLog.error_message"
               language="text"
-              style="max-height: 200px; overflow-y: auto;"
+              style="max-height: 200px; overflow-y: auto"
             />
           </n-card>
         </n-space>
