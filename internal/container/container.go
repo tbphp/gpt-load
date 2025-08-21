@@ -54,6 +54,9 @@ func BuildContainer() (*dig.Container, error) {
 	if err := container.Provide(services.NewKeyImportService); err != nil {
 		return nil, err
 	}
+	if err := container.Provide(services.NewKeyDeleteService); err != nil {
+		return nil, err
+	}
 	if err := container.Provide(services.NewLogService); err != nil {
 		return nil, err
 	}

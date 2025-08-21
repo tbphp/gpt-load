@@ -61,7 +61,11 @@ func (s *KeyValidator) ValidateSingleKey(key *models.APIKey, group *models.Group
 
 	isValid, validationErr := ch.ValidateKey(ctx, key, group)
 
-	s.keypoolProvider.UpdateStatus(key, group, isValid)
+	var errorMsg string
+	if !isValid && validationErr != nil {
+		errorMsg = validationErr.Error()
+	}
+	s.keypoolProvider.UpdateStatus(key, group, isValid, errorMsg)
 
 	if !isValid {
 		logrus.WithFields(logrus.Fields{

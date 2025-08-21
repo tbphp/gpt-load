@@ -53,6 +53,9 @@ async function pollOnce() {
           } else if (task.task_type === "KEY_IMPORT") {
             const result = task.result as import("@/types/models").KeyImportResult;
             msg = `密钥导入完成，成功添加 ${result.added_count} 个密钥，忽略了 ${result.ignored_count} 个。`;
+          } else if (task.task_type === "KEY_DELETE") {
+            const result = task.result as import("@/types/models").KeyDeleteResult;
+            msg = `密钥删除完成，成功删除 ${result.deleted_count} 个密钥，忽略了 ${result.ignored_count} 个。`;
           }
 
           message.info(msg, {
@@ -119,6 +122,8 @@ function getTaskTitle(): string {
       return `正在验证分组 [${taskInfo.value.group_name}] 的密钥`;
     case "KEY_IMPORT":
       return `正在向分组 [${taskInfo.value.group_name}] 导入密钥`;
+    case "KEY_DELETE":
+      return `正在删除分组 [${taskInfo.value.group_name}] 的密钥`;
     default:
       return "正在处理任务...";
   }

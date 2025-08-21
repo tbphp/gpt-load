@@ -14,6 +14,7 @@ import {
   NInputNumber,
   NSpace,
   NSwitch,
+  NSwitch,
   NTooltip,
   useMessage,
   type FormItemRule,

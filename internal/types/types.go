@@ -25,6 +25,7 @@ type SystemSettings struct {
 	ProxyKeys                      string `json:"proxy_keys" name:"全局代理密钥" category:"基础参数" desc:"全局代理密钥，用于访问所有分组的代理端点。多个密钥请用逗号分隔。" validate:"required"`
 
 	// 请求设置
+	EnableRequestBodyLogging  bool   `json:"enable_request_body_logging" default:"false" name:"记录请求和响应体" category:"请求设置" desc:"是否在请求日志中记录完整的请求体和响应体内容。关闭此选项可以减少存储空间占用。"`
 	RequestTimeout        int    `json:"request_timeout" default:"600" name:"请求超时（秒）" category:"请求设置" desc:"转发请求的完整生命周期超时（秒）等。" validate:"required,min=1"`
 	ConnectTimeout        int    `json:"connect_timeout" default:"15" name:"连接超时（秒）" category:"请求设置" desc:"与上游服务建立新连接的超时时间（秒）。" validate:"required,min=1"`
 	IdleConnTimeout       int    `json:"idle_conn_timeout" default:"120" name:"空闲连接超时（秒）" category:"请求设置" desc:"HTTP 客户端中空闲连接的超时时间（秒）。" validate:"required,min=1"`
