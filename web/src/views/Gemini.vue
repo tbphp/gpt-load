@@ -85,7 +85,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { useMessage, useDialog } from 'naive-ui'
 import {
   getGeminiSettings,
   getGeminiStats,
@@ -118,9 +118,11 @@ const recentLogs = ref<GeminiLogSummary[]>([])
 const healthStatus = ref<GeminiHealth | null>(null)
 
 const showLogsModal = ref(false)
+const message = useMessage()
+const dialog = useDialog()
 
 // 定时刷新
-let refreshInterval: NodeJS.Timeout | null = null
+let refreshInterval: number | null = null
 
 // 页面挂载
 onMounted(async () => {
@@ -158,7 +160,7 @@ const loadConfig = async () => {
     config.value = await getGeminiSettings()
   } catch (error) {
     console.error('Failed to load Gemini config:', error)
-    ElMessage.error('加载 Gemini 配置失败')
+    message.error('加载 Gemini 配置失败')
   } finally {
     configLoading.value = false
   }
@@ -171,7 +173,7 @@ const loadStats = async () => {
     stats.value = await getGeminiStats(7) // 默认7天
   } catch (error) {
     console.error('Failed to load Gemini stats:', error)
-    ElMessage.error('加载 Gemini 统计失败')
+    message.error('加载 Gemini 统计失败')
   } finally {
     statsLoading.value = false
   }
@@ -184,7 +186,7 @@ const loadRecentLogs = async () => {
     recentLogs.value = await getRecentGeminiLogs(10)
   } catch (error) {
     console.error('Failed to load recent logs:', error)
-    ElMessage.error('加载最近日志失败')
+    message.error('加载最近日志失败')
   } finally {
     logsLoading.value = false
   }
@@ -203,38 +205,39 @@ const loadHealthStatus = async () => {
 const handleConfigUpdate = async (update: GeminiConfigUpdate) => {
   try {
     await updateGeminiSettings(update)
-    ElMessage.success('Gemini 配置更新成功')
+    message.success('Gemini 配置更新成功')
     await loadConfig()
     await loadHealthStatus()
   } catch (error) {
     console.error('Failed to update config:', error)
-    ElMessage.error('更新 Gemini 配置失败')
+    message.error('更新 Gemini 配置失败')
   }
 }
 
 // 处理统计重置
 const handleStatsReset = async () => {
   try {
-    await ElMessageBox.confirm(
-      '确定要重置 Gemini 统计数据吗？这将删除30天前的日志记录。',
-      '确认重置',
-      {
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
-        type: 'warning'
-      }
-    )
-    
+    const confirmed = await new Promise((resolve) => {
+      dialog.warning({
+        title: '确认重置',
+        content: '确定要重置 Gemini 统计数据吗？这将删除30天前的日志记录。',
+        positiveText: '确定',
+        negativeText: '取消',
+        onPositiveClick: () => resolve(true),
+        onNegativeClick: () => resolve(false)
+      })
+    })
+
+    if (!confirmed) return
+
     await resetGeminiStats(30)
-    ElMessage.success('Gemini 统计数据重置成功')
+    message.success('Gemini 统计数据重置成功')
     await loadStats()
     await loadRecentLogs()
     await loadHealthStatus()
   } catch (error) {
-    if (error !== 'cancel') {
-      console.error('Failed to reset stats:', error)
-      ElMessage.error('重置统计数据失败')
-    }
+    console.error('Failed to reset stats:', error)
+    message.error('重置统计数据失败')
   }
 }
 

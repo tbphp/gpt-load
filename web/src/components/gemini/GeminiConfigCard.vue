@@ -164,7 +164,7 @@
 
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue'
-import { ElMessage } from 'element-plus'
+import { useMessage } from 'naive-ui'
 import { 
   validateGeminiConfig,
   type GeminiConfig, 
@@ -187,6 +187,7 @@ const emit = defineEmits<{
 
 // 响应式数据
 const saving = ref(false)
+const message = useMessage()
 const formData = ref<GeminiConfig>({
   max_consecutive_retries: 100,
   retry_delay_ms: 750,
@@ -218,14 +219,14 @@ const hasChanges = computed(() => {
 // 提交表单
 const handleSubmit = async () => {
   if (!props.config || !hasChanges.value) {
-    ElMessage.info('没有配置变更')
+    message.info('没有配置变更')
     return
   }
 
   // 验证配置
   const errors = validateGeminiConfig(formData.value)
   if (errors.length > 0) {
-    ElMessage.error(errors[0])
+    message.error(errors[0])
     return
   }
 
@@ -253,7 +254,7 @@ const handleSubmit = async () => {
 const resetForm = () => {
   if (props.config) {
     formData.value = { ...props.config }
-    ElMessage.success('表单已重置')
+    message.success('表单已重置')
   }
 }
 </script>

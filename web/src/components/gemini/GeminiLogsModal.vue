@@ -250,7 +250,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, onMounted, computed } from 'vue'
-import { ElMessage } from 'element-plus'
+import { useMessage } from 'naive-ui'
 import { 
   getGeminiLogs,
   formatDuration,
@@ -268,6 +268,7 @@ const emit = defineEmits<{
 const visible = ref(true)
 const loading = ref(false)
 const detailVisible = ref(false)
+const message = useMessage()
 
 const logs = ref<GeminiLog[]>([])
 const total = ref(0)
@@ -321,7 +322,7 @@ const loadLogs = async () => {
     total.value = response.total
   } catch (error) {
     console.error('Failed to load logs:', error)
-    ElMessage.error('加载日志失败')
+    message.error('加载日志失败')
   } finally {
     loading.value = false
   }
@@ -343,7 +344,7 @@ const handleReset = () => {
   loadLogs()
 }
 
-const handleSortChange = ({ prop, order }: { prop: string; order: string }) => {
+const handleSortChange = () => {
   // 实现排序逻辑
   loadLogs()
 }

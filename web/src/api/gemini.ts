@@ -1,4 +1,4 @@
-import { http } from '@/utils/http'
+import http from '@/utils/http'
 
 // Gemini 配置接口
 export interface GeminiConfig {
