@@ -3,8 +3,8 @@ import http from "@/utils/http";
 export interface Setting {
   key: string;
   name: string;
-  value: string | number;
-  type: "int" | "string";
+  value: string | number | boolean;
+  type: "int" | "string" | "bool";
   min_value?: number;
   description: string;
   required: boolean;
@@ -15,7 +15,7 @@ export interface SettingCategory {
   settings: Setting[];
 }
 
-export type SettingsUpdatePayload = Record<string, string | number>;
+export type SettingsUpdatePayload = Record<string, string | number | boolean>;
 
 export const settingsApi = {
   async getSettings(): Promise<SettingCategory[]> {

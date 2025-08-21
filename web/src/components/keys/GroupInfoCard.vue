@@ -106,7 +106,8 @@ watch(
 
       const shouldRefresh =
         appState.lastCompletedTask.taskType === "KEY_VALIDATION" ||
-        appState.lastCompletedTask.taskType === "KEY_IMPORT";
+        appState.lastCompletedTask.taskType === "KEY_IMPORT" ||
+        appState.lastCompletedTask.taskType === "KEY_DELETE";
 
       if (isCurrentGroup && shouldRefresh) {
         // 刷新当前分组的统计数据

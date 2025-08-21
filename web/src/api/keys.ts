@@ -143,6 +143,15 @@ export const keysApi = {
     return res.data;
   },
 
+  // 异步批量删除密钥
+  async deleteKeysAsync(group_id: number, keys_text: string): Promise<TaskInfo> {
+    const res = await http.post("/keys/delete-async", {
+      group_id,
+      keys_text,
+    });
+    return res.data;
+  },
+
   // 测试密钥
   restoreKeys(group_id: number, keys_text: string): Promise<null> {
     return http.post("/keys/restore-multiple", {

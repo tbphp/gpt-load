@@ -2,7 +2,7 @@
 import { logApi } from "@/api/logs";
 import type { LogFilter, RequestLog } from "@/types/models";
 import { maskKey } from "@/utils/display";
-import { DownloadOutline, EyeOffOutline, EyeOutline, Search } from "@vicons/ionicons5";
+import { DownloadOutline, EyeOffOutline, EyeOutline, Search, DocumentTextOutline } from "@vicons/ionicons5";
 import {
   NButton,
   NDataTable,
@@ -14,6 +14,11 @@ import {
   NSpace,
   NSpin,
   NTag,
+  NModal,
+  NCard,
+  NCode,
+  NTabs,
+  NTabPane,
 } from "naive-ui";
 import { computed, h, onMounted, reactive, ref, watch } from "vue";
 
@@ -28,6 +33,10 @@ const currentPage = ref(1);
 const pageSize = ref(15);
 const total = ref(0);
 const totalPages = computed(() => Math.ceil(total.value / pageSize.value));
+
+// Modal for viewing request/response details
+const showDetailModal = ref(false);
+const selectedLog = ref<LogRow | null>(null);
 
 // Filters
 const filters = reactive({
@@ -96,6 +105,25 @@ const formatDateTime = (timestamp: string) => {
 
 const toggleKeyVisibility = (row: LogRow) => {
   row.is_key_visible = !row.is_key_visible;
+};
+
+const viewLogDetails = (row: LogRow) => {
+  selectedLog.value = row;
+  showDetailModal.value = true;
+};
+
+const closeDetailModal = () => {
+  showDetailModal.value = false;
+  selectedLog.value = null;
+};
+
+const formatJsonString = (jsonStr: string) => {
+  if (!jsonStr) return "";
+  try {
+    return JSON.stringify(JSON.parse(jsonStr), null, 2);
+  } catch {
+    return jsonStr;
+  }
 };
 
 // Columns definition
@@ -182,6 +210,26 @@ const createColumns = () => [
     width: 220,
     render: (row: LogRow) =>
       h(NEllipsis, { style: "max-width: 200px" }, { default: () => row.user_agent }),
+  },
+  {
+    title: "操作",
+    key: "actions",
+    width: 100,
+    fixed: "right" as const,
+    render: (row: LogRow) =>
+      h(
+        NButton,
+        {
+          size: "small",
+          type: "primary",
+          ghost: true,
+          onClick: () => viewLogDetails(row)
+        },
+        {
+          icon: () => h(NIcon, null, { default: () => h(DocumentTextOutline) }),
+          default: () => "详情"
+        }
+      ),
   },
 ];
 
@@ -342,7 +390,7 @@ function changePageSize(size: number) {
               :bordered="false"
               remote
               size="small"
-              :scroll-x="1840"
+              :scroll-x="1920"
             />
           </n-spin>
         </div>
@@ -384,6 +432,115 @@ function changePageSize(size: number) {
         </div>
       </div>
     </n-space>
+
+    <!-- 详情模态框 -->
+    <n-modal v-model:show="showDetailModal" preset="card" style="width: 90%; max-width: 1200px;" title="请求详情">
+      <div v-if="selectedLog">
+        <n-space vertical size="large">
+          <!-- 基本信息 -->
+          <n-card title="基本信息" size="small">
+            <div class="detail-grid">
+              <div class="detail-item">
+                <span class="detail-label">时间:</span>
+                <span>{{ formatDateTime(selectedLog.timestamp) }}</span>
+              </div>
+              <div class="detail-item">
+                <span class="detail-label">状态:</span>
+                <n-tag :type="selectedLog.is_success ? 'success' : 'error'" size="small">
+                  {{ selectedLog.is_success ? '成功' : '失败' }}
+                </n-tag>
+              </div>
+              <div class="detail-item">
+                <span class="detail-label">状态码:</span>
+                <span>{{ selectedLog.status_code }}</span>
+              </div>
+              <div class="detail-item">
+                <span class="detail-label">耗时:</span>
+                <span>{{ selectedLog.duration_ms }}ms</span>
+              </div>
+              <div class="detail-item">
+                <span class="detail-label">分组:</span>
+                <span>{{ selectedLog.group_name }}</span>
+              </div>
+              <div class="detail-item">
+                <span class="detail-label">模型:</span>
+                <span>{{ selectedLog.model }}</span>
+              </div>
+              <div class="detail-item">
+                <span class="detail-label">重试次数:</span>
+                <span>{{ selectedLog.retries }}</span>
+              </div>
+              <div class="detail-item">
+                <span class="detail-label">类型:</span>
+                <n-tag :type="selectedLog.is_stream ? 'info' : 'default'" size="small">
+                  {{ selectedLog.is_stream ? '流式' : '非流式' }}
+                </n-tag>
+              </div>
+            </div>
+          </n-card>
+
+          <!-- 请求和响应内容 -->
+          <n-card title="请求和响应内容" size="small">
+            <n-tabs type="line" animated>
+              <n-tab-pane name="request" tab="请求内容">
+                <div v-if="!selectedLog.request_body" style="text-align: center; color: #999; padding: 20px;">
+                  <template v-if="selectedLog.body_log_status === 'system_disabled'">
+                    未记录请求内容（系统设置中已关闭请求体记录功能）
+                  </template>
+                  <template v-else-if="selectedLog.body_log_status === 'group_disabled'">
+                    未记录请求内容（此分组已禁用请求体记录功能）
+                  </template>
+                  <template v-else>
+                    未记录请求内容
+                  </template>
+                </div>
+                <n-code
+                  v-else
+                  :code="formatJsonString(selectedLog.request_body)"
+                  language="json"
+                  show-line-numbers
+                  style="max-height: 400px; overflow-y: auto;"
+                />
+              </n-tab-pane>
+              <n-tab-pane name="response" tab="响应内容">
+                <div v-if="!selectedLog.response_body" style="text-align: center; color: #999; padding: 20px;">
+                  <template v-if="selectedLog.body_log_status === 'system_disabled'">
+                    未记录响应内容（系统设置中已关闭响应体记录功能）
+                  </template>
+                  <template v-else-if="selectedLog.body_log_status === 'group_disabled'">
+                    未记录响应内容（此分组已禁用响应体记录功能）
+                  </template>
+                  <template v-else>
+                    未记录响应内容
+                  </template>
+                </div>
+                <n-code
+                  v-else
+                  :code="formatJsonString(selectedLog.response_body)"
+                  language="json"
+                  show-line-numbers
+                  style="max-height: 400px; overflow-y: auto;"
+                />
+              </n-tab-pane>
+            </n-tabs>
+          </n-card>
+
+          <!-- 错误信息 -->
+          <n-card v-if="selectedLog.error_message" title="错误信息" size="small">
+            <n-code
+              :code="selectedLog.error_message"
+              language="text"
+              style="max-height: 200px; overflow-y: auto;"
+            />
+          </n-card>
+        </n-space>
+      </div>
+      <template #footer>
+        <n-space justify="end">
+          <n-button @click="closeDetailModal">关闭</n-button>
+        </n-space>
+      </template>
+    </n-modal>
   </div>
 </template>
 
@@ -492,5 +649,23 @@ function changePageSize(size: number) {
 .page-info {
   font-size: 13px;
   color: #666;
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 12px;
+}
+
+.detail-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.detail-label {
+  font-weight: 500;
+  color: #666;
+  min-width: 60px;
 }
 </style>

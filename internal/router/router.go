@@ -122,6 +122,7 @@ func registerProtectedAPIRoutes(api *gin.RouterGroup, serverHandler *handler.Ser
 		keys.POST("/add-multiple", serverHandler.AddMultipleKeys)
 		keys.POST("/add-async", serverHandler.AddMultipleKeysAsync)
 		keys.POST("/delete-multiple", serverHandler.DeleteMultipleKeys)
+		keys.POST("/delete-async", serverHandler.DeleteMultipleKeysAsync)
 		keys.POST("/restore-multiple", serverHandler.RestoreMultipleKeys)
 		keys.POST("/restore-all-invalid", serverHandler.RestoreAllInvalidKeys)
 		keys.POST("/clear-all-invalid", serverHandler.ClearAllInvalidKeys)

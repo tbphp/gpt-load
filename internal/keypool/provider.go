@@ -73,7 +73,7 @@ func (p *KeyProvider) SelectKey(groupID uint) (*models.APIKey, error) {
 }
 
 // UpdateStatus 异步地提交一个 Key 状态更新任务。
-func (p *KeyProvider) UpdateStatus(apiKey *models.APIKey, group *models.Group, isSuccess bool) {
+func (p *KeyProvider) UpdateStatus(apiKey *models.APIKey, group *models.Group, isSuccess bool, errorMessage string) {
 	go func() {
 		keyHashKey := fmt.Sprintf("key:%d", apiKey.ID)
 		activeKeysListKey := fmt.Sprintf("group:%d:active_keys", group.ID)
@@ -83,8 +83,15 @@ func (p *KeyProvider) UpdateStatus(apiKey *models.APIKey, group *models.Group, i
 				logrus.WithFields(logrus.Fields{"keyID": apiKey.ID, "error": err}).Error("Failed to handle key success")
 			}
 		} else {
-			if err := p.handleFailure(apiKey, group, keyHashKey, activeKeysListKey); err != nil {
-				logrus.WithFields(logrus.Fields{"keyID": apiKey.ID, "error": err}).Error("Failed to handle key failure")
+			if app_errors.IsUnCounted(errorMessage) {
+				logrus.WithFields(logrus.Fields{
+					"keyID": apiKey.ID,
+					"error": errorMessage,
+				}).Debug("Uncounted error, skipping failure handling")
+			} else {
+				if err := p.handleFailure(apiKey, group, keyHashKey, activeKeysListKey); err != nil {
+					logrus.WithFields(logrus.Fields{"keyID": apiKey.ID, "error": err}).Error("Failed to handle key failure")
+				}
 			}
 		}
 	}()
@@ -470,7 +477,11 @@ func (p *KeyProvider) removeKeysByStatus(groupID uint, status ...string) (int64,
 			return nil
 		}
 
-		result := tx.Where("id IN ?", pluckIDs(keysToRemove)).Delete(&models.APIKey{})
+		deleteQuery := tx.Where("group_id = ?", groupID)
+		if len(status) > 0 {
+			deleteQuery = deleteQuery.Where("status IN ?", status)
+		}
+		result := deleteQuery.Delete(&models.APIKey{})
 		if result.Error != nil {
 			return result.Error
 		}

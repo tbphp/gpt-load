@@ -84,7 +84,7 @@ export interface RequestStats {
   failure_rate: number;
 }
 
-export type TaskType = "KEY_VALIDATION" | "KEY_IMPORT";
+export type TaskType = "KEY_VALIDATION" | "KEY_IMPORT" | "KEY_DELETE";
 
 export interface KeyValidationResult {
   invalid_keys: number;
@@ -97,6 +97,11 @@ export interface KeyImportResult {
   ignored_count: number;
 }
 
+export interface KeyDeleteResult {
+  deleted_count: number;
+  ignored_count: number;
+}
+
 export interface TaskInfo {
   task_type: TaskType;
   is_running: boolean;
@@ -105,7 +110,7 @@ export interface TaskInfo {
   total?: number;
   started_at?: string;
   finished_at?: string;
-  result?: KeyValidationResult | KeyImportResult;
+  result?: KeyValidationResult | KeyImportResult | KeyDeleteResult;
   error?: string;
 }
 
@@ -128,6 +133,9 @@ export interface RequestLog {
   model: string;
   upstream_addr: string;
   is_stream: boolean;
+  request_body?: string;
+  response_body?: string;
+  body_log_status?: "enabled" | "system_disabled" | "group_disabled";
 }
 
 export interface Pagination {
