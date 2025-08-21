@@ -57,6 +57,7 @@ func validateAndCleanUpstreams(upstreams json.RawMessage) (datatypes.JSON, error
 		return nil, fmt.Errorf("at least one upstream is required")
 	}
 
+	hasActiveUpstream := false
 	for i := range defs {
 		defs[i].URL = strings.TrimSpace(defs[i].URL)
 		if defs[i].URL == "" {
@@ -69,6 +70,13 @@ func validateAndCleanUpstreams(upstreams json.RawMessage) (datatypes.JSON, error
 		if defs[i].Weight < 0 {
 			return nil, fmt.Errorf("upstream weight must be a non-negative integer")
 		}
+		if defs[i].Weight > 0 {
+			hasActiveUpstream = true
+		}
+	}
+
+	if !hasActiveUpstream {
+		return nil, fmt.Errorf("at least one upstream must have a weight greater than 0")
 	}
 
 	cleanedUpstreams, err := json.Marshal(defs)
