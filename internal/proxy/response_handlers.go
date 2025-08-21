@@ -1,7 +1,6 @@
 package proxy
 
 import (
-	"bytes"
 	"io"
 	"net/http"
 
@@ -35,8 +34,6 @@ func (ps *ProxyServer) handleStreamingResponse(c *gin.Context, resp *http.Respon
 			if needsLogging {
 				responseBytes = append(responseBytes, buf[:n]...)
 			}
-			// Also capture for logging
-			responseBuffer.Write(buf[:n])
 			flusher.Flush()
 		}
 		if err == io.EOF {

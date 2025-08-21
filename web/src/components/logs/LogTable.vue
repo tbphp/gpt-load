@@ -25,11 +25,6 @@ import {
   NTabPane,
   NTabs,
   NTag,
-  NModal,
-  NCard,
-  NCode,
-  NTabs,
-  NTabPane,
 } from "naive-ui";
 import { computed, h, onMounted, reactive, ref, watch } from "vue";
 
