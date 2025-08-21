@@ -25,6 +25,7 @@ type Server struct {
 	TaskService                *services.TaskService
 	KeyService                 *services.KeyService
 	KeyImportService           *services.KeyImportService
+	KeyDeleteService           *services.KeyDeleteService
 	LogService                 *services.LogService
 	CommonHandler              *CommonHandler
 }
@@ -40,6 +41,7 @@ type NewServerParams struct {
 	TaskService                *services.TaskService
 	KeyService                 *services.KeyService
 	KeyImportService           *services.KeyImportService
+	KeyDeleteService           *services.KeyDeleteService
 	LogService                 *services.LogService
 	CommonHandler              *CommonHandler
 }
@@ -55,6 +57,7 @@ func NewServer(params NewServerParams) *Server {
 		TaskService:                params.TaskService,
 		KeyService:                 params.KeyService,
 		KeyImportService:           params.KeyImportService,
+		KeyDeleteService:           params.KeyDeleteService,
 		LogService:                 params.LogService,
 		CommonHandler:              params.CommonHandler,
 	}

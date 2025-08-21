@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { keysApi } from "@/api/keys";
+import { appState } from "@/utils/app-state";
 import { Close } from "@vicons/ionicons5";
-import { NButton, NCard, NInput, NModal, useMessage } from "naive-ui";
+import { NButton, NCard, NInput, NModal } from "naive-ui";
 import { ref, watch } from "vue";
 
 interface Props {
@@ -21,7 +22,6 @@ const emit = defineEmits<Emits>();
 
 const loading = ref(false);
 const keysText = ref("");
-const message = useMessage();
 
 // 监听弹窗显示状态
 watch(
@@ -52,16 +52,12 @@ async function handleSubmit() {
   try {
     loading.value = true;
 
-    const res = await keysApi.deleteKeys(props.groupId, keysText.value);
-    const { deleted_count, ignored_count, total_in_group } = res || {};
-    const msg = `成功删除 ${deleted_count} 个密钥，忽略 ${ignored_count} 个密钥。当前分组共有 ${total_in_group} 个密钥。`;
-    message.info(msg, {
-      closable: true,
-      duration: 5000,
-    });
+    await keysApi.deleteKeysAsync(props.groupId, keysText.value);
+    resetForm();
 
-    emit("success");
     handleClose();
+    window.$message.success("密钥删除任务已开始，请稍后在下方查看进度。");
+    appState.taskPollingTrigger++;
   } finally {
     loading.value = false;
   }

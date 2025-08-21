@@ -16,6 +16,7 @@ const (
 const (
 	TaskTypeKeyValidation = "KEY_VALIDATION"
 	TaskTypeKeyImport     = "KEY_IMPORT"
+	TaskTypeKeyDelete     = "KEY_DELETE"
 )
 
 // TaskStatus represents the full lifecycle of a long-running task.
