@@ -470,7 +470,11 @@ func (p *KeyProvider) removeKeysByStatus(groupID uint, status ...string) (int64,
 			return nil
 		}
 
-		result := tx.Where("id IN ?", pluckIDs(keysToRemove)).Delete(&models.APIKey{})
+		deleteQuery := tx.Where("group_id = ?", groupID)
+		if len(status) > 0 {
+			deleteQuery = deleteQuery.Where("status IN ?", status)
+		}
+		result := deleteQuery.Delete(&models.APIKey{})
 		if result.Error != nil {
 			return result.Error
 		}
