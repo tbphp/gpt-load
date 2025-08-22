@@ -22,7 +22,6 @@ type SystemSettings struct {
 	ProxyKeys                      string `json:"proxy_keys" name:"全局代理密钥" category:"基础参数" desc:"全局代理密钥，用于访问所有分组的代理端点。多个密钥请用逗号分隔。" validate:"required"`
 	RequestLogRetentionDays        int    `json:"request_log_retention_days" default:"7" name:"日志保留时长（天）" category:"基础参数" desc:"请求日志在数据库中的保留天数，0为不清理日志。" validate:"required,min=0"`
 	RequestLogWriteIntervalMinutes int    `json:"request_log_write_interval_minutes" default:"1" name:"日志延迟写入周期（分钟）" category:"基础参数" desc:"请求日志从缓存写入数据库的周期（分钟），0为实时写入数据。" validate:"required,min=0"`
-	EnableRequestBodyLogging       bool   `json:"enable_request_body_logging" default:"false" name:"启用日志详情" category:"基础参数" desc:"是否在请求日志中记录完整的请求体和响应体内容。启用此功能会增加内存以及存储空间的占用。"`
 
 	// 请求设置
 	RequestTimeout        int    `json:"request_timeout" default:"600" name:"请求超时（秒）" category:"请求设置" desc:"转发请求的完整生命周期超时（秒）等。" validate:"required,min=1"`

@@ -37,7 +37,6 @@ type GroupConfig struct {
 	KeyValidationIntervalMinutes *int    `json:"key_validation_interval_minutes,omitempty"`
 	KeyValidationConcurrency     *int    `json:"key_validation_concurrency,omitempty"`
 	KeyValidationTimeoutSeconds  *int    `json:"key_validation_timeout_seconds,omitempty"`
-	EnableRequestBodyLogging     *bool   `json:"enable_request_body_logging,omitempty"`
 }
 
 // HeaderRule defines a single rule for header manipulation.
@@ -112,7 +111,6 @@ type RequestLog struct {
 	UpstreamAddr string    `gorm:"type:varchar(500)" json:"upstream_addr"`
 	IsStream     bool      `gorm:"not null" json:"is_stream"`
 	RequestBody  string    `gorm:"type:longtext" json:"request_body"`
-	ResponseBody string    `gorm:"type:longtext" json:"response_body"`
 }
 
 // StatCard 用于仪表盘的单个统计卡片数据
