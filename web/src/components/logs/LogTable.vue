@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { logApi } from "@/api/logs";
 import type { LogFilter, RequestLog } from "@/types/models";
+import { copy } from "@/utils/clipboard";
 import { maskKey } from "@/utils/display";
 import {
+  CopyOutline,
   DocumentTextOutline,
   DownloadOutline,
   EyeOffOutline,
@@ -23,12 +25,14 @@ import {
   NSelect,
   NSpace,
   NSpin,
-  NTabPane,
-  NTabs,
   NTag,
   NTooltip,
+  useMessage,
 } from "naive-ui";
 import { computed, h, onMounted, reactive, ref, watch } from "vue";
+
+// Message instance
+const message = useMessage();
 
 interface LogRow extends RequestLog {
   is_key_visible: boolean;
@@ -141,6 +145,16 @@ const formatJsonString = (jsonStr: string) => {
     return JSON.stringify(JSON.parse(jsonStr), null, 2);
   } catch {
     return jsonStr;
+  }
+};
+
+// 复制功能
+const copyContent = async (content: string, type: string) => {
+  const success = await copy(content);
+  if (success) {
+    message.success(`${type}已复制到剪贴板`);
+  } else {
+    message.error(`复制${type}失败`);
   }
 };
 
@@ -529,60 +543,77 @@ function changePageSize(size: number) {
           <!-- 请求和响应内容 -->
           <n-card size="small">
             <template #header>
-              <n-space align="center" :size="4" :wrap-item="false">
-                <span>请求和响应内容</span>
-                <n-tooltip trigger="hover" placement="top">
-                  <template #trigger>
-                    <n-icon
-                      :component="HelpCircleOutline"
-                      :size="16"
-                      style="cursor: help; color: #9ca3af"
-                    />
+              <n-space
+                align="center"
+                :size="4"
+                :wrap-item="false"
+                justify="space-between"
+                style="width: 100%"
+              >
+                <n-space align="center" :size="4" :wrap-item="false">
+                  <span>请求内容</span>
+                  <n-tooltip trigger="hover" placement="top">
+                    <template #trigger>
+                      <n-icon
+                        :component="HelpCircleOutline"
+                        :size="16"
+                        style="cursor: help; color: #9ca3af"
+                      />
+                    </template>
+                    日志详情记录功能可以在系统设置或分组设置中启用或关闭
+                  </n-tooltip>
+                </n-space>
+                <n-button
+                  v-if="selectedLog.request_body"
+                  size="small"
+                  type="primary"
+                  ghost
+                  @click="copyContent(formatJsonString(selectedLog.request_body), '请求内容')"
+                >
+                  <template #icon>
+                    <n-icon :component="CopyOutline" />
                   </template>
-                  日志详情记录功能可以在系统设置或分组设置中启用或关闭
-                </n-tooltip>
+                  复制
+                </n-button>
               </n-space>
             </template>
-            <n-tabs type="line">
-              <n-tab-pane name="request" tab="请求内容">
-                <div
-                  v-if="!selectedLog.request_body"
-                  style="text-align: center; color: #999; padding: 20px"
-                >
-                  未记录请求内容
-                </div>
-                <n-code
-                  v-else
-                  :code="formatJsonString(selectedLog.request_body)"
-                  language="json"
-                  show-line-numbers
-                  style="max-height: 400px; overflow-y: auto"
-                />
-              </n-tab-pane>
-              <n-tab-pane name="response" tab="响应内容">
-                <div
-                  v-if="!selectedLog.response_body"
-                  style="text-align: center; color: #999; padding: 20px"
-                >
-                  未记录响应内容
-                </div>
-                <n-code
-                  v-else
-                  :code="formatJsonString(selectedLog.response_body)"
-                  language="json"
-                  show-line-numbers
-                  style="max-height: 400px; overflow-y: auto"
-                />
-              </n-tab-pane>
-            </n-tabs>
+            <div
+              v-if="!selectedLog.request_body"
+              style="text-align: center; color: #999; padding: 20px"
+            >
+              未记录请求内容
+            </div>
+            <n-code
+              v-else
+              :code="formatJsonString(selectedLog.request_body)"
+              language="json"
+              show-line-numbers
+              style="max-height: 400px; overflow-y: auto"
+            />
           </n-card>
 
           <!-- 错误信息 -->
-          <n-card v-if="selectedLog.error_message" title="错误信息" size="small">
+          <n-card v-if="selectedLog.error_message" size="small">
+            <template #header>
+              <n-space align="center" justify="space-between" style="width: 100%">
+                <span>错误信息</span>
+                <n-button
+                  size="small"
+                  type="primary"
+                  ghost
+                  @click="copyContent(selectedLog.error_message, '错误信息')"
+                >
+                  <template #icon>
+                    <n-icon :component="CopyOutline" />
+                  </template>
+                  复制
+                </n-button>
+              </n-space>
+            </template>
             <n-code
               :code="selectedLog.error_message"
               language="text"
-              show-line-numbers
+              word-wrap
               style="max-height: 200px; overflow-y: auto"
             />
           </n-card>
