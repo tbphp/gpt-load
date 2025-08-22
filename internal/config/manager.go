@@ -42,13 +42,14 @@ type Manager struct {
 
 // Config represents the application configuration
 type Config struct {
-	Server      types.ServerConfig      `json:"server"`
-	Auth        types.AuthConfig        `json:"auth"`
-	CORS        types.CORSConfig        `json:"cors"`
-	Performance types.PerformanceConfig `json:"performance"`
-	Log         types.LogConfig         `json:"log"`
-	Database    types.DatabaseConfig    `json:"database"`
-	RedisDSN    string                  `json:"redis_dsn"`
+	Server        types.ServerConfig      `json:"server"`
+	Auth          types.AuthConfig        `json:"auth"`
+	CORS          types.CORSConfig        `json:"cors"`
+	Performance   types.PerformanceConfig `json:"performance"`
+	Log           types.LogConfig         `json:"log"`
+	Database      types.DatabaseConfig    `json:"database"`
+	RedisDSN      string                  `json:"redis_dsn"`
+	EncryptionKey string                  `json:"-"` // Omit from JSON
 }
 
 // NewManager creates a new configuration manager
@@ -83,7 +84,7 @@ func (m *Manager) ReloadConfig() error {
 		},
 		CORS: types.CORSConfig{
 			Enabled:          utils.ParseBoolean(os.Getenv("ENABLE_CORS"), true),
-			AllowedOrigins:   utils.ParseArray(os.Getenv("ALLOWED_ORIGINS"), []string{"*"}),
+			AllowedOrigins:   utils.ParseArray(os.Getenv("ALLOWED_ORIGINS"), []string{}),
 			AllowedMethods:   utils.ParseArray(os.Getenv("ALLOWED_METHODS"), []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}),
 			AllowedHeaders:   utils.ParseArray(os.Getenv("ALLOWED_HEADERS"), []string{"*"}),
 			AllowCredentials: utils.ParseBoolean(os.Getenv("ALLOW_CREDENTIALS"), false),
@@ -100,7 +101,8 @@ func (m *Manager) ReloadConfig() error {
 		Database: types.DatabaseConfig{
 			DSN: utils.GetEnvOrDefault("DATABASE_DSN", "./data/gpt-load.db"),
 		},
-		RedisDSN: os.Getenv("REDIS_DSN"),
+		RedisDSN:      os.Getenv("REDIS_DSN"),
+		EncryptionKey: os.Getenv("ENCRYPTION_KEY"),
 	}
 	m.config = config
 
@@ -147,6 +149,11 @@ func (m *Manager) GetDatabaseConfig() types.DatabaseConfig {
 	return m.config.Database
 }
 
+// GetEncryptionKey returns the encryption key.
+func (m *Manager) GetEncryptionKey() string {
+	return m.config.EncryptionKey
+}
+
 // GetEffectiveServerConfig returns server configuration merged with system settings
 func (m *Manager) GetEffectiveServerConfig() types.ServerConfig {
 	return m.config.Server
@@ -168,12 +175,27 @@ func (m *Manager) Validate() error {
 	// Validate auth key
 	if m.config.Auth.Key == "" {
 		validationErrors = append(validationErrors, "AUTH_KEY is required and cannot be empty")
+	} else {
+		if m.config.Auth.Key == "sk-123456" {
+			validationErrors = append(validationErrors, "AUTH_KEY is set to the default insecure value. Please generate a new one.")
+		}
+		if len(m.config.Auth.Key) < 16 {
+			validationErrors = append(validationErrors, "AUTH_KEY must be at least 16 characters long for security.")
+		}
 	}
 
 	// Validate GracefulShutdownTimeout and reset if necessary
 	if m.config.Server.GracefulShutdownTimeout < 10 {
 		logrus.Warnf("SERVER_GRACEFUL_SHUTDOWN_TIMEOUT value %ds is too short, resetting to minimum 10s.", m.config.Server.GracefulShutdownTimeout)
 		m.config.Server.GracefulShutdownTimeout = 10
+	}
+
+	if m.config.CORS.Enabled {
+		if len(m.config.CORS.AllowedOrigins) == 0 {
+			validationErrors = append(validationErrors, "CORS is enabled but ALLOWED_ORIGINS is not set. UI will not work from a browser.")
+		} else if len(m.config.CORS.AllowedOrigins) == 1 && m.config.CORS.AllowedOrigins[0] == "*" {
+			logrus.Warn("CORS is configured with ALLOWED_ORIGINS=*. This is insecure and should only be used for development.")
+		}
 	}
 
 	if len(validationErrors) > 0 {
@@ -209,6 +231,11 @@ func (m *Manager) DisplayServerConfig() {
 
 	logrus.Info("  --- Security ---")
 	logrus.Infof("    Authentication: enabled (key loaded)")
+	if m.config.EncryptionKey != "" {
+		logrus.Info("    Encryption: enabled")
+	} else {
+		logrus.Warn("    Encryption: disabled (ENCRYPTION_KEY is not set)")
+	}
 	corsStatus := "disabled"
 	if corsConfig.Enabled {
 		corsStatus = fmt.Sprintf("enabled (Origins: %s)", strings.Join(corsConfig.AllowedOrigins, ", "))

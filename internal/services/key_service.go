@@ -3,12 +3,14 @@ package services
 import (
 	"encoding/json"
 	"fmt"
+	"gpt-load/internal/encryption"
 	"gpt-load/internal/keypool"
 	"gpt-load/internal/models"
 	"io"
 	"regexp"
 	"strings"
 
+	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
 
@@ -40,17 +42,19 @@ type RestoreKeysResult struct {
 
 // KeyService provides services related to API keys.
 type KeyService struct {
-	DB           *gorm.DB
-	KeyProvider  *keypool.KeyProvider
-	KeyValidator *keypool.KeyValidator
+	DB            *gorm.DB
+	KeyProvider   *keypool.KeyProvider
+	KeyValidator  *keypool.KeyValidator
+	EncryptionSvc encryption.Service
 }
 
 // NewKeyService creates a new KeyService.
-func NewKeyService(db *gorm.DB, keyProvider *keypool.KeyProvider, keyValidator *keypool.KeyValidator) *KeyService {
+func NewKeyService(db *gorm.DB, keyProvider *keypool.KeyProvider, keyValidator *keypool.KeyValidator, encryptionSvc encryption.Service) *KeyService {
 	return &KeyService{
-		DB:           db,
-		KeyProvider:  keyProvider,
-		KeyValidator: keyValidator,
+		DB:            db,
+		KeyProvider:   keyProvider,
+		KeyValidator:  keyValidator,
+		EncryptionSvc: encryptionSvc,
 	}
 }
 
@@ -90,12 +94,17 @@ func (s *KeyService) processAndCreateKeys(
 ) (addedCount int, ignoredCount int, err error) {
 	// 1. Get existing keys in the group for deduplication
 	var existingKeys []models.APIKey
-	if err := s.DB.Where("group_id = ?", groupID).Select("key_value").Find(&existingKeys).Error; err != nil {
+	if err := s.DB.Where("group_id = ?", groupID).Select("id, key_value").Find(&existingKeys).Error; err != nil {
 		return 0, 0, err
 	}
 	existingKeyMap := make(map[string]bool)
 	for _, k := range existingKeys {
-		existingKeyMap[k.KeyValue] = true
+		decryptedKey, err := s.EncryptionSvc.Decrypt(k.KeyValue)
+		if err != nil {
+			logrus.WithError(err).WithField("key_id", k.ID).Error("Failed to decrypt existing key, skipping for deduplication")
+			continue
+		}
+		existingKeyMap[decryptedKey] = true
 	}
 
 	// 2. Prepare new keys for creation
@@ -111,10 +120,15 @@ func (s *KeyService) processAndCreateKeys(
 			continue
 		}
 		if s.isValidKeyFormat(trimmedKey) {
+			encryptedKey, err := s.EncryptionSvc.Encrypt(trimmedKey)
+			if err != nil {
+				logrus.WithError(err).WithField("key", trimmedKey).Error("Failed to encrypt key, skipping")
+				continue
+			}
 			uniqueNewKeys[trimmedKey] = true
 			newKeysToCreate = append(newKeysToCreate, models.APIKey{
 				GroupID:  groupID,
-				KeyValue: trimmedKey,
+				KeyValue: encryptedKey,
 				Status:   models.KeyStatusActive,
 			})
 		}
@@ -287,7 +301,7 @@ func (s *KeyService) DeleteMultipleKeys(groupID uint, keysText string) (*DeleteK
 }
 
 // ListKeysInGroupQuery builds a query to list all keys within a specific group, filtered by status.
-func (s *KeyService) ListKeysInGroupQuery(groupID uint, statusFilter string, searchKeyword string) *gorm.DB {
+func (s *KeyService) ListKeysInGroupQuery(groupID uint, statusFilter string, searchKeyword string) (*gorm.DB, error) {
 	query := s.DB.Model(&models.APIKey{}).Where("group_id = ?", groupID)
 
 	if statusFilter != "" {
@@ -295,12 +309,19 @@ func (s *KeyService) ListKeysInGroupQuery(groupID uint, statusFilter string, sea
 	}
 
 	if searchKeyword != "" {
-		query = query.Where("key_value LIKE ?", "%"+searchKeyword+"%")
+		// Encrypt the search keyword for an exact match search.
+		// Note: This changes the search behavior from LIKE to exact match.
+		encryptedKeyword, err := s.EncryptionSvc.Encrypt(searchKeyword)
+		if err != nil {
+			// Return a query that finds nothing if encryption fails
+			return s.DB.Model(&models.APIKey{}).Where("1 = 0"), fmt.Errorf("failed to encrypt search keyword: %w", err)
+		}
+		query = query.Where("key_value = ?", encryptedKeyword)
 	}
 
 	query = query.Order("last_used_at desc, updated_at desc")
 
-	return query
+	return query, nil
 }
 
 // TestMultipleKeys handles a one-off validation test for multiple keys.
@@ -345,7 +366,12 @@ func (s *KeyService) StreamKeysToWriter(groupID uint, statusFilter string, write
 	var keys []models.APIKey
 	err := query.FindInBatches(&keys, chunkSize, func(tx *gorm.DB, batch int) error {
 		for _, key := range keys {
-			if _, err := writer.Write([]byte(key.KeyValue + "\n")); err != nil {
+			decryptedKey, err := s.EncryptionSvc.Decrypt(key.KeyValue)
+			if err != nil {
+				logrus.WithError(err).WithField("key_id", key.ID).Error("Failed to decrypt key for streaming, skipping")
+				continue
+			}
+			if _, err := writer.Write([]byte(decryptedKey + "\n")); err != nil {
 				return err
 			}
 		}

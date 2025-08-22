@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
 
@@ -148,7 +149,11 @@ func (s *Server) ListKeysInGroup(c *gin.Context) {
 
 	searchKeyword := c.Query("key")
 
-	query := s.KeyService.ListKeysInGroupQuery(groupID, statusFilter, searchKeyword)
+	query, err := s.KeyService.ListKeysInGroupQuery(groupID, statusFilter, searchKeyword)
+	if err != nil {
+		response.Error(c, app_errors.NewAPIError(app_errors.ErrInternal, err.Error()))
+		return
+	}
 
 	var keys []models.APIKey
 	paginatedResult, err := response.Paginate(c, query, &keys)
@@ -156,6 +161,17 @@ func (s *Server) ListKeysInGroup(c *gin.Context) {
 		response.Error(c, app_errors.ParseDBError(err))
 		return
 	}
+
+	for i := range keys {
+		decryptedValue, err := s.EncryptionSvc.Decrypt(keys[i].KeyValue)
+		if err != nil {
+			logrus.WithError(err).WithField("key_id", keys[i].ID).Error("Failed to decrypt key value for listing")
+			keys[i].KeyValue = "[failed to decrypt]"
+		} else {
+			keys[i].KeyValue = decryptedValue
+		}
+	}
+	paginatedResult.Items = keys
 
 	response.Success(c, paginatedResult)
 }

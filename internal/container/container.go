@@ -6,6 +6,7 @@ import (
 	"gpt-load/internal/channel"
 	"gpt-load/internal/config"
 	"gpt-load/internal/db"
+	"gpt-load/internal/encryption"
 	"gpt-load/internal/handler"
 	"gpt-load/internal/httpclient"
 	"gpt-load/internal/keypool"
@@ -13,6 +14,7 @@ import (
 	"gpt-load/internal/router"
 	"gpt-load/internal/services"
 	"gpt-load/internal/store"
+	"gpt-load/internal/types"
 
 	"go.uber.org/dig"
 )
@@ -23,6 +25,11 @@ func BuildContainer() (*dig.Container, error) {
 
 	// Infrastructure Services
 	if err := container.Provide(config.NewManager); err != nil {
+		return nil, err
+	}
+	if err := container.Provide(func(configManager types.ConfigManager) (encryption.Service, error) {
+		return encryption.NewService(configManager.GetEncryptionKey())
+	}); err != nil {
 		return nil, err
 	}
 	if err := container.Provide(db.NewDB); err != nil {
