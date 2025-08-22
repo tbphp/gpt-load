@@ -55,23 +55,21 @@ const filters = reactive({
   group_name: "",
   key_value: "",
   model: "",
-  is_success: "" as "true" | "false" | "",
+  is_success: ref(null),
   status_code: "",
   source_ip: "",
   error_contains: "",
   start_time: null as number | null,
   end_time: null as number | null,
-  request_type: "" as "retry" | "final" | "",
+  request_type: ref(null),
 });
 
 const successOptions = [
-  { label: "状态", value: "" },
   { label: "成功", value: "true" },
   { label: "失败", value: "false" },
 ];
 
 const requestTypeOptions = [
-  { label: "请求类型", value: "" },
   { label: "重试请求", value: "retry" },
   { label: "最终请求", value: "final" },
 ];
@@ -86,7 +84,10 @@ const loadLogs = async () => {
       group_name: filters.group_name || undefined,
       key_value: filters.key_value || undefined,
       model: filters.model || undefined,
-      is_success: filters.is_success === "" ? undefined : filters.is_success === "true",
+      is_success:
+        filters.is_success === "" || filters.is_success === null
+          ? undefined
+          : filters.is_success === "true",
       status_code: filters.status_code ? parseInt(filters.status_code, 10) : undefined,
       source_ip: filters.source_ip || undefined,
       error_contains: filters.error_contains || undefined,
@@ -291,13 +292,13 @@ const resetFilters = () => {
   filters.group_name = "";
   filters.key_value = "";
   filters.model = "";
-  filters.is_success = "";
+  filters.is_success = null;
   filters.status_code = "";
   filters.source_ip = "";
   filters.error_contains = "";
   filters.start_time = null;
   filters.end_time = null;
-  filters.request_type = "";
+  filters.request_type = null;
   handleSearch();
 };
 
@@ -340,6 +341,8 @@ function changePageSize(size: number) {
                   v-model:value="filters.is_success"
                   :options="successOptions"
                   size="small"
+                  placeholder="状态"
+                  clearable
                   @update:value="handleSearch"
                 />
               </div>
@@ -384,6 +387,8 @@ function changePageSize(size: number) {
                   v-model:value="filters.request_type"
                   :options="requestTypeOptions"
                   size="small"
+                  clearable
+                  placeholder="请求类型"
                   @update:value="handleSearch"
                 />
               </div>
@@ -593,7 +598,7 @@ function changePageSize(size: number) {
           </n-card>
 
           <!-- 错误信息 -->
-          <n-card v-if="selectedLog.error_message" size="small">
+          <n-card size="small">
             <template #header>
               <n-space align="center" justify="space-between" style="width: 100%">
                 <span>错误信息</span>
@@ -610,7 +615,14 @@ function changePageSize(size: number) {
                 </n-button>
               </n-space>
             </template>
+            <div
+              v-if="!selectedLog.error_message"
+              style="text-align: center; color: #999; padding: 20px"
+            >
+              没有错误信息
+            </div>
             <n-code
+              v-else
               :code="selectedLog.error_message"
               language="text"
               word-wrap

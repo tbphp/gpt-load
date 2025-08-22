@@ -18,7 +18,6 @@ import (
 	"gpt-load/internal/models"
 	"gpt-load/internal/response"
 	"gpt-load/internal/services"
-	"gpt-load/internal/types"
 	"gpt-load/internal/utils"
 
 	"github.com/gin-gonic/gin"
@@ -84,7 +83,7 @@ func (ps *ProxyServer) HandleProxy(c *gin.Context) {
 
 	isStream := channelHandler.IsStreamRequest(c, bodyBytes)
 
-	ps.executeRequestWithRetry(c, channelHandler, group, finalBodyBytes, isStream, startTime, 0, nil)
+	ps.executeRequestWithRetry(c, channelHandler, group, finalBodyBytes, isStream, startTime, 0)
 }
 
 // executeRequestWithRetry is the core recursive function for handling requests and retries.
@@ -96,32 +95,8 @@ func (ps *ProxyServer) executeRequestWithRetry(
 	isStream bool,
 	startTime time.Time,
 	retryCount int,
-	retryErrors []types.RetryError,
 ) {
 	cfg := group.EffectiveConfig
-	if retryCount > cfg.MaxRetries {
-		if len(retryErrors) > 0 {
-			lastError := retryErrors[len(retryErrors)-1]
-			var errorJSON map[string]any
-			if err := json.Unmarshal([]byte(lastError.ErrorMessage), &errorJSON); err == nil {
-				c.JSON(lastError.StatusCode, errorJSON)
-			} else {
-				response.Error(c, app_errors.NewAPIErrorWithUpstream(lastError.StatusCode, "UPSTREAM_ERROR", lastError.ErrorMessage))
-			}
-			logMessage := lastError.ParsedErrorMessage
-			if logMessage == "" {
-				logMessage = lastError.ErrorMessage
-			}
-			logrus.Debugf("Max retries exceeded for group %s after %d attempts. Parsed Error: %s", group.Name, retryCount, logMessage)
-
-			ps.logRequest(c, group, &models.APIKey{KeyValue: lastError.KeyValue}, startTime, lastError.StatusCode, errors.New(logMessage), isStream, lastError.UpstreamAddr, channelHandler, bodyBytes, models.RequestTypeFinal)
-		} else {
-			response.Error(c, app_errors.ErrMaxRetriesExceeded)
-			logrus.Debugf("Max retries exceeded for group %s after %d attempts.", group.Name, retryCount)
-			ps.logRequest(c, group, nil, startTime, http.StatusServiceUnavailable, app_errors.ErrMaxRetriesExceeded, isStream, "", channelHandler, bodyBytes, models.RequestTypeFinal)
-		}
-		return
-	}
 
 	apiKey, err := ps.keyProvider.SelectKey(group.ID)
 	if err != nil {
@@ -186,8 +161,7 @@ func (ps *ProxyServer) executeRequestWithRetry(
 		defer resp.Body.Close()
 	}
 
-	// Unified error handling for retries.
-	// Exclude 404 from being a retryable error.
+	// Unified error handling for retries. Exclude 404 from being a retryable error.
 	if err != nil || (resp != nil && resp.StatusCode >= 400 && resp.StatusCode != http.StatusNotFound) {
 		if err != nil && app_errors.IsIgnorableError(err) {
 			logrus.Debugf("Client-side ignorable error for key %s, aborting retries: %v", utils.MaskAPIKey(apiKey.KeyValue), err)
@@ -222,18 +196,27 @@ func (ps *ProxyServer) executeRequestWithRetry(
 		// 使用解析后的错误信息更新密钥状态
 		ps.keyProvider.UpdateStatus(apiKey, group, false, parsedError)
 
-		newRetryErrors := append(retryErrors, types.RetryError{
-			StatusCode:         statusCode,
-			ErrorMessage:       errorMessage,
-			ParsedErrorMessage: parsedError,
-			KeyValue:           apiKey.KeyValue,
-			Attempt:            retryCount + 1,
-			UpstreamAddr:       upstreamURL,
-		})
+		// 判断是否为最后一次尝试
+		isLastAttempt := retryCount >= cfg.MaxRetries
+		requestType := models.RequestTypeRetry
+		if isLastAttempt {
+			requestType = models.RequestTypeFinal
+		}
 
-		ps.logRequest(c, group, apiKey, startTime, statusCode, errors.New(parsedError), isStream, upstreamURL, channelHandler, bodyBytes, models.RequestTypeRetry)
+		ps.logRequest(c, group, apiKey, startTime, statusCode, errors.New(parsedError), isStream, upstreamURL, channelHandler, bodyBytes, requestType)
 
-		ps.executeRequestWithRetry(c, channelHandler, group, bodyBytes, isStream, startTime, retryCount+1, newRetryErrors)
+		// 如果是最后一次尝试，直接返回错误，不再递归
+		if isLastAttempt {
+			var errorJSON map[string]any
+			if err := json.Unmarshal([]byte(errorMessage), &errorJSON); err == nil {
+				c.JSON(statusCode, errorJSON)
+			} else {
+				response.Error(c, app_errors.NewAPIErrorWithUpstream(statusCode, "UPSTREAM_ERROR", errorMessage))
+			}
+			return
+		}
+
+		ps.executeRequestWithRetry(c, channelHandler, group, bodyBytes, isStream, startTime, retryCount+1)
 		return
 	}
 
@@ -274,6 +257,12 @@ func (ps *ProxyServer) logRequest(
 		return
 	}
 
+	var requestBodyToLog string
+
+	if group.EffectiveConfig.EnableRequestBodyLogging {
+		requestBodyToLog = string(bodyBytes)
+	}
+
 	duration := time.Since(startTime).Milliseconds()
 
 	logEntry := &models.RequestLog{
@@ -288,7 +277,7 @@ func (ps *ProxyServer) logRequest(
 		RequestType:  requestType,
 		IsStream:     isStream,
 		UpstreamAddr: utils.TruncateString(upstreamAddr, 500),
-		RequestBody:  string(bodyBytes),
+		RequestBody:  requestBodyToLog,
 	}
 
 	if channelHandler != nil && bodyBytes != nil {
