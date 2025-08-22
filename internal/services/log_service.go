@@ -53,6 +53,9 @@ func logFiltersScope(c *gin.Context) func(db *gorm.DB) *gorm.DB {
 				db = db.Where("is_success = ?", isSuccess)
 			}
 		}
+		if requestType := c.Query("request_type"); requestType != "" {
+			db = db.Where("request_type = ?", requestType)
+		}
 		if statusCodeStr := c.Query("status_code"); statusCodeStr != "" {
 			if statusCode, err := strconv.Atoi(statusCodeStr); err == nil {
 				db = db.Where("status_code = ?", statusCode)

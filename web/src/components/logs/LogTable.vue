@@ -7,6 +7,7 @@ import {
   DownloadOutline,
   EyeOffOutline,
   EyeOutline,
+  HelpCircleOutline,
   Search,
 } from "@vicons/ionicons5";
 import {
@@ -25,6 +26,7 @@ import {
   NTabPane,
   NTabs,
   NTag,
+  NTooltip,
 } from "naive-ui";
 import { computed, h, onMounted, reactive, ref, watch } from "vue";
 
@@ -55,12 +57,19 @@ const filters = reactive({
   error_contains: "",
   start_time: null as number | null,
   end_time: null as number | null,
+  request_type: "" as "retry" | "final" | "",
 });
 
 const successOptions = [
   { label: "状态", value: "" },
   { label: "成功", value: "true" },
   { label: "失败", value: "false" },
+];
+
+const requestTypeOptions = [
+  { label: "请求类型", value: "" },
+  { label: "重试请求", value: "retry" },
+  { label: "最终请求", value: "final" },
 ];
 
 // Fetch data
@@ -79,6 +88,7 @@ const loadLogs = async () => {
       error_contains: filters.error_contains || undefined,
       start_time: filters.start_time ? new Date(filters.start_time).toISOString() : undefined,
       end_time: filters.end_time ? new Date(filters.end_time).toISOString() : undefined,
+      request_type: filters.request_type || undefined,
     };
 
     const res = await logApi.getLogs(params);
@@ -164,9 +174,20 @@ const createColumns = () => [
         { default: () => (row.is_stream ? "流式" : "非流") }
       ),
   },
+  {
+    title: "请求类型",
+    key: "request_type",
+    width: 90,
+    render: (row: LogRow) => {
+      return h(
+        NTag,
+        { type: row.request_type === "retry" ? "warning" : "default", size: "small", round: true },
+        { default: () => (row.request_type === "retry" ? "重试请求" : "最终请求") }
+      );
+    },
+  },
   { title: "状态码", key: "status_code", width: 60 },
   { title: "耗时(ms)", key: "duration_ms", width: 80 },
-  { title: "重试", key: "retries", width: 50 },
   { title: "分组", key: "group_name", width: 120 },
   { title: "模型", key: "model", width: 300 },
   {
@@ -262,6 +283,7 @@ const resetFilters = () => {
   filters.error_contains = "";
   filters.start_time = null;
   filters.end_time = null;
+  filters.request_type = "";
   handleSearch();
 };
 
@@ -276,6 +298,7 @@ const exportLogs = () => {
     error_contains: filters.error_contains || undefined,
     start_time: filters.start_time ? new Date(filters.start_time).toISOString() : undefined,
     end_time: filters.end_time ? new Date(filters.end_time).toISOString() : undefined,
+    request_type: filters.request_type || undefined,
   };
   logApi.exportLogs(params);
 };
@@ -340,6 +363,14 @@ function changePageSize(size: number) {
                   size="small"
                   clearable
                   @keyup.enter="handleSearch"
+                />
+              </div>
+              <div class="filter-item">
+                <n-select
+                  v-model:value="filters.request_type"
+                  :options="requestTypeOptions"
+                  size="small"
+                  @update:value="handleSearch"
                 />
               </div>
               <div class="filter-item">
@@ -480,8 +511,11 @@ function changePageSize(size: number) {
                 <span>{{ selectedLog.model }}</span>
               </div>
               <div class="detail-item">
-                <span class="detail-label">重试次数:</span>
-                <span>{{ selectedLog.retries }}</span>
+                <span class="detail-label">请求类型:</span>
+                <n-tag v-if="selectedLog.request_type === 'retry'" type="warning" size="small">
+                  重试请求
+                </n-tag>
+                <n-tag v-else type="default" size="small">最终请求</n-tag>
               </div>
               <div class="detail-item">
                 <span class="detail-label">类型:</span>
@@ -493,8 +527,23 @@ function changePageSize(size: number) {
           </n-card>
 
           <!-- 请求和响应内容 -->
-          <n-card title="请求和响应内容" size="small">
-            <n-tabs type="line" animated>
+          <n-card size="small">
+            <template #header>
+              <n-space align="center" :size="4" :wrap-item="false">
+                <span>请求和响应内容</span>
+                <n-tooltip trigger="hover" placement="top">
+                  <template #trigger>
+                    <n-icon
+                      :component="HelpCircleOutline"
+                      :size="16"
+                      style="cursor: help; color: #9ca3af"
+                    />
+                  </template>
+                  日志详情记录功能可以在系统设置或分组设置中启用或关闭
+                </n-tooltip>
+              </n-space>
+            </template>
+            <n-tabs type="line">
               <n-tab-pane name="request" tab="请求内容">
                 <div
                   v-if="!selectedLog.request_body"
@@ -533,6 +582,7 @@ function changePageSize(size: number) {
             <n-code
               :code="selectedLog.error_message"
               language="text"
+              show-line-numbers
               style="max-height: 200px; overflow-y: auto"
             />
           </n-card>

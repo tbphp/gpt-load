@@ -122,7 +122,7 @@ export interface RequestLog {
   duration_ms: number;
   error_message: string;
   user_agent: string;
-  retries: number;
+  request_type: "retry" | "final";
   group_name?: string;
   key_value?: string;
   model: string;
@@ -156,6 +156,7 @@ export interface LogFilter {
   error_contains?: string;
   start_time?: string | null;
   end_time?: string | null;
+  request_type?: "retry" | "final";
 }
 
 export interface DashboardStats {

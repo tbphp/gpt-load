@@ -108,7 +108,7 @@ function generateValidationRules(item: Setting): FormItemRule[] {
           hoverable
           bordered
         >
-          <n-grid :x-gap="36" :y-gap="0" responsive="screen" cols="1 s:2 m:2 l:3 xl:3">
+          <n-grid :x-gap="36" :y-gap="0" responsive="screen" cols="1 s:2 m:2 l:4 xl:4">
             <n-grid-item
               v-for="item in category.settings"
               :key="item.key"
