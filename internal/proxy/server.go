@@ -262,9 +262,6 @@ func (ps *ProxyServer) logRequest(
 	}
 
 	duration := time.Since(startTime).Milliseconds()
-	q := c.Request.URL.Query()
-	q.Del("key")
-	c.Request.URL.RawQuery = q.Encode()
 
 	logEntry := &models.RequestLog{
 		GroupID:      group.ID,

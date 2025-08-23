@@ -84,11 +84,7 @@ func (b *BaseChannel) BuildUpstreamURL(originalURL *url.URL, group *models.Group
 
 	finalURL.Path = strings.TrimRight(finalURL.Path, "/") + requestPath
 
-	if originalURL.RawQuery != "" {
-		query := originalURL.Query()
-		query.Del("key")
-		finalURL.RawQuery = query.Encode()
-	}
+	finalURL.RawQuery = originalURL.RawQuery
 
 	return finalURL.String(), nil
 }
