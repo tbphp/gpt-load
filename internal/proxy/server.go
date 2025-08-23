@@ -136,9 +136,6 @@ func (ps *ProxyServer) executeRequestWithRetry(
 	req.Header.Del("Authorization")
 	req.Header.Del("X-Api-Key")
 	req.Header.Del("X-Goog-Api-Key")
-	q := req.URL.Query()
-	q.Del("key")
-	req.URL.RawQuery = q.Encode()
 
 	// Apply custom header rules
 	if len(group.HeaderRuleList) > 0 {
@@ -265,6 +262,9 @@ func (ps *ProxyServer) logRequest(
 	}
 
 	duration := time.Since(startTime).Milliseconds()
+	q := c.Request.URL.Query()
+	q.Del("key")
+	c.Request.URL.RawQuery = q.Encode()
 
 	logEntry := &models.RequestLog{
 		GroupID:      group.ID,
