@@ -1,7 +1,5 @@
 <script setup lang="ts">
 import { appState } from "@/utils/app-state";
-import hljs from "highlight.js/lib/core";
-import json from "highlight.js/lib/languages/json";
 import {
   NConfigProvider,
   NDialogProvider,
@@ -12,8 +10,6 @@ import {
   type GlobalThemeOverrides,
 } from "naive-ui";
 import { defineComponent, watch } from "vue";
-
-hljs.registerLanguage("json", json);
 
 // 自定义主题配置
 const themeOverrides: GlobalThemeOverrides = {
@@ -73,7 +69,7 @@ const Message = defineComponent({
 </script>
 
 <template>
-  <n-config-provider :theme-overrides="themeOverrides" :hljs="hljs">
+  <n-config-provider :theme-overrides="themeOverrides">
     <n-loading-bar-provider>
       <n-message-provider placement="top-right">
         <n-dialog-provider>
