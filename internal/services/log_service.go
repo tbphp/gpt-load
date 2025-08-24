@@ -36,14 +36,7 @@ func logFiltersScope(c *gin.Context) func(db *gorm.DB) *gorm.DB {
 			db = db.Where("group_name LIKE ?", "%"+groupName+"%")
 		}
 		if keyValue := c.Query("key_value"); keyValue != "" {
-			// 安全地处理 keyValue，避免越界错误
-			var likePattern string
-			if len(keyValue) > 2 {
-				likePattern = "%" + keyValue[1:len(keyValue)-1] + "%"
-			} else {
-				likePattern = "%" + keyValue + "%"
-			}
-			db = db.Where("key_value LIKE ?", likePattern)
+			db = db.Where("key_value LIKE ?", "%"+keyValue+"%")
 		}
 		if model := c.Query("model"); model != "" {
 			db = db.Where("model LIKE ?", "%"+model+"%")

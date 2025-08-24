@@ -188,7 +188,7 @@ async function loadKeys() {
       page: currentPage.value,
       page_size: pageSize.value,
       status: statusFilter.value === "all" ? undefined : (statusFilter.value as KeyStatus),
-      key: searchText.value.trim() || undefined,
+      key_value: searchText.value.trim() || undefined,
     });
     keys.value = result.items as KeyRow[];
     total.value = result.pagination.total_items;
