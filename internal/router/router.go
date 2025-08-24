@@ -39,6 +39,7 @@ func EmbedFolder(fsEmbed embed.FS, targetPath string) static.ServeFileSystem {
 
 func NewRouter(
 	serverHandler *handler.Server,
+	initHandler *handler.InitializationHandler,
 	proxyServer *proxy.ProxyServer,
 	configManager types.ConfigManager,
 	groupManager *services.GroupManager,
@@ -63,7 +64,7 @@ func NewRouter(
 
 	// 注册路由
 	registerSystemRoutes(router, serverHandler)
-	registerAPIRoutes(router, serverHandler, configManager)
+	registerAPIRoutes(router, serverHandler, initHandler, configManager)
 	registerProxyRoutes(router, proxyServer, groupManager)
 	registerFrontendRoutes(router, buildFS, indexPage)
 
@@ -79,23 +80,31 @@ func registerSystemRoutes(router *gin.Engine, serverHandler *handler.Server) {
 func registerAPIRoutes(
 	router *gin.Engine,
 	serverHandler *handler.Server,
+	initHandler *handler.InitializationHandler,
 	configManager types.ConfigManager,
 ) {
 	api := router.Group("/api")
-	authConfig := configManager.GetAuthConfig()
 
 	// 公开
-	registerPublicAPIRoutes(api, serverHandler)
+	registerPublicAPIRoutes(api, serverHandler, initHandler)
 
 	// 认证
 	protectedAPI := api.Group("")
-	protectedAPI.Use(middleware.Auth(authConfig))
+	protectedAPI.Use(middleware.Auth(configManager))
 	registerProtectedAPIRoutes(protectedAPI, serverHandler)
 }
 
 // registerPublicAPIRoutes 公开API路由
-func registerPublicAPIRoutes(api *gin.RouterGroup, serverHandler *handler.Server) {
+func registerPublicAPIRoutes(api *gin.RouterGroup, serverHandler *handler.Server, initHandler *handler.InitializationHandler) {
 	api.POST("/auth/login", serverHandler.Login)
+
+	// 初始化相关的公开路由
+	setup := api.Group("/setup")
+	{
+		setup.GET("/status", initHandler.CheckSetupStatus)
+		setup.POST("/password-strength", initHandler.CheckPasswordStrength)
+		setup.POST("/initial-password", initHandler.SetInitialPassword)
+	}
 }
 
 // registerProtectedAPIRoutes 认证API路由

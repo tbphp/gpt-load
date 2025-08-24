@@ -38,6 +38,7 @@ var DefaultConstants = Constants{
 type Manager struct {
 	config          *Config
 	settingsManager *SystemSettingsManager
+	authKey         string // Cached auth key from database
 }
 
 // Config represents the application configuration
@@ -79,7 +80,7 @@ func (m *Manager) ReloadConfig() error {
 			GracefulShutdownTimeout: utils.ParseInteger(os.Getenv("SERVER_GRACEFUL_SHUTDOWN_TIMEOUT"), 10),
 		},
 		Auth: types.AuthConfig{
-			Key: os.Getenv("AUTH_KEY"),
+			Key: "", // Will be loaded from database
 		},
 		CORS: types.CORSConfig{
 			Enabled:          utils.ParseBoolean(os.Getenv("ENABLE_CORS"), true),
@@ -119,7 +120,20 @@ func (m *Manager) IsMaster() bool {
 
 // GetAuthConfig returns authentication configuration
 func (m *Manager) GetAuthConfig() types.AuthConfig {
+	if m.authKey != "" {
+		return types.AuthConfig{Key: m.authKey}
+	}
 	return m.config.Auth
+}
+
+// SetAuthKey sets the authentication key (loaded from database)
+func (m *Manager) SetAuthKey(key string) {
+	m.authKey = key
+}
+
+// IsAuthKeyConfigured checks if auth key is properly configured
+func (m *Manager) IsAuthKeyConfigured() bool {
+	return m.authKey != "" || m.config.Auth.Key != ""
 }
 
 // GetCORSConfig returns CORS configuration
@@ -165,10 +179,8 @@ func (m *Manager) Validate() error {
 		validationErrors = append(validationErrors, "max concurrent requests cannot be less than 1")
 	}
 
-	// Validate auth key
-	if m.config.Auth.Key == "" {
-		validationErrors = append(validationErrors, "AUTH_KEY is required and cannot be empty")
-	}
+	// Skip auth key validation during initial startup
+	// It will be handled by InitializationService
 
 	// Validate GracefulShutdownTimeout and reset if necessary
 	if m.config.Server.GracefulShutdownTimeout < 10 {

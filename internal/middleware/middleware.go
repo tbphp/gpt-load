@@ -11,6 +11,7 @@ import (
 	"gpt-load/internal/response"
 	"gpt-load/internal/services"
 	"gpt-load/internal/types"
+	"gpt-load/internal/utils"
 
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
@@ -116,7 +117,7 @@ func CORS(config types.CORSConfig) gin.HandlerFunc {
 }
 
 // Auth creates an authentication middleware
-func Auth(authConfig types.AuthConfig) gin.HandlerFunc {
+func Auth(configManager types.ConfigManager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		path := c.Request.URL.Path
 
@@ -125,9 +126,26 @@ func Auth(authConfig types.AuthConfig) gin.HandlerFunc {
 			return
 		}
 
-		key := extractAuthKey(c)
+		// Dynamically get auth config on each request
+		authConfig := configManager.GetAuthConfig()
 
-		isValid := key != "" && subtle.ConstantTimeCompare([]byte(key), []byte(authConfig.Key)) == 1
+		key := extractAuthKey(c)
+		if key == "" {
+			response.Error(c, app_errors.ErrUnauthorized)
+			c.Abort()
+			return
+		}
+
+		var isValid bool
+		
+		// Check if stored password is a hash (bcrypt hashes start with $2a$, $2b$, or $2y$)
+		if len(authConfig.Key) > 4 && (authConfig.Key[:4] == "$2a$" || authConfig.Key[:4] == "$2b$" || authConfig.Key[:4] == "$2y$") {
+			// It's a bcrypt hash, use bcrypt verification
+			isValid = utils.CheckPasswordHash(key, authConfig.Key)
+		} else {
+			// It's a plain text key, use constant time comparison (for backward compatibility)
+			isValid = key != "" && subtle.ConstantTimeCompare([]byte(key), []byte(authConfig.Key)) == 1
+		}
 
 		if !isValid {
 			response.Error(c, app_errors.ErrUnauthorized)

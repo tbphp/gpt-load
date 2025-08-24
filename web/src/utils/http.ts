@@ -23,10 +23,12 @@ http.interceptors.request.use(config => {
   if (config.url && !noLoadingUrls.includes(config.url)) {
     appState.loading = true;
   }
+  
   const authKey = localStorage.getItem("authKey");
   if (authKey) {
     config.headers.Authorization = `Bearer ${authKey}`;
   }
+  
   return config;
 });
 
@@ -41,6 +43,7 @@ http.interceptors.response.use(
   },
   error => {
     appState.loading = false;
+    
     if (error.response) {
       if (error.response.status === 401) {
         if (window.location.pathname !== "/login") {

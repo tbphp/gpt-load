@@ -4,6 +4,8 @@ package handler
 import (
 	"crypto/subtle"
 	"net/http"
+
+	"gpt-load/internal/utils"
 	"time"
 
 	"gpt-load/internal/config"
@@ -87,7 +89,25 @@ func (s *Server) Login(c *gin.Context) {
 
 	authConfig := s.config.GetAuthConfig()
 
-	isValid := subtle.ConstantTimeCompare([]byte(req.AuthKey), []byte(authConfig.Key)) == 1
+	// Special handling for setup mode
+	if authConfig.Key == "__SETUP_MODE__" {
+		// In setup mode, allow access with any password to access setup interface
+		c.JSON(http.StatusOK, LoginResponse{
+			Success: true,
+			Message: "Setup mode - please complete initial configuration",
+		})
+		return
+	}
+
+	// Check if stored password is a hash (bcrypt hashes start with $2a$, $2b$, or $2y$)
+	var isValid bool
+	if len(authConfig.Key) > 4 && (authConfig.Key[:4] == "$2a$" || authConfig.Key[:4] == "$2b$" || authConfig.Key[:4] == "$2y$") {
+		// It's a bcrypt hash, use bcrypt verification
+		isValid = utils.CheckPasswordHash(req.AuthKey, authConfig.Key)
+	} else {
+		// It's a plain text key, use constant time comparison (for backward compatibility)
+		isValid = subtle.ConstantTimeCompare([]byte(req.AuthKey), []byte(authConfig.Key)) == 1
+	}
 
 	if isValid {
 		c.JSON(http.StatusOK, LoginResponse{

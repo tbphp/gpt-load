@@ -42,6 +42,9 @@ func BuildContainer() (*dig.Container, error) {
 	}
 
 	// Business Services
+	if err := container.Provide(services.NewInitializationService); err != nil {
+		return nil, err
+	}
 	if err := container.Provide(services.NewTaskService); err != nil {
 		return nil, err
 	}
@@ -84,6 +87,9 @@ func BuildContainer() (*dig.Container, error) {
 		return nil, err
 	}
 	if err := container.Provide(handler.NewCommonHandler); err != nil {
+		return nil, err
+	}
+	if err := container.Provide(handler.NewInitializationHandler); err != nil {
 		return nil, err
 	}
 

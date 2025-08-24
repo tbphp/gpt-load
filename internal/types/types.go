@@ -13,6 +13,8 @@ type ConfigManager interface {
 	Validate() error
 	DisplayServerConfig()
 	ReloadConfig() error
+	SetAuthKey(key string)
+	IsAuthKeyConfigured() bool
 }
 
 // SystemSettings 定义所有系统配置项

@@ -26,50 +26,53 @@ import (
 
 // App holds all services and manages the application lifecycle.
 type App struct {
-	engine            *gin.Engine
-	configManager     types.ConfigManager
-	settingsManager   *config.SystemSettingsManager
-	groupManager      *services.GroupManager
-	logCleanupService *services.LogCleanupService
-	requestLogService *services.RequestLogService
-	cronChecker       *keypool.CronChecker
-	keyPoolProvider   *keypool.KeyProvider
-	proxyServer       *proxy.ProxyServer
-	storage           store.Store
-	db                *gorm.DB
-	httpServer        *http.Server
+	engine               *gin.Engine
+	configManager        types.ConfigManager
+	settingsManager      *config.SystemSettingsManager
+	groupManager         *services.GroupManager
+	logCleanupService    *services.LogCleanupService
+	requestLogService    *services.RequestLogService
+	cronChecker          *keypool.CronChecker
+	keyPoolProvider      *keypool.KeyProvider
+	proxyServer          *proxy.ProxyServer
+	storage              store.Store
+	db                   *gorm.DB
+	httpServer           *http.Server
+	initializationService *services.InitializationService
 }
 
 // AppParams defines the dependencies for the App.
 type AppParams struct {
 	dig.In
-	Engine            *gin.Engine
-	ConfigManager     types.ConfigManager
-	SettingsManager   *config.SystemSettingsManager
-	GroupManager      *services.GroupManager
-	LogCleanupService *services.LogCleanupService
-	RequestLogService *services.RequestLogService
-	CronChecker       *keypool.CronChecker
-	KeyPoolProvider   *keypool.KeyProvider
-	ProxyServer       *proxy.ProxyServer
-	Storage           store.Store
-	DB                *gorm.DB
+	Engine               *gin.Engine
+	ConfigManager        types.ConfigManager
+	SettingsManager      *config.SystemSettingsManager
+	GroupManager         *services.GroupManager
+	LogCleanupService    *services.LogCleanupService
+	RequestLogService    *services.RequestLogService
+	CronChecker          *keypool.CronChecker
+	KeyPoolProvider      *keypool.KeyProvider
+	ProxyServer          *proxy.ProxyServer
+	Storage              store.Store
+	DB                   *gorm.DB
+	InitializationService *services.InitializationService
 }
 
 // NewApp is the constructor for App, with dependencies injected by dig.
 func NewApp(params AppParams) *App {
 	return &App{
-		engine:            params.Engine,
-		configManager:     params.ConfigManager,
-		settingsManager:   params.SettingsManager,
-		groupManager:      params.GroupManager,
-		logCleanupService: params.LogCleanupService,
-		requestLogService: params.RequestLogService,
-		cronChecker:       params.CronChecker,
-		keyPoolProvider:   params.KeyPoolProvider,
-		proxyServer:       params.ProxyServer,
-		storage:           params.Storage,
-		db:                params.DB,
+		engine:               params.Engine,
+		configManager:        params.ConfigManager,
+		settingsManager:      params.SettingsManager,
+		groupManager:         params.GroupManager,
+		logCleanupService:    params.LogCleanupService,
+		requestLogService:    params.RequestLogService,
+		cronChecker:          params.CronChecker,
+		keyPoolProvider:      params.KeyPoolProvider,
+		proxyServer:          params.ProxyServer,
+		storage:              params.Storage,
+		db:                   params.DB,
+		initializationService: params.InitializationService,
 	}
 }
 
@@ -93,8 +96,24 @@ func (a *App) Start() error {
 		db.MigrateDatabase(a.db)
 		logrus.Info("Database auto-migration completed.")
 
+		// 检查并设置认证密钥
+		authKey, err := a.initializationService.CheckAndSetupAuth()
+		if err != nil {
+			return fmt.Errorf("failed to setup authentication: %w", err)
+		}
+
+		// 将认证密钥设置到配置管理器
+		if authKey != "" {
+			a.configManager.SetAuthKey(authKey)
+		} else {
+			// 首次启动，设置临时认证密钥以允许访问 Web 界面进行初始化
+			logrus.Warn("首次启动模式：使用临时密钥，请尽快通过 Web 界面设置管理员密码")
+			a.configManager.SetAuthKey("__SETUP_MODE__")
+		}
+
 		// 初始化系统设置
-		if err := a.settingsManager.EnsureSettingsInitialized(a.configManager.GetAuthConfig()); err != nil {
+		authConfig := a.configManager.GetAuthConfig()
+		if err := a.settingsManager.EnsureSettingsInitialized(authConfig); err != nil {
 			return fmt.Errorf("failed to initialize system settings: %w", err)
 		}
 		logrus.Info("System settings initialized in DB.")
