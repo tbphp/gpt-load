@@ -151,7 +151,7 @@ func (s *Server) ListKeysInGroup(c *gin.Context) {
 
 	query, err := s.KeyService.ListKeysInGroupQuery(groupID, statusFilter, searchKeyword)
 	if err != nil {
-		response.Error(c, app_errors.NewAPIError(app_errors.ErrInternal, err.Error()))
+		response.Error(c, app_errors.NewAPIError(app_errors.ErrInternalServer, err.Error()))
 		return
 	}
 
