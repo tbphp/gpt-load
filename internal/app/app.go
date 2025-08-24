@@ -10,6 +10,7 @@ import (
 
 	"gpt-load/internal/config"
 	"gpt-load/internal/encryption"
+	db "gpt-load/internal/db/migrations"
 	"gpt-load/internal/keypool"
 	"gpt-load/internal/models"
 	"gpt-load/internal/proxy"
@@ -93,7 +94,7 @@ func (a *App) Start() error {
 			return fmt.Errorf("database auto-migration failed: %w", err)
 		}
 		// 数据修复
-		// db.MigrateDatabase(a.db)
+		db.MigrateDatabase(a.db)
 		logrus.Info("Database auto-migration completed.")
 
 		// Encrypt existing keys if encryption is enabled

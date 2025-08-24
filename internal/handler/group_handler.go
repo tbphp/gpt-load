@@ -782,13 +782,13 @@ func (s *Server) GetGroupStats(c *gin.Context) {
 		now := time.Now()
 		oneHourAgo := now.Add(-1 * time.Hour)
 
-		if err := s.DB.Model(&models.RequestLog{}).Where("group_id = ? AND timestamp BETWEEN ? AND ?", groupID, oneHourAgo, now).Count(&total).Error; err != nil {
+		if err := s.DB.Model(&models.RequestLog{}).Where("group_id = ? AND timestamp BETWEEN ? AND ? AND request_type = ?", groupID, oneHourAgo, now, models.RequestTypeFinal).Count(&total).Error; err != nil {
 			mu.Lock()
 			errors = append(errors, fmt.Errorf("failed to get hourly total requests: %w", err))
 			mu.Unlock()
 			return
 		}
-		if err := s.DB.Model(&models.RequestLog{}).Where("group_id = ? AND timestamp BETWEEN ? AND ? AND is_success = ?", groupID, oneHourAgo, now, false).Count(&failed).Error; err != nil {
+		if err := s.DB.Model(&models.RequestLog{}).Where("group_id = ? AND timestamp BETWEEN ? AND ? AND is_success = ? AND request_type = ?", groupID, oneHourAgo, now, false, models.RequestTypeFinal).Count(&failed).Error; err != nil {
 			mu.Lock()
 			errors = append(errors, fmt.Errorf("failed to get hourly failed requests: %w", err))
 			mu.Unlock()
