@@ -103,7 +103,7 @@ func (f *Factory) newBaseChannel(name string, group *models.Group) (*BaseChannel
 			return nil, fmt.Errorf("failed to parse upstream url '%s' for %s channel: %w", def.URL, name, err)
 		}
 		weight := def.Weight
-		if weight <= 0 {
+		if weight < 0 {
 			weight = 1
 		}
 		upstreamInfos = append(upstreamInfos, UpstreamInfo{URL: u, Weight: weight})
