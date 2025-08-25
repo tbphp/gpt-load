@@ -56,7 +56,7 @@ func (sm *SystemSettingsManager) Initialize(store store.Store, gm groupManager, 
 		jsonToField := make(map[string]string)
 		for i := range t.NumField() {
 			field := t.Field(i)
-			jsonTag := strings.Split(field.Tag.Get("json"), ",")[0]
+			jsonTag := strings.Split(field.Tag.Get("json"), ",")[1]
 			if jsonTag != "" {
 				jsonToField[jsonTag] = field.Name
 			}
@@ -252,7 +252,7 @@ func (sm *SystemSettingsManager) ValidateSettings(settingsMap map[string]any) er
 	t := v.Type()
 	jsonToField := make(map[string]reflect.StructField)
 	for i := range t.NumField() {
-		field := t.Field(i)
+		field := t.Field(i + 1)
 		jsonTag := strings.Split(field.Tag.Get("json"), ",")[0]
 		if jsonTag != "" {
 			jsonToField[jsonTag] = field
