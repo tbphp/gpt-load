@@ -1,15 +1,17 @@
 <script setup lang="ts">
 import { appState } from "@/utils/app-state";
+import { currentTheme } from "@/utils/theme";
 import {
   NConfigProvider,
   NDialogProvider,
   NLoadingBarProvider,
   NMessageProvider,
+  darkTheme,
   useLoadingBar,
   useMessage,
   type GlobalThemeOverrides,
 } from "naive-ui";
-import { defineComponent, watch } from "vue";
+import { computed, defineComponent, watch } from "vue";
 
 // 自定义主题配置
 const themeOverrides: GlobalThemeOverrides = {
@@ -38,6 +40,8 @@ const themeOverrides: GlobalThemeOverrides = {
     itemHeight: "42px",
   },
 };
+
+const naiveTheme = computed(() => (currentTheme.value === "dark" ? darkTheme : null));
 
 function useGlobalMessage() {
   window.$message = useMessage();
@@ -69,7 +73,7 @@ const Message = defineComponent({
 </script>
 
 <template>
-  <n-config-provider :theme-overrides="themeOverrides">
+  <n-config-provider :theme="naiveTheme" :theme-overrides="themeOverrides">
     <n-loading-bar-provider>
       <n-message-provider placement="top-right">
         <n-dialog-provider>

@@ -229,7 +229,7 @@ onMounted(() => {
 
 <style scoped>
 .app-footer {
-  background: rgba(255, 255, 255, 0.95);
+  background: var(--bg-color);
   backdrop-filter: blur(20px);
   border-top: 1px solid rgba(0, 0, 0, 0.08);
   padding: 12px 24px;

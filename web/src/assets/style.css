@@ -18,6 +18,22 @@
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 
+  /* 主题颜色变量 - 白天模式 */
+  --bg-color: #f5f7fa;
+  --bg-color-gradient: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+  --card-bg-color: rgba(255, 255, 255, 0.95);
+  --card-border-color: rgba(255, 255, 255, 0.2);
+  --text-color-primary: #1e293b;
+  --text-color-secondary: #475569;
+  --text-color-tertiary: #94a3b8;
+  --border-color: #e2e8f0;
+  --scrollbar-track-bg: rgba(0, 0, 0, 0.05);
+  --selection-bg-color: rgba(102, 126, 234, 0.2);
+  --focus-outline-color: rgba(102, 126, 234, 0.5);
+  --loading-overlay-bg: rgba(255, 255, 255, 0.8);
+  --glass-effect-bg: rgba(255, 255, 255, 0.25);
+  --glass-effect-border: rgba(255, 255, 255, 0.18);
+
   /* 现代化颜色方案 */
   --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   --secondary-gradient: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
@@ -39,6 +55,24 @@
   --border-radius-xl: 24px;
 }
 
+html.dark {
+  /* 主题颜色变量 - 暗夜模式 */
+  --bg-color: #1a202c;
+  --bg-color-gradient: linear-gradient(135deg, #2d3748 0%, #1a202c 100%);
+  --card-bg-color: rgba(45, 55, 72, 0.85);
+  --card-border-color: rgba(255, 255, 255, 0.1);
+  --text-color-primary: #e2e8f0;
+  --text-color-secondary: #a0aec0;
+  --text-color-tertiary: #718096;
+  --border-color: #4a5568;
+  --scrollbar-track-bg: rgba(255, 255, 255, 0.1);
+  --selection-bg-color: rgba(102, 126, 234, 0.3);
+  --focus-outline-color: rgba(102, 126, 234, 0.6);
+  --loading-overlay-bg: rgba(26, 32, 44, 0.8);
+  --glass-effect-bg: rgba(45, 55, 72, 0.25);
+  --glass-effect-border: rgba(255, 255, 255, 0.1);
+}
+
 * {
   margin: 0;
   padding: 0;
@@ -48,7 +82,8 @@
 html,
 body {
   height: 100%;
-  background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+  color: var(--text-color-primary);
+  background: var(--bg-color-gradient);
   background-attachment: fixed;
 }
 
@@ -148,7 +183,7 @@ body {
 }
 
 ::-webkit-scrollbar-track {
-  background: rgba(0, 0, 0, 0.05);
+  background: var(--scrollbar-track-bg);
   border-radius: 1px;
 }
 
@@ -163,11 +198,11 @@ body {
 
 /* 通用卡片样式 */
 .modern-card {
-  background: rgba(255, 255, 255, 0.95);
+  background: var(--card-bg-color);
   backdrop-filter: blur(10px);
   border-radius: var(--border-radius-lg);
   box-shadow: var(--shadow-lg);
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  border: 1px solid var(--card-border-color);
   transition: all 0.2s ease;
 }
 
@@ -196,18 +231,18 @@ body {
 }
 
 .modern-input:focus {
-  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+  box-shadow: 0 0 0 3px var(--selection-bg-color);
 }
 
 /* 选择文本样式 */
 ::selection {
-  background: rgba(102, 126, 234, 0.2);
-  color: #1e293b;
+  background: var(--selection-bg-color);
+  color: var(--text-color-primary);
 }
 
 ::-moz-selection {
-  background: rgba(102, 126, 234, 0.2);
-  color: #1e293b;
+  background: var(--selection-bg-color);
+  color: var(--text-color-primary);
 }
 
 /* Focus样式增强 */
@@ -216,7 +251,7 @@ body {
 }
 
 *:focus-visible {
-  outline: 2px solid rgba(102, 126, 234, 0.5);
+  outline: 2px solid var(--focus-outline-color);
   outline-offset: 2px;
 }
 
@@ -227,7 +262,7 @@ body {
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(255, 255, 255, 0.8);
+  background: var(--loading-overlay-bg);
   backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
@@ -259,9 +294,9 @@ body {
 
 /* 玻璃态效果 */
 .glass-effect {
-  background: rgba(255, 255, 255, 0.25);
+  background: var(--glass-effect-bg);
   backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.18);
+  border: 1px solid var(--glass-effect-border);
 }
 
 /* 悬停效果增强 */
