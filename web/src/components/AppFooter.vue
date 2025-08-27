@@ -6,6 +6,7 @@ import {
   CheckmarkCircleOutline,
   DocumentTextOutline,
   LogoGithub,
+  PeopleOutline,
   TimeOutline,
   WarningOutline,
 } from "@vicons/ionicons5";
@@ -171,6 +172,21 @@ onMounted(() => {
               </a>
             </template>
             问题反馈
+          </n-tooltip>
+
+          <n-tooltip trigger="hover" placement="top">
+            <template #trigger>
+              <a
+                href="https://github.com/tbphp/gpt-load/graphs/contributors"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="footer-link"
+              >
+                <n-icon :component="PeopleOutline" :size="14" class="link-icon" />
+                <span>贡献者</span>
+              </a>
+            </template>
+            查看贡献者
           </n-tooltip>
 
           <n-tooltip trigger="hover" placement="top">

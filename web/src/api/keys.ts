@@ -68,7 +68,7 @@ export const keysApi = {
     group_id: number;
     page: number;
     page_size: number;
-    key?: string;
+    key_value?: string;
     status?: KeyStatus;
   }): Promise<{
     items: APIKey[];

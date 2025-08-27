@@ -39,12 +39,15 @@ async function fetchSettings() {
 }
 
 function initForm() {
-  form.value = settingList.value.reduce((acc: Record<string, string | number | boolean>, category) => {
-    category.settings?.forEach(setting => {
-      acc[setting.key] = setting.value;
-    });
-    return acc;
-  }, {});
+  form.value = settingList.value.reduce(
+    (acc: Record<string, string | number | boolean>, category) => {
+      category.settings?.forEach(setting => {
+        acc[setting.key] = setting.value;
+      });
+      return acc;
+    },
+    {}
+  );
 }
 
 async function handleSubmit() {
@@ -105,7 +108,7 @@ function generateValidationRules(item: Setting): FormItemRule[] {
           hoverable
           bordered
         >
-          <n-grid :x-gap="36" :y-gap="0" responsive="screen" cols="1 s:2 m:2 l:3 xl:3">
+          <n-grid :x-gap="36" :y-gap="0" responsive="screen" cols="1 s:2 m:2 l:4 xl:4">
             <n-grid-item
               v-for="item in category.settings"
               :key="item.key"

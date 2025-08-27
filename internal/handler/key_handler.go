@@ -146,7 +146,7 @@ func (s *Server) ListKeysInGroup(c *gin.Context) {
 		return
 	}
 
-	searchKeyword := c.Query("key")
+	searchKeyword := c.Query("key_value")
 
 	query := s.KeyService.ListKeysInGroupQuery(groupID, statusFilter, searchKeyword)
 

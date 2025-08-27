@@ -18,7 +18,6 @@ import (
 	"gpt-load/internal/models"
 	"gpt-load/internal/response"
 	"gpt-load/internal/services"
-	"gpt-load/internal/types"
 	"gpt-load/internal/utils"
 
 	"github.com/gin-gonic/gin"
@@ -84,7 +83,7 @@ func (ps *ProxyServer) HandleProxy(c *gin.Context) {
 
 	isStream := channelHandler.IsStreamRequest(c, bodyBytes)
 
-	ps.executeRequestWithRetry(c, channelHandler, group, finalBodyBytes, isStream, startTime, 0, nil)
+	ps.executeRequestWithRetry(c, channelHandler, group, finalBodyBytes, isStream, startTime, 0)
 }
 
 // executeRequestWithRetry is the core recursive function for handling requests and retries.
@@ -96,38 +95,14 @@ func (ps *ProxyServer) executeRequestWithRetry(
 	isStream bool,
 	startTime time.Time,
 	retryCount int,
-	retryErrors []types.RetryError,
 ) {
 	cfg := group.EffectiveConfig
-	if retryCount > cfg.MaxRetries {
-		if len(retryErrors) > 0 {
-			lastError := retryErrors[len(retryErrors)-1]
-			var errorJSON map[string]any
-			if err := json.Unmarshal([]byte(lastError.ErrorMessage), &errorJSON); err == nil {
-				c.JSON(lastError.StatusCode, errorJSON)
-			} else {
-				response.Error(c, app_errors.NewAPIErrorWithUpstream(lastError.StatusCode, "UPSTREAM_ERROR", lastError.ErrorMessage))
-			}
-			logMessage := lastError.ParsedErrorMessage
-			if logMessage == "" {
-				logMessage = lastError.ErrorMessage
-			}
-			logrus.Debugf("Max retries exceeded for group %s after %d attempts. Parsed Error: %s", group.Name, retryCount, logMessage)
-
-			ps.logRequest(c, group, &models.APIKey{KeyValue: lastError.KeyValue}, startTime, lastError.StatusCode, retryCount, errors.New(logMessage), isStream, lastError.UpstreamAddr, channelHandler, bodyBytes, "")
-		} else {
-			response.Error(c, app_errors.ErrMaxRetriesExceeded)
-			logrus.Debugf("Max retries exceeded for group %s after %d attempts.", group.Name, retryCount)
-			ps.logRequest(c, group, nil, startTime, http.StatusServiceUnavailable, retryCount, app_errors.ErrMaxRetriesExceeded, isStream, "", channelHandler, bodyBytes, "")
-		}
-		return
-	}
 
 	apiKey, err := ps.keyProvider.SelectKey(group.ID)
 	if err != nil {
 		logrus.Errorf("Failed to select a key for group %s on attempt %d: %v", group.Name, retryCount+1, err)
 		response.Error(c, app_errors.NewAPIError(app_errors.ErrNoKeysAvailable, err.Error()))
-		ps.logRequest(c, group, nil, startTime, http.StatusServiceUnavailable, retryCount, err, isStream, "", channelHandler, bodyBytes, "")
+		ps.logRequest(c, group, nil, startTime, http.StatusServiceUnavailable, err, isStream, "", channelHandler, bodyBytes, models.RequestTypeFinal)
 		return
 	}
 
@@ -161,9 +136,6 @@ func (ps *ProxyServer) executeRequestWithRetry(
 	req.Header.Del("Authorization")
 	req.Header.Del("X-Api-Key")
 	req.Header.Del("X-Goog-Api-Key")
-	q := req.URL.Query()
-	q.Del("key")
-	req.URL.RawQuery = q.Encode()
 
 	// Apply custom header rules
 	if len(group.HeaderRuleList) > 0 {
@@ -186,12 +158,11 @@ func (ps *ProxyServer) executeRequestWithRetry(
 		defer resp.Body.Close()
 	}
 
-	// Unified error handling for retries.
-	// Exclude 404 from being a retryable error.
+	// Unified error handling for retries. Exclude 404 from being a retryable error.
 	if err != nil || (resp != nil && resp.StatusCode >= 400 && resp.StatusCode != http.StatusNotFound) {
 		if err != nil && app_errors.IsIgnorableError(err) {
 			logrus.Debugf("Client-side ignorable error for key %s, aborting retries: %v", utils.MaskAPIKey(apiKey.KeyValue), err)
-			ps.logRequest(c, group, apiKey, startTime, 499, retryCount+1, err, isStream, upstreamURL, channelHandler, bodyBytes, "")
+			ps.logRequest(c, group, apiKey, startTime, 499, err, isStream, upstreamURL, channelHandler, bodyBytes, models.RequestTypeFinal)
 			return
 		}
 
@@ -222,15 +193,27 @@ func (ps *ProxyServer) executeRequestWithRetry(
 		// 使用解析后的错误信息更新密钥状态
 		ps.keyProvider.UpdateStatus(apiKey, group, false, parsedError)
 
-		newRetryErrors := append(retryErrors, types.RetryError{
-			StatusCode:         statusCode,
-			ErrorMessage:       errorMessage,
-			ParsedErrorMessage: parsedError,
-			KeyValue:           apiKey.KeyValue,
-			Attempt:            retryCount + 1,
-			UpstreamAddr:       upstreamURL,
-		})
-		ps.executeRequestWithRetry(c, channelHandler, group, bodyBytes, isStream, startTime, retryCount+1, newRetryErrors)
+		// 判断是否为最后一次尝试
+		isLastAttempt := retryCount >= cfg.MaxRetries
+		requestType := models.RequestTypeRetry
+		if isLastAttempt {
+			requestType = models.RequestTypeFinal
+		}
+
+		ps.logRequest(c, group, apiKey, startTime, statusCode, errors.New(parsedError), isStream, upstreamURL, channelHandler, bodyBytes, requestType)
+
+		// 如果是最后一次尝试，直接返回错误，不再递归
+		if isLastAttempt {
+			var errorJSON map[string]any
+			if err := json.Unmarshal([]byte(errorMessage), &errorJSON); err == nil {
+				c.JSON(statusCode, errorJSON)
+			} else {
+				response.Error(c, app_errors.NewAPIErrorWithUpstream(statusCode, "UPSTREAM_ERROR", errorMessage))
+			}
+			return
+		}
+
+		ps.executeRequestWithRetry(c, channelHandler, group, bodyBytes, isStream, startTime, retryCount+1)
 		return
 	}
 
@@ -244,14 +227,13 @@ func (ps *ProxyServer) executeRequestWithRetry(
 	}
 	c.Status(resp.StatusCode)
 
-	var responseBody string
 	if isStream {
-		responseBody = ps.handleStreamingResponse(c, resp)
+		ps.handleStreamingResponse(c, resp)
 	} else {
-		responseBody = ps.handleNormalResponse(c, resp)
+		ps.handleNormalResponse(c, resp)
 	}
 
-	ps.logRequest(c, group, apiKey, startTime, resp.StatusCode, retryCount+1, nil, isStream, upstreamURL, channelHandler, bodyBytes, responseBody)
+	ps.logRequest(c, group, apiKey, startTime, resp.StatusCode, nil, isStream, upstreamURL, channelHandler, bodyBytes, models.RequestTypeFinal)
 }
 
 // logRequest is a helper function to create and record a request log.
@@ -261,62 +243,39 @@ func (ps *ProxyServer) logRequest(
 	apiKey *models.APIKey,
 	startTime time.Time,
 	statusCode int,
-	retries int,
 	finalError error,
 	isStream bool,
 	upstreamAddr string,
 	channelHandler channel.ChannelProxy,
 	bodyBytes []byte,
-	responseBody string,
+	requestType string,
 ) {
 	if ps.requestLogService == nil {
 		return
 	}
 
+	var requestBodyToLog, userAgent string
+
+	if group.EffectiveConfig.EnableRequestBodyLogging {
+		requestBodyToLog = utils.TruncateString(string(bodyBytes), 65000)
+		userAgent = c.Request.UserAgent()
+	}
+
 	duration := time.Since(startTime).Milliseconds()
 
-	// 日志记录逻辑：系统开启 AND 分组开启 = 记录
-	var requestBodyToLog, responseBodyToLog string
-	var bodyLogStatus string
-
-	systemEnabled := ps.settingsManager.GetSettings().EnableRequestBodyLogging
-	groupEnabled := true // 默认分组开启
-
-	// 检查分组配置中的设置
-	if group.Config != nil {
-		if enableValue, exists := group.Config["enable_request_body_logging"]; exists {
-			if enable, ok := enableValue.(bool); ok {
-				groupEnabled = enable
-			}
-		}
-	}
-
-	// 只有系统和分组都开启才记录
-	if !systemEnabled {
-		bodyLogStatus = "system_disabled"
-	} else if !groupEnabled {
-		bodyLogStatus = "group_disabled"
-	} else {
-		bodyLogStatus = "enabled"
-		requestBodyToLog = string(bodyBytes)
-		responseBodyToLog = responseBody
-	}
-
 	logEntry := &models.RequestLog{
-		GroupID:       group.ID,
-		GroupName:     group.Name,
-		IsSuccess:     finalError == nil && statusCode < 400,
-		SourceIP:      c.ClientIP(),
-		StatusCode:    statusCode,
-		RequestPath:   utils.TruncateString(c.Request.URL.String(), 500),
-		Duration:      duration,
-		UserAgent:     c.Request.UserAgent(),
-		Retries:       retries,
-		IsStream:      isStream,
-		UpstreamAddr:  utils.TruncateString(upstreamAddr, 500),
-		RequestBody:   requestBodyToLog,
-		ResponseBody:  responseBodyToLog,
-		BodyLogStatus: bodyLogStatus,
+		GroupID:      group.ID,
+		GroupName:    group.Name,
+		IsSuccess:    finalError == nil && statusCode < 400,
+		SourceIP:     c.ClientIP(),
+		StatusCode:   statusCode,
+		RequestPath:  utils.TruncateString(c.Request.URL.String(), 500),
+		Duration:     duration,
+		UserAgent:    userAgent,
+		RequestType:  requestType,
+		IsStream:     isStream,
+		UpstreamAddr: utils.TruncateString(upstreamAddr, 500),
+		RequestBody:  requestBodyToLog,
 	}
 
 	if channelHandler != nil && bodyBytes != nil {

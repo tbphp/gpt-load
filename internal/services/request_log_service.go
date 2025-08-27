@@ -239,6 +239,9 @@ func (s *RequestLogService) writeLogsToDB(logs []*models.RequestLog) error {
 			GroupID uint
 		}]struct{ Success, Failure int64 })
 		for _, log := range logs {
+			if log.RequestType == models.RequestTypeRetry {
+				continue
+			}
 			hourlyTime := log.Timestamp.Truncate(time.Hour)
 			key := struct {
 				Time    time.Time

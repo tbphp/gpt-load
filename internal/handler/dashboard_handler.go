@@ -194,7 +194,7 @@ func (s *Server) getRPMStats(now time.Time) (models.StatCard, error) {
 	var result rpmStatResult
 	err := s.DB.Model(&models.RequestLog{}).
 		Select("count(case when timestamp >= ? then 1 end) as current_requests, count(case when timestamp >= ? and timestamp < ? then 1 end) as previous_requests", tenMinutesAgo, twentyMinutesAgo, tenMinutesAgo).
-		Where("timestamp >= ?", twentyMinutesAgo).
+		Where("timestamp >= ? AND request_type = ?", twentyMinutesAgo, models.RequestTypeFinal).
 		Scan(&result).Error
 
 	if err != nil {
