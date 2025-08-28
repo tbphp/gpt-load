@@ -231,7 +231,7 @@ onMounted(() => {
 .app-footer {
   background: var(--bg-color);
   backdrop-filter: blur(20px);
-  border-top: 1px solid rgba(0, 0, 0, 0.08);
+  border-top: 1px solid var(--border-color);
   padding: 12px 24px;
   font-size: 14px;
   min-height: 52px;
@@ -251,7 +251,7 @@ onMounted(() => {
 }
 
 .project-info {
-  color: #666;
+  color: var(--text-color-secondary);
   font-weight: 500;
 }
 
@@ -283,7 +283,7 @@ onMounted(() => {
 .version-text {
   font-weight: 500;
   font-size: 13px;
-  color: #666;
+  color: var(--text-color-secondary);
   white-space: nowrap;
 }
 
@@ -311,7 +311,7 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 4px;
-  color: #666;
+  color: var(--text-color-secondary);
   text-decoration: none;
   padding: 4px 6px;
   border-radius: 4px;
@@ -338,13 +338,8 @@ onMounted(() => {
   gap: 8px;
 }
 
-.copyright-text {
-  color: #888;
-  font-size: 12px;
-}
-
-.license-text {
-  color: #888;
+.copyright-text, .license-text {
+  color: var(--text-color-tertiary);
   font-size: 12px;
 }
 
