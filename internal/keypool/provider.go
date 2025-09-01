@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"gpt-load/internal/config"
+	"gpt-load/internal/encryption"
 	app_errors "gpt-load/internal/errors"
 	"gpt-load/internal/models"
 	"gpt-load/internal/store"
@@ -20,14 +21,16 @@ type KeyProvider struct {
 	db              *gorm.DB
 	store           store.Store
 	settingsManager *config.SystemSettingsManager
+	encryptionSvc   encryption.Service
 }
 
 // NewProvider 创建一个新的 KeyProvider 实例。
-func NewProvider(db *gorm.DB, store store.Store, settingsManager *config.SystemSettingsManager) *KeyProvider {
+func NewProvider(db *gorm.DB, store store.Store, settingsManager *config.SystemSettingsManager, encryptionSvc encryption.Service) *KeyProvider {
 	return &KeyProvider{
 		db:              db,
 		store:           store,
 		settingsManager: settingsManager,
+		encryptionSvc:   encryptionSvc,
 	}
 }
 
@@ -59,10 +62,22 @@ func (p *KeyProvider) SelectKey(groupID uint) (*models.APIKey, error) {
 	// 3. Manually unmarshal the map into an APIKey struct
 	failureCount, _ := strconv.ParseInt(keyDetails["failure_count"], 10, 64)
 	createdAt, _ := strconv.ParseInt(keyDetails["created_at"], 10, 64)
+	
+	// Decrypt the key value for use by channels
+	encryptedKeyValue := keyDetails["key_string"]
+	decryptedKeyValue, err := p.encryptionSvc.Decrypt(encryptedKeyValue)
+	if err != nil {
+		// If decryption fails, try to use the value as-is (backward compatibility for unencrypted keys)
+		logrus.WithFields(logrus.Fields{
+			"keyID": keyID,
+			"error": err,
+		}).Debug("Failed to decrypt key value, using as-is for backward compatibility")
+		decryptedKeyValue = encryptedKeyValue
+	}
 
 	apiKey := &models.APIKey{
 		ID:           uint(keyID),
-		KeyValue:     keyDetails["key_string"],
+		KeyValue:     decryptedKeyValue, // Use decrypted value
 		Status:       keyDetails["status"],
 		FailureCount: failureCount,
 		GroupID:      groupID,
@@ -331,8 +346,37 @@ func (p *KeyProvider) RemoveKeys(groupID uint, keyValues []string) (int64, error
 	var deletedCount int64
 
 	err := p.db.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("group_id = ? AND key_value IN ?", groupID, keyValues).Find(&keysToDelete).Error; err != nil {
+		// 1. 获取该组所有密钥
+		var allKeys []models.APIKey
+		if err := tx.Where("group_id = ?", groupID).Find(&allKeys).Error; err != nil {
 			return err
+		}
+
+		if len(allKeys) == 0 {
+			return nil
+		}
+
+		// 2. 解密并匹配用户输入的明文密钥
+		inputKeySet := make(map[string]bool)
+		for _, key := range keyValues {
+			inputKeySet[key] = true
+		}
+
+		for _, key := range allKeys {
+			decryptedKey, err := p.encryptionSvc.Decrypt(key.KeyValue)
+			if err != nil {
+				// 解密失败，尝试使用原值（向后兼容）
+				logrus.WithFields(logrus.Fields{
+					"key_id": key.ID,
+					"error":  err,
+				}).Debug("Failed to decrypt key for delete, using raw value")
+				decryptedKey = key.KeyValue
+			}
+			
+			// 检查是否匹配用户输入
+			if inputKeySet[decryptedKey] {
+				keysToDelete = append(keysToDelete, key)
+			}
 		}
 
 		if len(keysToDelete) == 0 {
@@ -408,9 +452,37 @@ func (p *KeyProvider) RestoreMultipleKeys(groupID uint, keyValues []string) (int
 	var restoredCount int64
 
 	err := p.db.Transaction(func(tx *gorm.DB) error {
-		// 1. 查找要恢复的密钥
-		if err := tx.Where("group_id = ? AND key_value IN ? AND status = ?", groupID, keyValues, models.KeyStatusInvalid).Find(&keysToRestore).Error; err != nil {
+		// 1. 获取该组所有无效密钥
+		var allInvalidKeys []models.APIKey
+		if err := tx.Where("group_id = ? AND status = ?", groupID, models.KeyStatusInvalid).Find(&allInvalidKeys).Error; err != nil {
 			return err
+		}
+
+		if len(allInvalidKeys) == 0 {
+			return nil
+		}
+
+		// 2. 解密并匹配用户输入的明文密钥
+		inputKeySet := make(map[string]bool)
+		for _, key := range keyValues {
+			inputKeySet[key] = true
+		}
+
+		for _, key := range allInvalidKeys {
+			decryptedKey, err := p.encryptionSvc.Decrypt(key.KeyValue)
+			if err != nil {
+				// 解密失败，尝试使用原值（向后兼容）
+				logrus.WithFields(logrus.Fields{
+					"key_id": key.ID,
+					"error":  err,
+				}).Debug("Failed to decrypt key for restore, using raw value")
+				decryptedKey = key.KeyValue
+			}
+			
+			// 检查是否匹配用户输入
+			if inputKeySet[decryptedKey] {
+				keysToRestore = append(keysToRestore, key)
+			}
 		}
 
 		if len(keysToRestore) == 0 {

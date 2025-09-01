@@ -301,22 +301,16 @@ func (s *KeyService) DeleteMultipleKeys(groupID uint, keysText string) (*DeleteK
 }
 
 // ListKeysInGroupQuery builds a query to list all keys within a specific group, filtered by status.
-func (s *KeyService) ListKeysInGroupQuery(groupID uint, statusFilter string, searchKeyword string) (*gorm.DB, error) {
+func (s *KeyService) ListKeysInGroupQuery(groupID uint, statusFilter string, encryptedSearchKeyword string) (*gorm.DB, error) {
 	query := s.DB.Model(&models.APIKey{}).Where("group_id = ?", groupID)
 
 	if statusFilter != "" {
 		query = query.Where("status = ?", statusFilter)
 	}
 
-	if searchKeyword != "" {
-		// Encrypt the search keyword for an exact match search.
-		// Note: This changes the search behavior from LIKE to exact match.
-		encryptedKeyword, err := s.EncryptionSvc.Encrypt(searchKeyword)
-		if err != nil {
-			// Return a query that finds nothing if encryption fails
-			return s.DB.Model(&models.APIKey{}).Where("1 = 0"), fmt.Errorf("failed to encrypt search keyword: %w", err)
-		}
-		query = query.Where("key_value = ?", encryptedKeyword)
+	// If there's an encrypted search keyword, perform exact match
+	if encryptedSearchKeyword != "" {
+		query = query.Where("key_value = ?", encryptedSearchKeyword)
 	}
 
 	query = query.Order("last_used_at desc, updated_at desc")

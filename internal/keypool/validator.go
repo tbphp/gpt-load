@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"gpt-load/internal/channel"
 	"gpt-load/internal/config"
+	"gpt-load/internal/encryption"
 	"gpt-load/internal/models"
 	"time"
 
@@ -26,6 +27,7 @@ type KeyValidator struct {
 	channelFactory  *channel.Factory
 	SettingsManager *config.SystemSettingsManager
 	keypoolProvider *KeyProvider
+	encryptionSvc   encryption.Service
 }
 
 type KeyValidatorParams struct {
@@ -34,6 +36,7 @@ type KeyValidatorParams struct {
 	ChannelFactory  *channel.Factory
 	SettingsManager *config.SystemSettingsManager
 	KeypoolProvider *KeyProvider
+	EncryptionSvc   encryption.Service
 }
 
 // NewKeyValidator creates a new KeyValidator.
@@ -43,6 +46,7 @@ func NewKeyValidator(params KeyValidatorParams) *KeyValidator {
 		channelFactory:  params.ChannelFactory,
 		SettingsManager: params.SettingsManager,
 		keypoolProvider: params.KeypoolProvider,
+		encryptionSvc:   params.EncryptionSvc,
 	}
 }
 
@@ -88,14 +92,25 @@ func (s *KeyValidator) ValidateSingleKey(key *models.APIKey, group *models.Group
 func (s *KeyValidator) TestMultipleKeys(group *models.Group, keyValues []string) ([]KeyTestResult, error) {
 	results := make([]KeyTestResult, len(keyValues))
 
-	// Find which of the provided keys actually exist in the database for this group
-	var existingKeys []models.APIKey
-	if err := s.DB.Where("group_id = ? AND key_value IN ?", group.ID, keyValues).Find(&existingKeys).Error; err != nil {
+	// Get all keys for this group and check which provided keys exist after decryption
+	var allKeys []models.APIKey
+	if err := s.DB.Where("group_id = ?", group.ID).Find(&allKeys).Error; err != nil {
 		return nil, fmt.Errorf("failed to query keys from DB: %w", err)
 	}
+	
+	// Build a map of decrypted key value to APIKey for lookup
 	existingKeyMap := make(map[string]models.APIKey)
-	for _, k := range existingKeys {
-		existingKeyMap[k.KeyValue] = k
+	for _, k := range allKeys {
+		decryptedKey, err := s.encryptionSvc.Decrypt(k.KeyValue)
+		if err != nil {
+			// If decryption fails, try using the raw value (backward compatibility)
+			logrus.WithFields(logrus.Fields{
+				"key_id": k.ID,
+				"error":  err,
+			}).Debug("Failed to decrypt key for testing, using raw value")
+			decryptedKey = k.KeyValue
+		}
+		existingKeyMap[decryptedKey] = k
 	}
 
 	for i, kv := range keyValues {
@@ -109,6 +124,9 @@ func (s *KeyValidator) TestMultipleKeys(group *models.Group, keyValues []string)
 			continue
 		}
 
+		// Set the decrypted key value for validation
+		apiKey.KeyValue = kv
+		
 		isValid, validationErr := s.ValidateSingleKey(&apiKey, group)
 
 		results[i] = KeyTestResult{

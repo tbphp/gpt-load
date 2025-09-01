@@ -13,6 +13,7 @@ import (
 
 	"gpt-load/internal/channel"
 	"gpt-load/internal/config"
+	"gpt-load/internal/encryption"
 	app_errors "gpt-load/internal/errors"
 	"gpt-load/internal/keypool"
 	"gpt-load/internal/models"
@@ -31,6 +32,7 @@ type ProxyServer struct {
 	settingsManager   *config.SystemSettingsManager
 	channelFactory    *channel.Factory
 	requestLogService *services.RequestLogService
+	encryptionSvc     encryption.Service
 }
 
 // NewProxyServer creates a new proxy server
@@ -40,6 +42,7 @@ func NewProxyServer(
 	settingsManager *config.SystemSettingsManager,
 	channelFactory *channel.Factory,
 	requestLogService *services.RequestLogService,
+	encryptionSvc encryption.Service,
 ) (*ProxyServer, error) {
 	return &ProxyServer{
 		keyProvider:       keyProvider,
@@ -47,6 +50,7 @@ func NewProxyServer(
 		settingsManager:   settingsManager,
 		channelFactory:    channelFactory,
 		requestLogService: requestLogService,
+		encryptionSvc:     encryptionSvc,
 	}, nil
 }
 
@@ -283,7 +287,14 @@ func (ps *ProxyServer) logRequest(
 	}
 
 	if apiKey != nil {
-		logEntry.KeyValue = apiKey.KeyValue
+		// 加密密钥值用于日志存储
+		encryptedKeyValue, err := ps.encryptionSvc.Encrypt(apiKey.KeyValue)
+		if err != nil {
+			logrus.WithError(err).Error("Failed to encrypt key value for logging")
+			logEntry.KeyValue = "[encryption failed]"
+		} else {
+			logEntry.KeyValue = encryptedKeyValue
+		}
 	}
 
 	if finalError != nil {

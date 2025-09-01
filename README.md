@@ -176,11 +176,17 @@ GPT-Load adopts a dual-layer configuration architecture:
 | Follower Mode             | `IS_SLAVE`                         | false           | Follower node identifier for cluster deployment |
 | Timezone                  | `TZ`                               | `Asia/Shanghai` | Specify timezone                                |
 
-**Authentication & Database Configuration:**
+**Security Configuration:**
+
+| Setting        | Environment Variable | Default | Description                                                                       |
+| -------------- | -------------------- | ------- | --------------------------------------------------------------------------------- |
+| Admin Key      | `AUTH_KEY`           | -       | Access authentication key for the **management end**, please change it to a strong password |
+| Encryption Key | `ENCRYPTION_KEY`     | -       | Encrypts API keys at rest. Supports any string or leave empty to disable encryption. |
+
+**Database Configuration:**
 
 | Setting             | Environment Variable | Default              | Description                                         |
 | ------------------- | -------------------- | -------------------- | --------------------------------------------------- |
-| Admin Key           | `AUTH_KEY`           | `sk-123456`          | Access authentication key for the **management end**, please change it to a strong password |
 | Database Connection | `DATABASE_DSN`       | `./data/gpt-load.db` | Database connection string (DSN) or file path       |
 | Redis Connection    | `REDIS_DSN`          | -                    | Redis connection string, uses memory storage when empty |
 

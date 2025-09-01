@@ -149,7 +149,18 @@ func (s *Server) ListKeysInGroup(c *gin.Context) {
 
 	searchKeyword := c.Query("key_value")
 
-	query, err := s.KeyService.ListKeysInGroupQuery(groupID, statusFilter, searchKeyword)
+	// If there's a search keyword, encrypt it for database search
+	encryptedSearchKeyword := ""
+	if searchKeyword != "" {
+		encryptedSearchKeyword, err = s.EncryptionSvc.Encrypt(searchKeyword)
+		if err != nil {
+			logrus.WithError(err).Error("Failed to encrypt search keyword")
+			response.Error(c, app_errors.NewAPIError(app_errors.ErrInternalServer, "Search temporarily unavailable"))
+			return
+		}
+	}
+
+	query, err := s.KeyService.ListKeysInGroupQuery(groupID, statusFilter, encryptedSearchKeyword)
 	if err != nil {
 		response.Error(c, app_errors.NewAPIError(app_errors.ErrInternalServer, err.Error()))
 		return
@@ -161,7 +172,8 @@ func (s *Server) ListKeysInGroup(c *gin.Context) {
 		response.Error(c, app_errors.ParseDBError(err))
 		return
 	}
-
+	
+	// Decrypt all keys for display
 	for i := range keys {
 		decryptedValue, err := s.EncryptionSvc.Decrypt(keys[i].KeyValue)
 		if err != nil {

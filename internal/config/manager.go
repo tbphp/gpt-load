@@ -42,14 +42,14 @@ type Manager struct {
 
 // Config represents the application configuration
 type Config struct {
-	Server        types.ServerConfig      `json:"server"`
-	Auth          types.AuthConfig        `json:"auth"`
-	CORS          types.CORSConfig        `json:"cors"`
-	Performance   types.PerformanceConfig `json:"performance"`
-	Log           types.LogConfig         `json:"log"`
-	Database      types.DatabaseConfig    `json:"database"`
-	RedisDSN      string                  `json:"redis_dsn"`
-	EncryptionKey string                  `json:"-"` // Omit from JSON
+	Server        types.ServerConfig
+	Auth          types.AuthConfig
+	CORS          types.CORSConfig
+	Performance   types.PerformanceConfig
+	Log           types.LogConfig
+	Database      types.DatabaseConfig
+	RedisDSN      string
+	EncryptionKey string
 }
 
 // NewManager creates a new configuration manager
@@ -176,12 +176,7 @@ func (m *Manager) Validate() error {
 	if m.config.Auth.Key == "" {
 		validationErrors = append(validationErrors, "AUTH_KEY is required and cannot be empty")
 	} else {
-		if m.config.Auth.Key == "sk-123456" {
-			validationErrors = append(validationErrors, "AUTH_KEY is set to the default insecure value. Please generate a new one.")
-		}
-		if len(m.config.Auth.Key) < 16 {
-			validationErrors = append(validationErrors, "AUTH_KEY must be at least 16 characters long for security.")
-		}
+		utils.ValidatePasswordStrength(m.config.Auth.Key, "AUTH_KEY")
 	}
 
 	// Validate GracefulShutdownTimeout and reset if necessary
@@ -216,6 +211,8 @@ func (m *Manager) DisplayServerConfig() {
 	perfConfig := m.GetPerformanceConfig()
 	logConfig := m.GetLogConfig()
 	dbConfig := m.GetDatabaseConfig()
+	redisDSN := m.GetRedisDSN()
+	encryptionKey := m.GetEncryptionKey()
 
 	logrus.Info("")
 	logrus.Info("======= Server Configuration =======")
@@ -231,10 +228,10 @@ func (m *Manager) DisplayServerConfig() {
 
 	logrus.Info("  --- Security ---")
 	logrus.Infof("    Authentication: enabled (key loaded)")
-	if m.config.EncryptionKey != "" {
+	if encryptionKey != "" {
 		logrus.Info("    Encryption: enabled")
 	} else {
-		logrus.Warn("    Encryption: disabled (ENCRYPTION_KEY is not set)")
+		logrus.Warn("    Encryption: disabled - WARNING: Sensitive data may be stored unencrypted, which poses security risks including potential key exposure")
 	}
 	corsStatus := "disabled"
 	if corsConfig.Enabled {
@@ -256,7 +253,7 @@ func (m *Manager) DisplayServerConfig() {
 	} else {
 		logrus.Info("    Database: not configured")
 	}
-	if m.config.RedisDSN != "" {
+	if redisDSN != "" {
 		logrus.Info("    Redis: configured")
 	} else {
 		logrus.Info("    Redis: not configured")
