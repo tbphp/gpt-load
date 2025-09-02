@@ -62,7 +62,7 @@ func (p *KeyProvider) SelectKey(groupID uint) (*models.APIKey, error) {
 	// 3. Manually unmarshal the map into an APIKey struct
 	failureCount, _ := strconv.ParseInt(keyDetails["failure_count"], 10, 64)
 	createdAt, _ := strconv.ParseInt(keyDetails["created_at"], 10, 64)
-	
+
 	// Decrypt the key value for use by channels
 	encryptedKeyValue := keyDetails["key_string"]
 	decryptedKeyValue, err := p.encryptionSvc.Decrypt(encryptedKeyValue)
@@ -346,37 +346,20 @@ func (p *KeyProvider) RemoveKeys(groupID uint, keyValues []string) (int64, error
 	var deletedCount int64
 
 	err := p.db.Transaction(func(tx *gorm.DB) error {
-		// 1. 获取该组所有密钥
-		var allKeys []models.APIKey
-		if err := tx.Where("group_id = ?", groupID).Find(&allKeys).Error; err != nil {
-			return err
-		}
-
-		if len(allKeys) == 0 {
-			return nil
-		}
-
-		// 2. 解密并匹配用户输入的明文密钥
-		inputKeySet := make(map[string]bool)
-		for _, key := range keyValues {
-			inputKeySet[key] = true
-		}
-
-		for _, key := range allKeys {
-			decryptedKey, err := p.encryptionSvc.Decrypt(key.KeyValue)
+		var encryptedKeyValues []string
+		for _, keyValue := range keyValues {
+			encryptedKey, err := p.encryptionSvc.Encrypt(keyValue)
 			if err != nil {
-				// 解密失败，尝试使用原值（向后兼容）
 				logrus.WithFields(logrus.Fields{
-					"key_id": key.ID,
-					"error":  err,
-				}).Debug("Failed to decrypt key for delete, using raw value")
-				decryptedKey = key.KeyValue
+					"error": err,
+				}).Error("Failed to encrypt key for deletion")
+				return fmt.Errorf("failed to encrypt key for deletion: %w", err)
 			}
-			
-			// 检查是否匹配用户输入
-			if inputKeySet[decryptedKey] {
-				keysToDelete = append(keysToDelete, key)
-			}
+			encryptedKeyValues = append(encryptedKeyValues, encryptedKey)
+		}
+
+		if err := tx.Where("group_id = ? AND key_value IN ?", groupID, encryptedKeyValues).Find(&keysToDelete).Error; err != nil {
+			return err
 		}
 
 		if len(keysToDelete) == 0 {
@@ -452,37 +435,20 @@ func (p *KeyProvider) RestoreMultipleKeys(groupID uint, keyValues []string) (int
 	var restoredCount int64
 
 	err := p.db.Transaction(func(tx *gorm.DB) error {
-		// 1. 获取该组所有无效密钥
-		var allInvalidKeys []models.APIKey
-		if err := tx.Where("group_id = ? AND status = ?", groupID, models.KeyStatusInvalid).Find(&allInvalidKeys).Error; err != nil {
-			return err
-		}
-
-		if len(allInvalidKeys) == 0 {
-			return nil
-		}
-
-		// 2. 解密并匹配用户输入的明文密钥
-		inputKeySet := make(map[string]bool)
-		for _, key := range keyValues {
-			inputKeySet[key] = true
-		}
-
-		for _, key := range allInvalidKeys {
-			decryptedKey, err := p.encryptionSvc.Decrypt(key.KeyValue)
+		var encryptedKeyValues []string
+		for _, keyValue := range keyValues {
+			encryptedKey, err := p.encryptionSvc.Encrypt(keyValue)
 			if err != nil {
-				// 解密失败，尝试使用原值（向后兼容）
 				logrus.WithFields(logrus.Fields{
-					"key_id": key.ID,
-					"error":  err,
-				}).Debug("Failed to decrypt key for restore, using raw value")
-				decryptedKey = key.KeyValue
+					"error": err,
+				}).Error("Failed to encrypt key for restore")
+				return fmt.Errorf("failed to encrypt key for restore: %w", err)
 			}
-			
-			// 检查是否匹配用户输入
-			if inputKeySet[decryptedKey] {
-				keysToRestore = append(keysToRestore, key)
-			}
+			encryptedKeyValues = append(encryptedKeyValues, encryptedKey)
+		}
+
+		if err := tx.Where("group_id = ? AND key_value IN ? AND status = ?", groupID, encryptedKeyValues, models.KeyStatusInvalid).Find(&keysToRestore).Error; err != nil {
+			return err
 		}
 
 		if len(keysToRestore) == 0 {
@@ -491,7 +457,6 @@ func (p *KeyProvider) RestoreMultipleKeys(groupID uint, keyValues []string) (int
 
 		keyIDsToRestore := pluckIDs(keysToRestore)
 
-		// 2. 更新数据库中的状态
 		updates := map[string]any{
 			"status":        models.KeyStatusActive,
 			"failure_count": 0,
@@ -502,14 +467,12 @@ func (p *KeyProvider) RestoreMultipleKeys(groupID uint, keyValues []string) (int
 		}
 		restoredCount = result.RowsAffected
 
-		// 3. 将密钥添加回 Redis
 		for _, key := range keysToRestore {
 			key.Status = models.KeyStatusActive
 			key.FailureCount = 0
 			if err := p.addKeyToStore(&key); err != nil {
-				// 在事务中，单个失败会回滚整个事务，但这里的日志记录仍然有用
 				logrus.WithFields(logrus.Fields{"keyID": key.ID, "error": err}).Error("Failed to restore key in store after DB update")
-				return err // 返回错误以回滚事务
+				return err
 			}
 		}
 
