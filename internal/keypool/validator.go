@@ -92,29 +92,42 @@ func (s *KeyValidator) ValidateSingleKey(key *models.APIKey, group *models.Group
 func (s *KeyValidator) TestMultipleKeys(group *models.Group, keyValues []string) ([]KeyTestResult, error) {
 	results := make([]KeyTestResult, len(keyValues))
 
-	// Get all keys for this group and check which provided keys exist after decryption
-	var allKeys []models.APIKey
-	if err := s.DB.Where("group_id = ?", group.ID).Find(&allKeys).Error; err != nil {
-		return nil, fmt.Errorf("failed to query keys from DB: %w", err)
-	}
-	
-	// Build a map of decrypted key value to APIKey for lookup
-	existingKeyMap := make(map[string]models.APIKey)
-	for _, k := range allKeys {
-		decryptedKey, err := s.encryptionSvc.Decrypt(k.KeyValue)
+	var encryptedKeyValues []string
+	plaintextToEncrypted := make(map[string]string)
+	for i, keyValue := range keyValues {
+		encryptedKey, err := s.encryptionSvc.Encrypt(keyValue)
 		if err != nil {
-			// If decryption fails, try using the raw value (backward compatibility)
-			logrus.WithFields(logrus.Fields{
-				"key_id": k.ID,
-				"error":  err,
-			}).Debug("Failed to decrypt key for testing, using raw value")
-			decryptedKey = k.KeyValue
+			results[i] = KeyTestResult{
+				KeyValue: keyValue,
+				IsValid:  false,
+				Error:    fmt.Sprintf("Failed to encrypt key for validation: %v", err),
+			}
+			continue
 		}
-		existingKeyMap[decryptedKey] = k
+		encryptedKeyValues = append(encryptedKeyValues, encryptedKey)
+		plaintextToEncrypted[keyValue] = encryptedKey
+	}
+
+	// Find which of the provided keys actually exist in the database for this group
+	var existingKeys []models.APIKey
+	if len(encryptedKeyValues) > 0 {
+		if err := s.DB.Where("group_id = ? AND key_value IN ?", group.ID, encryptedKeyValues).Find(&existingKeys).Error; err != nil {
+			return nil, fmt.Errorf("failed to query keys from DB: %w", err)
+		}
+	}
+
+	existingKeyMap := make(map[string]models.APIKey)
+	for _, k := range existingKeys {
+		existingKeyMap[k.KeyValue] = k
 	}
 
 	for i, kv := range keyValues {
-		apiKey, exists := existingKeyMap[kv]
+		if results[i].Error != "" {
+			continue
+		}
+
+		encryptedKey := plaintextToEncrypted[kv]
+		apiKey, exists := existingKeyMap[encryptedKey]
 		if !exists {
 			results[i] = KeyTestResult{
 				KeyValue: kv,
@@ -124,9 +137,8 @@ func (s *KeyValidator) TestMultipleKeys(group *models.Group, keyValues []string)
 			continue
 		}
 
-		// Set the decrypted key value for validation
 		apiKey.KeyValue = kv
-		
+
 		isValid, validationErr := s.ValidateSingleKey(&apiKey, group)
 
 		results[i] = KeyTestResult{

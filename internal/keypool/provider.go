@@ -77,7 +77,7 @@ func (p *KeyProvider) SelectKey(groupID uint) (*models.APIKey, error) {
 
 	apiKey := &models.APIKey{
 		ID:           uint(keyID),
-		KeyValue:     decryptedKeyValue, // Use decrypted value
+		KeyValue:     decryptedKeyValue,
 		Status:       keyDetails["status"],
 		FailureCount: failureCount,
 		GroupID:      groupID,
