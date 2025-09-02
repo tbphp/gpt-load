@@ -138,7 +138,7 @@ func (s *LogService) StreamLogKeysToCSV(c *gin.Context, writer io.Writer) error 
 		if record.KeyValue != "" {
 			if decrypted, err := s.EncryptionSvc.Decrypt(record.KeyValue); err != nil {
 				logrus.WithError(err).WithField("key_value", record.KeyValue).Error("Failed to decrypt key for CSV export")
-				decryptedKey = "[failed to decrypt]"
+				decryptedKey = "failed-to-decrypt"
 			} else {
 				decryptedKey = decrypted
 			}

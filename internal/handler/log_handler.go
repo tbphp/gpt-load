@@ -35,7 +35,7 @@ func (s *Server) GetLogs(c *gin.Context) {
 			decryptedValue, err := s.EncryptionSvc.Decrypt(logs[i].KeyValue)
 			if err != nil {
 				logrus.WithError(err).WithField("log_id", logs[i].ID).Error("Failed to decrypt log key value")
-				logs[i].KeyValue = "[failed to decrypt]"
+				logs[i].KeyValue = "failed-to-decrypt"
 			} else {
 				logs[i].KeyValue = decryptedValue
 			}
