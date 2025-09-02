@@ -980,9 +980,15 @@ func (s *Server) CopyGroup(c *gin.Context) {
 			return
 		}
 
-		// Extract key values for async import task
+		// Extract and decrypt key values for async import task
 		for _, sourceKey := range sourceKeys {
-			sourceKeyValues = append(sourceKeyValues, sourceKey.KeyValue)
+			// Decrypt the key before adding to import task
+			decryptedKey, err := s.EncryptionSvc.Decrypt(sourceKey.KeyValue)
+			if err != nil {
+				logrus.WithError(err).WithField("key_id", sourceKey.ID).Error("Failed to decrypt key during group copy, skipping")
+				continue
+			}
+			sourceKeyValues = append(sourceKeyValues, decryptedKey)
 		}
 	}
 

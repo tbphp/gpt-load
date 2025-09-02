@@ -291,7 +291,7 @@ func (ps *ProxyServer) logRequest(
 		encryptedKeyValue, err := ps.encryptionSvc.Encrypt(apiKey.KeyValue)
 		if err != nil {
 			logrus.WithError(err).Error("Failed to encrypt key value for logging")
-			logEntry.KeyValue = "[encryption failed]"
+			logEntry.KeyValue = "failed-to-encryption"
 		} else {
 			logEntry.KeyValue = encryptedKeyValue
 		}
