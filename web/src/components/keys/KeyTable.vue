@@ -26,7 +26,7 @@ import {
   useDialog,
   type MessageReactive,
 } from "naive-ui";
-import { h, ref, watch } from "vue";
+import { computed, h, ref, watch } from "vue";
 import KeyCreateDialog from "./KeyCreateDialog.vue";
 import KeyDeleteDialog from "./KeyDeleteDialog.vue";
 
@@ -43,7 +43,7 @@ const props = defineProps<Props>();
 const keys = ref<KeyRow[]>([]);
 const loading = ref(false);
 const searchText = ref("");
-const statusFilter = ref<"all" | "active" | "invalid">("all");
+const statusFilter = ref<"all" | "active" | "invalid" | "rate_limited" | "auth_failed" | "forbidden" | "bad_request" | "server_error" | "network_error">("all");
 const currentPage = ref(1);
 const pageSize = ref(12);
 const total = ref(0);
@@ -51,30 +51,90 @@ const totalPages = ref(0);
 const dialog = useDialog();
 const confirmInput = ref("");
 
-// 状态过滤选项
-const statusOptions = [
-  { label: "全部", value: "all" },
-  { label: "有效", value: "active" },
-  { label: "无效", value: "invalid" },
-];
+// Status text mapping
+const statusTextMap = {
+  all: "所有",
+  active: "有效",
+  invalid: "其他错误",
+  rate_limited: "频率限制",
+  auth_failed: "认证失败",
+  forbidden: "禁止访问",
+  bad_request: "请求错误",
+  server_error: "内部错误",
+  network_error: "网络错误"
+} as const;
 
-// 更多操作下拉菜单选项
+type StatusKey = keyof typeof statusTextMap;
+
+// 状态过滤选项 - 扩展支持更细粒度的状态分类
+const statusOptions = Object.entries(statusTextMap).map(([value, label]) => ({
+  label,
+  value
+}));
+
+// 更多操作下拉菜单选项 - 静态定义避免重复计算
 const moreOptions = [
-  { label: "导出所有密钥", key: "copyAll" },
-  { label: "导出有效密钥", key: "copyValid" },
-  { label: "导出无效密钥", key: "copyInvalid" },
-  { type: "divider" },
-  { label: "恢复所有无效密钥", key: "restoreAll" },
-  { label: "清空所有无效密钥", key: "clearInvalid", props: { style: { color: "#d03050" } } },
   {
-    label: "清空所有密钥",
-    key: "clearAll",
-    props: { style: { color: "red", fontWeight: "bold" } },
+    label: "导出",
+    key: "export",
+    children: [
+      { label: "导出所有密钥", key: "copyAll" },
+      { label: "导出有效密钥", key: "copyActive" },
+      { label: "导出其他错误密钥", key: "copyInvalid" },
+      { label: "导出频率限制密钥", key: "copyRateLimited" },
+      { label: "导出认证失败密钥", key: "copyAuthFailed" },
+      { label: "导出禁止访问密钥", key: "copyForbidden" },
+      { label: "导出请求错误密钥", key: "copyBadRequest" },
+      { label: "导出内部错误密钥", key: "copyServerError" },
+      { label: "导出网络错误密钥", key: "copyNetworkError" },
+    ],
   },
-  { type: "divider" },
-  { label: "验证所有密钥", key: "validateAll" },
-  { label: "验证有效密钥", key: "validateActive" },
-  { label: "验证无效密钥", key: "validateInvalid" },
+  {
+    label: "恢复",
+    key: "restore",
+    children: [
+      { label: "恢复其他错误密钥", key: "restoreInvalid" },
+      { label: "恢复频率限制密钥", key: "restoreRateLimited" },
+      { label: "恢复认证失败密钥", key: "restoreAuthFailed" },
+      { label: "恢复禁止访问密钥", key: "restoreForbidden" },
+      { label: "恢复请求错误密钥", key: "restoreBadRequest" },
+      { label: "恢复内部错误密钥", key: "restoreServerError" },
+      { label: "恢复网络错误密钥", key: "restoreNetworkError" },
+    ],
+  },
+  {
+    label: "清空",
+    key: "clear",
+    children: [
+      { label: "清空其他错误密钥", key: "clearInvalid", props: { style: { color: '#d03050' } } },
+      { label: "清空频率限制密钥", key: "clearRateLimited", props: { style: { color: '#d03050' } } },
+      { label: "清空认证失败密钥", key: "clearAuthFailed", props: { style: { color: '#d03050' } } },
+      { label: "清空禁止访问密钥", key: "clearForbidden", props: { style: { color: '#d03050' } } },
+      { label: "清空请求错误密钥", key: "clearBadRequest", props: { style: { color: '#d03050' } } },
+      { label: "清空内部错误密钥", key: "clearServerError", props: { style: { color: '#d03050' } } },
+      { label: "清空网络错误密钥", key: "clearNetworkError", props: { style: { color: '#d03050' } } },
+      {
+        label: "清空所有密钥",
+        key: "clearAll",
+        props: { style: { color: "red", fontWeight: "bold" } },
+      },
+    ],
+  },
+  {
+    label: "验证",
+    key: "validate",
+    children: [
+      { label: "验证所有密钥", key: "validateAll" },
+      { label: "验证有效密钥", key: "validateActive" },
+      { label: "验证其他错误密钥", key: "validateInvalid" },
+      { label: "验证频率限制密钥", key: "validateRateLimited" },
+      { label: "验证认证失败密钥", key: "validateAuthFailed" },
+      { label: "验证禁止访问密钥", key: "validateForbidden" },
+      { label: "验证请求错误密钥", key: "validateBadRequest" },
+      { label: "验证内部错误密钥", key: "validateServerError" },
+      { label: "验证网络错误密钥", key: "validateNetworkError" },
+    ],
+  },
 ];
 
 let testingMsg: MessageReactive | null = null;
@@ -83,6 +143,17 @@ const isRestoring = ref(false);
 
 const createDialogShow = ref(false);
 const deleteDialogShow = ref(false);
+
+// Computed properties for better performance
+const hasKeys = computed(() => keys.value.length > 0);
+const isLoading = computed(() => loading.value);
+const canLoadKeys = computed(() => props.selectedGroup?.id);
+const paginationInfo = computed(() => ({
+  current: currentPage.value,
+  total: totalPages.value,
+  hasNext: currentPage.value < totalPages.value,
+  hasPrev: currentPage.value > 1
+}));
 
 watch(
   () => props.selectedGroup,
@@ -113,67 +184,118 @@ watch(statusFilter, async () => {
 });
 
 // 监听任务完成事件，自动刷新密钥列表
+// 优化监听器，减少不必要的检查
+const refreshTaskTypes = new Set(["KEY_VALIDATION", "KEY_IMPORT", "KEY_DELETE"]);
+
 watch(
   () => appState.groupDataRefreshTrigger,
   () => {
-    // 检查是否需要刷新当前分组的密钥列表
-    if (appState.lastCompletedTask && props.selectedGroup) {
-      // 通过分组名称匹配
-      const isCurrentGroup = appState.lastCompletedTask.groupName === props.selectedGroup.name;
+    const { lastCompletedTask } = appState;
+    if (!lastCompletedTask || !props.selectedGroup) return;
 
-      const shouldRefresh =
-        appState.lastCompletedTask.taskType === "KEY_VALIDATION" ||
-        appState.lastCompletedTask.taskType === "KEY_IMPORT" ||
-        appState.lastCompletedTask.taskType === "KEY_DELETE";
+    const isCurrentGroup = lastCompletedTask.groupName === props.selectedGroup.name;
+    const shouldRefresh = refreshTaskTypes.has(lastCompletedTask.taskType);
 
-      if (isCurrentGroup && shouldRefresh) {
-        // 刷新当前分组的密钥列表
-        loadKeys();
-      }
+    if (isCurrentGroup && shouldRefresh) {
+      loadKeys();
     }
   }
 );
 
 // 处理搜索输入的防抖
+let searchTimeout: number | null = null;
 function handleSearchInput() {
-  if (currentPage.value !== 1) {
-    currentPage.value = 1;
+  if (searchTimeout) {
+    clearTimeout(searchTimeout);
+  }
+
+  searchTimeout = setTimeout(() => {
+    if (currentPage.value !== 1) {
+      currentPage.value = 1;
+    } else {
+      loadKeys();
+    }
+  }, 300);
+}
+
+// 处理更多操作菜单 - 使用Map提升查找性能
+const actionMap = new Map([
+  // Copy actions
+  ["copyAll", () => copyKeys("all")],
+  ["copyActive", () => copyKeys("active")],
+  ["copyInvalid", () => copyKeys("invalid")],
+  ["copyRateLimited", () => copyKeys("rate_limited")],
+  ["copyAuthFailed", () => copyKeys("auth_failed")],
+  ["copyForbidden", () => copyKeys("forbidden")],
+  ["copyBadRequest", () => copyKeys("bad_request")],
+  ["copyServerError", () => copyKeys("server_error")],
+  ["copyNetworkError", () => copyKeys("network_error")],
+
+  // Restore actions
+  ["restoreAll", () => restoreKeys("invalid", "RESTORE_ALL_INVALID", () => {
+    if (!props.selectedGroup?.id) throw new Error("No group selected");
+    return keysApi.restoreAllInvalidKeys(props.selectedGroup.id);
+  })],
+  ["restoreActive", () => restoreKeys("active", "RESTORE_ACTIVE")],
+  ["restoreInvalid", () => restoreKeys("invalid", "RESTORE_INVALID")],
+  ["restoreRateLimited", () => restoreKeys("rate_limited", "RESTORE_RATE_LIMITED")],
+  ["restoreAuthFailed", () => restoreKeys("auth_failed", "RESTORE_AUTH_FAILED")],
+  ["restoreForbidden", () => restoreKeys("forbidden", "RESTORE_FORBIDDEN")],
+  ["restoreBadRequest", () => restoreKeys("bad_request", "RESTORE_BAD_REQUEST")],
+  ["restoreServerError", () => restoreKeys("server_error", "RESTORE_SERVER_ERROR")],
+  ["restoreNetworkError", () => restoreKeys("network_error", "RESTORE_NETWORK_ERROR")],
+
+  // Clear actions
+  ["clearAll", clearAll],
+  ["clearActive", () => clearKeys("active", "CLEAR_ACTIVE")],
+  ["clearInvalid", () => clearKeys("invalid", "CLEAR_ALL_INVALID", () => {
+    if (!props.selectedGroup?.id) throw new Error("No group selected");
+    return keysApi.clearAllInvalidKeys(props.selectedGroup.id);
+  })],
+  ["clearRateLimited", () => clearKeys("rate_limited", "CLEAR_RATE_LIMITED")],
+  ["clearAuthFailed", () => clearKeys("auth_failed", "CLEAR_AUTH_FAILED")],
+  ["clearForbidden", () => clearKeys("forbidden", "CLEAR_FORBIDDEN")],
+  ["clearBadRequest", () => clearKeys("bad_request", "CLEAR_BAD_REQUEST")],
+  ["clearServerError", () => clearKeys("server_error", "CLEAR_SERVER_ERROR")],
+  ["clearNetworkError", () => clearKeys("network_error", "CLEAR_NETWORK_ERROR")],
+
+  // Validate actions
+  ["validateAll", () => validateKeys("all")],
+  ["validateActive", () => validateKeys("active")],
+  ["validateInvalid", () => validateKeys("invalid")],
+  ["validateRateLimited", () => validateKeys("rate_limited")],
+  ["validateAuthFailed", () => validateKeys("auth_failed")],
+  ["validateForbidden", () => validateKeys("forbidden")],
+  ["validateBadRequest", () => validateKeys("bad_request")],
+  ["validateServerError", () => validateKeys("server_error")],
+  ["validateNetworkError", () => validateKeys("network_error")],
+]);
+
+function handleMoreAction(key: string) {
+  const action = actionMap.get(key);
+  if (action) {
+    action();
   } else {
-    loadKeys();
+    console.warn(`Unhandled action: ${key}`);
   }
 }
 
-// 处理更多操作菜单
-function handleMoreAction(key: string) {
-  switch (key) {
-    case "copyAll":
-      copyAllKeys();
-      break;
-    case "copyValid":
-      copyValidKeys();
-      break;
-    case "copyInvalid":
-      copyInvalidKeys();
-      break;
-    case "restoreAll":
-      restoreAllInvalid();
-      break;
-    case "validateAll":
-      validateKeys("all");
-      break;
-    case "validateActive":
-      validateKeys("active");
-      break;
-    case "validateInvalid":
-      validateKeys("invalid");
-      break;
-    case "clearInvalid":
-      clearAllInvalid();
-      break;
-    case "clearAll":
-      clearAll();
-      break;
-  }
+// 缓存API请求避免重复调用（带请求签名，避免串音/过期覆盖）
+let currentRequest: Promise<any> | null = null;
+let currentRequestKey: string | null = null;
+
+// 请求参数类型定义
+interface RequestParams {
+  group_id: number;
+  page: number;
+  page_size: number;
+  status: KeyStatus | undefined;
+  key_value: string | undefined;
+}
+
+// 生成请求签名的辅助函数
+function generateRequestKey(params: RequestParams): string {
+  return `${params.group_id}_${params.page}_${params.page_size}_${params.status}_${params.key_value}`;
 }
 
 async function loadKeys() {
@@ -181,22 +303,50 @@ async function loadKeys() {
     return;
   }
 
+  const requestParams: RequestParams = {
+    group_id: props.selectedGroup.id,
+    page: currentPage.value,
+    page_size: pageSize.value,
+    status: statusFilter.value === "all" ? undefined : (statusFilter.value as KeyStatus),
+    key_value: searchText.value.trim() || undefined,
+  };
+
+  const reqKey = generateRequestKey(requestParams);
+
+  // 若已有同签名请求在飞，直接复用
+  if (currentRequest && currentRequestKey === reqKey) {
+    return currentRequest;
+  }
+
   try {
     loading.value = true;
-    const result = await keysApi.getGroupKeys({
-      group_id: props.selectedGroup.id,
-      page: currentPage.value,
-      page_size: pageSize.value,
-      status: statusFilter.value === "all" ? undefined : (statusFilter.value as KeyStatus),
-      key_value: searchText.value.trim() || undefined,
-    });
-    keys.value = result.items as KeyRow[];
+    currentRequestKey = reqKey;
+    const thisRequest = keysApi.getGroupKeys(requestParams);
+    currentRequest = thisRequest;
+    const result = await thisRequest;
+
+    // 仅当本次返回仍是最新签名时才落盘，避免旧响应覆盖新状态
+    if (currentRequestKey !== reqKey) {
+      console.debug('Discarding stale response for request:', reqKey);
+      return;
+    }
+
+    // 添加is_visible属性到每个key
+    keys.value = result.items.map((key: APIKey) => ({
+      ...key,
+      is_visible: false
+    }));
     total.value = result.pagination.total_items;
     totalPages.value = result.pagination.total_pages;
   } catch (_error) {
     window.$message.error("加载密钥失败");
   } finally {
     loading.value = false;
+    // 只在当前签名仍一致时清理指针
+    if (currentRequestKey === reqKey) {
+      currentRequest = null;
+      currentRequestKey = null;
+    }
   }
 }
 
@@ -209,209 +359,214 @@ async function handleBatchDeleteSuccess() {
   }
 }
 
-async function copyKey(key: KeyRow) {
-  const success = await copy(key.key_value);
-  if (success) {
-    window.$message.success("密钥已复制到剪贴板");
-  } else {
-    window.$message.error("复制失败");
-  }
-}
+// Key action handlers - optimized and organized
+const keyActions = {
+  async copy(key: KeyRow) {
+    const success = await copy(key.key_value);
+    window.$message[success ? 'success' : 'error'](
+      success ? "密钥已复制到剪贴板" : "复制失败"
+    );
+  },
 
-async function testKey(_key: KeyRow) {
-  if (!props.selectedGroup?.id || !_key.key_value || testingMsg) {
-    return;
-  }
+  toggle(key: KeyRow) {
+    key.is_visible = !key.is_visible;
+  },
 
-  testingMsg = window.$message.info("正在测试密钥...", {
-    duration: 0,
-  });
+  async test(key: KeyRow) {
+    if (!canLoadKeys.value || !key.key_value || testingMsg) return;
 
-  try {
-    const response = await keysApi.testKeys(props.selectedGroup.id, _key.key_value);
-    const curValid = response.results?.[0] || {};
-    if (curValid.is_valid) {
-      window.$message.success(`密钥测试成功 (耗时: ${formatDuration(response.total_duration)})`);
-    } else {
-      window.$message.error(curValid.error || "密钥测试失败: 无效的API密钥", {
-        keepAliveOnHover: true,
-        duration: 5000,
-        closable: true,
-      });
+    testingMsg = window.$message.info("正在测试密钥...", { duration: 0 });
+
+    try {
+      const response = await keysApi.testKeys(props.selectedGroup?.id!, key.key_value);
+      const result = response.results?.[0] || {};
+
+      if (result.is_valid) {
+        window.$message.success(`密钥测试成功 (耗时: ${formatDuration(response.total_duration)})`);
+      } else {
+        const errorMsg = result.error || "密钥测试失败: 无效的API密钥";
+        window.$message.error(errorMsg, {
+          keepAliveOnHover: true,
+          duration: 5000,
+          closable: true,
+        });
+        console.debug("测试失败 - 错误详情:", errorMsg);
+      }
+
+      await loadKeys();
+      triggerSyncOperationRefresh(props.selectedGroup?.name!, "TEST_SINGLE");
+
+      // 延迟刷新确保状态更新
+      setTimeout(loadKeys, 500);
+    } catch (error) {
+      console.error("测试失败", error);
+    } finally {
+      testingMsg?.destroy();
+      testingMsg = null;
     }
-    await loadKeys();
-    // 触发同步操作刷新
-    triggerSyncOperationRefresh(props.selectedGroup.name, "TEST_SINGLE");
-  } catch (_error) {
-    console.error("测试失败");
-  } finally {
-    testingMsg?.destroy();
-    testingMsg = null;
-  }
-}
+  },
 
-function formatDuration(ms: number): string {
-  if (ms < 0) {
-    return "0ms";
+  async restore(key: KeyRow) {
+    if (!canLoadKeys.value || !key.key_value || isRestoring.value) return;
+
+    const d = dialog.warning({
+      title: "恢复密钥",
+      content: `确定要恢复密钥"${maskKey(key.key_value)}"吗？`,
+      positiveText: "确定",
+      negativeText: "取消",
+      onPositiveClick: async () => {
+        if (!canLoadKeys.value) return;
+
+        isRestoring.value = true;
+        d.loading = true;
+
+        try {
+          await keysApi.restoreKeys(props.selectedGroup?.id!, key.key_value);
+          await loadKeys();
+          triggerSyncOperationRefresh(props.selectedGroup?.name!, "RESTORE_SINGLE");
+        } catch (error) {
+          console.error("恢复失败", error);
+        } finally {
+          d.loading = false;
+          isRestoring.value = false;
+        }
+      },
+    });
+  },
+
+  async delete(key: KeyRow) {
+    if (!canLoadKeys.value || !key.key_value || isDeling.value) return;
+
+    const d = dialog.warning({
+      title: "删除密钥",
+      content: `确定要删除密钥"${maskKey(key.key_value)}"吗？`,
+      positiveText: "确定",
+      negativeText: "取消",
+      onPositiveClick: async () => {
+        if (!canLoadKeys.value) return;
+
+        d.loading = true;
+        isDeling.value = true;
+
+        try {
+          await keysApi.deleteKeys(props.selectedGroup?.id!, key.key_value);
+          await loadKeys();
+          triggerSyncOperationRefresh(props.selectedGroup?.name!, "DELETE_SINGLE");
+        } catch (error) {
+          console.error("删除失败", error);
+        } finally {
+          d.loading = false;
+          isDeling.value = false;
+        }
+      },
+    });
   }
+};
+
+// Utility functions
+const formatRelativeTime = (date: string): string => {
+  if (!date) return "从未";
+
+  const now = Date.now();
+  const target = new Date(date).getTime();
+  const diffSeconds = Math.floor((now - target) / 1000);
+
+  if (diffSeconds < 60) return diffSeconds > 0 ? `${diffSeconds}秒前` : "刚刚";
+
+  const diffMinutes = Math.floor(diffSeconds / 60);
+  if (diffMinutes < 60) return `${diffMinutes}分钟前`;
+
+  const diffHours = Math.floor(diffMinutes / 60);
+  if (diffHours < 24) return `${diffHours}小时前`;
+
+  const diffDays = Math.floor(diffHours / 24);
+  return `${diffDays}天前`;
+};
+
+const formatDuration = (ms: number): string => {
+  if (ms < 0) return "0ms";
 
   const minutes = Math.floor(ms / 60000);
   const seconds = Math.floor((ms % 60000) / 1000);
   const milliseconds = ms % 1000;
 
   let result = "";
-  if (minutes > 0) {
-    result += `${minutes}m`;
-  }
-  if (seconds > 0) {
-    result += `${seconds}s`;
-  }
-  if (milliseconds > 0 || result === "") {
-    result += `${milliseconds}ms`;
-  }
+  if (minutes > 0) result += `${minutes}m`;
+  if (seconds > 0) result += `${seconds}s`;
+  if (milliseconds > 0 || result === "") result += `${milliseconds}ms`;
 
   return result;
-}
+};
 
-function toggleKeyVisibility(key: KeyRow) {
-  key.is_visible = !key.is_visible;
-}
+// Status configuration for consistent styling and display - 使用Map提升查找性能
+const statusConfig = new Map([
+  ["active", {
+    class: "status-valid",
+    tag: { type: "success" as const, icon: CheckmarkCircle, text: "有效" }
+  }],
+  ["rate_limited", {
+    class: "status-rate-limited",
+    tag: { type: "warning" as const, icon: AlertCircleOutline, text: "频率限制" }
+  }],
+  ["auth_failed", {
+    class: "status-auth-failed",
+    tag: { type: "error" as const, icon: AlertCircleOutline, text: "认证失败" }
+  }],
+  ["forbidden", {
+    class: "status-forbidden",
+    tag: { type: "error" as const, icon: RemoveCircleOutline, text: "禁止访问" }
+  }],
+  ["bad_request", {
+    class: "status-bad-request",
+    tag: { type: "warning" as const, icon: AlertCircleOutline, text: "请求错误" }
+  }],
+  ["server_error", {
+    class: "status-server-error",
+    tag: { type: "error" as const, icon: RemoveCircleOutline, text: "内部错误" }
+  }],
+  ["network_error", {
+    class: "status-network-error",
+    tag: { type: "default" as const, icon: AlertCircleOutline, text: "网络错误" }
+  }],
+  ["invalid", {
+    class: "status-invalid",
+    tag: { type: "default" as const, icon: AlertCircleOutline, text: "其他错误" }
+  }]
+]);
 
-async function restoreKey(key: KeyRow) {
-  if (!props.selectedGroup?.id || !key.key_value || isRestoring.value) {
-    return;
-  }
-
-  const d = dialog.warning({
-    title: "恢复密钥",
-    content: `确定要恢复密钥"${maskKey(key.key_value)}"吗？`,
-    positiveText: "确定",
-    negativeText: "取消",
-    onPositiveClick: async () => {
-      if (!props.selectedGroup?.id) {
-        return;
-      }
-
-      isRestoring.value = true;
-      d.loading = true;
-
-      try {
-        await keysApi.restoreKeys(props.selectedGroup.id, key.key_value);
-        await loadKeys();
-        // 触发同步操作刷新
-        triggerSyncOperationRefresh(props.selectedGroup.name, "RESTORE_SINGLE");
-      } catch (_error) {
-        console.error("恢复失败");
-      } finally {
-        d.loading = false;
-        isRestoring.value = false;
-      }
-    },
-  });
-}
-
-async function deleteKey(key: KeyRow) {
-  if (!props.selectedGroup?.id || !key.key_value || isDeling.value) {
-    return;
-  }
-
-  const d = dialog.warning({
-    title: "删除密钥",
-    content: `确定要删除密钥"${maskKey(key.key_value)}"吗？`,
-    positiveText: "确定",
-    negativeText: "取消",
-    onPositiveClick: async () => {
-      if (!props.selectedGroup?.id) {
-        return;
-      }
-
-      d.loading = true;
-      isDeling.value = true;
-
-      try {
-        await keysApi.deleteKeys(props.selectedGroup.id, key.key_value);
-        await loadKeys();
-        // 触发同步操作刷新
-        triggerSyncOperationRefresh(props.selectedGroup.name, "DELETE_SINGLE");
-      } catch (_error) {
-        console.error("删除失败");
-      } finally {
-        d.loading = false;
-        isDeling.value = false;
-      }
-    },
-  });
-}
-
-function formatRelativeTime(date: string) {
-  if (!date) {
-    return "从未";
-  }
-  const now = new Date();
-  const target = new Date(date);
-  const diffSeconds = Math.floor((now.getTime() - target.getTime()) / 1000);
-  const diffMinutes = Math.floor(diffSeconds / 60);
-  const diffHours = Math.floor(diffMinutes / 60);
-  const diffDays = Math.floor(diffHours / 24);
-
-  if (diffDays > 0) {
-    return `${diffDays}天前`;
-  }
-  if (diffHours > 0) {
-    return `${diffHours}小时前`;
-  }
-  if (diffMinutes > 0) {
-    return `${diffMinutes}分钟前`;
-  }
-  if (diffSeconds > 0) {
-    return `${diffSeconds}秒前`;
-  }
-  return "刚刚";
-}
+const defaultStatusConfig = {
+  class: "status-unknown",
+  tag: { type: "default" as const, icon: AlertCircleOutline, text: "未知" }
+};
 
 function getStatusClass(status: KeyStatus): string {
-  switch (status) {
-    case "active":
-      return "status-valid";
-    case "invalid":
-      return "status-invalid";
-    default:
-      return "status-unknown";
-  }
+  if (!status) return defaultStatusConfig.class;
+  return statusConfig.get(status)?.class || defaultStatusConfig.class;
 }
 
-async function copyAllKeys() {
+function getStatusTag(status: KeyStatus) {
+  if (!status) return defaultStatusConfig.tag;
+  return statusConfig.get(status)?.tag || defaultStatusConfig.tag;
+}
+
+// Unified copy function
+function copyKeys(status: StatusKey) {
   if (!props.selectedGroup?.id) {
     return;
   }
-
-  keysApi.exportKeys(props.selectedGroup.id, "all");
+  keysApi.exportKeys(props.selectedGroup.id, status as any);
 }
 
-async function copyValidKeys() {
-  if (!props.selectedGroup?.id) {
-    return;
-  }
-
-  keysApi.exportKeys(props.selectedGroup.id, "active");
-}
-
-async function copyInvalidKeys() {
-  if (!props.selectedGroup?.id) {
-    return;
-  }
-
-  keysApi.exportKeys(props.selectedGroup.id, "invalid");
-}
-
-async function restoreAllInvalid() {
+// Unified restore function
+async function restoreKeys(status: StatusKey, syncAction: string, apiCall?: () => Promise<any>) {
   if (!props.selectedGroup?.id || isRestoring.value) {
     return;
   }
 
+  const statusText = statusTextMap[status];
   const d = dialog.warning({
     title: "恢复密钥",
-    content: "确定要恢复所有无效密钥吗？",
+    content: `确定要恢复${status === "all" ? "其他" : "所有"}${statusText}密钥吗？`,
     positiveText: "确定",
     negativeText: "取消",
     onPositiveClick: async () => {
@@ -422,10 +577,13 @@ async function restoreAllInvalid() {
       isRestoring.value = true;
       d.loading = true;
       try {
-        await keysApi.restoreAllInvalidKeys(props.selectedGroup.id);
+        if (apiCall) {
+          await apiCall();
+        } else {
+          await keysApi.restoreKeysByStatus(props.selectedGroup.id, status as any);
+        }
         await loadKeys();
-        // 触发同步操作刷新
-        triggerSyncOperationRefresh(props.selectedGroup.name, "RESTORE_ALL_INVALID");
+        triggerSyncOperationRefresh(props.selectedGroup.name, syncAction);
       } catch (_error) {
         console.error("恢复失败");
       } finally {
@@ -436,18 +594,12 @@ async function restoreAllInvalid() {
   });
 }
 
-async function validateKeys(status: "all" | "active" | "invalid") {
+async function validateKeys(status: StatusKey) {
   if (!props.selectedGroup?.id || testingMsg) {
     return;
   }
 
-  let statusText = "所有";
-  if (status === "active") {
-    statusText = "有效";
-  } else if (status === "invalid") {
-    statusText = "无效";
-  }
-
+  const statusText = statusTextMap[status];
   testingMsg = window.$message.info(`正在验证${statusText}密钥...`, {
     duration: 0,
   });
@@ -464,14 +616,16 @@ async function validateKeys(status: "all" | "active" | "invalid") {
   }
 }
 
-async function clearAllInvalid() {
+// Unified clear function
+async function clearKeys(status: StatusKey, syncAction: string, apiCall?: () => Promise<any>) {
   if (!props.selectedGroup?.id || isDeling.value) {
     return;
   }
 
+  const statusText = statusTextMap[status];
   const d = dialog.warning({
     title: "清除密钥",
-    content: "确定要清除所有无效密钥吗？此操作不可恢复！",
+    content: `确定要清除${status === "all" ? "" : "所有"}${statusText}密钥吗？此操作不可恢复！`,
     positiveText: "确定",
     negativeText: "取消",
     onPositiveClick: async () => {
@@ -482,11 +636,17 @@ async function clearAllInvalid() {
       isDeling.value = true;
       d.loading = true;
       try {
-        const { data } = await keysApi.clearAllInvalidKeys(props.selectedGroup.id);
-        window.$message.success(data?.message || "清除成功");
+        let result;
+        if (apiCall) {
+          result = await apiCall();
+        } else {
+          await keysApi.clearKeysByStatus(props.selectedGroup.id, status as any);
+        }
+
+        const message = result?.data?.message || "清除成功";
+        window.$message.success(message);
         await loadKeys();
-        // 触发同步操作刷新
-        triggerSyncOperationRefresh(props.selectedGroup.name, "CLEAR_ALL_INVALID");
+        triggerSyncOperationRefresh(props.selectedGroup.name, syncAction);
       } catch (_error) {
         console.error("删除失败");
       } finally {
@@ -594,26 +754,15 @@ function resetPage() {
       </div>
       <div class="toolbar-right">
         <n-space :size="12">
-          <n-select
-            v-model:value="statusFilter"
-            :options="statusOptions"
-            size="small"
-            style="width: 100px"
-          />
+          <n-select v-model:value="statusFilter" :options="statusOptions" size="small" style="width: 100px" />
           <n-input-group>
-            <n-input
-              v-model:value="searchText"
-              placeholder="Key 模糊查询"
-              size="small"
-              style="width: 180px"
-              clearable
-              @keyup.enter="handleSearchInput"
-            />
+            <n-input v-model:value="searchText" placeholder="Key 模糊查询" size="small" style="width: 180px" clearable
+              @keyup.enter="handleSearchInput" />
             <n-button ghost size="small" :disabled="loading" @click="handleSearchInput">
               <n-icon :component="Search" />
             </n-button>
           </n-input-group>
-          <n-dropdown :options="moreOptions" trigger="click" @select="handleMoreAction">
+          <n-dropdown :options="moreOptions" trigger="click" @select="handleMoreAction" :show-arrow="false">
             <n-button size="small" secondary>
               <template #icon>
                 <span style="font-size: 16px; font-weight: bold">⋯</span>
@@ -626,45 +775,30 @@ function resetPage() {
 
     <!-- 密钥卡片网格 -->
     <div class="keys-grid-container">
-      <n-spin :show="loading">
-        <div v-if="keys.length === 0 && !loading" class="empty-container">
+      <n-spin :show="isLoading">
+        <div v-if="!hasKeys && !isLoading" class="empty-container">
           <n-empty description="没有找到匹配的密钥" />
         </div>
         <div v-else class="keys-grid">
-          <div
-            v-for="key in keys"
-            :key="key.id"
-            class="key-card"
-            :class="getStatusClass(key.status)"
-          >
+          <div v-for="key in keys" :key="key.id" class="key-card" :class="getStatusClass(key.status)">
             <!-- 主要信息行：Key + 快速操作 -->
             <div class="key-main">
               <div class="key-section">
-                <n-tag v-if="key.status === 'active'" type="success" :bordered="false" round>
+                <n-tag :type="getStatusTag(key.status).type" :bordered="false" round>
                   <template #icon>
-                    <n-icon :component="CheckmarkCircle" />
+                    <n-icon :component="getStatusTag(key.status).icon" />
                   </template>
-                  有效
+                  {{ getStatusTag(key.status).text }}
                 </n-tag>
-                <n-tag v-else :bordered="false" round>
-                  <template #icon>
-                    <n-icon :component="AlertCircleOutline" />
-                  </template>
-                  无效
-                </n-tag>
-                <n-input
-                  class="key-text"
-                  :value="key.is_visible ? key.key_value : maskKey(key.key_value)"
-                  readonly
-                  size="small"
-                />
+                <n-input class="key-text" :value="key.is_visible ? key.key_value : maskKey(key.key_value)" readonly
+                  size="small" />
                 <div class="quick-actions">
-                  <n-button size="tiny" text @click="toggleKeyVisibility(key)" title="显示/隐藏">
+                  <n-button size="tiny" text @click="keyActions.toggle(key)" title="显示/隐藏">
                     <template #icon>
                       <n-icon :component="key.is_visible ? EyeOffOutline : EyeOutline" />
                     </template>
                   </n-button>
-                  <n-button size="tiny" text @click="copyKey(key)" title="复制">
+                  <n-button size="tiny" text @click="keyActions.copy(key)" title="复制">
                     <template #icon>
                       <n-icon :component="CopyOutline" />
                     </template>
@@ -689,34 +823,14 @@ function resetPage() {
                 </span>
               </div>
               <n-button-group class="key-actions">
-                <n-button
-                  round
-                  tertiary
-                  type="info"
-                  size="tiny"
-                  @click="testKey(key)"
-                  title="测试密钥"
-                >
+                <n-button round tertiary type="info" size="tiny" @click="keyActions.test(key)" title="测试密钥">
                   测试
                 </n-button>
-                <n-button
-                  v-if="key.status !== 'active'"
-                  tertiary
-                  size="tiny"
-                  @click="restoreKey(key)"
-                  title="恢复密钥"
-                  type="warning"
-                >
+                <n-button v-if="key.status !== 'active'" tertiary size="tiny" @click="keyActions.restore(key)"
+                  title="恢复密钥" type="warning">
                   恢复
                 </n-button>
-                <n-button
-                  round
-                  tertiary
-                  size="tiny"
-                  type="error"
-                  @click="deleteKey(key)"
-                  title="删除密钥"
-                >
+                <n-button round tertiary size="tiny" type="error" @click="keyActions.delete(key)" title="删除密钥">
                   删除
                 </n-button>
               </n-button-group>
@@ -730,49 +844,29 @@ function resetPage() {
     <div class="pagination-container">
       <div class="pagination-info">
         <span>共 {{ total }} 条记录</span>
-        <n-select
-          v-model:value="pageSize"
-          :options="[
-            { label: '12条/页', value: 12 },
-            { label: '24条/页', value: 24 },
-            { label: '60条/页', value: 60 },
-            { label: '120条/页', value: 120 },
-          ]"
-          size="small"
-          style="width: 100px; margin-left: 12px"
-          @update:value="changePageSize"
-        />
+        <n-select v-model:value="pageSize" :options="[
+          { label: '12条/页', value: 12 },
+          { label: '24条/页', value: 24 },
+          { label: '60条/页', value: 60 },
+          { label: '120条/页', value: 120 },
+        ]" size="small" style="width: 100px; margin-left: 12px" @update:value="changePageSize" />
       </div>
       <div class="pagination-controls">
-        <n-button size="small" :disabled="currentPage <= 1" @click="changePage(currentPage - 1)">
+        <n-button size="small" :disabled="!paginationInfo.hasPrev" @click="changePage(currentPage - 1)">
           上一页
         </n-button>
-        <span class="page-info">第 {{ currentPage }} 页，共 {{ totalPages }} 页</span>
-        <n-button
-          size="small"
-          :disabled="currentPage >= totalPages"
-          @click="changePage(currentPage + 1)"
-        >
+        <span class="page-info">第 {{ paginationInfo.current }} 页，共 {{ paginationInfo.total }} 页</span>
+        <n-button size="small" :disabled="!paginationInfo.hasNext" @click="changePage(currentPage + 1)">
           下一页
         </n-button>
       </div>
     </div>
 
-    <key-create-dialog
-      v-if="selectedGroup?.id"
-      v-model:show="createDialogShow"
-      :group-id="selectedGroup.id"
-      :group-name="getGroupDisplayName(selectedGroup!)"
-      @success="loadKeys"
-    />
+    <key-create-dialog v-if="selectedGroup?.id" v-model:show="createDialogShow" :group-id="selectedGroup.id"
+      :group-name="getGroupDisplayName(selectedGroup!)" @success="loadKeys" />
 
-    <key-delete-dialog
-      v-if="selectedGroup?.id"
-      v-model:show="deleteDialogShow"
-      :group-id="selectedGroup.id"
-      :group-name="getGroupDisplayName(selectedGroup!)"
-      @success="handleBatchDeleteSuccess"
-    />
+    <key-delete-dialog v-if="selectedGroup?.id" v-model:show="deleteDialogShow" :group-id="selectedGroup.id"
+      :group-name="getGroupDisplayName(selectedGroup!)" @success="handleBatchDeleteSuccess" />
   </div>
 </template>
 
@@ -960,6 +1054,36 @@ function resetPage() {
   background: #18a0581a;
 }
 
+.key-card.status-rate-limited {
+  border-color: #fca9034d;
+  background: #fca9031a;
+}
+
+.key-card.status-auth-failed {
+  border-color: #d030504d;
+  background: #d030501a;
+}
+
+.key-card.status-forbidden {
+  border-color: #d030504d;
+  background: #d030501a;
+}
+
+.key-card.status-bad-request {
+  border-color: #fca9034d;
+  background: #fca9031a;
+}
+
+.key-card.status-server-error {
+  border-color: #d03f504d;
+  background: #d03f501a;
+}
+
+.key-card.status-network-error {
+  border-color: #6666664d;
+  background: #6666661a;
+}
+
 .key-card.status-invalid {
   border-color: #ddd;
   background: rgb(250, 250, 252);
@@ -1015,6 +1139,7 @@ function resetPage() {
 
 .key-actions {
   flex-shrink: 0;
+
   &:deep(.n-button) {
     padding: 0 4px;
   }

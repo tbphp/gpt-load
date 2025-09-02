@@ -14,6 +14,65 @@ import (
 	"gorm.io/gorm"
 )
 
+var validKeyStatuses = []string{
+	models.KeyStatusActive,
+	models.KeyStatusInvalid,
+	models.KeyStatusRateLimited,
+	models.KeyStatusAuthFailed,
+	models.KeyStatusForbidden,
+	models.KeyStatusBadRequest,
+	models.KeyStatusServerError,
+	models.KeyStatusNetworkError,
+}
+
+var validExportStatuses = append([]string{"all"}, validKeyStatuses...)
+
+// handleServiceError handles common service error patterns
+func handleServiceError(c *gin.Context, err error) {
+	if strings.Contains(err.Error(), "batch size exceeds the limit") {
+		response.Error(c, app_errors.NewAPIError(app_errors.ErrValidation, err.Error()))
+	} else if err.Error() == "no valid keys found in the input text" {
+		response.Error(c, app_errors.NewAPIError(app_errors.ErrValidation, err.Error()))
+	} else {
+		response.Error(c, app_errors.ParseDBError(err))
+	}
+}
+
+// validateStatus validates if status is in valid statuses list
+func validateStatus(status string) bool {
+	return contains(validKeyStatuses, status)
+}
+
+// bindJSONAndValidateGroup is a helper function for common request binding and group validation
+func (s *Server) bindJSONAndValidateGroup(c *gin.Context, req interface{}, needGroup bool) (*models.Group, bool) {
+	if err := c.ShouldBindJSON(req); err != nil {
+		response.Error(c, app_errors.NewAPIError(app_errors.ErrInvalidJSON, err.Error()))
+		return nil, false
+	}
+
+	if !needGroup {
+		return nil, true
+	}
+
+	// Extract group ID using reflection or type assertion
+	var groupID uint
+	switch v := req.(type) {
+	case *KeyTextRequest:
+		groupID = v.GroupID
+	case *GroupIDRequest:
+		groupID = v.GroupID
+	case *ValidateGroupKeysRequest:
+		groupID = v.GroupID
+	case *GroupStatusRequest:
+		groupID = v.GroupID
+	default:
+		response.Error(c, app_errors.NewAPIError(app_errors.ErrInvalidJSON, "unknown request type"))
+		return nil, false
+	}
+
+	return s.findGroupByID(c, groupID)
+}
+
 // validateGroupIDFromQuery validates and parses group ID from a query parameter.
 func validateGroupIDFromQuery(c *gin.Context) (uint, error) {
 	groupIDStr := c.Query("group_id")
@@ -52,6 +111,16 @@ func (s *Server) findGroupByID(c *gin.Context, groupID uint) (*models.Group, boo
 	return &group, true
 }
 
+// contains checks if a string slice contains a specific string
+func contains(slice []string, item string) bool {
+	for _, s := range slice {
+		if s == item {
+			return true
+		}
+	}
+	return false
+}
+
 // KeyTextRequest defines a generic payload for operations requiring a group ID and a text block of keys.
 type KeyTextRequest struct {
 	GroupID  uint   `json:"group_id" binding:"required"`
@@ -72,12 +141,7 @@ type ValidateGroupKeysRequest struct {
 // AddMultipleKeys handles creating new keys from a text block within a specific group.
 func (s *Server) AddMultipleKeys(c *gin.Context) {
 	var req KeyTextRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, app_errors.NewAPIError(app_errors.ErrInvalidJSON, err.Error()))
-		return
-	}
-
-	if _, ok := s.findGroupByID(c, req.GroupID); !ok {
+	if _, ok := s.bindJSONAndValidateGroup(c, &req, true); !ok {
 		return
 	}
 
@@ -88,13 +152,7 @@ func (s *Server) AddMultipleKeys(c *gin.Context) {
 
 	result, err := s.KeyService.AddMultipleKeys(req.GroupID, req.KeysText)
 	if err != nil {
-		if strings.Contains(err.Error(), "batch size exceeds the limit") {
-			response.Error(c, app_errors.NewAPIError(app_errors.ErrValidation, err.Error()))
-		} else if err.Error() == "no valid keys found in the input text" {
-			response.Error(c, app_errors.NewAPIError(app_errors.ErrValidation, err.Error()))
-		} else {
-			response.Error(c, app_errors.ParseDBError(err))
-		}
+		handleServiceError(c, err)
 		return
 	}
 
@@ -141,7 +199,7 @@ func (s *Server) ListKeysInGroup(c *gin.Context) {
 	}
 
 	statusFilter := c.Query("status")
-	if statusFilter != "" && statusFilter != models.KeyStatusActive && statusFilter != models.KeyStatusInvalid {
+	if statusFilter != "" && !contains(validKeyStatuses, statusFilter) {
 		response.Error(c, app_errors.NewAPIError(app_errors.ErrValidation, "Invalid status filter"))
 		return
 	}
@@ -163,12 +221,7 @@ func (s *Server) ListKeysInGroup(c *gin.Context) {
 // DeleteMultipleKeys handles deleting keys from a text block within a specific group.
 func (s *Server) DeleteMultipleKeys(c *gin.Context) {
 	var req KeyTextRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, app_errors.NewAPIError(app_errors.ErrInvalidJSON, err.Error()))
-		return
-	}
-
-	if _, ok := s.findGroupByID(c, req.GroupID); !ok {
+	if _, ok := s.bindJSONAndValidateGroup(c, &req, true); !ok {
 		return
 	}
 
@@ -179,13 +232,7 @@ func (s *Server) DeleteMultipleKeys(c *gin.Context) {
 
 	result, err := s.KeyService.DeleteMultipleKeys(req.GroupID, req.KeysText)
 	if err != nil {
-		if strings.Contains(err.Error(), "batch size exceeds the limit") {
-			response.Error(c, app_errors.NewAPIError(app_errors.ErrValidation, err.Error()))
-		} else if err.Error() == "no valid keys found in the input text" {
-			response.Error(c, app_errors.NewAPIError(app_errors.ErrValidation, err.Error()))
-		} else {
-			response.Error(c, app_errors.ParseDBError(err))
-		}
+		handleServiceError(c, err)
 		return
 	}
 
@@ -222,12 +269,7 @@ func (s *Server) DeleteMultipleKeysAsync(c *gin.Context) {
 // RestoreMultipleKeys handles restoring keys from a text block within a specific group.
 func (s *Server) RestoreMultipleKeys(c *gin.Context) {
 	var req KeyTextRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, app_errors.NewAPIError(app_errors.ErrInvalidJSON, err.Error()))
-		return
-	}
-
-	if _, ok := s.findGroupByID(c, req.GroupID); !ok {
+	if _, ok := s.bindJSONAndValidateGroup(c, &req, true); !ok {
 		return
 	}
 
@@ -238,13 +280,7 @@ func (s *Server) RestoreMultipleKeys(c *gin.Context) {
 
 	result, err := s.KeyService.RestoreMultipleKeys(req.GroupID, req.KeysText)
 	if err != nil {
-		if strings.Contains(err.Error(), "batch size exceeds the limit") {
-			response.Error(c, app_errors.NewAPIError(app_errors.ErrValidation, err.Error()))
-		} else if err.Error() == "no valid keys found in the input text" {
-			response.Error(c, app_errors.NewAPIError(app_errors.ErrValidation, err.Error()))
-		} else {
-			response.Error(c, app_errors.ParseDBError(err))
-		}
+		handleServiceError(c, err)
 		return
 	}
 
@@ -279,13 +315,7 @@ func (s *Server) TestMultipleKeys(c *gin.Context) {
 	results, err := s.KeyService.TestMultipleKeys(group, req.KeysText)
 	duration := time.Since(start).Milliseconds()
 	if err != nil {
-		if strings.Contains(err.Error(), "batch size exceeds the limit") {
-			response.Error(c, app_errors.NewAPIError(app_errors.ErrValidation, err.Error()))
-		} else if err.Error() == "no valid keys found in the input text" {
-			response.Error(c, app_errors.NewAPIError(app_errors.ErrValidation, err.Error()))
-		} else {
-			response.Error(c, app_errors.ParseDBError(err))
-		}
+		handleServiceError(c, err)
 		return
 	}
 
@@ -304,7 +334,7 @@ func (s *Server) ValidateGroupKeys(c *gin.Context) {
 	}
 
 	// Validate status if provided
-	if req.Status != "" && req.Status != models.KeyStatusActive && req.Status != models.KeyStatusInvalid {
+	if req.Status != "" && !validateStatus(req.Status) {
 		response.Error(c, app_errors.NewAPIError(app_errors.ErrValidation, "Invalid status value"))
 		return
 	}
@@ -332,12 +362,7 @@ func (s *Server) ValidateGroupKeys(c *gin.Context) {
 // RestoreAllInvalidKeys sets the status of all 'inactive' keys in a group to 'active'.
 func (s *Server) RestoreAllInvalidKeys(c *gin.Context) {
 	var req GroupIDRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, app_errors.NewAPIError(app_errors.ErrInvalidJSON, err.Error()))
-		return
-	}
-
-	if _, ok := s.findGroupByID(c, req.GroupID); !ok {
+	if _, ok := s.bindJSONAndValidateGroup(c, &req, true); !ok {
 		return
 	}
 
@@ -353,12 +378,7 @@ func (s *Server) RestoreAllInvalidKeys(c *gin.Context) {
 // ClearAllInvalidKeys deletes all 'inactive' keys from a group.
 func (s *Server) ClearAllInvalidKeys(c *gin.Context) {
 	var req GroupIDRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, app_errors.NewAPIError(app_errors.ErrInvalidJSON, err.Error()))
-		return
-	}
-
-	if _, ok := s.findGroupByID(c, req.GroupID); !ok {
+	if _, ok := s.bindJSONAndValidateGroup(c, &req, true); !ok {
 		return
 	}
 
@@ -374,12 +394,7 @@ func (s *Server) ClearAllInvalidKeys(c *gin.Context) {
 // ClearAllKeys deletes all keys from a group.
 func (s *Server) ClearAllKeys(c *gin.Context) {
 	var req GroupIDRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, app_errors.NewAPIError(app_errors.ErrInvalidJSON, err.Error()))
-		return
-	}
-
-	if _, ok := s.findGroupByID(c, req.GroupID); !ok {
+	if _, ok := s.bindJSONAndValidateGroup(c, &req, true); !ok {
 		return
 	}
 
@@ -405,9 +420,7 @@ func (s *Server) ExportKeys(c *gin.Context) {
 		statusFilter = "all"
 	}
 
-	switch statusFilter {
-	case "all", models.KeyStatusActive, models.KeyStatusInvalid:
-	default:
+	if !contains(validExportStatuses, statusFilter) {
 		response.Error(c, app_errors.NewAPIError(app_errors.ErrValidation, "Invalid status filter"))
 		return
 	}
@@ -425,4 +438,62 @@ func (s *Server) ExportKeys(c *gin.Context) {
 	if err != nil {
 		log.Printf("Failed to stream keys: %v", err)
 	}
+}
+
+// GroupStatusRequest defines a generic payload for operations requiring a group ID and status.
+type GroupStatusRequest struct {
+	GroupID uint   `json:"group_id" binding:"required"`
+	Status  string `json:"status" binding:"required"`
+}
+
+// RestoreKeysByStatus restores keys with a specific status in a group.
+func (s *Server) RestoreKeysByStatus(c *gin.Context) {
+	var req GroupStatusRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, app_errors.NewAPIError(app_errors.ErrInvalidJSON, err.Error()))
+		return
+	}
+
+	if !validateStatus(req.Status) {
+		response.Error(c, app_errors.NewAPIError(app_errors.ErrValidation, "Invalid status value"))
+		return
+	}
+
+	if _, ok := s.findGroupByID(c, req.GroupID); !ok {
+		return
+	}
+
+	rowsAffected, err := s.KeyService.RestoreKeysByStatus(req.GroupID, req.Status)
+	if err != nil {
+		response.Error(c, app_errors.ParseDBError(err))
+		return
+	}
+
+	response.Success(c, gin.H{"message": fmt.Sprintf("%d keys restored.", rowsAffected)})
+}
+
+// ClearKeysByStatus deletes keys with a specific status in a group.
+func (s *Server) ClearKeysByStatus(c *gin.Context) {
+	var req GroupStatusRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, app_errors.NewAPIError(app_errors.ErrInvalidJSON, err.Error()))
+		return
+	}
+
+	if !validateStatus(req.Status) {
+		response.Error(c, app_errors.NewAPIError(app_errors.ErrValidation, "Invalid status value"))
+		return
+	}
+
+	if _, ok := s.findGroupByID(c, req.GroupID); !ok {
+		return
+	}
+
+	rowsAffected, err := s.KeyService.ClearKeysByStatus(req.GroupID, req.Status)
+	if err != nil {
+		response.Error(c, app_errors.ParseDBError(err))
+		return
+	}
+
+	response.Success(c, gin.H{"message": fmt.Sprintf("%d keys cleared.", rowsAffected)})
 }

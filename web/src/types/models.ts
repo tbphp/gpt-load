@@ -5,8 +5,17 @@ export interface ApiResponse<T> {
   data: T;
 }
 
-// 密钥状态
-export type KeyStatus = "active" | "invalid" | undefined;
+// 密钥状态 - 扩展支持基于HTTP状态码的更细粒度分类
+export type KeyStatus =
+  | "active"         // 有效状态 (2xx)
+  | "invalid"        // 其他错误状态
+  | "rate_limited"   // 频率限制 (429)
+  | "auth_failed"    // 认证失败 (401/403)
+  | "forbidden"      // 禁止访问 (403/404)
+  | "bad_request"    // 请求错误 (400)
+  | "server_error"   // 服务器错误 (5xx)
+  | "network_error"  // 网络错误
+  | undefined;
 
 // 数据模型定义
 export interface APIKey {

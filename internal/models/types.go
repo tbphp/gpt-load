@@ -7,10 +7,16 @@ import (
 	"gorm.io/datatypes"
 )
 
-// Key状态
+// Key状态 - 扩展支持更细粒度的状态分类
 const (
-	KeyStatusActive  = "active"
-	KeyStatusInvalid = "invalid"
+	KeyStatusActive     = "active"       // 有效状态 (2xx)
+	KeyStatusRateLimited = "rate_limited" // 频率限制 (429)
+	KeyStatusAuthFailed = "auth_failed"  // 认证失败 (401/403)
+	KeyStatusForbidden  = "forbidden"    // 禁止访问 (403)
+	KeyStatusBadRequest = "bad_request"  // 请求错误 (400)
+	KeyStatusServerError = "server_error" // 服务器错误 (5xx)
+	KeyStatusNetworkError = "network_error" // 网络错误
+	KeyStatusInvalid    = "invalid"      // 其他错误状态
 )
 
 // SystemSetting 对应 system_settings 表

@@ -69,7 +69,7 @@ export const keysApi = {
     page: number;
     page_size: number;
     key_value?: string;
-    status?: KeyStatus;
+    status?: KeyStatus | "all";
   }): Promise<{
     items: APIKey[];
     pagination: {
@@ -160,12 +160,12 @@ export const keysApi = {
     });
   },
 
-  // 恢复所有无效密钥
+  // 恢复其他错误密钥
   restoreAllInvalidKeys(group_id: number): Promise<void> {
     return http.post("/keys/restore-all-invalid", { group_id });
   },
 
-  // 清空所有无效密钥
+  // 清空其他错误密钥
   clearAllInvalidKeys(group_id: number): Promise<{ data: { message: string } }> {
     return http.post(
       "/keys/clear-all-invalid",
@@ -187,8 +187,27 @@ export const keysApi = {
     );
   },
 
-  // 导出密钥
-  exportKeys(groupId: number, status: "all" | "active" | "invalid" = "all") {
+  // 清空指定状态的密钥 - 通用方法
+  clearKeysByStatus(group_id: number, status: KeyStatus): Promise<{ data: { message: string } }> {
+    return http.post(
+      "/keys/clear-by-status",
+      { group_id, status },
+      {
+        hideMessage: true,
+      }
+    );
+  },
+
+  // 恢复指定状态的密钥 - 通用方法
+  restoreKeysByStatus(group_id: number, status: KeyStatus): Promise<null> {
+    return http.post("/keys/restore-by-status", {
+      group_id,
+      status,
+    });
+  },
+
+  // 导出密钥 - 扩展支持所有状态类型
+  exportKeys(groupId: number, status: "all" | KeyStatus = "all") {
     const authKey = localStorage.getItem("authKey");
     if (!authKey) {
       window.$message.error("未找到认证信息，无法导出");
@@ -214,10 +233,10 @@ export const keysApi = {
     document.body.removeChild(link);
   },
 
-  // 验证分组密钥
+  // 验证分组密钥 - 扩展支持新状态
   async validateGroupKeys(
     groupId: number,
-    status?: "active" | "invalid"
+    status?: KeyStatus | "all"
   ): Promise<{
     is_running: boolean;
     group_name: string;

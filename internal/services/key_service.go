@@ -248,6 +248,16 @@ func (s *KeyService) ClearAllKeys(groupID uint) (int64, error) {
 	return s.KeyProvider.RemoveAllKeys(groupID)
 }
 
+// RestoreKeysByStatus restores keys with a specific status in a group.
+func (s *KeyService) RestoreKeysByStatus(groupID uint, status string) (int64, error) {
+	return s.KeyProvider.RestoreKeysByStatus(groupID, status)
+}
+
+// ClearKeysByStatus deletes keys with a specific status in a group.
+func (s *KeyService) ClearKeysByStatus(groupID uint, status string) (int64, error) {
+	return s.KeyProvider.ClearKeysByStatus(groupID, status)
+}
+
 // DeleteMultipleKeys handles the business logic of deleting keys from a text block.
 func (s *KeyService) DeleteMultipleKeys(groupID uint, keysText string) (*DeleteKeysResult, error) {
 	keysToDelete := s.ParseKeysFromText(keysText)
@@ -335,9 +345,12 @@ func (s *KeyService) StreamKeysToWriter(groupID uint, statusFilter string, write
 	query := s.DB.Model(&models.APIKey{}).Where("group_id = ?", groupID).Select("id, key_value")
 
 	switch statusFilter {
-	case models.KeyStatusActive, models.KeyStatusInvalid:
+	case models.KeyStatusActive, models.KeyStatusInvalid, models.KeyStatusRateLimited,
+		models.KeyStatusAuthFailed, models.KeyStatusForbidden, models.KeyStatusBadRequest,
+		models.KeyStatusServerError, models.KeyStatusNetworkError:
 		query = query.Where("status = ?", statusFilter)
 	case "all":
+		// 不添加状态过滤条件，获取所有密钥
 	default:
 		return fmt.Errorf("invalid status filter: %s", statusFilter)
 	}
