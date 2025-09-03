@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"fmt"
+	"strings"
 	app_errors "gpt-load/internal/errors"
 	"gpt-load/internal/models"
 	"gpt-load/internal/response"
@@ -83,6 +85,9 @@ func (s *Server) Stats(c *gin.Context) {
 		errorRateTrendIsGrowth = true
 	}
 
+	// 获取安全警告信息
+	securityWarnings := s.getSecurityWarnings()
+
 	stats := models.DashboardStatsResponse{
 		KeyCount: models.StatCard{
 			Value:       float64(activeKeys),
@@ -100,6 +105,7 @@ func (s *Server) Stats(c *gin.Context) {
 			Trend:         errorRateTrend,
 			TrendIsGrowth: errorRateTrendIsGrowth,
 		},
+		SecurityWarnings: securityWarnings,
 	}
 
 	response.Success(c, stats)
@@ -219,4 +225,122 @@ func (s *Server) getRPMStats(now time.Time) (models.StatCard, error) {
 		Trend:         rpmTrend,
 		TrendIsGrowth: rpmTrendIsGrowth,
 	}, nil
+}
+
+// getSecurityWarnings 检查安全配置并返回警告信息
+func (s *Server) getSecurityWarnings() []models.SecurityWarning {
+	var warnings []models.SecurityWarning
+	
+	// 获取AUTH_KEY和ENCRYPTION_KEY
+	authConfig := s.config.GetAuthConfig()
+	encryptionKey := s.config.GetEncryptionKey()
+	
+	// 检查AUTH_KEY
+	if authConfig.Key == "" {
+		warnings = append(warnings, models.SecurityWarning{
+			Type:     "AUTH_KEY",
+			Message:  "AUTH_KEY未设置，系统无法正常工作",
+			Severity: "high",
+			Suggestion: "必须设置AUTH_KEY以保护管理界面",
+		})
+	} else {
+		authWarnings := checkPasswordSecurity(authConfig.Key, "AUTH_KEY")
+		warnings = append(warnings, authWarnings...)
+	}
+	
+	// 检查ENCRYPTION_KEY
+	if encryptionKey == "" {
+		warnings = append(warnings, models.SecurityWarning{
+			Type:     "ENCRYPTION_KEY",
+			Message:  "未设置ENCRYPTION_KEY，敏感数据将明文存储",
+			Severity: "high",
+			Suggestion: "强烈建议设置ENCRYPTION_KEY以加密保护API密钥等敏感数据",
+		})
+	} else {
+		encryptionWarnings := checkPasswordSecurity(encryptionKey, "ENCRYPTION_KEY")
+		warnings = append(warnings, encryptionWarnings...)
+	}
+	
+	return warnings
+}
+
+// checkPasswordSecurity 综合检查密码安全性
+func checkPasswordSecurity(password, keyType string) []models.SecurityWarning {
+	var warnings []models.SecurityWarning
+	
+	// 1. 长度检查
+	if len(password) < 16 {
+		warnings = append(warnings, models.SecurityWarning{
+			Type:     keyType,
+			Message:  fmt.Sprintf("%s长度不足（%d字符），建议至少16字符", keyType, len(password)),
+			Severity: "high", // 长度不足是高风险
+			Suggestion: "使用至少16个字符的强密码，推荐32字符以上",
+		})
+	} else if len(password) < 32 {
+		warnings = append(warnings, models.SecurityWarning{
+			Type:     keyType,
+			Message:  fmt.Sprintf("%s长度偏短（%d字符），建议32字符以上", keyType, len(password)),
+			Severity: "medium",
+			Suggestion: "推荐使用32个字符以上的密码以提高安全性",
+		})
+	}
+	
+	// 2. 常见弱密码检查
+	lower := strings.ToLower(password)
+	weakPatterns := []string{
+		"password", "123456", "admin", "secret", "test", "demo",
+		"sk-123456", "key", "token", "pass", "pwd", "qwerty",
+		"abc", "default", "user", "login", "auth", "temp",
+	}
+	
+	for _, pattern := range weakPatterns {
+		if strings.Contains(lower, pattern) {
+			warnings = append(warnings, models.SecurityWarning{
+				Type:     keyType,
+				Message:  fmt.Sprintf("%s包含常见弱密码模式：%s", keyType, pattern),
+				Severity: "high",
+				Suggestion: "避免使用常见单词，建议使用随机生成的强密码",
+			})
+			break
+		}
+	}
+	
+	// 3. 复杂度检查（仅在长度足够时检查）
+	if len(password) >= 16 && !hasGoodComplexity(password) {
+		warnings = append(warnings, models.SecurityWarning{
+			Type:     keyType,
+			Message:  fmt.Sprintf("%s复杂度不足，缺少大小写字母、数字或特殊字符的组合", keyType),
+			Severity: "medium",
+			Suggestion: "建议包含大小写字母、数字和特殊字符以提高密码强度",
+		})
+	}
+	
+	return warnings
+}
+
+// hasGoodComplexity 检查密码复杂度
+func hasGoodComplexity(password string) bool {
+	var hasUpper, hasLower, hasDigit, hasSpecial bool
+	
+	for _, char := range password {
+		switch {
+		case char >= 'A' && char <= 'Z':
+			hasUpper = true
+		case char >= 'a' && char <= 'z':
+			hasLower = true
+		case char >= '0' && char <= '9':
+			hasDigit = true
+		case !((char >= 'A' && char <= 'Z') || (char >= 'a' && char <= 'z') || (char >= '0' && char <= '9')):
+			hasSpecial = true
+		}
+	}
+	
+	// 至少包含3种类型的字符
+	count := 0
+	if hasUpper { count++ }
+	if hasLower { count++ }
+	if hasDigit { count++ }
+	if hasSpecial { count++ }
+	
+	return count >= 3
 }

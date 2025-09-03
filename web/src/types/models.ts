@@ -184,12 +184,21 @@ export interface StatCard {
   trend_is_growth: boolean;
 }
 
+// 安全警告信息
+export interface SecurityWarning {
+  type: string; // 警告类型：auth_key, encryption_key 等
+  message: string; // 警告信息
+  severity: string; // 严重程度：low, medium, high
+  suggestion: string; // 建议解决方案
+}
+
 // 仪表盘基础统计响应
 export interface DashboardStatsResponse {
   key_count: StatCard;
   rpm: StatCard;
   request_count: StatCard;
   error_rate: StatCard;
+  security_warnings: SecurityWarning[];
 }
 
 // 图表数据集

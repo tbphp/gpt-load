@@ -123,12 +123,21 @@ type StatCard struct {
 	TrendIsGrowth bool    `json:"trend_is_growth"`
 }
 
+// SecurityWarning 用于安全警告信息
+type SecurityWarning struct {
+	Type       string `json:"type"`       // 警告类型：auth_key, encryption_key 等
+	Message    string `json:"message"`    // 警告信息
+	Severity   string `json:"severity"`   // 严重程度：low, medium, high
+	Suggestion string `json:"suggestion"` // 建议解决方案
+}
+
 // DashboardStatsResponse 用于仪表盘基础统计的API响应
 type DashboardStatsResponse struct {
-	KeyCount     StatCard `json:"key_count"`
-	RPM          StatCard `json:"rpm"`
-	RequestCount StatCard `json:"request_count"`
-	ErrorRate    StatCard `json:"error_rate"`
+	KeyCount         StatCard          `json:"key_count"`
+	RPM              StatCard          `json:"rpm"`
+	RequestCount     StatCard          `json:"request_count"`
+	ErrorRate        StatCard          `json:"error_rate"`
+	SecurityWarnings []SecurityWarning `json:"security_warnings"`
 }
 
 // ChartDataset 用于图表的数据集
