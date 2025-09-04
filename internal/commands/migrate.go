@@ -223,7 +223,7 @@ func (cmd *MigrateKeysCommand) preCheck() error {
 
 	for {
 		var keys []models.APIKey
-		if err := cmd.db.Offset(offset).Limit(migrationBatchSize).Find(&keys).Error; err != nil {
+		if err := cmd.db.Order("id").Offset(offset).Limit(migrationBatchSize).Find(&keys).Error; err != nil {
 			return fmt.Errorf("failed to get key data: %w", err)
 		}
 
@@ -290,7 +290,7 @@ func (cmd *MigrateKeysCommand) createBackupTableAndMigrate() error {
 
 	for {
 		var keys []models.APIKey
-		if err := cmd.db.Table(cmd.backupTableName).Offset(offset).Limit(migrationBatchSize).Find(&keys).Error; err != nil {
+		if err := cmd.db.Table(cmd.backupTableName).Order("id").Offset(offset).Limit(migrationBatchSize).Find(&keys).Error; err != nil {
 			return fmt.Errorf("failed to get backup table key data: %w", err)
 		}
 
@@ -454,7 +454,7 @@ func (cmd *MigrateKeysCommand) verifyBackupTable() error {
 
 	for {
 		var keys []models.APIKey
-		if err := cmd.db.Table(cmd.backupTableName).Offset(offset).Limit(migrationBatchSize).Find(&keys).Error; err != nil {
+		if err := cmd.db.Table(cmd.backupTableName).Order("id").Offset(offset).Limit(migrationBatchSize).Find(&keys).Error; err != nil {
 			return fmt.Errorf("failed to get backup table key data: %w", err)
 		}
 
