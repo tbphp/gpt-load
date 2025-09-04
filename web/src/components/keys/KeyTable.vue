@@ -603,7 +603,7 @@ function resetPage() {
           <n-input-group>
             <n-input
               v-model:value="searchText"
-              placeholder="Key 模糊查询"
+              placeholder="Key 精确匹配"
               size="small"
               style="width: 180px"
               clearable
