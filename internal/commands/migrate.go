@@ -11,7 +11,6 @@ import (
 	"gpt-load/internal/utils"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
@@ -84,24 +83,21 @@ const migrationBatchSize = 1000
 
 // MigrateKeysCommand handles encryption key migration
 type MigrateKeysCommand struct {
-	db              *gorm.DB
-	configManager   types.ConfigManager
-	cacheStore      store.Store
-	fromKey         string
-	toKey           string
-	backupTableName string
+	db            *gorm.DB
+	configManager types.ConfigManager
+	cacheStore    store.Store
+	fromKey       string
+	toKey         string
 }
 
 // NewMigrateKeysCommand creates a new migration command
 func NewMigrateKeysCommand(db *gorm.DB, configManager types.ConfigManager, cacheStore store.Store, fromKey, toKey string) *MigrateKeysCommand {
-	backupTableName := fmt.Sprintf("api_keys_migration_backup_%s", time.Now().Format("20060102_150405"))
 	return &MigrateKeysCommand{
-		db:              db,
-		configManager:   configManager,
-		cacheStore:      cacheStore,
-		fromKey:         fromKey,
-		toKey:           toKey,
-		backupTableName: backupTableName,
+		db:            db,
+		configManager: configManager,
+		cacheStore:    cacheStore,
+		fromKey:       fromKey,
+		toKey:         toKey,
 	}
 }
 
@@ -125,21 +121,21 @@ func (cmd *MigrateKeysCommand) Execute() error {
 		return fmt.Errorf("pre-check failed: %w", err)
 	}
 
-	// 3. Create backup table and migrate data
+	// 3. Migrate data to temporary columns
 	if err := cmd.createBackupTableAndMigrate(); err != nil {
 		return fmt.Errorf("data migration failed: %w", err)
 	}
 
-	// 4. Verify backup table data integrity
-	if err := cmd.verifyBackupTable(); err != nil {
-		logrus.Errorf("Data verification failed, backup table %s preserved for manual inspection: %v", cmd.backupTableName, err)
+	// 4. Verify temporary columns data integrity
+	if err := cmd.verifyTempColumns(); err != nil {
+		logrus.Errorf("Data verification failed: %v", err)
 		return fmt.Errorf("data verification failed: %w", err)
 	}
 
-	// 5. Atomic table switch
-	if err := cmd.atomicTableSwitch(); err != nil {
-		logrus.Errorf("Table switch failed, backup table %s preserved for manual recovery: %v", cmd.backupTableName, err)
-		return fmt.Errorf("table switch failed: %w", err)
+	// 5. Switch columns atomically
+	if err := cmd.switchColumns(); err != nil {
+		logrus.Errorf("Column switch failed: %v", err)
+		return fmt.Errorf("column switch failed: %w", err)
 	}
 
 	// 6. Clear cache
@@ -256,25 +252,30 @@ func (cmd *MigrateKeysCommand) preCheck() error {
 	return nil
 }
 
-// createBackupTableAndMigrate creates backup table and performs migration
+// createBackupTableAndMigrate performs migration using temporary columns
 func (cmd *MigrateKeysCommand) createBackupTableAndMigrate() error {
-	logrus.Info("Creating backup table and starting migration...")
+	logrus.Info("Starting key migration using temporary columns...")
 
-	// 1. Create backup table
-	if err := cmd.createBackupTable(); err != nil {
-		return err
+	// 1. Clean up any existing temporary columns from previous failed attempts
+	if err := cmd.cleanupTempColumns(); err != nil {
+		logrus.WithError(err).Warn("Failed to cleanup temporary columns, continuing anyway")
 	}
 
-	// 2. Create old and new encryption services
+	// 2. Add temporary columns
+	if err := cmd.addTempColumns(); err != nil {
+		return fmt.Errorf("failed to add temporary columns: %w", err)
+	}
+
+	// 3. Create old and new encryption services
 	oldService, newService, err := cmd.createMigrationServices()
 	if err != nil {
 		return err
 	}
 
-	// 3. Get all keys in backup table for migration
+	// 4. Get total count to migrate
 	var totalCount int64
-	if err := cmd.db.Table(cmd.backupTableName).Count(&totalCount).Error; err != nil {
-		return fmt.Errorf("failed to get backup table key count: %w", err)
+	if err := cmd.db.Model(&models.APIKey{}).Count(&totalCount).Error; err != nil {
+		return fmt.Errorf("failed to get key count: %w", err)
 	}
 
 	if totalCount == 0 {
@@ -284,71 +285,112 @@ func (cmd *MigrateKeysCommand) createBackupTableAndMigrate() error {
 
 	logrus.Infof("Starting migration of %d keys...", totalCount)
 
-	// 4. Process migration in batches
-	offset := 0
-	migratedCount := 0
+	// 5. Process migration in batches (using WHERE condition instead of OFFSET)
+	processedCount := 0
 
 	for {
 		var keys []models.APIKey
-		if err := cmd.db.Table(cmd.backupTableName).Order("id").Offset(offset).Limit(migrationBatchSize).Find(&keys).Error; err != nil {
-			return fmt.Errorf("failed to get backup table key data: %w", err)
+		// Query only records that haven't been processed yet
+		if err := cmd.db.Where("key_value_new IS NULL OR key_value_new = ''").Order("id").Limit(migrationBatchSize).Find(&keys).Error; err != nil {
+			return fmt.Errorf("failed to get key data: %w", err)
 		}
 
 		if len(keys) == 0 {
 			break
 		}
 
-		// Process current batch in transaction
-		if err := cmd.db.Transaction(func(tx *gorm.DB) error {
-			return cmd.processBatch(tx, keys, oldService, newService)
-		}); err != nil {
+		// Process current batch
+		if err := cmd.processBatchToTempColumns(keys, oldService, newService); err != nil {
 			return fmt.Errorf("failed to process batch data: %w", err)
 		}
 
-		migratedCount += len(keys)
-		offset += migrationBatchSize
-		// Ensure we don't display more than total count
-		actualMigrated := migratedCount
-		if int64(actualMigrated) > totalCount {
-			actualMigrated = int(totalCount)
-		}
-		logrus.Infof("Migrated %d/%d keys", actualMigrated, totalCount)
+		processedCount += len(keys)
+		logrus.Infof("Processed %d/%d keys", processedCount, totalCount)
 	}
 
-	logrus.Info("Key migration completed")
+	logrus.Info("Data migration to temporary columns completed")
 	return nil
 }
 
-// createBackupTable creates backup table with identical structure using GORM
-func (cmd *MigrateKeysCommand) createBackupTable() error {
-	// Drop potentially existing old backup table
-	cmd.db.Exec("DROP TABLE IF EXISTS " + cmd.backupTableName)
+// cleanupTempColumns removes any existing temporary columns from previous failed attempts
+func (cmd *MigrateKeysCommand) cleanupTempColumns() error {
+	dbType := cmd.db.Dialector.Name()
 
-	// Use GORM's Table method to create backup table with dynamic name
-	// This ensures the backup table has exactly the same structure as models.APIKey
-	if err := cmd.db.Table(cmd.backupTableName).AutoMigrate(&models.APIKey{}); err != nil {
-		return fmt.Errorf("failed to create backup table structure: %w", err)
+	// Check if temporary columns exist
+	var columnExists bool
+	switch dbType {
+	case "mysql":
+		var count int64
+		cmd.db.Raw("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'api_keys' AND COLUMN_NAME IN ('key_value_new', 'key_hash_new')").Count(&count)
+		columnExists = count > 0
+	case "postgres":
+		var count int64
+		cmd.db.Raw("SELECT COUNT(*) FROM information_schema.columns WHERE table_name = 'api_keys' AND column_name IN ('key_value_new', 'key_hash_new')").Count(&count)
+		columnExists = count > 0
+	case "sqlite":
+		// SQLite doesn't have information_schema, use PRAGMA
+		var columns []struct{ Name string }
+		cmd.db.Raw("PRAGMA table_info(api_keys)").Scan(&columns)
+		for _, col := range columns {
+			if col.Name == "key_value_new" || col.Name == "key_hash_new" {
+				columnExists = true
+				break
+			}
+		}
 	}
 
-	// Use GORM Statement to get field information to ensure correct column order
-	stmt := &gorm.Statement{DB: cmd.db}
-	stmt.Parse(&models.APIKey{})
-
-	// Build column list from parsed schema
-	var columns []string
-	for _, field := range stmt.Schema.Fields {
-		columns = append(columns, field.DBName)
+	if columnExists {
+		logrus.Info("Found existing temporary columns, removing...")
+		// Drop columns based on database type
+		switch dbType {
+		case "sqlite":
+			// SQLite doesn't support DROP COLUMN before version 3.35.0
+			// Need to recreate table without these columns
+			return cmd.dropColumnsSQLite()
+		case "postgres":
+			// PostgreSQL supports DROP COLUMN IF EXISTS
+			if err := cmd.db.Exec("ALTER TABLE api_keys DROP COLUMN IF EXISTS key_value_new").Error; err != nil {
+				logrus.WithError(err).Warn("Failed to drop key_value_new column")
+			}
+			if err := cmd.db.Exec("ALTER TABLE api_keys DROP COLUMN IF EXISTS key_hash_new").Error; err != nil {
+				logrus.WithError(err).Warn("Failed to drop key_hash_new column")
+			}
+		case "mysql":
+			// MySQL doesn't support IF EXISTS in DROP COLUMN, ignore errors
+			cmd.db.Exec("ALTER TABLE api_keys DROP COLUMN key_value_new")
+			cmd.db.Exec("ALTER TABLE api_keys DROP COLUMN key_hash_new")
+		}
 	}
-	columnList := strings.Join(columns, ", ")
 
-	// Copy all data from original table to backup table with explicit column mapping
-	sql := fmt.Sprintf("INSERT INTO %s (%s) SELECT %s FROM api_keys",
-		cmd.backupTableName, columnList, columnList)
-	if err := cmd.db.Exec(sql).Error; err != nil {
-		return fmt.Errorf("failed to copy data to backup table: %w", err)
+	return nil
+}
+
+// addTempColumns adds temporary columns for migration
+func (cmd *MigrateKeysCommand) addTempColumns() error {
+	logrus.Info("Adding temporary columns for migration...")
+
+	dbType := cmd.db.Dialector.Name()
+
+	// Add temporary columns with database-specific syntax
+	switch dbType {
+	case "mysql":
+		// MySQL uses ADD without COLUMN keyword
+		if err := cmd.db.Exec("ALTER TABLE api_keys ADD key_value_new TEXT").Error; err != nil {
+			return fmt.Errorf("failed to add key_value_new column: %w", err)
+		}
+		if err := cmd.db.Exec("ALTER TABLE api_keys ADD key_hash_new VARCHAR(255)").Error; err != nil {
+			return fmt.Errorf("failed to add key_hash_new column: %w", err)
+		}
+	default:
+		// PostgreSQL and SQLite use ADD COLUMN
+		if err := cmd.db.Exec("ALTER TABLE api_keys ADD COLUMN key_value_new TEXT").Error; err != nil {
+			return fmt.Errorf("failed to add key_value_new column: %w", err)
+		}
+		if err := cmd.db.Exec("ALTER TABLE api_keys ADD COLUMN key_hash_new VARCHAR(255)").Error; err != nil {
+			return fmt.Errorf("failed to add key_hash_new column: %w", err)
+		}
 	}
 
-	logrus.Infof("Backup table %s created successfully with identical structure", cmd.backupTableName)
 	return nil
 }
 
@@ -389,41 +431,71 @@ func (cmd *MigrateKeysCommand) createMigrationServices() (oldService, newService
 	return oldService, newService, nil
 }
 
-// processBatch processes a batch of key migrations
-func (cmd *MigrateKeysCommand) processBatch(tx *gorm.DB, keys []models.APIKey, oldService, newService encryption.Service) error {
-	for _, key := range keys {
-		// 1. Decrypt using old service
-		decrypted, err := oldService.Decrypt(key.KeyValue)
-		if err != nil {
-			return fmt.Errorf("key ID %d decryption failed: %w", key.ID, err)
+// processBatchToTempColumns processes a batch of keys and writes to temporary columns
+func (cmd *MigrateKeysCommand) processBatchToTempColumns(keys []models.APIKey, oldService, newService encryption.Service) error {
+	// Process all keys in a single transaction
+	return cmd.db.Transaction(func(tx *gorm.DB) error {
+		for _, key := range keys {
+			// 1. Decrypt using old service
+			decrypted, err := oldService.Decrypt(key.KeyValue)
+			if err != nil {
+				return fmt.Errorf("key ID %d decryption failed: %w", key.ID, err)
+			}
+
+			// 2. Encrypt using new service
+			encrypted, err := newService.Encrypt(decrypted)
+			if err != nil {
+				return fmt.Errorf("key ID %d encryption failed: %w", key.ID, err)
+			}
+
+			// 3. Generate new hash using new service
+			newHash := newService.Hash(decrypted)
+
+			// 4. Update temporary columns
+			updates := map[string]any{
+				"key_value_new": encrypted,
+				"key_hash_new":  newHash,
+			}
+
+			if err := tx.Model(&models.APIKey{}).Where("id = ?", key.ID).Updates(updates).Error; err != nil {
+				return fmt.Errorf("failed to update key ID %d: %w", key.ID, err)
+			}
 		}
-
-		// 2. Encrypt using new service
-		encrypted, err := newService.Encrypt(decrypted)
-		if err != nil {
-			return fmt.Errorf("key ID %d encryption failed: %w", key.ID, err)
-		}
-
-		// 3. Generate new hash using new service
-		newHash := newService.Hash(decrypted)
-
-		// 4. Update both key_value and key_hash in backup table
-		updates := map[string]any{
-			"key_value": encrypted,
-			"key_hash":  newHash,
-		}
-
-		if err := tx.Table(cmd.backupTableName).Where("id = ?", key.ID).Updates(updates).Error; err != nil {
-			return fmt.Errorf("failed to update key ID %d: %w", key.ID, err)
-		}
-	}
-
-	return nil
+		return nil
+	})
 }
 
-// verifyBackupTable verifies backup table data integrity
-func (cmd *MigrateKeysCommand) verifyBackupTable() error {
-	logrus.Info("Verifying backup table data integrity...")
+// dropColumnsSQLite handles dropping columns in SQLite by recreating the table
+func (cmd *MigrateKeysCommand) dropColumnsSQLite() error {
+	// SQLite doesn't support DROP COLUMN, need to recreate table
+	return cmd.db.Transaction(func(tx *gorm.DB) error {
+		// Create new table without temporary columns
+		if err := tx.Exec(`
+			CREATE TABLE api_keys_temp AS
+			SELECT id, key_value, key_hash, group_id, status, request_count,
+			       failure_count, last_used_at, created_at, updated_at
+			FROM api_keys
+		`).Error; err != nil {
+			return fmt.Errorf("failed to create temp table: %w", err)
+		}
+
+		// Drop original table
+		if err := tx.Exec("DROP TABLE api_keys").Error; err != nil {
+			return fmt.Errorf("failed to drop original table: %w", err)
+		}
+
+		// Rename temp table
+		if err := tx.Exec("ALTER TABLE api_keys_temp RENAME TO api_keys").Error; err != nil {
+			return fmt.Errorf("failed to rename temp table: %w", err)
+		}
+
+		return nil
+	})
+}
+
+// verifyTempColumns verifies temporary columns data integrity
+func (cmd *MigrateKeysCommand) verifyTempColumns() error {
+	logrus.Info("Verifying temporary columns data integrity...")
 
 	// Create new encryption service for verification
 	var newService encryption.Service
@@ -439,23 +511,36 @@ func (cmd *MigrateKeysCommand) verifyBackupTable() error {
 		return fmt.Errorf("failed to create verification encryption service: %w", err)
 	}
 
-	// Verify all keys in backup table can be decrypted correctly
+	// Get total count
 	var totalCount int64
-	if err := cmd.db.Table(cmd.backupTableName).Count(&totalCount).Error; err != nil {
-		return fmt.Errorf("failed to get backup table key count: %w", err)
+	if err := cmd.db.Model(&models.APIKey{}).Count(&totalCount).Error; err != nil {
+		return fmt.Errorf("failed to get key count: %w", err)
 	}
 
 	if totalCount == 0 {
 		return nil
 	}
 
-	offset := 0
-	verifiedCount := 0
+	// Verify temporary columns have been populated
+	var migratedCount int64
+	if err := cmd.db.Model(&models.APIKey{}).Where("key_value_new IS NOT NULL AND key_value_new != ''").Count(&migratedCount).Error; err != nil {
+		return fmt.Errorf("failed to count migrated keys: %w", err)
+	}
 
+	if migratedCount != totalCount {
+		return fmt.Errorf("migration incomplete: %d/%d keys migrated", migratedCount, totalCount)
+	}
+
+	// Verify a sample of keys can be decrypted correctly
+	verifiedCount := 0
 	for {
-		var keys []models.APIKey
-		if err := cmd.db.Table(cmd.backupTableName).Order("id").Offset(offset).Limit(migrationBatchSize).Find(&keys).Error; err != nil {
-			return fmt.Errorf("failed to get backup table key data: %w", err)
+		var keys []struct {
+			ID          uint
+			KeyValueNew string `gorm:"column:key_value_new"`
+		}
+
+		if err := cmd.db.Table("api_keys").Select("id, key_value_new").Where("key_value_new IS NOT NULL").Order("id").Limit(100).Offset(verifiedCount).Scan(&keys).Error; err != nil {
+			return fmt.Errorf("failed to get keys for verification: %w", err)
 		}
 
 		if len(keys) == 0 {
@@ -463,58 +548,131 @@ func (cmd *MigrateKeysCommand) verifyBackupTable() error {
 		}
 
 		for _, key := range keys {
-			_, err := newService.Decrypt(key.KeyValue)
+			_, err := newService.Decrypt(key.KeyValueNew)
 			if err != nil {
-				return fmt.Errorf("backup table key ID %d verification failed: %w", key.ID, err)
+				return fmt.Errorf("key ID %d verification failed: invalid temporary column data: %w", key.ID, err)
 			}
 		}
 
 		verifiedCount += len(keys)
-		offset += migrationBatchSize
-		// Ensure we don't display more than total count
-		actualVerified := verifiedCount
-		if int64(actualVerified) > totalCount {
-			actualVerified = int(totalCount)
+		if verifiedCount >= int(totalCount) || verifiedCount >= 1000 { // Verify max 1000 keys for performance
+			break
 		}
-		logrus.Infof("Verified %d/%d keys", actualVerified, totalCount)
 	}
 
-	logrus.Info("Backup table data verification passed")
+	logrus.Infof("Verified %d keys successfully", verifiedCount)
 	return nil
 }
 
-// atomicTableSwitch performs atomic table name switching
-func (cmd *MigrateKeysCommand) atomicTableSwitch() error {
-	logrus.Info("Executing atomic table switch...")
+// switchColumns performs atomic column switching
+func (cmd *MigrateKeysCommand) switchColumns() error {
+	logrus.Info("Switching to new columns...")
 
 	dbType := cmd.db.Dialector.Name()
 
-	switch dbType {
-	case "mysql":
-		// MySQL supports simultaneous renaming of multiple tables (atomic operation)
-		sql := fmt.Sprintf("RENAME TABLE api_keys TO api_keys_old, %s TO api_keys", cmd.backupTableName)
-		if err := cmd.db.Exec(sql).Error; err != nil {
-			return fmt.Errorf("MySQL table switch failed: %w", err)
-		}
-	case "postgres", "sqlite":
-		// PostgreSQL and SQLite need step-by-step operations, but ensure atomicity within transaction
-		if err := cmd.db.Transaction(func(tx *gorm.DB) error {
-			if err := tx.Exec("ALTER TABLE api_keys RENAME TO api_keys_old").Error; err != nil {
-				return fmt.Errorf("failed to rename original table: %w", err)
+	return cmd.db.Transaction(func(tx *gorm.DB) error {
+		switch dbType {
+		case "sqlite":
+			// SQLite requires table recreation
+			return cmd.switchColumnsSQLite(tx)
+		case "mysql":
+			// MySQL version-specific handling
+			// 1. Drop old columns
+			if err := tx.Exec("ALTER TABLE api_keys DROP COLUMN key_value").Error; err != nil {
+				return fmt.Errorf("failed to drop key_value column: %w", err)
 			}
-			sql := fmt.Sprintf("ALTER TABLE %s RENAME TO api_keys", cmd.backupTableName)
-			if err := tx.Exec(sql).Error; err != nil {
-				return fmt.Errorf("failed to rename backup table: %w", err)
+			if err := tx.Exec("ALTER TABLE api_keys DROP COLUMN key_hash").Error; err != nil {
+				return fmt.Errorf("failed to drop key_hash column: %w", err)
 			}
-			return nil
-		}); err != nil {
-			return fmt.Errorf("%s table switch failed: %w", dbType, err)
+
+			// 2. Check MySQL version for rename syntax
+			var version string
+			tx.Raw("SELECT VERSION()").Scan(&version)
+			
+			// MySQL 8.0+ supports RENAME COLUMN, MySQL 5.x needs CHANGE
+			if strings.Contains(version, "5.") {
+				// MySQL 5.x: use CHANGE syntax
+				if err := tx.Exec("ALTER TABLE api_keys CHANGE key_value_new key_value TEXT").Error; err != nil {
+					return fmt.Errorf("failed to rename key_value_new: %w", err)
+				}
+				if err := tx.Exec("ALTER TABLE api_keys CHANGE key_hash_new key_hash VARCHAR(255)").Error; err != nil {
+					return fmt.Errorf("failed to rename key_hash_new: %w", err)
+				}
+			} else {
+				// MySQL 8.0+: use RENAME COLUMN
+				if err := tx.Exec("ALTER TABLE api_keys RENAME COLUMN key_value_new TO key_value").Error; err != nil {
+					return fmt.Errorf("failed to rename key_value_new: %w", err)
+				}
+				if err := tx.Exec("ALTER TABLE api_keys RENAME COLUMN key_hash_new TO key_hash").Error; err != nil {
+					return fmt.Errorf("failed to rename key_hash_new: %w", err)
+				}
+			}
+		case "postgres":
+			// PostgreSQL supports standard column operations
+			// 1. Drop old columns
+			if err := tx.Exec("ALTER TABLE api_keys DROP COLUMN key_value").Error; err != nil {
+				return fmt.Errorf("failed to drop key_value column: %w", err)
+			}
+			if err := tx.Exec("ALTER TABLE api_keys DROP COLUMN key_hash").Error; err != nil {
+				return fmt.Errorf("failed to drop key_hash column: %w", err)
+			}
+
+			// 2. Rename new columns
+			if err := tx.Exec("ALTER TABLE api_keys RENAME COLUMN key_value_new TO key_value").Error; err != nil {
+				return fmt.Errorf("failed to rename key_value_new: %w", err)
+			}
+			if err := tx.Exec("ALTER TABLE api_keys RENAME COLUMN key_hash_new TO key_hash").Error; err != nil {
+				return fmt.Errorf("failed to rename key_hash_new: %w", err)
+			}
 		}
-	default:
-		return fmt.Errorf("unsupported database type: %s", dbType)
+		return nil
+	})
+}
+
+// switchColumnsSQLite handles column switching for SQLite
+func (cmd *MigrateKeysCommand) switchColumnsSQLite(tx *gorm.DB) error {
+	// SQLite doesn't support DROP COLUMN or RENAME COLUMN in older versions
+	// Need to recreate table
+
+	// 1. Create new table with correct structure
+	if err := tx.Exec(`
+		CREATE TABLE api_keys_new (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			key_value TEXT,
+			key_hash VARCHAR(255),
+			group_id INTEGER,
+			status VARCHAR(20),
+			request_count INTEGER DEFAULT 0,
+			failure_count INTEGER DEFAULT 0,
+			last_used_at DATETIME,
+			created_at DATETIME,
+			updated_at DATETIME
+		)
+	`).Error; err != nil {
+		return fmt.Errorf("failed to create new table: %w", err)
 	}
 
-	logrus.Info("Table switch successful")
+	// 2. Copy data from temporary columns to new table
+	if err := tx.Exec(`
+		INSERT INTO api_keys_new (id, key_value, key_hash, group_id, status,
+		                         request_count, failure_count, last_used_at, created_at, updated_at)
+		SELECT id, key_value_new, key_hash_new, group_id, status,
+		       request_count, failure_count, last_used_at, created_at, updated_at
+		FROM api_keys
+	`).Error; err != nil {
+		return fmt.Errorf("failed to copy data: %w", err)
+	}
+
+	// 3. Drop old table
+	if err := tx.Exec("DROP TABLE api_keys").Error; err != nil {
+		return fmt.Errorf("failed to drop old table: %w", err)
+	}
+
+	// 4. Rename new table
+	if err := tx.Exec("ALTER TABLE api_keys_new RENAME TO api_keys").Error; err != nil {
+		return fmt.Errorf("failed to rename new table: %w", err)
+	}
+
 	return nil
 }
 
