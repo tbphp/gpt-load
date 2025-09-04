@@ -33,20 +33,20 @@ services:
   # 如果需要安装 MySQL、PostgreSQL 或 Redis，请取消以下注释并配置相应的环境变量。
   # 并且要在上方的depends_on中取消注释相应的依赖服务。
 
-  # mysql:
-  #   image: mysql:8.2
-  #   container_name: gpt-load-mysql
-  #   restart: always
-  #   environment:
-  #     MYSQL_ROOT_PASSWORD: 123456
-  #     MYSQL_DATABASE: gpt-load
-  #   volumes:
-  #     - ./data/mysql:/var/lib/mysql
-  #   healthcheck:
-  #     test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
-  #     interval: 5s
-  #     timeout: 5s
-  #     retries: 10
+  mysql:
+    image: mysql:8.2
+    container_name: gpt-load-mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: 123456
+      MYSQL_DATABASE: gpt-load
+    volumes:
+      - ./data/mysql:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   # postgres:
   #   image: "postgres:16"
