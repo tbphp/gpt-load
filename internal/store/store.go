@@ -62,6 +62,9 @@ type Store interface {
 
 	// Subscribe listens for messages on a given channel.
 	Subscribe(channel string) (Subscription, error)
+
+	// FlushDB clears all keys in the current database.
+	FlushDB() error
 }
 
 // Pipeliner defines an interface for executing a batch of commands.

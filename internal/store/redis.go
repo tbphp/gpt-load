@@ -185,3 +185,8 @@ func (s *RedisStore) Subscribe(channel string) (Subscription, error) {
 
 	return &redisSubscription{pubsub: pubsub}, nil
 }
+
+// FlushDB clears all keys in the current Redis database.
+func (s *RedisStore) FlushDB() error {
+	return s.client.FlushDB(context.Background()).Err()
+}
