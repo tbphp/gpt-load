@@ -3,12 +3,12 @@ package encryption
 import (
 	"crypto/aes"
 	"crypto/cipher"
-	"crypto/hmac"
-	"crypto/sha256"
+	"crypto/rand"
 	"encoding/hex"
 	"fmt"
 	"gpt-load/internal/types"
 	"gpt-load/internal/utils"
+	"io"
 )
 
 // Service defines the encryption interface
@@ -28,66 +28,34 @@ func NewService(configManager types.ConfigManager) (Service, error) {
 	aesKey := utils.DeriveAESKey(key)
 	utils.ValidatePasswordStrength(key, "ENCRYPTION_KEY")
 
-	// Create cipher block once and reuse
+	// Initialize cipher and GCM once for reuse
 	block, err := aes.NewCipher(aesKey)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create AES cipher: %w", err)
+		return nil, fmt.Errorf("failed to create cipher: %w", err)
 	}
 
-	return &aesService{
-		key:   aesKey,
-		block: block,
-	}, nil
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create GCM: %w", err)
+	}
+
+	return &aesService{key: aesKey, gcm: gcm}, nil
 }
 
-// aesService implements deterministic AES-256-CTR encryption with HMAC
+// aesService implements AES-256-GCM encryption
 type aesService struct {
-	key   []byte
-	block cipher.Block
-}
-
-// deriveIV generates a deterministic IV from the plaintext
-func (s *aesService) deriveIV(plaintext []byte) []byte {
-	// Use HMAC to generate deterministic IV
-	mac := hmac.New(sha256.New, s.key)
-	mac.Write(plaintext)
-	hash := mac.Sum(nil)
-	// Use first 16 bytes as IV
-	return hash[:aes.BlockSize]
-}
-
-// computeHMAC calculates HMAC-SHA256 for integrity
-func (s *aesService) computeHMAC(data []byte) []byte {
-	mac := hmac.New(sha256.New, s.key)
-	mac.Write(data)
-	return mac.Sum(nil)
+	key []byte
+	gcm cipher.AEAD
 }
 
 func (s *aesService) Encrypt(plaintext string) (string, error) {
-	if plaintext == "" {
-		return "", fmt.Errorf("plaintext cannot be empty")
+	nonce := make([]byte, s.gcm.NonceSize())
+	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
+		return "", err
 	}
 
-	plaintextBytes := []byte(plaintext)
-
-	// Generate deterministic IV from plaintext
-	iv := s.deriveIV(plaintextBytes)
-
-	// Create CTR stream
-	stream := cipher.NewCTR(s.block, iv)
-
-	// Encrypt (CTR mode doesn't need padding)
-	encrypted := make([]byte, len(plaintextBytes))
-	stream.XORKeyStream(encrypted, plaintextBytes)
-
-	// Compute HMAC for integrity (IV + ciphertext)
-	macData := append(iv, encrypted...)
-	mac := s.computeHMAC(macData)
-
-	// Combine: IV + encrypted + HMAC
-	result := append(macData, mac...)
-
-	return hex.EncodeToString(result), nil
+	ciphertext := s.gcm.Seal(nonce, nonce, []byte(plaintext), nil)
+	return hex.EncodeToString(ciphertext), nil
 }
 
 func (s *aesService) Decrypt(ciphertext string) (string, error) {
@@ -96,42 +64,24 @@ func (s *aesService) Decrypt(ciphertext string) (string, error) {
 		return "", fmt.Errorf("invalid hex data: %w", err)
 	}
 
-	// Minimum length: IV (16) + at least 1 byte + HMAC (32)
-	minLen := aes.BlockSize + 1 + sha256.Size
-	if len(data) < minLen {
+	nonceSize := s.gcm.NonceSize()
+	if len(data) < nonceSize {
 		return "", fmt.Errorf("ciphertext too short")
 	}
 
-	// Split components
-	iv := data[:aes.BlockSize]
-	macStart := len(data) - sha256.Size
-	encrypted := data[aes.BlockSize:macStart]
-	receivedMAC := data[macStart:]
-
-	// Verify HMAC (IV + ciphertext)
-	macData := data[:macStart]
-	expectedMAC := s.computeHMAC(macData)
-	if !hmac.Equal(receivedMAC, expectedMAC) {
-		return "", fmt.Errorf("HMAC verification failed")
+	nonce, encrypted := data[:nonceSize], data[nonceSize:]
+	plaintext, err := s.gcm.Open(nil, nonce, encrypted, nil)
+	if err != nil {
+		return "", fmt.Errorf("decryption failed: %w", err)
 	}
 
-	// Create CTR stream with the IV
-	stream := cipher.NewCTR(s.block, iv)
-
-	// Decrypt
-	decrypted := make([]byte, len(encrypted))
-	stream.XORKeyStream(decrypted, encrypted)
-
-	return string(decrypted), nil
+	return string(plaintext), nil
 }
 
 // noopService disables encryption
 type noopService struct{}
 
 func (s *noopService) Encrypt(plaintext string) (string, error) {
-	if plaintext == "" {
-		return "", fmt.Errorf("plaintext cannot be empty")
-	}
 	return plaintext, nil
 }
 
