@@ -16,7 +16,7 @@ import (
 
 const (
 	maxRequestKeys = 5000
-	chunkSize      = 1000
+	chunkSize      = 500
 )
 
 // AddKeysResult holds the result of adding multiple keys.

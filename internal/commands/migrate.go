@@ -10,6 +10,7 @@ import (
 	"gpt-load/internal/types"
 	"gpt-load/internal/utils"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -324,8 +325,20 @@ func (cmd *MigrateKeysCommand) createBackupTable() error {
 		return fmt.Errorf("failed to create backup table structure: %w", err)
 	}
 
-	// Copy all data from original table to backup table
-	sql := fmt.Sprintf("INSERT INTO %s SELECT * FROM api_keys", cmd.backupTableName)
+	// Use GORM Statement to get field information to ensure correct column order
+	stmt := &gorm.Statement{DB: cmd.db}
+	stmt.Parse(&models.APIKey{})
+	
+	// Build column list from parsed schema
+	var columns []string
+	for _, field := range stmt.Schema.Fields {
+		columns = append(columns, field.DBName)
+	}
+	columnList := strings.Join(columns, ", ")
+	
+	// Copy all data from original table to backup table with explicit column mapping
+	sql := fmt.Sprintf("INSERT INTO %s (%s) SELECT %s FROM api_keys", 
+		cmd.backupTableName, columnList, columnList)
 	if err := cmd.db.Exec(sql).Error; err != nil {
 		return fmt.Errorf("failed to copy data to backup table: %w", err)
 	}

@@ -9,8 +9,7 @@ import (
 )
 
 const (
-	importChunkSize = 1000
-	importTimeout   = 30 * time.Minute
+	importTimeout = 30 * time.Minute
 )
 
 // KeyImportResult holds the result of an import task.

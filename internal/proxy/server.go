@@ -141,13 +141,13 @@ func (ps *ProxyServer) executeRequestWithRetry(
 	req.Header.Del("X-Api-Key")
 	req.Header.Del("X-Goog-Api-Key")
 
+	channelHandler.ModifyRequest(req, apiKey, group)
+
 	// Apply custom header rules
 	if len(group.HeaderRuleList) > 0 {
 		headerCtx := utils.NewHeaderVariableContextFromGin(c, group, apiKey)
 		utils.ApplyHeaderRules(req, group.HeaderRuleList, headerCtx)
 	}
-
-	channelHandler.ModifyRequest(req, apiKey, group)
 
 	var client *http.Client
 	if isStream {
