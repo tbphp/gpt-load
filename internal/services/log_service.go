@@ -100,7 +100,7 @@ func (s *LogService) StreamLogKeysToCSV(c *gin.Context, writer io.Writer) error 
 
 	var results []ExportableLogKey
 
-	baseQuery := s.DB.Model(&models.RequestLog{}).Scopes(s.logFiltersScope(c))
+	baseQuery := s.DB.Model(&models.RequestLog{}).Scopes(s.logFiltersScope(c)).Where("key_hash IS NOT NULL AND key_hash != ''")
 
 	// 使用窗口函数获取每个key_hash的最新记录（避免同一密钥因多次加密产生重复）
 	err := s.DB.Raw(`
@@ -116,7 +116,6 @@ func (s *LogService) StreamLogKeysToCSV(c *gin.Context, writer io.Writer) error 
 				status_code,
 				ROW_NUMBER() OVER (PARTITION BY key_hash ORDER BY timestamp DESC) as rn
 			FROM (?) as filtered_logs
-			WHERE key_hash IS NOT NULL AND key_hash != ''
 		) ranked
 		WHERE rn = 1
 		ORDER BY key_hash

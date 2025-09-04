@@ -276,7 +276,10 @@ const exportLogs = () => {
     group_name: filters.group_name || undefined,
     key_value: filters.key_value || undefined,
     model: filters.model || undefined,
-    is_success: filters.is_success === "" ? undefined : filters.is_success === "true",
+    is_success:
+      filters.is_success === "" || filters.is_success === null
+        ? undefined
+        : filters.is_success === "true",
     status_code: filters.status_code ? parseInt(filters.status_code, 10) : undefined,
     source_ip: filters.source_ip || undefined,
     error_contains: filters.error_contains || undefined,
