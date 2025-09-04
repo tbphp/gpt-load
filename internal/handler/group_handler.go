@@ -84,8 +84,8 @@ func isValidGroupName(name string) bool {
 	if name == "" {
 		return false
 	}
-	// 允许使用小写字母、数字、下划线和中划线，长度在 3 到 30 个字符之间
-	match, _ := regexp.MatchString("^[a-z0-9_-]{3,30}$", name)
+	// 允许使用小写字母、数字、下划线和中划线，长度在 1 到 100 个字符之间
+	match, _ := regexp.MatchString("^[a-z0-9_-]{1,100}$", name)
 	return match
 }
 

@@ -192,10 +192,6 @@ func (s *KeyService) filterValidKeys(keys []string) []string {
 
 // isValidKeyFormat performs basic validation on key format
 func (s *KeyService) isValidKeyFormat(key string) bool {
-	if len(key) < 4 || len(key) > 1000 {
-		return false
-	}
-
 	if key == "" ||
 		strings.TrimSpace(key) == "" {
 		return false
