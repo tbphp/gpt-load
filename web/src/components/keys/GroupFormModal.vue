@@ -154,8 +154,8 @@ const rules: FormRules = {
       trigger: ["blur", "input"],
     },
     {
-      pattern: /^[a-z0-9_-]{3,30}$/,
-      message: "只能包含小写字母、数字、中划线或下划线，长度3-30位",
+      pattern: /^[a-z0-9_-]{1,100}$/,
+      message: "只能包含小写字母、数字、中划线或下划线，长度1-100位",
       trigger: ["blur", "input"],
     },
   ],
@@ -554,7 +554,7 @@ async function handleSubmit() {
                     <template #trigger>
                       <n-icon :component="HelpCircleOutline" class="help-icon" />
                     </template>
-                    作为API路由的一部分，只能包含小写字母、数字、中划线或下划线，长度3-30位。例如：gemini、openai-2
+                    作为API路由的一部分，只能包含小写字母、数字、中划线或下划线，长度1-100位。例如：gemini、openai-2
                   </n-tooltip>
                 </div>
               </template>

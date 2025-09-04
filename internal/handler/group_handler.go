@@ -182,7 +182,7 @@ func (s *Server) CreateGroup(c *gin.Context) {
 	// Data Cleaning and Validation
 	name := strings.TrimSpace(req.Name)
 	if !isValidGroupName(name) {
-		response.Error(c, app_errors.NewAPIError(app_errors.ErrValidation, "无效的分组名称。只能包含小写字母、数字、中划线或下划线，长度3-30位"))
+		response.Error(c, app_errors.NewAPIError(app_errors.ErrValidation, "无效的分组名称。只能包含小写字母、数字、中划线或下划线，长度1-100位"))
 		return
 	}
 
@@ -350,7 +350,7 @@ func (s *Server) UpdateGroup(c *gin.Context) {
 	if req.Name != nil {
 		cleanedName := strings.TrimSpace(*req.Name)
 		if !isValidGroupName(cleanedName) {
-			response.Error(c, app_errors.NewAPIError(app_errors.ErrValidation, "无效的分组名称格式。只能包含小写字母、数字、中划线或下划线，长度3-30位"))
+			response.Error(c, app_errors.NewAPIError(app_errors.ErrValidation, "无效的分组名称格式。只能包含小写字母、数字、中划线或下划线，长度1-100位"))
 			return
 		}
 		group.Name = cleanedName
