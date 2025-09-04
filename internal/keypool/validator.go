@@ -94,11 +94,12 @@ func (s *KeyValidator) TestMultipleKeys(group *models.Group, keyValues []string)
 
 	// Generate hashes for all key values
 	var keyHashes []string
-	keyHashToPlaintext := make(map[string]string)
 	for _, keyValue := range keyValues {
 		keyHash := s.encryptionSvc.Hash(keyValue)
+		if keyHash == "" {
+			continue
+		}
 		keyHashes = append(keyHashes, keyHash)
-		keyHashToPlaintext[keyHash] = keyValue
 	}
 
 	// Find which of the provided keys actually exist in the database for this group
