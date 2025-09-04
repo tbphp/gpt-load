@@ -346,19 +346,19 @@ func (p *KeyProvider) RemoveKeys(groupID uint, keyValues []string) (int64, error
 	var deletedCount int64
 
 	err := p.db.Transaction(func(tx *gorm.DB) error {
-		var encryptedKeyValues []string
+		var keyHashes []string
 		for _, keyValue := range keyValues {
-			encryptedKey, err := p.encryptionSvc.Encrypt(keyValue)
-			if err != nil {
-				logrus.WithFields(logrus.Fields{
-					"error": err,
-				}).Error("Failed to encrypt key for deletion")
-				return fmt.Errorf("failed to encrypt key for deletion: %w", err)
+			keyHash := p.encryptionSvc.Hash(keyValue)
+			if keyHash != "" {
+				keyHashes = append(keyHashes, keyHash)
 			}
-			encryptedKeyValues = append(encryptedKeyValues, encryptedKey)
 		}
 
-		if err := tx.Where("group_id = ? AND key_value IN ?", groupID, encryptedKeyValues).Find(&keysToDelete).Error; err != nil {
+		if len(keyHashes) == 0 {
+			return nil
+		}
+
+		if err := tx.Where("group_id = ? AND key_hash IN ?", groupID, keyHashes).Find(&keysToDelete).Error; err != nil {
 			return err
 		}
 
@@ -435,19 +435,19 @@ func (p *KeyProvider) RestoreMultipleKeys(groupID uint, keyValues []string) (int
 	var restoredCount int64
 
 	err := p.db.Transaction(func(tx *gorm.DB) error {
-		var encryptedKeyValues []string
+		var keyHashes []string
 		for _, keyValue := range keyValues {
-			encryptedKey, err := p.encryptionSvc.Encrypt(keyValue)
-			if err != nil {
-				logrus.WithFields(logrus.Fields{
-					"error": err,
-				}).Error("Failed to encrypt key for restore")
-				return fmt.Errorf("failed to encrypt key for restore: %w", err)
+			keyHash := p.encryptionSvc.Hash(keyValue)
+			if keyHash != "" {
+				keyHashes = append(keyHashes, keyHash)
 			}
-			encryptedKeyValues = append(encryptedKeyValues, encryptedKey)
 		}
 
-		if err := tx.Where("group_id = ? AND key_value IN ? AND status = ?", groupID, encryptedKeyValues, models.KeyStatusInvalid).Find(&keysToRestore).Error; err != nil {
+		if len(keyHashes) == 0 {
+			return nil
+		}
+
+		if err := tx.Where("group_id = ? AND key_hash IN ? AND status = ?", groupID, keyHashes, models.KeyStatusInvalid).Find(&keysToRestore).Error; err != nil {
 			return err
 		}
 

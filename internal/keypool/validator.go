@@ -92,42 +92,32 @@ func (s *KeyValidator) ValidateSingleKey(key *models.APIKey, group *models.Group
 func (s *KeyValidator) TestMultipleKeys(group *models.Group, keyValues []string) ([]KeyTestResult, error) {
 	results := make([]KeyTestResult, len(keyValues))
 
-	var encryptedKeyValues []string
-	plaintextToEncrypted := make(map[string]string)
-	for i, keyValue := range keyValues {
-		encryptedKey, err := s.encryptionSvc.Encrypt(keyValue)
-		if err != nil {
-			results[i] = KeyTestResult{
-				KeyValue: keyValue,
-				IsValid:  false,
-				Error:    fmt.Sprintf("Failed to encrypt key for validation: %v", err),
-			}
-			continue
-		}
-		encryptedKeyValues = append(encryptedKeyValues, encryptedKey)
-		plaintextToEncrypted[keyValue] = encryptedKey
+	// Generate hashes for all key values
+	var keyHashes []string
+	keyHashToPlaintext := make(map[string]string)
+	for _, keyValue := range keyValues {
+		keyHash := s.encryptionSvc.Hash(keyValue)
+		keyHashes = append(keyHashes, keyHash)
+		keyHashToPlaintext[keyHash] = keyValue
 	}
 
 	// Find which of the provided keys actually exist in the database for this group
 	var existingKeys []models.APIKey
-	if len(encryptedKeyValues) > 0 {
-		if err := s.DB.Where("group_id = ? AND key_value IN ?", group.ID, encryptedKeyValues).Find(&existingKeys).Error; err != nil {
+	if len(keyHashes) > 0 {
+		if err := s.DB.Where("group_id = ? AND key_hash IN ?", group.ID, keyHashes).Find(&existingKeys).Error; err != nil {
 			return nil, fmt.Errorf("failed to query keys from DB: %w", err)
 		}
 	}
 
+	// Create a map of key_hash to APIKey for quick lookup
 	existingKeyMap := make(map[string]models.APIKey)
 	for _, k := range existingKeys {
-		existingKeyMap[k.KeyValue] = k
+		existingKeyMap[k.KeyHash] = k
 	}
 
 	for i, kv := range keyValues {
-		if results[i].Error != "" {
-			continue
-		}
-
-		encryptedKey := plaintextToEncrypted[kv]
-		apiKey, exists := existingKeyMap[encryptedKey]
+		keyHash := s.encryptionSvc.Hash(kv)
+		apiKey, exists := existingKeyMap[keyHash]
 		if !exists {
 			results[i] = KeyTestResult{
 				KeyValue: kv,

@@ -3,10 +3,11 @@ package encryption
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"gpt-load/internal/types"
 	"gpt-load/internal/utils"
 	"io"
 )
@@ -15,18 +16,18 @@ import (
 type Service interface {
 	Encrypt(plaintext string) (string, error)
 	Decrypt(ciphertext string) (string, error)
+	Hash(plaintext string) string
 }
 
 // NewService creates encryption service
-func NewService(configManager types.ConfigManager) (Service, error) {
-	key := configManager.GetEncryptionKey()
-	if key == "" {
+func NewService(encryptionKey string) (Service, error) {
+	if encryptionKey == "" {
 		return &noopService{}, nil
 	}
 
 	// Derive AES-256 key from user input and validate strength
-	aesKey := utils.DeriveAESKey(key)
-	utils.ValidatePasswordStrength(key, "ENCRYPTION_KEY")
+	aesKey := utils.DeriveAESKey(encryptionKey)
+	utils.ValidatePasswordStrength(encryptionKey, "ENCRYPTION_KEY")
 
 	// Initialize cipher and GCM once for reuse
 	block, err := aes.NewCipher(aesKey)
@@ -78,6 +79,16 @@ func (s *aesService) Decrypt(ciphertext string) (string, error) {
 	return string(plaintext), nil
 }
 
+// Hash generates a hash of the plaintext using HMAC-SHA256
+func (s *aesService) Hash(plaintext string) string {
+	if plaintext == "" {
+		return ""
+	}
+	mac := hmac.New(sha256.New, s.key)
+	mac.Write([]byte(plaintext))
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
 // noopService disables encryption
 type noopService struct{}
 
@@ -87,4 +98,13 @@ func (s *noopService) Encrypt(plaintext string) (string, error) {
 
 func (s *noopService) Decrypt(ciphertext string) (string, error) {
 	return ciphertext, nil
+}
+
+// Hash generates a hash of the plaintext using SHA256 (no key)
+func (s *noopService) Hash(plaintext string) string {
+	if plaintext == "" {
+		return ""
+	}
+	hash := sha256.Sum256([]byte(plaintext))
+	return hex.EncodeToString(hash[:])
 }

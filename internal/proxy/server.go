@@ -295,6 +295,8 @@ func (ps *ProxyServer) logRequest(
 		} else {
 			logEntry.KeyValue = encryptedKeyValue
 		}
+		// 添加 KeyHash 用于反查
+		logEntry.KeyHash = ps.encryptionSvc.Hash(apiKey.KeyValue)
 	}
 
 	if finalError != nil {

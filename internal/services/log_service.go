@@ -42,15 +42,8 @@ func (s *LogService) logFiltersScope(c *gin.Context) func(db *gorm.DB) *gorm.DB 
 			db = db.Where("group_name LIKE ?", "%"+groupName+"%")
 		}
 		if keyValue := c.Query("key_value"); keyValue != "" {
-			// Encrypt the search keyword for exact match with encrypted logs
-			encryptedKeyValue, err := s.EncryptionSvc.Encrypt(keyValue)
-			if err != nil {
-				logrus.WithError(err).Error("Failed to encrypt log search keyword")
-				// If encryption fails, search will return no results (which is safer)
-				db = db.Where("key_value = ?", "")
-			} else {
-				db = db.Where("key_value = ?", encryptedKeyValue)
-			}
+			keyHash := s.EncryptionSvc.Hash(keyValue)
+			db = db.Where("key_hash = ?", keyHash)
 		}
 		if model := c.Query("model"); model != "" {
 			db = db.Where("model LIKE ?", "%"+model+"%")
@@ -109,7 +102,7 @@ func (s *LogService) StreamLogKeysToCSV(c *gin.Context, writer io.Writer) error 
 
 	baseQuery := s.DB.Model(&models.RequestLog{}).Scopes(s.logFiltersScope(c))
 
-	// 使用窗口函数获取每个key_value的最新记录
+	// 使用窗口函数获取每个key_hash的最新记录（避免同一密钥因多次加密产生重复）
 	err := s.DB.Raw(`
 		SELECT
 			key_value,
@@ -118,13 +111,15 @@ func (s *LogService) StreamLogKeysToCSV(c *gin.Context, writer io.Writer) error 
 		FROM (
 			SELECT
 				key_value,
+				key_hash,
 				group_name,
 				status_code,
-				ROW_NUMBER() OVER (PARTITION BY key_value ORDER BY timestamp DESC) as rn
+				ROW_NUMBER() OVER (PARTITION BY key_hash ORDER BY timestamp DESC) as rn
 			FROM (?) as filtered_logs
+			WHERE key_hash IS NOT NULL AND key_hash != ''
 		) ranked
 		WHERE rn = 1
-		ORDER BY key_value
+		ORDER BY key_hash
 	`, baseQuery).Scan(&results).Error
 
 	if err != nil {

@@ -148,16 +148,12 @@ func (s *Server) ListKeysInGroup(c *gin.Context) {
 	}
 
 	searchKeyword := c.Query("key_value")
+	searchHash := ""
 	if searchKeyword != "" {
-		searchKeyword, err = s.EncryptionSvc.Encrypt(searchKeyword)
-		if err != nil {
-			logrus.WithError(err).Error("Failed to encrypt search keyword")
-			response.Error(c, app_errors.NewAPIError(app_errors.ErrInternalServer, "Search temporarily unavailable"))
-			return
-		}
+		searchHash = s.EncryptionSvc.Hash(searchKeyword)
 	}
 
-	query := s.KeyService.ListKeysInGroupQuery(groupID, statusFilter, searchKeyword)
+	query := s.KeyService.ListKeysInGroupQuery(groupID, statusFilter, searchHash)
 
 	var keys []models.APIKey
 	paginatedResult, err := response.Paginate(c, query, &keys)

@@ -90,7 +90,7 @@ func (a *App) Start() error {
 			return fmt.Errorf("database auto-migration failed: %w", err)
 		}
 		// 数据修复
-		db.MigrateDatabase(a.db)
+		db.MigrateDatabase(a.db, a.configManager.GetEncryptionKey())
 		logrus.Info("Database auto-migration completed.")
 
 		// 初始化系统设置

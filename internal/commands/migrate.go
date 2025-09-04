@@ -187,11 +187,11 @@ func (cmd *MigrateKeysCommand) preCheck() error {
 
 	if cmd.fromKey != "" {
 		// Use fromKey to create encryption service for verification
-		currentService, err = cmd.createEncryptionService(cmd.fromKey)
+		currentService, err = encryption.NewService(cmd.fromKey)
 	} else {
 		// Enable encryption scenario: data should be unencrypted
 		// Use noop service to verify data is not encrypted
-		currentService, err = cmd.createEncryptionService("")
+		currentService, err = encryption.NewService("")
 	}
 
 	if err != nil {
@@ -339,14 +339,14 @@ func (cmd *MigrateKeysCommand) createMigrationServices() (oldService, newService
 	// Create old encryption service (for decryption) based on parameters only
 	if cmd.fromKey != "" {
 		// Decrypt with specified key
-		oldService, err = cmd.createEncryptionService(cmd.fromKey)
+		oldService, err = encryption.NewService(cmd.fromKey)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to create old encryption service: %w", err)
 		}
 	} else {
 		// Enable encryption scenario: data should be unencrypted
 		// Use noop service (empty key means no encryption)
-		oldService, err = cmd.createEncryptionService("")
+		oldService, err = encryption.NewService("")
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to create noop encryption service for source: %w", err)
 		}
@@ -355,30 +355,20 @@ func (cmd *MigrateKeysCommand) createMigrationServices() (oldService, newService
 	// Create new encryption service (for encryption) based on parameters only
 	if cmd.toKey != "" {
 		// Encrypt with specified key
-		newService, err = cmd.createEncryptionService(cmd.toKey)
+		newService, err = encryption.NewService(cmd.toKey)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to create new encryption service: %w", err)
 		}
 	} else {
 		// Disable encryption scenario: data should be unencrypted
 		// Use noop service (empty key means no encryption)
-		newService, err = cmd.createEncryptionService("")
+		newService, err = encryption.NewService("")
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to create noop encryption service for target: %w", err)
 		}
 	}
 
 	return oldService, newService, nil
-}
-
-// createEncryptionService creates encryption service with specified key
-func (cmd *MigrateKeysCommand) createEncryptionService(key string) (encryption.Service, error) {
-	// Create temporary config manager
-	tempConfig := &tempConfigManager{
-		configManager: cmd.configManager,
-		encryptionKey: key,
-	}
-	return encryption.NewService(tempConfig)
 }
 
 // processBatch processes a batch of key migrations
@@ -396,8 +386,16 @@ func (cmd *MigrateKeysCommand) processBatch(tx *gorm.DB, keys []models.APIKey, o
 			return fmt.Errorf("key ID %d encryption failed: %w", key.ID, err)
 		}
 
-		// 3. Update key in backup table
-		if err := tx.Table(cmd.backupTableName).Where("id = ?", key.ID).Update("key_value", encrypted).Error; err != nil {
+		// 3. Generate new hash using new service
+		newHash := newService.Hash(decrypted)
+
+		// 4. Update both key_value and key_hash in backup table
+		updates := map[string]any{
+			"key_value": encrypted,
+			"key_hash":  newHash,
+		}
+
+		if err := tx.Table(cmd.backupTableName).Where("id = ?", key.ID).Updates(updates).Error; err != nil {
 			return fmt.Errorf("failed to update key ID %d: %w", key.ID, err)
 		}
 	}
@@ -414,9 +412,9 @@ func (cmd *MigrateKeysCommand) verifyBackupTable() error {
 	var err error
 
 	if cmd.toKey != "" {
-		newService, err = cmd.createEncryptionService(cmd.toKey)
+		newService, err = encryption.NewService(cmd.toKey)
 	} else {
-		newService, err = cmd.createEncryptionService("")
+		newService, err = encryption.NewService("")
 	}
 
 	if err != nil {
@@ -528,59 +526,4 @@ func (cmd *MigrateKeysCommand) cleanupOldTable() error {
 	}
 	logrus.Info("Old table cleanup successful")
 	return nil
-}
-
-// tempConfigManager temporary config manager for creating encryption service with specified key
-type tempConfigManager struct {
-	configManager types.ConfigManager
-	encryptionKey string
-}
-
-func (t *tempConfigManager) GetEncryptionKey() string {
-	return t.encryptionKey
-}
-
-// Implement other methods of types.ConfigManager interface, delegating to original config manager
-func (t *tempConfigManager) IsMaster() bool {
-	return t.configManager.IsMaster()
-}
-
-func (t *tempConfigManager) GetAuthConfig() types.AuthConfig {
-	return t.configManager.GetAuthConfig()
-}
-
-func (t *tempConfigManager) GetCORSConfig() types.CORSConfig {
-	return t.configManager.GetCORSConfig()
-}
-
-func (t *tempConfigManager) GetPerformanceConfig() types.PerformanceConfig {
-	return t.configManager.GetPerformanceConfig()
-}
-
-func (t *tempConfigManager) GetLogConfig() types.LogConfig {
-	return t.configManager.GetLogConfig()
-}
-
-func (t *tempConfigManager) GetDatabaseConfig() types.DatabaseConfig {
-	return t.configManager.GetDatabaseConfig()
-}
-
-func (t *tempConfigManager) GetEffectiveServerConfig() types.ServerConfig {
-	return t.configManager.GetEffectiveServerConfig()
-}
-
-func (t *tempConfigManager) GetRedisDSN() string {
-	return t.configManager.GetRedisDSN()
-}
-
-func (t *tempConfigManager) Validate() error {
-	return t.configManager.Validate()
-}
-
-func (t *tempConfigManager) DisplayServerConfig() {
-	t.configManager.DisplayServerConfig()
-}
-
-func (t *tempConfigManager) ReloadConfig() error {
-	return t.configManager.ReloadConfig()
 }

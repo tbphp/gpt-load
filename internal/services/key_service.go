@@ -92,14 +92,14 @@ func (s *KeyService) processAndCreateKeys(
 	keys []string,
 	progressCallback func(processed int),
 ) (addedCount int, ignoredCount int, err error) {
-	// 1. Get existing keys in the group for deduplication
-	var existingKeys []models.APIKey
-	if err := s.DB.Where("group_id = ?", groupID).Select("key_value").Find(&existingKeys).Error; err != nil {
+	// 1. Get existing key hashes in the group for deduplication
+	var existingHashes []string
+	if err := s.DB.Model(&models.APIKey{}).Where("group_id = ?", groupID).Pluck("key_hash", &existingHashes).Error; err != nil {
 		return 0, 0, err
 	}
-	existingKeyMap := make(map[string]bool)
-	for _, k := range existingKeys {
-		existingKeyMap[k.KeyValue] = true
+	existingHashMap := make(map[string]bool)
+	for _, h := range existingHashes {
+		existingHashMap[h] = true
 	}
 
 	// 2. Prepare new keys for creation
@@ -112,13 +112,15 @@ func (s *KeyService) processAndCreateKeys(
 			continue
 		}
 
-		encryptedKey, err := s.EncryptionSvc.Encrypt(trimmedKey)
-		if err != nil {
-			logrus.WithError(err).WithField("key", trimmedKey).Error("Failed to encrypt key, skipping")
+		// Generate hash for deduplication check
+		keyHash := s.EncryptionSvc.Hash(trimmedKey)
+		if existingHashMap[keyHash] {
 			continue
 		}
 
-		if existingKeyMap[encryptedKey] {
+		encryptedKey, err := s.EncryptionSvc.Encrypt(trimmedKey)
+		if err != nil {
+			logrus.WithError(err).WithField("key", trimmedKey).Error("Failed to encrypt key, skipping")
 			continue
 		}
 
@@ -126,6 +128,7 @@ func (s *KeyService) processAndCreateKeys(
 		newKeysToCreate = append(newKeysToCreate, models.APIKey{
 			GroupID:  groupID,
 			KeyValue: encryptedKey,
+			KeyHash:  keyHash,
 			Status:   models.KeyStatusActive,
 		})
 	}
@@ -293,15 +296,15 @@ func (s *KeyService) DeleteMultipleKeys(groupID uint, keysText string) (*DeleteK
 }
 
 // ListKeysInGroupQuery builds a query to list all keys within a specific group, filtered by status.
-func (s *KeyService) ListKeysInGroupQuery(groupID uint, statusFilter string, searchKeyword string) *gorm.DB {
+func (s *KeyService) ListKeysInGroupQuery(groupID uint, statusFilter string, searchHash string) *gorm.DB {
 	query := s.DB.Model(&models.APIKey{}).Where("group_id = ?", groupID)
 
 	if statusFilter != "" {
 		query = query.Where("status = ?", statusFilter)
 	}
 
-	if searchKeyword != "" {
-		query = query.Where("key_value = ?", searchKeyword)
+	if searchHash != "" {
+		query = query.Where("key_hash = ?", searchHash)
 	}
 
 	query = query.Order("last_used_at desc, updated_at desc")
