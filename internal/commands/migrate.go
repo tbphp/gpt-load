@@ -49,7 +49,7 @@ func RunMigrateKeys(args []string) {
 	// Check if help should be displayed
 	if len(args) == 0 || (*fromKey == "" && *toKey == "") {
 		migrateCmd.Usage()
-		os.Exit(1)
+		os.Exit(0)
 	}
 
 	// Build dependency injection container
@@ -148,7 +148,7 @@ func (cmd *MigrateKeysCommand) Execute() error {
 
 	logrus.Info("Key migration completed successfully!")
 	logrus.Info("Recommend restarting service to ensure all cached data is loaded correctly")
-	
+
 	return nil
 }
 
@@ -163,7 +163,7 @@ func (cmd *MigrateKeysCommand) validateAndGetScenario() (string, error) {
 		utils.ValidatePasswordStrength(cmd.toKey, "new encryption key")
 		return "enable encryption", nil
 	case hasFrom && !hasTo:
-		// Disable encryption  
+		// Disable encryption
 		return "disable encryption", nil
 	case hasFrom && hasTo:
 		// Change encryption key
@@ -181,7 +181,7 @@ func (cmd *MigrateKeysCommand) validateAndGetScenario() (string, error) {
 func (cmd *MigrateKeysCommand) preCheck() error {
 	logrus.Info("Executing pre-check...")
 
-	// Get current encryption service
+	// Get current encryption service based on parameters only
 	var currentService encryption.Service
 	var err error
 
@@ -189,10 +189,11 @@ func (cmd *MigrateKeysCommand) preCheck() error {
 		// Use fromKey to create encryption service for verification
 		currentService, err = cmd.createEncryptionService(cmd.fromKey)
 	} else {
-		// Use currently configured encryption key
-		currentService, err = encryption.NewService(cmd.configManager)
+		// Enable encryption scenario: data should be unencrypted
+		// Use noop service to verify data is not encrypted
+		currentService, err = cmd.createEncryptionService("")
 	}
-	
+
 	if err != nil {
 		return fmt.Errorf("failed to create current encryption service: %w", err)
 	}
@@ -233,11 +234,16 @@ func (cmd *MigrateKeysCommand) preCheck() error {
 		}
 
 		offset += migrationBatchSize
-		logrus.Infof("Verified %d/%d keys", offset, totalCount)
+		// Ensure we don't display more than total count
+		actualVerified := offset
+		if int64(offset) > totalCount {
+			actualVerified = int(totalCount)
+		}
+		logrus.Infof("Verified %d/%d keys", actualVerified, totalCount)
 	}
 
 	if failedCount > 0 {
-		return fmt.Errorf("found %d keys that cannot be decrypted, please check current ENCRYPTION_KEY configuration", failedCount)
+		return fmt.Errorf("found %d keys that cannot be decrypted, please check the --from parameter", failedCount)
 	}
 
 	logrus.Info("Pre-check passed, all keys verified successfully")
@@ -295,55 +301,70 @@ func (cmd *MigrateKeysCommand) createBackupTableAndMigrate() error {
 
 		migratedCount += len(keys)
 		offset += migrationBatchSize
-		logrus.Infof("Migrated %d/%d keys", migratedCount, totalCount)
+		// Ensure we don't display more than total count
+		actualMigrated := migratedCount
+		if int64(actualMigrated) > totalCount {
+			actualMigrated = int(totalCount)
+		}
+		logrus.Infof("Migrated %d/%d keys", actualMigrated, totalCount)
 	}
 
 	logrus.Info("Key migration completed")
 	return nil
 }
 
-// createBackupTable creates backup table
+// createBackupTable creates backup table with identical structure using GORM
 func (cmd *MigrateKeysCommand) createBackupTable() error {
 	// Drop potentially existing old backup table
 	cmd.db.Exec("DROP TABLE IF EXISTS " + cmd.backupTableName)
 
-	// Use universal syntax to create backup table and copy data (one step)
-	sql := fmt.Sprintf("CREATE TABLE %s AS SELECT * FROM api_keys", cmd.backupTableName)
-	if err := cmd.db.Exec(sql).Error; err != nil {
-		return fmt.Errorf("failed to create backup table: %w", err)
+	// Use GORM's Table method to create backup table with dynamic name
+	// This ensures the backup table has exactly the same structure as models.APIKey
+	if err := cmd.db.Table(cmd.backupTableName).AutoMigrate(&models.APIKey{}); err != nil {
+		return fmt.Errorf("failed to create backup table structure: %w", err)
 	}
 
-	logrus.Infof("Backup table %s created successfully", cmd.backupTableName)
+	// Copy all data from original table to backup table
+	sql := fmt.Sprintf("INSERT INTO %s SELECT * FROM api_keys", cmd.backupTableName)
+	if err := cmd.db.Exec(sql).Error; err != nil {
+		return fmt.Errorf("failed to copy data to backup table: %w", err)
+	}
+
+	logrus.Infof("Backup table %s created successfully with identical structure", cmd.backupTableName)
 	return nil
 }
 
 // createMigrationServices creates old and new encryption services for migration
 func (cmd *MigrateKeysCommand) createMigrationServices() (oldService, newService encryption.Service, err error) {
-	// Create old encryption service (for decryption)
+	// Create old encryption service (for decryption) based on parameters only
 	if cmd.fromKey != "" {
+		// Decrypt with specified key
 		oldService, err = cmd.createEncryptionService(cmd.fromKey)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to create old encryption service: %w", err)
 		}
 	} else {
-		// Disable encryption scenario: use current configured encryption service
-		oldService, err = encryption.NewService(cmd.configManager)
+		// Enable encryption scenario: data should be unencrypted
+		// Use noop service (empty key means no encryption)
+		oldService, err = cmd.createEncryptionService("")
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to create current encryption service: %w", err)
+			return nil, nil, fmt.Errorf("failed to create noop encryption service for source: %w", err)
 		}
 	}
 
-	// Create new encryption service (for encryption)
+	// Create new encryption service (for encryption) based on parameters only
 	if cmd.toKey != "" {
+		// Encrypt with specified key
 		newService, err = cmd.createEncryptionService(cmd.toKey)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to create new encryption service: %w", err)
 		}
 	} else {
-		// Disable encryption scenario: use noop service
+		// Disable encryption scenario: data should be unencrypted
+		// Use noop service (empty key means no encryption)
 		newService, err = cmd.createEncryptionService("")
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to create noop encryption service: %w", err)
+			return nil, nil, fmt.Errorf("failed to create noop encryption service for target: %w", err)
 		}
 	}
 
@@ -434,7 +455,12 @@ func (cmd *MigrateKeysCommand) verifyBackupTable() error {
 
 		verifiedCount += len(keys)
 		offset += migrationBatchSize
-		logrus.Infof("Verified %d/%d keys", verifiedCount, totalCount)
+		// Ensure we don't display more than total count
+		actualVerified := verifiedCount
+		if int64(actualVerified) > totalCount {
+			actualVerified = int(totalCount)
+		}
+		logrus.Infof("Verified %d/%d keys", actualVerified, totalCount)
 	}
 
 	logrus.Info("Backup table data verification passed")
@@ -446,7 +472,7 @@ func (cmd *MigrateKeysCommand) atomicTableSwitch() error {
 	logrus.Info("Executing atomic table switch...")
 
 	dbType := cmd.db.Dialector.Name()
-	
+
 	switch dbType {
 	case "mysql":
 		// MySQL supports simultaneous renaming of multiple tables (atomic operation)
@@ -479,7 +505,7 @@ func (cmd *MigrateKeysCommand) atomicTableSwitch() error {
 // clearCache cleans cache
 func (cmd *MigrateKeysCommand) clearCache() error {
 	logrus.Info("Starting cache cleanup...")
-	
+
 	if cmd.cacheStore == nil {
 		logrus.Info("No cache storage configured, skipping cache cleanup")
 		return nil
@@ -489,7 +515,7 @@ func (cmd *MigrateKeysCommand) clearCache() error {
 	if err := cmd.cacheStore.FlushDB(); err != nil {
 		return fmt.Errorf("cache cleanup failed: %w", err)
 	}
-	
+
 	logrus.Info("Cache cleanup successful")
 	return nil
 }
