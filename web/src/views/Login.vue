@@ -214,7 +214,7 @@ const handleLogin = async () => {
 }
 
 :deep(.n-input__prefix) {
-  color: #64748b;
+  color: var(--text-secondary);
 }
 
 :deep(.n-card-header) {
@@ -223,5 +223,24 @@ const handleLogin = async () => {
 
 :deep(.n-card__content) {
   padding-top: 0;
+}
+
+/* 暗黑模式适配 */
+:root.dark .login-decoration {
+  opacity: 0.05;
+}
+
+:root.dark .login-decoration-2 {
+  opacity: 0.03;
+}
+
+:root.dark .login-card {
+  background: var(--card-bg-solid);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+:root.dark .login-btn:hover {
+  background: linear-gradient(135deg, #7c8aac 0%, #8b94c0 100%);
+  box-shadow: 0 8px 25px rgba(139, 157, 245, 0.2);
 }
 </style>
