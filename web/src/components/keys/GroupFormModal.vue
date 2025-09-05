@@ -1066,7 +1066,6 @@ async function handleSubmit() {
 <style scoped>
 .group-form-modal {
   width: 800px;
-  --n-color: rgba(255, 255, 255, 0.95);
 }
 
 .form-section {
@@ -1076,10 +1075,10 @@ async function handleSubmit() {
 .section-title {
   font-size: 1rem;
   font-weight: 600;
-  color: #374151;
+  color: var(--text-primary);
   margin: 0 0 16px 0;
   padding-bottom: 8px;
-  border-bottom: 2px solid rgba(102, 126, 234, 0.1);
+  border-bottom: 2px solid var(--border-color);
 }
 
 :deep(.n-form-item-label) {
@@ -1103,7 +1102,7 @@ async function handleSubmit() {
 }
 
 :deep(.n-card-header) {
-  border-bottom: 1px solid rgba(239, 239, 245, 0.8);
+  border-bottom: 1px solid var(--border-color);
   padding: 10px 20px;
 }
 
@@ -1113,7 +1112,7 @@ async function handleSubmit() {
 }
 
 :deep(.n-card__footer) {
-  border-top: 1px solid rgba(239, 239, 245, 0.8);
+  border-top: 1px solid var(--border-color);
   padding: 10px 15px;
 }
 
@@ -1128,7 +1127,7 @@ async function handleSubmit() {
 .config-title {
   font-size: 0.9rem;
   font-weight: 600;
-  color: #374151;
+  color: var(--text-primary);
   margin: 0 0 12px 0;
 }
 
@@ -1148,14 +1147,14 @@ async function handleSubmit() {
 }
 
 .help-icon {
-  color: #9ca3af;
+  color: var(--text-tertiary);
   font-size: 14px;
   cursor: help;
   transition: color 0.2s ease;
 }
 
 .help-icon:hover {
-  color: #667eea;
+  color: var(--primary-color);
 }
 
 .section-title-with-tooltip {
@@ -1186,7 +1185,7 @@ async function handleSubmit() {
   gap: 6px;
   font-size: 0.9rem;
   font-weight: 600;
-  color: #374151;
+  color: var(--text-primary);
   margin: 0 0 12px 0;
 }
 
@@ -1197,15 +1196,15 @@ async function handleSubmit() {
 /* 增强表单样式 */
 :deep(.n-form-item-label) {
   font-weight: 500;
-  color: #374151;
+  color: var(--text-primary);
 }
 
 :deep(.n-input) {
   --n-border-radius: 8px;
-  --n-border: 1px solid #e5e7eb;
-  --n-border-hover: 1px solid #667eea;
-  --n-border-focus: 1px solid #667eea;
-  --n-box-shadow-focus: 0 0 0 2px rgba(102, 126, 234, 0.1);
+  --n-border: 1px solid var(--border-color);
+  --n-border-hover: 1px solid var(--primary-color);
+  --n-border-focus: 1px solid var(--primary-color);
+  --n-box-shadow-focus: 0 0 0 2px var(--primary-color-suppl);
 }
 
 :deep(.n-select) {
@@ -1243,7 +1242,7 @@ async function handleSubmit() {
 /* 折叠面板样式优化 */
 :deep(.n-collapse-item__header) {
   font-weight: 500;
-  color: #374151;
+  color: var(--text-primary);
 }
 
 :deep(.n-collapse-item) {
@@ -1287,7 +1286,7 @@ async function handleSubmit() {
 
 .weight-label {
   font-weight: 500;
-  color: #374151;
+  color: var(--text-primary);
   white-space: nowrap;
 }
 
@@ -1394,14 +1393,14 @@ async function handleSubmit() {
 
 .header-value.removed-placeholder {
   justify-content: center;
-  background-color: #f5f5f5;
-  border: 1px solid #e0e0e0;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
   border-radius: 6px;
   padding: 0 12px;
 }
 
 .removed-text {
-  color: #999;
+  color: var(--text-tertiary);
   font-style: italic;
   font-size: 13px;
 }
@@ -1427,7 +1426,7 @@ async function handleSubmit() {
   top: 100%;
   left: 0;
   font-size: 12px;
-  color: #d03050;
+  color: var(--error-color);
   margin-top: 2px;
 }
 

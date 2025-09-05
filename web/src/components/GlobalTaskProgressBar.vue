@@ -177,10 +177,10 @@ function getTaskTitle(): string {
   z-index: 9999;
   width: 95%;
   max-width: 350px;
-  background: white;
+  background: var(--card-bg-solid);
   border-radius: var(--border-radius-md);
   box-shadow: var(--shadow-lg);
-  border: 1px solid rgba(0, 0, 0, 0.08);
+  border: 1px solid var(--border-color);
   animation: slideIn 0.3s ease-out;
 }
 
@@ -201,6 +201,25 @@ function getTaskTitle(): string {
     transform: translateX(0);
     opacity: 1;
   }
+}
+
+/* 暗黑模式特殊样式 */
+:root.dark .global-task-progress {
+  background: #323841; /* 浅灰色背景，比内容区域浅 */
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+:root.dark .progress-title {
+  color: var(--text-primary);
+}
+
+:root.dark .progress-subtitle {
+  color: var(--text-secondary);
+}
+
+:root.dark .progress-message {
+  background: rgba(102, 126, 234, 0.15);
+  color: var(--text-primary);
 }
 
 .progress-container {
@@ -260,7 +279,7 @@ function getTaskTitle(): string {
   font-size: 12px;
   text-align: center;
   padding: 8px;
-  background: rgba(102, 126, 234, 0.05);
+  background: var(--bg-secondary);
   border-radius: var(--border-radius-sm);
   margin-top: 8px;
 }

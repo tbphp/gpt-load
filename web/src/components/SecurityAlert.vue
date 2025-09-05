@@ -139,7 +139,7 @@ const openSecurityDocs = () => {
             <n-list-item
               v-for="(warning, index) in warnings"
               :key="index"
-              style="padding: 12px 16px; border-bottom: 1px solid #f0f0f0"
+              style="padding: 12px 16px; border-bottom: 1px solid var(--border-color)"
             >
               <template #prefix>
                 <n-tag
@@ -152,10 +152,17 @@ const openSecurityDocs = () => {
               </template>
 
               <div style="flex: 1">
-                <div style="font-weight: 500; color: #333; margin-bottom: 6px; font-size: 14px">
+                <div
+                  style="
+                    font-weight: 500;
+                    color: var(--text-primary);
+                    margin-bottom: 6px;
+                    font-size: 14px;
+                  "
+                >
                   {{ warning.message }}
                 </div>
-                <div style="font-size: 12px; color: #888; line-height: 1.4">
+                <div style="font-size: 12px; color: var(--text-secondary); line-height: 1.4">
                   {{ warning.suggestion }}
                 </div>
               </div>
@@ -165,10 +172,58 @@ const openSecurityDocs = () => {
       </n-collapse>
 
       <n-space size="small">
-        <n-button size="small" type="primary" ghost @click="openSecurityDocs">配置文档</n-button>
+        <n-button
+          size="small"
+          type="primary"
+          @click="openSecurityDocs"
+          class="security-primary-btn"
+        >
+          配置文档
+        </n-button>
 
-        <n-button size="small" quaternary @click="handleDismissPermanently">不再提醒</n-button>
+        <n-button
+          size="small"
+          secondary
+          @click="handleDismissPermanently"
+          class="security-secondary-btn"
+        >
+          不再提醒
+        </n-button>
       </n-space>
     </div>
   </n-alert>
 </template>
+
+<style scoped>
+/* 安全提醒按钮样式优化 */
+.security-primary-btn {
+  font-weight: 600;
+}
+
+.security-secondary-btn {
+  font-weight: 500;
+}
+
+/* 暗黑模式下的按钮优化 */
+:root.dark .security-primary-btn {
+  background: var(--primary-color) !important;
+  color: white !important;
+  border: 1px solid var(--primary-color) !important;
+}
+
+:root.dark .security-primary-btn:hover {
+  background: var(--primary-color-hover) !important;
+  border-color: var(--primary-color-hover) !important;
+}
+
+:root.dark .security-secondary-btn {
+  background: rgba(255, 255, 255, 0.1) !important;
+  color: var(--text-primary) !important;
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+}
+
+:root.dark .security-secondary-btn:hover {
+  background: rgba(255, 255, 255, 0.15) !important;
+  border-color: rgba(255, 255, 255, 0.3) !important;
+}
+</style>

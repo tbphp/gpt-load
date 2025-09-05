@@ -618,10 +618,11 @@ function resetPage() {
 }
 
 .group-info-card {
-  background: rgba(255, 255, 255, 0.98);
-  border-radius: var(--border-radius-lg);
-  border: 1px solid rgba(255, 255, 255, 0.3);
+  background: var(--card-bg-solid);
+  border-radius: var(--border-radius-md);
+  border: 1px solid var(--border-color);
   animation: fadeInUp 0.2s ease-out;
+  box-shadow: var(--shadow-sm);
 }
 
 .card-header {
@@ -638,19 +639,30 @@ function resetPage() {
 .group-title {
   font-size: 1.2rem;
   font-weight: 600;
-  color: #1e293b;
+  color: var(--text-primary);
   margin: 0 0 8px 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .group-url {
   font-size: 0.8rem;
-  color: #2563eb;
+  color: var(--primary-color);
   margin-left: 8px;
   font-family: monospace;
-  background: rgba(37, 99, 235, 0.1);
+  background: var(--bg-secondary);
   border-radius: 4px;
   padding: 2px 6px;
   margin-right: 4px;
+  border: 1px solid var(--border-color);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.group-url:hover {
+  background: var(--bg-tertiary);
+  transform: translateY(-1px);
 }
 
 /* .group-meta {
@@ -661,7 +673,7 @@ function resetPage() {
 
 .group-id {
   font-size: 0.75rem;
-  color: #64748b;
+  color: var(--text-secondary);
   opacity: 0.7;
 }
 
@@ -680,11 +692,11 @@ function resetPage() {
 }
 
 :deep(.status-card-failure .n-card-header__main) {
-  color: #d03050;
+  color: var(--error-color, #d03050);
 }
 
 .status-title {
-  color: #64748b;
+  color: var(--text-secondary);
   font-size: 12px;
 }
 
@@ -707,16 +719,16 @@ function resetPage() {
 .section-title {
   font-size: 1rem;
   font-weight: 600;
-  color: #374151;
+  color: var(--text-primary);
   margin: 0 0 12px 0;
   padding-bottom: 8px;
-  border-bottom: 2px solid rgba(102, 126, 234, 0.1);
+  border-bottom: 2px solid var(--border-color);
 }
 
 .upstream-url {
   font-family: monospace;
   font-size: 0.9rem;
-  color: #374151;
+  color: var(--text-primary);
   margin-left: 5px;
 }
 
@@ -725,11 +737,11 @@ function resetPage() {
 }
 
 .config-json {
-  background: rgba(102, 126, 234, 0.05);
+  background: var(--bg-secondary);
   border-radius: var(--border-radius-sm);
   padding: 12px;
   font-size: 0.8rem;
-  color: #374151;
+  color: var(--text-primary);
   margin: 8px 0;
   overflow-x: auto;
 }
@@ -755,7 +767,7 @@ function resetPage() {
   word-wrap: break-word;
   line-height: 1.5;
   min-height: 20px;
-  color: #374151;
+  color: var(--text-primary);
 }
 
 .proxy-keys-content {
@@ -773,7 +785,7 @@ function resetPage() {
   word-break: break-all;
   line-height: 1.5;
   padding-top: 4px; /* Align with buttons */
-  color: #374151;
+  color: var(--text-primary);
 }
 
 .key-actions {
@@ -789,12 +801,12 @@ function resetPage() {
 }
 
 .config-help-icon {
-  color: #9ca3af;
+  color: var(--text-tertiary);
   transition: color 0.2s ease;
 }
 
 .config-label:hover .config-help-icon {
-  color: #6366f1;
+  color: var(--primary-color);
 }
 
 .config-tooltip {
@@ -804,20 +816,20 @@ function resetPage() {
 
 .tooltip-title {
   font-weight: 600;
-  color: #ffffff;
+  color: white;
   margin-bottom: 4px;
   font-size: 0.9rem;
 }
 
 .tooltip-description {
-  color: #e5e7eb;
+  color: rgba(255, 255, 255, 0.9);
   margin-bottom: 6px;
   line-height: 1.4;
   font-size: 0.85rem;
 }
 
 .tooltip-key {
-  color: #d1d5db;
+  color: rgba(255, 255, 255, 0.8);
   font-size: 0.75rem;
   font-family: monospace;
   background: rgba(255, 255, 255, 0.15);
@@ -831,7 +843,7 @@ function resetPage() {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  background: rgba(102, 126, 234, 0.03);
+  background: var(--bg-secondary);
   border-radius: var(--border-radius-sm);
   padding: 8px;
 }
@@ -844,21 +856,21 @@ function resetPage() {
 }
 
 .header-separator {
-  color: #6b7280;
+  color: var(--text-secondary);
   font-weight: 500;
 }
 
 .header-value {
-  color: #374151;
+  color: var(--text-primary);
   font-family: monospace;
-  background: rgba(59, 130, 246, 0.08);
+  background: var(--bg-secondary);
   padding: 2px 6px;
   border-radius: 3px;
   font-size: 0.8rem;
 }
 
 .header-removed {
-  color: #dc2626;
+  color: var(--error-color, #dc2626);
   font-style: italic;
   font-size: 0.8rem;
 }

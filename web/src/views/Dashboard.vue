@@ -36,9 +36,9 @@ onMounted(async () => {
 
 <style scoped>
 .dashboard-header-card {
-  background: rgba(255, 255, 255, 0.98);
+  background: var(--card-bg);
   border-radius: var(--border-radius-lg);
-  border: 1px solid rgba(255, 255, 255, 0.3);
+  border: 1px solid var(--border-color-light);
   animation: fadeInUp 0.2s ease-out;
 }
 

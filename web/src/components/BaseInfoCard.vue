@@ -203,9 +203,9 @@ onMounted(() => {
 }
 
 .stat-card {
-  background: rgba(255, 255, 255, 0.98);
+  background: var(--card-bg);
   border-radius: var(--border-radius-lg);
-  border: 1px solid rgba(255, 255, 255, 0.3);
+  border: 1px solid var(--border-color-light);
   position: relative;
   overflow: hidden;
   animation: slideInUp 0.2s ease-out both;
@@ -273,20 +273,20 @@ onMounted(() => {
   font-size: 2rem;
   font-weight: 700;
   line-height: 1.2;
-  color: #1e293b;
+  color: var(--text-primary);
   margin-bottom: 4px;
 }
 
 .stat-title {
   font-size: 0.95rem;
-  color: #64748b;
+  color: var(--text-secondary);
   font-weight: 500;
 }
 
 .stat-bar {
   width: 100%;
   height: 4px;
-  background: rgba(0, 0, 0, 0.05);
+  background: var(--border-color);
   border-radius: 2px;
   overflow: hidden;
   position: relative;

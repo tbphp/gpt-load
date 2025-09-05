@@ -149,6 +149,7 @@ function handleGroupCreated(group: Group) {
   height: 100%;
   display: flex;
   flex-direction: column;
+  background: var(--card-bg-solid);
 }
 
 .group-list-card:hover {
@@ -176,6 +177,7 @@ function handleGroupCreated(group: Group) {
   gap: 4px;
   max-height: 100%;
   overflow-y: auto;
+  width: 100%;
 }
 
 .group-item {
@@ -186,16 +188,25 @@ function handleGroupCreated(group: Group) {
   border-radius: 6px;
   cursor: pointer;
   transition: all 0.2s ease;
-  border: 1px solid transparent;
+  border: 1px solid var(--border-color);
   font-size: 12px;
+  color: var(--text-primary);
+  background: transparent;
+  box-sizing: border-box;
 }
 
 .group-item:hover {
-  background: rgba(102, 126, 234, 0.1);
-  border-color: rgba(102, 126, 234, 0.2);
+  background: var(--bg-tertiary);
+  border-color: var(--primary-color);
 }
 
-.group-item.active {
+:root.dark .group-item:hover {
+  background: rgba(102, 126, 234, 0.1);
+  border-color: rgba(102, 126, 234, 0.3);
+}
+
+.group-item.active,
+:root.dark .group-item.active {
   background: var(--primary-gradient);
   color: white;
   border-color: transparent;
@@ -209,9 +220,10 @@ function handleGroupCreated(group: Group) {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(102, 126, 234, 0.1);
+  background: var(--bg-secondary);
   border-radius: 6px;
   flex-shrink: 0;
+  box-sizing: border-box;
 }
 
 .group-item.active .group-icon {
@@ -241,17 +253,17 @@ function handleGroupCreated(group: Group) {
 }
 
 .group-id {
-  opacity: 0.7;
-  color: #64748b;
+  opacity: 0.8;
+  color: var(--text-secondary);
 }
 
 .group-item.active .group-id {
-  opacity: 0.8;
-  color: rgba(255, 255, 255, 0.8);
+  opacity: 0.9;
+  color: white;
 }
 
 .add-section {
-  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  border-top: 1px solid var(--border-color);
   padding-top: 12px;
 }
 
@@ -265,11 +277,39 @@ function handleGroupCreated(group: Group) {
 }
 
 .groups-list::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.2);
+  background: var(--scrollbar-bg);
   border-radius: 2px;
 }
 
 .groups-list::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 0, 0, 0.3);
+  background: var(--border-color);
+}
+
+/* 暗黑模式特殊样式 */
+:root.dark .group-item {
+  border-color: rgba(255, 255, 255, 0.05);
+}
+
+:root.dark .group-icon {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+:root.dark .search-section :deep(.n-input) {
+  --n-border: 1px solid rgba(255, 255, 255, 0.08);
+  --n-border-hover: 1px solid rgba(102, 126, 234, 0.4);
+  --n-border-focus: 1px solid var(--primary-color);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+/* 标签样式优化 */
+:root.dark .group-meta :deep(.n-tag) {
+  background: rgba(102, 126, 234, 0.15);
+  border: 1px solid rgba(102, 126, 234, 0.3);
+}
+
+:root.dark .group-item.active .group-meta :deep(.n-tag) {
+  background: rgba(255, 255, 255, 0.2);
+  border-color: rgba(255, 255, 255, 0.3);
 }
 </style>

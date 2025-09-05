@@ -23,10 +23,10 @@ const handleLogout = () => {
 
 <style scoped>
 .logout-button {
-  color: #64748b;
-  background: rgba(255, 255, 255, 0.8);
+  color: var(--text-secondary);
+  background: var(--card-bg);
   backdrop-filter: blur(8px);
-  border: 1px solid rgba(0, 0, 0, 0.08);
+  border: 1px solid var(--border-color-light);
   transition: all 0.2s ease;
   font-weight: 500;
   letter-spacing: 0.2px;

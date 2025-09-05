@@ -161,14 +161,14 @@ const handleLogin = async () => {
 
 .login-subtitle {
   font-size: 1.1rem;
-  color: #64748b;
+  color: var(--text-secondary);
   margin: 0;
   font-weight: 500;
 }
 
 .login-card {
   backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.3);
+  border: 1px solid var(--border-color-light);
 }
 
 .card-header {
@@ -179,13 +179,13 @@ const handleLogin = async () => {
 .card-title {
   font-size: 1.5rem;
   font-weight: 600;
-  color: #1e293b;
+  color: var(--text-primary);
   margin: 0 0 8px 0;
 }
 
 .card-subtitle {
   font-size: 0.95rem;
-  color: #64748b;
+  color: var(--text-secondary);
   margin: 0;
 }
 
