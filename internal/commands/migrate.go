@@ -264,7 +264,7 @@ func (cmd *MigrateKeysCommand) detectIfAlreadyEncrypted() error {
 
 	// Sample check
 	var sampleKeys []models.APIKey
-	if err := cmd.db.Limit(20).Find(&sampleKeys).Error; err != nil {
+	if err := cmd.db.Limit(20).Where("key_hash IS NOT NULL AND key_hash != ''").Find(&sampleKeys).Error; err != nil {
 		return fmt.Errorf("failed to fetch sample keys: %w", err)
 	}
 
@@ -298,14 +298,14 @@ func (cmd *MigrateKeysCommand) detectIfAlreadyEncrypted() error {
 
 	if hashConsistentCount == 0 {
 		// No hashes match SHA256(key_value) - data is already encrypted!
-		
+
 		// 3. Further check: can we decrypt with target key?
 		if cmd.toKey != "" {
 			targetService, err := encryption.NewService(cmd.toKey)
 			if err != nil {
 				return fmt.Errorf("failed to create target encryption service: %w", err)
 			}
-			
+
 			canDecryptCount := 0
 			for _, key := range sampleKeys {
 				decrypted, err := targetService.Decrypt(key.KeyValue)
@@ -317,31 +317,31 @@ func (cmd *MigrateKeysCommand) detectIfAlreadyEncrypted() error {
 					}
 				}
 			}
-			
+
 			if canDecryptCount > 0 {
 				return fmt.Errorf(
-					"CRITICAL: Data is already encrypted with the target key!\n" +
-					"  - %d/%d keys can be decrypted with target key\n" +
-					"  - Hash verification confirms encryption\n" +
-					"  Running migration again will cause DOUBLE ENCRYPTION and DATA LOSS!",
+					"CRITICAL: Data is already encrypted with the target key!\n"+
+						"  - %d/%d keys can be decrypted with target key\n"+
+						"  - Hash verification confirms encryption\n"+
+						"  Running migration again will cause DOUBLE ENCRYPTION and DATA LOSS!",
 					canDecryptCount, len(sampleKeys))
 			}
 		}
-		
+
 		return fmt.Errorf(
-			"CRITICAL: Data appears to be already encrypted!\n" +
-			"  - 0/%d keys have matching SHA256 hashes (expected for unencrypted data)\n" +
-			"  - This indicates data is encrypted with some key\n" +
-			"  Please provide --from parameter with the correct decryption key!",
+			"CRITICAL: Data appears to be already encrypted!\n"+
+				"  - 0/%d keys have matching SHA256 hashes (expected for unencrypted data)\n"+
+				"  - This indicates data is encrypted with some key\n"+
+				"  Please provide --from parameter with the correct decryption key!",
 			len(sampleKeys))
 	}
 
 	// Partial match - inconsistent data state
 	return fmt.Errorf(
-		"WARNING: Inconsistent data state detected!\n" +
-		"  - %d/%d keys appear unencrypted (SHA256 hash matches)\n" +
-		"  - %d/%d keys appear encrypted (SHA256 hash doesn't match)\n" +
-		"  Please verify data state before proceeding!",
+		"WARNING: Inconsistent data state detected!\n"+
+			"  - %d/%d keys appear unencrypted (SHA256 hash matches)\n"+
+			"  - %d/%d keys appear encrypted (SHA256 hash doesn't match)\n"+
+			"  Please verify data state before proceeding!",
 		hashConsistentCount, len(sampleKeys),
 		len(sampleKeys)-hashConsistentCount, len(sampleKeys))
 }
@@ -556,7 +556,6 @@ func (cmd *MigrateKeysCommand) processBatchToTempTable(keys []models.APIKey, old
 	})
 }
 
-
 // verifyTempColumns verifies temporary table data integrity
 func (cmd *MigrateKeysCommand) verifyTempColumns() error {
 	logrus.Info("Verifying temporary table data integrity...")
@@ -679,7 +678,6 @@ func (cmd *MigrateKeysCommand) switchColumns() error {
 		return nil
 	})
 }
-
 
 // clearCache cleans cache
 func (cmd *MigrateKeysCommand) clearCache() error {
