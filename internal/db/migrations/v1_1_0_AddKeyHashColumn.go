@@ -10,7 +10,7 @@ import (
 )
 
 // V1_1_0_AddKeyHashColumn adds key_hash column to api_keys and request_logs tables
-func V1_1_0_AddKeyHashColumn(db *gorm.DB, encryptionKey string) error {
+func V1_1_0_AddKeyHashColumn(db *gorm.DB) error {
 	// First check if there are any records need migration
 	var needMigrateCount int64
 	db.Model(&models.APIKey{}).
@@ -24,7 +24,7 @@ func V1_1_0_AddKeyHashColumn(db *gorm.DB, encryptionKey string) error {
 
 	logrus.Infof("Found %d api_keys need to populate key_hash", needMigrateCount)
 
-	encSvc, err := encryption.NewService(encryptionKey)
+	encSvc, err := encryption.NewService("")
 	if err != nil {
 		return fmt.Errorf("failed to initialize encryption service: %w", err)
 	}

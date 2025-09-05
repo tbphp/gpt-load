@@ -94,7 +94,7 @@ func (a *App) Start() error {
 			return fmt.Errorf("database auto-migration failed: %w", err)
 		}
 		// 数据修复
-		if err := db.MigrateDatabase(a.db, a.configManager.GetEncryptionKey()); err != nil {
+		if err := db.MigrateDatabase(a.db); err != nil {
 			return fmt.Errorf("database data migration failed: %w", err)
 		}
 		logrus.Info("Database auto-migration completed.")

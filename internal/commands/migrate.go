@@ -182,6 +182,13 @@ func (cmd *MigrateKeysCommand) validateAndGetScenario() (string, error) {
 func (cmd *MigrateKeysCommand) preCheck() error {
 	logrus.Info("Executing pre-check...")
 
+	// Critical check: if enabling encryption (fromKey is empty), ensure data is not already encrypted
+	if cmd.fromKey == "" && cmd.toKey != "" {
+		if err := cmd.detectIfAlreadyEncrypted(); err != nil {
+			return err
+		}
+	}
+
 	// Get current encryption service based on parameters only
 	var currentService encryption.Service
 	var err error
@@ -249,6 +256,94 @@ func (cmd *MigrateKeysCommand) preCheck() error {
 
 	logrus.Info("Pre-check passed, all keys verified successfully")
 	return nil
+}
+
+// detectIfAlreadyEncrypted checks if data is already encrypted to prevent double encryption
+func (cmd *MigrateKeysCommand) detectIfAlreadyEncrypted() error {
+	logrus.Info("Detecting if data is already encrypted...")
+
+	// Sample check
+	var sampleKeys []models.APIKey
+	if err := cmd.db.Limit(20).Find(&sampleKeys).Error; err != nil {
+		return fmt.Errorf("failed to fetch sample keys: %w", err)
+	}
+
+	if len(sampleKeys) == 0 {
+		logrus.Info("No keys found in database, safe to proceed")
+		return nil
+	}
+
+	// 1. Hash consistency check
+	// If data is unencrypted, key_hash should equal SHA256(key_value)
+	hashConsistentCount := 0
+	noopService, err := encryption.NewService("") // SHA256 service for unencrypted data
+	if err != nil {
+		return fmt.Errorf("failed to create noop service: %w", err)
+	}
+
+	for _, key := range sampleKeys {
+		// For unencrypted data: key_hash should match SHA256(key_value)
+		expectedHash := noopService.Hash(key.KeyValue)
+		if expectedHash == key.KeyHash {
+			hashConsistentCount++
+		}
+	}
+
+	// 2. Analyze results
+	if hashConsistentCount == len(sampleKeys) {
+		// All hashes match SHA256(key_value) - data is unencrypted
+		logrus.Info("Hash check passed: Data appears to be unencrypted (SHA256 hashes match)")
+		return nil // Safe to proceed with encryption
+	}
+
+	if hashConsistentCount == 0 {
+		// No hashes match SHA256(key_value) - data is already encrypted!
+		
+		// 3. Further check: can we decrypt with target key?
+		if cmd.toKey != "" {
+			targetService, err := encryption.NewService(cmd.toKey)
+			if err != nil {
+				return fmt.Errorf("failed to create target encryption service: %w", err)
+			}
+			
+			canDecryptCount := 0
+			for _, key := range sampleKeys {
+				decrypted, err := targetService.Decrypt(key.KeyValue)
+				if err == nil {
+					// Verify hash matches
+					expectedHash := targetService.Hash(decrypted)
+					if expectedHash == key.KeyHash {
+						canDecryptCount++
+					}
+				}
+			}
+			
+			if canDecryptCount > 0 {
+				return fmt.Errorf(
+					"CRITICAL: Data is already encrypted with the target key!\n" +
+					"  - %d/%d keys can be decrypted with target key\n" +
+					"  - Hash verification confirms encryption\n" +
+					"  Running migration again will cause DOUBLE ENCRYPTION and DATA LOSS!",
+					canDecryptCount, len(sampleKeys))
+			}
+		}
+		
+		return fmt.Errorf(
+			"CRITICAL: Data appears to be already encrypted!\n" +
+			"  - 0/%d keys have matching SHA256 hashes (expected for unencrypted data)\n" +
+			"  - This indicates data is encrypted with some key\n" +
+			"  Please provide --from parameter with the correct decryption key!",
+			len(sampleKeys))
+	}
+
+	// Partial match - inconsistent data state
+	return fmt.Errorf(
+		"WARNING: Inconsistent data state detected!\n" +
+		"  - %d/%d keys appear unencrypted (SHA256 hash matches)\n" +
+		"  - %d/%d keys appear encrypted (SHA256 hash doesn't match)\n" +
+		"  Please verify data state before proceeding!",
+		hashConsistentCount, len(sampleKeys),
+		len(sampleKeys)-hashConsistentCount, len(sampleKeys))
 }
 
 // createBackupTableAndMigrate performs migration using temporary table
