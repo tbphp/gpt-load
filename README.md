@@ -181,7 +181,7 @@ GPT-Load adopts a dual-layer configuration architecture:
 | Setting        | Environment Variable | Default | Description                                                                       |
 | -------------- | -------------------- | ------- | --------------------------------------------------------------------------------- |
 | Admin Key      | `AUTH_KEY`           | -       | Access authentication key for the **management end**, please change it to a strong password |
-| Encryption Key | `ENCRYPTION_KEY`     | -       | Encrypts API keys at rest. Supports any string or leave empty to disable encryption. |
+| Encryption Key | `ENCRYPTION_KEY`     | -       | Encrypts API keys at rest. Supports any string or leave empty to disable encryption. See [Data Encryption Migration](#data-encryption-migration) |
 
 **Database Configuration:**
 
@@ -261,6 +261,98 @@ Supported Proxy Protocol Formats:
 | Key Validation Interval    | `key_validation_interval_minutes` | 60      | ✅             | Background scheduled key validation cycle (minutes)                        |
 | Key Validation Concurrency | `key_validation_concurrency`      | 10      | ✅             | Concurrency for background validation of invalid keys                      |
 | Key Validation Timeout     | `key_validation_timeout_seconds`  | 20      | ✅             | API request timeout for validating individual keys in background (seconds) |
+
+</details>
+
+## Data Encryption Migration
+
+GPT-Load supports encrypted storage of API keys. You can enable, disable, or change the encryption key at any time.
+
+<details>
+<summary>View Data Encryption Migration Details</summary>
+
+### Migration Scenarios
+
+- **Enable Encryption**: Encrypt plaintext data for storage - Use `--to <new-key>`
+- **Disable Encryption**: Decrypt encrypted data to plaintext - Use `--from <current-key>`
+- **Change Encryption Key**: Replace the encryption key - Use `--from <current-key> --to <new-key>`
+
+### Operation Steps
+
+#### Docker Compose Deployment
+
+```bash
+# 1. Update the image (ensure using the latest version)
+docker compose pull
+
+# 2. Stop the service
+docker compose stop
+
+# 3. Backup the database (strongly recommended)
+# Before migration, you must manually backup the database or export your keys to avoid key loss due to operations or exceptions.
+
+# 4. Execute migration command
+# Enable encryption (your-32-char-secret-key is your key, recommend using 32+ character random string)
+docker compose run --rm gpt-load migrate-keys --to "your-32-char-secret-key"
+
+# Disable encryption
+docker compose run --rm gpt-load migrate-keys --from "your-current-key"
+
+# Change encryption key
+docker compose run --rm gpt-load migrate-keys --from "old-key" --to "new-32-char-secret-key"
+
+# 5. Update configuration file
+# Edit .env file, set ENCRYPTION_KEY to match the --to parameter
+# If disabling encryption, remove ENCRYPTION_KEY or set it to empty
+vim .env
+# Add or modify: ENCRYPTION_KEY=your-32-char-secret-key
+
+# 6. Restart the service
+docker compose up -d
+```
+
+#### Source Build Deployment
+
+```bash
+# 1. Stop the service
+# Stop the running service process (Ctrl+C or kill process)
+
+# 2. Backup the database (strongly recommended)
+# Before migration, you must manually backup the database or export your keys to avoid key loss due to operations or exceptions.
+
+# 3. Execute migration command
+# Enable encryption
+make migrate-keys ARGS="--to your-32-char-secret-key"
+
+# Disable encryption
+make migrate-keys ARGS="--from your-current-key"
+
+# Change encryption key
+make migrate-keys ARGS="--from old-key --to new-32-char-secret-key"
+
+# 4. Update configuration file
+# Edit .env file, set ENCRYPTION_KEY to match the --to parameter
+echo "ENCRYPTION_KEY=your-32-char-secret-key" >> .env
+
+# 5. Restart the service
+make run
+```
+
+### Important Notes
+
+⚠️ **Important Reminders**:
+- **Service must be stopped** before migration to avoid data inconsistency
+- Strongly recommended to **backup the database** in case migration fails and recovery is needed
+- Keys should use **32 characters or longer random strings** for security
+- Ensure `ENCRYPTION_KEY` in `.env` matches the `--to` parameter after migration
+- If disabling encryption, remove or clear the `ENCRYPTION_KEY` configuration
+
+### Key Generation Examples
+
+```bash
+# Generate secure random key (32 characters)
+openssl rand -base64 32 | tr -d "=+/" | cut -c1-32
+```
 
 </details>
 
