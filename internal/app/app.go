@@ -84,6 +84,7 @@ func (a *App) Start() error {
 		}
 
 		// 数据库迁移
+		db.HandleLegacyIndexes(a.db)
 		if err := a.db.AutoMigrate(
 			&models.SystemSetting{},
 			&models.Group{},
