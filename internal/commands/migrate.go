@@ -320,30 +320,27 @@ func (cmd *MigrateKeysCommand) detectIfAlreadyEncrypted() error {
 
 			if canDecryptCount > 0 {
 				return fmt.Errorf(
-					"CRITICAL: Data is already encrypted with the target key!\n"+
-						"  - %d/%d keys can be decrypted with target key\n"+
-						"  - Hash verification confirms encryption\n"+
-						"  Running migration again will cause DOUBLE ENCRYPTION and DATA LOSS!",
-					canDecryptCount, len(sampleKeys))
+					"CRITICAL: Data is already encrypted with the target key! %d/%d keys can be decrypted with target key",
+					canDecryptCount,
+					len(sampleKeys),
+				)
 			}
 		}
 
 		return fmt.Errorf(
-			"CRITICAL: Data appears to be already encrypted!\n"+
-				"  - 0/%d keys have matching SHA256 hashes (expected for unencrypted data)\n"+
-				"  - This indicates data is encrypted with some key\n"+
-				"  Please provide --from parameter with the correct decryption key!",
-			len(sampleKeys))
+			"CRITICAL: Data appears to be already encrypted! 0/%d keys have matching SHA256 hashes (expected for unencrypted data)",
+			len(sampleKeys),
+		)
 	}
 
 	// Partial match - inconsistent data state
 	return fmt.Errorf(
-		"WARNING: Inconsistent data state detected!\n"+
-			"  - %d/%d keys appear unencrypted (SHA256 hash matches)\n"+
-			"  - %d/%d keys appear encrypted (SHA256 hash doesn't match)\n"+
-			"  Please verify data state before proceeding!",
-		hashConsistentCount, len(sampleKeys),
-		len(sampleKeys)-hashConsistentCount, len(sampleKeys))
+		"WARNING: Inconsistent data state detected! %d/%d keys appear unencrypted (SHA256 hash matches), %d/%d keys appear encrypted (SHA256 hash doesn't match)",
+		hashConsistentCount,
+		len(sampleKeys),
+		len(sampleKeys)-hashConsistentCount,
+		len(sampleKeys),
+	)
 }
 
 // createBackupTableAndMigrate performs migration using temporary table
