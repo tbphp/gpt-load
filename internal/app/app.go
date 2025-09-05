@@ -79,7 +79,7 @@ func (a *App) Start() error {
 	if a.configManager.IsMaster() {
 		logrus.Info("Starting as Master Node.")
 
-		if err := a.storage.FlushDB(); err != nil {
+		if err := a.storage.Clear(); err != nil {
 			return fmt.Errorf("cache cleanup failed: %w", err)
 		}
 

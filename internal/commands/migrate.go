@@ -588,7 +588,7 @@ func (cmd *MigrateKeysCommand) switchColumns() error {
 			// 2. Check MySQL version for rename syntax
 			var version string
 			tx.Raw("SELECT VERSION()").Scan(&version)
-			
+
 			// MySQL 8.0+ supports RENAME COLUMN, MySQL 5.x needs CHANGE
 			if strings.Contains(version, "5.") {
 				// MySQL 5.x: use CHANGE syntax
@@ -686,7 +686,7 @@ func (cmd *MigrateKeysCommand) clearCache() error {
 	}
 
 	logrus.Info("Executing cache cleanup...")
-	if err := cmd.cacheStore.FlushDB(); err != nil {
+	if err := cmd.cacheStore.Clear(); err != nil {
 		return fmt.Errorf("cache cleanup failed: %w", err)
 	}
 

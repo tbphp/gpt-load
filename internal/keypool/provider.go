@@ -238,18 +238,6 @@ func (p *KeyProvider) handleFailure(apiKey *models.APIKey, group *models.Group, 
 
 // LoadKeysFromDB 从数据库加载所有分组和密钥，并填充到 Store 中。
 func (p *KeyProvider) LoadKeysFromDB() error {
-	initFlagKey := "initialization:db_keys_loaded"
-
-	exists, err := p.store.Exists(initFlagKey)
-	if err != nil {
-		return fmt.Errorf("failed to check initialization flag: %w", err)
-	}
-
-	if exists {
-		logrus.Debug("Keys have already been loaded into the store. Skipping.")
-		return nil
-	}
-
 	logrus.Debug("First time startup, loading keys from DB...")
 
 	// 1. 分批从数据库加载并使用 Pipeline 写入 Redis
@@ -257,7 +245,7 @@ func (p *KeyProvider) LoadKeysFromDB() error {
 	batchSize := 1000
 	var batchKeys []*models.APIKey
 
-	err = p.db.Model(&models.APIKey{}).FindInBatches(&batchKeys, batchSize, func(tx *gorm.DB, batch int) error {
+	err := p.db.Model(&models.APIKey{}).FindInBatches(&batchKeys, batchSize, func(tx *gorm.DB, batch int) error {
 		logrus.Debugf("Processing batch %d with %d keys...", batch, len(batchKeys))
 
 		var pipeline store.Pipeliner
@@ -304,10 +292,6 @@ func (p *KeyProvider) LoadKeysFromDB() error {
 				logrus.WithFields(logrus.Fields{"groupID": groupID, "error": err}).Error("Failed to LPush active keys for group")
 			}
 		}
-	}
-
-	if err := p.store.Set(initFlagKey, []byte("1"), 0); err != nil {
-		logrus.WithField("flagKey", initFlagKey).Error("Failed to set initialization flag after loading keys")
 	}
 
 	return nil
