@@ -341,6 +341,7 @@ make run
 ### Important Notes
 
 ⚠️ **Important Reminders**:
+- **Once ENCRYPTION_KEY is lost, encrypted data CANNOT be recovered!** Please securely backup this key. Consider using a password manager or secure key management system
 - **Service must be stopped** before migration to avoid data inconsistency
 - Strongly recommended to **backup the database** in case migration fails and recovery is needed
 - Keys should use **32 characters or longer random strings** for security
