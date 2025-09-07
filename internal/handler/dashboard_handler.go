@@ -263,6 +263,38 @@ func (s *Server) getSecurityWarnings() []models.SecurityWarning {
 		warnings = append(warnings, encryptionWarnings...)
 	}
 	
+	// 检查系统级代理密钥
+	systemSettings := s.SettingsManager.GetSettings()
+	if systemSettings.ProxyKeys != "" {
+		proxyKeys := strings.Split(systemSettings.ProxyKeys, ",")
+		for i, key := range proxyKeys {
+			key = strings.TrimSpace(key)
+			if key != "" {
+				keyName := fmt.Sprintf("全局代理密钥 #%d", i+1)
+				proxyWarnings := checkPasswordSecurity(key, keyName)
+				warnings = append(warnings, proxyWarnings...)
+			}
+		}
+	}
+	
+	// 检查分组级代理密钥
+	var groups []models.Group
+	if err := s.DB.Where("proxy_keys IS NOT NULL AND proxy_keys != ''").Find(&groups).Error; err == nil {
+		for _, group := range groups {
+			if group.ProxyKeys != "" {
+				proxyKeys := strings.Split(group.ProxyKeys, ",")
+				for i, key := range proxyKeys {
+					key = strings.TrimSpace(key)
+					if key != "" {
+						keyName := fmt.Sprintf("分组 [%s] 的代理密钥 #%d", group.Name, i+1)
+						proxyWarnings := checkPasswordSecurity(key, keyName)
+						warnings = append(warnings, proxyWarnings...)
+					}
+				}
+			}
+		}
+	}
+	
 	return warnings
 }
 
