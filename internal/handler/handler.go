@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"gpt-load/internal/config"
+	"gpt-load/internal/encryption"
 	"gpt-load/internal/services"
 	"gpt-load/internal/types"
 
@@ -28,6 +29,7 @@ type Server struct {
 	KeyDeleteService           *services.KeyDeleteService
 	LogService                 *services.LogService
 	CommonHandler              *CommonHandler
+	EncryptionSvc              encryption.Service
 }
 
 // NewServerParams defines the dependencies for the NewServer constructor.
@@ -44,6 +46,7 @@ type NewServerParams struct {
 	KeyDeleteService           *services.KeyDeleteService
 	LogService                 *services.LogService
 	CommonHandler              *CommonHandler
+	EncryptionSvc              encryption.Service
 }
 
 // NewServer creates a new handler instance with dependencies injected by dig.
@@ -60,6 +63,7 @@ func NewServer(params NewServerParams) *Server {
 		KeyDeleteService:           params.KeyDeleteService,
 		LogService:                 params.LogService,
 		CommonHandler:              params.CommonHandler,
+		EncryptionSvc:              params.EncryptionSvc,
 	}
 }
 

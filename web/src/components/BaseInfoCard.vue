@@ -1,12 +1,20 @@
 <script setup lang="ts">
-import { getDashboardStats } from "@/api/dashboard";
 import type { DashboardStatsResponse } from "@/types/models";
 import { NCard, NGrid, NGridItem, NSpace, NTag, NTooltip } from "naive-ui";
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 
-// 统计数据
-const stats = ref<DashboardStatsResponse | null>(null);
-const loading = ref(true);
+// Props
+interface Props {
+  stats: DashboardStatsResponse | null;
+  loading?: boolean;
+}
+
+const props = withDefaults(defineProps<Props>(), {
+  loading: false,
+});
+
+// 使用计算属性代替ref
+const stats = computed(() => props.stats);
 const animatedValues = ref<Record<string, number>>({});
 
 // 格式化数值显示
@@ -26,14 +34,9 @@ const formatTrend = (trend: number): string => {
   return `${sign}${trend.toFixed(1)}%`;
 };
 
-// 获取统计数据
-const fetchStats = async () => {
-  try {
-    loading.value = true;
-    const response = await getDashboardStats();
-    stats.value = response.data;
-
-    // 添加动画效果
+// 监听stats变化并更新动画值
+const updateAnimatedValues = () => {
+  if (stats.value) {
     setTimeout(() => {
       animatedValues.value = {
         key_count:
@@ -44,15 +47,12 @@ const fetchStats = async () => {
         error_rate: (100 - (stats.value?.error_rate?.value ?? 0)) / 100,
       };
     }, 0);
-  } catch (error) {
-    console.error("获取统计数据失败:", error);
-  } finally {
-    loading.value = false;
   }
 };
 
+// 监听stats变化
 onMounted(() => {
-  fetchStats();
+  updateAnimatedValues();
 });
 </script>
 
@@ -203,9 +203,9 @@ onMounted(() => {
 }
 
 .stat-card {
-  background: rgba(255, 255, 255, 0.98);
+  background: var(--card-bg);
   border-radius: var(--border-radius-lg);
-  border: 1px solid rgba(255, 255, 255, 0.3);
+  border: 1px solid var(--border-color-light);
   position: relative;
   overflow: hidden;
   animation: slideInUp 0.2s ease-out both;
@@ -273,20 +273,20 @@ onMounted(() => {
   font-size: 2rem;
   font-weight: 700;
   line-height: 1.2;
-  color: #1e293b;
+  color: var(--text-primary);
   margin-bottom: 4px;
 }
 
 .stat-title {
   font-size: 0.95rem;
-  color: #64748b;
+  color: var(--text-secondary);
   font-weight: 500;
 }
 
 .stat-bar {
   width: 100%;
   height: 4px;
-  background: rgba(0, 0, 0, 0.05);
+  background: var(--border-color);
   border-radius: 2px;
   overflow: hidden;
   position: relative;

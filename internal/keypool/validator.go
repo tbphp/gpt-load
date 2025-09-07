@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"gpt-load/internal/channel"
 	"gpt-load/internal/config"
+	"gpt-load/internal/encryption"
 	"gpt-load/internal/models"
 	"time"
 
@@ -26,6 +27,7 @@ type KeyValidator struct {
 	channelFactory  *channel.Factory
 	SettingsManager *config.SystemSettingsManager
 	keypoolProvider *KeyProvider
+	encryptionSvc   encryption.Service
 }
 
 type KeyValidatorParams struct {
@@ -34,6 +36,7 @@ type KeyValidatorParams struct {
 	ChannelFactory  *channel.Factory
 	SettingsManager *config.SystemSettingsManager
 	KeypoolProvider *KeyProvider
+	EncryptionSvc   encryption.Service
 }
 
 // NewKeyValidator creates a new KeyValidator.
@@ -43,6 +46,7 @@ func NewKeyValidator(params KeyValidatorParams) *KeyValidator {
 		channelFactory:  params.ChannelFactory,
 		SettingsManager: params.SettingsManager,
 		keypoolProvider: params.KeypoolProvider,
+		encryptionSvc:   params.EncryptionSvc,
 	}
 }
 
@@ -88,18 +92,33 @@ func (s *KeyValidator) ValidateSingleKey(key *models.APIKey, group *models.Group
 func (s *KeyValidator) TestMultipleKeys(group *models.Group, keyValues []string) ([]KeyTestResult, error) {
 	results := make([]KeyTestResult, len(keyValues))
 
+	// Generate hashes for all key values
+	var keyHashes []string
+	for _, keyValue := range keyValues {
+		keyHash := s.encryptionSvc.Hash(keyValue)
+		if keyHash == "" {
+			continue
+		}
+		keyHashes = append(keyHashes, keyHash)
+	}
+
 	// Find which of the provided keys actually exist in the database for this group
 	var existingKeys []models.APIKey
-	if err := s.DB.Where("group_id = ? AND key_value IN ?", group.ID, keyValues).Find(&existingKeys).Error; err != nil {
-		return nil, fmt.Errorf("failed to query keys from DB: %w", err)
+	if len(keyHashes) > 0 {
+		if err := s.DB.Where("group_id = ? AND key_hash IN ?", group.ID, keyHashes).Find(&existingKeys).Error; err != nil {
+			return nil, fmt.Errorf("failed to query keys from DB: %w", err)
+		}
 	}
+
+	// Create a map of key_hash to APIKey for quick lookup
 	existingKeyMap := make(map[string]models.APIKey)
 	for _, k := range existingKeys {
-		existingKeyMap[k.KeyValue] = k
+		existingKeyMap[k.KeyHash] = k
 	}
 
 	for i, kv := range keyValues {
-		apiKey, exists := existingKeyMap[kv]
+		keyHash := s.encryptionSvc.Hash(kv)
+		apiKey, exists := existingKeyMap[keyHash]
 		if !exists {
 			results[i] = KeyTestResult{
 				KeyValue: kv,
@@ -108,6 +127,8 @@ func (s *KeyValidator) TestMultipleKeys(group *models.Group, keyValues []string)
 			}
 			continue
 		}
+
+		apiKey.KeyValue = kv
 
 		isValid, validationErr := s.ValidateSingleKey(&apiKey, group)
 

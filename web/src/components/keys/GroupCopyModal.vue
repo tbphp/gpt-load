@@ -169,7 +169,7 @@ function handleCancel() {
 .group-copy-modal {
   width: 450px;
   max-width: 90vw;
-  --n-color: rgba(255, 255, 255, 0.95);
+  --n-color: var(--modal-color);
 }
 
 .modal-content {
@@ -177,8 +177,8 @@ function handleCancel() {
 }
 
 .copy-preview {
-  background: rgba(24, 160, 88, 0.05);
-  border: 1px solid rgba(24, 160, 88, 0.2);
+  background: var(--bg-secondary);
+  border: 1px solid var(--success-border);
   border-radius: 6px;
   padding: 12px;
   margin-bottom: 16px;
@@ -192,12 +192,12 @@ function handleCancel() {
 
 .preview-label {
   font-weight: 500;
-  color: #18a058;
+  color: var(--success-color);
 }
 
 .preview-value {
-  background: rgba(24, 160, 88, 0.1);
-  color: #18a058;
+  background: var(--success-bg);
+  color: var(--success-color);
   padding: 2px 6px;
   border-radius: 4px;
   font-size: 13px;
@@ -226,7 +226,7 @@ function handleCancel() {
 /* 增强表单样式 - 与GroupFormModal保持一致 */
 :deep(.n-form-item-label) {
   font-weight: 500;
-  color: #374151;
+  color: var(--text-primary);
 }
 
 :deep(.n-button) {
@@ -234,7 +234,7 @@ function handleCancel() {
 }
 
 :deep(.n-card-header) {
-  border-bottom: 1px solid rgba(239, 239, 245, 0.8);
+  border-bottom: 1px solid var(--border-color);
   padding: 10px 20px;
 }
 
@@ -243,7 +243,7 @@ function handleCancel() {
 }
 
 :deep(.n-card__footer) {
-  border-top: 1px solid rgba(239, 239, 245, 0.8);
+  border-top: 1px solid var(--border-color);
   padding: 10px 15px;
 }
 

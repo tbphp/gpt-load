@@ -84,8 +84,8 @@ func isValidGroupName(name string) bool {
 	if name == "" {
 		return false
 	}
-	// 允许使用小写字母、数字、下划线和中划线，长度在 3 到 30 个字符之间
-	match, _ := regexp.MatchString("^[a-z0-9_-]{3,30}$", name)
+	// 允许使用小写字母、数字、下划线和中划线，长度在 1 到 100 个字符之间
+	match, _ := regexp.MatchString("^[a-z0-9_-]{1,100}$", name)
 	return match
 }
 
@@ -182,7 +182,7 @@ func (s *Server) CreateGroup(c *gin.Context) {
 	// Data Cleaning and Validation
 	name := strings.TrimSpace(req.Name)
 	if !isValidGroupName(name) {
-		response.Error(c, app_errors.NewAPIError(app_errors.ErrValidation, "无效的分组名称。只能包含小写字母、数字、中划线或下划线，长度3-30位"))
+		response.Error(c, app_errors.NewAPIError(app_errors.ErrValidation, "无效的分组名称。只能包含小写字母、数字、中划线或下划线，长度1-100位"))
 		return
 	}
 
@@ -350,7 +350,7 @@ func (s *Server) UpdateGroup(c *gin.Context) {
 	if req.Name != nil {
 		cleanedName := strings.TrimSpace(*req.Name)
 		if !isValidGroupName(cleanedName) {
-			response.Error(c, app_errors.NewAPIError(app_errors.ErrValidation, "无效的分组名称格式。只能包含小写字母、数字、中划线或下划线，长度3-30位"))
+			response.Error(c, app_errors.NewAPIError(app_errors.ErrValidation, "无效的分组名称格式。只能包含小写字母、数字、中划线或下划线，长度1-100位"))
 			return
 		}
 		group.Name = cleanedName
@@ -980,9 +980,15 @@ func (s *Server) CopyGroup(c *gin.Context) {
 			return
 		}
 
-		// Extract key values for async import task
+		// Extract and decrypt key values for async import task
 		for _, sourceKey := range sourceKeys {
-			sourceKeyValues = append(sourceKeyValues, sourceKey.KeyValue)
+			// Decrypt the key before adding to import task
+			decryptedKey, err := s.EncryptionSvc.Decrypt(sourceKey.KeyValue)
+			if err != nil {
+				logrus.WithError(err).WithField("key_id", sourceKey.ID).Error("Failed to decrypt key during group copy, skipping")
+				continue
+			}
+			sourceKeyValues = append(sourceKeyValues, decryptedKey)
 		}
 	}
 

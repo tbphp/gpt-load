@@ -593,28 +593,39 @@ function resetPage() {
         </n-button>
       </div>
       <div class="toolbar-right">
-        <n-space :size="12">
+        <n-space :size="12" align="center">
           <n-select
             v-model:value="statusFilter"
             :options="statusOptions"
             size="small"
-            style="width: 100px"
+            style="width: 120px"
+            placeholder="全部状态"
           />
           <n-input-group>
             <n-input
               v-model:value="searchText"
-              placeholder="Key 模糊查询"
+              placeholder="Key 精确匹配"
               size="small"
-              style="width: 180px"
+              style="width: 200px"
               clearable
               @keyup.enter="handleSearchInput"
-            />
-            <n-button ghost size="small" :disabled="loading" @click="handleSearchInput">
-              <n-icon :component="Search" />
+            >
+              <template #prefix>
+                <n-icon :component="Search" />
+              </template>
+            </n-input>
+            <n-button
+              type="primary"
+              ghost
+              size="small"
+              :disabled="loading"
+              @click="handleSearchInput"
+            >
+              搜索
             </n-button>
           </n-input-group>
           <n-dropdown :options="moreOptions" trigger="click" @select="handleMoreAction">
-            <n-button size="small" secondary>
+            <n-button size="small" tertiary>
               <template #icon>
                 <span style="font-size: 16px; font-weight: bold">⋯</span>
               </template>
@@ -778,9 +789,10 @@ function resetPage() {
 
 <style scoped>
 .key-table-container {
-  background: white;
+  background: var(--card-bg-solid);
   border-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--shadow-md);
+  border: 1px solid var(--border-color);
   overflow: hidden;
   height: 100%;
   display: flex;
@@ -791,21 +803,42 @@ function resetPage() {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px 16px;
-  background: #f8f9fa;
-  border-bottom: 1px solid #e9ecef;
+  padding: 16px;
+  background: var(--card-bg-solid);
+  border-bottom: 1px solid var(--border-color);
   flex-shrink: 0;
+  gap: 16px;
+  min-height: 64px;
+}
+
+/* 确保按钮在暗黑模式下有正确的对比度 */
+.toolbar :deep(.n-button) {
+  font-weight: 500;
+}
+
+/* 搜索输入框样式 */
+.toolbar :deep(.n-input-group) {
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+/* 暗黑模式下的输入框 */
+:root.dark .toolbar :deep(.n-input-group) {
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
 }
 
 .toolbar-left {
   display: flex;
   gap: 8px;
+  flex-shrink: 0;
 }
 
 .toolbar-right {
   display: flex;
   gap: 12px;
   align-items: center;
+  flex: 1;
+  justify-content: flex-end;
+  min-width: 0;
 }
 
 .filter-group {
@@ -822,10 +855,10 @@ function resetPage() {
   position: absolute;
   top: 100%;
   right: 0;
-  background: white;
-  border: 1px solid #e9ecef;
+  background: var(--card-bg-solid);
+  border: 1px solid var(--border-color);
   border-radius: 6px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  box-shadow: var(--shadow-lg);
   min-width: 180px;
   z-index: 1000;
   overflow: hidden;
@@ -940,34 +973,38 @@ function resetPage() {
 }
 
 .key-card {
-  background: white;
-  border: 1px solid #e9ecef;
-  border-radius: 6px;
-  padding: 12px;
+  background: var(--card-bg-solid);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 14px;
   transition: all 0.2s;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
 }
 
 .key-card:hover {
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
 }
 
 /* 状态相关样式 */
 .key-card.status-valid {
-  border-color: #18a0584d;
-  background: #18a0581a;
+  border-color: var(--success-border);
+  background: var(--success-bg);
+  border-width: 1.5px;
 }
 
 .key-card.status-invalid {
-  border-color: #ddd;
-  background: rgb(250, 250, 252);
+  border-color: var(--invalid-border);
+  background: var(--card-bg-solid);
+  opacity: 0.85;
 }
 
 .key-card.status-error {
-  border-color: #ffc107;
-  background: #fffdf0;
+  border-color: var(--error-border);
+  background: var(--error-bg);
 }
 
 /* 主要信息行 */
@@ -999,17 +1036,18 @@ function resetPage() {
   gap: 8px;
   font-size: 12px;
   overflow: hidden;
-  color: #6c757d;
+  color: var(--text-secondary);
   flex: 1;
   min-width: 0;
 }
 
 .stat-item {
   white-space: nowrap;
+  color: var(--text-secondary);
 }
 
 .stat-item strong {
-  color: #495057;
+  color: var(--text-primary);
   font-weight: 600;
 }
 
@@ -1022,14 +1060,28 @@ function resetPage() {
 
 .key-text {
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
-  font-weight: 600;
-  color: #495057;
-  background: #fff;
-  border-radius: 4px;
+  font-weight: 500;
   flex: 1;
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
+}
+
+/* 浅色主题 */
+:root:not(.dark) .key-text {
+  color: #495057;
+  background: #f8f9fa;
+}
+
+/* 暗黑主题 */
+:root.dark .key-text {
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+}
+
+:deep(.n-input__input-el) {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
+  font-size: 13px;
 }
 
 .quick-actions {
@@ -1048,35 +1100,42 @@ function resetPage() {
   transition: background-color 0.2s;
 }
 
-.quick-btn:hover {
+/* 浅色主题 */
+:root:not(.dark) .quick-btn:hover {
   background: #e9ecef;
+}
+
+/* 暗黑主题 */
+:root.dark .quick-btn:hover {
+  background: var(--bg-tertiary);
 }
 
 /* 统计信息行 */
 
 .action-btn {
   padding: 2px 6px;
-  border: 1px solid #dee2e6;
-  background: white;
+  border: 1px solid var(--border-color);
+  background: var(--card-bg-solid);
   border-radius: 3px;
   cursor: pointer;
   font-size: 10px;
   font-weight: 500;
   transition: all 0.2s;
   white-space: nowrap;
+  color: var(--text-primary);
 }
 
 .action-btn:hover {
-  background: #f8f9fa;
+  background: var(--bg-secondary);
 }
 
 .action-btn.primary {
-  border-color: #007bff;
-  color: #007bff;
+  border-color: var(--primary-color);
+  color: var(--primary-color);
 }
 
 .action-btn.primary:hover {
-  background: #007bff;
+  background: var(--primary-color);
   color: white;
 }
 
@@ -1124,9 +1183,10 @@ function resetPage() {
   justify-content: space-between;
   align-items: center;
   padding: 12px 16px;
-  background: #f8f9fa;
-  border-top: 1px solid #e9ecef;
+  background: var(--card-bg-solid);
+  border-top: 1px solid var(--border-color);
   flex-shrink: 0;
+  border-radius: 0 0 8px 8px;
 }
 
 .pagination-info {
@@ -1134,7 +1194,7 @@ function resetPage() {
   align-items: center;
   gap: 12px;
   font-size: 12px;
-  color: #6c757d;
+  color: var(--text-secondary);
 }
 
 .pagination-controls {
@@ -1145,7 +1205,7 @@ function resetPage() {
 
 .page-info {
   font-size: 12px;
-  color: #6c757d;
+  color: var(--text-secondary);
 }
 
 @media (max-width: 768px) {

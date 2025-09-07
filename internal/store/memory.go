@@ -431,3 +431,14 @@ func (s *MemoryStore) Subscribe(channel string) (Subscription, error) {
 
 	return sub, nil
 }
+
+// Clear clears all data.
+func (s *MemoryStore) Clear() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Clear all data
+	s.data = make(map[string]any)
+
+	return nil
+}

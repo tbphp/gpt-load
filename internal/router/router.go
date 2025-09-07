@@ -55,6 +55,7 @@ func NewRouter(
 	router.Use(middleware.Logger(configManager.GetLogConfig()))
 	router.Use(middleware.CORS(configManager.GetCORSConfig()))
 	router.Use(middleware.RateLimiter(configManager.GetPerformanceConfig()))
+	router.Use(middleware.SecurityHeaders())
 	startTime := time.Now()
 	router.Use(func(c *gin.Context) {
 		c.Set("serverStartTime", startTime)
@@ -139,6 +140,7 @@ func registerProtectedAPIRoutes(api *gin.RouterGroup, serverHandler *handler.Ser
 	{
 		dashboard.GET("/stats", serverHandler.Stats)
 		dashboard.GET("/chart", serverHandler.Chart)
+		dashboard.GET("/encryption-status", serverHandler.EncryptionStatus)
 	}
 
 	// 日志

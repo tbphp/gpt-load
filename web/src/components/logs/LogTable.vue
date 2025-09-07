@@ -276,7 +276,10 @@ const exportLogs = () => {
     group_name: filters.group_name || undefined,
     key_value: filters.key_value || undefined,
     model: filters.model || undefined,
-    is_success: filters.is_success === "" ? undefined : filters.is_success === "true",
+    is_success:
+      filters.is_success === "" || filters.is_success === null
+        ? undefined
+        : filters.is_success === "true",
     status_code: filters.status_code ? parseInt(filters.status_code, 10) : undefined,
     source_ip: filters.source_ip || undefined,
     error_contains: filters.error_contains || undefined,
@@ -673,10 +676,10 @@ function changePageSize(size: number) {
   /* height: 100%; */
 }
 .toolbar {
-  background: white;
+  background: var(--card-bg-solid);
   border-radius: 8px;
   padding: 16px;
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid var(--border-color);
 }
 
 .filter-section {
@@ -729,7 +732,7 @@ function changePageSize(size: number) {
 }
 
 .table-main {
-  background: white;
+  background: var(--card-bg-solid);
   border-radius: 8px;
   overflow: hidden;
 }
@@ -751,14 +754,14 @@ function changePageSize(size: number) {
   justify-content: space-between;
   align-items: center;
   padding: 12px;
-  border-top: 1px solid #f0f0f0;
+  border-top: 1px solid var(--border-color);
 }
 .pagination-info {
   display: flex;
   align-items: center;
   gap: 12px;
   font-size: 13px;
-  color: #666;
+  color: var(--text-secondary);
 }
 .pagination-controls {
   display: flex;
@@ -767,7 +770,7 @@ function changePageSize(size: number) {
 }
 .page-info {
   font-size: 13px;
-  color: #666;
+  color: var(--text-secondary);
 }
 
 .detail-grid {
@@ -784,7 +787,7 @@ function changePageSize(size: number) {
 
 .detail-label {
   font-weight: 500;
-  color: #666;
+  color: var(--text-secondary);
   min-width: 70px;
   flex-shrink: 0;
 }
@@ -807,7 +810,7 @@ function changePageSize(size: number) {
 
 .detail-label-compact {
   font-weight: 500;
-  color: #666;
+  color: var(--text-secondary);
   min-width: 55px;
   flex-shrink: 0;
   font-size: 11px;
@@ -815,6 +818,7 @@ function changePageSize(size: number) {
 
 .detail-value-compact {
   font-size: 11px;
+  color: var(--text-primary);
 }
 
 .key-item {
@@ -832,9 +836,9 @@ function changePageSize(size: number) {
 .key-value-compact {
   font-family: monospace;
   font-size: 11px;
-  color: #495057;
-  background: #f8f9fa;
-  border: 1px solid #e9ecef;
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
   border-radius: 3px;
   padding: 4px 6px;
   flex: 1;
@@ -860,10 +864,10 @@ function changePageSize(size: number) {
 }
 
 .compact-field {
-  border: 1px solid #e9ecef;
+  border: 1px solid var(--border-color);
   border-radius: 3px;
   padding: 6px;
-  background: #f8f9fa;
+  background: var(--bg-tertiary);
 }
 
 .compact-field-error {
@@ -884,7 +888,7 @@ function changePageSize(size: number) {
 
 .compact-field-title {
   font-weight: 500;
-  color: #495057;
+  color: var(--text-secondary);
   font-size: 11px;
 }
 
@@ -894,7 +898,7 @@ function changePageSize(size: number) {
   line-height: 1.3;
   word-break: break-all;
   white-space: pre-wrap;
-  color: #6c757d;
+  color: var(--text-primary);
   max-height: 100px;
   overflow-y: auto;
 }
@@ -912,7 +916,7 @@ function changePageSize(size: number) {
 
 .field-title {
   font-weight: 500;
-  color: #666;
+  color: var(--text-secondary);
   font-size: 14px;
 }
 
@@ -922,8 +926,8 @@ function changePageSize(size: number) {
 }
 
 .field-content {
-  background: #f8f9fa;
-  border: 1px solid #e9ecef;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
   border-radius: 6px;
   padding: 12px;
   font-family: monospace;
