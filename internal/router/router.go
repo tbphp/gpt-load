@@ -140,6 +140,7 @@ func registerProtectedAPIRoutes(api *gin.RouterGroup, serverHandler *handler.Ser
 	{
 		dashboard.GET("/stats", serverHandler.Stats)
 		dashboard.GET("/chart", serverHandler.Chart)
+		dashboard.GET("/encryption-status", serverHandler.EncryptionStatus)
 	}
 
 	// 日志

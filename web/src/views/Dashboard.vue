@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { getDashboardStats } from "@/api/dashboard";
 import BaseInfoCard from "@/components/BaseInfoCard.vue";
+import EncryptionMismatchAlert from "@/components/EncryptionMismatchAlert.vue";
 import LineChart from "@/components/LineChart.vue";
 import SecurityAlert from "@/components/SecurityAlert.vue";
 import type { DashboardStatsResponse } from "@/types/models";
@@ -22,13 +23,16 @@ onMounted(async () => {
 <template>
   <div class="dashboard-container">
     <n-space vertical size="large">
+      <!-- 加密配置错误警告（优先级最高） -->
+      <encryption-mismatch-alert />
+
       <!-- 安全警告横幅 -->
       <security-alert
         v-if="dashboardStats?.security_warnings"
         :warnings="dashboardStats.security_warnings"
       />
 
-      <base-info-card />
+      <base-info-card :stats="dashboardStats" />
       <line-chart class="dashboard-chart" />
     </n-space>
   </div>

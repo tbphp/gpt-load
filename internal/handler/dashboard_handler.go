@@ -3,12 +3,14 @@ package handler
 import (
 	"fmt"
 	"strings"
+	"gpt-load/internal/encryption"
 	app_errors "gpt-load/internal/errors"
 	"gpt-load/internal/models"
 	"gpt-load/internal/response"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/sirupsen/logrus"
 )
 
 // Stats Get dashboard statistics
@@ -343,4 +345,93 @@ func hasGoodComplexity(password string) bool {
 	if hasSpecial { count++ }
 	
 	return count >= 3
+}
+
+// EncryptionStatus checks if ENCRYPTION_KEY is configured but keys are not encrypted
+func (s *Server) EncryptionStatus(c *gin.Context) {
+	hasMismatch, message, suggestion := s.checkEncryptionMismatch()
+	
+	response.Success(c, gin.H{
+		"has_mismatch": hasMismatch,
+		"message":      message,
+		"suggestion":   suggestion,
+	})
+}
+
+// checkEncryptionMismatch detects encryption configuration mismatches
+func (s *Server) checkEncryptionMismatch() (bool, string, string) {
+	encryptionKey := s.config.GetEncryptionKey()
+	
+	// Sample check API keys
+	var sampleKeys []models.APIKey
+	if err := s.DB.Limit(20).Where("key_hash IS NOT NULL AND key_hash != ''").Find(&sampleKeys).Error; err != nil {
+		logrus.WithError(err).Error("Failed to fetch sample keys for encryption check")
+		return false, "", ""
+	}
+	
+	if len(sampleKeys) == 0 {
+		// No keys in database, no mismatch
+		return false, "", ""
+	}
+	
+	// Check hash consistency with unencrypted data
+	noopService, err := encryption.NewService("")
+	if err != nil {
+		logrus.WithError(err).Error("Failed to create noop encryption service")
+		return false, "", ""
+	}
+	
+	unencryptedHashMatchCount := 0
+	for _, key := range sampleKeys {
+		// For unencrypted data: key_hash should match SHA256(key_value)
+		expectedHash := noopService.Hash(key.KeyValue)
+		if expectedHash == key.KeyHash {
+			unencryptedHashMatchCount++
+		}
+	}
+	
+	unencryptedConsistencyRate := float64(unencryptedHashMatchCount) / float64(len(sampleKeys))
+	
+	// If ENCRYPTION_KEY is configured, also check if current key can decrypt the data
+	var currentKeyHashMatchCount int
+	if encryptionKey != "" {
+		currentService, err := encryption.NewService(encryptionKey)
+		if err == nil {
+			for _, key := range sampleKeys {
+				// Try to decrypt and re-hash to check if current key matches
+				decrypted, err := currentService.Decrypt(key.KeyValue)
+				if err == nil {
+					// Successfully decrypted, check if hash matches
+					expectedHash := currentService.Hash(decrypted)
+					if expectedHash == key.KeyHash {
+						currentKeyHashMatchCount++
+					}
+				}
+			}
+		}
+	}
+	currentKeyConsistencyRate := float64(currentKeyHashMatchCount) / float64(len(sampleKeys))
+	
+	// Scenario A: ENCRYPTION_KEY configured but data not encrypted
+	if encryptionKey != "" && unencryptedConsistencyRate > 0.8 {
+		return true,
+			"检测到您已配置 ENCRYPTION_KEY，但数据库中的密钥尚未加密。这会导致密钥无法正常读取（显示为 failed-to-decrypt）。",
+			"请停止服务，执行密钥迁移命令后重启"
+	}
+	
+	// Scenario B: ENCRYPTION_KEY not configured but data is encrypted
+	if encryptionKey == "" && unencryptedConsistencyRate < 0.2 {
+		return true,
+			"检测到数据库中的密钥已加密，但未配置 ENCRYPTION_KEY。这会导致密钥无法正常读取。",
+			"请配置与加密时相同的 ENCRYPTION_KEY，或执行解密迁移"
+	}
+	
+	// Scenario C: ENCRYPTION_KEY configured but doesn't match encrypted data
+	if encryptionKey != "" && unencryptedConsistencyRate < 0.2 && currentKeyConsistencyRate < 0.2 {
+		return true,
+			"检测到您配置的 ENCRYPTION_KEY 与数据加密时使用的密钥不匹配。这会导致密钥解密失败（显示为 failed-to-decrypt）。",
+			"请使用正确的 ENCRYPTION_KEY，或执行密钥迁移"
+	}
+	
+	return false, "", ""
 }

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { keysApi } from "@/api/keys";
+import EncryptionMismatchAlert from "@/components/EncryptionMismatchAlert.vue";
 import GroupInfoCard from "@/components/keys/GroupInfoCard.vue";
 import GroupList from "@/components/keys/GroupList.vue";
 import KeyTable from "@/components/keys/KeyTable.vue";
@@ -82,33 +83,38 @@ async function handleGroupCopySuccess(newGroup: Group) {
 </script>
 
 <template>
-  <div class="keys-container">
-    <div class="sidebar">
-      <group-list
-        :groups="groups"
-        :selected-group="selectedGroup"
-        :loading="loading"
-        @group-select="handleGroupSelect"
-        @refresh="handleGroupRefresh"
-        @refresh-and-select="handleGroupRefreshAndSelect"
-      />
-    </div>
+  <div>
+    <!-- 加密配置错误警告 -->
+    <encryption-mismatch-alert style="margin-bottom: 16px" />
 
-    <!-- 右侧主内容区域，占80% -->
-    <div class="main-content">
-      <!-- 分组信息卡片，更紧凑 -->
-      <div class="group-info">
-        <group-info-card
-          :group="selectedGroup"
+    <div class="keys-container">
+      <div class="sidebar">
+        <group-list
+          :groups="groups"
+          :selected-group="selectedGroup"
+          :loading="loading"
+          @group-select="handleGroupSelect"
           @refresh="handleGroupRefresh"
-          @delete="handleGroupDelete"
-          @copy-success="handleGroupCopySuccess"
+          @refresh-and-select="handleGroupRefreshAndSelect"
         />
       </div>
 
-      <!-- 密钥表格区域，占主要空间 -->
-      <div class="key-table-section">
-        <key-table :selected-group="selectedGroup" />
+      <!-- 右侧主内容区域，占80% -->
+      <div class="main-content">
+        <!-- 分组信息卡片，更紧凑 -->
+        <div class="group-info">
+          <group-info-card
+            :group="selectedGroup"
+            @refresh="handleGroupRefresh"
+            @delete="handleGroupDelete"
+            @copy-success="handleGroupCopySuccess"
+          />
+        </div>
+
+        <!-- 密钥表格区域，占主要空间 -->
+        <div class="key-table-section">
+          <key-table :selected-group="selectedGroup" />
+        </div>
       </div>
     </div>
   </div>
