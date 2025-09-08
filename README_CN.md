@@ -1,6 +1,6 @@
 # GPT-Load
 
-[English](README.md) | 中文文档 | [日本語](README_JP.md)
+[English](README.md) | 中文 | [日本語](README_JP.md)
 
 [![Release](https://img.shields.io/github/v/release/tbphp/gpt-load)](https://github.com/tbphp/gpt-load/releases)
 ![Go Version](https://img.shields.io/badge/Go-1.23+-blue.svg)
