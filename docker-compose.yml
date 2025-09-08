@@ -19,10 +19,10 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
-    # depends_on:
-    #   mysql:
-    #     condition: service_healthy
-    #     restart: true
+    depends_on:
+      mysql:
+        condition: service_healthy
+        restart: true
     #   postgres:
     #     condition: service_healthy
     #     restart: true
