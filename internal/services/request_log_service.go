@@ -209,22 +209,22 @@ func (s *RequestLogService) writeLogsToDB(logs []*models.RequestLog) error {
 
 		keyStats := make(map[string]int64)
 		for _, log := range logs {
-			if log.IsSuccess && log.KeyValue != "" {
-				keyStats[log.KeyValue]++
+			if log.IsSuccess && log.KeyHash != "" {
+				keyStats[log.KeyHash]++
 			}
 		}
 
 		if len(keyStats) > 0 {
 			var caseStmt strings.Builder
-			var keyValues []string
-			caseStmt.WriteString("CASE key_value ")
-			for keyValue, count := range keyStats {
-				caseStmt.WriteString(fmt.Sprintf("WHEN '%s' THEN request_count + %d ", keyValue, count))
-				keyValues = append(keyValues, keyValue)
+			var keyHashes []string
+			caseStmt.WriteString("CASE key_hash ")
+			for keyHash, count := range keyStats {
+				caseStmt.WriteString(fmt.Sprintf("WHEN '%s' THEN request_count + %d ", keyHash, count))
+				keyHashes = append(keyHashes, keyHash)
 			}
 			caseStmt.WriteString("END")
 
-			if err := tx.Model(&models.APIKey{}).Where("key_value IN ?", keyValues).
+			if err := tx.Model(&models.APIKey{}).Where("key_hash IN ?", keyHashes).
 				Updates(map[string]any{
 					"request_count": gorm.Expr(caseStmt.String()),
 					"last_used_at":  time.Now(),

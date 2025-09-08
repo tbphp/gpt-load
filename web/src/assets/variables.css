@@ -1,0 +1,140 @@
+/* 全局 CSS 变量定义 */
+
+/* 浅色主题变量 */
+:root,
+:root.light {
+  /* 背景色 */
+  --bg-primary: #ffffff;
+  --bg-secondary: #f5f7fa;
+  --bg-tertiary: #e5e7eb;
+  --bg-gradient: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+
+  /* 文字颜色 */
+  --text-primary: #1e293b;
+  --text-secondary: #475569;
+  --text-tertiary: #94a3b8;
+  --text-inverse: #ffffff;
+
+  /* 边框颜色 */
+  --border-color: #e2e8f0;
+  --border-color-light: rgba(0, 0, 0, 0.08);
+
+  /* 卡片背景 */
+  --card-bg: rgba(255, 255, 255, 0.95);
+  --card-bg-solid: #ffffff;
+
+  /* 组件颜色 */
+  --header-bg: rgba(255, 255, 255, 0.95);
+  --footer-bg: rgba(255, 255, 255, 0.95);
+
+  /* 状态颜色 */
+  --success-bg: rgba(24, 160, 88, 0.1);
+  --success-border: rgba(24, 160, 88, 0.3);
+  --error-bg: rgba(255, 193, 7, 0.1);
+  --error-border: rgba(255, 193, 7, 0.5);
+  --invalid-bg: rgb(250, 250, 252);
+  --invalid-border: #ddd;
+
+  /* 图表颜色 */
+  --chart-bg: white;
+  --chart-grid: #f0f0f0;
+  --chart-axis: #e0e0e0;
+  --chart-text: #666;
+  --chart-legend-bg: rgba(255, 255, 255, 0.6);
+  --chart-legend-text: #334155;
+  --chart-legend-secondary: #475569;
+
+  /* 阴影 */
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+
+  /* 其他 */
+  --overlay-bg: rgba(255, 255, 255, 0.8);
+  --code-bg: #f8f9fa;
+  --scrollbar-bg: rgba(0, 0, 0, 0.05);
+  --hover-bg: rgba(102, 126, 234, 0.08);
+  --modal-color: rgba(255, 255, 255, 0.95);
+  --success-color: #18a058;
+  --error-color: #d03050;
+}
+
+/* 深色主题变量 */
+:root.dark {
+  /* 背景色 - 外层浅色，内容深色 */
+  --bg-primary: #2b3038;
+  --bg-secondary: #323841;
+  --bg-tertiary: #3a414d;
+  --bg-gradient: linear-gradient(135deg, #323841 0%, #2b3038 100%);
+
+  /* 文字颜色 - 浅色高对比 */
+  --text-primary: #e8e8e8;
+  --text-secondary: #b4b4b4;
+  --text-tertiary: #888888;
+  --text-inverse: #1a1d23;
+
+  /* 边框颜色 */
+  --border-color: #1a1d23;
+  --border-color-light: rgba(255, 255, 255, 0.06);
+
+  /* 卡片背景 - 深黑色内容 */
+  --card-bg: rgba(15, 17, 21, 0.95);
+  --card-bg-solid: #0f1115;
+
+  /* 组件颜色 - 深黑色 */
+  --header-bg: rgba(15, 17, 21, 0.95);
+  --footer-bg: rgba(15, 17, 21, 0.95);
+
+  /* 状态颜色 */
+  --success-bg: rgba(24, 160, 88, 0.12);
+  --success-border: rgba(24, 160, 88, 0.35);
+  --error-bg: rgba(255, 193, 7, 0.12);
+  --error-border: rgba(255, 193, 7, 0.35);
+  --invalid-bg: rgba(15, 17, 21, 0.6);
+  --invalid-border: #2a2f38;
+
+  /* 图表颜色 - 深黑色背景 */
+  --chart-bg: rgba(12, 14, 18, 0.98);
+  --chart-grid: #2a2f38;
+  --chart-axis: #2a2f38;
+  --chart-text: #b4b4b4;
+  --chart-legend-bg: rgba(15, 17, 21, 0.95);
+  --chart-legend-text: #e8e8e8;
+  --chart-legend-secondary: #b4b4b4;
+
+  /* 阴影 */
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.2);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -1px rgba(0, 0, 0, 0.2);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.4), 0 4px 6px -2px rgba(0, 0, 0, 0.3);
+
+  /* 其他 */
+  --overlay-bg: rgba(15, 17, 21, 0.8);
+  --code-bg: #0f1115;
+  --scrollbar-bg: rgba(255, 255, 255, 0.1);
+  --hover-bg: rgba(102, 126, 234, 0.15);
+  --modal-color: rgba(15, 17, 21, 0.98);
+  --success-color: #52c41a;
+  --error-color: #ff4d4f;
+}
+
+/* 通用颜色（不受主题影响） */
+:root {
+  /* 主题色 */
+  --primary-color: #667eea;
+  --primary-color-hover: #5a6fd8;
+  --primary-color-pressed: #4c63d2;
+  --primary-color-suppl: rgba(102, 126, 234, 0.1);
+  --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  --secondary-gradient: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+  --success-gradient: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+  --warning-gradient: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
+
+  /* 边框半径 */
+  --border-radius-sm: 8px;
+  --border-radius-md: 12px;
+  --border-radius-lg: 16px;
+  --border-radius-xl: 24px;
+
+  /* 阴影（添加到通用部分） */
+  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+}

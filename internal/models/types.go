@@ -83,8 +83,9 @@ type Group struct {
 // APIKey 对应 api_keys 表
 type APIKey struct {
 	ID           uint       `gorm:"primaryKey;autoIncrement" json:"id"`
-	KeyValue     string     `gorm:"type:varchar(700);not null;uniqueIndex:idx_group_key" json:"key_value"`
-	GroupID      uint       `gorm:"not null;uniqueIndex:idx_group_key" json:"group_id"`
+	KeyValue     string     `gorm:"type:text;not null" json:"key_value"`
+	KeyHash      string     `gorm:"type:varchar(128);index" json:"key_hash"`
+	GroupID      uint       `gorm:"not null;index" json:"group_id"`
 	Status       string     `gorm:"type:varchar(50);not null;default:'active'" json:"status"`
 	RequestCount int64      `gorm:"not null;default:0" json:"request_count"`
 	FailureCount int64      `gorm:"not null;default:0" json:"failure_count"`
@@ -105,7 +106,8 @@ type RequestLog struct {
 	Timestamp    time.Time `gorm:"not null;index" json:"timestamp"`
 	GroupID      uint      `gorm:"not null;index" json:"group_id"`
 	GroupName    string    `gorm:"type:varchar(255);index" json:"group_name"`
-	KeyValue     string    `gorm:"type:varchar(700)" json:"key_value"`
+	KeyValue     string    `gorm:"type:text" json:"key_value"`
+	KeyHash      string    `gorm:"type:varchar(128);index" json:"key_hash"`
 	Model        string    `gorm:"type:varchar(255);index" json:"model"`
 	IsSuccess    bool      `gorm:"not null" json:"is_success"`
 	SourceIP     string    `gorm:"type:varchar(64)" json:"source_ip"`
@@ -129,12 +131,21 @@ type StatCard struct {
 	TrendIsGrowth bool    `json:"trend_is_growth"`
 }
 
+// SecurityWarning 用于安全警告信息
+type SecurityWarning struct {
+	Type       string `json:"type"`       // 警告类型：auth_key, encryption_key 等
+	Message    string `json:"message"`    // 警告信息
+	Severity   string `json:"severity"`   // 严重程度：low, medium, high
+	Suggestion string `json:"suggestion"` // 建议解决方案
+}
+
 // DashboardStatsResponse 用于仪表盘基础统计的API响应
 type DashboardStatsResponse struct {
-	KeyCount     StatCard `json:"key_count"`
-	RPM          StatCard `json:"rpm"`
-	RequestCount StatCard `json:"request_count"`
-	ErrorRate    StatCard `json:"error_rate"`
+	KeyCount         StatCard          `json:"key_count"`
+	RPM              StatCard          `json:"rpm"`
+	RequestCount     StatCard          `json:"request_count"`
+	ErrorRate        StatCard          `json:"error_rate"`
+	SecurityWarnings []SecurityWarning `json:"security_warnings"`
 }
 
 // ChartDataset 用于图表的数据集

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"gpt-load/internal/config"
+	"gpt-load/internal/encryption"
 	app_errors "gpt-load/internal/errors"
 	"gpt-load/internal/models"
 	"gpt-load/internal/store"
@@ -41,14 +42,16 @@ type KeyProvider struct {
 	db              *gorm.DB
 	store           store.Store
 	settingsManager *config.SystemSettingsManager
+	encryptionSvc   encryption.Service
 }
 
 // NewProvider 创建一个新的 KeyProvider 实例。
-func NewProvider(db *gorm.DB, store store.Store, settingsManager *config.SystemSettingsManager) *KeyProvider {
+func NewProvider(db *gorm.DB, store store.Store, settingsManager *config.SystemSettingsManager, encryptionSvc encryption.Service) *KeyProvider {
 	return &KeyProvider{
 		db:              db,
 		store:           store,
 		settingsManager: settingsManager,
+		encryptionSvc:   encryptionSvc,
 	}
 }
 
@@ -87,10 +90,22 @@ func (p *KeyProvider) SelectKey(groupID uint) (*models.APIKey, error) {
 		createdAt = time.Now().Unix() // Default to current time
 	}
 
+	// Decrypt the key value for use by channels
+	encryptedKeyValue := keyDetails["key_string"]
+	decryptedKeyValue, err := p.encryptionSvc.Decrypt(encryptedKeyValue)
+	if err != nil {
+		// If decryption fails, try to use the value as-is (backward compatibility for unencrypted keys)
+		logrus.WithFields(logrus.Fields{
+			"keyID": keyID,
+			"error": err,
+		}).Debug("Failed to decrypt key value, using as-is for backward compatibility")
+		decryptedKeyValue = encryptedKeyValue
+	}
+
 	// Initialize struct with required fields only to reduce memory footprint
 	apiKey := &models.APIKey{
 		ID:           uint(keyID),
-		KeyValue:     keyDetails["key_string"],
+		KeyValue:     decryptedKeyValue,
 		Status:       keyDetails["status"],
 		FailureCount: failureCount,
 		GroupID:      groupID,
@@ -419,7 +434,7 @@ func (p *KeyProvider) LoadKeysFromDB() error {
 	batchSize := defaultBatchSize
 	var batchKeys []*models.APIKey
 
-	err = p.db.Model(&models.APIKey{}).FindInBatches(&batchKeys, batchSize, func(tx *gorm.DB, batch int) error {
+	err := p.db.Model(&models.APIKey{}).FindInBatches(&batchKeys, batchSize, func(tx *gorm.DB, batch int) error {
 		logrus.Debugf("Processing batch %d with %d keys...", batch, len(batchKeys))
 
 		var pipeline store.Pipeliner
@@ -468,10 +483,6 @@ func (p *KeyProvider) LoadKeysFromDB() error {
 		}
 	}
 
-	if err := p.store.Set(initFlagKey, []byte("1"), 0); err != nil {
-		logrus.WithField("flagKey", initFlagKey).Error("Failed to set initialization flag after loading keys")
-	}
-
 	return nil
 }
 
@@ -508,7 +519,19 @@ func (p *KeyProvider) RemoveKeys(groupID uint, keyValues []string) (int64, error
 	var deletedCount int64
 
 	err := p.db.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("group_id = ? AND key_value IN ?", groupID, keyValues).Find(&keysToDelete).Error; err != nil {
+		var keyHashes []string
+		for _, keyValue := range keyValues {
+			keyHash := p.encryptionSvc.Hash(keyValue)
+			if keyHash != "" {
+				keyHashes = append(keyHashes, keyHash)
+			}
+		}
+
+		if len(keyHashes) == 0 {
+			return nil
+		}
+
+		if err := tx.Where("group_id = ? AND key_hash IN ?", groupID, keyHashes).Find(&keysToDelete).Error; err != nil {
 			return err
 		}
 
@@ -585,6 +608,19 @@ func (p *KeyProvider) RestoreMultipleKeys(groupID uint, keyValues []string) (int
 	var restoredCount int64
 
 	err := p.db.Transaction(func(tx *gorm.DB) error {
+
+		var keyHashes []string
+		for _, keyValue := range keyValues {
+			keyHash := p.encryptionSvc.Hash(keyValue)
+			if keyHash != "" {
+				keyHashes = append(keyHashes, keyHash)
+			}
+		}
+
+		if len(keyHashes) == 0 {
+			return nil
+		}
+
 		// 1. 查找要恢复的密钥 - 仅选择必要字段
 		if err := tx.Select("id, key_value, group_id, status").Where("group_id = ? AND key_value IN ? AND status = ?", groupID, keyValues, models.KeyStatusInvalid).Find(&keysToRestore).Error; err != nil {
 			return err
@@ -612,9 +648,8 @@ func (p *KeyProvider) RestoreMultipleKeys(groupID uint, keyValues []string) (int
 			key.Status = models.KeyStatusActive
 			key.FailureCount = 0
 			if err := p.addKeyToStore(&key); err != nil {
-				// 在事务中，单个失败会回滚整个事务，但这里的日志记录仍然有用
 				logrus.WithFields(logrus.Fields{"keyID": key.ID, "error": err}).Error("Failed to restore key in store after DB update")
-				return err // 返回错误以回滚事务
+				return err
 			}
 		}
 

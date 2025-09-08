@@ -8,6 +8,7 @@ type ConfigManager interface {
 	GetPerformanceConfig() PerformanceConfig
 	GetLogConfig() LogConfig
 	GetDatabaseConfig() DatabaseConfig
+	GetEncryptionKey() string
 	GetEffectiveServerConfig() ServerConfig
 	GetRedisDSN() string
 	Validate() error

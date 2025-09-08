@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/sirupsen/logrus"
 )
 
 // LogResponse defines the structure for log entries in the API response
@@ -26,6 +27,19 @@ func (s *Server) GetLogs(c *gin.Context) {
 	if err != nil {
 		response.Error(c, app_errors.ParseDBError(err))
 		return
+	}
+
+	// 解密所有日志中的密钥用于前端显示
+	for i := range logs {
+		if logs[i].KeyValue != "" {
+			decryptedValue, err := s.EncryptionSvc.Decrypt(logs[i].KeyValue)
+			if err != nil {
+				logrus.WithError(err).WithField("log_id", logs[i].ID).Error("Failed to decrypt log key value")
+				logs[i].KeyValue = "failed-to-decrypt"
+			} else {
+				logs[i].KeyValue = decryptedValue
+			}
+		}
 	}
 
 	pagination.Items = logs

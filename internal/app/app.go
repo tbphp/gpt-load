@@ -79,7 +79,12 @@ func (a *App) Start() error {
 	if a.configManager.IsMaster() {
 		logrus.Info("Starting as Master Node.")
 
+		if err := a.storage.Clear(); err != nil {
+			return fmt.Errorf("cache cleanup failed: %w", err)
+		}
+
 		// 数据库迁移
+		db.HandleLegacyIndexes(a.db)
 		if err := a.db.AutoMigrate(
 			&models.SystemSetting{},
 			&models.Group{},
@@ -90,7 +95,9 @@ func (a *App) Start() error {
 			return fmt.Errorf("database auto-migration failed: %w", err)
 		}
 		// 数据修复
-		db.MigrateDatabase(a.db)
+		if err := db.MigrateDatabase(a.db); err != nil {
+			return fmt.Errorf("database data migration failed: %w", err)
+		}
 		logrus.Info("Database auto-migration completed.")
 
 		// 初始化系统设置

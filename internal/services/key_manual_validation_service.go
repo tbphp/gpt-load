@@ -3,6 +3,7 @@ package services
 import (
 	"fmt"
 	"gpt-load/internal/config"
+	"gpt-load/internal/encryption"
 	"gpt-load/internal/keypool"
 	"gpt-load/internal/models"
 	"gpt-load/internal/types"
@@ -27,16 +28,18 @@ type KeyManualValidationService struct {
 	TaskService     *TaskService
 	SettingsManager *config.SystemSettingsManager
 	ConfigManager   types.ConfigManager
+	EncryptionSvc   encryption.Service
 }
 
 // NewKeyManualValidationService creates a new KeyManualValidationService.
-func NewKeyManualValidationService(db *gorm.DB, validator *keypool.KeyValidator, taskService *TaskService, settingsManager *config.SystemSettingsManager, configManager types.ConfigManager) *KeyManualValidationService {
+func NewKeyManualValidationService(db *gorm.DB, validator *keypool.KeyValidator, taskService *TaskService, settingsManager *config.SystemSettingsManager, configManager types.ConfigManager, encryptionSvc encryption.Service) *KeyManualValidationService {
 	return &KeyManualValidationService{
 		DB:              db,
 		Validator:       validator,
 		TaskService:     taskService,
 		SettingsManager: settingsManager,
 		ConfigManager:   configManager,
+		EncryptionSvc:   encryptionSvc,
 	}
 }
 
@@ -140,7 +143,19 @@ func (s *KeyManualValidationService) runValidation(group *models.Group, keys []m
 func (s *KeyManualValidationService) validationWorker(wg *sync.WaitGroup, group *models.Group, jobs <-chan models.APIKey, results chan<- bool) {
 	defer wg.Done()
 	for key := range jobs {
-		isValid, _ := s.Validator.ValidateSingleKey(&key, group)
+		// Decrypt the key before validation
+		decryptedKey, err := s.EncryptionSvc.Decrypt(key.KeyValue)
+		if err != nil {
+			logrus.WithError(err).WithField("key_id", key.ID).Error("Manual validation: Failed to decrypt key for validation, marking as invalid")
+			results <- false
+			continue
+		}
+
+		// Create a copy with decrypted value for validation
+		keyForValidation := key
+		keyForValidation.KeyValue = decryptedKey
+
+		isValid, _ := s.Validator.ValidateSingleKey(&keyForValidation, group)
 		results <- isValid
 	}
 }

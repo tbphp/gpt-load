@@ -1,6 +1,6 @@
 # GPT-Load
 
-[English](README.md) | 中文文档
+[English](README.md) | 中文文档 | [日本語](README_JP.md)
 
 [![Release](https://img.shields.io/github/v/release/tbphp/gpt-load)](https://github.com/tbphp/gpt-load/releases)
 ![Go Version](https://img.shields.io/badge/Go-1.23+-blue.svg)
@@ -176,11 +176,17 @@ GPT-Load 采用双层配置架构：
 | 从节点模式   | `IS_SLAVE`                         | false           | 集群部署时从节点标识       |
 | 时区         | `TZ`                               | `Asia/Shanghai` | 指定时区                   |
 
-**认证与数据库配置：**
+**安全配置：**
+
+| 配置项   | 环境变量        | 默认值 | 说明                                                                 |
+| -------- | --------------- | ------ | -------------------------------------------------------------------- |
+| 管理密钥 | `AUTH_KEY`      | -      | **管理端**的访问认证密钥，请修改为强密码                             |
+| 加密密钥 | `ENCRYPTION_KEY`| -      | 加密存储的API密钥，支持任意字符串或留空禁用加密。参见[数据加密迁移](#数据加密迁移) |
+
+**数据库配置：**
 
 | 配置项     | 环境变量       | 默认值             | 说明                                 |
 | ---------- | -------------- | ------------------ | ------------------------------------ |
-| 管理密钥   | `AUTH_KEY`     | `sk-123456`        | **管理端**的访问认证密钥，请修改为强密码 |
 | 数据库连接 | `DATABASE_DSN` | ./data/gpt-load.db | 数据库连接字符串 (DSN) 或文件路径    |
 | Redis 连接 | `REDIS_DSN`    | -                  | Redis 连接字符串，为空时使用内存存储 |
 
@@ -255,6 +261,99 @@ GPT-Load 会自动从环境变量中读取代理设置，用于向上游 AI 服�
 | 密钥验证间隔   | `key_validation_interval_minutes` | 60     | ✅         | 后台定时验证密钥周期（分钟）                     |
 | 密钥验证并发数 | `key_validation_concurrency`      | 10     | ✅         | 后台定时验证无效 Key 时的并发数                  |
 | 密钥验证超时   | `key_validation_timeout_seconds`  | 20     | ✅         | 后台定时验证单个 Key 时的 API 请求超时时间（秒） |
+
+</details>
+
+## 数据加密迁移
+
+GPT-Load 支持对 API 密钥进行加密存储。您可以随时启用、禁用或更换加密密钥。
+
+<details>
+<summary>查看数据加密迁移详细说明</summary>
+
+### 迁移场景
+
+- **启用加密**：将明文数据加密存储 - 使用 `--to <新密钥>`
+- **禁用加密**：将加密数据解密为明文 - 使用 `--from <当前密钥>`
+- **更换密钥**：更换加密密钥 - 使用 `--from <当前密钥> --to <新密钥>`
+
+### 操作步骤
+
+#### Docker Compose 部署
+
+```bash
+# 1. 更新镜像（确保使用最新版本）
+docker compose pull
+
+# 2. 停止服务
+docker compose down
+
+# 3. 备份数据库（强烈建议）
+# 执行迁移前，必须手动备份数据库或者导出你的密钥，避免因操作或者异常导致的密钥丢失。
+
+# 4. 执行迁移命令
+# 启用加密（your-32-char-secret-key 为你的密钥，建议使用32位以上的随机字符串）
+docker compose run --rm gpt-load migrate-keys --to "your-32-char-secret-key"
+
+# 禁用加密
+docker compose run --rm gpt-load migrate-keys --from "your-current-key"
+
+# 更换密钥
+docker compose run --rm gpt-load migrate-keys --from "old-key" --to "new-32-char-secret-key"
+
+# 5. 更新配置文件
+# 编辑 .env 文件，设置 ENCRYPTION_KEY 与 --to 参数一致
+# 如果禁用加密，则删除 ENCRYPTION_KEY 或设置为空
+vim .env
+# 添加或修改: ENCRYPTION_KEY=your-32-char-secret-key
+
+# 6. 重启服务
+docker compose up -d
+```
+
+#### 源码构建部署
+
+```bash
+# 1. 停止服务
+# 停止正在运行的服务进程（Ctrl+C 或 kill 进程）
+
+# 2. 备份数据库（强烈建议）
+# 执行迁移前，必须手动备份数据库或者导出你的密钥，避免因操作或者异常导致的密钥丢失。
+
+# 3. 执行迁移命令
+# 启用加密
+make migrate-keys ARGS="--to your-32-char-secret-key"
+
+# 禁用加密
+make migrate-keys ARGS="--from your-current-key"
+
+# 更换密钥
+make migrate-keys ARGS="--from old-key --to new-32-char-secret-key"
+
+# 4. 更新配置文件
+# 编辑 .env 文件，设置 ENCRYPTION_KEY 与 --to 参数一致
+echo "ENCRYPTION_KEY=your-32-char-secret-key" >> .env
+
+# 5. 重启服务
+make run
+```
+
+### 注意事项
+
+⚠️ **重要提醒**：
+- **ENCRYPTION_KEY 一旦丢失将无法恢复已加密的数据！** 请务必安全备份此密钥，建议使用密码管理器或安全的密钥管理系统保存
+- 迁移前**必须停止服务**，避免数据不一致
+- 强烈建议**备份数据库**，以防迁移失败需要恢复
+- 密钥建议使用 **32 位或更长的随机字符串**，确保安全性
+- 迁移后确保 `.env` 中的 `ENCRYPTION_KEY` 与 `--to` 参数一致
+- 如果禁用加密，需要删除或清空 `ENCRYPTION_KEY` 配置
+
+### 密钥生成示例
+
+```bash
+# 生成安全的随机密钥（32字符）
+openssl rand -base64 32 | tr -d "=+/" | cut -c1-32
+```
 
 </details>
 

@@ -229,9 +229,9 @@ onMounted(() => {
 
 <style scoped>
 .app-footer {
-  background: rgba(255, 255, 255, 0.95);
+  background: var(--footer-bg);
   backdrop-filter: blur(20px);
-  border-top: 1px solid rgba(0, 0, 0, 0.08);
+  border-top: 1px solid var(--border-color-light);
   padding: 12px 24px;
   font-size: 14px;
   min-height: 52px;
@@ -251,12 +251,12 @@ onMounted(() => {
 }
 
 .project-info {
-  color: #666;
+  color: var(--text-secondary);
   font-weight: 500;
 }
 
 .project-info a {
-  color: #667eea;
+  color: var(--primary-color);
   text-decoration: none;
   font-weight: 600;
 }
@@ -283,7 +283,7 @@ onMounted(() => {
 .version-text {
   font-weight: 500;
   font-size: 13px;
-  color: #666;
+  color: var(--text-secondary);
   white-space: nowrap;
 }
 
@@ -311,7 +311,7 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 4px;
-  color: #666;
+  color: var(--text-secondary);
   text-decoration: none;
   padding: 4px 6px;
   border-radius: 4px;
@@ -339,18 +339,18 @@ onMounted(() => {
 }
 
 .copyright-text {
-  color: #888;
+  color: var(--text-tertiary);
   font-size: 12px;
 }
 
 .license-text {
-  color: #888;
+  color: var(--text-tertiary);
   font-size: 12px;
 }
 
 .author-link {
   font-weight: 600;
-  color: #667eea;
+  color: var(--primary-color);
   text-decoration: none;
 }
 

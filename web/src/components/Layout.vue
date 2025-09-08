@@ -3,6 +3,7 @@ import AppFooter from "@/components/AppFooter.vue";
 import GlobalTaskProgressBar from "@/components/GlobalTaskProgressBar.vue";
 import Logout from "@/components/Logout.vue";
 import NavBar from "@/components/NavBar.vue";
+import ThemeToggle from "@/components/ThemeToggle.vue";
 import { useMediaQuery } from "@vueuse/core";
 import { ref, watch } from "vue";
 
@@ -36,6 +37,7 @@ const toggleMenu = () => {
         </nav>
 
         <div class="header-actions">
+          <theme-toggle />
           <logout v-if="!isMobile" />
           <n-button v-else text @click="toggleMenu">
             <svg viewBox="0 0 24 24" width="24" height="24">
@@ -50,6 +52,7 @@ const toggleMenu = () => {
       <n-drawer-content title="GPT Load" body-content-style="padding: 0;">
         <nav-bar mode="vertical" @close="isMenuOpen = false" />
         <div class="mobile-actions">
+          <theme-toggle />
           <logout />
         </div>
       </n-drawer-content>
@@ -80,9 +83,9 @@ const toggleMenu = () => {
 }
 
 .layout-header {
-  background: rgba(255, 255, 255, 0.95);
+  background: var(--header-bg);
   backdrop-filter: blur(20px);
-  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  border-bottom: 1px solid var(--border-color-light);
   box-shadow: var(--shadow-sm);
   position: sticky;
   top: 0;
@@ -134,11 +137,15 @@ const toggleMenu = () => {
   flex-shrink: 0;
   display: flex;
   align-items: center;
+  gap: 8px;
 }
 
 .mobile-actions {
   padding: 12px;
-  border-top: 1px solid rgba(0, 0, 0, 0.08);
+  border-top: 1px solid var(--border-color-light);
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .layout-content {
