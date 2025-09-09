@@ -483,4 +483,35 @@ export default {
     current: "当前",
     clickToSwitch: "点击切换到{mode}",
   },
+  encryptionAlert: {
+    title: "⚠️ 加密配置错误",
+    viewSolution: "查看解决方案",
+    viewDocs: "查看文档",
+    scenario: {
+      dataNotEncrypted: {
+        step1: "停止服务",
+        step2: "执行密钥迁移命令：",
+        step3: "重启服务",
+      },
+      keyMismatch: {
+        solution1Title: "方案一：使用正确的密钥（推荐）",
+        solution1Step1: "在 .env 文件中配置正确的 ENCRYPTION_KEY：",
+        solution1Step2: "重启服务",
+        solution2Title: "方案二：重新加密数据（如果确定要使用新密钥）",
+        solution2Step1: "停止服务",
+        solution2Step2: "执行密钥迁移到新密钥：",
+        solution2Step3: "更新 .env 配置为新密钥",
+        solution2Step4: "重启服务",
+      },
+      keyNotConfigured: {
+        solution1Title: "方案一：配置加密密钥（推荐）",
+        solution1Step1: "在 .env 文件中配置与加密时相同的 ENCRYPTION_KEY：",
+        solution1Step2: "重启服务",
+        solution2Title: "方案二：解密数据",
+        solution2Step1: "停止服务",
+        solution2Step2: "执行解密命令：",
+        solution2Step3: "重启服务",
+      },
+    },
+  },
 };

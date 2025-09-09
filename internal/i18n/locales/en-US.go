@@ -69,13 +69,21 @@ var MessagesEnUS = map[string]string{
 	"task.get_status_failed":  "Failed to get task status",
 
 	// Dashboard related
-	"dashboard.invalid_keys":               "Invalid Keys",
-	"dashboard.success_requests":           "Success",
-	"dashboard.failed_requests":            "Failed",
-	"dashboard.auth_key_missing":           "AUTH_KEY is not set, system cannot function properly",
-	"dashboard.auth_key_required":          "AUTH_KEY must be set to protect the admin interface",
-	"dashboard.encryption_key_missing":     "ENCRYPTION_KEY is not set, sensitive data will be stored in plain text",
-	"dashboard.encryption_key_recommended": "It is strongly recommended to set ENCRYPTION_KEY to encrypt sensitive data like API keys",
+	"dashboard.invalid_keys":                                     "Invalid Keys",
+	"dashboard.success_requests":                                 "Success",
+	"dashboard.failed_requests":                                  "Failed",
+	"dashboard.auth_key_missing":                                 "AUTH_KEY is not set, system cannot function properly",
+	"dashboard.auth_key_required":                                "AUTH_KEY must be set to protect the admin interface",
+	"dashboard.encryption_key_missing":                           "ENCRYPTION_KEY is not set, sensitive data will be stored in plain text",
+	"dashboard.encryption_key_recommended":                       "It is strongly recommended to set ENCRYPTION_KEY to encrypt sensitive data like API keys",
+	"dashboard.global_proxy_key":                                 "Global Proxy Key",
+	"dashboard.group_proxy_key":                                  "Group Proxy Key",
+	"dashboard.encryption_key_configured_but_data_not_encrypted": "ENCRYPTION_KEY is configured but the keys in database are not encrypted. This will cause keys to be unreadable (shown as failed-to-decrypt).",
+	"dashboard.encryption_key_migration_required":                "Please stop the service, run the key migration command and restart",
+	"dashboard.data_encrypted_but_key_not_configured":            "Keys in database are encrypted but ENCRYPTION_KEY is not configured. This will cause keys to be unreadable.",
+	"dashboard.configure_same_encryption_key":                    "Please configure the same ENCRYPTION_KEY used for encryption, or run decryption migration",
+	"dashboard.encryption_key_mismatch":                          "The configured ENCRYPTION_KEY does not match the key used for encryption. This will cause decryption to fail (shown as failed-to-decrypt).",
+	"dashboard.use_correct_encryption_key":                       "Please use the correct ENCRYPTION_KEY, or run key migration",
 
 	// Database related
 	"database.cannot_get_groups":     "Cannot get groups list",

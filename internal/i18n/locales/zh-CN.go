@@ -69,13 +69,21 @@ var MessagesZhCN = map[string]string{
 	"task.get_status_failed":  "获取任务状态失败",
 
 	// Dashboard related
-	"dashboard.invalid_keys":               "无效密钥数量",
-	"dashboard.success_requests":           "成功请求",
-	"dashboard.failed_requests":            "失败请求",
-	"dashboard.auth_key_missing":           "AUTH_KEY未设置，系统无法正常工作",
-	"dashboard.auth_key_required":          "必须设置AUTH_KEY以保护管理界面",
-	"dashboard.encryption_key_missing":     "未设置ENCRYPTION_KEY，敏感数据将明文存储",
-	"dashboard.encryption_key_recommended": "强烈建议设置ENCRYPTION_KEY以加密保护API密钥等敏感数据",
+	"dashboard.invalid_keys":                                     "无效密钥数量",
+	"dashboard.success_requests":                                 "成功请求",
+	"dashboard.failed_requests":                                  "失败请求",
+	"dashboard.auth_key_missing":                                 "AUTH_KEY未设置，系统无法正常工作",
+	"dashboard.auth_key_required":                                "必须设置AUTH_KEY以保护管理界面",
+	"dashboard.encryption_key_missing":                           "未设置ENCRYPTION_KEY，敏感数据将明文存储",
+	"dashboard.encryption_key_recommended":                       "强烈建议设置ENCRYPTION_KEY以加密保护API密钥等敏感数据",
+	"dashboard.global_proxy_key":                                 "全局代理密钥",
+	"dashboard.group_proxy_key":                                  "分组代理密钥",
+	"dashboard.encryption_key_configured_but_data_not_encrypted": "检测到您已配置 ENCRYPTION_KEY，但数据库中的密钥尚未加密。这会导致密钥无法正常读取（显示为 failed-to-decrypt）。",
+	"dashboard.encryption_key_migration_required":                "请停止服务，执行密钥迁移命令后重启",
+	"dashboard.data_encrypted_but_key_not_configured":            "检测到数据库中的密钥已加密，但未配置 ENCRYPTION_KEY。这会导致密钥无法正常读取。",
+	"dashboard.configure_same_encryption_key":                    "请配置与加密时相同的 ENCRYPTION_KEY，或执行解密迁移",
+	"dashboard.encryption_key_mismatch":                          "检测到您配置的 ENCRYPTION_KEY 与数据加密时使用的密钥不匹配。这会导致密钥解密失败（显示为 failed-to-decrypt）。",
+	"dashboard.use_correct_encryption_key":                       "请使用正确的 ENCRYPTION_KEY，或执行密钥迁移",
 
 	// Database related
 	"database.cannot_get_groups":     "无法获取分组列表",

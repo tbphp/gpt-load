@@ -2,10 +2,12 @@
 import http from "@/utils/http";
 import { NAlert, NButton, NCollapse, NCollapseItem } from "naive-ui";
 import { computed, onMounted, ref } from "vue";
+import { useI18n } from "vue-i18n";
 
 // 加密状态响应接口
 interface EncryptionStatusResponse {
   has_mismatch: boolean;
+  scenario_type: string;
   message: string;
   suggestion: string;
 }
@@ -16,6 +18,7 @@ const showAlert = ref(false);
 // 警告信息
 const message = ref("");
 const suggestion = ref("");
+const scenarioType = ref("");
 
 // 本次会话是否已关闭
 const isClosedThisSession = ref(false);
@@ -28,12 +31,16 @@ const shouldShow = computed(() => {
   return showAlert.value && !isClosedThisSession.value;
 });
 
+// i18n
+const { t } = useI18n();
+
 // 检查加密状态
 const checkEncryptionStatus = async () => {
   try {
     const response = await http.get<EncryptionStatusResponse>("/dashboard/encryption-status");
     if (response.data.has_mismatch) {
       showAlert.value = true;
+      scenarioType.value = response.data.scenario_type;
       message.value = response.data.message;
       suggestion.value = response.data.suggestion;
     }
@@ -68,7 +75,7 @@ onMounted(() => {
     style="margin-bottom: 16px"
   >
     <template #header>
-      <strong>⚠️ 加密配置错误</strong>
+      <strong>{{ t("encryptionAlert.title") }}</strong>
     </template>
 
     <div>
@@ -77,15 +84,19 @@ onMounted(() => {
       </div>
 
       <n-collapse v-model:expanded-names="showDetails" style="margin-bottom: 12px">
-        <n-collapse-item name="solution" title="查看解决方案">
+        <n-collapse-item name="solution" :title="t('encryptionAlert.viewSolution')">
           <div
             class="solution-content"
             style="padding: 16px; border-radius: 6px; font-size: 13px; line-height: 1.6"
           >
             <!-- 场景A: 已配置 ENCRYPTION_KEY 但数据未加密 -->
-            <template v-if="message.includes('数据库中的密钥尚未加密')">
-              <p style="margin: 0 0 8px 0">1. 停止服务</p>
-              <p style="margin: 0 0 8px 0">2. 执行密钥迁移命令：</p>
+            <template v-if="scenarioType === 'data_not_encrypted'">
+              <p style="margin: 0 0 8px 0">
+                1. {{ t("encryptionAlert.scenario.dataNotEncrypted.step1") }}
+              </p>
+              <p style="margin: 0 0 8px 0">
+                2. {{ t("encryptionAlert.scenario.dataNotEncrypted.step2") }}
+              </p>
               <pre
                 style="
                   margin: 8px 0;
@@ -98,14 +109,20 @@ onMounted(() => {
               >
 docker compose run --rm gpt-load migrate-keys --to "your-encryption-key"</pre
               >
-              <p style="margin: 8px 0 0 0">3. 重启服务</p>
+              <p style="margin: 8px 0 0 0">
+                3. {{ t("encryptionAlert.scenario.dataNotEncrypted.step3") }}
+              </p>
             </template>
 
             <!-- 场景C: 密钥不匹配 -->
-            <template v-else-if="message.includes('密钥不匹配')">
+            <template v-else-if="scenarioType === 'key_mismatch'">
               <div style="margin-bottom: 16px">
-                <strong style="color: var(--primary-color)">方案一：使用正确的密钥（推荐）</strong>
-                <p style="margin: 8px 0 4px 0">1. 在 .env 文件中配置正确的 ENCRYPTION_KEY：</p>
+                <strong style="color: var(--primary-color)">
+                  {{ t("encryptionAlert.scenario.keyMismatch.solution1Title") }}
+                </strong>
+                <p style="margin: 8px 0 4px 0">
+                  1. {{ t("encryptionAlert.scenario.keyMismatch.solution1Step1") }}
+                </p>
                 <pre
                   style="
                     margin: 4px 0 8px 0;
@@ -118,15 +135,21 @@ docker compose run --rm gpt-load migrate-keys --to "your-encryption-key"</pre
                 >
 ENCRYPTION_KEY=your-correct-encryption-key</pre
                 >
-                <p style="margin: 4px 0">2. 重启服务</p>
+                <p style="margin: 4px 0">
+                  2. {{ t("encryptionAlert.scenario.keyMismatch.solution1Step2") }}
+                </p>
               </div>
 
               <div>
                 <strong style="color: var(--warning-color)">
-                  方案二：重新加密数据（如果确定要使用新密钥）
+                  {{ t("encryptionAlert.scenario.keyMismatch.solution2Title") }}
                 </strong>
-                <p style="margin: 0 0 8px 0">1. 停止服务</p>
-                <p style="margin: 4px 0">2. 执行密钥迁移到新密钥：</p>
+                <p style="margin: 0 0 8px 0">
+                  1. {{ t("encryptionAlert.scenario.keyMismatch.solution2Step1") }}
+                </p>
+                <p style="margin: 4px 0">
+                  2. {{ t("encryptionAlert.scenario.keyMismatch.solution2Step2") }}
+                </p>
                 <pre
                   style="
                     margin: 4px 0 8px 0;
@@ -139,17 +162,23 @@ ENCRYPTION_KEY=your-correct-encryption-key</pre
                 >
 docker compose run --rm gpt-load migrate-keys --from "old-key" --to "new-key"</pre
                 >
-                <p style="margin: 4px 0">3. 更新 .env 配置为新密钥</p>
-                <p style="margin: 4px 0">4. 重启服务</p>
+                <p style="margin: 4px 0">
+                  3. {{ t("encryptionAlert.scenario.keyMismatch.solution2Step3") }}
+                </p>
+                <p style="margin: 4px 0">
+                  4. {{ t("encryptionAlert.scenario.keyMismatch.solution2Step4") }}
+                </p>
               </div>
             </template>
 
             <!-- 场景B: 数据已加密但未配置 ENCRYPTION_KEY -->
-            <template v-else>
+            <template v-else-if="scenarioType === 'key_not_configured'">
               <div style="margin-bottom: 16px">
-                <strong style="color: var(--primary-color)">方案一：配置加密密钥（推荐）</strong>
+                <strong style="color: var(--primary-color)">
+                  {{ t("encryptionAlert.scenario.keyNotConfigured.solution1Title") }}
+                </strong>
                 <p style="margin: 8px 0 4px 0">
-                  1. 在 .env 文件中配置与加密时相同的 ENCRYPTION_KEY：
+                  1. {{ t("encryptionAlert.scenario.keyNotConfigured.solution1Step1") }}
                 </p>
                 <pre
                   style="
@@ -163,13 +192,21 @@ docker compose run --rm gpt-load migrate-keys --from "old-key" --to "new-key"</p
                 >
 ENCRYPTION_KEY=your-original-encryption-key</pre
                 >
-                <p style="margin: 4px 0">2. 重启服务</p>
+                <p style="margin: 4px 0">
+                  2. {{ t("encryptionAlert.scenario.keyNotConfigured.solution1Step2") }}
+                </p>
               </div>
 
               <div>
-                <strong style="color: var(--warning-color)">方案二：解密数据</strong>
-                <p style="margin: 0 0 8px 0">1. 停止服务</p>
-                <p style="margin: 4px 0">2. 执行解密命令：</p>
+                <strong style="color: var(--warning-color)">
+                  {{ t("encryptionAlert.scenario.keyNotConfigured.solution2Title") }}
+                </strong>
+                <p style="margin: 0 0 8px 0">
+                  1. {{ t("encryptionAlert.scenario.keyNotConfigured.solution2Step1") }}
+                </p>
+                <p style="margin: 4px 0">
+                  2. {{ t("encryptionAlert.scenario.keyNotConfigured.solution2Step2") }}
+                </p>
                 <pre
                   style="
                     margin: 4px 0 8px 0;
@@ -182,7 +219,9 @@ ENCRYPTION_KEY=your-original-encryption-key</pre
                 >
 docker compose run --rm gpt-load migrate-keys --from "old-key"</pre
                 >
-                <p style="margin: 4px 0">3. 重启服务</p>
+                <p style="margin: 4px 0">
+                  3. {{ t("encryptionAlert.scenario.keyNotConfigured.solution2Step3") }}
+                </p>
               </div>
             </template>
           </div>
@@ -196,7 +235,7 @@ docker compose run --rm gpt-load migrate-keys --from "old-key"</pre
         @click="openDocs"
         class="encryption-docs-btn"
       >
-        查看文档
+        {{ t("encryptionAlert.viewDocs") }}
       </n-button>
     </div>
   </n-alert>

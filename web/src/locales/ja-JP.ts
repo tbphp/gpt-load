@@ -494,4 +494,35 @@ export default {
     current: "現在",
     clickToSwitch: "{mode}に切り替えるにはクリック",
   },
+  encryptionAlert: {
+    title: "⚠️ 暗号化設定エラー",
+    viewSolution: "解決策を表示",
+    viewDocs: "ドキュメントを表示",
+    scenario: {
+      dataNotEncrypted: {
+        step1: "サービスを停止",
+        step2: "キー移行コマンドを実行：",
+        step3: "サービスを再起動",
+      },
+      keyMismatch: {
+        solution1Title: "方案1：正しいキーを使用（推奨）",
+        solution1Step1: ".envファイルに正しいENCRYPTION_KEYを設定：",
+        solution1Step2: "サービスを再起動",
+        solution2Title: "方案2：データを再暗号化（新しいキーを使用する場合）",
+        solution2Step1: "サービスを停止",
+        solution2Step2: "新しいキーへの移行を実行：",
+        solution2Step3: ".env設定を新しいキーに更新",
+        solution2Step4: "サービスを再起動",
+      },
+      keyNotConfigured: {
+        solution1Title: "方案1：暗号化キーを設定（推奨）",
+        solution1Step1: ".envファイルに暗号化時と同じENCRYPTION_KEYを設定：",
+        solution1Step2: "サービスを再起動",
+        solution2Title: "方案2：データを復号化",
+        solution2Step1: "サービスを停止",
+        solution2Step2: "復号化コマンドを実行：",
+        solution2Step3: "サービスを再起動",
+      },
+    },
+  },
 };

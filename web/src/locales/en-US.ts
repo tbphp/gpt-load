@@ -494,4 +494,35 @@ export default {
     current: "Current",
     clickToSwitch: "Click to switch to {mode}",
   },
+  encryptionAlert: {
+    title: "⚠️ Encryption Configuration Error",
+    viewSolution: "View Solution",
+    viewDocs: "View Documentation",
+    scenario: {
+      dataNotEncrypted: {
+        step1: "Stop the service",
+        step2: "Run key migration command:",
+        step3: "Restart the service",
+      },
+      keyMismatch: {
+        solution1Title: "Solution 1: Use the correct key (Recommended)",
+        solution1Step1: "Configure the correct ENCRYPTION_KEY in .env file:",
+        solution1Step2: "Restart the service",
+        solution2Title: "Solution 2: Re-encrypt data (If you want to use the new key)",
+        solution2Step1: "Stop the service",
+        solution2Step2: "Run key migration to new key:",
+        solution2Step3: "Update .env configuration to new key",
+        solution2Step4: "Restart the service",
+      },
+      keyNotConfigured: {
+        solution1Title: "Solution 1: Configure encryption key (Recommended)",
+        solution1Step1: "Configure the same ENCRYPTION_KEY used for encryption in .env file:",
+        solution1Step2: "Restart the service",
+        solution2Title: "Solution 2: Decrypt data",
+        solution2Step1: "Stop the service",
+        solution2Step2: "Run decryption command:",
+        solution2Step3: "Restart the service",
+      },
+    },
+  },
 };

@@ -69,13 +69,21 @@ var MessagesJaJP = map[string]string{
 	"task.get_status_failed":  "タスクステータスの取得に失敗しました",
 
 	// Dashboard related
-	"dashboard.invalid_keys":               "無効なキー",
-	"dashboard.success_requests":           "成功",
-	"dashboard.failed_requests":            "失敗",
-	"dashboard.auth_key_missing":           "AUTH_KEYが設定されていません。システムが正常に動作しません",
-	"dashboard.auth_key_required":          "管理インターフェースを保護するためAUTH_KEYを設定する必要があります",
-	"dashboard.encryption_key_missing":     "ENCRYPTION_KEYが設定されていません。機密データがプレーンテキストで保存されます",
-	"dashboard.encryption_key_recommended": "APIキーなどの機密データを暗号化するため、ENCRYPTION_KEYの設定を強く推奨します",
+	"dashboard.invalid_keys":                                     "無効なキー",
+	"dashboard.success_requests":                                 "成功",
+	"dashboard.failed_requests":                                  "失敗",
+	"dashboard.auth_key_missing":                                 "AUTH_KEYが設定されていません。システムが正常に動作しません",
+	"dashboard.auth_key_required":                                "管理インターフェースを保護するためAUTH_KEYを設定する必要があります",
+	"dashboard.encryption_key_missing":                           "ENCRYPTION_KEYが設定されていません。機密データがプレーンテキストで保存されます",
+	"dashboard.encryption_key_recommended":                       "APIキーなどの機密データを暗号化するため、ENCRYPTION_KEYの設定を強く推奨します",
+	"dashboard.global_proxy_key":                                 "グローバルプロキシキー",
+	"dashboard.group_proxy_key":                                  "グループプロキシキー",
+	"dashboard.encryption_key_configured_but_data_not_encrypted": "ENCRYPTION_KEYは設定されていますが、データベース内のキーは暗号化されていません。これによりキーが読み取り不能になります（failed-to-decryptと表示）。",
+	"dashboard.encryption_key_migration_required":                "サービスを停止し、キー移行コマンドを実行してから再起動してください",
+	"dashboard.data_encrypted_but_key_not_configured":            "データベース内のキーは暗号化されていますが、ENCRYPTION_KEYが設定されていません。これによりキーが読み取り不能になります。",
+	"dashboard.configure_same_encryption_key":                    "暗号化時に使用した同じENCRYPTION_KEYを設定するか、復号化移行を実行してください",
+	"dashboard.encryption_key_mismatch":                          "設定されたENCRYPTION_KEYが暗号化時に使用されたキーと一致しません。これにより復号化が失敗します（failed-to-decryptと表示）。",
+	"dashboard.use_correct_encryption_key":                       "正しいENCRYPTION_KEYを使用するか、キー移行を実行してください",
 
 	// Database related
 	"database.cannot_get_groups":     "グループリストを取得できません",
