@@ -170,7 +170,7 @@ const createColumns = () => [
   {
     title: t("common.status"),
     key: "is_success",
-    width: 50,
+    width: 90,
     render: (row: LogRow) =>
       h(
         NTag,
@@ -196,7 +196,7 @@ const createColumns = () => [
   {
     title: t("logs.responseType"),
     key: "is_stream",
-    width: 80,
+    width: 140,
     render: (row: LogRow) =>
       h(
         NTag,
@@ -204,10 +204,10 @@ const createColumns = () => [
         { default: () => (row.is_stream ? t("logs.stream") : t("logs.nonStream")) }
       ),
   },
-  { title: t("logs.statusCode"), key: "status_code", width: 60 },
-  { title: t("logs.duration"), key: "duration_ms", width: 80 },
+  { title: t("logs.statusCode"), key: "status_code", width: 130 },
+  { title: t("logs.duration"), key: "duration_ms", width: 110 },
   { title: t("logs.group"), key: "group_name", width: 120 },
-  { title: t("logs.model"), key: "model", width: 200 },
+  { title: t("logs.model"), key: "model", width: 240 },
   {
     title: "Key",
     key: "key_value",
@@ -229,7 +229,39 @@ const createColumns = () => [
         ),
       ]),
   },
-  { title: t("logs.sourceIP"), key: "source_ip", width: 140 },
+  { title: t("logs.sourceIP"), key: "source_ip", width: 260 },
+  {
+    title: t("logs.requestPath"),
+    key: "request_path",
+    width: 550,
+    render: (row: LogRow) =>
+      h(NEllipsis, { style: "max-width: 530px" }, { default: () => row.request_path || "-" }),
+  },
+  {
+    title: t("logs.upstreamAddress"),
+    key: "upstream_addr",
+    width: 600,
+    render: (row: LogRow) =>
+      h(NEllipsis, { style: "max-width: 580px" }, { default: () => row.upstream_addr || "-" }),
+  },
+  {
+    title: t("logs.errorMessage"),
+    key: "error_message",
+    width: 600,
+    render: (row: LogRow) => {
+      if (!row.error_message) {
+        return "-";
+      }
+      return h(
+        NEllipsis,
+        {
+          style: "max-width: 580px; color: var(--error-color)",
+          tooltip: true,
+        },
+        { default: () => row.error_message }
+      );
+    },
+  },
   {
     title: t("common.actions"),
     key: "actions",
@@ -420,14 +452,7 @@ function changePageSize(size: number) {
         <!-- 表格 -->
         <div class="table-container">
           <n-spin :show="loading">
-            <n-data-table
-              :columns="columns"
-              :data="logs"
-              :bordered="false"
-              remote
-              size="small"
-              :scroll-x="1180"
-            />
+            <n-data-table :columns="columns" :data="logs" :bordered="false" remote size="small" />
           </n-spin>
         </div>
 
@@ -890,12 +915,19 @@ function changePageSize(size: number) {
 }
 
 .compact-field-error {
-  border: 1px solid #f5c6cb;
-  background: #f8d7da;
+  border: 1px solid var(--error-border-color, #f5c6cb);
+  background: var(--error-bg-color, #f8d7da);
 }
 
 .compact-field-error .compact-field-content {
-  color: #721c24;
+  color: var(--error-text-color, #721c24);
+}
+
+/* 暗黑模式下的错误信息样式 */
+:global(.dark) .compact-field-error {
+  --error-border-color: rgba(248, 113, 113, 0.3);
+  --error-bg-color: rgba(239, 68, 68, 0.1);
+  --error-text-color: #fca5a5;
 }
 
 .compact-field-header {
