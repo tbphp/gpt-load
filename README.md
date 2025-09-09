@@ -110,14 +110,6 @@ Source build requires a locally installed database (SQLite, MySQL, or PostgreSQL
 # Clone and build
 git clone https://github.com/tbphp/gpt-load.git
 cd gpt-load
-
-# Compile Frontend
-cd web
-npm install
-npm run build
-
-# Compile Backend
-cd ..
 go mod tidy
 
 # Create configuration
@@ -128,7 +120,6 @@ cp .env.example .env
 # REDIS_DSN is optional; if not configured, memory storage will be enabled
 
 # Run
-# Or `go run main.go`
 make run
 ```
 
