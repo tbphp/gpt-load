@@ -38,10 +38,10 @@ const toggleMenu = () => {
         </nav>
 
         <div class="header-actions">
-          <language-selector v-if="!isMobile" />
+          <language-selector />
           <theme-toggle />
           <logout v-if="!isMobile" />
-          <n-button v-else text @click="toggleMenu">
+          <n-button v-if="isMobile" text @click="toggleMenu">
             <svg viewBox="0 0 24 24" width="24" height="24">
               <path fill="currentColor" d="M3,6H21V8H3V6M3,11H21V13H3V11M3,16H21V18H3V16Z" />
             </svg>
@@ -50,12 +50,12 @@ const toggleMenu = () => {
       </div>
     </n-layout-header>
 
-    <n-drawer v-model:show="isMenuOpen" :width="240" placement="right">
-      <n-drawer-content title="GPT Load" body-content-style="padding: 0;">
-        <nav-bar mode="vertical" @close="isMenuOpen = false" />
+    <n-drawer v-model:show="isMenuOpen" :width="260" placement="right">
+      <n-drawer-content title="GPT Load" body-content-style="padding: 0; display: flex; flex-direction: column; height: 100%;">
+        <div style="flex: 1; overflow-y: auto;">
+          <nav-bar mode="vertical" @close="isMenuOpen = false" />
+        </div>
         <div class="mobile-actions">
-          <language-selector />
-          <theme-toggle />
           <logout />
         </div>
       </n-drawer-content>
@@ -154,11 +154,13 @@ const toggleMenu = () => {
 }
 
 .mobile-actions {
-  padding: 12px;
+  padding: 16px;
   border-top: 1px solid var(--border-color-light);
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+  margin-top: auto;
 }
 
 .layout-content {
@@ -178,5 +180,21 @@ const toggleMenu = () => {
 .layout-footer {
   background: transparent;
   padding: 0;
+}
+
+/* Mobile specific styles */
+@media (max-width: 768px) {
+  .header-nav {
+    position: static;
+    transform: none;
+  }
+  
+  .header-content {
+    overflow-x: visible;
+  }
+  
+  .mobile-actions > :deep(*) {
+    width: 100%;
+  }
 }
 </style>

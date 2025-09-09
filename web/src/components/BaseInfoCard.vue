@@ -203,6 +203,7 @@ onMounted(() => {
 .stats-container {
   width: 100%;
   animation: fadeInUp 0.2s ease-out;
+  margin-bottom: 16px;
 }
 
 .stat-card {

@@ -22,7 +22,7 @@ onMounted(async () => {
 
 <template>
   <div class="dashboard-container">
-    <n-space vertical size="large">
+    <n-space vertical size="large" style="gap: 0 16px">
       <!-- 加密配置错误警告（优先级最高） -->
       <encryption-mismatch-alert />
 
