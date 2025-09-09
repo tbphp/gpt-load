@@ -254,6 +254,11 @@ func extractAuthKey(c *gin.Context) string {
 		return key
 	}
 
+	// x-api-key
+	if key := c.GetHeader("x-api-key"); key != "" {
+		return key
+	}
+
 	// X-Goog-Api-Key
 	if key := c.GetHeader("X-Goog-Api-Key"); key != "" {
 		return key
