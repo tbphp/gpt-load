@@ -53,6 +53,8 @@ export default {
     language: "语言",
     previousPage: "上一页",
     nextPage: "下一页",
+    startTime: "开始时间",
+    endTime: "结束时间",
   },
   login: {
     title: "GPT Load",
