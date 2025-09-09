@@ -55,6 +55,8 @@ export default {
     nextPage: "Next",
     startTime: "Start Time",
     endTime: "End Time",
+    selectAll: "Select All",
+    deselectAll: "Deselect All",
   },
   login: {
     title: "GPT Load",
@@ -371,7 +373,7 @@ export default {
     sourceIP: "Source IP",
     groupName: "Group Name",
     errorMessage: "Error Message",
-    exportLogs: "Export Logs",
+    exportLogs: "Export Keys",
     totalRecords: "Total {total} records",
     recordsPerPage: "{count} per page",
     previousPage: "Previous",
@@ -405,6 +407,7 @@ export default {
     upstreamAddress: "Upstream Address",
     requestContent: "Request Content",
     errorInfo: "Error Information",
+    customColumns: "Custom Columns",
   },
   settings: {
     title: "Settings",

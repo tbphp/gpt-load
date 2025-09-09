@@ -55,6 +55,8 @@ export default {
     nextPage: "下一页",
     startTime: "开始时间",
     endTime: "结束时间",
+    selectAll: "全选",
+    deselectAll: "取消选中",
   },
   login: {
     title: "GPT Load",
@@ -361,7 +363,7 @@ export default {
     sourceIP: "源IP",
     groupName: "分组名",
     errorMessage: "错误信息",
-    exportLogs: "导出日志",
+    exportLogs: "导出密钥",
     totalRecords: "共 {total} 条记录",
     recordsPerPage: "{count}条/页",
     previousPage: "上一页",
@@ -395,6 +397,7 @@ export default {
     upstreamAddress: "上游地址",
     requestContent: "请求内容",
     errorInfo: "错误信息",
+    customColumns: "自定义列",
   },
   settings: {
     title: "系统设置",
