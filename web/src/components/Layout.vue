@@ -104,6 +104,14 @@ const toggleMenu = () => {
   overflow-x: auto;
   max-width: 1200px;
   margin: 0 auto;
+  position: relative;
+}
+
+.header-nav {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1;
 }
 
 .header-brand {
@@ -111,6 +119,7 @@ const toggleMenu = () => {
   align-items: center;
   gap: 6px;
   flex-shrink: 0;
+  z-index: 2;
 }
 
 .brand-icon {
@@ -141,6 +150,7 @@ const toggleMenu = () => {
   display: flex;
   align-items: center;
   gap: 8px;
+  z-index: 2;
 }
 
 .mobile-actions {
