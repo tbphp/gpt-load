@@ -86,7 +86,6 @@ type APIKey struct {
 	RequestCount  int64      `gorm:"default:0" json:"request_count"`
 	FailureCount  int       `gorm:"default:0" json:"failure_count"`
 	Status        string     `gorm:"type:varchar(20);default:'active';index" json:"status"`
-	StatusChangedAt *time.Time `json:"status_changed_at"`
 	LastUsedAt    *time.Time `json:"last_used_at"`
 	KeyHash       string     `gorm:"type:varchar(64);index" json:"-"`
 }
