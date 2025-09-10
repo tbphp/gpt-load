@@ -54,9 +54,6 @@ func (b *BaseChannel) getUpstreamURL() *url.URL {
 
 	for i := range b.Upstreams {
 		up := &b.Upstreams[i]
-		if up.Weight == 0 {
-			continue
-		}
 		totalWeight += up.Weight
 		up.CurrentWeight += up.Weight
 
@@ -66,7 +63,7 @@ func (b *BaseChannel) getUpstreamURL() *url.URL {
 	}
 
 	if best == nil {
-		return b.Upstreams[0].URL
+		return b.Upstreams[0].URL  // 降级到第一个可用的
 	}
 
 	best.CurrentWeight -= totalWeight
