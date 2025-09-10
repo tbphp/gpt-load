@@ -76,16 +76,19 @@ type Group struct {
 
 // APIKey 对应 api_keys 表
 type APIKey struct {
-	ID           uint       `gorm:"primaryKey;autoIncrement" json:"id"`
-	KeyValue     string     `gorm:"type:text;not null" json:"key_value"`
-	KeyHash      string     `gorm:"type:varchar(128);index" json:"key_hash"`
-	GroupID      uint       `gorm:"not null;index" json:"group_id"`
-	Status       string     `gorm:"type:varchar(50);not null;default:'active'" json:"status"`
-	RequestCount int64      `gorm:"not null;default:0" json:"request_count"`
-	FailureCount int64      `gorm:"not null;default:0" json:"failure_count"`
-	LastUsedAt   *time.Time `json:"last_used_at"`
-	CreatedAt    time.Time  `json:"created_at"`
-	UpdatedAt    time.Time  `json:"updated_at"`
+	ID            uint       `gorm:"primarykey" json:"id"`
+	CreatedAt     time.Time  `json:"created_at"`
+	UpdatedAt     time.Time  `json:"updated_at"`
+	GroupID       uint       `gorm:"uniqueIndex:idx_group_key;not null" json:"group_id"`
+	Group         *Group     `gorm:"foreignKey:GroupID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE;" json:"-"`
+	KeyValue      string     `gorm:"uniqueIndex:idx_group_key;type:varchar(255);not null" json:"key_value"`
+	Notes         string     `gorm:"type:varchar(255)" json:"notes"`
+	RequestCount  int64      `gorm:"default:0" json:"request_count"`
+	FailureCount  int       `gorm:"default:0" json:"failure_count"`
+	Status        string    `gorm:"type:varchar(20);default:'active';index" json:"status"`
+	StatusChangedAt time.Time `json:"status_changed_at"`
+	LastUsedAt    time.Time  `json:"last_used_at"`
+	KeyHash       string     `gorm:"type:varchar(64);index" json:"-"`
 }
 
 // RequestType 请求类型常量

@@ -20,6 +20,7 @@ import {
   NEmpty,
   NIcon,
   NInput,
+  NModal,
   NSelect,
   NSpace,
   NSpin,
@@ -83,6 +84,11 @@ const isRestoring = ref(false);
 
 const createDialogShow = ref(false);
 const deleteDialogShow = ref(false);
+
+// 备注编辑相关
+const notesDialogShow = ref(false);
+const editingKey = ref<KeyRow | null>(null);
+const editingNotes = ref("");
 
 watch(
   () => props.selectedGroup,
@@ -275,6 +281,35 @@ function formatDuration(ms: number): string {
 
 function toggleKeyVisibility(key: KeyRow) {
   key.is_visible = !key.is_visible;
+}
+
+// 获取要显示的值（备注优先，否则显示密钥）
+function getDisplayValue(key: KeyRow): string {
+  if (key.notes && !key.is_visible) {
+    return key.notes;
+  }
+  return key.is_visible ? key.key_value : maskKey(key.key_value);
+}
+
+// 编辑密钥备注
+function editKeyNotes(key: KeyRow) {
+  editingKey.value = key;
+  editingNotes.value = key.notes || "";
+  notesDialogShow.value = true;
+}
+
+// 保存备注
+async function saveKeyNotes() {
+  if (!editingKey.value) return;
+
+  try {
+    await keysApi.updateKeyNotes(editingKey.value.id, editingNotes.value);
+    editingKey.value.notes = editingNotes.value;
+    window.$message.success("备注已更新");
+    notesDialogShow.value = false;
+  } catch (error) {
+    window.$message.error("备注更新失败");
+  }
 }
 
 async function restoreKey(key: KeyRow) {
@@ -663,12 +698,7 @@ function resetPage() {
                   </template>
                   无效
                 </n-tag>
-                <n-input
-                  class="key-text"
-                  :value="key.is_visible ? key.key_value : maskKey(key.key_value)"
-                  readonly
-                  size="small"
-                />
+                <n-input class="key-text" :value="getDisplayValue(key)" readonly size="small" />
                 <div class="quick-actions">
                   <n-button size="tiny" text @click="toggleKeyVisibility(key)" title="显示/隐藏">
                     <template #icon>
@@ -700,6 +730,16 @@ function resetPage() {
                 </span>
               </div>
               <n-button-group class="key-actions">
+                <n-button
+                  round
+                  tertiary
+                  type="info"
+                  size="tiny"
+                  @click="editKeyNotes(key)"
+                  title="编辑备注"
+                >
+                  备注
+                </n-button>
                 <n-button
                   round
                   tertiary
@@ -785,6 +825,22 @@ function resetPage() {
       @success="handleBatchDeleteSuccess"
     />
   </div>
+
+  <!-- 备注编辑对话框 -->
+  <n-modal v-model:show="notesDialogShow" preset="dialog" title="编辑密钥备注">
+    <n-input
+      v-model:value="editingNotes"
+      type="textarea"
+      placeholder="请输入备注..."
+      :rows="3"
+      maxlength="255"
+      show-count
+    />
+    <template #action>
+      <n-button @click="notesDialogShow = false">取消</n-button>
+      <n-button type="primary" @click="saveKeyNotes">保存</n-button>
+    </template>
+  </n-modal>
 </template>
 
 <style scoped>
@@ -1021,6 +1077,17 @@ function resetPage() {
   gap: 8px;
   flex: 1;
   min-width: 0;
+}
+
+/* 备注信息行 */
+.key-notes {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 8px;
+  padding: 4px 6px;
+  background: var(--bg-secondary);
+  border-radius: 4px;
+  line-height: 1.4;
 }
 
 /* 底部统计和按钮行 */

@@ -13,6 +13,7 @@ export interface APIKey {
   id: number;
   group_id: number;
   key_value: string;
+  notes?: string;
   status: KeyStatus;
   request_count: number;
   failure_count: number;

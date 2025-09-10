@@ -106,6 +106,11 @@ export const keysApi = {
     return res.data;
   },
 
+  // 更新密钥备注
+  async updateKeyNotes(keyId: number, notes: string): Promise<void> {
+    await http.put(`/keys/${keyId}/notes`, { notes });
+  },
+
   // 测试密钥
   async testKeys(
     group_id: number,

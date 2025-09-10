@@ -443,3 +443,43 @@ func (s *Server) ExportKeys(c *gin.Context) {
 		log.Printf("Failed to stream keys: %v", err)
 	}
 }
+
+// UpdateKeyNotesRequest defines the payload for updating a key's notes.
+type UpdateKeyNotesRequest struct {
+	Notes string `json:"notes"`
+}
+
+// UpdateKeyNotes handles updating the notes of a specific API key.
+func (s *Server) UpdateKeyNotes(c *gin.Context) {
+	keyIDStr := c.Param("id")
+	keyID, err := strconv.Atoi(keyIDStr)
+	if err != nil || keyID <= 0 {
+		response.Error(c, app_errors.NewAPIError(app_errors.ErrBadRequest, "invalid key ID format"))
+		return
+	}
+
+	var req UpdateKeyNotesRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, app_errors.NewAPIError(app_errors.ErrInvalidJSON, err.Error()))
+		return
+	}
+
+	// Check if the key exists and update its notes
+	var key models.APIKey
+	if err := s.DB.First(&key, keyID).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			response.Error(c, app_errors.ErrResourceNotFound)
+		} else {
+			response.Error(c, app_errors.ParseDBError(err))
+		}
+		return
+	}
+
+	// Update notes
+	if err := s.DB.Model(&key).Update("notes", req.Notes).Error; err != nil {
+		response.Error(c, app_errors.ParseDBError(err))
+		return
+	}
+
+	response.Success(c, nil)
+}
