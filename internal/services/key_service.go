@@ -130,7 +130,7 @@ func (s *KeyService) processAndCreateKeys(
 			KeyValue: encryptedKey,
 			KeyHash:  keyHash,
 			Status:   models.KeyStatusActive,
-			Notes:    "", // 只添加这个字段
+			Notes:    "",
 		})
 	}
 
