@@ -79,7 +79,7 @@ func (p *KeyProvider) SelectKey(groupID uint) (*models.APIKey, error) {
 		ID:           uint(keyID),
 		KeyValue:     decryptedKeyValue,
 		Status:       keyDetails["status"],
-		FailureCount: int(failureCount),
+		FailureCount: failureCount,
 		GroupID:      groupID,
 		CreatedAt:    time.Unix(createdAt, 0),
 	}
