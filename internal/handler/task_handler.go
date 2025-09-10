@@ -11,7 +11,7 @@ import (
 func (s *Server) GetTaskStatus(c *gin.Context) {
 	taskStatus, err := s.TaskService.GetTaskStatus()
 	if err != nil {
-		response.Error(c, app_errors.NewAPIError(app_errors.ErrInternalServer, "Failed to get task status"))
+		response.ErrorI18nFromAPIError(c, app_errors.ErrInternalServer, "task.get_status_failed")
 		return
 	}
 	response.Success(c, taskStatus)

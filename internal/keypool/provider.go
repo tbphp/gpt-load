@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"gpt-load/internal/config"
+	"gpt-load/internal/encryption"
 	app_errors "gpt-load/internal/errors"
 	"gpt-load/internal/models"
 	"gpt-load/internal/store"
@@ -20,14 +21,16 @@ type KeyProvider struct {
 	db              *gorm.DB
 	store           store.Store
 	settingsManager *config.SystemSettingsManager
+	encryptionSvc   encryption.Service
 }
 
 // NewProvider 创建一个新的 KeyProvider 实例。
-func NewProvider(db *gorm.DB, store store.Store, settingsManager *config.SystemSettingsManager) *KeyProvider {
+func NewProvider(db *gorm.DB, store store.Store, settingsManager *config.SystemSettingsManager, encryptionSvc encryption.Service) *KeyProvider {
 	return &KeyProvider{
 		db:              db,
 		store:           store,
 		settingsManager: settingsManager,
+		encryptionSvc:   encryptionSvc,
 	}
 }
 
@@ -60,9 +63,21 @@ func (p *KeyProvider) SelectKey(groupID uint) (*models.APIKey, error) {
 	failureCount, _ := strconv.ParseInt(keyDetails["failure_count"], 10, 64)
 	createdAt, _ := strconv.ParseInt(keyDetails["created_at"], 10, 64)
 
+	// Decrypt the key value for use by channels
+	encryptedKeyValue := keyDetails["key_string"]
+	decryptedKeyValue, err := p.encryptionSvc.Decrypt(encryptedKeyValue)
+	if err != nil {
+		// If decryption fails, try to use the value as-is (backward compatibility for unencrypted keys)
+		logrus.WithFields(logrus.Fields{
+			"keyID": keyID,
+			"error": err,
+		}).Debug("Failed to decrypt key value, using as-is for backward compatibility")
+		decryptedKeyValue = encryptedKeyValue
+	}
+
 	apiKey := &models.APIKey{
 		ID:           uint(keyID),
-		KeyValue:     keyDetails["key_string"],
+		KeyValue:     decryptedKeyValue,
 		Status:       keyDetails["status"],
 		FailureCount: failureCount,
 		GroupID:      groupID,
@@ -223,18 +238,6 @@ func (p *KeyProvider) handleFailure(apiKey *models.APIKey, group *models.Group, 
 
 // LoadKeysFromDB 从数据库加载所有分组和密钥，并填充到 Store 中。
 func (p *KeyProvider) LoadKeysFromDB() error {
-	initFlagKey := "initialization:db_keys_loaded"
-
-	exists, err := p.store.Exists(initFlagKey)
-	if err != nil {
-		return fmt.Errorf("failed to check initialization flag: %w", err)
-	}
-
-	if exists {
-		logrus.Debug("Keys have already been loaded into the store. Skipping.")
-		return nil
-	}
-
 	logrus.Debug("First time startup, loading keys from DB...")
 
 	// 1. 分批从数据库加载并使用 Pipeline 写入 Redis
@@ -242,7 +245,7 @@ func (p *KeyProvider) LoadKeysFromDB() error {
 	batchSize := 1000
 	var batchKeys []*models.APIKey
 
-	err = p.db.Model(&models.APIKey{}).FindInBatches(&batchKeys, batchSize, func(tx *gorm.DB, batch int) error {
+	err := p.db.Model(&models.APIKey{}).FindInBatches(&batchKeys, batchSize, func(tx *gorm.DB, batch int) error {
 		logrus.Debugf("Processing batch %d with %d keys...", batch, len(batchKeys))
 
 		var pipeline store.Pipeliner
@@ -291,10 +294,6 @@ func (p *KeyProvider) LoadKeysFromDB() error {
 		}
 	}
 
-	if err := p.store.Set(initFlagKey, []byte("1"), 0); err != nil {
-		logrus.WithField("flagKey", initFlagKey).Error("Failed to set initialization flag after loading keys")
-	}
-
 	return nil
 }
 
@@ -331,7 +330,19 @@ func (p *KeyProvider) RemoveKeys(groupID uint, keyValues []string) (int64, error
 	var deletedCount int64
 
 	err := p.db.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("group_id = ? AND key_value IN ?", groupID, keyValues).Find(&keysToDelete).Error; err != nil {
+		var keyHashes []string
+		for _, keyValue := range keyValues {
+			keyHash := p.encryptionSvc.Hash(keyValue)
+			if keyHash != "" {
+				keyHashes = append(keyHashes, keyHash)
+			}
+		}
+
+		if len(keyHashes) == 0 {
+			return nil
+		}
+
+		if err := tx.Where("group_id = ? AND key_hash IN ?", groupID, keyHashes).Find(&keysToDelete).Error; err != nil {
 			return err
 		}
 
@@ -408,8 +419,19 @@ func (p *KeyProvider) RestoreMultipleKeys(groupID uint, keyValues []string) (int
 	var restoredCount int64
 
 	err := p.db.Transaction(func(tx *gorm.DB) error {
-		// 1. 查找要恢复的密钥
-		if err := tx.Where("group_id = ? AND key_value IN ? AND status = ?", groupID, keyValues, models.KeyStatusInvalid).Find(&keysToRestore).Error; err != nil {
+		var keyHashes []string
+		for _, keyValue := range keyValues {
+			keyHash := p.encryptionSvc.Hash(keyValue)
+			if keyHash != "" {
+				keyHashes = append(keyHashes, keyHash)
+			}
+		}
+
+		if len(keyHashes) == 0 {
+			return nil
+		}
+
+		if err := tx.Where("group_id = ? AND key_hash IN ? AND status = ?", groupID, keyHashes, models.KeyStatusInvalid).Find(&keysToRestore).Error; err != nil {
 			return err
 		}
 
@@ -419,7 +441,6 @@ func (p *KeyProvider) RestoreMultipleKeys(groupID uint, keyValues []string) (int
 
 		keyIDsToRestore := pluckIDs(keysToRestore)
 
-		// 2. 更新数据库中的状态
 		updates := map[string]any{
 			"status":        models.KeyStatusActive,
 			"failure_count": 0,
@@ -430,14 +451,12 @@ func (p *KeyProvider) RestoreMultipleKeys(groupID uint, keyValues []string) (int
 		}
 		restoredCount = result.RowsAffected
 
-		// 3. 将密钥添加回 Redis
 		for _, key := range keysToRestore {
 			key.Status = models.KeyStatusActive
 			key.FailureCount = 0
 			if err := p.addKeyToStore(&key); err != nil {
-				// 在事务中，单个失败会回滚整个事务，但这里的日志记录仍然有用
 				logrus.WithFields(logrus.Fields{"keyID": key.ID, "error": err}).Error("Failed to restore key in store after DB update")
-				return err // 返回错误以回滚事务
+				return err
 			}
 		}
 

@@ -4,6 +4,9 @@ import type { TaskInfo } from "@/types/models";
 import { appState } from "@/utils/app-state";
 import { NButton, NCard, NProgress, NText, useMessage } from "naive-ui";
 import { onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
+
+const { t } = useI18n();
 
 const taskInfo = ref<TaskInfo>({ is_running: false, task_type: "KEY_VALIDATION" });
 const visible = ref(false);
@@ -46,16 +49,26 @@ async function pollOnce() {
       if (task.result) {
         const lastTask = localStorage.getItem("last_closed_task");
         if (lastTask !== task.finished_at) {
-          let msg = "任务已完成。";
+          let msg = t("task.completed");
           if (task.task_type === "KEY_VALIDATION") {
             const result = task.result as import("@/types/models").KeyValidationResult;
-            msg = `密钥验证完成，处理了 ${result.total_keys} 个密钥，其中 ${result.valid_keys} 个成功，${result.invalid_keys} 个失败。请注意：验证失败并不一定拉黑该密钥，需要失败次数达到阈值才会拉黑。`;
+            msg = t("task.validationCompleted", {
+              total: result.total_keys,
+              valid: result.valid_keys,
+              invalid: result.invalid_keys,
+            });
           } else if (task.task_type === "KEY_IMPORT") {
             const result = task.result as import("@/types/models").KeyImportResult;
-            msg = `密钥导入完成，成功添加 ${result.added_count} 个密钥，忽略了 ${result.ignored_count} 个。`;
+            msg = t("task.importCompleted", {
+              added: result.added_count,
+              ignored: result.ignored_count,
+            });
           } else if (task.task_type === "KEY_DELETE") {
             const result = task.result as import("@/types/models").KeyDeleteResult;
-            msg = `密钥删除完成，成功删除 ${result.deleted_count} 个密钥，忽略了 ${result.ignored_count} 个。`;
+            msg = t("task.deleteCompleted", {
+              deleted: result.deleted_count,
+              ignored: result.ignored_count,
+            });
           }
 
           message.info(msg, {
@@ -115,17 +128,17 @@ function handleClose() {
 
 function getTaskTitle(): string {
   if (!taskInfo.value) {
-    return "正在处理任务...";
+    return t("task.processing");
   }
   switch (taskInfo.value.task_type) {
     case "KEY_VALIDATION":
-      return `正在验证分组 [${taskInfo.value.group_name}] 的密钥`;
+      return t("task.validatingKeys", { groupName: taskInfo.value.group_name });
     case "KEY_IMPORT":
-      return `正在向分组 [${taskInfo.value.group_name}] 导入密钥`;
+      return t("task.importingKeys", { groupName: taskInfo.value.group_name });
     case "KEY_DELETE":
-      return `正在删除分组 [${taskInfo.value.group_name}] 的密钥`;
+      return t("task.deletingKeys", { groupName: taskInfo.value.group_name });
     default:
-      return "正在处理任务...";
+      return t("task.processing");
   }
 }
 </script>
@@ -145,7 +158,13 @@ function getTaskTitle(): string {
             </n-text>
           </div>
         </div>
-        <n-button quaternary circle size="small" @click="handleClose" title="隐藏进度条">
+        <n-button
+          quaternary
+          circle
+          size="small"
+          @click="handleClose"
+          :title="t('task.hideProgress')"
+        >
           <template #icon>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
               <path
@@ -177,10 +196,10 @@ function getTaskTitle(): string {
   z-index: 9999;
   width: 95%;
   max-width: 350px;
-  background: white;
+  background: var(--card-bg-solid);
   border-radius: var(--border-radius-md);
   box-shadow: var(--shadow-lg);
-  border: 1px solid rgba(0, 0, 0, 0.08);
+  border: 1px solid var(--border-color);
   animation: slideIn 0.3s ease-out;
 }
 
@@ -201,6 +220,25 @@ function getTaskTitle(): string {
     transform: translateX(0);
     opacity: 1;
   }
+}
+
+/* 暗黑模式特殊样式 */
+:root.dark .global-task-progress {
+  background: #323841; /* 浅灰色背景，比内容区域浅 */
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+:root.dark .progress-title {
+  color: var(--text-primary);
+}
+
+:root.dark .progress-subtitle {
+  color: var(--text-secondary);
+}
+
+:root.dark .progress-message {
+  background: rgba(102, 126, 234, 0.15);
+  color: var(--text-primary);
 }
 
 .progress-container {
@@ -260,7 +298,7 @@ function getTaskTitle(): string {
   font-size: 12px;
   text-align: center;
   padding: 8px;
-  background: rgba(102, 126, 234, 0.05);
+  background: var(--bg-secondary);
   border-radius: var(--border-radius-sm);
   margin-top: 8px;
 }

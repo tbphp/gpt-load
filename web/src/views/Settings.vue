@@ -19,6 +19,9 @@ import {
   type FormItemRule,
 } from "naive-ui";
 import { ref } from "vue";
+import { useI18n } from "vue-i18n";
+
+const { t } = useI18n();
 
 const settingList = ref<SettingCategory[]>([]);
 const formRef = ref();
@@ -34,7 +37,7 @@ async function fetchSettings() {
     settingList.value = data || [];
     initForm();
   } catch (_error) {
-    message.error("获取设置失败");
+    message.error(t("settings.loadFailed"));
   }
 }
 
@@ -70,7 +73,7 @@ function generateValidationRules(item: Setting): FormItemRule[] {
   if (item.required) {
     const rule: FormItemRule = {
       required: true,
-      message: `请输入 ${item.name}`,
+      message: t("settings.pleaseInput", { field: item.name }),
       trigger: ["input", "blur"],
     };
     if (item.type === "int") {
@@ -85,7 +88,7 @@ function generateValidationRules(item: Setting): FormItemRule[] {
           return true;
         }
         if (item.min_value !== undefined && item.min_value !== null && value < item.min_value) {
-          return new Error(`值不能小于 ${item.min_value}`);
+          return new Error(t("settings.minValueError", { value: item.min_value }));
         }
         return true;
       },
@@ -137,7 +140,7 @@ function generateValidationRules(item: Setting): FormItemRule[] {
                   :min="
                     item.min_value !== undefined && item.min_value >= 0 ? item.min_value : undefined
                   "
-                  placeholder="请输入数值"
+                  :placeholder="t('settings.inputNumber')"
                   clearable
                   style="width: 100%"
                   size="small"
@@ -150,13 +153,13 @@ function generateValidationRules(item: Setting): FormItemRule[] {
                 <proxy-keys-input
                   v-else-if="item.key === 'proxy_keys'"
                   v-model="form[item.key] as string"
-                  placeholder="请输入内容"
+                  :placeholder="t('settings.inputContent')"
                   size="small"
                 />
                 <n-input
                   v-else
                   v-model:value="form[item.key] as string"
-                  placeholder="请输入内容"
+                  :placeholder="t('settings.inputContent')"
                   clearable
                   size="small"
                 />
@@ -182,7 +185,7 @@ function generateValidationRules(item: Setting): FormItemRule[] {
         <template #icon>
           <n-icon :component="Save" />
         </template>
-        {{ isSaving ? "保存中..." : "保存设置" }}
+        {{ isSaving ? t("settings.saving") : t("settings.saveSettings") }}
       </n-button>
     </div>
   </n-space>

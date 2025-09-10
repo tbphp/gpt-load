@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"gpt-load/internal/config"
+	"gpt-load/internal/encryption"
+	"gpt-load/internal/i18n"
 	"gpt-load/internal/services"
 	"gpt-load/internal/types"
 
@@ -28,6 +30,7 @@ type Server struct {
 	KeyDeleteService           *services.KeyDeleteService
 	LogService                 *services.LogService
 	CommonHandler              *CommonHandler
+	EncryptionSvc              encryption.Service
 }
 
 // NewServerParams defines the dependencies for the NewServer constructor.
@@ -44,6 +47,7 @@ type NewServerParams struct {
 	KeyDeleteService           *services.KeyDeleteService
 	LogService                 *services.LogService
 	CommonHandler              *CommonHandler
+	EncryptionSvc              encryption.Service
 }
 
 // NewServer creates a new handler instance with dependencies injected by dig.
@@ -60,6 +64,7 @@ func NewServer(params NewServerParams) *Server {
 		KeyDeleteService:           params.KeyDeleteService,
 		LogService:                 params.LogService,
 		CommonHandler:              params.CommonHandler,
+		EncryptionSvc:              params.EncryptionSvc,
 	}
 }
 
@@ -80,7 +85,7 @@ func (s *Server) Login(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
-			"message": "Invalid request format",
+			"message": i18n.Message(c, "auth.invalid_request"),
 		})
 		return
 	}
@@ -92,12 +97,12 @@ func (s *Server) Login(c *gin.Context) {
 	if isValid {
 		c.JSON(http.StatusOK, LoginResponse{
 			Success: true,
-			Message: "Authentication successful",
+			Message: i18n.Message(c, "auth.authentication_successful"),
 		})
 	} else {
 		c.JSON(http.StatusUnauthorized, LoginResponse{
 			Success: false,
-			Message: "Authentication failed",
+			Message: i18n.Message(c, "auth.authentication_failed"),
 		})
 	}
 }

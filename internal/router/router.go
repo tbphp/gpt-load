@@ -3,6 +3,7 @@ package router
 import (
 	"embed"
 	"gpt-load/internal/handler"
+	"gpt-load/internal/i18n"
 	"gpt-load/internal/middleware"
 	"gpt-load/internal/proxy"
 	"gpt-load/internal/services"
@@ -55,6 +56,7 @@ func NewRouter(
 	router.Use(middleware.Logger(configManager.GetLogConfig()))
 	router.Use(middleware.CORS(configManager.GetCORSConfig()))
 	router.Use(middleware.RateLimiter(configManager.GetPerformanceConfig()))
+	router.Use(middleware.SecurityHeaders())
 	startTime := time.Now()
 	router.Use(func(c *gin.Context) {
 		c.Set("serverStartTime", startTime)
@@ -82,6 +84,8 @@ func registerAPIRoutes(
 	configManager types.ConfigManager,
 ) {
 	api := router.Group("/api")
+	api.Use(i18n.Middleware())
+
 	authConfig := configManager.GetAuthConfig()
 
 	// 公开
@@ -139,6 +143,7 @@ func registerProtectedAPIRoutes(api *gin.RouterGroup, serverHandler *handler.Ser
 	{
 		dashboard.GET("/stats", serverHandler.Stats)
 		dashboard.GET("/chart", serverHandler.Chart)
+		dashboard.GET("/encryption-status", serverHandler.EncryptionStatus)
 	}
 
 	// 日志

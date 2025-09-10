@@ -4,6 +4,9 @@ import type { ChartData } from "@/types/models";
 import { getGroupDisplayName } from "@/utils/display";
 import { NSelect, NSpin } from "naive-ui";
 import { computed, onMounted, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
+
+const { t } = useI18n();
 
 // 图表数据
 const chartData = ref<ChartData | null>(null);
@@ -211,7 +214,7 @@ const formatNumber = (value: number) => {
 };
 
 const isErrorDataset = (label: string) => {
-  return label.includes("失败");
+  return label.includes("失败") || label.includes("Error") || label.includes("エラー");
 };
 
 // 动画相关
@@ -326,14 +329,14 @@ const fetchGroups = async () => {
   try {
     const response = await getGroupList();
     groupOptions.value = [
-      { label: "全部分组", value: null },
+      { label: t("charts.allGroups"), value: null },
       ...response.data.map(group => ({
         label: getGroupDisplayName(group),
         value: group.id || 0,
       })),
     ];
   } catch (error) {
-    console.error("获取分组列表失败:", error);
+    console.error("Failed to fetch groups:", error);
   }
 };
 
@@ -349,7 +352,7 @@ const fetchChartData = async () => {
       startAnimation();
     }, 100);
   } catch (error) {
-    console.error("获取图表数据失败:", error);
+    console.error("Failed to fetch chart data:", error);
   } finally {
     loading.value = false;
   }
@@ -370,12 +373,12 @@ onMounted(() => {
   <div class="chart-container">
     <div class="chart-header">
       <div class="chart-title-section">
-        <h3 class="chart-title">24小时请求趋势</h3>
+        <h3 class="chart-title">{{ t("charts.requestTrend24h") }}</h3>
       </div>
       <n-select
         v-model:value="selectedGroup"
         :options="groupOptions as any"
-        placeholder="全部分组"
+        :placeholder="t('charts.allGroups')"
         size="small"
         style="width: 150px"
         clearable
@@ -403,7 +406,7 @@ onMounted(() => {
               <path
                 d="M 40 0 L 0 0 0 30"
                 fill="none"
-                stroke="#f0f0f0"
+                :stroke="`var(--chart-grid)`"
                 stroke-width="1"
                 opacity="0.3"
               />
@@ -418,7 +421,7 @@ onMounted(() => {
               :y1="padding.top"
               :x2="padding.left"
               :y2="chartHeight - padding.bottom"
-              stroke="#e0e0e0"
+              :stroke="`var(--chart-axis)`"
               stroke-width="2"
             />
             <g v-for="(tick, index) in yTicks" :key="index">
@@ -427,7 +430,7 @@ onMounted(() => {
                 :y1="getYPosition(tick)"
                 :x2="padding.left"
                 :y2="getYPosition(tick)"
-                stroke="#666"
+                :stroke="`var(--chart-text)`"
                 stroke-width="1"
               />
               <text
@@ -448,7 +451,7 @@ onMounted(() => {
               :y1="chartHeight - padding.bottom"
               :x2="chartWidth - padding.right"
               :y2="chartHeight - padding.bottom"
-              stroke="#e0e0e0"
+              :stroke="`var(--chart-axis)`"
               stroke-width="2"
             />
             <g v-for="(label, index) in visibleLabels" :key="index">
@@ -457,7 +460,7 @@ onMounted(() => {
                 :y1="chartHeight - padding.bottom"
                 :x2="getXPosition(label.index)"
                 :y2="chartHeight - padding.bottom + 5"
-                stroke="#666"
+                :stroke="`var(--chart-text)`"
                 stroke-width="1"
               />
               <text
@@ -555,7 +558,7 @@ onMounted(() => {
 
     <div v-else class="chart-loading">
       <n-spin size="large" />
-      <p>加载中...</p>
+      <p>{{ t("common.loading") }}</p>
     </div>
   </div>
 </template>
@@ -563,11 +566,23 @@ onMounted(() => {
 <style scoped>
 .chart-container {
   padding: 20px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   border-radius: 16px;
   backdrop-filter: blur(4px);
-  border: 1px solid rgba(255, 255, 255, 0.18);
+  border: 1px solid var(--border-color-light);
+}
+
+/* 浅色主题 - 保持原有的紫色渐变设计 */
+:root:not(.dark) .chart-container {
+  background: var(--primary-gradient);
   color: white;
+}
+
+/* 暗黑主题 - 使用深蓝紫渐变外层背景 */
+:root.dark .chart-container {
+  background: linear-gradient(135deg, #525a7a 0%, #424964 100%);
+  box-shadow: var(--shadow-md);
+  border: 1px solid rgba(139, 157, 245, 0.2);
+  color: #e8e8e8;
 }
 
 .chart-header {
@@ -587,17 +602,39 @@ onMounted(() => {
   font-size: 24px;
   line-height: 28px;
   font-weight: 600;
+}
+
+/* 浅色主题 - 白色渐变文字 */
+:root:not(.dark) .chart-title {
   background: linear-gradient(45deg, #fff, #f0f0f0);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
 }
 
+/* 暗黑主题 - 白色文字 */
+:root.dark .chart-title {
+  color: white;
+  background: none;
+  -webkit-background-clip: unset;
+  -webkit-text-fill-color: unset;
+  background-clip: unset;
+}
+
 .chart-subtitle {
   margin: 0;
   font-size: 14px;
-  color: rgba(255, 255, 255, 0.8);
   font-weight: 400;
+}
+
+/* 浅色主题 */
+:root:not(.dark) .chart-subtitle {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+/* 暗黑主题 */
+:root.dark .chart-subtitle {
+  color: var(--text-secondary);
 }
 
 /* .chart-content {
@@ -617,10 +654,20 @@ onMounted(() => {
   justify-content: center;
   gap: 12px;
   padding: 2px;
-  background: rgba(255, 255, 255, 0.4);
-  backdrop-filter: blur(4px);
-  border: 1px solid rgba(255, 255, 255, 0.5);
+  backdrop-filter: blur(8px);
   border-radius: 24px;
+}
+
+/* 浅色主题 */
+:root:not(.dark) .chart-legend {
+  background: rgba(255, 255, 255, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+}
+
+/* 暗黑主题 */
+:root.dark .chart-legend {
+  background: var(--overlay-bg);
+  border: 1px solid var(--border-color);
 }
 
 .legend-item {
@@ -629,18 +676,38 @@ onMounted(() => {
   gap: 8px;
   font-weight: 600;
   font-size: 13px;
-  color: #475569;
   padding: 8px 16px;
-  background: rgba(255, 255, 255, 0.6);
   border-radius: 20px;
-  border: 1px solid rgba(226, 232, 240, 0.6);
   transition: all 0.2s ease;
 }
 
-.legend-item:hover {
+/* 浅色主题 */
+:root:not(.dark) .legend-item {
+  color: #334155;
+  background: rgba(255, 255, 255, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.7);
+}
+
+/* 暗黑主题 */
+:root.dark .legend-item {
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+}
+
+/* 浅色主题悬停效果 */
+:root:not(.dark) .legend-item:hover {
   background: rgba(255, 255, 255, 0.9);
   transform: translateY(-1px);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+/* 暗黑主题悬停效果 */
+:root.dark .legend-item:hover {
+  background: var(--primary-color);
+  color: white;
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-lg);
 }
 
 .legend-indicator {
@@ -665,7 +732,7 @@ onMounted(() => {
 
 .legend-label {
   font-size: 13px;
-  color: #334155;
+  color: inherit;
 }
 
 .chart-wrapper {
@@ -677,13 +744,25 @@ onMounted(() => {
 .chart-svg {
   width: 100%;
   height: auto;
-  background: white;
   border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+/* 浅色主题 - 白色背景 */
+:root:not(.dark) .chart-svg {
+  background: white;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  border: 1px solid #e0e0e0;
+}
+
+/* 暗黑主题 - 深色背景 */
+:root.dark .chart-svg {
+  background: var(--card-bg-solid);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.2);
+  border: 1px solid var(--border-color);
 }
 
 .axis-label {
-  fill: #666;
+  fill: var(--chart-text);
   font-size: 12px;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }

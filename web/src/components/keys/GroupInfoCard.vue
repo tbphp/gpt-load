@@ -23,8 +23,11 @@ import {
   useDialog,
 } from "naive-ui";
 import { computed, h, onMounted, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 import GroupCopyModal from "./GroupCopyModal.vue";
 import GroupFormModal from "./GroupFormModal.vue";
+
+const { t } = useI18n();
 
 interface Props {
   group: Group | null;
@@ -76,9 +79,9 @@ async function copyProxyKeys() {
   const keysToCopy = props.group.proxy_keys.replace(/,/g, "\n");
   const success = await copy(keysToCopy);
   if (success) {
-    window.$message.success("代理密钥已复制到剪贴板");
+    window.$message.success(t("keys.proxyKeysCopied"));
   } else {
-    window.$message.error("复制失败");
+    window.$message.error(t("keys.copyFailed"));
   }
 }
 
@@ -155,7 +158,7 @@ async function loadConfigOptions() {
     const options = await keysApi.getGroupConfigOptions();
     configOptions.value = options || [];
   } catch (error) {
-    console.error("获取配置选项失败:", error);
+    console.error("Failed to load config options:", error);
   }
 }
 
@@ -166,7 +169,7 @@ function getConfigDisplayName(key: string): string {
 
 function getConfigDescription(key: string): string {
   const option = configOptions.value.find(opt => opt.key === key);
-  return option?.description || "暂无说明";
+  return option?.description || t("keys.noDescription");
 }
 
 function handleEdit() {
@@ -197,36 +200,34 @@ async function handleDelete() {
   }
 
   dialog.warning({
-    title: "删除分组",
-    content: `确定要删除分组 "${getGroupDisplayName(
-      props.group
-    )}" 吗？此操作将删除分组及其下所有密钥，且不可恢复。`,
-    positiveText: "确定",
-    negativeText: "取消",
+    title: t("keys.deleteGroup"),
+    content: t("keys.confirmDeleteGroup", { name: getGroupDisplayName(props.group) }),
+    positiveText: t("common.confirm"),
+    negativeText: t("common.cancel"),
     onPositiveClick: () => {
       confirmInput.value = ""; // Reset before opening second dialog
       dialog.create({
-        title: "请输入分组名称以确认删除",
+        title: t("keys.enterGroupNameToConfirm"),
         content: () =>
           h("div", null, [
             h("p", null, [
-              "这是一个非常危险的操作。为防止误操作，请输入分组名称 ",
+              t("keys.dangerousOperation"),
               h("strong", { style: { color: "#d03050" } }, props.group?.name),
-              " 以确认删除。",
+              t("keys.toConfirmDeletion"),
             ]),
             h(NInput, {
               value: confirmInput.value,
               "onUpdate:value": v => {
                 confirmInput.value = v;
               },
-              placeholder: "请输入分组名称",
+              placeholder: t("keys.enterGroupName"),
             }),
           ]),
-        positiveText: "确认删除",
-        negativeText: "取消",
+        positiveText: t("keys.confirmDelete"),
+        negativeText: t("common.cancel"),
         onPositiveClick: async () => {
           if (confirmInput.value !== props.group?.name) {
-            window.$message.error("分组名称输入不正确");
+            window.$message.error(t("keys.incorrectGroupName"));
             return false; // Prevent dialog from closing
           }
 
@@ -235,11 +236,11 @@ async function handleDelete() {
             if (props.group?.id) {
               await keysApi.deleteGroup(props.group.id);
               emit("delete", props.group);
-              window.$message.success("分组已成功删除");
+              window.$message.success(t("keys.groupDeletedSuccess"));
             }
           } catch (error) {
-            console.error("删除分组失败:", error);
-            window.$message.error("删除分组失败，请稍后重试");
+            console.error(error);
+            window.$message.error(t("keys.deleteGroupFailed"));
           } finally {
             delLoading.value = false;
           }
@@ -272,9 +273,9 @@ async function copyUrl(url: string) {
   }
   const success = await copy(url);
   if (success) {
-    window.$message.success("地址已复制到剪贴板");
+    window.$message.success(t("keys.urlCopied"));
   } else {
-    window.$message.error("复制失败");
+    window.$message.error(t("keys.copyFailed"));
   }
 }
 
@@ -292,14 +293,14 @@ function resetPage() {
         <div class="card-header">
           <div class="header-left">
             <h3 class="group-title">
-              {{ group ? getGroupDisplayName(group) : "请选择分组" }}
+              {{ group ? getGroupDisplayName(group) : t("keys.selectGroup") }}
               <n-tooltip trigger="hover" v-if="group && group.endpoint">
                 <template #trigger>
                   <code class="group-url" @click="copyUrl(group.endpoint)">
                     {{ group.endpoint }}
                   </code>
                 </template>
-                点击复制
+                {{ t("keys.clickToCopy") }}
               </n-tooltip>
             </h3>
           </div>
@@ -309,14 +310,20 @@ function resetPage() {
               circle
               size="small"
               @click="handleCopy"
-              title="复制分组"
+              :title="t('keys.copyGroup')"
               :disabled="!group"
             >
               <template #icon>
                 <n-icon :component="CopyOutline" />
               </template>
             </n-button>
-            <n-button quaternary circle size="small" @click="handleEdit" title="编辑分组">
+            <n-button
+              quaternary
+              circle
+              size="small"
+              @click="handleEdit"
+              :title="t('keys.editGroup')"
+            >
               <template #icon>
                 <n-icon :component="Pencil" />
               </template>
@@ -326,7 +333,7 @@ function resetPage() {
               circle
               size="small"
               @click="handleDelete"
-              title="删除分组"
+              :title="t('keys.deleteGroup')"
               type="error"
               :disabled="!group"
             >
@@ -344,14 +351,14 @@ function resetPage() {
         <n-spin :show="loading" size="small">
           <n-grid cols="2 s:4" :x-gap="12" :y-gap="12" responsive="screen">
             <n-grid-item span="1">
-              <n-statistic :label="`密钥数量：${stats?.key_stats?.total_keys ?? 0}`">
+              <n-statistic :label="`${t('keys.keyCount')}：${stats?.key_stats?.total_keys ?? 0}`">
                 <n-tooltip trigger="hover">
                   <template #trigger>
                     <n-gradient-text type="success" size="20">
                       {{ stats?.key_stats?.active_keys ?? 0 }}
                     </n-gradient-text>
                   </template>
-                  有效密钥数
+                  {{ t("keys.activeKeyCount") }}
                 </n-tooltip>
                 <n-divider vertical />
                 <n-tooltip trigger="hover">
@@ -360,13 +367,13 @@ function resetPage() {
                       {{ stats?.key_stats?.invalid_keys ?? 0 }}
                     </n-gradient-text>
                   </template>
-                  无效密钥数
+                  {{ t("keys.invalidKeyCount") }}
                 </n-tooltip>
               </n-statistic>
             </n-grid-item>
             <n-grid-item span="1">
               <n-statistic
-                :label="`1小时请求：${formatNumber(stats?.hourly_stats?.total_requests ?? 0)}`"
+                :label="`${t('keys.hourlyRequests')}：${formatNumber(stats?.hourly_stats?.total_requests ?? 0)}`"
               >
                 <n-tooltip trigger="hover">
                   <template #trigger>
@@ -374,7 +381,7 @@ function resetPage() {
                       {{ formatNumber(stats?.hourly_stats?.failed_requests ?? 0) }}
                     </n-gradient-text>
                   </template>
-                  近1小时失败请求
+                  {{ t("keys.hourlyFailedRequests") }}
                 </n-tooltip>
                 <n-divider vertical />
                 <n-tooltip trigger="hover">
@@ -383,13 +390,13 @@ function resetPage() {
                       {{ formatPercentage(stats?.hourly_stats?.failure_rate ?? 0) }}
                     </n-gradient-text>
                   </template>
-                  近1小时失败率
+                  {{ t("keys.hourlyFailureRate") }}
                 </n-tooltip>
               </n-statistic>
             </n-grid-item>
             <n-grid-item span="1">
               <n-statistic
-                :label="`24小时请求：${formatNumber(stats?.daily_stats?.total_requests ?? 0)}`"
+                :label="`${t('keys.dailyRequests')}：${formatNumber(stats?.daily_stats?.total_requests ?? 0)}`"
               >
                 <n-tooltip trigger="hover">
                   <template #trigger>
@@ -397,7 +404,7 @@ function resetPage() {
                       {{ formatNumber(stats?.daily_stats?.failed_requests ?? 0) }}
                     </n-gradient-text>
                   </template>
-                  近24小时失败请求
+                  {{ t("keys.dailyFailedRequests") }}
                 </n-tooltip>
                 <n-divider vertical />
                 <n-tooltip trigger="hover">
@@ -406,13 +413,13 @@ function resetPage() {
                       {{ formatPercentage(stats?.daily_stats?.failure_rate ?? 0) }}
                     </n-gradient-text>
                   </template>
-                  近24小时失败率
+                  {{ t("keys.dailyFailureRate") }}
                 </n-tooltip>
               </n-statistic>
             </n-grid-item>
             <n-grid-item span="1">
               <n-statistic
-                :label="`近7天请求：${formatNumber(stats?.weekly_stats?.total_requests ?? 0)}`"
+                :label="`${t('keys.weeklyRequests')}：${formatNumber(stats?.weekly_stats?.total_requests ?? 0)}`"
               >
                 <n-tooltip trigger="hover">
                   <template #trigger>
@@ -420,7 +427,7 @@ function resetPage() {
                       {{ formatNumber(stats?.weekly_stats?.failed_requests ?? 0) }}
                     </n-gradient-text>
                   </template>
-                  近7天失败请求
+                  {{ t("keys.weeklyFailedRequests") }}
                 </n-tooltip>
                 <n-divider vertical />
                 <n-tooltip trigger="hover">
@@ -429,7 +436,7 @@ function resetPage() {
                       {{ formatPercentage(stats?.weekly_stats?.failure_rate ?? 0) }}
                     </n-gradient-text>
                   </template>
-                  近7天失败率
+                  {{ t("keys.weeklyFailureRate") }}
                 </n-tooltip>
               </n-statistic>
             </n-grid-item>
@@ -441,44 +448,44 @@ function resetPage() {
       <!-- 详细信息区（可折叠） -->
       <div class="details-section">
         <n-collapse accordion v-model:expanded-names="expandedName">
-          <n-collapse-item title="详细信息" name="details">
+          <n-collapse-item :title="t('keys.detailInfo')" name="details">
             <div class="details-content">
               <div class="detail-section">
-                <h4 class="section-title">基础信息</h4>
-                <n-form label-placement="left" label-width="85px" label-align="right">
+                <h4 class="section-title">{{ t("keys.basicInfo") }}</h4>
+                <n-form label-placement="left" label-width="140px" label-align="right">
                   <n-grid cols="1 m:2">
                     <n-grid-item>
-                      <n-form-item label="分组名称：">
+                      <n-form-item :label="`${t('keys.groupName')}：`">
                         {{ group?.name }}
                       </n-form-item>
                     </n-grid-item>
                     <n-grid-item>
-                      <n-form-item label="显示名称：">
+                      <n-form-item :label="`${t('keys.displayName')}：`">
                         {{ group?.display_name }}
                       </n-form-item>
                     </n-grid-item>
                     <n-grid-item>
-                      <n-form-item label="渠道类型：">
+                      <n-form-item :label="`${t('keys.channelType')}：`">
                         {{ group?.channel_type }}
                       </n-form-item>
                     </n-grid-item>
                     <n-grid-item>
-                      <n-form-item label="排序：">
+                      <n-form-item :label="`${t('keys.sortOrder')}：`">
                         {{ group?.sort }}
                       </n-form-item>
                     </n-grid-item>
                     <n-grid-item>
-                      <n-form-item label="测试模型：">
+                      <n-form-item :label="`${t('keys.testModel')}：`">
                         {{ group?.test_model }}
                       </n-form-item>
                     </n-grid-item>
                     <n-grid-item v-if="group?.channel_type !== 'gemini'">
-                      <n-form-item label="测试路径：">
+                      <n-form-item :label="`${t('keys.testPath')}：`">
                         {{ group?.validation_endpoint }}
                       </n-form-item>
                     </n-grid-item>
                     <n-grid-item :span="2">
-                      <n-form-item label="代理密钥：">
+                      <n-form-item :label="`${t('keys.proxyKeys')}：`">
                         <div class="proxy-keys-content">
                           <span class="key-text">{{ proxyKeysDisplay }}</span>
                           <n-button-group size="small" class="key-actions" v-if="group?.proxy_keys">
@@ -492,7 +499,7 @@ function resetPage() {
                                   </template>
                                 </n-button>
                               </template>
-                              {{ showProxyKeys ? "隐藏密钥" : "显示密钥" }}
+                              {{ showProxyKeys ? t("keys.hideKeys") : t("keys.showKeys") }}
                             </n-tooltip>
                             <n-tooltip trigger="hover">
                               <template #trigger>
@@ -502,14 +509,14 @@ function resetPage() {
                                   </template>
                                 </n-button>
                               </template>
-                              复制密钥
+                              {{ t("keys.copyKeys") }}
                             </n-tooltip>
                           </n-button-group>
                         </div>
                       </n-form-item>
                     </n-grid-item>
                     <n-grid-item :span="2">
-                      <n-form-item label="描述：">
+                      <n-form-item :label="`${t('common.description')}：`">
                         <div class="description-content">
                           {{ group?.description || "-" }}
                         </div>
@@ -520,16 +527,18 @@ function resetPage() {
               </div>
 
               <div class="detail-section">
-                <h4 class="section-title">上游地址</h4>
-                <n-form label-placement="left" label-width="100px">
+                <h4 class="section-title">{{ t("keys.upstreamAddresses") }}</h4>
+                <n-form label-placement="left" label-width="140px">
                   <n-form-item
                     v-for="(upstream, index) in group?.upstreams ?? []"
                     :key="index"
                     class="upstream-item"
-                    :label="`上游 ${index + 1}:`"
+                    :label="`${t('keys.upstream')} ${index + 1}:`"
                   >
                     <span class="upstream-weight">
-                      <n-tag size="small" type="info">权重: {{ upstream.weight }}</n-tag>
+                      <n-tag size="small" type="info">
+                        {{ t("keys.weight") }}: {{ upstream.weight }}
+                      </n-tag>
                     </span>
                     <n-input class="upstream-url" :value="upstream.url" readonly size="small" />
                   </n-form-item>
@@ -537,7 +546,7 @@ function resetPage() {
               </div>
 
               <div class="detail-section" v-if="hasAdvancedConfig">
-                <h4 class="section-title">高级配置</h4>
+                <h4 class="section-title">{{ t("keys.advancedConfig") }}</h4>
                 <n-form label-placement="left">
                   <n-form-item v-for="(value, key) in group?.config || {}" :key="key">
                     <template #label>
@@ -558,7 +567,7 @@ function resetPage() {
                         <div class="config-tooltip">
                           <div class="tooltip-title">{{ getConfigDisplayName(key) }}</div>
                           <div class="tooltip-description">{{ getConfigDescription(key) }}</div>
-                          <div class="tooltip-key">配置键: {{ key }}</div>
+                          <div class="tooltip-key">{{ t("keys.configKey") }}: {{ key }}</div>
                         </div>
                       </n-tooltip>
                     </template>
@@ -566,7 +575,7 @@ function resetPage() {
                   </n-form-item>
                   <n-form-item
                     v-if="group?.header_rules && group.header_rules.length > 0"
-                    label="自定义请求头:"
+                    :label="`${t('keys.customHeaders')}：`"
                     :span="2"
                   >
                     <div class="header-rules-display">
@@ -580,13 +589,17 @@ function resetPage() {
                         </n-tag>
                         <span class="header-separator">:</span>
                         <span class="header-value" v-if="rule.action === 'set'">
-                          {{ rule.value || "(空值)" }}
+                          {{ rule.value || t("keys.emptyValue") }}
                         </span>
-                        <span class="header-removed" v-else>删除</span>
+                        <span class="header-removed" v-else>{{ t("common.delete") }}</span>
                       </div>
                     </div>
                   </n-form-item>
-                  <n-form-item v-if="group?.param_overrides" label="参数覆盖:" :span="2">
+                  <n-form-item
+                    v-if="group?.param_overrides"
+                    :label="`${t('keys.paramOverrides')}：`"
+                    :span="2"
+                  >
                     <pre class="config-json">{{
                       JSON.stringify(group?.param_overrides || "", null, 2)
                     }}</pre>
@@ -618,10 +631,11 @@ function resetPage() {
 }
 
 .group-info-card {
-  background: rgba(255, 255, 255, 0.98);
-  border-radius: var(--border-radius-lg);
-  border: 1px solid rgba(255, 255, 255, 0.3);
+  background: var(--card-bg-solid);
+  border-radius: var(--border-radius-md);
+  border: 1px solid var(--border-color);
   animation: fadeInUp 0.2s ease-out;
+  box-shadow: var(--shadow-sm);
 }
 
 .card-header {
@@ -638,19 +652,30 @@ function resetPage() {
 .group-title {
   font-size: 1.2rem;
   font-weight: 600;
-  color: #1e293b;
+  color: var(--text-primary);
   margin: 0 0 8px 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .group-url {
   font-size: 0.8rem;
-  color: #2563eb;
+  color: var(--primary-color);
   margin-left: 8px;
   font-family: monospace;
-  background: rgba(37, 99, 235, 0.1);
+  background: var(--bg-secondary);
   border-radius: 4px;
   padding: 2px 6px;
   margin-right: 4px;
+  border: 1px solid var(--border-color);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.group-url:hover {
+  background: var(--bg-tertiary);
+  transform: translateY(-1px);
 }
 
 /* .group-meta {
@@ -661,7 +686,7 @@ function resetPage() {
 
 .group-id {
   font-size: 0.75rem;
-  color: #64748b;
+  color: var(--text-secondary);
   opacity: 0.7;
 }
 
@@ -680,11 +705,11 @@ function resetPage() {
 }
 
 :deep(.status-card-failure .n-card-header__main) {
-  color: #d03050;
+  color: var(--error-color, #d03050);
 }
 
 .status-title {
-  color: #64748b;
+  color: var(--text-secondary);
   font-size: 12px;
 }
 
@@ -707,16 +732,16 @@ function resetPage() {
 .section-title {
   font-size: 1rem;
   font-weight: 600;
-  color: #374151;
+  color: var(--text-primary);
   margin: 0 0 12px 0;
   padding-bottom: 8px;
-  border-bottom: 2px solid rgba(102, 126, 234, 0.1);
+  border-bottom: 2px solid var(--border-color);
 }
 
 .upstream-url {
   font-family: monospace;
   font-size: 0.9rem;
-  color: #374151;
+  color: var(--text-primary);
   margin-left: 5px;
 }
 
@@ -725,11 +750,11 @@ function resetPage() {
 }
 
 .config-json {
-  background: rgba(102, 126, 234, 0.05);
+  background: var(--bg-secondary);
   border-radius: var(--border-radius-sm);
   padding: 12px;
   font-size: 0.8rem;
-  color: #374151;
+  color: var(--text-primary);
   margin: 8px 0;
   overflow-x: auto;
 }
@@ -755,7 +780,7 @@ function resetPage() {
   word-wrap: break-word;
   line-height: 1.5;
   min-height: 20px;
-  color: #374151;
+  color: var(--text-primary);
 }
 
 .proxy-keys-content {
@@ -773,7 +798,7 @@ function resetPage() {
   word-break: break-all;
   line-height: 1.5;
   padding-top: 4px; /* Align with buttons */
-  color: #374151;
+  color: var(--text-primary);
 }
 
 .key-actions {
@@ -789,12 +814,12 @@ function resetPage() {
 }
 
 .config-help-icon {
-  color: #9ca3af;
+  color: var(--text-tertiary);
   transition: color 0.2s ease;
 }
 
 .config-label:hover .config-help-icon {
-  color: #6366f1;
+  color: var(--primary-color);
 }
 
 .config-tooltip {
@@ -804,20 +829,20 @@ function resetPage() {
 
 .tooltip-title {
   font-weight: 600;
-  color: #ffffff;
+  color: white;
   margin-bottom: 4px;
   font-size: 0.9rem;
 }
 
 .tooltip-description {
-  color: #e5e7eb;
+  color: rgba(255, 255, 255, 0.9);
   margin-bottom: 6px;
   line-height: 1.4;
   font-size: 0.85rem;
 }
 
 .tooltip-key {
-  color: #d1d5db;
+  color: rgba(255, 255, 255, 0.8);
   font-size: 0.75rem;
   font-family: monospace;
   background: rgba(255, 255, 255, 0.15);
@@ -831,7 +856,7 @@ function resetPage() {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  background: rgba(102, 126, 234, 0.03);
+  background: var(--bg-secondary);
   border-radius: var(--border-radius-sm);
   padding: 8px;
 }
@@ -844,21 +869,21 @@ function resetPage() {
 }
 
 .header-separator {
-  color: #6b7280;
+  color: var(--text-secondary);
   font-weight: 500;
 }
 
 .header-value {
-  color: #374151;
+  color: var(--text-primary);
   font-family: monospace;
-  background: rgba(59, 130, 246, 0.08);
+  background: var(--bg-secondary);
   padding: 2px 6px;
   border-radius: 3px;
   font-size: 0.8rem;
 }
 
 .header-removed {
-  color: #dc2626;
+  color: var(--error-color, #dc2626);
   font-style: italic;
   font-size: 0.8rem;
 }

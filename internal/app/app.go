@@ -10,6 +10,7 @@ import (
 
 	"gpt-load/internal/config"
 	db "gpt-load/internal/db/migrations"
+	"gpt-load/internal/i18n"
 	"gpt-load/internal/keypool"
 	"gpt-load/internal/models"
 	"gpt-load/internal/proxy"
@@ -75,11 +76,22 @@ func NewApp(params AppParams) *App {
 
 // Start runs the application, it is a non-blocking call.
 func (a *App) Start() error {
+	// 初始化 i18n
+	if err := i18n.Init(); err != nil {
+		return fmt.Errorf("failed to initialize i18n: %w", err)
+	}
+	logrus.Info("i18n initialized successfully.")
+	
 	// Master 节点执行初始化
 	if a.configManager.IsMaster() {
 		logrus.Info("Starting as Master Node.")
 
+		if err := a.storage.Clear(); err != nil {
+			return fmt.Errorf("cache cleanup failed: %w", err)
+		}
+
 		// 数据库迁移
+		db.HandleLegacyIndexes(a.db)
 		if err := a.db.AutoMigrate(
 			&models.SystemSetting{},
 			&models.Group{},
@@ -90,7 +102,9 @@ func (a *App) Start() error {
 			return fmt.Errorf("database auto-migration failed: %w", err)
 		}
 		// 数据修复
-		db.MigrateDatabase(a.db)
+		if err := db.MigrateDatabase(a.db); err != nil {
+			return fmt.Errorf("database data migration failed: %w", err)
+		}
 		logrus.Info("Database auto-migration completed.")
 
 		// 初始化系统设置

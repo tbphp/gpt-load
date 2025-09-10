@@ -27,8 +27,11 @@ import {
   type MessageReactive,
 } from "naive-ui";
 import { h, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 import KeyCreateDialog from "./KeyCreateDialog.vue";
 import KeyDeleteDialog from "./KeyDeleteDialog.vue";
+
+const { t } = useI18n();
 
 interface KeyRow extends APIKey {
   is_visible: boolean;
@@ -53,28 +56,32 @@ const confirmInput = ref("");
 
 // 状态过滤选项
 const statusOptions = [
-  { label: "全部", value: "all" },
-  { label: "有效", value: "active" },
-  { label: "无效", value: "invalid" },
+  { label: t("common.all"), value: "all" },
+  { label: t("keys.valid"), value: "active" },
+  { label: t("keys.invalid"), value: "invalid" },
 ];
 
 // 更多操作下拉菜单选项
 const moreOptions = [
-  { label: "导出所有密钥", key: "copyAll" },
-  { label: "导出有效密钥", key: "copyValid" },
-  { label: "导出无效密钥", key: "copyInvalid" },
+  { label: t("keys.exportAllKeys"), key: "copyAll" },
+  { label: t("keys.exportValidKeys"), key: "copyValid" },
+  { label: t("keys.exportInvalidKeys"), key: "copyInvalid" },
   { type: "divider" },
-  { label: "恢复所有无效密钥", key: "restoreAll" },
-  { label: "清空所有无效密钥", key: "clearInvalid", props: { style: { color: "#d03050" } } },
+  { label: t("keys.restoreAllInvalidKeys"), key: "restoreAll" },
   {
-    label: "清空所有密钥",
+    label: t("keys.clearAllInvalidKeys"),
+    key: "clearInvalid",
+    props: { style: { color: "#d03050" } },
+  },
+  {
+    label: t("keys.clearAllKeys"),
     key: "clearAll",
     props: { style: { color: "red", fontWeight: "bold" } },
   },
   { type: "divider" },
-  { label: "验证所有密钥", key: "validateAll" },
-  { label: "验证有效密钥", key: "validateActive" },
-  { label: "验证无效密钥", key: "validateInvalid" },
+  { label: t("keys.validateAllKeys"), key: "validateAll" },
+  { label: t("keys.validateValidKeys"), key: "validateActive" },
+  { label: t("keys.validateInvalidKeys"), key: "validateInvalid" },
 ];
 
 let testingMsg: MessageReactive | null = null;
@@ -194,7 +201,7 @@ async function loadKeys() {
     total.value = result.pagination.total_items;
     totalPages.value = result.pagination.total_pages;
   } catch (_error) {
-    window.$message.error("加载密钥失败");
+    window.$message.error(t("keys.loadKeysFailed"));
   } finally {
     loading.value = false;
   }
@@ -212,9 +219,9 @@ async function handleBatchDeleteSuccess() {
 async function copyKey(key: KeyRow) {
   const success = await copy(key.key_value);
   if (success) {
-    window.$message.success("密钥已复制到剪贴板");
+    window.$message.success(t("keys.keyCopied"));
   } else {
-    window.$message.error("复制失败");
+    window.$message.error(t("keys.copyFailed"));
   }
 }
 
@@ -223,7 +230,7 @@ async function testKey(_key: KeyRow) {
     return;
   }
 
-  testingMsg = window.$message.info("正在测试密钥...", {
+  testingMsg = window.$message.info(t("keys.testingKey"), {
     duration: 0,
   });
 
@@ -231,9 +238,11 @@ async function testKey(_key: KeyRow) {
     const response = await keysApi.testKeys(props.selectedGroup.id, _key.key_value);
     const curValid = response.results?.[0] || {};
     if (curValid.is_valid) {
-      window.$message.success(`密钥测试成功 (耗时: ${formatDuration(response.total_duration)})`);
+      window.$message.success(
+        t("keys.testSuccess", { duration: formatDuration(response.total_duration) })
+      );
     } else {
-      window.$message.error(curValid.error || "密钥测试失败: 无效的API密钥", {
+      window.$message.error(curValid.error || t("keys.testFailed"), {
         keepAliveOnHover: true,
         duration: 5000,
         closable: true,
@@ -243,7 +252,7 @@ async function testKey(_key: KeyRow) {
     // 触发同步操作刷新
     triggerSyncOperationRefresh(props.selectedGroup.name, "TEST_SINGLE");
   } catch (_error) {
-    console.error("测试失败");
+    console.error("Test failed");
   } finally {
     testingMsg?.destroy();
     testingMsg = null;
@@ -283,10 +292,10 @@ async function restoreKey(key: KeyRow) {
   }
 
   const d = dialog.warning({
-    title: "恢复密钥",
-    content: `确定要恢复密钥"${maskKey(key.key_value)}"吗？`,
-    positiveText: "确定",
-    negativeText: "取消",
+    title: t("keys.restoreKey"),
+    content: t("keys.confirmRestoreKey", { key: maskKey(key.key_value) }),
+    positiveText: t("common.confirm"),
+    negativeText: t("common.cancel"),
     onPositiveClick: async () => {
       if (!props.selectedGroup?.id) {
         return;
@@ -301,7 +310,7 @@ async function restoreKey(key: KeyRow) {
         // 触发同步操作刷新
         triggerSyncOperationRefresh(props.selectedGroup.name, "RESTORE_SINGLE");
       } catch (_error) {
-        console.error("恢复失败");
+        console.error("Restore failed");
       } finally {
         d.loading = false;
         isRestoring.value = false;
@@ -316,10 +325,10 @@ async function deleteKey(key: KeyRow) {
   }
 
   const d = dialog.warning({
-    title: "删除密钥",
-    content: `确定要删除密钥"${maskKey(key.key_value)}"吗？`,
-    positiveText: "确定",
-    negativeText: "取消",
+    title: t("keys.deleteKey"),
+    content: t("keys.confirmDeleteKey", { key: maskKey(key.key_value) }),
+    positiveText: t("common.confirm"),
+    negativeText: t("common.cancel"),
     onPositiveClick: async () => {
       if (!props.selectedGroup?.id) {
         return;
@@ -334,7 +343,7 @@ async function deleteKey(key: KeyRow) {
         // 触发同步操作刷新
         triggerSyncOperationRefresh(props.selectedGroup.name, "DELETE_SINGLE");
       } catch (_error) {
-        console.error("删除失败");
+        console.error("Delete failed");
       } finally {
         d.loading = false;
         isDeling.value = false;
@@ -345,7 +354,7 @@ async function deleteKey(key: KeyRow) {
 
 function formatRelativeTime(date: string) {
   if (!date) {
-    return "从未";
+    return t("keys.never");
   }
   const now = new Date();
   const target = new Date(date);
@@ -355,18 +364,18 @@ function formatRelativeTime(date: string) {
   const diffDays = Math.floor(diffHours / 24);
 
   if (diffDays > 0) {
-    return `${diffDays}天前`;
+    return t("keys.daysAgo", { days: diffDays });
   }
   if (diffHours > 0) {
-    return `${diffHours}小时前`;
+    return t("keys.hoursAgo", { hours: diffHours });
   }
   if (diffMinutes > 0) {
-    return `${diffMinutes}分钟前`;
+    return t("keys.minutesAgo", { minutes: diffMinutes });
   }
   if (diffSeconds > 0) {
-    return `${diffSeconds}秒前`;
+    return t("keys.secondsAgo", { seconds: diffSeconds });
   }
-  return "刚刚";
+  return t("keys.justNow");
 }
 
 function getStatusClass(status: KeyStatus): string {
@@ -410,10 +419,10 @@ async function restoreAllInvalid() {
   }
 
   const d = dialog.warning({
-    title: "恢复密钥",
-    content: "确定要恢复所有无效密钥吗？",
-    positiveText: "确定",
-    negativeText: "取消",
+    title: t("keys.restoreKeys"),
+    content: t("keys.confirmRestoreAllInvalid"),
+    positiveText: t("common.confirm"),
+    negativeText: t("common.cancel"),
     onPositiveClick: async () => {
       if (!props.selectedGroup?.id) {
         return;
@@ -427,7 +436,7 @@ async function restoreAllInvalid() {
         // 触发同步操作刷新
         triggerSyncOperationRefresh(props.selectedGroup.name, "RESTORE_ALL_INVALID");
       } catch (_error) {
-        console.error("恢复失败");
+        console.error("Restore failed");
       } finally {
         d.loading = false;
         isRestoring.value = false;
@@ -441,14 +450,14 @@ async function validateKeys(status: "all" | "active" | "invalid") {
     return;
   }
 
-  let statusText = "所有";
+  let statusText = t("common.all");
   if (status === "active") {
-    statusText = "有效";
+    statusText = t("keys.valid");
   } else if (status === "invalid") {
-    statusText = "无效";
+    statusText = t("keys.invalid");
   }
 
-  testingMsg = window.$message.info(`正在验证${statusText}密钥...`, {
+  testingMsg = window.$message.info(t("keys.validatingKeysMsg", { type: statusText }), {
     duration: 0,
   });
 
@@ -457,7 +466,7 @@ async function validateKeys(status: "all" | "active" | "invalid") {
     localStorage.removeItem("last_closed_task");
     appState.taskPollingTrigger++;
   } catch (_error) {
-    console.error("测试失败");
+    console.error("Test failed");
   } finally {
     testingMsg?.destroy();
     testingMsg = null;
@@ -470,10 +479,10 @@ async function clearAllInvalid() {
   }
 
   const d = dialog.warning({
-    title: "清除密钥",
-    content: "确定要清除所有无效密钥吗？此操作不可恢复！",
-    positiveText: "确定",
-    negativeText: "取消",
+    title: t("keys.clearKeys"),
+    content: t("keys.confirmClearInvalidKeys"),
+    positiveText: t("common.confirm"),
+    negativeText: t("common.cancel"),
     onPositiveClick: async () => {
       if (!props.selectedGroup?.id) {
         return;
@@ -483,12 +492,12 @@ async function clearAllInvalid() {
       d.loading = true;
       try {
         const { data } = await keysApi.clearAllInvalidKeys(props.selectedGroup.id);
-        window.$message.success(data?.message || "清除成功");
+        window.$message.success(data?.message || t("keys.clearSuccess"));
         await loadKeys();
         // 触发同步操作刷新
         triggerSyncOperationRefresh(props.selectedGroup.name, "CLEAR_ALL_INVALID");
       } catch (_error) {
-        console.error("删除失败");
+        console.error("Delete failed");
       } finally {
         d.loading = false;
         isDeling.value = false;
@@ -503,36 +512,36 @@ async function clearAll() {
   }
 
   dialog.warning({
-    title: "清空所有密钥",
-    content: "此操作将永久删除该分组下的所有密钥，且不可恢复！确定要继续吗？",
-    positiveText: "确定",
-    negativeText: "取消",
+    title: t("keys.clearAllKeys"),
+    content: t("keys.confirmClearAllKeys"),
+    positiveText: t("common.confirm"),
+    negativeText: t("common.cancel"),
     onPositiveClick: () => {
       confirmInput.value = ""; // Reset before opening second dialog
       dialog.create({
-        title: "请输入分组名称以确认",
+        title: t("keys.enterGroupNameToConfirm"),
         content: () =>
           h("div", null, [
             h("p", null, [
-              "这是一个非常危险的操作，将删除此分组下的",
-              h("strong", null, "所有"),
-              "密钥。为防止误操作，请输入分组名称 ",
+              t("keys.dangerousOperationWarning1"),
+              h("strong", null, t("common.all")),
+              t("keys.dangerousOperationWarning2"),
               h("strong", { style: { color: "#d03050" } }, props.selectedGroup?.name),
-              " 以确认。",
+              t("keys.toConfirm"),
             ]),
             h(NInput, {
               value: confirmInput.value,
               "onUpdate:value": v => {
                 confirmInput.value = v;
               },
-              placeholder: "请输入分组名称",
+              placeholder: t("keys.enterGroupName"),
             }),
           ]),
-        positiveText: "确认清空",
-        negativeText: "取消",
+        positiveText: t("keys.confirmClear"),
+        negativeText: t("common.cancel"),
         onPositiveClick: async () => {
           if (confirmInput.value !== props.selectedGroup?.name) {
-            window.$message.error("分组名称输入不正确");
+            window.$message.error(t("keys.incorrectGroupName"));
             return false; // Prevent dialog from closing
           }
 
@@ -543,12 +552,12 @@ async function clearAll() {
           isDeling.value = true;
           try {
             await keysApi.clearAllKeys(props.selectedGroup.id);
-            window.$message.success("已成功清空所有密钥");
+            window.$message.success(t("keys.clearAllKeysSuccess"));
             await loadKeys();
             // Trigger sync operation refresh
             triggerSyncOperationRefresh(props.selectedGroup.name, "CLEAR_ALL");
           } catch (_error) {
-            console.error("清空失败", _error);
+            console.error("Clear all failed", _error);
           } finally {
             isDeling.value = false;
           }
@@ -583,38 +592,49 @@ function resetPage() {
           <template #icon>
             <n-icon :component="AddCircleOutline" />
           </template>
-          添加密钥
+          {{ t("keys.addKey") }}
         </n-button>
         <n-button type="error" size="small" @click="deleteDialogShow = true">
           <template #icon>
             <n-icon :component="RemoveCircleOutline" />
           </template>
-          删除密钥
+          {{ t("keys.deleteKey") }}
         </n-button>
       </div>
       <div class="toolbar-right">
-        <n-space :size="12">
+        <n-space :size="12" align="center">
           <n-select
             v-model:value="statusFilter"
             :options="statusOptions"
             size="small"
-            style="width: 100px"
+            style="width: 120px"
+            :placeholder="t('keys.allStatus')"
           />
           <n-input-group>
             <n-input
               v-model:value="searchText"
-              placeholder="Key 模糊查询"
+              :placeholder="t('keys.keyExactMatch')"
               size="small"
-              style="width: 180px"
+              style="width: 200px"
               clearable
               @keyup.enter="handleSearchInput"
-            />
-            <n-button ghost size="small" :disabled="loading" @click="handleSearchInput">
-              <n-icon :component="Search" />
+            >
+              <template #prefix>
+                <n-icon :component="Search" />
+              </template>
+            </n-input>
+            <n-button
+              type="primary"
+              ghost
+              size="small"
+              :disabled="loading"
+              @click="handleSearchInput"
+            >
+              {{ t("common.search") }}
             </n-button>
           </n-input-group>
           <n-dropdown :options="moreOptions" trigger="click" @select="handleMoreAction">
-            <n-button size="small" secondary>
+            <n-button size="small" tertiary>
               <template #icon>
                 <span style="font-size: 16px; font-weight: bold">⋯</span>
               </template>
@@ -628,7 +648,7 @@ function resetPage() {
     <div class="keys-grid-container">
       <n-spin :show="loading">
         <div v-if="keys.length === 0 && !loading" class="empty-container">
-          <n-empty description="没有找到匹配的密钥" />
+          <n-empty :description="t('keys.noMatchingKeys')" />
         </div>
         <div v-else class="keys-grid">
           <div
@@ -644,13 +664,13 @@ function resetPage() {
                   <template #icon>
                     <n-icon :component="CheckmarkCircle" />
                   </template>
-                  有效
+                  {{ t("keys.validShort") }}
                 </n-tag>
                 <n-tag v-else :bordered="false" round>
                   <template #icon>
                     <n-icon :component="AlertCircleOutline" />
                   </template>
-                  无效
+                  {{ t("keys.invalidShort") }}
                 </n-tag>
                 <n-input
                   class="key-text"
@@ -659,12 +679,17 @@ function resetPage() {
                   size="small"
                 />
                 <div class="quick-actions">
-                  <n-button size="tiny" text @click="toggleKeyVisibility(key)" title="显示/隐藏">
+                  <n-button
+                    size="tiny"
+                    text
+                    @click="toggleKeyVisibility(key)"
+                    :title="t('keys.showHide')"
+                  >
                     <template #icon>
                       <n-icon :component="key.is_visible ? EyeOffOutline : EyeOutline" />
                     </template>
                   </n-button>
-                  <n-button size="tiny" text @click="copyKey(key)" title="复制">
+                  <n-button size="tiny" text @click="copyKey(key)" :title="t('common.copy')">
                     <template #icon>
                       <n-icon :component="CopyOutline" />
                     </template>
@@ -677,15 +702,15 @@ function resetPage() {
             <div class="key-bottom">
               <div class="key-stats">
                 <span class="stat-item">
-                  请求
+                  {{ t("keys.requestsShort") }}
                   <strong>{{ key.request_count }}</strong>
                 </span>
                 <span class="stat-item">
-                  失败
+                  {{ t("keys.failuresShort") }}
                   <strong>{{ key.failure_count }}</strong>
                 </span>
                 <span class="stat-item">
-                  {{ key.last_used_at ? formatRelativeTime(key.last_used_at) : "未使用" }}
+                  {{ key.last_used_at ? formatRelativeTime(key.last_used_at) : t("keys.unused") }}
                 </span>
               </div>
               <n-button-group class="key-actions">
@@ -695,19 +720,19 @@ function resetPage() {
                   type="info"
                   size="tiny"
                   @click="testKey(key)"
-                  title="测试密钥"
+                  :title="t('keys.testKey')"
                 >
-                  测试
+                  {{ t("keys.testShort") }}
                 </n-button>
                 <n-button
                   v-if="key.status !== 'active'"
                   tertiary
                   size="tiny"
                   @click="restoreKey(key)"
-                  title="恢复密钥"
+                  :title="t('keys.restoreKey')"
                   type="warning"
                 >
-                  恢复
+                  {{ t("keys.restoreShort") }}
                 </n-button>
                 <n-button
                   round
@@ -715,9 +740,9 @@ function resetPage() {
                   size="tiny"
                   type="error"
                   @click="deleteKey(key)"
-                  title="删除密钥"
+                  :title="t('keys.deleteKey')"
                 >
-                  删除
+                  {{ t("common.deleteShort") }}
                 </n-button>
               </n-button-group>
             </div>
@@ -729,14 +754,14 @@ function resetPage() {
     <!-- 分页 -->
     <div class="pagination-container">
       <div class="pagination-info">
-        <span>共 {{ total }} 条记录</span>
+        <span>{{ t("keys.totalRecords", { total }) }}</span>
         <n-select
           v-model:value="pageSize"
           :options="[
-            { label: '12条/页', value: 12 },
-            { label: '24条/页', value: 24 },
-            { label: '60条/页', value: 60 },
-            { label: '120条/页', value: 120 },
+            { label: t('keys.recordsPerPage', { count: 12 }), value: 12 },
+            { label: t('keys.recordsPerPage', { count: 24 }), value: 24 },
+            { label: t('keys.recordsPerPage', { count: 60 }), value: 60 },
+            { label: t('keys.recordsPerPage', { count: 120 }), value: 120 },
           ]"
           size="small"
           style="width: 100px; margin-left: 12px"
@@ -745,15 +770,17 @@ function resetPage() {
       </div>
       <div class="pagination-controls">
         <n-button size="small" :disabled="currentPage <= 1" @click="changePage(currentPage - 1)">
-          上一页
+          {{ t("common.previousPage") }}
         </n-button>
-        <span class="page-info">第 {{ currentPage }} 页，共 {{ totalPages }} 页</span>
+        <span class="page-info">
+          {{ t("keys.pageInfo", { current: currentPage, total: totalPages }) }}
+        </span>
         <n-button
           size="small"
           :disabled="currentPage >= totalPages"
           @click="changePage(currentPage + 1)"
         >
-          下一页
+          {{ t("common.nextPage") }}
         </n-button>
       </div>
     </div>
@@ -778,9 +805,10 @@ function resetPage() {
 
 <style scoped>
 .key-table-container {
-  background: white;
+  background: var(--card-bg-solid);
   border-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--shadow-md);
+  border: 1px solid var(--border-color);
   overflow: hidden;
   height: 100%;
   display: flex;
@@ -791,21 +819,42 @@ function resetPage() {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px 16px;
-  background: #f8f9fa;
-  border-bottom: 1px solid #e9ecef;
+  padding: 16px;
+  background: var(--card-bg-solid);
+  border-bottom: 1px solid var(--border-color);
   flex-shrink: 0;
+  gap: 16px;
+  min-height: 64px;
+}
+
+/* 确保按钮在暗黑模式下有正确的对比度 */
+.toolbar :deep(.n-button) {
+  font-weight: 500;
+}
+
+/* 搜索输入框样式 */
+.toolbar :deep(.n-input-group) {
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+/* 暗黑模式下的输入框 */
+:root.dark .toolbar :deep(.n-input-group) {
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
 }
 
 .toolbar-left {
   display: flex;
   gap: 8px;
+  flex-shrink: 0;
 }
 
 .toolbar-right {
   display: flex;
   gap: 12px;
   align-items: center;
+  flex: 1;
+  justify-content: flex-end;
+  min-width: 0;
 }
 
 .filter-group {
@@ -822,10 +871,10 @@ function resetPage() {
   position: absolute;
   top: 100%;
   right: 0;
-  background: white;
-  border: 1px solid #e9ecef;
+  background: var(--card-bg-solid);
+  border: 1px solid var(--border-color);
   border-radius: 6px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  box-shadow: var(--shadow-lg);
   min-width: 180px;
   z-index: 1000;
   overflow: hidden;
@@ -940,34 +989,38 @@ function resetPage() {
 }
 
 .key-card {
-  background: white;
-  border: 1px solid #e9ecef;
-  border-radius: 6px;
-  padding: 12px;
+  background: var(--card-bg-solid);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 14px;
   transition: all 0.2s;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
 }
 
 .key-card:hover {
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
 }
 
 /* 状态相关样式 */
 .key-card.status-valid {
-  border-color: #18a0584d;
-  background: #18a0581a;
+  border-color: var(--success-border);
+  background: var(--success-bg);
+  border-width: 1.5px;
 }
 
 .key-card.status-invalid {
-  border-color: #ddd;
-  background: rgb(250, 250, 252);
+  border-color: var(--invalid-border);
+  background: var(--card-bg-solid);
+  opacity: 0.85;
 }
 
 .key-card.status-error {
-  border-color: #ffc107;
-  background: #fffdf0;
+  border-color: var(--error-border);
+  background: var(--error-bg);
 }
 
 /* 主要信息行 */
@@ -999,17 +1052,18 @@ function resetPage() {
   gap: 8px;
   font-size: 12px;
   overflow: hidden;
-  color: #6c757d;
+  color: var(--text-secondary);
   flex: 1;
   min-width: 0;
 }
 
 .stat-item {
   white-space: nowrap;
+  color: var(--text-secondary);
 }
 
 .stat-item strong {
-  color: #495057;
+  color: var(--text-primary);
   font-weight: 600;
 }
 
@@ -1022,14 +1076,28 @@ function resetPage() {
 
 .key-text {
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
-  font-weight: 600;
-  color: #495057;
-  background: #fff;
-  border-radius: 4px;
+  font-weight: 500;
   flex: 1;
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
+}
+
+/* 浅色主题 */
+:root:not(.dark) .key-text {
+  color: #495057;
+  background: #f8f9fa;
+}
+
+/* 暗黑主题 */
+:root.dark .key-text {
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+}
+
+:deep(.n-input__input-el) {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
+  font-size: 13px;
 }
 
 .quick-actions {
@@ -1048,35 +1116,42 @@ function resetPage() {
   transition: background-color 0.2s;
 }
 
-.quick-btn:hover {
+/* 浅色主题 */
+:root:not(.dark) .quick-btn:hover {
   background: #e9ecef;
+}
+
+/* 暗黑主题 */
+:root.dark .quick-btn:hover {
+  background: var(--bg-tertiary);
 }
 
 /* 统计信息行 */
 
 .action-btn {
   padding: 2px 6px;
-  border: 1px solid #dee2e6;
-  background: white;
+  border: 1px solid var(--border-color);
+  background: var(--card-bg-solid);
   border-radius: 3px;
   cursor: pointer;
   font-size: 10px;
   font-weight: 500;
   transition: all 0.2s;
   white-space: nowrap;
+  color: var(--text-primary);
 }
 
 .action-btn:hover {
-  background: #f8f9fa;
+  background: var(--bg-secondary);
 }
 
 .action-btn.primary {
-  border-color: #007bff;
-  color: #007bff;
+  border-color: var(--primary-color);
+  color: var(--primary-color);
 }
 
 .action-btn.primary:hover {
-  background: #007bff;
+  background: var(--primary-color);
   color: white;
 }
 
@@ -1124,9 +1199,10 @@ function resetPage() {
   justify-content: space-between;
   align-items: center;
   padding: 12px 16px;
-  background: #f8f9fa;
-  border-top: 1px solid #e9ecef;
+  background: var(--card-bg-solid);
+  border-top: 1px solid var(--border-color);
   flex-shrink: 0;
+  border-radius: 0 0 8px 8px;
 }
 
 .pagination-info {
@@ -1134,7 +1210,7 @@ function resetPage() {
   align-items: center;
   gap: 12px;
   font-size: 12px;
-  color: #6c757d;
+  color: var(--text-secondary);
 }
 
 .pagination-controls {
@@ -1145,7 +1221,7 @@ function resetPage() {
 
 .page-info {
   font-size: 12px;
-  color: #6c757d;
+  color: var(--text-secondary);
 }
 
 @media (max-width: 768px) {

@@ -3,6 +3,7 @@ package keypool
 import (
 	"context"
 	"gpt-load/internal/config"
+	"gpt-load/internal/encryption"
 	"gpt-load/internal/models"
 	"sync"
 	"sync/atomic"
@@ -17,6 +18,7 @@ type CronChecker struct {
 	DB              *gorm.DB
 	SettingsManager *config.SystemSettingsManager
 	Validator       *KeyValidator
+	EncryptionSvc   encryption.Service
 	stopChan        chan struct{}
 	wg              sync.WaitGroup
 }
@@ -26,11 +28,13 @@ func NewCronChecker(
 	db *gorm.DB,
 	settingsManager *config.SystemSettingsManager,
 	validator *KeyValidator,
+	encryptionSvc encryption.Service,
 ) *CronChecker {
 	return &CronChecker{
 		DB:              db,
 		SettingsManager: settingsManager,
 		Validator:       validator,
+		EncryptionSvc:   encryptionSvc,
 		stopChan:        make(chan struct{}),
 	}
 }
@@ -143,7 +147,19 @@ func (s *CronChecker) validateGroupKeys(group *models.Group) {
 					if !ok {
 						return
 					}
-					isValid, _ := s.Validator.ValidateSingleKey(key, group)
+
+					// Decrypt the key before validation
+					decryptedKey, err := s.EncryptionSvc.Decrypt(key.KeyValue)
+					if err != nil {
+						logrus.WithError(err).WithField("key_id", key.ID).Error("CronChecker: Failed to decrypt key for validation, skipping")
+						continue
+					}
+
+					// Create a copy with decrypted value for validation
+					keyForValidation := *key
+					keyForValidation.KeyValue = decryptedKey
+
+					isValid, _ := s.Validator.ValidateSingleKey(&keyForValidation, group)
 					if isValid {
 						atomic.AddInt32(&becameValidCount, 1)
 					}

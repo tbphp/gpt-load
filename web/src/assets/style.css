@@ -1,3 +1,6 @@
+/* 导入CSS变量定义 */
+@import "./variables.css";
+
 :root {
   overflow-y: scroll;
   scrollbar-gutter: stable;
@@ -17,26 +20,6 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-
-  /* 现代化颜色方案 */
-  --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  --secondary-gradient: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-  --success-gradient: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
-  --warning-gradient: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
-  --surface-gradient: linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%);
-  --dark-gradient: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
-
-  /* 阴影效果 */
-  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
-
-  /* 边框半径 */
-  --border-radius-sm: 8px;
-  --border-radius-md: 12px;
-  --border-radius-lg: 16px;
-  --border-radius-xl: 24px;
 }
 
 * {
@@ -45,11 +28,15 @@
   box-sizing: border-box;
 }
 
-html,
+html {
+  background: var(--header-bg);
+}
+
 body {
   height: 100%;
-  background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+  background: var(--bg-gradient);
   background-attachment: fixed;
+  color: var(--text-primary);
 }
 
 #app {
@@ -141,24 +128,44 @@ body {
   transform: translateX(100%);
 }
 
-/* 美化滚动条 */
-::-webkit-scrollbar {
+/* 美化滚动条 - 浅色模式 */
+:root:not(.dark) ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 
-::-webkit-scrollbar-track {
+:root:not(.dark) ::-webkit-scrollbar-track {
   background: rgba(0, 0, 0, 0.05);
   border-radius: 1px;
 }
 
-::-webkit-scrollbar-thumb {
+:root:not(.dark) ::-webkit-scrollbar-thumb {
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   border-radius: 1px;
 }
 
-::-webkit-scrollbar-thumb:hover {
+:root:not(.dark) ::-webkit-scrollbar-thumb:hover {
   background: linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%);
+}
+
+/* 美化滚动条 - 深色模式 */
+:root.dark ::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+:root.dark ::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0);
+  border-radius: 1px;
+}
+
+:root.dark ::-webkit-scrollbar-thumb {
+  background: linear-gradient(135deg, #7c8aac 0%, #646e8a 100%);
+  border-radius: 1px;
+}
+
+:root.dark ::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(135deg, #8b9df5 0%, #a97dd4 100%);
 }
 
 /* 通用卡片样式 */

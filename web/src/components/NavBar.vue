@@ -2,6 +2,9 @@
 import { type MenuOption } from "naive-ui";
 import { computed, h, watch } from "vue";
 import { RouterLink, useRoute } from "vue-router";
+import { useI18n } from "vue-i18n";
+
+const { t } = useI18n();
 
 const props = defineProps({
   mode: {
@@ -14,10 +17,10 @@ const emit = defineEmits(["close"]);
 
 const menuOptions = computed<MenuOption[]>(() => {
   const options: MenuOption[] = [
-    renderMenuItem("dashboard", "仪表盘", "📊"),
-    renderMenuItem("keys", "密钥管理", "🔑"),
-    renderMenuItem("logs", "日志", "📋"),
-    renderMenuItem("settings", "系统设置", "⚙️"),
+    renderMenuItem("dashboard", t("nav.dashboard"), "📊"),
+    renderMenuItem("keys", t("nav.keys"), "🔑"),
+    renderMenuItem("logs", t("nav.logs"), "📋"),
+    renderMenuItem("settings", t("nav.settings"), "⚙️"),
   ];
 
   return options;

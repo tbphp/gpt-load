@@ -12,6 +12,9 @@ import {
 } from "@vicons/ionicons5";
 import { NIcon, NTooltip } from "naive-ui";
 import { onMounted, ref } from "vue";
+import { useI18n } from "vue-i18n";
+
+const { t } = useI18n();
 
 const versionInfo = ref<VersionInfo>({
   currentVersion: "0.1.0",
@@ -30,22 +33,22 @@ const statusConfig = {
   checking: {
     color: "#0066cc",
     icon: TimeOutline,
-    text: "检查中...",
+    text: t("footer.checking"),
   },
   latest: {
     color: "#18a058",
     icon: CheckmarkCircleOutline,
-    text: "最新版本",
+    text: t("footer.latestVersion"),
   },
   "update-available": {
     color: "#f0a020",
     icon: WarningOutline,
-    text: "有更新",
+    text: t("footer.updateAvailable"),
   },
   error: {
     color: "#d03050",
     icon: WarningOutline,
-    text: "检查失败",
+    text: t("footer.checkFailed"),
   },
 };
 
@@ -138,10 +141,10 @@ onMounted(() => {
                 class="footer-link"
               >
                 <n-icon :component="DocumentTextOutline" :size="14" class="link-icon" />
-                <span>文档</span>
+                <span>{{ t("footer.docs") }}</span>
               </a>
             </template>
-            官方文档
+            {{ t("footer.officialDocs") }}
           </n-tooltip>
 
           <n-tooltip trigger="hover" placement="top">
@@ -156,7 +159,7 @@ onMounted(() => {
                 <span>GitHub</span>
               </a>
             </template>
-            查看源码
+            {{ t("footer.viewSource") }}
           </n-tooltip>
 
           <n-tooltip trigger="hover" placement="top">
@@ -168,10 +171,10 @@ onMounted(() => {
                 class="footer-link"
               >
                 <n-icon :component="BugOutline" :size="14" class="link-icon" />
-                <span>反馈</span>
+                <span>{{ t("footer.feedback") }}</span>
               </a>
             </template>
-            问题反馈
+            {{ t("footer.reportIssue") }}
           </n-tooltip>
 
           <n-tooltip trigger="hover" placement="top">
@@ -183,10 +186,10 @@ onMounted(() => {
                 class="footer-link"
               >
                 <n-icon :component="PeopleOutline" :size="14" class="link-icon" />
-                <span>贡献者</span>
+                <span>{{ t("footer.contributors") }}</span>
               </a>
             </template>
-            查看贡献者
+            {{ t("footer.viewContributors") }}
           </n-tooltip>
 
           <n-tooltip trigger="hover" placement="top">
@@ -201,7 +204,7 @@ onMounted(() => {
                 <span>Telegram</span>
               </a>
             </template>
-            加入群组
+            {{ t("footer.joinGroup") }}
           </n-tooltip>
         </div>
 
@@ -229,9 +232,9 @@ onMounted(() => {
 
 <style scoped>
 .app-footer {
-  background: rgba(255, 255, 255, 0.95);
+  background: var(--footer-bg);
   backdrop-filter: blur(20px);
-  border-top: 1px solid rgba(0, 0, 0, 0.08);
+  border-top: 1px solid var(--border-color-light);
   padding: 12px 24px;
   font-size: 14px;
   min-height: 52px;
@@ -251,12 +254,12 @@ onMounted(() => {
 }
 
 .project-info {
-  color: #666;
+  color: var(--text-secondary);
   font-weight: 500;
 }
 
 .project-info a {
-  color: #667eea;
+  color: var(--primary-color);
   text-decoration: none;
   font-weight: 600;
 }
@@ -283,7 +286,7 @@ onMounted(() => {
 .version-text {
   font-weight: 500;
   font-size: 13px;
-  color: #666;
+  color: var(--text-secondary);
   white-space: nowrap;
 }
 
@@ -311,7 +314,7 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 4px;
-  color: #666;
+  color: var(--text-secondary);
   text-decoration: none;
   padding: 4px 6px;
   border-radius: 4px;
@@ -339,18 +342,18 @@ onMounted(() => {
 }
 
 .copyright-text {
-  color: #888;
+  color: var(--text-tertiary);
   font-size: 12px;
 }
 
 .license-text {
-  color: #888;
+  color: var(--text-tertiary);
   font-size: 12px;
 }
 
 .author-link {
   font-weight: 600;
-  color: #667eea;
+  color: var(--primary-color);
   text-decoration: none;
 }
 

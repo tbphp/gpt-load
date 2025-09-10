@@ -1,3 +1,4 @@
+import i18n from "@/locales";
 import type { ApiResponse, Group, LogFilter, LogsResponse } from "@/types/models";
 import http from "@/utils/http";
 
@@ -16,7 +17,7 @@ export const logApi = {
   exportLogs: (params: Omit<LogFilter, "page" | "page_size">) => {
     const authKey = localStorage.getItem("authKey");
     if (!authKey) {
-      window.$message.error("未找到认证信息，无法导出");
+      window.$message.error(i18n.global.t("auth.noAuthKeyFound"));
       return;
     }
 

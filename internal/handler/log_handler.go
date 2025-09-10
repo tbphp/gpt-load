@@ -3,12 +3,14 @@ package handler
 import (
 	"fmt"
 	app_errors "gpt-load/internal/errors"
+	"gpt-load/internal/i18n"
 	"gpt-load/internal/models"
 	"gpt-load/internal/response"
 	"log"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/sirupsen/logrus"
 )
 
 // LogResponse defines the structure for log entries in the API response
@@ -28,6 +30,19 @@ func (s *Server) GetLogs(c *gin.Context) {
 		return
 	}
 
+	// 解密所有日志中的密钥用于前端显示
+	for i := range logs {
+		if logs[i].KeyValue != "" {
+			decryptedValue, err := s.EncryptionSvc.Decrypt(logs[i].KeyValue)
+			if err != nil {
+				logrus.WithError(err).WithField("log_id", logs[i].ID).Error("Failed to decrypt log key value")
+				logs[i].KeyValue = "failed-to-decrypt"
+			} else {
+				logs[i].KeyValue = decryptedValue
+			}
+		}
+	}
+
 	pagination.Items = logs
 	response.Success(c, pagination)
 }
@@ -42,7 +57,7 @@ func (s *Server) ExportLogs(c *gin.Context) {
 	err := s.LogService.StreamLogKeysToCSV(c, c.Writer)
 	if err != nil {
 		log.Printf("Failed to stream log keys to CSV: %v", err)
-		c.JSON(500, gin.H{"error": "Failed to export logs"})
+		c.JSON(500, gin.H{"error": i18n.Message(c, "error.export_logs")})
 		return
 	}
 }
