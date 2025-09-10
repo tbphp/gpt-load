@@ -9,6 +9,7 @@ import (
 	"io"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
@@ -124,13 +125,16 @@ func (s *KeyService) processAndCreateKeys(
 			continue
 		}
 
+		now := time.Now()
 		uniqueNewKeys[trimmedKey] = true
 		newKeysToCreate = append(newKeysToCreate, models.APIKey{
-			GroupID:  groupID,
-			KeyValue: encryptedKey,
-			KeyHash:  keyHash,
-			Status:   models.KeyStatusActive,
-			Notes:    "",
+			GroupID:         groupID,
+			KeyValue:        encryptedKey,
+			KeyHash:         keyHash,
+			Status:          models.KeyStatusActive,
+			Notes:           "",
+			StatusChangedAt: &now,
+			LastUsedAt:      &now,
 		})
 	}
 
