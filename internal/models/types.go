@@ -82,7 +82,7 @@ type APIKey struct {
 	GroupID       uint       `gorm:"uniqueIndex:idx_group_key;not null" json:"group_id"`
 	Group         *Group     `gorm:"foreignKey:GroupID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE;" json:"-"`
 	KeyValue      string     `gorm:"uniqueIndex:idx_group_key;type:varchar(255);not null" json:"key_value"`
-	Notes         string     `gorm:"type:varchar(255)" json:"notes"`
+	Notes         string     `gorm:"type:varchar(255);default:''" json:"notes"`
 	RequestCount  int64      `gorm:"default:0" json:"request_count"`
 	FailureCount  int       `gorm:"default:0" json:"failure_count"`
 	Status        string    `gorm:"type:varchar(20);default:'active';index" json:"status"`
