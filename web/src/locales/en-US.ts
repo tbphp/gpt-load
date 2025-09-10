@@ -275,7 +275,7 @@ export default {
     upstreamTooltip:
       "Complete URL of the API server. Multiple upstreams enable load balancing and failover for high availability",
     weightTooltip:
-      "Load balancing weight, higher values increase selection probability. E.g.: Upstream with weight 2 is twice as likely to be selected as weight 1",
+      "Load balancing weight configuration. Weight determines traffic distribution ratio - higher values receive more traffic. Weight 0 disables the upstream (no requests). Example: Weight 2:1 means the first receives ~67% of traffic",
     addUpstream: "Add Upstream",
     groupConfig: "Group Configuration",
     groupConfigTooltip:

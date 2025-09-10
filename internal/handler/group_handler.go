@@ -376,7 +376,7 @@ func (s *Server) UpdateGroup(c *gin.Context) {
 	if req.Upstreams != nil {
 		cleanedUpstreams, err := validateAndCleanUpstreams(req.Upstreams)
 		if err != nil {
-			response.Error(c, app_errors.NewAPIError(app_errors.ErrValidation, err.Error()))
+			response.ErrorI18nFromAPIError(c, app_errors.ErrValidation, "validation.invalid_upstreams", map[string]any{"error": err.Error()})
 			return
 		}
 		group.Upstreams = cleanedUpstreams
