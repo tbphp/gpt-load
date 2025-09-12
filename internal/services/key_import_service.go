@@ -3,13 +3,8 @@ package services
 import (
 	"fmt"
 	"gpt-load/internal/models"
-	"time"
 
 	"github.com/sirupsen/logrus"
-)
-
-const (
-	importTimeout = 30 * time.Minute
 )
 
 // KeyImportResult holds the result of an import task.
@@ -39,7 +34,7 @@ func (s *KeyImportService) StartImportTask(group *models.Group, keysText string)
 		return nil, fmt.Errorf("no valid keys found in the input text")
 	}
 
-	initialStatus, err := s.TaskService.StartTask(TaskTypeKeyImport, group.Name, len(keys), importTimeout)
+	initialStatus, err := s.TaskService.StartTask(TaskTypeKeyImport, group.Name, len(keys))
 	if err != nil {
 		return nil, err
 	}

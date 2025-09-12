@@ -46,7 +46,7 @@ func NewTaskService(store store.Store) *TaskService {
 }
 
 // StartTask attempts to start a new task. It returns an error if a task is already running.
-func (s *TaskService) StartTask(taskType, groupName string, total int, timeout time.Duration) (*TaskStatus, error) {
+func (s *TaskService) StartTask(taskType, groupName string, total int) (*TaskStatus, error) {
 	currentStatus, err := s.GetTaskStatus()
 	if err != nil {
 		return nil, fmt.Errorf("failed to check current task status before starting a new one: %w", err)
@@ -69,7 +69,7 @@ func (s *TaskService) StartTask(taskType, groupName string, total int, timeout t
 		return nil, fmt.Errorf("failed to serialize new task status: %w", err)
 	}
 
-	if err := s.store.Set(globalTaskKey, statusBytes, timeout); err != nil {
+	if err := s.store.Set(globalTaskKey, statusBytes, ResultTTL); err != nil {
 		return nil, fmt.Errorf("failed to set initial task status: %w", err)
 	}
 
