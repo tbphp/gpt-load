@@ -391,6 +391,11 @@ const createColumns = () => {
 // Computed columns that react to visibility changes
 const columns = computed(() => createColumns());
 
+const scrollX = computed(() => {
+  const visibleColumns = createColumns();
+  return visibleColumns.reduce((total, col) => total + (col.width || 100), 0);
+});
+
 // Lifecycle and Watchers
 onMounted(() => {
   loadColumnPreferences();
@@ -640,7 +645,14 @@ const deselectAllColumns = () => {
         <!-- 表格 -->
         <div class="table-container">
           <n-spin :show="loading">
-            <n-data-table :columns="columns" :data="logs" :bordered="false" remote size="small" />
+            <n-data-table
+              :columns="columns"
+              :data="logs"
+              :bordered="false"
+              remote
+              size="small"
+              :scroll-x="scrollX"
+            />
           </n-spin>
         </div>
 
