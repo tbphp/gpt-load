@@ -60,6 +60,15 @@ var MessagesZhCN = map[string]string{
 	"validation.group_id_required":       "需要提供group_id参数",
 	"validation.invalid_group_id_format": "无效的group_id格式",
 	"validation.keys_text_empty":         "密钥文本不能为空",
+	"validation.invalid_group_type":      "无效的分组类型，必须为'standard'或'aggregate'",
+	"validation.sub_groups_required":     "聚合分组必须包含至少一个子分组",
+	"validation.invalid_sub_group_id":    "无效的子分组ID",
+	"validation.sub_group_not_found":     "一个或多个子分组不存在",
+	"validation.sub_group_cannot_be_aggregate": "子分组不能是聚合分组",
+	"validation.sub_group_channel_mismatch": "所有子分组必须使用相同的渠道类型",
+	"validation.sub_group_validation_endpoint_mismatch": "所有子分组必须使用相同的验证端点",
+	"validation.sub_group_weight_negative": "子分组权重不能为负数",
+	"validation.standard_group_requires_upstreams_testmodel": "转换为标准分组需要提供上游服务器和测试模型",
 
 	// Task related
 	"task.validation_started": "密钥验证任务已开始",

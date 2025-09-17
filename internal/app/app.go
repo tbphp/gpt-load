@@ -95,6 +95,7 @@ func (a *App) Start() error {
 		if err := a.db.AutoMigrate(
 			&models.SystemSetting{},
 			&models.Group{},
+			&models.GroupSubGroup{},
 			&models.APIKey{},
 			&models.RequestLog{},
 			&models.GroupHourlyStat{},

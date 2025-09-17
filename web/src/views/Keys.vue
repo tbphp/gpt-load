@@ -61,11 +61,9 @@ async function handleGroupRefreshAndSelect(targetGroupId: number) {
   }
 }
 
-function handleGroupDelete(deletedGroup: Group) {
-  // 从分组列表中移除已删除的分组
-  groups.value = groups.value.filter(g => g.id !== deletedGroup.id);
+async function handleGroupDelete(deletedGroup: Group) {
+  await loadGroups();
 
-  // 如果删除的是当前选中的分组，则切换到第一个分组
   if (selectedGroup.value?.id === deletedGroup.id) {
     handleGroupSelect(groups.value.length > 0 ? groups.value[0] : null);
   }
@@ -105,6 +103,7 @@ async function handleGroupCopySuccess(newGroup: Group) {
         <div class="group-info">
           <group-info-card
             :group="selectedGroup"
+            :groups="groups"
             @refresh="handleGroupRefresh"
             @delete="handleGroupDelete"
             @copy-success="handleGroupCopySuccess"

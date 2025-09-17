@@ -24,6 +24,7 @@ import {
 } from "naive-ui";
 import { computed, h, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
+import AggregateGroupModal from "./AggregateGroupModal.vue";
 import GroupCopyModal from "./GroupCopyModal.vue";
 import GroupFormModal from "./GroupFormModal.vue";
 
@@ -31,6 +32,7 @@ const { t } = useI18n();
 
 interface Props {
   group: Group | null;
+  groups?: Group[];
 }
 
 interface Emits {
@@ -48,6 +50,7 @@ const loading = ref(false);
 const dialog = useDialog();
 const showEditModal = ref(false);
 const showCopyModal = ref(false);
+const showAggregateEditModal = ref(false);
 const delLoading = ref(false);
 const confirmInput = ref("");
 const expandedName = ref<string[]>([]);
@@ -173,6 +176,13 @@ function getConfigDescription(key: string): string {
 }
 
 function handleEdit() {
+  if (!props.group) {
+    return;
+  }
+  if (props.group.group_type === "aggregate") {
+    showAggregateEditModal.value = true;
+    return;
+  }
   showEditModal.value = true;
 }
 
@@ -182,6 +192,13 @@ function handleCopy() {
 
 function handleGroupEdited(newGroup: Group) {
   showEditModal.value = false;
+  if (newGroup) {
+    emit("refresh", newGroup);
+  }
+}
+
+function handleAggregateGroupEdited(newGroup: Group) {
+  showAggregateEditModal.value = false;
   if (newGroup) {
     emit("refresh", newGroup);
   }
@@ -306,6 +323,7 @@ function resetPage() {
           </div>
           <div class="header-actions">
             <n-button
+              v-if="group?.group_type !== 'aggregate'"
               quaternary
               circle
               size="small"
@@ -613,6 +631,12 @@ function resetPage() {
     </n-card>
 
     <group-form-modal v-model:show="showEditModal" :group="group" @success="handleGroupEdited" />
+    <aggregate-group-modal
+      v-model:show="showAggregateEditModal"
+      :group="group"
+      :groups="props.groups"
+      @success="handleAggregateGroupEdited"
+    />
     <group-copy-modal
       v-model:show="showCopyModal"
       :source-group="group"

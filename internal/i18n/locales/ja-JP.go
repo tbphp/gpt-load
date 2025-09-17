@@ -60,6 +60,15 @@ var MessagesJaJP = map[string]string{
 	"validation.group_id_required":       "group_idクエリパラメータが必要です",
 	"validation.invalid_group_id_format": "無効なgroup_id形式",
 	"validation.keys_text_empty":         "キーテキストは空にできません",
+	"validation.invalid_group_type":      "無効なグループタイプ、'standard'または'aggregate'である必要があります",
+	"validation.sub_groups_required":     "集約グループには少なくとも1つのサブグループが必要です",
+	"validation.invalid_sub_group_id":    "無効なサブグループID",
+	"validation.sub_group_not_found":     "1つ以上のサブグループが見つかりません",
+	"validation.sub_group_cannot_be_aggregate": "サブグループは集約グループにできません",
+	"validation.sub_group_channel_mismatch": "すべてのサブグループは同じチャンネルタイプを使用する必要があります",
+	"validation.sub_group_validation_endpoint_mismatch": "すべてのサブグループは同じ検証エンドポイントを使用する必要があります",
+	"validation.sub_group_weight_negative": "サブグループの重みは負の値にできません",
+	"validation.standard_group_requires_upstreams_testmodel": "標準グループへの変換にはアップストリームサーバーとテストモデルの提供が必要です",
 
 	// Task related
 	"task.validation_started": "キー検証タスクが開始されました",

@@ -35,6 +35,20 @@ export interface HeaderRule {
   action: "set" | "remove";
 }
 
+// 子分组配置（创建/更新时使用）
+export interface SubGroupConfig {
+  group_id: number;
+  weight: number;
+}
+
+// 子分组信息（展示时使用）
+export interface SubGroupInfo {
+  group_id: number;
+  name: string;
+  display_name: string;
+  weight: number;
+}
+
 export interface Group {
   id?: number;
   name: string;
@@ -51,6 +65,9 @@ export interface Group {
   param_overrides: Record<string, unknown>;
   header_rules?: HeaderRule[];
   proxy_keys: string;
+  group_type?: "standard" | "aggregate"; // 分组类型
+  sub_groups?: SubGroupInfo[]; // 子分组列表（仅聚合分组）
+  sub_group_ids?: number[]; // 子分组ID列表
   created_at?: string;
   updated_at?: string;
 }

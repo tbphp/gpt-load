@@ -206,15 +206,26 @@ body {
   box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
 }
 
-/* 选择文本样式 */
-::selection {
+/* 选择文本样式 - 浅色模式 */
+:root:not(.dark) ::selection {
   background: rgba(102, 126, 234, 0.2);
   color: #1e293b;
 }
 
-::-moz-selection {
+:root:not(.dark) ::-moz-selection {
   background: rgba(102, 126, 234, 0.2);
   color: #1e293b;
+}
+
+/* 选择文本样式 - 暗黑模式 */
+:root.dark ::selection {
+  background: #4a90e2;
+  color: #ffffff;
+}
+
+:root.dark ::-moz-selection {
+  background: #4a90e2;
+  color: #ffffff;
 }
 
 /* Focus样式增强 */
