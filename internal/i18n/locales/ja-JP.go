@@ -67,7 +67,8 @@ var MessagesJaJP = map[string]string{
 	"validation.sub_group_cannot_be_aggregate": "サブグループは集約グループにできません",
 	"validation.sub_group_channel_mismatch": "すべてのサブグループは同じチャンネルタイプを使用する必要があります",
 	"validation.sub_group_validation_endpoint_mismatch": "すべてのサブグループは同じ検証エンドポイントを使用する必要があります",
-	"validation.sub_group_weight_negative": "サブグループの重みは負の値にできません",
+	"validation.sub_group_weight_negative":     "サブグループの重みは負の値にできません",
+	"validation.sub_group_weight_max_exceeded": "サブグループの重みは1000を超えることはできません",
 	"validation.standard_group_requires_upstreams_testmodel": "標準グループへの変換にはアップストリームサーバーとテストモデルの提供が必要です",
 
 	// Task related
@@ -187,4 +188,12 @@ var MessagesJaJP = map[string]string{
 
 	// Settings success message
 	"settings.update_success": "設定が正常に更新されました。設定はすべてのインスタンスでバックグラウンドで再読み込みされます。",
+
+	// Sub-groups related
+	"success.sub_groups_added":         "サブグループが正常に追加されました",
+	"success.sub_group_weight_updated": "サブグループの重みが正常に更新されました",
+	"success.sub_group_deleted":        "サブグループが正常に削除されました",
+	"group.not_aggregate":              "グループはアグリゲートグループではありません",
+	"group.sub_group_already_exists":   "サブグループ{{.sub_group_id}}は既に存在します",
+	"group.sub_group_not_found":        "サブグループが見つかりません",
 }

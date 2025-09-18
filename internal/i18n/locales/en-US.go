@@ -67,7 +67,8 @@ var MessagesEnUS = map[string]string{
 	"validation.sub_group_cannot_be_aggregate": "Sub-groups cannot be aggregate groups",
 	"validation.sub_group_channel_mismatch": "All sub-groups must use the same channel type",
 	"validation.sub_group_validation_endpoint_mismatch": "All sub-groups must use the same validation endpoint",
-	"validation.sub_group_weight_negative": "Sub-group weight cannot be negative",
+	"validation.sub_group_weight_negative":     "Sub-group weight cannot be negative",
+	"validation.sub_group_weight_max_exceeded": "Sub-group weight cannot exceed 1000",
 	"validation.standard_group_requires_upstreams_testmodel": "Converting to standard group requires providing upstreams and test model",
 
 	// Task related
@@ -187,4 +188,12 @@ var MessagesEnUS = map[string]string{
 
 	// Settings success message
 	"settings.update_success": "Settings updated successfully. Configuration will be reloaded in the background across all instances.",
+
+	// Sub-groups related
+	"success.sub_groups_added":         "Sub groups added successfully",
+	"success.sub_group_weight_updated": "Sub group weight updated successfully",
+	"success.sub_group_deleted":        "Sub group deleted successfully",
+	"group.not_aggregate":              "Group is not an aggregate group",
+	"group.sub_group_already_exists":   "Sub group {{.sub_group_id}} already exists",
+	"group.sub_group_not_found":        "Sub group not found",
 }

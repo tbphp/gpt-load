@@ -67,7 +67,8 @@ var MessagesZhCN = map[string]string{
 	"validation.sub_group_cannot_be_aggregate": "子分组不能是聚合分组",
 	"validation.sub_group_channel_mismatch": "所有子分组必须使用相同的渠道类型",
 	"validation.sub_group_validation_endpoint_mismatch": "所有子分组必须使用相同的验证端点",
-	"validation.sub_group_weight_negative": "子分组权重不能为负数",
+	"validation.sub_group_weight_negative":     "子分组权重不能为负数",
+	"validation.sub_group_weight_max_exceeded": "子分组权重不能超过1000",
 	"validation.standard_group_requires_upstreams_testmodel": "转换为标准分组需要提供上游服务器和测试模型",
 
 	// Task related
@@ -187,4 +188,12 @@ var MessagesZhCN = map[string]string{
 
 	// Settings success message
 	"settings.update_success": "设置更新成功。配置将在后台在所有实例间重新加载。",
+
+	// Sub-groups related
+	"success.sub_groups_added":         "子分组添加成功",
+	"success.sub_group_weight_updated": "子分组权重更新成功",
+	"success.sub_group_deleted":        "子分组删除成功",
+	"group.not_aggregate":              "该分组不是聚合分组",
+	"group.sub_group_already_exists":   "子分组{{.sub_group_id}}已存在",
+	"group.sub_group_not_found":        "子分组不存在",
 }

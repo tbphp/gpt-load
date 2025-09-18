@@ -75,7 +75,6 @@ type GroupCreateRequest struct {
 	Config             map[string]any      `json:"config"`
 	HeaderRules        []models.HeaderRule `json:"header_rules"`
 	ProxyKeys          string              `json:"proxy_keys"`
-	SubGroups          []SubGroupConfig    `json:"sub_groups"` // For aggregate groups
 }
 
 // CreateGroup handles the creation of a new group.
@@ -100,7 +99,6 @@ func (s *Server) CreateGroup(c *gin.Context) {
 		Config:             req.Config,
 		HeaderRules:        req.HeaderRules,
 		ProxyKeys:          req.ProxyKeys,
-		SubGroups:          toSubGroupInputs(req.SubGroups),
 	}
 
 	group, err := s.GroupService.CreateGroup(c.Request.Context(), params)
@@ -142,7 +140,6 @@ type GroupUpdateRequest struct {
 	Config             map[string]any      `json:"config"`
 	HeaderRules        []models.HeaderRule `json:"header_rules"`
 	ProxyKeys          *string             `json:"proxy_keys,omitempty"`
-	SubGroups          []SubGroupConfig    `json:"sub_groups"` // For aggregate groups
 }
 
 // UpdateGroup handles updating an existing group.
@@ -187,11 +184,6 @@ func (s *Server) UpdateGroup(c *gin.Context) {
 		params.HeaderRules = &rules
 	}
 
-	if req.SubGroups != nil {
-		subInputs := toSubGroupInputs(req.SubGroups)
-		params.SubGroups = &subInputs
-	}
-
 	group, err := s.GroupService.UpdateGroup(c.Request.Context(), uint(id), params)
 	if s.handleGroupError(c, err) {
 		return
@@ -202,25 +194,24 @@ func (s *Server) UpdateGroup(c *gin.Context) {
 
 // GroupResponse defines the structure for a group response, excluding sensitive or large fields.
 type GroupResponse struct {
-	ID                 uint                  `json:"id"`
-	Name               string                `json:"name"`
-	Endpoint           string                `json:"endpoint"`
-	DisplayName        string                `json:"display_name"`
-	Description        string                `json:"description"`
-	GroupType          string                `json:"group_type"`
-	Upstreams          datatypes.JSON        `json:"upstreams"`
-	ChannelType        string                `json:"channel_type"`
-	Sort               int                   `json:"sort"`
-	TestModel          string                `json:"test_model"`
-	ValidationEndpoint string                `json:"validation_endpoint"`
-	ParamOverrides     datatypes.JSONMap     `json:"param_overrides"`
-	Config             datatypes.JSONMap     `json:"config"`
-	HeaderRules        []models.HeaderRule   `json:"header_rules"`
-	ProxyKeys          string                `json:"proxy_keys"`
-	SubGroups          []models.SubGroupInfo `json:"sub_groups,omitempty"`
-	LastValidatedAt    *time.Time            `json:"last_validated_at"`
-	CreatedAt          time.Time             `json:"created_at"`
-	UpdatedAt          time.Time             `json:"updated_at"`
+	ID                 uint                `json:"id"`
+	Name               string              `json:"name"`
+	Endpoint           string              `json:"endpoint"`
+	DisplayName        string              `json:"display_name"`
+	Description        string              `json:"description"`
+	GroupType          string              `json:"group_type"`
+	Upstreams          datatypes.JSON      `json:"upstreams"`
+	ChannelType        string              `json:"channel_type"`
+	Sort               int                 `json:"sort"`
+	TestModel          string              `json:"test_model"`
+	ValidationEndpoint string              `json:"validation_endpoint"`
+	ParamOverrides     datatypes.JSONMap   `json:"param_overrides"`
+	Config             datatypes.JSONMap   `json:"config"`
+	HeaderRules        []models.HeaderRule `json:"header_rules"`
+	ProxyKeys          string              `json:"proxy_keys"`
+	LastValidatedAt    *time.Time          `json:"last_validated_at"`
+	CreatedAt          time.Time           `json:"created_at"`
+	UpdatedAt          time.Time           `json:"updated_at"`
 }
 
 // newGroupResponse creates a new GroupResponse from a models.Group.
@@ -244,19 +235,6 @@ func (s *Server) newGroupResponse(group *models.Group) *GroupResponse {
 		}
 	}
 
-	// Prepare sub-groups info for aggregate groups
-	var subGroups []models.SubGroupInfo
-	if group.GroupType == "aggregate" && len(group.SubGroups) > 0 {
-		for _, sg := range group.SubGroups {
-			subGroups = append(subGroups, models.SubGroupInfo{
-				GroupID:     sg.SubGroupID,
-				Name:        sg.SubGroup.Name,
-				DisplayName: sg.SubGroup.DisplayName,
-				Weight:      sg.Weight,
-			})
-		}
-	}
-
 	return &GroupResponse{
 		ID:                 group.ID,
 		Name:               group.Name,
@@ -273,7 +251,6 @@ func (s *Server) newGroupResponse(group *models.Group) *GroupResponse {
 		Config:             group.Config,
 		HeaderRules:        headerRules,
 		ProxyKeys:          group.ProxyKeys,
-		SubGroups:          subGroups,
 		LastValidatedAt:    group.LastValidatedAt,
 		CreatedAt:          group.CreatedAt,
 		UpdatedAt:          group.UpdatedAt,
@@ -393,4 +370,100 @@ func (s *Server) List(c *gin.Context) {
 		return
 	}
 	response.Success(c, groups)
+}
+
+// AddSubGroupsRequest defines the payload for adding sub groups to an aggregate group
+type AddSubGroupsRequest struct {
+	SubGroups []SubGroupConfig `json:"sub_groups"`
+}
+
+// UpdateSubGroupWeightRequest defines the payload for updating a sub group weight
+type UpdateSubGroupWeightRequest struct {
+	Weight int `json:"weight"`
+}
+
+// GetSubGroups handles getting sub groups of an aggregate group
+func (s *Server) GetSubGroups(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		response.ErrorI18nFromAPIError(c, app_errors.ErrBadRequest, "validation.invalid_group_id")
+		return
+	}
+
+	subGroups, err := s.GroupService.GetSubGroups(c.Request.Context(), uint(id))
+	if s.handleGroupError(c, err) {
+		return
+	}
+
+	response.Success(c, subGroups)
+}
+
+// AddSubGroups handles adding sub groups to an aggregate group
+func (s *Server) AddSubGroups(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		response.ErrorI18nFromAPIError(c, app_errors.ErrBadRequest, "validation.invalid_group_id")
+		return
+	}
+
+	var req AddSubGroupsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, app_errors.NewAPIError(app_errors.ErrInvalidJSON, err.Error()))
+		return
+	}
+
+	subInputs := toSubGroupInputs(req.SubGroups)
+	if err := s.GroupService.AddSubGroups(c.Request.Context(), uint(id), subInputs); s.handleGroupError(c, err) {
+		return
+	}
+
+	response.SuccessI18n(c, "success.sub_groups_added", nil)
+}
+
+// UpdateSubGroupWeight handles updating the weight of a sub group
+func (s *Server) UpdateSubGroupWeight(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		response.ErrorI18nFromAPIError(c, app_errors.ErrBadRequest, "validation.invalid_group_id")
+		return
+	}
+
+	subGroupID, err := strconv.Atoi(c.Param("subGroupId"))
+	if err != nil {
+		response.ErrorI18nFromAPIError(c, app_errors.ErrBadRequest, "validation.invalid_sub_group_id")
+		return
+	}
+
+	var req UpdateSubGroupWeightRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, app_errors.NewAPIError(app_errors.ErrInvalidJSON, err.Error()))
+		return
+	}
+
+	if err := s.GroupService.UpdateSubGroupWeight(c.Request.Context(), uint(id), uint(subGroupID), req.Weight); s.handleGroupError(c, err) {
+		return
+	}
+
+	response.SuccessI18n(c, "success.sub_group_weight_updated", nil)
+}
+
+// DeleteSubGroup handles deleting a sub group from an aggregate group
+func (s *Server) DeleteSubGroup(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		response.ErrorI18nFromAPIError(c, app_errors.ErrBadRequest, "validation.invalid_group_id")
+		return
+	}
+
+	subGroupID, err := strconv.Atoi(c.Param("subGroupId"))
+	if err != nil {
+		response.ErrorI18nFromAPIError(c, app_errors.ErrBadRequest, "validation.invalid_sub_group_id")
+		return
+	}
+
+	if err := s.GroupService.DeleteSubGroup(c.Request.Context(), uint(id), uint(subGroupID)); s.handleGroupError(c, err) {
+		return
+	}
+
+	response.SuccessI18n(c, "success.sub_group_deleted", nil)
 }

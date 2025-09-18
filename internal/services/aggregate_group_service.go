@@ -45,6 +45,9 @@ func (s *AggregateGroupService) ValidateSubGroups(ctx context.Context, channelTy
 		if input.Weight < 0 {
 			return nil, NewI18nError(app_errors.ErrValidation, "validation.sub_group_weight_negative", nil)
 		}
+		if input.Weight > 1000 {
+			return nil, NewI18nError(app_errors.ErrValidation, "validation.sub_group_weight_max_exceeded", nil)
+		}
 		subGroupIDs = append(subGroupIDs, input.GroupID)
 	}
 

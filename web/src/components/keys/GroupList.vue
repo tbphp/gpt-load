@@ -145,7 +145,7 @@ function handleGroupCreated(group: Group) {
 
       <!-- 添加分组按钮 -->
       <div class="add-section">
-        <n-button type="primary" size="small" block @click="openCreateGroupModal">
+        <n-button type="success" size="small" block @click="openCreateGroupModal">
           <template #icon>
             <n-icon :component="Add" />
           </template>

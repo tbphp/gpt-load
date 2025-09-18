@@ -239,4 +239,36 @@ export const keysApi = {
     const res = await http.get("/tasks/status");
     return res.data;
   },
+
+  // 获取聚合分组的子分组列表
+  async getSubGroups(aggregateGroupId: number): Promise<import("@/types/models").SubGroupInfo[]> {
+    const res = await http.get(`/groups/${aggregateGroupId}/sub-groups`);
+    return res.data || [];
+  },
+
+  // 为聚合分组添加子分组
+  async addSubGroups(
+    aggregateGroupId: number,
+    subGroups: { group_id: number; weight: number }[]
+  ): Promise<void> {
+    await http.post(`/groups/${aggregateGroupId}/sub-groups`, {
+      sub_groups: subGroups,
+    });
+  },
+
+  // 更新子分组权重
+  async updateSubGroupWeight(
+    aggregateGroupId: number,
+    subGroupId: number,
+    weight: number
+  ): Promise<void> {
+    await http.put(`/groups/${aggregateGroupId}/sub-groups/${subGroupId}/weight`, {
+      weight,
+    });
+  },
+
+  // 删除子分组
+  async deleteSubGroup(aggregateGroupId: number, subGroupId: number): Promise<void> {
+    await http.delete(`/groups/${aggregateGroupId}/sub-groups/${subGroupId}`);
+  },
 };

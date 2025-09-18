@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { keysApi } from "@/api/keys";
-import type { Group, GroupConfigOption, GroupStatsResponse } from "@/types/models";
+import type { Group, GroupConfigOption, GroupStatsResponse, SubGroupInfo } from "@/types/models";
 import { appState } from "@/utils/app-state";
 import { copy } from "@/utils/clipboard";
 import { getGroupDisplayName, maskProxyKeys } from "@/utils/display";
@@ -33,6 +33,7 @@ const { t } = useI18n();
 interface Props {
   group: Group | null;
   groups?: Group[];
+  subGroups?: SubGroupInfo[];
 }
 
 interface Emits {
@@ -73,6 +74,11 @@ const hasAdvancedConfig = computed(() => {
     props.group?.param_overrides ||
     (props.group?.header_rules && props.group.header_rules.length > 0)
   );
+});
+
+// 判断是否为聚合分组
+const isAggregateGroup = computed(() => {
+  return props.group?.group_type === "aggregate";
 });
 
 async function copyProxyKeys() {
@@ -369,7 +375,35 @@ function resetPage() {
         <n-spin :show="loading" size="small">
           <n-grid cols="2 s:4" :x-gap="12" :y-gap="12" responsive="screen">
             <n-grid-item span="1">
-              <n-statistic :label="`${t('keys.keyCount')}：${stats?.key_stats?.total_keys ?? 0}`">
+              <!-- 聚合分组：子分组统计 -->
+              <n-statistic
+                v-if="isAggregateGroup"
+                :label="`${t('keys.subGroups')}：${props.subGroups?.length || 0}`"
+              >
+                <n-tooltip trigger="hover">
+                  <template #trigger>
+                    <n-gradient-text type="success" size="20">
+                      {{ props.subGroups?.filter(sg => sg.weight > 0).length || 0 }}
+                    </n-gradient-text>
+                  </template>
+                  {{ t("keys.activeSubGroups") }}
+                </n-tooltip>
+                <n-divider vertical />
+                <n-tooltip trigger="hover">
+                  <template #trigger>
+                    <n-gradient-text type="warning" size="20">
+                      {{ props.subGroups?.filter(sg => sg.weight === 0).length || 0 }}
+                    </n-gradient-text>
+                  </template>
+                  {{ t("keys.inactiveSubGroups") }}
+                </n-tooltip>
+              </n-statistic>
+
+              <!-- 标准分组：密钥统计 -->
+              <n-statistic
+                v-else
+                :label="`${t('keys.keyCount')}：${stats?.key_stats?.total_keys ?? 0}`"
+              >
                 <n-tooltip trigger="hover">
                   <template #trigger>
                     <n-gradient-text type="success" size="20">
@@ -492,12 +526,13 @@ function resetPage() {
                         {{ group?.sort }}
                       </n-form-item>
                     </n-grid-item>
-                    <n-grid-item>
+                    <!-- 标准分组才显示测试模型和测试路径 -->
+                    <n-grid-item v-if="!isAggregateGroup">
                       <n-form-item :label="`${t('keys.testModel')}：`">
                         {{ group?.test_model }}
                       </n-form-item>
                     </n-grid-item>
-                    <n-grid-item v-if="group?.channel_type !== 'gemini'">
+                    <n-grid-item v-if="!isAggregateGroup && group?.channel_type !== 'gemini'">
                       <n-form-item :label="`${t('keys.testPath')}：`">
                         {{ group?.validation_endpoint }}
                       </n-form-item>
@@ -544,7 +579,8 @@ function resetPage() {
                 </n-form>
               </div>
 
-              <div class="detail-section">
+              <!-- 标准分组才显示上游地址 -->
+              <div class="detail-section" v-if="!isAggregateGroup">
                 <h4 class="section-title">{{ t("keys.upstreamAddresses") }}</h4>
                 <n-form label-placement="left" label-width="140px">
                   <n-form-item
@@ -563,7 +599,8 @@ function resetPage() {
                 </n-form>
               </div>
 
-              <div class="detail-section" v-if="hasAdvancedConfig">
+              <!-- 标准分组才显示高级配置 -->
+              <div class="detail-section" v-if="!isAggregateGroup && hasAdvancedConfig">
                 <h4 class="section-title">{{ t("keys.advancedConfig") }}</h4>
                 <n-form label-placement="left">
                   <n-form-item v-for="(value, key) in group?.config || {}" :key="key">

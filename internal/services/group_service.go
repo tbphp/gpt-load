@@ -174,16 +174,10 @@ func (s *GroupService) CreateGroup(ctx context.Context, params GroupCreateParams
 	var cleanedUpstreams datatypes.JSON
 	var testModel string
 	var validationEndpoint string
-	var aggregateResult *AggregateValidationResult
 
 	switch groupType {
 	case "aggregate":
-		result, err := s.aggregateSvc.ValidateSubGroups(ctx, channelType, params.SubGroups)
-		if err != nil {
-			return nil, err
-		}
-		aggregateResult = result
-		validationEndpoint = result.ValidationEndpoint
+		validationEndpoint = ""
 		cleanedUpstreams = datatypes.JSON("[]")
 		testModel = "-"
 	case "standard":
@@ -242,13 +236,6 @@ func (s *GroupService) CreateGroup(ctx context.Context, params GroupCreateParams
 		return nil, app_errors.ParseDBError(err)
 	}
 
-	if groupType == "aggregate" && aggregateResult != nil {
-		if err := s.aggregateSvc.EnsureSubGroupAssociations(ctx, tx, group.ID, aggregateResult.SubGroups); err != nil {
-			tx.Rollback()
-			return nil, err
-		}
-	}
-
 	if err := tx.Commit().Error; err != nil {
 		return nil, app_errors.ParseDBError(err)
 	}
@@ -260,36 +247,11 @@ func (s *GroupService) CreateGroup(ctx context.Context, params GroupCreateParams
 	return &group, nil
 }
 
-// ListGroups returns all groups with aggregate relations resolved.
+// ListGroups returns all groups without sub-group relations.
 func (s *GroupService) ListGroups(ctx context.Context) ([]models.Group, error) {
 	var groups []models.Group
 	if err := s.db.WithContext(ctx).Order("sort asc, id desc").Find(&groups).Error; err != nil {
 		return nil, app_errors.ParseDBError(err)
-	}
-
-	aggregateIDs := make([]uint, 0)
-	for idx := range groups {
-		if groups[idx].GroupType == "aggregate" {
-			aggregateIDs = append(aggregateIDs, groups[idx].ID)
-		}
-	}
-
-	if len(aggregateIDs) > 0 {
-		var relations []models.GroupSubGroup
-		if err := s.db.WithContext(ctx).Where("group_id IN ?", aggregateIDs).Find(&relations).Error; err != nil {
-			logrus.WithContext(ctx).WithError(err).Error("failed to load aggregate sub groups")
-		} else if len(relations) > 0 {
-			if err := s.aggregateSvc.LoadSubGroupDetails(ctx, relations); err != nil {
-				logrus.WithContext(ctx).WithError(err).Error("failed to load sub group details")
-			} else {
-				relationMap := s.aggregateSvc.BuildAggregateResponse(relations)
-				for idx := range groups {
-					if groups[idx].GroupType == "aggregate" {
-						groups[idx].SubGroups = relationMap[groups[idx].ID]
-					}
-				}
-			}
-		}
 	}
 
 	return groups, nil
@@ -388,9 +350,6 @@ func (s *GroupService) UpdateGroup(ctx context.Context, id uint, params GroupUpd
 		group.HeaderRules = headerRulesJSON
 	}
 
-	var subGroupInputs []SubGroupInput
-	shouldReplaceSubGroups := false
-
 	if params.GroupType != nil {
 		newGroupType := strings.TrimSpace(*params.GroupType)
 		if newGroupType != "standard" && newGroupType != "aggregate" {
@@ -398,12 +357,12 @@ func (s *GroupService) UpdateGroup(ctx context.Context, id uint, params GroupUpd
 		}
 
 		if newGroupType == "aggregate" {
-			if params.SubGroups == nil {
-				return nil, NewI18nError(app_errors.ErrValidation, "validation.sub_groups_required", nil)
+			if err := tx.Where("group_id = ?", group.ID).Delete(&models.GroupSubGroup{}).Error; err != nil {
+				return nil, app_errors.ParseDBError(err)
 			}
-			subGroupInputs = append(subGroupInputs, (*params.SubGroups)...)
-			shouldReplaceSubGroups = true
 			group.ValidationEndpoint = ""
+			group.Upstreams = datatypes.JSON("[]")
+			group.TestModel = "-"
 		} else {
 			if !params.HasUpstreams || !params.HasTestModel {
 				return nil, NewI18nError(app_errors.ErrValidation, "validation.standard_group_requires_upstreams_testmodel", nil)
@@ -413,29 +372,10 @@ func (s *GroupService) UpdateGroup(ctx context.Context, id uint, params GroupUpd
 		group.GroupType = newGroupType
 	}
 
-	if group.GroupType == "aggregate" {
-		if params.SubGroups != nil {
-			subGroupInputs = append([]SubGroupInput{}, (*params.SubGroups)...)
-			shouldReplaceSubGroups = true
-		}
-	} else {
+	// 对于聚合分组，移除旧的子分组验证逻辑，子分组现在单独管理
+	if group.GroupType != "aggregate" {
 		if err := tx.Where("group_id = ?", group.ID).Delete(&models.GroupSubGroup{}).Error; err != nil {
 			return nil, app_errors.ParseDBError(err)
-		}
-	}
-
-	if shouldReplaceSubGroups {
-		result, err := s.aggregateSvc.ValidateSubGroups(ctx, group.ChannelType, subGroupInputs)
-		if err != nil {
-			return nil, err
-		}
-
-		group.ValidationEndpoint = result.ValidationEndpoint
-		group.Upstreams = datatypes.JSON("[]")
-		group.TestModel = "-"
-
-		if err := s.aggregateSvc.EnsureSubGroupAssociations(ctx, tx, group.ID, result.SubGroups); err != nil {
-			return nil, err
 		}
 	}
 
@@ -969,4 +909,169 @@ func (s *GroupService) isValidChannelType(channelType string) bool {
 		}
 	}
 	return false
+}
+
+// GetSubGroups retrieves all sub groups for an aggregate group
+func (s *GroupService) GetSubGroups(ctx context.Context, groupID uint) ([]models.SubGroupInfo, error) {
+	var group models.Group
+	if err := s.db.WithContext(ctx).First(&group, groupID).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, NewI18nError(app_errors.ErrResourceNotFound, "group.not_found", nil)
+		}
+		return nil, err
+	}
+
+	if group.GroupType != "aggregate" {
+		return nil, NewI18nError(app_errors.ErrBadRequest, "group.not_aggregate", nil)
+	}
+
+	// 手动查询子分组关联数据
+	var groupSubGroups []models.GroupSubGroup
+	if err := s.db.WithContext(ctx).Where("group_id = ?", groupID).Find(&groupSubGroups).Error; err != nil {
+		return nil, err
+	}
+
+	var subGroups []models.SubGroupInfo
+	for _, gsg := range groupSubGroups {
+		var subGroup models.Group
+		if err := s.db.WithContext(ctx).First(&subGroup, gsg.SubGroupID).Error; err != nil {
+			continue
+		}
+
+		subGroups = append(subGroups, models.SubGroupInfo{
+			GroupID:     gsg.SubGroupID,
+			Name:        subGroup.Name,
+			DisplayName: subGroup.DisplayName,
+			Weight:      gsg.Weight,
+		})
+	}
+
+	return subGroups, nil
+}
+
+// AddSubGroups adds new sub groups to an aggregate group
+func (s *GroupService) AddSubGroups(ctx context.Context, groupID uint, inputs []SubGroupInput) error {
+	var group models.Group
+	if err := s.db.WithContext(ctx).First(&group, groupID).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return NewI18nError(app_errors.ErrResourceNotFound, "group.not_found", nil)
+		}
+		return err
+	}
+
+	if group.GroupType != "aggregate" {
+		return NewI18nError(app_errors.ErrBadRequest, "group.not_aggregate", nil)
+	}
+
+	// Validate sub groups
+	result, err := s.aggregateSvc.ValidateSubGroups(ctx, group.ChannelType, inputs)
+	if err != nil {
+		return err
+	}
+
+	// Manually query existing sub groups
+	var existingSubGroups []models.GroupSubGroup
+	if err := s.db.WithContext(ctx).Where("group_id = ?", groupID).Find(&existingSubGroups).Error; err != nil {
+		return err
+	}
+
+	// Check for duplicates with existing sub groups
+	existingSubGroupIDs := make(map[uint]bool)
+	for _, sg := range existingSubGroups {
+		existingSubGroupIDs[sg.SubGroupID] = true
+	}
+
+	for _, newSg := range result.SubGroups {
+		if existingSubGroupIDs[newSg.SubGroupID] {
+			return NewI18nError(app_errors.ErrBadRequest, "group.sub_group_already_exists",
+				map[string]any{"sub_group_id": newSg.SubGroupID})
+		}
+	}
+
+	// Add new sub groups
+	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		for _, newSg := range result.SubGroups {
+			newSg.GroupID = groupID
+			if err := tx.Create(&newSg).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// UpdateSubGroupWeight updates the weight of a specific sub group
+func (s *GroupService) UpdateSubGroupWeight(ctx context.Context, groupID, subGroupID uint, weight int) error {
+	var group models.Group
+	if err := s.db.WithContext(ctx).First(&group, groupID).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return NewI18nError(app_errors.ErrResourceNotFound, "group.not_found", nil)
+		}
+		return err
+	}
+
+	if group.GroupType != "aggregate" {
+		return NewI18nError(app_errors.ErrBadRequest, "group.not_aggregate", nil)
+	}
+
+	if weight < 0 {
+		return NewI18nError(app_errors.ErrValidation, "validation.sub_group_weight_negative", nil)
+	}
+
+	if weight > 1000 {
+		return NewI18nError(app_errors.ErrValidation, "validation.sub_group_weight_max_exceeded", nil)
+	}
+
+	// 检查子分组关联是否存在
+	var existingRecord models.GroupSubGroup
+	if err := s.db.WithContext(ctx).Where("group_id = ? AND sub_group_id = ?", groupID, subGroupID).First(&existingRecord).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return NewI18nError(app_errors.ErrResourceNotFound, "group.sub_group_not_found", nil)
+		}
+		return err
+	}
+
+	result := s.db.WithContext(ctx).
+		Model(&models.GroupSubGroup{}).
+		Where("group_id = ? AND sub_group_id = ?", groupID, subGroupID).
+		Update("weight", weight)
+
+	if result.Error != nil {
+		return result.Error
+	}
+
+	if result.RowsAffected == 0 {
+		return NewI18nError(app_errors.ErrResourceNotFound, "group.sub_group_not_found", nil)
+	}
+
+	return nil
+}
+
+// DeleteSubGroup removes a sub group from an aggregate group
+func (s *GroupService) DeleteSubGroup(ctx context.Context, groupID, subGroupID uint) error {
+	var group models.Group
+	if err := s.db.WithContext(ctx).First(&group, groupID).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return NewI18nError(app_errors.ErrResourceNotFound, "group.not_found", nil)
+		}
+		return err
+	}
+
+	if group.GroupType != "aggregate" {
+		return NewI18nError(app_errors.ErrBadRequest, "group.not_aggregate", nil)
+	}
+
+	result := s.db.WithContext(ctx).
+		Where("group_id = ? AND sub_group_id = ?", groupID, subGroupID).
+		Delete(&models.GroupSubGroup{})
+
+	if result.Error != nil {
+		return result.Error
+	}
+
+	if result.RowsAffected == 0 {
+		return NewI18nError(app_errors.ErrResourceNotFound, "group.sub_group_not_found", nil)
+	}
+
+	return nil
 }
