@@ -47,6 +47,27 @@ type HeaderRule struct {
 	Action string `json:"action"` // "set" or "remove"
 }
 
+// GroupSubGroup 聚合分组和子分组的关联表
+type GroupSubGroup struct {
+	ID         uint      `gorm:"primaryKey;autoIncrement" json:"id"`
+	GroupID    uint      `gorm:"not null;uniqueIndex:idx_group_sub" json:"group_id"`
+	SubGroupID uint      `gorm:"not null;uniqueIndex:idx_group_sub" json:"sub_group_id"`
+	Weight     int       `gorm:"default:0" json:"weight"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
+
+	// Associations
+	SubGroup Group `gorm:"-" json:"sub_group,omitempty"`
+}
+
+// SubGroupInfo 用于API响应的子分组信息
+type SubGroupInfo struct {
+	GroupID     uint   `json:"group_id"`
+	Name        string `json:"name"`
+	DisplayName string `json:"display_name"`
+	Weight      int    `json:"weight"`
+}
+
 // Group 对应 groups 表
 type Group struct {
 	ID                 uint                 `gorm:"primaryKey;autoIncrement" json:"id"`
@@ -56,6 +77,7 @@ type Group struct {
 	DisplayName        string               `gorm:"type:varchar(255)" json:"display_name"`
 	ProxyKeys          string               `gorm:"type:text" json:"proxy_keys"`
 	Description        string               `gorm:"type:varchar(512)" json:"description"`
+	GroupType          string               `gorm:"type:varchar(50);default:'standard'" json:"group_type"` // 'standard' or 'aggregate'
 	Upstreams          datatypes.JSON       `gorm:"type:json;not null" json:"upstreams"`
 	ValidationEndpoint string               `gorm:"type:varchar(255)" json:"validation_endpoint"`
 	ChannelType        string               `gorm:"type:varchar(50);not null" json:"channel_type"`
@@ -65,6 +87,7 @@ type Group struct {
 	Config             datatypes.JSONMap    `gorm:"type:json" json:"config"`
 	HeaderRules        datatypes.JSON       `gorm:"type:json" json:"header_rules"`
 	APIKeys            []APIKey             `gorm:"foreignKey:GroupID" json:"api_keys"`
+	SubGroups          []GroupSubGroup      `gorm:"-" json:"sub_groups,omitempty"`
 	LastValidatedAt    *time.Time           `json:"last_validated_at"`
 	CreatedAt          time.Time            `json:"created_at"`
 	UpdatedAt          time.Time            `json:"updated_at"`

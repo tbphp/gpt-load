@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { keysApi } from "@/api/keys";
-import type { Group, GroupConfigOption, GroupStatsResponse } from "@/types/models";
+import type { Group, GroupConfigOption, GroupStatsResponse, SubGroupInfo } from "@/types/models";
 import { appState } from "@/utils/app-state";
 import { copy } from "@/utils/clipboard";
 import { getGroupDisplayName, maskProxyKeys } from "@/utils/display";
@@ -24,6 +24,7 @@ import {
 } from "naive-ui";
 import { computed, h, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
+import AggregateGroupModal from "./AggregateGroupModal.vue";
 import GroupCopyModal from "./GroupCopyModal.vue";
 import GroupFormModal from "./GroupFormModal.vue";
 
@@ -31,6 +32,8 @@ const { t } = useI18n();
 
 interface Props {
   group: Group | null;
+  groups?: Group[];
+  subGroups?: SubGroupInfo[];
 }
 
 interface Emits {
@@ -48,6 +51,7 @@ const loading = ref(false);
 const dialog = useDialog();
 const showEditModal = ref(false);
 const showCopyModal = ref(false);
+const showAggregateEditModal = ref(false);
 const delLoading = ref(false);
 const confirmInput = ref("");
 const expandedName = ref<string[]>([]);
@@ -70,6 +74,11 @@ const hasAdvancedConfig = computed(() => {
     props.group?.param_overrides ||
     (props.group?.header_rules && props.group.header_rules.length > 0)
   );
+});
+
+// 判断是否为聚合分组
+const isAggregateGroup = computed(() => {
+  return props.group?.group_type === "aggregate";
 });
 
 async function copyProxyKeys() {
@@ -100,39 +109,27 @@ watch(
 
 // 监听任务完成事件，自动刷新当前分组数据
 watch(
-  () => appState.groupDataRefreshTrigger,
+  () => [appState.groupDataRefreshTrigger, appState.syncOperationTrigger],
   () => {
-    // 检查是否需要刷新当前分组的数据
-    if (appState.lastCompletedTask && props.group) {
-      // 通过分组名称匹配
-      const isCurrentGroup = appState.lastCompletedTask.groupName === props.group.name;
-
-      const shouldRefresh =
-        appState.lastCompletedTask.taskType === "KEY_VALIDATION" ||
-        appState.lastCompletedTask.taskType === "KEY_IMPORT" ||
-        appState.lastCompletedTask.taskType === "KEY_DELETE";
-
-      if (isCurrentGroup && shouldRefresh) {
-        // 刷新当前分组的统计数据
-        loadStats();
-      }
+    if (!props.group) {
+      return;
     }
-  }
-);
 
-// 监听同步操作完成事件，自动刷新当前分组数据
-watch(
-  () => appState.syncOperationTrigger,
-  () => {
     // 检查是否需要刷新当前分组的数据
-    if (appState.lastSyncOperation && props.group) {
-      // 通过分组名称匹配
-      const isCurrentGroup = appState.lastSyncOperation.groupName === props.group.name;
+    const isCurrentGroupTask =
+      appState.lastCompletedTask && appState.lastCompletedTask.groupName === props.group.name;
+    const isCurrentGroupSync =
+      appState.lastSyncOperation && appState.lastSyncOperation.groupName === props.group.name;
 
-      if (isCurrentGroup) {
-        // 刷新当前分组的统计数据
-        loadStats();
-      }
+    const shouldRefresh =
+      (isCurrentGroupTask &&
+        ["KEY_VALIDATION", "KEY_IMPORT", "KEY_DELETE"].includes(
+          appState.lastCompletedTask?.taskType || ""
+        )) ||
+      isCurrentGroupSync;
+
+    if (shouldRefresh) {
+      loadStats();
     }
   }
 );
@@ -173,6 +170,13 @@ function getConfigDescription(key: string): string {
 }
 
 function handleEdit() {
+  if (!props.group) {
+    return;
+  }
+  if (props.group.group_type === "aggregate") {
+    showAggregateEditModal.value = true;
+    return;
+  }
   showEditModal.value = true;
 }
 
@@ -182,6 +186,13 @@ function handleCopy() {
 
 function handleGroupEdited(newGroup: Group) {
   showEditModal.value = false;
+  if (newGroup) {
+    emit("refresh", newGroup);
+  }
+}
+
+function handleAggregateGroupEdited(newGroup: Group) {
+  showAggregateEditModal.value = false;
   if (newGroup) {
     emit("refresh", newGroup);
   }
@@ -251,9 +262,6 @@ async function handleDelete() {
 }
 
 function formatNumber(num: number): string {
-  // if (num >= 1000000) {
-  //   return `${(num / 1000000).toFixed(1)}M`;
-  // }
   if (num >= 1000) {
     return `${(num / 1000).toFixed(1)}K`;
   }
@@ -306,6 +314,7 @@ function resetPage() {
           </div>
           <div class="header-actions">
             <n-button
+              v-if="group?.group_type !== 'aggregate'"
               quaternary
               circle
               size="small"
@@ -351,7 +360,35 @@ function resetPage() {
         <n-spin :show="loading" size="small">
           <n-grid cols="2 s:4" :x-gap="12" :y-gap="12" responsive="screen">
             <n-grid-item span="1">
-              <n-statistic :label="`${t('keys.keyCount')}：${stats?.key_stats?.total_keys ?? 0}`">
+              <!-- 聚合分组：子分组统计 -->
+              <n-statistic
+                v-if="isAggregateGroup"
+                :label="`${t('keys.subGroups')}：${props.subGroups?.length || 0}`"
+              >
+                <n-tooltip trigger="hover">
+                  <template #trigger>
+                    <n-gradient-text type="success" size="20">
+                      {{ props.subGroups?.filter(sg => sg.weight > 0).length || 0 }}
+                    </n-gradient-text>
+                  </template>
+                  {{ t("keys.activeSubGroups") }}
+                </n-tooltip>
+                <n-divider vertical />
+                <n-tooltip trigger="hover">
+                  <template #trigger>
+                    <n-gradient-text type="warning" size="20">
+                      {{ props.subGroups?.filter(sg => sg.weight === 0).length || 0 }}
+                    </n-gradient-text>
+                  </template>
+                  {{ t("keys.inactiveSubGroups") }}
+                </n-tooltip>
+              </n-statistic>
+
+              <!-- 标准分组：密钥统计 -->
+              <n-statistic
+                v-else
+                :label="`${t('keys.keyCount')}：${stats?.key_stats?.total_keys ?? 0}`"
+              >
                 <n-tooltip trigger="hover">
                   <template #trigger>
                     <n-gradient-text type="success" size="20">
@@ -474,12 +511,13 @@ function resetPage() {
                         {{ group?.sort }}
                       </n-form-item>
                     </n-grid-item>
-                    <n-grid-item>
+                    <!-- 标准分组才显示测试模型和测试路径 -->
+                    <n-grid-item v-if="!isAggregateGroup">
                       <n-form-item :label="`${t('keys.testModel')}：`">
                         {{ group?.test_model }}
                       </n-form-item>
                     </n-grid-item>
-                    <n-grid-item v-if="group?.channel_type !== 'gemini'">
+                    <n-grid-item v-if="!isAggregateGroup && group?.channel_type !== 'gemini'">
                       <n-form-item :label="`${t('keys.testPath')}：`">
                         {{ group?.validation_endpoint }}
                       </n-form-item>
@@ -526,7 +564,8 @@ function resetPage() {
                 </n-form>
               </div>
 
-              <div class="detail-section">
+              <!-- 标准分组才显示上游地址 -->
+              <div class="detail-section" v-if="!isAggregateGroup">
                 <h4 class="section-title">{{ t("keys.upstreamAddresses") }}</h4>
                 <n-form label-placement="left" label-width="140px">
                   <n-form-item
@@ -545,7 +584,8 @@ function resetPage() {
                 </n-form>
               </div>
 
-              <div class="detail-section" v-if="hasAdvancedConfig">
+              <!-- 标准分组才显示高级配置 -->
+              <div class="detail-section" v-if="!isAggregateGroup && hasAdvancedConfig">
                 <h4 class="section-title">{{ t("keys.advancedConfig") }}</h4>
                 <n-form label-placement="left">
                   <n-form-item v-for="(value, key) in group?.config || {}" :key="key">
@@ -613,6 +653,12 @@ function resetPage() {
     </n-card>
 
     <group-form-modal v-model:show="showEditModal" :group="group" @success="handleGroupEdited" />
+    <aggregate-group-modal
+      v-model:show="showAggregateEditModal"
+      :group="group"
+      :groups="props.groups"
+      @success="handleAggregateGroupEdited"
+    />
     <group-copy-modal
       v-model:show="showCopyModal"
       :source-group="group"
@@ -672,17 +718,6 @@ function resetPage() {
   cursor: pointer;
   transition: all 0.2s ease;
 }
-
-.group-url:hover {
-  background: var(--bg-tertiary);
-  transform: translateY(-1px);
-}
-
-/* .group-meta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-} */
 
 .group-id {
   font-size: 0.75rem;

@@ -58,8 +58,8 @@ export const keysApi = {
     return res.data;
   },
 
-  // 获取分组列表（简化版）
-  async listGroups(): Promise<Group[]> {
+  // 获取分组列表
+  async listGroups(): Promise<Pick<Group, "id" | "name" | "display_name">[]> {
     const res = await http.get("/groups/list");
     return res.data || [];
   },
@@ -153,7 +153,7 @@ export const keysApi = {
     return res.data;
   },
 
-  // 测试密钥
+  // 恢复密钥
   restoreKeys(group_id: number, keys_text: string): Promise<null> {
     return http.post("/keys/restore-multiple", {
       group_id,
@@ -189,7 +189,7 @@ export const keysApi = {
   },
 
   // 导出密钥
-  exportKeys(groupId: number, status: "all" | "active" | "invalid" = "all") {
+  exportKeys(groupId: number, status: "all" | "active" | "invalid" = "all"): void {
     const authKey = localStorage.getItem("authKey");
     if (!authKey) {
       window.$message.error(i18n.global.t("auth.noAuthKeyFound"));
@@ -238,5 +238,37 @@ export const keysApi = {
   async getTaskStatus(): Promise<TaskInfo> {
     const res = await http.get("/tasks/status");
     return res.data;
+  },
+
+  // 获取聚合分组的子分组列表
+  async getSubGroups(aggregateGroupId: number): Promise<import("@/types/models").SubGroupInfo[]> {
+    const res = await http.get(`/groups/${aggregateGroupId}/sub-groups`);
+    return res.data || [];
+  },
+
+  // 为聚合分组添加子分组
+  async addSubGroups(
+    aggregateGroupId: number,
+    subGroups: { group_id: number; weight: number }[]
+  ): Promise<void> {
+    await http.post(`/groups/${aggregateGroupId}/sub-groups`, {
+      sub_groups: subGroups,
+    });
+  },
+
+  // 更新子分组权重
+  async updateSubGroupWeight(
+    aggregateGroupId: number,
+    subGroupId: number,
+    weight: number
+  ): Promise<void> {
+    await http.put(`/groups/${aggregateGroupId}/sub-groups/${subGroupId}/weight`, {
+      weight,
+    });
+  },
+
+  // 删除子分组
+  async deleteSubGroup(aggregateGroupId: number, subGroupId: number): Promise<void> {
+    await http.delete(`/groups/${aggregateGroupId}/sub-groups/${subGroupId}`);
   },
 };
