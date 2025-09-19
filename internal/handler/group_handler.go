@@ -19,23 +19,6 @@ import (
 	"gorm.io/datatypes"
 )
 
-// SubGroupConfig 子分组配置
-type SubGroupConfig struct {
-	GroupID uint `json:"group_id"`
-	Weight  int  `json:"weight"`
-}
-
-func toSubGroupInputs(configs []SubGroupConfig) []services.SubGroupInput {
-	if len(configs) == 0 {
-		return nil
-	}
-	inputs := make([]services.SubGroupInput, 0, len(configs))
-	for _, cfg := range configs {
-		inputs = append(inputs, services.SubGroupInput{GroupID: cfg.GroupID, Weight: cfg.Weight})
-	}
-	return inputs
-}
-
 func (s *Server) handleGroupError(c *gin.Context, err error) bool {
 	if err == nil {
 		return false
@@ -374,7 +357,7 @@ func (s *Server) List(c *gin.Context) {
 
 // AddSubGroupsRequest defines the payload for adding sub groups to an aggregate group
 type AddSubGroupsRequest struct {
-	SubGroups []SubGroupConfig `json:"sub_groups"`
+	SubGroups []services.SubGroupInput `json:"sub_groups"`
 }
 
 // UpdateSubGroupWeightRequest defines the payload for updating a sub group weight
@@ -390,7 +373,7 @@ func (s *Server) GetSubGroups(c *gin.Context) {
 		return
 	}
 
-	subGroups, err := s.GroupService.GetSubGroups(c.Request.Context(), uint(id))
+	subGroups, err := s.AggregateGroupService.GetSubGroups(c.Request.Context(), uint(id))
 	if s.handleGroupError(c, err) {
 		return
 	}
@@ -412,8 +395,7 @@ func (s *Server) AddSubGroups(c *gin.Context) {
 		return
 	}
 
-	subInputs := toSubGroupInputs(req.SubGroups)
-	if err := s.GroupService.AddSubGroups(c.Request.Context(), uint(id), subInputs); s.handleGroupError(c, err) {
+	if err := s.AggregateGroupService.AddSubGroups(c.Request.Context(), uint(id), req.SubGroups); s.handleGroupError(c, err) {
 		return
 	}
 
@@ -440,7 +422,7 @@ func (s *Server) UpdateSubGroupWeight(c *gin.Context) {
 		return
 	}
 
-	if err := s.GroupService.UpdateSubGroupWeight(c.Request.Context(), uint(id), uint(subGroupID), req.Weight); s.handleGroupError(c, err) {
+	if err := s.AggregateGroupService.UpdateSubGroupWeight(c.Request.Context(), uint(id), uint(subGroupID), req.Weight); s.handleGroupError(c, err) {
 		return
 	}
 
@@ -461,7 +443,7 @@ func (s *Server) DeleteSubGroup(c *gin.Context) {
 		return
 	}
 
-	if err := s.GroupService.DeleteSubGroup(c.Request.Context(), uint(id), uint(subGroupID)); s.handleGroupError(c, err) {
+	if err := s.AggregateGroupService.DeleteSubGroup(c.Request.Context(), uint(id), uint(subGroupID)); s.handleGroupError(c, err) {
 		return
 	}
 
