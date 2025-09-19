@@ -8,6 +8,12 @@ export interface ApiResponse<T> {
 // 密钥状态
 export type KeyStatus = "active" | "invalid" | undefined;
 
+// 分组类型
+export type GroupType = "standard" | "aggregate";
+
+// 渠道类型
+export type ChannelType = "openai" | "gemini" | "anthropic";
+
 // 数据模型定义
 export interface APIKey {
   id: number;
@@ -20,9 +26,6 @@ export interface APIKey {
   created_at: string;
   updated_at: string;
 }
-
-// 类型别名，用于兼容
-export type Key = APIKey;
 
 export interface UpstreamInfo {
   url: string;
@@ -56,7 +59,7 @@ export interface Group {
   description: string;
   sort: number;
   test_model: string;
-  channel_type: "openai" | "gemini" | "anthropic";
+  channel_type: ChannelType;
   upstreams: UpstreamInfo[];
   validation_endpoint: string;
   config: Record<string, unknown>;
@@ -65,7 +68,7 @@ export interface Group {
   param_overrides: Record<string, unknown>;
   header_rules?: HeaderRule[];
   proxy_keys: string;
-  group_type?: "standard" | "aggregate"; // 分组类型
+  group_type?: GroupType;
   sub_groups?: SubGroupInfo[]; // 子分组列表（仅聚合分组）
   sub_group_ids?: number[]; // 子分组ID列表
   created_at?: string;

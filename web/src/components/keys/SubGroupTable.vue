@@ -35,21 +35,19 @@ const addModalShow = ref(false);
 const editModalShow = ref(false);
 const editingSubGroup = ref<SubGroupInfo | null>(null);
 
-// 计算带百分比的子分组数据
-const subGroupsWithPercentage = computed<SubGroupRow[]>(() => {
+// 计算带百分比的子分组数据并按权重排序
+const sortedSubGroupsWithPercentage = computed<SubGroupRow[]>(() => {
   if (!props.subGroups) {
     return [];
   }
   const total = props.subGroups.reduce((sum, sg) => sum + sg.weight, 0);
-  return props.subGroups.map(sg => ({
+  const withPercentage = props.subGroups.map(sg => ({
     ...sg,
     percentage: total > 0 ? Math.round((sg.weight / total) * 100) : 0,
   }));
-});
 
-// 按权重降序排序
-const sortedSubGroups = computed(() => {
-  return [...subGroupsWithPercentage.value].sort((a, b) => b.weight - a.weight);
+  // 按权重降序排序
+  return withPercentage.sort((a, b) => b.weight - a.weight);
 });
 
 function openEditModal(subGroup: SubGroupInfo) {
@@ -86,11 +84,8 @@ async function deleteSubGroup(subGroup: SubGroupInfo) {
   });
 }
 
-async function handleAddSuccess() {
-  emit("refresh");
-}
-
-async function handleEditSuccess() {
+// 统一的成功处理函数
+function handleSuccess() {
   emit("refresh");
 }
 
@@ -124,12 +119,12 @@ function goToGroupInfo(groupId: number) {
     <!-- 子分组卡片网格 -->
     <div class="keys-grid-container">
       <n-spin :show="props.loading || false">
-        <div v-if="sortedSubGroups.length === 0 && !props.loading" class="empty-container">
+        <div v-if="!props.subGroups || props.subGroups.length === 0" class="empty-container">
           <n-empty :description="t('subGroups.noSubGroups')" />
         </div>
         <div v-else class="keys-grid">
           <div
-            v-for="subGroup in sortedSubGroups"
+            v-for="subGroup in sortedSubGroupsWithPercentage"
             :key="subGroup.group_id"
             class="key-card status-sub-group"
             :class="{ disabled: subGroup.weight === 0 }"
@@ -230,7 +225,7 @@ function goToGroupInfo(groupId: number) {
       :aggregate-group="selectedGroup"
       :existing-sub-groups="subGroups || []"
       :groups="groups || []"
-      @success="handleAddSuccess"
+      @success="handleSuccess"
     />
 
     <!-- 编辑权重弹窗 -->
@@ -240,7 +235,7 @@ function goToGroupInfo(groupId: number) {
       :aggregate-group="selectedGroup"
       :sub-group="editingSubGroup"
       :sub-groups="subGroups || []"
-      @success="handleEditSuccess"
+      @success="handleSuccess"
       @update:show="
         show => {
           if (!show) editingSubGroup = null;
@@ -485,17 +480,6 @@ function goToGroupInfo(groupId: number) {
   background: var(--bg-tertiary);
   padding: 2px 6px;
   border-radius: 4px;
-}
-
-/* 权重显示样式 */
-.weight-display {
-  margin: 8px 0;
-}
-
-.weight-bar-container {
-  display: flex;
-  align-items: center;
-  gap: 12px;
 }
 
 .weight-bar {

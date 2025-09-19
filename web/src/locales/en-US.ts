@@ -113,7 +113,7 @@ export default {
     createGroup: "Create Group",
     createAggregateGroup: "Create Aggregate Group",
     editAggregateGroup: "Edit Aggregate Group",
-    aggregateGroup: "Aggregate Group",
+    aggregateGroup: "Aggregate",
     standardGroup: "Standard Group",
     subGroups: "Sub Groups",
     subGroup: "Sub Group",
@@ -126,15 +126,12 @@ export default {
     allSubGroupsSelected: "All available sub groups have been selected",
     selectChannelTypeFirst: "Please select channel type first",
     channelTypeChanged: "Channel type changed, sub groups configuration has been cleared",
-    needAtLeastOneActiveSubGroup: "At least one active sub group with weight > 0 is required",
     duplicateSubGroup: "Cannot select the same sub group twice",
     weightZeroTip: "Weight 0 means temporarily disabled",
     disabled: "Disabled",
     groupNamePlaceholder: "e.g., openai-pool",
     displayNamePlaceholder: "e.g., OpenAI Aggregate Pool",
     descriptionPlaceholder: "Enter group description...",
-    aggregateChannelTypeTooltip:
-      "All sub groups of an aggregate group must be of the same channel type",
     aggregateProxyKeysTooltip:
       "Proxy keys for aggregate group, leave empty to use global proxy keys",
     subGroupTooltip:

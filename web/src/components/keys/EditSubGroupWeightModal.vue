@@ -68,9 +68,6 @@ const rules: FormRules = {
         if (value === null || value === undefined || value === "") {
           return new Error(t("keys.enterWeight"));
         }
-        if (typeof value !== "number" || isNaN(value)) {
-          return new Error(t("keys.enterWeight"));
-        }
         if (value < 0) {
           return new Error(t("keys.weightCannotBeNegative"));
         }
@@ -119,7 +116,7 @@ async function handleSubmit() {
     await keysApi.updateSubGroupWeight(
       props.aggregateGroup.id,
       props.subGroup.group_id,
-      Math.floor(formData.weight)
+      formData.weight // 保持原始数值，不进行取整
     );
 
     // 后端已经通过API响应显示成功消息，这里不需要重复显示
@@ -127,33 +124,36 @@ async function handleSubmit() {
     handleClose();
   } catch (error: unknown) {
     console.error("Update weight failed:", error);
-    if (error && typeof error === "object" && "response" in error) {
-      const axiosError = error as {
-        response?: { data?: { message?: string; errors?: unknown[] } };
-      };
-      if (axiosError.response?.data?.message) {
-        message.error(axiosError.response.data.message);
-      } else if (axiosError.response?.data?.errors) {
-        const errors = axiosError.response.data.errors;
-        if (Array.isArray(errors) && errors.length > 0) {
-          const firstError = errors[0];
-          if (typeof firstError === "object" && firstError && "message" in firstError) {
-            message.error((firstError as { message: string }).message);
-          } else {
-            message.error(String(firstError));
-          }
-        } else {
-          message.error(t("keys.updateWeightFailed"));
-        }
-      } else {
-        message.error(t("keys.updateWeightFailed"));
-      }
-    } else {
-      message.error(t("keys.updateWeightFailed"));
-    }
+    const errorMessage = getErrorMessage(error) || t("keys.updateWeightFailed");
+    message.error(errorMessage);
   } finally {
     loading.value = false;
   }
+}
+
+// 提取错误消息的工具函数
+function getErrorMessage(error: unknown): string | null {
+  if (error && typeof error === "object" && "response" in error) {
+    const axiosError = error as {
+      response?: { data?: { message?: string; errors?: unknown[] } };
+    };
+
+    if (axiosError.response?.data?.message) {
+      return axiosError.response.data.message;
+    }
+
+    if (axiosError.response?.data?.errors) {
+      const errors = axiosError.response.data.errors;
+      if (Array.isArray(errors) && errors.length > 0) {
+        const firstError = errors[0];
+        if (typeof firstError === "object" && firstError && "message" in firstError) {
+          return (firstError as { message: string }).message;
+        }
+        return String(firstError);
+      }
+    }
+  }
+  return null;
 }
 
 // 快速调整权重
@@ -292,8 +292,9 @@ function adjustWeight(delta: number) {
 
 .group-details {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
+  flex-direction: row;
+  gap: 24px;
+  align-items: center;
 }
 
 .detail-item {

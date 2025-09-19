@@ -187,7 +187,6 @@ func (s *AggregateGroupService) GetSubGroups(ctx context.Context, groupID uint) 
 		return nil, NewI18nError(app_errors.ErrBadRequest, "group.not_aggregate", nil)
 	}
 
-	// 手动查询子分组关联数据
 	var groupSubGroups []models.GroupSubGroup
 	if err := s.db.WithContext(ctx).Where("group_id = ?", groupID).Find(&groupSubGroups).Error; err != nil {
 		return nil, err
@@ -197,7 +196,6 @@ func (s *AggregateGroupService) GetSubGroups(ctx context.Context, groupID uint) 
 		return []models.SubGroupInfo{}, nil
 	}
 
-	// 批量查询子分组信息，避免N+1问题
 	subGroupIDs := make([]uint, 0, len(groupSubGroups))
 	weightMap := make(map[uint]int, len(groupSubGroups))
 

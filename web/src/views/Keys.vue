@@ -35,12 +35,14 @@ async function loadGroups() {
         handleGroupSelect(groups.value[0]);
       }
     }
+  } catch (error) {
+    console.error("Failed to load groups:", error);
+    window.$message?.error("加载分组列表失败");
   } finally {
     loading.value = false;
   }
 }
 
-// 加载子分组数据
 async function loadSubGroups() {
   if (!selectedGroup.value?.id || selectedGroup.value.group_type !== "aggregate") {
     subGroups.value = [];
@@ -52,6 +54,7 @@ async function loadSubGroups() {
     subGroups.value = await keysApi.getSubGroups(selectedGroup.value.id);
   } catch (error) {
     console.error("Failed to load sub groups:", error);
+    window.$message?.error("加载子分组失败");
     subGroups.value = [];
   } finally {
     loadingSubGroups.value = false;
@@ -59,9 +62,9 @@ async function loadSubGroups() {
 }
 
 // 监听选中分组变化，加载子分组数据
-watch(selectedGroup, newGroup => {
-  if (newGroup && newGroup.group_type === "aggregate") {
-    loadSubGroups();
+watch(selectedGroup, async newGroup => {
+  if (newGroup?.group_type === "aggregate") {
+    await loadSubGroups();
   } else {
     subGroups.value = [];
   }
@@ -74,49 +77,30 @@ function handleGroupSelect(group: Group | null) {
   }
 }
 
-async function handleGroupRefresh() {
+async function refreshGroupsAndSelect(targetGroupId?: number, selectFirst = true) {
   await loadGroups();
-  if (selectedGroup.value) {
-    // 重新加载当前选中的分组信息
-    handleGroupSelect(groups.value.find(g => g.id === selectedGroup.value?.id) || null);
-    // 如果是聚合分组，也刷新子分组
-    if (selectedGroup.value?.group_type === "aggregate") {
-      await loadSubGroups();
+
+  if (targetGroupId) {
+    const targetGroup = groups.value.find(g => g.id === targetGroupId);
+    if (targetGroup) {
+      handleGroupSelect(targetGroup);
+      return;
     }
   }
-}
 
-// 处理子分组数据刷新
-async function handleSubGroupsRefresh() {
-  if (selectedGroup.value?.group_type === "aggregate") {
-    await loadSubGroups();
+  if (selectedGroup.value) {
+    const currentGroup = groups.value.find(g => g.id === selectedGroup.value?.id);
+    if (currentGroup) {
+      handleGroupSelect(currentGroup);
+      if (currentGroup.group_type === "aggregate") {
+        await loadSubGroups();
+      }
+      return;
+    }
   }
-}
 
-async function handleGroupRefreshAndSelect(targetGroupId: number) {
-  await loadGroups();
-  // 刷新完成后，切换到指定的分组
-  const targetGroup = groups.value.find(g => g.id === targetGroupId);
-  if (targetGroup) {
-    handleGroupSelect(targetGroup);
-  }
-}
-
-async function handleGroupDelete(deletedGroup: Group) {
-  await loadGroups();
-
-  if (selectedGroup.value?.id === deletedGroup.id) {
-    handleGroupSelect(groups.value.length > 0 ? groups.value[0] : null);
-  }
-}
-
-async function handleGroupCopySuccess(newGroup: Group) {
-  // 重新加载分组列表以包含新创建的分组
-  await loadGroups();
-  // 自动切换到新创建的分组
-  const createdGroup = groups.value.find(g => g.id === newGroup.id);
-  if (createdGroup) {
-    handleGroupSelect(createdGroup);
+  if (selectFirst && groups.value.length > 0) {
+    handleGroupSelect(groups.value[0]);
   }
 }
 
@@ -141,8 +125,8 @@ function handleSubGroupSelect(groupId: number) {
           :selected-group="selectedGroup"
           :loading="loading"
           @group-select="handleGroupSelect"
-          @refresh="handleGroupRefresh"
-          @refresh-and-select="handleGroupRefreshAndSelect"
+          @refresh="() => refreshGroupsAndSelect()"
+          @refresh-and-select="id => refreshGroupsAndSelect(id)"
         />
       </div>
 
@@ -154,9 +138,9 @@ function handleSubGroupSelect(groupId: number) {
             :group="selectedGroup"
             :groups="groups"
             :sub-groups="subGroups"
-            @refresh="handleGroupRefresh"
-            @delete="handleGroupDelete"
-            @copy-success="handleGroupCopySuccess"
+            @refresh="() => refreshGroupsAndSelect()"
+            @delete="() => refreshGroupsAndSelect(undefined, true)"
+            @copy-success="group => refreshGroupsAndSelect(group.id)"
           />
         </div>
 
@@ -175,7 +159,7 @@ function handleSubGroupSelect(groupId: number) {
             :sub-groups="subGroups"
             :groups="groups"
             :loading="loadingSubGroups"
-            @refresh="handleSubGroupsRefresh"
+            @refresh="loadSubGroups"
             @group-select="handleSubGroupSelect"
           />
         </div>

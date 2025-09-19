@@ -58,8 +58,8 @@ export const keysApi = {
     return res.data;
   },
 
-  // 获取分组列表（简化版）
-  async listGroups(): Promise<Group[]> {
+  // 获取分组列表
+  async listGroups(): Promise<Pick<Group, "id" | "name" | "display_name">[]> {
     const res = await http.get("/groups/list");
     return res.data || [];
   },
@@ -153,7 +153,7 @@ export const keysApi = {
     return res.data;
   },
 
-  // 测试密钥
+  // 恢复密钥
   restoreKeys(group_id: number, keys_text: string): Promise<null> {
     return http.post("/keys/restore-multiple", {
       group_id,
@@ -189,7 +189,7 @@ export const keysApi = {
   },
 
   // 导出密钥
-  exportKeys(groupId: number, status: "all" | "active" | "invalid" = "all") {
+  exportKeys(groupId: number, status: "all" | "active" | "invalid" = "all"): void {
     const authKey = localStorage.getItem("authKey");
     if (!authKey) {
       window.$message.error(i18n.global.t("auth.noAuthKeyFound"));

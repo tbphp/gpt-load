@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { keysApi } from "@/api/keys";
 import ProxyKeysInput from "@/components/common/ProxyKeysInput.vue";
-import type { Group } from "@/types/models";
+import { type ChannelType, type Group } from "@/types/models";
 import { Close } from "@vicons/ionicons5";
 import {
   NButton,
@@ -40,28 +40,25 @@ const message = useMessage();
 const loading = ref(false);
 const formRef = ref();
 
-// 表单数据
-const formData = reactive<{
-  name: string;
-  display_name: string;
-  description: string;
-  channel_type: "anthropic" | "gemini" | "openai";
-  sort: number;
-  proxy_keys: string;
-}>({
+// 渠道类型选项
+const channelTypeOptions = [
+  { label: "OpenAI", value: "openai" as ChannelType },
+  { label: "Gemini", value: "gemini" as ChannelType },
+  { label: "Anthropic", value: "anthropic" as ChannelType },
+];
+
+// 默认表单数据
+const defaultFormData = {
   name: "",
   display_name: "",
   description: "",
-  channel_type: "openai",
+  channel_type: "openai" as ChannelType,
   sort: 1,
   proxy_keys: "",
-});
+};
 
-const channelTypeOptions = [
-  { label: "OpenAI", value: "openai" },
-  { label: "Gemini", value: "gemini" },
-  { label: "Anthropic", value: "anthropic" },
-];
+// 表单数据
+const formData = reactive({ ...defaultFormData });
 
 // 表单验证规则
 const rules: FormRules = {
@@ -103,14 +100,7 @@ watch(
 
 // 重置表单
 function resetForm() {
-  Object.assign(formData, {
-    name: "",
-    display_name: "",
-    description: "",
-    channel_type: "openai",
-    sort: 1,
-    proxy_keys: "",
-  });
+  Object.assign(formData, defaultFormData);
 }
 
 // 加载分组数据（编辑模式）

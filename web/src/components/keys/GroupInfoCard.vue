@@ -109,39 +109,27 @@ watch(
 
 // 监听任务完成事件，自动刷新当前分组数据
 watch(
-  () => appState.groupDataRefreshTrigger,
+  () => [appState.groupDataRefreshTrigger, appState.syncOperationTrigger],
   () => {
-    // 检查是否需要刷新当前分组的数据
-    if (appState.lastCompletedTask && props.group) {
-      // 通过分组名称匹配
-      const isCurrentGroup = appState.lastCompletedTask.groupName === props.group.name;
-
-      const shouldRefresh =
-        appState.lastCompletedTask.taskType === "KEY_VALIDATION" ||
-        appState.lastCompletedTask.taskType === "KEY_IMPORT" ||
-        appState.lastCompletedTask.taskType === "KEY_DELETE";
-
-      if (isCurrentGroup && shouldRefresh) {
-        // 刷新当前分组的统计数据
-        loadStats();
-      }
+    if (!props.group) {
+      return;
     }
-  }
-);
 
-// 监听同步操作完成事件，自动刷新当前分组数据
-watch(
-  () => appState.syncOperationTrigger,
-  () => {
     // 检查是否需要刷新当前分组的数据
-    if (appState.lastSyncOperation && props.group) {
-      // 通过分组名称匹配
-      const isCurrentGroup = appState.lastSyncOperation.groupName === props.group.name;
+    const isCurrentGroupTask =
+      appState.lastCompletedTask && appState.lastCompletedTask.groupName === props.group.name;
+    const isCurrentGroupSync =
+      appState.lastSyncOperation && appState.lastSyncOperation.groupName === props.group.name;
 
-      if (isCurrentGroup) {
-        // 刷新当前分组的统计数据
-        loadStats();
-      }
+    const shouldRefresh =
+      (isCurrentGroupTask &&
+        ["KEY_VALIDATION", "KEY_IMPORT", "KEY_DELETE"].includes(
+          appState.lastCompletedTask?.taskType || ""
+        )) ||
+      isCurrentGroupSync;
+
+    if (shouldRefresh) {
+      loadStats();
     }
   }
 );
@@ -274,9 +262,6 @@ async function handleDelete() {
 }
 
 function formatNumber(num: number): string {
-  // if (num >= 1000000) {
-  //   return `${(num / 1000000).toFixed(1)}M`;
-  // }
   if (num >= 1000) {
     return `${(num / 1000).toFixed(1)}K`;
   }
@@ -733,17 +718,6 @@ function resetPage() {
   cursor: pointer;
   transition: all 0.2s ease;
 }
-
-.group-url:hover {
-  background: var(--bg-tertiary);
-  transform: translateY(-1px);
-}
-
-/* .group-meta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-} */
 
 .group-id {
   font-size: 0.75rem;

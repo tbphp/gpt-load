@@ -126,16 +126,12 @@ export default {
     allSubGroupsSelected: "すべての利用可能なサブグループが選択されています",
     selectChannelTypeFirst: "先にチャンネルタイプを選択してください",
     channelTypeChanged: "チャンネルタイプが変更され、サブグループ設定がクリアされました",
-    needAtLeastOneActiveSubGroup:
-      "ウェイトが0より大きいアクティブなサブグループが少なくとも一つ必要です",
     duplicateSubGroup: "同じサブグループを2回選択することはできません",
     weightZeroTip: "ウェイト0は一時的に無効を意味します",
     disabled: "無効",
     groupNamePlaceholder: "例：openai-pool",
     displayNamePlaceholder: "例：OpenAI 集約プール",
     descriptionPlaceholder: "グループの説明を入力...",
-    aggregateChannelTypeTooltip:
-      "集約グループのすべてのサブグループは同じチャンネルタイプである必要があります",
     aggregateProxyKeysTooltip: "集約グループのプロキシキー、空の場合はグローバルプロキシキーを使用",
     subGroupTooltip:
       "選択したチャンネルタイプに基づいて利用可能な標準グループを表示、ウェイトがトラフィック分配比率を決定",

@@ -14,7 +14,6 @@ import {
   NSelect,
   useMessage,
   type FormRules,
-  type SelectOption,
 } from "naive-ui";
 import { computed, reactive, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
@@ -86,25 +85,31 @@ const getAvailableOptions = computed(() => {
     })
     .map(group => ({
       label: getGroupDisplayName(group),
-      value: group.id as number,
+      value: group?.id,
     }));
 });
 
 // 为每个子分组项计算可用选项
-function getOptionsForItem(currentIndex: number): SelectOption[] {
-  const currentItem = formData.sub_groups[currentIndex];
-  const selectedIds = formData.sub_groups
-    .map((sg, index) => (index !== currentIndex ? sg.group_id : null))
-    .filter((id): id is number => id !== null);
+const getOptionsForItems = computed(() => {
+  const selectedIds = formData.sub_groups.map(sg => sg.group_id).filter(Boolean);
 
-  return getAvailableOptions.value.filter(option => {
-    // 如果是当前项已选择的值，允许显示
-    if (option.value === currentItem.group_id) {
-      return true;
-    }
-    // 否则只显示未被其他项选择的
-    return !selectedIds.includes(option.value as number);
+  return formData.sub_groups.map((currentItem, currentIndex) => {
+    const otherSelectedIds = selectedIds.filter((_id, index) => index !== currentIndex);
+
+    return getAvailableOptions.value.filter(option => {
+      // 如果是当前项已选择的值，允许显示
+      if (option.value === currentItem.group_id) {
+        return true;
+      }
+      // 否则只显示未被其他项选择的
+      return !otherSelectedIds.includes(option?.value || 0);
+    });
   });
+});
+
+// 获取指定索引的选项
+function getOptionsForItem(index: number) {
+  return getOptionsForItems.value[index] || [];
 }
 
 // 表单验证规则
@@ -173,13 +178,12 @@ function handleClose() {
 
 // 提交表单
 async function handleSubmit() {
-  if (loading.value) {
+  if (loading.value || !props.aggregateGroup?.id) {
     return;
   }
 
   try {
     await formRef.value?.validate();
-
     loading.value = true;
 
     // 过滤出有效的子分组
@@ -187,11 +191,6 @@ async function handleSubmit() {
 
     if (validSubGroups.length === 0) {
       message.error(t("keys.atLeastOneSubGroup"));
-      return;
-    }
-
-    if (!props.aggregateGroup?.id) {
-      message.error(t("keys.invalidAggregateGroup"));
       return;
     }
 
@@ -205,19 +204,20 @@ async function handleSubmit() {
     handleClose();
   } catch (error: unknown) {
     console.error("Add sub groups failed:", error);
-    if (error && typeof error === "object" && "response" in error) {
-      const axiosError = error as { response?: { data?: { message?: string } } };
-      if (axiosError.response?.data?.message) {
-        message.error(axiosError.response.data.message);
-      } else {
-        message.error(t("keys.addSubGroupFailed"));
-      }
-    } else {
-      message.error(t("keys.addSubGroupFailed"));
-    }
+    const errorMessage = getErrorMessage(error) || t("keys.addSubGroupFailed");
+    message.error(errorMessage);
   } finally {
     loading.value = false;
   }
+}
+
+// 提取错误消息的工具函数
+function getErrorMessage(error: unknown): string | null {
+  if (error && typeof error === "object" && "response" in error) {
+    const axiosError = error as { response?: { data?: { message?: string } } };
+    return axiosError.response?.data?.message || null;
+  }
+  return null;
 }
 
 // 是否可以添加更多子分组项
@@ -261,42 +261,48 @@ const canAddMore = computed(() => {
 
           <div class="sub-groups-list">
             <div v-for="(item, index) in formData.sub_groups" :key="index" class="sub-group-item">
-              <div class="item-header">
-                <span class="item-label">{{ t("keys.subGroup") }} {{ index + 1 }}</span>
-                <n-button
-                  v-if="formData.sub_groups.length > 1"
-                  @click="removeSubGroupItem(index)"
-                  type="error"
-                  quaternary
-                  circle
-                  size="small"
-                >
-                  <template #icon>
-                    <n-icon :component="Close" />
-                  </template>
-                </n-button>
-              </div>
+              <span class="item-label">{{ t("keys.subGroup") }} {{ index + 1 }}</span>
 
-              <div class="item-content">
-                <n-form-item :label="t('keys.group')" :path="`sub_groups[${index}].group_id`">
-                  <n-select
-                    v-model:value="item.group_id"
-                    :options="getOptionsForItem(index)"
-                    :placeholder="t('keys.selectSubGroup')"
-                    clearable
-                  />
-                </n-form-item>
+              <n-form-item
+                class="item-select"
+                :path="`sub_groups[${index}].group_id`"
+                :show-feedback="false"
+              >
+                <n-select
+                  v-model:value="item.group_id"
+                  :options="getOptionsForItem(index)"
+                  :placeholder="t('keys.selectSubGroup')"
+                  clearable
+                />
+              </n-form-item>
 
-                <n-form-item :label="t('keys.weight')" :path="`sub_groups[${index}].weight`">
-                  <n-input-number
-                    v-model:value="item.weight"
-                    :min="0"
-                    :max="1000"
-                    :placeholder="t('keys.enterWeight')"
-                    style="width: 100%"
-                  />
-                </n-form-item>
-              </div>
+              <n-form-item
+                class="item-weight"
+                :path="`sub_groups[${index}].weight`"
+                :show-feedback="false"
+              >
+                <n-input-number
+                  v-model:value="item.weight"
+                  :min="0"
+                  :max="1000"
+                  :placeholder="t('keys.enterWeight')"
+                  style="width: 100%"
+                />
+              </n-form-item>
+
+              <n-button
+                @click="removeSubGroupItem(index)"
+                type="error"
+                quaternary
+                circle
+                size="small"
+                class="item-delete"
+                :style="{ visibility: formData.sub_groups.length > 1 ? 'visible' : 'hidden' }"
+              >
+                <template #icon>
+                  <n-icon :component="Close" />
+                </template>
+              </n-button>
             </div>
           </div>
 
@@ -359,29 +365,35 @@ const canAddMore = computed(() => {
 }
 
 .sub-group-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
   border-radius: var(--border-radius-md);
-  padding: 16px;
-}
-
-.item-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 12px;
 }
 
 .item-label {
-  font-weight: 600;
+  flex-shrink: 0;
+  min-width: 80px;
+  font-weight: 500;
   color: var(--text-primary);
   font-size: 0.9rem;
 }
 
-.item-content {
-  display: grid;
-  grid-template-columns: 5fr 3fr;
-  gap: 16px;
+.item-select {
+  flex: 1;
+  min-width: 200px;
+}
+
+.item-weight {
+  width: 100px;
+  flex-shrink: 0;
+}
+
+.item-delete {
+  flex-shrink: 0;
 }
 
 .add-item-section {
@@ -403,9 +415,25 @@ const canAddMore = computed(() => {
     width: 90vw;
   }
 
-  .item-content {
-    grid-template-columns: 1fr;
-    gap: 12px;
+  .sub-group-item {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .item-label {
+    min-width: auto;
+    text-align: center;
+  }
+
+  .item-select,
+  .item-weight {
+    width: 100%;
+    min-width: auto;
+  }
+
+  .item-delete {
+    align-self: center;
   }
 }
 
