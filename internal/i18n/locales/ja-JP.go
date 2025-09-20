@@ -66,7 +66,7 @@ var MessagesJaJP = map[string]string{
 	"validation.sub_group_not_found":     "1つ以上のサブグループが見つかりません",
 	"validation.sub_group_cannot_be_aggregate": "サブグループは集約グループにできません",
 	"validation.sub_group_channel_mismatch": "すべてのサブグループは同じチャンネルタイプを使用する必要があります",
-	"validation.sub_group_validation_endpoint_mismatch": "すべてのサブグループは同じ検証エンドポイントを使用する必要があります",
+	"validation.sub_group_validation_endpoint_mismatch": "サブグループのエンドポイントが一致していません。集約グループには、リクエストの転送を成功させるため統一されたアップストリームパスが必要です",
 	"validation.sub_group_weight_negative":     "サブグループの重みは負の値にできません",
 	"validation.sub_group_weight_max_exceeded": "サブグループの重みは1000を超えることはできません",
 	"validation.standard_group_requires_upstreams_testmodel": "標準グループへの変換にはアップストリームサーバーとテストモデルの提供が必要です",

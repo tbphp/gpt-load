@@ -170,3 +170,20 @@ func GetEnvOrDefault(key, defaultValue string) string {
 	}
 	return defaultValue
 }
+
+// GetValidationEndpoint returns the effective validation endpoint for a group.
+func GetValidationEndpoint(group *models.Group) string {
+	if group.ValidationEndpoint != "" {
+		return group.ValidationEndpoint
+	}
+
+	// Return default validation endpoint based on channel type
+	switch group.ChannelType {
+	case "openai":
+		return "/v1/chat/completions"
+	case "anthropic":
+		return "/v1/messages"
+	default:
+		return ""
+	}
+}

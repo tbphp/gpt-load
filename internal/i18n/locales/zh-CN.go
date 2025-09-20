@@ -66,7 +66,7 @@ var MessagesZhCN = map[string]string{
 	"validation.sub_group_not_found":     "一个或多个子分组不存在",
 	"validation.sub_group_cannot_be_aggregate": "子分组不能是聚合分组",
 	"validation.sub_group_channel_mismatch": "所有子分组必须使用相同的渠道类型",
-	"validation.sub_group_validation_endpoint_mismatch": "所有子分组必须使用相同的验证端点",
+	"validation.sub_group_validation_endpoint_mismatch": "子分组请求端点不一致，聚合分组需要统一的上游请求路径以确保透传成功",
 	"validation.sub_group_weight_negative":     "子分组权重不能为负数",
 	"validation.sub_group_weight_max_exceeded": "子分组权重不能超过1000",
 	"validation.standard_group_requires_upstreams_testmodel": "转换为标准分组需要提供上游服务器和测试模型",

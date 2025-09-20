@@ -5,6 +5,7 @@ import (
 
 	app_errors "gpt-load/internal/errors"
 	"gpt-load/internal/models"
+	"gpt-load/internal/utils"
 
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
@@ -36,8 +37,8 @@ func NewAggregateGroupService(db *gorm.DB, groupManager *GroupManager) *Aggregat
 	}
 }
 
-// ValidateSubGroups ensures the provided sub-groups are valid for aggregate usage.
-func (s *AggregateGroupService) ValidateSubGroups(ctx context.Context, channelType string, inputs []SubGroupInput) (*AggregateValidationResult, error) {
+// ValidateSubGroups validates sub-groups with an optional existing validation endpoint for consistency check.
+func (s *AggregateGroupService) ValidateSubGroups(ctx context.Context, channelType string, inputs []SubGroupInput, existingEndpoint string) (*AggregateValidationResult, error) {
 	if len(inputs) == 0 {
 		return nil, NewI18nError(app_errors.ErrValidation, "validation.sub_groups_required", nil)
 	}
@@ -67,16 +68,24 @@ func (s *AggregateGroupService) ValidateSubGroups(ctx context.Context, channelTy
 
 	subGroupMap := make(map[uint]models.Group, len(subGroupModels))
 	var validationEndpoint string
-	for idx, sg := range subGroupModels {
+
+	// If there's an existing endpoint, use it as the expected endpoint
+	if existingEndpoint != "" {
+		validationEndpoint = existingEndpoint
+	}
+
+	for _, sg := range subGroupModels {
 		if sg.GroupType == "aggregate" {
 			return nil, NewI18nError(app_errors.ErrValidation, "validation.sub_group_cannot_be_aggregate", nil)
 		}
 		if sg.ChannelType != channelType {
 			return nil, NewI18nError(app_errors.ErrValidation, "validation.sub_group_channel_mismatch", nil)
 		}
-		if idx == 0 {
-			validationEndpoint = sg.ValidationEndpoint
-		} else if validationEndpoint != sg.ValidationEndpoint {
+
+		// If no existing endpoint, use the first sub-group's effective endpoint
+		if validationEndpoint == "" {
+			validationEndpoint = utils.GetValidationEndpoint(&sg)
+		} else if validationEndpoint != utils.GetValidationEndpoint(&sg) {
 			return nil, NewI18nError(app_errors.ErrValidation, "validation.sub_group_validation_endpoint_mismatch", nil)
 		}
 		subGroupMap[sg.ID] = sg
@@ -236,8 +245,19 @@ func (s *AggregateGroupService) AddSubGroups(ctx context.Context, groupID uint, 
 		return NewI18nError(app_errors.ErrBadRequest, "group.not_aggregate", nil)
 	}
 
-	// Validate sub groups
-	result, err := s.ValidateSubGroups(ctx, group.ChannelType, inputs)
+	// Check if there are existing sub groups and get their validation endpoint
+	var existingEndpoint string
+	var existingSubGroup models.GroupSubGroup
+	if err := s.db.WithContext(ctx).Where("group_id = ?", groupID).First(&existingSubGroup).Error; err == nil {
+		// If we have existing sub groups, get one of their validation endpoints
+		var existingGroup models.Group
+		if err := s.db.WithContext(ctx).First(&existingGroup, existingSubGroup.SubGroupID).Error; err == nil {
+			existingEndpoint = utils.GetValidationEndpoint(&existingGroup)
+		}
+	}
+
+	// Validate sub groups with existing endpoint for consistency
+	result, err := s.ValidateSubGroups(ctx, group.ChannelType, inputs, existingEndpoint)
 	if err != nil {
 		return err
 	}
