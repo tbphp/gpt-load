@@ -69,6 +69,7 @@ var MessagesZhCN = map[string]string{
 	"validation.sub_group_validation_endpoint_mismatch": "子分组请求端点不一致，聚合分组需要统一的上游请求路径以确保透传成功",
 	"validation.sub_group_weight_negative":     "子分组权重不能为负数",
 	"validation.sub_group_weight_max_exceeded": "子分组权重不能超过1000",
+	"validation.sub_group_referenced_cannot_modify": "该分组正被 {{.count}} 个聚合分组引用为子分组，无法修改渠道类型或验证端点。请先从相关聚合分组中移除此分组后再进行修改",
 	"validation.standard_group_requires_upstreams_testmodel": "转换为标准分组需要提供上游服务器和测试模型",
 
 	// Task related

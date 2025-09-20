@@ -384,3 +384,18 @@ func (s *AggregateGroupService) DeleteSubGroup(ctx context.Context, groupID, sub
 
 	return nil
 }
+
+// CountAggregateGroupsUsingSubGroup returns the number of aggregate groups that use the specified group as a sub-group
+func (s *AggregateGroupService) CountAggregateGroupsUsingSubGroup(ctx context.Context, subGroupID uint) (int64, error) {
+	var count int64
+	err := s.db.WithContext(ctx).
+		Model(&models.GroupSubGroup{}).
+		Where("sub_group_id = ?", subGroupID).
+		Count(&count).Error
+
+	if err != nil {
+		return 0, app_errors.ParseDBError(err)
+	}
+
+	return count, nil
+}

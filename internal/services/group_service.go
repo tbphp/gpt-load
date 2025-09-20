@@ -50,13 +50,14 @@ func NewI18nError(apiErr *app_errors.APIError, msgID string, template map[string
 
 // GroupService handles business logic for group operations.
 type GroupService struct {
-	db              *gorm.DB
-	settingsManager *config.SystemSettingsManager
-	groupManager    *GroupManager
-	keyService      *KeyService
-	keyImportSvc    *KeyImportService
-	encryptionSvc   encryption.Service
-	channelRegistry []string
+	db                    *gorm.DB
+	settingsManager       *config.SystemSettingsManager
+	groupManager          *GroupManager
+	keyService            *KeyService
+	keyImportSvc          *KeyImportService
+	encryptionSvc         encryption.Service
+	aggregateGroupService *AggregateGroupService
+	channelRegistry       []string
 }
 
 // NewGroupService constructs a GroupService.
@@ -67,15 +68,17 @@ func NewGroupService(
 	keyService *KeyService,
 	keyImportSvc *KeyImportService,
 	encryptionSvc encryption.Service,
+	aggregateGroupService *AggregateGroupService,
 ) *GroupService {
 	return &GroupService{
-		db:              db,
-		settingsManager: settingsManager,
-		groupManager:    groupManager,
-		keyService:      keyService,
-		keyImportSvc:    keyImportSvc,
-		encryptionSvc:   encryptionSvc,
-		channelRegistry: channel.GetChannels(),
+		db:                    db,
+		settingsManager:       settingsManager,
+		groupManager:          groupManager,
+		keyService:            keyService,
+		keyImportSvc:          keyImportSvc,
+		encryptionSvc:         encryptionSvc,
+		aggregateGroupService: aggregateGroupService,
+		channelRegistry:       channel.GetChannels(),
 	}
 }
 
@@ -289,6 +292,34 @@ func (s *GroupService) UpdateGroup(ctx context.Context, id uint, params GroupUpd
 			return nil, err
 		}
 		group.Upstreams = cleanedUpstreams
+	}
+
+	// Check if this group is used as a sub-group in aggregate groups before allowing critical changes
+	if group.GroupType != "aggregate" && (params.ChannelType != nil || params.ValidationEndpoint != nil) {
+		count, err := s.aggregateGroupService.CountAggregateGroupsUsingSubGroup(ctx, group.ID)
+		if err != nil {
+			return nil, err
+		}
+
+		if count > 0 {
+			// Check if ChannelType is being changed
+			if params.ChannelType != nil {
+				cleanedChannelType := strings.TrimSpace(*params.ChannelType)
+				if group.ChannelType != cleanedChannelType {
+					return nil, NewI18nError(app_errors.ErrValidation, "validation.sub_group_referenced_cannot_modify",
+						map[string]any{"count": count})
+				}
+			}
+
+			// Check if ValidationEndpoint is being changed
+			if params.ValidationEndpoint != nil {
+				cleanedValidationEndpoint := strings.TrimSpace(*params.ValidationEndpoint)
+				if group.ValidationEndpoint != cleanedValidationEndpoint {
+					return nil, NewI18nError(app_errors.ErrValidation, "validation.sub_group_referenced_cannot_modify",
+						map[string]any{"count": count})
+				}
+			}
+		}
 	}
 
 	if params.ChannelType != nil {
