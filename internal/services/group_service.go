@@ -322,7 +322,7 @@ func (s *GroupService) UpdateGroup(ctx context.Context, id uint, params GroupUpd
 		}
 	}
 
-	if params.ChannelType != nil {
+	if params.ChannelType != nil && group.GroupType != "aggregate" {
 		cleanedChannelType := strings.TrimSpace(*params.ChannelType)
 		if !s.isValidChannelType(cleanedChannelType) {
 			supported := strings.Join(s.channelRegistry, ", ")
@@ -376,35 +376,6 @@ func (s *GroupService) UpdateGroup(ctx context.Context, id uint, params GroupUpd
 			headerRulesJSON = datatypes.JSON("[]")
 		}
 		group.HeaderRules = headerRulesJSON
-	}
-
-	if params.GroupType != nil {
-		newGroupType := strings.TrimSpace(*params.GroupType)
-		if newGroupType != "standard" && newGroupType != "aggregate" {
-			return nil, NewI18nError(app_errors.ErrValidation, "validation.invalid_group_type", nil)
-		}
-
-		if newGroupType == "aggregate" {
-			if err := tx.Where("group_id = ?", group.ID).Delete(&models.GroupSubGroup{}).Error; err != nil {
-				return nil, app_errors.ParseDBError(err)
-			}
-			group.ValidationEndpoint = ""
-			group.Upstreams = datatypes.JSON("[]")
-			group.TestModel = "-"
-		} else {
-			if !params.HasUpstreams || !params.HasTestModel {
-				return nil, NewI18nError(app_errors.ErrValidation, "validation.standard_group_requires_upstreams_testmodel", nil)
-			}
-		}
-
-		group.GroupType = newGroupType
-	}
-
-	// 对于聚合分组，移除旧的子分组验证逻辑，子分组现在单独管理
-	if group.GroupType != "aggregate" {
-		if err := tx.Where("group_id = ?", group.ID).Delete(&models.GroupSubGroup{}).Error; err != nil {
-			return nil, app_errors.ParseDBError(err)
-		}
 	}
 
 	if err := tx.Save(&group).Error; err != nil {

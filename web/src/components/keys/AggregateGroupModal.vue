@@ -231,6 +231,7 @@ async function handleSubmit() {
               v-model:value="formData.channel_type"
               :options="channelTypeOptions"
               :placeholder="t('keys.selectChannelType')"
+              :disabled="!!props.group"
             />
           </n-form-item>
 
