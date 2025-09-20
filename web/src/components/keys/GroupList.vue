@@ -3,7 +3,7 @@ import type { Group } from "@/types/models";
 import { getGroupDisplayName } from "@/utils/display";
 import { Add, Search } from "@vicons/ionicons5";
 import { NButton, NCard, NEmpty, NInput, NSpin, NTag } from "naive-ui";
-import { computed, ref } from "vue";
+import { computed, ref, watch, nextTick } from "vue";
 import { useI18n } from "vue-i18n";
 import GroupFormModal from "./GroupFormModal.vue";
 
@@ -29,6 +29,8 @@ const emit = defineEmits<Emits>();
 
 const searchText = ref("");
 const showGroupModal = ref(false);
+// 存储分组项 DOM 元素的引用
+const groupItemRefs = ref(new Map());
 
 // 过滤后的分组列表
 const filteredGroups = computed(() => {
@@ -42,6 +44,23 @@ const filteredGroups = computed(() => {
       (group.display_name && group.display_name.toLowerCase().includes(search))
   );
 });
+
+// 监听 selectedGroup 的变化，自动滚动到可视区域
+watch(
+  () => props.selectedGroup,
+  async (newGroup) => {
+    // 确保在 DOM 更新后执行滚动
+    await nextTick();
+    if (newGroup && groupItemRefs.value.has(newGroup.id)) {
+      const element = groupItemRefs.value.get(newGroup.id);
+      element.scrollIntoView({
+        behavior: "smooth", // 平滑滚动
+        block: "nearest", // 滚动到最近的位置
+      });
+    }
+  },
+  { deep: true }
+);
 
 function handleGroupClick(group: Group) {
   emit("group-select", group);
@@ -107,8 +126,10 @@ function handleGroupCreated(group: Group) {
               class="group-item"
               :class="{ active: selectedGroup?.id === group.id }"
               @click="handleGroupClick(group)"
+              :ref="(el) => { if (el) groupItemRefs.set(group.id, el); }"
             >
               <div class="group-icon">
+                <!-- 为每个分组项设置一个 ref，以便能够引用到它的 DOM 元素 -->
                 <span v-if="group.channel_type === 'openai'">🤖</span>
                 <span v-else-if="group.channel_type === 'gemini'">💎</span>
                 <span v-else-if="group.channel_type === 'anthropic'">🧠</span>
