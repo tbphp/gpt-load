@@ -3,7 +3,7 @@ import type { Group } from "@/types/models";
 import { getGroupDisplayName } from "@/utils/display";
 import { Add, Search } from "@vicons/ionicons5";
 import { NButton, NCard, NEmpty, NInput, NSpin, NTag } from "naive-ui";
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import GroupFormModal from "./GroupFormModal.vue";
 
@@ -29,6 +29,8 @@ const emit = defineEmits<Emits>();
 
 const searchText = ref("");
 const showGroupModal = ref(false);
+// 存储分组项 DOM 元素的引用
+const groupItemRefs = ref(new Map());
 
 // 过滤后的分组列表
 const filteredGroups = computed(() => {
@@ -42,6 +44,27 @@ const filteredGroups = computed(() => {
       (group.display_name && group.display_name.toLowerCase().includes(search))
   );
 });
+
+// 监听选中项 ID 的变化，并自动滚动到该项
+watch(
+  () => props.selectedGroup?.id,
+  (id) => {
+    // 仅在列表有数据和选中项存在时执行
+    if (!id || props.groups.length === 0) return;
+
+    const element = groupItemRefs.value.get(id);
+    if (element) {
+      element.scrollIntoView({
+        behavior: "smooth", // 平滑滚动
+        block: "nearest", // 将元素滚动到最近的边缘
+      });
+    }
+  },
+  {
+    flush: "post", // 确保在 DOM 更新后执行回调
+    immediate: true, // 立即执行一次以处理初始加载
+  }
+);
 
 function handleGroupClick(group: Group) {
   emit("group-select", group);
@@ -100,13 +123,14 @@ function handleGroupCreated(group: Group) {
               :description="searchText ? t('keys.noMatchingGroups') : t('keys.noGroups')"
             />
           </div>
-          <div v-else class="groups-list">
+         <div v-else class="groups-list">
             <div
               v-for="group in filteredGroups"
               :key="group.id"
               class="group-item"
               :class="{ active: selectedGroup?.id === group.id }"
               @click="handleGroupClick(group)"
+              :ref="(el) => { if (el) groupItemRefs.set(group.id, el); }"
             >
               <div class="group-icon">
                 <span v-if="group.channel_type === 'openai'">🤖</span>
