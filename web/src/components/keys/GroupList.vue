@@ -3,7 +3,7 @@ import type { Group } from "@/types/models";
 import { getGroupDisplayName } from "@/utils/display";
 import { Add, LinkOutline, Search } from "@vicons/ionicons5";
 import { NButton, NCard, NEmpty, NInput, NSpin, NTag } from "naive-ui";
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import AggregateGroupModal from "./AggregateGroupModal.vue";
 import GroupFormModal from "./GroupFormModal.vue";
@@ -30,6 +30,8 @@ const emit = defineEmits<Emits>();
 
 const searchText = ref("");
 const showGroupModal = ref(false);
+// 存储分组项 DOM 元素的引用
+const groupItemRefs = ref(new Map());
 const showAggregateGroupModal = ref(false);
 
 const filteredGroups = computed(() => {
@@ -43,6 +45,28 @@ const filteredGroups = computed(() => {
       group.display_name?.toLowerCase().includes(search)
   );
 });
+
+// 监听选中项 ID 的变化，并自动滚动到该项
+watch(
+  () => props.selectedGroup?.id,
+  id => {
+    if (!id || props.groups.length === 0) {
+      return;
+    }
+
+    const element = groupItemRefs.value.get(id);
+    if (element) {
+      element.scrollIntoView({
+        behavior: "smooth", // 平滑滚动
+        block: "nearest", // 将元素滚动到最近的边缘
+      });
+    }
+  },
+  {
+    flush: "post", // 确保在 DOM 更新后执行回调
+    immediate: true, // 立即执行一次以处理初始加载
+  }
+);
 
 function handleGroupClick(group: Group) {
   emit("group-select", group);
@@ -115,6 +139,11 @@ function handleGroupCreated(group: Group) {
                 aggregate: group.group_type === 'aggregate',
               }"
               @click="handleGroupClick(group)"
+              :ref="
+                el => {
+                  if (el) groupItemRefs.set(group.id, el);
+                }
+              "
             >
               <div class="group-icon">
                 <span v-if="group.group_type === 'aggregate'">🔗</span>
