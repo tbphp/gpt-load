@@ -48,9 +48,10 @@ const filteredGroups = computed(() => {
 // 监听选中项 ID 的变化，并自动滚动到该项
 watch(
   () => props.selectedGroup?.id,
-  (id) => {
-    // 仅在列表有数据和选中项存在时执行
-    if (!id || props.groups.length === 0) return;
+  id => {
+    if (!id || props.groups.length === 0) {
+      return;
+    }
 
     const element = groupItemRefs.value.get(id);
     if (element) {
@@ -123,14 +124,18 @@ function handleGroupCreated(group: Group) {
               :description="searchText ? t('keys.noMatchingGroups') : t('keys.noGroups')"
             />
           </div>
-         <div v-else class="groups-list">
+          <div v-else class="groups-list">
             <div
               v-for="group in filteredGroups"
               :key="group.id"
               class="group-item"
               :class="{ active: selectedGroup?.id === group.id }"
               @click="handleGroupClick(group)"
-              :ref="(el) => { if (el) groupItemRefs.set(group.id, el); }"
+              :ref="
+                el => {
+                  if (el) groupItemRefs.set(group.id, el);
+                }
+              "
             >
               <div class="group-icon">
                 <span v-if="group.channel_type === 'openai'">🤖</span>
