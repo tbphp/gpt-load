@@ -449,3 +449,19 @@ func (s *Server) DeleteSubGroup(c *gin.Context) {
 
 	response.SuccessI18n(c, "success.sub_group_deleted", nil)
 }
+
+// GetParentAggregateGroups handles getting parent aggregate groups that reference a group
+func (s *Server) GetParentAggregateGroups(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		response.ErrorI18nFromAPIError(c, app_errors.ErrBadRequest, "validation.invalid_group_id")
+		return
+	}
+
+	parentGroups, err := s.AggregateGroupService.GetParentAggregateGroups(c.Request.Context(), uint(id))
+	if s.handleGroupError(c, err) {
+		return
+	}
+
+	response.Success(c, parentGroups)
+}

@@ -68,6 +68,14 @@ type SubGroupInfo struct {
 	Weight      int    `json:"weight"`
 }
 
+// ParentAggregateGroupInfo 用于API响应的父聚合分组信息
+type ParentAggregateGroupInfo struct {
+	GroupID     uint   `json:"group_id"`
+	Name        string `json:"name"`
+	DisplayName string `json:"display_name"`
+	Weight      int    `json:"weight"`
+}
+
 // Group 对应 groups 表
 type Group struct {
 	ID                 uint                 `gorm:"primaryKey;autoIncrement" json:"id"`

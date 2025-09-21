@@ -111,6 +111,14 @@ function handleSubGroupSelect(groupId: number) {
     handleGroupSelect(targetGroup);
   }
 }
+
+// 处理聚合分组跳转，跳转到对应的聚合分组
+function handleNavigateToGroup(groupId: number) {
+  const targetGroup = groups.value.find(g => g.id === groupId);
+  if (targetGroup) {
+    handleGroupSelect(targetGroup);
+  }
+}
 </script>
 
 <template>
@@ -141,6 +149,7 @@ function handleSubGroupSelect(groupId: number) {
             @refresh="() => refreshGroupsAndSelect()"
             @delete="() => refreshGroupsAndSelect(undefined, true)"
             @copy-success="group => refreshGroupsAndSelect(group.id)"
+            @navigate-to-group="handleNavigateToGroup"
           />
         </div>
 

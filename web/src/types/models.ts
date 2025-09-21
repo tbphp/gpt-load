@@ -52,6 +52,14 @@ export interface SubGroupInfo {
   weight: number;
 }
 
+// 父聚合分组信息（展示时使用）
+export interface ParentAggregateGroup {
+  group_id: number;
+  name: string;
+  display_name: string;
+  weight: number;
+}
+
 export interface Group {
   id?: number;
   name: string;

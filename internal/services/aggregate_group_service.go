@@ -399,3 +399,40 @@ func (s *AggregateGroupService) CountAggregateGroupsUsingSubGroup(ctx context.Co
 
 	return count, nil
 }
+
+// GetParentAggregateGroups returns the aggregate groups that use the specified group as a sub-group
+func (s *AggregateGroupService) GetParentAggregateGroups(ctx context.Context, subGroupID uint) ([]models.ParentAggregateGroupInfo, error) {
+	var groupSubGroups []models.GroupSubGroup
+	if err := s.db.WithContext(ctx).Where("sub_group_id = ?", subGroupID).Find(&groupSubGroups).Error; err != nil {
+		return nil, app_errors.ParseDBError(err)
+	}
+
+	if len(groupSubGroups) == 0 {
+		return []models.ParentAggregateGroupInfo{}, nil
+	}
+
+	aggregateGroupIDs := make([]uint, 0, len(groupSubGroups))
+	weightMap := make(map[uint]int, len(groupSubGroups))
+
+	for _, gsg := range groupSubGroups {
+		aggregateGroupIDs = append(aggregateGroupIDs, gsg.GroupID)
+		weightMap[gsg.GroupID] = gsg.Weight
+	}
+
+	var aggregateGroupModels []models.Group
+	if err := s.db.WithContext(ctx).Where("id IN ?", aggregateGroupIDs).Find(&aggregateGroupModels).Error; err != nil {
+		return nil, app_errors.ParseDBError(err)
+	}
+
+	parentGroups := make([]models.ParentAggregateGroupInfo, 0, len(aggregateGroupModels))
+	for _, group := range aggregateGroupModels {
+		parentGroups = append(parentGroups, models.ParentAggregateGroupInfo{
+			GroupID:     group.ID,
+			Name:        group.Name,
+			DisplayName: group.DisplayName,
+			Weight:      weightMap[group.ID],
+		})
+	}
+
+	return parentGroups, nil
+}

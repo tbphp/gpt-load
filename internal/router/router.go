@@ -121,6 +121,7 @@ func registerProtectedAPIRoutes(api *gin.RouterGroup, serverHandler *handler.Ser
 		groups.POST("/:id/sub-groups", serverHandler.AddSubGroups)
 		groups.PUT("/:id/sub-groups/:subGroupId/weight", serverHandler.UpdateSubGroupWeight)
 		groups.DELETE("/:id/sub-groups/:subGroupId", serverHandler.DeleteSubGroup)
+		groups.GET("/:id/parent-aggregate-groups", serverHandler.GetParentAggregateGroups)
 	}
 
 	// Key Management Routes

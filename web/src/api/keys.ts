@@ -5,6 +5,7 @@ import type {
   GroupConfigOption,
   GroupStatsResponse,
   KeyStatus,
+  ParentAggregateGroup,
   TaskInfo,
 } from "@/types/models";
 import http from "@/utils/http";
@@ -270,5 +271,11 @@ export const keysApi = {
   // 删除子分组
   async deleteSubGroup(aggregateGroupId: number, subGroupId: number): Promise<void> {
     await http.delete(`/groups/${aggregateGroupId}/sub-groups/${subGroupId}`);
+  },
+
+  // 获取引用该分组的聚合分组列表
+  async getParentAggregateGroups(groupId: number): Promise<ParentAggregateGroup[]> {
+    const res = await http.get(`/groups/${groupId}/parent-aggregate-groups`);
+    return res.data || [];
   },
 };

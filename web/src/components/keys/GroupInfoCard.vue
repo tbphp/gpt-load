@@ -1,10 +1,23 @@
 <script setup lang="ts">
 import { keysApi } from "@/api/keys";
-import type { Group, GroupConfigOption, GroupStatsResponse, SubGroupInfo } from "@/types/models";
+import type {
+  Group,
+  GroupConfigOption,
+  GroupStatsResponse,
+  ParentAggregateGroup,
+  SubGroupInfo,
+} from "@/types/models";
 import { appState } from "@/utils/app-state";
 import { copy } from "@/utils/clipboard";
 import { getGroupDisplayName, maskProxyKeys } from "@/utils/display";
-import { CopyOutline, EyeOffOutline, EyeOutline, Pencil, Trash } from "@vicons/ionicons5";
+import {
+  CopyOutline,
+  EyeOffOutline,
+  EyeOutline,
+  InformationCircleOutline,
+  Pencil,
+  Trash,
+} from "@vicons/ionicons5";
 import {
   NButton,
   NButtonGroup,
@@ -40,6 +53,7 @@ interface Emits {
   (e: "refresh", value: Group): void;
   (e: "delete", value: Group): void;
   (e: "copy-success", group: Group): void;
+  (e: "navigate-to-group", groupId: number): void;
 }
 
 const props = defineProps<Props>();
@@ -57,6 +71,7 @@ const confirmInput = ref("");
 const expandedName = ref<string[]>([]);
 const configOptions = ref<GroupConfigOption[]>([]);
 const showProxyKeys = ref(false);
+const parentAggregateGroups = ref<ParentAggregateGroup[]>([]);
 
 const proxyKeysDisplay = computed(() => {
   if (!props.group?.proxy_keys) {
@@ -97,6 +112,7 @@ async function copyProxyKeys() {
 onMounted(() => {
   loadStats();
   loadConfigOptions();
+  loadParentAggregateGroups();
 });
 
 watch(
@@ -104,6 +120,7 @@ watch(
   () => {
     resetPage();
     loadStats();
+    loadParentAggregateGroups();
   }
 );
 
@@ -159,6 +176,21 @@ async function loadConfigOptions() {
   }
 }
 
+async function loadParentAggregateGroups() {
+  if (!props.group?.id || props.group.group_type === "aggregate") {
+    parentAggregateGroups.value = [];
+    return;
+  }
+
+  try {
+    const parentGroups = await keysApi.getParentAggregateGroups(props.group.id);
+    parentAggregateGroups.value = parentGroups || [];
+  } catch (error) {
+    console.error("Failed to load parent aggregate groups:", error);
+    parentAggregateGroups.value = [];
+  }
+}
+
 function getConfigDisplayName(key: string): string {
   const option = configOptions.value.find(opt => opt.key === key);
   return option?.name || key;
@@ -182,6 +214,10 @@ function handleEdit() {
 
 function handleCopy() {
   showCopyModal.value = true;
+}
+
+function handleNavigateToGroup(groupId: number) {
+  emit("navigate-to-group", groupId);
 }
 
 function handleGroupEdited(newGroup: Group) {
@@ -564,6 +600,48 @@ function resetPage() {
                 </n-form>
               </div>
 
+              <!-- 聚合引用区（仅普通分组且存在被引用关系时显示） -->
+              <div
+                class="detail-section"
+                v-if="!isAggregateGroup && parentAggregateGroups.length > 0"
+              >
+                <h4 class="section-title">{{ t("keys.aggregateReferences") }}</h4>
+                <n-form label-placement="left" label-width="140px">
+                  <n-form-item
+                    v-for="(parent, index) in parentAggregateGroups"
+                    :key="parent.group_id"
+                    class="aggregate-ref-item"
+                    :label="`${t('keys.aggregateGroup')} ${index + 1}:`"
+                  >
+                    <span class="aggregate-weight">
+                      <n-tag size="small" type="info">
+                        {{ t("keys.weight") }}: {{ parent.weight }}
+                      </n-tag>
+                    </span>
+                    <n-input
+                      class="aggregate-name"
+                      :value="parent.display_name || parent.name"
+                      readonly
+                      size="small"
+                      style="margin-left: 5px; margin-right: 8px"
+                    />
+                    <n-button
+                      round
+                      tertiary
+                      type="default"
+                      size="tiny"
+                      @click="handleNavigateToGroup(parent.group_id)"
+                      :title="t('keys.viewGroupInfo')"
+                    >
+                      <template #icon>
+                        <n-icon :component="InformationCircleOutline" />
+                      </template>
+                      {{ t("keys.groupInfo") }}
+                    </n-button>
+                  </n-form-item>
+                </n-form>
+              </div>
+
               <!-- 标准分组才显示上游地址 -->
               <div class="detail-section" v-if="!isAggregateGroup">
                 <h4 class="section-title">{{ t("keys.upstreamAddresses") }}</h4>
@@ -816,6 +894,17 @@ function resetPage() {
   line-height: 1.5;
   min-height: 20px;
   color: var(--text-primary);
+}
+
+.aggregate-weight {
+  min-width: 70px;
+}
+
+.aggregate-name {
+  font-family: monospace;
+  font-size: 0.9rem;
+  color: var(--text-primary);
+  width: 200px;
 }
 
 .proxy-keys-content {
