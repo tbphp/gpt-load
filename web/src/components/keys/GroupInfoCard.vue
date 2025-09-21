@@ -283,11 +283,7 @@ async function handleDelete() {
             if (props.group?.id) {
               await keysApi.deleteGroup(props.group.id);
               emit("delete", props.group);
-              window.$message.success(t("keys.groupDeletedSuccess"));
             }
-          } catch (error) {
-            console.error(error);
-            window.$message.error(t("keys.deleteGroupFailed"));
           } finally {
             delLoading.value = false;
           }

@@ -74,9 +74,6 @@ async function deleteSubGroup(subGroup: SubGroupInfo) {
       try {
         await keysApi.deleteSubGroup(props.selectedGroup.id, subGroup.group_id);
         emit("refresh");
-        window.$message.success(t("subGroups.removeSuccess"));
-      } catch (_error) {
-        window.$message.error(t("subGroups.deleteFailed"));
       } finally {
         d.loading = false;
       }

@@ -122,38 +122,9 @@ async function handleSubmit() {
     // 后端已经通过API响应显示成功消息，这里不需要重复显示
     emit("success");
     handleClose();
-  } catch (error: unknown) {
-    console.error("Update weight failed:", error);
-    const errorMessage = getErrorMessage(error) || t("keys.updateWeightFailed");
-    message.error(errorMessage);
   } finally {
     loading.value = false;
   }
-}
-
-// 提取错误消息的工具函数
-function getErrorMessage(error: unknown): string | null {
-  if (error && typeof error === "object" && "response" in error) {
-    const axiosError = error as {
-      response?: { data?: { message?: string; errors?: unknown[] } };
-    };
-
-    if (axiosError.response?.data?.message) {
-      return axiosError.response.data.message;
-    }
-
-    if (axiosError.response?.data?.errors) {
-      const errors = axiosError.response.data.errors;
-      if (Array.isArray(errors) && errors.length > 0) {
-        const firstError = errors[0];
-        if (typeof firstError === "object" && firstError && "message" in firstError) {
-          return (firstError as { message: string }).message;
-        }
-        return String(firstError);
-      }
-    }
-  }
-  return null;
 }
 
 // 快速调整权重

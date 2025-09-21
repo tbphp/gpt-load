@@ -154,27 +154,13 @@ async function handleSubmit() {
         return;
       }
       result = await keysApi.updateGroup(props.group.id, submitData);
-      message.success(t("common.operationSuccess"));
     } else {
       // 新建模式
       result = await keysApi.createGroup(submitData);
-      message.success(t("common.operationSuccess"));
     }
 
     emit("success", result);
     handleClose();
-  } catch (error: unknown) {
-    console.error("Submit failed:", error);
-    if (error && typeof error === "object" && "response" in error) {
-      const axiosError = error as { response?: { data?: { message?: string } } };
-      if (axiosError.response?.data?.message) {
-        message.error(axiosError.response.data.message);
-      } else {
-        message.error(props.group ? t("common.error") : t("common.error"));
-      }
-    } else {
-      message.error(props.group ? t("common.error") : t("common.error"));
-    }
   } finally {
     loading.value = false;
   }

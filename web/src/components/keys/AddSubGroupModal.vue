@@ -199,25 +199,11 @@ async function handleSubmit() {
       validSubGroups as { group_id: number; weight: number }[]
     );
 
-    message.success(t("keys.addSubGroupSuccess"));
     emit("success");
     handleClose();
-  } catch (error: unknown) {
-    console.error("Add sub groups failed:", error);
-    const errorMessage = getErrorMessage(error) || t("keys.addSubGroupFailed");
-    message.error(errorMessage);
   } finally {
     loading.value = false;
   }
-}
-
-// 提取错误消息的工具函数
-function getErrorMessage(error: unknown): string | null {
-  if (error && typeof error === "object" && "response" in error) {
-    const axiosError = error as { response?: { data?: { message?: string } } };
-    return axiosError.response?.data?.message || null;
-  }
-  return null;
 }
 
 // 是否可以添加更多子分组项

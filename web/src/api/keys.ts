@@ -55,7 +55,9 @@ export const keysApi = {
   ): Promise<{
     group: Group;
   }> {
-    const res = await http.post(`/groups/${groupId}/copy`, copyData);
+    const res = await http.post(`/groups/${groupId}/copy`, copyData, {
+      hideMessage: true,
+    });
     return res.data;
   },
 
@@ -101,10 +103,16 @@ export const keysApi = {
 
   // 异步批量添加密钥
   async addKeysAsync(group_id: number, keys_text: string): Promise<TaskInfo> {
-    const res = await http.post("/keys/add-async", {
-      group_id,
-      keys_text,
-    });
+    const res = await http.post(
+      "/keys/add-async",
+      {
+        group_id,
+        keys_text,
+      },
+      {
+        hideMessage: true,
+      }
+    );
     return res.data;
   },
 
@@ -147,10 +155,16 @@ export const keysApi = {
 
   // 异步批量删除密钥
   async deleteKeysAsync(group_id: number, keys_text: string): Promise<TaskInfo> {
-    const res = await http.post("/keys/delete-async", {
-      group_id,
-      keys_text,
-    });
+    const res = await http.post(
+      "/keys/delete-async",
+      {
+        group_id,
+        keys_text,
+      },
+      {
+        hideMessage: true,
+      }
+    );
     return res.data;
   },
 
