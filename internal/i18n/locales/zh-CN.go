@@ -151,9 +151,18 @@ var MessagesZhCN = map[string]string{
 	"config.key_validation_timeout_desc":     "后台定时验证单个 Key 时的 API 请求超时时间（秒）。",
 
 	// Category labels
-	"config.category.basic":   "基础参数",
-	"config.category.request": "请求设置",
-	"config.category.key":     "密钥配置",
+	"config.category.basic":    "基础参数",
+	"config.category.request":  "请求设置",
+	"config.category.key":      "密钥配置",
+	"config.category.security": "安全配置",
+
+	// Honeypot config
+	"config.enable_honeypot":      "启用蜜罐功能",
+	"config.enable_honeypot_desc": "启用蜜罐功能后，使用错误密码登录将进入模拟环境，展示虚假数据以迷惑攻击者。",
+	"config.honeypot_mode":        "蜜罐模式",
+	"config.honeypot_mode_desc":   "选择蜜罐模式：忽悠模式`deceive`（生成少量虚假数据）或塞满模式`overload`（生成大量数据拖慢爬虫）。",
+	"config.honeypot_seed":        "蜜罐数据种子",
+	"config.honeypot_seed_desc":   "用于生成一致蜜罐数据的种子字符串，相同种子在同一天会生成相同的虚假数据。",
 
 	// Internal error messages (for fmt.Errorf usage)
 	"error.upstreams_required":       "upstreams字段是必需的",

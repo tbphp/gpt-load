@@ -116,7 +116,7 @@ func CORS(config types.CORSConfig) gin.HandlerFunc {
 }
 
 // Auth creates an authentication middleware
-func Auth(authConfig types.AuthConfig) gin.HandlerFunc {
+func Auth(authConfig types.AuthConfig, settingsManager interface{ GetSettings() types.SystemSettings }) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		path := c.Request.URL.Path
 
@@ -130,6 +130,16 @@ func Auth(authConfig types.AuthConfig) gin.HandlerFunc {
 		isValid := key != "" && subtle.ConstantTimeCompare([]byte(key), []byte(authConfig.Key)) == 1
 
 		if !isValid {
+			// 检查蜜罐功能是否启用
+			settings := settingsManager.GetSettings()
+			if settings.EnableHoneypot && key != "" {
+				// 进入蜜罐模式：设置蜜罐标识，但不阻止请求继续
+				c.Set(types.HoneypotModeKey, settings.HoneypotMode)
+				logrus.Warnf("Invalid authentication attempt from %s, entering honeypot mode", c.ClientIP())
+				c.Next()
+				return
+			}
+
 			response.Error(c, app_errors.ErrUnauthorized)
 			c.Abort()
 			return

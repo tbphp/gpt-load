@@ -100,10 +100,23 @@ func (s *Server) Login(c *gin.Context) {
 			Message: i18n.Message(c, "auth.authentication_successful"),
 		})
 	} else {
-		c.JSON(http.StatusUnauthorized, LoginResponse{
-			Success: false,
-			Message: i18n.Message(c, "auth.authentication_failed"),
-		})
+		// 检查是否启用蜜罐功能
+		settings := s.SettingsManager.GetSettings()
+
+		if settings.EnableHoneypot {
+			// 设置蜜罐会话标记
+			c.Set("is_honeypot", true)
+			// 返回成功（让攻击者以为登录成功）
+			c.JSON(http.StatusOK, LoginResponse{
+				Success: true,
+				Message: i18n.Message(c, "auth.authentication_successful"),
+			})
+		} else {
+			c.JSON(http.StatusUnauthorized, LoginResponse{
+				Success: false,
+				Message: i18n.Message(c, "auth.authentication_failed"),
+			})
+		}
 	}
 }
 
