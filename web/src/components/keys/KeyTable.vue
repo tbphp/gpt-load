@@ -237,6 +237,19 @@ async function testKey(_key: KeyRow) {
   try {
     const response = await keysApi.testKeys(props.selectedGroup.id, _key.key_value);
     const curValid = response.results?.[0] || {};
+
+    // 更新密钥的状态码（不再需要重新加载整个列表）
+    const keyIndex = keys.value.findIndex(k => k.id === _key.id);
+    if (keyIndex !== -1) {
+      keys.value[keyIndex].status_code = (curValid.status_code ?? undefined) as number | undefined;
+      // 同时更新状态，避免重新加载
+      if (curValid.is_valid) {
+        keys.value[keyIndex].status = 'active';
+      } else {
+        keys.value[keyIndex].status = 'invalid';
+      }
+    }
+
     if (curValid.is_valid) {
       window.$message.success(
         t("keys.testSuccess", { duration: formatDuration(response.total_duration) })
@@ -248,8 +261,8 @@ async function testKey(_key: KeyRow) {
         closable: true,
       });
     }
-    await loadKeys();
-    // 触发同步操作刷新
+
+    // 触发同步操作刷新，但不再重新加载密钥列表
     triggerSyncOperationRefresh(props.selectedGroup.name, "TEST_SINGLE");
   } catch (_error) {
     console.error("Test failed");
@@ -657,6 +670,19 @@ function resetPage() {
             class="key-card"
             :class="getStatusClass(key.status)"
           >
+            <!-- 状态码显示 - 仅在invalid状态时显示在卡片左上角 -->
+            <div v-if="key.status === 'invalid' && key.status_code" class="status-code-badge">
+              <n-tag
+                type="error"
+                size="small"
+                :bordered="false"
+                round
+                style="font-weight: bold; background-color: #e88080; color: white;"
+              >
+                {{ key.status_code }}
+              </n-tag>
+            </div>
+
             <!-- 主要信息行：Key + 快速操作 -->
             <div class="key-main">
               <div class="key-section">
@@ -998,6 +1024,7 @@ function resetPage() {
   flex-direction: column;
   gap: 10px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  position: relative;
 }
 
 .key-card:hover {
@@ -1127,6 +1154,25 @@ function resetPage() {
 }
 
 /* 统计信息行 */
+
+.status-code-badge {
+  position: absolute;
+  top: -8px;
+  left: -8px;
+  z-index: 100;
+  animation: fadeInScale 0.3s ease-out;
+}
+
+@keyframes fadeInScale {
+  0% {
+    opacity: 0;
+    transform: scale(0.8) translateY(-2px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
 
 .action-btn {
   padding: 2px 6px;

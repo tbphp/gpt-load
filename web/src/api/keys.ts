@@ -5,6 +5,7 @@ import type {
   GroupConfigOption,
   GroupStatsResponse,
   KeyStatus,
+  KeyTestResult,
   TaskInfo,
 } from "@/types/models";
 import http from "@/utils/http";
@@ -112,11 +113,7 @@ export const keysApi = {
     group_id: number,
     keys_text: string
   ): Promise<{
-    results: {
-      key_value: string;
-      is_valid: boolean;
-      error: string;
-    }[];
+    results: KeyTestResult[];
     total_duration: number;
   }> {
     const res = await http.post(

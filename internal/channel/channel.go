@@ -33,5 +33,5 @@ type ChannelProxy interface {
 	ExtractModel(c *gin.Context, bodyBytes []byte) string
 
 	// ValidateKey checks if the given API key is valid.
-	ValidateKey(ctx context.Context, apiKey *models.APIKey, group *models.Group) (bool, error)
+	ValidateKey(ctx context.Context, apiKey *models.APIKey, group *models.Group) (bool, int, error)
 }

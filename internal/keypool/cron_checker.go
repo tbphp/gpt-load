@@ -159,7 +159,7 @@ func (s *CronChecker) validateGroupKeys(group *models.Group) {
 					keyForValidation := *key
 					keyForValidation.KeyValue = decryptedKey
 
-					isValid, _ := s.Validator.ValidateSingleKey(&keyForValidation, group)
+					isValid, _, _ := s.Validator.ValidateSingleKey(&keyForValidation, group)
 					if isValid {
 						atomic.AddInt32(&becameValidCount, 1)
 					}
