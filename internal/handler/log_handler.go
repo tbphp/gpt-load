@@ -6,7 +6,9 @@ import (
 	"gpt-load/internal/i18n"
 	"gpt-load/internal/models"
 	"gpt-load/internal/response"
+	"gpt-load/internal/utils"
 	"log"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -20,6 +22,55 @@ type LogResponse struct {
 
 // GetLogs handles fetching request logs with filtering and pagination.
 func (s *Server) GetLogs(c *gin.Context) {
+	// 检查是否处于蜜罐模式
+	if utils.IsHoneypotMode(c) {
+		mode := utils.GetHoneypotMode(c)
+		settings := s.SettingsManager.GetSettings()
+
+		// 生成蜜罐日志数据
+		generator := utils.NewHoneypotDataGenerator(mode, settings.HoneypotSeed)
+
+		// 获取分页参数
+		pageStr := c.DefaultQuery("page", "1")
+		pageSizeStr := c.DefaultQuery("page_size", "20")
+		page, _ := strconv.Atoi(pageStr)
+		pageSize, _ := strconv.Atoi(pageSizeStr)
+		if page < 1 {
+			page = 1
+		}
+		if pageSize < 1 || pageSize > 100 {
+			pageSize = 20
+		}
+
+		// 生成足够的日志数据
+		totalLogs := 1000 // 模拟总共1000条日志
+		logs := generator.GenerateRequestLogs(totalLogs)
+
+		// 模拟分页
+		start := (page - 1) * pageSize
+		end := start + pageSize
+		if start >= len(logs) {
+			logs = []models.RequestLog{}
+		} else if end > len(logs) {
+			logs = logs[start:]
+		} else {
+			logs = logs[start:end]
+		}
+
+		pagination := &response.PaginatedResponse{
+			Items: logs,
+			Pagination: response.Pagination{
+				Page:       page,
+				PageSize:   pageSize,
+				TotalItems: int64(totalLogs),
+				TotalPages: (totalLogs + pageSize - 1) / pageSize,
+			},
+		}
+
+		response.Success(c, pagination)
+		return
+	}
+
 	query := s.LogService.GetLogsQuery(c)
 
 	var logs []models.RequestLog

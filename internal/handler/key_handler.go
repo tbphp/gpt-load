@@ -5,6 +5,7 @@ import (
 	app_errors "gpt-load/internal/errors"
 	"gpt-load/internal/models"
 	"gpt-load/internal/response"
+	"gpt-load/internal/utils"
 	"log"
 	"strconv"
 	"strings"
@@ -136,6 +137,64 @@ func (s *Server) AddMultipleKeysAsync(c *gin.Context) {
 func (s *Server) ListKeysInGroup(c *gin.Context) {
 	groupID, ok := validateGroupIDFromQuery(c)
 	if !ok {
+		return
+	}
+
+	// 检查是否处于蜜罐模式
+	if utils.IsHoneypotMode(c) {
+		mode := utils.GetHoneypotMode(c)
+		settings := s.SettingsManager.GetSettings()
+
+		// 获取分页参数
+		page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+		pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+		if page < 1 {
+			page = 1
+		}
+		if pageSize < 1 || pageSize > 100 {
+			pageSize = 20
+		}
+
+		// 生成蜜罐数据（支持分页）
+		generator := utils.NewHoneypotDataGenerator(mode, settings.HoneypotSeed)
+		honeypotKeys, totalCount := generator.GenerateKeysForGroup(groupID, page, pageSize)
+
+		// 简单的状态过滤（在分页后应用）
+		statusFilter := c.Query("status")
+		if statusFilter != "" {
+			var filteredKeys []models.APIKey
+			for _, key := range honeypotKeys {
+				if key.Status == statusFilter {
+					filteredKeys = append(filteredKeys, key)
+				}
+			}
+			honeypotKeys = filteredKeys
+		}
+
+		// 关键词搜索过滤（在分页后应用）
+		searchKeyword := c.Query("key_value")
+		if searchKeyword != "" {
+			var filteredKeys []models.APIKey
+			for _, key := range honeypotKeys {
+				if strings.Contains(key.KeyValue, searchKeyword) {
+					filteredKeys = append(filteredKeys, key)
+				}
+			}
+			honeypotKeys = filteredKeys
+		}
+
+		totalPages := int((totalCount + int64(pageSize) - 1) / int64(pageSize))
+		paginatedResult := &response.PaginatedResponse{
+			Items: honeypotKeys,
+			Pagination: response.Pagination{
+				Page:       page,
+				PageSize:   pageSize,
+				TotalItems: totalCount,
+				TotalPages: totalPages,
+			},
+		}
+
+		response.Success(c, paginatedResult)
 		return
 	}
 

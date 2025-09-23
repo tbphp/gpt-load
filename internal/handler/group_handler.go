@@ -296,6 +296,24 @@ func (s *Server) CreateGroup(c *gin.Context) {
 
 // ListGroups handles listing all groups.
 func (s *Server) ListGroups(c *gin.Context) {
+	// 检查是否处于蜜罐模式
+	if utils.IsHoneypotMode(c) {
+		mode := utils.GetHoneypotMode(c)
+		settings := s.SettingsManager.GetSettings()
+
+		// 生成蜜罐数据
+		generator := utils.NewHoneypotDataGenerator(mode, settings.HoneypotSeed)
+		honeypotGroups := generator.GenerateGroups()
+
+		var groupResponses []GroupResponse
+		for i := range honeypotGroups {
+			groupResponses = append(groupResponses, *s.newGroupResponse(&honeypotGroups[i]))
+		}
+
+		response.Success(c, groupResponses)
+		return
+	}
+
 	var groups []models.Group
 	if err := s.DB.Order("sort asc, id desc").Find(&groups).Error; err != nil {
 		response.Error(c, app_errors.ParseDBError(err))
@@ -749,6 +767,27 @@ func (s *Server) GetGroupStats(c *gin.Context) {
 		return
 	}
 	groupID := uint(id)
+
+	// 检查是否处于蜜罐模式
+	if utils.IsHoneypotMode(c) {
+		mode := utils.GetHoneypotMode(c)
+		settings := s.SettingsManager.GetSettings()
+
+		// 生成蜜罐数据
+		generator := utils.NewHoneypotDataGenerator(mode, settings.HoneypotSeed)
+		honeypotGroups := generator.GenerateGroups()
+
+		// 验证分组ID是否存在于蜜罐数据中
+		if groupID == 0 || int(groupID) > len(honeypotGroups) {
+			response.Error(c, app_errors.ErrResourceNotFound)
+			return
+		}
+
+		// 生成蜜罐分组统计数据
+		honeypotStats := generator.GenerateGroupStats(groupID)
+		response.Success(c, honeypotStats)
+		return
+	}
 
 	// 1. 验证分组是否存在
 	var group models.Group

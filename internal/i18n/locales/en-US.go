@@ -151,9 +151,18 @@ var MessagesEnUS = map[string]string{
 	"config.key_validation_timeout_desc":     "API request timeout (seconds) when validating a single key in the background.",
 
 	// Category labels
-	"config.category.basic":   "Basic",
-	"config.category.request": "Request Settings",
-	"config.category.key":     "Key Configuration",
+	"config.category.basic":    "Basic",
+	"config.category.request":  "Request Settings",
+	"config.category.key":      "Key Configuration",
+	"config.category.security": "Security Configuration",
+
+	// Honeypot config
+	"config.enable_honeypot":      "Enable Honeypot",
+	"config.enable_honeypot_desc": "When enabled, login attempts with incorrect passwords will enter a simulation environment showing fake data to deceive attackers.",
+	"config.honeypot_mode":        "Honeypot Mode",
+	"config.honeypot_mode_desc":   "Choose honeypot mode: `deceive` mode (generate small amount of fake data) or `overload` mode (generate massive data to slow down crawlers).",
+	"config.honeypot_seed":        "Honeypot Data Seed",
+	"config.honeypot_seed_desc":   "Seed string for generating consistent honeypot data. Same seed will generate identical fake data on the same day.",
 
 	// Internal error messages (for fmt.Errorf usage)
 	"error.upstreams_required":       "upstreams field is required",
