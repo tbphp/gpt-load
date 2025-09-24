@@ -112,6 +112,16 @@ func (p *KeyProvider) UpdateStatus(apiKey *models.APIKey, group *models.Group, i
 	}()
 }
 
+// UpdateStatusCode 更新密钥的状态码
+func (p *KeyProvider) UpdateStatusCode(apiKey *models.APIKey, statusCode int) error {
+	// keep in-memory model consistent to avoid accidental overwrite
+	apiKey.StatusCode = statusCode
+	if err := p.db.Model(apiKey).Update("status_code", statusCode).Error; err != nil {
+		return err
+	}
+	return nil
+}
+
 // executeTransactionWithRetry wraps a database transaction with a retry mechanism.
 func (p *KeyProvider) executeTransactionWithRetry(operation func(tx *gorm.DB) error) error {
 	const maxRetries = 3

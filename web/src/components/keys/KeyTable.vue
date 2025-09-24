@@ -47,6 +47,7 @@ const keys = ref<KeyRow[]>([]);
 const loading = ref(false);
 const searchText = ref("");
 const statusFilter = ref<"all" | "active" | "invalid">("all");
+const searchMode = ref<"key" | "statusCode">("key");
 const currentPage = ref(1);
 const pageSize = ref(12);
 const total = ref(0);
@@ -68,6 +69,11 @@ const moreOptions = [
   { label: t("keys.exportInvalidKeys"), key: "copyInvalid" },
   { type: "divider" },
   { label: t("keys.restoreAllInvalidKeys"), key: "restoreAll" },
+  {
+    label: t("keys.clearCurrentQueryKeys"),
+    key: "clearCurrentQuery",
+    props: { style: { color: "#d03050" } },
+  },
   {
     label: t("keys.clearAllInvalidKeys"),
     key: "clearInvalid",
@@ -180,6 +186,9 @@ function handleMoreAction(key: string) {
     case "clearAll":
       clearAll();
       break;
+    case "clearCurrentQuery":
+      clearCurrentQueryKeys();
+      break;
   }
 }
 
@@ -195,7 +204,8 @@ async function loadKeys() {
       page: currentPage.value,
       page_size: pageSize.value,
       status: statusFilter.value === "all" ? undefined : (statusFilter.value as KeyStatus),
-      key_value: searchText.value.trim() || undefined,
+      key_value: searchMode.value === "key" ? (searchText.value.trim() || undefined) : undefined,
+      status_code: searchMode.value === "statusCode" ? (searchText.value.trim() ? Number(searchText.value.trim()) : undefined) : undefined,
     });
     keys.value = result.items as KeyRow[];
     total.value = result.pagination.total_items;
@@ -237,6 +247,19 @@ async function testKey(_key: KeyRow) {
   try {
     const response = await keysApi.testKeys(props.selectedGroup.id, _key.key_value);
     const curValid = response.results?.[0] || {};
+
+    // 更新密钥的状态码（不再需要重新加载整个列表）
+    const keyIndex = keys.value.findIndex(k => k.id === _key.id);
+    if (keyIndex !== -1) {
+      keys.value[keyIndex].status_code = (curValid.status_code ?? undefined) as number | undefined;
+      // 同时更新状态，避免重新加载
+      if (curValid.is_valid) {
+        keys.value[keyIndex].status = 'active';
+      } else {
+        keys.value[keyIndex].status = 'invalid';
+      }
+    }
+
     if (curValid.is_valid) {
       window.$message.success(
         t("keys.testSuccess", { duration: formatDuration(response.total_duration) })
@@ -248,8 +271,8 @@ async function testKey(_key: KeyRow) {
         closable: true,
       });
     }
-    await loadKeys();
-    // 触发同步操作刷新
+
+    // 触发同步操作刷新，但不再重新加载密钥列表
     triggerSyncOperationRefresh(props.selectedGroup.name, "TEST_SINGLE");
   } catch (_error) {
     console.error("Test failed");
@@ -567,6 +590,63 @@ async function clearAll() {
   });
 }
 
+async function clearCurrentQueryKeys() {
+  if (!props.selectedGroup?.id || isDeling.value) {
+    return;
+  }
+
+  // 构建确认消息，显示当前查询条件
+  let queryDesc = "";
+  if (searchText.value) {
+    queryDesc += `${t("keys.keyExactMatch")}: ${searchText.value}`;
+  }
+  if (statusFilter.value !== "all") {
+    if (queryDesc) queryDesc += ", ";
+    queryDesc += `${t("common.status")}: ${t(`keys.${statusFilter.value}`)}`;
+  }
+  if (searchMode.value === "statusCode" && searchText.value) {
+    queryDesc = `${t("keys.statusCodeSearch")}: ${searchText.value}`;
+  }
+
+  const d = dialog.warning({
+    title: t("keys.clearCurrentQueryKeys"),
+    content: () =>
+      h("div", null, [
+        h("p", null, t("keys.confirmClearCurrentQueryKeys", { query: queryDesc || t("keys.allKeys") }).split("\n")[0]),
+        h("p", null, t("keys.confirmClearCurrentQueryKeys", { query: queryDesc || t("keys.allKeys") }).split("\n")[1]),
+      ]),
+    positiveText: t("common.confirm"),
+    negativeText: t("common.cancel"),
+    onPositiveClick: async () => {
+      if (!props.selectedGroup?.id) {
+        return;
+      }
+
+      isDeling.value = true;
+      d.loading = true;
+      try {
+        // 调用API清空当前查询条件下的密钥
+        await keysApi.clearCurrentQueryKeys(
+          props.selectedGroup.id,
+          searchMode.value === "key" ? (searchText.value.trim() || undefined) : undefined,
+          searchMode.value === "statusCode" ? (searchText.value.trim() ? parseInt(searchText.value.trim(), 10) : undefined) : undefined,
+          statusFilter.value === "all" ? undefined : (statusFilter.value as KeyStatus)
+        );
+        window.$message.success(t("keys.clearCurrentQueryKeysSuccess"));
+        await loadKeys();
+        // 触发同步操作刷新
+        triggerSyncOperationRefresh(props.selectedGroup.name, "CLEAR_CURRENT_QUERY");
+      } catch (_error) {
+        console.error("Clear current query keys failed", _error);
+        window.$message.error(t("keys.clearCurrentQueryKeysFailed"));
+      } finally {
+        d.loading = false;
+        isDeling.value = false;
+      }
+    },
+  });
+}
+
 function changePage(page: number) {
   currentPage.value = page;
 }
@@ -610,10 +690,22 @@ function resetPage() {
             style="width: 120px"
             :placeholder="t('keys.allStatus')"
           />
+          <div class="mode-switch-container">
+            <div class="mode-switch" :class="{ 'mode-status-code': searchMode === 'statusCode' }">
+              <div class="mode-option" :class="{ active: searchMode === 'key' }" @click="searchMode = 'key'">
+                <n-icon :component="Search" size="14" />
+                <span>{{ t("keys.keySearch") }}</span>
+              </div>
+              <div class="mode-option" :class="{ active: searchMode === 'statusCode' }" @click="searchMode = 'statusCode'">
+                <n-icon :component="AlertCircleOutline" size="14" />
+                <span>{{ t("keys.statusCodeSearch") }}</span>
+              </div>
+            </div>
+          </div>
           <n-input-group>
             <n-input
               v-model:value="searchText"
-              :placeholder="t('keys.keyExactMatch')"
+              :placeholder="searchMode === 'statusCode' ? t('keys.statusCodeSearchPlaceholder') : t('keys.keyExactMatch')"
               size="small"
               style="width: 200px"
               clearable
@@ -657,6 +749,19 @@ function resetPage() {
             class="key-card"
             :class="getStatusClass(key.status)"
           >
+            <!-- 状态码显示 - 仅在invalid状态时显示在卡片左上角 -->
+            <div v-if="key.status === 'invalid' && key.status_code" class="status-code-badge">
+              <n-tag
+                type="error"
+                size="small"
+                :bordered="false"
+                round
+                style="font-weight: bold; background-color: #e88080; color: white;"
+              >
+                {{ key.status_code }}
+              </n-tag>
+            </div>
+
             <!-- 主要信息行：Key + 快速操作 -->
             <div class="key-main">
               <div class="key-section">
@@ -837,6 +942,62 @@ function resetPage() {
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 
+/* 模式切换开关样式 */
+.mode-switch-container {
+  display: flex;
+  align-items: center;
+}
+
+.mode-switch {
+  display: flex;
+  background: var(--bg-secondary);
+  border-radius: 20px;
+  padding: 2px;
+  position: relative;
+  border: 1px solid var(--border-color);
+  transition: all 0.3s ease;
+}
+
+.mode-switch.mode-status-code {
+  background: var(--error-bg);
+  border-color: var(--error-border);
+}
+
+.mode-option {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 16px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-secondary);
+  transition: all 0.3s ease;
+  z-index: 2;
+  position: relative;
+  white-space: nowrap;
+}
+
+.mode-option.active {
+  color: white;
+  font-weight: 500;
+}
+
+.mode-switch:not(.mode-status-code) .mode-option:first-child.active {
+  background: var(--primary-color);
+  box-shadow: 0 2px 4px rgba(0, 123, 255, 0.3);
+}
+
+.mode-switch.mode-status-code .mode-option:last-child.active {
+  background: var(--error-color);
+  box-shadow: 0 2px 4px rgba(220, 53, 69, 0.3);
+}
+
+.mode-option:hover:not(.active) {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
+}
+
 /* 暗黑模式下的输入框 */
 :root.dark .toolbar :deep(.n-input-group) {
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
@@ -998,6 +1159,7 @@ function resetPage() {
   flex-direction: column;
   gap: 10px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  position: relative;
 }
 
 .key-card:hover {
@@ -1127,6 +1289,25 @@ function resetPage() {
 }
 
 /* 统计信息行 */
+
+.status-code-badge {
+  position: absolute;
+  top: -8px;
+  left: -8px;
+  z-index: 100;
+  animation: fadeInScale 0.3s ease-out;
+}
+
+@keyframes fadeInScale {
+  0% {
+    opacity: 0;
+    transform: scale(0.8) translateY(-2px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
 
 .action-btn {
   padding: 2px 6px;
