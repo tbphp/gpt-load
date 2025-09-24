@@ -137,6 +137,8 @@ var MessagesEnUS = map[string]string{
 	"config.max_idle_conns_per_host_desc": "Maximum number of idle connections allowed per upstream host in the HTTP client connection pool.",
 	"config.proxy_url":                    "Proxy Server URL",
 	"config.proxy_url_desc":               "Global HTTP/HTTPS proxy server URL, e.g., http://user:pass@host:port. If empty, uses environment variable configuration.",
+	"config.skip_cert_verify":             "Skip SSL Certificate Verification",
+	"config.skip_cert_verify_desc":        "Skip SSL certificate verification for upstream servers. Enabling this reduces security and should only be used in test environments or when communicating with internal services using self-signed certificates.",
 
 	// Key config related
 	"config.max_retries":                     "Max Retries",

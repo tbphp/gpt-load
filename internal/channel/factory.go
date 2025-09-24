@@ -125,6 +125,15 @@ func (f *Factory) newBaseChannel(name string, group *models.Group) (*BaseChannel
 		ExpectContinueTimeout: 1 * time.Second,
 	}
 
+	// Apply skip certificate verification setting if configured
+	if group.Config != nil {
+		if skipCertVerify, exists := group.Config["skip_cert_verify"]; exists {
+			if skipBool, ok := skipCertVerify.(bool); ok && skipBool {
+				clientConfig.SkipCertVerify = true
+			}
+		}
+	}
+
 	// Create a dedicated configuration for streaming requests.
 	streamConfig := *clientConfig
 	streamConfig.RequestTimeout = 0
