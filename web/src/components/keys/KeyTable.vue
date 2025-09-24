@@ -47,6 +47,7 @@ const keys = ref<KeyRow[]>([]);
 const loading = ref(false);
 const searchText = ref("");
 const statusFilter = ref<"all" | "active" | "invalid">("all");
+const searchMode = ref<"key" | "statusCode">("key");
 const currentPage = ref(1);
 const pageSize = ref(12);
 const total = ref(0);
@@ -68,6 +69,11 @@ const moreOptions = [
   { label: t("keys.exportInvalidKeys"), key: "copyInvalid" },
   { type: "divider" },
   { label: t("keys.restoreAllInvalidKeys"), key: "restoreAll" },
+  {
+    label: t("keys.clearCurrentQueryKeys"),
+    key: "clearCurrentQuery",
+    props: { style: { color: "#d03050" } },
+  },
   {
     label: t("keys.clearAllInvalidKeys"),
     key: "clearInvalid",
@@ -180,6 +186,9 @@ function handleMoreAction(key: string) {
     case "clearAll":
       clearAll();
       break;
+    case "clearCurrentQuery":
+      clearCurrentQueryKeys();
+      break;
   }
 }
 
@@ -195,7 +204,8 @@ async function loadKeys() {
       page: currentPage.value,
       page_size: pageSize.value,
       status: statusFilter.value === "all" ? undefined : (statusFilter.value as KeyStatus),
-      key_value: searchText.value.trim() || undefined,
+      key_value: searchMode.value === "key" ? (searchText.value.trim() || undefined) : undefined,
+      status_code: searchMode.value === "statusCode" ? (searchText.value.trim() ? Number(searchText.value.trim()) : undefined) : undefined,
     });
     keys.value = result.items as KeyRow[];
     total.value = result.pagination.total_items;
@@ -580,6 +590,63 @@ async function clearAll() {
   });
 }
 
+async function clearCurrentQueryKeys() {
+  if (!props.selectedGroup?.id || isDeling.value) {
+    return;
+  }
+
+  // 构建确认消息，显示当前查询条件
+  let queryDesc = "";
+  if (searchText.value) {
+    queryDesc += `${t("keys.keyExactMatch")}: ${searchText.value}`;
+  }
+  if (statusFilter.value !== "all") {
+    if (queryDesc) queryDesc += ", ";
+    queryDesc += `${t("common.status")}: ${t(`keys.${statusFilter.value}`)}`;
+  }
+  if (searchMode.value === "statusCode" && searchText.value) {
+    queryDesc = `${t("keys.statusCodeSearch")}: ${searchText.value}`;
+  }
+
+  const d = dialog.warning({
+    title: t("keys.clearCurrentQueryKeys"),
+    content: () =>
+      h("div", null, [
+        h("p", null, t("keys.confirmClearCurrentQueryKeys", { query: queryDesc || t("keys.allKeys") }).split("\n")[0]),
+        h("p", null, t("keys.confirmClearCurrentQueryKeys", { query: queryDesc || t("keys.allKeys") }).split("\n")[1]),
+      ]),
+    positiveText: t("common.confirm"),
+    negativeText: t("common.cancel"),
+    onPositiveClick: async () => {
+      if (!props.selectedGroup?.id) {
+        return;
+      }
+
+      isDeling.value = true;
+      d.loading = true;
+      try {
+        // 调用API清空当前查询条件下的密钥
+        await keysApi.clearCurrentQueryKeys(
+          props.selectedGroup.id,
+          searchMode.value === "key" ? (searchText.value.trim() || undefined) : undefined,
+          searchMode.value === "statusCode" ? (searchText.value.trim() ? parseInt(searchText.value.trim(), 10) : undefined) : undefined,
+          statusFilter.value === "all" ? undefined : (statusFilter.value as KeyStatus)
+        );
+        window.$message.success(t("keys.clearCurrentQueryKeysSuccess"));
+        await loadKeys();
+        // 触发同步操作刷新
+        triggerSyncOperationRefresh(props.selectedGroup.name, "CLEAR_CURRENT_QUERY");
+      } catch (_error) {
+        console.error("Clear current query keys failed", _error);
+        window.$message.error(t("keys.clearCurrentQueryKeysFailed"));
+      } finally {
+        d.loading = false;
+        isDeling.value = false;
+      }
+    },
+  });
+}
+
 function changePage(page: number) {
   currentPage.value = page;
 }
@@ -623,10 +690,22 @@ function resetPage() {
             style="width: 120px"
             :placeholder="t('keys.allStatus')"
           />
+          <div class="mode-switch-container">
+            <div class="mode-switch" :class="{ 'mode-status-code': searchMode === 'statusCode' }">
+              <div class="mode-option" :class="{ active: searchMode === 'key' }" @click="searchMode = 'key'">
+                <n-icon :component="Search" size="14" />
+                <span>{{ t("keys.keySearch") }}</span>
+              </div>
+              <div class="mode-option" :class="{ active: searchMode === 'statusCode' }" @click="searchMode = 'statusCode'">
+                <n-icon :component="AlertCircleOutline" size="14" />
+                <span>{{ t("keys.statusCodeSearch") }}</span>
+              </div>
+            </div>
+          </div>
           <n-input-group>
             <n-input
               v-model:value="searchText"
-              :placeholder="t('keys.keyExactMatch')"
+              :placeholder="searchMode === 'statusCode' ? t('keys.statusCodeSearchPlaceholder') : t('keys.keyExactMatch')"
               size="small"
               style="width: 200px"
               clearable
@@ -861,6 +940,62 @@ function resetPage() {
 /* 搜索输入框样式 */
 .toolbar :deep(.n-input-group) {
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+/* 模式切换开关样式 */
+.mode-switch-container {
+  display: flex;
+  align-items: center;
+}
+
+.mode-switch {
+  display: flex;
+  background: var(--bg-secondary);
+  border-radius: 20px;
+  padding: 2px;
+  position: relative;
+  border: 1px solid var(--border-color);
+  transition: all 0.3s ease;
+}
+
+.mode-switch.mode-status-code {
+  background: var(--error-bg);
+  border-color: var(--error-border);
+}
+
+.mode-option {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 16px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-secondary);
+  transition: all 0.3s ease;
+  z-index: 2;
+  position: relative;
+  white-space: nowrap;
+}
+
+.mode-option.active {
+  color: white;
+  font-weight: 500;
+}
+
+.mode-switch:not(.mode-status-code) .mode-option:first-child.active {
+  background: var(--primary-color);
+  box-shadow: 0 2px 4px rgba(0, 123, 255, 0.3);
+}
+
+.mode-switch.mode-status-code .mode-option:last-child.active {
+  background: var(--error-color);
+  box-shadow: 0 2px 4px rgba(220, 53, 69, 0.3);
+}
+
+.mode-option:hover:not(.active) {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
 }
 
 /* 暗黑模式下的输入框 */

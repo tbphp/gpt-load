@@ -155,7 +155,8 @@ func (s *Server) ListKeysInGroup(c *gin.Context) {
 		searchHash = s.EncryptionSvc.Hash(searchKeyword)
 	}
 
-	query := s.KeyService.ListKeysInGroupQuery(groupID, statusFilter, searchHash)
+	statusCodeFilter := c.Query("status_code")
+	query := s.KeyService.ListKeysInGroupQuery(groupID, statusFilter, searchHash, statusCodeFilter)
 
 	var keys []models.APIKey
 	paginatedResult, err := response.Paginate(c, query, &keys)
@@ -405,6 +406,39 @@ func (s *Server) ClearAllKeys(c *gin.Context) {
 	}
 
 	response.SuccessI18n(c, "success.all_keys_cleared", nil, map[string]any{"count": rowsAffected})
+}
+
+// ClearCurrentQueryKeys deletes keys based on current query conditions.
+func (s *Server) ClearCurrentQueryKeys(c *gin.Context) {
+	var req struct {
+		GroupID    uint    `json:"group_id" binding:"required"`
+		KeyValue   *string `json:"key_value,omitempty"`
+		StatusCode *int    `json:"status_code,omitempty"`
+		Status     *string `json:"status,omitempty"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, app_errors.NewAPIError(app_errors.ErrInvalidJSON, err.Error()))
+		return
+	}
+
+	if _, ok := s.findGroupByID(c, req.GroupID); !ok {
+		return
+	}
+
+	// 构建查询条件
+	var keyHash *string
+	if req.KeyValue != nil && *req.KeyValue != "" {
+		hash := s.EncryptionSvc.Hash(*req.KeyValue)
+		keyHash = &hash
+	}
+
+	rowsAffected, err := s.KeyService.ClearCurrentQueryKeys(req.GroupID, keyHash, req.StatusCode, req.Status)
+	if err != nil {
+		response.Error(c, app_errors.ParseDBError(err))
+		return
+	}
+
+	response.SuccessI18n(c, "success.current_query_keys_cleared", nil, map[string]any{"count": rowsAffected})
 }
 
 // ExportKeys handles exporting keys to a text file.

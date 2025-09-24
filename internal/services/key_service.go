@@ -8,6 +8,7 @@ import (
 	"gpt-load/internal/models"
 	"io"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/sirupsen/logrus"
@@ -257,6 +258,26 @@ func (s *KeyService) ClearAllKeys(groupID uint) (int64, error) {
 	return s.KeyProvider.RemoveAllKeys(groupID)
 }
 
+// ClearCurrentQueryKeys deletes keys based on current query conditions.
+func (s *KeyService) ClearCurrentQueryKeys(groupID uint, keyHash *string, statusCode *int, status *string) (int64, error) {
+	query := s.DB.Where("group_id = ?", groupID)
+
+	if keyHash != nil && *keyHash != "" {
+		query = query.Where("key_hash = ?", *keyHash)
+	}
+
+	if statusCode != nil && *statusCode != 0 {
+		query = query.Where("status_code = ?", *statusCode)
+	}
+
+	if status != nil && *status != "" {
+		query = query.Where("status = ?", *status)
+	}
+
+	result := query.Delete(&models.APIKey{})
+	return result.RowsAffected, result.Error
+}
+
 // DeleteMultipleKeys handles the business logic of deleting keys from a text block.
 func (s *KeyService) DeleteMultipleKeys(groupID uint, keysText string) (*DeleteKeysResult, error) {
 	keysToDelete := s.ParseKeysFromText(keysText)
@@ -296,7 +317,7 @@ func (s *KeyService) DeleteMultipleKeys(groupID uint, keysText string) (*DeleteK
 }
 
 // ListKeysInGroupQuery builds a query to list all keys within a specific group, filtered by status.
-func (s *KeyService) ListKeysInGroupQuery(groupID uint, statusFilter string, searchHash string) *gorm.DB {
+func (s *KeyService) ListKeysInGroupQuery(groupID uint, statusFilter string, searchHash string, statusCodeFilter string) *gorm.DB {
 	query := s.DB.Model(&models.APIKey{}).Where("group_id = ?", groupID)
 
 	if statusFilter != "" {
@@ -305,6 +326,12 @@ func (s *KeyService) ListKeysInGroupQuery(groupID uint, statusFilter string, sea
 
 	if searchHash != "" {
 		query = query.Where("key_hash = ?", searchHash)
+	}
+
+	if statusCodeFilter != "" {
+		if statusCode, err := strconv.Atoi(statusCodeFilter); err == nil {
+			query = query.Where("status_code = ?", statusCode)
+		}
 	}
 
 	query = query.Order("last_used_at desc, updated_at desc")
