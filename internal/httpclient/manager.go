@@ -104,6 +104,8 @@ func (m *HTTPClientManager) GetClient(config *Config) *http.Client {
 	if config.SkipCertVerify {
 		transport.TLSClientConfig = &tls.Config{
 			InsecureSkipVerify: true,
+			// Prefer TLS 1.2+ for compatibility; consider TLS 1.3 if all upstreams support it.
+			MinVersion: tls.VersionTLS12,
 		}
 	}
 
