@@ -196,6 +196,13 @@ func (ps *ProxyServer) executeRequestWithRetry(
 
 		// 使用解析后的错误信息更新密钥状态
 		ps.keyProvider.UpdateStatus(apiKey, group, false, parsedError)
+		
+		// 更新状态码到数据库
+		if statusCode != 0 {
+			if err := ps.keyProvider.UpdateStatusCode(apiKey, statusCode); err != nil {
+				logrus.WithError(err).WithField("key_id", apiKey.ID).Error("Failed to update status_code")
+			}
+		}
 
 		// 判断是否为最后一次尝试
 		isLastAttempt := retryCount >= cfg.MaxRetries
