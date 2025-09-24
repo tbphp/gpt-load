@@ -137,6 +137,8 @@ var MessagesZhCN = map[string]string{
 	"config.max_idle_conns_per_host_desc": "HTTP 客户端连接池对每个上游主机允许的最大空闲连接数。",
 	"config.proxy_url":                    "代理服务器地址",
 	"config.proxy_url_desc":               "全局 HTTP/HTTPS 代理服务器地址，例如：http://user:pass@host:port。如果为空，则使用环境变量配置。",
+	"config.skip_cert_verify":             "跳过SSL证书验证",
+	"config.skip_cert_verify_desc":        "跳过对上游服务器SSL证书的验证。启用此选项会降低安全性，仅在测试环境或与使用自签名证书的内部服务通信时使用。",
 
 	// Key config related
 	"config.max_retries":                     "最大重试次数",

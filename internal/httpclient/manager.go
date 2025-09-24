@@ -1,6 +1,7 @@
 package httpclient
 
 import (
+	"crypto/tls"
 	"fmt"
 	"net"
 	"net/http"
@@ -27,6 +28,7 @@ type Config struct {
 	TLSHandshakeTimeout   time.Duration
 	ExpectContinueTimeout time.Duration
 	ProxyURL              string
+	SkipCertVerify        bool
 }
 
 // HTTPClientManager manages the lifecycle of HTTP clients.
@@ -98,6 +100,15 @@ func (m *HTTPClientManager) GetClient(config *Config) *http.Client {
 		transport.Proxy = http.ProxyFromEnvironment
 	}
 
+	// Configure TLS client config for certificate verification
+	if config.SkipCertVerify {
+		transport.TLSClientConfig = &tls.Config{
+			InsecureSkipVerify: true,
+			// Prefer TLS 1.2+ for compatibility; consider TLS 1.3 if all upstreams support it.
+			MinVersion: tls.VersionTLS12,
+		}
+	}
+
 	newClient := &http.Client{
 		Transport: transport,
 		Timeout:   config.RequestTimeout,
@@ -110,7 +121,7 @@ func (m *HTTPClientManager) GetClient(config *Config) *http.Client {
 // getFingerprint generates a unique string representation of the client configuration.
 func (c *Config) getFingerprint() string {
 	return fmt.Sprintf(
-		"ct:%.0fs|rt:%.0fs|it:%.0fs|mic:%d|mich:%d|rht:%.0fs|dc:%t|wbs:%d|rbs:%d|fh2:%t|tlst:%.0fs|ect:%.0fs|proxy:%s",
+		"ct:%.0fs|rt:%.0fs|it:%.0fs|mic:%d|mich:%d|rht:%.0fs|dc:%t|wbs:%d|rbs:%d|fh2:%t|tlst:%.0fs|ect:%.0fs|proxy:%s|scv:%t",
 		c.ConnectTimeout.Seconds(),
 		c.RequestTimeout.Seconds(),
 		c.IdleConnTimeout.Seconds(),
@@ -124,5 +135,6 @@ func (c *Config) getFingerprint() string {
 		c.TLSHandshakeTimeout.Seconds(),
 		c.ExpectContinueTimeout.Seconds(),
 		c.ProxyURL,
+		c.SkipCertVerify,
 	)
 }
