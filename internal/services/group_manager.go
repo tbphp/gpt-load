@@ -22,6 +22,7 @@ type GroupManager struct {
 	db              *gorm.DB
 	store           store.Store
 	settingsManager *config.SystemSettingsManager
+	subGroupManager *SubGroupManager
 }
 
 // NewGroupManager creates a new, uninitialized GroupManager.
@@ -29,11 +30,13 @@ func NewGroupManager(
 	db *gorm.DB,
 	store store.Store,
 	settingsManager *config.SystemSettingsManager,
+	subGroupManager *SubGroupManager,
 ) *GroupManager {
 	return &GroupManager{
 		db:              db,
 		store:           store,
 		settingsManager: settingsManager,
+		subGroupManager: subGroupManager,
 	}
 }
 
@@ -43,6 +46,24 @@ func (gm *GroupManager) Initialize() error {
 		var groups []*models.Group
 		if err := gm.db.Find(&groups).Error; err != nil {
 			return nil, fmt.Errorf("failed to load groups from db: %w", err)
+		}
+
+		// Load all sub-group relationships for aggregate groups (only valid ones with weight > 0)
+		var allSubGroups []models.GroupSubGroup
+		if err := gm.db.Where("weight > 0").Find(&allSubGroups).Error; err != nil {
+			return nil, fmt.Errorf("failed to load valid sub groups: %w", err)
+		}
+
+		// Group sub-groups by aggregate group ID
+		subGroupsByAggregateID := make(map[uint][]models.GroupSubGroup)
+		for _, sg := range allSubGroups {
+			subGroupsByAggregateID[sg.GroupID] = append(subGroupsByAggregateID[sg.GroupID], sg)
+		}
+
+		// Create group ID to group object mapping for sub-group lookups
+		groupByID := make(map[uint]*models.Group)
+		for _, group := range groups {
+			groupByID[group.ID] = group
 		}
 
 		groupMap := make(map[string]*models.Group, len(groups))
@@ -61,15 +82,33 @@ func (gm *GroupManager) Initialize() error {
 				g.HeaderRuleList = []models.HeaderRule{}
 			}
 
+			// Load sub-groups for aggregate groups
+			if g.GroupType == "aggregate" {
+				if subGroups, ok := subGroupsByAggregateID[g.ID]; ok {
+					g.SubGroups = make([]models.GroupSubGroup, len(subGroups))
+					for i, sg := range subGroups {
+						g.SubGroups[i] = sg
+						if subGroup, exists := groupByID[sg.SubGroupID]; exists {
+							g.SubGroups[i].SubGroup = *subGroup
+						}
+					}
+				}
+			}
+
 			groupMap[g.Name] = &g
 			logrus.WithFields(logrus.Fields{
 				"group_name":         g.Name,
 				"effective_config":   g.EffectiveConfig,
 				"header_rules_count": len(g.HeaderRuleList),
+				"sub_group_count":    len(g.SubGroups),
 			}).Debug("Loaded group with effective config")
 		}
 
 		return groupMap, nil
+	}
+
+	afterReload := func(newCache map[string]*models.Group) {
+		gm.subGroupManager.RebuildSelectors(newCache)
 	}
 
 	syncer, err := syncer.NewCacheSyncer(
@@ -77,7 +116,7 @@ func (gm *GroupManager) Initialize() error {
 		gm.store,
 		GroupUpdateChannel,
 		logrus.WithField("syncer", "groups"),
-		nil,
+		afterReload,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create group syncer: %w", err)

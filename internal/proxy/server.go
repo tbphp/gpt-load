@@ -29,6 +29,7 @@ import (
 type ProxyServer struct {
 	keyProvider       *keypool.KeyProvider
 	groupManager      *services.GroupManager
+	subGroupManager   *services.SubGroupManager
 	settingsManager   *config.SystemSettingsManager
 	channelFactory    *channel.Factory
 	requestLogService *services.RequestLogService
@@ -39,6 +40,7 @@ type ProxyServer struct {
 func NewProxyServer(
 	keyProvider *keypool.KeyProvider,
 	groupManager *services.GroupManager,
+	subGroupManager *services.SubGroupManager,
 	settingsManager *config.SystemSettingsManager,
 	channelFactory *channel.Factory,
 	requestLogService *services.RequestLogService,
@@ -47,6 +49,7 @@ func NewProxyServer(
 	return &ProxyServer{
 		keyProvider:       keyProvider,
 		groupManager:      groupManager,
+		subGroupManager:   subGroupManager,
 		settingsManager:   settingsManager,
 		channelFactory:    channelFactory,
 		requestLogService: requestLogService,
@@ -65,7 +68,19 @@ func (ps *ProxyServer) HandleProxy(c *gin.Context) {
 		return
 	}
 
-	channelHandler, err := ps.channelFactory.GetChannel(group)
+	// Select sub-group if this is an aggregate group
+	actualGroup, err := ps.subGroupManager.SelectSubGroup(group)
+	if err != nil {
+		logrus.WithFields(logrus.Fields{
+			"aggregate_group": group.Name,
+			"error":           err,
+		}).Error("Failed to select sub-group from aggregate")
+		response.Error(c, app_errors.NewAPIError(app_errors.ErrNoKeysAvailable, "No available sub-groups"))
+		ps.logRequest(c, group, nil, startTime, http.StatusServiceUnavailable, err, false, "", nil, nil, models.RequestTypeFinal)
+		return
+	}
+
+	channelHandler, err := ps.channelFactory.GetChannel(actualGroup)
 	if err != nil {
 		response.Error(c, app_errors.NewAPIError(app_errors.ErrInternalServer, fmt.Sprintf("Failed to get channel for group '%s': %v", groupName, err)))
 		return
@@ -79,7 +94,7 @@ func (ps *ProxyServer) HandleProxy(c *gin.Context) {
 	}
 	c.Request.Body.Close()
 
-	finalBodyBytes, err := ps.applyParamOverrides(bodyBytes, group)
+	finalBodyBytes, err := ps.applyParamOverrides(bodyBytes, actualGroup)
 	if err != nil {
 		response.Error(c, app_errors.NewAPIError(app_errors.ErrInternalServer, fmt.Sprintf("Failed to apply parameter overrides: %v", err)))
 		return
@@ -87,7 +102,7 @@ func (ps *ProxyServer) HandleProxy(c *gin.Context) {
 
 	isStream := channelHandler.IsStreamRequest(c, bodyBytes)
 
-	ps.executeRequestWithRetry(c, channelHandler, group, finalBodyBytes, isStream, startTime, 0)
+	ps.executeRequestWithRetry(c, channelHandler, actualGroup, finalBodyBytes, isStream, startTime, 0)
 }
 
 // executeRequestWithRetry is the core recursive function for handling requests and retries.
