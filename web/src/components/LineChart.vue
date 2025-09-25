@@ -2,11 +2,13 @@
 import { getDashboardChart, getGroupList } from "@/api/dashboard";
 import type { ChartData } from "@/types/models";
 import { getGroupDisplayName } from "@/utils/display";
+import { useDataFormat } from "@/composables/useDataFormat";
 import { NSelect, NSpin } from "naive-ui";
 import { computed, onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
 const { t } = useI18n();
+const { formatValue, formatPercentage, isValidNumber } = useDataFormat();
 
 // 图表数据
 const chartData = ref<ChartData | null>(null);
@@ -202,16 +204,6 @@ const generateAreaPath = (data: number[]) => {
   return pathParts.join(" ");
 };
 
-// 数字格式化
-const formatNumber = (value: number) => {
-  // if (value >= 1000000) {
-  //   return `${(value / 1000000).toFixed(1)}M`;
-  // } else
-  if (value >= 1000) {
-    return `${(value / 1000).toFixed(1)}K`;
-  }
-  return Math.round(value).toString();
-};
 
 const isErrorDataset = (label: string) => {
   return label.includes("失败") || label.includes("Error") || label.includes("エラー");
@@ -439,7 +431,7 @@ onMounted(() => {
                 text-anchor="end"
                 class="axis-label"
               >
-                {{ formatNumber(tick) }}
+                {{ formatValue(tick) }}
               </text>
             </g>
           </g>
@@ -550,7 +542,7 @@ onMounted(() => {
           <div class="tooltip-time">{{ tooltipData.time }}</div>
           <div v-for="dataset in tooltipData.datasets" :key="dataset.label" class="tooltip-value">
             <span class="tooltip-color" :style="{ backgroundColor: dataset.color }" />
-            {{ dataset.label }}: {{ formatNumber(dataset.value) }}
+            {{ dataset.label }}: {{ formatValue(dataset.value) }}
           </div>
         </div>
       </div>
@@ -571,18 +563,19 @@ onMounted(() => {
   border: 1px solid var(--border-color-light);
 }
 
-/* 浅色主题 - 保持原有的紫色渐变设计 */
+/* 浅色主题 - 改为简约白色背景 */
 :root:not(.dark) .chart-container {
-  background: var(--primary-gradient);
-  color: white;
+  background: var(--card-bg);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color-light);
 }
 
-/* 暗黑主题 - 使用深蓝紫渐变外层背景 */
+/* 暗黑主题 - 改为简约暗色背景 */
 :root.dark .chart-container {
-  background: linear-gradient(135deg, #525a7a 0%, #424964 100%);
+  background: var(--card-bg);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color-light);
   box-shadow: var(--shadow-md);
-  border: 1px solid rgba(139, 157, 245, 0.2);
-  color: #e8e8e8;
 }
 
 .chart-header {
@@ -604,12 +597,13 @@ onMounted(() => {
   font-weight: 600;
 }
 
-/* 浅色主题 - 白色渐变文字 */
+/* 浅色主题 - 深色文字 */
 :root:not(.dark) .chart-title {
-  background: linear-gradient(45deg, #fff, #f0f0f0);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  color: var(--text-primary);
+  background: none;
+  -webkit-background-clip: unset;
+  -webkit-text-fill-color: unset;
+  background-clip: unset;
 }
 
 /* 暗黑主题 - 白色文字 */
