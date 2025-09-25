@@ -127,24 +127,26 @@ const (
 
 // RequestLog 对应 request_logs 表
 type RequestLog struct {
-	ID           string    `gorm:"type:varchar(36);primaryKey" json:"id"`
-	Timestamp    time.Time `gorm:"not null;index" json:"timestamp"`
-	GroupID      uint      `gorm:"not null;index" json:"group_id"`
-	GroupName    string    `gorm:"type:varchar(255);index" json:"group_name"`
-	KeyValue     string    `gorm:"type:text" json:"key_value"`
-	KeyHash      string    `gorm:"type:varchar(128);index" json:"key_hash"`
-	Model        string    `gorm:"type:varchar(255);index" json:"model"`
-	IsSuccess    bool      `gorm:"not null" json:"is_success"`
-	SourceIP     string    `gorm:"type:varchar(64)" json:"source_ip"`
-	StatusCode   int       `gorm:"not null" json:"status_code"`
-	RequestPath  string    `gorm:"type:varchar(500)" json:"request_path"`
-	Duration     int64     `gorm:"not null" json:"duration_ms"`
-	ErrorMessage string    `gorm:"type:text" json:"error_message"`
-	UserAgent    string    `gorm:"type:varchar(512)" json:"user_agent"`
-	RequestType  string    `gorm:"type:varchar(20);not null;default:'final';index" json:"request_type"`
-	UpstreamAddr string    `gorm:"type:varchar(500)" json:"upstream_addr"`
-	IsStream     bool      `gorm:"not null" json:"is_stream"`
-	RequestBody  string    `gorm:"type:text" json:"request_body"`
+	ID              string    `gorm:"type:varchar(36);primaryKey" json:"id"`
+	Timestamp       time.Time `gorm:"not null;index" json:"timestamp"`
+	GroupID         uint      `gorm:"not null;index" json:"group_id"`
+	GroupName       string    `gorm:"type:varchar(255);index" json:"group_name"`
+	ParentGroupID   uint      `gorm:"index" json:"parent_group_id"`
+	ParentGroupName string    `gorm:"type:varchar(255);index" json:"parent_group_name"`
+	KeyValue        string    `gorm:"type:text" json:"key_value"`
+	KeyHash         string    `gorm:"type:varchar(128);index" json:"key_hash"`
+	Model           string    `gorm:"type:varchar(255);index" json:"model"`
+	IsSuccess       bool      `gorm:"not null" json:"is_success"`
+	SourceIP        string    `gorm:"type:varchar(64)" json:"source_ip"`
+	StatusCode      int       `gorm:"not null" json:"status_code"`
+	RequestPath     string    `gorm:"type:varchar(500)" json:"request_path"`
+	Duration        int64     `gorm:"not null" json:"duration_ms"`
+	ErrorMessage    string    `gorm:"type:text" json:"error_message"`
+	UserAgent       string    `gorm:"type:varchar(512)" json:"user_agent"`
+	RequestType     string    `gorm:"type:varchar(20);not null;default:'final';index" json:"request_type"`
+	UpstreamAddr    string    `gorm:"type:varchar(500)" json:"upstream_addr"`
+	IsStream        bool      `gorm:"not null" json:"is_stream"`
+	RequestBody     string    `gorm:"type:text" json:"request_body"`
 }
 
 // StatCard 用于仪表盘的单个统计卡片数据
