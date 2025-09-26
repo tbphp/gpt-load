@@ -442,70 +442,70 @@ function resetPage() {
             </n-grid-item>
             <n-grid-item span="1">
               <n-statistic
-                :label="`${t('keys.hourlyRequests')}：${formatNumber(stats?.hourly_stats?.total_requests ?? 0)}`"
+                :label="`${t('keys.stats24Hour')}：${formatNumber(stats?.stats_24_hour?.total_requests ?? 0)}`"
               >
                 <n-tooltip trigger="hover">
                   <template #trigger>
                     <n-gradient-text type="error" size="20">
-                      {{ formatNumber(stats?.hourly_stats?.failed_requests ?? 0) }}
+                      {{ formatNumber(stats?.stats_24_hour?.failed_requests ?? 0) }}
                     </n-gradient-text>
                   </template>
-                  {{ t("keys.hourlyFailedRequests") }}
+                  {{ t("keys.stats24HourFailed") }}
                 </n-tooltip>
                 <n-divider vertical />
                 <n-tooltip trigger="hover">
                   <template #trigger>
                     <n-gradient-text type="error" size="20">
-                      {{ formatPercentage(stats?.hourly_stats?.failure_rate ?? 0) }}
+                      {{ formatPercentage(stats?.stats_24_hour?.failure_rate ?? 0) }}
                     </n-gradient-text>
                   </template>
-                  {{ t("keys.hourlyFailureRate") }}
+                  {{ t("keys.stats24HourFailureRate") }}
                 </n-tooltip>
               </n-statistic>
             </n-grid-item>
             <n-grid-item span="1">
               <n-statistic
-                :label="`${t('keys.dailyRequests')}：${formatNumber(stats?.daily_stats?.total_requests ?? 0)}`"
+                :label="`${t('keys.stats7Day')}：${formatNumber(stats?.stats_7_day?.total_requests ?? 0)}`"
               >
                 <n-tooltip trigger="hover">
                   <template #trigger>
                     <n-gradient-text type="error" size="20">
-                      {{ formatNumber(stats?.daily_stats?.failed_requests ?? 0) }}
+                      {{ formatNumber(stats?.stats_7_day?.failed_requests ?? 0) }}
                     </n-gradient-text>
                   </template>
-                  {{ t("keys.dailyFailedRequests") }}
+                  {{ t("keys.stats7DayFailed") }}
                 </n-tooltip>
                 <n-divider vertical />
                 <n-tooltip trigger="hover">
                   <template #trigger>
                     <n-gradient-text type="error" size="20">
-                      {{ formatPercentage(stats?.daily_stats?.failure_rate ?? 0) }}
+                      {{ formatPercentage(stats?.stats_7_day?.failure_rate ?? 0) }}
                     </n-gradient-text>
                   </template>
-                  {{ t("keys.dailyFailureRate") }}
+                  {{ t("keys.stats7DayFailureRate") }}
                 </n-tooltip>
               </n-statistic>
             </n-grid-item>
             <n-grid-item span="1">
               <n-statistic
-                :label="`${t('keys.weeklyRequests')}：${formatNumber(stats?.weekly_stats?.total_requests ?? 0)}`"
+                :label="`${t('keys.stats30Day')}：${formatNumber(stats?.stats_30_day?.total_requests ?? 0)}`"
               >
                 <n-tooltip trigger="hover">
                   <template #trigger>
                     <n-gradient-text type="error" size="20">
-                      {{ formatNumber(stats?.weekly_stats?.failed_requests ?? 0) }}
+                      {{ formatNumber(stats?.stats_30_day?.failed_requests ?? 0) }}
                     </n-gradient-text>
                   </template>
-                  {{ t("keys.weeklyFailedRequests") }}
+                  {{ t("keys.stats30DayFailed") }}
                 </n-tooltip>
                 <n-divider vertical />
                 <n-tooltip trigger="hover">
                   <template #trigger>
                     <n-gradient-text type="error" size="20">
-                      {{ formatPercentage(stats?.weekly_stats?.failure_rate ?? 0) }}
+                      {{ formatPercentage(stats?.stats_30_day?.failure_rate ?? 0) }}
                     </n-gradient-text>
                   </template>
-                  {{ t("keys.weeklyFailureRate") }}
+                  {{ t("keys.stats30DayFailureRate") }}
                 </n-tooltip>
               </n-statistic>
             </n-grid-item>

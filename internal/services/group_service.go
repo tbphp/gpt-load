@@ -137,9 +137,9 @@ type RequestStats struct {
 // GroupStats aggregates all per-group metrics for dashboard usage.
 type GroupStats struct {
 	KeyStats    KeyStats     `json:"key_stats"`
-	HourlyStats RequestStats `json:"hourly_stats"`
-	DailyStats  RequestStats `json:"daily_stats"`
-	WeeklyStats RequestStats `json:"weekly_stats"`
+	Stats24Hour RequestStats `json:"stats_24_hour"`
+	Stats7Day   RequestStats `json:"stats_7_day"`
+	Stats30Day  RequestStats `json:"stats_30_day"`
 }
 
 // ConfigOption describes a configurable override exposed to clients.
@@ -543,112 +543,147 @@ func (s *GroupService) CopyGroup(ctx context.Context, sourceGroupID uint, copyKe
 
 // GetGroupStats returns aggregated usage statistics for a group.
 func (s *GroupService) GetGroupStats(ctx context.Context, groupID uint) (*GroupStats, error) {
-	if err := s.db.WithContext(ctx).First(&models.Group{}, groupID).Error; err != nil {
+	var group models.Group
+	if err := s.db.WithContext(ctx).First(&group, groupID).Error; err != nil {
 		return nil, app_errors.ParseDBError(err)
 	}
 
-	stats := &GroupStats{}
+	// 根据分组类型选择不同的统计逻辑
+	if group.GroupType == "aggregate" {
+		return s.getAggregateGroupStats(ctx, groupID)
+	}
+
+	return s.getStandardGroupStats(ctx, groupID)
+}
+
+// queryGroupHourlyStats queries aggregated hourly statistics from group_hourly_stats table
+func (s *GroupService) queryGroupHourlyStats(ctx context.Context, groupID uint, hours int) (RequestStats, error) {
+	var result struct {
+		SuccessCount int64
+		FailureCount int64
+	}
+
+	now := time.Now()
+	currentHour := now.Truncate(time.Hour)
+	endTime := currentHour.Add(time.Hour) // Include current hour
+	startTime := endTime.Add(-time.Duration(hours) * time.Hour)
+
+	if err := s.db.WithContext(ctx).Model(&models.GroupHourlyStat{}).
+		Select("SUM(success_count) as success_count, SUM(failure_count) as failure_count").
+		Where("group_id = ? AND time >= ? AND time < ?", groupID, startTime, endTime).
+		Scan(&result).Error; err != nil {
+		return RequestStats{}, err
+	}
+
+	return calculateRequestStats(result.SuccessCount+result.FailureCount, result.FailureCount), nil
+}
+
+// fetchKeyStats retrieves API key statistics for a group
+func (s *GroupService) fetchKeyStats(ctx context.Context, groupID uint) (KeyStats, error) {
+	var totalKeys, activeKeys int64
+
+	if err := s.db.WithContext(ctx).Model(&models.APIKey{}).
+		Where("group_id = ?", groupID).
+		Count(&totalKeys).Error; err != nil {
+		return KeyStats{}, fmt.Errorf("failed to get total keys: %w", err)
+	}
+
+	if err := s.db.WithContext(ctx).Model(&models.APIKey{}).
+		Where("group_id = ? AND status = ?", groupID, models.KeyStatusActive).
+		Count(&activeKeys).Error; err != nil {
+		return KeyStats{}, fmt.Errorf("failed to get active keys: %w", err)
+	}
+
+	return KeyStats{
+		TotalKeys:   totalKeys,
+		ActiveKeys:  activeKeys,
+		InvalidKeys: totalKeys - activeKeys,
+	}, nil
+}
+
+// fetchRequestStats retrieves request statistics for multiple time periods
+func (s *GroupService) fetchRequestStats(ctx context.Context, groupID uint, stats *GroupStats) []error {
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	var errs []error
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		var totalKeys, activeKeys int64
-		if err := s.db.WithContext(ctx).Model(&models.APIKey{}).Where("group_id = ?", groupID).Count(&totalKeys).Error; err != nil {
-			mu.Lock()
-			errs = append(errs, fmt.Errorf("failed to get total keys: %w", err))
-			mu.Unlock()
-			return
-		}
-		if err := s.db.WithContext(ctx).Model(&models.APIKey{}).Where("group_id = ? AND status = ?", groupID, models.KeyStatusActive).Count(&activeKeys).Error; err != nil {
-			mu.Lock()
-			errs = append(errs, fmt.Errorf("failed to get active keys: %w", err))
-			mu.Unlock()
-			return
-		}
-
-		mu.Lock()
-		stats.KeyStats = KeyStats{
-			TotalKeys:   totalKeys,
-			ActiveKeys:  activeKeys,
-			InvalidKeys: totalKeys - activeKeys,
-		}
-		mu.Unlock()
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		now := time.Now()
-		oneHourAgo := now.Add(-1 * time.Hour)
-		var total, failed int64
-		if err := s.db.WithContext(ctx).Model(&models.RequestLog{}).
-			Where("group_id = ? AND timestamp BETWEEN ? AND ? AND request_type = ?", groupID, oneHourAgo, now, models.RequestTypeFinal).
-			Count(&total).Error; err != nil {
-			mu.Lock()
-			errs = append(errs, fmt.Errorf("failed to get hourly total requests: %w", err))
-			mu.Unlock()
-			return
-		}
-		if err := s.db.WithContext(ctx).Model(&models.RequestLog{}).
-			Where("group_id = ? AND timestamp BETWEEN ? AND ? AND is_success = ? AND request_type = ?", groupID, oneHourAgo, now, false, models.RequestTypeFinal).
-			Count(&failed).Error; err != nil {
-			mu.Lock()
-			errs = append(errs, fmt.Errorf("failed to get hourly failed requests: %w", err))
-			mu.Unlock()
-			return
-		}
-
-		mu.Lock()
-		stats.HourlyStats = calculateRequestStats(total, failed)
-		mu.Unlock()
-	}()
-
-	queryHourlyStats := func(duration time.Duration) (RequestStats, error) {
-		var result struct {
-			SuccessCount int64
-			FailureCount int64
-		}
-		now := time.Now()
-		endTime := now.Truncate(time.Hour)
-		startTime := endTime.Add(-duration)
-
-		if err := s.db.WithContext(ctx).Model(&models.GroupHourlyStat{}).
-			Select("SUM(success_count) as success_count, SUM(failure_count) as failure_count").
-			Where("group_id = ? AND time >= ? AND time < ?", groupID, startTime, endTime).
-			Scan(&result).Error; err != nil {
-			return RequestStats{}, err
-		}
-
-		return calculateRequestStats(result.SuccessCount+result.FailureCount, result.FailureCount), nil
+	// Define time periods and their corresponding setters
+	timePeriods := []struct {
+		hours  int
+		name   string
+		setter func(RequestStats)
+	}{
+		{24, "24-hour", func(r RequestStats) { stats.Stats24Hour = r }},
+		{7 * 24, "7-day", func(r RequestStats) { stats.Stats7Day = r }},
+		{30 * 24, "30-day", func(r RequestStats) { stats.Stats30Day = r }},
 	}
 
-	for _, span := range []struct {
-		duration time.Duration
-		target   func(RequestStats)
-	}{{24 * time.Hour, func(r RequestStats) { stats.DailyStats = r }}, {7 * 24 * time.Hour, func(r RequestStats) { stats.WeeklyStats = r }}} {
+	// Fetch statistics for each time period concurrently
+	for _, period := range timePeriods {
 		wg.Add(1)
-		go func(d time.Duration, setter func(RequestStats)) {
+		go func(hours int, name string, setter func(RequestStats)) {
 			defer wg.Done()
-			res, err := queryHourlyStats(d)
+
+			res, err := s.queryGroupHourlyStats(ctx, groupID, hours)
 			if err != nil {
 				mu.Lock()
-				errs = append(errs, fmt.Errorf("failed to query aggregated stats: %w", err))
+				errs = append(errs, fmt.Errorf("failed to get %s stats: %w", name, err))
 				mu.Unlock()
 				return
 			}
+
 			mu.Lock()
 			setter(res)
 			mu.Unlock()
-		}(span.duration, span.target)
+		}(period.hours, period.name, period.setter)
 	}
 
 	wg.Wait()
+	return errs
+}
 
-	if len(errs) > 0 {
-		logrus.WithContext(ctx).WithError(errs[0]).Error("errors occurred while fetching group stats")
+func (s *GroupService) getStandardGroupStats(ctx context.Context, groupID uint) (*GroupStats, error) {
+	stats := &GroupStats{}
+	var allErrors []error
+
+	// Fetch key statistics (only for standard groups)
+	keyStats, err := s.fetchKeyStats(ctx, groupID)
+	if err != nil {
+		allErrors = append(allErrors, err)
+		// Log error but continue to fetch request stats
+		logrus.WithContext(ctx).WithError(err).Warn("failed to fetch key stats, continuing with request stats")
+	} else {
+		stats.KeyStats = keyStats
+	}
+
+	// Fetch request statistics (common for all groups)
+	if errs := s.fetchRequestStats(ctx, groupID, stats); len(errs) > 0 {
+		allErrors = append(allErrors, errs...)
+	}
+
+	// Handle errors
+	if len(allErrors) > 0 {
+		logrus.WithContext(ctx).WithError(allErrors[0]).Error("errors occurred while fetching group stats")
+		// Return partial stats if we have some data
+		if stats.Stats24Hour.TotalRequests > 0 || stats.Stats7Day.TotalRequests > 0 || stats.Stats30Day.TotalRequests > 0 {
+			return stats, nil
+		}
+		return nil, NewI18nError(app_errors.ErrDatabase, "database.group_stats_failed", nil)
+	}
+
+	return stats, nil
+}
+
+func (s *GroupService) getAggregateGroupStats(ctx context.Context, groupID uint) (*GroupStats, error) {
+	stats := &GroupStats{}
+
+	// Aggregate groups only need request statistics, not key statistics
+	if errs := s.fetchRequestStats(ctx, groupID, stats); len(errs) > 0 {
+		logrus.WithContext(ctx).WithError(errs[0]).Error("errors occurred while fetching aggregate group stats")
+		// Return partial stats if we have some data
+		if stats.Stats24Hour.TotalRequests > 0 || stats.Stats7Day.TotalRequests > 0 || stats.Stats30Day.TotalRequests > 0 {
+			return stats, nil
+		}
 		return nil, NewI18nError(app_errors.ErrDatabase, "database.group_stats_failed", nil)
 	}
 

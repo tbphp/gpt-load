@@ -93,9 +93,9 @@ export interface GroupConfigOption {
 // GroupStatsResponse defines the complete statistics for a group.
 export interface GroupStatsResponse {
   key_stats: KeyStats;
-  hourly_stats: RequestStats;
-  daily_stats: RequestStats;
-  weekly_stats: RequestStats;
+  stats_24_hour: RequestStats;
+  stats_7_day: RequestStats;
+  stats_30_day: RequestStats;
 }
 
 // KeyStats defines the statistics for API keys in a group.
