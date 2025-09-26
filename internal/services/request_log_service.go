@@ -255,6 +255,21 @@ func (s *RequestLogService) writeLogsToDB(logs []*models.RequestLog) error {
 				counts.Failure++
 			}
 			hourlyStats[key] = counts
+
+			if log.ParentGroupID > 0 {
+				parentKey := struct {
+					Time    time.Time
+					GroupID uint
+				}{Time: hourlyTime, GroupID: log.ParentGroupID}
+
+				parentCounts := hourlyStats[parentKey]
+				if log.IsSuccess {
+					parentCounts.Success++
+				} else {
+					parentCounts.Failure++
+				}
+				hourlyStats[parentKey] = parentCounts
+			}
 		}
 
 		if len(hourlyStats) > 0 {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"gpt-load/internal/models"
 	"gpt-load/internal/types"
+	"gpt-load/internal/utils"
 	"net/http"
 	"net/url"
 	"reflect"
@@ -97,7 +98,7 @@ func (b *BaseChannel) IsConfigStale(group *models.Group) bool {
 	if b.TestModel != group.TestModel {
 		return true
 	}
-	if b.ValidationEndpoint != group.ValidationEndpoint {
+	if b.ValidationEndpoint != utils.GetValidationEndpoint(group) {
 		return true
 	}
 	if !bytes.Equal(b.groupUpstreams, group.Upstreams) {

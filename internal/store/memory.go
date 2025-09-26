@@ -302,6 +302,24 @@ func (s *MemoryStore) Rotate(key string) (string, error) {
 	return item, nil
 }
 
+// LLen returns the length of a list.
+func (s *MemoryStore) LLen(key string) (int64, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	rawList, exists := s.data[key]
+	if !exists {
+		return 0, nil
+	}
+
+	list, ok := rawList.([]string)
+	if !ok {
+		return 0, fmt.Errorf("type mismatch: key '%s' holds a different data type", key)
+	}
+
+	return int64(len(list)), nil
+}
+
 // --- SET operations ---
 
 // SAdd adds members to a set.

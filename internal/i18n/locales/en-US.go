@@ -60,6 +60,17 @@ var MessagesEnUS = map[string]string{
 	"validation.group_id_required":       "group_id query parameter is required",
 	"validation.invalid_group_id_format": "Invalid group_id format",
 	"validation.keys_text_empty":         "Keys text cannot be empty",
+	"validation.invalid_group_type":      "Invalid group type, must be 'standard' or 'aggregate'",
+	"validation.sub_groups_required":     "Aggregate group must contain at least one sub-group",
+	"validation.invalid_sub_group_id":    "Invalid sub-group ID",
+	"validation.sub_group_not_found":     "One or more sub-groups not found",
+	"validation.sub_group_cannot_be_aggregate": "Sub-groups cannot be aggregate groups",
+	"validation.sub_group_channel_mismatch": "All sub-groups must use the same channel type",
+	"validation.sub_group_validation_endpoint_mismatch": "Sub-group endpoints are inconsistent. Aggregate groups require unified upstream request paths for successful proxying",
+	"validation.sub_group_weight_negative":     "Sub-group weight cannot be negative",
+	"validation.sub_group_weight_max_exceeded": "Sub-group weight cannot exceed 1000",
+	"validation.sub_group_referenced_cannot_modify": "This group is referenced by {{.count}} aggregate group(s) as a sub-group. Cannot modify channel type or validation endpoint. Please remove this group from related aggregate groups before making changes",
+	"validation.standard_group_requires_upstreams_testmodel": "Converting to standard group requires providing upstreams and test model",
 
 	// Task related
 	"task.validation_started": "Key validation task started",
@@ -178,4 +189,12 @@ var MessagesEnUS = map[string]string{
 
 	// Settings success message
 	"settings.update_success": "Settings updated successfully. Configuration will be reloaded in the background across all instances.",
+
+	// Sub-groups related
+	"success.sub_groups_added":         "Sub groups added successfully",
+	"success.sub_group_weight_updated": "Sub group weight updated successfully",
+	"success.sub_group_deleted":        "Sub group deleted successfully",
+	"group.not_aggregate":              "Group is not an aggregate group",
+	"group.sub_group_already_exists":   "Sub group {{.sub_group_id}} already exists",
+	"group.sub_group_not_found":        "Sub group not found",
 }

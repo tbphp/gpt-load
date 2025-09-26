@@ -73,7 +73,16 @@ func BuildContainer() (*dig.Container, error) {
 	if err := container.Provide(services.NewRequestLogService); err != nil {
 		return nil, err
 	}
+	if err := container.Provide(services.NewSubGroupManager); err != nil {
+		return nil, err
+	}
 	if err := container.Provide(services.NewGroupManager); err != nil {
+		return nil, err
+	}
+	if err := container.Provide(services.NewGroupService); err != nil {
+		return nil, err
+	}
+	if err := container.Provide(services.NewAggregateGroupService); err != nil {
 		return nil, err
 	}
 	if err := container.Provide(keypool.NewProvider); err != nil {

@@ -60,6 +60,17 @@ var MessagesZhCN = map[string]string{
 	"validation.group_id_required":       "需要提供group_id参数",
 	"validation.invalid_group_id_format": "无效的group_id格式",
 	"validation.keys_text_empty":         "密钥文本不能为空",
+	"validation.invalid_group_type":      "无效的分组类型，必须为'standard'或'aggregate'",
+	"validation.sub_groups_required":     "聚合分组必须包含至少一个子分组",
+	"validation.invalid_sub_group_id":    "无效的子分组ID",
+	"validation.sub_group_not_found":     "一个或多个子分组不存在",
+	"validation.sub_group_cannot_be_aggregate": "子分组不能是聚合分组",
+	"validation.sub_group_channel_mismatch": "所有子分组必须使用相同的渠道类型",
+	"validation.sub_group_validation_endpoint_mismatch": "子分组请求端点不一致，聚合分组需要统一的上游请求路径以确保透传成功",
+	"validation.sub_group_weight_negative":     "子分组权重不能为负数",
+	"validation.sub_group_weight_max_exceeded": "子分组权重不能超过1000",
+	"validation.sub_group_referenced_cannot_modify": "该分组正被 {{.count}} 个聚合分组引用为子分组，无法修改渠道类型或验证端点。请先从相关聚合分组中移除此分组后再进行修改",
+	"validation.standard_group_requires_upstreams_testmodel": "转换为标准分组需要提供上游服务器和测试模型",
 
 	// Task related
 	"task.validation_started": "密钥验证任务已开始",
@@ -178,4 +189,12 @@ var MessagesZhCN = map[string]string{
 
 	// Settings success message
 	"settings.update_success": "设置更新成功。配置将在后台在所有实例间重新加载。",
+
+	// Sub-groups related
+	"success.sub_groups_added":         "子分组添加成功",
+	"success.sub_group_weight_updated": "子分组权重更新成功",
+	"success.sub_group_deleted":        "子分组删除成功",
+	"group.not_aggregate":              "该分组不是聚合分组",
+	"group.sub_group_already_exists":   "子分组{{.sub_group_id}}已存在",
+	"group.sub_group_not_found":        "子分组不存在",
 }
