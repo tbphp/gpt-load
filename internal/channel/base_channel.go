@@ -72,14 +72,14 @@ func (b *BaseChannel) getUpstreamURL() *url.URL {
 }
 
 // BuildUpstreamURL constructs the target URL for the upstream service.
-func (b *BaseChannel) BuildUpstreamURL(originalURL *url.URL, group *models.Group) (string, error) {
+func (b *BaseChannel) BuildUpstreamURL(originalURL *url.URL, groupName string) (string, error) {
 	base := b.getUpstreamURL()
 	if base == nil {
 		return "", fmt.Errorf("no upstream URL configured for channel %s", b.Name)
 	}
 
 	finalURL := *base
-	proxyPrefix := "/proxy/" + group.Name
+	proxyPrefix := "/proxy/" + groupName
 	requestPath := originalURL.Path
 	requestPath = strings.TrimPrefix(requestPath, proxyPrefix)
 
