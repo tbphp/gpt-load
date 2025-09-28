@@ -18,7 +18,8 @@ type SubGroupManager struct {
 
 // subGroupItem represents a sub-group with its weight and current weight for round-robin
 type subGroupItem struct {
-	group         *models.Group
+	name          string
+	subGroupID    uint
 	weight        int
 	currentWeight int
 }
@@ -32,27 +33,27 @@ func NewSubGroupManager(store store.Store) *SubGroupManager {
 }
 
 // SelectSubGroup selects an appropriate sub-group for the given aggregate group
-func (m *SubGroupManager) SelectSubGroup(group *models.Group) (*models.Group, error) {
+func (m *SubGroupManager) SelectSubGroup(group *models.Group) (string, error) {
 	if group.GroupType != "aggregate" {
-		return group, nil
+		return "", nil
 	}
 
 	selector := m.getSelector(group)
 	if selector == nil {
-		return nil, fmt.Errorf("no valid sub-groups available for aggregate group '%s'", group.Name)
+		return "", fmt.Errorf("no valid sub-groups available for aggregate group '%s'", group.Name)
 	}
 
-	selected := selector.selectNext()
-	if selected == nil {
-		return nil, fmt.Errorf("no sub-groups with active keys for aggregate group '%s'", group.Name)
+	selectedName := selector.selectNext()
+	if selectedName == "" {
+		return "", fmt.Errorf("no sub-groups with active keys for aggregate group '%s'", group.Name)
 	}
 
 	logrus.WithFields(logrus.Fields{
 		"aggregate_group": group.Name,
-		"selected_group":  selected.Name,
+		"selected_group":  selectedName,
 	}).Debug("Selected sub-group from aggregate")
 
-	return selected, nil
+	return selectedName, nil
 }
 
 // RebuildSelectors rebuild all selectors based on the incoming group
@@ -111,7 +112,8 @@ func (m *SubGroupManager) createSelector(group *models.Group) *selector {
 	var items []subGroupItem
 	for _, sg := range group.SubGroups {
 		items = append(items, subGroupItem{
-			group:         &sg.SubGroup,
+			name:          sg.SubGroupName,
+			subGroupID:    sg.SubGroupID,
 			weight:        sg.Weight,
 			currentWeight: 0,
 		})
@@ -139,23 +141,23 @@ type selector struct {
 }
 
 // selectNext uses weighted round-robin algorithm to select a sub-group with active keys
-func (s *selector) selectNext() *models.Group {
+func (s *selector) selectNext() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	if len(s.subGroups) == 0 {
-		return nil
+		return ""
 	}
 
 	if len(s.subGroups) == 1 {
-		if s.hasActiveKeys(s.subGroups[0].group.ID) {
-			return s.subGroups[0].group
+		if s.hasActiveKeys(s.subGroups[0].subGroupID) {
+			return s.subGroups[0].name
 		}
 		logrus.WithFields(logrus.Fields{
-			"group_id":   s.subGroups[0].group.ID,
-			"group_name": s.subGroups[0].group.Name,
+			"group_id":   s.subGroups[0].subGroupID,
+			"group_name": s.subGroups[0].name,
 		}).Debug("Single sub-group has no active keys")
-		return nil
+		return ""
 	}
 
 	attempted := make(map[uint]bool)
@@ -165,23 +167,23 @@ func (s *selector) selectNext() *models.Group {
 			break
 		}
 
-		if attempted[item.group.ID] {
+		if attempted[item.subGroupID] {
 			continue
 		}
-		attempted[item.group.ID] = true
+		attempted[item.subGroupID] = true
 
-		if s.hasActiveKeys(item.group.ID) {
+		if s.hasActiveKeys(item.subGroupID) {
 			logrus.WithFields(logrus.Fields{
 				"aggregate_group": s.groupName,
-				"selected_group":  item.group.Name,
+				"selected_group":  item.name,
 				"attempts":        len(attempted),
 			}).Debug("Selected sub-group with active keys")
-			return item.group
+			return item.name
 		}
 
 		logrus.WithFields(logrus.Fields{
-			"group_id":   item.group.ID,
-			"group_name": item.group.Name,
+			"group_id":   item.subGroupID,
+			"group_name": item.name,
 			"attempts":   len(attempted),
 		}).Debug("Sub-group has no active keys, trying next")
 	}
@@ -191,7 +193,7 @@ func (s *selector) selectNext() *models.Group {
 		"total_sub_groups": len(s.subGroups),
 	}).Warn("No sub-groups with active keys available")
 
-	return nil
+	return ""
 }
 
 // selectByWeight implements smooth weighted round-robin algorithm

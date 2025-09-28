@@ -69,7 +69,7 @@ func (ps *ProxyServer) HandleProxy(c *gin.Context) {
 	}
 
 	// Select sub-group if this is an aggregate group
-	group, err := ps.subGroupManager.SelectSubGroup(originalGroup)
+	subGroupName, err := ps.subGroupManager.SelectSubGroup(originalGroup)
 	if err != nil {
 		logrus.WithFields(logrus.Fields{
 			"aggregate_group": originalGroup.Name,
@@ -77,6 +77,15 @@ func (ps *ProxyServer) HandleProxy(c *gin.Context) {
 		}).Error("Failed to select sub-group from aggregate")
 		response.Error(c, app_errors.NewAPIError(app_errors.ErrNoKeysAvailable, "No available sub-groups"))
 		return
+	}
+
+	group := originalGroup
+	if subGroupName != "" {
+		group, err = ps.groupManager.GetGroupByName(subGroupName)
+		if err != nil {
+			response.Error(c, app_errors.ParseDBError(err))
+			return
+		}
 	}
 
 	channelHandler, err := ps.channelFactory.GetChannel(group)

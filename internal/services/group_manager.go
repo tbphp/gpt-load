@@ -89,7 +89,7 @@ func (gm *GroupManager) Initialize() error {
 					for i, sg := range subGroups {
 						g.SubGroups[i] = sg
 						if subGroup, exists := groupByID[sg.SubGroupID]; exists {
-							g.SubGroups[i].SubGroup = *subGroup
+							g.SubGroups[i].SubGroupName = subGroup.Name
 						}
 					}
 				}

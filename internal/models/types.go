@@ -56,8 +56,8 @@ type GroupSubGroup struct {
 	CreatedAt  time.Time `json:"created_at"`
 	UpdatedAt  time.Time `json:"updated_at"`
 
-	// Associations
-	SubGroup Group `gorm:"-" json:"sub_group,omitempty"`
+	// Lightweight association - only store necessary info for performance
+	SubGroupName string `gorm:"-" json:"sub_group_name,omitempty"`
 }
 
 // SubGroupInfo 用于API响应的子分组信息
