@@ -433,6 +433,8 @@ export default {
     model: "Model",
     sourceIP: "Source IP",
     groupName: "Group Name",
+    parentGroup: "Aggregate Group",
+    parentGroupName: "Aggregate Group Name",
     errorMessage: "Error Message",
     exportLogs: "Export Keys",
     totalRecords: "Total {total} records",

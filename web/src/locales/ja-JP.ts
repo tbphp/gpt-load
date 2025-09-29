@@ -433,6 +433,8 @@ export default {
     model: "モデル",
     sourceIP: "ソースIP",
     groupName: "グループ名",
+    parentGroup: "集約グループ",
+    parentGroupName: "集約グループ名",
     errorMessage: "エラーメッセージ",
     exportLogs: "キーのエクスポート",
     totalRecords: "合計 {total} 件",

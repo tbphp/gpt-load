@@ -420,6 +420,8 @@ export default {
     model: "模型",
     sourceIP: "源IP",
     groupName: "分组名",
+    parentGroup: "聚合分组",
+    parentGroupName: "聚合分组名",
     errorMessage: "错误信息",
     exportLogs: "导出密钥",
     totalRecords: "共 {total} 条记录",

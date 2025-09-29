@@ -157,6 +157,7 @@ export interface RequestLog {
   user_agent: string;
   request_type: "retry" | "final";
   group_name?: string;
+  parent_group_name?: string;
   key_value?: string;
   model: string;
   upstream_addr: string;
@@ -180,6 +181,7 @@ export interface LogFilter {
   page?: number;
   page_size?: number;
   group_name?: string;
+  parent_group_name?: string;
   key_value?: string;
   model?: string;
   is_success?: boolean | null;
