@@ -7,6 +7,7 @@ import (
 	"gpt-load/internal/i18n"
 	"gpt-load/internal/models"
 	"gpt-load/internal/response"
+	"gpt-load/internal/utils"
 	"strings"
 	"time"
 
@@ -16,6 +17,19 @@ import (
 
 // Stats Get dashboard statistics
 func (s *Server) Stats(c *gin.Context) {
+	// 检查是否处于蜜罐模式
+	if utils.IsHoneypotMode(c) {
+		mode := utils.GetHoneypotMode(c)
+		settings := s.SettingsManager.GetSettings()
+
+		// 生成蜜罐仪表盘数据
+		generator := utils.NewHoneypotDataGenerator(mode, settings.HoneypotSeed)
+		stats := generator.GenerateDashboardStats()
+
+		response.Success(c, stats)
+		return
+	}
+
 	var activeKeys, invalidKeys int64
 	s.DB.Model(&models.APIKey{}).Where("status = ?", models.KeyStatusActive).Count(&activeKeys)
 	s.DB.Model(&models.APIKey{}).Where("status = ?", models.KeyStatusInvalid).Count(&invalidKeys)
@@ -145,7 +159,7 @@ func (s *Server) Chart(c *gin.Context) {
 	var labels []string
 	var successData, failureData []int64
 
-	for i := range 24 {
+	for i := 0; i < 24; i++ {
 		hour := startHour.Add(time.Duration(i) * time.Hour)
 		labels = append(labels, hour.Format(time.RFC3339))
 

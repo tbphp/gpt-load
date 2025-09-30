@@ -18,6 +18,23 @@ func (s *Server) GetSettings(c *gin.Context) {
 	currentSettings := s.SettingsManager.GetSettings()
 	settingsInfo := utils.GenerateSettingsMetadata(&currentSettings)
 
+	// 检查是否处于蜜罐模式
+	isHoneypotMode := utils.IsHoneypotMode(c)
+
+	// 如果处于蜜罐模式，过滤掉蜜罐相关的设置项
+	if isHoneypotMode {
+		filteredSettings := make([]models.SystemSettingInfo, 0)
+		for _, setting := range settingsInfo {
+			// 过滤掉蜜罐相关的设置项
+			if setting.Key != "enable_honeypot" &&
+			   setting.Key != "honeypot_mode" &&
+			   setting.Key != "honeypot_seed" {
+				filteredSettings = append(filteredSettings, setting)
+			}
+		}
+		settingsInfo = filteredSettings
+	}
+
 	// Translate settings info
 	for i := range settingsInfo {
 		// Translate name if it's an i18n key

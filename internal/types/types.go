@@ -1,5 +1,14 @@
 package types
 
+// 蜜罐模式常量
+const (
+	HoneypotModeDeceive  = "deceive"  // 忽悠模式
+	HoneypotModeOverload = "overload" // 塞满模式
+)
+
+// 蜜罐上下文键
+const HoneypotModeKey = "honeypot_mode"
+
 // ConfigManager defines the interface for configuration management
 type ConfigManager interface {
 	IsMaster() bool
@@ -39,7 +48,12 @@ type SystemSettings struct {
 	BlacklistThreshold           int `json:"blacklist_threshold" default:"3" name:"config.blacklist_threshold" category:"config.category.key" desc:"config.blacklist_threshold_desc" validate:"required,min=0"`
 	KeyValidationIntervalMinutes int `json:"key_validation_interval_minutes" default:"60" name:"config.key_validation_interval" category:"config.category.key" desc:"config.key_validation_interval_desc" validate:"required,min=1"`
 	KeyValidationConcurrency     int `json:"key_validation_concurrency" default:"10" name:"config.key_validation_concurrency" category:"config.category.key" desc:"config.key_validation_concurrency_desc" validate:"required,min=1"`
-	KeyValidationTimeoutSeconds  int `json:"key_validation_timeout_seconds" default:"20" name:"config.key_validation_timeout" category:"config.category.key" desc:"config.key_validation_timeout_desc" validate:"required,min=1"`
+	KeyValidationTimeoutSeconds  int `json:"key_validation_timeout_seconds" default:"20" name:"config.key_validation_timeout" category:"config.key_validation_timeout_desc" validate:"required,min=1"`
+
+	// 蜜罐配置
+	EnableHoneypot bool   `json:"enable_honeypot" default:"false" name:"config.enable_honeypot" category:"config.category.security" desc:"config.enable_honeypot_desc"`
+	HoneypotMode   string `json:"honeypot_mode" default:"deceive" name:"config.honeypot_mode" category:"config.category.security" desc:"config.honeypot_mode_desc"`
+	HoneypotSeed   string `json:"honeypot_seed" default:"" name:"config.honeypot_seed" category:"config.category.security" desc:"config.honeypot_seed_desc"`
 
 	// For cache
 	ProxyKeysMap map[string]struct{} `json:"-"`

@@ -93,7 +93,7 @@ func registerAPIRoutes(
 
 	// 认证
 	protectedAPI := api.Group("")
-	protectedAPI.Use(middleware.Auth(authConfig))
+	protectedAPI.Use(middleware.Auth(authConfig, serverHandler.SettingsManager))
 	registerProtectedAPIRoutes(protectedAPI, serverHandler)
 }
 
