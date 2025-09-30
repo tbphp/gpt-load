@@ -84,40 +84,44 @@ func NewGroupService(
 
 // GroupCreateParams captures all fields required to create a group.
 type GroupCreateParams struct {
-	Name               string
-	DisplayName        string
-	Description        string
-	GroupType          string
-	Upstreams          json.RawMessage
-	ChannelType        string
-	Sort               int
-	TestModel          string
-	ValidationEndpoint string
-	ParamOverrides     map[string]any
-	Config             map[string]any
-	HeaderRules        []models.HeaderRule
-	ProxyKeys          string
-	SubGroups          []SubGroupInput
+	Name                string
+	DisplayName         string
+	Description         string
+	GroupType           string
+	Upstreams           json.RawMessage
+	ChannelType         string
+	Sort                int
+	TestModel           string
+	ValidationEndpoint  string
+	ParamOverrides      map[string]any
+	ModelRedirectRules  map[string]string
+	ModelRedirectStrict bool
+	Config              map[string]any
+	HeaderRules         []models.HeaderRule
+	ProxyKeys           string
+	SubGroups           []SubGroupInput
 }
 
 // GroupUpdateParams captures updatable fields for a group.
 type GroupUpdateParams struct {
-	Name               *string
-	DisplayName        *string
-	Description        *string
-	GroupType          *string
-	Upstreams          json.RawMessage
-	HasUpstreams       bool
-	ChannelType        *string
-	Sort               *int
-	TestModel          string
-	HasTestModel       bool
-	ValidationEndpoint *string
-	ParamOverrides     map[string]any
-	Config             map[string]any
-	HeaderRules        *[]models.HeaderRule
-	ProxyKeys          *string
-	SubGroups          *[]SubGroupInput
+	Name                *string
+	DisplayName         *string
+	Description         *string
+	GroupType           *string
+	Upstreams           json.RawMessage
+	HasUpstreams        bool
+	ChannelType         *string
+	Sort                *int
+	TestModel           string
+	HasTestModel        bool
+	ValidationEndpoint  *string
+	ParamOverrides      map[string]any
+	ModelRedirectRules  map[string]string
+	ModelRedirectStrict *bool
+	Config              map[string]any
+	HeaderRules         *[]models.HeaderRule
+	ProxyKeys           *string
+	SubGroups           *[]SubGroupInput
 }
 
 // KeyStats captures aggregated API key statistics for a group.
@@ -210,20 +214,32 @@ func (s *GroupService) CreateGroup(ctx context.Context, params GroupCreateParams
 		headerRulesJSON = datatypes.JSON("[]")
 	}
 
+	// Validate model redirect rules for aggregate groups
+	if groupType == "aggregate" && len(params.ModelRedirectRules) > 0 {
+		return nil, NewI18nError(app_errors.ErrValidation, "validation.aggregate_no_model_redirect", nil)
+	}
+
+	// Validate model redirect rules format
+	if err := validateModelRedirectRules(params.ModelRedirectRules); err != nil {
+		return nil, NewI18nError(app_errors.ErrValidation, "validation.invalid_model_redirect", map[string]any{"error": err.Error()})
+	}
+
 	group := models.Group{
-		Name:               name,
-		DisplayName:        strings.TrimSpace(params.DisplayName),
-		Description:        strings.TrimSpace(params.Description),
-		GroupType:          groupType,
-		Upstreams:          cleanedUpstreams,
-		ChannelType:        channelType,
-		Sort:               params.Sort,
-		TestModel:          testModel,
-		ValidationEndpoint: validationEndpoint,
-		ParamOverrides:     params.ParamOverrides,
-		Config:             cleanedConfig,
-		HeaderRules:        headerRulesJSON,
-		ProxyKeys:          strings.TrimSpace(params.ProxyKeys),
+		Name:                name,
+		DisplayName:         strings.TrimSpace(params.DisplayName),
+		Description:         strings.TrimSpace(params.Description),
+		GroupType:           groupType,
+		Upstreams:           cleanedUpstreams,
+		ChannelType:         channelType,
+		Sort:                params.Sort,
+		TestModel:           testModel,
+		ValidationEndpoint:  validationEndpoint,
+		ParamOverrides:      params.ParamOverrides,
+		ModelRedirectRules:  convertToJSONMap(params.ModelRedirectRules),
+		ModelRedirectStrict: params.ModelRedirectStrict,
+		Config:              cleanedConfig,
+		HeaderRules:         headerRulesJSON,
+		ProxyKeys:           strings.TrimSpace(params.ProxyKeys),
 	}
 
 	tx := s.db.WithContext(ctx).Begin()
@@ -345,6 +361,23 @@ func (s *GroupService) UpdateGroup(ctx context.Context, id uint, params GroupUpd
 
 	if params.ParamOverrides != nil {
 		group.ParamOverrides = params.ParamOverrides
+	}
+
+	// Validate model redirect rules for aggregate groups
+	if group.GroupType == "aggregate" && params.ModelRedirectRules != nil && len(params.ModelRedirectRules) > 0 {
+		return nil, NewI18nError(app_errors.ErrValidation, "validation.aggregate_no_model_redirect", nil)
+	}
+
+	// Validate model redirect rules format
+	if params.ModelRedirectRules != nil {
+		if err := validateModelRedirectRules(params.ModelRedirectRules); err != nil {
+			return nil, NewI18nError(app_errors.ErrValidation, "validation.invalid_model_redirect", map[string]any{"error": err.Error()})
+		}
+		group.ModelRedirectRules = convertToJSONMap(params.ModelRedirectRules)
+	}
+
+	if params.ModelRedirectStrict != nil {
+		group.ModelRedirectStrict = *params.ModelRedirectStrict
 	}
 
 	if params.ValidationEndpoint != nil {
@@ -943,4 +976,35 @@ func (s *GroupService) isValidChannelType(channelType string) bool {
 		}
 	}
 	return false
+}
+
+// convertToJSONMap converts a map[string]string to datatypes.JSONMap
+func convertToJSONMap(input map[string]string) datatypes.JSONMap {
+	if len(input) == 0 {
+		return datatypes.JSONMap{}
+	}
+
+	result := make(datatypes.JSONMap)
+	for k, v := range input {
+		result[k] = v
+	}
+	return result
+}
+
+// validateModelRedirectRules validates the format and content of model redirect rules
+func validateModelRedirectRules(rules map[string]string) error {
+	if len(rules) == 0 {
+		return nil
+	}
+
+	for key, value := range rules {
+		if strings.TrimSpace(key) == "" || strings.TrimSpace(value) == "" {
+			return fmt.Errorf("model name cannot be empty")
+		}
+		if key == value {
+			return fmt.Errorf("cannot redirect model to itself: %s", key)
+		}
+	}
+
+	return nil
 }

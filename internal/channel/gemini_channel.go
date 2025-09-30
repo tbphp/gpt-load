@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/sirupsen/logrus"
 )
 
 func init() {
@@ -89,7 +90,7 @@ func (ch *GeminiChannel) ExtractModel(c *gin.Context, bodyBytes []byte) string {
 	}
 	var p modelPayload
 	if err := json.Unmarshal(bodyBytes, &p); err == nil && p.Model != "" {
-		return strings.TrimPrefix(p.Model, "models/")
+		return utils.CleanGeminiModelName(p.Model)
 	}
 
 	return ""
@@ -154,4 +155,65 @@ func (ch *GeminiChannel) ValidateKey(ctx context.Context, apiKey *models.APIKey,
 	parsedError := app_errors.ParseUpstreamError(errorBody)
 
 	return false, fmt.Errorf("[status %d] %s", resp.StatusCode, parsedError)
+}
+
+// ApplyModelRedirect overrides the default implementation for Gemini channel.
+// Handles both native format (URL path) and OpenAI compatible format (JSON body).
+func (ch *GeminiChannel) ApplyModelRedirect(req *http.Request, bodyBytes []byte, group *models.Group) ([]byte, error) {
+	if len(group.ModelRedirectMap) == 0 {
+		return bodyBytes, nil
+	}
+
+	// Check if this is OpenAI compatible format
+	if strings.Contains(req.URL.Path, "v1beta/openai") {
+		// Use the default BaseChannel implementation for JSON body redirection
+		return ch.BaseChannel.ApplyModelRedirect(req, bodyBytes, group)
+	}
+
+	// Handle Gemini native format (URL path redirection)
+	return ch.applyNativeFormatRedirect(req, bodyBytes, group)
+}
+
+// applyNativeFormatRedirect handles model redirection for Gemini native format.
+func (ch *GeminiChannel) applyNativeFormatRedirect(req *http.Request, bodyBytes []byte, group *models.Group) ([]byte, error) {
+	path := req.URL.Path
+	parts := strings.Split(path, "/")
+
+	for i, part := range parts {
+		if part == "models" && i+1 < len(parts) {
+			modelPart := parts[i+1]
+			originalModel := strings.Split(modelPart, ":")[0]
+
+			if targetModel, found := group.ModelRedirectMap[originalModel]; found {
+				// Replace model name while keeping suffix (e.g., :generateContent)
+				suffix := ""
+				if colonIndex := strings.Index(modelPart, ":"); colonIndex != -1 {
+					suffix = modelPart[colonIndex:]
+				}
+				parts[i+1] = targetModel + suffix
+				req.URL.Path = strings.Join(parts, "/")
+
+				// Log the redirection for audit
+				logrus.WithFields(logrus.Fields{
+					"group":          group.Name,
+					"original_model": originalModel,
+					"target_model":   targetModel,
+					"channel":        "gemini_native",
+					"original_path":  path,
+					"new_path":       req.URL.Path,
+				}).Debug("Model redirected")
+
+				return bodyBytes, nil
+			}
+
+			// No redirection rule found
+			if group.ModelRedirectStrict {
+				return nil, fmt.Errorf("model '%s' is not configured in redirect rules", originalModel)
+			}
+			return bodyBytes, nil
+		}
+	}
+
+	// No model found in URL path
+	return bodyBytes, nil
 }
