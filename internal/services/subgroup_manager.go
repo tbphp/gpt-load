@@ -58,20 +58,21 @@ func (m *SubGroupManager) SelectSubGroup(group *models.Group) (string, error) {
 
 // RebuildSelectors rebuild all selectors based on the incoming group
 func (m *SubGroupManager) RebuildSelectors(groups map[string]*models.Group) {
-	m.mu.Lock()
-	m.selectors = make(map[uint]*selector)
-	m.mu.Unlock()
+	newSelectors := make(map[uint]*selector)
 
-	rebuildCount := 0
 	for _, group := range groups {
 		if group.GroupType == "aggregate" && len(group.SubGroups) > 0 {
-			if sel := m.getSelector(group); sel != nil {
-				rebuildCount++
+			if sel := m.createSelector(group); sel != nil {
+				newSelectors[group.ID] = sel
 			}
 		}
 	}
 
-	logrus.WithField("new_count", rebuildCount).Debug("Rebuilt selectors for aggregate groups")
+	m.mu.Lock()
+	m.selectors = newSelectors
+	m.mu.Unlock()
+
+	logrus.WithField("new_count", len(newSelectors)).Debug("Rebuilt selectors for aggregate groups")
 }
 
 // getSelector retrieves or creates a selector for the aggregate group

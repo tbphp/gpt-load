@@ -208,7 +208,7 @@ func (s *AggregateGroupService) AddSubGroups(ctx context.Context, groupID uint, 
 	}
 
 	// Add new sub groups
-	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		for _, newSg := range result.SubGroups {
 			newSg.GroupID = groupID
 			if err := tx.Create(&newSg).Error; err != nil {
@@ -216,13 +216,19 @@ func (s *AggregateGroupService) AddSubGroups(ctx context.Context, groupID uint, 
 			}
 		}
 
-		// 触发缓存更新
-		if err := s.groupManager.Invalidate(); err != nil {
-			logrus.WithContext(ctx).WithError(err).Error("failed to invalidate group cache after adding sub groups")
-		}
-
 		return nil
 	})
+
+	if err != nil {
+		return err
+	}
+
+	// 触发缓存更新
+	if err := s.groupManager.Invalidate(); err != nil {
+		logrus.WithContext(ctx).WithError(err).Error("failed to invalidate group cache after adding sub groups")
+	}
+
+	return nil
 }
 
 // UpdateSubGroupWeight updates the weight of a specific sub group
