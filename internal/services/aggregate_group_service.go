@@ -173,11 +173,14 @@ func (s *AggregateGroupService) AddSubGroups(ctx context.Context, groupID uint, 
 
 	// Check if there are existing sub groups and get their validation endpoint
 	var existingEndpoint string
-	var existingSubGroup models.GroupSubGroup
-	if err := s.db.WithContext(ctx).Where("group_id = ?", groupID).First(&existingSubGroup).Error; err == nil {
-		// If we have existing sub groups, get one of their validation endpoints
+	var existingSubGroups []models.GroupSubGroup
+	if err := s.db.WithContext(ctx).Where("group_id = ?", groupID).Find(&existingSubGroups).Error; err != nil {
+		return err
+	}
+
+	if len(existingSubGroups) > 0 {
 		var existingGroup models.Group
-		if err := s.db.WithContext(ctx).First(&existingGroup, existingSubGroup.SubGroupID).Error; err == nil {
+		if err := s.db.WithContext(ctx).First(&existingGroup, existingSubGroups[0].SubGroupID).Error; err == nil {
 			existingEndpoint = utils.GetValidationEndpoint(&existingGroup)
 		}
 	}
@@ -185,12 +188,6 @@ func (s *AggregateGroupService) AddSubGroups(ctx context.Context, groupID uint, 
 	// Validate sub groups with existing endpoint for consistency
 	result, err := s.ValidateSubGroups(ctx, group.ChannelType, inputs, existingEndpoint)
 	if err != nil {
-		return err
-	}
-
-	// Manually query existing sub groups
-	var existingSubGroups []models.GroupSubGroup
-	if err := s.db.WithContext(ctx).Where("group_id = ?", groupID).Find(&existingSubGroups).Error; err != nil {
 		return err
 	}
 
