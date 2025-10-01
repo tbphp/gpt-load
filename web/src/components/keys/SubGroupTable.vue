@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { keysApi } from "@/api/keys";
 import type { Group, SubGroupInfo } from "@/types/models";
+import { getGroupDisplayName } from "@/utils/display";
 import { Add, CreateOutline, InformationCircleOutline, Trash } from "@vicons/ionicons5";
 import { NButton, NButtonGroup, NEmpty, NIcon, NSpin, useDialog } from "naive-ui";
 import { computed, ref } from "vue";
@@ -62,7 +63,7 @@ async function deleteSubGroup(subGroup: SubGroupInfo) {
 
   const d = dialog.warning({
     title: t("subGroups.removeSubGroup"),
-    content: t("subGroups.confirmRemoveSubGroup", { name: subGroup.display_name || subGroup.name }),
+    content: t("subGroups.confirmRemoveSubGroup", { name: getGroupDisplayName(subGroup) }),
     positiveText: t("common.confirm"),
     negativeText: t("common.cancel"),
     onPositiveClick: async () => {
@@ -81,16 +82,12 @@ async function deleteSubGroup(subGroup: SubGroupInfo) {
   });
 }
 
-// 统一的成功处理函数
+// Handle success after modal operations
 function handleSuccess() {
   emit("refresh");
 }
 
-function formatDisplayName(subGroup: SubGroupInfo): string {
-  return subGroup.display_name || subGroup.name;
-}
-
-// 跳转到分组信息
+// Navigate to group info
 function goToGroupInfo(groupId: number) {
   emit("group-select", groupId);
 }
@@ -126,11 +123,11 @@ function goToGroupInfo(groupId: number) {
             class="key-card status-sub-group"
             :class="{ disabled: subGroup.weight === 0 }"
           >
-            <!-- 主要信息行：显示名 + 分组名 -->
+            <!-- Main info row: display name + group name -->
             <div class="key-main">
               <div class="key-section">
                 <div class="sub-group-names">
-                  <span class="display-name">{{ formatDisplayName(subGroup) }}</span>
+                  <span class="display-name">{{ getGroupDisplayName(subGroup) }}</span>
                 </div>
                 <div class="quick-actions">
                   <span class="group-name">#{{ subGroup.name }}</span>
