@@ -74,6 +74,8 @@ export interface Group {
   api_keys?: APIKey[];
   endpoint?: string;
   param_overrides: Record<string, unknown>;
+  model_redirect_rules: Record<string, string>;
+  model_redirect_strict: boolean;
   header_rules?: HeaderRule[];
   proxy_keys: string;
   group_type?: GroupType;

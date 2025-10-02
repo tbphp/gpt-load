@@ -165,6 +165,20 @@ func (ps *ProxyServer) executeRequestWithRetry(
 	req.Header.Del("X-Api-Key")
 	req.Header.Del("X-Goog-Api-Key")
 
+	// Apply model redirection
+	finalBodyBytes, err := channelHandler.ApplyModelRedirect(req, bodyBytes, group)
+	if err != nil {
+		response.Error(c, app_errors.NewAPIError(app_errors.ErrBadRequest, err.Error()))
+		ps.logRequest(c, originalGroup, group, apiKey, startTime, http.StatusBadRequest, err, isStream, upstreamURL, channelHandler, bodyBytes, models.RequestTypeFinal)
+		return
+	}
+
+	// Update request body if it was modified by redirection
+	if !bytes.Equal(finalBodyBytes, bodyBytes) {
+		req.Body = io.NopCloser(bytes.NewReader(finalBodyBytes))
+		req.ContentLength = int64(len(finalBodyBytes))
+	}
+
 	channelHandler.ModifyRequest(req, apiKey, group)
 
 	// Apply custom header rules
