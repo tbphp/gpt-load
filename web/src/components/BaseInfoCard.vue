@@ -1,10 +1,32 @@
 <script setup lang="ts">
 import type { DashboardStatsResponse } from "@/types/models";
 import { NCard, NGrid, NGridItem, NSpace, NTag, NTooltip } from "naive-ui";
-import { computed, onMounted, ref } from "vue";
+import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
+import { useDataFormat } from "@/composables/useDataFormat";
+import { usePerformance } from "@/composables/usePerformance";
+import KeyIcon from "./icons/KeyIcon.vue";
+import ClockIcon from "./icons/ClockIcon.vue";
+import TrendingUpIcon from "./icons/TrendingUpIcon.vue";
+import ShieldCheckIcon from "./icons/ShieldCheckIcon.vue";
 
-const { t } = useI18n();
+const { t, te } = useI18n();
+// Translation with fallback and simple {named} interpolation
+const tt = (key: string, fallback: string, named?: Record<string, any>): string => {
+  if (te(key)) return t(key, named as any) as unknown as string;
+  return fallback.replace(/\{(\w+)\}/g, (_, k) => String(named?.[k] ?? ""));
+};
+const { 
+  safeNumber, 
+  safeNumberOrNull, 
+  formatValue, 
+  formatTrend, 
+  safeRatio,
+  trendToRatio,
+  errorRateToRatio,
+  isValidNumber 
+} = useDataFormat();
+const { debouncedWatch, optimizedUpdate } = usePerformance();
 
 // Props
 interface Props {
@@ -18,74 +40,148 @@ const props = withDefaults(defineProps<Props>(), {
 
 // 使用计算属性代替ref
 const stats = computed(() => props.stats);
-const animatedValues = ref<Record<string, number>>({});
-
-// 格式化数值显示
-const formatValue = (value: number, type: "count" | "rate" = "count"): string => {
-  if (type === "rate") {
-    return `${value.toFixed(1)}%`;
-  }
-  if (value >= 1000) {
-    return `${(value / 1000).toFixed(1)}K`;
-  }
-  return value.toString();
-};
-
-// 格式化趋势显示
-const formatTrend = (trend: number): string => {
-  const sign = trend >= 0 ? "+" : "";
-  return `${sign}${trend.toFixed(1)}%`;
-};
+const animatedValues = ref<{
+  key_count: number;
+  rpm: number;
+  request_count: number;
+  error_rate: number;
+}>({
+  key_count: 0,
+  rpm: 0,
+  request_count: 0,
+  error_rate: 0,
+});
 
 // 监听stats变化并更新动画值
 const updateAnimatedValues = () => {
-  if (stats.value) {
-    setTimeout(() => {
-      animatedValues.value = {
-        key_count:
-          (stats.value?.key_count?.value ?? 0) /
-          ((stats.value?.key_count?.value ?? 1) + (stats.value?.key_count?.sub_value ?? 1)),
-        rpm: Math.min(100 + (stats.value?.rpm?.trend ?? 0), 100) / 100,
-        request_count: Math.min(100 + (stats.value?.request_count?.trend ?? 0), 100) / 100,
-        error_rate: (100 - (stats.value?.error_rate?.value ?? 0)) / 100,
-      };
-    }, 0);
+  if (!stats.value) {
+    // Reset to avoid stale widths when data is absent
+    animatedValues.value = {
+      key_count: 0,
+      rpm: 0,
+      request_count: 0,
+      error_rate: 0,
+    };
+    return;
   }
+  
+  // 使用优化的更新策略
+  optimizedUpdate(() => {
+    // 计算 key_count 比率
+    const kcValue = safeNumber(stats.value?.key_count?.value);
+    const kcSub = safeNumber(stats.value?.key_count?.sub_value);
+    const keyCountRatio = safeRatio(kcValue, kcValue + kcSub);
+
+    // 计算趋势相关比率
+    const rpmRatio = trendToRatio(stats.value?.rpm?.trend);
+    const reqRatio = trendToRatio(stats.value?.request_count?.trend);
+    const errRatio = errorRateToRatio(stats.value?.error_rate?.value);
+
+    animatedValues.value = {
+      key_count: keyCountRatio,
+      rpm: rpmRatio,
+      request_count: reqRatio,
+      error_rate: errRatio,
+    };
+  }, "high");
 };
 
-// 监听stats变化
-onMounted(() => {
-  updateAnimatedValues();
-});
+// 使用防抖监听 stats 变化（含初始）
+debouncedWatch(
+  () => props.stats,
+  () => {
+    updateAnimatedValues();
+  },
+  150, // 150ms 防抖延迟
+  { immediate: true, deep: true }
+);
 </script>
 
 <template>
-  <div class="stats-container">
+  <div 
+    class="stats-container"
+    role="region"
+    :aria-busy="props.loading"
+    aria-live="polite"
+    :aria-label="tt('accessibility.dashboardStats', '仪表盘统计数据')"
+  >
     <n-space vertical size="medium">
-      <n-grid cols="2 s:4" :x-gap="20" :y-gap="20" responsive="screen">
+      <n-grid 
+        cols="2 s:4" 
+        :x-gap="20" 
+        :y-gap="20" 
+        responsive="screen"
+        role="grid"
+        :aria-label="tt('accessibility.statsGrid', '统计卡片网格')"
+      >
         <!-- 密钥数量 -->
         <n-grid-item span="1">
-          <n-card :bordered="false" class="stat-card" style="animation-delay: 0s">
+          <n-card 
+            :bordered="false" 
+            class="stat-card" 
+            style="animation-delay: 0s"
+            role="region"
+            :aria-label="tt('accessibility.keyStats', '密钥统计：{count} 个密钥', {
+              count: stats?.key_count?.value != null
+                ? formatValue(stats.key_count.value)
+                : '--'
+            })"
+          >
             <div class="stat-header">
-              <div class="stat-icon key-icon">🔑</div>
-              <n-tooltip v-if="stats?.key_count.sub_value" trigger="hover">
+              <div 
+                class="stat-icon key-icon" 
+                aria-hidden="true"
+              >
+                <key-icon />
+              </div>
+              <n-tooltip v-if="Number(stats?.key_count?.sub_value) > 0" trigger="hover">
                 <template #trigger>
-                  <n-tag type="error" size="small" class="stat-trend">
-                    {{ stats.key_count.sub_value }}
+                  <n-tag 
+                    type="error" 
+                    size="small" 
+                    class="stat-trend"
+                    :aria-label="tt('accessibility.abnormalKeys', '异常密钥：{count} 个', {
+                      count: stats?.key_count?.sub_value
+                    })"
+                  >
+                    {{ stats?.key_count?.sub_value }}
                   </n-tag>
                 </template>
-                {{ stats.key_count.sub_value_tip }}
+                {{ stats?.key_count?.sub_value_tip }}
               </n-tooltip>
             </div>
 
             <div class="stat-content">
-              <div class="stat-value">
-                {{ stats?.key_count?.value ?? 0 }}
+              <div 
+                class="stat-value"
+                :aria-label="tt('accessibility.totalKeys', '密钥总数：{count}', {
+                  count: stats?.key_count?.value != null
+                    ? formatValue(stats.key_count.value)
+                    : '--'
+                })"
+              >
+                {{
+                  stats?.key_count?.value != null
+                    ? formatValue(stats.key_count.value)
+                    : "--"
+                }}
               </div>
               <div class="stat-title">{{ t("dashboard.totalKeys") }}</div>
             </div>
 
-            <div class="stat-bar">
+            <div 
+              class="stat-bar"
+              role="progressbar"
+              :aria-valuenow="Math.round((animatedValues.key_count ?? 0) * 100)"
+              aria-valuemin="0"
+              aria-valuemax="100"
+              :aria-valuetext="tt('accessibility.keyUsageRatio', '密钥使用比例：{percent}%', {
+                percent: Math.round((animatedValues.key_count ?? 0) * 100)
+              })"
+              :aria-label="tt('accessibility.keyUsageRatio', '密钥使用比例：{percent}%', {
+                percent: Math.round((animatedValues.key_count ?? 0) * 100)
+              })"
+            >
               <div
                 class="stat-bar-fill key-bar"
                 :style="{
@@ -98,27 +194,68 @@ onMounted(() => {
 
         <!-- RPM (10分钟) -->
         <n-grid-item span="1">
-          <n-card :bordered="false" class="stat-card" style="animation-delay: 0.05s">
+          <n-card 
+            :bordered="false" 
+            class="stat-card" 
+            style="animation-delay: 0.05s"
+            role="region"
+            :aria-label="tt('accessibility.rpmStats', 'RPM 统计：{rpm} 请求每分钟', {
+              rpm: isValidNumber(stats?.rpm?.value)
+                ? safeNumber(stats?.rpm?.value).toFixed(1)
+                : '--'
+            })"
+          >
             <div class="stat-header">
-              <div class="stat-icon rpm-icon">⏱️</div>
+              <div 
+                class="stat-icon rpm-icon" 
+                aria-hidden="true"
+              >
+                <clock-icon />
+              </div>
               <n-tag
-                v-if="stats?.rpm && stats.rpm.trend !== undefined"
-                :type="stats?.rpm.trend_is_growth ? 'success' : 'error'"
+                v-if="stats?.rpm?.trend != null && stats?.rpm?.trend !== 0"
+                :type="stats?.rpm?.trend_is_growth ? 'success' : 'error'"
                 size="small"
                 class="stat-trend"
+                :aria-label="tt('accessibility.trend', '趋势：{trend}', {
+                  trend: formatTrend(stats?.rpm?.trend)
+                })"
               >
-                {{ stats ? formatTrend(stats.rpm.trend) : "--" }}
+                {{ formatTrend(stats?.rpm?.trend) }}
               </n-tag>
             </div>
 
             <div class="stat-content">
-              <div class="stat-value">
-                {{ stats?.rpm?.value.toFixed(1) ?? 0 }}
+              <div 
+                class="stat-value"
+                :aria-label="tt('accessibility.requestsPerMinute', '每分钟请求数：{rpm}', {
+                  rpm: isValidNumber(stats?.rpm?.value)
+                    ? safeNumber(stats?.rpm?.value).toFixed(1)
+                    : '--'
+                })"
+              >
+                {{
+                  isValidNumber(stats?.rpm?.value)
+                    ? safeNumber(stats?.rpm?.value).toFixed(1)
+                    : "--"
+                }}
               </div>
               <div class="stat-title">{{ t("dashboard.rpm10Min") }}</div>
             </div>
 
-            <div class="stat-bar">
+            <div 
+              class="stat-bar"
+              role="progressbar"
+              :aria-valuenow="Math.round((animatedValues.rpm ?? 0) * 100)"
+              aria-valuemin="0"
+              aria-valuemax="100"
+              :aria-valuetext="tt('accessibility.rpmTrendIndicator', 'RPM 趋势指示：{percent}%', {
+                percent: Math.round((animatedValues.rpm ?? 0) * 100)
+              })"
+              :aria-label="tt('accessibility.rpmTrendIndicator', 'RPM 趋势指示：{percent}%', {
+                percent: Math.round((animatedValues.rpm ?? 0) * 100)
+              })"
+            >
               <div
                 class="stat-bar-fill rpm-bar"
                 :style="{
@@ -133,25 +270,41 @@ onMounted(() => {
         <n-grid-item span="1">
           <n-card :bordered="false" class="stat-card" style="animation-delay: 0.1s">
             <div class="stat-header">
-              <div class="stat-icon request-icon">📈</div>
+              <div class="stat-icon request-icon" aria-hidden="true"><trending-up-icon /></div>
               <n-tag
-                v-if="stats?.request_count && stats.request_count.trend !== undefined"
-                :type="stats?.request_count.trend_is_growth ? 'success' : 'error'"
+                v-if="stats?.request_count?.trend != null && stats?.request_count?.trend !== 0"
+                :type="stats?.request_count?.trend_is_growth ? 'success' : 'error'"
                 size="small"
                 class="stat-trend"
               >
-                {{ stats ? formatTrend(stats.request_count.trend) : "--" }}
+                {{ formatTrend(stats?.request_count?.trend) }}
               </n-tag>
             </div>
 
             <div class="stat-content">
               <div class="stat-value">
-                {{ stats ? formatValue(stats.request_count.value) : "--" }}
+                {{
+                  stats?.request_count?.value != null
+                    ? formatValue(stats.request_count.value)
+                    : "--"
+                }}
               </div>
               <div class="stat-title">{{ t("dashboard.requests24h") }}</div>
             </div>
 
-            <div class="stat-bar">
+            <div 
+              class="stat-bar"
+              role="progressbar"
+              :aria-valuenow="Math.round((animatedValues.request_count ?? 0) * 100)"
+              aria-valuemin="0"
+              aria-valuemax="100"
+              :aria-valuetext="tt('accessibility.requestTrendIndicator', '请求趋势指示：{percent}%', {
+                percent: Math.round((animatedValues.request_count ?? 0) * 100)
+              })"
+              :aria-label="tt('accessibility.requestTrendIndicator', '请求趋势指示：{percent}%', {
+                percent: Math.round((animatedValues.request_count ?? 0) * 100)
+              })"
+            >
               <div
                 class="stat-bar-fill request-bar"
                 :style="{
@@ -166,25 +319,41 @@ onMounted(() => {
         <n-grid-item span="1">
           <n-card :bordered="false" class="stat-card" style="animation-delay: 0.15s">
             <div class="stat-header">
-              <div class="stat-icon error-icon">🛡️</div>
+              <div class="stat-icon error-icon" aria-hidden="true"><shield-check-icon /></div>
               <n-tag
-                v-if="stats?.error_rate.trend !== 0"
-                :type="stats?.error_rate.trend_is_growth ? 'success' : 'error'"
+                v-if="stats?.error_rate?.trend != null && stats?.error_rate?.trend !== 0"
+                :type="stats?.error_rate?.trend_is_growth ? 'error' : 'success'"
                 size="small"
                 class="stat-trend"
               >
-                {{ stats ? formatTrend(stats.error_rate.trend) : "--" }}
+                {{ formatTrend(stats?.error_rate?.trend) }}
               </n-tag>
             </div>
 
             <div class="stat-content">
               <div class="stat-value">
-                {{ stats ? formatValue(stats.error_rate.value ?? 0, "rate") : "--" }}
+                {{
+                  stats?.error_rate?.value != null
+                    ? formatValue(stats.error_rate.value, "rate")
+                    : "--"
+                }}
               </div>
               <div class="stat-title">{{ t("dashboard.errorRate24h") }}</div>
             </div>
 
-            <div class="stat-bar">
+            <div 
+              class="stat-bar"
+              role="progressbar"
+              :aria-valuenow="Math.round((animatedValues.error_rate ?? 0) * 100)"
+              aria-valuemin="0"
+              aria-valuemax="100"
+              :aria-valuetext="tt('accessibility.successRateIndicator', '成功率指示：{percent}%', {
+                percent: Math.round((animatedValues.error_rate ?? 0) * 100)
+              })"
+              :aria-label="tt('accessibility.successRateIndicator', '成功率指示：{percent}%', {
+                percent: Math.round((animatedValues.error_rate ?? 0) * 100)
+              })"
+            >
               <div
                 class="stat-bar-fill error-bar"
                 :style="{
@@ -199,150 +368,54 @@ onMounted(() => {
   </div>
 </template>
 
-<style scoped>
+<style scoped lang="scss">
+@import "@/styles/components.scss";
+
 .stats-container {
   width: 100%;
-  animation: fadeInUp 0.2s ease-out;
   margin-bottom: 16px;
+  @include stat-animations;
 }
 
 .stat-card {
-  background: var(--card-bg);
-  border-radius: var(--border-radius-lg);
-  border: 1px solid var(--border-color-light);
-  position: relative;
-  overflow: hidden;
-  animation: slideInUp 0.2s ease-out both;
-  transition: all 0.2s ease;
-}
-
-.stat-card:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-lg);
+  @include stat-card;
+  @include stat-animation-delays;
 }
 
 .stat-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 16px;
+  @include stat-header;
 }
 
 .stat-icon {
-  width: 40px;
-  height: 40px;
-  border-radius: var(--border-radius-md);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 1.4rem;
-  color: white;
-  box-shadow: var(--shadow-md);
+  @include stat-icon;
 }
 
-.key-icon {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-}
-
-.rpm-icon {
-  background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-}
-
-.request-icon {
-  background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
-}
-
-.error-icon {
-  background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
-}
+@include stat-icon-colors;
 
 .stat-trend {
-  font-weight: 600;
-}
-
-.stat-trend:before {
-  content: "";
-  display: inline-block;
-  width: 0;
-  height: 0;
-  margin-right: 4px;
-  vertical-align: middle;
+  @include stat-trend;
 }
 
 .stat-content {
-  margin-bottom: 16px;
+  @include stat-content;
 }
 
 .stat-value {
-  font-size: 2rem;
-  font-weight: 700;
-  line-height: 1.2;
-  color: var(--text-primary);
-  margin-bottom: 4px;
+  @include stat-value;
 }
 
 .stat-title {
-  font-size: 0.95rem;
-  color: var(--text-secondary);
-  font-weight: 500;
+  @include stat-title;
 }
 
 .stat-bar {
-  width: 100%;
-  height: 4px;
-  background: var(--border-color);
-  border-radius: 2px;
-  overflow: hidden;
-  position: relative;
+  @include stat-bar;
 }
 
 .stat-bar-fill {
-  height: 100%;
-  border-radius: 2px;
-  transition: width 0.5s ease-out;
-  transition-delay: 0.2s;
+  @include stat-bar-fill;
 }
 
-.key-bar {
-  background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
-}
-
-.rpm-bar {
-  background: linear-gradient(90deg, #f093fb 0%, #f5576c 100%);
-}
-
-.request-bar {
-  background: linear-gradient(90deg, #4facfe 0%, #00f2fe 100%);
-}
-
-.error-bar {
-  background: linear-gradient(90deg, #43e97b 0%, #38f9d7 100%);
-}
-
-@keyframes slideInUp {
-  from {
-    opacity: 0;
-    transform: translateY(30px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes fadeInUp {
-  from {
-    opacity: 0;
-    transform: translateY(20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-/* 响应式网格 */
-:deep(.n-grid-item) {
-  min-width: 0;
-}
+@include stat-bar-colors;
+@include stat-grid-responsive;
 </style>

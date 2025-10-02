@@ -176,11 +176,12 @@ export interface GroupRequestStat {
 }
 
 // 仪表盘统计卡片数据
+// 统计卡片数据（API可能返回字符串或数字）
 export interface StatCard {
-  value: number;
-  sub_value?: number;
+  value: number | string;
+  sub_value?: number | string;
   sub_value_tip?: string;
-  trend: number;
+  trend: number | string;
   trend_is_growth: boolean;
 }
 
