@@ -4,6 +4,7 @@ import type { Group, GroupConfigOption, GroupStatsResponse } from "@/types/model
 import { appState } from "@/utils/app-state";
 import { copy } from "@/utils/clipboard";
 import { getGroupDisplayName, maskProxyKeys } from "@/utils/display";
+import { useDataFormat } from "@/composables/useDataFormat";
 import { CopyOutline, EyeOffOutline, EyeOutline, Pencil, Trash } from "@vicons/ionicons5";
 import {
   NButton,
@@ -28,6 +29,7 @@ import GroupCopyModal from "./GroupCopyModal.vue";
 import GroupFormModal from "./GroupFormModal.vue";
 
 const { t } = useI18n();
+const { formatValue, formatPercentage, safeNumber, isValidNumber } = useDataFormat();
 
 interface Props {
   group: Group | null;
@@ -250,22 +252,6 @@ async function handleDelete() {
   });
 }
 
-function formatNumber(num: number): string {
-  // if (num >= 1000000) {
-  //   return `${(num / 1000000).toFixed(1)}M`;
-  // }
-  if (num >= 1000) {
-    return `${(num / 1000).toFixed(1)}K`;
-  }
-  return num.toString();
-}
-
-function formatPercentage(num: number): string {
-  if (num <= 0) {
-    return "0";
-  }
-  return `${(num * 100).toFixed(1)}%`;
-}
 
 async function copyUrl(url: string) {
   if (!url) {
@@ -373,12 +359,12 @@ function resetPage() {
             </n-grid-item>
             <n-grid-item span="1">
               <n-statistic
-                :label="`${t('keys.hourlyRequests')}：${formatNumber(stats?.hourly_stats?.total_requests ?? 0)}`"
+                :label="`${t('keys.hourlyRequests')}：${formatValue(stats?.hourly_stats?.total_requests)}`"
               >
                 <n-tooltip trigger="hover">
                   <template #trigger>
                     <n-gradient-text type="error" size="20">
-                      {{ formatNumber(stats?.hourly_stats?.failed_requests ?? 0) }}
+                      {{ formatValue(stats?.hourly_stats?.failed_requests) }}
                     </n-gradient-text>
                   </template>
                   {{ t("keys.hourlyFailedRequests") }}
@@ -396,12 +382,12 @@ function resetPage() {
             </n-grid-item>
             <n-grid-item span="1">
               <n-statistic
-                :label="`${t('keys.dailyRequests')}：${formatNumber(stats?.daily_stats?.total_requests ?? 0)}`"
+                :label="`${t('keys.dailyRequests')}：${formatValue(stats?.daily_stats?.total_requests)}`"
               >
                 <n-tooltip trigger="hover">
                   <template #trigger>
                     <n-gradient-text type="error" size="20">
-                      {{ formatNumber(stats?.daily_stats?.failed_requests ?? 0) }}
+                      {{ formatValue(stats?.daily_stats?.failed_requests) }}
                     </n-gradient-text>
                   </template>
                   {{ t("keys.dailyFailedRequests") }}
@@ -419,12 +405,12 @@ function resetPage() {
             </n-grid-item>
             <n-grid-item span="1">
               <n-statistic
-                :label="`${t('keys.weeklyRequests')}：${formatNumber(stats?.weekly_stats?.total_requests ?? 0)}`"
+                :label="`${t('keys.weeklyRequests')}：${formatValue(stats?.weekly_stats?.total_requests)}`"
               >
                 <n-tooltip trigger="hover">
                   <template #trigger>
                     <n-gradient-text type="error" size="20">
-                      {{ formatNumber(stats?.weekly_stats?.failed_requests ?? 0) }}
+                      {{ formatValue(stats?.weekly_stats?.failed_requests) }}
                     </n-gradient-text>
                   </template>
                   {{ t("keys.weeklyFailedRequests") }}

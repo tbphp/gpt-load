@@ -1,0 +1,171 @@
+/**
+ * 统计卡片相关的通用样式 mixins 和变量
+ */
+
+/* 通用卡片样式 mixin */
+@mixin stat-card {
+  background: var(--card-bg);
+  border-radius: var(--border-radius-lg);
+  border: 1px solid var(--border-color-light);
+  position: relative;
+  overflow: hidden;
+  transition: all 0.2s ease;
+
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-lg);
+  }
+}
+
+/* 统计图标样式 mixin */
+@mixin stat-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--border-radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.4rem;
+  box-shadow: var(--shadow-md);
+  color: white;
+}
+
+/* 不同类型图标的背景色 */
+@mixin stat-icon-colors {
+  .key-icon {
+    background: var(--primary-color);
+  }
+
+  .rpm-icon {
+    background: var(--success-color);
+  }
+
+  .request-icon {
+    background: var(--warning-color, #f59e0b);
+  }
+
+  .error-icon {
+    background: var(--error-color);
+  }
+}
+
+/* 统计卡片头部样式 mixin */
+@mixin stat-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+/* 趋势标签样式 mixin */
+@mixin stat-trend {
+  font-weight: 600;
+}
+
+/* 统计内容区域样式 mixin */
+@mixin stat-content {
+  margin-bottom: 16px;
+}
+
+/* 统计数值样式 mixin */
+@mixin stat-value {
+  font-size: 2rem;
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+
+/* 统计标题样式 mixin */
+@mixin stat-title {
+  font-size: 0.95rem;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+/* 进度条容器样式 mixin */
+@mixin stat-bar {
+  width: 100%;
+  height: 4px;
+  background: var(--border-color);
+  border-radius: 2px;
+  overflow: hidden;
+  position: relative;
+}
+
+/* 进度条填充样式 mixin */
+@mixin stat-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.5s ease-out;
+  transition-delay: 0.2s;
+}
+
+/* 不同类型进度条的颜色 */
+@mixin stat-bar-colors {
+  .key-bar {
+    background: var(--primary-color);
+  }
+
+  .rpm-bar {
+    background: var(--success-color);
+  }
+
+  .request-bar {
+    background: var(--warning-color, #f59e0b);
+  }
+
+  .error-bar {
+    background: var(--error-color);
+  }
+}
+
+/* 统计卡片动画 mixin */
+@mixin stat-animations {
+  .stats-container {
+    animation: fadeInUp 0.2s ease-out;
+  }
+
+  .stat-card {
+    animation: slideInUp 0.2s ease-out both;
+  }
+
+  @keyframes slideInUp {
+    from {
+      opacity: 0;
+      transform: translateY(30px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes fadeInUp {
+    from {
+      opacity: 0;
+      transform: translateY(20px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+}
+
+/* 响应式网格样式 mixin */
+@mixin stat-grid-responsive {
+  :deep(.n-grid-item) {
+    min-width: 0;
+  }
+}
+
+/* 统计卡片延迟动画类 */
+@mixin stat-animation-delays {
+  .stat-card {
+    &:nth-child(1) { animation-delay: 0s; }
+    &:nth-child(2) { animation-delay: 0.05s; }
+    &:nth-child(3) { animation-delay: 0.1s; }
+    &:nth-child(4) { animation-delay: 0.15s; }
+  }
+}

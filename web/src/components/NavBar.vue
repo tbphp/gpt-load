@@ -1,8 +1,12 @@
 <script setup lang="ts">
 import { type MenuOption } from "naive-ui";
-import { computed, h, watch } from "vue";
+import { computed, h, watch, type Component } from "vue";
 import { RouterLink, useRoute } from "vue-router";
 import { useI18n } from "vue-i18n";
+import DashboardIcon from "./icons/DashboardIcon.vue";
+import KeyIcon from "./icons/KeyIcon.vue";
+import DocumentIcon from "./icons/DocumentIcon.vue";
+import SettingsIcon from "./icons/SettingsIcon.vue";
 
 const { t } = useI18n();
 
@@ -17,10 +21,10 @@ const emit = defineEmits(["close"]);
 
 const menuOptions = computed<MenuOption[]>(() => {
   const options: MenuOption[] = [
-    renderMenuItem("dashboard", t("nav.dashboard"), "📊"),
-    renderMenuItem("keys", t("nav.keys"), "🔑"),
-    renderMenuItem("logs", t("nav.logs"), "📋"),
-    renderMenuItem("settings", t("nav.settings"), "⚙️"),
+    renderMenuItem("dashboard", t("nav.dashboard"), DashboardIcon),
+    renderMenuItem("keys", t("nav.keys"), KeyIcon),
+    renderMenuItem("logs", t("nav.logs"), DocumentIcon),
+    renderMenuItem("settings", t("nav.settings"), SettingsIcon),
   ];
 
   return options;
@@ -35,7 +39,7 @@ watch(activeMenu, () => {
   }
 });
 
-function renderMenuItem(key: string, label: string, icon: string): MenuOption {
+function renderMenuItem(key: string, label: string, IconComponent: Component): MenuOption {
   return {
     label: () =>
       h(
@@ -48,7 +52,7 @@ function renderMenuItem(key: string, label: string, icon: string): MenuOption {
         },
         {
           default: () => [
-            h("span", { class: "nav-item-icon" }, icon),
+            h("span", { class: "nav-item-icon" }, h(IconComponent)),
             h("span", { class: "nav-item-text" }, label),
           ],
         }
@@ -75,6 +79,17 @@ function renderMenuItem(key: string, label: string, icon: string): MenuOption {
   border-radius: var(--border-radius-md);
   transition: all 0.2s ease;
   font-weight: 500;
+}
+
+:deep(.nav-item-icon) {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+:deep(.nav-item-icon svg) {
+  width: 1.1em;
+  height: 1.1em;
 }
 
 :deep(.n-menu-item) {

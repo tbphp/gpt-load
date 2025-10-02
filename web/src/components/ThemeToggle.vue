@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { themeMode, toggleTheme } from "@/utils/theme";
-import { Contrast, Moon, Sunny } from "@vicons/ionicons5";
+import { Contrast } from "@vicons/ionicons5";
 import { NButton, NIcon, NTooltip } from "naive-ui";
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
+import MoonIcon from "./icons/MoonIcon.vue";
+import SunIcon from "./icons/SunIcon.vue";
 
 const { t } = useI18n();
 
@@ -18,13 +20,13 @@ const themeConfig = computed(() => {
       };
     case "light":
       return {
-        icon: Sunny,
+        icon: SunIcon,
         tooltip: t("theme.light"),
         nextMode: t("theme.dark"),
       };
     case "dark":
       return {
-        icon: Moon,
+        icon: MoonIcon,
         tooltip: t("theme.dark"),
         nextMode: t("theme.auto"),
       };
@@ -41,7 +43,12 @@ const themeConfig = computed(() => {
 <template>
   <n-tooltip trigger="hover">
     <template #trigger>
-      <n-button quaternary circle @click="toggleTheme">
+      <n-button
+        quaternary
+        circle
+        @click="toggleTheme"
+        :aria-label="t('theme.clickToSwitch', { mode: themeConfig.nextMode })"
+      >
         <template #icon>
           <n-icon :component="themeConfig.icon" />
         </template>
