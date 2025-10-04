@@ -411,8 +411,11 @@ export default {
     editWeight: "重みを編集",
     weight: "重み",
     remove: "削除",
-    groupInfo: "グループ情報",
     viewGroupInfo: "グループ情報を表示",
+    viewSubGroup: "サブグループを表示",
+    statusActive: "有効",
+    statusDisabled: "無効",
+    statusUnavailable: "利用不可",
   },
   logs: {
     title: "ログ",

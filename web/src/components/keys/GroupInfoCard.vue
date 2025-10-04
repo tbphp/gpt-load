@@ -10,14 +10,7 @@ import type {
 import { appState } from "@/utils/app-state";
 import { copy } from "@/utils/clipboard";
 import { getGroupDisplayName, maskProxyKeys } from "@/utils/display";
-import {
-  CopyOutline,
-  EyeOffOutline,
-  EyeOutline,
-  InformationCircleOutline,
-  Pencil,
-  Trash,
-} from "@vicons/ionicons5";
+import { CopyOutline, EyeOffOutline, EyeOutline, Pencil, Trash } from "@vicons/ionicons5";
 import {
   NButton,
   NButtonGroup,
@@ -654,9 +647,9 @@ function resetPage() {
                       :title="t('keys.viewGroupInfo')"
                     >
                       <template #icon>
-                        <n-icon :component="InformationCircleOutline" />
+                        <n-icon :component="EyeOutline" />
                       </template>
-                      {{ t("keys.groupInfo") }}
+                      {{ t("common.view") }}
                     </n-button>
                   </n-form-item>
                 </n-form>

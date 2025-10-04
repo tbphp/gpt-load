@@ -2,14 +2,29 @@
 import { keysApi } from "@/api/keys";
 import type { Group, SubGroupInfo } from "@/types/models";
 import { getGroupDisplayName } from "@/utils/display";
-import { Add, CreateOutline, InformationCircleOutline, Trash } from "@vicons/ionicons5";
-import { NButton, NButtonGroup, NEmpty, NIcon, NSpin, useDialog } from "naive-ui";
+import { Add, CreateOutline, EyeOutline, InformationCircleOutline, Trash } from "@vicons/ionicons5";
+import { NButton, NButtonGroup, NEmpty, NIcon, NSpin, NTag, NTooltip, useDialog } from "naive-ui";
 import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import AddSubGroupModal from "./AddSubGroupModal.vue";
 import EditSubGroupWeightModal from "./EditSubGroupWeightModal.vue";
 
 const { t } = useI18n();
+
+// 获取子分组状态
+function getSubGroupStatus(subGroup: SubGroupInfo): {
+  status: "active" | "disabled" | "unavailable";
+  text: string;
+  type: "success" | "warning" | "error";
+} {
+  if (subGroup.weight === 0) {
+    return { status: "disabled", text: t("subGroups.statusDisabled"), type: "warning" };
+  }
+  if (subGroup.weight > 0 && subGroup.active_keys === 0) {
+    return { status: "unavailable", text: t("subGroups.statusUnavailable"), type: "error" };
+  }
+  return { status: "active", text: t("subGroups.statusActive"), type: "success" };
+}
 
 interface SubGroupRow extends SubGroupInfo {
   percentage: number;
@@ -163,21 +178,70 @@ function goToGroupInfo(groupId: number) {
             <!-- 操作按钮行 -->
             <div class="key-bottom">
               <div class="key-stats">
+                <n-tooltip trigger="hover" placement="top">
+                  <template #trigger>
+                    <n-button round tertiary type="default" size="tiny">
+                      <template #icon>
+                        <n-icon :component="InformationCircleOutline" />
+                      </template>
+                    </n-button>
+                  </template>
+                  <div class="sub-group-info-tooltip">
+                    <!-- 分组名称和状态 -->
+                    <div class="info-header">
+                      <div class="info-title">{{ getGroupDisplayName(subGroup) }}</div>
+                      <n-tag :type="getSubGroupStatus(subGroup).type" size="small">
+                        {{ getSubGroupStatus(subGroup).text }}
+                      </n-tag>
+                    </div>
+
+                    <!-- 详细信息 -->
+                    <div class="info-details">
+                      <div class="info-row">
+                        <span class="info-label">{{ t("keys.testModel") }}:</span>
+                        <span class="info-value">{{ subGroup.group.test_model || "-" }}</span>
+                      </div>
+                      <div class="info-row" v-if="subGroup.group.channel_type !== 'gemini'">
+                        <span class="info-label">{{ t("keys.testPath") }}:</span>
+                        <span class="info-value">
+                          {{ subGroup.group.validation_endpoint || "-" }}
+                        </span>
+                      </div>
+
+                      <!-- 上游地址 -->
+                      <div
+                        class="info-row"
+                        v-if="subGroup.group.upstreams && subGroup.group.upstreams.length > 0"
+                      >
+                        <span class="info-label">{{ t("keys.upstreamAddresses") }}:</span>
+                        <div class="info-value upstream-list">
+                          <input
+                            v-for="(upstream, index) in subGroup.group.upstreams"
+                            :key="index"
+                            class="upstream-input"
+                            :value="upstream.url"
+                            readonly
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </n-tooltip>
+              </div>
+              <n-button-group class="key-actions">
                 <n-button
                   round
                   tertiary
                   type="default"
                   size="tiny"
                   @click="subGroup.group.id && goToGroupInfo(subGroup.group.id)"
-                  :title="t('subGroups.viewGroupInfo')"
+                  :title="t('subGroups.viewSubGroup')"
                 >
                   <template #icon>
-                    <n-icon :component="InformationCircleOutline" />
+                    <n-icon :component="EyeOutline" />
                   </template>
-                  {{ t("subGroups.groupInfo") }}
+                  {{ t("common.view") }}
                 </n-button>
-              </div>
-              <n-button-group class="key-actions">
                 <n-button
                   round
                   tertiary
@@ -610,5 +674,90 @@ function goToGroupInfo(groupId: number) {
 
 .key-card.disabled .weight-fill {
   background: var(--color-disabled);
+}
+
+/* Tooltip 样式 */
+.sub-group-info-tooltip {
+  min-width: 450px;
+  max-width: 600px;
+  padding: 8px;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.info-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 10px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+:root:not(.dark) .info-header {
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.info-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: inherit;
+}
+
+.info-details {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.info-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  font-size: 13px;
+  line-height: 1.5;
+  gap: 12px;
+}
+
+.info-label {
+  color: inherit;
+  opacity: 0.7;
+  flex-shrink: 0;
+  min-width: 100px;
+}
+
+.info-value {
+  color: inherit;
+  font-weight: 500;
+  text-align: right;
+  word-break: break-word;
+  flex: 1;
+}
+
+.upstream-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+}
+
+.upstream-input {
+  width: 100%;
+  font-size: 12px;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
+  padding: 4px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.05);
+  color: inherit;
+  outline: none;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+:root:not(.dark) .upstream-input {
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  background: rgba(0, 0, 0, 0.02);
 }
 </style>

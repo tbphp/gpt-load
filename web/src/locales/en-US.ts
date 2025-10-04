@@ -411,8 +411,11 @@ export default {
     editWeight: "Edit Weight",
     weight: "Weight",
     remove: "Remove",
-    groupInfo: "Group Info",
     viewGroupInfo: "View Group Information",
+    viewSubGroup: "View Sub Group",
+    statusActive: "Active",
+    statusDisabled: "Disabled",
+    statusUnavailable: "Unavailable",
   },
   logs: {
     title: "Logs",

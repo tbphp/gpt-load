@@ -398,8 +398,11 @@ export default {
     editWeight: "编辑权重",
     weight: "权重",
     remove: "移除",
-    groupInfo: "分组信息",
     viewGroupInfo: "查看分组信息",
+    viewSubGroup: "查看子分组",
+    statusActive: "有效",
+    statusDisabled: "禁用",
+    statusUnavailable: "无效",
   },
   logs: {
     title: "日志",
