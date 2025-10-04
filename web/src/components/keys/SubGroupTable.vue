@@ -147,7 +147,14 @@ function goToGroupInfo(groupId: number) {
                   <strong>{{ subGroup.weight }}</strong>
                 </span>
                 <div class="weight-bar">
-                  <div class="weight-fill" :style="{ width: `${subGroup.percentage}%` }" />
+                  <div
+                    class="weight-fill"
+                    :class="{
+                      'weight-fill-active': subGroup.weight > 0 && subGroup.active_keys > 0,
+                      'weight-fill-unavailable': subGroup.weight > 0 && subGroup.active_keys === 0,
+                    }"
+                    :style="{ width: `${subGroup.percentage}%` }"
+                  />
                 </div>
                 <span class="weight-text">{{ subGroup.percentage }}%</span>
               </div>
@@ -490,9 +497,40 @@ function goToGroupInfo(groupId: number) {
 
 .weight-fill {
   height: 100%;
-  background: linear-gradient(90deg, #2080f0, #4098fc);
   border-radius: 4px;
   transition: width 0.3s ease;
+}
+
+/* Active state - green gradient */
+.key-card .weight-fill-active {
+  background: linear-gradient(90deg, #0e7a43, #18a058, #36ad6a, #5fd299) !important;
+}
+
+:root.dark .key-card .weight-fill-active {
+  background: linear-gradient(90deg, #4aba7d, #63e2b7, #7fe7c4, #a3f5d0) !important;
+}
+
+/* Unavailable state - striped pattern (red/orange warning) */
+.key-card .weight-fill-unavailable {
+  background: repeating-linear-gradient(
+    45deg,
+    #f5a9a9,
+    #f5a9a9 8px,
+    #e88592 8px,
+    #e88592 16px
+  ) !important;
+  opacity: 0.85;
+}
+
+:root.dark .key-card .weight-fill-unavailable {
+  background: repeating-linear-gradient(
+    45deg,
+    #8b3a3a,
+    #8b3a3a 8px,
+    #a04848 8px,
+    #a04848 16px
+  ) !important;
+  opacity: 0.8;
 }
 
 .weight-text {
