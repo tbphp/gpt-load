@@ -373,6 +373,7 @@ export default {
     clearAllKeysSuccess: "All keys cleared successfully",
     allStatus: "All Status",
     keyExactMatch: "Key exact match",
+    searchByName: "Search by name...",
     noMatchingKeys: "No matching keys found",
     showHide: "Show/Hide",
     requests: "Requests",

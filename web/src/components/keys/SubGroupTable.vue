@@ -2,8 +2,26 @@
 import { keysApi } from "@/api/keys";
 import type { Group, SubGroupInfo } from "@/types/models";
 import { getGroupDisplayName } from "@/utils/display";
-import { Add, CreateOutline, EyeOutline, InformationCircleOutline, Trash } from "@vicons/ionicons5";
-import { NButton, NButtonGroup, NEmpty, NIcon, NSpin, NTag, NTooltip, useDialog } from "naive-ui";
+import {
+  Add,
+  CreateOutline,
+  EyeOutline,
+  InformationCircleOutline,
+  Search,
+  Trash,
+} from "@vicons/ionicons5";
+import {
+  NButton,
+  NButtonGroup,
+  NEmpty,
+  NIcon,
+  NInput,
+  NSelect,
+  NSpin,
+  NTag,
+  NTooltip,
+  useDialog,
+} from "naive-ui";
 import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import AddSubGroupModal from "./AddSubGroupModal.vue";
@@ -51,6 +69,18 @@ const addModalShow = ref(false);
 const editModalShow = ref(false);
 const editingSubGroup = ref<SubGroupInfo | null>(null);
 
+// 搜索和过滤状态
+const searchText = ref("");
+const statusFilter = ref<"all" | "active" | "disabled" | "unavailable">("all");
+
+// 状态过滤选项
+const statusOptions = [
+  { label: t("common.all"), value: "all" },
+  { label: t("subGroups.statusActive"), value: "active" },
+  { label: t("subGroups.statusDisabled"), value: "disabled" },
+  { label: t("subGroups.statusUnavailable"), value: "unavailable" },
+];
+
 // 计算带百分比的子分组数据并按权重排序
 const sortedSubGroupsWithPercentage = computed<SubGroupRow[]>(() => {
   if (!props.subGroups) {
@@ -64,6 +94,31 @@ const sortedSubGroupsWithPercentage = computed<SubGroupRow[]>(() => {
 
   // 按权重降序排序
   return withPercentage.sort((a, b) => b.weight - a.weight);
+});
+
+// 过滤后的子分组（应用搜索和状态过滤）
+const filteredSubGroups = computed<SubGroupRow[]>(() => {
+  let filtered = sortedSubGroupsWithPercentage.value;
+
+  // 名称搜索过滤（不区分大小写）
+  if (searchText.value.trim()) {
+    const searchLower = searchText.value.trim().toLowerCase();
+    filtered = filtered.filter(sg => {
+      const name = sg.group.name?.toLowerCase() || "";
+      const displayName = sg.group.display_name?.toLowerCase() || "";
+      return name.includes(searchLower) || displayName.includes(searchLower);
+    });
+  }
+
+  // 状态过滤
+  if (statusFilter.value !== "all") {
+    filtered = filtered.filter(sg => {
+      const status = getSubGroupStatus(sg).status;
+      return status === statusFilter.value;
+    });
+  }
+
+  return filtered;
 });
 
 function openEditModal(subGroup: SubGroupInfo) {
@@ -133,7 +188,24 @@ function formatNumber(num: number): string {
         </n-button>
       </div>
       <div class="toolbar-right">
-        <!-- 可以添加其他操作按钮 -->
+        <n-select
+          v-model:value="statusFilter"
+          :options="statusOptions"
+          size="small"
+          style="width: 120px"
+          :placeholder="t('keys.allStatus')"
+        />
+        <n-input
+          v-model:value="searchText"
+          :placeholder="t('keys.searchByName')"
+          size="small"
+          style="width: 200px"
+          clearable
+        >
+          <template #prefix>
+            <n-icon :component="Search" />
+          </template>
+        </n-input>
       </div>
     </div>
 
@@ -143,9 +215,12 @@ function formatNumber(num: number): string {
         <div v-if="!props.subGroups || props.subGroups.length === 0" class="empty-container">
           <n-empty :description="t('subGroups.noSubGroups')" />
         </div>
+        <div v-else-if="filteredSubGroups.length === 0" class="empty-container">
+          <n-empty :description="t('keys.noMatchingKeys')" />
+        </div>
         <div v-else class="keys-grid">
           <div
-            v-for="subGroup in sortedSubGroupsWithPercentage"
+            v-for="subGroup in filteredSubGroups"
             :key="subGroup.group.id"
             class="key-card status-sub-group"
             :class="{ disabled: subGroup.weight === 0 || subGroup.active_keys === 0 }"
@@ -189,11 +264,11 @@ function formatNumber(num: number): string {
                 <span class="stat-item">
                   <span class="stat-value">{{ formatNumber(subGroup.total_keys) }}</span>
                 </span>
-                <span class="stat-divider">|</span>
+                <n-divider vertical />
                 <span class="stat-item stat-success">
                   {{ formatNumber(subGroup.active_keys) }}
                 </span>
-                <span class="stat-divider">|</span>
+                <n-divider vertical />
                 <span class="stat-item stat-error">
                   {{ formatNumber(subGroup.invalid_keys) }}
                 </span>
@@ -306,7 +381,12 @@ function formatNumber(num: number): string {
     <!-- 底部信息 -->
     <div class="pagination-container">
       <div class="pagination-info">
-        <span>{{ t("subGroups.totalSubGroups", { total: props.subGroups?.length || 0 }) }}</span>
+        <span>
+          {{ t("subGroups.totalSubGroups", { total: filteredSubGroups.length }) }}
+          <template v-if="filteredSubGroups.length !== (props.subGroups?.length || 0)">
+            / {{ props.subGroups?.length || 0 }}
+          </template>
+        </span>
       </div>
       <div class="pagination-controls">
         <span class="page-info">
@@ -644,7 +724,6 @@ function formatNumber(num: number): string {
 .stats-left {
   display: flex;
   align-items: center;
-  gap: 8px;
   font-size: 14px;
   flex: 1;
 }

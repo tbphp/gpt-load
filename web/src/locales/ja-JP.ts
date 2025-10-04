@@ -372,6 +372,7 @@ export default {
     clearAllKeysSuccess: "すべてのキーが正常にクリアされました",
     allStatus: "すべてのステータス",
     keyExactMatch: "キー完全一致",
+    searchByName: "名前で検索...",
     noMatchingKeys: "一致するキーが見つかりません",
     showHide: "表示/非表示",
     requests: "リクエスト",

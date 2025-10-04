@@ -360,6 +360,7 @@ export default {
     clearAllKeysSuccess: "已成功清空所有密钥",
     allStatus: "全部状态",
     keyExactMatch: "Key 精确匹配",
+    searchByName: "搜索分组名称...",
     noMatchingKeys: "没有找到匹配的密钥",
     showHide: "显示/隐藏",
     requests: "请求",
