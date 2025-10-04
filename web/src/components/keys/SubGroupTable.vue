@@ -110,6 +110,14 @@ function handleSuccess() {
 function goToGroupInfo(groupId: number) {
   emit("group-select", groupId);
 }
+
+// Format number with K suffix
+function formatNumber(num: number): string {
+  if (num >= 1000) {
+    return `${(num / 1000).toFixed(1)}K`;
+  }
+  return num.toString();
+}
 </script>
 
 <template>
@@ -173,6 +181,26 @@ function goToGroupInfo(groupId: number) {
                 </div>
                 <span class="weight-text">{{ subGroup.percentage }}%</span>
               </div>
+            </div>
+
+            <!-- 密钥统计 -->
+            <div class="key-stats-row">
+              <div class="stats-left">
+                <span class="stat-item">
+                  <span class="stat-value">{{ formatNumber(subGroup.total_keys) }}</span>
+                </span>
+                <span class="stat-divider">|</span>
+                <span class="stat-item stat-success">
+                  {{ formatNumber(subGroup.active_keys) }}
+                </span>
+                <span class="stat-divider">|</span>
+                <span class="stat-item stat-error">
+                  {{ formatNumber(subGroup.invalid_keys) }}
+                </span>
+              </div>
+              <n-tag :type="getSubGroupStatus(subGroup).type" size="small">
+                {{ getSubGroupStatus(subGroup).text }}
+              </n-tag>
             </div>
 
             <!-- 操作按钮行 -->
@@ -443,7 +471,7 @@ function goToGroupInfo(groupId: number) {
 
 /* 权重显示样式 */
 .weight-display {
-  margin: 8px 0;
+  margin: 4px 0;
 }
 
 .weight-bar-container {
@@ -605,6 +633,60 @@ function goToGroupInfo(groupId: number) {
   text-align: right;
 }
 
+/* Key stats row styles */
+.key-stats-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.stats-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  flex: 1;
+}
+
+.stat-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.stat-label {
+  color: var(--text-secondary);
+}
+
+.stat-value {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.stat-divider {
+  color: var(--text-secondary);
+  opacity: 0.5;
+}
+
+.stat-success {
+  color: #18a058;
+  font-weight: 600;
+}
+
+:root.dark .stat-success {
+  color: #63e2b7;
+}
+
+.stat-error {
+  color: #d03050;
+  font-weight: 600;
+}
+
+:root.dark .stat-error {
+  color: #e88080;
+}
+
 .pagination-container {
   display: flex;
   justify-content: space-between;
@@ -754,10 +836,5 @@ function goToGroupInfo(groupId: number) {
   outline: none;
   overflow-x: auto;
   white-space: nowrap;
-}
-
-:root:not(.dark) .upstream-input {
-  border: 1px solid rgba(0, 0, 0, 0.1);
-  background: rgba(0, 0, 0, 0.02);
 }
 </style>
