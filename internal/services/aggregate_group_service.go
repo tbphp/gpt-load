@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"sync"
 
 	app_errors "gpt-load/internal/errors"
 	"gpt-load/internal/models"
@@ -108,7 +109,7 @@ func (s *AggregateGroupService) ValidateSubGroups(ctx context.Context, channelTy
 	}, nil
 }
 
-// GetSubGroups returns sub groups for an aggregate group
+// GetSubGroups returns sub groups for an aggregate group with complete information
 func (s *AggregateGroupService) GetSubGroups(ctx context.Context, groupID uint) ([]models.SubGroupInfo, error) {
 	var group models.Group
 	if err := s.db.WithContext(ctx).First(&group, groupID).Error; err != nil {
@@ -144,13 +145,24 @@ func (s *AggregateGroupService) GetSubGroups(ctx context.Context, groupID uint) 
 		return nil, err
 	}
 
+	keyStatsMap := s.fetchSubGroupsKeyStats(ctx, subGroupIDs)
+
 	subGroups := make([]models.SubGroupInfo, 0, len(subGroupModels))
 	for _, subGroup := range subGroupModels {
+		stats := keyStatsMap[subGroup.ID]
+
+		if stats.Err != nil {
+			logrus.WithContext(ctx).WithError(stats.Err).
+				WithField("group_id", subGroup.ID).
+				Warn("failed to fetch key stats for sub-group, using zero values")
+		}
+
 		subGroups = append(subGroups, models.SubGroupInfo{
-			GroupID:     subGroup.ID,
-			Name:        subGroup.Name,
-			DisplayName: subGroup.DisplayName,
+			Group:       subGroup,
 			Weight:      weightMap[subGroup.ID],
+			TotalKeys:   stats.TotalKeys,
+			ActiveKeys:  stats.ActiveKeys,
+			InvalidKeys: stats.InvalidKeys,
 		})
 	}
 
@@ -364,4 +376,63 @@ func (s *AggregateGroupService) GetParentAggregateGroups(ctx context.Context, su
 	}
 
 	return parentGroups, nil
+}
+
+// keyStatsResult stores key statistics for a single group
+type keyStatsResult struct {
+	GroupID     uint
+	TotalKeys   int64
+	ActiveKeys  int64
+	InvalidKeys int64
+	Err         error
+}
+
+// fetchSubGroupsKeyStats batch fetches key statistics for multiple sub-groups concurrently
+func (s *AggregateGroupService) fetchSubGroupsKeyStats(ctx context.Context, groupIDs []uint) map[uint]keyStatsResult {
+	results := make(map[uint]keyStatsResult)
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+
+	for _, groupID := range groupIDs {
+		wg.Add(1)
+		go func(gid uint) {
+			defer wg.Done()
+
+			var totalKeys, activeKeys int64
+			result := keyStatsResult{GroupID: gid}
+
+			// Query total keys
+			if err := s.db.WithContext(ctx).Model(&models.APIKey{}).
+				Where("group_id = ?", gid).
+				Count(&totalKeys).Error; err != nil {
+				result.Err = err
+				mu.Lock()
+				results[gid] = result
+				mu.Unlock()
+				return
+			}
+
+			// Query active keys
+			if err := s.db.WithContext(ctx).Model(&models.APIKey{}).
+				Where("group_id = ? AND status = ?", gid, models.KeyStatusActive).
+				Count(&activeKeys).Error; err != nil {
+				result.Err = err
+				mu.Lock()
+				results[gid] = result
+				mu.Unlock()
+				return
+			}
+
+			result.TotalKeys = totalKeys
+			result.ActiveKeys = activeKeys
+			result.InvalidKeys = totalKeys - activeKeys
+
+			mu.Lock()
+			results[gid] = result
+			mu.Unlock()
+		}(groupID)
+	}
+
+	wg.Wait()
+	return results
 }

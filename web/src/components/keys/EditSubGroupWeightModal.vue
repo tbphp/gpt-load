@@ -51,7 +51,7 @@ const previewPercentage = computed(() => {
 
   // 计算总权重（用新权重替换当前子分组的权重）
   const totalWeight = props.subGroups.reduce((sum, sg) => {
-    if (sg.group_id === props.subGroup?.group_id) {
+    if (sg.group.id === props.subGroup?.group.id) {
       return sum + formData.weight;
     }
     return sum + sg.weight;
@@ -113,9 +113,15 @@ async function handleSubmit() {
       return;
     }
 
+    const subGroupId = props.subGroup.group.id;
+    if (!subGroupId) {
+      message.error("no subGroupId");
+      return;
+    }
+
     await keysApi.updateSubGroupWeight(
       props.aggregateGroup.id,
-      props.subGroup.group_id,
+      subGroupId,
       formData.weight // 保持原始数值，不进行取整
     );
 
@@ -163,12 +169,14 @@ function adjustWeight(delta: number) {
           <div class="sub-group-info">
             <h4 class="section-title">
               {{ t("keys.editingSubGroup") }}:
-              <span class="group-name">{{ subGroup?.display_name || subGroup?.name }}</span>
+              <span class="group-name">
+                {{ subGroup?.group.display_name || subGroup?.group.name }}
+              </span>
             </h4>
             <div class="group-details">
               <span class="detail-item">
                 <strong>{{ t("keys.groupId") }}:</strong>
-                {{ subGroup?.group_id }}
+                {{ subGroup?.group.id }}
               </span>
               <span class="detail-item">
                 <strong>{{ t("keys.currentWeight") }}:</strong>

@@ -46,10 +46,11 @@ export interface SubGroupConfig {
 
 // 子分组信息（展示时使用）
 export interface SubGroupInfo {
-  group_id: number;
-  name: string;
-  display_name: string;
+  group: Group;
   weight: number;
+  total_keys: number;
+  active_keys: number;
+  invalid_keys: number;
 }
 
 // 父聚合分组信息（展示时使用）

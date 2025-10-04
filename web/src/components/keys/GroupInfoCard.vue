@@ -96,6 +96,21 @@ const isAggregateGroup = computed(() => {
   return props.group?.group_type === "aggregate";
 });
 
+// 计算有效子分组数（weight > 0 且有可用密钥）
+const activeSubGroupsCount = computed(() => {
+  return props.subGroups?.filter(sg => sg.weight > 0 && sg.active_keys > 0).length || 0;
+});
+
+// 计算禁用子分组数（weight = 0）
+const disabledSubGroupsCount = computed(() => {
+  return props.subGroups?.filter(sg => sg.weight === 0).length || 0;
+});
+
+// 计算无效子分组数（weight > 0 但无可用密钥）
+const unavailableSubGroupsCount = computed(() => {
+  return props.subGroups?.filter(sg => sg.weight > 0 && sg.active_keys === 0).length || 0;
+});
+
 async function copyProxyKeys() {
   if (!props.group?.proxy_keys) {
     return;
@@ -400,7 +415,7 @@ function resetPage() {
                 <n-tooltip trigger="hover">
                   <template #trigger>
                     <n-gradient-text type="success" size="20">
-                      {{ props.subGroups?.filter(sg => sg.weight > 0).length || 0 }}
+                      {{ activeSubGroupsCount }}
                     </n-gradient-text>
                   </template>
                   {{ t("keys.activeSubGroups") }}
@@ -409,10 +424,19 @@ function resetPage() {
                 <n-tooltip trigger="hover">
                   <template #trigger>
                     <n-gradient-text type="warning" size="20">
-                      {{ props.subGroups?.filter(sg => sg.weight === 0).length || 0 }}
+                      {{ disabledSubGroupsCount }}
                     </n-gradient-text>
                   </template>
-                  {{ t("keys.inactiveSubGroups") }}
+                  {{ t("keys.disabledSubGroups") }}
+                </n-tooltip>
+                <n-divider vertical />
+                <n-tooltip trigger="hover">
+                  <template #trigger>
+                    <n-gradient-text type="error" size="20">
+                      {{ unavailableSubGroupsCount }}
+                    </n-gradient-text>
+                  </template>
+                  {{ t("keys.unavailableSubGroups") }}
                 </n-tooltip>
               </n-statistic>
 

@@ -73,7 +73,11 @@ async function deleteSubGroup(subGroup: SubGroupInfo) {
 
       d.loading = true;
       try {
-        await keysApi.deleteSubGroup(props.selectedGroup.id, subGroup.group_id);
+        const groupId = subGroup.group.id;
+        if (!groupId) {
+          return;
+        }
+        await keysApi.deleteSubGroup(props.selectedGroup.id, groupId);
         emit("refresh");
       } finally {
         d.loading = false;
@@ -119,9 +123,9 @@ function goToGroupInfo(groupId: number) {
         <div v-else class="keys-grid">
           <div
             v-for="subGroup in sortedSubGroupsWithPercentage"
-            :key="subGroup.group_id"
+            :key="subGroup.group.id"
             class="key-card status-sub-group"
-            :class="{ disabled: subGroup.weight === 0 }"
+            :class="{ disabled: subGroup.weight === 0 || subGroup.active_keys === 0 }"
           >
             <!-- Main info row: display name + group name -->
             <div class="key-main">
@@ -130,7 +134,7 @@ function goToGroupInfo(groupId: number) {
                   <span class="display-name">{{ getGroupDisplayName(subGroup) }}</span>
                 </div>
                 <div class="quick-actions">
-                  <span class="group-name">#{{ subGroup.name }}</span>
+                  <span class="group-name">#{{ subGroup.group.name }}</span>
                 </div>
               </div>
             </div>
@@ -157,7 +161,7 @@ function goToGroupInfo(groupId: number) {
                   tertiary
                   type="default"
                   size="tiny"
-                  @click="goToGroupInfo(subGroup.group_id)"
+                  @click="subGroup.group.id && goToGroupInfo(subGroup.group.id)"
                   :title="t('subGroups.viewGroupInfo')"
                 >
                   <template #icon>

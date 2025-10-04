@@ -57,7 +57,7 @@ const getAvailableOptions = computed(() => {
   }
 
   // 获取已存在的子分组ID
-  const existingIds = props.existingSubGroups.map(sg => sg.group_id);
+  const existingIds = props.existingSubGroups.map(sg => sg.group.id);
 
   return props.groups
     .filter(group => {

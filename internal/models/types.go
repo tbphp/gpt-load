@@ -62,10 +62,11 @@ type GroupSubGroup struct {
 
 // SubGroupInfo 用于API响应的子分组信息
 type SubGroupInfo struct {
-	GroupID     uint   `json:"group_id"`
-	Name        string `json:"name"`
-	DisplayName string `json:"display_name"`
-	Weight      int    `json:"weight"`
+	Group       Group `json:"group"`
+	Weight      int   `json:"weight"`
+	TotalKeys   int64 `json:"total_keys"`
+	ActiveKeys  int64 `json:"active_keys"`
+	InvalidKeys int64 `json:"invalid_keys"`
 }
 
 // ParentAggregateGroupInfo 用于API响应的父聚合分组信息
