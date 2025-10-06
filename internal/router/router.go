@@ -66,7 +66,7 @@ func NewRouter(
 	// 注册路由
 	registerSystemRoutes(router, serverHandler)
 	registerAPIRoutes(router, serverHandler, configManager)
-	registerProxyRoutes(router, proxyServer, groupManager)
+	registerProxyRoutes(router, proxyServer, groupManager, serverHandler)
 	registerFrontendRoutes(router, buildFS, indexPage)
 
 	return router
@@ -100,6 +100,7 @@ func registerAPIRoutes(
 // registerPublicAPIRoutes 公开API路由
 func registerPublicAPIRoutes(api *gin.RouterGroup, serverHandler *handler.Server) {
 	api.POST("/auth/login", serverHandler.Login)
+	api.GET("/integration/info", serverHandler.GetIntegrationInfo)
 }
 
 // registerProtectedAPIRoutes 认证API路由
@@ -172,12 +173,14 @@ func registerProxyRoutes(
 	router *gin.Engine,
 	proxyServer *proxy.ProxyServer,
 	groupManager *services.GroupManager,
+	serverHandler *handler.Server,
 ) {
-	proxyGroup := router.Group("/proxy")
+	proxyGroup := router.Group("/proxy/:group_name")
 
+	proxyGroup.Use(middleware.ProxyRouteDispatcher(serverHandler))
 	proxyGroup.Use(middleware.ProxyAuth(groupManager))
 
-	proxyGroup.Any("/:group_name/*path", proxyServer.HandleProxy)
+	proxyGroup.Any("/*path", proxyServer.HandleProxy)
 }
 
 // registerFrontendRoutes 注册前端路由

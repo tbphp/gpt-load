@@ -171,6 +171,19 @@ func ProxyAuth(gm *services.GroupManager) gin.HandlerFunc {
 	}
 }
 
+// ProxyRouteDispatcher dispatches special routes before proxy authentication
+func ProxyRouteDispatcher(serverHandler interface{ GetIntegrationInfo(*gin.Context) }) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if c.Param("path") == "/api/integration/info" {
+			serverHandler.GetIntegrationInfo(c)
+			c.Abort()
+			return
+		}
+
+		c.Next()
+	}
+}
+
 // Recovery creates a recovery middleware with custom error handling
 func Recovery() gin.HandlerFunc {
 	return gin.CustomRecovery(func(c *gin.Context, recovered any) {
