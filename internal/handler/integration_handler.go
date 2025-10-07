@@ -8,6 +8,7 @@ import (
 	"gpt-load/internal/response"
 
 	"github.com/gin-gonic/gin"
+	"github.com/sirupsen/logrus"
 )
 
 // IntegrationGroupInfo represents group info for integration response
@@ -66,9 +67,11 @@ func (s *Server) GetIntegrationInfo(c *gin.Context) {
 		// Convert to pointer slice and load from cache to get ProxyKeysMap
 		for i := range groups {
 			cachedGroup, err := s.GroupManager.GetGroupByName(groups[i].Name)
-			if err == nil {
-				groupsToCheck = append(groupsToCheck, cachedGroup)
+			if err != nil {
+				logrus.Warnf("Failed to get group %s from cache: %v", groups[i].Name, err)
+				continue
 			}
+			groupsToCheck = append(groupsToCheck, cachedGroup)
 		}
 	}
 
@@ -116,15 +119,9 @@ func getEffectiveChannelType(group *models.Group) string {
 
 // hasProxyKeyPermission checks if the key has permission to access the group
 func hasProxyKeyPermission(group *models.Group, key string) bool {
-	if _, exists := group.ProxyKeysMap[key]; exists {
-		return true
-	}
-
-	if _, exists := group.EffectiveConfig.ProxyKeysMap[key]; exists {
-		return true
-	}
-
-	return false
+	_, exists1 := group.ProxyKeysMap[key]
+	_, exists2 := group.EffectiveConfig.ProxyKeysMap[key]
+	return exists1 || exists2
 }
 
 // buildPath returns the appropriate path based on request type and channel type
