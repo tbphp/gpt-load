@@ -2,6 +2,7 @@ package channel
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"gpt-load/internal/models"
 	"gpt-load/internal/types"
@@ -12,6 +13,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/sirupsen/logrus"
 	"gorm.io/datatypes"
 )
 
@@ -33,9 +35,11 @@ type BaseChannel struct {
 	upstreamLock       sync.Mutex
 
 	// Cached fields from the group for stale check
-	channelType     string
-	groupUpstreams  datatypes.JSON
-	effectiveConfig *types.SystemSettings
+	channelType         string
+	groupUpstreams      datatypes.JSON
+	effectiveConfig     *types.SystemSettings
+	modelRedirectRules  datatypes.JSONMap
+	modelRedirectStrict bool
 }
 
 // getUpstreamURL selects an upstream URL using a smooth weighted round-robin algorithm.
@@ -107,6 +111,13 @@ func (b *BaseChannel) IsConfigStale(group *models.Group) bool {
 	if !reflect.DeepEqual(b.effectiveConfig, &group.EffectiveConfig) {
 		return true
 	}
+	// Check for model redirect rules changes
+	if !reflect.DeepEqual(b.modelRedirectRules, group.ModelRedirectRules) {
+		return true
+	}
+	if b.modelRedirectStrict != group.ModelRedirectStrict {
+		return true
+	}
 	return false
 }
 
@@ -118,4 +129,58 @@ func (b *BaseChannel) GetHTTPClient() *http.Client {
 // GetStreamClient returns the client for streaming requests.
 func (b *BaseChannel) GetStreamClient() *http.Client {
 	return b.StreamClient
+}
+
+// ApplyModelRedirect applies model redirection based on the group's redirect rules.
+// This default implementation handles JSON body redirection for OpenAI, Anthropic formats.
+func (b *BaseChannel) ApplyModelRedirect(req *http.Request, bodyBytes []byte, group *models.Group) ([]byte, error) {
+	if len(group.ModelRedirectMap) == 0 || len(bodyBytes) == 0 {
+		return bodyBytes, nil
+	}
+
+	var requestData map[string]any
+	if err := json.Unmarshal(bodyBytes, &requestData); err != nil {
+		return bodyBytes, nil
+	}
+
+	modelValue, exists := requestData["model"]
+	if !exists {
+		return bodyBytes, nil
+	}
+
+	model, ok := modelValue.(string)
+	if !ok {
+		return bodyBytes, nil
+	}
+
+	// Handle models/ prefix for Gemini OpenAI compatible format
+	cleanModel := utils.CleanGeminiModelName(model)
+
+	if targetModel, found := group.ModelRedirectMap[cleanModel]; found {
+		// Apply redirection
+		finalModel := targetModel
+		if strings.HasPrefix(model, "models/") {
+			finalModel = "models/" + targetModel
+			requestData["model"] = finalModel
+		} else {
+			requestData["model"] = targetModel
+		}
+
+		// Log the redirection for audit
+		logrus.WithFields(logrus.Fields{
+			"group":          group.Name,
+			"original_model": cleanModel,
+			"target_model":   targetModel,
+			"channel":        "json_body",
+		}).Debug("Model redirected")
+
+		return json.Marshal(requestData)
+	}
+
+	// No redirection rule found
+	if group.ModelRedirectStrict {
+		return nil, fmt.Errorf("model '%s' is not configured in redirect rules", cleanModel)
+	}
+
+	return bodyBytes, nil
 }
