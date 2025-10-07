@@ -749,9 +749,9 @@ const deselectAllColumns = () => {
                 <span class="detail-label-compact">{{ t("logs.duration") }}:</span>
                 <span class="detail-value-compact">{{ selectedLog.duration_ms }}ms</span>
               </div>
-              <div class="detail-item-compact" v-if="selectedLog.parent_group_name">
+              <div class="detail-item-compact">
                 <span class="detail-label-compact">{{ t("logs.parentGroup") }}:</span>
-                <span class="detail-value-compact">{{ selectedLog.parent_group_name }}</span>
+                <span class="detail-value-compact">{{ selectedLog.parent_group_name || "-" }}</span>
               </div>
               <div class="detail-item-compact">
                 <span class="detail-label-compact">{{ t("logs.group") }}:</span>
