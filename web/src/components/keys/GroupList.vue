@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import type { Group } from "@/types/models";
 import { getGroupDisplayName } from "@/utils/display";
-import { Add, Search } from "@vicons/ionicons5";
+import { Add, LinkOutline, Search } from "@vicons/ionicons5";
 import { NButton, NCard, NEmpty, NInput, NSpin, NTag } from "naive-ui";
 import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
+import AggregateGroupModal from "./AggregateGroupModal.vue";
 import GroupFormModal from "./GroupFormModal.vue";
 
 const { t } = useI18n();
@@ -31,17 +32,17 @@ const searchText = ref("");
 const showGroupModal = ref(false);
 // 存储分组项 DOM 元素的引用
 const groupItemRefs = ref(new Map());
+const showAggregateGroupModal = ref(false);
 
-// 过滤后的分组列表
 const filteredGroups = computed(() => {
-  if (!searchText.value) {
+  if (!searchText.value.trim()) {
     return props.groups;
   }
-  const search = searchText.value.toLowerCase();
+  const search = searchText.value.toLowerCase().trim();
   return props.groups.filter(
     group =>
       group.name.toLowerCase().includes(search) ||
-      (group.display_name && group.display_name.toLowerCase().includes(search))
+      group.display_name?.toLowerCase().includes(search)
   );
 });
 
@@ -89,10 +90,14 @@ function openCreateGroupModal() {
   showGroupModal.value = true;
 }
 
+function openCreateAggregateGroupModal() {
+  showAggregateGroupModal.value = true;
+}
+
 function handleGroupCreated(group: Group) {
   showGroupModal.value = false;
-  if (group && group.id) {
-    // 创建成功后，通知父组件刷新并切换到新创建的分组
+  showAggregateGroupModal.value = false;
+  if (group?.id) {
     emit("refresh-and-select", group.id);
   }
 }
@@ -129,7 +134,10 @@ function handleGroupCreated(group: Group) {
               v-for="group in filteredGroups"
               :key="group.id"
               class="group-item"
-              :class="{ active: selectedGroup?.id === group.id }"
+              :class="{
+                active: selectedGroup?.id === group.id,
+                aggregate: group.group_type === 'aggregate',
+              }"
               @click="handleGroupClick(group)"
               :ref="
                 el => {
@@ -138,7 +146,8 @@ function handleGroupCreated(group: Group) {
               "
             >
               <div class="group-icon">
-                <span v-if="group.channel_type === 'openai'">🤖</span>
+                <span v-if="group.group_type === 'aggregate'">🔗</span>
+                <span v-else-if="group.channel_type === 'openai'">🤖</span>
                 <span v-else-if="group.channel_type === 'gemini'">💎</span>
                 <span v-else-if="group.channel_type === 'anthropic'">🧠</span>
                 <span v-else>🔧</span>
@@ -149,7 +158,12 @@ function handleGroupCreated(group: Group) {
                   <n-tag size="tiny" :type="getChannelTagType(group.channel_type)">
                     {{ group.channel_type }}
                   </n-tag>
-                  <span class="group-id">#{{ group.name }}</span>
+                  <n-tag v-if="group.group_type === 'aggregate'" size="tiny" type="warning" round>
+                    {{ t("keys.aggregateGroup") }}
+                  </n-tag>
+                  <span v-if="group.group_type !== 'aggregate'" class="group-id">
+                    #{{ group.name }}
+                  </span>
                 </div>
               </div>
             </div>
@@ -159,15 +173,26 @@ function handleGroupCreated(group: Group) {
 
       <!-- 添加分组按钮 -->
       <div class="add-section">
-        <n-button type="primary" size="small" block @click="openCreateGroupModal">
+        <n-button type="success" size="small" block @click="openCreateGroupModal">
           <template #icon>
             <n-icon :component="Add" />
           </template>
           {{ t("keys.createGroup") }}
         </n-button>
+        <n-button type="info" size="small" block @click="openCreateAggregateGroupModal">
+          <template #icon>
+            <n-icon :component="LinkOutline" />
+          </template>
+          {{ t("keys.createAggregateGroup") }}
+        </n-button>
       </div>
     </n-card>
     <group-form-modal v-model:show="showGroupModal" @success="handleGroupCreated" />
+    <aggregate-group-modal
+      v-model:show="showAggregateGroupModal"
+      :groups="groups"
+      @success="handleGroupCreated"
+    />
   </div>
 </template>
 
@@ -203,7 +228,7 @@ function handleGroupCreated(group: Group) {
 
 .groups-section {
   flex: 1;
-  height: calc(100% - 82px);
+  height: calc(100% - 120px);
   overflow: auto;
 }
 
@@ -233,11 +258,29 @@ function handleGroupCreated(group: Group) {
   color: var(--text-primary);
   background: transparent;
   box-sizing: border-box;
+  position: relative;
 }
 
-.group-item:hover {
+/* 聚合分组样式 */
+.group-item.aggregate {
+  border-style: dashed;
+  background: linear-gradient(135deg, rgba(102, 126, 234, 0.02) 0%, rgba(102, 126, 234, 0.05) 100%);
+}
+
+:root.dark .group-item.aggregate {
+  background: linear-gradient(135deg, rgba(102, 126, 234, 0.05) 0%, rgba(102, 126, 234, 0.1) 100%);
+  border-color: rgba(102, 126, 234, 0.2);
+}
+
+.group-item:hover,
+.group-item.aggregate:hover {
   background: var(--bg-tertiary);
   border-color: var(--primary-color);
+}
+
+.group-item.aggregate:hover {
+  background: linear-gradient(135deg, rgba(102, 126, 234, 0.05) 0%, rgba(102, 126, 234, 0.1) 100%);
+  border-style: dashed;
 }
 
 :root.dark .group-item:hover {
@@ -245,12 +288,24 @@ function handleGroupCreated(group: Group) {
   border-color: rgba(102, 126, 234, 0.3);
 }
 
+:root.dark .group-item.aggregate:hover {
+  background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(102, 126, 234, 0.15) 100%);
+  border-color: rgba(102, 126, 234, 0.4);
+}
+
+.group-item.aggregate.active {
+  background: var(--primary-gradient);
+  border-style: solid;
+}
+
 .group-item.active,
-:root.dark .group-item.active {
+:root.dark .group-item.active,
+:root.dark .group-item.aggregate.active {
   background: var(--primary-gradient);
   color: white;
   border-color: transparent;
   box-shadow: var(--shadow-md);
+  border-style: solid;
 }
 
 .group-icon {
@@ -290,6 +345,7 @@ function handleGroupCreated(group: Group) {
   align-items: center;
   gap: 6px;
   font-size: 10px;
+  flex-wrap: wrap;
 }
 
 .group-id {
@@ -305,6 +361,9 @@ function handleGroupCreated(group: Group) {
 .add-section {
   border-top: 1px solid var(--border-color);
   padding-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 /* 滚动条样式 */

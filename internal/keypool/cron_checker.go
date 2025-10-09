@@ -87,7 +87,7 @@ func (s *CronChecker) runLoop() {
 // submitValidationJobs finds groups whose keys need validation and validates them concurrently.
 func (s *CronChecker) submitValidationJobs() {
 	var groups []models.Group
-	if err := s.DB.Find(&groups).Error; err != nil {
+	if err := s.DB.Where("group_type != ? OR group_type IS NULL", "aggregate").Find(&groups).Error; err != nil {
 		logrus.Errorf("CronChecker: Failed to get groups: %v", err)
 		return
 	}

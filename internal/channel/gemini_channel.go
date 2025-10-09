@@ -111,9 +111,12 @@ func (ch *GeminiChannel) ValidateKey(ctx context.Context, apiKey *models.APIKey,
 
 	payload := gin.H{
 		"contents": []gin.H{
-			{"parts": []gin.H{
-				{"text": "hi"},
-			}},
+			{
+				"role": "user",
+				"parts": []gin.H{
+					{"text": "hi"},
+				},
+			},
 		},
 	}
 	body, err := json.Marshal(payload)

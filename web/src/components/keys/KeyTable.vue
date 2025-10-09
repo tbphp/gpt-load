@@ -210,8 +210,6 @@ async function loadKeys() {
     keys.value = result.items as KeyRow[];
     total.value = result.pagination.total_items;
     totalPages.value = result.pagination.total_pages;
-  } catch (_error) {
-    window.$message.error(t("keys.loadKeysFailed"));
   } finally {
     loading.value = false;
   }

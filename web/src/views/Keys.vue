@@ -4,13 +4,16 @@ import EncryptionMismatchAlert from "@/components/EncryptionMismatchAlert.vue";
 import GroupInfoCard from "@/components/keys/GroupInfoCard.vue";
 import GroupList from "@/components/keys/GroupList.vue";
 import KeyTable from "@/components/keys/KeyTable.vue";
-import type { Group } from "@/types/models";
-import { onMounted, ref } from "vue";
+import SubGroupTable from "@/components/keys/SubGroupTable.vue";
+import type { Group, SubGroupInfo } from "@/types/models";
+import { onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 const groups = ref<Group[]>([]);
 const loading = ref(false);
 const selectedGroup = ref<Group | null>(null);
+const subGroups = ref<SubGroupInfo[]>([]);
+const loadingSubGroups = ref(false);
 const router = useRouter();
 const route = useRoute();
 
@@ -32,10 +35,40 @@ async function loadGroups() {
         handleGroupSelect(groups.value[0]);
       }
     }
+  } catch (error) {
+    console.error("Failed to load groups:", error);
+    window.$message?.error("加载分组列表失败");
   } finally {
     loading.value = false;
   }
 }
+
+async function loadSubGroups() {
+  if (!selectedGroup.value?.id || selectedGroup.value.group_type !== "aggregate") {
+    subGroups.value = [];
+    return;
+  }
+
+  try {
+    loadingSubGroups.value = true;
+    subGroups.value = await keysApi.getSubGroups(selectedGroup.value.id);
+  } catch (error) {
+    console.error("Failed to load sub groups:", error);
+    window.$message?.error("加载子分组失败");
+    subGroups.value = [];
+  } finally {
+    loadingSubGroups.value = false;
+  }
+}
+
+// 监听选中分组变化，加载子分组数据
+watch(selectedGroup, async newGroup => {
+  if (newGroup?.group_type === "aggregate") {
+    await loadSubGroups();
+  } else {
+    subGroups.value = [];
+  }
+});
 
 function handleGroupSelect(group: Group | null) {
   selectedGroup.value = group || null;
@@ -44,40 +77,46 @@ function handleGroupSelect(group: Group | null) {
   }
 }
 
-async function handleGroupRefresh() {
+async function refreshGroupsAndSelect(targetGroupId?: number, selectFirst = true) {
   await loadGroups();
+
+  if (targetGroupId) {
+    const targetGroup = groups.value.find(g => g.id === targetGroupId);
+    if (targetGroup) {
+      handleGroupSelect(targetGroup);
+      return;
+    }
+  }
+
   if (selectedGroup.value) {
-    // 重新加载当前选中的分组信息
-    handleGroupSelect(groups.value.find(g => g.id === selectedGroup.value?.id) || null);
+    const currentGroup = groups.value.find(g => g.id === selectedGroup.value?.id);
+    if (currentGroup) {
+      handleGroupSelect(currentGroup);
+      if (currentGroup.group_type === "aggregate") {
+        await loadSubGroups();
+      }
+      return;
+    }
+  }
+
+  if (selectFirst && groups.value.length > 0) {
+    handleGroupSelect(groups.value[0]);
   }
 }
 
-async function handleGroupRefreshAndSelect(targetGroupId: number) {
-  await loadGroups();
-  // 刷新完成后，切换到指定的分组
-  const targetGroup = groups.value.find(g => g.id === targetGroupId);
+// 处理子分组选择，跳转到对应的分组
+function handleSubGroupSelect(groupId: number) {
+  const targetGroup = groups.value.find(g => g.id === groupId);
   if (targetGroup) {
     handleGroupSelect(targetGroup);
   }
 }
 
-function handleGroupDelete(deletedGroup: Group) {
-  // 从分组列表中移除已删除的分组
-  groups.value = groups.value.filter(g => g.id !== deletedGroup.id);
-
-  // 如果删除的是当前选中的分组，则切换到第一个分组
-  if (selectedGroup.value?.id === deletedGroup.id) {
-    handleGroupSelect(groups.value.length > 0 ? groups.value[0] : null);
-  }
-}
-
-async function handleGroupCopySuccess(newGroup: Group) {
-  // 重新加载分组列表以包含新创建的分组
-  await loadGroups();
-  // 自动切换到新创建的分组
-  const createdGroup = groups.value.find(g => g.id === newGroup.id);
-  if (createdGroup) {
-    handleGroupSelect(createdGroup);
+// 处理聚合分组跳转，跳转到对应的聚合分组
+function handleNavigateToGroup(groupId: number) {
+  const targetGroup = groups.value.find(g => g.id === groupId);
+  if (targetGroup) {
+    handleGroupSelect(targetGroup);
   }
 }
 </script>
@@ -94,8 +133,8 @@ async function handleGroupCopySuccess(newGroup: Group) {
           :selected-group="selectedGroup"
           :loading="loading"
           @group-select="handleGroupSelect"
-          @refresh="handleGroupRefresh"
-          @refresh-and-select="handleGroupRefreshAndSelect"
+          @refresh="() => refreshGroupsAndSelect()"
+          @refresh-and-select="id => refreshGroupsAndSelect(id)"
         />
       </div>
 
@@ -105,15 +144,33 @@ async function handleGroupCopySuccess(newGroup: Group) {
         <div class="group-info">
           <group-info-card
             :group="selectedGroup"
-            @refresh="handleGroupRefresh"
-            @delete="handleGroupDelete"
-            @copy-success="handleGroupCopySuccess"
+            :groups="groups"
+            :sub-groups="subGroups"
+            @refresh="() => refreshGroupsAndSelect()"
+            @delete="() => refreshGroupsAndSelect(undefined, true)"
+            @copy-success="group => refreshGroupsAndSelect(group.id)"
+            @navigate-to-group="handleNavigateToGroup"
           />
         </div>
 
-        <!-- 密钥表格区域，占主要空间 -->
+        <!-- 密钥表格区域 / 子分组列表区域 -->
         <div class="key-table-section">
-          <key-table :selected-group="selectedGroup" />
+          <!-- 标准分组显示密钥列表 -->
+          <key-table
+            v-if="!selectedGroup || selectedGroup.group_type !== 'aggregate'"
+            :selected-group="selectedGroup"
+          />
+
+          <!-- 聚合分组显示子分组列表 -->
+          <sub-group-table
+            v-else
+            :selected-group="selectedGroup"
+            :sub-groups="subGroups"
+            :groups="groups"
+            :loading="loadingSubGroups"
+            @refresh="loadSubGroups"
+            @group-select="handleSubGroupSelect"
+          />
         </div>
       </div>
     </div>

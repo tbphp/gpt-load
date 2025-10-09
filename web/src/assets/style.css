@@ -2,8 +2,7 @@
 @import "./variables.css";
 
 :root {
-  overflow-y: scroll;
-  scrollbar-gutter: stable;
+  overflow-y: auto;
   font-family:
     "Inter",
     -apple-system,
@@ -128,13 +127,13 @@ body {
   transform: translateX(100%);
 }
 
-/* 美化滚动条 - 浅色模式 */
-:root:not(.dark) ::-webkit-scrollbar {
+/* 美化滚动条 */
+::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 
-:root:not(.dark) ::-webkit-scrollbar-track {
+::-webkit-scrollbar-track {
   background: rgba(0, 0, 0, 0.05);
   border-radius: 1px;
 }
@@ -148,12 +147,7 @@ body {
   background: linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%);
 }
 
-/* 美化滚动条 - 深色模式 */
-:root.dark ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-
+/* 深色模式滚动条 */
 :root.dark ::-webkit-scrollbar-track {
   background: rgba(0, 0, 0);
   border-radius: 1px;
@@ -168,7 +162,7 @@ body {
   background: linear-gradient(135deg, #8b9df5 0%, #a97dd4 100%);
 }
 
-/* 通用卡片样式 */
+/* 通用卡片样式和悬停效果 */
 .modern-card {
   background: rgba(255, 255, 255, 0.95);
   backdrop-filter: blur(10px);
@@ -178,7 +172,8 @@ body {
   transition: all 0.2s ease;
 }
 
-.modern-card:hover {
+.modern-card:hover,
+.hover-lift:hover {
   transform: translateY(-2px);
   box-shadow: var(--shadow-xl);
 }
@@ -206,15 +201,26 @@ body {
   box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
 }
 
-/* 选择文本样式 */
-::selection {
+/* 选择文本样式 - 浅色模式 */
+:root:not(.dark) ::selection {
   background: rgba(102, 126, 234, 0.2);
   color: #1e293b;
 }
 
-::-moz-selection {
+:root:not(.dark) ::-moz-selection {
   background: rgba(102, 126, 234, 0.2);
   color: #1e293b;
+}
+
+/* 选择文本样式 - 暗黑模式 */
+:root.dark ::selection {
+  background: #4a90e2;
+  color: #ffffff;
+}
+
+:root.dark ::-moz-selection {
+  background: #4a90e2;
+  color: #ffffff;
 }
 
 /* Focus样式增强 */
@@ -276,11 +282,6 @@ body {
   transition:
     transform 0.2s ease,
     box-shadow 0.2s ease;
-}
-
-.hover-lift:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-xl);
 }
 
 /* 脉冲动画 */

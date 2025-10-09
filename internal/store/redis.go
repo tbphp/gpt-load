@@ -122,6 +122,11 @@ func (s *RedisStore) Rotate(key string) (string, error) {
 	return val, nil
 }
 
+// LLen returns the length of a list.
+func (s *RedisStore) LLen(key string) (int64, error) {
+	return s.client.LLen(context.Background(), s.prefixKey(key)).Result()
+}
+
 // --- SET operations ---
 
 func (s *RedisStore) SAdd(key string, members ...any) error {

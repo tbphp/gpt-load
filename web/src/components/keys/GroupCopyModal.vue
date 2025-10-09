@@ -101,9 +101,6 @@ async function handleCopy() {
 
     emit("success", result.group);
     modalVisible.value = false;
-  } catch (error) {
-    console.error(error);
-    message.error(t("keys.copyGroupFailed"));
   } finally {
     loading.value = false;
   }
