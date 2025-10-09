@@ -25,6 +25,8 @@ export interface APIKey {
   last_used_at?: string;
   created_at: string;
   updated_at: string;
+  status_code?: number;
+  is_visible?: boolean;
 }
 
 export interface UpstreamInfo {
@@ -164,6 +166,14 @@ export interface RequestLog {
   upstream_addr: string;
   is_stream: boolean;
   request_body?: string;
+}
+
+// 密钥测试结果
+export interface KeyTestResult {
+  key_value: string;
+  is_valid: boolean;
+  error?: string;
+  status_code?: number;
 }
 
 export interface Pagination {

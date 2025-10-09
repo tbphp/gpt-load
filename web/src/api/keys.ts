@@ -5,6 +5,7 @@ import type {
   GroupConfigOption,
   GroupStatsResponse,
   KeyStatus,
+  KeyTestResult,
   ParentAggregateGroup,
   TaskInfo,
 } from "@/types/models";
@@ -74,6 +75,7 @@ export const keysApi = {
     page_size: number;
     key_value?: string;
     status?: KeyStatus;
+    status_code?: number;
   }): Promise<{
     items: APIKey[];
     pagination: {
@@ -121,11 +123,7 @@ export const keysApi = {
     group_id: number,
     keys_text: string
   ): Promise<{
-    results: {
-      key_value: string;
-      is_valid: boolean;
-      error: string;
-    }[];
+    results: KeyTestResult[];
     total_duration: number;
   }> {
     const res = await http.post(
@@ -197,6 +195,32 @@ export const keysApi = {
     return http.post(
       "/keys/clear-all",
       { group_id },
+      {
+        hideMessage: true,
+      }
+    );
+  },
+
+  // 清空当前查询条件下的密钥
+  clearCurrentQueryKeys(
+    group_id: number,
+    key_value?: string,
+    status_code?: number,
+    status?: KeyStatus
+  ): Promise<{ data: { message: string } }> {
+    const params: any = { group_id };
+    if (key_value) {
+      params.key_value = key_value;
+    }
+    if (status_code) {
+      params.status_code = status_code;
+    }
+    if (status) {
+      params.status = status;
+    }
+    return http.post(
+      "/keys/clear-current-query",
+      params,
       {
         hideMessage: true,
       }
