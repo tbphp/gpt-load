@@ -1093,17 +1093,6 @@ function resetPage() {
   min-width: 0;
 }
 
-/* 备注信息行 */
-.key-notes {
-  font-size: 12px;
-  color: var(--text-secondary);
-  margin-top: 8px;
-  padding: 4px 6px;
-  background: var(--bg-secondary);
-  border-radius: 4px;
-  line-height: 1.4;
-}
-
 /* 底部统计和按钮行 */
 .key-bottom {
   display: flex;
