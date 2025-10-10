@@ -392,8 +392,6 @@ export default {
     notes: "备注",
     editKeyNotes: "编辑密钥备注",
     enterNotes: "请输入备注...",
-    cancel: "取消",
-    save: "保存",
   },
   subGroups: {
     addSubGroup: "添加子分组",

@@ -404,8 +404,6 @@ export default {
     notes: "注釈",
     editKeyNotes: "キー注釈を編集",
     enterNotes: "注釈を入力してください...",
-    cancel: "キャンセル",
-    save: "保存",
   },
   subGroups: {
     addSubGroup: "サブグループを追加",

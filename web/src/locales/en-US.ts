@@ -405,8 +405,6 @@ export default {
     notes: "Notes",
     editKeyNotes: "Edit key notes",
     enterNotes: "Enter notes...",
-    cancel: "Cancel",
-    save: "Save",
   },
   subGroups: {
     addSubGroup: "Add Sub Group",
