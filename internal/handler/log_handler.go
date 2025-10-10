@@ -3,6 +3,7 @@ package handler
 import (
 	"fmt"
 	app_errors "gpt-load/internal/errors"
+	"gpt-load/internal/i18n"
 	"gpt-load/internal/models"
 	"gpt-load/internal/response"
 	"log"
@@ -56,7 +57,7 @@ func (s *Server) ExportLogs(c *gin.Context) {
 	err := s.LogService.StreamLogKeysToCSV(c, c.Writer)
 	if err != nil {
 		log.Printf("Failed to stream log keys to CSV: %v", err)
-		c.JSON(500, gin.H{"error": "Failed to export logs"})
+		c.JSON(500, gin.H{"error": i18n.Message(c, "error.export_logs")})
 		return
 	}
 }

@@ -16,6 +16,7 @@ import {
   useMessage,
 } from "naive-ui";
 import { computed, ref, watchEffect } from "vue";
+import { useI18n } from "vue-i18n";
 
 interface Props {
   show: boolean;
@@ -34,6 +35,7 @@ interface CopyFormData {
 const props = defineProps<Props>();
 const emit = defineEmits<Emits>();
 
+const { t } = useI18n();
 const message = useMessage();
 const loading = ref(false);
 
@@ -71,7 +73,7 @@ function generateNewGroupName(): string {
 
 async function handleCopy() {
   if (!props.sourceGroup?.id) {
-    message.error("源分组不存在");
+    message.error(t("keys.sourceGroupNotExist"));
     return;
   }
 
@@ -85,19 +87,20 @@ async function handleCopy() {
     // Show appropriate success message based on copy strategy
     if (formData.value.copyKeys !== "none") {
       message.success(
-        `复制成功！已创建新分组 "${result.group.display_name || result.group.name}"，密钥正在后台导入，请稍后查看进度`
+        t("keys.copyGroupWithKeysSuccess", {
+          groupName: result.group.display_name || result.group.name,
+        })
       );
       // Trigger task polling to show import progress
       appState.taskPollingTrigger++;
     } else {
-      message.success(`复制成功！已创建新分组 "${result.group.display_name || result.group.name}"`);
+      message.success(
+        t("keys.copyGroupSuccess", { groupName: result.group.display_name || result.group.name })
+      );
     }
 
     emit("success", result.group);
     modalVisible.value = false;
-  } catch (error) {
-    console.error(error);
-    message.error("复制分组失败，请稍后重试");
   } finally {
     loading.value = false;
   }
@@ -112,7 +115,9 @@ function handleCancel() {
   <n-modal :show="modalVisible" @update:show="handleCancel" class="group-copy-modal">
     <n-card
       class="group-copy-card"
-      :title="`复制分组 - ${sourceGroup ? getGroupDisplayName(sourceGroup) : ''}`"
+      :title="
+        t('keys.copyGroupTitle', { groupName: sourceGroup ? getGroupDisplayName(sourceGroup) : '' })
+      "
       :bordered="false"
       size="huge"
       role="dialog"
@@ -129,7 +134,7 @@ function handleCancel() {
       <div class="modal-content">
         <div class="copy-preview">
           <div class="preview-item">
-            <span class="preview-label">新分组名称:</span>
+            <span class="preview-label">{{ t("keys.newGroupNameLabel") }}</span>
             <code class="preview-value">{{ generateNewGroupName() }}</code>
           </div>
         </div>
@@ -137,12 +142,14 @@ function handleCancel() {
         <n-form :model="formData" label-placement="left" label-width="80px" class="group-copy-form">
           <!-- 密钥复制选项 -->
           <div class="copy-options">
-            <n-form-item label="密钥处理">
+            <n-form-item :label="t('keys.keyHandling')">
               <n-radio-group v-model:value="formData.copyKeys" name="copyKeys">
                 <div class="radio-options">
-                  <n-radio value="all" class="radio-option">复制所有密钥</n-radio>
-                  <n-radio value="valid_only" class="radio-option">仅复制有效密钥</n-radio>
-                  <n-radio value="none" class="radio-option">不复制密钥</n-radio>
+                  <n-radio value="all" class="radio-option">{{ t("keys.copyAllKeys") }}</n-radio>
+                  <n-radio value="valid_only" class="radio-option">
+                    {{ t("keys.copyValidKeysOnly") }}
+                  </n-radio>
+                  <n-radio value="none" class="radio-option">{{ t("keys.dontCopyKeys") }}</n-radio>
                 </div>
               </n-radio-group>
             </n-form-item>
@@ -152,12 +159,12 @@ function handleCancel() {
 
       <template #footer>
         <div class="modal-actions">
-          <n-button @click="handleCancel" :disabled="loading">取消</n-button>
+          <n-button @click="handleCancel" :disabled="loading">{{ t("common.cancel") }}</n-button>
           <n-button type="primary" @click="handleCopy" :loading="loading">
             <template #icon>
               <n-icon :component="CopyOutline" />
             </template>
-            确认复制
+            {{ t("keys.confirmCopy") }}
           </n-button>
         </div>
       </template>

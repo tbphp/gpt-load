@@ -4,6 +4,9 @@ import type { ChartData } from "@/types/models";
 import { getGroupDisplayName } from "@/utils/display";
 import { NSelect, NSpin } from "naive-ui";
 import { computed, onMounted, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
+
+const { t } = useI18n();
 
 // 图表数据
 const chartData = ref<ChartData | null>(null);
@@ -211,7 +214,7 @@ const formatNumber = (value: number) => {
 };
 
 const isErrorDataset = (label: string) => {
-  return label.includes("失败");
+  return label.includes("失败") || label.includes("Error") || label.includes("エラー");
 };
 
 // 动画相关
@@ -326,14 +329,14 @@ const fetchGroups = async () => {
   try {
     const response = await getGroupList();
     groupOptions.value = [
-      { label: "全部分组", value: null },
+      { label: t("charts.allGroups"), value: null },
       ...response.data.map(group => ({
         label: getGroupDisplayName(group),
         value: group.id || 0,
       })),
     ];
   } catch (error) {
-    console.error("获取分组列表失败:", error);
+    console.error("Failed to fetch groups:", error);
   }
 };
 
@@ -349,7 +352,7 @@ const fetchChartData = async () => {
       startAnimation();
     }, 100);
   } catch (error) {
-    console.error("获取图表数据失败:", error);
+    console.error("Failed to fetch chart data:", error);
   } finally {
     loading.value = false;
   }
@@ -370,12 +373,12 @@ onMounted(() => {
   <div class="chart-container">
     <div class="chart-header">
       <div class="chart-title-section">
-        <h3 class="chart-title">24小时请求趋势</h3>
+        <h3 class="chart-title">{{ t("charts.requestTrend24h") }}</h3>
       </div>
       <n-select
         v-model:value="selectedGroup"
         :options="groupOptions as any"
-        placeholder="全部分组"
+        :placeholder="t('charts.allGroups')"
         size="small"
         style="width: 150px"
         clearable
@@ -555,7 +558,7 @@ onMounted(() => {
 
     <div v-else class="chart-loading">
       <n-spin size="large" />
-      <p>加载中...</p>
+      <p>{{ t("common.loading") }}</p>
     </div>
   </div>
 </template>

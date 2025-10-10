@@ -3,6 +3,7 @@ package router
 import (
 	"embed"
 	"gpt-load/internal/handler"
+	"gpt-load/internal/i18n"
 	"gpt-load/internal/middleware"
 	"gpt-load/internal/proxy"
 	"gpt-load/internal/services"
@@ -65,7 +66,7 @@ func NewRouter(
 	// 注册路由
 	registerSystemRoutes(router, serverHandler)
 	registerAPIRoutes(router, serverHandler, configManager)
-	registerProxyRoutes(router, proxyServer, groupManager)
+	registerProxyRoutes(router, proxyServer, groupManager, serverHandler)
 	registerFrontendRoutes(router, buildFS, indexPage)
 
 	return router
@@ -83,6 +84,8 @@ func registerAPIRoutes(
 	configManager types.ConfigManager,
 ) {
 	api := router.Group("/api")
+	api.Use(i18n.Middleware())
+
 	authConfig := configManager.GetAuthConfig()
 
 	// 公开
@@ -97,6 +100,7 @@ func registerAPIRoutes(
 // registerPublicAPIRoutes 公开API路由
 func registerPublicAPIRoutes(api *gin.RouterGroup, serverHandler *handler.Server) {
 	api.POST("/auth/login", serverHandler.Login)
+	api.GET("/integration/info", serverHandler.GetIntegrationInfo)
 }
 
 // registerProtectedAPIRoutes 认证API路由
@@ -113,6 +117,12 @@ func registerProtectedAPIRoutes(api *gin.RouterGroup, serverHandler *handler.Ser
 		groups.DELETE("/:id", serverHandler.DeleteGroup)
 		groups.GET("/:id/stats", serverHandler.GetGroupStats)
 		groups.POST("/:id/copy", serverHandler.CopyGroup)
+
+		groups.GET("/:id/sub-groups", serverHandler.GetSubGroups)
+		groups.POST("/:id/sub-groups", serverHandler.AddSubGroups)
+		groups.PUT("/:id/sub-groups/:subGroupId/weight", serverHandler.UpdateSubGroupWeight)
+		groups.DELETE("/:id/sub-groups/:subGroupId", serverHandler.DeleteSubGroup)
+		groups.GET("/:id/parent-aggregate-groups", serverHandler.GetParentAggregateGroups)
 	}
 
 	// Key Management Routes
@@ -164,12 +174,14 @@ func registerProxyRoutes(
 	router *gin.Engine,
 	proxyServer *proxy.ProxyServer,
 	groupManager *services.GroupManager,
+	serverHandler *handler.Server,
 ) {
-	proxyGroup := router.Group("/proxy")
+	proxyGroup := router.Group("/proxy/:group_name")
 
+	proxyGroup.Use(middleware.ProxyRouteDispatcher(serverHandler))
 	proxyGroup.Use(middleware.ProxyAuth(groupManager))
 
-	proxyGroup.Any("/:group_name/*path", proxyServer.HandleProxy)
+	proxyGroup.Any("/*path", proxyServer.HandleProxy)
 }
 
 // registerFrontendRoutes 注册前端路由

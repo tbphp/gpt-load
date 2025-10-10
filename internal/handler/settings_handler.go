@@ -2,6 +2,7 @@ package handler
 
 import (
 	app_errors "gpt-load/internal/errors"
+	"gpt-load/internal/i18n"
 	"gpt-load/internal/models"
 	"gpt-load/internal/response"
 	"gpt-load/internal/utils"
@@ -16,6 +17,22 @@ import (
 func (s *Server) GetSettings(c *gin.Context) {
 	currentSettings := s.SettingsManager.GetSettings()
 	settingsInfo := utils.GenerateSettingsMetadata(&currentSettings)
+
+	// Translate settings info
+	for i := range settingsInfo {
+		// Translate name if it's an i18n key
+		if strings.HasPrefix(settingsInfo[i].Name, "config.") {
+			settingsInfo[i].Name = i18n.Message(c, settingsInfo[i].Name)
+		}
+		// Translate description if it's an i18n key
+		if strings.HasPrefix(settingsInfo[i].Description, "config.") {
+			settingsInfo[i].Description = i18n.Message(c, settingsInfo[i].Description)
+		}
+		// Translate category if it's an i18n key
+		if strings.HasPrefix(settingsInfo[i].Category, "config.") {
+			settingsInfo[i].Category = i18n.Message(c, settingsInfo[i].Category)
+		}
+	}
 
 	// Group settings by category while preserving order
 	categorized := make(map[string][]models.SystemSettingInfo)
@@ -68,7 +85,5 @@ func (s *Server) UpdateSettings(c *gin.Context) {
 
 	time.Sleep(100 * time.Millisecond) // 等待异步更新配置
 
-	response.Success(c, gin.H{
-		"message": "Settings updated successfully. Configuration will be reloaded in the background across all instances.",
-	})
+	response.SuccessI18n(c, "settings.update_success", nil)
 }

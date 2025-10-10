@@ -3,6 +3,9 @@ import { themeMode, toggleTheme } from "@/utils/theme";
 import { Contrast, Moon, Sunny } from "@vicons/ionicons5";
 import { NButton, NIcon, NTooltip } from "naive-ui";
 import { computed } from "vue";
+import { useI18n } from "vue-i18n";
+
+const { t } = useI18n();
 
 // 根据当前主题模式计算图标和提示文字
 const themeConfig = computed(() => {
@@ -10,26 +13,26 @@ const themeConfig = computed(() => {
     case "auto":
       return {
         icon: Contrast,
-        tooltip: "自动模式",
-        nextMode: "浅色模式",
+        tooltip: t("theme.auto"),
+        nextMode: t("theme.light"),
       };
     case "light":
       return {
         icon: Sunny,
-        tooltip: "浅色模式",
-        nextMode: "深色模式",
+        tooltip: t("theme.light"),
+        nextMode: t("theme.dark"),
       };
     case "dark":
       return {
         icon: Moon,
-        tooltip: "深色模式",
-        nextMode: "自动模式",
+        tooltip: t("theme.dark"),
+        nextMode: t("theme.auto"),
       };
     default:
       return {
         icon: Contrast,
-        tooltip: "自动模式",
-        nextMode: "浅色模式",
+        tooltip: t("theme.auto"),
+        nextMode: t("theme.light"),
       };
   }
 });
@@ -45,8 +48,10 @@ const themeConfig = computed(() => {
       </n-button>
     </template>
     <div>
-      <div>当前：{{ themeConfig.tooltip }}</div>
-      <div style="font-size: 12px; opacity: 0.8">点击切换到{{ themeConfig.nextMode }}</div>
+      <div>{{ t("theme.current") }}: {{ themeConfig.tooltip }}</div>
+      <div style="font-size: 12px; opacity: 0.8">
+        {{ t("theme.clickToSwitch", { mode: themeConfig.nextMode }) }}
+      </div>
     </div>
   </n-tooltip>
 </template>

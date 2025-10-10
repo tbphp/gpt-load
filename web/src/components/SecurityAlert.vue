@@ -11,6 +11,9 @@ import {
   NTag,
 } from "naive-ui";
 import { computed, ref } from "vue";
+import { useI18n } from "vue-i18n";
+
+const { t } = useI18n();
 
 interface Props {
   warnings: SecurityWarning[];
@@ -67,9 +70,9 @@ const warningText = computed(() => {
   const highCount = props.warnings.filter(w => w.severity === "high").length;
 
   if (highCount > 0) {
-    return `发现 ${count} 个安全配置问题，其中 ${highCount} 个需要优先处理`;
+    return t("security.warningsWithHigh", { count, highCount });
   } else {
-    return `发现 ${count} 个安全配置建议`;
+    return t("security.warningsSuggestions", { count });
   }
 });
 
@@ -89,11 +92,11 @@ const getSeverityTagType = (severity: string) => {
 const getSeverityText = (severity: string) => {
   switch (severity) {
     case "high":
-      return "重要";
+      return t("security.important");
     case "medium":
-      return "建议";
+      return t("security.suggestion");
     default:
-      return "提示";
+      return t("security.tip");
   }
 };
 
@@ -124,7 +127,7 @@ const openSecurityDocs = () => {
     style="margin-bottom: 16px"
   >
     <template #header>
-      <strong>安全配置提醒</strong>
+      <strong>{{ t("security.configReminder") }}</strong>
     </template>
 
     <div>
@@ -134,7 +137,7 @@ const openSecurityDocs = () => {
 
       <!-- 问题详情列表 -->
       <n-collapse v-model:expanded-names="showDetails" style="margin-bottom: 12px">
-        <n-collapse-item name="details" title="查看详细问题">
+        <n-collapse-item name="details" :title="t('security.viewDetails')">
           <n-list style="padding-top: 8px; margin-left: 0">
             <n-list-item
               v-for="(warning, index) in warnings"
@@ -178,7 +181,7 @@ const openSecurityDocs = () => {
           @click="openSecurityDocs"
           class="security-primary-btn"
         >
-          配置文档
+          {{ t("security.configDocs") }}
         </n-button>
 
         <n-button
@@ -187,7 +190,7 @@ const openSecurityDocs = () => {
           @click="handleDismissPermanently"
           class="security-secondary-btn"
         >
-          不再提醒
+          {{ t("security.dontRemind") }}
         </n-button>
       </n-space>
     </div>

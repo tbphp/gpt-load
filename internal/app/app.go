@@ -10,6 +10,7 @@ import (
 
 	"gpt-load/internal/config"
 	db "gpt-load/internal/db/migrations"
+	"gpt-load/internal/i18n"
 	"gpt-load/internal/keypool"
 	"gpt-load/internal/models"
 	"gpt-load/internal/proxy"
@@ -75,6 +76,12 @@ func NewApp(params AppParams) *App {
 
 // Start runs the application, it is a non-blocking call.
 func (a *App) Start() error {
+	// 初始化 i18n
+	if err := i18n.Init(); err != nil {
+		return fmt.Errorf("failed to initialize i18n: %w", err)
+	}
+	logrus.Info("i18n initialized successfully.")
+	
 	// Master 节点执行初始化
 	if a.configManager.IsMaster() {
 		logrus.Info("Starting as Master Node.")
@@ -88,6 +95,7 @@ func (a *App) Start() error {
 		if err := a.db.AutoMigrate(
 			&models.SystemSetting{},
 			&models.Group{},
+			&models.GroupSubGroup{},
 			&models.APIKey{},
 			&models.RequestLog{},
 			&models.GroupHourlyStat{},

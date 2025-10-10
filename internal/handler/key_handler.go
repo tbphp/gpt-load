@@ -16,27 +16,32 @@ import (
 )
 
 // validateGroupIDFromQuery validates and parses group ID from a query parameter.
-func validateGroupIDFromQuery(c *gin.Context) (uint, error) {
+// Returns 0 and false if validation fails (error is already sent to client)
+func validateGroupIDFromQuery(c *gin.Context) (uint, bool) {
 	groupIDStr := c.Query("group_id")
 	if groupIDStr == "" {
-		return 0, fmt.Errorf("group_id query parameter is required")
+		response.ErrorI18nFromAPIError(c, app_errors.ErrBadRequest, "validation.group_id_required")
+		return 0, false
 	}
 
 	groupID, err := strconv.Atoi(groupIDStr)
 	if err != nil || groupID <= 0 {
-		return 0, fmt.Errorf("invalid group_id format")
+		response.ErrorI18nFromAPIError(c, app_errors.ErrBadRequest, "validation.invalid_group_id_format")
+		return 0, false
 	}
 
-	return uint(groupID), nil
+	return uint(groupID), true
 }
 
 // validateKeysText validates the keys text input
-func validateKeysText(keysText string) error {
+// Returns false if validation fails (error is already sent to client)
+func validateKeysText(c *gin.Context, keysText string) bool {
 	if strings.TrimSpace(keysText) == "" {
-		return fmt.Errorf("keys text cannot be empty")
+		response.ErrorI18nFromAPIError(c, app_errors.ErrValidation, "validation.keys_text_empty")
+		return false
 	}
 
-	return nil
+	return true
 }
 
 // findGroupByID is a helper function to find a group by its ID.
@@ -82,8 +87,7 @@ func (s *Server) AddMultipleKeys(c *gin.Context) {
 		return
 	}
 
-	if err := validateKeysText(req.KeysText); err != nil {
-		response.Error(c, app_errors.NewAPIError(app_errors.ErrValidation, err.Error()))
+	if !validateKeysText(c, req.KeysText) {
 		return
 	}
 
@@ -115,8 +119,7 @@ func (s *Server) AddMultipleKeysAsync(c *gin.Context) {
 		return
 	}
 
-	if err := validateKeysText(req.KeysText); err != nil {
-		response.Error(c, app_errors.NewAPIError(app_errors.ErrValidation, err.Error()))
+	if !validateKeysText(c, req.KeysText) {
 		return
 	}
 
@@ -131,9 +134,8 @@ func (s *Server) AddMultipleKeysAsync(c *gin.Context) {
 
 // ListKeysInGroup handles listing all keys within a specific group with pagination.
 func (s *Server) ListKeysInGroup(c *gin.Context) {
-	groupID, err := validateGroupIDFromQuery(c)
-	if err != nil {
-		response.Error(c, app_errors.NewAPIError(app_errors.ErrBadRequest, err.Error()))
+	groupID, ok := validateGroupIDFromQuery(c)
+	if !ok {
 		return
 	}
 
@@ -143,7 +145,7 @@ func (s *Server) ListKeysInGroup(c *gin.Context) {
 
 	statusFilter := c.Query("status")
 	if statusFilter != "" && statusFilter != models.KeyStatusActive && statusFilter != models.KeyStatusInvalid {
-		response.Error(c, app_errors.NewAPIError(app_errors.ErrValidation, "Invalid status filter"))
+		response.ErrorI18nFromAPIError(c, app_errors.ErrValidation, "validation.invalid_status_filter")
 		return
 	}
 
@@ -189,8 +191,7 @@ func (s *Server) DeleteMultipleKeys(c *gin.Context) {
 		return
 	}
 
-	if err := validateKeysText(req.KeysText); err != nil {
-		response.Error(c, app_errors.NewAPIError(app_errors.ErrValidation, err.Error()))
+	if !validateKeysText(c, req.KeysText) {
 		return
 	}
 
@@ -222,8 +223,7 @@ func (s *Server) DeleteMultipleKeysAsync(c *gin.Context) {
 		return
 	}
 
-	if err := validateKeysText(req.KeysText); err != nil {
-		response.Error(c, app_errors.NewAPIError(app_errors.ErrValidation, err.Error()))
+	if !validateKeysText(c, req.KeysText) {
 		return
 	}
 
@@ -248,8 +248,7 @@ func (s *Server) RestoreMultipleKeys(c *gin.Context) {
 		return
 	}
 
-	if err := validateKeysText(req.KeysText); err != nil {
-		response.Error(c, app_errors.NewAPIError(app_errors.ErrValidation, err.Error()))
+	if !validateKeysText(c, req.KeysText) {
 		return
 	}
 
@@ -283,12 +282,11 @@ func (s *Server) TestMultipleKeys(c *gin.Context) {
 
 	group, err := s.GroupManager.GetGroupByName(groupDB.Name)
 	if err != nil {
-		response.Error(c, app_errors.NewAPIError(app_errors.ErrResourceNotFound, fmt.Sprintf("Group '%s' not found", groupDB.Name)))
+		response.ErrorI18nFromAPIError(c, app_errors.ErrResourceNotFound, "validation.group_not_found")
 		return
 	}
 
-	if err := validateKeysText(req.KeysText); err != nil {
-		response.Error(c, app_errors.NewAPIError(app_errors.ErrValidation, err.Error()))
+	if !validateKeysText(c, req.KeysText) {
 		return
 	}
 
@@ -322,7 +320,7 @@ func (s *Server) ValidateGroupKeys(c *gin.Context) {
 
 	// Validate status if provided
 	if req.Status != "" && req.Status != models.KeyStatusActive && req.Status != models.KeyStatusInvalid {
-		response.Error(c, app_errors.NewAPIError(app_errors.ErrValidation, "Invalid status value"))
+		response.ErrorI18nFromAPIError(c, app_errors.ErrValidation, "validation.invalid_status_value")
 		return
 	}
 
@@ -333,7 +331,7 @@ func (s *Server) ValidateGroupKeys(c *gin.Context) {
 
 	group, err := s.GroupManager.GetGroupByName(groupDB.Name)
 	if err != nil {
-		response.Error(c, app_errors.NewAPIError(app_errors.ErrResourceNotFound, fmt.Sprintf("Group '%s' not found", groupDB.Name)))
+		response.ErrorI18nFromAPIError(c, app_errors.ErrResourceNotFound, "validation.group_not_found")
 		return
 	}
 
@@ -364,7 +362,7 @@ func (s *Server) RestoreAllInvalidKeys(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, gin.H{"message": fmt.Sprintf("%d keys restored.", rowsAffected)})
+	response.SuccessI18n(c, "success.keys_restored", nil, map[string]any{"count": rowsAffected})
 }
 
 // ClearAllInvalidKeys deletes all 'inactive' keys from a group.
@@ -385,7 +383,7 @@ func (s *Server) ClearAllInvalidKeys(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, gin.H{"message": fmt.Sprintf("%d invalid keys cleared.", rowsAffected)})
+	response.SuccessI18n(c, "success.invalid_keys_cleared", nil, map[string]any{"count": rowsAffected})
 }
 
 // ClearAllKeys deletes all keys from a group.
@@ -406,14 +404,13 @@ func (s *Server) ClearAllKeys(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, gin.H{"message": fmt.Sprintf("%d keys cleared.", rowsAffected)})
+	response.SuccessI18n(c, "success.all_keys_cleared", nil, map[string]any{"count": rowsAffected})
 }
 
 // ExportKeys handles exporting keys to a text file.
 func (s *Server) ExportKeys(c *gin.Context) {
-	groupID, err := validateGroupIDFromQuery(c)
-	if err != nil {
-		response.Error(c, app_errors.NewAPIError(app_errors.ErrBadRequest, err.Error()))
+	groupID, ok := validateGroupIDFromQuery(c)
+	if !ok {
 		return
 	}
 
@@ -425,7 +422,7 @@ func (s *Server) ExportKeys(c *gin.Context) {
 	switch statusFilter {
 	case "all", models.KeyStatusActive, models.KeyStatusInvalid:
 	default:
-		response.Error(c, app_errors.NewAPIError(app_errors.ErrValidation, "Invalid status filter"))
+		response.ErrorI18nFromAPIError(c, app_errors.ErrValidation, "validation.invalid_status_filter")
 		return
 	}
 
@@ -438,8 +435,7 @@ func (s *Server) ExportKeys(c *gin.Context) {
 	c.Header("Content-Disposition", "attachment; filename="+filename)
 	c.Header("Content-Type", "text/plain; charset=utf-8")
 
-	err = s.KeyService.StreamKeysToWriter(groupID, statusFilter, c.Writer)
-	if err != nil {
+	if err := s.KeyService.StreamKeysToWriter(groupID, statusFilter, c.Writer); err != nil {
 		log.Printf("Failed to stream keys: %v", err)
 	}
 }

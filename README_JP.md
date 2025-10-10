@@ -10,6 +10,7 @@
 
 詳細なドキュメントについては、[公式ドキュメント](https://www.gpt-load.com/docs?lang=ja)をご覧ください。
 
+<a href="https://trendshift.io/repositories/14880" target="_blank"><img src="https://trendshift.io/api/badge/repositories/14880" alt="tbphp%2Fgpt-load | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
 <a href="https://hellogithub.com/repository/tbphp/gpt-load" target="_blank"><img src="https://api.hellogithub.com/v1/widgets/recommend.svg?rid=554dc4c46eb14092b9b0c56f1eb9021c&claim_uid=Qlh8vzrWJ0HCneG" alt="Featured｜HelloGitHub" style="width: 250px; height: 54px;" width="250" height="54" /></a>
 
 ## 特徴
@@ -557,6 +558,10 @@ response = client.messages.create(
 > **重要な注意**: トランスペアレントプロキシサービスとして、GPT-Loadはさまざまなアイサービスのネイティブ APIフォーマットと認証方法を完全に保持します。エンドポイントアドレスを置き換え、管理インターフェースで設定された**プロキシキー**を使用するだけで、シームレスな移行が可能です。
 
 </details>
+
+## 関連プロジェクト
+
+- **[New API](https://github.com/QuantumNous/new-api)** - 優秀なAIモデル統合管理配信システム
 
 ## 貢献
 

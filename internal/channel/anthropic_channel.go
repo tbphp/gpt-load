@@ -80,11 +80,7 @@ func (ch *AnthropicChannel) ValidateKey(ctx context.Context, apiKey *models.APIK
 		return false, fmt.Errorf("no upstream URL configured for channel %s", ch.Name)
 	}
 
-	validationEndpoint := ch.ValidationEndpoint
-	if validationEndpoint == "" {
-		validationEndpoint = "/v1/messages"
-	}
-	reqURL, err := url.JoinPath(upstreamURL.String(), validationEndpoint)
+	reqURL, err := url.JoinPath(upstreamURL.String(), ch.ValidationEndpoint)
 	if err != nil {
 		return false, fmt.Errorf("failed to join upstream URL and validation endpoint: %w", err)
 	}

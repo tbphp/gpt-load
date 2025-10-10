@@ -1,20 +1,23 @@
 <script setup lang="ts">
 import AppFooter from "@/components/AppFooter.vue";
+import LanguageSelector from "@/components/LanguageSelector.vue";
 import { useAuthService } from "@/services/auth";
 import { LockClosedSharp } from "@vicons/ionicons5";
-import { NButton, NCard, NInput, NSpace, useMessage } from "naive-ui";
+import { NButton, NCard, NInput, NSpace, NIcon, useMessage } from "naive-ui";
 import { ref } from "vue";
 import { useRouter } from "vue-router";
+import { useI18n } from "vue-i18n";
 
 const authKey = ref("");
 const loading = ref(false);
 const router = useRouter();
 const message = useMessage();
 const { login } = useAuthService();
+const { t } = useI18n();
 
 const handleLogin = async () => {
   if (!authKey.value) {
-    message.error("请输入授权密钥");
+    message.error(t("login.authKeyRequired"));
     return;
   }
   loading.value = true;
@@ -28,6 +31,10 @@ const handleLogin = async () => {
 
 <template>
   <div class="login-container">
+    <!-- 语言切换器 -->
+    <div class="language-selector-wrapper">
+      <language-selector />
+    </div>
     <div class="login-background">
       <div class="login-decoration" />
       <div class="login-decoration-2" />
@@ -35,15 +42,15 @@ const handleLogin = async () => {
 
     <div class="login-content">
       <div class="login-header">
-        <h1 class="login-title">GPT Load</h1>
-        <p class="login-subtitle">智能负载均衡管理平台</p>
+        <h1 class="login-title">{{ t("login.title") }}</h1>
+        <p class="login-subtitle">{{ t("login.subtitle") }}</p>
       </div>
 
       <n-card class="login-card modern-card" :bordered="false">
         <template #header>
           <div class="card-header">
-            <h2 class="card-title">欢迎回来</h2>
-            <p class="card-subtitle">请输入您的授权密钥以继续</p>
+            <h2 class="card-title">{{ t("login.welcome") }}</h2>
+            <p class="card-subtitle">{{ t("login.welcomeDesc") }}</p>
           </div>
         </template>
 
@@ -52,7 +59,7 @@ const handleLogin = async () => {
             v-model:value="authKey"
             type="password"
             size="large"
-            placeholder="请输入授权密钥"
+            :placeholder="t('login.authKeyPlaceholder')"
             class="modern-input"
             @keyup.enter="handleLogin"
           >
@@ -71,7 +78,7 @@ const handleLogin = async () => {
             :disabled="loading"
           >
             <template v-if="!loading">
-              <span>立即登录</span>
+              <span>{{ t("login.loginButton") }}</span>
             </template>
           </n-button>
         </n-space>
@@ -82,6 +89,13 @@ const handleLogin = async () => {
 </template>
 
 <style scoped>
+.language-selector-wrapper {
+  position: absolute;
+  top: 24px;
+  right: 24px;
+  z-index: 10;
+}
+
 .login-container {
   min-height: calc(100vh - 52px);
   display: flex;

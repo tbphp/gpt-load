@@ -4,6 +4,7 @@ import { appState } from "@/utils/app-state";
 import { Close } from "@vicons/ionicons5";
 import { NButton, NCard, NInput, NModal } from "naive-ui";
 import { ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 
 interface Props {
   show: boolean;
@@ -19,6 +20,8 @@ interface Emits {
 const props = defineProps<Props>();
 
 const emit = defineEmits<Emits>();
+
+const { t } = useI18n();
 
 const loading = ref(false);
 const keysText = ref("");
@@ -55,7 +58,7 @@ async function handleSubmit() {
     await keysApi.addKeysAsync(props.groupId, keysText.value);
     resetForm();
     handleClose();
-    window.$message.success("密钥导入任务已开始，请稍后在下方查看进度。");
+    window.$message.success(t("keys.importTaskStarted"));
     appState.taskPollingTrigger++;
   } finally {
     loading.value = false;
@@ -67,7 +70,7 @@ async function handleSubmit() {
   <n-modal :show="show" @update:show="handleClose" class="form-modal">
     <n-card
       style="width: 800px"
-      :title="`为 ${groupName || '当前分组'} 添加密钥`"
+      :title="t('keys.addKeysToGroup', { group: groupName || t('keys.currentGroup') })"
       :bordered="false"
       size="huge"
       role="dialog"
@@ -84,16 +87,16 @@ async function handleSubmit() {
       <n-input
         v-model:value="keysText"
         type="textarea"
-        placeholder="输入密钥，每行一个"
+        :placeholder="t('keys.enterKeysPlaceholder')"
         :rows="8"
         style="margin-top: 20px"
       />
 
       <template #footer>
         <div style="display: flex; justify-content: flex-end; gap: 12px">
-          <n-button @click="handleClose">取消</n-button>
+          <n-button @click="handleClose">{{ t("common.cancel") }}</n-button>
           <n-button type="primary" @click="handleSubmit" :loading="loading" :disabled="!keysText">
-            创建
+            {{ t("common.create") }}
           </n-button>
         </div>
       </template>

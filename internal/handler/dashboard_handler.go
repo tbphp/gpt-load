@@ -2,11 +2,12 @@ package handler
 
 import (
 	"fmt"
-	"strings"
 	"gpt-load/internal/encryption"
 	app_errors "gpt-load/internal/errors"
+	"gpt-load/internal/i18n"
 	"gpt-load/internal/models"
 	"gpt-load/internal/response"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -22,7 +23,7 @@ func (s *Server) Stats(c *gin.Context) {
 	now := time.Now()
 	rpmStats, err := s.getRPMStats(now)
 	if err != nil {
-		response.Error(c, app_errors.NewAPIError(app_errors.ErrDatabase, "failed to get rpm stats"))
+		response.ErrorI18nFromAPIError(c, app_errors.ErrDatabase, "database.rpm_stats_failed")
 		return
 	}
 	twentyFourHoursAgo := now.Add(-24 * time.Hour)
@@ -30,12 +31,12 @@ func (s *Server) Stats(c *gin.Context) {
 
 	currentPeriod, err := s.getHourlyStats(twentyFourHoursAgo, now)
 	if err != nil {
-		response.Error(c, app_errors.NewAPIError(app_errors.ErrDatabase, "failed to get current period stats"))
+		response.ErrorI18nFromAPIError(c, app_errors.ErrDatabase, "database.current_stats_failed")
 		return
 	}
 	previousPeriod, err := s.getHourlyStats(fortyEightHoursAgo, twentyFourHoursAgo)
 	if err != nil {
-		response.Error(c, app_errors.NewAPIError(app_errors.ErrDatabase, "failed to get previous period stats"))
+		response.ErrorI18nFromAPIError(c, app_errors.ErrDatabase, "database.previous_stats_failed")
 		return
 	}
 
@@ -88,13 +89,13 @@ func (s *Server) Stats(c *gin.Context) {
 	}
 
 	// 获取安全警告信息
-	securityWarnings := s.getSecurityWarnings()
+	securityWarnings := s.getSecurityWarnings(c)
 
 	stats := models.DashboardStatsResponse{
 		KeyCount: models.StatCard{
 			Value:       float64(activeKeys),
 			SubValue:    invalidKeys,
-			SubValueTip: "无效密钥数量",
+			SubValueTip: i18n.Message(c, "dashboard.invalid_keys"),
 		},
 		RPM: rpmStats,
 		RequestCount: models.StatCard{
@@ -122,12 +123,16 @@ func (s *Server) Chart(c *gin.Context) {
 	startHour := endHour.Add(-23 * time.Hour)
 
 	var hourlyStats []models.GroupHourlyStat
-	query := s.DB.Where("time >= ? AND time < ?", startHour, endHour.Add(time.Hour))
+	query := s.DB.Table("group_hourly_stats").
+		Where("time >= ? AND time < ?", startHour, endHour.Add(time.Hour))
 	if groupID != "" {
 		query = query.Where("group_id = ?", groupID)
+	} else {
+		query = query.Where("group_id NOT IN (?)",
+			s.DB.Table("groups").Select("id").Where("group_type = ?", "aggregate"))
 	}
 	if err := query.Order("time asc").Find(&hourlyStats).Error; err != nil {
-		response.Error(c, app_errors.NewAPIError(app_errors.ErrDatabase, "failed to get chart data"))
+		response.ErrorI18nFromAPIError(c, app_errors.ErrDatabase, "database.chart_data_failed")
 		return
 	}
 
@@ -161,12 +166,12 @@ func (s *Server) Chart(c *gin.Context) {
 		Labels: labels,
 		Datasets: []models.ChartDataset{
 			{
-				Label: "成功请求",
+				Label: i18n.Message(c, "dashboard.success_requests"),
 				Data:  successData,
 				Color: "rgba(10, 200, 110, 1)",
 			},
 			{
-				Label: "失败请求",
+				Label: i18n.Message(c, "dashboard.failed_requests"),
 				Data:  failureData,
 				Color: "rgba(255, 70, 70, 1)",
 			},
@@ -183,9 +188,11 @@ type hourlyStatResult struct {
 
 func (s *Server) getHourlyStats(startTime, endTime time.Time) (hourlyStatResult, error) {
 	var result hourlyStatResult
-	err := s.DB.Model(&models.GroupHourlyStat{}).
-		Select("sum(success_count) + sum(failure_count) as total_requests, sum(failure_count) as total_failures").
+	err := s.DB.Table("group_hourly_stats").
 		Where("time >= ? AND time < ?", startTime, endTime).
+		Where("group_id NOT IN (?)",
+			s.DB.Table("groups").Select("id").Where("group_type = ?", "aggregate")).
+		Select("COALESCE(SUM(success_count), 0) + COALESCE(SUM(failure_count), 0) as total_requests, COALESCE(SUM(failure_count), 0) as total_failures").
 		Scan(&result).Error
 	return result, err
 }
@@ -230,39 +237,39 @@ func (s *Server) getRPMStats(now time.Time) (models.StatCard, error) {
 }
 
 // getSecurityWarnings 检查安全配置并返回警告信息
-func (s *Server) getSecurityWarnings() []models.SecurityWarning {
+func (s *Server) getSecurityWarnings(c *gin.Context) []models.SecurityWarning {
 	var warnings []models.SecurityWarning
-	
+
 	// 获取AUTH_KEY和ENCRYPTION_KEY
 	authConfig := s.config.GetAuthConfig()
 	encryptionKey := s.config.GetEncryptionKey()
-	
+
 	// 检查AUTH_KEY
 	if authConfig.Key == "" {
 		warnings = append(warnings, models.SecurityWarning{
-			Type:     "AUTH_KEY",
-			Message:  "AUTH_KEY未设置，系统无法正常工作",
-			Severity: "high",
-			Suggestion: "必须设置AUTH_KEY以保护管理界面",
+			Type:       "AUTH_KEY",
+			Message:    i18n.Message(c, "dashboard.auth_key_missing"),
+			Severity:   "high",
+			Suggestion: i18n.Message(c, "dashboard.auth_key_required"),
 		})
 	} else {
-		authWarnings := checkPasswordSecurity(authConfig.Key, "AUTH_KEY")
+		authWarnings := checkPasswordSecurity(c, authConfig.Key, "AUTH_KEY")
 		warnings = append(warnings, authWarnings...)
 	}
-	
+
 	// 检查ENCRYPTION_KEY
 	if encryptionKey == "" {
 		warnings = append(warnings, models.SecurityWarning{
-			Type:     "ENCRYPTION_KEY",
-			Message:  "未设置ENCRYPTION_KEY，敏感数据将明文存储",
-			Severity: "high",
-			Suggestion: "强烈建议设置ENCRYPTION_KEY以加密保护API密钥等敏感数据",
+			Type:       "ENCRYPTION_KEY",
+			Message:    i18n.Message(c, "dashboard.encryption_key_missing"),
+			Severity:   "high",
+			Suggestion: i18n.Message(c, "dashboard.encryption_key_recommended"),
 		})
 	} else {
-		encryptionWarnings := checkPasswordSecurity(encryptionKey, "ENCRYPTION_KEY")
+		encryptionWarnings := checkPasswordSecurity(c, encryptionKey, "ENCRYPTION_KEY")
 		warnings = append(warnings, encryptionWarnings...)
 	}
-	
+
 	// 检查系统级代理密钥
 	systemSettings := s.SettingsManager.GetSettings()
 	if systemSettings.ProxyKeys != "" {
@@ -270,13 +277,13 @@ func (s *Server) getSecurityWarnings() []models.SecurityWarning {
 		for i, key := range proxyKeys {
 			key = strings.TrimSpace(key)
 			if key != "" {
-				keyName := fmt.Sprintf("全局代理密钥 #%d", i+1)
-				proxyWarnings := checkPasswordSecurity(key, keyName)
+				keyName := fmt.Sprintf("%s #%d", i18n.Message(c, "dashboard.global_proxy_key"), i+1)
+				proxyWarnings := checkPasswordSecurity(c, key, keyName)
 				warnings = append(warnings, proxyWarnings...)
 			}
 		}
 	}
-	
+
 	// 检查分组级代理密钥
 	var groups []models.Group
 	if err := s.DB.Where("proxy_keys IS NOT NULL AND proxy_keys != ''").Find(&groups).Error; err == nil {
@@ -286,39 +293,39 @@ func (s *Server) getSecurityWarnings() []models.SecurityWarning {
 				for i, key := range proxyKeys {
 					key = strings.TrimSpace(key)
 					if key != "" {
-						keyName := fmt.Sprintf("分组 [%s] 的代理密钥 #%d", group.Name, i+1)
-						proxyWarnings := checkPasswordSecurity(key, keyName)
+						keyName := fmt.Sprintf("%s [%s] #%d", i18n.Message(c, "dashboard.group_proxy_key"), group.Name, i+1)
+						proxyWarnings := checkPasswordSecurity(c, key, keyName)
 						warnings = append(warnings, proxyWarnings...)
 					}
 				}
 			}
 		}
 	}
-	
+
 	return warnings
 }
 
 // checkPasswordSecurity 综合检查密码安全性
-func checkPasswordSecurity(password, keyType string) []models.SecurityWarning {
+func checkPasswordSecurity(c *gin.Context, password, keyType string) []models.SecurityWarning {
 	var warnings []models.SecurityWarning
-	
+
 	// 1. 长度检查
 	if len(password) < 16 {
 		warnings = append(warnings, models.SecurityWarning{
-			Type:     keyType,
-			Message:  fmt.Sprintf("%s长度不足（%d字符），建议至少16字符", keyType, len(password)),
-			Severity: "high", // 长度不足是高风险
-			Suggestion: "使用至少16个字符的强密码，推荐32字符以上",
+			Type:       keyType,
+			Message:    i18n.Message(c, "security.password_too_short", map[string]any{"keyType": keyType, "length": len(password)}),
+			Severity:   "high", // 长度不足是高风险
+			Suggestion: i18n.Message(c, "security.password_recommendation_16"),
 		})
 	} else if len(password) < 32 {
 		warnings = append(warnings, models.SecurityWarning{
-			Type:     keyType,
-			Message:  fmt.Sprintf("%s长度偏短（%d字符），建议32字符以上", keyType, len(password)),
-			Severity: "medium",
-			Suggestion: "推荐使用32个字符以上的密码以提高安全性",
+			Type:       keyType,
+			Message:    i18n.Message(c, "security.password_short", map[string]any{"keyType": keyType, "length": len(password)}),
+			Severity:   "medium",
+			Suggestion: i18n.Message(c, "security.password_recommendation_32"),
 		})
 	}
-	
+
 	// 2. 常见弱密码检查
 	lower := strings.ToLower(password)
 	weakPatterns := []string{
@@ -326,36 +333,36 @@ func checkPasswordSecurity(password, keyType string) []models.SecurityWarning {
 		"sk-123456", "key", "token", "pass", "pwd", "qwerty",
 		"abc", "default", "user", "login", "auth", "temp",
 	}
-	
+
 	for _, pattern := range weakPatterns {
 		if strings.Contains(lower, pattern) {
 			warnings = append(warnings, models.SecurityWarning{
-				Type:     keyType,
-				Message:  fmt.Sprintf("%s包含常见弱密码模式：%s", keyType, pattern),
-				Severity: "high",
-				Suggestion: "避免使用常见单词，建议使用随机生成的强密码",
+				Type:       keyType,
+				Message:    i18n.Message(c, "security.password_weak_pattern", map[string]any{"keyType": keyType, "pattern": pattern}),
+				Severity:   "high",
+				Suggestion: i18n.Message(c, "security.password_avoid_common"),
 			})
 			break
 		}
 	}
-	
+
 	// 3. 复杂度检查（仅在长度足够时检查）
 	if len(password) >= 16 && !hasGoodComplexity(password) {
 		warnings = append(warnings, models.SecurityWarning{
-			Type:     keyType,
-			Message:  fmt.Sprintf("%s复杂度不足，缺少大小写字母、数字或特殊字符的组合", keyType),
-			Severity: "medium",
-			Suggestion: "建议包含大小写字母、数字和特殊字符以提高密码强度",
+			Type:       keyType,
+			Message:    i18n.Message(c, "security.password_low_complexity", map[string]any{"keyType": keyType}),
+			Severity:   "medium",
+			Suggestion: i18n.Message(c, "security.password_complexity"),
 		})
 	}
-	
+
 	return warnings
 }
 
 // hasGoodComplexity 检查密码复杂度
 func hasGoodComplexity(password string) bool {
 	var hasUpper, hasLower, hasDigit, hasSpecial bool
-	
+
 	for _, char := range password {
 		switch {
 		case char >= 'A' && char <= 'Z':
@@ -368,51 +375,68 @@ func hasGoodComplexity(password string) bool {
 			hasSpecial = true
 		}
 	}
-	
+
 	// 至少包含3种类型的字符
 	count := 0
-	if hasUpper { count++ }
-	if hasLower { count++ }
-	if hasDigit { count++ }
-	if hasSpecial { count++ }
-	
+	if hasUpper {
+		count++
+	}
+	if hasLower {
+		count++
+	}
+	if hasDigit {
+		count++
+	}
+	if hasSpecial {
+		count++
+	}
+
 	return count >= 3
 }
 
+// Encryption scenario types
+const (
+	ScenarioNone             = ""
+	ScenarioDataNotEncrypted = "data_not_encrypted"
+	ScenarioKeyNotConfigured = "key_not_configured"
+	ScenarioKeyMismatch      = "key_mismatch"
+)
+
 // EncryptionStatus checks if ENCRYPTION_KEY is configured but keys are not encrypted
 func (s *Server) EncryptionStatus(c *gin.Context) {
-	hasMismatch, message, suggestion := s.checkEncryptionMismatch()
-	
+	hasMismatch, scenarioType, message, suggestion := s.checkEncryptionMismatch(c)
+
 	response.Success(c, gin.H{
-		"has_mismatch": hasMismatch,
-		"message":      message,
-		"suggestion":   suggestion,
+		"has_mismatch":  hasMismatch,
+		"scenario_type": scenarioType,
+		"message":       message,
+		"suggestion":    suggestion,
 	})
 }
 
 // checkEncryptionMismatch detects encryption configuration mismatches
-func (s *Server) checkEncryptionMismatch() (bool, string, string) {
+func (s *Server) checkEncryptionMismatch(c *gin.Context) (bool, string, string, string) {
 	encryptionKey := s.config.GetEncryptionKey()
-	
+
 	// Sample check API keys
 	var sampleKeys []models.APIKey
 	if err := s.DB.Limit(20).Where("key_hash IS NOT NULL AND key_hash != ''").Find(&sampleKeys).Error; err != nil {
 		logrus.WithError(err).Error("Failed to fetch sample keys for encryption check")
-		return false, "", ""
+		return false, ScenarioNone, "", ""
 	}
-	
+
 	if len(sampleKeys) == 0 {
 		// No keys in database, no mismatch
-		return false, "", ""
+		return false, ScenarioNone, "", ""
 	}
-	
+
 	// Check hash consistency with unencrypted data
 	noopService, err := encryption.NewService("")
 	if err != nil {
 		logrus.WithError(err).Error("Failed to create noop encryption service")
-		return false, "", ""
+		return false, ScenarioNone, "", ""
 	}
-	
+
 	unencryptedHashMatchCount := 0
 	for _, key := range sampleKeys {
 		// For unencrypted data: key_hash should match SHA256(key_value)
@@ -421,9 +445,9 @@ func (s *Server) checkEncryptionMismatch() (bool, string, string) {
 			unencryptedHashMatchCount++
 		}
 	}
-	
+
 	unencryptedConsistencyRate := float64(unencryptedHashMatchCount) / float64(len(sampleKeys))
-	
+
 	// If ENCRYPTION_KEY is configured, also check if current key can decrypt the data
 	var currentKeyHashMatchCount int
 	if encryptionKey != "" {
@@ -443,27 +467,30 @@ func (s *Server) checkEncryptionMismatch() (bool, string, string) {
 		}
 	}
 	currentKeyConsistencyRate := float64(currentKeyHashMatchCount) / float64(len(sampleKeys))
-	
+
 	// Scenario A: ENCRYPTION_KEY configured but data not encrypted
 	if encryptionKey != "" && unencryptedConsistencyRate > 0.8 {
 		return true,
-			"检测到您已配置 ENCRYPTION_KEY，但数据库中的密钥尚未加密。这会导致密钥无法正常读取（显示为 failed-to-decrypt）。",
-			"请停止服务，执行密钥迁移命令后重启"
+			ScenarioDataNotEncrypted,
+			i18n.Message(c, "dashboard.encryption_key_configured_but_data_not_encrypted"),
+			i18n.Message(c, "dashboard.encryption_key_migration_required")
 	}
-	
+
 	// Scenario B: ENCRYPTION_KEY not configured but data is encrypted
 	if encryptionKey == "" && unencryptedConsistencyRate < 0.2 {
 		return true,
-			"检测到数据库中的密钥已加密，但未配置 ENCRYPTION_KEY。这会导致密钥无法正常读取。",
-			"请配置与加密时相同的 ENCRYPTION_KEY，或执行解密迁移"
+			ScenarioKeyNotConfigured,
+			i18n.Message(c, "dashboard.data_encrypted_but_key_not_configured"),
+			i18n.Message(c, "dashboard.configure_same_encryption_key")
 	}
-	
+
 	// Scenario C: ENCRYPTION_KEY configured but doesn't match encrypted data
 	if encryptionKey != "" && unencryptedConsistencyRate < 0.2 && currentKeyConsistencyRate < 0.2 {
 		return true,
-			"检测到您配置的 ENCRYPTION_KEY 与数据加密时使用的密钥不匹配。这会导致密钥解密失败（显示为 failed-to-decrypt）。",
-			"请使用正确的 ENCRYPTION_KEY，或执行密钥迁移"
+			ScenarioKeyMismatch,
+			i18n.Message(c, "dashboard.encryption_key_mismatch"),
+			i18n.Message(c, "dashboard.use_correct_encryption_key")
 	}
-	
-	return false, "", ""
+
+	return false, ScenarioNone, "", ""
 }

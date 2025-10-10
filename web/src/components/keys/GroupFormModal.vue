@@ -20,6 +20,7 @@ import {
   type FormRules,
 } from "naive-ui";
 import { computed, reactive, ref, watch } from "vue";
+import { useI18n } from "vue-i18n";
 
 interface Props {
   show: boolean;
@@ -51,6 +52,7 @@ const props = withDefaults(defineProps<Props>(), {
 
 const emit = defineEmits<Emits>();
 
+const { t } = useI18n();
 const message = useMessage();
 const loading = ref(false);
 const formRef = ref();
@@ -115,7 +117,7 @@ const testModelPlaceholder = computed(() => {
     case "anthropic":
       return "claude-3-haiku-20240307";
     default:
-      return "请输入模型名称";
+      return t("keys.enterModelName");
   }
 });
 
@@ -128,7 +130,7 @@ const upstreamPlaceholder = computed(() => {
     case "anthropic":
       return "https://api.anthropic.com";
     default:
-      return "请输入上游地址";
+      return t("keys.enterUpstreamUrl");
   }
 });
 
@@ -141,7 +143,7 @@ const validationEndpointPlaceholder = computed(() => {
     case "gemini":
       return ""; // Gemini 不显示此字段
     default:
-      return "请输入验证端点路径";
+      return t("keys.enterValidationPath");
   }
 });
 
@@ -150,26 +152,26 @@ const rules: FormRules = {
   name: [
     {
       required: true,
-      message: "请输入分组名称",
+      message: t("keys.enterGroupName"),
       trigger: ["blur", "input"],
     },
     {
       pattern: /^[a-z0-9_-]{1,100}$/,
-      message: "只能包含小写字母、数字、中划线或下划线，长度1-100位",
+      message: t("keys.groupNamePattern"),
       trigger: ["blur", "input"],
     },
   ],
   channel_type: [
     {
       required: true,
-      message: "请选择渠道类型",
+      message: t("keys.selectChannelType"),
       trigger: ["blur", "change"],
     },
   ],
   test_model: [
     {
       required: true,
-      message: "请输入测试模型",
+      message: t("keys.enterTestModel"),
       trigger: ["blur", "input"],
     },
   ],
@@ -177,7 +179,7 @@ const rules: FormRules = {
     {
       type: "array",
       min: 1,
-      message: "至少需要一个上游地址",
+      message: t("keys.atLeastOneUpstream"),
       trigger: ["blur", "change"],
     },
   ],
@@ -353,7 +355,7 @@ function removeUpstream(index: number) {
   if (formData.upstreams.length > 1) {
     formData.upstreams.splice(index, 1);
   } else {
-    message.warning("至少需要保留一个上游地址");
+    message.warning(t("keys.atLeastOneUpstream"));
   }
 }
 
@@ -451,7 +453,7 @@ async function handleSubmit() {
       try {
         paramOverrides = JSON.parse(formData.param_overrides);
       } catch {
-        message.error("参数覆盖必须是有效的 JSON 格式");
+        message.error(t("keys.invalidJsonFormat"));
         return;
       }
     }
@@ -517,7 +519,7 @@ async function handleSubmit() {
   <n-modal :show="show" @update:show="handleClose" class="group-form-modal">
     <n-card
       class="group-form-card"
-      :title="group ? '编辑分组' : '创建分组'"
+      :title="group ? t('keys.editGroup') : t('keys.createGroup')"
       :bordered="false"
       size="huge"
       role="dialog"
@@ -542,34 +544,34 @@ async function handleSubmit() {
       >
         <!-- 基础信息 -->
         <div class="form-section">
-          <h4 class="section-title">基础信息</h4>
+          <h4 class="section-title">{{ t("keys.basicInfo") }}</h4>
 
-          <!-- 分组名称和显示名称在同一行 -->
+          <!-- Group name and display name on the same row -->
           <div class="form-row">
-            <n-form-item label="分组名称" path="name" class="form-item-half">
+            <n-form-item :label="t('keys.groupName')" path="name" class="form-item-half">
               <template #label>
                 <div class="form-label-with-tooltip">
-                  分组名称
+                  {{ t("keys.groupName") }}
                   <n-tooltip trigger="hover" placement="top">
                     <template #trigger>
                       <n-icon :component="HelpCircleOutline" class="help-icon" />
                     </template>
-                    作为API路由的一部分，只能包含小写字母、数字、中划线或下划线，长度1-100位。例如：gemini、openai-2
+                    {{ t("keys.groupNameTooltip") }}
                   </n-tooltip>
                 </div>
               </template>
               <n-input v-model:value="formData.name" placeholder="gemini" />
             </n-form-item>
 
-            <n-form-item label="显示名称" path="display_name" class="form-item-half">
+            <n-form-item :label="t('keys.displayName')" path="display_name" class="form-item-half">
               <template #label>
                 <div class="form-label-with-tooltip">
-                  显示名称
+                  {{ t("keys.displayName") }}
                   <n-tooltip trigger="hover" placement="top">
                     <template #trigger>
                       <n-icon :component="HelpCircleOutline" class="help-icon" />
                     </template>
-                    用于在界面上显示的友好名称，可以包含中文和特殊字符。如果不填写，将使用分组名称作为显示名称
+                    {{ t("keys.displayNameTooltip") }}
                   </n-tooltip>
                 </div>
               </template>
@@ -577,59 +579,59 @@ async function handleSubmit() {
             </n-form-item>
           </div>
 
-          <!-- 渠道类型和排序在同一行 -->
+          <!-- Channel type and sort order on the same row -->
           <div class="form-row">
-            <n-form-item label="渠道类型" path="channel_type" class="form-item-half">
+            <n-form-item :label="t('keys.channelType')" path="channel_type" class="form-item-half">
               <template #label>
                 <div class="form-label-with-tooltip">
-                  渠道类型
+                  {{ t("keys.channelType") }}
                   <n-tooltip trigger="hover" placement="top">
                     <template #trigger>
                       <n-icon :component="HelpCircleOutline" class="help-icon" />
                     </template>
-                    选择API提供商类型，决定了请求格式和认证方式。支持OpenAI、Gemini、Anthropic等主流AI服务商
+                    {{ t("keys.channelTypeTooltip") }}
                   </n-tooltip>
                 </div>
               </template>
               <n-select
                 v-model:value="formData.channel_type"
                 :options="channelTypeOptions"
-                placeholder="请选择渠道类型"
+                :placeholder="t('keys.selectChannelType')"
               />
             </n-form-item>
 
-            <n-form-item label="排序" path="sort" class="form-item-half">
+            <n-form-item :label="t('keys.sortOrder')" path="sort" class="form-item-half">
               <template #label>
                 <div class="form-label-with-tooltip">
-                  排序
+                  {{ t("keys.sortOrder") }}
                   <n-tooltip trigger="hover" placement="top">
                     <template #trigger>
                       <n-icon :component="HelpCircleOutline" class="help-icon" />
                     </template>
-                    决定分组在列表中的显示顺序，数字越小越靠前。建议使用10、20、30这样的间隔数字，便于后续调整
+                    {{ t("keys.sortOrderTooltip") }}
                   </n-tooltip>
                 </div>
               </template>
               <n-input-number
                 v-model:value="formData.sort"
                 :min="0"
-                placeholder="排序值"
+                :placeholder="t('keys.sortValue')"
                 style="width: 100%"
               />
             </n-form-item>
           </div>
 
-          <!-- 测试模型和测试路径在同一行 -->
+          <!-- Test model and test path on the same row -->
           <div class="form-row">
-            <n-form-item label="测试模型" path="test_model" class="form-item-half">
+            <n-form-item :label="t('keys.testModel')" path="test_model" class="form-item-half">
               <template #label>
                 <div class="form-label-with-tooltip">
-                  测试模型
+                  {{ t("keys.testModel") }}
                   <n-tooltip trigger="hover" placement="top">
                     <template #trigger>
                       <n-icon :component="HelpCircleOutline" class="help-icon" />
                     </template>
-                    用于验证API密钥有效性的模型名称。系统会使用这个模型发送测试请求来检查密钥是否可用，请尽量使用轻量快速的模型
+                    {{ t("keys.testModelTooltip") }}
                   </n-tooltip>
                 </div>
               </template>
@@ -641,70 +643,72 @@ async function handleSubmit() {
             </n-form-item>
 
             <n-form-item
-              label="测试路径"
+              :label="t('keys.testPath')"
               path="validation_endpoint"
               class="form-item-half"
               v-if="formData.channel_type !== 'gemini'"
             >
               <template #label>
                 <div class="form-label-with-tooltip">
-                  测试路径
+                  {{ t("keys.testPath") }}
                   <n-tooltip trigger="hover" placement="top">
                     <template #trigger>
                       <n-icon :component="HelpCircleOutline" class="help-icon" />
                     </template>
                     <div>
-                      自定义用于验证密钥的API端点路径。如果不填写，将使用默认路径：
+                      {{ t("keys.testPathTooltip1") }}
                       <br />
                       • OpenAI: /v1/chat/completions
                       <br />
                       • Anthropic: /v1/messages
                       <br />
-                      如需使用非标准路径，请在此填写完整的API路径
+                      {{ t("keys.testPathTooltip2") }}
                     </div>
                   </n-tooltip>
                 </div>
               </template>
               <n-input
                 v-model:value="formData.validation_endpoint"
-                :placeholder="validationEndpointPlaceholder || '可选，自定义用于验证key的API路径'"
+                :placeholder="
+                  validationEndpointPlaceholder || t('keys.optionalCustomValidationPath')
+                "
               />
             </n-form-item>
 
-            <!-- 当gemini渠道时，测试路径不显示，需要一个占位div保持布局 -->
+            <!-- When gemini channel, test path is hidden, need placeholder div to keep layout -->
             <div v-else class="form-item-half" />
           </div>
 
-          <!-- 代理密钥 -->
-          <n-form-item label="代理密钥" path="proxy_keys">
+          <!-- Proxy keys -->
+          <n-form-item :label="t('keys.proxyKeys')" path="proxy_keys">
             <template #label>
               <div class="form-label-with-tooltip">
-                代理密钥
+                {{ t("keys.proxyKeys") }}
                 <n-tooltip trigger="hover" placement="top">
                   <template #trigger>
                     <n-icon :component="HelpCircleOutline" class="help-icon" />
                   </template>
-                  分组专用代理密钥，用于访问此分组的代理端点。多个密钥请用逗号分隔。
+                  {{ t("keys.proxyKeysTooltip") }}
                 </n-tooltip>
               </div>
             </template>
             <proxy-keys-input
               v-model="formData.proxy_keys"
-              placeholder="多个密钥请用英文逗号 , 分隔"
+              :placeholder="t('keys.multiKeysPlaceholder')"
               size="medium"
             />
           </n-form-item>
 
-          <!-- 描述独占一行 -->
-          <n-form-item label="描述" path="description">
+          <!-- Description takes full row -->
+          <n-form-item :label="t('common.description')" path="description">
             <template #label>
               <div class="form-label-with-tooltip">
-                描述
+                {{ t("common.description") }}
                 <n-tooltip trigger="hover" placement="top">
                   <template #trigger>
                     <n-icon :component="HelpCircleOutline" class="help-icon" />
                   </template>
-                  分组的详细说明，帮助团队成员了解该分组的用途和特点。支持多行文本
+                  {{ t("keys.descriptionTooltip") }}
                 </n-tooltip>
               </div>
             </template>
@@ -719,13 +723,13 @@ async function handleSubmit() {
           </n-form-item>
         </div>
 
-        <!-- 上游地址 -->
+        <!-- Upstream addresses -->
         <div class="form-section" style="margin-top: 10px">
-          <h4 class="section-title">上游地址</h4>
+          <h4 class="section-title">{{ t("keys.upstreamAddresses") }}</h4>
           <n-form-item
             v-for="(upstream, index) in formData.upstreams"
             :key="index"
-            :label="`上游 ${index + 1}`"
+            :label="`${t('keys.upstream')} ${index + 1}`"
             :path="`upstreams[${index}].url`"
             :rule="{
               required: true,
@@ -735,12 +739,12 @@ async function handleSubmit() {
           >
             <template #label>
               <div class="form-label-with-tooltip">
-                上游 {{ index + 1 }}
+                {{ t("keys.upstream") }} {{ index + 1 }}
                 <n-tooltip trigger="hover" placement="top">
                   <template #trigger>
                     <n-icon :component="HelpCircleOutline" class="help-icon" />
                   </template>
-                  API服务器的完整URL地址。多个上游可以实现负载均衡和故障转移，提高服务可用性
+                  {{ t("keys.upstreamTooltip") }}
                 </n-tooltip>
               </div>
             </template>
@@ -753,17 +757,17 @@ async function handleSubmit() {
                 />
               </div>
               <div class="upstream-weight">
-                <span class="weight-label">权重</span>
+                <span class="weight-label">{{ t("keys.weight") }}</span>
                 <n-tooltip trigger="hover" placement="top" style="width: 100%">
                   <template #trigger>
                     <n-input-number
                       v-model:value="upstream.weight"
-                      :min="1"
-                      placeholder="权重"
+                      :min="0"
+                      :placeholder="t('keys.weight')"
                       style="width: 100%"
                     />
                   </template>
-                  负载均衡权重，数值越大被选中的概率越高。例如：权重为2的上游被选中的概率是权重为1的两倍
+                  {{ t("keys.weightTooltip") }}
                 </n-tooltip>
               </div>
               <div class="upstream-actions">
@@ -788,24 +792,24 @@ async function handleSubmit() {
               <template #icon>
                 <n-icon :component="Add" />
               </template>
-              添加上游地址
+              {{ t("keys.addUpstream") }}
             </n-button>
           </n-form-item>
         </div>
 
-        <!-- 高级配置 -->
+        <!-- Advanced configuration -->
         <div class="form-section" style="margin-top: 10px">
           <n-collapse>
             <n-collapse-item name="advanced">
-              <template #header>高级配置</template>
+              <template #header>{{ t("keys.advancedConfig") }}</template>
               <div class="config-section">
                 <h5 class="config-title-with-tooltip">
-                  分组配置
+                  {{ t("keys.groupConfig") }}
                   <n-tooltip trigger="hover" placement="top">
                     <template #trigger>
                       <n-icon :component="HelpCircleOutline" class="help-icon config-help" />
                     </template>
-                    针对此分组的专用配置参数，如超时时间、重试次数等。这些配置会覆盖全局默认设置
+                    {{ t("keys.groupConfigTooltip") }}
                   </n-tooltip>
                 </h5>
 
@@ -814,7 +818,7 @@ async function handleSubmit() {
                     v-for="(configItem, index) in formData.configItems"
                     :key="index"
                     class="config-item-row"
-                    :label="`配置 ${index + 1}`"
+                    :label="`${t('keys.config')} ${index + 1}`"
                     :path="`configItems[${index}].key`"
                     :rule="{
                       required: true,
@@ -824,12 +828,12 @@ async function handleSubmit() {
                   >
                     <template #label>
                       <div class="form-label-with-tooltip">
-                        配置 {{ index + 1 }}
+                        {{ t("keys.config") }} {{ index + 1 }}
                         <n-tooltip trigger="hover" placement="top">
                           <template #trigger>
                             <n-icon :component="HelpCircleOutline" class="help-icon" />
                           </template>
-                          选择要配置的参数类型，然后设置对应的数值。不同参数有不同的作用和取值范围
+                          {{ t("keys.configTooltip") }}
                         </n-tooltip>
                       </div>
                     </template>
@@ -847,7 +851,7 @@ async function handleSubmit() {
                                   ?.includes(opt.key) && opt.key !== configItem.key,
                             }))
                           "
-                          placeholder="请选择配置参数"
+                          :placeholder="t('keys.selectConfigParam')"
                           @update:value="value => handleConfigKeyChange(index, value)"
                           clearable
                         />
@@ -858,7 +862,7 @@ async function handleSubmit() {
                             <n-input-number
                               v-if="typeof configItem.value === 'number'"
                               v-model:value="configItem.value"
-                              placeholder="参数值"
+                              :placeholder="t('keys.paramValue')"
                               :precision="0"
                               style="width: 100%"
                             />
@@ -867,9 +871,15 @@ async function handleSubmit() {
                               v-model:value="configItem.value"
                               size="small"
                             />
-                            <n-input v-else v-model:value="configItem.value" placeholder="参数值" />
+                            <n-input
+                              v-else
+                              v-model:value="configItem.value"
+                              :placeholder="t('keys.paramValue')"
+                            />
                           </template>
-                          {{ getConfigOption(configItem.key)?.description || "设置此配置项的值" }}
+                          {{
+                            getConfigOption(configItem.key)?.description || t("keys.setConfigValue")
+                          }}
                         </n-tooltip>
                       </div>
                       <div class="config-actions">
@@ -899,32 +909,32 @@ async function handleSubmit() {
                     <template #icon>
                       <n-icon :component="Add" />
                     </template>
-                    添加配置参数
+                    {{ t("keys.addConfigParam") }}
                   </n-button>
                 </div>
               </div>
 
               <div class="config-section">
                 <h5 class="config-title-with-tooltip">
-                  自定义请求头
+                  {{ t("keys.customHeaders") }}
                   <n-tooltip trigger="hover" placement="top">
                     <template #trigger>
                       <n-icon :component="HelpCircleOutline" class="help-icon config-help" />
                     </template>
                     <div>
-                      在代理请求转发至上游服务前，对 HTTP 请求头进行添加、覆盖或移除操作。
+                      {{ t("keys.headerRulesTooltip1") }}
                       <br />
-                      支持动态变量：
+                      {{ t("keys.supportedVariables") }}：
                       <br />
-                      • ${CLIENT_IP} - 客户端IP地址
+                      • ${CLIENT_IP} - {{ t("keys.clientIpVar") }}
                       <br />
-                      • ${GROUP_NAME} - 分组名称
+                      • ${GROUP_NAME} - {{ t("keys.groupNameVar") }}
                       <br />
-                      • ${API_KEY} - 当前轮询的API密钥
+                      • ${API_KEY} - {{ t("keys.apiKeyVar") }}
                       <br />
-                      • ${TIMESTAMP_MS} - 毫秒时间戳
+                      • ${TIMESTAMP_MS} - {{ t("keys.timestampMsVar") }}
                       <br />
-                      • ${TIMESTAMP_S} - 秒时间戳
+                      • ${TIMESTAMP_S} - {{ t("keys.timestampSVar") }}
                     </div>
                   </n-tooltip>
                 </h5>
@@ -934,16 +944,16 @@ async function handleSubmit() {
                     v-for="(headerRule, index) in formData.header_rules"
                     :key="index"
                     class="header-rule-row"
-                    :label="`请求头 ${index + 1}`"
+                    :label="`${t('keys.header')} ${index + 1}`"
                   >
                     <template #label>
                       <div class="form-label-with-tooltip">
-                        请求头 {{ index + 1 }}
+                        {{ t("keys.header") }} {{ index + 1 }}
                         <n-tooltip trigger="hover" placement="top">
                           <template #trigger>
                             <n-icon :component="HelpCircleOutline" class="help-icon" />
                           </template>
-                          配置HTTP请求头的名称、值和操作类型。移除操作会删除指定的请求头
+                          {{ t("keys.headerTooltip") }}
                         </n-tooltip>
                       </div>
                     </template>
@@ -951,7 +961,7 @@ async function handleSubmit() {
                       <div class="header-name">
                         <n-input
                           v-model:value="headerRule.key"
-                          placeholder="Header名称"
+                          :placeholder="t('keys.headerName')"
                           :status="
                             !validateHeaderKeyUniqueness(
                               formData.header_rules,
@@ -972,17 +982,17 @@ async function handleSubmit() {
                           "
                           class="error-message"
                         >
-                          Header名称重复
+                          {{ t("keys.duplicateHeader") }}
                         </div>
                       </div>
                       <div class="header-value" v-if="headerRule.action === 'set'">
                         <n-input
                           v-model:value="headerRule.value"
-                          placeholder="支持变量，例如：${CLIENT_IP}"
+                          :placeholder="t('keys.headerValuePlaceholder')"
                         />
                       </div>
                       <div class="header-value removed-placeholder" v-else>
-                        <span class="removed-text">将从请求中移除</span>
+                        <span class="removed-text">{{ t("keys.willRemoveFromRequest") }}</span>
                       </div>
                       <div class="header-action">
                         <n-tooltip trigger="hover" placement="top">
@@ -994,7 +1004,7 @@ async function handleSubmit() {
                               size="small"
                             />
                           </template>
-                          开启移除开关将删除此请求头，关闭则添加或覆盖此请求头
+                          {{ t("keys.removeToggleTooltip") }}
                         </n-tooltip>
                       </div>
                       <div class="header-actions">
@@ -1019,7 +1029,7 @@ async function handleSubmit() {
                     <template #icon>
                       <n-icon :component="Add" />
                     </template>
-                    添加请求头
+                    {{ t("keys.addHeader") }}
                   </n-button>
                 </div>
               </div>
@@ -1028,13 +1038,12 @@ async function handleSubmit() {
                 <n-form-item path="param_overrides">
                   <template #label>
                     <div class="form-label-with-tooltip">
-                      参数覆盖
+                      {{ t("keys.paramOverrides") }}
                       <n-tooltip trigger="hover" placement="top">
                         <template #trigger>
                           <n-icon :component="HelpCircleOutline" class="help-icon config-help" />
                         </template>
-                        使用JSON格式定义要覆盖的API请求参数。例如： {&quot;temperature&quot;:
-                        0.7}。这些参数会在发送请求时合并到原始参数中
+                        {{ t("keys.paramOverridesTooltip") }}
                       </n-tooltip>
                     </div>
                   </template>
@@ -1053,9 +1062,9 @@ async function handleSubmit() {
 
       <template #footer>
         <div style="display: flex; justify-content: flex-end; gap: 12px">
-          <n-button @click="handleClose">取消</n-button>
+          <n-button @click="handleClose">{{ t("common.cancel") }}</n-button>
           <n-button type="primary" @click="handleSubmit" :loading="loading">
-            {{ group ? "更新" : "创建" }}
+            {{ group ? t("common.update") : t("common.create") }}
           </n-button>
         </div>
       </template>

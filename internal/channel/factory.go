@@ -6,6 +6,7 @@ import (
 	"gpt-load/internal/config"
 	"gpt-load/internal/httpclient"
 	"gpt-load/internal/models"
+	"gpt-load/internal/utils"
 	"net/url"
 	"sync"
 	"time"
@@ -102,11 +103,10 @@ func (f *Factory) newBaseChannel(name string, group *models.Group) (*BaseChannel
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse upstream url '%s' for %s channel: %w", def.URL, name, err)
 		}
-		weight := def.Weight
-		if weight <= 0 {
-			weight = 1
+		if def.Weight <= 0 {
+			continue
 		}
-		upstreamInfos = append(upstreamInfos, UpstreamInfo{URL: u, Weight: weight})
+		upstreamInfos = append(upstreamInfos, UpstreamInfo{URL: u, Weight: def.Weight})
 	}
 
 	// Base configuration for regular requests, derived from the group's effective settings.
@@ -146,7 +146,7 @@ func (f *Factory) newBaseChannel(name string, group *models.Group) (*BaseChannel
 		HTTPClient:         httpClient,
 		StreamClient:       streamClient,
 		TestModel:          group.TestModel,
-		ValidationEndpoint: group.ValidationEndpoint,
+		ValidationEndpoint: utils.GetValidationEndpoint(group),
 		channelType:        group.ChannelType,
 		groupUpstreams:     group.Upstreams,
 		effectiveConfig:    &group.EffectiveConfig,

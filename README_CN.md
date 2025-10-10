@@ -10,6 +10,7 @@
 
 详细请查看[官方文档](https://www.gpt-load.com/docs?lang=zh)
 
+<a href="https://trendshift.io/repositories/14880" target="_blank"><img src="https://trendshift.io/api/badge/repositories/14880" alt="tbphp%2Fgpt-load | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
 <a href="https://hellogithub.com/repository/tbphp/gpt-load" target="_blank"><img src="https://api.hellogithub.com/v1/widgets/recommend.svg?rid=554dc4c46eb14092b9b0c56f1eb9021c&claim_uid=Qlh8vzrWJ0HCneG" alt="Featured｜HelloGitHub" style="width: 250px; height: 54px;" width="250" height="54" /></a>
 
 ## 功能特性
@@ -557,6 +558,10 @@ response = client.messages.create(
 > **重要提示**：作为透明代理服务，GPT-Load 完全保留各 AI 服务的原生 API 格式和认证方式，仅需要替换端点地址并使用在管理端配置的**代理密钥**即可无缝迁移。
 
 </details>
+
+## 相关项目
+
+- **[New API](https://github.com/QuantumNous/new-api)** - 优秀的AI模型聚合管理分发系统
 
 ## 贡献
 

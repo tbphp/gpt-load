@@ -2,6 +2,9 @@
 import { useAuthService } from "@/services/auth";
 import { LogOutOutline } from "@vicons/ionicons5";
 import { useRouter } from "vue-router";
+import { useI18n } from "vue-i18n";
+
+const { t } = useI18n();
 
 const router = useRouter();
 const { logout } = useAuthService();
@@ -17,7 +20,7 @@ const handleLogout = () => {
     <template #icon>
       <n-icon :component="LogOutOutline" />
     </template>
-    退出登录
+    {{ t("nav.logout") }}
   </n-button>
 </template>
 

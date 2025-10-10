@@ -3,14 +3,12 @@ package services
 import (
 	"fmt"
 	"gpt-load/internal/models"
-	"time"
 
 	"github.com/sirupsen/logrus"
 )
 
 const (
 	deleteChunkSize = 1000
-	deleteTimeout   = 30 * time.Minute
 )
 
 // KeyDeleteResult holds the result of a delete task.
@@ -40,7 +38,7 @@ func (s *KeyDeleteService) StartDeleteTask(group *models.Group, keysText string)
 		return nil, fmt.Errorf("no valid keys found in the input text")
 	}
 
-	initialStatus, err := s.TaskService.StartTask(TaskTypeKeyDelete, group.Name, len(keys), deleteTimeout)
+	initialStatus, err := s.TaskService.StartTask(TaskTypeKeyDelete, group.Name, len(keys))
 	if err != nil {
 		return nil, err
 	}
