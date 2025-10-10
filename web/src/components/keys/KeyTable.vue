@@ -312,10 +312,10 @@ async function saveKeyNotes() {
   try {
     await keysApi.updateKeyNotes(editingKey.value.id, editingNotes.value);
     editingKey.value.notes = editingNotes.value;
-    window.$message.success("备注已更新");
+    window.$message.success(t("keys.notesUpdated"));
     notesDialogShow.value = false;
   } catch (error) {
-    window.$message.error("备注更新失败");
+    window.$message.error(t("keys.notesUpdateFailed"));
   }
 }
 
@@ -748,9 +748,9 @@ function resetPage() {
                   type="info"
                   size="tiny"
                   @click="editKeyNotes(key)"
-                  title="编辑备注"
+                  :title="t('keys.editNotes')"
                 >
-                  备注
+                  {{ t("keys.notes") }}
                 </n-button>
                 <n-button
                   round
@@ -841,18 +841,18 @@ function resetPage() {
   </div>
 
   <!-- 备注编辑对话框 -->
-  <n-modal v-model:show="notesDialogShow" preset="dialog" title="编辑密钥备注">
+  <n-modal v-model:show="notesDialogShow" preset="dialog" :title="t('keys.editKeyNotes')">
     <n-input
       v-model:value="editingNotes"
       type="textarea"
-      placeholder="请输入备注..."
+      :placeholder="t('keys.enterNotes')"
       :rows="3"
       maxlength="255"
       show-count
     />
     <template #action>
-      <n-button @click="notesDialogShow = false">取消</n-button>
-      <n-button type="primary" @click="saveKeyNotes">保存</n-button>
+      <n-button @click="notesDialogShow = false">{{ t("common.cancel") }}</n-button>
+      <n-button type="primary" @click="saveKeyNotes">{{ t("common.save") }}</n-button>
     </template>
   </n-modal>
 </template>

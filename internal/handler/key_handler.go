@@ -442,7 +442,7 @@ func (s *Server) ExportKeys(c *gin.Context) {
 
 // UpdateKeyNotesRequest defines the payload for updating a key's notes.
 type UpdateKeyNotesRequest struct {
-	Notes string `json:"notes"`
+	Notes string `json:"notes" binding:"max=255"`
 }
 
 // UpdateKeyNotes handles updating the notes of a specific API key.
@@ -457,6 +457,13 @@ func (s *Server) UpdateKeyNotes(c *gin.Context) {
 	var req UpdateKeyNotesRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.Error(c, app_errors.NewAPIError(app_errors.ErrInvalidJSON, err.Error()))
+		return
+	}
+
+	// Normalize and enforce length explicitly
+	req.Notes = strings.TrimSpace(req.Notes)
+	if len(req.Notes) > 255 {
+		response.Error(c, app_errors.NewAPIError(app_errors.ErrValidation, "notes length must be <= 255 characters"))
 		return
 	}
 
