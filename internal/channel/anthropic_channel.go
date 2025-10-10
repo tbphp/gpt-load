@@ -82,7 +82,7 @@ func (ch *AnthropicChannel) ValidateKey(ctx context.Context, apiKey *models.APIK
 
 	validationEndpoint := ch.ValidationEndpoint
 	if validationEndpoint == "" {
-		validationEndpoint = "/v1/messages?beta=true"
+		validationEndpoint = "/v1/messages"
 	}
 
 	// Parse validation endpoint as relative URL
@@ -93,7 +93,6 @@ func (ch *AnthropicChannel) ValidateKey(ctx context.Context, apiKey *models.APIK
 
 	// Use ResolveReference to properly merge URLs
 	reqURL := upstreamURL.ResolveReference(relativeURL)
-
 
 	// Use a minimal, low-cost payload for validation
 	payload := gin.H{

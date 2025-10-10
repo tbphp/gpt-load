@@ -559,6 +559,10 @@ response = client.messages.create(
 
 </details>
 
+## 相关项目
+
+- **[New API](https://github.com/QuantumNous/new-api)** - 优秀的AI模型聚合管理分发系统
+
 ## 贡献
 
 感谢所有为 GPT-Load 做出贡献的开发者们！

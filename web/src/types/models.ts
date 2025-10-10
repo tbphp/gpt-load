@@ -8,6 +8,12 @@ export interface ApiResponse<T> {
 // 密钥状态
 export type KeyStatus = "active" | "invalid" | undefined;
 
+// 分组类型
+export type GroupType = "standard" | "aggregate";
+
+// 渠道类型
+export type ChannelType = "openai" | "gemini" | "anthropic";
+
 // 数据模型定义
 export interface APIKey {
   id: number;
@@ -21,9 +27,6 @@ export interface APIKey {
   updated_at: string;
 }
 
-// 类型别名，用于兼容
-export type Key = APIKey;
-
 export interface UpstreamInfo {
   url: string;
   weight: number;
@@ -35,6 +38,29 @@ export interface HeaderRule {
   action: "set" | "remove";
 }
 
+// 子分组配置（创建/更新时使用）
+export interface SubGroupConfig {
+  group_id: number;
+  weight: number;
+}
+
+// 子分组信息（展示时使用）
+export interface SubGroupInfo {
+  group: Group;
+  weight: number;
+  total_keys: number;
+  active_keys: number;
+  invalid_keys: number;
+}
+
+// 父聚合分组信息（展示时使用）
+export interface ParentAggregateGroup {
+  group_id: number;
+  name: string;
+  display_name: string;
+  weight: number;
+}
+
 export interface Group {
   id?: number;
   name: string;
@@ -42,7 +68,7 @@ export interface Group {
   description: string;
   sort: number;
   test_model: string;
-  channel_type: "openai" | "gemini" | "anthropic";
+  channel_type: ChannelType;
   upstreams: UpstreamInfo[];
   validation_endpoint: string;
   config: Record<string, unknown>;
@@ -51,6 +77,9 @@ export interface Group {
   param_overrides: Record<string, unknown>;
   header_rules?: HeaderRule[];
   proxy_keys: string;
+  group_type?: GroupType;
+  sub_groups?: SubGroupInfo[]; // 子分组列表（仅聚合分组）
+  sub_group_ids?: number[]; // 子分组ID列表
   created_at?: string;
   updated_at?: string;
 }
@@ -65,9 +94,9 @@ export interface GroupConfigOption {
 // GroupStatsResponse defines the complete statistics for a group.
 export interface GroupStatsResponse {
   key_stats: KeyStats;
-  hourly_stats: RequestStats;
-  daily_stats: RequestStats;
-  weekly_stats: RequestStats;
+  stats_24_hour: RequestStats;
+  stats_7_day: RequestStats;
+  stats_30_day: RequestStats;
 }
 
 // KeyStats defines the statistics for API keys in a group.
@@ -129,6 +158,7 @@ export interface RequestLog {
   user_agent: string;
   request_type: "retry" | "final";
   group_name?: string;
+  parent_group_name?: string;
   key_value?: string;
   model: string;
   upstream_addr: string;
@@ -152,6 +182,7 @@ export interface LogFilter {
   page?: number;
   page_size?: number;
   group_name?: string;
+  parent_group_name?: string;
   key_value?: string;
   model?: string;
   is_success?: boolean | null;

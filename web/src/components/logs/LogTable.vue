@@ -73,6 +73,7 @@ const selectedLog = ref<LogRow | null>(null);
 
 // Filters
 const filters = reactive({
+  parent_group_name: "",
   group_name: "",
   key_value: "",
   model: "",
@@ -102,6 +103,7 @@ const loadLogs = async () => {
     const params: LogFilter = {
       page: currentPage.value,
       page_size: pageSize.value,
+      parent_group_name: filters.parent_group_name || undefined,
       group_name: filters.group_name || undefined,
       key_value: filters.key_value || undefined,
       model: filters.model || undefined,
@@ -276,6 +278,13 @@ const allColumnConfigs: ColumnConfig[] = [
     defaultVisible: true,
   },
   {
+    key: "parent_group_name",
+    title: t("logs.parentGroup"),
+    width: 120,
+    defaultVisible: true,
+    render: (row: LogRow) => row.parent_group_name || "-",
+  },
+  {
     key: "group_name",
     title: t("logs.group"),
     width: 120,
@@ -409,6 +418,7 @@ const handleSearch = () => {
 };
 
 const resetFilters = () => {
+  filters.parent_group_name = "";
   filters.group_name = "";
   filters.key_value = "";
   filters.model = "";
@@ -424,6 +434,7 @@ const resetFilters = () => {
 
 const exportLogs = () => {
   const params: Omit<LogFilter, "page" | "page_size"> = {
+    parent_group_name: filters.parent_group_name || undefined,
     group_name: filters.group_name || undefined,
     key_value: filters.key_value || undefined,
     model: filters.model || undefined,
@@ -493,6 +504,15 @@ const deselectAllColumns = () => {
                 <n-input
                   v-model:value="filters.status_code"
                   :placeholder="t('logs.statusCode')"
+                  size="small"
+                  clearable
+                  @keyup.enter="handleSearch"
+                />
+              </div>
+              <div class="filter-item">
+                <n-input
+                  v-model:value="filters.parent_group_name"
+                  :placeholder="t('logs.parentGroupName')"
                   size="small"
                   clearable
                   @keyup.enter="handleSearch"
@@ -728,6 +748,10 @@ const deselectAllColumns = () => {
               <div class="detail-item-compact">
                 <span class="detail-label-compact">{{ t("logs.duration") }}:</span>
                 <span class="detail-value-compact">{{ selectedLog.duration_ms }}ms</span>
+              </div>
+              <div class="detail-item-compact">
+                <span class="detail-label-compact">{{ t("logs.parentGroup") }}:</span>
+                <span class="detail-value-compact">{{ selectedLog.parent_group_name || "-" }}</span>
               </div>
               <div class="detail-item-compact">
                 <span class="detail-label-compact">{{ t("logs.group") }}:</span>
