@@ -825,19 +825,8 @@ function resetPage() {
   min-height: 64px;
 }
 
-/* 确保按钮在暗黑模式下有正确的对比度 */
 .toolbar :deep(.n-button) {
   font-weight: 500;
-}
-
-/* 搜索输入框样式 */
-.toolbar :deep(.n-input-group) {
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
-}
-
-/* 暗黑模式下的输入框 */
-:root.dark .toolbar :deep(.n-input-group) {
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
 }
 
 .toolbar-left {
