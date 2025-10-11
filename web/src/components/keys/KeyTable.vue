@@ -307,14 +307,16 @@ function editKeyNotes(key: KeyRow) {
 
 // 保存备注
 async function saveKeyNotes() {
-  if (!editingKey.value) return;
+  if (!editingKey.value) {
+    return;
+  }
 
   try {
     await keysApi.updateKeyNotes(editingKey.value.id, editingNotes.value);
     editingKey.value.notes = editingNotes.value;
     window.$message.success(t("keys.notesUpdated"));
     notesDialogShow.value = false;
-  } catch (error) {
+  } catch (_error) {
     window.$message.error(t("keys.notesUpdateFailed"));
   }
 }
