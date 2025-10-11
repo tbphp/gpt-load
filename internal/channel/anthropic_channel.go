@@ -80,10 +80,19 @@ func (ch *AnthropicChannel) ValidateKey(ctx context.Context, apiKey *models.APIK
 		return false, fmt.Errorf("no upstream URL configured for channel %s", ch.Name)
 	}
 
-	reqURL, err := url.JoinPath(upstreamURL.String(), ch.ValidationEndpoint)
-	if err != nil {
-		return false, fmt.Errorf("failed to join upstream URL and validation endpoint: %w", err)
+	validationEndpoint := ch.ValidationEndpoint
+	if validationEndpoint == "" {
+		validationEndpoint = "/v1/messages"
 	}
+
+	// Parse validation endpoint as relative URL
+	relativeURL, err := url.Parse(validationEndpoint)
+	if err != nil {
+		return false, fmt.Errorf("failed to parse validation endpoint: %w", err)
+	}
+
+	// Use ResolveReference to properly merge URLs
+	reqURL := upstreamURL.ResolveReference(relativeURL)
 
 	// Use a minimal, low-cost payload for validation
 	payload := gin.H{
@@ -98,7 +107,7 @@ func (ch *AnthropicChannel) ValidateKey(ctx context.Context, apiKey *models.APIK
 		return false, fmt.Errorf("failed to marshal validation payload: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", reqURL, bytes.NewBuffer(body))
+	req, err := http.NewRequestWithContext(ctx, "POST", reqURL.String(), bytes.NewBuffer(body))
 	if err != nil {
 		return false, fmt.Errorf("failed to create validation request: %w", err)
 	}
