@@ -9,6 +9,7 @@ import (
 	"gpt-load/internal/models"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/sirupsen/logrus"
@@ -60,7 +61,16 @@ func applyMapping(requestData map[string]any, key string, mappingValue any) {
 	}
 
 	// Convert original value to string for matching
-	originalStr := fmt.Sprintf("%v", originalValue)
+	// Use strconv.FormatFloat for floats to avoid scientific notation (e.g., 1e+06)
+	var originalStr string
+	switch v := originalValue.(type) {
+	case float64:
+		originalStr = strconv.FormatFloat(v, 'f', -1, 64)
+	case float32:
+		originalStr = strconv.FormatFloat(float64(v), 'f', -1, 32)
+	default:
+		originalStr = fmt.Sprintf("%v", originalValue)
+	}
 
 	// Look up mapping
 	if newValue, found := mappings[originalStr]; found {
