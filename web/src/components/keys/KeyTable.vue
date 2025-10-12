@@ -12,6 +12,7 @@ import {
   EyeOffOutline,
   EyeOutline,
   RemoveCircleOutline,
+  Pencil,
   Search,
 } from "@vicons/ionicons5";
 import {
@@ -310,8 +311,9 @@ async function saveKeyNotes() {
   if (!editingKey.value) return;
 
   try {
-    await keysApi.updateKeyNotes(editingKey.value.id, editingNotes.value);
-    editingKey.value.notes = editingNotes.value;
+    const trimmed = editingNotes.value.trim();
+    await keysApi.updateKeyNotes(editingKey.value.id, trimmed);
+    editingKey.value.notes = trimmed;
     window.$message.success(t("keys.notesUpdated"));
     notesDialogShow.value = false;
   } catch (error) {
@@ -710,6 +712,16 @@ function resetPage() {
                   <n-button
                     size="tiny"
                     text
+                    @click="editKeyNotes(key)"
+                    :title="t('keys.editNotes')"
+                  >
+                    <template #icon>
+                      <n-icon :component="Pencil" />
+                    </template>
+                  </n-button>
+                  <n-button
+                    size="tiny"
+                    text
                     @click="toggleKeyVisibility(key)"
                     :title="t('keys.showHide')"
                   >
@@ -742,16 +754,6 @@ function resetPage() {
                 </span>
               </div>
               <n-button-group class="key-actions">
-                <n-button
-                  round
-                  tertiary
-                  type="info"
-                  size="tiny"
-                  @click="editKeyNotes(key)"
-                  :title="t('keys.editNotes')"
-                >
-                  {{ t("keys.notes") }}
-                </n-button>
                 <n-button
                   round
                   tertiary
