@@ -308,7 +308,9 @@ function editKeyNotes(key: KeyRow) {
 
 // 保存备注
 async function saveKeyNotes() {
-  if (!editingKey.value) return;
+  if (!editingKey.value) {
+    return;
+  }
 
   try {
     const trimmed = editingNotes.value.trim();
@@ -316,7 +318,7 @@ async function saveKeyNotes() {
     editingKey.value.notes = trimmed;
     window.$message.success(t("keys.notesUpdated"));
     notesDialogShow.value = false;
-  } catch (error) {
+  } catch (_error) {
     window.$message.error(t("keys.notesUpdateFailed"));
   }
 }
