@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"compress/gzip"
 	"encoding/json"
+	"fmt"
 	app_errors "gpt-load/internal/errors"
 	"gpt-load/internal/models"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/sirupsen/logrus"
 )
@@ -24,10 +26,52 @@ func (ps *ProxyServer) applyParamOverrides(bodyBytes []byte, group *models.Group
 	}
 
 	for key, value := range group.ParamOverrides {
-		requestData[key] = value
+		// Check if this is a mapping mode (key ends with @map)
+		if strings.HasSuffix(key, "@map") {
+			actualKey := strings.TrimSuffix(key, "@map")
+			applyMapping(requestData, actualKey, value)
+		} else {
+			// Direct override mode (backward compatible)
+			requestData[key] = value
+		}
 	}
 
 	return json.Marshal(requestData)
+}
+
+// applyMapping applies value mapping for a specific parameter
+func applyMapping(requestData map[string]any, key string, mappingValue any) {
+	mappings, ok := mappingValue.(map[string]any)
+	if !ok {
+		logrus.Warnf("invalid mapping config for key %s, expected map", key)
+		return
+	}
+
+	// Get original value from request
+	originalValue, exists := requestData[key]
+	if !exists {
+		// If parameter doesn't exist and @default is provided, use it
+		if defaultVal, hasDefault := mappings["@default"]; hasDefault {
+			requestData[key] = defaultVal
+			logrus.Debugf("set default for %s: %v", key, defaultVal)
+		}
+		// Otherwise, do nothing
+		return
+	}
+
+	// Convert original value to string for matching
+	originalStr := fmt.Sprintf("%v", originalValue)
+
+	// Look up mapping
+	if newValue, found := mappings[originalStr]; found {
+		requestData[key] = newValue
+		logrus.Debugf("mapped %s: %s -> %v", key, originalStr, newValue)
+	} else if defaultVal, hasDefault := mappings["@default"]; hasDefault {
+		// If no match found but @default exists, use it
+		requestData[key] = defaultVal
+		logrus.Debugf("mapped %s: %s -> %v (default)", key, originalStr, defaultVal)
+	}
+	// If no match and no @default, keep original value unchanged
 }
 
 // logUpstreamError provides a centralized way to log errors from upstream interactions.
