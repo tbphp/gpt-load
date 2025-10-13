@@ -399,7 +399,6 @@ export default {
     enterKeysToDeletePlaceholder: "削除するキーを入力、一行に一つ",
     group: "グループ",
     notesUpdated: "備考が更新されました",
-    notesUpdateFailed: "備考の更新に失敗しました",
     editNotes: "備考を編集",
     notes: "備考",
     editKeyNotes: "キー備考を編集",
