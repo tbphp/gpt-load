@@ -11,8 +11,8 @@ import {
   CopyOutline,
   EyeOffOutline,
   EyeOutline,
-  RemoveCircleOutline,
   Pencil,
+  RemoveCircleOutline,
   Search,
 } from "@vicons/ionicons5";
 import {
@@ -318,8 +318,8 @@ async function saveKeyNotes() {
     editingKey.value.notes = trimmed;
     window.$message.success(t("keys.notesUpdated"));
     notesDialogShow.value = false;
-  } catch (_error) {
-    window.$message.error(t("keys.notesUpdateFailed"));
+  } catch (error) {
+    console.error("Update notes failed", error);
   }
 }
 
