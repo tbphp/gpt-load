@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
@@ -442,7 +443,7 @@ func (s *Server) ExportKeys(c *gin.Context) {
 
 // UpdateKeyNotesRequest defines the payload for updating a key's notes.
 type UpdateKeyNotesRequest struct {
-	Notes string `json:"notes" binding:"max=255"`
+	Notes string `json:"notes" binding:"required"`
 }
 
 // UpdateKeyNotes handles updating the notes of a specific API key.
@@ -462,7 +463,7 @@ func (s *Server) UpdateKeyNotes(c *gin.Context) {
 
 	// Normalize and enforce length explicitly
 	req.Notes = strings.TrimSpace(req.Notes)
-	if len(req.Notes) > 255 {
+	if utf8.RuneCountInString(req.Notes) > 255 {
 		response.Error(c, app_errors.NewAPIError(app_errors.ErrValidation, "notes length must be <= 255 characters"))
 		return
 	}
