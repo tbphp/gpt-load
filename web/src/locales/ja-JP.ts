@@ -405,6 +405,11 @@ export default {
     enterKeysPlaceholder: "キーを入力、一行に一つ",
     enterKeysToDeletePlaceholder: "削除するキーを入力、一行に一つ",
     group: "グループ",
+    notesUpdated: "備考が更新されました",
+    editNotes: "備考を編集",
+    notes: "備考",
+    editKeyNotes: "キー備考を編集",
+    enterNotes: "備考を入力してください...",
   },
   subGroups: {
     addSubGroup: "サブグループを追加",

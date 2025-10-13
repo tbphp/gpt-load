@@ -141,6 +141,7 @@ func registerProtectedAPIRoutes(api *gin.RouterGroup, serverHandler *handler.Ser
 		keys.POST("/clear-current-query", serverHandler.ClearCurrentQueryKeys)
 		keys.POST("/validate-group", serverHandler.ValidateGroupKeys)
 		keys.POST("/test-multiple", serverHandler.TestMultipleKeys)
+		keys.PUT("/:id/notes", serverHandler.UpdateKeyNotes)
 	}
 
 	// Tasks

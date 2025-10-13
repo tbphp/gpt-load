@@ -406,6 +406,11 @@ export default {
     enterKeysPlaceholder: "Enter keys, one per line",
     enterKeysToDeletePlaceholder: "Enter keys to delete, one per line",
     group: "Group",
+    notesUpdated: "Notes updated",
+    editNotes: "Edit notes",
+    notes: "Notes",
+    editKeyNotes: "Edit key notes",
+    enterNotes: "Enter notes...",
   },
   subGroups: {
     addSubGroup: "Add Sub Group",

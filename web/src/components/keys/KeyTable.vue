@@ -11,6 +11,7 @@ import {
   CopyOutline,
   EyeOffOutline,
   EyeOutline,
+  Pencil,
   RemoveCircleOutline,
   Search,
 } from "@vicons/ionicons5";
@@ -20,6 +21,7 @@ import {
   NEmpty,
   NIcon,
   NInput,
+  NModal,
   NSelect,
   NSpace,
   NSpin,
@@ -96,6 +98,11 @@ const isRestoring = ref(false);
 
 const createDialogShow = ref(false);
 const deleteDialogShow = ref(false);
+
+// 备注编辑相关
+const notesDialogShow = ref(false);
+const editingKey = ref<KeyRow | null>(null);
+const editingNotes = ref("");
 
 watch(
   () => props.selectedGroup,
@@ -305,6 +312,38 @@ function formatDuration(ms: number): string {
 
 function toggleKeyVisibility(key: KeyRow) {
   key.is_visible = !key.is_visible;
+}
+
+// 获取要显示的值（备注优先，否则显示密钥）
+function getDisplayValue(key: KeyRow): string {
+  if (key.notes && !key.is_visible) {
+    return key.notes;
+  }
+  return key.is_visible ? key.key_value : maskKey(key.key_value);
+}
+
+// 编辑密钥备注
+function editKeyNotes(key: KeyRow) {
+  editingKey.value = key;
+  editingNotes.value = key.notes || "";
+  notesDialogShow.value = true;
+}
+
+// 保存备注
+async function saveKeyNotes() {
+  if (!editingKey.value) {
+    return;
+  }
+
+  try {
+    const trimmed = editingNotes.value.trim();
+    await keysApi.updateKeyNotes(editingKey.value.id, trimmed);
+    editingKey.value.notes = trimmed;
+    window.$message.success(t("keys.notesUpdated"));
+    notesDialogShow.value = false;
+  } catch (error) {
+    console.error("Update notes failed", error);
+  }
 }
 
 async function restoreKey(key: KeyRow) {
@@ -775,13 +814,18 @@ function resetPage() {
                   </template>
                   {{ t("keys.invalidShort") }}
                 </n-tag>
-                <n-input
-                  class="key-text"
-                  :value="key.is_visible ? key.key_value : maskKey(key.key_value)"
-                  readonly
-                  size="small"
-                />
+                <n-input class="key-text" :value="getDisplayValue(key)" readonly size="small" />
                 <div class="quick-actions">
+                  <n-button
+                    size="tiny"
+                    text
+                    @click="editKeyNotes(key)"
+                    :title="t('keys.editNotes')"
+                  >
+                    <template #icon>
+                      <n-icon :component="Pencil" />
+                    </template>
+                  </n-button>
                   <n-button
                     size="tiny"
                     text
@@ -904,6 +948,22 @@ function resetPage() {
       @success="handleBatchDeleteSuccess"
     />
   </div>
+
+  <!-- 备注编辑对话框 -->
+  <n-modal v-model:show="notesDialogShow" preset="dialog" :title="t('keys.editKeyNotes')">
+    <n-input
+      v-model:value="editingNotes"
+      type="textarea"
+      :placeholder="t('keys.enterNotes')"
+      :rows="3"
+      maxlength="255"
+      show-count
+    />
+    <template #action>
+      <n-button @click="notesDialogShow = false">{{ t("common.cancel") }}</n-button>
+      <n-button type="primary" @click="saveKeyNotes">{{ t("common.save") }}</n-button>
+    </template>
+  </n-modal>
 </template>
 
 <style scoped>
@@ -930,7 +990,6 @@ function resetPage() {
   min-height: 64px;
 }
 
-/* 确保按钮在暗黑模式下有正确的对比度 */
 .toolbar :deep(.n-button) {
   font-weight: 500;
 }
