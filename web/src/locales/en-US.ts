@@ -400,7 +400,6 @@ export default {
     enterKeysToDeletePlaceholder: "Enter keys to delete, one per line",
     group: "Group",
     notesUpdated: "Notes updated",
-    notesUpdateFailed: "Failed to update notes",
     editNotes: "Edit notes",
     notes: "Notes",
     editKeyNotes: "Edit key notes",
