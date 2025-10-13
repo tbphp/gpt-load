@@ -387,7 +387,6 @@ export default {
     enterKeysToDeletePlaceholder: "输入要删除的密钥，每行一个",
     group: "分组",
     notesUpdated: "备注已更新",
-    notesUpdateFailed: "备注更新失败",
     editNotes: "编辑备注",
     notes: "备注",
     editKeyNotes: "编辑密钥备注",
