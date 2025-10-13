@@ -212,7 +212,9 @@ async function loadKeys() {
       page_size: pageSize.value,
       status: statusFilter.value === "all" ? undefined : (statusFilter.value as KeyStatus),
       key_value: searchMode.value === "key" ? (searchText.value.trim() || undefined) : undefined,
-      status_code: searchMode.value === "statusCode" ? (searchText.value.trim() ? Number(searchText.value.trim()) : undefined) : undefined,
+      status_code: searchMode.value === "statusCode" && searchText.value.trim()
+        ? (isNaN(Number(searchText.value.trim())) ? undefined : Number(searchText.value.trim()))
+        : undefined,
     });
     keys.value = result.items as KeyRow[];
     total.value = result.pagination.total_items;
@@ -698,6 +700,13 @@ function resetPage() {
   searchText.value = "";
   statusFilter.value = "all";
 }
+
+function validateStatusCodeInput(value: string) {
+  if (searchMode.value === "statusCode") {
+    return value.replace(/[^0-9]/g, '');
+  }
+  return value;
+}
 </script>
 
 <template>
@@ -741,7 +750,8 @@ function resetPage() {
           </div>
           <n-input-group>
             <n-input
-              v-model:value="searchText"
+              :value="searchText"
+              @update:value="searchText = validateStatusCodeInput($event)"
               :placeholder="searchMode === 'statusCode' ? t('keys.statusCodeSearchPlaceholder') : t('keys.keyExactMatch')"
               size="small"
               style="width: 200px"

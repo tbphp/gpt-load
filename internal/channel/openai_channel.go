@@ -82,7 +82,7 @@ func (ch *OpenAIChannel) ValidateKey(ctx context.Context, apiKey *models.APIKey,
 	// Parse validation endpoint to extract path and query parameters
 	endpointURL, err := url.Parse(ch.ValidationEndpoint)
 	if err != nil {
-		return false, 0, fmt.Errorf("failed to join upstream URL and validation endpoint: %w", er
+		return false, 0, fmt.Errorf("failed to join upstream URL and validation endpoint: %w", err)
 	}
 
 	// Build final URL with path and query parameters

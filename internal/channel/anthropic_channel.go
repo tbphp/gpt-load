@@ -82,7 +82,7 @@ func (ch *AnthropicChannel) ValidateKey(ctx context.Context, apiKey *models.APIK
 
 	// Parse validation endpoint to extract path and query parameters
 	endpointURL, err := url.Parse(ch.ValidationEndpoint)
-	if err != nil 
+	if err != nil {
 		return false, 0, fmt.Errorf("failed to join upstream URL and validation endpoint: %w", err)
 	}
 
