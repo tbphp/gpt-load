@@ -118,7 +118,7 @@ export const keysApi = {
 
   // 更新密钥备注
   async updateKeyNotes(keyId: number, notes: string): Promise<void> {
-    await http.put(`/keys/${keyId}/notes`, { notes });
+    await http.put(`/keys/${keyId}/notes`, { notes }, { hideMessage: true });
   },
 
   // 测试密钥
