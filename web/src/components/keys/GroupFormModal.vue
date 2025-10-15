@@ -68,10 +68,13 @@ interface GroupFormData {
   test_model: string;
   validation_endpoint: string;
   param_overrides: string;
+  model_redirect_rules: string;
+  model_redirect_strict: boolean;
   config: Record<string, number | string | boolean>;
   configItems: ConfigItem[];
   header_rules: HeaderRuleItem[];
   proxy_keys: string;
+  group_type?: string;
 }
 
 // 表单数据
@@ -90,10 +93,13 @@ const formData = reactive<GroupFormData>({
   test_model: "",
   validation_endpoint: "",
   param_overrides: "",
+  model_redirect_rules: "",
+  model_redirect_strict: false,
   config: {},
   configItems: [] as ConfigItem[],
   header_rules: [] as HeaderRuleItem[],
   proxy_keys: "",
+  group_type: "standard",
 });
 
 const channelTypeOptions = ref<{ label: string; value: string }[]>([]);
@@ -282,10 +288,13 @@ function resetForm() {
     test_model: isCreateMode ? testModelPlaceholder.value : "",
     validation_endpoint: "",
     param_overrides: "",
+    model_redirect_rules: "",
+    model_redirect_strict: false,
     config: {},
     configItems: [],
     header_rules: [],
     proxy_keys: "",
+    group_type: "standard",
   });
 
   // 重置用户修改状态追踪
@@ -321,6 +330,8 @@ function loadGroupData() {
     test_model: props.group.test_model || "",
     validation_endpoint: props.group.validation_endpoint || "",
     param_overrides: JSON.stringify(props.group.param_overrides || {}, null, 2),
+    model_redirect_rules: JSON.stringify(props.group.model_redirect_rules || {}, null, 2),
+    model_redirect_strict: props.group.model_redirect_strict || false,
     config: {},
     configItems,
     header_rules: (props.group.header_rules || []).map((rule: HeaderRuleItem) => ({
@@ -329,6 +340,7 @@ function loadGroupData() {
       action: (rule.action as "set" | "remove") || "set",
     })),
     proxy_keys: props.group.proxy_keys || "",
+    group_type: props.group.group_type || "standard",
   });
 }
 
@@ -458,6 +470,33 @@ async function handleSubmit() {
       }
     }
 
+    // 验证模型重定向规则 JSON 格式
+    let modelRedirectRules = {};
+    if (formData.model_redirect_rules) {
+      try {
+        modelRedirectRules = JSON.parse(formData.model_redirect_rules);
+
+        // Validate rule format
+        for (const [key, value] of Object.entries(modelRedirectRules)) {
+          if (typeof key !== 'string' || typeof value !== 'string') {
+            message.error(t("keys.modelRedirectInvalidFormat"));
+            return;
+          }
+          if (key.trim() === '' || (value as string).trim() === '') {
+            message.error(t("keys.modelRedirectEmptyModel"));
+            return;
+          }
+          if (key === value) {
+            message.error(t("keys.modelRedirectSelfReference", { model: key }));
+            return;
+          }
+        }
+      } catch {
+        message.error(t("keys.modelRedirectInvalidJson"));
+        return;
+      }
+    }
+
     // 将configItems转换为config对象
     const config: Record<string, number | string | boolean> = {};
     formData.configItems.forEach((item: ConfigItem) => {
@@ -483,6 +522,8 @@ async function handleSubmit() {
       test_model: formData.test_model,
       validation_endpoint: formData.validation_endpoint,
       param_overrides: paramOverrides,
+      model_redirect_rules: modelRedirectRules,
+      model_redirect_strict: formData.model_redirect_strict,
       config,
       header_rules: formData.header_rules
         .filter((rule: HeaderRuleItem) => rule.key.trim())
@@ -1032,6 +1073,70 @@ async function handleSubmit() {
                     {{ t("keys.addHeader") }}
                   </n-button>
                 </div>
+              </div>
+
+              <!-- 模型重定向配置 -->
+              <div v-if="formData.group_type !== 'aggregate'" class="config-section">
+                <n-form-item path="model_redirect_strict">
+                  <template #label>
+                    <div class="form-label-with-tooltip">
+                      {{ t("keys.modelRedirectPolicy") }}
+                      <n-tooltip trigger="hover" placement="top">
+                        <template #trigger>
+                          <n-icon :component="HelpCircleOutline" class="help-icon config-help" />
+                        </template>
+                        {{ t("keys.modelRedirectPolicyTooltip") }}
+                      </n-tooltip>
+                    </div>
+                  </template>
+                  <div style="display: flex; align-items: center; gap: 12px;">
+                    <n-switch v-model:value="formData.model_redirect_strict" />
+                    <span style="font-size: 14px; color: #666;">
+                      {{ formData.model_redirect_strict ?
+                        t("keys.modelRedirectStrictMode") :
+                        t("keys.modelRedirectLooseMode")
+                      }}
+                    </span>
+                  </div>
+                  <template #feedback>
+                    <div style="font-size: 12px; color: #999; margin-top: 4px;">
+                      <div v-if="formData.model_redirect_strict" style="color: #f5a623;">
+                        ⚠️ {{ t("keys.modelRedirectStrictWarning") }}
+                      </div>
+                      <div v-else style="color: #52c41a;">
+                        ✅ {{ t("keys.modelRedirectLooseInfo") }}
+                      </div>
+                    </div>
+                  </template>
+                </n-form-item>
+
+                <n-form-item path="model_redirect_rules">
+                  <template #label>
+                    <div class="form-label-with-tooltip">
+                      {{ t("keys.modelRedirectRules") }}
+                      <n-tooltip trigger="hover" placement="top">
+                        <template #trigger>
+                          <n-icon :component="HelpCircleOutline" class="help-icon config-help" />
+                        </template>
+                        {{ t("keys.modelRedirectRulesTooltip") }}
+                      </n-tooltip>
+                    </div>
+                  </template>
+                  <n-input
+                    v-model:value="formData.model_redirect_rules"
+                    type="textarea"
+                    :placeholder="t('keys.modelRedirectRulesPlaceholder')"
+                    :rows="4"
+                  />
+                  <template #feedback>
+                    <div style="font-size: 14px; color: #999;">
+                      {{ t("keys.modelRedirectRulesDescription") }}
+                      <div v-if="formData.model_redirect_strict" style="color: #f5a623; margin-top: 4px;">
+                        {{ t("keys.modelRedirectStrictModeNote") }}
+                      </div>
+                    </div>
+                  </template>
+                </n-form-item>
               </div>
 
               <div class="config-section">

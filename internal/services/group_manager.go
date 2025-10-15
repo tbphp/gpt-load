@@ -82,6 +82,28 @@ func (gm *GroupManager) Initialize() error {
 				g.HeaderRuleList = []models.HeaderRule{}
 			}
 
+			// Parse model redirect rules with error handling
+			g.ModelRedirectMap = make(map[string]string)
+			if len(group.ModelRedirectRules) > 0 {
+				hasInvalidRules := false
+				for key, value := range group.ModelRedirectRules {
+					if valueStr, ok := value.(string); ok {
+						g.ModelRedirectMap[key] = valueStr
+					} else {
+						logrus.WithFields(logrus.Fields{
+							"group_name": g.Name,
+							"rule_key":   key,
+							"value_type": fmt.Sprintf("%T", value),
+							"value":      value,
+						}).Error("Invalid model redirect rule value type, skipping this rule")
+						hasInvalidRules = true
+					}
+				}
+				if hasInvalidRules {
+					logrus.WithField("group_name", g.Name).Warn("Group has invalid model redirect rules, some rules were skipped. Please check the configuration.")
+				}
+			}
+
 			// Load sub-groups for aggregate groups
 			if g.GroupType == "aggregate" {
 				if subGroups, ok := subGroupsByAggregateID[g.ID]; ok {
@@ -97,10 +119,12 @@ func (gm *GroupManager) Initialize() error {
 
 			groupMap[g.Name] = &g
 			logrus.WithFields(logrus.Fields{
-				"group_name":         g.Name,
-				"effective_config":   g.EffectiveConfig,
-				"header_rules_count": len(g.HeaderRuleList),
-				"sub_group_count":    len(g.SubGroups),
+				"group_name":               g.Name,
+				"effective_config":         g.EffectiveConfig,
+				"header_rules_count":       len(g.HeaderRuleList),
+				"model_redirect_rules_count": len(g.ModelRedirectMap),
+				"model_redirect_strict":    g.ModelRedirectStrict,
+				"sub_group_count":          len(g.SubGroups),
 			}).Debug("Loaded group with effective config")
 		}
 
