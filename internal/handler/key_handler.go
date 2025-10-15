@@ -443,7 +443,7 @@ func (s *Server) ExportKeys(c *gin.Context) {
 
 // UpdateKeyNotesRequest defines the payload for updating a key's notes.
 type UpdateKeyNotesRequest struct {
-	Notes string `json:"notes" binding:"required"`
+	Notes string `json:"notes"`
 }
 
 // UpdateKeyNotes handles updating the notes of a specific API key.
