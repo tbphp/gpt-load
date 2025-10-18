@@ -42,7 +42,7 @@ jobs:
             latest=false
           tags: |
             type=ref,event=tag
-            type=raw,value=beta,enable=${{ endsWith(github.ref, '-beta') }}
+            type=raw,value=beta,enable=${{ contains(github.ref, '-beta') }}
             type=raw,value=latest,enable=${{ !contains(github.ref, '-') }}
 
       - name: Build and push Docker image

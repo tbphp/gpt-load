@@ -123,9 +123,13 @@ func (s *Server) Chart(c *gin.Context) {
 	startHour := endHour.Add(-23 * time.Hour)
 
 	var hourlyStats []models.GroupHourlyStat
-	query := s.DB.Where("time >= ? AND time < ?", startHour, endHour.Add(time.Hour))
+	query := s.DB.Table("group_hourly_stats").
+		Where("time >= ? AND time < ?", startHour, endHour.Add(time.Hour))
 	if groupID != "" {
 		query = query.Where("group_id = ?", groupID)
+	} else {
+		query = query.Where("group_id NOT IN (?)",
+			s.DB.Table("groups").Select("id").Where("group_type = ?", "aggregate"))
 	}
 	if err := query.Order("time asc").Find(&hourlyStats).Error; err != nil {
 		response.ErrorI18nFromAPIError(c, app_errors.ErrDatabase, "database.chart_data_failed")
@@ -184,9 +188,11 @@ type hourlyStatResult struct {
 
 func (s *Server) getHourlyStats(startTime, endTime time.Time) (hourlyStatResult, error) {
 	var result hourlyStatResult
-	err := s.DB.Model(&models.GroupHourlyStat{}).
-		Select("sum(success_count) + sum(failure_count) as total_requests, sum(failure_count) as total_failures").
+	err := s.DB.Table("group_hourly_stats").
 		Where("time >= ? AND time < ?", startTime, endTime).
+		Where("group_id NOT IN (?)",
+			s.DB.Table("groups").Select("id").Where("group_type = ?", "aggregate")).
+		Select("COALESCE(SUM(success_count), 0) + COALESCE(SUM(failure_count), 0) as total_requests, COALESCE(SUM(failure_count), 0) as total_failures").
 		Scan(&result).Error
 	return result, err
 }

@@ -1,4 +1,4 @@
-import type { Group } from "@/types/models";
+import type { Group, SubGroupInfo } from "@/types/models";
 
 /**
  * Formats a string from camelCase, snake_case, or kebab-case
@@ -30,11 +30,16 @@ export function formatDisplayName(name: string): string {
 }
 
 /**
- * Gets the display name for a group, falling back to a formatted version of its name.
- * @param group The group object.
+ * Gets the display name for a group or subgroup, falling back to a formatted version of its name.
+ * @param item The group or subgroup object.
  * @returns The display name for the group.
  */
-export function getGroupDisplayName(group: Group): string {
+export function getGroupDisplayName(item: Group | SubGroupInfo): string {
+  if ("group" in item && item.group) {
+    const group = item.group as Group;
+    return group.display_name || formatDisplayName(group.name);
+  }
+  const group = item as Group;
   return group.display_name || formatDisplayName(group.name);
 }
 

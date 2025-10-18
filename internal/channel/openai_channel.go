@@ -79,14 +79,17 @@ func (ch *OpenAIChannel) ValidateKey(ctx context.Context, apiKey *models.APIKey,
 		return false, fmt.Errorf("no upstream URL configured for channel %s", ch.Name)
 	}
 
-	validationEndpoint := ch.ValidationEndpoint
-	if validationEndpoint == "" {
-		validationEndpoint = "/v1/chat/completions"
-	}
-	reqURL, err := url.JoinPath(upstreamURL.String(), validationEndpoint)
+	// Parse validation endpoint to extract path and query parameters
+	endpointURL, err := url.Parse(ch.ValidationEndpoint)
 	if err != nil {
-		return false, fmt.Errorf("failed to join upstream URL and validation endpoint: %w", err)
+		return false, fmt.Errorf("failed to parse validation endpoint: %w", err)
 	}
+
+	// Build final URL with path and query parameters
+	finalURL := *upstreamURL
+	finalURL.Path = strings.TrimRight(finalURL.Path, "/") + endpointURL.Path
+	finalURL.RawQuery = endpointURL.RawQuery
+	reqURL := finalURL.String()
 
 	// Use a minimal, low-cost payload for validation
 	payload := gin.H{

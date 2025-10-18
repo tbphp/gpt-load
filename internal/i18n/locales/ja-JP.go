@@ -60,6 +60,17 @@ var MessagesJaJP = map[string]string{
 	"validation.group_id_required":       "group_idクエリパラメータが必要です",
 	"validation.invalid_group_id_format": "無効なgroup_id形式",
 	"validation.keys_text_empty":         "キーテキストは空にできません",
+	"validation.invalid_group_type":      "無効なグループタイプ、'standard'または'aggregate'である必要があります",
+	"validation.sub_groups_required":     "集約グループには少なくとも1つのサブグループが必要です",
+	"validation.invalid_sub_group_id":    "無効なサブグループID",
+	"validation.sub_group_not_found":     "1つ以上のサブグループが見つかりません",
+	"validation.sub_group_cannot_be_aggregate": "サブグループは集約グループにできません",
+	"validation.sub_group_channel_mismatch": "すべてのサブグループは同じチャンネルタイプを使用する必要があります",
+	"validation.sub_group_validation_endpoint_mismatch": "サブグループのエンドポイントが一致していません。集約グループには、リクエストの転送を成功させるため統一されたアップストリームパスが必要です",
+	"validation.sub_group_weight_negative":     "サブグループの重みは負の値にできません",
+	"validation.sub_group_weight_max_exceeded": "サブグループの重みは1000を超えることはできません",
+	"validation.sub_group_referenced_cannot_modify": "このグループは {{.count}} 個の集約グループでサブグループとして参照されています。チャンネルタイプまたは検証エンドポイントは変更できません。変更前に関連する集約グループからこのグループを削除してください",
+	"validation.standard_group_requires_upstreams_testmodel": "標準グループへの変換にはアップストリームサーバーとテストモデルの提供が必要です",
 
 	// Task related
 	"task.validation_started": "キー検証タスクが開始されました",
@@ -178,4 +189,12 @@ var MessagesJaJP = map[string]string{
 
 	// Settings success message
 	"settings.update_success": "設定が正常に更新されました。設定はすべてのインスタンスでバックグラウンドで再読み込みされます。",
+
+	// Sub-groups related
+	"success.sub_groups_added":         "サブグループが正常に追加されました",
+	"success.sub_group_weight_updated": "サブグループの重みが正常に更新されました",
+	"success.sub_group_deleted":        "サブグループが正常に削除されました",
+	"group.not_aggregate":              "グループはアグリゲートグループではありません",
+	"group.sub_group_already_exists":   "サブグループ{{.sub_group_id}}は既に存在します",
+	"group.sub_group_not_found":        "サブグループが見つかりません",
 }
