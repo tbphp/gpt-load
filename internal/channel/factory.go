@@ -118,12 +118,23 @@ func (f *Factory) newBaseChannel(name string, group *models.Group) (*BaseChannel
 		MaxIdleConnsPerHost:   group.EffectiveConfig.MaxIdleConnsPerHost,
 		ResponseHeaderTimeout: time.Duration(group.EffectiveConfig.ResponseHeaderTimeout) * time.Second,
 		ProxyURL:              group.EffectiveConfig.ProxyURL,
+		SkipCertVerify:        group.EffectiveConfig.SkipCertVerify, // default from system settings
 		DisableCompression:    false,
 		WriteBufferSize:       32 * 1024,
 		ReadBufferSize:        32 * 1024,
 		ForceAttemptHTTP2:     true,
 		TLSHandshakeTimeout:   15 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
+	}
+
+	// Apply skip certificate verification setting if configured
+	if group.Config != nil {
+		if v, exists := group.Config["skip_cert_verify"]; exists {
+			if b, ok := v.(bool); ok {
+				// explicit per-group override (both true and false)
+				clientConfig.SkipCertVerify = b
+			}
+		}
 	}
 
 	// Create a dedicated configuration for streaming requests.
