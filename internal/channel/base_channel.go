@@ -176,3 +176,102 @@ func (b *BaseChannel) ApplyModelRedirect(req *http.Request, bodyBytes []byte, gr
 
 	return bodyBytes, nil
 }
+
+// TransformModelList transforms the model list response based on redirect rules.
+func (b *BaseChannel) TransformModelList(req *http.Request, bodyBytes []byte, group *models.Group) (map[string]any, error) {
+	// Parse the response once
+	var response map[string]any
+	if err := json.Unmarshal(bodyBytes, &response); err != nil {
+		logrus.WithError(err).Debug("Failed to parse model list response, returning empty")
+		return nil, err
+	}
+
+	// Extract model list array from upstream
+	dataInterface, exists := response["data"]
+	if !exists {
+		return response, nil
+	}
+
+	upstreamModels, ok := dataInterface.([]any)
+	if !ok {
+		return response, nil
+	}
+
+	// Build configured source models list (common logic for both modes)
+	configuredModels := buildConfiguredModels(group.ModelRedirectMap)
+
+	// Strict mode: return only configured models (whitelist)
+	if group.ModelRedirectStrict {
+		response["data"] = configuredModels
+
+		logrus.WithFields(logrus.Fields{
+			"group":       group.Name,
+			"model_count": len(configuredModels),
+			"strict_mode": true,
+		}).Debug("Model list returned (strict mode - configured models only)")
+
+		return response, nil
+	}
+
+	// Non-strict mode: merge upstream + configured models (upstream priority)
+	merged := mergeModelLists(upstreamModels, configuredModels)
+	response["data"] = merged
+
+	logrus.WithFields(logrus.Fields{
+		"group":            group.Name,
+		"upstream_count":   len(upstreamModels),
+		"configured_count": len(configuredModels),
+		"merged_count":     len(merged),
+		"strict_mode":      false,
+	}).Debug("Model list merged (non-strict mode)")
+
+	return response, nil
+}
+
+// buildConfiguredModels builds a list of models from redirect rules
+func buildConfiguredModels(redirectMap map[string]string) []any {
+	if len(redirectMap) == 0 {
+		return []any{}
+	}
+
+	models := make([]any, 0, len(redirectMap))
+	for sourceModel := range redirectMap {
+		models = append(models, map[string]any{
+			"id":       sourceModel,
+			"object":   "model",
+			"created":  0,
+			"owned_by": "system",
+		})
+	}
+	return models
+}
+
+// mergeModelLists merges upstream and configured model lists
+func mergeModelLists(upstream []any, configured []any) []any {
+	// Create set of upstream model IDs
+	upstreamIDs := make(map[string]bool)
+	for _, item := range upstream {
+		if modelObj, ok := item.(map[string]any); ok {
+			if modelID, ok := modelObj["id"].(string); ok {
+				upstreamIDs[modelID] = true
+			}
+		}
+	}
+
+	// Start with all upstream models
+	result := make([]any, len(upstream))
+	copy(result, upstream)
+
+	// Add configured models that don't exist in upstream
+	for _, item := range configured {
+		if modelObj, ok := item.(map[string]any); ok {
+			if modelID, ok := modelObj["id"].(string); ok {
+				if !upstreamIDs[modelID] {
+					result = append(result, item)
+				}
+			}
+		}
+	}
+
+	return result
+}

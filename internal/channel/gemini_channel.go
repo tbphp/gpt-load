@@ -220,3 +220,149 @@ func (ch *GeminiChannel) applyNativeFormatRedirect(req *http.Request, bodyBytes 
 	// No model found in URL path
 	return bodyBytes, nil
 }
+
+// TransformModelList transforms the model list response based on redirect rules.
+func (ch *GeminiChannel) TransformModelList(req *http.Request, bodyBytes []byte, group *models.Group) (map[string]any, error) {
+	// Parse the response once
+	var response map[string]any
+	if err := json.Unmarshal(bodyBytes, &response); err != nil {
+		logrus.WithError(err).Debug("Failed to parse model list response, returning empty")
+		return nil, err
+	}
+
+	// Check if this is Gemini native format (has "models" field)
+	if modelsInterface, hasModels := response["models"]; hasModels {
+		return ch.transformGeminiNativeFormat(req, response, modelsInterface, group), nil
+	}
+
+	// Check if this is OpenAI compatible format (has "data" field)
+	if _, hasData := response["data"]; hasData {
+		// Use BaseChannel implementation for OpenAI format
+		return ch.BaseChannel.TransformModelList(req, bodyBytes, group)
+	}
+
+	// Unknown format, return original
+	return response, nil
+}
+
+// transformGeminiNativeFormat transforms Gemini native format model list
+// Returns the modified response map directly (no marshaling)
+func (ch *GeminiChannel) transformGeminiNativeFormat(req *http.Request, response map[string]any, modelsInterface any, group *models.Group) map[string]any {
+	upstreamModels, ok := modelsInterface.([]any)
+	if !ok {
+		return response
+	}
+
+	// Build configured source models list for Gemini format (common logic)
+	configuredModels := buildConfiguredGeminiModels(group.ModelRedirectMap)
+
+	// Strict mode: return only configured models (whitelist)
+	if group.ModelRedirectStrict {
+		response["models"] = configuredModels
+		// Remove pagination markers in strict mode (configured models are complete list)
+		delete(response, "nextPageToken")
+
+		logrus.WithFields(logrus.Fields{
+			"group":       group.Name,
+			"model_count": len(configuredModels),
+			"strict_mode": true,
+			"format":      "gemini_native",
+		}).Debug("Model list returned (strict mode - configured models only)")
+
+		return response
+	}
+
+	// Non-strict mode: merge upstream + configured models (upstream priority)
+	// Only add configured models on first page to avoid duplication
+	var merged []any
+	if isFirstPage(req) {
+		merged = mergeGeminiModelLists(upstreamModels, configuredModels)
+		logrus.WithFields(logrus.Fields{
+			"group":            group.Name,
+			"upstream_count":   len(upstreamModels),
+			"configured_count": len(configuredModels),
+			"merged_count":     len(merged),
+			"strict_mode":      false,
+			"format":           "gemini_native",
+			"page":             "first",
+		}).Debug("Model list merged (non-strict mode - first page)")
+	} else {
+		merged = upstreamModels
+		logrus.WithFields(logrus.Fields{
+			"group":          group.Name,
+			"upstream_count": len(upstreamModels),
+			"strict_mode":    false,
+			"format":         "gemini_native",
+			"page":           "subsequent",
+		}).Debug("Model list returned (non-strict mode - subsequent page)")
+	}
+
+	response["models"] = merged
+	return response
+}
+
+// buildConfiguredGeminiModels builds a list of models from redirect rules for Gemini format
+func buildConfiguredGeminiModels(redirectMap map[string]string) []any {
+	if len(redirectMap) == 0 {
+		return []any{}
+	}
+
+	models := make([]any, 0, len(redirectMap))
+	for sourceModel := range redirectMap {
+		// Gemini models may or may not have "models/" prefix
+		modelName := sourceModel
+		if !strings.HasPrefix(sourceModel, "models/") {
+			modelName = "models/" + sourceModel
+		}
+
+		models = append(models, map[string]any{
+			"name":               modelName,
+			"displayName":        sourceModel,
+			"supportedGenerationMethods": []string{"generateContent"},
+		})
+	}
+	return models
+}
+
+// mergeGeminiModelLists merges upstream and configured model lists for Gemini format
+// If duplicate model names exist, upstream takes priority (more complete data)
+func mergeGeminiModelLists(upstream []any, configured []any) []any {
+	// Create set of upstream model names (check both with and without "models/" prefix)
+	upstreamNames := make(map[string]bool)
+	for _, item := range upstream {
+		if modelObj, ok := item.(map[string]any); ok {
+			if modelName, ok := modelObj["name"].(string); ok {
+				upstreamNames[modelName] = true
+				// Also add without prefix for comparison
+				cleanName := strings.TrimPrefix(modelName, "models/")
+				upstreamNames[cleanName] = true
+			}
+		}
+	}
+
+	// Start with all upstream models
+	result := make([]any, len(upstream))
+	copy(result, upstream)
+
+	// Add configured models that don't exist in upstream
+	for _, item := range configured {
+		if modelObj, ok := item.(map[string]any); ok {
+			if modelName, ok := modelObj["name"].(string); ok {
+				cleanName := strings.TrimPrefix(modelName, "models/")
+				// Check if either the full name or clean name exists in upstream
+				if !upstreamNames[modelName] && !upstreamNames[cleanName] {
+					result = append(result, item)
+				}
+			}
+		}
+	}
+
+	return result
+}
+
+// isFirstPage checks if this is the first page of a Gemini paginated request
+func isFirstPage(req *http.Request) bool {
+	// Gemini uses pageToken parameter for pagination
+	pageToken := req.URL.Query().Get("pageToken")
+	return pageToken == ""
+}

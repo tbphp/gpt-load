@@ -262,17 +262,22 @@ func (ps *ProxyServer) executeRequestWithRetry(
 	// ps.keyProvider.UpdateStatus(apiKey, group, true) // 请求成功不再重置成功次数，减少IO消耗
 	logrus.Debugf("Request for group %s succeeded on attempt %d with key %s", group.Name, retryCount+1, utils.MaskAPIKey(apiKey.KeyValue))
 
-	for key, values := range resp.Header {
-		for _, value := range values {
-			c.Header(key, value)
-		}
-	}
-	c.Status(resp.StatusCode)
-
-	if isStream {
-		ps.handleStreamingResponse(c, resp)
+	// Check if this is a model list request (needs special handling)
+	if shouldInterceptModelList(c.Request.URL.Path, c.Request.Method) {
+		ps.handleModelListResponse(c, resp, group, channelHandler)
 	} else {
-		ps.handleNormalResponse(c, resp)
+		for key, values := range resp.Header {
+			for _, value := range values {
+				c.Header(key, value)
+			}
+		}
+		c.Status(resp.StatusCode)
+
+		if isStream {
+			ps.handleStreamingResponse(c, resp)
+		} else {
+			ps.handleNormalResponse(c, resp)
+		}
 	}
 
 	ps.logRequest(c, originalGroup, group, apiKey, startTime, resp.StatusCode, nil, isStream, upstreamURL, channelHandler, bodyBytes, models.RequestTypeFinal)

@@ -37,4 +37,7 @@ type ChannelProxy interface {
 
 	// ApplyModelRedirect applies model redirection based on the group's redirect rules.
 	ApplyModelRedirect(req *http.Request, bodyBytes []byte, group *models.Group) ([]byte, error)
+
+	// TransformModelList transforms the model list response based on redirect rules.
+	TransformModelList(req *http.Request, bodyBytes []byte, group *models.Group) (map[string]any, error)
 }
