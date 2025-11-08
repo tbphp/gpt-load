@@ -1001,9 +1001,6 @@ func validateModelRedirectRules(rules map[string]string) error {
 		if strings.TrimSpace(key) == "" || strings.TrimSpace(value) == "" {
 			return fmt.Errorf("model name cannot be empty")
 		}
-		if key == value {
-			return fmt.Errorf("cannot redirect model to itself: %s", key)
-		}
 	}
 
 	return nil

@@ -161,19 +161,15 @@ func (ch *GeminiChannel) ValidateKey(ctx context.Context, apiKey *models.APIKey,
 }
 
 // ApplyModelRedirect overrides the default implementation for Gemini channel.
-// Handles both native format (URL path) and OpenAI compatible format (JSON body).
 func (ch *GeminiChannel) ApplyModelRedirect(req *http.Request, bodyBytes []byte, group *models.Group) ([]byte, error) {
 	if len(group.ModelRedirectMap) == 0 {
 		return bodyBytes, nil
 	}
 
-	// Check if this is OpenAI compatible format
 	if strings.Contains(req.URL.Path, "v1beta/openai") {
-		// Use the default BaseChannel implementation for JSON body redirection
 		return ch.BaseChannel.ApplyModelRedirect(req, bodyBytes, group)
 	}
 
-	// Handle Gemini native format (URL path redirection)
 	return ch.applyNativeFormatRedirect(req, bodyBytes, group)
 }
 
@@ -188,7 +184,6 @@ func (ch *GeminiChannel) applyNativeFormatRedirect(req *http.Request, bodyBytes 
 			originalModel := strings.Split(modelPart, ":")[0]
 
 			if targetModel, found := group.ModelRedirectMap[originalModel]; found {
-				// Replace model name while keeping suffix (e.g., :generateContent)
 				suffix := ""
 				if colonIndex := strings.Index(modelPart, ":"); colonIndex != -1 {
 					suffix = modelPart[colonIndex:]
@@ -196,7 +191,6 @@ func (ch *GeminiChannel) applyNativeFormatRedirect(req *http.Request, bodyBytes 
 				parts[i+1] = targetModel + suffix
 				req.URL.Path = strings.Join(parts, "/")
 
-				// Log the redirection for audit
 				logrus.WithFields(logrus.Fields{
 					"group":          group.Name,
 					"original_model": originalModel,
@@ -209,7 +203,6 @@ func (ch *GeminiChannel) applyNativeFormatRedirect(req *http.Request, bodyBytes 
 				return bodyBytes, nil
 			}
 
-			// No redirection rule found
 			if group.ModelRedirectStrict {
 				return nil, fmt.Errorf("model '%s' is not configured in redirect rules", originalModel)
 			}
@@ -217,49 +210,40 @@ func (ch *GeminiChannel) applyNativeFormatRedirect(req *http.Request, bodyBytes 
 		}
 	}
 
-	// No model found in URL path
 	return bodyBytes, nil
 }
 
 // TransformModelList transforms the model list response based on redirect rules.
 func (ch *GeminiChannel) TransformModelList(req *http.Request, bodyBytes []byte, group *models.Group) (map[string]any, error) {
-	// Parse the response once
 	var response map[string]any
 	if err := json.Unmarshal(bodyBytes, &response); err != nil {
 		logrus.WithError(err).Debug("Failed to parse model list response, returning empty")
 		return nil, err
 	}
 
-	// Check if this is Gemini native format (has "models" field)
 	if modelsInterface, hasModels := response["models"]; hasModels {
 		return ch.transformGeminiNativeFormat(req, response, modelsInterface, group), nil
 	}
 
-	// Check if this is OpenAI compatible format (has "data" field)
 	if _, hasData := response["data"]; hasData {
-		// Use BaseChannel implementation for OpenAI format
 		return ch.BaseChannel.TransformModelList(req, bodyBytes, group)
 	}
 
-	// Unknown format, return original
 	return response, nil
 }
 
 // transformGeminiNativeFormat transforms Gemini native format model list
-// Returns the modified response map directly (no marshaling)
 func (ch *GeminiChannel) transformGeminiNativeFormat(req *http.Request, response map[string]any, modelsInterface any, group *models.Group) map[string]any {
 	upstreamModels, ok := modelsInterface.([]any)
 	if !ok {
 		return response
 	}
 
-	// Build configured source models list for Gemini format (common logic)
 	configuredModels := buildConfiguredGeminiModels(group.ModelRedirectMap)
 
 	// Strict mode: return only configured models (whitelist)
 	if group.ModelRedirectStrict {
 		response["models"] = configuredModels
-		// Remove pagination markers in strict mode (configured models are complete list)
 		delete(response, "nextPageToken")
 
 		logrus.WithFields(logrus.Fields{
@@ -273,7 +257,6 @@ func (ch *GeminiChannel) transformGeminiNativeFormat(req *http.Request, response
 	}
 
 	// Non-strict mode: merge upstream + configured models (upstream priority)
-	// Only add configured models on first page to avoid duplication
 	var merged []any
 	if isFirstPage(req) {
 		merged = mergeGeminiModelLists(upstreamModels, configuredModels)
@@ -309,15 +292,14 @@ func buildConfiguredGeminiModels(redirectMap map[string]string) []any {
 
 	models := make([]any, 0, len(redirectMap))
 	for sourceModel := range redirectMap {
-		// Gemini models may or may not have "models/" prefix
 		modelName := sourceModel
 		if !strings.HasPrefix(sourceModel, "models/") {
 			modelName = "models/" + sourceModel
 		}
 
 		models = append(models, map[string]any{
-			"name":               modelName,
-			"displayName":        sourceModel,
+			"name":                       modelName,
+			"displayName":                sourceModel,
 			"supportedGenerationMethods": []string{"generateContent"},
 		})
 	}
@@ -325,15 +307,12 @@ func buildConfiguredGeminiModels(redirectMap map[string]string) []any {
 }
 
 // mergeGeminiModelLists merges upstream and configured model lists for Gemini format
-// If duplicate model names exist, upstream takes priority (more complete data)
 func mergeGeminiModelLists(upstream []any, configured []any) []any {
-	// Create set of upstream model names (check both with and without "models/" prefix)
 	upstreamNames := make(map[string]bool)
 	for _, item := range upstream {
 		if modelObj, ok := item.(map[string]any); ok {
 			if modelName, ok := modelObj["name"].(string); ok {
 				upstreamNames[modelName] = true
-				// Also add without prefix for comparison
 				cleanName := strings.TrimPrefix(modelName, "models/")
 				upstreamNames[cleanName] = true
 			}
@@ -349,7 +328,6 @@ func mergeGeminiModelLists(upstream []any, configured []any) []any {
 		if modelObj, ok := item.(map[string]any); ok {
 			if modelName, ok := modelObj["name"].(string); ok {
 				cleanName := strings.TrimPrefix(modelName, "models/")
-				// Check if either the full name or clean name exists in upstream
 				if !upstreamNames[modelName] && !upstreamNames[cleanName] {
 					result = append(result, item)
 				}
@@ -362,7 +340,6 @@ func mergeGeminiModelLists(upstream []any, configured []any) []any {
 
 // isFirstPage checks if this is the first page of a Gemini paginated request
 func isFirstPage(req *http.Request) bool {
-	// Gemini uses pageToken parameter for pagination
 	pageToken := req.URL.Query().Get("pageToken")
 	return pageToken == ""
 }

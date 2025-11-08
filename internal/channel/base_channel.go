@@ -132,7 +132,6 @@ func (b *BaseChannel) GetStreamClient() *http.Client {
 }
 
 // ApplyModelRedirect applies model redirection based on the group's redirect rules.
-// This default implementation handles JSON body redirection for OpenAI, Anthropic formats.
 func (b *BaseChannel) ApplyModelRedirect(req *http.Request, bodyBytes []byte, group *models.Group) ([]byte, error) {
 	if len(group.ModelRedirectMap) == 0 || len(bodyBytes) == 0 {
 		return bodyBytes, nil
@@ -155,7 +154,6 @@ func (b *BaseChannel) ApplyModelRedirect(req *http.Request, bodyBytes []byte, gr
 
 	// Direct match without any prefix processing
 	if targetModel, found := group.ModelRedirectMap[model]; found {
-		// Apply redirection directly
 		requestData["model"] = targetModel
 
 		// Log the redirection for audit
@@ -169,7 +167,6 @@ func (b *BaseChannel) ApplyModelRedirect(req *http.Request, bodyBytes []byte, gr
 		return json.Marshal(requestData)
 	}
 
-	// No redirection rule found
 	if group.ModelRedirectStrict {
 		return nil, fmt.Errorf("model '%s' is not configured in redirect rules", model)
 	}
@@ -179,14 +176,12 @@ func (b *BaseChannel) ApplyModelRedirect(req *http.Request, bodyBytes []byte, gr
 
 // TransformModelList transforms the model list response based on redirect rules.
 func (b *BaseChannel) TransformModelList(req *http.Request, bodyBytes []byte, group *models.Group) (map[string]any, error) {
-	// Parse the response once
 	var response map[string]any
 	if err := json.Unmarshal(bodyBytes, &response); err != nil {
 		logrus.WithError(err).Debug("Failed to parse model list response, returning empty")
 		return nil, err
 	}
 
-	// Extract model list array from upstream
 	dataInterface, exists := response["data"]
 	if !exists {
 		return response, nil

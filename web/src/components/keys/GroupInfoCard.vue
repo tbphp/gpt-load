@@ -727,6 +727,31 @@ function resetPage() {
                     </div>
                   </n-form-item>
                   <n-form-item
+                    v-if="group?.model_redirect_rules"
+                    :label="`${t('keys.modelRedirectPolicy')}：`"
+                    :span="2"
+                  >
+                    <n-tag
+                      :type="group?.model_redirect_strict ? 'warning' : 'success'"
+                      size="small"
+                    >
+                      {{
+                        group?.model_redirect_strict
+                          ? t("keys.modelRedirectStrictMode")
+                          : t("keys.modelRedirectLooseMode")
+                      }}
+                    </n-tag>
+                  </n-form-item>
+                  <n-form-item
+                    v-if="group?.model_redirect_rules"
+                    :label="`${t('keys.modelRedirectRules')}：`"
+                    :span="2"
+                  >
+                    <pre class="config-json">{{
+                      JSON.stringify(group?.model_redirect_rules || {}, null, 2)
+                    }}</pre>
+                  </n-form-item>
+                  <n-form-item
                     v-if="group?.param_overrides"
                     :label="`${t('keys.paramOverrides')}：`"
                     :span="2"
