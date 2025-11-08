@@ -56,6 +56,10 @@ const { t } = useI18n();
 const message = useMessage();
 const loading = ref(false);
 const formRef = ref();
+const modelRedirectTip = `{
+  "gpt-5": "gpt-5-2025-08-07",
+  "gemini-2.5-flash": "gemini-2.5-flash-preview-09-2025"
+}`;
 
 // 表单数据接口
 interface GroupFormData {
@@ -478,11 +482,11 @@ async function handleSubmit() {
 
         // Validate rule format
         for (const [key, value] of Object.entries(modelRedirectRules)) {
-          if (typeof key !== 'string' || typeof value !== 'string') {
+          if (typeof key !== "string" || typeof value !== "string") {
             message.error(t("keys.modelRedirectInvalidFormat"));
             return;
           }
-          if (key.trim() === '' || (value as string).trim() === '') {
+          if (key.trim() === "" || (value as string).trim() === "") {
             message.error(t("keys.modelRedirectEmptyModel"));
             return;
           }
@@ -1089,21 +1093,22 @@ async function handleSubmit() {
                       </n-tooltip>
                     </div>
                   </template>
-                  <div style="display: flex; align-items: center; gap: 12px;">
+                  <div style="display: flex; align-items: center; gap: 12px">
                     <n-switch v-model:value="formData.model_redirect_strict" />
-                    <span style="font-size: 14px; color: #666;">
-                      {{ formData.model_redirect_strict ?
-                        t("keys.modelRedirectStrictMode") :
-                        t("keys.modelRedirectLooseMode")
+                    <span style="font-size: 14px; color: #666">
+                      {{
+                        formData.model_redirect_strict
+                          ? t("keys.modelRedirectStrictMode")
+                          : t("keys.modelRedirectLooseMode")
                       }}
                     </span>
                   </div>
                   <template #feedback>
-                    <div style="font-size: 12px; color: #999; margin-top: 4px;">
-                      <div v-if="formData.model_redirect_strict" style="color: #f5a623;">
+                    <div style="font-size: 12px; color: #999; margin: 4px 0">
+                      <div v-if="formData.model_redirect_strict" style="color: #f5a623">
                         ⚠️ {{ t("keys.modelRedirectStrictWarning") }}
                       </div>
-                      <div v-else style="color: #52c41a;">
+                      <div v-else style="color: #52c41a">
                         ✅ {{ t("keys.modelRedirectLooseInfo") }}
                       </div>
                     </div>
@@ -1125,15 +1130,12 @@ async function handleSubmit() {
                   <n-input
                     v-model:value="formData.model_redirect_rules"
                     type="textarea"
-                    :placeholder="t('keys.modelRedirectRulesPlaceholder')"
+                    :placeholder="modelRedirectTip"
                     :rows="4"
                   />
                   <template #feedback>
-                    <div style="font-size: 14px; color: #999;">
+                    <div style="font-size: 14px; color: #999">
                       {{ t("keys.modelRedirectRulesDescription") }}
-                      <div v-if="formData.model_redirect_strict" style="color: #f5a623; margin-top: 4px;">
-                        {{ t("keys.modelRedirectStrictModeNote") }}
-                      </div>
                     </div>
                   </template>
                 </n-form-item>

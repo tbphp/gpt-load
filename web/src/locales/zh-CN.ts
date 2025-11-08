@@ -346,13 +346,13 @@ export default {
     modelRedirectPolicyTooltip: "选择如何处理未在重定向规则中配置的模型请求",
     modelRedirectStrictMode: "严格模式：拒绝未配置的模型请求（返回404）",
     modelRedirectLooseMode: "宽松模式：透传未配置的模型请求",
-    modelRedirectStrictWarning: "严格模式下，只有在下方重定向规则中配置的模型才能被请求，其他模型将返回404错误",
+    modelRedirectStrictWarning:
+      "严格模式下，只有在下方重定向规则中配置的模型才能被请求，其他模型将返回404错误",
     modelRedirectLooseInfo: "宽松模式下，未配置重定向的模型将直接透传给上游服务",
     modelRedirectRules: "模型重定向规则",
     modelRedirectRulesTooltip: "配置模型重定向规则，键为用户请求的模型名，值为实际请求上游的模型名",
-    modelRedirectRulesPlaceholder: '{"gpt-4": "gpt-4-turbo", "gemini-2.5-flash": "gemini-2.5-flash-thinking"}',
-    modelRedirectRulesDescription: "配置模型重定向规则，键为用户请求的模型名，值为实际请求上游的模型名",
-    modelRedirectStrictModeNote: "严格模式下，此配置同时作为模型白名单使用",
+    modelRedirectRulesDescription:
+      "配置模型重定向规则，键为用户请求的模型名，值为实际请求上游的模型名",
     modelRedirectInvalidJson: "模型重定向规则 JSON 格式错误",
     modelRedirectInvalidFormat: "模型重定向规则的键值必须都是字符串",
     modelRedirectEmptyModel: "模型名称不能为空",
