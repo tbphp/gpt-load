@@ -90,7 +90,7 @@ func (ch *GeminiChannel) ExtractModel(c *gin.Context, bodyBytes []byte) string {
 	}
 	var p modelPayload
 	if err := json.Unmarshal(bodyBytes, &p); err == nil && p.Model != "" {
-		return utils.CleanGeminiModelName(p.Model)
+		return p.Model
 	}
 
 	return ""

@@ -153,23 +153,15 @@ func (b *BaseChannel) ApplyModelRedirect(req *http.Request, bodyBytes []byte, gr
 		return bodyBytes, nil
 	}
 
-	// Handle models/ prefix for Gemini OpenAI compatible format
-	cleanModel := utils.CleanGeminiModelName(model)
-
-	if targetModel, found := group.ModelRedirectMap[cleanModel]; found {
-		// Apply redirection
-		finalModel := targetModel
-		if strings.HasPrefix(model, "models/") {
-			finalModel = "models/" + targetModel
-			requestData["model"] = finalModel
-		} else {
-			requestData["model"] = targetModel
-		}
+	// Direct match without any prefix processing
+	if targetModel, found := group.ModelRedirectMap[model]; found {
+		// Apply redirection directly
+		requestData["model"] = targetModel
 
 		// Log the redirection for audit
 		logrus.WithFields(logrus.Fields{
 			"group":          group.Name,
-			"original_model": cleanModel,
+			"original_model": model,
 			"target_model":   targetModel,
 			"channel":        "json_body",
 		}).Debug("Model redirected")
@@ -179,7 +171,7 @@ func (b *BaseChannel) ApplyModelRedirect(req *http.Request, bodyBytes []byte, gr
 
 	// No redirection rule found
 	if group.ModelRedirectStrict {
-		return nil, fmt.Errorf("model '%s' is not configured in redirect rules", cleanModel)
+		return nil, fmt.Errorf("model '%s' is not configured in redirect rules", model)
 	}
 
 	return bodyBytes, nil
