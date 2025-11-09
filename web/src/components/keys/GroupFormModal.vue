@@ -490,10 +490,6 @@ async function handleSubmit() {
             message.error(t("keys.modelRedirectEmptyModel"));
             return;
           }
-          if (key === value) {
-            message.error(t("keys.modelRedirectSelfReference", { model: key }));
-            return;
-          }
         }
       } catch {
         message.error(t("keys.modelRedirectInvalidJson"));

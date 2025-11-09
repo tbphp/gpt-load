@@ -372,7 +372,6 @@ export default {
     modelRedirectInvalidJson: "Invalid JSON format for model redirect rules",
     modelRedirectInvalidFormat: "Model redirect rule keys and values must all be strings",
     modelRedirectEmptyModel: "Model name cannot be empty",
-    modelRedirectSelfReference: "Cannot redirect model to itself: {model}",
     never: "Never",
     daysAgo: "{days} days ago",
     hoursAgo: "{hours} hours ago",

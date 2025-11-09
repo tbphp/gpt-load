@@ -372,7 +372,6 @@ export default {
     modelRedirectInvalidFormat:
       "モデルリダイレクトルールのキーと値はすべて文字列である必要があります",
     modelRedirectEmptyModel: "モデル名を空にすることはできません",
-    modelRedirectSelfReference: "モデルを自身にリダイレクトすることはできません: {model}",
     never: "使用なし",
     daysAgo: "{days}日前",
     hoursAgo: "{hours}時間前",

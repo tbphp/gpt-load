@@ -356,7 +356,6 @@ export default {
     modelRedirectInvalidJson: "模型重定向规则 JSON 格式错误",
     modelRedirectInvalidFormat: "模型重定向规则的键值必须都是字符串",
     modelRedirectEmptyModel: "模型名称不能为空",
-    modelRedirectSelfReference: "不能将模型重定向到自身: {model}",
     never: "从未",
     daysAgo: "{days}天前",
     hoursAgo: "{hours}小时前",
