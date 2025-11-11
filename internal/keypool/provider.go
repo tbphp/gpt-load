@@ -112,6 +112,32 @@ func (p *KeyProvider) UpdateStatus(apiKey *models.APIKey, group *models.Group, i
 	}()
 }
 
+// UpdateStatusWithImmediateInvalidation 异步地提交一个 Key 状态更新任务，如果失败则立即标记为无效。
+func (p *KeyProvider) UpdateStatusWithImmediateInvalidation(apiKey *models.APIKey, group *models.Group, isSuccess bool, errorMessage string) {
+	go func() {
+		keyHashKey := fmt.Sprintf("key:%d", apiKey.ID)
+		activeKeysListKey := fmt.Sprintf("group:%d:active_keys", group.ID)
+
+		if isSuccess {
+			if err := p.handleSuccess(apiKey.ID, keyHashKey, activeKeysListKey); err != nil {
+				logrus.WithFields(logrus.Fields{"keyID": apiKey.ID, "error": err}).Error("Failed to handle key success")
+			}
+		} else {
+			if app_errors.IsUnCounted(errorMessage) {
+				logrus.WithFields(logrus.Fields{
+					"keyID": apiKey.ID,
+					"error": errorMessage,
+				}).Debug("Uncounted error, skipping failure handling")
+			} else {
+				// 立即标记密钥为无效，忽略黑名单阈值
+				if err := p.handleImmediateInvalidation(apiKey, group, keyHashKey, activeKeysListKey); err != nil {
+					logrus.WithFields(logrus.Fields{"keyID": apiKey.ID, "error": err}).Error("Failed to handle key immediate invalidation")
+				}
+			}
+		}
+	}()
+}
+
 // executeTransactionWithRetry wraps a database transaction with a retry mechanism.
 func (p *KeyProvider) executeTransactionWithRetry(operation func(tx *gorm.DB) error) error {
 	const maxRetries = 3
@@ -230,6 +256,48 @@ func (p *KeyProvider) handleFailure(apiKey *models.APIKey, group *models.Group, 
 			if err := p.store.HSet(keyHashKey, map[string]any{"status": models.KeyStatusInvalid}); err != nil {
 				return fmt.Errorf("failed to update key status to invalid in store: %w", err)
 			}
+		}
+
+		return nil
+	})
+}
+
+func (p *KeyProvider) handleImmediateInvalidation(apiKey *models.APIKey, group *models.Group, keyHashKey, activeKeysListKey string) error {
+	keyDetails, err := p.store.HGetAll(keyHashKey)
+	if err != nil {
+		return fmt.Errorf("failed to get key details from store: %w", err)
+	}
+
+	if keyDetails["status"] == models.KeyStatusInvalid {
+		return nil
+	}
+
+	return p.executeTransactionWithRetry(func(tx *gorm.DB) error {
+		var key models.APIKey
+		if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&key, apiKey.ID).Error; err != nil {
+			return fmt.Errorf("failed to lock key %d for update: %w", apiKey.ID)
+		}
+
+		updates := map[string]any{
+			"status":        models.KeyStatusInvalid,
+			"failure_count": key.FailureCount + 1,
+		}
+
+		if err := tx.Model(&key).Updates(updates).Error; err != nil {
+			return fmt.Errorf("failed to update key status to invalid in DB: %w", err)
+		}
+
+		if _, err := p.store.HIncrBy(keyHashKey, "failure_count", 1); err != nil {
+			return fmt.Errorf("failed to increment failure count in store: %w", err)
+		}
+
+		// 立即从活跃列表中移除并更新状态
+		logrus.WithFields(logrus.Fields{"keyID": apiKey.ID, "channel": "gemini", "reason": "403 Forbidden"}).Warn("Key immediately invalidated due to 403 Forbidden error.")
+		if err := p.store.LRem(activeKeysListKey, 0, apiKey.ID); err != nil {
+			return fmt.Errorf("failed to LRem key from active list: %w", err)
+		}
+		if err := p.store.HSet(keyHashKey, map[string]any{"status": models.KeyStatusInvalid}); err != nil {
+			return fmt.Errorf("failed to update key status to invalid in store: %w", err)
 		}
 
 		return nil

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"gpt-load/internal/channel"
@@ -232,8 +233,18 @@ func (ps *ProxyServer) executeRequestWithRetry(
 			logrus.Debugf("Request failed with status %d (attempt %d/%d) for key %s. Parsed Error: %s", statusCode, retryCount+1, cfg.MaxRetries, utils.MaskAPIKey(apiKey.KeyValue), parsedError)
 		}
 
-		// 使用解析后的错误信息更新密钥状态
-		ps.keyProvider.UpdateStatus(apiKey, group, false, parsedError)
+		// 检查是否是Gemini渠道返回403错误，如果是则立即失效密钥
+		if shouldInvalidateKeyImmediately(group.ChannelType, statusCode, parsedError) {
+			logrus.WithFields(logrus.Fields{
+				"channel":     group.ChannelType,
+				"statusCode":  statusCode,
+				"keyID":       apiKey.ID,
+				"parsedError": parsedError,
+			}).Info("Detected immediate invalidation condition, using fast invalidation")
+			ps.keyProvider.UpdateStatusWithImmediateInvalidation(apiKey, group, false, parsedError)
+		} else {
+			ps.keyProvider.UpdateStatus(apiKey, group, false, parsedError)
+		}
 
 		// 判断是否为最后一次尝试
 		isLastAttempt := retryCount >= cfg.MaxRetries
@@ -356,4 +367,30 @@ func (ps *ProxyServer) logRequest(
 	if err := ps.requestLogService.Record(logEntry); err != nil {
 		logrus.Errorf("Failed to record request log: %v", err)
 	}
+}
+
+// shouldInvalidateKeyImmediately 判断是否应该立即失效密钥
+func shouldInvalidateKeyImmediately(channelType string, statusCode int, parsedError string) bool {
+	// 对于Gemini渠道，403错误直接立即失效密钥
+	if channelType == "gemini" && statusCode == 403 {
+		return true
+	}
+
+	// 可以在这里添加其他需要立即失效密钥的条件
+	// 例如：401错误通常表示认证失败，也应该立即失效
+	if channelType == "gemini" && statusCode == 401 {
+		return true
+	}
+
+	// 基于错误信息的判断（对于不支持HTTP状态码的情况）
+	lowerError := strings.ToLower(parsedError)
+	if channelType == "gemini" && (
+		strings.Contains(lowerError, "permission denied") ||
+		strings.Contains(lowerError, "access denied") ||
+		strings.Contains(lowerError, "invalid api key") ||
+		strings.Contains(lowerError, "authentication failed")) {
+		return true
+	}
+
+	return false
 }
