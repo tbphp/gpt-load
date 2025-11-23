@@ -168,7 +168,7 @@ func (s *KeyService) ParseKeysFromText(text string) []string {
 	}
 
 	// 通用解析：通过分隔符分割文本，不使用复杂的正则表达式
-	delimiters := regexp.MustCompile(`[\s,;|\n\r\t]+`)
+	delimiters := regexp.MustCompile(`[\s,;\n\r\t]+`)
 	splitKeys := delimiters.Split(strings.TrimSpace(text), -1)
 
 	for _, key := range splitKeys {
@@ -195,13 +195,7 @@ func (s *KeyService) filterValidKeys(keys []string) []string {
 
 // isValidKeyFormat performs basic validation on key format
 func (s *KeyService) isValidKeyFormat(key string) bool {
-	if key == "" ||
-		strings.TrimSpace(key) == "" {
-		return false
-	}
-
-	validChars := regexp.MustCompile(`^[a-zA-Z0-9_\-./+=:]+$`)
-	return validChars.MatchString(key)
+	return strings.TrimSpace(key) != ""
 }
 
 // RestoreMultipleKeys handles the business logic of restoring keys from a text block.
