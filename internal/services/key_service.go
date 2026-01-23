@@ -301,7 +301,7 @@ func (s *KeyService) ListKeysInGroupQuery(groupID uint, statusFilter string, sea
 		query = query.Where("key_hash = ?", searchHash)
 	}
 
-	query = query.Order("last_used_at desc, updated_at desc")
+	query = query.Order("id desc")
 
 	return query
 }

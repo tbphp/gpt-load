@@ -115,11 +115,10 @@ type APIKey struct {
 	KeyValue     string     `gorm:"type:text;not null" json:"key_value"`
 	KeyHash      string     `gorm:"type:varchar(128);index" json:"key_hash"`
 	GroupID      uint       `gorm:"not null;index" json:"group_id"`
-	Status       string     `gorm:"type:varchar(50);not null;default:'active'" json:"status"`
+	Status       string     `gorm:"type:varchar(50);not null;default:'active';index" json:"status"`
 	Notes        string     `gorm:"type:varchar(255);default:''" json:"notes"`
 	RequestCount int64      `gorm:"not null;default:0" json:"request_count"`
 	FailureCount int64      `gorm:"not null;default:0" json:"failure_count"`
-	LastUsedAt   *time.Time `json:"last_used_at"`
 	CreatedAt    time.Time  `json:"created_at"`
 	UpdatedAt    time.Time  `json:"updated_at"`
 }
