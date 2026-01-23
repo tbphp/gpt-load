@@ -242,7 +242,7 @@ func (p *KeyProvider) LoadKeysFromDB() error {
 
 	// 1. 分批从数据库加载并使用 Pipeline 写入 Redis
 	allActiveKeyIDs := make(map[uint][]any)
-	batchSize := 1000
+	batchSize := 10000
 	var batchKeys []*models.APIKey
 
 	err := p.db.Model(&models.APIKey{}).FindInBatches(&batchKeys, batchSize, func(tx *gorm.DB, batch int) error {
@@ -308,13 +308,8 @@ func (p *KeyProvider) AddKeys(groupID uint, keys []models.APIKey) error {
 			return err
 		}
 
-		for _, key := range keys {
-			if err := p.addKeyToStore(&key); err != nil {
-				logrus.WithFields(logrus.Fields{"keyID": key.ID, "error": err}).Error("Failed to add key to store after DB creation, rolling back transaction")
-				return err
-			}
-		}
-		return nil
+		// 使用批量方法添加到缓存
+		return p.addKeysToCacheBatch(groupID, keys)
 	})
 
 	return err
@@ -574,6 +569,48 @@ func (p *KeyProvider) addKeyToStore(key *models.APIKey) error {
 			return fmt.Errorf("failed to LPush key %d to group %d: %w", key.ID, key.GroupID, err)
 		}
 	}
+	return nil
+}
+
+// addKeysToCacheBatch 批量添加密钥到缓存（用于批量导入场景）
+func (p *KeyProvider) addKeysToCacheBatch(groupID uint, keys []models.APIKey) error {
+	if len(keys) == 0 {
+		return nil
+	}
+
+	// 1. 批量 HSet 密钥详情
+	if pipeliner, ok := p.store.(store.RedisPipeliner); ok {
+		// Redis: 使用 Pipeline 批量操作
+		pipe := pipeliner.Pipeline()
+		for i := range keys {
+			keyHashKey := fmt.Sprintf("key:%d", keys[i].ID)
+			pipe.HSet(keyHashKey, p.apiKeyToMap(&keys[i]))
+		}
+		if err := pipe.Exec(); err != nil {
+			return fmt.Errorf("failed to batch HSet keys: %w", err)
+		}
+	} else {
+		// MemoryStore: 降级为逐个 HSet
+		for i := range keys {
+			keyHashKey := fmt.Sprintf("key:%d", keys[i].ID)
+			if err := p.store.HSet(keyHashKey, p.apiKeyToMap(&keys[i])); err != nil {
+				return fmt.Errorf("failed to HSet key %d: %w", keys[i].ID, err)
+			}
+		}
+	}
+
+	// 2. 收集所有密钥 ID
+	activeKeysListKey := fmt.Sprintf("group:%d:active_keys", groupID)
+	activeKeyIDs := make([]any, len(keys))
+	for i := range keys {
+		activeKeyIDs[i] = keys[i].ID
+	}
+
+	// 3. 批量 LPush 活跃密钥
+	if err := p.store.LPush(activeKeysListKey, activeKeyIDs...); err != nil {
+		return fmt.Errorf("failed to batch LPush keys to group %d: %w", groupID, err)
+	}
+
 	return nil
 }
 
