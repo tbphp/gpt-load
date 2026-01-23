@@ -405,6 +405,12 @@ export default {
     notes: "备注",
     editKeyNotes: "编辑密钥备注",
     enterNotes: "请输入备注...",
+    uploadFile: "上传文件",
+    manualInput: "手动输入",
+    clickOrDragFile: "点击或拖拽文件到此处上传",
+    onlyTxtFileSupported: "仅支持 .txt 文件",
+    fileImportedSuccessfully: "文件导入成功",
+    fileReadError: "文件读取失败",
   },
   subGroups: {
     addSubGroup: "添加子分组",

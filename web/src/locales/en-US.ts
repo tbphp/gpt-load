@@ -421,6 +421,12 @@ export default {
     notes: "Notes",
     editKeyNotes: "Edit key notes",
     enterNotes: "Enter notes...",
+    uploadFile: "Upload File",
+    manualInput: "Manual Input",
+    clickOrDragFile: "Click or drag file to upload",
+    onlyTxtFileSupported: "Only .txt files are supported",
+    fileImportedSuccessfully: "File imported successfully",
+    fileReadError: "Failed to read file",
   },
   subGroups: {
     addSubGroup: "Add Sub Group",

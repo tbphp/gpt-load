@@ -102,17 +102,25 @@ export const keysApi = {
   },
 
   // 异步批量添加密钥
-  async addKeysAsync(group_id: number, keys_text: string): Promise<TaskInfo> {
-    const res = await http.post(
-      "/keys/add-async",
-      {
-        group_id,
-        keys_text,
-      },
-      {
-        hideMessage: true,
-      }
-    );
+  async addKeysAsync(group_id: number, keys_text?: string, file?: File): Promise<TaskInfo> {
+    let requestData: FormData | { group_id: number; keys_text: string };
+    const config: { hideMessage: boolean; headers?: { "Content-Type": string } } = {
+      hideMessage: true,
+    };
+
+    if (file) {
+      // File upload mode
+      const formData = new FormData();
+      formData.append("group_id", group_id.toString());
+      formData.append("file", file);
+      requestData = formData;
+      config.headers = { "Content-Type": "multipart/form-data" };
+    } else {
+      // Text input mode
+      requestData = { group_id, keys_text: keys_text || "" };
+    }
+
+    const res = await http.post("/keys/add-async", requestData, config);
     return res.data;
   },
 

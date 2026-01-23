@@ -5,7 +5,9 @@ import (
 	app_errors "gpt-load/internal/errors"
 	"gpt-load/internal/models"
 	"gpt-load/internal/response"
+	"io"
 	"log"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -107,24 +109,79 @@ func (s *Server) AddMultipleKeys(c *gin.Context) {
 	response.Success(c, result)
 }
 
-// AddMultipleKeysAsync handles creating new keys from a text block within a specific group.
+// AddMultipleKeysAsync handles creating new keys from a text block or file within a specific group.
 func (s *Server) AddMultipleKeysAsync(c *gin.Context) {
-	var req KeyTextRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, app_errors.NewAPIError(app_errors.ErrInvalidJSON, err.Error()))
-		return
+	var groupID uint
+	var keysText string
+
+	// Check content type to determine if it's a file upload or JSON request
+	contentType := c.ContentType()
+
+	if strings.Contains(contentType, "multipart/form-data") {
+		// Handle file upload
+		groupIDStr := c.PostForm("group_id")
+		if groupIDStr == "" {
+			response.ErrorI18nFromAPIError(c, app_errors.ErrBadRequest, "validation.group_id_required")
+			return
+		}
+
+		groupIDInt, err := strconv.Atoi(groupIDStr)
+		if err != nil || groupIDInt <= 0 {
+			response.ErrorI18nFromAPIError(c, app_errors.ErrBadRequest, "validation.invalid_group_id_format")
+			return
+		}
+		groupID = uint(groupIDInt)
+
+		// Get uploaded file
+		file, err := c.FormFile("file")
+		if err != nil {
+			response.ErrorI18nFromAPIError(c, app_errors.ErrBadRequest, "validation.file_required")
+			return
+		}
+
+		// Validate file extension
+		ext := strings.ToLower(filepath.Ext(file.Filename))
+		if ext != ".txt" {
+			response.ErrorI18nFromAPIError(c, app_errors.ErrValidation, "validation.only_txt_supported")
+			return
+		}
+
+		// Read file content
+		fileContent, err := file.Open()
+		if err != nil {
+			response.ErrorI18nFromAPIError(c, app_errors.ErrBadRequest, "validation.failed_to_open_file")
+			return
+		}
+		defer fileContent.Close()
+
+		// Read file content as string using io.ReadAll
+		buf, err := io.ReadAll(fileContent)
+		if err != nil {
+			response.ErrorI18nFromAPIError(c, app_errors.ErrBadRequest, "validation.failed_to_read_file")
+			return
+		}
+		keysText = string(buf)
+	} else {
+		// Handle JSON request (original behavior)
+		var req KeyTextRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			response.Error(c, app_errors.NewAPIError(app_errors.ErrInvalidJSON, err.Error()))
+			return
+		}
+		groupID = req.GroupID
+		keysText = req.KeysText
 	}
 
-	group, ok := s.findGroupByID(c, req.GroupID)
+	group, ok := s.findGroupByID(c, groupID)
 	if !ok {
 		return
 	}
 
-	if !validateKeysText(c, req.KeysText) {
+	if !validateKeysText(c, keysText) {
 		return
 	}
 
-	taskStatus, err := s.KeyImportService.StartImportTask(group, req.KeysText)
+	taskStatus, err := s.KeyImportService.StartImportTask(group, keysText)
 	if err != nil {
 		response.Error(c, app_errors.NewAPIError(app_errors.ErrTaskInProgress, err.Error()))
 		return
