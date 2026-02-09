@@ -207,28 +207,62 @@ func (s *RequestLogService) writeLogsToDB(logs []*models.RequestLog) error {
 			return fmt.Errorf("failed to batch insert request logs: %w", err)
 		}
 
-		keyStats := make(map[string]int64)
-		for _, log := range logs {
-			if log.IsSuccess && log.KeyHash != "" {
-				keyStats[log.KeyHash]++
-			}
+		type keyUsageStat struct {
+			Count      int64
+			LastUsedAt time.Time
 		}
 
-		if len(keyStats) > 0 {
-			var caseStmt strings.Builder
-			var keyHashes []string
-			caseStmt.WriteString("CASE key_hash ")
-			for keyHash, count := range keyStats {
-				caseStmt.WriteString(fmt.Sprintf("WHEN '%s' THEN request_count + %d ", keyHash, count))
-				keyHashes = append(keyHashes, keyHash)
+		groupedKeyStats := make(map[uint]map[string]keyUsageStat)
+		for _, log := range logs {
+			if !log.IsSuccess || log.KeyHash == "" {
+				continue
 			}
-			caseStmt.WriteString("END")
 
-			if err := tx.Model(&models.APIKey{}).Where("key_hash IN ?", keyHashes).
-				Updates(map[string]any{
-					"request_count": gorm.Expr(caseStmt.String()),
-				}).Error; err != nil {
-				return fmt.Errorf("failed to batch update api_key stats: %w", err)
+			if _, exists := groupedKeyStats[log.GroupID]; !exists {
+				groupedKeyStats[log.GroupID] = make(map[string]keyUsageStat)
+			}
+
+			stats := groupedKeyStats[log.GroupID][log.KeyHash]
+			stats.Count++
+			if stats.LastUsedAt.IsZero() || log.Timestamp.After(stats.LastUsedAt) {
+				stats.LastUsedAt = log.Timestamp
+			}
+			groupedKeyStats[log.GroupID][log.KeyHash] = stats
+		}
+
+		if len(groupedKeyStats) > 0 {
+			for groupID, keyStats := range groupedKeyStats {
+				var requestCountCase strings.Builder
+				requestCountCase.WriteString("CASE key_hash ")
+
+				var lastUsedAtCase strings.Builder
+				lastUsedAtCase.WriteString("CASE key_hash ")
+
+				requestCountArgs := make([]any, 0, len(keyStats)*2)
+				lastUsedAtArgs := make([]any, 0, len(keyStats)*2)
+				keyHashes := make([]string, 0, len(keyStats))
+
+				for keyHash, stats := range keyStats {
+					requestCountCase.WriteString("WHEN ? THEN request_count + ? ")
+					requestCountArgs = append(requestCountArgs, keyHash, stats.Count)
+
+					lastUsedAtCase.WriteString("WHEN ? THEN ? ")
+					lastUsedAtArgs = append(lastUsedAtArgs, keyHash, stats.LastUsedAt)
+
+					keyHashes = append(keyHashes, keyHash)
+				}
+
+				requestCountCase.WriteString("ELSE request_count END")
+				lastUsedAtCase.WriteString("ELSE last_used_at END")
+
+				if err := tx.Model(&models.APIKey{}).
+					Where("group_id = ? AND key_hash IN ?", groupID, keyHashes).
+					Updates(map[string]any{
+						"request_count": gorm.Expr(requestCountCase.String(), requestCountArgs...),
+						"last_used_at":  gorm.Expr(lastUsedAtCase.String(), lastUsedAtArgs...),
+					}).Error; err != nil {
+					return fmt.Errorf("failed to batch update api_key stats: %w", err)
+				}
 			}
 		}
 
