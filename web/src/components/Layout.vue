@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import AppFooter from "@/components/AppFooter.vue";
 import GlobalTaskProgressBar from "@/components/GlobalTaskProgressBar.vue";
-import LanguageSelector from "@/components/LanguageSelector.vue";
 import Logout from "@/components/Logout.vue";
 import NavBar from "@/components/NavBar.vue";
 import ThemeToggle from "@/components/ThemeToggle.vue";
@@ -36,7 +35,7 @@ const toggleMenu = () => {
         </nav>
 
         <div class="header-actions">
-          <language-selector />
+          <!-- <language-selector /> -->
           <theme-toggle />
           <logout v-if="!isMobile" />
           <n-button v-if="isMobile" text @click="toggleMenu">
@@ -103,7 +102,6 @@ const toggleMenu = () => {
   justify-content: space-between;
   padding: 8px 0;
   overflow-x: auto;
-  max-width: 1200px;
   margin: 0 auto;
   position: relative;
 }
@@ -168,7 +166,7 @@ const toggleMenu = () => {
   flex: 1;
   overflow: auto;
   background: transparent;
-  max-width: 1200px;
+  max-width: 1400px;
   margin: 0 auto;
   width: 100%;
 }

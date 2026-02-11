@@ -110,7 +110,7 @@ func (ch *AnthropicChannel) ValidateKey(ctx context.Context, apiKey *models.APIK
 		return false, fmt.Errorf("failed to create validation request: %w", err)
 	}
 	req.Header.Set("x-api-key", apiKey.KeyValue)
-	req.Header.Set("anthropic-version", "2023-06-01")
+	req.Header.Set("anthropic-version", "2026-03-01")
 	req.Header.Set("Content-Type", "application/json")
 
 	// Apply custom header rules if available
