@@ -102,6 +102,13 @@ func (ps *ProxyServer) HandleProxy(c *gin.Context) {
 	}
 	c.Request.Body.Close()
 
+	if normalizedBody, normalized := utils.NormalizeJSONRequestBody(bodyBytes, c.GetHeader("Content-Type")); normalized {
+		logrus.WithFields(logrus.Fields{
+			"group": group.Name,
+		}).Debug("request body normalized from lenient JSON")
+		bodyBytes = normalizedBody
+	}
+
 	finalBodyBytes, err := ps.applyParamOverrides(bodyBytes, group)
 	if err != nil {
 		response.Error(c, app_errors.NewAPIError(app_errors.ErrInternalServer, fmt.Sprintf("Failed to apply parameter overrides: %v", err)))
