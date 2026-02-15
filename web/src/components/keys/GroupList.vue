@@ -76,6 +76,7 @@ function handleGroupClick(group: Group) {
 function getChannelTagType(channelType: string) {
   switch (channelType) {
     case "openai":
+    case "openai-response":
       return "success";
     case "gemini":
       return "info";
@@ -148,6 +149,7 @@ function handleGroupCreated(group: Group) {
               <div class="group-icon">
                 <span v-if="group.group_type === 'aggregate'">🔗</span>
                 <span v-else-if="group.channel_type === 'openai'">🤖</span>
+                <span v-else-if="group.channel_type === 'openai-response'">🔁</span>
                 <span v-else-if="group.channel_type === 'gemini'">💎</span>
                 <span v-else-if="group.channel_type === 'anthropic'">🧠</span>
                 <span v-else>🔧</span>

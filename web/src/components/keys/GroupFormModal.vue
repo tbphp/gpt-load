@@ -67,7 +67,7 @@ interface GroupFormData {
   display_name: string;
   description: string;
   upstreams: UpstreamInfo[];
-  channel_type: "anthropic" | "gemini" | "openai";
+  channel_type: "anthropic" | "gemini" | "openai" | "openai-response";
   sort: number;
   test_model: string;
   validation_endpoint: string;
@@ -121,6 +121,7 @@ const userModifiedFields = ref({
 const testModelPlaceholder = computed(() => {
   switch (formData.channel_type) {
     case "openai":
+    case "openai-response":
       return "gpt-4.1-nano";
     case "gemini":
       return "gemini-2.0-flash-lite";
@@ -134,6 +135,7 @@ const testModelPlaceholder = computed(() => {
 const upstreamPlaceholder = computed(() => {
   switch (formData.channel_type) {
     case "openai":
+    case "openai-response":
       return "https://api.openai.com";
     case "gemini":
       return "https://generativelanguage.googleapis.com";
@@ -148,6 +150,8 @@ const validationEndpointPlaceholder = computed(() => {
   switch (formData.channel_type) {
     case "openai":
       return "/v1/chat/completions";
+    case "openai-response":
+      return "/v1/responses";
     case "anthropic":
       return "/v1/messages";
     case "gemini":
@@ -246,6 +250,7 @@ watch(
 function getOldDefaultTestModel(channelType: string): string {
   switch (channelType) {
     case "openai":
+    case "openai-response":
       return "gpt-4.1-nano";
     case "gemini":
       return "gemini-2.0-flash-lite";
@@ -259,6 +264,7 @@ function getOldDefaultTestModel(channelType: string): string {
 function getOldDefaultUpstream(channelType: string): string {
   switch (channelType) {
     case "openai":
+    case "openai-response":
       return "https://api.openai.com";
     case "gemini":
       return "https://generativelanguage.googleapis.com";
@@ -700,6 +706,8 @@ async function handleSubmit() {
                       {{ t("keys.testPathTooltip1") }}
                       <br />
                       • OpenAI: /v1/chat/completions
+                      <br />
+                      • OpenAI Response: /v1/responses
                       <br />
                       • Anthropic: /v1/messages
                       <br />

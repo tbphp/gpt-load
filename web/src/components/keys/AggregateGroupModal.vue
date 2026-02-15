@@ -43,6 +43,7 @@ const formRef = ref();
 // 渠道类型选项
 const channelTypeOptions = [
   { label: "OpenAI", value: "openai" as ChannelType },
+  { label: "OpenAI Response", value: "openai-response" as ChannelType },
   { label: "Gemini", value: "gemini" as ChannelType },
   { label: "Anthropic", value: "anthropic" as ChannelType },
 ];
