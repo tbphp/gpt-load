@@ -405,6 +405,11 @@ http://localhost:3001/proxy/{group_name}/{原始API路径}
 
 ### 3. OpenAI 接口调用示例
 
+GPT-Load 当前支持两种 OpenAI 兼容分组类型：
+
+- `openai`（OpenAI Chat Completions 格式）
+- `openai-response`（OpenAI Responses 格式）
+
 假设创建了名为 `openai` 的分组：
 
 **原始调用方式：**
@@ -429,6 +434,15 @@ curl -X POST http://localhost:3001/proxy/openai/v1/chat/completions \
 
 - 将 `https://api.openai.com` 替换为 `http://localhost:3001/proxy/openai`
 - 将原始 API Key 替换为**代理密钥**
+
+**OpenAI Responses 格式示例（`openai-response` 分组）：**
+
+```bash
+curl -X POST http://localhost:3001/proxy/openai-response/v1/responses \
+  -H "Authorization: Bearer your-proxy-key" \
+  -H "Content-Type: application/json" \
+  -d '{"model": "gpt-4.1-mini", "input": "Hello"}'
+```
 
 ### 4. Gemini 接口调用示例
 
@@ -486,13 +500,19 @@ curl -X POST http://localhost:3001/proxy/anthropic/v1/messages \
 
 ### 6. 支持的接口
 
-**OpenAI 格式：**
+**OpenAI Chat Completions 格式（`openai`）：**
 
 - `/v1/chat/completions` - 聊天对话
 - `/v1/completions` - 文本补全
 - `/v1/embeddings` - 文本嵌入
 - `/v1/models` - 模型列表
 - 以及其他所有 OpenAI 兼容接口
+
+**OpenAI Responses 格式（`openai-response`）：**
+
+- `/v1/responses` - 统一响应生成
+- `/v1/models` - 模型列表
+- 以及其他所有 OpenAI Responses 兼容接口
 
 **Gemini 格式：**
 
