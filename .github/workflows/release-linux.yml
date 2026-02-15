@@ -26,7 +26,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.23.x"
+          go-version: "1.24.x"
       - name: Build Backend for amd64
         run: |
           go mod download

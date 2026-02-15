@@ -7,7 +7,7 @@ RUN npm install
 RUN VITE_VERSION=${VERSION} npm run build
 
 
-FROM golang:alpine AS builder2
+FROM golang:1.24-alpine AS builder2
 
 ARG VERSION=1.0.0
 ENV GO111MODULE=on \
