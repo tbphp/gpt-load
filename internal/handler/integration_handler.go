@@ -6,6 +6,7 @@ import (
 	app_errors "gpt-load/internal/errors"
 	"gpt-load/internal/models"
 	"gpt-load/internal/response"
+	"gpt-load/internal/utils"
 
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
@@ -100,18 +101,25 @@ func (s *Server) GetIntegrationInfo(c *gin.Context) {
 
 // getEffectiveChannelType returns the effective channel type
 func getEffectiveChannelType(group *models.Group) string {
-	if group.ChannelType != "openai" {
+	if group.ChannelType != "openai" && group.ChannelType != "openai-response" {
 		return group.ChannelType
 	}
 
-	if group.ValidationEndpoint == "" {
-		return "openai"
+	effectiveEndpoint := utils.GetValidationEndpoint(group)
+	if effectiveEndpoint == "" {
+		return group.ChannelType
 	}
 
-	defaultEndpoint := "/v1/chat/completions"
+	defaultEndpoint := ""
+	switch group.ChannelType {
+	case "openai":
+		defaultEndpoint = "/v1/chat/completions"
+	case "openai-response":
+		defaultEndpoint = "/v1/responses"
+	}
 
-	if group.ValidationEndpoint == defaultEndpoint {
-		return "openai"
+	if effectiveEndpoint == defaultEndpoint {
+		return group.ChannelType
 	}
 
 	return "custom"
