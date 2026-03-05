@@ -52,9 +52,11 @@ func applyAnthropicSystemPromptCount(bodyBytes []byte, group *models.Group) []by
 	systemBlocks := make([]any, 0, targetCount)
 	if system, exists := requestData["system"]; exists {
 		if items, ok := asAnyArray(system); ok {
-			systemBlocks = append(systemBlocks, items...)
+			for _, item := range items {
+				systemBlocks = append(systemBlocks, normalizeSystemTextBlock(item))
+			}
 		} else {
-			systemBlocks = append(systemBlocks, system)
+			systemBlocks = append(systemBlocks, normalizeSystemTextBlock(system))
 		}
 	}
 
@@ -106,6 +108,16 @@ func asAnyArray(value any) ([]any, bool) {
 	return items, ok
 }
 
+func normalizeSystemTextBlock(block any) any {
+	if text, ok := block.(string); ok {
+		return map[string]any{
+			"type": "text",
+			"text": text,
+		}
+	}
+	return block
+}
+
 func extractSystemText(block any) (string, bool) {
 	switch v := block.(type) {
 	case string:
@@ -127,7 +139,10 @@ func extractSystemText(block any) (string, bool) {
 func setSystemText(block any, text string) any {
 	switch v := block.(type) {
 	case string:
-		return text
+		return map[string]any{
+			"type": "text",
+			"text": text,
+		}
 	case map[string]any:
 		updated := make(map[string]any, len(v))
 		for key, value := range v {

@@ -82,6 +82,88 @@ func TestApplyAnthropicSystemPromptCount_PadEmptyBlocks(t *testing.T) {
 	}
 }
 
+func TestApplyAnthropicSystemPromptCount_ArrayStringBlocksNormalized(t *testing.T) {
+	group := &models.Group{
+		ChannelType:                "anthropic",
+		AnthropicSystemPromptCount: 2,
+	}
+	input := []byte(`{
+		"model":"claude-opus-4-6",
+		"system":["first","second","third"]
+	}`)
+
+	out := applyAnthropicSystemPromptCount(input, group)
+
+	var payload map[string]any
+	if err := json.Unmarshal(out, &payload); err != nil {
+		t.Fatalf("failed to unmarshal output: %v", err)
+	}
+
+	system, ok := payload["system"].([]any)
+	if !ok {
+		t.Fatalf("system is not array: %#v", payload["system"])
+	}
+	if len(system) != 2 {
+		t.Fatalf("system block count = %d, want 2", len(system))
+	}
+
+	firstBlock, ok := system[0].(map[string]any)
+	if !ok {
+		t.Fatalf("system[0] should be object block, got %#v", system[0])
+	}
+	secondBlock, ok := system[1].(map[string]any)
+	if !ok {
+		t.Fatalf("system[1] should be object block, got %#v", system[1])
+	}
+	if got := firstBlock["text"].(string); got != "first" {
+		t.Fatalf("system[0].text = %q, want %q", got, "first")
+	}
+	if got := secondBlock["text"].(string); got != "second\n\nthird" {
+		t.Fatalf("system[1].text = %q, want %q", got, "second\\n\\nthird")
+	}
+}
+
+func TestApplyAnthropicSystemPromptCount_SingleStringNormalizedAndPadded(t *testing.T) {
+	group := &models.Group{
+		ChannelType:                "anthropic",
+		AnthropicSystemPromptCount: 2,
+	}
+	input := []byte(`{
+		"model":"claude-opus-4-6",
+		"system":"single"
+	}`)
+
+	out := applyAnthropicSystemPromptCount(input, group)
+
+	var payload map[string]any
+	if err := json.Unmarshal(out, &payload); err != nil {
+		t.Fatalf("failed to unmarshal output: %v", err)
+	}
+
+	system, ok := payload["system"].([]any)
+	if !ok {
+		t.Fatalf("system is not array: %#v", payload["system"])
+	}
+	if len(system) != 2 {
+		t.Fatalf("system block count = %d, want 2", len(system))
+	}
+
+	firstBlock, ok := system[0].(map[string]any)
+	if !ok {
+		t.Fatalf("system[0] should be object block, got %#v", system[0])
+	}
+	secondBlock, ok := system[1].(map[string]any)
+	if !ok {
+		t.Fatalf("system[1] should be object block, got %#v", system[1])
+	}
+	if got := firstBlock["text"].(string); got != "single" {
+		t.Fatalf("system[0].text = %q, want %q", got, "single")
+	}
+	if got := secondBlock["text"].(string); got != "" {
+		t.Fatalf("system[1].text = %q, want empty string", got)
+	}
+}
+
 func TestApplyAnthropicSystemPromptCount_NonAnthropicNoChange(t *testing.T) {
 	group := &models.Group{
 		ChannelType:                "openai",

@@ -352,7 +352,7 @@ func (s *GroupService) UpdateGroup(ctx context.Context, id uint, params GroupUpd
 
 	if params.AnthropicSystemPromptCount != nil {
 		group.AnthropicSystemPromptCount = normalizeAnthropicSystemPromptCount(group.ChannelType, *params.AnthropicSystemPromptCount)
-	} else if group.ChannelType != "anthropic" {
+	} else if !strings.EqualFold(group.ChannelType, "anthropic") {
 		group.AnthropicSystemPromptCount = 0
 	}
 
@@ -988,7 +988,7 @@ func (s *GroupService) isValidChannelType(channelType string) bool {
 }
 
 func normalizeAnthropicSystemPromptCount(channelType string, count int) int {
-	if channelType != "anthropic" {
+	if !strings.EqualFold(channelType, "anthropic") {
 		return 0
 	}
 	if count < 0 {

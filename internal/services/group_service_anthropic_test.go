@@ -14,9 +14,12 @@ func TestNormalizeAnthropicSystemPromptCount(t *testing.T) {
 		want        int
 	}{
 		{name: "non-anthropic forced zero", channelType: "openai", count: 5, want: 0},
+		{name: "anthropic zero kept", channelType: "anthropic", count: 0, want: 0},
 		{name: "negative clamped to zero", channelType: "anthropic", count: -1, want: 0},
 		{name: "within range kept", channelType: "anthropic", count: 2, want: 2},
+		{name: "exact max kept", channelType: "anthropic", count: models.MaxAnthropicSystemPromptCount, want: models.MaxAnthropicSystemPromptCount},
 		{name: "upper bound clamped", channelType: "anthropic", count: models.MaxAnthropicSystemPromptCount + 1, want: models.MaxAnthropicSystemPromptCount},
+		{name: "case-insensitive channel type", channelType: "Anthropic", count: 3, want: 3},
 	}
 
 	for _, tt := range tests {

@@ -52,6 +52,8 @@ const props = withDefaults(defineProps<Props>(), {
 
 const emit = defineEmits<Emits>();
 
+const MAX_ANTHROPIC_SYSTEM_PROMPT_COUNT = 100;
+
 const { t } = useI18n();
 const message = useMessage();
 const loading = ref(false);
@@ -162,6 +164,14 @@ const validationEndpointPlaceholder = computed(() => {
       return t("keys.enterValidationPath");
   }
 });
+
+function normalizeAnthropicSystemPromptCount(value: number | null | undefined): number {
+  const numericValue = Number(value ?? 0);
+  if (!Number.isFinite(numericValue)) {
+    return 0;
+  }
+  return Math.min(MAX_ANTHROPIC_SYSTEM_PROMPT_COUNT, Math.max(0, Math.floor(numericValue)));
+}
 
 // 表单验证规则
 const rules: FormRules = {
@@ -339,7 +349,9 @@ function loadGroupData() {
       ? [...props.group.upstreams]
       : [{ url: "", weight: 1 }],
     channel_type: props.group.channel_type || "openai",
-    anthropic_system_prompt_count: props.group.anthropic_system_prompt_count || 0,
+    anthropic_system_prompt_count: normalizeAnthropicSystemPromptCount(
+      props.group.anthropic_system_prompt_count
+    ),
     sort: props.group.sort || 1,
     test_model: props.group.test_model || "",
     validation_endpoint: props.group.validation_endpoint || "",
@@ -530,7 +542,7 @@ async function handleSubmit() {
       channel_type: formData.channel_type,
       anthropic_system_prompt_count:
         formData.channel_type === "anthropic"
-          ? Math.max(0, Math.floor(formData.anthropic_system_prompt_count || 0))
+          ? normalizeAnthropicSystemPromptCount(formData.anthropic_system_prompt_count)
           : 0,
       sort: formData.sort,
       test_model: formData.test_model,
