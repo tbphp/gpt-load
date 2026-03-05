@@ -307,6 +307,10 @@ export default {
       "Select API provider type, determines request format and authentication method. Supports major AI providers like OpenAI, Gemini, Anthropic",
     sortOrderTooltip:
       "Determines display order in the list, smaller numbers appear first. Recommend using intervals like 10, 20, 30 for easy adjustment",
+    anthropicSystemPromptCount: "Prompt Count",
+    anthropicSystemPromptCountTooltip:
+      "Applies only to Anthropic channels. 0 keeps the original system prompt. Values greater than 0 enforce text system count: extra blocks are merged into the last text block and missing blocks are padded with empty text. Range: 0-100",
+    anthropicSystemPromptCountPlaceholder: "0 keeps the original system prompt",
     sortValue: "Sort value",
     testModelTooltip:
       "Model name for validating API key availability. System will use this model to send test requests to check if the key is working. Please use lightweight and fast models",

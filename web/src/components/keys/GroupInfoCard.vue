@@ -560,6 +560,11 @@ function resetPage() {
                         {{ group?.sort }}
                       </n-form-item>
                     </n-grid-item>
+                    <n-grid-item v-if="group?.channel_type === 'anthropic'">
+                      <n-form-item :label="`${t('keys.anthropicSystemPromptCount')}：`">
+                        {{ group?.anthropic_system_prompt_count ?? 0 }}
+                      </n-form-item>
+                    </n-grid-item>
                     <!-- 标准分组才显示测试模型和测试路径 -->
                     <n-grid-item v-if="!isAggregateGroup">
                       <n-form-item :label="`${t('keys.testModel')}：`">

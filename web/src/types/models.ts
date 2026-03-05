@@ -70,6 +70,7 @@ export interface Group {
   sort: number;
   test_model: string;
   channel_type: ChannelType;
+  anthropic_system_prompt_count?: number;
   upstreams: UpstreamInfo[];
   validation_endpoint: string;
   config: Record<string, unknown>;

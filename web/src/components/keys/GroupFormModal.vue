@@ -68,6 +68,7 @@ interface GroupFormData {
   description: string;
   upstreams: UpstreamInfo[];
   channel_type: "anthropic" | "gemini" | "openai" | "openai-response";
+  anthropic_system_prompt_count: number;
   sort: number;
   test_model: string;
   validation_endpoint: string;
@@ -93,6 +94,7 @@ const formData = reactive<GroupFormData>({
     },
   ] as UpstreamInfo[],
   channel_type: "openai",
+  anthropic_system_prompt_count: 0,
   sort: 1,
   test_model: "",
   validation_endpoint: "",
@@ -294,6 +296,7 @@ function resetForm() {
       },
     ],
     channel_type: defaultChannelType,
+    anthropic_system_prompt_count: 0,
     sort: 1,
     test_model: isCreateMode ? testModelPlaceholder.value : "",
     validation_endpoint: "",
@@ -336,6 +339,7 @@ function loadGroupData() {
       ? [...props.group.upstreams]
       : [{ url: "", weight: 1 }],
     channel_type: props.group.channel_type || "openai",
+    anthropic_system_prompt_count: props.group.anthropic_system_prompt_count || 0,
     sort: props.group.sort || 1,
     test_model: props.group.test_model || "",
     validation_endpoint: props.group.validation_endpoint || "",
@@ -524,6 +528,10 @@ async function handleSubmit() {
       description: formData.description,
       upstreams: formData.upstreams.filter((upstream: UpstreamInfo) => upstream.url.trim()),
       channel_type: formData.channel_type,
+      anthropic_system_prompt_count:
+        formData.channel_type === "anthropic"
+          ? Math.max(0, Math.floor(formData.anthropic_system_prompt_count || 0))
+          : 0,
       sort: formData.sort,
       test_model: formData.test_model,
       validation_endpoint: formData.validation_endpoint,
@@ -666,6 +674,35 @@ async function handleSubmit() {
                 style="width: 100%"
               />
             </n-form-item>
+          </div>
+
+          <div class="form-row" v-if="formData.channel_type === 'anthropic'">
+            <n-form-item
+              :label="t('keys.anthropicSystemPromptCount')"
+              path="anthropic_system_prompt_count"
+              class="form-item-half"
+            >
+              <template #label>
+                <div class="form-label-with-tooltip">
+                  {{ t("keys.anthropicSystemPromptCount") }}
+                  <n-tooltip trigger="hover" placement="top">
+                    <template #trigger>
+                      <n-icon :component="HelpCircleOutline" class="help-icon" />
+                    </template>
+                    {{ t("keys.anthropicSystemPromptCountTooltip") }}
+                  </n-tooltip>
+                </div>
+              </template>
+              <n-input-number
+                v-model:value="formData.anthropic_system_prompt_count"
+                :min="0"
+                :max="100"
+                :placeholder="t('keys.anthropicSystemPromptCountPlaceholder')"
+                style="width: 100%"
+              />
+            </n-form-item>
+
+            <div class="form-item-half" />
           </div>
 
           <!-- Test model and test path on the same row -->

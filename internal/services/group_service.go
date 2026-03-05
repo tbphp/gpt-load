@@ -84,44 +84,46 @@ func NewGroupService(
 
 // GroupCreateParams captures all fields required to create a group.
 type GroupCreateParams struct {
-	Name                string
-	DisplayName         string
-	Description         string
-	GroupType           string
-	Upstreams           json.RawMessage
-	ChannelType         string
-	Sort                int
-	TestModel           string
-	ValidationEndpoint  string
-	ParamOverrides      map[string]any
-	ModelRedirectRules  map[string]string
-	ModelRedirectStrict bool
-	Config              map[string]any
-	HeaderRules         []models.HeaderRule
-	ProxyKeys           string
-	SubGroups           []SubGroupInput
+	Name                       string
+	DisplayName                string
+	Description                string
+	GroupType                  string
+	Upstreams                  json.RawMessage
+	ChannelType                string
+	AnthropicSystemPromptCount int
+	Sort                       int
+	TestModel                  string
+	ValidationEndpoint         string
+	ParamOverrides             map[string]any
+	ModelRedirectRules         map[string]string
+	ModelRedirectStrict        bool
+	Config                     map[string]any
+	HeaderRules                []models.HeaderRule
+	ProxyKeys                  string
+	SubGroups                  []SubGroupInput
 }
 
 // GroupUpdateParams captures updatable fields for a group.
 type GroupUpdateParams struct {
-	Name                *string
-	DisplayName         *string
-	Description         *string
-	GroupType           *string
-	Upstreams           json.RawMessage
-	HasUpstreams        bool
-	ChannelType         *string
-	Sort                *int
-	TestModel           string
-	HasTestModel        bool
-	ValidationEndpoint  *string
-	ParamOverrides      map[string]any
-	ModelRedirectRules  map[string]string
-	ModelRedirectStrict *bool
-	Config              map[string]any
-	HeaderRules         *[]models.HeaderRule
-	ProxyKeys           *string
-	SubGroups           *[]SubGroupInput
+	Name                       *string
+	DisplayName                *string
+	Description                *string
+	GroupType                  *string
+	Upstreams                  json.RawMessage
+	HasUpstreams               bool
+	ChannelType                *string
+	AnthropicSystemPromptCount *int
+	Sort                       *int
+	TestModel                  string
+	HasTestModel               bool
+	ValidationEndpoint         *string
+	ParamOverrides             map[string]any
+	ModelRedirectRules         map[string]string
+	ModelRedirectStrict        *bool
+	Config                     map[string]any
+	HeaderRules                *[]models.HeaderRule
+	ProxyKeys                  *string
+	SubGroups                  *[]SubGroupInput
 }
 
 // KeyStats captures aggregated API key statistics for a group.
@@ -225,21 +227,22 @@ func (s *GroupService) CreateGroup(ctx context.Context, params GroupCreateParams
 	}
 
 	group := models.Group{
-		Name:                name,
-		DisplayName:         strings.TrimSpace(params.DisplayName),
-		Description:         strings.TrimSpace(params.Description),
-		GroupType:           groupType,
-		Upstreams:           cleanedUpstreams,
-		ChannelType:         channelType,
-		Sort:                params.Sort,
-		TestModel:           testModel,
-		ValidationEndpoint:  validationEndpoint,
-		ParamOverrides:      params.ParamOverrides,
-		ModelRedirectRules:  convertToJSONMap(params.ModelRedirectRules),
-		ModelRedirectStrict: params.ModelRedirectStrict,
-		Config:              cleanedConfig,
-		HeaderRules:         headerRulesJSON,
-		ProxyKeys:           strings.TrimSpace(params.ProxyKeys),
+		Name:                       name,
+		DisplayName:                strings.TrimSpace(params.DisplayName),
+		Description:                strings.TrimSpace(params.Description),
+		GroupType:                  groupType,
+		Upstreams:                  cleanedUpstreams,
+		ChannelType:                channelType,
+		AnthropicSystemPromptCount: normalizeAnthropicSystemPromptCount(channelType, params.AnthropicSystemPromptCount),
+		Sort:                       params.Sort,
+		TestModel:                  testModel,
+		ValidationEndpoint:         validationEndpoint,
+		ParamOverrides:             params.ParamOverrides,
+		ModelRedirectRules:         convertToJSONMap(params.ModelRedirectRules),
+		ModelRedirectStrict:        params.ModelRedirectStrict,
+		Config:                     cleanedConfig,
+		HeaderRules:                headerRulesJSON,
+		ProxyKeys:                  strings.TrimSpace(params.ProxyKeys),
 	}
 
 	tx := s.db.WithContext(ctx).Begin()
@@ -345,6 +348,12 @@ func (s *GroupService) UpdateGroup(ctx context.Context, id uint, params GroupUpd
 			return nil, NewI18nError(app_errors.ErrValidation, "validation.invalid_channel_type", map[string]any{"types": supported})
 		}
 		group.ChannelType = cleanedChannelType
+	}
+
+	if params.AnthropicSystemPromptCount != nil {
+		group.AnthropicSystemPromptCount = normalizeAnthropicSystemPromptCount(group.ChannelType, *params.AnthropicSystemPromptCount)
+	} else if group.ChannelType != "anthropic" {
+		group.AnthropicSystemPromptCount = 0
 	}
 
 	if params.Sort != nil {
@@ -976,6 +985,19 @@ func (s *GroupService) isValidChannelType(channelType string) bool {
 		}
 	}
 	return false
+}
+
+func normalizeAnthropicSystemPromptCount(channelType string, count int) int {
+	if channelType != "anthropic" {
+		return 0
+	}
+	if count < 0 {
+		return 0
+	}
+	if count > models.MaxAnthropicSystemPromptCount {
+		return models.MaxAnthropicSystemPromptCount
+	}
+	return count
 }
 
 // convertToJSONMap converts a map[string]string to datatypes.JSONMap

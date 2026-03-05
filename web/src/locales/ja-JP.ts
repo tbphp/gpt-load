@@ -306,6 +306,10 @@ export default {
       "APIプロバイダータイプを選択、リクエスト形式と認証方法を決定します。OpenAI、Gemini、Anthropicなどの主要AIプロバイダーをサポート",
     sortOrderTooltip:
       "リスト内の表示順序を決定、数値が小さいほど前に表示されます。10、20、30のような間隔での設定を推奨",
+    anthropicSystemPromptCount: "プロンプト数",
+    anthropicSystemPromptCountTooltip:
+      "Anthropic チャンネルでのみ有効です。0 は元の system prompt を保持します。0 より大きい値では text system 数を強制し、超過分は最後の text ブロックへ結合し、不足分は空 text で補完します。範囲: 0-100",
+    anthropicSystemPromptCountPlaceholder: "0 は元の system prompt を保持",
     sortValue: "ソート値",
     testModelTooltip:
       "APIキーの有効性を検証するためのモデル名。システムはこのモデルを使用してテストリクエストを送信し、キーが機能しているか確認します。軽量で高速なモデルを使用してください",

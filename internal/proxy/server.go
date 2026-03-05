@@ -107,6 +107,7 @@ func (ps *ProxyServer) HandleProxy(c *gin.Context) {
 		response.Error(c, app_errors.NewAPIError(app_errors.ErrInternalServer, fmt.Sprintf("Failed to apply parameter overrides: %v", err)))
 		return
 	}
+	finalBodyBytes = applyAnthropicSystemPromptCount(finalBodyBytes, group)
 
 	isStream := channelHandler.IsStreamRequest(c, bodyBytes)
 

@@ -302,6 +302,10 @@ export default {
       "选择API提供商类型，决定了请求格式和认证方式。支持OpenAI、Gemini、Anthropic等主流AI服务商",
     sortOrderTooltip:
       "决定分组在列表中的显示顺序，数字越小越靠前。建议使用10、20、30这样的间隔数字，便于后续调整",
+    anthropicSystemPromptCount: "提示词数量",
+    anthropicSystemPromptCountTooltip:
+      "仅对 Anthropic 渠道生效。0 表示保持原始 system prompt；大于 0 时会强制文本 system 数量，多余合并到最后一条，不足补空文本，范围 0-100",
+    anthropicSystemPromptCountPlaceholder: "0 表示保持原始 system prompt",
     sortValue: "排序值",
     testModelTooltip:
       "用于验证API密钥有效性的模型名称。系统会使用这个模型发送测试请求来检查密钥是否可用，请尽量使用轻量快速的模型",
