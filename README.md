@@ -589,6 +589,12 @@ Thanks to all the developers who have contributed to GPT-Load!
 
 [![Contributors](https://contrib.rocks/image?repo=tbphp/gpt-load)](https://github.com/tbphp/gpt-load/graphs/contributors)
 
+## Supporters
+
+This project is supported by DigitalOcean.
+
+[![DigitalOcean Referral Badge](https://web-platforms.sfo2.cdn.digitaloceanspaces.com/WWW/Badge%202.svg)](https://www.digitalocean.com/?refcode=3d52cff21342&utm_campaign=Referral_Invite&utm_medium=Referral_Program&utm_source=badge)
+
 ## License
 
 MIT License - see [LICENSE](LICENSE) file for details.
