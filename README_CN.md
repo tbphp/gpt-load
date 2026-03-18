@@ -589,6 +589,12 @@ response = client.messages.create(
 
 [![Contributors](https://contrib.rocks/image?repo=tbphp/gpt-load)](https://github.com/tbphp/gpt-load/graphs/contributors)
 
+## 支持者
+
+- 非常感谢 [LINUX DO](https://linux.do) 社区的支持！
+- 本项目由 DigitalOcean 支持。  
+  [![DigitalOcean Referral Badge](https://web-platforms.sfo2.cdn.digitaloceanspaces.com/WWW/Badge%202.svg)](https://www.digitalocean.com/?refcode=3d52cff21342&utm_campaign=Referral_Invite&utm_medium=Referral_Program&utm_source=badge)
+
 ## 许可证
 
 MIT 许可证 - 详情请参阅 [LICENSE](LICENSE) 文件。
