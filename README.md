@@ -591,9 +591,10 @@ Thanks to all the developers who have contributed to GPT-Load!
 
 ## Supporters
 
-This project is supported by DigitalOcean.
+- Thank you very much for the support from the [LINUX DO](https://linux.do) community!
 
-[![DigitalOcean Referral Badge](https://web-platforms.sfo2.cdn.digitaloceanspaces.com/WWW/Badge%202.svg)](https://www.digitalocean.com/?refcode=3d52cff21342&utm_campaign=Referral_Invite&utm_medium=Referral_Program&utm_source=badge)
+- This project is supported by DigitalOcean.  
+  [![DigitalOcean Referral Badge](https://web-platforms.sfo2.cdn.digitaloceanspaces.com/WWW/Badge%202.svg)](https://www.digitalocean.com/?refcode=3d52cff21342&utm_campaign=Referral_Invite&utm_medium=Referral_Program&utm_source=badge)
 
 ## License
 
