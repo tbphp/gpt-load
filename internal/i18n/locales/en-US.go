@@ -159,6 +159,8 @@ var MessagesEnUS = map[string]string{
 	"config.max_retries_desc":                "Maximum number of retries for a single request using different keys, 0 for no retries.",
 	"config.blacklist_threshold":             "Blacklist Threshold",
 	"config.blacklist_threshold_desc":        "Number of consecutive failures before a key is blacklisted, 0 to disable blacklisting.",
+	"config.failover_status_codes":           "Extra Failover Status Codes",
+	"config.failover_status_codes_desc":      "Additional upstream HTTP status codes that will trigger failover (retry). Supports comma-separated values and ranges, e.g.: 404,429,250-260. Empty means default policy only.",
 	"config.key_validation_interval":         "Key Validation Interval (minutes)",
 	"config.key_validation_interval_desc":    "Default interval (minutes) for background key validation.",
 	"config.key_validation_concurrency":      "Key Validation Concurrency",
