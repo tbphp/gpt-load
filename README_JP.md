@@ -589,6 +589,13 @@ GPT-Loadに貢献してくださったすべての開発者に感謝します！
 
 [![Contributors](https://contrib.rocks/image?repo=tbphp/gpt-load)](https://github.com/tbphp/gpt-load/graphs/contributors)
 
+## サポーター
+
+- [LINUX DO](https://linux.do) コミュニティからのサポートに心より感謝いたします！
+
+- このプロジェクトはDigitalOceanの支援を受けています。 
+  [![DigitalOcean Referral Badge](https://web-platforms.sfo2.cdn.digitaloceanspaces.com/WWW/Badge%202.svg)](https://www.digitalocean.com/?refcode=3d52cff21342&utm_campaign=Referral_Invite&utm_medium=Referral_Program&utm_source=badge)
+
 ## ライセンス
 
 MITライセンス - 詳細は[LICENSE](LICENSE)ファイルを参照してください。
