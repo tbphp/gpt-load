@@ -25,6 +25,9 @@ func (s *Server) handleGroupError(c *gin.Context, err error) bool {
 	}
 
 	if svcErr, ok := err.(*services.I18nError); ok {
+		if svcErr == nil {
+			return false
+		}
 		if svcErr.Template != nil {
 			response.ErrorI18nFromAPIError(c, svcErr.APIError, svcErr.MessageID, svcErr.Template)
 		} else {
@@ -131,6 +134,37 @@ type GroupUpdateRequest struct {
 	ProxyKeys           *string             `json:"proxy_keys,omitempty"`
 }
 
+type GroupReorderItemRequest struct {
+	ID   uint `json:"id"`
+	Sort int  `json:"sort"`
+}
+
+type GroupReorderRequest struct {
+	Items []GroupReorderItemRequest `json:"items"`
+}
+
+func validateGroupReorderItems(items []GroupReorderItemRequest) error {
+	if len(items) == 0 {
+		return services.NewI18nError(app_errors.ErrValidation, "validation.reorder_items_required", nil)
+	}
+
+	seen := make(map[uint]struct{}, len(items))
+	for _, item := range items {
+		if item.ID == 0 {
+			return services.NewI18nError(app_errors.ErrValidation, "validation.reorder_group_id", nil)
+		}
+		if item.Sort < 0 {
+			return services.NewI18nError(app_errors.ErrValidation, "validation.reorder_sort_negative", nil)
+		}
+		if _, exists := seen[item.ID]; exists {
+			return services.NewI18nError(app_errors.ErrValidation, "validation.reorder_duplicate_group", map[string]any{"id": item.ID})
+		}
+		seen[item.ID] = struct{}{}
+	}
+
+	return nil
+}
+
 // UpdateGroup handles updating an existing group.
 func (s *Server) UpdateGroup(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
@@ -181,6 +215,33 @@ func (s *Server) UpdateGroup(c *gin.Context) {
 	}
 
 	response.Success(c, s.newGroupResponse(group))
+}
+
+// ReorderGroups handles batch reorder updates for groups.
+func (s *Server) ReorderGroups(c *gin.Context) {
+	var req GroupReorderRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, app_errors.NewAPIError(app_errors.ErrInvalidJSON, err.Error()))
+		return
+	}
+
+	if err := validateGroupReorderItems(req.Items); s.handleGroupError(c, err) {
+		return
+	}
+
+	items := make([]services.GroupReorderItem, 0, len(req.Items))
+	for _, item := range req.Items {
+		items = append(items, services.GroupReorderItem{
+			ID:   item.ID,
+			Sort: item.Sort,
+		})
+	}
+
+	if s.handleGroupError(c, s.GroupService.ReorderGroups(c.Request.Context(), items)) {
+		return
+	}
+
+	response.SuccessI18n(c, "success.groups_reordered", nil)
 }
 
 // GroupResponse defines the structure for a group response, excluding sensitive or large fields.

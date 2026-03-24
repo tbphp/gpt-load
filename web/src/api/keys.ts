@@ -29,6 +29,17 @@ export const keysApi = {
     return res.data;
   },
 
+  // 批量重排分组
+  async reorderGroups(items: { id: number; sort: number }[]): Promise<void> {
+    await http.put(
+      "/groups/reorder",
+      { items },
+      {
+        hideMessage: true,
+      }
+    );
+  },
+
   // 删除分组
   deleteGroup(groupId: number): Promise<void> {
     return http.delete(`/groups/${groupId}`);
