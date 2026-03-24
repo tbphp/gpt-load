@@ -161,6 +161,12 @@ function handleGroupCreated(group: Group) {
   }
 }
 
+function setGroupItemRef(el: Element | null, groupId?: number) {
+  if (el instanceof HTMLElement && groupId) {
+    groupItemRefs.value.set(groupId, el);
+  }
+}
+
 function reorderInMemory(
   sourceGroupId: number,
   targetGroupId: number,
@@ -378,7 +384,7 @@ function handleDragEnd() {
               @drop="handleDrop($event, group.id)"
               :ref="
                 el => {
-                  if (el && group.id) groupItemRefs.set(group.id, el as HTMLElement);
+                  setGroupItemRef(el as Element | null, group.id);
                 }
               "
             >
