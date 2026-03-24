@@ -234,6 +234,7 @@ async function persistGroupOrder(previousOrder: Group[]) {
     console.error("Failed to reorder groups:", error);
     displayGroups.value = previousOrder.map(group => ({ ...group }));
     window.$message?.error(t("keys.dragSortSaveFailed"));
+    emit("refresh");
   } finally {
     savingOrder.value = false;
     suspendAutoScroll.value = false;

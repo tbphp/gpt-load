@@ -22,6 +22,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"gorm.io/datatypes"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // I18nError represents an error that carries translation metadata.
@@ -312,17 +313,24 @@ func (s *GroupService) ReorderGroups(ctx context.Context, items []GroupReorderIt
 		}
 	}()
 
-	var existingCount int64
-	if err := tx.Model(&models.Group{}).Where("id IN ?", ids).Count(&existingCount).Error; err != nil {
+	lockedIDs := make([]uint, 0, len(ids))
+	if err := tx.Model(&models.Group{}).
+		Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("id IN ?", ids).
+		Pluck("id", &lockedIDs).Error; err != nil {
 		return app_errors.ParseDBError(err)
 	}
-	if existingCount != int64(len(ids)) {
+	if len(lockedIDs) != len(ids) {
 		return NewI18nError(app_errors.ErrValidation, "validation.reorder_group_not_found", nil)
 	}
 
 	for _, item := range items {
-		if err := tx.Model(&models.Group{}).Where("id = ?", item.ID).Update("sort", item.Sort).Error; err != nil {
-			return app_errors.ParseDBError(err)
+		result := tx.Model(&models.Group{}).Where("id = ?", item.ID).Update("sort", item.Sort)
+		if result.Error != nil {
+			return app_errors.ParseDBError(result.Error)
+		}
+		if result.RowsAffected != 1 {
+			return NewI18nError(app_errors.ErrValidation, "validation.reorder_group_not_found", nil)
 		}
 	}
 
