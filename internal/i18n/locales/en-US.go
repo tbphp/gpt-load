@@ -76,11 +76,6 @@ var MessagesEnUS = map[string]string{
 	"validation.sub_group_referenced_cannot_modify": "This group is referenced by {{.count}} aggregate group(s) as a sub-group. Cannot modify channel type or validation endpoint. Please remove this group from related aggregate groups before making changes",
 	"validation.standard_group_requires_upstreams_testmodel": "Converting to standard group requires providing upstreams and test model",
 	"validation.aggregate_no_model_redirect": "Aggregate groups do not support model redirect rules",
-	"validation.reorder_items_required": "Reorder items cannot be empty",
-	"validation.reorder_group_id":       "Reorder item contains invalid group ID",
-	"validation.reorder_sort_negative":  "Sort value cannot be negative",
-	"validation.reorder_duplicate_group": "Duplicate group ID in reorder items: {{.id}}",
-	"validation.reorder_group_not_found": "Reorder items contain non-existent group",
 
 	// Task related
 	"task.validation_started": "Key validation task started",
@@ -119,7 +114,6 @@ var MessagesEnUS = map[string]string{
 	"success.keys_restored":        "{{.count}} keys restored",
 	"success.invalid_keys_cleared": "{{.count}} invalid keys cleared",
 	"success.all_keys_cleared":     "{{.count}} keys cleared",
-	"success.groups_reordered":     "Group order saved",
 
 	// Password security related
 	"security.password_too_short":         "{{.keyType}} is too short ({{.length}} characters), recommend at least 16 characters",

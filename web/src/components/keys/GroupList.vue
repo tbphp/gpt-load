@@ -1,10 +1,9 @@
 <script setup lang="ts">
-import { keysApi } from "@/api/keys";
 import type { Group } from "@/types/models";
 import { getGroupDisplayName } from "@/utils/display";
 import { Add, LinkOutline, Search } from "@vicons/ionicons5";
 import { NButton, NCard, NEmpty, NInput, NSpin, NTag } from "naive-ui";
-import { computed, onBeforeUpdate, ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import AggregateGroupModal from "./AggregateGroupModal.vue";
 import GroupFormModal from "./GroupFormModal.vue";
@@ -32,69 +31,15 @@ const emit = defineEmits<Emits>();
 const searchText = ref("");
 const showGroupModal = ref(false);
 // 存储分组项 DOM 元素的引用
-const groupItemRefs = ref<Map<number, HTMLElement>>(new Map());
+const groupItemRefs = ref(new Map());
 const showAggregateGroupModal = ref(false);
-const displayGroups = ref<Group[]>([]);
-const draggingGroupId = ref<number | null>(null);
-const dropTarget = ref<{ groupId: number; position: "before" | "after" } | null>(null);
-const savingOrder = ref(false);
-const suspendAutoScroll = ref(false);
-
-const isTouchDevice = computed(() => {
-  if (typeof window === "undefined") {
-    return false;
-  }
-  return "ontouchstart" in window || navigator.maxTouchPoints > 0;
-});
-
-const hasSearchFilter = computed(() => Boolean(searchText.value.trim()));
-
-const canDrag = computed(
-  () =>
-    !props.loading &&
-    !savingOrder.value &&
-    !hasSearchFilter.value &&
-    !isTouchDevice.value &&
-    displayGroups.value.length > 1
-);
-
-const dragDisabledHint = computed(() => {
-  if (hasSearchFilter.value) {
-    return t("keys.dragSortHint");
-  }
-  if (isTouchDevice.value) {
-    return t("keys.dragSortTouchDisabled");
-  }
-  return "";
-});
-
-watch(
-  () => props.groups,
-  groups => {
-    if (savingOrder.value) {
-      return;
-    }
-    displayGroups.value = groups.map(group => ({ ...group }));
-    if (suspendAutoScroll.value) {
-      suspendAutoScroll.value = false;
-    }
-  },
-  {
-    immediate: true,
-    deep: true,
-  }
-);
-
-onBeforeUpdate(() => {
-  groupItemRefs.value.clear();
-});
 
 const filteredGroups = computed(() => {
   if (!searchText.value.trim()) {
-    return displayGroups.value;
+    return props.groups;
   }
   const search = searchText.value.toLowerCase().trim();
-  return displayGroups.value.filter(
+  return props.groups.filter(
     group =>
       group.name.toLowerCase().includes(search) ||
       group.display_name?.toLowerCase().includes(search)
@@ -105,7 +50,7 @@ const filteredGroups = computed(() => {
 watch(
   () => props.selectedGroup?.id,
   id => {
-    if (!id || displayGroups.value.length === 0 || suspendAutoScroll.value) {
+    if (!id || props.groups.length === 0) {
       return;
     }
 
@@ -124,9 +69,6 @@ watch(
 );
 
 function handleGroupClick(group: Group) {
-  if (draggingGroupId.value || savingOrder.value) {
-    return;
-  }
   emit("group-select", group);
 }
 
@@ -158,179 +100,6 @@ function handleGroupCreated(group: Group) {
   showAggregateGroupModal.value = false;
   if (group?.id) {
     emit("refresh-and-select", group.id);
-  }
-}
-
-function setGroupItemRef(el: Element | null, groupId?: number) {
-  if (el instanceof HTMLElement && groupId) {
-    groupItemRefs.value.set(groupId, el);
-  }
-}
-
-function reorderInMemory(
-  sourceGroupId: number,
-  targetGroupId: number,
-  position: "before" | "after"
-): boolean {
-  const sourceIndex = displayGroups.value.findIndex(group => group.id === sourceGroupId);
-  const targetIndex = displayGroups.value.findIndex(group => group.id === targetGroupId);
-
-  if (sourceIndex < 0 || targetIndex < 0) {
-    return false;
-  }
-
-  const reordered = [...displayGroups.value];
-  const [moved] = reordered.splice(sourceIndex, 1);
-
-  let insertIndex = targetIndex;
-  if (sourceIndex < targetIndex) {
-    insertIndex -= 1;
-  }
-  if (position === "after") {
-    insertIndex += 1;
-  }
-
-  if (insertIndex < 0) {
-    insertIndex = 0;
-  }
-  if (insertIndex > reordered.length) {
-    insertIndex = reordered.length;
-  }
-
-  if (insertIndex === sourceIndex) {
-    return false;
-  }
-
-  reordered.splice(insertIndex, 0, moved);
-  displayGroups.value = reordered;
-  return true;
-}
-
-async function persistGroupOrder(previousOrder: Group[]) {
-  const previousSortMap = new Map<number, number>();
-  previousOrder.forEach(group => {
-    if (group.id) {
-      previousSortMap.set(group.id, group.sort);
-    }
-  });
-
-  const items: { id: number; sort: number }[] = [];
-  displayGroups.value.forEach((group, index) => {
-    if (!group.id) {
-      return;
-    }
-    const targetSort = (index + 1) * 10;
-    if (previousSortMap.get(group.id) !== targetSort) {
-      items.push({ id: group.id, sort: targetSort });
-    }
-    group.sort = targetSort;
-  });
-
-  if (items.length === 0) {
-    suspendAutoScroll.value = false;
-    return;
-  }
-
-  try {
-    savingOrder.value = true;
-    await keysApi.reorderGroups(items);
-    window.$message?.success(t("keys.dragSortSaved"));
-    emit("refresh");
-  } catch (error) {
-    console.error("Failed to reorder groups:", error);
-    displayGroups.value = previousOrder.map(group => ({ ...group }));
-    window.$message?.error(t("keys.dragSortSaveFailed"));
-    emit("refresh");
-  } finally {
-    savingOrder.value = false;
-    suspendAutoScroll.value = false;
-  }
-}
-
-function handleDragStart(event: DragEvent, groupId?: number) {
-  if (!canDrag.value || !groupId) {
-    return;
-  }
-
-  event.stopPropagation();
-  draggingGroupId.value = groupId;
-  dropTarget.value = null;
-  suspendAutoScroll.value = true;
-
-  if (event.dataTransfer) {
-    event.dataTransfer.effectAllowed = "move";
-    event.dataTransfer.setData("text/plain", String(groupId));
-  }
-}
-
-function resolveDropPosition(event: DragEvent, targetGroupId: number): "before" | "after" {
-  const element = groupItemRefs.value.get(targetGroupId);
-  if (!element) {
-    return "after";
-  }
-  const rect = element.getBoundingClientRect();
-  return event.clientY < rect.top + rect.height / 2 ? "before" : "after";
-}
-
-function handleDragOver(event: DragEvent, targetGroupId?: number) {
-  if (!canDrag.value || !draggingGroupId.value || !targetGroupId) {
-    return;
-  }
-
-  event.preventDefault();
-  event.stopPropagation();
-
-  const nextPosition = resolveDropPosition(event, targetGroupId);
-  if (
-    !dropTarget.value ||
-    dropTarget.value.groupId !== targetGroupId ||
-    dropTarget.value.position !== nextPosition
-  ) {
-    dropTarget.value = { groupId: targetGroupId, position: nextPosition };
-  }
-
-  if (event.dataTransfer) {
-    event.dataTransfer.dropEffect = "move";
-  }
-}
-
-async function handleDrop(event: DragEvent, targetGroupId?: number) {
-  event.preventDefault();
-  event.stopPropagation();
-
-  const sourceGroupId = draggingGroupId.value;
-  const target = dropTarget.value;
-  draggingGroupId.value = null;
-  dropTarget.value = null;
-
-  if (
-    !canDrag.value ||
-    !sourceGroupId ||
-    !targetGroupId ||
-    !target ||
-    sourceGroupId === targetGroupId
-  ) {
-    if (!savingOrder.value) {
-      suspendAutoScroll.value = false;
-    }
-    return;
-  }
-
-  const previousOrder = displayGroups.value.map(group => ({ ...group }));
-  const changed = reorderInMemory(sourceGroupId, targetGroupId, target.position);
-  if (!changed) {
-    suspendAutoScroll.value = false;
-    return;
-  }
-
-  await persistGroupOrder(previousOrder);
-}
-
-function handleDragEnd() {
-  draggingGroupId.value = null;
-  dropTarget.value = null;
-  if (!savingOrder.value) {
-    suspendAutoScroll.value = false;
   }
 }
 </script>
@@ -369,35 +138,15 @@ function handleDragEnd() {
               :class="{
                 active: selectedGroup?.id === group.id,
                 aggregate: group.group_type === 'aggregate',
-                dragging: draggingGroupId === group.id,
-                'drop-before':
-                  dropTarget?.groupId === group.id &&
-                  dropTarget?.position === 'before' &&
-                  draggingGroupId !== group.id,
-                'drop-after':
-                  dropTarget?.groupId === group.id &&
-                  dropTarget?.position === 'after' &&
-                  draggingGroupId !== group.id,
               }"
               @click="handleGroupClick(group)"
-              @dragover="handleDragOver($event, group.id)"
-              @drop="handleDrop($event, group.id)"
               :ref="
                 el => {
-                  setGroupItemRef(el as Element | null, group.id);
+                  if (el) groupItemRefs.set(group.id, el);
                 }
               "
             >
-              <div
-                class="group-icon"
-                :class="{ 'drag-disabled': !canDrag }"
-                :draggable="canDrag"
-                :role="'button'"
-                :aria-label="t('keys.dragHandle')"
-                :aria-describedby="dragDisabledHint ? `drag-hint-${group.id}` : undefined"
-                @dragstart="handleDragStart($event, group.id)"
-                @dragend="handleDragEnd"
-              >
+              <div class="group-icon">
                 <span v-if="group.group_type === 'aggregate'">🔗</span>
                 <span v-else-if="group.channel_type === 'openai'">🤖</span>
                 <span v-else-if="group.channel_type === 'openai-response'">🔁</span>
@@ -419,9 +168,6 @@ function handleDragEnd() {
                   </span>
                 </div>
               </div>
-              <span v-if="dragDisabledHint" :id="`drag-hint-${group.id}`" class="sr-only">
-                {{ dragDisabledHint }}
-              </span>
             </div>
           </div>
         </n-spin>
@@ -517,36 +263,6 @@ function handleDragEnd() {
   position: relative;
 }
 
-.group-item.dragging {
-  opacity: 0.6;
-}
-
-.group-item.drop-before::before,
-.group-item.drop-after::after {
-  content: "";
-  position: absolute;
-  left: 8px;
-  right: 8px;
-  height: 3px;
-  border-radius: 3px;
-  background: var(--primary-color);
-  box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.15);
-  pointer-events: none;
-}
-
-.group-item.drop-before::before {
-  top: -4px;
-}
-
-.group-item.drop-after::after {
-  bottom: -4px;
-}
-
-:root.dark .group-item.drop-before::before,
-:root.dark .group-item.drop-after::after {
-  box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.3);
-}
-
 /* 聚合分组样式 */
 .group-item.aggregate {
   border-style: dashed;
@@ -605,21 +321,10 @@ function handleDragEnd() {
   border-radius: 6px;
   flex-shrink: 0;
   box-sizing: border-box;
-  cursor: grab;
-  user-select: none;
 }
 
 .group-item.active .group-icon {
   background: rgba(255, 255, 255, 0.2);
-}
-
-.group-item.dragging .group-icon {
-  cursor: grabbing;
-}
-
-.group-icon.drag-disabled {
-  cursor: not-allowed;
-  opacity: 0.65;
 }
 
 .group-content {
@@ -653,18 +358,6 @@ function handleDragEnd() {
 .group-item.active .group-id {
   opacity: 0.9;
   color: white;
-}
-
-.sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
 }
 
 .add-section {

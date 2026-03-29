@@ -22,7 +22,6 @@ import (
 	"github.com/sirupsen/logrus"
 	"gorm.io/datatypes"
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 )
 
 // I18nError represents an error that carries translation metadata.
@@ -123,12 +122,6 @@ type GroupUpdateParams struct {
 	HeaderRules         *[]models.HeaderRule
 	ProxyKeys           *string
 	SubGroups           *[]SubGroupInput
-}
-
-// GroupReorderItem captures a group ID and target sort value.
-type GroupReorderItem struct {
-	ID   uint
-	Sort int
 }
 
 // KeyStats captures aggregated API key statistics for a group.
@@ -278,72 +271,6 @@ func (s *GroupService) ListGroups(ctx context.Context) ([]models.Group, error) {
 	}
 
 	return groups, nil
-}
-
-// ReorderGroups updates sort values in a single transaction.
-func (s *GroupService) ReorderGroups(ctx context.Context, items []GroupReorderItem) error {
-	if len(items) == 0 {
-		return NewI18nError(app_errors.ErrValidation, "validation.reorder_items_required", nil)
-	}
-
-	ids := make([]uint, 0, len(items))
-	seenIDs := make(map[uint]struct{}, len(items))
-
-	for _, item := range items {
-		if item.ID == 0 {
-			return NewI18nError(app_errors.ErrValidation, "validation.reorder_group_id", nil)
-		}
-		if item.Sort < 0 {
-			return NewI18nError(app_errors.ErrValidation, "validation.reorder_sort_negative", nil)
-		}
-		if _, exists := seenIDs[item.ID]; exists {
-			return NewI18nError(app_errors.ErrValidation, "validation.reorder_duplicate_group", map[string]any{"id": item.ID})
-		}
-		seenIDs[item.ID] = struct{}{}
-		ids = append(ids, item.ID)
-	}
-
-	tx := s.db.WithContext(ctx).Begin()
-	if err := tx.Error; err != nil {
-		return app_errors.ErrDatabase
-	}
-	defer func() {
-		if tx != nil {
-			tx.Rollback()
-		}
-	}()
-
-	lockedIDs := make([]uint, 0, len(ids))
-	if err := tx.Model(&models.Group{}).
-		Clauses(clause.Locking{Strength: "UPDATE"}).
-		Where("id IN ?", ids).
-		Pluck("id", &lockedIDs).Error; err != nil {
-		return app_errors.ParseDBError(err)
-	}
-	if len(lockedIDs) != len(ids) {
-		return NewI18nError(app_errors.ErrValidation, "validation.reorder_group_not_found", nil)
-	}
-
-	for _, item := range items {
-		result := tx.Model(&models.Group{}).Where("id = ?", item.ID).Update("sort", item.Sort)
-		if result.Error != nil {
-			return app_errors.ParseDBError(result.Error)
-		}
-		if result.RowsAffected != 1 {
-			return NewI18nError(app_errors.ErrValidation, "validation.reorder_group_not_found", nil)
-		}
-	}
-
-	if err := tx.Commit().Error; err != nil {
-		return app_errors.ErrDatabase
-	}
-	tx = nil
-
-	if err := s.groupManager.Invalidate(); err != nil {
-		logrus.WithContext(ctx).WithError(err).Error("failed to invalidate group cache")
-	}
-
-	return nil
 }
 
 // UpdateGroup validates and updates an existing group.

@@ -76,11 +76,6 @@ var MessagesZhCN = map[string]string{
 	"validation.sub_group_referenced_cannot_modify": "该分组正被 {{.count}} 个聚合分组引用为子分组，无法修改渠道类型或验证端点。请先从相关聚合分组中移除此分组后再进行修改",
 	"validation.standard_group_requires_upstreams_testmodel": "转换为标准分组需要提供上游服务器和测试模型",
 	"validation.aggregate_no_model_redirect": "聚合分组不支持配置模型重定向规则",
-	"validation.reorder_items_required": "排序项不能为空",
-	"validation.reorder_group_id":       "排序项包含无效分组ID",
-	"validation.reorder_sort_negative":  "排序值不能为负数",
-	"validation.reorder_duplicate_group": "排序项中存在重复分组ID: {{.id}}",
-	"validation.reorder_group_not_found": "排序项包含不存在的分组",
 
 	// Task related
 	"task.validation_started": "密钥验证任务已开始",
@@ -119,7 +114,6 @@ var MessagesZhCN = map[string]string{
 	"success.keys_restored":        "{{.count}}个密钥已恢复",
 	"success.invalid_keys_cleared": "{{.count}}个无效密钥已清除",
 	"success.all_keys_cleared":     "{{.count}}个密钥已清除",
-	"success.groups_reordered":     "分组排序已保存",
 
 	// Password security related
 	"security.password_too_short":         "{{.keyType}}长度不足（{{.length}}字符），建议至少16字符",
