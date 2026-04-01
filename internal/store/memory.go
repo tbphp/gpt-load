@@ -320,6 +320,39 @@ func (s *MemoryStore) LLen(key string) (int64, error) {
 	return int64(len(list)), nil
 }
 
+// LIndex returns the element at index in the list.
+// Index -1 returns the last element (current key in rotation context).
+func (s *MemoryStore) LIndex(key string, index int64) (string, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	rawList, exists := s.data[key]
+	if !exists {
+		return "", ErrNotFound
+	}
+
+	list, ok := rawList.([]string)
+	if !ok {
+		return "", fmt.Errorf("type mismatch: key '%s' holds a different data type", key)
+	}
+
+	length := int64(len(list))
+	if length == 0 {
+		return "", ErrNotFound
+	}
+
+	// Handle negative index (like Redis: -1 is last, -2 is second last, etc.)
+	if index < 0 {
+		index = length + index
+	}
+
+	if index < 0 || index >= length {
+		return "", ErrNotFound
+	}
+
+	return list[index], nil
+}
+
 // --- SET operations ---
 
 // SAdd adds members to a set.

@@ -127,6 +127,19 @@ func (s *RedisStore) LLen(key string) (int64, error) {
 	return s.client.LLen(context.Background(), s.prefixKey(key)).Result()
 }
 
+// LIndex returns the element at index in the list.
+// Index -1 returns the last element (current key in rotation context).
+func (s *RedisStore) LIndex(key string, index int64) (string, error) {
+	val, err := s.client.LIndex(context.Background(), s.prefixKey(key), index).Result()
+	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			return "", ErrNotFound
+		}
+		return "", err
+	}
+	return val, nil
+}
+
 // --- SET operations ---
 
 func (s *RedisStore) SAdd(key string, members ...any) error {

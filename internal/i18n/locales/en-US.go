@@ -171,6 +171,8 @@ var MessagesEnUS = map[string]string{
 	"config.key_validation_concurrency_desc": "Concurrency level for background invalid key validation. Keep below 20 for SQLite or low-performance environments to avoid data consistency issues.",
 	"config.key_validation_timeout":          "Key Validation Timeout (seconds)",
 	"config.key_validation_timeout_desc":     "API request timeout (seconds) when validating a single key in the background.",
+	"config.key_rotation_interval":           "Key Rotation Interval (minutes)",
+	"config.key_rotation_interval_desc":      "How many minutes to wait before rotating to the next key after a key is rotated. Set to 0 for per-request rotation (default behavior). This feature improves upstream cache hit rate and reduces costs.",
 
 	// Category labels
 	"config.category.basic":   "Basic",

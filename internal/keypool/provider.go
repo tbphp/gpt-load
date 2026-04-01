@@ -34,11 +34,50 @@ func NewProvider(db *gorm.DB, store store.Store, settingsManager *config.SystemS
 	}
 }
 
-// SelectKey 为指定的分组原子性地选择并轮换一个可用的 APIKey。
-func (p *KeyProvider) SelectKey(groupID uint) (*models.APIKey, error) {
+// SelectKey 为指定的分组选择一个可用的 APIKey。
+// 根据配置的轮循间隔时间决定是否需要轮循到新key。
+// rotationIntervalMinutes: 轮循间隔时间（分钟），0表示每次请求都轮循
+// forceRotate: 是否强制轮循（如key失败后的重试场景）
+func (p *KeyProvider) SelectKey(groupID uint, rotationIntervalMinutes int, forceRotate bool) (*models.APIKey, error) {
 	activeKeysListKey := fmt.Sprintf("group:%d:active_keys", groupID)
+	rotationTimeKey := fmt.Sprintf("group:%d:active_keys:rotation_time", groupID)
 
-	// 1. Atomically rotate the key ID from the list
+	// 如果配置了轮循间隔且不是强制轮循，尝试获取当前key
+	if rotationIntervalMinutes > 0 && !forceRotate {
+		currentKeyID, err := p.store.LIndex(activeKeysListKey, -1)
+		if err == nil && currentKeyID != "" {
+			// 获取最后轮循时间
+			timeBytes, timeErr := p.store.Get(rotationTimeKey)
+			var lastRotationTime int64
+			if timeErr == nil {
+				lastRotationTime, _ = strconv.ParseInt(string(timeBytes), 10, 64)
+			}
+
+			// 检查是否在轮循间隔内
+			now := time.Now().Unix()
+			intervalSeconds := int64(rotationIntervalMinutes * 60)
+
+			if now-lastRotationTime < intervalSeconds {
+				// 在间隔时间内，返回当前key（不轮循）
+				keyID, parseErr := strconv.ParseUint(currentKeyID, 10, 64)
+				if parseErr == nil {
+					apiKey, getErr := p.getKeyDetails(keyID, groupID)
+					if getErr == nil && apiKey.Status == models.KeyStatusActive {
+						logrus.WithFields(logrus.Fields{
+							"groupID":          groupID,
+							"keyID":            keyID,
+							"remainingSeconds": intervalSeconds - (now - lastRotationTime),
+						}).Debug("Using current key within rotation interval")
+						return apiKey, nil
+					}
+					// 当前key已失效，需要轮循
+					logrus.WithField("keyID", keyID).Debug("Current key is invalid, forcing rotation")
+				}
+			}
+		}
+	}
+
+	// 需要轮循：执行原子轮循操作
 	keyIDStr, err := p.store.Rotate(activeKeysListKey)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
@@ -52,14 +91,29 @@ func (p *KeyProvider) SelectKey(groupID uint) (*models.APIKey, error) {
 		return nil, fmt.Errorf("failed to parse key ID '%s': %w", keyIDStr, err)
 	}
 
-	// 2. Get key details from HASH
+	// 更新轮循时间戳（仅在配置了轮循间隔时）
+	if rotationIntervalMinutes > 0 {
+		now := time.Now().Unix()
+		if err := p.store.Set(rotationTimeKey, []byte(strconv.FormatInt(now, 10)), 0); err != nil {
+			logrus.WithFields(logrus.Fields{
+				"groupID": groupID,
+				"keyID":   keyID,
+				"error":   err,
+			}).Warn("Failed to update rotation timestamp")
+		}
+	}
+
+	return p.getKeyDetails(keyID, groupID)
+}
+
+// getKeyDetails 从HASH获取key详情并构建APIKey对象
+func (p *KeyProvider) getKeyDetails(keyID uint64, groupID uint) (*models.APIKey, error) {
 	keyHashKey := fmt.Sprintf("key:%d", keyID)
 	keyDetails, err := p.store.HGetAll(keyHashKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get key details for key ID %d: %w", keyID, err)
 	}
 
-	// 3. Manually unmarshal the map into an APIKey struct
 	failureCount, _ := strconv.ParseInt(keyDetails["failure_count"], 10, 64)
 	createdAt, _ := strconv.ParseInt(keyDetails["created_at"], 10, 64)
 
@@ -67,7 +121,6 @@ func (p *KeyProvider) SelectKey(groupID uint) (*models.APIKey, error) {
 	encryptedKeyValue := keyDetails["key_string"]
 	decryptedKeyValue, err := p.encryptionSvc.Decrypt(encryptedKeyValue)
 	if err != nil {
-		// If decryption fails, try to use the value as-is (backward compatibility for unencrypted keys)
 		logrus.WithFields(logrus.Fields{
 			"keyID": keyID,
 			"error": err,
@@ -195,6 +248,16 @@ func (p *KeyProvider) handleFailure(apiKey *models.APIKey, group *models.Group, 
 		return nil
 	}
 
+	// 标记需要立即轮循（将时间戳置为0）
+	// 这样下次请求时会触发轮循到下一个key
+	rotationTimeKey := activeKeysListKey + ":rotation_time"
+	if err := p.store.Set(rotationTimeKey, []byte("0"), 0); err != nil {
+		logrus.WithFields(logrus.Fields{
+			"groupID": group.ID,
+			"error":   err,
+		}).Warn("Failed to mark key for immediate rotation")
+	}
+
 	failureCount, _ := strconv.ParseInt(keyDetails["failure_count"], 10, 64)
 
 	// 获取该分组的有效配置
@@ -290,6 +353,12 @@ func (p *KeyProvider) LoadKeysFromDB() error {
 			p.store.Delete(activeKeysListKey)
 			if err := p.store.LPush(activeKeysListKey, activeIDs...); err != nil {
 				logrus.WithFields(logrus.Fields{"groupID": groupID, "error": err}).Error("Failed to LPush active keys for group")
+			}
+
+			// 初始化轮循时间戳为0，表示首次请求需要轮循
+			rotationTimeKey := activeKeysListKey + ":rotation_time"
+			if err := p.store.Set(rotationTimeKey, []byte("0"), 0); err != nil {
+				logrus.WithFields(logrus.Fields{"groupID": groupID, "error": err}).Warn("Failed to initialize rotation timestamp")
 			}
 		}
 	}
