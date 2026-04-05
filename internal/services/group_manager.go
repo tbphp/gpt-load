@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"gpt-load/internal/config"
+	"gpt-load/internal/failover"
 	"gpt-load/internal/models"
 	"gpt-load/internal/store"
 	"gpt-load/internal/syncer"
@@ -72,6 +73,17 @@ func (gm *GroupManager) Initialize() error {
 			g.EffectiveConfig = gm.settingsManager.GetEffectiveConfig(g.Config)
 			g.ProxyKeysMap = utils.StringToSet(g.ProxyKeys, ",")
 
+			matcher, err := failover.ParseStatusCodeMatcher(g.EffectiveConfig.FailoverStatusCodes)
+			if err != nil {
+				logrus.WithFields(logrus.Fields{
+					"group_name": g.Name,
+					"spec":       g.EffectiveConfig.FailoverStatusCodes,
+					"error":      err,
+				}).Warn("Invalid failover status codes spec, ignoring")
+			} else {
+				g.FailoverStatusCodeMatcher = matcher
+			}
+
 			// Parse header rules with error handling
 			if len(group.HeaderRules) > 0 {
 				if err := json.Unmarshal(group.HeaderRules, &g.HeaderRuleList); err != nil {
@@ -119,12 +131,12 @@ func (gm *GroupManager) Initialize() error {
 
 			groupMap[g.Name] = &g
 			logrus.WithFields(logrus.Fields{
-				"group_name":               g.Name,
-				"effective_config":         g.EffectiveConfig,
-				"header_rules_count":       len(g.HeaderRuleList),
+				"group_name":                 g.Name,
+				"effective_config":           g.EffectiveConfig,
+				"header_rules_count":         len(g.HeaderRuleList),
 				"model_redirect_rules_count": len(g.ModelRedirectMap),
-				"model_redirect_strict":    g.ModelRedirectStrict,
-				"sub_group_count":          len(g.SubGroups),
+				"model_redirect_strict":      g.ModelRedirectStrict,
+				"sub_group_count":            len(g.SubGroups),
 			}).Debug("Loaded group with effective config")
 		}
 

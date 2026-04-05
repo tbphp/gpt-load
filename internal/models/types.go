@@ -1,6 +1,7 @@
 package models
 
 import (
+	"gpt-load/internal/failover"
 	"gpt-load/internal/types"
 	"time"
 
@@ -34,6 +35,7 @@ type GroupConfig struct {
 	ProxyURL                     *string `json:"proxy_url,omitempty"`
 	MaxRetries                   *int    `json:"max_retries,omitempty"`
 	BlacklistThreshold           *int    `json:"blacklist_threshold,omitempty"`
+	FailoverStatusCodes          *string `json:"failover_status_codes,omitempty"`
 	KeyValidationIntervalMinutes *int    `json:"key_validation_interval_minutes,omitempty"`
 	KeyValidationConcurrency     *int    `json:"key_validation_concurrency,omitempty"`
 	KeyValidationTimeoutSeconds  *int    `json:"key_validation_timeout_seconds,omitempty"`
@@ -104,9 +106,10 @@ type Group struct {
 	UpdatedAt           time.Time            `json:"updated_at"`
 
 	// For cache
-	ProxyKeysMap     map[string]struct{} `gorm:"-" json:"-"`
-	HeaderRuleList   []HeaderRule        `gorm:"-" json:"-"`
-	ModelRedirectMap map[string]string   `gorm:"-" json:"-"`
+	ProxyKeysMap              map[string]struct{}        `gorm:"-" json:"-"`
+	HeaderRuleList            []HeaderRule               `gorm:"-" json:"-"`
+	ModelRedirectMap          map[string]string          `gorm:"-" json:"-"`
+	FailoverStatusCodeMatcher failover.StatusCodeMatcher `gorm:"-" json:"-"`
 }
 
 // APIKey 对应 api_keys 表
