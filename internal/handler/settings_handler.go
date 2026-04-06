@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"gpt-load/internal/config"
 	app_errors "gpt-load/internal/errors"
 	"gpt-load/internal/i18n"
 	"gpt-load/internal/models"
@@ -17,6 +18,13 @@ import (
 func (s *Server) GetSettings(c *gin.Context) {
 	currentSettings := s.SettingsManager.GetSettings()
 	settingsInfo := utils.GenerateSettingsMetadata(&currentSettings)
+	visibleSettings := make([]models.SystemSettingInfo, 0, len(settingsInfo))
+	for _, setting := range settingsInfo {
+		if config.IsSystemSettingVisible(setting.Key) {
+			visibleSettings = append(visibleSettings, setting)
+		}
+	}
+	settingsInfo = visibleSettings
 
 	// Translate settings info
 	for i := range settingsInfo {
@@ -66,6 +74,11 @@ func (s *Server) UpdateSettings(c *gin.Context) {
 
 	if len(settingsMap) == 0 {
 		response.Success(c, nil)
+		return
+	}
+
+	if err := config.ValidateSystemSettingsPayload(settingsMap); err != nil {
+		response.Error(c, app_errors.NewAPIError(app_errors.ErrValidation, err.Error()))
 		return
 	}
 

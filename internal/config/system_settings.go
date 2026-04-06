@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"gpt-load/internal/db"
+	"gpt-load/internal/failover"
 	"gpt-load/internal/models"
 	"gpt-load/internal/store"
 	"gpt-load/internal/syncer"
@@ -21,6 +22,7 @@ import (
 )
 
 const SettingsUpdateChannel = "system_settings:updated"
+const GroupScopedSettingKeyFailoverStatusCodes = "failover_status_codes"
 
 // SystemSettingsManager 管理系统配置
 type SystemSettingsManager struct {
@@ -30,6 +32,24 @@ type SystemSettingsManager struct {
 // NewSystemSettingsManager creates a new, uninitialized SystemSettingsManager.
 func NewSystemSettingsManager() *SystemSettingsManager {
 	return &SystemSettingsManager{}
+}
+
+func sanitizeRuntimeSystemSettings(settings types.SystemSettings) types.SystemSettings {
+	settings.FailoverStatusCodes = ""
+	return settings
+}
+
+func IsSystemSettingVisible(key string) bool {
+	return key != GroupScopedSettingKeyFailoverStatusCodes
+}
+
+func ValidateSystemSettingsPayload(settingsMap map[string]any) error {
+	for key := range settingsMap {
+		if !IsSystemSettingVisible(key) {
+			return fmt.Errorf("setting key %s is only supported in group settings", key)
+		}
+	}
+	return nil
 }
 
 type groupManager interface {
@@ -74,6 +94,7 @@ func (sm *SystemSettingsManager) Initialize(store store.Store, gm groupManager, 
 		}
 
 		settings.ProxyKeysMap = utils.StringToSet(settings.ProxyKeys, ",")
+		settings = sanitizeRuntimeSystemSettings(settings)
 
 		sm.DisplaySystemConfig(settings)
 
@@ -115,6 +136,10 @@ func (sm *SystemSettingsManager) EnsureSettingsInitialized(authConfig types.Auth
 	metadata := utils.GenerateSettingsMetadata(&defaultSettings)
 
 	for _, meta := range metadata {
+		if !IsSystemSettingVisible(meta.Key) {
+			continue
+		}
+
 		var existing models.SystemSetting
 		err := db.DB.Where("setting_key = ?", meta.Key).First(&existing).Error
 		if err != nil {
@@ -155,9 +180,9 @@ func (sm *SystemSettingsManager) EnsureSettingsInitialized(authConfig types.Auth
 func (sm *SystemSettingsManager) GetSettings() types.SystemSettings {
 	if sm.syncer == nil {
 		logrus.Warn("SystemSettingsManager is not initialized, returning default settings.")
-		return utils.DefaultSystemSettings()
+		return sanitizeRuntimeSystemSettings(utils.DefaultSystemSettings())
 	}
-	return sm.syncer.Get()
+	return sanitizeRuntimeSystemSettings(sm.syncer.Get())
 }
 
 // GetAppUrl returns the effective App URL.
@@ -180,6 +205,10 @@ func (sm *SystemSettingsManager) GetAppUrl() string {
 
 // UpdateSettings 更新系统配置
 func (sm *SystemSettingsManager) UpdateSettings(settingsMap map[string]any) error {
+	if err := ValidateSystemSettingsPayload(settingsMap); err != nil {
+		return err
+	}
+
 	// 验证配置项
 	if err := sm.ValidateSettings(settingsMap); err != nil {
 		return err
@@ -307,6 +336,11 @@ func (sm *SystemSettingsManager) ValidateSettings(settingsMap map[string]any) er
 					}
 				}
 			}
+			if key == "failover_status_codes" {
+				if _, err := failover.ParseStatusCodeMatcher(strVal); err != nil {
+					return fmt.Errorf("invalid value for %s (%q): %w", key, strVal, err)
+				}
+			}
 		default:
 			return fmt.Errorf("unsupported type for setting key validation: %s", key)
 		}
@@ -375,6 +409,11 @@ func (sm *SystemSettingsManager) ValidateGroupConfigOverrides(configMap map[stri
 					if strVal == "" {
 						return fmt.Errorf("value for %s is required", key)
 					}
+				}
+			}
+			if key == "failover_status_codes" {
+				if _, err := failover.ParseStatusCodeMatcher(strVal); err != nil {
+					return fmt.Errorf("invalid value for %s (%q): %w", key, strVal, err)
 				}
 			}
 		case reflect.Bool:
