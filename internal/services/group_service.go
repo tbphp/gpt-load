@@ -969,11 +969,15 @@ func (s *GroupService) normalizeQueryParamRules(rules []models.QueryParamRule) (
 		if key == "" {
 			continue
 		}
+		action := strings.TrimSpace(rule.Action)
+		if action != "set" && action != "remove" {
+			return nil, NewI18nError(app_errors.ErrValidation, "validation.invalid_query_param_action", map[string]any{"action": action})
+		}
 		if seenKeys[key] {
 			return nil, NewI18nError(app_errors.ErrValidation, "validation.duplicate_query_param", map[string]any{"key": key})
 		}
 		seenKeys[key] = true
-		normalized = append(normalized, models.QueryParamRule{Key: key, Value: rule.Value, Action: rule.Action})
+		normalized = append(normalized, models.QueryParamRule{Key: key, Value: rule.Value, Action: action})
 	}
 
 	if len(normalized) == 0 {
