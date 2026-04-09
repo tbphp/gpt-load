@@ -165,6 +165,8 @@ var MessagesEnUS = map[string]string{
 	"config.max_retries_desc":                "Maximum number of retries for a single request using different keys, 0 for no retries.",
 	"config.blacklist_threshold":             "Blacklist Threshold",
 	"config.blacklist_threshold_desc":        "Number of consecutive failures before a key is blacklisted, 0 to disable blacklisting.",
+	"config.rate_limit_cooldown":             "Rate Limit Cooldown (seconds)",
+	"config.rate_limit_cooldown_desc":        "Cooldown duration in seconds after a key hits 429 rate limit. The key will automatically recover after this period.",
 	"config.key_validation_interval":         "Key Validation Interval (minutes)",
 	"config.key_validation_interval_desc":    "Default interval (minutes) for background key validation.",
 	"config.key_validation_concurrency":      "Key Validation Concurrency",

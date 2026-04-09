@@ -16,9 +16,10 @@ import (
 
 // Stats Get dashboard statistics
 func (s *Server) Stats(c *gin.Context) {
-	var activeKeys, invalidKeys int64
+	var activeKeys, invalidKeys, rateLimitedKeys int64
 	s.DB.Model(&models.APIKey{}).Where("status = ?", models.KeyStatusActive).Count(&activeKeys)
 	s.DB.Model(&models.APIKey{}).Where("status = ?", models.KeyStatusInvalid).Count(&invalidKeys)
+	s.DB.Model(&models.APIKey{}).Where("status = ?", models.KeyStatusRateLimited).Count(&rateLimitedKeys)
 
 	now := time.Now()
 	rpmStats, err := s.getRPMStats(now)
@@ -94,7 +95,7 @@ func (s *Server) Stats(c *gin.Context) {
 	stats := models.DashboardStatsResponse{
 		KeyCount: models.StatCard{
 			Value:       float64(activeKeys),
-			SubValue:    invalidKeys,
+			SubValue:    invalidKeys + rateLimitedKeys,
 			SubValueTip: i18n.Message(c, "dashboard.invalid_keys"),
 		},
 		RPM: rpmStats,

@@ -14,6 +14,7 @@ import {
   Pencil,
   RemoveCircleOutline,
   Search,
+  TimeOutline,
 } from "@vicons/ionicons5";
 import {
   NButton,
@@ -48,7 +49,7 @@ const props = defineProps<Props>();
 const keys = ref<KeyRow[]>([]);
 const loading = ref(false);
 const searchText = ref("");
-const statusFilter = ref<"all" | "active" | "invalid">("all");
+const statusFilter = ref<"all" | "active" | "invalid" | "rate_limited">("all");
 const currentPage = ref(1);
 const pageSize = ref(12);
 const total = ref(0);
@@ -61,6 +62,7 @@ const statusOptions = [
   { label: t("common.all"), value: "all" },
   { label: t("keys.valid"), value: "active" },
   { label: t("keys.invalid"), value: "invalid" },
+  { label: t("keys.rateLimited"), value: "rate_limited" },
 ];
 
 // 更多操作下拉菜单选项
@@ -421,6 +423,8 @@ function getStatusClass(status: KeyStatus): string {
       return "status-valid";
     case "invalid":
       return "status-invalid";
+    case "rate_limited":
+      return "status-rate-limited";
     default:
       return "status-unknown";
   }
@@ -482,7 +486,7 @@ async function restoreAllInvalid() {
   });
 }
 
-async function validateKeys(status: "all" | "active" | "invalid") {
+async function validateKeys(status: "all" | "active" | "invalid" | "rate_limited") {
   if (!props.selectedGroup?.id || testingMsg) {
     return;
   }
@@ -702,6 +706,12 @@ function resetPage() {
                     <n-icon :component="CheckmarkCircle" />
                   </template>
                   {{ t("keys.validShort") }}
+                </n-tag>
+                <n-tag v-else-if="key.status === 'rate_limited'" type="warning" :bordered="false" round :title="t('keys.rateLimited')">
+                  <template #icon>
+                    <n-icon :component="TimeOutline" />
+                  </template>
+                  {{ t("keys.rateLimitedShort") }}
                 </n-tag>
                 <n-tag v-else :bordered="false" round>
                   <template #icon>
@@ -1063,6 +1073,12 @@ function resetPage() {
   border-color: var(--invalid-border);
   background: var(--card-bg-solid);
   opacity: 0.85;
+}
+
+.key-card.status-rate-limited {
+  border-color: var(--warning-border);
+  background: var(--warning-bg);
+  opacity: 0.9;
 }
 
 .key-card.status-error {

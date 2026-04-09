@@ -232,8 +232,10 @@ func (ps *ProxyServer) executeRequestWithRetry(
 			logrus.Debugf("Request failed with status %d (attempt %d/%d) for key %s. Parsed Error: %s", statusCode, retryCount+1, cfg.MaxRetries, utils.MaskAPIKey(apiKey.KeyValue), parsedError)
 		}
 
-		// 使用解析后的错误信息更新密钥状态
-		ps.keyProvider.UpdateStatus(apiKey, group, false, parsedError)
+		ps.keyProvider.UpdateStatus(apiKey, group, false, &app_errors.FailureContext{
+			StatusCode:   statusCode,
+			ErrorMessage: parsedError,
+		})
 
 		// 判断是否为最后一次尝试
 		isLastAttempt := retryCount >= cfg.MaxRetries

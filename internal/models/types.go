@@ -9,8 +9,9 @@ import (
 
 // Key状态
 const (
-	KeyStatusActive  = "active"
-	KeyStatusInvalid = "invalid"
+	KeyStatusActive      = "active"
+	KeyStatusInvalid     = "invalid"
+	KeyStatusRateLimited = "rate_limited"
 )
 
 // SystemSetting 对应 system_settings 表
@@ -34,6 +35,7 @@ type GroupConfig struct {
 	ProxyURL                     *string `json:"proxy_url,omitempty"`
 	MaxRetries                   *int    `json:"max_retries,omitempty"`
 	BlacklistThreshold           *int    `json:"blacklist_threshold,omitempty"`
+	RateLimitCooldownSeconds     *int    `json:"rate_limit_cooldown_seconds,omitempty"`
 	KeyValidationIntervalMinutes *int    `json:"key_validation_interval_minutes,omitempty"`
 	KeyValidationConcurrency     *int    `json:"key_validation_concurrency,omitempty"`
 	KeyValidationTimeoutSeconds  *int    `json:"key_validation_timeout_seconds,omitempty"`
@@ -118,8 +120,9 @@ type APIKey struct {
 	Status       string     `gorm:"type:varchar(50);not null;default:'active';index" json:"status"`
 	Notes        string     `gorm:"type:varchar(255);default:''" json:"notes"`
 	RequestCount int64      `gorm:"not null;default:0" json:"request_count"`
-	FailureCount int64      `gorm:"not null;default:0" json:"failure_count"`
-	LastUsedAt   *time.Time `gorm:"index:idx_api_keys_group_last_used_id,priority:2" json:"last_used_at"`
+	FailureCount  int64      `gorm:"not null;default:0" json:"failure_count"`
+	CooldownUntil *time.Time `gorm:"index" json:"cooldown_until,omitempty"`
+	LastUsedAt    *time.Time `gorm:"index:idx_api_keys_group_last_used_id,priority:2" json:"last_used_at"`
 	CreatedAt    time.Time  `json:"created_at"`
 	UpdatedAt    time.Time  `json:"updated_at"`
 }

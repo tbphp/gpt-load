@@ -18,6 +18,7 @@ type CronChecker struct {
 	DB              *gorm.DB
 	SettingsManager *config.SystemSettingsManager
 	Validator       *KeyValidator
+	KeyProvider     *KeyProvider
 	EncryptionSvc   encryption.Service
 	stopChan        chan struct{}
 	wg              sync.WaitGroup
@@ -28,12 +29,14 @@ func NewCronChecker(
 	db *gorm.DB,
 	settingsManager *config.SystemSettingsManager,
 	validator *KeyValidator,
+	keyProvider *KeyProvider,
 	encryptionSvc encryption.Service,
 ) *CronChecker {
 	return &CronChecker{
 		DB:              db,
 		SettingsManager: settingsManager,
 		Validator:       validator,
+		KeyProvider:     keyProvider,
 		EncryptionSvc:   encryptionSvc,
 		stopChan:        make(chan struct{}),
 	}
@@ -68,14 +71,19 @@ func (s *CronChecker) Stop(ctx context.Context) {
 func (s *CronChecker) runLoop() {
 	defer s.wg.Done()
 
+	s.recoverRateLimitedKeys()
 	s.submitValidationJobs()
 
-	ticker := time.NewTicker(5 * time.Minute)
-	defer ticker.Stop()
+	recoveryTicker := time.NewTicker(10 * time.Second)
+	validationTicker := time.NewTicker(5 * time.Minute)
+	defer recoveryTicker.Stop()
+	defer validationTicker.Stop()
 
 	for {
 		select {
-		case <-ticker.C:
+		case <-recoveryTicker.C:
+			s.recoverRateLimitedKeys()
+		case <-validationTicker.C:
 			logrus.Debug("CronChecker: Running as Master, submitting validation jobs.")
 			s.submitValidationJobs()
 		case <-s.stopChan:
@@ -111,6 +119,45 @@ func (s *CronChecker) submitValidationJobs() {
 	}
 
 	wg.Wait()
+}
+
+func (s *CronChecker) recoverRateLimitedKeys() {
+	now := time.Now()
+	var rateLimitedKeys []models.APIKey
+
+	if err := s.DB.Where("status = ? AND cooldown_until <= ?", models.KeyStatusRateLimited, now).Find(&rateLimitedKeys).Error; err != nil {
+		logrus.Errorf("CronChecker: Failed to get rate-limited keys for recovery: %v", err)
+		return
+	}
+
+	for i := range rateLimitedKeys {
+		key := &rateLimitedKeys[i]
+		updates := map[string]any{
+			"status":         models.KeyStatusActive,
+			"cooldown_until": nil,
+		}
+
+		if err := s.DB.Model(&models.APIKey{}).Where("id = ? AND status = ?", key.ID, models.KeyStatusRateLimited).Updates(updates).Error; err != nil {
+			logrus.WithError(err).WithField("key_id", key.ID).Error("CronChecker: Failed to recover rate-limited key in DB")
+			continue
+		}
+
+		key.Status = models.KeyStatusActive
+		key.CooldownUntil = nil
+
+		if err := s.KeyProvider.addKeyToStore(key); err != nil {
+			// Store 恢复失败，回滚 DB 状态避免 key 永久掉出池
+			rollback := map[string]any{
+				"status":         models.KeyStatusRateLimited,
+				"cooldown_until": now,
+			}
+			if rollbackErr := s.DB.Model(&models.APIKey{}).Where("id = ?", key.ID).Updates(rollback).Error; rollbackErr != nil {
+				logrus.WithError(rollbackErr).WithField("key_id", key.ID).Error("CronChecker: Failed to roll back rate-limited key after store recovery failure")
+			}
+			logrus.WithError(err).WithField("key_id", key.ID).Error("CronChecker: Failed to recover rate-limited key in store")
+			continue
+		}
+	}
 }
 
 // validateGroupKeys validates all invalid keys for a single group concurrently.

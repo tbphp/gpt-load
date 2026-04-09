@@ -165,6 +165,8 @@ var MessagesZhCN = map[string]string{
 	"config.max_retries_desc":                "单个请求使用不同 Key 的最大重试次数，0为不重试。",
 	"config.blacklist_threshold":             "黑名单阈值",
 	"config.blacklist_threshold_desc":        "一个 Key 连续失败多少次后进入黑名单，0为不拉黑。",
+	"config.rate_limit_cooldown":             "限流冷却时间（秒）",
+	"config.rate_limit_cooldown_desc":        "密钥触发 429 限流后的冷却等待时间（秒），冷却期满自动恢复为可用状态。",
 	"config.key_validation_interval":         "密钥验证间隔（分钟）",
 	"config.key_validation_interval_desc":    "后台验证密钥的默认间隔（分钟）。",
 	"config.key_validation_concurrency":      "密钥验证并发数",

@@ -343,7 +343,7 @@ func (s *KeyService) StreamKeysToWriter(groupID uint, statusFilter string, write
 	query := s.DB.Model(&models.APIKey{}).Where("group_id = ?", groupID).Select("id, key_value")
 
 	switch statusFilter {
-	case models.KeyStatusActive, models.KeyStatusInvalid:
+	case models.KeyStatusActive, models.KeyStatusInvalid, models.KeyStatusRateLimited:
 		query = query.Where("status = ?", statusFilter)
 	case "all":
 	default:

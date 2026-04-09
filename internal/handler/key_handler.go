@@ -202,7 +202,7 @@ func (s *Server) ListKeysInGroup(c *gin.Context) {
 	}
 
 	statusFilter := c.Query("status")
-	if statusFilter != "" && statusFilter != models.KeyStatusActive && statusFilter != models.KeyStatusInvalid {
+	if statusFilter != "" && statusFilter != models.KeyStatusActive && statusFilter != models.KeyStatusInvalid && statusFilter != models.KeyStatusRateLimited {
 		response.ErrorI18nFromAPIError(c, app_errors.ErrValidation, "validation.invalid_status_filter")
 		return
 	}
@@ -377,7 +377,7 @@ func (s *Server) ValidateGroupKeys(c *gin.Context) {
 	}
 
 	// Validate status if provided
-	if req.Status != "" && req.Status != models.KeyStatusActive && req.Status != models.KeyStatusInvalid {
+	if req.Status != "" && req.Status != models.KeyStatusActive && req.Status != models.KeyStatusInvalid && req.Status != models.KeyStatusRateLimited {
 		response.ErrorI18nFromAPIError(c, app_errors.ErrValidation, "validation.invalid_status_value")
 		return
 	}
@@ -478,7 +478,7 @@ func (s *Server) ExportKeys(c *gin.Context) {
 	}
 
 	switch statusFilter {
-	case "all", models.KeyStatusActive, models.KeyStatusInvalid:
+	case "all", models.KeyStatusActive, models.KeyStatusInvalid, models.KeyStatusRateLimited:
 	default:
 		response.ErrorI18nFromAPIError(c, app_errors.ErrValidation, "validation.invalid_status_filter")
 		return

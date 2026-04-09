@@ -88,8 +88,13 @@ func (p *KeyProvider) SelectKey(groupID uint) (*models.APIKey, error) {
 }
 
 // UpdateStatus 异步地提交一个 Key 状态更新任务。
-func (p *KeyProvider) UpdateStatus(apiKey *models.APIKey, group *models.Group, isSuccess bool, errorMessage string) {
-	go func() {
+func (p *KeyProvider) UpdateStatus(apiKey *models.APIKey, group *models.Group, isSuccess bool, failCtx *app_errors.FailureContext) {
+	var failureCtx app_errors.FailureContext
+	if failCtx != nil {
+		failureCtx = *failCtx
+	}
+
+	go func(failureCtx app_errors.FailureContext) {
 		keyHashKey := fmt.Sprintf("key:%d", apiKey.ID)
 		activeKeysListKey := fmt.Sprintf("group:%d:active_keys", group.ID)
 
@@ -97,19 +102,29 @@ func (p *KeyProvider) UpdateStatus(apiKey *models.APIKey, group *models.Group, i
 			if err := p.handleSuccess(apiKey.ID, keyHashKey, activeKeysListKey); err != nil {
 				logrus.WithFields(logrus.Fields{"keyID": apiKey.ID, "error": err}).Error("Failed to handle key success")
 			}
-		} else {
-			if app_errors.IsUnCounted(errorMessage) {
-				logrus.WithFields(logrus.Fields{
-					"keyID": apiKey.ID,
-					"error": errorMessage,
-				}).Debug("Uncounted error, skipping failure handling")
-			} else {
-				if err := p.handleFailure(apiKey, group, keyHashKey, activeKeysListKey); err != nil {
-					logrus.WithFields(logrus.Fields{"keyID": apiKey.ID, "error": err}).Error("Failed to handle key failure")
-				}
+			return
+		}
+
+		switch app_errors.ClassifyFailure(failureCtx) {
+		case app_errors.FailureNone:
+			logrus.WithFields(logrus.Fields{
+				"keyID": apiKey.ID,
+				"error": failureCtx.ErrorMessage,
+			}).Debug("Uncounted error, skipping failure handling")
+		case app_errors.FailureAuth, app_errors.FailurePermission:
+			if err := p.handleImmediateDisable(apiKey, keyHashKey, activeKeysListKey); err != nil {
+				logrus.WithFields(logrus.Fields{"keyID": apiKey.ID, "error": err}).Error("Failed to handle immediate key disable")
+			}
+		case app_errors.FailureRateLimit:
+			if err := p.handleRateLimit(apiKey, group, keyHashKey, activeKeysListKey); err != nil {
+				logrus.WithFields(logrus.Fields{"keyID": apiKey.ID, "error": err}).Error("Failed to handle key rate limit")
+			}
+		default:
+			if err := p.handleGeneralFailure(apiKey, group, keyHashKey, activeKeysListKey); err != nil {
+				logrus.WithFields(logrus.Fields{"keyID": apiKey.ID, "error": err}).Error("Failed to handle key failure")
 			}
 		}
-	}()
+	}(failureCtx)
 }
 
 // executeTransactionWithRetry wraps a database transaction with a retry mechanism.
@@ -158,16 +173,20 @@ func (p *KeyProvider) handleSuccess(keyID uint, keyHashKey, activeKeysListKey st
 			return fmt.Errorf("failed to lock key %d for update: %w", keyID, err)
 		}
 
-		updates := map[string]any{"failure_count": 0}
+		dbUpdates := map[string]any{"failure_count": 0}
+		storeUpdates := map[string]any{"failure_count": 0}
 		if !isActive {
-			updates["status"] = models.KeyStatusActive
+			dbUpdates["status"] = models.KeyStatusActive
+			dbUpdates["cooldown_until"] = nil
+			storeUpdates["status"] = models.KeyStatusActive
+			storeUpdates["cooldown_until"] = 0
 		}
 
-		if err := tx.Model(&key).Updates(updates).Error; err != nil {
+		if err := tx.Model(&key).Updates(dbUpdates).Error; err != nil {
 			return fmt.Errorf("failed to update key in DB: %w", err)
 		}
 
-		if err := p.store.HSet(keyHashKey, updates); err != nil {
+		if err := p.store.HSet(keyHashKey, storeUpdates); err != nil {
 			return fmt.Errorf("failed to update key details in store: %w", err)
 		}
 
@@ -185,7 +204,94 @@ func (p *KeyProvider) handleSuccess(keyID uint, keyHashKey, activeKeysListKey st
 	})
 }
 
-func (p *KeyProvider) handleFailure(apiKey *models.APIKey, group *models.Group, keyHashKey, activeKeysListKey string) error {
+func (p *KeyProvider) handleImmediateDisable(apiKey *models.APIKey, keyHashKey, activeKeysListKey string) error {
+	keyDetails, err := p.store.HGetAll(keyHashKey)
+	if err != nil {
+		return fmt.Errorf("failed to get key details from store: %w", err)
+	}
+
+	if keyDetails["status"] == models.KeyStatusInvalid {
+		return nil
+	}
+
+	failureCount, _ := strconv.ParseInt(keyDetails["failure_count"], 10, 64)
+
+	return p.executeTransactionWithRetry(func(tx *gorm.DB) error {
+		var key models.APIKey
+		if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&key, apiKey.ID).Error; err != nil {
+			return fmt.Errorf("failed to lock key %d for update: %w", apiKey.ID, err)
+		}
+
+		newFailureCount := failureCount + 1
+		dbUpdates := map[string]any{
+			"failure_count":  newFailureCount,
+			"status":         models.KeyStatusInvalid,
+			"cooldown_until": nil,
+		}
+
+		if err := tx.Model(&key).Updates(dbUpdates).Error; err != nil {
+			return fmt.Errorf("failed to disable key in DB: %w", err)
+		}
+
+		if _, err := p.store.HIncrBy(keyHashKey, "failure_count", 1); err != nil {
+			return fmt.Errorf("failed to increment failure count in store: %w", err)
+		}
+		if err := p.store.LRem(activeKeysListKey, 0, apiKey.ID); err != nil {
+			return fmt.Errorf("failed to LRem key from active list: %w", err)
+		}
+		if err := p.store.HSet(keyHashKey, map[string]any{
+			"status":         models.KeyStatusInvalid,
+			"cooldown_until": 0,
+		}); err != nil {
+			return fmt.Errorf("failed to update key status to invalid in store: %w", err)
+		}
+
+		logrus.WithField("keyID", apiKey.ID).Warn("Key disabled immediately due to auth or permission failure.")
+		return nil
+	})
+}
+
+func (p *KeyProvider) handleRateLimit(apiKey *models.APIKey, group *models.Group, keyHashKey, activeKeysListKey string) error {
+	keyDetails, err := p.store.HGetAll(keyHashKey)
+	if err != nil {
+		return fmt.Errorf("failed to get key details from store: %w", err)
+	}
+
+	if keyDetails["status"] == models.KeyStatusInvalid {
+		return nil
+	}
+
+	cooldownUntil := time.Now().Add(time.Duration(group.EffectiveConfig.RateLimitCooldownSeconds) * time.Second)
+
+	return p.executeTransactionWithRetry(func(tx *gorm.DB) error {
+		var key models.APIKey
+		if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&key, apiKey.ID).Error; err != nil {
+			return fmt.Errorf("failed to lock key %d for update: %w", apiKey.ID, err)
+		}
+
+		dbUpdates := map[string]any{
+			"status":         models.KeyStatusRateLimited,
+			"cooldown_until": cooldownUntil,
+		}
+		if err := tx.Model(&key).Updates(dbUpdates).Error; err != nil {
+			return fmt.Errorf("failed to mark key as rate limited in DB: %w", err)
+		}
+		if err := p.store.LRem(activeKeysListKey, 0, apiKey.ID); err != nil {
+			return fmt.Errorf("failed to LRem rate-limited key from active list: %w", err)
+		}
+		if err := p.store.HSet(keyHashKey, map[string]any{
+			"status":         models.KeyStatusRateLimited,
+			"cooldown_until": cooldownUntil.Unix(),
+		}); err != nil {
+			return fmt.Errorf("failed to update rate-limited key in store: %w", err)
+		}
+
+		logrus.WithFields(logrus.Fields{"keyID": apiKey.ID, "cooldown_until": cooldownUntil}).Warn("Key removed from active pool due to rate limit.")
+		return nil
+	})
+}
+
+func (p *KeyProvider) handleGeneralFailure(apiKey *models.APIKey, group *models.Group, keyHashKey, activeKeysListKey string) error {
 	keyDetails, err := p.store.HGetAll(keyHashKey)
 	if err != nil {
 		return fmt.Errorf("failed to get key details from store: %w", err)
@@ -208,13 +314,14 @@ func (p *KeyProvider) handleFailure(apiKey *models.APIKey, group *models.Group, 
 
 		newFailureCount := failureCount + 1
 
-		updates := map[string]any{"failure_count": newFailureCount}
+		dbUpdates := map[string]any{"failure_count": newFailureCount}
 		shouldBlacklist := blacklistThreshold > 0 && newFailureCount >= int64(blacklistThreshold)
 		if shouldBlacklist {
-			updates["status"] = models.KeyStatusInvalid
+			dbUpdates["status"] = models.KeyStatusInvalid
+			dbUpdates["cooldown_until"] = nil
 		}
 
-		if err := tx.Model(&key).Updates(updates).Error; err != nil {
+		if err := tx.Model(&key).Updates(dbUpdates).Error; err != nil {
 			return fmt.Errorf("failed to update key stats in DB: %w", err)
 		}
 
@@ -227,7 +334,10 @@ func (p *KeyProvider) handleFailure(apiKey *models.APIKey, group *models.Group, 
 			if err := p.store.LRem(activeKeysListKey, 0, apiKey.ID); err != nil {
 				return fmt.Errorf("failed to LRem key from active list: %w", err)
 			}
-			if err := p.store.HSet(keyHashKey, map[string]any{"status": models.KeyStatusInvalid}); err != nil {
+			if err := p.store.HSet(keyHashKey, map[string]any{
+				"status":         models.KeyStatusInvalid,
+				"cooldown_until": 0,
+			}); err != nil {
 				return fmt.Errorf("failed to update key status to invalid in store: %w", err)
 			}
 		}
@@ -244,6 +354,7 @@ func (p *KeyProvider) LoadKeysFromDB() error {
 	allActiveKeyIDs := make(map[uint][]any)
 	batchSize := 10000
 	var batchKeys []*models.APIKey
+	now := time.Now()
 
 	err := p.db.Model(&models.APIKey{}).FindInBatches(&batchKeys, batchSize, func(tx *gorm.DB, batch int) error {
 		logrus.Debugf("Processing batch %d with %d keys...", batch, len(batchKeys))
@@ -254,6 +365,19 @@ func (p *KeyProvider) LoadKeysFromDB() error {
 		}
 
 		for _, key := range batchKeys {
+			// 恢复冷却已过期的 rate_limited key
+			if key.Status == models.KeyStatusRateLimited && (key.CooldownUntil == nil || !key.CooldownUntil.After(now)) {
+				updates := map[string]any{
+					"status":         models.KeyStatusActive,
+					"cooldown_until": nil,
+				}
+				if err := tx.Model(&models.APIKey{}).Where("id = ?", key.ID).Updates(updates).Error; err != nil {
+					return fmt.Errorf("failed to recover expired rate-limited key %d during load: %w", key.ID, err)
+				}
+				key.Status = models.KeyStatusActive
+				key.CooldownUntil = nil
+			}
+
 			keyHashKey := fmt.Sprintf("key:%d", key.ID)
 			keyDetails := p.apiKeyToMap(key)
 
@@ -366,13 +490,14 @@ func (p *KeyProvider) RemoveKeys(groupID uint, keyValues []string) (int64, error
 	return deletedCount, err
 }
 
-// RestoreKeys 恢复组内所有无效的 Key。
+// RestoreKeys 恢复组内所有无效和限流冷却的 Key。
 func (p *KeyProvider) RestoreKeys(groupID uint) (int64, error) {
 	var invalidKeys []models.APIKey
 	var restoredCount int64
+	statusesToRestore := []string{models.KeyStatusInvalid, models.KeyStatusRateLimited}
 
 	err := p.db.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("group_id = ? AND status = ?", groupID, models.KeyStatusInvalid).Find(&invalidKeys).Error; err != nil {
+		if err := tx.Where("group_id = ? AND status IN ?", groupID, statusesToRestore).Find(&invalidKeys).Error; err != nil {
 			return err
 		}
 
@@ -381,10 +506,11 @@ func (p *KeyProvider) RestoreKeys(groupID uint) (int64, error) {
 		}
 
 		updates := map[string]any{
-			"status":        models.KeyStatusActive,
-			"failure_count": 0,
+			"status":         models.KeyStatusActive,
+			"failure_count":  0,
+			"cooldown_until": nil,
 		}
-		result := tx.Model(&models.APIKey{}).Where("group_id = ? AND status = ?", groupID, models.KeyStatusInvalid).Updates(updates)
+		result := tx.Model(&models.APIKey{}).Where("group_id = ? AND status IN ?", groupID, statusesToRestore).Updates(updates)
 		if result.Error != nil {
 			return result.Error
 		}
@@ -393,6 +519,7 @@ func (p *KeyProvider) RestoreKeys(groupID uint) (int64, error) {
 		for _, key := range invalidKeys {
 			key.Status = models.KeyStatusActive
 			key.FailureCount = 0
+			key.CooldownUntil = nil
 			if err := p.addKeyToStore(&key); err != nil {
 				logrus.WithFields(logrus.Fields{"keyID": key.ID, "error": err}).Error("Failed to restore key in store after DB update, rolling back transaction")
 				return err
@@ -412,6 +539,7 @@ func (p *KeyProvider) RestoreMultipleKeys(groupID uint, keyValues []string) (int
 
 	var keysToRestore []models.APIKey
 	var restoredCount int64
+	statusesToRestore := []string{models.KeyStatusInvalid, models.KeyStatusRateLimited}
 
 	err := p.db.Transaction(func(tx *gorm.DB) error {
 		var keyHashes []string
@@ -426,7 +554,7 @@ func (p *KeyProvider) RestoreMultipleKeys(groupID uint, keyValues []string) (int
 			return nil
 		}
 
-		if err := tx.Where("group_id = ? AND key_hash IN ? AND status = ?", groupID, keyHashes, models.KeyStatusInvalid).Find(&keysToRestore).Error; err != nil {
+		if err := tx.Where("group_id = ? AND key_hash IN ? AND status IN ?", groupID, keyHashes, statusesToRestore).Find(&keysToRestore).Error; err != nil {
 			return err
 		}
 
@@ -437,8 +565,9 @@ func (p *KeyProvider) RestoreMultipleKeys(groupID uint, keyValues []string) (int
 		keyIDsToRestore := pluckIDs(keysToRestore)
 
 		updates := map[string]any{
-			"status":        models.KeyStatusActive,
-			"failure_count": 0,
+			"status":         models.KeyStatusActive,
+			"failure_count":  0,
+			"cooldown_until": nil,
 		}
 		result := tx.Model(&models.APIKey{}).Where("id IN ?", keyIDsToRestore).Updates(updates)
 		if result.Error != nil {
@@ -449,6 +578,7 @@ func (p *KeyProvider) RestoreMultipleKeys(groupID uint, keyValues []string) (int
 		for _, key := range keysToRestore {
 			key.Status = models.KeyStatusActive
 			key.FailureCount = 0
+			key.CooldownUntil = nil
 			if err := p.addKeyToStore(&key); err != nil {
 				logrus.WithFields(logrus.Fields{"keyID": key.ID, "error": err}).Error("Failed to restore key in store after DB update")
 				return err
@@ -461,9 +591,9 @@ func (p *KeyProvider) RestoreMultipleKeys(groupID uint, keyValues []string) (int
 	return restoredCount, err
 }
 
-// RemoveInvalidKeys 移除组内所有无效的 Key。
+// RemoveInvalidKeys 移除组内所有无效和限流冷却的 Key。
 func (p *KeyProvider) RemoveInvalidKeys(groupID uint) (int64, error) {
-	return p.removeKeysByStatus(groupID, models.KeyStatusInvalid)
+	return p.removeKeysByStatus(groupID, models.KeyStatusInvalid, models.KeyStatusRateLimited)
 }
 
 // RemoveAllKeys 移除组内所有的 Key。
@@ -630,13 +760,19 @@ func (p *KeyProvider) removeKeyFromStore(keyID, groupID uint) error {
 
 // apiKeyToMap converts an APIKey model to a map for HSET.
 func (p *KeyProvider) apiKeyToMap(key *models.APIKey) map[string]any {
+	cooldownUntil := int64(0)
+	if key.CooldownUntil != nil {
+		cooldownUntil = key.CooldownUntil.Unix()
+	}
+
 	return map[string]any{
-		"id":            fmt.Sprint(key.ID),
-		"key_string":    key.KeyValue,
-		"status":        key.Status,
-		"failure_count": key.FailureCount,
-		"group_id":      key.GroupID,
-		"created_at":    key.CreatedAt.Unix(),
+		"id":             fmt.Sprint(key.ID),
+		"key_string":     key.KeyValue,
+		"status":         key.Status,
+		"failure_count":  key.FailureCount,
+		"cooldown_until": cooldownUntil,
+		"group_id":       key.GroupID,
+		"created_at":     key.CreatedAt.Unix(),
 	}
 }
 

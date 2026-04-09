@@ -228,7 +228,7 @@ export const keysApi = {
   },
 
   // 导出密钥
-  exportKeys(groupId: number, status: "all" | "active" | "invalid" = "all"): void {
+  exportKeys(groupId: number, status: "all" | "active" | "invalid" | "rate_limited" = "all"): void {
     const authKey = localStorage.getItem("authKey");
     if (!authKey) {
       window.$message.error(i18n.global.t("auth.noAuthKeyFound"));
@@ -257,7 +257,7 @@ export const keysApi = {
   // 验证分组密钥
   async validateGroupKeys(
     groupId: number,
-    status?: "active" | "invalid"
+    status?: "active" | "invalid" | "rate_limited"
   ): Promise<{
     is_running: boolean;
     group_name: string;

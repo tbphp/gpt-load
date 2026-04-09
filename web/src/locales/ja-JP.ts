@@ -409,6 +409,8 @@ export default {
     restoreShort: "復元",
     validShort: "有効",
     invalidShort: "無効",
+    rateLimited: "レート制限",
+    rateLimitedShort: "制限",
     testKey: "キーをテスト",
     totalRecords: "合計 {total} 件",
     recordsPerPage: "{count}件/ページ",
