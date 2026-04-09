@@ -357,6 +357,19 @@ export default {
     removeToggleTooltip:
       "削除スイッチを有効にするとこのヘッダーを削除、無効にするとこのヘッダーを追加または上書き",
     addHeader: "ヘッダー追加",
+    customQueryParams: "カスタムクエリパラメータ",
+    queryParamRulesTooltip1:
+      "プロキシリクエストをアップストリームサービスに転送する前に、URLクエリパラメータの追加、上書き、または削除を行います。例: クライアントが付加する ?beta=true を削除。",
+    queryParam: "パラメータ",
+    queryParamTooltip:
+      "URLクエリパラメータの名前、値、操作タイプを設定します。削除操作はURLから指定のパラメータを削除します",
+    queryParamName: "パラメータ名",
+    duplicateQueryParam: "パラメータ名が重複しています",
+    queryParamValuePlaceholder: "変数をサポート、例：${GROUP_NAME}",
+    queryParamWillRemoveFromRequest: "URLから削除されます",
+    queryParamRemoveToggleTooltip:
+      "削除スイッチを有効にするとこのパラメータを削除、無効にするとこのパラメータを追加または上書き",
+    addQueryParam: "クエリパラメータ追加",
     paramOverridesTooltip:
       "JSON形式を使用して、上書きするAPIリクエストパラメータを定義します。これらのパラメータは、リクエスト送信時に元のパラメータにマージされます。",
     modelRedirectPolicy: "未設定モデルポリシー",

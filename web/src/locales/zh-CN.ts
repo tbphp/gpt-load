@@ -345,6 +345,17 @@ export default {
     willRemoveFromRequest: "将从请求中移除",
     removeToggleTooltip: "开启移除开关将删除此请求头，关闭则添加或覆盖此请求头",
     addHeader: "添加请求头",
+    customQueryParams: "自定义 URL 参数",
+    queryParamRulesTooltip1:
+      "在代理请求转发至上游服务前，对 URL 查询参数进行添加、覆盖或移除操作。例如移除客户端附加的 ?beta=true。",
+    queryParam: "参数",
+    queryParamTooltip: "配置URL查询参数的名称、值和操作类型。移除操作会从URL中删除指定的参数",
+    queryParamName: "参数名称",
+    duplicateQueryParam: "参数名称重复",
+    queryParamValuePlaceholder: "支持变量，例如：${GROUP_NAME}",
+    queryParamWillRemoveFromRequest: "将从URL中移除",
+    queryParamRemoveToggleTooltip: "开启移除开关将删除此参数，关闭则添加或覆盖此参数",
+    addQueryParam: "添加 URL 参数",
     paramOverridesTooltip:
       "使用JSON格式定义要覆盖的API请求参数。这些参数会在发送请求时合并到原始参数中",
     modelRedirectPolicy: "未配置模型策略",

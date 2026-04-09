@@ -82,6 +82,16 @@ func (gm *GroupManager) Initialize() error {
 				g.HeaderRuleList = []models.HeaderRule{}
 			}
 
+			// Parse query param rules with error handling
+			if len(group.QueryParamRules) > 0 {
+				if err := json.Unmarshal(group.QueryParamRules, &g.QueryParamRuleList); err != nil {
+					logrus.WithError(err).WithField("group_name", g.Name).Warn("Failed to parse query param rules for group")
+					g.QueryParamRuleList = []models.QueryParamRule{}
+				}
+			} else {
+				g.QueryParamRuleList = []models.QueryParamRule{}
+			}
+
 			// Parse model redirect rules with error handling
 			g.ModelRedirectMap = make(map[string]string)
 			if len(group.ModelRedirectRules) > 0 {
@@ -119,12 +129,13 @@ func (gm *GroupManager) Initialize() error {
 
 			groupMap[g.Name] = &g
 			logrus.WithFields(logrus.Fields{
-				"group_name":               g.Name,
-				"effective_config":         g.EffectiveConfig,
-				"header_rules_count":       len(g.HeaderRuleList),
+				"group_name":                 g.Name,
+				"effective_config":           g.EffectiveConfig,
+				"header_rules_count":         len(g.HeaderRuleList),
+				"query_param_rules_count":    len(g.QueryParamRuleList),
 				"model_redirect_rules_count": len(g.ModelRedirectMap),
-				"model_redirect_strict":    g.ModelRedirectStrict,
-				"sub_group_count":          len(g.SubGroups),
+				"model_redirect_strict":      g.ModelRedirectStrict,
+				"sub_group_count":            len(g.SubGroups),
 			}).Debug("Loaded group with effective config")
 		}
 

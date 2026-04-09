@@ -187,6 +187,12 @@ func (ps *ProxyServer) executeRequestWithRetry(
 		utils.ApplyHeaderRules(req, group.HeaderRuleList, headerCtx)
 	}
 
+	// Apply custom query parameter rules
+	if len(group.QueryParamRuleList) > 0 {
+		queryCtx := utils.NewHeaderVariableContextFromGin(c, group, apiKey)
+		utils.ApplyQueryParamRules(req, group.QueryParamRuleList, queryCtx)
+	}
+
 	var client *http.Client
 	if isStream {
 		client = channelHandler.GetStreamClient()

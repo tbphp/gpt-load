@@ -358,6 +358,19 @@ export default {
     removeToggleTooltip:
       "Enable remove switch to delete this header, disable to add or override this header",
     addHeader: "Add Header",
+    customQueryParams: "Custom Query Parameters",
+    queryParamRulesTooltip1:
+      "Add, override or remove URL query parameters before forwarding proxy requests to upstream services. For example, remove ?beta=true appended by the client.",
+    queryParam: "Param",
+    queryParamTooltip:
+      "Configure URL query parameter name, value and operation type. Remove operation will strip the specified parameter from the URL",
+    queryParamName: "Parameter name",
+    duplicateQueryParam: "Duplicate parameter name",
+    queryParamValuePlaceholder: "Supports variables, e.g.: ${GROUP_NAME}",
+    queryParamWillRemoveFromRequest: "Will be removed from URL",
+    queryParamRemoveToggleTooltip:
+      "Enable remove switch to delete this parameter, disable to add or override this parameter",
+    addQueryParam: "Add Query Parameter",
     paramOverridesTooltip:
       "Define the API request parameters to be overridden using JSON format. These parameters will be merged with the original parameters when sending the request.",
     modelRedirectPolicy: "Unconfigured Model Policy",

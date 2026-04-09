@@ -46,6 +46,13 @@ interface HeaderRuleItem {
   action: "set" | "remove";
 }
 
+// Query Param规则类型
+interface QueryParamRuleItem {
+  key: string;
+  value: string;
+  action: "set" | "remove";
+}
+
 const props = withDefaults(defineProps<Props>(), {
   group: null,
 });
@@ -77,6 +84,7 @@ interface GroupFormData {
   config: Record<string, number | string | boolean>;
   configItems: ConfigItem[];
   header_rules: HeaderRuleItem[];
+  query_param_rules: QueryParamRuleItem[];
   proxy_keys: string;
   group_type?: string;
 }
@@ -102,6 +110,7 @@ const formData = reactive<GroupFormData>({
   config: {},
   configItems: [] as ConfigItem[],
   header_rules: [] as HeaderRuleItem[],
+  query_param_rules: [] as QueryParamRuleItem[],
   proxy_keys: "",
   group_type: "standard",
 });
@@ -303,6 +312,7 @@ function resetForm() {
     config: {},
     configItems: [],
     header_rules: [],
+    query_param_rules: [],
     proxy_keys: "",
     group_type: "standard",
   });
@@ -345,6 +355,11 @@ function loadGroupData() {
     config: {},
     configItems,
     header_rules: (props.group.header_rules || []).map((rule: HeaderRuleItem) => ({
+      key: rule.key || "",
+      value: rule.value || "",
+      action: (rule.action as "set" | "remove") || "set",
+    })),
+    query_param_rules: (props.group.query_param_rules || []).map((rule: QueryParamRuleItem) => ({
       key: rule.key || "",
       value: rule.value || "",
       action: (rule.action as "set" | "remove") || "set",
@@ -412,6 +427,35 @@ function addHeaderRule() {
 // 删除Header规则
 function removeHeaderRule(index: number) {
   formData.header_rules.splice(index, 1);
+}
+
+// 添加Query Param规则
+function addQueryParamRule() {
+  formData.query_param_rules.push({
+    key: "",
+    value: "",
+    action: "remove",
+  });
+}
+
+// 删除Query Param规则
+function removeQueryParamRule(index: number) {
+  formData.query_param_rules.splice(index, 1);
+}
+
+// 验证Query Param Key唯一性
+function validateQueryParamKeyUniqueness(
+  rules: QueryParamRuleItem[],
+  currentIndex: number,
+  key: string
+): boolean {
+  if (!key.trim()) {
+    return true;
+  }
+  const trimmedKey = key.trim();
+  return !rules.some(
+    (rule, index) => index !== currentIndex && rule.key.trim() === trimmedKey
+  );
 }
 
 // 规范化Header Key到Canonical格式（模拟HTTP标准）
@@ -534,6 +578,13 @@ async function handleSubmit() {
       header_rules: formData.header_rules
         .filter((rule: HeaderRuleItem) => rule.key.trim())
         .map((rule: HeaderRuleItem) => ({
+          key: rule.key.trim(),
+          value: rule.value,
+          action: rule.action,
+        })),
+      query_param_rules: formData.query_param_rules
+        .filter((rule: QueryParamRuleItem) => rule.key.trim())
+        .map((rule: QueryParamRuleItem) => ({
           key: rule.key.trim(),
           value: rule.value,
           action: rule.action,
@@ -1079,6 +1130,128 @@ async function handleSubmit() {
                       <n-icon :component="Add" />
                     </template>
                     {{ t("keys.addHeader") }}
+                  </n-button>
+                </div>
+              </div>
+
+              <div class="config-section">
+                <h5 class="config-title-with-tooltip">
+                  {{ t("keys.customQueryParams") }}
+                  <n-tooltip trigger="hover" placement="top">
+                    <template #trigger>
+                      <n-icon :component="HelpCircleOutline" class="help-icon config-help" />
+                    </template>
+                    <div>
+                      {{ t("keys.queryParamRulesTooltip1") }}
+                      <br />
+                      {{ t("keys.supportedVariables") }}：
+                      <br />
+                      • ${CLIENT_IP} - {{ t("keys.clientIpVar") }}
+                      <br />
+                      • ${GROUP_NAME} - {{ t("keys.groupNameVar") }}
+                      <br />
+                      • ${API_KEY} - {{ t("keys.apiKeyVar") }}
+                      <br />
+                      • ${TIMESTAMP_MS} - {{ t("keys.timestampMsVar") }}
+                      <br />
+                      • ${TIMESTAMP_S} - {{ t("keys.timestampSVar") }}
+                    </div>
+                  </n-tooltip>
+                </h5>
+
+                <div class="header-rules-items">
+                  <n-form-item
+                    v-for="(paramRule, index) in formData.query_param_rules"
+                    :key="index"
+                    class="header-rule-row"
+                    :label="`${t('keys.queryParam')} ${index + 1}`"
+                  >
+                    <template #label>
+                      <div class="form-label-with-tooltip">
+                        {{ t("keys.queryParam") }} {{ index + 1 }}
+                        <n-tooltip trigger="hover" placement="top">
+                          <template #trigger>
+                            <n-icon :component="HelpCircleOutline" class="help-icon" />
+                          </template>
+                          {{ t("keys.queryParamTooltip") }}
+                        </n-tooltip>
+                      </div>
+                    </template>
+                    <div class="header-rule-content">
+                      <div class="header-name">
+                        <n-input
+                          v-model:value="paramRule.key"
+                          :placeholder="t('keys.queryParamName')"
+                          :status="
+                            !validateQueryParamKeyUniqueness(
+                              formData.query_param_rules,
+                              index,
+                              paramRule.key
+                            )
+                              ? 'error'
+                              : undefined
+                          "
+                        />
+                        <div
+                          v-if="
+                            !validateQueryParamKeyUniqueness(
+                              formData.query_param_rules,
+                              index,
+                              paramRule.key
+                            )
+                          "
+                          class="error-message"
+                        >
+                          {{ t("keys.duplicateQueryParam") }}
+                        </div>
+                      </div>
+                      <div class="header-value" v-if="paramRule.action === 'set'">
+                        <n-input
+                          v-model:value="paramRule.value"
+                          :placeholder="t('keys.queryParamValuePlaceholder')"
+                        />
+                      </div>
+                      <div class="header-value removed-placeholder" v-else>
+                        <span class="removed-text">{{
+                          t("keys.queryParamWillRemoveFromRequest")
+                        }}</span>
+                      </div>
+                      <div class="header-action">
+                        <n-tooltip trigger="hover" placement="top">
+                          <template #trigger>
+                            <n-switch
+                              v-model:value="paramRule.action"
+                              :checked-value="'remove'"
+                              :unchecked-value="'set'"
+                              size="small"
+                            />
+                          </template>
+                          {{ t("keys.queryParamRemoveToggleTooltip") }}
+                        </n-tooltip>
+                      </div>
+                      <div class="header-actions">
+                        <n-button
+                          @click="removeQueryParamRule(index)"
+                          type="error"
+                          quaternary
+                          circle
+                          size="small"
+                        >
+                          <template #icon>
+                            <n-icon :component="Remove" />
+                          </template>
+                        </n-button>
+                      </div>
+                    </div>
+                  </n-form-item>
+                </div>
+
+                <div style="margin-top: 12px; padding-left: 120px">
+                  <n-button @click="addQueryParamRule" dashed style="width: 100%">
+                    <template #icon>
+                      <n-icon :component="Add" />
+                    </template>
+                    {{ t("keys.addQueryParam") }}
                   </n-button>
                 </div>
               </div>
