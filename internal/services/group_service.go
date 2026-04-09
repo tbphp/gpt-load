@@ -99,6 +99,7 @@ type GroupCreateParams struct {
 	ModelRedirectStrict bool
 	Config              map[string]any
 	HeaderRules         []models.HeaderRule
+	QueryParamRules     []models.QueryParamRule
 	ProxyKeys           string
 	SubGroups           []SubGroupInput
 }
@@ -121,6 +122,7 @@ type GroupUpdateParams struct {
 	ModelRedirectStrict *bool
 	Config              map[string]any
 	HeaderRules         *[]models.HeaderRule
+	QueryParamRules     *[]models.QueryParamRule
 	ProxyKeys           *string
 	SubGroups           *[]SubGroupInput
 }
@@ -221,6 +223,14 @@ func (s *GroupService) CreateGroup(ctx context.Context, params GroupCreateParams
 		headerRulesJSON = datatypes.JSON("[]")
 	}
 
+	queryParamRulesJSON, err := s.normalizeQueryParamRules(params.QueryParamRules)
+	if err != nil {
+		return nil, err
+	}
+	if queryParamRulesJSON == nil {
+		queryParamRulesJSON = datatypes.JSON("[]")
+	}
+
 	// Validate model redirect rules for aggregate groups
 	if groupType == "aggregate" && len(params.ModelRedirectRules) > 0 {
 		return nil, NewI18nError(app_errors.ErrValidation, "validation.aggregate_no_model_redirect", nil)
@@ -246,6 +256,7 @@ func (s *GroupService) CreateGroup(ctx context.Context, params GroupCreateParams
 		ModelRedirectStrict: params.ModelRedirectStrict,
 		Config:              cleanedConfig,
 		HeaderRules:         headerRulesJSON,
+		QueryParamRules:     queryParamRulesJSON,
 		ProxyKeys:           strings.TrimSpace(params.ProxyKeys),
 	}
 
@@ -482,6 +493,17 @@ func (s *GroupService) UpdateGroup(ctx context.Context, id uint, params GroupUpd
 			headerRulesJSON = datatypes.JSON("[]")
 		}
 		group.HeaderRules = headerRulesJSON
+	}
+
+	if params.QueryParamRules != nil {
+		queryParamRulesJSON, err := s.normalizeQueryParamRules(*params.QueryParamRules)
+		if err != nil {
+			return nil, err
+		}
+		if queryParamRulesJSON == nil {
+			queryParamRulesJSON = datatypes.JSON("[]")
+		}
+		group.QueryParamRules = queryParamRulesJSON
 	}
 
 	if err := tx.Save(&group).Error; err != nil {
@@ -931,6 +953,39 @@ func (s *GroupService) normalizeHeaderRules(rules []models.HeaderRule) (datatype
 	}
 
 	return datatypes.JSON(headerRulesBytes), nil
+}
+
+// normalizeQueryParamRules deduplicates and normalises query parameter rules.
+func (s *GroupService) normalizeQueryParamRules(rules []models.QueryParamRule) (datatypes.JSON, error) {
+	if len(rules) == 0 {
+		return nil, nil
+	}
+
+	normalized := make([]models.QueryParamRule, 0, len(rules))
+	seenKeys := make(map[string]bool)
+
+	for _, rule := range rules {
+		key := strings.TrimSpace(rule.Key)
+		if key == "" {
+			continue
+		}
+		if seenKeys[key] {
+			return nil, NewI18nError(app_errors.ErrValidation, "validation.duplicate_query_param", map[string]any{"key": key})
+		}
+		seenKeys[key] = true
+		normalized = append(normalized, models.QueryParamRule{Key: key, Value: rule.Value, Action: rule.Action})
+	}
+
+	if len(normalized) == 0 {
+		return nil, nil
+	}
+
+	queryParamRulesBytes, err := json.Marshal(normalized)
+	if err != nil {
+		return nil, NewI18nError(app_errors.ErrInternalServer, "error.process_query_param_rules", map[string]any{"error": err.Error()})
+	}
+
+	return datatypes.JSON(queryParamRulesBytes), nil
 }
 
 // validateAndCleanUpstreams validates upstream definitions.

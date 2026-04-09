@@ -39,6 +39,12 @@ export interface HeaderRule {
   action: "set" | "remove";
 }
 
+export interface QueryParamRule {
+  key: string;
+  value: string;
+  action: "set" | "remove";
+}
+
 // 子分组配置（创建/更新时使用）
 export interface SubGroupConfig {
   group_id: number;
@@ -79,6 +85,7 @@ export interface Group {
   model_redirect_rules: Record<string, string>;
   model_redirect_strict: boolean;
   header_rules?: HeaderRule[];
+  query_param_rules?: QueryParamRule[];
   proxy_keys: string;
   group_type?: GroupType;
   sub_groups?: SubGroupInfo[]; // 子分组列表（仅聚合分组）

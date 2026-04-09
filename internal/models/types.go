@@ -47,6 +47,13 @@ type HeaderRule struct {
 	Action string `json:"action"` // "set" or "remove"
 }
 
+// QueryParamRule defines a single rule for URL query parameter manipulation.
+type QueryParamRule struct {
+	Key    string `json:"key"`
+	Value  string `json:"value"`
+	Action string `json:"action"` // "set" or "remove"
+}
+
 // GroupSubGroup 聚合分组和子分组的关联表
 type GroupSubGroup struct {
 	ID         uint      `gorm:"primaryKey;autoIncrement" json:"id"`
@@ -95,6 +102,7 @@ type Group struct {
 	ParamOverrides      datatypes.JSONMap    `gorm:"type:json" json:"param_overrides"`
 	Config              datatypes.JSONMap    `gorm:"type:json" json:"config"`
 	HeaderRules         datatypes.JSON       `gorm:"type:json" json:"header_rules"`
+	QueryParamRules     datatypes.JSON       `gorm:"type:json" json:"query_param_rules"`
 	ModelRedirectRules  datatypes.JSONMap    `gorm:"type:json" json:"model_redirect_rules"`
 	ModelRedirectStrict bool                 `gorm:"default:false" json:"model_redirect_strict"`
 	APIKeys             []APIKey             `gorm:"foreignKey:GroupID" json:"api_keys"`
@@ -104,9 +112,10 @@ type Group struct {
 	UpdatedAt           time.Time            `json:"updated_at"`
 
 	// For cache
-	ProxyKeysMap     map[string]struct{} `gorm:"-" json:"-"`
-	HeaderRuleList   []HeaderRule        `gorm:"-" json:"-"`
-	ModelRedirectMap map[string]string   `gorm:"-" json:"-"`
+	ProxyKeysMap       map[string]struct{} `gorm:"-" json:"-"`
+	HeaderRuleList     []HeaderRule        `gorm:"-" json:"-"`
+	QueryParamRuleList []QueryParamRule    `gorm:"-" json:"-"`
+	ModelRedirectMap   map[string]string   `gorm:"-" json:"-"`
 }
 
 // APIKey 对应 api_keys 表
