@@ -21,6 +21,7 @@ export interface APIKey {
   key_value: string;
   notes?: string;
   status: KeyStatus;
+  weight: number;
   request_count: number;
   failure_count: number;
   last_used_at?: string;

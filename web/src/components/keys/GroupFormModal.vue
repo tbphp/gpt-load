@@ -71,6 +71,8 @@ interface GroupFormData {
   sort: number;
   test_model: string;
   validation_endpoint: string;
+  key_selection_mode: "weighted" | "priority";
+  validation_payload_mode: "chat" | "responses_simple" | "responses_messages";
   param_overrides: string;
   model_redirect_rules: string;
   model_redirect_strict: boolean;
@@ -96,6 +98,8 @@ const formData = reactive<GroupFormData>({
   sort: 1,
   test_model: "",
   validation_endpoint: "",
+  key_selection_mode: "weighted",
+  validation_payload_mode: "chat",
   param_overrides: "",
   model_redirect_rules: "",
   model_redirect_strict: false,
@@ -160,6 +164,17 @@ const validationEndpointPlaceholder = computed(() => {
       return t("keys.enterValidationPath");
   }
 });
+
+const keySelectionModeOptions = [
+  { label: t("keys.weightMode"), value: "weighted" },
+  { label: t("keys.priorityMode"), value: "priority" },
+];
+
+const validationPayloadModeOptions = computed(() => [
+  { label: t("keys.validationPayloadChat"), value: "chat" },
+  { label: t("keys.validationPayloadResponsesSimple"), value: "responses_simple" },
+  { label: t("keys.validationPayloadResponsesMessages"), value: "responses_messages" },
+]);
 
 // 表单验证规则
 const rules: FormRules = {
@@ -242,6 +257,8 @@ watch(
         formData.upstreams[0].url = upstreamPlaceholder.value;
         userModifiedFields.value.upstream = false;
       }
+
+      formData.validation_payload_mode = defaultValidationPayloadMode(formData.channel_type);
     }
   }
 );
@@ -275,6 +292,27 @@ function getOldDefaultUpstream(channelType: string): string {
   }
 }
 
+function defaultValidationPayloadMode(channelType: string): "chat" | "responses_simple" {
+  return channelType === "openai-response" ? "responses_simple" : "chat";
+}
+
+function getSelectionModeConfig(
+  config: Record<string, unknown> | undefined
+): "weighted" | "priority" {
+  return config?.key_selection_mode === "priority" ? "priority" : "weighted";
+}
+
+function getValidationPayloadModeConfig(
+  config: Record<string, unknown> | undefined,
+  channelType: string
+): "chat" | "responses_simple" | "responses_messages" {
+  const value = config?.validation_payload_mode;
+  if (value === "chat" || value === "responses_simple" || value === "responses_messages") {
+    return value;
+  }
+  return defaultValidationPayloadMode(channelType);
+}
+
 // 重置表单
 function resetForm() {
   const isCreateMode = !props.group;
@@ -297,6 +335,8 @@ function resetForm() {
     sort: 1,
     test_model: isCreateMode ? testModelPlaceholder.value : "",
     validation_endpoint: "",
+    key_selection_mode: "weighted",
+    validation_payload_mode: defaultValidationPayloadMode(defaultChannelType),
     param_overrides: "",
     model_redirect_rules: "",
     model_redirect_strict: false,
@@ -322,12 +362,17 @@ function loadGroupData() {
     return;
   }
 
-  const configItems = Object.entries(props.group.config || {}).map(([key, value]) => {
-    return {
-      key,
-      value,
-    };
-  });
+  const configItems = Object.entries(props.group.config || {})
+    .map(([key, value]) => {
+      if (key === "key_selection_mode" || key === "validation_payload_mode") {
+        return null;
+      }
+      return {
+        key,
+        value,
+      };
+    })
+    .filter(Boolean) as ConfigItem[];
   Object.assign(formData, {
     name: props.group.name || "",
     display_name: props.group.display_name || "",
@@ -339,6 +384,11 @@ function loadGroupData() {
     sort: props.group.sort || 1,
     test_model: props.group.test_model || "",
     validation_endpoint: props.group.validation_endpoint || "",
+    key_selection_mode: getSelectionModeConfig(props.group.config),
+    validation_payload_mode: getValidationPayloadModeConfig(
+      props.group.config,
+      props.group.channel_type || "openai"
+    ),
     param_overrides: JSON.stringify(props.group.param_overrides || {}, null, 2),
     model_redirect_rules: JSON.stringify(props.group.model_redirect_rules || {}, null, 2),
     model_redirect_strict: props.group.model_redirect_strict || false,
@@ -516,6 +566,8 @@ async function handleSubmit() {
         }
       }
     });
+    config.key_selection_mode = formData.key_selection_mode;
+    config.validation_payload_mode = formData.validation_payload_mode;
 
     // 构建提交数据
     const submitData = {
@@ -585,6 +637,7 @@ async function handleSubmit() {
         :model="formData"
         :rules="rules"
         label-placement="left"
+        label-align="left"
         label-width="120px"
         require-mark-placement="right-hanging"
         class="group-form"
@@ -725,6 +778,33 @@ async function handleSubmit() {
             </n-form-item>
 
             <!-- When gemini channel, test path is hidden, need placeholder div to keep layout -->
+            <div v-else class="form-item-half" />
+          </div>
+
+          <div class="form-row">
+            <n-form-item
+              :label="t('keys.keySelectionMode')"
+              path="key_selection_mode"
+              class="form-item-half"
+            >
+              <n-select
+                v-model:value="formData.key_selection_mode"
+                :options="keySelectionModeOptions"
+              />
+            </n-form-item>
+
+            <n-form-item
+              v-if="formData.channel_type !== 'gemini'"
+              :label="t('keys.validationPayloadMode')"
+              path="validation_payload_mode"
+              class="form-item-half"
+            >
+              <n-select
+                v-model:value="formData.validation_payload_mode"
+                :options="validationPayloadModeOptions"
+              />
+            </n-form-item>
+
             <div v-else class="form-item-half" />
           </div>
 

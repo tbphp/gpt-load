@@ -140,6 +140,10 @@ export const keysApi = {
     await http.put(`/keys/${keyId}/notes`, { notes }, { hideMessage: true });
   },
 
+  async updateKeyWeight(keyId: number, weight: number): Promise<void> {
+    await http.put(`/keys/${keyId}/weight`, { weight }, { hideMessage: true });
+  },
+
   // 测试密钥
   async testKeys(
     group_id: number,

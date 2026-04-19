@@ -872,11 +872,16 @@ func (s *GroupService) validateAndCleanConfig(configMap map[string]any) (map[str
 		}
 	}
 
-	if err := s.settingsManager.ValidateGroupConfigOverrides(configMap); err != nil {
+	systemConfigMap, specialConfigMap, err := splitAndValidateGroupConfig(configMap)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := s.settingsManager.ValidateGroupConfigOverrides(systemConfigMap); err != nil {
 		return nil, NewI18nError(app_errors.ErrValidation, "error.invalid_config_format", map[string]any{"error": err.Error()})
 	}
 
-	configBytes, err := json.Marshal(configMap)
+	configBytes, err := json.Marshal(systemConfigMap)
 	if err != nil {
 		return nil, NewI18nError(app_errors.ErrValidation, "error.invalid_config_format", map[string]any{"error": err.Error()})
 	}
@@ -896,7 +901,75 @@ func (s *GroupService) validateAndCleanConfig(configMap map[string]any) (map[str
 		return nil, NewI18nError(app_errors.ErrValidation, "error.invalid_config_format", map[string]any{"error": err.Error()})
 	}
 
+	for key, value := range specialConfigMap {
+		finalMap[key] = value
+	}
+
 	return finalMap, nil
+}
+
+func splitAndValidateGroupConfig(configMap map[string]any) (map[string]any, map[string]any, error) {
+	systemConfigMap := make(map[string]any)
+	specialConfigMap := make(map[string]any)
+
+	for key, value := range configMap {
+		switch key {
+		case "key_selection_mode":
+			cleaned, err := validateSelectionMode(value)
+			if err != nil {
+				return nil, nil, NewI18nError(app_errors.ErrValidation, "error.invalid_config_format", map[string]any{"error": err.Error()})
+			}
+			specialConfigMap[key] = cleaned
+		case "sub_group_selection_mode":
+			cleaned, err := validateSelectionMode(value)
+			if err != nil {
+				return nil, nil, NewI18nError(app_errors.ErrValidation, "error.invalid_config_format", map[string]any{"error": err.Error()})
+			}
+			specialConfigMap[key] = cleaned
+		case "validation_payload_mode":
+			cleaned, err := validateValidationPayloadMode(value)
+			if err != nil {
+				return nil, nil, NewI18nError(app_errors.ErrValidation, "error.invalid_config_format", map[string]any{"error": err.Error()})
+			}
+			specialConfigMap[key] = cleaned
+		default:
+			systemConfigMap[key] = value
+		}
+	}
+
+	return systemConfigMap, specialConfigMap, nil
+}
+
+func validateSelectionMode(value any) (string, error) {
+	mode, ok := value.(string)
+	if !ok {
+		return "", fmt.Errorf("selection mode must be a string")
+	}
+
+	mode = strings.TrimSpace(mode)
+	switch mode {
+	case models.SelectionModeWeighted, models.SelectionModePriority:
+		return mode, nil
+	default:
+		return "", fmt.Errorf("unsupported selection mode: %s", mode)
+	}
+}
+
+func validateValidationPayloadMode(value any) (string, error) {
+	mode, ok := value.(string)
+	if !ok {
+		return "", fmt.Errorf("validation payload mode must be a string")
+	}
+
+	mode = strings.TrimSpace(mode)
+	switch mode {
+	case models.ValidationPayloadModeChat,
+		models.ValidationPayloadModeResponsesSimple,
+		models.ValidationPayloadModeResponsesMessages:
+		return mode, nil
+	default:
+		return "", fmt.Errorf("unsupported validation payload mode: %s", mode)
+	}
 }
 
 // normalizeHeaderRules deduplicates and normalises header rules.

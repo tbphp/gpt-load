@@ -26,20 +26,22 @@ type UpstreamInfo struct {
 
 // BaseChannel provides common functionality for channel proxies.
 type BaseChannel struct {
-	Name               string
-	Upstreams          []UpstreamInfo
-	HTTPClient         *http.Client
-	StreamClient       *http.Client
-	TestModel          string
-	ValidationEndpoint string
-	upstreamLock       sync.Mutex
+	Name                  string
+	Upstreams             []UpstreamInfo
+	HTTPClient            *http.Client
+	StreamClient          *http.Client
+	TestModel             string
+	ValidationEndpoint    string
+	ValidationPayloadMode string
+	upstreamLock          sync.Mutex
 
 	// Cached fields from the group for stale check
-	channelType         string
-	groupUpstreams      datatypes.JSON
-	effectiveConfig     *types.SystemSettings
-	modelRedirectRules  datatypes.JSONMap
-	modelRedirectStrict bool
+	channelType           string
+	groupUpstreams        datatypes.JSON
+	effectiveConfig       *types.SystemSettings
+	modelRedirectRules    datatypes.JSONMap
+	modelRedirectStrict   bool
+	validationPayloadMode string
 }
 
 // getUpstreamURL selects an upstream URL using a smooth weighted round-robin algorithm.
@@ -103,6 +105,9 @@ func (b *BaseChannel) IsConfigStale(group *models.Group) bool {
 		return true
 	}
 	if b.ValidationEndpoint != utils.GetValidationEndpoint(group) {
+		return true
+	}
+	if b.validationPayloadMode != group.ValidationPayloadMode() {
 		return true
 	}
 	if !bytes.Equal(b.groupUpstreams, group.Upstreams) {

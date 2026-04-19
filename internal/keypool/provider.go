@@ -36,6 +36,15 @@ func NewProvider(db *gorm.DB, store store.Store, settingsManager *config.SystemS
 
 // SelectKey 为指定的分组原子性地选择并轮换一个可用的 APIKey。
 func (p *KeyProvider) SelectKey(groupID uint) (*models.APIKey, error) {
+	if p.db != nil {
+		var group models.Group
+		if err := p.db.Select("id", "config").First(&group, groupID).Error; err == nil {
+			if group.KeySelectionMode() == models.SelectionModePriority {
+				return p.selectPriorityKey(groupID)
+			}
+		}
+	}
+
 	activeKeysListKey := fmt.Sprintf("group:%d:active_keys", groupID)
 
 	// 1. Atomically rotate the key ID from the list
@@ -85,6 +94,32 @@ func (p *KeyProvider) SelectKey(groupID uint) (*models.APIKey, error) {
 	}
 
 	return apiKey, nil
+}
+
+func (p *KeyProvider) selectPriorityKey(groupID uint) (*models.APIKey, error) {
+	var apiKey models.APIKey
+	err := p.db.
+		Where("group_id = ? AND status = ?", groupID, models.KeyStatusActive).
+		Order("weight DESC").
+		Order("id ASC").
+		First(&apiKey).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, app_errors.ErrNoActiveKeys
+		}
+		return nil, fmt.Errorf("failed to select priority key: %w", err)
+	}
+
+	decryptedKeyValue, err := p.encryptionSvc.Decrypt(apiKey.KeyValue)
+	if err != nil {
+		logrus.WithFields(logrus.Fields{
+			"keyID": apiKey.ID,
+			"error": err,
+		}).Debug("Failed to decrypt priority-selected key value, using as-is for backward compatibility")
+		decryptedKeyValue = apiKey.KeyValue
+	}
+	apiKey.KeyValue = decryptedKeyValue
+	return &apiKey, nil
 }
 
 // UpdateStatus 异步地提交一个 Key 状态更新任务。
@@ -634,6 +669,7 @@ func (p *KeyProvider) apiKeyToMap(key *models.APIKey) map[string]any {
 		"id":            fmt.Sprint(key.ID),
 		"key_string":    key.KeyValue,
 		"status":        key.Status,
+		"weight":        key.Weight,
 		"failure_count": key.FailureCount,
 		"group_id":      key.GroupID,
 		"created_at":    key.CreatedAt.Unix(),
