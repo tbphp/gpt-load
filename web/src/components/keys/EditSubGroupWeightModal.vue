@@ -43,6 +43,12 @@ const formData = reactive<{
   weight: 0,
 });
 
+const metricLabel = computed(() =>
+  props.aggregateGroup?.config?.sub_group_selection_mode === "priority"
+    ? t("keys.priority")
+    : t("subGroups.weight")
+);
+
 // 预览新的权重百分比（假设其他子分组权重不变）
 const previewPercentage = computed(() => {
   if (!props.subGroups || !props.subGroup) {
@@ -144,7 +150,11 @@ function adjustWeight(delta: number) {
   <n-modal :show="show" @update:show="handleClose" class="edit-weight-modal">
     <n-card
       class="edit-weight-card"
-      :title="t('keys.editWeight')"
+      :title="
+        props.aggregateGroup?.config?.sub_group_selection_mode === 'priority'
+          ? t('keys.editPriority')
+          : t('keys.editWeight')
+      "
       :bordered="false"
       size="huge"
       role="dialog"
@@ -179,13 +189,13 @@ function adjustWeight(delta: number) {
                 {{ subGroup?.group.id }}
               </span>
               <span class="detail-item">
-                <strong>{{ t("keys.currentWeight") }}:</strong>
+                <strong>{{ metricLabel }}:</strong>
                 {{ subGroup?.weight }}
               </span>
             </div>
           </div>
 
-          <n-form-item :label="t('keys.newWeight')" path="weight">
+          <n-form-item :label="metricLabel" path="weight">
             <div class="weight-input-section">
               <n-input-number
                 v-model:value="formData.weight"

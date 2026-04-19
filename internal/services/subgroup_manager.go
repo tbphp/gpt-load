@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"gpt-load/internal/models"
 	"gpt-load/internal/store"
+	"sort"
 	"sync"
 
 	"github.com/sirupsen/logrus"
@@ -18,6 +19,7 @@ type SubGroupManager struct {
 
 // subGroupItem represents a sub-group with its weight and current weight for round-robin
 type subGroupItem struct {
+	relationID    uint
 	name          string
 	subGroupID    uint
 	weight        int
@@ -113,6 +115,7 @@ func (m *SubGroupManager) createSelector(group *models.Group) *selector {
 	var items []subGroupItem
 	for _, sg := range group.SubGroups {
 		items = append(items, subGroupItem{
+			relationID:    sg.ID,
 			name:          sg.SubGroupName,
 			subGroupID:    sg.SubGroupID,
 			weight:        sg.Weight,
@@ -125,20 +128,22 @@ func (m *SubGroupManager) createSelector(group *models.Group) *selector {
 	}
 
 	return &selector{
-		groupID:   group.ID,
-		groupName: group.Name,
-		subGroups: items,
-		store:     m.store,
+		groupID:       group.ID,
+		groupName:     group.Name,
+		subGroups:     items,
+		store:         m.store,
+		selectionMode: group.SubGroupSelectionMode(),
 	}
 }
 
 // selector encapsulates the weighted round-robin algorithm for a single aggregate group
 type selector struct {
-	groupID   uint
-	groupName string
-	subGroups []subGroupItem
-	store     store.Store
-	mu        sync.Mutex
+	groupID       uint
+	groupName     string
+	subGroups     []subGroupItem
+	store         store.Store
+	selectionMode string
+	mu            sync.Mutex
 }
 
 // selectNext uses weighted round-robin algorithm to select a sub-group with active keys
@@ -148,6 +153,10 @@ func (s *selector) selectNext() string {
 
 	if len(s.subGroups) == 0 {
 		return ""
+	}
+
+	if s.selectionMode == models.SelectionModePriority {
+		return s.selectByPriority()
 	}
 
 	if len(s.subGroups) == 1 {
@@ -193,6 +202,27 @@ func (s *selector) selectNext() string {
 		"aggregate_group":  s.groupName,
 		"total_sub_groups": len(s.subGroups),
 	}).Warn("No sub-groups with active keys available")
+
+	return ""
+}
+
+func (s *selector) selectByPriority() string {
+	items := append([]subGroupItem(nil), s.subGroups...)
+	sort.SliceStable(items, func(i, j int) bool {
+		if items[i].weight != items[j].weight {
+			return items[i].weight > items[j].weight
+		}
+		return items[i].relationID < items[j].relationID
+	})
+
+	for _, item := range items {
+		if item.weight <= 0 {
+			continue
+		}
+		if s.hasActiveKeys(item.subGroupID) {
+			return item.name
+		}
+	}
 
 	return ""
 }

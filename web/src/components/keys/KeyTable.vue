@@ -21,6 +21,7 @@ import {
   NEmpty,
   NIcon,
   NInput,
+  NInputNumber,
   NModal,
   NSelect,
   NSpace,
@@ -97,11 +98,16 @@ const deleteDialogShow = ref(false);
 const notesDialogShow = ref(false);
 const editingKey = ref<KeyRow | null>(null);
 const editingNotes = ref("");
+const weightDialogShow = ref(false);
+const editingWeight = ref(0);
+
+const isPriorityMode = ref(false);
 
 watch(
   () => props.selectedGroup,
   async newGroup => {
     if (newGroup) {
+      isPriorityMode.value = newGroup.config?.key_selection_mode === "priority";
       // 检查重置页面是否会触发分页观察者。
       const willWatcherTrigger = currentPage.value !== 1 || statusFilter.value !== "all";
       resetPage();
@@ -306,6 +312,12 @@ function editKeyNotes(key: KeyRow) {
   notesDialogShow.value = true;
 }
 
+function editKeyWeight(key: KeyRow) {
+  editingKey.value = key;
+  editingWeight.value = key.weight || 0;
+  weightDialogShow.value = true;
+}
+
 // 保存备注
 async function saveKeyNotes() {
   if (!editingKey.value) {
@@ -320,6 +332,22 @@ async function saveKeyNotes() {
     notesDialogShow.value = false;
   } catch (error) {
     console.error("Update notes failed", error);
+  }
+}
+
+async function saveKeyWeight() {
+  if (!editingKey.value) {
+    return;
+  }
+
+  try {
+    const nextWeight = Math.max(0, Math.min(1000, Math.trunc(editingWeight.value || 0)));
+    await keysApi.updateKeyWeight(editingKey.value.id, nextWeight);
+    editingKey.value.weight = nextWeight;
+    window.$message.success(t("keys.priorityUpdated"));
+    weightDialogShow.value = false;
+  } catch (error) {
+    console.error("Update weight failed", error);
   }
 }
 
@@ -712,6 +740,15 @@ function resetPage() {
                 <n-input class="key-text" :value="getDisplayValue(key)" readonly size="small" />
                 <div class="quick-actions">
                   <n-button
+                    v-if="isPriorityMode"
+                    size="tiny"
+                    text
+                    @click="editKeyWeight(key)"
+                    :title="t('keys.editPriority')"
+                  >
+                    <span class="priority-chip">{{ key.weight ?? 0 }}</span>
+                  </n-button>
+                  <n-button
                     size="tiny"
                     text
                     @click="editKeyNotes(key)"
@@ -750,6 +787,10 @@ function resetPage() {
                 <span class="stat-item">
                   {{ t("keys.failuresShort") }}
                   <strong>{{ key.failure_count }}</strong>
+                </span>
+                <span v-if="isPriorityMode" class="stat-item">
+                  {{ t("keys.priorityShort") }}
+                  <strong>{{ key.weight ?? 0 }}</strong>
                 </span>
                 <span class="stat-item">
                   {{ key.last_used_at ? formatRelativeTime(key.last_used_at) : t("keys.unused") }}
@@ -857,6 +898,21 @@ function resetPage() {
     <template #action>
       <n-button @click="notesDialogShow = false">{{ t("common.cancel") }}</n-button>
       <n-button type="primary" @click="saveKeyNotes">{{ t("common.save") }}</n-button>
+    </template>
+  </n-modal>
+
+  <n-modal v-model:show="weightDialogShow" preset="dialog" :title="t('keys.editPriority')">
+    <n-input-number
+      v-model:value="editingWeight"
+      :min="0"
+      :max="1000"
+      :precision="0"
+      :placeholder="t('keys.enterPriority')"
+      style="width: 100%"
+    />
+    <template #action>
+      <n-button @click="weightDialogShow = false">{{ t("common.cancel") }}</n-button>
+      <n-button type="primary" @click="saveKeyWeight">{{ t("common.save") }}</n-button>
     </template>
   </n-modal>
 </template>
@@ -1151,6 +1207,19 @@ function resetPage() {
   display: flex;
   gap: 4px;
   flex-shrink: 0;
+}
+
+.priority-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: var(--primary-color-suppl);
+  color: var(--primary-color);
+  font-size: 11px;
+  font-weight: 700;
 }
 
 .quick-btn {

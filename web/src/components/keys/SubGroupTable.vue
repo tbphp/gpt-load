@@ -121,6 +121,18 @@ const filteredSubGroups = computed<SubGroupRow[]>(() => {
   return filtered;
 });
 
+const metricLabel = computed(() =>
+  props.selectedGroup?.config?.sub_group_selection_mode === "priority"
+    ? t("keys.priority")
+    : t("subGroups.weight")
+);
+
+const sortHint = computed(() =>
+  props.selectedGroup?.config?.sub_group_selection_mode === "priority"
+    ? t("subGroups.sortedByPriority")
+    : t("subGroups.sortedByWeight")
+);
+
 function openEditModal(subGroup: SubGroupInfo) {
   editingSubGroup.value = subGroup;
   editModalShow.value = true;
@@ -241,7 +253,7 @@ function formatNumber(num: number): string {
             <div class="weight-display">
               <div class="weight-bar-container">
                 <span class="weight-label">
-                  {{ t("subGroups.weight") }}
+                  {{ metricLabel }}
                   <strong>{{ subGroup.weight }}</strong>
                 </span>
                 <div class="weight-bar">
@@ -390,7 +402,7 @@ function formatNumber(num: number): string {
       </div>
       <div class="pagination-controls">
         <span class="page-info">
-          {{ t("subGroups.sortedByWeight") }}
+          {{ sortHint }}
         </span>
       </div>
     </div>

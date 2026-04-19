@@ -38,6 +38,9 @@ type GroupConfig struct {
 	KeyValidationConcurrency     *int    `json:"key_validation_concurrency,omitempty"`
 	KeyValidationTimeoutSeconds  *int    `json:"key_validation_timeout_seconds,omitempty"`
 	EnableRequestBodyLogging     *bool   `json:"enable_request_body_logging,omitempty"`
+	KeySelectionMode             *string `json:"key_selection_mode,omitempty"`
+	SubGroupSelectionMode        *string `json:"sub_group_selection_mode,omitempty"`
+	ValidationPayloadMode        *string `json:"validation_payload_mode,omitempty"`
 }
 
 // HeaderRule defines a single rule for header manipulation.
@@ -109,6 +112,66 @@ type Group struct {
 	ModelRedirectMap map[string]string   `gorm:"-" json:"-"`
 }
 
+const (
+	SelectionModeWeighted = "weighted"
+	SelectionModePriority = "priority"
+
+	ValidationPayloadModeChat              = "chat"
+	ValidationPayloadModeResponsesSimple   = "responses_simple"
+	ValidationPayloadModeResponsesMessages = "responses_messages"
+)
+
+func (g *Group) KeySelectionMode() string {
+	if g == nil {
+		return SelectionModeWeighted
+	}
+	return getConfigString(g.Config, "key_selection_mode", SelectionModeWeighted)
+}
+
+func (g *Group) SubGroupSelectionMode() string {
+	if g == nil {
+		return SelectionModeWeighted
+	}
+	return getConfigString(g.Config, "sub_group_selection_mode", SelectionModeWeighted)
+}
+
+func (g *Group) ValidationPayloadMode() string {
+	if g == nil {
+		return ValidationPayloadModeChat
+	}
+
+	mode := getConfigString(g.Config, "validation_payload_mode", "")
+	switch mode {
+	case ValidationPayloadModeChat, ValidationPayloadModeResponsesSimple, ValidationPayloadModeResponsesMessages:
+		return mode
+	}
+
+	switch g.ChannelType {
+	case "openai-response":
+		return ValidationPayloadModeResponsesSimple
+	default:
+		return ValidationPayloadModeChat
+	}
+}
+
+func getConfigString(config datatypes.JSONMap, key, fallback string) string {
+	if config == nil {
+		return fallback
+	}
+
+	raw, ok := config[key]
+	if !ok {
+		return fallback
+	}
+
+	value, ok := raw.(string)
+	if !ok || value == "" {
+		return fallback
+	}
+
+	return value
+}
+
 // APIKey 对应 api_keys 表
 type APIKey struct {
 	ID           uint       `gorm:"primaryKey;autoIncrement;index:idx_api_keys_group_last_used_id,priority:3" json:"id"`
@@ -117,6 +180,7 @@ type APIKey struct {
 	GroupID      uint       `gorm:"not null;index;index:idx_api_keys_group_last_used_id,priority:1" json:"group_id"`
 	Status       string     `gorm:"type:varchar(50);not null;default:'active';index" json:"status"`
 	Notes        string     `gorm:"type:varchar(255);default:''" json:"notes"`
+	Weight       int        `gorm:"not null;default:0;index" json:"weight"`
 	RequestCount int64      `gorm:"not null;default:0" json:"request_count"`
 	FailureCount int64      `gorm:"not null;default:0" json:"failure_count"`
 	LastUsedAt   *time.Time `gorm:"index:idx_api_keys_group_last_used_id,priority:2" json:"last_used_at"`

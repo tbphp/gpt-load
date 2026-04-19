@@ -211,3 +211,6 @@ run-local.sh
 start-local.sh
 dev-setup.sh
 data/
+
+# Local OpenSpec planning artifacts
+openspec/

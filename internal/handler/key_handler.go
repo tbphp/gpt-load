@@ -503,6 +503,10 @@ type UpdateKeyNotesRequest struct {
 	Notes string `json:"notes"`
 }
 
+type UpdateKeyWeightRequest struct {
+	Weight int `json:"weight"`
+}
+
 // UpdateKeyNotes handles updating the notes of a specific API key.
 func (s *Server) UpdateKeyNotes(c *gin.Context) {
 	keyIDStr := c.Param("id")
@@ -538,6 +542,48 @@ func (s *Server) UpdateKeyNotes(c *gin.Context) {
 
 	// Update notes
 	if err := s.DB.Model(&key).Update("notes", req.Notes).Error; err != nil {
+		response.Error(c, app_errors.ParseDBError(err))
+		return
+	}
+
+	response.Success(c, nil)
+}
+
+func (s *Server) UpdateKeyWeight(c *gin.Context) {
+	keyIDStr := c.Param("id")
+	keyID, err := strconv.Atoi(keyIDStr)
+	if err != nil || keyID <= 0 {
+		response.Error(c, app_errors.NewAPIError(app_errors.ErrBadRequest, "invalid key ID format"))
+		return
+	}
+
+	var req UpdateKeyWeightRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, app_errors.NewAPIError(app_errors.ErrInvalidJSON, err.Error()))
+		return
+	}
+
+	if req.Weight < 0 {
+		response.Error(c, app_errors.NewAPIError(app_errors.ErrValidation, "weight must be >= 0"))
+		return
+	}
+
+	if req.Weight > 1000 {
+		response.Error(c, app_errors.NewAPIError(app_errors.ErrValidation, "weight must be <= 1000"))
+		return
+	}
+
+	var key models.APIKey
+	if err := s.DB.First(&key, keyID).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			response.Error(c, app_errors.ErrResourceNotFound)
+		} else {
+			response.Error(c, app_errors.ParseDBError(err))
+		}
+		return
+	}
+
+	if err := s.KeyService.UpdateKeyWeight(uint(keyID), req.Weight); err != nil {
 		response.Error(c, app_errors.ParseDBError(err))
 		return
 	}

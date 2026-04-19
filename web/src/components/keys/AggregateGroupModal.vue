@@ -48,6 +48,11 @@ const channelTypeOptions = [
   { label: "Anthropic", value: "anthropic" as ChannelType },
 ];
 
+const subGroupSelectionModeOptions = [
+  { label: t("keys.weightMode"), value: "weighted" },
+  { label: t("keys.priorityMode"), value: "priority" },
+];
+
 // 默认表单数据
 const defaultFormData = {
   name: "",
@@ -56,6 +61,7 @@ const defaultFormData = {
   channel_type: "openai" as ChannelType,
   sort: 1,
   proxy_keys: "",
+  sub_group_selection_mode: "weighted" as "weighted" | "priority",
 };
 
 // 表单数据
@@ -117,6 +123,8 @@ function loadGroupData() {
     channel_type: props.group.channel_type || "openai",
     sort: props.group.sort || 1,
     proxy_keys: props.group.proxy_keys || "",
+    sub_group_selection_mode:
+      props.group.config?.sub_group_selection_mode === "priority" ? "priority" : "weighted",
   });
 }
 
@@ -145,6 +153,9 @@ async function handleSubmit() {
       sort: formData.sort,
       proxy_keys: formData.proxy_keys,
       group_type: "aggregate" as const,
+      config: {
+        sub_group_selection_mode: formData.sub_group_selection_mode,
+      },
     };
 
     let result: Group;
@@ -232,6 +243,13 @@ async function handleSubmit() {
 
           <n-form-item :label="t('keys.proxyKeys')">
             <proxy-keys-input v-model="formData.proxy_keys" />
+          </n-form-item>
+
+          <n-form-item :label="t('keys.subGroupSelectionMode')">
+            <n-select
+              v-model:value="formData.sub_group_selection_mode"
+              :options="subGroupSelectionModeOptions"
+            />
           </n-form-item>
 
           <n-form-item :label="t('common.description')">

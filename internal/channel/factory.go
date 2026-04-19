@@ -141,16 +141,18 @@ func (f *Factory) newBaseChannel(name string, group *models.Group) (*BaseChannel
 	streamClient := f.clientManager.GetClient(&streamConfig)
 
 	return &BaseChannel{
-		Name:                name,
-		Upstreams:           upstreamInfos,
-		HTTPClient:          httpClient,
-		StreamClient:        streamClient,
-		TestModel:           group.TestModel,
-		ValidationEndpoint:  utils.GetValidationEndpoint(group),
-		channelType:         group.ChannelType,
-		groupUpstreams:      group.Upstreams,
-		effectiveConfig:     &group.EffectiveConfig,
-		modelRedirectRules:  group.ModelRedirectRules,
-		modelRedirectStrict: group.ModelRedirectStrict,
+		Name:                  name,
+		Upstreams:             upstreamInfos,
+		HTTPClient:            httpClient,
+		StreamClient:          streamClient,
+		TestModel:             group.TestModel,
+		ValidationEndpoint:    utils.GetValidationEndpoint(group),
+		ValidationPayloadMode: group.ValidationPayloadMode(),
+		channelType:           group.ChannelType,
+		groupUpstreams:        group.Upstreams,
+		effectiveConfig:       &group.EffectiveConfig,
+		modelRedirectRules:    group.ModelRedirectRules,
+		modelRedirectStrict:   group.ModelRedirectStrict,
+		validationPayloadMode: group.ValidationPayloadMode(),
 	}, nil
 }

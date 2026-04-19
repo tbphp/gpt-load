@@ -241,6 +241,10 @@ func (s *KeyService) RestoreAllInvalidKeys(groupID uint) (int64, error) {
 	return s.KeyProvider.RestoreKeys(groupID)
 }
 
+func (s *KeyService) UpdateKeyWeight(keyID uint, weight int) error {
+	return s.DB.Model(&models.APIKey{}).Where("id = ?", keyID).Update("weight", weight).Error
+}
+
 // ClearAllInvalidKeys deletes all 'inactive' keys from a group.
 func (s *KeyService) ClearAllInvalidKeys(groupID uint) (int64, error) {
 	return s.KeyProvider.RemoveInvalidKeys(groupID)
