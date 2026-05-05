@@ -52,6 +52,15 @@ func ValidateSystemSettingsPayload(settingsMap map[string]any) error {
 	return nil
 }
 
+func validateStringSettingValue(key, val string) error {
+	if key == GroupScopedSettingKeyFailoverStatusCodes {
+		if _, err := failover.ParseStatusCodeMatcher(val); err != nil {
+			return fmt.Errorf("invalid value for %s (%q): %w", key, val, err)
+		}
+	}
+	return nil
+}
+
 type groupManager interface {
 	Invalidate() error
 }
@@ -336,11 +345,6 @@ func (sm *SystemSettingsManager) ValidateSettings(settingsMap map[string]any) er
 					}
 				}
 			}
-			if key == "failover_status_codes" {
-				if _, err := failover.ParseStatusCodeMatcher(strVal); err != nil {
-					return fmt.Errorf("invalid value for %s (%q): %w", key, strVal, err)
-				}
-			}
 		default:
 			return fmt.Errorf("unsupported type for setting key validation: %s", key)
 		}
@@ -411,10 +415,8 @@ func (sm *SystemSettingsManager) ValidateGroupConfigOverrides(configMap map[stri
 					}
 				}
 			}
-			if key == "failover_status_codes" {
-				if _, err := failover.ParseStatusCodeMatcher(strVal); err != nil {
-					return fmt.Errorf("invalid value for %s (%q): %w", key, strVal, err)
-				}
+			if err := validateStringSettingValue(key, strVal); err != nil {
+				return err
 			}
 		case reflect.Bool:
 			_, ok := value.(bool)
