@@ -201,8 +201,7 @@ func (ps *ProxyServer) executeRequestWithRetry(
 	}
 
 	// Unified error handling for retries.
-	// Default policy: retry any status >= 400 except 404.
-	// Group policy (incremental): additional status codes also trigger retry/failover.
+	// Retry policy is fully defined by group.FailoverStatusCodeMatcher (derived from EffectiveConfig).
 	shouldRetryByStatus := resp != nil && shouldFailoverOnStatusCode(resp.StatusCode, group)
 	if err != nil || shouldRetryByStatus {
 		if err != nil && app_errors.IsIgnorableError(err) {
@@ -287,11 +286,6 @@ func (ps *ProxyServer) executeRequestWithRetry(
 }
 
 func shouldFailoverOnStatusCode(statusCode int, group *models.Group) bool {
-	// Default behavior: treat 404 as non-retryable to avoid wasting retries.
-	// Group-specific additional rules are additive (OR) and can re-include 404 if desired.
-	if statusCode >= 400 && statusCode != http.StatusNotFound {
-		return true
-	}
 	if group == nil {
 		return false
 	}
