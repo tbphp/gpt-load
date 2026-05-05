@@ -1,8 +1,6 @@
 module gpt-load
 
-go 1.24.0
-
-toolchain go1.24.3
+go 1.25.0
 
 require (
 	github.com/andybalholm/brotli v1.2.0
@@ -12,7 +10,7 @@ require (
 	github.com/glebarez/sqlite v1.11.0
 	github.com/go-sql-driver/mysql v1.8.1
 	github.com/google/uuid v1.6.0
-	github.com/jackc/pgx/v5 v5.6.0
+	github.com/jackc/pgx/v5 v5.9.2
 	github.com/joho/godotenv v1.5.1
 	github.com/klauspost/compress v1.18.1
 	github.com/nicksnyder/go-i18n/v2 v2.6.0
