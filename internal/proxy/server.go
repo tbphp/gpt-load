@@ -344,6 +344,7 @@ func (ps *ProxyServer) logRequest(
 		logEntry.PromptTokens = usage.PromptTokens
 		logEntry.CompletionTokens = usage.CompletionTokens
 		logEntry.TotalTokens = usage.TotalTokens
+			logEntry.TokenCostUSD = usage.CostUSD
 	}
 
 	// Set parent group

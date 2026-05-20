@@ -5,11 +5,12 @@ import (
 	"strings"
 )
 
-// TokenUsage holds token counts parsed from an API response.
+// TokenUsage holds token counts and estimated cost parsed from an API response.
 type TokenUsage struct {
 	PromptTokens     int64
 	CompletionTokens int64
 	TotalTokens      int64
+	CostUSD          float64
 }
 
 // openaiUsage maps the "usage" object in OpenAI /v1/chat/completions responses.
@@ -67,18 +68,24 @@ func extractTokenUsage(body []byte) *TokenUsage {
 func tryOpenAIUsage(raw json.RawMessage) *TokenUsage {
 	// Standard OpenAI format: {"prompt_tokens":N,"completion_tokens":N,"total_tokens":N}
 	var oai openaiUsage
-	if err := json.Unmarshal(raw, &oai); err == nil && oai.TotalTokens > 0 {
+	if err := json.Unmarshal(raw, &oai); err == nil &&
+		(oai.TotalTokens > 0 || oai.PromptTokens > 0 || oai.CompletionTokens > 0) {
+		total := oai.TotalTokens
+		if total == 0 {
+			total = oai.PromptTokens + oai.CompletionTokens
+		}
 		return &TokenUsage{
 			PromptTokens:     oai.PromptTokens,
 			CompletionTokens: oai.CompletionTokens,
-			TotalTokens:      oai.TotalTokens,
+			TotalTokens:      total,
 		}
 	}
 
 	// Anthropic format: {"input_tokens":N,"output_tokens":N}
 	// (Anthropic also nests under "usage")
 	var anthro anthropicUsage
-	if err := json.Unmarshal(raw, &anthro); err == nil && anthro.InputTokens > 0 {
+	if err := json.Unmarshal(raw, &anthro); err == nil &&
+		(anthro.InputTokens > 0 || anthro.OutputTokens > 0) {
 		return &TokenUsage{
 			PromptTokens:     anthro.InputTokens,
 			CompletionTokens: anthro.OutputTokens,

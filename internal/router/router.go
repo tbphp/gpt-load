@@ -1,6 +1,7 @@
 package router
 
 import (
+	"crypto/subtle"
 	"embed"
 	"gpt-load/internal/handler"
 	"gpt-load/internal/i18n"
@@ -10,6 +11,7 @@ import (
 	"gpt-load/internal/types"
 	"io/fs"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -75,7 +77,34 @@ func NewRouter(
 // registerSystemRoutes 注册系统级路由
 func registerSystemRoutes(router *gin.Engine, serverHandler *handler.Server) {
 	router.GET("/health", serverHandler.Health)
-	router.GET("/metrics", serverHandler.Metrics)
+
+	// /metrics is optionally protected by METRICS_TOKEN env var.
+	// When set, callers must provide Authorization: Bearer <token>.
+	metricsHandler := serverHandler.Metrics
+	if token := os.Getenv("METRICS_TOKEN"); token != "" {
+		metricsHandler = metricsAuthMiddleware(token, metricsHandler)
+	}
+	router.GET("/metrics", metricsHandler)
+}
+
+// metricsAuthMiddleware wraps a handler to require a Bearer token matching
+// the configured METRICS_TOKEN. Returns 401 on missing or mismatched token.
+func metricsAuthMiddleware(expectedToken string, next gin.HandlerFunc) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		auth := c.GetHeader("Authorization")
+		if !strings.HasPrefix(auth, "Bearer ") {
+			c.String(http.StatusUnauthorized, "missing or invalid authorization header\n")
+			c.Abort()
+			return
+		}
+		provided := strings.TrimPrefix(auth, "Bearer ")
+		if subtle.ConstantTimeCompare([]byte(provided), []byte(expectedToken)) != 1 {
+			c.String(http.StatusUnauthorized, "invalid metrics token\n")
+			c.Abort()
+			return
+		}
+		next(c)
+	}
 }
 
 // registerAPIRoutes 注册API路由

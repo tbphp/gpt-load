@@ -38,7 +38,7 @@ func (s *Server) Metrics(c *gin.Context) {
 		        COALESCE(SUM(token_cost_usd), 0) as total_cost,
 		        COALESCE(SUM(prompt_tokens), 0) as total_prompt,
 		        COALESCE(SUM(completion_tokens), 0) as total_completion`).
-		Where("is_success = ?", true).
+		Where("is_success = ? AND is_stream = ?", true, false).
 		Group("group_name, model").
 		Scan(&results).Error; err != nil {
 		logrus.WithError(err).Error("Failed to query metrics")
