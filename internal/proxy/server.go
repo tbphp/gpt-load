@@ -130,7 +130,7 @@ func (ps *ProxyServer) executeRequestWithRetry(
 	if err != nil {
 		logrus.Errorf("Failed to select a key for group %s on attempt %d: %v", group.Name, retryCount+1, err)
 		response.Error(c, app_errors.NewAPIError(app_errors.ErrNoKeysAvailable, err.Error()))
-		ps.logRequest(c, originalGroup, group, nil, startTime, http.StatusServiceUnavailable, err, isStream, "", channelHandler, bodyBytes, models.RequestTypeFinal)
+		ps.logRequest(c, originalGroup, group, nil, startTime, http.StatusServiceUnavailable, err, isStream, "", channelHandler, bodyBytes, models.RequestTypeFinal, nil)
 		return
 	}
 
@@ -169,7 +169,7 @@ func (ps *ProxyServer) executeRequestWithRetry(
 	finalBodyBytes, err := channelHandler.ApplyModelRedirect(req, bodyBytes, group)
 	if err != nil {
 		response.Error(c, app_errors.NewAPIError(app_errors.ErrBadRequest, err.Error()))
-		ps.logRequest(c, originalGroup, group, apiKey, startTime, http.StatusBadRequest, err, isStream, upstreamURL, channelHandler, bodyBytes, models.RequestTypeFinal)
+		ps.logRequest(c, originalGroup, group, apiKey, startTime, http.StatusBadRequest, err, isStream, upstreamURL, channelHandler, bodyBytes, models.RequestTypeFinal, nil)
 		return
 	}
 
@@ -206,7 +206,7 @@ func (ps *ProxyServer) executeRequestWithRetry(
 	if err != nil || shouldRetryByStatus {
 		if err != nil && app_errors.IsIgnorableError(err) {
 			logrus.Debugf("Client-side ignorable error for key %s, aborting retries: %v", utils.MaskAPIKey(apiKey.KeyValue), err)
-			ps.logRequest(c, originalGroup, group, apiKey, startTime, 499, err, isStream, upstreamURL, channelHandler, bodyBytes, models.RequestTypeFinal)
+			ps.logRequest(c, originalGroup, group, apiKey, startTime, 499, err, isStream, upstreamURL, channelHandler, bodyBytes, models.RequestTypeFinal, nil)
 			return
 		}
 
@@ -244,7 +244,7 @@ func (ps *ProxyServer) executeRequestWithRetry(
 			requestType = models.RequestTypeFinal
 		}
 
-		ps.logRequest(c, originalGroup, group, apiKey, startTime, statusCode, errors.New(parsedError), isStream, upstreamURL, channelHandler, bodyBytes, requestType)
+		ps.logRequest(c, originalGroup, group, apiKey, startTime, statusCode, errors.New(parsedError), isStream, upstreamURL, channelHandler, bodyBytes, requestType, nil)
 
 		// 如果是最后一次尝试，直接返回错误，不再递归
 		if isLastAttempt {
@@ -264,6 +264,8 @@ func (ps *ProxyServer) executeRequestWithRetry(
 	// ps.keyProvider.UpdateStatus(apiKey, group, true) // 请求成功不再重置成功次数，减少IO消耗
 	logrus.Debugf("Request for group %s succeeded on attempt %d with key %s", group.Name, retryCount+1, utils.MaskAPIKey(apiKey.KeyValue))
 
+	var usage *TokenUsage
+
 	// Check if this is a model list request (needs special handling)
 	if shouldInterceptModelList(c.Request.URL.Path, c.Request.Method) {
 		ps.handleModelListResponse(c, resp, group, channelHandler)
@@ -278,11 +280,11 @@ func (ps *ProxyServer) executeRequestWithRetry(
 		if isStream {
 			ps.handleStreamingResponse(c, resp)
 		} else {
-			ps.handleNormalResponse(c, resp)
+			usage = ps.handleNormalResponse(c, resp)
 		}
 	}
 
-	ps.logRequest(c, originalGroup, group, apiKey, startTime, resp.StatusCode, nil, isStream, upstreamURL, channelHandler, bodyBytes, models.RequestTypeFinal)
+	ps.logRequest(c, originalGroup, group, apiKey, startTime, resp.StatusCode, nil, isStream, upstreamURL, channelHandler, bodyBytes, models.RequestTypeFinal, usage)
 }
 
 func shouldFailoverOnStatusCode(statusCode int, group *models.Group) bool {
@@ -293,6 +295,7 @@ func shouldFailoverOnStatusCode(statusCode int, group *models.Group) bool {
 }
 
 // logRequest is a helper function to create and record a request log.
+// usage may be nil for streaming requests or failed requests.
 func (ps *ProxyServer) logRequest(
 	c *gin.Context,
 	originalGroup *models.Group,
@@ -306,6 +309,7 @@ func (ps *ProxyServer) logRequest(
 	channelHandler channel.ChannelProxy,
 	bodyBytes []byte,
 	requestType string,
+	usage *TokenUsage,
 ) {
 	if ps.requestLogService == nil {
 		return
@@ -333,6 +337,13 @@ func (ps *ProxyServer) logRequest(
 		IsStream:     isStream,
 		UpstreamAddr: utils.TruncateString(upstreamAddr, 500),
 		RequestBody:  requestBodyToLog,
+	}
+
+	// Set token usage data extracted from the response body.
+	if usage != nil {
+		logEntry.PromptTokens = usage.PromptTokens
+		logEntry.CompletionTokens = usage.CompletionTokens
+		logEntry.TotalTokens = usage.TotalTokens
 	}
 
 	// Set parent group

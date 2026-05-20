@@ -75,6 +75,7 @@ func NewRouter(
 // registerSystemRoutes 注册系统级路由
 func registerSystemRoutes(router *gin.Engine, serverHandler *handler.Server) {
 	router.GET("/health", serverHandler.Health)
+	router.GET("/metrics", serverHandler.Metrics)
 }
 
 // registerAPIRoutes 注册API路由

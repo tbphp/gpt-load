@@ -41,8 +41,33 @@ func (ps *ProxyServer) handleStreamingResponse(c *gin.Context, resp *http.Respon
 	}
 }
 
-func (ps *ProxyServer) handleNormalResponse(c *gin.Context, resp *http.Response) {
-	if _, err := io.Copy(c.Writer, resp.Body); err != nil {
-		logUpstreamError("copying response body", err)
+// handleNormalResponse buffers the upstream response body, attempts to extract
+// token usage metadata, writes the original body to the client, and returns
+// the parsed usage (or nil when the body is not a JSON chat-completion response).
+func (ps *ProxyServer) handleNormalResponse(c *gin.Context, resp *http.Response) *TokenUsage {
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		logUpstreamError("reading response body", err)
+		if _, writeErr := c.Writer.Write(body); writeErr != nil {
+			logUpstreamError("writing buffered body to client", writeErr)
+		}
+		return nil
 	}
+
+	// Check for gzip encoding
+	body = handleGzipCompression(resp, body)
+
+	if _, writeErr := c.Writer.Write(body); writeErr != nil {
+		logUpstreamError("writing buffered body to client", writeErr)
+		return nil
+	}
+
+	// Only parse usage for successful chat-completion-like responses.
+	if resp.StatusCode < 400 && isChatCompletionPath(c.Request.URL.Path) {
+		if usage := extractTokenUsage(body); usage != nil {
+			return usage
+		}
+	}
+
+	return nil
 }
