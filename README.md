@@ -258,7 +258,7 @@ Supported Proxy Protocol Formats:
 | Setting                    | Field Name                        | Default | Group Override | Description                                                                |
 | -------------------------- | --------------------------------- | ------- | -------------- | -------------------------------------------------------------------------- |
 | Max Retries                | `max_retries`                     | 3       | ✅             | Maximum retry count using different keys for single request                |
-| Blacklist Threshold        | `blacklist_threshold`             | 3       | ✅             | Number of consecutive failures before key enters blacklist                 |
+| Blacklist Threshold        | `blacklist_threshold`             | 3       | ✅             | After how many cumulative failures does the key get blacklisted                 |
 | Key Validation Interval    | `key_validation_interval_minutes` | 60      | ✅             | Background scheduled key validation cycle (minutes)                        |
 | Key Validation Concurrency | `key_validation_concurrency`      | 10      | ✅             | Concurrency for background validation of invalid keys                      |
 | Key Validation Timeout     | `key_validation_timeout_seconds`  | 20      | ✅             | API request timeout for validating individual keys in background (seconds) |
@@ -593,7 +593,7 @@ Thanks to all the developers who have contributed to GPT-Load!
 
 - Thank you very much for the support from the [LINUX DO](https://linux.do) community!
 
-- This project is supported by DigitalOcean.  
+- This project is supported by DigitalOcean.
   [![DigitalOcean Referral Badge](https://web-platforms.sfo2.cdn.digitaloceanspaces.com/WWW/Badge%202.svg)](https://www.digitalocean.com/?refcode=3d52cff21342&utm_campaign=Referral_Invite&utm_medium=Referral_Program&utm_source=badge)
 
 ## License
