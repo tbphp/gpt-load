@@ -25,6 +25,7 @@ import {
   NSelect,
   NSpace,
   NSpin,
+  NSwitch,
   useDialog,
   type MessageReactive,
 } from "naive-ui";
@@ -89,6 +90,7 @@ const moreOptions = [
 let testingMsg: MessageReactive | null = null;
 const isDeling = ref(false);
 const isRestoring = ref(false);
+const togglingKeyIds = ref<Set<number>>(new Set());
 
 const createDialogShow = ref(false);
 const deleteDialogShow = ref(false);
@@ -320,6 +322,30 @@ async function saveKeyNotes() {
     notesDialogShow.value = false;
   } catch (error) {
     console.error("Update notes failed", error);
+  }
+}
+
+async function updateKeyEnabled(key: KeyRow, enabled: boolean) {
+  const previousEnabled = key.enabled;
+  const nextToggling = new Set(togglingKeyIds.value);
+  nextToggling.add(key.id);
+  togglingKeyIds.value = nextToggling;
+  key.enabled = enabled;
+
+  try {
+    const updatedKey = await keysApi.updateKeyEnabled(key.id, enabled);
+    key.enabled = updatedKey.enabled;
+    window.$message.success(enabled ? t("keys.keyEnabled") : t("keys.keyDisabled"));
+    if (props.selectedGroup) {
+      triggerSyncOperationRefresh(props.selectedGroup.name, "KEY_ENABLED_UPDATE");
+    }
+  } catch (error) {
+    key.enabled = previousEnabled;
+    console.error("Update key enabled failed", error);
+  } finally {
+    const remaining = new Set(togglingKeyIds.value);
+    remaining.delete(key.id);
+    togglingKeyIds.value = remaining;
   }
 }
 
@@ -692,7 +718,7 @@ function resetPage() {
             v-for="key in keys"
             :key="key.id"
             class="key-card"
-            :class="getStatusClass(key.status)"
+            :class="[getStatusClass(key.status), { 'is-disabled': !key.enabled }]"
           >
             <!-- 主要信息行：Key + 快速操作 -->
             <div class="key-main">
@@ -708,6 +734,9 @@ function resetPage() {
                     <n-icon :component="AlertCircleOutline" />
                   </template>
                   {{ t("keys.invalidShort") }}
+                </n-tag>
+                <n-tag v-if="!key.enabled" type="warning" :bordered="false" round>
+                  {{ t("keys.routingDisabledShort") }}
                 </n-tag>
                 <n-input class="key-text" :value="getDisplayValue(key)" readonly size="small" />
                 <div class="quick-actions">
@@ -738,6 +767,15 @@ function resetPage() {
                   </n-button>
                 </div>
               </div>
+              <n-switch
+                class="key-enabled-switch"
+                :value="key.enabled"
+                size="small"
+                :loading="togglingKeyIds.has(key.id)"
+                :aria-label="t('keys.keyRoutingSwitch')"
+                :title="key.enabled ? t('keys.disableKeyRouting') : t('keys.enableKeyRouting')"
+                @update:value="value => updateKeyEnabled(key, value)"
+              />
             </div>
 
             <!-- 统计信息 + 操作按钮行 -->
@@ -1052,6 +1090,14 @@ function resetPage() {
   transform: translateY(-1px);
 }
 
+.key-card.is-disabled {
+  opacity: 0.72;
+}
+
+.key-card.is-disabled:hover {
+  opacity: 0.86;
+}
+
 /* 状态相关样式 */
 .key-card.status-valid {
   border-color: var(--success-border);
@@ -1076,6 +1122,7 @@ function resetPage() {
   justify-content: space-between;
   align-items: center;
   gap: 8px;
+  min-width: 0;
 }
 
 .key-section {
@@ -1084,6 +1131,10 @@ function resetPage() {
   gap: 8px;
   flex: 1;
   min-width: 0;
+}
+
+.key-enabled-switch {
+  flex-shrink: 0;
 }
 
 /* 底部统计和按钮行 */
@@ -1287,6 +1338,30 @@ function resetPage() {
   .toolbar-right .n-space {
     width: 100%;
     justify-content: space-between;
+  }
+}
+
+@media (max-width: 480px) {
+  .keys-grid-container {
+    padding: 12px;
+  }
+
+  .keys-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
+
+  .key-main {
+    align-items: flex-start;
+  }
+
+  .key-section {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+
+  .key-text {
+    flex: 1 1 100%;
   }
 }
 </style>

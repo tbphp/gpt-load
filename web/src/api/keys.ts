@@ -140,6 +140,19 @@ export const keysApi = {
     await http.put(`/keys/${keyId}/notes`, { notes }, { hideMessage: true });
   },
 
+  // 更新密钥启用状态
+  async updateKeyEnabled(
+    keyId: number,
+    enabled: boolean
+  ): Promise<Pick<APIKey, "id" | "enabled" | "status">> {
+    const res = await http.put(
+      `/keys/${keyId}/enabled`,
+      { enabled },
+      { hideMessage: true }
+    );
+    return res.data;
+  },
+
   // 测试密钥
   async testKeys(
     group_id: number,
