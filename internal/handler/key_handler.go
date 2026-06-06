@@ -503,6 +503,11 @@ type UpdateKeyNotesRequest struct {
 	Notes string `json:"notes"`
 }
 
+// UpdateKeyEnabledRequest defines the payload for toggling a key's manual enabled switch.
+type UpdateKeyEnabledRequest struct {
+	Enabled bool `json:"enabled"`
+}
+
 // UpdateKeyNotes handles updating the notes of a specific API key.
 func (s *Server) UpdateKeyNotes(c *gin.Context) {
 	keyIDStr := c.Param("id")
@@ -543,4 +548,36 @@ func (s *Server) UpdateKeyNotes(c *gin.Context) {
 	}
 
 	response.Success(c, nil)
+}
+
+// UpdateKeyEnabled handles toggling whether a key can enter the active routing pool.
+func (s *Server) UpdateKeyEnabled(c *gin.Context) {
+	keyIDStr := c.Param("id")
+	keyID, err := strconv.Atoi(keyIDStr)
+	if err != nil || keyID <= 0 {
+		response.Error(c, app_errors.NewAPIError(app_errors.ErrBadRequest, "invalid key ID format"))
+		return
+	}
+
+	var req UpdateKeyEnabledRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, app_errors.NewAPIError(app_errors.ErrInvalidJSON, err.Error()))
+		return
+	}
+
+	key, err := s.KeyService.SetKeyEnabled(uint(keyID), req.Enabled)
+	if err != nil {
+		if strings.Contains(err.Error(), "record not found") {
+			response.Error(c, app_errors.ErrResourceNotFound)
+		} else {
+			response.Error(c, app_errors.ParseDBError(err))
+		}
+		return
+	}
+
+	response.Success(c, gin.H{
+		"id":      key.ID,
+		"enabled": key.Enabled,
+		"status":  key.Status,
+	})
 }

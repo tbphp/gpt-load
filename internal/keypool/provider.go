@@ -79,6 +79,7 @@ func (p *KeyProvider) SelectKey(groupID uint) (*models.APIKey, error) {
 		ID:           uint(keyID),
 		KeyValue:     decryptedKeyValue,
 		Status:       keyDetails["status"],
+		Enabled:      parseEnabled(keyDetails),
 		FailureCount: failureCount,
 		GroupID:      groupID,
 		CreatedAt:    time.Unix(createdAt, 0),
@@ -147,6 +148,7 @@ func (p *KeyProvider) handleSuccess(keyID uint, keyHashKey, activeKeysListKey st
 
 	failureCount, _ := strconv.ParseInt(keyDetails["failure_count"], 10, 64)
 	isActive := keyDetails["status"] == models.KeyStatusActive
+	isEnabled := parseEnabled(keyDetails)
 
 	if failureCount == 0 && isActive {
 		return nil
@@ -171,7 +173,7 @@ func (p *KeyProvider) handleSuccess(keyID uint, keyHashKey, activeKeysListKey st
 			return fmt.Errorf("failed to update key details in store: %w", err)
 		}
 
-		if !isActive {
+		if !isActive && isEnabled {
 			logrus.WithField("keyID", keyID).Debug("Key has recovered and is being restored to active pool.")
 			if err := p.store.LRem(activeKeysListKey, 0, keyID); err != nil {
 				return fmt.Errorf("failed to LRem key before LPush on recovery: %w", err)
@@ -265,7 +267,7 @@ func (p *KeyProvider) LoadKeysFromDB() error {
 				}
 			}
 
-			if key.Status == models.KeyStatusActive {
+			if isKeyAvailableForPool(key) {
 				allActiveKeyIDs[key.GroupID] = append(allActiveKeyIDs[key.GroupID], key.ID)
 			}
 		}
@@ -560,7 +562,7 @@ func (p *KeyProvider) addKeyToStore(key *models.APIKey) error {
 	}
 
 	// 2. If active, add to the active LIST
-	if key.Status == models.KeyStatusActive {
+	if isKeyAvailableForPool(key) {
 		activeKeysListKey := fmt.Sprintf("group:%d:active_keys", key.GroupID)
 		if err := p.store.LRem(activeKeysListKey, 0, key.ID); err != nil {
 			return fmt.Errorf("failed to LRem key %d before LPush for group %d: %w", key.ID, key.GroupID, err)
@@ -601,17 +603,63 @@ func (p *KeyProvider) addKeysToCacheBatch(groupID uint, keys []models.APIKey) er
 
 	// 2. 收集所有密钥 ID
 	activeKeysListKey := fmt.Sprintf("group:%d:active_keys", groupID)
-	activeKeyIDs := make([]any, len(keys))
+	activeKeyIDs := make([]any, 0, len(keys))
 	for i := range keys {
-		activeKeyIDs[i] = keys[i].ID
+		if isKeyAvailableForPool(&keys[i]) {
+			activeKeyIDs = append(activeKeyIDs, keys[i].ID)
+		}
 	}
 
 	// 3. 批量 LPush 活跃密钥
-	if err := p.store.LPush(activeKeysListKey, activeKeyIDs...); err != nil {
-		return fmt.Errorf("failed to batch LPush keys to group %d: %w", groupID, err)
+	if len(activeKeyIDs) > 0 {
+		if err := p.store.LPush(activeKeysListKey, activeKeyIDs...); err != nil {
+			return fmt.Errorf("failed to batch LPush keys to group %d: %w", groupID, err)
+		}
 	}
 
 	return nil
+}
+
+// SetKeyEnabled updates a key's manual enabled switch and keeps the active pool in sync.
+func (p *KeyProvider) SetKeyEnabled(keyID uint, enabled bool) (*models.APIKey, error) {
+	var updatedKey models.APIKey
+
+	err := p.executeTransactionWithRetry(func(tx *gorm.DB) error {
+		var key models.APIKey
+		if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&key, keyID).Error; err != nil {
+			return fmt.Errorf("failed to lock key %d for enabled update: %w", keyID, err)
+		}
+
+		if err := tx.Model(&key).Update("enabled", enabled).Error; err != nil {
+			return fmt.Errorf("failed to update key enabled flag in DB: %w", err)
+		}
+		key.Enabled = enabled
+		updatedKey = key
+
+		keyHashKey := fmt.Sprintf("key:%d", key.ID)
+		activeKeysListKey := fmt.Sprintf("group:%d:active_keys", key.GroupID)
+
+		if err := p.store.HSet(keyHashKey, p.apiKeyToMap(&key)); err != nil {
+			return fmt.Errorf("failed to update key enabled flag in store: %w", err)
+		}
+
+		if err := p.store.LRem(activeKeysListKey, 0, key.ID); err != nil {
+			return fmt.Errorf("failed to LRem key from active list: %w", err)
+		}
+
+		if isKeyAvailableForPool(&key) {
+			if err := p.store.LPush(activeKeysListKey, key.ID); err != nil {
+				return fmt.Errorf("failed to LPush key to active list: %w", err)
+			}
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &updatedKey, nil
 }
 
 // removeKeyFromStore is a helper to remove a single key from the cache.
@@ -634,10 +682,20 @@ func (p *KeyProvider) apiKeyToMap(key *models.APIKey) map[string]any {
 		"id":            fmt.Sprint(key.ID),
 		"key_string":    key.KeyValue,
 		"status":        key.Status,
+		"enabled":       key.Enabled,
 		"failure_count": key.FailureCount,
 		"group_id":      key.GroupID,
 		"created_at":    key.CreatedAt.Unix(),
 	}
+}
+
+func isKeyAvailableForPool(key *models.APIKey) bool {
+	return key.Enabled && key.Status == models.KeyStatusActive
+}
+
+func parseEnabled(details map[string]string) bool {
+	enabled, ok := details["enabled"]
+	return !ok || enabled == "" || enabled == "true" || enabled == "1"
 }
 
 // pluckIDs extracts IDs from a slice of APIKey.

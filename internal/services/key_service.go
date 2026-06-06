@@ -130,6 +130,7 @@ func (s *KeyService) processAndCreateKeys(
 			KeyValue: encryptedKey,
 			KeyHash:  keyHash,
 			Status:   models.KeyStatusActive,
+			Enabled:  true,
 		})
 	}
 
@@ -249,6 +250,11 @@ func (s *KeyService) ClearAllInvalidKeys(groupID uint) (int64, error) {
 // ClearAllKeys deletes all keys from a group.
 func (s *KeyService) ClearAllKeys(groupID uint) (int64, error) {
 	return s.KeyProvider.RemoveAllKeys(groupID)
+}
+
+// SetKeyEnabled updates whether a key is allowed to participate in request routing.
+func (s *KeyService) SetKeyEnabled(keyID uint, enabled bool) (*models.APIKey, error) {
+	return s.KeyProvider.SetKeyEnabled(keyID, enabled)
 }
 
 // DeleteMultipleKeys handles the business logic of deleting keys from a text block.
