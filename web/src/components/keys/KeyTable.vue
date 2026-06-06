@@ -722,22 +722,35 @@ function resetPage() {
           >
             <!-- 主要信息行：Key + 快速操作 -->
             <div class="key-main">
-              <div class="key-section">
-                <n-tag v-if="key.status === 'active'" type="success" :bordered="false" round>
-                  <template #icon>
-                    <n-icon :component="CheckmarkCircle" />
-                  </template>
-                  {{ t("keys.validShort") }}
-                </n-tag>
-                <n-tag v-else :bordered="false" round>
-                  <template #icon>
-                    <n-icon :component="AlertCircleOutline" />
-                  </template>
-                  {{ t("keys.invalidShort") }}
-                </n-tag>
-                <n-tag v-if="!key.enabled" type="warning" :bordered="false" round>
-                  {{ t("keys.routingDisabledShort") }}
-                </n-tag>
+              <div class="key-status-row">
+                <div class="key-status-tags">
+                  <n-tag v-if="key.status === 'active'" type="success" :bordered="false" round>
+                    <template #icon>
+                      <n-icon :component="CheckmarkCircle" />
+                    </template>
+                    {{ t("keys.validShort") }}
+                  </n-tag>
+                  <n-tag v-else :bordered="false" round>
+                    <template #icon>
+                      <n-icon :component="AlertCircleOutline" />
+                    </template>
+                    {{ t("keys.invalidShort") }}
+                  </n-tag>
+                  <n-tag v-if="!key.enabled" type="warning" :bordered="false" round>
+                    {{ t("keys.routingDisabledShort") }}
+                  </n-tag>
+                </div>
+                <n-switch
+                  class="key-enabled-switch"
+                  :value="key.enabled"
+                  size="small"
+                  :loading="togglingKeyIds.has(key.id)"
+                  :aria-label="t('keys.keyRoutingSwitch')"
+                  :title="key.enabled ? t('keys.disableKeyRouting') : t('keys.enableKeyRouting')"
+                  @update:value="value => updateKeyEnabled(key, value)"
+                />
+              </div>
+              <div class="key-value-row">
                 <n-input class="key-text" :value="getDisplayValue(key)" readonly size="small" />
                 <div class="quick-actions">
                   <n-button
@@ -767,15 +780,6 @@ function resetPage() {
                   </n-button>
                 </div>
               </div>
-              <n-switch
-                class="key-enabled-switch"
-                :value="key.enabled"
-                size="small"
-                :loading="togglingKeyIds.has(key.id)"
-                :aria-label="t('keys.keyRoutingSwitch')"
-                :title="key.enabled ? t('keys.disableKeyRouting') : t('keys.enableKeyRouting')"
-                @update:value="value => updateKeyEnabled(key, value)"
-              />
             </div>
 
             <!-- 统计信息 + 操作按钮行 -->
@@ -1119,18 +1123,34 @@ function resetPage() {
 /* 主要信息行 */
 .key-main {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
+  flex-direction: column;
   gap: 8px;
   min-width: 0;
 }
 
-.key-section {
+.key-status-row,
+.key-value-row {
   display: flex;
   align-items: center;
+  min-width: 0;
+}
+
+.key-status-row {
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.key-status-tags {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   flex: 1;
   min-width: 0;
+}
+
+.key-value-row {
+  gap: 8px;
 }
 
 .key-enabled-switch {
@@ -1352,16 +1372,11 @@ function resetPage() {
   }
 
   .key-main {
-    align-items: flex-start;
+    gap: 10px;
   }
 
-  .key-section {
-    flex-wrap: wrap;
-    row-gap: 6px;
-  }
-
-  .key-text {
-    flex: 1 1 100%;
+  .key-value-row {
+    gap: 6px;
   }
 }
 </style>
