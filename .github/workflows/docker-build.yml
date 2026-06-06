@@ -1,9 +1,18 @@
 name: Build Docker Image
 
 on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Optional image tag to publish, for example test or key-switch"
+        required: false
+        default: ""
   push:
+    branches:
+      - main
     tags:
       - "*"
+
 jobs:
   build_docker_image:
     name: Build Docker Image
@@ -24,12 +33,6 @@ jobs:
         with:
           platforms: arm64
 
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
       - name: Log in to Container Registry
         uses: docker/login-action@v3
         with:
@@ -42,14 +45,15 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: |
-            tbphp/gpt-load
-            ghcr.io/${{ github.repository }}
+            ghcr.io/flcnhzmry/gpt-load-fork
           flavor: |
             latest=false
           tags: |
+            type=ref,event=branch
             type=ref,event=tag
-            type=raw,value=beta,enable=${{ contains(github.ref, '-beta') }}
-            type=raw,value=latest,enable=${{ !contains(github.ref, '-') }}
+            type=sha,prefix=sha-
+            type=raw,value=${{ github.event.inputs.image_tag }},enable=${{ github.event_name == 'workflow_dispatch' && github.event.inputs.image_tag != '' }}
+            type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || (github.ref_type == 'tag' && !contains(github.ref_name, '-') ) }}
 
       - name: Build and push Docker image
         id: build
