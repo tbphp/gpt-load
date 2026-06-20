@@ -48,6 +48,8 @@ func (ch *GeminiChannel) BuildUpstreamURL(originalURL *url.URL, groupName string
 
 	if publisherBasePath, ok := vertexPublisherBasePath(base); ok {
 		finalURL.Path = buildVertexPublisherPath(publisherBasePath, requestPath)
+	} else if hasPathPrefix(requestPath, base.Path) {
+		finalURL.Path = ensureLeadingSlash(requestPath)
 	} else {
 		finalURL.Path = joinURLPath(base.Path, requestPath)
 	}

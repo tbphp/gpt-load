@@ -24,6 +24,21 @@ func TestGeminiBuildUpstreamURLPreservesDeveloperAPIPath(t *testing.T) {
 	}
 }
 
+func TestGeminiBuildUpstreamURLDoesNotDuplicateDeveloperAPIBasePath(t *testing.T) {
+	ch := newTestGeminiChannel(t, "https://generativelanguage.googleapis.com/v1beta")
+	originalURL := mustParseURL(t, "http://localhost:3001/proxy/gemini/v1beta/models/gemini-2.5-pro:generateContent?key=proxy-key")
+
+	got, err := ch.BuildUpstreamURL(originalURL, "gemini")
+	if err != nil {
+		t.Fatalf("BuildUpstreamURL returned error: %v", err)
+	}
+
+	want := "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=proxy-key"
+	if got != want {
+		t.Fatalf("BuildUpstreamURL() = %q, want %q", got, want)
+	}
+}
+
 func TestGeminiBuildUpstreamURLConvertsNativePathForVertexPublisherBase(t *testing.T) {
 	ch := newTestGeminiChannel(t, "https://aiplatform.googleapis.com/v1/publishers/google")
 	originalURL := mustParseURL(t, "http://localhost:3001/proxy/gemini/v1beta/models/gemini-2.5-pro:streamGenerateContent?alt=sse&key=proxy-key")
