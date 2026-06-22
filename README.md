@@ -13,6 +13,25 @@ For detailed documentation, please visit [Official Documentation](https://www.gp
 <a href="https://trendshift.io/repositories/14880" target="_blank"><img src="https://trendshift.io/api/badge/repositories/14880" alt="tbphp%2Fgpt-load | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
 <a href="https://hellogithub.com/repository/tbphp/gpt-load" target="_blank"><img src="https://api.hellogithub.com/v1/widgets/recommend.svg?rid=554dc4c46eb14092b9b0c56f1eb9021c&claim_uid=Qlh8vzrWJ0HCneG" alt="Featured｜HelloGitHub" style="width: 250px; height: 54px;" width="250" height="54" /></a>
 
+## Sponsors
+
+<table>
+<tbody>
+<tr>
+<td width="180"><a href="https://unity2.ai/register?source=gptload"><img src="./screenshot/unity2ai.jpg" alt="Unity2.ai" width="150"></a></td>
+<td>Thanks to Unity2.ai for sponsoring this project! Unity2.ai is a high-performance AI model API relay platform for individual developers, teams, and enterprises. It has long served leading enterprises in China, handles over 30 billion token calls per day, and supports 5000 RPM high concurrency. It supports balance billing, first top-up bonuses, bundled subscriptions, enterprise invoicing, and dedicated integration support. Register via <a href="https://unity2.ai/register?source=gptload">this link</a> to receive a $2 balance; join the official group for another $10 balance, up to $12 in free credits.</td>
+</tr>
+<tr>
+<td width="180"><a href="https://linux.do"><img src="./screenshot/l.png" alt="LINUX DO" width="150"></a></td>
+<td>Thank you very much for the support from the LINUX DO community!</td>
+</tr>
+<tr>
+<td width="180"><a href="https://www.digitalocean.com/?refcode=3d52cff21342&utm_campaign=Referral_Invite&utm_medium=Referral_Program&utm_source=badge"><img src="https://web-platforms.sfo2.cdn.digitaloceanspaces.com/WWW/Badge%202.svg" alt="DigitalOcean Referral Badge" width="150"></a></td>
+<td>This project is supported by DigitalOcean.</td>
+</tr>
+</tbody>
+</table>
+
 ## Features
 
 - **Transparent Proxy**: Complete preservation of native API formats, supporting OpenAI, Google Gemini, and Anthropic Claude among other formats
@@ -179,16 +198,16 @@ GPT-Load adopts a dual-layer configuration architecture:
 
 **Security Configuration:**
 
-| Setting        | Environment Variable | Default | Description                                                                       |
-| -------------- | -------------------- | ------- | --------------------------------------------------------------------------------- |
-| Admin Key      | `AUTH_KEY`           | -       | Access authentication key for the **management end**, please change it to a strong password |
+| Setting        | Environment Variable | Default | Description                                                                                                                                      |
+| -------------- | -------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Admin Key      | `AUTH_KEY`           | -       | Access authentication key for the **management end**, please change it to a strong password                                                      |
 | Encryption Key | `ENCRYPTION_KEY`     | -       | Encrypts API keys at rest. Supports any string or leave empty to disable encryption. See [Data Encryption Migration](#data-encryption-migration) |
 
 **Database Configuration:**
 
-| Setting             | Environment Variable | Default              | Description                                         |
-| ------------------- | -------------------- | -------------------- | --------------------------------------------------- |
-| Database Connection | `DATABASE_DSN`       | `./data/gpt-load.db` | Database connection string (DSN) or file path       |
+| Setting             | Environment Variable | Default              | Description                                             |
+| ------------------- | -------------------- | -------------------- | ------------------------------------------------------- |
+| Database Connection | `DATABASE_DSN`       | `./data/gpt-load.db` | Database connection string (DSN) or file path           |
 | Redis Connection    | `REDIS_DSN`          | -                    | Redis connection string, uses memory storage when empty |
 
 **Performance & CORS Configuration:**
@@ -196,7 +215,7 @@ GPT-Load adopts a dual-layer configuration architecture:
 | Setting                 | Environment Variable      | Default                       | Description                                     |
 | ----------------------- | ------------------------- | ----------------------------- | ----------------------------------------------- |
 | Max Concurrent Requests | `MAX_CONCURRENT_REQUESTS` | 100                           | Maximum concurrent requests allowed by system   |
-| Enable CORS             | `ENABLE_CORS`             | false                          | Whether to enable Cross-Origin Resource Sharing |
+| Enable CORS             | `ENABLE_CORS`             | false                         | Whether to enable Cross-Origin Resource Sharing |
 | Allowed Origins         | `ALLOWED_ORIGINS`         | -                             | Allowed origins, comma-separated                |
 | Allowed Methods         | `ALLOWED_METHODS`         | `GET,POST,PUT,DELETE,OPTIONS` | Allowed HTTP methods                            |
 | Allowed Headers         | `ALLOWED_HEADERS`         | `*`                           | Allowed request headers, comma-separated        |
@@ -215,10 +234,10 @@ GPT-Load adopts a dual-layer configuration architecture:
 
 GPT-Load automatically reads proxy settings from environment variables to make requests to upstream AI providers.
 
-| Setting     | Environment Variable | Default | Description                                     |
-| ----------- | -------------------- | ------- | ----------------------------------------------- |
-| HTTP Proxy  | `HTTP_PROXY`         | -       | Proxy server address for HTTP requests          |
-| HTTPS Proxy | `HTTPS_PROXY`        | -       | Proxy server address for HTTPS requests         |
+| Setting     | Environment Variable | Default | Description                                                  |
+| ----------- | -------------------- | ------- | ------------------------------------------------------------ |
+| HTTP Proxy  | `HTTP_PROXY`         | -       | Proxy server address for HTTP requests                       |
+| HTTPS Proxy | `HTTPS_PROXY`        | -       | Proxy server address for HTTPS requests                      |
 | No Proxy    | `NO_PROXY`           | -       | Comma-separated list of hosts or domains to bypass the proxy |
 
 Supported Proxy Protocol Formats:
@@ -233,13 +252,13 @@ Supported Proxy Protocol Formats:
 
 **Basic Settings:**
 
-| Setting            | Field Name                           | Default                 | Group Override | Description                                  |
-| ------------------ | ------------------------------------ | ----------------------- | -------------- | -------------------------------------------- |
-| Project URL        | `app_url`                            | `http://localhost:3001` | ❌             | Project base URL                             |
-| Global Proxy Keys  | `proxy_keys`                         | Initial value from `AUTH_KEY` | ❌         | Globally effective proxy keys, comma-separated |
-| Log Retention Days | `request_log_retention_days`         | 7                       | ❌             | Request log retention days, 0 for no cleanup |
-| Log Write Interval | `request_log_write_interval_minutes` | 1                       | ❌             | Log write to database cycle (minutes)        |
-| Enable Request Body Logging | `enable_request_body_logging` | false | ✅ | Whether to log complete request body content in request logs |
+| Setting                     | Field Name                           | Default                       | Group Override | Description                                                  |
+| --------------------------- | ------------------------------------ | ----------------------------- | -------------- | ------------------------------------------------------------ |
+| Project URL                 | `app_url`                            | `http://localhost:3001`       | ❌             | Project base URL                                             |
+| Global Proxy Keys           | `proxy_keys`                         | Initial value from `AUTH_KEY` | ❌             | Globally effective proxy keys, comma-separated               |
+| Log Retention Days          | `request_log_retention_days`         | 7                             | ❌             | Request log retention days, 0 for no cleanup                 |
+| Log Write Interval          | `request_log_write_interval_minutes` | 1                             | ❌             | Log write to database cycle (minutes)                        |
+| Enable Request Body Logging | `enable_request_body_logging`        | false                         | ✅             | Whether to log complete request body content in request logs |
 
 **Request Settings:**
 
@@ -258,7 +277,7 @@ Supported Proxy Protocol Formats:
 | Setting                    | Field Name                        | Default | Group Override | Description                                                                |
 | -------------------------- | --------------------------------- | ------- | -------------- | -------------------------------------------------------------------------- |
 | Max Retries                | `max_retries`                     | 3       | ✅             | Maximum retry count using different keys for single request                |
-| Blacklist Threshold        | `blacklist_threshold`             | 3       | ✅             | After how many cumulative failures does the key get blacklisted                 |
+| Blacklist Threshold        | `blacklist_threshold`             | 3       | ✅             | After how many cumulative failures does the key get blacklisted            |
 | Key Validation Interval    | `key_validation_interval_minutes` | 60      | ✅             | Background scheduled key validation cycle (minutes)                        |
 | Key Validation Concurrency | `key_validation_concurrency`      | 10      | ✅             | Concurrency for background validation of invalid keys                      |
 | Key Validation Timeout     | `key_validation_timeout_seconds`  | 20      | ✅             | API request timeout for validating individual keys in background (seconds) |
@@ -342,6 +361,7 @@ make run
 ### Important Notes
 
 ⚠️ **Important Reminders**:
+
 - **Once ENCRYPTION_KEY is lost, encrypted data CANNOT be recovered!** Please securely backup this key. Consider using a password manager or secure key management system
 - **Service must be stopped** before migration to avoid data inconsistency
 - Strongly recommended to **backup the database** in case migration fails and recovery is needed
@@ -588,13 +608,6 @@ response = client.messages.create(
 Thanks to all the developers who have contributed to GPT-Load!
 
 [![Contributors](https://contrib.rocks/image?repo=tbphp/gpt-load)](https://github.com/tbphp/gpt-load/graphs/contributors)
-
-## Supporters
-
-- Thank you very much for the support from the [LINUX DO](https://linux.do) community!
-
-- This project is supported by DigitalOcean.
-  [![DigitalOcean Referral Badge](https://web-platforms.sfo2.cdn.digitaloceanspaces.com/WWW/Badge%202.svg)](https://www.digitalocean.com/?refcode=3d52cff21342&utm_campaign=Referral_Invite&utm_medium=Referral_Program&utm_source=badge)
 
 ## License
 
