@@ -234,6 +234,11 @@ func (ps *ProxyServer) executeRequestWithRetry(
 			logrus.Debugf("Request failed with status %d (attempt %d/%d) for key %s. Parsed Error: %s", statusCode, retryCount+1, cfg.MaxRetries, utils.MaskAPIKey(apiKey.KeyValue), parsedError)
 		}
 
+		// 上游 key 可能出现在错误文本中（如 Gemini 通道将 key 放入 URL query，
+		// 传输层错误会把完整 URL 带入 err.Error()），返回客户端和落库前先脱敏
+		errorMessage = utils.RedactSecret(errorMessage, apiKey.KeyValue)
+		parsedError = utils.RedactSecret(parsedError, apiKey.KeyValue)
+
 		// 使用解析后的错误信息更新密钥状态
 		ps.keyProvider.UpdateStatus(apiKey, group, false, parsedError)
 
