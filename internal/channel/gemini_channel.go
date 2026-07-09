@@ -36,6 +36,29 @@ func newGeminiChannel(f *Factory, group *models.Group) (ChannelProxy, error) {
 	}, nil
 }
 
+// BuildUpstreamURL constructs the target URL for Gemini requests.
+func (ch *GeminiChannel) BuildUpstreamURL(originalURL *url.URL, groupName string) (string, error) {
+	base := ch.getUpstreamURL()
+	if base == nil {
+		return "", fmt.Errorf("no upstream URL configured for channel %s", ch.Name)
+	}
+
+	finalURL := *base
+	requestPath := trimProxyGroupPrefix(originalURL.Path, groupName)
+
+	if publisherBasePath, ok := vertexPublisherBasePath(base); ok {
+		finalURL.Path = buildVertexPublisherPath(publisherBasePath, requestPath)
+	} else if hasPathPrefix(requestPath, base.Path) {
+		finalURL.Path = ensureLeadingSlash(requestPath)
+	} else {
+		finalURL.Path = joinURLPath(base.Path, requestPath)
+	}
+
+	finalURL.RawQuery = originalURL.RawQuery
+
+	return finalURL.String(), nil
+}
+
 // ModifyRequest adds the API key as a query parameter for Gemini requests.
 func (ch *GeminiChannel) ModifyRequest(req *http.Request, apiKey *models.APIKey, group *models.Group) {
 	if strings.Contains(req.URL.Path, "v1beta/openai") {
@@ -98,17 +121,12 @@ func (ch *GeminiChannel) ExtractModel(c *gin.Context, bodyBytes []byte) string {
 
 // ValidateKey checks if the given API key is valid by making a generateContent request.
 func (ch *GeminiChannel) ValidateKey(ctx context.Context, apiKey *models.APIKey, group *models.Group) (bool, error) {
-	upstreamURL := ch.getUpstreamURL()
-	if upstreamURL == nil {
-		return false, fmt.Errorf("no upstream URL configured for channel %s", ch.Name)
-	}
-
-	// Safely join the path segments
-	reqURL, err := url.JoinPath(upstreamURL.String(), "v1beta", "models", ch.TestModel+":generateContent")
+	reqURL, err := ch.BuildUpstreamURL(&url.URL{
+		Path: "/proxy/" + group.Name + "/v1beta/models/" + ch.TestModel + ":generateContent",
+	}, group.Name)
 	if err != nil {
 		return false, fmt.Errorf("failed to create gemini validation path: %w", err)
 	}
-	reqURL += "?key=" + apiKey.KeyValue
 
 	payload := gin.H{
 		"contents": []gin.H{
@@ -130,6 +148,7 @@ func (ch *GeminiChannel) ValidateKey(ctx context.Context, apiKey *models.APIKey,
 		return false, fmt.Errorf("failed to create validation request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	ch.ModifyRequest(req, apiKey, group)
 
 	// Apply custom header rules if available
 	if len(group.HeaderRuleList) > 0 {
@@ -342,4 +361,98 @@ func mergeGeminiModelLists(upstream []any, configured []any) []any {
 func isFirstPage(req *http.Request) bool {
 	pageToken := req.URL.Query().Get("pageToken")
 	return pageToken == ""
+}
+
+func trimProxyGroupPrefix(requestPath, groupName string) string {
+	proxyPrefix := "/proxy/" + groupName
+	return strings.TrimPrefix(requestPath, proxyPrefix)
+}
+
+func vertexPublisherBasePath(base *url.URL) (string, bool) {
+	basePath := normalizeBasePath(base.Path)
+	if basePath == "/v1/publishers/google" || basePath == "/v1beta1/publishers/google" {
+		return basePath, true
+	}
+
+	if !strings.EqualFold(base.Hostname(), "aiplatform.googleapis.com") {
+		return "", false
+	}
+
+	switch basePath {
+	case "/", "/v1":
+		return "/v1/publishers/google", true
+	case "/v1beta1":
+		return "/v1beta1/publishers/google", true
+	default:
+		return "", false
+	}
+}
+
+func buildVertexPublisherPath(basePath, requestPath string) string {
+	if hasPathPrefix(requestPath, basePath) {
+		return ensureLeadingSlash(requestPath)
+	}
+
+	if modelPath, ok := geminiNativeModelPath(requestPath); ok {
+		return joinURLPath(basePath, modelPath)
+	}
+
+	return joinURLPath(basePath, requestPath)
+}
+
+func geminiNativeModelPath(requestPath string) (string, bool) {
+	parts := strings.Split(strings.TrimLeft(requestPath, "/"), "/")
+	if len(parts) == 0 {
+		return "", false
+	}
+
+	if parts[0] == "models" {
+		return strings.Join(parts, "/"), true
+	}
+
+	if len(parts) >= 2 && isGeminiNativeVersion(parts[0]) && parts[1] == "models" {
+		return strings.Join(parts[1:], "/"), true
+	}
+
+	return "", false
+}
+
+func isGeminiNativeVersion(segment string) bool {
+	return segment == "v1" || segment == "v1beta" || segment == "v1beta1"
+}
+
+func joinURLPath(basePath, requestPath string) string {
+	basePath = ensureLeadingSlash(basePath)
+	requestPath = strings.TrimLeft(requestPath, "/")
+	if requestPath == "" {
+		return basePath
+	}
+	if basePath == "/" {
+		return "/" + requestPath
+	}
+	return strings.TrimRight(basePath, "/") + "/" + requestPath
+}
+
+func hasPathPrefix(pathValue, prefix string) bool {
+	pathValue = ensureLeadingSlash(pathValue)
+	prefix = strings.TrimRight(ensureLeadingSlash(prefix), "/")
+	return pathValue == prefix || strings.HasPrefix(pathValue, prefix+"/")
+}
+
+func ensureLeadingSlash(pathValue string) string {
+	if pathValue == "" {
+		return "/"
+	}
+	if strings.HasPrefix(pathValue, "/") {
+		return pathValue
+	}
+	return "/" + pathValue
+}
+
+func normalizeBasePath(pathValue string) string {
+	normalized := strings.TrimRight(ensureLeadingSlash(pathValue), "/")
+	if normalized == "" {
+		return "/"
+	}
+	return normalized
 }
