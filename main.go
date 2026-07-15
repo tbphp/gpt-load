@@ -1,24 +1,26 @@
-// Package main provides the entry point for the GPT-Load proxy server
+// Package main provides the GPT-Load 2.0 process entry point.
 package main
 
 import (
 	"context"
 	"embed"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
 	"gpt-load/internal/app"
-	"gpt-load/internal/commands"
 	"gpt-load/internal/container"
-	"gpt-load/internal/types"
-	"gpt-load/internal/utils"
+	"gpt-load/internal/platform/config"
+	"gpt-load/internal/platform/utils"
 
 	"github.com/sirupsen/logrus"
 )
 
+// The 1.x UI remains embedded until M3 replaces its pages.
+//
 //go:embed web/dist
 var buildFS embed.FS
 
@@ -27,87 +29,87 @@ var indexPage []byte
 
 func main() {
 	if len(os.Args) > 1 {
-		runCommand()
-	} else {
-		runServer()
+		os.Exit(dispatchCommand(os.Args[1:], os.Stdout, os.Stderr))
 	}
-}
-
-// runCommand dispatches to the appropriate command handler
-func runCommand() {
-	command := os.Args[1]
-	args := os.Args[2:]
-
-	switch command {
-	case "migrate-keys":
-		commands.RunMigrateKeys(args)
-	case "help", "-h", "--help":
-		printHelp()
-	default:
-		fmt.Printf("Unknown command: %s\n", command)
-		fmt.Println("Run 'gpt-load help' for usage.")
+	if err := runServer(); err != nil {
+		logrus.WithError(err).Error("GPT-Load stopped with an error")
 		os.Exit(1)
 	}
 }
 
-// printHelp displays the general help information
-func printHelp() {
-	fmt.Println("GPT-Load - Multi-channel AI proxy with intelligent key rotation.")
-	fmt.Println()
-	fmt.Println("Usage:")
-	fmt.Println("  gpt-load                    Start the proxy server")
-	fmt.Println("  gpt-load <command> [args]   Execute a command")
-	fmt.Println()
-	fmt.Println("Available Commands:")
-	fmt.Println("  migrate-keys    Migrate encryption keys")
-	fmt.Println("  help            Display this help message")
-	fmt.Println()
-	fmt.Println("Use 'gpt-load <command> --help' for more information about a command.")
+func dispatchCommand(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		printHelp(stdout)
+		return 0
+	}
+
+	switch args[0] {
+	case "help", "-h", "--help":
+		printHelp(stdout)
+		return 0
+	case "migrate-keys":
+		fmt.Fprintln(stderr, "migrate-keys will be available in a later release")
+		return 1
+	default:
+		fmt.Fprintf(stderr, "Unknown command: %s\n", args[0])
+		fmt.Fprintln(stderr, "Run 'gpt-load help' for usage.")
+		return 1
+	}
 }
 
-// runServer run App Server
-func runServer() {
-	// Build the dependency injection container
-	container, err := container.BuildContainer()
+func printHelp(output io.Writer) {
+	fmt.Fprintln(output, "GPT-Load - self-hosted AI API key gateway")
+	fmt.Fprintln(output)
+	fmt.Fprintln(output, "Usage:")
+	fmt.Fprintln(output, "  gpt-load          Start the gateway")
+	fmt.Fprintln(output, "  gpt-load help     Display this help message")
+	fmt.Fprintln(output)
+	fmt.Fprintln(output, "Deferred Commands:")
+	fmt.Fprintln(output, "  migrate-keys      Key rotation support will be available in a later release")
+}
+
+func runServer() error {
+	dependencyContainer, err := container.BuildContainer()
 	if err != nil {
-		logrus.Fatalf("Failed to build container: %v", err)
+		return fmt.Errorf("build dependency container: %w", err)
 	}
 
-	// Provide UI assets to the container
-	if err := container.Provide(func() embed.FS { return buildFS }); err != nil {
-		logrus.Fatalf("Failed to provide buildFS: %v", err)
-	}
-	if err := container.Provide(func() []byte { return indexPage }); err != nil {
-		logrus.Fatalf("Failed to provide indexPage: %v", err)
-	}
-
-	// Initialize global logger
-	if err := container.Invoke(func(configManager types.ConfigManager) {
-		utils.SetupLogger(configManager)
+	if err := dependencyContainer.Invoke(func(cfg *config.Config) {
+		utils.SetupLogger(utils.LogConfig{
+			Level:  cfg.Log.Level,
+			Format: cfg.Log.Format,
+		})
 	}); err != nil {
-		logrus.Fatalf("Failed to setup logger: %v", err)
+		return fmt.Errorf("configure logger: %w", err)
 	}
 
-	// Create and run the application
-	if err := container.Invoke(func(application *app.App, configManager types.ConfigManager) {
-		if err := application.Start(); err != nil {
-			logrus.Fatalf("Failed to start application: %v", err)
-		}
-
-		// Wait for interrupt signal for graceful shutdown
-		quit := make(chan os.Signal, 1)
-		signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-		<-quit
-
-		// Create a context with timeout for shutdown
-		serverConfig := configManager.GetEffectiveServerConfig()
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), time.Duration(serverConfig.GracefulShutdownTimeout)*time.Second)
+	var application *app.App
+	var cfg *config.Config
+	if err := dependencyContainer.Invoke(func(resolvedApp *app.App, resolvedConfig *config.Config) {
+		application = resolvedApp
+		cfg = resolvedConfig
+	}); err != nil {
+		return fmt.Errorf("resolve application: %w", err)
+	}
+	if err := application.Start(); err != nil {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
-
-		// Perform graceful shutdown
-		application.Stop(shutdownCtx)
-
-	}); err != nil {
-		logrus.Fatalf("Failed to run application: %v", err)
+		_ = application.Stop(cleanupCtx)
+		return fmt.Errorf("start application: %w", err)
 	}
+
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(quit)
+	<-quit
+
+	shutdownCtx, cancel := context.WithTimeout(
+		context.Background(),
+		time.Duration(cfg.Server.GracefulShutdownTimeout)*time.Second,
+	)
+	defer cancel()
+	if err := application.Stop(shutdownCtx); err != nil {
+		return fmt.Errorf("stop application: %w", err)
+	}
+	return nil
 }

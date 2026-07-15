@@ -23,7 +23,7 @@ RUN go mod download
 
 COPY . .
 COPY --from=builder /build/dist ./web/dist
-RUN GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -ldflags "-s -w -X gpt-load/internal/version.Version=${VERSION}" -o gpt-load
+RUN GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -ldflags "-s -w -X gpt-load/internal/platform/version.Version=${VERSION}" -o gpt-load
 
 
 FROM alpine

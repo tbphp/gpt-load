@@ -18,21 +18,12 @@ dev: ## Run in development mode (with race detection)
 	go run -race ./main.go
 
 # ==============================================================================
-# Key Migration
+# Deferred Key Migration
 # ==============================================================================
 .PHONY: migrate-keys
-migrate-keys: ## Execute key migration (usage: make migrate-keys ARGS="--from old --to new")
-	@echo "🔑 Executing key migration..."
-	@if [ -z "$(ARGS)" ]; then \
-		echo "Usage:"; \
-		echo "  Enable encryption: make migrate-keys ARGS=\"--to new-key\""; \
-		echo "  Disable encryption: make migrate-keys ARGS=\"--from old-key\""; \
-		echo "  Change key: make migrate-keys ARGS=\"--from old-key --to new-key\""; \
-		echo ""; \
-		echo "⚠️  Important: Always backup database before migration!"; \
-		exit 1; \
-	fi
-	go run ./main.go migrate-keys $(ARGS)
+migrate-keys: ## Reserved for the 2.0 key rotation tool
+	@echo "migrate-keys will be available in a later release"
+	@exit 1
 
 .PHONY: help
 help: ## Display this help message
