@@ -73,9 +73,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to read request body", http.StatusBadRequest)
 		return
 	}
-	s.recordRequest(r, body)
 
 	if r.Method != http.MethodPost {
+		s.recordRequest(r, body)
 		w.Header().Set("Allow", http.MethodPost)
 		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
 		return
@@ -83,11 +83,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	dialect, ok := dialectForPath(r.URL.Path)
 	if !ok {
+		s.recordRequest(r, body)
 		http.NotFound(w, r)
 		return
 	}
 
-	step, ok := s.consumeStep()
+	step, ok := s.recordRequestAndConsumeStep(r, body)
 	if !ok {
 		writeJSONError(w, http.StatusInternalServerError, "fake upstream script exhausted")
 		return
@@ -139,25 +140,30 @@ func (s *Server) recordRequest(r *http.Request, body []byte) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.requests = append(s.requests, Request{
-		Method:   r.Method,
-		Path:     r.URL.Path,
-		RawQuery: r.URL.RawQuery,
-		Headers:  r.Header.Clone(),
-		Body:     bytes.Clone(body),
-	})
+	s.requests = append(s.requests, requestSnapshot(r, body))
 }
 
-func (s *Server) consumeStep() (Step, bool) {
+func (s *Server) recordRequestAndConsumeStep(r *http.Request, body []byte) (Step, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	s.requests = append(s.requests, requestSnapshot(r, body))
 	if s.nextStep >= len(s.steps) {
 		return Step{}, false
 	}
 	step := cloneStep(s.steps[s.nextStep])
 	s.nextStep++
 	return step, true
+}
+
+func requestSnapshot(r *http.Request, body []byte) Request {
+	return Request{
+		Method:   r.Method,
+		Path:     r.URL.Path,
+		RawQuery: r.URL.RawQuery,
+		Headers:  r.Header.Clone(),
+		Body:     bytes.Clone(body),
+	}
 }
 
 func dialectForPath(requestPath string) (string, bool) {
@@ -182,7 +188,12 @@ func dialectForPath(requestPath string) (string, bool) {
 }
 
 func readEmbeddedFixture(dialect, name string) ([]byte, error) {
-	name = filepath.ToSlash(strings.TrimPrefix(name, "testdata/"))
+	name = filepath.ToSlash(name)
+	name = strings.ReplaceAll(name, `\`, "/")
+	fixturePrefix := path.Join("testdata", dialect) + "/"
+	for strings.HasPrefix(name, fixturePrefix) {
+		name = strings.TrimPrefix(name, fixturePrefix)
+	}
 	if !strings.Contains(name, "/") {
 		name = path.Join(dialect, name)
 	}

@@ -2,12 +2,15 @@ package fakeupstream
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -272,6 +275,106 @@ func TestServerRejectsUnsupportedMethodAndPathWithoutConsumingScript(t *testing.
 	}
 	if len(server.Requests()) != 3 {
 		t.Errorf("所有收到的请求都应记录，got %d 条", len(server.Requests()))
+	}
+}
+
+func TestServerKeepsConcurrentRequestRecordsAlignedWithScriptSteps(t *testing.T) {
+	const requestCount = 128
+
+	steps := make([]Step, requestCount)
+	for i := range steps {
+		steps[i] = Step{
+			Status:  http.StatusOK,
+			Fixture: filepath.Join("openai", "success.json"),
+			Headers: http.Header{"X-Fake-Step": {strconv.Itoa(i)}},
+		}
+	}
+	server := New(steps...)
+	defer server.Close()
+
+	responses := make([]string, requestCount)
+	start := make(chan struct{})
+	errCh := make(chan error, requestCount)
+	var wg sync.WaitGroup
+	for requestID := range requestCount {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+
+			req, err := http.NewRequest(
+				http.MethodPost,
+				server.URL+"/v1/chat/completions",
+				strings.NewReader(`{}`),
+			)
+			if err != nil {
+				errCh <- fmt.Errorf("request %d: create request: %w", requestID, err)
+				return
+			}
+			req.Header.Set("X-Request-ID", strconv.Itoa(requestID))
+
+			resp, err := server.Client().Do(req)
+			if err != nil {
+				errCh <- fmt.Errorf("request %d: send request: %w", requestID, err)
+				return
+			}
+			_, _ = io.Copy(io.Discard, resp.Body)
+			resp.Body.Close()
+			responses[requestID] = resp.Header.Get("X-Fake-Step")
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		t.Error(err)
+	}
+	if t.Failed() {
+		return
+	}
+
+	requests := server.Requests()
+	if len(requests) != requestCount {
+		t.Fatalf("记录请求数 = %d, want %d", len(requests), requestCount)
+	}
+	for stepIndex, request := range requests {
+		requestID, err := strconv.Atoi(request.Headers.Get("X-Request-ID"))
+		if err != nil {
+			t.Fatalf("第 %d 条记录的 X-Request-ID 无效: %v", stepIndex, err)
+		}
+		if got, want := responses[requestID], strconv.Itoa(stepIndex); got != want {
+			t.Fatalf(
+				"请求记录与脚本错配: records[%d] 的 request=%d 收到 step=%q, want %q",
+				stepIndex,
+				requestID,
+				got,
+				want,
+			)
+		}
+	}
+}
+
+func TestReadEmbeddedFixtureNormalizesPortablePrefixes(t *testing.T) {
+	want := readFixture(t, "openai", "success.json")
+	fixtureNames := []string{
+		"success.json",
+		"openai/success.json",
+		"testdata/openai/success.json",
+		`testdata\openai\success.json`,
+		"testdata/openai/testdata/openai/success.json",
+		`testdata\openai\testdata\openai\success.json`,
+	}
+
+	for _, fixtureName := range fixtureNames {
+		t.Run(fixtureName, func(t *testing.T) {
+			got, err := readEmbeddedFixture("openai", fixtureName)
+			if err != nil {
+				t.Fatalf("读取 fixture %q 失败: %v", fixtureName, err)
+			}
+			if !bytes.Equal(got, want) {
+				t.Errorf("fixture %q 内容与 golden 不一致", fixtureName)
+			}
+		})
 	}
 }
 
