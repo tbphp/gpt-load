@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"gorm.io/datatypes"
 	"gorm.io/gorm"
 
 	"gpt-load/internal/storage"
@@ -110,9 +109,9 @@ func TestAutoMigrateCreatesCriticalUniqueConstraints(t *testing.T) {
 			Name:        "group-one",
 			UpstreamURL: "https://one.example.com",
 			Signature:   "same-signature",
-			Protocols:   datatypes.JSON(`["openai"]`),
-			Models:      datatypes.JSON(`[]`),
-			Config:      datatypes.JSON(`{}`),
+			Protocols:   models.JSON(`["openai"]`),
+			Models:      models.JSON(`[]`),
+			Config:      models.JSON(`{}`),
 		}
 		second := first
 		second.ID = 0
@@ -127,8 +126,8 @@ func TestAutoMigrateCreatesCriticalUniqueConstraints(t *testing.T) {
 			Name:        "upstream-key-parent",
 			UpstreamURL: "https://keys.example.com",
 			Signature:   "upstream-key-parent-signature",
-			Protocols:   datatypes.JSON(`["openai"]`),
-			Models:      datatypes.JSON(`[]`),
+			Protocols:   models.JSON(`["openai"]`),
+			Models:      models.JSON(`[]`),
 		}
 		if err := db.Create(&group).Error; err != nil {
 			t.Fatalf("create parent group: %v", err)
@@ -151,7 +150,7 @@ func TestAutoMigrateCreatesCriticalUniqueConstraints(t *testing.T) {
 			Name:     "access-one",
 			KeyValue: "ciphertext-one",
 			KeyHash:  "same-access-key-hash",
-			Filters:  datatypes.JSON(`{}`),
+			Filters:  models.JSON(`{}`),
 		}
 		second := first
 		second.ID = 0
@@ -209,8 +208,8 @@ func TestAutoMigrateCreatesUpstreamKeyForeignKeyWithCascade(t *testing.T) {
 		Name:        "cascade-parent",
 		UpstreamURL: "https://cascade.example.com",
 		Signature:   "cascade-parent-signature",
-		Protocols:   datatypes.JSON(`["openai"]`),
-		Models:      datatypes.JSON(`[]`),
+		Protocols:   models.JSON(`["openai"]`),
+		Models:      models.JSON(`[]`),
 	}
 	if err := db.Create(&group).Error; err != nil {
 		t.Fatalf("create parent group: %v", err)

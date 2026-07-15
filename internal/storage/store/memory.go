@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bytes"
 	"fmt"
 	"strconv"
 	"sync"
@@ -43,7 +44,7 @@ func (s *MemoryStore) Set(key string, value []byte, ttl time.Duration) error {
 		expiresAt = time.Now().UnixNano() + ttl.Nanoseconds()
 	}
 
-	s.data[key] = memoryStoreItem{value: value, expiresAt: expiresAt}
+	s.data[key] = memoryStoreItem{value: bytes.Clone(value), expiresAt: expiresAt}
 	return nil
 }
 
@@ -63,13 +64,11 @@ func (s *MemoryStore) Get(key string) ([]byte, error) {
 	}
 
 	if item.expiresAt > 0 && time.Now().UnixNano() > item.expiresAt {
-		s.mu.Lock()
-		delete(s.data, key)
-		s.mu.Unlock()
+		s.deleteIfExpired(key)
 		return nil, ErrNotFound
 	}
 
-	return item.value, nil
+	return bytes.Clone(item.value), nil
 }
 
 // Delete removes a value by its key.
@@ -101,13 +100,25 @@ func (s *MemoryStore) Exists(key string) (bool, error) {
 	}
 	if item, ok := rawItem.(memoryStoreItem); ok {
 		if item.expiresAt > 0 && time.Now().UnixNano() > item.expiresAt {
-			s.mu.Lock()
-			delete(s.data, key)
-			s.mu.Unlock()
+			s.deleteIfExpired(key)
 			return false, nil
 		}
 	}
 	return true, nil
+}
+
+func (s *MemoryStore) deleteIfExpired(key string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	rawItem, exists := s.data[key]
+	if !exists {
+		return
+	}
+	item, ok := rawItem.(memoryStoreItem)
+	if ok && item.expiresAt > 0 && time.Now().UnixNano() > item.expiresAt {
+		delete(s.data, key)
+	}
 }
 
 // SetNX sets a key-value pair if the key does not already exist.
@@ -130,7 +141,7 @@ func (s *MemoryStore) SetNX(key string, value []byte, ttl time.Duration) (bool, 
 	if ttl > 0 {
 		expiresAt = time.Now().UnixNano() + ttl.Nanoseconds()
 	}
-	s.data[key] = memoryStoreItem{value: value, expiresAt: expiresAt}
+	s.data[key] = memoryStoreItem{value: bytes.Clone(value), expiresAt: expiresAt}
 	return true, nil
 }
 
@@ -350,6 +361,7 @@ type memorySubscription struct {
 	store   *MemoryStore
 	channel string
 	msgChan chan *Message
+	once    sync.Once
 }
 
 // Channel returns the message channel for the subscription.
@@ -359,36 +371,55 @@ func (ms *memorySubscription) Channel() <-chan *Message {
 
 // Close removes the subscription from the store.
 func (ms *memorySubscription) Close() error {
-	ms.store.muSubscribers.Lock()
-	defer ms.store.muSubscribers.Unlock()
+	ms.once.Do(func() {
+		ms.store.muSubscribers.Lock()
+		defer ms.store.muSubscribers.Unlock()
 
-	if subscribers, ok := ms.store.subscribers[ms.channel]; ok {
-		delete(subscribers, ms.msgChan)
-		if len(subscribers) == 0 {
-			delete(ms.store.subscribers, ms.channel)
+		if subscribers, ok := ms.store.subscribers[ms.channel]; ok {
+			delete(subscribers, ms.msgChan)
+			if len(subscribers) == 0 {
+				delete(ms.store.subscribers, ms.channel)
+			}
 		}
-	}
-	close(ms.msgChan)
+		close(ms.msgChan)
+	})
 	return nil
 }
 
 // Publish sends a message to all subscribers of a channel.
 func (s *MemoryStore) Publish(channel string, message []byte) error {
 	s.muSubscribers.RLock()
-	defer s.muSubscribers.RUnlock()
+	subscribers := make([]chan *Message, 0, len(s.subscribers[channel]))
+	for subscriberChannel := range s.subscribers[channel] {
+		subscribers = append(subscribers, subscriberChannel)
+	}
+	s.muSubscribers.RUnlock()
 
-	msg := &Message{Channel: channel, Payload: message}
-	if subscribers, ok := s.subscribers[channel]; ok {
-		for subscriberChannel := range subscribers {
-			go func(ch chan *Message) {
-				select {
-				case ch <- msg:
-				case <-time.After(time.Second):
-				}
-			}(subscriberChannel)
-		}
+	for _, subscriberChannel := range subscribers {
+		go s.publishToSubscriber(channel, subscriberChannel, bytes.Clone(message))
 	}
 	return nil
+}
+
+func (s *MemoryStore) publishToSubscriber(channel string, subscriberChannel chan *Message, payload []byte) {
+	s.muSubscribers.RLock()
+	defer s.muSubscribers.RUnlock()
+
+	subscribers, exists := s.subscribers[channel]
+	if !exists {
+		return
+	}
+	if _, subscribed := subscribers[subscriberChannel]; !subscribed {
+		return
+	}
+
+	timer := time.NewTimer(time.Second)
+	defer timer.Stop()
+	message := &Message{Channel: channel, Payload: payload}
+	select {
+	case subscriberChannel <- message:
+	case <-timer.C:
+	}
 }
 
 // Subscribe listens for messages on a given channel.

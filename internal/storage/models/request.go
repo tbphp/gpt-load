@@ -1,30 +1,26 @@
 package models
 
-import (
-	"time"
-
-	"gorm.io/datatypes"
-)
+import "time"
 
 // RequestLog is the durable request-level audit and usage record.
 type RequestLog struct {
-	ID                 string         `gorm:"type:varchar(36);primaryKey"`
-	CreatedAt          time.Time      `gorm:"not null;index"`
-	AccessKeyID        uint           `gorm:"not null;index"`
-	Protocol           string         `gorm:"type:varchar(32);not null;index"`
-	ClientModel        string         `gorm:"type:varchar(255);not null;index"`
-	UpstreamModel      string         `gorm:"type:varchar(255);not null;index"`
-	Status             string         `gorm:"type:varchar(32);not null;index"`
-	StatusCode         int            `gorm:"not null"`
-	DurationMs         int64          `gorm:"not null"`
-	AffinityHit        bool           `gorm:"not null;default:false"`
-	InputTokens        int64          `gorm:"not null;default:0"`
-	OutputTokens       int64          `gorm:"not null;default:0"`
-	CacheReadTokens    int64          `gorm:"not null;default:0"`
-	CacheWrite5MTokens int64          `gorm:"column:cache_write_5m_tokens;not null;default:0"`
-	CacheWrite1HTokens int64          `gorm:"column:cache_write_1h_tokens;not null;default:0"`
-	Cost               float64        `gorm:"not null;default:0"`
-	Attempts           datatypes.JSON `gorm:"type:json"`
+	ID                 string    `gorm:"type:varchar(36);primaryKey"`
+	CreatedAt          time.Time `gorm:"not null;index"`
+	AccessKeyID        uint      `gorm:"not null;index"`
+	Protocol           string    `gorm:"type:varchar(32);not null;index"`
+	ClientModel        string    `gorm:"type:varchar(255);not null;index"`
+	UpstreamModel      string    `gorm:"type:varchar(255);not null;index"`
+	Status             string    `gorm:"type:varchar(32);not null;index"`
+	StatusCode         int       `gorm:"not null"`
+	DurationMs         int64     `gorm:"not null"`
+	AffinityHit        bool      `gorm:"not null;default:false"`
+	InputTokens        int64     `gorm:"not null;default:0"`
+	OutputTokens       int64     `gorm:"not null;default:0"`
+	CacheReadTokens    int64     `gorm:"not null;default:0"`
+	CacheWrite5MTokens int64     `gorm:"column:cache_write_5m_tokens;not null;default:0"`
+	CacheWrite1HTokens int64     `gorm:"column:cache_write_1h_tokens;not null;default:0"`
+	Cost               float64   `gorm:"not null;default:0"`
+	Attempts           JSON      `gorm:"type:json"`
 }
 
 // UsageStat is an hourly aggregate by upstream group and upstream model.

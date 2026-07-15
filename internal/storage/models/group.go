@@ -1,26 +1,22 @@
 package models
 
-import (
-	"time"
-
-	"gorm.io/datatypes"
-)
+import "time"
 
 // Group is the persisted configuration for an upstream service group.
 // API DTOs and runtime state views must be defined outside the storage package.
 type Group struct {
-	ID              uint           `gorm:"primaryKey;autoIncrement"`
-	Name            string         `gorm:"type:varchar(255);not null;uniqueIndex"`
-	UpstreamURL     string         `gorm:"type:text;not null"`
-	Signature       string         `gorm:"type:varchar(128);not null;uniqueIndex"`
-	Protocols       datatypes.JSON `gorm:"type:json;not null"`
-	Models          datatypes.JSON `gorm:"type:json;not null"`
-	ConvertEnabled  bool           `gorm:"not null;default:false"`
+	ID              uint   `gorm:"primaryKey;autoIncrement"`
+	Name            string `gorm:"type:varchar(255);not null;uniqueIndex"`
+	UpstreamURL     string `gorm:"type:text;not null"`
+	Signature       string `gorm:"type:varchar(128);not null;uniqueIndex"`
+	Protocols       JSON   `gorm:"type:json;not null"`
+	Models          JSON   `gorm:"type:json;not null"`
+	ConvertEnabled  bool   `gorm:"not null;default:false"`
 	WeightManual    *int
-	ValidationModel *string        `gorm:"type:varchar(255)"`
-	Config          datatypes.JSON `gorm:"type:json"`
-	Enabled         bool           `gorm:"not null;default:true"`
-	UpstreamKeys    []UpstreamKey  `gorm:"foreignKey:GroupID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE"`
+	ValidationModel *string       `gorm:"type:varchar(255)"`
+	Config          JSON          `gorm:"type:json"`
+	Enabled         bool          `gorm:"not null;default:true"`
+	UpstreamKeys    []UpstreamKey `gorm:"foreignKey:GroupID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE"`
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
 }

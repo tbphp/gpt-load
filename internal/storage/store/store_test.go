@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"testing"
+	"time"
 
 	"gpt-load/internal/storage/store"
 )
@@ -74,6 +75,34 @@ func TestMemoryStoreKeyValueAndSetNX(t *testing.T) {
 	}
 }
 
+func TestMemoryStoreOwnsStoredByteSlices(t *testing.T) {
+	t.Parallel()
+
+	s := store.NewMemoryStore()
+	input := []byte("secret")
+	if err := s.Set("key", input, 0); err != nil {
+		t.Fatalf("Set() error = %v", err)
+	}
+	input[0] = 'X'
+
+	first, err := s.Get("key")
+	if err != nil {
+		t.Fatalf("first Get() error = %v", err)
+	}
+	if got := string(first); got != "secret" {
+		t.Fatalf("value after input mutation = %q, want secret", got)
+	}
+	first[0] = 'Y'
+
+	second, err := s.Get("key")
+	if err != nil {
+		t.Fatalf("second Get() error = %v", err)
+	}
+	if got := string(second); got != "secret" {
+		t.Fatalf("value after returned slice mutation = %q, want secret", got)
+	}
+}
+
 func TestMemoryStoreHashListAndSetOperations(t *testing.T) {
 	t.Parallel()
 
@@ -110,5 +139,85 @@ func TestMemoryStoreHashListAndSetOperations(t *testing.T) {
 	}
 	if len(popped) != 2 {
 		t.Fatalf("len(SPopN()) = %d, want 2", len(popped))
+	}
+}
+
+func TestMemoryStorePublishDoesNotRaceWithSubscriptionClose(t *testing.T) {
+	t.Parallel()
+
+	s := store.NewMemoryStore()
+	subscription, err := s.Subscribe("updates")
+	if err != nil {
+		t.Fatalf("Subscribe() error = %v", err)
+	}
+
+	for i := 0; i < 10; i++ {
+		if err := s.Publish("updates", []byte("fill")); err != nil {
+			t.Fatalf("Publish(fill %d) error = %v", i, err)
+		}
+	}
+	deadline := time.Now().Add(time.Second)
+	for len(subscription.Channel()) != 10 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if got := len(subscription.Channel()); got != 10 {
+		t.Fatalf("buffered messages = %d, want 10", got)
+	}
+
+	if err := s.Publish("updates", []byte("blocked")); err != nil {
+		t.Fatalf("Publish(blocked) error = %v", err)
+	}
+	if err := subscription.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+
+	// Give the asynchronous publisher time to attempt the send. The regression
+	// used to panic in that goroutine after Close closed the channel.
+	time.Sleep(20 * time.Millisecond)
+}
+
+func TestMemorySubscriptionCloseIsIdempotent(t *testing.T) {
+	t.Parallel()
+
+	s := store.NewMemoryStore()
+	subscription, err := s.Subscribe("updates")
+	if err != nil {
+		t.Fatalf("Subscribe() error = %v", err)
+	}
+	if err := subscription.Close(); err != nil {
+		t.Fatalf("first Close() error = %v", err)
+	}
+	if err := subscription.Close(); err != nil {
+		t.Fatalf("second Close() error = %v", err)
+	}
+}
+
+func TestMemoryStorePublishOwnsMessagePayload(t *testing.T) {
+	t.Parallel()
+
+	s := store.NewMemoryStore()
+	subscription, err := s.Subscribe("updates")
+	if err != nil {
+		t.Fatalf("Subscribe() error = %v", err)
+	}
+	t.Cleanup(func() {
+		if err := subscription.Close(); err != nil {
+			t.Errorf("Close() error = %v", err)
+		}
+	})
+
+	payload := []byte("secret")
+	if err := s.Publish("updates", payload); err != nil {
+		t.Fatalf("Publish() error = %v", err)
+	}
+	payload[0] = 'X'
+
+	select {
+	case message := <-subscription.Channel():
+		if got := string(message.Payload); got != "secret" {
+			t.Fatalf("published payload = %q, want secret", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for published message")
 	}
 }
