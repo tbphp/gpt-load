@@ -3,6 +3,7 @@ package utils
 import (
 	"bytes"
 	"compress/gzip"
+	"compress/zlib"
 	"fmt"
 	"io"
 
@@ -93,15 +94,12 @@ func (b *BrotliDecompressor) Decompress(data []byte) ([]byte, error) {
 	return decompressed, nil
 }
 
-// DeflateDecompressor handles deflate compression (same as gzip without header)
+// DeflateDecompressor handles HTTP deflate's zlib-wrapped DEFLATE stream.
 type DeflateDecompressor struct{}
 
 // Decompress implements Decompressor interface for deflate
 func (d *DeflateDecompressor) Decompress(data []byte) ([]byte, error) {
-	// For deflate, we can use the same logic as gzip
-	// In practice, deflate is raw DEFLATE format without gzip header
-	// For now, use gzip reader which handles both
-	reader, err := gzip.NewReader(bytes.NewReader(data))
+	reader, err := zlib.NewReader(bytes.NewReader(data))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create deflate reader: %w", err)
 	}

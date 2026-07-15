@@ -14,6 +14,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"time"
 
 	"gpt-load/internal/platform/utils"
 
@@ -21,7 +23,14 @@ import (
 )
 
 // KeyFileName is the persistent master-key filename within DATA_DIR.
-const KeyFileName = "encryption.key"
+const (
+	KeyFileName             = "encryption.key"
+	keyFileReadMaxAttempts  = 50
+	keyFileReadRetryDelay   = 2 * time.Millisecond
+	encodedKeyMaterialBytes = 64
+)
+
+var keyFileMu sync.Mutex
 
 // Service defines credential encryption and fingerprinting operations.
 type Service interface {
@@ -67,6 +76,13 @@ func LoadOrCreateKeyMaterial(explicitKey, dataDir string) (string, error) {
 	if explicitKey != "" {
 		return explicitKey, nil
 	}
+
+	// Creating the keyfile makes its directory entry visible before its contents
+	// are written. Serialize callers so none of them can observe that transient
+	// empty file during the first application start.
+	keyFileMu.Lock()
+	defer keyFileMu.Unlock()
+
 	if dataDir == "" {
 		return "", fmt.Errorf("DATA_DIR is required when ENCRYPTION_KEY is empty")
 	}
@@ -75,7 +91,7 @@ func LoadOrCreateKeyMaterial(explicitKey, dataDir string) (string, error) {
 	}
 
 	path := filepath.Join(dataDir, KeyFileName)
-	if material, err := readKeyFile(path); err == nil {
+	if material, err := readKeyFileWithRetry(path); err == nil {
 		return material, nil
 	} else if !os.IsNotExist(err) {
 		return "", err
@@ -87,21 +103,31 @@ func LoadOrCreateKeyMaterial(explicitKey, dataDir string) (string, error) {
 	}
 	material := hex.EncodeToString(randomKey)
 
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	file, err := createSecureKeyFile(path)
 	if err != nil {
 		if os.IsExist(err) {
-			return readKeyFile(path)
+			return readKeyFileWithRetry(path)
 		}
 		return "", fmt.Errorf("create encryption keyfile: %w", err)
 	}
-	if _, err := file.WriteString(material + "\n"); err != nil {
-		_ = file.Close()
+	contents := material + "\n"
+	if written, err := file.WriteString(contents); err != nil || written != len(contents) {
+		cleanupKeyFile(file, path)
+		if err == nil {
+			err = io.ErrShortWrite
+		}
 		return "", fmt.Errorf("write encryption keyfile: %w", err)
 	}
+	if err := file.Sync(); err != nil {
+		cleanupKeyFile(file, path)
+		return "", fmt.Errorf("sync encryption keyfile: %w", err)
+	}
 	if err := file.Close(); err != nil {
+		_ = os.Remove(path)
 		return "", fmt.Errorf("close encryption keyfile: %w", err)
 	}
-	if err := os.Chmod(path, 0o600); err != nil {
+	if err := secureKeyFile(path); err != nil {
+		_ = os.Remove(path)
 		return "", fmt.Errorf("secure encryption keyfile: %w", err)
 	}
 
@@ -110,18 +136,67 @@ func LoadOrCreateKeyMaterial(explicitKey, dataDir string) (string, error) {
 }
 
 func readKeyFile(path string) (string, error) {
+	if err := requireRegularKeyFile(path); err != nil {
+		return "", err
+	}
 	contents, err := os.ReadFile(path)
 	if err != nil {
 		return "", err
 	}
 	material := strings.TrimSpace(string(contents))
-	if material == "" {
-		return "", fmt.Errorf("encryption keyfile %s is empty", path)
+	if len(material) != encodedKeyMaterialBytes {
+		return "", fmt.Errorf("encryption keyfile %s must contain exactly 64 hex characters", path)
 	}
-	if err := os.Chmod(path, 0o600); err != nil {
+	decoded, err := hex.DecodeString(material)
+	if err != nil {
+		return "", fmt.Errorf("encryption keyfile %s contains invalid hex: %w", path, err)
+	}
+	if len(decoded) != 32 {
+		return "", fmt.Errorf("encryption keyfile %s must decode to 32 bytes", path)
+	}
+	if err := secureKeyFile(path); err != nil {
 		return "", fmt.Errorf("secure encryption keyfile: %w", err)
 	}
 	return material, nil
+}
+
+func readKeyFileWithRetry(path string) (string, error) {
+	var lastErr error
+	for attempt := 0; attempt < keyFileReadMaxAttempts; attempt++ {
+		material, err := readKeyFile(path)
+		if err == nil {
+			return material, nil
+		}
+		lastErr = err
+		if !keyFileMayBePartiallyWritten(path) {
+			return "", err
+		}
+		if attempt+1 < keyFileReadMaxAttempts {
+			time.Sleep(keyFileReadRetryDelay)
+		}
+	}
+	return "", lastErr
+}
+
+func keyFileMayBePartiallyWritten(path string) bool {
+	info, err := os.Lstat(path)
+	return err == nil && info.Mode().IsRegular() && info.Size() < encodedKeyMaterialBytes
+}
+
+func requireRegularKeyFile(path string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("encryption keyfile %s must be a regular file", path)
+	}
+	return nil
+}
+
+func cleanupKeyFile(file *os.File, path string) {
+	_ = file.Close()
+	_ = os.Remove(path)
 }
 
 type aesService struct {

@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -122,9 +123,9 @@ var sensitiveProxyHeaders = []string{
 	"X-Auth-Token",
 }
 
-// stripSensitiveOnCrossHostRedirect removes credential headers when a redirect
-// crosses to a different host, mirroring the protection net/http already gives
-// the standard Authorization header. It preserves the default redirect cap.
+// stripSensitiveOnCrossHostRedirect removes credential headers whenever a
+// redirect changes origin (scheme, hostname, or port). It preserves the
+// default redirect cap.
 func stripSensitiveOnCrossHostRedirect(req *http.Request, via []*http.Request) error {
 	if len(via) >= 10 {
 		return fmt.Errorf("stopped after 10 redirects")
@@ -132,12 +133,17 @@ func stripSensitiveOnCrossHostRedirect(req *http.Request, via []*http.Request) e
 	if len(via) == 0 {
 		return nil
 	}
-	if req.URL.Hostname() != via[0].URL.Hostname() {
+	if !sameOrigin(req, via[0]) {
 		for _, h := range sensitiveProxyHeaders {
 			req.Header.Del(h)
 		}
 	}
 	return nil
+}
+
+func sameOrigin(left, right *http.Request) bool {
+	return strings.EqualFold(left.URL.Scheme, right.URL.Scheme) &&
+		strings.EqualFold(left.URL.Host, right.URL.Host)
 }
 
 // getFingerprint generates a unique string representation of the client configuration.

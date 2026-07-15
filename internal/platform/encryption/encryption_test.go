@@ -1,10 +1,13 @@
 package encryption
 
 import (
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"testing"
+	"time"
 )
 
 func TestServiceEncryptDecryptAndStableHash(t *testing.T) {
@@ -97,5 +100,103 @@ func TestNewServiceWithKeyFileUsesGeneratedMaterial(t *testing.T) {
 	}
 	if _, err := service.Decrypt(ciphertext); err != nil {
 		t.Fatalf("Decrypt() error = %v", err)
+	}
+}
+
+func TestLoadOrCreateKeyMaterialRejectsCorruptKeyFile(t *testing.T) {
+	tests := []struct {
+		name     string
+		contents string
+	}{
+		{name: "empty", contents: ""},
+		{name: "short", contents: "abcd"},
+		{name: "odd length", contents: "abc"},
+		{name: "non hex", contents: "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dataDir := t.TempDir()
+			path := filepath.Join(dataDir, KeyFileName)
+			if err := os.WriteFile(path, []byte(tt.contents), 0o600); err != nil {
+				t.Fatalf("write corrupt keyfile: %v", err)
+			}
+			if _, err := LoadOrCreateKeyMaterial("", dataDir); err == nil {
+				t.Fatal("LoadOrCreateKeyMaterial() error = nil, want corrupt keyfile error")
+			}
+		})
+	}
+}
+
+func TestLoadOrCreateKeyMaterialConcurrentFirstStartReusesOneKey(t *testing.T) {
+	dataDir := t.TempDir()
+	const workers = 32
+	start := make(chan struct{})
+	results := make(chan string, workers)
+	errors := make(chan error, workers)
+	var waitGroup sync.WaitGroup
+
+	for range workers {
+		waitGroup.Add(1)
+		go func() {
+			defer waitGroup.Done()
+			<-start
+			material, err := LoadOrCreateKeyMaterial("", dataDir)
+			if err != nil {
+				errors <- err
+				return
+			}
+			results <- material
+		}()
+	}
+	close(start)
+	waitGroup.Wait()
+	close(results)
+	close(errors)
+
+	for err := range errors {
+		t.Errorf("concurrent LoadOrCreateKeyMaterial() error = %v", err)
+	}
+	var want string
+	for material := range results {
+		if want == "" {
+			want = material
+		}
+		if material != want {
+			t.Errorf("concurrent key material = %q, want %q", material, want)
+		}
+	}
+	if want == "" {
+		t.Fatal("no concurrent caller returned key material")
+	}
+}
+
+func TestLoadOrCreateKeyMaterialRetriesKeyFileBeingWrittenByAnotherProcess(t *testing.T) {
+	dataDir := t.TempDir()
+	path := filepath.Join(dataDir, KeyFileName)
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		t.Fatalf("create partial keyfile: %v", err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatalf("close partial keyfile: %v", err)
+	}
+
+	want := hex.EncodeToString(make([]byte, 32))
+	writeDone := make(chan error, 1)
+	go func() {
+		time.Sleep(10 * time.Millisecond)
+		writeDone <- os.WriteFile(path, []byte(want+"\n"), 0o600)
+	}()
+
+	got, err := LoadOrCreateKeyMaterial("", dataDir)
+	if err != nil {
+		t.Fatalf("LoadOrCreateKeyMaterial() error = %v", err)
+	}
+	if err := <-writeDone; err != nil {
+		t.Fatalf("complete keyfile write: %v", err)
+	}
+	if got != want {
+		t.Fatalf("key material = %q, want %q", got, want)
 	}
 }

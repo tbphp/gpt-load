@@ -100,3 +100,55 @@ func TestSensitiveHeadersPreservedSameHost(t *testing.T) {
 		t.Errorf("x-api-key was incorrectly stripped on same-host redirect: %q", gotAPIKey)
 	}
 }
+
+// TestSensitiveHeadersStrippedOnSameHostnameDifferentPort covers origin changes
+// that Hostname alone cannot distinguish.
+func TestSensitiveHeadersStrippedOnSameHostnameDifferentPort(t *testing.T) {
+	var gotAPIKey string
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAPIKey = r.Header.Get("x-api-key")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer target.Close()
+
+	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL+"/final", http.StatusFound)
+	}))
+	defer source.Close()
+
+	client := &http.Client{CheckRedirect: stripSensitiveOnCrossHostRedirect}
+	req, err := http.NewRequest(http.MethodGet, source.URL+"/redirect", nil)
+	if err != nil {
+		t.Fatalf("create request: %v", err)
+	}
+	req.Header.Set("x-api-key", "sk-secret-upstream-key")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	resp.Body.Close()
+	if gotAPIKey != "" {
+		t.Fatalf("x-api-key leaked across ports on the same hostname: %q", gotAPIKey)
+	}
+}
+
+func TestSensitiveHeadersStrippedOnHTTPSDowngrade(t *testing.T) {
+	previous, err := http.NewRequest(http.MethodGet, "https://upstream.example/v1", nil)
+	if err != nil {
+		t.Fatalf("create previous request: %v", err)
+	}
+	redirected, err := http.NewRequest(http.MethodGet, "http://upstream.example/v2", nil)
+	if err != nil {
+		t.Fatalf("create redirected request: %v", err)
+	}
+	redirected.Header.Set("Authorization", "Bearer secret")
+	redirected.Header.Set("x-api-key", "secret")
+
+	if err := stripSensitiveOnCrossHostRedirect(redirected, []*http.Request{previous}); err != nil {
+		t.Fatalf("redirect policy error: %v", err)
+	}
+	if redirected.Header.Get("Authorization") != "" || redirected.Header.Get("x-api-key") != "" {
+		t.Fatalf("sensitive headers survived HTTPS downgrade: %#v", redirected.Header)
+	}
+}

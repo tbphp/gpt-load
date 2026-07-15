@@ -5,8 +5,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/go-sql-driver/mysql"
-	"github.com/jackc/pgx/v5/pgconn"
 	"gorm.io/gorm"
 )
 
@@ -67,22 +65,12 @@ func ParseDBError(err error) *APIError {
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return ErrResourceNotFound
 	}
-
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) {
-		if pgErr.Code == "23505" { // unique_violation
-			return ErrDuplicateResource
-		}
+	if errors.Is(err, gorm.ErrDuplicatedKey) {
+		return ErrDuplicateResource
 	}
 
-	var mysqlErr *mysql.MySQLError
-	if errors.As(err, &mysqlErr) {
-		if mysqlErr.Number == 1062 { // Duplicate entry
-			return ErrDuplicateResource
-		}
-	}
-
-	// Generic check for SQLite
+	// The SQLite driver does not translate every constraint error into
+	// gorm.ErrDuplicatedKey, so retain a driver-independent message fallback.
 	if strings.Contains(strings.ToLower(err.Error()), "unique constraint failed") {
 		return ErrDuplicateResource
 	}
