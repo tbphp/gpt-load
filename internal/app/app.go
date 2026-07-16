@@ -32,9 +32,10 @@ type App struct {
 	store      store.Store
 	db         *gorm.DB
 
-	mu         sync.Mutex
-	httpServer *http.Server
-	listener   net.Listener
+	mu          sync.Mutex
+	httpServer  *http.Server
+	listener    net.Listener
+	serveErrors chan error
 }
 
 // AppParams defines dependencies injected into App.
@@ -50,8 +51,9 @@ type AppParams struct {
 
 // NewEngine creates the M0 HTTP engine and health endpoint.
 func NewEngine() *gin.Engine {
+	gin.SetMode(gin.ReleaseMode)
 	engine := gin.New()
-	engine.Use(gin.Recovery())
+	engine.Use(recoveryMiddleware())
 	engine.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
 			"status":  "ok",
@@ -64,11 +66,12 @@ func NewEngine() *gin.Engine {
 // NewApp creates the application lifecycle manager.
 func NewApp(params AppParams) *App {
 	return &App{
-		engine:     params.Engine,
-		config:     params.Config,
-		encryption: params.Encryption,
-		store:      params.Store,
-		db:         params.DB,
+		engine:      params.Engine,
+		config:      params.Config,
+		encryption:  params.Encryption,
+		store:       params.Store,
+		db:          params.DB,
+		serveErrors: make(chan error, 1),
 	}
 }
 
@@ -96,7 +99,9 @@ func (a *App) Start() error {
 	server := &http.Server{
 		Addr:              address,
 		Handler:           a.engine,
+		ReadTimeout:       time.Duration(a.config.Server.ReadTimeout) * time.Second,
 		ReadHeaderTimeout: 30 * time.Second,
+		IdleTimeout:       time.Duration(a.config.Server.IdleTimeout) * time.Second,
 		MaxHeaderBytes:    1 << 20,
 	}
 	a.httpServer = server
@@ -104,7 +109,7 @@ func (a *App) Start() error {
 
 	go func() {
 		if err := server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			logrus.WithError(err).Error("HTTP server stopped unexpectedly")
+			a.serveErrors <- fmt.Errorf("serve HTTP: %w", err)
 		}
 	}()
 
@@ -113,6 +118,11 @@ func (a *App) Start() error {
 		"version": version.Version,
 	}).Info("GPT-Load 2.0 server started")
 	return nil
+}
+
+// ServeErrors reports an unexpected terminal error from the HTTP accept loop.
+func (a *App) ServeErrors() <-chan error {
+	return a.serveErrors
 }
 
 // Address returns the bound listener address after Start succeeds.

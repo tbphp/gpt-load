@@ -154,16 +154,9 @@ make run
 
 > 使用你修改的 AUTH_KEY 登录管理端。
 
-### 方式四：集群部署
+### GPT-Load 2.0 部署边界
 
-集群部署需要所有节点都连接同一个 MySQL（或者 PostgreSQL） 和 Redis，并且 Redis 是必须要求。建议使用统一的分布式 MySQL 和 Redis 集群。
-
-**部署要求：**
-
-- 所有节点必须配置相同的 `AUTH_KEY`、`DATABASE_DSN`、`REDIS_DSN`
-- 一主多从架构，从节点必须配置环境变量：`IS_SLAVE=true`
-
-详细请参考[集群部署文档](https://www.gpt-load.com/docs/cluster?lang=zh)
+2.0.0 只保证单实例正确性并使用 SQLite。Redis 是可选的运行时状态存储；多实例一致性及 MySQL/PostgreSQL 支持将在后续版本提供。
 
 ## 配置系统
 
@@ -193,11 +186,10 @@ GPT-Load 采用双层配置架构：
 | ------------ | ---------------------------------- | --------------- | -------------------------- |
 | 服务端口     | `PORT`                             | 3001            | HTTP 服务器监听端口        |
 | 服务地址     | `HOST`                             | 0.0.0.0         | HTTP 服务器绑定地址        |
-| 读取超时     | `SERVER_READ_TIMEOUT`              | 60              | HTTP 服务器读取超时（秒）  |
-| 写入超时     | `SERVER_WRITE_TIMEOUT`             | 600             | HTTP 服务器写入超时（秒）  |
-| 空闲超时     | `SERVER_IDLE_TIMEOUT`              | 120             | HTTP 连接空闲超时（秒）    |
-| 优雅关闭超时 | `SERVER_GRACEFUL_SHUTDOWN_TIMEOUT` | 10              | 服务优雅关闭等待时间（秒） |
-| 从节点模式   | `IS_SLAVE`                         | false           | 集群部署时从节点标识       |
+| 读取超时     | `READ_TIMEOUT`                     | 60              | 完整 HTTP 请求读取超时（秒）      |
+| 空闲超时     | `IDLE_TIMEOUT`                     | 120             | HTTP keep-alive 空闲超时（秒）    |
+| 优雅关闭超时 | `GRACEFUL_SHUTDOWN_TIMEOUT`        | 10              | 应用优雅关闭超时（秒）             |
+| 容器停止预算 | `CONTAINER_STOP_GRACE_PERIOD`      | 15s             | 容器停止预算，必须长于应用关闭超时 |
 | 时区         | `TZ`                               | `Asia/Shanghai` | 指定时区                   |
 
 **安全配置：**
@@ -205,7 +197,7 @@ GPT-Load 采用双层配置架构：
 | 配置项   | 环境变量         | 默认值 | 说明                                                                               |
 | -------- | ---------------- | ------ | ---------------------------------------------------------------------------------- |
 | 管理密钥 | `AUTH_KEY`       | -      | **管理端**的访问认证密钥，请修改为强密码                                           |
-| 加密密钥 | `ENCRYPTION_KEY` | -      | 加密存储的API密钥，支持任意字符串或留空禁用加密。参见[数据加密迁移](#数据加密迁移) |
+| 加密密钥 | `ENCRYPTION_KEY` | -      | 显式主密钥；留空时会在 `DATA_DIR` 下生成持久化密钥，静态加密不可关闭                |
 
 **数据库配置：**
 

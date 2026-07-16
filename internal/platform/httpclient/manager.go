@@ -1,10 +1,12 @@
 package httpclient
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -102,31 +104,19 @@ func (m *HTTPClientManager) GetClient(config *Config) *http.Client {
 	newClient := &http.Client{
 		Transport:     transport,
 		Timeout:       config.RequestTimeout,
-		CheckRedirect: stripSensitiveOnCrossHostRedirect,
+		CheckRedirect: rejectCrossOriginRedirect,
 	}
 
 	m.clients[fingerprint] = newClient
 	return newClient
 }
 
-// sensitiveProxyHeaders are custom-named credential headers that proxy channels
-// attach to upstream requests (e.g. x-api-key set by the messages-format
-// channel's ModifyRequest). Unlike the standard Authorization header, net/http
-// does NOT strip these on a cross-host redirect, so without an explicit policy a
-// redirect from the operator-configured upstream to another host would leak the
-// operator's upstream key to that host (CWE-200 / CWE-522).
-var sensitiveProxyHeaders = []string{
-	"Authorization",
-	"x-api-key",
-	"api-key",
-	"X-Goog-Api-Key",
-	"X-Auth-Token",
-}
+var errCrossOriginRedirect = errors.New("cross-origin redirect is not allowed")
 
-// stripSensitiveOnCrossHostRedirect removes credential headers whenever a
-// redirect changes origin (scheme, hostname, or port). It preserves the
-// default redirect cap.
-func stripSensitiveOnCrossHostRedirect(req *http.Request, via []*http.Request) error {
+// rejectCrossOriginRedirect follows redirects only while they remain on the
+// original effective origin. Rejecting the redirect also prevents 307/308 from
+// replaying request bodies or arbitrary credential headers to another origin.
+func rejectCrossOriginRedirect(req *http.Request, via []*http.Request) error {
 	if len(via) >= 10 {
 		return fmt.Errorf("stopped after 10 redirects")
 	}
@@ -134,16 +124,47 @@ func stripSensitiveOnCrossHostRedirect(req *http.Request, via []*http.Request) e
 		return nil
 	}
 	if !sameOrigin(req, via[0]) {
-		for _, h := range sensitiveProxyHeaders {
-			req.Header.Del(h)
-		}
+		return errCrossOriginRedirect
 	}
 	return nil
 }
 
 func sameOrigin(left, right *http.Request) bool {
-	return strings.EqualFold(left.URL.Scheme, right.URL.Scheme) &&
-		strings.EqualFold(left.URL.Host, right.URL.Host)
+	leftScheme, leftHost, leftPort, leftOK := normalizedOrigin(left)
+	rightScheme, rightHost, rightPort, rightOK := normalizedOrigin(right)
+	return leftOK && rightOK &&
+		leftScheme == rightScheme &&
+		leftHost == rightHost &&
+		leftPort == rightPort
+}
+
+func normalizedOrigin(request *http.Request) (scheme, host, port string, ok bool) {
+	if request == nil || request.URL == nil {
+		return "", "", "", false
+	}
+
+	scheme = strings.ToLower(request.URL.Scheme)
+	switch scheme {
+	case "http":
+		port = "80"
+	case "https":
+		port = "443"
+	default:
+		return "", "", "", false
+	}
+
+	host = strings.ToLower(request.URL.Hostname())
+	if host == "" {
+		return "", "", "", false
+	}
+	if explicitPort := request.URL.Port(); explicitPort != "" {
+		parsedPort, err := strconv.Atoi(explicitPort)
+		if err != nil || parsedPort < 1 || parsedPort > 65535 {
+			return "", "", "", false
+		}
+		port = strconv.Itoa(parsedPort)
+	}
+	return scheme, host, port, true
 }
 
 // getFingerprint generates a unique string representation of the client configuration.

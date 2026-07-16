@@ -23,6 +23,12 @@ func TestLoadUsesM0Defaults(t *testing.T) {
 	if cfg.Server.GracefulShutdownTimeout != 10 {
 		t.Fatalf("GracefulShutdownTimeout = %d, want 10", cfg.Server.GracefulShutdownTimeout)
 	}
+	if cfg.Server.ReadTimeout != 60 {
+		t.Fatalf("ReadTimeout = %d, want 60", cfg.Server.ReadTimeout)
+	}
+	if cfg.Server.IdleTimeout != 120 {
+		t.Fatalf("IdleTimeout = %d, want 120", cfg.Server.IdleTimeout)
+	}
 	if cfg.DataDir != "./data" {
 		t.Fatalf("DataDir = %q, want ./data", cfg.DataDir)
 	}
@@ -46,6 +52,8 @@ func TestLoadAppliesEnvironmentOverrides(t *testing.T) {
 	t.Setenv("LOG_LEVEL", "debug")
 	t.Setenv("LOG_FORMAT", "json")
 	t.Setenv("GRACEFUL_SHUTDOWN_TIMEOUT", "25")
+	t.Setenv("READ_TIMEOUT", "45")
+	t.Setenv("IDLE_TIMEOUT", "90")
 
 	cfg, err := Load()
 	if err != nil {
@@ -57,6 +65,9 @@ func TestLoadAppliesEnvironmentOverrides(t *testing.T) {
 	}
 	if cfg.Server.GracefulShutdownTimeout != 25 {
 		t.Fatalf("GracefulShutdownTimeout = %d", cfg.Server.GracefulShutdownTimeout)
+	}
+	if cfg.Server.ReadTimeout != 45 || cfg.Server.IdleTimeout != 90 {
+		t.Fatalf("read/idle timeouts not loaded: %#v", cfg.Server)
 	}
 	if cfg.DatabaseDSN != ":memory:" || cfg.EncryptionKey != "explicit-encryption-key" {
 		t.Fatalf("database/encryption overrides not loaded: %#v", cfg)
@@ -93,6 +104,8 @@ func TestLoadRejectsInvalidRequiredAndNumericValues(t *testing.T) {
 		{name: "invalid port", env: map[string]string{"AUTH_KEY": "x", "PORT": "nope"}},
 		{name: "port out of range", env: map[string]string{"AUTH_KEY": "x", "PORT": "70000"}},
 		{name: "invalid shutdown timeout", env: map[string]string{"AUTH_KEY": "x", "GRACEFUL_SHUTDOWN_TIMEOUT": "0"}},
+		{name: "invalid read timeout", env: map[string]string{"AUTH_KEY": "x", "READ_TIMEOUT": "0"}},
+		{name: "invalid idle timeout", env: map[string]string{"AUTH_KEY": "x", "IDLE_TIMEOUT": "nope"}},
 	}
 
 	for _, tt := range tests {
@@ -123,11 +136,36 @@ func TestMergeSettingsUsesGroupOverridesWithoutMutatingInputs(t *testing.T) {
 	}
 }
 
+func TestMergeSettingsDeepCopiesNestedJSONValues(t *testing.T) {
+	systemRule := map[string]any{"name": "system"}
+	systemRules := []any{systemRule}
+	groupFilters := []any{"group-a", "group-b"}
+	system := Settings{"headers": map[string]any{"rules": systemRules}}
+	group := Settings{"filters": groupFilters}
+
+	merged := MergeSettings(system, group)
+	mergedRule := merged["headers"].(map[string]any)["rules"].([]any)[0].(map[string]any)
+	mergedFilters := merged["filters"].([]any)
+
+	systemRule["name"] = "input-mutated"
+	groupFilters[0] = "input-mutated"
+	if mergedRule["name"] != "system" || mergedFilters[0] != "group-a" {
+		t.Fatalf("merged settings changed with inputs: %#v", merged)
+	}
+
+	mergedRule["name"] = "output-mutated"
+	mergedFilters[0] = "output-mutated"
+	if systemRule["name"] != "input-mutated" || groupFilters[0] != "input-mutated" {
+		t.Fatalf("input settings changed with merged output: system=%#v group=%#v", system, group)
+	}
+}
+
 func clearEnvironment(t *testing.T) {
 	t.Helper()
 	for _, key := range []string{
 		"HOST", "PORT", "DATA_DIR", "DATABASE_DSN", "ENCRYPTION_KEY", "AUTH_KEY",
 		"REDIS_DSN", "LOG_LEVEL", "LOG_FORMAT", "GRACEFUL_SHUTDOWN_TIMEOUT",
+		"READ_TIMEOUT", "IDLE_TIMEOUT",
 	} {
 		t.Setenv(key, "")
 	}

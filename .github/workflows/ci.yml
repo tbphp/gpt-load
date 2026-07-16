@@ -19,6 +19,18 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build backend
+        run: go build -o gpt-load .
+
+      - name: Run race-enabled tests
+        run: go test -race . ./internal/...
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
@@ -30,16 +42,6 @@ jobs:
         working-directory: web
         run: |
           npm ci
+          npm run lint:check
+          npm run format:check
           npm run build
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Build backend
-        run: go build -o gpt-load .
-
-      - name: Run race-enabled tests
-        run: go test -race ./...

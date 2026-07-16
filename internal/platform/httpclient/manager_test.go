@@ -1,30 +1,65 @@
 package httpclient
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 )
 
-// TestStripSensitiveOnCrossHostRedirect asserts that the custom-named x-api-key
-// credential header set by a proxy channel's ModifyRequest is NOT replayed to a
-// different host when the operator-configured upstream issues a cross-host
-// redirect. Regression test for the upstream-key leak (CWE-200 / CWE-522).
-func TestStripSensitiveOnCrossHostRedirect(t *testing.T) {
-	var gotAPIKey, gotAuthorization string
+func TestSameOriginUsesEffectivePorts(t *testing.T) {
+	tests := []struct {
+		name  string
+		left  string
+		right string
+		want  bool
+	}{
+		{name: "HTTPS default port", left: "https://api.example.com/v1", right: "https://api.example.com:443/v2", want: true},
+		{name: "HTTP default port", left: "http://api.example.com/v1", right: "http://api.example.com:80/v2", want: true},
+		{name: "different explicit port", left: "https://api.example.com:443/v1", right: "https://api.example.com:444/v2", want: false},
+		{name: "different scheme", left: "http://api.example.com:80/v1", right: "https://api.example.com:443/v2", want: false},
+		{name: "hostname case", left: "https://API.example.com/v1", right: "https://api.EXAMPLE.com:443/v2", want: true},
+		{name: "IPv6 default port", left: "https://[2001:db8::1]/v1", right: "https://[2001:db8::1]:443/v2", want: true},
+		{name: "unknown scheme fails closed", left: "custom://api.example.com/v1", right: "custom://api.example.com/v2", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			leftURL, err := url.Parse(tt.left)
+			if err != nil {
+				t.Fatalf("parse left URL: %v", err)
+			}
+			rightURL, err := url.Parse(tt.right)
+			if err != nil {
+				t.Fatalf("parse right URL: %v", err)
+			}
+
+			got := sameOrigin(&http.Request{URL: leftURL}, &http.Request{URL: rightURL})
+			if got != tt.want {
+				t.Fatalf("sameOrigin(%q, %q) = %t, want %t", tt.left, tt.right, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCrossOriginRedirectIsRejectedBeforeReplayingRequest(t *testing.T) {
+	var targetCalls int
+	var gotCredential string
 
 	attacker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotAPIKey = r.Header.Get("x-api-key")
-		gotAuthorization = r.Header.Get("Authorization")
+		targetCalls++
+		gotCredential = r.Header.Get("X-Custom-Credential")
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer attacker.Close()
 
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, "http://attacker.local/v1/messages", http.StatusFound)
+		http.Redirect(w, r, "http://attacker.local/v1/messages", http.StatusTemporaryRedirect)
 	}))
 	defer upstream.Close()
 
@@ -45,30 +80,32 @@ func TestStripSensitiveOnCrossHostRedirect(t *testing.T) {
 
 	client := &http.Client{
 		Transport:     transport,
-		CheckRedirect: stripSensitiveOnCrossHostRedirect,
+		CheckRedirect: rejectCrossOriginRedirect,
 	}
 
-	req, _ := http.NewRequest(http.MethodPost, "http://victim.local/v1/messages", nil)
-	req.Header.Set("x-api-key", "sk-secret-upstream-key")
-	req.Header.Set("Authorization", "Bearer secret-bearer")
+	req, _ := http.NewRequest(
+		http.MethodPost,
+		"http://victim.local/v1/messages",
+		bytes.NewBufferString(`{"prompt":"secret request body"}`),
+	)
+	req.Header.Set("X-Custom-Credential", "custom-secret")
 
 	resp, err := client.Do(req)
-	if err != nil {
-		t.Fatalf("request failed: %v", err)
+	if resp != nil {
+		resp.Body.Close()
 	}
-	resp.Body.Close()
-
-	if gotAPIKey != "" {
-		t.Errorf("x-api-key leaked to cross-host redirect target: %q", gotAPIKey)
+	if err == nil {
+		t.Fatal("cross-origin redirect was followed, want rejection")
 	}
-	if gotAuthorization != "" {
-		t.Errorf("Authorization leaked to cross-host redirect target: %q", gotAuthorization)
+	if !errors.Is(err, errCrossOriginRedirect) {
+		t.Fatalf("request error = %v, want %v", err, errCrossOriginRedirect)
+	}
+	if targetCalls != 0 || gotCredential != "" {
+		t.Fatalf("redirect target received request: calls=%d credential=%q", targetCalls, gotCredential)
 	}
 }
 
-// TestSensitiveHeadersPreservedSameHost asserts the policy does NOT strip the
-// credential header on a same-host redirect (legitimate behavior must survive).
-func TestSensitiveHeadersPreservedSameHost(t *testing.T) {
+func TestSameOriginRedirectPreservesRequestHeaders(t *testing.T) {
 	var gotAPIKey string
 	var hops int
 
@@ -83,7 +120,7 @@ func TestSensitiveHeadersPreservedSameHost(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	client := &http.Client{CheckRedirect: stripSensitiveOnCrossHostRedirect}
+	client := &http.Client{CheckRedirect: rejectCrossOriginRedirect}
 	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/redirect", nil)
 	req.Header.Set("x-api-key", "sk-secret-upstream-key")
 
@@ -101,12 +138,10 @@ func TestSensitiveHeadersPreservedSameHost(t *testing.T) {
 	}
 }
 
-// TestSensitiveHeadersStrippedOnSameHostnameDifferentPort covers origin changes
-// that Hostname alone cannot distinguish.
-func TestSensitiveHeadersStrippedOnSameHostnameDifferentPort(t *testing.T) {
-	var gotAPIKey string
+func TestRedirectToSameHostnameDifferentPortIsRejected(t *testing.T) {
+	var targetCalls int
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotAPIKey = r.Header.Get("x-api-key")
+		targetCalls++
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer target.Close()
@@ -116,7 +151,7 @@ func TestSensitiveHeadersStrippedOnSameHostnameDifferentPort(t *testing.T) {
 	}))
 	defer source.Close()
 
-	client := &http.Client{CheckRedirect: stripSensitiveOnCrossHostRedirect}
+	client := &http.Client{CheckRedirect: rejectCrossOriginRedirect}
 	req, err := http.NewRequest(http.MethodGet, source.URL+"/redirect", nil)
 	if err != nil {
 		t.Fatalf("create request: %v", err)
@@ -124,16 +159,18 @@ func TestSensitiveHeadersStrippedOnSameHostnameDifferentPort(t *testing.T) {
 	req.Header.Set("x-api-key", "sk-secret-upstream-key")
 
 	resp, err := client.Do(req)
-	if err != nil {
-		t.Fatalf("request failed: %v", err)
+	if resp != nil {
+		resp.Body.Close()
 	}
-	resp.Body.Close()
-	if gotAPIKey != "" {
-		t.Fatalf("x-api-key leaked across ports on the same hostname: %q", gotAPIKey)
+	if !errors.Is(err, errCrossOriginRedirect) {
+		t.Fatalf("request error = %v, want %v", err, errCrossOriginRedirect)
+	}
+	if targetCalls != 0 {
+		t.Fatalf("cross-port redirect target received %d requests", targetCalls)
 	}
 }
 
-func TestSensitiveHeadersStrippedOnHTTPSDowngrade(t *testing.T) {
+func TestHTTPSDowngradeRedirectIsRejected(t *testing.T) {
 	previous, err := http.NewRequest(http.MethodGet, "https://upstream.example/v1", nil)
 	if err != nil {
 		t.Fatalf("create previous request: %v", err)
@@ -142,13 +179,8 @@ func TestSensitiveHeadersStrippedOnHTTPSDowngrade(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create redirected request: %v", err)
 	}
-	redirected.Header.Set("Authorization", "Bearer secret")
-	redirected.Header.Set("x-api-key", "secret")
 
-	if err := stripSensitiveOnCrossHostRedirect(redirected, []*http.Request{previous}); err != nil {
-		t.Fatalf("redirect policy error: %v", err)
-	}
-	if redirected.Header.Get("Authorization") != "" || redirected.Header.Get("x-api-key") != "" {
-		t.Fatalf("sensitive headers survived HTTPS downgrade: %#v", redirected.Header)
+	if err := rejectCrossOriginRedirect(redirected, []*http.Request{previous}); !errors.Is(err, errCrossOriginRedirect) {
+		t.Fatalf("redirect policy error = %v, want %v", err, errCrossOriginRedirect)
 	}
 }

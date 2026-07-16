@@ -37,6 +37,21 @@ func createSecureKeyFile(path string) (*os.File, error) {
 	return os.NewFile(uintptr(handle), path), nil
 }
 
+func publishSecureKeyFile(temporaryPath, finalPath string) error {
+	temporaryPathPtr, err := windows.UTF16PtrFromString(temporaryPath)
+	if err != nil {
+		return err
+	}
+	finalPathPtr, err := windows.UTF16PtrFromString(finalPath)
+	if err != nil {
+		return err
+	}
+	if err := windows.MoveFileEx(temporaryPathPtr, finalPathPtr, windows.MOVEFILE_WRITE_THROUGH); err != nil {
+		return &os.LinkError{Op: "rename", Old: temporaryPath, New: finalPath, Err: err}
+	}
+	return nil
+}
+
 func secureKeyFile(path string) error {
 	if err := requireRegularKeyFile(path); err != nil {
 		return err
@@ -58,6 +73,12 @@ func secureKeyFile(path string) error {
 		dacl,
 		nil,
 	)
+}
+
+// Windows does not expose a portable directory fsync equivalent. File.Sync
+// and the restrictive keyfile handle/ACL provide the strongest common path.
+func syncParentDirectory(string) error {
+	return nil
 }
 
 func currentUserSecurityDescriptor() (*windows.SECURITY_DESCRIPTOR, error) {

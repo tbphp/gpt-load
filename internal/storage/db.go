@@ -58,43 +58,67 @@ func AutoMigrate(db *gorm.DB) error {
 	}
 
 	return db.Transaction(func(tx *gorm.DB) error {
-		if err := tx.AutoMigrate(
-			&models.Group{},
-			&models.UpstreamKey{},
-			&models.AccessKey{},
-			&models.RequestLog{},
-			&models.UsageStat{},
-			&models.ModelPrice{},
-			&models.SystemSetting{},
-			&models.Job{},
-			&schemaInfo{},
-		); err != nil {
-			return fmt.Errorf("auto-migrate SQLite schema: %w", err)
-		}
-
-		var count int64
-		if err := tx.Model(&schemaInfo{}).Count(&count).Error; err != nil {
-			return fmt.Errorf("count schema_info rows: %w", err)
-		}
-		if count == 0 {
-			if err := tx.Create(&schemaInfo{Version: CurrentSchemaVersion}).Error; err != nil {
-				return fmt.Errorf("initialize schema_info: %w", err)
+		if tx.Migrator().HasTable(&schemaInfo{}) {
+			if err := validateSchemaVersion(tx); err != nil {
+				return err
 			}
-			return nil
-		}
-		if count != 1 {
-			return fmt.Errorf("schema_info contains %d rows, want exactly one", count)
+			return migrateCurrentSchema(tx)
 		}
 
-		var info schemaInfo
-		if err := tx.First(&info).Error; err != nil {
-			return fmt.Errorf("read schema_info: %w", err)
+		tables, err := tx.Migrator().GetTables()
+		if err != nil {
+			return fmt.Errorf("list SQLite tables: %w", err)
 		}
-		if info.Version != CurrentSchemaVersion {
-			return fmt.Errorf("unsupported schema version %d, want %d", info.Version, CurrentSchemaVersion)
+		for _, table := range tables {
+			if !strings.HasPrefix(table, "sqlite_") {
+				return fmt.Errorf("initialize SQLite schema: non-empty database without schema_info")
+			}
+		}
+
+		if err := migrateCurrentSchema(tx); err != nil {
+			return err
+		}
+		if err := tx.Create(&schemaInfo{Version: CurrentSchemaVersion}).Error; err != nil {
+			return fmt.Errorf("initialize schema_info: %w", err)
 		}
 		return nil
 	})
+}
+
+func migrateCurrentSchema(db *gorm.DB) error {
+	if err := db.AutoMigrate(
+		&models.Group{},
+		&models.UpstreamKey{},
+		&models.AccessKey{},
+		&models.RequestLog{},
+		&models.UsageStat{},
+		&models.ModelPrice{},
+		&models.SystemSetting{},
+		&models.Job{},
+		&schemaInfo{},
+	); err != nil {
+		return fmt.Errorf("auto-migrate SQLite schema: %w", err)
+	}
+	return nil
+}
+
+func validateSchemaVersion(db *gorm.DB) error {
+	var count int64
+	if err := db.Model(&schemaInfo{}).Count(&count).Error; err != nil {
+		return fmt.Errorf("count schema_info rows: %w", err)
+	}
+	if count != 1 {
+		return fmt.Errorf("schema_info contains %d rows, want exactly one", count)
+	}
+
+	var info schemaInfo
+	if err := db.First(&info).Error; err != nil {
+		return fmt.Errorf("read schema_info: %w", err)
+	}
+	if info.Version != CurrentSchemaVersion {
+		return fmt.Errorf("unsupported schema version %d, want %d", info.Version, CurrentSchemaVersion)
+	}
+	return nil
 }
 
 func withForeignKeysEnabled(dsn string) string {

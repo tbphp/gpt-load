@@ -3,7 +3,7 @@ package main
 
 import (
 	"context"
-	"embed"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -18,14 +18,6 @@ import (
 
 	"github.com/sirupsen/logrus"
 )
-
-// The 1.x UI remains embedded until M3 replaces its pages.
-//
-//go:embed web/dist
-var buildFS embed.FS
-
-//go:embed web/dist/index.html
-var indexPage []byte
 
 func main() {
 	if len(os.Args) > 1 {
@@ -101,7 +93,12 @@ func runServer() error {
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	defer signal.Stop(quit)
-	<-quit
+
+	var serveErr error
+	select {
+	case <-quit:
+	case serveErr = <-application.ServeErrors():
+	}
 
 	shutdownCtx, cancel := context.WithTimeout(
 		context.Background(),
@@ -109,7 +106,7 @@ func runServer() error {
 	)
 	defer cancel()
 	if err := application.Stop(shutdownCtx); err != nil {
-		return fmt.Errorf("stop application: %w", err)
+		return errors.Join(serveErr, fmt.Errorf("stop application: %w", err))
 	}
-	return nil
+	return serveErr
 }

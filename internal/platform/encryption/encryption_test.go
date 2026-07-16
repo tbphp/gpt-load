@@ -1,14 +1,160 @@
 package encryption
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"gpt-load/internal/platform/utils"
 )
+
+func TestServiceUsesDomainSeparatedFingerprintKey(t *testing.T) {
+	const (
+		masterKey = "domain-separated-master-key"
+		plaintext = "sk-secret-value"
+	)
+	service, err := NewService(masterKey)
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+
+	legacyMAC := hmac.New(sha256.New, utils.DeriveAESKey(masterKey))
+	_, _ = legacyMAC.Write([]byte(plaintext))
+	legacyHash := hex.EncodeToString(legacyMAC.Sum(nil))
+
+	if got := service.Hash(plaintext); got == legacyHash {
+		t.Fatal("Hash() reuses the AES key; fingerprinting requires a domain-separated subkey")
+	}
+}
+
+func TestPersistGeneratedKeyMaterialPublishesOnlyCompleteFile(t *testing.T) {
+	dataDir := t.TempDir()
+	path := filepath.Join(dataDir, KeyFileName)
+	material := hex.EncodeToString(make([]byte, 32))
+	publishReady := make(chan error, 1)
+	releasePublish := make(chan struct{})
+	done := make(chan error, 1)
+
+	go func() {
+		done <- persistGeneratedKeyMaterial(
+			path,
+			material,
+			func(temporaryPath, finalPath string) error {
+				contents, err := os.ReadFile(temporaryPath)
+				if err == nil && string(contents) != material+"\n" {
+					err = errors.New("temporary keyfile is incomplete")
+				}
+				publishReady <- err
+				if err != nil {
+					return err
+				}
+				<-releasePublish
+				return publishSecureKeyFile(temporaryPath, finalPath)
+			},
+			func(string) error { return nil },
+		)
+	}()
+
+	select {
+	case err := <-publishReady:
+		if err != nil {
+			t.Fatalf("temporary keyfile validation: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for atomic keyfile publication")
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("final keyfile became visible before publication: %v", err)
+	}
+
+	close(releasePublish)
+	if err := <-done; err != nil {
+		t.Fatalf("persistGeneratedKeyMaterial() error = %v", err)
+	}
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read published keyfile: %v", err)
+	}
+	if string(contents) != material+"\n" {
+		t.Fatalf("published keyfile = %q, want complete material", contents)
+	}
+}
+
+func TestLoadOrCreateKeyMaterialWaitsForDirectorySyncBeforeUse(t *testing.T) {
+	dataDir := t.TempDir()
+	syncFailure := errors.New("directory sync failed")
+	syncCalls := 0
+	syncDirectory := func(string) error {
+		syncCalls++
+		if syncCalls == 1 {
+			return syncFailure
+		}
+		return nil
+	}
+
+	material, err := loadOrCreateKeyMaterial("", dataDir, syncDirectory)
+	if !errors.Is(err, syncFailure) {
+		t.Fatalf("first LoadOrCreateKeyMaterial() error = %v, want directory sync failure", err)
+	}
+	if material != "" {
+		t.Fatalf("key material returned before directory sync = %q", material)
+	}
+
+	path := filepath.Join(dataDir, KeyFileName)
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read keyfile retained after sync failure: %v", err)
+	}
+	want := strings.TrimSpace(string(contents))
+	if len(want) != encodedKeyMaterialBytes {
+		t.Fatalf("retained key material length = %d, want %d", len(want), encodedKeyMaterialBytes)
+	}
+
+	got, err := loadOrCreateKeyMaterial("", dataDir, syncDirectory)
+	if err != nil {
+		t.Fatalf("second LoadOrCreateKeyMaterial() error = %v", err)
+	}
+	if got != want {
+		t.Fatalf("second LoadOrCreateKeyMaterial() = %q, want retained material %q", got, want)
+	}
+	if syncCalls != 2 {
+		t.Fatalf("directory sync calls = %d, want 2", syncCalls)
+	}
+}
+
+func TestLoadDurableKeyMaterialSyncsDirectoryBeforeUse(t *testing.T) {
+	dataDir := t.TempDir()
+	path := filepath.Join(dataDir, KeyFileName)
+	want := hex.EncodeToString(make([]byte, 32))
+	if err := os.WriteFile(path, []byte(want+"\n"), 0o600); err != nil {
+		t.Fatalf("write keyfile: %v", err)
+	}
+
+	syncCalls := 0
+	syncDirectory := func(string) error {
+		syncCalls++
+		return nil
+	}
+
+	got, err := loadDurableKeyMaterial(path, syncDirectory)
+	if err != nil {
+		t.Fatalf("loadDurableKeyMaterial() error = %v", err)
+	}
+	if got != want {
+		t.Fatalf("loadDurableKeyMaterial() = %q, want %q", got, want)
+	}
+	if syncCalls != 1 {
+		t.Fatalf("directory sync calls = %d, want 1", syncCalls)
+	}
+}
 
 func TestServiceEncryptDecryptAndStableHash(t *testing.T) {
 	service, err := NewService("a-test-master-key")
@@ -168,35 +314,5 @@ func TestLoadOrCreateKeyMaterialConcurrentFirstStartReusesOneKey(t *testing.T) {
 	}
 	if want == "" {
 		t.Fatal("no concurrent caller returned key material")
-	}
-}
-
-func TestLoadOrCreateKeyMaterialRetriesKeyFileBeingWrittenByAnotherProcess(t *testing.T) {
-	dataDir := t.TempDir()
-	path := filepath.Join(dataDir, KeyFileName)
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if err != nil {
-		t.Fatalf("create partial keyfile: %v", err)
-	}
-	if err := file.Close(); err != nil {
-		t.Fatalf("close partial keyfile: %v", err)
-	}
-
-	want := hex.EncodeToString(make([]byte, 32))
-	writeDone := make(chan error, 1)
-	go func() {
-		time.Sleep(10 * time.Millisecond)
-		writeDone <- os.WriteFile(path, []byte(want+"\n"), 0o600)
-	}()
-
-	got, err := LoadOrCreateKeyMaterial("", dataDir)
-	if err != nil {
-		t.Fatalf("LoadOrCreateKeyMaterial() error = %v", err)
-	}
-	if err := <-writeDone; err != nil {
-		t.Fatalf("complete keyfile write: %v", err)
-	}
-	if got != want {
-		t.Fatalf("key material = %q, want %q", got, want)
 	}
 }

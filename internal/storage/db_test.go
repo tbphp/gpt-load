@@ -2,6 +2,7 @@ package storage_test
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -10,6 +11,74 @@ import (
 	"gpt-load/internal/storage"
 	"gpt-load/internal/storage/models"
 )
+
+func TestAutoMigrateKeepsUpstreamRuntimeFailuresOutOfDatabase(t *testing.T) {
+	t.Parallel()
+
+	db := openMigratedDatabase(t)
+	type columnInfo struct {
+		Name         string
+		DefaultValue *string `gorm:"column:dflt_value"`
+	}
+	var columns []columnInfo
+	if err := db.Raw("PRAGMA table_info('upstream_keys')").Scan(&columns).Error; err != nil {
+		t.Fatalf("inspect upstream_keys columns: %v", err)
+	}
+
+	var statusDefault string
+	for _, column := range columns {
+		if column.Name == "failure_count" {
+			t.Fatal("upstream_keys contains failure_count; runtime failure state must not be persisted")
+		}
+		if column.Name == "status" && column.DefaultValue != nil {
+			statusDefault = strings.Trim(*column.DefaultValue, "'\"")
+		}
+	}
+	if statusDefault != string(models.UpstreamKeyStatusActive) {
+		t.Fatalf("upstream_keys status default = %q, want %q", statusDefault, models.UpstreamKeyStatusActive)
+	}
+}
+
+func TestUpstreamKeyStatusAcceptsOnlyDurableOperatorStates(t *testing.T) {
+	t.Parallel()
+
+	db := openMigratedDatabase(t)
+	group := models.Group{
+		Name:        "status-parent",
+		UpstreamURL: "https://status.example.com",
+		Signature:   "status-parent-signature",
+		Protocols:   models.JSON(`["openai"]`),
+		Models:      models.JSON(`[]`),
+	}
+	if err := db.Create(&group).Error; err != nil {
+		t.Fatalf("create parent group: %v", err)
+	}
+
+	for index, status := range []models.UpstreamKeyStatus{
+		models.UpstreamKeyStatusActive,
+		models.UpstreamKeyStatusDisabled,
+	} {
+		key := models.UpstreamKey{
+			GroupID:  group.ID,
+			KeyValue: "ciphertext",
+			KeyHash:  "allowed-status-" + string(rune('a'+index)),
+			Status:   status,
+		}
+		if err := db.Create(&key).Error; err != nil {
+			t.Fatalf("create upstream key with status %q: %v", status, err)
+		}
+	}
+
+	invalid := models.UpstreamKey{
+		GroupID:  group.ID,
+		KeyValue: "ciphertext",
+		KeyHash:  "invalid-status",
+		Status:   models.UpstreamKeyStatus("blacklisted"),
+	}
+	if err := db.Create(&invalid).Error; err == nil {
+		t.Fatal("create upstream key with runtime-only blacklisted status error = nil, want constraint error")
+	}
+}
 
 func TestOpenRejectsInvalidDSN(t *testing.T) {
 	t.Parallel()
@@ -96,6 +165,42 @@ func TestAutoMigrateCreatesNineTablesAndSchemaVersion(t *testing.T) {
 	}
 	if count != 1 {
 		t.Fatalf("schema_info row count after a second migration = %d, want 1", count)
+	}
+}
+
+func TestAutoMigrateRejectsNonEmptyDatabaseWithoutSchemaInfo(t *testing.T) {
+	t.Parallel()
+
+	db, err := storage.Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open(:memory:) error = %v", err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("db.DB() error = %v", err)
+	}
+	t.Cleanup(func() {
+		if err := sqlDB.Close(); err != nil {
+			t.Errorf("close database: %v", err)
+		}
+	})
+
+	if err := db.Exec("CREATE TABLE legacy_data (id INTEGER PRIMARY KEY)").Error; err != nil {
+		t.Fatalf("create legacy table: %v", err)
+	}
+
+	err = storage.AutoMigrate(db)
+	if err == nil {
+		t.Fatal("AutoMigrate() error = nil, want rejection for an unversioned non-empty database")
+	}
+	if !strings.Contains(err.Error(), "non-empty database without schema_info") {
+		t.Fatalf("AutoMigrate() error = %q, want unversioned non-empty database error", err)
+	}
+	if db.Migrator().HasTable("groups") {
+		t.Fatal("AutoMigrate() created groups in an unversioned non-empty database")
+	}
+	if !db.Migrator().HasTable("legacy_data") {
+		t.Fatal("AutoMigrate() removed the pre-existing legacy table")
 	}
 }
 

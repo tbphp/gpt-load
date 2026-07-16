@@ -154,16 +154,9 @@ After deployment:
 
 > Use your modified AUTH_KEY to log in to the management interface.
 
-### Method 4: Cluster Deployment
+### GPT-Load 2.0 Deployment Boundary
 
-Cluster deployment requires all nodes to connect to the same MySQL (or PostgreSQL) and Redis, with Redis being mandatory. It's recommended to use unified distributed MySQL and Redis clusters.
-
-**Deployment Requirements:**
-
-- All nodes must configure identical `AUTH_KEY`, `DATABASE_DSN`, `REDIS_DSN`
-- Leader-follower architecture where follower nodes must configure environment variable: `IS_SLAVE=true`
-
-For details, please refer to [Cluster Deployment Documentation](https://www.gpt-load.com/docs/cluster?lang=en)
+Version 2.0.0 guarantees single-instance correctness and uses SQLite. Redis is optional runtime-state storage; multi-instance consistency and MySQL/PostgreSQL support are planned for later releases.
 
 ## Configuration System
 
@@ -193,11 +186,10 @@ GPT-Load adopts a dual-layer configuration architecture:
 | ------------------------- | ---------------------------------- | --------------- | ----------------------------------------------- |
 | Service Port              | `PORT`                             | 3001            | HTTP server listening port                      |
 | Service Address           | `HOST`                             | 0.0.0.0         | HTTP server binding address                     |
-| Read Timeout              | `SERVER_READ_TIMEOUT`              | 60              | HTTP server read timeout (seconds)              |
-| Write Timeout             | `SERVER_WRITE_TIMEOUT`             | 600             | HTTP server write timeout (seconds)             |
-| Idle Timeout              | `SERVER_IDLE_TIMEOUT`              | 120             | HTTP connection idle timeout (seconds)          |
-| Graceful Shutdown Timeout | `SERVER_GRACEFUL_SHUTDOWN_TIMEOUT` | 10              | Service graceful shutdown wait time (seconds)   |
-| Follower Mode             | `IS_SLAVE`                         | false           | Follower node identifier for cluster deployment |
+| Read Timeout              | `READ_TIMEOUT`                     | 60              | Complete HTTP request read timeout (seconds)     |
+| Idle Timeout              | `IDLE_TIMEOUT`                     | 120             | HTTP keep-alive idle timeout (seconds)           |
+| Graceful Shutdown Timeout | `GRACEFUL_SHUTDOWN_TIMEOUT`        | 10              | Application graceful shutdown timeout (seconds) |
+| Container Stop Budget     | `CONTAINER_STOP_GRACE_PERIOD`      | 15s             | Container stop budget; must exceed app timeout   |
 | Timezone                  | `TZ`                               | `Asia/Shanghai` | Specify timezone                                |
 
 **Security Configuration:**
@@ -205,7 +197,7 @@ GPT-Load adopts a dual-layer configuration architecture:
 | Setting        | Environment Variable | Default | Description                                                                                                                                      |
 | -------------- | -------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Admin Key      | `AUTH_KEY`           | -       | Access authentication key for the **management end**, please change it to a strong password                                                      |
-| Encryption Key | `ENCRYPTION_KEY`     | -       | Encrypts API keys at rest. Supports any string or leave empty to disable encryption. See [Data Encryption Migration](#data-encryption-migration) |
+| Encryption Key | `ENCRYPTION_KEY`     | -       | Explicit master key; when empty, a persistent key is generated under `DATA_DIR`. At-rest encryption cannot be disabled.                        |
 
 **Database Configuration:**
 

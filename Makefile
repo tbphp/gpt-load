@@ -5,17 +5,14 @@
 # Run & Development
 # ==============================================================================
 .PHONY: run
-run: ## Build frontend and run server
-	@echo "--- Building frontend... ---"
-	cd web && npm install && npm run build
-	@echo "--- Preparing backend... ---"
+run: ## Run server
 	@echo "--- Starting backend... ---"
-	go run ./main.go
+	go run .
 
 .PHONY: dev
 dev: ## Run in development mode (with race detection)
 	@echo "🔧 Starting development mode..."
-	go run -race ./main.go
+	go run -race .
 
 # ==============================================================================
 # Deferred Key Migration

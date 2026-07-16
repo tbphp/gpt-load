@@ -17,7 +17,7 @@ import { useI18n } from "vue-i18n";
 const { t } = useI18n();
 
 const versionInfo = ref<VersionInfo>({
-  currentVersion: "0.1.0",
+  currentVersion: "2.0.0-dev",
   latestVersion: null,
   isLatest: false,
   hasUpdate: false,

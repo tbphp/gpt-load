@@ -1,16 +1,6 @@
-FROM --platform=$BUILDPLATFORM node:20-alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS builder
 
-ARG VERSION=1.0.0
-WORKDIR /build
-COPY ./web/package*.json ./
-RUN npm ci
-COPY ./web .
-RUN VITE_VERSION=${VERSION} npm run build
-
-
-FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS builder2
-
-ARG VERSION=1.0.0
+ARG VERSION=2.0.0-dev
 ARG TARGETOS
 ARG TARGETARCH
 ENV GO111MODULE=on \
@@ -21,8 +11,8 @@ WORKDIR /build
 COPY go.mod go.sum ./
 RUN go mod download
 
-COPY . .
-COPY --from=builder /build/dist ./web/dist
+COPY main.go ./
+COPY internal ./internal
 RUN GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -ldflags "-s -w -X gpt-load/internal/platform/version.Version=${VERSION}" -o gpt-load
 
 
@@ -32,6 +22,6 @@ WORKDIR /app
 RUN apk add --no-cache ca-certificates tzdata \
     && update-ca-certificates
 
-COPY --from=builder2 /build/gpt-load .
+COPY --from=builder /build/gpt-load .
 EXPOSE 3001
 ENTRYPOINT ["/app/gpt-load"]

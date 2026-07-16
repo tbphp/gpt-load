@@ -16,6 +16,8 @@ const (
 	defaultPort                    = 3001
 	defaultDataDir                 = "./data"
 	defaultGracefulShutdownSeconds = 10
+	defaultReadTimeoutSeconds      = 60
+	defaultIdleTimeoutSeconds      = 120
 )
 
 // ServerConfig contains the process-level HTTP server settings needed in M0.
@@ -23,6 +25,8 @@ type ServerConfig struct {
 	Host                    string
 	Port                    int
 	GracefulShutdownTimeout int
+	ReadTimeout             int
+	IdleTimeout             int
 }
 
 // LogConfig contains process-wide logger settings.
@@ -44,8 +48,9 @@ type Config struct {
 }
 
 // Settings is the dynamic settings shape shared by system and group layers.
-// Concrete fields are introduced with the features that consume them.
-type Settings map[string]any
+// Values use the standard JSON-decoded representation: map[string]any, []any,
+// and scalar values. Concrete fields are introduced with their consumers.
+type Settings = map[string]any
 
 // Load reads process configuration from the environment. A local .env file is
 // loaded when present, but existing environment variables always win.
@@ -61,6 +66,14 @@ func Load() (*Config, error) {
 	}
 
 	shutdownTimeout, err := parsePositiveInt("GRACEFUL_SHUTDOWN_TIMEOUT", defaultGracefulShutdownSeconds)
+	if err != nil {
+		return nil, err
+	}
+	readTimeout, err := parsePositiveInt("READ_TIMEOUT", defaultReadTimeoutSeconds)
+	if err != nil {
+		return nil, err
+	}
+	idleTimeout, err := parsePositiveInt("IDLE_TIMEOUT", defaultIdleTimeoutSeconds)
 	if err != nil {
 		return nil, err
 	}
@@ -86,6 +99,8 @@ func Load() (*Config, error) {
 			Host:                    valueOrDefault("HOST", defaultHost),
 			Port:                    port,
 			GracefulShutdownTimeout: shutdownTimeout,
+			ReadTimeout:             readTimeout,
+			IdleTimeout:             idleTimeout,
 		},
 		DataDir:       dataDir,
 		DatabaseDSN:   databaseDSN,
@@ -104,12 +119,31 @@ func Load() (*Config, error) {
 func MergeSettings(system, group Settings) Settings {
 	merged := make(Settings, len(system)+len(group))
 	for key, value := range system {
-		merged[key] = value
+		merged[key] = cloneSettingValue(value)
 	}
 	for key, value := range group {
-		merged[key] = value
+		merged[key] = cloneSettingValue(value)
 	}
 	return merged
+}
+
+func cloneSettingValue(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		cloned := make(map[string]any, len(typed))
+		for key, nested := range typed {
+			cloned[key] = cloneSettingValue(nested)
+		}
+		return cloned
+	case []any:
+		cloned := make([]any, len(typed))
+		for index, nested := range typed {
+			cloned[index] = cloneSettingValue(nested)
+		}
+		return cloned
+	default:
+		return value
+	}
 }
 
 func parsePositiveInt(key string, defaultValue int) (int, error) {

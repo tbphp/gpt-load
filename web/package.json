@@ -28,7 +28,7 @@
     "clean": "rm -rf dist node_modules/.vite",
     "test:unit": "echo 'No tests specified' && exit 0",
     "prepare": "echo 'Prepare script for potential Git hooks'",
-    "check-all": "npm lint:check && npm format:check && npm type-check"
+    "check-all": "npm run lint:check && npm run format:check && npm run type-check"
   },
   "dependencies": {
     "@vicons/ionicons5": "^0.13.0",

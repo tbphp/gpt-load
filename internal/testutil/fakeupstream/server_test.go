@@ -204,6 +204,22 @@ func TestServerStreamsGoldenSSEAndFlushesEveryEvent(t *testing.T) {
 	}
 }
 
+func TestAnthropicStreamFixtureHasCompleteContentBlockLifecycle(t *testing.T) {
+	want := []string{
+		"message_start",
+		"content_block_start",
+		"content_block_delta",
+		"content_block_stop",
+		"message_delta",
+		"message_stop",
+	}
+	got := sseEventTypes(readFixture(t, "anthropic", "stream.sse"))
+
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("Anthropic stream event types = %v, want %v", got, want)
+	}
+}
+
 func TestServerSupportsDelay(t *testing.T) {
 	const delay = 80 * time.Millisecond
 	server := New(Step{
@@ -411,4 +427,19 @@ func countSSEEvents(data []byte) int {
 		return 0
 	}
 	return len(strings.Split(strings.ReplaceAll(trimmed, "\r\n", "\n"), "\n\n"))
+}
+
+func sseEventTypes(data []byte) []string {
+	normalized := strings.ReplaceAll(strings.TrimSpace(string(data)), "\r\n", "\n")
+	events := strings.Split(normalized, "\n\n")
+	eventTypes := make([]string, 0, len(events))
+	for _, event := range events {
+		for _, line := range strings.Split(event, "\n") {
+			if eventType, found := strings.CutPrefix(line, "event:"); found {
+				eventTypes = append(eventTypes, strings.TrimSpace(eventType))
+				break
+			}
+		}
+	}
+	return eventTypes
 }

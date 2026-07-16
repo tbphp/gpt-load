@@ -9,13 +9,12 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
-	"time"
 
 	"gpt-load/internal/platform/utils"
 
@@ -25,12 +24,11 @@ import (
 // KeyFileName is the persistent master-key filename within DATA_DIR.
 const (
 	KeyFileName             = "encryption.key"
-	keyFileReadMaxAttempts  = 50
-	keyFileReadRetryDelay   = 2 * time.Millisecond
 	encodedKeyMaterialBytes = 64
+	temporaryFileAttempts   = 10
+	encryptionKeyDomain     = "gpt-load/encryption/aes-256-gcm/v1"
+	fingerprintKeyDomain    = "gpt-load/encryption/fingerprint-hmac/v1"
 )
-
-var keyFileMu sync.Mutex
 
 // Service defines credential encryption and fingerprinting operations.
 type Service interface {
@@ -45,7 +43,9 @@ func NewService(keyMaterial string) (Service, error) {
 		return nil, fmt.Errorf("encryption key material is required")
 	}
 
-	aesKey := utils.DeriveAESKey(keyMaterial)
+	rootKey := utils.DeriveAESKey(keyMaterial)
+	aesKey := deriveDomainKey(rootKey, encryptionKeyDomain)
+	hashKey := deriveDomainKey(rootKey, fingerprintKeyDomain)
 	utils.ValidatePasswordStrength(keyMaterial, "ENCRYPTION_KEY")
 
 	block, err := aes.NewCipher(aesKey)
@@ -57,7 +57,7 @@ func NewService(keyMaterial string) (Service, error) {
 		return nil, fmt.Errorf("create GCM: %w", err)
 	}
 
-	return &aesService{key: aesKey, gcm: gcm}, nil
+	return &aesService{hashKey: hashKey, gcm: gcm}, nil
 }
 
 // NewServiceWithKeyFile resolves explicit key material or a persistent keyfile
@@ -73,15 +73,13 @@ func NewServiceWithKeyFile(explicitKey, dataDir string) (Service, error) {
 // LoadOrCreateKeyMaterial prefers explicit key material. When it is absent, a
 // 32-byte random key is loaded from or created at DATA_DIR/encryption.key.
 func LoadOrCreateKeyMaterial(explicitKey, dataDir string) (string, error) {
+	return loadOrCreateKeyMaterial(explicitKey, dataDir, syncParentDirectory)
+}
+
+func loadOrCreateKeyMaterial(explicitKey, dataDir string, syncDirectory func(string) error) (string, error) {
 	if explicitKey != "" {
 		return explicitKey, nil
 	}
-
-	// Creating the keyfile makes its directory entry visible before its contents
-	// are written. Serialize callers so none of them can observe that transient
-	// empty file during the first application start.
-	keyFileMu.Lock()
-	defer keyFileMu.Unlock()
 
 	if dataDir == "" {
 		return "", fmt.Errorf("DATA_DIR is required when ENCRYPTION_KEY is empty")
@@ -91,7 +89,7 @@ func LoadOrCreateKeyMaterial(explicitKey, dataDir string) (string, error) {
 	}
 
 	path := filepath.Join(dataDir, KeyFileName)
-	if material, err := readKeyFileWithRetry(path); err == nil {
+	if material, err := loadDurableKeyMaterial(path, syncDirectory); err == nil {
 		return material, nil
 	} else if !os.IsNotExist(err) {
 		return "", err
@@ -103,35 +101,91 @@ func LoadOrCreateKeyMaterial(explicitKey, dataDir string) (string, error) {
 	}
 	material := hex.EncodeToString(randomKey)
 
-	file, err := createSecureKeyFile(path)
-	if err != nil {
-		if os.IsExist(err) {
-			return readKeyFileWithRetry(path)
+	if err := persistGeneratedKeyMaterial(path, material, publishSecureKeyFile, syncDirectory); err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return loadDurableKeyMaterial(path, syncDirectory)
 		}
-		return "", fmt.Errorf("create encryption keyfile: %w", err)
-	}
-	contents := material + "\n"
-	if written, err := file.WriteString(contents); err != nil || written != len(contents) {
-		cleanupKeyFile(file, path)
-		if err == nil {
-			err = io.ErrShortWrite
-		}
-		return "", fmt.Errorf("write encryption keyfile: %w", err)
-	}
-	if err := file.Sync(); err != nil {
-		cleanupKeyFile(file, path)
-		return "", fmt.Errorf("sync encryption keyfile: %w", err)
-	}
-	if err := file.Close(); err != nil {
-		_ = os.Remove(path)
-		return "", fmt.Errorf("close encryption keyfile: %w", err)
-	}
-	if err := secureKeyFile(path); err != nil {
-		_ = os.Remove(path)
-		return "", fmt.Errorf("secure encryption keyfile: %w", err)
+		return "", err
 	}
 
 	logrus.WithField("path", path).Warn("Generated encryption keyfile; back it up before relying on encrypted credentials")
+	return material, nil
+}
+
+func persistGeneratedKeyMaterial(
+	path string,
+	material string,
+	publish func(temporaryPath, finalPath string) error,
+	syncDirectory func(string) error,
+) error {
+	file, temporaryPath, err := createSecureTemporaryKeyFile(filepath.Dir(path))
+	if err != nil {
+		return fmt.Errorf("create temporary encryption keyfile: %w", err)
+	}
+	removeTemporary := true
+	defer func() {
+		if removeTemporary {
+			_ = os.Remove(temporaryPath)
+		}
+	}()
+
+	contents := material + "\n"
+	if written, err := file.WriteString(contents); err != nil || written != len(contents) {
+		cleanupKeyFile(file, temporaryPath)
+		if err == nil {
+			err = io.ErrShortWrite
+		}
+		return fmt.Errorf("write temporary encryption keyfile: %w", err)
+	}
+	if err := file.Sync(); err != nil {
+		cleanupKeyFile(file, temporaryPath)
+		return fmt.Errorf("sync temporary encryption keyfile: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("close temporary encryption keyfile: %w", err)
+	}
+	if err := secureKeyFile(temporaryPath); err != nil {
+		return fmt.Errorf("secure temporary encryption keyfile: %w", err)
+	}
+	if err := publish(temporaryPath, path); err != nil {
+		return fmt.Errorf("publish encryption keyfile: %w", err)
+	}
+	if err := os.Remove(temporaryPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove temporary encryption keyfile: %w", err)
+	}
+	removeTemporary = false
+	if err := syncDirectory(path); err != nil {
+		return fmt.Errorf("sync encryption keyfile directory: %w", err)
+	}
+	return nil
+}
+
+func createSecureTemporaryKeyFile(dataDir string) (*os.File, string, error) {
+	for range temporaryFileAttempts {
+		suffix := make([]byte, 16)
+		if _, err := io.ReadFull(rand.Reader, suffix); err != nil {
+			return nil, "", fmt.Errorf("generate temporary keyfile name: %w", err)
+		}
+		path := filepath.Join(dataDir, "."+KeyFileName+"."+hex.EncodeToString(suffix)+".tmp")
+		file, err := createSecureKeyFile(path)
+		if err == nil {
+			return file, path, nil
+		}
+		if !os.IsExist(err) {
+			return nil, "", err
+		}
+	}
+	return nil, "", fmt.Errorf("could not allocate a unique temporary keyfile")
+}
+
+func loadDurableKeyMaterial(path string, syncDirectory func(string) error) (string, error) {
+	material, err := readKeyFile(path)
+	if err != nil {
+		return "", err
+	}
+	if err := syncDirectory(path); err != nil {
+		return "", fmt.Errorf("sync encryption keyfile directory: %w", err)
+	}
 	return material, nil
 }
 
@@ -160,29 +214,6 @@ func readKeyFile(path string) (string, error) {
 	return material, nil
 }
 
-func readKeyFileWithRetry(path string) (string, error) {
-	var lastErr error
-	for attempt := 0; attempt < keyFileReadMaxAttempts; attempt++ {
-		material, err := readKeyFile(path)
-		if err == nil {
-			return material, nil
-		}
-		lastErr = err
-		if !keyFileMayBePartiallyWritten(path) {
-			return "", err
-		}
-		if attempt+1 < keyFileReadMaxAttempts {
-			time.Sleep(keyFileReadRetryDelay)
-		}
-	}
-	return "", lastErr
-}
-
-func keyFileMayBePartiallyWritten(path string) bool {
-	info, err := os.Lstat(path)
-	return err == nil && info.Mode().IsRegular() && info.Size() < encodedKeyMaterialBytes
-}
-
 func requireRegularKeyFile(path string) error {
 	info, err := os.Lstat(path)
 	if err != nil {
@@ -200,8 +231,14 @@ func cleanupKeyFile(file *os.File, path string) {
 }
 
 type aesService struct {
-	key []byte
-	gcm cipher.AEAD
+	hashKey []byte
+	gcm     cipher.AEAD
+}
+
+func deriveDomainKey(rootKey []byte, domain string) []byte {
+	mac := hmac.New(sha256.New, rootKey)
+	_, _ = mac.Write([]byte(domain))
+	return mac.Sum(nil)
 }
 
 func (s *aesService) Encrypt(plaintext string) (string, error) {
@@ -233,7 +270,7 @@ func (s *aesService) Hash(plaintext string) string {
 	if plaintext == "" {
 		return ""
 	}
-	mac := hmac.New(sha256.New, s.key)
+	mac := hmac.New(sha256.New, s.hashKey)
 	_, _ = mac.Write([]byte(plaintext))
 	return hex.EncodeToString(mac.Sum(nil))
 }
