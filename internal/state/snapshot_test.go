@@ -128,6 +128,30 @@ func TestCompileUsesDefaultRuntimeSettings(t *testing.T) {
 	}
 }
 
+func TestCompileAcceptsJSONNumberWholeSecondTimeouts(t *testing.T) {
+	tests := []struct {
+		literal string
+		want    time.Duration
+	}{
+		{literal: "20.0", want: 20 * time.Second},
+		{literal: "2e1", want: 20 * time.Second},
+		{literal: "9223372036.0", want: 9223372036 * time.Second},
+	}
+	for _, test := range tests {
+		t.Run(test.literal, func(t *testing.T) {
+			snapshot, err := Compile(runtimeSettingsInput(nil, config.Settings{
+				"connect_timeout": json.Number(test.literal),
+			}))
+			if err != nil {
+				t.Fatalf("Compile() error = %v", err)
+			}
+			if got := snapshot.Groups[1].Timeouts.Connect; got != test.want {
+				t.Fatalf("Connect timeout = %s, want %s", got, test.want)
+			}
+		})
+	}
+}
+
 func TestCompileRejectsMalformedRuntimeSettings(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -147,6 +171,16 @@ func TestCompileRejectsMalformedRuntimeSettings(t *testing.T) {
 		{
 			name:          "fractional timeout",
 			groupSettings: config.Settings{"request_timeout": 1.5},
+			wantErr:       "request_timeout must be a positive whole number",
+		},
+		{
+			name:          "precise fractional JSON timeout",
+			groupSettings: config.Settings{"request_timeout": json.Number("20.0000000000000001")},
+			wantErr:       "request_timeout must be a positive whole number",
+		},
+		{
+			name:          "precise fractional JSON timeout at limit",
+			groupSettings: config.Settings{"request_timeout": json.Number("9223372036.0000001")},
 			wantErr:       "request_timeout must be a positive whole number",
 		},
 		{

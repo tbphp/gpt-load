@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"math/big"
 	"sort"
 	"strings"
 	"time"
@@ -231,11 +232,12 @@ func positiveWholeSeconds(path string, value any) (int64, error) {
 		}
 		seconds = int64(typed)
 	case json.Number:
-		parsed, err := typed.Int64()
-		if err != nil {
+		literal := typed.String()
+		parsed, ok := new(big.Rat).SetString(literal)
+		if !json.Valid([]byte(literal)) || !ok || !parsed.IsInt() || !parsed.Num().IsInt64() {
 			return 0, fmt.Errorf("%s must be a positive whole number", path)
 		}
-		seconds = parsed
+		seconds = parsed.Num().Int64()
 	default:
 		return 0, fmt.Errorf("%s must be a positive whole number", path)
 	}
