@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,12 +15,21 @@ import (
 	"gpt-load/internal/platform/encryption"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/platform/version"
+	"gpt-load/internal/state"
+	"gpt-load/internal/state/loader"
 	"gpt-load/internal/storage"
 	"gpt-load/internal/storage/store"
 
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
+	"gorm.io/gorm"
 )
+
+type runtimeStateLoaderFunc func(context.Context) error
+
+func (f runtimeStateLoaderFunc) Load(ctx context.Context) error {
+	return f(ctx)
+}
 
 func TestNewEngineRecoversWithoutLoggingCredentials(t *testing.T) {
 	previousMode := gin.Mode()
@@ -109,16 +119,23 @@ func TestAppStartMigratesDatabaseAndServesHTTP(t *testing.T) {
 	if err != nil {
 		t.Fatalf("encryption.NewService() error = %v", err)
 	}
+	manager, runtimeState := newTestRuntimeState(db)
 
 	application := NewApp(AppParams{
-		Engine:     NewEngine(),
-		Config:     testConfig(t),
-		Encryption: keyService,
-		Store:      store.NewMemoryStore(),
-		DB:         db,
+		Engine:       NewEngine(),
+		Config:       testConfig(t),
+		Encryption:   keyService,
+		Store:        store.NewMemoryStore(),
+		DB:           db,
+		RuntimeState: runtimeState,
 	})
+	cleanupApp(t, application)
 	if err := application.Start(); err != nil {
 		t.Fatalf("Start() error = %v", err)
+	}
+	snapshot := manager.Current()
+	if snapshot == nil || snapshot.Revision != 1 {
+		t.Fatalf("runtime snapshot = %#v, want revision 1", snapshot)
 	}
 	if application.httpServer.ReadTimeout != 2*time.Second {
 		t.Fatalf("ReadTimeout = %s, want 2s", application.httpServer.ReadTimeout)
@@ -132,14 +149,6 @@ func TestAppStartMigratesDatabaseAndServesHTTP(t *testing.T) {
 	if application.httpServer.WriteTimeout != 0 {
 		t.Fatalf("WriteTimeout = %s, want 0 for streaming responses", application.httpServer.WriteTimeout)
 	}
-	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-		defer cancel()
-		if err := application.Stop(ctx); err != nil {
-			t.Errorf("Stop() error = %v", err)
-		}
-	})
-
 	for _, table := range []string{
 		"groups", "upstream_keys", "access_keys", "request_logs", "usage_stats",
 		"model_prices", "system_settings", "jobs", "schema_info",
@@ -159,7 +168,7 @@ func TestAppStartMigratesDatabaseAndServesHTTP(t *testing.T) {
 	}
 }
 
-func TestAppReportsUnexpectedHTTPServeFailure(t *testing.T) {
+func TestAppStartMigratesBeforeLoadingRuntimeState(t *testing.T) {
 	db, err := storage.Open(":memory:")
 	if err != nil {
 		t.Fatalf("storage.Open() error = %v", err)
@@ -169,23 +178,95 @@ func TestAppReportsUnexpectedHTTPServeFailure(t *testing.T) {
 		t.Fatalf("encryption.NewService() error = %v", err)
 	}
 
+	loadCalled := false
 	application := NewApp(AppParams{
 		Engine:     NewEngine(),
 		Config:     testConfig(t),
 		Encryption: keyService,
 		Store:      store.NewMemoryStore(),
 		DB:         db,
+		RuntimeState: runtimeStateLoaderFunc(func(context.Context) error {
+			loadCalled = true
+			if !db.Migrator().HasTable("groups") {
+				return errors.New("groups table does not exist")
+			}
+			return nil
+		}),
 	})
+	cleanupApp(t, application)
+
 	if err := application.Start(); err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
-	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-		defer cancel()
-		if err := application.Stop(ctx); err != nil {
-			t.Errorf("Stop() error = %v", err)
-		}
+	if !loadCalled {
+		t.Fatal("runtime state loader was not called")
+	}
+}
+
+func TestAppStartRejectsRuntimeStateLoadFailureBeforeListen(t *testing.T) {
+	db, err := storage.Open(":memory:")
+	if err != nil {
+		t.Fatalf("storage.Open() error = %v", err)
+	}
+	keyService, err := encryption.NewService("test-master-key")
+	if err != nil {
+		t.Fatalf("encryption.NewService() error = %v", err)
+	}
+
+	loadErr := errors.New("corrupt runtime config")
+	application := NewApp(AppParams{
+		Engine:     NewEngine(),
+		Config:     testConfig(t),
+		Encryption: keyService,
+		Store:      store.NewMemoryStore(),
+		DB:         db,
+		RuntimeState: runtimeStateLoaderFunc(func(context.Context) error {
+			return loadErr
+		}),
 	})
+	cleanupApp(t, application)
+
+	err = application.Start()
+	if !errors.Is(err, loadErr) {
+		t.Fatalf("Start() error = %v, want wrapped runtime state error", err)
+	}
+	if !strings.Contains(err.Error(), "load runtime state") {
+		t.Fatalf("Start() error = %q, want runtime state context", err)
+	}
+	if got := application.Address(); got != "" {
+		t.Fatalf("Address() = %q after failed load, want empty", got)
+	}
+	if application.httpServer != nil {
+		t.Fatalf("httpServer = %#v after failed load, want nil", application.httpServer)
+	}
+	if application.listener != nil {
+		t.Fatalf("listener = %#v after failed load, want nil", application.listener)
+	}
+}
+
+func TestAppReportsUnexpectedHTTPServeFailure(t *testing.T) {
+	db, err := storage.Open(":memory:")
+	if err != nil {
+		t.Fatalf("storage.Open() error = %v", err)
+	}
+	keyService, err := encryption.NewService("test-master-key")
+	if err != nil {
+		t.Fatalf("encryption.NewService() error = %v", err)
+	}
+	_, runtimeState := newTestRuntimeState(db)
+
+	application := NewApp(AppParams{
+		Engine:       NewEngine(),
+		Config:       testConfig(t),
+		Encryption:   keyService,
+		Store:        store.NewMemoryStore(),
+		DB:           db,
+		RuntimeState: runtimeState,
+	})
+	cleanupApp(t, application)
+	if err := application.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
 
 	if err := application.listener.Close(); err != nil {
 		t.Fatalf("close live listener: %v", err)
@@ -198,6 +279,23 @@ func TestAppReportsUnexpectedHTTPServeFailure(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("unexpected HTTP Serve failure was not propagated")
 	}
+}
+
+func newTestRuntimeState(db *gorm.DB) (*state.Manager, *loader.Loader) {
+	manager := state.NewManager()
+	registry := state.NewKeyRegistry()
+	return manager, loader.New(db, manager, registry)
+}
+
+func cleanupApp(t *testing.T, application *App) {
+	t.Helper()
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		if err := application.Stop(ctx); err != nil {
+			t.Errorf("Stop() error = %v", err)
+		}
+	})
 }
 
 func testConfig(t *testing.T) *config.Config {

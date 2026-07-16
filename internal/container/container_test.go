@@ -1,20 +1,23 @@
 package container
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
+
 	"gpt-load/internal/app"
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/platform/encryption"
+	"gpt-load/internal/state"
+	"gpt-load/internal/storage"
 	"gpt-load/internal/storage/store"
-
-	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
 )
 
-func TestBuildContainerResolvesM0DependencyGraph(t *testing.T) {
+func TestBuildContainerResolvesS2DependencyGraph(t *testing.T) {
 	dataDir := t.TempDir()
 	t.Setenv("AUTH_KEY", "test-auth-key")
 	t.Setenv("DATA_DIR", dataDir)
@@ -35,8 +38,10 @@ func TestBuildContainerResolvesM0DependencyGraph(t *testing.T) {
 		db *gorm.DB,
 		storageStore store.Store,
 		_ *gin.Engine,
+		manager *state.Manager,
+		registry *state.KeyRegistry,
+		runtimeState app.RuntimeStateLoader,
 	) {
-		resolved = true
 		t.Cleanup(func() {
 			_ = storageStore.Close()
 			sqlDB, dbErr := db.DB()
@@ -44,12 +49,26 @@ func TestBuildContainerResolvesM0DependencyGraph(t *testing.T) {
 				_ = sqlDB.Close()
 			}
 		})
+		if err := storage.AutoMigrate(db); err != nil {
+			t.Fatalf("AutoMigrate() error = %v", err)
+		}
+		if err := runtimeState.Load(context.Background()); err != nil {
+			t.Fatalf("runtimeState.Load() error = %v", err)
+		}
+		snapshot := manager.Current()
+		if snapshot == nil || snapshot.Revision != 1 {
+			t.Fatalf("current snapshot = %#v, want revision 1", snapshot)
+		}
+		if got := registry.CollectCandidates(nil, nil); len(got) != 0 {
+			t.Fatalf("empty registry candidates = %#v", got)
+		}
+		resolved = true
 	})
 	if err != nil {
-		t.Fatalf("resolve M0 dependency graph: %v", err)
+		t.Fatalf("resolve S2 dependency graph: %v", err)
 	}
 	if !resolved {
-		t.Fatal("M0 dependency graph was not invoked")
+		t.Fatal("S2 dependency graph was not invoked")
 	}
 	if _, err := os.Stat(filepath.Join(dataDir, encryption.KeyFileName)); err != nil {
 		t.Fatalf("container did not initialize encryption keyfile: %v", err)

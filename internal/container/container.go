@@ -1,18 +1,20 @@
-// Package container assembles the M0 dependency graph with dig.
+// Package container assembles the 2.0 dependency graph with dig.
 package container
 
 import (
+	"go.uber.org/dig"
+	"gorm.io/gorm"
+
 	"gpt-load/internal/app"
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/platform/encryption"
+	"gpt-load/internal/state"
+	stateloader "gpt-load/internal/state/loader"
 	"gpt-load/internal/storage"
 	"gpt-load/internal/storage/store"
-
-	"go.uber.org/dig"
-	"gorm.io/gorm"
 )
 
-// BuildContainer creates the 2.0 M0 dependency graph.
+// BuildContainer creates the 2.0 runtime foundation dependency graph.
 func BuildContainer() (*dig.Container, error) {
 	dependencyContainer := dig.New()
 
@@ -28,6 +30,11 @@ func BuildContainer() (*dig.Container, error) {
 			return store.NewStore(cfg.RedisDSN)
 		},
 		app.NewEngine,
+		state.NewManager,
+		state.NewKeyRegistry,
+		func(db *gorm.DB, manager *state.Manager, registry *state.KeyRegistry) app.RuntimeStateLoader {
+			return stateloader.New(db, manager, registry)
+		},
 		app.NewApp,
 	}
 

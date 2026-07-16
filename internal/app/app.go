@@ -24,13 +24,14 @@ import (
 	"gorm.io/gorm"
 )
 
-// App owns the M0 process lifecycle and infrastructure resources.
+// App owns the process lifecycle, infrastructure resources, and runtime state.
 type App struct {
-	engine     *gin.Engine
-	config     *config.Config
-	encryption encryption.Service
-	store      store.Store
-	db         *gorm.DB
+	engine       *gin.Engine
+	config       *config.Config
+	encryption   encryption.Service
+	store        store.Store
+	db           *gorm.DB
+	runtimeState RuntimeStateLoader
 
 	mu          sync.Mutex
 	httpServer  *http.Server
@@ -38,18 +39,24 @@ type App struct {
 	serveErrors chan error
 }
 
+// RuntimeStateLoader initializes the in-memory runtime state from persistence.
+type RuntimeStateLoader interface {
+	Load(context.Context) error
+}
+
 // AppParams defines dependencies injected into App.
 type AppParams struct {
 	dig.In
 
-	Engine     *gin.Engine
-	Config     *config.Config
-	Encryption encryption.Service
-	Store      store.Store
-	DB         *gorm.DB
+	Engine       *gin.Engine
+	Config       *config.Config
+	Encryption   encryption.Service
+	Store        store.Store
+	DB           *gorm.DB
+	RuntimeState RuntimeStateLoader
 }
 
-// NewEngine creates the M0 HTTP engine and health endpoint.
+// NewEngine creates the HTTP engine and health endpoint.
 func NewEngine() *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 	engine := gin.New()
@@ -66,12 +73,13 @@ func NewEngine() *gin.Engine {
 // NewApp creates the application lifecycle manager.
 func NewApp(params AppParams) *App {
 	return &App{
-		engine:      params.Engine,
-		config:      params.Config,
-		encryption:  params.Encryption,
-		store:       params.Store,
-		db:          params.DB,
-		serveErrors: make(chan error, 1),
+		engine:       params.Engine,
+		config:       params.Config,
+		encryption:   params.Encryption,
+		store:        params.Store,
+		db:           params.DB,
+		runtimeState: params.RuntimeState,
+		serveErrors:  make(chan error, 1),
 	}
 }
 
@@ -88,6 +96,9 @@ func (a *App) Start() error {
 	}
 	if err := storage.AutoMigrate(a.db); err != nil {
 		return err
+	}
+	if err := a.runtimeState.Load(context.Background()); err != nil {
+		return fmt.Errorf("load runtime state: %w", err)
 	}
 
 	address := net.JoinHostPort(a.config.Server.Host, strconv.Itoa(a.config.Server.Port))

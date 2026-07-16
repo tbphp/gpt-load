@@ -1,0 +1,391 @@
+package loader_test
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"testing"
+	"time"
+
+	"gorm.io/gorm"
+
+	"gpt-load/internal/protocol"
+	"gpt-load/internal/state"
+	"gpt-load/internal/state/loader"
+	"gpt-load/internal/storage"
+	"gpt-load/internal/storage/models"
+)
+
+func TestLoaderLoadsEmptyMigratedDatabase(t *testing.T) {
+	db := openMigratedDatabase(t)
+	manager := state.NewManager()
+	registry := state.NewKeyRegistry()
+
+	if err := loader.New(db, manager, registry).Load(context.Background()); err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	snapshot := manager.Current()
+	if snapshot == nil {
+		t.Fatal("Current() = nil, want an initialized snapshot")
+	}
+	if snapshot.Revision != 1 {
+		t.Errorf("snapshot revision = %d, want 1", snapshot.Revision)
+	}
+	if snapshot.Candidates == nil || len(snapshot.Candidates) != 0 {
+		t.Errorf("snapshot candidates = %#v, want initialized empty map", snapshot.Candidates)
+	}
+	if snapshot.Groups == nil || len(snapshot.Groups) != 0 {
+		t.Errorf("snapshot groups = %#v, want initialized empty map", snapshot.Groups)
+	}
+	if snapshot.AccessKeysByHash == nil || len(snapshot.AccessKeysByHash) != 0 {
+		t.Errorf("snapshot access keys = %#v, want initialized empty map", snapshot.AccessKeysByHash)
+	}
+	if got := registry.CollectCandidates([]uint{1}, nil); len(got) != 0 {
+		t.Errorf("registry candidates = %#v, want empty", got)
+	}
+}
+
+func TestLoaderMapsSystemAndGroupRows(t *testing.T) {
+	db := openMigratedDatabase(t)
+	mustCreate(t, db, &models.SystemSetting{Key: "connect_timeout", Value: "20"})
+	mustCreate(t, db, &models.SystemSetting{
+		Key:   "header_rules",
+		Value: `{"set":{"X-System":"system"},"remove":["X-System-Remove"]}`,
+	})
+
+	enabled := models.Group{
+		Name:        "enabled",
+		UpstreamURL: "https://enabled.example.com/v1",
+		Signature:   "enabled-signature",
+		Protocols:   models.JSON(`["openai"]`),
+		Models: models.JSON(`[
+			{"id":"gpt-4o","alias":"Primary"},
+			{"id":"gpt-4o","alias":"Secondary"},
+			{"id":"gpt-4.1","alias":"Other"}
+		]`),
+		Config: models.JSON(`{
+			"request_timeout":30,
+			"header_rules":{"set":{"X-Group":"group"},"remove":["X-Group-Remove"]}
+		}`),
+		Enabled: true,
+	}
+	mustCreate(t, db, &enabled)
+	disabled := models.Group{
+		Name:        "disabled",
+		UpstreamURL: "https://disabled.example.com/v1",
+		Signature:   "disabled-signature",
+		Protocols:   models.JSON(`["openai"]`),
+		Models:      models.JSON(`[{"id":"hidden","alias":"Hidden"}]`),
+		Config:      models.JSON(`{}`),
+		Enabled:     true,
+	}
+	mustCreate(t, db, &disabled)
+	if err := db.Model(&disabled).Update("enabled", false).Error; err != nil {
+		t.Fatalf("disable group: %v", err)
+	}
+
+	manager := state.NewManager()
+	registry := state.NewKeyRegistry()
+	if err := loader.New(db, manager, registry).Load(context.Background()); err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	snapshot := manager.Current()
+	if snapshot == nil {
+		t.Fatal("Current() = nil, want snapshot")
+	}
+	if len(snapshot.Groups) != 1 {
+		t.Fatalf("snapshot groups = %#v, want enabled group only", snapshot.Groups)
+	}
+	view, ok := snapshot.Groups[enabled.ID]
+	if !ok {
+		t.Fatalf("snapshot groups = %#v, want group %d", snapshot.Groups, enabled.ID)
+	}
+	if _, ok := snapshot.Groups[disabled.ID]; ok {
+		t.Fatalf("disabled group %d is present in snapshot", disabled.ID)
+	}
+	if len(view.Models) != 3 || view.Models[0].Alias != "Primary" || view.Models[1].Alias != "Secondary" {
+		t.Errorf("group models = %#v, want all aliases retained", view.Models)
+	}
+	if view.Timeouts.Connect != 20*time.Second || view.Timeouts.Request != 30*time.Second {
+		t.Errorf("group timeouts = %#v, want connect 20s and request 30s", view.Timeouts)
+	}
+	if len(view.HeaderRules.Set) != 1 || view.HeaderRules.Set["X-Group"] != "group" {
+		t.Errorf("group header set rules = %#v, want whole group override", view.HeaderRules.Set)
+	}
+	if len(view.HeaderRules.Remove) != 1 || view.HeaderRules.Remove[0] != "X-Group-Remove" {
+		t.Errorf("group header remove rules = %#v, want group override", view.HeaderRules.Remove)
+	}
+
+	openAICandidates := snapshot.Candidates[protocol.OpenAI]
+	if len(openAICandidates) != 2 {
+		t.Fatalf("OpenAI candidates = %#v, want two model IDs", openAICandidates)
+	}
+	if got := openAICandidates["gpt-4o"]; len(got) != 1 || got[0].GroupID != enabled.ID || got[0].UpstreamModelID != "gpt-4o" {
+		t.Errorf("gpt-4o candidates = %#v, want one id-only route for group %d", got, enabled.ID)
+	}
+	if _, ok := openAICandidates["hidden"]; ok {
+		t.Fatal("disabled group model hidden is present in candidates")
+	}
+}
+
+func TestLoaderRejectsInvalidGroupRowsWithoutPublishing(t *testing.T) {
+	tests := []struct {
+		name      string
+		protocols models.JSON
+		models    models.JSON
+		config    models.JSON
+		wantError string
+	}{
+		{name: "protocols object", protocols: models.JSON(`{}`), models: models.JSON(`[]`), config: models.JSON(`{}`), wantError: "protocols"},
+		{name: "models object", protocols: models.JSON(`["openai"]`), models: models.JSON(`{}`), config: models.JSON(`{}`), wantError: "models"},
+		{name: "config array", protocols: models.JSON(`["openai"]`), models: models.JSON(`[]`), config: models.JSON(`[]`), wantError: "config"},
+		{name: "unknown group setting", protocols: models.JSON(`["openai"]`), models: models.JSON(`[{"id":"gpt-4o"}]`), config: models.JSON(`{"unknown":true}`), wantError: "unknown group setting"},
+		{name: "duplicate protocol", protocols: models.JSON(`["openai","openai"]`), models: models.JSON(`[{"id":"gpt-4o"}]`), config: models.JSON(`{}`), wantError: "duplicate protocol"},
+		{name: "blank model id", protocols: models.JSON(`["openai"]`), models: models.JSON(`[{"id":"  "}]`), config: models.JSON(`{}`), wantError: "model id is required"},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			db := openMigratedDatabase(t)
+			group := models.Group{
+				Name: "invalid", UpstreamURL: "https://invalid.example.com/v1",
+				Signature: "invalid-signature", Protocols: test.protocols,
+				Models: test.models, Config: test.config, Enabled: true,
+			}
+			mustCreate(t, db, &group)
+			manager := state.NewManager()
+			registry := state.NewKeyRegistry()
+
+			err := loader.New(db, manager, registry).Load(context.Background())
+			if err == nil {
+				t.Fatal("Load() error = nil, want invalid group rejection")
+			}
+			if !strings.Contains(err.Error(), test.wantError) {
+				t.Errorf("Load() error = %q, want context containing %q", err, test.wantError)
+			}
+			if manager.Current() != nil {
+				t.Fatalf("Current() = %#v after failed load, want nil", manager.Current())
+			}
+			if got := registry.CollectCandidates([]uint{group.ID}, nil); len(got) != 0 {
+				t.Fatalf("registry candidates after failed load = %#v, want empty", got)
+			}
+		})
+	}
+}
+
+func TestLoaderMapsAccessAndUpstreamKeys(t *testing.T) {
+	db := openMigratedDatabase(t)
+	firstGroup := createRuntimeGroup(t, db, "first", protocol.OpenAI, "gpt-4o")
+	secondGroup := createRuntimeGroup(t, db, "second", protocol.Anthropic, "claude-3-5-sonnet")
+
+	activeAccess := models.AccessKey{
+		Name: "active access", KeyValue: "access-cipher-active", KeyHash: "active-hash",
+		Status: "active",
+		Filters: models.JSON(fmt.Sprintf(
+			`{"groups":[%d,9999],"protocols":["openai"],"models":["gpt-4o"]}`,
+			firstGroup.ID,
+		)),
+	}
+	disabledAccess := models.AccessKey{
+		Name: "disabled access", KeyValue: "access-cipher-disabled", KeyHash: "disabled-hash",
+		Status: "disabled", Filters: models.JSON(`{}`),
+	}
+	mustCreate(t, db, &activeAccess)
+	mustCreate(t, db, &disabledAccess)
+
+	firstWeight := 7
+	keys := []models.UpstreamKey{
+		{GroupID: firstGroup.ID, KeyValue: "upstream-cipher-one", KeyHash: "upstream-hash-one", Status: models.UpstreamKeyStatusActive, WeightManual: &firstWeight},
+		{GroupID: firstGroup.ID, KeyValue: "upstream-cipher-two", KeyHash: "upstream-hash-two", Status: models.UpstreamKeyStatusDisabled},
+		{GroupID: secondGroup.ID, KeyValue: "upstream-cipher-three", KeyHash: "upstream-hash-three", Status: models.UpstreamKeyStatusActive},
+		{GroupID: secondGroup.ID, KeyValue: "upstream-cipher-four", KeyHash: "upstream-hash-four", Status: models.UpstreamKeyStatusDisabled},
+	}
+	for index := range keys {
+		mustCreate(t, db, &keys[index])
+	}
+
+	manager := state.NewManager()
+	registry := state.NewKeyRegistry()
+	if err := loader.New(db, manager, registry).Load(context.Background()); err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	snapshot := manager.Current()
+	if snapshot == nil {
+		t.Fatal("Current() = nil, want snapshot")
+	}
+	if len(snapshot.AccessKeysByHash) != 1 {
+		t.Fatalf("snapshot access keys = %#v, want active key only", snapshot.AccessKeysByHash)
+	}
+	access, ok := snapshot.AccessKeysByHash[activeAccess.KeyHash]
+	if !ok {
+		t.Fatalf("snapshot access keys = %#v, want hash %q", snapshot.AccessKeysByHash, activeAccess.KeyHash)
+	}
+	if _, ok := snapshot.AccessKeysByHash[disabledAccess.KeyHash]; ok {
+		t.Fatalf("disabled access hash %q is present in snapshot", disabledAccess.KeyHash)
+	}
+	if _, ok := access.Filters.Groups[firstGroup.ID]; !ok {
+		t.Errorf("access filters groups = %#v, want group %d", access.Filters.Groups, firstGroup.ID)
+	}
+	if _, ok := access.Filters.Groups[9999]; !ok {
+		t.Errorf("access filters groups = %#v, want dangling group 9999 retained", access.Filters.Groups)
+	}
+	if _, ok := access.Filters.Protocols[protocol.OpenAI]; !ok {
+		t.Errorf("access filters protocols = %#v, want OpenAI", access.Filters.Protocols)
+	}
+	if _, ok := access.Filters.Models["gpt-4o"]; !ok {
+		t.Errorf("access filters models = %#v, want gpt-4o", access.Filters.Models)
+	}
+
+	candidates := registry.CollectCandidates([]uint{firstGroup.ID, secondGroup.ID}, nil)
+	if len(candidates) != 2 {
+		t.Fatalf("registry candidates = %#v, want two active keys", candidates)
+	}
+	if candidates[0].ID != keys[0].ID || candidates[0].GroupID != firstGroup.ID || candidates[0].WeightManual == nil || *candidates[0].WeightManual != firstWeight {
+		t.Errorf("first candidate = %#v, want active weighted key %d", candidates[0], keys[0].ID)
+	}
+	if candidates[1].ID != keys[2].ID || candidates[1].GroupID != secondGroup.ID {
+		t.Errorf("second candidate = %#v, want active key %d", candidates[1], keys[2].ID)
+	}
+	for _, key := range keys {
+		got, ok := registry.EncryptedValue(key.ID)
+		if !ok || got != key.KeyValue {
+			t.Errorf("EncryptedValue(%d) = %q, %t, want %q, true", key.ID, got, ok, key.KeyValue)
+		}
+	}
+
+	snapshotText := fmt.Sprintf("%#v", snapshot)
+	for _, secret := range []string{
+		activeAccess.KeyValue, disabledAccess.KeyValue,
+		keys[0].KeyValue, keys[1].KeyValue, keys[2].KeyValue, keys[3].KeyValue,
+	} {
+		if strings.Contains(snapshotText, secret) {
+			t.Errorf("snapshot exposes credential material %q", secret)
+		}
+	}
+}
+
+func TestLoaderRejectsInvalidCredentialRowsWithoutPublishing(t *testing.T) {
+	tests := []struct {
+		name      string
+		insert    func(*testing.T, *gorm.DB, models.Group)
+		wantError string
+	}{
+		{
+			name: "unknown access status",
+			insert: func(t *testing.T, db *gorm.DB, _ models.Group) {
+				mustCreate(t, db, &models.AccessKey{
+					Name: "invalid", KeyValue: "access-cipher", KeyHash: "invalid-status-hash",
+					Status: "revoked", Filters: models.JSON(`{}`),
+				})
+			},
+			wantError: "invalid status",
+		},
+		{
+			name: "invalid filter protocol",
+			insert: func(t *testing.T, db *gorm.DB, _ models.Group) {
+				mustCreate(t, db, &models.AccessKey{
+					Name: "invalid", KeyValue: "access-cipher", KeyHash: "invalid-protocol-hash",
+					Status: "active", Filters: models.JSON(`{"protocols":["unknown"]}`),
+				})
+			},
+			wantError: "invalid protocol",
+		},
+		{
+			name: "blank filter model",
+			insert: func(t *testing.T, db *gorm.DB, _ models.Group) {
+				mustCreate(t, db, &models.AccessKey{
+					Name: "invalid", KeyValue: "access-cipher", KeyHash: "blank-model-hash",
+					Status: "active", Filters: models.JSON(`{"models":["  "]}`),
+				})
+			},
+			wantError: "filter model is required",
+		},
+		{
+			name: "unknown filter field",
+			insert: func(t *testing.T, db *gorm.DB, _ models.Group) {
+				mustCreate(t, db, &models.AccessKey{
+					Name: "invalid", KeyValue: "access-cipher", KeyHash: "unknown-filter-field-hash",
+					Status: "active", Filters: models.JSON(`{"protcols":["openai"]}`),
+				})
+			},
+			wantError: "unknown field",
+		},
+		{
+			name: "empty upstream ciphertext",
+			insert: func(t *testing.T, db *gorm.DB, group models.Group) {
+				mustCreate(t, db, &models.UpstreamKey{
+					GroupID: group.ID, KeyValue: "", KeyHash: "empty-cipher-hash",
+					Status: models.UpstreamKeyStatusActive,
+				})
+			},
+			wantError: "encrypted value is required",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			db := openMigratedDatabase(t)
+			group := createRuntimeGroup(t, db, "valid", protocol.OpenAI, "gpt-4o")
+			test.insert(t, db, group)
+			manager := state.NewManager()
+			registry := state.NewKeyRegistry()
+
+			err := loader.New(db, manager, registry).Load(context.Background())
+			if err == nil {
+				t.Fatal("Load() error = nil, want invalid credential rejection")
+			}
+			if !strings.Contains(err.Error(), test.wantError) {
+				t.Errorf("Load() error = %q, want context containing %q", err, test.wantError)
+			}
+			if manager.Current() != nil {
+				t.Fatalf("Current() = %#v after failed load, want nil", manager.Current())
+			}
+			if got := registry.CollectCandidates([]uint{group.ID}, nil); len(got) != 0 {
+				t.Fatalf("registry candidates after failed load = %#v, want empty", got)
+			}
+		})
+	}
+}
+
+func openMigratedDatabase(t *testing.T) *gorm.DB {
+	t.Helper()
+
+	db, err := storage.Open(":memory:")
+	if err != nil {
+		t.Fatalf("storage.Open(:memory:) error = %v", err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("db.DB() error = %v", err)
+	}
+	t.Cleanup(func() {
+		if err := sqlDB.Close(); err != nil {
+			t.Errorf("close database: %v", err)
+		}
+	})
+	if err := storage.AutoMigrate(db); err != nil {
+		t.Fatalf("storage.AutoMigrate() error = %v", err)
+	}
+	return db
+}
+
+func mustCreate(t *testing.T, db *gorm.DB, value any) {
+	t.Helper()
+	if err := db.Create(value).Error; err != nil {
+		t.Fatalf("create %T: %v", value, err)
+	}
+}
+
+func createRuntimeGroup(t *testing.T, db *gorm.DB, name string, p protocol.Protocol, model string) models.Group {
+	t.Helper()
+	group := models.Group{
+		Name: name, UpstreamURL: "https://" + name + ".example.com/v1",
+		Signature: name + "-signature", Protocols: models.JSON(fmt.Sprintf(`[%q]`, p)),
+		Models: models.JSON(fmt.Sprintf(`[{"id":%q}]`, model)), Config: models.JSON(`{}`), Enabled: true,
+	}
+	mustCreate(t, db, &group)
+	return group
+}
