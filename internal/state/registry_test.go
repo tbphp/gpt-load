@@ -63,6 +63,45 @@ func TestKeyRegistryReplaceAndEncryptedValue(t *testing.T) {
 	}
 }
 
+func TestKeyRegistryActiveEncryptedValueRequiresExpectedGroupAndActiveStatus(t *testing.T) {
+	registry := NewKeyRegistry()
+	mustReplaceKeyEntries(t, registry, []KeyEntry{
+		{ID: 1, GroupID: 10, Status: KeyStatusActive, EncryptedValue: "cipher-active"},
+		{ID: 2, GroupID: 10, Status: KeyStatusDisabled, EncryptedValue: "cipher-disabled"},
+	})
+
+	tests := []struct {
+		name    string
+		keyID   uint
+		groupID uint
+		want    string
+		wantOK  bool
+	}{
+		{name: "matching active key", keyID: 1, groupID: 10, want: "cipher-active", wantOK: true},
+		{name: "group mismatch", keyID: 1, groupID: 20},
+		{name: "disabled key", keyID: 2, groupID: 10},
+		{name: "missing key", keyID: 99, groupID: 10},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := registry.ActiveEncryptedValue(tt.keyID, tt.groupID)
+			if got != tt.want || ok != tt.wantOK {
+				t.Fatalf("ActiveEncryptedValue(%d, %d) = %q, %t, want %q, %t", tt.keyID, tt.groupID, got, ok, tt.want, tt.wantOK)
+			}
+		})
+	}
+
+	mustReplaceKeyEntries(t, registry, []KeyEntry{{
+		ID: 1, GroupID: 20, Status: KeyStatusActive, EncryptedValue: "cipher-moved",
+	}})
+	if got, ok := registry.ActiveEncryptedValue(1, 10); got != "" || ok {
+		t.Fatalf("ActiveEncryptedValue(1, old group) = %q, %t, want empty, false", got, ok)
+	}
+	if got, ok := registry.ActiveEncryptedValue(1, 20); got != "cipher-moved" || !ok {
+		t.Fatalf("ActiveEncryptedValue(1, new group) = %q, %t, want cipher-moved, true", got, ok)
+	}
+}
+
 func TestKeyRegistryReplaceFailurePreservesRegistry(t *testing.T) {
 	invalidBatches := map[string][]KeyEntry{
 		"duplicate ids": {

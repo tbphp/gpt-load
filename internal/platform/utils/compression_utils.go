@@ -6,6 +6,7 @@ import (
 	"compress/zlib"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/andybalholm/brotli"
 	"github.com/klauspost/compress/zstd"
@@ -36,28 +37,69 @@ func RegisterDecompressor(encoding string, decompressor Decompressor) {
 
 // DecompressResponse automatically decompresses response data based on Content-Encoding header
 func DecompressResponse(contentEncoding string, data []byte) ([]byte, error) {
-	// If no encoding specified or empty data, return as-is
-	if contentEncoding == "" || len(data) == 0 {
-		return data, nil
+	encoding, err := normalizeContentEncoding(contentEncoding)
+	if err != nil {
+		return nil, err
 	}
-
-	// Look up the decompressor
-	decompressor, exists := decompressorRegistry[contentEncoding]
+	if encoding == "" || encoding == "identity" || len(data) == 0 {
+		return bytes.Clone(data), nil
+	}
+	decompressor, exists := decompressorRegistry[encoding]
 	if !exists {
-		logrus.Warnf("No decompressor registered for encoding '%s', returning original data", contentEncoding)
-		return data, nil
+		return nil, fmt.Errorf("unsupported content encoding %q", contentEncoding)
 	}
-
-	// Decompress
 	decompressed, err := decompressor.Decompress(data)
 	if err != nil {
-		logrus.WithError(err).Warnf("Failed to decompress with '%s', returning original data", contentEncoding)
-		return data, nil
+		return nil, fmt.Errorf("decompress %s response: %w", encoding, err)
+	}
+	return decompressed, nil
+}
+
+// CompressResponse compresses response data based on Content-Encoding header.
+func CompressResponse(contentEncoding string, data []byte) ([]byte, error) {
+	encoding, err := normalizeContentEncoding(contentEncoding)
+	if err != nil {
+		return nil, err
+	}
+	if encoding == "" || encoding == "identity" {
+		return bytes.Clone(data), nil
 	}
 
-	logrus.Debugf("Successfully decompressed %d bytes -> %d bytes using '%s'",
-		len(data), len(decompressed), contentEncoding)
-	return decompressed, nil
+	var buffer bytes.Buffer
+	var writer io.WriteCloser
+	switch encoding {
+	case "gzip":
+		writer = gzip.NewWriter(&buffer)
+	case "br":
+		writer = brotli.NewWriter(&buffer)
+	case "deflate":
+		writer = zlib.NewWriter(&buffer)
+	case "zstd":
+		encoder, createErr := zstd.NewWriter(&buffer)
+		if createErr != nil {
+			return nil, fmt.Errorf("create zstd response writer: %w", createErr)
+		}
+		writer = encoder
+	default:
+		return nil, fmt.Errorf("unsupported content encoding %q", contentEncoding)
+	}
+
+	if _, err := writer.Write(data); err != nil {
+		_ = writer.Close()
+		return nil, fmt.Errorf("compress %s response: %w", encoding, err)
+	}
+	if err := writer.Close(); err != nil {
+		return nil, fmt.Errorf("close %s response writer: %w", encoding, err)
+	}
+	return buffer.Bytes(), nil
+}
+
+func normalizeContentEncoding(value string) (string, error) {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	if strings.Contains(normalized, ",") {
+		return "", fmt.Errorf("stacked content encoding %q is not supported", value)
+	}
+	return normalized, nil
 }
 
 // GzipDecompressor handles gzip compression

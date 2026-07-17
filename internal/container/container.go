@@ -2,12 +2,21 @@
 package container
 
 import (
+	"fmt"
+	"net/http"
+	"time"
+
+	"github.com/gin-gonic/gin"
 	"go.uber.org/dig"
 	"gorm.io/gorm"
 
 	"gpt-load/internal/app"
+	"gpt-load/internal/dialect"
+	"gpt-load/internal/gateway"
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/platform/encryption"
+	"gpt-load/internal/platform/httpclient"
+	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/state"
 	stateloader "gpt-load/internal/state/loader"
 	"gpt-load/internal/storage"
@@ -32,6 +41,28 @@ func BuildContainer() (*dig.Container, error) {
 		app.NewEngine,
 		state.NewManager,
 		state.NewKeyRegistry,
+		httpclient.NewHTTPClientManager,
+		redact.New,
+		func(manager *httpclient.HTTPClientManager) *http.Client {
+			return manager.GetClient(&httpclient.Config{
+				ConnectTimeout:        15 * time.Second,
+				IdleConnTimeout:       90 * time.Second,
+				MaxIdleConns:          100,
+				MaxIdleConnsPerHost:   20,
+				ResponseHeaderTimeout: 120 * time.Second,
+				DisableCompression:    true,
+				WriteBufferSize:       32 * 1024,
+				ReadBufferSize:        32 * 1024,
+				ForceAttemptHTTP2:     true,
+				TLSHandshakeTimeout:   15 * time.Second,
+				ExpectContinueTimeout: time.Second,
+			})
+		},
+		dialect.NewOpenAI,
+		gateway.NewDialectSet,
+		gateway.NewForwarder,
+		func(forwarder *gateway.Forwarder) gateway.AttemptForwarder { return forwarder },
+		gateway.NewHandler,
 		func(db *gorm.DB, manager *state.Manager, registry *state.KeyRegistry) app.RuntimeStateLoader {
 			return stateloader.New(db, manager, registry)
 		},
@@ -42,6 +73,11 @@ func BuildContainer() (*dig.Container, error) {
 		if err := dependencyContainer.Provide(provider); err != nil {
 			return nil, err
 		}
+	}
+	if err := dependencyContainer.Invoke(func(engine *gin.Engine, handler *gateway.Handler) {
+		handler.RegisterRoutes(engine)
+	}); err != nil {
+		return nil, fmt.Errorf("register gateway routes: %w", err)
 	}
 	return dependencyContainer, nil
 }

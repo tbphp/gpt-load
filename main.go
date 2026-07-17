@@ -11,12 +11,13 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/sirupsen/logrus"
+
 	"gpt-load/internal/app"
 	"gpt-load/internal/container"
 	"gpt-load/internal/platform/config"
+	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/platform/utils"
-
-	"github.com/sirupsen/logrus"
 )
 
 func main() {
@@ -66,11 +67,12 @@ func runServer() error {
 		return fmt.Errorf("build dependency container: %w", err)
 	}
 
-	if err := dependencyContainer.Invoke(func(cfg *config.Config) {
+	if err := dependencyContainer.Invoke(func(cfg *config.Config, runtimeRedactor *redact.Redactor) {
 		utils.SetupLogger(utils.LogConfig{
 			Level:  cfg.Log.Level,
 			Format: cfg.Log.Format,
 		})
+		logrus.AddHook(redact.NewHook(runtimeRedactor))
 	}); err != nil {
 		return fmt.Errorf("configure logger: %w", err)
 	}

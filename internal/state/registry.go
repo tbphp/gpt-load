@@ -160,6 +160,20 @@ func (r *KeyRegistry) EncryptedValue(keyID uint) (string, bool) {
 	return r.buckets[groupID][keyID].EncryptedValue, true
 }
 
+func (r *KeyRegistry) ActiveEncryptedValue(keyID, expectedGroupID uint) (string, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	groupID, ok := r.keyGroups[keyID]
+	if !ok || groupID != expectedGroupID {
+		return "", false
+	}
+	entry, ok := r.buckets[groupID][keyID]
+	if !ok || entry.Status != KeyStatusActive {
+		return "", false
+	}
+	return entry.EncryptedValue, true
+}
+
 func (r *KeyRegistry) CollectCandidates(groupIDs []uint, excluded func(uint) bool) []KeyMeta {
 	r.mu.RLock()
 	metas := make([]KeyMeta, 0)
