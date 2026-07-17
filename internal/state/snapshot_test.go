@@ -128,6 +128,26 @@ func TestCompileUsesDefaultRuntimeSettings(t *testing.T) {
 	}
 }
 
+func TestCompileCanonicalizesHeaderRuleNames(t *testing.T) {
+	snapshot, err := Compile(runtimeSettingsInput(nil, config.Settings{
+		"header_rules": map[string]any{
+			"set":    map[string]any{"x-custom-key": "value"},
+			"remove": []any{"x-remove-me"},
+		},
+	}))
+	if err != nil {
+		t.Fatalf("Compile() error = %v", err)
+	}
+
+	want := HeaderRules{
+		Set:    map[string]string{"X-Custom-Key": "value"},
+		Remove: []string{"X-Remove-Me"},
+	}
+	if got := snapshot.Groups[1].HeaderRules; !reflect.DeepEqual(got, want) {
+		t.Fatalf("GroupView.HeaderRules = %#v, want %#v", got, want)
+	}
+}
+
 func TestCompileAcceptsJSONNumberWholeSecondTimeouts(t *testing.T) {
 	tests := []struct {
 		literal string
@@ -206,6 +226,16 @@ func TestCompileRejectsMalformedRuntimeSettings(t *testing.T) {
 				"set": map[string]any{"X-Invalid": 1.0},
 			}},
 			wantErr: "header_rules.set.X-Invalid must be a string",
+		},
+		{
+			name: "case-insensitive duplicate header set",
+			groupSettings: config.Settings{"header_rules": map[string]any{
+				"set": map[string]any{
+					"Authorization": "Bearer one",
+					"authorization": "Bearer two",
+				},
+			}},
+			wantErr: "header_rules.set contains duplicate header \"Authorization\"",
 		},
 		{
 			name: "non-array header remove",

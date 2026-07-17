@@ -79,6 +79,23 @@ func TestOpenAIBuildUpstreamURL(t *testing.T) {
 			want: "https://api.example.com/compatible/v1/chat/completions",
 		},
 		{
+			name: "base query is preserved",
+			base: "https://api.example.com?api-version=2024-10-01",
+			request: &ParsedRequest{
+				Path: "/v1/chat/completions",
+			},
+			want: "https://api.example.com/v1/chat/completions?api-version=2024-10-01",
+		},
+		{
+			name: "base and request queries are combined",
+			base: "https://api.example.com?api-version=2024-10-01",
+			request: &ParsedRequest{
+				Path:     "/v1/chat/completions",
+				RawQuery: "trace=true",
+			},
+			want: "https://api.example.com/v1/chat/completions?api-version=2024-10-01&trace=true",
+		},
+		{
 			name:    "nil request",
 			base:    "https://api.example.com",
 			request: nil,
@@ -168,6 +185,11 @@ func TestOpenAIExtractModel(t *testing.T) {
 		{
 			name:    "blank model",
 			request: &ParsedRequest{Body: []byte(`{"model":"  "}`)},
+			wantErr: true,
+		},
+		{
+			name:    "model with boundary whitespace",
+			request: &ParsedRequest{Body: []byte(`{"model":" gpt-4o "}`)},
 			wantErr: true,
 		},
 	}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+	"net/textproto"
 	"sort"
 	"strings"
 	"time"
@@ -266,12 +267,22 @@ func parseHeaderRules(value any) (HeaderRules, error) {
 		if !ok {
 			return HeaderRules{}, fmt.Errorf("header_rules.set must be an object")
 		}
+		seen := make(map[string]struct{}, len(set))
 		for name, rawValue := range set {
+			canonicalName := textproto.CanonicalMIMEHeaderKey(name)
+			identity := strings.ToLower(name)
+			if _, duplicate := seen[identity]; duplicate {
+				return HeaderRules{}, fmt.Errorf(
+					"header_rules.set contains duplicate header %q",
+					canonicalName,
+				)
+			}
+			seen[identity] = struct{}{}
 			text, ok := rawValue.(string)
 			if !ok {
 				return HeaderRules{}, fmt.Errorf("header_rules.set.%s must be a string", name)
 			}
-			rules.Set[name] = text
+			rules.Set[canonicalName] = text
 		}
 	}
 	if rawRemove, exists := object["remove"]; exists {
@@ -285,7 +296,7 @@ func parseHeaderRules(value any) (HeaderRules, error) {
 			if !ok {
 				return HeaderRules{}, fmt.Errorf("header_rules.remove[%d] must be a string", index)
 			}
-			rules.Remove = append(rules.Remove, name)
+			rules.Remove = append(rules.Remove, textproto.CanonicalMIMEHeaderKey(name))
 		}
 	}
 	return rules, nil

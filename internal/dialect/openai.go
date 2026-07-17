@@ -126,6 +126,9 @@ func (d *OpenAI) ExtractModel(req *ParsedRequest) (string, bool, error) {
 	if model == "" {
 		return "", false, fmt.Errorf("OpenAI model is required")
 	}
+	if model != payload.Model {
+		return "", false, fmt.Errorf("OpenAI model must not contain boundary whitespace")
+	}
 	return model, payload.Stream, nil
 }
 
@@ -173,7 +176,11 @@ func buildUpstreamURL(base string, req *ParsedRequest) (string, error) {
 
 	parsed.Path = strings.TrimRight(parsed.Path, "/") + req.Path
 	parsed.RawPath = ""
-	parsed.RawQuery = req.RawQuery
+	if parsed.RawQuery == "" {
+		parsed.RawQuery = req.RawQuery
+	} else if req.RawQuery != "" {
+		parsed.RawQuery += "&" + req.RawQuery
+	}
 	parsed.Fragment = ""
 	return parsed.String(), nil
 }
