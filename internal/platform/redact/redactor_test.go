@@ -29,6 +29,44 @@ func TestRedactorStringCoversCredentialShapes(t *testing.T) {
 	}
 }
 
+func TestRedactorStringRedactsEntireAuthorizationValue(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "double quoted JSON bearer",
+			input: `{"authorization":"Bearer custom-json-secret","safe":"kept"}`,
+			want:  `{"authorization":"[REDACTED]","safe":"kept"}`,
+		},
+		{
+			name:  "double quoted JSON basic",
+			input: `{"Authorization":"Basic custom-json-secret","safe":"kept"}`,
+			want:  `{"Authorization":"[REDACTED]","safe":"kept"}`,
+		},
+		{
+			name:  "single quoted value",
+			input: `{'authorization':'Token custom-single-secret','safe':'kept'}`,
+			want:  `{'authorization':'[REDACTED]','safe':'kept'}`,
+		},
+		{
+			name:  "basic header",
+			input: "Authorization: Basic custom-header-secret\nX-Safe: kept",
+			want:  "Authorization: [REDACTED]\nX-Safe: kept",
+		},
+	}
+
+	redactor := New()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := redactor.String(tt.input); got != tt.want {
+				t.Fatalf("String() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestRedactorUsesExactKnownSecretForCustomPrefixes(t *testing.T) {
 	const secret = "provider-secret-without-standard-prefix"
 	got := New().String("upstream echoed "+secret+" twice "+secret, secret)

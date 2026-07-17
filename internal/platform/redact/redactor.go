@@ -26,7 +26,15 @@ func New() *Redactor {
 			value:   Placeholder,
 		},
 		{
-			pattern: regexp.MustCompile(`(?i)(^|[\s,{?&])(authorization\s*[:=]\s*(?:bearer\s+)?)[^\s,\"&}]+`),
+			pattern: regexp.MustCompile(`(?i)(^|[\s,{?&])(["']?authorization["']?\s*[:=]\s*)("(?:\\.|[^"\\])*")`),
+			value:   `${1}${2}"` + Placeholder + `"`,
+		},
+		{
+			pattern: regexp.MustCompile(`(?i)(^|[\s,{?&])(["']?authorization["']?\s*[:=]\s*)('(?:\\.|[^'\\])*')`),
+			value:   `${1}${2}'` + Placeholder + `'`,
+		},
+		{
+			pattern: regexp.MustCompile(`(?im)(^|[\s,{?&])(["']?authorization["']?\s*[:=]\s*)([^"'\r\n&}][^\r\n&}]*)`),
 			value:   `${1}${2}` + Placeholder,
 		},
 		{

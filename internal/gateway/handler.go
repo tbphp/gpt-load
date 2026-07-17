@@ -6,14 +6,14 @@ import (
 	"io"
 	"math/rand"
 
+	"github.com/gin-gonic/gin"
+
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/health"
 	"gpt-load/internal/platform/encryption"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/scheduler"
 	"gpt-load/internal/state"
-
-	"github.com/gin-gonic/gin"
 )
 
 const maxAttempts = 3

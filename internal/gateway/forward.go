@@ -65,6 +65,9 @@ func (forwarder *Forwarder) Forward(ctx context.Context, input ForwardInput) Ups
 	request.Header = cloneEndToEndHeaders(input.Request.Header)
 	removeDownstreamCredentials(request.Header)
 	dialect.ApplyCredential(input.Dialect, request.Header, input.APIKey, input.Group.HeaderRules)
+	if _, exists := request.Header["User-Agent"]; !exists {
+		request.Header["User-Agent"] = nil
+	}
 
 	var wroteRequest atomic.Bool
 	trace := &httptrace.ClientTrace{WroteRequest: func(httptrace.WroteRequestInfo) { wroteRequest.Store(true) }}
@@ -110,7 +113,7 @@ func (forwarder *Forwarder) prepareErrorBody(headers http.Header, wire []byte, a
 	if err != nil {
 		return failClosedErrorBody(headers)
 	}
-	headers.Set("Content-Length", strconv.Itoa(len(safeWire)))
+	updateRewrittenBodyHeaders(headers, len(safeWire))
 	return safeWire, safePlain
 }
 
@@ -137,8 +140,15 @@ func failClosedErrorBody(headers http.Header) ([]byte, []byte) {
 	body := []byte(redact.Placeholder)
 	headers.Del("Content-Encoding")
 	headers.Set("Content-Type", "text/plain; charset=utf-8")
-	headers.Set("Content-Length", strconv.Itoa(len(body)))
+	updateRewrittenBodyHeaders(headers, len(body))
 	return bytes.Clone(body), bytes.Clone(body)
+}
+
+func updateRewrittenBodyHeaders(headers http.Header, bodyLength int) {
+	for _, name := range []string{"ETag", "Digest", "Content-MD5", "Content-Range"} {
+		headers.Del(name)
+	}
+	headers.Set("Content-Length", strconv.Itoa(bodyLength))
 }
 
 func nonStreamingClientConfig(timeouts state.TimeoutConfig) *platformhttp.Config {

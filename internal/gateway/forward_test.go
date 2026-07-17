@@ -85,6 +85,9 @@ func TestForwarderPreservesEndToEndRequestAndSuccessfulResponse(t *testing.T) {
 		strings.Contains(received.Header.Get("Authorization"), "downstream-key") {
 		t.Fatalf("upstream retained forbidden header: %#v", received.Header)
 	}
+	if got := received.Header.Get("User-Agent"); got != "" {
+		t.Fatalf("upstream User-Agent = %q, want downstream absence preserved", got)
+	}
 }
 
 func TestForwarderRedactsCompressedErrorAndPreservesEncoding(t *testing.T) {
@@ -96,6 +99,7 @@ func TestForwarderRedactsCompressedErrorAndPreservesEncoding(t *testing.T) {
 	}
 	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 		writer.Header().Set("Content-Encoding", "gzip")
+		setRepresentationMetadata(writer.Header())
 		writer.WriteHeader(http.StatusUnauthorized)
 		_, _ = writer.Write(encoded)
 	}))
@@ -120,6 +124,7 @@ func TestForwarderRedactsCompressedErrorAndPreservesEncoding(t *testing.T) {
 	if result.Header.Get("Content-Length") != strconv.Itoa(len(result.Body)) {
 		t.Fatalf("Content-Length = %q, body length = %d", result.Header.Get("Content-Length"), len(result.Body))
 	}
+	assertRepresentationMetadata(t, result.Header, false)
 }
 
 func TestForwarderPreservesUnchangedCompressedErrorWireBytes(t *testing.T) {
@@ -130,6 +135,7 @@ func TestForwarderPreservesUnchangedCompressedErrorWireBytes(t *testing.T) {
 	}
 	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 		writer.Header().Set("Content-Encoding", "gzip")
+		setRepresentationMetadata(writer.Header())
 		writer.WriteHeader(http.StatusTooManyRequests)
 		_, _ = writer.Write(encoded)
 	}))
@@ -149,11 +155,13 @@ func TestForwarderPreservesUnchangedCompressedErrorWireBytes(t *testing.T) {
 		result.Header.Get("Content-Length") != strconv.Itoa(len(encoded)) {
 		t.Fatalf("compressed response headers = %#v", result.Header)
 	}
+	assertRepresentationMetadata(t, result.Header, true)
 }
 
 func TestForwarderFailsClosedForUndecodableError(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 		writer.Header().Set("Content-Encoding", "unsupported")
+		setRepresentationMetadata(writer.Header())
 		writer.WriteHeader(http.StatusBadGateway)
 		_, _ = writer.Write([]byte("opaque-secret-body"))
 	}))
@@ -170,6 +178,7 @@ func TestForwarderFailsClosedForUndecodableError(t *testing.T) {
 		string(result.ClassificationBody) != redact.Placeholder {
 		t.Fatalf("fail-closed result headers/body = %#v %q", result.Header, result.Body)
 	}
+	assertRepresentationMetadata(t, result.Header, false)
 }
 
 func TestForwarderFailsClosedForMalformedEncoding(t *testing.T) {
@@ -283,4 +292,30 @@ func testForward(t *testing.T, upstreamURL, apiKey string, timeout time.Duration
 			Header: make(http.Header), Body: []byte(`{"model":"gpt-4o"}`),
 		},
 	})
+}
+
+func setRepresentationMetadata(headers http.Header) {
+	headers.Set("ETag", `"wire-v1"`)
+	headers.Set("Digest", "sha-256=wire-digest")
+	headers.Set("Content-MD5", "d2lyZQ==")
+	headers.Set("Content-Range", "bytes 0-9/10")
+}
+
+func assertRepresentationMetadata(t *testing.T, headers http.Header, wantPreserved bool) {
+	t.Helper()
+	want := map[string]string{
+		"ETag":          `"wire-v1"`,
+		"Digest":        "sha-256=wire-digest",
+		"Content-MD5":   "d2lyZQ==",
+		"Content-Range": "bytes 0-9/10",
+	}
+	for name, value := range want {
+		got := headers.Get(name)
+		if wantPreserved && got != value {
+			t.Errorf("%s = %q, want preserved value %q", name, got, value)
+		}
+		if !wantPreserved && got != "" {
+			t.Errorf("%s = %q, want removed after body rewrite", name, got)
+		}
+	}
 }

@@ -16,6 +16,11 @@ type hookNamedStrings []string
 
 type hookNamedBytes []byte
 
+type hookCredentialDTO struct {
+	APIKey string `json:"api_key"`
+	Safe   string `json:"safe"`
+}
+
 func TestHookRedactsMessageAndNestedFields(t *testing.T) {
 	const secret = "sk-proj-hook-secret-123456789"
 	var output bytes.Buffer
@@ -184,6 +189,42 @@ func TestHookRedactsNamedCollectionsInJSONOutput(t *testing.T) {
 	}
 	if !reflect.DeepEqual(nested, wantNested) {
 		t.Fatalf("source named map mutated: %#v", nested)
+	}
+}
+
+func TestHookFailsClosedForStructsAndRedactsPointersInJSONOutput(t *testing.T) {
+	const (
+		structSecret  = "custom-struct-secret"
+		pointerSecret = "custom-pointer-secret"
+		textSecret    = "custom-text-pointer-secret"
+	)
+	text := "token=" + textSecret
+
+	var output bytes.Buffer
+	logger := logrus.New()
+	logger.SetOutput(&output)
+	logger.SetFormatter(&logrus.JSONFormatter{DisableTimestamp: true})
+	logger.AddHook(NewHook(New()))
+	logger.WithFields(logrus.Fields{
+		"dto": hookCredentialDTO{
+			APIKey: structSecret,
+			Safe:   "visible-struct-field",
+		},
+		"dto_pointer": &hookCredentialDTO{
+			APIKey: pointerSecret,
+			Safe:   "visible-pointer-field",
+		},
+		"text_pointer": &text,
+	}).Error("structured credential test")
+
+	logs := output.String()
+	for _, secret := range []string{structSecret, pointerSecret, textSecret} {
+		if strings.Contains(logs, secret) {
+			t.Fatalf("hook leaked %q from structured field: %s", secret, logs)
+		}
+	}
+	if strings.Count(logs, Placeholder) < 3 {
+		t.Fatalf("hook output = %s, want each unsafe composite value redacted", logs)
 	}
 }
 

@@ -97,6 +97,15 @@ func (h *Hook) redactReflectedCollection(value any, depth int) any {
 		return nil
 	}
 	switch reflected.Kind() {
+	case reflect.Interface, reflect.Pointer:
+		if reflected.IsNil() {
+			return nil
+		}
+		nested := reflected.Elem()
+		if !nested.CanInterface() {
+			return Placeholder
+		}
+		return h.redactValueAtDepth(nested.Interface(), depth+1)
 	case reflect.Map:
 		if reflected.Type().Key().Kind() != reflect.String {
 			return Placeholder
@@ -125,6 +134,8 @@ func (h *Hook) redactReflectedCollection(value any, depth int) any {
 			cloned[index] = h.redactValueAtDepth(reflected.Index(index).Interface(), depth+1)
 		}
 		return cloned
+	case reflect.Struct:
+		return Placeholder
 	default:
 		return value
 	}
