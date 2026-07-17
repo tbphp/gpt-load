@@ -74,17 +74,16 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if r.Method != http.MethodPost {
-		s.recordRequest(r, body)
-		w.Header().Set("Allow", http.MethodPost)
-		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
-		return
-	}
-
-	dialect, ok := dialectForPath(r.URL.Path)
+	dialect, allowedMethod, ok := routeForPath(r.URL.Path)
 	if !ok {
 		s.recordRequest(r, body)
 		http.NotFound(w, r)
+		return
+	}
+	if r.Method != allowedMethod {
+		s.recordRequest(r, body)
+		w.Header().Set("Allow", allowedMethod)
+		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
 		return
 	}
 
@@ -164,6 +163,17 @@ func requestSnapshot(r *http.Request, body []byte) Request {
 		Headers:  r.Header.Clone(),
 		Body:     bytes.Clone(body),
 	}
+}
+
+func routeForPath(requestPath string) (dialect, method string, ok bool) {
+	if requestPath == "/v1/models" {
+		return "openai", http.MethodGet, true
+	}
+	dialect, ok = dialectForPath(requestPath)
+	if !ok {
+		return "", "", false
+	}
+	return dialect, http.MethodPost, true
 }
 
 func dialectForPath(requestPath string) (string, bool) {

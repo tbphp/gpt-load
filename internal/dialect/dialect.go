@@ -1,0 +1,31 @@
+package dialect
+
+import (
+	"context"
+	"net/http"
+
+	"gpt-load/internal/health"
+	"gpt-load/internal/protocol"
+	"gpt-load/internal/state"
+)
+
+type ParsedRequest struct {
+	Method   string
+	Path     string
+	RawQuery string
+	Header   http.Header
+	Body     []byte
+}
+
+type Dialect interface {
+	Protocol() protocol.Protocol
+	ExtractModel(req *ParsedRequest) (model string, stream bool, err error)
+	BuildUpstreamURL(base string, req *ParsedRequest) (string, error)
+	InjectCredential(headers http.Header, apiKey string)
+	ListModels(
+		ctx context.Context,
+		baseURL, apiKey string,
+		rules state.HeaderRules,
+	) ([]string, error)
+	ClassifyStatus(status int, body []byte) health.ErrorClass
+}

@@ -294,6 +294,44 @@ func TestServerRejectsUnsupportedMethodAndPathWithoutConsumingScript(t *testing.
 	}
 }
 
+func TestServerServesOpenAIModelListFixture(t *testing.T) {
+	server := New(Step{
+		Status:  http.StatusOK,
+		Fixture: filepath.Join("openai", "models.json"),
+	})
+	defer server.Close()
+
+	req, err := http.NewRequest(http.MethodGet, server.URL+"/v1/models", nil)
+	if err != nil {
+		t.Fatalf("创建模型列表请求失败: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer sk-models")
+
+	resp, err := server.Client().Do(req)
+	if err != nil {
+		t.Fatalf("请求模型列表失败: %v", err)
+	}
+	body, readErr := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if readErr != nil {
+		t.Fatalf("读取模型列表响应失败: %v", readErr)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("模型列表状态 = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	assertFixtureBody(t, body, "openai", "models.json")
+
+	requests := server.Requests()
+	if len(requests) != 1 {
+		t.Fatalf("模型列表请求记录数 = %d, want 1", len(requests))
+	}
+	if requests[0].Method != http.MethodGet ||
+		requests[0].Path != "/v1/models" ||
+		requests[0].Headers.Get("Authorization") != "Bearer sk-models" {
+		t.Fatalf("模型列表请求记录不正确: %#v", requests[0])
+	}
+}
+
 func TestServerKeepsConcurrentRequestRecordsAlignedWithScriptSteps(t *testing.T) {
 	const requestCount = 128
 
