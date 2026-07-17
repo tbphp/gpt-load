@@ -145,7 +145,9 @@ func failClosedErrorBody(headers http.Header) ([]byte, []byte) {
 }
 
 func updateRewrittenBodyHeaders(headers http.Header, bodyLength int) {
-	for _, name := range []string{"ETag", "Digest", "Content-MD5", "Content-Range"} {
+	for _, name := range []string{
+		"ETag", "Digest", "Content-MD5", "Content-Range", "Content-Digest", "Repr-Digest",
+	} {
 		headers.Del(name)
 	}
 	headers.Set("Content-Length", strconv.Itoa(bodyLength))

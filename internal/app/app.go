@@ -60,6 +60,7 @@ type AppParams struct {
 func NewEngine() *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 	engine := gin.New()
+	engine.RedirectTrailingSlash = false
 	engine.Use(recoveryMiddleware())
 	engine.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{

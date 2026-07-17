@@ -119,3 +119,71 @@ func TestBuildContainerRegistersS4GatewayRoute(t *testing.T) {
 		t.Fatalf("resolve engine: %v", err)
 	}
 }
+
+func TestBuildContainerDoesNotRedirectTrailingSlashGatewayRoute(t *testing.T) {
+	t.Setenv("AUTH_KEY", "test-auth-key")
+	t.Setenv("DATA_DIR", t.TempDir())
+	t.Setenv("DATABASE_DSN", ":memory:")
+	t.Setenv("ENCRYPTION_KEY", "test-master-key-long")
+	t.Setenv("REDIS_DSN", "")
+
+	dependencyContainer, err := BuildContainer()
+	if err != nil {
+		t.Fatalf("BuildContainer() error = %v", err)
+	}
+	err = dependencyContainer.Invoke(func(
+		engine *gin.Engine,
+		manager *state.Manager,
+		keyService encryption.Service,
+	) {
+		if _, err := manager.Publish(state.CompileInput{AccessKeys: []state.AccessKeyConfig{{
+			ID: 1, Name: "client", KeyHash: keyService.Hash("gl-client"),
+			Status: state.AccessKeyStatusActive,
+		}}}); err != nil {
+			t.Fatalf("Publish() error = %v", err)
+		}
+
+		tests := []struct {
+			name       string
+			target     string
+			wantStatus int
+			wantCode   string
+		}{
+			{
+				name:       "missing credential",
+				target:     "/v1/chat/completions/",
+				wantStatus: http.StatusUnauthorized,
+				wantCode:   "invalid_access_key",
+			},
+			{
+				name:       "valid query credential",
+				target:     "/v1/chat/completions/?key=gl-client",
+				wantStatus: http.StatusNotFound,
+				wantCode:   "protocol_endpoint_not_found",
+			},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				recorder := httptest.NewRecorder()
+				request := httptest.NewRequest(http.MethodPost, tt.target, nil)
+				engine.ServeHTTP(recorder, request)
+				if recorder.Code != tt.wantStatus {
+					t.Fatalf("gateway status = %d, want %d; location=%q body=%s",
+						recorder.Code, tt.wantStatus, recorder.Header().Get("Location"), recorder.Body.String())
+				}
+				if location := recorder.Header().Get("Location"); location != "" {
+					t.Fatalf("Location = %q, want empty", location)
+				}
+				var body struct {
+					Code string `json:"code"`
+				}
+				if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil || body.Code != tt.wantCode {
+					t.Fatalf("gateway body = %s, error=%v, want code %q", recorder.Body.String(), err, tt.wantCode)
+				}
+			})
+		}
+	})
+	if err != nil {
+		t.Fatalf("resolve engine: %v", err)
+	}
+}

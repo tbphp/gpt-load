@@ -228,6 +228,27 @@ func TestCompileRejectsMalformedRuntimeSettings(t *testing.T) {
 			wantErr: "header_rules.set.X-Invalid must be a string",
 		},
 		{
+			name: "empty header set name",
+			groupSettings: config.Settings{"header_rules": map[string]any{
+				"set": map[string]any{"": "value"},
+			}},
+			wantErr: "header_rules.set contains invalid header name \"\"",
+		},
+		{
+			name: "header set name with space",
+			groupSettings: config.Settings{"header_rules": map[string]any{
+				"set": map[string]any{"Bad Header": "value"},
+			}},
+			wantErr: "header_rules.set contains invalid header name \"Bad Header\"",
+		},
+		{
+			name: "header set value with newline",
+			groupSettings: config.Settings{"header_rules": map[string]any{
+				"set": map[string]any{"X-Credential": "prefix\r\nInjected: value"},
+			}},
+			wantErr: "header_rules.set.X-Credential contains invalid header value",
+		},
+		{
 			name: "case-insensitive duplicate header set",
 			groupSettings: config.Settings{"header_rules": map[string]any{
 				"set": map[string]any{
@@ -250,6 +271,13 @@ func TestCompileRejectsMalformedRuntimeSettings(t *testing.T) {
 				"remove": []any{"X-Valid", 1.0},
 			}},
 			wantErr: "header_rules.remove[1] must be a string",
+		},
+		{
+			name: "invalid header remove name",
+			groupSettings: config.Settings{"header_rules": map[string]any{
+				"remove": []any{"Bad Header"},
+			}},
+			wantErr: "header_rules.remove[0] contains invalid header name \"Bad Header\"",
 		},
 		{
 			name: "unknown header rules field",

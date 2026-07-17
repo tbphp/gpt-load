@@ -134,6 +134,8 @@ func (h *Hook) redactReflectedCollection(value any, depth int) any {
 			cloned[index] = h.redactValueAtDepth(reflected.Index(index).Interface(), depth+1)
 		}
 		return cloned
+	case reflect.String:
+		return h.redactor.String(reflected.String())
 	case reflect.Struct:
 		return Placeholder
 	default:

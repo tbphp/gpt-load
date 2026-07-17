@@ -269,6 +269,9 @@ func parseHeaderRules(value any) (HeaderRules, error) {
 		}
 		seen := make(map[string]struct{}, len(set))
 		for name, rawValue := range set {
+			if !validHTTPHeaderName(name) {
+				return HeaderRules{}, fmt.Errorf("header_rules.set contains invalid header name %q", name)
+			}
 			canonicalName := textproto.CanonicalMIMEHeaderKey(name)
 			identity := strings.ToLower(name)
 			if _, duplicate := seen[identity]; duplicate {
@@ -281,6 +284,9 @@ func parseHeaderRules(value any) (HeaderRules, error) {
 			text, ok := rawValue.(string)
 			if !ok {
 				return HeaderRules{}, fmt.Errorf("header_rules.set.%s must be a string", name)
+			}
+			if !validHTTPHeaderValue(text) {
+				return HeaderRules{}, fmt.Errorf("header_rules.set.%s contains invalid header value", name)
 			}
 			rules.Set[canonicalName] = text
 		}
@@ -296,10 +302,52 @@ func parseHeaderRules(value any) (HeaderRules, error) {
 			if !ok {
 				return HeaderRules{}, fmt.Errorf("header_rules.remove[%d] must be a string", index)
 			}
+			if !validHTTPHeaderName(name) {
+				return HeaderRules{}, fmt.Errorf(
+					"header_rules.remove[%d] contains invalid header name %q",
+					index,
+					name,
+				)
+			}
 			rules.Remove = append(rules.Remove, textproto.CanonicalMIMEHeaderKey(name))
 		}
 	}
 	return rules, nil
+}
+
+func validHTTPHeaderName(name string) bool {
+	if name == "" {
+		return false
+	}
+	for index := range len(name) {
+		if !isHTTPTokenByte(name[index]) {
+			return false
+		}
+	}
+	return true
+}
+
+func isHTTPTokenByte(value byte) bool {
+	switch {
+	case value >= '0' && value <= '9':
+		return true
+	case value >= 'a' && value <= 'z':
+		return true
+	case value >= 'A' && value <= 'Z':
+		return true
+	default:
+		return strings.IndexByte("!#$%&'*+-.^_`|~", value) >= 0
+	}
+}
+
+func validHTTPHeaderValue(value string) bool {
+	for index := range len(value) {
+		character := value[index]
+		if (character < ' ' && character != '\t') || character == 0x7f {
+			return false
+		}
+	}
+	return true
 }
 
 func validateCompileInput(input CompileInput) error {

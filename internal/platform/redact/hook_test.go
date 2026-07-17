@@ -16,6 +16,8 @@ type hookNamedStrings []string
 
 type hookNamedBytes []byte
 
+type hookNamedString string
+
 type hookCredentialDTO struct {
 	APIKey string `json:"api_key"`
 	Safe   string `json:"safe"`
@@ -189,6 +191,31 @@ func TestHookRedactsNamedCollectionsInJSONOutput(t *testing.T) {
 	}
 	if !reflect.DeepEqual(nested, wantNested) {
 		t.Fatalf("source named map mutated: %#v", nested)
+	}
+}
+
+func TestHookRedactsNamedStringsInJSONOutput(t *testing.T) {
+	const secret = "custom-named-string-secret"
+	pointer := hookNamedString("token=" + secret)
+
+	var output bytes.Buffer
+	logger := logrus.New()
+	logger.SetOutput(&output)
+	logger.SetFormatter(&logrus.JSONFormatter{DisableTimestamp: true})
+	logger.AddHook(NewHook(New()))
+	logger.WithFields(logrus.Fields{
+		"scalar":  hookNamedString("token=" + secret),
+		"pointer": &pointer,
+		"slice":   []hookNamedString{"safe", "token=" + secret},
+		"map":     map[string]hookNamedString{"credential": "token=" + secret},
+	}).Error("named string test")
+
+	logs := output.String()
+	if strings.Contains(logs, secret) {
+		t.Fatalf("hook leaked named string: %s", logs)
+	}
+	if !strings.Contains(logs, Placeholder) || !strings.Contains(logs, "safe") {
+		t.Fatalf("hook output = %s, want redaction while preserving safe data", logs)
 	}
 }
 

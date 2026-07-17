@@ -299,15 +299,19 @@ func setRepresentationMetadata(headers http.Header) {
 	headers.Set("Digest", "sha-256=wire-digest")
 	headers.Set("Content-MD5", "d2lyZQ==")
 	headers.Set("Content-Range", "bytes 0-9/10")
+	headers.Set("Content-Digest", "sha-256=:d2lyZQ==:")
+	headers.Set("Repr-Digest", "sha-256=:cmVwcg==:")
 }
 
 func assertRepresentationMetadata(t *testing.T, headers http.Header, wantPreserved bool) {
 	t.Helper()
 	want := map[string]string{
-		"ETag":          `"wire-v1"`,
-		"Digest":        "sha-256=wire-digest",
-		"Content-MD5":   "d2lyZQ==",
-		"Content-Range": "bytes 0-9/10",
+		"ETag":           `"wire-v1"`,
+		"Digest":         "sha-256=wire-digest",
+		"Content-MD5":    "d2lyZQ==",
+		"Content-Range":  "bytes 0-9/10",
+		"Content-Digest": "sha-256=:d2lyZQ==:",
+		"Repr-Digest":    "sha-256=:cmVwcg==:",
 	}
 	for name, value := range want {
 		got := headers.Get(name)
