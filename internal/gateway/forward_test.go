@@ -231,27 +231,56 @@ func TestForwardStreamDoesNotRetryParentDeadline(t *testing.T) {
 	}
 }
 
-func TestReleaseRequestReplayClearsEveryBodyOwner(t *testing.T) {
-	parsed := &dialect.ParsedRequest{Body: []byte("request body")}
-	original, err := http.NewRequest(http.MethodPost, "https://example.com/v1/chat/completions", bytes.NewReader(parsed.Body))
+func TestReleaseCommittedRequestReplayDoesNotMutateHTTPRequest(t *testing.T) {
+	input := streamForwardInput("https://example.com")
+	wantBody := bytes.Clone(input.Request.Body)
+	request, _, replay, err := newUpstreamRequest(context.Background(), input, true)
 	if err != nil {
-		t.Fatalf("http.NewRequest() error = %v", err)
+		t.Fatalf("newUpstreamRequest() error = %v", err)
 	}
-	redirected, err := http.NewRequest(http.MethodPost, "https://example.com/v1/redirected", bytes.NewReader(parsed.Body))
+	if request.GetBody == nil {
+		t.Fatal("newUpstreamRequest() GetBody is nil; 307/308 cannot replay the request")
+	}
+	redirectBody, err := request.GetBody()
 	if err != nil {
-		t.Fatalf("http.NewRequest() redirected error = %v", err)
+		t.Fatalf("GetBody() before release error = %v", err)
 	}
-	response := &http.Response{Request: redirected}
+	redirectPayload, err := io.ReadAll(redirectBody)
+	_ = redirectBody.Close()
+	if err != nil {
+		t.Fatalf("read GetBody() before release: %v", err)
+	}
+	if !bytes.Equal(redirectPayload, wantBody) {
+		t.Fatalf("GetBody() before release = %q, want %q", redirectPayload, wantBody)
+	}
+	originalBody := request.Body
 
-	releaseRequestReplay(parsed, original, response)
+	releaseCommittedRequestReplay(input.Request, replay)
 
-	if parsed.Body != nil {
+	if input.Request.Body != nil {
 		t.Fatal("ParsedRequest.Body still retains the replay buffer")
 	}
-	for name, request := range map[string]*http.Request{"original": original, "response": response.Request} {
-		if request.Body != nil || request.GetBody != nil {
-			t.Fatalf("%s request still retains Body/GetBody", name)
-		}
+	if request.Body != originalBody || request.GetBody == nil {
+		t.Fatal("committed release mutated fields owned by the HTTP transport")
+	}
+	activeBody, err := io.ReadAll(request.Body)
+	if err != nil {
+		t.Fatalf("read active request body: %v", err)
+	}
+	if !bytes.Equal(activeBody, wantBody) {
+		t.Fatalf("active request body = %q, want %q", activeBody, wantBody)
+	}
+	replayed, err := request.GetBody()
+	if err != nil {
+		t.Fatalf("GetBody() after release error = %v", err)
+	}
+	futureBody, err := io.ReadAll(replayed)
+	_ = replayed.Close()
+	if err != nil {
+		t.Fatalf("read GetBody() after release: %v", err)
+	}
+	if len(futureBody) != 0 {
+		t.Fatalf("GetBody() after release = %q, want empty", futureBody)
 	}
 }
 

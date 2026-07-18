@@ -61,7 +61,7 @@ func (forwarder *Forwarder) Forward(ctx context.Context, input ForwardInput) Ups
 	if forwarder == nil || forwarder.clients == nil || forwarder.redactor == nil || input.Dialect == nil || input.Request == nil {
 		return UpstreamResult{Err: fmt.Errorf("forward input is incomplete")}
 	}
-	request, wroteRequest, err := newUpstreamRequest(ctx, input, false)
+	request, wroteRequest, _, err := newUpstreamRequest(ctx, input, false)
 	if err != nil {
 		return UpstreamResult{Err: err}
 	}
@@ -101,7 +101,7 @@ func (forwarder *Forwarder) ForwardStream(
 
 	deadline := newFirstEventDeadline(ctx, input.Group.Timeouts.FirstByte)
 	defer deadline.stop()
-	request, wroteRequest, err := newUpstreamRequest(deadline.ctx, input, true)
+	request, wroteRequest, replay, err := newUpstreamRequest(deadline.ctx, input, true)
 	if err != nil {
 		return UpstreamResult{Err: err}
 	}
@@ -160,7 +160,7 @@ func (forwarder *Forwarder) ForwardStream(
 	}
 
 	result.Committed = true
-	releaseRequestReplay(input.Request, request, response)
+	releaseCommittedRequestReplay(input.Request, replay)
 	if err := commitStream(downstream, response.StatusCode, result.Header, prefix); err != nil {
 		result.Err = err
 		return result
@@ -175,33 +175,31 @@ func retryableBeforeCommit(parent context.Context) bool {
 	return parent != nil && parent.Err() == nil
 }
 
-func releaseRequestReplay(parsed *dialect.ParsedRequest, request *http.Request, response *http.Response) {
+func releaseCommittedRequestReplay(parsed *dialect.ParsedRequest, replay *requestReplay) {
 	if parsed != nil {
 		parsed.Body = nil
 	}
-	clearRequestReplay(request)
-	if response != nil && response.Request != request {
-		clearRequestReplay(response.Request)
+	if replay != nil {
+		replay.release()
 	}
 }
 
-func clearRequestReplay(request *http.Request) {
-	if request == nil {
-		return
-	}
-	request.Body = nil
-	request.GetBody = nil
-}
-
-func newUpstreamRequest(ctx context.Context, input ForwardInput, stream bool) (*http.Request, *atomic.Bool, error) {
+func newUpstreamRequest(
+	ctx context.Context,
+	input ForwardInput,
+	stream bool,
+) (*http.Request, *atomic.Bool, *requestReplay, error) {
 	upstreamURL, err := input.Dialect.BuildUpstreamURL(input.Group.UpstreamURL, input.Request)
 	if err != nil {
-		return nil, nil, fmt.Errorf("build upstream URL: %w", err)
+		return nil, nil, nil, fmt.Errorf("build upstream URL: %w", err)
 	}
-	request, err := http.NewRequestWithContext(ctx, input.Request.Method, upstreamURL, bytes.NewReader(input.Request.Body))
+	replay := newRequestReplay(input.Request.Body)
+	request, err := http.NewRequestWithContext(ctx, input.Request.Method, upstreamURL, replay.open())
 	if err != nil {
-		return nil, nil, fmt.Errorf("create upstream request: %w", err)
+		return nil, nil, nil, fmt.Errorf("create upstream request: %w", err)
 	}
+	request.ContentLength = int64(len(input.Request.Body))
+	request.GetBody = func() (io.ReadCloser, error) { return replay.open(), nil }
 	request.Header = cloneEndToEndHeaders(input.Request.Header)
 	removeDownstreamCredentials(request.Header)
 	dialect.ApplyCredential(input.Dialect, request.Header, input.APIKey, input.Group.HeaderRules)
@@ -215,7 +213,7 @@ func newUpstreamRequest(ctx context.Context, input ForwardInput, stream bool) (*
 	wroteRequest := &atomic.Bool{}
 	trace := &httptrace.ClientTrace{WroteRequest: func(httptrace.WroteRequestInfo) { wroteRequest.Store(true) }}
 	request = request.WithContext(httptrace.WithClientTrace(request.Context(), trace))
-	return request, wroteRequest, nil
+	return request, wroteRequest, replay, nil
 }
 
 func (forwarder *Forwarder) prepareErrorBody(headers http.Header, wire []byte, apiKey string) ([]byte, []byte) {
