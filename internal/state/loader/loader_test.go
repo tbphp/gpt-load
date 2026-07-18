@@ -46,6 +46,112 @@ func TestLoaderLoadsEmptyMigratedDatabase(t *testing.T) {
 	}
 }
 
+func TestBuildCompileInputReadsUncommittedTransactionState(t *testing.T) {
+	db := openMigratedDatabase(t)
+	tx := db.Begin()
+	if tx.Error != nil {
+		t.Fatalf("Begin() error = %v", tx.Error)
+	}
+	t.Cleanup(func() {
+		_ = tx.Rollback().Error
+	})
+
+	group := models.Group{
+		Name: "pending", UpstreamURL: "https://pending.example",
+		Signature: "pending-signature", Protocols: models.JSON(`["openai"]`),
+		Models: models.JSON(`[{"id":"gpt-pending"}]`), Config: models.JSON(`{}`), Enabled: true,
+	}
+	mustCreate(t, tx, &group)
+	mustCreate(t, tx, &models.AccessKey{
+		Name: "pending", KeyValue: "cipher", KeyHash: "pending-hash",
+		Status: "active", Filters: models.JSON(fmt.Sprintf(`{"groups":[%d]}`, group.ID)),
+	})
+
+	input, err := loader.BuildCompileInput(context.Background(), tx)
+	if err != nil {
+		t.Fatalf("BuildCompileInput() error = %v", err)
+	}
+	if len(input.Groups) != 1 || len(input.AccessKeys) != 1 {
+		t.Fatalf("input = %#v, want one pending group and access key", input)
+	}
+}
+
+func TestBuildCompileInputReturnsIndependentData(t *testing.T) {
+	db := openMigratedDatabase(t)
+	mustCreate(t, db, &models.SystemSetting{Key: "connect_timeout", Value: "20"})
+	group := createRuntimeGroup(t, db, "owned", protocol.OpenAI, "gpt-owned")
+	if err := db.Model(&group).Update("config", models.JSON(`{"request_timeout":30}`)).Error; err != nil {
+		t.Fatalf("update group config: %v", err)
+	}
+	mustCreate(t, db, &models.AccessKey{
+		Name: "owned", KeyValue: "cipher", KeyHash: "owned-hash", Status: "active",
+		Filters: models.JSON(fmt.Sprintf(`{"groups":[%d],"protocols":["openai"],"models":["gpt-owned"]}`, group.ID)),
+	})
+
+	first, err := loader.BuildCompileInput(context.Background(), db)
+	if err != nil {
+		t.Fatalf("first BuildCompileInput() error = %v", err)
+	}
+	first.SystemSettings["connect_timeout"] = 99
+	first.Groups[0].Protocols[0] = protocol.Anthropic
+	first.Groups[0].Settings["request_timeout"] = 99
+	first.AccessKeys[0].Filters.Groups[999] = struct{}{}
+	first.AccessKeys[0].Filters.Models["mutated"] = struct{}{}
+
+	second, err := loader.BuildCompileInput(context.Background(), db)
+	if err != nil {
+		t.Fatalf("second BuildCompileInput() error = %v", err)
+	}
+	if got := fmt.Sprint(second.SystemSettings["connect_timeout"]); got != "20" {
+		t.Fatalf("connect_timeout = %q, want 20", got)
+	}
+	if second.Groups[0].Protocols[0] != protocol.OpenAI {
+		t.Fatalf("protocol = %q, want openai", second.Groups[0].Protocols[0])
+	}
+	if got := fmt.Sprint(second.Groups[0].Settings["request_timeout"]); got != "30" {
+		t.Fatalf("request_timeout = %q, want 30", got)
+	}
+	if _, ok := second.AccessKeys[0].Filters.Groups[999]; ok {
+		t.Fatal("second input retained mutated group filter")
+	}
+	if _, ok := second.AccessKeys[0].Filters.Models["mutated"]; ok {
+		t.Fatal("second input retained mutated model filter")
+	}
+}
+
+func TestBuildCompileInputDoesNotQueryUpstreamKeys(t *testing.T) {
+	db := openMigratedDatabase(t)
+	group := createRuntimeGroup(t, db, "query-boundary", protocol.OpenAI, "gpt-query")
+	mustCreate(t, db, &models.AccessKey{
+		Name: "query-boundary", KeyValue: "cipher", KeyHash: "query-boundary-hash",
+		Status: "active", Filters: models.JSON(`{}`),
+	})
+	mustCreate(t, db, &models.UpstreamKey{
+		GroupID: group.ID, KeyValue: "upstream-cipher", KeyHash: "upstream-query-hash",
+		Status: models.UpstreamKeyStatusActive,
+	})
+
+	const callbackName = "test:build_compile_input_tables"
+	seen := make(map[string]int)
+	if err := db.Callback().Query().After("gorm:query").Register(callbackName, func(tx *gorm.DB) {
+		seen[tx.Statement.Table]++
+	}); err != nil {
+		t.Fatalf("register query callback: %v", err)
+	}
+
+	if _, err := loader.BuildCompileInput(context.Background(), db); err != nil {
+		t.Fatalf("BuildCompileInput() error = %v", err)
+	}
+	if seen["upstream_keys"] != 0 {
+		t.Fatalf("upstream_keys query count = %d, want 0", seen["upstream_keys"])
+	}
+	for _, table := range []string{"system_settings", "groups", "access_keys"} {
+		if seen[table] != 1 {
+			t.Errorf("%s query count = %d, want 1; all=%#v", table, seen[table], seen)
+		}
+	}
+}
+
 func TestLoaderMapsSystemAndGroupRows(t *testing.T) {
 	db := openMigratedDatabase(t)
 	mustCreate(t, db, &models.SystemSetting{Key: "connect_timeout", Value: "20"})

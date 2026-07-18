@@ -101,6 +101,9 @@ func TestLoadRejectsInvalidRequiredAndNumericValues(t *testing.T) {
 		env  map[string]string
 	}{
 		{name: "missing auth key", env: map[string]string{}},
+		{name: "whitespace-only auth key", env: map[string]string{"AUTH_KEY": "   "}},
+		{name: "auth key with internal space", env: map[string]string{"AUTH_KEY": "admin key"}},
+		{name: "auth key with tab", env: map[string]string{"AUTH_KEY": "admin\tkey"}},
 		{name: "invalid port", env: map[string]string{"AUTH_KEY": "x", "PORT": "nope"}},
 		{name: "port out of range", env: map[string]string{"AUTH_KEY": "x", "PORT": "70000"}},
 		{name: "invalid shutdown timeout", env: map[string]string{"AUTH_KEY": "x", "GRACEFUL_SHUTDOWN_TIMEOUT": "0"}},

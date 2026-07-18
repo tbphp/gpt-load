@@ -719,7 +719,7 @@ func TestHandlerSkipsCandidateChangedAfterCollection(t *testing.T) {
 				mutate:      func() { tt.mutate(t, registry, keyService) },
 			}
 			openAI := dialect.NewOpenAI(http.DefaultClient)
-			handler := NewHandler(manager, registry, keyService, forwarder, NewDialectSet(openAI))
+			handler := NewHandler(manager, registry, keyService, forwarder, dialect.NewSet(openAI))
 			handler.registry = runtimeRegistry
 			handler.newRandom = func() *rand.Rand { return rand.New(rand.NewSource(1)) }
 			engine := gin.New()
@@ -789,7 +789,7 @@ func newRealGatewayEngine(t *testing.T, upstreamURL string, upstreamKeys ...stri
 		registry,
 		keyService,
 		NewForwarder(clients, redact.New()),
-		NewDialectSet(openAI),
+		dialect.NewSet(openAI),
 	)
 	handler.newRandom = func() *rand.Rand { return rand.New(rand.NewSource(1)) }
 	engine := gin.New()
@@ -847,7 +847,7 @@ func newHandlerTestRuntime(
 	}
 
 	openAI := dialect.NewOpenAI(http.DefaultClient)
-	handler := NewHandler(manager, registry, keyService, forwarder, NewDialectSet(openAI))
+	handler := NewHandler(manager, registry, keyService, forwarder, dialect.NewSet(openAI))
 	handler.newRandom = func() *rand.Rand { return rand.New(rand.NewSource(1)) }
 	engine := gin.New()
 	handler.RegisterRoutes(engine)

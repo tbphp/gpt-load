@@ -487,7 +487,7 @@ func newStreamingGatewayEngine(t *testing.T, groups ...streamGatewayGroup) (*gin
 		registry,
 		keyService,
 		NewForwarder(clients, redact.New()),
-		NewDialectSet(dialect.NewOpenAI(http.DefaultClient)),
+		dialect.NewSet(dialect.NewOpenAI(http.DefaultClient)),
 	)
 	handler.newRandom = func() *rand.Rand { return rand.New(zeroSource{}) }
 	engine := gin.New()

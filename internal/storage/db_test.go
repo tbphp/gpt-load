@@ -1,6 +1,7 @@
 package storage_test
 
 import (
+	"context"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -123,6 +124,38 @@ func TestOpenCreatesSQLiteDatabase(t *testing.T) {
 
 	if err := sqlDB.Ping(); err != nil {
 		t.Fatalf("Ping() error = %v", err)
+	}
+}
+
+func TestOpenConfiguresParameterizedSQLLogging(t *testing.T) {
+	t.Parallel()
+
+	db, err := storage.Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open(:memory:) error = %v", err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("db.DB() error = %v", err)
+	}
+	t.Cleanup(func() {
+		if err := sqlDB.Close(); err != nil {
+			t.Errorf("close database: %v", err)
+		}
+	})
+
+	filter, ok := db.Logger.(gorm.ParamsFilter)
+	if !ok {
+		t.Fatalf("database logger %T does not implement gorm.ParamsFilter", db.Logger)
+	}
+	const query = "INSERT INTO secrets(value) VALUES (?)"
+	const secret = "known-plaintext-secret"
+	filteredQuery, params := filter.ParamsFilter(context.Background(), query, secret)
+	if filteredQuery != query {
+		t.Fatalf("filtered query = %q, want %q", filteredQuery, query)
+	}
+	if len(params) != 0 {
+		t.Fatalf("parameterized SQL logger retained %d parameter(s), want 0", len(params))
 	}
 }
 

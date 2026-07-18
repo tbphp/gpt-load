@@ -14,18 +14,20 @@ import (
 	"gorm.io/gorm"
 
 	"gpt-load/internal/app"
+	"gpt-load/internal/control"
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/gateway"
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/platform/encryption"
 	"gpt-load/internal/platform/httpclient"
+	"gpt-load/internal/platform/i18n"
 	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/state"
 	"gpt-load/internal/storage"
 	"gpt-load/internal/storage/store"
 )
 
-func TestBuildContainerResolvesS5DependencyGraph(t *testing.T) {
+func TestBuildContainerResolvesS6DependencyGraph(t *testing.T) {
 	dataDir := t.TempDir()
 	t.Setenv("AUTH_KEY", "test-auth-key")
 	t.Setenv("DATA_DIR", dataDir)
@@ -51,7 +53,9 @@ func TestBuildContainerResolvesS5DependencyGraph(t *testing.T) {
 		runtimeState app.RuntimeStateLoader,
 		_ *gateway.Handler,
 		attemptForwarder gateway.AttemptForwarder,
-		_ gateway.DialectSet,
+		_ dialect.Set,
+		_ *control.Service,
+		_ *control.Server,
 		_ *httpclient.HTTPClientManager,
 		_ *redact.Redactor,
 		_ *dialect.OpenAI,
@@ -82,13 +86,68 @@ func TestBuildContainerResolvesS5DependencyGraph(t *testing.T) {
 		resolved = true
 	})
 	if err != nil {
-		t.Fatalf("resolve S5 dependency graph: %v", err)
+		t.Fatalf("resolve S6 dependency graph: %v", err)
 	}
 	if !resolved {
-		t.Fatal("S5 dependency graph was not invoked")
+		t.Fatal("S6 dependency graph was not invoked")
 	}
 	if _, err := os.Stat(filepath.Join(dataDir, encryption.KeyFileName)); err != nil {
 		t.Fatalf("container did not initialize encryption keyfile: %v", err)
+	}
+}
+
+func TestBuildContainerRegistersS6ControlRoutesWithoutAffectingGateway(t *testing.T) {
+	t.Setenv("AUTH_KEY", "test-auth-key")
+	t.Setenv("DATA_DIR", t.TempDir())
+	t.Setenv("DATABASE_DSN", ":memory:")
+	t.Setenv("ENCRYPTION_KEY", "test-master-key-long")
+	t.Setenv("REDIS_DSN", "")
+	if err := i18n.Init(); err != nil {
+		t.Fatalf("i18n.Init() error = %v", err)
+	}
+
+	dependencyContainer, err := BuildContainer()
+	if err != nil {
+		t.Fatalf("BuildContainer() error = %v", err)
+	}
+	err = dependencyContainer.Invoke(func(
+		engine *gin.Engine,
+		db *gorm.DB,
+		runtimeState app.RuntimeStateLoader,
+	) {
+		if err := storage.AutoMigrate(db); err != nil {
+			t.Fatalf("AutoMigrate() error = %v", err)
+		}
+		if err := runtimeState.Load(context.Background()); err != nil {
+			t.Fatalf("runtimeState.Load() error = %v", err)
+		}
+
+		groupsRecorder := httptest.NewRecorder()
+		groupsRequest := httptest.NewRequest(http.MethodGet, "/api/groups", nil)
+		groupsRequest.Header.Set("Authorization", "Bearer test-auth-key")
+		engine.ServeHTTP(groupsRecorder, groupsRequest)
+		if groupsRecorder.Code != http.StatusOK {
+			t.Fatalf("groups status = %d, want 200; body=%s", groupsRecorder.Code, groupsRecorder.Body.String())
+		}
+
+		gatewayRecorder := httptest.NewRecorder()
+		gatewayRequest := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"gpt-4o"}`))
+		gatewayRequest.Header.Set("Authorization", "Bearer test-auth-key")
+		engine.ServeHTTP(gatewayRecorder, gatewayRequest)
+		if gatewayRecorder.Code != http.StatusUnauthorized || !strings.Contains(gatewayRecorder.Body.String(), "invalid_access_key") {
+			t.Fatalf("gateway response = %d %s, want data-plane 401", gatewayRecorder.Code, gatewayRecorder.Body.String())
+		}
+
+		unknownRecorder := httptest.NewRecorder()
+		unknownRequest := httptest.NewRequest(http.MethodGet, "/api/unknown", nil)
+		unknownRequest.Header.Set("Authorization", "Bearer test-auth-key")
+		engine.ServeHTTP(unknownRecorder, unknownRequest)
+		if unknownRecorder.Code != http.StatusUnauthorized || !strings.Contains(unknownRecorder.Body.String(), "invalid_access_key") {
+			t.Fatalf("unknown /api response = %d %s, want documented gateway NoRoute 401", unknownRecorder.Code, unknownRecorder.Body.String())
+		}
+	})
+	if err != nil {
+		t.Fatalf("resolve S6 engine: %v", err)
 	}
 }
 

@@ -15,7 +15,6 @@ import (
 	"gpt-load/internal/health"
 	"gpt-load/internal/platform/encryption"
 	"gpt-load/internal/platform/utils"
-	"gpt-load/internal/protocol"
 	"gpt-load/internal/scheduler"
 	"gpt-load/internal/state"
 )
@@ -42,22 +41,12 @@ type runtimeKeyRegistry interface {
 	ActiveEncryptedValue(keyID, expectedGroupID uint) (string, bool)
 }
 
-type DialectSet map[protocol.Protocol]dialect.Dialect
-
-func NewDialectSet(openAI *dialect.OpenAI) DialectSet {
-	dialects := make(DialectSet)
-	if openAI != nil {
-		dialects[protocol.OpenAI] = openAI
-	}
-	return dialects
-}
-
 type Handler struct {
 	manager    *state.Manager
 	registry   runtimeKeyRegistry
 	encryption encryption.Service
 	forwarder  AttemptForwarder
-	dialects   DialectSet
+	dialects   dialect.Set
 	newRandom  func() *rand.Rand
 }
 
@@ -66,7 +55,7 @@ func NewHandler(
 	registry *state.KeyRegistry,
 	encryptionService encryption.Service,
 	forwarder AttemptForwarder,
-	dialects DialectSet,
+	dialects dialect.Set,
 ) *Handler {
 	return &Handler{
 		manager: manager, registry: registry, encryption: encryptionService,

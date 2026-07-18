@@ -2,13 +2,16 @@ package storage
 
 import (
 	"fmt"
+	"log"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 
 	"gpt-load/internal/storage/models"
 )
@@ -19,6 +22,13 @@ const CurrentSchemaVersion uint = 1
 type schemaInfo struct {
 	Version uint `gorm:"primaryKey;autoIncrement:false"`
 }
+
+var databaseLogger = logger.New(log.New(os.Stdout, "\r\n", log.LstdFlags), logger.Config{
+	SlowThreshold:        200 * time.Millisecond,
+	LogLevel:             logger.Warn,
+	ParameterizedQueries: true,
+	Colorful:             true,
+})
 
 func (schemaInfo) TableName() string {
 	return "schema_info"
@@ -35,7 +45,7 @@ func Open(dsn string) (*gorm.DB, error) {
 		return nil, err
 	}
 
-	db, err := gorm.Open(sqlite.Open(withForeignKeysEnabled(dsn)), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(withForeignKeysEnabled(dsn)), &gorm.Config{Logger: databaseLogger})
 	if err != nil {
 		return nil, fmt.Errorf("open SQLite database: %w", err)
 	}

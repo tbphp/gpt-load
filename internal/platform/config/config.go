@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/joho/godotenv"
 )
@@ -81,6 +82,10 @@ func Load() (*Config, error) {
 	authKey := os.Getenv("AUTH_KEY")
 	if authKey == "" {
 		return nil, fmt.Errorf("AUTH_KEY is required")
+	}
+	fields := strings.Fields(authKey)
+	if len(fields) != 1 || fields[0] != authKey {
+		return nil, fmt.Errorf("AUTH_KEY must not contain whitespace")
 	}
 
 	dataDir := valueOrDefault("DATA_DIR", defaultDataDir)

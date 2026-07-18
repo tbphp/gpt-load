@@ -24,11 +24,10 @@ type Loader struct {
 	registry *state.KeyRegistry
 }
 
-type storedRows struct {
-	settings     []models.SystemSetting
-	groups       []models.Group
-	accessKeys   []models.AccessKey
-	upstreamKeys []models.UpstreamKey
+type compileRows struct {
+	settings   []models.SystemSetting
+	groups     []models.Group
+	accessKeys []models.AccessKey
 }
 
 type modelDTO struct {
@@ -86,39 +85,56 @@ func (l *Loader) Load(ctx context.Context) error {
 	return nil
 }
 
-func (l *Loader) queryRows(ctx context.Context) (storedRows, error) {
-	db := l.db.WithContext(ctx)
-	var rows storedRows
+func queryCompileRows(ctx context.Context, db *gorm.DB) (compileRows, error) {
+	db = db.WithContext(ctx)
+	var rows compileRows
 	if err := db.Order("key ASC").Find(&rows.settings).Error; err != nil {
-		return storedRows{}, fmt.Errorf("query system settings: %w", err)
+		return compileRows{}, fmt.Errorf("query system settings: %w", err)
 	}
 	if err := db.Order("id ASC").Find(&rows.groups).Error; err != nil {
-		return storedRows{}, fmt.Errorf("query groups: %w", err)
+		return compileRows{}, fmt.Errorf("query groups: %w", err)
 	}
 	if err := db.Order("id ASC").Find(&rows.accessKeys).Error; err != nil {
-		return storedRows{}, fmt.Errorf("query access keys: %w", err)
-	}
-	if err := db.Order("id ASC").Find(&rows.upstreamKeys).Error; err != nil {
-		return storedRows{}, fmt.Errorf("query upstream keys: %w", err)
+		return compileRows{}, fmt.Errorf("query access keys: %w", err)
 	}
 	return rows, nil
 }
 
-func (l *Loader) read(ctx context.Context) (state.CompileInput, []state.KeyEntry, error) {
-	rows, err := l.queryRows(ctx)
+func queryUpstreamKeys(ctx context.Context, db *gorm.DB) ([]models.UpstreamKey, error) {
+	var rows []models.UpstreamKey
+	if err := db.WithContext(ctx).Order("id ASC").Find(&rows).Error; err != nil {
+		return nil, fmt.Errorf("query upstream keys: %w", err)
+	}
+	return rows, nil
+}
+
+// BuildCompileInput maps persisted configuration rows into a runtime compiler input.
+func BuildCompileInput(ctx context.Context, db *gorm.DB) (state.CompileInput, error) {
+	rows, err := queryCompileRows(ctx, db)
 	if err != nil {
-		return state.CompileInput{}, nil, err
+		return state.CompileInput{}, err
 	}
 	input, err := mapSystemAndGroups(rows)
 	if err != nil {
-		return state.CompileInput{}, nil, err
+		return state.CompileInput{}, err
 	}
-	accessKeys, err := mapAccessKeys(rows.accessKeys)
+	input.AccessKeys, err = mapAccessKeys(rows.accessKeys)
+	if err != nil {
+		return state.CompileInput{}, err
+	}
+	return input, nil
+}
+
+func (l *Loader) read(ctx context.Context) (state.CompileInput, []state.KeyEntry, error) {
+	input, err := BuildCompileInput(ctx, l.db)
 	if err != nil {
 		return state.CompileInput{}, nil, err
 	}
-	input.AccessKeys = accessKeys
-	return input, mapUpstreamKeys(rows.upstreamKeys), nil
+	upstreamKeys, err := queryUpstreamKeys(ctx, l.db)
+	if err != nil {
+		return state.CompileInput{}, nil, err
+	}
+	return input, mapUpstreamKeys(upstreamKeys), nil
 }
 
 func decodeJSON(raw models.JSON, target any) error {
@@ -164,7 +180,7 @@ func decodeSettingValue(raw string) (any, error) {
 	return value, nil
 }
 
-func mapSystemAndGroups(rows storedRows) (state.CompileInput, error) {
+func mapSystemAndGroups(rows compileRows) (state.CompileInput, error) {
 	input := state.CompileInput{
 		SystemSettings: make(config.Settings, len(rows.settings)),
 		Groups:         make([]state.GroupConfig, 0, len(rows.groups)),

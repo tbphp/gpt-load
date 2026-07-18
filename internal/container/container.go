@@ -11,6 +11,7 @@ import (
 	"gorm.io/gorm"
 
 	"gpt-load/internal/app"
+	"gpt-load/internal/control"
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/gateway"
 	"gpt-load/internal/platform/config"
@@ -59,10 +60,14 @@ func BuildContainer() (*dig.Container, error) {
 			})
 		},
 		dialect.NewOpenAI,
-		gateway.NewDialectSet,
+		func(openAI *dialect.OpenAI) dialect.Set {
+			return dialect.NewSet(openAI)
+		},
 		gateway.NewForwarder,
 		func(forwarder *gateway.Forwarder) gateway.AttemptForwarder { return forwarder },
 		gateway.NewHandler,
+		control.NewService,
+		control.NewServer,
 		func(db *gorm.DB, manager *state.Manager, registry *state.KeyRegistry) app.RuntimeStateLoader {
 			return stateloader.New(db, manager, registry)
 		},
@@ -74,10 +79,15 @@ func BuildContainer() (*dig.Container, error) {
 			return nil, err
 		}
 	}
-	if err := dependencyContainer.Invoke(func(engine *gin.Engine, handler *gateway.Handler) {
-		handler.RegisterRoutes(engine)
+	if err := dependencyContainer.Invoke(func(
+		engine *gin.Engine,
+		gatewayHandler *gateway.Handler,
+		controlServer *control.Server,
+	) {
+		gatewayHandler.RegisterRoutes(engine)
+		controlServer.RegisterRoutes(engine)
 	}); err != nil {
-		return nil, fmt.Errorf("register gateway routes: %w", err)
+		return nil, fmt.Errorf("register HTTP routes: %w", err)
 	}
 	return dependencyContainer, nil
 }
