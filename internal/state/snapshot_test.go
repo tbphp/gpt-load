@@ -40,7 +40,7 @@ func TestCompileBuildsIDOnlyCandidatesAndActiveAccessKeys(t *testing.T) {
 		t.Fatalf("Compile() error = %v", err)
 	}
 	if _, ok := snapshot.Candidates[protocol.OpenAI]["model-alias"]; ok {
-		t.Fatal("alias unexpectedly entered the M1 candidate index")
+		t.Fatal("alias unexpectedly entered the candidate index")
 	}
 	targets := snapshot.Candidates[protocol.OpenAI]["model-real"]
 	if len(targets) != 1 || targets[0] != (RouteTarget{GroupID: 1, UpstreamModelID: "model-real"}) {

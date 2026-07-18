@@ -138,7 +138,7 @@ func TestIteratorNextNeverRepeatsAndExhausts(t *testing.T) {
 	}
 }
 
-func TestIteratorUsesEqualWeightsInM1(t *testing.T) {
+func TestIteratorUsesEqualWeights(t *testing.T) {
 	heavy, light := 100, 1
 	source := fakeKeySource{keys: []state.KeyMeta{
 		{ID: 1, GroupID: 1, WeightManual: &heavy},

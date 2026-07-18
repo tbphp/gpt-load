@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestLoadUsesM0Defaults(t *testing.T) {
+func TestLoadUsesDefaultConfiguration(t *testing.T) {
 	clearEnvironment(t)
 	t.Setenv("AUTH_KEY", "test-auth-key")
 

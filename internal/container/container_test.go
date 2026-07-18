@@ -28,7 +28,7 @@ import (
 	"gpt-load/internal/storage/store"
 )
 
-func TestBuildContainerResolvesAllM1Dialects(t *testing.T) {
+func TestBuildContainerResolvesAllDialects(t *testing.T) {
 	t.Setenv("AUTH_KEY", "test-auth-key")
 	t.Setenv("DATA_DIR", t.TempDir())
 	t.Setenv("DATABASE_DSN", ":memory:")
@@ -61,11 +61,11 @@ func TestBuildContainerResolvesAllM1Dialects(t *testing.T) {
 		}
 	})
 	if err != nil {
-		t.Fatalf("resolve M1 dialects: %v", err)
+		t.Fatalf("resolve dialects: %v", err)
 	}
 }
 
-func TestBuildContainerResolvesS6DependencyGraph(t *testing.T) {
+func TestBuildContainerResolvesRuntimeDependencies(t *testing.T) {
 	dataDir := t.TempDir()
 	t.Setenv("AUTH_KEY", "test-auth-key")
 	t.Setenv("DATA_DIR", dataDir)
@@ -124,17 +124,17 @@ func TestBuildContainerResolvesS6DependencyGraph(t *testing.T) {
 		resolved = true
 	})
 	if err != nil {
-		t.Fatalf("resolve S6 dependency graph: %v", err)
+		t.Fatalf("resolve runtime dependency graph: %v", err)
 	}
 	if !resolved {
-		t.Fatal("S6 dependency graph was not invoked")
+		t.Fatal("runtime dependency graph was not invoked")
 	}
 	if _, err := os.Stat(filepath.Join(dataDir, encryption.KeyFileName)); err != nil {
 		t.Fatalf("container did not initialize encryption keyfile: %v", err)
 	}
 }
 
-func TestBuildContainerRegistersS6ControlRoutesWithoutAffectingGateway(t *testing.T) {
+func TestBuildContainerRegistersControlRoutesWithoutAffectingGateway(t *testing.T) {
 	t.Setenv("AUTH_KEY", "test-auth-key")
 	t.Setenv("DATA_DIR", t.TempDir())
 	t.Setenv("DATABASE_DSN", ":memory:")
@@ -185,11 +185,11 @@ func TestBuildContainerRegistersS6ControlRoutesWithoutAffectingGateway(t *testin
 		}
 	})
 	if err != nil {
-		t.Fatalf("resolve S6 engine: %v", err)
+		t.Fatalf("resolve engine with control routes: %v", err)
 	}
 }
 
-func TestBuildContainerRegistersS5GatewayRoute(t *testing.T) {
+func TestBuildContainerRegistersGatewayRoute(t *testing.T) {
 	dataDir := t.TempDir()
 	t.Setenv("AUTH_KEY", "test-auth-key")
 	t.Setenv("DATA_DIR", dataDir)
