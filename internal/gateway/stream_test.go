@@ -6,10 +6,36 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 )
+
+func TestBufferFirstSSEEventAcceptsEventAtHardLimit(t *testing.T) {
+	const framingBytes = len("data: \n\n")
+	input := "data: " + strings.Repeat("x", maxFirstSSEEventBytes-framingBytes) + "\n\n"
+
+	prefix, err := bufferFirstSSEEvent(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("bufferFirstSSEEvent() error = %v", err)
+	}
+	if len(prefix) != maxFirstSSEEventBytes || string(prefix) != input {
+		t.Fatalf("prefix length/content = %d/%t, want %d/true", len(prefix), string(prefix) == input, maxFirstSSEEventBytes)
+	}
+}
+
+func TestBufferFirstSSEEventRejectsIncompletePrefixAtHardLimit(t *testing.T) {
+	input := ":" + strings.Repeat("x", maxFirstSSEEventBytes-1)
+
+	prefix, err := bufferFirstSSEEvent(strings.NewReader(input))
+	if !errors.Is(err, errFirstSSEEventTooLarge) {
+		t.Fatalf("bufferFirstSSEEvent() error = %v, want first event too large", err)
+	}
+	if prefix != nil {
+		t.Fatalf("prefix length = %d, want nil on overflow", len(prefix))
+	}
+}
 
 func TestBufferFirstSSEEventRejectsIncompleteStream(t *testing.T) {
 	tests := []struct {

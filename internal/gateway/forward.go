@@ -109,7 +109,7 @@ func (forwarder *Forwarder) ForwardStream(
 	if err != nil {
 		return UpstreamResult{
 			Err:            streamAttemptError(ctx, deadline.ctx, fmt.Errorf("perform upstream stream request: %w", err)),
-			RequestWritten: wroteRequest.Load(), RetryableBeforeCommit: true,
+			RequestWritten: wroteRequest.Load(), RetryableBeforeCommit: retryableBeforeCommit(ctx),
 		}
 	}
 	defer response.Body.Close()
@@ -123,7 +123,7 @@ func (forwarder *Forwarder) ForwardStream(
 		body, overflow, readErr := readStreamingErrorBody(response.Body)
 		if readErr != nil {
 			result.Err = streamAttemptError(ctx, deadline.ctx, fmt.Errorf("read upstream stream error response: %w", readErr))
-			result.RetryableBeforeCommit = true
+			result.RetryableBeforeCommit = retryableBeforeCommit(ctx)
 			return result
 		}
 		if overflow {
@@ -136,28 +136,31 @@ func (forwarder *Forwarder) ForwardStream(
 
 	if !inspectableStreamEncoding(response.Header) {
 		result.Err = fmt.Errorf("%w: Content-Encoding %q", ErrUpstreamProtocol, response.Header.Values("Content-Encoding"))
-		result.RetryableBeforeCommit = true
+		result.RetryableBeforeCommit = retryableBeforeCommit(ctx)
 		return result
 	}
 
 	prefix, err := bufferFirstSSEEvent(response.Body)
 	if err != nil {
+		if errors.Is(err, errFirstSSEEventTooLarge) {
+			err = fmt.Errorf("%w: %w", ErrUpstreamProtocol, err)
+		}
 		result.Err = streamAttemptError(ctx, deadline.ctx, err)
-		result.RetryableBeforeCommit = true
+		result.RetryableBeforeCommit = retryableBeforeCommit(ctx)
 		return result
 	}
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		result.Err = ctxErr
-		result.RetryableBeforeCommit = true
 		return result
 	}
 	if !deadline.disarm() {
 		result.Err = streamAttemptError(ctx, deadline.ctx, context.DeadlineExceeded)
-		result.RetryableBeforeCommit = true
+		result.RetryableBeforeCommit = retryableBeforeCommit(ctx)
 		return result
 	}
 
 	result.Committed = true
+	releaseRequestReplay(input.Request, request, response)
 	if err := commitStream(downstream, response.StatusCode, result.Header, prefix); err != nil {
 		result.Err = err
 		return result
@@ -166,6 +169,28 @@ func (forwarder *Forwarder) ForwardStream(
 		result.Err = err
 	}
 	return result
+}
+
+func retryableBeforeCommit(parent context.Context) bool {
+	return parent != nil && parent.Err() == nil
+}
+
+func releaseRequestReplay(parsed *dialect.ParsedRequest, request *http.Request, response *http.Response) {
+	if parsed != nil {
+		parsed.Body = nil
+	}
+	clearRequestReplay(request)
+	if response != nil && response.Request != request {
+		clearRequestReplay(response.Request)
+	}
+}
+
+func clearRequestReplay(request *http.Request) {
+	if request == nil {
+		return
+	}
+	request.Body = nil
+	request.GetBody = nil
 }
 
 func newUpstreamRequest(ctx context.Context, input ForwardInput, stream bool) (*http.Request, *atomic.Bool, error) {

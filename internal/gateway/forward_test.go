@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -115,6 +116,27 @@ func TestForwardStreamRejectsUnsupportedSuccessEncodingBeforeCommit(t *testing.T
 	}
 }
 
+func TestForwardStreamRejectsOversizedFirstEventAsProtocolError(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "text/event-stream")
+		_, _ = writer.Write([]byte(":" + strings.Repeat("x", maxFirstSSEEventBytes)))
+	}))
+	defer upstream.Close()
+
+	forwarder := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New())
+	downstream := newRecordingResponseWriter()
+	result := forwarder.ForwardStream(context.Background(), streamForwardInput(upstream.URL), downstream)
+
+	if !errors.Is(result.Err, ErrUpstreamProtocol) ||
+		!errors.Is(result.Err, errFirstSSEEventTooLarge) ||
+		result.Committed || !result.RetryableBeforeCommit {
+		t.Fatalf("ForwardStream() result = %#v, want retryable pre-commit protocol error", result)
+	}
+	if downstream.status != 0 || downstream.body.Len() != 0 || downstream.flushes != 0 {
+		t.Fatalf("downstream was touched before oversized event rejection: %#v", downstream)
+	}
+}
+
 func TestForwardStreamReturnsSafeBoundedNonSuccessResponse(t *testing.T) {
 	const secret = "custom-upstream-secret"
 	tests := []struct {
@@ -191,6 +213,85 @@ func TestForwardStreamTimesOutBeforeCompleteFirstEvent(t *testing.T) {
 	case <-upstreamCanceled:
 	case <-time.After(time.Second):
 		t.Fatal("first-event timeout did not cancel upstream request")
+	}
+}
+
+func TestForwardStreamDoesNotRetryParentDeadline(t *testing.T) {
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancel()
+
+	forwarder := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New())
+	result := forwarder.ForwardStream(ctx, streamForwardInput("http://127.0.0.1:1"), newRecordingResponseWriter())
+
+	if !errors.Is(result.Err, context.DeadlineExceeded) {
+		t.Fatalf("ForwardStream() error = %v, want parent deadline", result.Err)
+	}
+	if result.RetryableBeforeCommit {
+		t.Fatalf("ForwardStream() marked parent deadline retryable: %#v", result)
+	}
+}
+
+func TestReleaseRequestReplayClearsEveryBodyOwner(t *testing.T) {
+	parsed := &dialect.ParsedRequest{Body: []byte("request body")}
+	original, err := http.NewRequest(http.MethodPost, "https://example.com/v1/chat/completions", bytes.NewReader(parsed.Body))
+	if err != nil {
+		t.Fatalf("http.NewRequest() error = %v", err)
+	}
+	redirected, err := http.NewRequest(http.MethodPost, "https://example.com/v1/redirected", bytes.NewReader(parsed.Body))
+	if err != nil {
+		t.Fatalf("http.NewRequest() redirected error = %v", err)
+	}
+	response := &http.Response{Request: redirected}
+
+	releaseRequestReplay(parsed, original, response)
+
+	if parsed.Body != nil {
+		t.Fatal("ParsedRequest.Body still retains the replay buffer")
+	}
+	for name, request := range map[string]*http.Request{"original": original, "response": response.Request} {
+		if request.Body != nil || request.GetBody != nil {
+			t.Fatalf("%s request still retains Body/GetBody", name)
+		}
+	}
+}
+
+func TestForwardStreamReleasesParsedBodyAfterCommit(t *testing.T) {
+	releaseUpstream := make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(releaseUpstream) }) }
+	defer release()
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		_, _ = io.Copy(io.Discard, request.Body)
+		writer.Header().Set("Content-Type", "text/event-stream")
+		_, _ = writer.Write([]byte("data: ready\n\n"))
+		writer.(http.Flusher).Flush()
+		<-releaseUpstream
+	}))
+	defer upstream.Close()
+
+	input := streamForwardInput(upstream.URL)
+	input.Request.Body = make([]byte, maxRequestBodyBytes)
+	forwarder := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New())
+	downstream := newRecordingResponseWriter()
+	done := make(chan UpstreamResult, 1)
+	go func() {
+		done <- forwarder.ForwardStream(context.Background(), input, downstream)
+	}()
+
+	waitForSignal(t, downstream.writes, "committed stream write")
+	if input.Request.Body != nil {
+		t.Fatalf("committed stream still retains %d request body bytes", len(input.Request.Body))
+	}
+	release()
+
+	select {
+	case result := <-done:
+		if result.Err != nil || !result.Committed {
+			t.Fatalf("ForwardStream() result = %#v", result)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("ForwardStream() did not finish after upstream release")
 	}
 }
 

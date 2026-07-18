@@ -11,11 +11,15 @@ import (
 	"time"
 )
 
-const streamReadBufferSize = 32 * 1024
+const (
+	streamReadBufferSize  = 32 * 1024
+	maxFirstSSEEventBytes = 1 << 20
+)
 
 var (
-	errIncompleteSSEEvent = errors.New("stream ended before the first SSE data event")
-	errStreamIdleTimeout  = errors.New("upstream stream idle timeout")
+	errIncompleteSSEEvent    = errors.New("stream ended before the first SSE data event")
+	errFirstSSEEventTooLarge = errors.New("first SSE data event exceeds size limit")
+	errStreamIdleTimeout     = errors.New("upstream stream idle timeout")
 )
 
 func bufferFirstSSEEvent(reader io.Reader) ([]byte, error) {
@@ -27,11 +31,18 @@ func bufferFirstSSEEvent(reader io.Reader) ([]byte, error) {
 	var buffered bytes.Buffer
 	chunk := make([]byte, streamReadBufferSize)
 	for {
-		read, err := reader.Read(chunk)
+		remaining := maxFirstSSEEventBytes - buffered.Len()
+		if remaining == 0 {
+			return nil, errFirstSSEEventTooLarge
+		}
+		read, err := reader.Read(chunk[:min(len(chunk), remaining)])
 		if read > 0 {
 			_, _ = buffered.Write(chunk[:read])
 			if _, found := scanner.Feed(chunk[:read]); found {
 				return buffered.Bytes(), nil
+			}
+			if buffered.Len() == maxFirstSSEEventBytes {
+				return nil, errFirstSSEEventTooLarge
 			}
 		}
 		if err != nil {

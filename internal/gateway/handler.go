@@ -151,6 +151,9 @@ func (handler *Handler) executeAttempts(
 	var lastTransport *UpstreamResult
 	attempts := 0
 	for attempts < maxAttempts {
+		if ginContext.Request.Context().Err() != nil {
+			return
+		}
 		selection, err := iterator.Next()
 		if errors.Is(err, scheduler.ErrExhausted) {
 			break
@@ -178,14 +181,14 @@ func (handler *Handler) executeAttempts(
 		} else {
 			result = handler.forwarder.Forward(ginContext.Request.Context(), input)
 		}
+		if result.Committed || ginContext.Request.Context().Err() != nil {
+			return
+		}
 		verdict := health.Judge(selectedDialect, health.Attempt{
 			StatusCode: result.StatusCode, Body: result.ClassificationBody,
 			Err: result.Err, RequestWritten: result.RequestWritten,
 			Committed: result.Committed, RetryableBeforeCommit: result.RetryableBeforeCommit,
 		})
-		if result.Committed {
-			return
-		}
 		if result.HasResponse() {
 			copied := result
 			lastResponse = &copied
