@@ -11,6 +11,7 @@ import (
 	"net/http/httptrace"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -29,12 +30,14 @@ type ForwardInput struct {
 }
 
 type UpstreamResult struct {
-	StatusCode         int
-	Header             http.Header
-	Body               []byte
-	ClassificationBody []byte
-	Err                error
-	RequestWritten     bool
+	StatusCode            int
+	Header                http.Header
+	Body                  []byte
+	ClassificationBody    []byte
+	Err                   error
+	RequestWritten        bool
+	Committed             bool
+	RetryableBeforeCommit bool
 }
 
 func (result UpstreamResult) HasResponse() bool {
@@ -46,6 +49,10 @@ type Forwarder struct {
 	redactor *redact.Redactor
 }
 
+const maxStreamingErrorBodyBytes = 64 << 10
+
+var ErrUpstreamProtocol = errors.New("upstream protocol error")
+
 func NewForwarder(clients *platformhttp.HTTPClientManager, redactor *redact.Redactor) *Forwarder {
 	return &Forwarder{clients: clients, redactor: redactor}
 }
@@ -54,24 +61,10 @@ func (forwarder *Forwarder) Forward(ctx context.Context, input ForwardInput) Ups
 	if forwarder == nil || forwarder.clients == nil || forwarder.redactor == nil || input.Dialect == nil || input.Request == nil {
 		return UpstreamResult{Err: fmt.Errorf("forward input is incomplete")}
 	}
-	upstreamURL, err := input.Dialect.BuildUpstreamURL(input.Group.UpstreamURL, input.Request)
+	request, wroteRequest, err := newUpstreamRequest(ctx, input, false)
 	if err != nil {
-		return UpstreamResult{Err: fmt.Errorf("build upstream URL: %w", err)}
+		return UpstreamResult{Err: err}
 	}
-	request, err := http.NewRequestWithContext(ctx, input.Request.Method, upstreamURL, bytes.NewReader(input.Request.Body))
-	if err != nil {
-		return UpstreamResult{Err: fmt.Errorf("create upstream request: %w", err)}
-	}
-	request.Header = cloneEndToEndHeaders(input.Request.Header)
-	removeDownstreamCredentials(request.Header)
-	dialect.ApplyCredential(input.Dialect, request.Header, input.APIKey, input.Group.HeaderRules)
-	if _, exists := request.Header["User-Agent"]; !exists {
-		request.Header["User-Agent"] = nil
-	}
-
-	var wroteRequest atomic.Bool
-	trace := &httptrace.ClientTrace{WroteRequest: func(httptrace.WroteRequestInfo) { wroteRequest.Store(true) }}
-	request = request.WithContext(httptrace.WithClientTrace(request.Context(), trace))
 	response, err := forwarder.clients.GetClient(nonStreamingClientConfig(input.Group.Timeouts)).Do(request)
 	if err != nil {
 		return UpstreamResult{Err: fmt.Errorf("perform upstream request: %w", err), RequestWritten: wroteRequest.Load()}
@@ -94,6 +87,110 @@ func (forwarder *Forwarder) Forward(ctx context.Context, input ForwardInput) Ups
 		result.ClassificationBody = safePlain
 	}
 	return result
+}
+
+func (forwarder *Forwarder) ForwardStream(
+	ctx context.Context,
+	input ForwardInput,
+	downstream http.ResponseWriter,
+) UpstreamResult {
+	if forwarder == nil || forwarder.clients == nil || forwarder.redactor == nil ||
+		input.Dialect == nil || input.Request == nil || downstream == nil {
+		return UpstreamResult{Err: fmt.Errorf("stream forward input is incomplete")}
+	}
+
+	deadline := newFirstEventDeadline(ctx, input.Group.Timeouts.FirstByte)
+	defer deadline.stop()
+	request, wroteRequest, err := newUpstreamRequest(deadline.ctx, input, true)
+	if err != nil {
+		return UpstreamResult{Err: err}
+	}
+	response, err := forwarder.clients.GetClient(streamingClientConfig(input.Group.Timeouts)).Do(request)
+	if err != nil {
+		return UpstreamResult{
+			Err:            streamAttemptError(ctx, deadline.ctx, fmt.Errorf("perform upstream stream request: %w", err)),
+			RequestWritten: wroteRequest.Load(), RetryableBeforeCommit: true,
+		}
+	}
+	defer response.Body.Close()
+
+	result := UpstreamResult{
+		StatusCode:     response.StatusCode,
+		Header:         cloneEndToEndHeaders(response.Header),
+		RequestWritten: true,
+	}
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		body, overflow, readErr := readStreamingErrorBody(response.Body)
+		if readErr != nil {
+			result.Err = streamAttemptError(ctx, deadline.ctx, fmt.Errorf("read upstream stream error response: %w", readErr))
+			result.RetryableBeforeCommit = true
+			return result
+		}
+		if overflow {
+			result.Body, result.ClassificationBody = failClosedErrorBody(result.Header)
+			return result
+		}
+		result.Body, result.ClassificationBody = forwarder.prepareErrorBody(result.Header, body, input.APIKey)
+		return result
+	}
+
+	if !inspectableStreamEncoding(response.Header) {
+		result.Err = fmt.Errorf("%w: Content-Encoding %q", ErrUpstreamProtocol, response.Header.Values("Content-Encoding"))
+		result.RetryableBeforeCommit = true
+		return result
+	}
+
+	prefix, err := bufferFirstSSEEvent(response.Body)
+	if err != nil {
+		result.Err = streamAttemptError(ctx, deadline.ctx, err)
+		result.RetryableBeforeCommit = true
+		return result
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		result.Err = ctxErr
+		result.RetryableBeforeCommit = true
+		return result
+	}
+	if !deadline.disarm() {
+		result.Err = streamAttemptError(ctx, deadline.ctx, context.DeadlineExceeded)
+		result.RetryableBeforeCommit = true
+		return result
+	}
+
+	result.Committed = true
+	if err := commitStream(downstream, response.StatusCode, result.Header, prefix); err != nil {
+		result.Err = err
+		return result
+	}
+	if err := pumpStream(deadline.ctx, response.Body, downstream, input.Group.Timeouts.StreamIdle); err != nil {
+		result.Err = err
+	}
+	return result
+}
+
+func newUpstreamRequest(ctx context.Context, input ForwardInput, stream bool) (*http.Request, *atomic.Bool, error) {
+	upstreamURL, err := input.Dialect.BuildUpstreamURL(input.Group.UpstreamURL, input.Request)
+	if err != nil {
+		return nil, nil, fmt.Errorf("build upstream URL: %w", err)
+	}
+	request, err := http.NewRequestWithContext(ctx, input.Request.Method, upstreamURL, bytes.NewReader(input.Request.Body))
+	if err != nil {
+		return nil, nil, fmt.Errorf("create upstream request: %w", err)
+	}
+	request.Header = cloneEndToEndHeaders(input.Request.Header)
+	removeDownstreamCredentials(request.Header)
+	dialect.ApplyCredential(input.Dialect, request.Header, input.APIKey, input.Group.HeaderRules)
+	if stream {
+		request.Header.Set("Accept-Encoding", "identity")
+	}
+	if _, exists := request.Header["User-Agent"]; !exists {
+		request.Header["User-Agent"] = nil
+	}
+
+	wroteRequest := &atomic.Bool{}
+	trace := &httptrace.ClientTrace{WroteRequest: func(httptrace.WroteRequestInfo) { wroteRequest.Store(true) }}
+	request = request.WithContext(httptrace.WithClientTrace(request.Context(), trace))
+	return request, wroteRequest, nil
 }
 
 func (forwarder *Forwarder) prepareErrorBody(headers http.Header, wire []byte, apiKey string) ([]byte, []byte) {
@@ -170,6 +267,105 @@ func nonStreamingClientConfig(timeouts state.TimeoutConfig) *platformhttp.Config
 	}
 }
 
+func streamingClientConfig(timeouts state.TimeoutConfig) *platformhttp.Config {
+	return &platformhttp.Config{
+		ConnectTimeout:        timeouts.Connect,
+		RequestTimeout:        0,
+		IdleConnTimeout:       90 * time.Second,
+		MaxIdleConns:          100,
+		MaxIdleConnsPerHost:   20,
+		ResponseHeaderTimeout: timeouts.FirstByte,
+		DisableCompression:    true,
+		WriteBufferSize:       32 * 1024,
+		ReadBufferSize:        32 * 1024,
+		ForceAttemptHTTP2:     true,
+		TLSHandshakeTimeout:   timeouts.Connect,
+		ExpectContinueTimeout: time.Second,
+	}
+}
+
+func inspectableStreamEncoding(headers http.Header) bool {
+	values := headers.Values("Content-Encoding")
+	if len(values) == 0 {
+		return true
+	}
+	if len(values) != 1 {
+		return false
+	}
+	encoding := strings.TrimSpace(values[0])
+	return encoding == "" || strings.EqualFold(encoding, "identity")
+}
+
+func readStreamingErrorBody(body io.Reader) ([]byte, bool, error) {
+	wire, err := io.ReadAll(io.LimitReader(body, maxStreamingErrorBodyBytes+1))
+	if err != nil {
+		return nil, false, err
+	}
+	if len(wire) > maxStreamingErrorBodyBytes {
+		return nil, true, nil
+	}
+	return wire, false, nil
+}
+
+func streamAttemptError(parent, attempt context.Context, fallback error) error {
+	if err := parent.Err(); err != nil {
+		return err
+	}
+	if cause := context.Cause(attempt); cause != nil {
+		return cause
+	}
+	return fallback
+}
+
+type firstEventDeadline struct {
+	ctx      context.Context
+	cancel   context.CancelCauseFunc
+	mu       sync.Mutex
+	timer    *time.Timer
+	disarmed bool
+	expired  bool
+}
+
+func newFirstEventDeadline(parent context.Context, timeout time.Duration) *firstEventDeadline {
+	ctx, cancel := context.WithCancelCause(parent)
+	deadline := &firstEventDeadline{ctx: ctx, cancel: cancel}
+	deadline.timer = time.AfterFunc(timeout, deadline.expire)
+	return deadline
+}
+
+func (deadline *firstEventDeadline) expire() {
+	deadline.mu.Lock()
+	defer deadline.mu.Unlock()
+	if deadline.disarmed {
+		return
+	}
+	deadline.expired = true
+	deadline.cancel(context.DeadlineExceeded)
+}
+
+func (deadline *firstEventDeadline) disarm() bool {
+	deadline.mu.Lock()
+	defer deadline.mu.Unlock()
+	if deadline.expired {
+		return false
+	}
+	deadline.disarmed = true
+	if deadline.timer != nil {
+		deadline.timer.Stop()
+	}
+	return true
+}
+
+func (deadline *firstEventDeadline) stop() {
+	deadline.mu.Lock()
+	defer deadline.mu.Unlock()
+	deadline.disarmed = true
+	if deadline.timer != nil {
+		deadline.timer.Stop()
+	}
+	deadline.cancel(context.Canceled)
+}
+
 var hopByHopHeaders = map[string]struct{}{
 	"Connection": {}, "Proxy-Connection": {}, "Keep-Alive": {},
 	"Proxy-Authenticate": {}, "Proxy-Authorization": {}, "Te": {},
@@ -191,7 +387,21 @@ func cloneEndToEndHeaders(source http.Header) http.Header {
 	for name := range hopByHopHeaders {
 		cloned.Del(name)
 	}
+	for name := range cloned {
+		if isDebugHeader(name) {
+			delete(cloned, name)
+		}
+	}
 	return cloned
+}
+
+func isDebugHeader(name string) bool {
+	for _, reserved := range debugHeaderNames {
+		if strings.EqualFold(name, reserved) {
+			return true
+		}
+	}
+	return false
 }
 
 func removeDownstreamCredentials(headers http.Header) {

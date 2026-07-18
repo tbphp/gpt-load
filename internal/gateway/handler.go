@@ -3,23 +3,38 @@ package gateway
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"math/rand"
+	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/health"
 	"gpt-load/internal/platform/encryption"
+	"gpt-load/internal/platform/utils"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/scheduler"
 	"gpt-load/internal/state"
 )
 
-const maxAttempts = 3
+const (
+	maxAttempts         = 3
+	maxRequestBodyBytes = int64(32 << 20)
+	debugHeaderGroup    = "X-GPTLoad-Group"
+	debugHeaderKey      = "X-GPTLoad-Key"
+	debugHeaderAttempts = "X-GPTLoad-Attempts"
+)
+
+var debugHeaderNames = []string{debugHeaderGroup, debugHeaderKey, debugHeaderAttempts}
+
+var errRequestTooLarge = errors.New("request body is too large")
 
 type AttemptForwarder interface {
 	Forward(context.Context, ForwardInput) UpstreamResult
+	ForwardStream(context.Context, ForwardInput, http.ResponseWriter) UpstreamResult
 }
 
 type runtimeKeyRegistry interface {
@@ -66,6 +81,7 @@ func (handler *Handler) RegisterRoutes(engine *gin.Engine) {
 }
 
 func (handler *Handler) Handle(ginContext *gin.Context) {
+	initializeDebugHeaders(ginContext.Writer.Header())
 	snapshot := handler.manager.Current()
 	accessKey, ok := authenticate(ginContext.Request, snapshot, handler.encryption)
 	if !ok {
@@ -79,8 +95,12 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 		return
 	}
 
-	body, err := io.ReadAll(ginContext.Request.Body)
+	body, err := readRequestBody(ginContext.Request.Body, maxRequestBodyBytes)
 	if err != nil {
+		if errors.Is(err, errRequestTooLarge) {
+			writeReason(ginContext, reasonRequestTooLarge)
+			return
+		}
 		writeReason(ginContext, reasonCannotExtractModel)
 		return
 	}
@@ -91,7 +111,7 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 		Header:   ginContext.Request.Header.Clone(),
 		Body:     body,
 	}
-	model, _, err := selectedDialect.ExtractModel(parsed)
+	model, stream, err := selectedDialect.ExtractModel(parsed)
 	if err != nil {
 		writeReason(ginContext, reasonCannotExtractModel)
 		return
@@ -100,7 +120,24 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 	iterator := scheduler.New(snapshot, handler.registry, scheduler.Query{
 		Protocol: selectedRoute.Protocol, ExternalModel: model, AccessKey: accessKey,
 	}, handler.newRandom())
-	handler.executeAttempts(ginContext, iterator, selectedDialect, parsed)
+	handler.executeAttempts(ginContext, iterator, selectedDialect, parsed, stream)
+}
+
+func readRequestBody(reader io.Reader, limit int64) ([]byte, error) {
+	if reader == nil {
+		return nil, fmt.Errorf("request body is required")
+	}
+	if limit < 0 {
+		return nil, fmt.Errorf("request body limit must not be negative")
+	}
+	body, err := io.ReadAll(io.LimitReader(reader, limit+1))
+	if err != nil {
+		return nil, fmt.Errorf("read request body: %w", err)
+	}
+	if int64(len(body)) > limit {
+		return nil, errRequestTooLarge
+	}
+	return body, nil
 }
 
 func (handler *Handler) executeAttempts(
@@ -108,6 +145,7 @@ func (handler *Handler) executeAttempts(
 	iterator *scheduler.Iterator,
 	selectedDialect dialect.Dialect,
 	parsed *dialect.ParsedRequest,
+	stream bool,
 ) {
 	var lastResponse *UpstreamResult
 	var lastTransport *UpstreamResult
@@ -130,13 +168,24 @@ func (handler *Handler) executeAttempts(
 		}
 
 		attempts++
-		result := handler.forwarder.Forward(ginContext.Request.Context(), ForwardInput{
+		updateDebugHeaders(ginContext.Writer.Header(), selection.Group.Name, apiKey, attempts)
+		input := ForwardInput{
 			Dialect: selectedDialect, Group: selection.Group, APIKey: apiKey, Request: parsed,
-		})
+		}
+		var result UpstreamResult
+		if stream {
+			result = handler.forwarder.ForwardStream(ginContext.Request.Context(), input, ginContext.Writer)
+		} else {
+			result = handler.forwarder.Forward(ginContext.Request.Context(), input)
+		}
 		verdict := health.Judge(selectedDialect, health.Attempt{
 			StatusCode: result.StatusCode, Body: result.ClassificationBody,
 			Err: result.Err, RequestWritten: result.RequestWritten,
+			Committed: result.Committed, RetryableBeforeCommit: result.RetryableBeforeCommit,
 		})
+		if result.Committed {
+			return
+		}
 		if result.HasResponse() {
 			copied := result
 			lastResponse = &copied
@@ -154,11 +203,7 @@ func (handler *Handler) executeAttempts(
 			lastTransport = &copied
 			continue
 		}
-		if isTimeoutError(result.Err) {
-			writeReason(ginContext, reasonUpstreamTimeout)
-		} else {
-			writeReason(ginContext, reasonUpstreamConnect)
-		}
+		writeTransportReason(ginContext, result)
 		return
 	}
 
@@ -167,14 +212,37 @@ func (handler *Handler) executeAttempts(
 		return
 	}
 	if lastTransport != nil {
-		writeReason(ginContext, reasonUpstreamConnect)
+		writeTransportReason(ginContext, *lastTransport)
 		return
 	}
 	writeReason(ginContext, reasonNoCandidate)
 }
 
+func initializeDebugHeaders(headers http.Header) {
+	headers.Set(debugHeaderGroup, "")
+	headers.Set(debugHeaderKey, "")
+	headers.Set(debugHeaderAttempts, "0")
+}
+
+func updateDebugHeaders(headers http.Header, group, apiKey string, attempts int) {
+	headers.Set(debugHeaderGroup, group)
+	headers.Set(debugHeaderKey, utils.MaskAPIKey(apiKey))
+	headers.Set(debugHeaderAttempts, strconv.Itoa(attempts))
+}
+
+func writeTransportReason(ginContext *gin.Context, result UpstreamResult) {
+	switch {
+	case errors.Is(result.Err, ErrUpstreamProtocol):
+		writeReason(ginContext, reasonUpstreamProtocol)
+	case isTimeoutError(result.Err):
+		writeReason(ginContext, reasonUpstreamTimeout)
+	default:
+		writeReason(ginContext, reasonUpstreamConnect)
+	}
+}
+
 func writeUpstreamResponse(ginContext *gin.Context, result UpstreamResult) {
-	for name, values := range result.Header {
+	for name, values := range cloneEndToEndHeaders(result.Header) {
 		for _, value := range values {
 			ginContext.Writer.Header().Add(name, value)
 		}

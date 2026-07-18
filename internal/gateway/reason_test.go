@@ -16,6 +16,8 @@ func TestWriteReasonUsesStableDataPlaneEnvelope(t *testing.T) {
 		reasonNoCandidate,
 		reasonUpstreamConnect,
 		reasonUpstreamTimeout,
+		reasonUpstreamProtocol,
+		reasonRequestTooLarge,
 	}
 	gin.SetMode(gin.TestMode)
 	for _, want := range tests {

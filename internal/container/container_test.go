@@ -25,7 +25,7 @@ import (
 	"gpt-load/internal/storage/store"
 )
 
-func TestBuildContainerResolvesS4DependencyGraph(t *testing.T) {
+func TestBuildContainerResolvesS5DependencyGraph(t *testing.T) {
 	dataDir := t.TempDir()
 	t.Setenv("AUTH_KEY", "test-auth-key")
 	t.Setenv("DATA_DIR", dataDir)
@@ -50,7 +50,7 @@ func TestBuildContainerResolvesS4DependencyGraph(t *testing.T) {
 		registry *state.KeyRegistry,
 		runtimeState app.RuntimeStateLoader,
 		_ *gateway.Handler,
-		_ gateway.AttemptForwarder,
+		attemptForwarder gateway.AttemptForwarder,
 		_ gateway.DialectSet,
 		_ *httpclient.HTTPClientManager,
 		_ *redact.Redactor,
@@ -76,20 +76,23 @@ func TestBuildContainerResolvesS4DependencyGraph(t *testing.T) {
 		if got := registry.CollectCandidates(nil, nil); len(got) != 0 {
 			t.Fatalf("empty registry candidates = %#v", got)
 		}
+		if attemptForwarder == nil {
+			t.Fatal("stream-capable attempt forwarder was not resolved")
+		}
 		resolved = true
 	})
 	if err != nil {
-		t.Fatalf("resolve S4 dependency graph: %v", err)
+		t.Fatalf("resolve S5 dependency graph: %v", err)
 	}
 	if !resolved {
-		t.Fatal("S4 dependency graph was not invoked")
+		t.Fatal("S5 dependency graph was not invoked")
 	}
 	if _, err := os.Stat(filepath.Join(dataDir, encryption.KeyFileName)); err != nil {
 		t.Fatalf("container did not initialize encryption keyfile: %v", err)
 	}
 }
 
-func TestBuildContainerRegistersS4GatewayRoute(t *testing.T) {
+func TestBuildContainerRegistersS5GatewayRoute(t *testing.T) {
 	dataDir := t.TempDir()
 	t.Setenv("AUTH_KEY", "test-auth-key")
 	t.Setenv("DATA_DIR", dataDir)

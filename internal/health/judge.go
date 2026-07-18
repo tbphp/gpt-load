@@ -10,11 +10,12 @@ type StatusClassifier interface {
 }
 
 type Attempt struct {
-	StatusCode     int
-	Body           []byte
-	Err            error
-	RequestWritten bool
-	Committed      bool
+	StatusCode            int
+	Body                  []byte
+	Err                   error
+	RequestWritten        bool
+	Committed             bool
+	RetryableBeforeCommit bool
 }
 
 type Verdict struct {
@@ -25,6 +26,7 @@ type Rule func(StatusClassifier, Attempt) (Verdict, bool)
 
 var judgeRules = []Rule{
 	terminalBoundaryRule,
+	explicitPreCommitRetryRule,
 	transportRule,
 	statusRule,
 }
@@ -43,6 +45,13 @@ func terminalBoundaryRule(_ StatusClassifier, attempt Attempt) (Verdict, bool) {
 		return Verdict{}, true
 	}
 	return Verdict{}, false
+}
+
+func explicitPreCommitRetryRule(_ StatusClassifier, attempt Attempt) (Verdict, bool) {
+	if attempt.Err == nil || !attempt.RetryableBeforeCommit {
+		return Verdict{}, false
+	}
+	return Verdict{Retryable: true}, true
 }
 
 func transportRule(_ StatusClassifier, attempt Attempt) (Verdict, bool) {

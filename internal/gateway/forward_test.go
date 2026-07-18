@@ -3,6 +3,7 @@ package gateway
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -17,6 +18,196 @@ import (
 	"gpt-load/internal/platform/utils"
 	"gpt-load/internal/state"
 )
+
+func TestForwardStreamForcesIdentityAfterHeaderRules(t *testing.T) {
+	tests := []struct {
+		name  string
+		rules state.HeaderRules
+	}{
+		{
+			name: "set cannot override identity",
+			rules: state.HeaderRules{Set: map[string]string{
+				"Accept-Encoding": "gzip",
+				"X-Custom":        "prefix-${API_KEY}",
+			}},
+		},
+		{
+			name:  "remove cannot delete identity",
+			rules: state.HeaderRules{Remove: []string{"Accept-Encoding"}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			received := make(chan http.Header, 1)
+			upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				received <- request.Header.Clone()
+				writer.Header().Set("Content-Type", "text/event-stream")
+				_, _ = writer.Write([]byte("data: ok\n\n"))
+			}))
+			defer upstream.Close()
+
+			forwarder := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New())
+			downstream := newRecordingResponseWriter()
+			input := streamForwardInput(upstream.URL)
+			input.Group.HeaderRules = tt.rules
+			result := forwarder.ForwardStream(context.Background(), input, downstream)
+
+			if result.Err != nil || !result.Committed {
+				t.Fatalf("ForwardStream() result = %#v", result)
+			}
+			headers := <-received
+			if got := headers.Get("Accept-Encoding"); got != "identity" {
+				t.Fatalf("Accept-Encoding = %q, want identity", got)
+			}
+			if got := headers.Get("Authorization"); got != "Bearer sk-upstream-secret" {
+				t.Fatalf("Authorization = %q", got)
+			}
+			if tt.rules.Set != nil && headers.Get("X-Custom") != "prefix-sk-upstream-secret" {
+				t.Fatalf("X-Custom = %q", headers.Get("X-Custom"))
+			}
+		})
+	}
+}
+
+func TestForwardStreamRejectsUnsupportedSuccessEncodingBeforeCommit(t *testing.T) {
+	tests := []struct {
+		name       string
+		encodings  []string
+		wantCommit bool
+	}{
+		{name: "missing encoding", wantCommit: true},
+		{name: "empty encoding", encodings: []string{""}, wantCommit: true},
+		{name: "identity", encodings: []string{" identity "}, wantCommit: true},
+		{name: "gzip", encodings: []string{"gzip"}},
+		{name: "encoding list", encodings: []string{"identity, gzip"}},
+		{name: "multiple values", encodings: []string{"identity", "gzip"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				for _, encoding := range tt.encodings {
+					writer.Header().Add("Content-Encoding", encoding)
+				}
+				writer.Header().Set("Content-Type", "text/event-stream")
+				_, _ = writer.Write([]byte("data: ok\n\n"))
+			}))
+			defer upstream.Close()
+
+			forwarder := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New())
+			downstream := newRecordingResponseWriter()
+			result := forwarder.ForwardStream(context.Background(), streamForwardInput(upstream.URL), downstream)
+
+			if tt.wantCommit {
+				if result.Err != nil || !result.Committed || downstream.body.String() != "data: ok\n\n" {
+					t.Fatalf("ForwardStream() valid result = %#v, body=%q", result, downstream.body.String())
+				}
+				return
+			}
+			if !errors.Is(result.Err, ErrUpstreamProtocol) || result.Committed || !result.RetryableBeforeCommit {
+				t.Fatalf("ForwardStream() protocol result = %#v", result)
+			}
+			if downstream.status != 0 || downstream.body.Len() != 0 || downstream.flushes != 0 {
+				t.Fatalf("downstream was touched before protocol rejection: %#v", downstream)
+			}
+		})
+	}
+}
+
+func TestForwardStreamReturnsSafeBoundedNonSuccessResponse(t *testing.T) {
+	const secret = "custom-upstream-secret"
+	tests := []struct {
+		name     string
+		body     string
+		wantBody string
+	}{
+		{name: "inspectable", body: `{"error":{"api_key":"` + secret + `"}}`, wantBody: `{"error":{"api_key":"[REDACTED]"}}`},
+		{name: "over limit", body: strings.Repeat("x", maxStreamingErrorBodyBytes) + secret, wantBody: redact.Placeholder},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				setRepresentationMetadata(writer.Header())
+				writer.WriteHeader(http.StatusUnauthorized)
+				_, _ = writer.Write([]byte(tt.body))
+			}))
+			defer upstream.Close()
+
+			forwarder := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New())
+			downstream := newRecordingResponseWriter()
+			input := streamForwardInput(upstream.URL)
+			input.APIKey = secret
+			result := forwarder.ForwardStream(context.Background(), input, downstream)
+
+			if result.Err != nil || result.Committed || result.StatusCode != http.StatusUnauthorized {
+				t.Fatalf("ForwardStream() result = %#v", result)
+			}
+			if string(result.Body) != tt.wantBody || string(result.ClassificationBody) != tt.wantBody {
+				t.Fatalf("safe bodies = %q / %q, want %q", result.Body, result.ClassificationBody, tt.wantBody)
+			}
+			if bytes.Contains(result.Body, []byte(secret)) || bytes.Contains(result.ClassificationBody, []byte(secret)) {
+				t.Fatal("streaming error result leaked plaintext key")
+			}
+			if downstream.status != 0 || downstream.body.Len() != 0 {
+				t.Fatal("ForwardStream() wrote non-success response before Handler verdict")
+			}
+			if tt.name == "over limit" {
+				if result.Header.Get("Content-Length") != strconv.Itoa(len(redact.Placeholder)) {
+					t.Fatalf("Content-Length = %q", result.Header.Get("Content-Length"))
+				}
+				assertRepresentationMetadata(t, result.Header, false)
+			}
+		})
+	}
+}
+
+func TestForwardStreamTimesOutBeforeCompleteFirstEvent(t *testing.T) {
+	upstreamCanceled := make(chan struct{})
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "text/event-stream")
+		writer.WriteHeader(http.StatusOK)
+		_, _ = writer.Write([]byte("data: partial\n"))
+		writer.(http.Flusher).Flush()
+		<-request.Context().Done()
+		close(upstreamCanceled)
+	}))
+	defer upstream.Close()
+
+	input := streamForwardInput(upstream.URL)
+	input.Group.Timeouts.FirstByte = 25 * time.Millisecond
+	forwarder := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New())
+	downstream := newRecordingResponseWriter()
+	result := forwarder.ForwardStream(context.Background(), input, downstream)
+
+	if !errors.Is(result.Err, context.DeadlineExceeded) || result.Committed || !result.RetryableBeforeCommit {
+		t.Fatalf("ForwardStream() timeout result = %#v", result)
+	}
+	if downstream.status != 0 || downstream.body.Len() != 0 {
+		t.Fatalf("partial event reached downstream: status/body=%d/%q", downstream.status, downstream.body.String())
+	}
+	select {
+	case <-upstreamCanceled:
+	case <-time.After(time.Second):
+		t.Fatal("first-event timeout did not cancel upstream request")
+	}
+}
+
+func TestStreamingClientConfigHasNoTotalTimeout(t *testing.T) {
+	timeouts := state.TimeoutConfig{
+		Connect: 2 * time.Second, FirstByte: 3 * time.Second,
+		Request: 4 * time.Second, StreamIdle: 5 * time.Second,
+	}
+	config := streamingClientConfig(timeouts)
+
+	if config.ConnectTimeout != timeouts.Connect || config.ResponseHeaderTimeout != timeouts.FirstByte {
+		t.Fatalf("stream connect/header timeouts = %s/%s", config.ConnectTimeout, config.ResponseHeaderTimeout)
+	}
+	if config.RequestTimeout != 0 {
+		t.Fatalf("stream RequestTimeout = %s, want 0", config.RequestTimeout)
+	}
+}
 
 func TestForwarderPreservesEndToEndRequestAndSuccessfulResponse(t *testing.T) {
 	var received *http.Request
@@ -292,6 +483,24 @@ func testForward(t *testing.T, upstreamURL, apiKey string, timeout time.Duration
 			Header: make(http.Header), Body: []byte(`{"model":"gpt-4o"}`),
 		},
 	})
+}
+
+func streamForwardInput(upstreamURL string) ForwardInput {
+	return ForwardInput{
+		Dialect: dialect.NewOpenAI(http.DefaultClient),
+		Group: state.GroupView{
+			ID: 1, Name: "openai", UpstreamURL: upstreamURL,
+			Timeouts: state.TimeoutConfig{
+				Connect: time.Second, FirstByte: time.Second,
+				Request: time.Second, StreamIdle: time.Second,
+			},
+		},
+		APIKey: "sk-upstream-secret",
+		Request: &dialect.ParsedRequest{
+			Method: http.MethodPost, Path: "/v1/chat/completions",
+			Header: make(http.Header), Body: []byte(`{"model":"gpt-4o","stream":true}`),
+		},
+	}
 }
 
 func setRepresentationMetadata(headers http.Header) {

@@ -17,6 +17,7 @@ func TestJudgeAppliesRulesInSafetyOrder(t *testing.T) {
 	retryableStatus := classifierFunc(func(int, []byte) ErrorClass { return ErrorClassRetryable })
 	nonRetryableStatus := classifierFunc(func(int, []byte) ErrorClass { return ErrorClassNonRetryable })
 	transportFailure := errors.New("connection failed")
+	protocolFailure := errors.New("upstream protocol error")
 
 	tests := []struct {
 		name       string
@@ -33,6 +34,54 @@ func TestJudgeAppliesRulesInSafetyOrder(t *testing.T) {
 			name:       "downstream cancellation terminates",
 			classifier: retryableStatus,
 			attempt:    Attempt{Err: context.Canceled},
+		},
+		{
+			name:       "committed overrides explicit pre-commit retry",
+			classifier: retryableStatus,
+			attempt: Attempt{
+				Err: protocolFailure, RequestWritten: true,
+				Committed: true, RetryableBeforeCommit: true,
+			},
+		},
+		{
+			name:       "downstream cancellation overrides explicit pre-commit retry",
+			classifier: retryableStatus,
+			attempt: Attempt{
+				Err: context.Canceled, RequestWritten: true,
+				RetryableBeforeCommit: true,
+			},
+		},
+		{
+			name:       "request-written pre-commit disconnect retries with explicit signal",
+			classifier: nonRetryableStatus,
+			attempt: Attempt{
+				Err: transportFailure, RequestWritten: true,
+				RetryableBeforeCommit: true,
+			},
+			wantRetry: true,
+		},
+		{
+			name:       "request-written first-event timeout retries with explicit signal",
+			classifier: nonRetryableStatus,
+			attempt: Attempt{
+				Err: context.DeadlineExceeded, RequestWritten: true,
+				RetryableBeforeCommit: true,
+			},
+			wantRetry: true,
+		},
+		{
+			name:       "protocol error retries with explicit signal",
+			classifier: nonRetryableStatus,
+			attempt: Attempt{
+				Err: protocolFailure, RequestWritten: true,
+				RetryableBeforeCommit: true,
+			},
+			wantRetry: true,
+		},
+		{
+			name:       "request-written protocol error terminates without explicit signal",
+			classifier: retryableStatus,
+			attempt:    Attempt{Err: protocolFailure, RequestWritten: true},
 		},
 		{
 			name:       "pre-write connection failure retries",
