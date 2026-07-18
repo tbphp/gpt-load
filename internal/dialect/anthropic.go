@@ -133,25 +133,5 @@ func (d *Anthropic) ExtractModel(req *ParsedRequest) (string, bool, error) {
 }
 
 func (d *Anthropic) ClassifyStatus(status int, body []byte) health.ErrorClass {
-	switch status {
-	case http.StatusUnauthorized,
-		http.StatusForbidden,
-		http.StatusNotFound,
-		http.StatusTooManyRequests:
-		return health.ErrorClassRetryable
-	}
-	if status >= http.StatusInternalServerError {
-		return health.ErrorClassRetryable
-	}
-	if status >= http.StatusOK && status < http.StatusMultipleChoices {
-		return health.ErrorClassNonRetryable
-	}
-
-	lowered := strings.ToLower(string(body))
-	for _, marker := range anthropicRetryableErrorMarkers {
-		if strings.Contains(lowered, marker) {
-			return health.ErrorClassRetryable
-		}
-	}
-	return health.ErrorClassNonRetryable
+	return classifyStatusWithMarkers(status, body, anthropicRetryableErrorMarkers)
 }

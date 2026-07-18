@@ -139,27 +139,7 @@ func (d *Gemini) ListModels(
 }
 
 func (d *Gemini) ClassifyStatus(status int, body []byte) health.ErrorClass {
-	switch status {
-	case http.StatusUnauthorized,
-		http.StatusForbidden,
-		http.StatusNotFound,
-		http.StatusTooManyRequests:
-		return health.ErrorClassRetryable
-	}
-	if status >= http.StatusInternalServerError {
-		return health.ErrorClassRetryable
-	}
-	if status >= http.StatusOK && status < http.StatusMultipleChoices {
-		return health.ErrorClassNonRetryable
-	}
-
-	lowered := strings.ToLower(string(body))
-	for _, marker := range geminiRetryableErrorMarkers {
-		if strings.Contains(lowered, marker) {
-			return health.ErrorClassRetryable
-		}
-	}
-	return health.ErrorClassNonRetryable
+	return classifyStatusWithMarkers(status, body, geminiRetryableErrorMarkers)
 }
 
 func parseGeminiGenerationPath(path string) (model string, stream bool, err error) {
