@@ -60,8 +60,14 @@ func BuildContainer() (*dig.Container, error) {
 			})
 		},
 		dialect.NewOpenAI,
-		func(openAI *dialect.OpenAI) dialect.Set {
-			return dialect.NewSet(openAI)
+		dialect.NewAnthropic,
+		dialect.NewGemini,
+		func(
+			openAI *dialect.OpenAI,
+			anthropic *dialect.Anthropic,
+			gemini *dialect.Gemini,
+		) dialect.Set {
+			return dialect.NewSet(openAI, anthropic, gemini)
 		},
 		gateway.NewForwarder,
 		func(forwarder *gateway.Forwarder) gateway.AttemptForwarder { return forwarder },

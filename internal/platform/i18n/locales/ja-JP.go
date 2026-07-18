@@ -10,6 +10,7 @@ var MessagesJaJP = map[string]string{
 	"forbidden":      "アクセス拒否",
 	"not_found":      "見つかりません",
 	"bad_request":    "不正なリクエスト",
+	"bad_gateway":    "上流サービスエラー",
 	"internal_error": "内部エラー",
 	"invalid_param":  "無効なパラメータ",
 	"required_field": "必須フィールド",

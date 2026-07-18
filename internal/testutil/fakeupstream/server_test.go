@@ -332,6 +332,123 @@ func TestServerServesOpenAIModelListFixture(t *testing.T) {
 	}
 }
 
+func TestServerModelListRouteUsesAnthropicVersion(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		version   string
+		dialect   string
+		wantAllow bool
+	}{
+		{name: "missing is OpenAI", dialect: "openai"},
+		{name: "blank is OpenAI", version: "  ", dialect: "openai"},
+		{name: "non-empty is Anthropic", version: "2023-06-01", dialect: "anthropic"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			server := New(Step{Status: http.StatusOK, Fixture: "models.json"})
+			defer server.Close()
+			request, err := http.NewRequest(http.MethodGet, server.URL+"/v1/models", nil)
+			if err != nil {
+				t.Fatalf("create request: %v", err)
+			}
+			if test.version != "" {
+				request.Header.Set("Anthropic-Version", test.version)
+			}
+			response, err := server.Client().Do(request)
+			if err != nil {
+				t.Fatalf("request models: %v", err)
+			}
+			body, readErr := io.ReadAll(response.Body)
+			response.Body.Close()
+			if readErr != nil || response.StatusCode != http.StatusOK {
+				t.Fatalf("response = %d, %v", response.StatusCode, readErr)
+			}
+			assertFixtureBody(t, body, test.dialect, "models.json")
+		})
+	}
+
+	t.Run("method mismatch records without consuming", func(t *testing.T) {
+		server := New(Step{Status: http.StatusOK, Fixture: "models.json"})
+		defer server.Close()
+		request, err := http.NewRequest(http.MethodPost, server.URL+"/v1/models", nil)
+		if err != nil {
+			t.Fatalf("create POST: %v", err)
+		}
+		request.Header.Set("Anthropic-Version", "2023-06-01")
+		response, err := server.Client().Do(request)
+		if err != nil {
+			t.Fatalf("POST models: %v", err)
+		}
+		response.Body.Close()
+		if response.StatusCode != http.StatusMethodNotAllowed || response.Header.Get("Allow") != http.MethodGet {
+			t.Fatalf("POST response = %d Allow=%q", response.StatusCode, response.Header.Get("Allow"))
+		}
+
+		request, _ = http.NewRequest(http.MethodGet, server.URL+"/v1/models", nil)
+		request.Header.Set("Anthropic-Version", "2023-06-01")
+		response, err = server.Client().Do(request)
+		if err != nil {
+			t.Fatalf("GET models: %v", err)
+		}
+		response.Body.Close()
+		if response.StatusCode != http.StatusOK || len(server.Requests()) != 2 {
+			t.Fatalf("GET response = %d, requests=%d", response.StatusCode, len(server.Requests()))
+		}
+	})
+}
+
+func TestServerGeminiModelsRoute(t *testing.T) {
+	server := New(Step{Status: http.StatusOK, Fixture: "models.json"})
+	defer server.Close()
+
+	request, err := http.NewRequest(http.MethodPost, server.URL+"/v1beta/models?pageSize=7", nil)
+	if err != nil {
+		t.Fatalf("create POST: %v", err)
+	}
+	response, err := server.Client().Do(request)
+	if err != nil {
+		t.Fatalf("POST models: %v", err)
+	}
+	response.Body.Close()
+	if response.StatusCode != http.StatusMethodNotAllowed || response.Header.Get("Allow") != http.MethodGet {
+		t.Fatalf("POST response = %d Allow=%q", response.StatusCode, response.Header.Get("Allow"))
+	}
+
+	request, _ = http.NewRequest(http.MethodGet, server.URL+"/v1beta/models?pageSize=1000", nil)
+	request.Header.Set("X-Goog-Api-Key", "gemini-secret")
+	response, err = server.Client().Do(request)
+	if err != nil {
+		t.Fatalf("GET models: %v", err)
+	}
+	body, readErr := io.ReadAll(response.Body)
+	response.Body.Close()
+	if readErr != nil || response.StatusCode != http.StatusOK {
+		t.Fatalf("GET response = %d, %v", response.StatusCode, readErr)
+	}
+	assertFixtureBody(t, body, "gemini", "models.json")
+
+	requests := server.Requests()
+	if len(requests) != 2 || requests[1].Method != http.MethodGet ||
+		requests[1].Path != "/v1beta/models" || requests[1].RawQuery != "pageSize=1000" ||
+		requests[1].Headers.Get("X-Goog-Api-Key") != "gemini-secret" {
+		t.Fatalf("recorded requests = %#v", requests)
+	}
+
+	generation := New(Step{Status: http.StatusOK, Fixture: "success.json"})
+	defer generation.Close()
+	response, err = generation.Client().Post(
+		generation.URL+"/v1beta/models/gemini-2.5-pro:generateContent",
+		"application/json",
+		strings.NewReader(`{}`),
+	)
+	if err != nil {
+		t.Fatalf("POST generation: %v", err)
+	}
+	response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("generation response = %d", response.StatusCode)
+	}
+}
+
 func TestServerKeepsConcurrentRequestRecordsAlignedWithScriptSteps(t *testing.T) {
 	const requestCount = 128
 

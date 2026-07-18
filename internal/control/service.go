@@ -17,14 +17,14 @@ import (
 )
 
 type Service struct {
-	db                *gorm.DB
-	manager           *state.Manager
-	registry          *state.KeyRegistry
-	encryption        encryption.Service
-	dialects          dialect.Set
-	modelFetchTimeout time.Duration
-	random            io.Reader
-	writeMu           sync.Mutex
+	db                    *gorm.DB
+	manager               *state.Manager
+	registry              *state.KeyRegistry
+	encryption            encryption.Service
+	dialects              dialect.Set
+	modelDiscoveryTimeout time.Duration
+	random                io.Reader
+	writeMu               sync.Mutex
 }
 
 func NewService(
@@ -37,7 +37,7 @@ func NewService(
 	return &Service{
 		db: db, manager: manager, registry: registry,
 		encryption: encryptionService, dialects: dialects,
-		modelFetchTimeout: 3 * time.Second, random: rand.Reader,
+		modelDiscoveryTimeout: 3 * time.Second, random: rand.Reader,
 	}
 }
 

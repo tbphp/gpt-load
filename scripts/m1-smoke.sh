@@ -19,7 +19,8 @@ base_url="${GPT_LOAD_URL%/}"
 import_payload="$(jq -n \
   --arg url "${UPSTREAM_URL}" \
   --arg key "${UPSTREAM_KEY}" \
-  '{upstream_url:$url,protocols:["openai"],keys:$key}')"
+  --arg model "${MODEL}" \
+  '{upstream_url:$url,protocols:["openai"],keys:$key,models:[{id:$model,alias:""}]}')"
 import_response="$(curl -fsS \
   -H "Authorization: Bearer ${AUTH_KEY}" \
   -H 'Content-Type: application/json' \
@@ -53,4 +54,4 @@ curl -fsS \
   "${base_url}/v1/chat/completions" \
   | jq -e . >/dev/null
 
-printf 'M1 S6 smoke passed for group_id=%s\n' "${group_id}"
+printf 'M1 S7 smoke passed for group_id=%s\n' "${group_id}"

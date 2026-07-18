@@ -74,7 +74,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	dialect, allowedMethod, ok := routeForPath(r.URL.Path)
+	dialect, allowedMethod, ok := routeForRequest(r)
 	if !ok {
 		s.recordRequest(r, body)
 		http.NotFound(w, r)
@@ -165,11 +165,17 @@ func requestSnapshot(r *http.Request, body []byte) Request {
 	}
 }
 
-func routeForPath(requestPath string) (dialect, method string, ok bool) {
-	if requestPath == "/v1/models" {
+func routeForRequest(request *http.Request) (dialect, method string, ok bool) {
+	if request.URL.Path == "/v1beta/models" {
+		return "gemini", http.MethodGet, true
+	}
+	if request.URL.Path == "/v1/models" {
+		if strings.TrimSpace(request.Header.Get("Anthropic-Version")) != "" {
+			return "anthropic", http.MethodGet, true
+		}
 		return "openai", http.MethodGet, true
 	}
-	dialect, ok = dialectForPath(requestPath)
+	dialect, ok = dialectForPath(request.URL.Path)
 	if !ok {
 		return "", "", false
 	}

@@ -22,10 +22,48 @@ import (
 	"gpt-load/internal/platform/httpclient"
 	"gpt-load/internal/platform/i18n"
 	"gpt-load/internal/platform/redact"
+	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 	"gpt-load/internal/storage"
 	"gpt-load/internal/storage/store"
 )
+
+func TestBuildContainerResolvesAllM1Dialects(t *testing.T) {
+	t.Setenv("AUTH_KEY", "test-auth-key")
+	t.Setenv("DATA_DIR", t.TempDir())
+	t.Setenv("DATABASE_DSN", ":memory:")
+	t.Setenv("ENCRYPTION_KEY", "test-master-key-long")
+	t.Setenv("REDIS_DSN", "")
+
+	dependencyContainer, err := BuildContainer()
+	if err != nil {
+		t.Fatalf("BuildContainer() error = %v", err)
+	}
+	err = dependencyContainer.Invoke(func(
+		openAI *dialect.OpenAI,
+		anthropic *dialect.Anthropic,
+		gemini *dialect.Gemini,
+		values dialect.Set,
+		db *gorm.DB,
+		storageStore store.Store,
+	) {
+		t.Cleanup(func() {
+			_ = storageStore.Close()
+			sqlDB, dbErr := db.DB()
+			if dbErr == nil {
+				_ = sqlDB.Close()
+			}
+		})
+		if values[protocol.OpenAI] != openAI ||
+			values[protocol.Anthropic] != anthropic ||
+			values[protocol.Gemini] != gemini || len(values) != 3 {
+			t.Fatalf("dialect Set = %#v", values)
+		}
+	})
+	if err != nil {
+		t.Fatalf("resolve M1 dialects: %v", err)
+	}
+}
 
 func TestBuildContainerResolvesS6DependencyGraph(t *testing.T) {
 	dataDir := t.TempDir()

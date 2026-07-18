@@ -26,14 +26,13 @@ import (
 	"gpt-load/internal/testutil/fakeupstream"
 )
 
-func TestM1S6NoUISmoke(t *testing.T) {
+func TestM1S7NoUISmoke(t *testing.T) {
 	const (
 		authKey     = "s6-control-auth-distinctive-value"
 		upstreamKey = "sk-s6-upstream-distinctive-credential"
 		model       = "gpt-4o"
 	)
 	upstream := fakeupstream.New(
-		fakeupstream.Step{Status: http.StatusOK, Fixture: "openai/models.json"},
 		fakeupstream.Step{Status: http.StatusOK, Fixture: "openai/success.json"},
 	)
 	defer upstream.Close()
@@ -95,6 +94,7 @@ func TestM1S6NoUISmoke(t *testing.T) {
 
 		importRecorder := serveJSON(t, engine, http.MethodPost, "/api/import", authKey, map[string]any{
 			"upstream_url": upstream.URL, "protocols": []string{"openai"}, "name": "s6-smoke", "keys": upstreamKey,
+			"models": []map[string]string{{"id": model, "alias": ""}},
 		})
 		responses["import"] = importRecorder.Body.String()
 		if importRecorder.Code != http.StatusOK {
@@ -102,15 +102,17 @@ func TestM1S6NoUISmoke(t *testing.T) {
 		}
 		var imported struct {
 			Data struct {
-				GroupID       uint     `json:"group_id"`
-				KeysAdded     int      `json:"keys_added"`
-				ModelsFetched bool     `json:"models_fetched"`
-				Models        []string `json:"models"`
+				GroupID   uint `json:"group_id"`
+				KeysAdded int  `json:"keys_added"`
+				Models    []struct {
+					ID    string `json:"id"`
+					Alias string `json:"alias"`
+				} `json:"models"`
 			} `json:"data"`
 		}
 		decodeSmokeResponse(t, importRecorder, &imported)
-		if imported.Data.GroupID == 0 || imported.Data.KeysAdded != 1 || !imported.Data.ModelsFetched ||
-			len(imported.Data.Models) != 2 || imported.Data.Models[0] != model {
+		if imported.Data.GroupID == 0 || imported.Data.KeysAdded != 1 ||
+			len(imported.Data.Models) != 1 || imported.Data.Models[0].ID != model || imported.Data.Models[0].Alias != "" {
 			t.Fatalf("import data = %#v", imported.Data)
 		}
 
@@ -168,8 +170,7 @@ func TestM1S6NoUISmoke(t *testing.T) {
 		}
 
 		requests := upstream.Requests()
-		if len(requests) != 2 || requests[0].Method != http.MethodGet || requests[0].Path != "/v1/models" ||
-			requests[1].Method != http.MethodPost || requests[1].Path != "/v1/chat/completions" {
+		if len(requests) != 1 || requests[0].Method != http.MethodPost || requests[0].Path != "/v1/chat/completions" {
 			t.Fatalf("upstream requests = %#v", requests)
 		}
 		for index, request := range requests {
@@ -177,7 +178,7 @@ func TestM1S6NoUISmoke(t *testing.T) {
 				t.Fatalf("upstream request %d credential was not injected", index)
 			}
 		}
-		if strings.Contains(string(requests[1].Body), created.Data.Key) {
+		if strings.Contains(string(requests[0].Body), created.Data.Key) {
 			t.Fatal("gateway forwarded downstream AccessKey in request body")
 		}
 

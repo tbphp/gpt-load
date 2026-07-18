@@ -392,3 +392,25 @@ func TestOpenAIListModelsRejectsNonSuccessWithoutLeakingKey(t *testing.T) {
 		t.Fatalf("ListModels() error leaked API key: %v", err)
 	}
 }
+
+func TestOpenAIListModelsTransportErrorDoesNotExposeURLOrKey(t *testing.T) {
+	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return nil, errors.New("forced transport failure")
+	})}
+
+	const apiKey = "sk-transport-canary"
+	_, err := NewOpenAI(client).ListModels(
+		context.Background(),
+		"https://api.example.com?token=query-canary",
+		apiKey,
+		state.HeaderRules{},
+	)
+	if err == nil {
+		t.Fatal("ListModels() error = nil, want transport error")
+	}
+	for _, forbidden := range []string{apiKey, "query-canary", "api.example.com"} {
+		if strings.Contains(err.Error(), forbidden) {
+			t.Fatalf("ListModels() error exposes %q: %v", forbidden, err)
+		}
+	}
+}

@@ -110,6 +110,207 @@ func TestHandlerInitializesDebugHeadersBeforeValidation(t *testing.T) {
 	}
 }
 
+func TestHandlerServesLocalModelEndpoints(t *testing.T) {
+	tests := []struct {
+		name     string
+		method   string
+		target   string
+		headers  http.Header
+		expected string
+	}{
+		{
+			name: "OpenAI with Bearer", method: http.MethodGet, target: "/v1/models",
+			headers:  http.Header{"Authorization": {"Bearer gl-client"}},
+			expected: `{"object":"list","data":[{"id":"alpha","object":"model","created":1735689600,"owned_by":"gpt-load"},{"id":"beta","object":"model","created":1735689600,"owned_by":"gpt-load"},{"id":"zeta","object":"model","created":1735689600,"owned_by":"gpt-load"}]}`,
+		},
+		{
+			name: "Anthropic with Bearer", method: http.MethodGet, target: "/v1/models",
+			headers:  http.Header{"Authorization": {"Bearer gl-client"}, "Anthropic-Version": {"2023-06-01"}},
+			expected: `{"data":[{"type":"model","id":"alpha","display_name":"alpha","created_at":"2025-01-01T00:00:00Z"},{"type":"model","id":"beta","display_name":"beta","created_at":"2025-01-01T00:00:00Z"},{"type":"model","id":"zeta","display_name":"zeta","created_at":"2025-01-01T00:00:00Z"}],"has_more":false,"first_id":"alpha","last_id":"zeta"}`,
+		},
+		{
+			name: "x-api-key alone stays OpenAI", method: http.MethodGet, target: "/v1/models",
+			headers:  http.Header{"X-Api-Key": {"gl-client"}},
+			expected: `{"object":"list","data":[{"id":"alpha","object":"model","created":1735689600,"owned_by":"gpt-load"},{"id":"beta","object":"model","created":1735689600,"owned_by":"gpt-load"},{"id":"zeta","object":"model","created":1735689600,"owned_by":"gpt-load"}]}`,
+		},
+		{
+			name: "Anthropic with x-api-key", method: http.MethodGet, target: "/v1/models",
+			headers:  http.Header{"X-Api-Key": {"gl-client"}, "Anthropic-Version": {"2023-06-01"}},
+			expected: `{"data":[{"type":"model","id":"alpha","display_name":"alpha","created_at":"2025-01-01T00:00:00Z"},{"type":"model","id":"beta","display_name":"beta","created_at":"2025-01-01T00:00:00Z"},{"type":"model","id":"zeta","display_name":"zeta","created_at":"2025-01-01T00:00:00Z"}],"has_more":false,"first_id":"alpha","last_id":"zeta"}`,
+		},
+		{
+			name: "Gemini with query key", method: http.MethodGet, target: "/v1beta/models?key=gl-client",
+			expected: `{"models":[{"name":"models/alpha"},{"name":"models/zeta"}]}`,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			engine := newModelListHandlerEngine(t, state.FilterSet{})
+			request := httptest.NewRequest(test.method, test.target, nil)
+			request.Header = test.headers.Clone()
+			recorder := httptest.NewRecorder()
+			engine.ServeHTTP(recorder, request)
+			if recorder.Code != http.StatusOK {
+				t.Fatalf("response = %d %s", recorder.Code, recorder.Body.String())
+			}
+			assertJSONEqual(t, recorder.Body.String(), test.expected)
+			assertDebugHeaders(t, recorder.Header(), "", "", "0")
+		})
+	}
+}
+
+func TestHandlerModelEndpointsApplyFiltersAndKeepEmptyShape(t *testing.T) {
+	t.Run("joint filters", func(t *testing.T) {
+		engine := newModelListHandlerEngine(t, state.FilterSet{
+			Protocols: map[protocol.Protocol]struct{}{protocol.OpenAI: {}},
+			Models:    map[string]struct{}{"alpha": {}},
+			Groups:    map[uint]struct{}{1: {}},
+		})
+		request := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+		request.Header.Set("Authorization", "Bearer gl-client")
+		recorder := httptest.NewRecorder()
+		engine.ServeHTTP(recorder, request)
+		assertJSONEqual(t, recorder.Body.String(), `{"object":"list","data":[{"id":"alpha","object":"model","created":1735689600,"owned_by":"gpt-load"}]}`)
+		assertDebugHeaders(t, recorder.Header(), "", "", "0")
+	})
+
+	t.Run("protocol denied keeps official empty envelope", func(t *testing.T) {
+		engine := newModelListHandlerEngine(t, state.FilterSet{
+			Protocols: map[protocol.Protocol]struct{}{protocol.Gemini: {}},
+		})
+		request := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+		request.Header.Set("X-Api-Key", "gl-client")
+		recorder := httptest.NewRecorder()
+		engine.ServeHTTP(recorder, request)
+		assertJSONEqual(t, recorder.Body.String(), `{"object":"list","data":[]}`)
+		assertDebugHeaders(t, recorder.Header(), "", "", "0")
+	})
+}
+
+func TestHandlerModelEndpointsRequireValidAccessKey(t *testing.T) {
+	engine := newModelListHandlerEngine(t, state.FilterSet{})
+	for _, header := range []string{"", "Bearer wrong"} {
+		request := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+		if header != "" {
+			request.Header.Set("Authorization", header)
+		}
+		recorder := httptest.NewRecorder()
+		engine.ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusUnauthorized || !strings.Contains(recorder.Body.String(), reasonInvalidAccessKey.Code) {
+			t.Fatalf("response = %d %s", recorder.Code, recorder.Body.String())
+		}
+		assertDebugHeaders(t, recorder.Header(), "", "", "0")
+	}
+}
+
+func TestHandlerModelEndpointHasNoDataPlaneSideEffects(t *testing.T) {
+	keyService, err := encryption.NewService("model-handler-test-master-key")
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+	manager := state.NewManager()
+	if _, err := manager.Publish(state.CompileInput{
+		Groups: []state.GroupConfig{{
+			ID: 1, Name: "openai", UpstreamURL: "https://unused.example.com",
+			Protocols: []protocol.Protocol{protocol.OpenAI},
+			Models:    []state.ModelConfig{{ID: "alpha"}}, Enabled: true,
+		}},
+		AccessKeys: []state.AccessKeyConfig{{
+			ID: 1, Name: "client", KeyHash: keyService.Hash("gl-client"), Status: state.AccessKeyStatusActive,
+		}},
+	}); err != nil {
+		t.Fatalf("Publish() error = %v", err)
+	}
+	spyEncryption := &decryptPanicEncryption{Service: keyService}
+	handler := NewHandler(manager, state.NewKeyRegistry(), spyEncryption, panicForwarder{}, dialect.NewSet())
+	handler.registry = panicRuntimeRegistry{}
+	engine := gin.New()
+	handler.RegisterRoutes(engine)
+
+	request := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	request.Header.Set("Authorization", "Bearer gl-client")
+	request.Body = panicReadCloser{}
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("response = %d %s", recorder.Code, recorder.Body.String())
+	}
+	assertJSONEqual(t, recorder.Body.String(), `{"object":"list","data":[{"id":"alpha","object":"model","created":1735689600,"owned_by":"gpt-load"}]}`)
+}
+
+func newModelListHandlerEngine(t *testing.T, filters state.FilterSet) *gin.Engine {
+	t.Helper()
+	keyService, err := encryption.NewService("model-handler-test-master-key")
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+	manager := state.NewManager()
+	if _, err := manager.Publish(state.CompileInput{
+		Groups: []state.GroupConfig{
+			{
+				ID: 1, Name: "multi", UpstreamURL: "https://multi.example.com",
+				Protocols: []protocol.Protocol{protocol.OpenAI, protocol.Anthropic, protocol.Gemini},
+				Models:    []state.ModelConfig{{ID: "zeta"}, {ID: "alpha"}}, Enabled: true,
+			},
+			{
+				ID: 2, Name: "openai", UpstreamURL: "https://openai.example.com",
+				Protocols: []protocol.Protocol{protocol.OpenAI, protocol.Anthropic},
+				Models:    []state.ModelConfig{{ID: "beta"}}, Enabled: true,
+			},
+		},
+		AccessKeys: []state.AccessKeyConfig{{
+			ID: 1, Name: "client", KeyHash: keyService.Hash("gl-client"),
+			Status: state.AccessKeyStatusActive, Filters: filters,
+		}},
+	}); err != nil {
+		t.Fatalf("Publish() error = %v", err)
+	}
+	handler := NewHandler(
+		manager, state.NewKeyRegistry(), keyService, &scriptedForwarder{}, dialect.NewSet(),
+	)
+	engine := gin.New()
+	handler.RegisterRoutes(engine)
+	return engine
+}
+
+type panicRuntimeRegistry struct{}
+
+func (panicRuntimeRegistry) CollectCandidates([]uint, func(uint) bool) []state.KeyMeta {
+	panic("model endpoint collected upstream candidates")
+}
+
+func (panicRuntimeRegistry) ActiveEncryptedValue(uint, uint) (string, bool) {
+	panic("model endpoint read an upstream key")
+}
+
+type panicForwarder struct{}
+
+func (panicForwarder) Forward(context.Context, ForwardInput) UpstreamResult {
+	panic("model endpoint called Forward")
+}
+
+func (panicForwarder) ForwardStream(context.Context, ForwardInput, http.ResponseWriter) UpstreamResult {
+	panic("model endpoint called ForwardStream")
+}
+
+type decryptPanicEncryption struct {
+	encryption.Service
+}
+
+func (*decryptPanicEncryption) Decrypt(string) (string, error) {
+	panic("model endpoint decrypted an upstream key")
+}
+
+type panicReadCloser struct{}
+
+func (panicReadCloser) Read([]byte) (int, error) {
+	panic("model endpoint read request body")
+}
+
+func (panicReadCloser) Close() error {
+	return nil
+}
+
 func TestHandlerReportsFinalAttemptInDebugHeaders(t *testing.T) {
 	tests := []struct {
 		name         string

@@ -18,6 +18,7 @@ import (
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/platform/i18n"
 	"gpt-load/internal/platform/response"
+	"gpt-load/internal/protocol"
 )
 
 type Server struct {
@@ -34,6 +35,7 @@ func (s *Server) RegisterRoutes(engine *gin.Engine) {
 	api.Use(i18n.Middleware(), s.authenticate())
 	api.GET("/groups", s.handleListGroups)
 	api.POST("/import", s.handleImport)
+	api.POST("/models/discover", s.handleDiscoverModels)
 	api.POST("/access-keys", s.handleCreateAccessKey)
 	api.GET("/access-keys", s.handleListAccessKeys)
 	api.PUT("/access-keys/:id", s.handleUpdateAccessKey)
@@ -77,6 +79,20 @@ func (s *Server) handleImport(c *gin.Context) {
 	result, err := s.service.Import(c.Request.Context(), request)
 	if err != nil {
 		writeServiceError(c, "import", err)
+		return
+	}
+	response.SuccessI18n(c, "common.success", result)
+}
+
+func (s *Server) handleDiscoverModels(c *gin.Context) {
+	var request ModelDiscoveryRequest
+	if err := bindStrictJSON(c, &request); err != nil {
+		writeDiscoveryError(c, request.Protocol, app_errors.ErrInvalidJSON)
+		return
+	}
+	result, err := s.service.DiscoverModels(c.Request.Context(), request)
+	if err != nil {
+		writeDiscoveryError(c, request.Protocol, err)
 		return
 	}
 	response.SuccessI18n(c, "common.success", result)
@@ -162,16 +178,29 @@ func accessKeyID(c *gin.Context) (uint, bool) {
 }
 
 func writeServiceError(c *gin.Context, operation string, err error) {
+	writeServiceErrorForProtocol(c, operation, "", err)
+}
+
+func writeDiscoveryError(c *gin.Context, value protocol.Protocol, err error) {
+	writeServiceErrorForProtocol(c, "discover_models", value, err)
+}
+
+func writeServiceErrorForProtocol(
+	c *gin.Context,
+	operation string,
+	value protocol.Protocol,
+	err error,
+) {
 	var apiErr *app_errors.APIError
 	if errors.As(err, &apiErr) {
 		if apiErr.HTTPStatus >= http.StatusInternalServerError {
-			logServiceError(operation, err, apiErr.Code)
+			logServiceError(operation, value, err, apiErr.Code)
 		}
 		response.ErrorI18nFromAPIError(c, apiErr, serviceErrorMessageID(operation, apiErr))
 		return
 	}
 
-	logServiceError(operation, err, app_errors.ErrInternalServer.Code)
+	logServiceError(operation, value, err, app_errors.ErrInternalServer.Code)
 	response.ErrorI18nFromAPIError(c, app_errors.ErrInternalServer, "internal_error")
 }
 
@@ -189,15 +218,21 @@ func serviceErrorMessageID(operation string, apiErr *app_errors.APIError) string
 			return "group.name_exists"
 		}
 		return "bad_request"
+	case app_errors.ErrBadGateway.Code:
+		return "bad_gateway"
 	default:
 		return "internal_error"
 	}
 }
 
-func logServiceError(operation string, err error, code string) {
-	logrus.WithFields(logrus.Fields{
+func logServiceError(operation string, value protocol.Protocol, err error, code string) {
+	fields := logrus.Fields{
 		"operation":  operation,
 		"error_code": code,
 		"error_type": fmt.Sprintf("%T", err),
-	}).Error("Control operation failed")
+	}
+	if value != "" {
+		fields["protocol"] = value
+	}
+	logrus.WithFields(fields).Error("Control operation failed")
 }

@@ -10,6 +10,7 @@ var MessagesEnUS = map[string]string{
 	"forbidden":      "Forbidden",
 	"not_found":      "Not found",
 	"bad_request":    "Bad request",
+	"bad_gateway":    "Upstream service error",
 	"internal_error": "Internal error",
 	"invalid_param":  "Invalid parameter",
 	"required_field": "Required field",

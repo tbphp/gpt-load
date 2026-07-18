@@ -10,6 +10,7 @@ var MessagesZhCN = map[string]string{
 	"forbidden":      "禁止访问",
 	"not_found":      "未找到",
 	"bad_request":    "请求错误",
+	"bad_gateway":    "上游服务错误",
 	"internal_error": "内部错误",
 	"invalid_param":  "参数无效",
 	"required_field": "必填字段",

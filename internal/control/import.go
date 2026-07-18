@@ -1,11 +1,13 @@
 package control
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/url"
 	"strings"
@@ -14,7 +16,6 @@ import (
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 
-	"gpt-load/internal/dialect"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
@@ -28,21 +29,50 @@ type ImportRequest struct {
 	Protocols   []protocol.Protocol `json:"protocols"`
 	Name        *string             `json:"name"`
 	Keys        string              `json:"keys"`
+	Models      optionalGroupModels `json:"models"`
 }
 
 type ImportResult struct {
-	GroupID        uint     `json:"group_id"`
-	GroupName      string   `json:"group_name"`
-	Created        bool     `json:"created"`
-	KeysAdded      int      `json:"keys_added"`
-	KeysDuplicated int      `json:"keys_duplicated"`
-	ModelsFetched  bool     `json:"models_fetched"`
-	Models         []string `json:"models"`
+	GroupID        uint         `json:"group_id"`
+	GroupName      string       `json:"group_name"`
+	Created        bool         `json:"created"`
+	KeysAdded      int          `json:"keys_added"`
+	KeysDuplicated int          `json:"keys_duplicated"`
+	Models         []GroupModel `json:"models"`
 }
 
 type importKeyCandidate struct {
 	plaintext string
 	hash      string
+}
+
+type optionalGroupModels struct {
+	Set    bool
+	Values []GroupModel
+}
+
+func (value *optionalGroupModels) UnmarshalJSON(data []byte) error {
+	if value == nil || bytes.Equal(bytes.TrimSpace(data), []byte("null")) {
+		return fmt.Errorf("models must be an array")
+	}
+
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	var decoded []GroupModel
+	if err := decoder.Decode(&decoded); err != nil {
+		return fmt.Errorf("decode models: %w", err)
+	}
+	var trailing json.RawMessage
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return fmt.Errorf("decode models: trailing JSON value")
+		}
+		return fmt.Errorf("decode models trailing value: %w", err)
+	}
+
+	value.Set = true
+	value.Values = decoded
+	return nil
 }
 
 type normalizedImport struct {
@@ -52,31 +82,26 @@ type normalizedImport struct {
 	protocols      []protocol.Protocol
 	explicitName   *string
 	keys           []importKeyCandidate
-	firstKey       string
 	duplicateLines int
+	models         optionalGroupModels
 }
 
-type modelFetchResult struct {
-	fetched bool
-	models  []string
-}
-
-func normalizeUpstreamURL(raw string) (normalized, signature, hostname string, err error) {
+func normalizeUpstreamBaseURL(raw string) (normalized, hostname string, err error) {
 	parsed, parseErr := url.Parse(strings.TrimSpace(raw))
 	if parseErr != nil || parsed.Opaque != "" || parsed.Host == "" {
-		return "", "", "", app_errors.ErrValidation
+		return "", "", app_errors.ErrValidation
 	}
 	parsed.Scheme = strings.ToLower(parsed.Scheme)
 	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return "", "", "", app_errors.ErrValidation
+		return "", "", app_errors.ErrValidation
 	}
 	if parsed.User != nil || parsed.Fragment != "" {
-		return "", "", "", app_errors.ErrValidation
+		return "", "", app_errors.ErrValidation
 	}
 
 	hostname = strings.ToLower(parsed.Hostname())
 	if hostname == "" {
-		return "", "", "", app_errors.ErrValidation
+		return "", "", app_errors.ErrValidation
 	}
 	port := parsed.Port()
 	if port != "" {
@@ -88,7 +113,14 @@ func normalizeUpstreamURL(raw string) (normalized, signature, hostname string, e
 	}
 	parsed.Path = strings.TrimRight(parsed.Path, "/")
 	parsed.RawPath = ""
-	normalized = parsed.String()
+	return parsed.String(), hostname, nil
+}
+
+func normalizeUpstreamURL(raw string) (normalized, signature, hostname string, err error) {
+	normalized, hostname, err = normalizeUpstreamBaseURL(raw)
+	if err != nil {
+		return "", "", "", err
+	}
 	sum := sha256.Sum256([]byte(normalized))
 	return normalized, hex.EncodeToString(sum[:]), hostname, nil
 }
@@ -107,16 +139,50 @@ func (s *Service) normalizeImportInput(request ImportRequest) (normalizedImport,
 	if err != nil {
 		return normalizedImport{}, err
 	}
-	keys, firstKey, duplicateLines, err := s.normalizeImportKeys(request.Keys)
+	keys, duplicateLines, err := s.normalizeImportKeys(request.Keys)
 	if err != nil {
 		return normalizedImport{}, err
+	}
+	importModels := optionalGroupModels{Set: request.Models.Set}
+	if request.Models.Set {
+		importModels.Values, err = normalizeImportModels(request.Models.Values)
+		if err != nil {
+			return normalizedImport{}, err
+		}
 	}
 
 	return normalizedImport{
 		upstreamURL: upstreamURL, signature: signature, hostname: hostname,
 		protocols: protocols, explicitName: explicitName, keys: keys,
-		firstKey: firstKey, duplicateLines: duplicateLines,
+		duplicateLines: duplicateLines,
+		models:         importModels,
 	}, nil
+}
+
+func normalizeImportModels(values []GroupModel) ([]GroupModel, error) {
+	type pair struct {
+		id    string
+		alias string
+	}
+
+	result := make([]GroupModel, 0, len(values))
+	seen := make(map[pair]struct{}, len(values))
+	for _, value := range values {
+		normalized := GroupModel{
+			ID:    strings.TrimSpace(value.ID),
+			Alias: strings.TrimSpace(value.Alias),
+		}
+		if normalized.ID == "" {
+			return nil, app_errors.ErrValidation
+		}
+		identity := pair{id: normalized.ID, alias: normalized.Alias}
+		if _, duplicate := seen[identity]; duplicate {
+			continue
+		}
+		seen[identity] = struct{}{}
+		result = append(result, normalized)
+	}
+	return result, nil
 }
 
 func normalizeImportProtocols(values []protocol.Protocol) ([]protocol.Protocol, error) {
@@ -154,10 +220,9 @@ func normalizeImportName(value *string) (*string, error) {
 	return &normalized, nil
 }
 
-func (s *Service) normalizeImportKeys(raw string) ([]importKeyCandidate, string, int, error) {
+func (s *Service) normalizeImportKeys(raw string) ([]importKeyCandidate, int, error) {
 	result := make([]importKeyCandidate, 0)
 	seen := make(map[string]struct{})
-	firstKey := ""
 	duplicateLines := 0
 	nonEmptyLines := 0
 	for _, line := range strings.Split(raw, "\n") {
@@ -167,10 +232,7 @@ func (s *Service) normalizeImportKeys(raw string) ([]importKeyCandidate, string,
 		}
 		nonEmptyLines++
 		if nonEmptyLines > maxImportKeyLines {
-			return nil, "", 0, app_errors.ErrValidation
-		}
-		if firstKey == "" {
-			firstKey = plaintext
+			return nil, 0, app_errors.ErrValidation
 		}
 		hash := s.encryption.Hash(plaintext)
 		if _, duplicate := seen[hash]; duplicate {
@@ -181,9 +243,9 @@ func (s *Service) normalizeImportKeys(raw string) ([]importKeyCandidate, string,
 		result = append(result, importKeyCandidate{plaintext: plaintext, hash: hash})
 	}
 	if len(result) == 0 {
-		return nil, "", 0, app_errors.ErrValidation
+		return nil, 0, app_errors.ErrValidation
 	}
-	return result, firstKey, duplicateLines, nil
+	return result, duplicateLines, nil
 }
 
 func (s *Service) Import(ctx context.Context, request ImportRequest) (ImportResult, error) {
@@ -197,22 +259,17 @@ func (s *Service) Import(ctx context.Context, request ImportRequest) (ImportResu
 			"signature": normalized.signature,
 		}).Warn("Importing upstream with a private or local host")
 	}
-	modelFetch, err := s.prefetchModels(ctx, normalized)
-	if err != nil {
-		return ImportResult{}, err
-	}
-
-	result := ImportResult{ModelsFetched: modelFetch.fetched, Models: make([]string, 0)}
+	result := ImportResult{Models: make([]GroupModel, 0)}
 	var requestedEntries []state.KeyEntry
 	_, err = s.writeConfig(ctx, func(tx *gorm.DB) error {
-		group, created, err := s.persistImportGroup(tx, normalized, modelFetch)
+		group, created, err := s.persistImportGroup(tx, normalized)
 		if err != nil {
 			return err
 		}
 		result.GroupID = group.ID
 		result.GroupName = group.Name
 		result.Created = created
-		result.Models, err = decodeImportModelIDs(group.Models)
+		result.Models, err = decodeImportModels(group.Models)
 		if err != nil {
 			return err
 		}
@@ -244,87 +301,9 @@ func (s *Service) Import(ctx context.Context, request ImportRequest) (ImportResu
 	return result, nil
 }
 
-func (s *Service) prefetchModels(ctx context.Context, normalized normalizedImport) (modelFetchResult, error) {
-	if err := ctx.Err(); err != nil {
-		return modelFetchResult{}, err
-	}
-
-	protocols := append([]protocol.Protocol(nil), normalized.protocols...)
-	rules := state.HeaderRules{}
-	var group models.Group
-	query := s.db.WithContext(ctx).Where("signature = ?", normalized.signature).Limit(1).Find(&group)
-	if query.Error != nil {
-		if err := ctx.Err(); err != nil {
-			return modelFetchResult{}, err
-		}
-		return modelFetchResult{}, app_errors.ParseDBError(query.Error)
-	}
-	if query.RowsAffected == 1 {
-		var existing []protocol.Protocol
-		if err := json.Unmarshal(group.Protocols, &existing); err != nil {
-			return modelFetchResult{}, fmt.Errorf("decode group %d protocols for model fetch: %w", group.ID, err)
-		}
-		protocols = stableProtocolUnion(existing, normalized.protocols)
-		if snapshot := s.manager.Current(); snapshot != nil {
-			if view, ok := snapshot.Groups[group.ID]; ok {
-				rules = view.HeaderRules
-			}
-		}
-	}
-
-	var selected dialect.Dialect
-	for _, value := range protocols {
-		if candidate, ok := s.dialects[value]; ok {
-			selected = candidate
-			break
-		}
-	}
-	if selected == nil {
-		return modelFetchResult{}, nil
-	}
-
-	fetchContext, cancel := context.WithTimeout(ctx, s.modelFetchTimeout)
-	models, err := selected.ListModels(
-		fetchContext,
-		normalized.upstreamURL,
-		normalized.firstKey,
-		rules,
-	)
-	cancel()
-	if parentErr := ctx.Err(); parentErr != nil {
-		return modelFetchResult{}, parentErr
-	}
-	if err != nil {
-		return modelFetchResult{}, nil
-	}
-	validated, ok := normalizeFetchedModels(models)
-	if !ok {
-		return modelFetchResult{}, nil
-	}
-	return modelFetchResult{fetched: true, models: validated}, nil
-}
-
-func normalizeFetchedModels(values []string) ([]string, bool) {
-	result := make([]string, 0, len(values))
-	seen := make(map[string]struct{}, len(values))
-	for _, value := range values {
-		normalized := strings.TrimSpace(value)
-		if normalized == "" || normalized != value {
-			return nil, false
-		}
-		if _, duplicate := seen[normalized]; duplicate {
-			continue
-		}
-		seen[normalized] = struct{}{}
-		result = append(result, normalized)
-	}
-	return result, true
-}
-
 func (s *Service) persistImportGroup(
 	tx *gorm.DB,
 	normalized normalizedImport,
-	modelFetch modelFetchResult,
 ) (models.Group, bool, error) {
 	var group models.Group
 	query := tx.Where("signature = ?", normalized.signature).Limit(1).Find(&group)
@@ -342,13 +321,8 @@ func (s *Service) persistImportGroup(
 			return models.Group{}, false, fmt.Errorf("encode group protocols: %w", err)
 		}
 		updates := map[string]any{"protocols": models.JSON(encoded)}
-		if modelFetch.fetched {
-			var storedModels []GroupModel
-			if err := json.Unmarshal(group.Models, &storedModels); err != nil {
-				return models.Group{}, false, fmt.Errorf("decode group %d models: %w", group.ID, err)
-			}
-			mergedModels := appendMissingGroupModels(storedModels, modelFetch.models)
-			encodedModels, err := json.Marshal(mergedModels)
+		if normalized.models.Set {
+			encodedModels, err := json.Marshal(normalized.models.Values)
 			if err != nil {
 				return models.Group{}, false, fmt.Errorf("encode group models: %w", err)
 			}
@@ -370,11 +344,9 @@ func (s *Service) persistImportGroup(
 	if err != nil {
 		return models.Group{}, false, fmt.Errorf("encode group protocols: %w", err)
 	}
-	storedModels := make([]GroupModel, 0, len(modelFetch.models))
-	if modelFetch.fetched {
-		for _, modelID := range modelFetch.models {
-			storedModels = append(storedModels, GroupModel{ID: modelID})
-		}
+	storedModels := make([]GroupModel, 0)
+	if normalized.models.Set {
+		storedModels = append(storedModels, normalized.models.Values...)
 	}
 	encodedModels, err := json.Marshal(storedModels)
 	if err != nil {
@@ -389,22 +361,6 @@ func (s *Service) persistImportGroup(
 		return models.Group{}, false, app_errors.ParseDBError(err)
 	}
 	return group, true, nil
-}
-
-func appendMissingGroupModels(existing []GroupModel, fetched []string) []GroupModel {
-	result := append([]GroupModel(nil), existing...)
-	seen := make(map[string]struct{}, len(existing)+len(fetched))
-	for _, model := range existing {
-		seen[model.ID] = struct{}{}
-	}
-	for _, modelID := range fetched {
-		if _, exists := seen[modelID]; exists {
-			continue
-		}
-		seen[modelID] = struct{}{}
-		result = append(result, GroupModel{ID: modelID})
-	}
-	return result
 }
 
 func resolveImportGroupName(tx *gorm.DB, normalized normalizedImport) (string, error) {
@@ -505,19 +461,13 @@ func (s *Service) persistImportKeys(
 	return entries, added, duplicated, nil
 }
 
-func decodeImportModelIDs(raw models.JSON) ([]string, error) {
-	var stored []GroupModel
-	if err := json.Unmarshal(raw, &stored); err != nil {
+func decodeImportModels(raw models.JSON) ([]GroupModel, error) {
+	var result []GroupModel
+	if err := json.Unmarshal(raw, &result); err != nil {
 		return nil, fmt.Errorf("decode imported group models: %w", err)
 	}
-	result := make([]string, 0, len(stored))
-	seen := make(map[string]struct{}, len(stored))
-	for _, model := range stored {
-		if _, exists := seen[model.ID]; exists {
-			continue
-		}
-		seen[model.ID] = struct{}{}
-		result = append(result, model.ID)
+	if result == nil {
+		result = make([]GroupModel, 0)
 	}
 	return result, nil
 }

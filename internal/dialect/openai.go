@@ -82,7 +82,10 @@ func (d *OpenAI) ListModels(
 
 	resp, err := d.client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("request OpenAI model list: %w", err)
+		if contextErr := ctx.Err(); contextErr != nil {
+			return nil, fmt.Errorf("request OpenAI model list: %w", contextErr)
+		}
+		return nil, fmt.Errorf("request OpenAI model list failed")
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < http.StatusOK ||

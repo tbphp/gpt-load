@@ -1,0 +1,19 @@
+{
+  "data": [
+    {
+      "type": "model",
+      "id": "claude-3-7-sonnet-latest",
+      "display_name": "Claude 3.7 Sonnet",
+      "created_at": "2025-01-01T00:00:00Z"
+    },
+    {
+      "type": "model",
+      "id": "claude-3-5-haiku-latest",
+      "display_name": "Claude 3.5 Haiku",
+      "created_at": "2025-01-01T00:00:00Z"
+    }
+  ],
+  "has_more": true,
+  "first_id": "claude-3-7-sonnet-latest",
+  "last_id": "claude-3-5-haiku-latest"
+}

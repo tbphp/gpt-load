@@ -78,8 +78,17 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 		return
 	}
 	selectedRoute, ok := determineRoute(ginContext.Request.Method, ginContext.Request.URL.Path, ginContext.Request.Header)
+	if !ok {
+		writeReason(ginContext, reasonEndpointNotFound)
+		return
+	}
+	if selectedRoute.Kind == endpointModels {
+		writeVisibleModelList(ginContext, snapshot, accessKey, selectedRoute.Protocol)
+		return
+	}
+
 	selectedDialect, dialectReady := handler.dialects[selectedRoute.Protocol]
-	if !ok || !dialectReady || selectedRoute.Kind != endpointChat {
+	if !dialectReady || selectedRoute.Kind != endpointChat {
 		writeReason(ginContext, reasonEndpointNotFound)
 		return
 	}

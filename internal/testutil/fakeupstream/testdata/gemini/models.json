@@ -1,0 +1,20 @@
+{
+  "models": [
+    {
+      "name": "models/gemini-2.5-pro",
+      "version": "001",
+      "displayName": "Gemini 2.5 Pro",
+      "description": "Gemini model fixture",
+      "inputTokenLimit": 1048576,
+      "outputTokenLimit": 65536,
+      "supportedGenerationMethods": ["generateContent", "countTokens"]
+    },
+    {
+      "name": "models/gemini-2.5-flash",
+      "version": "001",
+      "displayName": "Gemini 2.5 Flash",
+      "supportedGenerationMethods": ["generateContent"]
+    }
+  ],
+  "nextPageToken": "ignored-token"
+}
