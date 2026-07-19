@@ -16,7 +16,7 @@ import (
 	"gpt-load/internal/storage/models"
 )
 
-// CurrentSchemaVersion is the database schema version created by M0.
+// CurrentSchemaVersion identifies the SQLite schema supported by this binary.
 const CurrentSchemaVersion uint = 1
 
 type schemaInfo struct {
@@ -61,7 +61,7 @@ func Open(dsn string) (*gorm.DB, error) {
 	return db, nil
 }
 
-// AutoMigrate creates the M0 persistence schema and initializes schema_info.
+// AutoMigrate creates the current persistence schema and initializes schema_info.
 func AutoMigrate(db *gorm.DB) error {
 	if db == nil {
 		return fmt.Errorf("auto-migrate SQLite database: db is nil")

@@ -35,6 +35,14 @@ type Anthropic struct {
 	client *http.Client
 }
 
+type anthropicModelPage struct {
+	Data []struct {
+		ID string `json:"id"`
+	} `json:"data"`
+	HasMore bool   `json:"has_more"`
+	LastID  string `json:"last_id"`
+}
+
 var _ Dialect = (*Anthropic)(nil)
 
 func NewAnthropic(client *http.Client) *Anthropic {
@@ -72,41 +80,80 @@ func (d *Anthropic) ListModels(
 	if err != nil {
 		return nil, fmt.Errorf("parse Anthropic model-list URL: %w", err)
 	}
-	query := parsed.Query()
-	query.Set("limit", "1000")
-	parsed.RawQuery = query.Encode()
 
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil)
+	collector := newModelListCollector()
+	seenCursors := make(map[string]struct{})
+	afterID := ""
+	for pageNumber := 1; pageNumber <= maxModelListPages; pageNumber++ {
+		page, err := d.listModelsPage(ctx, parsed, apiKey, rules, afterID)
+		if err != nil {
+			return nil, err
+		}
+		pageModels := make([]string, 0, len(page.Data))
+		for _, item := range page.Data {
+			pageModels = append(pageModels, item.ID)
+		}
+		if err := collector.Add(pageModels); err != nil {
+			return nil, err
+		}
+		if !page.HasMore {
+			return collector.Result(), nil
+		}
+		if strings.TrimSpace(page.LastID) == "" {
+			return nil, fmt.Errorf("Anthropic model-list cursor is empty")
+		}
+		if _, repeated := seenCursors[page.LastID]; repeated {
+			return nil, fmt.Errorf("Anthropic model-list cursor repeated")
+		}
+		if pageNumber == maxModelListPages || collector.Full() {
+			return nil, fmt.Errorf("Anthropic model-list pagination limit exceeded")
+		}
+		seenCursors[page.LastID] = struct{}{}
+		afterID = page.LastID
+	}
+	return nil, fmt.Errorf("Anthropic model-list pagination limit exceeded")
+}
+
+func (d *Anthropic) listModelsPage(
+	ctx context.Context,
+	endpoint *url.URL,
+	apiKey string,
+	rules state.HeaderRules,
+	afterID string,
+) (anthropicModelPage, error) {
+	pageEndpoint := *endpoint
+	query := pageEndpoint.Query()
+	query.Del("limit")
+	query.Set("limit", "1000")
+	query.Del("after_id")
+	if afterID != "" {
+		query.Set("after_id", afterID)
+	}
+	pageEndpoint.RawQuery = query.Encode()
+
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, pageEndpoint.String(), nil)
 	if err != nil {
-		return nil, fmt.Errorf("create Anthropic model-list request: %w", err)
+		return anthropicModelPage{}, fmt.Errorf("create Anthropic model-list request: %w", err)
 	}
 	ApplyCredential(d, request.Header, apiKey, rules)
 
 	response, err := d.client.Do(request)
 	if err != nil {
 		if contextErr := ctx.Err(); contextErr != nil {
-			return nil, fmt.Errorf("request Anthropic model list: %w", contextErr)
+			return anthropicModelPage{}, fmt.Errorf("request Anthropic model list: %w", contextErr)
 		}
-		return nil, fmt.Errorf("request Anthropic model list failed")
+		return anthropicModelPage{}, fmt.Errorf("request Anthropic model list failed")
 	}
 	defer response.Body.Close()
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-		return nil, fmt.Errorf("request Anthropic model list: upstream status %d", response.StatusCode)
+		return anthropicModelPage{}, fmt.Errorf("request Anthropic model list: upstream status %d", response.StatusCode)
 	}
 
-	var payload struct {
-		Data []struct {
-			ID string `json:"id"`
-		} `json:"data"`
+	var page anthropicModelPage
+	if err := json.NewDecoder(response.Body).Decode(&page); err != nil {
+		return anthropicModelPage{}, fmt.Errorf("decode Anthropic model list: %w", err)
 	}
-	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
-		return nil, fmt.Errorf("decode Anthropic model list: %w", err)
-	}
-	models := make([]string, 0, len(payload.Data))
-	for _, model := range payload.Data {
-		models = append(models, model.ID)
-	}
-	return models, nil
+	return page, nil
 }
 
 func (d *Anthropic) ExtractModel(req *ParsedRequest) (string, bool, error) {

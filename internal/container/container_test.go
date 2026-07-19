@@ -25,15 +25,35 @@ import (
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 	"gpt-load/internal/storage"
-	"gpt-load/internal/storage/store"
 )
+
+func TestBuildContainerDoesNotInitializeUnusedRuntimeStore(t *testing.T) {
+	t.Setenv("AUTH_KEY", "test-auth-key")
+	t.Setenv("DATA_DIR", t.TempDir())
+	t.Setenv("DATABASE_DSN", ":memory:")
+	t.Setenv("ENCRYPTION_KEY", "test-master-key-long")
+	t.Setenv("REDIS_DSN", "://invalid-redis-dsn")
+
+	dependencyContainer, err := BuildContainer()
+	if err != nil {
+		t.Fatalf("BuildContainer() must ignore REDIS_DSN, error = %v", err)
+	}
+	err = dependencyContainer.Invoke(func(_ *app.App, db *gorm.DB) {
+		sqlDB, dbErr := db.DB()
+		if dbErr == nil {
+			t.Cleanup(func() { _ = sqlDB.Close() })
+		}
+	})
+	if err != nil {
+		t.Fatalf("resolve database: %v", err)
+	}
+}
 
 func TestBuildContainerResolvesAllDialects(t *testing.T) {
 	t.Setenv("AUTH_KEY", "test-auth-key")
 	t.Setenv("DATA_DIR", t.TempDir())
 	t.Setenv("DATABASE_DSN", ":memory:")
 	t.Setenv("ENCRYPTION_KEY", "test-master-key-long")
-	t.Setenv("REDIS_DSN", "")
 
 	dependencyContainer, err := BuildContainer()
 	if err != nil {
@@ -45,10 +65,8 @@ func TestBuildContainerResolvesAllDialects(t *testing.T) {
 		gemini *dialect.Gemini,
 		values dialect.Set,
 		db *gorm.DB,
-		storageStore store.Store,
 	) {
 		t.Cleanup(func() {
-			_ = storageStore.Close()
 			sqlDB, dbErr := db.DB()
 			if dbErr == nil {
 				_ = sqlDB.Close()
@@ -69,9 +87,8 @@ func TestBuildContainerResolvesRuntimeDependencies(t *testing.T) {
 	dataDir := t.TempDir()
 	t.Setenv("AUTH_KEY", "test-auth-key")
 	t.Setenv("DATA_DIR", dataDir)
-	t.Setenv("DATABASE_DSN", ":memory:")
+	t.Setenv("DATABASE_DSN", "")
 	t.Setenv("ENCRYPTION_KEY", "")
-	t.Setenv("REDIS_DSN", "")
 
 	dependencyContainer, err := BuildContainer()
 	if err != nil {
@@ -81,10 +98,9 @@ func TestBuildContainerResolvesRuntimeDependencies(t *testing.T) {
 	var resolved bool
 	err = dependencyContainer.Invoke(func(
 		_ *app.App,
-		_ *config.Config,
+		cfg *config.Config,
 		_ encryption.Service,
 		db *gorm.DB,
-		storageStore store.Store,
 		_ *gin.Engine,
 		manager *state.Manager,
 		registry *state.KeyRegistry,
@@ -99,7 +115,6 @@ func TestBuildContainerResolvesRuntimeDependencies(t *testing.T) {
 		_ *dialect.OpenAI,
 	) {
 		t.Cleanup(func() {
-			_ = storageStore.Close()
 			sqlDB, dbErr := db.DB()
 			if dbErr == nil {
 				_ = sqlDB.Close()
@@ -121,6 +136,14 @@ func TestBuildContainerResolvesRuntimeDependencies(t *testing.T) {
 		if attemptForwarder == nil {
 			t.Fatal("stream-capable attempt forwarder was not resolved")
 		}
+		if want := filepath.Join(dataDir, "gpt-load.db"); cfg.DatabaseDSN != want {
+			t.Fatalf("DatabaseDSN = %q, want %q", cfg.DatabaseDSN, want)
+		}
+		for _, name := range []string{"gpt-load.db", encryption.KeyFileName} {
+			if _, err := os.Stat(filepath.Join(dataDir, name)); err != nil {
+				t.Fatalf("%s was not created in DATA_DIR: %v", name, err)
+			}
+		}
 		resolved = true
 	})
 	if err != nil {
@@ -129,9 +152,6 @@ func TestBuildContainerResolvesRuntimeDependencies(t *testing.T) {
 	if !resolved {
 		t.Fatal("runtime dependency graph was not invoked")
 	}
-	if _, err := os.Stat(filepath.Join(dataDir, encryption.KeyFileName)); err != nil {
-		t.Fatalf("container did not initialize encryption keyfile: %v", err)
-	}
 }
 
 func TestBuildContainerRegistersControlRoutesWithoutAffectingGateway(t *testing.T) {
@@ -139,7 +159,6 @@ func TestBuildContainerRegistersControlRoutesWithoutAffectingGateway(t *testing.
 	t.Setenv("DATA_DIR", t.TempDir())
 	t.Setenv("DATABASE_DSN", ":memory:")
 	t.Setenv("ENCRYPTION_KEY", "test-master-key-long")
-	t.Setenv("REDIS_DSN", "")
 	if err := i18n.Init(); err != nil {
 		t.Fatalf("i18n.Init() error = %v", err)
 	}
@@ -195,7 +214,6 @@ func TestBuildContainerRegistersGatewayRoute(t *testing.T) {
 	t.Setenv("DATA_DIR", dataDir)
 	t.Setenv("DATABASE_DSN", ":memory:")
 	t.Setenv("ENCRYPTION_KEY", "test-master-key")
-	t.Setenv("REDIS_DSN", "")
 
 	dependencyContainer, err := BuildContainer()
 	if err != nil {
@@ -225,7 +243,6 @@ func TestBuildContainerDoesNotRedirectTrailingSlashGatewayRoute(t *testing.T) {
 	t.Setenv("DATA_DIR", t.TempDir())
 	t.Setenv("DATABASE_DSN", ":memory:")
 	t.Setenv("ENCRYPTION_KEY", "test-master-key-long")
-	t.Setenv("REDIS_DSN", "")
 
 	dependencyContainer, err := BuildContainer()
 	if err != nil {

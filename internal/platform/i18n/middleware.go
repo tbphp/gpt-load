@@ -8,8 +8,6 @@ import (
 const (
 	// LocalizerKey 是 gin.Context 中存储 Localizer 的键
 	LocalizerKey = "localizer"
-	// LangKey 是 gin.Context 中存储当前语言的键
-	LangKey = "lang"
 )
 
 // Middleware i18n 中间件
@@ -24,10 +22,6 @@ func Middleware() gin.HandlerFunc {
 		// 将 Localizer 存储到 Context 中
 		c.Set(LocalizerKey, localizer)
 
-		// 存储当前语言
-		lang := normalizeLanguageCode(acceptLang)
-		c.Set(LangKey, lang)
-
 		c.Next()
 	}
 }
@@ -41,66 +35,6 @@ func GetLocalizerFromContext(c *gin.Context) *i18n.Localizer {
 	}
 	// 如果没有找到，返回默认的中文 Localizer
 	return GetLocalizer("zh-CN")
-}
-
-// GetLangFromContext 从 gin.Context 获取当前语言
-func GetLangFromContext(c *gin.Context) string {
-	if lang, exists := c.Get(LangKey); exists {
-		if l, ok := lang.(string); ok {
-			return l
-		}
-	}
-	return "zh-CN"
-}
-
-// Success 返回成功响应（带国际化消息）
-func Success(c *gin.Context, msgID string, data any) {
-	localizer := GetLocalizerFromContext(c)
-	message := T(localizer, msgID)
-
-	c.JSON(200, gin.H{
-		"success": true,
-		"message": message,
-		"data":    data,
-		"lang":    GetLangFromContext(c),
-	})
-}
-
-// SuccessWithData 返回成功响应（带模板数据）
-func SuccessWithData(c *gin.Context, msgID string, templateData map[string]any, data any) {
-	localizer := GetLocalizerFromContext(c)
-	message := T(localizer, msgID, templateData)
-
-	c.JSON(200, gin.H{
-		"success": true,
-		"message": message,
-		"data":    data,
-		"lang":    GetLangFromContext(c),
-	})
-}
-
-// Error 返回错误响应（带国际化消息）
-func Error(c *gin.Context, code int, msgID string) {
-	localizer := GetLocalizerFromContext(c)
-	message := T(localizer, msgID)
-
-	c.JSON(code, gin.H{
-		"success": false,
-		"message": message,
-		"lang":    GetLangFromContext(c),
-	})
-}
-
-// ErrorWithData 返回错误响应（带模板数据）
-func ErrorWithData(c *gin.Context, code int, msgID string, templateData map[string]any) {
-	localizer := GetLocalizerFromContext(c)
-	message := T(localizer, msgID, templateData)
-
-	c.JSON(code, gin.H{
-		"success": false,
-		"message": message,
-		"lang":    GetLangFromContext(c),
-	})
 }
 
 // Message 获取国际化消息

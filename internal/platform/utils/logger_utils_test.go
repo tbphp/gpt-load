@@ -1,7 +1,7 @@
 package utils
 
 import (
-	"io"
+	"os"
 	"testing"
 
 	"github.com/sirupsen/logrus"
@@ -16,8 +16,6 @@ func TestSetupLogger(t *testing.T) {
 		logrus.SetFormatter(originalFormatter)
 		logrus.SetOutput(originalOutput)
 	})
-	logrus.SetOutput(io.Discard)
-
 	SetupLogger(LogConfig{Level: "debug", Format: "json"})
 
 	if got := logrus.GetLevel(); got != logrus.DebugLevel {
@@ -25,6 +23,9 @@ func TestSetupLogger(t *testing.T) {
 	}
 	if _, ok := logrus.StandardLogger().Formatter.(*logrus.JSONFormatter); !ok {
 		t.Fatalf("formatter = %T, want *logrus.JSONFormatter", logrus.StandardLogger().Formatter)
+	}
+	if got := logrus.StandardLogger().Out; got != os.Stdout {
+		t.Fatalf("output = %T, want os.Stdout", got)
 	}
 }
 
@@ -37,8 +38,6 @@ func TestSetupLoggerFallsBackToInfoLevel(t *testing.T) {
 		logrus.SetFormatter(originalFormatter)
 		logrus.SetOutput(originalOutput)
 	})
-	logrus.SetOutput(io.Discard)
-
 	SetupLogger(LogConfig{Level: "invalid", Format: "text"})
 
 	if got := logrus.GetLevel(); got != logrus.InfoLevel {
@@ -46,5 +45,8 @@ func TestSetupLoggerFallsBackToInfoLevel(t *testing.T) {
 	}
 	if _, ok := logrus.StandardLogger().Formatter.(*logrus.TextFormatter); !ok {
 		t.Fatalf("formatter = %T, want *logrus.TextFormatter", logrus.StandardLogger().Formatter)
+	}
+	if got := logrus.StandardLogger().Out; got != os.Stdout {
+		t.Fatalf("output = %T, want os.Stdout", got)
 	}
 }

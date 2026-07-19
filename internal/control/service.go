@@ -16,6 +16,8 @@ import (
 	stateloader "gpt-load/internal/state/loader"
 )
 
+const defaultModelDiscoveryTimeout = 30 * time.Second
+
 type Service struct {
 	db                    *gorm.DB
 	manager               *state.Manager
@@ -37,7 +39,7 @@ func NewService(
 	return &Service{
 		db: db, manager: manager, registry: registry,
 		encryption: encryptionService, dialects: dialects,
-		modelDiscoveryTimeout: 3 * time.Second, random: rand.Reader,
+		modelDiscoveryTimeout: defaultModelDiscoveryTimeout, random: rand.Reader,
 	}
 }
 

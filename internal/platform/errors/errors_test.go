@@ -29,8 +29,19 @@ func TestParseDBErrorUsesDatabaseIndependentGORMErrors(t *testing.T) {
 }
 
 func TestParseDBErrorRecognizesSQLiteUniqueConstraint(t *testing.T) {
-	err := errors.New("constraint failed: UNIQUE constraint failed: groups.signature (2067)")
+	err := errors.New("constraint failed: UNIQUE constraint failed: groups.name (2067)")
 	if got := ParseDBError(err); got != ErrDuplicateResource {
 		t.Fatalf("ParseDBError() = %#v, want duplicate resource", got)
+	}
+}
+
+func TestNewAPIErrorWithDataDoesNotMutateBase(t *testing.T) {
+	data := map[string]any{"id": 12}
+	got := NewAPIErrorWithData(ErrUpstreamURLConflict, data)
+	if got == ErrUpstreamURLConflict || got.Data == nil {
+		t.Fatalf("NewAPIErrorWithData() = %#v", got)
+	}
+	if ErrUpstreamURLConflict.Data != nil {
+		t.Fatalf("base Data = %#v, want nil", ErrUpstreamURLConflict.Data)
 	}
 }

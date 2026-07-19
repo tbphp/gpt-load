@@ -35,6 +35,13 @@ type Gemini struct {
 	client *http.Client
 }
 
+type geminiModelPage struct {
+	Models []struct {
+		Name string `json:"name"`
+	} `json:"models"`
+	NextPageToken string `json:"nextPageToken"`
+}
+
 var _ Dialect = (*Gemini)(nil)
 
 func NewGemini(client *http.Client) *Gemini {
@@ -97,45 +104,83 @@ func (d *Gemini) ListModels(
 	if err != nil {
 		return nil, fmt.Errorf("parse Gemini model-list URL: %w", err)
 	}
-	query := parsed.Query()
-	query.Set("pageSize", "1000")
-	parsed.RawQuery = query.Encode()
 
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil)
+	collector := newModelListCollector()
+	seenPageTokens := make(map[string]struct{})
+	pageToken := ""
+	for pageNumber := 1; pageNumber <= maxModelListPages; pageNumber++ {
+		page, err := d.listModelsPage(ctx, parsed, apiKey, rules, pageToken)
+		if err != nil {
+			return nil, err
+		}
+		pageModels := make([]string, 0, len(page.Models))
+		for _, item := range page.Models {
+			name := strings.TrimPrefix(item.Name, "models/")
+			if name != "" {
+				pageModels = append(pageModels, name)
+			}
+		}
+		if err := collector.Add(pageModels); err != nil {
+			return nil, err
+		}
+		if page.NextPageToken == "" {
+			return collector.Result(), nil
+		}
+		if strings.TrimSpace(page.NextPageToken) == "" {
+			return nil, fmt.Errorf("Gemini model-list page token is empty")
+		}
+		if _, repeated := seenPageTokens[page.NextPageToken]; repeated {
+			return nil, fmt.Errorf("Gemini model-list page token repeated")
+		}
+		if pageNumber == maxModelListPages || collector.Full() {
+			return nil, fmt.Errorf("Gemini model-list pagination limit exceeded")
+		}
+		seenPageTokens[page.NextPageToken] = struct{}{}
+		pageToken = page.NextPageToken
+	}
+	return nil, fmt.Errorf("Gemini model-list pagination limit exceeded")
+}
+
+func (d *Gemini) listModelsPage(
+	ctx context.Context,
+	endpoint *url.URL,
+	apiKey string,
+	rules state.HeaderRules,
+	pageToken string,
+) (geminiModelPage, error) {
+	pageEndpoint := *endpoint
+	query := pageEndpoint.Query()
+	query.Del("pageSize")
+	query.Set("pageSize", "1000")
+	query.Del("pageToken")
+	if pageToken != "" {
+		query.Set("pageToken", pageToken)
+	}
+	pageEndpoint.RawQuery = query.Encode()
+
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, pageEndpoint.String(), nil)
 	if err != nil {
-		return nil, fmt.Errorf("create Gemini model-list request: %w", err)
+		return geminiModelPage{}, fmt.Errorf("create Gemini model-list request: %w", err)
 	}
 	ApplyCredential(d, request.Header, apiKey, rules)
 
 	response, err := d.client.Do(request)
 	if err != nil {
 		if contextErr := ctx.Err(); contextErr != nil {
-			return nil, fmt.Errorf("request Gemini model list: %w", contextErr)
+			return geminiModelPage{}, fmt.Errorf("request Gemini model list: %w", contextErr)
 		}
-		return nil, fmt.Errorf("request Gemini model list failed")
+		return geminiModelPage{}, fmt.Errorf("request Gemini model list failed")
 	}
 	defer response.Body.Close()
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-		return nil, fmt.Errorf("request Gemini model list: upstream status %d", response.StatusCode)
+		return geminiModelPage{}, fmt.Errorf("request Gemini model list: upstream status %d", response.StatusCode)
 	}
 
-	var payload struct {
-		Models []struct {
-			Name string `json:"name"`
-		} `json:"models"`
+	var page geminiModelPage
+	if err := json.NewDecoder(response.Body).Decode(&page); err != nil {
+		return geminiModelPage{}, fmt.Errorf("decode Gemini model list: %w", err)
 	}
-	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
-		return nil, fmt.Errorf("decode Gemini model list: %w", err)
-	}
-	models := make([]string, 0, len(payload.Models))
-	for _, item := range payload.Models {
-		name := strings.TrimPrefix(item.Name, "models/")
-		if name == "" {
-			continue
-		}
-		models = append(models, name)
-	}
-	return models, nil
+	return page, nil
 }
 
 func (d *Gemini) ClassifyStatus(status int, body []byte) health.ErrorClass {

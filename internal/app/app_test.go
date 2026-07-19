@@ -18,7 +18,6 @@ import (
 	"gpt-load/internal/state"
 	"gpt-load/internal/state/loader"
 	"gpt-load/internal/storage"
-	"gpt-load/internal/storage/store"
 
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
@@ -125,7 +124,6 @@ func TestAppStartMigratesDatabaseAndServesHTTP(t *testing.T) {
 		Engine:       NewEngine(),
 		Config:       testConfig(t),
 		Encryption:   keyService,
-		Store:        store.NewMemoryStore(),
 		DB:           db,
 		RuntimeState: runtimeState,
 	})
@@ -183,7 +181,6 @@ func TestAppStartMigratesBeforeLoadingRuntimeState(t *testing.T) {
 		Engine:     NewEngine(),
 		Config:     testConfig(t),
 		Encryption: keyService,
-		Store:      store.NewMemoryStore(),
 		DB:         db,
 		RuntimeState: runtimeStateLoaderFunc(func(context.Context) error {
 			loadCalled = true
@@ -218,7 +215,6 @@ func TestAppStartRejectsRuntimeStateLoadFailureBeforeListen(t *testing.T) {
 		Engine:     NewEngine(),
 		Config:     testConfig(t),
 		Encryption: keyService,
-		Store:      store.NewMemoryStore(),
 		DB:         db,
 		RuntimeState: runtimeStateLoaderFunc(func(context.Context) error {
 			return loadErr
@@ -259,7 +255,6 @@ func TestAppReportsUnexpectedHTTPServeFailure(t *testing.T) {
 		Engine:       NewEngine(),
 		Config:       testConfig(t),
 		Encryption:   keyService,
-		Store:        store.NewMemoryStore(),
 		DB:           db,
 		RuntimeState: runtimeState,
 	})

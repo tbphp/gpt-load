@@ -47,7 +47,6 @@ func TestUpstreamKeyStatusAcceptsOnlyDurableOperatorStates(t *testing.T) {
 	group := models.Group{
 		Name:        "status-parent",
 		UpstreamURL: "https://status.example.com",
-		Signature:   "status-parent-signature",
 		Protocols:   models.JSON(`["openai"]`),
 		Models:      models.JSON(`[]`),
 	}
@@ -78,6 +77,84 @@ func TestUpstreamKeyStatusAcceptsOnlyDurableOperatorStates(t *testing.T) {
 	}
 	if err := db.Create(&invalid).Error; err == nil {
 		t.Fatal("create upstream key with runtime-only blacklisted status error = nil, want constraint error")
+	}
+}
+
+func TestAccessKeyStatusAcceptsOnlyDurableOperatorStates(t *testing.T) {
+	t.Parallel()
+
+	db := openMigratedDatabase(t)
+	for index, status := range []string{"active", "disabled"} {
+		key := models.AccessKey{
+			Name:     "allowed-" + string(rune('a'+index)),
+			KeyValue: "ciphertext",
+			KeyHash:  "allowed-status-" + string(rune('a'+index)),
+			Status:   status,
+			Filters:  models.JSON(`{}`),
+		}
+		if err := db.Create(&key).Error; err != nil {
+			t.Fatalf("create access key with status %q: %v", status, err)
+		}
+	}
+
+	invalid := models.AccessKey{
+		Name:     "invalid",
+		KeyValue: "ciphertext",
+		KeyHash:  "invalid-status",
+		Status:   "blacklisted",
+		Filters:  models.JSON(`{}`),
+	}
+	if err := db.Create(&invalid).Error; err == nil {
+		t.Fatal("blacklisted status error = nil, want CHECK constraint error")
+	}
+}
+
+func TestAutoMigrateCreatesReviewedIndexesAndPrimaryKeys(t *testing.T) {
+	t.Parallel()
+
+	db := openMigratedDatabase(t)
+	type pragmaColumn struct {
+		Name    string
+		NotNull int `gorm:"column:notnull"`
+	}
+	type pragmaIndex struct {
+		Name string
+	}
+
+	for _, table := range []string{"request_logs", "jobs", "system_settings"} {
+		var columns []pragmaColumn
+		if err := db.Raw("PRAGMA table_info('" + table + "')").Scan(&columns).Error; err != nil {
+			t.Fatalf("inspect %s columns: %v", table, err)
+		}
+
+		var found bool
+		for _, column := range columns {
+			keyName := "id"
+			if table == "system_settings" {
+				keyName = "key"
+			}
+			if column.Name == keyName {
+				found = true
+				if column.NotNull != 1 {
+					t.Errorf("%s.%s notnull = %d, want 1", table, keyName, column.NotNull)
+				}
+			}
+		}
+		if !found {
+			t.Errorf("%s does not contain primary key column", table)
+		}
+	}
+
+	for _, table := range []string{"upstream_keys", "access_keys"} {
+		var indexes []pragmaIndex
+		if err := db.Raw("PRAGMA index_list('" + table + "')").Scan(&indexes).Error; err != nil {
+			t.Fatalf("inspect %s indexes: %v", table, err)
+		}
+		for _, index := range indexes {
+			if index.Name == "idx_"+table+"_status" {
+				t.Errorf("%s has ordinary status index %q", table, index.Name)
+			}
+		}
 	}
 }
 
@@ -201,6 +278,46 @@ func TestAutoMigrateCreatesNineTablesAndSchemaVersion(t *testing.T) {
 	}
 }
 
+func TestAutoMigrateOmitsGroupSignature(t *testing.T) {
+	t.Parallel()
+
+	db := openMigratedDatabase(t)
+	type columnInfo struct {
+		Name string
+	}
+	var columns []columnInfo
+	if err := db.Raw("PRAGMA table_info('groups')").Scan(&columns).Error; err != nil {
+		t.Fatalf("inspect groups columns: %v", err)
+	}
+	for _, column := range columns {
+		if column.Name == "signature" {
+			t.Fatal("fresh groups schema still contains signature")
+		}
+	}
+}
+
+func TestAutoMigrateAllowsDuplicateUpstreamURLs(t *testing.T) {
+	t.Parallel()
+
+	db := openMigratedDatabase(t)
+	first := models.Group{
+		Name:        "group-one",
+		UpstreamURL: "https://same.example.com/v1",
+		Protocols:   models.JSON(`["openai"]`),
+		Models:      models.JSON(`[]`),
+		Config:      models.JSON(`{}`),
+		Enabled:     true,
+	}
+	second := first
+	second.Name = "group-two"
+	if err := db.Create(&first).Error; err != nil {
+		t.Fatalf("create first group: %v", err)
+	}
+	if err := db.Create(&second).Error; err != nil {
+		t.Fatalf("create group with duplicate upstream URL: %v", err)
+	}
+}
+
 func TestAutoMigrateRejectsNonEmptyDatabaseWithoutSchemaInfo(t *testing.T) {
 	t.Parallel()
 
@@ -242,18 +359,16 @@ func TestAutoMigrateCreatesCriticalUniqueConstraints(t *testing.T) {
 
 	db := openMigratedDatabase(t)
 
-	t.Run("group signature", func(t *testing.T) {
+	t.Run("group name", func(t *testing.T) {
 		first := models.Group{
 			Name:        "group-one",
 			UpstreamURL: "https://one.example.com",
-			Signature:   "same-signature",
 			Protocols:   models.JSON(`["openai"]`),
 			Models:      models.JSON(`[]`),
 			Config:      models.JSON(`{}`),
 		}
 		second := first
 		second.ID = 0
-		second.Name = "group-two"
 		second.UpstreamURL = "https://two.example.com"
 
 		assertDuplicateRejected(t, db.Create(&first).Error, db.Create(&second).Error)
@@ -263,7 +378,6 @@ func TestAutoMigrateCreatesCriticalUniqueConstraints(t *testing.T) {
 		group := models.Group{
 			Name:        "upstream-key-parent",
 			UpstreamURL: "https://keys.example.com",
-			Signature:   "upstream-key-parent-signature",
 			Protocols:   models.JSON(`["openai"]`),
 			Models:      models.JSON(`[]`),
 		}
@@ -345,7 +459,6 @@ func TestAutoMigrateCreatesUpstreamKeyForeignKeyWithCascade(t *testing.T) {
 	group := models.Group{
 		Name:        "cascade-parent",
 		UpstreamURL: "https://cascade.example.com",
-		Signature:   "cascade-parent-signature",
 		Protocols:   models.JSON(`["openai"]`),
 		Models:      models.JSON(`[]`),
 	}

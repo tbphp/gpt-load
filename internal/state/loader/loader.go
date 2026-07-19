@@ -180,6 +180,23 @@ func decodeSettingValue(raw string) (any, error) {
 	return value, nil
 }
 
+// LoadSystemSettings reads only the persisted system settings used to compile a draft Group.
+func LoadSystemSettings(ctx context.Context, db *gorm.DB) (config.Settings, error) {
+	var rows []models.SystemSetting
+	if err := db.WithContext(ctx).Order("key ASC").Find(&rows).Error; err != nil {
+		return nil, fmt.Errorf("query system settings: %w", err)
+	}
+	settings := make(config.Settings, len(rows))
+	for _, row := range rows {
+		value, err := decodeSettingValue(row.Value)
+		if err != nil {
+			return nil, fmt.Errorf("decode system setting %q: %w", row.Key, err)
+		}
+		settings[row.Key] = value
+	}
+	return settings, nil
+}
+
 func mapSystemAndGroups(rows compileRows) (state.CompileInput, error) {
 	input := state.CompileInput{
 		SystemSettings: make(config.Settings, len(rows.settings)),

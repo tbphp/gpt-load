@@ -22,8 +22,8 @@ func TestWriteConfigRollsBackWhenCompileRejectsCandidate(t *testing.T) {
 	_, err := fixture.service.writeConfig(context.Background(), func(tx *gorm.DB) error {
 		return tx.Create(&models.Group{
 			Name: "invalid", UpstreamURL: "https://invalid.example",
-			Signature: "invalid", Protocols: models.JSON(`[]`),
-			Models: models.JSON(`[]`), Config: models.JSON(`{}`), Enabled: true,
+			Protocols: models.JSON(`[]`),
+			Models:    models.JSON(`[]`), Config: models.JSON(`{}`), Enabled: true,
 		}).Error
 	}, nil)
 	if err == nil {
@@ -99,12 +99,12 @@ func TestWriteConfigSerializesConcurrentDatabaseAndSnapshotPublication(t *testin
 	}
 }
 
-func TestConcurrentImportsPublishDatabaseTruth(t *testing.T) {
+func TestConcurrentCreateGroupsPublishDatabaseTruth(t *testing.T) {
 	fixture := newServiceFixture(t)
 	before := fixture.manager.Current().Revision
-	requests := []ImportRequest{
-		{UpstreamURL: "https://shared.example.com/v1", Protocols: []protocol.Protocol{protocol.OpenAI}, Keys: "sk-shared-a"},
-		{UpstreamURL: "https://shared.example.com/v1", Protocols: []protocol.Protocol{protocol.Anthropic}, Keys: "sk-shared-b"},
+	requests := []GroupCreateRequest{
+		{UpstreamURL: "https://shared.example.com/v1", Protocols: []protocol.Protocol{protocol.OpenAI}, Keys: "sk-shared-a", ConfirmSameUpstreamURL: true},
+		{UpstreamURL: "https://shared.example.com/v1", Protocols: []protocol.Protocol{protocol.Anthropic}, Keys: "sk-shared-b", ConfirmSameUpstreamURL: true},
 		{UpstreamURL: "https://one.example.com/v1", Protocols: []protocol.Protocol{protocol.OpenAI}, Keys: "sk-one"},
 		{UpstreamURL: "https://two.example.com/v1", Protocols: []protocol.Protocol{protocol.Gemini}, Keys: "sk-two"},
 		{UpstreamURL: "https://three.example.com/v1", Protocols: []protocol.Protocol{protocol.OpenAI}, Keys: "sk-three"},
@@ -120,7 +120,7 @@ func TestConcurrentImportsPublishDatabaseTruth(t *testing.T) {
 		go func() {
 			ready.Done()
 			<-start
-			_, err := fixture.service.Import(context.Background(), request)
+			_, err := fixture.service.CreateGroup(context.Background(), request)
 			errors <- err
 		}()
 	}
@@ -128,7 +128,7 @@ func TestConcurrentImportsPublishDatabaseTruth(t *testing.T) {
 	close(start)
 	for range requests {
 		if err := <-errors; err != nil {
-			t.Fatalf("concurrent Import() error = %v", err)
+			t.Fatalf("concurrent CreateGroup() error = %v", err)
 		}
 	}
 
@@ -153,7 +153,7 @@ func TestConcurrentImportsPublishDatabaseTruth(t *testing.T) {
 func validControlGroup(name string) *models.Group {
 	return &models.Group{
 		Name: name, UpstreamURL: "https://" + name + ".example/v1",
-		Signature: name + "-signature", Protocols: models.JSON(`["openai"]`),
-		Models: models.JSON(`[{"id":"gpt-4o"}]`), Config: models.JSON(`{}`), Enabled: true,
+		Protocols: models.JSON(`["openai"]`),
+		Models:    models.JSON(`[{"id":"gpt-4o"}]`), Config: models.JSON(`{}`), Enabled: true,
 	}
 }

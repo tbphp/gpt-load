@@ -3,17 +3,19 @@ package control
 import (
 	"context"
 	"fmt"
-	"strings"
 
+	"gpt-load/internal/platform/config"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
+	stateloader "gpt-load/internal/state/loader"
 )
 
 type ModelDiscoveryRequest struct {
-	UpstreamURL string            `json:"upstream_url"`
-	Protocol    protocol.Protocol `json:"protocol"`
-	Key         string            `json:"key"`
+	UpstreamURL string              `json:"upstream_url"`
+	Protocols   []protocol.Protocol `json:"protocols"`
+	Keys        string              `json:"keys"`
+	Config      config.Settings     `json:"config"`
 }
 
 type ModelDiscoveryResult struct {
@@ -32,27 +34,49 @@ func (s *Service) DiscoverModels(
 	if err != nil {
 		return ModelDiscoveryResult{}, err
 	}
-	if !request.Protocol.Valid() || request.Protocol == protocol.OpenAIResponse {
-		return ModelDiscoveryResult{}, app_errors.ErrValidation
+	protocols, err := normalizeGroupProtocols(request.Protocols)
+	if err != nil {
+		return ModelDiscoveryResult{}, err
 	}
-	apiKey := strings.TrimSpace(request.Key)
-	if apiKey == "" {
-		return ModelDiscoveryResult{}, app_errors.ErrValidation
+	keys, err := s.normalizeUpstreamKeys(request.Keys)
+	if err != nil {
+		return ModelDiscoveryResult{}, err
+	}
+	groupSettings, _, err := normalizeGroupSettings(request.Config)
+	if err != nil {
+		return ModelDiscoveryResult{}, err
 	}
 
-	selected, ok := s.dialects[request.Protocol]
-	if !ok || selected == nil {
-		return ModelDiscoveryResult{}, fmt.Errorf("dialect for protocol %q is not configured", request.Protocol)
-	}
-
-	discoveryCtx, cancel := context.WithTimeout(ctx, s.modelDiscoveryTimeout)
-	defer cancel()
-	models, err := selected.ListModels(discoveryCtx, baseURL, apiKey, state.HeaderRules{})
+	systemSettings, err := stateloader.LoadSystemSettings(ctx, s.db)
 	if parentErr := ctx.Err(); parentErr != nil {
 		return ModelDiscoveryResult{}, parentErr
 	}
 	if err != nil {
-		return ModelDiscoveryResult{}, fmt.Errorf("discover upstream models: %w", app_errors.ErrBadGateway)
+		return ModelDiscoveryResult{}, fmt.Errorf("load model discovery settings: %w", err)
 	}
-	return ModelDiscoveryResult{Models: append([]string{}, models...)}, nil
+	snapshot, err := state.Compile(state.CompileInput{
+		SystemSettings: systemSettings,
+		Groups: []state.GroupConfig{{
+			ID: 1, Name: "draft", UpstreamURL: baseURL,
+			Protocols: protocols, Settings: groupSettings, Enabled: true,
+		}},
+	})
+	if err != nil {
+		return ModelDiscoveryResult{}, app_errors.ErrValidation
+	}
+	group, ok := snapshot.Groups[1]
+	if !ok {
+		return ModelDiscoveryResult{}, fmt.Errorf("compiled model discovery draft is missing")
+	}
+
+	plaintextKeys := make([]string, 0, len(keys.candidates))
+	for _, candidate := range keys.candidates {
+		plaintextKeys = append(plaintextKeys, candidate.plaintext)
+	}
+	return s.executeModelDiscovery(ctx, discoveryTarget{
+		baseURL:     baseURL,
+		protocols:   protocols,
+		keys:        plaintextKeys,
+		headerRules: group.HeaderRules,
+	})
 }

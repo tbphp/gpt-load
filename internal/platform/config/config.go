@@ -1,5 +1,4 @@
-// Package config loads the static M0 process configuration and provides the
-// merge primitive used by later control-plane settings.
+// Package config loads static process configuration and merges dynamic control-plane settings.
 package config
 
 import (
@@ -21,7 +20,7 @@ const (
 	defaultIdleTimeoutSeconds      = 120
 )
 
-// ServerConfig contains the process-level HTTP server settings needed in M0.
+// ServerConfig contains process-level HTTP server settings.
 type ServerConfig struct {
 	Host                    string
 	Port                    int
@@ -36,15 +35,13 @@ type LogConfig struct {
 	Format string
 }
 
-// Config contains the static environment configuration used by the M0
-// application skeleton.
+// Config contains static environment configuration for the application process.
 type Config struct {
 	Server        ServerConfig
 	DataDir       string
 	DatabaseDSN   string
 	EncryptionKey string
 	AuthKey       string
-	RedisDSN      string
 	Log           LogConfig
 }
 
@@ -111,7 +108,6 @@ func Load() (*Config, error) {
 		DatabaseDSN:   databaseDSN,
 		EncryptionKey: os.Getenv("ENCRYPTION_KEY"),
 		AuthKey:       authKey,
-		RedisDSN:      os.Getenv("REDIS_DSN"),
 		Log: LogConfig{
 			Level:  valueOrDefault("LOG_LEVEL", "info"),
 			Format: logFormat,

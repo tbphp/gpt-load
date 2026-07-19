@@ -17,7 +17,6 @@ type Group struct {
 	ID              uint   `gorm:"primaryKey;autoIncrement"`
 	Name            string `gorm:"type:varchar(255);not null;uniqueIndex"`
 	UpstreamURL     string `gorm:"type:text;not null"`
-	Signature       string `gorm:"type:varchar(128);not null;uniqueIndex"`
 	Protocols       JSON   `gorm:"type:json;not null"`
 	Models          JSON   `gorm:"type:json;not null"`
 	ConvertEnabled  bool   `gorm:"not null;default:false"`
@@ -36,7 +35,7 @@ type UpstreamKey struct {
 	GroupID      uint              `gorm:"not null;uniqueIndex:idx_upstream_keys_group_hash,priority:1"`
 	KeyValue     string            `gorm:"type:text;not null"`
 	KeyHash      string            `gorm:"type:varchar(128);not null;uniqueIndex:idx_upstream_keys_group_hash,priority:2"`
-	Status       UpstreamKeyStatus `gorm:"type:varchar(32);not null;default:'active';index;check:chk_upstream_key_status,status IN ('active','disabled')"`
+	Status       UpstreamKeyStatus `gorm:"type:varchar(32);not null;default:'active';check:chk_upstream_key_status,status IN ('active','disabled')"`
 	WeightManual *int
 	RequestCount int64   `gorm:"not null;default:0"`
 	TokensTotal  int64   `gorm:"not null;default:0"`

@@ -21,7 +21,6 @@ import (
 	"gpt-load/internal/state"
 	stateloader "gpt-load/internal/state/loader"
 	"gpt-load/internal/storage"
-	"gpt-load/internal/storage/store"
 )
 
 // BuildContainer creates the 2.0 runtime foundation dependency graph.
@@ -35,9 +34,6 @@ func BuildContainer() (*dig.Container, error) {
 		},
 		func(cfg *config.Config) (*gorm.DB, error) {
 			return storage.Open(cfg.DatabaseDSN)
-		},
-		func(cfg *config.Config) (store.Store, error) {
-			return store.NewStore(cfg.RedisDSN)
 		},
 		app.NewEngine,
 		state.NewManager,

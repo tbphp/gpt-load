@@ -30,18 +30,3 @@ jobs:
 
       - name: Run race-enabled tests
         run: go test -race . ./internal/...
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: web/package-lock.json
-
-      - name: Build frontend assets
-        working-directory: web
-        run: |
-          npm ci
-          npm run lint:check
-          npm run format:check
-          npm run build

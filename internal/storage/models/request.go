@@ -4,7 +4,7 @@ import "time"
 
 // RequestLog is the durable request-level audit and usage record.
 type RequestLog struct {
-	ID                 string    `gorm:"type:varchar(36);primaryKey"`
+	ID                 string    `gorm:"type:varchar(36);primaryKey;not null"`
 	CreatedAt          time.Time `gorm:"not null;index"`
 	AccessKeyID        uint      `gorm:"not null;index"`
 	Protocol           string    `gorm:"type:varchar(32);not null;index"`

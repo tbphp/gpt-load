@@ -12,35 +12,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func TestSuccessUsesStandardEnvelopeAndLocalizedMessage(t *testing.T) {
-	if err := i18n.Init(); err != nil {
-		t.Fatalf("i18n.Init() error = %v", err)
-	}
-
-	recorder := httptest.NewRecorder()
-	context, _ := gin.CreateTestContext(recorder)
-	context.Request = httptest.NewRequest(http.MethodGet, "/", nil)
-	context.Request.Header.Set("Accept-Language", "en-US")
-	i18n.Middleware()(context)
-
-	Success(context, map[string]string{"id": "m0"})
-
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusOK)
-	}
-	var body struct {
-		Code    int               `json:"code"`
-		Message string            `json:"message"`
-		Data    map[string]string `json:"data"`
-	}
-	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
-		t.Fatalf("decode response: %v", err)
-	}
-	if body.Code != 0 || body.Message != "Success" || body.Data["id"] != "m0" {
-		t.Fatalf("response = %#v", body)
-	}
-}
-
 func TestErrorUsesAPIErrorStatusAndCode(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	context, _ := gin.CreateTestContext(recorder)
@@ -55,6 +26,44 @@ func TestErrorUsesAPIErrorStatusAndCode(t *testing.T) {
 		t.Fatalf("decode response: %v", err)
 	}
 	if body.Code != app_errors.ErrBadRequest.Code || body.Message != app_errors.ErrBadRequest.Message {
+		t.Fatalf("response = %#v", body)
+	}
+
+	var raw map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &raw); err != nil {
+		t.Fatalf("decode raw response: %v", err)
+	}
+	if _, ok := raw["data"]; ok {
+		t.Fatalf("response unexpectedly includes data: %#v", raw)
+	}
+}
+
+func TestErrorI18nFromAPIErrorIncludesOptionalData(t *testing.T) {
+	if err := i18n.Init(); err != nil {
+		t.Fatalf("i18n.Init() error = %v", err)
+	}
+
+	recorder := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(recorder)
+	context.Request = httptest.NewRequest(http.MethodGet, "/", nil)
+	context.Request.Header.Set("Accept-Language", "en-US")
+	i18n.Middleware()(context)
+
+	apiErr := app_errors.NewAPIErrorWithData(app_errors.ErrUpstreamURLConflict, map[string]any{
+		"groups": []string{"group-a", "group-b"},
+	})
+	ErrorI18nFromAPIError(context, apiErr, "group.upstream_url_conflict")
+
+	var body struct {
+		Code string `json:"code"`
+		Data struct {
+			Groups []string `json:"groups"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body.Code != app_errors.ErrUpstreamURLConflict.Code || len(body.Data.Groups) != 2 {
 		t.Fatalf("response = %#v", body)
 	}
 }

@@ -48,7 +48,6 @@ func TestLoadAppliesEnvironmentOverrides(t *testing.T) {
 	t.Setenv("DATA_DIR", t.TempDir())
 	t.Setenv("DATABASE_DSN", ":memory:")
 	t.Setenv("ENCRYPTION_KEY", "explicit-encryption-key")
-	t.Setenv("REDIS_DSN", "redis://localhost:6379/2")
 	t.Setenv("LOG_LEVEL", "debug")
 	t.Setenv("LOG_FORMAT", "json")
 	t.Setenv("GRACEFUL_SHUTDOWN_TIMEOUT", "25")
@@ -71,9 +70,6 @@ func TestLoadAppliesEnvironmentOverrides(t *testing.T) {
 	}
 	if cfg.DatabaseDSN != ":memory:" || cfg.EncryptionKey != "explicit-encryption-key" {
 		t.Fatalf("database/encryption overrides not loaded: %#v", cfg)
-	}
-	if cfg.RedisDSN != "redis://localhost:6379/2" {
-		t.Fatalf("RedisDSN = %q", cfg.RedisDSN)
 	}
 	if cfg.Log.Level != "debug" || cfg.Log.Format != "json" {
 		t.Fatalf("Log = %#v", cfg.Log)
@@ -167,7 +163,7 @@ func clearEnvironment(t *testing.T) {
 	t.Helper()
 	for _, key := range []string{
 		"HOST", "PORT", "DATA_DIR", "DATABASE_DSN", "ENCRYPTION_KEY", "AUTH_KEY",
-		"REDIS_DSN", "LOG_LEVEL", "LOG_FORMAT", "GRACEFUL_SHUTDOWN_TIMEOUT",
+		"LOG_LEVEL", "LOG_FORMAT", "GRACEFUL_SHUTDOWN_TIMEOUT",
 		"READ_TIMEOUT", "IDLE_TIMEOUT",
 	} {
 		t.Setenv(key, "")

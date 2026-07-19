@@ -2,7 +2,10 @@ package dialect
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -32,6 +35,7 @@ func TestGeminiExtractModel(t *testing.T) {
 		{name: "wrong suffix", request: &ParsedRequest{Path: "/v1beta/models/gemini:embedContent"}, wantErr: true},
 		{name: "empty model", request: &ParsedRequest{Path: "/v1beta/models/:generateContent"}, wantErr: true},
 		{name: "nested slash", request: &ParsedRequest{Path: "/v1beta/models/vendor/gemini:generateContent"}, wantErr: true},
+		{name: "configured models prefix is not corrected", request: &ParsedRequest{Path: "/v1beta/models/models/custom:generateContent"}, wantErr: true},
 		{name: "boundary whitespace", request: &ParsedRequest{Path: "/v1beta/models/ gemini :generateContent"}, wantErr: true},
 	}
 	for _, test := range tests {
@@ -169,10 +173,11 @@ func TestGeminiClassifyStatus(t *testing.T) {
 	}
 }
 
-func TestGeminiListModelsUsesOneMaximumPageAndParsesNames(t *testing.T) {
+func TestGeminiListModelsPaginatesPreservesInputsAndParsesNames(t *testing.T) {
 	var requestCount atomic.Int64
+	const pageToken = " token/+= ? "
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		requestCount.Add(1)
+		pageNumber := requestCount.Add(1)
 		if request.Method != http.MethodGet || request.URL.Path != "/prefix/v1beta/models" {
 			t.Errorf("request = %s %s", request.Method, request.URL.Path)
 		}
@@ -180,37 +185,228 @@ func TestGeminiListModelsUsesOneMaximumPageAndParsesNames(t *testing.T) {
 			t.Errorf("pageSize = %#v, want one 1000", got)
 		}
 		if got := request.URL.Query().Get("tenant"); got != "one" {
-			t.Errorf("tenant = %q", got)
+			t.Errorf("tenant = %q, want one", got)
+		}
+		if got := request.URL.Query().Get("fixed"); got != "preserved" {
+			t.Errorf("fixed = %q, want preserved", got)
 		}
 		if got := request.Header.Get("X-Goog-Api-Key"); got != "upstream-secret" {
 			t.Errorf("X-Goog-Api-Key = %q", got)
 		}
-		_, _ = writer.Write([]byte(`{
-			"models":[
-				{"name":"models/gemini-2.5-pro","supportedGenerationMethods":[]},
-				{"name":"compatible-bare-name"},
-				{"name":"models/models/vendor-model"},
-				{"name":"models/"}
-			],
-			"nextPageToken":"ignored-token"
-		}`))
+		if got := request.Header.Get("X-Discovery-Rule"); got != "applied-rule" {
+			t.Errorf("X-Discovery-Rule = %q, want applied-rule", got)
+		}
+		switch pageNumber {
+		case 1:
+			if _, exists := request.URL.Query()["pageToken"]; exists {
+				t.Errorf("page 1 retained stale pageToken: %q", request.URL.Query().Get("pageToken"))
+			}
+			_, _ = writer.Write([]byte(`{
+				"models":[
+					{"name":"models/gemini-versioned","baseModelId":"gemini-base"},
+					{"name":"models/models/vendor-model"},
+					{"name":"shared"},
+					{"baseModelId":"base-only"}
+				],
+				"nextPageToken":"` + pageToken + `"
+			}`))
+		case 2:
+			if got := request.URL.Query().Get("pageToken"); got != pageToken {
+				t.Errorf("page 2 pageToken = %q, want byte-for-byte %q", got, pageToken)
+			}
+			_, _ = writer.Write([]byte(`{
+				"models":[
+					{"name":"models/shared"},
+					{"name":"models/gemini-next"},
+					{"name":"models/"}
+				]
+			}`))
+		default:
+			t.Errorf("unexpected page %d", pageNumber)
+			writer.WriteHeader(http.StatusInternalServerError)
+		}
 	}))
 	defer server.Close()
 
 	models, err := NewGemini(server.Client()).ListModels(
 		context.Background(),
-		server.URL+"/prefix?tenant=one&pageSize=1&pageSize=2",
+		server.URL+"/prefix?tenant=one&fixed=preserved&pageSize=1&pageSize=2&pageToken=stale",
 		"upstream-secret",
-		state.HeaderRules{},
+		state.HeaderRules{Set: map[string]string{"X-Discovery-Rule": "applied-rule"}},
 	)
 	if err != nil {
 		t.Fatalf("ListModels() error = %v", err)
 	}
-	if strings.Join(models, ",") != "gemini-2.5-pro,compatible-bare-name,models/vendor-model" {
+	if strings.Join(models, ",") != "gemini-versioned,models/vendor-model,shared,gemini-next" {
 		t.Fatalf("models = %#v", models)
 	}
-	if got := requestCount.Load(); got != 1 {
-		t.Fatalf("request count = %d, want 1", got)
+	if got := requestCount.Load(); got != 2 {
+		t.Fatalf("request count = %d, want 2", got)
+	}
+}
+
+func TestGeminiListModelsRejectsBlankOrRepeatedPageToken(t *testing.T) {
+	t.Run("blank page token", func(t *testing.T) {
+		var requestCount atomic.Int64
+		client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			requestCount.Add(1)
+			return geminiTestResponse(http.StatusOK, `{"models":[{"name":"models/gemini-a"}],"nextPageToken":" \t "}`), nil
+		})}
+		models, err := NewGemini(client).ListModels(context.Background(), "https://api.example.com", "secret", state.HeaderRules{})
+		if err == nil || models != nil {
+			t.Fatalf("ListModels() = %#v, %v, want nil models and error", models, err)
+		}
+		if got := requestCount.Load(); got != 1 {
+			t.Fatalf("request count = %d, want 1", got)
+		}
+	})
+
+	t.Run("repeated page token", func(t *testing.T) {
+		var requestCount atomic.Int64
+		client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			requestCount.Add(1)
+			return geminiTestResponse(http.StatusOK, `{"models":[{"name":"models/gemini-a"}],"nextPageToken":"same-token"}`), nil
+		})}
+		models, err := NewGemini(client).ListModels(context.Background(), "https://api.example.com", "secret", state.HeaderRules{})
+		if err == nil || models != nil {
+			t.Fatalf("ListModels() = %#v, %v, want nil models and error", models, err)
+		}
+		if got := requestCount.Load(); got != 2 {
+			t.Fatalf("request count = %d, want 2", got)
+		}
+	})
+}
+
+func TestGeminiListModelsRejectsPageAndUniqueModelLimits(t *testing.T) {
+	t.Run("page 100 may end", func(t *testing.T) {
+		var requestCount atomic.Int64
+		client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			pageNumber := requestCount.Add(1)
+			nextPageToken := ""
+			if pageNumber < maxModelListPages {
+				nextPageToken = fmt.Sprintf("token-%d", pageNumber)
+			}
+			return geminiTestResponse(http.StatusOK, fmt.Sprintf(
+				`{"models":[{"name":"models/model-%d"}],"nextPageToken":%q}`,
+				pageNumber, nextPageToken,
+			)), nil
+		})}
+		models, err := NewGemini(client).ListModels(context.Background(), "https://api.example.com", "secret", state.HeaderRules{})
+		if err != nil || len(models) != maxModelListPages {
+			t.Fatalf("ListModels() = %d models, %v, want %d models", len(models), err, maxModelListPages)
+		}
+		if got := requestCount.Load(); got != maxModelListPages {
+			t.Fatalf("request count = %d, want %d", got, maxModelListPages)
+		}
+	})
+
+	t.Run("page 100 may not continue", func(t *testing.T) {
+		var requestCount atomic.Int64
+		client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			pageNumber := requestCount.Add(1)
+			return geminiTestResponse(http.StatusOK, fmt.Sprintf(
+				`{"models":[{"name":"models/model-%d"}],"nextPageToken":"token-%d"}`,
+				pageNumber, pageNumber,
+			)), nil
+		})}
+		models, err := NewGemini(client).ListModels(context.Background(), "https://api.example.com", "secret", state.HeaderRules{})
+		if err == nil || models != nil {
+			t.Fatalf("ListModels() = %#v, %v, want nil models and error", models, err)
+		}
+		if got := requestCount.Load(); got != maxModelListPages {
+			t.Fatalf("request count = %d, want %d", got, maxModelListPages)
+		}
+	})
+
+	for _, test := range []struct {
+		name         string
+		modelCount   int
+		continuation bool
+		wantErr      bool
+	}{
+		{name: "exact unique maximum may end", modelCount: maxUniqueModelListEntries},
+		{name: "exact unique maximum may not continue", modelCount: maxUniqueModelListEntries, continuation: true, wantErr: true},
+		{name: "more than unique maximum is rejected", modelCount: maxUniqueModelListEntries + 1, wantErr: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			body := mustGeminiTestPayload(t, test.modelCount, test.continuation)
+			var requestCount atomic.Int64
+			client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+				requestCount.Add(1)
+				return geminiTestResponse(http.StatusOK, body), nil
+			})}
+			models, err := NewGemini(client).ListModels(context.Background(), "https://api.example.com", "secret", state.HeaderRules{})
+			if test.wantErr {
+				if err == nil || models != nil {
+					t.Fatalf("ListModels() = %d models, %v, want nil models and error", len(models), err)
+				}
+			} else if err != nil || len(models) != test.modelCount {
+				t.Fatalf("ListModels() = %d models, %v, want %d models", len(models), err, test.modelCount)
+			}
+			if got := requestCount.Load(); got != 1 {
+				t.Fatalf("request count = %d, want 1", got)
+			}
+		})
+	}
+}
+
+func TestGeminiListModelsReturnsNoPartialResultAfterLaterPageFailure(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		secondPage func() (*http.Response, error)
+	}{
+		{name: "transport error", secondPage: func() (*http.Response, error) {
+			return nil, errors.New("later transport failure")
+		}},
+		{name: "non-2xx", secondPage: func() (*http.Response, error) {
+			return geminiTestResponse(http.StatusBadGateway, `{"error":"later failure"}`), nil
+		}},
+		{name: "malformed JSON", secondPage: func() (*http.Response, error) {
+			return geminiTestResponse(http.StatusOK, `{"models":[`), nil
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var requestCount atomic.Int64
+			client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+				if requestCount.Add(1) == 1 {
+					return geminiTestResponse(http.StatusOK, `{"models":[{"name":"models/first-page-model"}],"nextPageToken":"next"}`), nil
+				}
+				return test.secondPage()
+			})}
+			models, err := NewGemini(client).ListModels(context.Background(), "https://api.example.com", "secret", state.HeaderRules{})
+			if err == nil || models != nil {
+				t.Fatalf("ListModels() = %#v, %v, want nil models and later-page error", models, err)
+			}
+			if got := requestCount.Load(); got != 2 {
+				t.Fatalf("request count = %d, want 2", got)
+			}
+		})
+	}
+}
+
+func TestGeminiListModelsClosesBodyBeforeRequestingNextPage(t *testing.T) {
+	firstBody := &trackedReadCloser{Reader: strings.NewReader(`{"models":[{"name":"models/first"}],"nextPageToken":"next"}`)}
+	secondBody := &trackedReadCloser{Reader: strings.NewReader(`{"models":[{"name":"models/second"}]}`)}
+	var requestCount atomic.Int64
+	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		switch requestCount.Add(1) {
+		case 1:
+			return &http.Response{StatusCode: http.StatusOK, Body: firstBody, Header: make(http.Header)}, nil
+		case 2:
+			if !firstBody.closed.Load() {
+				return nil, errors.New("first page body is still open")
+			}
+			return &http.Response{StatusCode: http.StatusOK, Body: secondBody, Header: make(http.Header)}, nil
+		default:
+			return nil, errors.New("unexpected extra request")
+		}
+	})}
+	models, err := NewGemini(client).ListModels(context.Background(), "https://api.example.com", "secret", state.HeaderRules{})
+	if err != nil || strings.Join(models, ",") != "first,second" {
+		t.Fatalf("ListModels() = %#v, %v, want first,second", models, err)
+	}
+	if !secondBody.closed.Load() {
+		t.Fatal("last page body was not closed")
 	}
 }
 
@@ -292,4 +488,36 @@ func TestGeminiListModelsRulesAndFailures(t *testing.T) {
 			t.Fatalf("ListModels() error = %v, want deadline exceeded", err)
 		}
 	})
+}
+
+func geminiTestResponse(statusCode int, body string) *http.Response {
+	return &http.Response{
+		StatusCode: statusCode,
+		Body:       io.NopCloser(strings.NewReader(body)),
+		Header:     make(http.Header),
+	}
+}
+
+func mustGeminiTestPayload(t *testing.T, modelCount int, continuation bool) string {
+	t.Helper()
+	type item struct {
+		Name string `json:"name"`
+	}
+	payload := struct {
+		Models        []item `json:"models"`
+		NextPageToken string `json:"nextPageToken,omitempty"`
+	}{
+		Models: make([]item, modelCount),
+	}
+	if continuation {
+		payload.NextPageToken = "next-token"
+	}
+	for index := range payload.Models {
+		payload.Models[index].Name = fmt.Sprintf("models/model-%06d", index)
+	}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal Gemini test payload: %v", err)
+	}
+	return string(encoded)
 }

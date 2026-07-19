@@ -8,7 +8,7 @@ type AccessKey struct {
 	Name             string  `gorm:"type:varchar(255);not null"`
 	KeyValue         string  `gorm:"type:text;not null"`
 	KeyHash          string  `gorm:"type:varchar(128);not null;uniqueIndex"`
-	Status           string  `gorm:"type:varchar(32);not null;default:'active';index"`
+	Status           string  `gorm:"type:varchar(32);not null;default:'active';check:chk_access_key_status,status IN ('active','disabled')"`
 	Filters          JSON    `gorm:"type:json"`
 	RPMLimit         int64   `gorm:"not null;default:0"`
 	DailyCostLimit   float64 `gorm:"not null;default:0"`

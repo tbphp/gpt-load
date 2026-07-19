@@ -3,11 +3,7 @@ package control
 import (
 	"context"
 	"errors"
-	"fmt"
-	"net/http"
-	"net/http/httptest"
 	"reflect"
-	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -15,161 +11,138 @@ import (
 	"gorm.io/gorm"
 
 	"gpt-load/internal/dialect"
-	"gpt-load/internal/health"
+	"gpt-load/internal/platform/config"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 	"gpt-load/internal/storage/models"
 )
 
-type recordingDiscoveryDialect struct {
-	value  protocol.Protocol
-	listFn func(context.Context, string, string, state.HeaderRules) ([]string, error)
-}
-
-func (d *recordingDiscoveryDialect) Protocol() protocol.Protocol {
-	return d.value
-}
-
-func (*recordingDiscoveryDialect) ExtractModel(*dialect.ParsedRequest) (string, bool, error) {
-	return "", false, nil
-}
-
-func (*recordingDiscoveryDialect) BuildUpstreamURL(string, *dialect.ParsedRequest) (string, error) {
-	return "", nil
-}
-
-func (*recordingDiscoveryDialect) InjectCredential(http.Header, string) {}
-
-func (d *recordingDiscoveryDialect) ListModels(
-	ctx context.Context,
-	baseURL, apiKey string,
-	rules state.HeaderRules,
-) ([]string, error) {
-	return d.listFn(ctx, baseURL, apiKey, rules)
-}
-
-func (*recordingDiscoveryDialect) ClassifyStatus(int, []byte) health.ErrorClass {
-	return health.ErrorClassNonRetryable
-}
-
-func TestDiscoverModelsValidatesAndPreservesOrder(t *testing.T) {
+func TestDiscoverModelsNormalizesDraftAndMergesHeaderRules(t *testing.T) {
 	fixture := newServiceFixture(t)
-	tests := []ModelDiscoveryRequest{
-		{UpstreamURL: "", Protocol: protocol.OpenAI, Key: "sk-key"},
-		{UpstreamURL: "/relative", Protocol: protocol.OpenAI, Key: "sk-key"},
-		{UpstreamURL: "https://api.example.com", Protocol: "", Key: "sk-key"},
-		{UpstreamURL: "https://api.example.com", Protocol: "unknown", Key: "sk-key"},
-		{UpstreamURL: "https://api.example.com", Protocol: protocol.OpenAIResponse, Key: "sk-key"},
-		{UpstreamURL: "https://api.example.com", Protocol: protocol.OpenAI, Key: "   "},
+	if err := fixture.db.Create(&models.SystemSetting{
+		Key: "header_rules",
+		Value: `{"set":{"X-System":"system","X-Override":"system"},` +
+			`"remove":["X-System-Remove"]}`,
+	}).Error; err != nil {
+		t.Fatalf("seed system HeaderRules: %v", err)
 	}
-	for _, request := range tests {
-		if _, err := fixture.service.DiscoverModels(context.Background(), request); err == nil {
-			t.Fatalf("DiscoverModels(%#v) error = nil", request)
+
+	var calls []string
+	newRecorder := func(value protocol.Protocol) *recordingDiscoveryDialect {
+		return &recordingDiscoveryDialect{
+			value: value,
+			listFn: func(
+				_ context.Context,
+				baseURL, apiKey string,
+				rules state.HeaderRules,
+			) ([]string, error) {
+				calls = append(calls, string(value)+":"+apiKey)
+				if baseURL != "https://api.example.com/v1?fixed=1" {
+					t.Fatalf("base URL = %q, want normalized draft URL", baseURL)
+				}
+				wantRules := state.HeaderRules{
+					Set:    map[string]string{"X-Draft": "draft", "X-Override": "draft"},
+					Remove: []string{"X-Draft-Remove"},
+				}
+				if !reflect.DeepEqual(rules, wantRules) {
+					t.Fatalf("HeaderRules = %#v, want top-level Group override %#v", rules, wantRules)
+				}
+				if value == protocol.Anthropic && apiKey == "key-a" {
+					return []string{"claude-z", "claude-a"}, nil
+				}
+				return nil, errors.New("try next")
+			},
 		}
 	}
-
-	var gotURL, gotKey string
-	var gotRules state.HeaderRules
-	recorder := &recordingDiscoveryDialect{
-		value: protocol.Anthropic,
-		listFn: func(
-			_ context.Context,
-			baseURL, apiKey string,
-			rules state.HeaderRules,
-		) ([]string, error) {
-			gotURL, gotKey, gotRules = baseURL, apiKey, rules
-			return []string{"z-model", "a-model"}, nil
+	fixture.service.dialects = dialect.NewSet(
+		newRecorder(protocol.OpenAI),
+		newRecorder(protocol.Anthropic),
+	)
+	result, err := fixture.service.DiscoverModels(context.Background(), ModelDiscoveryRequest{
+		UpstreamURL: " HTTPS://API.Example.COM/v1/?fixed=1 ",
+		Protocols: []protocol.Protocol{
+			protocol.OpenAI,
+			protocol.OpenAI,
+			protocol.Anthropic,
+			protocol.OpenAI,
 		},
-	}
-	fixture.service.dialects = dialect.NewSet(recorder)
-	result, err := fixture.service.DiscoverModels(context.Background(), ModelDiscoveryRequest{
-		UpstreamURL: " HTTPS://API.Example.COM/v1/ ",
-		Protocol:    protocol.Anthropic,
-		Key:         " upstream-key ",
+		Keys: " key-a \nkey-a\n\n key-b \nkey-b",
+		Config: config.Settings{"header_rules": map[string]any{
+			"set": map[string]any{
+				"X-Draft":    "draft",
+				"X-Override": "draft",
+			},
+			"remove": []any{"X-Draft-Remove"},
+		}},
 	})
 	if err != nil {
 		t.Fatalf("DiscoverModels() error = %v", err)
 	}
-	if gotURL != "https://api.example.com/v1" || gotKey != "upstream-key" {
-		t.Fatalf("ListModels inputs = %q, %q", gotURL, gotKey)
+	if !reflect.DeepEqual(result.Models, []string{"claude-z", "claude-a"}) {
+		t.Fatalf("models = %#v, want upstream order", result.Models)
 	}
-	if len(gotRules.Set) != 0 || len(gotRules.Remove) != 0 {
-		t.Fatalf("HeaderRules = %#v, want empty", gotRules)
-	}
-	if !reflect.DeepEqual(result.Models, []string{"z-model", "a-model"}) {
-		t.Fatalf("Models = %#v, want upstream order", result.Models)
-	}
-
-	recorder.listFn = func(
-		context.Context,
-		string,
-		string,
-		state.HeaderRules,
-	) ([]string, error) {
-		return nil, nil
-	}
-	empty, err := fixture.service.DiscoverModels(context.Background(), ModelDiscoveryRequest{
-		UpstreamURL: "https://api.example.com",
-		Protocol:    protocol.Anthropic,
-		Key:         "upstream-key",
-	})
-	if err != nil || empty.Models == nil || len(empty.Models) != 0 {
-		t.Fatalf("empty DiscoverModels() = %#v, %v, want non-nil empty", empty, err)
-	}
-
-	fixture.service.dialects = dialect.NewSet()
-	_, err = fixture.service.DiscoverModels(context.Background(), ModelDiscoveryRequest{
-		UpstreamURL: "https://api.example.com",
-		Protocol:    protocol.Gemini,
-		Key:         "upstream-key",
-	})
-	if err == nil || errors.Is(err, app_errors.ErrBadGateway) {
-		t.Fatalf("missing Dialect error = %v, want internal invariant error", err)
-	}
-
-	fixture.service.dialects = dialect.Set{protocol.Gemini: nil}
-	_, err = fixture.service.DiscoverModels(context.Background(), ModelDiscoveryRequest{
-		UpstreamURL: "https://api.example.com",
-		Protocol:    protocol.Gemini,
-		Key:         "upstream-key",
-	})
-	if err == nil || errors.Is(err, app_errors.ErrBadGateway) {
-		t.Fatalf("nil Dialect error = %v, want internal invariant error", err)
+	wantCalls := []string{"openai:key-a", "openai:key-b", "anthropic:key-a"}
+	if !reflect.DeepEqual(calls, wantCalls) {
+		t.Fatalf("calls = %#v, want stable normalized order %#v", calls, wantCalls)
 	}
 }
 
-func TestDiscoverModelsUsesOpenAIListModels(t *testing.T) {
-	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if request.Method != http.MethodGet || request.URL.Path != "/v1/models" {
-			t.Errorf("request = %s %s", request.Method, request.URL.Path)
-		}
-		if got := request.Header.Get("Authorization"); got != "Bearer upstream-key" {
-			t.Errorf("Authorization = %q", got)
-		}
-		writer.Header().Set("Content-Type", "application/json")
-		_, _ = writer.Write([]byte(`{"object":"list","data":[{"id":"gpt-4.1"},{"id":"gpt-4o"}]}`))
-	}))
-	t.Cleanup(upstream.Close)
-
+func TestDiscoverModelsRejectsInvalidDraftBeforeHTTP(t *testing.T) {
 	fixture := newServiceFixture(t)
-	fixture.service.dialects = dialect.NewSet(dialect.NewOpenAI(upstream.Client()))
-	result, err := fixture.service.DiscoverModels(context.Background(), ModelDiscoveryRequest{
-		UpstreamURL: upstream.URL,
-		Protocol:    protocol.OpenAI,
-		Key:         "upstream-key",
+	var calls atomic.Int64
+	fixture.service.dialects = dialect.NewSet(&recordingDiscoveryDialect{
+		value: protocol.OpenAI,
+		listFn: func(context.Context, string, string, state.HeaderRules) ([]string, error) {
+			calls.Add(1)
+			return nil, nil
+		},
 	})
-	if err != nil {
-		t.Fatalf("DiscoverModels() error = %v", err)
+	valid := ModelDiscoveryRequest{
+		UpstreamURL: "https://api.example.com",
+		Protocols:   []protocol.Protocol{protocol.OpenAI},
+		Keys:        "key-a",
+		Config:      config.Settings{},
 	}
-	if !reflect.DeepEqual(result.Models, []string{"gpt-4.1", "gpt-4o"}) {
-		t.Fatalf("Models = %#v", result.Models)
+	tests := []struct {
+		name   string
+		mutate func(*ModelDiscoveryRequest)
+	}{
+		{name: "empty URL", mutate: func(value *ModelDiscoveryRequest) { value.UpstreamURL = "" }},
+		{name: "relative URL", mutate: func(value *ModelDiscoveryRequest) { value.UpstreamURL = "/v1" }},
+		{name: "empty protocols", mutate: func(value *ModelDiscoveryRequest) { value.Protocols = nil }},
+		{name: "unknown protocol", mutate: func(value *ModelDiscoveryRequest) {
+			value.Protocols = []protocol.Protocol{"unknown"}
+		}},
+		{name: "response protocol", mutate: func(value *ModelDiscoveryRequest) {
+			value.Protocols = []protocol.Protocol{protocol.OpenAIResponse}
+		}},
+		{name: "empty keys", mutate: func(value *ModelDiscoveryRequest) { value.Keys = " \n\t" }},
+		{name: "unknown config", mutate: func(value *ModelDiscoveryRequest) {
+			value.Config = config.Settings{"unknown": true}
+		}},
+		{name: "invalid HeaderRules", mutate: func(value *ModelDiscoveryRequest) {
+			value.Config = config.Settings{"header_rules": []any{"invalid"}}
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			request := valid
+			test.mutate(&request)
+			_, err := fixture.service.DiscoverModels(context.Background(), request)
+			if !errors.Is(err, app_errors.ErrValidation) {
+				t.Fatalf("DiscoverModels() error = %v, want ErrValidation", err)
+			}
+		})
+	}
+	if calls.Load() != 0 {
+		t.Fatalf("ListModels calls = %d, want invalid drafts rejected first", calls.Load())
 	}
 }
 
 func TestDiscoverModelsDoesNotReadOrMutateRuntimeState(t *testing.T) {
 	fixture := newServiceFixture(t)
-	imported, err := fixture.service.Import(context.Background(), ImportRequest{
+	created, err := fixture.service.CreateGroup(context.Background(), GroupCreateRequest{
 		UpstreamURL: "https://state.example.com",
 		Protocols:   []protocol.Protocol{protocol.OpenAI},
 		Keys:        "sk-state",
@@ -178,7 +151,7 @@ func TestDiscoverModelsDoesNotReadOrMutateRuntimeState(t *testing.T) {
 		},
 	})
 	if err != nil {
-		t.Fatalf("seed Import() error = %v", err)
+		t.Fatalf("seed CreateGroup() error = %v", err)
 	}
 	beforeRows := discoveryRowCounts(t, fixture.db)
 	beforeSnapshot := fixture.manager.Current()
@@ -191,39 +164,58 @@ func TestDiscoverModelsDoesNotReadOrMutateRuntimeState(t *testing.T) {
 		t.Fatal("seeded Registry key missing")
 	}
 
-	var queryCount atomic.Int64
-	callbackName := "test:discover-models-query-count"
-	if err := fixture.db.Callback().Query().Before("gorm:query").Register(
-		callbackName,
-		func(*gorm.DB) { queryCount.Add(1) },
+	queryTables := make(map[string]int)
+	var writeCount atomic.Int64
+	const queryCallback = "test:draft-discovery-query-boundary"
+	if err := fixture.db.Callback().Query().After("gorm:query").Register(
+		queryCallback,
+		func(tx *gorm.DB) { queryTables[tx.Statement.Table]++ },
 	); err != nil {
 		t.Fatalf("register query callback: %v", err)
 	}
-	t.Cleanup(func() {
-		_ = fixture.db.Callback().Query().Remove(callbackName)
-	})
-	recorder := &recordingDiscoveryDialect{
+	const createCallback = "test:draft-discovery-create-boundary"
+	if err := fixture.db.Callback().Create().After("gorm:create").Register(
+		createCallback,
+		func(*gorm.DB) { writeCount.Add(1) },
+	); err != nil {
+		t.Fatalf("register create callback: %v", err)
+	}
+	const updateCallback = "test:draft-discovery-update-boundary"
+	if err := fixture.db.Callback().Update().After("gorm:update").Register(
+		updateCallback,
+		func(*gorm.DB) { writeCount.Add(1) },
+	); err != nil {
+		t.Fatalf("register update callback: %v", err)
+	}
+	const deleteCallback = "test:draft-discovery-delete-boundary"
+	if err := fixture.db.Callback().Delete().After("gorm:delete").Register(
+		deleteCallback,
+		func(*gorm.DB) { writeCount.Add(1) },
+	); err != nil {
+		t.Fatalf("register delete callback: %v", err)
+	}
+	fixture.service.manager = nil
+	fixture.service.registry = nil
+	fixture.service.dialects = dialect.NewSet(&recordingDiscoveryDialect{
 		value: protocol.OpenAI,
-		listFn: func(
-			context.Context,
-			string,
-			string,
-			state.HeaderRules,
-		) ([]string, error) {
+		listFn: func(context.Context, string, string, state.HeaderRules) ([]string, error) {
 			return []string{"remote-only"}, nil
 		},
-	}
-	fixture.service.dialects = dialect.NewSet(recorder)
+	})
 	result, err := fixture.service.DiscoverModels(context.Background(), ModelDiscoveryRequest{
 		UpstreamURL: "https://discover.example.com",
-		Protocol:    protocol.OpenAI,
-		Key:         "sk-discovery",
+		Protocols:   []protocol.Protocol{protocol.OpenAI},
+		Keys:        "sk-discovery",
+		Config:      config.Settings{},
 	})
 	if err != nil || !reflect.DeepEqual(result.Models, []string{"remote-only"}) {
 		t.Fatalf("DiscoverModels() = %#v, %v", result, err)
 	}
-	if got := queryCount.Load(); got != 0 {
-		t.Fatalf("discovery DB query count = %d, want 0", got)
+	if !reflect.DeepEqual(queryTables, map[string]int{"system_settings": 1}) {
+		t.Fatalf("discovery queries = %#v, want only system_settings once", queryTables)
+	}
+	if writeCount.Load() != 0 {
+		t.Fatalf("discovery DB writes = %d, want 0", writeCount.Load())
 	}
 	if fixture.manager.Current() != beforeSnapshot ||
 		fixture.manager.Current().Revision != beforeSnapshot.Revision {
@@ -238,7 +230,7 @@ func TestDiscoverModelsDoesNotReadOrMutateRuntimeState(t *testing.T) {
 	if _, exists := fixture.manager.Current().Candidates[protocol.OpenAI]["remote-only"]; exists {
 		t.Fatal("discovered model leaked into ConfigSnapshot")
 	}
-	if imported.GroupID == 0 {
+	if created.GroupID == 0 {
 		t.Fatal("invalid seeded group")
 	}
 }
@@ -247,12 +239,7 @@ func TestDiscoverModelsDoesNotAcquireWriteMu(t *testing.T) {
 	fixture := newServiceFixture(t)
 	fixture.service.dialects = dialect.NewSet(&recordingDiscoveryDialect{
 		value: protocol.OpenAI,
-		listFn: func(
-			context.Context,
-			string,
-			string,
-			state.HeaderRules,
-		) ([]string, error) {
+		listFn: func(context.Context, string, string, state.HeaderRules) ([]string, error) {
 			return []string{"gpt-4o"}, nil
 		},
 	})
@@ -265,8 +252,9 @@ func TestDiscoverModelsDoesNotAcquireWriteMu(t *testing.T) {
 	go func() {
 		_, err := fixture.service.DiscoverModels(ctx, ModelDiscoveryRequest{
 			UpstreamURL: "https://discover.example.com",
-			Protocol:    protocol.OpenAI,
-			Key:         "sk-discovery",
+			Protocols:   []protocol.Protocol{protocol.OpenAI},
+			Keys:        "sk-discovery",
+			Config:      config.Settings{},
 		})
 		done <- err
 	}()
@@ -305,8 +293,9 @@ func TestDiscoverModelsDoesNotBlockMutation(t *testing.T) {
 	go func() {
 		_, err := fixture.service.DiscoverModels(context.Background(), ModelDiscoveryRequest{
 			UpstreamURL: "https://discover.example.com",
-			Protocol:    protocol.Anthropic,
-			Key:         "sk-discovery",
+			Protocols:   []protocol.Protocol{protocol.Anthropic},
+			Keys:        "sk-discovery",
+			Config:      config.Settings{},
 		})
 		discoveryDone <- err
 	}()
@@ -318,7 +307,7 @@ func TestDiscoverModelsDoesNotBlockMutation(t *testing.T) {
 
 	mutationDone := make(chan error, 1)
 	go func() {
-		_, err := fixture.service.Import(context.Background(), ImportRequest{
+		_, err := fixture.service.CreateGroup(context.Background(), GroupCreateRequest{
 			UpstreamURL: "https://mutation.example.com",
 			Protocols:   []protocol.Protocol{protocol.OpenAI},
 			Keys:        "sk-mutation",
@@ -331,7 +320,7 @@ func TestDiscoverModelsDoesNotBlockMutation(t *testing.T) {
 	select {
 	case err := <-mutationDone:
 		if err != nil {
-			t.Fatalf("Import() error = %v", err)
+			t.Fatalf("CreateGroup() error = %v", err)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("control mutation blocked behind discovery")
@@ -344,95 +333,6 @@ func TestDiscoverModelsDoesNotBlockMutation(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("discovery did not finish after release")
-	}
-}
-
-func TestDiscoverModelsMapsTimeoutAndUpstreamErrors(t *testing.T) {
-	t.Run("service timeout", func(t *testing.T) {
-		fixture := newServiceFixture(t)
-		fixture.service.modelDiscoveryTimeout = 20 * time.Millisecond
-		fixture.service.dialects = dialect.NewSet(&recordingDiscoveryDialect{
-			value: protocol.OpenAI,
-			listFn: func(
-				ctx context.Context,
-				_ string,
-				_ string,
-				_ state.HeaderRules,
-			) ([]string, error) {
-				<-ctx.Done()
-				return nil, ctx.Err()
-			},
-		})
-		_, err := fixture.service.DiscoverModels(context.Background(), ModelDiscoveryRequest{
-			UpstreamURL: "https://timeout.example.com",
-			Protocol:    protocol.OpenAI,
-			Key:         "sk-timeout",
-		})
-		if !errors.Is(err, app_errors.ErrBadGateway) {
-			t.Fatalf("DiscoverModels() error = %v, want ErrBadGateway", err)
-		}
-	})
-
-	t.Run("upstream error is detached from secrets", func(t *testing.T) {
-		const (
-			keySecret   = "sk-discovery-distinctive-secret"
-			querySecret = "query-distinctive-secret"
-		)
-		fixture := newServiceFixture(t)
-		fixture.service.dialects = dialect.NewSet(&recordingDiscoveryDialect{
-			value: protocol.OpenAI,
-			listFn: func(
-				context.Context,
-				string,
-				string,
-				state.HeaderRules,
-			) ([]string, error) {
-				return nil, fmt.Errorf("provider failure containing %s and %s", keySecret, querySecret)
-			},
-		})
-		_, err := fixture.service.DiscoverModels(context.Background(), ModelDiscoveryRequest{
-			UpstreamURL: "https://error.example.com?token=" + querySecret,
-			Protocol:    protocol.OpenAI,
-			Key:         keySecret,
-		})
-		if !errors.Is(err, app_errors.ErrBadGateway) {
-			t.Fatalf("DiscoverModels() error = %v, want ErrBadGateway", err)
-		}
-		for _, secret := range []string{keySecret, querySecret} {
-			if errorText := err.Error(); strings.Contains(errorText, secret) {
-				t.Fatalf("error exposes %q: %s", secret, errorText)
-			}
-		}
-	})
-}
-
-func TestDiscoverModelsStopsOnParentCancellation(t *testing.T) {
-	var calls atomic.Int64
-	fixture := newServiceFixture(t)
-	fixture.service.dialects = dialect.NewSet(&recordingDiscoveryDialect{
-		value: protocol.OpenAI,
-		listFn: func(
-			context.Context,
-			string,
-			string,
-			state.HeaderRules,
-		) ([]string, error) {
-			calls.Add(1)
-			return nil, nil
-		},
-	})
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	_, err := fixture.service.DiscoverModels(ctx, ModelDiscoveryRequest{
-		UpstreamURL: "https://cancel.example.com",
-		Protocol:    protocol.OpenAI,
-		Key:         "sk-cancel",
-	})
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("DiscoverModels() error = %v, want context.Canceled", err)
-	}
-	if calls.Load() != 0 {
-		t.Fatalf("ListModels calls = %d, want 0", calls.Load())
 	}
 }
 

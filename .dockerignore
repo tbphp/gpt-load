@@ -1,19 +1,35 @@
 .git
 .github
-.env
-.env.*
+.env*
 !.env.example
+
+# Binary, build, coverage, temporary, and profiling output
 gpt-load
-data
-tmp
-web/node_modules
-web/dist
+build/
+dist/
+bin/
+coverage/
+tmp/
+temp/
+*.test
+*.out
+*.prof
+*.pprof
+
+# Runtime data and secrets
+data/
+data_bak/
+*.db*
+*.sqlite*
 *.key
-*.db
-*.db-*
-*.sqlite
-*.sqlite-*
-*.sqlite3
-*.sqlite3-*
 *.log
+
+# Editor and OS files
+.idea/
+.vscode/
+*.code-workspace
+*.swp
+*.swo
+*~
 .DS_Store
+._*

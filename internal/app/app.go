@@ -16,7 +16,6 @@ import (
 	"gpt-load/internal/platform/i18n"
 	"gpt-load/internal/platform/version"
 	"gpt-load/internal/storage"
-	"gpt-load/internal/storage/store"
 
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
@@ -29,7 +28,6 @@ type App struct {
 	engine       *gin.Engine
 	config       *config.Config
 	encryption   encryption.Service
-	store        store.Store
 	db           *gorm.DB
 	runtimeState RuntimeStateLoader
 
@@ -51,7 +49,6 @@ type AppParams struct {
 	Engine       *gin.Engine
 	Config       *config.Config
 	Encryption   encryption.Service
-	Store        store.Store
 	DB           *gorm.DB
 	RuntimeState RuntimeStateLoader
 }
@@ -77,7 +74,6 @@ func NewApp(params AppParams) *App {
 		engine:       params.Engine,
 		config:       params.Config,
 		encryption:   params.Encryption,
-		store:        params.Store,
 		db:           params.DB,
 		runtimeState: params.RuntimeState,
 		serveErrors:  make(chan error, 1),
@@ -160,11 +156,6 @@ func (a *App) Stop(ctx context.Context) error {
 			if closeErr := server.Close(); closeErr != nil {
 				errs = append(errs, fmt.Errorf("force close HTTP server: %w", closeErr))
 			}
-		}
-	}
-	if a.store != nil {
-		if err := a.store.Close(); err != nil {
-			errs = append(errs, fmt.Errorf("close runtime store: %w", err))
 		}
 	}
 	if a.db != nil {

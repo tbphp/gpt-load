@@ -88,8 +88,8 @@ func TestWriteModelList(t *testing.T) {
 			expected: `{"data":[{"type":"model","id":"alpha","display_name":"alpha","created_at":"2025-01-01T00:00:00Z"},{"type":"model","id":"zeta","display_name":"zeta","created_at":"2025-01-01T00:00:00Z"}],"has_more":false,"first_id":"alpha","last_id":"zeta"}`,
 		},
 		{
-			name: "Gemini", value: protocol.Gemini, ids: []string{"alpha", "zeta"},
-			expected: `{"models":[{"name":"models/alpha"},{"name":"models/zeta"}]}`,
+			name: "Gemini", value: protocol.Gemini, ids: []string{"models/custom"},
+			expected: `{"models":[{"name":"models/models/custom"}]}`,
 		},
 		{
 			name: "OpenAI empty", value: protocol.OpenAI, ids: nil,
@@ -117,6 +117,11 @@ func TestWriteModelList(t *testing.T) {
 			if strings.Contains(recorder.Body.String(), `"code"`) || strings.Contains(recorder.Body.String(), `"message"`) ||
 				strings.Contains(recorder.Body.String(), "nextPageToken") {
 				t.Fatalf("model response contains forbidden envelope fields: %s", recorder.Body.String())
+			}
+			for _, forbidden := range []string{"baseModelId", "version", "inputTokenLimit", "outputTokenLimit", "supportedGenerationMethods"} {
+				if strings.Contains(recorder.Body.String(), forbidden) {
+					t.Fatalf("model response contains forbidden official metadata field %q: %s", forbidden, recorder.Body.String())
+				}
 			}
 		})
 	}

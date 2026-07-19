@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -21,6 +22,7 @@ import (
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
+	"gpt-load/internal/storage/models"
 )
 
 func TestManagementAuthRequiresConstantShapeBearerToken(t *testing.T) {
@@ -112,17 +114,200 @@ func TestManagementAuthDoesNotLogSecretOrDigest(t *testing.T) {
 	}
 }
 
+func TestCreateGroupEndpointReturnsSuccessAndConflictEnvelopes(t *testing.T) {
+	initControlI18n(t)
+	fixture := newServiceFixture(t)
+	engine := gin.New()
+	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
+
+	request := httptest.NewRequest(http.MethodPost, "/api/groups", strings.NewReader(
+		`{"name":"primary","upstream_url":"https://api.example.com/v1/","protocols":["openai"],"models":[{"id":"gpt-4o"}],"config":{},"keys":"sk-first"}`,
+	))
+	request.Header.Set("Authorization", "Bearer test-auth-key")
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("create status = %d, body=%s", recorder.Code, recorder.Body.String())
+	}
+	var success struct {
+		Code int               `json:"code"`
+		Data GroupCreateResult `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &success); err != nil {
+		t.Fatalf("decode success response: %v", err)
+	}
+	if success.Code != 0 || success.Data.GroupID == 0 || success.Data.GroupName != "primary" ||
+		success.Data.KeysAdded != 1 {
+		t.Fatalf("success response = %#v", success)
+	}
+
+	request = httptest.NewRequest(http.MethodPost, "/api/groups", strings.NewReader(
+		`{"upstream_url":" HTTPS://API.example.com/v1 ","protocols":["anthropic"],"keys":"sk-second"}`,
+	))
+	request.Header.Set("Authorization", "Bearer test-auth-key")
+	request.Header.Set("Content-Type", "application/json")
+	recorder = httptest.NewRecorder()
+	engine.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusConflict {
+		t.Fatalf("conflict status = %d, body=%s", recorder.Code, recorder.Body.String())
+	}
+	var conflict struct {
+		Code string                      `json:"code"`
+		Data map[string][]map[string]any `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &conflict); err != nil {
+		t.Fatalf("decode conflict response: %v", err)
+	}
+	if conflict.Code != "UPSTREAM_URL_CONFLICT" || len(conflict.Data) != 1 {
+		t.Fatalf("conflict response = %#v", conflict)
+	}
+	groups := conflict.Data["groups"]
+	if len(groups) != 1 || len(groups[0]) != 2 || groups[0]["id"] != float64(success.Data.GroupID) ||
+		groups[0]["name"] != success.Data.GroupName {
+		t.Fatalf("conflict groups = %#v", groups)
+	}
+}
+
+func TestImportGroupKeysEndpointReturnsSuccessEnvelope(t *testing.T) {
+	initControlI18n(t)
+	fixture := newServiceFixture(t)
+	groupID := createGroupForKeyImport(t, fixture, "sk-existing")
+	beforeSnapshot := fixture.manager.Current()
+	engine := gin.New()
+	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/groups/"+strconv.FormatUint(uint64(groupID), 10)+"/keys/import", strings.NewReader(
+		`{"keys":"sk-existing\nsk-new\nsk-new"}`,
+	))
+	request.Header.Set("Authorization", "Bearer test-auth-key")
+	request.Header.Set("Content-Type", "application/json")
+	engine.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("import status = %d, body=%s", recorder.Code, recorder.Body.String())
+	}
+	var envelope struct {
+		Code int                        `json:"code"`
+		Data map[string]json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode import response: %v", err)
+	}
+	if envelope.Code != 0 || len(envelope.Data) != 3 {
+		t.Fatalf("success envelope = %#v", envelope)
+	}
+	for _, field := range []string{"group_id", "keys_added", "keys_duplicated"} {
+		if _, ok := envelope.Data[field]; !ok {
+			t.Fatalf("success data lacks %q: %#v", field, envelope.Data)
+		}
+	}
+	var result GroupKeyImportResult
+	data, err := json.Marshal(envelope.Data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(data, &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.GroupID != groupID || result.KeysAdded != 1 || result.KeysDuplicated != 2 {
+		t.Fatalf("result = %#v", result)
+	}
+	if fixture.manager.Current() != beforeSnapshot {
+		t.Fatal("endpoint import published Snapshot")
+	}
+}
+
+func TestImportGroupKeysEndpointRejectsUnknownFieldsAndInvalidGroupID(t *testing.T) {
+	initControlI18n(t)
+	fixture := newServiceFixture(t)
+	groupID := createGroupForKeyImport(t, fixture, "sk-existing")
+	engine := gin.New()
+	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
+
+	tests := []struct {
+		name    string
+		groupID string
+		body    string
+	}{
+		{name: "unknown field", groupID: strconv.FormatUint(uint64(groupID), 10), body: `{"keys":"sk-new","name":"must-not-change"}`},
+		{name: "multiple JSON values", groupID: strconv.FormatUint(uint64(groupID), 10), body: `{"keys":"sk-new"} {"keys":"sk-other"}`},
+		{name: "zero group ID", groupID: "0", body: `{"keys":"sk-new"}`},
+		{name: "non-numeric group ID", groupID: "not-a-number", body: `{"keys":"sk-new"}`},
+		{name: "overflowing group ID", groupID: "18446744073709551616", body: `{"keys":"sk-new"}`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			beforeSnapshot := fixture.manager.Current()
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodPost, "/api/groups/"+test.groupID+"/keys/import", strings.NewReader(test.body))
+			request.Header.Set("Authorization", "Bearer test-auth-key")
+			request.Header.Set("Content-Type", "application/json")
+			engine.ServeHTTP(recorder, request)
+
+			if recorder.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, body=%s, want 400", recorder.Code, recorder.Body.String())
+			}
+			if fixture.manager.Current() != beforeSnapshot {
+				t.Fatal("invalid endpoint request published Snapshot")
+			}
+			assertImportedKeyState(t, fixture, groupID, 1)
+		})
+	}
+}
+
+func TestImportGroupKeysEndpointReturnsGroupNotFound(t *testing.T) {
+	initControlI18n(t)
+	fixture := newServiceFixture(t)
+	engine := gin.New()
+	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/groups/999/keys/import", strings.NewReader(`{"keys":"sk-new"}`))
+	request.Header.Set("Authorization", "Bearer test-auth-key")
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Accept-Language", "zh-CN")
+	engine.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, body=%s, want 404", recorder.Code, recorder.Body.String())
+	}
+	var envelope struct {
+		Code    string `json:"code"`
+		Message string `json:"message"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.Code != "NOT_FOUND" || envelope.Message != "分组不存在" {
+		t.Fatalf("not-found envelope = %#v", envelope)
+	}
+}
+
+func TestLegacyImportRouteIsNotRegistered(t *testing.T) {
+	fixture := newServiceFixture(t)
+	engine := gin.New()
+	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
+
+	for _, route := range engine.Routes() {
+		if route.Method == http.MethodPost && route.Path == "/api/import" {
+			t.Fatalf("legacy route remains registered: %#v", route)
+		}
+	}
+}
+
 func TestManagementWritesRejectUnknownFieldsAndMultipleJSONValues(t *testing.T) {
 	initControlI18n(t)
 
-	t.Run("import rejects unknown top-level field", func(t *testing.T) {
+	t.Run("group create rejects unknown top-level field", func(t *testing.T) {
 		fixture := newServiceFixture(t)
 		engine := gin.New()
 		NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
 		beforeRevision := fixture.manager.Current().Revision
 
 		recorder := httptest.NewRecorder()
-		request := httptest.NewRequest(http.MethodPost, "/api/import", strings.NewReader(
+		request := httptest.NewRequest(http.MethodPost, "/api/groups", strings.NewReader(
 			`{"upstream_url":"https://api.example.com","protocols":["openai"],"keys":"sk-test","unexpected":true}`,
 		))
 		request.Header.Set("Authorization", "Bearer test-auth-key")
@@ -130,7 +315,7 @@ func TestManagementWritesRejectUnknownFieldsAndMultipleJSONValues(t *testing.T) 
 		engine.ServeHTTP(recorder, request)
 
 		if recorder.Code != http.StatusBadRequest {
-			t.Fatalf("POST /api/import = %d %s, want 400", recorder.Code, recorder.Body.String())
+			t.Fatalf("POST /api/groups = %d %s, want 400", recorder.Code, recorder.Body.String())
 		}
 		assertGroupCount(t, fixture.db, 0)
 		if got := fixture.manager.Current().Revision; got != beforeRevision {
@@ -267,7 +452,7 @@ func TestUpdateAccessKeyRoutesParseIDsAndPreservePointerSemantics(t *testing.T) 
 	}
 }
 
-func TestServerDiscoverModelsEndpoint(t *testing.T) {
+func TestServerDraftModelDiscoveryContract(t *testing.T) {
 	initControlI18n(t)
 	const authKey = "test-auth-key"
 
@@ -297,21 +482,26 @@ func TestServerDiscoverModelsEndpoint(t *testing.T) {
 			},
 		})
 		recorder := serveDiscoveryRequest(t, engine, authKey,
-			`{"upstream_url":"https://api.example.com","protocol":"openai","key":"sk-upstream"}`,
+			`{"upstream_url":"https://api.example.com","protocols":["openai"],`+
+				`"keys":"sk-upstream","config":{}}`,
 		)
 		if recorder.Code != http.StatusOK {
 			t.Fatalf("status = %d, body=%s", recorder.Code, recorder.Body.String())
 		}
 		var response struct {
-			Code int                  `json:"code"`
-			Data ModelDiscoveryResult `json:"data"`
+			Code int                        `json:"code"`
+			Data map[string]json.RawMessage `json:"data"`
 		}
 		if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
 			t.Fatalf("decode response: %v", err)
 		}
-		if response.Code != 0 || len(response.Data.Models) != 2 ||
-			response.Data.Models[0] != "z-model" || response.Data.Models[1] != "a-model" {
+		if response.Code != 0 || len(response.Data) != 1 {
 			t.Fatalf("response = %#v", response)
+		}
+		var models []string
+		if err := json.Unmarshal(response.Data["models"], &models); err != nil ||
+			!reflect.DeepEqual(models, []string{"z-model", "a-model"}) {
+			t.Fatalf("models = %#v, error=%v", models, err)
 		}
 	})
 
@@ -328,7 +518,8 @@ func TestServerDiscoverModelsEndpoint(t *testing.T) {
 			},
 		})
 		recorder := serveDiscoveryRequest(t, engine, authKey,
-			`{"upstream_url":"https://api.example.com","protocol":"openai","key":"sk-upstream"}`,
+			`{"upstream_url":"https://api.example.com","protocols":["openai"],`+
+				`"keys":"sk-upstream","config":{}}`,
 		)
 		if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), `"models":[]`) {
 			t.Fatalf("response = %d %s", recorder.Code, recorder.Body.String())
@@ -345,7 +536,8 @@ func TestServerDiscoverModelsEndpoint(t *testing.T) {
 		})
 		for _, token := range []string{"", "wrong-key"} {
 			recorder := serveDiscoveryRequest(t, engine, token,
-				`{"upstream_url":"https://api.example.com","protocol":"openai","key":"sk-upstream"}`,
+				`{"upstream_url":"https://api.example.com","protocols":["openai"],`+
+					`"keys":"sk-upstream","config":{}}`,
 			)
 			if recorder.Code != http.StatusUnauthorized || !strings.Contains(recorder.Body.String(), `"code":"UNAUTHORIZED"`) {
 				t.Fatalf("auth %q response = %d %s", token, recorder.Code, recorder.Body.String())
@@ -362,8 +554,9 @@ func TestServerDiscoverModelsEndpoint(t *testing.T) {
 			},
 		})
 		for _, payload := range []string{
-			`{"upstream_url":"https://api.example.com","protocol":"openai","key":"sk-upstream","unknown":true}`,
-			`{"upstream_url":"https://api.example.com","protocol":"openai","key":"sk-upstream"}{}`,
+			`{"upstream_url":"https://api.example.com","protocols":["openai"],"keys":"sk-upstream","config":{},"unknown":true}`,
+			`{"upstream_url":"https://api.example.com","protocols":["openai"],"keys":"sk-upstream","config":{}}{}`,
+			`{"upstream_url":"https://api.example.com","protocol":"openai","key":"sk-upstream"}`,
 		} {
 			recorder := serveDiscoveryRequest(t, engine, authKey, payload)
 			if recorder.Code != http.StatusBadRequest || !strings.Contains(recorder.Body.String(), `"code":"INVALID_JSON"`) {
@@ -379,8 +572,8 @@ func TestServerDiscoverModelsEndpoint(t *testing.T) {
 			status  int
 			code    string
 		}{
-			{payload: `{"upstream_url":"/relative","protocol":"openai","key":"secret-key"}`, status: http.StatusBadRequest, code: "VALIDATION_FAILED"},
-			{payload: `{"upstream_url":"https://api.example.com?token=query-secret","protocol":"openai","key":"secret-key"}`, status: http.StatusInternalServerError, code: "INTERNAL_SERVER_ERROR"},
+			{payload: `{"upstream_url":"/relative","protocols":["openai"],"keys":"secret-key","config":{}}`, status: http.StatusBadRequest, code: "VALIDATION_FAILED"},
+			{payload: `{"upstream_url":"https://api.example.com?token=query-secret","protocols":["openai"],"keys":"secret-key","config":{}}`, status: http.StatusInternalServerError, code: "INTERNAL_SERVER_ERROR"},
 		} {
 			recorder := serveDiscoveryRequest(t, engine, authKey, test.payload)
 			if recorder.Code != test.status || !strings.Contains(recorder.Body.String(), `"code":"`+test.code+`"`) {
@@ -410,7 +603,8 @@ func TestServerDiscoverModelsEndpoint(t *testing.T) {
 			{language: "zh-CN", message: "上游服务错误"},
 		} {
 			recorder := serveDiscoveryRequestWithLanguage(t, engine, authKey,
-				`{"upstream_url":"https://api.example.com?token=query-secret","protocol":"openai","key":"secret-key"}`,
+				`{"upstream_url":"https://api.example.com?token=query-secret",`+
+					`"protocols":["openai"],"keys":"secret-key","config":{}}`,
 				test.language,
 			)
 			if recorder.Code != http.StatusBadGateway ||
@@ -436,7 +630,8 @@ func TestServerDiscoverModelsEndpoint(t *testing.T) {
 		})
 		service.modelDiscoveryTimeout = 20 * time.Millisecond
 		recorder := serveDiscoveryRequest(t, engine, authKey,
-			`{"upstream_url":"https://api.example.com","protocol":"openai","key":"sk-upstream"}`,
+			`{"upstream_url":"https://api.example.com","protocols":["openai"],`+
+				`"keys":"sk-upstream","config":{}}`,
 		)
 		if recorder.Code != http.StatusBadGateway || !strings.Contains(recorder.Body.String(), `"code":"BAD_GATEWAY"`) {
 			t.Fatalf("response = %d %s", recorder.Code, recorder.Body.String())
@@ -455,7 +650,8 @@ func TestServerDiscoverModelsEndpoint(t *testing.T) {
 		engine := gin.New()
 		NewServer(&config.Config{AuthKey: authKey}, fixture.service).RegisterRoutes(engine)
 		recorder := serveDiscoveryRequest(t, engine, authKey,
-			`{"upstream_url":"`+upstream.URL+`","protocol":"openai","key":"sk-upstream"}`,
+			`{"upstream_url":"`+upstream.URL+`","protocols":["openai"],`+
+				`"keys":"sk-upstream","config":{}}`,
 		)
 		if recorder.Code != http.StatusBadGateway || !strings.Contains(recorder.Body.String(), `"code":"BAD_GATEWAY"`) {
 			t.Fatalf("response = %d %s", recorder.Code, recorder.Body.String())
@@ -466,7 +662,7 @@ func TestServerDiscoverModelsEndpoint(t *testing.T) {
 	})
 }
 
-func TestDiscoverModelsEndpointLogsOnlyMetadata(t *testing.T) {
+func TestServerDraftModelDiscoveryLogsOnlyMetadata(t *testing.T) {
 	initControlI18n(t)
 	const (
 		authSecret  = "distinctive-auth-secret"
@@ -490,22 +686,190 @@ func TestDiscoverModelsEndpointLogsOnlyMetadata(t *testing.T) {
 	t.Cleanup(func() { logrus.SetOutput(previousOutput) })
 
 	recorder := serveDiscoveryRequest(t, engine, authSecret,
-		`{"upstream_url":"https://api.example.com?token=`+querySecret+`","protocol":"anthropic","key":"`+keySecret+`"}`,
+		`{"upstream_url":"https://api.example.com?token=`+querySecret+`",`+
+			`"protocols":["anthropic"],"keys":"`+keySecret+`","config":{}}`,
 	)
 	if recorder.Code != http.StatusBadGateway {
 		t.Fatalf("response = %d %s", recorder.Code, recorder.Body.String())
 	}
 	logText := logs.String()
-	for _, required := range []string{"operation=discover_models", "protocol=anthropic", "error_code=BAD_GATEWAY", "error_type="} {
+	for _, required := range []string{"operation=discover_models", "error_code=BAD_GATEWAY", "error_type="} {
 		if !strings.Contains(logText, required) {
 			t.Fatalf("logs missing %q: %s", required, logText)
 		}
+	}
+	if strings.Contains(logText, "protocol=") {
+		t.Fatalf("logs retain submitted protocol metadata: %s", logText)
 	}
 	for _, forbidden := range []string{authSecret, keySecret, querySecret, bodySecret, "provider error", "Authorization"} {
 		if strings.Contains(logText, forbidden) {
 			t.Fatalf("logs expose %q: %s", forbidden, logText)
 		}
 	}
+}
+
+func TestServerGroupModelDiscoveryBodyContract(t *testing.T) {
+	initControlI18n(t)
+	const authKey = "test-auth-key"
+
+	newServer := func(t *testing.T, activeKey bool) (serviceFixture, *gin.Engine, uint) {
+		t.Helper()
+		fixture := newServiceFixture(t)
+		created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
+			UpstreamURL: "https://persisted-server.example.com/v1",
+			Protocols:   []protocol.Protocol{protocol.OpenAI},
+			Keys:        "persisted-server-key",
+		})
+		if err != nil {
+			t.Fatalf("seed CreateGroup() error = %v", err)
+		}
+		if !activeKey {
+			if err := fixture.db.Model(&models.UpstreamKey{}).
+				Where("group_id = ?", created.GroupID).
+				Update("status", models.UpstreamKeyStatusDisabled).Error; err != nil {
+				t.Fatalf("disable persisted discovery key: %v", err)
+			}
+		}
+		fixture.service.dialects = dialect.NewSet(&recordingDiscoveryDialect{
+			value: protocol.OpenAI,
+			listFn: func(context.Context, string, string, state.HeaderRules) ([]string, error) {
+				return []string{"z-model", "a-model"}, nil
+			},
+		})
+		engine := gin.New()
+		NewServer(&config.Config{AuthKey: authKey}, fixture.service).RegisterRoutes(engine)
+		return fixture, engine, created.GroupID
+	}
+
+	t.Run("optional empty object accepts only no body whitespace and empty object", func(t *testing.T) {
+		_, engine, groupID := newServer(t, true)
+		for _, test := range []struct {
+			name    string
+			payload *string
+		}{
+			{name: "no body"},
+			{name: "whitespace", payload: stringPointer(" \n\t ")},
+			{name: "empty object", payload: stringPointer("{}")},
+		} {
+			t.Run(test.name, func(t *testing.T) {
+				recorder := serveGroupDiscoveryRequest(t, engine, authKey, "en-US", groupID, test.payload)
+				if recorder.Code != http.StatusOK {
+					t.Fatalf("response = %d %s", recorder.Code, recorder.Body.String())
+				}
+				var body struct {
+					Code int                        `json:"code"`
+					Data map[string]json.RawMessage `json:"data"`
+				}
+				if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+					t.Fatalf("decode success response: %v", err)
+				}
+				if body.Code != 0 || len(body.Data) != 1 {
+					t.Fatalf("success response = %#v", body)
+				}
+				var gotModels []string
+				if err := json.Unmarshal(body.Data["models"], &gotModels); err != nil ||
+					!reflect.DeepEqual(gotModels, []string{"z-model", "a-model"}) {
+					t.Fatalf("models = %#v, error=%v", gotModels, err)
+				}
+			})
+		}
+
+		for _, payload := range []string{"null", "[]", `{"refresh":true}`, "{} {}"} {
+			t.Run("reject "+payload, func(t *testing.T) {
+				recorder := serveGroupDiscoveryRequest(
+					t, engine, authKey, "en-US", groupID, stringPointer(payload),
+				)
+				if recorder.Code != http.StatusBadRequest ||
+					!strings.Contains(recorder.Body.String(), `"code":"INVALID_JSON"`) {
+					t.Fatalf("response = %d %s", recorder.Code, recorder.Body.String())
+				}
+			})
+		}
+	})
+
+	t.Run("invalid Group IDs return bad request", func(t *testing.T) {
+		_, engine, _ := newServer(t, true)
+		for _, rawID := range []string{"0", "not-a-number", "18446744073709551616"} {
+			recorder := serveRawGroupDiscoveryRequest(t, engine, authKey, "en-US", rawID, nil)
+			if recorder.Code != http.StatusBadRequest ||
+				!strings.Contains(recorder.Body.String(), `"code":"BAD_REQUEST"`) {
+				t.Fatalf("Group ID %q response = %d %s", rawID, recorder.Code, recorder.Body.String())
+			}
+		}
+	})
+
+	t.Run("missing Group is localized not found", func(t *testing.T) {
+		_, engine, _ := newServer(t, true)
+		recorder := serveRawGroupDiscoveryRequest(t, engine, authKey, "zh-CN", "999", nil)
+		if recorder.Code != http.StatusNotFound ||
+			!strings.Contains(recorder.Body.String(), `"code":"NOT_FOUND"`) ||
+			!strings.Contains(recorder.Body.String(), "分组不存在") {
+			t.Fatalf("response = %d %s", recorder.Code, recorder.Body.String())
+		}
+	})
+
+	t.Run("no active key is localized conflict", func(t *testing.T) {
+		_, engine, groupID := newServer(t, false)
+		for _, test := range []struct {
+			language string
+			message  string
+		}{
+			{language: "en-US", message: "No active upstream key is available for this group"},
+			{language: "zh-CN", message: "该分组没有可用的活跃上游密钥"},
+			{language: "ja-JP", message: "このグループには利用可能な有効なアップストリームキーがありません"},
+		} {
+			recorder := serveGroupDiscoveryRequest(
+				t, engine, authKey, test.language, groupID, nil,
+			)
+			if recorder.Code != http.StatusConflict ||
+				!strings.Contains(recorder.Body.String(), `"code":"NO_ACTIVE_UPSTREAM_KEY"`) ||
+				!strings.Contains(recorder.Body.String(), test.message) {
+				t.Fatalf("%s response = %d %s", test.language, recorder.Code, recorder.Body.String())
+			}
+		}
+	})
+}
+
+func serveGroupDiscoveryRequest(
+	t *testing.T,
+	engine *gin.Engine,
+	authKey, language string,
+	groupID uint,
+	payload *string,
+) *httptest.ResponseRecorder {
+	t.Helper()
+	return serveRawGroupDiscoveryRequest(
+		t, engine, authKey, language, strconv.FormatUint(uint64(groupID), 10), payload,
+	)
+}
+
+func serveRawGroupDiscoveryRequest(
+	t *testing.T,
+	engine *gin.Engine,
+	authKey, language, groupID string,
+	payload *string,
+) *httptest.ResponseRecorder {
+	t.Helper()
+	var request *http.Request
+	if payload != nil {
+		request = httptest.NewRequest(
+			http.MethodPost,
+			"/api/groups/"+groupID+"/models/discover",
+			strings.NewReader(*payload),
+		)
+	} else {
+		request = httptest.NewRequest(
+			http.MethodPost,
+			"/api/groups/"+groupID+"/models/discover",
+			nil,
+		)
+	}
+	recorder := httptest.NewRecorder()
+	request.Header.Set("Authorization", "Bearer "+authKey)
+	request.Header.Set("Accept-Language", language)
+	request.Header.Set("Content-Type", "application/json")
+	engine.ServeHTTP(recorder, request)
+	return recorder
 }
 
 func serveDiscoveryRequest(t *testing.T, engine *gin.Engine, authKey, payload string) *httptest.ResponseRecorder {

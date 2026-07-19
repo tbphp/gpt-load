@@ -18,7 +18,6 @@ import (
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/platform/i18n"
 	"gpt-load/internal/platform/response"
-	"gpt-load/internal/protocol"
 )
 
 type Server struct {
@@ -34,7 +33,9 @@ func (s *Server) RegisterRoutes(engine *gin.Engine) {
 	api := engine.Group("/api")
 	api.Use(i18n.Middleware(), s.authenticate())
 	api.GET("/groups", s.handleListGroups)
-	api.POST("/import", s.handleImport)
+	api.POST("/groups", s.handleCreateGroup)
+	api.POST("/groups/:group_id/keys/import", s.handleImportGroupKeys)
+	api.POST("/groups/:group_id/models/discover", s.handleDiscoverGroupModels)
 	api.POST("/models/discover", s.handleDiscoverModels)
 	api.POST("/access-keys", s.handleCreateAccessKey)
 	api.GET("/access-keys", s.handleListAccessKeys)
@@ -70,15 +71,50 @@ func (s *Server) handleListGroups(c *gin.Context) {
 	response.SuccessI18n(c, "common.success", groups)
 }
 
-func (s *Server) handleImport(c *gin.Context) {
-	var request ImportRequest
+func (s *Server) handleCreateGroup(c *gin.Context) {
+	var request GroupCreateRequest
 	if err := bindStrictJSON(c, &request); err != nil {
-		writeServiceError(c, "import", app_errors.ErrInvalidJSON)
+		writeServiceError(c, "create_group", app_errors.ErrInvalidJSON)
 		return
 	}
-	result, err := s.service.Import(c.Request.Context(), request)
+	result, err := s.service.CreateGroup(c.Request.Context(), request)
 	if err != nil {
-		writeServiceError(c, "import", err)
+		writeServiceError(c, "create_group", err)
+		return
+	}
+	response.SuccessI18n(c, "common.success", result)
+}
+
+func (s *Server) handleImportGroupKeys(c *gin.Context) {
+	id, ok := groupID(c, "import_group_keys")
+	if !ok {
+		return
+	}
+	var request GroupKeyImportRequest
+	if err := bindStrictJSON(c, &request); err != nil {
+		writeServiceError(c, "import_group_keys", app_errors.ErrInvalidJSON)
+		return
+	}
+	result, err := s.service.ImportGroupKeys(c.Request.Context(), id, request)
+	if err != nil {
+		writeServiceError(c, "import_group_keys", err)
+		return
+	}
+	response.SuccessI18n(c, "common.success", result)
+}
+
+func (s *Server) handleDiscoverGroupModels(c *gin.Context) {
+	id, ok := groupID(c, "discover_group_models")
+	if !ok {
+		return
+	}
+	if err := bindOptionalEmptyJSONObject(c); err != nil {
+		writeServiceError(c, "discover_group_models", app_errors.ErrInvalidJSON)
+		return
+	}
+	result, err := s.service.DiscoverGroupModels(c.Request.Context(), id)
+	if err != nil {
+		writeServiceError(c, "discover_group_models", err)
 		return
 	}
 	response.SuccessI18n(c, "common.success", result)
@@ -87,12 +123,12 @@ func (s *Server) handleImport(c *gin.Context) {
 func (s *Server) handleDiscoverModels(c *gin.Context) {
 	var request ModelDiscoveryRequest
 	if err := bindStrictJSON(c, &request); err != nil {
-		writeDiscoveryError(c, request.Protocol, app_errors.ErrInvalidJSON)
+		writeDiscoveryError(c, app_errors.ErrInvalidJSON)
 		return
 	}
 	result, err := s.service.DiscoverModels(c.Request.Context(), request)
 	if err != nil {
-		writeDiscoveryError(c, request.Protocol, err)
+		writeDiscoveryError(c, err)
 		return
 	}
 	response.SuccessI18n(c, "common.success", result)
@@ -168,6 +204,28 @@ func bindStrictJSON(c *gin.Context, target any) error {
 	return nil
 }
 
+func bindOptionalEmptyJSONObject(c *gin.Context) error {
+	decoder := json.NewDecoder(c.Request.Body)
+	var object map[string]json.RawMessage
+	if err := decoder.Decode(&object); err != nil {
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		return err
+	}
+	if object == nil || len(object) != 0 {
+		return fmt.Errorf("request body must be an empty JSON object")
+	}
+	var extra json.RawMessage
+	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return fmt.Errorf("decode JSON request: multiple values")
+		}
+		return err
+	}
+	return nil
+}
+
 func accessKeyID(c *gin.Context) (uint, bool) {
 	parsed, err := strconv.ParseUint(c.Param("id"), 10, strconv.IntSize)
 	if err != nil || parsed == 0 {
@@ -177,30 +235,38 @@ func accessKeyID(c *gin.Context) (uint, bool) {
 	return uint(parsed), true
 }
 
+func groupID(c *gin.Context, operation string) (uint, bool) {
+	parsed, err := strconv.ParseUint(c.Param("group_id"), 10, strconv.IntSize)
+	if err != nil || parsed == 0 {
+		writeServiceError(c, operation, app_errors.ErrBadRequest)
+		return 0, false
+	}
+	return uint(parsed), true
+}
+
 func writeServiceError(c *gin.Context, operation string, err error) {
-	writeServiceErrorForProtocol(c, operation, "", err)
+	writeServiceErrorResponse(c, operation, err)
 }
 
-func writeDiscoveryError(c *gin.Context, value protocol.Protocol, err error) {
-	writeServiceErrorForProtocol(c, "discover_models", value, err)
+func writeDiscoveryError(c *gin.Context, err error) {
+	writeServiceErrorResponse(c, "discover_models", err)
 }
 
-func writeServiceErrorForProtocol(
+func writeServiceErrorResponse(
 	c *gin.Context,
 	operation string,
-	value protocol.Protocol,
 	err error,
 ) {
 	var apiErr *app_errors.APIError
 	if errors.As(err, &apiErr) {
 		if apiErr.HTTPStatus >= http.StatusInternalServerError {
-			logServiceError(operation, value, err, apiErr.Code)
+			logServiceError(operation, err, apiErr.Code)
 		}
 		response.ErrorI18nFromAPIError(c, apiErr, serviceErrorMessageID(operation, apiErr))
 		return
 	}
 
-	logServiceError(operation, value, err, app_errors.ErrInternalServer.Code)
+	logServiceError(operation, err, app_errors.ErrInternalServer.Code)
 	response.ErrorI18nFromAPIError(c, app_errors.ErrInternalServer, "internal_error")
 }
 
@@ -209,15 +275,20 @@ func serviceErrorMessageID(operation string, apiErr *app_errors.APIError) string
 	case app_errors.ErrBadRequest.Code, app_errors.ErrInvalidJSON.Code, app_errors.ErrValidation.Code:
 		return "bad_request"
 	case app_errors.ErrResourceNotFound.Code:
-		if operation == "list_groups" {
+		if operation == "list_groups" || operation == "import_group_keys" ||
+			operation == "discover_group_models" {
 			return "group.not_found"
 		}
 		return "key.not_found"
+	case app_errors.ErrNoActiveUpstreamKey.Code:
+		return "group.no_active_upstream_key"
 	case app_errors.ErrDuplicateResource.Code:
-		if operation == "import" {
+		if operation == "create_group" {
 			return "group.name_exists"
 		}
 		return "bad_request"
+	case app_errors.ErrUpstreamURLConflict.Code:
+		return "group.upstream_url_conflict"
 	case app_errors.ErrBadGateway.Code:
 		return "bad_gateway"
 	default:
@@ -225,14 +296,11 @@ func serviceErrorMessageID(operation string, apiErr *app_errors.APIError) string
 	}
 }
 
-func logServiceError(operation string, value protocol.Protocol, err error, code string) {
+func logServiceError(operation string, err error, code string) {
 	fields := logrus.Fields{
 		"operation":  operation,
 		"error_code": code,
 		"error_type": fmt.Sprintf("%T", err),
-	}
-	if value != "" {
-		fields["protocol"] = value
 	}
 	logrus.WithFields(fields).Error("Control operation failed")
 }

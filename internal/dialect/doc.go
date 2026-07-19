@@ -1,2 +1,2 @@
-// Package dialect implements upstream protocol behavior starting in M1.
+// Package dialect translates requests and responses for supported upstream protocols.
 package dialect

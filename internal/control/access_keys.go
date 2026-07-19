@@ -224,7 +224,7 @@ func (s *Service) DeleteAccessKey(ctx context.Context, id uint) error {
 }
 
 func normalizeAccessKeyName(raw string) (string, error) {
-	normalized, err := normalizeImportName(&raw)
+	normalized, err := normalizeGroupName(&raw)
 	if err != nil {
 		return "", err
 	}

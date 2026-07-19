@@ -2,12 +2,15 @@ package loader_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
@@ -15,6 +18,68 @@ import (
 	"gpt-load/internal/storage"
 	"gpt-load/internal/storage/models"
 )
+
+func TestLoadSystemSettingsDecodesPersistedValues(t *testing.T) {
+	db := openMigratedDatabase(t)
+	for _, row := range []models.SystemSetting{
+		{Key: "plain", Value: "not-json"},
+		{Key: "number", Value: "12.50"},
+		{Key: "object", Value: `{"set":{"X-Test":"original"},"remove":["X-Old"]}`},
+	} {
+		row := row
+		mustCreate(t, db, &row)
+	}
+	mustCreate(t, db, &models.Group{
+		Name: "unrelated", UpstreamURL: "https://unrelated.example.com",
+		Protocols: models.JSON(`["openai"]`), Models: models.JSON(`[]`),
+		Config: models.JSON(`{}`), Enabled: true,
+	})
+
+	var orderColumns []clause.OrderByColumn
+	seenTables := make(map[string]int)
+	const callbackName = "test:load_system_settings_order"
+	if err := db.Callback().Query().After("gorm:query").Register(callbackName, func(tx *gorm.DB) {
+		seenTables[tx.Statement.Table]++
+		if orderBy, ok := tx.Statement.Clauses["ORDER BY"].Expression.(clause.OrderBy); ok {
+			orderColumns = append([]clause.OrderByColumn(nil), orderBy.Columns...)
+		}
+	}); err != nil {
+		t.Fatalf("register query callback: %v", err)
+	}
+
+	settings, err := loader.LoadSystemSettings(context.Background(), db)
+	if err != nil {
+		t.Fatalf("LoadSystemSettings() error = %v", err)
+	}
+	want := map[string]any{
+		"number": json.Number("12.50"),
+		"object": map[string]any{
+			"set":    map[string]any{"X-Test": "original"},
+			"remove": []any{"X-Old"},
+		},
+		"plain": "not-json",
+	}
+	if !reflect.DeepEqual(settings, want) {
+		t.Fatalf("settings = %#v, want %#v", settings, want)
+	}
+	if seenTables["system_settings"] != 1 || len(seenTables) != 1 {
+		t.Fatalf("queried tables = %#v, want only system_settings once", seenTables)
+	}
+	if len(orderColumns) != 1 || orderColumns[0].Column.Name != "key ASC" ||
+		!orderColumns[0].Column.Raw || orderColumns[0].Desc {
+		t.Fatalf("ORDER BY = %#v, want key ASC", orderColumns)
+	}
+
+	settings["plain"] = "mutated"
+	settings["object"].(map[string]any)["set"].(map[string]any)["X-Test"] = "mutated"
+	reloaded, err := loader.LoadSystemSettings(context.Background(), db)
+	if err != nil {
+		t.Fatalf("second LoadSystemSettings() error = %v", err)
+	}
+	if !reflect.DeepEqual(reloaded, want) {
+		t.Fatalf("reloaded settings = %#v, want DB-independent %#v", reloaded, want)
+	}
+}
 
 func TestLoaderLoadsEmptyMigratedDatabase(t *testing.T) {
 	db := openMigratedDatabase(t)
@@ -58,8 +123,8 @@ func TestBuildCompileInputReadsUncommittedTransactionState(t *testing.T) {
 
 	group := models.Group{
 		Name: "pending", UpstreamURL: "https://pending.example",
-		Signature: "pending-signature", Protocols: models.JSON(`["openai"]`),
-		Models: models.JSON(`[{"id":"gpt-pending"}]`), Config: models.JSON(`{}`), Enabled: true,
+		Protocols: models.JSON(`["openai"]`),
+		Models:    models.JSON(`[{"id":"gpt-pending"}]`), Config: models.JSON(`{}`), Enabled: true,
 	}
 	mustCreate(t, tx, &group)
 	mustCreate(t, tx, &models.AccessKey{
@@ -163,7 +228,6 @@ func TestLoaderMapsSystemAndGroupRows(t *testing.T) {
 	enabled := models.Group{
 		Name:        "enabled",
 		UpstreamURL: "https://enabled.example.com/v1",
-		Signature:   "enabled-signature",
 		Protocols:   models.JSON(`["openai"]`),
 		Models: models.JSON(`[
 			{"id":"gpt-4o","alias":"Primary"},
@@ -180,7 +244,6 @@ func TestLoaderMapsSystemAndGroupRows(t *testing.T) {
 	disabled := models.Group{
 		Name:        "disabled",
 		UpstreamURL: "https://disabled.example.com/v1",
-		Signature:   "disabled-signature",
 		Protocols:   models.JSON(`["openai"]`),
 		Models:      models.JSON(`[{"id":"hidden","alias":"Hidden"}]`),
 		Config:      models.JSON(`{}`),
@@ -257,8 +320,8 @@ func TestLoaderRejectsInvalidGroupRowsWithoutPublishing(t *testing.T) {
 			db := openMigratedDatabase(t)
 			group := models.Group{
 				Name: "invalid", UpstreamURL: "https://invalid.example.com/v1",
-				Signature: "invalid-signature", Protocols: test.protocols,
-				Models: test.models, Config: test.config, Enabled: true,
+				Protocols: test.protocols,
+				Models:    test.models, Config: test.config, Enabled: true,
 			}
 			mustCreate(t, db, &group)
 			manager := state.NewManager()
@@ -382,6 +445,14 @@ func TestLoaderRejectsInvalidCredentialRowsWithoutPublishing(t *testing.T) {
 		{
 			name: "unknown access status",
 			insert: func(t *testing.T, db *gorm.DB, _ models.Group) {
+				if err := db.Exec("PRAGMA ignore_check_constraints = ON").Error; err != nil {
+					t.Fatalf("disable SQLite check constraints: %v", err)
+				}
+				defer func() {
+					if err := db.Exec("PRAGMA ignore_check_constraints = OFF").Error; err != nil {
+						t.Errorf("restore SQLite check constraints: %v", err)
+					}
+				}()
 				mustCreate(t, db, &models.AccessKey{
 					Name: "invalid", KeyValue: "access-cipher", KeyHash: "invalid-status-hash",
 					Status: "revoked", Filters: models.JSON(`{}`),
@@ -489,8 +560,8 @@ func createRuntimeGroup(t *testing.T, db *gorm.DB, name string, p protocol.Proto
 	t.Helper()
 	group := models.Group{
 		Name: name, UpstreamURL: "https://" + name + ".example.com/v1",
-		Signature: name + "-signature", Protocols: models.JSON(fmt.Sprintf(`[%q]`, p)),
-		Models: models.JSON(fmt.Sprintf(`[{"id":%q}]`, model)), Config: models.JSON(`{}`), Enabled: true,
+		Protocols: models.JSON(fmt.Sprintf(`[%q]`, p)),
+		Models:    models.JSON(fmt.Sprintf(`[{"id":%q}]`, model)), Config: models.JSON(`{}`), Enabled: true,
 	}
 	mustCreate(t, db, &group)
 	return group
