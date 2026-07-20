@@ -196,6 +196,33 @@ func TestIteratorUsesEffectiveWeights(t *testing.T) {
 	}
 }
 
+func TestIteratorUsesKeyWeights(t *testing.T) {
+	manualWeight := 100
+	source := fakeKeySource{keys: []state.KeyMeta{
+		{ID: 1, GroupID: 1, WeightManual: &manualWeight, WeightAuto: 1},
+		{ID: 2, GroupID: 1, WeightAuto: 50},
+	}}
+	counts := map[uint]int{}
+	random := rand.New(rand.NewSource(99))
+	for range 12000 {
+		iterator := New(
+			schedulerSnapshot(),
+			source,
+			Query{Protocol: protocol.OpenAI, ExternalModel: "gpt-4o"},
+			random,
+		)
+		selection, err := iterator.Next()
+		if err != nil {
+			t.Fatalf("Next() error = %v", err)
+		}
+		counts[selection.KeyID]++
+	}
+	ratio := float64(counts[1]) / float64(counts[2])
+	if ratio < 1.85 || ratio > 2.15 {
+		t.Fatalf("weighted counts = %#v, ratio = %.3f, want about 2:1", counts, ratio)
+	}
+}
+
 func TestEffectiveWeightCombinesGroupAndKeyWeights(t *testing.T) {
 	groupManual := 20
 	keyManual := 40
