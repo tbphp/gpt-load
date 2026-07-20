@@ -22,13 +22,14 @@ type CompileInput struct {
 }
 
 type GroupConfig struct {
-	ID          uint
-	Name        string
-	UpstreamURL string
-	Protocols   []protocol.Protocol
-	Models      []ModelConfig
-	Settings    config.Settings
-	Enabled     bool
+	ID           uint
+	Name         string
+	UpstreamURL  string
+	Protocols    []protocol.Protocol
+	Models       []ModelConfig
+	Settings     config.Settings
+	WeightManual *int
+	Enabled      bool
 }
 
 type ModelConfig struct {
@@ -82,13 +83,14 @@ type HeaderRules struct {
 }
 
 type GroupView struct {
-	ID          uint
-	Name        string
-	UpstreamURL string
-	Protocols   []protocol.Protocol
-	Models      []ModelConfig
-	Timeouts    TimeoutConfig
-	HeaderRules HeaderRules
+	ID           uint
+	Name         string
+	UpstreamURL  string
+	Protocols    []protocol.Protocol
+	Models       []ModelConfig
+	Timeouts     TimeoutConfig
+	HeaderRules  HeaderRules
+	WeightManual *int
 }
 
 type AccessKeyView struct {
@@ -125,10 +127,11 @@ func Compile(input CompileInput) (*ConfigSnapshot, error) {
 		}
 		view := GroupView{
 			ID: group.ID, Name: group.Name, UpstreamURL: group.UpstreamURL,
-			Protocols:   append([]protocol.Protocol(nil), group.Protocols...),
-			Models:      append([]ModelConfig(nil), group.Models...),
-			Timeouts:    timeouts,
-			HeaderRules: headerRules,
+			Protocols:    append([]protocol.Protocol(nil), group.Protocols...),
+			Models:       append([]ModelConfig(nil), group.Models...),
+			Timeouts:     timeouts,
+			HeaderRules:  headerRules,
+			WeightManual: cloneWeight(group.WeightManual),
 		}
 		snapshot.Groups[group.ID] = view
 
@@ -362,6 +365,9 @@ func validateCompileInput(input CompileInput) error {
 		}
 		if _, duplicate := enabledGroupIDs[group.ID]; duplicate {
 			return fmt.Errorf("duplicate group id %d", group.ID)
+		}
+		if err := validateManualWeight(fmt.Sprintf("group %d", group.ID), group.WeightManual); err != nil {
+			return err
 		}
 		enabledGroupIDs[group.ID] = struct{}{}
 		if len(group.Protocols) == 0 {

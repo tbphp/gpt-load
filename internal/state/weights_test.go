@@ -1,0 +1,175 @@
+package state
+
+import (
+	"reflect"
+	"testing"
+	"time"
+
+	"gpt-load/internal/protocol"
+)
+
+func TestCompileCopiesAndValidatesGroupManualWeight(t *testing.T) {
+	weight := 25
+	input := CompileInput{Groups: []GroupConfig{{
+		ID: 1, Name: "weighted", UpstreamURL: "https://weighted.example.com",
+		Protocols: []protocol.Protocol{protocol.OpenAI},
+		Models:    []ModelConfig{{ID: "gpt-weighted"}}, WeightManual: &weight, Enabled: true,
+	}}}
+
+	snapshot, err := Compile(input)
+	if err != nil {
+		t.Fatalf("Compile() error = %v", err)
+	}
+	weight = 90
+	if got := snapshot.Groups[1].WeightManual; got == nil || *got != 25 {
+		t.Fatalf("GroupView.WeightManual = %v, want independent value 25", got)
+	}
+
+	for _, invalid := range []int{-1, 101} {
+		input.Groups[0].WeightManual = &invalid
+		if _, err := Compile(input); err == nil {
+			t.Errorf("Compile() with group weight %d error = nil, want error", invalid)
+		}
+	}
+}
+
+func TestKeyRegistryCollectCandidatesExcludesRuntimeUnavailableKeys(t *testing.T) {
+	now := time.Date(2026, time.July, 20, 12, 0, 0, 0, time.UTC)
+	registry := NewKeyRegistry()
+	mustReplaceKeyEntries(t, registry, []KeyEntry{
+		{ID: 1, GroupID: 10, Status: KeyStatusActive, EncryptedValue: "active"},
+		{ID: 2, GroupID: 10, Status: KeyStatusActive, CooldownUntil: now.Add(time.Second), EncryptedValue: "cooling"},
+		{ID: 3, GroupID: 10, Status: KeyStatusActive, Blacklisted: true, EncryptedValue: "blacklisted"},
+		{ID: 4, GroupID: 10, Status: KeyStatusActive, CooldownUntil: now, EncryptedValue: "expired"},
+		{ID: 5, GroupID: 10, Status: KeyStatusDisabled, EncryptedValue: "disabled"},
+		{ID: 6, GroupID: 10, Status: KeyStatusActive, EncryptedValue: "excluded"},
+	})
+
+	got := registry.CollectCandidates([]uint{10}, func(keyID uint) bool {
+		return keyID == 6
+	}, now)
+	want := []KeyMeta{
+		{ID: 1, GroupID: 10, WeightAuto: DefaultWeight},
+		{ID: 4, GroupID: 10, WeightAuto: DefaultWeight},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("CollectCandidates() = %#v, want %#v", got, want)
+	}
+}
+
+func TestKeyRegistryDefaultsAndSetsAutoWeight(t *testing.T) {
+	registry := NewKeyRegistry()
+	mustReplaceKeyEntries(t, registry, []KeyEntry{{
+		ID: 1, GroupID: 10, Status: KeyStatusActive, EncryptedValue: "cipher",
+	}})
+
+	assertAutoWeight := func(want int) {
+		t.Helper()
+		got := registry.CollectCandidates([]uint{10}, nil, time.Time{})
+		if len(got) != 1 || got[0].WeightAuto != want {
+			t.Fatalf("CollectCandidates() = %#v, want WeightAuto %d", got, want)
+		}
+	}
+	assertAutoWeight(DefaultWeight)
+	for _, weight := range []int{1, MaxWeight} {
+		if ok := registry.SetAutoWeight(1, weight); !ok {
+			t.Fatalf("SetAutoWeight(1, %d) = false, want true", weight)
+		}
+		assertAutoWeight(weight)
+	}
+	for _, invalid := range []int{0, MaxWeight + 1} {
+		if ok := registry.SetAutoWeight(1, invalid); ok {
+			t.Errorf("SetAutoWeight(1, %d) = true, want false", invalid)
+		}
+	}
+	if ok := registry.SetAutoWeight(99, DefaultWeight); ok {
+		t.Error("SetAutoWeight(missing key) = true, want false")
+	}
+}
+
+func TestKeyRegistryClearFailureAndRecover(t *testing.T) {
+	registry := NewKeyRegistry()
+	mustReplaceKeyEntries(t, registry, []KeyEntry{{
+		ID: 1, GroupID: 10, Status: KeyStatusActive, Blacklisted: true,
+		FailureCount: 3, EncryptedValue: "cipher",
+	}})
+
+	if ok := registry.ClearFailure(1); !ok {
+		t.Fatal("ClearFailure(1) = false, want true")
+	}
+	entry := registryEntry(t, registry, 1)
+	if entry.FailureCount != 0 || !entry.Blacklisted {
+		t.Fatalf("entry after ClearFailure() = %#v, want zero failures and retained blacklist", entry)
+	}
+
+	if _, ok := registry.IncrFailure(1); !ok {
+		t.Fatal("IncrFailure(1) = false, want true")
+	}
+	if ok := registry.Recover(1); !ok {
+		t.Fatal("Recover(1) = false, want true")
+	}
+	entry = registryEntry(t, registry, 1)
+	if entry.FailureCount != 0 || entry.Blacklisted {
+		t.Fatalf("entry after Recover() = %#v, want zero failures and no blacklist", entry)
+	}
+
+	if registry.ClearFailure(99) || registry.Recover(99) {
+		t.Error("mutation of missing key succeeded")
+	}
+}
+
+func TestKeyRegistryBlacklistedKeysReturnsActiveSortedRefs(t *testing.T) {
+	registry := NewKeyRegistry()
+	mustReplaceKeyEntries(t, registry, []KeyEntry{
+		{ID: 3, GroupID: 20, Status: KeyStatusActive, Blacklisted: true, EncryptedValue: "cipher-three"},
+		{ID: 2, GroupID: 10, Status: KeyStatusActive, Blacklisted: true, EncryptedValue: "cipher-two"},
+		{ID: 1, GroupID: 10, Status: KeyStatusActive, Blacklisted: true, EncryptedValue: "cipher-one"},
+		{ID: 4, GroupID: 10, Status: KeyStatusDisabled, Blacklisted: true, EncryptedValue: "cipher-disabled"},
+		{ID: 5, GroupID: 10, Status: KeyStatusActive, EncryptedValue: "cipher-healthy"},
+	})
+
+	want := []KeyRef{
+		{ID: 1, GroupID: 10, EncryptedValue: "cipher-one"},
+		{ID: 2, GroupID: 10, EncryptedValue: "cipher-two"},
+		{ID: 3, GroupID: 20, EncryptedValue: "cipher-three"},
+	}
+	if got := registry.BlacklistedKeys(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("BlacklistedKeys() = %#v, want %#v", got, want)
+	}
+}
+
+func TestValidateKeyEntriesRejectsInvalidWeights(t *testing.T) {
+	manualTooLow := -1
+	manualTooHigh := MaxWeight + 1
+	tests := []struct {
+		name  string
+		entry KeyEntry
+	}{
+		{name: "manual below range", entry: KeyEntry{WeightManual: &manualTooLow}},
+		{name: "manual above range", entry: KeyEntry{WeightManual: &manualTooHigh}},
+		{name: "auto below range", entry: KeyEntry{WeightAuto: -1}},
+		{name: "auto above range", entry: KeyEntry{WeightAuto: MaxWeight + 1}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			test.entry.ID = 1
+			test.entry.GroupID = 10
+			test.entry.Status = KeyStatusActive
+			test.entry.EncryptedValue = "cipher"
+			if err := ValidateKeyEntries([]KeyEntry{test.entry}); err == nil {
+				t.Fatal("ValidateKeyEntries() error = nil, want error")
+			}
+		})
+	}
+}
+
+func registryEntry(t *testing.T, registry *KeyRegistry, keyID uint) KeyEntry {
+	t.Helper()
+	registry.mu.RLock()
+	defer registry.mu.RUnlock()
+	groupID, ok := registry.keyGroups[keyID]
+	if !ok {
+		t.Fatalf("key %d missing", keyID)
+	}
+	return *registry.buckets[groupID][keyID]
+}

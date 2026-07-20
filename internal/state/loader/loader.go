@@ -230,7 +230,8 @@ func mapSystemAndGroups(rows compileRows) (state.CompileInput, error) {
 		input.Groups = append(input.Groups, state.GroupConfig{
 			ID: row.ID, Name: row.Name, UpstreamURL: row.UpstreamURL,
 			Protocols: append([]protocol.Protocol(nil), protocols...),
-			Models:    runtimeModels, Settings: settings, Enabled: row.Enabled,
+			Models:    runtimeModels, Settings: settings,
+			WeightManual: row.WeightManual, Enabled: row.Enabled,
 		})
 	}
 	return input, nil
@@ -256,7 +257,8 @@ func mapUpstreamKeys(rows []models.UpstreamKey) []state.KeyEntry {
 	for _, row := range rows {
 		result = append(result, state.KeyEntry{
 			ID: row.ID, GroupID: row.GroupID, WeightManual: row.WeightManual,
-			Status: state.KeyStatus(row.Status), EncryptedValue: row.KeyValue,
+			WeightAuto: state.DefaultWeight,
+			Status:     state.KeyStatus(row.Status), EncryptedValue: row.KeyValue,
 		})
 	}
 	return result

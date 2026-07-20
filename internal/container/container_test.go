@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -130,7 +131,7 @@ func TestBuildContainerResolvesRuntimeDependencies(t *testing.T) {
 		if snapshot == nil || snapshot.Revision != 1 {
 			t.Fatalf("current snapshot = %#v, want revision 1", snapshot)
 		}
-		if got := registry.CollectCandidates(nil, nil); len(got) != 0 {
+		if got := registry.CollectCandidates(nil, nil, time.Time{}); len(got) != 0 {
 			t.Fatalf("empty registry candidates = %#v", got)
 		}
 		if attemptForwarder == nil {

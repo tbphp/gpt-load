@@ -18,6 +18,7 @@ type KeyEntry struct {
 	ID             uint
 	GroupID        uint
 	WeightManual   *int
+	WeightAuto     int
 	Status         KeyStatus
 	CooldownUntil  time.Time
 	Blacklisted    bool
@@ -29,6 +30,13 @@ type KeyMeta struct {
 	ID           uint
 	GroupID      uint
 	WeightManual *int
+	WeightAuto   int
+}
+
+type KeyRef struct {
+	ID             uint
+	GroupID        uint
+	EncryptedValue string
 }
 
 type KeyRegistry struct {
@@ -55,6 +63,12 @@ func ValidateKeyEntries(entries []KeyEntry) error {
 		}
 		if entry.Status != KeyStatusActive && entry.Status != KeyStatusDisabled {
 			return fmt.Errorf("key %d has invalid status %q", entry.ID, entry.Status)
+		}
+		if err := validateManualWeight(fmt.Sprintf("key %d", entry.ID), entry.WeightManual); err != nil {
+			return err
+		}
+		if entry.WeightAuto < 0 || entry.WeightAuto > MaxWeight {
+			return fmt.Errorf("key %d auto weight must be between 1 and %d", entry.ID, MaxWeight)
 		}
 		if entry.EncryptedValue == "" {
 			return fmt.Errorf("key %d encrypted value is required", entry.ID)
@@ -174,18 +188,17 @@ func (r *KeyRegistry) ActiveEncryptedValue(keyID, expectedGroupID uint) (string,
 	return entry.EncryptedValue, true
 }
 
-func (r *KeyRegistry) CollectCandidates(groupIDs []uint, excluded func(uint) bool) []KeyMeta {
+func (r *KeyRegistry) CollectCandidates(groupIDs []uint, excluded func(uint) bool, now time.Time) []KeyMeta {
 	r.mu.RLock()
 	metas := make([]KeyMeta, 0)
 	for _, groupID := range groupIDs {
 		for _, entry := range r.buckets[groupID] {
-			if entry.Status != KeyStatusActive {
+			if entry.Status != KeyStatusActive || entry.Blacklisted || entry.CooldownUntil.After(now) {
 				continue
 			}
-			meta := KeyMeta{ID: entry.ID, GroupID: entry.GroupID}
-			if entry.WeightManual != nil {
-				weight := *entry.WeightManual
-				meta.WeightManual = &weight
+			meta := KeyMeta{
+				ID: entry.ID, GroupID: entry.GroupID,
+				WeightManual: cloneWeight(entry.WeightManual), WeightAuto: entry.WeightAuto,
 			}
 			metas = append(metas, meta)
 		}
@@ -219,6 +232,20 @@ func (r *KeyRegistry) SetCooldown(keyID uint, until time.Time) bool {
 	return true
 }
 
+func (r *KeyRegistry) SetAutoWeight(keyID uint, weight int) bool {
+	if weight < 1 || weight > MaxWeight {
+		return false
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	entry, ok := r.entryLocked(keyID)
+	if !ok {
+		return false
+	}
+	entry.WeightAuto = weight
+	return true
+}
+
 func (r *KeyRegistry) SetBlacklisted(keyID uint) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -241,6 +268,52 @@ func (r *KeyRegistry) IncrFailure(keyID uint) (int, bool) {
 	return entry.FailureCount, true
 }
 
+func (r *KeyRegistry) ClearFailure(keyID uint) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	entry, ok := r.entryLocked(keyID)
+	if !ok {
+		return false
+	}
+	entry.FailureCount = 0
+	return true
+}
+
+func (r *KeyRegistry) Recover(keyID uint) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	entry, ok := r.entryLocked(keyID)
+	if !ok {
+		return false
+	}
+	entry.Blacklisted = false
+	entry.FailureCount = 0
+	return true
+}
+
+func (r *KeyRegistry) BlacklistedKeys() []KeyRef {
+	r.mu.RLock()
+	refs := make([]KeyRef, 0)
+	for _, bucket := range r.buckets {
+		for _, entry := range bucket {
+			if entry.Status != KeyStatusActive || !entry.Blacklisted {
+				continue
+			}
+			refs = append(refs, KeyRef{
+				ID: entry.ID, GroupID: entry.GroupID, EncryptedValue: entry.EncryptedValue,
+			})
+		}
+	}
+	r.mu.RUnlock()
+	sort.Slice(refs, func(i, j int) bool {
+		if refs[i].GroupID != refs[j].GroupID {
+			return refs[i].GroupID < refs[j].GroupID
+		}
+		return refs[i].ID < refs[j].ID
+	})
+	return refs
+}
+
 func (r *KeyRegistry) entryLocked(keyID uint) (*KeyEntry, bool) {
 	groupID, ok := r.keyGroups[keyID]
 	if !ok {
@@ -251,9 +324,9 @@ func (r *KeyRegistry) entryLocked(keyID uint) (*KeyEntry, bool) {
 }
 
 func cloneKeyEntry(entry KeyEntry) KeyEntry {
-	if entry.WeightManual != nil {
-		weight := *entry.WeightManual
-		entry.WeightManual = &weight
+	entry.WeightManual = cloneWeight(entry.WeightManual)
+	if entry.WeightAuto == 0 {
+		entry.WeightAuto = DefaultWeight
 	}
 	return entry
 }

@@ -227,6 +227,7 @@ func (s *Service) persistUpstreamKeys(
 			ID:             row.ID,
 			GroupID:        row.GroupID,
 			WeightManual:   row.WeightManual,
+			WeightAuto:     state.DefaultWeight,
 			Status:         state.KeyStatus(row.Status),
 			EncryptedValue: row.KeyValue,
 		})

@@ -94,7 +94,7 @@ func TestImportGroupKeysReturnsNotFoundWithoutMutation(t *testing.T) {
 		t.Fatalf("seed failure count = %d, %t", count, ok)
 	}
 	beforeSnapshot := fixture.manager.Current()
-	beforeCandidates := fixture.registry.CollectCandidates([]uint{groupID}, nil)
+	beforeCandidates := fixture.registry.CollectCandidates([]uint{groupID}, nil, time.Time{})
 
 	_, err := fixture.service.ImportGroupKeys(t.Context(), groupID+1000, GroupKeyImportRequest{Keys: "sk-new"})
 	var apiErr *app_errors.APIError
@@ -104,7 +104,7 @@ func TestImportGroupKeysReturnsNotFoundWithoutMutation(t *testing.T) {
 	if fixture.manager.Current() != beforeSnapshot {
 		t.Fatal("not-found import published Snapshot")
 	}
-	if got := fixture.registry.CollectCandidates([]uint{groupID}, nil); !reflect.DeepEqual(got, beforeCandidates) {
+	if got := fixture.registry.CollectCandidates([]uint{groupID}, nil, time.Time{}); !reflect.DeepEqual(got, beforeCandidates) {
 		t.Fatalf("not-found import changed Registry: %#v", got)
 	}
 	if count, ok := fixture.registry.IncrFailure(existingKey.ID); !ok || count != 2 {
@@ -130,7 +130,7 @@ func TestImportGroupKeysRollsBackOnEncryptionFailure(t *testing.T) {
 	}
 	fixture.service.encryption = groupCreateFailingEncryptService{Service: fixture.encryption}
 	beforeSnapshot := fixture.manager.Current()
-	beforeCandidates := fixture.registry.CollectCandidates([]uint{groupID}, nil)
+	beforeCandidates := fixture.registry.CollectCandidates([]uint{groupID}, nil, time.Time{})
 
 	_, err := fixture.service.ImportGroupKeys(t.Context(), groupID, GroupKeyImportRequest{Keys: "sk-new"})
 	if err == nil {
@@ -139,7 +139,7 @@ func TestImportGroupKeysRollsBackOnEncryptionFailure(t *testing.T) {
 	if fixture.manager.Current() != beforeSnapshot {
 		t.Fatal("failed import published Snapshot")
 	}
-	if got := fixture.registry.CollectCandidates([]uint{groupID}, nil); !reflect.DeepEqual(got, beforeCandidates) {
+	if got := fixture.registry.CollectCandidates([]uint{groupID}, nil, time.Time{}); !reflect.DeepEqual(got, beforeCandidates) {
 		t.Fatalf("failed import changed Registry: %#v", got)
 	}
 	if count, ok := fixture.registry.IncrFailure(existingKey.ID); !ok || count != 2 {
@@ -304,7 +304,7 @@ func assertImportedKeyState(t *testing.T, fixture serviceFixture, groupID uint, 
 	if len(rows) != want {
 		t.Fatalf("persisted keys = %d, want %d", len(rows), want)
 	}
-	if candidates := fixture.registry.CollectCandidates([]uint{groupID}, nil); len(candidates) != want {
+	if candidates := fixture.registry.CollectCandidates([]uint{groupID}, nil, time.Time{}); len(candidates) != want {
 		t.Fatalf("Registry candidates = %#v, want %d", candidates, want)
 	}
 	for _, row := range rows {

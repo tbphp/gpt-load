@@ -337,7 +337,7 @@ func captureGroupDiscoveryState(t *testing.T, fixture serviceFixture, groupID ui
 		config:           string(group.Config),
 		snapshot:         snapshot,
 		snapshotRevision: snapshot.Revision,
-		registryKeys:     fixture.registry.CollectCandidates([]uint{groupID}, nil),
+		registryKeys:     fixture.registry.CollectCandidates([]uint{groupID}, nil, time.Time{}),
 		registryValues:   registryValues,
 	}
 }

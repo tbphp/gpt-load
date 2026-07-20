@@ -44,8 +44,9 @@ type mutatingRuntimeRegistry struct {
 func (registry *mutatingRuntimeRegistry) CollectCandidates(
 	groupIDs []uint,
 	excluded func(uint) bool,
+	now time.Time,
 ) []state.KeyMeta {
-	candidates := registry.KeyRegistry.CollectCandidates(groupIDs, excluded)
+	candidates := registry.KeyRegistry.CollectCandidates(groupIDs, excluded, now)
 	if !registry.mutated && len(candidates) > 0 {
 		registry.mutated = true
 		registry.mutate()
@@ -324,7 +325,7 @@ func newModelListHandlerEngineWithLimit(
 
 type panicRuntimeRegistry struct{}
 
-func (panicRuntimeRegistry) CollectCandidates([]uint, func(uint) bool) []state.KeyMeta {
+func (panicRuntimeRegistry) CollectCandidates([]uint, func(uint) bool, time.Time) []state.KeyMeta {
 	panic("model endpoint collected upstream candidates")
 }
 

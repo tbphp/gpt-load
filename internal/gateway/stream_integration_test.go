@@ -135,7 +135,7 @@ func TestHandlerFailsOverCompressedStream(t *testing.T) {
 		if len(compressed.Requests()) != 1 || len(backup.Requests()) != 1 {
 			t.Fatalf("first request counts = compressed:%d backup:%d", len(compressed.Requests()), len(backup.Requests()))
 		}
-		if candidates := registry.CollectCandidates([]uint{1, 2}, nil); len(candidates) != 2 {
+		if candidates := registry.CollectCandidates([]uint{1, 2}, nil, time.Time{}); len(candidates) != 2 {
 			t.Fatalf("protocol error changed key registry: %#v", candidates)
 		}
 

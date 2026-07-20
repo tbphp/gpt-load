@@ -237,22 +237,19 @@ func TestKeyRegistryCollectCandidatesFiltersStatusAndExcluded(t *testing.T) {
 	excluded := map[uint]bool{5: true}
 	got := registry.CollectCandidates([]uint{20, 10}, func(keyID uint) bool {
 		return excluded[keyID]
-	})
-	if len(got) != 2 {
-		t.Fatalf("CollectCandidates() length = %d, want 2: %#v", len(got), got)
+	}, time.Time{})
+	if len(got) != 1 {
+		t.Fatalf("CollectCandidates() length = %d, want 1: %#v", len(got), got)
 	}
 	if got[0].GroupID != 10 || got[0].ID != 1 {
 		t.Errorf("CollectCandidates()[0] = %#v, want group 10 key 1", got[0])
-	}
-	if got[1].GroupID != 20 || got[1].ID != 3 {
-		t.Errorf("CollectCandidates()[1] = %#v, want group 20 key 3", got[1])
 	}
 	if got[0].WeightManual == nil || *got[0].WeightManual != 7 {
 		t.Fatalf("CollectCandidates()[0].WeightManual = %v, want 7", got[0].WeightManual)
 	}
 
 	*got[0].WeightManual = 99
-	again := registry.CollectCandidates([]uint{10}, nil)
+	again := registry.CollectCandidates([]uint{10}, nil, time.Time{})
 	if len(again) != 1 || again[0].WeightManual == nil || *again[0].WeightManual != 7 {
 		t.Fatalf("CollectCandidates() after caller mutation = %#v, want isolated weight 7", again)
 	}
@@ -379,7 +376,7 @@ func TestKeyRegistryConcurrentMutationsAndCollection(t *testing.T) {
 				registry.EncryptedValue(keyID)
 				candidates := registry.CollectCandidates(groupIDs, func(candidateID uint) bool {
 					return candidateID%19 == uint(reader)%19
-				})
+				}, time.Now())
 				for index := 1; index < len(candidates); index++ {
 					previous := candidates[index-1]
 					current := candidates[index]
@@ -410,7 +407,7 @@ func TestKeyRegistryConcurrentMutationsAndCollection(t *testing.T) {
 		t.Fatalf("final Replace() error = %v", err)
 	}
 
-	got := registry.CollectCandidates([]uint{4, 2}, nil)
+	got := registry.CollectCandidates([]uint{4, 2}, nil, time.Time{})
 	if len(got) != 2 {
 		t.Fatalf("final CollectCandidates() length = %d, want 2: %#v", len(got), got)
 	}

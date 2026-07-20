@@ -111,7 +111,7 @@ func captureControlJSONBodyLimitState(
 	return controlJSONBodyLimitState{
 		rowCounts:          discoveryRowCounts(t, fixture.db),
 		snapshotRevision:   fixture.manager.Current().Revision,
-		registryCandidates: fixture.registry.CollectCandidates([]uint{groupID, groupID + 1}, nil),
+		registryCandidates: fixture.registry.CollectCandidates([]uint{groupID, groupID + 1}, nil, time.Time{}),
 		accessKey:          loadAccessKeyRow(t, fixture.db, accessKeyID),
 	}
 }

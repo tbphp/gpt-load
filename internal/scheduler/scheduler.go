@@ -4,6 +4,7 @@ package scheduler
 import (
 	"errors"
 	"math/rand"
+	"time"
 
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
@@ -12,7 +13,7 @@ import (
 var ErrExhausted = errors.New("scheduler exhausted")
 
 type KeySource interface {
-	CollectCandidates(groupIDs []uint, excluded func(uint) bool) []state.KeyMeta
+	CollectCandidates(groupIDs []uint, excluded func(uint) bool, now time.Time) []state.KeyMeta
 }
 
 type Query struct {
@@ -39,14 +40,26 @@ type Iterator struct {
 	targets  map[uint]candidateTarget
 	groupIDs []uint
 	tried    map[uint]struct{}
+	now      func() time.Time
 }
 
 func New(snapshot *state.ConfigSnapshot, keys KeySource, query Query, random *rand.Rand) *Iterator {
+	return newWithClock(snapshot, keys, query, random, time.Now)
+}
+
+func newWithClock(
+	snapshot *state.ConfigSnapshot,
+	keys KeySource,
+	query Query,
+	random *rand.Rand,
+	now func() time.Time,
+) *Iterator {
 	iterator := &Iterator{
 		keys:    keys,
 		random:  random,
 		targets: make(map[uint]candidateTarget),
 		tried:   make(map[uint]struct{}),
+		now:     now,
 	}
 	for _, target := range filterTargets(snapshot, query) {
 		iterator.targets[target.target.GroupID] = target
@@ -56,13 +69,13 @@ func New(snapshot *state.ConfigSnapshot, keys KeySource, query Query, random *ra
 }
 
 func (iterator *Iterator) Next() (Selection, error) {
-	if iterator == nil || iterator.keys == nil || iterator.random == nil || len(iterator.groupIDs) == 0 {
+	if iterator == nil || iterator.keys == nil || iterator.random == nil || iterator.now == nil || len(iterator.groupIDs) == 0 {
 		return Selection{}, ErrExhausted
 	}
 	pool := iterator.keys.CollectCandidates(iterator.groupIDs, func(keyID uint) bool {
 		_, tried := iterator.tried[keyID]
 		return tried
-	})
+	}, iterator.now())
 	filtered := pool[:0]
 	for _, key := range pool {
 		if _, ok := iterator.targets[key.GroupID]; ok {

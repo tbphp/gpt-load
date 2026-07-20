@@ -451,8 +451,8 @@ func TestGeminiGatewayCompressed(t *testing.T) {
 		engine.ServeHTTP(recorder, request)
 		if recorder.Code != http.StatusBadGateway || recorder.Header().Get(debugHeaderAttempts) != "2" ||
 			!strings.Contains(recorder.Body.String(), reasonUpstreamProtocol.Code) ||
-			len(registry.CollectCandidates([]uint{1, 2}, nil)) != 2 {
-			t.Fatalf("response = %d headers=%v candidates=%d body=%s", recorder.Code, recorder.Header(), len(registry.CollectCandidates([]uint{1, 2}, nil)), recorder.Body.String())
+			len(registry.CollectCandidates([]uint{1, 2}, nil, time.Time{})) != 2 {
+			t.Fatalf("response = %d headers=%v candidates=%d body=%s", recorder.Code, recorder.Header(), len(registry.CollectCandidates([]uint{1, 2}, nil, time.Time{})), recorder.Body.String())
 		}
 		for _, forbidden := range []string{"secret-one", "secret-two", "data:"} {
 			if strings.Contains(recorder.Body.String(), forbidden) {

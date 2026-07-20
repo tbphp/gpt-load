@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus"
 
@@ -85,7 +86,7 @@ func TestCreateGroupNormalizesAndPublishesOnce(t *testing.T) {
 		!reflect.DeepEqual(view.Protocols, []protocol.Protocol{protocol.OpenAI, protocol.Anthropic}) {
 		t.Fatalf("snapshot group = %#v, exists=%t", view, ok)
 	}
-	if candidates := fixture.registry.CollectCandidates([]uint{result.GroupID}, nil); len(candidates) != 2 {
+	if candidates := fixture.registry.CollectCandidates([]uint{result.GroupID}, nil, time.Time{}); len(candidates) != 2 {
 		t.Fatalf("Registry candidates = %#v, want two", candidates)
 	}
 }
@@ -110,7 +111,7 @@ func TestCreateGroupReturnsUpstreamURLConflictWithoutMutation(t *testing.T) {
 		t.Fatalf("first failure count = %d, %t", count, ok)
 	}
 	beforeRevision := fixture.manager.Current().Revision
-	beforeCandidates := fixture.registry.CollectCandidates([]uint{first.GroupID}, nil)
+	beforeCandidates := fixture.registry.CollectCandidates([]uint{first.GroupID}, nil, time.Time{})
 
 	_, err = fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
 		UpstreamURL: " https://API.example.com/v1/ ",
@@ -131,7 +132,7 @@ func TestCreateGroupReturnsUpstreamURLConflictWithoutMutation(t *testing.T) {
 	if fixture.manager.Current().Revision != beforeRevision {
 		t.Fatal("conflict published a snapshot")
 	}
-	if !reflect.DeepEqual(fixture.registry.CollectCandidates([]uint{first.GroupID}, nil), beforeCandidates) {
+	if !reflect.DeepEqual(fixture.registry.CollectCandidates([]uint{first.GroupID}, nil, time.Time{}), beforeCandidates) {
 		t.Fatal("conflict changed Registry")
 	}
 	if err := fixture.db.First(&existingKey, existingKey.ID).Error; err != nil {
@@ -216,7 +217,7 @@ func TestCreateGroupRejectsInvalidConfigWithoutMutation(t *testing.T) {
 		t.Fatalf("first failure count = %d, %t", count, ok)
 	}
 	beforeRevision := fixture.manager.Current().Revision
-	beforeCandidates := fixture.registry.CollectCandidates([]uint{seed.GroupID}, nil)
+	beforeCandidates := fixture.registry.CollectCandidates([]uint{seed.GroupID}, nil, time.Time{})
 
 	_, err = fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
 		UpstreamURL: "https://invalid-config.example.com",
@@ -232,7 +233,7 @@ func TestCreateGroupRejectsInvalidConfigWithoutMutation(t *testing.T) {
 	if fixture.manager.Current().Revision != beforeRevision {
 		t.Fatal("invalid config published a snapshot")
 	}
-	if !reflect.DeepEqual(fixture.registry.CollectCandidates([]uint{seed.GroupID}, nil), beforeCandidates) {
+	if !reflect.DeepEqual(fixture.registry.CollectCandidates([]uint{seed.GroupID}, nil, time.Time{}), beforeCandidates) {
 		t.Fatal("invalid config changed Registry")
 	}
 	if count, ok := fixture.registry.IncrFailure(existingKey.ID); !ok || count != 2 {
@@ -379,7 +380,7 @@ func TestCreateGroupRejectsNameCollisionWithoutMutation(t *testing.T) {
 		t.Fatalf("initial CreateGroup() error = %v", err)
 	}
 	beforeRevision := fixture.manager.Current().Revision
-	beforeCandidates := fixture.registry.CollectCandidates([]uint{first.GroupID}, nil)
+	beforeCandidates := fixture.registry.CollectCandidates([]uint{first.GroupID}, nil, time.Time{})
 
 	_, err = fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
 		Name:        &name,
@@ -396,7 +397,7 @@ func TestCreateGroupRejectsNameCollisionWithoutMutation(t *testing.T) {
 	if fixture.manager.Current().Revision != beforeRevision {
 		t.Fatal("name collision published a snapshot")
 	}
-	if !reflect.DeepEqual(fixture.registry.CollectCandidates([]uint{first.GroupID}, nil), beforeCandidates) {
+	if !reflect.DeepEqual(fixture.registry.CollectCandidates([]uint{first.GroupID}, nil, time.Time{}), beforeCandidates) {
 		t.Fatal("name collision changed Registry")
 	}
 }
@@ -608,7 +609,7 @@ func TestCreateGroupRollsBackWhenKeyEncryptionFails(t *testing.T) {
 	if count, ok := fixture.registry.IncrFailure(existingKey.ID); !ok || count != 1 {
 		t.Fatalf("first failure count = %d, %t", count, ok)
 	}
-	beforeCandidates := fixture.registry.CollectCandidates([]uint{seed.GroupID}, nil)
+	beforeCandidates := fixture.registry.CollectCandidates([]uint{seed.GroupID}, nil, time.Time{})
 	fixture.service.encryption = groupCreateFailingEncryptService{Service: fixture.encryption}
 	beforeRevision := fixture.manager.Current().Revision
 
@@ -627,7 +628,7 @@ func TestCreateGroupRollsBackWhenKeyEncryptionFails(t *testing.T) {
 	if fixture.manager.Current().Revision != beforeRevision {
 		t.Fatal("failed creation published a snapshot")
 	}
-	if candidates := fixture.registry.CollectCandidates([]uint{seed.GroupID}, nil); !reflect.DeepEqual(candidates, beforeCandidates) {
+	if candidates := fixture.registry.CollectCandidates([]uint{seed.GroupID}, nil, time.Time{}); !reflect.DeepEqual(candidates, beforeCandidates) {
 		t.Fatalf("failed creation changed Registry: %#v", candidates)
 	}
 	if count, ok := fixture.registry.IncrFailure(existingKey.ID); !ok || count != 2 {

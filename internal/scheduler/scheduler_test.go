@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"sort"
 	"testing"
+	"time"
 
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
@@ -90,7 +91,7 @@ type fakeKeySource struct {
 	keys []state.KeyMeta
 }
 
-func (source fakeKeySource) CollectCandidates(groupIDs []uint, excluded func(uint) bool) []state.KeyMeta {
+func (source fakeKeySource) CollectCandidates(groupIDs []uint, excluded func(uint) bool, _ time.Time) []state.KeyMeta {
 	allowed := make(map[uint]struct{}, len(groupIDs))
 	for _, groupID := range groupIDs {
 		allowed[groupID] = struct{}{}
@@ -104,6 +105,33 @@ func (source fakeKeySource) CollectCandidates(groupIDs []uint, excluded func(uin
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
 	return result
+}
+
+func TestIteratorUsesInjectedTimeForCandidateEligibility(t *testing.T) {
+	now := time.Date(2026, time.July, 20, 12, 0, 0, 0, time.UTC)
+	registry := state.NewKeyRegistry()
+	if err := registry.Replace([]state.KeyEntry{{
+		ID: 11, GroupID: 1, Status: state.KeyStatusActive,
+		CooldownUntil: now.Add(time.Second), EncryptedValue: "cipher",
+	}}); err != nil {
+		t.Fatalf("Replace() error = %v", err)
+	}
+
+	query := Query{Protocol: protocol.OpenAI, ExternalModel: "gpt-4o"}
+	cooling := newWithClock(schedulerSnapshot(), registry, query, rand.New(rand.NewSource(1)), func() time.Time {
+		return now
+	})
+	if _, err := cooling.Next(); !errors.Is(err, ErrExhausted) {
+		t.Fatalf("Next() while cooling error = %v, want ErrExhausted", err)
+	}
+
+	expired := newWithClock(schedulerSnapshot(), registry, query, rand.New(rand.NewSource(1)), func() time.Time {
+		return now.Add(time.Second)
+	})
+	selection, err := expired.Next()
+	if err != nil || selection.KeyID != 11 {
+		t.Fatalf("Next() at cooldown boundary = (%#v, %v), want key 11", selection, err)
+	}
 }
 
 func TestIteratorNextNeverRepeatsAndExhausts(t *testing.T) {

@@ -106,7 +106,7 @@ func TestLoaderLoadsEmptyMigratedDatabase(t *testing.T) {
 	if snapshot.AccessKeysByHash == nil || len(snapshot.AccessKeysByHash) != 0 {
 		t.Errorf("snapshot access keys = %#v, want initialized empty map", snapshot.AccessKeysByHash)
 	}
-	if got := registry.CollectCandidates([]uint{1}, nil); len(got) != 0 {
+	if got := registry.CollectCandidates([]uint{1}, nil, time.Time{}); len(got) != 0 {
 		t.Errorf("registry candidates = %#v, want empty", got)
 	}
 }
@@ -337,7 +337,7 @@ func TestLoaderRejectsInvalidGroupRowsWithoutPublishing(t *testing.T) {
 			if manager.Current() != nil {
 				t.Fatalf("Current() = %#v after failed load, want nil", manager.Current())
 			}
-			if got := registry.CollectCandidates([]uint{group.ID}, nil); len(got) != 0 {
+			if got := registry.CollectCandidates([]uint{group.ID}, nil, time.Time{}); len(got) != 0 {
 				t.Fatalf("registry candidates after failed load = %#v, want empty", got)
 			}
 		})
@@ -408,7 +408,7 @@ func TestLoaderMapsAccessAndUpstreamKeys(t *testing.T) {
 		t.Errorf("access filters models = %#v, want gpt-4o", access.Filters.Models)
 	}
 
-	candidates := registry.CollectCandidates([]uint{firstGroup.ID, secondGroup.ID}, nil)
+	candidates := registry.CollectCandidates([]uint{firstGroup.ID, secondGroup.ID}, nil, time.Time{})
 	if len(candidates) != 2 {
 		t.Fatalf("registry candidates = %#v, want two active keys", candidates)
 	}
@@ -520,7 +520,7 @@ func TestLoaderRejectsInvalidCredentialRowsWithoutPublishing(t *testing.T) {
 			if manager.Current() != nil {
 				t.Fatalf("Current() = %#v after failed load, want nil", manager.Current())
 			}
-			if got := registry.CollectCandidates([]uint{group.ID}, nil); len(got) != 0 {
+			if got := registry.CollectCandidates([]uint{group.ID}, nil, time.Time{}); len(got) != 0 {
 				t.Fatalf("registry candidates after failed load = %#v, want empty", got)
 			}
 		})
