@@ -166,26 +166,123 @@ func TestIteratorNextNeverRepeatsAndExhausts(t *testing.T) {
 	}
 }
 
-func TestIteratorUsesEqualWeights(t *testing.T) {
-	heavy, light := 100, 1
+func TestIteratorUsesEffectiveWeights(t *testing.T) {
+	snapshot := schedulerSnapshot()
+	heavyGroup, lightGroup := 100, 50
+	group := snapshot.Groups[1]
+	group.WeightManual = &heavyGroup
+	snapshot.Groups[1] = group
+	group = snapshot.Groups[2]
+	group.WeightManual = &lightGroup
+	snapshot.Groups[2] = group
+
 	source := fakeKeySource{keys: []state.KeyMeta{
-		{ID: 1, GroupID: 1, WeightManual: &heavy},
-		{ID: 2, GroupID: 2, WeightManual: &light},
+		{ID: 1, GroupID: 1, WeightAuto: 100},
+		{ID: 2, GroupID: 2, WeightAuto: 100},
 	}}
 	counts := map[uint]int{}
 	random := rand.New(rand.NewSource(99))
-	for range 2000 {
-		iterator := New(schedulerSnapshot(), source, Query{Protocol: protocol.OpenAI, ExternalModel: "gpt-4o"}, random)
+	for range 12000 {
+		iterator := New(snapshot, source, Query{Protocol: protocol.OpenAI, ExternalModel: "gpt-4o"}, random)
 		selection, err := iterator.Next()
 		if err != nil {
 			t.Fatalf("Next() error = %v", err)
 		}
 		counts[selection.KeyID]++
 	}
-	for _, keyID := range []uint{1, 2} {
-		if counts[keyID] < 800 || counts[keyID] > 1200 {
-			t.Fatalf("equal-weight counts = %#v, key %d outside deterministic tolerance", counts, keyID)
+	ratio := float64(counts[1]) / float64(counts[2])
+	if ratio < 1.85 || ratio > 2.15 {
+		t.Fatalf("weighted counts = %#v, ratio = %.3f, want about 2:1", counts, ratio)
+	}
+}
+
+func TestIteratorExcludesZeroManualWeights(t *testing.T) {
+	t.Run("group", func(t *testing.T) {
+		snapshot := schedulerSnapshot()
+		zero := 0
+		group := snapshot.Groups[1]
+		group.WeightManual = &zero
+		snapshot.Groups[1] = group
+		source := fakeKeySource{keys: []state.KeyMeta{
+			{ID: 11, GroupID: 1, WeightAuto: state.DefaultWeight},
+			{ID: 21, GroupID: 2, WeightAuto: state.DefaultWeight},
+		}}
+
+		random := rand.New(rand.NewSource(1))
+		for range 200 {
+			iterator := New(snapshot, source, Query{Protocol: protocol.OpenAI, ExternalModel: "gpt-4o"}, random)
+			selection, err := iterator.Next()
+			if err != nil || selection.KeyID != 21 {
+				t.Fatalf("Next() = (%#v, %v), want enabled group key 21", selection, err)
+			}
 		}
+	})
+
+	t.Run("key", func(t *testing.T) {
+		zero := 0
+		source := fakeKeySource{keys: []state.KeyMeta{
+			{ID: 11, GroupID: 1, WeightManual: &zero, WeightAuto: state.DefaultWeight},
+			{ID: 12, GroupID: 1, WeightAuto: state.DefaultWeight},
+		}}
+
+		random := rand.New(rand.NewSource(1))
+		for range 200 {
+			iterator := New(schedulerSnapshot(), source, Query{Protocol: protocol.OpenAI, ExternalModel: "gpt-4o"}, random)
+			selection, err := iterator.Next()
+			if err != nil || selection.KeyID != 12 {
+				t.Fatalf("Next() = (%#v, %v), want enabled key 12", selection, err)
+			}
+		}
+	})
+}
+
+func TestIteratorExhaustsWhenEffectiveWeightPoolIsEmpty(t *testing.T) {
+	t.Run("group disabled by weight", func(t *testing.T) {
+		snapshot := schedulerSnapshot()
+		zero := 0
+		for _, groupID := range []uint{1, 2} {
+			group := snapshot.Groups[groupID]
+			group.WeightManual = &zero
+			snapshot.Groups[groupID] = group
+		}
+		iterator := New(
+			snapshot,
+			fakeKeySource{keys: []state.KeyMeta{{ID: 11, GroupID: 1, WeightAuto: state.DefaultWeight}}},
+			Query{Protocol: protocol.OpenAI, ExternalModel: "gpt-4o"},
+			rand.New(rand.NewSource(1)),
+		)
+		if _, err := iterator.Next(); !errors.Is(err, ErrExhausted) {
+			t.Fatalf("Next() error = %v, want ErrExhausted", err)
+		}
+	})
+
+	t.Run("keys disabled by weight", func(t *testing.T) {
+		zero := 0
+		iterator := New(
+			schedulerSnapshot(),
+			fakeKeySource{keys: []state.KeyMeta{
+				{ID: 11, GroupID: 1, WeightManual: &zero, WeightAuto: state.DefaultWeight},
+				{ID: 21, GroupID: 2, WeightManual: &zero, WeightAuto: state.DefaultWeight},
+			}},
+			Query{Protocol: protocol.OpenAI, ExternalModel: "gpt-4o"},
+			rand.New(rand.NewSource(1)),
+		)
+		if _, err := iterator.Next(); !errors.Is(err, ErrExhausted) {
+			t.Fatalf("Next() error = %v, want ErrExhausted", err)
+		}
+	})
+}
+
+func TestIteratorUsesDefaultWeights(t *testing.T) {
+	iterator := New(
+		schedulerSnapshot(),
+		fakeKeySource{keys: []state.KeyMeta{{ID: 11, GroupID: 1}}},
+		Query{Protocol: protocol.OpenAI, ExternalModel: "gpt-4o"},
+		rand.New(rand.NewSource(1)),
+	)
+	selection, err := iterator.Next()
+	if err != nil || selection.KeyID != 11 {
+		t.Fatalf("Next() with default weights = (%#v, %v), want key 11", selection, err)
 	}
 }
 

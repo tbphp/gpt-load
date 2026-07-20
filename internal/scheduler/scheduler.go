@@ -34,6 +34,11 @@ type candidateTarget struct {
 	group  state.GroupView
 }
 
+type weightedKey struct {
+	meta   state.KeyMeta
+	weight int64
+}
+
 type Iterator struct {
 	keys     KeySource
 	random   *rand.Rand
@@ -76,17 +81,33 @@ func (iterator *Iterator) Next() (Selection, error) {
 		_, tried := iterator.tried[keyID]
 		return tried
 	}, iterator.now())
-	filtered := pool[:0]
+	weighted := make([]weightedKey, 0, len(pool))
+	var total int64
 	for _, key := range pool {
-		if _, ok := iterator.targets[key.GroupID]; ok {
-			filtered = append(filtered, key)
+		target, ok := iterator.targets[key.GroupID]
+		if !ok {
+			continue
 		}
+		weight := effectiveWeight(key, target.group)
+		if weight <= 0 {
+			continue
+		}
+		weighted = append(weighted, weightedKey{meta: key, weight: weight})
+		total += weight
 	}
-	if len(filtered) == 0 {
+	if total <= 0 {
 		return Selection{}, ErrExhausted
 	}
 
-	selected := filtered[iterator.random.Intn(len(filtered))]
+	ticket := iterator.random.Int63n(total)
+	selected := weighted[len(weighted)-1].meta
+	for _, candidate := range weighted {
+		if ticket < candidate.weight {
+			selected = candidate.meta
+			break
+		}
+		ticket -= candidate.weight
+	}
 	iterator.tried[selected.ID] = struct{}{}
 	target := iterator.targets[selected.GroupID]
 	return Selection{
@@ -95,6 +116,24 @@ func (iterator *Iterator) Next() (Selection, error) {
 		UpstreamModelID: target.target.UpstreamModelID,
 		Group:           target.group,
 	}, nil
+}
+
+func effectiveWeight(key state.KeyMeta, group state.GroupView) int64 {
+	groupWeight := state.DefaultWeight
+	if group.WeightManual != nil {
+		groupWeight = *group.WeightManual
+	}
+	keyWeight := key.WeightAuto
+	if keyWeight == 0 {
+		keyWeight = state.DefaultWeight
+	}
+	if key.WeightManual != nil {
+		keyWeight = *key.WeightManual
+	}
+	if groupWeight <= 0 || keyWeight <= 0 {
+		return 0
+	}
+	return int64(groupWeight) * int64(keyWeight)
 }
 
 func filterTargets(snapshot *state.ConfigSnapshot, query Query) []candidateTarget {
