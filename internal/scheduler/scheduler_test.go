@@ -196,6 +196,31 @@ func TestIteratorUsesEffectiveWeights(t *testing.T) {
 	}
 }
 
+func TestEffectiveWeightCombinesGroupAndKeyWeights(t *testing.T) {
+	groupManual := 20
+	keyManual := 40
+	zero := 0
+	tests := []struct {
+		name  string
+		group state.GroupView
+		key   state.KeyMeta
+		want  int64
+	}{
+		{name: "defaults", group: state.GroupView{}, key: state.KeyMeta{}, want: 50 * 50},
+		{name: "group and auto key", group: state.GroupView{WeightManual: &groupManual}, key: state.KeyMeta{WeightAuto: 30}, want: 20 * 30},
+		{name: "manual key overrides auto", group: state.GroupView{WeightManual: &groupManual}, key: state.KeyMeta{WeightManual: &keyManual, WeightAuto: 90}, want: 20 * 40},
+		{name: "zero group", group: state.GroupView{WeightManual: &zero}, key: state.KeyMeta{WeightAuto: 30}},
+		{name: "zero key", group: state.GroupView{WeightManual: &groupManual}, key: state.KeyMeta{WeightManual: &zero, WeightAuto: 30}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := effectiveWeight(test.key, test.group); got != test.want {
+				t.Fatalf("effectiveWeight() = %d, want %d", got, test.want)
+			}
+		})
+	}
+}
+
 func TestIteratorExcludesZeroManualWeights(t *testing.T) {
 	t.Run("group", func(t *testing.T) {
 		snapshot := schedulerSnapshot()

@@ -320,7 +320,7 @@ func TestKeyRegistryConcurrentMutationsAndCollection(t *testing.T) {
 	}
 
 	start := make(chan struct{})
-	errors := make(chan error, writerCount*operations*6+readerCount*writerCount*operations)
+	errors := make(chan error, writerCount*operations*10+readerCount*writerCount*operations)
 	var wg sync.WaitGroup
 	for writer := 0; writer < writerCount; writer++ {
 		groupID := uint(writer + 1)
@@ -342,6 +342,9 @@ func TestKeyRegistryConcurrentMutationsAndCollection(t *testing.T) {
 				if err := registry.SetKeyStatus(keyID, KeyStatusDisabled); err != nil {
 					errors <- fmt.Errorf("SetKeyStatus(%d, disabled): %w", keyID, err)
 				}
+				if ok := registry.SetAutoWeight(keyID, operation%MaxWeight+1); !ok {
+					errors <- fmt.Errorf("SetAutoWeight(%d) = false", keyID)
+				}
 				if ok := registry.SetCooldown(keyID, time.Unix(int64(operation+1), 0)); !ok {
 					errors <- fmt.Errorf("SetCooldown(%d) = false", keyID)
 				}
@@ -350,6 +353,12 @@ func TestKeyRegistryConcurrentMutationsAndCollection(t *testing.T) {
 				}
 				if _, ok := registry.IncrFailure(keyID); !ok {
 					errors <- fmt.Errorf("IncrFailure(%d) = false", keyID)
+				}
+				if ok := registry.ClearFailure(keyID); !ok {
+					errors <- fmt.Errorf("ClearFailure(%d) = false", keyID)
+				}
+				if ok := registry.Recover(keyID); !ok {
+					errors <- fmt.Errorf("Recover(%d) = false", keyID)
 				}
 				if err := registry.SetKeyStatus(keyID, KeyStatusActive); err != nil {
 					errors <- fmt.Errorf("SetKeyStatus(%d, active): %w", keyID, err)
@@ -374,6 +383,7 @@ func TestKeyRegistryConcurrentMutationsAndCollection(t *testing.T) {
 				writer := operation % writerCount
 				keyID := uint((writer+1)*1000 + operation/writerCount%operations)
 				registry.EncryptedValue(keyID)
+				registry.BlacklistedKeys()
 				candidates := registry.CollectCandidates(groupIDs, func(candidateID uint) bool {
 					return candidateID%19 == uint(reader)%19
 				}, time.Now())
