@@ -245,6 +245,27 @@ func TestGeminiListModelsPaginatesPreservesInputsAndParsesNames(t *testing.T) {
 	}
 }
 
+func TestGeminiListModelsForcesIdentity(t *testing.T) {
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if got := request.Header.Values("Accept-Encoding"); len(got) != 1 || got[0] != "identity" {
+			t.Fatalf("Accept-Encoding = %#v, want one identity", got)
+		}
+		return geminiTestResponse(http.StatusOK, `{"models":[]}`), nil
+	})}
+	models, err := NewGemini(client).ListModels(
+		context.Background(),
+		"https://api.example.com",
+		"secret",
+		state.HeaderRules{
+			Set:    map[string]string{"Accept-Encoding": "gzip"},
+			Remove: []string{"Accept-Encoding"},
+		},
+	)
+	if err != nil || models == nil {
+		t.Fatalf("ListModels() = %#v, %v", models, err)
+	}
+}
+
 func TestGeminiListModelsRejectsBlankOrRepeatedPageToken(t *testing.T) {
 	t.Run("blank page token", func(t *testing.T) {
 		var requestCount atomic.Int64

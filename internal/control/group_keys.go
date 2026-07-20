@@ -39,7 +39,7 @@ func (s *Service) ImportGroupKeys(
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 
-	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err = s.withControlTransaction(ctx, func(tx *gorm.DB) error {
 		var group struct{ ID uint }
 		if err := tx.Model(&models.Group{}).
 			Select("id").Where("id = ?", groupID).Take(&group).Error; err != nil {

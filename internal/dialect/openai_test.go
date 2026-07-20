@@ -2,7 +2,10 @@ package dialect
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"reflect"
 	"strings"
@@ -341,6 +344,66 @@ func TestOpenAIListModelsAppliesHeaderRuleOverrides(t *testing.T) {
 	}
 	if got := request.Headers.Get("X-Custom-Key"); got != "sk-custom-models" {
 		t.Fatalf("X-Custom-Key = %q, want expanded key", got)
+	}
+}
+
+func TestOpenAIListModelsForcesIdentityAndCollectsUniqueModels(t *testing.T) {
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if got := request.Header.Values("Accept-Encoding"); !reflect.DeepEqual(got, []string{"identity"}) {
+			t.Fatalf("Accept-Encoding = %#v, want one identity", got)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(`{"data":[{"id":"a"},{"id":"a"},{"id":"b"}]}`)),
+		}, nil
+	})}
+
+	models, err := NewOpenAI(client).ListModels(
+		context.Background(),
+		"https://api.example.com",
+		"secret",
+		state.HeaderRules{
+			Set:    map[string]string{"Accept-Encoding": "gzip"},
+			Remove: []string{"Accept-Encoding"},
+		},
+	)
+	if err != nil {
+		t.Fatalf("ListModels() error = %v", err)
+	}
+	if !reflect.DeepEqual(models, []string{"a", "b"}) {
+		t.Fatalf("ListModels() = %#v, want [a b]", models)
+	}
+}
+
+func TestOpenAIListModelsRejectsUniqueModelOverflow(t *testing.T) {
+	type item struct {
+		ID string `json:"id"`
+	}
+	payload := struct {
+		Data []item `json:"data"`
+	}{Data: make([]item, maxUniqueModelListEntries+1)}
+	for index := range payload.Data {
+		payload.Data[index].ID = fmt.Sprintf("model-%06d", index)
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal OpenAI model payload: %v", err)
+	}
+	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode:    http.StatusOK,
+			Header:        make(http.Header),
+			Body:          io.NopCloser(strings.NewReader(string(body))),
+			ContentLength: int64(len(body)),
+		}, nil
+	})}
+
+	models, err := NewOpenAI(client).ListModels(
+		context.Background(), "https://api.example.com", "secret", state.HeaderRules{},
+	)
+	if err == nil || models != nil {
+		t.Fatalf("ListModels() = %#v, %v, want nil models and error", models, err)
 	}
 }
 

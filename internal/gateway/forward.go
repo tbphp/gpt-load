@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"net/http"
 	"net/http/httptrace"
@@ -45,16 +46,25 @@ func (result UpstreamResult) HasResponse() bool {
 }
 
 type Forwarder struct {
-	clients  *platformhttp.HTTPClientManager
-	redactor *redact.Redactor
+	clients            *platformhttp.HTTPClientManager
+	redactor           *redact.Redactor
+	streamWriteTimeout time.Duration
 }
 
-const maxStreamingErrorBodyBytes = 64 << 10
+const (
+	maxNonStreamingResponseBodyBytes = int64(32 << 20)
+	maxErrorResponseBodyBytes        = int64(64 << 10)
+	maxDecompressedErrorBodyBytes    = int64(1 << 20)
+	maxStreamingErrorBodyBytes       = int(maxErrorResponseBodyBytes)
+)
 
 var ErrUpstreamProtocol = errors.New("upstream protocol error")
 
 func NewForwarder(clients *platformhttp.HTTPClientManager, redactor *redact.Redactor) *Forwarder {
-	return &Forwarder{clients: clients, redactor: redactor}
+	return &Forwarder{
+		clients: clients, redactor: redactor,
+		streamWriteTimeout: downstreamWriteTimeout,
+	}
 }
 
 func (forwarder *Forwarder) Forward(ctx context.Context, input ForwardInput) UpstreamResult {
@@ -70,22 +80,52 @@ func (forwarder *Forwarder) Forward(ctx context.Context, input ForwardInput) Ups
 		return UpstreamResult{Err: fmt.Errorf("perform upstream request: %w", err), RequestWritten: wroteRequest.Load()}
 	}
 	defer response.Body.Close()
-	body, err := io.ReadAll(response.Body)
+
+	success := response.StatusCode >= http.StatusOK && response.StatusCode < http.StatusMultipleChoices
+	limit := maxErrorResponseBodyBytes
+	if success {
+		limit = maxNonStreamingResponseBodyBytes
+	}
+	overflow := response.ContentLength > limit
+	var body []byte
+	if !overflow {
+		body, overflow, err = readBodyAtMost(response.Body, limit)
+	}
 	if err != nil {
 		return UpstreamResult{Err: fmt.Errorf("read upstream response: %w", err), RequestWritten: true}
 	}
+	if overflow && success {
+		return UpstreamResult{
+			Err:            fmt.Errorf("%w: non-streaming response body exceeds limit", ErrUpstreamProtocol),
+			RequestWritten: true,
+		}
+	}
 
+	headers := cloneEndToEndHeaders(response.Header)
 	result := UpstreamResult{
 		StatusCode:     response.StatusCode,
-		Header:         cloneEndToEndHeaders(response.Header),
 		Body:           body,
 		RequestWritten: true,
 	}
-	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-		safeWire, safePlain := forwarder.prepareErrorBody(result.Header, body, input.APIKey)
+	if !success {
+		var safeWire, safePlain []byte
+		if overflow {
+			safeWire, safePlain = failClosedErrorBody(headers)
+		} else {
+			safeWire, safePlain = forwarder.prepareErrorBody(headers, body, input.APIKey)
+		}
+		if nonIdentityEncodingContainsKey(headers, input.APIKey) {
+			safeWire, safePlain = failClosedErrorBody(headers)
+		}
 		result.Body = safeWire
 		result.ClassificationBody = safePlain
+	} else if nonIdentityEncodingContainsKey(headers, input.APIKey) {
+		return UpstreamResult{
+			Err:            fmt.Errorf("%w: credential collision in Content-Encoding", ErrUpstreamProtocol),
+			RequestWritten: true,
+		}
 	}
+	result.Header = sanitizeUpstreamResponseHeaders(headers, input.APIKey)
 	return result
 }
 
@@ -114,9 +154,9 @@ func (forwarder *Forwarder) ForwardStream(
 	}
 	defer response.Body.Close()
 
+	headers := cloneEndToEndHeaders(response.Header)
 	result := UpstreamResult{
 		StatusCode:     response.StatusCode,
-		Header:         cloneEndToEndHeaders(response.Header),
 		RequestWritten: true,
 	}
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
@@ -127,10 +167,14 @@ func (forwarder *Forwarder) ForwardStream(
 			return result
 		}
 		if overflow {
-			result.Body, result.ClassificationBody = failClosedErrorBody(result.Header)
-			return result
+			result.Body, result.ClassificationBody = failClosedErrorBody(headers)
+		} else {
+			result.Body, result.ClassificationBody = forwarder.prepareErrorBody(headers, body, input.APIKey)
 		}
-		result.Body, result.ClassificationBody = forwarder.prepareErrorBody(result.Header, body, input.APIKey)
+		if nonIdentityEncodingContainsKey(headers, input.APIKey) {
+			result.Body, result.ClassificationBody = failClosedErrorBody(headers)
+		}
+		result.Header = sanitizeUpstreamResponseHeaders(headers, input.APIKey)
 		return result
 	}
 
@@ -159,13 +203,17 @@ func (forwarder *Forwarder) ForwardStream(
 		return result
 	}
 
+	result.Header = sanitizeUpstreamResponseHeaders(headers, input.APIKey)
+	streamWriter := newStreamWriteController(downstream, forwarder.streamWriteTimeout)
+	defer func() { _ = streamWriter.clear() }()
+
 	result.Committed = true
 	releaseCommittedRequestReplay(input.Request, replay)
-	if err := commitStream(downstream, response.StatusCode, result.Header, prefix); err != nil {
+	if err := commitStream(streamWriter, response.StatusCode, result.Header, prefix); err != nil {
 		result.Err = err
 		return result
 	}
-	if err := pumpStream(deadline.ctx, response.Body, downstream, input.Group.Timeouts.StreamIdle); err != nil {
+	if err := pumpStream(deadline.ctx, response.Body, streamWriter, input.Group.Timeouts.StreamIdle); err != nil {
 		result.Err = err
 	}
 	return result
@@ -217,20 +265,26 @@ func newUpstreamRequest(
 }
 
 func (forwarder *Forwarder) prepareErrorBody(headers http.Header, wire []byte, apiKey string) ([]byte, []byte) {
+	if int64(len(wire)) > maxErrorResponseBodyBytes {
+		return failClosedErrorBody(headers)
+	}
 	encoding, ok := inspectableErrorBodyEncoding(headers, wire)
 	if !ok {
 		return failClosedErrorBody(headers)
 	}
-	plain, err := utils.DecompressResponse(encoding, wire)
+	plain, err := utils.DecompressResponseLimited(encoding, wire, maxDecompressedErrorBodyBytes)
 	if err != nil {
 		return failClosedErrorBody(headers)
 	}
 	safePlain := forwarder.redactor.Bytes(plain, apiKey)
+	if int64(len(safePlain)) > maxDecompressedErrorBodyBytes {
+		return failClosedErrorBody(headers)
+	}
 	if bytes.Equal(safePlain, plain) {
 		return bytes.Clone(wire), safePlain
 	}
 	safeWire, err := utils.CompressResponse(encoding, safePlain)
-	if err != nil {
+	if err != nil || int64(len(safeWire)) > maxErrorResponseBodyBytes {
 		return failClosedErrorBody(headers)
 	}
 	updateRewrittenBodyHeaders(headers, len(safeWire))
@@ -258,7 +312,7 @@ func inspectableErrorBodyEncoding(headers http.Header, wire []byte) (string, boo
 
 func failClosedErrorBody(headers http.Header) ([]byte, []byte) {
 	body := []byte(redact.Placeholder)
-	headers.Del("Content-Encoding")
+	deleteHeaderField(headers, "Content-Encoding")
 	headers.Set("Content-Type", "text/plain; charset=utf-8")
 	updateRewrittenBodyHeaders(headers, len(body))
 	return bytes.Clone(body), bytes.Clone(body)
@@ -320,14 +374,25 @@ func inspectableStreamEncoding(headers http.Header) bool {
 }
 
 func readStreamingErrorBody(body io.Reader) ([]byte, bool, error) {
-	wire, err := io.ReadAll(io.LimitReader(body, maxStreamingErrorBodyBytes+1))
+	return readBodyAtMost(body, maxErrorResponseBodyBytes)
+}
+
+func readBodyAtMost(reader io.Reader, limit int64) ([]byte, bool, error) {
+	if reader == nil || limit < 0 {
+		return nil, false, fmt.Errorf("response reader/limit is invalid")
+	}
+	var limited io.Reader = reader
+	if limit < math.MaxInt64 {
+		limited = io.LimitReader(reader, limit+1)
+	}
+	body, err := io.ReadAll(limited)
 	if err != nil {
 		return nil, false, err
 	}
-	if len(wire) > maxStreamingErrorBodyBytes {
+	if int64(len(body)) > limit {
 		return nil, true, nil
 	}
-	return wire, false, nil
+	return body, false, nil
 }
 
 func streamAttemptError(parent, attempt context.Context, fallback error) error {
@@ -416,6 +481,62 @@ func cloneEndToEndHeaders(source http.Header) http.Header {
 		}
 	}
 	return cloned
+}
+
+func headerValuesContainKey(values []string, apiKey string) bool {
+	if apiKey == "" {
+		return false
+	}
+	for _, value := range values {
+		if strings.Contains(value, apiKey) {
+			return true
+		}
+	}
+	return false
+}
+
+func nonIdentityEncodingContainsKey(headers http.Header, apiKey string) bool {
+	var values []string
+	for name, headerValues := range headers {
+		if strings.EqualFold(name, "Content-Encoding") {
+			values = append(values, headerValues...)
+		}
+	}
+	if !headerValuesContainKey(values, apiKey) {
+		return false
+	}
+	for _, value := range values {
+		normalized := strings.TrimSpace(value)
+		if normalized != "" && !strings.EqualFold(normalized, "identity") {
+			return true
+		}
+	}
+	return false
+}
+
+func sanitizeUpstreamResponseHeaders(source http.Header, apiKey string) http.Header {
+	headers := cloneEndToEndHeaders(source)
+	namesToDelete := []string{
+		"Authorization", "Proxy-Authorization", "Api-Key",
+		"X-Api-Key", "X-Goog-Api-Key",
+	}
+	for actualName, values := range headers {
+		if headerValuesContainKey(values, apiKey) {
+			namesToDelete = append(namesToDelete, actualName)
+		}
+	}
+	for _, name := range namesToDelete {
+		deleteHeaderField(headers, name)
+	}
+	return headers
+}
+
+func deleteHeaderField(headers http.Header, name string) {
+	for actualName := range headers {
+		if strings.EqualFold(actualName, name) {
+			delete(headers, actualName)
+		}
+	}
 }
 
 func isDebugHeader(name string) bool {

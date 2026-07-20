@@ -2,7 +2,6 @@ package dialect
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -136,6 +135,7 @@ func (d *Anthropic) listModelsPage(
 		return anthropicModelPage{}, fmt.Errorf("create Anthropic model-list request: %w", err)
 	}
 	ApplyCredential(d, request.Header, apiKey, rules)
+	request.Header.Set("Accept-Encoding", "identity")
 
 	response, err := d.client.Do(request)
 	if err != nil {
@@ -150,7 +150,7 @@ func (d *Anthropic) listModelsPage(
 	}
 
 	var page anthropicModelPage
-	if err := json.NewDecoder(response.Body).Decode(&page); err != nil {
+	if err := decodeModelListPage(response, &page); err != nil {
 		return anthropicModelPage{}, fmt.Errorf("decode Anthropic model list: %w", err)
 	}
 	return page, nil
@@ -161,22 +161,11 @@ func (d *Anthropic) ExtractModel(req *ParsedRequest) (string, bool, error) {
 		return "", false, fmt.Errorf("parsed request is required")
 	}
 
-	var payload struct {
-		Model  string `json:"model"`
-		Stream bool   `json:"stream"`
+	model, stream, err := extractJSONRequestFields(req.Body)
+	if err != nil {
+		return "", false, fmt.Errorf("decode %s request: %w", d.Protocol(), err)
 	}
-	if err := json.Unmarshal(req.Body, &payload); err != nil {
-		return "", false, fmt.Errorf("decode Anthropic request: %w", err)
-	}
-
-	model := strings.TrimSpace(payload.Model)
-	if model == "" {
-		return "", false, fmt.Errorf("Anthropic model is required")
-	}
-	if model != payload.Model {
-		return "", false, fmt.Errorf("Anthropic model must not contain boundary whitespace")
-	}
-	return model, payload.Stream, nil
+	return model, stream, nil
 }
 
 func (d *Anthropic) ClassifyStatus(status int, body []byte) health.ErrorClass {

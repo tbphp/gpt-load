@@ -5,13 +5,17 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"math/rand"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -418,6 +422,251 @@ func TestHandlerPropagatesDownstreamCancellation(t *testing.T) {
 	if len(backup.Requests()) != 0 {
 		t.Fatalf("downstream cancellation retried backup %d times", len(backup.Requests()))
 	}
+}
+
+func TestStreamWriteDeadlineStopsRealTCPSlowReader(t *testing.T) {
+	type writeResult struct {
+		operation string
+		err       error
+	}
+	done := make(chan writeResult, 1)
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	engine.GET("/", func(ginContext *gin.Context) {
+		controlled := newStreamWriteController(ginContext.Writer, 25*time.Millisecond)
+		defer func() { _ = controlled.clear() }()
+		if err := controlled.writeHeader(http.StatusOK); err != nil {
+			done <- writeResult{operation: "write header", err: err}
+			return
+		}
+		chunk := bytes.Repeat([]byte("x"), 1024)
+		for {
+			if _, err := controlled.write(chunk); err != nil {
+				done <- writeResult{operation: "write", err: err}
+				return
+			}
+			if err := controlled.flush(); err != nil {
+				done <- writeResult{operation: "flush", err: err}
+				return
+			}
+		}
+	})
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := &http.Server{Handler: engine}
+	serveDone := make(chan error, 1)
+	go func() {
+		serveDone <- server.Serve(&smallWriteBufferListener{Listener: listener})
+	}()
+
+	var client net.Conn
+	var responseBody io.ReadCloser
+	t.Cleanup(func() {
+		if client != nil {
+			_ = client.Close()
+		}
+		if responseBody != nil {
+			_ = responseBody.Close()
+		}
+		_ = server.Close()
+		_ = listener.Close()
+		select {
+		case serveErr := <-serveDone:
+			if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+				t.Errorf("server.Serve() error = %v", serveErr)
+			}
+		case <-time.After(time.Second):
+			t.Error("server.Serve() did not stop during cleanup")
+		}
+	})
+
+	client, err = net.Dial("tcp", listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tcp, ok := client.(*net.TCPConn); ok {
+		_ = tcp.SetReadBuffer(1024)
+	}
+	if _, err := fmt.Fprintf(client,
+		"GET / HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n",
+		listener.Addr().String(),
+	); err != nil {
+		t.Fatal(err)
+	}
+	response, err := http.ReadResponse(bufio.NewReader(client), &http.Request{Method: http.MethodGet})
+	if err != nil {
+		t.Fatal(err)
+	}
+	responseBody = response.Body
+
+	select {
+	case result := <-done:
+		if result.err == nil {
+			t.Fatal("handler error = nil")
+		}
+		if result.operation != "flush" {
+			t.Fatalf("deadline error operation = %q, want flush: %v", result.operation, result.err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("slow reader did not trigger the sliding write deadline")
+	}
+}
+
+func TestBufferedWriteDeadlineStopsRealTCPSlowReader(t *testing.T) {
+	done := make(chan error, 1)
+	handler := &Handler{writeTimeout: 25 * time.Millisecond}
+	body := bytes.Repeat([]byte("x"), int(maxNonStreamingResponseBodyBytes))
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	engine.GET("/", func(ginContext *gin.Context) {
+		done <- handler.writeUpstreamResponse(ginContext, UpstreamResult{
+			StatusCode: http.StatusOK,
+			Header: http.Header{
+				"Content-Length": {strconv.Itoa(len(body))},
+				"Content-Type":   {"application/octet-stream"},
+			},
+			Body: body,
+		})
+	})
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := &http.Server{Handler: engine}
+	serveDone := make(chan error, 1)
+	go func() {
+		serveDone <- server.Serve(&smallWriteBufferListener{Listener: listener})
+	}()
+
+	var client net.Conn
+	var responseBody io.ReadCloser
+	t.Cleanup(func() {
+		if client != nil {
+			_ = client.Close()
+		}
+		if responseBody != nil {
+			_ = responseBody.Close()
+		}
+		_ = server.Close()
+		_ = listener.Close()
+		select {
+		case serveErr := <-serveDone:
+			if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+				t.Errorf("server.Serve() error = %v", serveErr)
+			}
+		case <-time.After(time.Second):
+			t.Error("server.Serve() did not stop during cleanup")
+		}
+	})
+
+	client, err = net.Dial("tcp", listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tcp, ok := client.(*net.TCPConn); ok {
+		_ = tcp.SetReadBuffer(1024)
+	}
+	if _, err := fmt.Fprintf(client,
+		"GET / HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n",
+		listener.Addr().String(),
+	); err != nil {
+		t.Fatal(err)
+	}
+	response, err := http.ReadResponse(bufio.NewReader(client), &http.Request{Method: http.MethodGet})
+	if err != nil {
+		t.Fatal(err)
+	}
+	responseBody = response.Body
+
+	select {
+	case writeErr := <-done:
+		if writeErr == nil {
+			t.Fatal("writeUpstreamResponse() error = nil")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("slow reader did not trigger the buffered write deadline")
+	}
+}
+
+func TestBufferedWriteDeadlineStopsEmptyResponseWithLargeHeaderSlowReader(t *testing.T) {
+	done := make(chan error, 1)
+	handler := &Handler{writeTimeout: 25 * time.Millisecond}
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	engine.GET("/", func(ginContext *gin.Context) {
+		done <- handler.writeUpstreamResponse(ginContext, UpstreamResult{
+			StatusCode: http.StatusOK,
+			Header: http.Header{
+				"X-Large": {strings.Repeat("x", 2<<20)},
+			},
+		})
+	})
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := &http.Server{Handler: engine}
+	serveDone := make(chan error, 1)
+	go func() {
+		serveDone <- server.Serve(&smallWriteBufferListener{Listener: listener})
+	}()
+
+	var client net.Conn
+	t.Cleanup(func() {
+		if client != nil {
+			_ = client.Close()
+		}
+		_ = server.Close()
+		_ = listener.Close()
+		select {
+		case serveErr := <-serveDone:
+			if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+				t.Errorf("server.Serve() error = %v", serveErr)
+			}
+		case <-time.After(time.Second):
+			t.Error("server.Serve() did not stop during cleanup")
+		}
+	})
+
+	client, err = net.Dial("tcp", listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tcp, ok := client.(*net.TCPConn); ok {
+		_ = tcp.SetReadBuffer(1024)
+	}
+	if _, err := fmt.Fprintf(client,
+		"GET / HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n",
+		listener.Addr().String(),
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case writeErr := <-done:
+		if writeErr == nil {
+			t.Fatal("writeUpstreamResponse() error = nil")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("slow reader did not trigger the empty buffered response write deadline")
+	}
+}
+
+type smallWriteBufferListener struct{ net.Listener }
+
+func (listener *smallWriteBufferListener) Accept() (net.Conn, error) {
+	connection, err := listener.Listener.Accept()
+	if err == nil {
+		if tcp, ok := connection.(*net.TCPConn); ok {
+			_ = tcp.SetWriteBuffer(1024)
+		}
+	}
+	return connection, err
 }
 
 type streamGatewayGroup struct {

@@ -4,6 +4,7 @@ package locales
 var MessagesZhCN = map[string]string{
 	"common.success":               "操作成功",
 	"bad_request":                  "请求错误",
+	"request_too_large":            "请求体过大",
 	"bad_gateway":                  "上游服务错误",
 	"internal_error":               "内部错误",
 	"auth.invalid_key":             "无效的授权密钥",

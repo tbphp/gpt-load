@@ -2,7 +2,6 @@ package dialect
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -163,6 +162,7 @@ func (d *Gemini) listModelsPage(
 		return geminiModelPage{}, fmt.Errorf("create Gemini model-list request: %w", err)
 	}
 	ApplyCredential(d, request.Header, apiKey, rules)
+	request.Header.Set("Accept-Encoding", "identity")
 
 	response, err := d.client.Do(request)
 	if err != nil {
@@ -177,7 +177,7 @@ func (d *Gemini) listModelsPage(
 	}
 
 	var page geminiModelPage
-	if err := json.NewDecoder(response.Body).Decode(&page); err != nil {
+	if err := decodeModelListPage(response, &page); err != nil {
 		return geminiModelPage{}, fmt.Errorf("decode Gemini model list: %w", err)
 	}
 	return page, nil

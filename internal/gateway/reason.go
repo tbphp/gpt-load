@@ -19,8 +19,9 @@ var (
 	reasonNoCandidate        = reason{Status: http.StatusServiceUnavailable, Code: "no_available_candidate", Message: "No available upstream candidate."}
 	reasonUpstreamConnect    = reason{Status: http.StatusBadGateway, Code: "upstream_connect_failed", Message: "Could not connect to an upstream service."}
 	reasonUpstreamTimeout    = reason{Status: http.StatusGatewayTimeout, Code: "upstream_timeout", Message: "Upstream request timed out."}
-	reasonUpstreamProtocol   = reason{Status: http.StatusBadGateway, Code: "upstream_protocol_error", Message: "Upstream returned an unsupported streaming response."}
+	reasonUpstreamProtocol   = reason{Status: http.StatusBadGateway, Code: "upstream_protocol_error", Message: "Upstream returned an unsupported response."}
 	reasonRequestTooLarge    = reason{Status: http.StatusRequestEntityTooLarge, Code: "request_too_large", Message: "Request body is too large."}
+	reasonModelListTooLarge  = reason{Status: http.StatusInternalServerError, Code: "model_list_too_large", Message: "Model list is too large."}
 )
 
 func writeReason(context *gin.Context, value reason) {

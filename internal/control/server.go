@@ -25,6 +25,8 @@ type Server struct {
 	service    *Service
 }
 
+const maxControlJSONBodyBytes int64 = 32 << 20
+
 func NewServer(cfg *config.Config, service *Service) *Server {
 	return &Server{authDigest: sha256.Sum256([]byte(cfg.AuthKey)), service: service}
 }
@@ -74,7 +76,7 @@ func (s *Server) handleListGroups(c *gin.Context) {
 func (s *Server) handleCreateGroup(c *gin.Context) {
 	var request GroupCreateRequest
 	if err := bindStrictJSON(c, &request); err != nil {
-		writeServiceError(c, "create_group", app_errors.ErrInvalidJSON)
+		writeServiceError(c, "create_group", mapControlJSONError(err))
 		return
 	}
 	result, err := s.service.CreateGroup(c.Request.Context(), request)
@@ -92,7 +94,7 @@ func (s *Server) handleImportGroupKeys(c *gin.Context) {
 	}
 	var request GroupKeyImportRequest
 	if err := bindStrictJSON(c, &request); err != nil {
-		writeServiceError(c, "import_group_keys", app_errors.ErrInvalidJSON)
+		writeServiceError(c, "import_group_keys", mapControlJSONError(err))
 		return
 	}
 	result, err := s.service.ImportGroupKeys(c.Request.Context(), id, request)
@@ -109,7 +111,7 @@ func (s *Server) handleDiscoverGroupModels(c *gin.Context) {
 		return
 	}
 	if err := bindOptionalEmptyJSONObject(c); err != nil {
-		writeServiceError(c, "discover_group_models", app_errors.ErrInvalidJSON)
+		writeServiceError(c, "discover_group_models", mapControlJSONError(err))
 		return
 	}
 	result, err := s.service.DiscoverGroupModels(c.Request.Context(), id)
@@ -123,7 +125,7 @@ func (s *Server) handleDiscoverGroupModels(c *gin.Context) {
 func (s *Server) handleDiscoverModels(c *gin.Context) {
 	var request ModelDiscoveryRequest
 	if err := bindStrictJSON(c, &request); err != nil {
-		writeDiscoveryError(c, app_errors.ErrInvalidJSON)
+		writeDiscoveryError(c, mapControlJSONError(err))
 		return
 	}
 	result, err := s.service.DiscoverModels(c.Request.Context(), request)
@@ -137,7 +139,7 @@ func (s *Server) handleDiscoverModels(c *gin.Context) {
 func (s *Server) handleCreateAccessKey(c *gin.Context) {
 	var request AccessKeyCreateRequest
 	if err := bindStrictJSON(c, &request); err != nil {
-		writeServiceError(c, "create_access_key", app_errors.ErrInvalidJSON)
+		writeServiceError(c, "create_access_key", mapControlJSONError(err))
 		return
 	}
 	result, err := s.service.CreateAccessKey(c.Request.Context(), request)
@@ -164,7 +166,7 @@ func (s *Server) handleUpdateAccessKey(c *gin.Context) {
 	}
 	var request AccessKeyUpdateRequest
 	if err := bindStrictJSON(c, &request); err != nil {
-		writeServiceError(c, "update_access_key", app_errors.ErrInvalidJSON)
+		writeServiceError(c, "update_access_key", mapControlJSONError(err))
 		return
 	}
 	result, err := s.service.UpdateAccessKey(c.Request.Context(), id, request)
@@ -188,7 +190,10 @@ func (s *Server) handleDeleteAccessKey(c *gin.Context) {
 }
 
 func bindStrictJSON(c *gin.Context, target any) error {
-	decoder := json.NewDecoder(c.Request.Body)
+	decoder, err := newControlJSONDecoder(c)
+	if err != nil {
+		return err
+	}
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {
 		return err
@@ -205,7 +210,10 @@ func bindStrictJSON(c *gin.Context, target any) error {
 }
 
 func bindOptionalEmptyJSONObject(c *gin.Context) error {
-	decoder := json.NewDecoder(c.Request.Body)
+	decoder, err := newControlJSONDecoder(c)
+	if err != nil {
+		return err
+	}
 	var object map[string]json.RawMessage
 	if err := decoder.Decode(&object); err != nil {
 		if errors.Is(err, io.EOF) {
@@ -224,6 +232,22 @@ func bindOptionalEmptyJSONObject(c *gin.Context) error {
 		return err
 	}
 	return nil
+}
+
+func newControlJSONDecoder(c *gin.Context) (*json.Decoder, error) {
+	if c.Request.ContentLength > maxControlJSONBodyBytes {
+		return nil, &http.MaxBytesError{Limit: maxControlJSONBodyBytes}
+	}
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxControlJSONBodyBytes)
+	return json.NewDecoder(c.Request.Body), nil
+}
+
+func mapControlJSONError(err error) *app_errors.APIError {
+	var maxBytesError *http.MaxBytesError
+	if errors.As(err, &maxBytesError) {
+		return app_errors.ErrRequestTooLarge
+	}
+	return app_errors.ErrInvalidJSON
 }
 
 func accessKeyID(c *gin.Context) (uint, bool) {
@@ -272,6 +296,8 @@ func writeServiceErrorResponse(
 
 func serviceErrorMessageID(operation string, apiErr *app_errors.APIError) string {
 	switch apiErr.Code {
+	case app_errors.ErrRequestTooLarge.Code:
+		return "request_too_large"
 	case app_errors.ErrBadRequest.Code, app_errors.ErrInvalidJSON.Code, app_errors.ErrValidation.Code:
 		return "bad_request"
 	case app_errors.ErrResourceNotFound.Code:

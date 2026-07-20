@@ -204,6 +204,139 @@ func TestOpenCreatesSQLiteDatabase(t *testing.T) {
 	}
 }
 
+func TestOpenOverridesSQLiteRuntimeOptions(t *testing.T) {
+	dsn := filepath.Join(t.TempDir(), "runtime.db") +
+		"?_txlock=deferred&_pragma=foreign_keys(0)" +
+		"&_pragma=busy_timeout(1)&_pragma=journal_mode(DELETE)"
+	db, err := storage.Open(dsn)
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("DB() error = %v", err)
+	}
+	t.Cleanup(func() {
+		if err := sqlDB.Close(); err != nil {
+			t.Errorf("close database: %v", err)
+		}
+	})
+
+	var journalMode string
+	if err := db.Raw("PRAGMA journal_mode").Scan(&journalMode).Error; err != nil {
+		t.Fatalf("journal_mode: %v", err)
+	}
+	var foreignKeys, busyTimeout int
+	if err := db.Raw("PRAGMA foreign_keys").Scan(&foreignKeys).Error; err != nil {
+		t.Fatalf("foreign_keys: %v", err)
+	}
+	if err := db.Raw("PRAGMA busy_timeout").Scan(&busyTimeout).Error; err != nil {
+		t.Fatalf("busy_timeout: %v", err)
+	}
+	if !strings.EqualFold(journalMode, "wal") || foreignKeys != 1 || busyTimeout != 5000 {
+		t.Fatalf("runtime = journal:%q foreign_keys:%d busy_timeout:%d", journalMode, foreignKeys, busyTimeout)
+	}
+	if got := sqlDB.Stats().MaxOpenConnections; got != 1 {
+		t.Fatalf("MaxOpenConnections = %d, want 1", got)
+	}
+}
+
+func TestOpenDoesNotForceWALForMemoryDatabase(t *testing.T) {
+	db, err := storage.Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("DB() error = %v", err)
+	}
+	t.Cleanup(func() {
+		if err := sqlDB.Close(); err != nil {
+			t.Errorf("close database: %v", err)
+		}
+	})
+	var mode string
+	if err := db.Raw("PRAGMA journal_mode").Scan(&mode).Error; err != nil {
+		t.Fatal(err)
+	}
+	if strings.EqualFold(mode, "wal") || sqlDB.Stats().MaxOpenConnections != 1 {
+		t.Fatalf("memory mode/pool = %q/%d", mode, sqlDB.Stats().MaxOpenConnections)
+	}
+}
+
+func TestOpenUsesImmediateTransactions(t *testing.T) {
+	dsn := filepath.Join(t.TempDir(), "immediate.db")
+	appDB, err := storage.Open(dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	appSQL, err := appDB.DB()
+	if err != nil {
+		t.Fatalf("app DB() error = %v", err)
+	}
+	t.Cleanup(func() {
+		if err := appSQL.Close(); err != nil {
+			t.Errorf("close app database: %v", err)
+		}
+	})
+	if err := storage.AutoMigrate(appDB); err != nil {
+		t.Fatal(err)
+	}
+	if err := appDB.Exec("PRAGMA busy_timeout = 1").Error; err != nil {
+		t.Fatal(err)
+	}
+
+	blockerDB, err := storage.Open(dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	blockerSQL, err := blockerDB.DB()
+	if err != nil {
+		t.Fatalf("blocker DB() error = %v", err)
+	}
+	t.Cleanup(func() {
+		if err := blockerSQL.Close(); err != nil {
+			t.Errorf("close blocker database: %v", err)
+		}
+	})
+	blockerTx := blockerDB.Begin()
+	if blockerTx.Error != nil {
+		t.Fatal(blockerTx.Error)
+	}
+	blockerTxActive := true
+	t.Cleanup(func() {
+		if !blockerTxActive {
+			return
+		}
+		if err := blockerTx.Rollback().Error; err != nil {
+			t.Errorf("rollback blocker transaction during cleanup: %v", err)
+		}
+	})
+	if err := blockerTx.Exec("UPDATE schema_info SET version = version").Error; err != nil {
+		t.Fatal(err)
+	}
+
+	callbackEntered := false
+	err = appDB.Transaction(func(*gorm.DB) error {
+		callbackEntered = true
+		return nil
+	})
+	if err == nil || callbackEntered {
+		t.Fatalf("Transaction() error/callback = %v/%t, want lock before callback", err, callbackEntered)
+	}
+	if err := blockerTx.Rollback().Error; err != nil {
+		t.Fatal(err)
+	}
+	blockerTxActive = false
+	callbackEntered = false
+	if err := appDB.Transaction(func(*gorm.DB) error {
+		callbackEntered = true
+		return nil
+	}); err != nil || !callbackEntered {
+		t.Fatalf("Transaction() after release = %v/%t", err, callbackEntered)
+	}
+}
+
 func TestOpenConfiguresParameterizedSQLLogging(t *testing.T) {
 	t.Parallel()
 

@@ -110,6 +110,27 @@ func TestHandlerInitializesDebugHeadersBeforeValidation(t *testing.T) {
 	}
 }
 
+func TestHandlerRejectsCaseCollidingModelBeforeAttempt(t *testing.T) {
+	forwarder := &scriptedForwarder{}
+	engine, _, _ := newHandlerTestRuntime(t, forwarder, "sk-one")
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/v1/chat/completions",
+		bytes.NewBufferString(`{"model":"forbidden","Model":"allowed"}`),
+	)
+	request.Header.Set("Authorization", "Bearer gl-client")
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest ||
+		!strings.Contains(recorder.Body.String(), `"code":"cannot_extract_model"`) {
+		t.Fatalf("response = %d %s", recorder.Code, recorder.Body.String())
+	}
+	if len(forwarder.inputs)+len(forwarder.streamInputs) != 0 {
+		t.Fatal("case-colliding request reached upstream")
+	}
+}
+
 func TestHandlerServesLocalModelEndpoints(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -238,7 +259,34 @@ func TestHandlerModelEndpointHasNoDataPlaneSideEffects(t *testing.T) {
 	assertJSONEqual(t, recorder.Body.String(), `{"object":"list","data":[{"id":"alpha","object":"model","created":1735689600,"owned_by":"gpt-load"}]}`)
 }
 
+func TestHandlerModelListOverflowReturnsSmallStableErrorWithoutPartialJSON(t *testing.T) {
+	engine := newModelListHandlerEngineWithLimit(t, state.FilterSet{}, 64)
+	request := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	request.Header.Set("Authorization", "Bearer gl-client")
+	request.Header.Set("Anthropic-Version", "2023-06-01")
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusInternalServerError || recorder.Body.Len() > 256 ||
+		!strings.Contains(recorder.Body.String(), `"code":"model_list_too_large"`) {
+		t.Fatalf("response = %d %s", recorder.Code, recorder.Body.String())
+	}
+	for _, fragment := range []string{`"type":"model"`, `"id":"alpha"`, `"id":"beta"`, `"id":"zeta"`} {
+		if strings.Contains(recorder.Body.String(), fragment) {
+			t.Fatalf("overflow response contains partial model fragment %q: %s", fragment, recorder.Body.String())
+		}
+	}
+}
+
 func newModelListHandlerEngine(t *testing.T, filters state.FilterSet) *gin.Engine {
+	return newModelListHandlerEngineWithLimit(t, filters, maxNonStreamingResponseBodyBytes)
+}
+
+func newModelListHandlerEngineWithLimit(
+	t *testing.T,
+	filters state.FilterSet,
+	limit int64,
+) *gin.Engine {
 	t.Helper()
 	keyService, err := encryption.NewService("model-handler-test-master-key")
 	if err != nil {
@@ -268,6 +316,7 @@ func newModelListHandlerEngine(t *testing.T, filters state.FilterSet) *gin.Engin
 	handler := NewHandler(
 		manager, state.NewKeyRegistry(), keyService, &scriptedForwarder{}, dialect.NewSet(),
 	)
+	handler.modelListLimit = limit
 	engine := gin.New()
 	handler.RegisterRoutes(engine)
 	return engine
@@ -359,6 +408,112 @@ func TestHandlerReportsFinalAttemptInDebugHeaders(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestHandlerWriteUpstreamResponseChecksWriteResultAndClearsDeadline(t *testing.T) {
+	writeFailure := errors.New("write failed")
+	flushFailure := errors.New("flush failed")
+	tests := []struct {
+		name     string
+		write    func([]byte) (int, error)
+		flushErr error
+		wantErr  error
+	}{
+		{
+			name: "short write",
+			write: func(body []byte) (int, error) {
+				return len(body) - 1, nil
+			},
+			wantErr: io.ErrShortWrite,
+		},
+		{
+			name: "write error",
+			write: func([]byte) (int, error) {
+				return 0, writeFailure
+			},
+			wantErr: writeFailure,
+		},
+		{
+			name: "flush error",
+			write: func(body []byte) (int, error) {
+				return len(body), nil
+			},
+			flushErr: flushFailure,
+			wantErr:  flushFailure,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			ginContext, _ := gin.CreateTestContext(recorder)
+			writer := &deadlineGinWriter{
+				ResponseWriter: ginContext.Writer,
+				write:          test.write,
+				flushErr:       test.flushErr,
+			}
+			ginContext.Writer = writer
+			handler := &Handler{writeTimeout: time.Second}
+
+			err := handler.writeUpstreamResponse(ginContext, UpstreamResult{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": {"application/json"}},
+				Body:       []byte(`{"ok":true}`),
+			})
+			if !errors.Is(err, test.wantErr) {
+				t.Fatalf("writeUpstreamResponse() error = %v, want %v", err, test.wantErr)
+			}
+			if len(writer.deadlines) < 2 || writer.deadlines[0].IsZero() ||
+				!writer.deadlines[len(writer.deadlines)-1].IsZero() {
+				t.Fatalf("deadlines = %#v, want armed operations followed by clear", writer.deadlines)
+			}
+		})
+	}
+}
+
+func TestHandlerWriteEmptyResponseCommitsStatusBeforeFlush(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	ginContext, _ := gin.CreateTestContext(recorder)
+	writer := &deadlineGinWriter{
+		ResponseWriter: ginContext.Writer,
+		write: func(body []byte) (int, error) {
+			return len(body), nil
+		},
+	}
+	ginContext.Writer = writer
+	handler := &Handler{writeTimeout: time.Second}
+
+	err := handler.writeUpstreamResponse(ginContext, UpstreamResult{
+		StatusCode: http.StatusNoContent,
+		Header:     make(http.Header),
+	})
+	if err != nil || recorder.Code != http.StatusNoContent || writer.flushes != 1 {
+		t.Fatalf(
+			"writeUpstreamResponse() error/status/flushes = %v/%d/%d",
+			err, recorder.Code, writer.flushes,
+		)
+	}
+}
+
+type deadlineGinWriter struct {
+	gin.ResponseWriter
+	write     func([]byte) (int, error)
+	flushErr  error
+	flushes   int
+	deadlines []time.Time
+}
+
+func (writer *deadlineGinWriter) Write(body []byte) (int, error) {
+	return writer.write(body)
+}
+
+func (writer *deadlineGinWriter) SetWriteDeadline(deadline time.Time) error {
+	writer.deadlines = append(writer.deadlines, deadline)
+	return nil
+}
+
+func (writer *deadlineGinWriter) FlushError() error {
+	writer.flushes++
+	return writer.flushErr
 }
 
 func TestHandlerRejectsSpoofedDebugHeaders(t *testing.T) {
@@ -498,6 +653,28 @@ func TestHandlerUsesStreamingForwarder(t *testing.T) {
 	}
 }
 
+func TestHandlerDoesNotRetryOversizedResponse(t *testing.T) {
+	forwarder := &scriptedForwarder{results: []UpstreamResult{
+		{Err: fmt.Errorf("%w: response too large", ErrUpstreamProtocol), RequestWritten: true},
+		{StatusCode: http.StatusOK, Header: make(http.Header), Body: []byte(`{"ok":true}`), RequestWritten: true},
+	}}
+	engine, _, _ := newHandlerTestRuntime(t, forwarder, "sk-one", "sk-two")
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewBufferString(`{"model":"gpt-4o"}`))
+	request.Header.Set("Authorization", "Bearer gl-client")
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadGateway || len(forwarder.inputs) != 1 {
+		t.Fatalf("response/attempts = %d/%d, body=%s", recorder.Code, len(forwarder.inputs), recorder.Body.String())
+	}
+	var body struct {
+		Code string `json:"code"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil || body.Code != reasonUpstreamProtocol.Code {
+		t.Fatalf("response = %s, error=%v", recorder.Body.String(), err)
+	}
+}
+
 func TestHandlerRetriesStreamBeforeCommit(t *testing.T) {
 	protocolFailure := fmt.Errorf("%w: gzip", ErrUpstreamProtocol)
 	tests := []struct {
@@ -624,6 +801,40 @@ func TestHandlerStopsAtStreamingTerminalBoundaries(t *testing.T) {
 				t.Fatalf("terminal stream appended reason: %s", recorder.Body.String())
 			}
 		})
+	}
+}
+
+func TestHandlerDoesNotRetryDownstreamWriteDeadline(t *testing.T) {
+	deadlineErr := errors.New("downstream stream write deadline exceeded")
+	forwarder := &scriptedForwarder{streamResults: []UpstreamResult{
+		{
+			Err: deadlineErr, RequestWritten: true,
+			Committed: true, RetryableBeforeCommit: true,
+		},
+		{StatusCode: http.StatusOK, RequestWritten: true, Committed: true},
+	}}
+	forwarder.onStreamCall = func(index int, writer http.ResponseWriter) {
+		if index == 0 {
+			writer.WriteHeader(http.StatusOK)
+			_, _ = writer.Write([]byte("data: first\n\n"))
+		}
+	}
+	engine, _, _ := newHandlerTestRuntime(t, forwarder, "sk-one", "sk-two")
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/v1/chat/completions",
+		bytes.NewBufferString(`{"model":"gpt-4o","stream":true}`),
+	)
+	request.Header.Set("Authorization", "Bearer gl-client")
+	recorder := httptest.NewRecorder()
+
+	engine.ServeHTTP(recorder, request)
+
+	if len(forwarder.streamInputs) != 1 {
+		t.Fatalf("stream attempts = %d, want 1 after downstream write deadline", len(forwarder.streamInputs))
+	}
+	if recorder.Body.String() != "data: first\n\n" {
+		t.Fatalf("committed body = %q, want only first event", recorder.Body.String())
 	}
 }
 

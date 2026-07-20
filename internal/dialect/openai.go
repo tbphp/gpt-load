@@ -2,7 +2,6 @@ package dialect
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -79,6 +78,7 @@ func (d *OpenAI) ListModels(
 		return nil, fmt.Errorf("create OpenAI model-list request: %w", err)
 	}
 	ApplyCredential(d, req.Header, apiKey, rules)
+	req.Header.Set("Accept-Encoding", "identity")
 
 	resp, err := d.client.Do(req)
 	if err != nil {
@@ -101,15 +101,19 @@ func (d *OpenAI) ListModels(
 			ID string `json:"id"`
 		} `json:"data"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+	if err := decodeModelListPage(resp, &payload); err != nil {
 		return nil, fmt.Errorf("decode OpenAI model list: %w", err)
 	}
 
-	models := make([]string, 0, len(payload.Data))
+	pageModels := make([]string, 0, len(payload.Data))
 	for _, model := range payload.Data {
-		models = append(models, model.ID)
+		pageModels = append(pageModels, model.ID)
 	}
-	return models, nil
+	collector := newModelListCollector()
+	if err := collector.Add(pageModels); err != nil {
+		return nil, err
+	}
+	return collector.Result(), nil
 }
 
 func (d *OpenAI) ExtractModel(req *ParsedRequest) (string, bool, error) {
@@ -117,22 +121,11 @@ func (d *OpenAI) ExtractModel(req *ParsedRequest) (string, bool, error) {
 		return "", false, fmt.Errorf("parsed request is required")
 	}
 
-	var payload struct {
-		Model  string `json:"model"`
-		Stream bool   `json:"stream"`
+	model, stream, err := extractJSONRequestFields(req.Body)
+	if err != nil {
+		return "", false, fmt.Errorf("decode %s request: %w", d.Protocol(), err)
 	}
-	if err := json.Unmarshal(req.Body, &payload); err != nil {
-		return "", false, fmt.Errorf("decode OpenAI request: %w", err)
-	}
-
-	model := strings.TrimSpace(payload.Model)
-	if model == "" {
-		return "", false, fmt.Errorf("OpenAI model is required")
-	}
-	if model != payload.Model {
-		return "", false, fmt.Errorf("OpenAI model must not contain boundary whitespace")
-	}
-	return model, payload.Stream, nil
+	return model, stream, nil
 }
 
 func (d *OpenAI) ClassifyStatus(status int, body []byte) health.ErrorClass {

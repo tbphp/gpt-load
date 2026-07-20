@@ -82,8 +82,9 @@ func TestCommitStreamWritesHeadersPrefixAndFlushes(t *testing.T) {
 		"X-Upstream-Hop": {"drop"},
 	}
 	prefix := []byte("data: first\n\n")
+	controller := newStreamWriteController(writer, time.Second)
 
-	if err := commitStream(writer, http.StatusOK, headers, prefix); err != nil {
+	if err := commitStream(controller, http.StatusOK, headers, prefix); err != nil {
 		t.Fatalf("commitStream() error = %v", err)
 	}
 	if writer.status != http.StatusOK || !bytes.Equal(writer.body.Bytes(), prefix) || writer.flushes != 1 {
@@ -97,11 +98,183 @@ func TestCommitStreamWritesHeadersPrefixAndFlushes(t *testing.T) {
 	}
 }
 
+func TestStreamWriteControllerArmsEveryOperationAndClears(t *testing.T) {
+	writer := newRecordingResponseWriter()
+	controller := newStreamWriteController(writer, time.Minute)
+	if err := controller.writeHeader(http.StatusOK); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := controller.write([]byte("data: one\n\n")); err != nil {
+		t.Fatal(err)
+	}
+	if err := controller.flush(); err != nil {
+		t.Fatal(err)
+	}
+	if err := controller.clear(); err != nil {
+		t.Fatal(err)
+	}
+	if len(writer.deadlines) != 4 {
+		t.Fatalf("deadlines = %#v, want three arm calls and one clear", writer.deadlines)
+	}
+	for index, deadline := range writer.deadlines[:3] {
+		if deadline.IsZero() {
+			t.Fatalf("deadline %d is zero", index)
+		}
+	}
+	if !writer.deadlines[3].IsZero() {
+		t.Fatalf("clear deadline = %v, want zero", writer.deadlines[3])
+	}
+}
+
+func TestStreamWriteControllerReturnsUnwrappedFlushError(t *testing.T) {
+	wantErr := errors.New("downstream flush failed")
+	inner := &flushErrorResponseWriter{
+		recordingResponseWriter: newRecordingResponseWriter(),
+		flushErr:                wantErr,
+	}
+	outer := &swallowingFlushResponseWriter{writer: inner}
+	controller := newStreamWriteController(outer, time.Minute)
+
+	if err := controller.writeHeader(http.StatusAccepted); err != nil {
+		t.Fatal(err)
+	}
+	const body = "data: ready\n\n"
+	if _, err := controller.write([]byte(body)); err != nil {
+		t.Fatal(err)
+	}
+	if err := controller.flush(); !errors.Is(err, wantErr) {
+		t.Fatalf("flush() error = %v, want %v", err, wantErr)
+	}
+	if inner.status != http.StatusAccepted || inner.body.String() != body {
+		t.Fatalf("status/body = %d/%q, want %d/%q", inner.status, inner.body.String(), http.StatusAccepted, body)
+	}
+}
+
+func TestStreamWriteControllerHandlesUnsafeUnwrapChains(t *testing.T) {
+	type writerFactory func() (http.ResponseWriter, func())
+	scenarios := []struct {
+		name string
+		new  writerFactory
+	}{
+		{
+			name: "self cycle",
+			new: func() (http.ResponseWriter, func()) {
+				writer := newMutableUnwrapResponseWriter()
+				writer.setNext(writer)
+				return writer, func() { writer.setNext(newRecordingResponseWriter()) }
+			},
+		},
+		{
+			name: "two node cycle",
+			new: func() (http.ResponseWriter, func()) {
+				first := newMutableUnwrapResponseWriter()
+				second := newMutableUnwrapResponseWriter()
+				first.setNext(second)
+				second.setNext(first)
+				return first, func() { first.setNext(newRecordingResponseWriter()) }
+			},
+		},
+		{
+			name: "typed nil",
+			new: func() (http.ResponseWriter, func()) {
+				var writer *typedNilResponseWriter
+				return writer, func() {}
+			},
+		},
+	}
+	operations := []struct {
+		name    string
+		run     func(http.ResponseWriter) error
+		wantErr error
+	}{
+		{
+			name: "construct",
+			run: func(writer http.ResponseWriter) error {
+				if newStreamWriteController(writer, time.Second) == nil {
+					return errors.New("controller is nil")
+				}
+				return nil
+			},
+		},
+		{
+			name: "arm",
+			run: func(writer http.ResponseWriter) error {
+				return newStreamWriteController(writer, time.Second).arm()
+			},
+		},
+		{
+			name: "clear",
+			run: func(writer http.ResponseWriter) error {
+				return newStreamWriteController(writer, time.Second).clear()
+			},
+		},
+		{
+			name: "flush",
+			run: func(writer http.ResponseWriter) error {
+				return newStreamWriteController(writer, time.Second).flush()
+			},
+			wantErr: http.ErrNotSupported,
+		},
+	}
+
+	for _, scenario := range scenarios {
+		for _, operation := range operations {
+			t.Run(scenario.name+"/"+operation.name, func(t *testing.T) {
+				writer, release := scenario.new()
+				var releaseOnce sync.Once
+				releaseCycle := func() { releaseOnce.Do(release) }
+				defer releaseCycle()
+
+				type operationResult struct {
+					err        error
+					panicValue any
+				}
+				done := make(chan operationResult, 1)
+				go func() {
+					result := operationResult{}
+					defer func() {
+						result.panicValue = recover()
+						done <- result
+					}()
+					result.err = operation.run(writer)
+				}()
+
+				select {
+				case result := <-done:
+					assertControllerOperationResult(t, result.err, result.panicValue, operation.wantErr)
+				case <-time.After(100 * time.Millisecond):
+					releaseCycle()
+					select {
+					case <-done:
+					case <-time.After(time.Second):
+						t.Fatal("controller operation goroutine did not stop after breaking unwrap cycle")
+					}
+					t.Fatalf("controller operation %s hung on %s", operation.name, scenario.name)
+				}
+			})
+		}
+	}
+}
+
+func assertControllerOperationResult(t *testing.T, err error, panicValue any, wantErr error) {
+	t.Helper()
+	if panicValue != nil {
+		t.Fatalf("controller operation panicked: %v", panicValue)
+	}
+	if wantErr == nil && err != nil {
+		t.Fatalf("controller operation error = %v, want nil", err)
+	}
+	if wantErr != nil && !errors.Is(err, wantErr) {
+		t.Fatalf("controller operation error = %v, want %v", err, wantErr)
+	}
+}
+
 func TestPumpStreamForwardsChunksAndFlushes(t *testing.T) {
 	body := &chunkReadCloser{chunks: [][]byte{[]byte("data: one\n\n"), []byte("data: two\n\n")}}
 	writer := newRecordingResponseWriter()
+	controller := newStreamWriteController(writer, time.Second)
 
-	if err := pumpStream(context.Background(), body, writer, time.Second); err != nil {
+	if err := pumpStream(context.Background(), body, controller, time.Second); err != nil {
 		t.Fatalf("pumpStream() error = %v", err)
 	}
 	if got, want := writer.body.String(), "data: one\n\ndata: two\n\n"; got != want {
@@ -117,8 +290,9 @@ func TestPumpStreamReturnsDownstreamWriteFailure(t *testing.T) {
 	body := &chunkReadCloser{chunks: [][]byte{[]byte("data: one\n\n")}}
 	writer := newRecordingResponseWriter()
 	writer.writeErr = wantErr
+	controller := newStreamWriteController(writer, time.Second)
 
-	err := pumpStream(context.Background(), body, writer, time.Second)
+	err := pumpStream(context.Background(), body, controller, time.Second)
 	if !errors.Is(err, wantErr) {
 		t.Fatalf("pumpStream() error = %v, want %v", err, wantErr)
 	}
@@ -127,9 +301,10 @@ func TestPumpStreamReturnsDownstreamWriteFailure(t *testing.T) {
 func TestPumpStreamClosesUpstreamOnCancellation(t *testing.T) {
 	body := newBlockingReadCloser()
 	writer := newRecordingResponseWriter()
+	controller := newStreamWriteController(writer, time.Second)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- pumpStream(ctx, body, writer, time.Second) }()
+	go func() { done <- pumpStream(ctx, body, controller, time.Second) }()
 
 	waitForSignal(t, body.started, "upstream read start")
 	cancel()
@@ -148,8 +323,9 @@ func TestPumpStreamClosesUpstreamOnCancellation(t *testing.T) {
 func TestPumpStreamClosesUpstreamOnIdleTimeout(t *testing.T) {
 	body := newBlockingReadCloser()
 	writer := newRecordingResponseWriter()
+	controller := newStreamWriteController(writer, time.Second)
 	done := make(chan error, 1)
-	go func() { done <- pumpStream(context.Background(), body, writer, 20*time.Millisecond) }()
+	go func() { done <- pumpStream(context.Background(), body, controller, 20*time.Millisecond) }()
 
 	waitForSignal(t, body.started, "upstream read start")
 	select {
@@ -166,9 +342,10 @@ func TestPumpStreamClosesUpstreamOnIdleTimeout(t *testing.T) {
 func TestPumpStreamResetsIdleTimeoutAfterData(t *testing.T) {
 	body := newControlledReadCloser()
 	writer := newRecordingResponseWriter()
+	controller := newStreamWriteController(writer, time.Second)
 	done := make(chan error, 1)
 	const idle = 80 * time.Millisecond
-	go func() { done <- pumpStream(context.Background(), body, writer, idle) }()
+	go func() { done <- pumpStream(context.Background(), body, controller, idle) }()
 
 	waitForSignal(t, body.reads, "first upstream read")
 	time.Sleep(50 * time.Millisecond)
@@ -207,12 +384,13 @@ func (reader *eofWithDataReader) Read(destination []byte) (int, error) {
 }
 
 type recordingResponseWriter struct {
-	header   http.Header
-	body     bytes.Buffer
-	status   int
-	flushes  int
-	writeErr error
-	writes   chan struct{}
+	header    http.Header
+	body      bytes.Buffer
+	status    int
+	flushes   int
+	writeErr  error
+	writes    chan struct{}
+	deadlines []time.Time
 }
 
 func newRecordingResponseWriter() *recordingResponseWriter {
@@ -236,6 +414,105 @@ func (writer *recordingResponseWriter) Write(body []byte) (int, error) {
 }
 
 func (writer *recordingResponseWriter) Flush() { writer.flushes++ }
+
+func (writer *recordingResponseWriter) SetWriteDeadline(value time.Time) error {
+	writer.deadlines = append(writer.deadlines, value)
+	return nil
+}
+
+type flushErrorResponseWriter struct {
+	*recordingResponseWriter
+	flushErr error
+}
+
+func (writer *flushErrorResponseWriter) FlushError() error {
+	writer.flushes++
+	return writer.flushErr
+}
+
+type swallowingFlushResponseWriter struct {
+	writer http.ResponseWriter
+}
+
+func (writer *swallowingFlushResponseWriter) Header() http.Header {
+	return writer.writer.Header()
+}
+
+func (writer *swallowingFlushResponseWriter) WriteHeader(status int) {
+	writer.writer.WriteHeader(status)
+}
+
+func (writer *swallowingFlushResponseWriter) Write(body []byte) (int, error) {
+	return writer.writer.Write(body)
+}
+
+func (writer *swallowingFlushResponseWriter) Flush() {
+	if flusher, ok := writer.writer.(interface{ FlushError() error }); ok {
+		_ = flusher.FlushError()
+		return
+	}
+	writer.writer.(http.Flusher).Flush()
+}
+
+func (writer *swallowingFlushResponseWriter) Unwrap() http.ResponseWriter {
+	return writer.writer
+}
+
+type mutableUnwrapResponseWriter struct {
+	mu     sync.RWMutex
+	header http.Header
+	next   http.ResponseWriter
+}
+
+func newMutableUnwrapResponseWriter() *mutableUnwrapResponseWriter {
+	return &mutableUnwrapResponseWriter{header: make(http.Header)}
+}
+
+func (writer *mutableUnwrapResponseWriter) Header() http.Header { return writer.header }
+
+func (writer *mutableUnwrapResponseWriter) WriteHeader(int) {}
+
+func (writer *mutableUnwrapResponseWriter) Write(body []byte) (int, error) {
+	return len(body), nil
+}
+
+func (writer *mutableUnwrapResponseWriter) Unwrap() http.ResponseWriter {
+	writer.mu.RLock()
+	defer writer.mu.RUnlock()
+	return writer.next
+}
+
+func (writer *mutableUnwrapResponseWriter) setNext(next http.ResponseWriter) {
+	writer.mu.Lock()
+	defer writer.mu.Unlock()
+	writer.next = next
+}
+
+type typedNilResponseWriter struct {
+	header http.Header
+}
+
+func (writer *typedNilResponseWriter) Header() http.Header { return writer.header }
+
+func (writer *typedNilResponseWriter) WriteHeader(int) {}
+
+func (writer *typedNilResponseWriter) Write(body []byte) (int, error) {
+	return len(body), nil
+}
+
+func (writer *typedNilResponseWriter) SetWriteDeadline(time.Time) error {
+	if writer == nil {
+		panic("typed-nil SetWriteDeadline called")
+	}
+	return nil
+}
+
+func (writer *typedNilResponseWriter) FlushError() error {
+	if writer == nil {
+		panic("typed-nil FlushError called")
+	}
+	return nil
+}
 
 type chunkReadCloser struct {
 	chunks [][]byte

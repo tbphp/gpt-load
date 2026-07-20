@@ -148,6 +148,37 @@ func TestImportGroupKeysRollsBackOnEncryptionFailure(t *testing.T) {
 	assertImportedKeyState(t, fixture, groupID, 1)
 }
 
+func TestImportGroupKeysCleansPoolAfterCommitBusy(t *testing.T) {
+	fixture, dsn := newFileServiceFixture(t)
+	groupID := createGroupForKeyImport(t, fixture, "sk-existing")
+	beforeSnapshot := fixture.manager.Current()
+	releaseReader := holdRollbackJournalReadLock(t, fixture.db, dsn)
+
+	_, err := fixture.service.ImportGroupKeys(
+		t.Context(), groupID, GroupKeyImportRequest{Keys: "sk-failed-busy"},
+	)
+	if err == nil {
+		t.Fatal("ImportGroupKeys() error = nil, want COMMIT BUSY")
+	}
+	var apiErr *app_errors.APIError
+	if !errors.As(err, &apiErr) || apiErr.Code != app_errors.ErrDatabase.Code {
+		t.Fatalf("ImportGroupKeys() error = %#v, want DATABASE_ERROR", err)
+	}
+	if fixture.manager.Current() != beforeSnapshot {
+		t.Fatal("key-only import changed Snapshot")
+	}
+
+	releaseReader()
+	assertImportedKeyState(t, fixture, groupID, 1)
+	result, err := fixture.service.ImportGroupKeys(
+		t.Context(), groupID, GroupKeyImportRequest{Keys: "sk-after-busy"},
+	)
+	if err != nil || result.KeysAdded != 1 || result.KeysDuplicated != 0 {
+		t.Fatalf("ImportGroupKeys() = %#v, %v", result, err)
+	}
+	assertImportedKeyState(t, fixture, groupID, 2)
+}
+
 func TestImportGroupKeysLeavesGroupFieldsUnchanged(t *testing.T) {
 	fixture := newServiceFixture(t)
 	groupID := createGroupForKeyImport(t, fixture, "sk-existing")

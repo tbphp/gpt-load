@@ -7,13 +7,15 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"reflect"
 	"sync"
 	"time"
 )
 
 const (
-	streamReadBufferSize  = 32 * 1024
-	maxFirstSSEEventBytes = 1 << 20
+	streamReadBufferSize   = 32 * 1024
+	maxFirstSSEEventBytes  = 1 << 20
+	downstreamWriteTimeout = 30 * time.Second
 )
 
 var (
@@ -54,18 +56,158 @@ func bufferFirstSSEEvent(reader io.Reader) ([]byte, error) {
 	}
 }
 
-func commitStream(writer http.ResponseWriter, status int, headers http.Header, prefix []byte) error {
+type streamWriteController struct {
+	writer             http.ResponseWriter
+	deadlineController *http.ResponseController
+	flushController    *http.ResponseController
+	timeout            time.Duration
+}
+
+func newStreamWriteController(writer http.ResponseWriter, timeout time.Duration) *streamWriteController {
+	return &streamWriteController{
+		writer:             writer,
+		deadlineController: newStreamDeadlineController(writer),
+		flushController:    newStreamFlushController(writer),
+		timeout:            timeout,
+	}
+}
+
+func newStreamDeadlineController(writer http.ResponseWriter) *http.ResponseController {
+	target, _ := findStreamResponseWriter(writer, func(current http.ResponseWriter) bool {
+		_, ok := current.(interface{ SetWriteDeadline(time.Time) error })
+		return ok
+	})
+	if target == nil {
+		return nil
+	}
+	return http.NewResponseController(target)
+}
+
+func newStreamFlushController(writer http.ResponseWriter) *http.ResponseController {
+	target, safeFallback := findStreamResponseWriter(writer, func(current http.ResponseWriter) bool {
+		_, ok := current.(interface{ FlushError() error })
+		return ok
+	})
+	if target != nil {
+		return http.NewResponseController(target)
+	}
+	if safeFallback {
+		return http.NewResponseController(writer)
+	}
+	return nil
+}
+
+func findStreamResponseWriter(
+	writer http.ResponseWriter,
+	supports func(http.ResponseWriter) bool,
+) (http.ResponseWriter, bool) {
+	const maxUnwrapDepth = 64
+
+	current := writer
+	seen := make(map[http.ResponseWriter]struct{})
+	for depth := 0; depth < maxUnwrapDepth; depth++ {
+		if current == nil {
+			return nil, true
+		}
+		if isTypedNilResponseWriter(current) {
+			return nil, false
+		}
+		currentType := reflect.TypeOf(current)
+		if currentType != nil && currentType.Comparable() {
+			if _, exists := seen[current]; exists {
+				return nil, false
+			}
+			seen[current] = struct{}{}
+		}
+		if supports(current) {
+			return current, true
+		}
+		unwrapper, ok := current.(interface{ Unwrap() http.ResponseWriter })
+		if !ok {
+			return nil, true
+		}
+		current = unwrapper.Unwrap()
+	}
+	return nil, false
+}
+
+func isTypedNilResponseWriter(writer http.ResponseWriter) bool {
+	value := reflect.ValueOf(writer)
+	switch value.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		return value.IsNil()
+	default:
+		return false
+	}
+}
+
+func (writer *streamWriteController) arm() error {
+	if writer == nil || writer.writer == nil || writer.timeout <= 0 {
+		return fmt.Errorf("downstream stream writer is invalid")
+	}
+	if writer.deadlineController == nil {
+		return nil
+	}
+	err := writer.deadlineController.SetWriteDeadline(time.Now().Add(writer.timeout))
+	if errors.Is(err, http.ErrNotSupported) {
+		return nil
+	}
+	return err
+}
+
+func (writer *streamWriteController) clear() error {
 	if writer == nil {
+		return fmt.Errorf("downstream stream writer is invalid")
+	}
+	if writer.deadlineController == nil {
+		return nil
+	}
+	err := writer.deadlineController.SetWriteDeadline(time.Time{})
+	if errors.Is(err, http.ErrNotSupported) {
+		return nil
+	}
+	return err
+}
+
+func (writer *streamWriteController) writeHeader(status int) error {
+	if err := writer.arm(); err != nil {
+		return err
+	}
+	writer.writer.WriteHeader(status)
+	return nil
+}
+
+func (writer *streamWriteController) write(body []byte) (int, error) {
+	if err := writer.arm(); err != nil {
+		return 0, err
+	}
+	return writer.writer.Write(body)
+}
+
+func (writer *streamWriteController) flush() error {
+	if err := writer.arm(); err != nil {
+		return err
+	}
+	if writer.flushController == nil {
+		return fmt.Errorf("%w", http.ErrNotSupported)
+	}
+	return writer.flushController.Flush()
+}
+
+func commitStream(writer *streamWriteController, status int, headers http.Header, prefix []byte) error {
+	if writer == nil || writer.writer == nil {
 		return fmt.Errorf("downstream response writer is required")
 	}
 	for name, values := range cloneEndToEndHeaders(headers) {
 		for _, value := range values {
-			writer.Header().Add(name, value)
+			writer.writer.Header().Add(name, value)
 		}
 	}
-	writer.WriteHeader(status)
+	if err := writer.writeHeader(status); err != nil {
+		return fmt.Errorf("write downstream stream headers: %w", err)
+	}
 	if len(prefix) > 0 {
-		written, err := writer.Write(prefix)
+		written, err := writer.write(prefix)
 		if err != nil {
 			return fmt.Errorf("write first SSE event: %w", err)
 		}
@@ -73,14 +215,14 @@ func commitStream(writer http.ResponseWriter, status int, headers http.Header, p
 			return fmt.Errorf("write first SSE event: %w", io.ErrShortWrite)
 		}
 	}
-	if err := flushStream(writer); err != nil {
+	if err := writer.flush(); err != nil {
 		return fmt.Errorf("flush first SSE event: %w", err)
 	}
 	return nil
 }
 
-func pumpStream(ctx context.Context, body io.ReadCloser, writer http.ResponseWriter, idleTimeout time.Duration) error {
-	if body == nil || writer == nil {
+func pumpStream(ctx context.Context, body io.ReadCloser, writer *streamWriteController, idleTimeout time.Duration) error {
+	if body == nil || writer == nil || writer.writer == nil {
 		return fmt.Errorf("stream body and downstream writer are required")
 	}
 	if idleTimeout <= 0 {
@@ -108,14 +250,14 @@ func pumpStream(ctx context.Context, body io.ReadCloser, writer http.ResponseWri
 				return cause
 			}
 			watchdog.reset()
-			written, writeErr := writer.Write(chunk[:read])
+			written, writeErr := writer.write(chunk[:read])
 			if writeErr != nil {
 				return fmt.Errorf("write upstream stream: %w", writeErr)
 			}
 			if written != read {
 				return fmt.Errorf("write upstream stream: %w", io.ErrShortWrite)
 			}
-			if flushErr := flushStream(writer); flushErr != nil {
+			if flushErr := writer.flush(); flushErr != nil {
 				return fmt.Errorf("flush upstream stream: %w", flushErr)
 			}
 		}
@@ -132,10 +274,6 @@ func pumpStream(ctx context.Context, body io.ReadCloser, writer http.ResponseWri
 			return fmt.Errorf("read upstream stream: %w", err)
 		}
 	}
-}
-
-func flushStream(writer http.ResponseWriter) error {
-	return http.NewResponseController(writer).Flush()
 }
 
 type streamWatchdog struct {

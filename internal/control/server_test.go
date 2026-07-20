@@ -6,7 +6,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -20,10 +22,310 @@ import (
 
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/platform/config"
+	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 	"gpt-load/internal/storage/models"
 )
+
+func TestControlJSONBodyLimitBoundary(t *testing.T) {
+	if maxControlJSONBodyBytes != 32<<20 {
+		t.Fatalf("maxControlJSONBodyBytes = %d, want %d", maxControlJSONBodyBytes, 32<<20)
+	}
+	if apiErr := app_errors.ErrRequestTooLarge; apiErr.HTTPStatus != http.StatusRequestEntityTooLarge ||
+		apiErr.Code != "REQUEST_TOO_LARGE" || apiErr.Message != "Request body is too large" {
+		t.Fatalf("ErrRequestTooLarge = %#v, want 413 REQUEST_TOO_LARGE contract", apiErr)
+	}
+
+	const prefix = `{"name":"client"}`
+	for _, test := range []struct {
+		name    string
+		size    int64
+		wantErr bool
+	}{
+		{name: "exact limit", size: maxControlJSONBodyBytes},
+		{name: "one byte over limit", size: maxControlJSONBodyBytes + 1, wantErr: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			body := prefix + strings.Repeat(" ", int(test.size)-len(prefix))
+			context, _ := gin.CreateTestContext(httptest.NewRecorder())
+			context.Request = httptest.NewRequest(http.MethodPost, "/api/groups", strings.NewReader(body))
+			context.Request.ContentLength = -1
+
+			var target struct {
+				Name string `json:"name"`
+			}
+			err := bindStrictJSON(context, &target)
+			if !test.wantErr {
+				if err != nil {
+					t.Fatalf("bindStrictJSON() error = %v", err)
+				}
+				if target.Name != "client" {
+					t.Fatalf("target.Name = %q, want client", target.Name)
+				}
+				return
+			}
+
+			var maxBytesError *http.MaxBytesError
+			if !errors.As(err, &maxBytesError) {
+				t.Fatalf("bindStrictJSON() error = %T %v, want *http.MaxBytesError", err, err)
+			}
+			if got := mapControlJSONError(err); got != app_errors.ErrRequestTooLarge {
+				t.Fatalf("mapControlJSONError() = %#v, want ErrRequestTooLarge", got)
+			}
+		})
+	}
+}
+
+type controlWhitespaceReader struct{}
+
+func (controlWhitespaceReader) Read(buffer []byte) (int, error) {
+	for index := range buffer {
+		buffer[index] = ' '
+	}
+	return len(buffer), nil
+}
+
+func oversizedControlJSONBody(prefix string) io.Reader {
+	padding := maxControlJSONBodyBytes + 1 - int64(len(prefix))
+	return io.MultiReader(
+		strings.NewReader(prefix),
+		io.LimitReader(controlWhitespaceReader{}, padding),
+	)
+}
+
+type controlJSONBodyLimitState struct {
+	rowCounts          [3]int64
+	snapshotRevision   uint64
+	registryCandidates []state.KeyMeta
+	accessKey          models.AccessKey
+}
+
+func captureControlJSONBodyLimitState(
+	t *testing.T,
+	fixture serviceFixture,
+	groupID uint,
+	accessKeyID uint,
+) controlJSONBodyLimitState {
+	t.Helper()
+	return controlJSONBodyLimitState{
+		rowCounts:          discoveryRowCounts(t, fixture.db),
+		snapshotRevision:   fixture.manager.Current().Revision,
+		registryCandidates: fixture.registry.CollectCandidates([]uint{groupID, groupID + 1}, nil),
+		accessKey:          loadAccessKeyRow(t, fixture.db, accessKeyID),
+	}
+}
+
+func assertControlJSONBodyLimitStateUnchanged(
+	t *testing.T,
+	fixture serviceFixture,
+	groupID uint,
+	accessKeyID uint,
+	want controlJSONBodyLimitState,
+) {
+	t.Helper()
+	got := captureControlJSONBodyLimitState(t, fixture, groupID, accessKeyID)
+	if got.rowCounts != want.rowCounts {
+		t.Errorf("database row counts = %v, want unchanged %v", got.rowCounts, want.rowCounts)
+	}
+	if got.snapshotRevision != want.snapshotRevision {
+		t.Errorf("snapshot revision = %d, want unchanged %d", got.snapshotRevision, want.snapshotRevision)
+	}
+	if !reflect.DeepEqual(got.registryCandidates, want.registryCandidates) {
+		t.Errorf("Registry candidates changed: got=%#v want=%#v", got.registryCandidates, want.registryCandidates)
+	}
+	if !reflect.DeepEqual(got.accessKey, want.accessKey) {
+		t.Errorf("persisted AccessKey changed")
+	}
+}
+
+func TestControlJSONBodyLimitAppliesToEveryJSONEndpoint(t *testing.T) {
+	initControlI18n(t)
+
+	for _, endpoint := range []struct {
+		name       string
+		method     string
+		path       func(groupID, accessKeyID uint) string
+		jsonPrefix string
+	}{
+		{
+			name: "create group", method: http.MethodPost,
+			path: func(uint, uint) string { return "/api/groups" },
+			jsonPrefix: `{"name":"body-limit-group","upstream_url":"https://body-limit-create.example.com/v1",` +
+				`"protocols":["openai"],"keys":"sk-body-limit-create","config":{}}`,
+		},
+		{
+			name: "import group keys", method: http.MethodPost,
+			path: func(groupID, _ uint) string {
+				return "/api/groups/" + strconv.FormatUint(uint64(groupID), 10) + "/keys/import"
+			},
+			jsonPrefix: `{"keys":"sk-body-limit-import"}`,
+		},
+		{
+			name: "discover group models", method: http.MethodPost,
+			path: func(groupID, _ uint) string {
+				return "/api/groups/" + strconv.FormatUint(uint64(groupID), 10) + "/models/discover"
+			},
+			jsonPrefix: `{}`,
+		},
+		{
+			name: "discover draft models", method: http.MethodPost,
+			path: func(uint, uint) string { return "/api/models/discover" },
+			jsonPrefix: `{"upstream_url":"https://body-limit-discover.example.com/v1",` +
+				`"protocols":["openai"],"keys":"sk-body-limit-discover","config":{}}`,
+		},
+		{
+			name: "create access key", method: http.MethodPost,
+			path:       func(uint, uint) string { return "/api/access-keys" },
+			jsonPrefix: `{"name":"body-limit-created-access-key"}`,
+		},
+		{
+			name: "update access key", method: http.MethodPut,
+			path: func(_ uint, accessKeyID uint) string {
+				return "/api/access-keys/" + strconv.FormatUint(uint64(accessKeyID), 10)
+			},
+			jsonPrefix: `{"name":"body-limit-updated-access-key"}`,
+		},
+	} {
+		t.Run(endpoint.method+" "+endpoint.name, func(t *testing.T) {
+			fixture := newServiceFixture(t)
+			groupID := createGroupForKeyImport(t, fixture, "sk-body-limit-seed")
+			accessKey, err := fixture.service.CreateAccessKey(t.Context(), AccessKeyCreateRequest{
+				Name: "body-limit-seed-access-key",
+			})
+			if err != nil {
+				t.Fatalf("seed CreateAccessKey() error = %v", err)
+			}
+			discoveryCalls := 0
+			fixture.service.dialects = dialect.NewSet(&recordingDiscoveryDialect{
+				value: protocol.OpenAI,
+				listFn: func(context.Context, string, string, state.HeaderRules) ([]string, error) {
+					discoveryCalls++
+					return []string{"body-limit-model"}, nil
+				},
+			})
+			engine := gin.New()
+			NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
+			before := captureControlJSONBodyLimitState(t, fixture, groupID, accessKey.ID)
+
+			path := endpoint.path(groupID, accessKey.ID)
+			request := httptest.NewRequest(endpoint.method, path, oversizedControlJSONBody(endpoint.jsonPrefix))
+			request.ContentLength = -1
+			request.Header.Set("Authorization", "Bearer test-auth-key")
+			request.Header.Set("Content-Type", "application/json")
+			recorder := httptest.NewRecorder()
+
+			engine.ServeHTTP(recorder, request)
+
+			if recorder.Code != http.StatusRequestEntityTooLarge {
+				t.Errorf("response = %d %s, want 413", recorder.Code, recorder.Body.String())
+			} else {
+				var envelope struct {
+					Code string          `json:"code"`
+					Data json.RawMessage `json:"data"`
+				}
+				if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err != nil {
+					t.Errorf("decode response: %v", err)
+				} else {
+					if envelope.Code != app_errors.ErrRequestTooLarge.Code {
+						t.Errorf("code = %q, want %q", envelope.Code, app_errors.ErrRequestTooLarge.Code)
+					}
+					if len(envelope.Data) != 0 {
+						t.Errorf("data = %s, want omitted", envelope.Data)
+					}
+				}
+			}
+			assertControlJSONBodyLimitStateUnchanged(t, fixture, groupID, accessKey.ID, before)
+			if discoveryCalls != 0 {
+				t.Errorf("model discovery calls = %d, want 0", discoveryCalls)
+			}
+		})
+	}
+}
+
+func TestControlJSONBodyLimitContentLengthFastPathPreservesAuthenticationPriority(t *testing.T) {
+	initControlI18n(t)
+	fixture := newServiceFixture(t)
+	engine := gin.New()
+	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
+
+	for _, auth := range []struct {
+		name       string
+		header     string
+		wantStatus int
+		wantCode   string
+	}{
+		{name: "valid", header: "Bearer test-auth-key", wantStatus: http.StatusRequestEntityTooLarge, wantCode: "REQUEST_TOO_LARGE"},
+		{name: "missing", wantStatus: http.StatusUnauthorized, wantCode: "UNAUTHORIZED"},
+		{name: "invalid", header: "Bearer wrong-auth-key", wantStatus: http.StatusUnauthorized, wantCode: "UNAUTHORIZED"},
+	} {
+		t.Run(auth.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodPost, "/api/groups", strings.NewReader("{}"))
+			request.ContentLength = maxControlJSONBodyBytes + 1
+			if auth.header != "" {
+				request.Header.Set("Authorization", auth.header)
+			}
+			recorder := httptest.NewRecorder()
+
+			engine.ServeHTTP(recorder, request)
+
+			if recorder.Code != auth.wantStatus {
+				t.Fatalf("response = %d %s, want %d", recorder.Code, recorder.Body.String(), auth.wantStatus)
+			}
+			var envelope struct {
+				Code string `json:"code"`
+			}
+			if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err != nil {
+				t.Fatalf("decode response: %v", err)
+			}
+			if envelope.Code != auth.wantCode {
+				t.Fatalf("code = %q, want %q", envelope.Code, auth.wantCode)
+			}
+		})
+	}
+}
+
+func TestControlJSONBodyLimitLocalizes413(t *testing.T) {
+	initControlI18n(t)
+	fixture := newServiceFixture(t)
+	engine := gin.New()
+	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
+
+	for _, test := range []struct {
+		language string
+		message  string
+	}{
+		{language: "zh-CN", message: "请求体过大"},
+		{language: "en-US", message: "Request body is too large"},
+		{language: "ja-JP", message: "リクエストボディが大きすぎます"},
+	} {
+		t.Run(test.language, func(t *testing.T) {
+			const prefix = `{"name":"localized-limit","upstream_url":"https://localized-limit.example.com/v1",` +
+				`"protocols":["openai"],"keys":"sk-localized-limit","config":{}}`
+			request := httptest.NewRequest(http.MethodPost, "/api/groups", oversizedControlJSONBody(prefix))
+			request.ContentLength = -1
+			request.Header.Set("Authorization", "Bearer test-auth-key")
+			request.Header.Set("Accept-Language", test.language)
+			recorder := httptest.NewRecorder()
+
+			engine.ServeHTTP(recorder, request)
+
+			if recorder.Code != http.StatusRequestEntityTooLarge {
+				t.Fatalf("response = %d %s, want 413", recorder.Code, recorder.Body.String())
+			}
+			var envelope struct {
+				Code    string `json:"code"`
+				Message string `json:"message"`
+			}
+			if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err != nil {
+				t.Fatalf("decode response: %v", err)
+			}
+			if envelope.Code != app_errors.ErrRequestTooLarge.Code || envelope.Message != test.message {
+				t.Fatalf("envelope = %#v, want code %q message %q", envelope, app_errors.ErrRequestTooLarge.Code, test.message)
+			}
+		})
+	}
+}
 
 func TestManagementAuthRequiresConstantShapeBearerToken(t *testing.T) {
 	initControlI18n(t)

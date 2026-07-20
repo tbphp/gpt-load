@@ -24,6 +24,33 @@ func TestMiddlewareSelectsJapanese(t *testing.T) {
 	}
 }
 
+func TestRequestTooLargeTranslations(t *testing.T) {
+	if err := Init(); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	for _, test := range []struct {
+		language string
+		message  string
+	}{
+		{language: "zh-CN", message: "请求体过大"},
+		{language: "en-US", message: "Request body is too large"},
+		{language: "ja-JP", message: "リクエストボディが大きすぎます"},
+	} {
+		t.Run(test.language, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			context, _ := gin.CreateTestContext(nil)
+			context.Request = httptest.NewRequest("GET", "/", nil)
+			context.Request.Header.Set("Accept-Language", test.language)
+			Middleware()(context)
+
+			if got := Message(context, "request_too_large"); got != test.message {
+				t.Fatalf("Message() = %q, want %q", got, test.message)
+			}
+		})
+	}
+}
+
 func TestUnsupportedLanguageFallsBackToChinese(t *testing.T) {
 	if err := Init(); err != nil {
 		t.Fatalf("Init() error = %v", err)

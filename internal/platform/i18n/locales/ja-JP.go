@@ -4,6 +4,7 @@ package locales
 var MessagesJaJP = map[string]string{
 	"common.success":               "成功",
 	"bad_request":                  "不正なリクエスト",
+	"request_too_large":            "リクエストボディが大きすぎます",
 	"bad_gateway":                  "上流サービスエラー",
 	"internal_error":               "内部エラー",
 	"auth.invalid_key":             "無効な認証キー",

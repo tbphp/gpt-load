@@ -19,6 +19,8 @@ import (
 // CurrentSchemaVersion identifies the SQLite schema supported by this binary.
 const CurrentSchemaVersion uint = 1
 
+const sqliteBusyTimeoutMS = 5000
+
 type schemaInfo struct {
 	Version uint `gorm:"primaryKey;autoIncrement:false"`
 }
@@ -45,17 +47,25 @@ func Open(dsn string) (*gorm.DB, error) {
 		return nil, err
 	}
 
-	db, err := gorm.Open(sqlite.Open(withForeignKeysEnabled(dsn)), &gorm.Config{Logger: databaseLogger})
+	fileBacked := !isSQLiteMemoryDSN(dsn)
+	runtimeDSN, err := withSQLiteRuntimeOptions(dsn, fileBacked)
+	if err != nil {
+		return nil, err
+	}
+	db, err := gorm.Open(sqlite.Open(runtimeDSN), &gorm.Config{Logger: databaseLogger})
 	if err != nil {
 		return nil, fmt.Errorf("open SQLite database: %w", err)
 	}
 
-	if dsn == ":memory:" {
-		sqlDB, err := db.DB()
-		if err != nil {
-			return nil, fmt.Errorf("get SQLite connection pool: %w", err)
-		}
-		sqlDB.SetMaxOpenConns(1)
+	sqlDB, err := db.DB()
+	if err != nil {
+		return nil, fmt.Errorf("get SQLite connection pool: %w", err)
+	}
+	sqlDB.SetMaxOpenConns(1)
+	sqlDB.SetMaxIdleConns(1)
+	if err := verifySQLiteRuntime(db, fileBacked); err != nil {
+		_ = sqlDB.Close()
+		return nil, err
 	}
 
 	return db, nil
@@ -131,12 +141,77 @@ func validateSchemaVersion(db *gorm.DB) error {
 	return nil
 }
 
-func withForeignKeysEnabled(dsn string) string {
-	separator := "?"
-	if strings.Contains(dsn, "?") {
-		separator = "&"
+func withSQLiteRuntimeOptions(dsn string, fileBacked bool) (string, error) {
+	base, rawQuery, _ := strings.Cut(dsn, "?")
+	query, err := url.ParseQuery(rawQuery)
+	if err != nil {
+		return "", fmt.Errorf("open SQLite database: invalid DSN query: %w", err)
 	}
-	return dsn + separator + "_pragma=foreign_keys(1)"
+	query.Set("_txlock", "immediate")
+
+	pragmas := make([]string, 0, len(query["_pragma"])+3)
+	for _, pragma := range query["_pragma"] {
+		name := strings.ToLower(strings.TrimSpace(pragma))
+		if index := strings.IndexAny(name, "(="); index >= 0 {
+			name = strings.TrimSpace(name[:index])
+		}
+		switch name {
+		case "foreign_keys", "busy_timeout", "journal_mode":
+			continue
+		default:
+			pragmas = append(pragmas, pragma)
+		}
+	}
+	pragmas = append(pragmas,
+		"foreign_keys(1)",
+		fmt.Sprintf("busy_timeout(%d)", sqliteBusyTimeoutMS),
+	)
+	if fileBacked {
+		pragmas = append(pragmas, "journal_mode(WAL)")
+	}
+	query["_pragma"] = pragmas
+	return base + "?" + query.Encode(), nil
+}
+
+func isSQLiteMemoryDSN(dsn string) bool {
+	if dsn == ":memory:" {
+		return true
+	}
+	parsed, err := url.Parse(dsn)
+	if err != nil {
+		return false
+	}
+	if strings.EqualFold(parsed.Query().Get("mode"), "memory") {
+		return true
+	}
+	return strings.EqualFold(parsed.Scheme, "file") &&
+		(parsed.Path == ":memory:" || parsed.Opaque == ":memory:")
+}
+
+func verifySQLiteRuntime(db *gorm.DB, fileBacked bool) error {
+	var foreignKeys, busyTimeout int
+	if err := db.Raw("PRAGMA foreign_keys").Scan(&foreignKeys).Error; err != nil {
+		return fmt.Errorf("verify SQLite foreign_keys: %w", err)
+	}
+	if foreignKeys != 1 {
+		return fmt.Errorf("verify SQLite foreign_keys: got %d, want 1", foreignKeys)
+	}
+	if err := db.Raw("PRAGMA busy_timeout").Scan(&busyTimeout).Error; err != nil {
+		return fmt.Errorf("verify SQLite busy_timeout: %w", err)
+	}
+	if busyTimeout != sqliteBusyTimeoutMS {
+		return fmt.Errorf("verify SQLite busy_timeout: got %d, want %d", busyTimeout, sqliteBusyTimeoutMS)
+	}
+	if fileBacked {
+		var journalMode string
+		if err := db.Raw("PRAGMA journal_mode").Scan(&journalMode).Error; err != nil {
+			return fmt.Errorf("verify SQLite journal_mode: %w", err)
+		}
+		if !strings.EqualFold(journalMode, "wal") {
+			return fmt.Errorf("verify SQLite journal_mode: got %q, want wal", journalMode)
+		}
+	}
+	return nil
 }
 
 func ensureSQLiteDirectory(dsn string) error {

@@ -2,13 +2,10 @@ package gateway
 
 import (
 	"encoding/json"
-	"net/http"
-	"net/http/httptest"
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
-
-	"github.com/gin-gonic/gin"
 
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
@@ -72,7 +69,7 @@ func TestVisibleModelIDs(t *testing.T) {
 	}
 }
 
-func TestWriteModelList(t *testing.T) {
+func TestMarshalModelList(t *testing.T) {
 	tests := []struct {
 		name     string
 		value    protocol.Protocol
@@ -106,24 +103,55 @@ func TestWriteModelList(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			gin.SetMode(gin.TestMode)
-			recorder := httptest.NewRecorder()
-			context, _ := gin.CreateTestContext(recorder)
-			writeModelList(context, test.value, test.ids)
-			if recorder.Code != http.StatusOK || !strings.HasPrefix(recorder.Header().Get("Content-Type"), "application/json") {
-				t.Fatalf("response = %d headers=%v body=%s", recorder.Code, recorder.Header(), recorder.Body.String())
+			body, err := marshalModelList(test.value, test.ids)
+			if err != nil {
+				t.Fatalf("marshalModelList() error = %v", err)
 			}
-			assertJSONEqual(t, recorder.Body.String(), test.expected)
-			if strings.Contains(recorder.Body.String(), `"code"`) || strings.Contains(recorder.Body.String(), `"message"`) ||
-				strings.Contains(recorder.Body.String(), "nextPageToken") {
-				t.Fatalf("model response contains forbidden envelope fields: %s", recorder.Body.String())
+			assertJSONEqual(t, string(body), test.expected)
+			if strings.Contains(string(body), `"code"`) || strings.Contains(string(body), `"message"`) ||
+				strings.Contains(string(body), "nextPageToken") {
+				t.Fatalf("model response contains forbidden envelope fields: %s", body)
 			}
 			for _, forbidden := range []string{"baseModelId", "version", "inputTokenLimit", "outputTokenLimit", "supportedGenerationMethods"} {
-				if strings.Contains(recorder.Body.String(), forbidden) {
-					t.Fatalf("model response contains forbidden official metadata field %q: %s", forbidden, recorder.Body.String())
+				if strings.Contains(string(body), forbidden) {
+					t.Fatalf("model response contains forbidden official metadata field %q: %s", forbidden, body)
 				}
 			}
 		})
+	}
+}
+
+func TestBuildVisibleModelListBoundsFinalAnthropicJSONAcrossGroups(t *testing.T) {
+	snapshot, err := state.Compile(state.CompileInput{
+		Groups: []state.GroupConfig{
+			{
+				ID: 1, Name: "first", UpstreamURL: "https://first.example.com",
+				Protocols: []protocol.Protocol{protocol.Anthropic},
+				Models:    []state.ModelConfig{{ID: "zeta"}}, Enabled: true,
+			},
+			{
+				ID: 2, Name: "second", UpstreamURL: "https://second.example.com",
+				Protocols: []protocol.Protocol{protocol.Anthropic},
+				Models:    []state.ModelConfig{{ID: "alpha"}}, Enabled: true,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Compile() error = %v", err)
+	}
+	want := `{"data":[{"type":"model","id":"alpha","display_name":"alpha","created_at":"2025-01-01T00:00:00Z"},{"type":"model","id":"zeta","display_name":"zeta","created_at":"2025-01-01T00:00:00Z"}],"has_more":false,"first_id":"alpha","last_id":"zeta"}`
+
+	body, err := buildVisibleModelList(
+		snapshot, state.AccessKeyView{}, protocol.Anthropic, int64(len(want)),
+	)
+	if err != nil || string(body) != want {
+		t.Fatalf("exact limit body/error = %s / %v", body, err)
+	}
+	body, err = buildVisibleModelList(
+		snapshot, state.AccessKeyView{}, protocol.Anthropic, int64(len(want)-1),
+	)
+	if !errors.Is(err, errModelListTooLarge) || body != nil {
+		t.Fatalf("overflow body/error = %s / %v", body, err)
 	}
 }
 

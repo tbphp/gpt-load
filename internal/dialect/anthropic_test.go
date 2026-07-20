@@ -235,6 +235,27 @@ func TestAnthropicListModelsPaginatesAndPreservesInputs(t *testing.T) {
 	}
 }
 
+func TestAnthropicListModelsForcesIdentity(t *testing.T) {
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if got := request.Header.Values("Accept-Encoding"); len(got) != 1 || got[0] != "identity" {
+			t.Fatalf("Accept-Encoding = %#v, want one identity", got)
+		}
+		return anthropicTestResponse(http.StatusOK, `{"data":[]}`), nil
+	})}
+	models, err := NewAnthropic(client).ListModels(
+		context.Background(),
+		"https://api.example.com",
+		"secret",
+		state.HeaderRules{
+			Set:    map[string]string{"Accept-Encoding": "gzip"},
+			Remove: []string{"Accept-Encoding"},
+		},
+	)
+	if err != nil || models == nil {
+		t.Fatalf("ListModels() = %#v, %v", models, err)
+	}
+}
+
 func TestAnthropicListModelsRejectsBlankOrRepeatedCursor(t *testing.T) {
 	t.Run("blank cursor", func(t *testing.T) {
 		var requestCount atomic.Int64

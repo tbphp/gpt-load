@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"compress/gzip"
 	"compress/zlib"
+	"errors"
 	"fmt"
 	"io"
+	"math"
 	"strings"
 
 	"github.com/andybalholm/brotli"
@@ -15,8 +17,10 @@ import (
 
 // Decompressor defines the interface for different decompression algorithms
 type Decompressor interface {
-	Decompress(data []byte) ([]byte, error)
+	Decompress(data []byte, limit int64) ([]byte, error)
 }
+
+var ErrDecompressedResponseTooLarge = errors.New("decompressed response exceeds size limit")
 
 // decompressorRegistry holds all registered decompressors
 var decompressorRegistry = make(map[string]Decompressor)
@@ -37,22 +41,44 @@ func RegisterDecompressor(encoding string, decompressor Decompressor) {
 
 // DecompressResponse automatically decompresses response data based on Content-Encoding header
 func DecompressResponse(contentEncoding string, data []byte) ([]byte, error) {
+	return DecompressResponseLimited(contentEncoding, data, math.MaxInt64)
+}
+
+// DecompressResponseLimited decompresses response data up to limit bytes.
+func DecompressResponseLimited(contentEncoding string, data []byte, limit int64) ([]byte, error) {
 	encoding, err := normalizeContentEncoding(contentEncoding)
 	if err != nil {
 		return nil, err
 	}
+	if limit < 0 {
+		return nil, fmt.Errorf("decompressed response limit must not be negative")
+	}
 	if encoding == "" || encoding == "identity" || len(data) == 0 {
+		if int64(len(data)) > limit {
+			return nil, ErrDecompressedResponseTooLarge
+		}
 		return bytes.Clone(data), nil
 	}
 	decompressor, exists := decompressorRegistry[encoding]
 	if !exists {
 		return nil, fmt.Errorf("unsupported content encoding %q", contentEncoding)
 	}
-	decompressed, err := decompressor.Decompress(data)
-	if err != nil {
-		return nil, fmt.Errorf("decompress %s response: %w", encoding, err)
+	return decompressor.Decompress(data, limit)
+}
+
+func readDecompressedAtMost(reader io.Reader, limit int64) ([]byte, error) {
+	var limited io.Reader = reader
+	if limit < math.MaxInt64 {
+		limited = io.LimitReader(reader, limit+1)
 	}
-	return decompressed, nil
+	decoded, err := io.ReadAll(limited)
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(decoded)) > limit {
+		return nil, ErrDecompressedResponseTooLarge
+	}
+	return decoded, nil
 }
 
 // CompressResponse compresses response data based on Content-Encoding header.
@@ -106,14 +132,14 @@ func normalizeContentEncoding(value string) (string, error) {
 type GzipDecompressor struct{}
 
 // Decompress implements Decompressor interface for gzip
-func (g *GzipDecompressor) Decompress(data []byte) ([]byte, error) {
+func (g *GzipDecompressor) Decompress(data []byte, limit int64) ([]byte, error) {
 	reader, err := gzip.NewReader(bytes.NewReader(data))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create gzip reader: %w", err)
 	}
 	defer reader.Close()
 
-	decompressed, err := io.ReadAll(reader)
+	decompressed, err := readDecompressedAtMost(reader, limit)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read gzip data: %w", err)
 	}
@@ -125,10 +151,10 @@ func (g *GzipDecompressor) Decompress(data []byte) ([]byte, error) {
 type BrotliDecompressor struct{}
 
 // Decompress implements Decompressor interface for brotli
-func (b *BrotliDecompressor) Decompress(data []byte) ([]byte, error) {
+func (b *BrotliDecompressor) Decompress(data []byte, limit int64) ([]byte, error) {
 	reader := brotli.NewReader(bytes.NewReader(data))
 
-	decompressed, err := io.ReadAll(reader)
+	decompressed, err := readDecompressedAtMost(reader, limit)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read brotli data: %w", err)
 	}
@@ -140,14 +166,14 @@ func (b *BrotliDecompressor) Decompress(data []byte) ([]byte, error) {
 type DeflateDecompressor struct{}
 
 // Decompress implements Decompressor interface for deflate
-func (d *DeflateDecompressor) Decompress(data []byte) ([]byte, error) {
+func (d *DeflateDecompressor) Decompress(data []byte, limit int64) ([]byte, error) {
 	reader, err := zlib.NewReader(bytes.NewReader(data))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create deflate reader: %w", err)
 	}
 	defer reader.Close()
 
-	decompressed, err := io.ReadAll(reader)
+	decompressed, err := readDecompressedAtMost(reader, limit)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read deflate data: %w", err)
 	}
@@ -159,14 +185,32 @@ func (d *DeflateDecompressor) Decompress(data []byte) ([]byte, error) {
 type ZstdDecompressor struct{}
 
 // Decompress implements Decompressor interface for zstd
-func (z *ZstdDecompressor) Decompress(data []byte) ([]byte, error) {
-	reader, err := zstd.NewReader(bytes.NewReader(data))
+func (z *ZstdDecompressor) Decompress(data []byte, limit int64) ([]byte, error) {
+	options := make([]zstd.DOption, 0, 4)
+	if limit < math.MaxInt64 {
+		memoryLimit := uint64(limit)
+		if memoryLimit == 0 {
+			memoryLimit = 1
+		}
+		windowLimit := memoryLimit
+		if windowLimit < zstd.MinWindowSize {
+			windowLimit = zstd.MinWindowSize
+		}
+		options = append(
+			options,
+			zstd.WithDecoderConcurrency(1),
+			zstd.WithDecoderLowmem(true),
+			zstd.WithDecoderMaxMemory(memoryLimit),
+			zstd.WithDecoderMaxWindow(windowLimit),
+		)
+	}
+	reader, err := zstd.NewReader(bytes.NewReader(data), options...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create zstd reader: %w", err)
 	}
 	defer reader.Close()
 
-	decompressed, err := io.ReadAll(reader)
+	decompressed, err := readDecompressedAtMost(reader, limit)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read zstd data: %w", err)
 	}

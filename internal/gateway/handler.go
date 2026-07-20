@@ -8,6 +8,7 @@ import (
 	"math/rand"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -42,12 +43,14 @@ type runtimeKeyRegistry interface {
 }
 
 type Handler struct {
-	manager    *state.Manager
-	registry   runtimeKeyRegistry
-	encryption encryption.Service
-	forwarder  AttemptForwarder
-	dialects   dialect.Set
-	newRandom  func() *rand.Rand
+	manager        *state.Manager
+	registry       runtimeKeyRegistry
+	encryption     encryption.Service
+	forwarder      AttemptForwarder
+	dialects       dialect.Set
+	newRandom      func() *rand.Rand
+	writeTimeout   time.Duration
+	modelListLimit int64
 }
 
 func NewHandler(
@@ -60,7 +63,9 @@ func NewHandler(
 	return &Handler{
 		manager: manager, registry: registry, encryption: encryptionService,
 		forwarder: forwarder, dialects: dialects,
-		newRandom: func() *rand.Rand { return rand.New(rand.NewSource(rand.Int63())) },
+		newRandom:      func() *rand.Rand { return rand.New(rand.NewSource(rand.Int63())) },
+		writeTimeout:   downstreamWriteTimeout,
+		modelListLimit: maxNonStreamingResponseBodyBytes,
 	}
 }
 
@@ -83,7 +88,7 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 		return
 	}
 	if selectedRoute.Kind == endpointModels {
-		writeVisibleModelList(ginContext, snapshot, accessKey, selectedRoute.Protocol)
+		handler.writeVisibleModelList(ginContext, snapshot, accessKey, selectedRoute.Protocol)
 		return
 	}
 
@@ -193,7 +198,9 @@ func (handler *Handler) executeAttempts(
 			if verdict.Retryable {
 				continue
 			}
-			writeUpstreamResponse(ginContext, result)
+			if err := handler.writeUpstreamResponse(ginContext, result); err != nil {
+				return
+			}
 			return
 		}
 		if errors.Is(result.Err, context.Canceled) {
@@ -209,7 +216,9 @@ func (handler *Handler) executeAttempts(
 	}
 
 	if lastResponse != nil {
-		writeUpstreamResponse(ginContext, *lastResponse)
+		if err := handler.writeUpstreamResponse(ginContext, *lastResponse); err != nil {
+			return
+		}
 		return
 	}
 	if lastTransport != nil {
@@ -242,12 +251,46 @@ func writeTransportReason(ginContext *gin.Context, result UpstreamResult) {
 	}
 }
 
-func writeUpstreamResponse(ginContext *gin.Context, result UpstreamResult) {
-	for name, values := range cloneEndToEndHeaders(result.Header) {
+func (handler *Handler) writeUpstreamResponse(ginContext *gin.Context, result UpstreamResult) error {
+	return handler.writeBufferedResponse(ginContext, result.StatusCode, result.Header, result.Body)
+}
+
+func (handler *Handler) writeBufferedResponse(
+	ginContext *gin.Context,
+	status int,
+	headers http.Header,
+	body []byte,
+) (err error) {
+	if handler == nil || ginContext == nil {
+		return fmt.Errorf("downstream response writer is required")
+	}
+	controlled := newStreamWriteController(ginContext.Writer, handler.writeTimeout)
+	defer func() {
+		if clearErr := controlled.clear(); err == nil && clearErr != nil {
+			err = fmt.Errorf("clear downstream write deadline: %w", clearErr)
+		}
+	}()
+
+	for name, values := range cloneEndToEndHeaders(headers) {
 		for _, value := range values {
 			ginContext.Writer.Header().Add(name, value)
 		}
 	}
-	ginContext.Status(result.StatusCode)
-	_, _ = ginContext.Writer.Write(result.Body)
+	if err := controlled.writeHeader(status); err != nil {
+		return fmt.Errorf("write downstream response headers: %w", err)
+	}
+	ginContext.Writer.WriteHeaderNow()
+	if len(body) > 0 {
+		written, writeErr := controlled.write(body)
+		if writeErr != nil {
+			return fmt.Errorf("write downstream response: %w", writeErr)
+		}
+		if written != len(body) {
+			return fmt.Errorf("write downstream response: %w", io.ErrShortWrite)
+		}
+	}
+	if err := controlled.flush(); err != nil {
+		return fmt.Errorf("flush downstream response: %w", err)
+	}
+	return nil
 }

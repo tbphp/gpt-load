@@ -4,6 +4,7 @@ package locales
 var MessagesEnUS = map[string]string{
 	"common.success":               "Success",
 	"bad_request":                  "Bad request",
+	"request_too_large":            "Request body is too large",
 	"bad_gateway":                  "Upstream service error",
 	"internal_error":               "Internal error",
 	"auth.invalid_key":             "Invalid authorization key",

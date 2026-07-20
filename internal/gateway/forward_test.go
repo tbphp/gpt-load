@@ -4,14 +4,20 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
+	"math"
+	mathrand "math/rand"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/klauspost/compress/zstd"
 
 	"gpt-load/internal/dialect"
 	platformhttp "gpt-load/internal/platform/httpclient"
@@ -19,6 +25,500 @@ import (
 	"gpt-load/internal/platform/utils"
 	"gpt-load/internal/state"
 )
+
+func TestReadBodyAtMostDoesNotReturnPartialBody(t *testing.T) {
+	if body, overflow, err := readBodyAtMost(strings.NewReader("1234"), 4); err != nil || overflow || string(body) != "1234" {
+		t.Fatalf("exact = %q, %t, %v", body, overflow, err)
+	}
+	if body, overflow, err := readBodyAtMost(strings.NewReader("12345"), 4); err != nil || !overflow || body != nil {
+		t.Fatalf("overflow = %q, %t, %v", body, overflow, err)
+	}
+
+	wantErr := errors.New("read failed")
+	body, overflow, err := readBodyAtMost(io.MultiReader(strings.NewReader("12"), responseReadError{err: wantErr}), 4)
+	if !errors.Is(err, wantErr) || overflow || body != nil {
+		t.Fatalf("read error = %q, %t, %v", body, overflow, err)
+	}
+
+	body, overflow, err = readBodyAtMost(strings.NewReader("x"), math.MaxInt64)
+	if err != nil || overflow || string(body) != "x" {
+		t.Fatalf("max int limit = %q, %t, %v", body, overflow, err)
+	}
+
+	body, overflow, err = readBodyAtMost(strings.NewReader("x"), -1)
+	if err == nil || overflow || body != nil {
+		t.Fatalf("negative limit = %q, %t, %v", body, overflow, err)
+	}
+}
+
+func TestForwarderBoundsNonStreamingBodies(t *testing.T) {
+	if maxNonStreamingResponseBodyBytes != 32<<20 || maxErrorResponseBodyBytes != 64<<10 {
+		t.Fatalf("response limits = %d/%d", maxNonStreamingResponseBodyBytes, maxErrorResponseBodyBytes)
+	}
+	tests := []struct {
+		name, key       string
+		status          int
+		size            int64
+		wantProtocolErr bool
+		wantPlaceholder bool
+	}{
+		{name: "success exact", key: "key", status: http.StatusOK, size: maxNonStreamingResponseBodyBytes},
+		{name: "success plus one", key: "key", status: http.StatusOK, size: maxNonStreamingResponseBodyBytes + 1, wantProtocolErr: true},
+		{name: "error exact", key: "key", status: http.StatusUnauthorized, size: maxErrorResponseBodyBytes},
+		{name: "error plus one", key: "key", status: http.StatusUnauthorized, size: maxErrorResponseBodyBytes + 1, wantPlaceholder: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				writer.WriteHeader(test.status)
+				writer.(http.Flusher).Flush()
+				_, _ = io.CopyN(writer, repeatingByteReader('x'), test.size)
+			}))
+			defer upstream.Close()
+
+			result := testForward(t, upstream.URL, test.key, 10*time.Second)
+			if test.wantProtocolErr {
+				if !errors.Is(result.Err, ErrUpstreamProtocol) || !result.RequestWritten || result.StatusCode != 0 ||
+					result.Body != nil || result.ClassificationBody != nil {
+					t.Fatalf("result = %#v", result)
+				}
+				return
+			}
+			if result.Err != nil || result.StatusCode != test.status {
+				t.Fatalf("result = %#v", result)
+			}
+			if test.wantPlaceholder {
+				if string(result.Body) != redact.Placeholder || string(result.ClassificationBody) != redact.Placeholder {
+					t.Fatalf("safe bodies = %q/%q", result.Body, result.ClassificationBody)
+				}
+				return
+			}
+			if int64(len(result.Body)) != test.size {
+				t.Fatalf("body length = %d, want %d", len(result.Body), test.size)
+			}
+		})
+	}
+}
+
+func TestForwarderBoundsDecompressedErrorBodies(t *testing.T) {
+	for _, encoding := range []string{"gzip", "br", "deflate", "zstd"} {
+		t.Run(encoding, func(t *testing.T) {
+			for _, size := range []int{1 << 20, 1<<20 + 1} {
+				plain := bytes.Repeat([]byte("x"), size)
+				wire := compressResponseWithBoundedZstdWindow(t, encoding, plain)
+				upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+					writer.Header().Set("Content-Encoding", encoding)
+					writer.WriteHeader(http.StatusUnauthorized)
+					_, _ = writer.Write(wire)
+				}))
+
+				result := testForward(t, upstream.URL, "key", 10*time.Second)
+				upstream.Close()
+				if result.Err != nil || result.StatusCode != http.StatusUnauthorized {
+					t.Fatalf("size %d result = %#v", size, result)
+				}
+				if size == 1<<20 {
+					if !bytes.Equal(result.Body, wire) || !bytes.Equal(result.ClassificationBody, plain) ||
+						result.Header.Get("Content-Encoding") != encoding {
+						t.Fatalf("exact limit result body lengths = %d/%d, headers=%#v", len(result.Body), len(result.ClassificationBody), result.Header)
+					}
+				} else if string(result.Body) != redact.Placeholder ||
+					string(result.ClassificationBody) != redact.Placeholder || result.Header.Get("Content-Encoding") != "" {
+					t.Fatalf("overflow result = %#v", result)
+				}
+			}
+		})
+	}
+}
+
+func TestForwarderFailsClosedWhenRedactionExpandsErrorBeyondBounds(t *testing.T) {
+	tests := []struct {
+		name     string
+		encoding string
+		plain    []byte
+	}{
+		{
+			name:  "identity wire exceeds limit after redaction",
+			plain: bytes.Repeat([]byte("a"), int(maxErrorResponseBodyBytes)),
+		},
+		{
+			name:     "gzip classification body exceeds limit after redaction",
+			encoding: "gzip",
+			plain:    bytes.Repeat([]byte("a"), int(maxDecompressedErrorBodyBytes)),
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			wire := test.plain
+			if test.encoding != "" {
+				var err error
+				wire, err = utils.CompressResponse(test.encoding, test.plain)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				if test.encoding != "" {
+					writer.Header().Set("Content-Encoding", test.encoding)
+				}
+				writer.WriteHeader(http.StatusUnauthorized)
+				_, _ = writer.Write(wire)
+			}))
+			defer upstream.Close()
+
+			result := testForward(t, upstream.URL, "a", time.Second)
+			if result.Err != nil || result.StatusCode != http.StatusUnauthorized ||
+				string(result.Body) != redact.Placeholder ||
+				string(result.ClassificationBody) != redact.Placeholder ||
+				result.Header.Get("Content-Encoding") != "" {
+				t.Fatalf(
+					"result status=%d body=%d classification=%d encoding=%q err=%v",
+					result.StatusCode, len(result.Body), len(result.ClassificationBody),
+					result.Header.Get("Content-Encoding"), result.Err,
+				)
+			}
+		})
+	}
+}
+
+func TestPrepareErrorBodyFailsClosedForOversizedUnchangedWire(t *testing.T) {
+	plain := make([]byte, 100<<10)
+	const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_."
+	random := mathrand.New(mathrand.NewSource(1))
+	for index := range plain {
+		plain[index] = alphabet[random.Intn(len(alphabet))]
+	}
+	gzipWire, err := utils.CompressResponse("gzip", plain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(gzipWire) <= int(maxErrorResponseBodyBytes) {
+		t.Fatalf("gzip fixture length = %d, want oversized wire", len(gzipWire))
+	}
+
+	tests := []struct {
+		name    string
+		headers http.Header
+		wire    []byte
+	}{
+		{
+			name:    "identity",
+			headers: make(http.Header),
+			wire:    bytes.Repeat([]byte("x"), int(maxErrorResponseBodyBytes)+1),
+		},
+		{
+			name:    "gzip",
+			headers: http.Header{"Content-Encoding": {"gzip"}},
+			wire:    gzipWire,
+		},
+	}
+	forwarder := &Forwarder{redactor: redact.New()}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			headers := test.headers.Clone()
+			wire, classification := forwarder.prepareErrorBody(headers, test.wire, "")
+			if string(wire) != redact.Placeholder || string(classification) != redact.Placeholder ||
+				headers.Get("Content-Encoding") != "" {
+				t.Fatalf(
+					"safe body lengths=%d/%d encoding=%q",
+					len(wire), len(classification), headers.Get("Content-Encoding"),
+				)
+			}
+		})
+	}
+}
+
+func compressResponseWithBoundedZstdWindow(t *testing.T, encoding string, plain []byte) []byte {
+	t.Helper()
+	if encoding != "zstd" {
+		wire, err := utils.CompressResponse(encoding, plain)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return wire
+	}
+	encoder, err := zstd.NewWriter(
+		nil,
+		zstd.WithWindowSize(int(maxDecompressedErrorBodyBytes)),
+		zstd.WithEncoderConcurrency(1),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer encoder.Close()
+	return encoder.EncodeAll(plain, nil)
+}
+
+func TestForwarderDoesNotReturnPartialBodyOnReadError(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		connection, buffer, err := writer.(http.Hijacker).Hijack()
+		if err != nil {
+			t.Errorf("hijack response: %v", err)
+			return
+		}
+		defer connection.Close()
+		_, _ = fmt.Fprint(buffer, "HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\n1234")
+		_ = buffer.Flush()
+	}))
+	defer upstream.Close()
+
+	result := testForward(t, upstream.URL, "key", time.Second)
+	if result.Err == nil || !result.RequestWritten || result.StatusCode != 0 || result.Body != nil || result.ClassificationBody != nil {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
+type repeatingByteReader byte
+
+func (reader repeatingByteReader) Read(destination []byte) (int, error) {
+	for index := range destination {
+		destination[index] = byte(reader)
+	}
+	return len(destination), nil
+}
+
+type responseReadError struct {
+	err error
+}
+
+func (reader responseReadError) Read([]byte) (int, error) {
+	return 0, reader.err
+}
+
+func TestSanitizeUpstreamResponseHeadersRemovesCurrentCredential(t *testing.T) {
+	const secret = "provider-secret"
+	source := http.Header{
+		"Authorization":       {"Bearer unrelated"},
+		"Proxy-Authorization": {"unrelated"},
+		"Api-Key":             {"unrelated"},
+		"X-Api-Key":           {"unrelated"},
+		"X-Goog-Api-Key":      {"unrelated"},
+		"X-Echo":              {"prefix-" + secret + "-suffix"},
+		"X-Multi":             {"safe", secret},
+		"X-Safe":              {"kept"},
+	}
+	before := source.Clone()
+	got := sanitizeUpstreamResponseHeaders(source, secret)
+	for _, name := range []string{
+		"Authorization", "Proxy-Authorization", "Api-Key",
+		"X-Api-Key", "X-Goog-Api-Key", "X-Echo", "X-Multi",
+	} {
+		if got.Values(name) != nil {
+			t.Fatalf("Header %s survived: %#v", name, got.Values(name))
+		}
+	}
+	if got.Get("X-Safe") != "kept" || !reflect.DeepEqual(source, before) {
+		t.Fatalf("safe/source headers = %#v / %#v", got, source)
+	}
+}
+
+func TestSanitizeUpstreamResponseHeadersHandlesNonCanonicalFieldNames(t *testing.T) {
+	const secret = "provider-secret-noncanonical"
+	source := http.Header{
+		"authorization":       {"Bearer unrelated"},
+		"pRoXy-AuThOrIzAtIoN": {"unrelated"},
+		"aPi-kEy":             {"unrelated"},
+		"x-aPi-kEy":           {"unrelated"},
+		"x-gOoG-aPi-kEy":      {"unrelated"},
+		"X-Echo":              {"prefix-" + secret},
+		"x-echo":              {"suffix-" + secret},
+		"X-Safe":              {"kept"},
+	}
+	before := source.Clone()
+
+	got := sanitizeUpstreamResponseHeaders(source, secret)
+
+	credentialNames := []string{
+		"Authorization", "Proxy-Authorization", "Api-Key",
+		"X-Api-Key", "X-Goog-Api-Key",
+	}
+	for actualName, values := range got {
+		for _, credentialName := range credentialNames {
+			if strings.EqualFold(actualName, credentialName) {
+				t.Fatalf("credential Header %q survived: %#v", actualName, values)
+			}
+		}
+		if headerValuesContainKey(values, secret) {
+			t.Fatalf("Header %q retained current key: %#v", actualName, values)
+		}
+	}
+	if safe := got["X-Safe"]; len(safe) != 1 || safe[0] != "kept" || !reflect.DeepEqual(source, before) {
+		t.Fatalf("safe/source headers = %#v / %#v", got, source)
+	}
+}
+
+func TestSanitizeUpstreamResponseHeadersRemovesAllCasingsOfMatchedField(t *testing.T) {
+	const secret = "provider-secret-duplicate-casing"
+	source := http.Header{
+		"X-Echo": {"safe"},
+		"x-echo": {"prefix-" + secret},
+		"X-Safe": {"kept"},
+	}
+	before := source.Clone()
+
+	got := sanitizeUpstreamResponseHeaders(source, secret)
+
+	for actualName := range got {
+		if strings.EqualFold(actualName, "X-Echo") {
+			t.Fatalf("logical Header X-Echo survived as %q: %#v", actualName, got[actualName])
+		}
+	}
+	if safe := got["X-Safe"]; len(safe) != 1 || safe[0] != "kept" || !reflect.DeepEqual(source, before) {
+		t.Fatalf("safe/source headers = %#v / %#v", got, source)
+	}
+}
+
+func TestNonIdentityEncodingContainsKeyHandlesNonCanonicalFieldNames(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		headers http.Header
+	}{
+		{
+			name: "lowercase encoding triggers success protocol failure",
+			headers: http.Header{
+				"content-encoding": {"gzip"},
+			},
+		},
+		{
+			name: "duplicate casing aggregates error response encodings",
+			headers: http.Header{
+				"Content-Encoding": {"identity"},
+				"cOnTeNt-EnCoDiNg": {"gzip"},
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if !nonIdentityEncodingContainsKey(test.headers, "gzip") {
+				t.Fatalf("nonIdentityEncodingContainsKey(%#v, gzip) = false", test.headers)
+			}
+		})
+	}
+}
+
+func TestForwarderFailsClosedWhenShortKeyMatchesContentEncoding(t *testing.T) {
+	tests := []struct {
+		name    string
+		status  int
+		wantErr bool
+	}{
+		{name: "success", status: http.StatusOK, wantErr: true},
+		{name: "error", status: http.StatusUnauthorized},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			wire, err := utils.CompressResponse("gzip", []byte(`{"error":"safe"}`))
+			if err != nil {
+				t.Fatal(err)
+			}
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Encoding", "gzip")
+				w.WriteHeader(test.status)
+				_, _ = w.Write(wire)
+			}))
+			defer upstream.Close()
+			result := testForward(t, upstream.URL, "gzip", time.Second)
+			if test.wantErr {
+				if !errors.Is(result.Err, ErrUpstreamProtocol) || !result.RequestWritten {
+					t.Fatalf("result = %#v", result)
+				}
+				return
+			}
+			if result.Err != nil || result.StatusCode != test.status ||
+				string(result.Body) != redact.Placeholder || result.Header.Get("Content-Encoding") != "" {
+				t.Fatalf("result = %#v", result)
+			}
+		})
+	}
+}
+
+func TestShortKeyErrorCollisionRemovesAllContentEncodingCasings(t *testing.T) {
+	headers := http.Header{
+		"Content-Encoding": {"identity"},
+		"cOnTeNt-EnCoDiNg": {"gzip"},
+	}
+	if !nonIdentityEncodingContainsKey(headers, "identity") {
+		t.Fatalf("nonIdentityEncodingContainsKey(%#v, identity) = false", headers)
+	}
+
+	result := UpstreamResult{StatusCode: http.StatusUnauthorized, RequestWritten: true}
+	result.Body, result.ClassificationBody = failClosedErrorBody(headers)
+	result.Header = sanitizeUpstreamResponseHeaders(headers, "identity")
+
+	if result.StatusCode != http.StatusUnauthorized || string(result.Body) != redact.Placeholder ||
+		string(result.ClassificationBody) != redact.Placeholder {
+		t.Fatalf("result = %#v", result)
+	}
+	for actualName := range result.Header {
+		if strings.EqualFold(actualName, "Content-Encoding") {
+			t.Fatalf("Content-Encoding survived as %q: %#v", actualName, result.Header[actualName])
+		}
+	}
+}
+
+func TestForwarderSanitizesResponseHeadersOnAllPaths(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		stream bool
+		status int
+	}{
+		{name: "nonstream success", status: http.StatusOK},
+		{name: "nonstream error", status: http.StatusUnauthorized},
+		{name: "stream success", stream: true, status: http.StatusOK},
+		{name: "stream error", stream: true, status: http.StatusUnauthorized},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			const secret = "provider-secret-all-paths"
+			upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				writer.Header().Set("X-Echo", "prefix-"+secret)
+				writer.Header().Set("X-Safe", "kept")
+				writer.WriteHeader(test.status)
+				if test.stream && test.status == http.StatusOK {
+					_, _ = writer.Write([]byte("data: ok\n\n"))
+					return
+				}
+				_, _ = writer.Write([]byte(`{"error":"safe"}`))
+			}))
+			defer upstream.Close()
+
+			forwarder := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New())
+			input := streamForwardInput(upstream.URL)
+			input.APIKey = secret
+			downstream := newRecordingResponseWriter()
+			var result UpstreamResult
+			if test.stream {
+				result = forwarder.ForwardStream(t.Context(), input, downstream)
+			} else {
+				result = forwarder.Forward(t.Context(), input)
+			}
+			if result.Err != nil || result.Header.Get("X-Echo") != "" || result.Header.Get("X-Safe") != "kept" {
+				t.Fatalf("result = %#v", result)
+			}
+			if test.stream && test.status == http.StatusOK &&
+				(downstream.header.Get("X-Echo") != "" || downstream.header.Get("X-Safe") != "kept") {
+				t.Fatalf("downstream headers = %#v", downstream.header)
+			}
+		})
+	}
+}
+
+func TestForwarderSanitizesResponseHeadersWithCurrentAttemptKey(t *testing.T) {
+	for _, secret := range []string{"secret-one", "secret-two"} {
+		t.Run(secret, func(t *testing.T) {
+			upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				writer.Header().Set("X-Echo", "prefix-"+secret)
+				writer.Header().Set("X-Safe", "kept")
+				_, _ = writer.Write([]byte(`{"ok":true}`))
+			}))
+			defer upstream.Close()
+
+			result := testForward(t, upstream.URL, secret, time.Second)
+			if result.Err != nil || result.Header.Get("X-Echo") != "" ||
+				result.Header.Get("X-Safe") != "kept" {
+				t.Fatalf("result = %#v", result)
+			}
+		})
+	}
+}
 
 func TestForwardStreamForcesIdentityAfterHeaderRules(t *testing.T) {
 	tests := []struct {
