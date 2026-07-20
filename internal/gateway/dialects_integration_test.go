@@ -2,11 +2,14 @@ package gateway
 
 import (
 	"bufio"
+	"bytes"
+	"encoding/json"
 	"io"
 	"math/rand"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -30,6 +33,7 @@ type dialectGatewayGroup struct {
 	name        string
 	upstreamURL string
 	apiKeys     []string
+	models      []state.ModelConfig
 	headerRules state.HeaderRules
 	firstByte   time.Duration
 }
@@ -52,10 +56,14 @@ func newDialectGatewayEngine(
 	entries := make([]state.KeyEntry, 0)
 	keyID := uint(1)
 	for _, group := range groups {
+		models := group.models
+		if len(models) == 0 {
+			models = []state.ModelConfig{{ID: model}}
+		}
 		configs = append(configs, state.GroupConfig{
 			ID: group.id, Name: group.name, UpstreamURL: group.upstreamURL,
 			Protocols: []protocol.Protocol{selectedProtocol},
-			Models:    []state.ModelConfig{{ID: model}}, Enabled: true,
+			Models:    models, Enabled: true,
 		})
 		for _, apiKey := range group.apiKeys {
 			ciphertext, encryptErr := keyService.Encrypt(apiKey)
@@ -105,6 +113,269 @@ func newDialectGatewayEngine(
 	engine := gin.New()
 	handler.RegisterRoutes(engine)
 	return engine, registry
+}
+
+func TestGatewayRewritesEachAttemptFromOriginal(t *testing.T) {
+	first := fakeupstream.New(fakeupstream.Step{Status: http.StatusUnauthorized, Fixture: "401.json"})
+	defer first.Close()
+	second := fakeupstream.New(fakeupstream.Step{Status: http.StatusOK, Fixture: "success.json"})
+	defer second.Close()
+
+	engine, _ := newDialectGatewayEngine(t, protocol.OpenAI, "public",
+		dialect.NewSet(dialect.NewOpenAI(http.DefaultClient)),
+		dialectGatewayGroup{
+			id: 1, name: "first", upstreamURL: first.URL, apiKeys: []string{"sk-first"},
+			models: []state.ModelConfig{{ID: "provider-one", Alias: "public"}},
+		},
+		dialectGatewayGroup{
+			id: 2, name: "second", upstreamURL: second.URL, apiKeys: []string{"sk-second"},
+			models: []state.ModelConfig{{ID: "provider-two", Alias: "public"}},
+		},
+	)
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"public"}`))
+	request.Header.Set("Authorization", "Bearer gl-client")
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK || recorder.Header().Get(debugHeaderAttempts) != "2" {
+		t.Fatalf("response = %d headers=%v body=%s", recorder.Code, recorder.Header(), recorder.Body.String())
+	}
+	requests := append(first.Requests(), second.Requests()...)
+	if len(requests) != 2 {
+		t.Fatalf("upstream requests = %d, want 2", len(requests))
+	}
+	wantModels := []string{"provider-one", "provider-two"}
+	for index, received := range requests {
+		var body struct {
+			Model string `json:"model"`
+		}
+		if err := json.Unmarshal(received.Body, &body); err != nil {
+			t.Fatalf("decode upstream request %d: %v", index+1, err)
+		}
+		if body.Model != wantModels[index] {
+			t.Fatalf("upstream request %d model = %q, want %q; body=%s", index+1, body.Model, wantModels[index], received.Body)
+		}
+	}
+}
+
+func TestForwarderRewritesAliasedNonStreamingResponses(t *testing.T) {
+	tests := []struct {
+		name             string
+		value            protocol.Protocol
+		dialects         dialect.Set
+		path             string
+		requestBody      string
+		upstreamResponse string
+		responseField    string
+	}{
+		{
+			name: "OpenAI", value: protocol.OpenAI,
+			dialects: dialect.NewSet(dialect.NewOpenAI(http.DefaultClient)),
+			path:     "/v1/chat/completions", requestBody: `{"model":"public-model"}`,
+			upstreamResponse: `{"id":"chatcmpl-1","model":"provider-response"}`,
+			responseField:    "model",
+		},
+		{
+			name: "Anthropic", value: protocol.Anthropic,
+			dialects: dialect.NewSet(dialect.NewAnthropic(http.DefaultClient)),
+			path:     "/v1/messages", requestBody: `{"model":"public-model"}`,
+			upstreamResponse: `{"type":"message","model":"provider-response"}`,
+			responseField:    "model",
+		},
+		{
+			name: "Gemini", value: protocol.Gemini,
+			dialects: dialect.NewSet(dialect.NewGemini(http.DefaultClient)),
+			path:     "/v1beta/models/public-model:generateContent", requestBody: `{}`,
+			upstreamResponse: `{"modelVersion":"provider-response","candidates":[]}`,
+			responseField:    "modelVersion",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var receivedPath string
+			var receivedHeader http.Header
+			var receivedBody []byte
+			upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				receivedPath = request.URL.Path
+				receivedHeader = request.Header.Clone()
+				receivedBody, _ = io.ReadAll(request.Body)
+				writer.Header().Set("Content-Type", "application/json")
+				writer.Header().Set("Content-Length", strconv.Itoa(len(test.upstreamResponse)))
+				setRepresentationMetadata(writer.Header())
+				_, _ = writer.Write([]byte(test.upstreamResponse))
+			}))
+			defer upstream.Close()
+
+			engine, _ := newDialectGatewayEngine(t, test.value, "public-model", test.dialects,
+				dialectGatewayGroup{
+					id: 1, name: test.name, upstreamURL: upstream.URL, apiKeys: []string{"provider-key"},
+					models: []state.ModelConfig{{ID: "provider-model", Alias: "public-model"}},
+				},
+			)
+			request := httptest.NewRequest(http.MethodPost, test.path, strings.NewReader(test.requestBody))
+			request.Header.Set("Authorization", "Bearer gl-client")
+			recorder := httptest.NewRecorder()
+			engine.ServeHTTP(recorder, request)
+
+			if recorder.Code != http.StatusOK {
+				t.Fatalf("response = %d headers=%v body=%s", recorder.Code, recorder.Header(), recorder.Body.String())
+			}
+			if receivedHeader.Get("Accept-Encoding") != "identity" {
+				t.Fatalf("upstream Accept-Encoding = %q, want identity", receivedHeader.Get("Accept-Encoding"))
+			}
+			if test.value == protocol.Gemini {
+				if receivedPath != "/v1beta/models/provider-model:generateContent" {
+					t.Fatalf("upstream path = %q", receivedPath)
+				}
+			} else {
+				var upstreamBody struct {
+					Model string `json:"model"`
+				}
+				if err := json.Unmarshal(receivedBody, &upstreamBody); err != nil || upstreamBody.Model != "provider-model" {
+					t.Fatalf("upstream request body/model = %s / %q / %v", receivedBody, upstreamBody.Model, err)
+				}
+			}
+			var downstreamBody map[string]json.RawMessage
+			if err := json.Unmarshal(recorder.Body.Bytes(), &downstreamBody); err != nil {
+				t.Fatalf("decode downstream response: %v", err)
+			}
+			var responseModel string
+			if err := json.Unmarshal(downstreamBody[test.responseField], &responseModel); err != nil || responseModel != "public-model" {
+				t.Fatalf("downstream model = %q, %v; body=%s", responseModel, err, recorder.Body.String())
+			}
+			if got := recorder.Header().Get("Content-Length"); got != strconv.Itoa(recorder.Body.Len()) {
+				t.Fatalf("Content-Length = %q, want %d", got, recorder.Body.Len())
+			}
+			assertRepresentationMetadata(t, recorder.Header(), false)
+		})
+	}
+}
+
+func TestTransparentModelRoutePreservesWire(t *testing.T) {
+	rawResponse := []byte("{\n  \"model\" : \"same-model\", \"n\": 9007199254740993\n}\n")
+	var receivedHeader http.Header
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		receivedHeader = request.Header.Clone()
+		writer.Header().Set("Content-Type", "application/json")
+		writer.Header().Set("Content-Length", strconv.Itoa(len(rawResponse)))
+		setRepresentationMetadata(writer.Header())
+		_, _ = writer.Write(rawResponse)
+	}))
+	defer upstream.Close()
+
+	engine, _ := newDialectGatewayEngine(t, protocol.OpenAI, "same-model",
+		dialect.NewSet(dialect.NewOpenAI(http.DefaultClient)),
+		dialectGatewayGroup{
+			id: 1, name: "transparent", upstreamURL: upstream.URL, apiKeys: []string{"provider-key"},
+			models:      []state.ModelConfig{{ID: "same-model"}},
+			headerRules: state.HeaderRules{Set: map[string]string{"Accept-Encoding": "gzip"}},
+		},
+	)
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"same-model"}`))
+	request.Header.Set("Authorization", "Bearer gl-client")
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK || !bytes.Equal(recorder.Body.Bytes(), rawResponse) {
+		t.Fatalf("transparent response = %d %q, want %q", recorder.Code, recorder.Body.Bytes(), rawResponse)
+	}
+	if receivedHeader.Get("Accept-Encoding") != "gzip" {
+		t.Fatalf("upstream Accept-Encoding = %q, want HeaderRule gzip", receivedHeader.Get("Accept-Encoding"))
+	}
+	assertRepresentationMetadata(t, recorder.Header(), true)
+}
+
+func TestGatewayRewritesAliasedStreams(t *testing.T) {
+	tests := []struct {
+		name        string
+		value       protocol.Protocol
+		dialects    dialect.Set
+		path        string
+		requestBody string
+		streamBody  string
+		want        string
+		unchanged   string
+	}{
+		{
+			name: "OpenAI", value: protocol.OpenAI,
+			dialects: dialect.NewSet(dialect.NewOpenAI(http.DefaultClient)),
+			path:     "/v1/chat/completions", requestBody: `{"model":"public-model","stream":true}`,
+			streamBody: "data: {\"id\":\"1\",\"model\":\"provider-model\",\"choices\":[]}\n\ndata: [DONE]\n\n",
+			want:       `"model":"public-model"`, unchanged: "data: [DONE]\n\n",
+		},
+		{
+			name: "Anthropic", value: protocol.Anthropic,
+			dialects: dialect.NewSet(dialect.NewAnthropic(http.DefaultClient)),
+			path:     "/v1/messages", requestBody: `{"model":"public-model","stream":true}`,
+			streamBody: "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"model\":\"provider-model\"}}\n\n" +
+				"event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"delta\":{\"text\":\"unchanged\"}}\n\n",
+			want: `"model":"public-model"`, unchanged: "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"delta\":{\"text\":\"unchanged\"}}\n\n",
+		},
+		{
+			name: "Gemini", value: protocol.Gemini,
+			dialects: dialect.NewSet(dialect.NewGemini(http.DefaultClient)),
+			path:     "/v1beta/models/public-model:streamGenerateContent", requestBody: `{}`,
+			streamBody: "data: {\"modelVersion\":\"provider-model\",\"candidates\":[]}\n\n",
+			want:       `"modelVersion":"public-model"`,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var receivedPath string
+			var receivedHeader http.Header
+			var receivedBody []byte
+			upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				receivedPath = request.URL.Path
+				receivedHeader = request.Header.Clone()
+				receivedBody, _ = io.ReadAll(request.Body)
+				writer.Header().Set("Content-Type", "text/event-stream")
+				writer.Header().Set("Content-Length", strconv.Itoa(len(test.streamBody)))
+				setRepresentationMetadata(writer.Header())
+				_, _ = writer.Write([]byte(test.streamBody))
+				writer.(http.Flusher).Flush()
+			}))
+			defer upstream.Close()
+
+			engine, _ := newDialectGatewayEngine(t, test.value, "public-model", test.dialects,
+				dialectGatewayGroup{
+					id: 1, name: test.name, upstreamURL: upstream.URL, apiKeys: []string{"provider-key"},
+					models: []state.ModelConfig{{ID: "provider-model", Alias: "public-model"}},
+				},
+			)
+			request := httptest.NewRequest(http.MethodPost, test.path, strings.NewReader(test.requestBody))
+			request.Header.Set("Authorization", "Bearer gl-client")
+			recorder := httptest.NewRecorder()
+			engine.ServeHTTP(recorder, request)
+
+			if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), test.want) {
+				t.Fatalf("stream response = %d headers=%v body=%s", recorder.Code, recorder.Header(), recorder.Body.String())
+			}
+			if test.unchanged != "" && !strings.Contains(recorder.Body.String(), test.unchanged) {
+				t.Fatalf("stream lost unchanged event: %q", recorder.Body.String())
+			}
+			if receivedHeader.Get("Accept-Encoding") != "identity" {
+				t.Fatalf("upstream Accept-Encoding = %q", receivedHeader.Get("Accept-Encoding"))
+			}
+			if test.value == protocol.Gemini {
+				if receivedPath != "/v1beta/models/provider-model:streamGenerateContent" {
+					t.Fatalf("upstream path = %q", receivedPath)
+				}
+			} else {
+				var upstreamBody struct {
+					Model string `json:"model"`
+				}
+				if err := json.Unmarshal(receivedBody, &upstreamBody); err != nil || upstreamBody.Model != "provider-model" {
+					t.Fatalf("upstream request model/body = %q / %s / %v", upstreamBody.Model, receivedBody, err)
+				}
+			}
+			if recorder.Header().Get("Content-Length") != "" {
+				t.Fatalf("stream Content-Length = %q, want removed", recorder.Header().Get("Content-Length"))
+			}
+			assertRepresentationMetadata(t, recorder.Header(), false)
+		})
+	}
 }
 
 func TestAnthropicGatewayNonStreamAuthAndForwarding(t *testing.T) {

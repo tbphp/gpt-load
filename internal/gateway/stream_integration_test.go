@@ -245,6 +245,78 @@ func TestHandlerStreamsProgressively(t *testing.T) {
 	}
 }
 
+func TestAliasedStreamRemainsProgressive(t *testing.T) {
+	firstEventSent := make(chan struct{})
+	releaseSecondEvent := make(chan struct{})
+	var releaseOnce sync.Once
+	t.Cleanup(func() { releaseOnce.Do(func() { close(releaseSecondEvent) }) })
+
+	first := "data: {\"model\":\"provider-model\",\"value\":1}\n\n"
+	second := "data: {\"value\":2}\n\n"
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "text/event-stream")
+		writer.Header().Set("Content-Length", strconv.Itoa(len(first)+len(second)))
+		setRepresentationMetadata(writer.Header())
+		_, _ = writer.Write([]byte(first))
+		writer.(http.Flusher).Flush()
+		close(firstEventSent)
+		select {
+		case <-releaseSecondEvent:
+			_, _ = writer.Write([]byte(second))
+			writer.(http.Flusher).Flush()
+		case <-request.Context().Done():
+		}
+	}))
+	defer upstream.Close()
+
+	engine, _ := newStreamingGatewayEngine(t, streamGatewayGroup{
+		id: 1, name: "alias-progressive", upstreamURL: upstream.URL, apiKey: "sk-progressive",
+		modelID: "provider-model", alias: "public-model",
+	})
+	gatewayServer := httptest.NewServer(engine)
+	defer gatewayServer.Close()
+
+	request, err := http.NewRequest(http.MethodPost, gatewayServer.URL+"/v1/chat/completions", strings.NewReader(`{"model":"public-model","stream":true}`))
+	if err != nil {
+		t.Fatalf("NewRequest() error = %v", err)
+	}
+	request.Header.Set("Authorization", "Bearer gl-client")
+	client := &http.Client{Timeout: 2 * time.Second}
+	response, err := client.Do(request)
+	if err != nil {
+		t.Fatalf("stream request error = %v", err)
+	}
+	defer response.Body.Close()
+
+	select {
+	case <-firstEventSent:
+	case <-time.After(time.Second):
+		t.Fatal("upstream did not send first event")
+	}
+	reader := bufio.NewReader(response.Body)
+	firstLine, err := reader.ReadString('\n')
+	if err != nil {
+		t.Fatalf("read rewritten first data line: %v", err)
+	}
+	blank, err := reader.ReadString('\n')
+	if err != nil {
+		t.Fatalf("read rewritten first boundary: %v", err)
+	}
+	if got := firstLine + blank; !strings.Contains(got, `"model":"public-model"`) || strings.Contains(got, `"model":"provider-model"`) {
+		t.Fatalf("first progressive alias event = %q", got)
+	}
+	if response.Header.Get("Content-Length") != "" {
+		t.Fatalf("stream Content-Length = %q, want removed", response.Header.Get("Content-Length"))
+	}
+	assertRepresentationMetadata(t, response.Header, false)
+
+	releaseOnce.Do(func() { close(releaseSecondEvent) })
+	rest, err := io.ReadAll(reader)
+	if err != nil || string(rest) != second {
+		t.Fatalf("remaining stream = %q, %v, want %q", rest, err, second)
+	}
+}
+
 func TestHandlerStreamFirstEventTimeout(t *testing.T) {
 	t.Run("partial event times out then backup succeeds", func(t *testing.T) {
 		canceled := make(chan struct{})
@@ -674,6 +746,8 @@ type streamGatewayGroup struct {
 	name        string
 	upstreamURL string
 	apiKey      string
+	modelID     string
+	alias       string
 	firstByte   time.Duration
 	streamIdle  time.Duration
 }
@@ -689,10 +763,14 @@ func newStreamingGatewayEngine(t *testing.T, groups ...streamGatewayGroup) (*gin
 	groupConfigs := make([]state.GroupConfig, 0, len(groups))
 	entries := make([]state.KeyEntry, 0, len(groups))
 	for index, group := range groups {
+		modelID := group.modelID
+		if modelID == "" {
+			modelID = "gpt-4o"
+		}
 		groupConfigs = append(groupConfigs, state.GroupConfig{
 			ID: group.id, Name: group.name, UpstreamURL: group.upstreamURL,
 			Protocols: []protocol.Protocol{protocol.OpenAI},
-			Models:    []state.ModelConfig{{ID: "gpt-4o"}}, Enabled: true,
+			Models:    []state.ModelConfig{{ID: modelID, Alias: group.alias}}, Enabled: true,
 		})
 		encrypted, encryptErr := keyService.Encrypt(group.apiKey)
 		if encryptErr != nil {

@@ -123,7 +123,7 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 	iterator := scheduler.New(snapshot, handler.registry, scheduler.Query{
 		Protocol: selectedRoute.Protocol, ExternalModel: model, AccessKey: accessKey,
 	}, handler.newRandom())
-	handler.executeAttempts(ginContext, iterator, selectedDialect, parsed, stream)
+	handler.executeAttempts(ginContext, iterator, selectedDialect, parsed, model, stream)
 }
 
 func readRequestBody(reader io.Reader, limit int64) ([]byte, error) {
@@ -148,6 +148,7 @@ func (handler *Handler) executeAttempts(
 	iterator *scheduler.Iterator,
 	selectedDialect dialect.Dialect,
 	parsed *dialect.ParsedRequest,
+	externalModel string,
 	stream bool,
 ) {
 	var lastResponse *UpstreamResult
@@ -177,6 +178,7 @@ func (handler *Handler) executeAttempts(
 		updateDebugHeaders(ginContext.Writer.Header(), selection.Group.Name, apiKey, attempts)
 		input := ForwardInput{
 			Dialect: selectedDialect, Group: selection.Group, APIKey: apiKey, Request: parsed,
+			ExternalModel: externalModel, UpstreamModelID: selection.UpstreamModelID,
 		}
 		var result UpstreamResult
 		if stream {

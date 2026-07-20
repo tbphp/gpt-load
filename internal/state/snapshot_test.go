@@ -11,55 +11,79 @@ import (
 	"gpt-load/internal/protocol"
 )
 
-func TestCompileBuildsIDOnlyCandidatesAndActiveAccessKeys(t *testing.T) {
-	input := CompileInput{
-		Groups: []GroupConfig{
-			{
-				ID: 1, Name: "enabled", UpstreamURL: "https://one.example.com",
-				Protocols: []protocol.Protocol{protocol.OpenAI, protocol.Anthropic},
-				Models: []ModelConfig{
-					{ID: "model-real", Alias: "model-alias"},
-					{ID: "model-real", Alias: "second-alias"},
-				},
-				Enabled: true,
+func TestCompileIndexesExternalModelsAndPreservesUpstreamIDs(t *testing.T) {
+	input := CompileInput{Groups: []GroupConfig{
+		{
+			ID: 1, Name: "one", UpstreamURL: "https://one.example.com",
+			Protocols: []protocol.Protocol{protocol.OpenAI},
+			Models: []ModelConfig{
+				{ID: "provider-a", Alias: "public"},
+				{ID: "provider-a", Alias: "secondary"},
+				{ID: "plain"},
 			},
-			{
-				ID: 2, Name: "disabled", UpstreamURL: "https://two.example.com",
-				Protocols: []protocol.Protocol{protocol.OpenAI},
-				Models:    []ModelConfig{{ID: "hidden"}}, Enabled: false,
-			},
+			Enabled: true,
 		},
-		AccessKeys: []AccessKeyConfig{
-			{ID: 10, Name: "active", KeyHash: "active-hash", Status: AccessKeyStatusActive},
-			{ID: 11, Name: "disabled", KeyHash: "disabled-hash", Status: AccessKeyStatusDisabled},
+		{
+			ID: 2, Name: "two", UpstreamURL: "https://two.example.com",
+			Protocols: []protocol.Protocol{protocol.OpenAI},
+			Models:    []ModelConfig{{ID: "provider-b", Alias: "public"}}, Enabled: true,
 		},
-	}
+	}}
 
 	snapshot, err := Compile(input)
 	if err != nil {
 		t.Fatalf("Compile() error = %v", err)
 	}
-	if _, ok := snapshot.Candidates[protocol.OpenAI]["model-alias"]; ok {
-		t.Fatal("alias unexpectedly entered the candidate index")
+	wantPublic := []RouteTarget{
+		{GroupID: 1, UpstreamModelID: "provider-a"},
+		{GroupID: 2, UpstreamModelID: "provider-b"},
 	}
-	targets := snapshot.Candidates[protocol.OpenAI]["model-real"]
-	if len(targets) != 1 || targets[0] != (RouteTarget{GroupID: 1, UpstreamModelID: "model-real"}) {
-		t.Fatalf("OpenAI targets = %#v", targets)
+	if got := snapshot.Candidates[protocol.OpenAI]["public"]; !reflect.DeepEqual(got, wantPublic) {
+		t.Fatalf("public targets = %#v, want %#v", got, wantPublic)
 	}
-	if got := len(snapshot.Groups[1].Models); got != 2 {
-		t.Fatalf("GroupView.Models length = %d, want both alias entries", got)
+	if got := snapshot.Candidates[protocol.OpenAI]["secondary"]; len(got) != 1 || got[0].UpstreamModelID != "provider-a" {
+		t.Fatalf("secondary targets = %#v", got)
 	}
-	if _, ok := snapshot.Groups[2]; ok {
-		t.Fatal("disabled group entered snapshot")
+	if got := snapshot.Candidates[protocol.OpenAI]["plain"]; len(got) != 1 || got[0].UpstreamModelID != "plain" {
+		t.Fatalf("plain targets = %#v", got)
 	}
-	if _, ok := snapshot.Candidates[protocol.OpenAI]["hidden"]; ok {
-		t.Fatal("disabled group model entered candidate index")
+	if _, exists := snapshot.Candidates[protocol.OpenAI]["provider-a"]; exists {
+		t.Fatal("aliased upstream id entered external index")
 	}
-	if _, ok := snapshot.AccessKeysByHash["active-hash"]; !ok {
-		t.Fatal("active key missing")
+}
+
+func TestCompileRejectsDuplicateExternalModelWithinGroup(t *testing.T) {
+	tests := []struct {
+		name   string
+		models []ModelConfig
+	}{
+		{name: "two ids share alias", models: []ModelConfig{{ID: "a", Alias: "public"}, {ID: "b", Alias: "public"}}},
+		{name: "alias collides with plain id", models: []ModelConfig{{ID: "a"}, {ID: "b", Alias: "a"}}},
+		{name: "duplicate entry", models: []ModelConfig{{ID: "a"}, {ID: "a"}}},
 	}
-	if _, ok := snapshot.AccessKeysByHash["disabled-hash"]; ok {
-		t.Fatal("disabled key entered snapshot")
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := Compile(CompileInput{Groups: []GroupConfig{{
+				ID: 1, Name: "group", UpstreamURL: "https://example.com",
+				Protocols: []protocol.Protocol{protocol.OpenAI}, Models: test.models, Enabled: true,
+			}}})
+			if err == nil || !strings.Contains(err.Error(), "duplicate external model") {
+				t.Fatalf("Compile() error = %v", err)
+			}
+		})
+	}
+}
+
+func TestCompileSkipsDisabledGroupValidation(t *testing.T) {
+	snapshot, err := Compile(CompileInput{Groups: []GroupConfig{{
+		ID: 1, Name: "disabled", Enabled: false,
+		Models: []ModelConfig{{ID: " ", Alias: "public"}, {ID: "other", Alias: "public"}},
+	}}})
+	if err != nil {
+		t.Fatalf("Compile() error = %v, want disabled group skipped", err)
+	}
+	if len(snapshot.Groups) != 0 || len(snapshot.Candidates) != 0 {
+		t.Fatalf("snapshot includes disabled group: %#v", snapshot)
 	}
 }
 

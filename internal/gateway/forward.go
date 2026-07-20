@@ -24,10 +24,12 @@ import (
 )
 
 type ForwardInput struct {
-	Dialect dialect.Dialect
-	Group   state.GroupView
-	APIKey  string
-	Request *dialect.ParsedRequest
+	Dialect         dialect.Dialect
+	Group           state.GroupView
+	APIKey          string
+	Request         *dialect.ParsedRequest
+	ExternalModel   string
+	UpstreamModelID string
 }
 
 type UpstreamResult struct {
@@ -102,6 +104,39 @@ func (forwarder *Forwarder) Forward(ctx context.Context, input ForwardInput) Ups
 	}
 
 	headers := cloneEndToEndHeaders(response.Header)
+	if success && needsModelRewrite(input) {
+		if !inspectableStreamEncoding(response.Header) {
+			return UpstreamResult{
+				Err: fmt.Errorf(
+					"%w: Content-Encoding %q",
+					ErrUpstreamProtocol,
+					response.Header.Values("Content-Encoding"),
+				),
+				RequestWritten: true,
+			}
+		}
+		rewriter, ok := input.Dialect.(dialect.ModelRewriter)
+		if !ok {
+			return UpstreamResult{
+				Err:            fmt.Errorf("%w: dialect does not support model rewrite", ErrUpstreamProtocol),
+				RequestWritten: true,
+			}
+		}
+		body, err = rewriter.RewriteResponseModel(body, input.ExternalModel)
+		if err != nil {
+			return UpstreamResult{
+				Err:            fmt.Errorf("%w: rewrite upstream response model: %v", ErrUpstreamProtocol, err),
+				RequestWritten: true,
+			}
+		}
+		if int64(len(body)) > maxNonStreamingResponseBodyBytes {
+			return UpstreamResult{
+				Err:            fmt.Errorf("%w: rewritten non-streaming response body exceeds limit", ErrUpstreamProtocol),
+				RequestWritten: true,
+			}
+		}
+		updateRewrittenBodyHeaders(headers, len(body))
+	}
 	result := UpstreamResult{
 		StatusCode:     response.StatusCode,
 		Body:           body,
@@ -152,7 +187,8 @@ func (forwarder *Forwarder) ForwardStream(
 			RequestWritten: wroteRequest.Load(), RetryableBeforeCommit: retryableBeforeCommit(ctx),
 		}
 	}
-	defer response.Body.Close()
+	streamBody := response.Body
+	defer func() { _ = streamBody.Close() }()
 
 	headers := cloneEndToEndHeaders(response.Header)
 	result := UpstreamResult{
@@ -160,7 +196,7 @@ func (forwarder *Forwarder) ForwardStream(
 		RequestWritten: true,
 	}
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-		body, overflow, readErr := readStreamingErrorBody(response.Body)
+		body, overflow, readErr := readStreamingErrorBody(streamBody)
 		if readErr != nil {
 			result.Err = streamAttemptError(ctx, deadline.ctx, fmt.Errorf("read upstream stream error response: %w", readErr))
 			result.RetryableBeforeCommit = retryableBeforeCommit(ctx)
@@ -184,9 +220,26 @@ func (forwarder *Forwarder) ForwardStream(
 		return result
 	}
 
-	prefix, err := bufferFirstSSEEvent(response.Body)
+	if needsModelRewrite(input) {
+		rewriter, ok := input.Dialect.(dialect.ModelRewriter)
+		if !ok {
+			result.Err = fmt.Errorf("%w: dialect does not support model rewrite", ErrUpstreamProtocol)
+			result.RetryableBeforeCommit = retryableBeforeCommit(ctx)
+			return result
+		}
+		streamBody = newSSERewriteStream(streamBody, func(data []byte) ([]byte, error) {
+			rewritten, err := rewriter.RewriteResponseModel(data, input.ExternalModel)
+			if err != nil {
+				return nil, fmt.Errorf("%w: rewrite upstream response model: %v", ErrUpstreamProtocol, err)
+			}
+			return rewritten, nil
+		})
+		invalidateRewrittenStreamHeaders(headers)
+	}
+
+	prefix, err := bufferFirstSSEEvent(streamBody)
 	if err != nil {
-		if errors.Is(err, errFirstSSEEventTooLarge) {
+		if errors.Is(err, errFirstSSEEventTooLarge) || errors.Is(err, errSSEEventTooLarge) {
 			err = fmt.Errorf("%w: %w", ErrUpstreamProtocol, err)
 		}
 		result.Err = streamAttemptError(ctx, deadline.ctx, err)
@@ -208,12 +261,12 @@ func (forwarder *Forwarder) ForwardStream(
 	defer func() { _ = streamWriter.clear() }()
 
 	result.Committed = true
-	releaseCommittedRequestReplay(input.Request, replay)
+	releaseCommittedRequestReplay(replay)
 	if err := commitStream(streamWriter, response.StatusCode, result.Header, prefix); err != nil {
 		result.Err = err
 		return result
 	}
-	if err := pumpStream(deadline.ctx, response.Body, streamWriter, input.Group.Timeouts.StreamIdle); err != nil {
+	if err := pumpStream(deadline.ctx, streamBody, streamWriter, input.Group.Timeouts.StreamIdle); err != nil {
 		result.Err = err
 	}
 	return result
@@ -223,10 +276,7 @@ func retryableBeforeCommit(parent context.Context) bool {
 	return parent != nil && parent.Err() == nil
 }
 
-func releaseCommittedRequestReplay(parsed *dialect.ParsedRequest, replay *requestReplay) {
-	if parsed != nil {
-		parsed.Body = nil
-	}
+func releaseCommittedRequestReplay(replay *requestReplay) {
 	if replay != nil {
 		replay.release()
 	}
@@ -237,21 +287,40 @@ func newUpstreamRequest(
 	input ForwardInput,
 	stream bool,
 ) (*http.Request, *atomic.Bool, *requestReplay, error) {
-	upstreamURL, err := input.Dialect.BuildUpstreamURL(input.Group.UpstreamURL, input.Request)
+	parsed := input.Request
+	rewrite := needsModelRewrite(input)
+	if rewrite {
+		rewriter, ok := input.Dialect.(dialect.ModelRewriter)
+		if !ok {
+			return nil, nil, nil, fmt.Errorf("dialect does not support model rewriting")
+		}
+		derived, err := rewriter.RewriteRequestModel(input.Request, input.UpstreamModelID)
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("rewrite upstream request model: %w", err)
+		}
+		if derived == nil {
+			return nil, nil, nil, fmt.Errorf("rewrite upstream request model returned nil request")
+		}
+		if int64(len(derived.Body)) > maxRequestBodyBytes {
+			return nil, nil, nil, fmt.Errorf("%w: rewritten request body exceeds limit", errRequestTooLarge)
+		}
+		parsed = derived
+	}
+	upstreamURL, err := input.Dialect.BuildUpstreamURL(input.Group.UpstreamURL, parsed)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("build upstream URL: %w", err)
 	}
-	replay := newRequestReplay(input.Request.Body)
-	request, err := http.NewRequestWithContext(ctx, input.Request.Method, upstreamURL, replay.open())
+	replay := newRequestReplay(parsed.Body)
+	request, err := http.NewRequestWithContext(ctx, parsed.Method, upstreamURL, replay.open())
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("create upstream request: %w", err)
 	}
-	request.ContentLength = int64(len(input.Request.Body))
+	request.ContentLength = int64(len(parsed.Body))
 	request.GetBody = func() (io.ReadCloser, error) { return replay.open(), nil }
-	request.Header = cloneEndToEndHeaders(input.Request.Header)
+	request.Header = cloneEndToEndHeaders(parsed.Header)
 	removeDownstreamCredentials(request.Header)
 	dialect.ApplyCredential(input.Dialect, request.Header, input.APIKey, input.Group.HeaderRules)
-	if stream {
+	if stream || rewrite {
 		request.Header.Set("Accept-Encoding", "identity")
 	}
 	if _, exists := request.Header["User-Agent"]; !exists {
@@ -262,6 +331,12 @@ func newUpstreamRequest(
 	trace := &httptrace.ClientTrace{WroteRequest: func(httptrace.WroteRequestInfo) { wroteRequest.Store(true) }}
 	request = request.WithContext(httptrace.WithClientTrace(request.Context(), trace))
 	return request, wroteRequest, replay, nil
+}
+
+func needsModelRewrite(input ForwardInput) bool {
+	return input.ExternalModel != "" &&
+		input.UpstreamModelID != "" &&
+		input.ExternalModel != input.UpstreamModelID
 }
 
 func (forwarder *Forwarder) prepareErrorBody(headers http.Header, wire []byte, apiKey string) ([]byte, []byte) {
@@ -325,6 +400,14 @@ func updateRewrittenBodyHeaders(headers http.Header, bodyLength int) {
 		headers.Del(name)
 	}
 	headers.Set("Content-Length", strconv.Itoa(bodyLength))
+}
+
+func invalidateRewrittenStreamHeaders(headers http.Header) {
+	for _, name := range []string{
+		"Content-Length", "ETag", "Digest", "Content-MD5", "Content-Range", "Content-Digest", "Repr-Digest",
+	} {
+		headers.Del(name)
+	}
 }
 
 func nonStreamingClientConfig(timeouts state.TimeoutConfig) *platformhttp.Config {

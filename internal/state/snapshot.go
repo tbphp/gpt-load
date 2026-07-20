@@ -37,6 +37,13 @@ type ModelConfig struct {
 	Alias string
 }
 
+func externalModelName(model ModelConfig) string {
+	if alias := strings.TrimSpace(model.Alias); alias != "" {
+		return alias
+	}
+	return strings.TrimSpace(model.ID)
+}
+
 type AccessKeyConfig struct {
 	ID      uint
 	Name    string
@@ -135,22 +142,15 @@ func Compile(input CompileInput) (*ConfigSnapshot, error) {
 		}
 		snapshot.Groups[group.ID] = view
 
-		seen := make(map[protocol.Protocol]map[string]struct{})
 		for _, model := range group.Models {
 			modelID := strings.TrimSpace(model.ID)
+			external := externalModelName(model)
 			for _, p := range group.Protocols {
-				if seen[p] == nil {
-					seen[p] = make(map[string]struct{})
-				}
-				if _, duplicate := seen[p][modelID]; duplicate {
-					continue
-				}
-				seen[p][modelID] = struct{}{}
 				if snapshot.Candidates[p] == nil {
 					snapshot.Candidates[p] = make(map[string][]RouteTarget)
 				}
-				snapshot.Candidates[p][modelID] = append(
-					snapshot.Candidates[p][modelID],
+				snapshot.Candidates[p][external] = append(
+					snapshot.Candidates[p][external],
 					RouteTarget{GroupID: group.ID, UpstreamModelID: modelID},
 				)
 			}
@@ -383,11 +383,17 @@ func validateCompileInput(input CompileInput) error {
 			}
 			protocols[p] = struct{}{}
 		}
+		externalModels := make(map[string]struct{}, len(group.Models))
 		for _, model := range group.Models {
 			modelID := strings.TrimSpace(model.ID)
 			if modelID == "" {
 				return fmt.Errorf("group %d model id is required", group.ID)
 			}
+			external := externalModelName(model)
+			if _, duplicate := externalModels[external]; duplicate {
+				return fmt.Errorf("group %d has duplicate external model %q", group.ID, external)
+			}
+			externalModels[external] = struct{}{}
 		}
 	}
 	for _, accessKey := range input.AccessKeys {

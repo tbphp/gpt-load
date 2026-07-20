@@ -48,14 +48,14 @@ func TestVisibleModelIDs(t *testing.T) {
 		value     protocol.Protocol
 		want      []string
 	}{
-		{name: "no filters sorted and deduplicated", snapshot: snapshot, value: protocol.OpenAI, want: []string{"alpha", "beta", "shared", "zeta"}},
-		{name: "protocol allowed", snapshot: snapshot, accessKey: state.AccessKeyView{Filters: state.FilterSet{Protocols: map[protocol.Protocol]struct{}{protocol.OpenAI: {}}}}, value: protocol.OpenAI, want: []string{"alpha", "beta", "shared", "zeta"}},
+		{name: "no filters sorted and deduplicated", snapshot: snapshot, value: protocol.OpenAI, want: []string{"alpha", "beta", "first-alias", "second-alias", "zeta"}},
+		{name: "protocol allowed", snapshot: snapshot, accessKey: state.AccessKeyView{Filters: state.FilterSet{Protocols: map[protocol.Protocol]struct{}{protocol.OpenAI: {}}}}, value: protocol.OpenAI, want: []string{"alpha", "beta", "first-alias", "second-alias", "zeta"}},
 		{name: "protocol denied", snapshot: snapshot, accessKey: state.AccessKeyView{Filters: state.FilterSet{Protocols: map[protocol.Protocol]struct{}{protocol.Gemini: {}}}}, value: protocol.OpenAI, want: []string{}},
-		{name: "model filter", snapshot: snapshot, accessKey: state.AccessKeyView{Filters: state.FilterSet{Models: map[string]struct{}{"shared": {}, "zeta": {}, "missing": {}}}}, value: protocol.OpenAI, want: []string{"shared", "zeta"}},
-		{name: "group filter keeps any matching target", snapshot: snapshot, accessKey: state.AccessKeyView{Filters: state.FilterSet{Groups: map[uint]struct{}{2: {}}}}, value: protocol.OpenAI, want: []string{"beta", "shared"}},
-		{name: "joint filters", snapshot: snapshot, accessKey: state.AccessKeyView{Filters: state.FilterSet{Protocols: map[protocol.Protocol]struct{}{protocol.Anthropic: {}}, Models: map[string]struct{}{"beta": {}, "shared": {}}, Groups: map[uint]struct{}{2: {}}}}, value: protocol.Anthropic, want: []string{"beta", "shared"}},
+		{name: "model filter matches aliases", snapshot: snapshot, accessKey: state.AccessKeyView{Filters: state.FilterSet{Models: map[string]struct{}{"first-alias": {}, "zeta": {}, "shared": {}, "missing": {}}}}, value: protocol.OpenAI, want: []string{"first-alias", "zeta"}},
+		{name: "group filter keeps any matching target", snapshot: snapshot, accessKey: state.AccessKeyView{Filters: state.FilterSet{Groups: map[uint]struct{}{2: {}}}}, value: protocol.OpenAI, want: []string{"beta", "second-alias"}},
+		{name: "joint filters", snapshot: snapshot, accessKey: state.AccessKeyView{Filters: state.FilterSet{Protocols: map[protocol.Protocol]struct{}{protocol.Anthropic: {}}, Models: map[string]struct{}{"beta": {}, "second-alias": {}, "shared": {}}, Groups: map[uint]struct{}{2: {}}}}, value: protocol.Anthropic, want: []string{"beta", "second-alias"}},
 		{name: "dangling group filter", snapshot: snapshot, accessKey: state.AccessKeyView{Filters: state.FilterSet{Groups: map[uint]struct{}{99: {}}}}, value: protocol.OpenAI, want: []string{}},
-		{name: "disabled group model absent", snapshot: snapshot, value: protocol.Gemini, want: []string{"alpha", "shared", "zeta"}},
+		{name: "disabled group model absent", snapshot: snapshot, value: protocol.Gemini, want: []string{"alpha", "first-alias", "zeta"}},
 		{name: "missing protocol", snapshot: snapshot, value: protocol.OpenAIResponse, want: []string{}},
 		{name: "nil snapshot", snapshot: nil, value: protocol.OpenAI, want: []string{}},
 	}

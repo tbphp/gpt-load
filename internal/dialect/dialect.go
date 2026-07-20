@@ -29,3 +29,8 @@ type Dialect interface {
 	) ([]string, error)
 	ClassifyStatus(status int, body []byte) health.ErrorClass
 }
+
+type ModelRewriter interface {
+	RewriteRequestModel(req *ParsedRequest, upstreamModel string) (*ParsedRequest, error)
+	RewriteResponseModel(body []byte, externalModel string) ([]byte, error)
+}

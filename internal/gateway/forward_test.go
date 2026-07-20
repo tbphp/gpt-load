@@ -13,7 +13,6 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -571,6 +570,90 @@ func TestForwardStreamForcesIdentityAfterHeaderRules(t *testing.T) {
 	}
 }
 
+func TestForwardAliasForcesIdentityAfterHeaderRules(t *testing.T) {
+	var receivedHeader http.Header
+	var receivedBody []byte
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		receivedHeader = request.Header.Clone()
+		receivedBody, _ = io.ReadAll(request.Body)
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write([]byte(`{"ok":true}`))
+	}))
+	defer upstream.Close()
+
+	input := streamForwardInput(upstream.URL)
+	input.Request.Body = []byte(`{"model":"public"}`)
+	input.ExternalModel = "public"
+	input.UpstreamModelID = "provider"
+	input.Group.HeaderRules = state.HeaderRules{Set: map[string]string{"Accept-Encoding": "gzip"}}
+	forwarder := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New())
+	result := forwarder.Forward(context.Background(), input)
+
+	if result.Err != nil || result.StatusCode != http.StatusOK {
+		t.Fatalf("Forward() result = %#v", result)
+	}
+	if receivedHeader.Get("Accept-Encoding") != "identity" {
+		t.Fatalf("Accept-Encoding = %q, want identity", receivedHeader.Get("Accept-Encoding"))
+	}
+	if string(receivedBody) != `{"model":"provider"}` {
+		t.Fatalf("upstream body = %s, want provider model", receivedBody)
+	}
+}
+
+func TestForwarderRewritesAliasedNonStreamingResponsesAtBounds(t *testing.T) {
+	t.Run("unsupported response encoding fails closed", func(t *testing.T) {
+		upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+			writer.Header().Set("Content-Type", "application/json")
+			writer.Header().Set("Content-Encoding", "gzip")
+			_, _ = writer.Write([]byte(`{"model":"provider"}`))
+		}))
+		defer upstream.Close()
+
+		input := streamForwardInput(upstream.URL)
+		input.Request.Body = []byte(`{"model":"public"}`)
+		input.ExternalModel = "public"
+		input.UpstreamModelID = "provider"
+		result := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New()).Forward(
+			context.Background(), input,
+		)
+
+		if !errors.Is(result.Err, ErrUpstreamProtocol) || !result.RequestWritten || result.StatusCode != 0 {
+			t.Fatalf("Forward() result = %#v, want uninspectable alias response protocol error", result)
+		}
+	})
+
+	t.Run("rewrite expansion cannot exceed response bound", func(t *testing.T) {
+		const prefix = `{"model":"p","padding":"`
+		const suffix = `"}`
+		padding := strings.Repeat("x", int(maxNonStreamingResponseBodyBytes)-len(prefix)-len(suffix))
+		responseBody := prefix + padding + suffix
+		if int64(len(responseBody)) != maxNonStreamingResponseBodyBytes {
+			t.Fatalf("test response size = %d", len(responseBody))
+		}
+		upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+			writer.Header().Set("Content-Type", "application/json")
+			writer.Header().Set("Content-Length", strconv.Itoa(len(responseBody)))
+			_, _ = io.WriteString(writer, responseBody)
+		}))
+		defer upstream.Close()
+
+		input := streamForwardInput(upstream.URL)
+		input.Request.Body = []byte(`{"model":"public"}`)
+		input.ExternalModel = "public"
+		input.UpstreamModelID = "p"
+		result := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New()).Forward(
+			context.Background(), input,
+		)
+
+		if !errors.Is(result.Err, ErrUpstreamProtocol) || !result.RequestWritten || result.StatusCode != 0 {
+			t.Fatalf("Forward() result = %#v, want rewritten response overflow", result)
+		}
+		if strings.Contains(result.Err.Error(), "%!w(<nil>)") {
+			t.Fatalf("overflow error formats nil rewrite error: %v", result.Err)
+		}
+	})
+}
+
 func TestForwardStreamRejectsUnsupportedSuccessEncodingBeforeCommit(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -634,6 +717,55 @@ func TestForwardStreamRejectsOversizedFirstEventAsProtocolError(t *testing.T) {
 	}
 	if downstream.status != 0 || downstream.body.Len() != 0 || downstream.flushes != 0 {
 		t.Fatalf("downstream was touched before oversized event rejection: %#v", downstream)
+	}
+}
+
+func TestForwardStreamRejectsOversizedAliasedEventAsProtocolError(t *testing.T) {
+	event := "data: " + strings.Repeat("x", maxSSEEventBytes-len("data: \n\n")+1) + "\n\n"
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(writer, event)
+		writer.(http.Flusher).Flush()
+	}))
+	defer upstream.Close()
+
+	input := streamForwardInput(upstream.URL)
+	input.Request.Body = []byte(`{"model":"public","stream":true}`)
+	input.ExternalModel = "public"
+	input.UpstreamModelID = "provider"
+	downstream := newRecordingResponseWriter()
+	result := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New()).ForwardStream(
+		context.Background(), input, downstream,
+	)
+
+	if !errors.Is(result.Err, ErrUpstreamProtocol) || !errors.Is(result.Err, errSSEEventTooLarge) ||
+		result.Committed || !result.RetryableBeforeCommit {
+		t.Fatalf("ForwardStream() result = %#v", result)
+	}
+}
+
+func TestForwardStreamRejectsMalformedAliasedEventAsProtocolError(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(writer, "data: not-json\n\n")
+		writer.(http.Flusher).Flush()
+	}))
+	defer upstream.Close()
+
+	input := streamForwardInput(upstream.URL)
+	input.Request.Body = []byte(`{"model":"public","stream":true}`)
+	input.ExternalModel = "public"
+	input.UpstreamModelID = "provider"
+	downstream := newRecordingResponseWriter()
+	result := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New()).ForwardStream(
+		context.Background(), input, downstream,
+	)
+
+	if !errors.Is(result.Err, ErrUpstreamProtocol) || result.Committed || !result.RetryableBeforeCommit {
+		t.Fatalf("ForwardStream() result = %#v, want retryable pre-commit protocol error", result)
+	}
+	if downstream.status != 0 || downstream.body.Len() != 0 || downstream.flushes != 0 {
+		t.Fatalf("downstream was touched before malformed event rejection: %#v", downstream)
 	}
 }
 
@@ -755,10 +887,10 @@ func TestReleaseCommittedRequestReplayDoesNotMutateHTTPRequest(t *testing.T) {
 	}
 	originalBody := request.Body
 
-	releaseCommittedRequestReplay(input.Request, replay)
+	releaseCommittedRequestReplay(replay)
 
-	if input.Request.Body != nil {
-		t.Fatal("ParsedRequest.Body still retains the replay buffer")
+	if !bytes.Equal(input.Request.Body, wantBody) {
+		t.Fatalf("ParsedRequest.Body = %q, want %q", input.Request.Body, wantBody)
 	}
 	if request.Body != originalBody || request.GetBody == nil {
 		t.Fatal("committed release mutated fields owned by the HTTP transport")
@@ -784,44 +916,36 @@ func TestReleaseCommittedRequestReplayDoesNotMutateHTTPRequest(t *testing.T) {
 	}
 }
 
-func TestForwardStreamReleasesParsedBodyAfterCommit(t *testing.T) {
-	releaseUpstream := make(chan struct{})
-	var releaseOnce sync.Once
-	release := func() { releaseOnce.Do(func() { close(releaseUpstream) }) }
-	defer release()
-
+func TestForwardStreamDoesNotMutateParsedRequest(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		_, _ = io.Copy(io.Discard, request.Body)
 		writer.Header().Set("Content-Type", "text/event-stream")
 		_, _ = writer.Write([]byte("data: ready\n\n"))
 		writer.(http.Flusher).Flush()
-		<-releaseUpstream
 	}))
 	defer upstream.Close()
 
 	input := streamForwardInput(upstream.URL)
-	input.Request.Body = make([]byte, maxRequestBodyBytes)
+	input.Request.RawQuery = "trace=true"
+	input.Request.Header.Set("X-Test", "one")
+	want := cloneParsedRequestForGatewayTest(input.Request)
 	forwarder := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New())
 	downstream := newRecordingResponseWriter()
-	done := make(chan UpstreamResult, 1)
-	go func() {
-		done <- forwarder.ForwardStream(context.Background(), input, downstream)
-	}()
+	result := forwarder.ForwardStream(context.Background(), input, downstream)
 
-	waitForSignal(t, downstream.writes, "committed stream write")
-	if input.Request.Body != nil {
-		t.Fatalf("committed stream still retains %d request body bytes", len(input.Request.Body))
+	if result.Err != nil || !result.Committed {
+		t.Fatalf("ForwardStream() result = %#v", result)
 	}
-	release()
+	if !reflect.DeepEqual(input.Request, want) {
+		t.Fatalf("ForwardStream() mutated ParsedRequest:\n got %#v\nwant %#v", input.Request, want)
+	}
+}
 
-	select {
-	case result := <-done:
-		if result.Err != nil || !result.Committed {
-			t.Fatalf("ForwardStream() result = %#v", result)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("ForwardStream() did not finish after upstream release")
-	}
+func cloneParsedRequestForGatewayTest(request *dialect.ParsedRequest) *dialect.ParsedRequest {
+	clone := *request
+	clone.Header = request.Header.Clone()
+	clone.Body = bytes.Clone(request.Body)
+	return &clone
 }
 
 func TestStreamingClientConfigHasNoTotalTimeout(t *testing.T) {

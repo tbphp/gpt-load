@@ -288,11 +288,17 @@ func TestLoaderMapsSystemAndGroupRows(t *testing.T) {
 	}
 
 	openAICandidates := snapshot.Candidates[protocol.OpenAI]
-	if len(openAICandidates) != 2 {
-		t.Fatalf("OpenAI candidates = %#v, want two model IDs", openAICandidates)
+	if len(openAICandidates) != 3 {
+		t.Fatalf("OpenAI candidates = %#v, want three external model names", openAICandidates)
 	}
-	if got := openAICandidates["gpt-4o"]; len(got) != 1 || got[0].GroupID != enabled.ID || got[0].UpstreamModelID != "gpt-4o" {
-		t.Errorf("gpt-4o candidates = %#v, want one id-only route for group %d", got, enabled.ID)
+	for external, upstream := range map[string]string{
+		"Primary":   "gpt-4o",
+		"Secondary": "gpt-4o",
+		"Other":     "gpt-4.1",
+	} {
+		if got := openAICandidates[external]; len(got) != 1 || got[0].GroupID != enabled.ID || got[0].UpstreamModelID != upstream {
+			t.Errorf("%s candidates = %#v, want one route to %q for group %d", external, got, upstream, enabled.ID)
+		}
 	}
 	if _, ok := openAICandidates["hidden"]; ok {
 		t.Fatal("disabled group model hidden is present in candidates")
@@ -347,13 +353,16 @@ func TestLoaderRejectsInvalidGroupRowsWithoutPublishing(t *testing.T) {
 func TestLoaderMapsAccessAndUpstreamKeys(t *testing.T) {
 	db := openMigratedDatabase(t)
 	firstGroup := createRuntimeGroup(t, db, "first", protocol.OpenAI, "gpt-4o")
+	if err := db.Model(&firstGroup).Update("models", models.JSON(`[{"id":"gpt-4o","alias":"Primary"}]`)).Error; err != nil {
+		t.Fatalf("set group model alias: %v", err)
+	}
 	secondGroup := createRuntimeGroup(t, db, "second", protocol.Anthropic, "claude-3-5-sonnet")
 
 	activeAccess := models.AccessKey{
 		Name: "active access", KeyValue: "access-cipher-active", KeyHash: "active-hash",
 		Status: "active",
 		Filters: models.JSON(fmt.Sprintf(
-			`{"groups":[%d,9999],"protocols":["openai"],"models":["gpt-4o"]}`,
+			`{"groups":[%d,9999],"protocols":["openai"],"models":["Primary"]}`,
 			firstGroup.ID,
 		)),
 	}
@@ -404,8 +413,11 @@ func TestLoaderMapsAccessAndUpstreamKeys(t *testing.T) {
 	if _, ok := access.Filters.Protocols[protocol.OpenAI]; !ok {
 		t.Errorf("access filters protocols = %#v, want OpenAI", access.Filters.Protocols)
 	}
-	if _, ok := access.Filters.Models["gpt-4o"]; !ok {
-		t.Errorf("access filters models = %#v, want gpt-4o", access.Filters.Models)
+	if _, ok := access.Filters.Models["Primary"]; !ok {
+		t.Errorf("access filters models = %#v, want Primary", access.Filters.Models)
+	}
+	if _, ok := access.Filters.Models["gpt-4o"]; ok {
+		t.Errorf("access filters models = %#v, must not expose hidden upstream id", access.Filters.Models)
 	}
 
 	candidates := registry.CollectCandidates([]uint{firstGroup.ID, secondGroup.ID}, nil, time.Time{})

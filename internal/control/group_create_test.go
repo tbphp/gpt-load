@@ -320,9 +320,13 @@ func TestCreateGroupPreservesUserGeminiModelPrefix(t *testing.T) {
 	if stored := loadCreatedGroupModels(t, fixture, result.GroupID); !reflect.DeepEqual(stored, want) {
 		t.Fatalf("stored models = %#v, want %#v", stored, want)
 	}
-	targets := fixture.manager.Current().Candidates[protocol.Gemini]["models/foo"]
+	snapshot := fixture.manager.Current()
+	targets := snapshot.Candidates[protocol.Gemini]["user alias"]
 	if len(targets) != 1 || targets[0].UpstreamModelID != "models/foo" {
 		t.Fatalf("Gemini snapshot targets = %#v", targets)
+	}
+	if _, exists := snapshot.Candidates[protocol.Gemini]["models/foo"]; exists {
+		t.Fatal("aliased upstream model ID must not appear in the external candidate index")
 	}
 }
 
