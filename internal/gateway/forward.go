@@ -32,6 +32,7 @@ type ForwardInput struct {
 	Request         *dialect.ParsedRequest
 	ExternalModel   string
 	UpstreamModelID string
+	OnStreamReady   func()
 }
 
 type UpstreamResult struct {
@@ -283,6 +284,10 @@ func (forwarder *Forwarder) ForwardStream(
 		result.Err = streamAttemptError(ctx, deadline.ctx, context.DeadlineExceeded)
 		result.RetryableBeforeCommit = retryableBeforeCommit(ctx)
 		return result
+	}
+
+	if input.OnStreamReady != nil {
+		input.OnStreamReady()
 	}
 
 	result.Header = sanitizeForwardResponseHeaders(headers, input)

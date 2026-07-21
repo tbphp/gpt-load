@@ -29,12 +29,13 @@ import (
 )
 
 type scriptedForwarder struct {
-	results       []UpstreamResult
-	streamResults []UpstreamResult
-	inputs        []ForwardInput
-	streamInputs  []ForwardInput
-	onCall        func(int)
-	onStreamCall  func(int, http.ResponseWriter)
+	results           []UpstreamResult
+	streamResults     []UpstreamResult
+	inputs            []ForwardInput
+	streamInputs      []ForwardInput
+	onCall            func(int)
+	onStreamCall      func(int, http.ResponseWriter)
+	invokeStreamReady bool
 }
 
 type mutatingRuntimeRegistry struct {
@@ -113,7 +114,11 @@ func (forwarder *scriptedForwarder) ForwardStream(
 	if index >= len(forwarder.streamResults) {
 		return UpstreamResult{Err: errors.New("stream script exhausted")}
 	}
-	return forwarder.streamResults[index]
+	result := forwarder.streamResults[index]
+	if forwarder.invokeStreamReady && result.Committed && input.OnStreamReady != nil {
+		input.OnStreamReady()
+	}
+	return result
 }
 
 func TestHandlerInitializesDebugHeadersBeforeValidation(t *testing.T) {
@@ -701,6 +706,29 @@ func TestHandlerUsesStreamingForwarder(t *testing.T) {
 				t.Fatalf("normal/stream calls = %d/%d, want %d/%d", len(forwarder.inputs), len(forwarder.streamInputs), tt.wantNormal, tt.wantStreams)
 			}
 		})
+	}
+}
+
+func TestHandlerStreamReadyClearsFailureBeforeCommittedReturn(t *testing.T) {
+	forwarder := &scriptedForwarder{
+		invokeStreamReady: true,
+		streamResults: []UpstreamResult{{
+			StatusCode: http.StatusOK, RequestWritten: true, Committed: true,
+		}},
+	}
+	engine, _, registry := newHandlerTestRuntime(t, forwarder, "sk-one")
+	_, _ = registry.IncrFailure(1)
+	_, _ = registry.IncrFailure(1)
+
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions",
+		bytes.NewBufferString(`{"model":"gpt-4o","stream":true}`))
+	request.Header.Set("Authorization", "Bearer gl-client")
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, request)
+
+	count, ok := registry.IncrFailure(1)
+	if !ok || count != 1 {
+		t.Fatalf("failure count = %d, %t, want 1, true", count, ok)
 	}
 }
 

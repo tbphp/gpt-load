@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -879,6 +880,48 @@ func TestForwarderRewritesAliasedNonStreamingResponsesAtBounds(t *testing.T) {
 	})
 }
 
+type readyGuardWriter struct {
+	*recordingResponseWriter
+	ready            *atomic.Bool
+	committedTooSoon atomic.Bool
+}
+
+func (writer *readyGuardWriter) WriteHeader(status int) {
+	if !writer.ready.Load() {
+		writer.committedTooSoon.Store(true)
+	}
+	writer.recordingResponseWriter.WriteHeader(status)
+}
+
+func TestForwardStreamCallsReadyBeforeCommit(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(writer, "data: ok\n\n")
+	}))
+	defer upstream.Close()
+
+	var ready atomic.Bool
+	var calls atomic.Int32
+	input := streamForwardInput(upstream.URL)
+	input.OnStreamReady = func() {
+		calls.Add(1)
+		ready.Store(true)
+	}
+	downstream := &readyGuardWriter{
+		recordingResponseWriter: newRecordingResponseWriter(),
+		ready:                   &ready,
+	}
+	result := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New()).ForwardStream(
+		context.Background(), input, downstream,
+	)
+
+	if result.Err != nil || !result.Committed || calls.Load() != 1 ||
+		downstream.committedTooSoon.Load() {
+		t.Fatalf("result=%#v calls=%d committedTooSoon=%t",
+			result, calls.Load(), downstream.committedTooSoon.Load())
+	}
+}
+
 func TestForwardStreamRejectsUnsupportedSuccessEncodingBeforeCommit(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -893,10 +936,10 @@ func TestForwardStreamRejectsUnsupportedSuccessEncodingBeforeCommit(t *testing.T
 		{name: "multiple values", encodings: []string{"identity", "gzip"}},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
 			upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
-				for _, encoding := range tt.encodings {
+				for _, encoding := range test.encodings {
 					writer.Header().Add("Content-Encoding", encoding)
 				}
 				writer.Header().Set("Content-Type", "text/event-stream")
@@ -904,18 +947,24 @@ func TestForwardStreamRejectsUnsupportedSuccessEncodingBeforeCommit(t *testing.T
 			}))
 			defer upstream.Close()
 
+			var calls atomic.Int32
+			input := streamForwardInput(upstream.URL)
+			input.OnStreamReady = func() { calls.Add(1) }
 			forwarder := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New())
 			downstream := newRecordingResponseWriter()
-			result := forwarder.ForwardStream(context.Background(), streamForwardInput(upstream.URL), downstream)
+			result := forwarder.ForwardStream(context.Background(), input, downstream)
 
-			if tt.wantCommit {
-				if result.Err != nil || !result.Committed || downstream.body.String() != "data: ok\n\n" {
-					t.Fatalf("ForwardStream() valid result = %#v, body=%q", result, downstream.body.String())
+			if test.wantCommit {
+				if result.Err != nil || !result.Committed ||
+					downstream.body.String() != "data: ok\n\n" || calls.Load() != 1 {
+					t.Fatalf("ForwardStream() valid result = %#v, body=%q calls=%d",
+						result, downstream.body.String(), calls.Load())
 				}
 				return
 			}
-			if !errors.Is(result.Err, ErrUpstreamProtocol) || result.Committed || !result.RetryableBeforeCommit {
-				t.Fatalf("ForwardStream() protocol result = %#v", result)
+			if !errors.Is(result.Err, ErrUpstreamProtocol) || result.Committed ||
+				!result.RetryableBeforeCommit || calls.Load() != 0 {
+				t.Fatalf("ForwardStream() protocol result = %#v, calls=%d", result, calls.Load())
 			}
 			if downstream.status != 0 || downstream.body.Len() != 0 || downstream.flushes != 0 {
 				t.Fatalf("downstream was touched before protocol rejection: %#v", downstream)
@@ -931,14 +980,18 @@ func TestForwardStreamRejectsOversizedFirstEventAsProtocolError(t *testing.T) {
 	}))
 	defer upstream.Close()
 
+	var calls atomic.Int32
+	input := streamForwardInput(upstream.URL)
+	input.OnStreamReady = func() { calls.Add(1) }
 	forwarder := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New())
 	downstream := newRecordingResponseWriter()
-	result := forwarder.ForwardStream(context.Background(), streamForwardInput(upstream.URL), downstream)
+	result := forwarder.ForwardStream(context.Background(), input, downstream)
 
 	if !errors.Is(result.Err, ErrUpstreamProtocol) ||
 		!errors.Is(result.Err, errFirstSSEEventTooLarge) ||
-		result.Committed || !result.RetryableBeforeCommit {
-		t.Fatalf("ForwardStream() result = %#v, want retryable pre-commit protocol error", result)
+		result.Committed || !result.RetryableBeforeCommit || calls.Load() != 0 {
+		t.Fatalf("ForwardStream() result = %#v calls=%d, want retryable pre-commit protocol error",
+			result, calls.Load())
 	}
 	if downstream.status != 0 || downstream.body.Len() != 0 || downstream.flushes != 0 {
 		t.Fatalf("downstream was touched before oversized event rejection: %#v", downstream)
@@ -1145,13 +1198,22 @@ func TestForwardStreamUnaliasedCredentialRewriteFailureRespectsCommitBoundary(t 
 			}))
 			defer upstream.Close()
 
+			var calls atomic.Int32
 			input := streamForwardInput(upstream.URL)
 			input.APIKey = secret
+			input.OnStreamReady = func() { calls.Add(1) }
 			downstream := newRecordingResponseWriter()
 			result := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New()).ForwardStream(
 				context.Background(), input, downstream,
 			)
 
+			wantCalls := int32(0)
+			if test.wantCommit {
+				wantCalls = 1
+			}
+			if calls.Load() != wantCalls {
+				t.Fatalf("stream-ready calls = %d, want %d", calls.Load(), wantCalls)
+			}
 			if !errors.Is(result.Err, ErrUpstreamProtocol) || result.Committed != test.wantCommit {
 				t.Fatalf("ForwardStream() result = %#v, want protocol error committed=%t", result, test.wantCommit)
 			}
@@ -1310,14 +1372,17 @@ func TestForwardStreamTimesOutBeforeCompleteFirstEvent(t *testing.T) {
 	}))
 	defer upstream.Close()
 
+	var calls atomic.Int32
 	input := streamForwardInput(upstream.URL)
 	input.Group.Timeouts.FirstByte = 25 * time.Millisecond
+	input.OnStreamReady = func() { calls.Add(1) }
 	forwarder := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New())
 	downstream := newRecordingResponseWriter()
 	result := forwarder.ForwardStream(context.Background(), input, downstream)
 
-	if !errors.Is(result.Err, context.DeadlineExceeded) || result.Committed || !result.RetryableBeforeCommit {
-		t.Fatalf("ForwardStream() timeout result = %#v", result)
+	if !errors.Is(result.Err, context.DeadlineExceeded) || result.Committed ||
+		!result.RetryableBeforeCommit || calls.Load() != 0 {
+		t.Fatalf("ForwardStream() timeout result = %#v calls=%d", result, calls.Load())
 	}
 	if downstream.status != 0 || downstream.body.Len() != 0 {
 		t.Fatalf("partial event reached downstream: status/body=%d/%q", downstream.status, downstream.body.String())
@@ -1409,7 +1474,9 @@ func TestForwardStreamPreservesParsedRequestBeforeCommit(t *testing.T) {
 	}))
 	defer upstream.Close()
 
+	var calls atomic.Int32
 	input := streamForwardInput(upstream.URL)
+	input.OnStreamReady = func() { calls.Add(1) }
 	input.Request.RawQuery = "trace=true"
 	input.Request.Header.Set("X-Test", "one")
 	want := cloneParsedRequestForGatewayTest(input.Request)
@@ -1431,6 +1498,9 @@ func TestForwardStreamPreservesParsedRequestBeforeCommit(t *testing.T) {
 	case result := <-done:
 		if result.Committed {
 			t.Fatalf("ForwardStream() committed partial event: %#v", result)
+		}
+		if calls.Load() != 0 {
+			t.Fatalf("stream-ready calls after pre-commit cancellation = %d, want 0", calls.Load())
 		}
 		if !reflect.DeepEqual(input.Request, want) {
 			t.Fatalf("ForwardStream() mutated ParsedRequest after pre-commit return:\n got %#v\nwant %#v", input.Request, want)

@@ -204,9 +204,14 @@ func (handler *Handler) executeAttempts(
 
 		attempts++
 		updateDebugHeaders(ginContext.Writer.Header(), selection.Group.Name, apiKey, attempts)
+		selectedKeyID := selection.KeyID
 		input := ForwardInput{
 			Dialect: selectedDialect, Group: selection.Group, APIKey: apiKey, Request: parsed,
-			ExternalModel: externalModel, UpstreamModelID: selection.UpstreamModelID,
+			ExternalModel:   externalModel,
+			UpstreamModelID: selection.UpstreamModelID,
+			OnStreamReady: func() {
+				_ = handler.registry.ClearFailure(selectedKeyID)
+			},
 		}
 		var result UpstreamResult
 		if stream {
