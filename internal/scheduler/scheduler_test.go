@@ -91,6 +91,11 @@ type fakeKeySource struct {
 	keys []state.KeyMeta
 }
 
+type zeroRandSource struct{}
+
+func (zeroRandSource) Int63() int64 { return 0 }
+func (zeroRandSource) Seed(int64)   {}
+
 func (source fakeKeySource) CollectCandidates(groupIDs []uint, excluded func(uint) bool, _ time.Time) []state.KeyMeta {
 	allowed := make(map[uint]struct{}, len(groupIDs))
 	for _, groupID := range groupIDs {
@@ -131,6 +136,86 @@ func TestIteratorUsesInjectedTimeForCandidateEligibility(t *testing.T) {
 	selection, err := expired.Next()
 	if err != nil || selection.KeyID != 11 {
 		t.Fatalf("Next() at cooldown boundary = (%#v, %v), want key 11", selection, err)
+	}
+}
+
+func TestIteratorSkipGroupExcludesWholeGroup(t *testing.T) {
+	source := fakeKeySource{keys: []state.KeyMeta{
+		{ID: 11, GroupID: 1}, {ID: 12, GroupID: 1}, {ID: 21, GroupID: 2},
+	}}
+	iterator := New(schedulerSnapshot(), source,
+		Query{Protocol: protocol.OpenAI, ExternalModel: "gpt-4o"},
+		rand.New(zeroRandSource{}))
+	first, err := iterator.Next()
+	if err != nil || first.KeyID != 11 {
+		t.Fatalf("first Next() = (%#v, %v), want key 11", first, err)
+	}
+	iterator.SkipGroup(1)
+	iterator.SkipGroup(1)
+	second, err := iterator.Next()
+	if err != nil || second.KeyID != 21 {
+		t.Fatalf("second Next() = (%#v, %v), want key 21", second, err)
+	}
+	if _, err := iterator.Next(); !errors.Is(err, ErrExhausted) {
+		t.Fatalf("Next() after skip/exhaustion error = %v, want ErrExhausted", err)
+	}
+}
+
+func TestIteratorSkipGroupIsRequestLocal(t *testing.T) {
+	source := fakeKeySource{keys: []state.KeyMeta{
+		{ID: 11, GroupID: 1}, {ID: 21, GroupID: 2},
+	}}
+	query := Query{Protocol: protocol.OpenAI, ExternalModel: "gpt-4o"}
+	first := New(schedulerSnapshot(), source, query, rand.New(zeroRandSource{}))
+	first.SkipGroup(1)
+	selection, err := first.Next()
+	if err != nil || selection.GroupID != 2 {
+		t.Fatalf("skipping iterator Next() = (%#v, %v), want group 2", selection, err)
+	}
+	second := New(schedulerSnapshot(), source, query, rand.New(zeroRandSource{}))
+	selection, err = second.Next()
+	if err != nil || selection.GroupID != 1 {
+		t.Fatalf("fresh iterator Next() = (%#v, %v), want group 1", selection, err)
+	}
+}
+
+func TestIteratorSkipGroupIgnoresNilReceiverAndZeroID(t *testing.T) {
+	var nilIterator *Iterator
+	nilIterator.SkipGroup(1)
+
+	iterator := New(schedulerSnapshot(), fakeKeySource{keys: []state.KeyMeta{
+		{ID: 11, GroupID: 1}, {ID: 21, GroupID: 2},
+	}}, Query{Protocol: protocol.OpenAI, ExternalModel: "gpt-4o"}, rand.New(zeroRandSource{}))
+	iterator.SkipGroup(0)
+	selection, err := iterator.Next()
+	if err != nil || selection.GroupID != 1 {
+		t.Fatalf("Next() after SkipGroup(0) = (%#v, %v), want group 1", selection, err)
+	}
+}
+
+func TestIteratorSkipGroupExcludesKeysAddedAfterSkip(t *testing.T) {
+	registry := state.NewKeyRegistry()
+	if err := registry.Replace([]state.KeyEntry{
+		{ID: 11, GroupID: 1, Status: state.KeyStatusActive, EncryptedValue: "one"},
+		{ID: 21, GroupID: 2, Status: state.KeyStatusActive, EncryptedValue: "two"},
+	}); err != nil {
+		t.Fatalf("Replace() error = %v", err)
+	}
+	iterator := New(schedulerSnapshot(), registry,
+		Query{Protocol: protocol.OpenAI, ExternalModel: "gpt-4o"},
+		rand.New(zeroRandSource{}))
+	iterator.SkipGroup(1)
+	if err := registry.ApplyImport(1, []state.KeyEntry{{
+		ID: 12, GroupID: 1, Status: state.KeyStatusActive, EncryptedValue: "new",
+	}}); err != nil {
+		t.Fatalf("ApplyImport() error = %v", err)
+	}
+	selection, err := iterator.Next()
+	if err != nil || selection.KeyID != 21 {
+		t.Fatalf("Next() = (%#v, %v), want group 2 key 21", selection, err)
+	}
+	if _, err := iterator.Next(); !errors.Is(err, ErrExhausted) {
+		t.Fatalf("Next() error = %v, want ErrExhausted", err)
 	}
 }
 
@@ -398,6 +483,7 @@ func TestIteratorPropertyNeverEscapesAccessFilters(t *testing.T) {
 		}
 		iterator := New(snapshot, source, query, rand.New(rand.NewSource(int64(caseIndex+1))))
 
+		skipped := make(map[uint]struct{})
 		for {
 			selection, err := iterator.Next()
 			if errors.Is(err, ErrExhausted) {
@@ -405,6 +491,9 @@ func TestIteratorPropertyNeverEscapesAccessFilters(t *testing.T) {
 			}
 			if err != nil {
 				t.Fatalf("case %d Next() error = %v", caseIndex, err)
+			}
+			if _, blocked := skipped[selection.GroupID]; blocked {
+				t.Fatalf("case %d selected skipped group %d", caseIndex, selection.GroupID)
 			}
 			if _, ok := frozenGroups[selection.GroupID]; !ok {
 				t.Fatalf("case %d selection %#v escaped frozen target groups %#v", caseIndex, selection, frozenGroups)
@@ -416,6 +505,10 @@ func TestIteratorPropertyNeverEscapesAccessFilters(t *testing.T) {
 			}
 			if selection.UpstreamModelID == "" || selection.GroupID == 0 {
 				t.Fatalf("case %d invalid selection %#v", caseIndex, selection)
+			}
+			if generator.Intn(2) == 1 {
+				skipped[selection.GroupID] = struct{}{}
+				iterator.SkipGroup(selection.GroupID)
 			}
 		}
 	}

@@ -40,12 +40,13 @@ type weightedKey struct {
 }
 
 type Iterator struct {
-	keys     KeySource
-	random   *rand.Rand
-	targets  map[uint]candidateTarget
-	groupIDs []uint
-	tried    map[uint]struct{}
-	now      func() time.Time
+	keys          KeySource
+	random        *rand.Rand
+	targets       map[uint]candidateTarget
+	groupIDs      []uint
+	tried         map[uint]struct{}
+	skippedGroups map[uint]struct{}
+	now           func() time.Time
 }
 
 func New(snapshot *state.ConfigSnapshot, keys KeySource, query Query, random *rand.Rand) *Iterator {
@@ -60,17 +61,28 @@ func newWithClock(
 	now func() time.Time,
 ) *Iterator {
 	iterator := &Iterator{
-		keys:    keys,
-		random:  random,
-		targets: make(map[uint]candidateTarget),
-		tried:   make(map[uint]struct{}),
-		now:     now,
+		keys:          keys,
+		random:        random,
+		targets:       make(map[uint]candidateTarget),
+		tried:         make(map[uint]struct{}),
+		skippedGroups: make(map[uint]struct{}),
+		now:           now,
 	}
 	for _, target := range filterTargets(snapshot, query) {
 		iterator.targets[target.target.GroupID] = target
 		iterator.groupIDs = append(iterator.groupIDs, target.target.GroupID)
 	}
 	return iterator
+}
+
+func (iterator *Iterator) SkipGroup(groupID uint) {
+	if iterator == nil || groupID == 0 {
+		return
+	}
+	if iterator.skippedGroups == nil {
+		iterator.skippedGroups = make(map[uint]struct{})
+	}
+	iterator.skippedGroups[groupID] = struct{}{}
 }
 
 func (iterator *Iterator) Next() (Selection, error) {
@@ -84,6 +96,9 @@ func (iterator *Iterator) Next() (Selection, error) {
 	weighted := make([]weightedKey, 0, len(pool))
 	var total int64
 	for _, key := range pool {
+		if _, skipped := iterator.skippedGroups[key.GroupID]; skipped {
+			continue
+		}
 		target, ok := iterator.targets[key.GroupID]
 		if !ok {
 			continue
