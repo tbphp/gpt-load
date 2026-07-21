@@ -18,6 +18,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"gpt-load/internal/dialect"
+	"gpt-load/internal/health"
 	"gpt-load/internal/platform/encryption"
 	platformhttp "gpt-load/internal/platform/httpclient"
 	"gpt-load/internal/platform/redact"
@@ -40,6 +41,38 @@ type mutatingRuntimeRegistry struct {
 	*state.KeyRegistry
 	mutate  func()
 	mutated bool
+}
+
+type recordingRuntimeRegistry struct {
+	*state.KeyRegistry
+	cooldownKeyID    uint
+	cooldownUntil    time.Time
+	cooldownCalls    int
+	incrFailureCalls int
+	blacklistCalls   int
+	clearCalls       int
+}
+
+func (registry *recordingRuntimeRegistry) SetCooldown(keyID uint, until time.Time) bool {
+	registry.cooldownKeyID = keyID
+	registry.cooldownUntil = until
+	registry.cooldownCalls++
+	return registry.KeyRegistry.SetCooldown(keyID, until)
+}
+
+func (registry *recordingRuntimeRegistry) IncrFailure(keyID uint) (int, bool) {
+	registry.incrFailureCalls++
+	return registry.KeyRegistry.IncrFailure(keyID)
+}
+
+func (registry *recordingRuntimeRegistry) SetBlacklisted(keyID uint) bool {
+	registry.blacklistCalls++
+	return registry.KeyRegistry.SetBlacklisted(keyID)
+}
+
+func (registry *recordingRuntimeRegistry) ClearFailure(keyID uint) bool {
+	registry.clearCalls++
+	return registry.KeyRegistry.ClearFailure(keyID)
 }
 
 func (registry *mutatingRuntimeRegistry) CollectCandidates(
@@ -332,6 +365,22 @@ func (panicRuntimeRegistry) CollectCandidates([]uint, func(uint) bool, time.Time
 
 func (panicRuntimeRegistry) ActiveEncryptedValue(uint, uint) (string, bool) {
 	panic("model endpoint read an upstream key")
+}
+
+func (panicRuntimeRegistry) SetCooldown(uint, time.Time) bool {
+	panic("model endpoint set cooldown")
+}
+
+func (panicRuntimeRegistry) IncrFailure(uint) (int, bool) {
+	panic("model endpoint incremented failure")
+}
+
+func (panicRuntimeRegistry) SetBlacklisted(uint) bool {
+	panic("model endpoint set blacklist")
+}
+
+func (panicRuntimeRegistry) ClearFailure(uint) bool {
+	panic("model endpoint cleared failure")
 }
 
 type panicForwarder struct{}
@@ -942,6 +991,229 @@ func TestHandlerUsesClassifierForNonStreamingNonSuccess(t *testing.T) {
 	})
 }
 
+func TestHandlerAppliesExactCooldownDeadline(t *testing.T) {
+	attemptNow := time.Date(2026, time.July, 21, 12, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name   string
+		result UpstreamResult
+		want   time.Time
+	}{
+		{
+			name: "rate limit reset",
+			result: UpstreamResult{
+				StatusCode:         http.StatusTooManyRequests,
+				Header:             http.Header{"Retry-After": {"30"}},
+				Body:               []byte(`{"error":"rate_limit"}`),
+				ClassificationBody: []byte(`{"error":"rate_limit"}`),
+				RequestWritten:     true,
+			},
+			want: attemptNow.Add(30 * time.Second),
+		},
+		{
+			name: "fixed fallback",
+			result: UpstreamResult{
+				StatusCode: http.StatusTooManyRequests, Header: make(http.Header),
+				Body:               []byte(`{"error":"rate_limit"}`),
+				ClassificationBody: []byte(`{"error":"rate_limit"}`),
+				RequestWritten:     true,
+			},
+			want: attemptNow.Add(time.Minute),
+		},
+		{
+			name: "model unavailable",
+			result: UpstreamResult{
+				StatusCode: http.StatusNotFound, Header: make(http.Header),
+				Body:               []byte(`{"error":"model_not_found"}`),
+				ClassificationBody: []byte(`{"error":"model_not_found"}`),
+				RequestWritten:     true,
+			},
+			want: attemptNow.Add(time.Hour),
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			forwarder := &scriptedForwarder{results: []UpstreamResult{test.result}}
+			handler, _, registry := newHandlerForTest(t, forwarder, "sk-one")
+			recording := &recordingRuntimeRegistry{KeyRegistry: registry}
+			handler.registry = recording
+			handler.now = func() time.Time { return attemptNow }
+			engine := gin.New()
+			handler.RegisterRoutes(engine)
+
+			request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions",
+				bytes.NewBufferString(`{"model":"gpt-4o"}`))
+			request.Header.Set("Authorization", "Bearer gl-client")
+			recorder := httptest.NewRecorder()
+			engine.ServeHTTP(recorder, request)
+
+			if recording.cooldownCalls != 1 || recording.cooldownKeyID != 1 ||
+				!recording.cooldownUntil.Equal(test.want) {
+				t.Fatalf("cooldown = calls:%d key:%d until:%v, want 1/1/%v",
+					recording.cooldownCalls, recording.cooldownKeyID,
+					recording.cooldownUntil, test.want)
+			}
+		})
+	}
+}
+
+func TestHandlerCooldownExcludesKeyAcrossRequests(t *testing.T) {
+	forwarder := &scriptedForwarder{results: []UpstreamResult{
+		{
+			StatusCode:         http.StatusTooManyRequests,
+			Header:             http.Header{"Retry-After": {"3600"}},
+			Body:               []byte(`{"error":"rate_limit"}`),
+			ClassificationBody: []byte(`{"error":"rate_limit"}`),
+			RequestWritten:     true,
+		},
+		{StatusCode: http.StatusOK, Header: make(http.Header), Body: []byte(`{"ok":true}`), RequestWritten: true},
+		{StatusCode: http.StatusOK, Header: make(http.Header), Body: []byte(`{"ok":true}`), RequestWritten: true},
+	}}
+	engine, _, _ := newHandlerTestRuntime(t, forwarder, "sk-one", "sk-two")
+
+	for range 2 {
+		request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions",
+			bytes.NewBufferString(`{"model":"gpt-4o"}`))
+		request.Header.Set("Authorization", "Bearer gl-client")
+		recorder := httptest.NewRecorder()
+		engine.ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("response = %d %s", recorder.Code, recorder.Body.String())
+		}
+	}
+	if len(forwarder.inputs) != 3 ||
+		forwarder.inputs[0].APIKey == forwarder.inputs[1].APIKey ||
+		forwarder.inputs[1].APIKey != forwarder.inputs[2].APIKey {
+		t.Fatalf("attempt keys = %#v, want cooled key then stable backup", forwarder.inputs)
+	}
+}
+
+func TestHandlerBlacklistsKeyOnThirdInvalidFailure(t *testing.T) {
+	invalid := UpstreamResult{
+		StatusCode: http.StatusUnauthorized, Header: make(http.Header),
+		Body:               []byte(`{"error":"invalid_api_key"}`),
+		ClassificationBody: []byte(`{"error":"invalid_api_key"}`),
+		RequestWritten:     true,
+	}
+	forwarder := &scriptedForwarder{results: []UpstreamResult{invalid, invalid, invalid}}
+	engine, _, registry := newHandlerTestRuntime(t, forwarder, "sk-one")
+	for attempt := 1; attempt <= 3; attempt++ {
+		request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions",
+			bytes.NewBufferString(`{"model":"gpt-4o"}`))
+		request.Header.Set("Authorization", "Bearer gl-client")
+		recorder := httptest.NewRecorder()
+		engine.ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusUnauthorized {
+			t.Fatalf("attempt %d response = %d %s", attempt, recorder.Code, recorder.Body.String())
+		}
+		blacklisted := registry.BlacklistedKeys()
+		if (attempt < 3 && len(blacklisted) != 0) ||
+			(attempt == 3 && (len(blacklisted) != 1 || blacklisted[0].ID != 1)) {
+			t.Fatalf("attempt %d blacklisted = %#v", attempt, blacklisted)
+		}
+	}
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions",
+		bytes.NewBufferString(`{"model":"gpt-4o"}`))
+	request.Header.Set("Authorization", "Bearer gl-client")
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusServiceUnavailable || len(forwarder.inputs) != 3 {
+		t.Fatalf("post-blacklist response/attempts = %d/%d, want 503/3",
+			recorder.Code, len(forwarder.inputs))
+	}
+}
+
+func TestHandlerClearsFailureOnlyForNonStreamingSuccess(t *testing.T) {
+	tests := []struct {
+		name      string
+		result    UpstreamResult
+		wantCount int
+	}{
+		{
+			name: "success clears",
+			result: UpstreamResult{StatusCode: http.StatusOK, Header: make(http.Header),
+				Body: []byte(`{"ok":true}`), RequestWritten: true},
+			wantCount: 1,
+		},
+		{
+			name: "client error does not clear",
+			result: UpstreamResult{StatusCode: http.StatusBadRequest, Header: make(http.Header),
+				Body:               []byte(`{"error":"invalid input"}`),
+				ClassificationBody: []byte(`{"error":"invalid input"}`), RequestWritten: true},
+			wantCount: 3,
+		},
+		{
+			name: "two hundred with error does not clear",
+			result: UpstreamResult{StatusCode: http.StatusOK,
+				Err: errors.New("response failed"), RequestWritten: true},
+			wantCount: 3,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			forwarder := &scriptedForwarder{results: []UpstreamResult{test.result}}
+			engine, _, registry := newHandlerTestRuntime(t, forwarder, "sk-one")
+			_, _ = registry.IncrFailure(1)
+			_, _ = registry.IncrFailure(1)
+
+			request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions",
+				bytes.NewBufferString(`{"model":"gpt-4o"}`))
+			request.Header.Set("Authorization", "Bearer gl-client")
+			recorder := httptest.NewRecorder()
+			engine.ServeHTTP(recorder, request)
+
+			count, ok := registry.IncrFailure(1)
+			if !ok || count != test.wantCount {
+				t.Fatalf("failure count = %d, %t, want %d, true", count, ok, test.wantCount)
+			}
+		})
+	}
+}
+
+func TestHandlerDoesNotClearFailureAfterDownstreamCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	forwarder := &scriptedForwarder{
+		results: []UpstreamResult{{
+			StatusCode: http.StatusOK, Header: make(http.Header),
+			Body: []byte(`{"ok":true}`), RequestWritten: true,
+		}},
+		onCall: func(int) { cancel() },
+	}
+	engine, _, registry := newHandlerTestRuntime(t, forwarder, "sk-one")
+	_, _ = registry.IncrFailure(1)
+	_, _ = registry.IncrFailure(1)
+
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions",
+		bytes.NewBufferString(`{"model":"gpt-4o"}`)).WithContext(ctx)
+	request.Header.Set("Authorization", "Bearer gl-client")
+	engine.ServeHTTP(httptest.NewRecorder(), request)
+
+	count, ok := registry.IncrFailure(1)
+	if !ok || count != 3 {
+		t.Fatalf("failure count = %d, %t, want 3, true", count, ok)
+	}
+}
+
+func TestHandlerLeavesKeyRegistryUnchangedForNonKeyActions(t *testing.T) {
+	for _, action := range []health.Action{
+		health.ActionRetry,
+		health.ActionSkipGroup,
+		health.ActionTerminate,
+		health.Action(255),
+	} {
+		t.Run(fmt.Sprintf("action_%d", action), func(t *testing.T) {
+			recording := &recordingRuntimeRegistry{KeyRegistry: state.NewKeyRegistry()}
+			handler := &Handler{registry: recording}
+			handler.applyKeyAction(1, health.Result{Action: action}, time.Time{})
+			if recording.cooldownCalls != 0 || recording.incrFailureCalls != 0 ||
+				recording.blacklistCalls != 0 || recording.clearCalls != 0 {
+				t.Fatalf("mutation calls = cooldown:%d failure:%d blacklist:%d clear:%d",
+					recording.cooldownCalls, recording.incrFailureCalls,
+					recording.blacklistCalls, recording.clearCalls)
+			}
+		})
+	}
+}
+
 func TestHandlerReturnsStableTerminalReasons(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -1307,6 +1579,18 @@ func newHandlerTestRuntime(
 	upstreamKeys ...string,
 ) (*gin.Engine, *state.Manager, *state.KeyRegistry) {
 	t.Helper()
+	handler, manager, registry := newHandlerForTest(t, forwarder, upstreamKeys...)
+	engine := gin.New()
+	handler.RegisterRoutes(engine)
+	return engine, manager, registry
+}
+
+func newHandlerForTest(
+	t *testing.T,
+	forwarder AttemptForwarder,
+	upstreamKeys ...string,
+) (*Handler, *state.Manager, *state.KeyRegistry) {
+	t.Helper()
 	gin.SetMode(gin.TestMode)
 	keyService, err := encryption.NewService("handler-test-master-key")
 	if err != nil {
@@ -1344,7 +1628,5 @@ func newHandlerTestRuntime(
 	openAI := dialect.NewOpenAI(http.DefaultClient)
 	handler := NewHandler(manager, registry, keyService, forwarder, dialect.NewSet(openAI))
 	handler.newRandom = func() *rand.Rand { return rand.New(rand.NewSource(1)) }
-	engine := gin.New()
-	handler.RegisterRoutes(engine)
-	return engine, manager, registry
+	return handler, manager, registry
 }

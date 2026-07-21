@@ -21,11 +21,13 @@ import (
 )
 
 const (
-	maxAttempts         = 3
-	maxRequestBodyBytes = int64(32 << 20)
-	debugHeaderGroup    = "X-GPTLoad-Group"
-	debugHeaderKey      = "X-GPTLoad-Key"
-	debugHeaderAttempts = "X-GPTLoad-Attempts"
+	maxAttempts               = 3
+	maxRequestBodyBytes       = int64(32 << 20)
+	fixedCooldown             = time.Minute
+	blacklistFailureThreshold = 3
+	debugHeaderGroup          = "X-GPTLoad-Group"
+	debugHeaderKey            = "X-GPTLoad-Key"
+	debugHeaderAttempts       = "X-GPTLoad-Attempts"
 )
 
 var debugHeaderNames = []string{debugHeaderGroup, debugHeaderKey, debugHeaderAttempts}
@@ -40,6 +42,10 @@ type AttemptForwarder interface {
 type runtimeKeyRegistry interface {
 	scheduler.KeySource
 	ActiveEncryptedValue(keyID, expectedGroupID uint) (string, bool)
+	SetCooldown(keyID uint, until time.Time) bool
+	IncrFailure(keyID uint) (int, bool)
+	SetBlacklisted(keyID uint) bool
+	ClearFailure(keyID uint) bool
 }
 
 type Handler struct {
@@ -49,6 +55,7 @@ type Handler struct {
 	forwarder      AttemptForwarder
 	dialects       dialect.Set
 	newRandom      func() *rand.Rand
+	now            func() time.Time
 	writeTimeout   time.Duration
 	modelListLimit int64
 }
@@ -64,8 +71,29 @@ func NewHandler(
 		manager: manager, registry: registry, encryption: encryptionService,
 		forwarder: forwarder, dialects: dialects,
 		newRandom:      func() *rand.Rand { return rand.New(rand.NewSource(rand.Int63())) },
+		now:            time.Now,
 		writeTimeout:   downstreamWriteTimeout,
 		modelListLimit: maxNonStreamingResponseBodyBytes,
+	}
+}
+
+func (handler *Handler) applyKeyAction(
+	keyID uint,
+	decision health.Result,
+	attemptNow time.Time,
+) {
+	switch decision.Action {
+	case health.ActionCooldownKey:
+		until := decision.CooldownUntil
+		if decision.UseFixed {
+			until = attemptNow.Add(fixedCooldown)
+		}
+		_ = handler.registry.SetCooldown(keyID, until)
+	case health.ActionFailKey:
+		count, ok := handler.registry.IncrFailure(keyID)
+		if ok && count >= blacklistFailureThreshold {
+			_ = handler.registry.SetBlacklisted(keyID)
+		}
 	}
 }
 
@@ -189,12 +217,19 @@ func (handler *Handler) executeAttempts(
 		if result.Committed || ginContext.Request.Context().Err() != nil {
 			return
 		}
+		if !stream && result.HasResponse() &&
+			result.StatusCode >= http.StatusOK &&
+			result.StatusCode < http.StatusMultipleChoices {
+			_ = handler.registry.ClearFailure(selection.KeyID)
+		}
+		attemptNow := handler.now()
 		decision := health.Judge(selectedDialect, health.Attempt{
 			StatusCode: result.StatusCode, Body: result.ClassificationBody,
-			Header: result.Header, Now: time.Now(),
+			Header: result.Header, Now: attemptNow,
 			Err: result.Err, RequestWritten: result.RequestWritten,
 			Committed: result.Committed, RetryableBeforeCommit: result.RetryableBeforeCommit,
 		})
+		handler.applyKeyAction(selection.KeyID, decision, attemptNow)
 		if result.HasResponse() {
 			copied := result
 			lastResponse = &copied
