@@ -149,20 +149,22 @@ func TestGeminiClassifyStatus(t *testing.T) {
 		name   string
 		status int
 		body   string
-		want   health.ErrorClass
+		want   health.FailureCategory
 	}{
-		{name: "success", status: http.StatusOK, body: `{"status":"api_key_invalid"}`, want: health.ErrorClassNonRetryable},
-		{name: "unauthorized", status: http.StatusUnauthorized, want: health.ErrorClassRetryable},
-		{name: "forbidden", status: http.StatusForbidden, want: health.ErrorClassRetryable},
-		{name: "not found", status: http.StatusNotFound, want: health.ErrorClassRetryable},
-		{name: "rate limited", status: http.StatusTooManyRequests, want: health.ErrorClassRetryable},
-		{name: "server error", status: http.StatusServiceUnavailable, want: health.ErrorClassRetryable},
-		{name: "invalid key marker", status: http.StatusBadRequest, body: `{"status":"api_key_invalid"}`, want: health.ErrorClassRetryable},
-		{name: "permission marker", status: http.StatusBadRequest, body: `{"status":"permission_denied"}`, want: health.ErrorClassRetryable},
-		{name: "quota marker", status: http.StatusBadRequest, body: `{"status":"resource_exhausted"}`, want: health.ErrorClassRetryable},
-		{name: "model marker", status: http.StatusBadRequest, body: `{"message":"model not supported"}`, want: health.ErrorClassRetryable},
-		{name: "invalid argument", status: http.StatusBadRequest, body: `{"status":"invalid_argument"}`, want: health.ErrorClassNonRetryable},
-		{name: "ordinary unavailable text", status: http.StatusBadRequest, body: `{"message":"tool is unavailable for this request"}`, want: health.ErrorClassNonRetryable},
+		{name: "success", status: http.StatusOK, body: `{"status":"api_key_invalid"}`, want: health.FailureCategoryOK},
+		{name: "unauthorized", status: http.StatusUnauthorized, want: health.FailureCategoryInvalidKey},
+		{name: "forbidden", status: http.StatusForbidden, want: health.FailureCategoryInvalidKey},
+		{name: "not found", status: http.StatusNotFound, want: health.FailureCategoryModelUnavailable},
+		{name: "rate limited", status: http.StatusTooManyRequests, want: health.FailureCategoryRateLimited},
+		{name: "server error", status: http.StatusServiceUnavailable, want: health.FailureCategoryUpstreamHostError},
+		{name: "redirect is ambiguous", status: http.StatusTemporaryRedirect, want: health.FailureCategoryAmbiguous},
+		{name: "invalid key marker", status: http.StatusBadRequest, body: `{"status":"api_key_invalid"}`, want: health.FailureCategoryInvalidKey},
+		{name: "permission marker", status: http.StatusBadRequest, body: `{"status":"permission_denied"}`, want: health.FailureCategoryInvalidKey},
+		{name: "quota marker", status: http.StatusBadRequest, body: `{"status":"resource_exhausted"}`, want: health.FailureCategoryRateLimited},
+		{name: "model marker", status: http.StatusBadRequest, body: `{"message":"model not supported"}`, want: health.FailureCategoryModelUnavailable},
+		{name: "invalid argument", status: http.StatusBadRequest, body: `{"status":"invalid_argument"}`, want: health.FailureCategoryClientError},
+		{name: "ordinary unavailable text", status: http.StatusBadRequest, body: `{"message":"tool is unavailable for this request"}`, want: health.FailureCategoryClientError},
+		{name: "ordinary client error", status: http.StatusBadRequest, body: `{"error":"invalid input"}`, want: health.FailureCategoryClientError},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

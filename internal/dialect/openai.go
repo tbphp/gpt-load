@@ -17,20 +17,11 @@ const (
 	openAIModelsPath          = "/v1/models"
 )
 
-var openAIRetryableErrorMarkers = []string{
-	"invalid_api_key",
-	"invalid api key",
-	"incorrect api key",
-	"rate_limit",
-	"rate limit",
-	"quota",
-	"model_not_found",
-	"model not found",
-	"model_not_supported",
-	"model not supported",
-	"no access to model",
-	"disabled",
-	"banned",
+var openAIFailureMarkers = failureMarkers{
+	rateLimited:      []string{"rate_limit", "rate limit", "insufficient_quota", "quota_exceeded", "quota exceeded"},
+	modelUnavailable: []string{"model_not_found", "model not found", "model_not_supported", "model not supported", "no access to model"},
+	invalidKey:       []string{"invalid_api_key", "invalid api key", "incorrect api key", "api_key_disabled", "api key disabled", "account_deactivated", "api_key_banned", "api key banned"},
+	upstreamHost:     []string{"overloaded_error", "server_overloaded"},
 }
 
 type OpenAI struct {
@@ -128,8 +119,8 @@ func (d *OpenAI) ExtractModel(req *ParsedRequest) (string, bool, error) {
 	return model, stream, nil
 }
 
-func (d *OpenAI) ClassifyStatus(status int, body []byte) health.ErrorClass {
-	return classifyStatusWithMarkers(status, body, openAIRetryableErrorMarkers)
+func (d *OpenAI) ClassifyStatus(status int, body []byte) health.FailureCategory {
+	return classifyStatusWithMarkers(status, body, openAIFailureMarkers)
 }
 
 func buildUpstreamURL(base string, req *ParsedRequest) (string, error) {

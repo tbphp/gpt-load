@@ -19,15 +19,10 @@ const (
 	geminiModelsPath       = "/v1beta/models"
 )
 
-var geminiRetryableErrorMarkers = []string{
-	"api_key_invalid",
-	"permission_denied",
-	"resource_exhausted",
-	"model_not_found",
-	"model not found",
-	"model_not_supported",
-	"model not supported",
-	"no access to model",
+var geminiFailureMarkers = failureMarkers{
+	rateLimited:      []string{"resource_exhausted", "rate_limit", "rate limit", "quota_exceeded", "quota exceeded"},
+	modelUnavailable: []string{"model_not_found", "model not found", "model_not_supported", "model not supported", "no access to model"},
+	invalidKey:       []string{"api_key_invalid", "unauthenticated", "permission_denied", "api key not valid", "invalid api key", "api key disabled", "api key banned"},
 }
 
 type Gemini struct {
@@ -183,8 +178,8 @@ func (d *Gemini) listModelsPage(
 	return page, nil
 }
 
-func (d *Gemini) ClassifyStatus(status int, body []byte) health.ErrorClass {
-	return classifyStatusWithMarkers(status, body, geminiRetryableErrorMarkers)
+func (d *Gemini) ClassifyStatus(status int, body []byte) health.FailureCategory {
+	return classifyStatusWithMarkers(status, body, geminiFailureMarkers)
 }
 
 func parseGeminiGenerationPath(path string) (model string, stream bool, err error) {

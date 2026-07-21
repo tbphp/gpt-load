@@ -5,133 +5,147 @@ import (
 	"errors"
 	"net/http"
 	"testing"
+	"time"
 )
 
-type classifierFunc func(int, []byte) ErrorClass
+type classifierFunc func(int, []byte) FailureCategory
 
-func (function classifierFunc) ClassifyStatus(status int, body []byte) ErrorClass {
+func (function classifierFunc) ClassifyStatus(status int, body []byte) FailureCategory {
 	return function(status, body)
 }
 
+func fixedCategory(category FailureCategory) StatusClassifier {
+	return classifierFunc(func(int, []byte) FailureCategory { return category })
+}
+
 func TestJudgeAppliesRulesInSafetyOrder(t *testing.T) {
-	retryableStatus := classifierFunc(func(int, []byte) ErrorClass { return ErrorClassRetryable })
-	nonRetryableStatus := classifierFunc(func(int, []byte) ErrorClass { return ErrorClassNonRetryable })
-	transportFailure := errors.New("connection failed")
-	protocolFailure := errors.New("upstream protocol error")
+	now := time.Date(2026, time.July, 20, 12, 0, 0, 0, time.UTC)
 
 	tests := []struct {
 		name       string
 		classifier StatusClassifier
 		attempt    Attempt
-		wantRetry  bool
+		want       Result
 	}{
 		{
-			name:       "committed overrides retryable status",
-			classifier: retryableStatus,
-			attempt:    Attempt{Committed: true, StatusCode: http.StatusUnauthorized},
+			name: "committed overrides rate limit",
+			classifier: classifierFunc(func(int, []byte) FailureCategory {
+				return FailureCategoryRateLimited
+			}),
+			attempt: Attempt{Committed: true, StatusCode: http.StatusTooManyRequests, Now: now},
+			want:    Result{Action: ActionTerminate},
 		},
 		{
-			name:       "downstream cancellation terminates",
-			classifier: retryableStatus,
-			attempt:    Attempt{Err: context.Canceled},
+			name:    "downstream cancellation terminates",
+			attempt: Attempt{Err: context.Canceled, RetryableBeforeCommit: true},
+			want:    Result{Action: ActionTerminate},
 		},
 		{
-			name:       "committed overrides explicit pre-commit retry",
-			classifier: retryableStatus,
-			attempt: Attempt{
-				Err: protocolFailure, RequestWritten: true,
-				Committed: true, RetryableBeforeCommit: true,
-			},
+			name:    "request-written ambiguous error terminates",
+			attempt: Attempt{Err: errors.New("connection reset"), RequestWritten: true},
+			want:    Result{Action: ActionTerminate},
 		},
 		{
-			name:       "downstream cancellation overrides explicit pre-commit retry",
-			classifier: retryableStatus,
-			attempt: Attempt{
-				Err: context.Canceled, RequestWritten: true,
-				RetryableBeforeCommit: true,
-			},
+			name:    "explicit safe pre-commit signal retries",
+			attempt: Attempt{Err: errors.New("first event timeout"), RequestWritten: true, RetryableBeforeCommit: true},
+			want:    Result{Action: ActionRetry},
 		},
 		{
-			name:       "request-written pre-commit disconnect retries with explicit signal",
-			classifier: nonRetryableStatus,
-			attempt: Attempt{
-				Err: transportFailure, RequestWritten: true,
-				RetryableBeforeCommit: true,
-			},
-			wantRetry: true,
+			name:    "pre-write transport skips group",
+			attempt: Attempt{Err: errors.New("dial tcp failed")},
+			want:    Result{Action: ActionSkipGroup},
 		},
 		{
-			name:       "request-written first-event timeout retries with explicit signal",
-			classifier: nonRetryableStatus,
-			attempt: Attempt{
-				Err: context.DeadlineExceeded, RequestWritten: true,
-				RetryableBeforeCommit: true,
-			},
-			wantRetry: true,
+			name:       "rate limit uses parsed reset",
+			classifier: fixedCategory(FailureCategoryRateLimited),
+			attempt: Attempt{StatusCode: http.StatusTooManyRequests,
+				Header: http.Header{"Retry-After": {"30"}}, Now: now},
+			want: Result{Action: ActionCooldownKey, CooldownUntil: now.Add(30 * time.Second)},
 		},
 		{
-			name:       "protocol error retries with explicit signal",
-			classifier: nonRetryableStatus,
-			attempt: Attempt{
-				Err: protocolFailure, RequestWritten: true,
-				RetryableBeforeCommit: true,
-			},
-			wantRetry: true,
+			name:       "rate limit without valid reset requests fixed fallback",
+			classifier: fixedCategory(FailureCategoryRateLimited),
+			attempt:    Attempt{StatusCode: http.StatusTooManyRequests, Now: now},
+			want:       Result{Action: ActionCooldownKey, UseFixed: true},
 		},
 		{
-			name:       "request-written protocol error terminates without explicit signal",
-			classifier: retryableStatus,
-			attempt:    Attempt{Err: protocolFailure, RequestWritten: true},
+			name:       "model unavailable cools for one hour",
+			classifier: fixedCategory(FailureCategoryModelUnavailable),
+			attempt:    Attempt{StatusCode: http.StatusNotFound, Now: now},
+			want:       Result{Action: ActionCooldownKey, CooldownUntil: now.Add(time.Hour)},
 		},
 		{
-			name:       "pre-write connection failure retries",
-			classifier: nonRetryableStatus,
-			attempt:    Attempt{Err: transportFailure, RequestWritten: false},
-			wantRetry:  true,
+			name:       "invalid key fails key",
+			classifier: fixedCategory(FailureCategoryInvalidKey),
+			attempt:    Attempt{StatusCode: http.StatusUnauthorized, Now: now},
+			want:       Result{Action: ActionFailKey},
 		},
 		{
-			name:       "pre-write timeout retries",
-			classifier: nonRetryableStatus,
-			attempt:    Attempt{Err: context.DeadlineExceeded, RequestWritten: false},
-			wantRetry:  true,
+			name:       "host error skips group",
+			classifier: fixedCategory(FailureCategoryUpstreamHostError),
+			attempt:    Attempt{StatusCode: http.StatusServiceUnavailable, Now: now},
+			want:       Result{Action: ActionSkipGroup},
 		},
 		{
-			name:       "post-write timeout terminates",
-			classifier: retryableStatus,
-			attempt:    Attempt{Err: context.DeadlineExceeded, RequestWritten: true},
-		},
-		{
-			name:       "post-write disconnect terminates",
-			classifier: retryableStatus,
-			attempt:    Attempt{Err: transportFailure, RequestWritten: true},
-		},
-		{
-			name:       "dialect retryable status",
-			classifier: retryableStatus,
-			attempt:    Attempt{StatusCode: http.StatusTooManyRequests, Body: []byte(`{"error":"rate_limit"}`)},
-			wantRetry:  true,
-		},
-		{
-			name:       "dialect non-retryable status",
-			classifier: nonRetryableStatus,
-			attempt:    Attempt{StatusCode: http.StatusBadRequest, Body: []byte(`{"error":"invalid input"}`)},
+			name:       "client error terminates",
+			classifier: fixedCategory(FailureCategoryClientError),
+			attempt:    Attempt{StatusCode: http.StatusBadRequest, Now: now},
+			want:       Result{Action: ActionTerminate},
 		},
 		{
 			name:    "nil classifier terminates",
 			attempt: Attempt{StatusCode: http.StatusInternalServerError},
+			want:    Result{Action: ActionTerminate},
 		},
 		{
 			name:       "empty attempt terminates",
-			classifier: retryableStatus,
+			classifier: fixedCategory(FailureCategoryRateLimited),
+			want:       Result{Action: ActionTerminate},
+		},
+		{
+			name:       "OK terminates",
+			classifier: fixedCategory(FailureCategoryOK),
+			attempt:    Attempt{StatusCode: http.StatusOK},
+			want:       Result{Action: ActionTerminate},
+		},
+		{
+			name:       "ambiguous terminates",
+			classifier: fixedCategory(FailureCategoryAmbiguous),
+			attempt:    Attempt{StatusCode: http.StatusTemporaryRedirect},
+			want:       Result{Action: ActionTerminate},
+		},
+		{
+			name:       "downstream category terminates",
+			classifier: fixedCategory(FailureCategoryDownstreamCancel),
+			attempt:    Attempt{StatusCode: http.StatusBadRequest},
+			want:       Result{Action: ActionTerminate},
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := Judge(tt.classifier, tt.attempt)
-			if got.Retryable != tt.wantRetry {
-				t.Fatalf("Judge() = %#v, want Retryable=%t", got, tt.wantRetry)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := Judge(test.classifier, test.attempt); got != test.want {
+				t.Fatalf("Judge() = %#v, want %#v", got, test.want)
 			}
 		})
+	}
+}
+
+func TestResultShouldRetryIsDerivedFromAction(t *testing.T) {
+	tests := []struct {
+		action Action
+		want   bool
+	}{
+		{action: ActionTerminate, want: false},
+		{action: ActionRetry, want: true},
+		{action: ActionCooldownKey, want: true},
+		{action: ActionFailKey, want: true},
+		{action: ActionSkipGroup, want: true},
+		{action: Action(255), want: false},
+	}
+	for _, test := range tests {
+		if got := (Result{Action: test.action}).ShouldRetry(); got != test.want {
+			t.Fatalf("Action %d ShouldRetry() = %t, want %t", test.action, got, test.want)
+		}
 	}
 }

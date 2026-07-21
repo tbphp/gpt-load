@@ -145,25 +145,27 @@ func TestAnthropicClassifyStatus(t *testing.T) {
 		name   string
 		status int
 		body   string
-		want   health.ErrorClass
+		want   health.FailureCategory
 	}{
-		{name: "success", status: http.StatusOK, body: `{"type":"authentication_error"}`, want: health.ErrorClassNonRetryable},
-		{name: "unauthorized", status: http.StatusUnauthorized, want: health.ErrorClassRetryable},
-		{name: "forbidden", status: http.StatusForbidden, want: health.ErrorClassRetryable},
-		{name: "not found", status: http.StatusNotFound, want: health.ErrorClassRetryable},
-		{name: "rate limited", status: http.StatusTooManyRequests, want: health.ErrorClassRetryable},
-		{name: "server error", status: http.StatusInternalServerError, want: health.ErrorClassRetryable},
-		{name: "authentication marker", status: http.StatusBadRequest, body: `{"type":"authentication_error"}`, want: health.ErrorClassRetryable},
-		{name: "permission marker", status: http.StatusBadRequest, body: `{"type":"permission_error"}`, want: health.ErrorClassRetryable},
-		{name: "rate marker", status: http.StatusBadRequest, body: `{"type":"rate_limit_error"}`, want: health.ErrorClassRetryable},
-		{name: "overloaded marker", status: http.StatusBadRequest, body: `{"type":"overloaded_error"}`, want: health.ErrorClassRetryable},
-		{name: "model not found code", status: http.StatusBadRequest, body: `{"type":"model_not_found"}`, want: health.ErrorClassRetryable},
-		{name: "model not found message", status: http.StatusBadRequest, body: `{"message":"model not found"}`, want: health.ErrorClassRetryable},
-		{name: "model not supported code", status: http.StatusBadRequest, body: `{"type":"model_not_supported"}`, want: health.ErrorClassRetryable},
-		{name: "model not supported message", status: http.StatusBadRequest, body: `{"message":"model not supported"}`, want: health.ErrorClassRetryable},
-		{name: "no model access", status: http.StatusBadRequest, body: `{"message":"no access to model"}`, want: health.ErrorClassRetryable},
-		{name: "invalid request", status: http.StatusBadRequest, body: `{"type":"invalid_request_error"}`, want: health.ErrorClassNonRetryable},
-		{name: "unsupported feature", status: http.StatusBadRequest, body: `{"message":"function calling is not supported with this model"}`, want: health.ErrorClassNonRetryable},
+		{name: "success", status: http.StatusOK, body: `{"type":"authentication_error"}`, want: health.FailureCategoryOK},
+		{name: "unauthorized", status: http.StatusUnauthorized, want: health.FailureCategoryInvalidKey},
+		{name: "forbidden", status: http.StatusForbidden, want: health.FailureCategoryInvalidKey},
+		{name: "not found", status: http.StatusNotFound, want: health.FailureCategoryModelUnavailable},
+		{name: "rate limited", status: http.StatusTooManyRequests, want: health.FailureCategoryRateLimited},
+		{name: "server error", status: http.StatusInternalServerError, want: health.FailureCategoryUpstreamHostError},
+		{name: "provider 529 is host error", status: 529, want: health.FailureCategoryUpstreamHostError},
+		{name: "authentication marker", status: http.StatusBadRequest, body: `{"type":"authentication_error"}`, want: health.FailureCategoryInvalidKey},
+		{name: "permission marker", status: http.StatusBadRequest, body: `{"type":"permission_error"}`, want: health.FailureCategoryInvalidKey},
+		{name: "rate marker", status: http.StatusBadRequest, body: `{"type":"rate_limit_error"}`, want: health.FailureCategoryRateLimited},
+		{name: "overloaded marker", status: http.StatusBadRequest, body: `{"type":"overloaded_error"}`, want: health.FailureCategoryUpstreamHostError},
+		{name: "model not found code", status: http.StatusBadRequest, body: `{"type":"model_not_found"}`, want: health.FailureCategoryModelUnavailable},
+		{name: "model marker precedes key status", status: http.StatusForbidden, body: `{"type":"model_not_found"}`, want: health.FailureCategoryModelUnavailable},
+		{name: "model not found message", status: http.StatusBadRequest, body: `{"message":"model not found"}`, want: health.FailureCategoryModelUnavailable},
+		{name: "model not supported code", status: http.StatusBadRequest, body: `{"type":"model_not_supported"}`, want: health.FailureCategoryModelUnavailable},
+		{name: "model not supported message", status: http.StatusBadRequest, body: `{"message":"model not supported"}`, want: health.FailureCategoryModelUnavailable},
+		{name: "no model access", status: http.StatusBadRequest, body: `{"message":"no access to model"}`, want: health.FailureCategoryModelUnavailable},
+		{name: "invalid request", status: http.StatusBadRequest, body: `{"type":"invalid_request_error"}`, want: health.FailureCategoryClientError},
+		{name: "unsupported feature", status: http.StatusBadRequest, body: `{"message":"function calling is not supported with this model"}`, want: health.FailureCategoryClientError},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

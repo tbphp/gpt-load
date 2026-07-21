@@ -18,16 +18,11 @@ const (
 	anthropicDefaultVersion = "2023-06-01"
 )
 
-var anthropicRetryableErrorMarkers = []string{
-	"authentication_error",
-	"permission_error",
-	"rate_limit_error",
-	"overloaded_error",
-	"model_not_found",
-	"model not found",
-	"model_not_supported",
-	"model not supported",
-	"no access to model",
+var anthropicFailureMarkers = failureMarkers{
+	rateLimited:      []string{"rate_limit_error", "rate limit"},
+	modelUnavailable: []string{"model_not_found", "model not found", "model_not_supported", "model not supported", "no access to model"},
+	invalidKey:       []string{"authentication_error", "permission_error", "invalid x-api-key", "api key disabled", "api key banned"},
+	upstreamHost:     []string{"overloaded_error"},
 }
 
 type Anthropic struct {
@@ -168,6 +163,6 @@ func (d *Anthropic) ExtractModel(req *ParsedRequest) (string, bool, error) {
 	return model, stream, nil
 }
 
-func (d *Anthropic) ClassifyStatus(status int, body []byte) health.ErrorClass {
-	return classifyStatusWithMarkers(status, body, anthropicRetryableErrorMarkers)
+func (d *Anthropic) ClassifyStatus(status int, body []byte) health.FailureCategory {
+	return classifyStatusWithMarkers(status, body, anthropicFailureMarkers)
 }

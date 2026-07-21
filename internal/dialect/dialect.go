@@ -27,7 +27,7 @@ type Dialect interface {
 		baseURL, apiKey string,
 		rules state.HeaderRules,
 	) ([]string, error)
-	ClassifyStatus(status int, body []byte) health.ErrorClass
+	ClassifyStatus(status int, body []byte) health.FailureCategory
 }
 
 type ModelRewriter interface {

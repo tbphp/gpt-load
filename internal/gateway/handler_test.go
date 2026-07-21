@@ -903,6 +903,44 @@ func TestHandlerUsesClassifierForStreamingNonSuccess(t *testing.T) {
 	})
 }
 
+func TestHandlerUsesClassifierForNonStreamingNonSuccess(t *testing.T) {
+	t.Run("client error terminates after one attempt", func(t *testing.T) {
+		forwarder := &scriptedForwarder{results: []UpstreamResult{
+			{StatusCode: http.StatusBadRequest, Header: make(http.Header),
+				Body:               []byte(`{"error":"invalid input"}`),
+				ClassificationBody: []byte(`{"error":"invalid input"}`), RequestWritten: true},
+			{StatusCode: http.StatusOK, Header: make(http.Header), Body: []byte(`{"ok":true}`)},
+		}}
+		engine, _, _ := newHandlerTestRuntime(t, forwarder, "sk-one", "sk-two")
+		request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions",
+			bytes.NewBufferString(`{"model":"gpt-4o"}`))
+		request.Header.Set("Authorization", "Bearer gl-client")
+		recorder := httptest.NewRecorder()
+		engine.ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusBadRequest || len(forwarder.inputs) != 1 {
+			t.Fatalf("status/attempts = %d/%d, want 400/1", recorder.Code, len(forwarder.inputs))
+		}
+	})
+
+	t.Run("rate limit advances to a second key", func(t *testing.T) {
+		forwarder := &scriptedForwarder{results: []UpstreamResult{
+			{StatusCode: http.StatusTooManyRequests, Header: http.Header{"Retry-After": {"30"}},
+				Body:               []byte(`{"error":"rate_limit"}`),
+				ClassificationBody: []byte(`{"error":"rate_limit"}`), RequestWritten: true},
+			{StatusCode: http.StatusOK, Header: make(http.Header), Body: []byte(`{"ok":true}`), RequestWritten: true},
+		}}
+		engine, _, _ := newHandlerTestRuntime(t, forwarder, "sk-one", "sk-two")
+		request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions",
+			bytes.NewBufferString(`{"model":"gpt-4o"}`))
+		request.Header.Set("Authorization", "Bearer gl-client")
+		recorder := httptest.NewRecorder()
+		engine.ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusOK || len(forwarder.inputs) != 2 {
+			t.Fatalf("status/attempts = %d/%d, want 200/2", recorder.Code, len(forwarder.inputs))
+		}
+	})
+}
+
 func TestHandlerReturnsStableTerminalReasons(t *testing.T) {
 	tests := []struct {
 		name         string

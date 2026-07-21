@@ -189,15 +189,16 @@ func (handler *Handler) executeAttempts(
 		if result.Committed || ginContext.Request.Context().Err() != nil {
 			return
 		}
-		verdict := health.Judge(selectedDialect, health.Attempt{
+		decision := health.Judge(selectedDialect, health.Attempt{
 			StatusCode: result.StatusCode, Body: result.ClassificationBody,
+			Header: result.Header, Now: time.Now(),
 			Err: result.Err, RequestWritten: result.RequestWritten,
 			Committed: result.Committed, RetryableBeforeCommit: result.RetryableBeforeCommit,
 		})
 		if result.HasResponse() {
 			copied := result
 			lastResponse = &copied
-			if verdict.Retryable {
+			if decision.ShouldRetry() {
 				continue
 			}
 			if err := handler.writeUpstreamResponse(ginContext, result); err != nil {
@@ -208,7 +209,7 @@ func (handler *Handler) executeAttempts(
 		if errors.Is(result.Err, context.Canceled) {
 			return
 		}
-		if verdict.Retryable {
+		if decision.ShouldRetry() {
 			copied := result
 			lastTransport = &copied
 			continue

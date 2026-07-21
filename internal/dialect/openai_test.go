@@ -228,47 +228,51 @@ func TestOpenAIClassifyStatus(t *testing.T) {
 		name   string
 		status int
 		body   string
-		want   health.ErrorClass
+		want   health.FailureCategory
 	}{
-		{name: "success is not retryable", status: http.StatusOK, want: health.ErrorClassNonRetryable},
+		{name: "success is not retryable", status: http.StatusOK, want: health.FailureCategoryOK},
 		{
 			name:   "success body marker is not retryable",
 			status: http.StatusOK,
 			body:   `{"choices":[{"message":{"content":"rate limit"}}]}`,
-			want:   health.ErrorClassNonRetryable,
+			want:   health.FailureCategoryOK,
 		},
-		{name: "generic bad request", status: http.StatusBadRequest, body: `{"error":"invalid input"}`, want: health.ErrorClassNonRetryable},
-		{name: "payload too large", status: http.StatusRequestEntityTooLarge, want: health.ErrorClassNonRetryable},
-		{name: "unprocessable entity", status: http.StatusUnprocessableEntity, want: health.ErrorClassNonRetryable},
-		{name: "unauthorized", status: http.StatusUnauthorized, want: health.ErrorClassRetryable},
-		{name: "forbidden", status: http.StatusForbidden, want: health.ErrorClassRetryable},
-		{name: "model not found", status: http.StatusNotFound, want: health.ErrorClassRetryable},
-		{name: "rate limited", status: http.StatusTooManyRequests, want: health.ErrorClassRetryable},
-		{name: "upstream server error", status: http.StatusInternalServerError, want: health.ErrorClassRetryable},
+		{name: "success marker ignored", status: http.StatusOK, body: `{"error":{"code":"rate_limit"}}`, want: health.FailureCategoryOK},
+		{name: "generic bad request", status: http.StatusBadRequest, body: `{"error":"invalid input"}`, want: health.FailureCategoryClientError},
+		{name: "payload too large", status: http.StatusRequestEntityTooLarge, want: health.FailureCategoryClientError},
+		{name: "unprocessable entity", status: http.StatusUnprocessableEntity, want: health.FailureCategoryClientError},
+		{name: "unauthorized", status: http.StatusUnauthorized, want: health.FailureCategoryInvalidKey},
+		{name: "forbidden", status: http.StatusForbidden, want: health.FailureCategoryInvalidKey},
+		{name: "model not found", status: http.StatusNotFound, want: health.FailureCategoryModelUnavailable},
+		{name: "rate limited", status: http.StatusTooManyRequests, want: health.FailureCategoryRateLimited},
+		{name: "upstream server error", status: http.StatusInternalServerError, want: health.FailureCategoryUpstreamHostError},
 		{
 			name:   "rate keyword overrides 400",
 			status: http.StatusBadRequest,
 			body:   `{"error":{"code":"rate_limit_exceeded"}}`,
-			want:   health.ErrorClassRetryable,
+			want:   health.FailureCategoryRateLimited,
 		},
+		{name: "rate marker precedes key status", status: http.StatusUnauthorized, body: `{"error":{"code":"rate_limit_exceeded"}}`, want: health.FailureCategoryRateLimited},
 		{
 			name:   "invalid key keyword overrides 400",
 			status: http.StatusBadRequest,
 			body:   `{"error":{"code":"invalid_api_key"}}`,
-			want:   health.ErrorClassRetryable,
+			want:   health.FailureCategoryInvalidKey,
 		},
 		{
 			name:   "model keyword overrides 400",
 			status: http.StatusBadRequest,
 			body:   `{"error":{"message":"model not supported"}}`,
-			want:   health.ErrorClassRetryable,
+			want:   health.FailureCategoryModelUnavailable,
 		},
 		{
 			name:   "unsupported parameter remains non retryable",
 			status: http.StatusBadRequest,
 			body:   `{"error":{"message":"parameter response_format is not supported"}}`,
-			want:   health.ErrorClassNonRetryable,
+			want:   health.FailureCategoryClientError,
 		},
+		{name: "quota field validation is client error", status: http.StatusBadRequest, body: `{"error":"quota field is invalid"}`, want: health.FailureCategoryClientError},
+		{name: "disabled feature is client error", status: http.StatusBadRequest, body: `{"error":"feature is disabled"}`, want: health.FailureCategoryClientError},
 	}
 
 	for _, tt := range tests {

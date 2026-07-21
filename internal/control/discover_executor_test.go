@@ -44,8 +44,8 @@ func (d *recordingDiscoveryDialect) ListModels(
 	return d.listFn(ctx, baseURL, apiKey, rules)
 }
 
-func (*recordingDiscoveryDialect) ClassifyStatus(int, []byte) health.ErrorClass {
-	return health.ErrorClassNonRetryable
+func (*recordingDiscoveryDialect) ClassifyStatus(int, []byte) health.FailureCategory {
+	return health.FailureCategoryClientError
 }
 
 func TestExecuteModelDiscoveryUsesProtocolOuterKeyInnerFallback(t *testing.T) {

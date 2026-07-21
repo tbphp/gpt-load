@@ -1,12 +1,14 @@
 package health
 
-type ErrorClass uint8
+type FailureCategory uint8
 
 const (
-	ErrorClassNonRetryable ErrorClass = iota
-	ErrorClassRetryable
+	FailureCategoryAmbiguous FailureCategory = iota
+	FailureCategoryOK
+	FailureCategoryRateLimited
+	FailureCategoryModelUnavailable
+	FailureCategoryInvalidKey
+	FailureCategoryUpstreamHostError
+	FailureCategoryClientError
+	FailureCategoryDownstreamCancel
 )
-
-func (c ErrorClass) IsRetryable() bool {
-	return c == ErrorClassRetryable
-}
