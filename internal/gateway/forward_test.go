@@ -3,6 +3,7 @@ package gateway
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -13,6 +14,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -215,7 +217,7 @@ func TestPrepareErrorBodyFailsClosedForOversizedUnchangedWire(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			headers := test.headers.Clone()
-			wire, classification := forwarder.prepareErrorBody(headers, test.wire, "")
+			wire, classification := forwarder.prepareErrorBody(headers, test.wire, ForwardInput{})
 			if string(wire) != redact.Placeholder || string(classification) != redact.Placeholder ||
 				headers.Get("Content-Encoding") != "" {
 				t.Fatalf(
@@ -337,7 +339,7 @@ func TestSanitizeUpstreamResponseHeadersHandlesNonCanonicalFieldNames(t *testing
 				t.Fatalf("credential Header %q survived: %#v", actualName, values)
 			}
 		}
-		if headerValuesContainKey(values, secret) {
+		if headerValuesContainLiteral(values, secret) {
 			t.Fatalf("Header %q retained current key: %#v", actualName, values)
 		}
 	}
@@ -364,6 +366,229 @@ func TestSanitizeUpstreamResponseHeadersRemovesAllCasingsOfMatchedField(t *testi
 	}
 	if safe := got["X-Safe"]; len(safe) != 1 || safe[0] != "kept" || !reflect.DeepEqual(source, before) {
 		t.Fatalf("safe/source headers = %#v / %#v", got, source)
+	}
+}
+
+func TestSanitizeForwardResponseHeadersPreservesRepresentationHeaderLiteralCollisions(t *testing.T) {
+	for _, test := range []struct {
+		name, upstreamModel, headerName, headerValue string
+	}{
+		{name: "content encoding", upstreamModel: "gzip", headerName: "Content-Encoding", headerValue: "gzip"},
+		{name: "content type", upstreamModel: "json", headerName: "Content-Type", headerValue: "application/json"},
+		{name: "content type preserves case", upstreamModel: "JSON", headerName: "Content-Type", headerValue: "application/JSON"},
+		{name: "problem json content type", upstreamModel: "problem", headerName: "Content-Type", headerValue: "application/problem+json"},
+		{name: "ndjson content type", upstreamModel: "ndjson", headerName: "Content-Type", headerValue: "application/x-ndjson"},
+		{name: "event stream content type", upstreamModel: "event", headerName: "Content-Type", headerValue: "text/event-stream"},
+		{name: "plain text content type", upstreamModel: "plain", headerName: "Content-Type", headerValue: "text/plain"},
+		{name: "content length", upstreamModel: "42", headerName: "Content-Length", headerValue: "42"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			source := http.Header{
+				test.headerName:    {test.headerValue},
+				"X-Upstream-Model": {test.upstreamModel},
+			}
+			got := sanitizeForwardResponseHeaders(source, ForwardInput{
+				ExternalModel: "public-model", UpstreamModelID: test.upstreamModel,
+			})
+
+			if got.Get(test.headerName) != test.headerValue {
+				t.Fatalf("%s = %q, want %q", test.headerName, got.Get(test.headerName), test.headerValue)
+			}
+			if got.Get("X-Upstream-Model") != "" {
+				t.Fatalf("X-Upstream-Model survived: %#v", got)
+			}
+		})
+	}
+}
+
+func TestSanitizeForwardResponseHeadersRemovesAliasedModelFromFieldNames(t *testing.T) {
+	const upstreamModel = "provider-model"
+	source := http.Header{
+		"X-Provider-Model-Quota": {"safe"},
+		"x-provider-model-quota": {"also-safe"},
+		"X-Safe":                 {"kept"},
+	}
+	got := sanitizeForwardResponseHeaders(source, ForwardInput{
+		ExternalModel: "public-model", UpstreamModelID: upstreamModel,
+	})
+
+	for name := range got {
+		if strings.Contains(strings.ToLower(name), upstreamModel) {
+			t.Fatalf("Header field name leaked aliased model as %q: %#v", name, got[name])
+		}
+	}
+	if got.Get("X-Safe") != "kept" {
+		t.Fatalf("safe header changed: %#v", got)
+	}
+}
+
+func TestSanitizeForwardResponseHeadersPreservesSafeContentTypeFieldNameCollisions(t *testing.T) {
+	for _, test := range []struct {
+		name          string
+		upstreamModel string
+		contentType   string
+	}{
+		{name: "content in field name", upstreamModel: "content", contentType: "application/json"},
+		{name: "type in field name", upstreamModel: "type", contentType: "text/event-stream"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			customHeader := "X-" + test.upstreamModel + "-Quota"
+			source := http.Header{
+				"Content-Type": {test.contentType},
+				customHeader:   {"safe"},
+			}
+			got := sanitizeForwardResponseHeaders(source, ForwardInput{
+				ExternalModel: "public-model", UpstreamModelID: test.upstreamModel,
+			})
+
+			if got.Get("Content-Type") != test.contentType {
+				t.Fatalf("Content-Type = %q, want %q", got.Get("Content-Type"), test.contentType)
+			}
+			if got.Get(customHeader) != "" {
+				t.Fatalf("custom Header field-name collision survived: %#v", got)
+			}
+		})
+	}
+}
+
+func TestSanitizeForwardResponseHeadersInvalidatesSignaturesOnlyAfterDeletion(t *testing.T) {
+	const upstreamModel = "provider-model"
+	for _, test := range []struct {
+		name   string
+		source http.Header
+	}{
+		{
+			name: "custom field name",
+			source: http.Header{
+				"X-Provider-Model-Quota": {"safe"},
+			},
+		},
+		{
+			name: "custom field value",
+			source: http.Header{
+				"X-Upstream": {"selected=" + upstreamModel},
+			},
+		},
+		{
+			name: "content type",
+			source: http.Header{
+				"Content-Type": {"application/vnd.provider-model+json"},
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			source := test.source.Clone()
+			source["Signature"] = []string{"sig-canonical"}
+			source["sIgNaTuRe"] = []string{"sig-noncanonical"}
+			source["Signature-Input"] = []string{"input-canonical"}
+			source["sIgNaTuRe-InPuT"] = []string{"input-noncanonical"}
+
+			got := sanitizeForwardResponseHeaders(source, ForwardInput{
+				ExternalModel: "public-model", UpstreamModelID: upstreamModel,
+			})
+
+			for name := range got {
+				if strings.EqualFold(name, "Signature") || strings.EqualFold(name, "Signature-Input") {
+					t.Fatalf("invalidated signature Header survived as %q: %#v", name, got[name])
+				}
+			}
+		})
+	}
+
+	t.Run("alias without deletion preserves signatures", func(t *testing.T) {
+		source := http.Header{
+			"X-Safe":          {"kept"},
+			"Signature":       {"sig"},
+			"Signature-Input": {"input"},
+		}
+		got := sanitizeForwardResponseHeaders(source, ForwardInput{
+			ExternalModel: "public-model", UpstreamModelID: upstreamModel,
+		})
+		if got.Get("Signature") != "sig" || got.Get("Signature-Input") != "input" {
+			t.Fatalf("unchanged Header set lost signatures: %#v", got)
+		}
+	})
+
+	t.Run("no alias preserves signatures", func(t *testing.T) {
+		source := http.Header{
+			"X-Upstream":      {"selected=" + upstreamModel},
+			"Signature":       {"sig"},
+			"Signature-Input": {"input"},
+		}
+		got := sanitizeForwardResponseHeaders(source, ForwardInput{
+			ExternalModel: upstreamModel, UpstreamModelID: upstreamModel,
+		})
+		if got.Get("Signature") != "sig" || got.Get("Signature-Input") != "input" {
+			t.Fatalf("non-alias Header set lost signatures: %#v", got)
+		}
+	})
+}
+
+func TestSanitizeForwardResponseHeadersRemovesAliasedModelFromContentTypeParameters(t *testing.T) {
+	const upstreamModel = "provider-model"
+	for _, test := range []struct {
+		name, headerName, headerValue, upstreamModel string
+	}{
+		{
+			name: "parameter value", headerName: "Content-Type",
+			headerValue: `application/json; model=provider-model`, upstreamModel: upstreamModel,
+		},
+		{
+			name: "parameter name", headerName: "Content-Type",
+			headerValue: `application/json; provider-model=safe`, upstreamModel: upstreamModel,
+		},
+		{
+			name: "malformed non-canonical field", headerName: "cOnTeNt-TyPe",
+			headerValue: `application/json; model=provider-model; broken`, upstreamModel: upstreamModel,
+		},
+		{
+			name: "malformed without parameter delimiter", headerName: "Content-Type",
+			headerValue: `application/json provider-model`, upstreamModel: upstreamModel,
+		},
+		{
+			name: "vendor media type", headerName: "Content-Type",
+			headerValue: `application/vnd.provider-model+json`, upstreamModel: upstreamModel,
+		},
+		{
+			name: "model crosses parameter delimiter", headerName: "Content-Type",
+			headerValue: `application/json; model=safe`, upstreamModel: "json; model",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			source := http.Header{
+				test.headerName: {test.headerValue},
+				"X-Safe":        {"kept"},
+			}
+			got := sanitizeForwardResponseHeaders(source, ForwardInput{
+				ExternalModel: "public-model", UpstreamModelID: test.upstreamModel,
+			})
+
+			for name := range got {
+				if strings.EqualFold(name, "Content-Type") {
+					t.Fatalf("logical Content-Type survived as %q: %#v", name, got[name])
+				}
+			}
+			if got.Get("X-Safe") != "kept" {
+				t.Fatalf("safe header changed: %#v", got)
+			}
+		})
+	}
+}
+
+func TestSanitizeForwardResponseHeadersRemovesCaseSensitiveModelFromRawContentTypeParameters(t *testing.T) {
+	source := http.Header{
+		"Content-Type": {`application/JSON; JSON=safe`},
+		"X-Safe":       {"kept"},
+	}
+	got := sanitizeForwardResponseHeaders(source, ForwardInput{
+		ExternalModel: "public-model", UpstreamModelID: "JSON",
+	})
+
+	if got.Get("Content-Type") != "" {
+		t.Fatalf("Content-Type survived: %#v", got)
+	}
+	if got.Get("X-Safe") != "kept" {
+		t.Fatalf("safe header changed: %#v", got)
 	}
 }
 
@@ -769,6 +994,262 @@ func TestForwardStreamRejectsMalformedAliasedEventAsProtocolError(t *testing.T) 
 	}
 }
 
+func TestForwardStreamSanitizesAliasedErrorEventPayloads(t *testing.T) {
+	const (
+		upstreamModel = "org/model"
+		externalModel = "public-model"
+		secret        = "stream/secret"
+	)
+	stream := "event: error\n" +
+		`data: {"model":"org/model","org\/model":"org\u002fmodel failed","credential":"stream\u002fsecret"}` + "\n\n" +
+		"event: error\n" +
+		`data: {"message":"later org\/model stream\u002fsecret"}` + "\n\n"
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(writer, stream)
+	}))
+	defer upstream.Close()
+
+	input := streamForwardInput(upstream.URL)
+	input.ExternalModel = externalModel
+	input.UpstreamModelID = upstreamModel
+	input.APIKey = secret
+	downstream := newRecordingResponseWriter()
+	result := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New()).ForwardStream(
+		context.Background(), input, downstream,
+	)
+
+	if result.Err != nil || !result.Committed {
+		t.Fatalf("ForwardStream() result = %#v", result)
+	}
+	payloads := decodeSSEJSONPayloads(t, downstream.body.Bytes())
+	if len(payloads) != 2 {
+		t.Fatalf("decoded payload count = %d, wire=%q", len(payloads), downstream.body.String())
+	}
+	if payloads[0]["model"] != externalModel ||
+		payloads[0][externalModel] != externalModel+" failed" ||
+		payloads[0]["credential"] != redact.Placeholder {
+		t.Fatalf("first error payload = %#v", payloads[0])
+	}
+	if payloads[1]["message"] != "later "+externalModel+" "+redact.Placeholder {
+		t.Fatalf("later error payload = %#v", payloads[1])
+	}
+}
+
+func TestForwardStreamSanitizesUnaliasedErrorEventPayloads(t *testing.T) {
+	const secret = "stream/secret"
+	stream := "event: error\n" +
+		`data: {"credential":"stream\u002fsecret","raw":"stream/secret"}` + "\n\n" +
+		"event: error\n" +
+		`data: {"message":"later stream\/secret"}` + "\n\n"
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "text/event-stream")
+		setRepresentationMetadata(writer.Header())
+		_, _ = io.WriteString(writer, stream)
+	}))
+	defer upstream.Close()
+
+	input := streamForwardInput(upstream.URL)
+	input.APIKey = secret
+	downstream := newRecordingResponseWriter()
+	result := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New()).ForwardStream(
+		context.Background(), input, downstream,
+	)
+
+	if result.Err != nil || !result.Committed {
+		t.Fatalf("ForwardStream() result = %#v", result)
+	}
+	payloads := decodeSSEJSONPayloads(t, downstream.body.Bytes())
+	if len(payloads) != 2 || payloads[0]["credential"] != redact.Placeholder ||
+		payloads[0]["raw"] != redact.Placeholder ||
+		payloads[1]["message"] != "later "+redact.Placeholder {
+		t.Fatalf("sanitized unaliased payloads = %#v, wire=%q", payloads, downstream.body.String())
+	}
+	assertRepresentationMetadata(t, result.Header, false)
+}
+
+func TestForwardStreamPreservesHeuristicCredentialLikeContent(t *testing.T) {
+	for _, test := range []struct {
+		name          string
+		externalModel string
+		upstreamModel string
+		wantModel     string
+	}{
+		{name: "no alias"},
+		{
+			name: "alias", externalModel: "public-model",
+			upstreamModel: "provider-model", wantModel: "public-model",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			payload := `{"token":"demo-value","api_key":"example"}`
+			if test.upstreamModel != "" {
+				payload = `{"model":"provider-model","token":"demo-value","api_key":"example"}`
+			}
+			upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				writer.Header().Set("Content-Type", "text/event-stream")
+				_, _ = io.WriteString(writer, "data: "+payload+"\n\n")
+			}))
+			defer upstream.Close()
+
+			input := streamForwardInput(upstream.URL)
+			input.APIKey = "actual/secret"
+			input.ExternalModel = test.externalModel
+			input.UpstreamModelID = test.upstreamModel
+			downstream := newRecordingResponseWriter()
+			result := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New()).ForwardStream(
+				context.Background(), input, downstream,
+			)
+
+			if result.Err != nil || !result.Committed {
+				t.Fatalf("ForwardStream() result = %#v", result)
+			}
+			payloads := decodeSSEJSONPayloads(t, downstream.body.Bytes())
+			if len(payloads) != 1 || payloads[0]["token"] != "demo-value" || payloads[0]["api_key"] != "example" {
+				t.Fatalf("preserved payloads = %#v, wire=%q", payloads, downstream.body.String())
+			}
+			if test.wantModel != "" && payloads[0]["model"] != test.wantModel {
+				t.Fatalf("rewritten model = %#v, want %q", payloads[0]["model"], test.wantModel)
+			}
+		})
+	}
+}
+
+func TestForwardStreamUnaliasedCredentialRewriteFailureRespectsCommitBoundary(t *testing.T) {
+	const (
+		secret    = "secret"
+		collision = `{"secret":"first","[REDACTED]":"second"}`
+	)
+	for _, test := range []struct {
+		name       string
+		stream     string
+		wantCommit bool
+		wantBody   string
+	}{
+		{
+			name:   "first error event fails before commit",
+			stream: "event: error\ndata: " + collision + "\n\n",
+		},
+		{
+			name: "later error event terminates committed stream",
+			stream: `data: {"ok":true}` + "\n\n" +
+				"event: error\ndata: " + collision + "\n\n",
+			wantCommit: true,
+			wantBody:   `data: {"ok":true}` + "\n\n",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				writer.Header().Set("Content-Type", "text/event-stream")
+				_, _ = io.WriteString(writer, test.stream)
+			}))
+			defer upstream.Close()
+
+			input := streamForwardInput(upstream.URL)
+			input.APIKey = secret
+			downstream := newRecordingResponseWriter()
+			result := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New()).ForwardStream(
+				context.Background(), input, downstream,
+			)
+
+			if !errors.Is(result.Err, ErrUpstreamProtocol) || result.Committed != test.wantCommit {
+				t.Fatalf("ForwardStream() result = %#v, want protocol error committed=%t", result, test.wantCommit)
+			}
+			if !test.wantCommit && !result.RetryableBeforeCommit {
+				t.Fatalf("pre-commit failure is not retryable: %#v", result)
+			}
+			if downstream.body.String() != test.wantBody {
+				t.Fatalf("downstream body = %q, want %q", downstream.body.String(), test.wantBody)
+			}
+		})
+	}
+}
+
+func TestForwardStreamRedactsEscapedAPIKeyBeforeOverlappingModelLiteral(t *testing.T) {
+	const (
+		upstreamModel = "provider"
+		externalModel = "public"
+		secret        = "provider/secret"
+	)
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(writer, `event: error
+data: {"message":"provider\u002fsecret"}
+
+`)
+	}))
+	defer upstream.Close()
+
+	input := streamForwardInput(upstream.URL)
+	input.ExternalModel = externalModel
+	input.UpstreamModelID = upstreamModel
+	input.APIKey = secret
+	downstream := newRecordingResponseWriter()
+	result := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New()).ForwardStream(
+		context.Background(), input, downstream,
+	)
+
+	if result.Err != nil || !result.Committed {
+		t.Fatalf("ForwardStream() result = %#v", result)
+	}
+	payloads := decodeSSEJSONPayloads(t, downstream.body.Bytes())
+	if len(payloads) != 1 || payloads[0]["message"] != redact.Placeholder {
+		t.Fatalf("sanitized overlapping payloads = %#v, wire=%q", payloads, downstream.body.String())
+	}
+}
+
+func TestForwardStreamAliasPayloadRewriteFailureRespectsCommitBoundary(t *testing.T) {
+	const (
+		upstreamModel = "provider-model"
+		externalModel = "public-model"
+		collision     = `{"provider-model":"first","public-model":"second"}`
+	)
+	for _, test := range []struct {
+		name       string
+		stream     string
+		wantCommit bool
+		wantBody   string
+	}{
+		{
+			name:   "first error event fails before commit",
+			stream: "event: error\ndata: " + collision + "\n\n",
+		},
+		{
+			name: "later error event terminates committed stream",
+			stream: `data: {"model":"provider-model","delta":"ok"}` + "\n\n" +
+				"event: error\ndata: " + collision + "\n\n",
+			wantCommit: true,
+			wantBody:   `data: {"delta":"ok","model":"public-model"}` + "\n\n",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				writer.Header().Set("Content-Type", "text/event-stream")
+				_, _ = io.WriteString(writer, test.stream)
+			}))
+			defer upstream.Close()
+
+			input := streamForwardInput(upstream.URL)
+			input.ExternalModel = externalModel
+			input.UpstreamModelID = upstreamModel
+			downstream := newRecordingResponseWriter()
+			result := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New()).ForwardStream(
+				context.Background(), input, downstream,
+			)
+
+			if !errors.Is(result.Err, ErrUpstreamProtocol) || result.Committed != test.wantCommit {
+				t.Fatalf("ForwardStream() result = %#v, want protocol error committed=%t", result, test.wantCommit)
+			}
+			if !test.wantCommit && !result.RetryableBeforeCommit {
+				t.Fatalf("pre-commit failure is not retryable: %#v", result)
+			}
+			if downstream.body.String() != test.wantBody {
+				t.Fatalf("downstream body = %q, want %q", downstream.body.String(), test.wantBody)
+			}
+		})
+	}
+}
+
 func TestForwardStreamReturnsSafeBoundedNonSuccessResponse(t *testing.T) {
 	const secret = "custom-upstream-secret"
 	tests := []struct {
@@ -863,7 +1344,7 @@ func TestForwardStreamDoesNotRetryParentDeadline(t *testing.T) {
 	}
 }
 
-func TestReleaseCommittedRequestReplayDoesNotMutateHTTPRequest(t *testing.T) {
+func TestReleaseCommittedRequestReplayReleasesParsedBodyWithoutMutatingHTTPRequest(t *testing.T) {
 	input := streamForwardInput("https://example.com")
 	wantBody := bytes.Clone(input.Request.Body)
 	request, _, replay, err := newUpstreamRequest(context.Background(), input, true)
@@ -887,10 +1368,10 @@ func TestReleaseCommittedRequestReplayDoesNotMutateHTTPRequest(t *testing.T) {
 	}
 	originalBody := request.Body
 
-	releaseCommittedRequestReplay(replay)
+	releaseCommittedRequestReplay(input.Request, replay)
 
-	if !bytes.Equal(input.Request.Body, wantBody) {
-		t.Fatalf("ParsedRequest.Body = %q, want %q", input.Request.Body, wantBody)
+	if input.Request.Body != nil {
+		t.Fatal("ParsedRequest.Body still retains the replay buffer")
 	}
 	if request.Body != originalBody || request.GetBody == nil {
 		t.Fatal("committed release mutated fields owned by the HTTP transport")
@@ -916,12 +1397,15 @@ func TestReleaseCommittedRequestReplayDoesNotMutateHTTPRequest(t *testing.T) {
 	}
 }
 
-func TestForwardStreamDoesNotMutateParsedRequest(t *testing.T) {
+func TestForwardStreamPreservesParsedRequestBeforeCommit(t *testing.T) {
+	requestStarted := make(chan struct{})
 	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		_, _ = io.Copy(io.Discard, request.Body)
+		close(requestStarted)
 		writer.Header().Set("Content-Type", "text/event-stream")
-		_, _ = writer.Write([]byte("data: ready\n\n"))
+		_, _ = writer.Write([]byte("data: partial\n"))
 		writer.(http.Flusher).Flush()
+		<-request.Context().Done()
 	}))
 	defer upstream.Close()
 
@@ -929,15 +1413,72 @@ func TestForwardStreamDoesNotMutateParsedRequest(t *testing.T) {
 	input.Request.RawQuery = "trace=true"
 	input.Request.Header.Set("X-Test", "one")
 	want := cloneParsedRequestForGatewayTest(input.Request)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan UpstreamResult, 1)
+	go func() {
+		done <- NewForwarder(platformhttp.NewHTTPClientManager(), redact.New()).ForwardStream(
+			ctx, input, newRecordingResponseWriter(),
+		)
+	}()
+
+	waitForSignal(t, requestStarted, "upstream request")
+	if !reflect.DeepEqual(input.Request, want) {
+		t.Fatalf("ForwardStream() mutated ParsedRequest before commit:\n got %#v\nwant %#v", input.Request, want)
+	}
+	cancel()
+	select {
+	case result := <-done:
+		if result.Committed {
+			t.Fatalf("ForwardStream() committed partial event: %#v", result)
+		}
+		if !reflect.DeepEqual(input.Request, want) {
+			t.Fatalf("ForwardStream() mutated ParsedRequest after pre-commit return:\n got %#v\nwant %#v", input.Request, want)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("ForwardStream() did not finish after pre-commit cancellation")
+	}
+}
+
+func TestForwardStreamReleasesParsedBodyAfterCommit(t *testing.T) {
+	releaseUpstream := make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(releaseUpstream) }) }
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		_, _ = io.Copy(io.Discard, request.Body)
+		writer.Header().Set("Content-Type", "text/event-stream")
+		_, _ = writer.Write([]byte("data: ready\n\n"))
+		writer.(http.Flusher).Flush()
+		<-releaseUpstream
+	}))
+	defer func() {
+		release()
+		upstream.Close()
+	}()
+
+	input := streamForwardInput(upstream.URL)
+	input.Request.Body = make([]byte, maxRequestBodyBytes)
 	forwarder := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New())
 	downstream := newRecordingResponseWriter()
-	result := forwarder.ForwardStream(context.Background(), input, downstream)
+	done := make(chan UpstreamResult, 1)
+	go func() {
+		done <- forwarder.ForwardStream(context.Background(), input, downstream)
+	}()
 
-	if result.Err != nil || !result.Committed {
-		t.Fatalf("ForwardStream() result = %#v", result)
+	waitForSignal(t, downstream.writes, "committed stream write")
+	if input.Request.Body != nil {
+		t.Fatalf("committed stream still retains %d request body bytes", len(input.Request.Body))
 	}
-	if !reflect.DeepEqual(input.Request, want) {
-		t.Fatalf("ForwardStream() mutated ParsedRequest:\n got %#v\nwant %#v", input.Request, want)
+	release()
+
+	select {
+	case result := <-done:
+		if result.Err != nil || !result.Committed {
+			t.Fatalf("ForwardStream() result = %#v", result)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("ForwardStream() did not finish after upstream release")
 	}
 }
 
@@ -1032,6 +1573,322 @@ func TestForwarderPreservesEndToEndRequestAndSuccessfulResponse(t *testing.T) {
 	}
 	if got := received.Header.Get("User-Agent"); got != "" {
 		t.Fatalf("upstream User-Agent = %q, want downstream absence preserved", got)
+	}
+}
+
+func TestForwarderIsolatesAliasedModelFromNonStreamingErrors(t *testing.T) {
+	const (
+		externalModel = "public-model"
+		upstreamModel = "provider-model"
+		secret        = "custom-upstream-secret"
+	)
+	plain := []byte(`{"error":{"message":"model provider-model rejected custom-upstream-secret"}}`)
+
+	for _, encoding := range []string{"", "gzip"} {
+		name := "identity"
+		if encoding != "" {
+			name = encoding
+		}
+		t.Run(name, func(t *testing.T) {
+			wire := plain
+			if encoding != "" {
+				var err error
+				wire, err = utils.CompressResponse(encoding, plain)
+				if err != nil {
+					t.Fatalf("compress fixture: %v", err)
+				}
+			}
+			upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				writer.Header().Set("Content-Type", "application/json")
+				writer.Header().Set("X-Upstream-Model", upstreamModel)
+				if encoding != "" {
+					writer.Header().Set("Content-Encoding", encoding)
+				}
+				setRepresentationMetadata(writer.Header())
+				writer.WriteHeader(http.StatusBadRequest)
+				_, _ = writer.Write(wire)
+			}))
+			defer upstream.Close()
+
+			input := streamForwardInput(upstream.URL)
+			input.Request.Body = []byte(`{"model":"public-model"}`)
+			input.ExternalModel = externalModel
+			input.UpstreamModelID = upstreamModel
+			input.APIKey = secret
+			result := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New()).Forward(
+				context.Background(), input,
+			)
+
+			if result.Err != nil || result.StatusCode != http.StatusBadRequest {
+				t.Fatalf("Forward() result = %#v", result)
+			}
+			if !bytes.Contains(result.ClassificationBody, []byte(upstreamModel)) ||
+				bytes.Contains(result.ClassificationBody, []byte(secret)) ||
+				!bytes.Contains(result.ClassificationBody, []byte(redact.Placeholder)) {
+				t.Fatalf("ClassificationBody = %q", result.ClassificationBody)
+			}
+			downstreamBody := result.Body
+			if encoding != "" {
+				var err error
+				downstreamBody, err = utils.DecompressResponse(encoding, result.Body)
+				if err != nil {
+					t.Fatalf("decompress downstream body: %v", err)
+				}
+			}
+			if bytes.Contains(downstreamBody, []byte(upstreamModel)) ||
+				!bytes.Contains(downstreamBody, []byte(externalModel)) ||
+				bytes.Contains(downstreamBody, []byte(secret)) ||
+				!bytes.Contains(downstreamBody, []byte(redact.Placeholder)) {
+				t.Fatalf("downstream body = %q", downstreamBody)
+			}
+			if result.Header.Get("Content-Type") != "application/json" ||
+				result.Header.Get("Content-Encoding") != encoding ||
+				result.Header.Get("Content-Length") != strconv.Itoa(len(result.Body)) {
+				t.Fatalf("representation headers = %#v", result.Header)
+			}
+			assertHeadersDoNotContain(t, result.Header, upstreamModel)
+			assertRepresentationMetadata(t, result.Header, false)
+		})
+	}
+}
+
+func TestForwarderRewritesEscapedAliasedModelInJSONErrors(t *testing.T) {
+	const upstreamModel = "org/model"
+	externalModel := "public\"\\model"
+	plain := []byte(`{"org\/model":"org\u002fmodel unavailable","nested":["org/model"],"number":9007199254740993}`)
+
+	for _, encoding := range []string{"", "gzip"} {
+		name := "identity"
+		wire := plain
+		if encoding != "" {
+			name = encoding
+			var err error
+			wire, err = utils.CompressResponse(encoding, plain)
+			if err != nil {
+				t.Fatalf("compress fixture: %v", err)
+			}
+		}
+		t.Run(name, func(t *testing.T) {
+			upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				writer.Header().Set("Content-Type", "application/json")
+				if encoding != "" {
+					writer.Header().Set("Content-Encoding", encoding)
+				}
+				writer.WriteHeader(http.StatusBadRequest)
+				_, _ = writer.Write(wire)
+			}))
+			defer upstream.Close()
+
+			input := streamForwardInput(upstream.URL)
+			input.ExternalModel = externalModel
+			input.UpstreamModelID = upstreamModel
+			result := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New()).Forward(
+				context.Background(), input,
+			)
+			if result.Err != nil || result.StatusCode != http.StatusBadRequest {
+				t.Fatalf("Forward() result = %#v", result)
+			}
+			if !bytes.Equal(result.ClassificationBody, plain) {
+				t.Fatalf("ClassificationBody = %q, want original safe JSON %q", result.ClassificationBody, plain)
+			}
+			downstreamBody := result.Body
+			if encoding != "" {
+				var err error
+				downstreamBody, err = utils.DecompressResponse(encoding, result.Body)
+				if err != nil {
+					t.Fatalf("decompress downstream body: %v", err)
+				}
+			}
+			if !json.Valid(downstreamBody) {
+				t.Fatalf("downstream body is invalid JSON: %q", downstreamBody)
+			}
+			if !bytes.Contains(downstreamBody, []byte("9007199254740993")) {
+				t.Fatalf("downstream body lost JSON number precision: %q", downstreamBody)
+			}
+			var decoded map[string]any
+			if err := json.Unmarshal(downstreamBody, &decoded); err != nil {
+				t.Fatalf("decode downstream JSON: %v", err)
+			}
+			if decoded[externalModel] != externalModel+" unavailable" {
+				t.Fatalf("rewritten object entry = %#v", decoded)
+			}
+			nested, ok := decoded["nested"].([]any)
+			if !ok || len(nested) != 1 || nested[0] != externalModel {
+				t.Fatalf("rewritten nested value = %#v", decoded["nested"])
+			}
+		})
+	}
+}
+
+func TestForwarderRedactsEscapedAPIKeyInJSONErrors(t *testing.T) {
+	const secret = "secret/key"
+	plain := []byte(`{"secret\/key":"secret\u002fkey rejected"}`)
+
+	for _, encoding := range []string{"", "gzip"} {
+		name := "identity"
+		wire := plain
+		if encoding != "" {
+			name = encoding
+			var err error
+			wire, err = utils.CompressResponse(encoding, plain)
+			if err != nil {
+				t.Fatalf("compress fixture: %v", err)
+			}
+		}
+		t.Run(name, func(t *testing.T) {
+			upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				writer.Header().Set("Content-Type", "application/json")
+				if encoding != "" {
+					writer.Header().Set("Content-Encoding", encoding)
+				}
+				writer.WriteHeader(http.StatusUnauthorized)
+				_, _ = writer.Write(wire)
+			}))
+			defer upstream.Close()
+
+			input := streamForwardInput(upstream.URL)
+			input.APIKey = secret
+			result := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New()).Forward(
+				context.Background(), input,
+			)
+			if result.Err != nil || result.StatusCode != http.StatusUnauthorized {
+				t.Fatalf("Forward() result = %#v", result)
+			}
+			downstreamBody := result.Body
+			if encoding != "" {
+				var err error
+				downstreamBody, err = utils.DecompressResponse(encoding, result.Body)
+				if err != nil {
+					t.Fatalf("decompress downstream body: %v", err)
+				}
+			}
+			for _, body := range [][]byte{downstreamBody, result.ClassificationBody} {
+				var decoded map[string]any
+				if err := json.Unmarshal(body, &decoded); err != nil {
+					t.Fatalf("decode safe body %q: %v", body, err)
+				}
+				if decoded[redact.Placeholder] != redact.Placeholder+" rejected" {
+					t.Fatalf("safe decoded body = %#v", decoded)
+				}
+			}
+		})
+	}
+}
+
+func TestPrepareErrorBodyFailsClosedWhenEscapedAPIKeyRewriteCollides(t *testing.T) {
+	const secret = "secret/key"
+	plain := []byte(`{"secret\/key":"leak","[REDACTED]":"safe"}`)
+	forwarder := &Forwarder{redactor: redact.New()}
+	headers := http.Header{"Content-Type": {"application/json"}}
+	wire, classification := forwarder.prepareErrorBody(headers, plain, ForwardInput{APIKey: secret})
+
+	if string(wire) != redact.Placeholder || string(classification) != redact.Placeholder {
+		t.Fatalf("collision result wire=%q classification=%q", wire, classification)
+	}
+}
+
+func TestPrepareErrorBodyFailsClosedBeforeRawAPIKeyCollisionRedaction(t *testing.T) {
+	const secret = "secret"
+	plain := []byte(`{"secret":"leak","[REDACTED]":"safe"}`)
+	forwarder := &Forwarder{redactor: redact.New()}
+	headers := http.Header{"Content-Type": {"application/json"}}
+	wire, classification := forwarder.prepareErrorBody(headers, plain, ForwardInput{APIKey: secret})
+
+	if string(wire) != redact.Placeholder || string(classification) != redact.Placeholder {
+		t.Fatalf("collision result wire=%q classification=%q", wire, classification)
+	}
+}
+
+func TestForwarderFailsClosedWhenJSONKeyRewriteCollides(t *testing.T) {
+	plain := []byte(`{"provider-model":"first","public-model":"second"}`)
+	forwarder := &Forwarder{redactor: redact.New()}
+	headers := http.Header{"Content-Type": {"application/json"}}
+	wire, classification := forwarder.prepareErrorBody(headers, plain, ForwardInput{
+		ExternalModel: "public-model", UpstreamModelID: "provider-model",
+	})
+
+	if string(wire) != redact.Placeholder || !bytes.Equal(classification, plain) {
+		t.Fatalf("collision result wire=%q classification=%q", wire, classification)
+	}
+}
+
+func TestPrepareErrorBodyFailsClosedWhenModelExpansionExceedsLimit(t *testing.T) {
+	plain := bytes.Repeat([]byte("x"), 64<<10)
+	forwarder := &Forwarder{redactor: redact.New()}
+	headers := make(http.Header)
+	wire, classification := forwarder.prepareErrorBody(headers, plain, ForwardInput{
+		ExternalModel: strings.Repeat("a", 32), UpstreamModelID: "x",
+	})
+
+	if string(wire) != redact.Placeholder || !bytes.Equal(classification, plain) {
+		t.Fatalf("expansion result wire=%q classification length=%d", wire, len(classification))
+	}
+}
+
+func TestForwardStreamIsolatesAliasedModelFromNonSuccessResponse(t *testing.T) {
+	const (
+		externalModel = "public-model"
+		upstreamModel = "provider-model"
+		secret        = "custom-upstream-secret"
+	)
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		writer.Header().Set("X-Upstream-Model", upstreamModel)
+		setRepresentationMetadata(writer.Header())
+		writer.WriteHeader(http.StatusTooManyRequests)
+		_, _ = writer.Write([]byte(`{"error":"provider-model rate limited custom-upstream-secret"}`))
+	}))
+	defer upstream.Close()
+
+	input := streamForwardInput(upstream.URL)
+	input.Request.Body = []byte(`{"model":"public-model","stream":true}`)
+	input.ExternalModel = externalModel
+	input.UpstreamModelID = upstreamModel
+	input.APIKey = secret
+	downstream := newRecordingResponseWriter()
+	result := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New()).ForwardStream(
+		context.Background(), input, downstream,
+	)
+
+	if result.Err != nil || result.Committed || result.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("ForwardStream() result = %#v", result)
+	}
+	if bytes.Contains(result.Body, []byte(upstreamModel)) ||
+		!bytes.Contains(result.Body, []byte(externalModel)) ||
+		bytes.Contains(result.Body, []byte(secret)) {
+		t.Fatalf("downstream body = %q", result.Body)
+	}
+	if !bytes.Contains(result.ClassificationBody, []byte(upstreamModel)) ||
+		bytes.Contains(result.ClassificationBody, []byte(secret)) {
+		t.Fatalf("ClassificationBody = %q", result.ClassificationBody)
+	}
+	assertHeadersDoNotContain(t, result.Header, upstreamModel)
+	assertRepresentationMetadata(t, result.Header, false)
+	if downstream.status != 0 || downstream.body.Len() != 0 {
+		t.Fatalf("ForwardStream() wrote error before Handler verdict: %#v", downstream)
+	}
+}
+
+func TestForwarderPreservesErrorModelWithoutAlias(t *testing.T) {
+	const upstreamModel = "provider-model"
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("X-Upstream-Model", upstreamModel)
+		writer.WriteHeader(http.StatusBadRequest)
+		_, _ = writer.Write([]byte(upstreamModel))
+	}))
+	defer upstream.Close()
+
+	input := streamForwardInput(upstream.URL)
+	input.Request.Body = []byte(`{"model":"provider-model"}`)
+	input.ExternalModel = upstreamModel
+	input.UpstreamModelID = upstreamModel
+	result := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New()).Forward(
+		context.Background(), input,
+	)
+
+	if string(result.Body) != upstreamModel || string(result.ClassificationBody) != upstreamModel ||
+		result.Header.Get("X-Upstream-Model") != upstreamModel {
+		t.Fatalf("non-alias response changed: %#v", result)
 	}
 }
 
@@ -1264,17 +2121,21 @@ func setRepresentationMetadata(headers http.Header) {
 	headers.Set("Content-Range", "bytes 0-9/10")
 	headers.Set("Content-Digest", "sha-256=:d2lyZQ==:")
 	headers.Set("Repr-Digest", "sha-256=:cmVwcg==:")
+	headers.Set("Signature", "sig1=:c2lnbmF0dXJl:")
+	headers.Set("Signature-Input", `sig1=("content-digest");created=1`)
 }
 
 func assertRepresentationMetadata(t *testing.T, headers http.Header, wantPreserved bool) {
 	t.Helper()
 	want := map[string]string{
-		"ETag":           `"wire-v1"`,
-		"Digest":         "sha-256=wire-digest",
-		"Content-MD5":    "d2lyZQ==",
-		"Content-Range":  "bytes 0-9/10",
-		"Content-Digest": "sha-256=:d2lyZQ==:",
-		"Repr-Digest":    "sha-256=:cmVwcg==:",
+		"ETag":            `"wire-v1"`,
+		"Digest":          "sha-256=wire-digest",
+		"Content-MD5":     "d2lyZQ==",
+		"Content-Range":   "bytes 0-9/10",
+		"Content-Digest":  "sha-256=:d2lyZQ==:",
+		"Repr-Digest":     "sha-256=:cmVwcg==:",
+		"Signature":       "sig1=:c2lnbmF0dXJl:",
+		"Signature-Input": `sig1=("content-digest");created=1`,
 	}
 	for name, value := range want {
 		got := headers.Get(name)
@@ -1285,4 +2146,57 @@ func assertRepresentationMetadata(t *testing.T, headers http.Header, wantPreserv
 			t.Errorf("%s = %q, want removed after body rewrite", name, got)
 		}
 	}
+}
+
+func TestInvalidateRewrittenStreamHeadersRemovesRepresentationMetadata(t *testing.T) {
+	headers := make(http.Header)
+	headers.Set("Content-Length", "123")
+	setRepresentationMetadata(headers)
+
+	invalidateRewrittenStreamHeaders(headers)
+
+	if headers.Get("Content-Length") != "" {
+		t.Fatalf("Content-Length = %q, want removed", headers.Get("Content-Length"))
+	}
+	assertRepresentationMetadata(t, headers, false)
+}
+
+func assertHeadersDoNotContain(t *testing.T, headers http.Header, literal string) {
+	t.Helper()
+	for name, values := range headers {
+		for _, value := range values {
+			if strings.Contains(value, literal) {
+				t.Fatalf("header %q leaked %q in value %q", name, literal, value)
+			}
+		}
+	}
+}
+
+func decodeSSEJSONPayloads(t *testing.T, stream []byte) []map[string]any {
+	t.Helper()
+	remaining := bytes.Clone(stream)
+	payloads := make([]map[string]any, 0)
+	for len(remaining) > 0 {
+		boundary := bytes.Index(remaining, []byte("\n\n"))
+		if boundary < 0 {
+			t.Fatalf("incomplete SSE output: %q", remaining)
+		}
+		event := remaining[:boundary+2]
+		remaining = remaining[boundary+2:]
+		var values [][]byte
+		for _, line := range splitSSEEventLines(event) {
+			if line.isData {
+				values = append(values, line.data)
+			}
+		}
+		if len(values) == 0 {
+			continue
+		}
+		var decoded map[string]any
+		if err := json.Unmarshal(bytes.Join(values, []byte{'\n'}), &decoded); err != nil {
+			t.Fatalf("decode SSE JSON payload: %v", err)
+		}
+		payloads = append(payloads, decoded)
+	}
+	return payloads
 }

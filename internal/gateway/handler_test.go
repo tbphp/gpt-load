@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -1088,6 +1089,49 @@ func TestHandlerReturnsLastUpstreamResponseWhenBudgetIsExhausted(t *testing.T) {
 	if !bytes.Contains(recorder.Body.Bytes(), []byte("internal_error")) {
 		t.Fatalf("body = %s, want final upstream fixture", recorder.Body.String())
 	}
+}
+
+func TestHandlerDoesNotExposeAliasedUpstreamModelWhenRetryBudgetIsExhausted(t *testing.T) {
+	const (
+		externalModel = "public-model"
+		upstreamModel = "provider-model"
+	)
+	var attempts atomic.Int64
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		attempts.Add(1)
+		writer.Header().Set("Content-Type", "application/json")
+		writer.Header().Set("X-Upstream-Model", upstreamModel)
+		writer.WriteHeader(http.StatusInternalServerError)
+		_, _ = writer.Write([]byte(`{"error":"provider-model internal error"}`))
+	}))
+	defer upstream.Close()
+
+	engine, _ := newDialectGatewayEngine(t, protocol.OpenAI, externalModel,
+		dialect.NewSet(dialect.NewOpenAI(http.DefaultClient)),
+		dialectGatewayGroup{
+			id: 1, name: "openai", upstreamURL: upstream.URL,
+			apiKeys: []string{"sk-one", "sk-two", "sk-three", "sk-unused"},
+			models:  []state.ModelConfig{{ID: upstreamModel, Alias: externalModel}},
+		},
+	)
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/v1/chat/completions",
+		bytes.NewBufferString(`{"model":"public-model"}`),
+	)
+	request.Header.Set("Authorization", "Bearer gl-client")
+	recorder := httptest.NewRecorder()
+
+	engine.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusInternalServerError || attempts.Load() != maxAttempts {
+		t.Fatalf("response/attempts = %d/%d, want 500/%d", recorder.Code, attempts.Load(), maxAttempts)
+	}
+	if strings.Contains(recorder.Body.String(), upstreamModel) ||
+		!strings.Contains(recorder.Body.String(), externalModel) {
+		t.Fatalf("final response body = %s", recorder.Body.String())
+	}
+	assertHeadersDoNotContain(t, recorder.Header(), upstreamModel)
 }
 
 func TestHandlerKeepsFrozenSnapshotAcrossRetry(t *testing.T) {

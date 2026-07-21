@@ -158,6 +158,7 @@ func TestGeminiClassifyStatus(t *testing.T) {
 		{name: "rate limited", status: http.StatusTooManyRequests, want: health.FailureCategoryRateLimited},
 		{name: "server error", status: http.StatusServiceUnavailable, want: health.FailureCategoryUpstreamHostError},
 		{name: "redirect is ambiguous", status: http.StatusTemporaryRedirect, want: health.FailureCategoryAmbiguous},
+		{name: "zero status with marker is ambiguous", status: 0, body: `{"status":"api_key_invalid"}`, want: health.FailureCategoryAmbiguous},
 		{name: "invalid key marker", status: http.StatusBadRequest, body: `{"status":"api_key_invalid"}`, want: health.FailureCategoryInvalidKey},
 		{name: "permission marker", status: http.StatusBadRequest, body: `{"status":"permission_denied"}`, want: health.FailureCategoryInvalidKey},
 		{name: "quota marker", status: http.StatusBadRequest, body: `{"status":"resource_exhausted"}`, want: health.FailureCategoryRateLimited},

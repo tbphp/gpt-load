@@ -47,6 +47,24 @@ func TestParseRateLimitReset(t *testing.T) {
 			wantOK: true,
 		},
 		{
+			name: "Anthropic reset wins over x-ratelimit family",
+			header: http.Header{
+				"Anthropic-Ratelimit-Tokens-Reset": {now.Add(20 * time.Second).Format(time.RFC3339)},
+				"X-Ratelimit-Reset-Tokens":         {"45s"},
+			},
+			want:   now.Add(20 * time.Second),
+			wantOK: true,
+		},
+		{
+			name: "invalid Anthropic reset falls back to x-ratelimit family",
+			header: http.Header{
+				"Anthropic-Ratelimit-Tokens-Reset": {"invalid"},
+				"X-Ratelimit-Reset-Tokens":         {"45s"},
+			},
+			want:   now.Add(45 * time.Second),
+			wantOK: true,
+		},
+		{
 			name:   "Anthropic Unix seconds",
 			header: http.Header{"Anthropic-Ratelimit-Requests-Reset": {strconv.FormatInt(now.Add(2*time.Minute).Unix(), 10)}},
 			want:   now.Add(2 * time.Minute),

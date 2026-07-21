@@ -3,10 +3,12 @@ package gateway
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"math"
+	"mime"
 	"net"
 	"net/http"
 	"net/http/httptrace"
@@ -147,7 +149,7 @@ func (forwarder *Forwarder) Forward(ctx context.Context, input ForwardInput) Ups
 		if overflow {
 			safeWire, safePlain = failClosedErrorBody(headers)
 		} else {
-			safeWire, safePlain = forwarder.prepareErrorBody(headers, body, input.APIKey)
+			safeWire, safePlain = forwarder.prepareErrorBody(headers, body, input)
 		}
 		if nonIdentityEncodingContainsKey(headers, input.APIKey) {
 			safeWire, safePlain = failClosedErrorBody(headers)
@@ -160,7 +162,7 @@ func (forwarder *Forwarder) Forward(ctx context.Context, input ForwardInput) Ups
 			RequestWritten: true,
 		}
 	}
-	result.Header = sanitizeUpstreamResponseHeaders(headers, input.APIKey)
+	result.Header = sanitizeForwardResponseHeaders(headers, input)
 	return result
 }
 
@@ -205,12 +207,12 @@ func (forwarder *Forwarder) ForwardStream(
 		if overflow {
 			result.Body, result.ClassificationBody = failClosedErrorBody(headers)
 		} else {
-			result.Body, result.ClassificationBody = forwarder.prepareErrorBody(headers, body, input.APIKey)
+			result.Body, result.ClassificationBody = forwarder.prepareErrorBody(headers, body, input)
 		}
 		if nonIdentityEncodingContainsKey(headers, input.APIKey) {
 			result.Body, result.ClassificationBody = failClosedErrorBody(headers)
 		}
-		result.Header = sanitizeUpstreamResponseHeaders(headers, input.APIKey)
+		result.Header = sanitizeForwardResponseHeaders(headers, input)
 		return result
 	}
 
@@ -220,25 +222,52 @@ func (forwarder *Forwarder) ForwardStream(
 		return result
 	}
 
-	if needsModelRewrite(input) {
-		rewriter, ok := input.Dialect.(dialect.ModelRewriter)
+	rewriteModel := needsModelRewrite(input)
+	var rewriter dialect.ModelRewriter
+	if rewriteModel {
+		var ok bool
+		rewriter, ok = input.Dialect.(dialect.ModelRewriter)
 		if !ok {
 			result.Err = fmt.Errorf("%w: dialect does not support model rewrite", ErrUpstreamProtocol)
 			result.RetryableBeforeCommit = retryableBeforeCommit(ctx)
 			return result
 		}
-		streamBody = newSSERewriteStream(streamBody, func(data []byte) ([]byte, error) {
-			rewritten, err := rewriter.RewriteResponseModel(data, input.ExternalModel)
-			if err != nil {
-				return nil, fmt.Errorf("%w: rewrite upstream response model: %v", ErrUpstreamProtocol, err)
-			}
-			return rewritten, nil
-		})
-		invalidateRewrittenStreamHeaders(headers)
 	}
+	streamBody = newSSERewriteStream(streamBody, func(data []byte) ([]byte, error) {
+		safePayload, ok := rewriteBoundedLiteral(
+			data,
+			input.APIKey,
+			redact.Placeholder,
+			int64(maxSSEEventBytes),
+		)
+		if !ok {
+			return nil, fmt.Errorf("%w: redact upstream SSE credential", ErrUpstreamProtocol)
+		}
+		if !rewriteModel {
+			return safePayload, nil
+		}
+		safePayload, ok = rewriteBoundedLiteral(
+			safePayload,
+			input.UpstreamModelID,
+			input.ExternalModel,
+			int64(maxSSEEventBytes),
+		)
+		if !ok {
+			return nil, fmt.Errorf("%w: rewrite upstream SSE model literal", ErrUpstreamProtocol)
+		}
+		rewritten, err := rewriter.RewriteResponseModel(safePayload, input.ExternalModel)
+		if err != nil {
+			return nil, fmt.Errorf("%w: rewrite upstream response model: %v", ErrUpstreamProtocol, err)
+		}
+		return rewritten, nil
+	})
+	invalidateRewrittenStreamHeaders(headers)
 
 	prefix, err := bufferFirstSSEEvent(streamBody)
 	if err != nil {
+		if !rewriteModel && errors.Is(err, errSSEEventTooLarge) {
+			err = errFirstSSEEventTooLarge
+		}
 		if errors.Is(err, errFirstSSEEventTooLarge) || errors.Is(err, errSSEEventTooLarge) {
 			err = fmt.Errorf("%w: %w", ErrUpstreamProtocol, err)
 		}
@@ -256,12 +285,12 @@ func (forwarder *Forwarder) ForwardStream(
 		return result
 	}
 
-	result.Header = sanitizeUpstreamResponseHeaders(headers, input.APIKey)
+	result.Header = sanitizeForwardResponseHeaders(headers, input)
 	streamWriter := newStreamWriteController(downstream, forwarder.streamWriteTimeout)
 	defer func() { _ = streamWriter.clear() }()
 
 	result.Committed = true
-	releaseCommittedRequestReplay(replay)
+	releaseCommittedRequestReplay(input.Request, replay)
 	if err := commitStream(streamWriter, response.StatusCode, result.Header, prefix); err != nil {
 		result.Err = err
 		return result
@@ -276,7 +305,10 @@ func retryableBeforeCommit(parent context.Context) bool {
 	return parent != nil && parent.Err() == nil
 }
 
-func releaseCommittedRequestReplay(replay *requestReplay) {
+func releaseCommittedRequestReplay(parsed *dialect.ParsedRequest, replay *requestReplay) {
+	if parsed != nil {
+		parsed.Body = nil
+	}
 	if replay != nil {
 		replay.release()
 	}
@@ -339,7 +371,7 @@ func needsModelRewrite(input ForwardInput) bool {
 		input.ExternalModel != input.UpstreamModelID
 }
 
-func (forwarder *Forwarder) prepareErrorBody(headers http.Header, wire []byte, apiKey string) ([]byte, []byte) {
+func (forwarder *Forwarder) prepareErrorBody(headers http.Header, wire []byte, input ForwardInput) ([]byte, []byte) {
 	if int64(len(wire)) > maxErrorResponseBodyBytes {
 		return failClosedErrorBody(headers)
 	}
@@ -351,19 +383,181 @@ func (forwarder *Forwarder) prepareErrorBody(headers http.Header, wire []byte, a
 	if err != nil {
 		return failClosedErrorBody(headers)
 	}
-	safePlain := forwarder.redactor.Bytes(plain, apiKey)
+	safePlain, ok := rewriteBoundedLiteral(
+		plain, input.APIKey, redact.Placeholder, maxDecompressedErrorBodyBytes,
+	)
+	if !ok {
+		return failClosedErrorBody(headers)
+	}
+	safePlain = forwarder.redactor.Bytes(safePlain)
 	if int64(len(safePlain)) > maxDecompressedErrorBodyBytes {
 		return failClosedErrorBody(headers)
 	}
-	if bytes.Equal(safePlain, plain) {
+	downstreamPlain := safePlain
+	if needsModelRewrite(input) {
+		downstreamPlain, ok = rewriteBoundedLiteral(
+			safePlain,
+			input.UpstreamModelID,
+			input.ExternalModel,
+			maxDecompressedErrorBodyBytes,
+		)
+		if !ok {
+			wire, _ := failClosedErrorBody(headers)
+			return wire, safePlain
+		}
+	}
+	if bytes.Equal(downstreamPlain, plain) {
 		return bytes.Clone(wire), safePlain
 	}
-	safeWire, err := utils.CompressResponse(encoding, safePlain)
+	safeWire, err := utils.CompressResponse(encoding, downstreamPlain)
 	if err != nil || int64(len(safeWire)) > maxErrorResponseBodyBytes {
+		if needsModelRewrite(input) {
+			wire, _ := failClosedErrorBody(headers)
+			return wire, safePlain
+		}
 		return failClosedErrorBody(headers)
 	}
 	updateRewrittenBodyHeaders(headers, len(safeWire))
 	return safeWire, safePlain
+}
+
+func rewriteBoundedLiteral(body []byte, literal, replacement string, limit int64) ([]byte, bool) {
+	if literal == "" {
+		return body, int64(len(body)) <= limit
+	}
+	if !json.Valid(body) {
+		return replaceAllBounded(
+			body, []byte(literal), []byte(replacement), limit,
+		)
+	}
+
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.UseNumber()
+	var value any
+	if err := decoder.Decode(&value); err != nil {
+		return nil, false
+	}
+	budget := int64(0)
+	rewritten, changed, ok := rewriteJSONLiteralStrings(value, literal, replacement, limit, &budget)
+	if !ok {
+		return nil, false
+	}
+	if !changed {
+		return body, true
+	}
+	encoded, err := json.Marshal(rewritten)
+	if err != nil || int64(len(encoded)) > limit {
+		return nil, false
+	}
+	return encoded, true
+}
+
+func rewriteJSONLiteralStrings(
+	value any,
+	literal string,
+	replacement string,
+	limit int64,
+	budget *int64,
+) (any, bool, bool) {
+	switch typed := value.(type) {
+	case string:
+		rewritten, changed, ok := replaceStringBounded(
+			typed, literal, replacement, limit, budget,
+		)
+		return rewritten, changed, ok
+	case []any:
+		changed := false
+		for index, item := range typed {
+			rewritten, itemChanged, ok := rewriteJSONLiteralStrings(
+				item, literal, replacement, limit, budget,
+			)
+			if !ok {
+				return nil, false, false
+			}
+			typed[index] = rewritten
+			changed = changed || itemChanged
+		}
+		return typed, changed, true
+	case map[string]any:
+		rewrittenObject := make(map[string]any, len(typed))
+		changed := false
+		for key, item := range typed {
+			rewrittenKey, keyChanged, ok := replaceStringBounded(
+				key, literal, replacement, limit, budget,
+			)
+			if !ok {
+				return nil, false, false
+			}
+			if _, exists := rewrittenObject[rewrittenKey]; exists {
+				return nil, false, false
+			}
+			rewrittenItem, itemChanged, ok := rewriteJSONLiteralStrings(
+				item, literal, replacement, limit, budget,
+			)
+			if !ok {
+				return nil, false, false
+			}
+			rewrittenObject[rewrittenKey] = rewrittenItem
+			changed = changed || keyChanged || itemChanged
+		}
+		return rewrittenObject, changed, true
+	default:
+		return value, false, true
+	}
+}
+
+func replaceStringBounded(
+	source string,
+	old string,
+	replacement string,
+	limit int64,
+	budget *int64,
+) (string, bool, bool) {
+	if old == "" {
+		return source, false, true
+	}
+	count := strings.Count(source, old)
+	if count == 0 {
+		return source, false, true
+	}
+	resultLength, ok := replacementResultLength(
+		int64(len(source)), int64(len(old)), int64(len(replacement)), int64(count), limit,
+	)
+	if !ok || budget == nil || *budget > limit-resultLength {
+		return "", false, false
+	}
+	*budget += resultLength
+	return strings.ReplaceAll(source, old, replacement), true, true
+}
+
+func replaceAllBounded(source, old, replacement []byte, limit int64) ([]byte, bool) {
+	if len(old) == 0 {
+		return source, int64(len(source)) <= limit
+	}
+	count := bytes.Count(source, old)
+	if count == 0 {
+		return source, int64(len(source)) <= limit
+	}
+	if _, ok := replacementResultLength(
+		int64(len(source)), int64(len(old)), int64(len(replacement)), int64(count), limit,
+	); !ok {
+		return nil, false
+	}
+	return bytes.ReplaceAll(source, old, replacement), true
+}
+
+func replacementResultLength(sourceLength, oldLength, replacementLength, count, limit int64) (int64, bool) {
+	if sourceLength < 0 || oldLength <= 0 || replacementLength < 0 || count < 0 || limit < 0 || sourceLength > limit {
+		return 0, false
+	}
+	if replacementLength <= oldLength {
+		return sourceLength - count*(oldLength-replacementLength), true
+	}
+	delta := replacementLength - oldLength
+	if count > (limit-sourceLength)/delta {
+		return 0, false
+	}
+	return sourceLength + count*delta, true
 }
 
 func inspectableErrorBodyEncoding(headers http.Header, wire []byte) (string, bool) {
@@ -396,6 +590,7 @@ func failClosedErrorBody(headers http.Header) ([]byte, []byte) {
 func updateRewrittenBodyHeaders(headers http.Header, bodyLength int) {
 	for _, name := range []string{
 		"ETag", "Digest", "Content-MD5", "Content-Range", "Content-Digest", "Repr-Digest",
+		"Signature", "Signature-Input",
 	} {
 		headers.Del(name)
 	}
@@ -405,6 +600,7 @@ func updateRewrittenBodyHeaders(headers http.Header, bodyLength int) {
 func invalidateRewrittenStreamHeaders(headers http.Header) {
 	for _, name := range []string{
 		"Content-Length", "ETag", "Digest", "Content-MD5", "Content-Range", "Content-Digest", "Repr-Digest",
+		"Signature", "Signature-Input",
 	} {
 		headers.Del(name)
 	}
@@ -566,12 +762,12 @@ func cloneEndToEndHeaders(source http.Header) http.Header {
 	return cloned
 }
 
-func headerValuesContainKey(values []string, apiKey string) bool {
-	if apiKey == "" {
+func headerValuesContainLiteral(values []string, literal string) bool {
+	if literal == "" {
 		return false
 	}
 	for _, value := range values {
-		if strings.Contains(value, apiKey) {
+		if strings.Contains(value, literal) {
 			return true
 		}
 	}
@@ -585,7 +781,7 @@ func nonIdentityEncodingContainsKey(headers http.Header, apiKey string) bool {
 			values = append(values, headerValues...)
 		}
 	}
-	if !headerValuesContainKey(values, apiKey) {
+	if !headerValuesContainLiteral(values, apiKey) {
 		return false
 	}
 	for _, value := range values {
@@ -604,7 +800,7 @@ func sanitizeUpstreamResponseHeaders(source http.Header, apiKey string) http.Hea
 		"X-Api-Key", "X-Goog-Api-Key",
 	}
 	for actualName, values := range headers {
-		if headerValuesContainKey(values, apiKey) {
+		if headerValuesContainLiteral(values, apiKey) {
 			namesToDelete = append(namesToDelete, actualName)
 		}
 	}
@@ -612,6 +808,95 @@ func sanitizeUpstreamResponseHeaders(source http.Header, apiKey string) http.Hea
 		deleteHeaderField(headers, name)
 	}
 	return headers
+}
+
+func sanitizeForwardResponseHeaders(source http.Header, input ForwardInput) http.Header {
+	headers := sanitizeUpstreamResponseHeaders(source, input.APIKey)
+	if !needsModelRewrite(input) {
+		return headers
+	}
+	deleted := false
+	for name, values := range headers {
+		nameContainsModel := headerNameContainsLiteral(name, input.UpstreamModelID)
+		valuesContainModel := headerValuesContainLiteral(values, input.UpstreamModelID)
+		if !nameContainsModel && !valuesContainModel {
+			continue
+		}
+		if isRequiredRepresentationHeader(name) {
+			continue
+		}
+		if strings.EqualFold(name, "Content-Type") {
+			if valuesContainModel && contentTypeContainsDisallowedModel(values, input.UpstreamModelID) {
+				deleteHeaderField(headers, name)
+				deleted = true
+			}
+			continue
+		}
+		if nameContainsModel {
+			deleteHeaderField(headers, name)
+			deleted = true
+			continue
+		}
+		deleteHeaderField(headers, name)
+		deleted = true
+	}
+	if deleted {
+		deleteHeaderField(headers, "Signature")
+		deleteHeaderField(headers, "Signature-Input")
+	}
+	return headers
+}
+
+func headerNameContainsLiteral(name, literal string) bool {
+	return literal != "" && strings.Contains(strings.ToLower(name), strings.ToLower(literal))
+}
+
+func isRequiredRepresentationHeader(name string) bool {
+	return strings.EqualFold(name, "Content-Encoding") ||
+		strings.EqualFold(name, "Content-Length")
+}
+
+func contentTypeContainsDisallowedModel(values []string, upstreamModel string) bool {
+	allowedMediaTypes := map[string]struct{}{
+		"application/json":         {},
+		"application/problem+json": {},
+		"application/x-ndjson":     {},
+		"text/event-stream":        {},
+		"text/plain":               {},
+	}
+	for _, value := range values {
+		if !strings.Contains(value, upstreamModel) {
+			continue
+		}
+		mediaType, _, err := mime.ParseMediaType(value)
+		if err != nil {
+			return true
+		}
+		if _, allowed := allowedMediaTypes[strings.ToLower(mediaType)]; !allowed {
+			return true
+		}
+
+		mediaEnd := strings.IndexByte(value, ';')
+		if mediaEnd < 0 {
+			mediaEnd = len(value)
+		}
+		rawMediaType := value[:mediaEnd]
+		trimmedMediaType := strings.TrimSpace(rawMediaType)
+		mediaStart := strings.Index(rawMediaType, trimmedMediaType)
+		mediaEnd = mediaStart + len(trimmedMediaType)
+		for searchFrom := 0; searchFrom <= len(value)-len(upstreamModel); {
+			index := strings.Index(value[searchFrom:], upstreamModel)
+			if index < 0 {
+				break
+			}
+			index += searchFrom
+			if index < mediaStart || index+len(upstreamModel) > mediaEnd {
+				return true
+			}
+			searchFrom = index + len(upstreamModel)
+		}
+	}
+	return false
 }
 
 func deleteHeaderField(headers http.Header, name string) {

@@ -132,6 +132,14 @@ func TestJudgeAppliesRulesInSafetyOrder(t *testing.T) {
 }
 
 func TestResultShouldRetryIsDerivedFromAction(t *testing.T) {
+	var zero Result
+	if zero.Action != ActionTerminate {
+		t.Fatalf("zero Result Action = %d, want ActionTerminate", zero.Action)
+	}
+	if zero.ShouldRetry() {
+		t.Fatal("zero Result ShouldRetry() = true, want false")
+	}
+
 	tests := []struct {
 		action Action
 		want   bool

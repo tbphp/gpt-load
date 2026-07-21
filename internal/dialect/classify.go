@@ -22,6 +22,9 @@ func classifyStatusWithMarkers(
 	if status >= http.StatusOK && status < http.StatusMultipleChoices {
 		return health.FailureCategoryOK
 	}
+	if status == 0 {
+		return health.FailureCategoryAmbiguous
+	}
 	lowered := strings.ToLower(string(body))
 	switch {
 	case status == http.StatusTooManyRequests || containsFailureMarker(lowered, markers.rateLimited):
