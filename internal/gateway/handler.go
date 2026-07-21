@@ -235,6 +235,9 @@ func (handler *Handler) executeAttempts(
 			Committed: result.Committed, RetryableBeforeCommit: result.RetryableBeforeCommit,
 		})
 		handler.applyKeyAction(selection.KeyID, decision, attemptNow)
+		if decision.Action == health.ActionSkipGroup {
+			iterator.SkipGroup(selection.GroupID)
+		}
 		if result.HasResponse() {
 			copied := result
 			lastResponse = &copied

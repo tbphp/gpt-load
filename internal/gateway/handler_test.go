@@ -439,12 +439,10 @@ func TestHandlerReportsFinalAttemptInDebugHeaders(t *testing.T) {
 			upstreamKeys: []string{"sk-retry-one", "sk-retry-two"}, wantAttempts: "2",
 		},
 		{
-			name: "transport exhaustion",
-			results: []UpstreamResult{
-				{Err: errors.New("dial one")},
-				{Err: errors.New("dial two")},
-			},
-			upstreamKeys: []string{"sk-dial-one", "sk-dial-two"}, wantAttempts: "2",
+			name:         "transport skips only group",
+			results:      []UpstreamResult{{Err: errors.New("dial failed")}},
+			upstreamKeys: []string{"sk-dial-one", "sk-dial-two"},
+			wantAttempts: "1",
 		},
 	}
 
@@ -964,18 +962,23 @@ func TestHandlerUsesClassifierForStreamingNonSuccess(t *testing.T) {
 		}
 	})
 
-	t.Run("last retryable response is passed through", func(t *testing.T) {
+	t.Run("last key-level retryable response is passed through", func(t *testing.T) {
 		forwarder := &scriptedForwarder{streamResults: []UpstreamResult{
-			{StatusCode: http.StatusInternalServerError, Header: make(http.Header), Body: []byte(`{"error":"first"}`), ClassificationBody: []byte(`{"error":"first"}`), RequestWritten: true},
-			{StatusCode: http.StatusInternalServerError, Header: make(http.Header), Body: []byte(`{"error":"last"}`), ClassificationBody: []byte(`{"error":"last"}`), RequestWritten: true},
+			{StatusCode: http.StatusUnauthorized, Header: make(http.Header),
+				Body:               []byte(`{"error":"first"}`),
+				ClassificationBody: []byte(`{"error":"invalid_api_key"}`), RequestWritten: true},
+			{StatusCode: http.StatusUnauthorized, Header: make(http.Header),
+				Body:               []byte(`{"error":"last"}`),
+				ClassificationBody: []byte(`{"error":"invalid_api_key"}`), RequestWritten: true},
 		}}
 		engine, _, _ := newHandlerTestRuntime(t, forwarder, "sk-one", "sk-two")
-		request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewBufferString(`{"model":"gpt-4o","stream":true}`))
+		request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions",
+			bytes.NewBufferString(`{"model":"gpt-4o","stream":true}`))
 		request.Header.Set("Authorization", "Bearer gl-client")
 		recorder := httptest.NewRecorder()
 		engine.ServeHTTP(recorder, request)
 
-		if recorder.Code != http.StatusInternalServerError || recorder.Body.String() != `{"error":"last"}` {
+		if recorder.Code != http.StatusUnauthorized || recorder.Body.String() != `{"error":"last"}` {
 			t.Fatalf("final response = %d %s", recorder.Code, recorder.Body.String())
 		}
 	})
@@ -1252,6 +1255,7 @@ func TestHandlerReturnsStableTerminalReasons(t *testing.T) {
 		results      []UpstreamResult
 		wantStatus   int
 		wantCode     string
+		wantAttempts int
 	}{
 		{name: "invalid access key", path: "/v1/chat/completions", accessKey: "wrong", body: `{"model":"gpt-4o"}`, wantStatus: http.StatusUnauthorized, wantCode: "invalid_access_key"},
 		{name: "unknown endpoint after auth", path: "/unknown", accessKey: "gl-client", body: `{}`, wantStatus: http.StatusNotFound, wantCode: "protocol_endpoint_not_found"},
@@ -1265,14 +1269,11 @@ func TestHandlerReturnsStableTerminalReasons(t *testing.T) {
 			wantStatus:   http.StatusGatewayTimeout, wantCode: "upstream_timeout",
 		},
 		{
-			name: "connection attempts exhausted",
+			name: "connection failure skips only group",
 			path: "/v1/chat/completions", accessKey: "gl-client", body: `{"model":"gpt-4o"}`,
 			upstreamKeys: []string{"sk-one", "sk-two"},
-			results: []UpstreamResult{
-				{Err: errors.New("dial failed")},
-				{Err: errors.New("dial failed")},
-			},
-			wantStatus: http.StatusBadGateway, wantCode: "upstream_connect_failed",
+			results:      []UpstreamResult{{Err: errors.New("dial failed")}},
+			wantStatus:   http.StatusBadGateway, wantCode: "upstream_connect_failed", wantAttempts: 1,
 		},
 	}
 
@@ -1287,6 +1288,9 @@ func TestHandlerReturnsStableTerminalReasons(t *testing.T) {
 
 			if recorder.Code != tt.wantStatus {
 				t.Fatalf("status = %d, want %d; body=%s", recorder.Code, tt.wantStatus, recorder.Body.String())
+			}
+			if tt.wantAttempts > 0 && len(forwarder.inputs) != tt.wantAttempts {
+				t.Fatalf("attempts = %d, want %d", len(forwarder.inputs), tt.wantAttempts)
 			}
 			var body struct {
 				Code string `json:"code"`
@@ -1408,11 +1412,15 @@ func TestHandlerDoesNotExposeAliasedUpstreamModelWhenRetryBudgetIsExhausted(t *t
 
 	engine, _ := newDialectGatewayEngine(t, protocol.OpenAI, externalModel,
 		dialect.NewSet(dialect.NewOpenAI(http.DefaultClient)),
-		dialectGatewayGroup{
-			id: 1, name: "openai", upstreamURL: upstream.URL,
-			apiKeys: []string{"sk-one", "sk-two", "sk-three", "sk-unused"},
-			models:  []state.ModelConfig{{ID: upstreamModel, Alias: externalModel}},
-		},
+		dialectGatewayGroup{id: 1, name: "openai-1", upstreamURL: upstream.URL,
+			apiKeys: []string{"sk-one"},
+			models:  []state.ModelConfig{{ID: upstreamModel, Alias: externalModel}}},
+		dialectGatewayGroup{id: 2, name: "openai-2", upstreamURL: upstream.URL,
+			apiKeys: []string{"sk-two"},
+			models:  []state.ModelConfig{{ID: upstreamModel, Alias: externalModel}}},
+		dialectGatewayGroup{id: 3, name: "openai-3", upstreamURL: upstream.URL,
+			apiKeys: []string{"sk-three"},
+			models:  []state.ModelConfig{{ID: upstreamModel, Alias: externalModel}}},
 	)
 	request := httptest.NewRequest(
 		http.MethodPost,

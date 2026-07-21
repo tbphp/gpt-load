@@ -158,6 +158,71 @@ func TestGatewayRewritesEachAttemptFromOriginal(t *testing.T) {
 	}
 }
 
+func TestHandlerHostFailureSkipsGroupForCurrentRequestOnly(t *testing.T) {
+	primary := fakeupstream.New(
+		fakeupstream.Step{Status: http.StatusInternalServerError, Fixture: "openai/500.json"},
+		fakeupstream.Step{Status: http.StatusInternalServerError, Fixture: "openai/500.json"},
+		fakeupstream.Step{Status: http.StatusInternalServerError, Fixture: "openai/500.json"},
+		fakeupstream.Step{Status: http.StatusInternalServerError, Fixture: "openai/500.json"},
+	)
+	defer primary.Close()
+	backup := fakeupstream.New(
+		fakeupstream.Step{Status: http.StatusOK, Fixture: "openai/success.json"},
+		fakeupstream.Step{Status: http.StatusOK, Fixture: "openai/success.json"},
+	)
+	defer backup.Close()
+
+	engine, _ := newDialectGatewayEngine(t, protocol.OpenAI, "gpt-4o",
+		dialect.NewSet(dialect.NewOpenAI(http.DefaultClient)),
+		dialectGatewayGroup{id: 1, name: "primary", upstreamURL: primary.URL,
+			apiKeys: []string{"sk-primary-one", "sk-primary-two"}},
+		dialectGatewayGroup{id: 2, name: "backup", upstreamURL: backup.URL,
+			apiKeys: []string{"sk-backup"}},
+	)
+	for range 2 {
+		request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions",
+			bytes.NewBufferString(`{"model":"gpt-4o"}`))
+		request.Header.Set("Authorization", "Bearer gl-client")
+		recorder := httptest.NewRecorder()
+		engine.ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusOK || recorder.Header().Get(debugHeaderAttempts) != "2" {
+			t.Fatalf("response = %d attempts=%s body=%s",
+				recorder.Code, recorder.Header().Get(debugHeaderAttempts), recorder.Body.String())
+		}
+	}
+	if got := len(primary.Requests()); got != 2 {
+		t.Fatalf("primary requests = %d, want one per downstream request", got)
+	}
+	if got := len(backup.Requests()); got != 2 {
+		t.Fatalf("backup requests = %d, want one per downstream request", got)
+	}
+}
+
+func TestHandlerReturnsLastHostErrorWhenSkippedGroupHasNoBackup(t *testing.T) {
+	upstream := fakeupstream.New(
+		fakeupstream.Step{Status: http.StatusInternalServerError, Fixture: "openai/500.json"},
+		fakeupstream.Step{Status: http.StatusOK, Fixture: "openai/success.json"},
+	)
+	defer upstream.Close()
+
+	engine, _ := newDialectGatewayEngine(t, protocol.OpenAI, "gpt-4o",
+		dialect.NewSet(dialect.NewOpenAI(http.DefaultClient)),
+		dialectGatewayGroup{id: 1, name: "only", upstreamURL: upstream.URL,
+			apiKeys: []string{"sk-one", "sk-two"}},
+	)
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions",
+		bytes.NewBufferString(`{"model":"gpt-4o"}`))
+	request.Header.Set("Authorization", "Bearer gl-client")
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusInternalServerError || len(upstream.Requests()) != 1 ||
+		!bytes.Contains(recorder.Body.Bytes(), []byte("internal_error")) {
+		t.Fatalf("response/attempts = %d/%d body=%s, want safe 500/1",
+			recorder.Code, len(upstream.Requests()), recorder.Body.String())
+	}
+}
+
 func TestForwarderRewritesAliasedNonStreamingResponses(t *testing.T) {
 	tests := []struct {
 		name             string
