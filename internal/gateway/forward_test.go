@@ -894,31 +894,62 @@ func (writer *readyGuardWriter) WriteHeader(status int) {
 }
 
 func TestForwardStreamCallsReadyBeforeCommit(t *testing.T) {
+	releaseUpstream := make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(releaseUpstream) }) }
+
 	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 		writer.Header().Set("Content-Type", "text/event-stream")
 		_, _ = io.WriteString(writer, "data: ok\n\n")
+		writer.(http.Flusher).Flush()
+		<-releaseUpstream
 	}))
-	defer upstream.Close()
+	defer func() {
+		release()
+		upstream.Close()
+	}()
 
 	var ready atomic.Bool
 	var calls atomic.Int32
+	readyCalled := make(chan struct{})
+	var readyOnce sync.Once
 	input := streamForwardInput(upstream.URL)
 	input.OnStreamReady = func() {
 		calls.Add(1)
 		ready.Store(true)
+		readyOnce.Do(func() { close(readyCalled) })
 	}
 	downstream := &readyGuardWriter{
 		recordingResponseWriter: newRecordingResponseWriter(),
 		ready:                   &ready,
 	}
-	result := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New()).ForwardStream(
-		context.Background(), input, downstream,
-	)
+	done := make(chan UpstreamResult, 1)
+	go func() {
+		done <- NewForwarder(platformhttp.NewHTTPClientManager(), redact.New()).ForwardStream(
+			context.Background(), input, downstream,
+		)
+	}()
 
-	if result.Err != nil || !result.Committed || calls.Load() != 1 ||
-		downstream.committedTooSoon.Load() {
-		t.Fatalf("result=%#v calls=%d committedTooSoon=%t",
-			result, calls.Load(), downstream.committedTooSoon.Load())
+	waitForSignal(t, readyCalled, "stream-ready callback")
+	if calls.Load() != 1 {
+		t.Fatalf("stream-ready calls while upstream is active = %d, want 1", calls.Load())
+	}
+	select {
+	case result := <-done:
+		t.Fatalf("ForwardStream() returned before upstream release: %#v", result)
+	default:
+	}
+	release()
+
+	select {
+	case result := <-done:
+		if result.Err != nil || !result.Committed || calls.Load() != 1 ||
+			downstream.committedTooSoon.Load() {
+			t.Fatalf("result=%#v calls=%d committedTooSoon=%t",
+				result, calls.Load(), downstream.committedTooSoon.Load())
+		}
+	case <-time.After(time.Second):
+		t.Fatal("ForwardStream() did not finish after upstream release")
 	}
 }
 
