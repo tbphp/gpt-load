@@ -42,6 +42,18 @@ type controlRuntimeFake struct {
 	releaseOnce    sync.Once
 }
 
+func receiveTestSignal[T any](t *testing.T, signal <-chan T, name string) T {
+	t.Helper()
+	select {
+	case value := <-signal:
+		return value
+	case <-time.After(time.Second):
+		t.Fatalf("timed out after 1s waiting for %s", name)
+		var zero T
+		return zero
+	}
+}
+
 func newControlRuntimeFake(ready <-chan struct{}, blockAfterCancel bool) *controlRuntimeFake {
 	fake := &controlRuntimeFake{
 		ready:          ready,
@@ -356,7 +368,7 @@ func TestAppStartsControlRuntimeAfterInitialization(t *testing.T) {
 	if err := application.Start(); err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
-	<-runtime.started
+	receiveTestSignal(t, runtime.started, "control runtime start")
 	select {
 	case <-runtime.orderViolation:
 		t.Fatal("control runtime started before runtime state loading completed")
@@ -459,19 +471,19 @@ func TestAppStopCancelsAndWaitsForControlRuntime(t *testing.T) {
 	if err := application.Start(); err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
-	<-runtime.started
+	receiveTestSignal(t, runtime.started, "control runtime start")
 
 	stopResult := make(chan error, 1)
 	go func() { stopResult <- application.Stop(context.Background()) }()
-	<-runtime.canceled
+	receiveTestSignal(t, runtime.canceled, "control runtime cancellation")
 	select {
 	case err := <-stopResult:
 		t.Fatalf("Stop() returned before control runtime stopped: %v", err)
 	default:
 	}
 	runtime.Release()
-	<-runtime.stopped
-	if err := <-stopResult; err != nil {
+	receiveTestSignal(t, runtime.stopped, "control runtime stop")
+	if err := receiveTestSignal(t, stopResult, "application stop result"); err != nil {
 		t.Fatalf("Stop() error = %v", err)
 	}
 }
@@ -499,7 +511,12 @@ func TestAppStopHonorsDeadlineWhileWaitingForControlRuntime(t *testing.T) {
 	if err := application.Start(); err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
-	<-runtime.started
+	receiveTestSignal(t, runtime.started, "control runtime start")
+	address := application.Address()
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("db.DB() error = %v", err)
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -507,9 +524,19 @@ func TestAppStopHonorsDeadlineWhileWaitingForControlRuntime(t *testing.T) {
 	if !errors.Is(err, context.Canceled) || !strings.Contains(err.Error(), "wait for control runtime") {
 		t.Fatalf("Stop() error = %v, want wrapped control runtime context error", err)
 	}
-	<-runtime.canceled
+	receiveTestSignal(t, runtime.canceled, "control runtime cancellation")
+
+	connection, dialErr := net.DialTimeout("tcp", address, time.Second)
+	if dialErr == nil {
+		_ = connection.Close()
+		t.Fatalf("HTTP listener at %s still accepts connections after Stop() returned", address)
+	}
+	if pingErr := sqlDB.PingContext(context.Background()); pingErr == nil || pingErr.Error() != "sql: database is closed" {
+		t.Fatalf("sql.DB PingContext() error = %v, want database closed", pingErr)
+	}
+
 	runtime.Release()
-	<-runtime.stopped
+	receiveTestSignal(t, runtime.stopped, "control runtime stop")
 }
 
 func newTestRuntimeState(db *gorm.DB) (*state.Manager, *loader.Loader) {

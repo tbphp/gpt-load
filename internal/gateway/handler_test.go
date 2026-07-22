@@ -62,6 +62,18 @@ type recordingRuntimeRegistry struct {
 	clearCalls       int
 }
 
+func receiveTestSignal[T any](t *testing.T, signal <-chan T, name string) T {
+	t.Helper()
+	select {
+	case value := <-signal:
+		return value
+	case <-time.After(time.Second):
+		t.Fatalf("timed out after 1s waiting for %s", name)
+		var zero T
+		return zero
+	}
+}
+
 func (registry *recordingRuntimeRegistry) SetCooldown(keyID uint, until time.Time) bool {
 	registry.cooldownKeyID = keyID
 	registry.cooldownUntil = until
@@ -310,12 +322,12 @@ func TestHandlerRecordsStreamSuccessAtReadyTime(t *testing.T) {
 				close(done)
 			}()
 
-			<-forwarder.ready
+			receiveTestSignal(t, forwarder.ready, "stream-ready callback")
 			if got := stats.Snapshot(1, now); got != (health.KeyStats{Success: 1}) {
 				t.Fatalf("stats before forward returns = %#v, want one success", got)
 			}
 			forwarder.Release()
-			<-done
+			receiveTestSignal(t, done, "stream request completion")
 			if got := stats.Snapshot(1, now); got != (health.KeyStats{Success: 1}) {
 				t.Fatalf("stats after forward returns = %#v, want one success", got)
 			}
