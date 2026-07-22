@@ -12,6 +12,9 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+// x/sys/windows does not expose FILE_ALL_ACCESS from WinNT.h.
+const fileAllAccessMask windows.ACCESS_MASK = windows.STANDARD_RIGHTS_REQUIRED | windows.SYNCHRONIZE | 0x1ff
+
 func TestGeneratedKeyFileGrantsAccessOnlyToCurrentUser(t *testing.T) {
 	dataDir := t.TempDir()
 	if _, err := LoadOrCreateKeyMaterial("", dataDir); err != nil {
@@ -78,8 +81,8 @@ func assertCurrentUserOnlyACL(t *testing.T, path string) {
 	if ace.Header.AceType != windows.ACCESS_ALLOWED_ACE_TYPE {
 		t.Fatalf("ACE type = %d, want ACCESS_ALLOWED_ACE_TYPE", ace.Header.AceType)
 	}
-	if ace.Mask != windows.GENERIC_ALL {
-		t.Fatalf("ACE mask = %#x, want GENERIC_ALL", ace.Mask)
+	if ace.Mask != fileAllAccessMask {
+		t.Fatalf("ACE mask = %#x, want FILE_ALL_ACCESS (%#x)", ace.Mask, fileAllAccessMask)
 	}
 
 	user, err := windows.GetCurrentProcessToken().GetTokenUser()
