@@ -188,6 +188,21 @@ func (r *KeyRegistry) ActiveEncryptedValue(keyID, expectedGroupID uint) (string,
 	return entry.EncryptedValue, true
 }
 
+func (r *KeyRegistry) ActiveKeyIDs() []uint {
+	r.mu.RLock()
+	ids := make([]uint, 0, len(r.keyGroups))
+	for _, bucket := range r.buckets {
+		for _, entry := range bucket {
+			if entry.Status == KeyStatusActive {
+				ids = append(ids, entry.ID)
+			}
+		}
+	}
+	r.mu.RUnlock()
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	return ids
+}
+
 func (r *KeyRegistry) CollectCandidates(groupIDs []uint, excluded func(uint) bool, now time.Time) []KeyMeta {
 	r.mu.RLock()
 	metas := make([]KeyMeta, 0)

@@ -102,6 +102,33 @@ func TestKeyRegistryActiveEncryptedValueRequiresExpectedGroupAndActiveStatus(t *
 	}
 }
 
+func TestKeyRegistryActiveKeyIDs(t *testing.T) {
+	registry := NewKeyRegistry()
+	mustReplaceKeyEntries(t, registry, []KeyEntry{
+		{ID: 9, GroupID: 20, Status: KeyStatusActive, EncryptedValue: "cipher-nine"},
+		{ID: 5, GroupID: 10, Status: KeyStatusDisabled, EncryptedValue: "cipher-five"},
+		{ID: 3, GroupID: 10, Status: KeyStatusActive, EncryptedValue: "cipher-three"},
+		{ID: 7, GroupID: 20, Status: KeyStatusActive, EncryptedValue: "cipher-seven"},
+	})
+	if ok := registry.SetCooldown(3, time.Now().Add(time.Hour)); !ok {
+		t.Fatal("SetCooldown(3) = false, want true")
+	}
+	if ok := registry.SetBlacklisted(7); !ok {
+		t.Fatal("SetBlacklisted(7) = false, want true")
+	}
+
+	want := []uint{3, 7, 9}
+	got := registry.ActiveKeyIDs()
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("ActiveKeyIDs() = %v, want %v", got, want)
+	}
+
+	got[0] = 99
+	if again := registry.ActiveKeyIDs(); !reflect.DeepEqual(again, want) {
+		t.Fatalf("ActiveKeyIDs() after caller mutation = %v, want %v", again, want)
+	}
+}
+
 func TestKeyRegistryReplaceFailurePreservesRegistry(t *testing.T) {
 	invalidBatches := map[string][]KeyEntry{
 		"duplicate ids": {
