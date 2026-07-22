@@ -25,16 +25,19 @@ import (
 
 // App owns the process lifecycle, infrastructure resources, and runtime state.
 type App struct {
-	engine       *gin.Engine
-	config       *config.Config
-	encryption   encryption.Service
-	db           *gorm.DB
-	runtimeState RuntimeStateLoader
+	engine         *gin.Engine
+	config         *config.Config
+	encryption     encryption.Service
+	db             *gorm.DB
+	runtimeState   RuntimeStateLoader
+	controlRuntime ControlRuntime
 
-	mu          sync.Mutex
-	httpServer  *http.Server
-	listener    net.Listener
-	serveErrors chan error
+	mu            sync.Mutex
+	httpServer    *http.Server
+	listener      net.Listener
+	serveErrors   chan error
+	runtimeCancel context.CancelFunc
+	runtimeDone   chan struct{}
 }
 
 // RuntimeStateLoader initializes the in-memory runtime state from persistence.
@@ -42,15 +45,21 @@ type RuntimeStateLoader interface {
 	Load(context.Context) error
 }
 
+// ControlRuntime runs background control-plane maintenance.
+type ControlRuntime interface {
+	Run(context.Context)
+}
+
 // AppParams defines dependencies injected into App.
 type AppParams struct {
 	dig.In
 
-	Engine       *gin.Engine
-	Config       *config.Config
-	Encryption   encryption.Service
-	DB           *gorm.DB
-	RuntimeState RuntimeStateLoader
+	Engine         *gin.Engine
+	Config         *config.Config
+	Encryption     encryption.Service
+	DB             *gorm.DB
+	RuntimeState   RuntimeStateLoader
+	ControlRuntime ControlRuntime
 }
 
 // NewEngine creates the HTTP engine and health endpoint.
@@ -71,12 +80,13 @@ func NewEngine() *gin.Engine {
 // NewApp creates the application lifecycle manager.
 func NewApp(params AppParams) *App {
 	return &App{
-		engine:       params.Engine,
-		config:       params.Config,
-		encryption:   params.Encryption,
-		db:           params.DB,
-		runtimeState: params.RuntimeState,
-		serveErrors:  make(chan error, 1),
+		engine:         params.Engine,
+		config:         params.Config,
+		encryption:     params.Encryption,
+		db:             params.DB,
+		runtimeState:   params.RuntimeState,
+		controlRuntime: params.ControlRuntime,
+		serveErrors:    make(chan error, 1),
 	}
 }
 
@@ -114,11 +124,19 @@ func (a *App) Start() error {
 	}
 	a.httpServer = server
 	a.listener = listener
+	runtimeContext, cancelRuntime := context.WithCancel(context.Background())
+	runtimeDone := make(chan struct{})
+	a.runtimeCancel = cancelRuntime
+	a.runtimeDone = runtimeDone
 
 	go func() {
 		if err := server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			a.serveErrors <- fmt.Errorf("serve HTTP: %w", err)
 		}
+	}()
+	go func() {
+		defer close(runtimeDone)
+		a.controlRuntime.Run(runtimeContext)
 	}()
 
 	logrus.WithFields(logrus.Fields{
@@ -147,9 +165,19 @@ func (a *App) Address() string {
 func (a *App) Stop(ctx context.Context) error {
 	a.mu.Lock()
 	server := a.httpServer
+	cancelRuntime := a.runtimeCancel
+	runtimeDone := a.runtimeDone
 	a.mu.Unlock()
 
 	var errs []error
+	if cancelRuntime != nil {
+		cancelRuntime()
+		select {
+		case <-runtimeDone:
+		case <-ctx.Done():
+			errs = append(errs, fmt.Errorf("wait for control runtime: %w", ctx.Err()))
+		}
+	}
 	if server != nil {
 		if err := server.Shutdown(ctx); err != nil {
 			errs = append(errs, fmt.Errorf("shut down HTTP server: %w", err))

@@ -18,6 +18,7 @@ import (
 	"gpt-load/internal/control"
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/gateway"
+	"gpt-load/internal/health"
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/platform/encryption"
 	"gpt-load/internal/platform/httpclient"
@@ -111,6 +112,9 @@ func TestBuildContainerResolvesRuntimeDependencies(t *testing.T) {
 		_ dialect.Set,
 		_ *control.Service,
 		_ *control.Server,
+		_ *health.StatsStore,
+		_ *control.Runtime,
+		_ app.ControlRuntime,
 		_ *httpclient.HTTPClientManager,
 		_ *redact.Redactor,
 		_ *dialect.OpenAI,
@@ -152,6 +156,40 @@ func TestBuildContainerResolvesRuntimeDependencies(t *testing.T) {
 	}
 	if !resolved {
 		t.Fatal("runtime dependency graph was not invoked")
+	}
+}
+
+func TestBuildContainerUsesSingletonStatsStore(t *testing.T) {
+	t.Setenv("AUTH_KEY", "test-auth-key")
+	t.Setenv("DATA_DIR", t.TempDir())
+	t.Setenv("DATABASE_DSN", ":memory:")
+	t.Setenv("ENCRYPTION_KEY", "test-master-key-long")
+
+	dependencyContainer, err := BuildContainer()
+	if err != nil {
+		t.Fatalf("BuildContainer() error = %v", err)
+	}
+
+	var first *health.StatsStore
+	err = dependencyContainer.Invoke(func(store *health.StatsStore, db *gorm.DB) {
+		first = store
+		t.Cleanup(func() {
+			sqlDB, dbErr := db.DB()
+			if dbErr == nil {
+				_ = sqlDB.Close()
+			}
+		})
+	})
+	if err != nil {
+		t.Fatalf("resolve first StatsStore: %v", err)
+	}
+
+	var second *health.StatsStore
+	if err := dependencyContainer.Invoke(func(store *health.StatsStore) { second = store }); err != nil {
+		t.Fatalf("resolve second StatsStore: %v", err)
+	}
+	if first != second {
+		t.Fatalf("StatsStore instances differ: first=%p second=%p", first, second)
 	}
 }
 

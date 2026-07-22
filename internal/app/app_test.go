@@ -5,9 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -28,6 +30,53 @@ type runtimeStateLoaderFunc func(context.Context) error
 
 func (f runtimeStateLoaderFunc) Load(ctx context.Context) error {
 	return f(ctx)
+}
+
+type controlRuntimeFake struct {
+	ready          <-chan struct{}
+	started        chan struct{}
+	orderViolation chan struct{}
+	canceled       chan struct{}
+	release        chan struct{}
+	stopped        chan struct{}
+	releaseOnce    sync.Once
+}
+
+func newControlRuntimeFake(ready <-chan struct{}, blockAfterCancel bool) *controlRuntimeFake {
+	fake := &controlRuntimeFake{
+		ready:          ready,
+		started:        make(chan struct{}),
+		orderViolation: make(chan struct{}, 1),
+		canceled:       make(chan struct{}),
+		stopped:        make(chan struct{}),
+	}
+	if blockAfterCancel {
+		fake.release = make(chan struct{})
+	}
+	return fake
+}
+
+func (f *controlRuntimeFake) Run(ctx context.Context) {
+	if f.ready != nil {
+		select {
+		case <-f.ready:
+		default:
+			f.orderViolation <- struct{}{}
+		}
+	}
+	close(f.started)
+	<-ctx.Done()
+	close(f.canceled)
+	if f.release != nil {
+		<-f.release
+	}
+	close(f.stopped)
+}
+
+func (f *controlRuntimeFake) Release() {
+	if f.release != nil {
+		f.releaseOnce.Do(func() { close(f.release) })
+	}
 }
 
 func TestNewEngineRecoversWithoutLoggingCredentials(t *testing.T) {
@@ -121,11 +170,12 @@ func TestAppStartMigratesDatabaseAndServesHTTP(t *testing.T) {
 	manager, runtimeState := newTestRuntimeState(db)
 
 	application := NewApp(AppParams{
-		Engine:       NewEngine(),
-		Config:       testConfig(t),
-		Encryption:   keyService,
-		DB:           db,
-		RuntimeState: runtimeState,
+		Engine:         NewEngine(),
+		Config:         testConfig(t),
+		Encryption:     keyService,
+		DB:             db,
+		RuntimeState:   runtimeState,
+		ControlRuntime: newControlRuntimeFake(nil, false),
 	})
 	cleanupApp(t, application)
 	if err := application.Start(); err != nil {
@@ -178,10 +228,11 @@ func TestAppStartMigratesBeforeLoadingRuntimeState(t *testing.T) {
 
 	loadCalled := false
 	application := NewApp(AppParams{
-		Engine:     NewEngine(),
-		Config:     testConfig(t),
-		Encryption: keyService,
-		DB:         db,
+		Engine:         NewEngine(),
+		Config:         testConfig(t),
+		Encryption:     keyService,
+		DB:             db,
+		ControlRuntime: newControlRuntimeFake(nil, false),
 		RuntimeState: runtimeStateLoaderFunc(func(context.Context) error {
 			loadCalled = true
 			if !db.Migrator().HasTable("groups") {
@@ -212,10 +263,11 @@ func TestAppStartRejectsRuntimeStateLoadFailureBeforeListen(t *testing.T) {
 
 	loadErr := errors.New("corrupt runtime config")
 	application := NewApp(AppParams{
-		Engine:     NewEngine(),
-		Config:     testConfig(t),
-		Encryption: keyService,
-		DB:         db,
+		Engine:         NewEngine(),
+		Config:         testConfig(t),
+		Encryption:     keyService,
+		DB:             db,
+		ControlRuntime: newControlRuntimeFake(nil, false),
 		RuntimeState: runtimeStateLoaderFunc(func(context.Context) error {
 			return loadErr
 		}),
@@ -252,11 +304,12 @@ func TestAppReportsUnexpectedHTTPServeFailure(t *testing.T) {
 	_, runtimeState := newTestRuntimeState(db)
 
 	application := NewApp(AppParams{
-		Engine:       NewEngine(),
-		Config:       testConfig(t),
-		Encryption:   keyService,
-		DB:           db,
-		RuntimeState: runtimeState,
+		Engine:         NewEngine(),
+		Config:         testConfig(t),
+		Encryption:     keyService,
+		DB:             db,
+		RuntimeState:   runtimeState,
+		ControlRuntime: newControlRuntimeFake(nil, false),
 	})
 	cleanupApp(t, application)
 	if err := application.Start(); err != nil {
@@ -274,6 +327,189 @@ func TestAppReportsUnexpectedHTTPServeFailure(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("unexpected HTTP Serve failure was not propagated")
 	}
+}
+
+func TestAppStartsControlRuntimeAfterInitialization(t *testing.T) {
+	db, err := storage.Open(":memory:")
+	if err != nil {
+		t.Fatalf("storage.Open() error = %v", err)
+	}
+	keyService, err := encryption.NewService("test-master-key")
+	if err != nil {
+		t.Fatalf("encryption.NewService() error = %v", err)
+	}
+	loaded := make(chan struct{})
+	runtime := newControlRuntimeFake(loaded, false)
+	application := NewApp(AppParams{
+		Engine:     NewEngine(),
+		Config:     testConfig(t),
+		Encryption: keyService,
+		DB:         db,
+		RuntimeState: runtimeStateLoaderFunc(func(context.Context) error {
+			close(loaded)
+			return nil
+		}),
+		ControlRuntime: runtime,
+	})
+	cleanupApp(t, application)
+
+	if err := application.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	<-runtime.started
+	select {
+	case <-runtime.orderViolation:
+		t.Fatal("control runtime started before runtime state loading completed")
+	default:
+	}
+	if got := application.Address(); got == "" {
+		t.Fatal("Address() is empty after Start() returned")
+	}
+}
+
+func TestAppDoesNotStartControlRuntimeWhenLoadFails(t *testing.T) {
+	db, err := storage.Open(":memory:")
+	if err != nil {
+		t.Fatalf("storage.Open() error = %v", err)
+	}
+	keyService, err := encryption.NewService("test-master-key")
+	if err != nil {
+		t.Fatalf("encryption.NewService() error = %v", err)
+	}
+	loadErr := errors.New("corrupt runtime config")
+	runtime := newControlRuntimeFake(nil, false)
+	application := NewApp(AppParams{
+		Engine:         NewEngine(),
+		Config:         testConfig(t),
+		Encryption:     keyService,
+		DB:             db,
+		RuntimeState:   runtimeStateLoaderFunc(func(context.Context) error { return loadErr }),
+		ControlRuntime: runtime,
+	})
+	cleanupApp(t, application)
+
+	if err := application.Start(); !errors.Is(err, loadErr) {
+		t.Fatalf("Start() error = %v, want wrapped load error", err)
+	}
+	select {
+	case <-runtime.started:
+		t.Fatal("control runtime started after runtime state loading failed")
+	default:
+	}
+}
+
+func TestAppDoesNotStartControlRuntimeWhenListenFails(t *testing.T) {
+	occupied, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen on occupied test address: %v", err)
+	}
+	t.Cleanup(func() { _ = occupied.Close() })
+
+	db, err := storage.Open(":memory:")
+	if err != nil {
+		t.Fatalf("storage.Open() error = %v", err)
+	}
+	keyService, err := encryption.NewService("test-master-key")
+	if err != nil {
+		t.Fatalf("encryption.NewService() error = %v", err)
+	}
+	cfg := testConfig(t)
+	cfg.Server.Port = occupied.Addr().(*net.TCPAddr).Port
+	runtime := newControlRuntimeFake(nil, false)
+	application := NewApp(AppParams{
+		Engine:         NewEngine(),
+		Config:         cfg,
+		Encryption:     keyService,
+		DB:             db,
+		RuntimeState:   runtimeStateLoaderFunc(func(context.Context) error { return nil }),
+		ControlRuntime: runtime,
+	})
+	cleanupApp(t, application)
+
+	if err := application.Start(); err == nil || !strings.Contains(err.Error(), "listen on") {
+		t.Fatalf("Start() error = %v, want listen failure", err)
+	}
+	select {
+	case <-runtime.started:
+		t.Fatal("control runtime started after listening failed")
+	default:
+	}
+}
+
+func TestAppStopCancelsAndWaitsForControlRuntime(t *testing.T) {
+	db, err := storage.Open(":memory:")
+	if err != nil {
+		t.Fatalf("storage.Open() error = %v", err)
+	}
+	keyService, err := encryption.NewService("test-master-key")
+	if err != nil {
+		t.Fatalf("encryption.NewService() error = %v", err)
+	}
+	runtime := newControlRuntimeFake(nil, true)
+	application := NewApp(AppParams{
+		Engine:         NewEngine(),
+		Config:         testConfig(t),
+		Encryption:     keyService,
+		DB:             db,
+		RuntimeState:   runtimeStateLoaderFunc(func(context.Context) error { return nil }),
+		ControlRuntime: runtime,
+	})
+	cleanupApp(t, application)
+	t.Cleanup(runtime.Release)
+	if err := application.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	<-runtime.started
+
+	stopResult := make(chan error, 1)
+	go func() { stopResult <- application.Stop(context.Background()) }()
+	<-runtime.canceled
+	select {
+	case err := <-stopResult:
+		t.Fatalf("Stop() returned before control runtime stopped: %v", err)
+	default:
+	}
+	runtime.Release()
+	<-runtime.stopped
+	if err := <-stopResult; err != nil {
+		t.Fatalf("Stop() error = %v", err)
+	}
+}
+
+func TestAppStopHonorsDeadlineWhileWaitingForControlRuntime(t *testing.T) {
+	db, err := storage.Open(":memory:")
+	if err != nil {
+		t.Fatalf("storage.Open() error = %v", err)
+	}
+	keyService, err := encryption.NewService("test-master-key")
+	if err != nil {
+		t.Fatalf("encryption.NewService() error = %v", err)
+	}
+	runtime := newControlRuntimeFake(nil, true)
+	application := NewApp(AppParams{
+		Engine:         NewEngine(),
+		Config:         testConfig(t),
+		Encryption:     keyService,
+		DB:             db,
+		RuntimeState:   runtimeStateLoaderFunc(func(context.Context) error { return nil }),
+		ControlRuntime: runtime,
+	})
+	cleanupApp(t, application)
+	t.Cleanup(runtime.Release)
+	if err := application.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	<-runtime.started
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err = application.Stop(ctx)
+	if !errors.Is(err, context.Canceled) || !strings.Contains(err.Error(), "wait for control runtime") {
+		t.Fatalf("Stop() error = %v, want wrapped control runtime context error", err)
+	}
+	<-runtime.canceled
+	runtime.Release()
+	<-runtime.stopped
 }
 
 func newTestRuntimeState(db *gorm.DB) (*state.Manager, *loader.Loader) {

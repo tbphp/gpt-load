@@ -40,6 +40,8 @@ func BuildContainer() (*dig.Container, error) {
 		state.NewManager,
 		state.NewKeyRegistry,
 		health.NewStatsStore,
+		control.NewRuntime,
+		func(runtime *control.Runtime) app.ControlRuntime { return runtime },
 		httpclient.NewHTTPClientManager,
 		redact.New,
 		func(manager *httpclient.HTTPClientManager) *http.Client {
