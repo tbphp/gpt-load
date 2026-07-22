@@ -118,6 +118,76 @@ func TestKeyRegistryClearFailureAndRecover(t *testing.T) {
 	}
 }
 
+func TestKeyRegistryRecoverIfMatchRestoresMatchingBlacklistedActiveKey(t *testing.T) {
+	registry := NewKeyRegistry()
+	mustReplaceKeyEntries(t, registry, []KeyEntry{{
+		ID: 1, GroupID: 10, Status: KeyStatusActive, Blacklisted: true,
+		FailureCount: 3, WeightAuto: 17, EncryptedValue: "cipher-one",
+	}})
+
+	if ok := registry.RecoverIfMatch(KeyRef{ID: 1, GroupID: 10, EncryptedValue: "cipher-one"}, DefaultWeight); !ok {
+		t.Fatal("RecoverIfMatch() = false, want true")
+	}
+	if got, want := registryEntry(t, registry, 1), (KeyEntry{
+		ID: 1, GroupID: 10, Status: KeyStatusActive, WeightAuto: DefaultWeight, EncryptedValue: "cipher-one",
+	}); !reflect.DeepEqual(got, want) {
+		t.Fatalf("entry after RecoverIfMatch() = %#v, want %#v", got, want)
+	}
+}
+
+func TestKeyRegistryRecoverIfMatchRejectsNonMatchingOrInvalidRecoveryWithoutMutation(t *testing.T) {
+	tests := []struct {
+		name   string
+		entry  KeyEntry
+		ref    KeyRef
+		weight int
+	}{
+		{
+			name: "disabled", entry: KeyEntry{ID: 1, GroupID: 10, Status: KeyStatusDisabled, Blacklisted: true, FailureCount: 3, WeightAuto: 17, EncryptedValue: "cipher-one"},
+			ref: KeyRef{ID: 1, GroupID: 10, EncryptedValue: "cipher-one"}, weight: DefaultWeight,
+		},
+		{
+			name: "not blacklisted", entry: KeyEntry{ID: 1, GroupID: 10, Status: KeyStatusActive, FailureCount: 3, WeightAuto: 17, EncryptedValue: "cipher-one"},
+			ref: KeyRef{ID: 1, GroupID: 10, EncryptedValue: "cipher-one"}, weight: DefaultWeight,
+		},
+		{
+			name: "group mismatch", entry: KeyEntry{ID: 1, GroupID: 10, Status: KeyStatusActive, Blacklisted: true, FailureCount: 3, WeightAuto: 17, EncryptedValue: "cipher-one"},
+			ref: KeyRef{ID: 1, GroupID: 11, EncryptedValue: "cipher-one"}, weight: DefaultWeight,
+		},
+		{
+			name: "cipher mismatch", entry: KeyEntry{ID: 1, GroupID: 10, Status: KeyStatusActive, Blacklisted: true, FailureCount: 3, WeightAuto: 17, EncryptedValue: "cipher-one"},
+			ref: KeyRef{ID: 1, GroupID: 10, EncryptedValue: "cipher-replaced"}, weight: DefaultWeight,
+		},
+		{
+			name: "missing", entry: KeyEntry{ID: 2, GroupID: 10, Status: KeyStatusActive, Blacklisted: true, FailureCount: 3, WeightAuto: 17, EncryptedValue: "cipher-two"},
+			ref: KeyRef{ID: 1, GroupID: 10, EncryptedValue: "cipher-one"}, weight: DefaultWeight,
+		},
+		{
+			name: "weight too low", entry: KeyEntry{ID: 1, GroupID: 10, Status: KeyStatusActive, Blacklisted: true, FailureCount: 3, WeightAuto: 17, EncryptedValue: "cipher-one"},
+			ref: KeyRef{ID: 1, GroupID: 10, EncryptedValue: "cipher-one"}, weight: 0,
+		},
+		{
+			name: "weight too high", entry: KeyEntry{ID: 1, GroupID: 10, Status: KeyStatusActive, Blacklisted: true, FailureCount: 3, WeightAuto: 17, EncryptedValue: "cipher-one"},
+			ref: KeyRef{ID: 1, GroupID: 10, EncryptedValue: "cipher-one"}, weight: MaxWeight + 1,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			registry := NewKeyRegistry()
+			mustReplaceKeyEntries(t, registry, []KeyEntry{test.entry})
+			before := registryEntry(t, registry, test.entry.ID)
+
+			if ok := registry.RecoverIfMatch(test.ref, test.weight); ok {
+				t.Fatal("RecoverIfMatch() = true, want false")
+			}
+			if got := registryEntry(t, registry, test.entry.ID); !reflect.DeepEqual(got, before) {
+				t.Fatalf("entry after rejected RecoverIfMatch() = %#v, want unchanged %#v", got, before)
+			}
+		})
+	}
+}
+
 func TestKeyRegistryBlacklistedKeysReturnsActiveSortedRefs(t *testing.T) {
 	registry := NewKeyRegistry()
 	mustReplaceKeyEntries(t, registry, []KeyEntry{

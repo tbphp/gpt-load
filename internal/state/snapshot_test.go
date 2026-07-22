@@ -52,6 +52,27 @@ func TestCompileIndexesExternalModelsAndPreservesUpstreamIDs(t *testing.T) {
 	}
 }
 
+func TestCompileCarriesValidationModelWithoutChangingCandidates(t *testing.T) {
+	snapshot, err := Compile(CompileInput{Groups: []GroupConfig{{
+		ID:              1,
+		Name:            "one",
+		UpstreamURL:     "https://one.example.com",
+		ValidationModel: "probe-model",
+		Protocols:       []protocol.Protocol{protocol.OpenAI},
+		Models:          []ModelConfig{{ID: "real-model", Alias: "public-model"}},
+		Enabled:         true,
+	}}})
+	if err != nil {
+		t.Fatalf("Compile() error = %v", err)
+	}
+	if got := snapshot.Groups[1].ValidationModel; got != "probe-model" {
+		t.Fatalf("ValidationModel = %q, want probe-model", got)
+	}
+	if got := snapshot.Candidates[protocol.OpenAI]["public-model"][0].UpstreamModelID; got != "real-model" {
+		t.Fatalf("candidate upstream model = %q, want real-model", got)
+	}
+}
+
 func TestCompileRejectsDuplicateExternalModelWithinGroup(t *testing.T) {
 	tests := []struct {
 		name   string

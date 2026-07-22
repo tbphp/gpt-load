@@ -178,6 +178,45 @@ func (d *Gemini) listModelsPage(
 	return page, nil
 }
 
+func (d *Gemini) Probe(
+	ctx context.Context,
+	baseURL, apiKey string,
+	rules state.HeaderRules,
+	validationModel string,
+) error {
+	if err := validateProbeModel(validationModel); err != nil {
+		return err
+	}
+	return executeProbe(ctx, d.client, d, baseURL, apiKey, rules, geminiGenerationPrefix+validationModel+geminiGenerateSuffix, struct {
+		Contents []struct {
+			Role  string `json:"role"`
+			Parts []struct {
+				Text string `json:"text"`
+			} `json:"parts"`
+		} `json:"contents"`
+		GenerationConfig struct {
+			MaxOutputTokens int `json:"maxOutputTokens"`
+		} `json:"generationConfig"`
+	}{
+		Contents: []struct {
+			Role  string `json:"role"`
+			Parts []struct {
+				Text string `json:"text"`
+			} `json:"parts"`
+		}{
+			{
+				Role: "user",
+				Parts: []struct {
+					Text string `json:"text"`
+				}{{Text: "ping"}},
+			},
+		},
+		GenerationConfig: struct {
+			MaxOutputTokens int `json:"maxOutputTokens"`
+		}{MaxOutputTokens: 1},
+	})
+}
+
 func (d *Gemini) ClassifyStatus(status int, body []byte) health.FailureCategory {
 	return classifyStatusWithMarkers(status, body, geminiFailureMarkers)
 }

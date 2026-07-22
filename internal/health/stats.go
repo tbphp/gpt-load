@@ -71,6 +71,16 @@ func (store *StatsStore) Record(keyID uint, ok bool, at time.Time) {
 	window.consecutiveFailure++
 }
 
+func (store *StatsStore) Reset(keyID uint) {
+	if keyID == 0 {
+		return
+	}
+
+	store.mu.Lock()
+	delete(store.windows, keyID)
+	store.mu.Unlock()
+}
+
 func (store *StatsStore) Snapshot(keyID uint, now time.Time) KeyStats {
 	if keyID == 0 {
 		return KeyStats{}

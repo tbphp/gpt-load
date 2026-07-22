@@ -305,6 +305,47 @@ func TestLoaderMapsSystemAndGroupRows(t *testing.T) {
 	}
 }
 
+func TestLoaderMapsValidationModelIntoRuntimeSnapshot(t *testing.T) {
+	tests := []struct {
+		name            string
+		validationModel *string
+		want            string
+	}{
+		{name: "trimmed", validationModel: stringPtr("  probe-model  "), want: "probe-model"},
+		{name: "nil", want: ""},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			db := openMigratedDatabase(t)
+			group := models.Group{
+				Name:            "validation-" + test.name,
+				UpstreamURL:     "https://validation.example.com/v1",
+				Protocols:       models.JSON(`["openai"]`),
+				Models:          models.JSON(`[{"id":"real-model","alias":"public-model"}]`),
+				ValidationModel: test.validationModel,
+				Config:          models.JSON(`{}`),
+				Enabled:         true,
+			}
+			mustCreate(t, db, &group)
+
+			manager := state.NewManager()
+			registry := state.NewKeyRegistry()
+			if err := loader.New(db, manager, registry).Load(context.Background()); err != nil {
+				t.Fatalf("Load() error = %v", err)
+			}
+
+			snapshot := manager.Current()
+			if got := snapshot.Groups[group.ID].ValidationModel; got != test.want {
+				t.Fatalf("ValidationModel = %q, want %q", got, test.want)
+			}
+			if got := snapshot.Candidates[protocol.OpenAI]["public-model"][0].UpstreamModelID; got != "real-model" {
+				t.Fatalf("candidate upstream model = %q, want real-model", got)
+			}
+		})
+	}
+}
+
 func TestLoaderRejectsInvalidGroupRowsWithoutPublishing(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -577,4 +618,8 @@ func createRuntimeGroup(t *testing.T, db *gorm.DB, name string, p protocol.Proto
 	}
 	mustCreate(t, db, &group)
 	return group
+}
+
+func stringPtr(value string) *string {
+	return &value
 }

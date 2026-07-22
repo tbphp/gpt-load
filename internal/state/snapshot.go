@@ -22,14 +22,15 @@ type CompileInput struct {
 }
 
 type GroupConfig struct {
-	ID           uint
-	Name         string
-	UpstreamURL  string
-	Protocols    []protocol.Protocol
-	Models       []ModelConfig
-	Settings     config.Settings
-	WeightManual *int
-	Enabled      bool
+	ID              uint
+	Name            string
+	UpstreamURL     string
+	ValidationModel string
+	Protocols       []protocol.Protocol
+	Models          []ModelConfig
+	Settings        config.Settings
+	WeightManual    *int
+	Enabled         bool
 }
 
 type ModelConfig struct {
@@ -90,14 +91,15 @@ type HeaderRules struct {
 }
 
 type GroupView struct {
-	ID           uint
-	Name         string
-	UpstreamURL  string
-	Protocols    []protocol.Protocol
-	Models       []ModelConfig
-	Timeouts     TimeoutConfig
-	HeaderRules  HeaderRules
-	WeightManual *int
+	ID              uint
+	Name            string
+	UpstreamURL     string
+	ValidationModel string
+	Protocols       []protocol.Protocol
+	Models          []ModelConfig
+	Timeouts        TimeoutConfig
+	HeaderRules     HeaderRules
+	WeightManual    *int
 }
 
 type AccessKeyView struct {
@@ -133,12 +135,15 @@ func Compile(input CompileInput) (*ConfigSnapshot, error) {
 			return nil, err
 		}
 		view := GroupView{
-			ID: group.ID, Name: group.Name, UpstreamURL: group.UpstreamURL,
-			Protocols:    append([]protocol.Protocol(nil), group.Protocols...),
-			Models:       append([]ModelConfig(nil), group.Models...),
-			Timeouts:     timeouts,
-			HeaderRules:  headerRules,
-			WeightManual: cloneWeight(group.WeightManual),
+			ID:              group.ID,
+			Name:            group.Name,
+			UpstreamURL:     group.UpstreamURL,
+			ValidationModel: strings.TrimSpace(group.ValidationModel),
+			Protocols:       append([]protocol.Protocol(nil), group.Protocols...),
+			Models:          append([]ModelConfig(nil), group.Models...),
+			Timeouts:        timeouts,
+			HeaderRules:     headerRules,
+			WeightManual:    cloneWeight(group.WeightManual),
 		}
 		snapshot.Groups[group.ID] = view
 

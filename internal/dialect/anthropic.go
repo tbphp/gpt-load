@@ -151,6 +151,26 @@ func (d *Anthropic) listModelsPage(
 	return page, nil
 }
 
+func (d *Anthropic) Probe(
+	ctx context.Context,
+	baseURL, apiKey string,
+	rules state.HeaderRules,
+	validationModel string,
+) error {
+	if err := validateProbeModel(validationModel); err != nil {
+		return err
+	}
+	return executeProbe(ctx, d.client, d, baseURL, apiKey, rules, anthropicMessagesPath, struct {
+		Model     string         `json:"model"`
+		Messages  []probeMessage `json:"messages"`
+		MaxTokens int            `json:"max_tokens"`
+	}{
+		Model:     validationModel,
+		Messages:  []probeMessage{{Role: "user", Content: "ping"}},
+		MaxTokens: 1,
+	})
+}
+
 func (d *Anthropic) ExtractModel(req *ParsedRequest) (string, bool, error) {
 	if req == nil {
 		return "", false, fmt.Errorf("parsed request is required")

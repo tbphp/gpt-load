@@ -107,13 +107,13 @@ func TestBuildContainerResolvesRuntimeDependencies(t *testing.T) {
 		manager *state.Manager,
 		registry *state.KeyRegistry,
 		runtimeState app.RuntimeStateLoader,
-		_ *gateway.Handler,
+		gatewayHandler *gateway.Handler,
 		attemptForwarder gateway.AttemptForwarder,
 		_ dialect.Set,
 		_ *control.Service,
 		_ *control.Server,
-		_ *health.StatsStore,
-		_ *control.Runtime,
+		statsStore *health.StatsStore,
+		runtime *control.Runtime,
 		_ app.ControlRuntime,
 		_ *httpclient.HTTPClientManager,
 		_ *redact.Redactor,
@@ -140,6 +140,9 @@ func TestBuildContainerResolvesRuntimeDependencies(t *testing.T) {
 		}
 		if attemptForwarder == nil {
 			t.Fatal("stream-capable attempt forwarder was not resolved")
+		}
+		if gatewayHandler == nil || runtime == nil || statsStore == nil {
+			t.Fatalf("runtime dependencies were not resolved: gateway=%p runtime=%p stats=%p", gatewayHandler, runtime, statsStore)
 		}
 		if want := filepath.Join(dataDir, "gpt-load.db"); cfg.DatabaseDSN != want {
 			t.Fatalf("DatabaseDSN = %q, want %q", cfg.DatabaseDSN, want)

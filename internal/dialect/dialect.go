@@ -27,6 +27,12 @@ type Dialect interface {
 		baseURL, apiKey string,
 		rules state.HeaderRules,
 	) ([]string, error)
+	Probe(
+		ctx context.Context,
+		baseURL, apiKey string,
+		rules state.HeaderRules,
+		validationModel string,
+	) error
 	ClassifyStatus(status int, body []byte) health.FailureCategory
 }
 

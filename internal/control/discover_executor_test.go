@@ -44,6 +44,10 @@ func (d *recordingDiscoveryDialect) ListModels(
 	return d.listFn(ctx, baseURL, apiKey, rules)
 }
 
+func (*recordingDiscoveryDialect) Probe(context.Context, string, string, state.HeaderRules, string) error {
+	return nil
+}
+
 func (*recordingDiscoveryDialect) ClassifyStatus(int, []byte) health.FailureCategory {
 	return health.FailureCategoryClientError
 }

@@ -222,16 +222,25 @@ func mapSystemAndGroups(rows compileRows) (state.CompileInput, error) {
 		if err := decodeJSON(row.Config, &settings); err != nil {
 			return state.CompileInput{}, fmt.Errorf("decode group %d config: %w", row.ID, err)
 		}
+		validationModel := ""
+		if row.ValidationModel != nil {
+			validationModel = strings.TrimSpace(*row.ValidationModel)
+		}
 
 		runtimeModels := make([]state.ModelConfig, 0, len(storedModels))
 		for _, model := range storedModels {
 			runtimeModels = append(runtimeModels, state.ModelConfig{ID: model.ID, Alias: model.Alias})
 		}
 		input.Groups = append(input.Groups, state.GroupConfig{
-			ID: row.ID, Name: row.Name, UpstreamURL: row.UpstreamURL,
-			Protocols: append([]protocol.Protocol(nil), protocols...),
-			Models:    runtimeModels, Settings: settings,
-			WeightManual: row.WeightManual, Enabled: row.Enabled,
+			ID:              row.ID,
+			Name:            row.Name,
+			UpstreamURL:     row.UpstreamURL,
+			ValidationModel: validationModel,
+			Protocols:       append([]protocol.Protocol(nil), protocols...),
+			Models:          runtimeModels,
+			Settings:        settings,
+			WeightManual:    row.WeightManual,
+			Enabled:         row.Enabled,
 		})
 	}
 	return input, nil

@@ -306,6 +306,26 @@ func (r *KeyRegistry) Recover(keyID uint) bool {
 	return true
 }
 
+func (r *KeyRegistry) RecoverIfMatch(ref KeyRef, weight int) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if weight < 1 || weight > MaxWeight {
+		return false
+	}
+	groupID, ok := r.keyGroups[ref.ID]
+	if !ok || groupID != ref.GroupID {
+		return false
+	}
+	entry, ok := r.buckets[groupID][ref.ID]
+	if !ok || entry.Status != KeyStatusActive || !entry.Blacklisted || entry.GroupID != ref.GroupID || entry.EncryptedValue != ref.EncryptedValue {
+		return false
+	}
+	entry.WeightAuto = weight
+	entry.Blacklisted = false
+	entry.FailureCount = 0
+	return true
+}
+
 func (r *KeyRegistry) BlacklistedKeys() []KeyRef {
 	r.mu.RLock()
 	refs := make([]KeyRef, 0)

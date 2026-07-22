@@ -112,6 +112,65 @@ func TestStatsStoreSnapshotReturnsValueCopy(t *testing.T) {
 	}
 }
 
+func TestStatsStoreResetClearsWindowAndStreak(t *testing.T) {
+	store := NewStatsStore()
+	base := statsBase()
+
+	store.Record(7, true, base)
+	store.Record(7, false, base)
+	store.Reset(7)
+
+	if got := store.Snapshot(7, base); got != (KeyStats{}) {
+		t.Fatalf("Snapshot() after Reset = %#v, want zero", got)
+	}
+}
+
+func TestStatsStoreResetUnknownAndZeroKeyIsNoop(t *testing.T) {
+	store := NewStatsStore()
+	base := statsBase()
+
+	store.Reset(0)
+	store.Reset(7)
+	if got := store.Snapshot(7, base); got != (KeyStats{}) {
+		t.Fatalf("Snapshot() after Reset unknown key = %#v, want zero", got)
+	}
+
+	store.Record(7, false, base)
+	store.Reset(0)
+	if got, want := store.Snapshot(7, base), (KeyStats{Failure: 1, ConsecutiveFailure: 1}); got != want {
+		t.Fatalf("Snapshot() after Reset(0) = %#v, want %#v", got, want)
+	}
+}
+
+func TestStatsStoreConcurrentRecordResetAndSnapshot(t *testing.T) {
+	store := NewStatsStore()
+	base := statsBase()
+
+	var group sync.WaitGroup
+	for worker := 0; worker < 8; worker++ {
+		group.Add(3)
+		go func(worker int) {
+			defer group.Done()
+			for index := 0; index < 100; index++ {
+				store.Record(7, index%2 == 0, base.Add(time.Duration(worker+index%5)*time.Minute))
+			}
+		}(worker)
+		go func() {
+			defer group.Done()
+			for index := 0; index < 100; index++ {
+				store.Reset(7)
+			}
+		}()
+		go func(worker int) {
+			defer group.Done()
+			for index := 0; index < 100; index++ {
+				_ = store.Snapshot(7, base.Add(time.Duration(worker+index%5)*time.Minute))
+			}
+		}(worker)
+	}
+	group.Wait()
+}
+
 func TestStatsStoreConcurrentAccess(t *testing.T) {
 	store := NewStatsStore()
 	base := statsBase()
