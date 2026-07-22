@@ -19,6 +19,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"gpt-load/internal/dialect"
+	"gpt-load/internal/health"
 	"gpt-load/internal/platform/encryption"
 	platformhttp "gpt-load/internal/platform/httpclient"
 	"gpt-load/internal/platform/redact"
@@ -108,6 +109,7 @@ func newDialectGatewayEngine(
 		keyService,
 		NewForwarder(platformhttp.NewHTTPClientManager(), redact.New()),
 		dialects,
+		health.NewStatsStore(),
 	)
 	handler.newRandom = func() *rand.Rand { return rand.New(zeroSource{}) }
 	engine := gin.New()

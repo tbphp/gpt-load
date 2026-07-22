@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -36,6 +37,13 @@ type scriptedForwarder struct {
 	onCall            func(int)
 	onStreamCall      func(int, http.ResponseWriter)
 	invokeStreamReady bool
+}
+
+type streamReadyBlockingForwarder struct {
+	result      UpstreamResult
+	ready       chan struct{}
+	release     chan struct{}
+	releaseOnce sync.Once
 }
 
 type mutatingRuntimeRegistry struct {
@@ -119,6 +127,270 @@ func (forwarder *scriptedForwarder) ForwardStream(
 		input.OnStreamReady()
 	}
 	return result
+}
+
+func (forwarder *streamReadyBlockingForwarder) Forward(
+	context.Context,
+	ForwardInput,
+) UpstreamResult {
+	return UpstreamResult{Err: errors.New("unexpected non-streaming forward")}
+}
+
+func (forwarder *streamReadyBlockingForwarder) ForwardStream(
+	_ context.Context,
+	input ForwardInput,
+	_ http.ResponseWriter,
+) UpstreamResult {
+	input.OnStreamReady()
+	close(forwarder.ready)
+	<-forwarder.release
+	return forwarder.result
+}
+
+func (forwarder *streamReadyBlockingForwarder) Release() {
+	forwarder.releaseOnce.Do(func() { close(forwarder.release) })
+}
+
+func TestHandlerRecordsOnlyAttributableNonStreamingResults(t *testing.T) {
+	now := time.Date(2026, time.July, 22, 10, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name   string
+		result UpstreamResult
+		want   health.KeyStats
+	}{
+		{
+			name: "2xx success",
+			result: UpstreamResult{
+				StatusCode: http.StatusOK, Header: make(http.Header), Body: []byte(`{"ok":true}`), RequestWritten: true,
+			},
+			want: health.KeyStats{Success: 1},
+		},
+		{
+			name: "invalid key",
+			result: UpstreamResult{
+				StatusCode: http.StatusUnauthorized, Header: make(http.Header), Body: []byte(`{"error":"invalid key"}`),
+				ClassificationBody: []byte(`{"error":"invalid key"}`), RequestWritten: true,
+			},
+			want: health.KeyStats{Failure: 1, ConsecutiveFailure: 1},
+		},
+		{
+			name: "client error",
+			result: UpstreamResult{
+				StatusCode: http.StatusBadRequest, Header: make(http.Header), Body: []byte(`{"error":"invalid input"}`),
+				ClassificationBody: []byte(`{"error":"invalid input"}`), RequestWritten: true,
+			},
+			want: health.KeyStats{},
+		},
+		{
+			name: "rate limited",
+			result: UpstreamResult{
+				StatusCode: http.StatusTooManyRequests, Header: make(http.Header), Body: []byte(`{"error":"rate limit"}`),
+				ClassificationBody: []byte(`{"error":"rate limit"}`), RequestWritten: true,
+			},
+			want: health.KeyStats{},
+		},
+		{
+			name: "model unavailable",
+			result: UpstreamResult{
+				StatusCode: http.StatusNotFound, Header: make(http.Header), Body: []byte(`{"error":"model not found"}`),
+				ClassificationBody: []byte(`{"error":"model not found"}`), RequestWritten: true,
+			},
+			want: health.KeyStats{},
+		},
+		{
+			name: "host error",
+			result: UpstreamResult{
+				StatusCode: http.StatusInternalServerError, Header: make(http.Header), Body: []byte(`{"error":"overloaded"}`),
+				ClassificationBody: []byte(`{"error":"overloaded"}`), RequestWritten: true,
+			},
+			want: health.KeyStats{},
+		},
+		{
+			name: "pre-write transport",
+			result: UpstreamResult{
+				Err: errors.New("dial upstream"),
+			},
+			want: health.KeyStats{},
+		},
+		{
+			name: "context canceled",
+			result: UpstreamResult{
+				Err: context.Canceled,
+			},
+			want: health.KeyStats{},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			forwarder := &scriptedForwarder{results: []UpstreamResult{test.result}}
+			engine, handler, _, stats := newStatsHandlerTestRuntime(t, forwarder, "sk-one")
+			handler.now = func() time.Time { return now }
+
+			request := httptest.NewRequest(
+				http.MethodPost,
+				"/v1/chat/completions",
+				bytes.NewBufferString(`{"model":"gpt-4o"}`),
+			)
+			request.Header.Set("Authorization", "Bearer gl-client")
+			engine.ServeHTTP(httptest.NewRecorder(), request)
+
+			if got := stats.Snapshot(1, now); got != test.want {
+				t.Fatalf("stats = %#v, want %#v", got, test.want)
+			}
+		})
+	}
+}
+
+func TestHandlerRecordsInvalidKeyPerAttempt(t *testing.T) {
+	now := time.Date(2026, time.July, 22, 10, 0, 0, 0, time.UTC)
+	forwarder := &scriptedForwarder{results: []UpstreamResult{
+		{
+			StatusCode: http.StatusUnauthorized, Header: make(http.Header), Body: []byte(`{"error":"invalid key"}`),
+			ClassificationBody: []byte(`{"error":"invalid key"}`), RequestWritten: true,
+		},
+		{
+			StatusCode: http.StatusOK, Header: make(http.Header), Body: []byte(`{"ok":true}`), RequestWritten: true,
+		},
+	}}
+	engine, handler, _, stats := newStatsHandlerTestRuntime(t, forwarder, "sk-first", "sk-second")
+	handler.newRandom = func() *rand.Rand { return rand.New(zeroSource{}) }
+	handler.now = func() time.Time { return now }
+
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/v1/chat/completions",
+		bytes.NewBufferString(`{"model":"gpt-4o"}`),
+	)
+	request.Header.Set("Authorization", "Bearer gl-client")
+	engine.ServeHTTP(httptest.NewRecorder(), request)
+
+	if got := stats.Snapshot(1, now); got != (health.KeyStats{Failure: 1, ConsecutiveFailure: 1}) {
+		t.Fatalf("first key stats = %#v, want one failure", got)
+	}
+	if got := stats.Snapshot(2, now); got != (health.KeyStats{Success: 1}) {
+		t.Fatalf("second key stats = %#v, want one success", got)
+	}
+}
+
+func TestHandlerRecordsStreamSuccessAtReadyTime(t *testing.T) {
+	now := time.Date(2026, time.July, 22, 10, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name   string
+		result UpstreamResult
+	}{
+		{
+			name:   "committed success records before forward returns",
+			result: UpstreamResult{StatusCode: http.StatusOK, Committed: true, RequestWritten: true},
+		},
+		{
+			name:   "pump failure after ready keeps success",
+			result: UpstreamResult{Err: errors.New("stream pump failed"), Committed: true, RequestWritten: true},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			forwarder := &streamReadyBlockingForwarder{
+				result: test.result, ready: make(chan struct{}), release: make(chan struct{}),
+			}
+			t.Cleanup(forwarder.Release)
+			engine, handler, _, stats := newStatsHandlerTestRuntime(t, forwarder, "sk-one")
+			handler.now = func() time.Time { return now }
+
+			request := httptest.NewRequest(
+				http.MethodPost,
+				"/v1/chat/completions",
+				bytes.NewBufferString(`{"model":"gpt-4o","stream":true}`),
+			)
+			request.Header.Set("Authorization", "Bearer gl-client")
+			done := make(chan struct{})
+			go func() {
+				engine.ServeHTTP(httptest.NewRecorder(), request)
+				close(done)
+			}()
+
+			<-forwarder.ready
+			if got := stats.Snapshot(1, now); got != (health.KeyStats{Success: 1}) {
+				t.Fatalf("stats before forward returns = %#v, want one success", got)
+			}
+			forwarder.Release()
+			<-done
+			if got := stats.Snapshot(1, now); got != (health.KeyStats{Success: 1}) {
+				t.Fatalf("stats after forward returns = %#v, want one success", got)
+			}
+		})
+	}
+
+	preCommitForwarder := &scriptedForwarder{streamResults: []UpstreamResult{{
+		Err: errors.New("first stream event failed"), RequestWritten: true, RetryableBeforeCommit: true,
+	}}}
+	engine, handler, _, stats := newStatsHandlerTestRuntime(t, preCommitForwarder, "sk-one")
+	handler.now = func() time.Time { return now }
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/v1/chat/completions",
+		bytes.NewBufferString(`{"model":"gpt-4o","stream":true}`),
+	)
+	request.Header.Set("Authorization", "Bearer gl-client")
+	engine.ServeHTTP(httptest.NewRecorder(), request)
+	if got := stats.Snapshot(1, now); got != (health.KeyStats{}) {
+		t.Fatalf("pre-commit stream stats = %#v, want zero", got)
+	}
+}
+
+func TestHandlerDoesNotRecordCanceledAttempt(t *testing.T) {
+	now := time.Date(2026, time.July, 22, 10, 0, 0, 0, time.UTC)
+	requestContext, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	forwarder := &scriptedForwarder{
+		results: []UpstreamResult{{
+			StatusCode: http.StatusOK, Header: make(http.Header), Body: []byte(`{"ok":true}`), RequestWritten: true,
+		}},
+		onCall: func(int) { cancel() },
+	}
+	engine, handler, _, stats := newStatsHandlerTestRuntime(t, forwarder, "sk-one")
+	handler.now = func() time.Time {
+		t.Fatal("canceled attempt read the clock")
+		return now
+	}
+
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/v1/chat/completions",
+		bytes.NewBufferString(`{"model":"gpt-4o"}`),
+	).WithContext(requestContext)
+	request.Header.Set("Authorization", "Bearer gl-client")
+	engine.ServeHTTP(httptest.NewRecorder(), request)
+
+	if got := stats.Snapshot(1, now); got != (health.KeyStats{}) {
+		t.Fatalf("canceled attempt stats = %#v, want zero", got)
+	}
+}
+
+func TestHandlerDoesNotRecordCommittedNonStreamingAttempt(t *testing.T) {
+	now := time.Date(2026, time.July, 22, 10, 0, 0, 0, time.UTC)
+	forwarder := &scriptedForwarder{results: []UpstreamResult{{
+		StatusCode: http.StatusOK, Header: make(http.Header), Body: []byte(`{"ok":true}`),
+		Committed: true, RequestWritten: true,
+	}}}
+	engine, handler, _, stats := newStatsHandlerTestRuntime(t, forwarder, "sk-one")
+	handler.now = func() time.Time {
+		t.Fatal("committed attempt read the clock")
+		return now
+	}
+
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/v1/chat/completions",
+		bytes.NewBufferString(`{"model":"gpt-4o"}`),
+	)
+	request.Header.Set("Authorization", "Bearer gl-client")
+	engine.ServeHTTP(httptest.NewRecorder(), request)
+
+	if got := stats.Snapshot(1, now); got != (health.KeyStats{}) {
+		t.Fatalf("committed attempt stats = %#v, want zero", got)
+	}
 }
 
 func TestHandlerInitializesDebugHeadersBeforeValidation(t *testing.T) {
@@ -283,7 +555,9 @@ func TestHandlerModelEndpointHasNoDataPlaneSideEffects(t *testing.T) {
 		t.Fatalf("Publish() error = %v", err)
 	}
 	spyEncryption := &decryptPanicEncryption{Service: keyService}
-	handler := NewHandler(manager, state.NewKeyRegistry(), spyEncryption, panicForwarder{}, dialect.NewSet())
+	handler := NewHandler(
+		manager, state.NewKeyRegistry(), spyEncryption, panicForwarder{}, dialect.NewSet(), health.NewStatsStore(),
+	)
 	handler.registry = panicRuntimeRegistry{}
 	engine := gin.New()
 	handler.RegisterRoutes(engine)
@@ -354,7 +628,7 @@ func newModelListHandlerEngineWithLimit(
 		t.Fatalf("Publish() error = %v", err)
 	}
 	handler := NewHandler(
-		manager, state.NewKeyRegistry(), keyService, &scriptedForwarder{}, dialect.NewSet(),
+		manager, state.NewKeyRegistry(), keyService, &scriptedForwarder{}, dialect.NewSet(), health.NewStatsStore(),
 	)
 	handler.modelListLimit = limit
 	engine := gin.New()
@@ -1522,7 +1796,7 @@ func TestHandlerSkipsCandidateChangedAfterCollection(t *testing.T) {
 				mutate:      func() { tt.mutate(t, registry, keyService) },
 			}
 			openAI := dialect.NewOpenAI(http.DefaultClient)
-			handler := NewHandler(manager, registry, keyService, forwarder, dialect.NewSet(openAI))
+			handler := NewHandler(manager, registry, keyService, forwarder, dialect.NewSet(openAI), health.NewStatsStore())
 			handler.registry = runtimeRegistry
 			handler.newRandom = func() *rand.Rand { return rand.New(rand.NewSource(1)) }
 			engine := gin.New()
@@ -1593,6 +1867,7 @@ func newRealGatewayEngine(t *testing.T, upstreamURL string, upstreamKeys ...stri
 		keyService,
 		NewForwarder(clients, redact.New()),
 		dialect.NewSet(openAI),
+		health.NewStatsStore(),
 	)
 	handler.newRandom = func() *rand.Rand { return rand.New(rand.NewSource(1)) }
 	engine := gin.New()
@@ -1621,9 +1896,31 @@ func newHandlerTestRuntime(
 	return engine, manager, registry
 }
 
+func newStatsHandlerTestRuntime(
+	t *testing.T,
+	forwarder AttemptForwarder,
+	upstreamKeys ...string,
+) (*gin.Engine, *Handler, *state.KeyRegistry, *health.StatsStore) {
+	t.Helper()
+	stats := health.NewStatsStore()
+	handler, _, registry := newHandlerForTestWithStats(t, forwarder, stats, upstreamKeys...)
+	engine := gin.New()
+	handler.RegisterRoutes(engine)
+	return engine, handler, registry, stats
+}
+
 func newHandlerForTest(
 	t *testing.T,
 	forwarder AttemptForwarder,
+	upstreamKeys ...string,
+) (*Handler, *state.Manager, *state.KeyRegistry) {
+	return newHandlerForTestWithStats(t, forwarder, health.NewStatsStore(), upstreamKeys...)
+}
+
+func newHandlerForTestWithStats(
+	t *testing.T,
+	forwarder AttemptForwarder,
+	stats *health.StatsStore,
 	upstreamKeys ...string,
 ) (*Handler, *state.Manager, *state.KeyRegistry) {
 	t.Helper()
@@ -1662,7 +1959,7 @@ func newHandlerForTest(
 	}
 
 	openAI := dialect.NewOpenAI(http.DefaultClient)
-	handler := NewHandler(manager, registry, keyService, forwarder, dialect.NewSet(openAI))
+	handler := NewHandler(manager, registry, keyService, forwarder, dialect.NewSet(openAI), stats)
 	handler.newRandom = func() *rand.Rand { return rand.New(rand.NewSource(1)) }
 	return handler, manager, registry
 }

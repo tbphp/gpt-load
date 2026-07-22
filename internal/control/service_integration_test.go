@@ -13,6 +13,7 @@ import (
 
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/gateway"
+	"gpt-load/internal/health"
 	platformhttp "gpt-load/internal/platform/httpclient"
 	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/protocol"
@@ -73,6 +74,7 @@ func TestControlWriteLockDoesNotBlockDataPlane(t *testing.T) {
 		fixture.encryption,
 		gateway.NewForwarder(platformhttp.NewHTTPClientManager(), redact.New()),
 		dialect.NewSet(openAI),
+		health.NewStatsStore(),
 	)
 	gin.SetMode(gin.ReleaseMode)
 	engine := gin.New()

@@ -18,6 +18,7 @@ import (
 
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/gateway"
+	"gpt-load/internal/health"
 	app_errors "gpt-load/internal/platform/errors"
 	platformhttp "gpt-load/internal/platform/httpclient"
 	"gpt-load/internal/platform/redact"
@@ -166,6 +167,7 @@ func TestWriteConfigMakesCreatedGroupAndFirstKeyAtomicallyVisibleToDataPlane(t *
 		fixture.encryption,
 		gateway.NewForwarder(platformhttp.NewHTTPClientManager(), redact.New()),
 		dialects,
+		health.NewStatsStore(),
 	)
 	engine := gin.New()
 	handler.RegisterRoutes(engine)

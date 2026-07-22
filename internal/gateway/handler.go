@@ -54,6 +54,7 @@ type Handler struct {
 	encryption     encryption.Service
 	forwarder      AttemptForwarder
 	dialects       dialect.Set
+	stats          *health.StatsStore
 	newRandom      func() *rand.Rand
 	now            func() time.Time
 	writeTimeout   time.Duration
@@ -66,10 +67,11 @@ func NewHandler(
 	encryptionService encryption.Service,
 	forwarder AttemptForwarder,
 	dialects dialect.Set,
+	stats *health.StatsStore,
 ) *Handler {
 	return &Handler{
 		manager: manager, registry: registry, encryption: encryptionService,
-		forwarder: forwarder, dialects: dialects,
+		forwarder: forwarder, dialects: dialects, stats: stats,
 		newRandom:      func() *rand.Rand { return rand.New(rand.NewSource(rand.Int63())) },
 		now:            time.Now,
 		writeTimeout:   downstreamWriteTimeout,
@@ -90,6 +92,7 @@ func (handler *Handler) applyKeyAction(
 		}
 		_ = handler.registry.SetCooldown(keyID, until)
 	case health.ActionFailKey:
+		handler.stats.Record(keyID, false, attemptNow)
 		count, ok := handler.registry.IncrFailure(keyID)
 		if ok && count >= blacklistFailureThreshold {
 			_ = handler.registry.SetBlacklisted(keyID)
@@ -211,6 +214,7 @@ func (handler *Handler) executeAttempts(
 			UpstreamModelID: selection.UpstreamModelID,
 			OnStreamReady: func() {
 				_ = handler.registry.ClearFailure(selectedKeyID)
+				handler.stats.Record(selectedKeyID, true, handler.now())
 			},
 		}
 		var result UpstreamResult
@@ -222,12 +226,13 @@ func (handler *Handler) executeAttempts(
 		if result.Committed || ginContext.Request.Context().Err() != nil {
 			return
 		}
+		attemptNow := handler.now()
 		if !stream && result.HasResponse() &&
 			result.StatusCode >= http.StatusOK &&
 			result.StatusCode < http.StatusMultipleChoices {
 			_ = handler.registry.ClearFailure(selection.KeyID)
+			handler.stats.Record(selection.KeyID, true, attemptNow)
 		}
-		attemptNow := handler.now()
 		decision := health.Judge(selectedDialect, health.Attempt{
 			StatusCode: result.StatusCode, Body: result.ClassificationBody,
 			Header: result.Header, Now: attemptNow,

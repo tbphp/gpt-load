@@ -14,6 +14,7 @@ import (
 	"gpt-load/internal/control"
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/gateway"
+	"gpt-load/internal/health"
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/platform/encryption"
 	"gpt-load/internal/platform/httpclient"
@@ -38,6 +39,7 @@ func BuildContainer() (*dig.Container, error) {
 		app.NewEngine,
 		state.NewManager,
 		state.NewKeyRegistry,
+		health.NewStatsStore,
 		httpclient.NewHTTPClientManager,
 		redact.New,
 		func(manager *httpclient.HTTPClientManager) *http.Client {
