@@ -234,7 +234,7 @@ func (forwarder *Forwarder) ForwardStream(
 			return result
 		}
 	}
-	streamBody = newSSERewriteStream(streamBody, func(data []byte) ([]byte, error) {
+	streamBody = newSSERewriteStream(streamBody, func(data []byte, errorEvent bool) ([]byte, error) {
 		safePayload, ok := rewriteBoundedLiteral(
 			data,
 			input.APIKey,
@@ -247,14 +247,16 @@ func (forwarder *Forwarder) ForwardStream(
 		if !rewriteModel {
 			return safePayload, nil
 		}
-		safePayload, ok = rewriteBoundedLiteral(
-			safePayload,
-			input.UpstreamModelID,
-			input.ExternalModel,
-			int64(maxSSEEventBytes),
-		)
-		if !ok {
-			return nil, fmt.Errorf("%w: rewrite upstream SSE model literal", ErrUpstreamProtocol)
+		if errorEvent {
+			safePayload, ok = rewriteBoundedLiteral(
+				safePayload,
+				input.UpstreamModelID,
+				input.ExternalModel,
+				int64(maxSSEEventBytes),
+			)
+			if !ok {
+				return nil, fmt.Errorf("%w: rewrite upstream SSE model literal", ErrUpstreamProtocol)
+			}
 		}
 		rewritten, err := rewriter.RewriteResponseModel(safePayload, input.ExternalModel)
 		if err != nil {

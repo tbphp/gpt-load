@@ -14,7 +14,7 @@ func TestSSERewriteStreamUsesCompleteBoundedEvents(t *testing.T) {
 		input := "event: chunk\nid: 7\n: keep\ndata: {\"model\":\"provider\"}\n\n"
 		body := &chunkedSSEBody{data: []byte(input), maxRead: 1}
 		var payloads [][]byte
-		stream := newSSERewriteStream(body, func(payload []byte) ([]byte, error) {
+		stream := newSSERewriteStream(body, func(payload []byte, _ bool) ([]byte, error) {
 			payloads = append(payloads, bytes.Clone(payload))
 			return []byte(`{"model":"public"}`), nil
 		})
@@ -35,7 +35,7 @@ func TestSSERewriteStreamUsesCompleteBoundedEvents(t *testing.T) {
 	t.Run("multiple events in one read are rewritten independently", func(t *testing.T) {
 		input := "data: {\"n\":1}\n\ndata: {\"n\":2}\n\n"
 		var payloads []string
-		stream := newSSERewriteStream(io.NopCloser(strings.NewReader(input)), func(payload []byte) ([]byte, error) {
+		stream := newSSERewriteStream(io.NopCloser(strings.NewReader(input)), func(payload []byte, _ bool) ([]byte, error) {
 			payloads = append(payloads, string(payload))
 			return bytes.ReplaceAll(payload, []byte(`"n"`), []byte(`"value"`)), nil
 		})
@@ -52,7 +52,7 @@ func TestSSERewriteStreamUsesCompleteBoundedEvents(t *testing.T) {
 
 	t.Run("CRLF fields and comments are retained", func(t *testing.T) {
 		input := "event: update\r\nid: 9\r\n: comment\r\ndata: {\"model\":\"provider\"}\r\n\r\n"
-		stream := newSSERewriteStream(&chunkedSSEBody{data: []byte(input), maxRead: 1}, func([]byte) ([]byte, error) {
+		stream := newSSERewriteStream(&chunkedSSEBody{data: []byte(input), maxRead: 1}, func([]byte, bool) ([]byte, error) {
 			return []byte(`{"model":"public"}`), nil
 		})
 
@@ -69,7 +69,7 @@ func TestSSERewriteStreamUsesCompleteBoundedEvents(t *testing.T) {
 	t.Run("CR framing joins multiple data values once", func(t *testing.T) {
 		input := "event: multi\rdata: {\"value\":\rdata: 1}\r\r"
 		var payload []byte
-		stream := newSSERewriteStream(&chunkedSSEBody{data: []byte(input), maxRead: 1}, func(value []byte) ([]byte, error) {
+		stream := newSSERewriteStream(&chunkedSSEBody{data: []byte(input), maxRead: 1}, func(value []byte, _ bool) ([]byte, error) {
 			payload = bytes.Clone(value)
 			return []byte(`{"value":2}`), nil
 		})
@@ -89,7 +89,7 @@ func TestSSERewriteStreamUsesCompleteBoundedEvents(t *testing.T) {
 	t.Run("DONE and events without data remain byte exact", func(t *testing.T) {
 		input := "event: ping\n: no data\n\ndata: [DONE]\n\n"
 		calls := 0
-		stream := newSSERewriteStream(io.NopCloser(strings.NewReader(input)), func(payload []byte) ([]byte, error) {
+		stream := newSSERewriteStream(io.NopCloser(strings.NewReader(input)), func(payload []byte, _ bool) ([]byte, error) {
 			calls++
 			return payload, nil
 		})
@@ -105,7 +105,7 @@ func TestSSERewriteStreamUsesCompleteBoundedEvents(t *testing.T) {
 
 	t.Run("unchanged payload preserves the complete original event", func(t *testing.T) {
 		input := "event: untouched\r\ndata:  {\"other\":\r\ndata:\t1}\r\nid: 12\r\n\r\n"
-		stream := newSSERewriteStream(io.NopCloser(strings.NewReader(input)), func(payload []byte) ([]byte, error) {
+		stream := newSSERewriteStream(io.NopCloser(strings.NewReader(input)), func(payload []byte, _ bool) ([]byte, error) {
 			return bytes.Clone(payload), nil
 		})
 
@@ -121,7 +121,7 @@ func TestSSERewriteStreamUsesCompleteBoundedEvents(t *testing.T) {
 	t.Run("event size boundary is enforced", func(t *testing.T) {
 		prefix, suffix := "data: ", "\n\n"
 		exact := prefix + strings.Repeat("x", maxSSEEventBytes-len(prefix)-len(suffix)) + suffix
-		stream := newSSERewriteStream(io.NopCloser(strings.NewReader(exact)), func(payload []byte) ([]byte, error) {
+		stream := newSSERewriteStream(io.NopCloser(strings.NewReader(exact)), func(payload []byte, _ bool) ([]byte, error) {
 			return bytes.Clone(payload), nil
 		})
 		output, err := io.ReadAll(stream)
@@ -130,7 +130,7 @@ func TestSSERewriteStreamUsesCompleteBoundedEvents(t *testing.T) {
 		}
 
 		over := prefix + strings.Repeat("x", maxSSEEventBytes-len(prefix)-len(suffix)+1) + suffix
-		stream = newSSERewriteStream(io.NopCloser(strings.NewReader(over)), func(payload []byte) ([]byte, error) {
+		stream = newSSERewriteStream(io.NopCloser(strings.NewReader(over)), func(payload []byte, _ bool) ([]byte, error) {
 			return payload, nil
 		})
 		if _, err := io.ReadAll(stream); !errors.Is(err, errSSEEventTooLarge) {
@@ -142,7 +142,7 @@ func TestSSERewriteStreamUsesCompleteBoundedEvents(t *testing.T) {
 		stream = newSSERewriteStream(io.NopCloser(io.MultiReader(
 			strings.NewReader(exact[:len(exact)-1]),
 			strings.NewReader(exact[len(exact)-1:]),
-		)), func(payload []byte) ([]byte, error) {
+		)), func(payload []byte, _ bool) ([]byte, error) {
 			return bytes.Clone(payload), nil
 		})
 		output, err = io.ReadAll(stream)
@@ -154,7 +154,7 @@ func TestSSERewriteStreamUsesCompleteBoundedEvents(t *testing.T) {
 		stream = newSSERewriteStream(io.NopCloser(io.MultiReader(
 			strings.NewReader(over[:len(over)-1]),
 			strings.NewReader(over[len(over)-1:]),
-		)), func(payload []byte) ([]byte, error) {
+		)), func(payload []byte, _ bool) ([]byte, error) {
 			return payload, nil
 		})
 		if _, err := io.ReadAll(stream); !errors.Is(err, errSSEEventTooLarge) {
@@ -163,7 +163,7 @@ func TestSSERewriteStreamUsesCompleteBoundedEvents(t *testing.T) {
 	})
 
 	t.Run("rewrite expansion is bounded", func(t *testing.T) {
-		stream := newSSERewriteStream(io.NopCloser(strings.NewReader("data: {}\n\n")), func([]byte) ([]byte, error) {
+		stream := newSSERewriteStream(io.NopCloser(strings.NewReader("data: {}\n\n")), func([]byte, bool) ([]byte, error) {
 			return bytes.Repeat([]byte("x"), maxSSEEventBytes), nil
 		})
 		if _, err := io.ReadAll(stream); !errors.Is(err, errSSEEventTooLarge) {
@@ -193,7 +193,7 @@ func TestSSERewriteStreamSupportsMixedLineEndings(t *testing.T) {
 				"data: {\"model\":\"provider\"}" + test.boundary
 			want := "event: update" + test.boundary[:len(test.boundary)-len(lastLineEnding(test.boundary))] +
 				"data: {\"model\":\"public\"}" + test.boundary
-			stream := newSSERewriteStream(&chunkedSSEBody{data: []byte(input), maxRead: 1}, func(payload []byte) ([]byte, error) {
+			stream := newSSERewriteStream(&chunkedSSEBody{data: []byte(input), maxRead: 1}, func(payload []byte, _ bool) ([]byte, error) {
 				if string(payload) != `{"model":"provider"}` {
 					t.Fatalf("rewrite payload = %q", payload)
 				}
@@ -231,7 +231,7 @@ func TestSSEBoundaryScannerAdvancesLinearly(t *testing.T) {
 }
 
 func TestSSERewriteStreamRejectsIncompleteEventAtEOF(t *testing.T) {
-	stream := newSSERewriteStream(io.NopCloser(strings.NewReader("data: {\"model\":\"provider\"}\n")), func(payload []byte) ([]byte, error) {
+	stream := newSSERewriteStream(io.NopCloser(strings.NewReader("data: {\"model\":\"provider\"}\n")), func(payload []byte, _ bool) ([]byte, error) {
 		return payload, nil
 	})
 	output, err := io.ReadAll(stream)
@@ -252,7 +252,7 @@ func TestSSERewriteStreamKeepsCROnlyProgressive(t *testing.T) {
 		release: release,
 		closed:  make(chan struct{}),
 	}
-	stream := newSSERewriteStream(body, func(payload []byte) ([]byte, error) {
+	stream := newSSERewriteStream(body, func(payload []byte, _ bool) ([]byte, error) {
 		return bytes.ReplaceAll(payload, []byte("provider"), []byte("public")), nil
 	})
 	t.Cleanup(func() { _ = stream.Close() })
@@ -281,7 +281,7 @@ func TestSSERewriteStreamKeepsCROnlyProgressive(t *testing.T) {
 
 func TestSSERewriteStreamCloseClosesUnderlyingBody(t *testing.T) {
 	body := &chunkedSSEBody{data: []byte("data: value\n\n"), maxRead: 1}
-	stream := newSSERewriteStream(body, func(payload []byte) ([]byte, error) { return payload, nil })
+	stream := newSSERewriteStream(body, func(payload []byte, _ bool) ([]byte, error) { return payload, nil })
 	buffer := make([]byte, 1)
 	_, _ = stream.Read(buffer)
 	if err := stream.Close(); err != nil {

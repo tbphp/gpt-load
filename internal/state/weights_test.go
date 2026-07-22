@@ -2,6 +2,7 @@ package state
 
 import (
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 
@@ -54,6 +55,60 @@ func TestKeyRegistryCollectCandidatesExcludesRuntimeUnavailableKeys(t *testing.T
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("CollectCandidates() = %#v, want %#v", got, want)
+	}
+}
+
+func TestKeyRegistrySetCooldownNeverShortensDeadline(t *testing.T) {
+	now := time.Date(2026, time.July, 22, 12, 0, 0, 0, time.UTC)
+	registry := NewKeyRegistry()
+	mustReplaceKeyEntries(t, registry, []KeyEntry{{
+		ID: 1, GroupID: 10, Status: KeyStatusActive, EncryptedValue: "cipher",
+	}})
+
+	if ok := registry.SetCooldown(1, now.Add(time.Hour)); !ok {
+		t.Fatal("SetCooldown(long deadline) = false, want true")
+	}
+	if ok := registry.SetCooldown(1, now.Add(time.Minute)); !ok {
+		t.Fatal("SetCooldown(short deadline) = false, want true")
+	}
+	if got := registry.CollectCandidates([]uint{10}, nil, now.Add(2*time.Minute)); len(got) != 0 {
+		t.Fatalf("CollectCandidates() before longest cooldown expires = %#v, want none", got)
+	}
+	if got := registry.CollectCandidates([]uint{10}, nil, now.Add(time.Hour)); len(got) != 1 {
+		t.Fatalf("CollectCandidates() at longest cooldown boundary = %#v, want key 1", got)
+	}
+}
+
+func TestKeyRegistrySetCooldownConcurrentWritersKeepLatestDeadline(t *testing.T) {
+	now := time.Date(2026, time.July, 22, 12, 0, 0, 0, time.UTC)
+	registry := NewKeyRegistry()
+	mustReplaceKeyEntries(t, registry, []KeyEntry{{
+		ID: 1, GroupID: 10, Status: KeyStatusActive, EncryptedValue: "cipher",
+	}})
+
+	const writers = 32
+	start := make(chan struct{})
+	var wait sync.WaitGroup
+	for offset := 1; offset <= writers; offset++ {
+		deadline := now.Add(time.Duration(offset) * time.Minute)
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			<-start
+			if ok := registry.SetCooldown(1, deadline); !ok {
+				t.Errorf("SetCooldown(%v) = false, want true", deadline)
+			}
+		}()
+	}
+	close(start)
+	wait.Wait()
+
+	latest := now.Add(writers * time.Minute)
+	if got := registry.CollectCandidates([]uint{10}, nil, latest.Add(-time.Nanosecond)); len(got) != 0 {
+		t.Fatalf("CollectCandidates() before latest cooldown expires = %#v, want none", got)
+	}
+	if got := registry.CollectCandidates([]uint{10}, nil, latest); len(got) != 1 {
+		t.Fatalf("CollectCandidates() at latest cooldown boundary = %#v, want key 1", got)
 	}
 }
 

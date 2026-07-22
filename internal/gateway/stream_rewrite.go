@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -15,12 +16,14 @@ var (
 	errSSEEventIncomplete = errors.New("stream ended with an incomplete SSE event")
 )
 
+type ssePayloadRewriter func([]byte, bool) ([]byte, error)
+
 type sseRewriteStream struct {
 	readMu sync.Mutex
 	mu     sync.Mutex
 
 	body    io.ReadCloser
-	rewrite func([]byte) ([]byte, error)
+	rewrite ssePayloadRewriter
 
 	pending     []byte
 	output      []byte
@@ -33,7 +36,7 @@ type sseRewriteStream struct {
 
 func newSSERewriteStream(
 	body io.ReadCloser,
-	rewrite func([]byte) ([]byte, error),
+	rewrite ssePayloadRewriter,
 ) io.ReadCloser {
 	return &sseRewriteStream{
 		body: body, rewrite: rewrite,
@@ -316,14 +319,18 @@ type sseEventLine struct {
 	data       []byte
 }
 
-func rewriteSSEEvent(event []byte, rewrite func([]byte) ([]byte, error)) ([]byte, error) {
+func rewriteSSEEvent(event []byte, rewrite ssePayloadRewriter) ([]byte, error) {
 	if rewrite == nil {
 		return nil, fmt.Errorf("SSE rewrite callback is required")
 	}
 	lines := splitSSEEventLines(event)
 	dataValues := make([][]byte, 0)
 	firstDataLine := -1
+	var eventName []byte
 	for index := range lines {
+		if name, ok := parseSSEEventName(lines[index].content); ok {
+			eventName = name
+		}
 		if !lines[index].isData {
 			continue
 		}
@@ -339,7 +346,8 @@ func rewriteSSEEvent(event []byte, rewrite func([]byte) ([]byte, error)) ([]byte
 	if len(payload) == 0 || bytes.Equal(payload, []byte("[DONE]")) {
 		return bytes.Clone(event), nil
 	}
-	rewritten, err := rewrite(payload)
+	errorEvent := bytes.Equal(eventName, []byte("error")) || isSSEErrorPayload(payload)
+	rewritten, err := rewrite(payload, errorEvent)
 	if err != nil {
 		return nil, fmt.Errorf("rewrite SSE event payload: %w", err)
 	}
@@ -363,6 +371,36 @@ func rewriteSSEEvent(event []byte, rewrite func([]byte) ([]byte, error)) ([]byte
 		}
 	}
 	return output.Bytes(), nil
+}
+
+func parseSSEEventName(line []byte) ([]byte, bool) {
+	colon := bytes.IndexByte(line, ':')
+	field := line
+	var value []byte
+	if colon >= 0 {
+		field = line[:colon]
+		value = line[colon+1:]
+	}
+	if !bytes.Equal(field, []byte("event")) {
+		return nil, false
+	}
+	if len(value) > 0 && value[0] == ' ' {
+		value = value[1:]
+	}
+	return value, true
+}
+
+func isSSEErrorPayload(payload []byte) bool {
+	var envelope struct {
+		Type  string          `json:"type"`
+		Error json.RawMessage `json:"error"`
+	}
+	if err := json.Unmarshal(payload, &envelope); err != nil {
+		return false
+	}
+	errorValue := bytes.TrimSpace(envelope.Error)
+	return envelope.Type == "error" ||
+		(len(errorValue) > 0 && !bytes.Equal(errorValue, []byte("null")))
 }
 
 func splitSSEEventLines(event []byte) []sseEventLine {

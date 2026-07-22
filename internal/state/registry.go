@@ -243,7 +243,9 @@ func (r *KeyRegistry) SetCooldown(keyID uint, until time.Time) bool {
 	if !ok {
 		return false
 	}
-	entry.CooldownUntil = until
+	if until.After(entry.CooldownUntil) {
+		entry.CooldownUntil = until
+	}
 	return true
 }
 

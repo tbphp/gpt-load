@@ -1120,6 +1120,144 @@ func TestForwardStreamSanitizesAliasedErrorEventPayloads(t *testing.T) {
 	}
 }
 
+func TestForwardStreamSanitizesDataOnlyAliasedErrorPayloads(t *testing.T) {
+	const (
+		upstreamModel = "provider-model"
+		externalModel = "public-model"
+	)
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(writer, `data: {"error":{"message":"provider-model failed"}}
+
+`)
+	}))
+	defer upstream.Close()
+
+	input := streamForwardInput(upstream.URL)
+	input.ExternalModel = externalModel
+	input.UpstreamModelID = upstreamModel
+	downstream := newRecordingResponseWriter()
+	result := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New()).ForwardStream(
+		context.Background(), input, downstream,
+	)
+
+	if result.Err != nil || !result.Committed {
+		t.Fatalf("ForwardStream() result = %#v", result)
+	}
+	payloads := decodeSSEJSONPayloads(t, downstream.body.Bytes())
+	if len(payloads) != 1 {
+		t.Fatalf("decoded payloads = %#v, wire=%q", payloads, downstream.body.String())
+	}
+	errorObject := payloads[0]["error"].(map[string]any)
+	if errorObject["message"] != externalModel+" failed" {
+		t.Fatalf("error message = %#v, want %q", errorObject["message"], externalModel+" failed")
+	}
+}
+
+func TestForwardStreamSanitizesTypeErrorAliasedPayloads(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(writer, `data: {"type":"error","message":"provider-model failed"}
+
+`)
+	}))
+	defer upstream.Close()
+
+	input := streamForwardInput(upstream.URL)
+	input.ExternalModel = "public-model"
+	input.UpstreamModelID = "provider-model"
+	downstream := newRecordingResponseWriter()
+	result := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New()).ForwardStream(
+		context.Background(), input, downstream,
+	)
+
+	if result.Err != nil || !result.Committed {
+		t.Fatalf("ForwardStream() result = %#v", result)
+	}
+	payloads := decodeSSEJSONPayloads(t, downstream.body.Bytes())
+	if len(payloads) != 1 || payloads[0]["message"] != "public-model failed" {
+		t.Fatalf("sanitized payloads = %#v, wire=%q", payloads, downstream.body.String())
+	}
+}
+
+func TestForwardStreamAliasOnlyRewritesModelFieldsInSuccessfulEvents(t *testing.T) {
+	const (
+		upstreamModel = "provider-model"
+		externalModel = "public-model"
+		secret        = "provider-secret"
+		content       = "provider-model " + redact.Placeholder
+	)
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(writer, `data: {"model":"provider-model","choices":[{"delta":{"content":"provider-model provider-secret","tool_calls":[{"function":{"arguments":"{\"model\":\"provider-model\",\"key\":\"provider-secret\"}"}}]}}]}
+
+`)
+	}))
+	defer upstream.Close()
+
+	input := streamForwardInput(upstream.URL)
+	input.ExternalModel = externalModel
+	input.UpstreamModelID = upstreamModel
+	input.APIKey = secret
+	downstream := newRecordingResponseWriter()
+	result := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New()).ForwardStream(
+		context.Background(), input, downstream,
+	)
+
+	if result.Err != nil || !result.Committed {
+		t.Fatalf("ForwardStream() result = %#v", result)
+	}
+	payloads := decodeSSEJSONPayloads(t, downstream.body.Bytes())
+	if len(payloads) != 1 || payloads[0]["model"] != externalModel {
+		t.Fatalf("rewritten payloads = %#v, wire=%q", payloads, downstream.body.String())
+	}
+	choices := payloads[0]["choices"].([]any)
+	delta := choices[0].(map[string]any)["delta"].(map[string]any)
+	if delta["content"] != content {
+		t.Fatalf("generated content = %#v, want %q", delta["content"], content)
+	}
+	toolCalls := delta["tool_calls"].([]any)
+	arguments := toolCalls[0].(map[string]any)["function"].(map[string]any)["arguments"]
+	if arguments != `{"model":"provider-model","key":"[REDACTED]"}` {
+		t.Fatalf("tool arguments = %#v, want provider model preserved and credential redacted", arguments)
+	}
+}
+
+func TestForwardStreamUsesFinalSSEEventTypeForAliasSanitization(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		eventLines string
+	}{
+		{name: "later message event", eventLines: "event: error\nevent: message\n"},
+		{name: "later empty event", eventLines: "event: error\nevent\n"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				writer.Header().Set("Content-Type", "text/event-stream")
+				_, _ = io.WriteString(writer, test.eventLines+`data: {"model":"provider-model","content":"provider-model is generated content"}`+"\n\n")
+			}))
+			defer upstream.Close()
+
+			input := streamForwardInput(upstream.URL)
+			input.ExternalModel = "public-model"
+			input.UpstreamModelID = "provider-model"
+			downstream := newRecordingResponseWriter()
+			result := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New()).ForwardStream(
+				context.Background(), input, downstream,
+			)
+
+			if result.Err != nil || !result.Committed {
+				t.Fatalf("ForwardStream() result = %#v", result)
+			}
+			payloads := decodeSSEJSONPayloads(t, downstream.body.Bytes())
+			if len(payloads) != 1 || payloads[0]["model"] != "public-model" ||
+				payloads[0]["content"] != "provider-model is generated content" {
+				t.Fatalf("rewritten payloads = %#v, wire=%q", payloads, downstream.body.String())
+			}
+		})
+	}
+}
+
 func TestForwardStreamSanitizesUnaliasedErrorEventPayloads(t *testing.T) {
 	const secret = "stream/secret"
 	stream := "event: error\n" +
