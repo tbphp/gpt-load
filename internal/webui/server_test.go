@@ -13,6 +13,7 @@ import (
 
 func TestServerServesSameIndexForExplicitPageRoutes(t *testing.T) {
 	const wantCSP = "default-src 'self'; script-src 'self'; style-src 'self'; " +
+		"style-src-elem 'self'; style-src-attr 'unsafe-inline'; " +
 		"img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; " +
 		"base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
 
@@ -48,7 +49,11 @@ func TestServerServesSameIndexForExplicitPageRoutes(t *testing.T) {
 		if got := recorder.Header().Get("X-Frame-Options"); got != "DENY" {
 			t.Fatalf("GET %s X-Frame-Options = %q", target, got)
 		}
-		if got := recorder.Header().Get("Content-Security-Policy"); got != wantCSP {
+		got := recorder.Header().Get("Content-Security-Policy")
+		if strings.Contains(got, "style-src 'self' 'unsafe-inline'") {
+			t.Fatalf("GET %s CSP allows broad inline styles: %q", target, got)
+		}
+		if got != wantCSP {
 			t.Fatalf("GET %s CSP = %q, want %q", target, got, wantCSP)
 		}
 	}

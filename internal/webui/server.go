@@ -15,6 +15,7 @@ import (
 const (
 	distRoot = "dist"
 	indexCSP = "default-src 'self'; script-src 'self'; style-src 'self'; " +
+		"style-src-elem 'self'; style-src-attr 'unsafe-inline'; " +
 		"img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; " +
 		"base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
 	fallbackIndex = `<!doctype html>
