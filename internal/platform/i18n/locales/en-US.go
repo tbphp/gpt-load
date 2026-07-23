@@ -8,6 +8,7 @@ var MessagesEnUS = map[string]string{
 	"bad_gateway":                  "Upstream service error",
 	"internal_error":               "Internal error",
 	"auth.invalid_key":             "Invalid authorization key",
+	"auth.locked":                  "Too many authentication attempts; try again later",
 	"group.not_found":              "Group not found",
 	"group.name_exists":            "Group name already exists",
 	"group.upstream_url_conflict":  "An existing group already uses this upstream URL",

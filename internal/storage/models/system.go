@@ -2,6 +2,10 @@ package models
 
 import "time"
 
+// InternalSystemSettingPrefix reserves persistence metadata that must never
+// become user-visible runtime configuration.
+const InternalSystemSettingPrefix = "_internal."
+
 // SystemSetting stores a dynamically configurable setting as a key-value pair.
 type SystemSetting struct {
 	Key       string `gorm:"type:varchar(255);primaryKey;not null"`

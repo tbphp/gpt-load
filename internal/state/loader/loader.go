@@ -180,6 +180,10 @@ func decodeSettingValue(raw string) (any, error) {
 	return value, nil
 }
 
+func isInternalSystemSetting(key string) bool {
+	return strings.HasPrefix(key, models.InternalSystemSettingPrefix)
+}
+
 // LoadSystemSettings reads only the persisted system settings used to compile a draft Group.
 func LoadSystemSettings(ctx context.Context, db *gorm.DB) (config.Settings, error) {
 	var rows []models.SystemSetting
@@ -188,6 +192,9 @@ func LoadSystemSettings(ctx context.Context, db *gorm.DB) (config.Settings, erro
 	}
 	settings := make(config.Settings, len(rows))
 	for _, row := range rows {
+		if isInternalSystemSetting(row.Key) {
+			continue
+		}
 		value, err := decodeSettingValue(row.Value)
 		if err != nil {
 			return nil, fmt.Errorf("decode system setting %q: %w", row.Key, err)
@@ -203,6 +210,9 @@ func mapSystemAndGroups(rows compileRows) (state.CompileInput, error) {
 		Groups:         make([]state.GroupConfig, 0, len(rows.groups)),
 	}
 	for _, row := range rows.settings {
+		if isInternalSystemSetting(row.Key) {
+			continue
+		}
 		value, err := decodeSettingValue(row.Value)
 		if err != nil {
 			return state.CompileInput{}, fmt.Errorf("decode system setting %q: %w", row.Key, err)

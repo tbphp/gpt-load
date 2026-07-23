@@ -1,26 +1,29 @@
 //go:build !windows
 
-package encryption
+package securefile
 
 import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"golang.org/x/sys/unix"
 )
 
-func createSecureKeyFile(path string) (*os.File, error) {
+func createSecureFile(path string) (*os.File, error) {
 	return os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 }
 
-func publishSecureKeyFile(temporaryPath, finalPath string) error {
+func publishSecureFile(temporaryPath, finalPath string) error {
 	return os.Link(temporaryPath, finalPath)
 }
 
-func secureKeyFile(path string) error {
-	if err := requireRegularKeyFile(path); err != nil {
-		return err
-	}
-	return os.Chmod(path, 0o600)
+func openExistingSecureFile(path string) (*os.File, error) {
+	return os.OpenFile(path, os.O_RDONLY|unix.O_NOFOLLOW|unix.O_NONBLOCK, 0)
+}
+
+func secureOpenedFile(file *os.File) error {
+	return file.Chmod(0o600)
 }
 
 func syncParentDirectory(path string) error {

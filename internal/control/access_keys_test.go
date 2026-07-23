@@ -3,6 +3,7 @@ package control
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -21,7 +22,7 @@ import (
 	"gpt-load/internal/storage/models"
 )
 
-func TestCreateAccessKeyGeneratesEncryptedGLToken(t *testing.T) {
+func TestCreateAccessKeyGeneratesEncryptedSKGLToken(t *testing.T) {
 	fixture := newServiceFixture(t)
 	fixture.service.random = bytes.NewReader([]byte{
 		0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
@@ -41,8 +42,14 @@ func TestCreateAccessKeyGeneratesEncryptedGLToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateAccessKey() error = %v", err)
 	}
-	const plaintext = "gl-000102030405060708090a0b0c0d0e0f"
-	if result.Key != plaintext || result.Name != "client" || result.Status != state.AccessKeyStatusActive {
+	if !strings.HasPrefix(result.Key, "sk-gl-") || len(result.Key) != len("sk-gl-")+32 {
+		t.Fatalf("generated key = %q, want sk-gl- plus 32 hex chars", result.Key)
+	}
+	if _, err := hex.DecodeString(strings.TrimPrefix(result.Key, "sk-gl-")); err != nil {
+		t.Fatalf("generated suffix is not hex: %v", err)
+	}
+	plaintext := result.Key
+	if result.Name != "client" || result.Status != state.AccessKeyStatusActive {
 		t.Fatalf("CreateAccessKey() = %#v", result)
 	}
 	if got := fixture.manager.Current().Revision; got != before+1 {

@@ -75,6 +75,7 @@ func BuildContainer() (*dig.Container, error) {
 		func(forwarder *gateway.Forwarder) gateway.AttemptForwarder { return forwarder },
 		gateway.NewHandler,
 		control.NewService,
+		func(service *control.Service) app.StartupBootstrap { return service },
 		control.NewServer,
 		func(db *gorm.DB, manager *state.Manager, registry *state.KeyRegistry) app.RuntimeStateLoader {
 			return stateloader.New(db, manager, registry)

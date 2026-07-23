@@ -345,10 +345,11 @@ func TestManagementAuthRequiresConstantShapeBearerToken(t *testing.T) {
 		{name: "wrong scheme", header: "Basic test-auth-key", wantStatus: http.StatusUnauthorized},
 		{name: "case insensitive", header: "bEaReR test-auth-key", wantStatus: http.StatusOK},
 	}
-	for _, test := range tests {
+	for index, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			recorder := httptest.NewRecorder()
 			request := httptest.NewRequest(http.MethodGet, "/api/groups", nil)
+			request.RemoteAddr = "192.0.2." + strconv.Itoa(index+1) + ":1234"
 			if test.header != "" {
 				request.Header.Set("Authorization", test.header)
 			}

@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -30,6 +31,25 @@ type runtimeStateLoaderFunc func(context.Context) error
 
 func (f runtimeStateLoaderFunc) Load(ctx context.Context) error {
 	return f(ctx)
+}
+
+type startupBootstrapFunc func(context.Context) error
+
+func (f startupBootstrapFunc) EnsureInitialState(ctx context.Context) error {
+	return f(ctx)
+}
+
+func noopStartupBootstrap(context.Context) error {
+	return nil
+}
+
+func mustNewEngine(t *testing.T) *gin.Engine {
+	t.Helper()
+	engine, err := NewEngine()
+	if err != nil {
+		t.Fatalf("NewEngine() error = %v", err)
+	}
+	return engine
 }
 
 type controlRuntimeFake struct {
@@ -106,7 +126,7 @@ func TestNewEngineRecoversWithoutLoggingCredentials(t *testing.T) {
 		logrus.SetOutput(previousLogOutput)
 	})
 
-	engine := NewEngine()
+	engine := mustNewEngine(t)
 	engine.GET("/panic", func(*gin.Context) {
 		panic("panic-secret")
 	})
@@ -152,7 +172,7 @@ func TestNewEngineRecoversWithoutLoggingCredentials(t *testing.T) {
 }
 
 func TestNewEngineServesHealth(t *testing.T) {
-	engine := NewEngine()
+	engine := mustNewEngine(t)
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/health", nil)
 
@@ -170,6 +190,24 @@ func TestNewEngineServesHealth(t *testing.T) {
 	}
 }
 
+func TestNewEngineDoesNotTrustForwardingHeaders(t *testing.T) {
+	engine := mustNewEngine(t)
+	engine.GET("/client-ip", func(c *gin.Context) {
+		c.String(http.StatusOK, c.ClientIP())
+	})
+
+	request := httptest.NewRequest(http.MethodGet, "/client-ip", nil)
+	request.RemoteAddr = "198.51.100.24:41000"
+	request.Header.Set("X-Forwarded-For", "203.0.113.9")
+	request.Header.Set("X-Real-IP", "203.0.113.10")
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, request)
+
+	if recorder.Body.String() != "198.51.100.24" {
+		t.Fatalf("ClientIP() = %q, want direct peer", recorder.Body.String())
+	}
+}
+
 func TestAppStartMigratesDatabaseAndServesHTTP(t *testing.T) {
 	db, err := storage.Open(":memory:")
 	if err != nil {
@@ -182,12 +220,13 @@ func TestAppStartMigratesDatabaseAndServesHTTP(t *testing.T) {
 	manager, runtimeState := newTestRuntimeState(db)
 
 	application := NewApp(AppParams{
-		Engine:         NewEngine(),
-		Config:         testConfig(t),
-		Encryption:     keyService,
-		DB:             db,
-		RuntimeState:   runtimeState,
-		ControlRuntime: newControlRuntimeFake(nil, false),
+		Engine:           mustNewEngine(t),
+		Config:           testConfig(t),
+		Encryption:       keyService,
+		DB:               db,
+		StartupBootstrap: startupBootstrapFunc(noopStartupBootstrap),
+		RuntimeState:     runtimeState,
+		ControlRuntime:   newControlRuntimeFake(nil, false),
 	})
 	cleanupApp(t, application)
 	if err := application.Start(); err != nil {
@@ -228,7 +267,7 @@ func TestAppStartMigratesDatabaseAndServesHTTP(t *testing.T) {
 	}
 }
 
-func TestAppStartMigratesBeforeLoadingRuntimeState(t *testing.T) {
+func TestAppStartBootstrapsAfterMigrationBeforeRuntimeLoad(t *testing.T) {
 	db, err := storage.Open(":memory:")
 	if err != nil {
 		t.Fatalf("storage.Open() error = %v", err)
@@ -238,28 +277,79 @@ func TestAppStartMigratesBeforeLoadingRuntimeState(t *testing.T) {
 		t.Fatalf("encryption.NewService() error = %v", err)
 	}
 
-	loadCalled := false
+	var order []string
+	loadErr := errors.New("stop before listen")
 	application := NewApp(AppParams{
-		Engine:         NewEngine(),
-		Config:         testConfig(t),
-		Encryption:     keyService,
-		DB:             db,
-		ControlRuntime: newControlRuntimeFake(nil, false),
-		RuntimeState: runtimeStateLoaderFunc(func(context.Context) error {
-			loadCalled = true
-			if !db.Migrator().HasTable("groups") {
-				return errors.New("groups table does not exist")
+		Engine:     mustNewEngine(t),
+		Config:     testConfig(t),
+		Encryption: keyService,
+		DB:         db,
+		StartupBootstrap: startupBootstrapFunc(func(context.Context) error {
+			for _, table := range []string{"groups", "access_keys", "system_settings"} {
+				if !db.Migrator().HasTable(table) {
+					return errors.New(table + " table does not exist")
+				}
 			}
+			order = append(order, "bootstrap")
 			return nil
 		}),
+		RuntimeState: runtimeStateLoaderFunc(func(context.Context) error {
+			order = append(order, "load")
+			return loadErr
+		}),
+		ControlRuntime: newControlRuntimeFake(nil, false),
 	})
 	cleanupApp(t, application)
 
-	if err := application.Start(); err != nil {
-		t.Fatalf("Start() error = %v", err)
+	if err := application.Start(); !errors.Is(err, loadErr) {
+		t.Fatalf("Start() error = %v, want wrapped runtime state error", err)
 	}
-	if !loadCalled {
-		t.Fatal("runtime state loader was not called")
+	if want := []string{"bootstrap", "load"}; !slices.Equal(order, want) {
+		t.Fatalf("startup order = %#v, want %#v", order, want)
+	}
+}
+
+func TestAppStartRejectsBootstrapFailureBeforeRuntimeLoadAndListen(t *testing.T) {
+	db, err := storage.Open(":memory:")
+	if err != nil {
+		t.Fatalf("storage.Open() error = %v", err)
+	}
+	keyService, err := encryption.NewService("test-master-key")
+	if err != nil {
+		t.Fatalf("encryption.NewService() error = %v", err)
+	}
+
+	bootstrapErr := errors.New("bootstrap failed")
+	loadCalled := false
+	application := NewApp(AppParams{
+		Engine:     mustNewEngine(t),
+		Config:     testConfig(t),
+		Encryption: keyService,
+		DB:         db,
+		StartupBootstrap: startupBootstrapFunc(func(context.Context) error {
+			return bootstrapErr
+		}),
+		RuntimeState: runtimeStateLoaderFunc(func(context.Context) error {
+			loadCalled = true
+			return errors.New("unexpected runtime load")
+		}),
+		ControlRuntime: newControlRuntimeFake(nil, false),
+	})
+	cleanupApp(t, application)
+
+	err = application.Start()
+	if !errors.Is(err, bootstrapErr) {
+		t.Fatalf("Start() error = %v, want wrapped bootstrap error", err)
+	}
+	if !strings.Contains(err.Error(), "bootstrap initial state") {
+		t.Fatalf("Start() error = %q, want bootstrap context", err)
+	}
+	if loadCalled {
+		t.Fatal("runtime loader ran after bootstrap failure")
+	}
+	if application.Address() != "" || application.httpServer != nil ||
+		application.listener != nil {
+		t.Fatal("application listened after bootstrap failure")
 	}
 }
 
@@ -275,11 +365,12 @@ func TestAppStartRejectsRuntimeStateLoadFailureBeforeListen(t *testing.T) {
 
 	loadErr := errors.New("corrupt runtime config")
 	application := NewApp(AppParams{
-		Engine:         NewEngine(),
-		Config:         testConfig(t),
-		Encryption:     keyService,
-		DB:             db,
-		ControlRuntime: newControlRuntimeFake(nil, false),
+		Engine:           mustNewEngine(t),
+		Config:           testConfig(t),
+		Encryption:       keyService,
+		DB:               db,
+		StartupBootstrap: startupBootstrapFunc(noopStartupBootstrap),
+		ControlRuntime:   newControlRuntimeFake(nil, false),
 		RuntimeState: runtimeStateLoaderFunc(func(context.Context) error {
 			return loadErr
 		}),
@@ -316,12 +407,13 @@ func TestAppReportsUnexpectedHTTPServeFailure(t *testing.T) {
 	_, runtimeState := newTestRuntimeState(db)
 
 	application := NewApp(AppParams{
-		Engine:         NewEngine(),
-		Config:         testConfig(t),
-		Encryption:     keyService,
-		DB:             db,
-		RuntimeState:   runtimeState,
-		ControlRuntime: newControlRuntimeFake(nil, false),
+		Engine:           mustNewEngine(t),
+		Config:           testConfig(t),
+		Encryption:       keyService,
+		DB:               db,
+		StartupBootstrap: startupBootstrapFunc(noopStartupBootstrap),
+		RuntimeState:     runtimeState,
+		ControlRuntime:   newControlRuntimeFake(nil, false),
 	})
 	cleanupApp(t, application)
 	if err := application.Start(); err != nil {
@@ -353,10 +445,11 @@ func TestAppStartsControlRuntimeAfterInitialization(t *testing.T) {
 	loaded := make(chan struct{})
 	runtime := newControlRuntimeFake(loaded, false)
 	application := NewApp(AppParams{
-		Engine:     NewEngine(),
-		Config:     testConfig(t),
-		Encryption: keyService,
-		DB:         db,
+		Engine:           mustNewEngine(t),
+		Config:           testConfig(t),
+		Encryption:       keyService,
+		DB:               db,
+		StartupBootstrap: startupBootstrapFunc(noopStartupBootstrap),
 		RuntimeState: runtimeStateLoaderFunc(func(context.Context) error {
 			close(loaded)
 			return nil
@@ -391,12 +484,13 @@ func TestAppDoesNotStartControlRuntimeWhenLoadFails(t *testing.T) {
 	loadErr := errors.New("corrupt runtime config")
 	runtime := newControlRuntimeFake(nil, false)
 	application := NewApp(AppParams{
-		Engine:         NewEngine(),
-		Config:         testConfig(t),
-		Encryption:     keyService,
-		DB:             db,
-		RuntimeState:   runtimeStateLoaderFunc(func(context.Context) error { return loadErr }),
-		ControlRuntime: runtime,
+		Engine:           mustNewEngine(t),
+		Config:           testConfig(t),
+		Encryption:       keyService,
+		DB:               db,
+		StartupBootstrap: startupBootstrapFunc(noopStartupBootstrap),
+		RuntimeState:     runtimeStateLoaderFunc(func(context.Context) error { return loadErr }),
+		ControlRuntime:   runtime,
 	})
 	cleanupApp(t, application)
 
@@ -429,12 +523,13 @@ func TestAppDoesNotStartControlRuntimeWhenListenFails(t *testing.T) {
 	cfg.Server.Port = occupied.Addr().(*net.TCPAddr).Port
 	runtime := newControlRuntimeFake(nil, false)
 	application := NewApp(AppParams{
-		Engine:         NewEngine(),
-		Config:         cfg,
-		Encryption:     keyService,
-		DB:             db,
-		RuntimeState:   runtimeStateLoaderFunc(func(context.Context) error { return nil }),
-		ControlRuntime: runtime,
+		Engine:           mustNewEngine(t),
+		Config:           cfg,
+		Encryption:       keyService,
+		DB:               db,
+		StartupBootstrap: startupBootstrapFunc(noopStartupBootstrap),
+		RuntimeState:     runtimeStateLoaderFunc(func(context.Context) error { return nil }),
+		ControlRuntime:   runtime,
 	})
 	cleanupApp(t, application)
 
@@ -459,12 +554,13 @@ func TestAppStopCancelsAndWaitsForControlRuntime(t *testing.T) {
 	}
 	runtime := newControlRuntimeFake(nil, true)
 	application := NewApp(AppParams{
-		Engine:         NewEngine(),
-		Config:         testConfig(t),
-		Encryption:     keyService,
-		DB:             db,
-		RuntimeState:   runtimeStateLoaderFunc(func(context.Context) error { return nil }),
-		ControlRuntime: runtime,
+		Engine:           mustNewEngine(t),
+		Config:           testConfig(t),
+		Encryption:       keyService,
+		DB:               db,
+		StartupBootstrap: startupBootstrapFunc(noopStartupBootstrap),
+		RuntimeState:     runtimeStateLoaderFunc(func(context.Context) error { return nil }),
+		ControlRuntime:   runtime,
 	})
 	cleanupApp(t, application)
 	t.Cleanup(runtime.Release)
@@ -499,12 +595,13 @@ func TestAppStopHonorsDeadlineWhileWaitingForControlRuntime(t *testing.T) {
 	}
 	runtime := newControlRuntimeFake(nil, true)
 	application := NewApp(AppParams{
-		Engine:         NewEngine(),
-		Config:         testConfig(t),
-		Encryption:     keyService,
-		DB:             db,
-		RuntimeState:   runtimeStateLoaderFunc(func(context.Context) error { return nil }),
-		ControlRuntime: runtime,
+		Engine:           mustNewEngine(t),
+		Config:           testConfig(t),
+		Encryption:       keyService,
+		DB:               db,
+		StartupBootstrap: startupBootstrapFunc(noopStartupBootstrap),
+		RuntimeState:     runtimeStateLoaderFunc(func(context.Context) error { return nil }),
+		ControlRuntime:   runtime,
 	})
 	cleanupApp(t, application)
 	t.Cleanup(runtime.Release)

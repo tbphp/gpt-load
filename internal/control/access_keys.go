@@ -43,6 +43,34 @@ type AccessKeyResponse struct {
 	Filters AccessKeyFilters      `json:"filters"`
 }
 
+const accessKeyPrefix = "sk-gl-"
+
+func (s *Service) newAccessKeyRow(
+	name string,
+	filters AccessKeyFilters,
+) (models.AccessKey, string, error) {
+	encodedFilters, err := json.Marshal(filters)
+	if err != nil {
+		return models.AccessKey{}, "", fmt.Errorf("encode access key filters: %w", err)
+	}
+	randomBytes := make([]byte, 16)
+	if _, err := io.ReadFull(s.random, randomBytes); err != nil {
+		return models.AccessKey{}, "", fmt.Errorf("generate access key: %w", err)
+	}
+	plaintext := accessKeyPrefix + hex.EncodeToString(randomBytes)
+	ciphertext, err := s.encryption.Encrypt(plaintext)
+	if err != nil {
+		return models.AccessKey{}, "", fmt.Errorf("encrypt access key: %w", err)
+	}
+	return models.AccessKey{
+		Name:     name,
+		KeyValue: ciphertext,
+		KeyHash:  s.encryption.Hash(plaintext),
+		Status:   string(state.AccessKeyStatusActive),
+		Filters:  models.JSON(encodedFilters),
+	}, plaintext, nil
+}
+
 func (s *Service) CreateAccessKey(
 	ctx context.Context,
 	request AccessKeyCreateRequest,
@@ -55,28 +83,15 @@ func (s *Service) CreateAccessKey(
 	if err != nil {
 		return AccessKeyResponse{}, err
 	}
-	encodedFilters, err := json.Marshal(filters)
-	if err != nil {
-		return AccessKeyResponse{}, fmt.Errorf("encode access key filters: %w", err)
-	}
 
 	var result AccessKeyResponse
 	_, err = s.writeConfig(ctx, func(tx *gorm.DB) error {
 		if err := validateFilterGroupReferences(tx, filters.Groups); err != nil {
 			return err
 		}
-		randomBytes := make([]byte, 16)
-		if _, err := io.ReadFull(s.random, randomBytes); err != nil {
-			return fmt.Errorf("generate access key: %w", err)
-		}
-		plaintext := "gl-" + hex.EncodeToString(randomBytes)
-		ciphertext, err := s.encryption.Encrypt(plaintext)
+		row, plaintext, err := s.newAccessKeyRow(name, filters)
 		if err != nil {
-			return fmt.Errorf("encrypt access key: %w", err)
-		}
-		row := models.AccessKey{
-			Name: name, KeyValue: ciphertext, KeyHash: s.encryption.Hash(plaintext),
-			Status: string(state.AccessKeyStatusActive), Filters: models.JSON(encodedFilters),
+			return err
 		}
 		if err := tx.Create(&row).Error; err != nil {
 			return app_errors.ParseDBError(err)

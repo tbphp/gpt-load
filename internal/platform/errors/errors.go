@@ -32,6 +32,7 @@ var (
 	ErrInternalServer      = &APIError{HTTPStatus: http.StatusInternalServerError, Code: "INTERNAL_SERVER_ERROR", Message: "An unexpected error occurred"}
 	ErrDatabase            = &APIError{HTTPStatus: http.StatusInternalServerError, Code: "DATABASE_ERROR", Message: "Database operation failed"}
 	ErrUnauthorized        = &APIError{HTTPStatus: http.StatusUnauthorized, Code: "UNAUTHORIZED", Message: "Authentication failed"}
+	ErrAuthLocked          = &APIError{HTTPStatus: http.StatusTooManyRequests, Code: "AUTH_LOCKED", Message: "Authentication is temporarily locked"}
 	ErrUpstreamURLConflict = &APIError{HTTPStatus: http.StatusConflict, Code: "UPSTREAM_URL_CONFLICT", Message: "Upstream URL conflicts with an existing group"}
 	ErrNoActiveUpstreamKey = &APIError{HTTPStatus: http.StatusConflict, Code: "NO_ACTIVE_UPSTREAM_KEY", Message: "No active upstream key available for this group"}
 	ErrBadGateway          = &APIError{HTTPStatus: http.StatusBadGateway, Code: "BAD_GATEWAY", Message: "Upstream service error"}

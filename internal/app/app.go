@@ -25,12 +25,13 @@ import (
 
 // App owns the process lifecycle, infrastructure resources, and runtime state.
 type App struct {
-	engine         *gin.Engine
-	config         *config.Config
-	encryption     encryption.Service
-	db             *gorm.DB
-	runtimeState   RuntimeStateLoader
-	controlRuntime ControlRuntime
+	engine           *gin.Engine
+	config           *config.Config
+	encryption       encryption.Service
+	db               *gorm.DB
+	runtimeState     RuntimeStateLoader
+	controlRuntime   ControlRuntime
+	startupBootstrap StartupBootstrap
 
 	mu            sync.Mutex
 	httpServer    *http.Server
@@ -45,6 +46,11 @@ type RuntimeStateLoader interface {
 	Load(context.Context) error
 }
 
+// StartupBootstrap ensures required persisted state exists before runtime loading.
+type StartupBootstrap interface {
+	EnsureInitialState(context.Context) error
+}
+
 // ControlRuntime runs background control-plane maintenance.
 type ControlRuntime interface {
 	Run(context.Context)
@@ -54,19 +60,23 @@ type ControlRuntime interface {
 type AppParams struct {
 	dig.In
 
-	Engine         *gin.Engine
-	Config         *config.Config
-	Encryption     encryption.Service
-	DB             *gorm.DB
-	RuntimeState   RuntimeStateLoader
-	ControlRuntime ControlRuntime
+	Engine           *gin.Engine
+	Config           *config.Config
+	Encryption       encryption.Service
+	DB               *gorm.DB
+	StartupBootstrap StartupBootstrap
+	RuntimeState     RuntimeStateLoader
+	ControlRuntime   ControlRuntime
 }
 
 // NewEngine creates the HTTP engine and health endpoint.
-func NewEngine() *gin.Engine {
+func NewEngine() (*gin.Engine, error) {
 	gin.SetMode(gin.ReleaseMode)
 	engine := gin.New()
 	engine.RedirectTrailingSlash = false
+	if err := engine.SetTrustedProxies(nil); err != nil {
+		return nil, fmt.Errorf("disable trusted proxies: %w", err)
+	}
 	engine.Use(recoveryMiddleware())
 	engine.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
@@ -74,19 +84,20 @@ func NewEngine() *gin.Engine {
 			"version": version.Version,
 		})
 	})
-	return engine
+	return engine, nil
 }
 
 // NewApp creates the application lifecycle manager.
 func NewApp(params AppParams) *App {
 	return &App{
-		engine:         params.Engine,
-		config:         params.Config,
-		encryption:     params.Encryption,
-		db:             params.DB,
-		runtimeState:   params.RuntimeState,
-		controlRuntime: params.ControlRuntime,
-		serveErrors:    make(chan error, 1),
+		engine:           params.Engine,
+		config:           params.Config,
+		encryption:       params.Encryption,
+		db:               params.DB,
+		runtimeState:     params.RuntimeState,
+		controlRuntime:   params.ControlRuntime,
+		startupBootstrap: params.StartupBootstrap,
+		serveErrors:      make(chan error, 1),
 	}
 }
 
@@ -103,6 +114,9 @@ func (a *App) Start() error {
 	}
 	if err := storage.AutoMigrate(a.db); err != nil {
 		return err
+	}
+	if err := a.startupBootstrap.EnsureInitialState(context.Background()); err != nil {
+		return fmt.Errorf("bootstrap initial state: %w", err)
 	}
 	if err := a.runtimeState.Load(context.Background()); err != nil {
 		return fmt.Errorf("load runtime state: %w", err)

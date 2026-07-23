@@ -9,7 +9,6 @@ import (
 	"io"
 	"net/http"
 	"strconv"
-	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
@@ -21,19 +20,27 @@ import (
 )
 
 type Server struct {
-	authDigest [sha256.Size]byte
-	service    *Service
+	authDigest    [sha256.Size]byte
+	service       *Service
+	authFailures  *authFailureLimiter
+	compareDigest func([]byte, []byte) int
 }
 
 const maxControlJSONBodyBytes int64 = 32 << 20
 
 func NewServer(cfg *config.Config, service *Service) *Server {
-	return &Server{authDigest: sha256.Sum256([]byte(cfg.AuthKey)), service: service}
+	return &Server{
+		authDigest:    sha256.Sum256([]byte(cfg.AuthKey)),
+		service:       service,
+		authFailures:  newAuthFailureLimiter(),
+		compareDigest: subtle.ConstantTimeCompare,
+	}
 }
 
 func (s *Server) RegisterRoutes(engine *gin.Engine) {
 	api := engine.Group("/api")
 	api.Use(i18n.Middleware(), s.authenticate())
+	api.GET("/auth/session", s.handleAuthSession)
 	api.GET("/groups", s.handleListGroups)
 	api.POST("/groups", s.handleCreateGroup)
 	api.POST("/groups/:group_id/keys/import", s.handleImportGroupKeys)
@@ -43,25 +50,6 @@ func (s *Server) RegisterRoutes(engine *gin.Engine) {
 	api.GET("/access-keys", s.handleListAccessKeys)
 	api.PUT("/access-keys/:id", s.handleUpdateAccessKey)
 	api.DELETE("/access-keys/:id", s.handleDeleteAccessKey)
-}
-
-func (s *Server) authenticate() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		fields := strings.Fields(c.GetHeader("Authorization"))
-		token := ""
-		if len(fields) == 2 {
-			token = fields[1]
-		}
-		requestDigest := sha256.Sum256([]byte(token))
-		formatValid := len(fields) == 2 && strings.EqualFold(fields[0], "Bearer")
-		matches := subtle.ConstantTimeCompare(requestDigest[:], s.authDigest[:]) == 1
-		if !formatValid || !matches {
-			response.ErrorI18nFromAPIError(c, app_errors.ErrUnauthorized, "auth.invalid_key")
-			c.Abort()
-			return
-		}
-		c.Next()
-	}
 }
 
 func (s *Server) handleListGroups(c *gin.Context) {

@@ -12,6 +12,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
+	"gpt-load/internal/platform/config"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 	"gpt-load/internal/state/loader"
@@ -78,6 +79,60 @@ func TestLoadSystemSettingsDecodesPersistedValues(t *testing.T) {
 	}
 	if !reflect.DeepEqual(reloaded, want) {
 		t.Fatalf("reloaded settings = %#v, want DB-independent %#v", reloaded, want)
+	}
+}
+
+func TestBuildCompileInputExcludesInternalSystemSettings(t *testing.T) {
+	db := openMigratedDatabase(t)
+	for _, row := range []models.SystemSetting{
+		{Key: "request_timeout", Value: "60"},
+		{
+			Key:   models.InternalSystemSettingPrefix + "bootstrap.default_access_key.v1",
+			Value: "true",
+		},
+	} {
+		row := row
+		mustCreate(t, db, &row)
+	}
+
+	input, err := loader.BuildCompileInput(context.Background(), db)
+	if err != nil {
+		t.Fatalf("BuildCompileInput() error = %v", err)
+	}
+	if len(input.SystemSettings) != 1 {
+		t.Fatalf("SystemSettings = %#v, want only request_timeout", input.SystemSettings)
+	}
+	if got := fmt.Sprint(input.SystemSettings["request_timeout"]); got != "60" {
+		t.Fatalf("request_timeout = %q, want 60", got)
+	}
+	if _, ok := input.SystemSettings[models.InternalSystemSettingPrefix+"bootstrap.default_access_key.v1"]; ok {
+		t.Fatal("internal bootstrap marker leaked into compile input")
+	}
+	if _, err := state.Compile(input); err != nil {
+		t.Fatalf("Compile() rejected filtered input: %v", err)
+	}
+}
+
+func TestLoadSystemSettingsExcludesInternalSystemSettings(t *testing.T) {
+	db := openMigratedDatabase(t)
+	for _, row := range []models.SystemSetting{
+		{Key: "request_timeout", Value: "60"},
+		{
+			Key:   models.InternalSystemSettingPrefix + "bootstrap.default_access_key.v1",
+			Value: "true",
+		},
+	} {
+		row := row
+		mustCreate(t, db, &row)
+	}
+
+	settings, err := loader.LoadSystemSettings(context.Background(), db)
+	if err != nil {
+		t.Fatalf("LoadSystemSettings() error = %v", err)
+	}
+	want := config.Settings{"request_timeout": json.Number("60")}
+	if !reflect.DeepEqual(settings, want) {
+		t.Fatalf("settings = %#v, want %#v", settings, want)
 	}
 }
 

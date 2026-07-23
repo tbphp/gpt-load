@@ -8,6 +8,7 @@ var MessagesZhCN = map[string]string{
 	"bad_gateway":                  "上游服务错误",
 	"internal_error":               "内部错误",
 	"auth.invalid_key":             "无效的授权密钥",
+	"auth.locked":                  "认证尝试过多，请稍后重试",
 	"group.not_found":              "分组不存在",
 	"group.name_exists":            "分组名称已存在",
 	"group.upstream_url_conflict":  "已有分组使用该上游地址",

@@ -56,7 +56,7 @@ Deferred work is explicit: M2 completes scheduling and health behavior, M3 expan
 
 - M1 ships only the Go backend and separates data-plane traffic from the `/api` management plane.
 - 2.0.0 supports SQLite only and guarantees correctness for a single application instance only.
-- `DATA_DIR` owns the default SQLite database and generated keyfile. `DATABASE_DSN` and `ENCRYPTION_KEY` explicitly override those defaults.
+- `DATA_DIR` owns the default SQLite database, the management credential `auth.key`, and the separate encryption master-key file `encryption.key`. `DATABASE_DSN`, `AUTH_KEY`, and `ENCRYPTION_KEY` explicitly override their respective defaults.
 - Upstream secrets are encrypted at rest; there is no plaintext fallback.
 
 ## Build and run
@@ -65,7 +65,7 @@ Go 1.25 is required.
 
 ```bash
 cp .env.example .env
-# Set AUTH_KEY in .env before starting.
+# AUTH_KEY is optional; leave it empty to read or create DATA_DIR/auth.key.
 go build -o gpt-load .
 ./gpt-load
 ```
@@ -82,8 +82,8 @@ make dev
 |---|---|---|
 | `HOST` | `0.0.0.0` | HTTP listen address |
 | `PORT` | `3001` | HTTP listen port |
-| `AUTH_KEY` | required | Management API bearer token; must be non-empty and contain no whitespace |
-| `DATA_DIR` | `./data` | Owns the default database and generated `encryption.key` |
+| `AUTH_KEY` | optional | Management API bearer credential; a non-empty value wins and cannot contain whitespace; when empty, reads or creates `${DATA_DIR}/auth.key` |
+| `DATA_DIR` | `./data` | Owns the default database and generated `auth.key` and `encryption.key` |
 | `DATABASE_DSN` | `${DATA_DIR}/gpt-load.db` | Explicit SQLite path/DSN override when set |
 | `ENCRYPTION_KEY` | generated keyfile | Explicit master-key override when set |
 | `GRACEFUL_SHUTDOWN_TIMEOUT` | `10` | Graceful shutdown timeout in seconds |
@@ -92,6 +92,8 @@ make dev
 | `CONTAINER_STOP_GRACE_PERIOD` | `15s` | Docker Compose stop budget |
 | `LOG_LEVEL` | `info` | Application log level |
 | `LOG_FORMAT` | `text` | Log format: `text` or `json` |
+
+`auth.key` is the management API bearer credential. Back it up securely and restrict access to it; generation logs only its path, never the full value. It is separate from `encryption.key`, which encrypts stored upstream secrets.
 
 ## Data-plane routes
 
@@ -114,6 +116,7 @@ Every management route requires `Authorization: Bearer <AUTH_KEY>`.
 
 | Method | Path | Purpose |
 |---|---|---|
+| `GET` | `/api/auth/session` | Verify the current management credential |
 | `GET` | `/api/groups` | List Groups |
 | `POST` | `/api/groups` | Create a Group |
 | `POST` | `/api/groups/{group_id}/keys/import` | Import keys into an existing Group |
@@ -132,12 +135,13 @@ The Compose file defaults to the published image. To run the unreleased `v2` che
 
 ```bash
 cp .env.example .env
-# Set AUTH_KEY in .env before starting.
+# AUTH_KEY is optional; leave it empty to read or create /app/data/auth.key.
 docker compose up -d --build
+docker compose exec gpt-load sh -c 'cat /app/data/auth.key'
 docker compose logs -f gpt-load
 ```
 
-Before upgrades or any encryption-key change, back up the SQLite database and `${DATA_DIR}/encryption.key` together. If you set `DATABASE_DSN` or `ENCRYPTION_KEY`, back up those explicit values instead.
+Back up `${DATA_DIR}/auth.key` securely and restrict access to it; it is the management bearer credential, not the encryption key. Before upgrades or any encryption-key change, back up the SQLite database and `${DATA_DIR}/encryption.key` together. If you set `DATABASE_DSN` or `ENCRYPTION_KEY`, back up those explicit values instead.
 
 ## Testing
 

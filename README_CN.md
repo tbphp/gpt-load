@@ -56,7 +56,7 @@ M1 已作为纯后端里程碑完成，当前不内嵌或提供管理前端；M3
 
 - M1 仅交付 Go 后端，并将数据面流量与 `/api` 管理面分离。
 - 2.0.0 仅支持 SQLite，且只保证单应用实例的正确性。
-- `DATA_DIR` 管理默认 SQLite 数据库和自动生成的 keyfile；`DATABASE_DSN` 与 `ENCRYPTION_KEY` 可分别显式覆盖对应默认值。
+- `DATA_DIR` 管理默认 SQLite 数据库、管理面凭据 `auth.key` 以及独立的加密主密钥文件 `encryption.key`；`DATABASE_DSN`、`AUTH_KEY` 与 `ENCRYPTION_KEY` 可分别显式覆盖对应默认值。
 - 上游密钥强制静态加密，不允许明文回退。
 
 ## 构建与运行
@@ -65,7 +65,7 @@ M1 已作为纯后端里程碑完成，当前不内嵌或提供管理前端；M3
 
 ```bash
 cp .env.example .env
-# 启动前在 .env 中设置 AUTH_KEY。
+# AUTH_KEY 可选；留空则从 DATA_DIR/auth.key 读取或生成。
 go build -o gpt-load .
 ./gpt-load
 ```
@@ -82,8 +82,8 @@ make dev
 |---|---|---|
 | `HOST` | `0.0.0.0` | HTTP 监听地址 |
 | `PORT` | `3001` | HTTP 监听端口 |
-| `AUTH_KEY` | 必填 | 管理 API bearer token；不能为空且不能包含空白字符 |
-| `DATA_DIR` | `./data` | 管理默认数据库与自动生成的 `encryption.key` |
+| `AUTH_KEY` | 可选 | 管理 API bearer 凭据；非空环境变量优先且不能包含空白字符；留空则读取或生成 `${DATA_DIR}/auth.key` |
+| `DATA_DIR` | `./data` | 管理默认数据库与自动生成的 `auth.key`、`encryption.key` |
 | `DATABASE_DSN` | `${DATA_DIR}/gpt-load.db` | 设置后显式覆盖 SQLite 路径/DSN |
 | `ENCRYPTION_KEY` | 自动生成 keyfile | 设置后显式覆盖主密钥 |
 | `GRACEFUL_SHUTDOWN_TIMEOUT` | `10` | 优雅停机超时，单位为秒 |
@@ -92,6 +92,8 @@ make dev
 | `CONTAINER_STOP_GRACE_PERIOD` | `15s` | Docker Compose 停机预算 |
 | `LOG_LEVEL` | `info` | 应用日志级别 |
 | `LOG_FORMAT` | `text` | 日志格式：`text` 或 `json` |
+
+`auth.key` 是管理 API bearer 凭据，必须安全备份并限制访问；生成日志只打印文件路径，不打印完整值。它与用于加密已存储上游密钥的 `encryption.key` 相互独立。
 
 ## 数据面路由
 
@@ -114,6 +116,7 @@ Group 由 AccessKey 与运行时配置选择，不作为 URL 路径段传入。
 
 | 方法 | 路径 | 用途 |
 |---|---|---|
+| `GET` | `/api/auth/session` | 验证当前管理凭据 |
 | `GET` | `/api/groups` | 列出 Group |
 | `POST` | `/api/groups` | 创建 Group |
 | `POST` | `/api/groups/{group_id}/keys/import` | 向现有 Group 导入密钥 |
@@ -132,12 +135,13 @@ Compose 文件默认使用已发布镜像。若要运行尚未发布的 `v2` che
 
 ```bash
 cp .env.example .env
-# 启动前在 .env 中设置 AUTH_KEY。
+# AUTH_KEY 可选；留空则从 /app/data/auth.key 读取或生成。
 docker compose up -d --build
+docker compose exec gpt-load sh -c 'cat /app/data/auth.key'
 docker compose logs -f gpt-load
 ```
 
-升级或修改加密密钥前，必须同时备份 SQLite 数据库和 `${DATA_DIR}/encryption.key`。若设置了 `DATABASE_DSN` 或 `ENCRYPTION_KEY`，则改为备份相应的显式值。
+必须安全备份 `${DATA_DIR}/auth.key` 并限制访问；它是管理面 bearer 凭据，不是加密密钥。升级或修改加密密钥前，必须同时备份 SQLite 数据库和 `${DATA_DIR}/encryption.key`。若设置了 `DATABASE_DSN` 或 `ENCRYPTION_KEY`，则改为备份相应的显式值。
 
 ## 测试
 

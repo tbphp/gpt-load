@@ -1,6 +1,6 @@
 //go:build windows
 
-package encryption
+package securefile
 
 import (
 	"encoding/hex"
@@ -15,40 +15,41 @@ import (
 // x/sys/windows does not expose FILE_ALL_ACCESS from WinNT.h.
 const fileAllAccessMask windows.ACCESS_MASK = windows.STANDARD_RIGHTS_REQUIRED | windows.SYNCHRONIZE | 0x1ff
 
-func TestGeneratedKeyFileGrantsAccessOnlyToCurrentUser(t *testing.T) {
+func TestGeneratedSecureFileGrantsAccessOnlyToCurrentUser(t *testing.T) {
 	dataDir := t.TempDir()
-	if _, err := LoadOrCreateKeyMaterial("", dataDir); err != nil {
-		t.Fatalf("LoadOrCreateKeyMaterial() error = %v", err)
+	result, err := LoadOrCreateHex(dataDir, "auth.key")
+	if err != nil {
+		t.Fatalf("LoadOrCreateHex() error = %v", err)
 	}
-	assertCurrentUserOnlyACL(t, filepath.Join(dataDir, KeyFileName))
+	assertCurrentUserOnlyACL(t, result.Path)
 }
 
-func TestExistingKeyFileACLIsHardened(t *testing.T) {
+func TestExistingSecureFileACLIsHardened(t *testing.T) {
 	dataDir := t.TempDir()
-	path := filepath.Join(dataDir, KeyFileName)
+	path := filepath.Join(dataDir, "auth.key")
 	material := hex.EncodeToString(make([]byte, 32))
 	if err := os.WriteFile(path, []byte(material+"\n"), 0o666); err != nil {
-		t.Fatalf("write existing keyfile: %v", err)
+		t.Fatalf("write existing secure file: %v", err)
 	}
-	if _, err := LoadOrCreateKeyMaterial("", dataDir); err != nil {
-		t.Fatalf("LoadOrCreateKeyMaterial() error = %v", err)
+	if _, err := LoadOrCreateHex(dataDir, "auth.key"); err != nil {
+		t.Fatalf("LoadOrCreateHex() error = %v", err)
 	}
 	assertCurrentUserOnlyACL(t, path)
 }
 
-func TestLoadOrCreateKeyMaterialRejectsSymlinkReparsePoint(t *testing.T) {
+func TestLoadOrCreateHexRejectsSymlinkReparsePoint(t *testing.T) {
 	dataDir := t.TempDir()
 	target := filepath.Join(t.TempDir(), "target.key")
 	material := hex.EncodeToString(make([]byte, 32))
 	if err := os.WriteFile(target, []byte(material+"\n"), 0o600); err != nil {
 		t.Fatalf("write symlink target: %v", err)
 	}
-	if err := os.Symlink(target, filepath.Join(dataDir, KeyFileName)); err != nil {
+	if err := os.Symlink(target, filepath.Join(dataDir, "auth.key")); err != nil {
 		t.Skipf("creating Windows symlink requires unavailable privilege: %v", err)
 	}
 
-	if _, err := LoadOrCreateKeyMaterial("", dataDir); err == nil {
-		t.Fatal("LoadOrCreateKeyMaterial() error = nil, want reparse-point rejection")
+	if _, err := LoadOrCreateHex(dataDir, "auth.key"); err == nil {
+		t.Fatal("LoadOrCreateHex() error = nil, want reparse-point rejection")
 	}
 }
 

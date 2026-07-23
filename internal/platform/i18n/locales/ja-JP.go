@@ -8,6 +8,7 @@ var MessagesJaJP = map[string]string{
 	"bad_gateway":                  "上流サービスエラー",
 	"internal_error":               "内部エラー",
 	"auth.invalid_key":             "無効な認証キー",
+	"auth.locked":                  "認証試行回数が多すぎます。しばらくしてから再試行してください",
 	"group.not_found":              "グループが存在しません",
 	"group.name_exists":            "グループ名が既に存在します",
 	"group.upstream_url_conflict":  "このアップストリームURLは既存のグループで使用されています",

@@ -6,7 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
+
+	"gpt-load/internal/platform/authkey"
 
 	"github.com/joho/godotenv"
 )
@@ -76,16 +77,12 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 
-	authKey := os.Getenv("AUTH_KEY")
-	if authKey == "" {
-		return nil, fmt.Errorf("AUTH_KEY is required")
-	}
-	fields := strings.Fields(authKey)
-	if len(fields) != 1 || fields[0] != authKey {
-		return nil, fmt.Errorf("AUTH_KEY must not contain whitespace")
+	dataDir := valueOrDefault("DATA_DIR", defaultDataDir)
+	authKey, err := authkey.Resolve(os.Getenv("AUTH_KEY"), dataDir)
+	if err != nil {
+		return nil, err
 	}
 
-	dataDir := valueOrDefault("DATA_DIR", defaultDataDir)
 	databaseDSN := os.Getenv("DATABASE_DSN")
 	if databaseDSN == "" {
 		databaseDSN = filepath.Join(dataDir, "gpt-load.db")

@@ -19,6 +19,7 @@ import (
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/gateway"
 	"gpt-load/internal/health"
+	"gpt-load/internal/platform/authkey"
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/platform/encryption"
 	"gpt-load/internal/platform/httpclient"
@@ -27,6 +28,7 @@ import (
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 	"gpt-load/internal/storage"
+	"gpt-load/internal/storage/models"
 	"gpt-load/internal/webui"
 )
 
@@ -102,11 +104,12 @@ func TestBuildContainerResolvesRuntimeDependencies(t *testing.T) {
 	err = dependencyContainer.Invoke(func(
 		_ *app.App,
 		cfg *config.Config,
-		_ encryption.Service,
+		keyService encryption.Service,
 		db *gorm.DB,
 		_ *gin.Engine,
 		manager *state.Manager,
 		registry *state.KeyRegistry,
+		startupBootstrap app.StartupBootstrap,
 		runtimeState app.RuntimeStateLoader,
 		gatewayHandler *gateway.Handler,
 		attemptForwarder gateway.AttemptForwarder,
@@ -130,12 +133,26 @@ func TestBuildContainerResolvesRuntimeDependencies(t *testing.T) {
 		if err := storage.AutoMigrate(db); err != nil {
 			t.Fatalf("AutoMigrate() error = %v", err)
 		}
+		if err := startupBootstrap.EnsureInitialState(context.Background()); err != nil {
+			t.Fatalf("EnsureInitialState() error = %v", err)
+		}
 		if err := runtimeState.Load(context.Background()); err != nil {
 			t.Fatalf("runtimeState.Load() error = %v", err)
 		}
+		var row models.AccessKey
+		if err := db.First(&row).Error; err != nil {
+			t.Fatalf("read default AccessKey: %v", err)
+		}
+		plaintext, err := keyService.Decrypt(row.KeyValue)
+		if err != nil {
+			t.Fatalf("decrypt default AccessKey: %v", err)
+		}
 		snapshot := manager.Current()
-		if snapshot == nil || snapshot.Revision != 1 {
-			t.Fatalf("current snapshot = %#v, want revision 1", snapshot)
+		if snapshot == nil || len(snapshot.AccessKeysByHash) != 1 {
+			t.Fatalf("current snapshot = %#v", snapshot)
+		}
+		if _, ok := snapshot.AccessKeysByHash[keyService.Hash(plaintext)]; !ok {
+			t.Fatal("first snapshot cannot authenticate default AccessKey")
 		}
 		if got := registry.CollectCandidates(nil, nil, time.Time{}); len(got) != 0 {
 			t.Fatalf("empty registry candidates = %#v", got)
@@ -154,6 +171,9 @@ func TestBuildContainerResolvesRuntimeDependencies(t *testing.T) {
 				t.Fatalf("%s was not created in DATA_DIR: %v", name, err)
 			}
 		}
+		if _, err := os.Stat(filepath.Join(dataDir, authkey.FileName)); !os.IsNotExist(err) {
+			t.Fatalf("explicit AUTH_KEY created %s: %v", authkey.FileName, err)
+		}
 		resolved = true
 	})
 	if err != nil {
@@ -161,6 +181,37 @@ func TestBuildContainerResolvesRuntimeDependencies(t *testing.T) {
 	}
 	if !resolved {
 		t.Fatal("runtime dependency graph was not invoked")
+	}
+}
+
+func TestBuildContainerGeneratesAuthKeyWhenEnvironmentIsEmpty(t *testing.T) {
+	dataDir := t.TempDir()
+	t.Setenv("AUTH_KEY", "")
+	t.Setenv("DATA_DIR", dataDir)
+	t.Setenv("DATABASE_DSN", ":memory:")
+	t.Setenv("ENCRYPTION_KEY", "test-master-key-long")
+
+	dependencyContainer, err := BuildContainer()
+	if err != nil {
+		t.Fatalf("BuildContainer() error = %v", err)
+	}
+	err = dependencyContainer.Invoke(func(cfg *config.Config, db *gorm.DB) {
+		t.Cleanup(func() {
+			sqlDB, dbErr := db.DB()
+			if dbErr == nil {
+				_ = sqlDB.Close()
+			}
+		})
+		stored, err := os.ReadFile(filepath.Join(dataDir, authkey.FileName))
+		if err != nil {
+			t.Fatalf("read %s: %v", authkey.FileName, err)
+		}
+		if cfg.AuthKey != strings.TrimSpace(string(stored)) {
+			t.Fatal("Config.AuthKey does not match generated auth.key")
+		}
+	})
+	if err != nil {
+		t.Fatalf("resolve generated AUTH_KEY config: %v", err)
 	}
 }
 
@@ -214,10 +265,14 @@ func TestBuildContainerRegistersWebUIControlAndGatewayRoutes(t *testing.T) {
 	err = dependencyContainer.Invoke(func(
 		engine *gin.Engine,
 		db *gorm.DB,
+		startupBootstrap app.StartupBootstrap,
 		runtimeState app.RuntimeStateLoader,
 	) {
 		if err := storage.AutoMigrate(db); err != nil {
 			t.Fatalf("AutoMigrate() error = %v", err)
+		}
+		if err := startupBootstrap.EnsureInitialState(context.Background()); err != nil {
+			t.Fatalf("EnsureInitialState() error = %v", err)
 		}
 		if err := runtimeState.Load(context.Background()); err != nil {
 			t.Fatalf("runtimeState.Load() error = %v", err)
@@ -252,20 +307,74 @@ func TestBuildContainerRegistersWebUIControlAndGatewayRoutes(t *testing.T) {
 			t.Fatalf("groups status = %d, want 200; body=%s", groupsRecorder.Code, groupsRecorder.Body.String())
 		}
 
-		gatewayRecorder := httptest.NewRecorder()
-		gatewayRequest := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"gpt-4o"}`))
-		gatewayRequest.Header.Set("Authorization", "Bearer test-auth-key")
-		engine.ServeHTTP(gatewayRecorder, gatewayRequest)
-		if gatewayRecorder.Code != http.StatusUnauthorized || !strings.Contains(gatewayRecorder.Body.String(), "invalid_access_key") {
-			t.Fatalf("gateway response = %d %s, want data-plane 401", gatewayRecorder.Code, gatewayRecorder.Body.String())
+		sessionRecorder := httptest.NewRecorder()
+		sessionRequest := httptest.NewRequest(http.MethodGet, "/api/auth/session", nil)
+		sessionRequest.Header.Set("Authorization", "Bearer test-auth-key")
+		engine.ServeHTTP(sessionRecorder, sessionRequest)
+		if sessionRecorder.Code != http.StatusOK {
+			t.Fatalf("session status = %d, want 200; body=%s", sessionRecorder.Code, sessionRecorder.Body.String())
+		}
+		var sessionEnvelope struct {
+			Code int `json:"code"`
+			Data struct {
+				Authenticated bool `json:"authenticated"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(sessionRecorder.Body.Bytes(), &sessionEnvelope); err != nil {
+			t.Fatalf("decode session response: %v", err)
+		}
+		if sessionEnvelope.Code != 0 || !sessionEnvelope.Data.Authenticated {
+			t.Fatalf("session envelope = %#v, want authenticated", sessionEnvelope)
 		}
 
-		unknownRecorder := httptest.NewRecorder()
-		unknownRequest := httptest.NewRequest(http.MethodGet, "/api/unknown", nil)
-		unknownRequest.Header.Set("Authorization", "Bearer test-auth-key")
-		engine.ServeHTTP(unknownRecorder, unknownRequest)
-		if unknownRecorder.Code != http.StatusUnauthorized || !strings.Contains(unknownRecorder.Body.String(), "invalid_access_key") {
-			t.Fatalf("unknown /api response = %d %s, want documented gateway NoRoute 401", unknownRecorder.Code, unknownRecorder.Body.String())
+		const untrustedPeer = "192.0.2.200:1234"
+		for attempt := 1; attempt <= 5; attempt++ {
+			gatewayRecorder := httptest.NewRecorder()
+			gatewayRequest := httptest.NewRequest(
+				http.MethodPost,
+				"/v1/chat/completions",
+				strings.NewReader(`{"model":"gpt-4o"}`),
+			)
+			gatewayRequest.RemoteAddr = untrustedPeer
+			gatewayRequest.Header.Set("Authorization", "Bearer wrong-control-key")
+			engine.ServeHTTP(gatewayRecorder, gatewayRequest)
+			var gatewayEnvelope struct {
+				Code string `json:"code"`
+			}
+			if err := json.Unmarshal(gatewayRecorder.Body.Bytes(), &gatewayEnvelope); err != nil {
+				t.Fatalf("decode gateway attempt %d response: %v", attempt, err)
+			}
+			if gatewayRecorder.Code != http.StatusUnauthorized ||
+				gatewayEnvelope.Code != "invalid_access_key" {
+				t.Fatalf(
+					"gateway attempt %d response = %d %s, want data-plane invalid_access_key 401",
+					attempt,
+					gatewayRecorder.Code,
+					gatewayRecorder.Body.String(),
+				)
+			}
+		}
+
+		for attempt := 1; attempt <= 5; attempt++ {
+			unknownRecorder := httptest.NewRecorder()
+			unknownRequest := httptest.NewRequest(http.MethodGet, "/api/unknown", nil)
+			unknownRequest.RemoteAddr = untrustedPeer
+			engine.ServeHTTP(unknownRecorder, unknownRequest)
+			var unknownEnvelope struct {
+				Code string `json:"code"`
+			}
+			if err := json.Unmarshal(unknownRecorder.Body.Bytes(), &unknownEnvelope); err != nil {
+				t.Fatalf("decode unknown /api attempt %d response: %v", attempt, err)
+			}
+			if unknownRecorder.Code != http.StatusUnauthorized ||
+				unknownEnvelope.Code != "invalid_access_key" {
+				t.Fatalf(
+					"unknown /api attempt %d response = %d %s, want gateway NoRoute invalid_access_key 401",
+					attempt,
+					unknownRecorder.Code,
+					unknownRecorder.Body.String(),
+				)
+			}
 		}
 	})
 	if err != nil {

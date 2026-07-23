@@ -1,15 +1,16 @@
 //go:build windows
 
-package encryption
+package securefile
 
 import (
+	"fmt"
 	"os"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
 
-func createSecureKeyFile(path string) (*os.File, error) {
+func createSecureFile(path string) (*os.File, error) {
 	descriptor, err := currentUserSecurityDescriptor()
 	if err != nil {
 		return nil, err
@@ -24,7 +25,7 @@ func createSecureKeyFile(path string) (*os.File, error) {
 	}
 	handle, err := windows.CreateFile(
 		pathPtr,
-		windows.GENERIC_READ|windows.GENERIC_WRITE,
+		windows.GENERIC_READ|windows.GENERIC_WRITE|windows.WRITE_DAC,
 		0,
 		&attributes,
 		windows.CREATE_NEW,
@@ -37,7 +38,7 @@ func createSecureKeyFile(path string) (*os.File, error) {
 	return os.NewFile(uintptr(handle), path), nil
 }
 
-func publishSecureKeyFile(temporaryPath, finalPath string) error {
+func publishSecureFile(temporaryPath, finalPath string) error {
 	temporaryPathPtr, err := windows.UTF16PtrFromString(temporaryPath)
 	if err != nil {
 		return err
@@ -52,10 +53,36 @@ func publishSecureKeyFile(temporaryPath, finalPath string) error {
 	return nil
 }
 
-func secureKeyFile(path string) error {
-	if err := requireRegularKeyFile(path); err != nil {
-		return err
+func openExistingSecureFile(path string) (*os.File, error) {
+	pathPtr, err := windows.UTF16PtrFromString(path)
+	if err != nil {
+		return nil, err
 	}
+	handle, err := windows.CreateFile(
+		pathPtr,
+		windows.GENERIC_READ|windows.WRITE_DAC,
+		windows.FILE_SHARE_READ,
+		nil,
+		windows.OPEN_EXISTING,
+		windows.FILE_FLAG_OPEN_REPARSE_POINT,
+		0,
+	)
+	if err != nil {
+		return nil, &os.PathError{Op: "open", Path: path, Err: err}
+	}
+	var information windows.ByHandleFileInformation
+	if err := windows.GetFileInformationByHandle(handle, &information); err != nil {
+		_ = windows.CloseHandle(handle)
+		return nil, &os.PathError{Op: "stat", Path: path, Err: err}
+	}
+	if information.FileAttributes&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+		_ = windows.CloseHandle(handle)
+		return nil, fmt.Errorf("secure file %s must be a regular file", path)
+	}
+	return os.NewFile(uintptr(handle), path), nil
+}
+
+func secureOpenedFile(file *os.File) error {
 	descriptor, err := currentUserSecurityDescriptor()
 	if err != nil {
 		return err
@@ -64,8 +91,8 @@ func secureKeyFile(path string) error {
 	if err != nil {
 		return err
 	}
-	return windows.SetNamedSecurityInfo(
-		path,
+	return windows.SetSecurityInfo(
+		windows.Handle(file.Fd()),
 		windows.SE_FILE_OBJECT,
 		windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION,
 		nil,
@@ -76,7 +103,7 @@ func secureKeyFile(path string) error {
 }
 
 // Windows does not expose a portable directory fsync equivalent. File.Sync
-// and the restrictive keyfile handle/ACL provide the strongest common path.
+// and the restrictive secure file handle/ACL provide the strongest common path.
 func syncParentDirectory(string) error {
 	return nil
 }

@@ -1,8 +1,12 @@
 package config
 
 import (
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"gpt-load/internal/platform/authkey"
 )
 
 func TestLoadUsesDefaultConfiguration(t *testing.T) {
@@ -91,15 +95,54 @@ func TestLoadDerivesDatabaseDSNFromDataDir(t *testing.T) {
 	}
 }
 
+func TestLoadGeneratesAuthKeyInsideConfiguredDataDir(t *testing.T) {
+	clearEnvironment(t)
+	dataDir := t.TempDir()
+	t.Setenv("DATA_DIR", dataDir)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if len(cfg.AuthKey) != 64 {
+		t.Fatalf("AuthKey length = %d, want 64", len(cfg.AuthKey))
+	}
+	contents, err := os.ReadFile(filepath.Join(dataDir, authkey.FileName))
+	if err != nil {
+		t.Fatalf("read auth.key: %v", err)
+	}
+	if strings.TrimSpace(string(contents)) != cfg.AuthKey {
+		t.Fatal("Config.AuthKey does not match generated auth.key")
+	}
+}
+
+func TestLoadExplicitAuthKeyDoesNotCreateFile(t *testing.T) {
+	clearEnvironment(t)
+	dataDir := t.TempDir()
+	t.Setenv("DATA_DIR", dataDir)
+	t.Setenv("AUTH_KEY", "explicit-auth-key")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.AuthKey != "explicit-auth-key" {
+		t.Fatalf("AuthKey = %q", cfg.AuthKey)
+	}
+	if _, err := os.Stat(filepath.Join(dataDir, authkey.FileName)); !os.IsNotExist(err) {
+		t.Fatalf("explicit AUTH_KEY created auth.key: %v", err)
+	}
+}
+
 func TestLoadRejectsInvalidRequiredAndNumericValues(t *testing.T) {
 	tests := []struct {
 		name string
 		env  map[string]string
 	}{
-		{name: "missing auth key", env: map[string]string{}},
 		{name: "whitespace-only auth key", env: map[string]string{"AUTH_KEY": "   "}},
 		{name: "auth key with internal space", env: map[string]string{"AUTH_KEY": "admin key"}},
 		{name: "auth key with tab", env: map[string]string{"AUTH_KEY": "admin\tkey"}},
+		{name: "auth key with unicode whitespace", env: map[string]string{"AUTH_KEY": "admin\u00a0key"}},
 		{name: "invalid port", env: map[string]string{"AUTH_KEY": "x", "PORT": "nope"}},
 		{name: "port out of range", env: map[string]string{"AUTH_KEY": "x", "PORT": "70000"}},
 		{name: "invalid shutdown timeout", env: map[string]string{"AUTH_KEY": "x", "GRACEFUL_SHUTDOWN_TIMEOUT": "0"}},
