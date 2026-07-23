@@ -54,6 +54,7 @@ temp/
 
 # Web build output: retain the single go:embed marker only.
 node_modules/
+.pnpm-store/
 web/coverage/
 
 !internal/webui/dist/
