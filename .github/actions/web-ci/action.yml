@@ -1,0 +1,42 @@
+name: Validate and build web UI
+description: Install, validate, test, and build the embedded Vue application
+
+runs:
+  using: composite
+  steps:
+    - name: Set up pnpm
+      uses: pnpm/action-setup@v6
+      with:
+        version: 11.15.1
+        run_install: false
+
+    - name: Set up Node
+      uses: actions/setup-node@v6
+      with:
+        node-version: 24.18.0
+        cache: pnpm
+        cache-dependency-path: web/pnpm-lock.yaml
+
+    - name: Install web dependencies
+      shell: bash
+      run: pnpm --dir web install --frozen-lockfile
+
+    - name: Lint web source
+      shell: bash
+      run: pnpm --dir web run lint
+
+    - name: Check web formatting
+      shell: bash
+      run: pnpm --dir web run format
+
+    - name: Type-check web source
+      shell: bash
+      run: pnpm --dir web run type-check
+
+    - name: Run web unit tests
+      shell: bash
+      run: pnpm --dir web run test
+
+    - name: Build embedded web assets
+      shell: bash
+      run: pnpm --dir web run build

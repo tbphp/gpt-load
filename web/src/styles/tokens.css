@@ -1,0 +1,78 @@
+:root {
+  color-scheme: light;
+  --color-page: #f7f6f3;
+  --color-surface: #ffffff;
+  --color-surface-secondary: #faf9f6;
+  --color-text: #23211d;
+  --color-text-muted: #6d685f;
+  --color-text-faint: #928c82;
+  --color-border: #e7e3dc;
+  --color-primary: #2f6db5;
+  --color-primary-ink: #ffffff;
+  --color-tag: #f2efe9;
+  --color-code-bg: #f4f2ed;
+  --color-code: #33302a;
+  --color-success: #2c8a54;
+  --color-success-bg: #e8f2ec;
+  --color-warning: #b07a1c;
+  --color-warning-bg: #f6efe1;
+  --color-danger: #c53f3a;
+  --color-danger-bg: #f9eae8;
+  --color-disabled: #9b958a;
+  --radius-card: 11px;
+  --radius-control: 8px;
+  --radius-tag: 6px;
+  --shadow-card: 0 1px 2px rgba(30, 26, 20, 0.07), 0 4px 14px rgba(30, 26, 20, 0.045);
+  --focus-ring: 0 0 0 3px color-mix(in srgb, var(--color-primary) 24%, transparent);
+  --duration-fast: 180ms;
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --color-page: #171613;
+  --color-surface: #201e1a;
+  --color-surface-secondary: #1a1814;
+  --color-text: #ece9e3;
+  --color-text-muted: #a49d91;
+  --color-text-faint: #7f7a70;
+  --color-border: #332f28;
+  --color-primary: #6ba6e6;
+  --color-primary-ink: #0c1620;
+  --color-tag: #262319;
+  --color-code-bg: #1a1814;
+  --color-code: #d8d3c9;
+  --color-success: #4fb178;
+  --color-success-bg: #16271d;
+  --color-warning: #d3a24d;
+  --color-warning-bg: #2a2214;
+  --color-danger: #e0655f;
+  --color-danger-bg: #2c1917;
+  --color-disabled: #918a7d;
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4), 0 6px 18px rgba(0, 0, 0, 0.28);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    color-scheme: dark;
+    --color-page: #171613;
+    --color-surface: #201e1a;
+    --color-surface-secondary: #1a1814;
+    --color-text: #ece9e3;
+    --color-text-muted: #a49d91;
+    --color-text-faint: #7f7a70;
+    --color-border: #332f28;
+    --color-primary: #6ba6e6;
+    --color-primary-ink: #0c1620;
+    --color-tag: #262319;
+    --color-code-bg: #1a1814;
+    --color-code: #d8d3c9;
+    --color-success: #4fb178;
+    --color-success-bg: #16271d;
+    --color-warning: #d3a24d;
+    --color-warning-bg: #2a2214;
+    --color-danger: #e0655f;
+    --color-danger-bg: #2c1917;
+    --color-disabled: #918a7d;
+    --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4), 0 6px 18px rgba(0, 0, 0, 0.28);
+  }
+}

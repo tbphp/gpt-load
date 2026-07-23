@@ -7,6 +7,10 @@
 gpt-load
 build/
 dist/
+node_modules/
+web/node_modules/
+web/coverage/
+internal/webui/dist/
 bin/
 coverage/
 tmp/

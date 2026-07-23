@@ -19,6 +19,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
 
+      - name: Validate and build web UI
+        uses: ./.github/actions/web-ci
+
       - name: Set up Go
         uses: actions/setup-go@v7
         with:

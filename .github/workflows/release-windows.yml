@@ -17,6 +17,8 @@ jobs:
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
+      - name: Validate and build web UI
+        uses: ./.github/actions/web-ci
       - name: Setup Go
         uses: actions/setup-go@v7
         with:

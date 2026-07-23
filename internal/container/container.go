@@ -22,6 +22,7 @@ import (
 	"gpt-load/internal/state"
 	stateloader "gpt-load/internal/state/loader"
 	"gpt-load/internal/storage"
+	"gpt-load/internal/webui"
 )
 
 // BuildContainer creates the 2.0 runtime foundation dependency graph.
@@ -37,6 +38,7 @@ func BuildContainer() (*dig.Container, error) {
 			return storage.Open(cfg.DatabaseDSN)
 		},
 		app.NewEngine,
+		webui.NewServer,
 		state.NewManager,
 		state.NewKeyRegistry,
 		health.NewStatsStore,
@@ -89,9 +91,11 @@ func BuildContainer() (*dig.Container, error) {
 		engine *gin.Engine,
 		gatewayHandler *gateway.Handler,
 		controlServer *control.Server,
+		webUIServer *webui.Server,
 	) {
 		gatewayHandler.RegisterRoutes(engine)
 		controlServer.RegisterRoutes(engine)
+		webUIServer.RegisterRoutes(engine)
 	}); err != nil {
 		return nil, fmt.Errorf("register HTTP routes: %w", err)
 	}

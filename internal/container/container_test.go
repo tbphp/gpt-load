@@ -27,6 +27,7 @@ import (
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 	"gpt-load/internal/storage"
+	"gpt-load/internal/webui"
 )
 
 func TestBuildContainerDoesNotInitializeUnusedRuntimeStore(t *testing.T) {
@@ -118,6 +119,7 @@ func TestBuildContainerResolvesRuntimeDependencies(t *testing.T) {
 		_ *httpclient.HTTPClientManager,
 		_ *redact.Redactor,
 		_ *dialect.OpenAI,
+		_ *webui.Server,
 	) {
 		t.Cleanup(func() {
 			sqlDB, dbErr := db.DB()
@@ -196,7 +198,7 @@ func TestBuildContainerUsesSingletonStatsStore(t *testing.T) {
 	}
 }
 
-func TestBuildContainerRegistersControlRoutesWithoutAffectingGateway(t *testing.T) {
+func TestBuildContainerRegistersWebUIControlAndGatewayRoutes(t *testing.T) {
 	t.Setenv("AUTH_KEY", "test-auth-key")
 	t.Setenv("DATA_DIR", t.TempDir())
 	t.Setenv("DATABASE_DSN", ":memory:")
@@ -219,6 +221,27 @@ func TestBuildContainerRegistersControlRoutesWithoutAffectingGateway(t *testing.
 		}
 		if err := runtimeState.Load(context.Background()); err != nil {
 			t.Fatalf("runtimeState.Load() error = %v", err)
+		}
+
+		var indexBody string
+		for _, target := range []string{"/", "/groups/abc"} {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodGet, target, nil)
+			engine.ServeHTTP(recorder, request)
+			if recorder.Code != http.StatusOK || !strings.HasPrefix(recorder.Header().Get("Content-Type"), "text/html") {
+				t.Fatalf("GET %s response = %d %s, want embedded HTML", target, recorder.Code, recorder.Body.String())
+			}
+			if indexBody == "" {
+				indexBody = recorder.Body.String()
+			} else if recorder.Body.String() != indexBody {
+				t.Fatalf("GET %s did not return the shared index", target)
+			}
+		}
+
+		healthRecorder := httptest.NewRecorder()
+		engine.ServeHTTP(healthRecorder, httptest.NewRequest(http.MethodGet, "/health", nil))
+		if healthRecorder.Code != http.StatusOK || !strings.Contains(healthRecorder.Body.String(), `"status":"ok"`) {
+			t.Fatalf("health response = %d %s", healthRecorder.Code, healthRecorder.Body.String())
 		}
 
 		groupsRecorder := httptest.NewRecorder()

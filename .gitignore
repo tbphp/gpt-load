@@ -51,3 +51,13 @@ temp/
 ._*
 .Spotlight-V100
 .Trashes
+
+# Web build output: retain the single go:embed marker only.
+node_modules/
+web/coverage/
+
+!internal/webui/dist/
+internal/webui/dist/*
+!internal/webui/dist/assets/
+internal/webui/dist/assets/*
+!internal/webui/dist/assets/embed-placeholder.txt
