@@ -84,6 +84,24 @@ func TestDockerWorkflowKeepsIndependentWebBuild(t *testing.T) {
 	}
 }
 
+func TestDockerfileCopiesWebInstallPolicyBeforeInstalling(t *testing.T) {
+	content := readRepositoryFile(t, "Dockerfile")
+	copyInputs := "COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml ./web/"
+	install := "RUN pnpm --dir web install --frozen-lockfile"
+
+	copyIndex := strings.Index(content, copyInputs)
+	if copyIndex < 0 {
+		t.Fatalf("Dockerfile does not copy the complete web install policy")
+	}
+	installIndex := strings.Index(content, install)
+	if installIndex < 0 {
+		t.Fatalf("Dockerfile does not install frozen web dependencies")
+	}
+	if copyIndex >= installIndex {
+		t.Fatal("Dockerfile copies the web install policy after installing dependencies")
+	}
+}
+
 func readRepositoryFile(t *testing.T, name string) string {
 	t.Helper()
 	content, err := os.ReadFile(filepath.Join("..", "..", name))
