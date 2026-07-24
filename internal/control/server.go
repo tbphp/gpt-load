@@ -1,6 +1,7 @@
 package control
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/json"
@@ -45,7 +46,14 @@ func (s *Server) RegisterRoutes(engine *gin.Engine) {
 	api.GET("/logs", s.handleListRequestLogs)
 	api.POST("/route/inspect", s.handleRouteInspect)
 	api.GET("/groups", s.handleListGroups)
+	api.GET("/groups/:group_id", s.handleGetGroup)
 	api.POST("/groups", s.handleCreateGroup)
+	api.PUT("/groups/:group_id", s.handleUpdateGroup)
+	api.PUT("/groups/:group_id/models", s.handleUpdateGroupModels)
+	api.DELETE("/groups/:group_id", s.handleDeleteGroup)
+	api.GET("/groups/:group_id/keys", s.handleListGroupKeys)
+	api.PUT("/groups/:group_id/keys/:key_id", s.handleUpdateGroupKey)
+	api.DELETE("/groups/:group_id/keys/:key_id", s.handleDeleteGroupKey)
 	api.POST("/groups/:group_id/keys/import", s.handleImportGroupKeys)
 	api.POST("/groups/:group_id/models/discover", s.handleDiscoverGroupModels)
 	api.POST("/models/discover", s.handleDiscoverModels)
@@ -64,6 +72,19 @@ func (s *Server) handleListGroups(c *gin.Context) {
 	response.SuccessI18n(c, "common.success", groups)
 }
 
+func (s *Server) handleGetGroup(c *gin.Context) {
+	id, ok := groupID(c, "get_group")
+	if !ok {
+		return
+	}
+	result, err := s.service.GetGroup(c.Request.Context(), id)
+	if err != nil {
+		writeServiceError(c, "get_group", err)
+		return
+	}
+	response.SuccessI18n(c, "common.success", result)
+}
+
 func (s *Server) handleCreateGroup(c *gin.Context) {
 	var request GroupCreateRequest
 	if err := bindStrictJSON(c, &request); err != nil {
@@ -76,6 +97,114 @@ func (s *Server) handleCreateGroup(c *gin.Context) {
 		return
 	}
 	response.SuccessI18n(c, "common.success", result)
+}
+
+func (s *Server) handleUpdateGroup(c *gin.Context) {
+	id, ok := groupID(c, "update_group")
+	if !ok {
+		return
+	}
+	var request GroupUpdateRequest
+	if err := bindStrictJSON(c, &request); err != nil {
+		writeServiceError(c, "update_group", mapControlJSONError(err))
+		return
+	}
+	result, err := s.service.UpdateGroup(c.Request.Context(), id, request)
+	if err != nil {
+		writeServiceError(c, "update_group", err)
+		return
+	}
+	response.SuccessI18n(c, "common.success", result)
+}
+
+func (s *Server) handleUpdateGroupModels(c *gin.Context) {
+	id, ok := groupID(c, "update_group_models")
+	if !ok {
+		return
+	}
+	var request GroupModelsUpdateRequest
+	if err := bindStrictJSON(c, &request); err != nil {
+		writeServiceError(c, "update_group_models", mapControlJSONError(err))
+		return
+	}
+	result, err := s.service.UpdateGroupModels(c.Request.Context(), id, request)
+	if err != nil {
+		writeServiceError(c, "update_group_models", err)
+		return
+	}
+	response.SuccessI18n(c, "common.success", result)
+}
+
+func (s *Server) handleDeleteGroup(c *gin.Context) {
+	id, ok := groupID(c, "delete_group")
+	if !ok {
+		return
+	}
+	if err := s.service.DeleteGroup(c.Request.Context(), id); err != nil {
+		writeServiceError(c, "delete_group", err)
+		return
+	}
+	response.SuccessI18n(c, "common.success", nil)
+}
+
+func (s *Server) handleListGroupKeys(c *gin.Context) {
+	id, ok := groupID(c, "list_group_keys")
+	if !ok {
+		return
+	}
+	result, err := s.service.ListGroupKeys(c.Request.Context(), id)
+	if err != nil {
+		writeServiceError(c, "list_group_keys", err)
+		return
+	}
+	response.SuccessI18n(c, "common.success", result)
+}
+
+func (s *Server) handleUpdateGroupKey(c *gin.Context) {
+	groupID, ok := groupID(c, "update_group_key")
+	if !ok {
+		return
+	}
+	keyID, ok := keyID(c, "update_group_key")
+	if !ok {
+		return
+	}
+	var request UpstreamKeyUpdateRequest
+	if err := bindStrictJSON(c, &request); err != nil {
+		writeServiceError(c, "update_group_key", mapControlJSONError(err))
+		return
+	}
+	result, err := s.service.UpdateGroupKey(
+		c.Request.Context(),
+		groupID,
+		keyID,
+		request,
+	)
+	if err != nil {
+		writeServiceError(c, "update_group_key", err)
+		return
+	}
+	response.SuccessI18n(c, "common.success", result)
+}
+
+func (s *Server) handleDeleteGroupKey(c *gin.Context) {
+	groupID, ok := groupID(c, "delete_group_key")
+	if !ok {
+		return
+	}
+	keyID, ok := keyID(c, "delete_group_key")
+	if !ok {
+		return
+	}
+	if err := s.service.DeleteGroupKey(
+		c.Request.Context(),
+		groupID,
+		keyID,
+	); err != nil {
+		writeServiceError(c, "delete_group_key", err)
+		return
+	}
+	response.SuccessI18n(c, "common.success", nil)
 }
 
 func (s *Server) handleImportGroupKeys(c *gin.Context) {
@@ -185,9 +314,12 @@ func bindStrictJSON(c *gin.Context, target any) error {
 	if err != nil {
 		return err
 	}
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(target); err != nil {
+	var raw json.RawMessage
+	if err := decoder.Decode(&raw); err != nil {
 		return err
+	}
+	if len(raw) == 0 || bytes.TrimSpace(raw)[0] != '{' {
+		return fmt.Errorf("request body must be a JSON object")
 	}
 
 	var extra json.RawMessage
@@ -195,6 +327,13 @@ func bindStrictJSON(c *gin.Context, target any) error {
 		if err == nil {
 			return fmt.Errorf("decode JSON request: multiple values")
 		}
+		return err
+	}
+
+	strictDecoder := json.NewDecoder(bytes.NewReader(raw))
+	strictDecoder.UseNumber()
+	strictDecoder.DisallowUnknownFields()
+	if err := strictDecoder.Decode(target); err != nil {
 		return err
 	}
 	return nil
@@ -262,6 +401,15 @@ func groupID(c *gin.Context, operation string) (uint, bool) {
 	return uint(parsed), true
 }
 
+func keyID(c *gin.Context, operation string) (uint, bool) {
+	parsed, err := strconv.ParseUint(c.Param("key_id"), 10, strconv.IntSize)
+	if err != nil || parsed == 0 {
+		writeServiceError(c, operation, app_errors.ErrBadRequest)
+		return 0, false
+	}
+	return uint(parsed), true
+}
+
 func writeServiceError(c *gin.Context, operation string, err error) {
 	writeServiceErrorResponse(c, operation, err)
 }
@@ -280,7 +428,11 @@ func writeServiceErrorResponse(
 		if apiErr.HTTPStatus >= http.StatusInternalServerError {
 			logServiceError(operation, err, apiErr.Code)
 		}
-		response.ErrorI18nFromAPIError(c, apiErr, serviceErrorMessageID(operation, apiErr))
+		response.ErrorI18nFromAPIError(
+			c,
+			apiErr,
+			serviceErrorMessageID(operation, err, apiErr),
+		)
 		return
 	}
 
@@ -288,25 +440,43 @@ func writeServiceErrorResponse(
 	response.ErrorI18nFromAPIError(c, app_errors.ErrInternalServer, "internal_error")
 }
 
-func serviceErrorMessageID(operation string, apiErr *app_errors.APIError) string {
+func serviceErrorMessageID(
+	operation string,
+	err error,
+	apiErr *app_errors.APIError,
+) string {
 	switch apiErr.Code {
 	case app_errors.ErrRequestTooLarge.Code:
 		return "request_too_large"
 	case app_errors.ErrBadRequest.Code, app_errors.ErrInvalidJSON.Code, app_errors.ErrValidation.Code:
 		return "bad_request"
 	case app_errors.ErrResourceNotFound.Code:
-		if operation == "list_groups" || operation == "import_group_keys" ||
-			operation == "discover_group_models" {
-			return "group.not_found"
+		var resourceErr *controlResourceNotFoundError
+		if errors.As(err, &resourceErr) {
+			if resourceErr.resource == "group" {
+				return "group.not_found"
+			}
+			return "key.not_found"
 		}
-		return "key.not_found"
+		switch operation {
+		case "list_groups", "get_group", "update_group", "delete_group",
+			"update_group_models", "import_group_keys",
+			"discover_group_models", "list_group_keys":
+			return "group.not_found"
+		default:
+			return "key.not_found"
+		}
 	case app_errors.ErrNoActiveUpstreamKey.Code:
 		return "group.no_active_upstream_key"
 	case app_errors.ErrDuplicateResource.Code:
-		if operation == "create_group" {
+		if operation == "create_group" || operation == "update_group" {
 			return "group.name_exists"
 		}
 		return "bad_request"
+	case app_errors.ErrUpstreamURLChangeConfirmationRequired.Code:
+		return "group.upstream_url_change_confirmation_required"
+	case app_errors.ErrGroupInUse.Code:
+		return "group.in_use"
 	case app_errors.ErrUpstreamURLConflict.Code:
 		return "group.upstream_url_conflict"
 	case app_errors.ErrBadGateway.Code:
@@ -321,6 +491,21 @@ func logServiceError(operation string, err error, code string) {
 		"operation":  operation,
 		"error_code": code,
 		"error_type": fmt.Sprintf("%T", err),
+	}
+	var operationErr *controlOperationError
+	if errors.As(err, &operationErr) {
+		if operationErr.stage != "" {
+			fields["stage"] = operationErr.stage
+		}
+		if operationErr.mismatchKind != "" {
+			fields["mismatch_kind"] = operationErr.mismatchKind
+		}
+		if operationErr.groupID != 0 {
+			fields["group_id"] = operationErr.groupID
+		}
+		if operationErr.keyID != 0 {
+			fields["key_id"] = operationErr.keyID
+		}
 	}
 	logrus.WithFields(fields).Error("Control operation failed")
 }

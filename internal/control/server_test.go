@@ -95,10 +95,12 @@ func oversizedControlJSONBody(prefix string) io.Reader {
 }
 
 type controlJSONBodyLimitState struct {
-	rowCounts          [3]int64
-	snapshotRevision   uint64
-	registryCandidates []state.KeyMeta
-	accessKey          models.AccessKey
+	rowCounts       [3]int64
+	snapshot        *state.ConfigSnapshot
+	group           models.Group
+	upstreamKey     models.UpstreamKey
+	registryRuntime []state.KeyRuntimeView
+	accessKey       models.AccessKey
 }
 
 func captureControlJSONBodyLimitState(
@@ -108,11 +110,22 @@ func captureControlJSONBodyLimitState(
 	accessKeyID uint,
 ) controlJSONBodyLimitState {
 	t.Helper()
+	var group models.Group
+	if err := fixture.db.First(&group, groupID).Error; err != nil {
+		t.Fatalf("load body-limit Group: %v", err)
+	}
+	var upstreamKey models.UpstreamKey
+	if err := fixture.db.Where("group_id = ?", groupID).
+		Order("id ASC").Take(&upstreamKey).Error; err != nil {
+		t.Fatalf("load body-limit UpstreamKey: %v", err)
+	}
 	return controlJSONBodyLimitState{
-		rowCounts:          discoveryRowCounts(t, fixture.db),
-		snapshotRevision:   fixture.manager.Current().Revision,
-		registryCandidates: fixture.registry.CollectCandidates([]uint{groupID, groupID + 1}, nil, time.Time{}),
-		accessKey:          loadAccessKeyRow(t, fixture.db, accessKeyID),
+		rowCounts:       discoveryRowCounts(t, fixture.db),
+		snapshot:        fixture.manager.Current(),
+		group:           group,
+		upstreamKey:     upstreamKey,
+		registryRuntime: fixture.registry.Snapshot(),
+		accessKey:       loadAccessKeyRow(t, fixture.db, accessKeyID),
 	}
 }
 
@@ -128,11 +141,27 @@ func assertControlJSONBodyLimitStateUnchanged(
 	if got.rowCounts != want.rowCounts {
 		t.Errorf("database row counts = %v, want unchanged %v", got.rowCounts, want.rowCounts)
 	}
-	if got.snapshotRevision != want.snapshotRevision {
-		t.Errorf("snapshot revision = %d, want unchanged %d", got.snapshotRevision, want.snapshotRevision)
+	if got.snapshot != want.snapshot {
+		t.Errorf(
+			"snapshot pointer/revision changed: got=%p/%d want=%p/%d",
+			got.snapshot,
+			got.snapshot.Revision,
+			want.snapshot,
+			want.snapshot.Revision,
+		)
 	}
-	if !reflect.DeepEqual(got.registryCandidates, want.registryCandidates) {
-		t.Errorf("Registry candidates changed: got=%#v want=%#v", got.registryCandidates, want.registryCandidates)
+	if !reflect.DeepEqual(got.group, want.group) {
+		t.Errorf("persisted Group changed")
+	}
+	if !reflect.DeepEqual(got.upstreamKey, want.upstreamKey) {
+		t.Errorf("persisted UpstreamKey changed")
+	}
+	if !reflect.DeepEqual(got.registryRuntime, want.registryRuntime) {
+		t.Errorf(
+			"Registry runtime changed: got=%#v want=%#v",
+			got.registryRuntime,
+			want.registryRuntime,
+		)
 	}
 	if !reflect.DeepEqual(got.accessKey, want.accessKey) {
 		t.Errorf("persisted AccessKey changed")
@@ -145,50 +174,71 @@ func TestControlJSONBodyLimitAppliesToEveryJSONEndpoint(t *testing.T) {
 	for _, endpoint := range []struct {
 		name       string
 		method     string
-		path       func(groupID, accessKeyID uint) string
+		path       func(groupID, upstreamKeyID, accessKeyID uint) string
 		jsonPrefix string
 	}{
 		{
 			name: "create group", method: http.MethodPost,
-			path: func(uint, uint) string { return "/api/groups" },
+			path: func(uint, uint, uint) string { return "/api/groups" },
 			jsonPrefix: `{"name":"body-limit-group","upstream_url":"https://body-limit-create.example.com/v1",` +
 				`"protocols":["openai"],"keys":"sk-body-limit-create","config":{}}`,
 		},
 		{
 			name: "import group keys", method: http.MethodPost,
-			path: func(groupID, _ uint) string {
+			path: func(groupID, _, _ uint) string {
 				return "/api/groups/" + strconv.FormatUint(uint64(groupID), 10) + "/keys/import"
 			},
 			jsonPrefix: `{"keys":"sk-body-limit-import"}`,
 		},
 		{
+			name: "update group", method: http.MethodPut,
+			path: func(groupID, _, _ uint) string {
+				return fmt.Sprintf("/api/groups/%d", groupID)
+			},
+			jsonPrefix: `{"name":"body-limit-updated-group"}`,
+		},
+		{
 			name: "discover group models", method: http.MethodPost,
-			path: func(groupID, _ uint) string {
+			path: func(groupID, _, _ uint) string {
 				return "/api/groups/" + strconv.FormatUint(uint64(groupID), 10) + "/models/discover"
 			},
 			jsonPrefix: `{}`,
 		},
 		{
+			name: "save group models", method: http.MethodPut,
+			path: func(groupID, _, _ uint) string {
+				return "/api/groups/" + strconv.FormatUint(uint64(groupID), 10) + "/models"
+			},
+			jsonPrefix: `{"models":[]}`,
+		},
+		{
+			name: "update upstream key", method: http.MethodPut,
+			path: func(groupID, upstreamKeyID, _ uint) string {
+				return fmt.Sprintf("/api/groups/%d/keys/%d", groupID, upstreamKeyID)
+			},
+			jsonPrefix: `{"status":"disabled"}`,
+		},
+		{
 			name: "discover draft models", method: http.MethodPost,
-			path: func(uint, uint) string { return "/api/models/discover" },
+			path: func(uint, uint, uint) string { return "/api/models/discover" },
 			jsonPrefix: `{"upstream_url":"https://body-limit-discover.example.com/v1",` +
 				`"protocols":["openai"],"keys":"sk-body-limit-discover","config":{}}`,
 		},
 		{
 			name: "create access key", method: http.MethodPost,
-			path:       func(uint, uint) string { return "/api/access-keys" },
+			path:       func(uint, uint, uint) string { return "/api/access-keys" },
 			jsonPrefix: `{"name":"body-limit-created-access-key"}`,
 		},
 		{
 			name: "update access key", method: http.MethodPut,
-			path: func(_ uint, accessKeyID uint) string {
+			path: func(_, _ uint, accessKeyID uint) string {
 				return "/api/access-keys/" + strconv.FormatUint(uint64(accessKeyID), 10)
 			},
 			jsonPrefix: `{"name":"body-limit-updated-access-key"}`,
 		},
 		{
 			name: "route inspector", method: http.MethodPost,
-			path:       func(uint, uint) string { return "/api/route/inspect" },
+			path:       func(uint, uint, uint) string { return "/api/route/inspect" },
 			jsonPrefix: `{"protocol":"openai","external_model":"gpt-4o","access_key_id":1}`,
 		},
 	} {
@@ -213,7 +263,7 @@ func TestControlJSONBodyLimitAppliesToEveryJSONEndpoint(t *testing.T) {
 			NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
 			before := captureControlJSONBodyLimitState(t, fixture, groupID, accessKey.ID)
 
-			path := endpoint.path(groupID, accessKey.ID)
+			path := endpoint.path(groupID, before.upstreamKey.ID, accessKey.ID)
 			request := httptest.NewRequest(endpoint.method, path, oversizedControlJSONBody(endpoint.jsonPrefix))
 			request.ContentLength = -1
 			request.Header.Set("Authorization", "Bearer test-auth-key")
@@ -692,6 +742,416 @@ func TestManagementWritesRejectUnknownFieldsAndMultipleJSONValues(t *testing.T) 
 			t.Fatalf("snapshot revision = %d, want unchanged %d", got, beforeRevision)
 		}
 	})
+}
+
+func TestUpdateGroupEndpointRejectsStrictInvalidBodies(t *testing.T) {
+	initControlI18n(t)
+	fixture := newServiceFixture(t)
+	groupID := createGroupForKeyImport(t, fixture, "sk-update-http")
+	engine := gin.New()
+	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
+
+	for _, test := range []struct {
+		name string
+		body string
+		code string
+	}{
+		{name: "empty object", body: `{}`, code: app_errors.ErrBadRequest.Code},
+		{name: "confirmation only", body: `{"confirm_upstream_url_change":true}`, code: app_errors.ErrBadRequest.Code},
+		{name: "unknown field", body: `{"name":"changed","unknown":true}`, code: app_errors.ErrInvalidJSON.Code},
+		{name: "multiple JSON values", body: `{"name":"changed"} {"enabled":false}`, code: app_errors.ErrInvalidJSON.Code},
+		{name: "null name", body: `{"name":null}`, code: app_errors.ErrValidation.Code},
+		{name: "negative weight", body: `{"weight_manual":-1}`, code: app_errors.ErrValidation.Code},
+		{name: "empty protocols", body: `{"protocols":[]}`, code: app_errors.ErrValidation.Code},
+		{name: "invalid config", body: `{"config":{"first_byte_timeout":-1}}`, code: app_errors.ErrValidation.Code},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			before := fixture.manager.Current().Revision
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(
+				http.MethodPut,
+				"/api/groups/"+strconv.FormatUint(uint64(groupID), 10),
+				strings.NewReader(test.body),
+			)
+			request.Header.Set("Authorization", "Bearer test-auth-key")
+			request.Header.Set("Content-Type", "application/json")
+			engine.ServeHTTP(recorder, request)
+
+			var envelope struct {
+				Code string `json:"code"`
+			}
+			if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err != nil {
+				t.Fatalf("decode response: %v", err)
+			}
+			if recorder.Code != http.StatusBadRequest || envelope.Code != test.code {
+				t.Fatalf("response = %d %#v, want 400 %q", recorder.Code, envelope, test.code)
+			}
+			if fixture.manager.Current().Revision != before {
+				t.Fatal("invalid update published a Snapshot")
+			}
+		})
+	}
+}
+
+func TestUpdateGroupEndpointRejectsTopLevelNullWithoutMutation(t *testing.T) {
+	initControlI18n(t)
+	fixture := newServiceFixture(t)
+	groupID := createGroupForKeyImport(t, fixture, "sk-update-null")
+	engine := gin.New()
+	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
+
+	var beforeGroup models.Group
+	if err := fixture.db.First(&beforeGroup, groupID).Error; err != nil {
+		t.Fatal(err)
+	}
+	var beforeKeys []models.UpstreamKey
+	if err := fixture.db.Where("group_id = ?", groupID).Order("id ASC").Find(&beforeKeys).Error; err != nil {
+		t.Fatal(err)
+	}
+	beforeRevision := fixture.manager.Current().Revision
+	beforeRegistry := fixture.registry.CollectCandidates([]uint{groupID}, nil, time.Time{})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(
+		http.MethodPut,
+		"/api/groups/"+strconv.FormatUint(uint64(groupID), 10),
+		strings.NewReader(`null`),
+	)
+	request.Header.Set("Authorization", "Bearer test-auth-key")
+	request.Header.Set("Content-Type", "application/json")
+	engine.ServeHTTP(recorder, request)
+	assertUpdateGroupErrorResponse(t, recorder, http.StatusBadRequest, app_errors.ErrInvalidJSON.Code, "请求错误")
+
+	var afterGroup models.Group
+	if err := fixture.db.First(&afterGroup, groupID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(afterGroup, beforeGroup) {
+		t.Fatalf("persisted group changed: got=%#v want=%#v", afterGroup, beforeGroup)
+	}
+	var afterKeys []models.UpstreamKey
+	if err := fixture.db.Where("group_id = ?", groupID).Order("id ASC").Find(&afterKeys).Error; err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(afterKeys, beforeKeys) {
+		t.Fatalf("persisted keys changed: got=%#v want=%#v", afterKeys, beforeKeys)
+	}
+	if got := fixture.manager.Current().Revision; got != beforeRevision {
+		t.Fatalf("snapshot revision = %d, want %d", got, beforeRevision)
+	}
+	if got := fixture.registry.CollectCandidates([]uint{groupID}, nil, time.Time{}); !reflect.DeepEqual(got, beforeRegistry) {
+		t.Fatalf("Registry candidates changed: got=%#v want=%#v", got, beforeRegistry)
+	}
+}
+
+func TestUpdateGroupEndpointURLConflictsSuccessI18nAndAuth(t *testing.T) {
+	initControlI18n(t)
+	fixture := newServiceFixture(t)
+	firstID := createGroupForKeyImport(t, fixture, "sk-update-first")
+	second, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
+		Name:        stringPointer("other-group"),
+		UpstreamURL: "https://conflict.example.com/v1",
+		Protocols:   []protocol.Protocol{protocol.OpenAI},
+		Keys:        "sk-update-second",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine := gin.New()
+	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
+	path := "/api/groups/" + strconv.FormatUint(uint64(firstID), 10)
+
+	request := httptest.NewRequest(http.MethodPut, path, strings.NewReader(
+		`{"upstream_url":"https://unique.example.com/v1"}`,
+	))
+	request.Header.Set("Authorization", "Bearer test-auth-key")
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Accept-Language", "ja-JP")
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, request)
+	assertUpdateGroupErrorResponse(t, recorder, http.StatusConflict, app_errors.ErrUpstreamURLChangeConfirmationRequired.Code, "アップストリームURLの変更には明示的な確認が必要です")
+
+	request = httptest.NewRequest(http.MethodPut, path, strings.NewReader(
+		`{"upstream_url":"https://conflict.example.com/v1/","confirm_upstream_url_change":true}`,
+	))
+	request.Header.Set("Authorization", "Bearer test-auth-key")
+	request.Header.Set("Content-Type", "application/json")
+	recorder = httptest.NewRecorder()
+	engine.ServeHTTP(recorder, request)
+	assertUpdateGroupErrorResponse(t, recorder, http.StatusConflict, app_errors.ErrUpstreamURLConflict.Code, "已有分组使用该上游地址")
+
+	request = httptest.NewRequest(http.MethodPut, path, strings.NewReader(
+		`{"name":"other-group"}`,
+	))
+	request.Header.Set("Authorization", "Bearer test-auth-key")
+	request.Header.Set("Content-Type", "application/json")
+	recorder = httptest.NewRecorder()
+	engine.ServeHTTP(recorder, request)
+	assertUpdateGroupErrorResponse(t, recorder, http.StatusConflict, app_errors.ErrDuplicateResource.Code, "分组名称已存在")
+
+	request = httptest.NewRequest(http.MethodPut, path, strings.NewReader(
+		`{"upstream_url":" HTTPS://UNIQUE.example.com/v1/ ","confirm_upstream_url_change":true,"enabled":false}`,
+	))
+	request.Header.Set("Authorization", "Bearer test-auth-key")
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Accept-Language", "ja-JP")
+	recorder = httptest.NewRecorder()
+	engine.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("success response = %d %s", recorder.Code, recorder.Body.String())
+	}
+	var success struct {
+		Code    int               `json:"code"`
+		Message string            `json:"message"`
+		Data    GroupUpdateResult `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &success); err != nil {
+		t.Fatal(err)
+	}
+	if success.Code != 0 || success.Message != "成功" ||
+		!success.Data.ModelRediscoveryRecommended || success.Data.Group.Enabled ||
+		success.Data.Group.UpstreamURL != "https://unique.example.com/v1" {
+		t.Fatalf("success envelope = %#v", success)
+	}
+
+	unauthorized := httptest.NewRecorder()
+	engine.ServeHTTP(unauthorized, httptest.NewRequest(http.MethodPut, path, strings.NewReader(`{"enabled":true}`)))
+	if unauthorized.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthorized response = %d %s", unauthorized.Code, unauthorized.Body.String())
+	}
+	if second.GroupID == 0 {
+		t.Fatal("second Group was not created")
+	}
+}
+
+func TestUpdateGroupEndpointRejectsOversizedJSON(t *testing.T) {
+	initControlI18n(t)
+	fixture := newServiceFixture(t)
+	groupID := createGroupForKeyImport(t, fixture, "sk-update-limit")
+	engine := gin.New()
+	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
+	before := fixture.manager.Current().Revision
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(
+		http.MethodPut,
+		"/api/groups/"+strconv.FormatUint(uint64(groupID), 10),
+		oversizedControlJSONBody(`{"name":"changed"}`),
+	)
+	request.Header.Set("Authorization", "Bearer test-auth-key")
+	request.Header.Set("Content-Type", "application/json")
+	request.ContentLength = -1
+	engine.ServeHTTP(recorder, request)
+	assertUpdateGroupErrorResponse(t, recorder, http.StatusRequestEntityTooLarge, app_errors.ErrRequestTooLarge.Code, "请求体过大")
+	if fixture.manager.Current().Revision != before {
+		t.Fatal("oversized update published a Snapshot")
+	}
+}
+
+func TestUpdateGroupModelsEndpointRejectsStrictInvalidBodiesWithoutMutation(t *testing.T) {
+	initControlI18n(t)
+	fixture := newServiceFixture(t)
+	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
+		UpstreamURL: "https://model-save-http-invalid.example.com/v1",
+		Protocols:   []protocol.Protocol{protocol.OpenAI},
+		Models: optionalGroupModels{
+			Set:    true,
+			Values: []GroupModel{{ID: "provider-old", Alias: "old-public"}},
+		},
+		Keys: "sk-model-save-http-invalid",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine := gin.New()
+	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
+
+	for _, test := range []struct {
+		name string
+		body string
+		code string
+	}{
+		{name: "missing models", body: `{}`, code: app_errors.ErrValidation.Code},
+		{name: "null models", body: `{"models":null}`, code: app_errors.ErrValidation.Code},
+		{name: "models object", body: `{"models":{}}`, code: app_errors.ErrInvalidJSON.Code},
+		{name: "unknown top-level field", body: `{"models":[],"unknown":true}`, code: app_errors.ErrInvalidJSON.Code},
+		{name: "unknown nested field", body: `{"models":[{"id":"provider","unknown":true}]}`, code: app_errors.ErrInvalidJSON.Code},
+		{name: "blank upstream model ID", body: `{"models":[{"id":" "}]}`, code: app_errors.ErrValidation.Code},
+		{
+			name: "duplicate external model",
+			body: `{"models":[{"id":"provider-a","alias":"public"},` +
+				`{"id":"provider-b","alias":"public"}]}`,
+			code: app_errors.ErrValidation.Code,
+		},
+		{name: "multiple JSON values", body: `{"models":[]} {"models":[]}`, code: app_errors.ErrInvalidJSON.Code},
+		{name: "top-level null", body: `null`, code: app_errors.ErrInvalidJSON.Code},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			beforeRevision := fixture.manager.Current().Revision
+			beforeModels := loadCreatedGroupModels(t, fixture, created.GroupID)
+			recorder := serveRawGroupModelsUpdateRequest(
+				t,
+				engine,
+				"test-auth-key",
+				"en-US",
+				strconv.FormatUint(uint64(created.GroupID), 10),
+				test.body,
+			)
+			var envelope struct {
+				Code string `json:"code"`
+			}
+			if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err != nil {
+				t.Fatalf("decode response: %v", err)
+			}
+			if recorder.Code != http.StatusBadRequest || envelope.Code != test.code {
+				t.Fatalf("response = %d %#v, want 400 %q", recorder.Code, envelope, test.code)
+			}
+			if fixture.manager.Current().Revision != beforeRevision {
+				t.Fatal("invalid models save published a Snapshot")
+			}
+			if got := loadCreatedGroupModels(t, fixture, created.GroupID); !reflect.DeepEqual(got, beforeModels) {
+				t.Fatalf("invalid models save changed persistence: got=%#v want=%#v", got, beforeModels)
+			}
+		})
+	}
+}
+
+func TestUpdateGroupModelsEndpointIDsAuthNotFoundAndSuccessDTO(t *testing.T) {
+	initControlI18n(t)
+	fixture := newServiceFixture(t)
+	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
+		UpstreamURL: "https://model-save-http.example.com/v1",
+		Protocols:   []protocol.Protocol{protocol.OpenAI},
+		Models: optionalGroupModels{
+			Set:    true,
+			Values: []GroupModel{{ID: "provider-old", Alias: "old-public"}},
+		},
+		Keys: "sk-model-save-http",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine := gin.New()
+	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
+	body := `{"models":[{"id":"provider-new","alias":"new-public"}]}`
+
+	for _, rawID := range []string{"0", "-1", "not-a-number", "18446744073709551616"} {
+		beforeRevision := fixture.manager.Current().Revision
+		recorder := serveRawGroupModelsUpdateRequest(t, engine, "test-auth-key", "en-US", rawID, body)
+		if recorder.Code != http.StatusBadRequest ||
+			!strings.Contains(recorder.Body.String(), `"code":"BAD_REQUEST"`) {
+			t.Fatalf("Group ID %q response = %d %s", rawID, recorder.Code, recorder.Body.String())
+		}
+		if fixture.manager.Current().Revision != beforeRevision {
+			t.Fatalf("invalid Group ID %q published a Snapshot", rawID)
+		}
+	}
+
+	beforeRevision := fixture.manager.Current().Revision
+	unauthorized := serveRawGroupModelsUpdateRequest(
+		t,
+		engine,
+		"",
+		"en-US",
+		strconv.FormatUint(uint64(created.GroupID), 10),
+		body,
+	)
+	if unauthorized.Code != http.StatusUnauthorized ||
+		!strings.Contains(unauthorized.Body.String(), `"code":"UNAUTHORIZED"`) {
+		t.Fatalf("unauthorized response = %d %s", unauthorized.Code, unauthorized.Body.String())
+	}
+	if fixture.manager.Current().Revision != beforeRevision {
+		t.Fatal("unauthorized models save published a Snapshot")
+	}
+
+	missing := serveRawGroupModelsUpdateRequest(t, engine, "test-auth-key", "zh-CN", "999", body)
+	if missing.Code != http.StatusNotFound ||
+		!strings.Contains(missing.Body.String(), `"code":"NOT_FOUND"`) ||
+		!strings.Contains(missing.Body.String(), "分组不存在") {
+		t.Fatalf("missing Group response = %d %s", missing.Code, missing.Body.String())
+	}
+
+	success := serveRawGroupModelsUpdateRequest(
+		t,
+		engine,
+		"test-auth-key",
+		"ja-JP",
+		strconv.FormatUint(uint64(created.GroupID), 10),
+		body,
+	)
+	if success.Code != http.StatusOK {
+		t.Fatalf("success response = %d %s", success.Code, success.Body.String())
+	}
+	var envelope struct {
+		Code    int             `json:"code"`
+		Message string          `json:"message"`
+		Data    json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(success.Body.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.Code != 0 || envelope.Message != "成功" {
+		t.Fatalf("success envelope = %#v", envelope)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(envelope.Data, &fields); err != nil {
+		t.Fatal(err)
+	}
+	if _, wrapped := fields["group"]; wrapped {
+		t.Fatalf("models save returned GroupUpdateResult wrapper: %s", envelope.Data)
+	}
+	if _, wrapped := fields["model_rediscovery_recommended"]; wrapped {
+		t.Fatalf("models save returned discovery diff metadata: %s", envelope.Data)
+	}
+	var detail GroupDetailResponse
+	if err := json.Unmarshal(envelope.Data, &detail); err != nil {
+		t.Fatal(err)
+	}
+	wantModels := []GroupModel{{ID: "provider-new", Alias: "new-public"}}
+	if detail.ID != created.GroupID || !reflect.DeepEqual(detail.Models, wantModels) || detail.KeyCount != 1 {
+		t.Fatalf("success detail = %#v", detail)
+	}
+}
+
+func serveRawGroupModelsUpdateRequest(
+	t *testing.T,
+	engine *gin.Engine,
+	authKey, language, groupID, body string,
+) *httptest.ResponseRecorder {
+	t.Helper()
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(
+		http.MethodPut,
+		"/api/groups/"+groupID+"/models",
+		strings.NewReader(body),
+	)
+	if authKey != "" {
+		request.Header.Set("Authorization", "Bearer "+authKey)
+	}
+	request.Header.Set("Accept-Language", language)
+	request.Header.Set("Content-Type", "application/json")
+	engine.ServeHTTP(recorder, request)
+	return recorder
+}
+
+func assertUpdateGroupErrorResponse(
+	t *testing.T,
+	recorder *httptest.ResponseRecorder,
+	wantStatus int,
+	wantCode string,
+	wantMessage string,
+) {
+	t.Helper()
+	var envelope struct {
+		Code    string `json:"code"`
+		Message string `json:"message"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if recorder.Code != wantStatus || envelope.Code != wantCode || envelope.Message != wantMessage {
+		t.Fatalf("response = %d %#v, want %d %q %q", recorder.Code, envelope, wantStatus, wantCode, wantMessage)
+	}
 }
 
 func TestUpdateAccessKeyRoutesParseIDsAndPreservePointerSemantics(t *testing.T) {

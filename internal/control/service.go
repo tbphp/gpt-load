@@ -89,14 +89,39 @@ func (s *Service) writeConfig(
 
 	if afterCommitBeforePublish != nil {
 		if err := afterCommitBeforePublish(); err != nil {
-			return nil, fmt.Errorf("apply committed runtime update: %w", err)
+			return nil, newControlOperationError(stageApplyCommittedRegistryMutation)
 		}
 	}
 	snapshot, err := s.manager.Publish(input)
 	if err != nil {
-		return nil, fmt.Errorf("publish committed config: %w", err)
+		return nil, newControlOperationError(stagePublishCommittedSnapshot)
 	}
 	return snapshot, nil
+}
+
+func (s *Service) writeKeyConfig(
+	ctx context.Context,
+	groupID uint,
+	keyID uint,
+	mutate func(*gorm.DB) error,
+	afterCommit func() error,
+) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+
+	if err := s.withControlTransaction(ctx, mutate); err != nil {
+		return err
+	}
+	if afterCommit != nil {
+		if err := afterCommit(); err != nil {
+			return withControlOperationContext(
+				newControlOperationError(stageApplyCommittedRegistryMutation),
+				groupID,
+				keyID,
+			)
+		}
+	}
+	return nil
 }
 
 func (s *Service) withControlTransaction(

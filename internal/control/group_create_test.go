@@ -91,6 +91,42 @@ func TestCreateGroupNormalizesAndPublishesOnce(t *testing.T) {
 	}
 }
 
+func TestCreateGroupRejectsDuplicateExternalModelWithoutMutation(t *testing.T) {
+	fixture := newServiceFixture(t)
+	beforeRevision := fixture.manager.Current().Revision
+	beforeRegistry := fixture.registry.Snapshot()
+
+	_, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
+		UpstreamURL: "https://duplicate-external-model.example.com/v1",
+		Protocols:   []protocol.Protocol{protocol.OpenAI},
+		Models: optionalGroupModels{
+			Set: true,
+			Values: []GroupModel{
+				{ID: "provider-a", Alias: "public"},
+				{ID: "provider-b", Alias: "public"},
+			},
+		},
+		Keys: "sk-duplicate-external-model",
+	})
+	if !errors.Is(err, app_errors.ErrValidation) {
+		t.Fatalf("CreateGroup() error = %v, want ErrValidation", err)
+	}
+	assertGroupCount(t, fixture.db, 0)
+	var keyCount int64
+	if err := fixture.db.Model(&models.UpstreamKey{}).Count(&keyCount).Error; err != nil {
+		t.Fatal(err)
+	}
+	if keyCount != 0 {
+		t.Fatalf("upstream key count = %d, want 0", keyCount)
+	}
+	if fixture.manager.Current().Revision != beforeRevision {
+		t.Fatal("invalid models published a Snapshot")
+	}
+	if !reflect.DeepEqual(fixture.registry.Snapshot(), beforeRegistry) {
+		t.Fatal("invalid models changed Registry")
+	}
+}
+
 func TestCreateGroupReturnsUpstreamURLConflictWithoutMutation(t *testing.T) {
 	fixture := newServiceFixture(t)
 	first, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{

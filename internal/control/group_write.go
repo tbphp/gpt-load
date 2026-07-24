@@ -35,9 +35,46 @@ type optionalGroupModels struct {
 	Values []GroupModel
 }
 
+type optionalField[T any] struct {
+	Set   bool
+	Null  bool
+	Value T
+}
+
+func (field *optionalField[T]) UnmarshalJSON(data []byte) error {
+	if field == nil {
+		return fmt.Errorf("optional field receiver is nil")
+	}
+	field.Set = true
+	field.Null = false
+	var zero T
+	field.Value = zero
+	if bytes.Equal(bytes.TrimSpace(data), []byte("null")) {
+		field.Null = true
+		return nil
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&field.Value); err != nil {
+		return err
+	}
+	var trailing json.RawMessage
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return fmt.Errorf("optional field contains multiple JSON values")
+		}
+		return err
+	}
+	return nil
+}
+
 func (value *optionalGroupModels) UnmarshalJSON(data []byte) error {
-	if value == nil || bytes.Equal(bytes.TrimSpace(data), []byte("null")) {
+	if value == nil {
 		return fmt.Errorf("models must be an array")
+	}
+	if bytes.Equal(bytes.TrimSpace(data), []byte("null")) {
+		return app_errors.ErrValidation
 	}
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
@@ -115,7 +152,8 @@ func normalizeGroupModels(values []GroupModel) ([]GroupModel, error) {
 	}
 
 	result := make([]GroupModel, 0, len(values))
-	seen := make(map[pair]struct{}, len(values))
+	seenPairs := make(map[pair]struct{}, len(values))
+	seenExternal := make(map[string]struct{}, len(values))
 	for _, value := range values {
 		normalized := GroupModel{
 			ID:    strings.TrimSpace(value.ID),
@@ -125,10 +163,18 @@ func normalizeGroupModels(values []GroupModel) ([]GroupModel, error) {
 			return nil, app_errors.ErrValidation
 		}
 		identity := pair{id: normalized.ID, alias: normalized.Alias}
-		if _, duplicate := seen[identity]; duplicate {
+		if _, duplicate := seenPairs[identity]; duplicate {
 			continue
 		}
-		seen[identity] = struct{}{}
+		external := normalized.Alias
+		if external == "" {
+			external = normalized.ID
+		}
+		if _, duplicate := seenExternal[external]; duplicate {
+			return nil, app_errors.ErrValidation
+		}
+		seenPairs[identity] = struct{}{}
+		seenExternal[external] = struct{}{}
 		result = append(result, normalized)
 	}
 	return result, nil

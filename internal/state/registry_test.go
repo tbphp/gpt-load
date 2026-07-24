@@ -272,6 +272,66 @@ func TestKeyRegistryRemoveKey(t *testing.T) {
 	assertEncryptedValue(t, registry, 3, "cipher-three", true)
 }
 
+func TestKeyRegistryRemoveGroupClearsBucketAndReverseIndexesAtomically(t *testing.T) {
+	registry := NewKeyRegistry()
+	mustReplaceKeyEntries(t, registry, []KeyEntry{
+		{ID: 1, GroupID: 10, Status: KeyStatusActive, EncryptedValue: "cipher-one"},
+		{ID: 2, GroupID: 10, Status: KeyStatusDisabled, EncryptedValue: "cipher-two"},
+		{ID: 3, GroupID: 20, Status: KeyStatusActive, EncryptedValue: "cipher-three"},
+	})
+
+	if removed := registry.RemoveGroup(10); !removed {
+		t.Fatal("RemoveGroup(10) = false, want true")
+	}
+	for _, id := range []uint{1, 2} {
+		if value, ok := registry.EncryptedValue(id); ok || value != "" {
+			t.Fatalf("removed key %d = %q, %t", id, value, ok)
+		}
+	}
+	if value, ok := registry.EncryptedValue(3); !ok || value != "cipher-three" {
+		t.Fatalf("other group key = %q, %t", value, ok)
+	}
+	if removed := registry.RemoveGroup(10); removed {
+		t.Fatal("second RemoveGroup(10) = true")
+	}
+	if removed := registry.RemoveGroup(0); removed {
+		t.Fatal("RemoveGroup(0) = true")
+	}
+}
+
+func TestKeyRegistryRemoveGroupIsRaceSafeWithRuntimeReaders(t *testing.T) {
+	registry := NewKeyRegistry()
+	entries := make([]KeyEntry, 0, 100)
+	for id := uint(1); id <= 100; id++ {
+		entries = append(entries, KeyEntry{
+			ID: id, GroupID: 10, Status: KeyStatusActive,
+			EncryptedValue: fmt.Sprintf("cipher-%d", id),
+		})
+	}
+	mustReplaceKeyEntries(t, registry, entries)
+
+	start := make(chan struct{})
+	var readers sync.WaitGroup
+	for range 8 {
+		readers.Add(1)
+		go func() {
+			defer readers.Done()
+			<-start
+			for range 100 {
+				_ = registry.Snapshot()
+				_ = registry.CollectCandidates([]uint{10}, nil, time.Time{})
+				_ = registry.ActiveKeyIDs()
+			}
+		}()
+	}
+	close(start)
+	registry.RemoveGroup(10)
+	readers.Wait()
+	if got := registry.Snapshot(); len(got) != 0 {
+		t.Fatalf("Snapshot after RemoveGroup = %#v", got)
+	}
+}
+
 func TestKeyRegistrySetKeyStatus(t *testing.T) {
 	registry := NewKeyRegistry()
 	mustReplaceKeyEntries(t, registry, []KeyEntry{{
@@ -650,6 +710,111 @@ func TestKeyRegistryApplyImportRejectsExistingIDFromAnotherGroup(t *testing.T) {
 	}
 	assertEncryptedValue(t, registry, 1, "original-one", true)
 	assertEncryptedValue(t, registry, 2, "", false)
+}
+
+func TestKeyRegistryUpdateKeyConfigAtomicallyPreservesRuntimeState(t *testing.T) {
+	oldWeight := 20
+	newWeight := 80
+	cooldown := time.Date(2026, time.July, 24, 12, 30, 0, 0, time.UTC)
+	registry := NewKeyRegistry()
+	mustReplaceKeyEntries(t, registry, []KeyEntry{{
+		ID: 11, GroupID: 7, WeightManual: &oldWeight, WeightAuto: 42,
+		Status: KeyStatusActive, CooldownUntil: cooldown,
+		Blacklisted: true, FailureCount: 3, EncryptedValue: "cipher-secret",
+	}})
+
+	if err := registry.UpdateKeyConfig(11, KeyStatusDisabled, &newWeight); err != nil {
+		t.Fatalf("UpdateKeyConfig() error = %v", err)
+	}
+	newWeight = 99
+	registry.mu.RLock()
+	got := cloneKeyEntry(*registry.buckets[7][11])
+	registry.mu.RUnlock()
+	if got.Status != KeyStatusDisabled || got.WeightManual == nil || *got.WeightManual != 80 {
+		t.Fatalf("config = %#v", got)
+	}
+	if got.WeightAuto != 42 || !got.CooldownUntil.Equal(cooldown) ||
+		!got.Blacklisted || got.FailureCount != 3 ||
+		got.EncryptedValue != "cipher-secret" || got.GroupID != 7 {
+		t.Fatalf("runtime fields changed = %#v", got)
+	}
+
+	if err := registry.UpdateKeyConfig(11, KeyStatusActive, nil); err != nil {
+		t.Fatal(err)
+	}
+	view := registry.Snapshot()[0]
+	if view.Status != KeyStatusActive || view.WeightManual != nil ||
+		view.WeightAuto != 42 || !view.Blacklisted || view.FailureCount != 3 {
+		t.Fatalf("cleared manual state = %#v", view)
+	}
+}
+
+func TestKeyRegistryUpdateKeyConfigRejectsInvalidInputWithoutPartialMutation(t *testing.T) {
+	weight := 30
+	registry := NewKeyRegistry()
+	mustReplaceKeyEntries(t, registry, []KeyEntry{{
+		ID: 1, GroupID: 10, WeightManual: &weight,
+		Status: KeyStatusActive, EncryptedValue: "cipher-one",
+	}})
+	before := registry.Snapshot()
+
+	for _, test := range []struct {
+		name   string
+		keyID  uint
+		status KeyStatus
+		weight *int
+	}{
+		{name: "missing", keyID: 99, status: KeyStatusDisabled},
+		{name: "invalid status", keyID: 1, status: KeyStatus("cooldown")},
+		{name: "negative weight", keyID: 1, status: KeyStatusDisabled, weight: intPointer(-1)},
+		{name: "large weight", keyID: 1, status: KeyStatusDisabled, weight: intPointer(101)},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if err := registry.UpdateKeyConfig(test.keyID, test.status, test.weight); err == nil {
+				t.Fatal("UpdateKeyConfig() error = nil")
+			}
+			if got := registry.Snapshot(); !reflect.DeepEqual(got, before) {
+				t.Fatalf("Registry mutated:\ngot=%#v\nwant=%#v", got, before)
+			}
+		})
+	}
+}
+
+func TestKeyRegistryUpdateKeyConfigIsRaceSafeWithRuntimeMutations(t *testing.T) {
+	registry := NewKeyRegistry()
+	mustReplaceKeyEntries(t, registry, []KeyEntry{{
+		ID: 1, GroupID: 10, Status: KeyStatusActive, EncryptedValue: "cipher-one",
+	}})
+	start := make(chan struct{})
+	var workers sync.WaitGroup
+	for worker := 0; worker < 8; worker++ {
+		worker := worker
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			<-start
+			for index := 0; index < 100; index++ {
+				weight := (worker + index) % (MaxWeight + 1)
+				_ = registry.UpdateKeyConfig(1, KeyStatusActive, &weight)
+				_ = registry.SetAutoWeight(1, (index%MaxWeight)+1)
+				_ = registry.SetCooldown(1, time.Unix(int64(index), 0))
+				_, _ = registry.IncrFailure(1)
+			}
+		}()
+	}
+	close(start)
+	workers.Wait()
+	view := registry.Snapshot()[0]
+	if view.GroupID != 10 || view.Status != KeyStatusActive {
+		t.Fatalf("final safe view = %#v", view)
+	}
+	if value, ok := registry.EncryptedValue(1); !ok || value != "cipher-one" {
+		t.Fatalf("credential = %q, %t", value, ok)
+	}
+}
+
+func intPointer(value int) *int {
+	return &value
 }
 
 func mustReplaceKeyEntries(t *testing.T, registry *KeyRegistry, entries []KeyEntry) {

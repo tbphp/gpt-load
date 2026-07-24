@@ -1,6 +1,7 @@
 package control
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 
 	"gpt-load/internal/dialect"
@@ -27,6 +29,237 @@ import (
 	stateloader "gpt-load/internal/state/loader"
 	"gpt-load/internal/storage/models"
 )
+
+func TestWriteKeyConfigCommitsDatabaseThenAppliesRegistryWithoutPublishing(t *testing.T) {
+	fixture := newServiceFixture(t)
+	groupID := createGroupForKeyImport(t, fixture, "sk-write-key-config")
+	var row models.UpstreamKey
+	if err := fixture.db.Where("group_id = ?", groupID).Take(&row).Error; err != nil {
+		t.Fatal(err)
+	}
+	beforeSnapshot := fixture.manager.Current()
+	weight := 75
+	callbackRan := false
+
+	err := fixture.service.writeKeyConfig(
+		t.Context(),
+		groupID,
+		row.ID,
+		func(tx *gorm.DB) error {
+			return tx.Model(&models.UpstreamKey{}).
+				Where("id = ? AND group_id = ?", row.ID, groupID).
+				Updates(map[string]any{
+					"status":        models.UpstreamKeyStatusDisabled,
+					"weight_manual": weight,
+				}).Error
+		},
+		func() error {
+			callbackRan = true
+			if fixture.service.writeMu.TryLock() {
+				fixture.service.writeMu.Unlock()
+				return errors.New("writeMu was not held through Registry convergence")
+			}
+			var committed models.UpstreamKey
+			if err := fixture.db.First(&committed, row.ID).Error; err != nil {
+				return err
+			}
+			if committed.Status != models.UpstreamKeyStatusDisabled ||
+				committed.WeightManual == nil || *committed.WeightManual != weight {
+				return fmt.Errorf("callback observed uncommitted row: %#v", committed)
+			}
+			return fixture.registry.UpdateKeyConfig(
+				row.ID,
+				state.KeyStatusDisabled,
+				&weight,
+			)
+		},
+	)
+	if err != nil {
+		t.Fatalf("writeKeyConfig() error = %v", err)
+	}
+	if !callbackRan {
+		t.Fatal("afterCommit callback did not run")
+	}
+	if fixture.manager.Current() != beforeSnapshot {
+		t.Fatal("writeKeyConfig published Snapshot")
+	}
+	view := fixture.registry.Snapshot()[0]
+	if view.Status != state.KeyStatusDisabled ||
+		view.WeightManual == nil || *view.WeightManual != weight {
+		t.Fatalf("Registry view = %#v", view)
+	}
+}
+
+func TestWriteKeyConfigCommitFailureDoesNotApplyRegistry(t *testing.T) {
+	fixture, dsn := newFileServiceFixture(t)
+	groupID := createGroupForKeyImport(t, fixture, "sk-key-commit-failure")
+	var row models.UpstreamKey
+	if err := fixture.db.Where("group_id = ?", groupID).Take(&row).Error; err != nil {
+		t.Fatal(err)
+	}
+	beforeSnapshot := fixture.manager.Current()
+	beforeRegistry := fixture.registry.Snapshot()
+	release := holdRollbackJournalReadLock(t, fixture.db, dsn)
+
+	callbackRan := false
+	err := fixture.service.writeKeyConfig(
+		t.Context(),
+		groupID,
+		row.ID,
+		func(tx *gorm.DB) error {
+			return tx.Model(&models.UpstreamKey{}).
+				Where("id = ?", row.ID).
+				Update("status", models.UpstreamKeyStatusDisabled).Error
+		},
+		func() error {
+			callbackRan = true
+			return nil
+		},
+	)
+	if err == nil {
+		t.Fatal("writeKeyConfig() error = nil")
+	}
+	if callbackRan {
+		t.Fatal("afterCommit callback ran after failed COMMIT")
+	}
+	if fixture.manager.Current() != beforeSnapshot ||
+		!reflect.DeepEqual(fixture.registry.Snapshot(), beforeRegistry) {
+		t.Fatal("failed COMMIT changed runtime")
+	}
+	release()
+}
+
+func TestWriteKeyConfigAfterCommitFailureIsTypedAndKeepsSnapshot(t *testing.T) {
+	fixture := newServiceFixture(t)
+	groupID := createGroupForKeyImport(t, fixture, "sk-key-post-commit")
+	var row models.UpstreamKey
+	if err := fixture.db.Where("group_id = ?", groupID).Take(&row).Error; err != nil {
+		t.Fatal(err)
+	}
+	beforeSnapshot := fixture.manager.Current()
+	const secretCause = "known-secret-must-not-be-logged"
+	err := fixture.service.writeKeyConfig(
+		t.Context(),
+		groupID,
+		row.ID,
+		func(tx *gorm.DB) error {
+			return tx.Model(&models.UpstreamKey{}).
+				Where("id = ?", row.ID).
+				Update("status", models.UpstreamKeyStatusDisabled).Error
+		},
+		func() error { return errors.New(secretCause) },
+	)
+	if !errors.Is(err, app_errors.ErrInternalServer) {
+		t.Fatalf("error = %v", err)
+	}
+	var operationErr *controlOperationError
+	if !errors.As(err, &operationErr) ||
+		operationErr.stage != stageApplyCommittedRegistryMutation ||
+		operationErr.groupID != groupID || operationErr.keyID != row.ID ||
+		operationErr.mismatchKind != "" {
+		t.Fatalf("operation error = %#v", operationErr)
+	}
+	if strings.Contains(err.Error(), secretCause) {
+		t.Fatalf("operation error leaked callback cause: %v", err)
+	}
+	if fixture.manager.Current() != beforeSnapshot {
+		t.Fatal("post-commit failure published Snapshot")
+	}
+	var committed models.UpstreamKey
+	if err := fixture.db.First(&committed, row.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if committed.Status != models.UpstreamKeyStatusDisabled {
+		t.Fatalf("committed status = %q, want disabled", committed.Status)
+	}
+}
+
+func TestWriteKeyConfigPostCommitCancellationDoesNotSkipRegistryCallback(t *testing.T) {
+	fixture := newServiceFixture(t)
+	groupID := createGroupForKeyImport(t, fixture, "sk-key-cancel-after-commit")
+	var row models.UpstreamKey
+	if err := fixture.db.Where("group_id = ?", groupID).Take(&row).Error; err != nil {
+		t.Fatal(err)
+	}
+	beforeSnapshot := fixture.manager.Current()
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	callbackRan := false
+
+	err := fixture.service.writeKeyConfig(
+		ctx,
+		groupID,
+		row.ID,
+		func(tx *gorm.DB) error {
+			return tx.Model(&models.UpstreamKey{}).
+				Where("id = ?", row.ID).
+				Update("status", models.UpstreamKeyStatusDisabled).Error
+		},
+		func() error {
+			callbackRan = true
+			cancel()
+			if !errors.Is(ctx.Err(), context.Canceled) {
+				return fmt.Errorf("context error = %v, want canceled", ctx.Err())
+			}
+			return fixture.registry.UpdateKeyConfig(row.ID, state.KeyStatusDisabled, nil)
+		},
+	)
+	if err != nil {
+		t.Fatalf("writeKeyConfig() error = %v", err)
+	}
+	if !callbackRan {
+		t.Fatal("afterCommit callback did not run")
+	}
+	if fixture.manager.Current() != beforeSnapshot {
+		t.Fatal("post-commit cancellation published Snapshot")
+	}
+	view := fixture.registry.Snapshot()[0]
+	if view.Status != state.KeyStatusDisabled {
+		t.Fatalf("Registry status = %q, want disabled", view.Status)
+	}
+	var committed models.UpstreamKey
+	if err := fixture.db.First(&committed, row.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if committed.Status != models.UpstreamKeyStatusDisabled {
+		t.Fatalf("committed status = %q, want disabled", committed.Status)
+	}
+}
+
+func TestWriteKeyConfigDoesNotCompileOrPublishUnrelatedConfiguration(t *testing.T) {
+	fixture := newServiceFixture(t)
+	groupID := createGroupForKeyImport(t, fixture, "sk-key-no-compile")
+	var row models.UpstreamKey
+	if err := fixture.db.Where("group_id = ?", groupID).Take(&row).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.db.Model(&models.Group{}).
+		Where("id = ?", groupID).
+		Update("protocols", models.JSON(`[]`)).Error; err != nil {
+		t.Fatal(err)
+	}
+	beforeSnapshot := fixture.manager.Current()
+
+	err := fixture.service.writeKeyConfig(
+		t.Context(),
+		groupID,
+		row.ID,
+		func(tx *gorm.DB) error {
+			return tx.Model(&models.UpstreamKey{}).
+				Where("id = ?", row.ID).
+				Update("status", models.UpstreamKeyStatusDisabled).Error
+		},
+		func() error {
+			return fixture.registry.UpdateKeyConfig(row.ID, state.KeyStatusDisabled, nil)
+		},
+	)
+	if err != nil {
+		t.Fatalf("writeKeyConfig() error = %v", err)
+	}
+	if fixture.manager.Current() != beforeSnapshot {
+		t.Fatal("writeKeyConfig published Snapshot")
+	}
+}
 
 func TestWriteConfigDiscardsConnectionAfterCommitBusy(t *testing.T) {
 	fixture, dsn := newFileServiceFixture(t)
@@ -275,13 +508,49 @@ func TestWriteConfigMakesCreatedGroupAndFirstKeyAtomicallyVisibleToDataPlane(t *
 func TestWriteConfigRuntimeFailureKeepsOldSnapshot(t *testing.T) {
 	fixture := newServiceFixture(t)
 	beforeSnapshot := fixture.manager.Current()
+	const secretCause = "forced Registry publication failure"
 	_, err := fixture.service.writeConfig(t.Context(), func(tx *gorm.DB) error {
 		return tx.Create(validControlGroup("runtime-failure")).Error
 	}, func() error {
-		return errors.New("forced Registry publication failure")
+		return errors.New(secretCause)
 	})
 	if err == nil {
 		t.Fatal("writeConfig() error = nil")
+	}
+	if !errors.Is(err, app_errors.ErrInternalServer) {
+		t.Fatalf("writeConfig() error = %v, want ErrInternalServer", err)
+	}
+	var operationErr *controlOperationError
+	if !errors.As(err, &operationErr) || operationErr.stage != stageApplyCommittedRegistryMutation {
+		t.Fatalf("writeConfig() operation error = %#v", operationErr)
+	}
+
+	var logs bytes.Buffer
+	logger := logrus.StandardLogger()
+	previousOutput, previousFormatter := logger.Out, logger.Formatter
+	logrus.SetOutput(&logs)
+	logrus.SetFormatter(&logrus.JSONFormatter{DisableTimestamp: true})
+	t.Cleanup(func() {
+		logrus.SetOutput(previousOutput)
+		logrus.SetFormatter(previousFormatter)
+	})
+	logServiceError(
+		"update_group",
+		withControlOperationContext(err, 91, 7),
+		app_errors.ErrInternalServer.Code,
+	)
+	logText := logs.String()
+	for _, required := range []string{
+		`"stage":"apply_committed_registry_mutation"`,
+		`"group_id":91`,
+		`"key_id":7`,
+	} {
+		if !strings.Contains(logText, required) {
+			t.Fatalf("log output missing %q: %s", required, logText)
+		}
+	}
+	if strings.Contains(logText, secretCause) {
+		t.Fatalf("log output leaked secret cause: %s", logText)
 	}
 	if fixture.manager.Current() != beforeSnapshot {
 		t.Fatal("runtime failure published Snapshot")

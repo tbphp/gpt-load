@@ -23,19 +23,21 @@ func (e *APIError) Error() string {
 
 // Predefined API errors
 var (
-	ErrBadRequest          = &APIError{HTTPStatus: http.StatusBadRequest, Code: "BAD_REQUEST", Message: "Invalid request parameters"}
-	ErrInvalidJSON         = &APIError{HTTPStatus: http.StatusBadRequest, Code: "INVALID_JSON", Message: "Invalid JSON format"}
-	ErrRequestTooLarge     = &APIError{HTTPStatus: http.StatusRequestEntityTooLarge, Code: "REQUEST_TOO_LARGE", Message: "Request body is too large"}
-	ErrValidation          = &APIError{HTTPStatus: http.StatusBadRequest, Code: "VALIDATION_FAILED", Message: "Input validation failed"}
-	ErrDuplicateResource   = &APIError{HTTPStatus: http.StatusConflict, Code: "DUPLICATE_RESOURCE", Message: "Resource already exists"}
-	ErrResourceNotFound    = &APIError{HTTPStatus: http.StatusNotFound, Code: "NOT_FOUND", Message: "Resource not found"}
-	ErrInternalServer      = &APIError{HTTPStatus: http.StatusInternalServerError, Code: "INTERNAL_SERVER_ERROR", Message: "An unexpected error occurred"}
-	ErrDatabase            = &APIError{HTTPStatus: http.StatusInternalServerError, Code: "DATABASE_ERROR", Message: "Database operation failed"}
-	ErrUnauthorized        = &APIError{HTTPStatus: http.StatusUnauthorized, Code: "UNAUTHORIZED", Message: "Authentication failed"}
-	ErrAuthLocked          = &APIError{HTTPStatus: http.StatusTooManyRequests, Code: "AUTH_LOCKED", Message: "Authentication is temporarily locked"}
-	ErrUpstreamURLConflict = &APIError{HTTPStatus: http.StatusConflict, Code: "UPSTREAM_URL_CONFLICT", Message: "Upstream URL conflicts with an existing group"}
-	ErrNoActiveUpstreamKey = &APIError{HTTPStatus: http.StatusConflict, Code: "NO_ACTIVE_UPSTREAM_KEY", Message: "No active upstream key available for this group"}
-	ErrBadGateway          = &APIError{HTTPStatus: http.StatusBadGateway, Code: "BAD_GATEWAY", Message: "Upstream service error"}
+	ErrBadRequest                            = &APIError{HTTPStatus: http.StatusBadRequest, Code: "BAD_REQUEST", Message: "Invalid request parameters"}
+	ErrInvalidJSON                           = &APIError{HTTPStatus: http.StatusBadRequest, Code: "INVALID_JSON", Message: "Invalid JSON format"}
+	ErrRequestTooLarge                       = &APIError{HTTPStatus: http.StatusRequestEntityTooLarge, Code: "REQUEST_TOO_LARGE", Message: "Request body is too large"}
+	ErrValidation                            = &APIError{HTTPStatus: http.StatusBadRequest, Code: "VALIDATION_FAILED", Message: "Input validation failed"}
+	ErrDuplicateResource                     = &APIError{HTTPStatus: http.StatusConflict, Code: "DUPLICATE_RESOURCE", Message: "Resource already exists"}
+	ErrResourceNotFound                      = &APIError{HTTPStatus: http.StatusNotFound, Code: "NOT_FOUND", Message: "Resource not found"}
+	ErrGroupInUse                            = &APIError{HTTPStatus: http.StatusConflict, Code: "GROUP_IN_USE", Message: "Group is referenced by access keys"}
+	ErrInternalServer                        = &APIError{HTTPStatus: http.StatusInternalServerError, Code: "INTERNAL_SERVER_ERROR", Message: "An unexpected error occurred"}
+	ErrDatabase                              = &APIError{HTTPStatus: http.StatusInternalServerError, Code: "DATABASE_ERROR", Message: "Database operation failed"}
+	ErrUnauthorized                          = &APIError{HTTPStatus: http.StatusUnauthorized, Code: "UNAUTHORIZED", Message: "Authentication failed"}
+	ErrAuthLocked                            = &APIError{HTTPStatus: http.StatusTooManyRequests, Code: "AUTH_LOCKED", Message: "Authentication is temporarily locked"}
+	ErrUpstreamURLConflict                   = &APIError{HTTPStatus: http.StatusConflict, Code: "UPSTREAM_URL_CONFLICT", Message: "Upstream URL conflicts with an existing group"}
+	ErrUpstreamURLChangeConfirmationRequired = &APIError{HTTPStatus: http.StatusConflict, Code: "UPSTREAM_URL_CHANGE_CONFIRMATION_REQUIRED", Message: "Upstream URL change requires explicit confirmation"}
+	ErrNoActiveUpstreamKey                   = &APIError{HTTPStatus: http.StatusConflict, Code: "NO_ACTIVE_UPSTREAM_KEY", Message: "No active upstream key available for this group"}
+	ErrBadGateway                            = &APIError{HTTPStatus: http.StatusBadGateway, Code: "BAD_GATEWAY", Message: "Upstream service error"}
 )
 
 // NewAPIErrorWithData creates a copy of an APIError with response data.

@@ -150,6 +150,23 @@ func (r *KeyRegistry) RemoveKey(keyID uint) bool {
 	return true
 }
 
+func (r *KeyRegistry) RemoveGroup(groupID uint) bool {
+	if groupID == 0 {
+		return false
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	bucket, exists := r.buckets[groupID]
+	if !exists {
+		return false
+	}
+	for keyID := range bucket {
+		delete(r.keyGroups, keyID)
+	}
+	delete(r.buckets, groupID)
+	return true
+}
+
 func (r *KeyRegistry) SetKeyStatus(keyID uint, status KeyStatus) error {
 	if status != KeyStatusActive && status != KeyStatusDisabled {
 		return fmt.Errorf("invalid key status %q", status)
@@ -161,6 +178,29 @@ func (r *KeyRegistry) SetKeyStatus(keyID uint, status KeyStatus) error {
 		return fmt.Errorf("key %d not found", keyID)
 	}
 	r.buckets[groupID][keyID].Status = status
+	return nil
+}
+
+func (r *KeyRegistry) UpdateKeyConfig(
+	keyID uint,
+	status KeyStatus,
+	weightManual *int,
+) error {
+	if status != KeyStatusActive && status != KeyStatusDisabled {
+		return fmt.Errorf("invalid key status %q", status)
+	}
+	if err := validateManualWeight(fmt.Sprintf("key %d", keyID), weightManual); err != nil {
+		return err
+	}
+	clonedWeight := cloneWeight(weightManual)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	entry, ok := r.entryLocked(keyID)
+	if !ok {
+		return fmt.Errorf("key %d not found", keyID)
+	}
+	entry.Status = status
+	entry.WeightManual = clonedWeight
 	return nil
 }
 

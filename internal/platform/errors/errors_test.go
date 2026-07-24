@@ -2,6 +2,7 @@ package errors
 
 import (
 	"errors"
+	"net/http"
 	"testing"
 
 	"gorm.io/gorm"
@@ -25,6 +26,21 @@ func TestParseDBErrorUsesDatabaseIndependentGORMErrors(t *testing.T) {
 				t.Fatalf("ParseDBError(%v) = %#v, want %#v", tt.err, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestUpstreamURLChangeConfirmationRequiredContract(t *testing.T) {
+	err := ErrUpstreamURLChangeConfirmationRequired
+	if err.HTTPStatus != http.StatusConflict || err.Code != "UPSTREAM_URL_CHANGE_CONFIRMATION_REQUIRED" {
+		t.Fatalf("ErrUpstreamURLChangeConfirmationRequired = %#v", err)
+	}
+}
+
+func TestGroupInUseContract(t *testing.T) {
+	err := ErrGroupInUse
+	if err.HTTPStatus != http.StatusConflict || err.Code != "GROUP_IN_USE" ||
+		err.Message != "Group is referenced by access keys" {
+		t.Fatalf("ErrGroupInUse = %#v", err)
 	}
 }
 

@@ -2,7 +2,6 @@ package control
 
 import (
 	"context"
-	"fmt"
 
 	"gorm.io/gorm"
 
@@ -36,27 +35,29 @@ func (s *Service) ImportGroupKeys(
 
 	result := GroupKeyImportResult{GroupID: groupID}
 	var entries []state.KeyEntry
-	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
-
-	err = s.withControlTransaction(ctx, func(tx *gorm.DB) error {
-		var group struct{ ID uint }
-		if err := tx.Model(&models.Group{}).
-			Select("id").Where("id = ?", groupID).Take(&group).Error; err != nil {
-			return app_errors.ParseDBError(err)
-		}
-		entries, result.KeysAdded, result.KeysDuplicated, err =
-			s.persistUpstreamKeys(tx, groupID, keys)
-		if err != nil {
-			return err
-		}
-		return state.ValidateKeyEntries(entries)
-	})
+	err = s.writeKeyConfig(
+		ctx,
+		groupID,
+		0,
+		func(tx *gorm.DB) error {
+			var group struct{ ID uint }
+			if err := tx.Model(&models.Group{}).
+				Select("id").Where("id = ?", groupID).Take(&group).Error; err != nil {
+				return app_errors.ParseDBError(err)
+			}
+			entries, result.KeysAdded, result.KeysDuplicated, err =
+				s.persistUpstreamKeys(tx, groupID, keys)
+			if err != nil {
+				return err
+			}
+			return state.ValidateKeyEntries(entries)
+		},
+		func() error {
+			return s.applyMissingRegistryKeys(groupID, entries)
+		},
+	)
 	if err != nil {
 		return GroupKeyImportResult{}, err
-	}
-	if err := s.applyMissingRegistryKeys(groupID, entries); err != nil {
-		return GroupKeyImportResult{}, fmt.Errorf("apply committed Registry update: %w", app_errors.ErrInternalServer)
 	}
 	return result, nil
 }
