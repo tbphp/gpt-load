@@ -1,4 +1,4 @@
-package gateway
+package scheduler
 
 import (
 	"os/exec"
@@ -6,20 +6,21 @@ import (
 	"testing"
 )
 
-func TestDataPlaneDependencyGraph(t *testing.T) {
+func TestRuntimeReadDomainDependencyGraph(t *testing.T) {
 	roots := []string{
-		"gpt-load/internal/gateway",
 		"gpt-load/internal/scheduler",
 		"gpt-load/internal/state",
 		"gpt-load/internal/health",
-		"gpt-load/internal/telemetry",
 	}
 	forbidden := []string{
-		"gpt-load/internal/storage",
 		"gpt-load/internal/control",
+		"gpt-load/internal/storage",
+		"gpt-load/internal/gateway",
+		"gpt-load/internal/requestlog",
+		"gpt-load/internal/platform/encryption",
 		"gorm.io/gorm",
+		"github.com/gin-gonic/gin",
 	}
-
 	for _, root := range roots {
 		output, err := exec.Command("go", "list", "-deps", root).CombinedOutput()
 		if err != nil {

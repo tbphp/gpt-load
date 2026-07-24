@@ -58,6 +58,88 @@ func TestKeyRegistryCollectCandidatesExcludesRuntimeUnavailableKeys(t *testing.T
 	}
 }
 
+func TestKeyRuntimeViewClassifiesAvailability(t *testing.T) {
+	now := time.Date(2026, time.July, 24, 10, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name string
+		view KeyRuntimeView
+		want KeyRuntimeState
+	}{
+		{
+			name: "disabled wins",
+			view: KeyRuntimeView{
+				Status: KeyStatusDisabled, Blacklisted: true,
+				CooldownUntil: now.Add(time.Minute),
+			},
+			want: KeyRuntimeDisabled,
+		},
+		{
+			name: "blacklist wins cooldown",
+			view: KeyRuntimeView{
+				Status: KeyStatusActive, Blacklisted: true,
+				CooldownUntil: now.Add(time.Minute),
+			},
+			want: KeyRuntimeBlacklisted,
+		},
+		{
+			name: "future cooldown",
+			view: KeyRuntimeView{
+				Status: KeyStatusActive, CooldownUntil: now.Add(time.Nanosecond),
+			},
+			want: KeyRuntimeCooldown,
+		},
+		{
+			name: "cooldown equality is available",
+			view: KeyRuntimeView{
+				Status: KeyStatusActive, CooldownUntil: now,
+			},
+			want: KeyRuntimeAvailable,
+		},
+		{
+			name: "active",
+			view: KeyRuntimeView{Status: KeyStatusActive},
+			want: KeyRuntimeAvailable,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := test.view.RuntimeState(now); got != test.want {
+				t.Fatalf("RuntimeState() = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
+func TestCollectCandidatesUsesRuntimeViewBoundary(t *testing.T) {
+	now := time.Date(2026, time.July, 24, 10, 0, 0, 0, time.UTC)
+	registry := NewKeyRegistry()
+	mustReplaceKeyEntries(t, registry, []KeyEntry{
+		{ID: 1, GroupID: 10, Status: KeyStatusActive, EncryptedValue: "active"},
+		{
+			ID: 2, GroupID: 10, Status: KeyStatusActive,
+			CooldownUntil: now.Add(time.Nanosecond), EncryptedValue: "cooling",
+		},
+		{ID: 3, GroupID: 10, Status: KeyStatusActive, Blacklisted: true, EncryptedValue: "blacklisted"},
+		{ID: 4, GroupID: 10, Status: KeyStatusActive, CooldownUntil: now, EncryptedValue: "boundary"},
+		{ID: 5, GroupID: 10, Status: KeyStatusDisabled, EncryptedValue: "disabled"},
+	})
+	views := registry.Snapshot()
+	availableIDs := make([]uint, 0)
+	for _, view := range views {
+		if view.RuntimeState(now) == KeyRuntimeAvailable {
+			availableIDs = append(availableIDs, view.ID)
+		}
+	}
+	candidates := registry.CollectCandidates([]uint{10}, nil, now)
+	candidateIDs := make([]uint, 0, len(candidates))
+	for _, candidate := range candidates {
+		candidateIDs = append(candidateIDs, candidate.ID)
+	}
+	if !reflect.DeepEqual(candidateIDs, availableIDs) {
+		t.Fatalf("CollectCandidates IDs = %v, RuntimeView IDs = %v", candidateIDs, availableIDs)
+	}
+}
+
 func TestKeyRegistrySetCooldownNeverShortensDeadline(t *testing.T) {
 	now := time.Date(2026, time.July, 22, 12, 0, 0, 0, time.UTC)
 	registry := NewKeyRegistry()

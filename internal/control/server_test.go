@@ -186,6 +186,11 @@ func TestControlJSONBodyLimitAppliesToEveryJSONEndpoint(t *testing.T) {
 			},
 			jsonPrefix: `{"name":"body-limit-updated-access-key"}`,
 		},
+		{
+			name: "route inspector", method: http.MethodPost,
+			path:       func(uint, uint) string { return "/api/route/inspect" },
+			jsonPrefix: `{"protocol":"openai","external_model":"gpt-4o","access_key_id":1}`,
+		},
 	} {
 		t.Run(endpoint.method+" "+endpoint.name, func(t *testing.T) {
 			fixture := newServiceFixture(t)

@@ -129,6 +129,56 @@ func TestKeyRegistryActiveKeyIDs(t *testing.T) {
 	}
 }
 
+func TestKeyRegistrySnapshotIsSortedDetachedAndCredentialFree(t *testing.T) {
+	weight := 17
+	now := time.Date(2026, time.July, 24, 10, 0, 0, 0, time.UTC)
+	registry := NewKeyRegistry()
+	mustReplaceKeyEntries(t, registry, []KeyEntry{
+		{
+			ID: 22, GroupID: 2, Status: KeyStatusDisabled,
+			EncryptedValue: "cipher-disabled",
+		},
+		{
+			ID: 11, GroupID: 1, WeightManual: &weight, WeightAuto: 23,
+			Status: KeyStatusActive, CooldownUntil: now.Add(time.Minute),
+			Blacklisted: true, FailureCount: 3, EncryptedValue: "cipher-secret",
+		},
+		{
+			ID: 12, GroupID: 1, Status: KeyStatusActive,
+			EncryptedValue: "cipher-default-weight",
+		},
+	})
+
+	got := registry.Snapshot()
+	if len(got) != 3 || got[0].ID != 11 || got[1].ID != 12 || got[2].ID != 22 {
+		t.Fatalf("Snapshot order = %#v", got)
+	}
+	if got[0].WeightManual == nil || *got[0].WeightManual != 17 ||
+		got[0].WeightAuto != 23 || !got[0].Blacklisted ||
+		got[0].FailureCount != 3 || !got[0].CooldownUntil.Equal(now.Add(time.Minute)) {
+		t.Fatalf("Snapshot runtime values = %#v", got[0])
+	}
+	if got[1].WeightAuto != DefaultWeight {
+		t.Fatalf("default WeightAuto = %d, want %d", got[1].WeightAuto, DefaultWeight)
+	}
+	*got[0].WeightManual = 99
+	got[0].FailureCount = 99
+	again := registry.Snapshot()
+	if again[0].WeightManual == nil || *again[0].WeightManual != 17 ||
+		again[0].FailureCount != 3 {
+		t.Fatalf("Snapshot aliases Registry: %#v", again[0])
+	}
+
+	typ := reflect.TypeOf(KeyRuntimeView{})
+	for _, forbidden := range []string{
+		"EncryptedValue", "KeyHash", "Hash", "Mask", "HeaderRules",
+	} {
+		if _, exists := typ.FieldByName(forbidden); exists {
+			t.Fatalf("KeyRuntimeView exposes forbidden field %s", forbidden)
+		}
+	}
+}
+
 func TestKeyRegistryReplaceFailurePreservesRegistry(t *testing.T) {
 	invalidBatches := map[string][]KeyEntry{
 		"duplicate ids": {
@@ -420,6 +470,15 @@ func TestKeyRegistryConcurrentMutationsAndCollection(t *testing.T) {
 					if previous.GroupID > current.GroupID ||
 						(previous.GroupID == current.GroupID && previous.ID > current.ID) {
 						errors <- fmt.Errorf("CollectCandidates() returned unsorted entries: %#v then %#v", previous, current)
+						break
+					}
+				}
+				views := registry.Snapshot()
+				for index := 1; index < len(views); index++ {
+					previous, current := views[index-1], views[index]
+					if previous.GroupID > current.GroupID ||
+						(previous.GroupID == current.GroupID && previous.ID > current.ID) {
+						errors <- fmt.Errorf("Snapshot() returned unstable order: %#v then %#v", previous, current)
 						break
 					}
 				}

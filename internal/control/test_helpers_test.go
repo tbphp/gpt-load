@@ -12,8 +12,10 @@ import (
 	"gorm.io/gorm/logger"
 
 	"gpt-load/internal/dialect"
+	"gpt-load/internal/health"
 	"gpt-load/internal/platform/encryption"
 	"gpt-load/internal/platform/i18n"
+	"gpt-load/internal/requestlog"
 	"gpt-load/internal/state"
 	"gpt-load/internal/storage"
 )
@@ -24,11 +26,25 @@ var (
 )
 
 type serviceFixture struct {
-	db         *gorm.DB
-	manager    *state.Manager
-	registry   *state.KeyRegistry
-	encryption encryption.Service
-	service    *Service
+	db              *gorm.DB
+	manager         *state.Manager
+	registry        *state.KeyRegistry
+	encryption      encryption.Service
+	stats           *health.StatsStore
+	requestLogStats *staticRequestLogStatsReader
+	service         *Service
+}
+
+type staticRequestLogStatsReader struct {
+	value requestlog.Stats
+	fn    func() requestlog.Stats
+}
+
+func (reader *staticRequestLogStatsReader) Stats() requestlog.Stats {
+	if reader.fn != nil {
+		return reader.fn()
+	}
+	return reader.value
 }
 
 func initControlI18n(t *testing.T) {
@@ -65,9 +81,21 @@ func newServiceFixtureWithDSN(t *testing.T, dsn string) serviceFixture {
 	if _, err := manager.Publish(state.CompileInput{}); err != nil {
 		t.Fatalf("manager.Publish(empty) error = %v", err)
 	}
+	stats := health.NewStatsStore()
+	requestLogStats := &staticRequestLogStatsReader{}
 	return serviceFixture{
 		db: db, manager: manager, registry: registry, encryption: keyService,
-		service: NewService(db, manager, registry, keyService, dialect.NewSet(), nil),
+		stats: stats, requestLogStats: requestLogStats,
+		service: NewService(
+			db,
+			manager,
+			registry,
+			keyService,
+			dialect.NewSet(),
+			nil,
+			stats,
+			requestLogStats,
+		),
 	}
 }
 

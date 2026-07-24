@@ -52,6 +52,75 @@ func TestCompileIndexesExternalModelsAndPreservesUpstreamIDs(t *testing.T) {
 	}
 }
 
+func TestCompileBuildsManagementCatalogsWithoutChangingActiveIndexes(t *testing.T) {
+	disabledWeight := 20
+	input := CompileInput{
+		Groups: []GroupConfig{
+			{
+				ID: 2, Name: "disabled", UpstreamURL: "https://disabled.example",
+				Protocols:    []protocol.Protocol{protocol.OpenAI},
+				Models:       []ModelConfig{{ID: "provider-disabled", Alias: "public"}},
+				WeightManual: &disabledWeight, Enabled: false,
+			},
+			{
+				ID: 1, Name: "active", UpstreamURL: "https://active.example",
+				Protocols: []protocol.Protocol{protocol.OpenAI},
+				Models:    []ModelConfig{{ID: "provider-active", Alias: "public"}},
+				Enabled:   true,
+			},
+		},
+		AccessKeys: []AccessKeyConfig{
+			{
+				ID: 11, Name: "active-client", KeyHash: "active-hash",
+				Status:   AccessKeyStatusActive,
+				Filters:  FilterSet{Groups: map[uint]struct{}{1: {}}},
+				RPMLimit: 10,
+			},
+			{
+				ID: 12, Name: "disabled-client", KeyHash: "disabled-hash",
+				Status:   AccessKeyStatusDisabled,
+				Filters:  FilterSet{Models: map[string]struct{}{"public": {}}},
+				RPMLimit: 20,
+			},
+		},
+	}
+
+	snapshot, err := Compile(input)
+	if err != nil {
+		t.Fatalf("Compile() error = %v", err)
+	}
+	if len(snapshot.Groups) != 1 || snapshot.Groups[1].Name != "active" {
+		t.Fatalf("active Groups = %#v", snapshot.Groups)
+	}
+	if got := snapshot.Candidates[protocol.OpenAI]["public"]; !reflect.DeepEqual(got, []RouteTarget{{
+		GroupID: 1, UpstreamModelID: "provider-active",
+	}}) {
+		t.Fatalf("active Candidates = %#v", got)
+	}
+	wantRoutes := []RouteTarget{
+		{GroupID: 1, UpstreamModelID: "provider-active"},
+		{GroupID: 2, UpstreamModelID: "provider-disabled"},
+	}
+	if got := snapshot.RouteCatalog[protocol.OpenAI]["public"]; !reflect.DeepEqual(got, wantRoutes) {
+		t.Fatalf("RouteCatalog = %#v, want %#v", got, wantRoutes)
+	}
+	if got := snapshot.GroupCatalog[2]; got.ID != 2 || got.Name != "disabled" ||
+		got.Enabled || got.WeightManual == nil || *got.WeightManual != 20 {
+		t.Fatalf("disabled GroupCatalog entry = %#v", got)
+	}
+	if len(snapshot.AccessKeysByHash) != 1 ||
+		snapshot.AccessKeysByHash["active-hash"].Status != AccessKeyStatusActive {
+		t.Fatalf("active AccessKeysByHash = %#v", snapshot.AccessKeysByHash)
+	}
+	if _, exists := snapshot.AccessKeysByHash["disabled-hash"]; exists {
+		t.Fatal("disabled key entered AccessKeysByHash")
+	}
+	if got := snapshot.AccessKeysByID[12]; got.ID != 12 ||
+		got.Status != AccessKeyStatusDisabled || got.RPMLimit != 20 {
+		t.Fatalf("disabled AccessKeysByID entry = %#v", got)
+	}
+}
+
 func TestCompileCarriesValidationModelWithoutChangingCandidates(t *testing.T) {
 	snapshot, err := Compile(CompileInput{Groups: []GroupConfig{{
 		ID:              1,
@@ -95,16 +164,131 @@ func TestCompileRejectsDuplicateExternalModelWithinGroup(t *testing.T) {
 	}
 }
 
-func TestCompileSkipsDisabledGroupValidation(t *testing.T) {
-	snapshot, err := Compile(CompileInput{Groups: []GroupConfig{{
-		ID: 1, Name: "disabled", Enabled: false,
-		Models: []ModelConfig{{ID: " ", Alias: "public"}, {ID: "other", Alias: "public"}},
-	}}})
-	if err != nil {
-		t.Fatalf("Compile() error = %v, want disabled group skipped", err)
+func TestCompileValidatesDisabledCatalogEntries(t *testing.T) {
+	invalidWeight := -1
+	tests := []struct {
+		name    string
+		input   CompileInput
+		wantErr string
+	}{
+		{
+			name: "disabled group zero id",
+			input: CompileInput{Groups: []GroupConfig{{
+				Protocols: []protocol.Protocol{protocol.OpenAI},
+				Models:    []ModelConfig{{ID: "model"}}, Enabled: false,
+			}}},
+			wantErr: "group id is required",
+		},
+		{
+			name: "disabled group invalid protocol",
+			input: CompileInput{Groups: []GroupConfig{{
+				ID: 1, Protocols: []protocol.Protocol{"invalid"},
+				Models: []ModelConfig{{ID: "model"}}, Enabled: false,
+			}}},
+			wantErr: "invalid protocol",
+		},
+		{
+			name: "disabled group invalid weight",
+			input: CompileInput{Groups: []GroupConfig{{
+				ID: 1, Protocols: []protocol.Protocol{protocol.OpenAI},
+				Models:       []ModelConfig{{ID: "model"}},
+				WeightManual: &invalidWeight, Enabled: false,
+			}}},
+			wantErr: "manual weight",
+		},
+		{
+			name: "disabled access key zero id",
+			input: CompileInput{AccessKeys: []AccessKeyConfig{{
+				KeyHash: "disabled-hash", Status: AccessKeyStatusDisabled,
+			}}},
+			wantErr: "access key id is required",
+		},
+		{
+			name: "disabled access key empty hash",
+			input: CompileInput{AccessKeys: []AccessKeyConfig{{
+				ID: 1, Status: AccessKeyStatusDisabled,
+			}}},
+			wantErr: "key hash is required",
+		},
+		{
+			name: "disabled access key invalid filter",
+			input: CompileInput{AccessKeys: []AccessKeyConfig{{
+				ID: 1, KeyHash: "disabled-hash", Status: AccessKeyStatusDisabled,
+				Filters: FilterSet{Protocols: map[protocol.Protocol]struct{}{"invalid": {}}},
+			}}},
+			wantErr: "invalid protocol",
+		},
 	}
-	if len(snapshot.Groups) != 0 || len(snapshot.Candidates) != 0 {
-		t.Fatalf("snapshot includes disabled group: %#v", snapshot)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := Compile(test.input)
+			if err == nil || !strings.Contains(err.Error(), test.wantErr) {
+				t.Fatalf("Compile() error = %v, want substring %q", err, test.wantErr)
+			}
+		})
+	}
+}
+
+func TestCompileRejectsDuplicateCatalogIDs(t *testing.T) {
+	validGroup := func(id uint, enabled bool) GroupConfig {
+		return GroupConfig{
+			ID: id, Protocols: []protocol.Protocol{protocol.OpenAI},
+			Models: []ModelConfig{{ID: "model"}}, Enabled: enabled,
+		}
+	}
+	if _, err := Compile(CompileInput{Groups: []GroupConfig{
+		validGroup(1, true), validGroup(1, false),
+	}}); err == nil || !strings.Contains(err.Error(), "duplicate group id") {
+		t.Fatalf("duplicate Group catalog error = %v", err)
+	}
+	if _, err := Compile(CompileInput{AccessKeys: []AccessKeyConfig{
+		{ID: 1, KeyHash: "one", Status: AccessKeyStatusActive},
+		{ID: 1, KeyHash: "two", Status: AccessKeyStatusDisabled},
+	}}); err == nil || !strings.Contains(err.Error(), "duplicate access key id") {
+		t.Fatalf("duplicate AccessKey catalog error = %v", err)
+	}
+}
+
+func TestCompileRejectsDuplicateCatalogHashes(t *testing.T) {
+	_, err := Compile(CompileInput{AccessKeys: []AccessKeyConfig{
+		{ID: 1, KeyHash: "duplicate", Status: AccessKeyStatusActive},
+		{ID: 2, KeyHash: "duplicate", Status: AccessKeyStatusDisabled},
+	}})
+	if err == nil || !strings.Contains(err.Error(), "duplicate access key hash") {
+		t.Fatalf("duplicate AccessKey catalog hash error = %v", err)
+	}
+}
+
+func TestCompileManagementCatalogsOwnCopies(t *testing.T) {
+	groupWeight := 20
+	filterGroups := map[uint]struct{}{1: {}}
+	input := CompileInput{
+		Groups: []GroupConfig{{
+			ID: 1, Name: "group", Protocols: []protocol.Protocol{protocol.OpenAI},
+			Models:       []ModelConfig{{ID: "provider", Alias: "public"}},
+			WeightManual: &groupWeight, Enabled: false,
+		}},
+		AccessKeys: []AccessKeyConfig{{
+			ID: 2, Name: "client", KeyHash: "hash", Status: AccessKeyStatusDisabled,
+			Filters: FilterSet{Groups: filterGroups},
+		}},
+	}
+	snapshot, err := Compile(input)
+	if err != nil {
+		t.Fatalf("Compile() error = %v", err)
+	}
+	groupWeight = 99
+	delete(filterGroups, 1)
+	input.Groups[0].Models[0] = ModelConfig{ID: "changed", Alias: "changed"}
+	if got := snapshot.GroupCatalog[1].WeightManual; got == nil || *got != 20 {
+		t.Fatalf("GroupCatalog weight = %v, want 20", got)
+	}
+	if got := snapshot.RouteCatalog[protocol.OpenAI]["public"]; len(got) != 1 ||
+		got[0].UpstreamModelID != "provider" {
+		t.Fatalf("RouteCatalog after caller mutation = %#v", got)
+	}
+	if _, ok := snapshot.AccessKeysByID[2].Filters.Groups[1]; !ok {
+		t.Fatal("AccessKeysByID filters changed with caller map")
 	}
 }
 

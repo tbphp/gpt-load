@@ -311,6 +311,7 @@ func TestBuildContainerWiresRequestLogIntoEveryConsumer(t *testing.T) {
 		service *requestlog.Service,
 		sink telemetry.RequestLogSink,
 		reader control.RequestLogReader,
+		statsReader control.RequestLogStatsReader,
 		cleaner control.RequestLogCleaner,
 		lifecycle app.RequestLogRuntime,
 		limiter *ratelimit.AccessKeyRPM,
@@ -330,6 +331,7 @@ func TestBuildContainerWiresRequestLogIntoEveryConsumer(t *testing.T) {
 		for name, adapter := range map[string]any{
 			"gateway sink":    sink,
 			"control reader":  reader,
+			"control stats":   statsReader,
 			"control cleaner": cleaner,
 			"app lifecycle":   lifecycle,
 		} {
@@ -514,6 +516,120 @@ func TestBuildContainerUsesSingletonStatsStore(t *testing.T) {
 	}
 	if first != second {
 		t.Fatalf("StatsStore instances differ: first=%p second=%p", first, second)
+	}
+}
+
+func TestBuildContainerWiresRuntimeReadConsumersToSingletons(t *testing.T) {
+	t.Setenv("AUTH_KEY", "test-auth-key")
+	t.Setenv("DATA_DIR", t.TempDir())
+	t.Setenv("DATABASE_DSN", ":memory:")
+	t.Setenv("ENCRYPTION_KEY", "test-master-key-long")
+
+	dependencyContainer, err := BuildContainer()
+	if err != nil {
+		t.Fatalf("BuildContainer() error = %v", err)
+	}
+	err = dependencyContainer.Invoke(func(
+		requestLogService *requestlog.Service,
+		requestLogStats control.RequestLogStatsReader,
+		statsStore *health.StatsStore,
+		gatewayHandler *gateway.Handler,
+		controlService *control.Service,
+		db *gorm.DB,
+	) {
+		t.Cleanup(func() {
+			sqlDB, dbErr := db.DB()
+			if dbErr == nil {
+				_ = sqlDB.Close()
+			}
+		})
+		if requestLogStats != requestLogService {
+			t.Fatalf(
+				"RequestLogStatsReader = %T, want singleton %p",
+				requestLogStats,
+				requestLogService,
+			)
+		}
+		if statsStore == nil || gatewayHandler == nil || controlService == nil {
+			t.Fatalf(
+				"runtime read consumers unresolved: stats=%p gateway=%p control=%p",
+				statsStore,
+				gatewayHandler,
+				controlService,
+			)
+		}
+	})
+	if err != nil {
+		t.Fatalf("resolve runtime read consumers: %v", err)
+	}
+}
+
+func TestContainerHealthEndpointReadsSharedStatsStore(t *testing.T) {
+	t.Setenv("AUTH_KEY", "test-auth-key")
+	t.Setenv("DATA_DIR", t.TempDir())
+	t.Setenv("DATABASE_DSN", ":memory:")
+	t.Setenv("ENCRYPTION_KEY", "test-master-key-long")
+	if err := i18n.Init(); err != nil {
+		t.Fatalf("i18n.Init() error = %v", err)
+	}
+
+	dependencyContainer, err := BuildContainer()
+	if err != nil {
+		t.Fatalf("BuildContainer() error = %v", err)
+	}
+	err = dependencyContainer.Invoke(func(
+		engine *gin.Engine,
+		manager *state.Manager,
+		registry *state.KeyRegistry,
+		stats *health.StatsStore,
+		db *gorm.DB,
+	) {
+		t.Cleanup(func() {
+			sqlDB, dbErr := db.DB()
+			if dbErr == nil {
+				_ = sqlDB.Close()
+			}
+		})
+		if _, publishErr := manager.Publish(state.CompileInput{Groups: []state.GroupConfig{{
+			ID: 1, Name: "shared", Protocols: []protocol.Protocol{protocol.OpenAI},
+			Models: []state.ModelConfig{{ID: "model"}}, Enabled: true,
+		}}}); publishErr != nil {
+			t.Fatalf("Publish() error = %v", publishErr)
+		}
+		if replaceErr := registry.Replace([]state.KeyEntry{{
+			ID: 1, GroupID: 1, Status: state.KeyStatusActive,
+			Blacklisted: true, EncryptedValue: "cipher",
+		}}); replaceErr != nil {
+			t.Fatalf("Replace() error = %v", replaceErr)
+		}
+		stats.Record(1, false, time.Now())
+
+		request := httptest.NewRequest(http.MethodGet, "/api/health", nil)
+		request.Header.Set("Authorization", "Bearer test-auth-key")
+		recorder := httptest.NewRecorder()
+		engine.ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("response = %d %s", recorder.Code, recorder.Body.String())
+		}
+		var envelope struct {
+			Data struct {
+				BlacklistedKeys []struct {
+					KeyID              uint   `json:"key_id"`
+					RecentFailureCount uint64 `json:"recent_failure_count"`
+				} `json:"blacklisted_keys"`
+			} `json:"data"`
+		}
+		if decodeErr := json.Unmarshal(recorder.Body.Bytes(), &envelope); decodeErr != nil {
+			t.Fatalf("decode response: %v", decodeErr)
+		}
+		if len(envelope.Data.BlacklistedKeys) != 1 ||
+			envelope.Data.BlacklistedKeys[0].KeyID != 1 ||
+			envelope.Data.BlacklistedKeys[0].RecentFailureCount != 1 {
+			t.Fatalf("blacklisted stats = %#v", envelope.Data.BlacklistedKeys)
+		}
+	})
+	if err != nil {
+		t.Fatalf("invoke container health endpoint: %v", err)
 	}
 }
 

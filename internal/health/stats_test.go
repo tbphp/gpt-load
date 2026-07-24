@@ -10,6 +10,19 @@ func statsBase() time.Time {
 	return time.Date(2026, time.July, 22, 10, 0, 0, 0, time.UTC)
 }
 
+func TestStatsWindowMatchesBucketConfiguration(t *testing.T) {
+	if StatsWindow != 5*time.Minute {
+		t.Fatalf("StatsWindow = %s, want 5m", StatsWindow)
+	}
+	if StatsWindow != time.Duration(statsBucketCount)*statsBucketWidth {
+		t.Fatalf(
+			"StatsWindow = %s, bucket configuration = %s",
+			StatsWindow,
+			time.Duration(statsBucketCount)*statsBucketWidth,
+		)
+	}
+}
+
 func TestStatsStoreSnapshotUnknownKeyReturnsZero(t *testing.T) {
 	store := NewStatsStore()
 	now := statsBase()

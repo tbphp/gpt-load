@@ -326,7 +326,11 @@ func TestEffectiveWeightCombinesGroupAndKeyWeights(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if got := effectiveWeight(test.key, test.group); got != test.want {
+			if got := effectiveWeight(
+				test.group.WeightManual,
+				test.key.WeightManual,
+				test.key.WeightAuto,
+			); got != test.want {
 				t.Fatalf("effectiveWeight() = %d, want %d", got, test.want)
 			}
 		})
@@ -545,6 +549,10 @@ func schedulerSnapshot() *state.ConfigSnapshot {
 		Groups: map[uint]state.GroupView{
 			1: {ID: 1, Name: "one", UpstreamURL: "https://one.example"},
 			2: {ID: 2, Name: "two", UpstreamURL: "https://two.example"},
+		},
+		GroupCatalog: map[uint]state.GroupCatalogView{
+			1: {ID: 1, Name: "one", Enabled: true},
+			2: {ID: 2, Name: "two", Enabled: true},
 		},
 	}
 }

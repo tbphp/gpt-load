@@ -329,6 +329,10 @@ func TestLoaderMapsSystemAndGroupRows(t *testing.T) {
 	if _, ok := snapshot.Groups[disabled.ID]; ok {
 		t.Fatalf("disabled group %d is present in snapshot", disabled.ID)
 	}
+	if got := snapshot.GroupCatalog[disabled.ID]; got.ID != disabled.ID ||
+		got.Name != disabled.Name || got.Enabled {
+		t.Fatalf("disabled GroupCatalog entry = %#v", got)
+	}
 	if len(view.Models) != 3 || view.Models[0].Alias != "Primary" || view.Models[1].Alias != "Secondary" {
 		t.Errorf("group models = %#v, want all aliases retained", view.Models)
 	}
@@ -357,6 +361,10 @@ func TestLoaderMapsSystemAndGroupRows(t *testing.T) {
 	}
 	if _, ok := openAICandidates["hidden"]; ok {
 		t.Fatal("disabled group model hidden is present in candidates")
+	}
+	if got := snapshot.RouteCatalog[protocol.OpenAI]["Hidden"]; len(got) != 1 ||
+		got[0].GroupID != disabled.ID || got[0].UpstreamModelID != "hidden" {
+		t.Fatalf("disabled RouteCatalog entry = %#v", got)
 	}
 }
 
@@ -499,6 +507,17 @@ func TestLoaderMapsAccessAndUpstreamKeys(t *testing.T) {
 	}
 	if _, ok := snapshot.AccessKeysByHash[disabledAccess.KeyHash]; ok {
 		t.Fatalf("disabled access hash %q is present in snapshot", disabledAccess.KeyHash)
+	}
+	if got := snapshot.AccessKeysByID[disabledAccess.ID]; got.ID != disabledAccess.ID ||
+		got.Status != state.AccessKeyStatusDisabled || got.Name != disabledAccess.Name {
+		t.Fatalf("disabled AccessKeysByID entry = %#v", got)
+	}
+	if got := snapshot.GroupCatalog[secondGroup.ID]; got.ID != secondGroup.ID ||
+		got.Name != secondGroup.Name || !got.Enabled {
+		t.Fatalf("second GroupCatalog entry = %#v", got)
+	}
+	if len(snapshot.RouteCatalog) == 0 {
+		t.Fatal("RouteCatalog was not compiled from persisted groups")
 	}
 	if _, ok := access.Filters.Groups[firstGroup.ID]; !ok {
 		t.Errorf("access filters groups = %#v, want group %d", access.Filters.Groups, firstGroup.ID)

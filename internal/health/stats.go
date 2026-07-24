@@ -8,6 +8,7 @@ import (
 const (
 	statsBucketCount = 5
 	statsBucketWidth = time.Minute
+	StatsWindow      = time.Duration(statsBucketCount) * statsBucketWidth
 )
 
 type KeyStats struct {

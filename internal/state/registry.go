@@ -208,12 +208,13 @@ func (r *KeyRegistry) CollectCandidates(groupIDs []uint, excluded func(uint) boo
 	metas := make([]KeyMeta, 0)
 	for _, groupID := range groupIDs {
 		for _, entry := range r.buckets[groupID] {
-			if entry.Status != KeyStatusActive || entry.Blacklisted || entry.CooldownUntil.After(now) {
+			view := runtimeView(entry)
+			if view.RuntimeState(now) != KeyRuntimeAvailable {
 				continue
 			}
 			meta := KeyMeta{
-				ID: entry.ID, GroupID: entry.GroupID,
-				WeightManual: cloneWeight(entry.WeightManual), WeightAuto: entry.WeightAuto,
+				ID: view.ID, GroupID: view.GroupID,
+				WeightManual: cloneWeight(view.WeightManual), WeightAuto: view.WeightAuto,
 			}
 			metas = append(metas, meta)
 		}

@@ -85,14 +85,14 @@ func (iterator *Iterator) SkipGroup(groupID uint) {
 	iterator.skippedGroups[groupID] = struct{}{}
 }
 
-func (iterator *Iterator) Next() (Selection, error) {
-	if iterator == nil || iterator.keys == nil || iterator.random == nil || iterator.now == nil || len(iterator.groupIDs) == 0 {
-		return Selection{}, ErrExhausted
+func (iterator *Iterator) weightedPool(now time.Time) ([]weightedKey, int64) {
+	if iterator == nil || iterator.keys == nil || len(iterator.groupIDs) == 0 {
+		return nil, 0
 	}
 	pool := iterator.keys.CollectCandidates(iterator.groupIDs, func(keyID uint) bool {
 		_, tried := iterator.tried[keyID]
 		return tried
-	}, iterator.now())
+	}, now)
 	weighted := make([]weightedKey, 0, len(pool))
 	var total int64
 	for _, key := range pool {
@@ -103,13 +103,25 @@ func (iterator *Iterator) Next() (Selection, error) {
 		if !ok {
 			continue
 		}
-		weight := effectiveWeight(key, target.group)
+		weight := effectiveWeight(
+			target.group.WeightManual,
+			key.WeightManual,
+			key.WeightAuto,
+		)
 		if weight <= 0 {
 			continue
 		}
 		weighted = append(weighted, weightedKey{meta: key, weight: weight})
 		total += weight
 	}
+	return weighted, total
+}
+
+func (iterator *Iterator) Next() (Selection, error) {
+	if iterator == nil || iterator.random == nil || iterator.now == nil {
+		return Selection{}, ErrExhausted
+	}
+	weighted, total := iterator.weightedPool(iterator.now())
 	if total <= 0 {
 		return Selection{}, ErrExhausted
 	}
@@ -133,57 +145,27 @@ func (iterator *Iterator) Next() (Selection, error) {
 	}, nil
 }
 
-func effectiveWeight(key state.KeyMeta, group state.GroupView) int64 {
-	groupWeight := state.DefaultWeight
-	if group.WeightManual != nil {
-		groupWeight = *group.WeightManual
-	}
-	keyWeight := key.WeightAuto
-	if keyWeight == 0 {
-		keyWeight = state.DefaultWeight
-	}
-	if key.WeightManual != nil {
-		keyWeight = *key.WeightManual
-	}
-	if groupWeight <= 0 || keyWeight <= 0 {
-		return 0
-	}
-	return int64(groupWeight) * int64(keyWeight)
-}
-
 func filterTargets(snapshot *state.ConfigSnapshot, query Query) []candidateTarget {
 	if snapshot == nil {
 		return nil
 	}
-	if len(query.AccessKey.Filters.Protocols) > 0 {
-		if _, ok := query.AccessKey.Filters.Protocols[query.Protocol]; !ok {
-			return nil
-		}
+	decisions, _, err := evaluateTargets(snapshot, snapshot.Candidates, query)
+	if err != nil {
+		return nil
 	}
-	if len(query.AccessKey.Filters.Models) > 0 {
-		if _, ok := query.AccessKey.Filters.Models[query.ExternalModel]; !ok {
-			return nil
-		}
-	}
-
-	byModel := snapshot.Candidates[query.Protocol]
-	targets := make([]candidateTarget, 0, len(byModel[query.ExternalModel]))
-	seenGroups := make(map[uint]struct{})
-	for _, target := range byModel[query.ExternalModel] {
-		if len(query.AccessKey.Filters.Groups) > 0 {
-			if _, ok := query.AccessKey.Filters.Groups[target.GroupID]; !ok {
-				continue
-			}
-		}
-		group, ok := snapshot.Groups[target.GroupID]
-		if !ok {
+	targets := make([]candidateTarget, 0, len(decisions))
+	for _, decision := range decisions {
+		if !decision.included {
 			continue
 		}
-		if _, duplicate := seenGroups[target.GroupID]; duplicate {
+		group, exists := snapshot.Groups[decision.target.GroupID]
+		if !exists {
 			continue
 		}
-		seenGroups[target.GroupID] = struct{}{}
-		targets = append(targets, candidateTarget{target: target, group: group})
+		targets = append(targets, candidateTarget{
+			target: decision.target,
+			group:  group,
+		})
 	}
 	return targets
 }

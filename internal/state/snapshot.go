@@ -103,9 +103,17 @@ type GroupView struct {
 	WeightManual    *int
 }
 
+type GroupCatalogView struct {
+	ID           uint
+	Name         string
+	Enabled      bool
+	WeightManual *int
+}
+
 type AccessKeyView struct {
 	ID       uint
 	Name     string
+	Status   AccessKeyStatus
 	Filters  FilterSet
 	RPMLimit int64
 }
@@ -115,6 +123,9 @@ type ConfigSnapshot struct {
 	Candidates       map[protocol.Protocol]map[string][]RouteTarget
 	Groups           map[uint]GroupView
 	AccessKeysByHash map[string]AccessKeyView
+	RouteCatalog     map[protocol.Protocol]map[string][]RouteTarget
+	GroupCatalog     map[uint]GroupCatalogView
+	AccessKeysByID   map[uint]AccessKeyView
 }
 
 func Compile(input CompileInput) (*ConfigSnapshot, error) {
@@ -126,9 +137,17 @@ func Compile(input CompileInput) (*ConfigSnapshot, error) {
 		Candidates:       make(map[protocol.Protocol]map[string][]RouteTarget),
 		Groups:           make(map[uint]GroupView),
 		AccessKeysByHash: make(map[string]AccessKeyView),
+		RouteCatalog:     make(map[protocol.Protocol]map[string][]RouteTarget),
+		GroupCatalog:     make(map[uint]GroupCatalogView),
+		AccessKeysByID:   make(map[uint]AccessKeyView),
 	}
 
 	for _, group := range input.Groups {
+		snapshot.GroupCatalog[group.ID] = GroupCatalogView{
+			ID: group.ID, Name: group.Name, Enabled: group.Enabled,
+			WeightManual: cloneWeight(group.WeightManual),
+		}
+		appendRouteTarget(snapshot.RouteCatalog, group)
 		if !group.Enabled {
 			continue
 		}
@@ -148,36 +167,49 @@ func Compile(input CompileInput) (*ConfigSnapshot, error) {
 			WeightManual:    cloneWeight(group.WeightManual),
 		}
 		snapshot.Groups[group.ID] = view
-
-		for _, model := range group.Models {
-			modelID := strings.TrimSpace(model.ID)
-			external := externalModelName(model)
-			for _, p := range group.Protocols {
-				if snapshot.Candidates[p] == nil {
-					snapshot.Candidates[p] = make(map[string][]RouteTarget)
-				}
-				snapshot.Candidates[p][external] = append(
-					snapshot.Candidates[p][external],
-					RouteTarget{GroupID: group.ID, UpstreamModelID: modelID},
-				)
-			}
-		}
+		appendRouteTarget(snapshot.Candidates, group)
 	}
 
 	for _, accessKey := range input.AccessKeys {
-		if accessKey.Status != AccessKeyStatusActive {
-			continue
-		}
-		snapshot.AccessKeysByHash[accessKey.KeyHash] = AccessKeyView{
-			ID: accessKey.ID, Name: accessKey.Name, Filters: cloneFilterSet(accessKey.Filters),
-			RPMLimit: accessKey.RPMLimit,
+		snapshot.AccessKeysByID[accessKey.ID] = newAccessKeyView(accessKey)
+		if accessKey.Status == AccessKeyStatusActive {
+			snapshot.AccessKeysByHash[accessKey.KeyHash] = newAccessKeyView(accessKey)
 		}
 	}
 
-	for _, byModel := range snapshot.Candidates {
-		for modelID := range byModel {
-			sort.Slice(byModel[modelID], func(i, j int) bool {
-				left, right := byModel[modelID][i], byModel[modelID][j]
+	sortRouteIndex(snapshot.Candidates)
+	sortRouteIndex(snapshot.RouteCatalog)
+	return snapshot, nil
+}
+
+func newAccessKeyView(input AccessKeyConfig) AccessKeyView {
+	return AccessKeyView{
+		ID: input.ID, Name: input.Name, Status: input.Status,
+		Filters: cloneFilterSet(input.Filters), RPMLimit: input.RPMLimit,
+	}
+}
+
+func appendRouteTarget(index map[protocol.Protocol]map[string][]RouteTarget, group GroupConfig) {
+	for _, model := range group.Models {
+		target := RouteTarget{
+			GroupID:         group.ID,
+			UpstreamModelID: strings.TrimSpace(model.ID),
+		}
+		external := externalModelName(model)
+		for _, value := range group.Protocols {
+			if index[value] == nil {
+				index[value] = make(map[string][]RouteTarget)
+			}
+			index[value][external] = append(index[value][external], target)
+		}
+	}
+}
+
+func sortRouteIndex(index map[protocol.Protocol]map[string][]RouteTarget) {
+	for _, byModel := range index {
+		for model := range byModel {
+			sort.Slice(byModel[model], func(i, j int) bool {
+				left, right := byModel[model][i], byModel[model][j]
 				if left.GroupID != right.GroupID {
 					return left.GroupID < right.GroupID
 				}
@@ -185,7 +217,6 @@ func Compile(input CompileInput) (*ConfigSnapshot, error) {
 			})
 		}
 	}
-	return snapshot, nil
 }
 
 func compileRuntimeSettings(system, group config.Settings) (TimeoutConfig, HeaderRules, error) {
@@ -362,66 +393,69 @@ func validHTTPHeaderValue(value string) bool {
 }
 
 func validateCompileInput(input CompileInput) error {
-	enabledGroupIDs := make(map[uint]struct{})
-	activeHashes := make(map[string]struct{})
+	groupIDs := make(map[uint]struct{}, len(input.Groups))
 	for _, group := range input.Groups {
-		if !group.Enabled {
-			continue
-		}
 		if group.ID == 0 {
 			return fmt.Errorf("group id is required")
 		}
-		if _, duplicate := enabledGroupIDs[group.ID]; duplicate {
+		if _, duplicate := groupIDs[group.ID]; duplicate {
 			return fmt.Errorf("duplicate group id %d", group.ID)
 		}
+		groupIDs[group.ID] = struct{}{}
 		if err := validateManualWeight(fmt.Sprintf("group %d", group.ID), group.WeightManual); err != nil {
 			return err
 		}
-		enabledGroupIDs[group.ID] = struct{}{}
 		if len(group.Protocols) == 0 {
 			return fmt.Errorf("group %d protocols are required", group.ID)
 		}
-		protocols := make(map[protocol.Protocol]struct{}, len(group.Protocols))
-		for _, p := range group.Protocols {
-			if !p.Valid() {
-				return fmt.Errorf("group %d has invalid protocol %q", group.ID, p)
+		seenProtocols := make(map[protocol.Protocol]struct{}, len(group.Protocols))
+		for _, value := range group.Protocols {
+			if !value.Valid() {
+				return fmt.Errorf("group %d has invalid protocol %q", group.ID, value)
 			}
-			if _, duplicate := protocols[p]; duplicate {
-				return fmt.Errorf("group %d has duplicate protocol %q", group.ID, p)
+			if _, duplicate := seenProtocols[value]; duplicate {
+				return fmt.Errorf("group %d has duplicate protocol %q", group.ID, value)
 			}
-			protocols[p] = struct{}{}
+			seenProtocols[value] = struct{}{}
 		}
-		externalModels := make(map[string]struct{}, len(group.Models))
+		seenModels := make(map[string]struct{}, len(group.Models))
 		for _, model := range group.Models {
-			modelID := strings.TrimSpace(model.ID)
-			if modelID == "" {
+			if strings.TrimSpace(model.ID) == "" {
 				return fmt.Errorf("group %d model id is required", group.ID)
 			}
 			external := externalModelName(model)
-			if _, duplicate := externalModels[external]; duplicate {
+			if _, duplicate := seenModels[external]; duplicate {
 				return fmt.Errorf("group %d has duplicate external model %q", group.ID, external)
 			}
-			externalModels[external] = struct{}{}
+			seenModels[external] = struct{}{}
 		}
 	}
+
+	accessKeyIDs := make(map[uint]struct{}, len(input.AccessKeys))
+	hashes := make(map[string]struct{}, len(input.AccessKeys))
 	for _, accessKey := range input.AccessKeys {
+		if accessKey.ID == 0 {
+			return fmt.Errorf("access key id is required")
+		}
+		if _, duplicate := accessKeyIDs[accessKey.ID]; duplicate {
+			return fmt.Errorf("duplicate access key id %d", accessKey.ID)
+		}
+		accessKeyIDs[accessKey.ID] = struct{}{}
 		if accessKey.RPMLimit < 0 {
 			return fmt.Errorf("access key %d rpm limit must not be negative", accessKey.ID)
 		}
 		switch accessKey.Status {
-		case AccessKeyStatusDisabled:
-			continue
-		case AccessKeyStatusActive:
+		case AccessKeyStatusActive, AccessKeyStatusDisabled:
 		default:
 			return fmt.Errorf("access key %d has invalid status %q", accessKey.ID, accessKey.Status)
 		}
 		if strings.TrimSpace(accessKey.KeyHash) == "" {
 			return fmt.Errorf("access key %d key hash is required", accessKey.ID)
 		}
-		if _, duplicate := activeHashes[accessKey.KeyHash]; duplicate {
+		if _, duplicate := hashes[accessKey.KeyHash]; duplicate {
 			return fmt.Errorf("duplicate access key hash %q", accessKey.KeyHash)
 		}
-		activeHashes[accessKey.KeyHash] = struct{}{}
+		hashes[accessKey.KeyHash] = struct{}{}
 		if err := validateFilterSet(accessKey.ID, accessKey.Filters); err != nil {
 			return err
 		}

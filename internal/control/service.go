@@ -14,6 +14,7 @@ import (
 	"gorm.io/gorm"
 
 	"gpt-load/internal/dialect"
+	"gpt-load/internal/health"
 	"gpt-load/internal/platform/encryption"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/state"
@@ -32,9 +33,12 @@ type Service struct {
 	encryption            encryption.Service
 	dialects              dialect.Set
 	requestLogs           RequestLogReader
+	stats                 *health.StatsStore
+	requestLogStats       RequestLogStatsReader
 	modelDiscoveryTimeout time.Duration
 	random                io.Reader
-	writeMu               sync.Mutex
+	now                   func() time.Time
+	writeMu               sync.RWMutex
 }
 
 func NewService(
@@ -44,11 +48,15 @@ func NewService(
 	encryptionService encryption.Service,
 	dialects dialect.Set,
 	requestLogs RequestLogReader,
+	stats *health.StatsStore,
+	requestLogStats RequestLogStatsReader,
 ) *Service {
 	return &Service{
 		db: db, manager: manager, registry: registry,
 		encryption: encryptionService, dialects: dialects, requestLogs: requestLogs,
-		modelDiscoveryTimeout: defaultModelDiscoveryTimeout, random: rand.Reader,
+		stats: stats, requestLogStats: requestLogStats,
+		modelDiscoveryTimeout: defaultModelDiscoveryTimeout,
+		random:                rand.Reader, now: time.Now,
 	}
 }
 
