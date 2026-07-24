@@ -6,6 +6,7 @@ import (
 	"errors"
 	"reflect"
 	"testing"
+	"time"
 
 	"gpt-load/internal/dialect"
 	app_errors "gpt-load/internal/platform/errors"
@@ -76,6 +77,19 @@ func TestUpdateGroupModelsReplacesAuthoritativeListAndPublishesOnce(t *testing.T
 	}); err != nil {
 		t.Fatal(err)
 	}
+	if err := fixture.db.Model(&models.Group{}).
+		Where("id = ?", created.GroupID).
+		Update("config", models.JSON(`{
+			"stream_idle_timeout":45,
+			"header_rules":{"remove":["X-Trace"]}
+		}`)).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.db.Create(&models.SystemSetting{
+		Key: state.SettingRequestTimeout, Value: "701",
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
 	beforeRevision := fixture.manager.Current().Revision
 	beforeRegistry := fixture.registry.Snapshot()
 	var beforeKeys []models.UpstreamKey
@@ -105,6 +119,22 @@ func TestUpdateGroupModelsReplacesAuthoritativeListAndPublishesOnce(t *testing.T
 		got.KeyCount != 2 {
 		t.Fatalf("detail = %#v", got)
 	}
+	streamIdle, ok := got.Config[state.SettingStreamIdleTimeout].(json.Number)
+	if len(got.Config) != 2 || !ok || streamIdle.String() != "45" ||
+		got.Config[state.SettingHeaderRules] == nil {
+		t.Fatalf("preserved sparse config = %#v", got.Config)
+	}
+	if got.EffectiveConfig.ConnectTimeout != 15 ||
+		got.EffectiveConfig.FirstByteTimeout != 120 ||
+		got.EffectiveConfig.RequestTimeout != 701 ||
+		got.EffectiveConfig.StreamIdleTimeout != 45 ||
+		len(got.EffectiveConfig.HeaderRules.Set) != 0 ||
+		!reflect.DeepEqual(got.EffectiveConfig.HeaderRules.Remove, []string{"X-Trace"}) {
+		t.Fatalf("post-write effective config = %#v", got.EffectiveConfig)
+	}
+	if got.EffectiveConfig.HeaderRules.Set == nil || got.EffectiveConfig.HeaderRules.Remove == nil {
+		t.Fatalf("effective header collections = %#v", got.EffectiveConfig.HeaderRules)
+	}
 	if stored := loadCreatedGroupModels(t, fixture, created.GroupID); !reflect.DeepEqual(stored, wantModels) {
 		t.Fatalf("stored models = %#v, want %#v", stored, wantModels)
 	}
@@ -122,6 +152,12 @@ func TestUpdateGroupModelsReplacesAuthoritativeListAndPublishesOnce(t *testing.T
 		t.Fatalf("upstream keys changed: got=%#v want=%#v", afterKeys, beforeKeys)
 	}
 	snapshot := fixture.manager.Current()
+	view := snapshot.Groups[created.GroupID]
+	if got.EffectiveConfig.RequestTimeout != int64(view.Timeouts.Request/time.Second) ||
+		got.EffectiveConfig.StreamIdleTimeout != int64(view.Timeouts.StreamIdle/time.Second) ||
+		!reflect.DeepEqual(got.EffectiveConfig.HeaderRules.Remove, view.HeaderRules.Remove) {
+		t.Fatalf("effective/snapshot = %#v/%#v", got.EffectiveConfig, view)
+	}
 	targets := snapshot.Candidates[protocol.OpenAI]
 	if len(targets) != 2 ||
 		targets["public-a"][0].UpstreamModelID != "provider-a" ||

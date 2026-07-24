@@ -10,12 +10,14 @@ import (
 	"net/http/httptest"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
 	"gpt-load/internal/platform/config"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/protocol"
+	"gpt-load/internal/state"
 	"gpt-load/internal/storage/models"
 )
 
@@ -70,6 +72,98 @@ func TestGetGroupReturnsCompletePersistedConfiguration(t *testing.T) {
 		if json.Valid(encoded) && string(encoded) != "" && containsJSONToken(encoded, forbidden) {
 			t.Fatalf("detail exposes forbidden field %q: %s", forbidden, encoded)
 		}
+	}
+}
+
+func TestGetGroupReturnsSparseAndEffectiveConfig(t *testing.T) {
+	fixture := newServiceFixture(t)
+	if err := fixture.db.Create(&models.SystemSetting{
+		Key: state.SettingRequestTimeout, Value: "700",
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	group := validControlGroup("effective")
+	group.Enabled = false
+	group.Config = models.JSON(`{"first_byte_timeout":180}`)
+	if err := fixture.db.Create(group).Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.manager.Publish(mustBuildCompileInput(t, fixture.db)); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := fixture.service.GetGroup(t.Context(), group.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstByte, ok := got.Config[state.SettingFirstByteTimeout].(json.Number)
+	if len(got.Config) != 1 || !ok || firstByte.String() != "180" {
+		t.Fatalf("sparse config = %#v", got.Config)
+	}
+	if got.EffectiveConfig.ConnectTimeout != 15 ||
+		got.EffectiveConfig.FirstByteTimeout != 180 ||
+		got.EffectiveConfig.RequestTimeout != 700 ||
+		got.EffectiveConfig.StreamIdleTimeout != 300 {
+		t.Fatalf("effective config = %#v", got.EffectiveConfig)
+	}
+	if got.EffectiveConfig.HeaderRules.Set == nil || got.EffectiveConfig.HeaderRules.Remove == nil {
+		t.Fatalf("effective header collections = %#v", got.EffectiveConfig.HeaderRules)
+	}
+
+	encoded, err := json.Marshal(got.EffectiveConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &fields); err != nil {
+		t.Fatal(err)
+	}
+	if len(fields) != 5 {
+		t.Fatalf("effective config fields = %#v", fields)
+	}
+	for _, forbidden := range []string{
+		"request_log_retention_days", "key_value", "candidates", "compiled", "timeouts",
+	} {
+		if containsJSONToken(encoded, forbidden) {
+			t.Fatalf("effective config exposed %q: %s", forbidden, encoded)
+		}
+	}
+}
+
+func TestGetGroupEffectiveConfigMatchesEnabledSnapshot(t *testing.T) {
+	fixture := newServiceFixture(t)
+	group := validControlGroup("effective-enabled")
+	group.Config = models.JSON(`{
+		"connect_timeout":20,
+		"header_rules":{"set":{"X-Test":"value"},"remove":["X-Debug"]}
+	}`)
+	if err := fixture.db.Create(group).Error; err != nil {
+		t.Fatal(err)
+	}
+	published, err := fixture.manager.Publish(mustBuildCompileInput(t, fixture.db))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := fixture.service.GetGroup(t.Context(), group.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	view := published.Groups[group.ID]
+	if got.EffectiveConfig.ConnectTimeout != int64(view.Timeouts.Connect/time.Second) ||
+		got.EffectiveConfig.FirstByteTimeout != int64(view.Timeouts.FirstByte/time.Second) ||
+		got.EffectiveConfig.RequestTimeout != int64(view.Timeouts.Request/time.Second) ||
+		got.EffectiveConfig.StreamIdleTimeout != int64(view.Timeouts.StreamIdle/time.Second) ||
+		!reflect.DeepEqual(got.EffectiveConfig.HeaderRules.Set, view.HeaderRules.Set) ||
+		!reflect.DeepEqual(got.EffectiveConfig.HeaderRules.Remove, view.HeaderRules.Remove) {
+		t.Fatalf("effective/snapshot = %#v/%#v", got.EffectiveConfig, view)
+	}
+
+	got.EffectiveConfig.HeaderRules.Set["X-Test"] = "changed"
+	got.EffectiveConfig.HeaderRules.Remove[0] = "X-Changed"
+	if view.HeaderRules.Set["X-Test"] != "value" ||
+		!reflect.DeepEqual(view.HeaderRules.Remove, []string{"X-Debug"}) {
+		t.Fatalf("response aliases snapshot header rules: %#v", view.HeaderRules)
 	}
 }
 

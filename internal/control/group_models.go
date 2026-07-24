@@ -36,7 +36,7 @@ func (s *Service) UpdateGroupModels(
 	}
 
 	var result GroupDetailResponse
-	_, err = s.writeConfig(ctx, func(tx *gorm.DB) error {
+	snapshot, err := s.writeConfig(ctx, func(tx *gorm.DB) error {
 		_, group, err := loadGroupDetail(tx, groupID)
 		if err != nil {
 			return err
@@ -59,6 +59,14 @@ func (s *Service) UpdateGroupModels(
 	}, nil)
 	if err != nil {
 		return GroupDetailResponse{}, withControlOperationContext(err, groupID, 0)
+	}
+	result.EffectiveConfig, err = effectiveGroupConfig(snapshot.Settings, result.Config)
+	if err != nil {
+		return GroupDetailResponse{}, fmt.Errorf(
+			"resolve group %d effective config after model update: %w",
+			groupID,
+			app_errors.ErrInternalServer,
+		)
 	}
 	return result, nil
 }

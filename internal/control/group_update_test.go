@@ -116,6 +116,11 @@ func TestUpdateGroupReplacesOnlySuppliedFieldsAndPublishesOnce(t *testing.T) {
 	fixture := newServiceFixture(t)
 	groupID := createGroupForKeyImport(t, fixture, "sk-update-preserved")
 	beforeRevision := fixture.manager.Current().Revision
+	if err := fixture.db.Create(&models.SystemSetting{
+		Key: state.SettingRequestTimeout, Value: "700",
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
 	name := optionalField[string]{Set: true, Value: "  renamed  "}
 	enabled := optionalField[bool]{Set: true, Value: false}
 	validation := optionalField[string]{Set: true, Null: true}
@@ -137,6 +142,18 @@ func TestUpdateGroupReplacesOnlySuppliedFieldsAndPublishesOnce(t *testing.T) {
 		result.Group.WeightManual == nil || *result.Group.WeightManual != 0 ||
 		result.ModelRediscoveryRecommended {
 		t.Fatalf("result = %#v", result)
+	}
+	firstByte, ok := result.Group.Config[state.SettingFirstByteTimeout].(json.Number)
+	if len(result.Group.Config) != 1 || !ok || firstByte.String() != "180" {
+		t.Fatalf("sparse config = %#v", result.Group.Config)
+	}
+	if result.Group.EffectiveConfig.ConnectTimeout != 15 ||
+		result.Group.EffectiveConfig.FirstByteTimeout != 180 ||
+		result.Group.EffectiveConfig.RequestTimeout != 700 ||
+		result.Group.EffectiveConfig.StreamIdleTimeout != 300 ||
+		result.Group.EffectiveConfig.HeaderRules.Set == nil ||
+		result.Group.EffectiveConfig.HeaderRules.Remove == nil {
+		t.Fatalf("post-write effective config = %#v", result.Group.EffectiveConfig)
 	}
 	if got := fixture.manager.Current().Revision; got != beforeRevision+1 {
 		t.Fatalf("revision = %d, want %d", got, beforeRevision+1)

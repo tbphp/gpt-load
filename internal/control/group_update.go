@@ -159,7 +159,7 @@ func (s *Service) UpdateGroup(
 
 	var result GroupUpdateResult
 	var changedHostname string
-	_, err = s.writeConfig(ctx, func(tx *gorm.DB) error {
+	snapshot, err := s.writeConfig(ctx, func(tx *gorm.DB) error {
 		_, group, err := loadGroupDetail(tx, groupID)
 		if err != nil {
 			return err
@@ -235,6 +235,14 @@ func (s *Service) UpdateGroup(
 	}, nil)
 	if err != nil {
 		return GroupUpdateResult{}, withControlOperationContext(err, groupID, 0)
+	}
+	result.Group.EffectiveConfig, err = effectiveGroupConfig(snapshot.Settings, result.Group.Config)
+	if err != nil {
+		return GroupUpdateResult{}, fmt.Errorf(
+			"resolve updated group %d effective config: %w",
+			groupID,
+			app_errors.ErrInternalServer,
+		)
 	}
 	if changedHostname != "" && isLiteralPrivateHost(changedHostname) {
 		logrus.WithField("host", changedHostname).
