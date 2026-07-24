@@ -1,4 +1,4 @@
-// Package config loads static process configuration and merges dynamic control-plane settings.
+// Package config loads static process configuration and defines shared dynamic setting shapes.
 package config
 
 import (
@@ -110,38 +110,6 @@ func Load() (*Config, error) {
 			Format: logFormat,
 		},
 	}, nil
-}
-
-// MergeSettings combines the DB-backed system layer with the Group override
-// layer. The returned map is independent from both inputs.
-func MergeSettings(system, group Settings) Settings {
-	merged := make(Settings, len(system)+len(group))
-	for key, value := range system {
-		merged[key] = cloneSettingValue(value)
-	}
-	for key, value := range group {
-		merged[key] = cloneSettingValue(value)
-	}
-	return merged
-}
-
-func cloneSettingValue(value any) any {
-	switch typed := value.(type) {
-	case map[string]any:
-		cloned := make(map[string]any, len(typed))
-		for key, nested := range typed {
-			cloned[key] = cloneSettingValue(nested)
-		}
-		return cloned
-	case []any:
-		cloned := make([]any, len(typed))
-		for index, nested := range typed {
-			cloned[index] = cloneSettingValue(nested)
-		}
-		return cloned
-	default:
-		return value
-	}
 }
 
 func parsePositiveInt(key string, defaultValue int) (int, error) {

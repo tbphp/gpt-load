@@ -316,6 +316,21 @@ func TestCompileMergesTimeoutsAndHeaderRules(t *testing.T) {
 		t.Fatalf("Compile() error = %v", err)
 	}
 
+	wantSettings := RuntimeSettings{
+		ConnectTimeout:    10 * time.Second,
+		FirstByteTimeout:  90 * time.Second,
+		RequestTimeout:    600 * time.Second,
+		StreamIdleTimeout: 300 * time.Second,
+		HeaderRules: HeaderRules{
+			Set:    map[string]string{"X-System": "system"},
+			Remove: []string{"X-System-Remove"},
+		},
+		RequestLogRetentionDays: 7,
+	}
+	if !reflect.DeepEqual(snapshot.Settings, wantSettings) {
+		t.Errorf("ConfigSnapshot.Settings = %#v, want %#v", snapshot.Settings, wantSettings)
+	}
+
 	group := snapshot.Groups[1]
 	wantTimeouts := TimeoutConfig{
 		Connect:    20 * time.Second,
@@ -339,6 +354,18 @@ func TestCompileUsesDefaultRuntimeSettings(t *testing.T) {
 	snapshot, err := Compile(runtimeSettingsInput(nil, nil))
 	if err != nil {
 		t.Fatalf("Compile() error = %v", err)
+	}
+
+	wantSettings := RuntimeSettings{
+		ConnectTimeout:          15 * time.Second,
+		FirstByteTimeout:        120 * time.Second,
+		RequestTimeout:          600 * time.Second,
+		StreamIdleTimeout:       300 * time.Second,
+		HeaderRules:             HeaderRules{Set: map[string]string{}},
+		RequestLogRetentionDays: 7,
+	}
+	if !reflect.DeepEqual(snapshot.Settings, wantSettings) {
+		t.Errorf("ConfigSnapshot.Settings = %#v, want %#v", snapshot.Settings, wantSettings)
 	}
 
 	group := snapshot.Groups[1]

@@ -2,11 +2,7 @@
 package state
 
 import (
-	"encoding/json"
 	"fmt"
-	"math"
-	"math/big"
-	"net/textproto"
 	"sort"
 	"strings"
 	"time"
@@ -79,13 +75,6 @@ type TimeoutConfig struct {
 	StreamIdle time.Duration
 }
 
-var defaultTimeouts = TimeoutConfig{
-	Connect:    15 * time.Second,
-	FirstByte:  120 * time.Second,
-	Request:    600 * time.Second,
-	StreamIdle: 300 * time.Second,
-}
-
 type HeaderRules struct {
 	Set    map[string]string
 	Remove []string
@@ -120,6 +109,7 @@ type AccessKeyView struct {
 
 type ConfigSnapshot struct {
 	Revision         uint64
+	Settings         RuntimeSettings
 	Candidates       map[protocol.Protocol]map[string][]RouteTarget
 	Groups           map[uint]GroupView
 	AccessKeysByHash map[string]AccessKeyView
@@ -132,8 +122,13 @@ func Compile(input CompileInput) (*ConfigSnapshot, error) {
 	if err := validateCompileInput(input); err != nil {
 		return nil, err
 	}
+	runtimeSettings, err := ResolveRuntimeSettings(input.SystemSettings)
+	if err != nil {
+		return nil, err
+	}
 
 	snapshot := &ConfigSnapshot{
+		Settings:         runtimeSettings,
 		Candidates:       make(map[protocol.Protocol]map[string][]RouteTarget),
 		Groups:           make(map[uint]GroupView),
 		AccessKeysByHash: make(map[string]AccessKeyView),
@@ -148,12 +143,12 @@ func Compile(input CompileInput) (*ConfigSnapshot, error) {
 			WeightManual: cloneWeight(group.WeightManual),
 		}
 		appendRouteTarget(snapshot.RouteCatalog, group)
+		timeouts, headerRules, err := ResolveGroupRuntimeSettings(runtimeSettings, group.Settings)
+		if err != nil {
+			return nil, fmt.Errorf("compile group %d settings: %w", group.ID, err)
+		}
 		if !group.Enabled {
 			continue
-		}
-		timeouts, headerRules, err := compileRuntimeSettings(input.SystemSettings, group.Settings)
-		if err != nil {
-			return nil, err
 		}
 		view := GroupView{
 			ID:              group.ID,
@@ -217,179 +212,6 @@ func sortRouteIndex(index map[protocol.Protocol]map[string][]RouteTarget) {
 			})
 		}
 	}
-}
-
-func compileRuntimeSettings(system, group config.Settings) (TimeoutConfig, HeaderRules, error) {
-	allowedGroupSettings := map[string]struct{}{
-		"connect_timeout": {}, "first_byte_timeout": {},
-		"request_timeout": {}, "stream_idle_timeout": {}, "header_rules": {},
-	}
-	for key := range group {
-		if _, ok := allowedGroupSettings[key]; !ok {
-			return TimeoutConfig{}, HeaderRules{}, fmt.Errorf("unknown group setting %q", key)
-		}
-	}
-
-	merged := config.MergeSettings(system, group)
-	timeouts := defaultTimeouts
-	fields := []struct {
-		key    string
-		target *time.Duration
-	}{
-		{key: "connect_timeout", target: &timeouts.Connect},
-		{key: "first_byte_timeout", target: &timeouts.FirstByte},
-		{key: "request_timeout", target: &timeouts.Request},
-		{key: "stream_idle_timeout", target: &timeouts.StreamIdle},
-	}
-	for _, field := range fields {
-		value, ok := merged[field.key]
-		if !ok {
-			continue
-		}
-		seconds, err := positiveWholeSeconds(field.key, value)
-		if err != nil {
-			return TimeoutConfig{}, HeaderRules{}, err
-		}
-		*field.target = time.Duration(seconds) * time.Second
-	}
-
-	rules, err := parseHeaderRules(merged["header_rules"])
-	if err != nil {
-		return TimeoutConfig{}, HeaderRules{}, err
-	}
-	return timeouts, rules, nil
-}
-
-func positiveWholeSeconds(path string, value any) (int64, error) {
-	const maxTimeoutSeconds = int64((1<<63)-1) / int64(time.Second)
-
-	var seconds int64
-	switch typed := value.(type) {
-	case int:
-		seconds = int64(typed)
-	case int64:
-		seconds = typed
-	case float64:
-		if math.IsNaN(typed) || math.IsInf(typed, 0) || math.Trunc(typed) != typed || typed > float64(maxTimeoutSeconds) {
-			return 0, fmt.Errorf("%s must be a positive whole number", path)
-		}
-		seconds = int64(typed)
-	case json.Number:
-		literal := typed.String()
-		parsed, ok := new(big.Rat).SetString(literal)
-		if !json.Valid([]byte(literal)) || !ok || !parsed.IsInt() || !parsed.Num().IsInt64() {
-			return 0, fmt.Errorf("%s must be a positive whole number", path)
-		}
-		seconds = parsed.Num().Int64()
-	default:
-		return 0, fmt.Errorf("%s must be a positive whole number", path)
-	}
-	if seconds <= 0 || seconds > maxTimeoutSeconds {
-		return 0, fmt.Errorf("%s must be a positive whole number within duration range", path)
-	}
-	return seconds, nil
-}
-
-func parseHeaderRules(value any) (HeaderRules, error) {
-	rules := HeaderRules{Set: make(map[string]string)}
-	if value == nil {
-		return rules, nil
-	}
-	object, ok := value.(map[string]any)
-	if !ok {
-		return HeaderRules{}, fmt.Errorf("header_rules must be an object")
-	}
-	for key := range object {
-		if key != "set" && key != "remove" {
-			return HeaderRules{}, fmt.Errorf("unknown header_rules field %q", key)
-		}
-	}
-	if rawSet, exists := object["set"]; exists {
-		set, ok := rawSet.(map[string]any)
-		if !ok {
-			return HeaderRules{}, fmt.Errorf("header_rules.set must be an object")
-		}
-		seen := make(map[string]struct{}, len(set))
-		for name, rawValue := range set {
-			if !validHTTPHeaderName(name) {
-				return HeaderRules{}, fmt.Errorf("header_rules.set contains invalid header name %q", name)
-			}
-			canonicalName := textproto.CanonicalMIMEHeaderKey(name)
-			identity := strings.ToLower(name)
-			if _, duplicate := seen[identity]; duplicate {
-				return HeaderRules{}, fmt.Errorf(
-					"header_rules.set contains duplicate header %q",
-					canonicalName,
-				)
-			}
-			seen[identity] = struct{}{}
-			text, ok := rawValue.(string)
-			if !ok {
-				return HeaderRules{}, fmt.Errorf("header_rules.set.%s must be a string", name)
-			}
-			if !validHTTPHeaderValue(text) {
-				return HeaderRules{}, fmt.Errorf("header_rules.set.%s contains invalid header value", name)
-			}
-			rules.Set[canonicalName] = text
-		}
-	}
-	if rawRemove, exists := object["remove"]; exists {
-		remove, ok := rawRemove.([]any)
-		if !ok {
-			return HeaderRules{}, fmt.Errorf("header_rules.remove must be an array")
-		}
-		rules.Remove = make([]string, 0, len(remove))
-		for index, rawName := range remove {
-			name, ok := rawName.(string)
-			if !ok {
-				return HeaderRules{}, fmt.Errorf("header_rules.remove[%d] must be a string", index)
-			}
-			if !validHTTPHeaderName(name) {
-				return HeaderRules{}, fmt.Errorf(
-					"header_rules.remove[%d] contains invalid header name %q",
-					index,
-					name,
-				)
-			}
-			rules.Remove = append(rules.Remove, textproto.CanonicalMIMEHeaderKey(name))
-		}
-	}
-	return rules, nil
-}
-
-func validHTTPHeaderName(name string) bool {
-	if name == "" {
-		return false
-	}
-	for index := range len(name) {
-		if !isHTTPTokenByte(name[index]) {
-			return false
-		}
-	}
-	return true
-}
-
-func isHTTPTokenByte(value byte) bool {
-	switch {
-	case value >= '0' && value <= '9':
-		return true
-	case value >= 'a' && value <= 'z':
-		return true
-	case value >= 'A' && value <= 'Z':
-		return true
-	default:
-		return strings.IndexByte("!#$%&'*+-.^_`|~", value) >= 0
-	}
-}
-
-func validHTTPHeaderValue(value string) bool {
-	for index := range len(value) {
-		character := value[index]
-		if (character < ' ' && character != '\t') || character == 0x7f {
-			return false
-		}
-	}
-	return true
 }
 
 func validateCompileInput(input CompileInput) error {

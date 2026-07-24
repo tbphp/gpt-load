@@ -163,45 +163,6 @@ func TestLoadRejectsInvalidRequiredAndNumericValues(t *testing.T) {
 	}
 }
 
-func TestMergeSettingsUsesGroupOverridesWithoutMutatingInputs(t *testing.T) {
-	system := Settings{"timeout": 30, "retry": 2}
-	group := Settings{"timeout": 90}
-
-	merged := MergeSettings(system, group)
-
-	if merged["timeout"] != 90 || merged["retry"] != 2 {
-		t.Fatalf("MergeSettings() = %#v", merged)
-	}
-	merged["retry"] = 9
-	if system["retry"] != 2 {
-		t.Fatalf("system settings mutated: %#v", system)
-	}
-}
-
-func TestMergeSettingsDeepCopiesNestedJSONValues(t *testing.T) {
-	systemRule := map[string]any{"name": "system"}
-	systemRules := []any{systemRule}
-	groupFilters := []any{"group-a", "group-b"}
-	system := Settings{"headers": map[string]any{"rules": systemRules}}
-	group := Settings{"filters": groupFilters}
-
-	merged := MergeSettings(system, group)
-	mergedRule := merged["headers"].(map[string]any)["rules"].([]any)[0].(map[string]any)
-	mergedFilters := merged["filters"].([]any)
-
-	systemRule["name"] = "input-mutated"
-	groupFilters[0] = "input-mutated"
-	if mergedRule["name"] != "system" || mergedFilters[0] != "group-a" {
-		t.Fatalf("merged settings changed with inputs: %#v", merged)
-	}
-
-	mergedRule["name"] = "output-mutated"
-	mergedFilters[0] = "output-mutated"
-	if systemRule["name"] != "input-mutated" || groupFilters[0] != "input-mutated" {
-		t.Fatalf("input settings changed with merged output: system=%#v group=%#v", system, group)
-	}
-}
-
 func clearEnvironment(t *testing.T) {
 	t.Helper()
 	for _, key := range []string{

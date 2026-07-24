@@ -136,6 +136,32 @@ func TestLoadSystemSettingsExcludesInternalSystemSettings(t *testing.T) {
 	}
 }
 
+func TestLoaderPublishesDefaultsFromEmptyDatabase(t *testing.T) {
+	db := openMigratedDatabase(t)
+	manager := state.NewManager()
+	if err := loader.New(db, manager, state.NewKeyRegistry()).Load(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	got := manager.Current().Settings
+	if got.ConnectTimeout != 15*time.Second ||
+		got.FirstByteTimeout != 120*time.Second ||
+		got.RequestTimeout != 600*time.Second ||
+		got.StreamIdleTimeout != 300*time.Second ||
+		got.RequestLogRetentionDays != 7 {
+		t.Fatalf("Settings = %#v", got)
+	}
+}
+
+func TestLoaderRejectsUnknownPublicSystemSetting(t *testing.T) {
+	db := openMigratedDatabase(t)
+	mustCreate(t, db, &models.SystemSetting{Key: "unknown_public", Value: "true"})
+	manager := state.NewManager()
+	err := loader.New(db, manager, state.NewKeyRegistry()).Load(context.Background())
+	if err == nil || manager.Current() != nil {
+		t.Fatalf("Load() error/current = %v/%#v", err, manager.Current())
+	}
+}
+
 func TestLoaderLoadsEmptyMigratedDatabase(t *testing.T) {
 	db := openMigratedDatabase(t)
 	manager := state.NewManager()
@@ -318,6 +344,20 @@ func TestLoaderMapsSystemAndGroupRows(t *testing.T) {
 	snapshot := manager.Current()
 	if snapshot == nil {
 		t.Fatal("Current() = nil, want snapshot")
+	}
+	wantSettings := state.RuntimeSettings{
+		ConnectTimeout:    20 * time.Second,
+		FirstByteTimeout:  120 * time.Second,
+		RequestTimeout:    600 * time.Second,
+		StreamIdleTimeout: 300 * time.Second,
+		HeaderRules: state.HeaderRules{
+			Set:    map[string]string{"X-System": "system"},
+			Remove: []string{"X-System-Remove"},
+		},
+		RequestLogRetentionDays: 7,
+	}
+	if !reflect.DeepEqual(snapshot.Settings, wantSettings) {
+		t.Fatalf("snapshot Settings = %#v, want %#v", snapshot.Settings, wantSettings)
 	}
 	if len(snapshot.Groups) != 1 {
 		t.Fatalf("snapshot groups = %#v, want enabled group only", snapshot.Groups)
