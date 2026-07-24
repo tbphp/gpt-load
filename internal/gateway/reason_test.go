@@ -19,13 +19,17 @@ func TestWriteReasonUsesStableDataPlaneEnvelope(t *testing.T) {
 		reasonUpstreamProtocol,
 		reasonRequestTooLarge,
 		reasonModelListTooLarge,
+		reasonAccessKeyRateLimited,
 	}
 	gin.SetMode(gin.TestMode)
 	for _, want := range tests {
 		t.Run(want.Code, func(t *testing.T) {
 			recorder := httptest.NewRecorder()
 			context, _ := gin.CreateTestContext(recorder)
-			writeReason(context, want)
+			handler := &Handler{writeTimeout: downstreamWriteTimeout}
+			if err := handler.writeReason(context, want); err != nil {
+				t.Fatalf("writeReason() error = %v", err)
+			}
 
 			if recorder.Code != want.Status {
 				t.Fatalf("status = %d, want %d", recorder.Code, want.Status)

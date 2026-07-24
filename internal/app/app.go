@@ -32,6 +32,8 @@ type App struct {
 	runtimeState     RuntimeStateLoader
 	controlRuntime   ControlRuntime
 	startupBootstrap StartupBootstrap
+	requestLogs      RequestLogRuntime
+	listen           func(network, address string) (net.Listener, error)
 
 	mu            sync.Mutex
 	httpServer    *http.Server
@@ -56,6 +58,12 @@ type ControlRuntime interface {
 	Run(context.Context)
 }
 
+// RequestLogRuntime owns the asynchronous request log worker lifecycle.
+type RequestLogRuntime interface {
+	Start() error
+	Stop(context.Context) error
+}
+
 // AppParams defines dependencies injected into App.
 type AppParams struct {
 	dig.In
@@ -67,6 +75,7 @@ type AppParams struct {
 	StartupBootstrap StartupBootstrap
 	RuntimeState     RuntimeStateLoader
 	ControlRuntime   ControlRuntime
+	RequestLogs      RequestLogRuntime
 }
 
 // NewEngine creates the HTTP engine and health endpoint.
@@ -97,6 +106,8 @@ func NewApp(params AppParams) *App {
 		runtimeState:     params.RuntimeState,
 		controlRuntime:   params.ControlRuntime,
 		startupBootstrap: params.StartupBootstrap,
+		requestLogs:      params.RequestLogs,
+		listen:           net.Listen,
 		serveErrors:      make(chan error, 1),
 	}
 }
@@ -123,9 +134,23 @@ func (a *App) Start() error {
 	}
 
 	address := net.JoinHostPort(a.config.Server.Host, strconv.Itoa(a.config.Server.Port))
-	listener, err := net.Listen("tcp", address)
+	listener, err := a.listen("tcp", address)
 	if err != nil {
 		return fmt.Errorf("listen on %s: %w", address, err)
+	}
+	if a.requestLogs == nil {
+		closeErr := listener.Close()
+		return errors.Join(
+			fmt.Errorf("start request logs: request log runtime is nil"),
+			wrapListenerCloseError(closeErr),
+		)
+	}
+	if err := a.requestLogs.Start(); err != nil {
+		closeErr := listener.Close()
+		return errors.Join(
+			fmt.Errorf("start request logs: %w", err),
+			wrapListenerCloseError(closeErr),
+		)
 	}
 
 	server := &http.Server{
@@ -177,20 +202,20 @@ func (a *App) Address() string {
 
 // Stop gracefully shuts down HTTP and closes infrastructure resources.
 func (a *App) Stop(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	a.mu.Lock()
 	server := a.httpServer
 	cancelRuntime := a.runtimeCancel
 	runtimeDone := a.runtimeDone
+	requestLogs := a.requestLogs
 	a.mu.Unlock()
 
 	var errs []error
 	if cancelRuntime != nil {
 		cancelRuntime()
-		select {
-		case <-runtimeDone:
-		case <-ctx.Done():
-			errs = append(errs, fmt.Errorf("wait for control runtime: %w", ctx.Err()))
-		}
 	}
 	if server != nil {
 		if err := server.Shutdown(ctx); err != nil {
@@ -198,6 +223,18 @@ func (a *App) Stop(ctx context.Context) error {
 			if closeErr := server.Close(); closeErr != nil {
 				errs = append(errs, fmt.Errorf("force close HTTP server: %w", closeErr))
 			}
+		}
+	}
+	if runtimeDone != nil {
+		select {
+		case <-runtimeDone:
+		case <-ctx.Done():
+			errs = append(errs, fmt.Errorf("wait for control runtime: %w", ctx.Err()))
+		}
+	}
+	if requestLogs != nil {
+		if err := requestLogs.Stop(ctx); err != nil {
+			errs = append(errs, fmt.Errorf("stop request logs: %w", err))
 		}
 	}
 	if a.db != nil {
@@ -210,4 +247,11 @@ func (a *App) Stop(ctx context.Context) error {
 	}
 
 	return errors.Join(errs...)
+}
+
+func wrapListenerCloseError(err error) error {
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("close listener after request log startup failure: %w", err)
 }

@@ -19,9 +19,12 @@ import (
 	"gpt-load/internal/platform/encryption"
 	"gpt-load/internal/platform/httpclient"
 	"gpt-load/internal/platform/redact"
+	"gpt-load/internal/ratelimit"
+	"gpt-load/internal/requestlog"
 	"gpt-load/internal/state"
 	stateloader "gpt-load/internal/state/loader"
 	"gpt-load/internal/storage"
+	"gpt-load/internal/telemetry"
 	"gpt-load/internal/webui"
 )
 
@@ -42,6 +45,23 @@ func BuildContainer() (*dig.Container, error) {
 		state.NewManager,
 		state.NewKeyRegistry,
 		health.NewStatsStore,
+		ratelimit.NewAccessKeyRPM,
+		func(limiter *ratelimit.AccessKeyRPM) gateway.AccessKeyRPMLimiter {
+			return limiter
+		},
+		requestlog.NewService,
+		func(service *requestlog.Service) telemetry.RequestLogSink {
+			return service
+		},
+		func(service *requestlog.Service) control.RequestLogReader {
+			return service
+		},
+		func(service *requestlog.Service) control.RequestLogCleaner {
+			return service
+		},
+		func(service *requestlog.Service) app.RequestLogRuntime {
+			return service
+		},
 		control.NewRuntime,
 		func(runtime *control.Runtime) app.ControlRuntime { return runtime },
 		httpclient.NewHTTPClientManager,

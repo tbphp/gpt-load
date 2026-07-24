@@ -569,6 +569,7 @@ func TestHandlerModelEndpointHasNoDataPlaneSideEffects(t *testing.T) {
 	spyEncryption := &decryptPanicEncryption{Service: keyService}
 	handler := NewHandler(
 		manager, state.NewKeyRegistry(), spyEncryption, panicForwarder{}, dialect.NewSet(), health.NewStatsStore(),
+		nil, nil,
 	)
 	handler.registry = panicRuntimeRegistry{}
 	engine := gin.New()
@@ -641,6 +642,7 @@ func newModelListHandlerEngineWithLimit(
 	}
 	handler := NewHandler(
 		manager, state.NewKeyRegistry(), keyService, &scriptedForwarder{}, dialect.NewSet(), health.NewStatsStore(),
+		nil, nil,
 	)
 	handler.modelListLimit = limit
 	engine := gin.New()
@@ -1808,7 +1810,10 @@ func TestHandlerSkipsCandidateChangedAfterCollection(t *testing.T) {
 				mutate:      func() { tt.mutate(t, registry, keyService) },
 			}
 			openAI := dialect.NewOpenAI(http.DefaultClient)
-			handler := NewHandler(manager, registry, keyService, forwarder, dialect.NewSet(openAI), health.NewStatsStore())
+			handler := NewHandler(
+				manager, registry, keyService, forwarder, dialect.NewSet(openAI), health.NewStatsStore(),
+				nil, nil,
+			)
 			handler.registry = runtimeRegistry
 			handler.newRandom = func() *rand.Rand { return rand.New(rand.NewSource(1)) }
 			engine := gin.New()
@@ -1880,6 +1885,8 @@ func newRealGatewayEngine(t *testing.T, upstreamURL string, upstreamKeys ...stri
 		NewForwarder(clients, redact.New()),
 		dialect.NewSet(openAI),
 		health.NewStatsStore(),
+		nil,
+		nil,
 	)
 	handler.newRandom = func() *rand.Rand { return rand.New(rand.NewSource(1)) }
 	engine := gin.New()
@@ -1971,7 +1978,10 @@ func newHandlerForTestWithStats(
 	}
 
 	openAI := dialect.NewOpenAI(http.DefaultClient)
-	handler := NewHandler(manager, registry, keyService, forwarder, dialect.NewSet(openAI), stats)
+	handler := NewHandler(
+		manager, registry, keyService, forwarder, dialect.NewSet(openAI), stats,
+		nil, nil,
+	)
 	handler.newRandom = func() *rand.Rand { return rand.New(rand.NewSource(1)) }
 	return handler, manager, registry
 }

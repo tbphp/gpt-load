@@ -604,3 +604,23 @@ func TestCompileOwnsIndependentCopiesOfInput(t *testing.T) {
 		t.Error("AccessKeyView.Filters.Models contains caller mutation")
 	}
 }
+
+func TestCompileCarriesRPMLimitAndValidatesDisabledKeys(t *testing.T) {
+	input := CompileInput{AccessKeys: []AccessKeyConfig{{
+		ID: 1, Name: "client", KeyHash: "hash", Status: AccessKeyStatusActive,
+		RPMLimit: 12,
+	}}}
+	snapshot, err := Compile(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := snapshot.AccessKeysByHash["hash"].RPMLimit; got != 12 {
+		t.Fatalf("RPMLimit = %d, want 12", got)
+	}
+
+	input.AccessKeys[0].Status = AccessKeyStatusDisabled
+	input.AccessKeys[0].RPMLimit = -1
+	if _, err := Compile(input); err == nil {
+		t.Fatal("Compile() accepted negative rpm_limit on disabled key")
+	}
+}

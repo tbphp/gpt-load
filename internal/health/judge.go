@@ -33,6 +33,7 @@ const (
 )
 
 type Result struct {
+	Category      FailureCategory
 	Action        Action
 	CooldownUntil time.Time
 	UseFixed      bool
@@ -62,22 +63,29 @@ func Judge(classifier StatusClassifier, attempt Attempt) Result {
 			return result
 		}
 	}
-	return Result{Action: ActionTerminate}
+	return Result{Category: FailureCategoryAmbiguous, Action: ActionTerminate}
 }
 
 func terminalBoundaryRule(_ StatusClassifier, attempt Attempt) (Result, bool) {
-	if attempt.Committed || errors.Is(attempt.Err, context.Canceled) ||
-		(attempt.Err != nil && attempt.RequestWritten && !attempt.RetryableBeforeCommit) {
-		return Result{Action: ActionTerminate}, true
+	switch {
+	case errors.Is(attempt.Err, context.Canceled):
+		return Result{Category: FailureCategoryDownstreamCancel, Action: ActionTerminate}, true
+	case attempt.Committed && attempt.Err == nil:
+		return Result{Category: FailureCategoryOK, Action: ActionTerminate}, true
+	case attempt.Committed:
+		return Result{Category: FailureCategoryAmbiguous, Action: ActionTerminate}, true
+	case attempt.Err != nil && attempt.RequestWritten && !attempt.RetryableBeforeCommit:
+		return Result{Category: FailureCategoryAmbiguous, Action: ActionTerminate}, true
+	default:
+		return Result{}, false
 	}
-	return Result{}, false
 }
 
 func explicitPreCommitRetryRule(_ StatusClassifier, attempt Attempt) (Result, bool) {
 	if attempt.Err == nil || !attempt.RetryableBeforeCommit {
 		return Result{}, false
 	}
-	return Result{Action: ActionRetry}, true
+	return Result{Category: FailureCategoryAmbiguous, Action: ActionRetry}, true
 }
 
 func transportRule(_ StatusClassifier, attempt Attempt) (Result, bool) {
@@ -85,28 +93,29 @@ func transportRule(_ StatusClassifier, attempt Attempt) (Result, bool) {
 		return Result{}, false
 	}
 	if !attempt.RequestWritten {
-		return Result{Action: ActionSkipGroup}, true
+		return Result{Category: FailureCategoryUpstreamHostError, Action: ActionSkipGroup}, true
 	}
-	return Result{Action: ActionTerminate}, true
+	return Result{Category: FailureCategoryAmbiguous, Action: ActionTerminate}, true
 }
 
 func statusRule(classifier StatusClassifier, attempt Attempt) (Result, bool) {
 	if classifier == nil || attempt.StatusCode == 0 {
-		return Result{Action: ActionTerminate}, true
+		return Result{Category: FailureCategoryAmbiguous, Action: ActionTerminate}, true
 	}
-	switch classifier.ClassifyStatus(attempt.StatusCode, attempt.Body) {
+	category := classifier.ClassifyStatus(attempt.StatusCode, attempt.Body)
+	switch category {
 	case FailureCategoryRateLimited:
 		if until, ok := ParseRateLimitReset(attempt.Header, attempt.Now); ok {
-			return Result{Action: ActionCooldownKey, CooldownUntil: until}, true
+			return Result{Category: category, Action: ActionCooldownKey, CooldownUntil: until}, true
 		}
-		return Result{Action: ActionCooldownKey, UseFixed: true}, true
+		return Result{Category: category, Action: ActionCooldownKey, UseFixed: true}, true
 	case FailureCategoryModelUnavailable:
-		return Result{Action: ActionCooldownKey, CooldownUntil: attempt.Now.Add(time.Hour)}, true
+		return Result{Category: category, Action: ActionCooldownKey, CooldownUntil: attempt.Now.Add(time.Hour)}, true
 	case FailureCategoryInvalidKey:
-		return Result{Action: ActionFailKey}, true
+		return Result{Category: category, Action: ActionFailKey}, true
 	case FailureCategoryUpstreamHostError:
-		return Result{Action: ActionSkipGroup}, true
+		return Result{Category: category, Action: ActionSkipGroup}, true
 	default:
-		return Result{Action: ActionTerminate}, true
+		return Result{Category: category, Action: ActionTerminate}, true
 	}
 }

@@ -75,6 +75,8 @@ func TestControlWriteLockDoesNotBlockDataPlane(t *testing.T) {
 		gateway.NewForwarder(platformhttp.NewHTTPClientManager(), redact.New()),
 		dialect.NewSet(openAI),
 		health.NewStatsStore(),
+		nil,
+		nil,
 	)
 	gin.SetMode(gin.ReleaseMode)
 	engine := gin.New()

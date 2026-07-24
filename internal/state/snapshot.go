@@ -46,11 +46,12 @@ func externalModelName(model ModelConfig) string {
 }
 
 type AccessKeyConfig struct {
-	ID      uint
-	Name    string
-	KeyHash string
-	Status  AccessKeyStatus
-	Filters FilterSet
+	ID       uint
+	Name     string
+	KeyHash  string
+	Status   AccessKeyStatus
+	Filters  FilterSet
+	RPMLimit int64
 }
 
 type AccessKeyStatus string
@@ -103,9 +104,10 @@ type GroupView struct {
 }
 
 type AccessKeyView struct {
-	ID      uint
-	Name    string
-	Filters FilterSet
+	ID       uint
+	Name     string
+	Filters  FilterSet
+	RPMLimit int64
 }
 
 type ConfigSnapshot struct {
@@ -168,6 +170,7 @@ func Compile(input CompileInput) (*ConfigSnapshot, error) {
 		}
 		snapshot.AccessKeysByHash[accessKey.KeyHash] = AccessKeyView{
 			ID: accessKey.ID, Name: accessKey.Name, Filters: cloneFilterSet(accessKey.Filters),
+			RPMLimit: accessKey.RPMLimit,
 		}
 	}
 
@@ -402,6 +405,9 @@ func validateCompileInput(input CompileInput) error {
 		}
 	}
 	for _, accessKey := range input.AccessKeys {
+		if accessKey.RPMLimit < 0 {
+			return fmt.Errorf("access key %d rpm limit must not be negative", accessKey.ID)
+		}
 		switch accessKey.Status {
 		case AccessKeyStatusDisabled:
 			continue

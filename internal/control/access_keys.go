@@ -24,23 +24,44 @@ type AccessKeyFilters struct {
 	Models    []string            `json:"models"`
 }
 
+type OptionalRPMLimit struct {
+	Set   bool
+	Value int64
+}
+
+func (value *OptionalRPMLimit) UnmarshalJSON(data []byte) error {
+	if value == nil || bytes.Equal(bytes.TrimSpace(data), []byte("null")) {
+		return app_errors.ErrValidation
+	}
+	var decoded int64
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	value.Set = true
+	value.Value = decoded
+	return nil
+}
+
 type AccessKeyCreateRequest struct {
-	Name    string            `json:"name"`
-	Filters *AccessKeyFilters `json:"filters"`
+	Name     string            `json:"name"`
+	Filters  *AccessKeyFilters `json:"filters"`
+	RPMLimit OptionalRPMLimit  `json:"rpm_limit"`
 }
 
 type AccessKeyUpdateRequest struct {
-	Name    *string                `json:"name"`
-	Status  *state.AccessKeyStatus `json:"status"`
-	Filters *AccessKeyFilters      `json:"filters"`
+	Name     *string                `json:"name"`
+	Status   *state.AccessKeyStatus `json:"status"`
+	Filters  *AccessKeyFilters      `json:"filters"`
+	RPMLimit OptionalRPMLimit       `json:"rpm_limit"`
 }
 
 type AccessKeyResponse struct {
-	ID      uint                  `json:"id"`
-	Name    string                `json:"name"`
-	Key     string                `json:"key"`
-	Status  state.AccessKeyStatus `json:"status"`
-	Filters AccessKeyFilters      `json:"filters"`
+	ID       uint                  `json:"id"`
+	Name     string                `json:"name"`
+	Key      string                `json:"key"`
+	Status   state.AccessKeyStatus `json:"status"`
+	Filters  AccessKeyFilters      `json:"filters"`
+	RPMLimit int64                 `json:"rpm_limit"`
 }
 
 const accessKeyPrefix = "sk-gl-"
@@ -48,6 +69,7 @@ const accessKeyPrefix = "sk-gl-"
 func (s *Service) newAccessKeyRow(
 	name string,
 	filters AccessKeyFilters,
+	rpmLimit int64,
 ) (models.AccessKey, string, error) {
 	encodedFilters, err := json.Marshal(filters)
 	if err != nil {
@@ -68,6 +90,7 @@ func (s *Service) newAccessKeyRow(
 		KeyHash:  s.encryption.Hash(plaintext),
 		Status:   string(state.AccessKeyStatusActive),
 		Filters:  models.JSON(encodedFilters),
+		RPMLimit: rpmLimit,
 	}, plaintext, nil
 }
 
@@ -83,13 +106,17 @@ func (s *Service) CreateAccessKey(
 	if err != nil {
 		return AccessKeyResponse{}, err
 	}
+	rpmLimit, err := normalizeRPMLimit(request.RPMLimit, 0)
+	if err != nil {
+		return AccessKeyResponse{}, err
+	}
 
 	var result AccessKeyResponse
 	_, err = s.writeConfig(ctx, func(tx *gorm.DB) error {
 		if err := validateFilterGroupReferences(tx, filters.Groups); err != nil {
 			return err
 		}
-		row, plaintext, err := s.newAccessKeyRow(name, filters)
+		row, plaintext, err := s.newAccessKeyRow(name, filters, rpmLimit)
 		if err != nil {
 			return err
 		}
@@ -98,7 +125,7 @@ func (s *Service) CreateAccessKey(
 		}
 		result = AccessKeyResponse{
 			ID: row.ID, Name: row.Name, Key: plaintext,
-			Status: state.AccessKeyStatusActive, Filters: filters,
+			Status: state.AccessKeyStatusActive, Filters: filters, RPMLimit: row.RPMLimit,
 		}
 		return nil
 	}, nil)
@@ -129,7 +156,7 @@ func (s *Service) ListAccessKeys(ctx context.Context) ([]AccessKeyResponse, erro
 			return nil, fmt.Errorf("decrypt access key %d: %w", row.ID, err)
 		}
 		result = append(result, AccessKeyResponse{
-			ID: row.ID, Name: row.Name, Key: plaintext, Status: status, Filters: filters,
+			ID: row.ID, Name: row.Name, Key: plaintext, Status: status, Filters: filters, RPMLimit: row.RPMLimit,
 		})
 	}
 	return result, nil
@@ -140,8 +167,11 @@ func (s *Service) UpdateAccessKey(
 	id uint,
 	request AccessKeyUpdateRequest,
 ) (AccessKeyResponse, error) {
-	if id == 0 || (request.Name == nil && request.Status == nil && request.Filters == nil) {
+	if id == 0 || (request.Name == nil && request.Status == nil && request.Filters == nil && !request.RPMLimit.Set) {
 		return AccessKeyResponse{}, app_errors.ErrBadRequest
+	}
+	if _, err := normalizeRPMLimit(request.RPMLimit, 0); err != nil {
+		return AccessKeyResponse{}, err
 	}
 
 	var name *string
@@ -191,7 +221,7 @@ func (s *Service) UpdateAccessKey(
 			return fmt.Errorf("access key %d has invalid status", row.ID)
 		}
 
-		updates := make(map[string]any, 3)
+		updates := make(map[string]any, 4)
 		if name != nil {
 			row.Name = *name
 			updates["name"] = row.Name
@@ -207,11 +237,15 @@ func (s *Service) UpdateAccessKey(
 			currentFilters = *filters
 			updates["filters"] = models.JSON(encodedFilters)
 		}
+		if request.RPMLimit.Set {
+			row.RPMLimit = request.RPMLimit.Value
+			updates["rpm_limit"] = row.RPMLimit
+		}
 		if err := tx.Model(&row).Updates(updates).Error; err != nil {
 			return app_errors.ParseDBError(err)
 		}
 		result = AccessKeyResponse{
-			ID: row.ID, Name: row.Name, Key: plaintext, Status: status, Filters: currentFilters,
+			ID: row.ID, Name: row.Name, Key: plaintext, Status: status, Filters: currentFilters, RPMLimit: row.RPMLimit,
 		}
 		return nil
 	}, nil)
@@ -244,6 +278,16 @@ func normalizeAccessKeyName(raw string) (string, error) {
 		return "", err
 	}
 	return *normalized, nil
+}
+
+func normalizeRPMLimit(value OptionalRPMLimit, defaultValue int64) (int64, error) {
+	if !value.Set {
+		return defaultValue, nil
+	}
+	if value.Value < 0 {
+		return 0, app_errors.ErrValidation
+	}
+	return value.Value, nil
 }
 
 func normalizeAccessKeyFilters(input *AccessKeyFilters) (AccessKeyFilters, error) {

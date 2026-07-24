@@ -140,7 +140,7 @@ func (handler *Handler) writeVisibleModelList(
 ) {
 	body, err := buildVisibleModelList(snapshot, accessKey, value, handler.modelListLimit)
 	if err != nil {
-		writeReason(ginContext, reasonModelListTooLarge)
+		_ = handler.writeReason(ginContext, reasonModelListTooLarge)
 		return
 	}
 	headers := http.Header{

@@ -544,6 +544,24 @@ func TestLoaderMapsAccessAndUpstreamKeys(t *testing.T) {
 	}
 }
 
+func TestLoaderMapsAccessKeyRPMLimit(t *testing.T) {
+	db := openMigratedDatabase(t)
+	accessKey := models.AccessKey{
+		Name: "rate-limited", KeyValue: "access-cipher", KeyHash: "rate-limited-hash",
+		Status: "active", Filters: models.JSON(`{}`), RPMLimit: 27,
+	}
+	mustCreate(t, db, &accessKey)
+
+	manager := state.NewManager()
+	registry := state.NewKeyRegistry()
+	if err := loader.New(db, manager, registry).Load(context.Background()); err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if got := manager.Current().AccessKeysByHash[accessKey.KeyHash].RPMLimit; got != 27 {
+		t.Fatalf("RPMLimit = %d, want 27", got)
+	}
+}
+
 func TestLoaderRejectsInvalidCredentialRowsWithoutPublishing(t *testing.T) {
 	tests := []struct {
 		name      string

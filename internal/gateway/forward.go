@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptrace"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -40,10 +41,12 @@ type UpstreamResult struct {
 	Header                http.Header
 	Body                  []byte
 	ClassificationBody    []byte
+	ErrorSummary          string
 	Err                   error
 	RequestWritten        bool
 	Committed             bool
 	RetryableBeforeCommit bool
+	Stream                StreamObservation
 }
 
 func (result UpstreamResult) HasResponse() bool {
@@ -80,6 +83,7 @@ func (forwarder *Forwarder) Forward(ctx context.Context, input ForwardInput) Ups
 	if err != nil {
 		return UpstreamResult{Err: err}
 	}
+	knownSecrets := resolvedCredentialSecrets(input, request.Header)
 	response, err := forwarder.clients.GetClient(nonStreamingClientConfig(input.Group.Timeouts)).Do(request)
 	if err != nil {
 		return UpstreamResult{Err: fmt.Errorf("perform upstream request: %w", err), RequestWritten: wroteRequest.Load()}
@@ -150,13 +154,18 @@ func (forwarder *Forwarder) Forward(ctx context.Context, input ForwardInput) Ups
 		if overflow {
 			safeWire, safePlain = failClosedErrorBody(headers)
 		} else {
-			safeWire, safePlain = forwarder.prepareErrorBody(headers, body, input)
+			safeWire, safePlain = forwarder.prepareErrorBody(
+				headers, body, input, request.Header,
+			)
 		}
 		if nonIdentityEncodingContainsKey(headers, input.APIKey) {
 			safeWire, safePlain = failClosedErrorBody(headers)
 		}
 		result.Body = safeWire
 		result.ClassificationBody = safePlain
+		result.ErrorSummary = summarizeErrorBody(
+			forwarder.redactor, safePlain, "", knownSecrets...,
+		)
 	} else if nonIdentityEncodingContainsKey(headers, input.APIKey) {
 		return UpstreamResult{
 			Err:            fmt.Errorf("%w: credential collision in Content-Encoding", ErrUpstreamProtocol),
@@ -183,6 +192,7 @@ func (forwarder *Forwarder) ForwardStream(
 	if err != nil {
 		return UpstreamResult{Err: err}
 	}
+	knownSecrets := resolvedCredentialSecrets(input, request.Header)
 	response, err := forwarder.clients.GetClient(streamingClientConfig(input.Group.Timeouts)).Do(request)
 	if err != nil {
 		return UpstreamResult{
@@ -208,11 +218,19 @@ func (forwarder *Forwarder) ForwardStream(
 		if overflow {
 			result.Body, result.ClassificationBody = failClosedErrorBody(headers)
 		} else {
-			result.Body, result.ClassificationBody = forwarder.prepareErrorBody(headers, body, input)
+			result.Body, result.ClassificationBody = forwarder.prepareErrorBody(
+				headers, body, input, request.Header,
+			)
 		}
 		if nonIdentityEncodingContainsKey(headers, input.APIKey) {
 			result.Body, result.ClassificationBody = failClosedErrorBody(headers)
 		}
+		result.ErrorSummary = summarizeErrorBody(
+			forwarder.redactor,
+			result.ClassificationBody,
+			"",
+			knownSecrets...,
+		)
 		result.Header = sanitizeForwardResponseHeaders(headers, input)
 		return result
 	}
@@ -234,20 +252,36 @@ func (forwarder *Forwarder) ForwardStream(
 			return result
 		}
 	}
+	streamEvents := &streamEventObserver{}
 	streamBody = newSSERewriteStream(streamBody, func(data []byte, errorEvent bool) ([]byte, error) {
-		safePayload, ok := rewriteBoundedLiteral(
-			data,
-			input.APIKey,
-			redact.Placeholder,
-			int64(maxSSEEventBytes),
-		)
-		if !ok {
-			return nil, fmt.Errorf("%w: redact upstream SSE credential", ErrUpstreamProtocol)
+		safePayload := data
+		for _, secret := range knownSecrets {
+			var ok bool
+			safePayload, ok = rewriteBoundedLiteral(
+				safePayload,
+				secret,
+				redact.Placeholder,
+				int64(maxSSEEventBytes),
+			)
+			if !ok {
+				return nil, fmt.Errorf("%w: redact upstream SSE credential", ErrUpstreamProtocol)
+			}
+		}
+		if errorEvent {
+			observationPayload := forwarder.redactor.Bytes(safePayload)
+			streamEvents.observeError(
+				summarizeErrorBody(
+					forwarder.redactor,
+					observationPayload,
+					fixedErrorSummary("upstream_sse_error"),
+				),
+			)
 		}
 		if !rewriteModel {
 			return safePayload, nil
 		}
 		if errorEvent {
+			var ok bool
 			safePayload, ok = rewriteBoundedLiteral(
 				safePayload,
 				input.UpstreamModelID,
@@ -300,11 +334,13 @@ func (forwarder *Forwarder) ForwardStream(
 	releaseCommittedRequestReplay(input.Request, replay)
 	if err := commitStream(streamWriter, response.StatusCode, result.Header, prefix); err != nil {
 		result.Err = err
+		result.Stream = observeStreamTermination(ctx, err, streamEvents)
 		return result
 	}
 	if err := pumpStream(deadline.ctx, streamBody, streamWriter, input.Group.Timeouts.StreamIdle); err != nil {
 		result.Err = err
 	}
+	result.Stream = observeStreamTermination(ctx, result.Err, streamEvents)
 	return result
 }
 
@@ -359,6 +395,7 @@ func newUpstreamRequest(
 	request.Header = cloneEndToEndHeaders(parsed.Header)
 	removeDownstreamCredentials(request.Header)
 	dialect.ApplyCredential(input.Dialect, request.Header, input.APIKey, input.Group.HeaderRules)
+	request.Header.Del(requestIDHeader)
 	if stream || rewrite {
 		request.Header.Set("Accept-Encoding", "identity")
 	}
@@ -378,7 +415,12 @@ func needsModelRewrite(input ForwardInput) bool {
 		input.ExternalModel != input.UpstreamModelID
 }
 
-func (forwarder *Forwarder) prepareErrorBody(headers http.Header, wire []byte, input ForwardInput) ([]byte, []byte) {
+func (forwarder *Forwarder) prepareErrorBody(
+	headers http.Header,
+	wire []byte,
+	input ForwardInput,
+	resolvedHeaders ...http.Header,
+) ([]byte, []byte) {
 	if int64(len(wire)) > maxErrorResponseBodyBytes {
 		return failClosedErrorBody(headers)
 	}
@@ -390,11 +432,22 @@ func (forwarder *Forwarder) prepareErrorBody(headers http.Header, wire []byte, i
 	if err != nil {
 		return failClosedErrorBody(headers)
 	}
-	safePlain, ok := rewriteBoundedLiteral(
-		plain, input.APIKey, redact.Placeholder, maxDecompressedErrorBodyBytes,
-	)
-	if !ok {
-		return failClosedErrorBody(headers)
+	var finalHeaders http.Header
+	if len(resolvedHeaders) > 0 {
+		finalHeaders = resolvedHeaders[0]
+	}
+	safePlain := plain
+	for _, secret := range resolvedCredentialSecrets(input, finalHeaders) {
+		var ok bool
+		safePlain, ok = rewriteBoundedLiteral(
+			safePlain,
+			secret,
+			redact.Placeholder,
+			maxDecompressedErrorBodyBytes,
+		)
+		if !ok {
+			return failClosedErrorBody(headers)
+		}
 	}
 	safePlain = forwarder.redactor.Bytes(safePlain)
 	if int64(len(safePlain)) > maxDecompressedErrorBodyBytes {
@@ -426,6 +479,56 @@ func (forwarder *Forwarder) prepareErrorBody(headers http.Header, wire []byte, i
 	}
 	updateRewrittenBodyHeaders(headers, len(safeWire))
 	return safeWire, safePlain
+}
+
+func resolvedCredentialSecrets(input ForwardInput, finalHeaders http.Header) []string {
+	if finalHeaders == nil {
+		finalHeaders = make(http.Header)
+		if input.Request != nil {
+			finalHeaders = cloneEndToEndHeaders(input.Request.Header)
+		}
+		removeDownstreamCredentials(finalHeaders)
+		dialect.ApplyCredential(
+			input.Dialect,
+			finalHeaders,
+			input.APIKey,
+			input.Group.HeaderRules,
+		)
+		finalHeaders.Del(requestIDHeader)
+	}
+
+	secrets := make([]string, 0, 8)
+	seen := make(map[string]struct{})
+	appendSecret := func(value string) {
+		if value == "" {
+			return
+		}
+		if _, exists := seen[value]; exists {
+			return
+		}
+		seen[value] = struct{}{}
+		secrets = append(secrets, value)
+	}
+	appendSecret(input.APIKey)
+	for _, name := range []string{
+		"Authorization",
+		"X-Api-Key",
+		"X-Goog-Api-Key",
+		"Api-Key",
+	} {
+		for _, value := range finalHeaders.Values(name) {
+			appendSecret(value)
+		}
+	}
+	for name := range input.Group.HeaderRules.Set {
+		for _, value := range finalHeaders.Values(name) {
+			appendSecret(value)
+		}
+	}
+	sort.SliceStable(secrets, func(left, right int) bool {
+		return len(secrets[left]) > len(secrets[right])
+	})
+	return secrets
 }
 
 func rewriteBoundedLiteral(body []byte, literal, replacement string, limit int64) ([]byte, bool) {

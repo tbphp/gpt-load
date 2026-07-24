@@ -26,9 +26,12 @@ import (
 	"gpt-load/internal/platform/i18n"
 	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/protocol"
+	"gpt-load/internal/ratelimit"
+	"gpt-load/internal/requestlog"
 	"gpt-load/internal/state"
 	"gpt-load/internal/storage"
 	"gpt-load/internal/storage/models"
+	"gpt-load/internal/telemetry"
 	"gpt-load/internal/webui"
 )
 
@@ -117,6 +120,10 @@ func TestBuildContainerResolvesRuntimeDependencies(t *testing.T) {
 		_ *control.Service,
 		_ *control.Server,
 		statsStore *health.StatsStore,
+		rpmLimiter *ratelimit.AccessKeyRPM,
+		gatewayLimiter gateway.AccessKeyRPMLimiter,
+		requestLogService *requestlog.Service,
+		requestLogSink telemetry.RequestLogSink,
 		runtime *control.Runtime,
 		_ app.ControlRuntime,
 		_ *httpclient.HTTPClientManager,
@@ -160,8 +167,19 @@ func TestBuildContainerResolvesRuntimeDependencies(t *testing.T) {
 		if attemptForwarder == nil {
 			t.Fatal("stream-capable attempt forwarder was not resolved")
 		}
-		if gatewayHandler == nil || runtime == nil || statsStore == nil {
-			t.Fatalf("runtime dependencies were not resolved: gateway=%p runtime=%p stats=%p", gatewayHandler, runtime, statsStore)
+		if gatewayHandler == nil || runtime == nil || statsStore == nil ||
+			rpmLimiter == nil || gatewayLimiter != rpmLimiter {
+			t.Fatalf(
+				"runtime dependencies were not resolved: gateway=%p runtime=%p stats=%p rpm=%p adapter=%T",
+				gatewayHandler, runtime, statsStore, rpmLimiter, gatewayLimiter,
+			)
+		}
+		if requestLogSink != requestLogService {
+			t.Fatalf(
+				"RequestLogSink = %T, want singleton %p",
+				requestLogSink,
+				requestLogService,
+			)
 		}
 		if want := filepath.Join(dataDir, "gpt-load.db"); cfg.DatabaseDSN != want {
 			t.Fatalf("DatabaseDSN = %q, want %q", cfg.DatabaseDSN, want)
@@ -181,6 +199,256 @@ func TestBuildContainerResolvesRuntimeDependencies(t *testing.T) {
 	}
 	if !resolved {
 		t.Fatal("runtime dependency graph was not invoked")
+	}
+}
+
+func TestBuildContainerUsesSingletonAccessKeyRPMLimiter(t *testing.T) {
+	t.Setenv("AUTH_KEY", "test-auth-key")
+	t.Setenv("DATA_DIR", t.TempDir())
+	t.Setenv("DATABASE_DSN", ":memory:")
+	t.Setenv("ENCRYPTION_KEY", "test-master-key-long")
+
+	dependencyContainer, err := BuildContainer()
+	if err != nil {
+		t.Fatalf("BuildContainer() error = %v", err)
+	}
+
+	var first *ratelimit.AccessKeyRPM
+	err = dependencyContainer.Invoke(func(
+		limiter *ratelimit.AccessKeyRPM,
+		adapter gateway.AccessKeyRPMLimiter,
+		db *gorm.DB,
+	) {
+		first = limiter
+		if adapter != limiter {
+			t.Fatalf("gateway limiter adapter = %T, want singleton %p", adapter, limiter)
+		}
+		t.Cleanup(func() {
+			sqlDB, dbErr := db.DB()
+			if dbErr == nil {
+				_ = sqlDB.Close()
+			}
+		})
+	})
+	if err != nil {
+		t.Fatalf("resolve first AccessKeyRPM: %v", err)
+	}
+
+	var second *ratelimit.AccessKeyRPM
+	if err := dependencyContainer.Invoke(func(limiter *ratelimit.AccessKeyRPM) {
+		second = limiter
+	}); err != nil {
+		t.Fatalf("resolve second AccessKeyRPM: %v", err)
+	}
+	if first != second {
+		t.Fatalf("AccessKeyRPM instances differ: first=%p second=%p", first, second)
+	}
+}
+
+func TestBuildContainerUsesSingletonDataPlaneRuntimeServices(t *testing.T) {
+	t.Setenv("AUTH_KEY", "test-auth-key")
+	t.Setenv("DATA_DIR", t.TempDir())
+	t.Setenv("DATABASE_DSN", ":memory:")
+	t.Setenv("ENCRYPTION_KEY", "test-master-key-long")
+
+	dependencyContainer, err := BuildContainer()
+	if err != nil {
+		t.Fatalf("BuildContainer() error = %v", err)
+	}
+
+	var firstService *requestlog.Service
+	var firstLimiter *ratelimit.AccessKeyRPM
+	err = dependencyContainer.Invoke(func(
+		service *requestlog.Service,
+		limiter *ratelimit.AccessKeyRPM,
+		db *gorm.DB,
+	) {
+		firstService = service
+		firstLimiter = limiter
+		t.Cleanup(func() {
+			sqlDB, dbErr := db.DB()
+			if dbErr == nil {
+				_ = sqlDB.Close()
+			}
+		})
+	})
+	if err != nil {
+		t.Fatalf("resolve first data-plane runtime services: %v", err)
+	}
+
+	var secondService *requestlog.Service
+	var secondLimiter *ratelimit.AccessKeyRPM
+	err = dependencyContainer.Invoke(func(
+		service *requestlog.Service,
+		limiter *ratelimit.AccessKeyRPM,
+	) {
+		secondService = service
+		secondLimiter = limiter
+	})
+	if err != nil {
+		t.Fatalf("resolve second data-plane runtime services: %v", err)
+	}
+	if firstService != secondService {
+		t.Fatalf("RequestLog instances differ: first=%p second=%p", firstService, secondService)
+	}
+	if firstLimiter != secondLimiter {
+		t.Fatalf("AccessKeyRPM instances differ: first=%p second=%p", firstLimiter, secondLimiter)
+	}
+}
+
+func TestBuildContainerWiresRequestLogIntoEveryConsumer(t *testing.T) {
+	t.Setenv("AUTH_KEY", "test-auth-key")
+	t.Setenv("DATA_DIR", t.TempDir())
+	t.Setenv("DATABASE_DSN", ":memory:")
+	t.Setenv("ENCRYPTION_KEY", "test-master-key-long")
+
+	dependencyContainer, err := BuildContainer()
+	if err != nil {
+		t.Fatalf("BuildContainer() error = %v", err)
+	}
+
+	err = dependencyContainer.Invoke(func(
+		service *requestlog.Service,
+		sink telemetry.RequestLogSink,
+		reader control.RequestLogReader,
+		cleaner control.RequestLogCleaner,
+		lifecycle app.RequestLogRuntime,
+		limiter *ratelimit.AccessKeyRPM,
+		gatewayLimiter gateway.AccessKeyRPMLimiter,
+		_ *gateway.Handler,
+		_ *control.Service,
+		_ *control.Runtime,
+		_ *app.App,
+		db *gorm.DB,
+	) {
+		t.Cleanup(func() {
+			sqlDB, dbErr := db.DB()
+			if dbErr == nil {
+				_ = sqlDB.Close()
+			}
+		})
+		for name, adapter := range map[string]any{
+			"gateway sink":    sink,
+			"control reader":  reader,
+			"control cleaner": cleaner,
+			"app lifecycle":   lifecycle,
+		} {
+			if adapter != service {
+				t.Errorf("%s adapter = %T, want singleton %p", name, adapter, service)
+			}
+		}
+		if gatewayLimiter != limiter {
+			t.Errorf("gateway limiter = %T, want singleton %p", gatewayLimiter, limiter)
+		}
+	})
+	if err != nil {
+		t.Fatalf("resolve production data-plane consumers: %v", err)
+	}
+}
+
+func TestBuildContainerUsesSingletonRequestLogReader(t *testing.T) {
+	t.Setenv("AUTH_KEY", "test-auth-key")
+	t.Setenv("DATA_DIR", t.TempDir())
+	t.Setenv("DATABASE_DSN", ":memory:")
+	t.Setenv("ENCRYPTION_KEY", "test-master-key-long")
+
+	dependencyContainer, err := BuildContainer()
+	if err != nil {
+		t.Fatalf("BuildContainer() error = %v", err)
+	}
+
+	var first *requestlog.Service
+	err = dependencyContainer.Invoke(func(
+		service *requestlog.Service,
+		reader control.RequestLogReader,
+		db *gorm.DB,
+	) {
+		first = service
+		if reader != service {
+			t.Fatalf("control reader adapter = %T, want singleton %p", reader, service)
+		}
+		t.Cleanup(func() {
+			sqlDB, dbErr := db.DB()
+			if dbErr == nil {
+				_ = sqlDB.Close()
+			}
+		})
+	})
+	if err != nil {
+		t.Fatalf("resolve first RequestLog service: %v", err)
+	}
+
+	var second *requestlog.Service
+	var secondReader control.RequestLogReader
+	if err := dependencyContainer.Invoke(func(
+		service *requestlog.Service,
+		reader control.RequestLogReader,
+	) {
+		second = service
+		secondReader = reader
+	}); err != nil {
+		t.Fatalf("resolve second RequestLog service: %v", err)
+	}
+	if first != second || secondReader != second {
+		t.Fatalf(
+			"RequestLog instances differ: first=%p second=%p reader=%T",
+			first,
+			second,
+			secondReader,
+		)
+	}
+}
+
+func TestBuildContainerUsesSingletonRequestLogCleaner(t *testing.T) {
+	t.Setenv("AUTH_KEY", "test-auth-key")
+	t.Setenv("DATA_DIR", t.TempDir())
+	t.Setenv("DATABASE_DSN", ":memory:")
+	t.Setenv("ENCRYPTION_KEY", "test-master-key-long")
+
+	dependencyContainer, err := BuildContainer()
+	if err != nil {
+		t.Fatalf("BuildContainer() error = %v", err)
+	}
+
+	var first *requestlog.Service
+	err = dependencyContainer.Invoke(func(
+		service *requestlog.Service,
+		cleaner control.RequestLogCleaner,
+		db *gorm.DB,
+	) {
+		first = service
+		if cleaner != service {
+			t.Fatalf("control cleaner adapter = %T, want singleton %p", cleaner, service)
+		}
+		t.Cleanup(func() {
+			sqlDB, dbErr := db.DB()
+			if dbErr == nil {
+				_ = sqlDB.Close()
+			}
+		})
+	})
+	if err != nil {
+		t.Fatalf("resolve first RequestLog service: %v", err)
+	}
+
+	var second *requestlog.Service
+	var secondCleaner control.RequestLogCleaner
+	if err := dependencyContainer.Invoke(func(
+		service *requestlog.Service,
+		cleaner control.RequestLogCleaner,
+	) {
+		second = service
+		secondCleaner = cleaner
+	}); err != nil {
+		t.Fatalf("resolve second RequestLog service: %v", err)
+	}
+	if first != second || secondCleaner != second {
+		t.Fatalf(
+			"RequestLog instances differ: first=%p second=%p cleaner=%T",
+			first,
+			second,
+			secondCleaner,
+		)
 	}
 }
 

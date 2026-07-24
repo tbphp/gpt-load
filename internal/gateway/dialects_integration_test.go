@@ -110,6 +110,8 @@ func newDialectGatewayEngine(
 		NewForwarder(platformhttp.NewHTTPClientManager(), redact.New()),
 		dialects,
 		health.NewStatsStore(),
+		nil,
+		nil,
 	)
 	handler.newRandom = func() *rand.Rand { return rand.New(zeroSource{}) }
 	engine := gin.New()

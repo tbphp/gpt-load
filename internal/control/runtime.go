@@ -16,11 +16,18 @@ const (
 	autoWeightInterval  = 30 * time.Second
 	validationInterval  = 30 * time.Minute
 	maxValidationJitter = 3 * time.Minute
+	retentionInterval   = time.Hour
 )
 
 type autoWeightRegistry interface {
 	ActiveKeyIDs() []uint
 	SetAutoWeight(keyID uint, weight int) bool
+}
+
+// RequestLogCleaner is the control-owned scheduling view of request log
+// retention. The requestlog package owns all cleanup semantics.
+type RequestLogCleaner interface {
+	Sweep(context.Context, time.Time)
 }
 
 type runtimeTicker interface {
@@ -44,6 +51,7 @@ type Runtime struct {
 	registry           autoWeightRegistry
 	stats              *health.StatsStore
 	validator          validationSweep
+	requestLogCleaner  RequestLogCleaner
 	autoWeightInterval time.Duration
 	validationInterval time.Duration
 	validationJitter   func() time.Duration
@@ -58,10 +66,12 @@ func NewRuntime(
 	manager *state.Manager,
 	encryptionService encryption.Service,
 	dialects dialect.Set,
+	requestLogCleaner RequestLogCleaner,
 ) *Runtime {
 	runtime := &Runtime{
 		registry:           registry,
 		stats:              stats,
+		requestLogCleaner:  requestLogCleaner,
 		autoWeightInterval: autoWeightInterval,
 		validationInterval: validationInterval,
 		validationJitter: func() time.Duration {
@@ -90,6 +100,14 @@ func (runtime *Runtime) Run(ctx context.Context) {
 		defer wait.Done()
 		runtime.runValidation(ctx, validationTicker)
 	}()
+	if runtime.requestLogCleaner != nil {
+		retentionTicker := runtime.newTicker(retentionInterval)
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			runtime.runRetention(ctx, retentionTicker)
+		}()
+	}
 	wait.Wait()
 }
 
@@ -121,6 +139,25 @@ func (runtime *Runtime) runValidation(ctx context.Context, ticker runtimeTicker)
 			if runtime.validator != nil {
 				runtime.validator.Validate(ctx)
 			}
+		}
+	}
+}
+
+func (runtime *Runtime) runRetention(ctx context.Context, ticker runtimeTicker) {
+	defer ticker.Stop()
+	if ctx.Err() != nil {
+		return
+	}
+	runtime.requestLogCleaner.Sweep(ctx, runtime.now())
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C():
+			if ctx.Err() != nil {
+				return
+			}
+			runtime.requestLogCleaner.Sweep(ctx, runtime.now())
 		}
 	}
 }

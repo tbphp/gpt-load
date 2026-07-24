@@ -5,9 +5,11 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -492,6 +494,195 @@ func TestConcurrentAccessKeyCRUDPublishesDatabaseTruth(t *testing.T) {
 	if got.Revision != before+uint64(len(operations)) {
 		t.Fatalf("revision = %d, want %d", got.Revision, before+uint64(len(operations)))
 	}
+}
+
+func TestAccessKeyServiceRPMLimit(t *testing.T) {
+	fixture := newServiceFixture(t)
+	fixture.service.random = bytes.NewReader(make([]byte, 16))
+	created, err := fixture.service.CreateAccessKey(context.Background(), AccessKeyCreateRequest{
+		Name: "limited", RPMLimit: OptionalRPMLimit{Set: true, Value: 12},
+	})
+	if err != nil {
+		t.Fatalf("CreateAccessKey() error = %v", err)
+	}
+	if created.RPMLimit != 12 {
+		t.Fatalf("created RPMLimit = %d, want 12", created.RPMLimit)
+	}
+	if row := loadAccessKeyRow(t, fixture.db, created.ID); row.RPMLimit != 12 {
+		t.Fatalf("stored RPMLimit = %d, want 12", row.RPMLimit)
+	}
+	if got := fixture.manager.Current().AccessKeysByHash[loadAccessKeyRow(t, fixture.db, created.ID).KeyHash].RPMLimit; got != 12 {
+		t.Fatalf("snapshot RPMLimit = %d, want 12", got)
+	}
+
+	updated, err := fixture.service.UpdateAccessKey(context.Background(), created.ID, AccessKeyUpdateRequest{Name: stringPointer("renamed")})
+	if err != nil {
+		t.Fatalf("UpdateAccessKey() without rpm_limit error = %v", err)
+	}
+	if updated.RPMLimit != 12 {
+		t.Fatalf("preserved RPMLimit = %d, want 12", updated.RPMLimit)
+	}
+	updated, err = fixture.service.UpdateAccessKey(context.Background(), created.ID, AccessKeyUpdateRequest{
+		RPMLimit: OptionalRPMLimit{Set: true, Value: 0},
+	})
+	if err != nil {
+		t.Fatalf("UpdateAccessKey() with rpm_limit=0 error = %v", err)
+	}
+	row := loadAccessKeyRow(t, fixture.db, created.ID)
+	if updated.RPMLimit != 0 || row.RPMLimit != 0 || fixture.manager.Current().AccessKeysByHash[row.KeyHash].RPMLimit != 0 {
+		t.Fatalf("updated RPMLimit = %#v, want zero", updated)
+	}
+}
+
+func TestAccessKeyEndpointsDistinguishRPMLimit(t *testing.T) {
+	initControlI18n(t)
+	const authKey = "test-auth-key"
+
+	newServer := func(t *testing.T) (serviceFixture, *gin.Engine) {
+		t.Helper()
+		fixture := newServiceFixture(t)
+		randomBytes := make([]byte, 32)
+		for index := range randomBytes {
+			randomBytes[index] = byte(index)
+		}
+		fixture.service.random = bytes.NewReader(randomBytes)
+		engine := gin.New()
+		NewServer(&config.Config{AuthKey: authKey}, fixture.service).RegisterRoutes(engine)
+		return fixture, engine
+	}
+	serve := func(engine *gin.Engine, method, path, payload string) *httptest.ResponseRecorder {
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(method, path, strings.NewReader(payload))
+		request.Header.Set("Authorization", "Bearer "+authKey)
+		request.Header.Set("Content-Type", "application/json")
+		engine.ServeHTTP(recorder, request)
+		return recorder
+	}
+	decodeAccessKey := func(t *testing.T, body []byte) AccessKeyResponse {
+		t.Helper()
+		var envelope struct {
+			Data AccessKeyResponse `json:"data"`
+		}
+		if err := json.Unmarshal(body, &envelope); err != nil {
+			t.Fatalf("decode response: %v", err)
+		}
+		return envelope.Data
+	}
+
+	for _, test := range []struct {
+		name       string
+		payload    string
+		wantStatus int
+		wantLimit  int64
+	}{
+		{name: "omitted defaults to zero", payload: `{"name":"omitted"}`, wantStatus: http.StatusOK, wantLimit: 0},
+		{name: "value is persisted", payload: `{"name":"limited","rpm_limit":12}`, wantStatus: http.StatusOK, wantLimit: 12},
+		{name: "null is rejected", payload: `{"name":"null","rpm_limit":null}`, wantStatus: http.StatusBadRequest},
+		{name: "negative is rejected", payload: `{"name":"negative","rpm_limit":-1}`, wantStatus: http.StatusBadRequest},
+	} {
+		t.Run("POST "+test.name, func(t *testing.T) {
+			fixture, engine := newServer(t)
+			beforeRevision := fixture.manager.Current().Revision
+			recorder := serve(engine, http.MethodPost, "/api/access-keys", test.payload)
+			if recorder.Code != test.wantStatus {
+				t.Fatalf("POST = %d %s, want %d", recorder.Code, recorder.Body.String(), test.wantStatus)
+			}
+			if test.wantStatus != http.StatusOK {
+				if !strings.Contains(recorder.Body.String(), "VALIDATION_FAILED") {
+					t.Fatalf("POST error = %s, want VALIDATION_FAILED", recorder.Body.String())
+				}
+				var count int64
+				if err := fixture.db.Model(&models.AccessKey{}).Count(&count).Error; err != nil {
+					t.Fatalf("count rows: %v", err)
+				}
+				if count != 0 || fixture.manager.Current().Revision != beforeRevision {
+					t.Fatalf("rows/revision = %d/%d, want 0/%d", count, fixture.manager.Current().Revision, beforeRevision)
+				}
+				return
+			}
+			response := decodeAccessKey(t, recorder.Body.Bytes())
+			if response.RPMLimit != test.wantLimit {
+				t.Fatalf("response RPMLimit = %d, want %d", response.RPMLimit, test.wantLimit)
+			}
+			row := loadAccessKeyRow(t, fixture.db, response.ID)
+			if row.RPMLimit != test.wantLimit || fixture.manager.Current().AccessKeysByHash[row.KeyHash].RPMLimit != test.wantLimit {
+				t.Fatalf("row/snapshot RPMLimit = %d/%d, want %d", row.RPMLimit, fixture.manager.Current().AccessKeysByHash[row.KeyHash].RPMLimit, test.wantLimit)
+			}
+			if strings.Contains(recorder.Body.String(), "daily_cost_limit") || strings.Contains(recorder.Body.String(), "monthly_cost_limit") {
+				t.Fatalf("response exposes deferred cost limit: %s", recorder.Body.String())
+			}
+		})
+	}
+
+	t.Run("PUT omission preserves and zero clears", func(t *testing.T) {
+		fixture, engine := newServer(t)
+		created, err := fixture.service.CreateAccessKey(t.Context(), AccessKeyCreateRequest{
+			Name: "seed", RPMLimit: OptionalRPMLimit{Set: true, Value: 12},
+		})
+		if err != nil {
+			t.Fatalf("seed CreateAccessKey() error = %v", err)
+		}
+		path := "/api/access-keys/" + strconv.FormatUint(uint64(created.ID), 10)
+		response := decodeAccessKey(t, serve(engine, http.MethodPut, path, `{"name":"renamed"}`).Body.Bytes())
+		if response.RPMLimit != 12 || loadAccessKeyRow(t, fixture.db, created.ID).RPMLimit != 12 {
+			t.Fatalf("omitted PUT did not preserve rpm_limit: %#v", response)
+		}
+		response = decodeAccessKey(t, serve(engine, http.MethodPut, path, `{"rpm_limit":0}`).Body.Bytes())
+		if response.RPMLimit != 0 || loadAccessKeyRow(t, fixture.db, created.ID).RPMLimit != 0 {
+			t.Fatalf("zero PUT did not clear rpm_limit: %#v", response)
+		}
+	})
+
+	t.Run("PUT null is rejected without revision", func(t *testing.T) {
+		fixture, engine := newServer(t)
+		created, err := fixture.service.CreateAccessKey(t.Context(), AccessKeyCreateRequest{
+			Name: "seed", RPMLimit: OptionalRPMLimit{Set: true, Value: 12},
+		})
+		if err != nil {
+			t.Fatalf("seed CreateAccessKey() error = %v", err)
+		}
+		beforeRevision := fixture.manager.Current().Revision
+		path := "/api/access-keys/" + strconv.FormatUint(uint64(created.ID), 10)
+		recorder := serve(engine, http.MethodPut, path, `{"rpm_limit":null}`)
+		if recorder.Code != http.StatusBadRequest || !strings.Contains(recorder.Body.String(), "VALIDATION_FAILED") {
+			t.Fatalf("PUT null = %d %s", recorder.Code, recorder.Body.String())
+		}
+		if row := loadAccessKeyRow(t, fixture.db, created.ID); row.RPMLimit != 12 {
+			t.Fatalf("PUT null changed row: %#v", row)
+		}
+		if fixture.manager.Current().Revision != beforeRevision {
+			t.Fatalf("PUT null changed revision to %d, want %d", fixture.manager.Current().Revision, beforeRevision)
+		}
+	})
+
+	t.Run("GET includes rpm_limit without deferred costs", func(t *testing.T) {
+		fixture, engine := newServer(t)
+		for _, limit := range []int64{0, 12} {
+			if _, err := fixture.service.CreateAccessKey(t.Context(), AccessKeyCreateRequest{
+				Name: fmt.Sprintf("key-%d", limit), RPMLimit: OptionalRPMLimit{Set: true, Value: limit},
+			}); err != nil {
+				t.Fatalf("CreateAccessKey(%d) error = %v", limit, err)
+			}
+		}
+		recorder := serve(engine, http.MethodGet, "/api/access-keys", "")
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("GET = %d %s", recorder.Code, recorder.Body.String())
+		}
+		var envelope struct {
+			Data []map[string]json.RawMessage `json:"data"`
+		}
+		if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err != nil {
+			t.Fatalf("decode list response: %v", err)
+		}
+		if len(envelope.Data) != 2 {
+			t.Fatalf("list = %#v, want two items", envelope.Data)
+		}
+		for _, item := range envelope.Data {
+			if item["rpm_limit"] == nil || item["daily_cost_limit"] != nil || item["monthly_cost_limit"] != nil {
+				t.Fatalf("list item fields = %#v", item)
+			}
+		}
+	})
 }
 
 func loadAccessKeyRow(t *testing.T, db *gorm.DB, id uint) models.AccessKey {

@@ -4,15 +4,17 @@ import "time"
 
 // RequestLog is the durable request-level audit and usage record.
 type RequestLog struct {
-	ID                 string    `gorm:"type:varchar(36);primaryKey;not null"`
-	CreatedAt          time.Time `gorm:"not null;index"`
-	AccessKeyID        uint      `gorm:"not null;index"`
-	Protocol           string    `gorm:"type:varchar(32);not null;index"`
-	ClientModel        string    `gorm:"type:varchar(255);not null;index"`
-	UpstreamModel      string    `gorm:"type:varchar(255);not null;index"`
-	Status             string    `gorm:"type:varchar(32);not null;index"`
+	ID                 string    `gorm:"type:varchar(36);primaryKey;not null;index:idx_request_logs_created_id,priority:2,sort:desc;index:idx_request_logs_access_created_id,priority:3,sort:desc;index:idx_request_logs_status_created_id,priority:3,sort:desc;index:idx_request_logs_model_created_id,priority:3,sort:desc"`
+	CreatedAt          time.Time `gorm:"not null;index:idx_request_logs_created_id,priority:1,sort:desc;index:idx_request_logs_access_created_id,priority:2,sort:desc;index:idx_request_logs_status_created_id,priority:2,sort:desc;index:idx_request_logs_model_created_id,priority:2,sort:desc"`
+	AccessKeyID        uint      `gorm:"not null;index:idx_request_logs_access_created_id,priority:1"`
+	Protocol           string    `gorm:"type:varchar(32);not null"`
+	ClientModel        string    `gorm:"type:varchar(255);not null;index:idx_request_logs_model_created_id,priority:1"`
+	UpstreamModel      string    `gorm:"type:varchar(255);not null"`
+	Status             string    `gorm:"type:varchar(32);not null;index:idx_request_logs_status_created_id,priority:1"`
 	StatusCode         int       `gorm:"not null"`
 	DurationMs         int64     `gorm:"not null"`
+	ErrorCode          string    `gorm:"type:varchar(64);not null;default:''"`
+	ErrorSummary       string    `gorm:"type:text;not null;default:''"`
 	AffinityHit        bool      `gorm:"not null;default:false"`
 	InputTokens        int64     `gorm:"not null;default:0"`
 	OutputTokens       int64     `gorm:"not null;default:0"`

@@ -411,6 +411,119 @@ func TestAutoMigrateCreatesNineTablesAndSchemaVersion(t *testing.T) {
 	}
 }
 
+func TestAutoMigrateCreatesRequestLogV1FieldsAndCompositeIndexes(t *testing.T) {
+	t.Parallel()
+
+	dsn := filepath.Join(t.TempDir(), "fresh-request-log-v1.db")
+	db, err := storage.Open(dsn)
+	if err != nil {
+		t.Fatalf("Open(%q) error = %v", dsn, err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("db.DB() error = %v", err)
+	}
+	t.Cleanup(func() {
+		if err := sqlDB.Close(); err != nil {
+			t.Errorf("close database: %v", err)
+		}
+	})
+	if err := storage.AutoMigrate(db); err != nil {
+		t.Fatalf("AutoMigrate() error = %v", err)
+	}
+
+	type columnInfo struct {
+		Name string
+	}
+	var columns []columnInfo
+	if err := db.Raw("PRAGMA table_info('request_logs')").Scan(&columns).Error; err != nil {
+		t.Fatalf("inspect request_logs columns: %v", err)
+	}
+	columnNames := make(map[string]struct{}, len(columns))
+	for _, column := range columns {
+		columnNames[column.Name] = struct{}{}
+	}
+	for _, name := range []string{"error_code", "error_summary"} {
+		if _, ok := columnNames[name]; !ok {
+			t.Errorf("request_logs column %q is missing", name)
+		}
+	}
+
+	type indexInfo struct {
+		Name string
+	}
+	var indexes []indexInfo
+	if err := db.Raw("PRAGMA index_list('request_logs')").Scan(&indexes).Error; err != nil {
+		t.Fatalf("inspect request_logs indexes: %v", err)
+	}
+	indexNames := make(map[string]struct{}, len(indexes))
+	for _, index := range indexes {
+		indexNames[index.Name] = struct{}{}
+	}
+
+	wantIndexes := map[string][]struct {
+		name string
+		desc int
+	}{
+		"idx_request_logs_created_id": {
+			{name: "created_at", desc: 1},
+			{name: "id", desc: 1},
+		},
+		"idx_request_logs_access_created_id": {
+			{name: "access_key_id"},
+			{name: "created_at", desc: 1},
+			{name: "id", desc: 1},
+		},
+		"idx_request_logs_status_created_id": {
+			{name: "status"},
+			{name: "created_at", desc: 1},
+			{name: "id", desc: 1},
+		},
+		"idx_request_logs_model_created_id": {
+			{name: "client_model"},
+			{name: "created_at", desc: 1},
+			{name: "id", desc: 1},
+		},
+	}
+	type indexedColumn struct {
+		Sequence int    `gorm:"column:seqno"`
+		Name     string `gorm:"column:name"`
+		Desc     int    `gorm:"column:desc"`
+		Key      int    `gorm:"column:key"`
+	}
+	for indexName, wantColumns := range wantIndexes {
+		if _, ok := indexNames[indexName]; !ok {
+			t.Errorf("request_logs index %q is missing", indexName)
+			continue
+		}
+		var indexedColumns []indexedColumn
+		if err := db.Raw("PRAGMA index_xinfo('" + indexName + "')").Scan(&indexedColumns).Error; err != nil {
+			t.Fatalf("inspect %s columns: %v", indexName, err)
+		}
+		gotColumns := make([]indexedColumn, 0, len(indexedColumns))
+		for _, column := range indexedColumns {
+			if column.Key == 1 {
+				gotColumns = append(gotColumns, column)
+			}
+		}
+		if len(gotColumns) != len(wantColumns) {
+			t.Errorf("%s columns = %+v, want %d key columns", indexName, gotColumns, len(wantColumns))
+			continue
+		}
+		for position, want := range wantColumns {
+			got := gotColumns[position]
+			if got.Sequence != position || got.Name != want.name || got.Desc != want.desc {
+				t.Errorf("%s column %d = seq:%d name:%q desc:%d, want seq:%d name:%q desc:%d",
+					indexName, position, got.Sequence, got.Name, got.Desc, position, want.name, want.desc)
+			}
+		}
+	}
+
+	if storage.CurrentSchemaVersion != 1 {
+		t.Fatalf("CurrentSchemaVersion = %d, want 1", storage.CurrentSchemaVersion)
+	}
+}
+
 func TestAutoMigrateOmitsGroupSignature(t *testing.T) {
 	t.Parallel()
 

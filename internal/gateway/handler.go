@@ -11,13 +11,16 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/sirupsen/logrus"
 
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/health"
 	"gpt-load/internal/platform/encryption"
 	"gpt-load/internal/platform/utils"
+	"gpt-load/internal/ratelimit"
 	"gpt-load/internal/scheduler"
 	"gpt-load/internal/state"
+	"gpt-load/internal/telemetry"
 )
 
 const (
@@ -30,13 +33,22 @@ const (
 	debugHeaderAttempts       = "X-GPTLoad-Attempts"
 )
 
-var debugHeaderNames = []string{debugHeaderGroup, debugHeaderKey, debugHeaderAttempts}
+var debugHeaderNames = []string{
+	debugHeaderGroup,
+	debugHeaderKey,
+	debugHeaderAttempts,
+	requestIDHeader,
+}
 
 var errRequestTooLarge = errors.New("request body is too large")
 
 type AttemptForwarder interface {
 	Forward(context.Context, ForwardInput) UpstreamResult
 	ForwardStream(context.Context, ForwardInput, http.ResponseWriter) UpstreamResult
+}
+
+type AccessKeyRPMLimiter interface {
+	Allow(accessKeyID uint, limit int64) ratelimit.LimitDecision
 }
 
 type runtimeKeyRegistry interface {
@@ -55,7 +67,11 @@ type Handler struct {
 	forwarder      AttemptForwarder
 	dialects       dialect.Set
 	stats          *health.StatsStore
+	limiter        AccessKeyRPMLimiter
+	requestLogSink telemetry.RequestLogSink
 	newRandom      func() *rand.Rand
+	newRequestID   func() (string, error)
+	requestNow     func() time.Time
 	now            func() time.Time
 	writeTimeout   time.Duration
 	modelListLimit int64
@@ -68,15 +84,32 @@ func NewHandler(
 	forwarder AttemptForwarder,
 	dialects dialect.Set,
 	stats *health.StatsStore,
+	limiter AccessKeyRPMLimiter,
+	requestLogSink telemetry.RequestLogSink,
 ) *Handler {
+	if limiter == nil {
+		limiter = unlimitedAccessKeyRPMLimiter{}
+	}
+	if requestLogSink == nil {
+		requestLogSink = telemetry.NoopRequestLogSink{}
+	}
 	return &Handler{
 		manager: manager, registry: registry, encryption: encryptionService,
 		forwarder: forwarder, dialects: dialects, stats: stats,
+		limiter: limiter, requestLogSink: requestLogSink,
 		newRandom:      func() *rand.Rand { return rand.New(rand.NewSource(rand.Int63())) },
+		newRequestID:   newRequestID,
+		requestNow:     time.Now,
 		now:            time.Now,
 		writeTimeout:   downstreamWriteTimeout,
 		modelListLimit: maxNonStreamingResponseBodyBytes,
 	}
+}
+
+type unlimitedAccessKeyRPMLimiter struct{}
+
+func (unlimitedAccessKeyRPMLimiter) Allow(uint, int64) ratelimit.LimitDecision {
+	return ratelimit.LimitDecision{Allowed: true}
 }
 
 func (handler *Handler) applyKeyAction(
@@ -106,16 +139,48 @@ func (handler *Handler) RegisterRoutes(engine *gin.Engine) {
 }
 
 func (handler *Handler) Handle(ginContext *gin.Context) {
-	initializeDebugHeaders(ginContext.Writer.Header())
+	requestStarted := handler.requestNow()
 	snapshot := handler.manager.Current()
+	initializeDebugHeaders(ginContext.Writer.Header())
 	accessKey, ok := authenticate(ginContext.Request, snapshot, handler.encryption)
 	if !ok {
-		writeReason(ginContext, reasonInvalidAccessKey)
+		_ = handler.writeReason(ginContext, reasonInvalidAccessKey)
 		return
 	}
 	selectedRoute, ok := determineRoute(ginContext.Request.Method, ginContext.Request.URL.Path, ginContext.Request.Header)
 	if !ok {
-		writeReason(ginContext, reasonEndpointNotFound)
+		_ = handler.writeReason(ginContext, reasonEndpointNotFound)
+		return
+	}
+
+	requestID, err := handler.newRequestID()
+	if err != nil {
+		logrus.WithError(err).Warn("gateway request ID generation failed; request telemetry disabled")
+		requestID = ""
+	} else {
+		ginContext.Writer.Header().Set(requestIDHeader, requestID)
+	}
+
+	var recorder *requestRecorder
+	if selectedRoute.Kind == endpointChat && requestID != "" {
+		recorder = newRequestRecorder(
+			handler.requestLogSink,
+			requestID,
+			requestStarted,
+			accessKey.ID,
+			selectedRoute.Protocol,
+			handler.requestNow,
+		)
+		defer recorder.emit()
+	}
+
+	limitDecision := handler.limiter.Allow(accessKey.ID, accessKey.RPMLimit)
+	if !limitDecision.Allowed {
+		ginContext.Writer.Header().Set(
+			"Retry-After",
+			strconv.Itoa(retryAfterSeconds(limitDecision.RetryAfter)),
+		)
+		handler.completeReason(ginContext, recorder, reasonAccessKeyRateLimited)
 		return
 	}
 	if selectedRoute.Kind == endpointModels {
@@ -125,17 +190,21 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 
 	selectedDialect, dialectReady := handler.dialects[selectedRoute.Protocol]
 	if !dialectReady || selectedRoute.Kind != endpointChat {
-		writeReason(ginContext, reasonEndpointNotFound)
+		handler.completeReason(ginContext, recorder, reasonEndpointNotFound)
 		return
 	}
 
 	body, err := readRequestBody(ginContext.Request.Body, maxRequestBodyBytes)
 	if err != nil {
-		if errors.Is(err, errRequestTooLarge) {
-			writeReason(ginContext, reasonRequestTooLarge)
+		if ginContext.Request.Context().Err() != nil {
+			recorder.completeCanceled(0)
 			return
 		}
-		writeReason(ginContext, reasonCannotExtractModel)
+		if errors.Is(err, errRequestTooLarge) {
+			handler.completeReason(ginContext, recorder, reasonRequestTooLarge)
+			return
+		}
+		handler.completeReason(ginContext, recorder, reasonCannotExtractModel)
 		return
 	}
 	parsed := &dialect.ParsedRequest{
@@ -147,14 +216,58 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 	}
 	model, stream, err := selectedDialect.ExtractModel(parsed)
 	if err != nil {
-		writeReason(ginContext, reasonCannotExtractModel)
+		if ginContext.Request.Context().Err() != nil {
+			recorder.completeCanceled(0)
+			return
+		}
+		handler.completeReason(ginContext, recorder, reasonCannotExtractModel)
 		return
 	}
+	recorder.setClientModel(model)
 
 	iterator := scheduler.New(snapshot, handler.registry, scheduler.Query{
 		Protocol: selectedRoute.Protocol, ExternalModel: model, AccessKey: accessKey,
 	}, handler.newRandom())
-	handler.executeAttempts(ginContext, iterator, selectedDialect, parsed, model, stream)
+	handler.executeAttempts(ginContext, iterator, selectedDialect, parsed, model, stream, recorder)
+}
+
+func retryAfterSeconds(duration time.Duration) int {
+	seconds := int((duration + time.Second - 1) / time.Second)
+	if seconds < 1 {
+		return 1
+	}
+	if seconds > 60 {
+		return 60
+	}
+	return seconds
+}
+
+func (handler *Handler) completeReason(
+	ginContext *gin.Context,
+	recorder *requestRecorder,
+	value reason,
+) {
+	recorder.completeReason(value)
+	if err := handler.writeReason(ginContext, value); err != nil {
+		handler.completeWriteTerminal(ginContext, recorder, value.Status)
+	}
+}
+
+func (handler *Handler) completeWriteTerminal(
+	ginContext *gin.Context,
+	recorder *requestRecorder,
+	selectedStatus int,
+) {
+	if ginContext != nil && ginContext.Request != nil &&
+		ginContext.Request.Context().Err() != nil {
+		status := 0
+		if ginContext.Writer != nil && ginContext.Writer.Written() {
+			status = ginContext.Writer.Status()
+		}
+		recorder.completeCanceled(status)
+		return
+	}
+	recorder.completeDownstreamWrite(selectedStatus)
 }
 
 func readRequestBody(reader io.Reader, limit int64) ([]byte, error) {
@@ -181,12 +294,19 @@ func (handler *Handler) executeAttempts(
 	parsed *dialect.ParsedRequest,
 	externalModel string,
 	stream bool,
+	recorder *requestRecorder,
 ) {
-	var lastResponse *UpstreamResult
-	var lastTransport *UpstreamResult
+	type deferredAttempt struct {
+		result        UpstreamResult
+		decision      health.Result
+		upstreamModel string
+	}
+	var lastResponse *deferredAttempt
+	var lastTransport *deferredAttempt
 	attempts := 0
 	for attempts < maxAttempts {
 		if ginContext.Request.Context().Err() != nil {
+			recorder.completeCanceled(0)
 			return
 		}
 		selection, err := iterator.Next()
@@ -217,13 +337,47 @@ func (handler *Handler) executeAttempts(
 				handler.stats.Record(selectedKeyID, true, handler.now())
 			},
 		}
+		attemptStarted := recorder.beforeForward()
 		var result UpstreamResult
 		if stream {
 			result = handler.forwarder.ForwardStream(ginContext.Request.Context(), input, ginContext.Writer)
 		} else {
 			result = handler.forwarder.Forward(ginContext.Request.Context(), input)
 		}
-		if result.Committed || ginContext.Request.Context().Err() != nil {
+		attemptCompleted := time.Time{}
+		if recorder != nil {
+			attemptCompleted = recorder.now()
+		}
+		requestCanceled := ginContext.Request.Context().Err() != nil
+		if result.Committed {
+			if recorder != nil {
+				result.Stream = prioritizeStreamObservation(
+					ginContext.Request.Context(),
+					result.Err,
+					result.Stream,
+				)
+				recorder.recordStreamAttempt(
+					selection, apiKey, result, attemptStarted, attemptCompleted,
+				)
+				recorder.completeStream(result, selection.UpstreamModelID)
+			}
+			return
+		}
+		if requestCanceled {
+			if recorder != nil {
+				recorder.recordAttempt(
+					selection,
+					apiKey,
+					result,
+					health.Result{
+						Category: health.FailureCategoryDownstreamCancel,
+						Action:   health.ActionTerminate,
+					},
+					attemptStarted,
+					attemptCompleted,
+				)
+				recorder.completeCanceled(0)
+			}
 			return
 		}
 		attemptNow := handler.now()
@@ -239,44 +393,72 @@ func (handler *Handler) executeAttempts(
 			Err: result.Err, RequestWritten: result.RequestWritten,
 			Committed: result.Committed, RetryableBeforeCommit: result.RetryableBeforeCommit,
 		})
+		recordedAttempt := recorder.recordAttempt(
+			selection, apiKey, result, decision, attemptStarted, attemptCompleted,
+		)
 		handler.applyKeyAction(selection.KeyID, decision, attemptNow)
 		if decision.Action == health.ActionSkipGroup {
 			iterator.SkipGroup(selection.GroupID)
 		}
 		if result.HasResponse() {
-			copied := result
-			lastResponse = &copied
+			lastResponse = &deferredAttempt{
+				result: result, decision: decision, upstreamModel: selection.UpstreamModelID,
+			}
 			if decision.ShouldRetry() {
+				recorder.retryIfAnotherForward(recordedAttempt)
 				continue
 			}
+			recorder.completeResponse(result, decision, selection.UpstreamModelID)
 			if err := handler.writeUpstreamResponse(ginContext, result); err != nil {
+				handler.completeWriteTerminal(ginContext, recorder, result.StatusCode)
 				return
 			}
 			return
 		}
 		if errors.Is(result.Err, context.Canceled) {
+			recorder.completeCanceled(0)
 			return
 		}
 		if decision.ShouldRetry() {
-			copied := result
-			lastTransport = &copied
+			lastTransport = &deferredAttempt{
+				result: result, decision: decision, upstreamModel: selection.UpstreamModelID,
+			}
+			recorder.retryIfAnotherForward(recordedAttempt)
 			continue
 		}
-		writeTransportReason(ginContext, result)
+		value := transportReason(result)
+		recorder.completeTransport(value, selection.UpstreamModelID)
+		if err := handler.writeReason(ginContext, value); err != nil {
+			handler.completeWriteTerminal(ginContext, recorder, value.Status)
+		}
 		return
 	}
 
 	if lastResponse != nil {
-		if err := handler.writeUpstreamResponse(ginContext, *lastResponse); err != nil {
+		recorder.completeResponse(
+			lastResponse.result,
+			lastResponse.decision,
+			lastResponse.upstreamModel,
+		)
+		if err := handler.writeUpstreamResponse(ginContext, lastResponse.result); err != nil {
+			handler.completeWriteTerminal(
+				ginContext,
+				recorder,
+				lastResponse.result.StatusCode,
+			)
 			return
 		}
 		return
 	}
 	if lastTransport != nil {
-		writeTransportReason(ginContext, *lastTransport)
+		value := transportReason(lastTransport.result)
+		recorder.completeTransport(value, lastTransport.upstreamModel)
+		if err := handler.writeReason(ginContext, value); err != nil {
+			handler.completeWriteTerminal(ginContext, recorder, value.Status)
+		}
 		return
 	}
-	writeReason(ginContext, reasonNoCandidate)
+	handler.completeReason(ginContext, recorder, reasonNoCandidate)
 }
 
 func initializeDebugHeaders(headers http.Header) {
@@ -291,14 +473,14 @@ func updateDebugHeaders(headers http.Header, group, apiKey string, attempts int)
 	headers.Set(debugHeaderAttempts, strconv.Itoa(attempts))
 }
 
-func writeTransportReason(ginContext *gin.Context, result UpstreamResult) {
+func transportReason(result UpstreamResult) reason {
 	switch {
 	case errors.Is(result.Err, ErrUpstreamProtocol):
-		writeReason(ginContext, reasonUpstreamProtocol)
+		return reasonUpstreamProtocol
 	case isTimeoutError(result.Err):
-		writeReason(ginContext, reasonUpstreamTimeout)
+		return reasonUpstreamTimeout
 	default:
-		writeReason(ginContext, reasonUpstreamConnect)
+		return reasonUpstreamConnect
 	}
 }
 

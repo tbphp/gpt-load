@@ -204,19 +204,31 @@ func commitStream(writer *streamWriteController, status int, headers http.Header
 		}
 	}
 	if err := writer.writeHeader(status); err != nil {
-		return fmt.Errorf("write downstream stream headers: %w", err)
+		return &streamFailure{
+			kind: streamFailureDownstreamWrite,
+			err:  fmt.Errorf("write downstream stream headers: %w", err),
+		}
 	}
 	if len(prefix) > 0 {
 		written, err := writer.write(prefix)
 		if err != nil {
-			return fmt.Errorf("write first SSE event: %w", err)
+			return &streamFailure{
+				kind: streamFailureDownstreamWrite,
+				err:  fmt.Errorf("write first SSE event: %w", err),
+			}
 		}
 		if written != len(prefix) {
-			return fmt.Errorf("write first SSE event: %w", io.ErrShortWrite)
+			return &streamFailure{
+				kind: streamFailureDownstreamWrite,
+				err:  fmt.Errorf("write first SSE event: %w", io.ErrShortWrite),
+			}
 		}
 	}
 	if err := writer.flush(); err != nil {
-		return fmt.Errorf("flush first SSE event: %w", err)
+		return &streamFailure{
+			kind: streamFailureDownstreamWrite,
+			err:  fmt.Errorf("flush first SSE event: %w", err),
+		}
 	}
 	return nil
 }
@@ -244,36 +256,82 @@ func pumpStream(ctx context.Context, body io.ReadCloser, writer *streamWriteCont
 		read, err := body.Read(chunk)
 		if read > 0 {
 			if ctxErr := ctx.Err(); ctxErr != nil {
-				return ctxErr
+				return &streamFailure{
+					kind: streamFailureClientCanceled,
+					err:  ctxErr,
+				}
 			}
 			if cause := watchdog.causeValue(); cause != nil {
-				return cause
+				return streamWatchdogFailure(cause)
 			}
 			watchdog.reset()
 			written, writeErr := writer.write(chunk[:read])
 			if writeErr != nil {
-				return fmt.Errorf("write upstream stream: %w", writeErr)
+				return &streamFailure{
+					kind: streamFailureDownstreamWrite,
+					err:  fmt.Errorf("write upstream stream: %w", writeErr),
+				}
 			}
 			if written != read {
-				return fmt.Errorf("write upstream stream: %w", io.ErrShortWrite)
+				return &streamFailure{
+					kind: streamFailureDownstreamWrite,
+					err:  fmt.Errorf("write upstream stream: %w", io.ErrShortWrite),
+				}
 			}
 			if flushErr := writer.flush(); flushErr != nil {
-				return fmt.Errorf("flush upstream stream: %w", flushErr)
+				return &streamFailure{
+					kind: streamFailureDownstreamWrite,
+					err:  fmt.Errorf("flush upstream stream: %w", flushErr),
+				}
 			}
 		}
 		if err != nil {
 			if ctxErr := ctx.Err(); ctxErr != nil {
-				return ctxErr
+				return &streamFailure{
+					kind: streamFailureClientCanceled,
+					err:  ctxErr,
+				}
 			}
 			if cause := watchdog.causeValue(); cause != nil {
-				return cause
+				return streamWatchdogFailure(cause)
 			}
 			if errors.Is(err, io.EOF) {
 				return nil
 			}
-			return fmt.Errorf("read upstream stream: %w", err)
+			if errors.Is(err, ErrUpstreamProtocol) {
+				return &streamFailure{
+					kind: streamFailureProtocol,
+					err:  fmt.Errorf("read upstream stream: %w", err),
+				}
+			}
+			if errors.Is(err, errSSEEventTooLarge) ||
+				errors.Is(err, errSSEEventIncomplete) {
+				return &streamFailure{
+					kind: streamFailureProtocol,
+					err: fmt.Errorf(
+						"read upstream stream: %w: %w",
+						ErrUpstreamProtocol,
+						err,
+					),
+				}
+			}
+			return &streamFailure{
+				kind: streamFailureUpstreamRead,
+				err:  fmt.Errorf("read upstream stream: %w", err),
+			}
 		}
 	}
+}
+
+func streamWatchdogFailure(cause error) error {
+	kind := streamFailureUpstreamRead
+	switch {
+	case errors.Is(cause, context.Canceled):
+		kind = streamFailureClientCanceled
+	case errors.Is(cause, errStreamIdleTimeout):
+		kind = streamFailureIdle
+	}
+	return &streamFailure{kind: kind, err: cause}
 }
 
 type streamWatchdog struct {

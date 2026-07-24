@@ -265,7 +265,7 @@ func mapAccessKeys(rows []models.AccessKey) ([]state.AccessKeyConfig, error) {
 		}
 		result = append(result, state.AccessKeyConfig{
 			ID: row.ID, Name: row.Name, KeyHash: row.KeyHash,
-			Status: state.AccessKeyStatus(row.Status), Filters: filters.toState(),
+			Status: state.AccessKeyStatus(row.Status), Filters: filters.toState(), RPMLimit: row.RPMLimit,
 		})
 	}
 	return result, nil

@@ -67,7 +67,7 @@ func newServiceFixtureWithDSN(t *testing.T, dsn string) serviceFixture {
 	}
 	return serviceFixture{
 		db: db, manager: manager, registry: registry, encryption: keyService,
-		service: NewService(db, manager, registry, keyService, dialect.NewSet()),
+		service: NewService(db, manager, registry, keyService, dialect.NewSet(), nil),
 	}
 }
 

@@ -31,6 +31,7 @@ type Service struct {
 	registry              *state.KeyRegistry
 	encryption            encryption.Service
 	dialects              dialect.Set
+	requestLogs           RequestLogReader
 	modelDiscoveryTimeout time.Duration
 	random                io.Reader
 	writeMu               sync.Mutex
@@ -42,10 +43,11 @@ func NewService(
 	registry *state.KeyRegistry,
 	encryptionService encryption.Service,
 	dialects dialect.Set,
+	requestLogs RequestLogReader,
 ) *Service {
 	return &Service{
 		db: db, manager: manager, registry: registry,
-		encryption: encryptionService, dialects: dialects,
+		encryption: encryptionService, dialects: dialects, requestLogs: requestLogs,
 		modelDiscoveryTimeout: defaultModelDiscoveryTimeout, random: rand.Reader,
 	}
 }

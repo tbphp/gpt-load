@@ -298,6 +298,111 @@ func TestPumpStreamReturnsDownstreamWriteFailure(t *testing.T) {
 	}
 }
 
+func TestPumpStreamReturnsTypedTerminationWithoutChangingWrappedError(t *testing.T) {
+	assertFailure := func(
+		t *testing.T,
+		err error,
+		wantKind streamFailureKind,
+		wantWrapped error,
+	) {
+		t.Helper()
+		var failure *streamFailure
+		if !errors.As(err, &failure) {
+			t.Fatalf("pumpStream() error type = %T, want *streamFailure: %v", err, err)
+		}
+		if failure.kind != wantKind {
+			t.Fatalf("stream failure kind = %d, want %d", failure.kind, wantKind)
+		}
+		if !errors.Is(err, wantWrapped) {
+			t.Fatalf("pumpStream() error = %v, want wrapped %v", err, wantWrapped)
+		}
+	}
+
+	t.Run("upstream read", func(t *testing.T) {
+		wantErr := errors.New("upstream read failed")
+		body := &failingStreamReadCloser{err: wantErr}
+		err := pumpStream(
+			context.Background(),
+			body,
+			newStreamWriteController(newRecordingResponseWriter(), time.Second),
+			time.Second,
+		)
+		assertFailure(t, err, streamFailureUpstreamRead, wantErr)
+	})
+
+	t.Run("idle timeout", func(t *testing.T) {
+		body := newBlockingReadCloser()
+		done := make(chan error, 1)
+		go func() {
+			done <- pumpStream(
+				context.Background(),
+				body,
+				newStreamWriteController(newRecordingResponseWriter(), time.Second),
+				20*time.Millisecond,
+			)
+		}()
+		waitForSignal(t, body.started, "upstream read start")
+		select {
+		case err := <-done:
+			assertFailure(t, err, streamFailureIdle, errStreamIdleTimeout)
+		case <-time.After(time.Second):
+			t.Fatal("pumpStream() did not stop after idle timeout")
+		}
+	})
+
+	t.Run("downstream write", func(t *testing.T) {
+		wantErr := errors.New("downstream write failed")
+		body := &chunkReadCloser{chunks: [][]byte{[]byte("data: one\n\n")}}
+		writer := newRecordingResponseWriter()
+		writer.writeErr = wantErr
+		err := pumpStream(
+			context.Background(),
+			body,
+			newStreamWriteController(writer, time.Second),
+			time.Second,
+		)
+		assertFailure(t, err, streamFailureDownstreamWrite, wantErr)
+	})
+
+	t.Run("downstream flush", func(t *testing.T) {
+		wantErr := errors.New("downstream flush failed")
+		body := &chunkReadCloser{chunks: [][]byte{[]byte("data: one\n\n")}}
+		writer := &flushErrorResponseWriter{
+			recordingResponseWriter: newRecordingResponseWriter(),
+			flushErr:                wantErr,
+		}
+		err := pumpStream(
+			context.Background(),
+			body,
+			newStreamWriteController(writer, time.Second),
+			time.Second,
+		)
+		assertFailure(t, err, streamFailureDownstreamWrite, wantErr)
+	})
+
+	t.Run("client cancellation", func(t *testing.T) {
+		body := newBlockingReadCloser()
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan error, 1)
+		go func() {
+			done <- pumpStream(
+				ctx,
+				body,
+				newStreamWriteController(newRecordingResponseWriter(), time.Second),
+				time.Second,
+			)
+		}()
+		waitForSignal(t, body.started, "upstream read start")
+		cancel()
+		select {
+		case err := <-done:
+			assertFailure(t, err, streamFailureClientCanceled, context.Canceled)
+		case <-time.After(time.Second):
+			t.Fatal("pumpStream() did not stop after cancellation")
+		}
+	})
+}
+
 func TestPumpStreamClosesUpstreamOnCancellation(t *testing.T) {
 	body := newBlockingReadCloser()
 	writer := newRecordingResponseWriter()
@@ -518,6 +623,16 @@ type chunkReadCloser struct {
 	chunks [][]byte
 	closed bool
 }
+
+type failingStreamReadCloser struct {
+	err error
+}
+
+func (reader *failingStreamReadCloser) Read([]byte) (int, error) {
+	return 0, reader.err
+}
+
+func (*failingStreamReadCloser) Close() error { return nil }
 
 func (reader *chunkReadCloser) Read(destination []byte) (int, error) {
 	if len(reader.chunks) == 0 {

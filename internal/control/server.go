@@ -41,6 +41,7 @@ func (s *Server) RegisterRoutes(engine *gin.Engine) {
 	api := engine.Group("/api")
 	api.Use(i18n.Middleware(), s.authenticate())
 	api.GET("/auth/session", s.handleAuthSession)
+	api.GET("/logs", s.handleListRequestLogs)
 	api.GET("/groups", s.handleListGroups)
 	api.POST("/groups", s.handleCreateGroup)
 	api.POST("/groups/:group_id/keys/import", s.handleImportGroupKeys)
@@ -231,6 +232,9 @@ func newControlJSONDecoder(c *gin.Context) (*json.Decoder, error) {
 }
 
 func mapControlJSONError(err error) *app_errors.APIError {
+	if errors.Is(err, app_errors.ErrValidation) {
+		return app_errors.ErrValidation
+	}
 	var maxBytesError *http.MaxBytesError
 	if errors.As(err, &maxBytesError) {
 		return app_errors.ErrRequestTooLarge

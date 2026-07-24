@@ -953,6 +953,188 @@ func TestForwardStreamCallsReadyBeforeCommit(t *testing.T) {
 	}
 }
 
+func TestForwardStreamObservesCleanEOFAndFirstSSEError(t *testing.T) {
+	t.Run("clean EOF", func(t *testing.T) {
+		const wire = "data: {\"model\":\"gpt-4o\"}\n\n"
+		upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+			writer.Header().Set("Content-Type", "text/event-stream")
+			_, _ = io.WriteString(writer, wire)
+		}))
+		defer upstream.Close()
+
+		downstream := newRecordingResponseWriter()
+		result := NewForwarder(
+			platformhttp.NewHTTPClientManager(),
+			redact.New(),
+		).ForwardStream(
+			context.Background(),
+			streamForwardInput(upstream.URL),
+			downstream,
+		)
+
+		if result.Err != nil || !result.Committed ||
+			result.Stream.EndReason != StreamEndCleanEOF ||
+			result.Stream.ErrorSummary != "" {
+			t.Fatalf("ForwardStream() clean result = %#v", result)
+		}
+		if downstream.status != http.StatusOK || downstream.body.String() != wire {
+			t.Fatalf(
+				"clean downstream status/body = %d/%q, want %d/%q",
+				downstream.status,
+				downstream.body.String(),
+				http.StatusOK,
+				wire,
+			)
+		}
+	})
+
+	t.Run("first safe SSE error summary", func(t *testing.T) {
+		const (
+			apiKey            = "opaque-provider-secret"
+			resolvedAuth      = "Token resolved-opaque-auth"
+			resolvedRule      = "resolved-opaque-custom-rule"
+			globalSecret      = "sk-global-secret-123456789"
+			upstreamModel     = "upstream-private-model"
+			externalModel     = "public-model"
+			disallowedSummary = "must-not-persist"
+		)
+		firstPayload := `{"error":{"message":"` + apiKey + ` ` +
+			resolvedAuth + ` ` + resolvedRule + ` ` + globalSecret + ` ` +
+			upstreamModel + `"},"debug":"` + disallowedSummary + `"}`
+		secondPayload := `{"error":{"message":"second error must not replace first"}}`
+		wire := "event: error\r\ndata: " + firstPayload + "\r\n\r\n" +
+			"event: error\ndata: " + secondPayload + "\n\n"
+		upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+			writer.Header().Set("Content-Type", "text/event-stream")
+			_, _ = io.WriteString(writer, wire)
+		}))
+		defer upstream.Close()
+
+		input := streamForwardInput(upstream.URL)
+		input.APIKey = apiKey
+		input.Group.HeaderRules = state.HeaderRules{Set: map[string]string{
+			"Authorization": resolvedAuth,
+			"X-Custom":      resolvedRule,
+		}}
+		input.ExternalModel = externalModel
+		input.UpstreamModelID = upstreamModel
+		input.Request.Body = []byte(`{"model":"` + externalModel + `","stream":true}`)
+		downstream := newRecordingResponseWriter()
+		result := NewForwarder(
+			platformhttp.NewHTTPClientManager(),
+			redact.New(),
+		).ForwardStream(context.Background(), input, downstream)
+
+		wantSummary := strings.Repeat(redact.Placeholder+" ", 4) + upstreamModel
+		if result.Err != nil || !result.Committed ||
+			result.Stream.EndReason != StreamEndSSEError ||
+			result.Stream.ErrorSummary != wantSummary {
+			t.Fatalf(
+				"ForwardStream() SSE observation = %#v, want summary %q",
+				result,
+				wantSummary,
+			)
+		}
+		output := downstream.body.String()
+		for _, secret := range []string{
+			apiKey, resolvedAuth, resolvedRule, upstreamModel,
+		} {
+			if strings.Contains(output, secret) {
+				t.Fatalf("downstream SSE leaked %q: %q", secret, output)
+			}
+		}
+		if !strings.Contains(output, globalSecret) {
+			t.Fatalf("observation redactor changed downstream SSE: %q", output)
+		}
+		if strings.Contains(result.Stream.ErrorSummary, disallowedSummary) ||
+			strings.Contains(result.Stream.ErrorSummary, "second error") ||
+			strings.Contains(result.Stream.ErrorSummary, globalSecret) {
+			t.Fatalf("unsafe/non-first SSE summary = %q", result.Stream.ErrorSummary)
+		}
+		if !strings.Contains(output, externalModel) ||
+			!strings.Contains(output, "second error must not replace first") ||
+			!strings.Contains(output, "\r\n\r\n") ||
+			strings.Count(output, "event: error") != 2 {
+			t.Fatalf("rewritten SSE framing/body = %q", output)
+		}
+	})
+}
+
+type cancelingStreamResponseWriter struct {
+	*recordingResponseWriter
+	cancel context.CancelFunc
+	err    error
+}
+
+func (writer *cancelingStreamResponseWriter) Write([]byte) (int, error) {
+	writer.cancel()
+	return 0, writer.err
+}
+
+func TestForwardStreamPrioritizesCancellationAndDownstreamFailure(t *testing.T) {
+	const wire = "data: first\n\n"
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(writer, wire)
+	}))
+	defer upstream.Close()
+
+	t.Run("client cancellation wins over write failure", func(t *testing.T) {
+		wantErr := errors.New("downstream write failed after cancellation")
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		downstream := &cancelingStreamResponseWriter{
+			recordingResponseWriter: newRecordingResponseWriter(),
+			cancel:                  cancel,
+			err:                     wantErr,
+		}
+		result := NewForwarder(
+			platformhttp.NewHTTPClientManager(),
+			redact.New(),
+		).ForwardStream(ctx, streamForwardInput(upstream.URL), downstream)
+
+		if !result.Committed ||
+			result.Stream.EndReason != StreamEndClientCanceled ||
+			!errors.Is(result.Err, wantErr) {
+			t.Fatalf("ForwardStream() cancellation-priority result = %#v", result)
+		}
+		if downstream.status != http.StatusOK || downstream.body.Len() != 0 {
+			t.Fatalf(
+				"downstream status/body = %d/%q, want committed 200/empty",
+				downstream.status,
+				downstream.body.String(),
+			)
+		}
+	})
+
+	t.Run("ordinary write failure", func(t *testing.T) {
+		wantErr := errors.New("downstream write failed")
+		downstream := newRecordingResponseWriter()
+		downstream.writeErr = wantErr
+		result := NewForwarder(
+			platformhttp.NewHTTPClientManager(),
+			redact.New(),
+		).ForwardStream(
+			context.Background(),
+			streamForwardInput(upstream.URL),
+			downstream,
+		)
+
+		if !result.Committed ||
+			result.Stream.EndReason != StreamEndDownstreamWriteFailure ||
+			!errors.Is(result.Err, wantErr) {
+			t.Fatalf("ForwardStream() write-failure result = %#v", result)
+		}
+		if downstream.status != http.StatusOK || downstream.body.Len() != 0 {
+			t.Fatalf(
+				"downstream status/body = %d/%q, want committed 200/empty",
+				downstream.status,
+				downstream.body.String(),
+			)
+		}
+	})
+}
+
 func TestForwardStreamRejectsUnsupportedSuccessEncodingBeforeCommit(t *testing.T) {
 	tests := []struct {
 		name       string

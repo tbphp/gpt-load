@@ -168,6 +168,8 @@ func TestWriteConfigMakesCreatedGroupAndFirstKeyAtomicallyVisibleToDataPlane(t *
 		gateway.NewForwarder(platformhttp.NewHTTPClientManager(), redact.New()),
 		dialects,
 		health.NewStatsStore(),
+		nil,
+		nil,
 	)
 	engine := gin.New()
 	handler.RegisterRoutes(engine)

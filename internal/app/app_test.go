@@ -5,12 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -41,6 +43,55 @@ func (f startupBootstrapFunc) EnsureInitialState(ctx context.Context) error {
 
 func noopStartupBootstrap(context.Context) error {
 	return nil
+}
+
+type requestLogRuntimeFake struct {
+	startFunc  func() error
+	stopFunc   func(context.Context) error
+	emitFunc   func()
+	startCalls atomic.Int32
+	stopCalls  atomic.Int32
+}
+
+func newRequestLogRuntimeFake(
+	startFunc func() error,
+	stopFunc func(context.Context) error,
+) *requestLogRuntimeFake {
+	return &requestLogRuntimeFake{
+		startFunc: startFunc,
+		stopFunc:  stopFunc,
+	}
+}
+
+func (fake *requestLogRuntimeFake) Start() error {
+	fake.startCalls.Add(1)
+	if fake.startFunc == nil {
+		return nil
+	}
+	return fake.startFunc()
+}
+
+func (fake *requestLogRuntimeFake) Stop(ctx context.Context) error {
+	fake.stopCalls.Add(1)
+	if fake.stopFunc == nil {
+		return nil
+	}
+	return fake.stopFunc(ctx)
+}
+
+func (fake *requestLogRuntimeFake) Emit() {
+	if fake.emitFunc != nil {
+		fake.emitFunc()
+	}
+}
+
+type closeErrorListener struct {
+	net.Listener
+	closeErr error
+}
+
+func (listener *closeErrorListener) Close() error {
+	return errors.Join(listener.Listener.Close(), listener.closeErr)
 }
 
 func mustNewEngine(t *testing.T) *gin.Engine {
@@ -227,6 +278,7 @@ func TestAppStartMigratesDatabaseAndServesHTTP(t *testing.T) {
 		StartupBootstrap: startupBootstrapFunc(noopStartupBootstrap),
 		RuntimeState:     runtimeState,
 		ControlRuntime:   newControlRuntimeFake(nil, false),
+		RequestLogs:      newRequestLogRuntimeFake(nil, nil),
 	})
 	cleanupApp(t, application)
 	if err := application.Start(); err != nil {
@@ -298,6 +350,7 @@ func TestAppStartBootstrapsAfterMigrationBeforeRuntimeLoad(t *testing.T) {
 			return loadErr
 		}),
 		ControlRuntime: newControlRuntimeFake(nil, false),
+		RequestLogs:    newRequestLogRuntimeFake(nil, nil),
 	})
 	cleanupApp(t, application)
 
@@ -334,6 +387,7 @@ func TestAppStartRejectsBootstrapFailureBeforeRuntimeLoadAndListen(t *testing.T)
 			return errors.New("unexpected runtime load")
 		}),
 		ControlRuntime: newControlRuntimeFake(nil, false),
+		RequestLogs:    newRequestLogRuntimeFake(nil, nil),
 	})
 	cleanupApp(t, application)
 
@@ -371,6 +425,7 @@ func TestAppStartRejectsRuntimeStateLoadFailureBeforeListen(t *testing.T) {
 		DB:               db,
 		StartupBootstrap: startupBootstrapFunc(noopStartupBootstrap),
 		ControlRuntime:   newControlRuntimeFake(nil, false),
+		RequestLogs:      newRequestLogRuntimeFake(nil, nil),
 		RuntimeState: runtimeStateLoaderFunc(func(context.Context) error {
 			return loadErr
 		}),
@@ -414,6 +469,7 @@ func TestAppReportsUnexpectedHTTPServeFailure(t *testing.T) {
 		StartupBootstrap: startupBootstrapFunc(noopStartupBootstrap),
 		RuntimeState:     runtimeState,
 		ControlRuntime:   newControlRuntimeFake(nil, false),
+		RequestLogs:      newRequestLogRuntimeFake(nil, nil),
 	})
 	cleanupApp(t, application)
 	if err := application.Start(); err != nil {
@@ -455,6 +511,7 @@ func TestAppStartsControlRuntimeAfterInitialization(t *testing.T) {
 			return nil
 		}),
 		ControlRuntime: runtime,
+		RequestLogs:    newRequestLogRuntimeFake(nil, nil),
 	})
 	cleanupApp(t, application)
 
@@ -491,6 +548,7 @@ func TestAppDoesNotStartControlRuntimeWhenLoadFails(t *testing.T) {
 		StartupBootstrap: startupBootstrapFunc(noopStartupBootstrap),
 		RuntimeState:     runtimeStateLoaderFunc(func(context.Context) error { return loadErr }),
 		ControlRuntime:   runtime,
+		RequestLogs:      newRequestLogRuntimeFake(nil, nil),
 	})
 	cleanupApp(t, application)
 
@@ -530,6 +588,7 @@ func TestAppDoesNotStartControlRuntimeWhenListenFails(t *testing.T) {
 		StartupBootstrap: startupBootstrapFunc(noopStartupBootstrap),
 		RuntimeState:     runtimeStateLoaderFunc(func(context.Context) error { return nil }),
 		ControlRuntime:   runtime,
+		RequestLogs:      newRequestLogRuntimeFake(nil, nil),
 	})
 	cleanupApp(t, application)
 
@@ -561,6 +620,7 @@ func TestAppStopCancelsAndWaitsForControlRuntime(t *testing.T) {
 		StartupBootstrap: startupBootstrapFunc(noopStartupBootstrap),
 		RuntimeState:     runtimeStateLoaderFunc(func(context.Context) error { return nil }),
 		ControlRuntime:   runtime,
+		RequestLogs:      newRequestLogRuntimeFake(nil, nil),
 	})
 	cleanupApp(t, application)
 	t.Cleanup(runtime.Release)
@@ -602,6 +662,7 @@ func TestAppStopHonorsDeadlineWhileWaitingForControlRuntime(t *testing.T) {
 		StartupBootstrap: startupBootstrapFunc(noopStartupBootstrap),
 		RuntimeState:     runtimeStateLoaderFunc(func(context.Context) error { return nil }),
 		ControlRuntime:   runtime,
+		RequestLogs:      newRequestLogRuntimeFake(nil, nil),
 	})
 	cleanupApp(t, application)
 	t.Cleanup(runtime.Release)
@@ -634,6 +695,344 @@ func TestAppStopHonorsDeadlineWhileWaitingForControlRuntime(t *testing.T) {
 
 	runtime.Release()
 	receiveTestSignal(t, runtime.stopped, "control runtime stop")
+}
+
+func TestAppStartsRequestLogAfterListenBeforeHTTPServe(t *testing.T) {
+	db, err := storage.Open(":memory:")
+	if err != nil {
+		t.Fatalf("storage.Open() error = %v", err)
+	}
+	keyService, err := encryption.NewService("test-master-key")
+	if err != nil {
+		t.Fatalf("encryption.NewService() error = %v", err)
+	}
+
+	boundListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("bind test listener: %v", err)
+	}
+	t.Cleanup(func() { _ = boundListener.Close() })
+	boundAddress := boundListener.Addr().String()
+	cfg := testConfig(t)
+
+	requestLogsStarted := make(chan struct{})
+	controlRuntime := newControlRuntimeFake(requestLogsStarted, false)
+	var application *App
+	requestLogs := newRequestLogRuntimeFake(func() error {
+		connection, dialErr := net.DialTimeout("tcp", boundAddress, time.Second)
+		if dialErr != nil {
+			return fmt.Errorf("listener was not bound before request logs started: %w", dialErr)
+		}
+		if closeErr := connection.Close(); closeErr != nil {
+			return fmt.Errorf("close startup probe: %w", closeErr)
+		}
+		if application.httpServer != nil || application.runtimeCancel != nil ||
+			application.runtimeDone != nil {
+			return errors.New("HTTP or control runtime state was exposed before request logs started")
+		}
+		close(requestLogsStarted)
+		return nil
+	}, nil)
+
+	application = NewApp(AppParams{
+		Engine:           mustNewEngine(t),
+		Config:           cfg,
+		Encryption:       keyService,
+		DB:               db,
+		StartupBootstrap: startupBootstrapFunc(noopStartupBootstrap),
+		RuntimeState:     runtimeStateLoaderFunc(func(context.Context) error { return nil }),
+		ControlRuntime:   controlRuntime,
+		RequestLogs:      requestLogs,
+	})
+	application.listen = func(network, address string) (net.Listener, error) {
+		if network != "tcp" || address != net.JoinHostPort(cfg.Server.Host, "0") {
+			return nil, fmt.Errorf("listen arguments = %q %q", network, address)
+		}
+		return boundListener, nil
+	}
+	cleanupApp(t, application)
+
+	if err := application.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	if requestLogs.startCalls.Load() != 1 {
+		t.Fatalf("RequestLogs.Start() calls = %d, want 1", requestLogs.startCalls.Load())
+	}
+	receiveTestSignal(t, controlRuntime.started, "control runtime start")
+	select {
+	case <-controlRuntime.orderViolation:
+		t.Fatal("control runtime started before request logs")
+	default:
+	}
+
+	response, err := http.Get("http://" + application.Address() + "/health")
+	if err != nil {
+		t.Fatalf("GET running /health: %v", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("running /health status = %d", response.StatusCode)
+	}
+}
+
+func TestAppRequestLogStartFailureClosesListenerWithoutServing(t *testing.T) {
+	db, err := storage.Open(":memory:")
+	if err != nil {
+		t.Fatalf("storage.Open() error = %v", err)
+	}
+	keyService, err := encryption.NewService("test-master-key")
+	if err != nil {
+		t.Fatalf("encryption.NewService() error = %v", err)
+	}
+
+	boundListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("bind test listener: %v", err)
+	}
+	t.Cleanup(func() { _ = boundListener.Close() })
+	boundAddress := boundListener.Addr().String()
+	cfg := testConfig(t)
+	startErr := errors.New("request log worker failed")
+	closeErr := errors.New("listener close failed")
+	requestLogs := newRequestLogRuntimeFake(func() error { return startErr }, nil)
+	controlRuntime := newControlRuntimeFake(nil, false)
+	application := NewApp(AppParams{
+		Engine:           mustNewEngine(t),
+		Config:           cfg,
+		Encryption:       keyService,
+		DB:               db,
+		StartupBootstrap: startupBootstrapFunc(noopStartupBootstrap),
+		RuntimeState:     runtimeStateLoaderFunc(func(context.Context) error { return nil }),
+		ControlRuntime:   controlRuntime,
+		RequestLogs:      requestLogs,
+	})
+	application.listen = func(network, address string) (net.Listener, error) {
+		if network != "tcp" || address != net.JoinHostPort(cfg.Server.Host, "0") {
+			return nil, fmt.Errorf("listen arguments = %q %q", network, address)
+		}
+		return &closeErrorListener{
+			Listener: boundListener,
+			closeErr: closeErr,
+		}, nil
+	}
+	cleanupApp(t, application)
+
+	err = application.Start()
+	if !errors.Is(err, startErr) || !strings.Contains(err.Error(), "start request logs") {
+		t.Fatalf("Start() error = %v, want wrapped request log error", err)
+	}
+	if !errors.Is(err, closeErr) ||
+		!strings.Contains(err.Error(), "close listener after request log startup failure") {
+		t.Fatalf("Start() error = %v, want joined listener close error", err)
+	}
+	if requestLogs.startCalls.Load() != 1 {
+		t.Fatalf("RequestLogs.Start() calls = %d, want 1", requestLogs.startCalls.Load())
+	}
+	if application.Address() != "" || application.httpServer != nil ||
+		application.listener != nil || application.runtimeCancel != nil ||
+		application.runtimeDone != nil {
+		t.Fatal("failed Start left application runtime state")
+	}
+	select {
+	case <-controlRuntime.started:
+		t.Fatal("control runtime started after request log startup failed")
+	default:
+	}
+
+	rebound, err := net.Listen("tcp", boundAddress)
+	if err != nil {
+		t.Fatalf("request log startup failure leaked listener: %v", err)
+	}
+	if err := rebound.Close(); err != nil {
+		t.Fatalf("close rebound listener: %v", err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("db.DB() error = %v", err)
+	}
+	if err := sqlDB.Ping(); err != nil {
+		t.Fatalf("database closed during failed Start: %v", err)
+	}
+}
+
+func TestAppStopDrainsRequestLogAfterLastHandlerEmitBeforeDatabaseClose(t *testing.T) {
+	db, err := storage.Open(":memory:")
+	if err != nil {
+		t.Fatalf("storage.Open() error = %v", err)
+	}
+	keyService, err := encryption.NewService("test-master-key")
+	if err != nil {
+		t.Fatalf("encryption.NewService() error = %v", err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("db.DB() error = %v", err)
+	}
+
+	handlerEntered := make(chan struct{})
+	releaseHandler := make(chan struct{})
+	handlerEmitted := make(chan struct{})
+	requestLogsStopped := make(chan struct{})
+	var releaseHandlerOnce sync.Once
+	var stopOnce sync.Once
+	var requestLogStopErr error
+
+	requestLogs := newRequestLogRuntimeFake(nil, func(context.Context) error {
+		stopOnce.Do(func() {
+			select {
+			case <-handlerEmitted:
+			default:
+				requestLogStopErr = errors.New("request logs stopped before handler emitted")
+				close(requestLogsStopped)
+				return
+			}
+			if pingErr := sqlDB.Ping(); pingErr != nil {
+				requestLogStopErr = fmt.Errorf("database closed before request logs stopped: %w", pingErr)
+			}
+			close(requestLogsStopped)
+		})
+		return requestLogStopErr
+	})
+	requestLogs.emitFunc = func() { close(handlerEmitted) }
+	engine := mustNewEngine(t)
+	engine.GET("/blocking", func(c *gin.Context) {
+		close(handlerEntered)
+		<-releaseHandler
+		requestLogs.Emit()
+		c.Status(http.StatusNoContent)
+	})
+	controlRuntime := newControlRuntimeFake(nil, false)
+	application := NewApp(AppParams{
+		Engine:           engine,
+		Config:           testConfig(t),
+		Encryption:       keyService,
+		DB:               db,
+		StartupBootstrap: startupBootstrapFunc(noopStartupBootstrap),
+		RuntimeState:     runtimeStateLoaderFunc(func(context.Context) error { return nil }),
+		ControlRuntime:   controlRuntime,
+		RequestLogs:      requestLogs,
+	})
+	cleanupApp(t, application)
+	t.Cleanup(func() { releaseHandlerOnce.Do(func() { close(releaseHandler) }) })
+
+	if err := application.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	receiveTestSignal(t, controlRuntime.started, "control runtime start")
+
+	requestResult := make(chan error, 1)
+	go func() {
+		response, requestErr := http.Get("http://" + application.Address() + "/blocking")
+		if requestErr == nil {
+			requestErr = response.Body.Close()
+			if response.StatusCode != http.StatusNoContent {
+				requestErr = fmt.Errorf("status = %d, want %d", response.StatusCode, http.StatusNoContent)
+			}
+		}
+		requestResult <- requestErr
+	}()
+	receiveTestSignal(t, handlerEntered, "blocking handler entry")
+
+	stopResult := make(chan error, 1)
+	go func() { stopResult <- application.Stop(context.Background()) }()
+	receiveTestSignal(t, controlRuntime.canceled, "control runtime cancellation")
+	select {
+	case <-requestLogsStopped:
+		t.Fatal("request logs stopped while HTTP handler was in flight")
+	default:
+	}
+	select {
+	case err := <-stopResult:
+		t.Fatalf("Stop() returned while HTTP handler was in flight: %v", err)
+	default:
+	}
+
+	releaseHandlerOnce.Do(func() { close(releaseHandler) })
+	if err := receiveTestSignal(t, requestResult, "blocking request result"); err != nil {
+		t.Fatalf("blocking request error = %v", err)
+	}
+	receiveTestSignal(t, handlerEmitted, "handler final emit")
+	receiveTestSignal(t, requestLogsStopped, "request log stop")
+	if err := receiveTestSignal(t, stopResult, "application stop result"); err != nil {
+		t.Fatalf("Stop() error = %v", err)
+	}
+	if pingErr := sqlDB.Ping(); pingErr == nil {
+		t.Fatal("database remained open after Stop() returned")
+	}
+}
+
+func TestAppStopDeadlineJoinsRequestLogErrorAndClosesDatabase(t *testing.T) {
+	db, err := storage.Open(":memory:")
+	if err != nil {
+		t.Fatalf("storage.Open() error = %v", err)
+	}
+	keyService, err := encryption.NewService("test-master-key")
+	if err != nil {
+		t.Fatalf("encryption.NewService() error = %v", err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("db.DB() error = %v", err)
+	}
+
+	requestLogErr := errors.New("request log drain failed")
+	requestLogsStopped := make(chan struct{})
+	var stopOnce sync.Once
+	var requestLogStopErr error
+	requestLogs := newRequestLogRuntimeFake(nil, func(context.Context) error {
+		stopOnce.Do(func() {
+			if pingErr := sqlDB.Ping(); pingErr != nil {
+				requestLogStopErr = fmt.Errorf("database closed before request log drain: %w", pingErr)
+			} else {
+				requestLogStopErr = requestLogErr
+			}
+			close(requestLogsStopped)
+		})
+		return requestLogStopErr
+	})
+	controlRuntime := newControlRuntimeFake(nil, true)
+	application := NewApp(AppParams{
+		Engine:           mustNewEngine(t),
+		Config:           testConfig(t),
+		Encryption:       keyService,
+		DB:               db,
+		StartupBootstrap: startupBootstrapFunc(noopStartupBootstrap),
+		RuntimeState:     runtimeStateLoaderFunc(func(context.Context) error { return nil }),
+		ControlRuntime:   controlRuntime,
+		RequestLogs:      requestLogs,
+	})
+	t.Cleanup(func() {
+		ctx, cleanupCancel := context.WithTimeout(context.Background(), time.Second)
+		defer cleanupCancel()
+		if cleanupErr := application.Stop(ctx); cleanupErr != nil &&
+			!errors.Is(cleanupErr, requestLogErr) {
+			t.Errorf("cleanup Stop() error = %v", cleanupErr)
+		}
+	})
+	t.Cleanup(controlRuntime.Release)
+
+	if err := application.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	receiveTestSignal(t, controlRuntime.started, "control runtime start")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err = application.Stop(ctx)
+	if !errors.Is(err, context.Canceled) ||
+		!strings.Contains(err.Error(), "wait for control runtime") {
+		t.Fatalf("Stop() error = %v, want wrapped control runtime deadline", err)
+	}
+	if !errors.Is(err, requestLogErr) || !strings.Contains(err.Error(), "stop request logs") {
+		t.Fatalf("Stop() error = %v, want joined request log error", err)
+	}
+	receiveTestSignal(t, requestLogsStopped, "request log stop after deadline")
+	if pingErr := sqlDB.Ping(); pingErr == nil {
+		t.Fatal("database remained open after deadline Stop()")
+	}
+
+	controlRuntime.Release()
+	receiveTestSignal(t, controlRuntime.stopped, "control runtime stop")
 }
 
 func newTestRuntimeState(db *gorm.DB) (*state.Manager, *loader.Loader) {

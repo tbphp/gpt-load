@@ -11,6 +11,7 @@ func TestDataPlaneDependencyGraph(t *testing.T) {
 		"gpt-load/internal/gateway",
 		"gpt-load/internal/scheduler",
 		"gpt-load/internal/health",
+		"gpt-load/internal/telemetry",
 	}
 	forbidden := []string{
 		"gpt-load/internal/storage",
