@@ -36,14 +36,31 @@ type LogConfig struct {
 	Format string
 }
 
+// SecretSource identifies the non-secret source of process key material.
+type SecretSource string
+
+const (
+	SecretSourceEnvironment SecretSource = "environment"
+	SecretSourceKeyFile     SecretSource = "key_file"
+)
+
+// SecretMetadata describes where process key material was sourced without
+// retaining the key material itself.
+type SecretMetadata struct {
+	Source SecretSource
+	Path   string
+}
+
 // Config contains static environment configuration for the application process.
 type Config struct {
-	Server        ServerConfig
-	DataDir       string
-	DatabaseDSN   string
-	EncryptionKey string
-	AuthKey       string
-	Log           LogConfig
+	Server                ServerConfig
+	DataDir               string
+	DatabaseDSN           string
+	EncryptionKey         string
+	AuthKey               string
+	AuthKeyMetadata       SecretMetadata
+	EncryptionKeyMetadata SecretMetadata
+	Log                   LogConfig
 }
 
 // Settings is the dynamic settings shape shared by system and group layers.
@@ -78,9 +95,26 @@ func Load() (*Config, error) {
 	}
 
 	dataDir := valueOrDefault("DATA_DIR", defaultDataDir)
-	authKey, err := authkey.Resolve(os.Getenv("AUTH_KEY"), dataDir)
+	explicitAuthKey := os.Getenv("AUTH_KEY")
+	explicitEncryptionKey := os.Getenv("ENCRYPTION_KEY")
+	authKey, err := authkey.Resolve(explicitAuthKey, dataDir)
 	if err != nil {
 		return nil, err
+	}
+
+	authKeyMetadata := SecretMetadata{Source: SecretSourceEnvironment}
+	if explicitAuthKey == "" {
+		authKeyMetadata = SecretMetadata{
+			Source: SecretSourceKeyFile,
+			Path:   filepath.Join(dataDir, authkey.FileName),
+		}
+	}
+	encryptionKeyMetadata := SecretMetadata{Source: SecretSourceEnvironment}
+	if explicitEncryptionKey == "" {
+		encryptionKeyMetadata = SecretMetadata{
+			Source: SecretSourceKeyFile,
+			Path:   filepath.Join(dataDir, "encryption.key"),
+		}
 	}
 
 	databaseDSN := os.Getenv("DATABASE_DSN")
@@ -101,10 +135,12 @@ func Load() (*Config, error) {
 			ReadTimeout:             readTimeout,
 			IdleTimeout:             idleTimeout,
 		},
-		DataDir:       dataDir,
-		DatabaseDSN:   databaseDSN,
-		EncryptionKey: os.Getenv("ENCRYPTION_KEY"),
-		AuthKey:       authKey,
+		DataDir:               dataDir,
+		DatabaseDSN:           databaseDSN,
+		EncryptionKey:         explicitEncryptionKey,
+		AuthKey:               authKey,
+		AuthKeyMetadata:       authKeyMetadata,
+		EncryptionKeyMetadata: encryptionKeyMetadata,
 		Log: LogConfig{
 			Level:  valueOrDefault("LOG_LEVEL", "info"),
 			Format: logFormat,

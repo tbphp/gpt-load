@@ -28,6 +28,106 @@ import (
 	"gpt-load/internal/storage/models"
 )
 
+func TestSystemInfoHTTPContract(t *testing.T) {
+	initControlI18n(t)
+	fixture := newServiceFixture(t)
+	cfg := &config.Config{
+		AuthKey:       "distinctive-system-info-auth-secret",
+		EncryptionKey: "distinctive-system-info-encryption-secret",
+		DatabaseDSN:   "file:distinctive-system-info-secret-dsn",
+		DataDir:       "./safe-data",
+		AuthKeyMetadata: config.SecretMetadata{
+			Source: config.SecretSourceKeyFile,
+			Path:   "safe-data/auth.key",
+		},
+		EncryptionKeyMetadata: config.SecretMetadata{
+			Source: config.SecretSourceEnvironment,
+		},
+	}
+	engine := gin.New()
+	NewServer(cfg, fixture.service).RegisterRoutes(engine)
+
+	cfg.DataDir = "./mutated-data"
+	cfg.DatabaseDSN = "file:mutated-secret-dsn"
+	cfg.AuthKey = "mutated-auth-secret"
+	cfg.EncryptionKey = "mutated-encryption-secret"
+	cfg.AuthKeyMetadata.Path = "mutated-data/auth.key"
+	cfg.EncryptionKeyMetadata.Path = "mutated-data/encryption.key"
+
+	var logs bytes.Buffer
+	previousOutput := logrus.StandardLogger().Out
+	logrus.SetOutput(&logs)
+	t.Cleanup(func() { logrus.SetOutput(previousOutput) })
+
+	var responses bytes.Buffer
+	for _, test := range []struct {
+		name       string
+		method     string
+		auth       string
+		wantStatus int
+	}{
+		{name: "get", method: http.MethodGet, auth: "Bearer distinctive-system-info-auth-secret", wantStatus: http.StatusOK},
+		{name: "unauthorized", method: http.MethodGet, wantStatus: http.StatusUnauthorized},
+		{name: "put not registered", method: http.MethodPut, auth: "Bearer distinctive-system-info-auth-secret", wantStatus: http.StatusNotFound},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(test.method, "/api/system/info", nil)
+			request.Header.Set("Accept-Language", "en-US")
+			if test.auth != "" {
+				request.Header.Set("Authorization", test.auth)
+			}
+			engine.ServeHTTP(recorder, request)
+			responses.Write(recorder.Body.Bytes())
+			if recorder.Code != test.wantStatus {
+				t.Fatalf("response = %d %s, want %d", recorder.Code, recorder.Body.String(), test.wantStatus)
+			}
+			if test.name != "get" {
+				return
+			}
+
+			var envelope map[string]json.RawMessage
+			if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err != nil {
+				t.Fatalf("decode response: %v", err)
+			}
+			if len(envelope) != 3 {
+				t.Fatalf("envelope fields = %#v, want code/message/data", envelope)
+			}
+			if string(envelope["code"]) != "0" || string(envelope["message"]) != `"Success"` {
+				t.Fatalf("envelope = %s", recorder.Body.String())
+			}
+			var data map[string]any
+			if err := json.Unmarshal(envelope["data"], &data); err != nil {
+				t.Fatalf("decode data: %v", err)
+			}
+			if data["data_dir"] != "./safe-data" {
+				t.Fatalf("data_dir = %#v, want constructor-time value", data["data_dir"])
+			}
+			authKey, ok := data["auth_key"].(map[string]any)
+			if !ok || authKey["path"] != "safe-data/auth.key" {
+				t.Fatalf("auth_key = %#v, want constructor-time path", data["auth_key"])
+			}
+		})
+	}
+
+	for _, forbidden := range []string{
+		"distinctive-system-info-auth-secret",
+		"distinctive-system-info-encryption-secret",
+		"distinctive-system-info-secret-dsn",
+		"mutated-auth-secret",
+		"mutated-encryption-secret",
+		"mutated-secret-dsn",
+		"mutated-data",
+	} {
+		if strings.Contains(responses.String(), forbidden) {
+			t.Fatalf("HTTP response exposed %q: %s", forbidden, responses.String())
+		}
+		if strings.Contains(logs.String(), forbidden) {
+			t.Fatalf("HTTP logs exposed %q: %s", forbidden, logs.String())
+		}
+	}
+}
+
 func TestControlJSONBodyLimitBoundary(t *testing.T) {
 	if maxControlJSONBodyBytes != 32<<20 {
 		t.Fatalf("maxControlJSONBodyBytes = %d, want %d", maxControlJSONBodyBytes, 32<<20)

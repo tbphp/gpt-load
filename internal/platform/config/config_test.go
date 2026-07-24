@@ -80,6 +80,40 @@ func TestLoadAppliesEnvironmentOverrides(t *testing.T) {
 	}
 }
 
+func TestLoadReportsEnvironmentSecretSources(t *testing.T) {
+	clearEnvironment(t)
+	t.Setenv("AUTH_KEY", "explicit-auth")
+	t.Setenv("ENCRYPTION_KEY", "explicit-encryption")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.AuthKeyMetadata.Source != SecretSourceEnvironment ||
+		cfg.AuthKeyMetadata.Path != "" ||
+		cfg.EncryptionKeyMetadata.Source != SecretSourceEnvironment ||
+		cfg.EncryptionKeyMetadata.Path != "" {
+		t.Fatalf("metadata = %#v/%#v", cfg.AuthKeyMetadata, cfg.EncryptionKeyMetadata)
+	}
+}
+
+func TestLoadReportsKeyFileSecretSources(t *testing.T) {
+	clearEnvironment(t)
+	dataDir := t.TempDir()
+	t.Setenv("DATA_DIR", dataDir)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.AuthKeyMetadata.Source != SecretSourceKeyFile ||
+		cfg.AuthKeyMetadata.Path != filepath.Join(dataDir, authkey.FileName) ||
+		cfg.EncryptionKeyMetadata.Source != SecretSourceKeyFile ||
+		cfg.EncryptionKeyMetadata.Path != filepath.Join(dataDir, "encryption.key") {
+		t.Fatalf("metadata = %#v/%#v", cfg.AuthKeyMetadata, cfg.EncryptionKeyMetadata)
+	}
+}
+
 func TestLoadDerivesDatabaseDSNFromDataDir(t *testing.T) {
 	clearEnvironment(t)
 	t.Setenv("AUTH_KEY", "test-auth-key")

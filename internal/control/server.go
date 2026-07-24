@@ -23,6 +23,7 @@ import (
 type Server struct {
 	authDigest    [sha256.Size]byte
 	service       *Service
+	systemInfo    systemInfoResponse
 	authFailures  *authFailureLimiter
 	compareDigest func([]byte, []byte) int
 }
@@ -33,6 +34,7 @@ func NewServer(cfg *config.Config, service *Service) *Server {
 	return &Server{
 		authDigest:    sha256.Sum256([]byte(cfg.AuthKey)),
 		service:       service,
+		systemInfo:    newSystemInfoResponse(cfg),
 		authFailures:  newAuthFailureLimiter(),
 		compareDigest: subtle.ConstantTimeCompare,
 	}
@@ -47,6 +49,7 @@ func (s *Server) RegisterRoutes(engine *gin.Engine) {
 	api.POST("/route/inspect", s.handleRouteInspect)
 	api.GET("/settings", s.handleGetSettings)
 	api.PUT("/settings", s.handleUpdateSettings)
+	api.GET("/system/info", s.handleSystemInfo)
 	api.GET("/groups", s.handleListGroups)
 	api.GET("/groups/:group_id", s.handleGetGroup)
 	api.POST("/groups", s.handleCreateGroup)
