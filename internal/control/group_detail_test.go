@@ -118,8 +118,23 @@ func TestGetGroupReturnsSparseAndEffectiveConfig(t *testing.T) {
 	if err := json.Unmarshal(encoded, &fields); err != nil {
 		t.Fatal(err)
 	}
-	if len(fields) != 5 {
-		t.Fatalf("effective config fields = %#v", fields)
+	effectiveConfigFields := make(map[string]struct{}, len(fields))
+	for name := range fields {
+		effectiveConfigFields[name] = struct{}{}
+	}
+	wantEffectiveConfigFields := map[string]struct{}{
+		"connect_timeout":     {},
+		"first_byte_timeout":  {},
+		"request_timeout":     {},
+		"stream_idle_timeout": {},
+		"header_rules":        {},
+	}
+	if !reflect.DeepEqual(effectiveConfigFields, wantEffectiveConfigFields) {
+		t.Fatalf(
+			"effective config fields = %#v, want %#v",
+			effectiveConfigFields,
+			wantEffectiveConfigFields,
+		)
 	}
 	for _, forbidden := range []string{
 		"request_log_retention_days", "key_value", "candidates", "compiled", "timeouts",

@@ -226,11 +226,41 @@ func TestRuntimeHealthJSONOmitsScoresCredentialsAndZeroTimes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Marshal() error = %v", err)
 	}
+	var document struct {
+		RequestLog map[string]json.RawMessage `json:"request_log"`
+	}
+	if err := json.Unmarshal(body, &document); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	requestLogFields := make(map[string]struct{}, len(document.RequestLog))
+	for name := range document.RequestLog {
+		requestLogFields[name] = struct{}{}
+	}
+	wantRequestLogFields := map[string]struct{}{
+		"enqueued_total":                 {},
+		"persisted_total":                {},
+		"dropped_not_running_total":      {},
+		"dropped_queue_full_total":       {},
+		"dropped_stopping_total":         {},
+		"dropped_persist_failed_total":   {},
+		"dropped_shutdown_total":         {},
+		"dropped_total":                  {},
+		"write_failure_total":            {},
+		"retention_delete_failure_total": {},
+		"queue_depth":                    {},
+		"queue_capacity":                 {},
+		"last_write_failure_at":          {},
+		"last_retention_failure_at":      {},
+	}
+	if !reflect.DeepEqual(requestLogFields, wantRequestLogFields) {
+		t.Fatalf("request_log fields = %#v, want %#v", requestLogFields, wantRequestLogFields)
+	}
+
 	lower := strings.ToLower(string(body))
 	for _, forbidden := range []string{
 		"cipher-must-not-appear", "encrypted", "hash", "header_rules",
 		"percentage", "success_rate", "score", "average_latency",
-		"retention_invalid_setting_total", "0001-01-01",
+		"0001-01-01",
 	} {
 		if strings.Contains(lower, forbidden) {
 			t.Fatalf("health JSON exposes %q: %s", forbidden, body)

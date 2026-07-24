@@ -162,6 +162,32 @@ func TestLoaderRejectsUnknownPublicSystemSetting(t *testing.T) {
 	}
 }
 
+func TestLoaderRejectsInvalidKnownPublicSystemSettingsWithoutPublishing(t *testing.T) {
+	tests := []struct {
+		name  string
+		key   string
+		value string
+	}{
+		{name: "null header rules", key: state.SettingHeaderRules, value: "null"},
+		{name: "fractional request timeout", key: state.SettingRequestTimeout, value: "1.5"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			db := openMigratedDatabase(t)
+			mustCreate(t, db, &models.SystemSetting{Key: test.key, Value: test.value})
+			manager := state.NewManager()
+
+			err := loader.New(db, manager, state.NewKeyRegistry()).Load(context.Background())
+			if err == nil {
+				t.Fatalf("Load() accepted %s=%s", test.key, test.value)
+			}
+			if manager.Current() != nil {
+				t.Fatalf("Load() published invalid %s=%s: %#v", test.key, test.value, manager.Current())
+			}
+		})
+	}
+}
+
 func TestLoaderLoadsEmptyMigratedDatabase(t *testing.T) {
 	db := openMigratedDatabase(t)
 	manager := state.NewManager()

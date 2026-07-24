@@ -248,9 +248,6 @@ func positiveWholeSeconds(path string, value any) (int64, error) {
 
 func parseHeaderRules(value any) (HeaderRules, error) {
 	rules := HeaderRules{Set: make(map[string]string)}
-	if value == nil {
-		return rules, nil
-	}
 	object, ok := value.(map[string]any)
 	if !ok {
 		return HeaderRules{}, fmt.Errorf("header_rules must be an object")

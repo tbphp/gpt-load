@@ -53,6 +53,13 @@ func TestCompileValidatesDisabledGroupSettings(t *testing.T) {
 	}
 }
 
+func TestResolveRuntimeSettingsRejectsPresentNullHeaderRules(t *testing.T) {
+	_, err := ResolveRuntimeSettings(config.Settings{SettingHeaderRules: nil})
+	if err == nil {
+		t.Fatal("ResolveRuntimeSettings() accepted present null header_rules")
+	}
+}
+
 func TestResolveRuntimeSettingsAppliesSystemOverrides(t *testing.T) {
 	got, err := ResolveRuntimeSettings(config.Settings{
 		SettingConnectTimeout:    json.Number("20"),
@@ -102,6 +109,16 @@ func TestResolveGroupRuntimeSettingsUsesGroupPrecedence(t *testing.T) {
 	wantRules := HeaderRules{Set: map[string]string{"X-Group": "group"}}
 	if !reflect.DeepEqual(rules, wantRules) {
 		t.Fatalf("rules = %#v, want replacement %#v", rules, wantRules)
+	}
+}
+
+func TestResolveGroupRuntimeSettingsRejectsPresentNullHeaderRules(t *testing.T) {
+	_, _, err := ResolveGroupRuntimeSettings(
+		DefaultRuntimeSettings(),
+		config.Settings{SettingHeaderRules: nil},
+	)
+	if err == nil {
+		t.Fatal("ResolveGroupRuntimeSettings() accepted present null header_rules")
 	}
 }
 
