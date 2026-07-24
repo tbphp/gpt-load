@@ -241,6 +241,11 @@ func TestControlJSONBodyLimitAppliesToEveryJSONEndpoint(t *testing.T) {
 			path:       func(uint, uint, uint) string { return "/api/route/inspect" },
 			jsonPrefix: `{"protocol":"openai","external_model":"gpt-4o","access_key_id":1}`,
 		},
+		{
+			name: "update settings", method: http.MethodPut,
+			path:       func(uint, uint, uint) string { return "/api/settings" },
+			jsonPrefix: `{"settings":{"request_timeout":900}}`,
+		},
 	} {
 		t.Run(endpoint.method+" "+endpoint.name, func(t *testing.T) {
 			fixture := newServiceFixture(t)
@@ -1657,6 +1662,248 @@ func serveDiscoveryRequestWithLanguage(
 		request.Header.Set("Authorization", "Bearer "+authKey)
 	}
 	request.Header.Set("Accept-Language", language)
+	request.Header.Set("Content-Type", "application/json")
+	engine.ServeHTTP(recorder, request)
+	return recorder
+}
+
+func TestSettingsHTTPContract(t *testing.T) {
+	initControlI18n(t)
+	fixture := newServiceFixture(t)
+	engine := gin.New()
+	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
+
+	tests := []struct {
+		name       string
+		method     string
+		auth       string
+		body       string
+		wantStatus int
+		wantCode   string
+	}{
+		{name: "get", method: http.MethodGet, auth: "Bearer test-auth-key", wantStatus: http.StatusOK},
+		{name: "unauthorized get", method: http.MethodGet, wantStatus: http.StatusUnauthorized, wantCode: "UNAUTHORIZED"},
+		{name: "unauthorized update", method: http.MethodPut, body: `{"settings":{"request_timeout":900}}`, wantStatus: http.StatusUnauthorized, wantCode: "UNAUTHORIZED"},
+		{name: "update", method: http.MethodPut, auth: "Bearer test-auth-key", body: `{"settings":{"request_timeout":900}}`, wantStatus: http.StatusOK},
+		{name: "unknown top level", method: http.MethodPut, auth: "Bearer test-auth-key", body: `{"other":{}}`, wantStatus: http.StatusBadRequest, wantCode: "INVALID_JSON"},
+		{name: "missing settings", method: http.MethodPut, auth: "Bearer test-auth-key", body: `{}`, wantStatus: http.StatusBadRequest, wantCode: "INVALID_JSON"},
+		{name: "duplicate top level", method: http.MethodPut, auth: "Bearer test-auth-key", body: `{"settings":{"request_timeout":900},"settings":{"request_timeout":800}}`, wantStatus: http.StatusBadRequest, wantCode: "INVALID_JSON"},
+		{name: "duplicate nested", method: http.MethodPut, auth: "Bearer test-auth-key", body: `{"settings":{"request_timeout":900,"request_timeout":800}}`, wantStatus: http.StatusBadRequest, wantCode: "INVALID_JSON"},
+		{name: "duplicate header rules field", method: http.MethodPut, auth: "Bearer test-auth-key", body: `{"settings":{"header_rules":{"set":{},"set":{}}}}`, wantStatus: http.StatusBadRequest, wantCode: "INVALID_JSON"},
+		{name: "duplicate header member", method: http.MethodPut, auth: "Bearer test-auth-key", body: `{"settings":{"header_rules":{"set":{"X-Test":"one","X-Test":"two"}}}}`, wantStatus: http.StatusBadRequest, wantCode: "INVALID_JSON"},
+		{name: "duplicate future object in array", method: http.MethodPut, auth: "Bearer test-auth-key", body: `{"settings":{"header_rules":{"remove":[{"x":1,"x":2}]}}}`, wantStatus: http.StatusBadRequest, wantCode: "INVALID_JSON"},
+		{name: "null settings", method: http.MethodPut, auth: "Bearer test-auth-key", body: `{"settings":null}`, wantStatus: http.StatusBadRequest, wantCode: "INVALID_JSON"},
+		{name: "array settings", method: http.MethodPut, auth: "Bearer test-auth-key", body: `{"settings":[]}`, wantStatus: http.StatusBadRequest, wantCode: "INVALID_JSON"},
+		{name: "top level null", method: http.MethodPut, auth: "Bearer test-auth-key", body: `null`, wantStatus: http.StatusBadRequest, wantCode: "INVALID_JSON"},
+		{name: "multiple JSON values", method: http.MethodPut, auth: "Bearer test-auth-key", body: `{"settings":{}} {}`, wantStatus: http.StatusBadRequest, wantCode: "INVALID_JSON"},
+		{name: "malformed", method: http.MethodPut, auth: "Bearer test-auth-key", body: `{"settings":{"request_timeout":900}`, wantStatus: http.StatusBadRequest, wantCode: "INVALID_JSON"},
+		{name: "empty", method: http.MethodPut, auth: "Bearer test-auth-key", body: `{"settings":{}}`, wantStatus: http.StatusBadRequest, wantCode: "BAD_REQUEST"},
+		{name: "unknown setting", method: http.MethodPut, auth: "Bearer test-auth-key", body: `{"settings":{"unknown":true}}`, wantStatus: http.StatusBadRequest, wantCode: "VALIDATION_FAILED"},
+		{name: "internal setting", method: http.MethodPut, auth: "Bearer test-auth-key", body: `{"settings":{"_internal.marker":true}}`, wantStatus: http.StatusBadRequest, wantCode: "VALIDATION_FAILED"},
+		{name: "fractional timeout", method: http.MethodPut, auth: "Bearer test-auth-key", body: `{"settings":{"request_timeout":1.5}}`, wantStatus: http.StatusBadRequest, wantCode: "VALIDATION_FAILED"},
+		{name: "invalid retention", method: http.MethodPut, auth: "Bearer test-auth-key", body: `{"settings":{"request_log_retention_days":366}}`, wantStatus: http.StatusBadRequest, wantCode: "VALIDATION_FAILED"},
+		{name: "invalid header rules", method: http.MethodPut, auth: "Bearer test-auth-key", body: `{"settings":{"header_rules":{"append":{}}}}`, wantStatus: http.StatusBadRequest, wantCode: "VALIDATION_FAILED"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			before := fixture.manager.Current()
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(test.method, "/api/settings", strings.NewReader(test.body))
+			if test.auth != "" {
+				request.Header.Set("Authorization", test.auth)
+			}
+			request.Header.Set("Accept-Language", "en-US")
+			request.Header.Set("Content-Type", "application/json")
+			engine.ServeHTTP(recorder, request)
+			if recorder.Code != test.wantStatus {
+				t.Fatalf("response = %d %s, want %d", recorder.Code, recorder.Body.String(), test.wantStatus)
+			}
+			var envelope map[string]json.RawMessage
+			if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err != nil {
+				t.Fatalf("decode response: %v", err)
+			}
+			if test.wantCode != "" {
+				var code string
+				if err := json.Unmarshal(envelope["code"], &code); err != nil || code != test.wantCode {
+					t.Fatalf("body = %s, code error=%v", recorder.Body.String(), err)
+				}
+				if len(envelope) != 2 {
+					t.Fatalf("error envelope fields = %#v, want code and message only", envelope)
+				}
+				if fixture.manager.Current() != before {
+					t.Fatal("rejected Settings request published a Snapshot")
+				}
+			} else if len(envelope) != 3 {
+				t.Fatalf("success envelope fields = %#v, want code message data", envelope)
+			}
+		})
+	}
+}
+
+func TestSettingsHTTPStableSuccessEnvelopeUpdateAndReset(t *testing.T) {
+	initControlI18n(t)
+	fixture := newServiceFixture(t)
+	engine := gin.New()
+	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
+
+	get := serveSettingsRequest(t, engine, http.MethodGet, "test-auth-key", "")
+	const wantDefault = `{"code":0,"message":"Success","data":{"revision":1,"values":{"connect_timeout":15,"first_byte_timeout":120,"request_timeout":600,"stream_idle_timeout":300,"header_rules":{"set":{},"remove":[]},"request_log_retention_days":7},"overrides":[]}}`
+	if get.Code != http.StatusOK || strings.TrimSpace(get.Body.String()) != wantDefault {
+		t.Fatalf("default response = %d %s, want %s", get.Code, get.Body.String(), wantDefault)
+	}
+
+	update := serveSettingsRequest(t, engine, http.MethodPut, "test-auth-key", `{"settings":{"request_timeout":900,"header_rules":{"set":{},"remove":[]}}}`)
+	const wantUpdate = `{"code":0,"message":"Success","data":{"revision":2,"values":{"connect_timeout":15,"first_byte_timeout":120,"request_timeout":900,"stream_idle_timeout":300,"header_rules":{"set":{},"remove":[]},"request_log_retention_days":7},"overrides":["header_rules","request_timeout"]}}`
+	if update.Code != http.StatusOK || strings.TrimSpace(update.Body.String()) != wantUpdate {
+		t.Fatalf("update response = %d %s, want %s", update.Code, update.Body.String(), wantUpdate)
+	}
+
+	reset := serveSettingsRequest(t, engine, http.MethodPut, "test-auth-key", `{"settings":{"request_timeout":null,"header_rules":null}}`)
+	const wantReset = `{"code":0,"message":"Success","data":{"revision":3,"values":{"connect_timeout":15,"first_byte_timeout":120,"request_timeout":600,"stream_idle_timeout":300,"header_rules":{"set":{},"remove":[]},"request_log_retention_days":7},"overrides":[]}}`
+	if reset.Code != http.StatusOK || strings.TrimSpace(reset.Body.String()) != wantReset {
+		t.Fatalf("reset response = %d %s, want %s", reset.Code, reset.Body.String(), wantReset)
+	}
+}
+
+func TestSettingsHTTPBodyLimitRejectsBeforeMutation(t *testing.T) {
+	initControlI18n(t)
+	fixture := newServiceFixture(t)
+	engine := gin.New()
+	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
+	before := fixture.manager.Current()
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(
+		http.MethodPut,
+		"/api/settings",
+		oversizedControlJSONBody(`{"settings":{"request_timeout":900}}`),
+	)
+	request.ContentLength = -1
+	request.Header.Set("Authorization", "Bearer test-auth-key")
+	request.Header.Set("Accept-Language", "en-US")
+	request.Header.Set("Content-Type", "application/json")
+	engine.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusRequestEntityTooLarge ||
+		!strings.Contains(recorder.Body.String(), `"code":"REQUEST_TOO_LARGE"`) {
+		t.Fatalf("response = %d %s", recorder.Code, recorder.Body.String())
+	}
+	if fixture.manager.Current() != before {
+		t.Fatal("oversized Settings request published a Snapshot")
+	}
+	var count int64
+	if err := fixture.db.Model(&models.SystemSetting{}).Count(&count).Error; err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("system setting rows = %d, want 0", count)
+	}
+}
+
+func TestSettingsHTTPFiltersPrivateRowsAndDoesNotLogValues(t *testing.T) {
+	initControlI18n(t)
+	const (
+		authKey          = "settings-auth-key"
+		distinctiveValue = "distinctive-global-header-secret"
+		unknownKey       = "unknown-distinctive-setting"
+	)
+	fixture := newServiceFixture(t)
+	engine := gin.New()
+	NewServer(&config.Config{AuthKey: authKey}, fixture.service).RegisterRoutes(engine)
+
+	update := serveSettingsRequest(
+		t,
+		engine,
+		http.MethodPut,
+		authKey,
+		`{"settings":{"header_rules":{"set":{"X-Distinctive":"`+distinctiveValue+`"}}}}`,
+	)
+	if update.Code != http.StatusOK {
+		t.Fatalf("update response = %d %s", update.Code, update.Body.String())
+	}
+	for _, row := range []models.SystemSetting{
+		{Key: defaultAccessKeyMarker, Value: `"bootstrap-marker-distinctive"`, UpdatedAt: time.Now().UTC()},
+		{Key: unknownKey, Value: `"unknown-value"`, UpdatedAt: time.Now().UTC()},
+	} {
+		if err := fixture.db.Create(&row).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	get := serveSettingsRequest(t, engine, http.MethodGet, authKey, "")
+	if get.Code != http.StatusOK || !strings.Contains(get.Body.String(), distinctiveValue) ||
+		!strings.Contains(get.Body.String(), `"overrides":["header_rules"]`) {
+		t.Fatalf("authorized response = %d %s", get.Code, get.Body.String())
+	}
+	for _, forbidden := range []string{defaultAccessKeyMarker, "bootstrap-marker-distinctive", unknownKey, "unknown-value"} {
+		if strings.Contains(get.Body.String(), forbidden) {
+			t.Fatalf("authorized response exposes %q: %s", forbidden, get.Body.String())
+		}
+	}
+
+	unauthorized := serveSettingsRequest(t, engine, http.MethodGet, "", "")
+	if unauthorized.Code != http.StatusUnauthorized ||
+		strings.Contains(unauthorized.Body.String(), distinctiveValue) {
+		t.Fatalf("unauthorized response = %d %s", unauthorized.Code, unauthorized.Body.String())
+	}
+
+	var logs bytes.Buffer
+	logger := logrus.StandardLogger()
+	previousOutput, previousFormatter := logger.Out, logger.Formatter
+	logrus.SetOutput(&logs)
+	logrus.SetFormatter(&logrus.JSONFormatter{DisableTimestamp: true})
+	t.Cleanup(func() {
+		logrus.SetOutput(previousOutput)
+		logrus.SetFormatter(previousFormatter)
+	})
+	brokenService := NewService(
+		fixture.db,
+		state.NewManager(),
+		fixture.registry,
+		fixture.encryption,
+		fixture.service.dialects,
+		fixture.service.requestLogs,
+		fixture.stats,
+		fixture.requestLogStats,
+	)
+	brokenEngine := gin.New()
+	NewServer(&config.Config{AuthKey: authKey}, brokenService).RegisterRoutes(brokenEngine)
+	failure := serveSettingsRequest(t, brokenEngine, http.MethodGet, authKey, "")
+	if failure.Code != http.StatusInternalServerError {
+		t.Fatalf("failure response = %d %s", failure.Code, failure.Body.String())
+	}
+	logText := logs.String()
+	if !strings.Contains(logText, `"operation":"get_settings"`) ||
+		!strings.Contains(logText, `"error_code":"INTERNAL_SERVER_ERROR"`) {
+		t.Fatalf("Settings failure log = %s", logText)
+	}
+	for _, forbidden := range []string{
+		distinctiveValue,
+		defaultAccessKeyMarker,
+		"bootstrap-marker-distinctive",
+		unknownKey,
+		"unknown-value",
+		authKey,
+	} {
+		if strings.Contains(logText, forbidden) {
+			t.Fatalf("Settings logs expose %q: %s", forbidden, logText)
+		}
+	}
+}
+
+func serveSettingsRequest(
+	t *testing.T,
+	engine *gin.Engine,
+	method string,
+	authKey string,
+	body string,
+) *httptest.ResponseRecorder {
+	t.Helper()
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(method, "/api/settings", strings.NewReader(body))
+	if authKey != "" {
+		request.Header.Set("Authorization", "Bearer "+authKey)
+	}
+	request.Header.Set("Accept-Language", "en-US")
 	request.Header.Set("Content-Type", "application/json")
 	engine.ServeHTTP(recorder, request)
 	return recorder

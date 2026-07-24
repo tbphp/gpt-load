@@ -45,6 +45,8 @@ func (s *Server) RegisterRoutes(engine *gin.Engine) {
 	api.GET("/health", s.handleRuntimeHealth)
 	api.GET("/logs", s.handleListRequestLogs)
 	api.POST("/route/inspect", s.handleRouteInspect)
+	api.GET("/settings", s.handleGetSettings)
+	api.PUT("/settings", s.handleUpdateSettings)
 	api.GET("/groups", s.handleListGroups)
 	api.GET("/groups/:group_id", s.handleGetGroup)
 	api.POST("/groups", s.handleCreateGroup)
@@ -61,6 +63,29 @@ func (s *Server) RegisterRoutes(engine *gin.Engine) {
 	api.GET("/access-keys", s.handleListAccessKeys)
 	api.PUT("/access-keys/:id", s.handleUpdateAccessKey)
 	api.DELETE("/access-keys/:id", s.handleDeleteAccessKey)
+}
+
+func (s *Server) handleGetSettings(c *gin.Context) {
+	result, err := s.service.GetSettings(c.Request.Context())
+	if err != nil {
+		writeServiceError(c, "get_settings", err)
+		return
+	}
+	response.SuccessI18n(c, "common.success", result)
+}
+
+func (s *Server) handleUpdateSettings(c *gin.Context) {
+	var request SettingsUpdateRequest
+	if err := bindStrictJSON(c, &request); err != nil {
+		writeServiceError(c, "update_settings", mapControlJSONError(err))
+		return
+	}
+	result, err := s.service.UpdateSettings(c.Request.Context(), request)
+	if err != nil {
+		writeServiceError(c, "update_settings", err)
+		return
+	}
+	response.SuccessI18n(c, "common.success", result)
 }
 
 func (s *Server) handleListGroups(c *gin.Context) {
