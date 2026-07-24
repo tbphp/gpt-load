@@ -54,21 +54,20 @@ type healthProblemKeyResponse struct {
 }
 
 type requestLogHealthResponse struct {
-	EnqueuedTotal                uint64     `json:"enqueued_total"`
-	PersistedTotal               uint64     `json:"persisted_total"`
-	DroppedNotRunningTotal       uint64     `json:"dropped_not_running_total"`
-	DroppedQueueFullTotal        uint64     `json:"dropped_queue_full_total"`
-	DroppedStoppingTotal         uint64     `json:"dropped_stopping_total"`
-	DroppedPersistFailedTotal    uint64     `json:"dropped_persist_failed_total"`
-	DroppedShutdownTotal         uint64     `json:"dropped_shutdown_total"`
-	DroppedTotal                 uint64     `json:"dropped_total"`
-	WriteFailureTotal            uint64     `json:"write_failure_total"`
-	RetentionInvalidSettingTotal uint64     `json:"retention_invalid_setting_total"`
-	RetentionDeleteFailureTotal  uint64     `json:"retention_delete_failure_total"`
-	QueueDepth                   int        `json:"queue_depth"`
-	QueueCapacity                int        `json:"queue_capacity"`
-	LastWriteFailureAt           *time.Time `json:"last_write_failure_at"`
-	LastRetentionFailureAt       *time.Time `json:"last_retention_failure_at"`
+	EnqueuedTotal               uint64     `json:"enqueued_total"`
+	PersistedTotal              uint64     `json:"persisted_total"`
+	DroppedNotRunningTotal      uint64     `json:"dropped_not_running_total"`
+	DroppedQueueFullTotal       uint64     `json:"dropped_queue_full_total"`
+	DroppedStoppingTotal        uint64     `json:"dropped_stopping_total"`
+	DroppedPersistFailedTotal   uint64     `json:"dropped_persist_failed_total"`
+	DroppedShutdownTotal        uint64     `json:"dropped_shutdown_total"`
+	DroppedTotal                uint64     `json:"dropped_total"`
+	WriteFailureTotal           uint64     `json:"write_failure_total"`
+	RetentionDeleteFailureTotal uint64     `json:"retention_delete_failure_total"`
+	QueueDepth                  int        `json:"queue_depth"`
+	QueueCapacity               int        `json:"queue_capacity"`
+	LastWriteFailureAt          *time.Time `json:"last_write_failure_at"`
+	LastRetentionFailureAt      *time.Time `json:"last_retention_failure_at"`
 }
 
 type runtimeHealthResponse struct {
@@ -217,21 +216,20 @@ func (service *Service) RuntimeHealth() (runtimeHealthResponse, error) {
 
 func mapRequestLogHealth(stats requestlog.Stats) requestLogHealthResponse {
 	return requestLogHealthResponse{
-		EnqueuedTotal:                stats.EnqueuedTotal,
-		PersistedTotal:               stats.PersistedTotal,
-		DroppedNotRunningTotal:       stats.DroppedNotRunningTotal,
-		DroppedQueueFullTotal:        stats.DroppedQueueFullTotal,
-		DroppedStoppingTotal:         stats.DroppedStoppingTotal,
-		DroppedPersistFailedTotal:    stats.DroppedPersistFailedTotal,
-		DroppedShutdownTotal:         stats.DroppedShutdownTotal,
-		DroppedTotal:                 stats.DroppedTotal,
-		WriteFailureTotal:            stats.WriteFailureTotal,
-		RetentionInvalidSettingTotal: stats.RetentionInvalidSettingTotal,
-		RetentionDeleteFailureTotal:  stats.RetentionDeleteFailureTotal,
-		QueueDepth:                   stats.QueueDepth,
-		QueueCapacity:                stats.QueueCapacity,
-		LastWriteFailureAt:           optionalUTC(stats.LastWriteFailureAt),
-		LastRetentionFailureAt:       optionalUTC(stats.LastRetentionFailureAt),
+		EnqueuedTotal:               stats.EnqueuedTotal,
+		PersistedTotal:              stats.PersistedTotal,
+		DroppedNotRunningTotal:      stats.DroppedNotRunningTotal,
+		DroppedQueueFullTotal:       stats.DroppedQueueFullTotal,
+		DroppedStoppingTotal:        stats.DroppedStoppingTotal,
+		DroppedPersistFailedTotal:   stats.DroppedPersistFailedTotal,
+		DroppedShutdownTotal:        stats.DroppedShutdownTotal,
+		DroppedTotal:                stats.DroppedTotal,
+		WriteFailureTotal:           stats.WriteFailureTotal,
+		RetentionDeleteFailureTotal: stats.RetentionDeleteFailureTotal,
+		QueueDepth:                  stats.QueueDepth,
+		QueueCapacity:               stats.QueueCapacity,
+		LastWriteFailureAt:          optionalUTC(stats.LastWriteFailureAt),
+		LastRetentionFailureAt:      optionalUTC(stats.LastRetentionFailureAt),
 	}
 }
 

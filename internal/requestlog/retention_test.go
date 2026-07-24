@@ -1,11 +1,11 @@
 package requestlog
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -18,74 +18,30 @@ import (
 	"gpt-load/internal/storage/models"
 )
 
-func TestRetentionSettingDefaultsAndStrictValidation(t *testing.T) {
+func TestServiceSweepUsesSnapshotRetentionPolicy(t *testing.T) {
 	now := time.Date(2026, time.July, 24, 12, 0, 0, 0, time.UTC)
-
-	t.Run("missing uses seven days without persisting a default", func(t *testing.T) {
-		db := openRequestLogQueryDB(t)
-		service := NewService(db, redact.New())
-		createRetentionRow(t, db, 1, now.Add(-8*24*time.Hour))
-		createRetentionRow(t, db, 2, now.Add(-7*24*time.Hour))
-		createRetentionRow(t, db, 3, now.Add(-6*24*time.Hour))
-
-		service.Sweep(context.Background(), now)
-
-		assertRetentionRows(t, db, 2, 3)
-		var settingCount int64
-		if err := db.Model(&models.SystemSetting{}).
-			Where("key = ?", RetentionSettingKey).
-			Count(&settingCount).Error; err != nil {
-			t.Fatalf("count retention settings: %v", err)
-		}
-		if settingCount != 0 {
-			t.Fatalf("retention setting rows = %d, want 0", settingCount)
-		}
-		if stats := service.Stats(); stats.RetentionInvalidSettingTotal != 0 ||
-			stats.RetentionDeleteFailureTotal != 0 || !stats.LastRetentionFailureAt.IsZero() {
-			t.Fatalf("Stats() = %#v, want no retention failures", stats)
-		}
-	})
-
-	for _, days := range []int64{1, 7, 365} {
-		t.Run(fmt.Sprintf("accepts_%d", days), func(t *testing.T) {
+	for _, days := range []int{1, 7, 365} {
+		t.Run(strconv.Itoa(days), func(t *testing.T) {
 			db := openRequestLogQueryDB(t)
-			service := NewService(db, redact.New())
-			storeRetentionSetting(t, db, fmt.Sprintf("%d", days))
+			service := NewService(db, redact.New(), staticRetentionPolicy{days: days})
 			cutoff := now.Add(-time.Duration(days) * 24 * time.Hour)
 			createRetentionRow(t, db, 1, cutoff.Add(-time.Nanosecond))
 			createRetentionRow(t, db, 2, cutoff)
-			createRetentionRow(t, db, 3, cutoff.Add(time.Nanosecond))
 
-			service.Sweep(context.Background(), now)
-
-			assertRetentionRows(t, db, 2, 3)
-			if stats := service.Stats(); stats.RetentionInvalidSettingTotal != 0 ||
-				stats.RetentionDeleteFailureTotal != 0 {
-				t.Fatalf("Stats() = %#v, want no retention failures", stats)
+			var settingQueries atomic.Int64
+			const callbackName = "test:no_runtime_setting_query"
+			if err := db.Callback().Query().After("gorm:query").Register(callbackName, func(tx *gorm.DB) {
+				if tx.Statement.Table == "system_settings" {
+					settingQueries.Add(1)
+				}
+			}); err != nil {
+				t.Fatal(err)
 			}
-		})
-	}
-
-	for _, value := range []string{
-		"0", "-1", "366", "1.5", "1e2", `"7"`, "true", "null",
-		" 7", "7 ", "07", "+7",
-	} {
-		t.Run("rejects_"+strings.NewReplacer(`"`, "quote", " ", "space", "+", "plus", "-", "minus", ".", "dot").Replace(value), func(t *testing.T) {
-			db := openRequestLogQueryDB(t)
-			service := NewService(db, redact.New())
-			service.now = func() time.Time { return now }
-			discardRetentionWarnings(service)
-			storeRetentionSetting(t, db, value)
-			createRetentionRow(t, db, 1, now.Add(-400*24*time.Hour))
 
 			service.Sweep(context.Background(), now)
-
-			assertRetentionRows(t, db, 1)
-			stats := service.Stats()
-			if stats.RetentionInvalidSettingTotal != 1 ||
-				stats.RetentionDeleteFailureTotal != 0 ||
-				!stats.LastRetentionFailureAt.Equal(now) {
-				t.Fatalf("Stats() = %#v, want one invalid-setting failure at %v", stats, now)
+			assertRetentionRows(t, db, 2)
+			if settingQueries.Load() != 0 {
+				t.Fatalf("system_settings queries = %d", settingQueries.Load())
 			}
 		})
 	}
@@ -93,7 +49,7 @@ func TestRetentionSettingDefaultsAndStrictValidation(t *testing.T) {
 
 func TestServiceSweepDeletesStrictlyOlderRowsInBatches(t *testing.T) {
 	db := openRequestLogQueryDB(t)
-	service := NewService(db, redact.New())
+	service := newRequestLogTestService(db)
 	now := time.Date(2026, time.July, 24, 12, 0, 0, 0, time.UTC)
 	cutoff := now.Add(-7 * 24 * time.Hour)
 
@@ -123,42 +79,9 @@ func TestServiceSweepDeletesStrictlyOlderRowsInBatches(t *testing.T) {
 	if got := deleteBatches.Load(); got != 2 {
 		t.Fatalf("delete batches = %d, want 2", got)
 	}
-	if stats := service.Stats(); stats.RetentionInvalidSettingTotal != 0 ||
-		stats.RetentionDeleteFailureTotal != 0 || !stats.LastRetentionFailureAt.IsZero() {
+	if stats := service.Stats(); stats.RetentionDeleteFailureTotal != 0 ||
+		!stats.LastRetentionFailureAt.IsZero() {
 		t.Fatalf("Stats() = %#v, want no retention failures", stats)
-	}
-}
-
-func TestServiceSweepSkipsInvalidSettingAndTracksFailure(t *testing.T) {
-	db := openRequestLogQueryDB(t)
-	service := NewService(db, redact.New())
-	now := time.Date(2026, time.July, 24, 12, 0, 0, 0, time.UTC)
-	service.now = func() time.Time { return now }
-	logger := logrus.New()
-	var output bytes.Buffer
-	logger.SetOutput(&output)
-	service.logger = logger
-
-	const unsafeSetting = `"retention-secret-value"`
-	storeRetentionSetting(t, db, unsafeSetting)
-	createRetentionRow(t, db, 1, now.Add(-400*24*time.Hour))
-
-	service.Sweep(context.Background(), now)
-	service.Sweep(context.Background(), now.Add(30*time.Second))
-
-	assertRetentionRows(t, db, 1)
-	stats := service.Stats()
-	if stats.RetentionInvalidSettingTotal != 2 ||
-		stats.RetentionDeleteFailureTotal != 0 ||
-		!stats.LastRetentionFailureAt.Equal(now.Add(30*time.Second)) {
-		t.Fatalf("Stats() = %#v, want two invalid-setting failures", stats)
-	}
-	logged := output.String()
-	if strings.Contains(logged, unsafeSetting) || strings.Contains(logged, "retention-secret-value") {
-		t.Fatalf("warning leaked setting content: %q", logged)
-	}
-	if got := strings.Count(logged, "level=warning"); got != 1 {
-		t.Fatalf("warning count = %d, want throttled single warning; output=%q", got, logged)
 	}
 }
 
@@ -167,7 +90,7 @@ func TestServiceSweepStopsOnContextAndDeleteFailure(t *testing.T) {
 
 	t.Run("empty result is successful completion", func(t *testing.T) {
 		db := openRequestLogQueryDB(t)
-		service := NewService(db, redact.New())
+		service := newRequestLogTestService(db)
 
 		service.Sweep(context.Background(), now)
 
@@ -179,7 +102,7 @@ func TestServiceSweepStopsOnContextAndDeleteFailure(t *testing.T) {
 
 	t.Run("already canceled context is not a failure", func(t *testing.T) {
 		db := openRequestLogQueryDB(t)
-		service := NewService(db, redact.New())
+		service := newRequestLogTestService(db)
 		createRetentionRow(t, db, 1, now.Add(-8*24*time.Hour))
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
@@ -195,7 +118,7 @@ func TestServiceSweepStopsOnContextAndDeleteFailure(t *testing.T) {
 
 	t.Run("cancellation between batches stops without failure", func(t *testing.T) {
 		db := openRequestLogQueryDB(t)
-		service := NewService(db, redact.New())
+		service := newRequestLogTestService(db)
 		cutoff := now.Add(-7 * 24 * time.Hour)
 		rows := make([]models.RequestLog, 0, retentionBatchSize+1)
 		for index := 1; index <= retentionBatchSize+1; index++ {
@@ -231,33 +154,9 @@ func TestServiceSweepStopsOnContextAndDeleteFailure(t *testing.T) {
 		}
 	})
 
-	t.Run("setting select failure is tracked", func(t *testing.T) {
-		db := openRequestLogQueryDB(t)
-		service := NewService(db, redact.New())
-		service.now = func() time.Time { return now }
-		discardRetentionWarnings(service)
-		const callbackName = "test:retention_setting_query_failure"
-		if err := db.Callback().Query().Before("gorm:query").Register(callbackName, func(tx *gorm.DB) {
-			if tx.Statement.Table == "system_settings" {
-				tx.AddError(errors.New("forced setting query failure"))
-			}
-		}); err != nil {
-			t.Fatalf("register query callback: %v", err)
-		}
-
-		service.Sweep(context.Background(), now)
-
-		stats := service.Stats()
-		if stats.RetentionDeleteFailureTotal != 1 ||
-			stats.RetentionInvalidSettingTotal != 0 ||
-			!stats.LastRetentionFailureAt.Equal(now) {
-			t.Fatalf("Stats() = %#v, want one select failure", stats)
-		}
-	})
-
 	t.Run("expired ID selection failure is tracked without deleting", func(t *testing.T) {
 		db := openRequestLogQueryDB(t)
-		service := NewService(db, redact.New())
+		service := newRequestLogTestService(db)
 		service.now = func() time.Time { return now }
 		discardRetentionWarnings(service)
 		createRetentionRow(t, db, 1, now.Add(-8*24*time.Hour))
@@ -281,7 +180,6 @@ func TestServiceSweepStopsOnContextAndDeleteFailure(t *testing.T) {
 		}
 		stats := service.Stats()
 		if stats.RetentionDeleteFailureTotal != 1 ||
-			stats.RetentionInvalidSettingTotal != 0 ||
 			!stats.LastRetentionFailureAt.Equal(now) {
 			t.Fatalf("Stats() = %#v, want one expired ID select failure", stats)
 		}
@@ -289,7 +187,7 @@ func TestServiceSweepStopsOnContextAndDeleteFailure(t *testing.T) {
 
 	t.Run("delete failure is tracked and stops the sweep", func(t *testing.T) {
 		db := openRequestLogQueryDB(t)
-		service := NewService(db, redact.New())
+		service := newRequestLogTestService(db)
 		service.now = func() time.Time { return now }
 		discardRetentionWarnings(service)
 		createRetentionRow(t, db, 1, now.Add(-8*24*time.Hour))
@@ -307,21 +205,10 @@ func TestServiceSweepStopsOnContextAndDeleteFailure(t *testing.T) {
 		assertRetentionRows(t, db, 1)
 		stats := service.Stats()
 		if stats.RetentionDeleteFailureTotal != 1 ||
-			stats.RetentionInvalidSettingTotal != 0 ||
 			!stats.LastRetentionFailureAt.Equal(now) {
 			t.Fatalf("Stats() = %#v, want one delete failure", stats)
 		}
 	})
-}
-
-func storeRetentionSetting(t *testing.T, db *gorm.DB, value string) {
-	t.Helper()
-	if err := db.Create(&models.SystemSetting{
-		Key:   RetentionSettingKey,
-		Value: value,
-	}).Error; err != nil {
-		t.Fatalf("create retention setting %q: %v", value, err)
-	}
 }
 
 func createRetentionRow(t *testing.T, db *gorm.DB, index int, completedAt time.Time) {

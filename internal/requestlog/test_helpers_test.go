@@ -6,9 +6,22 @@ import (
 	"testing"
 	"time"
 
+	"gorm.io/gorm"
+
+	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/storage/models"
 	"gpt-load/internal/telemetry"
 )
+
+type staticRetentionPolicy struct{ days int }
+
+func (policy staticRetentionPolicy) RequestLogRetentionDays() int {
+	return policy.days
+}
+
+func newRequestLogTestService(db *gorm.DB) *Service {
+	return NewService(db, redact.New(), staticRetentionPolicy{days: 7})
+}
 
 type batchWriterFunc func(context.Context, []models.RequestLog) error
 

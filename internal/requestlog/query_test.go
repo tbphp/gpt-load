@@ -9,7 +9,6 @@ import (
 
 	"gorm.io/gorm"
 
-	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/storage"
 	"gpt-load/internal/storage/models"
@@ -18,7 +17,7 @@ import (
 
 func TestServiceListUsesStableKeysetCursor(t *testing.T) {
 	db := openRequestLogQueryDB(t)
-	service := NewService(db, redact.New())
+	service := newRequestLogTestService(db)
 	completedAt := time.Date(2026, time.July, 24, 12, 0, 0, 123, time.UTC)
 	older := completedAt.Add(-time.Nanosecond)
 	for _, row := range []models.RequestLog{
@@ -69,7 +68,7 @@ func TestServiceListUsesStableKeysetCursor(t *testing.T) {
 
 func TestServiceListAppliesAllFiltersAndGroupJSON(t *testing.T) {
 	db := openRequestLogQueryDB(t)
-	service := NewService(db, redact.New())
+	service := newRequestLogTestService(db)
 	from := time.Date(2026, time.July, 24, 11, 0, 0, 0, time.UTC)
 	to := from.Add(time.Hour)
 	targetID := "00000000-0000-4000-8000-000000000201"
@@ -252,7 +251,7 @@ func TestServiceListBatchLoadsCurrentAccessKeyNames(t *testing.T) {
 		t.Fatalf("register query callback: %v", err)
 	}
 
-	page, err := NewService(db, redact.New()).List(context.Background(), ListQuery{Limit: 50})
+	page, err := newRequestLogTestService(db).List(context.Background(), ListQuery{Limit: 50})
 	if err != nil {
 		t.Fatalf("List() error = %v", err)
 	}
@@ -294,7 +293,7 @@ func TestServiceListNormalizesNullAttemptsToEmptyArray(t *testing.T) {
 	row.Attempts = nil
 	createRequestLogQueryRow(t, db, row)
 
-	page, err := NewService(db, redact.New()).List(context.Background(), ListQuery{Limit: 50})
+	page, err := newRequestLogTestService(db).List(context.Background(), ListQuery{Limit: 50})
 	if err != nil {
 		t.Fatalf("List() error = %v", err)
 	}

@@ -57,6 +57,45 @@ func TestBuildContainerDoesNotInitializeUnusedRuntimeStore(t *testing.T) {
 	}
 }
 
+func TestBuildContainerWiresRequestLogRetentionSnapshotProvider(t *testing.T) {
+	t.Setenv("AUTH_KEY", "test-auth-key")
+	t.Setenv("DATA_DIR", t.TempDir())
+	t.Setenv("DATABASE_DSN", ":memory:")
+	t.Setenv("ENCRYPTION_KEY", "test-master-key-long")
+
+	dependencyContainer, err := BuildContainer()
+	if err != nil {
+		t.Fatalf("BuildContainer() error = %v", err)
+	}
+	err = dependencyContainer.Invoke(func(
+		_ *requestlog.Service,
+		policy requestlog.RetentionPolicyProvider,
+		manager *state.Manager,
+		db *gorm.DB,
+	) {
+		t.Cleanup(func() {
+			sqlDB, dbErr := db.DB()
+			if dbErr == nil {
+				_ = sqlDB.Close()
+			}
+		})
+		if got := policy.RequestLogRetentionDays(); got != 7 {
+			t.Fatalf("uninitialized retention days = %d, want 7", got)
+		}
+		if _, publishErr := manager.Publish(state.CompileInput{
+			SystemSettings: config.Settings{state.SettingRequestLogRetentionDays: 30},
+		}); publishErr != nil {
+			t.Fatalf("Publish() error = %v", publishErr)
+		}
+		if got := policy.RequestLogRetentionDays(); got != 30 {
+			t.Fatalf("published retention days = %d, want 30", got)
+		}
+	})
+	if err != nil {
+		t.Fatalf("resolve request-log retention graph: %v", err)
+	}
+}
+
 func TestBuildContainerResolvesAllDialects(t *testing.T) {
 	t.Setenv("AUTH_KEY", "test-auth-key")
 	t.Setenv("DATA_DIR", t.TempDir())

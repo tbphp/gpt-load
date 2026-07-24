@@ -230,7 +230,7 @@ func TestRuntimeHealthJSONOmitsScoresCredentialsAndZeroTimes(t *testing.T) {
 	for _, forbidden := range []string{
 		"cipher-must-not-appear", "encrypted", "hash", "header_rules",
 		"percentage", "success_rate", "score", "average_latency",
-		"0001-01-01",
+		"retention_invalid_setting_total", "0001-01-01",
 	} {
 		if strings.Contains(lower, forbidden) {
 			t.Fatalf("health JSON exposes %q: %s", forbidden, body)

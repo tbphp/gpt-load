@@ -37,14 +37,15 @@ type workerTimerFactory func(time.Duration) workerTimer
 var _ telemetry.RequestLogSink = (*Service)(nil)
 
 type Service struct {
-	db           *gorm.DB
-	queue        chan telemetry.RequestEvent
-	writer       batchWriter
-	redactor     *redact.Redactor
-	timerFactory workerTimerFactory
-	logger       *logrus.Logger
-	now          func() time.Time
-	startErr     error
+	db              *gorm.DB
+	queue           chan telemetry.RequestEvent
+	writer          batchWriter
+	redactor        *redact.Redactor
+	retentionPolicy RetentionPolicyProvider
+	timerFactory    workerTimerFactory
+	logger          *logrus.Logger
+	now             func() time.Time
+	startErr        error
 
 	stateMu       sync.Mutex
 	state         lifecycleState
@@ -62,7 +63,6 @@ type Service struct {
 	droppedPersistFailedTotal atomic.Uint64
 	droppedShutdownTotal      atomic.Uint64
 	writeFailureTotal         atomic.Uint64
-	retentionInvalidTotal     atomic.Uint64
 	retentionDeleteTotal      atomic.Uint64
 
 	statsMu                sync.Mutex
@@ -73,7 +73,11 @@ type Service struct {
 	lastWarningAt time.Time
 }
 
-func NewService(db *gorm.DB, redactor *redact.Redactor) *Service {
+func NewService(
+	db *gorm.DB,
+	redactor *redact.Redactor,
+	retentionPolicy RetentionPolicyProvider,
+) *Service {
 	service := newService(
 		&gormBatchWriter{db: db},
 		redactor,
@@ -82,8 +86,11 @@ func NewService(db *gorm.DB, redactor *redact.Redactor) *Service {
 		},
 	)
 	service.db = db
+	service.retentionPolicy = retentionPolicy
 	if db == nil {
 		service.startErr = fmt.Errorf("request log database is nil")
+	} else if retentionPolicy == nil {
+		service.startErr = fmt.Errorf("request log retention policy provider is nil")
 	}
 	return service
 }
@@ -200,20 +207,19 @@ func (service *Service) Stats() Stats {
 	service.statsMu.Unlock()
 
 	stats := Stats{
-		EnqueuedTotal:                service.enqueuedTotal.Load(),
-		PersistedTotal:               service.persistedTotal.Load(),
-		DroppedNotRunningTotal:       service.droppedNotRunningTotal.Load(),
-		DroppedQueueFullTotal:        service.droppedQueueFullTotal.Load(),
-		DroppedStoppingTotal:         service.droppedStoppingTotal.Load(),
-		DroppedPersistFailedTotal:    service.droppedPersistFailedTotal.Load(),
-		DroppedShutdownTotal:         service.droppedShutdownTotal.Load(),
-		WriteFailureTotal:            service.writeFailureTotal.Load(),
-		RetentionInvalidSettingTotal: service.retentionInvalidTotal.Load(),
-		RetentionDeleteFailureTotal:  service.retentionDeleteTotal.Load(),
-		QueueDepth:                   len(service.queue),
-		QueueCapacity:                cap(service.queue),
-		LastWriteFailureAt:           lastWriteFailureAt,
-		LastRetentionFailureAt:       lastRetentionFailureAt,
+		EnqueuedTotal:               service.enqueuedTotal.Load(),
+		PersistedTotal:              service.persistedTotal.Load(),
+		DroppedNotRunningTotal:      service.droppedNotRunningTotal.Load(),
+		DroppedQueueFullTotal:       service.droppedQueueFullTotal.Load(),
+		DroppedStoppingTotal:        service.droppedStoppingTotal.Load(),
+		DroppedPersistFailedTotal:   service.droppedPersistFailedTotal.Load(),
+		DroppedShutdownTotal:        service.droppedShutdownTotal.Load(),
+		WriteFailureTotal:           service.writeFailureTotal.Load(),
+		RetentionDeleteFailureTotal: service.retentionDeleteTotal.Load(),
+		QueueDepth:                  len(service.queue),
+		QueueCapacity:               cap(service.queue),
+		LastWriteFailureAt:          lastWriteFailureAt,
+		LastRetentionFailureAt:      lastRetentionFailureAt,
 	}
 	stats.DroppedTotal = stats.DroppedNotRunningTotal +
 		stats.DroppedQueueFullTotal +

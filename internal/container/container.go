@@ -49,6 +49,9 @@ func BuildContainer() (*dig.Container, error) {
 		func(limiter *ratelimit.AccessKeyRPM) gateway.AccessKeyRPMLimiter {
 			return limiter
 		},
+		func(manager *state.Manager) requestlog.RetentionPolicyProvider {
+			return retentionSnapshotProvider{manager: manager}
+		},
 		requestlog.NewService,
 		func(service *requestlog.Service) telemetry.RequestLogSink {
 			return service

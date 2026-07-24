@@ -82,12 +82,18 @@ func TestServiceEmitLifecycleAndDeepCopy(t *testing.T) {
 		t.Fatalf("Start() after new.Stop error = %v, want ErrNotRestartable", err)
 	}
 
-	misconfigured := NewService(nil, redact.New())
-	if err := misconfigured.Start(); err == nil {
-		t.Fatal("Start() with nil database error = nil, want initialization failure")
-	}
-	if err := misconfigured.Start(); !errors.Is(err, ErrNotRestartable) {
-		t.Fatalf("Start() after initialization failure error = %v, want ErrNotRestartable", err)
+	for name, misconfigured := range map[string]*Service{
+		"nil database": NewService(nil, redact.New(), staticRetentionPolicy{days: 7}),
+		"nil provider": NewService(openRequestLogQueryDB(t), redact.New(), nil),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := misconfigured.Start(); err == nil {
+				t.Fatal("Start() error = nil, want initialization failure")
+			}
+			if err := misconfigured.Start(); !errors.Is(err, ErrNotRestartable) {
+				t.Fatalf("Start() after initialization failure error = %v, want ErrNotRestartable", err)
+			}
+		})
 	}
 }
 

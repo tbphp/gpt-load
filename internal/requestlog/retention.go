@@ -2,20 +2,16 @@ package requestlog
 
 import (
 	"context"
-	"strconv"
 	"time"
 
 	"gpt-load/internal/storage/models"
 )
 
-const RetentionSettingKey = "request_log_retention_days"
+type RetentionPolicyProvider interface {
+	RequestLogRetentionDays() int
+}
 
-const (
-	defaultRetentionDays = int64(7)
-	minRetentionDays     = int64(1)
-	maxRetentionDays     = int64(365)
-	retentionBatchSize   = 1000
-)
+const retentionBatchSize = 1000
 
 // Sweep removes request logs strictly older than the configured retention
 // boundary. Configuration and database failures are intentionally isolated
@@ -28,18 +24,7 @@ func (service *Service) Sweep(ctx context.Context, now time.Time) {
 		return
 	}
 
-	days, valid, err := service.loadRetentionDays(ctx)
-	if err != nil {
-		if ctx.Err() == nil {
-			service.recordRetentionDeleteFailure(now)
-		}
-		return
-	}
-	if !valid {
-		service.recordRetentionInvalidSetting(now)
-		return
-	}
-
+	days := service.retentionPolicy.RequestLogRetentionDays()
 	cutoff := now.UTC().Add(-time.Duration(days) * 24 * time.Hour)
 	for {
 		if ctx.Err() != nil {
@@ -77,34 +62,6 @@ func (service *Service) Sweep(ctx context.Context, now time.Time) {
 			return
 		}
 	}
-}
-
-func (service *Service) loadRetentionDays(ctx context.Context) (int64, bool, error) {
-	var setting models.SystemSetting
-	result := service.db.WithContext(ctx).
-		Where("key = ?", RetentionSettingKey).
-		Find(&setting)
-	if result.Error != nil {
-		return 0, false, result.Error
-	}
-	if result.RowsAffected == 0 {
-		return defaultRetentionDays, true, nil
-	}
-
-	days, err := strconv.ParseInt(setting.Value, 10, 64)
-	if err != nil ||
-		strconv.FormatInt(days, 10) != setting.Value ||
-		days < minRetentionDays ||
-		days > maxRetentionDays {
-		return 0, false, nil
-	}
-	return days, true, nil
-}
-
-func (service *Service) recordRetentionInvalidSetting(now time.Time) {
-	service.retentionInvalidTotal.Add(1)
-	service.recordRetentionFailureAt(now)
-	service.warn("retention_invalid_setting", 0)
 }
 
 func (service *Service) recordRetentionDeleteFailure(now time.Time) {
