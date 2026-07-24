@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -20,13 +19,21 @@ import (
 
 func TestServiceSweepUsesSnapshotRetentionPolicy(t *testing.T) {
 	now := time.Date(2026, time.July, 24, 12, 0, 0, 0, time.UTC)
-	for _, days := range []int{1, 7, 365} {
-		t.Run(strconv.Itoa(days), func(t *testing.T) {
+	tests := []struct {
+		name   string
+		days   int
+		cutoff time.Time
+	}{
+		{name: "1", days: 1, cutoff: time.Date(2026, time.July, 23, 12, 0, 0, 0, time.UTC)},
+		{name: "7", days: 7, cutoff: time.Date(2026, time.July, 17, 12, 0, 0, 0, time.UTC)},
+		{name: "365", days: 365, cutoff: time.Date(2025, time.July, 24, 12, 0, 0, 0, time.UTC)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			db := openRequestLogQueryDB(t)
-			service := NewService(db, redact.New(), staticRetentionPolicy{days: days})
-			cutoff := now.Add(-time.Duration(days) * 24 * time.Hour)
-			createRetentionRow(t, db, 1, cutoff.Add(-time.Nanosecond))
-			createRetentionRow(t, db, 2, cutoff)
+			service := NewService(db, redact.New(), staticRetentionPolicy{days: tt.days})
+			createRetentionRow(t, db, 1, tt.cutoff.Add(-time.Nanosecond))
+			createRetentionRow(t, db, 2, tt.cutoff)
 
 			var settingQueries atomic.Int64
 			const callbackName = "test:no_runtime_setting_query"
