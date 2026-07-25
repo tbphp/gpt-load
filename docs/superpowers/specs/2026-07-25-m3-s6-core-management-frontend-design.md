@@ -201,6 +201,8 @@ Use resource-specific invalidation rather than global refetch:
 
 Successful mutations use the returned DTO immediately when its shape is authoritative, then invalidate dependent resources.
 
+Every partial-update form tracks a normalized dirty patch. Save is disabled when that patch is empty, and the submit action rechecks the invariant before transport. Group, UpstreamKey, and AccessKey updates never send an empty `{}` body; model replacement likewise avoids a no-op request when the normalized complete list is unchanged.
+
 Requests containing upstream-key plaintext do not use long-lived TanStack mutation variables. AccessKey create/update requests also avoid TanStack mutation state because their successful DTOs contain plaintext. These operations run through feature-local async actions with explicit pending/error state and an `AbortController`; closing the workflow clears returned plaintext. AccessKey delete may use an ordinary mutation because its response contains no credential.
 
 ## Local preferences
@@ -247,7 +249,7 @@ Retain and extend the existing `AppButton`, `FormField`, `InlineFeedback`, and `
 - route-backed `AppTabs`;
 - responsive `DataTable` wrapper.
 
-Feature-local components remain local until a second consumer proves reuse, including `KeyTextarea`, `ModelDraftEditor`, and `HeaderRulesEditor`.
+Feature-local components remain local until a second consumer proves reuse, including `KeyTextarea` and `ModelDraftEditor`. T22 introduces a structured `HeaderRulesEditor` as a shared configuration component because the same semantics are consumed by new-Group discovery, Group overrides, and global Settings.
 
 Reka UI supplies accessible Select, Dialog/Drawer, Tabs, and related behavior. Lucide supplies all interface icons. Dependencies are added only with their first T21 consumers. Emoji are not used as UI icons.
 
@@ -345,7 +347,7 @@ When no Groups exist, replace the Group grid with an explanatory empty state and
 
 ### Connection configuration
 
-Use `window.location.origin` as the current browser-reachable Base URL.
+Use `window.location.origin` as the current browser-reachable Base URL. A pure helper detects `localhost`, names ending in `.localhost`, `127.0.0.1`, `::1`, and `[::1]`. For these loopback hosts, the card shows a non-blocking warning that the generated address is reachable only from the current machine and must be replaced with a network-reachable host for other devices or containers.
 
 When AccessKeys exist:
 
@@ -373,13 +375,15 @@ Unknown modes normalize to `new`; invalid `group_id` values do not issue a Group
 
 Use an explicit three-step state machine:
 
-1. **Connection:** optional name, upstream URL, one or more supported protocols, and newline-delimited upstream keys.
-2. **Discovery and models:** call `POST /api/models/discover`; display returned model IDs; allow selection and local aliases.
-3. **Review and create:** call `POST /api/groups` once with connection fields, complete selected models, aliases, and original keys.
+1. **Connection:** choose a typed built-in channel preset or Custom, then edit optional name, upstream URL, one or more supported protocols, newline-delimited upstream keys, and advanced structured HeaderRules. A preset only pre-fills URL/protocols and never creates a runtime channel entity.
+2. **Discovery and models:** parse the raw key text for empty lines, duplicate lines, and likely downstream AccessKeys with the `sk-gl-` prefix; these are non-blocking warnings and the raw text remains the server-authoritative submission input. Call `POST /api/models/discover` with URL, protocols, raw keys, and config/HeaderRules; display returned model IDs; allow selection, removal, manual model IDs, and local aliases. If discovery fails, preserve the draft and allow an explicitly labeled manual-model path.
+3. **Review and create:** call `POST /api/groups` once with connection fields, complete selected/manual models, aliases, config, and original keys.
+
+Built-in presets live as feature-local typed data and load no remote catalog. Heuristic key warnings never reject a legal proxy/upstream credential.
 
 Discovery is read-only. A successful discovery never displays as saved configuration.
 
-Changing URL, protocols, keys, or any discovery-relevant field invalidates previous candidates and returns the flow to a rediscovery-required state.
+Changing URL, protocols, keys, HeaderRules, or any other discovery-relevant field invalidates previous candidates and returns the flow to a rediscovery-required state.
 
 The frontend enforces obvious limits such as at most 1,000 non-empty key lines, but server validation remains authoritative. Duplicate counts shown after creation come from `keys_duplicated`, not an inferred database comparison.
 
@@ -421,6 +425,8 @@ Upstream keys stay in component memory during ordinary editing. To satisfy authe
 
 The 401 redirect bypasses the normal dirty-leave prompt only after recovery succeeds or fails safely; inability to access storage must not block authentication cleanup.
 
+An in-place reauthentication Dialog is intentionally rejected for S6. The existing authentication contract clears the invalid credential and authenticated caches, unmounts protected content through `AuthGate`, and redirects to `/login`. Keeping the Import component alive would require a new global reauthentication phase, request/navigation freezing, and rules for exposing protected cached data after authentication loss. The narrowly scoped write-on-401 recovery record changes less of the established security boundary and follows the canonical interaction and technical specifications.
+
 ## T23: Group detail
 
 `/groups/:id` validates a positive integer before issuing requests. Invalid IDs show a local not-found/error state without calling the API.
@@ -459,7 +465,7 @@ The persisted Group model array is the authoritative saved list. Editing happens
 - existing discovered models retain their aliases;
 - new candidates are proposed as additions;
 - persisted models not returned are marked as not rediscovered, not silently deleted;
-- users explicitly choose the final list;
+- users explicitly choose the final list and may add a manual model ID even when discovery is unavailable;
 - alias changes remain local until Save.
 
 Save sends the complete final `{id, alias}[]` through `PUT /api/groups/:id/models`. Empty replacement requires a destructive confirmation because it makes the Group unserviceable. Removing models does not modify AccessKey model filters; the UI states this limitation without fabricating dependency data.
@@ -602,6 +608,7 @@ Copy is allowed for non-secret paths. The UI never attempts to read files and ne
 - Structured 409/404 data is rendered near the decision it affects.
 - Field errors appear beside fields; page-level failures use `InlineFeedback`/`QueryFeedback`.
 - Buttons disable during pending actions and prevent duplicate submission.
+- Partial-update Save actions are disabled when no normalized field changed and defensively issue no request if invoked with an empty patch.
 - 429 displays the provided retry interval.
 - 401 uses the global session flow and does not leave feature caches visible.
 - Backend localized `message` is a fallback explanation, never a branch condition.
@@ -701,13 +708,16 @@ Every behavior change begins with a focused failing test and observed RED state.
 - no fabricated metric labels;
 - first-run CTA;
 - AccessKey selection, mask/reveal/copy, and absent-key state;
-- real origin and explicit model placeholder behavior.
+- real origin, loopback-host warning variants, non-loopback absence, and explicit model placeholder behavior.
 
 ### T22 tests
 
 - new versus existing route state;
-- discovery invalidation;
-- exact discover/create/import bodies;
+- typed preset versus Custom prefill behavior;
+- empty/duplicate/`sk-gl-` key warnings remain non-blocking;
+- discovery invalidation, including HeaderRules changes;
+- discovery failure preserves the draft and permits manual model entry;
+- exact discover/create/import bodies, including raw keys and structured config;
 - URL conflict decisions and confirmed resubmission;
 - dirty route/browser leave behavior;
 - secret-free query/mutation cache;
@@ -718,8 +728,8 @@ Every behavior change begins with a focused failing test and observed RED state.
 
 - invalid ID issues no request;
 - query-backed tab history;
-- upstream-key effective states and mutations;
-- model diff preserves aliases and never auto-deletes;
+- upstream-key effective states and mutations, including no-op update suppression;
+- model diff preserves aliases, supports manual additions, and never auto-deletes;
 - replace-all model body;
 - URL-change confirmation versus URL conflict;
 - sparse config/effective config separation;
@@ -728,7 +738,7 @@ Every behavior change begins with a focused failing test and observed RED state.
 
 ### T24 tests
 
-- AccessKey CRUD bodies and exact invalidation;
+- AccessKey CRUD bodies, no-op update suppression, and exact invalidation;
 - plaintext absent from route/storage/query keys/query cache/mutation cache/errors after its owning surface closes;
 - empty filters mean all;
 - create versus edit status behavior;
@@ -783,10 +793,10 @@ Each commit receives focused tests, the relevant gates, independent fresh-contex
 
 ## Documentation synchronization
 
-After implementation and verified integration:
+The S5.5 synchronization has already corrected the M3 implementation plan's T24 dependency and the interaction document's obsolete language/theme, aggressive-retry, and debug-setting descriptions. After S6 implementation and verified integration:
 
 - update the Notion M3 implementation plan with T21–T24 actual completion and validation evidence;
-- update canonical interaction/visual documents only if implementation exposed a genuine product or visual-contract change;
+- update canonical interaction/visual documents only if implementation exposed a new product or visual-contract change beyond those completed S5.5 corrections;
 - do not duplicate formal product documentation into repository Markdown;
 - keep this Superpowers design and the later implementation plan under `docs/superpowers/` as local workflow artifacts.
 
