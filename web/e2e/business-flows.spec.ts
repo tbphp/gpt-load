@@ -125,7 +125,8 @@ test('critical management journey works through the embedded binary', async ({ p
     await page.getByLabel('Protocol', { exact: true }).click()
     await page.getByRole('option', { name: 'OpenAI', exact: true }).click()
     await page.getByLabel('Client model').fill(discoveredModel)
-    await page.getByLabel('AccessKey', { exact: true }).click()
+    const accessKeyTrigger = page.getByLabel('AccessKey', { exact: true })
+    await accessKeyTrigger.click()
     const accessKeyOption = page.getByRole('option', {
       name: new RegExp(`^${accessKeyName} · #\\d+ · Active$`),
     })
@@ -136,6 +137,18 @@ test('critical management journey works through the embedded binary', async ({ p
       await page.evaluate(() => window.innerWidth),
     )
     await accessKeyOption.click()
+    const pageWidths = await page.evaluate(() => ({
+      client: document.documentElement.clientWidth,
+      scroll: document.documentElement.scrollWidth,
+      viewport: window.innerWidth,
+    }))
+    expect(pageWidths.scroll).toBeLessThanOrEqual(pageWidths.viewport)
+    expect(pageWidths.client).toBe(pageWidths.viewport)
+    const triggerWidths = await accessKeyTrigger.evaluate((trigger) => ({
+      client: trigger.clientWidth,
+      scroll: trigger.scrollWidth,
+    }))
+    expect(triggerWidths.scroll).toBeLessThanOrEqual(triggerWidths.client)
 
     const routeInspectRequestPromise = page.waitForRequest((request) => {
       const url = new URL(request.url())

@@ -34,8 +34,8 @@ const attrs = useAttrs()
     @update:model-value="(value) => typeof value === 'string' && emit('update:modelValue', value)"
   >
     <SelectTrigger v-bind="attrs" class="app-select__trigger" :aria-label="label">
-      <SelectValue />
-      <ChevronDown :size="16" aria-hidden="true" />
+      <SelectValue class="app-select__value" />
+      <ChevronDown class="app-select__chevron" :size="16" aria-hidden="true" />
     </SelectTrigger>
     <SelectPortal>
       <SelectContent class="app-select__content" position="popper" :side-offset="6">
@@ -71,6 +71,14 @@ const attrs = useAttrs()
   padding: 8px 10px;
   font: inherit;
   cursor: pointer;
+}
+.app-select__value {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+.app-select__chevron {
+  flex-shrink: 0;
 }
 .app-select__content {
   z-index: var(--z-popover);

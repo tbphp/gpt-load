@@ -62,4 +62,28 @@ describe('AppSelect', () => {
       'overflow-wrap': 'anywhere',
     })
   })
+
+  it('lets the selected long label shrink and wrap without collapsing the chevron', () => {
+    const longLabel = 'AccessKeyWithAnIntentionallyLongUnbrokenName'
+    const wrapper = mount(AppSelect, {
+      props: {
+        label: 'AccessKey',
+        modelValue: '1',
+        options: [{ value: '1', label: longLabel }],
+      },
+    })
+
+    expect(wrapper.find('.app-select__value').exists()).toBe(true)
+    expect(wrapper.get('.app-select__chevron').attributes('aria-hidden')).toBe('true')
+    expect(
+      readAppSelectStyle('.app-select__value', ['min-width', 'white-space', 'overflow-wrap']),
+    ).toEqual({
+      'min-width': '0',
+      'white-space': 'normal',
+      'overflow-wrap': 'anywhere',
+    })
+    expect(readAppSelectStyle('.app-select__chevron', ['flex-shrink'])).toEqual({
+      'flex-shrink': '0',
+    })
+  })
 })
