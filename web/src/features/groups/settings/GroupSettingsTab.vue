@@ -44,6 +44,7 @@ const urlConflict = ref<UpstreamUrlConflictData | null>(null)
 const rediscoveryRecommended = ref(false)
 let controller: AbortController | undefined
 const saveFocusTarget = ref<HTMLElement | null>(null)
+const headingFocusTarget = ref<HTMLElement | null>(null)
 
 const protocols: GroupProtocol[] = ['openai', 'anthropic', 'gemini']
 const timeoutKeys: GroupTimeoutKey[] = [
@@ -134,6 +135,15 @@ function healthAffected(body: ReturnType<typeof buildGroupSettingsPatch>): boole
   return body.name !== undefined || body.enabled !== undefined || body.weight_manual !== undefined
 }
 
+async function restoreFocusAfterURLConfirmation(): Promise<void> {
+  await nextTick()
+  if (saveFocusTarget.value && !saveFocusTarget.value.matches(':disabled')) {
+    saveFocusTarget.value.focus()
+  } else {
+    headingFocusTarget.value?.focus()
+  }
+}
+
 async function runSave(confirmUpstreamURLChange = false): Promise<void> {
   if (!confirmUpstreamURLChange)
     saveFocusTarget.value = document.activeElement as HTMLElement | null
@@ -160,6 +170,7 @@ async function runSave(confirmUpstreamURLChange = false): Promise<void> {
       rediscoveryRecommended.value || result.model_rediscovery_recommended
     queryClient.setQueryData(controlQueryKeys.groups.detail(props.groupId), result.group)
     await queryClient.invalidateQueries({ queryKey: controlQueryKeys.groups.list() })
+    if (controller !== activeController) return
     if (healthAffected(normalizedPatch)) {
       await queryClient.invalidateQueries({ queryKey: controlQueryKeys.health() })
     }
@@ -180,6 +191,7 @@ async function runSave(confirmUpstreamURLChange = false): Promise<void> {
     if (controller === activeController) {
       controller = undefined
       pending.value = false
+      if (!urlConfirmOpen.value) await restoreFocusAfterURLConfirmation()
     }
   }
 }
@@ -193,10 +205,7 @@ function effectiveHeaderSummary(): string {
 }
 
 watch(urlConfirmOpen, async (open, wasOpen) => {
-  if (!open && wasOpen) {
-    await nextTick()
-    saveFocusTarget.value?.focus()
-  }
+  if (!open && wasOpen) await restoreFocusAfterURLConfirmation()
 })
 
 onBeforeUnmount(() => {
@@ -209,7 +218,9 @@ onBeforeUnmount(() => {
   <section class="group-settings" aria-labelledby="group-settings-heading">
     <header class="group-settings__header">
       <div>
-        <h2 id="group-settings-heading">{{ t('group.settings.title') }}</h2>
+        <h2 id="group-settings-heading" ref="headingFocusTarget" tabindex="-1">
+          {{ t('group.settings.title') }}
+        </h2>
         <p>{{ t('group.settings.description') }}</p>
       </div>
       <AppButton

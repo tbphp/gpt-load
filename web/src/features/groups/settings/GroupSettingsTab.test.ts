@@ -82,6 +82,34 @@ describe('GroupSettingsTab', () => {
       expect(document.body.textContent).not.toContain('Unable to update')
     },
   )
+  it('does not start health invalidation after unmount during deferred list invalidation', async () => {
+    let releaseList!: () => void
+    const listInvalidation = new Promise<void>((resolve) => {
+      releaseList = resolve
+    })
+    const request = vi.fn().mockResolvedValue({
+      group: { ...detail, name: 'Renamed' },
+      model_rediscovery_recommended: false,
+    }) as ApiClient['request']
+    const { queryClient, wrapper } = await mountSettings(request)
+    const invalidate = vi.spyOn(queryClient, 'invalidateQueries').mockImplementation((filters) => {
+      const resolved = typeof filters === 'function' ? filters() : filters
+      if (JSON.stringify(resolved?.queryKey) === JSON.stringify(controlQueryKeys.groups.list()))
+        return listInvalidation
+      return Promise.resolve()
+    })
+    await wrapper.get('[data-test="group-name"]').setValue('Renamed')
+    await wrapper.get('[data-test="group-settings-save"]').trigger('click')
+    await flushPromises()
+    wrapper.unmount()
+    queryClient.removeQueries({ queryKey: controlQueryKeys.groups.detail(7), exact: true })
+    releaseList()
+    await flushPromises()
+
+    expect(invalidate).toHaveBeenCalledTimes(1)
+    expect(queryClient.getQueryData(controlQueryKeys.groups.detail(7))).toBeUndefined()
+    expect(document.body.textContent).not.toContain('Unable to update')
+  })
   it('disables every mutable Group Settings control while save is pending', async () => {
     const request = vi.fn(() => new Promise(() => {})) as ApiClient['request']
     const { wrapper } = await mountSettings(request)
@@ -239,8 +267,9 @@ describe('GroupSettingsTab', () => {
       )
       .mockResolvedValueOnce({ group: changed, model_rediscovery_recommended: true })
     const { wrapper } = await mountSettings(requestMock as ApiClient['request'])
-
+    const save = wrapper.get('[data-test="group-settings-save"]').element as HTMLButtonElement
     await wrapper.get('[data-test="group-upstream-url"]').setValue('https://new.example.com/v1')
+    save.focus()
     await wrapper.get('[data-test="group-settings-save"]').trigger('click')
     await flushPromises()
 
@@ -252,6 +281,9 @@ describe('GroupSettingsTab', () => {
     expect(document.querySelector('[role="dialog"]')).not.toBeNull()
     documentButton('[data-test="group-url-confirm"]').click()
     await flushPromises()
+    await flushPromises()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(document.activeElement).toBe(wrapper.get('#group-settings-heading').element)
 
     expect(requestMock).toHaveBeenNthCalledWith(2, '/api/groups/7', {
       method: 'PUT',

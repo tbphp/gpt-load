@@ -59,6 +59,22 @@ describe('LogsMaintenanceSection', () => {
     wrapper.unmount()
   })
 
+  it('disables owned retention checkbox and numeric value while save is pending', async () => {
+    const owned: SettingsDto = { ...base, overrides: ['request_log_retention_days'] }
+    const request = vi.fn(() => new Promise(() => {})) as ApiClient['request']
+    const { wrapper } = await mountSection(owned, request)
+    await wrapper.get('[data-test="value-request_log_retention_days"]').setValue('8')
+    await wrapper.get('[data-test="logs-maintenance-save"]').trigger('click')
+
+    expect(
+      wrapper.get('[data-test="override-request_log_retention_days"]').attributes(),
+    ).toHaveProperty('disabled')
+    expect(
+      wrapper.get('[data-test="value-request_log_retention_days"]').attributes(),
+    ).toHaveProperty('disabled')
+    wrapper.unmount()
+  })
+
   it.each(['resolve', 'reject'] as const)(
     'ignores a signal-ignoring late %s after unmount without recreating settings cache',
     async (outcome) => {

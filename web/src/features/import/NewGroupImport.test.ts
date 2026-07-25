@@ -117,6 +117,22 @@ describe('NewGroupImport', () => {
     expect(wrapper.find('[data-test="manual-path"]').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('Unable to discover')
   })
+  it('ignores ordinary discovery resolve after input invalidation', async () => {
+    let settle!: (value: { models: string[] }) => void
+    const request = vi.fn(
+      () => new Promise<{ models: string[] }>((resolve) => (settle = resolve)),
+    ) as ApiClient['request']
+    const { wrapper } = await mountImport(request)
+    await enterConnection(wrapper)
+    await wrapper.get('[data-test="discover"]').trigger('click')
+    await wrapper.get('[data-test="upstream-url"]').setValue('https://changed.example.com')
+    settle({ models: ['late-model'] })
+    await flushPromises()
+
+    expect(wrapper.find('[data-test="manual-path"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('late-model')
+    expect(wrapper.text()).not.toContain('Unable to discover')
+  })
   it('renders only Group protocols', async () => {
     const { wrapper } = await mountImport(vi.fn() as ApiClient['request'])
 
@@ -376,6 +392,37 @@ describe('NewGroupImport', () => {
     expect(importRecovery.clear).not.toHaveBeenCalled()
   })
 
+  it.each(['resolve', 'reject'] as const)(
+    'ignores late create %s after unmount before invalidations',
+    async (outcome) => {
+      let settle!: (value: { group_id: number }) => void
+      let fail!: (reason: Error) => void
+      const late = new Promise<{ group_id: number }>((resolve, reject) => {
+        settle = resolve
+        fail = reject
+      })
+      const request = vi
+        .fn()
+        .mockResolvedValueOnce({ models: ['gpt-4o'] })
+        .mockImplementationOnce(() => late) as ApiClient['request']
+      const { importRecovery, queryClient, router, wrapper } = await mountImport(request)
+      const invalidate = vi.spyOn(queryClient, 'invalidateQueries')
+      const push = vi.spyOn(router, 'push')
+      await enterConnection(wrapper)
+      await discoverAndReview(wrapper)
+      await wrapper.get('[data-test="create"]').trigger('click')
+      wrapper.unmount()
+      if (outcome === 'resolve') settle({ group_id: 42 })
+      else fail(new Error('late ordinary failure'))
+      await flushPromises()
+
+      expect(invalidate).not.toHaveBeenCalled()
+      expect(push).not.toHaveBeenCalled()
+      expect(importRecovery.clear).not.toHaveBeenCalled()
+      expect(document.body.textContent).not.toContain('Unable to create')
+    },
+  )
+
   it('does not navigate or clear recovery when append invalidations finish after unmount', async () => {
     let resolveInvalidations!: () => void
     const invalidations = new Promise<void>((resolve) => (resolveInvalidations = resolve))
@@ -408,6 +455,44 @@ describe('NewGroupImport', () => {
     expect(push).not.toHaveBeenCalled()
     expect(importRecovery.clear).not.toHaveBeenCalled()
   })
+
+  it.each(['resolve', 'reject'] as const)(
+    'ignores late append %s after unmount before invalidations',
+    async (outcome) => {
+      let settle!: (value: { group_id: number }) => void
+      let fail!: (reason: Error) => void
+      const late = new Promise<{ group_id: number }>((resolve, reject) => {
+        settle = resolve
+        fail = reject
+      })
+      const request = vi
+        .fn()
+        .mockResolvedValueOnce({ models: ['gpt-4o'] })
+        .mockRejectedValueOnce(
+          new ApiError(409, 'UPSTREAM_URL_CONFLICT', 'conflict', {
+            groups: [{ id: 7, name: 'Existing' }],
+          }),
+        )
+        .mockImplementationOnce(() => late) as ApiClient['request']
+      const { importRecovery, queryClient, router, wrapper } = await mountImport(request)
+      const invalidate = vi.spyOn(queryClient, 'invalidateQueries')
+      const push = vi.spyOn(router, 'push')
+      await enterConnection(wrapper)
+      await discoverAndReview(wrapper)
+      await wrapper.get('[data-test="create"]').trigger('click')
+      await flushPromises()
+      await wrapper.get('[data-test="conflict-append-7"]').trigger('click')
+      wrapper.unmount()
+      if (outcome === 'resolve') settle({ group_id: 7 })
+      else fail(new Error('late ordinary failure'))
+      await flushPromises()
+
+      expect(invalidate).not.toHaveBeenCalled()
+      expect(push).not.toHaveBeenCalled()
+      expect(importRecovery.clear).not.toHaveBeenCalled()
+      expect(document.body.textContent).not.toContain('Unable to create')
+    },
+  )
 
   it('resubmits a structured conflict only after explicit separate-Group confirmation', async () => {
     const conflict = new ApiError(409, 'UPSTREAM_URL_CONFLICT', 'conflict', {
