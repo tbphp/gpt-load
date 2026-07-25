@@ -46,7 +46,9 @@ function queryClient() {
   return new QueryClient({ defaultOptions: { queries: { retry: false } } })
 }
 
-async function mountView() {
+async function mountView(
+  putResponse: SettingsDto | ((options?: ApiRequestOptions) => SettingsDto) = updated,
+) {
   const client = queryClient()
   client.setQueryData(controlQueryKeys.groups.list(), [{ id: 7 }])
   client.setQueryData(controlQueryKeys.groups.detail(7), { id: 7, effective_config: {} })
@@ -57,7 +59,9 @@ async function mountView() {
 
   const requestMock = vi.fn(async (path: string, options?: ApiRequestOptions) => {
     if (path === '/api/settings' && options?.method === undefined) return base
-    if (path === '/api/settings' && options?.method === 'PUT') return updated
+    if (path === '/api/settings' && options?.method === 'PUT') {
+      return typeof putResponse === 'function' ? putResponse(options) : putResponse
+    }
     if (path === '/api/system/info') return systemInfo
     throw new Error(`unexpected request ${path}`)
   })
@@ -127,6 +131,139 @@ describe('SettingsView', () => {
     expect(JSON.stringify(wrapper.vm.$route)).not.toContain(headerCanary)
     expect(JSON.stringify(controlQueryKeys)).not.toContain(headerCanary)
     expect(JSON.stringify(localStorage)).not.toContain(headerCanary)
+    wrapper.unmount()
+    theme.dispose()
+  })
+
+  it('preserves dirty Request values, ownership, HeaderRules, and Save state when Logs saves', async () => {
+    const logsReturned: SettingsDto = {
+      revision: 11,
+      values: {
+        ...base.values,
+        header_rules: { set: { 'X-Server': 'SERVER_VALUE' }, remove: ['X-Server-Remove'] },
+        request_log_retention_days: 30,
+      },
+      overrides: ['header_rules', 'request_log_retention_days'],
+    }
+    const { requestMock, theme, wrapper } = await mountView(logsReturned)
+
+    await wrapper.get('[data-test="override-request_timeout"]').setValue(true)
+    await wrapper.get('[data-test="value-request_timeout"]').setValue('900')
+    await wrapper.get('[data-test="settings-header-disclosure"]').trigger('click')
+    await wrapper.get('[data-test="override-header_rules"]').setValue(true)
+    await wrapper.get('[data-test="header-name"]').setValue('X-Draft')
+    await wrapper.get('[data-test="header-value"]').setValue('DRAFT_VALUE')
+
+    await wrapper.get('[data-test="override-request_log_retention_days"]').setValue(true)
+    await wrapper.get('[data-test="value-request_log_retention_days"]').setValue('30')
+    await wrapper.get('[data-test="logs-maintenance-save"]').trigger('click')
+    await flushPromises()
+
+    expect(requestMock.mock.calls.filter(([, options]) => options?.method === 'PUT')).toEqual([
+      [
+        '/api/settings',
+        {
+          method: 'PUT',
+          json: { settings: { request_log_retention_days: 30 } },
+          signal: expect.any(AbortSignal),
+        },
+      ],
+    ])
+    expect(
+      (wrapper.get('[data-test="value-request_timeout"]').element as HTMLInputElement).value,
+    ).toBe('900')
+    expect(
+      (wrapper.get('[data-test="override-request_timeout"]').element as HTMLInputElement).checked,
+    ).toBe(true)
+    expect((wrapper.get('[data-test="header-name"]').element as HTMLInputElement).value).toBe(
+      'X-Draft',
+    )
+    expect((wrapper.get('[data-test="header-value"]').element as HTMLInputElement).value).toBe(
+      'DRAFT_VALUE',
+    )
+    expect(
+      (wrapper.get('[data-test="override-header_rules"]').element as HTMLInputElement).checked,
+    ).toBe(true)
+    expect(wrapper.get('[data-test="request-forwarding-save"]').attributes()).not.toHaveProperty(
+      'disabled',
+    )
+    expect(wrapper.get('[data-test="logs-maintenance-save"]').attributes()).toHaveProperty(
+      'disabled',
+    )
+    wrapper.unmount()
+    theme.dispose()
+  })
+
+  it('preserves dirty Logs value, ownership, and Save state when Request saves', async () => {
+    const { requestMock, theme, wrapper } = await mountView(updated)
+
+    await wrapper.get('[data-test="override-request_log_retention_days"]').setValue(true)
+    await wrapper.get('[data-test="value-request_log_retention_days"]').setValue('30')
+    await wrapper.get('[data-test="override-request_timeout"]').setValue(true)
+    await wrapper.get('[data-test="value-request_timeout"]').setValue('900')
+    await wrapper.get('[data-test="request-forwarding-save"]').trigger('click')
+    await flushPromises()
+
+    expect(requestMock.mock.calls.filter(([, options]) => options?.method === 'PUT')).toEqual([
+      [
+        '/api/settings',
+        {
+          method: 'PUT',
+          json: { settings: { request_timeout: 900 } },
+          signal: expect.any(AbortSignal),
+        },
+      ],
+    ])
+    expect(
+      (wrapper.get('[data-test="value-request_log_retention_days"]').element as HTMLInputElement)
+        .value,
+    ).toBe('30')
+    expect(
+      (wrapper.get('[data-test="override-request_log_retention_days"]').element as HTMLInputElement)
+        .checked,
+    ).toBe(true)
+    expect(wrapper.get('[data-test="logs-maintenance-save"]').attributes()).not.toHaveProperty(
+      'disabled',
+    )
+    expect(wrapper.get('[data-test="request-forwarding-save"]').attributes()).toHaveProperty(
+      'disabled',
+    )
+    wrapper.unmount()
+    theme.dispose()
+  })
+
+  it('fully rebases a clean Request section from a sibling Settings response', async () => {
+    const logsReturned: SettingsDto = {
+      revision: 11,
+      values: {
+        ...base.values,
+        header_rules: { set: { 'X-Server': 'SERVER_VALUE' }, remove: ['X-Server-Remove'] },
+        request_log_retention_days: 30,
+      },
+      overrides: ['header_rules', 'request_log_retention_days'],
+    }
+    const { theme, wrapper } = await mountView(logsReturned)
+
+    await wrapper.get('[data-test="override-request_log_retention_days"]').setValue(true)
+    await wrapper.get('[data-test="value-request_log_retention_days"]').setValue('30')
+    await wrapper.get('[data-test="logs-maintenance-save"]').trigger('click')
+    await flushPromises()
+
+    expect(
+      wrapper.get('[data-test="settings-header-disclosure"]').attributes('aria-expanded'),
+    ).toBe('true')
+    expect(
+      wrapper
+        .findAll('[data-test="header-name"]')
+        .map((input) => (input.element as HTMLInputElement).value),
+    ).toEqual(['X-Server', 'X-Server-Remove'])
+    expect((wrapper.get('[data-test="header-value"]').element as HTMLInputElement).value).toBe(
+      'SERVER_VALUE',
+    )
+    expect(wrapper.get('[data-test="header-value"]').attributes('type')).toBe('password')
+    expect(wrapper.get('[data-test="request-forwarding-save"]').attributes()).toHaveProperty(
+      'disabled',
+    )
     wrapper.unmount()
     theme.dispose()
   })

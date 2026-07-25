@@ -73,7 +73,15 @@ function rebase(settings: SettingsDto): void {
   headerSaveError.value = false
 }
 
-watch(() => props.settings, rebase)
+function acceptExternalSettings(settings: SettingsDto): void {
+  if (dirty.value) {
+    base.value = settings
+    return
+  }
+  rebase(settings)
+}
+
+watch(() => props.settings, acceptExternalSettings)
 
 function hasOverride(key: TimeoutSettingKey | 'header_rules'): boolean {
   return draft.value.overrides.has(key)

@@ -21,27 +21,63 @@ const emit = defineEmits<{
 const { t } = useI18n()
 const touchTargetStyle = { minWidth: '44px', minHeight: '44px' }
 let nextKey = 1
-const rows = ref<RuleRow[]>([
-  ...Object.entries(props.modelValue.set).map(([name, value]) => ({
-    key: nextKey++,
-    action: 'set' as const,
-    name,
-    value,
-    revealed: false,
-  })),
-  ...props.modelValue.remove.map((name) => ({
-    key: nextKey++,
-    action: 'remove' as const,
-    name,
-    value: '',
-    revealed: false,
-  })),
-])
+const rows = ref<RuleRow[]>(createRows(normalizeRules(props.modelValue)))
 
 function normalizeASCIIHeaderName(value: string): string {
   return value
     .trim()
     .replace(/[A-Z]/g, (character) => String.fromCharCode(character.charCodeAt(0) + 32))
+}
+
+function compareHeaderNames(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0
+}
+
+function normalizeRules(value: HeaderRules): HeaderRules {
+  const set = Object.fromEntries(
+    Object.entries(value.set)
+      .map(([name, headerValue]) => [name.trim(), headerValue] as const)
+      .filter(([name]) => name.length > 0)
+      .sort(([left], [right]) => compareHeaderNames(left, right)),
+  )
+  const remove = [...new Set(value.remove.map((name) => name.trim()).filter(Boolean))].sort(
+    compareHeaderNames,
+  )
+  return { set, remove }
+}
+
+function createRows(value: HeaderRules): RuleRow[] {
+  return [
+    ...Object.entries(value.set).map(([name, headerValue]) => ({
+      key: nextKey++,
+      action: 'set' as const,
+      name,
+      value: headerValue,
+      revealed: false,
+    })),
+    ...value.remove.map((name) => ({
+      key: nextKey++,
+      action: 'remove' as const,
+      name,
+      value: '',
+      revealed: false,
+    })),
+  ]
+}
+
+function rulesFromRows(): HeaderRules {
+  const rules: HeaderRules = { set: {}, remove: [] }
+  for (const row of rows.value) {
+    const name = row.name.trim()
+    if (!name) continue
+    if (row.action === 'set') rules.set[name] = row.value
+    else rules.remove.push(name)
+  }
+  return rules
+}
+
+function sameRules(left: HeaderRules, right: HeaderRules): boolean {
+  return JSON.stringify(normalizeRules(left)) === JSON.stringify(normalizeRules(right))
 }
 
 const duplicateNames = computed(() => {
@@ -59,15 +95,18 @@ watch(
   { immediate: true },
 )
 
+watch(
+  () => props.modelValue,
+  (value) => {
+    const external = normalizeRules(value)
+    if (sameRules(rulesFromRows(), external)) return
+    rows.value = createRows(external)
+  },
+  { deep: true },
+)
+
 function publish(): void {
-  const rules: HeaderRules = { set: {}, remove: [] }
-  for (const row of rows.value) {
-    const name = row.name.trim()
-    if (!name) continue
-    if (row.action === 'set') rules.set[name] = row.value
-    else rules.remove.push(name)
-  }
-  emit('update:modelValue', rules)
+  emit('update:modelValue', rulesFromRows())
 }
 
 function addRow(): void {

@@ -1,5 +1,5 @@
 import { mount } from '@vue/test-utils'
-import { defineComponent, ref } from 'vue'
+import { defineComponent, nextTick, ref } from 'vue'
 
 import { createAppI18n } from '@/i18n'
 
@@ -71,6 +71,56 @@ describe('HeaderRulesEditor', () => {
     expect((wrapper.vm as unknown as { valid: boolean }).valid).toBe(false)
     await wrapper.findAll('[data-test="header-name"]')[1]!.setValue('X-Other')
     expect((wrapper.vm as unknown as { valid: boolean }).valid).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('reconciles an external model replacement and resets every Set value to masked', async () => {
+    const wrapper = mountEditor({ set: { 'X-Old': 'OLD_VALUE_CANARY' }, remove: ['X-Legacy'] })
+    await wrapper.get('[data-test="toggle-header-value"]').trigger('click')
+    expect(wrapper.get('[data-test="header-value"]').attributes('type')).toBe('text')
+
+    ;(wrapper.vm as unknown as { rules: unknown }).rules = {
+      set: { 'X-New': 'NEW_VALUE_CANARY' },
+      remove: ['X-Remove'],
+    }
+    await nextTick()
+
+    expect(
+      wrapper
+        .findAll('[data-test="header-name"]')
+        .map((input) => (input.element as HTMLInputElement).value),
+    ).toEqual(['X-New', 'X-Remove'])
+    expect(
+      wrapper
+        .findAll('[data-test="header-action"]')
+        .map((select) => (select.element as HTMLSelectElement).value),
+    ).toEqual(['set', 'remove'])
+    expect(wrapper.findAll('[data-test="header-value"]')).toHaveLength(1)
+    expect((wrapper.get('[data-test="header-value"]').element as HTMLInputElement).value).toBe(
+      'NEW_VALUE_CANARY',
+    )
+    expect(wrapper.get('[data-test="header-value"]').attributes('type')).toBe('password')
+    expect(
+      wrapper.findAll('input').map((input) => (input.element as HTMLInputElement).value),
+    ).not.toContain('OLD_VALUE_CANARY')
+    wrapper.unmount()
+  })
+
+  it('does not rebuild rows or lose focus when its own model update feeds back', async () => {
+    const wrapper = mountEditor({ set: { 'X-Test': 'secret' }, remove: [] })
+    const name = wrapper.get('[data-test="header-name"]')
+    const originalElement = name.element
+    ;(name.element as HTMLInputElement).focus()
+
+    await name.setValue('X-Edited')
+    await nextTick()
+
+    expect(wrapper.get('[data-test="header-name"]').element).toBe(originalElement)
+    expect(document.activeElement).toBe(originalElement)
+    expect((wrapper.vm as unknown as { rules: unknown }).rules).toEqual({
+      set: { 'X-Edited': 'secret' },
+      remove: [],
+    })
     wrapper.unmount()
   })
 
