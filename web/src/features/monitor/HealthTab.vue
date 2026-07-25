@@ -135,8 +135,9 @@ watch(
   () => healthQuery.dataUpdatedAt.value,
   (updatedAt, previousUpdatedAt) => {
     if (updatedAt > 0 && updatedAt !== previousUpdatedAt) {
-      elapsedStartedAt = performance.now()
-      elapsedMs.value = 0
+      const initialElapsedMs = Math.max(0, Date.now() - updatedAt)
+      elapsedStartedAt = performance.now() - initialElapsedMs
+      elapsedMs.value = initialElapsedMs
     }
     syncElapsedTimer()
   },
@@ -588,7 +589,8 @@ function recoveryModeLabel(mode: string): string {
 
 .group-link {
   display: inline-flex;
-  min-width: 0;
+  min-width: 44px;
+  max-width: 100%;
   min-height: 44px;
   align-items: center;
   color: var(--color-primary);

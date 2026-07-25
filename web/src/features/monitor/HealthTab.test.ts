@@ -13,6 +13,7 @@ import { controlQueryKeys } from '@/app/query-keys'
 import { mountApp } from '@/test/mount-app'
 
 import HealthTab from './HealthTab.vue'
+import healthTabSource from './HealthTab.vue?raw'
 
 const zeroCounts: KeyCounts = {
   total: 0,
@@ -124,6 +125,28 @@ async function mountHealth(api: ApiClient, queryClient = createQueryClient()) {
   return { ...mounted, queryClient }
 }
 
+function readHealthTabStyle(
+  selector: string,
+  properties: readonly string[],
+): Record<string, string> {
+  const styleSource = healthTabSource.match(/<style scoped>([\s\S]*?)<\/style>/)?.[1]
+  if (styleSource === undefined) throw new Error('HealthTab scoped styles are missing')
+
+  const styleElement = document.createElement('style')
+  styleElement.textContent = styleSource
+  document.head.append(styleElement)
+  const styleRule = Array.from(styleElement.sheet?.cssRules ?? []).find(
+    (rule): rule is CSSStyleRule => rule instanceof CSSStyleRule && rule.selectorText === selector,
+  )
+  if (styleRule === undefined) throw new Error(`Missing style rule: ${selector}`)
+
+  const declarations = Object.fromEntries(
+    properties.map((property) => [property, styleRule.style.getPropertyValue(property)]),
+  )
+  styleElement.remove()
+  return declarations
+}
+
 describe('HealthTab', () => {
   it.each([
     ['total zero', zeroCounts, '尚无上游 Key', ['总数 0', '可用 0', '冷却 0', '拉黑 0', '停用 0']],
@@ -211,6 +234,22 @@ describe('HealthTab', () => {
       expect(card?.querySelector('.status-badge')?.classList).toContain(`status-badge--${tone}`)
       expect(card?.querySelector('.status-badge svg')).not.toBeNull()
     }
+  })
+
+  it('keeps short Group links at least 44px square while long names can wrap in the card', () => {
+    const declarations = readHealthTabStyle('.group-link', [
+      'min-width',
+      'max-width',
+      'min-height',
+      'overflow-wrap',
+    ])
+
+    expect(declarations).toEqual({
+      'min-width': '44px',
+      'max-width': '100%',
+      'min-height': '44px',
+      'overflow-wrap': 'anywhere',
+    })
   })
 
   it('shows safe problem details, explicit Keys links, and a neutral unknown recovery fallback', async () => {
@@ -341,6 +380,35 @@ describe('HealthTab', () => {
 
     await vi.advanceTimersByTimeAsync(30_000)
     expect(wrapper.get('[data-test="remaining-11"]').text()).toContain('1:29')
+  })
+
+  it('starts an aged shared cache from dataUpdatedAt and freezes that baseline when first refresh fails', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime('2026-07-25T10:00:30Z')
+    const refresh = deferred<RuntimeHealthDto>()
+    const api = new HealthApi(() => refresh.promise)
+    const queryClient = createQueryClient()
+    queryClient.setQueryData(
+      controlQueryKeys.health(),
+      healthFixture({
+        counts: { total: 1, available: 0, cooldown: 1, blacklisted: 0, disabled: 0 },
+        cooldown_keys: [cooldownKey],
+      }),
+      { updatedAt: Date.now() - 30_000 },
+    )
+
+    const { wrapper } = await mountHealth(api, queryClient)
+
+    expect(api.requests).toHaveLength(1)
+    expect(wrapper.get('[data-test="remaining-11"]').text()).toContain('1:30')
+
+    refresh.reject(new ApiError(500, 'INTERNAL_SERVER_ERROR', 'refresh failed'))
+    await flushPromises()
+    expect(wrapper.text()).toContain('健康数据可能已过期')
+
+    vi.setSystemTime('2026-07-25T11:00:30Z')
+    await vi.advanceTimersByTimeAsync(30_000)
+    expect(wrapper.get('[data-test="remaining-11"]').text()).toContain('1:30')
   })
 
   it('pauses polling while hidden and refreshes exactly once when visible again', async () => {
