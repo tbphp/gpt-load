@@ -9,9 +9,9 @@ function mountEditor(initial = { set: {}, remove: [] as string[] }) {
   const Host = defineComponent({
     components: { HeaderRulesEditor },
     setup() {
-      return { rules: ref(initial) }
+      return { rules: ref(initial), valid: ref(true) }
     },
-    template: '<HeaderRulesEditor v-model="rules" />',
+    template: '<HeaderRulesEditor v-model="rules" v-model:valid="valid" />',
   })
   return mount(Host, {
     attachTo: document.body,
@@ -62,6 +62,15 @@ describe('HeaderRulesEditor', () => {
 
     expect(wrapper.get('[role="alert"]').text()).toContain('duplicate')
     localeLower.mockRestore()
+    wrapper.unmount()
+  })
+
+  it('publishes duplicate-name validity for section-level save blocking', async () => {
+    const wrapper = mountEditor({ set: { 'X-Test': 'secret', 'x-test': 'other' }, remove: [] })
+
+    expect((wrapper.vm as unknown as { valid: boolean }).valid).toBe(false)
+    await wrapper.findAll('[data-test="header-name"]')[1]!.setValue('X-Other')
+    expect((wrapper.vm as unknown as { valid: boolean }).valid).toBe(true)
     wrapper.unmount()
   })
 

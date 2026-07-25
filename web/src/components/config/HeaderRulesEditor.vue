@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Eye, EyeOff, Plus, Trash2 } from 'lucide-vue-next'
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import type { HeaderRules } from '@/features/import/model-draft'
@@ -14,7 +14,10 @@ interface RuleRow {
 }
 
 const props = defineProps<{ modelValue: HeaderRules }>()
-const emit = defineEmits<{ 'update:modelValue': [value: HeaderRules] }>()
+const emit = defineEmits<{
+  'update:modelValue': [value: HeaderRules]
+  'update:valid': [value: boolean]
+}>()
 const { t } = useI18n()
 const touchTargetStyle = { minWidth: '44px', minHeight: '44px' }
 let nextKey = 1
@@ -49,6 +52,12 @@ const duplicateNames = computed(() => {
   }
   return new Set([...counts].filter(([, count]) => count > 1).map(([name]) => name))
 })
+
+watch(
+  () => duplicateNames.value.size === 0,
+  (valid) => emit('update:valid', valid),
+  { immediate: true },
+)
 
 function publish(): void {
   const rules: HeaderRules = { set: {}, remove: [] }

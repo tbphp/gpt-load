@@ -6,6 +6,7 @@ import HomeView from '@/features/home/HomeView.vue'
 import GroupDetailView from '@/features/groups/GroupDetailView.vue'
 import ImportView from '@/features/import/ImportView.vue'
 import AccessKeysView from '@/features/access-keys/AccessKeysView.vue'
+import SettingsView from '@/features/settings/SettingsView.vue'
 import PlaceholderView from '@/views/PlaceholderView.vue'
 
 const routes: RouteRecordRaw[] = [
@@ -43,7 +44,7 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/settings',
     name: 'settings',
-    component: PlaceholderView,
+    component: SettingsView,
     meta: { titleKey: 'shell.settings', requiresAuth: true },
   },
 ]

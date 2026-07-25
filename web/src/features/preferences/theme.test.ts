@@ -1,4 +1,8 @@
-import { createThemeController, type ThemeControllerDependencies } from './theme'
+import {
+  createBrowserThemeController,
+  createThemeController,
+  type ThemeControllerDependencies,
+} from './theme'
 
 function createDependencies(
   overrides: Partial<ThemeControllerDependencies> = {},
@@ -67,6 +71,15 @@ describe('createThemeController', () => {
     }
 
     expect(() => createThemeController(createDependencies({ matchMedia }))).not.toThrow()
+    expect(document.documentElement.hasAttribute('data-theme')).toBe(false)
+  })
+
+  it('starts safely when the browser has no matchMedia property', () => {
+    const browser = { localStorage: window.localStorage } as Pick<Window, 'localStorage'>
+
+    expect(() =>
+      createBrowserThemeController(browser, document.documentElement, window.localStorage),
+    ).not.toThrow()
     expect(document.documentElement.hasAttribute('data-theme')).toBe(false)
   })
 

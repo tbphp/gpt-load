@@ -14,6 +14,8 @@ export interface ThemeControllerDependencies {
   matchMedia(query: string): MediaQueryList
 }
 
+export type BrowserThemeWindow = Pick<Window, 'localStorage'> & Partial<Pick<Window, 'matchMedia'>>
+
 const themeStorageKey = 'gpt-load.theme'
 
 function isTheme(value: unknown): value is AppTheme {
@@ -69,6 +71,23 @@ export function createThemeController(deps: ThemeControllerDependencies): ThemeC
       if (media && mediaListener) media.removeEventListener('change', mediaListener)
     },
   }
+}
+
+export function createBrowserThemeController(
+  browser: BrowserThemeWindow,
+  documentElement: HTMLElement,
+  storage?: Storage,
+): ThemeController {
+  return createThemeController({
+    documentElement,
+    storage,
+    matchMedia:
+      typeof browser.matchMedia === 'function'
+        ? browser.matchMedia.bind(browser)
+        : () => {
+            throw new DOMException('matchMedia unavailable')
+          },
+  })
 }
 
 export const themeControllerKey: InjectionKey<ThemeController> = Symbol('theme-controller')

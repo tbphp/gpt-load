@@ -15,7 +15,7 @@ import {
   createDirtyNavigationController,
   dirtyNavigationKey,
 } from './features/import/use-dirty-navigation'
-import { createThemeController, themeControllerKey } from './features/preferences/theme'
+import { createBrowserThemeController, themeControllerKey } from './features/preferences/theme'
 import { createAppI18n } from './i18n'
 import { appI18nKey } from './i18n/context'
 import './styles/tokens.css'
@@ -38,11 +38,11 @@ const importRecovery = createImportRecoveryService({
 })
 const dirtyNavigation = createDirtyNavigationController()
 importRecovery.sweep()
-const themeController = createThemeController({
-  documentElement: document.documentElement,
-  storage: getBrowserStorage('localStorage'),
-  matchMedia: window.matchMedia.bind(window),
-})
+const themeController = createBrowserThemeController(
+  window,
+  document.documentElement,
+  getBrowserStorage('localStorage'),
+)
 window.addEventListener(
   'pagehide',
   () => {
