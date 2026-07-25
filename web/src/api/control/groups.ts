@@ -30,6 +30,31 @@ export interface GroupDetailDto extends GroupSummary {
   effective_config: GroupEffectiveConfigDto
 }
 
+export interface GroupUpdateRequest {
+  name?: string
+  enabled?: boolean
+  upstream_url?: string
+  protocols?: Protocol[]
+  validation_model?: string | null
+  weight_manual?: number | null
+  config?: GroupRuntimeConfigDto
+  confirm_upstream_url_change?: true
+}
+
+export interface GroupUpdateResult {
+  group: GroupDetailDto
+  model_rediscovery_recommended: boolean
+}
+
+export interface AccessKeyReferenceDto {
+  id: number
+  name: string
+}
+
+export interface GroupInUseData {
+  access_keys: AccessKeyReferenceDto[]
+}
+
 export interface ModelDiscoveryRequest {
   upstream_url: string
   protocols: readonly Protocol[]
@@ -95,6 +120,10 @@ export function isUpstreamUrlConflictData(value: unknown): value is UpstreamUrlC
   return isRecord(value) && Array.isArray(value.groups) && value.groups.every(isIdName)
 }
 
+export function isGroupInUseData(value: unknown): value is GroupInUseData {
+  return isRecord(value) && Array.isArray(value.access_keys) && value.access_keys.every(isIdName)
+}
+
 export function listGroups(client: ApiClient, signal?: AbortSignal): Promise<GroupSummary[]> {
   return client.request<GroupSummary[]>('/api/groups', { method: 'GET', signal })
 }
@@ -105,6 +134,27 @@ export function getGroup(
   signal?: AbortSignal,
 ): Promise<GroupDetailDto> {
   return client.request<GroupDetailDto>(`/api/groups/${groupID}`, { method: 'GET', signal })
+}
+
+export function updateGroup(
+  client: ApiClient,
+  groupID: number,
+  body: GroupUpdateRequest,
+  signal?: AbortSignal,
+): Promise<GroupUpdateResult> {
+  return client.request<GroupUpdateResult>(`/api/groups/${groupID}`, {
+    method: 'PUT',
+    json: body,
+    signal,
+  })
+}
+
+export function deleteGroup(
+  client: ApiClient,
+  groupID: number,
+  signal?: AbortSignal,
+): Promise<void> {
+  return client.request<void>(`/api/groups/${groupID}`, { method: 'DELETE', signal })
 }
 
 export function discoverModels(

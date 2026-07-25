@@ -175,6 +175,25 @@ describe('GroupDetailView', () => {
     mounted.wrapper.unmount()
   })
 
+  it('renders the route-backed Settings editor instead of the placeholder', async () => {
+    const request = vi.fn(async (path: string) => {
+      if (path === '/api/groups/7') return detail
+      throw new Error(`unexpected request: ${path}`)
+    }) as ApiClient['request']
+    const mounted = await mountApp(GroupDetailView, {
+      api: { request },
+      queryClient: queryClient(),
+      path: '/groups/7?tab=settings',
+      locale: 'en-US',
+    })
+    await flushPromises()
+
+    expect(mounted.wrapper.get('[data-test="group-settings-save"]').text()).toContain('Save')
+    expect(mounted.wrapper.text()).not.toContain('delivered in the following T23 task')
+    expect(mounted.wrapper.text()).not.toContain('HEADER_RULE_CANARY_9c41')
+    mounted.wrapper.unmount()
+  })
+
   it('remounts the Keys tab when route Group ID changes so old rows and local state cannot target the new Group', async () => {
     const requestMock = vi.fn(async (path: string, options?: ApiRequestOptions) => {
       if (path === '/api/groups/7') return detail

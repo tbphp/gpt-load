@@ -8,13 +8,13 @@ import { useApiClient } from '@/api/client-context'
 import { getGroup } from '@/api/control/groups'
 import { controlQueryKeys } from '@/app/query-keys'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
-import SurfaceCard from '@/components/ui/SurfaceCard.vue'
 
 import GroupHeader from './GroupHeader.vue'
 import GroupTabs from './GroupTabs.vue'
 import { normalizeGroupTab, parsePositiveId } from './group-route'
 import GroupKeysTab from './keys/GroupKeysTab.vue'
 import GroupModelsTab from './models/GroupModelsTab.vue'
+import GroupSettingsTab from './settings/GroupSettingsTab.vue'
 
 const route = useRoute()
 const client = useApiClient()
@@ -81,10 +81,12 @@ const detailQuery = useQuery({
         :group-id="groupId"
         :group="detailQuery.data.value"
       />
-      <SurfaceCard v-else-if="activeTab === 'settings'" class="group-detail-placeholder">
-        <h2>{{ t('group.settingsTitle') }}</h2>
-        <p>{{ t('group.settingsPending') }}</p>
-      </SurfaceCard>
+      <GroupSettingsTab
+        v-else-if="activeTab === 'settings' && detailQuery.data.value"
+        :key="groupId"
+        :group-id="groupId"
+        :group="detailQuery.data.value"
+      />
     </template>
   </div>
 </template>
@@ -94,27 +96,22 @@ const detailQuery = useQuery({
   display: grid;
   gap: var(--space-5);
 }
-.group-detail-invalid,
-.group-detail-placeholder {
-  display: grid;
-  gap: var(--space-3);
-}
 .group-detail-invalid {
+  display: grid;
   max-width: 640px;
+  gap: var(--space-3);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-card);
   background: var(--color-surface);
   box-shadow: var(--shadow-card);
   padding: var(--space-6);
 }
-.group-detail-invalid h1,
-.group-detail-placeholder h2 {
+.group-detail-invalid h1 {
   max-width: none;
   margin: 0;
   font-size: 1.25rem;
 }
-.group-detail-invalid p,
-.group-detail-placeholder p {
+.group-detail-invalid p {
   margin: 0;
   color: var(--color-text-muted);
 }

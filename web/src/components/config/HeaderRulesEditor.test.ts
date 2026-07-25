@@ -13,7 +13,10 @@ function mountEditor(initial = { set: {}, remove: [] as string[] }) {
     },
     template: '<HeaderRulesEditor v-model="rules" />',
   })
-  return mount(Host, { global: { plugins: [createAppI18n(undefined, 'en-US').plugin] } })
+  return mount(Host, {
+    attachTo: document.body,
+    global: { plugins: [createAppI18n(undefined, 'en-US').plugin] },
+  })
 }
 
 describe('HeaderRulesEditor', () => {
@@ -36,6 +39,7 @@ describe('HeaderRulesEditor', () => {
       remove: ['X-Debug'],
     })
     expect(wrapper.text()).not.toContain('HEADER_CANARY_57aa')
+    wrapper.unmount()
   })
 
   it('reveals a Set value only by explicit action and reports case-insensitive duplicate names', async () => {
@@ -44,5 +48,32 @@ describe('HeaderRulesEditor', () => {
     await wrapper.findAll('[data-test="toggle-header-value"]')[0]!.trigger('click')
     expect(wrapper.findAll('[data-test="header-value"]')[0]!.attributes('type')).toBe('text')
     expect(wrapper.get('[role="alert"]').text()).toContain('duplicate')
+    wrapper.unmount()
+  })
+
+  it('normalizes ASCII header duplicates without locale-sensitive casing', () => {
+    const localeLower = vi
+      .spyOn(String.prototype, 'toLocaleLowerCase')
+      .mockImplementation(function (this: string) {
+        return this === 'I-Test' ? 'ı-test' : this.toLowerCase()
+      })
+
+    const wrapper = mountEditor({ set: { 'I-Test': 'secret', 'i-test': 'other' }, remove: [] })
+
+    expect(wrapper.get('[role="alert"]').text()).toContain('duplicate')
+    localeLower.mockRestore()
+    wrapper.unmount()
+  })
+
+  it('keeps reveal and delete controls at least 44 by 44 CSS pixels', async () => {
+    const wrapper = mountEditor({ set: { 'X-Test': 'secret' }, remove: [] })
+    const reveal = wrapper.get('[data-test="toggle-header-value"]').element as HTMLButtonElement
+    const remove = wrapper.get('[data-test="delete-header-rule"]').element as HTMLButtonElement
+
+    expect(reveal.style.minWidth).toBe('44px')
+    expect(reveal.style.minHeight).toBe('44px')
+    expect(remove.style.minWidth).toBe('44px')
+    expect(remove.style.minHeight).toBe('44px')
+    wrapper.unmount()
   })
 })

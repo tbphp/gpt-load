@@ -16,6 +16,7 @@ interface RuleRow {
 const props = defineProps<{ modelValue: HeaderRules }>()
 const emit = defineEmits<{ 'update:modelValue': [value: HeaderRules] }>()
 const { t } = useI18n()
+const touchTargetStyle = { minWidth: '44px', minHeight: '44px' }
 let nextKey = 1
 const rows = ref<RuleRow[]>([
   ...Object.entries(props.modelValue.set).map(([name, value]) => ({
@@ -34,10 +35,16 @@ const rows = ref<RuleRow[]>([
   })),
 ])
 
+function normalizeASCIIHeaderName(value: string): string {
+  return value
+    .trim()
+    .replace(/[A-Z]/g, (character) => String.fromCharCode(character.charCodeAt(0) + 32))
+}
+
 const duplicateNames = computed(() => {
   const counts = new Map<string, number>()
   for (const row of rows.value) {
-    const normalized = row.name.trim().toLocaleLowerCase()
+    const normalized = normalizeASCIIHeaderName(row.name)
     if (normalized) counts.set(normalized, (counts.get(normalized) ?? 0) + 1)
   }
   return new Set([...counts].filter(([, count]) => count > 1).map(([name]) => name))
@@ -137,6 +144,7 @@ function setValue(row: RuleRow, event: Event): void {
             data-test="toggle-header-value"
             class="header-rule__icon"
             type="button"
+            :style="touchTargetStyle"
             :aria-label="row.revealed ? t('common.conceal') : t('common.reveal')"
             @click="row.revealed = !row.revealed"
           >
@@ -148,8 +156,10 @@ function setValue(row: RuleRow, event: Event): void {
           t('import.headerRules.removeHint')
         }}</span>
         <button
+          data-test="delete-header-rule"
           class="header-rule__icon"
           type="button"
+          :style="touchTargetStyle"
           :aria-label="t('import.headerRules.delete')"
           @click="removeRow(row.key)"
         >
@@ -192,6 +202,7 @@ h3 {
 .header-rule__icon {
   display: inline-flex;
   min-height: 44px;
+  min-width: 44px;
   align-items: center;
   justify-content: center;
   border: 1px solid var(--color-border);
