@@ -6,14 +6,19 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+if (process.platform === 'win32') {
+  console.error('E2E harness requires a POSIX platform')
+  process.exit(1)
+}
+
 const host = '127.0.0.1'
 const appPort = 3107
 const upstreamPort = 3108
+const fakeUpstreamForceCloseDelayMs = 250
+const fakeUpstreamShutdownTimeoutMs = 1_000
+const childShutdownTimeoutMs = 2_000
 const dataDir = await mkdtemp(join(tmpdir(), 'gpt-load-e2e-'))
-const binary = resolve(
-  fileURLToPath(new URL('../..', import.meta.url)),
-  process.platform === 'win32' ? 'gpt-load.exe' : 'gpt-load',
-)
+const binary = resolve(fileURLToPath(new URL('../..', import.meta.url)), 'gpt-load')
 const modelList = JSON.stringify({
   object: 'list',
   data: [
@@ -56,7 +61,7 @@ try {
 }
 
 const child = spawn(binary, [], {
-  detached: process.platform !== 'win32',
+  detached: true,
   env: {
     ...process.env,
     HOST: host,
@@ -72,7 +77,9 @@ const child = spawn(binary, [], {
 
 async function closeFakeUpstream() {
   if (!fakeUpstream.listening) return
-  await new Promise((resolveClose, rejectClose) => {
+  let forceClose
+  let timeout
+  const closed = new Promise((resolveClose, rejectClose) => {
     fakeUpstream.close((error) => {
       if (error) {
         rejectClose(error)
@@ -81,22 +88,66 @@ async function closeFakeUpstream() {
       resolveClose()
     })
   })
+  fakeUpstream.closeIdleConnections()
+  const timedOut = new Promise((_, rejectTimeout) => {
+    forceClose = setTimeout(() => {
+      fakeUpstream.closeAllConnections()
+    }, fakeUpstreamForceCloseDelayMs)
+    timeout = setTimeout(() => {
+      rejectTimeout(new Error('Fake upstream shutdown timed out'))
+    }, fakeUpstreamShutdownTimeoutMs)
+  })
+  try {
+    await Promise.race([closed, timedOut])
+  } finally {
+    clearTimeout(forceClose)
+    clearTimeout(timeout)
+  }
+}
+
+async function terminateChild() {
+  if (child.exitCode !== null || child.signalCode !== null) return
+
+  const exited = once(child, 'exit')
+  child.kill('SIGTERM')
+  let timeout
+  const exitedGracefully = await Promise.race([
+    exited.then(() => true),
+    new Promise((resolveTimeout) => {
+      timeout = setTimeout(() => resolveTimeout(false), childShutdownTimeoutMs)
+    }),
+  ])
+  clearTimeout(timeout)
+  if (exitedGracefully) return
+
+  child.kill('SIGKILL')
+  await exited
 }
 
 let stopping = false
 let stopPromise
 
-function stop(signal = 'SIGTERM') {
+function stop() {
   if (stopPromise) return stopPromise
   stopping = true
   stopPromise = (async () => {
-    await closeFakeUpstream()
-    if (child.exitCode === null && child.signalCode === null) {
-      const exited = once(child, 'exit')
-      child.kill(signal)
-      await exited
+    let cleanupFailed = false
+    try {
+      await closeFakeUpstream()
+    } catch {
+      cleanupFailed = true
     }
-    await rm(dataDir, { recursive: true, force: true })
+    try {
+      await terminateChild()
+    } catch {
+      cleanupFailed = true
+    }
+    try {
+      await rm(dataDir, { recursive: true, force: true })
+    } catch {
+      cleanupFailed = true
+    }
+    if (cleanupFailed) throw new Error('E2E harness cleanup failed')
   })()
   return stopPromise
 }
@@ -105,8 +156,11 @@ function handleUnexpectedExit(code, signal) {
   if (stopping) return
   stopping = true
   stopPromise = (async () => {
-    await closeFakeUpstream()
-    await rm(dataDir, { recursive: true, force: true })
+    try {
+      await closeFakeUpstream()
+    } finally {
+      await rm(dataDir, { recursive: true, force: true })
+    }
   })()
   void stopPromise.finally(() => {
     console.error(
@@ -118,7 +172,7 @@ function handleUnexpectedExit(code, signal) {
 
 for (const signal of ['SIGINT', 'SIGTERM']) {
   process.on(signal, () => {
-    void stop(signal).then(
+    void stop().then(
       () => process.exit(0),
       () => process.exit(1),
     )

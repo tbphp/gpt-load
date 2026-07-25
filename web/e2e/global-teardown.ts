@@ -3,6 +3,7 @@ import { join } from 'node:path'
 
 import type { FullConfig } from '@playwright/test'
 
+import { removeArtifacts } from './artifact-removal'
 import { findSensitiveArtifacts, type ArtifactFile } from './artifact-safety'
 
 const credentialCanaries = ['e2e-auth-canary', 'e2e-upstream-key-one']
@@ -34,7 +35,8 @@ export default async function globalTeardown(config: FullConfig) {
     const offendingPaths = findSensitiveArtifacts(files, credentialCanaries)
     if (offendingPaths.length === 0) return
 
-    await Promise.all(offendingPaths.map((path) => rm(path, { force: true })))
+    const removed = await removeArtifacts(offendingPaths, (path) => rm(path, { force: true }))
+    if (!removed) throw new Error(artifactSafetyFailure)
   } catch {
     throw new Error(artifactSafetyFailure)
   }

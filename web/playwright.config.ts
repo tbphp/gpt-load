@@ -27,12 +27,9 @@ export default defineConfig({
     url: `http://127.0.0.1:${port}/health`,
     reuseExistingServer: false,
     timeout: 30_000,
-    gracefulShutdown:
-      process.platform === 'win32'
-        ? undefined
-        : {
-            signal: 'SIGTERM',
-            timeout: 5_000,
-          },
+    gracefulShutdown: {
+      signal: 'SIGTERM',
+      timeout: 0,
+    },
   },
 })

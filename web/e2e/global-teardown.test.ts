@@ -1,4 +1,4 @@
-import { constants } from 'node:fs'
+import { constants, existsSync } from 'node:fs'
 import { access, chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import type { FullConfig } from '@playwright/test'
 import { describe, expect, it } from 'vitest'
 
+import { removeArtifacts } from './artifact-removal'
 import globalTeardown from './global-teardown'
 
 const authCanary = 'e2e-auth-canary'
@@ -17,6 +18,14 @@ function teardownConfig(outputDir: string): FullConfig {
   return {
     projects: [{ outputDir }],
   } as FullConfig
+}
+
+function deferred() {
+  let resolve!: () => void
+  const promise = new Promise<void>((next) => {
+    resolve = next
+  })
+  return { promise, resolve }
 }
 
 describe('globalTeardown', () => {
@@ -66,6 +75,70 @@ describe('globalTeardown', () => {
         expect((rejection as Error).message).not.toContain(sensitivePath)
       } finally {
         await chmod(outputDir, 0o700)
+        await rm(outputDir, { recursive: true, force: true })
+      }
+    },
+  )
+
+  it.skipIf(process.platform === 'win32')(
+    'waits for every sensitive artifact deletion attempt before rejecting',
+    async () => {
+      const outputDir = await mkdtemp(join(tmpdir(), 'gpt-load-artifact-safety-'))
+      const protectedDir = join(outputDir, 'protected')
+      await mkdir(protectedDir)
+      const protectedPath = join(protectedDir, `${authCanary}.txt`)
+      await writeFile(protectedPath, upstreamCanary)
+      await chmod(protectedDir, 0o500)
+      const removablePath = join(outputDir, `removable-${authCanary}.txt`)
+      await writeFile(removablePath, generatedKey)
+
+      const removableStarted = deferred()
+      const protectedFailed = deferred()
+      const releaseProtectedFailure = deferred()
+      const releaseRemovable = deferred()
+      const removableFinished = deferred()
+      const removalPromise = removeArtifacts([protectedPath, removablePath], async (path) => {
+        if (path === protectedPath) {
+          await removableStarted.promise
+          try {
+            await rm(path, { force: true })
+          } catch (error) {
+            protectedFailed.resolve()
+            await releaseProtectedFailure.promise
+            throw error
+          }
+          return
+        }
+
+        removableStarted.resolve()
+        await releaseRemovable.promise
+        await rm(path, { force: true })
+        removableFinished.resolve()
+      })
+
+      try {
+        await protectedFailed.promise
+        let removalCompleted = false
+        void removalPromise.then(() => {
+          removalCompleted = true
+        })
+        releaseProtectedFailure.resolve()
+        await new Promise<void>((resolve) => setImmediate(resolve))
+        const completedBeforeRelease = removalCompleted
+
+        releaseRemovable.resolve()
+        const removed = await removalPromise
+        await removableFinished.promise
+
+        expect(completedBeforeRelease).toBe(false)
+        expect(removed).toBe(false)
+        expect(existsSync(removablePath)).toBe(false)
+        expect(existsSync(protectedPath)).toBe(true)
+      } finally {
+        releaseProtectedFailure.resolve()
+        releaseRemovable.resolve()
+        await removalPromise
+        await chmod(protectedDir, 0o700)
         await rm(outputDir, { recursive: true, force: true })
       }
     },
