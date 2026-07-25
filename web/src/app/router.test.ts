@@ -15,7 +15,7 @@ describe('application routes', () => {
     '/import',
     '/groups/42',
     '/access-keys',
-    '/monitor?tab=requests',
+    '/monitor?tab=logs',
     '/settings',
   ])('resolves the explicit page route %s', (path) => {
     const router = createAppRouter(createAuth(true), createMemoryHistory())
@@ -61,11 +61,11 @@ describe('application routes', () => {
   it('redirects a protected route without a credential to login', async () => {
     const router = createAppRouter(createAuth(false), createMemoryHistory())
 
-    await router.push('/monitor?tab=requests')
+    await router.push('/monitor?tab=logs')
 
     expect(router.currentRoute.value.name).toBe('login')
     expect(router.currentRoute.value.query).toEqual({
-      redirect: '/monitor?tab=requests',
+      redirect: '/monitor?tab=logs',
     })
   })
 
@@ -102,7 +102,7 @@ describe('application routes', () => {
     expect(safeRedirect(redirect, router)).toBe('/')
   })
 
-  it.each(['/', '/access-keys', '/groups/42', '/monitor?tab=requests'])(
+  it.each(['/', '/access-keys', '/groups/42', '/monitor?tab=logs'])(
     'accepts registered relative redirect %s',
     (redirect) => {
       const router = createAppRouter(createAuth(true), createMemoryHistory())

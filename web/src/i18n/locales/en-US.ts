@@ -196,6 +196,17 @@ export default {
     modelPlaceholder: 'When no real model is available, replace {model} with an actual model ID.',
     snippet: 'Client example',
   },
+  monitor: {
+    title: 'Monitor',
+    description: 'Review runtime health, request logs, and current route decisions.',
+    currentState: 'Current state',
+    tabs: {
+      label: 'Monitor sections',
+      health: 'Health',
+      logs: 'Request logs',
+      inspector: 'Route inspector',
+    },
+  },
   group: {
     invalidTitle: 'Invalid Group address',
     invalidDescription: 'The Group ID must be a positive safe integer.',

@@ -6,8 +6,8 @@ import HomeView from '@/features/home/HomeView.vue'
 import GroupDetailView from '@/features/groups/GroupDetailView.vue'
 import ImportView from '@/features/import/ImportView.vue'
 import AccessKeysView from '@/features/access-keys/AccessKeysView.vue'
+import MonitorView from '@/features/monitor/MonitorView.vue'
 import SettingsView from '@/features/settings/SettingsView.vue'
-import PlaceholderView from '@/views/PlaceholderView.vue'
 
 const routes: RouteRecordRaw[] = [
   {
@@ -38,7 +38,7 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/monitor',
     name: 'monitor',
-    component: PlaceholderView,
+    component: MonitorView,
     meta: { titleKey: 'shell.monitor', requiresAuth: true },
   },
   {

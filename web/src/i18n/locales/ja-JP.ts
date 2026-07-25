@@ -193,6 +193,17 @@ export default {
     modelPlaceholder: '実在モデルがない場合は、{model} を実際のモデル ID に置き換えてください。',
     snippet: 'クライアント例',
   },
+  monitor: {
+    title: 'モニター',
+    description: 'ランタイムの健全性、リクエストログ、現在のルート判断を確認します。',
+    currentState: '現在の状態',
+    tabs: {
+      label: 'モニターのセクション',
+      health: 'ヘルス',
+      logs: 'リクエストログ',
+      inspector: 'ルート検査',
+    },
+  },
   group: {
     invalidTitle: 'Group アドレスが無効です',
     invalidDescription: 'Group ID は正の安全な整数である必要があります。',

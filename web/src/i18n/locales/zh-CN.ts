@@ -188,6 +188,17 @@ export default {
     modelPlaceholder: '未找到真实模型时，请将 {model} 替换为实际模型 ID。',
     snippet: '客户端示例',
   },
+  monitor: {
+    title: '监控',
+    description: '查看运行健康、请求日志和当前路由决策。',
+    currentState: '当前状态',
+    tabs: {
+      label: '监控分区',
+      health: '健康状态',
+      logs: '请求日志',
+      inspector: '路由检查',
+    },
+  },
   group: {
     invalidTitle: 'Group 地址无效',
     invalidDescription: 'Group ID 必须是正的安全整数。',
