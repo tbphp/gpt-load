@@ -1,9 +1,9 @@
 <script setup lang="ts">
-defineProps<{ caption: string }>()
+defineProps<{ caption: string; dense?: boolean }>()
 </script>
 
 <template>
-  <div class="data-table__container">
+  <div class="data-table__container" :class="{ 'data-table__container--dense': dense }">
     <table class="data-table">
       <caption class="sr-only">
         {{
@@ -30,6 +30,9 @@ defineProps<{ caption: string }>()
   min-width: 920px;
   border-collapse: collapse;
   font-size: 0.8125rem;
+}
+.data-table__container--dense .data-table {
+  min-width: 780px;
 }
 .data-table :deep(th) {
   border-bottom: 1px solid var(--color-border);

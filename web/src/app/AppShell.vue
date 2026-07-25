@@ -122,6 +122,7 @@ watch(
         <AppDrawer
           v-model:open="drawerOpen"
           :title="t('shell.navigationTitle')"
+          :description="t('shell.primaryNavigation')"
           :close-label="t('shell.closeNavigation')"
         >
           <template #trigger>

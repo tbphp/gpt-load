@@ -1,15 +1,20 @@
 <script setup lang="ts">
 import { Eye, EyeOff } from 'lucide-vue-next'
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 
 const props = defineProps<{
   value: string
   revealLabel: string
   concealLabel: string
+  buttonTest?: string
 }>()
 const revealed = ref(false)
 const displayValue = computed(() =>
   revealed.value ? props.value : `${props.value.slice(0, 6)}${'•'.repeat(12)}`,
+)
+watch(
+  () => props.value,
+  () => (revealed.value = false),
 )
 </script>
 
@@ -19,6 +24,7 @@ const displayValue = computed(() =>
     <button
       type="button"
       :aria-label="revealed ? concealLabel : revealLabel"
+      :data-test="buttonTest"
       :aria-pressed="revealed"
       @click="revealed = !revealed"
     >

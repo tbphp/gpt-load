@@ -3,6 +3,7 @@ import { X } from 'lucide-vue-next'
 import {
   DialogClose,
   DialogContent,
+  DialogDescription,
   DialogOverlay,
   DialogPortal,
   DialogRoot,
@@ -13,6 +14,7 @@ import {
 defineProps<{
   open: boolean
   title: string
+  description: string
   closeLabel: string
 }>()
 defineEmits<{ 'update:open': [open: boolean] }>()
@@ -23,9 +25,10 @@ defineEmits<{ 'update:open': [open: boolean] }>()
     <DialogTrigger as-child><slot name="trigger" /></DialogTrigger>
     <DialogPortal>
       <DialogOverlay class="app-drawer__overlay" />
-      <DialogContent class="app-drawer__content">
+      <DialogContent class="app-drawer__content" @escape-key-down="$emit('update:open', false)">
         <header class="app-drawer__header">
           <DialogTitle class="app-drawer__title">{{ title }}</DialogTitle>
+          <DialogDescription class="sr-only">{{ description }}</DialogDescription>
           <DialogClose class="app-drawer__close" :aria-label="closeLabel">
             <X :size="20" aria-hidden="true" />
           </DialogClose>
@@ -48,12 +51,14 @@ defineEmits<{ 'update:open': [open: boolean] }>()
   z-index: var(--z-drawer);
   top: 0;
   right: 0;
-  width: min(90vw, 380px);
+  width: min(92vw, 520px);
   height: 100dvh;
   border-left: 1px solid var(--color-border);
   background: var(--color-surface);
   box-shadow: var(--shadow-overlay);
   color: var(--color-text);
+  display: flex;
+  flex-direction: column;
 }
 .app-drawer__header {
   display: flex;
@@ -82,6 +87,8 @@ defineEmits<{ 'update:open': [open: boolean] }>()
 .app-drawer__body {
   overflow-y: auto;
   padding: var(--space-4);
+  flex: 1;
+  min-height: 0;
 }
 @media (max-width: 480px) {
   .app-drawer__content {
