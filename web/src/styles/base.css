@@ -469,6 +469,10 @@ h1 {
 }
 
 @media (max-width: 640px) {
+  body {
+    font-size: 1rem;
+  }
+
   .nav {
     display: none;
   }

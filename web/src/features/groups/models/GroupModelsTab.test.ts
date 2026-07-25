@@ -58,6 +58,23 @@ function clickDocument(selector: string): void {
 }
 
 describe('GroupModelsTab', () => {
+  it('disables every ModelDraft control while replacement is pending', async () => {
+    const request = vi.fn(() => new Promise(() => {})) as ApiClient['request']
+    const { wrapper } = await mountModels(request)
+    await wrapper.get('[data-test="model-alias-0"]').setValue('changed')
+    await wrapper.get('[data-test="models-save"]').trigger('click')
+
+    for (const selector of [
+      '[data-test="model-selected-0"]',
+      '[data-test="model-alias-0"]',
+      '[data-test="manual-model-id"]',
+      '[data-test="manual-model-alias"]',
+      '[data-test="add-manual-model"]',
+    ]) {
+      expect(wrapper.get(selector).attributes()).toHaveProperty('disabled')
+    }
+    wrapper.unmount()
+  })
   it('merges candidate-only discovery without losing saved aliases or missing saved models', async () => {
     const request = vi.fn(async (path: string, options?: ApiRequestOptions) => {
       if (path === '/api/groups/7/models/discover' && options?.method === 'POST') {

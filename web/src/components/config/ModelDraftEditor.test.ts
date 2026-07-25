@@ -154,6 +154,27 @@ describe('ModelDraftEditor', () => {
     mounted.wrapper.unmount()
   })
 
+  it('disables every mutable ModelDraft subcontrol', async () => {
+    const mounted = await mountApp(ModelDraftEditor, {
+      api: { request: vi.fn() },
+      queryClient: new QueryClient(),
+      locale: 'en-US',
+      mounting: {
+        props: { modelValue: [{ id: 'old', alias: 'public', selected: true }], disabled: true },
+      },
+    })
+    for (const selector of [
+      '[data-test="model-selected-0"]',
+      '[data-test="model-alias-0"]',
+      '[data-test="manual-model-id"]',
+      '[data-test="manual-model-alias"]',
+      '[data-test="add-manual-model"]',
+    ]) {
+      expect(mounted.wrapper.get(selector).attributes()).toHaveProperty('disabled')
+    }
+    mounted.wrapper.unmount()
+  })
+
   it('adds a trimmed manual model and alias after discovery failure', async () => {
     const mounted = await mountApp(ModelDraftEditor, {
       api: { request: vi.fn() },

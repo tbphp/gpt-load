@@ -56,6 +56,31 @@ function documentButton(selector: string): HTMLButtonElement {
 }
 
 describe('GroupSettingsTab', () => {
+  it('disables every mutable Group Settings control while save is pending', async () => {
+    const request = vi.fn(() => new Promise(() => {})) as ApiClient['request']
+    const { wrapper } = await mountSettings(request)
+    await wrapper.get('[data-test="group-name"]').setValue('Renamed')
+    await wrapper.get('[data-test="group-settings-save"]').trigger('click')
+
+    for (const selector of [
+      '[data-test="group-name"]',
+      '[data-test="group-upstream-url"]',
+      '[data-test="group-validation-model"]',
+      '[data-test="group-weight"]',
+      '[data-test="group-protocol-openai"]',
+      '[data-test="group-enabled"]',
+      '[data-test="override-connect_timeout"]',
+    ]) {
+      expect(wrapper.get(selector).attributes()).toHaveProperty('disabled')
+    }
+    wrapper.unmount()
+  })
+  it('renders only Group protocols', async () => {
+    const { wrapper } = await mountSettings(vi.fn() as ApiClient['request'])
+
+    expect(wrapper.find('[data-test="group-protocol-openai-response"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
   it('shows inherited/effective values for exactly five runtime fields and no retention setting', async () => {
     const { wrapper } = await mountSettings(vi.fn() as ApiClient['request'])
 
@@ -219,6 +244,25 @@ describe('GroupSettingsTab', () => {
     wrapper.unmount()
   })
 
+  it('restores real Save focus after URL confirmation closes', async () => {
+    const request = vi
+      .fn()
+      .mockRejectedValueOnce(
+        new ApiError(409, 'UPSTREAM_URL_CHANGE_CONFIRMATION_REQUIRED', 'confirmation required'),
+      ) as ApiClient['request']
+    const { wrapper } = await mountSettings(request)
+    const save = wrapper.get('[data-test="group-settings-save"]').element as HTMLButtonElement
+    await wrapper.get('[data-test="group-upstream-url"]').setValue('https://new.example.com/v1')
+    save.focus()
+    await wrapper.get('[data-test="group-settings-save"]').trigger('click')
+    await flushPromises()
+
+    document.querySelector<HTMLButtonElement>('.app-dialog__close')?.click()
+    await flushPromises()
+    expect(document.activeElement).toBe(save)
+    wrapper.unmount()
+  })
+
   it('keeps the rediscovery recommendation after a later unrelated successful save returns false', async () => {
     const changedURL = { ...detail, upstream_url: 'https://new.example.com/v1' }
     const renamed = { ...changedURL, name: 'Renamed' }
@@ -286,6 +330,23 @@ describe('GroupSettingsTab', () => {
     expect(wrapper.get('[data-test="group-url-conflict"]').text()).toContain('Existing')
     expect(document.querySelector('[data-test="group-url-confirm"]')).toBeNull()
     expect(JSON.stringify(requestMock.mock.calls)).not.toContain('confirm_upstream_url_change')
+    wrapper.unmount()
+  })
+
+  it('fully rebases a clean draft when refreshed Group props arrive', async () => {
+    const { wrapper } = await mountSettings(vi.fn() as ApiClient['request'])
+    const refreshed = {
+      ...detail,
+      config: {},
+      effective_config: { ...detail.effective_config, connect_timeout: 15, request_timeout: 900 },
+    }
+
+    await wrapper.setProps({ group: refreshed })
+    await flushPromises()
+
+    expect(wrapper.get('[data-test="runtime-connect_timeout"]').text()).toContain('15')
+    expect(wrapper.get('[data-test="runtime-request_timeout"]').text()).toContain('900')
+    expect(wrapper.get('[data-test="group-settings-save"]').attributes()).toHaveProperty('disabled')
     wrapper.unmount()
   })
 

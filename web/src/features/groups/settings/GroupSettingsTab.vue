@@ -80,8 +80,9 @@ const valid = computed(() => {
 watch(
   () => props.group,
   (group) => {
+    const wasDirty = dirty.value
     savedGroup.value = group
-    if (!dirty.value) draft.value = createGroupSettingsDraft(group)
+    if (!wasDirty) draft.value = createGroupSettingsDraft(group)
   },
 )
 

@@ -216,11 +216,13 @@ function buildCreateBody(confirmSameURL: boolean): GroupCreateRequest {
   }
 }
 
-async function finishSuccess(groupID: number): Promise<void> {
+async function finishSuccess(controller: AbortController, groupID: number): Promise<void> {
+  if (activeController !== controller) return
   await Promise.all([
     queryClient.invalidateQueries({ queryKey: controlQueryKeys.groups.list() }),
     queryClient.invalidateQueries({ queryKey: controlQueryKeys.health() }),
   ])
+  if (activeController !== controller) return
   completed.value = true
   draft.keys = ''
   recovery.clear()
@@ -234,7 +236,7 @@ async function submitCreate(confirmSameURL = false): Promise<void> {
   try {
     const result = await createGroup(api, buildCreateBody(confirmSameURL), controller.signal)
     if (activeController !== controller) return
-    await finishSuccess(result.group_id)
+    await finishSuccess(controller, result.group_id)
   } catch (error: unknown) {
     if (activeController !== controller || error instanceof RequestCancelledError) return
     if (
@@ -263,6 +265,7 @@ async function appendToGroup(groupID: number): Promise<void> {
       queryClient.invalidateQueries({ queryKey: controlQueryKeys.groups.list() }),
       queryClient.invalidateQueries({ queryKey: controlQueryKeys.health() }),
     ])
+    if (activeController !== controller) return
     completed.value = true
     draft.keys = ''
     recovery.clear()
@@ -441,13 +444,17 @@ onBeforeUnmount(() => {
           <AppButton data-test="conflict-confirm-separate" @click="submitCreate(true)">{{
             t('import.conflict.separate')
           }}</AppButton
-          ><AppButton data-test="conflict-edit" variant="ghost" @click="returnToEdit">{{
-            t('import.conflict.edit')
-          }}</AppButton>
+          ><AppButton
+            data-test="conflict-edit"
+            variant="ghost"
+            :disabled="pending"
+            @click="returnToEdit"
+            >{{ t('import.conflict.edit') }}</AppButton
+          >
         </div>
       </section>
       <footer v-else class="card-actions split">
-        <AppButton variant="secondary" @click="draft.step = 2"
+        <AppButton variant="secondary" :disabled="pending" @click="draft.step = 2"
           ><ChevronLeft :size="16" aria-hidden="true" />{{ t('import.back') }}</AppButton
         ><AppButton data-test="create" :busy="pending" @click="submitCreate(false)">{{
           t('import.create')

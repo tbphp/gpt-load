@@ -70,6 +70,11 @@ async function discoverAndReview(wrapper: ReturnType<typeof mount>) {
 }
 
 describe('NewGroupImport', () => {
+  it('renders only Group protocols', async () => {
+    const { wrapper } = await mountImport(vi.fn() as ApiClient['request'])
+
+    expect(wrapper.find('[data-test="protocol-openai-response"]').exists()).toBe(false)
+  })
   it('immediately exposes manual model entry for a recovered step-2 draft with no models', async () => {
     const request = vi.fn() as ApiClient['request']
     const recovered: ImportDraft = {
@@ -221,6 +226,22 @@ describe('NewGroupImport', () => {
     expect(importRecovery.clear).toHaveBeenCalled()
   })
 
+  it('falls back to fixed generic feedback for malformed conflict data', async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({ models: ['gpt-4o'] })
+      .mockRejectedValueOnce(
+        new ApiError(409, 'UPSTREAM_URL_CONFLICT', 'must not render', { groups: [] }),
+      ) as ApiClient['request']
+    const { wrapper } = await mountImport(request)
+    await enterConnection(wrapper)
+    await discoverAndReview(wrapper)
+    await wrapper.get('[data-test="create"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Unable to create')
+    expect(wrapper.find('.conflict').exists()).toBe(false)
+  })
   it('guards conflict data and appends raw keys without group update or model endpoints', async () => {
     const requestMock = vi
       .fn()
@@ -258,6 +279,29 @@ describe('NewGroupImport', () => {
     expect(invalidate).toHaveBeenCalledWith({ queryKey: controlQueryKeys.groups.list() })
     expect(invalidate).toHaveBeenCalledWith({ queryKey: controlQueryKeys.health() })
     expect(router.currentRoute.value.fullPath).toBe('/groups/7')
+  })
+
+  it('does not navigate or clear recovery when create invalidations finish after unmount', async () => {
+    let resolveInvalidations!: () => void
+    const invalidations = new Promise<void>((resolve) => (resolveInvalidations = resolve))
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({ models: ['gpt-4o'] })
+      .mockResolvedValueOnce({ group_id: 42 }) as ApiClient['request']
+    const { importRecovery, queryClient, router, wrapper } = await mountImport(request)
+    const push = vi.spyOn(router, 'push')
+    vi.spyOn(queryClient, 'invalidateQueries').mockImplementation(() => invalidations)
+    await enterConnection(wrapper)
+    await discoverAndReview(wrapper)
+
+    await wrapper.get('[data-test="create"]').trigger('click')
+    await flushPromises()
+    wrapper.unmount()
+    resolveInvalidations()
+    await flushPromises()
+
+    expect(push).not.toHaveBeenCalled()
+    expect(importRecovery.clear).not.toHaveBeenCalled()
   })
 
   it('resubmits a structured conflict only after explicit separate-Group confirmation', async () => {

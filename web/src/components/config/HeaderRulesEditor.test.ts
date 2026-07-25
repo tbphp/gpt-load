@@ -5,13 +5,13 @@ import { createAppI18n } from '@/i18n'
 
 import HeaderRulesEditor from './HeaderRulesEditor.vue'
 
-function mountEditor(initial = { set: {}, remove: [] as string[] }) {
+function mountEditor(initial = { set: {}, remove: [] as string[] }, disabled = false) {
   const Host = defineComponent({
     components: { HeaderRulesEditor },
     setup() {
-      return { rules: ref(initial), valid: ref(true) }
+      return { rules: ref(initial), valid: ref(true), disabled }
     },
-    template: '<HeaderRulesEditor v-model="rules" v-model:valid="valid" />',
+    template: '<HeaderRulesEditor v-model="rules" v-model:valid="valid" :disabled="disabled" />',
   })
   return mount(Host, {
     attachTo: document.body,
@@ -39,6 +39,21 @@ describe('HeaderRulesEditor', () => {
       remove: ['X-Debug'],
     })
     expect(wrapper.text()).not.toContain('HEADER_CANARY_57aa')
+    wrapper.unmount()
+  })
+
+  it('disables every mutable HeaderRules subcontrol', () => {
+    const wrapper = mountEditor({ set: { 'X-Test': 'secret' }, remove: [] }, true)
+    for (const selector of [
+      '[data-test="add-header-rule"]',
+      '[data-test="header-action"]',
+      '[data-test="header-name"]',
+      '[data-test="header-value"]',
+      '[data-test="toggle-header-value"]',
+      '[data-test="delete-header-rule"]',
+    ]) {
+      expect(wrapper.get(selector).attributes()).toHaveProperty('disabled')
+    }
     wrapper.unmount()
   })
 

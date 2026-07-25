@@ -119,6 +119,22 @@ describe('import recovery', () => {
     }
   })
 
+  it('removes recovered new-Group drafts containing AccessKey-only protocols', () => {
+    const storage = memoryStorage()
+    storage.setItem(
+      importRecoveryStorageKey,
+      JSON.stringify({
+        version: 1,
+        expires_at: 910_000,
+        draft: { ...draft, protocols: ['openai-response'] },
+      }),
+    )
+    const { service } = createHarness(storage)
+
+    expect(service.consume()).toBeNull()
+    expect(storage.getItem(importRecoveryStorageKey)).toBeNull()
+  })
+
   it('consumes in get, remove, confirm-absent, then parse order and leaves no secret in storage', () => {
     const events: string[] = []
     const storage = memoryStorage(events)
