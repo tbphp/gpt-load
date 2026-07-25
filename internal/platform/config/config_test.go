@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"gpt-load/internal/platform/authkey"
+	"gpt-load/internal/platform/encryption"
 )
 
 func TestLoadUsesDefaultConfiguration(t *testing.T) {
@@ -109,7 +110,7 @@ func TestLoadReportsKeyFileSecretSources(t *testing.T) {
 	if cfg.AuthKeyMetadata.Source != SecretSourceKeyFile ||
 		cfg.AuthKeyMetadata.Path != filepath.Join(dataDir, authkey.FileName) ||
 		cfg.EncryptionKeyMetadata.Source != SecretSourceKeyFile ||
-		cfg.EncryptionKeyMetadata.Path != filepath.Join(dataDir, "encryption.key") {
+		cfg.EncryptionKeyMetadata.Path != filepath.Join(dataDir, encryption.KeyFileName) {
 		t.Fatalf("metadata = %#v/%#v", cfg.AuthKeyMetadata, cfg.EncryptionKeyMetadata)
 	}
 }

@@ -111,6 +111,8 @@ func Load() (*Config, error) {
 	}
 	encryptionKeyMetadata := SecretMetadata{Source: SecretSourceEnvironment}
 	if explicitEncryptionKey == "" {
+		// Keep this filename in sync with encryption.KeyFileName. Importing the
+		// encryption implementation here would violate runtime-domain boundaries.
 		encryptionKeyMetadata = SecretMetadata{
 			Source: SecretSourceKeyFile,
 			Path:   filepath.Join(dataDir, "encryption.key"),
