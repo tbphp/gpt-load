@@ -28,7 +28,7 @@ jobs:
       - name: Build Backend
         run: |
           go mod download
-          go build -ldflags "-s -w -X gpt-load/internal/platform/version.Version=${{ github.ref_name }}" -o gpt-load-windows-amd64.exe
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags "-s -w -X gpt-load/internal/platform/version.Version=${{ github.ref_name }}" -o gpt-load-windows-amd64.exe
       - name: Release
         uses: softprops/action-gh-release@v1
         if: startsWith(github.ref, 'refs/tags/')

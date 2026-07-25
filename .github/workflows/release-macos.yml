@@ -25,9 +25,7 @@ jobs:
       - name: Build Backend arm64
         run: |
           go mod download
-          go build -ldflags "-s -w -X gpt-load/internal/platform/version.Version=${{ github.ref_name }}" -o gpt-load-macos-arm64
-        env:
-          CGO_ENABLED: 0
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -ldflags "-s -w -X gpt-load/internal/platform/version.Version=${{ github.ref_name }}" -o gpt-load-macos-arm64
 
       - name: Build Backend amd64
         run: |
