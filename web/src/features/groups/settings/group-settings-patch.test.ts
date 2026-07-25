@@ -47,6 +47,21 @@ describe('group settings patch', () => {
     expect(buildGroupSettingsPatch(base, draft)).toEqual({ validation_model: null })
   })
 
+  it('preserves an existing manual weight of zero as an unchanged legal value', () => {
+    const existing = { ...base, weight_manual: 0 }
+    const draft = createGroupSettingsDraft(existing)
+
+    expect(draft.weight_manual).toBe(0)
+    expect(buildGroupSettingsPatch(existing, draft)).toEqual({})
+  })
+
+  it('submits zero as an explicit manual weight instead of Auto', () => {
+    const draft = createGroupSettingsDraft(base)
+    draft.weight_manual = 0
+
+    expect(buildGroupSettingsPatch(base, draft)).toEqual({ weight_manual: 0 })
+  })
+
   it('normalizes and includes all six supported base fields without unrelated data', () => {
     const draft = createGroupSettingsDraft(base)
     draft.name = ' Renamed '

@@ -51,7 +51,7 @@ const timeoutKeys: GroupTimeoutKey[] = [
   'request_timeout',
   'stream_idle_timeout',
 ]
-const weights = Array.from({ length: 100 }, (_, index) => index + 1)
+const weights = Array.from({ length: 101 }, (_, index) => index)
 const patch = computed(() => buildGroupSettingsPatch(savedGroup.value, draft.value))
 const dirty = computed(() => Object.keys(patch.value).length > 0)
 const valid = computed(() => {
@@ -65,7 +65,7 @@ const valid = computed(() => {
   if (
     draft.value.weight_manual !== null &&
     (!Number.isInteger(draft.value.weight_manual) ||
-      draft.value.weight_manual < 1 ||
+      draft.value.weight_manual < 0 ||
       draft.value.weight_manual > 100)
   ) {
     return false
@@ -135,7 +135,6 @@ async function runSave(confirmUpstreamURLChange = false): Promise<void> {
   pending.value = true
   genericError.value = false
   urlConflict.value = null
-  rediscoveryRecommended.value = false
   controller?.abort()
   controller = new AbortController()
   const activeController = controller
@@ -144,7 +143,8 @@ async function runSave(confirmUpstreamURLChange = false): Promise<void> {
     savedGroup.value = result.group
     draft.value = createGroupSettingsDraft(result.group)
     urlConfirmOpen.value = false
-    rediscoveryRecommended.value = result.model_rediscovery_recommended
+    rediscoveryRecommended.value =
+      rediscoveryRecommended.value || result.model_rediscovery_recommended
     queryClient.setQueryData(controlQueryKeys.groups.detail(props.groupId), result.group)
     await queryClient.invalidateQueries({ queryKey: controlQueryKeys.groups.list() })
     if (healthAffected(normalizedPatch)) {

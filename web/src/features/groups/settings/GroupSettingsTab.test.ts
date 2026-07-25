@@ -84,6 +84,46 @@ describe('GroupSettingsTab', () => {
     wrapper.unmount()
   })
 
+  it('renders an existing manual weight of zero and exposes Auto plus every integer from 0 to 100', async () => {
+    const zeroWeight = { ...detail, weight_manual: 0 }
+    const { wrapper } = await mountSettings(vi.fn() as ApiClient['request'], zeroWeight)
+    const select = wrapper.get('[data-test="group-weight"]')
+    const optionValues = select.findAll('option').map((option) => option.attributes('value'))
+
+    expect((select.element as HTMLSelectElement).value).toBe('0')
+    expect(optionValues).toHaveLength(102)
+    expect(optionValues[0]).toBe('auto')
+    expect(optionValues[1]).toBe('0')
+    expect(optionValues.at(-1)).toBe('100')
+    expect(wrapper.get('[data-test="group-settings-save"]').attributes()).toHaveProperty('disabled')
+    wrapper.unmount()
+  })
+
+  it('submits zero as a legal manual Group weight and invalidates health', async () => {
+    const updated = { ...detail, weight_manual: 0 }
+    const request = vi.fn().mockResolvedValue({
+      group: updated,
+      model_rediscovery_recommended: false,
+    }) as ApiClient['request']
+    const { queryClient: client, wrapper } = await mountSettings(request)
+    const invalidate = vi.spyOn(client, 'invalidateQueries')
+
+    await wrapper.get('[data-test="group-weight"]').setValue('0')
+    await wrapper.get('[data-test="group-settings-save"]').trigger('click')
+    await flushPromises()
+
+    expect(request).toHaveBeenCalledWith('/api/groups/7', {
+      method: 'PUT',
+      json: { weight_manual: 0 },
+      signal: expect.any(AbortSignal),
+    })
+    expect(invalidate.mock.calls.map(([filters]) => filters)).toEqual([
+      { queryKey: controlQueryKeys.groups.list() },
+      { queryKey: controlQueryKeys.health() },
+    ])
+    wrapper.unmount()
+  })
+
   it('rebases detail, invalidates list, and invalidates health only for health-embedded base fields', async () => {
     const updated = { ...detail, name: 'Renamed' }
     const result: GroupUpdateResult = { group: updated, model_rediscovery_recommended: false }
@@ -176,6 +216,52 @@ describe('GroupSettingsTab', () => {
     expect(wrapper.get('[data-test="group-rediscovery-action"]').attributes('href')).toBe(
       '/groups/7?tab=models',
     )
+    wrapper.unmount()
+  })
+
+  it('keeps the rediscovery recommendation after a later unrelated successful save returns false', async () => {
+    const changedURL = { ...detail, upstream_url: 'https://new.example.com/v1' }
+    const renamed = { ...changedURL, name: 'Renamed' }
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({ group: changedURL, model_rediscovery_recommended: true })
+      .mockResolvedValueOnce({ group: renamed, model_rediscovery_recommended: false })
+    const { wrapper } = await mountSettings(request as ApiClient['request'])
+
+    await wrapper.get('[data-test="group-upstream-url"]').setValue(changedURL.upstream_url)
+    await wrapper.get('[data-test="group-settings-save"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[data-test="group-rediscovery-recommended"]').exists()).toBe(true)
+
+    await wrapper.get('[data-test="group-name"]').setValue('Renamed')
+    await wrapper.get('[data-test="group-settings-save"]').trigger('click')
+    await flushPromises()
+
+    expect(request).toHaveBeenCalledTimes(2)
+    expect(wrapper.find('[data-test="group-rediscovery-recommended"]').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('keeps the rediscovery recommendation when a later unrelated save fails', async () => {
+    const changedURL = { ...detail, upstream_url: 'https://new.example.com/v1' }
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({ group: changedURL, model_rediscovery_recommended: true })
+      .mockRejectedValueOnce(new Error('later failure'))
+    const { wrapper } = await mountSettings(request as ApiClient['request'])
+
+    await wrapper.get('[data-test="group-upstream-url"]').setValue(changedURL.upstream_url)
+    await wrapper.get('[data-test="group-settings-save"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[data-test="group-rediscovery-recommended"]').exists()).toBe(true)
+
+    await wrapper.get('[data-test="group-name"]').setValue('Renamed')
+    await wrapper.get('[data-test="group-settings-save"]').trigger('click')
+    await flushPromises()
+
+    expect(request).toHaveBeenCalledTimes(2)
+    expect(wrapper.find('[data-test="group-rediscovery-recommended"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain('Unable to update')
     wrapper.unmount()
   })
 
