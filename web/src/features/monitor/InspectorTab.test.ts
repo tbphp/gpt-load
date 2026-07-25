@@ -295,6 +295,143 @@ describe('InspectorTab', () => {
     expect(router.currentRoute.value.query.external_model).toBe('second-model')
   })
 
+  it('syncs a reused Inspector to a new deep link and invalidates its running owner without inspecting', async () => {
+    const late = deferred<RouteInspectResponseDto>()
+    const api = new InspectorApi([inspectionFixture(), late.promise])
+    const { router, wrapper } = await mountInspector(
+      api,
+      '/monitor?tab=inspector&protocol=openai&external_model=first-model&access_key_id=12',
+    )
+
+    await wrapper.get('[data-test="inspector-submit"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[data-test="inspector-result"]').exists()).toBe(true)
+
+    await wrapper.get('[data-test="inspector-submit"]').trigger('click')
+    await flushPromises()
+    const runningRequest = inspectionRequests(api)[1]
+    expect(runningRequest?.options?.signal?.aborted).toBe(false)
+
+    await wrapper.get('[data-test="inspector-model"]').setValue(' invalid-model ')
+    await wrapper.get('[data-test="inspector-form"]').trigger('submit')
+    await flushPromises()
+    expect(wrapper.find('[data-test="inspector-validation-error"]').exists()).toBe(true)
+
+    await router.push({
+      name: 'monitor',
+      query: {
+        tab: 'inspector',
+        protocol: 'anthropic',
+        external_model: 'claude-new',
+        access_key_id: '13',
+      },
+    })
+    await flushPromises()
+
+    const selects = wrapper.findAllComponents(AppSelect)
+    expect(selects[0]?.props('modelValue')).toBe('anthropic')
+    expect(selects[1]?.props('modelValue')).toBe('13')
+    expect(wrapper.get<HTMLInputElement>('[data-test="inspector-model"]').element.value).toBe(
+      'claude-new',
+    )
+    expect(inspectionRequests(api)).toHaveLength(2)
+    expect(runningRequest?.options?.signal?.aborted).toBe(true)
+    expect(wrapper.find('[data-test="inspector-validation-error"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="inspector-result"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="inspector-request-error"]').exists()).toBe(false)
+
+    late.resolve(
+      inspectionFixture({
+        external_model: 'first-model',
+        groups: [
+          {
+            group_id: 99,
+            group_name: 'Late route result',
+            upstream_model: 'late-upstream',
+            weight_manual: null,
+            included: true,
+            routable: true,
+            reason_code: null,
+            keys: [],
+          },
+        ],
+      }),
+    )
+    await flushPromises()
+
+    expect(wrapper.find('[data-test="inspector-result"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('Late route result')
+  })
+
+  it('keeps an edited explicit submission alive when it writes the same values to the URL', async () => {
+    const response = deferred<RouteInspectResponseDto>()
+    const api = new InspectorApi([response.promise])
+    const { router, wrapper } = await mountInspector(
+      api,
+      '/monitor?tab=inspector&protocol=openai&external_model=first-model&access_key_id=12',
+    )
+
+    await wrapper.get('[data-test="inspector-model"]').setValue('submitted-model')
+    await wrapper.get('[data-test="inspector-submit"]').trigger('click')
+    await flushPromises()
+    const request = inspectionRequests(api)[0]
+
+    expect(router.currentRoute.value.query.external_model).toBe('submitted-model')
+    expect(request?.options?.signal?.aborted).toBe(false)
+
+    response.resolve(
+      inspectionFixture({
+        external_model: 'submitted-model',
+        groups: [
+          {
+            group_id: 7,
+            group_name: 'Submitted result',
+            upstream_model: 'submitted-upstream',
+            weight_manual: null,
+            included: true,
+            routable: true,
+            reason_code: null,
+            keys: [],
+          },
+        ],
+      }),
+    )
+    await flushPromises()
+
+    expect(wrapper.get('[data-test="inspector-result"]').text()).toContain('Submitted result')
+  })
+
+  it('clears a local failure when a replacement deep link is received without inspecting', async () => {
+    const rejected = deferred<RouteInspectResponseDto>()
+    const api = new InspectorApi([rejected.promise])
+    const { router, wrapper } = await mountInspector(
+      api,
+      '/monitor?tab=inspector&protocol=openai&external_model=first-model&access_key_id=12',
+    )
+
+    await wrapper.get('[data-test="inspector-submit"]').trigger('click')
+    rejected.reject(new ApiError(500, 'INTERNAL_SERVER_ERROR', 'route-failure-canary'))
+    await flushPromises()
+    expect(wrapper.find('[data-test="inspector-request-error"]').exists()).toBe(true)
+
+    await router.push({
+      name: 'monitor',
+      query: {
+        tab: 'inspector',
+        protocol: 'gemini',
+        external_model: 'gemini-new',
+        access_key_id: '13',
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.find('[data-test="inspector-request-error"]').exists()).toBe(false)
+    expect(wrapper.get<HTMLInputElement>('[data-test="inspector-model"]').element.value).toBe(
+      'gemini-new',
+    )
+    expect(inspectionRequests(api)).toHaveLength(1)
+  })
+
   it('aborts an in-flight request and removes result state on unmount', async () => {
     const pending = deferred<RouteInspectResponseDto>()
     const api = new InspectorApi([pending.promise])

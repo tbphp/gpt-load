@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useQuery } from '@tanstack/vue-query'
-import { computed, onBeforeUnmount, ref } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -129,6 +129,35 @@ function readPositiveID(raw: unknown): string {
   const value = Number(raw)
   return Number.isSafeInteger(value) && value > 0 ? String(value) : ''
 }
+
+watch(
+  () => [route.query.protocol, route.query.external_model, route.query.access_key_id] as const,
+  ([rawProtocol, rawModel, rawAccessKeyID]) => {
+    const protocol = readProtocol(rawProtocol)
+    const model = readText(rawModel)
+    const accessKeyID = readPositiveID(rawAccessKeyID)
+    if (
+      protocol === draftProtocol.value &&
+      model === draftModel.value &&
+      accessKeyID === draftAccessKeyID.value
+    ) {
+      return
+    }
+
+    owner += 1
+    controller?.abort()
+    controller = undefined
+    draftProtocol.value = protocol
+    draftModel.value = model
+    draftAccessKeyID.value = accessKeyID
+    fieldErrors.value = {}
+    pending.value = false
+    failed.value = false
+    resultStale.value = false
+    submitted.value = undefined
+    observation.value = undefined
+  },
+)
 
 function validatedRequest(): RouteInspectRequest | undefined {
   const errors: InspectorErrors = {}
