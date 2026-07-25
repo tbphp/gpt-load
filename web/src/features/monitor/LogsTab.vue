@@ -1,0 +1,545 @@
+<script setup lang="ts">
+import { useInfiniteQuery, useQuery, useQueryClient, type InfiniteData } from '@tanstack/vue-query'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { useRoute, useRouter } from 'vue-router'
+
+import { useApiClient } from '@/api/client-context'
+import { listAccessKeyOptions } from '@/api/control/access-keys'
+import { listGroups } from '@/api/control/groups'
+import {
+  listRequestLogs,
+  type RequestLogItemDto,
+  type RequestLogPageDto,
+} from '@/api/control/request-logs'
+import { RequestCancelledError } from '@/api/errors'
+import { controlQueryKeys } from '@/app/query-keys'
+import AppButton from '@/components/ui/AppButton.vue'
+import DataTable from '@/components/ui/DataTable.vue'
+import EmptyState from '@/components/ui/EmptyState.vue'
+import FormField from '@/components/ui/FormField.vue'
+import InlineFeedback from '@/components/ui/InlineFeedback.vue'
+import QueryFeedback from '@/components/ui/QueryFeedback.vue'
+import StatusBadge from '@/components/ui/StatusBadge.vue'
+
+import {
+  applyLogFilterDraft,
+  createLogFilterDraft,
+  parseAppliedLogFilters,
+  serializeAppliedLogFilters,
+  validateLogFilterDraft,
+  type LogFilterDraft,
+  type LogFilterErrors,
+} from './log-filters'
+import LogDetailDrawer from './LogDetailDrawer.vue'
+
+const client = useApiClient()
+const route = useRoute()
+const router = useRouter()
+const queryClient = useQueryClient()
+const { t } = useI18n()
+const appliedFilters = computed(() => parseAppliedLogFilters(route.query))
+const draft = ref(createLogFilterDraft(appliedFilters.value))
+const filterErrors = ref<LogFilterErrors>({})
+const openDetailID = ref<string | null>(null)
+const refreshPending = ref(false)
+const refreshFailed = ref(false)
+let refreshOwner = 0
+let refreshController: AbortController | undefined
+let detailFocusTimer: number | undefined
+const groupsQuery = useQuery({
+  queryKey: controlQueryKeys.groups.list(),
+  queryFn: ({ signal }) => listGroups(client, signal),
+})
+const accessKeyOptionsQuery = useQuery({
+  queryKey: controlQueryKeys.accessKeys.options(),
+  queryFn: ({ signal }) => listAccessKeyOptions(client, signal),
+  gcTime: 0,
+})
+const logsQuery = useInfiniteQuery({
+  queryKey: computed(() => controlQueryKeys.logs.list(appliedFilters.value)),
+  initialPageParam: null as string | null,
+  queryFn: ({ pageParam, signal }) =>
+    listRequestLogs(client, appliedFilters.value, pageParam ?? undefined, signal),
+  getNextPageParam: (lastPage) => lastPage.next_cursor ?? undefined,
+  gcTime: 0,
+})
+const logs = computed(() => {
+  const unique: RequestLogItemDto[] = []
+  const seen = new Set<string>()
+  for (const page of logsQuery.data.value?.pages ?? []) {
+    for (const log of page.items) {
+      if (seen.has(log.request_id)) continue
+      seen.add(log.request_id)
+      unique.push(log)
+    }
+  }
+  return unique
+})
+const hasAppliedFilters = computed(() => Object.keys(appliedFilters.value).length > 0)
+
+watch(
+  () => route.query,
+  () => {
+    cancelManualRefresh()
+    draft.value = createLogFilterDraft(appliedFilters.value)
+    filterErrors.value = {}
+  },
+)
+
+function statusTone(
+  status: 'success' | 'error' | 'incomplete' | 'canceled',
+): 'success' | 'danger' | 'warning' | 'neutral' {
+  if (status === 'success') return 'success'
+  if (status === 'error') return 'danger'
+  if (status === 'incomplete') return 'warning'
+  return 'neutral'
+}
+
+function accessKeyLabel(log: RequestLogItemDto): string {
+  if (log.access_key.deleted) {
+    return t('monitor.logs.accessKey.deleted', { id: log.access_key.id })
+  }
+  if (log.access_key.name) {
+    return t('monitor.logs.accessKey.named', {
+      id: log.access_key.id,
+      name: log.access_key.name,
+    })
+  }
+  return `#${log.access_key.id}`
+}
+
+function loadMore(): void {
+  if (!logsQuery.hasNextPage.value || logsQuery.isFetchingNextPage.value) return
+  void logsQuery.fetchNextPage()
+}
+
+async function applyFilters(): Promise<void> {
+  const errors = validateLogFilterDraft(draft.value)
+  filterErrors.value = errors
+  if (Object.keys(errors).length > 0) return
+  await router.push({
+    name: 'monitor',
+    query: serializeAppliedLogFilters(applyLogFilterDraft(draft.value)),
+  })
+}
+
+function filterError(field: keyof LogFilterDraft): string | undefined {
+  const key = filterErrors.value[field]
+  return key ? t(key) : undefined
+}
+
+async function resetFilters(): Promise<void> {
+  cancelManualRefresh()
+  filterErrors.value = {}
+  draft.value = createLogFilterDraft()
+  await router.push({ name: 'monitor', query: { tab: 'logs' } })
+}
+
+function setDetailOpen(requestID: string, open: boolean): void {
+  openDetailID.value = open ? requestID : null
+  if (open) return
+  window.clearTimeout(detailFocusTimer)
+  detailFocusTimer = window.setTimeout(() => {
+    document.getElementById(`log-details-${requestID}`)?.focus()
+  }, 30)
+}
+
+function cancelManualRefresh(): void {
+  refreshOwner += 1
+  refreshController?.abort()
+  refreshController = undefined
+  refreshPending.value = false
+  refreshFailed.value = false
+}
+
+async function refreshFirstPage(): Promise<void> {
+  if (refreshPending.value) return
+  const owner = ++refreshOwner
+  const filters = { ...appliedFilters.value }
+  const queryKey = controlQueryKeys.logs.list(filters)
+  refreshPending.value = true
+  refreshFailed.value = false
+
+  await queryClient.cancelQueries({ queryKey, exact: true })
+  if (owner !== refreshOwner) return
+
+  const controller = new AbortController()
+  refreshController = controller
+  try {
+    const page = await listRequestLogs(client, filters, undefined, controller.signal)
+    if (owner !== refreshOwner || controller.signal.aborted) return
+    queryClient.setQueryData<InfiniteData<RequestLogPageDto, string | null>>(queryKey, {
+      pages: [page],
+      pageParams: [null],
+    })
+  } catch (error: unknown) {
+    if (
+      owner === refreshOwner &&
+      !controller.signal.aborted &&
+      !(error instanceof RequestCancelledError)
+    ) {
+      refreshFailed.value = true
+    }
+  } finally {
+    if (owner === refreshOwner) {
+      refreshController = undefined
+      refreshPending.value = false
+    }
+  }
+}
+
+onBeforeUnmount(() => {
+  cancelManualRefresh()
+  window.clearTimeout(detailFocusTimer)
+})
+</script>
+
+<template>
+  <div class="logs-tab">
+    <form
+      class="logs-filter-form"
+      data-test="logs-filter-form"
+      :aria-label="t('monitor.logs.filters.label')"
+      @submit.prevent="applyFilters"
+    >
+      <div class="logs-filter-grid">
+        <FormField
+          id="logs-from"
+          :label="t('monitor.logs.filters.from')"
+          :error="filterError('from')"
+        >
+          <template #default="{ describedBy }">
+            <input
+              id="logs-from"
+              v-model="draft.from"
+              data-test="logs-from"
+              type="datetime-local"
+              :aria-describedby="describedBy"
+            />
+          </template>
+        </FormField>
+        <FormField id="logs-to" :label="t('monitor.logs.filters.to')" :error="filterError('to')">
+          <template #default="{ describedBy }">
+            <input
+              id="logs-to"
+              v-model="draft.to"
+              data-test="logs-to"
+              type="datetime-local"
+              :aria-describedby="describedBy"
+            />
+          </template>
+        </FormField>
+        <FormField
+          id="logs-group"
+          :label="t('monitor.logs.filters.group')"
+          :description="t('monitor.logs.filters.groupHelp')"
+          :error="filterError('group_id')"
+        >
+          <template #default="{ describedBy }">
+            <select
+              id="logs-group"
+              v-model="draft.group_id"
+              data-test="logs-group"
+              :aria-describedby="describedBy"
+            >
+              <option value="">{{ t('monitor.logs.filters.anyGroup') }}</option>
+              <option
+                v-if="
+                  draft.group_id &&
+                  !groupsQuery.data.value?.some((group) => String(group.id) === draft.group_id)
+                "
+                :value="draft.group_id"
+              >
+                #{{ draft.group_id }}
+              </option>
+              <option
+                v-for="group in groupsQuery.data.value ?? []"
+                :key="group.id"
+                :value="String(group.id)"
+              >
+                {{ group.name }} · #{{ group.id }}
+              </option>
+            </select>
+          </template>
+        </FormField>
+        <FormField
+          id="logs-model"
+          :label="t('monitor.logs.filters.model')"
+          :error="filterError('model')"
+        >
+          <template #default="{ describedBy }">
+            <input
+              id="logs-model"
+              v-model="draft.model"
+              data-test="logs-model"
+              type="text"
+              autocomplete="off"
+              :aria-describedby="describedBy"
+            />
+          </template>
+        </FormField>
+        <FormField
+          id="logs-access-key"
+          :label="t('monitor.logs.filters.accessKey')"
+          :error="filterError('access_key_id')"
+        >
+          <template #default="{ describedBy }">
+            <select
+              id="logs-access-key"
+              v-model="draft.access_key_id"
+              data-test="logs-access-key"
+              :aria-describedby="describedBy"
+            >
+              <option value="">{{ t('monitor.logs.filters.anyAccessKey') }}</option>
+              <option
+                v-if="
+                  draft.access_key_id &&
+                  !accessKeyOptionsQuery.data.value?.some(
+                    (key) => String(key.id) === draft.access_key_id,
+                  )
+                "
+                :value="draft.access_key_id"
+              >
+                #{{ draft.access_key_id }}
+              </option>
+              <option
+                v-for="key in accessKeyOptionsQuery.data.value ?? []"
+                :key="key.id"
+                :value="String(key.id)"
+              >
+                {{ key.name }} · #{{ key.id }}
+              </option>
+            </select>
+          </template>
+        </FormField>
+        <FormField
+          id="logs-status"
+          :label="t('monitor.logs.filters.status')"
+          :error="filterError('status')"
+        >
+          <template #default="{ describedBy }">
+            <select
+              id="logs-status"
+              v-model="draft.status"
+              data-test="logs-status"
+              :aria-describedby="describedBy"
+            >
+              <option value="">{{ t('monitor.logs.filters.anyStatus') }}</option>
+              <option value="success">{{ t('monitor.logs.status.success') }}</option>
+              <option value="error">{{ t('monitor.logs.status.error') }}</option>
+              <option value="incomplete">{{ t('monitor.logs.status.incomplete') }}</option>
+              <option value="canceled">{{ t('monitor.logs.status.canceled') }}</option>
+            </select>
+          </template>
+        </FormField>
+        <FormField
+          id="logs-request-id"
+          :label="t('monitor.logs.filters.requestId')"
+          :error="filterError('request_id')"
+        >
+          <template #default="{ describedBy }">
+            <input
+              id="logs-request-id"
+              v-model="draft.request_id"
+              data-test="logs-request-id"
+              type="text"
+              autocomplete="off"
+              :aria-describedby="describedBy"
+            />
+          </template>
+        </FormField>
+      </div>
+      <div class="logs-filter-actions">
+        <AppButton type="submit">{{ t('monitor.logs.filters.apply') }}</AppButton>
+        <AppButton data-test="logs-reset" variant="ghost" @click="resetFilters">
+          {{ t('monitor.logs.filters.reset') }}
+        </AppButton>
+        <AppButton
+          data-test="logs-refresh"
+          variant="secondary"
+          :busy="refreshPending"
+          @click="refreshFirstPage"
+        >
+          {{ t('monitor.logs.refresh') }}
+        </AppButton>
+      </div>
+    </form>
+
+    <InlineFeedback
+      v-if="groupsQuery.isError.value"
+      data-test="logs-group-options-failed"
+      tone="warning"
+    >
+      {{ t('monitor.logs.options.groupsFailed') }}
+    </InlineFeedback>
+    <InlineFeedback
+      v-if="accessKeyOptionsQuery.isError.value"
+      data-test="logs-access-key-options-failed"
+      tone="warning"
+    >
+      {{ t('monitor.logs.options.accessKeysFailed') }}
+    </InlineFeedback>
+
+    <div v-if="refreshFailed" class="logs-refresh-failed" data-test="logs-refresh-failed">
+      <InlineFeedback tone="danger">{{ t('monitor.logs.refreshFailed') }}</InlineFeedback>
+      <AppButton data-test="logs-refresh-retry" variant="secondary" @click="refreshFirstPage">
+        {{ t('common.retry') }}
+      </AppButton>
+    </div>
+
+    <QueryFeedback
+      v-if="logsQuery.isPending.value"
+      state="loading"
+      :message="t('monitor.logs.loading')"
+    />
+    <QueryFeedback
+      v-else-if="logsQuery.isError.value && !logsQuery.data.value"
+      state="error"
+      :message="t('monitor.logs.loadFailed')"
+      :retry-label="t('common.retry')"
+      @retry="logsQuery.refetch()"
+    />
+    <DataTable v-else-if="logs.length > 0" :caption="t('monitor.logs.caption')" dense>
+      <thead>
+        <tr>
+          <th scope="col">{{ t('monitor.logs.columns.completedAt') }}</th>
+          <th scope="col">{{ t('monitor.logs.columns.requestId') }}</th>
+          <th scope="col">{{ t('monitor.logs.columns.model') }}</th>
+          <th scope="col">{{ t('monitor.logs.columns.accessKey') }}</th>
+          <th scope="col">{{ t('monitor.logs.columns.status') }}</th>
+          <th scope="col">{{ t('monitor.logs.columns.duration') }}</th>
+          <th scope="col">{{ t('monitor.logs.columns.actions') }}</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr v-for="log in logs" :key="log.request_id" :data-test="`log-row-${log.request_id}`">
+          <td>
+            <time :datetime="log.completed_at">{{ log.completed_at }}</time>
+          </td>
+          <td>
+            <code>{{ log.request_id }}</code>
+          </td>
+          <td>
+            <code>{{ log.client_model }}</code>
+          </td>
+          <td>{{ accessKeyLabel(log) }}</td>
+          <td>
+            <StatusBadge :tone="statusTone(log.status)">
+              {{ t(`monitor.logs.status.${log.status}`) }}
+            </StatusBadge>
+          </td>
+          <td>{{ log.duration_ms }} ms</td>
+          <td>
+            <LogDetailDrawer
+              :open="openDetailID === log.request_id"
+              :log="log"
+              @update:open="setDetailOpen(log.request_id, $event)"
+            >
+              <template #trigger>
+                <AppButton
+                  :id="`log-details-${log.request_id}`"
+                  :data-test="`log-details-${log.request_id}`"
+                  variant="ghost"
+                >
+                  {{ t('monitor.logs.details') }}
+                </AppButton>
+              </template>
+            </LogDetailDrawer>
+          </td>
+        </tr>
+      </tbody>
+    </DataTable>
+    <EmptyState
+      v-else-if="logsQuery.data.value"
+      :data-test="hasAppliedFilters ? 'logs-empty-filtered' : 'logs-empty-unfiltered'"
+      :title="
+        t(hasAppliedFilters ? 'monitor.logs.empty.filteredTitle' : 'monitor.logs.empty.title')
+      "
+      :description="
+        t(
+          hasAppliedFilters
+            ? 'monitor.logs.empty.filteredDescription'
+            : 'monitor.logs.empty.description',
+        )
+      "
+    />
+    <AppButton
+      v-if="logsQuery.hasNextPage.value"
+      data-test="logs-load-more"
+      variant="secondary"
+      :busy="logsQuery.isFetchingNextPage.value"
+      @click="loadMore"
+    >
+      {{ t('monitor.logs.loadMore') }}
+    </AppButton>
+  </div>
+</template>
+
+<style scoped>
+.logs-tab {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.logs-filter-form {
+  display: grid;
+  gap: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+  padding: var(--space-4);
+  box-shadow: var(--shadow-card);
+}
+
+.logs-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(150px, 1fr));
+  gap: var(--space-3);
+}
+
+.logs-filter-form input,
+.logs-filter-form select {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  color: var(--color-text);
+  padding: 8px 10px;
+  font: inherit;
+}
+
+.logs-filter-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.logs-refresh-failed {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.logs-tab code,
+.logs-tab time {
+  font-family: var(--font-mono);
+}
+
+.logs-tab > :deep(.app-button) {
+  justify-self: center;
+}
+
+@media (max-width: 900px) {
+  .logs-filter-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .logs-filter-grid {
+    grid-template-columns: 1fr;
+  }
+}
+</style>

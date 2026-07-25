@@ -5,7 +5,12 @@ import type { RequestLogStatus } from '@/api/control/request-logs'
 
 export type MonitorTab = 'health' | 'logs' | 'inspector'
 
-const requestLogStatuses: RequestLogStatus[] = ['success', 'error', 'incomplete', 'canceled']
+export const requestLogStatuses = [
+  'success',
+  'error',
+  'incomplete',
+  'canceled',
+] as const satisfies readonly RequestLogStatus[]
 const accessProtocols: AccessProtocol[] = ['openai', 'anthropic', 'gemini', 'openai-response']
 const requestIDPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 const rfc3339Pattern =

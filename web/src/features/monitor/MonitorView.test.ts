@@ -17,6 +17,9 @@ async function mountMonitor(path: string) {
         HealthTab: {
           template: '<div data-test="monitor-health-content" />',
         },
+        LogsTab: {
+          template: '<div data-test="monitor-logs-content" />',
+        },
       },
     },
   })
@@ -31,6 +34,7 @@ describe('MonitorView', () => {
     expect(wrapper.get('[data-test="monitor-tab-logs"]').attributes()['aria-selected']).toBe('true')
     expect(wrapper.find('[data-test="monitor-health-slot"]').exists()).toBe(false)
     expect(wrapper.find('[data-test="monitor-logs-slot"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="monitor-logs-content"]').exists()).toBe(true)
     expect(wrapper.find('[data-test="monitor-inspector-slot"]').exists()).toBe(false)
 
     await wrapper.get('[data-test="monitor-tab-inspector"]').trigger('click')

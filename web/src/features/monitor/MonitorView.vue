@@ -7,6 +7,7 @@ import AppTabs, { type AppTabItem } from '@/components/ui/AppTabs.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
 
 import HealthTab from './HealthTab.vue'
+import LogsTab from './LogsTab.vue'
 import { normalizeMonitorQuery, normalizeMonitorTab, sameMonitorQuery } from './monitor-route'
 
 const route = useRoute()
@@ -53,7 +54,9 @@ function selectTab(value: string): void {
       <div v-if="activeTab === 'health'" data-test="monitor-health-slot">
         <HealthTab />
       </div>
-      <div v-else-if="activeTab === 'logs'" data-test="monitor-logs-slot" />
+      <div v-else-if="activeTab === 'logs'" data-test="monitor-logs-slot">
+        <LogsTab />
+      </div>
       <div v-else data-test="monitor-inspector-slot" />
     </AppTabs>
   </div>
