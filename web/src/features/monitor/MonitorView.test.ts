@@ -23,6 +23,9 @@ async function mountMonitor(path: string) {
         LogsTab: {
           template: '<div data-test="monitor-logs-content" />',
         },
+        InspectorTab: {
+          template: '<div data-test="monitor-inspector-content" />',
+        },
       },
     },
   })
@@ -58,6 +61,7 @@ describe('MonitorView', () => {
     await wrapper.get('[data-test="monitor-tab-inspector"]').trigger('click')
     await flushPromises()
     expect(router.currentRoute.value.fullPath).toBe('/monitor?tab=inspector')
+    expect(wrapper.find('[data-test="monitor-inspector-content"]').exists()).toBe(true)
 
     router.back()
     await flushPromises()

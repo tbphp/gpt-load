@@ -7,6 +7,7 @@ import AppTabs, { type AppTabItem } from '@/components/ui/AppTabs.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
 
 import HealthTab from './HealthTab.vue'
+import InspectorTab from './InspectorTab.vue'
 import LogsTab from './LogsTab.vue'
 import { normalizeMonitorQuery, normalizeMonitorTab, sameMonitorQuery } from './monitor-route'
 
@@ -60,7 +61,9 @@ function selectTab(value: string): void {
         <div v-else-if="activeTab === 'logs'" data-test="monitor-logs-slot">
           <LogsTab />
         </div>
-        <div v-else data-test="monitor-inspector-slot" />
+        <div v-else data-test="monitor-inspector-slot">
+          <InspectorTab />
+        </div>
       </template>
     </AppTabs>
   </div>
