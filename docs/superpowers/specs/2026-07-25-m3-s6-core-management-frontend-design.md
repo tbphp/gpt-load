@@ -193,17 +193,19 @@ No TanStack persistence plugin is introduced. Queries containing AccessKey plain
 
 Use resource-specific invalidation rather than global refetch:
 
-- Group base update → Group detail and Group list; health if enabled/weight changed;
+- Group base update → Group detail and Group list; health if name, enabled, or weight changed;
 - model replace → Group detail and Group list;
 - upstream-key import/update/delete → Group keys, Group detail/list key count, and health;
 - AccessKey create/update/delete → AccessKey list;
 - Settings update → Settings and every loaded Group detail because `effective_config` can change.
 
+Group name changes invalidate health because the real `RuntimeHealth` DTO contains both `groups[].name` and problem-key `group_name`; retaining that cache would leave the shared resource internally stale even when Home joins cards by Group ID.
+
 Successful mutations use the returned DTO immediately when its shape is authoritative, then invalidate dependent resources.
 
 Every partial-update form tracks a normalized dirty patch. Save is disabled when that patch is empty, and the submit action rechecks the invariant before transport. Group, UpstreamKey, and AccessKey updates never send an empty `{}` body; model replacement likewise avoids a no-op request when the normalized complete list is unchanged.
 
-Requests containing upstream-key plaintext do not use long-lived TanStack mutation variables. AccessKey create/update requests also avoid TanStack mutation state because their successful DTOs contain plaintext. These operations run through feature-local async actions with explicit pending/error state and an `AbortController`; closing the workflow clears returned plaintext. AccessKey delete may use an ordinary mutation because its response contains no credential.
+Requests containing upstream-key plaintext do not use long-lived TanStack mutation variables. AccessKey create/update requests also avoid TanStack mutation state because their successful DTOs contain plaintext. Group update, Group model replacement, and Settings update use the same feature-local action rule because their response DTOs can contain HeaderRules values. These operations run through feature-local async actions with explicit pending/error state and an `AbortController`; closing or rebasing the workflow clears the local sensitive result. AccessKey delete and UpstreamKey mutations may use ordinary mutation state because their responses contain no credential or HeaderRules value.
 
 ## Local preferences
 
@@ -419,7 +421,7 @@ Upstream keys stay in component memory during ordinary editing. To satisfy authe
 - the record contains the current import fields, an absolute `expires_at`, and a fixed 15-minute TTL;
 - a timer removes the record at expiry while the tab remains open;
 - application startup and successful login sweep expired or incompatible records; explicit logout always removes the record; successful login also removes a valid record when the redirect target is not Import;
-- Import performs read-and-delete before parsing or hydrating a valid record, so exceptions cannot leave a consumed plaintext copy in storage;
+- Import reads the record, removes it, and verifies the key is absent before parsing or hydrating; if removal throws or cannot be confirmed, recovery fails closed and returns no draft, so plaintext is never restored while a storage copy may remain;
 - success, explicit discard, cancellation, expiry, and incompatible-version detection remove it;
 - the draft never enters localStorage, URL, query key, logs, or TanStack caches.
 
@@ -661,7 +663,8 @@ Dictionary structure tests require identical keys across zh-CN, en-US, and ja-JP
 
 - names and values never enter query keys or logs;
 - every Set value uses a masked secret-aware input by default, regardless of header name;
-- queries containing values use `gcTime: 0` and session-change cleanup;
+- Group-detail and Settings queries containing values use `gcTime: 0` and session-change cleanup;
+- actions whose responses contain HeaderRules values bypass TanStack mutation state and rebase the owning `gcTime: 0` query directly;
 - error output never serializes the full rules object.
 
 Tests use canary values and assert their absence from route, storage outside the explicit 401 draft, query keys, error text, and snapshots.
@@ -683,7 +686,7 @@ The smoke test is introduced with the first T21 Reka consumers. It:
 5. operates the locale Select and theme control;
 6. asserts no CSP violation or uncaught browser error.
 
-Add a dedicated `test:csp` script and run this single Chromium smoke after the production build in the existing web CI action. This is validation infrastructure, not the complete S7 business E2E suite. S7 still owns the full workflows, multi-viewport coverage, and release-grade browser matrix.
+Add a dedicated `test:csp` script. In the V2 CI workflow, run the single Chromium smoke after the shared web action, Go setup, and local Go binary build; do not add browser installation to the reusable web action used by release workflows. This is validation infrastructure, not the complete S7 business E2E suite. S7 still owns the full workflows, multi-viewport coverage, and release-grade browser matrix.
 
 No inline script/eval allowance is added to CSP to make a primitive work. If a dependency requires weakening current CSP, stop and redesign rather than broadening policy.
 
@@ -721,7 +724,7 @@ Every behavior change begins with a focused failing test and observed RED state.
 - URL conflict decisions and confirmed resubmission;
 - dirty route/browser leave behavior;
 - secret-free query/mutation cache;
-- 401 recovery draft lifecycle, expiry, version rejection, restore, and cleanup;
+- 401 recovery draft lifecycle, expiry, version rejection, confirmed removal before parse/restore, removal-failure fail-closed behavior, and cleanup;
 - cancellation and duplicate-submit prevention.
 
 ### T23 tests
