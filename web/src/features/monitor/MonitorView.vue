@@ -6,6 +6,7 @@ import { useRoute, useRouter } from 'vue-router'
 import AppTabs, { type AppTabItem } from '@/components/ui/AppTabs.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
 
+import HealthTab from './HealthTab.vue'
 import { normalizeMonitorQuery, normalizeMonitorTab, sameMonitorQuery } from './monitor-route'
 
 const route = useRoute()
@@ -49,7 +50,9 @@ function selectTab(value: string): void {
       :items="items"
       @update:model-value="selectTab"
     >
-      <div v-if="activeTab === 'health'" data-test="monitor-health-slot" />
+      <div v-if="activeTab === 'health'" data-test="monitor-health-slot">
+        <HealthTab />
+      </div>
       <div v-else-if="activeTab === 'logs'" data-test="monitor-logs-slot" />
       <div v-else data-test="monitor-inspector-slot" />
     </AppTabs>

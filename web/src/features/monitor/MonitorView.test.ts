@@ -11,7 +11,14 @@ async function mountMonitor(path: string) {
   await router.push(path)
   await router.isReady()
   const wrapper = mount(MonitorView, {
-    global: { plugins: [createAppI18n(undefined, 'en-US').plugin, router] },
+    global: {
+      plugins: [createAppI18n(undefined, 'en-US').plugin, router],
+      stubs: {
+        HealthTab: {
+          template: '<div data-test="monitor-health-content" />',
+        },
+      },
+    },
   })
   await flushPromises()
   return { router, wrapper }
@@ -44,5 +51,6 @@ describe('MonitorView', () => {
       'true',
     )
     expect(wrapper.find('[data-test="monitor-health-slot"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="monitor-health-content"]').exists()).toBe(true)
   })
 })
