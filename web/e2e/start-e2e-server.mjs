@@ -56,6 +56,7 @@ try {
 }
 
 const child = spawn(binary, [], {
+  detached: process.platform !== 'win32',
   env: {
     ...process.env,
     HOST: host,
