@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { TabsList, TabsRoot, TabsTrigger } from 'reka-ui'
+import { TabsContent, TabsList, TabsRoot, TabsTrigger } from 'reka-ui'
 
 export interface AppTabItem {
   value: string
@@ -33,10 +33,17 @@ const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
         {{ item.label }}
       </TabsTrigger>
     </TabsList>
+    <TabsContent class="app-tabs__content" :value="modelValue">
+      <slot />
+    </TabsContent>
   </TabsRoot>
 </template>
 
 <style scoped>
+.app-tabs {
+  display: grid;
+  gap: var(--space-5);
+}
 .app-tabs__list {
   display: flex;
   max-width: 100%;

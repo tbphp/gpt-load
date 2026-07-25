@@ -219,17 +219,39 @@ describe('NewGroupImport', () => {
     expect(wrapper.text()).not.toContain('HEADER_CANARY_57aa')
   })
 
-  it('blocks discovery when HeaderRules contain case-insensitive duplicate names', async () => {
+  it('keeps the default HeaderRules config sparse during discovery', async () => {
     const request = vi.fn().mockResolvedValue({ models: [] }) as ApiClient['request']
     const { wrapper } = await mountImport(request)
     await enterConnection(wrapper, 'raw-key')
-    await wrapper.get('[data-test="add-header-rule"]').trigger('click')
-    await wrapper.get('[data-test="header-name"]').setValue('X-Test')
-    await wrapper.get('[data-test="add-header-rule"]').trigger('click')
-    await wrapper.findAll('[data-test="header-name"]')[1]!.setValue('x-test')
+    await wrapper.get('[data-test="discover"]').trigger('click')
+    await flushPromises()
 
-    expect(wrapper.get('[data-test="discover"]').attributes()).toHaveProperty('disabled')
+    expect(request).toHaveBeenCalledWith('/api/models/discover', {
+      method: 'POST',
+      json: {
+        upstream_url: 'https://api.example.com',
+        protocols: ['openai'],
+        keys: 'raw-key',
+        config: {},
+      },
+      signal: expect.any(AbortSignal),
+    })
   })
+
+  it.each(['X-Test', 'x-test'])(
+    'blocks discovery when HeaderRules contain duplicate names ending in %s',
+    async (duplicateName) => {
+      const request = vi.fn().mockResolvedValue({ models: [] }) as ApiClient['request']
+      const { wrapper } = await mountImport(request)
+      await enterConnection(wrapper, 'raw-key')
+      await wrapper.get('[data-test="add-header-rule"]').trigger('click')
+      await wrapper.get('[data-test="header-name"]').setValue('X-Test')
+      await wrapper.get('[data-test="add-header-rule"]').trigger('click')
+      await wrapper.findAll('[data-test="header-name"]')[1]!.setValue(duplicateName)
+
+      expect(wrapper.get('[data-test="discover"]').attributes()).toHaveProperty('disabled')
+    },
+  )
 
   it('aborts an in-flight discovery and requires rediscovery when connection input changes', async () => {
     const request = vi.fn(() => new Promise(() => {})) as ApiClient['request']
@@ -277,7 +299,7 @@ describe('NewGroupImport', () => {
         upstream_url: 'https://api.example.com',
         protocols: ['openai'],
         models: [{ id: 'manual-model', alias: 'local' }],
-        config: { header_rules: { set: {}, remove: [] } },
+        config: {},
         keys: 'raw-authoritative-key',
         confirm_same_upstream_url: false,
       },

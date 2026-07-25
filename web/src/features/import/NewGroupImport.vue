@@ -12,6 +12,7 @@ import {
   importGroupKeys,
   isUpstreamUrlConflictData,
   type GroupCreateRequest,
+  type GroupRuntimeConfigDto,
   type UpstreamUrlConflictData,
 } from '@/api/control/groups'
 import type { GroupProtocol } from '@/api/control/types'
@@ -83,12 +84,7 @@ const dirty = computed(
       Object.keys(draft.header_rules.set).length > 0 ||
       draft.header_rules.remove.length > 0),
 )
-const headerRulesValid = computed(() => {
-  const names = [...Object.keys(draft.header_rules.set), ...draft.header_rules.remove]
-    .map((name) => name.trim().toLocaleLowerCase())
-    .filter(Boolean)
-  return new Set(names).size === names.length
-})
+const headerRulesValid = ref(true)
 const canDiscover = computed(
   () =>
     !pending.value &&
@@ -111,6 +107,13 @@ function snapshotDraft(): ImportDraft {
     header_rules: { set: { ...draft.header_rules.set }, remove: [...draft.header_rules.remove] },
     models: draft.models.map((model) => ({ ...model })),
   }
+}
+
+function buildDraftConfig(): GroupRuntimeConfigDto {
+  const headerRules = snapshotDraft().header_rules
+  return Object.keys(headerRules.set).length > 0 || headerRules.remove.length > 0
+    ? { header_rules: headerRules }
+    : {}
 }
 
 function startAction(): AbortController {
@@ -177,7 +180,7 @@ async function runDiscovery(): Promise<void> {
         upstream_url: draft.upstream_url,
         protocols: [...draft.protocols],
         keys: draft.keys,
-        config: { header_rules: snapshotDraft().header_rules },
+        config: buildDraftConfig(),
       },
       controller.signal,
     )
@@ -210,7 +213,7 @@ function buildCreateBody(confirmSameURL: boolean): GroupCreateRequest {
     upstream_url: draft.upstream_url,
     protocols: [...draft.protocols],
     models: toGroupModels(draft.models),
-    config: { header_rules: snapshotDraft().header_rules },
+    config: buildDraftConfig(),
     keys: draft.keys,
     confirm_same_upstream_url: confirmSameURL,
   }
@@ -354,7 +357,7 @@ onBeforeUnmount(() => {
         "
       >
         <summary>{{ t('import.connection.advanced') }}</summary>
-        <HeaderRulesEditor v-model="draft.header_rules" />
+        <HeaderRulesEditor v-model="draft.header_rules" v-model:valid="headerRulesValid" />
       </details>
       <footer class="card-actions">
         <AppButton

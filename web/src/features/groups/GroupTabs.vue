@@ -41,5 +41,7 @@ function selectTab(value: string): void {
     :label="t('group.tabs.label')"
     :items="items"
     @update:model-value="selectTab($event as GroupTab)"
-  />
+  >
+    <slot />
+  </AppTabs>
 </template>

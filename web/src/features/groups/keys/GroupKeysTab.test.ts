@@ -86,6 +86,30 @@ describe('GroupKeysTab', () => {
     wrapper.unmount()
   })
 
+  it('renders a backend-valid existing zero weight without exposing zero for other keys', async () => {
+    const zeroWeightKey = {
+      ...keys[0],
+      weight_manual: 0,
+      effective_status: 'disabled' as const,
+    }
+    const request = vi.fn(async (path: string) => {
+      if (path === '/api/groups/7/keys') return [zeroWeightKey]
+      throw new Error(`unexpected request: ${path}`)
+    }) as ApiClient['request']
+    const { wrapper } = await mountKeys(request)
+
+    expect(wrapper.get('[data-test="key-row-11"]')).toBeDefined()
+    const weight = wrapper.get('[data-test="key-weight-11"]')
+    expect((weight.element as HTMLSelectElement).value).toBe('0')
+    expect(weight.findAll('option').map((option) => option.attributes('value'))).toEqual([
+      'auto',
+      '0',
+      ...Array.from({ length: 100 }, (_, index) => String(index + 1)),
+    ])
+    expect(wrapper.get('[data-test="key-save-11"]').attributes()).toHaveProperty('disabled')
+    wrapper.unmount()
+  })
+
   it('updates with a changed-only body and invalidates exactly Group keys/detail/list plus health', async () => {
     const requestMock = vi.fn(async (path: string, options?: ApiRequestOptions) => {
       if (path === '/api/groups/7/keys' && options?.method === 'GET') return keys

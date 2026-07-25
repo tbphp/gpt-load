@@ -4,6 +4,7 @@ import {
   buildSettingsPatch,
   createSettingsDraft,
   hasDuplicateHeaderNames,
+  rebaseSettingsDraft,
   setSettingsOverride,
   validateSettingsSection,
 } from './settings-patch'
@@ -87,5 +88,25 @@ describe('settings patching', () => {
   it('detects HeaderRules duplicates case-insensitively without exposing values', () => {
     expect(hasDuplicateHeaderNames({ set: { 'X-Test': 'one' }, remove: ['x-test'] })).toBe(true)
     expect(hasDuplicateHeaderNames({ set: { 'X-Test': 'one' }, remove: ['X-Other'] })).toBe(false)
+  })
+
+  it('replays only the current section dirty patch onto refreshed settings', () => {
+    const draft = createSettingsDraft(base)
+    draft.values.connect_timeout = 30
+    draft.overrides.add('connect_timeout')
+    const refreshed: SettingsDto = {
+      ...base,
+      revision: 4,
+      overrides: ['request_timeout', 'header_rules'],
+      values: { ...base.values, request_timeout: 900 },
+    }
+
+    const rebased = rebaseSettingsDraft(base, draft, refreshed, 'request-forwarding')
+
+    expect(buildSettingsPatch(refreshed, rebased, 'request-forwarding')).toEqual({
+      connect_timeout: 30,
+    })
+    expect(rebased.values.request_timeout).toBe(900)
+    expect(rebased.overrides.has('request_timeout')).toBe(true)
   })
 })

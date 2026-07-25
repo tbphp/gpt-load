@@ -107,6 +107,33 @@ export function buildSettingsPatch(
   return patch
 }
 
+export function rebaseSettingsDraft(
+  base: SettingsDto,
+  draft: SettingsDraft,
+  refreshed: SettingsDto,
+  section: SettingsSection,
+): SettingsDraft {
+  const patch = buildSettingsPatch(base, draft, section)
+  const rebased = createSettingsDraft(refreshed)
+
+  for (const key of sectionKeys(section)) {
+    if (!Object.prototype.hasOwnProperty.call(patch, key)) continue
+    const value = patch[key]
+    if (value === null) {
+      rebased.overrides.delete(key)
+      continue
+    }
+    rebased.overrides.add(key)
+    if (key === 'header_rules') {
+      rebased.values.header_rules = cloneHeaderRules(value as HeaderRulesDto)
+    } else {
+      rebased.values[key] = value as number
+    }
+  }
+
+  return rebased
+}
+
 export function isValidTimeout(value: number): boolean {
   return Number.isSafeInteger(value) && value > 0
 }

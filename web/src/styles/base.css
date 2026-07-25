@@ -45,7 +45,8 @@ a {
 
 :focus-visible {
   border-radius: var(--radius-tag);
-  outline: none;
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
   box-shadow: var(--focus-ring);
 }
 

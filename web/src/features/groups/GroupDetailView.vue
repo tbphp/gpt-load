@@ -73,20 +73,21 @@ const detailQuery = useQuery({
         <GroupHeader :group="detailQuery.data.value" />
       </template>
 
-      <GroupTabs />
-      <GroupKeysTab v-if="activeTab === 'keys'" :key="groupId" :group-id="groupId" />
-      <GroupModelsTab
-        v-else-if="activeTab === 'models' && detailQuery.data.value"
-        :key="groupId"
-        :group-id="groupId"
-        :group="detailQuery.data.value"
-      />
-      <GroupSettingsTab
-        v-else-if="activeTab === 'settings' && detailQuery.data.value"
-        :key="groupId"
-        :group-id="groupId"
-        :group="detailQuery.data.value"
-      />
+      <GroupTabs>
+        <GroupKeysTab v-if="activeTab === 'keys'" :key="groupId" :group-id="groupId" />
+        <GroupModelsTab
+          v-else-if="activeTab === 'models' && detailQuery.data.value"
+          :key="groupId"
+          :group-id="groupId"
+          :group="detailQuery.data.value"
+        />
+        <GroupSettingsTab
+          v-else-if="activeTab === 'settings' && detailQuery.data.value"
+          :key="groupId"
+          :group-id="groupId"
+          :group="detailQuery.data.value"
+        />
+      </GroupTabs>
     </template>
   </div>
 </template>

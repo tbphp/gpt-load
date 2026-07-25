@@ -252,12 +252,15 @@ export default {
         title: 'Group configuration',
         description: 'Base fields are saved as a normalized partial update.',
         name: 'Name',
+        nameError: 'Enter a Group name.',
         upstreamUrl: 'Upstream URL',
+        upstreamUrlError: 'Enter an upstream URL.',
         urlWarning: 'A new URL requires hard confirmation; a URL used by another Group is blocked.',
         validationModel: 'Validation model (optional)',
         weight: 'Manual Group weight',
         auto: 'Auto',
         protocols: 'Protocols',
+        protocolsError: 'Select at least one protocol.',
         enabled: 'Group enabled',
       },
       runtime: {
@@ -273,6 +276,7 @@ export default {
         inherited: 'Inherited',
         useOverride: 'Use Group override',
         valueFor: 'Override value for {field}',
+        timeoutError: 'Enter a positive safe integer.',
         headerSummary: 'Effective: {set} Set and {remove} Remove rules',
         headerReplacementWarning:
           'This Group override replaces the complete global HeaderRules object; future global changes will not merge into it.',

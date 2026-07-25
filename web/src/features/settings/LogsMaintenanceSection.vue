@@ -17,6 +17,7 @@ import {
   buildSettingsPatch,
   createSettingsDraft,
   isValidRetention,
+  rebaseSettingsDraft,
   setSettingsOverride,
   validateSettingsSection,
   type SettingsDraft,
@@ -51,6 +52,7 @@ function rebase(settings: SettingsDto): void {
 
 function acceptExternalSettings(settings: SettingsDto): void {
   if (dirty.value) {
+    draft.value = rebaseSettingsDraft(base.value, draft.value, settings, 'logs-maintenance')
     base.value = settings
     return
   }
@@ -84,6 +86,8 @@ async function save(): Promise<void> {
   const activeController = controller
   try {
     const settings = await updateSettings(client, normalizedPatch, activeController.signal)
+    if (controller !== activeController) return
+    await queryClient.cancelQueries({ queryKey: controlQueryKeys.settings(), exact: true })
     if (controller !== activeController) return
     rebase(settings)
     succeeded.value = true

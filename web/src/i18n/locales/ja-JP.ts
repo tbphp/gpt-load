@@ -250,12 +250,15 @@ export default {
         title: 'Group 構成',
         description: '基本項目は正規化された部分更新として保存されます。',
         name: '名前',
+        nameError: 'Group 名を入力してください。',
         upstreamUrl: 'アップストリーム URL',
+        upstreamUrlError: 'アップストリーム URL を入力してください。',
         urlWarning: '新しい URL は厳格な確認が必要です。他の Group が使用中の URL は拒否されます。',
         validationModel: '検証モデル（任意）',
         weight: 'Group 手動ウェイト',
         auto: '自動',
         protocols: 'プロトコル',
+        protocolsError: '少なくとも 1 つのプロトコルを選択してください。',
         enabled: 'Group を有効化',
       },
       runtime: {
@@ -271,6 +274,7 @@ export default {
         inherited: '継承',
         useOverride: 'Group 上書きを使用',
         valueFor: '{field} の上書き値',
+        timeoutError: '正の安全な整数を入力してください。',
         headerSummary: '有効値: Set {set} 件、Remove {remove} 件',
         headerReplacementWarning:
           'この Group 上書きはグローバル HeaderRules 全体を置き換えます。今後のグローバル変更はマージされません。',

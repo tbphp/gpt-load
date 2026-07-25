@@ -114,6 +114,8 @@ describe('LogsMaintenanceSection', () => {
     const returned = { ...base, revision: 3 }
     const request = vi.fn().mockResolvedValue(returned) as ApiClient['request']
     const { queryClient, wrapper } = await mountSection(owned, request)
+    const cancel = vi.spyOn(queryClient, 'cancelQueries')
+    const setQueryData = vi.spyOn(queryClient, 'setQueryData')
 
     await wrapper.get('[data-test="override-request_log_retention_days"]').setValue(false)
     await wrapper.get('[data-test="logs-maintenance-save"]').trigger('click')
@@ -124,6 +126,13 @@ describe('LogsMaintenanceSection', () => {
       json: { settings: { request_log_retention_days: null } },
       signal: expect.any(AbortSignal),
     })
+    expect(cancel).toHaveBeenCalledWith({
+      queryKey: controlQueryKeys.settings(),
+      exact: true,
+    })
+    expect(cancel.mock.invocationCallOrder[0]).toBeLessThan(
+      setQueryData.mock.invocationCallOrder[0]!,
+    )
     expect(queryClient.getQueryData(controlQueryKeys.settings())).toEqual(returned)
     expect(queryClient.getMutationCache().getAll()).toHaveLength(0)
     wrapper.unmount()

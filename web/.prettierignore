@@ -1,3 +1,5 @@
 node_modules
 coverage
 pnpm-lock.yaml
+test-results
+playwright-report

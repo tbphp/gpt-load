@@ -239,12 +239,15 @@ export default {
         title: 'Group 配置',
         description: '基础字段以规范化的部分更新保存。',
         name: '名称',
+        nameError: '请输入 Group 名称。',
         upstreamUrl: '上游 URL',
+        upstreamUrlError: '请输入上游 URL。',
         urlWarning: '新 URL 需要硬确认；其他 Group 已使用的 URL 会被阻止。',
         validationModel: '验活模型（可选）',
         weight: 'Group 手动权重',
         auto: '自动',
         protocols: '协议',
+        protocolsError: '请至少选择一个协议。',
         enabled: '启用 Group',
       },
       runtime: {
@@ -260,6 +263,7 @@ export default {
         inherited: '继承',
         useOverride: '使用 Group 覆盖',
         valueFor: '{field}的覆盖值',
+        timeoutError: '请输入正的安全整数。',
         headerSummary: '生效值：{set} 条 Set、{remove} 条 Remove',
         headerReplacementWarning:
           '此 Group 覆盖会完整替换全局 HeaderRules；后续全局更改不会合并到这里。',

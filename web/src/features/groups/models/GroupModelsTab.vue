@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useQueryClient } from '@tanstack/vue-query'
 import { RefreshCw, Save, TriangleAlert } from 'lucide-vue-next'
-import { computed, nextTick, onBeforeUnmount, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { useApiClient } from '@/api/client-context'
@@ -42,6 +42,16 @@ const emptySelection = computed(() => normalizedModels.value.length === 0)
 const changed = computed(() => !sameNormalizedModels(savedModels.value, draft.value))
 const removals = computed(() => hasModelRemovals(savedModels.value, draft.value))
 const pending = computed(() => pendingAction.value !== null)
+
+watch(
+  () => props.group.models,
+  (models) => {
+    if (pending.value || changed.value || discoveryRan.value) return
+    savedModels.value = models.map((model) => ({ ...model }))
+    draft.value = buildModelDiff(savedModels.value, [])
+  },
+  { deep: true },
+)
 
 function startAction(action: 'discover' | 'save'): AbortController {
   activeController?.abort()
@@ -155,6 +165,11 @@ async function runReplace(): Promise<void> {
   saveError.value = false
   try {
     const result = await replaceGroupModels(client, props.groupId, { models }, controller.signal)
+    if (activeController !== controller) return
+    await queryClient.cancelQueries({
+      queryKey: controlQueryKeys.groups.detail(props.groupId),
+      exact: true,
+    })
     if (activeController !== controller) return
     savedModels.value = result.models.map((model) => ({ ...model }))
     draft.value = buildModelDiff(savedModels.value, [])

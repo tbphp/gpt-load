@@ -259,6 +259,7 @@ describe('GroupModelsTab', () => {
     await wrapper.get('[data-test="model-alias-2"]').setValue(' fresh ')
     expect(wrapper.get('[data-test="models-removal-warning"]').text()).toContain('AccessKey')
 
+    const cancel = vi.spyOn(client, 'cancelQueries')
     const setQueryData = vi.spyOn(client, 'setQueryData')
     const invalidate = vi.spyOn(client, 'invalidateQueries')
     await wrapper.get('[data-test="models-save"]').trigger('click')
@@ -274,12 +275,40 @@ describe('GroupModelsTab', () => {
       },
       signal: expect.any(AbortSignal),
     })
+    expect(cancel).toHaveBeenCalledWith({
+      queryKey: controlQueryKeys.groups.detail(7),
+      exact: true,
+    })
+    expect(cancel.mock.invocationCallOrder[0]).toBeLessThan(
+      setQueryData.mock.invocationCallOrder[0]!,
+    )
     expect(setQueryData).toHaveBeenCalledWith(controlQueryKeys.groups.detail(7), updated)
     expect(invalidate.mock.calls.map(([filters]) => filters)).toEqual([
       { queryKey: controlQueryKeys.groups.list() },
     ])
     expect(invalidate).not.toHaveBeenCalledWith({ queryKey: controlQueryKeys.health() })
     expect(client.getMutationCache().getAll()).toHaveLength(0)
+    expect(wrapper.get('[data-test="models-save"]').attributes()).toHaveProperty('disabled')
+    wrapper.unmount()
+  })
+
+  it('rebases a clean model draft when refreshed Group props arrive', async () => {
+    const { wrapper } = await mountModels(vi.fn() as ApiClient['request'])
+    await wrapper.setProps({
+      group: {
+        ...detail,
+        models: [
+          { id: 'old', alias: 'server-updated' },
+          { id: 'external', alias: '' },
+        ],
+      },
+    })
+    await flushPromises()
+
+    expect((wrapper.get('[data-test="model-alias-0"]').element as HTMLInputElement).value).toBe(
+      'server-updated',
+    )
+    expect(wrapper.get('[data-test="model-row-1"]').text()).toContain('external')
     expect(wrapper.get('[data-test="models-save"]').attributes()).toHaveProperty('disabled')
     wrapper.unmount()
   })

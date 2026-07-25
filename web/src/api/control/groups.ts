@@ -59,7 +59,7 @@ export interface ModelDiscoveryRequest {
   upstream_url: string
   protocols: readonly GroupProtocol[]
   keys: string
-  config: { header_rules: HeaderRulesDto }
+  config: GroupRuntimeConfigDto
 }
 
 export interface ModelDiscoveryResult {
@@ -75,7 +75,7 @@ export interface GroupCreateRequest {
   upstream_url: string
   protocols: readonly GroupProtocol[]
   models: GroupModelDto[]
-  config: { header_rules: HeaderRulesDto }
+  config: GroupRuntimeConfigDto
   keys: string
   confirm_same_upstream_url: boolean
 }

@@ -58,6 +58,19 @@ describe('dirty import navigation', () => {
     vi.unstubAllGlobals()
   })
 
+  it('prompts before a same-route query update while the draft is dirty', async () => {
+    const confirm = vi.fn(() => false)
+    vi.stubGlobal('confirm', confirm)
+    const { router, wrapper } = await mountDirty()
+
+    await router.push('/import?mode=existing')
+
+    expect(router.currentRoute.value.fullPath).toBe('/import')
+    expect(confirm).toHaveBeenCalledOnce()
+    wrapper.unmount()
+    vi.unstubAllGlobals()
+  })
+
   it('allows a global 401 to bypass the prompt exactly once', async () => {
     const confirm = vi.fn(() => false)
     vi.stubGlobal('confirm', confirm)

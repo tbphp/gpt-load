@@ -26,6 +26,7 @@ import {
   buildGroupSettingsPatch,
   createGroupSettingsDraft,
   enableHeaderRulesOverride,
+  rebaseGroupSettingsDraft,
   setGroupConfigOverride,
   type GroupSettingsDraft,
   type GroupTimeoutKey,
@@ -42,6 +43,7 @@ const genericError = ref(false)
 const urlConfirmOpen = ref(false)
 const urlConflict = ref<UpstreamUrlConflictData | null>(null)
 const rediscoveryRecommended = ref(false)
+const headerRulesValid = ref(true)
 let controller: AbortController | undefined
 const saveFocusTarget = ref<HTMLElement | null>(null)
 const headingFocusTarget = ref<HTMLElement | null>(null)
@@ -53,17 +55,28 @@ const timeoutKeys: GroupTimeoutKey[] = [
   'request_timeout',
   'stream_idle_timeout',
 ]
-const weights = Array.from({ length: 101 }, (_, index) => index)
+const weights = Array.from({ length: 100 }, (_, index) => index + 1)
 const patch = computed(() => buildGroupSettingsPatch(savedGroup.value, draft.value))
 const dirty = computed(() => Object.keys(patch.value).length > 0)
+const nameError = computed(() =>
+  draft.value.name.trim() === '' ? t('group.settings.base.nameError') : '',
+)
+const upstreamURLError = computed(() =>
+  draft.value.upstream_url.trim() === '' ? t('group.settings.base.upstreamUrlError') : '',
+)
+const protocolsError = computed(() =>
+  draft.value.protocols.length === 0 ? t('group.settings.base.protocolsError') : '',
+)
+
+function timeoutError(key: GroupTimeoutKey): string {
+  const value = draft.value.config[key]
+  return value !== undefined && (!Number.isSafeInteger(value) || value <= 0)
+    ? t('group.settings.runtime.timeoutError')
+    : ''
+}
+
 const valid = computed(() => {
-  if (
-    !draft.value.name.trim() ||
-    !draft.value.upstream_url.trim() ||
-    draft.value.protocols.length === 0
-  ) {
-    return false
-  }
+  if (nameError.value || upstreamURLError.value || protocolsError.value) return false
   if (
     draft.value.weight_manual !== null &&
     (!Number.isInteger(draft.value.weight_manual) ||
@@ -72,18 +85,20 @@ const valid = computed(() => {
   ) {
     return false
   }
-  return timeoutKeys.every((key) => {
-    const value = draft.value.config[key]
-    return value === undefined || (Number.isInteger(value) && value > 0)
-  })
+  if (draft.value.config.header_rules && !headerRulesValid.value) return false
+  return timeoutKeys.every((key) => timeoutError(key) === '')
 })
 
 watch(
   () => props.group,
   (group) => {
-    const wasDirty = dirty.value
+    if (dirty.value) {
+      draft.value = rebaseGroupSettingsDraft(savedGroup.value, draft.value, group)
+      savedGroup.value = group
+      return
+    }
     savedGroup.value = group
-    if (!wasDirty) draft.value = createGroupSettingsDraft(group)
+    draft.value = createGroupSettingsDraft(group)
   },
 )
 
@@ -101,6 +116,7 @@ function setTimeoutValue(key: GroupTimeoutKey, event: Event): void {
 }
 
 function setHeaderRulesOverride(enabled: boolean): void {
+  headerRulesValid.value = true
   const config = { ...draft.value.config }
   if (enabled) {
     config.header_rules = enableHeaderRulesOverride(savedGroup.value.effective_config.header_rules)
@@ -162,6 +178,11 @@ async function runSave(confirmUpstreamURLChange = false): Promise<void> {
   const activeController = controller
   try {
     const result = await updateGroup(client, props.groupId, body, activeController.signal)
+    if (controller !== activeController) return
+    await queryClient.cancelQueries({
+      queryKey: controlQueryKeys.groups.detail(props.groupId),
+      exact: true,
+    })
     if (controller !== activeController) return
     savedGroup.value = result.group
     draft.value = createGroupSettingsDraft(result.group)
@@ -280,8 +301,18 @@ onBeforeUnmount(() => {
             data-test="group-name"
             type="text"
             autocomplete="off"
+            :aria-invalid="nameError ? 'true' : undefined"
+            :aria-describedby="nameError ? 'group-name-error' : undefined"
             :disabled="pending"
           />
+          <small
+            v-if="nameError"
+            id="group-name-error"
+            data-test="group-name-error"
+            class="group-settings__field-error"
+            role="alert"
+            >{{ nameError }}</small
+          >
         </label>
         <label>
           <span>{{ t('group.settings.base.upstreamUrl') }}</span>
@@ -291,9 +322,21 @@ onBeforeUnmount(() => {
             class="group-settings__mono"
             type="url"
             autocomplete="off"
+            :aria-invalid="upstreamURLError ? 'true' : undefined"
+            :aria-describedby="
+              upstreamURLError ? 'group-upstream-url-error group-upstream-url-warning' : undefined
+            "
             :disabled="pending"
           />
-          <small>{{ t('group.settings.base.urlWarning') }}</small>
+          <small
+            v-if="upstreamURLError"
+            id="group-upstream-url-error"
+            data-test="group-upstream-url-error"
+            class="group-settings__field-error"
+            role="alert"
+            >{{ upstreamURLError }}</small
+          >
+          <small id="group-upstream-url-warning">{{ t('group.settings.base.urlWarning') }}</small>
         </label>
         <label>
           <span>{{ t('group.settings.base.validationModel') }}</span>
@@ -316,11 +359,15 @@ onBeforeUnmount(() => {
             @change="setWeight"
           >
             <option value="auto">{{ t('group.settings.base.auto') }}</option>
+            <option v-if="draft.weight_manual === 0" value="0" disabled>0</option>
             <option v-for="weight in weights" :key="weight" :value="weight">{{ weight }}</option>
           </select>
         </label>
       </div>
-      <fieldset>
+      <fieldset
+        :aria-invalid="protocolsError ? 'true' : undefined"
+        :aria-describedby="protocolsError ? 'group-protocols-error' : undefined"
+      >
         <legend>{{ t('group.settings.base.protocols') }}</legend>
         <div class="group-settings__checks">
           <label v-for="protocol in protocols" :key="protocol">
@@ -334,6 +381,14 @@ onBeforeUnmount(() => {
             {{ t(`group.protocols.${protocol}`) }}
           </label>
         </div>
+        <small
+          v-if="protocolsError"
+          id="group-protocols-error"
+          data-test="group-protocols-error"
+          class="group-settings__field-error"
+          role="alert"
+          >{{ protocolsError }}</small
+        >
       </fieldset>
       <label class="group-settings__enabled">
         <input
@@ -392,10 +447,20 @@ onBeforeUnmount(() => {
             :aria-label="
               t('group.settings.runtime.valueFor', { field: t(`group.settings.runtime.${key}`) })
             "
+            :aria-invalid="timeoutError(key) ? 'true' : undefined"
+            :aria-describedby="timeoutError(key) ? `runtime-${key}-error` : undefined"
             :value="draft.config[key]"
             :disabled="pending"
             @input="setTimeoutValue(key, $event)"
           />
+          <small
+            v-if="timeoutError(key)"
+            :id="`runtime-${key}-error`"
+            :data-test="`runtime-${key}-error`"
+            class="group-settings__field-error"
+            role="alert"
+            >{{ timeoutError(key) }}</small
+          >
         </div>
 
         <div
@@ -428,6 +493,7 @@ onBeforeUnmount(() => {
               {{ t('group.settings.runtime.headerReplacementWarning') }}
             </InlineFeedback>
             <HeaderRulesEditor
+              v-model:valid="headerRulesValid"
               :model-value="draft.config.header_rules"
               :disabled="pending"
               @update:model-value="setHeaderRules"
@@ -504,6 +570,10 @@ onBeforeUnmount(() => {
 .group-settings__runtime-row p,
 small {
   color: var(--color-text-muted);
+}
+.group-settings__field-error {
+  color: var(--color-danger);
+  font-size: 0.8125rem;
 }
 .group-settings__header p,
 .group-settings__section-heading p {
@@ -586,6 +656,9 @@ fieldset {
 .group-settings__runtime-row:first-child {
   border-top: 0;
   padding-top: 0;
+}
+.group-settings__runtime-row > .group-settings__field-error {
+  grid-column: 4;
 }
 .group-settings__headers .group-settings__header-editor {
   grid-column: 1 / -1;

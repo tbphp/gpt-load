@@ -119,3 +119,46 @@ export function buildGroupSettingsPatch(
 
   return patch
 }
+
+export function rebaseGroupSettingsDraft(
+  base: GroupDetailDto,
+  draft: GroupSettingsDraft,
+  refreshed: GroupDetailDto,
+): GroupSettingsDraft {
+  const patch = buildGroupSettingsPatch(base, draft)
+  const rebased = createGroupSettingsDraft(refreshed)
+
+  if (patch.name !== undefined) rebased.name = draft.name
+  if (patch.enabled !== undefined) rebased.enabled = draft.enabled
+  if (patch.upstream_url !== undefined) rebased.upstream_url = draft.upstream_url
+  if (patch.protocols !== undefined) rebased.protocols = [...draft.protocols]
+  if ('validation_model' in patch) rebased.validation_model = draft.validation_model
+  if ('weight_manual' in patch) rebased.weight_manual = draft.weight_manual
+
+  const timeoutKeys: GroupTimeoutKey[] = [
+    'connect_timeout',
+    'first_byte_timeout',
+    'request_timeout',
+    'stream_idle_timeout',
+  ]
+  for (const key of timeoutKeys) {
+    if (base.config[key] === draft.config[key]) continue
+    const value = draft.config[key]
+    if (value === undefined) delete rebased.config[key]
+    else rebased.config[key] = value
+  }
+  const baseHeaders =
+    base.config.header_rules === undefined
+      ? undefined
+      : normalizeHeaderRules(base.config.header_rules)
+  const draftHeaders =
+    draft.config.header_rules === undefined
+      ? undefined
+      : normalizeHeaderRules(draft.config.header_rules)
+  if (!sameValue(baseHeaders, draftHeaders)) {
+    if (draft.config.header_rules === undefined) delete rebased.config.header_rules
+    else rebased.config.header_rules = cloneHeaderRules(draft.config.header_rules)
+  }
+
+  return rebased
+}

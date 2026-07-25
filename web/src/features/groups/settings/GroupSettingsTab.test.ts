@@ -163,7 +163,29 @@ describe('GroupSettingsTab', () => {
     wrapper.unmount()
   })
 
-  it('renders an existing manual weight of zero and exposes Auto plus every integer from 0 to 100', async () => {
+  it('identifies invalid base and timeout fields beside their controls', async () => {
+    const { wrapper } = await mountSettings(vi.fn() as ApiClient['request'])
+    await wrapper.get('[data-test="group-name"]').setValue(' ')
+
+    expect(wrapper.get('[data-test="group-name"]').attributes('aria-invalid')).toBe('true')
+    expect(wrapper.get('[data-test="group-name-error"]').attributes('role')).toBe('alert')
+
+    await wrapper.get('[data-test="override-request_timeout"]').setValue(true)
+    await wrapper.get('[data-test="runtime-request_timeout"] input[type="number"]').setValue('0')
+
+    expect(
+      wrapper
+        .get('[data-test="runtime-request_timeout"] input[type="number"]')
+        .attributes('aria-invalid'),
+    ).toBe('true')
+    expect(wrapper.get('[data-test="runtime-request_timeout-error"]').attributes('role')).toBe(
+      'alert',
+    )
+    expect(wrapper.get('[data-test="group-settings-save"]').attributes()).toHaveProperty('disabled')
+    wrapper.unmount()
+  })
+
+  it('renders an existing manual weight of zero only as a compatibility option', async () => {
     const zeroWeight = { ...detail, weight_manual: 0 }
     const { wrapper } = await mountSettings(vi.fn() as ApiClient['request'], zeroWeight)
     const select = wrapper.get('[data-test="group-weight"]')
@@ -178,28 +200,17 @@ describe('GroupSettingsTab', () => {
     wrapper.unmount()
   })
 
-  it('submits zero as a legal manual Group weight and invalidates health', async () => {
-    const updated = { ...detail, weight_manual: 0 }
-    const request = vi.fn().mockResolvedValue({
-      group: updated,
-      model_rediscovery_recommended: false,
-    }) as ApiClient['request']
-    const { queryClient: client, wrapper } = await mountSettings(request)
-    const invalidate = vi.spyOn(client, 'invalidateQueries')
+  it('does not expose zero as a normal manual Group weight', async () => {
+    const { wrapper } = await mountSettings(vi.fn() as ApiClient['request'])
+    const optionValues = wrapper
+      .get('[data-test="group-weight"]')
+      .findAll('option')
+      .map((option) => option.attributes('value'))
 
-    await wrapper.get('[data-test="group-weight"]').setValue('0')
-    await wrapper.get('[data-test="group-settings-save"]').trigger('click')
-    await flushPromises()
-
-    expect(request).toHaveBeenCalledWith('/api/groups/7', {
-      method: 'PUT',
-      json: { weight_manual: 0 },
-      signal: expect.any(AbortSignal),
-    })
-    expect(invalidate.mock.calls.map(([filters]) => filters)).toEqual([
-      { queryKey: controlQueryKeys.groups.list() },
-      { queryKey: controlQueryKeys.health() },
-    ])
+    expect(optionValues).toHaveLength(101)
+    expect(optionValues[0]).toBe('auto')
+    expect(optionValues).not.toContain('0')
+    expect(optionValues.at(-1)).toBe('100')
     wrapper.unmount()
   })
 
@@ -213,6 +224,7 @@ describe('GroupSettingsTab', () => {
     const { queryClient: client, wrapper } = await mountSettings(
       requestMock as ApiClient['request'],
     )
+    const cancel = vi.spyOn(client, 'cancelQueries')
     const setQueryData = vi.spyOn(client, 'setQueryData')
     const invalidate = vi.spyOn(client, 'invalidateQueries')
 
@@ -225,6 +237,13 @@ describe('GroupSettingsTab', () => {
       json: { name: 'Renamed' },
       signal: expect.any(AbortSignal),
     })
+    expect(cancel).toHaveBeenCalledWith({
+      queryKey: controlQueryKeys.groups.detail(7),
+      exact: true,
+    })
+    expect(cancel.mock.invocationCallOrder[0]).toBeLessThan(
+      setQueryData.mock.invocationCallOrder[0]!,
+    )
     expect(setQueryData).toHaveBeenCalledWith(controlQueryKeys.groups.detail(7), updated)
     expect(invalidate.mock.calls.map(([filters]) => filters)).toEqual([
       { queryKey: controlQueryKeys.groups.list() },
@@ -471,6 +490,28 @@ describe('GroupSettingsTab', () => {
     wrapper.unmount()
   })
 
+  it('does not turn externally refreshed untouched fields into a local patch', async () => {
+    const updated = { ...detail, name: 'Local name', enabled: false }
+    const request = vi.fn().mockResolvedValue({
+      group: updated,
+      model_rediscovery_recommended: false,
+    }) as ApiClient['request']
+    const { wrapper } = await mountSettings(request)
+    await wrapper.get('[data-test="group-name"]').setValue('Local name')
+    await wrapper.setProps({ group: { ...detail, enabled: false } })
+    await flushPromises()
+
+    await wrapper.get('[data-test="group-settings-save"]').trigger('click')
+    await flushPromises()
+
+    expect(request).toHaveBeenCalledWith('/api/groups/7', {
+      method: 'PUT',
+      json: { name: 'Local name' },
+      signal: expect.any(AbortSignal),
+    })
+    wrapper.unmount()
+  })
+
   it('preserves a dirty draft while using refreshed effective values for newly enabled overrides', async () => {
     const { wrapper } = await mountSettings(vi.fn() as ApiClient['request'])
     await wrapper.get('[data-test="group-name"]').setValue('Local name')
@@ -521,6 +562,22 @@ describe('GroupSettingsTab', () => {
       json: { config: { connect_timeout: 30, request_timeout: 600 } },
       signal: expect.any(AbortSignal),
     })
+    wrapper.unmount()
+  })
+
+  it('blocks saving when HeaderRules contain an exact duplicate name', async () => {
+    const request = vi.fn() as ApiClient['request']
+    const { wrapper } = await mountSettings(request)
+
+    await wrapper.get('[data-test="override-header_rules"]').setValue(true)
+    await wrapper.get('[data-test="add-header-rule"]').trigger('click')
+    await wrapper.findAll('[data-test="header-name"]').at(-1)!.setValue('X-Duplicate')
+    await wrapper.get('[data-test="add-header-rule"]').trigger('click')
+    await wrapper.findAll('[data-test="header-name"]').at(-1)!.setValue('X-Duplicate')
+
+    expect(wrapper.get('[data-test="group-settings-save"]').attributes()).toHaveProperty('disabled')
+    await wrapper.get('[data-test="group-settings-save"]').trigger('click')
+    expect(request).not.toHaveBeenCalled()
     wrapper.unmount()
   })
 })

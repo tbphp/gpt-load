@@ -55,8 +55,12 @@ defineEmits<{ 'update:open': [open: boolean] }>()
   z-index: var(--z-drawer);
   top: 50%;
   left: 50%;
+  display: grid;
   width: min(calc(100vw - 32px), 460px);
+  max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - 32px);
   transform: translate(-50%, -50%);
+  overflow: hidden;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-card);
   background: var(--color-surface);
@@ -92,6 +96,9 @@ defineEmits<{ 'update:open': [open: boolean] }>()
   color: var(--color-text-muted);
 }
 .app-dialog__body {
+  min-height: 0;
   margin-top: var(--space-5);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 </style>

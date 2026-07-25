@@ -252,6 +252,7 @@ const effectiveLabels = computed(() => ({
                 @change="weightDrafts.set(key.id, ($event.target as HTMLSelectElement).value)"
               >
                 <option value="auto">{{ t('group.keys.auto') }}</option>
+                <option v-if="key.weight_manual === 0" value="0" disabled>0</option>
                 <option v-for="weight in weights" :key="weight" :value="String(weight)">
                   {{ weight }}
                 </option>

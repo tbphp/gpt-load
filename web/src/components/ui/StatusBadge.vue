@@ -35,14 +35,25 @@ const icon = computed(() => {
 }
 .status-badge--success {
   background: var(--color-success-bg);
-  color: var(--color-success);
 }
 .status-badge--warning {
   background: var(--color-warning-bg);
-  color: var(--color-warning);
 }
 .status-badge--danger {
   background: var(--color-danger-bg);
+}
+.status-badge--success,
+.status-badge--warning,
+.status-badge--danger {
+  color: var(--color-text);
+}
+.status-badge--success svg {
+  color: var(--color-success);
+}
+.status-badge--warning svg {
+  color: var(--color-warning);
+}
+.status-badge--danger svg {
   color: var(--color-danger);
 }
 </style>

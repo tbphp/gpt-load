@@ -182,6 +182,8 @@ describe('RequestForwardingSection', () => {
     }
     const request = vi.fn().mockResolvedValue(returned) as ApiClient['request']
     const { queryClient, wrapper } = await mountSection(owned, request)
+    const cancel = vi.spyOn(queryClient, 'cancelQueries')
+    const setQueryData = vi.spyOn(queryClient, 'setQueryData')
 
     await wrapper.get('[data-test="value-request_timeout"]').setValue('900')
     await wrapper.get('[data-test="override-header_rules"]').setValue(false)
@@ -193,11 +195,50 @@ describe('RequestForwardingSection', () => {
       json: { settings: { request_timeout: 900, header_rules: null } },
       signal: expect.any(AbortSignal),
     })
+    expect(cancel).toHaveBeenCalledWith({
+      queryKey: controlQueryKeys.settings(),
+      exact: true,
+    })
+    expect(cancel.mock.invocationCallOrder[0]).toBeLessThan(
+      setQueryData.mock.invocationCallOrder[0]!,
+    )
     expect(queryClient.getQueryData(controlQueryKeys.settings())).toEqual(returned)
     expect(wrapper.get('[data-test="request-forwarding-save"]').attributes()).toHaveProperty(
       'disabled',
     )
     expect(queryClient.getMutationCache().getAll()).toHaveLength(0)
+    wrapper.unmount()
+  })
+
+  it('does not reset an externally refreshed untouched setting while preserving a local edit', async () => {
+    const returned: SettingsDto = {
+      ...inherited,
+      revision: 6,
+      overrides: ['connect_timeout', 'request_timeout'],
+      values: { ...inherited.values, connect_timeout: 30, request_timeout: 900 },
+    }
+    const request = vi.fn().mockResolvedValue(returned) as ApiClient['request']
+    const { wrapper } = await mountSection(inherited, request)
+    await wrapper.get('[data-test="override-connect_timeout"]').setValue(true)
+    await wrapper.get('[data-test="value-connect_timeout"]').setValue('30')
+    await wrapper.setProps({
+      settings: {
+        ...inherited,
+        revision: 5,
+        overrides: ['request_timeout'],
+        values: { ...inherited.values, request_timeout: 900 },
+      },
+    })
+    await flushPromises()
+
+    await wrapper.get('[data-test="request-forwarding-save"]').trigger('click')
+    await flushPromises()
+
+    expect(request).toHaveBeenCalledWith('/api/settings', {
+      method: 'PUT',
+      json: { settings: { connect_timeout: 30 } },
+      signal: expect.any(AbortSignal),
+    })
     wrapper.unmount()
   })
 })

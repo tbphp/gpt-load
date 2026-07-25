@@ -100,21 +100,26 @@ async function submit(): Promise<void> {
   activeController?.abort()
   const controller = new AbortController()
   activeController = controller
+  const ownsAction = () => activeController === controller && selectedID.value === group.id
   pending.value = true
   errorKey.value = ''
   try {
-    result.value = await importGroupKeys(api, group.id, { keys: keys.value }, controller.signal)
+    const imported = await importGroupKeys(api, group.id, { keys: keys.value }, controller.signal)
+    if (!ownsAction()) return
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: controlQueryKeys.groups.keys(group.id) }),
       queryClient.invalidateQueries({ queryKey: controlQueryKeys.groups.detail(group.id) }),
       queryClient.invalidateQueries({ queryKey: controlQueryKeys.groups.list() }),
       queryClient.invalidateQueries({ queryKey: controlQueryKeys.health() }),
     ])
+    if (!ownsAction()) return
+    result.value = imported
     completed.value = true
     keys.value = ''
     recovery.clear()
   } catch (error: unknown) {
-    if (!(error instanceof RequestCancelledError)) errorKey.value = 'import.existing.importFailed'
+    if (ownsAction() && !(error instanceof RequestCancelledError))
+      errorKey.value = 'import.existing.importFailed'
   } finally {
     if (activeController === controller) {
       activeController = undefined

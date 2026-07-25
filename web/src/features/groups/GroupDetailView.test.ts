@@ -121,6 +121,11 @@ describe('GroupDetailView', () => {
     expect(wrapper.get('[data-test="group-import-link"]').attributes('href')).toBe(
       '/import?mode=existing&group_id=7',
     )
+    const activeTab = wrapper.get('[data-test="group-tab-keys"]')
+    const panel = wrapper.get('[role="tabpanel"]')
+    expect(activeTab.attributes('aria-controls')).toBe(panel.attributes('id'))
+    expect(panel.attributes('aria-labelledby')).toBe(activeTab.attributes('id'))
+    expect(panel.text()).toContain('No upstream keys')
 
     const rendered = wrapper.html()
     const routeState = JSON.stringify(router.currentRoute.value)

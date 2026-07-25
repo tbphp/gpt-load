@@ -190,6 +190,48 @@ describe('ExistingGroupImport', () => {
     expect((selector.element as HTMLSelectElement).value).toBe('8')
   })
 
+  it('does not apply a late import result after the route target changes', async () => {
+    let settle!: (value: { group_id: number; keys_added: number; keys_duplicated: number }) => void
+    const late = new Promise<{ group_id: number; keys_added: number; keys_duplicated: number }>(
+      (resolve) => {
+        settle = resolve
+      },
+    )
+    const requestMock = vi.fn((path: string) => {
+      if (path === '/api/groups') return Promise.resolve(groups)
+      if (path === '/api/groups/8/keys/import') return late
+      return Promise.reject(new Error(`unexpected request: ${path}`))
+    })
+    const { importRecovery, queryClient, router, wrapper } = await mountExisting(
+      '/import?mode=existing&group_id=7',
+      requestMock as ApiClient['request'],
+    )
+    const invalidate = vi.spyOn(queryClient, 'invalidateQueries')
+    await wrapper.get('[data-test="existing-group"]').setValue('8')
+    await flushPromises()
+    expect(router.currentRoute.value.fullPath).toBe('/import?mode=existing&group_id=8')
+    await wrapper.get('[data-test="keys"]').setValue('late-target-key')
+    await wrapper.get('[data-test="existing-review"]').trigger('click')
+    await wrapper.get('[data-test="existing-submit"]').trigger('click')
+    vi.stubGlobal(
+      'confirm',
+      vi.fn(() => true),
+    )
+
+    router.back()
+    await flushPromises()
+    expect(router.currentRoute.value.fullPath).toBe('/import?mode=existing&group_id=7')
+
+    settle({ group_id: 8, keys_added: 1, keys_duplicated: 0 })
+    await flushPromises()
+
+    expect(wrapper.find('[data-test="existing-result"]').exists()).toBe(false)
+    expect(invalidate).not.toHaveBeenCalled()
+    expect(importRecovery.clear).not.toHaveBeenCalled()
+    vi.unstubAllGlobals()
+    wrapper.unmount()
+  })
+
   it('restores an existing draft and keeps raw keys out of route, caches, rendered text, and generic errors', async () => {
     const canary = 'UPSTREAM_KEY_CANARY_EXISTING_3c8f'
     const requestMock = vi.fn(async (path: string) => {

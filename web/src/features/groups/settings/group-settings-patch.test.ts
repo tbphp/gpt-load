@@ -4,6 +4,7 @@ import {
   buildGroupSettingsPatch,
   createGroupSettingsDraft,
   enableHeaderRulesOverride,
+  rebaseGroupSettingsDraft,
   setGroupConfigOverride,
 } from './group-settings-patch'
 
@@ -109,5 +110,37 @@ describe('group settings patch', () => {
     expect(enabled).not.toBe(base.effective_config.header_rules)
     expect(enabled.set).not.toBe(base.effective_config.header_rules.set)
     expect(enabled.remove).not.toBe(base.effective_config.header_rules.remove)
+  })
+
+  it('rebases only locally touched fields onto a refreshed Group', () => {
+    const draft = createGroupSettingsDraft(base)
+    draft.name = 'Local rename'
+    draft.config.connect_timeout = 45
+    const refreshed: GroupDetailDto = {
+      ...base,
+      enabled: false,
+      config: {
+        ...base.config,
+        request_timeout: 900,
+      },
+    }
+
+    const rebased = rebaseGroupSettingsDraft(base, draft, refreshed)
+
+    expect(rebased.name).toBe('Local rename')
+    expect(rebased.enabled).toBe(false)
+    expect(rebased.config).toEqual({
+      connect_timeout: 45,
+      request_timeout: 900,
+      header_rules: { set: { 'X-Token': 'HEADER_CANARY_PATCH' }, remove: ['X-Debug'] },
+    })
+    expect(buildGroupSettingsPatch(refreshed, rebased)).toEqual({
+      name: 'Local rename',
+      config: {
+        connect_timeout: 45,
+        request_timeout: 900,
+        header_rules: { set: { 'X-Token': 'HEADER_CANARY_PATCH' }, remove: ['X-Debug'] },
+      },
+    })
   })
 })

@@ -1,6 +1,6 @@
 import { inject, onBeforeUnmount, onMounted, type InjectionKey, type Ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { onBeforeRouteLeave } from 'vue-router'
+import { onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
 
 export interface DirtyNavigationController {
   bypassNext(): void
@@ -37,10 +37,14 @@ export function useDirtyNavigation(dirty: Readonly<Ref<boolean>>): void {
 
   onMounted(() => window.addEventListener('beforeunload', beforeUnload))
   onBeforeUnmount(() => window.removeEventListener('beforeunload', beforeUnload))
-  onBeforeRouteLeave(() => {
+
+  const confirmNavigation = () => {
     if (!dirty.value || controller.consumeBypass()) return true
     return window.confirm(t('import.unsavedConfirm'))
-  })
+  }
+
+  onBeforeRouteLeave(confirmNavigation)
+  onBeforeRouteUpdate(confirmNavigation)
 }
 
 export function useDirtyNavigationController(): DirtyNavigationController {
