@@ -147,4 +147,27 @@ describe('GroupDeleteDialog', () => {
     expect(router.currentRoute.value.name).toBe('group-detail')
     wrapper.unmount()
   })
+
+  it('falls back to fixed generic feedback for malformed GROUP_IN_USE data', async () => {
+    const request = vi
+      .fn()
+      .mockRejectedValue(
+        new ApiError(409, 'GROUP_IN_USE', 'must not render', { access_keys: [] }),
+      ) as ApiClient['request']
+    const { wrapper } = await mountDelete(request)
+    await wrapper.get('[data-test="group-delete-open"]').trigger('click')
+    await flushPromises()
+    const input = documentInput('[data-test="group-delete-name"]')
+    input.value = 'Primary'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    await flushPromises()
+    documentButton('[data-test="group-delete-confirm"]').click()
+    await flushPromises()
+
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
+      'Unable to delete the Group.',
+    )
+    expect(document.querySelector('[role="dialog"]')?.textContent).not.toContain('must not render')
+    wrapper.unmount()
+  })
 })

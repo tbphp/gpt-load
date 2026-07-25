@@ -70,6 +70,53 @@ async function discoverAndReview(wrapper: ReturnType<typeof mount>) {
 }
 
 describe('NewGroupImport', () => {
+  it('disables conflict Edit while append is pending', async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({ models: ['gpt-4o'] })
+      .mockRejectedValueOnce(
+        new ApiError(409, 'UPSTREAM_URL_CONFLICT', 'conflict', {
+          groups: [{ id: 7, name: 'Existing' }],
+        }),
+      )
+      .mockImplementationOnce(() => new Promise(() => {})) as ApiClient['request']
+    const { wrapper } = await mountImport(request)
+    await enterConnection(wrapper)
+    await discoverAndReview(wrapper)
+    await wrapper.get('[data-test="create"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-test="conflict-append-7"]').trigger('click')
+
+    expect(wrapper.get('[data-test="conflict-edit"]').attributes()).toHaveProperty('disabled')
+  })
+  it('disables Review Back while create is pending', async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({ models: ['gpt-4o'] })
+      .mockImplementationOnce(() => new Promise(() => {})) as ApiClient['request']
+    const { wrapper } = await mountImport(request)
+    await enterConnection(wrapper)
+    await discoverAndReview(wrapper)
+    await wrapper.get('[data-test="create"]').trigger('click')
+
+    const back = wrapper.findAll('button').find((button) => button.text() === 'Back')
+    expect(back?.attributes()).toHaveProperty('disabled')
+  })
+  it('ignores ordinary discovery rejection after input invalidation', async () => {
+    let fail!: (reason: Error) => void
+    const request = vi.fn(
+      () => new Promise<never>((_resolve, reject) => (fail = reject)),
+    ) as ApiClient['request']
+    const { wrapper } = await mountImport(request)
+    await enterConnection(wrapper)
+    await wrapper.get('[data-test="discover"]').trigger('click')
+    await wrapper.get('[data-test="upstream-url"]').setValue('https://changed.example.com')
+    fail(new Error('late ordinary failure'))
+    await flushPromises()
+
+    expect(wrapper.find('[data-test="manual-path"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('Unable to discover')
+  })
   it('renders only Group protocols', async () => {
     const { wrapper } = await mountImport(vi.fn() as ApiClient['request'])
 
@@ -295,6 +342,39 @@ describe('NewGroupImport', () => {
     await discoverAndReview(wrapper)
 
     await wrapper.get('[data-test="create"]').trigger('click')
+    await flushPromises()
+    wrapper.unmount()
+    resolveInvalidations()
+    await flushPromises()
+
+    expect(push).not.toHaveBeenCalled()
+    expect(importRecovery.clear).not.toHaveBeenCalled()
+  })
+
+  it('does not navigate or clear recovery when append invalidations finish after unmount', async () => {
+    let resolveInvalidations!: () => void
+    const invalidations = new Promise<void>((resolve) => (resolveInvalidations = resolve))
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({ models: ['gpt-4o'] })
+      .mockRejectedValueOnce(
+        new ApiError(409, 'UPSTREAM_URL_CONFLICT', 'conflict', {
+          groups: [{ id: 7, name: 'Existing' }],
+        }),
+      )
+      .mockResolvedValueOnce({
+        group_id: 7,
+        keys_added: 1,
+        keys_duplicated: 0,
+      }) as ApiClient['request']
+    const { importRecovery, queryClient, router, wrapper } = await mountImport(request)
+    const push = vi.spyOn(router, 'push')
+    vi.spyOn(queryClient, 'invalidateQueries').mockImplementation(() => invalidations)
+    await enterConnection(wrapper)
+    await discoverAndReview(wrapper)
+    await wrapper.get('[data-test="create"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-test="conflict-append-7"]').trigger('click')
     await flushPromises()
     wrapper.unmount()
     resolveInvalidations()

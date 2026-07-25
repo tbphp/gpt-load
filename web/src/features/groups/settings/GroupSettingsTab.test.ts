@@ -56,6 +56,32 @@ function documentButton(selector: string): HTMLButtonElement {
 }
 
 describe('GroupSettingsTab', () => {
+  it.each(['resolve', 'reject'] as const)(
+    'ignores a signal-ignoring late %s after unmount without recreating Group detail state',
+    async (outcome) => {
+      let settle!: (value: GroupUpdateResult) => void
+      let fail!: (reason: Error) => void
+      const late = new Promise<GroupUpdateResult>((resolve, reject) => {
+        settle = resolve
+        fail = reject
+      })
+      const request = vi.fn(() => late) as ApiClient['request']
+      const { queryClient, wrapper } = await mountSettings(request)
+      const invalidate = vi.spyOn(queryClient, 'invalidateQueries')
+      await wrapper.get('[data-test="group-name"]').setValue('Renamed')
+      await wrapper.get('[data-test="group-settings-save"]').trigger('click')
+      wrapper.unmount()
+      queryClient.removeQueries({ queryKey: controlQueryKeys.groups.detail(7), exact: true })
+
+      if (outcome === 'resolve') settle({ group: detail, model_rediscovery_recommended: false })
+      else fail(new Error('late ordinary failure'))
+      await flushPromises()
+
+      expect(queryClient.getQueryData(controlQueryKeys.groups.detail(7))).toBeUndefined()
+      expect(invalidate).not.toHaveBeenCalled()
+      expect(document.body.textContent).not.toContain('Unable to update')
+    },
+  )
   it('disables every mutable Group Settings control while save is pending', async () => {
     const request = vi.fn(() => new Promise(() => {})) as ApiClient['request']
     const { wrapper } = await mountSettings(request)
@@ -263,6 +289,25 @@ describe('GroupSettingsTab', () => {
     wrapper.unmount()
   })
 
+  it('restores Save focus after URL confirmation Cancel', async () => {
+    const request = vi
+      .fn()
+      .mockRejectedValueOnce(
+        new ApiError(409, 'UPSTREAM_URL_CHANGE_CONFIRMATION_REQUIRED', 'confirmation required'),
+      ) as ApiClient['request']
+    const { wrapper } = await mountSettings(request)
+    const save = wrapper.get('[data-test="group-settings-save"]').element as HTMLButtonElement
+    await wrapper.get('[data-test="group-upstream-url"]').setValue('https://new.example.com/v1')
+    save.focus()
+    await wrapper.get('[data-test="group-settings-save"]').trigger('click')
+    await flushPromises()
+    document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')[1]?.click()
+    await flushPromises()
+
+    expect(document.activeElement).toBe(save)
+    wrapper.unmount()
+  })
+
   it('keeps the rediscovery recommendation after a later unrelated successful save returns false', async () => {
     const changedURL = { ...detail, upstream_url: 'https://new.example.com/v1' }
     const renamed = { ...changedURL, name: 'Renamed' }
@@ -333,6 +378,22 @@ describe('GroupSettingsTab', () => {
     wrapper.unmount()
   })
 
+  it('falls back to fixed generic feedback for malformed conflict data', async () => {
+    const request = vi
+      .fn()
+      .mockRejectedValue(
+        new ApiError(409, 'UPSTREAM_URL_CONFLICT', 'must not render', { groups: [] }),
+      ) as ApiClient['request']
+    const { wrapper } = await mountSettings(request)
+    await wrapper.get('[data-test="group-upstream-url"]').setValue('https://used.example.com/v1')
+    await wrapper.get('[data-test="group-settings-save"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Unable to update')
+    expect(wrapper.find('[data-test="group-url-conflict"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
   it('fully rebases a clean draft when refreshed Group props arrive', async () => {
     const { wrapper } = await mountSettings(vi.fn() as ApiClient['request'])
     const refreshed = {
@@ -347,6 +408,27 @@ describe('GroupSettingsTab', () => {
     expect(wrapper.get('[data-test="runtime-connect_timeout"]').text()).toContain('15')
     expect(wrapper.get('[data-test="runtime-request_timeout"]').text()).toContain('900')
     expect(wrapper.get('[data-test="group-settings-save"]').attributes()).toHaveProperty('disabled')
+    wrapper.unmount()
+  })
+
+  it('preserves a dirty draft while using refreshed effective values for newly enabled overrides', async () => {
+    const { wrapper } = await mountSettings(vi.fn() as ApiClient['request'])
+    await wrapper.get('[data-test="group-name"]').setValue('Local name')
+    await wrapper.setProps({
+      group: { ...detail, effective_config: { ...detail.effective_config, request_timeout: 900 } },
+    })
+    await flushPromises()
+    expect((wrapper.get('[data-test="group-name"]').element as HTMLInputElement).value).toBe(
+      'Local name',
+    )
+    await wrapper.get('[data-test="override-request_timeout"]').setValue(true)
+
+    expect(
+      (
+        wrapper.get('[data-test="runtime-request_timeout"] input[type="number"]')
+          .element as HTMLInputElement
+      ).value,
+    ).toBe('900')
     wrapper.unmount()
   })
 

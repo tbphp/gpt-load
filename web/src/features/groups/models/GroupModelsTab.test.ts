@@ -58,6 +58,53 @@ function clickDocument(selector: string): void {
 }
 
 describe('GroupModelsTab', () => {
+  it.each(['resolve', 'reject'] as const)(
+    'ignores a late discovery %s after unmount',
+    async (outcome) => {
+      let settle!: (value: { models: string[] }) => void
+      let fail!: (reason: Error) => void
+      const late = new Promise<{ models: string[] }>((resolve, reject) => {
+        settle = resolve
+        fail = reject
+      })
+      const request = vi.fn(() => late) as ApiClient['request']
+      const { wrapper } = await mountModels(request)
+      await wrapper.get('[data-test="models-discover"]').trigger('click')
+      wrapper.unmount()
+      if (outcome === 'resolve') settle({ models: ['late-model'] })
+      else fail(new Error('late ordinary failure'))
+      await flushPromises()
+
+      expect(document.body.textContent).not.toContain('late-model')
+      expect(document.body.textContent).not.toContain('Discovery failed')
+    },
+  )
+
+  it.each(['resolve', 'reject'] as const)(
+    'ignores a late model replacement %s after unmount without recreating detail cache',
+    async (outcome) => {
+      let settle!: (value: GroupDetailDto) => void
+      let fail!: (reason: Error) => void
+      const late = new Promise<GroupDetailDto>((resolve, reject) => {
+        settle = resolve
+        fail = reject
+      })
+      const request = vi.fn(() => late) as ApiClient['request']
+      const { queryClient, wrapper } = await mountModels(request)
+      const invalidate = vi.spyOn(queryClient, 'invalidateQueries')
+      await wrapper.get('[data-test="model-alias-0"]').setValue('changed')
+      await wrapper.get('[data-test="models-save"]').trigger('click')
+      wrapper.unmount()
+      queryClient.removeQueries({ queryKey: controlQueryKeys.groups.detail(7), exact: true })
+      if (outcome === 'resolve') settle(detail)
+      else fail(new Error('late ordinary failure'))
+      await flushPromises()
+
+      expect(queryClient.getQueryData(controlQueryKeys.groups.detail(7))).toBeUndefined()
+      expect(invalidate).not.toHaveBeenCalled()
+      expect(document.body.textContent).not.toContain('Unable to save')
+    },
+  )
   it('disables every ModelDraft control while replacement is pending', async () => {
     const request = vi.fn(() => new Promise(() => {})) as ApiClient['request']
     const { wrapper } = await mountModels(request)
