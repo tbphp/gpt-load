@@ -65,14 +65,12 @@ function normalizeLogsQuery(query: Record<string, unknown>, tab: MonitorTab): Lo
   const accessKeyID = scalarPositiveID(query.access_key_id)
   const status = scalarEnum(query.status, requestLogStatuses)
   const requestID = scalarUUIDv4(query.request_id)
-  const cursor = scalarText(query.cursor)
 
   if (groupID !== undefined) normalized.group_id = groupID
   if (model !== undefined) normalized.model = model
   if (accessKeyID !== undefined) normalized.access_key_id = accessKeyID
   if (status !== undefined) normalized.status = status
   if (requestID !== undefined) normalized.request_id = requestID
-  if (cursor !== undefined) normalized.cursor = cursor
   return normalized
 }
 

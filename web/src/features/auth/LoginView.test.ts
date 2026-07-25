@@ -208,13 +208,13 @@ describe('LoginView', () => {
 
   it('redirects to a registered safe target after success', async () => {
     const { router, wrapper } = await mountLogin(createFakeSession(), {
-      redirect: '/monitor?tab=requests',
+      redirect: '/monitor?tab=logs',
     })
 
     await submitCredential(wrapper, 'candidate-key')
     await flushPromises()
 
-    expect(router.currentRoute.value.fullPath).toBe('/monitor?tab=requests')
+    expect(router.currentRoute.value.fullPath).toBe('/monitor?tab=logs')
   })
 
   it.each(['/import', '/import?mode=new', '/import?mode=existing&group_id=7'])(

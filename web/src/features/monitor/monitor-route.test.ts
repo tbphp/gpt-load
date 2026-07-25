@@ -47,7 +47,6 @@ describe('monitor route normalization', () => {
       normalizeMonitorQuery({
         status: 'error',
         tab: 'logs',
-        cursor: 'opaque',
         to: '2026-07-25T11:00:00.000Z',
         model: 'gpt-real',
         group_id: '7',
@@ -64,8 +63,11 @@ describe('monitor route normalization', () => {
       access_key_id: '12',
       status: 'error',
       request_id: 'a4d4e121-8ac3-4df4-8ceb-63b10ddc6173',
-      cursor: 'opaque',
     })
+  })
+
+  it('drops pagination cursors so they cannot enter Logs URL history', () => {
+    expect(normalizeMonitorQuery({ tab: 'logs', cursor: 'opaque' })).toEqual({ tab: 'logs' })
   })
 
   it('drops only an inverted time range while keeping independent valid Logs filters', () => {
@@ -91,10 +93,7 @@ describe('monitor route normalization', () => {
 
   it('compares query maps by their allowed key-value pairs instead of object identity', () => {
     expect(
-      sameMonitorQuery(
-        { tab: 'logs', status: 'error', cursor: 'opaque' },
-        { cursor: 'opaque', status: 'error', tab: 'logs' },
-      ),
+      sameMonitorQuery({ tab: 'logs', status: 'error' }, { status: 'error', tab: 'logs' }),
     ).toBe(true)
     expect(
       sameMonitorQuery({ tab: 'logs', status: 'error' }, { tab: 'logs', status: 'success' }),
