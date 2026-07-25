@@ -57,10 +57,29 @@ export default {
   },
   import: {
     title: '导入上游密钥',
-    description: '通过连接配置、模型发现和复核创建 Group。',
+    description: '创建 Group，或仅向已有 Group 导入上游密钥。',
     progress: '导入进度',
     steps: { 1: '连接', 2: '模型', 3: '复核' },
     presets: { openai: 'OpenAI', anthropic: 'Anthropic', gemini: 'Gemini', custom: '自定义' },
+    mode: {
+      label: '导入目标',
+      new: '新建 Group',
+      existing: '已有 Group',
+    },
+    existing: {
+      title: '导入到已有 Group',
+      description: '仅添加上游密钥，不会修改模型、协议或设置。',
+      groupsLoading: '正在加载 Group…',
+      groupsFailed: '无法加载 Group。',
+      groupLabel: '目标 Group',
+      groupPlaceholder: '选择 Group',
+      reviewTitle: '复核密钥导入',
+      reviewDescription: '确认目标 Group 和密钥数量；不会显示密钥原文。',
+      submit: '导入密钥',
+      importFailed: '无法将密钥导入所选 Group。',
+      successTitle: '密钥已导入',
+      successSummary: '新增 {added} 个；已存在 {duplicated} 个。',
+    },
     connection: {
       title: '连接上游',
       description: '选择预设或输入兼容上游；预设只填充 URL 和协议。',
@@ -120,7 +139,6 @@ export default {
       edit: '返回编辑',
     },
     unsavedConfirm: '放弃尚未保存的导入内容吗？',
-    existingDeferred: '现有 Group 导入将在下一任务中交付。',
   },
   home: {
     title: '运行概览',

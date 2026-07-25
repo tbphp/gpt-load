@@ -3,7 +3,7 @@ import { inject, type InjectionKey } from 'vue'
 import type { Protocol } from '@/api/control/types'
 
 import type { ChannelPreset } from './channel-presets'
-import type { HeaderRules, ImportDraft, ModelDraftItem } from './model-draft'
+import type { HeaderRules, ImportRecoveryDraft, ModelDraftItem } from './model-draft'
 
 export const importRecoveryStorageKey = 'gpt-load.import-reauth-draft'
 export const importRecoveryTtlMs = 15 * 60 * 1_000
@@ -16,9 +16,9 @@ export interface ImportRecoveryDependencies {
 }
 
 export interface ImportRecoveryService {
-  register(getDraft: () => ImportDraft | null): () => void
+  register(getDraft: () => ImportRecoveryDraft | null): () => void
   captureForUnauthorized(): 'stored' | 'no-active-draft' | 'storage-unavailable'
-  consume(): ImportDraft | null
+  consume(): ImportRecoveryDraft | null
   clear(): void
   sweep(): void
   dispose(): void
@@ -27,7 +27,7 @@ export interface ImportRecoveryService {
 interface ImportRecoveryRecord {
   version: 1
   expires_at: number
-  draft: ImportDraft
+  draft: ImportRecoveryDraft
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -59,9 +59,8 @@ function isModel(value: unknown): value is ModelDraftItem {
   )
 }
 
-function isImportDraft(value: unknown): value is ImportDraft {
+function isNewImportDraft(value: Record<string, unknown>): boolean {
   return (
-    isRecord(value) &&
     value.mode === 'new' &&
     (value.step === 1 || value.step === 2 || value.step === 3) &&
     isPreset(value.preset_id) &&
@@ -74,6 +73,21 @@ function isImportDraft(value: unknown): value is ImportDraft {
     Array.isArray(value.models) &&
     value.models.every(isModel)
   )
+}
+
+function isExistingImportDraft(value: Record<string, unknown>): boolean {
+  return (
+    value.mode === 'existing' &&
+    (value.group_id === null ||
+      (typeof value.group_id === 'number' &&
+        Number.isSafeInteger(value.group_id) &&
+        value.group_id > 0)) &&
+    typeof value.keys === 'string'
+  )
+}
+
+function isImportDraft(value: unknown): value is ImportRecoveryDraft {
+  return isRecord(value) && (isNewImportDraft(value) || isExistingImportDraft(value))
 }
 
 function parseRecoveryRecord(raw: string): ImportRecoveryRecord | null {
@@ -114,7 +128,7 @@ function removeAndConfirm(storage: Storage, key: string): boolean {
 export function createImportRecoveryService(
   deps: ImportRecoveryDependencies,
 ): ImportRecoveryService {
-  let activeGetter: (() => ImportDraft | null) | undefined
+  let activeGetter: (() => ImportRecoveryDraft | null) | undefined
   let expiryTimer: ReturnType<typeof setTimeout> | undefined
 
   function cancelTimer(): void {
@@ -149,7 +163,7 @@ export function createImportRecoveryService(
   }
 
   function captureForUnauthorized(): ReturnType<ImportRecoveryService['captureForUnauthorized']> {
-    let draft: ImportDraft | null
+    let draft: ImportRecoveryDraft | null
     try {
       draft = activeGetter?.() ?? null
     } catch {
@@ -172,7 +186,7 @@ export function createImportRecoveryService(
     return 'stored'
   }
 
-  function consume(): ImportDraft | null {
+  function consume(): ImportRecoveryDraft | null {
     const raw = safeGet(deps.storage, importRecoveryStorageKey)
     if (
       raw === null ||

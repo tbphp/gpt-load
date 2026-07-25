@@ -25,6 +25,14 @@ export interface ImportDraft {
   models: ModelDraftItem[]
 }
 
+export interface ExistingGroupImportDraft {
+  mode: 'existing'
+  group_id: number | null
+  keys: string
+}
+
+export type ImportRecoveryDraft = ImportDraft | ExistingGroupImportDraft
+
 export function createModelDraft(ids: string[]): ModelDraftItem[] {
   const seen = new Set<string>()
   const result: ModelDraftItem[] = []

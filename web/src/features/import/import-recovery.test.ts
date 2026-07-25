@@ -17,6 +17,12 @@ const draft: ImportDraft = {
   models: [{ id: 'gpt-4o', alias: '', selected: true }],
 }
 
+const existingDraft = {
+  mode: 'existing' as const,
+  group_id: 7,
+  keys: 'EXISTING_KEY_CANARY_a17c',
+}
+
 function memoryStorage(events: string[] = []): Storage {
   const values = new Map<string, string>()
   return {
@@ -83,6 +89,34 @@ describe('import recovery', () => {
     unregister()
     service.dispose()
     expect(timers.size).toBe(0)
+  })
+
+  it('captures and restores the existing-mode discriminated union branch', () => {
+    const storage = memoryStorage()
+    const { service } = createHarness(storage)
+    service.register(() => existingDraft)
+
+    expect(service.captureForUnauthorized()).toBe('stored')
+    expect(service.consume()).toEqual(existingDraft)
+    expect(storage.getItem(importRecoveryStorageKey)).toBeNull()
+  })
+
+  it('rejects malformed or non-positive existing-mode Group identities after confirmed removal', () => {
+    for (const groupID of [0, -1, 1.5, '7']) {
+      const storage = memoryStorage()
+      storage.setItem(
+        importRecoveryStorageKey,
+        JSON.stringify({
+          version: 1,
+          expires_at: 910_000,
+          draft: { mode: 'existing', group_id: groupID, keys: 'canary' },
+        }),
+      )
+      const { service } = createHarness(storage)
+
+      expect(service.consume()).toBeNull()
+      expect(storage.getItem(importRecoveryStorageKey)).toBeNull()
+    }
   })
 
   it('consumes in get, remove, confirm-absent, then parse order and leaves no secret in storage', () => {

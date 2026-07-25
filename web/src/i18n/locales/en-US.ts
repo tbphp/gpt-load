@@ -57,10 +57,29 @@ export default {
   },
   import: {
     title: 'Import upstream keys',
-    description: 'Create a Group through connection setup, model discovery, and review.',
+    description: 'Create a Group or import only upstream keys into an existing Group.',
     progress: 'Import progress',
     steps: { 1: 'Connection', 2: 'Models', 3: 'Review' },
     presets: { openai: 'OpenAI', anthropic: 'Anthropic', gemini: 'Gemini', custom: 'Custom' },
+    mode: {
+      label: 'Import destination',
+      new: 'New Group',
+      existing: 'Existing Group',
+    },
+    existing: {
+      title: 'Import into an existing Group',
+      description: 'Add upstream keys only. Models, protocols, and settings are not changed.',
+      groupsLoading: 'Loading Groups…',
+      groupsFailed: 'Unable to load Groups.',
+      groupLabel: 'Destination Group',
+      groupPlaceholder: 'Select a Group',
+      reviewTitle: 'Review key import',
+      reviewDescription: 'Confirm the destination and key count. Raw key values are not displayed.',
+      submit: 'Import keys',
+      importFailed: 'Unable to import keys into the selected Group.',
+      successTitle: 'Keys imported',
+      successSummary: '{added} added; {duplicated} already existed.',
+    },
     connection: {
       title: 'Connect an upstream',
       description:
@@ -124,7 +143,6 @@ export default {
       edit: 'Return to edit',
     },
     unsavedConfirm: 'Discard unsaved import changes?',
-    existingDeferred: 'Existing-Group import is delivered in the next task.',
   },
   home: {
     title: 'Operational overview',

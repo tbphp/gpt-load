@@ -58,10 +58,29 @@ export default {
   },
   import: {
     title: 'アップストリームキーをインポート',
-    description: '接続設定、モデル検出、確認の手順で Group を作成します。',
+    description: 'Group を作成するか、既存 Group にアップストリームキーのみを追加します。',
     progress: 'インポートの進行状況',
     steps: { 1: '接続', 2: 'モデル', 3: '確認' },
     presets: { openai: 'OpenAI', anthropic: 'Anthropic', gemini: 'Gemini', custom: 'カスタム' },
+    mode: {
+      label: 'インポート先',
+      new: '新しい Group',
+      existing: '既存 Group',
+    },
+    existing: {
+      title: '既存 Group にインポート',
+      description: 'アップストリームキーのみを追加し、モデル、プロトコル、設定は変更しません。',
+      groupsLoading: 'Group を読み込み中…',
+      groupsFailed: 'Group を読み込めません。',
+      groupLabel: 'インポート先 Group',
+      groupPlaceholder: 'Group を選択',
+      reviewTitle: 'キーのインポートを確認',
+      reviewDescription: 'インポート先とキー件数を確認します。キーの値は表示されません。',
+      submit: 'キーをインポート',
+      importFailed: '選択した Group にキーをインポートできません。',
+      successTitle: 'キーをインポートしました',
+      successSummary: '{added} 件を追加、{duplicated} 件は既に存在しました。',
+    },
     connection: {
       title: 'アップストリームに接続',
       description:
@@ -123,7 +142,6 @@ export default {
       edit: '編集に戻る',
     },
     unsavedConfirm: '保存していないインポート内容を破棄しますか？',
-    existingDeferred: '既存 Group へのインポートは次のタスクで実装します。',
   },
   home: {
     title: '運用概要',
