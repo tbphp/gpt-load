@@ -4,7 +4,8 @@ const authKey = 'e2e-auth-canary'
 const firstUpstreamKey = 'e2e-upstream-key-one'
 const secondUpstreamKey = 'e2e-upstream-key-one-secondary'
 const groupName = 'E2E OpenAI Group'
-const accessKeyName = 'E2E filtered client'
+const accessKeyName =
+  'E2EAccessKeyWithAnIntentionallyLongUnbrokenNameForMobileViewportOverflowRegressionCoverage'
 const upstreamURL = 'http://127.0.0.1:3108'
 const discoveredModel = 'e2e-model-one'
 const secondDiscoveredModel = 'e2e-model-two'
@@ -116,6 +117,7 @@ test('critical management journey works through the embedded binary', async ({ p
   })
 
   await test.step('inspect current route', async () => {
+    await page.setViewportSize({ width: 375, height: 812 })
     await page.goto('/monitor?tab=inspector')
     const upstreamRequestCountBeforeInspect = browserUpstreamRequests.length
     expect(upstreamRequestCountBeforeInspect).toBe(0)
@@ -124,9 +126,16 @@ test('critical management journey works through the embedded binary', async ({ p
     await page.getByRole('option', { name: 'OpenAI', exact: true }).click()
     await page.getByLabel('Client model').fill(discoveredModel)
     await page.getByLabel('AccessKey', { exact: true }).click()
-    await page
-      .getByRole('option', { name: new RegExp(`^${accessKeyName} · #\\d+ · Active$`) })
-      .click()
+    const accessKeyOption = page.getByRole('option', {
+      name: new RegExp(`^${accessKeyName} · #\\d+ · Active$`),
+    })
+    const listboxBounds = await page.getByRole('listbox').boundingBox()
+    expect(listboxBounds).not.toBeNull()
+    expect(listboxBounds?.x).toBeGreaterThanOrEqual(0)
+    expect((listboxBounds?.x ?? 0) + (listboxBounds?.width ?? 0)).toBeLessThanOrEqual(
+      await page.evaluate(() => window.innerWidth),
+    )
+    await accessKeyOption.click()
 
     const routeInspectRequestPromise = page.waitForRequest((request) => {
       const url = new URL(request.url())

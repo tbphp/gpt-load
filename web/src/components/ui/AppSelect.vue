@@ -75,6 +75,7 @@ const attrs = useAttrs()
 .app-select__content {
   z-index: var(--z-popover);
   min-width: var(--reka-select-trigger-width);
+  max-width: var(--reka-select-content-available-width);
   max-height: min(320px, var(--reka-select-content-available-height));
   overflow-y: auto;
   border: 1px solid var(--color-border);
@@ -86,6 +87,8 @@ const attrs = useAttrs()
 .app-select__item {
   position: relative;
   display: flex;
+  min-width: 0;
+  max-width: 100%;
   min-height: 44px;
   align-items: center;
   border-radius: var(--radius-tag);
@@ -93,6 +96,8 @@ const attrs = useAttrs()
   color: var(--color-text);
   cursor: pointer;
   outline: none;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 .app-select__item[data-highlighted] {
   background: var(--color-surface-secondary);
