@@ -5,6 +5,7 @@ import {
   discoverGroupModels,
   discoverModels,
   importGroupKeys,
+  isGroupInUseData,
   isUpstreamUrlConflictData,
   listGroups,
   replaceGroupModels,
@@ -94,10 +95,21 @@ describe('Group control API', () => {
     })
   })
 
-  it('accepts only structured UPSTREAM_URL_CONFLICT group identities', () => {
+  it('accepts only displayable structured conflict and in-use identities', () => {
     expect(isUpstreamUrlConflictData({ groups: [{ id: 7, name: 'Existing' }] })).toBe(true)
     expect(isUpstreamUrlConflictData({ groups: [{ id: 0, name: 'Existing' }] })).toBe(false)
-    expect(isUpstreamUrlConflictData({ groups: [{ id: 7, name: 9 }] })).toBe(false)
-    expect(isUpstreamUrlConflictData({ group: [] })).toBe(false)
+    expect(
+      isUpstreamUrlConflictData({
+        groups: [{ id: Number.MAX_SAFE_INTEGER + 1, name: 'Existing' }],
+      }),
+    ).toBe(false)
+    expect(isUpstreamUrlConflictData({ groups: [{ id: 7, name: '   ' }] })).toBe(false)
+    expect(isUpstreamUrlConflictData({ groups: [] })).toBe(false)
+    expect(isGroupInUseData({ access_keys: [{ id: 7, name: 'Consumer' }] })).toBe(true)
+    expect(isGroupInUseData({ access_keys: [] })).toBe(false)
+    expect(
+      isGroupInUseData({ access_keys: [{ id: Number.MAX_SAFE_INTEGER + 1, name: 'Consumer' }] }),
+    ).toBe(false)
+    expect(isGroupInUseData({ access_keys: [{ id: 7, name: '  ' }] })).toBe(false)
   })
 })

@@ -476,6 +476,12 @@ h1 {
   .form-field input {
     font-size: 16px;
   }
+
+  input:not([type='checkbox']):not([type='radio']),
+  select,
+  textarea {
+    font-size: 1rem;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

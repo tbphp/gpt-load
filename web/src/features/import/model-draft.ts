@@ -1,4 +1,4 @@
-import type { GroupModelDto, Protocol } from '@/api/control/types'
+import type { GroupModelDto, GroupProtocol } from '@/api/control/types'
 
 import type { ChannelPreset } from './channel-presets'
 
@@ -19,7 +19,7 @@ export interface ImportDraft {
   preset_id: ChannelPreset['id']
   name: string
   upstream_url: string
-  protocols: Protocol[]
+  protocols: GroupProtocol[]
   keys: string
   header_rules: HeaderRules
   models: ModelDraftItem[]

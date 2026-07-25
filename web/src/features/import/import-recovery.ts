@@ -1,6 +1,6 @@
 import { inject, type InjectionKey } from 'vue'
 
-import type { Protocol } from '@/api/control/types'
+import type { GroupProtocol } from '@/api/control/types'
 
 import type { ChannelPreset } from './channel-presets'
 import type { HeaderRules, ImportRecoveryDraft, ModelDraftItem } from './model-draft'
@@ -34,8 +34,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-function isProtocol(value: unknown): value is Protocol {
-  return ['openai', 'anthropic', 'gemini', 'openai-response'].includes(String(value))
+function isProtocol(value: unknown): value is GroupProtocol {
+  return ['openai', 'anthropic', 'gemini'].includes(String(value))
 }
 
 function isPreset(value: unknown): value is ChannelPreset['id'] {

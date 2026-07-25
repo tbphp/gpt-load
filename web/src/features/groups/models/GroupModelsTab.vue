@@ -98,6 +98,7 @@ async function runDiscovery(): Promise<void> {
   const controller = startAction('discover')
   try {
     const result = await discoverGroupModels(client, props.groupId, controller.signal)
+    if (activeController !== controller) return
     const discoveredIDs = new Set(result.models.map((id) => id.trim()).filter(Boolean))
     const representedIDs = new Set(draft.value.map((model) => model.id.trim()))
     draft.value = [
@@ -118,7 +119,7 @@ async function runDiscovery(): Promise<void> {
     ]
     discoveryRan.value = true
   } catch (error: unknown) {
-    if (error instanceof RequestCancelledError) return
+    if (activeController !== controller || error instanceof RequestCancelledError) return
     if (error instanceof ApiError && error.code === 'NO_ACTIVE_UPSTREAM_KEY') {
       discoveryError.value = 'no-active-key'
     } else if (error instanceof ApiError && error.code === 'BAD_GATEWAY') {
@@ -154,6 +155,7 @@ async function runReplace(): Promise<void> {
   saveError.value = false
   try {
     const result = await replaceGroupModels(client, props.groupId, { models }, controller.signal)
+    if (activeController !== controller) return
     savedModels.value = result.models.map((model) => ({ ...model }))
     draft.value = buildModelDiff(savedModels.value, [])
     discoveryRan.value = false
@@ -161,7 +163,8 @@ async function runReplace(): Promise<void> {
     queryClient.setQueryData(controlQueryKeys.groups.detail(props.groupId), result)
     await queryClient.invalidateQueries({ queryKey: controlQueryKeys.groups.list() })
   } catch (error: unknown) {
-    if (!(error instanceof RequestCancelledError)) saveError.value = true
+    if (activeController === controller && !(error instanceof RequestCancelledError))
+      saveError.value = true
   } finally {
     finishAction(controller)
   }
@@ -169,6 +172,7 @@ async function runReplace(): Promise<void> {
 
 onBeforeUnmount(() => {
   activeController?.abort()
+  activeController = undefined
 })
 </script>
 
@@ -269,7 +273,7 @@ onBeforeUnmount(() => {
       {{ t('group.modelEditor.removalWarning') }}
     </InlineFeedback>
 
-    <ModelDraftEditor :model-value="draft" @update:model-value="updateDraft">
+    <ModelDraftEditor :model-value="draft" :disabled="pending" @update:model-value="updateDraft">
       <template #status="{ index }">
         <StatusBadge :data-test="`model-status-${index}`" :tone="statusTone(index)">
           {{ statusLabel(index) }}

@@ -6,7 +6,7 @@ import { useQueryClient } from '@tanstack/vue-query'
 
 import { useApiClient } from '@/api/client-context'
 import { createAccessKey, updateAccessKey } from '@/api/control/access-keys'
-import type { AccessKeyDto, GroupSummary, Protocol } from '@/api/control/types'
+import type { AccessKeyDto, AccessProtocol, GroupSummary } from '@/api/control/types'
 import { RequestCancelledError } from '@/api/errors'
 import { controlQueryKeys } from '@/app/query-keys'
 import AppButton from '@/components/ui/AppButton.vue'
@@ -96,7 +96,7 @@ function toggleGroup(groupId: number, checked: boolean): void {
     : draft.value.filters.groups.filter((id) => id !== groupId)
 }
 
-function toggleProtocol(protocol: Protocol, checked: boolean): void {
+function toggleProtocol(protocol: AccessProtocol, checked: boolean): void {
   draft.value.filters.protocols = checked
     ? [...new Set([...draft.value.filters.protocols, protocol])]
     : draft.value.filters.protocols.filter((value) => value !== protocol)

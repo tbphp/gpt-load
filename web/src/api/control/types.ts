@@ -1,4 +1,5 @@
-export type Protocol = 'openai' | 'anthropic' | 'gemini' | 'openai-response'
+export type GroupProtocol = 'openai' | 'anthropic' | 'gemini'
+export type AccessProtocol = GroupProtocol | 'openai-response'
 
 export interface GroupModelDto {
   id: string
@@ -9,7 +10,7 @@ export interface GroupSummary {
   id: number
   name: string
   upstream_url: string
-  protocols: Protocol[]
+  protocols: GroupProtocol[]
   models: GroupModelDto[]
   enabled: boolean
   key_count: number
@@ -80,7 +81,7 @@ export interface RuntimeHealthDto {
 
 export interface AccessKeyFiltersDto {
   groups: number[]
-  protocols: Protocol[]
+  protocols: AccessProtocol[]
   models: string[]
 }
 

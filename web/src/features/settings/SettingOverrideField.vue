@@ -11,6 +11,7 @@ defineProps<{
   error?: string
   min?: number
   max?: number
+  disabled?: boolean
 }>()
 const emit = defineEmits<{
   'update:owned': [value: boolean]
@@ -39,6 +40,7 @@ function updateValue(event: Event): void {
         :data-test="`override-${settingKey}`"
         type="checkbox"
         :checked="owned"
+        :disabled="disabled"
         @change="emit('update:owned', ($event.target as HTMLInputElement).checked)"
       />
       <span>{{ $t('settings.useOverride') }}</span>
@@ -52,6 +54,7 @@ function updateValue(event: Event): void {
         :min="min"
         :max="max"
         :value="modelValue"
+        :disabled="disabled"
         :aria-invalid="error ? 'true' : undefined"
         @input="updateValue"
       />

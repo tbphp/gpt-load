@@ -82,7 +82,7 @@ const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
 .app-select__item {
   position: relative;
   display: flex;
-  min-height: 40px;
+  min-height: 44px;
   align-items: center;
   border-radius: var(--radius-tag);
   padding: 7px 10px 7px 32px;

@@ -22,7 +22,7 @@ defineEmits<{ 'update:open': [open: boolean] }>()
 
 <template>
   <DialogRoot :open="open" @update:open="$emit('update:open', $event)">
-    <DialogTrigger as-child><slot name="trigger" /></DialogTrigger>
+    <DialogTrigger v-if="$slots.trigger" as-child><slot name="trigger" /></DialogTrigger>
     <DialogPortal>
       <DialogOverlay class="app-dialog__overlay" />
       <DialogContent class="app-dialog__content">

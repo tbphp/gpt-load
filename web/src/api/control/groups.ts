@@ -1,6 +1,6 @@
 import type { ApiClient } from '@/api/client'
 
-import type { GroupModelDto, GroupSummary, Protocol } from './types'
+import type { GroupModelDto, GroupProtocol, GroupSummary } from './types'
 
 export interface HeaderRulesDto {
   set: Record<string, string>
@@ -34,7 +34,7 @@ export interface GroupUpdateRequest {
   name?: string
   enabled?: boolean
   upstream_url?: string
-  protocols?: Protocol[]
+  protocols?: GroupProtocol[]
   validation_model?: string | null
   weight_manual?: number | null
   config?: GroupRuntimeConfigDto
@@ -57,7 +57,7 @@ export interface GroupInUseData {
 
 export interface ModelDiscoveryRequest {
   upstream_url: string
-  protocols: readonly Protocol[]
+  protocols: readonly GroupProtocol[]
   keys: string
   config: { header_rules: HeaderRulesDto }
 }
@@ -73,7 +73,7 @@ export interface GroupModelsReplaceRequest {
 export interface GroupCreateRequest {
   name?: string
   upstream_url: string
-  protocols: readonly Protocol[]
+  protocols: readonly GroupProtocol[]
   models: GroupModelDto[]
   config: { header_rules: HeaderRulesDto }
   keys: string
@@ -110,18 +110,29 @@ function isIdName(value: unknown): value is { id: number; name: string } {
   return (
     isRecord(value) &&
     typeof value.id === 'number' &&
-    Number.isInteger(value.id) &&
+    Number.isSafeInteger(value.id) &&
     value.id > 0 &&
-    typeof value.name === 'string'
+    typeof value.name === 'string' &&
+    value.name.trim().length > 0
   )
 }
 
 export function isUpstreamUrlConflictData(value: unknown): value is UpstreamUrlConflictData {
-  return isRecord(value) && Array.isArray(value.groups) && value.groups.every(isIdName)
+  return (
+    isRecord(value) &&
+    Array.isArray(value.groups) &&
+    value.groups.length > 0 &&
+    value.groups.every(isIdName)
+  )
 }
 
 export function isGroupInUseData(value: unknown): value is GroupInUseData {
-  return isRecord(value) && Array.isArray(value.access_keys) && value.access_keys.every(isIdName)
+  return (
+    isRecord(value) &&
+    Array.isArray(value.access_keys) &&
+    value.access_keys.length > 0 &&
+    value.access_keys.every(isIdName)
+  )
 }
 
 export function listGroups(client: ApiClient, signal?: AbortSignal): Promise<GroupSummary[]> {

@@ -13,7 +13,7 @@ interface RuleRow {
   revealed: boolean
 }
 
-const props = defineProps<{ modelValue: HeaderRules }>()
+const props = defineProps<{ modelValue: HeaderRules; disabled?: boolean }>()
 const emit = defineEmits<{
   'update:modelValue': [value: HeaderRules]
   'update:valid': [value: boolean]
@@ -143,7 +143,13 @@ function setValue(row: RuleRow, event: Event): void {
         <h3>{{ t('import.headerRules.title') }}</h3>
         <p>{{ t('import.headerRules.description') }}</p>
       </div>
-      <button data-test="add-header-rule" class="header-rules__add" type="button" @click="addRow">
+      <button
+        data-test="add-header-rule"
+        class="header-rules__add"
+        type="button"
+        :disabled="props.disabled"
+        @click="addRow"
+      >
         <Plus :size="16" aria-hidden="true" />{{ t('import.headerRules.add') }}
       </button>
     </div>
@@ -157,6 +163,7 @@ function setValue(row: RuleRow, event: Event): void {
           :id="`header-action-${row.key}`"
           data-test="header-action"
           :value="row.action"
+          :disabled="props.disabled"
           @change="setAction(row, $event)"
         >
           <option value="set">{{ t('import.headerRules.set') }}</option>
@@ -172,6 +179,7 @@ function setValue(row: RuleRow, event: Event): void {
           :placeholder="t('import.headerRules.name')"
           autocomplete="off"
           spellcheck="false"
+          :disabled="props.disabled"
           @input="setName(row, $event)"
         />
         <div v-if="row.action === 'set'" class="header-rule__secret">
@@ -186,6 +194,7 @@ function setValue(row: RuleRow, event: Event): void {
             :placeholder="t('import.headerRules.value')"
             autocomplete="off"
             spellcheck="false"
+            :disabled="props.disabled"
             @input="setValue(row, $event)"
           />
           <button
@@ -194,6 +203,7 @@ function setValue(row: RuleRow, event: Event): void {
             type="button"
             :style="touchTargetStyle"
             :aria-label="row.revealed ? t('common.conceal') : t('common.reveal')"
+            :disabled="props.disabled"
             @click="row.revealed = !row.revealed"
           >
             <EyeOff v-if="row.revealed" :size="16" aria-hidden="true" />
@@ -209,6 +219,7 @@ function setValue(row: RuleRow, event: Event): void {
           type="button"
           :style="touchTargetStyle"
           :aria-label="t('import.headerRules.delete')"
+          :disabled="props.disabled"
           @click="removeRow(row.key)"
         >
           <Trash2 :size="16" aria-hidden="true" />

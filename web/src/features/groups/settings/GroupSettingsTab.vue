@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useQueryClient } from '@tanstack/vue-query'
 import { Save, TriangleAlert } from 'lucide-vue-next'
-import { computed, onBeforeUnmount, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { useApiClient } from '@/api/client-context'
@@ -11,7 +11,7 @@ import {
   type GroupDetailDto,
   type UpstreamUrlConflictData,
 } from '@/api/control/groups'
-import type { Protocol } from '@/api/control/types'
+import type { GroupProtocol } from '@/api/control/types'
 import { ApiError, RequestCancelledError } from '@/api/errors'
 import { controlQueryKeys } from '@/app/query-keys'
 import HeaderRulesEditor from '@/components/config/HeaderRulesEditor.vue'
@@ -43,8 +43,9 @@ const urlConfirmOpen = ref(false)
 const urlConflict = ref<UpstreamUrlConflictData | null>(null)
 const rediscoveryRecommended = ref(false)
 let controller: AbortController | undefined
+const saveFocusTarget = ref<HTMLElement | null>(null)
 
-const protocols: Protocol[] = ['openai', 'anthropic', 'gemini', 'openai-response']
+const protocols: GroupProtocol[] = ['openai', 'anthropic', 'gemini']
 const timeoutKeys: GroupTimeoutKey[] = [
   'connect_timeout',
   'first_byte_timeout',
@@ -76,6 +77,14 @@ const valid = computed(() => {
   })
 })
 
+watch(
+  () => props.group,
+  (group) => {
+    savedGroup.value = group
+    if (!dirty.value) draft.value = createGroupSettingsDraft(group)
+  },
+)
+
 function hasOverride(key: GroupTimeoutKey | 'header_rules'): boolean {
   return draft.value.config[key] !== undefined
 }
@@ -106,7 +115,7 @@ function setHeaderRules(value: NonNullable<GroupSettingsDraft['config']['header_
   }
 }
 
-function toggleProtocol(protocol: Protocol, checked: boolean): void {
+function toggleProtocol(protocol: GroupProtocol, checked: boolean): void {
   draft.value = {
     ...draft.value,
     protocols: checked
@@ -125,6 +134,8 @@ function healthAffected(body: ReturnType<typeof buildGroupSettingsPatch>): boole
 }
 
 async function runSave(confirmUpstreamURLChange = false): Promise<void> {
+  if (!confirmUpstreamURLChange)
+    saveFocusTarget.value = document.activeElement as HTMLElement | null
   if (pending.value || !valid.value) return
   const normalizedPatch = buildGroupSettingsPatch(savedGroup.value, draft.value)
   if (Object.keys(normalizedPatch).length === 0) return
@@ -140,6 +151,7 @@ async function runSave(confirmUpstreamURLChange = false): Promise<void> {
   const activeController = controller
   try {
     const result = await updateGroup(client, props.groupId, body, activeController.signal)
+    if (controller !== activeController) return
     savedGroup.value = result.group
     draft.value = createGroupSettingsDraft(result.group)
     urlConfirmOpen.value = false
@@ -151,7 +163,7 @@ async function runSave(confirmUpstreamURLChange = false): Promise<void> {
       await queryClient.invalidateQueries({ queryKey: controlQueryKeys.health() })
     }
   } catch (error: unknown) {
-    if (error instanceof RequestCancelledError) return
+    if (controller !== activeController || error instanceof RequestCancelledError) return
     if (error instanceof ApiError && error.code === 'UPSTREAM_URL_CHANGE_CONFIRMATION_REQUIRED') {
       urlConfirmOpen.value = true
     } else if (
@@ -164,8 +176,10 @@ async function runSave(confirmUpstreamURLChange = false): Promise<void> {
       genericError.value = true
     }
   } finally {
-    if (controller === activeController) controller = undefined
-    pending.value = false
+    if (controller === activeController) {
+      controller = undefined
+      pending.value = false
+    }
   }
 }
 
@@ -177,7 +191,17 @@ function effectiveHeaderSummary(): string {
   })
 }
 
-onBeforeUnmount(() => controller?.abort())
+watch(urlConfirmOpen, async (open, wasOpen) => {
+  if (!open && wasOpen) {
+    await nextTick()
+    saveFocusTarget.value?.focus()
+  }
+})
+
+onBeforeUnmount(() => {
+  controller?.abort()
+  controller = undefined
+})
 </script>
 
 <template>
@@ -240,7 +264,13 @@ onBeforeUnmount(() => controller?.abort())
       <div class="group-settings__grid">
         <label>
           <span>{{ t('group.settings.base.name') }}</span>
-          <input v-model="draft.name" data-test="group-name" type="text" autocomplete="off" />
+          <input
+            v-model="draft.name"
+            data-test="group-name"
+            type="text"
+            autocomplete="off"
+            :disabled="pending"
+          />
         </label>
         <label>
           <span>{{ t('group.settings.base.upstreamUrl') }}</span>
@@ -250,6 +280,7 @@ onBeforeUnmount(() => controller?.abort())
             class="group-settings__mono"
             type="url"
             autocomplete="off"
+            :disabled="pending"
           />
           <small>{{ t('group.settings.base.urlWarning') }}</small>
         </label>
@@ -261,6 +292,7 @@ onBeforeUnmount(() => controller?.abort())
             type="text"
             autocomplete="off"
             :value="draft.validation_model ?? ''"
+            :disabled="pending"
             @input="draft.validation_model = ($event.target as HTMLInputElement).value || null"
           />
         </label>
@@ -269,6 +301,7 @@ onBeforeUnmount(() => controller?.abort())
           <select
             data-test="group-weight"
             :value="draft.weight_manual ?? 'auto'"
+            :disabled="pending"
             @change="setWeight"
           >
             <option value="auto">{{ t('group.settings.base.auto') }}</option>
@@ -284,6 +317,7 @@ onBeforeUnmount(() => controller?.abort())
               :data-test="`group-protocol-${protocol}`"
               type="checkbox"
               :checked="draft.protocols.includes(protocol)"
+              :disabled="pending"
               @change="toggleProtocol(protocol, ($event.target as HTMLInputElement).checked)"
             />
             {{ t(`group.protocols.${protocol}`) }}
@@ -291,7 +325,12 @@ onBeforeUnmount(() => controller?.abort())
         </div>
       </fieldset>
       <label class="group-settings__enabled">
-        <input v-model="draft.enabled" data-test="group-enabled" type="checkbox" />
+        <input
+          v-model="draft.enabled"
+          data-test="group-enabled"
+          type="checkbox"
+          :disabled="pending"
+        />
         <span>{{ t('group.settings.base.enabled') }}</span>
       </label>
     </SurfaceCard>
@@ -328,6 +367,7 @@ onBeforeUnmount(() => controller?.abort())
               :data-test="`override-${key}`"
               type="checkbox"
               :checked="hasOverride(key)"
+              :disabled="pending"
               @change="setTimeoutOverride(key, ($event.target as HTMLInputElement).checked)"
             />
             {{ t('group.settings.runtime.useOverride') }}
@@ -342,6 +382,7 @@ onBeforeUnmount(() => controller?.abort())
               t('group.settings.runtime.valueFor', { field: t(`group.settings.runtime.${key}`) })
             "
             :value="draft.config[key]"
+            :disabled="pending"
             @input="setTimeoutValue(key, $event)"
           />
         </div>
@@ -366,6 +407,7 @@ onBeforeUnmount(() => controller?.abort())
               data-test="override-header_rules"
               type="checkbox"
               :checked="hasOverride('header_rules')"
+              :disabled="pending"
               @change="setHeaderRulesOverride(($event.target as HTMLInputElement).checked)"
             />
             {{ t('group.settings.runtime.useOverride') }}
@@ -376,6 +418,7 @@ onBeforeUnmount(() => controller?.abort())
             </InlineFeedback>
             <HeaderRulesEditor
               :model-value="draft.config.header_rules"
+              :disabled="pending"
               @update:model-value="setHeaderRules"
             />
           </div>
@@ -398,7 +441,6 @@ onBeforeUnmount(() => controller?.abort())
       :close-label="t('group.settings.urlConfirm.close')"
       @update:open="urlConfirmOpen = $event"
     >
-      <template #trigger><span class="sr-only" aria-hidden="true" /></template>
       <div class="group-settings__dialog-actions">
         <AppButton variant="secondary" @click="urlConfirmOpen = false">
           {{ t('group.settings.urlConfirm.cancel') }}

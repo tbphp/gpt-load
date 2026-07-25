@@ -5,7 +5,7 @@ import type {
   GroupUpdateRequest,
   HeaderRulesDto,
 } from '@/api/control/groups'
-import type { Protocol } from '@/api/control/types'
+import type { GroupProtocol } from '@/api/control/types'
 
 export type GroupTimeoutKey =
   'connect_timeout' | 'first_byte_timeout' | 'request_timeout' | 'stream_idle_timeout'
@@ -14,13 +14,13 @@ export interface GroupSettingsDraft {
   name: string
   enabled: boolean
   upstream_url: string
-  protocols: Protocol[]
+  protocols: GroupProtocol[]
   validation_model: string | null
   weight_manual: number | null
   config: GroupRuntimeConfigDto
 }
 
-const protocolOrder: Protocol[] = ['openai', 'anthropic', 'gemini', 'openai-response']
+const protocolOrder: GroupProtocol[] = ['openai', 'anthropic', 'gemini']
 
 function cloneHeaderRules(value: HeaderRulesDto): HeaderRulesDto {
   return { set: { ...value.set }, remove: [...value.remove] }
@@ -37,7 +37,7 @@ function cloneConfig(value: GroupRuntimeConfigDto): GroupRuntimeConfigDto {
   return config
 }
 
-function normalizeProtocols(value: readonly Protocol[]): Protocol[] {
+function normalizeGroupProtocols(value: readonly GroupProtocol[]): GroupProtocol[] {
   const selected = new Set(value)
   return protocolOrder.filter((protocol) => selected.has(protocol))
 }
@@ -104,7 +104,7 @@ export function buildGroupSettingsPatch(
   const patch: GroupUpdateRequest = {}
   const name = draft.name.trim()
   const upstreamURL = draft.upstream_url.trim()
-  const protocols = normalizeProtocols(draft.protocols)
+  const protocols = normalizeGroupProtocols(draft.protocols)
   const validationModel = draft.validation_model?.trim() || null
   const config = normalizeConfig(draft.config)
   const baseConfig = normalizeConfig(base.config)
@@ -112,7 +112,7 @@ export function buildGroupSettingsPatch(
   if (name !== base.name) patch.name = name
   if (draft.enabled !== base.enabled) patch.enabled = draft.enabled
   if (upstreamURL !== base.upstream_url) patch.upstream_url = upstreamURL
-  if (!sameValue(protocols, normalizeProtocols(base.protocols))) patch.protocols = protocols
+  if (!sameValue(protocols, normalizeGroupProtocols(base.protocols))) patch.protocols = protocols
   if (validationModel !== base.validation_model) patch.validation_model = validationModel
   if (draft.weight_manual !== base.weight_manual) patch.weight_manual = draft.weight_manual
   if (!sameValue(config, baseConfig)) patch.config = config

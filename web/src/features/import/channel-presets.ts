@@ -1,6 +1,4 @@
-import type { Protocol } from '@/api/control/types'
-
-export type GroupProtocol = Protocol
+import type { GroupProtocol } from '@/api/control/types'
 
 export interface ChannelPreset {
   id: 'openai' | 'anthropic' | 'gemini' | 'custom'

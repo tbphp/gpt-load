@@ -46,7 +46,7 @@ defineEmits<{ retry: [] }>()
 }
 .query-feedback button {
   display: inline-flex;
-  min-height: 36px;
+  min-height: 44px;
   align-items: center;
   gap: var(--space-1);
   margin-left: auto;
@@ -60,6 +60,12 @@ defineEmits<{ retry: [] }>()
 .query-feedback__spin {
   animation: query-spin 1s linear infinite;
 }
+@media (prefers-reduced-motion: reduce) {
+  .query-feedback__spin {
+    animation: none;
+  }
+}
+
 @keyframes query-spin {
   to {
     transform: rotate(360deg);

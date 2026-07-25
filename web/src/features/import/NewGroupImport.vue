@@ -14,7 +14,7 @@ import {
   type GroupCreateRequest,
   type UpstreamUrlConflictData,
 } from '@/api/control/groups'
-import type { Protocol } from '@/api/control/types'
+import type { GroupProtocol } from '@/api/control/types'
 import { ApiError, RequestCancelledError } from '@/api/errors'
 import { controlQueryKeys } from '@/app/query-keys'
 import HeaderRulesEditor from '@/components/config/HeaderRulesEditor.vue'
@@ -99,7 +99,7 @@ const canDiscover = computed(
     headerRulesValid.value,
 )
 const canReview = computed(() => !pending.value && toGroupModels(draft.models).length > 0)
-const protocols: Protocol[] = ['openai', 'anthropic', 'gemini', 'openai-response']
+const protocols: GroupProtocol[] = ['openai', 'anthropic', 'gemini']
 
 useDirtyNavigation(dirty)
 const unregisterRecovery = recovery.register(() => (completed.value ? null : snapshotDraft()))
@@ -160,7 +160,7 @@ function applyPreset(event: Event): void {
   draft.protocols = [...preset.protocols]
 }
 
-function toggleProtocol(protocol: Protocol, checked: boolean): void {
+function toggleProtocol(protocol: GroupProtocol, checked: boolean): void {
   draft.protocols = checked
     ? [...new Set([...draft.protocols, protocol])]
     : draft.protocols.filter((item) => item !== protocol)
@@ -181,13 +181,14 @@ async function runDiscovery(): Promise<void> {
       },
       controller.signal,
     )
+    if (activeController !== controller) return
     draft.models = createModelDraft(result.models)
     discoveryReady.value = true
     discoveryFailed.value = false
     manualMode.value = true
     draft.step = 2
   } catch (error: unknown) {
-    if (error instanceof RequestCancelledError) return
+    if (activeController !== controller || error instanceof RequestCancelledError) return
     discoveryFailed.value = true
     manualMode.value = false
     draft.step = 2
@@ -232,9 +233,10 @@ async function submitCreate(confirmSameURL = false): Promise<void> {
   if (!confirmSameURL) conflict.value = null
   try {
     const result = await createGroup(api, buildCreateBody(confirmSameURL), controller.signal)
+    if (activeController !== controller) return
     await finishSuccess(result.group_id)
   } catch (error: unknown) {
-    if (error instanceof RequestCancelledError) return
+    if (activeController !== controller || error instanceof RequestCancelledError) return
     if (
       error instanceof ApiError &&
       error.code === 'UPSTREAM_URL_CONFLICT' &&
@@ -254,6 +256,7 @@ async function appendToGroup(groupID: number): Promise<void> {
   const controller = startAction()
   try {
     await importGroupKeys(api, groupID, { keys: draft.keys }, controller.signal)
+    if (activeController !== controller) return
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: controlQueryKeys.groups.keys(groupID) }),
       queryClient.invalidateQueries({ queryKey: controlQueryKeys.groups.detail(groupID) }),
@@ -265,7 +268,8 @@ async function appendToGroup(groupID: number): Promise<void> {
     recovery.clear()
     await router.push({ name: 'group-detail', params: { id: groupID } })
   } catch (error: unknown) {
-    if (!(error instanceof RequestCancelledError)) errorKey.value = 'import.appendFailed'
+    if (activeController === controller && !(error instanceof RequestCancelledError))
+      errorKey.value = 'import.appendFailed'
   } finally {
     finishAction(controller)
   }
@@ -278,6 +282,7 @@ function returnToEdit(): void {
 
 onBeforeUnmount(() => {
   activeController?.abort()
+  activeController = undefined
   unregisterRecovery()
 })
 </script>
@@ -569,7 +574,7 @@ legend {
   align-items: center;
   gap: var(--space-2);
   border: 1px solid var(--color-border);
-  border-radius: 999px;
+  border-radius: var(--radius-tag);
   padding: var(--space-2) var(--space-3);
   cursor: pointer;
 }

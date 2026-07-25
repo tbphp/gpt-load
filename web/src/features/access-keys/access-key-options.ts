@@ -1,6 +1,11 @@
-import type { GroupSummary, Protocol } from '@/api/control/types'
+import type { AccessProtocol, GroupSummary } from '@/api/control/types'
 
-export const accessKeyProtocols: Protocol[] = ['openai', 'anthropic', 'gemini', 'openai-response']
+export const accessKeyProtocols: AccessProtocol[] = [
+  'openai',
+  'anthropic',
+  'gemini',
+  'openai-response',
+]
 
 export function buildAccessKeyModelOptions(
   groups: GroupSummary[],

@@ -84,20 +84,26 @@ async function save(): Promise<void> {
   const activeController = controller
   try {
     const settings = await updateSettings(client, normalizedPatch, activeController.signal)
+    if (controller !== activeController) return
     rebase(settings)
     succeeded.value = true
     queryClient.setQueryData(controlQueryKeys.settings(), settings)
     await queryClient.invalidateQueries({ queryKey: controlQueryKeys.groups.details() })
   } catch (error: unknown) {
-    if (error instanceof RequestCancelledError) return
+    if (controller !== activeController || error instanceof RequestCancelledError) return
     failed.value = true
   } finally {
-    if (controller === activeController) controller = undefined
-    pending.value = false
+    if (controller === activeController) {
+      controller = undefined
+      pending.value = false
+    }
   }
 }
 
-onBeforeUnmount(() => controller?.abort())
+onBeforeUnmount(() => {
+  controller?.abort()
+  controller = undefined
+})
 </script>
 
 <template>
@@ -131,6 +137,7 @@ onBeforeUnmount(() => controller?.abort())
       :error="error"
       :min="1"
       :max="365"
+      :disabled="pending"
       @update:owned="setOwned"
       @update:model-value="setValue"
     />

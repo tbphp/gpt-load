@@ -111,6 +111,25 @@ describe('RequestForwardingSection', () => {
     wrapper.unmount()
   })
 
+  it('disables mutable request controls while a direct save is pending', async () => {
+    let resolve!: (value: SettingsDto) => void
+    const request = vi.fn(
+      () => new Promise<SettingsDto>((done) => (resolve = done)),
+    ) as ApiClient['request']
+    const { wrapper } = await mountSection(inherited, request)
+    await wrapper.get('[data-test="override-request_timeout"]').setValue(true)
+    await wrapper.get('[data-test="request-forwarding-save"]').trigger('click')
+    expect(wrapper.get('[data-test="override-request_timeout"]').attributes()).toHaveProperty(
+      'disabled',
+    )
+    expect(wrapper.get('[data-test="value-request_timeout"]').attributes()).toHaveProperty(
+      'disabled',
+    )
+    resolve(inherited)
+    await flushPromises()
+    wrapper.unmount()
+  })
+
   it('sends only the request section dirty patch with JSON null reset and rebases the response', async () => {
     const owned: SettingsDto = {
       ...inherited,

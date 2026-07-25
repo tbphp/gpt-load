@@ -138,21 +138,27 @@ async function save(): Promise<void> {
   const activeController = controller
   try {
     const settings = await updateSettings(client, normalizedPatch, activeController.signal)
+    if (controller !== activeController) return
     rebase(settings)
     succeeded.value = true
     queryClient.setQueryData(controlQueryKeys.settings(), settings)
     await queryClient.invalidateQueries({ queryKey: controlQueryKeys.groups.details() })
   } catch (error: unknown) {
-    if (error instanceof RequestCancelledError) return
+    if (controller !== activeController || error instanceof RequestCancelledError) return
     failed.value = true
     headerSaveError.value = Object.prototype.hasOwnProperty.call(normalizedPatch, 'header_rules')
   } finally {
-    if (controller === activeController) controller = undefined
-    pending.value = false
+    if (controller === activeController) {
+      controller = undefined
+      pending.value = false
+    }
   }
 }
 
-onBeforeUnmount(() => controller?.abort())
+onBeforeUnmount(() => {
+  controller?.abort()
+  controller = undefined
+})
 </script>
 
 <template>
@@ -193,6 +199,7 @@ onBeforeUnmount(() => controller?.abort())
         :model-value="draft.values[key]"
         :error="timeoutError(key)"
         :min="1"
+        :disabled="pending"
         @update:owned="setOverride(key, $event)"
         @update:model-value="setTimeoutValue(key, $event)"
       />
@@ -228,6 +235,7 @@ onBeforeUnmount(() => controller?.abort())
             data-test="override-header_rules"
             type="checkbox"
             :checked="hasOverride('header_rules')"
+            :disabled="pending"
             @change="setHeaderOverride(($event.target as HTMLInputElement).checked)"
           />
           {{ t('settings.useOverride') }}
@@ -236,6 +244,7 @@ onBeforeUnmount(() => controller?.abort())
         <div v-if="hasOverride('header_rules')" data-test="header-rules-editor">
           <HeaderRulesEditor
             :model-value="draft.values.header_rules"
+            :disabled="pending"
             @update:model-value="setHeaderRules"
             @update:valid="headerValid = $event"
           />

@@ -9,7 +9,7 @@ export interface ModelDraftEditorItem {
   selected: boolean
 }
 
-const props = defineProps<{ modelValue: ModelDraftEditorItem[] }>()
+const props = defineProps<{ modelValue: ModelDraftEditorItem[]; disabled?: boolean }>()
 const emit = defineEmits<{ 'update:modelValue': [value: ModelDraftEditorItem[]] }>()
 const { t } = useI18n()
 const manualID = ref('')
@@ -60,6 +60,7 @@ function addManual(): void {
             :data-test="`model-selected-${index}`"
             type="checkbox"
             :checked="model.selected"
+            :disabled="props.disabled"
             @change="update(index, { selected: ($event.target as HTMLInputElement).checked })"
           />
           <code>{{ model.id }}</code>
@@ -70,6 +71,7 @@ function addManual(): void {
             :data-test="`model-alias-${index}`"
             :value="model.alias"
             :placeholder="t('import.models.alias')"
+            :disabled="props.disabled"
             @input="update(index, { alias: ($event.target as HTMLInputElement).value })"
           />
         </label>
@@ -84,16 +86,22 @@ function addManual(): void {
           data-test="manual-model-id"
           autocomplete="off"
           spellcheck="false"
+          :disabled="props.disabled"
         />
       </label>
       <label>
         <span>{{ t('import.models.alias') }}</span>
-        <input v-model="manualAlias" data-test="manual-model-alias" autocomplete="off" />
+        <input
+          v-model="manualAlias"
+          data-test="manual-model-alias"
+          autocomplete="off"
+          :disabled="props.disabled"
+        />
       </label>
       <button
         data-test="add-manual-model"
         type="button"
-        :disabled="!manualID.trim()"
+        :disabled="props.disabled || !manualID.trim()"
         @click="addManual"
       >
         <Plus :size="16" aria-hidden="true" />{{ t('import.models.add') }}
