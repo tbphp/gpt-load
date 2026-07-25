@@ -17,7 +17,7 @@ describe('handleGlobalUnauthorized', () => {
         },
       },
       dirtyNavigation: { bypassNext: () => order.push('bypass'), consumeBypass: () => false },
-      session: { clear: () => order.push('clear') },
+      session: { hasCredential: () => true, clear: () => order.push('clear') },
       router: { replace },
       redirect: '/import?mode=new',
     })
@@ -31,7 +31,7 @@ describe('handleGlobalUnauthorized', () => {
     await handleGlobalUnauthorized({
       recovery: { captureForUnauthorized: () => 'no-active-draft' },
       dirtyNavigation,
-      session: { clear: () => {} },
+      session: { hasCredential: () => true, clear: () => {} },
       router: { replace: vi.fn(async () => {}) },
       redirect: '/',
     })
@@ -46,7 +46,7 @@ describe('handleGlobalUnauthorized', () => {
       handleGlobalUnauthorized({
         recovery: { captureForUnauthorized: () => 'storage-unavailable' },
         dirtyNavigation: { bypassNext, consumeBypass: () => false },
-        session: { clear },
+        session: { hasCredential: () => true, clear },
         router: { replace },
         redirect: '/import',
       }),

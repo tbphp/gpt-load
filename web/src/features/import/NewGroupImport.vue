@@ -62,7 +62,10 @@ const draft = reactive<ImportDraft>({
 const pending = ref(false)
 const discoveryReady = ref(draft.step > 1 && draft.models.length > 0)
 const discoveryFailed = ref(false)
-const manualMode = ref(draft.models.length > 0)
+const manualMode = ref(
+  draft.models.length > 0 ||
+    (props.initialDraft?.step === 2 && props.initialDraft.models.length === 0),
+)
 const errorKey = ref('')
 const conflict = ref<UpstreamUrlConflictData | null>(null)
 const completed = ref(false)

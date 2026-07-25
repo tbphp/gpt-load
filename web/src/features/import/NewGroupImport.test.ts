@@ -12,6 +12,7 @@ import {
   dirtyNavigationKey,
 } from '@/features/import/use-dirty-navigation'
 import type { ImportRecoveryService } from '@/features/import/import-recovery'
+import type { ImportDraft } from '@/features/import/model-draft'
 import { importRecoveryKey } from '@/features/import/import-recovery'
 import { createAppI18n } from '@/i18n'
 
@@ -28,7 +29,7 @@ function recovery(): ImportRecoveryService {
   }
 }
 
-async function mountImport(request: ApiClient['request']) {
+async function mountImport(request: ApiClient['request'], initialDraft?: ImportDraft) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
@@ -37,6 +38,7 @@ async function mountImport(request: ApiClient['request']) {
   await router.isReady()
   const importRecovery = recovery()
   const wrapper = mount(NewGroupImport, {
+    props: { initialDraft },
     global: {
       plugins: [
         router,
@@ -68,6 +70,27 @@ async function discoverAndReview(wrapper: ReturnType<typeof mount>) {
 }
 
 describe('NewGroupImport', () => {
+  it('immediately exposes manual model entry for a recovered step-2 draft with no models', async () => {
+    const request = vi.fn() as ApiClient['request']
+    const recovered: ImportDraft = {
+      mode: 'new',
+      step: 2,
+      preset_id: 'custom',
+      name: 'Recovered',
+      upstream_url: 'https://api.example.com',
+      protocols: ['openai'],
+      keys: 'recovered-key',
+      header_rules: { set: {}, remove: [] },
+      models: [],
+    }
+
+    const { wrapper } = await mountImport(request, recovered)
+
+    expect(wrapper.get('[data-test="manual-model-id"]')).toBeDefined()
+    expect(wrapper.find('[data-test="manual-path"]').exists()).toBe(false)
+    expect(request).not.toHaveBeenCalled()
+  })
+
   it('applies presets, keeps Custom editable, sends raw discovery input, and shows non-blocking key hints', async () => {
     const request = vi.fn().mockResolvedValue({ models: ['gpt-4o'] }) as ApiClient['request']
     const { wrapper } = await mountImport(request)

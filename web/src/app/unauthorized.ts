@@ -7,7 +7,7 @@ import type { DirtyNavigationController } from '@/features/import/use-dirty-navi
 export interface GlobalUnauthorizedDependencies {
   recovery: Pick<ImportRecoveryService, 'captureForUnauthorized'>
   dirtyNavigation: Pick<DirtyNavigationController, 'bypassNext' | 'consumeBypass'>
-  session: Pick<AuthSession, 'clear'>
+  session: Pick<AuthSession, 'clear' | 'hasCredential'>
   router: Pick<Router, 'replace'>
   redirect: string
 }
@@ -15,6 +15,7 @@ export interface GlobalUnauthorizedDependencies {
 export async function handleGlobalUnauthorized(
   deps: GlobalUnauthorizedDependencies,
 ): Promise<void> {
+  if (!deps.session.hasCredential()) return
   deps.recovery.captureForUnauthorized()
   deps.dirtyNavigation.bypassNext()
   deps.session.clear()
