@@ -191,7 +191,6 @@ async function runSave(confirmUpstreamURLChange = false): Promise<void> {
     if (controller === activeController) {
       controller = undefined
       pending.value = false
-      if (!urlConfirmOpen.value) await restoreFocusAfterURLConfirmation()
     }
   }
 }
@@ -451,6 +450,7 @@ onBeforeUnmount(() => {
       :title="t('group.settings.urlConfirm.title')"
       :description="t('group.settings.urlConfirm.description')"
       :close-label="t('group.settings.urlConfirm.close')"
+      prevent-close-auto-focus
       @update:open="urlConfirmOpen = $event"
     >
       <div class="group-settings__dialog-actions">

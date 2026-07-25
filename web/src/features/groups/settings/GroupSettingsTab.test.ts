@@ -279,11 +279,14 @@ describe('GroupSettingsTab', () => {
       signal: expect.any(AbortSignal),
     })
     expect(document.querySelector('[role="dialog"]')).not.toBeNull()
+    const heading = wrapper.get('#group-settings-heading').element as HTMLHeadingElement
+    const headingFocus = vi.spyOn(heading, 'focus')
     documentButton('[data-test="group-url-confirm"]').click()
     await flushPromises()
-    await flushPromises()
     await new Promise((resolve) => setTimeout(resolve, 0))
-    expect(document.activeElement).toBe(wrapper.get('#group-settings-heading').element)
+    expect(save.disabled).toBe(true)
+    expect(document.activeElement).toBe(heading)
+    expect(headingFocus).toHaveBeenCalledTimes(1)
 
     expect(requestMock).toHaveBeenNthCalledWith(2, '/api/groups/7', {
       method: 'PUT',
@@ -315,9 +318,12 @@ describe('GroupSettingsTab', () => {
     await wrapper.get('[data-test="group-settings-save"]').trigger('click')
     await flushPromises()
 
+    const saveFocus = vi.spyOn(save, 'focus')
     document.querySelector<HTMLButtonElement>('.app-dialog__close')?.click()
     await flushPromises()
     expect(document.activeElement).toBe(save)
+    expect(save.disabled).toBe(false)
+    expect(saveFocus).toHaveBeenCalledTimes(1)
     wrapper.unmount()
   })
 
@@ -333,10 +339,13 @@ describe('GroupSettingsTab', () => {
     save.focus()
     await wrapper.get('[data-test="group-settings-save"]').trigger('click')
     await flushPromises()
+    const saveFocus = vi.spyOn(save, 'focus')
     document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')[1]?.click()
     await flushPromises()
 
     expect(document.activeElement).toBe(save)
+    expect(save.disabled).toBe(false)
+    expect(saveFocus).toHaveBeenCalledTimes(1)
     wrapper.unmount()
   })
 

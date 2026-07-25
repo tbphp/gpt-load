@@ -16,6 +16,7 @@ defineProps<{
   title: string
   description: string
   closeLabel: string
+  preventCloseAutoFocus?: boolean
 }>()
 defineEmits<{ 'update:open': [open: boolean] }>()
 </script>
@@ -25,7 +26,10 @@ defineEmits<{ 'update:open': [open: boolean] }>()
     <DialogTrigger v-if="$slots.trigger" as-child><slot name="trigger" /></DialogTrigger>
     <DialogPortal>
       <DialogOverlay class="app-dialog__overlay" />
-      <DialogContent class="app-dialog__content">
+      <DialogContent
+        class="app-dialog__content"
+        @close-auto-focus="preventCloseAutoFocus && $event.preventDefault()"
+      >
         <header class="app-dialog__header">
           <DialogTitle class="app-dialog__title">{{ title }}</DialogTitle>
           <DialogClose class="app-dialog__close" :aria-label="closeLabel">
