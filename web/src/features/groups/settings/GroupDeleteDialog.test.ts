@@ -170,4 +170,30 @@ describe('GroupDeleteDialog', () => {
     expect(document.querySelector('[role="dialog"]')?.textContent).not.toContain('must not render')
     wrapper.unmount()
   })
+
+  it.each([
+    { access_keys: [{ id: Number.MAX_SAFE_INTEGER + 1, name: 'Unsafe' }] },
+    { access_keys: [{ id: 11, name: '   ' }] },
+  ])('falls back to generic deletion feedback for unsafe or blank references', async (data) => {
+    const request = vi
+      .fn()
+      .mockRejectedValue(
+        new ApiError(409, 'GROUP_IN_USE', 'must not render', data),
+      ) as ApiClient['request']
+    const { wrapper } = await mountDelete(request)
+    await wrapper.get('[data-test="group-delete-open"]').trigger('click')
+    await flushPromises()
+    const input = documentInput('[data-test="group-delete-name"]')
+    input.value = 'Primary'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    await flushPromises()
+    documentButton('[data-test="group-delete-confirm"]').click()
+    await flushPromises()
+
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
+      'Unable to delete the Group.',
+    )
+    expect(document.querySelector('[role="dialog"]')?.textContent).not.toContain('must not render')
+    wrapper.unmount()
+  })
 })

@@ -394,6 +394,25 @@ describe('GroupSettingsTab', () => {
     wrapper.unmount()
   })
 
+  it.each([
+    { groups: [{ id: Number.MAX_SAFE_INTEGER + 1, name: 'Unsafe' }] },
+    { groups: [{ id: 9, name: '   ' }] },
+  ])('falls back to generic save feedback for unsafe or blank conflict entries', async (data) => {
+    const request = vi
+      .fn()
+      .mockRejectedValue(
+        new ApiError(409, 'UPSTREAM_URL_CONFLICT', 'must not render', data),
+      ) as ApiClient['request']
+    const { wrapper } = await mountSettings(request)
+    await wrapper.get('[data-test="group-upstream-url"]').setValue('https://used.example.com/v1')
+    await wrapper.get('[data-test="group-settings-save"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Unable to update')
+    expect(wrapper.find('[data-test="group-url-conflict"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
   it('fully rebases a clean draft when refreshed Group props arrive', async () => {
     const { wrapper } = await mountSettings(vi.fn() as ApiClient['request'])
     const refreshed = {

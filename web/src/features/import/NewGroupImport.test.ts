@@ -289,6 +289,31 @@ describe('NewGroupImport', () => {
     expect(wrapper.text()).toContain('Unable to create')
     expect(wrapper.find('.conflict').exists()).toBe(false)
   })
+
+  it.each([
+    { groups: [{ id: Number.MAX_SAFE_INTEGER + 1, name: 'Unsafe' }] },
+    { groups: [{ id: 7, name: '   ' }] },
+  ])(
+    'falls back to generic create feedback without navigation for unsafe or blank conflict entries',
+    async (data) => {
+      const request = vi
+        .fn()
+        .mockResolvedValueOnce({ models: ['gpt-4o'] })
+        .mockRejectedValueOnce(
+          new ApiError(409, 'UPSTREAM_URL_CONFLICT', 'must not render', data),
+        ) as ApiClient['request']
+      const { router, wrapper } = await mountImport(request)
+      const push = vi.spyOn(router, 'push')
+      await enterConnection(wrapper)
+      await discoverAndReview(wrapper)
+      await wrapper.get('[data-test="create"]').trigger('click')
+      await flushPromises()
+
+      expect(wrapper.text()).toContain('Unable to create')
+      expect(wrapper.find('.conflict').exists()).toBe(false)
+      expect(push).not.toHaveBeenCalled()
+    },
+  )
   it('guards conflict data and appends raw keys without group update or model endpoints', async () => {
     const requestMock = vi
       .fn()
