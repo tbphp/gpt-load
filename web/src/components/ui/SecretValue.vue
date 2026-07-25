@@ -48,6 +48,8 @@ watch(
   display: inline-flex;
   width: 44px;
   height: 44px;
+  min-width: 44px;
+  flex: 0 0 44px;
   align-items: center;
   justify-content: center;
   border: 0;
