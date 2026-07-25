@@ -1,0 +1,41 @@
+<script setup lang="ts">
+defineProps<{ title: string; description: string }>()
+</script>
+
+<template>
+  <div class="empty-state">
+    <div class="empty-state__icon" aria-hidden="true"><slot name="icon" /></div>
+    <h2>{{ title }}</h2>
+    <p>{{ description }}</p>
+    <div v-if="$slots.actions" class="empty-state__actions"><slot name="actions" /></div>
+  </div>
+</template>
+
+<style scoped>
+.empty-state {
+  display: grid;
+  min-height: 240px;
+  place-items: center;
+  align-content: center;
+  border: 1px dashed var(--color-border-strong);
+  border-radius: var(--radius-card);
+  background: var(--color-surface-secondary);
+  padding: var(--space-8);
+  text-align: center;
+}
+.empty-state__icon {
+  color: var(--color-text-faint);
+}
+.empty-state h2 {
+  margin: var(--space-3) 0 0;
+  font-size: 1.125rem;
+}
+.empty-state p {
+  max-width: 54ch;
+  margin: var(--space-2) 0 0;
+  color: var(--color-text-muted);
+}
+.empty-state__actions {
+  margin-top: var(--space-5);
+}
+</style>

@@ -1,11 +1,15 @@
-import { QueryClient } from '@tanstack/vue-query'
+import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query'
 import { mount } from '@vue/test-utils'
 import { createMemoryHistory } from 'vue-router'
 
 import App from './App.vue'
+import { apiClientKey } from './api/client-context'
 import { createAppRouter } from './app/router'
 import { authSessionKey, createAuthSession } from './features/auth/auth-session'
+import { createThemeController, themeControllerKey } from './features/preferences/theme'
 import { createAppI18n } from './i18n'
+import { appI18nKey } from './i18n/context'
+import { FakeApi } from './test/fake-api'
 import baseCss from './styles/base.css?raw'
 
 function createMemoryStorage(credential?: string): Storage {
@@ -30,20 +34,38 @@ async function mountAt(
     validate?: () => Promise<{ authenticated: boolean }>
   } = {},
 ) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const session = createAuthSession({
     storage: createMemoryStorage(options.credential),
-    queryClient: new QueryClient(),
+    queryClient,
     validate: options.validate ?? (async () => ({ authenticated: true })),
   })
   const router = createAppRouter(session, createMemoryHistory())
   await router.push(path)
   await router.isReady()
   const appI18n = createAppI18n(undefined, 'zh-CN')
+  const theme = createThemeController({
+    documentElement: document.documentElement,
+    storage: window.localStorage,
+    matchMedia: window.matchMedia.bind(window),
+  })
+  const api = new FakeApi()
+  api.when('/api/groups').resolve([])
+  api.when('/api/health').resolve({
+    observed_at: '2026-07-25T10:00:00Z',
+    snapshot_revision: 1,
+    counts: { total: 0, available: 0, cooldown: 0, blacklisted: 0, disabled: 0 },
+    groups: [],
+  })
+  api.when('/api/access-keys').resolve([])
   const wrapper = mount(App, {
     global: {
-      plugins: [appI18n.plugin, router],
+      plugins: [appI18n.plugin, [VueQueryPlugin, { queryClient }], router],
       provide: {
         [authSessionKey as symbol]: session,
+        [apiClientKey as symbol]: api,
+        [appI18nKey as symbol]: appI18n,
+        [themeControllerKey as symbol]: theme,
       },
     },
   })
@@ -117,14 +139,15 @@ describe('App', () => {
     )
   })
 
-  it('renders the S1 home placeholder', async () => {
+  it('renders the real Home inside the shared protected shell', async () => {
     const { wrapper } = await mountAt('/', { credential: 'restored-key' })
     await vi.waitFor(() => {
       expect(wrapper.find('nav').exists()).toBe(true)
     })
 
-    expect(wrapper.get('h1').text()).toBe('管理界面基础已就绪')
+    expect(wrapper.get('h1').text()).toBe('运行概览')
     expect(wrapper.get('nav').attributes('aria-label')).toBe('主导航')
+    expect(wrapper.find('main#main-content').exists()).toBe(true)
   })
 
   it('does not validate the public login route', async () => {
@@ -159,6 +182,6 @@ describe('App', () => {
     await vi.waitFor(() => {
       expect(wrapper.find('nav').exists()).toBe(true)
     })
-    expect(wrapper.get('h1').text()).toBe('管理界面基础已就绪')
+    expect(wrapper.get('h1').text()).toBe('运行概览')
   })
 })

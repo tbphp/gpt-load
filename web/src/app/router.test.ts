@@ -23,6 +23,22 @@ describe('application routes', () => {
     expect(router.resolve(path).matched).not.toHaveLength(0)
   })
 
+  it('stores stable localization keys instead of hard-coded page titles', () => {
+    const router = createAppRouter(createAuth(true), createMemoryHistory())
+    const titles = Object.fromEntries(
+      router.getRoutes().map((route) => [route.name, route.meta.titleKey]),
+    )
+
+    expect(titles).toMatchObject({
+      home: 'home.title',
+      import: 'shell.import',
+      'access-keys': 'shell.accessKeys',
+      monitor: 'shell.monitor',
+      settings: 'shell.settings',
+    })
+    expect(JSON.stringify(titles)).not.toMatch(/导入密钥|访问密钥|监控|设置/)
+  })
+
   it('does not install a client-side catch-all route', () => {
     const router = createAppRouter(createAuth(true), createMemoryHistory())
 

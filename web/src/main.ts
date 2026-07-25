@@ -4,11 +4,14 @@ import type { Router } from 'vue-router'
 
 import App from './App.vue'
 import { createApiClient } from './api/client'
+import { apiClientKey } from './api/client-context'
 import type { AuthSessionPayload } from './api/types'
 import { createAppQueryClient } from './app/query'
 import { createAppRouter } from './app/router'
 import { authSessionKey, createAuthSession, type AuthSession } from './features/auth/auth-session'
+import { createThemeController, themeControllerKey } from './features/preferences/theme'
 import { createAppI18n } from './i18n'
+import { appI18nKey } from './i18n/context'
 import './styles/tokens.css'
 import './styles/base.css'
 
@@ -21,6 +24,12 @@ const getBrowserStorage = (name: 'localStorage' | 'sessionStorage') => {
   }
 }
 const appI18n = createAppI18n(getBrowserStorage('localStorage'), navigator.language)
+const themeController = createThemeController({
+  documentElement: document.documentElement,
+  storage: getBrowserStorage('localStorage'),
+  matchMedia: window.matchMedia.bind(window),
+})
+window.addEventListener('pagehide', () => themeController.dispose(), { once: true })
 
 let authSession: AuthSession | undefined = undefined
 let router: Router | undefined = undefined
@@ -58,6 +67,9 @@ router = createAppRouter(authSession)
 
 createApp(App)
   .provide(authSessionKey, authSession)
+  .provide(apiClientKey, apiClient)
+  .provide(appI18nKey, appI18n)
+  .provide(themeControllerKey, themeController)
   .use(appI18n.plugin)
   .use(VueQueryPlugin, { queryClient })
   .use(router)

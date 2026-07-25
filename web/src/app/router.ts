@@ -2,7 +2,7 @@ import type { Router, RouterHistory, RouteRecordRaw } from 'vue-router'
 import { createRouter, createWebHistory } from 'vue-router'
 
 import LoginView from '@/features/auth/LoginView.vue'
-import HomeView from '@/views/HomeView.vue'
+import HomeView from '@/features/home/HomeView.vue'
 import PlaceholderView from '@/views/PlaceholderView.vue'
 
 const routes: RouteRecordRaw[] = [
@@ -10,38 +10,38 @@ const routes: RouteRecordRaw[] = [
     path: '/',
     name: 'home',
     component: HomeView,
-    meta: { requiresAuth: true },
+    meta: { titleKey: 'home.title', requiresAuth: true },
   },
   { path: '/login', name: 'login', component: LoginView },
   {
     path: '/import',
     name: 'import',
     component: PlaceholderView,
-    meta: { title: '导入密钥', requiresAuth: true },
+    meta: { titleKey: 'shell.import', requiresAuth: true },
   },
   {
     path: '/groups/:id',
     name: 'group-detail',
     component: PlaceholderView,
-    meta: { title: '分组详情', requiresAuth: true },
+    meta: { titleKey: 'shell.groupDetail', requiresAuth: true },
   },
   {
     path: '/access-keys',
     name: 'access-keys',
     component: PlaceholderView,
-    meta: { title: '访问密钥', requiresAuth: true },
+    meta: { titleKey: 'shell.accessKeys', requiresAuth: true },
   },
   {
     path: '/monitor',
     name: 'monitor',
     component: PlaceholderView,
-    meta: { title: '监控', requiresAuth: true },
+    meta: { titleKey: 'shell.monitor', requiresAuth: true },
   },
   {
     path: '/settings',
     name: 'settings',
     component: PlaceholderView,
-    meta: { title: '设置', requiresAuth: true },
+    meta: { titleKey: 'shell.settings', requiresAuth: true },
   },
 ]
 

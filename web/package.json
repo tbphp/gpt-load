@@ -15,15 +15,19 @@
     "format": "prettier --check .",
     "format:write": "prettier --write .",
     "type-check": "vue-tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:csp": "playwright test --config playwright.config.ts"
   },
   "dependencies": {
     "@tanstack/vue-query": "5.101.4",
+    "lucide-vue-next": "1.0.0",
+    "reka-ui": "2.10.1",
     "vue": "3.5.40",
     "vue-i18n": "11.4.7",
     "vue-router": "5.2.0"
   },
   "devDependencies": {
+    "@playwright/test": "1.61.1",
     "@tailwindcss/vite": "4.3.3",
     "@types/node": "24.13.3",
     "@vitejs/plugin-vue": "6.0.8",

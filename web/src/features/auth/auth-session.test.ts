@@ -2,6 +2,7 @@ import { QueryClient } from '@tanstack/vue-query'
 
 import { ApiError, InvalidResponseError, NetworkError, RequestCancelledError } from '@/api/errors'
 import type { AuthSessionPayload } from '@/api/types'
+import { controlQueryKeys } from '@/app/query-keys'
 
 import {
   authSessionQueryKey,
@@ -126,6 +127,58 @@ describe('createAuthSession', () => {
     expect(logoutSession.getAuthKey()).toBe('')
     expect(window.sessionStorage.getItem(authStorageKey)).toBeNull()
     expect(logoutDependencies.queryClient.getQueryData(authSessionQueryKey)).toBeUndefined()
+  })
+
+  it('clears control queries and mutation cache on logout', () => {
+    const dependencies = createDependencies()
+    const session = createAuthSession(dependencies)
+    dependencies.queryClient.setQueryData(controlQueryKeys.accessKeys.list(), [
+      { id: 1, key: 'ACCESS_KEY_CANARY' },
+    ])
+    dependencies.queryClient
+      .getMutationCache()
+      .build(dependencies.queryClient, { mutationFn: async () => undefined })
+
+    session.clear()
+
+    expect(
+      dependencies.queryClient.getQueryData(controlQueryKeys.accessKeys.list()),
+    ).toBeUndefined()
+    expect(dependencies.queryClient.getMutationCache().getAll()).toHaveLength(0)
+  })
+
+  it('suppresses stale in-flight control results after logout', async () => {
+    const dependencies = createDependencies()
+    const session = createAuthSession(dependencies)
+    const request = deferred<Array<{ id: number; key: string }>>()
+    const pending = dependencies.queryClient.fetchQuery({
+      queryKey: controlQueryKeys.accessKeys.list(),
+      queryFn: () => request.promise,
+    })
+
+    session.clear()
+    request.resolve([{ id: 1, key: 'ACCESS_KEY_CANARY' }])
+    await expect(pending).rejects.toThrow('CancelledError')
+
+    expect(
+      dependencies.queryClient.getQueryData(controlQueryKeys.accessKeys.list()),
+    ).toBeUndefined()
+  })
+
+  it('clears prior authenticated state before activating a validated candidate', async () => {
+    const dependencies = createDependencies()
+    const session = createAuthSession(dependencies)
+    dependencies.queryClient.setQueryData(controlQueryKeys.groups.list(), [
+      { id: 1, name: 'prior-user-group' },
+    ])
+
+    await session.login('candidate-key')
+
+    expect(dependencies.queryClient.getQueryData(controlQueryKeys.groups.list())).toBeUndefined()
+    expect(dependencies.queryClient.getQueryData(authSessionQueryKey)).toEqual({
+      authenticated: true,
+    })
+    expect(session.getAuthKey()).toBe('candidate-key')
   })
 
   it('retains a credential on lock and network failure', async () => {

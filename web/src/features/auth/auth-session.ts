@@ -3,6 +3,7 @@ import { inject, reactive, readonly, type DeepReadonly, type InjectionKey } from
 
 import { ApiError, InvalidResponseError, NetworkError, RequestCancelledError } from '@/api/errors'
 import type { AuthSessionPayload } from '@/api/types'
+import { controlQueryKeys } from '@/app/query-keys'
 
 export const authSessionQueryKey = ['auth', 'session'] as const
 const authStorageKey = 'gpt-load.auth-key'
@@ -65,6 +66,13 @@ function removeStoredCredential(storage?: Storage): void {
   }
 }
 
+export function clearAuthenticatedClientState(queryClient: QueryClient): void {
+  void queryClient.cancelQueries({ queryKey: controlQueryKeys.all })
+  queryClient.removeQueries({ queryKey: controlQueryKeys.all })
+  queryClient.removeQueries({ queryKey: authSessionQueryKey })
+  queryClient.getMutationCache().clear()
+}
+
 export function createAuthSession(deps: AuthSessionDependencies): AuthSession {
   let credential = readStoredCredential(deps.storage)
   let credentialRevision = 0
@@ -80,7 +88,7 @@ export function createAuthSession(deps: AuthSessionDependencies): AuthSession {
     removeStoredCredential(deps.storage)
     state.phase = 'anonymous'
     state.retryAfterSeconds = 0
-    deps.queryClient.removeQueries({ queryKey: authSessionQueryKey })
+    clearAuthenticatedClientState(deps.queryClient)
   }
 
   function applyValidationError(error: unknown): void {
@@ -170,12 +178,12 @@ export function createAuthSession(deps: AuthSessionDependencies): AuthSession {
       throw new InvalidResponseError()
     }
 
+    clearAuthenticatedClientState(deps.queryClient)
     credentialRevision += 1
     credential = candidate
     writeStoredCredential(deps.storage, candidate)
     state.phase = 'validated'
     state.retryAfterSeconds = 0
-    deps.queryClient.removeQueries({ queryKey: authSessionQueryKey })
     deps.queryClient.setQueryData(authSessionQueryKey, { authenticated: true })
   }
 
