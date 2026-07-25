@@ -204,8 +204,41 @@ export default {
     enabled: 'Enabled',
     disabled: 'Disabled',
     importKeys: 'Import keys',
-    modelsTitle: 'Models and aliases',
-    modelsPending: 'Model management is delivered in the next T23 task.',
+    modelEditor: {
+      title: 'Models and aliases',
+      description:
+        'Discovery produces candidates only. Review aliases and the complete selected list before saving.',
+      rediscover: 'Rediscover',
+      save: 'Save changes',
+      badGateway:
+        'Discovery failed upstream. Your draft is unchanged; retry or continue with manual model IDs and aliases.',
+      discoveryFailed:
+        'Discovery failed. Your draft is unchanged; retry or continue with manual model IDs and aliases.',
+      saveFailed: 'Unable to replace the Group model list.',
+      removalWarning:
+        'Removing models does not update model filters already saved on AccessKeys. Review affected AccessKeys separately.',
+      status: {
+        saved: 'Saved',
+        rediscovered: 'Rediscovered',
+        notRediscovered: 'Not rediscovered',
+        discovered: 'Newly discovered',
+        manual: 'Manual',
+      },
+      noActiveKey: {
+        title: 'No active upstream key is available for discovery.',
+        description: 'Enable a key in the Keys tab or import keys into this existing Group.',
+        keysAction: 'Open Keys tab',
+        importAction: 'Import keys',
+      },
+      emptyConfirm: {
+        title: 'Remove every model?',
+        description:
+          'Saving an empty list disables model routing for this Group. This replaces the complete saved list.',
+        close: 'Close empty-model confirmation',
+        cancel: 'Cancel',
+        confirm: 'Replace with empty list',
+      },
+    },
     settingsTitle: 'Group settings',
     settingsPending: 'Group settings are delivered in the following T23 task.',
     protocols: {

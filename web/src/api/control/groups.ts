@@ -41,6 +41,10 @@ export interface ModelDiscoveryResult {
   models: string[]
 }
 
+export interface GroupModelsReplaceRequest {
+  models: GroupModelDto[]
+}
+
 export interface GroupCreateRequest {
   name?: string
   upstream_url: string
@@ -110,6 +114,30 @@ export function discoverModels(
 ): Promise<ModelDiscoveryResult> {
   return client.request<ModelDiscoveryResult>('/api/models/discover', {
     method: 'POST',
+    json: body,
+    signal,
+  })
+}
+
+export function discoverGroupModels(
+  client: ApiClient,
+  groupID: number,
+  signal?: AbortSignal,
+): Promise<ModelDiscoveryResult> {
+  return client.request<ModelDiscoveryResult>(`/api/groups/${groupID}/models/discover`, {
+    method: 'POST',
+    signal,
+  })
+}
+
+export function replaceGroupModels(
+  client: ApiClient,
+  groupID: number,
+  body: GroupModelsReplaceRequest,
+  signal?: AbortSignal,
+): Promise<GroupDetailDto> {
+  return client.request<GroupDetailDto>(`/api/groups/${groupID}/models`, {
+    method: 'PUT',
     json: body,
     signal,
   })

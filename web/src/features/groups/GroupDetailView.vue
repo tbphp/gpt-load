@@ -14,6 +14,7 @@ import GroupHeader from './GroupHeader.vue'
 import GroupTabs from './GroupTabs.vue'
 import { normalizeGroupTab, parsePositiveId } from './group-route'
 import GroupKeysTab from './keys/GroupKeysTab.vue'
+import GroupModelsTab from './models/GroupModelsTab.vue'
 
 const route = useRoute()
 const client = useApiClient()
@@ -74,11 +75,13 @@ const detailQuery = useQuery({
 
       <GroupTabs />
       <GroupKeysTab v-if="activeTab === 'keys'" :key="groupId" :group-id="groupId" />
-      <SurfaceCard v-else-if="activeTab === 'models'" class="group-detail-placeholder">
-        <h2>{{ t('group.modelsTitle') }}</h2>
-        <p>{{ t('group.modelsPending') }}</p>
-      </SurfaceCard>
-      <SurfaceCard v-else class="group-detail-placeholder">
+      <GroupModelsTab
+        v-else-if="activeTab === 'models' && detailQuery.data.value"
+        :key="groupId"
+        :group-id="groupId"
+        :group="detailQuery.data.value"
+      />
+      <SurfaceCard v-else-if="activeTab === 'settings'" class="group-detail-placeholder">
         <h2>{{ t('group.settingsTitle') }}</h2>
         <p>{{ t('group.settingsPending') }}</p>
       </SurfaceCard>

@@ -201,8 +201,42 @@ export default {
     enabled: '有効',
     disabled: '無効',
     importKeys: 'キーをインポート',
-    modelsTitle: 'モデルとエイリアス',
-    modelsPending: 'モデル管理は次の T23 タスクで実装されます。',
+    modelEditor: {
+      title: 'モデルとエイリアス',
+      description:
+        '検出は候補のみを生成します。保存前にエイリアスと選択済みモデルの完全な一覧を確認してください。',
+      rediscover: '再検出',
+      save: '変更を保存',
+      badGateway:
+        'アップストリームでの検出に失敗しました。下書きは保持されています。再試行するか、モデル ID とエイリアスを手動で追加してください。',
+      discoveryFailed:
+        'モデル検出に失敗しました。下書きは保持されています。再試行するか、モデル ID とエイリアスを手動で追加してください。',
+      saveFailed: 'Group のモデル一覧を置き換えられません。',
+      removalWarning:
+        'モデルを削除しても AccessKey に保存済みのモデルフィルターは更新されません。影響する AccessKey を別途確認してください。',
+      status: {
+        saved: '保存済み',
+        rediscovered: '再検出済み',
+        notRediscovered: '再検出されず',
+        discovered: '新規検出',
+        manual: '手動追加',
+      },
+      noActiveKey: {
+        title: '検出に使用できる有効なアップストリームキーがありません。',
+        description:
+          'キーのタブでキーを有効化するか、この既存 Group にキーをインポートしてください。',
+        keysAction: 'キーのタブを開く',
+        importAction: 'キーをインポート',
+      },
+      emptyConfirm: {
+        title: 'すべてのモデルを削除しますか？',
+        description:
+          '空の一覧を保存すると、この Group のモデルルーティングが無効になり、保存済み一覧全体が置き換えられます。',
+        close: '空モデルの確認を閉じる',
+        cancel: 'キャンセル',
+        confirm: '空の一覧に置き換える',
+      },
+    },
     settingsTitle: 'Group 設定',
     settingsPending: 'Group 設定は後続の T23 タスクで実装されます。',
     protocols: {

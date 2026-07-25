@@ -142,6 +142,39 @@ describe('GroupDetailView', () => {
     })
   })
 
+  it('renders the route-backed Models editor instead of the placeholder', async () => {
+    const request = vi.fn(async (path: string) => {
+      if (path === '/api/groups/7') return detail
+      throw new Error(`unexpected request: ${path}`)
+    }) as ApiClient['request']
+    const mounted = await mountApp(GroupDetailView, {
+      api: { request },
+      queryClient: queryClient(),
+      path: '/groups/7?tab=models',
+      locale: 'en-US',
+    })
+    await flushPromises()
+
+    expect(mounted.wrapper.get('[data-test="models-discover"]').text()).toContain('Rediscover')
+    expect(mounted.wrapper.text()).not.toContain('delivered in the next T23 task')
+    expect(request).toHaveBeenCalledTimes(1)
+    mounted.wrapper.unmount()
+  })
+
+  it('does not render the Settings placeholder while a Models-route detail is still loading', async () => {
+    const request = vi.fn(() => new Promise(() => undefined)) as ApiClient['request']
+    const mounted = await mountApp(GroupDetailView, {
+      api: { request },
+      queryClient: queryClient(),
+      path: '/groups/7?tab=models',
+      locale: 'en-US',
+    })
+
+    expect(mounted.wrapper.text()).toContain('Loading Group details')
+    expect(mounted.wrapper.text()).not.toContain('Group settings')
+    mounted.wrapper.unmount()
+  })
+
   it('remounts the Keys tab when route Group ID changes so old rows and local state cannot target the new Group', async () => {
     const requestMock = vi.fn(async (path: string, options?: ApiRequestOptions) => {
       if (path === '/api/groups/7') return detail

@@ -2,10 +2,12 @@ import type { ApiClient } from '@/api/client'
 
 import {
   createGroup,
+  discoverGroupModels,
   discoverModels,
   importGroupKeys,
   isUpstreamUrlConflictData,
   listGroups,
+  replaceGroupModels,
 } from './groups'
 
 describe('Group control API', () => {
@@ -31,6 +33,35 @@ describe('Group control API', () => {
     expect(request).toHaveBeenCalledWith('/api/models/discover', {
       method: 'POST',
       json: body,
+      signal,
+    })
+  })
+
+  it('discovers existing Group model candidates with the exact empty-body endpoint', async () => {
+    const signal = new AbortController().signal
+    const request = vi.fn().mockResolvedValue({ models: ['gpt-4o'] }) as ApiClient['request']
+
+    await discoverGroupModels({ request }, 7, signal)
+
+    expect(request).toHaveBeenCalledWith('/api/groups/7/models/discover', {
+      method: 'POST',
+      signal,
+    })
+  })
+
+  it('replaces the exact full normalized Group model list', async () => {
+    const signal = new AbortController().signal
+    const request = vi.fn().mockResolvedValue({ id: 7 }) as ApiClient['request']
+    const models = [
+      { id: 'gpt-4o', alias: 'public' },
+      { id: 'o3', alias: '' },
+    ]
+
+    await replaceGroupModels({ request }, 7, { models }, signal)
+
+    expect(request).toHaveBeenCalledWith('/api/groups/7/models', {
+      method: 'PUT',
+      json: { models },
       signal,
     })
   })

@@ -3,16 +3,19 @@ import { Plus } from 'lucide-vue-next'
 import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import type { ModelDraftItem } from './model-draft'
-import { setManualModel } from './model-draft'
+export interface ModelDraftEditorItem {
+  id: string
+  alias: string
+  selected: boolean
+}
 
-const props = defineProps<{ modelValue: ModelDraftItem[] }>()
-const emit = defineEmits<{ 'update:modelValue': [value: ModelDraftItem[]] }>()
+const props = defineProps<{ modelValue: ModelDraftEditorItem[] }>()
+const emit = defineEmits<{ 'update:modelValue': [value: ModelDraftEditorItem[]] }>()
 const { t } = useI18n()
 const manualID = ref('')
 const manualAlias = ref('')
 
-function update(index: number, patch: Partial<ModelDraftItem>): void {
+function update(index: number, patch: Partial<ModelDraftEditorItem>): void {
   emit(
     'update:modelValue',
     props.modelValue.map((model, current) =>
@@ -22,8 +25,21 @@ function update(index: number, patch: Partial<ModelDraftItem>): void {
 }
 
 function addManual(): void {
-  const next = setManualModel(props.modelValue, manualID.value, manualAlias.value)
-  if (next === props.modelValue) return
+  const id = manualID.value.trim()
+  const alias = manualAlias.value.trim()
+  if (!id) return
+  const matchingIndexes = props.modelValue.flatMap((model, index) =>
+    model.id === id ? [index] : [],
+  )
+  const exactIndex = props.modelValue.findIndex((model) => model.id === id && model.alias === alias)
+  const updateIndex =
+    exactIndex >= 0 ? exactIndex : matchingIndexes.length === 1 ? matchingIndexes[0] : -1
+  const next =
+    updateIndex !== undefined && updateIndex >= 0
+      ? props.modelValue.map((model, index) =>
+          index === updateIndex ? { ...model, alias, selected: true } : { ...model },
+        )
+      : [...props.modelValue.map((model) => ({ ...model })), { id, alias, selected: true }]
   emit('update:modelValue', next)
   manualID.value = ''
   manualAlias.value = ''
@@ -37,9 +53,16 @@ function addManual(): void {
       <p>{{ t('import.models.description') }}</p>
     </div>
     <div v-if="modelValue.length" class="model-list">
-      <div v-for="(model, index) in modelValue" :key="model.id" class="model-row">
+      <div
+        v-for="(model, index) in modelValue"
+        :key="index"
+        class="model-row"
+        :class="{ 'model-row--with-status': $slots.status }"
+        :data-test="`model-row-${index}`"
+      >
         <label class="model-row__check">
           <input
+            :data-test="`model-selected-${index}`"
             type="checkbox"
             :checked="model.selected"
             @change="update(index, { selected: ($event.target as HTMLInputElement).checked })"
@@ -49,11 +72,13 @@ function addManual(): void {
         <label>
           <span class="sr-only">{{ t('import.models.aliasFor', { id: model.id }) }}</span>
           <input
+            :data-test="`model-alias-${index}`"
             :value="model.alias"
             :placeholder="t('import.models.alias')"
             @input="update(index, { alias: ($event.target as HTMLInputElement).value })"
           />
         </label>
+        <slot name="status" :model="model" :index="index" />
       </div>
     </div>
     <div class="manual-model">
@@ -110,6 +135,9 @@ p {
   border-bottom: 1px solid var(--color-border);
   padding-bottom: var(--space-2);
 }
+.model-row--with-status {
+  grid-template-columns: minmax(160px, 1fr) minmax(160px, 0.8fr) auto;
+}
 .model-row__check {
   display: flex;
   min-height: 44px;
@@ -119,7 +147,6 @@ p {
 code {
   overflow-wrap: anywhere;
 }
-input[type='text'],
 .model-row input:not([type='checkbox']),
 .manual-model input {
   width: 100%;
@@ -155,8 +182,13 @@ input[type='text'],
   font-weight: 650;
   cursor: pointer;
 }
-@media (max-width: 680px) {
+.manual-model button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+@media (max-width: 760px) {
   .model-row,
+  .model-row--with-status,
   .manual-model {
     grid-template-columns: 1fr;
   }
