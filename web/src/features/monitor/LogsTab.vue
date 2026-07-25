@@ -110,7 +110,9 @@ function accessKeyLabel(log: RequestLogItemDto): string {
 }
 
 function loadMore(): void {
-  if (!logsQuery.hasNextPage.value || logsQuery.isFetchingNextPage.value) return
+  if (refreshPending.value || !logsQuery.hasNextPage.value || logsQuery.isFetchingNextPage.value) {
+    return
+  }
   void logsQuery.fetchNextPage()
 }
 
@@ -469,6 +471,7 @@ onBeforeUnmount(() => {
       data-test="logs-load-more"
       variant="secondary"
       :busy="logsQuery.isFetchingNextPage.value"
+      :disabled="refreshPending"
       @click="loadMore"
     >
       {{ t('monitor.logs.loadMore') }}

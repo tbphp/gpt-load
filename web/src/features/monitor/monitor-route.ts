@@ -60,7 +60,7 @@ function normalizeLogsQuery(query: Record<string, unknown>, tab: MonitorTab): Lo
   const from = scalarRFC3339(query.from)
   const to = scalarRFC3339(query.to)
 
-  if (from === undefined || to === undefined || Date.parse(from) <= Date.parse(to)) {
+  if (from === undefined || to === undefined || Date.parse(from) < Date.parse(to)) {
     if (from !== undefined) normalized.from = from
     if (to !== undefined) normalized.to = to
   }

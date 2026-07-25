@@ -14,6 +14,8 @@ const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
 const activeTab = computed(() => normalizeMonitorTab(route.query.tab))
+const canonicalQuery = computed(() => normalizeMonitorQuery(route.query))
+const isCanonicalQuery = computed(() => sameMonitorQuery(route.query, canonicalQuery.value))
 const items = computed<AppTabItem[]>(() => [
   { value: 'health', label: t('monitor.tabs.health'), testId: 'monitor-tab-health' },
   { value: 'logs', label: t('monitor.tabs.logs'), testId: 'monitor-tab-logs' },
@@ -23,7 +25,7 @@ const items = computed<AppTabItem[]>(() => [
 watch(
   () => route.query,
   (query) => {
-    const normalized = normalizeMonitorQuery(query)
+    const normalized = canonicalQuery.value
     if (!sameMonitorQuery(query, normalized)) {
       void router.replace({ name: 'monitor', query: normalized })
     }
@@ -51,13 +53,15 @@ function selectTab(value: string): void {
       :items="items"
       @update:model-value="selectTab"
     >
-      <div v-if="activeTab === 'health'" data-test="monitor-health-slot">
-        <HealthTab />
-      </div>
-      <div v-else-if="activeTab === 'logs'" data-test="monitor-logs-slot">
-        <LogsTab />
-      </div>
-      <div v-else data-test="monitor-inspector-slot" />
+      <template v-if="isCanonicalQuery">
+        <div v-if="activeTab === 'health'" data-test="monitor-health-slot">
+          <HealthTab />
+        </div>
+        <div v-else-if="activeTab === 'logs'" data-test="monitor-logs-slot">
+          <LogsTab />
+        </div>
+        <div v-else data-test="monitor-inspector-slot" />
+      </template>
     </AppTabs>
   </div>
 </template>

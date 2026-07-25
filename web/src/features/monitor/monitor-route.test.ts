@@ -81,6 +81,17 @@ describe('monitor route normalization', () => {
     ).toEqual({ tab: 'logs', status: 'error' })
   })
 
+  it('drops an equal time range while keeping independent valid Logs filters', () => {
+    expect(
+      normalizeMonitorQuery({
+        tab: 'logs',
+        from: '2026-07-25T10:00:00.000Z',
+        to: '2026-07-25T10:00:00.000Z',
+        status: 'error',
+      }),
+    ).toEqual({ tab: 'logs', status: 'error' })
+  })
+
   it.each([
     ['health', 'health'],
     ['logs', 'logs'],

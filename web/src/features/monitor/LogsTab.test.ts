@@ -291,6 +291,58 @@ describe('LogsTab', () => {
     expect(wrapper.findAll('tbody tr')).toHaveLength(1)
   })
 
+  it('prevents Load more from starting or overwriting data while Refresh is pending', async () => {
+    const refresh = deferred<RequestLogPageDto>()
+    const prohibitedNextPage = deferred<RequestLogPageDto>()
+    const refreshedRequestID = '64d4e121-8ac3-4df4-8ceb-63b10ddc6173'
+    const prohibitedRequestID = '74d4e121-8ac3-4df4-8ceb-63b10ddc6173'
+    const refreshedPage: RequestLogPageDto = {
+      items: [
+        logFixture({
+          request_id: refreshedRequestID,
+          client_model: 'refresh-wins',
+        }),
+      ],
+      next_cursor: null,
+    }
+    const api = new LogsApi([
+      { items: [logFixture()], next_cursor: 'page-2' },
+      refresh.promise,
+      prohibitedNextPage.promise,
+    ])
+    const { queryClient, wrapper } = await mountLogs(api)
+
+    await wrapper.get('[data-test="logs-refresh"]').trigger('click')
+    await flushPromises()
+    const loadMore = wrapper.get<HTMLButtonElement>('[data-test="logs-load-more"]')
+    expect(loadMore.attributes('disabled')).toBeDefined()
+
+    loadMore.element.removeAttribute('disabled')
+    await loadMore.trigger('click')
+    await flushPromises()
+    expect(api.requests.filter(({ path }) => path.startsWith('/api/logs'))).toHaveLength(2)
+
+    refresh.resolve(refreshedPage)
+    await flushPromises()
+    prohibitedNextPage.resolve({
+      items: [
+        logFixture({
+          request_id: prohibitedRequestID,
+          client_model: 'prohibited-late-page',
+        }),
+      ],
+      next_cursor: null,
+    })
+    await flushPromises()
+
+    expect(queryClient.getQueryData(controlQueryKeys.logs.list({}))).toEqual({
+      pages: [refreshedPage],
+      pageParams: [null],
+    })
+    expect(wrapper.text()).toContain('refresh-wins')
+    expect(wrapper.text()).not.toContain('prohibited-late-page')
+  })
+
   it('preserves every cached page when Refresh fails and offers a local retry', async () => {
     const refresh = deferred<RequestLogPageDto>()
     const retry = deferred<RequestLogPageDto>()
