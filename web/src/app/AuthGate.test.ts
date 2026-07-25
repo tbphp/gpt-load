@@ -11,6 +11,11 @@ import {
   type AuthSession,
   type AuthState,
 } from '@/features/auth/auth-session'
+import { importRecoveryKey, type ImportRecoveryService } from '@/features/import/import-recovery'
+import {
+  createDirtyNavigationController,
+  dirtyNavigationKey,
+} from '@/features/import/use-dirty-navigation'
 import { createAppI18n } from '@/i18n'
 
 import AuthGate from './AuthGate.vue'
@@ -72,6 +77,14 @@ function createFakeSession(
 }
 
 async function mountGate(session: AuthSession, path = '/login') {
+  const recovery: ImportRecoveryService = {
+    register: () => () => {},
+    captureForUnauthorized: () => 'no-active-draft',
+    consume: () => null,
+    clear: vi.fn(),
+    sweep: () => {},
+    dispose: () => {},
+  }
   const router = createAppRouter(session, createMemoryHistory())
   await router.push(path)
   await router.isReady()
@@ -84,10 +97,12 @@ async function mountGate(session: AuthSession, path = '/login') {
       plugins: [appI18n.plugin, router],
       provide: {
         [authSessionKey as symbol]: session,
+        [importRecoveryKey as symbol]: recovery,
+        [dirtyNavigationKey as symbol]: createDirtyNavigationController(),
       },
     },
   })
-  return { router, wrapper }
+  return { recovery, router, wrapper }
 }
 
 describe('AuthGate', () => {
@@ -251,13 +266,14 @@ describe('AuthGate', () => {
     })
     const clear = vi.spyOn(session, 'clear')
 
-    const { router, wrapper } = await mountGate(session, '/')
+    const { recovery, router, wrapper } = await mountGate(session, '/')
     await wrapper.findAll('button')[1]?.trigger('click')
     await flushPromises()
 
     expect(clear).toHaveBeenCalledOnce()
     expect(session.hasCredential()).toBe(false)
     expect(router.currentRoute.value.name).toBe('login')
+    expect(recovery.clear).toHaveBeenCalledOnce()
   })
 
   it('shows a network retry state without clearing the credential', async () => {

@@ -6,6 +6,11 @@ import App from './App.vue'
 import { apiClientKey } from './api/client-context'
 import { createAppRouter } from './app/router'
 import { authSessionKey, createAuthSession } from './features/auth/auth-session'
+import { createImportRecoveryService, importRecoveryKey } from './features/import/import-recovery'
+import {
+  createDirtyNavigationController,
+  dirtyNavigationKey,
+} from './features/import/use-dirty-navigation'
 import { createThemeController, themeControllerKey } from './features/preferences/theme'
 import { createAppI18n } from './i18n'
 import { appI18nKey } from './i18n/context'
@@ -49,6 +54,11 @@ async function mountAt(
     storage: window.localStorage,
     matchMedia: window.matchMedia.bind(window),
   })
+  const recovery = createImportRecoveryService({
+    now: Date.now,
+    setTimer: (callback, delayMs) => setTimeout(callback, delayMs),
+    clearTimer: (timer) => clearTimeout(timer),
+  })
   const api = new FakeApi()
   api.when('/api/groups').resolve([])
   api.when('/api/health').resolve({
@@ -66,6 +76,8 @@ async function mountAt(
         [apiClientKey as symbol]: api,
         [appI18nKey as symbol]: appI18n,
         [themeControllerKey as symbol]: theme,
+        [importRecoveryKey as symbol]: recovery,
+        [dirtyNavigationKey as symbol]: createDirtyNavigationController(),
       },
     },
   })

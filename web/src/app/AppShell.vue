@@ -19,11 +19,15 @@ import AppDrawer from '@/components/ui/AppDrawer.vue'
 import AppSelect from '@/components/ui/AppSelect.vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import { useAuthSession } from '@/features/auth/auth-session'
+import { useImportRecovery } from '@/features/import/import-recovery'
+import { useDirtyNavigationController } from '@/features/import/use-dirty-navigation'
 import { useTheme, type AppTheme } from '@/features/preferences/theme'
 import { supportedLocales, type AppLocale } from '@/i18n'
 import { useAppI18n } from '@/i18n/context'
 
 const session = useAuthSession()
+const recovery = useImportRecovery()
+const dirtyNavigation = useDirtyNavigationController()
 const appI18n = useAppI18n()
 const theme = useTheme()
 const route = useRoute()
@@ -54,8 +58,13 @@ function setLocale(value: string): void {
 
 function logout(): void {
   drawerOpen.value = false
+  recovery.clear()
+  const bypassDirtyImport = route.name === 'import'
+  if (bypassDirtyImport) dirtyNavigation.bypassNext()
   session.clear()
-  void router.replace({ name: 'login' })
+  void router.replace({ name: 'login' }).finally(() => {
+    if (bypassDirtyImport) dirtyNavigation.consumeBypass()
+  })
 }
 
 watch(

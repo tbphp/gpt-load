@@ -7,9 +7,11 @@ import AppButton from '@/components/ui/AppButton.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import SurfaceCard from '@/components/ui/SurfaceCard.vue'
 import { useAuthSession } from '@/features/auth/auth-session'
+import { useImportRecovery } from '@/features/import/import-recovery'
 import { useCountdown } from '@/features/auth/use-countdown'
 
 const session = useAuthSession()
+const recovery = useImportRecovery()
 const router = useRouter()
 const { t } = useI18n()
 const countdown = useCountdown(toRef(session.state, 'retryAfterSeconds'))
@@ -27,6 +29,7 @@ async function retryValidation(): Promise<void> {
 }
 
 function changeAuthKey(): void {
+  recovery.clear()
   session.clear()
   void router.replace({ name: 'login' })
 }

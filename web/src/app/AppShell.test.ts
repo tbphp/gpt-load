@@ -6,6 +6,11 @@ import { createMemoryHistory } from 'vue-router'
 import { createAppRouter } from '@/app/router'
 import AppSelect from '@/components/ui/AppSelect.vue'
 import { authSessionKey, createAuthSession } from '@/features/auth/auth-session'
+import { importRecoveryKey, type ImportRecoveryService } from '@/features/import/import-recovery'
+import {
+  createDirtyNavigationController,
+  dirtyNavigationKey,
+} from '@/features/import/use-dirty-navigation'
 import { createThemeController, themeControllerKey } from '@/features/preferences/theme'
 import { appI18nKey } from '@/i18n/context'
 import { createAppI18n } from '@/i18n'
@@ -28,6 +33,15 @@ async function mountShell() {
     storage: window.localStorage,
     matchMedia: window.matchMedia.bind(window),
   })
+  const recovery: ImportRecoveryService = {
+    register: () => () => {},
+    captureForUnauthorized: () => 'no-active-draft',
+    consume: () => null,
+    clear: vi.fn(),
+    sweep: () => {},
+    dispose: () => {},
+  }
+  const dirtyNavigation = createDirtyNavigationController()
   const Page = defineComponent({ template: '<h1>Page body</h1>' })
   const wrapper = mount(AppShell, {
     slots: { default: Page },
@@ -38,10 +52,12 @@ async function mountShell() {
         [authSessionKey as symbol]: session,
         [appI18nKey as symbol]: appI18n,
         [themeControllerKey as symbol]: theme,
+        [importRecoveryKey as symbol]: recovery,
+        [dirtyNavigationKey as symbol]: dirtyNavigation,
       },
     },
   })
-  return { appI18n, router, session, theme, wrapper }
+  return { appI18n, dirtyNavigation, recovery, router, session, theme, wrapper }
 }
 
 describe('AppShell', () => {
@@ -67,11 +83,13 @@ describe('AppShell', () => {
   })
 
   it('logs out without placing the credential in rendered markup', async () => {
-    const { session, wrapper } = await mountShell()
+    const { dirtyNavigation, recovery, session, wrapper } = await mountShell()
 
     expect(wrapper.html()).not.toContain('test-key')
     await wrapper.get('[aria-label="Sign out"]').trigger('click')
 
     expect(session.hasCredential()).toBe(false)
+    expect(recovery.clear).toHaveBeenCalledOnce()
+    expect(dirtyNavigation.consumeBypass()).toBe(false)
   })
 })

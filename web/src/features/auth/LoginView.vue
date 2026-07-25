@@ -11,6 +11,7 @@ import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import SurfaceCard from '@/components/ui/SurfaceCard.vue'
 import { useAuthSession } from '@/features/auth/auth-session'
 import { useCountdown } from '@/features/auth/use-countdown'
+import { useImportRecovery } from '@/features/import/import-recovery'
 
 type Feedback = 'invalid' | 'locked' | 'network' | 'invalid-response'
 
@@ -23,6 +24,7 @@ const submitting = ref(false)
 const fieldError = ref('')
 const feedback = ref<Feedback>()
 const countdown = useCountdown(1)
+const recovery = useImportRecovery()
 const lockActive = computed(() => feedback.value === 'locked' && countdown.active.value)
 
 watch(countdown.active, (active) => {
@@ -50,7 +52,10 @@ async function submit(): Promise<void> {
 
   try {
     await session.login(candidate.value)
-    await router.replace(safeRedirect(route.query.redirect, router))
+    const target = safeRedirect(route.query.redirect, router)
+    recovery.sweep()
+    if (router.resolve(target).name !== 'import') recovery.clear()
+    await router.replace(target)
   } catch (error: unknown) {
     if (error instanceof ApiError && error.code === 'UNAUTHORIZED') {
       feedback.value = 'invalid'

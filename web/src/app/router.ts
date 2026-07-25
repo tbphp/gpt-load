@@ -3,6 +3,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 
 import LoginView from '@/features/auth/LoginView.vue'
 import HomeView from '@/features/home/HomeView.vue'
+import ImportView from '@/features/import/ImportView.vue'
 import PlaceholderView from '@/views/PlaceholderView.vue'
 
 const routes: RouteRecordRaw[] = [
@@ -16,7 +17,7 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/import',
     name: 'import',
-    component: PlaceholderView,
+    component: ImportView,
     meta: { titleKey: 'shell.import', requiresAuth: true },
   },
   {

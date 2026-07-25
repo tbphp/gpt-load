@@ -8,7 +8,13 @@ import { apiClientKey } from './api/client-context'
 import type { AuthSessionPayload } from './api/types'
 import { createAppQueryClient } from './app/query'
 import { createAppRouter } from './app/router'
+import { handleGlobalUnauthorized } from './app/unauthorized'
 import { authSessionKey, createAuthSession, type AuthSession } from './features/auth/auth-session'
+import { createImportRecoveryService, importRecoveryKey } from './features/import/import-recovery'
+import {
+  createDirtyNavigationController,
+  dirtyNavigationKey,
+} from './features/import/use-dirty-navigation'
 import { createThemeController, themeControllerKey } from './features/preferences/theme'
 import { createAppI18n } from './i18n'
 import { appI18nKey } from './i18n/context'
@@ -24,12 +30,27 @@ const getBrowserStorage = (name: 'localStorage' | 'sessionStorage') => {
   }
 }
 const appI18n = createAppI18n(getBrowserStorage('localStorage'), navigator.language)
+const importRecovery = createImportRecoveryService({
+  storage: getBrowserStorage('sessionStorage'),
+  now: Date.now,
+  setTimer: window.setTimeout.bind(window),
+  clearTimer: window.clearTimeout.bind(window),
+})
+const dirtyNavigation = createDirtyNavigationController()
+importRecovery.sweep()
 const themeController = createThemeController({
   documentElement: document.documentElement,
   storage: getBrowserStorage('localStorage'),
   matchMedia: window.matchMedia.bind(window),
 })
-window.addEventListener('pagehide', () => themeController.dispose(), { once: true })
+window.addEventListener(
+  'pagehide',
+  () => {
+    themeController.dispose()
+    importRecovery.dispose()
+  },
+  { once: true },
+)
 
 let authSession: AuthSession | undefined = undefined
 let router: Router | undefined = undefined
@@ -43,11 +64,13 @@ const apiClient = createApiClient({
       router?.currentRoute.value.meta.requiresAuth === true
         ? router.currentRoute.value.fullPath
         : '/'
-    authSession?.clear()
-    if (router) {
-      void router.replace({
-        name: 'login',
-        query: { redirect },
+    if (authSession && router) {
+      void handleGlobalUnauthorized({
+        recovery: importRecovery,
+        dirtyNavigation,
+        session: authSession,
+        router,
+        redirect,
       })
     }
   },
@@ -67,6 +90,8 @@ router = createAppRouter(authSession)
 
 createApp(App)
   .provide(authSessionKey, authSession)
+  .provide(importRecoveryKey, importRecovery)
+  .provide(dirtyNavigationKey, dirtyNavigation)
   .provide(apiClientKey, apiClient)
   .provide(appI18nKey, appI18n)
   .provide(themeControllerKey, themeController)

@@ -11,6 +11,7 @@ import {
   type AuthSession,
   type AuthState,
 } from '@/features/auth/auth-session'
+import { importRecoveryKey, type ImportRecoveryService } from '@/features/import/import-recovery'
 import { createAppI18n, type AppLocale } from '@/i18n'
 
 import LoginView from './LoginView.vue'
@@ -64,11 +65,23 @@ function createFakeSession(
   }
 }
 
+function createFakeRecovery(): ImportRecoveryService {
+  return {
+    register: () => () => {},
+    captureForUnauthorized: () => 'no-active-draft',
+    consume: () => null,
+    clear: vi.fn(),
+    sweep: vi.fn(),
+    dispose: () => {},
+  }
+}
+
 async function mountLogin(
   session: AuthSession,
   options: {
     locale?: AppLocale
     redirect?: string
+    recovery?: ImportRecoveryService
   } = {},
 ) {
   const router = createAppRouter(session, createMemoryHistory())
@@ -78,15 +91,17 @@ async function mountLogin(
   })
   await router.isReady()
   const appI18n = createAppI18n(undefined, options.locale ?? 'zh-CN')
+  const recovery = options.recovery ?? createFakeRecovery()
   const wrapper = mount(LoginView, {
     global: {
       plugins: [appI18n.plugin, router],
       provide: {
         [authSessionKey as symbol]: session,
+        [importRecoveryKey as symbol]: recovery,
       },
     },
   })
-  return { router, wrapper }
+  return { recovery, router, wrapper }
 }
 
 async function submitCredential(wrapper: ReturnType<typeof mount>, candidate: string) {
@@ -200,6 +215,28 @@ describe('LoginView', () => {
     await flushPromises()
 
     expect(router.currentRoute.value.fullPath).toBe('/monitor?tab=requests')
+  })
+
+  it.each(['/import', '/import?mode=new', '/import?mode=existing&group_id=7'])(
+    'preserves recovery after Login when the resolved target route is Import: %s',
+    async (redirect) => {
+      const recovery = createFakeRecovery()
+      const { wrapper } = await mountLogin(createFakeSession(), { redirect, recovery })
+
+      await submitCredential(wrapper, 'candidate-key')
+      await flushPromises()
+
+      expect(recovery.sweep).toHaveBeenCalledOnce()
+      expect(recovery.clear).not.toHaveBeenCalled()
+    },
+  )
+
+  it('clears recovery after Login when the safe target is not Import', async () => {
+    const recovery = createFakeRecovery()
+    const { wrapper } = await mountLogin(createFakeSession(), { redirect: '/monitor', recovery })
+    await submitCredential(wrapper, 'candidate-key')
+    await flushPromises()
+    expect(recovery.clear).toHaveBeenCalledOnce()
   })
 
   it.each(['https://evil.example/', '//evil.example/', '/not-registered'])(
