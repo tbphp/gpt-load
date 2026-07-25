@@ -158,6 +158,12 @@ export function validateLogFilterDraft(draft: LogFilterDraft): LogFilterErrors {
   if (draft.access_key_id && !isPositiveID(draft.access_key_id)) {
     errors.access_key_id = 'monitor.logs.errors.positiveId'
   }
+  if (
+    draft.model &&
+    (draft.model.trim() !== draft.model || /[\u0000-\u001f\u007f]/.test(draft.model))
+  ) {
+    errors.model = 'monitor.logs.errors.model'
+  }
   if (draft.status && !requestLogStatuses.includes(draft.status as RequestLogStatus)) {
     errors.status = 'monitor.logs.errors.status'
   }

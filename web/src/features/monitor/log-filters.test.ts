@@ -142,4 +142,17 @@ describe('log filters', () => {
       }),
     ).toEqual({})
   })
+
+  it.each([' leading-model', 'trailing-model ', 'model\u0000canary', 'model\u007fcanary'])(
+    'rejects an exact model containing surrounding whitespace or controls: %j',
+    (model) => {
+      const errors = validateLogFilterDraft({
+        ...createLogFilterDraft(),
+        model,
+      })
+
+      expect(errors).toEqual({ model: 'monitor.logs.errors.model' })
+      expect(JSON.stringify(errors)).not.toContain(model)
+    },
+  )
 })

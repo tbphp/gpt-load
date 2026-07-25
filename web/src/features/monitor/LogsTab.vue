@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useInfiniteQuery, useQuery, useQueryClient, type InfiniteData } from '@tanstack/vue-query'
+import { ListFilter } from 'lucide-vue-next'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
@@ -77,6 +78,12 @@ const logs = computed(() => {
   return unique
 })
 const hasAppliedFilters = computed(() => Object.keys(appliedFilters.value).length > 0)
+const appliedDraft = computed(() => createLogFilterDraft(appliedFilters.value))
+const draftIsDirty = computed(() =>
+  (Object.keys(draft.value) as Array<keyof LogFilterDraft>).some(
+    (field) => draft.value[field] !== appliedDraft.value[field],
+  ),
+)
 
 watch(
   () => route.query,
@@ -218,6 +225,7 @@ onBeforeUnmount(() => {
               data-test="logs-from"
               type="datetime-local"
               :aria-describedby="describedBy"
+              :aria-invalid="filterError('from') ? 'true' : undefined"
             />
           </template>
         </FormField>
@@ -229,6 +237,7 @@ onBeforeUnmount(() => {
               data-test="logs-to"
               type="datetime-local"
               :aria-describedby="describedBy"
+              :aria-invalid="filterError('to') ? 'true' : undefined"
             />
           </template>
         </FormField>
@@ -244,6 +253,8 @@ onBeforeUnmount(() => {
               v-model="draft.group_id"
               data-test="logs-group"
               :aria-describedby="describedBy"
+              :aria-invalid="filterError('group_id') ? 'true' : undefined"
+              :disabled="groupsQuery.isError.value"
             >
               <option value="">{{ t('monitor.logs.filters.anyGroup') }}</option>
               <option
@@ -278,6 +289,7 @@ onBeforeUnmount(() => {
               type="text"
               autocomplete="off"
               :aria-describedby="describedBy"
+              :aria-invalid="filterError('model') ? 'true' : undefined"
             />
           </template>
         </FormField>
@@ -292,6 +304,8 @@ onBeforeUnmount(() => {
               v-model="draft.access_key_id"
               data-test="logs-access-key"
               :aria-describedby="describedBy"
+              :aria-invalid="filterError('access_key_id') ? 'true' : undefined"
+              :disabled="accessKeyOptionsQuery.isError.value"
             >
               <option value="">{{ t('monitor.logs.filters.anyAccessKey') }}</option>
               <option
@@ -326,6 +340,7 @@ onBeforeUnmount(() => {
               v-model="draft.status"
               data-test="logs-status"
               :aria-describedby="describedBy"
+              :aria-invalid="filterError('status') ? 'true' : undefined"
             >
               <option value="">{{ t('monitor.logs.filters.anyStatus') }}</option>
               <option value="success">{{ t('monitor.logs.status.success') }}</option>
@@ -348,10 +363,15 @@ onBeforeUnmount(() => {
               type="text"
               autocomplete="off"
               :aria-describedby="describedBy"
+              :aria-invalid="filterError('request_id') ? 'true' : undefined"
             />
           </template>
         </FormField>
       </div>
+      <p v-if="draftIsDirty" class="logs-filter-dirty" data-test="logs-filter-dirty" role="status">
+        <ListFilter :size="16" aria-hidden="true" />
+        <span>{{ t('monitor.logs.filters.dirty') }}</span>
+      </p>
       <div class="logs-filter-actions">
         <AppButton type="submit">{{ t('monitor.logs.filters.apply') }}</AppButton>
         <AppButton data-test="logs-reset" variant="ghost" @click="resetFilters">
@@ -389,6 +409,16 @@ onBeforeUnmount(() => {
         {{ t('common.retry') }}
       </AppButton>
     </div>
+    <div
+      v-if="logsQuery.isFetchNextPageError.value"
+      class="logs-next-page-failed"
+      data-test="logs-next-page-failed"
+    >
+      <InlineFeedback tone="danger">{{ t('monitor.logs.nextPageFailed') }}</InlineFeedback>
+      <AppButton data-test="logs-next-page-retry" variant="secondary" @click="loadMore">
+        {{ t('common.retry') }}
+      </AppButton>
+    </div>
 
     <QueryFeedback
       v-if="logsQuery.isPending.value"
@@ -407,10 +437,10 @@ onBeforeUnmount(() => {
         <tr>
           <th scope="col">{{ t('monitor.logs.columns.completedAt') }}</th>
           <th scope="col">{{ t('monitor.logs.columns.requestId') }}</th>
-          <th scope="col">{{ t('monitor.logs.columns.model') }}</th>
+          <th scope="col">{{ t('monitor.logs.columns.route') }}</th>
           <th scope="col">{{ t('monitor.logs.columns.accessKey') }}</th>
-          <th scope="col">{{ t('monitor.logs.columns.status') }}</th>
-          <th scope="col">{{ t('monitor.logs.columns.duration') }}</th>
+          <th scope="col">{{ t('monitor.logs.columns.result') }}</th>
+          <th scope="col">{{ t('monitor.logs.columns.timing') }}</th>
           <th scope="col">{{ t('monitor.logs.columns.actions') }}</th>
         </tr>
       </thead>
@@ -423,15 +453,31 @@ onBeforeUnmount(() => {
             <code>{{ log.request_id }}</code>
           </td>
           <td>
-            <code>{{ log.client_model }}</code>
+            <div class="log-cell-stack">
+              <span>{{ t('monitor.logs.drawer.protocol') }}</span>
+              <code>{{ t(`group.protocols.${log.protocol}`) }}</code>
+              <span>{{ t('monitor.logs.drawer.clientModel') }}</span>
+              <code>{{ log.client_model }}</code>
+              <span>{{ t('monitor.logs.drawer.upstreamModel') }}</span>
+              <code>{{ log.upstream_model }}</code>
+            </div>
           </td>
           <td>{{ accessKeyLabel(log) }}</td>
           <td>
-            <StatusBadge :tone="statusTone(log.status)">
-              {{ t(`monitor.logs.status.${log.status}`) }}
-            </StatusBadge>
+            <div class="log-cell-stack">
+              <StatusBadge :tone="statusTone(log.status)">
+                {{ t(`monitor.logs.status.${log.status}`) }}
+              </StatusBadge>
+              <span>{{ t('monitor.logs.drawer.statusCode') }}</span>
+              <code>{{ log.status_code }}</code>
+            </div>
           </td>
-          <td>{{ log.duration_ms }} ms</td>
+          <td>
+            <div class="log-cell-stack">
+              <code>{{ log.duration_ms }} ms</code>
+              <span>{{ t('monitor.logs.attemptCount', { count: log.attempts.length }) }}</span>
+            </div>
+          </td>
           <td>
             <LogDetailDrawer
               :open="openDetailID === log.request_id"
@@ -482,11 +528,13 @@ onBeforeUnmount(() => {
 <style scoped>
 .logs-tab {
   display: grid;
+  min-width: 0;
   gap: var(--space-4);
 }
 
 .logs-filter-form {
   display: grid;
+  min-width: 0;
   gap: var(--space-4);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-card);
@@ -519,19 +567,51 @@ onBeforeUnmount(() => {
   gap: var(--space-2);
 }
 
-.logs-refresh-failed {
+.logs-filter-dirty,
+.logs-refresh-failed,
+.logs-next-page-failed {
   display: flex;
+  min-width: 0;
   align-items: center;
+  flex-wrap: wrap;
   gap: var(--space-2);
+}
+
+.logs-filter-dirty {
+  margin: 0;
+  color: var(--color-text);
+  font-weight: 650;
+}
+
+.logs-filter-dirty svg {
+  color: var(--color-warning);
+}
+
+.log-cell-stack {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.log-cell-stack > span:not(.status-badge) {
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
 }
 
 .logs-tab code,
 .logs-tab time {
   font-family: var(--font-mono);
+  overflow-wrap: anywhere;
 }
 
 .logs-tab > :deep(.app-button) {
   justify-self: center;
+}
+
+.logs-tab :deep(.inline-feedback--warning > span:last-child),
+.logs-tab :deep(.inline-feedback--danger > span:last-child),
+.logs-tab :deep(.query-feedback--error > span) {
+  color: var(--color-text);
 }
 
 @media (max-width: 900px) {

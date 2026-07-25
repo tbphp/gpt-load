@@ -126,18 +126,24 @@ async function mountHealth(api: ApiClient, queryClient = createQueryClient()) {
 
 describe('HealthTab', () => {
   it.each([
-    ['total zero', zeroCounts, '尚无 Key', ['总数 0', '可用 0', '冷却 0', '拉黑 0', '停用 0']],
+    ['total zero', zeroCounts, '尚无上游 Key', ['总数 0', '可用 0', '冷却 0', '拉黑 0', '停用 0']],
     [
       'available zero',
       { total: 2, available: 0, cooldown: 1, blacklisted: 1, disabled: 0 },
-      '当前无可用 Key',
+      '当前无可用上游 Key',
       ['总数 2', '可用 0', '冷却 1', '拉黑 1', '停用 0'],
     ],
     [
       'available plus cooldown and blacklist',
       { total: 4, available: 2, cooldown: 1, blacklisted: 1, disabled: 0 },
-      '2 个 Key 可用',
+      '存在运行时异常',
       ['总数 4', '可用 2', '冷却 1', '拉黑 1', '停用 0'],
+    ],
+    [
+      'available without runtime exceptions',
+      { total: 4, available: 2, cooldown: 0, blacklisted: 0, disabled: 2 },
+      '当前无上游 Key 运行时异常',
+      ['总数 4', '可用 2', '冷却 0', '拉黑 0', '停用 2'],
     ],
   ] as const)('renders backend counts for %s', async (_name, counts, status, labels) => {
     const api = new HealthApi(() => Promise.resolve(healthFixture({ counts })))
@@ -150,17 +156,41 @@ describe('HealthTab', () => {
     expect(wrapper.text()).toContain('2026')
   })
 
-  it('renders disabled Groups and an explicit no-runtime-exception state', async () => {
+  it('renders every approved Group status branch with icon, text, and tone', async () => {
     const api = new HealthApi(() =>
       Promise.resolve(
         healthFixture({
-          counts: { total: 3, available: 0, cooldown: 0, blacklisted: 0, disabled: 3 },
+          counts: { total: 7, available: 3, cooldown: 1, blacklisted: 1, disabled: 2 },
           groups: [
             {
-              id: 8,
+              id: 1,
               name: 'Disabled Beta',
               enabled: false,
-              counts: { total: 3, available: 0, cooldown: 0, blacklisted: 0, disabled: 3 },
+              counts: { total: 2, available: 0, cooldown: 0, blacklisted: 0, disabled: 2 },
+            },
+            {
+              id: 2,
+              name: 'Empty Group',
+              enabled: true,
+              counts: zeroCounts,
+            },
+            {
+              id: 3,
+              name: 'Unavailable Group',
+              enabled: true,
+              counts: { total: 2, available: 0, cooldown: 1, blacklisted: 1, disabled: 0 },
+            },
+            {
+              id: 4,
+              name: 'Attention Group',
+              enabled: true,
+              counts: { total: 2, available: 1, cooldown: 1, blacklisted: 0, disabled: 0 },
+            },
+            {
+              id: 5,
+              name: 'Available Group',
+              enabled: true,
+              counts: { total: 1, available: 1, cooldown: 0, blacklisted: 0, disabled: 0 },
             },
           ],
         }),
@@ -169,16 +199,35 @@ describe('HealthTab', () => {
 
     const { wrapper } = await mountHealth(api)
 
-    expect(wrapper.get('a[href="/groups/8"]').text()).toBe('Disabled Beta')
-    expect(wrapper.text()).toContain('Group 已停用')
-    expect(wrapper.text()).toContain('当前没有冷却或拉黑的 Key')
+    for (const [id, label, tone] of [
+      [1, 'Group 已停用', 'neutral'],
+      [2, 'Group 尚无 Key', 'neutral'],
+      [3, 'Group 当前无可用 Key', 'danger'],
+      [4, 'Group 需要关注', 'warning'],
+      [5, 'Group 可用', 'success'],
+    ] as const) {
+      const card = wrapper.get(`a[href="/groups/${id}"]`).element.closest('.group-health-card')
+      expect(card?.textContent).toContain(label)
+      expect(card?.querySelector('.status-badge')?.classList).toContain(`status-badge--${tone}`)
+      expect(card?.querySelector('.status-badge svg')).not.toBeNull()
+    }
   })
 
-  it('shows problem Keys by ID with real recovery facts and no fabricated metric or secret', async () => {
+  it('shows safe problem details, explicit Keys links, and a neutral unknown recovery fallback', async () => {
+    const unknownRecoveryCanary = 'future-secret-recovery-mode'
+    const unknownRecoveryKey: HealthProblemKeyDto = {
+      ...blacklistedKey,
+      key_id: 13,
+      recovery: {
+        automatic: true,
+        mode: unknownRecoveryCanary,
+        at: null,
+      },
+    }
     const api = new HealthApi(() =>
       Promise.resolve(
         healthFixture({
-          counts: { total: 3, available: 1, cooldown: 1, blacklisted: 1, disabled: 0 },
+          counts: { total: 4, available: 1, cooldown: 1, blacklisted: 2, disabled: 0 },
           groups: [
             {
               id: 7,
@@ -194,7 +243,7 @@ describe('HealthTab', () => {
             },
           ],
           cooldown_keys: [cooldownKey],
-          blacklisted_keys: [blacklistedKey],
+          blacklisted_keys: [blacklistedKey, unknownRecoveryKey],
         }),
       ),
     )
@@ -204,13 +253,18 @@ describe('HealthTab', () => {
     expect(wrapper.text()).toContain('Key #11')
     expect(wrapper.text()).toContain('Key #12')
     expect(wrapper.text()).not.toContain('sk-')
+    expect(wrapper.get('a[href="/groups/7?tab=keys"]').text()).toBe('Alpha')
     expect(wrapper.get('[data-test="remaining-11"]').text()).toContain('2:00')
 
     await wrapper.get('[data-test="problem-key-11"]').trigger('click')
     await wrapper.get('[data-test="problem-key-12"]').trigger('click')
+    await wrapper.get('[data-test="problem-key-13"]').trigger('click')
     expect(wrapper.text()).toContain('冷却到期')
     expect(wrapper.text()).toContain('验证探测')
+    expect(wrapper.text()).toContain('恢复方式由运行时决定')
     expect(wrapper.text()).toContain('运行时决定探测时间')
+    expect(wrapper.text()).not.toContain(unknownRecoveryCanary)
+    expect(wrapper.text()).not.toContain(cooldownKey.key)
     expect(wrapper.text()).not.toMatch(/下次探测.*\d/)
     expect(wrapper.text()).not.toMatch(/成功率|健康率|百分比|Usage|Token|费用|趋势/)
     expect(wrapper.find('svg[data-chart]').exists()).toBe(false)
@@ -277,12 +331,16 @@ describe('HealthTab', () => {
     await vi.advanceTimersByTimeAsync(30_000)
     expect(wrapper.get('[data-test="remaining-11"]').text()).toContain('1:30')
 
+    vi.setSystemTime('2026-07-25T11:00:30Z')
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(wrapper.get('[data-test="remaining-11"]').text()).toContain('1:29')
+
     refresh.reject(new ApiError(500, 'INTERNAL_SERVER_ERROR', 'refresh failed'))
     await flushPromises()
     expect(wrapper.text()).toContain('健康数据可能已过期')
 
     await vi.advanceTimersByTimeAsync(30_000)
-    expect(wrapper.get('[data-test="remaining-11"]').text()).toContain('1:30')
+    expect(wrapper.get('[data-test="remaining-11"]').text()).toContain('1:29')
   })
 
   it('pauses polling while hidden and refreshes exactly once when visible again', async () => {

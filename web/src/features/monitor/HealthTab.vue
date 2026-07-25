@@ -125,16 +125,19 @@ function stopElapsedTimer(): void {
 function syncElapsedTimer(): void {
   stopElapsedTimer()
   if (!timerShouldRun.value) return
-  elapsedStartedAt = Date.now() - elapsedMs.value
+  elapsedMs.value = Math.max(0, performance.now() - elapsedStartedAt)
   elapsedTimer = setInterval(() => {
-    elapsedMs.value = Math.max(0, Date.now() - elapsedStartedAt)
+    elapsedMs.value = Math.max(0, performance.now() - elapsedStartedAt)
   }, 1_000)
 }
 
 watch(
   () => healthQuery.dataUpdatedAt.value,
   (updatedAt, previousUpdatedAt) => {
-    if (updatedAt > 0 && updatedAt !== previousUpdatedAt) elapsedMs.value = 0
+    if (updatedAt > 0 && updatedAt !== previousUpdatedAt) {
+      elapsedStartedAt = performance.now()
+      elapsedMs.value = 0
+    }
     syncElapsedTimer()
   },
   { immediate: true },
@@ -163,18 +166,31 @@ function summaryTone(counts: KeyCounts): 'success' | 'warning' | 'danger' | 'neu
 function summaryLabel(counts: KeyCounts): string {
   if (counts.total === 0) return t('monitor.health.status.empty')
   if (counts.available === 0) return t('monitor.health.status.unavailable')
-  return t('monitor.health.status.available', { count: counts.available })
+  if (counts.cooldown > 0 || counts.blacklisted > 0) {
+    return t('monitor.health.status.exceptions')
+  }
+  return t('monitor.health.status.clear')
 }
 
 function groupStatusLabel(enabled: boolean, counts: KeyCounts): string {
   if (!enabled) return t('monitor.health.groups.disabled')
-  if (counts.available === 0) return t('monitor.health.groups.unserviceable')
-  return t('monitor.health.groups.serviceable')
+  if (counts.total === 0) return t('monitor.health.groups.emptyKeys')
+  if (counts.available === 0) return t('monitor.health.groups.unavailable')
+  if (counts.cooldown > 0 || counts.blacklisted > 0) {
+    return t('monitor.health.groups.attention')
+  }
+  return t('monitor.health.groups.available')
 }
 
-function groupStatusTone(enabled: boolean, counts: KeyCounts): 'success' | 'danger' | 'neutral' {
+function groupStatusTone(
+  enabled: boolean,
+  counts: KeyCounts,
+): 'success' | 'warning' | 'danger' | 'neutral' {
   if (!enabled) return 'neutral'
-  return counts.available > 0 ? 'success' : 'danger'
+  if (counts.total === 0) return 'neutral'
+  if (counts.available === 0) return 'danger'
+  if (counts.cooldown > 0 || counts.blacklisted > 0) return 'warning'
+  return 'success'
 }
 
 function isExpanded(keyId: number): boolean {
@@ -206,7 +222,7 @@ function remainingTime(key: HealthProblemKeyDto): string {
 function recoveryModeLabel(mode: string): string {
   if (mode === 'cooldown_expiry') return t('monitor.health.recovery.cooldownExpiry')
   if (mode === 'validation_probe') return t('monitor.health.recovery.validationProbe')
-  return mode
+  return t('monitor.health.recovery.unknown')
 }
 </script>
 
@@ -380,7 +396,7 @@ function recoveryModeLabel(mode: string): string {
               </button>
 
               <div class="problem-key__summary">
-                <RouterLink class="group-link" :to="`/groups/${key.group_id}`">
+                <RouterLink class="group-link" :to="`/groups/${key.group_id}?tab=keys`">
                   {{ key.group_name }}
                 </RouterLink>
                 <StatusBadge :tone="section.tone">{{ section.label }}</StatusBadge>
@@ -502,6 +518,7 @@ function recoveryModeLabel(mode: string): string {
 
 .health-card {
   display: grid;
+  min-width: 0;
   gap: var(--space-4);
   padding: var(--space-6);
 }
@@ -510,9 +527,15 @@ function recoveryModeLabel(mode: string): string {
 .health-section__heading,
 .problem-key__summary {
   display: flex;
+  min-width: 0;
   align-items: flex-start;
   justify-content: space-between;
   gap: var(--space-4);
+}
+
+.health-card__heading > div,
+.health-section__heading > div {
+  min-width: 0;
 }
 
 .health-card__heading h2,
@@ -564,9 +587,13 @@ function recoveryModeLabel(mode: string): string {
 }
 
 .group-link {
+  display: inline-flex;
+  min-width: 0;
   min-height: 44px;
+  align-items: center;
   color: var(--color-primary);
   font-weight: 700;
+  overflow-wrap: anywhere;
   text-decoration: underline;
   text-decoration-color: transparent;
   text-underline-offset: 3px;
@@ -591,6 +618,7 @@ function recoveryModeLabel(mode: string): string {
 }
 
 .problem-key {
+  min-width: 0;
   overflow: hidden;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-card);
@@ -608,6 +636,10 @@ function recoveryModeLabel(mode: string): string {
   color: var(--color-text);
   padding: var(--space-3) var(--space-4);
   cursor: pointer;
+}
+
+.problem-key__toggle > * {
+  min-width: 0;
 }
 
 .problem-key__identity,
@@ -630,6 +662,7 @@ function recoveryModeLabel(mode: string): string {
 }
 
 .problem-key__summary {
+  flex-wrap: wrap;
   align-items: center;
   justify-content: flex-start;
   border-top: 1px solid var(--color-border);
@@ -678,6 +711,10 @@ function recoveryModeLabel(mode: string): string {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
+}
+
+.health-tab :deep(.query-feedback--error > span) {
+  color: var(--color-text);
 }
 
 @media (max-width: 760px) {

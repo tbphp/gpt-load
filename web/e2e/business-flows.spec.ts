@@ -90,7 +90,10 @@ test('critical management journey works through the embedded binary', async ({ p
       has: page.getByText(accessKeyName, { exact: true }),
     })
     await expect(accessKeyRow).toContainText(groupName)
-    await expect(accessKeyRow).toContainText('OpenAI')
+    const protocolFilter = accessKeyRow.locator('dl > div', {
+      has: page.getByText('Protocols', { exact: true }),
+    })
+    await expect(protocolFilter.locator('dd')).toHaveText('OpenAI')
     await expect(accessKeyRow).toContainText(discoveredModel)
     await expect(accessKeyRow).toContainText(rpmLimit)
     await accessKeyRow.getByRole('button', { name: 'Edit' }).click()

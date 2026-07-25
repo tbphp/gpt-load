@@ -55,13 +55,13 @@ function selectTab(value: string): void {
       @update:model-value="selectTab"
     >
       <template v-if="isCanonicalQuery">
-        <div v-if="activeTab === 'health'" data-test="monitor-health-slot">
+        <div v-if="activeTab === 'health'" class="monitor-panel" data-test="monitor-health-slot">
           <HealthTab />
         </div>
-        <div v-else-if="activeTab === 'logs'" data-test="monitor-logs-slot">
+        <div v-else-if="activeTab === 'logs'" class="monitor-panel" data-test="monitor-logs-slot">
           <LogsTab />
         </div>
-        <div v-else data-test="monitor-inspector-slot">
+        <div v-else class="monitor-panel" data-test="monitor-inspector-slot">
           <InspectorTab />
         </div>
       </template>
@@ -72,6 +72,11 @@ function selectTab(value: string): void {
 <style scoped>
 .monitor-page {
   display: grid;
+  min-width: 0;
   gap: var(--space-6);
+}
+
+.monitor-panel {
+  min-width: 0;
 }
 </style>

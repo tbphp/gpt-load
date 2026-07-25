@@ -2,7 +2,11 @@ import { QueryClient } from '@tanstack/vue-query'
 import { flushPromises } from '@vue/test-utils'
 
 import type { ApiClient, ApiPath, ApiRequestOptions } from '@/api/client'
-import type { RequestLogItemDto, RequestLogPageDto } from '@/api/control/request-logs'
+import type {
+  RequestLogAttemptDto,
+  RequestLogItemDto,
+  RequestLogPageDto,
+} from '@/api/control/request-logs'
 import type { AccessKeyDto, GroupSummary } from '@/api/control/types'
 import { controlQueryKeys } from '@/app/query-keys'
 import { mountApp } from '@/test/mount-app'
@@ -12,6 +16,25 @@ import LogsTab from './LogsTab.vue'
 const firstRequestID = 'a4d4e121-8ac3-4df4-8ceb-63b10ddc6173'
 
 afterEach(() => vi.unstubAllEnvs())
+
+function attemptFixture(sequence: number): RequestLogAttemptDto {
+  return {
+    sequence,
+    group_id: 7,
+    group_name: 'Historical Group',
+    key_id: 21,
+    key_mask: 'sk-up…safe',
+    upstream_model: 'gpt-upstream',
+    status_code: 200,
+    duration_ms: 100,
+    failure_category: 'ok',
+    action: 'terminate',
+    will_retry: false,
+    error_code: '',
+    error_summary: '',
+    committed: true,
+  }
+}
 
 function logFixture(overrides: Partial<RequestLogItemDto> = {}): RequestLogItemDto {
   return {
@@ -103,7 +126,21 @@ async function mountLogs(
 
 describe('LogsTab', () => {
   it('loads the first page without implicit time, limit, page, or cursor parameters', async () => {
-    const api = new LogsApi()
+    const api = new LogsApi([
+      {
+        items: [
+          logFixture({
+            protocol: 'anthropic',
+            upstream_model: 'claude-upstream',
+            status: 'incomplete',
+            status_code: 206,
+            duration_ms: 125,
+            attempts: [attemptFixture(1), attemptFixture(2)],
+          }),
+        ],
+        next_cursor: null,
+      },
+    ])
 
     const { wrapper } = await mountLogs(api)
 
@@ -113,7 +150,22 @@ describe('LogsTab', () => {
         options: { method: 'GET', signal: expect.any(AbortSignal) },
       },
     ])
-    expect(wrapper.get(`[data-test="log-row-${firstRequestID}"]`).text()).toContain('gpt-client')
+    const row = wrapper.get(`[data-test="log-row-${firstRequestID}"]`).text()
+    for (const fact of [
+      '2026-07-25T10:00:01Z',
+      firstRequestID,
+      'client · #12',
+      'Anthropic',
+      'gpt-client',
+      'claude-upstream',
+      '未完成',
+      '206',
+      '125 ms',
+      '2 次尝试',
+      '查看详情',
+    ]) {
+      expect(row).toContain(fact)
+    }
   })
 
   it('passes the opaque forward cursor unchanged, appends once, and hides Load more at the end', async () => {
@@ -142,6 +194,38 @@ describe('LogsTab', () => {
     expect(wrapper.findAll('tbody tr')).toHaveLength(2)
     expect(wrapper.text()).toContain('second-model')
     expect(wrapper.find('[data-test="logs-load-more"]').exists()).toBe(false)
+  })
+
+  it('keeps loaded rows and retries only the failed next page with safe local feedback', async () => {
+    const nextPageFailure = deferred<RequestLogPageDto>()
+    const nextRequestID = '94d4e121-8ac3-4df4-8ceb-63b10ddc6173'
+    const api = new LogsApi([
+      { items: [logFixture()], next_cursor: 'page-2' },
+      nextPageFailure.promise,
+      {
+        items: [logFixture({ request_id: nextRequestID, client_model: 'retried-next-model' })],
+        next_cursor: null,
+      },
+    ])
+    const { wrapper } = await mountLogs(api)
+
+    await wrapper.get('[data-test="logs-load-more"]').trigger('click')
+    nextPageFailure.reject(new Error('next-page-secret-canary'))
+    await flushPromises()
+
+    expect(wrapper.findAll('tbody tr')).toHaveLength(1)
+    expect(wrapper.find(`[data-test="log-row-${firstRequestID}"]`).exists()).toBe(true)
+    expect(wrapper.get('[data-test="logs-next-page-failed"]').text()).toContain('加载下一页失败')
+    expect(wrapper.text()).not.toContain('next-page-secret-canary')
+
+    await wrapper.get('[data-test="logs-next-page-retry"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.findAll('tbody tr')).toHaveLength(2)
+    expect(wrapper.get(`[data-test="log-row-${nextRequestID}"]`).text()).toContain(
+      'retried-next-model',
+    )
+    expect(wrapper.find('[data-test="logs-next-page-failed"]').exists()).toBe(false)
   })
 
   it('applies filters through the URL and clears prior rows while the new first page loads', async () => {
@@ -417,7 +501,7 @@ describe('LogsTab', () => {
     )
   })
 
-  it('keeps option failures local and caches only safe AccessKey options with zero gc time', async () => {
+  it('disables only the failed selector, preserves its deep-link value, and caches safe options', async () => {
     const secret = 'sk-gl-options-secret-canary'
     const groupError = 'group-options-secret-canary'
     const api = new LogsApi([{ items: [logFixture()], next_cursor: null }], {
@@ -434,7 +518,7 @@ describe('LogsTab', () => {
       ],
     })
 
-    const { queryClient, wrapper } = await mountLogs(api)
+    const { queryClient, wrapper } = await mountLogs(api, '/monitor?tab=logs&group_id=7')
 
     expect(wrapper.find(`[data-test="log-row-${firstRequestID}"]`).exists()).toBe(true)
     expect(wrapper.get('[data-test="logs-group-options-failed"]').text()).toContain(
@@ -442,6 +526,12 @@ describe('LogsTab', () => {
     )
     expect(wrapper.text()).not.toContain(groupError)
     expect(wrapper.text()).not.toContain(secret)
+    expect(wrapper.get<HTMLSelectElement>('[data-test="logs-group"]').element.disabled).toBe(true)
+    expect(wrapper.get<HTMLSelectElement>('[data-test="logs-group"]').element.value).toBe('7')
+    expect(wrapper.get('[data-test="logs-group"]').text()).toContain('#7')
+    expect(wrapper.get<HTMLSelectElement>('[data-test="logs-access-key"]').element.disabled).toBe(
+      false,
+    )
     expect(queryClient.getQueryData(controlQueryKeys.accessKeys.options())).toEqual([
       { id: 12, name: 'client', status: 'active' },
     ])
@@ -451,6 +541,53 @@ describe('LogsTab', () => {
     await flushPromises()
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(queryClient.getQueryData(controlQueryKeys.accessKeys.options())).toBeUndefined()
+  })
+
+  it('isolates an AccessKey option failure without disabling Group filtering', async () => {
+    const api = new LogsApi([{ items: [logFixture()], next_cursor: null }], {
+      groups: [
+        {
+          id: 7,
+          name: 'Primary',
+          upstream_url: 'https://api.example.com',
+          protocols: ['openai'],
+          models: [],
+          enabled: true,
+          key_count: 1,
+        },
+      ],
+      accessKeysError: new Error('access-key-options-secret-canary'),
+    })
+
+    const { wrapper } = await mountLogs(api, '/monitor?tab=logs&access_key_id=12')
+
+    expect(wrapper.get<HTMLSelectElement>('[data-test="logs-group"]').element.disabled).toBe(false)
+    expect(wrapper.get<HTMLSelectElement>('[data-test="logs-access-key"]').element.disabled).toBe(
+      true,
+    )
+    expect(wrapper.get<HTMLSelectElement>('[data-test="logs-access-key"]').element.value).toBe('12')
+    expect(wrapper.get('[data-test="logs-access-key"]').text()).toContain('#12')
+    expect(wrapper.get('[data-test="logs-access-key-options-failed"]').text()).toContain(
+      '无法加载 AccessKey 筛选选项',
+    )
+    expect(wrapper.text()).not.toContain('access-key-options-secret-canary')
+    expect(wrapper.find(`[data-test="log-row-${firstRequestID}"]`).exists()).toBe(true)
+  })
+
+  it('marks a changed draft with localized text and a non-color icon until it is applied', async () => {
+    const { wrapper } = await mountLogs(new LogsApi())
+
+    expect(wrapper.find('[data-test="logs-filter-dirty"]').exists()).toBe(false)
+
+    await wrapper.get('[data-test="logs-model"]').setValue('draft-only-model')
+
+    const dirty = wrapper.get('[data-test="logs-filter-dirty"]')
+    expect(dirty.text()).toContain('筛选草稿尚未应用')
+    expect(dirty.find('svg[aria-hidden="true"]').exists()).toBe(true)
+
+    await wrapper.get('[data-test="logs-filter-form"]').trigger('submit')
+    await flushPromises()
+    expect(wrapper.find('[data-test="logs-filter-dirty"]').exists()).toBe(false)
   })
 
   it('applies every explicit filter exactly and Reset clears both draft and URL', async () => {
@@ -524,22 +661,37 @@ describe('LogsTab', () => {
     }
   })
 
-  it('rejects an invalid draft locally without echoing raw values or requesting logs again', async () => {
+  it('rejects invalid fields locally and marks every field error with aria-invalid', async () => {
     const rawInvalid = 'NOT-A-UUID-secret-canary'
     const api = new LogsApi()
-    const { router, wrapper } = await mountLogs(api)
+    const invalidPath =
+      '/monitor?tab=logs&group_id=0&model=%20model-with-space&access_key_id=1.5&status=failed&request_id=NOT-A-UUID-secret-canary'
+    const { router, wrapper } = await mountLogs(api, invalidPath)
 
-    await wrapper.get('[data-test="logs-from"]').setValue('2026-07-25T10:00')
+    const from = wrapper.get<HTMLInputElement>('[data-test="logs-from"]')
+    from.element.type = 'text'
+    await from.setValue('2026-02-30T10:00')
     await wrapper.get('[data-test="logs-to"]').setValue('2026-07-25T10:00')
-    await wrapper.get('[data-test="logs-request-id"]').setValue(rawInvalid)
     await wrapper.get('[data-test="logs-filter-form"]').trigger('submit')
     await flushPromises()
 
-    expect(router.currentRoute.value.fullPath).toBe('/monitor?tab=logs')
+    expect(router.currentRoute.value.fullPath).toBe(invalidPath)
     expect(api.requests.filter(({ path }) => path.startsWith('/api/logs'))).toHaveLength(1)
-    expect(wrapper.text()).toContain('结束时间必须晚于开始时间')
+    expect(wrapper.text()).toContain('请输入有效的本地日期时间')
+    expect(wrapper.text()).toContain('客户端模型不能包含首尾空白或控制字符')
     expect(wrapper.text()).toContain('请输入规范的小写 UUIDv4')
     expect(wrapper.text()).not.toContain(rawInvalid)
+    for (const testID of [
+      'logs-from',
+      'logs-group',
+      'logs-model',
+      'logs-access-key',
+      'logs-status',
+      'logs-request-id',
+    ]) {
+      expect(wrapper.get(`[data-test="${testID}"]`).attributes('aria-invalid')).toBe('true')
+    }
+    expect(wrapper.get('[data-test="logs-to"]').attributes('aria-invalid')).toBeUndefined()
   })
 
   it('does not append the same request twice when a next-page response is duplicated', async () => {

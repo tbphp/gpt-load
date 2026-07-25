@@ -106,6 +106,7 @@ describe('LogDetailDrawer', () => {
     )
     expect(document.body.querySelector('script[data-canary="log-summary"]')).toBeNull()
     expect(document.body.querySelector('b[data-canary="summary-html"]')).toBeNull()
+    expect(document.body.textContent).not.toContain('Affinity hit')
 
     const copyButtons = [
       ...document.body.querySelectorAll<HTMLButtonElement>('button[aria-label^="Copy"]'),

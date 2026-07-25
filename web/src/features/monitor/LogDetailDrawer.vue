@@ -154,10 +154,6 @@ function accessKeyLabel(log: RequestLogItemDto): string {
             <dd>{{ log.duration_ms }} ms</dd>
           </div>
           <div>
-            <dt>{{ t('monitor.logs.drawer.affinity') }}</dt>
-            <dd>{{ log.affinity_hit ? t('monitor.logs.yes') : t('monitor.logs.no') }}</dd>
-          </div>
-          <div>
             <dt>{{ t('monitor.logs.drawer.errorCode') }}</dt>
             <dd>
               <code>{{ log.error_code || t('monitor.logs.none') }}</code>
@@ -256,11 +252,13 @@ function accessKeyLabel(log: RequestLogItemDto): string {
 <style scoped>
 .log-detail {
   display: grid;
+  min-width: 0;
   gap: var(--space-6);
 }
 
 .log-detail__section {
   display: grid;
+  min-width: 0;
   gap: var(--space-3);
 }
 
@@ -302,7 +300,9 @@ function accessKeyLabel(log: RequestLogItemDto): string {
 
 .log-detail__copy {
   display: flex;
+  min-width: 0;
   align-items: center;
+  flex-wrap: wrap;
   justify-content: space-between;
   gap: var(--space-2);
 }
@@ -332,8 +332,14 @@ function accessKeyLabel(log: RequestLogItemDto): string {
 }
 
 .log-detail__inspector {
+  display: inline-flex;
+  width: fit-content;
+  min-width: 0;
+  min-height: 44px;
+  align-items: center;
   color: var(--color-primary);
   font-weight: 650;
+  overflow-wrap: anywhere;
 }
 
 .log-attempt {
@@ -343,7 +349,9 @@ function accessKeyLabel(log: RequestLogItemDto): string {
 
 .log-attempt > header {
   display: flex;
+  min-width: 0;
   align-items: center;
+  flex-wrap: wrap;
   justify-content: space-between;
   gap: var(--space-2);
 }

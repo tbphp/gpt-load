@@ -603,12 +603,14 @@ onBeforeUnmount(() => {
 .inspector-group-list,
 .inspector-key-list {
   display: grid;
+  min-width: 0;
   gap: var(--space-4);
 }
 
 .inspector-form-card,
 .inspector-result {
   display: grid;
+  min-width: 0;
   gap: var(--space-5);
 }
 
@@ -616,9 +618,16 @@ onBeforeUnmount(() => {
 .inspector-group__heading,
 .inspector-key__heading {
   display: flex;
+  min-width: 0;
   align-items: flex-start;
+  flex-wrap: wrap;
   justify-content: space-between;
   gap: var(--space-4);
+}
+
+.inspector-heading > div,
+.inspector-group__heading > div {
+  min-width: 0;
 }
 
 .inspector-heading h2,
@@ -654,7 +663,7 @@ onBeforeUnmount(() => {
 .inspector-inline-error {
   border-color: var(--color-danger);
   background: var(--color-danger-bg);
-  color: var(--color-danger);
+  color: var(--color-text);
 }
 
 .inspector-form {
@@ -662,6 +671,10 @@ onBeforeUnmount(() => {
   grid-template-columns: minmax(150px, 0.8fr) minmax(220px, 1.4fr) minmax(220px, 1.2fr) auto;
   align-items: end;
   gap: var(--space-3);
+}
+
+.inspector-form > * {
+  min-width: 0;
 }
 
 .inspector-form :deep(.app-select__trigger) {
@@ -729,6 +742,7 @@ onBeforeUnmount(() => {
 
 .inspector-group {
   display: grid;
+  min-width: 0;
   gap: var(--space-4);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-card);
@@ -743,12 +757,17 @@ onBeforeUnmount(() => {
   overflow-wrap: anywhere;
 }
 
+.inspector-group__heading h4 {
+  overflow-wrap: anywhere;
+}
+
 .inspector-facts--compact {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .inspector-key {
   display: grid;
+  min-width: 0;
   gap: var(--space-3);
   border-top: 1px solid var(--color-border);
   padding-top: var(--space-3);
@@ -761,6 +780,10 @@ onBeforeUnmount(() => {
 .inspector-keys-empty {
   margin: 0;
   color: var(--color-text-muted);
+}
+
+.inspector-tab :deep(.query-feedback--error > span) {
+  color: var(--color-text);
 }
 
 @media (max-width: 960px) {
