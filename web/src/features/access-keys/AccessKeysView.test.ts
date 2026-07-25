@@ -37,6 +37,15 @@ function queryClient() {
   return new QueryClient({ defaultOptions: { queries: { retry: false } } })
 }
 
+function serializeStorage(storage: Storage): string {
+  return JSON.stringify(
+    Array.from({ length: storage.length }, (_, index) => {
+      const key = storage.key(index)
+      return [key, key === null ? null : storage.getItem(key)]
+    }),
+  )
+}
+
 async function mountView(request: ApiClient['request']) {
   const client = queryClient()
   const mounted = await mountApp(AccessKeysView, {
@@ -73,6 +82,8 @@ describe('AccessKeysView', () => {
   it('masks by default, reveals and copies only locally, then removes gcTime-zero plaintext on unmount', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined)
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+    sessionStorage.setItem('arbitrary.session.slot', 'safe-session-value')
+    localStorage.setItem('arbitrary.local.slot', 'safe-local-value')
     const request = vi.fn(async (path: string, options?: ApiRequestOptions) => {
       if (path === '/api/access-keys' && options?.method === 'GET') return keys
       if (path === '/api/groups' && options?.method === 'GET') return groups
@@ -89,8 +100,8 @@ describe('AccessKeysView', () => {
 
     expect(JSON.stringify(router.currentRoute.value)).not.toContain(canary)
     expect(JSON.stringify(controlQueryKeys)).not.toContain(canary)
-    expect(sessionStorage.getItem('gpt-load.access-key')).toBeNull()
-    expect(localStorage.getItem('gpt-load.access-key')).toBeNull()
+    expect(serializeStorage(sessionStorage)).not.toContain(canary)
+    expect(serializeStorage(localStorage)).not.toContain(canary)
     expect(client.getMutationCache().getAll()).toHaveLength(0)
 
     wrapper.unmount()
@@ -98,6 +109,11 @@ describe('AccessKeysView', () => {
     expect(client.getQueryData(controlQueryKeys.accessKeys.list())).toBeUndefined()
     expect(JSON.stringify(client.getQueryCache().getAll())).not.toContain(canary)
     expect(document.body.textContent).not.toContain(canary)
+    const snapshotSafeOutput = JSON.stringify({
+      render: document.body.innerHTML,
+      emitted: wrapper.emitted(),
+    })
+    expect(snapshotSafeOutput).not.toContain(canary)
   })
 
   it('retains masked stale list data and never renders generic error details', async () => {

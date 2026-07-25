@@ -45,11 +45,23 @@ export function buildCreateAccessKeyInput(draft: AccessKeyDraft): CreateAccessKe
   }
 }
 
+function compareStrings(left: string, right: string): number {
+  if (left < right) return -1
+  if (left > right) return 1
+  return 0
+}
+
+function canonicalFilters(filters: AccessKeyFiltersDto): AccessKeyFiltersDto {
+  const normalized = normalizeAccessKeyFilters(filters)
+  return {
+    groups: [...normalized.groups].sort((left, right) => left - right),
+    protocols: [...normalized.protocols].sort(compareStrings),
+    models: [...normalized.models].sort(compareStrings),
+  }
+}
+
 function equalFilters(left: AccessKeyFiltersDto, right: AccessKeyFiltersDto): boolean {
-  return (
-    JSON.stringify(normalizeAccessKeyFilters(left)) ===
-    JSON.stringify(normalizeAccessKeyFilters(right))
-  )
+  return JSON.stringify(canonicalFilters(left)) === JSON.stringify(canonicalFilters(right))
 }
 
 export function buildAccessKeyUpdatePatch(

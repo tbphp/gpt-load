@@ -145,6 +145,7 @@ async function save(): Promise<void> {
     }
     await queryClient.invalidateQueries({ queryKey: controlQueryKeys.accessKeys.list() })
   } catch (error: unknown) {
+    if (controller !== activeController || !props.open) return
     if (!(error instanceof RequestCancelledError)) failed.value = true
   } finally {
     if (controller === activeController) controller = undefined

@@ -39,6 +39,25 @@ describe('AccessKey request normalization', () => {
     expect(buildAccessKeyUpdatePatch(base, draft)).toEqual({})
   })
 
+  it('treats filter arrays with the same members in a different order as unchanged sets', () => {
+    const reorderedBase: AccessKeyDto = {
+      ...base,
+      filters: {
+        groups: [7, 3],
+        protocols: ['openai-response', 'anthropic'],
+        models: ['known', 'free-entry'],
+      },
+    }
+    const draft = createAccessKeyDraft(reorderedBase)
+    draft.filters = {
+      groups: [3, 7],
+      protocols: ['anthropic', 'openai-response'],
+      models: ['free-entry', 'known'],
+    }
+
+    expect(buildAccessKeyUpdatePatch(reorderedBase, draft)).toEqual({})
+  })
+
   it('sends only normalized dirty fields and preserves empty filters as exact arrays', () => {
     const draft = createAccessKeyDraft(base)
     draft.status = 'disabled'

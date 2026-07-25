@@ -144,6 +144,35 @@ describe('AccessKeyDrawer', () => {
     wrapper.unmount()
   })
 
+  it('keeps Save disabled and sends no PUT after a filter is toggled off and back on', async () => {
+    const reordered: AccessKeyDto = {
+      ...existing,
+      filters: {
+        groups: [7],
+        protocols: ['openai-response', 'openai'],
+        models: ['legacy-free', 'gpt-4.1'],
+      },
+    }
+    const request = vi.fn() as ApiClient['request']
+    const { wrapper } = await mountDrawer(request, { open: true, accessKey: reordered })
+    const protocolCheckboxes = document.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')
+    const openAIResponse = protocolCheckboxes[4]
+    if (!openAIResponse) throw new Error('missing openai-response checkbox')
+
+    openAIResponse.checked = false
+    openAIResponse.dispatchEvent(new Event('change', { bubbles: true }))
+    await flushPromises()
+    openAIResponse.checked = true
+    openAIResponse.dispatchEvent(new Event('change', { bubbles: true }))
+    await flushPromises()
+
+    const save = element<HTMLButtonElement>('[data-test="access-key-save"]')
+    expect(save.disabled).toBe(true)
+    save.click()
+    expect(request).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
   it('requires a non-negative safe-integer RPM and retains input after generic errors', async () => {
     const request = vi.fn().mockRejectedValue(new Error(canary)) as ApiClient['request']
     const { wrapper } = await mountDrawer(request)
@@ -197,5 +226,68 @@ describe('AccessKeyDrawer', () => {
     expect(invalidate).not.toHaveBeenCalled()
     expect(document.body.textContent).not.toContain(canary)
     wrapper.unmount()
+  })
+
+  it('ignores an ordinary late rejection after the Drawer closes', async () => {
+    let rejectRequest!: (error: unknown) => void
+    const request = vi.fn(
+      () =>
+        new Promise<AccessKeyDto>((_, reject) => {
+          rejectRequest = reject
+        }),
+    ) as ApiClient['request']
+    const { queryClient: client, wrapper } = await mountDrawer(request)
+    const invalidate = vi.spyOn(client, 'invalidateQueries').mockResolvedValue()
+    const setupState = wrapper.vm.$.setupState as { failed: boolean }
+    const name = element<HTMLInputElement>('[data-test="access-key-name"]')
+    name.value = 'late-reject-client'
+    name.dispatchEvent(new Event('input', { bubbles: true }))
+    await flushPromises()
+    element<HTMLButtonElement>('[data-test="access-key-save"]').click()
+    await flushPromises()
+
+    await wrapper.setProps({ open: false })
+    rejectRequest(new Error(canary))
+    await flushPromises()
+
+    expect(setupState.failed).toBe(false)
+    expect(invalidate).not.toHaveBeenCalled()
+    const snapshotSafeOutput = JSON.stringify({
+      render: document.body.innerHTML,
+      emitted: wrapper.emitted(),
+    })
+    expect(snapshotSafeOutput).not.toContain(canary)
+    expect(snapshotSafeOutput).not.toContain('Unable to save')
+    wrapper.unmount()
+  })
+
+  it('ignores an ordinary late rejection after unmount', async () => {
+    let rejectRequest!: (error: unknown) => void
+    const request = vi.fn(
+      () =>
+        new Promise<AccessKeyDto>((_, reject) => {
+          rejectRequest = reject
+        }),
+    ) as ApiClient['request']
+    const { queryClient: client, wrapper } = await mountDrawer(request)
+    const invalidate = vi.spyOn(client, 'invalidateQueries').mockResolvedValue()
+    const setupState = wrapper.vm.$.setupState as { failed: boolean }
+    const emitted = wrapper.emitted()
+    const name = element<HTMLInputElement>('[data-test="access-key-name"]')
+    name.value = 'unmounted-reject-client'
+    name.dispatchEvent(new Event('input', { bubbles: true }))
+    await flushPromises()
+    element<HTMLButtonElement>('[data-test="access-key-save"]').click()
+    await flushPromises()
+
+    wrapper.unmount()
+    rejectRequest(new Error(canary))
+    await flushPromises()
+
+    expect(setupState.failed).toBe(false)
+    expect(invalidate).not.toHaveBeenCalled()
+    const snapshotSafeOutput = JSON.stringify({ render: document.body.innerHTML, emitted })
+    expect(snapshotSafeOutput).not.toContain(canary)
+    expect(snapshotSafeOutput).not.toContain('Unable to save')
   })
 })
