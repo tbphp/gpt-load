@@ -31,11 +31,11 @@ jobs:
       - name: Build backend
         run: go build -o gpt-load .
 
-      - name: Install Chromium for CSP smoke
+      - name: Install Chromium for browser E2E
         run: pnpm --dir web exec playwright install --with-deps chromium
 
-      - name: Run production CSP smoke
-        run: pnpm --dir web run test:csp
+      - name: Run production browser E2E
+        run: pnpm --dir web run test:e2e
 
       - name: Run race-enabled tests
         run: go test -race . ./internal/...
