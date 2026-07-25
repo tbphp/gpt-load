@@ -470,7 +470,7 @@ export default {
         duration: '所要時間',
         errorCode: 'エラーコード',
         errorSummary: '秘匿化されたエラー概要',
-        openInspector: 'Route Inspector で確認',
+        openInspector: '現在の状態で確認（履歴の再現ではありません）',
         attempts: '試行チェーン',
         noAttempts: 'このリクエストにはアップストリーム試行がありません。',
         attempt: '試行 #{sequence}',

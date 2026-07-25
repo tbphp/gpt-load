@@ -473,7 +473,7 @@ export default {
         duration: 'Duration',
         errorCode: 'Error code',
         errorSummary: 'Redacted error summary',
-        openInspector: 'Inspect in Route Inspector',
+        openInspector: 'Inspect with current state (not a historical replay)',
         attempts: 'Attempt chain',
         noAttempts: 'This request made no upstream attempts.',
         attempt: 'Attempt #{sequence}',

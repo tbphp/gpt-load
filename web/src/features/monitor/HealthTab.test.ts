@@ -222,14 +222,16 @@ describe('HealthTab', () => {
 
     const { wrapper } = await mountHealth(api)
 
-    for (const [id, label, tone] of [
-      [1, 'Group 已停用', 'neutral'],
-      [2, 'Group 尚无 Key', 'neutral'],
-      [3, 'Group 当前无可用 Key', 'danger'],
-      [4, 'Group 需要关注', 'warning'],
-      [5, 'Group 可用', 'success'],
+    for (const [id, name, label, tone] of [
+      [1, 'Disabled Beta', 'Group 已停用', 'neutral'],
+      [2, 'Empty Group', 'Group 尚无 Key', 'neutral'],
+      [3, 'Unavailable Group', 'Group 当前无可用 Key', 'danger'],
+      [4, 'Attention Group', 'Group 需要关注', 'warning'],
+      [5, 'Available Group', 'Group 可用', 'success'],
     ] as const) {
-      const card = wrapper.get(`a[href="/groups/${id}"]`).element.closest('.group-health-card')
+      const link = wrapper.get(`a[href="/groups/${id}"]`)
+      expect(link.text()).toBe(`${name} · #${id}`)
+      const card = link.element.closest('.group-health-card')
       expect(card?.textContent).toContain(label)
       expect(card?.querySelector('.status-badge')?.classList).toContain(`status-badge--${tone}`)
       expect(card?.querySelector('.status-badge svg')).not.toBeNull()
@@ -292,7 +294,12 @@ describe('HealthTab', () => {
     expect(wrapper.text()).toContain('Key #11')
     expect(wrapper.text()).toContain('Key #12')
     expect(wrapper.text()).not.toContain('sk-')
-    expect(wrapper.get('a[href="/groups/7?tab=keys"]').text()).toBe('Alpha')
+    expect(wrapper.get('[data-key-id="11"]').get('a[href="/groups/7?tab=keys"]').text()).toBe(
+      'Alpha · #7',
+    )
+    expect(wrapper.get('[data-key-id="12"]').get('a[href="/groups/8?tab=keys"]').text()).toBe(
+      'Disabled Beta · #8',
+    )
     expect(wrapper.get('[data-test="remaining-11"]').text()).toContain('2:00')
 
     await wrapper.get('[data-test="problem-key-11"]').trigger('click')

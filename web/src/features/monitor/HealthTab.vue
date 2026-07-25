@@ -321,7 +321,7 @@ function recoveryModeLabel(mode: string): string {
           >
             <header class="health-card__heading">
               <RouterLink class="group-link" :to="`/groups/${group.id}`">
-                {{ group.name }}
+                {{ group.name }} · #{{ group.id }}
               </RouterLink>
               <StatusBadge :tone="groupStatusTone(group.enabled, group.counts)">
                 {{ groupStatusLabel(group.enabled, group.counts) }}
@@ -398,7 +398,7 @@ function recoveryModeLabel(mode: string): string {
 
               <div class="problem-key__summary">
                 <RouterLink class="group-link" :to="`/groups/${key.group_id}?tab=keys`">
-                  {{ key.group_name }}
+                  {{ key.group_name }} · #{{ key.group_id }}
                 </RouterLink>
                 <StatusBadge :tone="section.tone">{{ section.label }}</StatusBadge>
                 <span

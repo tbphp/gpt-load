@@ -458,7 +458,7 @@ export default {
         duration: '耗时',
         errorCode: '错误码',
         errorSummary: '脱敏错误摘要',
-        openInspector: '在 Route Inspector 中检查',
+        openInspector: '按当前状态检查（非历史重放）',
         attempts: '尝试链',
         noAttempts: '此请求没有上游尝试。',
         attempt: '尝试 #{sequence}',

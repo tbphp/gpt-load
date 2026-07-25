@@ -118,13 +118,30 @@ describe('LogDetailDrawer', () => {
     expect(writeText).toHaveBeenCalledWith(requestID)
     expect(document.body.textContent).not.toContain('Copy all')
 
-    expect(
-      bodyElement<HTMLAnchorElement>('[data-test="log-inspector-link"]').getAttribute('href'),
-    ).toBe('/monitor?tab=inspector&protocol=openai&external_model=gpt-client&access_key_id=12')
+    const inspectorLink = bodyElement<HTMLAnchorElement>('[data-test="log-inspector-link"]')
+    expect(inspectorLink.getAttribute('href')).toBe(
+      '/monitor?tab=inspector&protocol=openai&external_model=gpt-client&access_key_id=12',
+    )
+    expect(inspectorLink.textContent?.trim()).toBe(
+      'Inspect with current state (not a historical replay)',
+    )
     expect(document.body.querySelector('time')?.getAttribute('datetime')).toBe(
       '2026-07-25T10:00:01Z',
     )
   })
+
+  it.each([
+    ['protocol', { protocol: '' as RequestLogItemDto['protocol'] }],
+    ['client model', { client_model: '' }],
+    ['access key ID', { access_key: { id: 0, name: 'client', deleted: false } }],
+  ] satisfies ReadonlyArray<[string, Partial<RequestLogItemDto>]>)(
+    'does not render the Inspector deep link when the %s is unavailable',
+    async (_field, overrides) => {
+      await mountDrawer(logFixture(overrides))
+
+      expect(document.body.querySelector('[data-test="log-inspector-link"]')).toBeNull()
+    },
+  )
 
   it('maps all failure categories and actions with one safe unknown fallback', async () => {
     const categories: FailureCategory[] = [

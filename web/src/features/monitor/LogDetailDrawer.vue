@@ -40,7 +40,14 @@ const orderedAttempts = computed(() =>
   [...(props.log?.attempts ?? [])].sort((left, right) => left.sequence - right.sequence),
 )
 const inspectorTarget = computed(() => {
-  if (!props.log) return { name: 'monitor', query: { tab: 'inspector' } }
+  if (
+    !props.log?.protocol ||
+    props.log.client_model.trim() === '' ||
+    !Number.isSafeInteger(props.log.access_key.id) ||
+    props.log.access_key.id <= 0
+  ) {
+    return null
+  }
   return {
     name: 'monitor',
     query: {
@@ -165,6 +172,7 @@ function accessKeyLabel(log: RequestLogItemDto): string {
           <p data-test="log-error-summary">{{ log.error_summary || t('monitor.logs.none') }}</p>
         </div>
         <RouterLink
+          v-if="inspectorTarget"
           class="log-detail__inspector"
           data-test="log-inspector-link"
           :to="inspectorTarget"
