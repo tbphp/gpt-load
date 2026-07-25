@@ -16,7 +16,8 @@
     "format:write": "prettier --write .",
     "type-check": "vue-tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json",
     "test": "vitest run",
-    "test:csp": "playwright test --config playwright.config.ts"
+    "test:csp": "playwright test e2e/csp-smoke.spec.ts --config playwright.config.ts",
+    "test:e2e": "playwright test --config playwright.config.ts"
   },
   "dependencies": {
     "@tanstack/vue-query": "5.101.4",

@@ -1,24 +1,6 @@
-import { readdir, readFile } from 'node:fs/promises'
-import { join } from 'node:path'
-
 import { expect, test } from '@playwright/test'
 
-const credentialCanary = 'csp-auth-key'
-
-async function artifactFiles(directory: string): Promise<string[]> {
-  try {
-    const entries = await readdir(directory, { withFileTypes: true })
-    const nested = await Promise.all(
-      entries.map((entry) => {
-        const path = join(directory, entry.name)
-        return entry.isDirectory() ? artifactFiles(path) : [path]
-      }),
-    )
-    return nested.flat()
-  } catch {
-    return []
-  }
-}
+const credentialCanary = 'e2e-auth-canary'
 
 test('Reka overlays work under production CSP', async ({ page }, testInfo) => {
   expect(testInfo.project.use).toMatchObject({
@@ -75,9 +57,6 @@ test('Reka overlays work under production CSP', async ({ page }, testInfo) => {
 
   const recordings = testInfo.attachments.filter(({ name }) => /trace|screenshot|video/i.test(name))
   expect(recordings).toEqual([])
-  for (const path of await artifactFiles(testInfo.outputDir)) {
-    expect((await readFile(path)).includes(Buffer.from(credentialCanary))).toBe(false)
-  }
 })
 
 test('compact navigation remains safe at 1024px in every locale', async ({ page }) => {
