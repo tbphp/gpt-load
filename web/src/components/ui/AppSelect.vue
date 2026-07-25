@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Check, ChevronDown } from 'lucide-vue-next'
+import { useAttrs } from 'vue'
 import {
   SelectContent,
   SelectItem,
@@ -16,12 +17,15 @@ interface SelectOption {
   label: string
 }
 
+defineOptions({ inheritAttrs: false })
+
 defineProps<{
   modelValue?: string
   label: string
   options: SelectOption[]
 }>()
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
+const attrs = useAttrs()
 </script>
 
 <template>
@@ -29,7 +33,7 @@ const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
     :model-value="modelValue"
     @update:model-value="(value) => typeof value === 'string' && emit('update:modelValue', value)"
   >
-    <SelectTrigger class="app-select__trigger" :aria-label="label">
+    <SelectTrigger v-bind="attrs" class="app-select__trigger" :aria-label="label">
       <SelectValue />
       <ChevronDown :size="16" aria-hidden="true" />
     </SelectTrigger>

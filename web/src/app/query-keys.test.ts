@@ -14,7 +14,14 @@ describe('controlQueryKeys', () => {
     expect(controlQueryKeys.groups.keyLists()).toEqual(['control', 'groups', 'keys'])
     expect(controlQueryKeys.groups.keys(42)).toEqual(['control', 'groups', 'keys', 42])
     expect(controlQueryKeys.health()).toEqual(['control', 'health'])
+    expect(controlQueryKeys.logs.list({ status: 'error' })).toEqual([
+      'control',
+      'logs',
+      'list',
+      { status: 'error' },
+    ])
     expect(controlQueryKeys.accessKeys.list()).toEqual(['control', 'access-keys', 'list'])
+    expect(controlQueryKeys.accessKeys.options()).toEqual(['control', 'access-keys', 'options'])
     expect(controlQueryKeys.settings()).toEqual(['control', 'settings'])
     expect(controlQueryKeys.systemInfo()).toEqual(['control', 'system-info'])
   })
@@ -23,7 +30,9 @@ describe('controlQueryKeys', () => {
     const keys = [
       controlQueryKeys.groups.detail(7),
       controlQueryKeys.groups.keys(7),
+      controlQueryKeys.logs.list({ access_key_id: 12 }),
       controlQueryKeys.accessKeys.list(),
+      controlQueryKeys.accessKeys.options(),
     ]
 
     expect(JSON.stringify(keys)).not.toContain('AUTH_KEY_CANARY')

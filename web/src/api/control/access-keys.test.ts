@@ -4,6 +4,7 @@ import {
   createAccessKey,
   deleteAccessKey,
   listAccessKeys,
+  listAccessKeyOptions,
   updateAccessKey,
   type CreateAccessKeyRequest,
   type UpdateAccessKeyRequest,
@@ -38,5 +39,24 @@ describe('AccessKey control API', () => {
       ['/api/access-keys/9', { method: 'DELETE', signal }],
     ])
     expect(createBody).not.toHaveProperty('status')
+  })
+
+  it('projects safe AccessKey options without retaining plaintext credentials', async () => {
+    const request = vi.fn().mockResolvedValue([
+      {
+        id: 12,
+        name: 'Client',
+        key: 'sk-gl-CANARY',
+        status: 'active',
+        filters: { groups: [], protocols: [], models: [] },
+        rpm_limit: 0,
+      },
+    ]) as ApiClient['request']
+    const client: ApiClient = { request }
+
+    expect(await listAccessKeyOptions(client)).toEqual([
+      { id: 12, name: 'Client', status: 'active' },
+    ])
+    expect(JSON.stringify(await listAccessKeyOptions(client))).not.toContain('sk-gl-CANARY')
   })
 })

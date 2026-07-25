@@ -93,3 +93,9 @@ export interface AccessKeyDto {
   filters: AccessKeyFiltersDto
   rpm_limit: number
 }
+
+export interface AccessKeyOptionDto {
+  id: number
+  name: string
+  status: AccessKeyDto['status']
+}

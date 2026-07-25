@@ -1,3 +1,5 @@
+import type { RequestLogFilters } from '@/api/control/request-logs'
+
 export const controlQueryKeys = {
   all: ['control'] as const,
   groups: {
@@ -9,8 +11,12 @@ export const controlQueryKeys = {
     keys: (id: number) => ['control', 'groups', 'keys', id] as const,
   },
   health: () => ['control', 'health'] as const,
+  logs: {
+    list: (filters: RequestLogFilters) => ['control', 'logs', 'list', filters] as const,
+  },
   accessKeys: {
     list: () => ['control', 'access-keys', 'list'] as const,
+    options: () => ['control', 'access-keys', 'options'] as const,
   },
   settings: () => ['control', 'settings'] as const,
   systemInfo: () => ['control', 'system-info'] as const,

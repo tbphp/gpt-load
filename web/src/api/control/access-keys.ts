@@ -1,6 +1,6 @@
 import type { ApiClient } from '@/api/client'
 
-import type { AccessKeyDto, AccessKeyFiltersDto } from './types'
+import type { AccessKeyDto, AccessKeyFiltersDto, AccessKeyOptionDto } from './types'
 
 export interface CreateAccessKeyRequest {
   name: string
@@ -17,6 +17,14 @@ export type UpdateAccessKeyRequest = Partial<{
 
 export function listAccessKeys(client: ApiClient, signal?: AbortSignal): Promise<AccessKeyDto[]> {
   return client.request<AccessKeyDto[]>('/api/access-keys', { method: 'GET', signal })
+}
+
+export async function listAccessKeyOptions(
+  client: ApiClient,
+  signal?: AbortSignal,
+): Promise<AccessKeyOptionDto[]> {
+  const keys = await listAccessKeys(client, signal)
+  return keys.map(({ id, name, status }) => ({ id, name, status }))
 }
 
 export function createAccessKey(
