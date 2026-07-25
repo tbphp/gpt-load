@@ -66,11 +66,12 @@ function removeStoredCredential(storage?: Storage): void {
   }
 }
 
-export function clearAuthenticatedClientState(queryClient: QueryClient): void {
-  void queryClient.cancelQueries({ queryKey: controlQueryKeys.all })
+export function clearAuthenticatedClientState(queryClient: QueryClient): Promise<void> {
+  const cancellation = queryClient.cancelQueries({ queryKey: controlQueryKeys.all })
   queryClient.removeQueries({ queryKey: controlQueryKeys.all })
   queryClient.removeQueries({ queryKey: authSessionQueryKey })
   queryClient.getMutationCache().clear()
+  return cancellation
 }
 
 export function createAuthSession(deps: AuthSessionDependencies): AuthSession {
@@ -88,7 +89,7 @@ export function createAuthSession(deps: AuthSessionDependencies): AuthSession {
     removeStoredCredential(deps.storage)
     state.phase = 'anonymous'
     state.retryAfterSeconds = 0
-    clearAuthenticatedClientState(deps.queryClient)
+    void clearAuthenticatedClientState(deps.queryClient)
   }
 
   function applyValidationError(error: unknown): void {
@@ -178,7 +179,7 @@ export function createAuthSession(deps: AuthSessionDependencies): AuthSession {
       throw new InvalidResponseError()
     }
 
-    clearAuthenticatedClientState(deps.queryClient)
+    await clearAuthenticatedClientState(deps.queryClient)
     credentialRevision += 1
     credential = candidate
     writeStoredCredential(deps.storage, candidate)

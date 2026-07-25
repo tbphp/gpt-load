@@ -165,6 +165,37 @@ describe('createAuthSession', () => {
     ).toBeUndefined()
   })
 
+  it('waits for old query cancellation so an old 401 cannot clear the candidate', async () => {
+    window.sessionStorage.setItem(authStorageKey, 'old-key')
+    const dependencies = createDependencies()
+    const cancellation = deferred<void>()
+    vi.spyOn(dependencies.queryClient, 'cancelQueries')
+      .mockImplementationOnce(() => cancellation.promise)
+      .mockResolvedValue(undefined)
+    const session = createAuthSession(dependencies)
+
+    const login = session.login('candidate-key')
+    await vi.waitFor(() => {
+      expect(dependencies.queryClient.cancelQueries).toHaveBeenCalledTimes(1)
+    })
+
+    expect(session.getAuthKey()).toBe('old-key')
+    expect(session.state.phase).toBe('unvalidated')
+    expect(dependencies.queryClient.getQueryData(authSessionQueryKey)).toBeUndefined()
+
+    const handleOldUnauthorized = () => session.clear()
+    handleOldUnauthorized()
+    expect(session.getAuthKey()).toBe('')
+    cancellation.resolve()
+    await login
+
+    expect(session.getAuthKey()).toBe('candidate-key')
+    expect(session.state.phase).toBe('validated')
+    expect(dependencies.queryClient.getQueryData(authSessionQueryKey)).toEqual({
+      authenticated: true,
+    })
+  })
+
   it('clears prior authenticated state before activating a validated candidate', async () => {
     const dependencies = createDependencies()
     const session = createAuthSession(dependencies)

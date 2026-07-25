@@ -287,7 +287,7 @@ watch(
   border-top: 1px solid var(--color-border);
   padding-top: var(--space-5);
 }
-@media (max-width: 1023px) {
+@media (max-width: 1199px) {
   .desktop-nav,
   .import-action,
   .logout-action {
