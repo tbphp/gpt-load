@@ -7,6 +7,29 @@ export interface HeaderRulesDto {
   remove: string[]
 }
 
+export interface GroupRuntimeConfigDto {
+  connect_timeout?: number
+  first_byte_timeout?: number
+  request_timeout?: number
+  stream_idle_timeout?: number
+  header_rules?: HeaderRulesDto
+}
+
+export interface GroupEffectiveConfigDto {
+  connect_timeout: number
+  first_byte_timeout: number
+  request_timeout: number
+  stream_idle_timeout: number
+  header_rules: HeaderRulesDto
+}
+
+export interface GroupDetailDto extends GroupSummary {
+  validation_model: string | null
+  weight_manual: number | null
+  config: GroupRuntimeConfigDto
+  effective_config: GroupEffectiveConfigDto
+}
+
 export interface ModelDiscoveryRequest {
   upstream_url: string
   protocols: readonly Protocol[]
@@ -70,6 +93,14 @@ export function isUpstreamUrlConflictData(value: unknown): value is UpstreamUrlC
 
 export function listGroups(client: ApiClient, signal?: AbortSignal): Promise<GroupSummary[]> {
   return client.request<GroupSummary[]>('/api/groups', { method: 'GET', signal })
+}
+
+export function getGroup(
+  client: ApiClient,
+  groupID: number,
+  signal?: AbortSignal,
+): Promise<GroupDetailDto> {
+  return client.request<GroupDetailDto>(`/api/groups/${groupID}`, { method: 'GET', signal })
 }
 
 export function discoverModels(

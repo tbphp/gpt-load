@@ -3,6 +3,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 
 import LoginView from '@/features/auth/LoginView.vue'
 import HomeView from '@/features/home/HomeView.vue'
+import GroupDetailView from '@/features/groups/GroupDetailView.vue'
 import ImportView from '@/features/import/ImportView.vue'
 import PlaceholderView from '@/views/PlaceholderView.vue'
 
@@ -23,7 +24,7 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/groups/:id',
     name: 'group-detail',
-    component: PlaceholderView,
+    component: GroupDetailView,
     meta: { titleKey: 'shell.groupDetail', requiresAuth: true },
   },
   {

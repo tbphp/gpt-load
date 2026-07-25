@@ -53,7 +53,7 @@ const serviceLabel = computed(() => {
     </div>
 
     <footer class="group-card__actions">
-      <RouterLink :to="`/groups/${group.id}`">
+      <RouterLink :to="`/groups/${group.id}?tab=keys`">
         {{ t('home.details') }}<ArrowRight :size="16" aria-hidden="true" />
       </RouterLink>
       <RouterLink :to="`/import?mode=existing&group_id=${group.id}`">
