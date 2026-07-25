@@ -98,7 +98,24 @@ async function runDiscovery(): Promise<void> {
   const controller = startAction('discover')
   try {
     const result = await discoverGroupModels(client, props.groupId, controller.signal)
-    draft.value = buildModelDiff(savedModels.value, result.models)
+    const discoveredIDs = new Set(result.models.map((id) => id.trim()).filter(Boolean))
+    const representedIDs = new Set(draft.value.map((model) => model.id.trim()))
+    draft.value = [
+      ...draft.value.map((model) => ({
+        ...model,
+        rediscovered:
+          model.origin === 'persisted' ? discoveredIDs.has(model.id.trim()) : model.rediscovered,
+      })),
+      ...Array.from(discoveredIDs)
+        .filter((id) => !representedIDs.has(id))
+        .map<ModelDiffItem>((id) => ({
+          id,
+          alias: '',
+          selected: true,
+          origin: 'discovered',
+          rediscovered: true,
+        })),
+    ]
     discoveryRan.value = true
   } catch (error: unknown) {
     if (error instanceof RequestCancelledError) return

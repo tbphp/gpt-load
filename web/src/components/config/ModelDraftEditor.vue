@@ -28,16 +28,11 @@ function addManual(): void {
   const id = manualID.value.trim()
   const alias = manualAlias.value.trim()
   if (!id) return
-  const matchingIndexes = props.modelValue.flatMap((model, index) =>
-    model.id === id ? [index] : [],
-  )
   const exactIndex = props.modelValue.findIndex((model) => model.id === id && model.alias === alias)
-  const updateIndex =
-    exactIndex >= 0 ? exactIndex : matchingIndexes.length === 1 ? matchingIndexes[0] : -1
   const next =
-    updateIndex !== undefined && updateIndex >= 0
+    exactIndex >= 0
       ? props.modelValue.map((model, index) =>
-          index === updateIndex ? { ...model, alias, selected: true } : { ...model },
+          index === exactIndex ? { ...model, selected: true } : { ...model },
         )
       : [...props.modelValue.map((model) => ({ ...model })), { id, alias, selected: true }]
   emit('update:modelValue', next)

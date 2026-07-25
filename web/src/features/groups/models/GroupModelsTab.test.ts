@@ -86,6 +86,42 @@ describe('GroupModelsTab', () => {
     wrapper.unmount()
   })
 
+  it('appends rediscovered candidates without discarding the current dirty draft', async () => {
+    const request = vi.fn(async (path: string, options?: ApiRequestOptions) => {
+      if (path === '/api/groups/7/models/discover' && options?.method === 'POST') {
+        return { models: ['old', 'manual-id', 'new', 'new'] }
+      }
+      throw new Error(`unexpected request: ${path}`)
+    }) as ApiClient['request']
+    const { wrapper } = await mountModels(request)
+
+    await wrapper.get('[data-test="model-alias-0"]').setValue('local-public')
+    await wrapper.get('[data-test="model-selected-1"]').setValue(false)
+    await wrapper.get('[data-test="manual-model-id"]').setValue('manual-id')
+    await wrapper.get('[data-test="manual-model-alias"]').setValue('manual-public')
+    await wrapper.get('[data-test="add-manual-model"]').trigger('click')
+    await wrapper.get('[data-test="models-discover"]').trigger('click')
+    await flushPromises()
+
+    expect((wrapper.get('[data-test="model-alias-0"]').element as HTMLInputElement).value).toBe(
+      'local-public',
+    )
+    expect(
+      (wrapper.get('[data-test="model-selected-1"]').element as HTMLInputElement).checked,
+    ).toBe(false)
+    expect(wrapper.get('[data-test="model-status-0"]').text()).toBe('Rediscovered')
+    expect(wrapper.get('[data-test="model-status-1"]').text()).toBe('Not rediscovered')
+    expect(wrapper.get('[data-test="model-row-2"]').text()).toContain('manual-id')
+    expect((wrapper.get('[data-test="model-alias-2"]').element as HTMLInputElement).value).toBe(
+      'manual-public',
+    )
+    expect(wrapper.get('[data-test="model-status-2"]').text()).toBe('Manual')
+    expect(wrapper.get('[data-test="model-row-3"]').text()).toContain('new')
+    expect(wrapper.get('[data-test="model-status-3"]').text()).toBe('Newly discovered')
+    expect(wrapper.findAll('[data-test^="model-row-"]')).toHaveLength(4)
+    wrapper.unmount()
+  })
+
   it('preserves the draft and manual model path after BAD_GATEWAY discovery failure', async () => {
     const request = vi.fn().mockRejectedValue(new ApiError(502, 'BAD_GATEWAY', 'secret upstream'))
     const { wrapper } = await mountModels(request as ApiClient['request'])
