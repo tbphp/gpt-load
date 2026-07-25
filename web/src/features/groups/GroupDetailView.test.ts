@@ -27,6 +27,48 @@ const detail = {
   key_count: 0,
 }
 
+const detail8 = {
+  ...detail,
+  id: 8,
+  name: 'Secondary',
+  upstream_url: 'https://secondary.example.com/v1',
+  config: { header_rules: { set: {}, remove: [] } },
+  effective_config: {
+    ...detail.effective_config,
+    header_rules: { set: {}, remove: [] },
+  },
+}
+
+const group7Keys = [
+  {
+    id: 11,
+    group_id: 7,
+    mask: 'sk-group-7-…a1b2',
+    status: 'active' as const,
+    effective_status: 'available' as const,
+    weight_manual: null,
+    weight_auto: 72,
+    blacklisted: false,
+    cooldown_until: null,
+    failure_count: 0,
+  },
+]
+
+const group8Keys = [
+  {
+    id: 21,
+    group_id: 8,
+    mask: 'sk-group-8-…c3d4',
+    status: 'active' as const,
+    effective_status: 'available' as const,
+    weight_manual: null,
+    weight_auto: 61,
+    blacklisted: false,
+    cooldown_until: null,
+    failure_count: 0,
+  },
+]
+
 function queryClient() {
   return new QueryClient({ defaultOptions: { queries: { retry: false } } })
 }
@@ -98,5 +140,74 @@ describe('GroupDetailView', () => {
     await vi.waitFor(() => {
       expect(client.getQueryData(controlQueryKeys.groups.detail(7))).toBeUndefined()
     })
+  })
+
+  it('remounts the Keys tab when route Group ID changes so old rows and local state cannot target the new Group', async () => {
+    const requestMock = vi.fn(async (path: string, options?: ApiRequestOptions) => {
+      if (path === '/api/groups/7') return detail
+      if (path === '/api/groups/8') return detail8
+      if (path === '/api/groups/7/keys' && options?.method === 'GET') return group7Keys
+      if (path === '/api/groups/8/keys' && options?.method === 'GET') return group8Keys
+      if (path === '/api/groups/8/keys/21' && options?.method === 'PUT') {
+        return { ...group8Keys[0], weight_manual: 50 }
+      }
+      if (path === '/api/groups/8/keys/21' && options?.method === 'DELETE') return undefined
+      throw new Error(`unexpected request: ${path}`)
+    })
+    const client = queryClient()
+    const { router, wrapper } = await mountApp(GroupDetailView, {
+      api: { request: requestMock as ApiClient['request'] },
+      queryClient: client,
+      path: '/groups/7?tab=keys',
+      locale: 'en-US',
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('sk-group-7-…a1b2')
+    await wrapper.get('[data-test="key-weight-11"]').setValue('42')
+    await wrapper.get('[data-test="key-delete-11"]').trigger('click')
+    await flushPromises()
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull()
+
+    await router.push('/groups/8?tab=keys')
+    await flushPromises()
+
+    expect(requestMock.mock.calls.map(([path]) => path)).toContain('/api/groups/8/keys')
+    expect(wrapper.text()).not.toContain('sk-group-7-…a1b2')
+    expect(wrapper.text()).toContain('sk-group-8-…c3d4')
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
+    expect((wrapper.get('[data-test="key-weight-21"]').element as HTMLSelectElement).value).toBe(
+      'auto',
+    )
+
+    await wrapper.get('[data-test="key-weight-21"]').setValue('50')
+    await wrapper.get('[data-test="key-save-21"]').trigger('click')
+    await flushPromises()
+
+    expect(requestMock).toHaveBeenCalledWith('/api/groups/8/keys/21', {
+      method: 'PUT',
+      json: { weight_manual: 50 },
+      signal: expect.any(AbortSignal),
+    })
+
+    await wrapper.get('[data-test="key-delete-21"]').trigger('click')
+    await flushPromises()
+    const confirmDelete = document.querySelector<HTMLButtonElement>(
+      '[data-test="key-delete-confirm-21"]',
+    )
+    expect(confirmDelete).not.toBeNull()
+    confirmDelete?.click()
+    await flushPromises()
+
+    expect(requestMock).toHaveBeenCalledWith('/api/groups/8/keys/21', {
+      method: 'DELETE',
+      signal: expect.any(AbortSignal),
+    })
+    const mutationPaths = requestMock.mock.calls
+      .filter(([, options]) => options?.method === 'PUT' || options?.method === 'DELETE')
+      .map(([path]) => path)
+    expect(mutationPaths).toEqual(['/api/groups/8/keys/21', '/api/groups/8/keys/21'])
+    expect(client.getMutationCache().getAll()).toHaveLength(0)
+    wrapper.unmount()
   })
 })

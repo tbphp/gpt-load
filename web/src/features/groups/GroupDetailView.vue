@@ -73,7 +73,7 @@ const detailQuery = useQuery({
       </template>
 
       <GroupTabs />
-      <GroupKeysTab v-if="activeTab === 'keys'" :group-id="groupId" />
+      <GroupKeysTab v-if="activeTab === 'keys'" :key="groupId" :group-id="groupId" />
       <SurfaceCard v-else-if="activeTab === 'models'" class="group-detail-placeholder">
         <h2>{{ t('group.modelsTitle') }}</h2>
         <p>{{ t('group.modelsPending') }}</p>
