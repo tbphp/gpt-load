@@ -35,12 +35,13 @@ function queryClient() {
 async function mountDrawer(
   request: ApiClient['request'],
   rule: ModelPriceRuleDto | null = null,
+  locale: 'zh-CN' | 'en-US' | 'ja-JP' = 'en-US',
 ) {
   const client = queryClient()
   const mounted = await mountApp(ModelPriceDrawer, {
     api: { request },
     queryClient: client,
-    locale: 'en-US',
+    locale,
     mounting: {
       props: { open: true, rule },
       attachTo: document.body,
@@ -119,7 +120,13 @@ describe('ModelPriceDrawer', () => {
 
     await setInput('[data-test="model-price-pattern"]', '*')
     await setInput('[data-test="model-price-output"]', '8')
-    expect(document.body.textContent).toContain('matches every model')
+    expect(document.body.textContent).toContain(
+      'All user rules take precedence over built-in rules',
+    )
+    expect(document.body.textContent).toContain('* shadows every built-in price rule')
+    expect(document.body.textContent).toContain(
+      'I understand that * shadows every built-in price rule',
+    )
     expect(element<HTMLButtonElement>('[data-test="model-price-save"]').disabled).toBe(true)
 
     const confirmation = element<HTMLInputElement>('[data-test="model-price-global-confirm"]')
@@ -133,13 +140,49 @@ describe('ModelPriceDrawer', () => {
     wrapper.unmount()
   })
 
+  it.each([
+    [
+      'zh-CN',
+      '所有用户规则都优先于内置规则',
+      '* 会遮蔽全部内置价格规则',
+      '我理解 * 会遮蔽全部内置价格规则',
+    ],
+    [
+      'en-US',
+      'All user rules take precedence over built-in rules',
+      '* shadows every built-in price rule',
+      'I understand that * shadows every built-in price rule',
+    ],
+    [
+      'ja-JP',
+      'すべてのユーザールールは組み込みルールより優先されます',
+      '* はすべての組み込み価格ルールを覆い隠します',
+      '* がすべての組み込み価格ルールを覆い隠すことを理解しました',
+    ],
+  ] as const)(
+    'makes user precedence and complete builtin shadowing explicit in %s',
+    async (locale, precedence, shadowing, confirmation) => {
+      const { wrapper } = await mountDrawer(vi.fn() as ApiClient['request'], null, locale)
+
+      await setInput('[data-test="model-price-pattern"]', '*')
+      await setInput('[data-test="model-price-output"]', '8')
+      expect(document.body.textContent).toContain(precedence)
+      expect(document.body.textContent).toContain(shadowing)
+      expect(document.body.textContent).toContain(confirmation)
+
+      wrapper.unmount()
+    },
+  )
+
   it('retains input after a generic failure and aborts an in-flight save when closed', async () => {
     let rejectRequest!: (error: unknown) => void
     const requestMock = vi.fn(
       (_path, options) =>
         new Promise<void>((_resolve, reject) => {
           rejectRequest = reject
-          options?.signal?.addEventListener('abort', () => reject(new DOMException('x', 'AbortError')))
+          options?.signal?.addEventListener('abort', () =>
+            reject(new DOMException('x', 'AbortError')),
+          )
         }),
     )
     const request = requestMock as ApiClient['request']

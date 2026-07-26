@@ -78,11 +78,7 @@ function value(rule: ModelPriceRuleDto, field: ModelPriceField): string {
       :description="t('modelPrices.description')"
     >
       <template #actions>
-        <ModelPriceDrawer
-          :open="drawerOpen"
-          :rule="selected"
-          @update:open="setDrawerOpen"
-        >
+        <ModelPriceDrawer :open="drawerOpen" :rule="selected" @update:open="setDrawerOpen">
           <template #trigger>
             <AppButton data-test="model-price-add" @click="addOverride">
               <Plus :size="16" aria-hidden="true" />{{ t('modelPrices.add') }}
@@ -154,10 +150,14 @@ function value(rule: ModelPriceRuleDto, field: ModelPriceField): string {
               :key="rule.pattern"
               :data-test="`builtin-price-row-${index}`"
             >
-              <td><code>{{ rule.pattern }}</code></td>
+              <td>
+                <code>{{ rule.pattern }}</code>
+              </td>
               <td>
                 <StatusBadge>{{ kindLabel(rule.pattern) }}</StatusBadge>
-                <span class="model-prices__source-label">{{ t('modelPrices.source.builtin') }}</span>
+                <span class="model-prices__source-label">{{
+                  t('modelPrices.source.builtin')
+                }}</span>
               </td>
               <td :data-test="`builtin-${index}-uncached_input`">
                 {{ value(rule, 'uncached_input') }}
@@ -232,7 +232,9 @@ function value(rule: ModelPriceRuleDto, field: ModelPriceField): string {
               :key="rule.pattern"
               :data-test="`override-price-row-${index}`"
             >
-              <td><code>{{ rule.pattern }}</code></td>
+              <td>
+                <code>{{ rule.pattern }}</code>
+              </td>
               <td>
                 <StatusBadge>{{ kindLabel(rule.pattern) }}</StatusBadge>
                 <span class="model-prices__source-label">{{ t('modelPrices.source.user') }}</span>

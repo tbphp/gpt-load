@@ -770,10 +770,10 @@ export default {
       patternReadonly: '编辑时不能修改模式；如需其他模式，请新增覆盖。',
       prices: '估算价格',
       priceDescription: '单位为美元 / 每百万 Token；留空表示未配置，0 是显式零值。',
-      wholeReplacement:
-        '保存会完整替换此模式的整条规则。五个价格槽位都会提交，包括未配置值。',
-      globalWarning: '单独的 * 是全局覆盖，会匹配所有未被更具体用户规则匹配的模型。',
-      globalConfirm: '我理解此全局覆盖可能影响所有模型。',
+      wholeReplacement: '保存会完整替换此模式的整条规则。五个价格槽位都会提交，包括未配置值。',
+      globalWarning:
+        '所有用户规则都优先于内置规则。单独的 * 会遮蔽全部内置价格规则；更具体的用户规则仍优先于 *。',
+      globalConfirm: '我理解 * 会遮蔽全部内置价格规则。',
       save: '保存覆盖',
       saveFailed: '无法保存模型价格覆盖，输入内容已保留。',
       errors: {
@@ -790,9 +790,10 @@ export default {
     reset: {
       open: '重置',
       title: '重置此模型价格覆盖？',
-      description: '将“{pattern}”恢复为内置匹配行为。',
+      description: '删除“{pattern}”覆盖规则。',
       close: '关闭模型价格重置确认',
-      warning: '将移除整条覆盖规则；不会重新计算历史用量或成本。',
+      warning:
+        '删除后会先使用下一条适用的用户规则，再回退到内置规则。如果用户规则和内置规则都不匹配，该模型可能没有价格。只删除当前覆盖；不会重新计算历史用量或成本。',
       confirm: '重置覆盖',
       failed: '无法重置模型价格覆盖。',
     },

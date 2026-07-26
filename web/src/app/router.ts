@@ -15,7 +15,7 @@ const routes: RouteRecordRaw[] = [
     path: '/',
     name: 'home',
     component: HomeView,
-    meta: { titleKey: 'home.title', requiresAuth: true },
+    meta: { titleKey: 'home.title', requiresAuth: true, primaryNav: 'home' },
   },
   { path: '/login', name: 'login', component: LoginView },
   {
@@ -34,25 +34,25 @@ const routes: RouteRecordRaw[] = [
     path: '/access-keys',
     name: 'access-keys',
     component: AccessKeysView,
-    meta: { titleKey: 'shell.accessKeys', requiresAuth: true },
+    meta: { titleKey: 'shell.accessKeys', requiresAuth: true, primaryNav: 'access-keys' },
   },
   {
     path: '/monitor',
     name: 'monitor',
     component: MonitorView,
-    meta: { titleKey: 'shell.monitor', requiresAuth: true },
+    meta: { titleKey: 'shell.monitor', requiresAuth: true, primaryNav: 'monitor' },
   },
   {
     path: '/settings',
     name: 'settings',
     component: SettingsView,
-    meta: { titleKey: 'shell.settings', requiresAuth: true },
+    meta: { titleKey: 'shell.settings', requiresAuth: true, primaryNav: 'settings' },
   },
   {
     path: '/settings/model-prices',
     name: 'model-prices',
     component: ModelPricesView,
-    meta: { titleKey: 'modelPrices.title', requiresAuth: true },
+    meta: { titleKey: 'modelPrices.title', requiresAuth: true, primaryNav: 'settings' },
   },
 ]
 

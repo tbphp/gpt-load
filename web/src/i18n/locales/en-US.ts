@@ -801,8 +801,8 @@ export default {
       wholeReplacement:
         'Saving replaces the whole rule for this pattern. All five price slots are submitted, including not configured values.',
       globalWarning:
-        'A bare * global override matches every model not matched by a more specific user rule.',
-      globalConfirm: 'I understand this global override can affect every model.',
+        'All user rules take precedence over built-in rules. A bare * shadows every built-in price rule; more specific user rules still take precedence over *.',
+      globalConfirm: 'I understand that * shadows every built-in price rule.',
       save: 'Save override',
       saveFailed: 'Unable to save the model price override. Your input is unchanged.',
       errors: {
@@ -819,10 +819,10 @@ export default {
     reset: {
       open: 'Reset',
       title: 'Reset this model price override?',
-      description: 'Reset “{pattern}” to built-in matching behavior.',
+      description: 'Delete the “{pattern}” override rule.',
       close: 'Close model price reset confirmation',
       warning:
-        'Remove the complete override rule. This does not recalculate historical usage or cost.',
+        'After deletion, the next applicable user rule is used first, then a built-in rule. If no user or built-in rule matches, the model may be unpriced. Only this override is deleted; historical usage and cost are not recalculated.',
       confirm: 'Reset override',
       failed: 'Unable to reset the model price override.',
     },

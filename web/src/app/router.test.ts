@@ -41,6 +41,13 @@ describe('application routes', () => {
     expect(JSON.stringify(titles)).not.toMatch(/导入密钥|访问密钥|监控|设置/)
   })
 
+  it('maps the Model Price sibling route to the Settings primary navigation item', () => {
+    const router = createAppRouter(createAuth(true), createMemoryHistory())
+
+    expect(router.resolve('/settings').meta.primaryNav).toBe('settings')
+    expect(router.resolve('/settings/model-prices').meta.primaryNav).toBe('settings')
+  })
+
   it('does not install a client-side catch-all route', () => {
     const router = createAppRouter(createAuth(true), createMemoryHistory())
 

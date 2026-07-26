@@ -36,6 +36,14 @@ const override: ModelPriceRuleDto = {
   source_url: null,
   updated_at: '2026-07-27T00:00:00Z',
 }
+const exactOverride: ModelPriceRuleDto = {
+  ...override,
+  pattern: 'vendor-model',
+}
+const globalOverride: ModelPriceRuleDto = {
+  ...override,
+  pattern: '*',
+}
 
 function queryClient() {
   return new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -151,6 +159,38 @@ describe('ModelPricesView', () => {
     expect(wrapper.get('[data-test="builtin-price-row-0"]')).toBeDefined()
     expect(wrapper.text()).toContain('may be stale')
     expect(wrapper.text()).not.toContain('STALE_PRICE_CANARY')
+    wrapper.unmount()
+  })
+
+  it('deletes only the selected exact override when broader user prefix and global rules remain', async () => {
+    const request = vi.fn(async (path: string, options?: ApiRequestOptions) => {
+      if (path === '/api/model-prices' && options?.method === 'GET') {
+        return [builtin, exactOverride, override, globalOverride]
+      }
+      if (path === '/api/model-prices?pattern=vendor-model' && options?.method === 'DELETE') {
+        return undefined
+      }
+      throw new Error(`unexpected ${path}`)
+    }) as ApiClient['request']
+    const { wrapper } = await mountView(request)
+
+    await wrapper.findAll('[data-test="model-price-reset-open"]')[0]?.trigger('click')
+    await flushPromises()
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
+      'the next applicable user rule is used first',
+    )
+    document.querySelector<HTMLButtonElement>('[data-test="model-price-reset-confirm"]')?.click()
+    await flushPromises()
+
+    expect(request).toHaveBeenCalledWith('/api/model-prices?pattern=vendor-model', {
+      method: 'DELETE',
+      signal: expect.any(AbortSignal),
+    })
+    expect(request).not.toHaveBeenCalledWith(
+      '/api/model-prices?pattern=vendor-%2A',
+      expect.anything(),
+    )
+    expect(request).not.toHaveBeenCalledWith('/api/model-prices?pattern=%2A', expect.anything())
     wrapper.unmount()
   })
 })

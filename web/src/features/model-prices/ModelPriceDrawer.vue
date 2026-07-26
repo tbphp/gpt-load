@@ -47,10 +47,7 @@ const dirty = computed(
     JSON.stringify(draft.value) !== JSON.stringify(initialDraft.value),
 )
 const valid = computed(
-  () =>
-    requestBody.value !== null &&
-    dirty.value &&
-    (!isGlobal.value || globalConfirmed.value),
+  () => requestBody.value !== null && dirty.value && (!isGlobal.value || globalConfirmed.value),
 )
 const title = computed(() => {
   if (props.rule?.source === 'builtin') return t('modelPrices.drawer.builtinTitle')
@@ -65,9 +62,7 @@ function fieldError(field: ModelPriceField): string | undefined {
 }
 
 function patternError(): string | undefined {
-  return errors.value.pattern
-    ? t(`modelPrices.drawer.errors.${errors.value.pattern}`)
-    : undefined
+  return errors.value.pattern ? t(`modelPrices.drawer.errors.${errors.value.pattern}`) : undefined
 }
 
 function setPrice(field: ModelPriceField, event: Event): void {
@@ -172,7 +167,9 @@ onBeforeUnmount(clearRequest)
         id="model-price-pattern"
         :label="t('modelPrices.drawer.pattern')"
         :description="
-          rule ? t('modelPrices.drawer.patternReadonly') : t('modelPrices.drawer.patternDescription')
+          rule
+            ? t('modelPrices.drawer.patternReadonly')
+            : t('modelPrices.drawer.patternDescription')
         "
         :error="patternError()"
       >
@@ -242,12 +239,7 @@ onBeforeUnmount(clearRequest)
         <AppButton variant="secondary" :disabled="pending" @click="setOpen(false)">
           {{ t('common.cancel') }}
         </AppButton>
-        <AppButton
-          data-test="model-price-save"
-          type="submit"
-          :busy="pending"
-          :disabled="!valid"
-        >
+        <AppButton data-test="model-price-save" type="submit" :busy="pending" :disabled="!valid">
           <Save :size="16" aria-hidden="true" />{{ t('modelPrices.drawer.save') }}
         </AppButton>
       </div>

@@ -36,10 +36,10 @@ const { locale, t } = useI18n()
 const drawerOpen = ref(false)
 
 const navigation = computed(() => [
-  { to: '/', label: t('shell.home'), icon: House },
-  { to: '/access-keys', label: t('shell.accessKeys'), icon: KeyRound },
-  { to: '/monitor', label: t('shell.monitor'), icon: Activity },
-  { to: '/settings', label: t('shell.settings'), icon: Settings },
+  { key: 'home', to: '/', label: t('shell.home'), icon: House },
+  { key: 'access-keys', to: '/access-keys', label: t('shell.accessKeys'), icon: KeyRound },
+  { key: 'monitor', to: '/monitor', label: t('shell.monitor'), icon: Activity },
+  { key: 'settings', to: '/settings', label: t('shell.settings'), icon: Settings },
 ])
 const localeOptions = computed(() => [
   { value: 'zh-CN', label: t('shell.localeZh') },
@@ -51,6 +51,10 @@ const themeOptions = computed<Array<{ value: AppTheme; label: string; icon: type
   { value: 'light', label: t('shell.useLightTheme'), icon: Sun },
   { value: 'dark', label: t('shell.useDarkTheme'), icon: Moon },
 ])
+
+function isPrimaryActive(key: string): boolean {
+  return route.meta.primaryNav === key
+}
 
 function setLocale(value: string): void {
   if (supportedLocales.includes(value as AppLocale)) appI18n.setLocale(value as AppLocale)
@@ -87,7 +91,14 @@ watch(
       </RouterLink>
 
       <nav class="desktop-nav" :aria-label="t('shell.primaryNavigation')">
-        <RouterLink v-for="item in navigation" :key="item.to" class="nav-link" :to="item.to">
+        <RouterLink
+          v-for="item in navigation"
+          :key="item.key"
+          class="nav-link"
+          :class="{ 'nav-link--active': isPrimaryActive(item.key) }"
+          :to="item.to"
+          :aria-current="isPrimaryActive(item.key) ? 'page' : undefined"
+        >
           <component :is="item.icon" :size="16" aria-hidden="true" />
           {{ item.label }}
         </RouterLink>
@@ -133,9 +144,11 @@ watch(
           <nav class="mobile-nav" :aria-label="t('shell.primaryNavigation')">
             <RouterLink
               v-for="item in navigation"
-              :key="item.to"
+              :key="item.key"
               class="mobile-nav__link"
+              :class="{ 'mobile-nav__link--active': isPrimaryActive(item.key) }"
               :to="item.to"
+              :aria-current="isPrimaryActive(item.key) ? 'page' : undefined"
               @click="drawerOpen = false"
             >
               <component :is="item.icon" :size="18" aria-hidden="true" />
@@ -231,10 +244,12 @@ watch(
   padding: var(--space-2) 2px;
 }
 .nav-link:hover,
-.nav-link.router-link-active {
+.nav-link.router-link-active,
+.nav-link--active {
   color: var(--color-text);
 }
-.nav-link.router-link-active {
+.nav-link.router-link-active,
+.nav-link--active {
   border-bottom-color: var(--color-primary);
 }
 .shell-actions {
@@ -281,7 +296,8 @@ watch(
   font: inherit;
   cursor: pointer;
 }
-.mobile-nav__link.router-link-active {
+.mobile-nav__link.router-link-active,
+.mobile-nav__link--active {
   background: var(--color-primary-soft);
   color: var(--color-primary);
 }

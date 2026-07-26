@@ -36,7 +36,7 @@ function deferred<T>() {
 
 const TestPage = defineComponent({ template: '<h1>Page body</h1>' })
 
-async function mountShell() {
+async function mountShell(path = '/') {
   const queryClient = new QueryClient()
   const session = createAuthSession({
     queryClient,
@@ -44,7 +44,7 @@ async function mountShell() {
   })
   await session.login('test-key')
   const router = createAppRouter(session, createMemoryHistory())
-  await router.push('/')
+  await router.push(path)
   await router.isReady()
   const appI18n = createAppI18n(undefined, 'en-US')
   const theme = createThemeController({
@@ -87,6 +87,48 @@ describe('AppShell', () => {
     expect(wrapper.get('[href="/import"]').text()).toContain('Import upstream keys')
     expect(wrapper.get('main#main-content').text()).toContain('Page body')
     expect(wrapper.find('[aria-label="Open navigation"]').exists()).toBe(true)
+  })
+
+  it('keeps the desktop Settings item active with aria-current on the Model Price sibling route', async () => {
+    const { theme, wrapper } = await mountShell('/settings/model-prices')
+    const navigation = wrapper.get('.desktop-nav')
+    const links = navigation.findAll('a')
+    const settings = navigation.get<HTMLAnchorElement>('[href="/settings"]')
+
+    expect(links).toHaveLength(4)
+    expect(settings.classes()).toContain('nav-link--active')
+    expect(settings.attributes('aria-current')).toBe('page')
+    expect(
+      links
+        .filter((link) => link.attributes('href') !== '/settings')
+        .every((link) => link.attributes('aria-current') === undefined),
+    ).toBe(true)
+
+    wrapper.unmount()
+    theme.dispose()
+  })
+
+  it('keeps the mobile Settings item active with aria-current on the Model Price sibling route', async () => {
+    const { theme, wrapper } = await mountShell('/settings/model-prices')
+
+    await wrapper.get('[aria-label="Open navigation"]').trigger('click')
+    await flushPromises()
+    const navigation = document.querySelector('.mobile-nav')
+    if (!navigation) throw new Error('missing mobile navigation')
+    const links = Array.from(navigation.querySelectorAll<HTMLAnchorElement>('a'))
+    const settings = navigation.querySelector<HTMLAnchorElement>('[href="/settings"]')
+
+    expect(links.filter((link) => link.getAttribute('href') !== '/import')).toHaveLength(4)
+    expect(settings?.classList.contains('mobile-nav__link--active')).toBe(true)
+    expect(settings?.getAttribute('aria-current')).toBe('page')
+    expect(
+      links
+        .filter((link) => link.getAttribute('href') !== '/settings')
+        .every((link) => link.getAttribute('aria-current') === null),
+    ).toBe(true)
+
+    wrapper.unmount()
+    theme.dispose()
   })
 
   it('changes locale and theme through injected controllers', async () => {

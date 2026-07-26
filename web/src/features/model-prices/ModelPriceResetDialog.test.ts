@@ -22,13 +22,17 @@ const override: ModelPriceRuleDto = {
   updated_at: '2026-07-27T00:00:00Z',
 }
 
-async function mountDialog(request: ApiClient['request']) {
+async function mountDialog(
+  request: ApiClient['request'],
+  rule: ModelPriceRuleDto = override,
+  locale: 'zh-CN' | 'en-US' | 'ja-JP' = 'en-US',
+) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const mounted = await mountApp(ModelPriceResetDialog, {
     api: { request },
     queryClient: client,
-    locale: 'en-US',
-    mounting: { props: { rule: override }, attachTo: document.body },
+    locale,
+    mounting: { props: { rule }, attachTo: document.body },
   })
   await flushPromises()
   return { ...mounted, queryClient: client }
@@ -49,7 +53,10 @@ describe('ModelPriceResetDialog', () => {
     await wrapper.get('[data-test="model-price-reset-open"]').trigger('click')
     await flushPromises()
     expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
-      'Remove the complete override rule',
+      'the next applicable user rule is used first',
+    )
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
+      'If no user or built-in rule matches, the model may be unpriced',
     )
     button('[data-test="model-price-reset-confirm"]').click()
     await flushPromises()
@@ -64,6 +71,37 @@ describe('ModelPriceResetDialog', () => {
     expect(wrapper.emitted('reset')).toEqual([[]])
     wrapper.unmount()
   })
+
+  it.each([
+    [
+      'zh-CN',
+      '删除后会先使用下一条适用的用户规则，再回退到内置规则',
+      '如果用户规则和内置规则都不匹配，该模型可能没有价格',
+    ],
+    [
+      'en-US',
+      'After deletion, the next applicable user rule is used first, then a built-in rule',
+      'If no user or built-in rule matches, the model may be unpriced',
+    ],
+    [
+      'ja-JP',
+      '削除後は次に適用可能なユーザールールを先に使い、その後に組み込みルールへフォールバックします',
+      'ユーザールールにも組み込みルールにも一致しない場合、モデルは価格未設定になる可能性があります',
+    ],
+  ] as const)(
+    'explains the user-to-builtin-to-unpriced fallback chain in %s',
+    async (locale, userFallback, unpriced) => {
+      const exactRule = { ...override, pattern: 'vendor-model' }
+      const { wrapper } = await mountDialog(vi.fn() as ApiClient['request'], exactRule, locale)
+
+      await wrapper.get('[data-test="model-price-reset-open"]').trigger('click')
+      await flushPromises()
+      expect(document.querySelector('[role="dialog"]')?.textContent).toContain(userFallback)
+      expect(document.querySelector('[role="dialog"]')?.textContent).toContain(unpriced)
+
+      wrapper.unmount()
+    },
+  )
 
   it('keeps the confirmation open on failure and never renders error details', async () => {
     const request = vi.fn().mockRejectedValue(new Error('RESET_PRICE_CANARY'))
@@ -82,17 +120,15 @@ describe('ModelPriceResetDialog', () => {
 
   it('disables duplicate confirmation and aborts an in-flight reset when closed', async () => {
     let signal: AbortSignal | null | undefined
-    const requestMock = vi.fn(
-      (path: string, options?: ApiRequestOptions) => {
-        if (path !== '/api/model-prices?pattern=vendor-%2A') {
-          throw new Error(`unexpected ${path}`)
-        }
-        signal = options?.signal
-        return new Promise<void>(() => {
-          // Remains pending until the dialog aborts the request.
-        })
-      },
-    )
+    const requestMock = vi.fn((path: string, options?: ApiRequestOptions) => {
+      if (path !== '/api/model-prices?pattern=vendor-%2A') {
+        throw new Error(`unexpected ${path}`)
+      }
+      signal = options?.signal
+      return new Promise<void>(() => {
+        // Remains pending until the dialog aborts the request.
+      })
+    })
     const request = requestMock as ApiClient['request']
     const { wrapper } = await mountDialog(request)
 
