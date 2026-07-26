@@ -263,6 +263,16 @@ func TestUsageAnthropicRequiredPresenceControlsState(t *testing.T) {
 		diagnostics []usage.DiagnosticCode
 	}{
 		{
+			name:  "usage absent is missing without diagnostics",
+			body:  `{}`,
+			state: usage.StateMissing,
+		},
+		{
+			name:  "usage null is missing without diagnostics",
+			body:  `{"usage":null}`,
+			state: usage.StateMissing,
+		},
+		{
 			name:        "empty usage is missing",
 			body:        `{"usage":{}}`,
 			state:       usage.StateMissing,
@@ -285,6 +295,9 @@ func TestUsageAnthropicRequiredPresenceControlsState(t *testing.T) {
 				t.Fatalf("result = %#v, want state %q", result, tt.state)
 			}
 			requireUsageDiagnostics(t, result.Diagnostics, tt.diagnostics...)
+			if _, ok := result.Diagnostics.TotalDelta(); ok {
+				t.Fatalf("TotalDelta() unexpectedly present: %#v", result.Diagnostics)
+			}
 		})
 	}
 }
