@@ -96,5 +96,8 @@ describe('createAppI18n', () => {
     expect(Object.values(zhCN.auth).every((message) => message.length > 0)).toBe(true)
     expect(Object.values(enUS.auth).every((message) => message.length > 0)).toBe(true)
     expect(Object.values(jaJP.auth).every((message) => message.length > 0)).toBe(true)
+    expect(dictionaryKeys(zhCN.modelPrices).length).toBeGreaterThan(20)
+    expect(dictionaryKeys(enUS.modelPrices)).toEqual(dictionaryKeys(zhCN.modelPrices))
+    expect(dictionaryKeys(jaJP.modelPrices)).toEqual(dictionaryKeys(zhCN.modelPrices))
   })
 })

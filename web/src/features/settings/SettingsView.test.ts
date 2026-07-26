@@ -86,6 +86,16 @@ async function mountView(
 }
 
 describe('SettingsView', () => {
+  it('links to Model prices as a secondary Settings page without adding a primary navigation item', async () => {
+    const { theme, wrapper } = await mountView()
+
+    const entry = wrapper.get<HTMLAnchorElement>('[data-test="model-prices-entry"]')
+    expect(entry.attributes('href')).toBe('/settings/model-prices')
+    expect(entry.text()).toContain('Model prices')
+    wrapper.unmount()
+    theme.dispose()
+  })
+
   it('replaces the route placeholder and uses a gcTime-zero Settings query', async () => {
     const router = createAppRouter({ hasCredential: () => true }, createMemoryHistory())
     expect(router.resolve('/settings').matched.at(-1)?.components?.default).toBe(SettingsView)

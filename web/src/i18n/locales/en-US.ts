@@ -733,6 +733,105 @@ export default {
       failed: 'Unable to delete the AccessKey.',
     },
   },
+  modelPrices: {
+    title: 'Model prices',
+    description:
+      'Manage per-model prices used to estimate token costs. Built-in rules remain read-only.',
+    back: 'Back to Settings',
+    add: 'Add override',
+    loading: 'Loading model prices…',
+    loadFailed: 'Unable to load model prices.',
+    stale: 'Model prices may be stale because the background refresh failed.',
+    priceUnit: 'USD per one million tokens',
+    historyNote:
+      'Price changes affect future estimated costs. Historical usage and cost are not recalculated.',
+    notConfigured: 'Not configured',
+    kind: {
+      exact: 'Exact model',
+      prefix: 'Prefix rule',
+      global: 'Global rule',
+    },
+    source: {
+      builtin: 'Built-in',
+      user: 'Override',
+    },
+    fields: {
+      uncached_input: 'Uncached input',
+      cache_read: 'Cache read',
+      cache_write_5m: '5-minute cache write',
+      cache_write_1h: '1-hour cache write',
+      output: 'Output',
+    },
+    table: {
+      pattern: 'Model pattern',
+      kind: 'Rule kind',
+      source: 'Source',
+      actions: 'Actions',
+    },
+    builtin: {
+      title: 'Built-in prices',
+      description: 'Read-only reference prices shipped with this version.',
+      empty: 'No built-in model prices',
+      emptyDescription: 'This build did not return any built-in price rules.',
+      caption: 'Built-in model price rules',
+      source: 'Official source',
+      createOverride: 'Create override',
+    },
+    overrides: {
+      title: 'User overrides',
+      description:
+        'Each saved pattern replaces the complete matching rule with five explicit price slots.',
+      empty: 'No overrides configured',
+      emptyDescription: 'Add an exact, trailing-star prefix, or global override when needed.',
+      caption: 'User model price overrides',
+      edit: 'Edit',
+    },
+    drawer: {
+      addTitle: 'Add model price override',
+      builtinTitle: 'Create override from built-in price',
+      editTitle: 'Edit model price override',
+      description: 'Configure an exact, prefix, or global price rule.',
+      close: 'Close model price editor',
+      pattern: 'Model pattern',
+      patternDescription:
+        'Use an exact model ID, one trailing * for a prefix, or a bare * for every model.',
+      patternReadonly: 'The pattern is fixed while editing. Add a new override to use another one.',
+      prices: 'Estimated prices',
+      priceDescription: 'USD per one million tokens. Empty means not configured; 0 is explicit.',
+      wholeReplacement:
+        'Saving replaces the whole rule for this pattern. All five price slots are submitted, including not configured values.',
+      globalWarning:
+        'A bare * global override matches every model not matched by a more specific user rule.',
+      globalConfirm: 'I understand this global override can affect every model.',
+      save: 'Save override',
+      saveFailed: 'Unable to save the model price override. Your input is unchanged.',
+      errors: {
+        required: 'Enter a model pattern.',
+        too_long: 'Use at most 255 UTF-8 bytes.',
+        surrounding_whitespace: 'Remove leading or trailing whitespace.',
+        control_character: 'Control characters are not allowed.',
+        question_mark: 'Question marks are not allowed.',
+        star_position: 'Use at most one star, and only as the final character.',
+        invalid_price: 'Enter a finite number greater than or equal to 0.',
+        all_empty: 'Configure at least one of the five price slots.',
+      },
+    },
+    reset: {
+      open: 'Reset',
+      title: 'Reset this model price override?',
+      description: 'Reset “{pattern}” to built-in matching behavior.',
+      close: 'Close model price reset confirmation',
+      warning:
+        'Remove the complete override rule. This does not recalculate historical usage or cost.',
+      confirm: 'Reset override',
+      failed: 'Unable to reset the model price override.',
+    },
+    settingsEntry: {
+      title: 'Model prices',
+      description: 'Manage built-in references and explicit overrides used for estimated cost.',
+      open: 'Model prices',
+    },
+  },
   settings: {
     title: 'Settings',
     description:

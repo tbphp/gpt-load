@@ -25,6 +25,7 @@ func TestServerServesSameIndexForExplicitPageRoutes(t *testing.T) {
 	var firstBody string
 	for _, target := range []string{
 		"/", "/login", "/import", "/groups/42", "/access-keys", "/monitor?tab=logs", "/settings",
+		"/settings/model-prices",
 	} {
 		recorder := httptest.NewRecorder()
 		engine.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, target, nil))
@@ -56,6 +57,30 @@ func TestServerServesSameIndexForExplicitPageRoutes(t *testing.T) {
 		if got != wantCSP {
 			t.Fatalf("GET %s CSP = %q, want %q", target, got, wantCSP)
 		}
+	}
+}
+
+func TestServerServesModelPricesDeepLinkWithoutCatchingUnknownSettingsPaths(t *testing.T) {
+	engine := testEngine(newServer(fstest.MapFS{
+		"dist/index.html": &fstest.MapFile{Data: []byte("<!doctype html><title>prices</title>")},
+	}, "dist"))
+
+	modelPrices := httptest.NewRecorder()
+	engine.ServeHTTP(
+		modelPrices,
+		httptest.NewRequest(http.MethodGet, "/settings/model-prices", nil),
+	)
+	if modelPrices.Code != http.StatusOK || !strings.Contains(modelPrices.Body.String(), "<title>prices</title>") {
+		t.Fatalf("GET /settings/model-prices = %d %q, want embedded index", modelPrices.Code, modelPrices.Body.String())
+	}
+
+	unknown := httptest.NewRecorder()
+	engine.ServeHTTP(
+		unknown,
+		httptest.NewRequest(http.MethodGet, "/settings/model-prices/unknown", nil),
+	)
+	if unknown.Code != http.StatusNotFound {
+		t.Fatalf("GET unknown nested settings path = %d, want 404", unknown.Code)
 	}
 }
 
@@ -159,7 +184,9 @@ func TestServerDoesNotHandleBackendOrUnknownRoutes(t *testing.T) {
 		"dist/index.html": &fstest.MapFile{Data: []byte("<!doctype html>")},
 	}, "dist"))
 
-	for _, target := range []string{"/api/unknown", "/v1/models", "/unknown", "/assets/missing.js"} {
+	for _, target := range []string{
+		"/api/unknown", "/v1/models", "/unknown", "/settings/unknown", "/assets/missing.js",
+	} {
 		recorder := httptest.NewRecorder()
 		engine.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, target, nil))
 		if recorder.Code != http.StatusNotFound {

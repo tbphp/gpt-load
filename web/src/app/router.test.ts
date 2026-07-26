@@ -17,6 +17,7 @@ describe('application routes', () => {
     '/access-keys',
     '/monitor?tab=logs',
     '/settings',
+    '/settings/model-prices',
   ])('resolves the explicit page route %s', (path) => {
     const router = createAppRouter(createAuth(true), createMemoryHistory())
 
@@ -35,6 +36,7 @@ describe('application routes', () => {
       'access-keys': 'shell.accessKeys',
       monitor: 'shell.monitor',
       settings: 'shell.settings',
+      'model-prices': 'modelPrices.title',
     })
     expect(JSON.stringify(titles)).not.toMatch(/导入密钥|访问密钥|监控|设置/)
   })
@@ -102,7 +104,7 @@ describe('application routes', () => {
     expect(safeRedirect(redirect, router)).toBe('/')
   })
 
-  it.each(['/', '/access-keys', '/groups/42', '/monitor?tab=logs'])(
+  it.each(['/', '/access-keys', '/groups/42', '/monitor?tab=logs', '/settings/model-prices'])(
     'accepts registered relative redirect %s',
     (redirect) => {
       const router = createAppRouter(createAuth(true), createMemoryHistory())

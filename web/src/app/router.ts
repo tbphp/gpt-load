@@ -7,6 +7,7 @@ import GroupDetailView from '@/features/groups/GroupDetailView.vue'
 import ImportView from '@/features/import/ImportView.vue'
 import AccessKeysView from '@/features/access-keys/AccessKeysView.vue'
 import MonitorView from '@/features/monitor/MonitorView.vue'
+import ModelPricesView from '@/features/model-prices/ModelPricesView.vue'
 import SettingsView from '@/features/settings/SettingsView.vue'
 
 const routes: RouteRecordRaw[] = [
@@ -46,6 +47,12 @@ const routes: RouteRecordRaw[] = [
     name: 'settings',
     component: SettingsView,
     meta: { titleKey: 'shell.settings', requiresAuth: true },
+  },
+  {
+    path: '/settings/model-prices',
+    name: 'model-prices',
+    component: ModelPricesView,
+    meta: { titleKey: 'modelPrices.title', requiresAuth: true },
   },
 ]
 

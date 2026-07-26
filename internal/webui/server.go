@@ -33,6 +33,7 @@ var pageRoutes = []string{
 	"/access-keys",
 	"/monitor",
 	"/settings",
+	"/settings/model-prices",
 }
 
 //go:embed all:dist
