@@ -26,7 +26,6 @@ const (
 	defaultRequestLogLimit = 50
 	maxRequestLogLimit     = 200
 	requestLogCursorV1     = 1
-	maxSafeInteger         = int64(9007199254740991)
 )
 
 var canonicalLowercaseUUIDv4 = regexp.MustCompile(

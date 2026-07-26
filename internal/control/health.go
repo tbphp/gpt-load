@@ -210,11 +210,35 @@ func (service *Service) RuntimeHealth() (runtimeHealthResponse, error) {
 			result.BlacklistedKeys = append(result.BlacklistedKeys, detail)
 		}
 	}
-	result.RequestLog = mapRequestLogHealth(service.requestLogStats.Stats())
+	requestLog, err := mapRequestLogHealth(service.requestLogStats.Stats())
+	if err != nil {
+		return runtimeHealthResponse{}, fmt.Errorf("map request log health: %w", err)
+	}
+	result.RequestLog = requestLog
 	return result, nil
 }
 
-func mapRequestLogHealth(stats requestlog.Stats) requestLogHealthResponse {
+func mapRequestLogHealth(stats requestlog.Stats) (requestLogHealthResponse, error) {
+	for _, value := range []uint64{
+		stats.EnqueuedTotal,
+		stats.PersistedTotal,
+		stats.DroppedNotRunningTotal,
+		stats.DroppedQueueFullTotal,
+		stats.DroppedStoppingTotal,
+		stats.DroppedPersistFailedTotal,
+		stats.DroppedShutdownTotal,
+		stats.DroppedTotal,
+		stats.WriteFailureTotal,
+		stats.RetentionDeleteFailureTotal,
+	} {
+		if value > uint64(maxSafeInteger) {
+			return requestLogHealthResponse{}, fmt.Errorf("map request log health: unsafe counter")
+		}
+	}
+	if stats.QueueDepth < 0 || stats.QueueDepth > int(maxSafeInteger) ||
+		stats.QueueCapacity < 0 || stats.QueueCapacity > int(maxSafeInteger) {
+		return requestLogHealthResponse{}, fmt.Errorf("map request log health: unsafe queue")
+	}
 	return requestLogHealthResponse{
 		EnqueuedTotal:               stats.EnqueuedTotal,
 		PersistedTotal:              stats.PersistedTotal,
@@ -230,7 +254,7 @@ func mapRequestLogHealth(stats requestlog.Stats) requestLogHealthResponse {
 		QueueCapacity:               stats.QueueCapacity,
 		LastWriteFailureAt:          optionalUTC(stats.LastWriteFailureAt),
 		LastRetentionFailureAt:      optionalUTC(stats.LastRetentionFailureAt),
-	}
+	}, nil
 }
 
 func (server *Server) handleRuntimeHealth(c *gin.Context) {

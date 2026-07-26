@@ -20,6 +20,7 @@ const (
 	usageRange24Hours = "24h"
 	usageRange30Days  = "30d"
 	usageBreakdownMax = 100
+	maxSafeInteger    = int64(9007199254740991)
 )
 
 type UsageStatReader interface {
@@ -176,6 +177,10 @@ func (service *Service) mapUsageResponse(
 	if err != nil {
 		return usageResponse{}, err
 	}
+	requestLog, err := mapRequestLogHealth(service.requestLogStats.Stats())
+	if err != nil {
+		return usageResponse{}, err
+	}
 	result := usageResponse{
 		ObservedAt: observedAt.UTC().Format(time.RFC3339Nano),
 		Range: usageRangeResponse{
@@ -187,7 +192,7 @@ func (service *Service) mapUsageResponse(
 		Series:             make([]usageSeriesResponse, 0, len(report.Series)),
 		Breakdown:          make([]usageBreakdownResponse, 0, len(report.Breakdown)),
 		BreakdownTruncated: report.BreakdownTruncated,
-		RequestLog:         mapRequestLogHealth(service.requestLogStats.Stats()),
+		RequestLog:         requestLog,
 	}
 	for _, point := range report.Series {
 		aggregate, err := mapUsageAggregate(point.UsageAggregate)
@@ -201,7 +206,7 @@ func (service *Service) mapUsageResponse(
 		})
 	}
 	for _, row := range report.Breakdown {
-		if uint64(row.GroupID) > uint64(maxSafeInteger) || row.Model == "" {
+		if row.GroupID == 0 || uint64(row.GroupID) > uint64(maxSafeInteger) || row.Model == "" {
 			return usageResponse{}, fmt.Errorf("map usage breakdown: invalid group or model")
 		}
 		aggregate, err := mapUsageAggregate(row.UsageAggregate)

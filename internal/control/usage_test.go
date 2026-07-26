@@ -185,6 +185,56 @@ func TestUsageAPIRejectsUnsafeAggregateAndKeepsErrorsSecret(t *testing.T) {
 	}
 }
 
+func TestUsageAPIRejectsUnsafeProcessStatsWithoutLeakingCause(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*requestlog.Stats)
+	}{
+		{name: "enqueued", mutate: func(stats *requestlog.Stats) { stats.EnqueuedTotal = uint64(maxSafeInteger) + 1 }},
+		{name: "persisted", mutate: func(stats *requestlog.Stats) { stats.PersistedTotal = uint64(maxSafeInteger) + 1 }},
+		{name: "dropped not running", mutate: func(stats *requestlog.Stats) { stats.DroppedNotRunningTotal = uint64(maxSafeInteger) + 1 }},
+		{name: "dropped queue full", mutate: func(stats *requestlog.Stats) { stats.DroppedQueueFullTotal = uint64(maxSafeInteger) + 1 }},
+		{name: "dropped stopping", mutate: func(stats *requestlog.Stats) { stats.DroppedStoppingTotal = uint64(maxSafeInteger) + 1 }},
+		{name: "dropped persist failed", mutate: func(stats *requestlog.Stats) { stats.DroppedPersistFailedTotal = uint64(maxSafeInteger) + 1 }},
+		{name: "dropped shutdown", mutate: func(stats *requestlog.Stats) { stats.DroppedShutdownTotal = uint64(maxSafeInteger) + 1 }},
+		{name: "dropped total", mutate: func(stats *requestlog.Stats) { stats.DroppedTotal = uint64(maxSafeInteger) + 1 }},
+		{name: "write failure", mutate: func(stats *requestlog.Stats) { stats.WriteFailureTotal = uint64(maxSafeInteger) + 1 }},
+		{name: "retention delete failure", mutate: func(stats *requestlog.Stats) { stats.RetentionDeleteFailureTotal = uint64(maxSafeInteger) + 1 }},
+		{name: "negative queue depth", mutate: func(stats *requestlog.Stats) { stats.QueueDepth = -1 }},
+		{name: "unsafe queue capacity", mutate: func(stats *requestlog.Stats) { stats.QueueCapacity = int(maxSafeInteger) + 1 }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			engine, fixture := newUsageTestEngine(
+				t,
+				time.Date(2026, time.July, 27, 0, 0, 0, 0, time.UTC),
+				&recordingUsageStatReader{},
+			)
+			test.mutate(&fixture.requestLogStats.value)
+			recorder := performUsageRequest(engine, "test-auth-key", "")
+			if recorder.Code != http.StatusInternalServerError ||
+				!strings.Contains(recorder.Body.String(), "INTERNAL_SERVER_ERROR") ||
+				strings.Contains(strings.ToLower(recorder.Body.String()), "queue") ||
+				strings.Contains(strings.ToLower(recorder.Body.String()), "safe") {
+				t.Fatalf("response = %d %s", recorder.Code, recorder.Body.String())
+			}
+		})
+	}
+}
+
+func TestUsageAPIRejectsUnattributedBreakdownWithoutLeakingCause(t *testing.T) {
+	reader := &recordingUsageStatReader{report: requestlog.UsageReport{
+		Breakdown: []requestlog.UsageBreakdown{{GroupID: 0, Model: "unattributed"}},
+	}}
+	engine, _ := newUsageTestEngine(t, time.Date(2026, time.July, 27, 0, 0, 0, 0, time.UTC), reader)
+	recorder := performUsageRequest(engine, "test-auth-key", "")
+	if recorder.Code != http.StatusInternalServerError ||
+		!strings.Contains(recorder.Body.String(), "INTERNAL_SERVER_ERROR") ||
+		strings.Contains(strings.ToLower(recorder.Body.String()), "group") {
+		t.Fatalf("response = %d %s", recorder.Code, recorder.Body.String())
+	}
+}
+
 func TestUsageAPIRequiresManagementAuthentication(t *testing.T) {
 	engine, _ := newUsageTestEngine(t, time.Now(), &recordingUsageStatReader{})
 	recorder := performUsageRequest(engine, "", "")
