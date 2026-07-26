@@ -7,6 +7,7 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -201,7 +202,18 @@ func TestUsageAPIRejectsUnsafeProcessStatsWithoutLeakingCause(t *testing.T) {
 		{name: "write failure", mutate: func(stats *requestlog.Stats) { stats.WriteFailureTotal = uint64(maxSafeInteger) + 1 }},
 		{name: "retention delete failure", mutate: func(stats *requestlog.Stats) { stats.RetentionDeleteFailureTotal = uint64(maxSafeInteger) + 1 }},
 		{name: "negative queue depth", mutate: func(stats *requestlog.Stats) { stats.QueueDepth = -1 }},
-		{name: "unsafe queue capacity", mutate: func(stats *requestlog.Stats) { stats.QueueCapacity = int(maxSafeInteger) + 1 }},
+	}
+	if strconv.IntSize == 64 {
+		unsafeQueueCapacity := maxSafeInteger + 1
+		tests = append(tests, struct {
+			name   string
+			mutate func(*requestlog.Stats)
+		}{
+			name: "unsafe queue capacity",
+			mutate: func(stats *requestlog.Stats) {
+				stats.QueueCapacity = int(unsafeQueueCapacity)
+			},
+		})
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

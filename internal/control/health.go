@@ -235,8 +235,8 @@ func mapRequestLogHealth(stats requestlog.Stats) (requestLogHealthResponse, erro
 			return requestLogHealthResponse{}, fmt.Errorf("map request log health: unsafe counter")
 		}
 	}
-	if stats.QueueDepth < 0 || stats.QueueDepth > int(maxSafeInteger) ||
-		stats.QueueCapacity < 0 || stats.QueueCapacity > int(maxSafeInteger) {
+	if stats.QueueDepth < 0 || uint64(stats.QueueDepth) > uint64(maxSafeInteger) ||
+		stats.QueueCapacity < 0 || uint64(stats.QueueCapacity) > uint64(maxSafeInteger) {
 		return requestLogHealthResponse{}, fmt.Errorf("map request log health: unsafe queue")
 	}
 	return requestLogHealthResponse{
