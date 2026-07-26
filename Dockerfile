@@ -36,8 +36,15 @@ FROM alpine
 
 WORKDIR /app
 RUN apk add --no-cache ca-certificates tzdata \
-    && update-ca-certificates
+    && update-ca-certificates \
+    && addgroup -S -g 10001 gpt-load \
+    && adduser -S -D -H -u 10001 -G gpt-load gpt-load \
+    && mkdir -p /app/data \
+    && chown 10001:10001 /app/data \
+    && chmod 0700 /app/data
 
+ENV DATA_DIR=/app/data
 COPY --from=go-builder /build/gpt-load .
 EXPOSE 3001
+USER 10001:10001
 ENTRYPOINT ["/app/gpt-load"]

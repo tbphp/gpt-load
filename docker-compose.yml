@@ -1,6 +1,6 @@
 services:
   gpt-load:
-    image: ghcr.io/tbphp/gpt-load:latest
+    image: ghcr.io/tbphp/gpt-load:2
     # build:
     #   context: .
     #   dockerfile: Dockerfile
@@ -9,9 +9,12 @@ services:
       - "${PORT:-3001}:${PORT:-3001}"
     env_file:
       - .env
+    environment:
+      DATA_DIR: /app/data
+      DATABASE_DSN: /app/data/gpt-load.db
     restart: always
     volumes:
-      - "${DATA_DIR:-./data}:/app/data"
+      - gpt-load-data:/app/data
     stop_grace_period: ${CONTAINER_STOP_GRACE_PERIOD:-15s}
     healthcheck:
       test: wget -q --spider -T 10 -O /dev/null http://localhost:${PORT:-3001}/health
@@ -19,3 +22,6 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+
+volumes:
+  gpt-load-data:
