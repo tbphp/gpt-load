@@ -99,5 +99,15 @@ describe('createAppI18n', () => {
     expect(dictionaryKeys(zhCN.modelPrices).length).toBeGreaterThan(20)
     expect(dictionaryKeys(enUS.modelPrices)).toEqual(dictionaryKeys(zhCN.modelPrices))
     expect(dictionaryKeys(jaJP.modelPrices)).toEqual(dictionaryKeys(zhCN.modelPrices))
+    expect(dictionaryKeys(zhCN.monitor.usage).length).toBeGreaterThan(40)
+    expect(dictionaryKeys(enUS.monitor.usage)).toEqual(dictionaryKeys(zhCN.monitor.usage))
+    expect(dictionaryKeys(jaJP.monitor.usage)).toEqual(dictionaryKeys(zhCN.monitor.usage))
+    expect(dictionaryKeys(zhCN.monitor.logs.drawer.usage).length).toBeGreaterThan(20)
+    expect(dictionaryKeys(enUS.monitor.logs.drawer.usage)).toEqual(
+      dictionaryKeys(zhCN.monitor.logs.drawer.usage),
+    )
+    expect(dictionaryKeys(jaJP.monitor.logs.drawer.usage)).toEqual(
+      dictionaryKeys(zhCN.monitor.logs.drawer.usage),
+    )
   })
 })

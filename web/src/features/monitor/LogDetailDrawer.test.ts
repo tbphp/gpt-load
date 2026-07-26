@@ -207,4 +207,110 @@ describe('LogDetailDrawer', () => {
     }
     expect(rendered).not.toContain('future-secret')
   })
+
+  it.each([
+    [
+      'complete priced',
+      { usage_state: 'complete', cost_state: 'priced', estimated_cost_usd: 0.123 },
+      [
+        'Complete usage',
+        'Estimated cost available',
+        'Included in default token and estimated-cost aggregates',
+      ],
+      false,
+    ],
+    [
+      'complete unpriced',
+      { usage_state: 'complete', cost_state: 'unpriced', estimated_cost_usd: 0 },
+      ['Complete usage', 'Estimated cost unknown', 'Tokens included; estimated cost excluded'],
+      true,
+    ],
+    [
+      'partial priced',
+      { usage_state: 'partial', cost_state: 'priced', estimated_cost_usd: 0.123 },
+      [
+        'Partial usage',
+        'Estimated cost from reported tokens',
+        'Reported tokens and estimated cost included',
+      ],
+      false,
+    ],
+    [
+      'partial unpriced',
+      { usage_state: 'partial', cost_state: 'unpriced', estimated_cost_usd: 0 },
+      [
+        'Partial usage',
+        'Estimated cost unknown',
+        'Reported tokens included; estimated cost excluded',
+      ],
+      true,
+    ],
+    [
+      'missing unpriced',
+      { usage_state: 'missing', cost_state: 'unpriced', estimated_cost_usd: 0 },
+      [
+        'Usage missing',
+        'Estimated cost unknown',
+        'Excluded from token and estimated-cost aggregates',
+      ],
+      true,
+    ],
+    [
+      'not applicable',
+      { usage_state: 'not_applicable', cost_state: 'not_applicable', estimated_cost_usd: 0 },
+      ['Usage not applicable', 'Cost not applicable', 'Excluded from usage and cost aggregates'],
+      false,
+    ],
+  ] satisfies ReadonlyArray<
+    [string, Partial<RequestLogItemDto>, readonly [string, string, string], boolean]
+  >)(
+    'explains the valid %s usage/cost combination and its default aggregation behavior',
+    async (_case, overrides, expected, hasPriceLink) => {
+      await mountDrawer(logFixture(overrides))
+
+      const section = bodyElement('[data-test="log-usage-cost"]')
+      for (const text of expected) expect(section.textContent).toContain(text)
+      expect(section.textContent).toContain('Estimated')
+      expect(document.body.querySelector('[data-test="log-usage-prices-link"]') !== null).toBe(
+        hasPriceLink,
+      )
+    },
+  )
+
+  it('renders final Group and every token category without collapsing cache-write windows', async () => {
+    await mountDrawer()
+
+    const section = bodyElement('[data-test="log-usage-cost"]')
+    for (const fact of [
+      'Final Group',
+      '#7',
+      'Uncached input',
+      '100',
+      'Cache read',
+      '20',
+      'Cache write (5m)',
+      '3',
+      'Cache write (1h)',
+      '4',
+      'Output',
+      '50',
+    ]) {
+      expect(section.textContent).toContain(fact)
+    }
+  })
+
+  it('renders an absent final Group as unknown rather than fabricating a Group', async () => {
+    await mountDrawer(logFixture({ group_id: null }))
+
+    expect(bodyElement('[data-test="log-final-group"]').textContent).toContain('Unknown')
+  })
+
+  it('does not infer unknown cost from numeric zero', async () => {
+    await mountDrawer(logFixture({ cost_state: 'priced', estimated_cost_usd: 0 }))
+
+    const cost = bodyElement('[data-test="log-estimated-cost"]').textContent ?? ''
+    expect(cost).toContain('$0.000000')
+    expect(cost).not.toContain('Unknown')
+    expect(cost).not.toContain('Free')
+  })
 })

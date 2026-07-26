@@ -26,6 +26,9 @@ async function mountMonitor(path: string) {
         InspectorTab: {
           template: '<div data-test="monitor-inspector-content" />',
         },
+        UsageTab: {
+          template: '<div data-test="monitor-usage-content" />',
+        },
       },
     },
   })
@@ -67,6 +70,22 @@ describe('MonitorView', () => {
     await flushPromises()
     expect(router.currentRoute.value.fullPath).toBe('/monitor?tab=logs')
     expect(wrapper.get('[data-test="monitor-tab-logs"]').attributes()['aria-selected']).toBe('true')
+  })
+
+  it('mounts only the active Usage slot while preserving Health as the default', async () => {
+    const usage = await mountMonitor('/monitor?tab=usage&range=24h')
+
+    expect(usage.wrapper.get('[data-test="monitor-tab-usage"]').attributes()['aria-selected']).toBe(
+      'true',
+    )
+    expect(usage.wrapper.find('[data-test="monitor-usage-content"]').exists()).toBe(true)
+    expect(usage.wrapper.find('[data-test="monitor-health-content"]').exists()).toBe(false)
+    usage.wrapper.unmount()
+
+    const defaultView = await mountMonitor('/monitor')
+    expect(defaultView.router.currentRoute.value.fullPath).toBe('/monitor?tab=health')
+    expect(defaultView.wrapper.find('[data-test="monitor-health-content"]').exists()).toBe(true)
+    expect(defaultView.wrapper.find('[data-test="monitor-usage-content"]').exists()).toBe(false)
   })
 
   it('replaces a legacy tab with the canonical Health query', async () => {

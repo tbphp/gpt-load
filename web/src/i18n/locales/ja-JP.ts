@@ -201,6 +201,7 @@ export default {
       label: 'モニターのセクション',
       health: 'ヘルス',
       logs: 'リクエストログ',
+      usage: '使用量',
       inspector: 'ルート検査',
     },
     health: {
@@ -284,6 +285,98 @@ export default {
         queueCapacity: 'キュー容量',
         lastWriteFailureAt: '直近の書き込み失敗',
         lastRetentionFailureAt: '直近の保持処理失敗',
+      },
+    },
+    usage: {
+      loading: '使用量レポートを読み込み中…',
+      loadFailed: '使用量レポートを読み込めません。',
+      stale: 'バックグラウンド更新に失敗したため、使用量データが古い可能性があります。',
+      options: {
+        groupsFailed:
+          'Group 名を読み込めません。代わりに正の Group ID を入力できます。使用量レポートには影響しません。',
+      },
+      filters: {
+        label: '使用量レポートのフィルター',
+        range: '期間',
+        range24h: '過去 24 時間',
+        range30d: '過去 30 日',
+        group: 'Group',
+        groupHelp: '任意の完全一致 Group スコープです。',
+        groupIdHelp: 'Group 名の読み込みに失敗しました。正の Group ID を入力できます。',
+        anyGroup: 'すべての Group',
+        model: 'アップストリームモデル',
+        modelHelp: 'ルーティング後のアップストリームモデルを完全一致で絞り込みます。',
+        apply: '適用',
+        reset: 'リセット',
+      },
+      errors: {
+        positiveId: '有効な正の Group ID を入力してください。',
+        model: 'アップストリームモデルの前後に空白や制御文字を含めることはできません。',
+      },
+      scope: {
+        title: '永続化された使用量と現在プロセスのパイプライン状態',
+        description:
+          '使用量、トークン、推定コストは選択した UTC 期間の永続化リクエストログに基づきます。破棄と書き込み失敗は現在プロセスの累積値で、レポートのフィルターには従いません。',
+      },
+      empty: {
+        title: '一致する永続化使用量がありません',
+        description:
+          '期間を変更するか、Group とアップストリームモデルのフィルターをリセットしてください。',
+      },
+      kpi: {
+        title: '使用量サマリー',
+        description: 'バックエンド集計の観測時刻: {time}。',
+        requests: '永続化リクエスト',
+        successRate: '成功率',
+        totalTokens: '報告済みトークン合計',
+        estimatedCost: '推定コスト',
+      },
+      cost: {
+        unknown: '不明',
+        knownPlusUnknown: '{cost} + 不明',
+      },
+      quality: {
+        title: '使用量と永続化の品質',
+        description: '不完全な使用量を単一の指標で隠さないよう、各件数を分けて表示します。',
+        missing: '使用量なし',
+        partial: '使用量が部分的',
+        unpriced: 'コスト未設定',
+        dropped: '破棄されたリクエスト',
+        writeFailures: '書き込み失敗',
+        overlap:
+          '使用量なし、部分的、未設定の件数は重複する場合があります。リクエスト総数として加算しないでください。',
+        aggregation:
+          '使用量なしのリクエストはトークン合計から除外されます。未設定のリクエストは報告済みトークンに含まれますが、推定コストから除外されます。',
+        openPrices: 'モデル価格を確認',
+      },
+      trend: {
+        title: '永続化リクエストの推移',
+        description: '疎な UTC バケットはそのまま表示し、欠落点を推測しません。',
+        accessibleDescription: '返された UTC バケットごとの永続化リクエスト数。',
+        empty: 'この期間の永続化リクエストバケットは返されませんでした。',
+      },
+      series: {
+        title: 'UTC バケット',
+        description: '選択した時間または日単位でバックエンドが集計した値です。',
+        caption: 'UTC 時間バケット別の使用量集計',
+      },
+      breakdown: {
+        title: 'Group とアップストリームモデルの内訳',
+        description: 'バックエンド順位の集計は最終 Group とアップストリームモデルを使用します。',
+        caption: '最終 Group とアップストリームモデル別の使用量内訳',
+        truncated: 'バックエンド上位 100 件の内訳のみ表示しています。',
+      },
+      columns: {
+        window: 'UTC 時間枠',
+        group: '最終 Group',
+        upstreamModel: 'アップストリームモデル',
+        requests: 'リクエスト',
+        success: '成功',
+        failure: '失敗',
+        totalTokens: 'トークン合計',
+        estimatedCost: '推定コスト',
+        quality: '品質件数',
+        qualityCounts: 'なし {missing} · 部分 {partial} · 未設定 {unpriced}',
       },
     },
     inspector: {
@@ -481,6 +574,44 @@ export default {
         failureCategory: '失敗分類',
         action: 'アクション',
         willRetry: '再試行予定',
+        usage: {
+          title: '使用量と推定コスト',
+          description:
+            '最終的に永続化された使用量フィールドです。コストは常に推定値で、不明は無料を意味しません。',
+          finalGroup: '最終 Group',
+          groupId: 'Group #{id}',
+          estimatedCost: '推定コスト',
+          unknown: '不明',
+          notApplicable: '該当なし',
+          openPrices: 'このアップストリームモデルの価格を確認',
+          state: {
+            complete: '完全な使用量',
+            partial: '部分的な使用量',
+            missing: '使用量なし',
+            not_applicable: '使用量は該当なし',
+          },
+          costState: {
+            priced: '推定コストあり',
+            partialPriced: '報告済みトークンからの推定コスト',
+            unpriced: '推定コスト不明',
+            not_applicable: 'コストは該当なし',
+          },
+          aggregation: {
+            completePriced: '既定のトークンと推定コスト集計に含まれます。',
+            completeUnpriced: 'トークンには含まれ、推定コストからは除外されます。',
+            partialPriced: '報告済みトークンと推定コストが部分使用量として含まれます。',
+            partialUnpriced: '報告済みトークンには含まれ、推定コストからは除外されます。',
+            missing: 'トークンと推定コスト集計から除外されます。',
+            notApplicable: '使用量とコスト集計から除外されます。',
+          },
+          tokens: {
+            uncachedInput: 'キャッシュなし入力',
+            cacheRead: 'キャッシュ読み取り',
+            cacheWrite5m: 'キャッシュ書き込み（5 分）',
+            cacheWrite1h: 'キャッシュ書き込み（1 時間）',
+            output: '出力',
+          },
+        },
       },
       columns: {
         completedAt: '完了時刻',

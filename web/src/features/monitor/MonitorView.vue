@@ -10,6 +10,7 @@ import HealthTab from './HealthTab.vue'
 import InspectorTab from './InspectorTab.vue'
 import LogsTab from './LogsTab.vue'
 import { normalizeMonitorQuery, normalizeMonitorTab, sameMonitorQuery } from './monitor-route'
+import UsageTab from './UsageTab.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -20,6 +21,7 @@ const isCanonicalQuery = computed(() => sameMonitorQuery(route.query, canonicalQ
 const items = computed<AppTabItem[]>(() => [
   { value: 'health', label: t('monitor.tabs.health'), testId: 'monitor-tab-health' },
   { value: 'logs', label: t('monitor.tabs.logs'), testId: 'monitor-tab-logs' },
+  { value: 'usage', label: t('monitor.tabs.usage'), testId: 'monitor-tab-usage' },
   { value: 'inspector', label: t('monitor.tabs.inspector'), testId: 'monitor-tab-inspector' },
 ])
 
@@ -60,6 +62,9 @@ function selectTab(value: string): void {
         </div>
         <div v-else-if="activeTab === 'logs'" class="monitor-panel" data-test="monitor-logs-slot">
           <LogsTab />
+        </div>
+        <div v-else-if="activeTab === 'usage'" class="monitor-panel" data-test="monitor-usage-slot">
+          <UsageTab />
         </div>
         <div v-else class="monitor-panel" data-test="monitor-inspector-slot">
           <InspectorTab />

@@ -10,6 +10,7 @@ import type {
 } from '@/api/control/request-logs'
 import AppDrawer from '@/components/ui/AppDrawer.vue'
 import CopyButton from '@/components/ui/CopyButton.vue'
+import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 
 const props = defineProps<{
@@ -17,7 +18,7 @@ const props = defineProps<{
   log: RequestLogItemDto | null
 }>()
 defineEmits<{ 'update:open': [open: boolean] }>()
-const { t } = useI18n()
+const { locale, t } = useI18n()
 
 const failureCategories: readonly FailureCategory[] = [
   'ok',
@@ -58,6 +59,17 @@ const inspectorTarget = computed(() => {
     },
   }
 })
+const usageTone = computed(() => {
+  if (props.log?.usage_state === 'complete') return 'success'
+  if (props.log?.usage_state === 'partial') return 'warning'
+  if (props.log?.usage_state === 'missing') return 'danger'
+  return 'neutral'
+})
+const costTone = computed(() => {
+  if (props.log?.cost_state === 'priced') return 'success'
+  if (props.log?.cost_state === 'unpriced') return 'warning'
+  return 'neutral'
+})
 
 function statusTone(status: RequestLogStatus): 'success' | 'danger' | 'warning' | 'neutral' {
   if (status === 'success') return 'success'
@@ -89,6 +101,53 @@ function accessKeyLabel(log: RequestLogItemDto): string {
     })
   }
   return `#${log.access_key.id}`
+}
+
+function usageStateLabel(log: RequestLogItemDto): string {
+  return t(`monitor.logs.drawer.usage.state.${log.usage_state}`)
+}
+
+function costStateLabel(log: RequestLogItemDto): string {
+  if (log.cost_state === 'priced' && log.usage_state === 'partial') {
+    return t('monitor.logs.drawer.usage.costState.partialPriced')
+  }
+  return t(`monitor.logs.drawer.usage.costState.${log.cost_state}`)
+}
+
+function aggregationLabel(log: RequestLogItemDto): string {
+  if (log.usage_state === 'not_applicable') {
+    return t('monitor.logs.drawer.usage.aggregation.notApplicable')
+  }
+  if (log.usage_state === 'missing') {
+    return t('monitor.logs.drawer.usage.aggregation.missing')
+  }
+  if (log.usage_state === 'partial' && log.cost_state === 'priced') {
+    return t('monitor.logs.drawer.usage.aggregation.partialPriced')
+  }
+  if (log.usage_state === 'partial') {
+    return t('monitor.logs.drawer.usage.aggregation.partialUnpriced')
+  }
+  if (log.cost_state === 'unpriced') {
+    return t('monitor.logs.drawer.usage.aggregation.completeUnpriced')
+  }
+  return t('monitor.logs.drawer.usage.aggregation.completePriced')
+}
+
+function tokenValue(log: RequestLogItemDto, value: number): string {
+  if (log.usage_state === 'not_applicable') return t('monitor.logs.drawer.usage.notApplicable')
+  if (log.usage_state === 'missing') return t('monitor.logs.drawer.usage.unknown')
+  return new Intl.NumberFormat(locale.value).format(value)
+}
+
+function estimatedCost(log: RequestLogItemDto): string {
+  if (log.cost_state === 'not_applicable') return t('monitor.logs.drawer.usage.notApplicable')
+  if (log.cost_state === 'unpriced') return t('monitor.logs.drawer.usage.unknown')
+  return new Intl.NumberFormat(locale.value, {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 6,
+    maximumFractionDigits: 6,
+  }).format(log.estimated_cost_usd)
 }
 </script>
 
@@ -178,6 +237,72 @@ function accessKeyLabel(log: RequestLogItemDto): string {
           :to="inspectorTarget"
         >
           {{ t('monitor.logs.drawer.openInspector') }}
+        </RouterLink>
+      </section>
+
+      <section
+        class="log-detail__section"
+        data-test="log-usage-cost"
+        aria-labelledby="log-detail-usage-heading"
+      >
+        <h2 id="log-detail-usage-heading">{{ t('monitor.logs.drawer.usage.title') }}</h2>
+        <p class="log-detail__section-description">
+          {{ t('monitor.logs.drawer.usage.description') }}
+        </p>
+        <div class="log-detail__usage-status">
+          <StatusBadge :tone="usageTone">{{ usageStateLabel(log) }}</StatusBadge>
+          <StatusBadge :tone="costTone">{{ costStateLabel(log) }}</StatusBadge>
+        </div>
+        <dl class="log-detail__facts">
+          <div>
+            <dt>{{ t('monitor.logs.drawer.usage.finalGroup') }}</dt>
+            <dd data-test="log-final-group">
+              {{
+                log.group_id === null
+                  ? t('monitor.logs.drawer.usage.unknown')
+                  : t('monitor.logs.drawer.usage.groupId', { id: log.group_id })
+              }}
+            </dd>
+          </div>
+          <div>
+            <dt>{{ t('monitor.logs.drawer.usage.estimatedCost') }}</dt>
+            <dd data-test="log-estimated-cost">{{ estimatedCost(log) }}</dd>
+          </div>
+          <div>
+            <dt>{{ t('monitor.logs.drawer.usage.tokens.uncachedInput') }}</dt>
+            <dd>{{ tokenValue(log, log.uncached_input_tokens) }}</dd>
+          </div>
+          <div>
+            <dt>{{ t('monitor.logs.drawer.usage.tokens.cacheRead') }}</dt>
+            <dd>{{ tokenValue(log, log.cache_read_tokens) }}</dd>
+          </div>
+          <div>
+            <dt>{{ t('monitor.logs.drawer.usage.tokens.cacheWrite5m') }}</dt>
+            <dd>{{ tokenValue(log, log.cache_write_5m_tokens) }}</dd>
+          </div>
+          <div>
+            <dt>{{ t('monitor.logs.drawer.usage.tokens.cacheWrite1h') }}</dt>
+            <dd>{{ tokenValue(log, log.cache_write_1h_tokens) }}</dd>
+          </div>
+          <div>
+            <dt>{{ t('monitor.logs.drawer.usage.tokens.output') }}</dt>
+            <dd>{{ tokenValue(log, log.output_tokens) }}</dd>
+          </div>
+        </dl>
+        <InlineFeedback
+          :tone="
+            log.usage_state === 'missing' || log.cost_state === 'unpriced' ? 'warning' : 'info'
+          "
+        >
+          {{ aggregationLabel(log) }}
+        </InlineFeedback>
+        <RouterLink
+          v-if="log.cost_state === 'unpriced'"
+          class="log-detail__prices"
+          data-test="log-usage-prices-link"
+          to="/settings/model-prices"
+        >
+          {{ t('monitor.logs.drawer.usage.openPrices') }}
         </RouterLink>
       </section>
 
@@ -277,6 +402,10 @@ function accessKeyLabel(log: RequestLogItemDto): string {
   margin: 0;
 }
 
+.log-detail__section-description {
+  color: var(--color-text-muted);
+}
+
 .log-detail__section h2 {
   font-size: 1rem;
 }
@@ -348,6 +477,23 @@ function accessKeyLabel(log: RequestLogItemDto): string {
   color: var(--color-primary);
   font-weight: 650;
   overflow-wrap: anywhere;
+}
+
+.log-detail__usage-status {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.log-detail__prices {
+  display: inline-flex;
+  width: fit-content;
+  min-height: 44px;
+  align-items: center;
+  color: var(--color-primary);
+  font-weight: 650;
 }
 
 .log-attempt {

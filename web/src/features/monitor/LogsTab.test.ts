@@ -177,6 +177,26 @@ describe('LogsTab', () => {
     }
   })
 
+  it('keeps the existing seven table columns and identifies list/filter model values as client models', async () => {
+    const { wrapper } = await mountLogs(new LogsApi(), '/monitor?tab=logs', 'en-US')
+
+    expect(wrapper.findAll('thead th').map((header) => header.text())).toEqual([
+      'Completed',
+      'Request ID',
+      'Protocol and models',
+      'AccessKey',
+      'Final status',
+      'Duration and attempts',
+      'Actions',
+    ])
+    expect(wrapper.get('label[for="logs-model"]').text()).toBe('Client model')
+    const routeCell = wrapper.get(`[data-test="log-row-${firstRequestID}"] td:nth-child(3)`).text()
+    expect(routeCell).toContain('Client model')
+    expect(routeCell).toContain('gpt-client')
+    expect(routeCell).toContain('Upstream model')
+    expect(routeCell).toContain('gpt-upstream')
+  })
+
   it('passes the opaque forward cursor unchanged, appends once, and hides Load more at the end', async () => {
     const opaqueCursor = 'opaque:server/+token=='
     const secondRequestID = 'b4d4e121-8ac3-4df4-8ceb-63b10ddc6173'
