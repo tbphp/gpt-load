@@ -22,6 +22,9 @@ type ModelPriceInput struct {
 }
 
 func (s *Service) UpsertModelPrice(ctx context.Context, input ModelPriceInput) error {
+	if _, err := pricing.Compile([]pricing.Rule{modelPriceInputRule(input)}); err != nil {
+		return app_errors.ErrValidation
+	}
 	return s.writePriceTable(ctx, func(tx *gorm.DB) error {
 		now := s.now()
 		row := models.ModelPrice{
@@ -93,6 +96,12 @@ func loadPriceTable(ctx context.Context, tx *gorm.DB) (*pricing.Table, error) {
 
 	rules := pricing.BuiltinRules()
 	for _, row := range rows {
+		if row.Source != string(pricing.SourceUser) {
+			return nil, fmt.Errorf(
+				"validate persisted model price source: %w",
+				app_errors.ErrInternalServer,
+			)
+		}
 		rules = append(rules, modelPriceRule(row))
 	}
 	table, err := pricing.Compile(rules)
@@ -100,6 +109,20 @@ func loadPriceTable(ctx context.Context, tx *gorm.DB) (*pricing.Table, error) {
 		return nil, fmt.Errorf("compile model prices: %w", app_errors.ErrInternalServer)
 	}
 	return table, nil
+}
+
+func modelPriceInputRule(input ModelPriceInput) pricing.Rule {
+	return pricing.Rule{
+		Pattern: input.Pattern,
+		Prices: pricing.Prices{
+			UncachedInput: priceFromPointer(input.UncachedInput),
+			CacheRead:     priceFromPointer(input.CacheRead),
+			CacheWrite5M:  priceFromPointer(input.CacheWrite5M),
+			CacheWrite1H:  priceFromPointer(input.CacheWrite1H),
+			Output:        priceFromPointer(input.Output),
+		},
+		Source: pricing.SourceUser,
+	}
 }
 
 func modelPriceRule(row models.ModelPrice) pricing.Rule {

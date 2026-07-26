@@ -3,6 +3,7 @@ package storage_test
 import (
 	"context"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -606,6 +607,12 @@ func TestAutoMigrateCreatesM4UsagePricingColumnsAndConstraints(t *testing.T) {
 	if !hasUniqueIndex(usageIndexes, "idx_usage_stats_hour_group_model") {
 		t.Error("usage_stats unique hour/group/model index is missing")
 	}
+	assertM4IndexKeyColumns(
+		t,
+		db,
+		"idx_usage_stats_hour_group_model",
+		[]string{"hour_bucket", "group_id", "model"},
+	)
 
 	var priceColumns []m4ColumnInfo
 	if err := db.Raw("PRAGMA table_info('model_prices')").Scan(&priceColumns).Error; err != nil {
@@ -629,6 +636,7 @@ func TestAutoMigrateCreatesM4UsagePricingColumnsAndConstraints(t *testing.T) {
 	if !hasUniqueIndex(priceIndexes, "idx_model_prices_pattern") {
 		t.Error("model_prices Pattern unique index is missing")
 	}
+	assertM4IndexKeyColumns(t, db, "idx_model_prices_pattern", []string{"pattern"})
 
 	validRequest := models.RequestLog{
 		ID:            "m4-pricing-constraint",
@@ -658,6 +666,37 @@ func TestAutoMigrateCreatesM4UsagePricingColumnsAndConstraints(t *testing.T) {
 	}
 	if err := storage.AutoMigrate(db); err != nil {
 		t.Fatalf("second AutoMigrate() error = %v", err)
+	}
+}
+
+func assertM4IndexKeyColumns(
+	t *testing.T,
+	db *gorm.DB,
+	indexName string,
+	want []string,
+) {
+	t.Helper()
+	type indexColumn struct {
+		Sequence int    `gorm:"column:seqno"`
+		Name     string `gorm:"column:name"`
+		Key      int    `gorm:"column:key"`
+	}
+	var columns []indexColumn
+	if err := db.Raw("PRAGMA index_xinfo('" + indexName + "')").Scan(&columns).Error; err != nil {
+		t.Fatalf("inspect %s key columns: %v", indexName, err)
+	}
+	got := make([]string, 0, len(want))
+	for _, column := range columns {
+		if column.Key != 1 {
+			continue
+		}
+		if column.Sequence != len(got) {
+			t.Errorf("%s key column sequence = %d, want %d", indexName, column.Sequence, len(got))
+		}
+		got = append(got, column.Name)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("%s key columns = %v, want %v", indexName, got, want)
 	}
 }
 

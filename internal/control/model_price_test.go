@@ -3,6 +3,8 @@ package control
 import (
 	"context"
 	"errors"
+	"math"
+	"strings"
 	"sync"
 	"testing"
 
@@ -187,6 +189,72 @@ func TestUpsertModelPriceWritesNullAndExplicitZero(t *testing.T) {
 		!rule.Prices.CacheRead.Set || rule.Prices.CacheRead.Value != 0 ||
 		!rule.Prices.CacheWrite1H.Set || rule.Prices.CacheWrite1H.Value != 0 {
 		t.Fatalf("published nullable/zero prices = %+v, matched=%v", rule.Prices, ok)
+	}
+}
+
+func TestUpsertModelPriceRejectsInvalidInputBeforePersistence(t *testing.T) {
+	one := 1.0
+	nan := math.NaN()
+	positiveInfinity := math.Inf(1)
+	negativeInfinity := math.Inf(-1)
+	negative := -1.0
+	tests := []struct {
+		name  string
+		input ModelPriceInput
+	}{
+		{
+			name: "NaN with another valid price",
+			input: ModelPriceInput{
+				Pattern:   "private-invalid-pattern",
+				CacheRead: &nan,
+				Output:    &one,
+			},
+		},
+		{
+			name: "positive infinity",
+			input: ModelPriceInput{
+				Pattern: "private-invalid-pattern",
+				Output:  &positiveInfinity,
+			},
+		},
+		{
+			name: "negative infinity",
+			input: ModelPriceInput{
+				Pattern: "private-invalid-pattern",
+				Output:  &negativeInfinity,
+			},
+		},
+		{
+			name: "negative price",
+			input: ModelPriceInput{
+				Pattern: "private-invalid-pattern",
+				Output:  &negative,
+			},
+		},
+		{
+			name:  "all prices unset",
+			input: ModelPriceInput{Pattern: "private-invalid-pattern"},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newServiceFixture(t)
+			mustEnsureInitialPrices(t, fixture)
+			beforeTable := fixture.priceRuntime.Load()
+
+			err := fixture.service.UpsertModelPrice(context.Background(), test.input)
+			if err != app_errors.ErrValidation {
+				t.Fatalf("UpsertModelPrice() error = %v, want fixed validation error", err)
+			}
+			if strings.Contains(err.Error(), test.input.Pattern) {
+				t.Fatalf("UpsertModelPrice() error leaked input pattern: %v", err)
+			}
+			if fixture.priceRuntime.Load() != beforeTable {
+				t.Fatal("invalid input changed PriceRuntime")
+			}
+			assertModelPriceCount(t, fixture, 0)
+		})
 	}
 }
 

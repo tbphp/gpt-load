@@ -16,6 +16,7 @@ import (
 	"gorm.io/gorm/logger"
 
 	"gpt-load/internal/platform/encryption"
+	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/state"
 	"gpt-load/internal/storage/models"
@@ -108,6 +109,49 @@ func TestEnsureInitialStateRejectsInvalidPersistedModelPrice(t *testing.T) {
 	}
 	assertAccessKeyCount(t, fixture, 0)
 	assertBootstrapMarkerCount(t, fixture, 0)
+}
+
+func TestEnsureInitialStateRejectsNonUserPersistedModelPrice(t *testing.T) {
+	fixture := newServiceFixture(t)
+	fixture.service.random = bytes.NewReader(make([]byte, 16))
+
+	const (
+		privatePattern = "private-pattern-value"
+		privateSource  = "private-source-value"
+	)
+	if err := fixture.db.Exec("PRAGMA ignore_check_constraints = ON").Error; err != nil {
+		t.Fatalf("enable ignored CHECK constraints: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := fixture.db.Exec("PRAGMA ignore_check_constraints = OFF").Error; err != nil {
+			t.Errorf("restore CHECK constraints: %v", err)
+		}
+	})
+	if err := fixture.db.Exec(`
+		INSERT INTO model_prices (pattern, output_price, source)
+		VALUES (?, ?, ?)
+	`, privatePattern, 73456.125, privateSource).Error; err != nil {
+		t.Fatalf("insert invalid persisted ModelPrice source: %v", err)
+	}
+	if err := fixture.db.Exec("PRAGMA ignore_check_constraints = OFF").Error; err != nil {
+		t.Fatalf("restore CHECK constraints: %v", err)
+	}
+
+	err := fixture.service.EnsureInitialState(context.Background())
+	if !errors.Is(err, app_errors.ErrInternalServer) {
+		t.Fatalf("EnsureInitialState() error = %v, want internal error", err)
+	}
+	for _, privateValue := range []string{privatePattern, privateSource, "73456.125"} {
+		if strings.Contains(err.Error(), privateValue) {
+			t.Fatalf("EnsureInitialState() error leaked persisted value %q: %v", privateValue, err)
+		}
+	}
+	if fixture.priceRuntime.Load() != nil {
+		t.Fatal("failed bootstrap published a PriceTable")
+	}
+	assertAccessKeyCount(t, fixture, 0)
+	assertBootstrapMarkerCount(t, fixture, 0)
+	assertModelPriceCount(t, fixture, 1)
 }
 
 func TestEnsureInitialStateRollsBackBootstrapWhenPriceCompileFails(t *testing.T) {

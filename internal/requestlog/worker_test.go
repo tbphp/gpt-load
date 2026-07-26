@@ -613,6 +613,50 @@ func TestBatchWriterRollsBackRequestLogsAndStatsOnFailure(t *testing.T) {
 		assertRequestLogAndUsageStatCounts(t, db, 0, 0)
 	})
 
+	t.Run("existing UsageStat scan conversion", func(t *testing.T) {
+		db := openRequestLogQueryDB(t)
+		row := newRow()
+		hour := row.CreatedAt.UTC().Truncate(time.Hour)
+		const invalidRequestCount = "not-an-integer"
+		if err := db.Exec(`
+			INSERT INTO usage_stats (
+				hour_bucket, group_id, model, request_count, success_count, cost
+			) VALUES (?, ?, ?, ?, ?, ?)
+		`, hour, row.GroupID, row.UpstreamModel, invalidRequestCount, 7, 3.5).Error; err != nil {
+			t.Fatalf("insert incompatible UsageStat: %v", err)
+		}
+
+		err := (&gormBatchWriter{db: db}).WriteBatch(
+			context.Background(),
+			[]models.RequestLog{row},
+		)
+		if err == nil || !strings.Contains(err.Error(), "query existing usage stats") {
+			t.Fatalf("WriteBatch() error = %v, want UsageStat scan failure", err)
+		}
+		assertRequestLogAndUsageStatCounts(t, db, 0, 1)
+
+		var persisted struct {
+			RequestCount string  `gorm:"column:request_count"`
+			SuccessCount int64   `gorm:"column:success_count"`
+			Cost         float64 `gorm:"column:cost"`
+		}
+		if err := db.Raw(`
+			SELECT
+				CAST(request_count AS TEXT) AS request_count,
+				success_count,
+				cost
+			FROM usage_stats
+			WHERE hour_bucket = ? AND group_id = ? AND model = ?
+		`, hour, row.GroupID, row.UpstreamModel).Scan(&persisted).Error; err != nil {
+			t.Fatalf("read incompatible UsageStat after rollback: %v", err)
+		}
+		if persisted.RequestCount != invalidRequestCount ||
+			persisted.SuccessCount != 7 ||
+			persisted.Cost != 3.5 {
+			t.Fatalf("existing UsageStat changed after scan failure: %+v", persisted)
+		}
+	})
+
 	t.Run("UsageStat UPSERT", func(t *testing.T) {
 		db := openRequestLogQueryDB(t)
 		if err := db.Exec(`

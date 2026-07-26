@@ -163,6 +163,53 @@ func TestQuoteRejectsNonFiniteMultiplicationAndAccumulation(t *testing.T) {
 	}
 }
 
+func TestQuoteRejectsNegativeTokensAndTokenTotalOverflow(t *testing.T) {
+	t.Parallel()
+
+	table := mustCompile(t, Rule{
+		Pattern: "model",
+		Prices: Prices{
+			UncachedInput: Price{Value: 0, Set: true},
+			CacheRead:     Price{Value: 0, Set: true},
+			CacheWrite5M:  Price{Value: 0, Set: true},
+			CacheWrite1H:  Price{Value: 0, Set: true},
+			Output:        Price{Value: 0, Set: true},
+		},
+		Source: SourceUser,
+	})
+	var perFieldOverflow int64 = math.MaxInt64/5 + 1
+	tests := []struct {
+		name   string
+		tokens usage.Tokens
+	}{
+		{
+			name:   "negative token",
+			tokens: usage.Tokens{UncachedInput: -1},
+		},
+		{
+			name: "five-field total overflow",
+			tokens: usage.Tokens{
+				UncachedInput: perFieldOverflow,
+				CacheRead:     perFieldOverflow,
+				CacheWrite5M:  perFieldOverflow,
+				CacheWrite1H:  perFieldOverflow,
+				Output:        perFieldOverflow,
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			quote := table.Quote("model", usage.Result{
+				Tokens: test.tokens,
+				State:  usage.StateComplete,
+			})
+			if quote.State != CostStateUnpriced || quote.Cost != 0 {
+				t.Fatalf("Quote() = %+v, want unpriced zero", quote)
+			}
+		})
+	}
+}
+
 func mustCompile(t *testing.T, rules ...Rule) *Table {
 	t.Helper()
 	table, err := Compile(rules)

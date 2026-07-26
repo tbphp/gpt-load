@@ -56,6 +56,33 @@ func TestCompileMatchUsesSourceKindAndLongestPrefixPriority(t *testing.T) {
 	}
 }
 
+func TestCompileMatchBareUserCatchAllShadowsBuiltins(t *testing.T) {
+	t.Parallel()
+
+	updatedAt := time.Date(2026, 7, 26, 0, 0, 0, 0, time.UTC)
+	table, err := Compile([]Rule{
+		{
+			Pattern:   "gpt-4o",
+			Prices:    priced(1),
+			Source:    SourceBuiltin,
+			SourceURL: "https://builtin.example/pricing",
+			UpdatedAt: updatedAt,
+		},
+		{Pattern: "*", Prices: priced(99), Source: SourceUser},
+	})
+	if err != nil {
+		t.Fatalf("Compile() error = %v", err)
+	}
+
+	for _, model := range []string{"gpt-4o", "claude-opus", "unknown-model"} {
+		rule, ok := table.Match(model)
+		if !ok || rule.Pattern != "*" || rule.Source != SourceUser ||
+			rule.Prices.Output.Value != 99 {
+			t.Errorf("Match(%q) = %+v, %t; want global user override", model, rule, ok)
+		}
+	}
+}
+
 func TestCompileRejectsInvalidRules(t *testing.T) {
 	t.Parallel()
 
