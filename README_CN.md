@@ -6,7 +6,7 @@
 ![Go Version](https://img.shields.io/badge/Go-1.25-blue.svg)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-GPT-Load 是一个用 Go 构建的自托管 AI API 网关，用于管理上游密钥，并通过单一服务暴露 OpenAI、Anthropic 与 Gemini 原生端点。
+GPT-Load 是一个用 Go 构建的自托管 AI API Key 聚合与原生协议网关。它通过单个内嵌管理 UI 的二进制，管理 OpenAI、Anthropic、Gemini 及其兼容上游的密钥，并分别暴露三家的原生数据面端点。
 
 已发布的 1.4.x 维护线文档请访问[官方文档](https://www.gpt-load.com/docs?lang=zh)。
 
@@ -36,119 +36,178 @@ GPT-Load 是一个用 Go 构建的自托管 AI API 网关，用于管理上游�
 </tbody>
 </table>
 
-## 开发状态
+## 2.0 发布状态
 
 > [!WARNING]
-> 2.0 尚未发布。`v2` 是正在开发的绿地重构分支；需要已维护的 1.4.x 发布线时请使用 `main` 分支。
+> 2.0 当前处于 release-ready 收口阶段，但这不表示 `v2.0.0` tag、GitHub Release、二进制或容器镜像已经公开发布。部署前请核对实际可用的 release artifact；不要把仓库分支状态当作发布成功证据。
 
-M1 已作为纯后端里程碑完成，当前不内嵌或提供管理前端；M3 将重新构建该界面。
+2.0 是与 1.x 数据不兼容的 greenfield rewrite。`main` 继续承载 1.4.x 维护线；2.0 不会自动移动 `latest`，稳定容器通道使用显式的 `2` / `2.0` / `v2.0.0` tag。
 
-## 当前 M1 范围
+## 2.0 能力
 
-- 提供带 AccessKey 认证的 OpenAI、Anthropic 与 Gemini 原生数据面路由。
-- 提供基于 SQLite 的 Group、加密上游密钥、AccessKey 与可重载运行时快照。
-- 通过当前管理 API 提供 Group 列表/创建、向现有 Group 导入密钥、两种模型发现操作以及 AccessKey CRUD。
-- 未显式提供主密钥时，自动生成本地加密 keyfile。
+- **双平面**：数据面保留服务商原生路径；管理 API 统一位于 `/api`，管理 UI 内嵌在同一个 Go 二进制中。
+- **三种原生方言**：OpenAI、Anthropic、Gemini 请求分别按对应协议转发，不做协议互转。
+- **密钥与流量管理**：Group、加密上游 Key、AccessKey、模型发现、筛选与限流、调度、健康状态、cooldown、blacklist 和自动权重。
+- **控制与可观测性**：运行设置、路由检查、健康视图、RequestLog，以及中文、英文、日文管理 UI。
+- **用量与估算成本**：采集三种方言可获得的 usage，提供 24 小时/30 天汇总、明细质量状态、内置价格和用户价格覆盖。
 
-后续范围明确延后：M2 完善调度与健康行为，M3 扩展控制面并重建管理 UI，M4 增加用量与成本核算。这些能力均不属于 M1。
+价格和成本是基于上游返回 usage 与当前价格规则的 best-effort **估算**，不是 billing ledger、发票或供应商账单，也不会对历史请求重新计价。
 
-## 架构与运行边界
+## 2.0.0 支持边界
 
-- M1 仅交付 Go 后端，并将数据面流量与 `/api` 管理面分离。
-- 2.0.0 仅支持 SQLite，且只保证单应用实例的正确性。
-- `DATA_DIR` 管理默认 SQLite 数据库、管理面凭据 `auth.key` 以及独立的加密主密钥文件 `encryption.key`；`DATABASE_DSN`、`AUTH_KEY` 与 `ENCRYPTION_KEY` 可分别显式覆盖对应默认值。
-- 上游密钥强制静态加密，不允许明文回退。
+- 只保证**单应用实例**正确性，不支持多实例协调。
+- 只支持 **SQLite**；不支持 PostgreSQL、MySQL 或其他数据库。
+- Group 由 AccessKey 和运行时配置选择，不出现在数据面 URL 中。
+- 上游密钥必须静态加密，不允许明文回退；2.0.0 不支持主密钥轮换，`migrate-keys` 仍是明确失败的延后命令。
+- 不支持 1.x 数据自动迁移、原地升级或反向同步。
+- 不提供协议转换、在线账单对账、自动价格抓取、在线备份 API 或备份 CLI。
 
-## 构建与运行
+## 快速开始
 
-需要 Go 1.25。
+### Docker Compose
 
-```bash
+2.x 的 Compose 发布契约使用 `ghcr.io/tbphp/gpt-load:2`、容器内 `/app/data` 和 named volume `gpt-load-data`，绝不使用 `latest`。执行前先检查当前 checkout：
+
+```console
 cp .env.example .env
-# AUTH_KEY 可选；留空则从 DATA_DIR/auth.key 读取或生成。
-go build -o gpt-load .
-./gpt-load
+docker compose config
 ```
 
-开发时使用 race detector：
+只有当解析结果满足以下条件时，才继续：image 为 `ghcr.io/tbphp/gpt-load:2`，`DATA_DIR=/app/data`，`DATABASE_DSN=/app/data/gpt-load.db`，且 `/app/data` 使用 named volume。若当前 checkout 仍解析为 `latest` 或 host bind mount，表示后续 T18 容器收口尚未落地；不要把该 Compose 文件用于 2.0 生产部署，也不要自行改用 `latest`。
 
-```bash
-make dev
+满足前置条件后：
+
+```console
+docker compose up -d
+curl --fail http://localhost:3001/health
+# 首次自动生成 AUTH_KEY 时，只在安全终端读取一次并立即保存到 secret manager。
+docker compose exec gpt-load sh -c 'cat /app/data/auth.key'
 ```
 
-## 环境变量
+默认 named volume 会保存 SQLite、`auth.key` 和 `encryption.key`。生产环境建议通过受保护的 secret 注入显式 `AUTH_KEY` 与 `ENCRYPTION_KEY`；不要把真实 secret 提交到 `.env`、日志或 issue。自定义容器 `DATABASE_DSN` 时，必须通过 Compose override 同时提供**容器内**路径和匹配的 volume mount。
+
+### 原生二进制
+
+公开发布后，从 GitHub Release 下载与平台匹配的 artifact，并先校验 `SHA256SUMS`。在 release artifact 尚未出现前，可按“构建与验证”从当前 checkout 构建；不要假定文件已经发布。
+
+以下以 Linux amd64 artifact 为例：
+
+```console
+chmod +x ./gpt-load-linux-amd64
+mkdir -p ./data
+DATA_DIR=./data ./gpt-load-linux-amd64
+```
+
+另一个终端验证：
+
+```console
+curl --fail http://localhost:3001/health
+```
+
+然后在浏览器打开 <http://localhost:3001>。
+
+`AUTH_KEY` 与 `ENCRYPTION_KEY` 都可以显式设置。留空时，首次启动分别在 `${DATA_DIR}/auth.key` 与 `${DATA_DIR}/encryption.key` 创建并复用；应用只记录生成文件的路径，不记录 secret 内容。
+
+## 原生数据面
+
+数据面请求使用 AccessKey。按照服务商惯例，可通过 `Authorization: Bearer`、`x-api-key`、`x-goog-api-key` 或 Gemini 的 `key` 查询参数传递凭据。
+
+| 服务商 | 方法与路径 | 行为 |
+|---|---|---|
+| OpenAI | `POST /v1/chat/completions` | OpenAI Chat Completions 原生请求 |
+| OpenAI / Anthropic | `GET /v1/models` | 默认返回 OpenAI 格式；携带 `anthropic-version` 时返回 Anthropic 格式 |
+| Anthropic | `POST /v1/messages` | Anthropic Messages 原生请求 |
+| Gemini | `GET /v1beta/models` | Gemini 原生模型列表 |
+| Gemini | `POST /v1beta/models/{model}:generateContent` | Gemini 非流式生成 |
+| Gemini | `POST /v1beta/models/{model}:streamGenerateContent` | Gemini 流式生成 |
+
+GPT-Load 不把一种方言转换为另一种方言。Group 由 AccessKey 与运行时配置选择，不作为 URL 路径段传入。
+
+## 管理面与用量成本
+
+管理 UI 位于 `/`，管理 API 位于 `/api`；两者都使用 `AUTH_KEY`。UI 包含 Group、上游 Key、AccessKey、运行设置、健康、日志、路由检查、Usage 与模型价格管理。完整管理 API 以当前代码和 UI 为准，本 README 不复制容易漂移的路由清单。
+
+Usage/Cost 质量边界：
+
+- `complete + priced` 请求进入默认 token 与估算成本汇总。
+- `missing`、`partial` 与 `unpriced` 仍进入请求数和对应质量计数，但不进入默认 token/成本汇总；`complete + unpriced` 也不会被猜价。
+- 流式连接 clean EOF 不代表一定获得完整 usage；兼容中转站也可能不返回官方终态 usage。
+- 修改模型价格只影响后续写入，不重算历史 RequestLog 或 UsageStat。
+- 当前进程的 dropped/write-failure 计数与数据库窗口内的耐久汇总是不同口径。
+
+## 核心配置
 
 | 变量 | 默认值 | 用途 |
 |---|---|---|
 | `HOST` | `0.0.0.0` | HTTP 监听地址 |
 | `PORT` | `3001` | HTTP 监听端口 |
-| `AUTH_KEY` | 可选 | 管理 API bearer 凭据；非空环境变量优先且不能包含空白字符；留空则读取或生成 `${DATA_DIR}/auth.key` |
-| `DATA_DIR` | `./data` | 管理默认数据库与自动生成的 `auth.key`、`encryption.key` |
-| `DATABASE_DSN` | `${DATA_DIR}/gpt-load.db` | 设置后显式覆盖 SQLite 路径/DSN |
-| `ENCRYPTION_KEY` | 自动生成 keyfile | 设置后显式覆盖主密钥 |
+| `DATA_DIR` | `./data` | 原生进程的持久目录；容器发布契约固定为 `/app/data` |
+| `DATABASE_DSN` | `${DATA_DIR}/gpt-load.db` | SQLite 路径/DSN；容器路径必须存在于容器命名空间并有匹配 volume |
+| `AUTH_KEY` | 自动生成 keyfile | 管理 bearer 凭据；显式值不能包含空白，留空时读取或创建 `${DATA_DIR}/auth.key` |
+| `ENCRYPTION_KEY` | 自动生成 keyfile | 加密上游 Key 的主密钥；留空时读取或创建 `${DATA_DIR}/encryption.key` |
 | `GRACEFUL_SHUTDOWN_TIMEOUT` | `10` | 优雅停机超时，单位为秒 |
 | `READ_TIMEOUT` | `60` | 读取完整请求的最长时间，单位为秒 |
 | `IDLE_TIMEOUT` | `120` | keep-alive 空闲超时，单位为秒 |
-| `CONTAINER_STOP_GRACE_PERIOD` | `15s` | Docker Compose 停机预算 |
+| `CONTAINER_STOP_GRACE_PERIOD` | `15s` | Compose 停机预算；必须大于应用优雅停机超时 |
 | `LOG_LEVEL` | `info` | 应用日志级别 |
 | `LOG_FORMAT` | `text` | 日志格式：`text` 或 `json` |
 
-`auth.key` 是管理 API bearer 凭据，必须安全备份并限制访问；生成日志只打印文件路径，不打印完整值。它与用于加密已存储上游密钥的 `encryption.key` 相互独立。
+完整的进程配置说明见 [`.env.example`](.env.example)。连接、首字节、请求、流式空闲超时和 RequestLog 保留期属于运行设置，由管理 UI/API 管理，不是额外环境变量。
 
-## 数据面路由
+## 持久化与安全
 
-数据面请求使用 AccessKey。按照服务商惯例，可通过 `Authorization: Bearer`、`x-api-key`、`x-goog-api-key` 或 Gemini 的 `key` 查询参数传递凭据。
+- 默认 `${DATA_DIR}` 同时包含 SQLite、`auth.key` 和 `encryption.key`；这三类资产必须作为一组保护和备份。
+- 丢失或替换 `encryption.key` 会使已加密上游 Key 无法解密。2.0.0 没有自动修复或主密钥轮换。
+- 使用外部 `DATABASE_DSN` 或显式 secret 时，必须单独纳入备份；“备份 DATA_DIR”不再覆盖这些外部资产。
+- SQLite 使用 WAL。备份前先停止入口流量，发送 `SIGTERM` 并等待进程正常退出，再整体复制持久化资产；不要在运行时只复制 `gpt-load.db`。
+- 不要把 AUTH_KEY、ENCRYPTION_KEY、AccessKey 或上游 Key 粘贴到日志、公开 issue、截图或普通备份清单中。
 
-| 方法 | 路径 | 协议 / 行为 |
-|---|---|---|
-| `POST` | `/v1/chat/completions` | OpenAI Chat Completions |
-| `GET` | `/v1/models` | OpenAI 模型列表；携带 `anthropic-version` 请求头时返回 Anthropic 模型列表格式 |
-| `POST` | `/v1/messages` | Anthropic Messages |
-| `GET` | `/v1beta/models` | Gemini 模型列表 |
-| `POST` | `/v1beta/models/{model}:generateContent` | Gemini 内容生成 |
-| `POST` | `/v1beta/models/{model}:streamGenerateContent` | Gemini 流式内容生成 |
+正式运维事实源是 Notion teamspace「GPT-Load 2.0」的「🚀 运维部署」分类下的 **《GPT-Load 2.0 部署、备份恢复与 1.x 切换 Runbook》**。Task 11 负责创建或更新该页面并回填可解析链接；在此之前本 README 不虚构 URL。
 
-Group 由 AccessKey 与运行时配置选择，不作为 URL 路径段传入。
+## 从 1.x 切换
 
-## 管理 API
+2.0 不能打开、导入或原地升级 1.x 数据库，也不能复用 1.x `DATA_DIR`。推荐流程是：
 
-所有管理路由都要求 `Authorization: Bearer <AUTH_KEY>`。
+1. 保持 1.x 运行并先验证其备份可恢复。
+2. 为 2.0 使用独立端口、`DATA_DIR` / named volume 和数据库。
+3. 手工重建最小 Group、上游 Key、AccessKey 与规则，在隔离环境验证三方言、日志及 usage/cost。
+4. 在维护窗或小流量阶段切换入口；失败时停止 2.0 并切回原 1.x，不把 2.0 新数据反向导入 1.x。
 
-| 方法 | 路径 | 用途 |
-|---|---|---|
-| `GET` | `/api/auth/session` | 验证当前管理凭据 |
-| `GET` | `/api/groups` | 列出 Group |
-| `POST` | `/api/groups` | 创建 Group |
-| `POST` | `/api/groups/{group_id}/keys/import` | 向现有 Group 导入密钥 |
-| `POST` | `/api/groups/{group_id}/models/discover` | 通过现有 Group 发现模型 |
-| `POST` | `/api/models/discover` | 使用显式上游配置发现模型 |
-| `POST` | `/api/access-keys` | 创建 AccessKey |
-| `GET` | `/api/access-keys` | 列出 AccessKey |
-| `PUT` | `/api/access-keys/{id}` | 更新 AccessKey |
-| `DELETE` | `/api/access-keys/{id}` | 删除 AccessKey |
+`latest` 不是 1.x → 2.0 的安全升级通道。切换、备份、恢复和回滚步骤以正式 Runbook 为准。
 
-管理面失败响应使用 `{ "code": string, "message": string, "data"?: any }`。仅当客户端需要结构化信息决定下一步动作时才会提供可选的 `data` 字段。
+## 构建与验证
 
-## Docker Compose
+基线：Go `1.25.12`、Node.js `>=24.11.0`、pnpm `11.15.1`。
 
-Compose 文件默认使用已发布镜像。若要运行尚未发布的 `v2` checkout，请先取消本地 `build` 配置块的注释，然后执行：
+构建内嵌管理 UI 的单二进制：
 
-```bash
-cp .env.example .env
-# AUTH_KEY 可选；留空则从 /app/data/auth.key 读取或生成。
-docker compose up -d --build
-docker compose exec gpt-load sh -c 'cat /app/data/auth.key'
-docker compose logs -f gpt-load
+```console
+make build
 ```
 
-必须安全备份 `${DATA_DIR}/auth.key` 并限制访问；它是管理面 bearer 凭据，不是加密密钥。升级或修改加密密钥前，必须同时备份 SQLite 数据库和 `${DATA_DIR}/encryption.key`。若设置了 `DATABASE_DSN` 或 `ENCRYPTION_KEY`，则改为备份相应的显式值。
+完整的本地质量门禁：
 
-## 测试
-
-```bash
+```console
+corepack pnpm --dir web install --frozen-lockfile
+corepack pnpm --dir web run lint
+corepack pnpm --dir web run format
+corepack pnpm --dir web run type-check
+corepack pnpm --dir web run test
+corepack pnpm --dir web run build
+go build -o gpt-load .
 go test -race . ./internal/...
-go test ./internal/somepkg -run '^TestName$' -v
+corepack pnpm --dir web run test:e2e
 ```
+
+2.0.0 预期提供五个原生 raw binary 和一个 `SHA256SUMS`：
+
+- `gpt-load-linux-amd64`
+- `gpt-load-linux-arm64`
+- `gpt-load-macos-amd64`
+- `gpt-load-macos-arm64`
+- `gpt-load-windows-amd64.exe`
+
+这些是发布契约中的预期名称，不代表当前已经存在可下载的 GitHub Release。
 
 ## 许可证与安全
 

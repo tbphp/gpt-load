@@ -6,7 +6,7 @@
 ![Go Version](https://img.shields.io/badge/Go-1.25-blue.svg)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-GPT-Loadは、上流AI APIキーを管理し、単一サービスからOpenAI、Anthropic、Geminiのネイティブエンドポイントを公開するGo製のセルフホスト型ゲートウェイです。
+GPT-Loadは、Goで構築されたセルフホスト型のAI APIキー集約・ネイティブプロトコルゲートウェイです。管理UIを内蔵した単一バイナリでOpenAI、Anthropic、Geminiおよび互換上流のキーを管理し、各プロバイダーのネイティブなデータプレーンエンドポイントを公開します。
 
 公開済みの1.4.xメンテナンスラインについては、[公式ドキュメント](https://www.gpt-load.com/docs?lang=ja)をご覧ください。
 
@@ -36,119 +36,179 @@ GPT-Loadは、上流AI APIキーを管理し、単一サービスからOpenAI、
 </tbody>
 </table>
 
-## 開発状況
+## 2.0のリリース状況
 
 > [!WARNING]
-> 2.0は未リリースです。`v2`は開発中のグリーンフィールド再構築ブランチです。メンテナンス中の1.4.xリリースラインには`main`ブランチを使用してください。
+> 2.0は現在release-readyの最終段階にあります。ただし、`v2.0.0`タグ、GitHub Release、バイナリ、コンテナイメージが公開済みという意味ではありません。デプロイ前に実在するrelease artifactを確認し、リポジトリのブランチ状態をリリース成功の証拠として扱わないでください。
 
-M1はバックエンドのみのマイルストーンとして完了しています。管理フロントエンドは同梱も提供もされず、M3で再構築されます。
+2.0は1.xとデータ互換性のないgreenfield rewriteです。`main`は引き続き1.4.xメンテナンスラインを提供します。2.0は`latest`を自動更新せず、安定したコンテナチャネルには明示的な`2`、`2.0`、`v2.0.0`タグを使用します。
 
-## 現在のM1範囲
+## 2.0の機能
 
-- AccessKey認証を備えたOpenAI、Anthropic、Geminiのネイティブデータプレーンルート。
-- SQLiteに保存されるGroup、暗号化された上流キー、AccessKey、および再読み込み可能なランタイムスナップショット。
-- 現在の管理APIによるGroupの一覧/作成、既存Groupへのキーインポート、2種類のモデル検出操作、およびAccessKey CRUD。
-- 明示的なマスターキーがない場合のローカル暗号化keyfileの自動生成。
+- **2つのプレーン**：データプレーンはプロバイダーのネイティブパスを維持し、管理APIは`/api`に統一されます。管理UIは同じGoバイナリに内蔵されます。
+- **3つのネイティブ方言**：OpenAI、Anthropic、Geminiのリクエストをそれぞれのプロトコルで転送し、プロトコル間の変換は行いません。
+- **キーとトラフィックの管理**：Group、暗号化された上流Key、AccessKey、モデル検出、フィルターとレート制限、スケジューリング、ヘルス状態、cooldown、blacklist、自動重み付け。
+- **制御と可観測性**：ランタイム設定、ルート検査、ヘルス表示、RequestLog、中国語・英語・日本語の管理UI。
+- **使用量と推定コスト**：3方言から取得可能なusage、24時間/30日レポート、リクエスト単位の品質状態、組み込み価格、ユーザー価格の上書き。
 
-後続範囲は明確に延期されています。M2でスケジューリングとヘルス動作を完成させ、M3でコントロールプレーンを拡張して管理UIを再構築し、M4で使用量とコストの集計を追加します。これらの機能はM1には含まれません。
+価格とコストは、上流から返されたusageと現在の価格ルールに基づくbest-effortの**推定値**です。billing ledger、請求書、プロバイダー請求ではなく、過去のリクエストを再計算することもありません。
 
-## アーキテクチャと実行時の制限
+## 2.0.0のサポート境界
 
-- M1はGoバックエンドのみを提供し、データプレーントラフィックを`/api`管理プレーンから分離します。
-- 2.0.0はSQLiteのみをサポートし、単一アプリケーションインスタンスの正しさのみを保証します。
-- `DATA_DIR`がデフォルトのSQLiteデータベース、管理プレーン認証情報の`auth.key`、および独立した暗号化マスターキーファイル`encryption.key`を管理します。`DATABASE_DSN`、`AUTH_KEY`、`ENCRYPTION_KEY`はそれぞれのデフォルトを明示的に上書きします。
-- 上流シークレットは保存時に暗号化され、平文へのフォールバックはありません。
+- 正しさを保証するのは**単一アプリケーションインスタンス**のみで、複数インスタンスの協調には対応しません。
+- **SQLiteのみ**をサポートし、PostgreSQL、MySQL、その他のデータベースには対応しません。
+- GroupはAccessKeyとランタイム設定で選択され、データプレーンURLには含まれません。
+- 上流キーは必ず保存時に暗号化され、平文へのフォールバックはありません。2.0.0はマスターキーのローテーションに対応せず、`migrate-keys`は明示的に失敗する延期コマンドのままです。
+- 1.xデータの自動移行、インプレースアップグレード、逆同期には対応しません。
+- プロトコル変換、オンライン請求照合、自動価格取得、オンラインバックアップAPI、バックアップCLIは提供しません。
 
-## ビルドと実行
+## クイックスタート
 
-Go 1.25が必要です。
+### Docker Compose
 
-```bash
+2.xのComposeリリース契約では`ghcr.io/tbphp/gpt-load:2`、コンテナ内パス`/app/data`、named volume `gpt-load-data`を使用し、`latest`は使用しません。まず現在のcheckoutを確認します。
+
+```console
 cp .env.example .env
-# AUTH_KEYは任意です。空のままにするとDATA_DIR/auth.keyを読み取りまたは生成します。
-go build -o gpt-load .
-./gpt-load
+docker compose config
 ```
 
-race detectorを有効にして開発する場合：
+解決後の設定でimageが`ghcr.io/tbphp/gpt-load:2`、`DATA_DIR=/app/data`、`DATABASE_DSN=/app/data/gpt-load.db`となり、`/app/data`にnamed volumeがマウントされる場合だけ続行してください。現在のcheckoutがまだ`latest`またはhost bind mountに解決される場合、後続のT18コンテナ作業は未反映です。そのComposeファイルを2.0の本番デプロイに使用せず、`latest`で代用しないでください。
 
-```bash
-make dev
+前提条件を満たした後：
+
+```console
+docker compose up -d
+curl --fail http://localhost:3001/health
+# 初回起動でAUTH_KEYが生成された場合、安全な端末で一度だけ読み取り、
+# 直ちにsecret managerへ保存します。
+docker compose exec gpt-load sh -c 'cat /app/data/auth.key'
 ```
 
-## 環境変数
+デフォルトのnamed volumeにはSQLite、`auth.key`、`encryption.key`が保持されます。本番環境では、保護されたsecret処理を通じて明示的な`AUTH_KEY`と`ENCRYPTION_KEY`を注入してください。実際のsecretを`.env`、ログ、issueへコミットしないでください。コンテナで`DATABASE_DSN`を変更する場合、**コンテナ内**パスと対応するvolume mountをCompose overrideで同時に設定する必要があります。
+
+### ネイティブバイナリ
+
+公開後、GitHub Releaseからプラットフォームに合うartifactをダウンロードし、`SHA256SUMS`で検証します。release artifactが実際に存在するまでは、「ビルドと検証」に従って現在のcheckoutからビルドし、既に公開済みと仮定しないでください。
+
+Linux amd64の例：
+
+```console
+chmod +x ./gpt-load-linux-amd64
+mkdir -p ./data
+DATA_DIR=./data ./gpt-load-linux-amd64
+```
+
+別の端末で確認します。
+
+```console
+curl --fail http://localhost:3001/health
+```
+
+ブラウザーで<http://localhost:3001>を開きます。
+
+`AUTH_KEY`と`ENCRYPTION_KEY`はどちらも明示的に設定できます。空の場合、初回起動時にそれぞれ`${DATA_DIR}/auth.key`と`${DATA_DIR}/encryption.key`を作成し、その後も再利用します。アプリケーションは生成したファイルのパスだけをログに記録し、secretの内容は記録しません。
+
+## ネイティブデータプレーン
+
+データプレーンリクエストはAccessKeyを使用します。プロバイダー互換の認証情報は、必要に応じて`Authorization: Bearer`、`x-api-key`、`x-goog-api-key`、またはGeminiの`key`クエリパラメータで渡せます。
+
+| プロバイダー | メソッドとパス | 動作 |
+|---|---|---|
+| OpenAI | `POST /v1/chat/completions` | ネイティブOpenAI Chat Completionsリクエスト |
+| OpenAI / Anthropic | `GET /v1/models` | デフォルトはOpenAI形式、`anthropic-version`がある場合はAnthropic形式 |
+| Anthropic | `POST /v1/messages` | ネイティブAnthropic Messagesリクエスト |
+| Gemini | `GET /v1beta/models` | ネイティブGeminiモデル一覧 |
+| Gemini | `POST /v1beta/models/{model}:generateContent` | Gemini非ストリーミング生成 |
+| Gemini | `POST /v1beta/models/{model}:streamGenerateContent` | Geminiストリーミング生成 |
+
+GPT-Loadは方言間の変換を行いません。GroupはAccessKeyとランタイム設定で選択され、URLパスセグメントとして渡しません。
+
+## 管理、使用量、コスト
+
+管理UIは`/`、管理APIは`/api`で提供され、どちらも`AUTH_KEY`を使用します。UIにはGroup、上流キー、AccessKey、ランタイム設定、ヘルス、ログ、ルート検査、Usage、モデル価格管理があります。管理APIの事実源は現在のコードとUIであり、このREADMEでは変化しやすいルート一覧を複製しません。
+
+Usage/Costの品質境界：
+
+- `complete + priced`のリクエストだけが、デフォルトのtoken合計と推定コスト合計に入ります。
+- `missing`、`partial`、`unpriced`もリクエスト数と品質カウントには入りますが、デフォルトのtoken/コスト合計には入りません。`complete + unpriced`に推測価格を割り当てることもありません。
+- ストリームのclean EOFは完全なusageを保証せず、互換中継サービスがプロバイダー公式の終端usageを返さない場合もあります。
+- 価格変更は今後の書き込みにだけ影響し、過去のRequestLogやUsageStatは再計算されません。
+- 現在のプロセスにおけるdropped/write-failureカウンターと、データベース期間内の永続集計は異なる範囲です。
+
+## 主要設定
 
 | 変数 | デフォルト | 用途 |
 |---|---|---|
 | `HOST` | `0.0.0.0` | HTTPリッスンアドレス |
 | `PORT` | `3001` | HTTPリッスンポート |
-| `AUTH_KEY` | 任意 | 管理APIのbearer認証情報。空でない環境変数が優先され、空白文字を含められません。空の場合は`${DATA_DIR}/auth.key`を読み取りまたは生成します |
-| `DATA_DIR` | `./data` | デフォルトDBと生成される`auth.key`、`encryption.key`を管理 |
-| `DATABASE_DSN` | `${DATA_DIR}/gpt-load.db` | 設定時にSQLiteパス/DSNを明示的に上書き |
-| `ENCRYPTION_KEY` | keyfileを自動生成 | 設定時にマスターキーを明示的に上書き |
+| `DATA_DIR` | `./data` | ネイティブプロセスの永続ディレクトリ。コンテナのリリース契約では`/app/data`に固定 |
+| `DATABASE_DSN` | `${DATA_DIR}/gpt-load.db` | SQLiteパス/DSN。コンテナパスはコンテナ名前空間に存在し、対応するvolumeが必要 |
+| `AUTH_KEY` | keyfileを自動生成 | 管理bearer認証情報。明示値に空白は使用不可。空の場合`${DATA_DIR}/auth.key`を読み取りまたは作成 |
+| `ENCRYPTION_KEY` | keyfileを自動生成 | 上流キー暗号化用マスターキー。空の場合`${DATA_DIR}/encryption.key`を読み取りまたは作成 |
 | `GRACEFUL_SHUTDOWN_TIMEOUT` | `10` | グレースフルシャットダウンの秒数 |
 | `READ_TIMEOUT` | `60` | リクエスト全体を読み取る最大秒数 |
 | `IDLE_TIMEOUT` | `120` | keep-aliveのアイドルタイムアウト秒数 |
-| `CONTAINER_STOP_GRACE_PERIOD` | `15s` | Docker Composeの停止猶予 |
+| `CONTAINER_STOP_GRACE_PERIOD` | `15s` | Composeの停止猶予。アプリケーションのシャットダウン時間より長く設定 |
 | `LOG_LEVEL` | `info` | アプリケーションログレベル |
 | `LOG_FORMAT` | `text` | ログ形式：`text`または`json` |
 
-`auth.key`は管理APIのbearer認証情報です。安全にバックアップし、アクセスを制限してください。生成ログはファイルパスだけを出力し、完全な値は出力しません。保存済み上流シークレットを暗号化する`encryption.key`とは別のものです。
+プロセス設定の全項目は[`.env.example`](.env.example)を参照してください。接続、最初のバイト、リクエスト、ストリームアイドルの各タイムアウトとRequestLog保持期間は管理UI/APIで扱うランタイム設定であり、追加の環境変数ではありません。
 
-## データプレーンルート
+## 永続化とセキュリティ
 
-データプレーンリクエストはAccessKeyを使用します。プロバイダー互換の認証情報は、必要に応じて`Authorization: Bearer`、`x-api-key`、`x-goog-api-key`、またはGeminiの`key`クエリパラメータで渡せます。
+- デフォルトでは`${DATA_DIR}`にSQLite、`auth.key`、`encryption.key`が含まれます。これらを一組の復旧資産として保護し、バックアップしてください。
+- `encryption.key`を失う、または置換すると、暗号化済みの上流キーを復号できません。2.0.0には自動修復やマスターキーのローテーションがありません。
+- 外部`DATABASE_DSN`または明示管理するsecretは別途バックアップが必要です。DATA_DIRのバックアップだけでは外部資産を保護できません。
+- SQLiteはWALを使用します。バックアップ前に新規トラフィックを止め、`SIGTERM`を送信して正常終了を待ち、その後で永続資産全体をコピーしてください。実行中に`gpt-load.db`だけをコピーしないでください。
+- AUTH_KEY、ENCRYPTION_KEY、AccessKey、上流キーをログ、公開issue、スクリーンショット、通常のバックアップ一覧に貼り付けないでください。
 
-| メソッド | パス | プロトコル / 動作 |
-|---|---|---|
-| `POST` | `/v1/chat/completions` | OpenAI Chat Completions |
-| `GET` | `/v1/models` | OpenAIモデル一覧。`anthropic-version`ヘッダーがある場合はAnthropicモデル一覧形式 |
-| `POST` | `/v1/messages` | Anthropic Messages |
-| `GET` | `/v1beta/models` | Geminiモデル一覧 |
-| `POST` | `/v1beta/models/{model}:generateContent` | Geminiコンテンツ生成 |
-| `POST` | `/v1beta/models/{model}:streamGenerateContent` | Geminiストリーミングコンテンツ生成 |
+正式な運用情報源は、Notion teamspace「GPT-Load 2.0」の「🚀 運用デプロイ（🚀 运维部署）」分類にある **「GPT-Load 2.0 デプロイ、バックアップ/リストア、1.x切り替えRunbook（GPT-Load 2.0 部署、备份恢复与 1.x 切换 Runbook）」** です。Task 11がそのページを作成または更新し、リンクを確定します。それまでは、このREADMEでURLを推測しません。
 
-GroupはURLパスセグメントではなく、AccessKeyとランタイム設定によって選択されます。
+## 1.xからの切り替え
 
-## 管理API
+2.0は1.xデータベースを開く、インポートする、インプレースアップグレードすることができず、1.xの`DATA_DIR`も再利用できません。推奨手順：
 
-すべての管理ルートで`Authorization: Bearer <AUTH_KEY>`が必要です。
+1. 1.xを稼働させたまま、バックアップから復元できることを確認します。
+2. 2.0には別のポート、`DATA_DIR` / named volume、データベースを用意します。
+3. 最小限のGroup、上流キー、AccessKey、ルールを手動で再構築し、3方言、ログ、usage/costを隔離環境で検証します。
+4. メンテナンス時間または小規模なロールアウトで入口トラフィックを切り替えます。失敗した場合は2.0を停止して元の1.xへ戻し、2.0で新たに生成されたデータを1.xへ逆インポートしません。
 
-| メソッド | パス | 用途 |
-|---|---|---|
-| `GET` | `/api/auth/session` | 現在の管理認証情報を検証 |
-| `GET` | `/api/groups` | Group一覧 |
-| `POST` | `/api/groups` | Group作成 |
-| `POST` | `/api/groups/{group_id}/keys/import` | 既存Groupへのキーインポート |
-| `POST` | `/api/groups/{group_id}/models/discover` | 既存Group経由のモデル検出 |
-| `POST` | `/api/models/discover` | 明示的な上流設定によるモデル検出 |
-| `POST` | `/api/access-keys` | AccessKey作成 |
-| `GET` | `/api/access-keys` | AccessKey一覧 |
-| `PUT` | `/api/access-keys/{id}` | AccessKey更新 |
-| `DELETE` | `/api/access-keys/{id}` | AccessKey削除 |
+`latest`は1.xから2.0への安全なアップグレードチャネルではありません。切り替え、バックアップ、復元、ロールバックの詳細は正式Runbookに従ってください。
 
-管理プレーンの失敗レスポンスは`{ "code": string, "message": string, "data"?: any }`です。任意の`data`フィールドは、クライアントが次の操作を決定するために構造化情報を必要とする場合にのみ含まれます。
+## ビルドと検証
 
-## Docker Compose
+基準ツール：Go `1.25.12`、Node.js `>=24.11.0`、pnpm `11.15.1`。
 
-Composeファイルはデフォルトで公開済みイメージを使用します。未リリースの`v2` checkoutを実行するには、最初にローカル`build`ブロックのコメントを解除してから、次を実行します。
+管理UIを内蔵した単一バイナリをビルドします。
 
-```bash
-cp .env.example .env
-# AUTH_KEYは任意です。空のままにすると/app/data/auth.keyを読み取りまたは生成します。
-docker compose up -d --build
-docker compose exec gpt-load sh -c 'cat /app/data/auth.key'
-docker compose logs -f gpt-load
+```console
+make build
 ```
 
-`${DATA_DIR}/auth.key`は安全にバックアップし、アクセスを制限してください。これは管理プレーンのbearer認証情報であり、暗号化キーではありません。アップグレードや暗号化キーの変更前に、SQLiteデータベースと`${DATA_DIR}/encryption.key`を一緒にバックアップしてください。`DATABASE_DSN`または`ENCRYPTION_KEY`を設定した場合は、対応する明示的な値を代わりにバックアップします。
+ローカルの完全な品質ゲート：
 
-## テスト
-
-```bash
+```console
+corepack pnpm --dir web install --frozen-lockfile
+corepack pnpm --dir web run lint
+corepack pnpm --dir web run format
+corepack pnpm --dir web run type-check
+corepack pnpm --dir web run test
+corepack pnpm --dir web run build
+go build -o gpt-load .
 go test -race . ./internal/...
-go test ./internal/somepkg -run '^TestName$' -v
+corepack pnpm --dir web run test:e2e
 ```
+
+2.0.0では5つのネイティブraw binaryと`SHA256SUMS`を提供する予定です。
+
+- `gpt-load-linux-amd64`
+- `gpt-load-linux-arm64`
+- `gpt-load-macos-amd64`
+- `gpt-load-macos-arm64`
+- `gpt-load-windows-amd64.exe`
+
+これらはリリース契約上の予定名であり、ダウンロード可能なGitHub Releaseが現時点で存在するという主張ではありません。
 
 ## ライセンスとセキュリティ
 

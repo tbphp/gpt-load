@@ -6,7 +6,7 @@ English | [中文](README_CN.md) | [日本語](README_JP.md)
 ![Go Version](https://img.shields.io/badge/Go-1.25-blue.svg)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-GPT-Load is a self-hosted Go gateway for managing upstream AI API keys and exposing native OpenAI, Anthropic, and Gemini endpoints through one service.
+GPT-Load is a self-hosted AI API key aggregator and native-protocol gateway written in Go. A single binary with an embedded admin UI manages keys for OpenAI, Anthropic, Gemini, and compatible upstreams while exposing each provider's native data-plane endpoints.
 
 For the maintained 1.4.x release documentation, visit the [official documentation](https://www.gpt-load.com/docs?lang=en).
 
@@ -36,119 +36,179 @@ For the maintained 1.4.x release documentation, visit the [official documentatio
 </tbody>
 </table>
 
-## Development status
+## 2.0 release status
 
 > [!WARNING]
-> 2.0 is not released. The `v2` branch is an active greenfield rewrite; use the `main` branch for the maintained 1.4.x release line.
+> 2.0 is currently in release-ready closeout. This does not mean that a `v2.0.0` tag, GitHub Release, binary, or container image has been published. Check the actual release assets before deploying; a repository branch is not evidence of a successful release.
 
-M1 is complete as a backend-only milestone. It does not bundle or provide an admin frontend; M3 will rebuild that interface.
+2.0 is a greenfield rewrite whose data is incompatible with 1.x. `main` remains the 1.4.x maintenance line. 2.0 does not automatically move `latest`; stable container channels use explicit `2`, `2.0`, and `v2.0.0` tags.
 
-## Current M1 scope
+## 2.0 capabilities
 
-- Native OpenAI, Anthropic, and Gemini data-plane routes with AccessKey authentication.
-- SQLite-backed Groups, encrypted upstream keys, AccessKeys, and a reloadable runtime snapshot.
-- Group list/create, key import into an existing Group, both model-discovery operations, and AccessKey CRUD through the current management API.
-- Automatic generation of a local encryption keyfile when no explicit master key is supplied.
+- **Two planes:** provider-native paths on the data plane; management APIs under `/api`, with the admin UI embedded in the same Go binary.
+- **Three native dialects:** OpenAI, Anthropic, and Gemini requests are forwarded in their respective protocols. GPT-Load does not translate between protocols.
+- **Key and traffic management:** Groups, encrypted upstream keys, AccessKeys, model discovery, filtering and rate limits, scheduling, health state, cooldown, blacklist, and automatic weights.
+- **Control and observability:** runtime settings, route inspection, health views, RequestLog, and a Chinese, English, and Japanese admin UI.
+- **Usage and estimated cost:** usage extraction for the three dialects, 24-hour/30-day reports, per-request quality states, built-in prices, and user price overrides.
 
-Deferred work is explicit: M2 completes scheduling and health behavior, M3 expands the control plane and rebuilds the admin UI, and M4 adds usage and cost accounting. Those capabilities are not part of M1.
+Prices and costs are best-effort **estimates** derived from upstream usage and the active pricing rules. They are not a billing ledger, invoice, or provider bill, and historical requests are not repriced.
 
-## Architecture and runtime limits
+## 2.0.0 support boundaries
 
-- M1 ships only the Go backend and separates data-plane traffic from the `/api` management plane.
-- 2.0.0 supports SQLite only and guarantees correctness for a single application instance only.
-- `DATA_DIR` owns the default SQLite database, the management credential `auth.key`, and the separate encryption master-key file `encryption.key`. `DATABASE_DSN`, `AUTH_KEY`, and `ENCRYPTION_KEY` explicitly override their respective defaults.
-- Upstream secrets are encrypted at rest; there is no plaintext fallback.
+- Correctness is guaranteed for a **single application instance** only; multi-instance coordination is not supported.
+- **SQLite only**; PostgreSQL, MySQL, and other databases are not supported.
+- The AccessKey and runtime configuration select the Group. A Group never appears in the data-plane URL.
+- Upstream keys must be encrypted at rest with no plaintext fallback. 2.0.0 has no master-key rotation; `migrate-keys` remains an explicitly failing deferred command.
+- There is no automatic 1.x migration, in-place upgrade, or reverse synchronization.
+- There is no protocol conversion, online billing reconciliation, automatic price fetcher, online backup API, or backup CLI.
 
-## Build and run
+## Quick start
 
-Go 1.25 is required.
+### Docker Compose
 
-```bash
+The 2.x Compose release contract uses `ghcr.io/tbphp/gpt-load:2`, container path `/app/data`, and the `gpt-load-data` named volume. It never uses `latest`. Check the current checkout first:
+
+```console
 cp .env.example .env
-# AUTH_KEY is optional; leave it empty to read or create DATA_DIR/auth.key.
-go build -o gpt-load .
-./gpt-load
+docker compose config
 ```
 
-For development with the race detector:
+Continue only if the resolved configuration uses image `ghcr.io/tbphp/gpt-load:2`, sets `DATA_DIR=/app/data` and `DATABASE_DSN=/app/data/gpt-load.db`, and mounts a named volume at `/app/data`. If the checkout still resolves to `latest` or a host bind mount, the later T18 container closeout has not landed. Do not use that Compose file for a 2.0 production deployment, and do not substitute `latest`.
 
-```bash
-make dev
+After those preconditions are met:
+
+```console
+docker compose up -d
+curl --fail http://localhost:3001/health
+# If AUTH_KEY was generated on first boot, read it once in a secure terminal
+# and immediately store it in a secret manager.
+docker compose exec gpt-load sh -c 'cat /app/data/auth.key'
 ```
 
-## Environment
+The named volume preserves SQLite, `auth.key`, and `encryption.key`. Production deployments should inject explicit `AUTH_KEY` and `ENCRYPTION_KEY` values through protected secret handling. Never commit real secrets to `.env`, logs, or issues. A custom container `DATABASE_DSN` requires a Compose override with both a **container** path and a matching volume mount.
+
+### Native binary
+
+After publication, download the platform-matching artifact from the GitHub Release and verify it against `SHA256SUMS`. Until release assets actually exist, build from the current checkout as shown under “Build and verification”; do not assume that an artifact has been published.
+
+Linux amd64 example:
+
+```console
+chmod +x ./gpt-load-linux-amd64
+mkdir -p ./data
+DATA_DIR=./data ./gpt-load-linux-amd64
+```
+
+In another terminal:
+
+```console
+curl --fail http://localhost:3001/health
+```
+
+Then open <http://localhost:3001> in a browser.
+
+`AUTH_KEY` and `ENCRYPTION_KEY` may both be supplied explicitly. When left empty, first boot creates and reuses `${DATA_DIR}/auth.key` and `${DATA_DIR}/encryption.key`, respectively. The application logs generated file paths, never their secret contents.
+
+## Native data plane
+
+Data-plane requests use an AccessKey. Provider-compatible credentials are accepted through `Authorization: Bearer`, `x-api-key`, `x-goog-api-key`, or Gemini's `key` query parameter as appropriate.
+
+| Provider | Method and path | Behavior |
+|---|---|---|
+| OpenAI | `POST /v1/chat/completions` | Native OpenAI Chat Completions request |
+| OpenAI / Anthropic | `GET /v1/models` | OpenAI shape by default; Anthropic shape when `anthropic-version` is present |
+| Anthropic | `POST /v1/messages` | Native Anthropic Messages request |
+| Gemini | `GET /v1beta/models` | Native Gemini model list |
+| Gemini | `POST /v1beta/models/{model}:generateContent` | Gemini non-streaming generation |
+| Gemini | `POST /v1beta/models/{model}:streamGenerateContent` | Gemini streaming generation |
+
+GPT-Load does not translate one dialect into another. The AccessKey and runtime configuration select the Group; it is not passed as a URL path segment.
+
+## Management, usage, and cost
+
+The admin UI is served at `/`, and management APIs are under `/api`; both use `AUTH_KEY`. The UI covers Groups, upstream keys, AccessKeys, runtime settings, health, logs, route inspection, Usage, and model-price management. Current code and UI are the management API reference; this README intentionally avoids copying a route list that can drift.
+
+Usage/Cost quality boundaries:
+
+- `complete + priced` requests contribute to default token and estimated-cost totals.
+- `missing`, `partial`, and `unpriced` requests still contribute to request and quality counts but not to default token/cost totals. `complete + unpriced` requests are never assigned guessed prices.
+- A clean EOF on a stream does not guarantee complete usage, and compatible relays may omit the provider's official terminal usage.
+- Price changes affect future writes only. Historical RequestLog and UsageStat rows are not recalculated.
+- Current-process dropped/write-failure counters and durable database-window aggregates have different scopes.
+
+## Core configuration
 
 | Variable | Default | Purpose |
 |---|---|---|
 | `HOST` | `0.0.0.0` | HTTP listen address |
 | `PORT` | `3001` | HTTP listen port |
-| `AUTH_KEY` | optional | Management API bearer credential; a non-empty value wins and cannot contain whitespace; when empty, reads or creates `${DATA_DIR}/auth.key` |
-| `DATA_DIR` | `./data` | Owns the default database and generated `auth.key` and `encryption.key` |
-| `DATABASE_DSN` | `${DATA_DIR}/gpt-load.db` | Explicit SQLite path/DSN override when set |
-| `ENCRYPTION_KEY` | generated keyfile | Explicit master-key override when set |
+| `DATA_DIR` | `./data` | Persistent directory for a native process; fixed to `/app/data` by the container release contract |
+| `DATABASE_DSN` | `${DATA_DIR}/gpt-load.db` | SQLite path/DSN; a container path must exist in the container namespace and have a matching volume |
+| `AUTH_KEY` | generated keyfile | Management bearer credential; an explicit value cannot contain whitespace; otherwise reads or creates `${DATA_DIR}/auth.key` |
+| `ENCRYPTION_KEY` | generated keyfile | Master key for encrypted upstream keys; otherwise reads or creates `${DATA_DIR}/encryption.key` |
 | `GRACEFUL_SHUTDOWN_TIMEOUT` | `10` | Graceful shutdown timeout in seconds |
 | `READ_TIMEOUT` | `60` | Maximum time to read a complete request, in seconds |
 | `IDLE_TIMEOUT` | `120` | Keep-alive idle timeout in seconds |
-| `CONTAINER_STOP_GRACE_PERIOD` | `15s` | Docker Compose stop budget |
+| `CONTAINER_STOP_GRACE_PERIOD` | `15s` | Compose stop budget; must exceed the application shutdown timeout |
 | `LOG_LEVEL` | `info` | Application log level |
 | `LOG_FORMAT` | `text` | Log format: `text` or `json` |
 
-`auth.key` is the management API bearer credential. Back it up securely and restrict access to it; generation logs only its path, never the full value. It is separate from `encryption.key`, which encrypts stored upstream secrets.
+See [`.env.example`](.env.example) for the complete process configuration. Connect, first-byte, request, and stream-idle timeouts plus RequestLog retention are runtime settings managed through the admin UI/API, not additional environment variables.
 
-## Data-plane routes
+## Persistence and security
 
-Data-plane requests use an AccessKey. Provider-compatible credentials are accepted through `Authorization: Bearer`, `x-api-key`, `x-goog-api-key`, or Gemini's `key` query parameter as appropriate.
+- By default, `${DATA_DIR}` contains SQLite, `auth.key`, and `encryption.key`. Protect and back up these assets as one recovery set.
+- Losing or replacing `encryption.key` makes encrypted upstream keys unreadable. 2.0.0 has no automatic repair or master-key rotation.
+- An external `DATABASE_DSN` or explicitly managed secrets must be backed up separately; backing up DATA_DIR no longer covers those external assets.
+- SQLite uses WAL. Before backup, stop incoming traffic, send `SIGTERM`, wait for a clean process exit, and then copy the full persistent asset set. Never copy only `gpt-load.db` while the service is running.
+- Never paste AUTH_KEY, ENCRYPTION_KEY, AccessKeys, or upstream keys into logs, public issues, screenshots, or ordinary backup manifests.
 
-| Method | Path | Protocol / behavior |
-|---|---|---|
-| `POST` | `/v1/chat/completions` | OpenAI chat completions |
-| `GET` | `/v1/models` | OpenAI model list; an `anthropic-version` header selects the Anthropic model-list shape |
-| `POST` | `/v1/messages` | Anthropic messages |
-| `GET` | `/v1beta/models` | Gemini model list |
-| `POST` | `/v1beta/models/{model}:generateContent` | Gemini content generation |
-| `POST` | `/v1beta/models/{model}:streamGenerateContent` | Gemini streaming content generation |
+The canonical operations source is **“GPT-Load 2.0 Deployment, Backup/Restore, and 1.x Cutover Runbook”** (`GPT-Load 2.0 部署、备份恢复与 1.x 切换 Runbook`) under the “🚀 Operations & Deployment” (`🚀 运维部署`) category in the “GPT-Load 2.0” Notion teamspace. Task 11 creates or updates that page and resolves its link; this README does not invent a URL in advance.
 
-Group selection is driven by the AccessKey and runtime configuration, not by a Group segment in the URL.
+## Moving from 1.x
 
-## Management API
+2.0 cannot open, import, or upgrade a 1.x database in place, and it must not reuse a 1.x `DATA_DIR`. The recommended flow is:
 
-Every management route requires `Authorization: Bearer <AUTH_KEY>`.
+1. Keep 1.x running and verify that its backup can be restored.
+2. Give 2.0 a separate port, `DATA_DIR` / named volume, and database.
+3. Manually rebuild the minimum Groups, upstream keys, AccessKeys, and rules; validate all three dialects, logs, and usage/cost in isolation.
+4. Move entry traffic during a maintenance window or small rollout. On failure, stop 2.0 and switch back to the original 1.x deployment; do not reverse-import new 2.0 data.
 
-| Method | Path | Purpose |
-|---|---|---|
-| `GET` | `/api/auth/session` | Verify the current management credential |
-| `GET` | `/api/groups` | List Groups |
-| `POST` | `/api/groups` | Create a Group |
-| `POST` | `/api/groups/{group_id}/keys/import` | Import keys into an existing Group |
-| `POST` | `/api/groups/{group_id}/models/discover` | Discover models through an existing Group |
-| `POST` | `/api/models/discover` | Discover models from an explicit upstream configuration |
-| `POST` | `/api/access-keys` | Create an AccessKey |
-| `GET` | `/api/access-keys` | List AccessKeys |
-| `PUT` | `/api/access-keys/{id}` | Update an AccessKey |
-| `DELETE` | `/api/access-keys/{id}` | Delete an AccessKey |
+`latest` is not a safe 1.x-to-2.0 upgrade channel. Follow the canonical Runbook for cutover, backup, restore, and rollback details.
 
-Management failures use `{ "code": string, "message": string, "data"?: any }`. The optional `data` field is present only when a client needs structured information to decide its next action.
+## Build and verification
 
-## Docker Compose
+Baseline tools: Go `1.25.12`, Node.js `>=24.11.0`, and pnpm `11.15.1`.
 
-The Compose file defaults to the published image. To run the unreleased `v2` checkout, uncomment its local `build` block first, then:
+Build the single binary with its embedded admin UI:
 
-```bash
-cp .env.example .env
-# AUTH_KEY is optional; leave it empty to read or create /app/data/auth.key.
-docker compose up -d --build
-docker compose exec gpt-load sh -c 'cat /app/data/auth.key'
-docker compose logs -f gpt-load
+```console
+make build
 ```
 
-Back up `${DATA_DIR}/auth.key` securely and restrict access to it; it is the management bearer credential, not the encryption key. Before upgrades or any encryption-key change, back up the SQLite database and `${DATA_DIR}/encryption.key` together. If you set `DATABASE_DSN` or `ENCRYPTION_KEY`, back up those explicit values instead.
+Full local quality gates:
 
-## Testing
-
-```bash
+```console
+corepack pnpm --dir web install --frozen-lockfile
+corepack pnpm --dir web run lint
+corepack pnpm --dir web run format
+corepack pnpm --dir web run type-check
+corepack pnpm --dir web run test
+corepack pnpm --dir web run build
+go build -o gpt-load .
 go test -race . ./internal/...
-go test ./internal/somepkg -run '^TestName$' -v
+corepack pnpm --dir web run test:e2e
 ```
+
+2.0.0 is expected to provide five native raw binaries plus `SHA256SUMS`:
+
+- `gpt-load-linux-amd64`
+- `gpt-load-linux-arm64`
+- `gpt-load-macos-amd64`
+- `gpt-load-macos-arm64`
+- `gpt-load-windows-amd64.exe`
+
+These are the expected names in the release contract, not a claim that a downloadable GitHub Release already exists.
 
 ## License and security
 

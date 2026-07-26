@@ -2,7 +2,12 @@
 
 ## Supported versions
 
-The `1.4.x` release line is currently maintained and receives security updates. The `v2` branch and 2.0 are unreleased development software and are not a supported release line.
+| Version line | Status |
+|---|---|
+| `2.0.x` | Current release-ready security support line |
+| `1.4.x` | Maintained security support line |
+
+The repository's 2.0 code line is supported while its first public release is being finalized. This status does not assert that a `v2.0.0` tag, GitHub Release, binary, or container image already exists; verify public availability from the actual release assets.
 
 ## Reporting a vulnerability
 
