@@ -1,0 +1,133 @@
+import type { ApiClient } from '@/api/client'
+import { InvalidResponseError } from '@/api/errors'
+
+export type ModelPriceSource = 'builtin' | 'user'
+
+export interface ModelPriceValues {
+  uncached_input: number | null
+  cache_read: number | null
+  cache_write_5m: number | null
+  cache_write_1h: number | null
+  output: number | null
+}
+
+export interface ModelPriceRuleDto {
+  pattern: string
+  source: ModelPriceSource
+  prices: ModelPriceValues
+  source_url: string | null
+  updated_at: string
+}
+
+export interface ModelPriceReportDto {
+  price_unit: 'usd_per_million_tokens'
+  builtin: ModelPriceRuleDto[]
+  overrides: ModelPriceRuleDto[]
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function projectPrice(value: unknown): number | null {
+  if (value === null) return null
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    throw new InvalidResponseError()
+  }
+  return value
+}
+
+function projectPrices(value: unknown): ModelPriceValues {
+  if (!isRecord(value)) throw new InvalidResponseError()
+  return {
+    uncached_input: projectPrice(value.uncached_input),
+    cache_read: projectPrice(value.cache_read),
+    cache_write_5m: projectPrice(value.cache_write_5m),
+    cache_write_1h: projectPrice(value.cache_write_1h),
+    output: projectPrice(value.output),
+  }
+}
+
+function projectRule(value: unknown): ModelPriceRuleDto {
+  if (
+    !isRecord(value) ||
+    typeof value.pattern !== 'string' ||
+    (value.source !== 'builtin' && value.source !== 'user') ||
+    typeof value.updated_at !== 'string' ||
+    Number.isNaN(Date.parse(value.updated_at))
+  ) {
+    throw new InvalidResponseError()
+  }
+  const sourceURL = value.source === 'builtin' ? projectBuiltinSourceURL(value.source_url) : null
+  if (value.source === 'user' && value.source_url !== null) throw new InvalidResponseError()
+  return {
+    pattern: value.pattern,
+    source: value.source,
+    prices: projectPrices(value.prices),
+    source_url: sourceURL,
+    updated_at: value.updated_at,
+  }
+}
+
+function projectBuiltinSourceURL(value: unknown): string {
+  if (typeof value !== 'string' || value === '') throw new InvalidResponseError()
+  return value
+}
+
+export function projectModelPrices(value: unknown): ModelPriceReportDto {
+  if (!Array.isArray(value)) throw new InvalidResponseError()
+  const builtin: ModelPriceRuleDto[] = []
+  const overrides: ModelPriceRuleDto[] = []
+  for (const item of value) {
+    const rule = projectRule(item)
+    if (rule.source === 'builtin') {
+      builtin.push(rule)
+    } else {
+      overrides.push(rule)
+    }
+  }
+  return { price_unit: 'usd_per_million_tokens', builtin, overrides }
+}
+
+export async function getModelPrices(
+  client: ApiClient,
+  signal?: AbortSignal,
+): Promise<ModelPriceReportDto> {
+  return projectModelPrices(
+    await client.request<unknown>('/api/model-prices', { method: 'GET', signal }),
+  )
+}
+
+export function putModelPrice(
+  client: ApiClient,
+  pattern: string,
+  prices: ModelPriceValues,
+  signal?: AbortSignal,
+): Promise<void> {
+  return client.request<void>('/api/model-prices', {
+    method: 'PUT',
+    json: {
+      pattern,
+      prices: {
+        uncached_input: prices.uncached_input,
+        cache_read: prices.cache_read,
+        cache_write_5m: prices.cache_write_5m,
+        cache_write_1h: prices.cache_write_1h,
+        output: prices.output,
+      },
+    },
+    signal,
+  })
+}
+
+export function resetModelPrice(
+  client: ApiClient,
+  pattern: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  const encodedPattern = encodeURIComponent(pattern).replaceAll('*', '%2A')
+  return client.request<void>(`/api/model-prices?pattern=${encodedPattern}`, {
+    method: 'DELETE',
+    signal,
+  })
+}

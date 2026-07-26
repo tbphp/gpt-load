@@ -20,4 +20,5 @@ export const controlQueryKeys = {
   },
   settings: () => ['control', 'settings'] as const,
   systemInfo: () => ['control', 'system-info'] as const,
+  modelPrices: () => ['control', 'model-prices'] as const,
 }

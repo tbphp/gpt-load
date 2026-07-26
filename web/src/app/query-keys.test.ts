@@ -24,6 +24,7 @@ describe('controlQueryKeys', () => {
     expect(controlQueryKeys.accessKeys.options()).toEqual(['control', 'access-keys', 'options'])
     expect(controlQueryKeys.settings()).toEqual(['control', 'settings'])
     expect(controlQueryKeys.systemInfo()).toEqual(['control', 'system-info'])
+    expect(controlQueryKeys.modelPrices()).toEqual(['control', 'model-prices'])
   })
 
   it('contains normalized resource identity but never secret material', () => {
