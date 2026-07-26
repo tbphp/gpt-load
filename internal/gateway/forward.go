@@ -193,7 +193,7 @@ func (forwarder *Forwarder) ForwardStream(
 	ctx context.Context,
 	input ForwardInput,
 	downstream http.ResponseWriter,
-) UpstreamResult {
+) (result UpstreamResult) {
 	if forwarder == nil || forwarder.clients == nil || forwarder.redactor == nil ||
 		input.Dialect == nil || input.Request == nil || downstream == nil {
 		return UpstreamResult{Err: fmt.Errorf("stream forward input is incomplete")}
@@ -217,7 +217,7 @@ func (forwarder *Forwarder) ForwardStream(
 	defer func() { _ = streamBody.Close() }()
 
 	headers := cloneEndToEndHeaders(response.Header)
-	result := UpstreamResult{
+	result = UpstreamResult{
 		StatusCode:     response.StatusCode,
 		RequestWritten: true,
 	}
@@ -247,6 +247,10 @@ func (forwarder *Forwarder) ForwardStream(
 		result.Header = sanitizeForwardResponseHeaders(headers, input, knownSecrets...)
 		return result
 	}
+	streamEvents := &streamEventObserver{
+		usage: forwarder.usageCapture.newStream(input.Dialect),
+	}
+	defer func() { result.Usage = streamEvents.finalizeUsage() }()
 
 	if !inspectableStreamEncoding(response.Header) {
 		result.Err = fmt.Errorf("%w: Content-Encoding %q", ErrUpstreamProtocol, response.Header.Values("Content-Encoding"))
@@ -265,7 +269,6 @@ func (forwarder *Forwarder) ForwardStream(
 			return result
 		}
 	}
-	streamEvents := &streamEventObserver{}
 	streamBody = newSSERewriteStream(streamBody, func(data []byte, errorEvent bool) ([]byte, error) {
 		safePayload := data
 		for _, secret := range knownSecrets {
@@ -280,6 +283,7 @@ func (forwarder *Forwarder) ForwardStream(
 				return nil, fmt.Errorf("%w: redact upstream SSE credential", ErrUpstreamProtocol)
 			}
 		}
+		streamEvents.observeUsage(safePayload)
 		if errorEvent {
 			observationPayload := forwarder.redactor.Bytes(safePayload)
 			streamEvents.observeError(

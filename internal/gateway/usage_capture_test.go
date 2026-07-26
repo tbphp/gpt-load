@@ -3,11 +3,17 @@ package gateway
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"errors"
+	"hash"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"reflect"
+	"runtime"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -18,6 +24,7 @@ import (
 	platformhttp "gpt-load/internal/platform/httpclient"
 	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/platform/utils"
+	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 	"gpt-load/internal/usage"
 )
@@ -29,6 +36,74 @@ type usageExtractorDialect struct {
 }
 
 type dialectWithoutUsage struct{ dialect.Dialect }
+
+type countingUsageStreamExtractor struct {
+	observeCalls  int
+	finalizeCalls int
+	result        usage.Result
+	observeErrAt  int
+	panicAt       string
+}
+
+type safePayloadUsageStreamExtractor struct {
+	observeCalls      int
+	rawCredentialSeen bool
+	placeholderSeen   bool
+	credential        string
+	result            usage.Result
+	finalizeCalls     int
+}
+
+type hashingResponseWriter struct {
+	header http.Header
+	status int
+	bytes  int64
+	hash   hash.Hash
+}
+
+func newHashingResponseWriter() *hashingResponseWriter {
+	return &hashingResponseWriter{header: make(http.Header), hash: sha256.New()}
+}
+
+func (writer *hashingResponseWriter) Header() http.Header    { return writer.header }
+func (writer *hashingResponseWriter) WriteHeader(status int) { writer.status = status }
+func (writer *hashingResponseWriter) Write(body []byte) (int, error) {
+	written, err := writer.hash.Write(body)
+	writer.bytes += int64(written)
+	return written, err
+}
+func (*hashingResponseWriter) Flush() {}
+
+func (extractor *safePayloadUsageStreamExtractor) Observe(payload []byte) error {
+	extractor.observeCalls++
+	extractor.rawCredentialSeen = extractor.rawCredentialSeen || bytes.Contains(payload, []byte(extractor.credential))
+	extractor.placeholderSeen = extractor.placeholderSeen || bytes.Contains(payload, []byte(redact.Placeholder))
+	return nil
+}
+
+func (extractor *safePayloadUsageStreamExtractor) Finalize() (usage.Result, bool) {
+	extractor.finalizeCalls++
+	return extractor.result, true
+}
+
+func (extractor *countingUsageStreamExtractor) Observe([]byte) error {
+	extractor.observeCalls++
+	if extractor.panicAt == "observe" {
+		panic("STREAM_SECRET_CANARY")
+	}
+	if extractor.observeCalls == extractor.observeErrAt {
+		return errors.New("STREAM_SECRET_CANARY")
+	}
+	return nil
+}
+
+func (extractor *countingUsageStreamExtractor) Finalize() (usage.Result, bool) {
+	extractor.finalizeCalls++
+	if extractor.panicAt == "finalize" {
+		panic("STREAM_SECRET_CANARY")
+	}
+	return extractor.result, true
+}
 
 func (value usageExtractorDialect) ExtractUsage(body []byte) (usage.Result, error) {
 	return value.extract(body)
@@ -47,6 +122,325 @@ func (value usageExtractorDialect) RewriteRequestModel(request *dialect.ParsedRe
 
 func (value usageExtractorDialect) RewriteResponseModel(body []byte, externalModel string) ([]byte, error) {
 	return value.Dialect.(dialect.ModelRewriter).RewriteResponseModel(body, externalModel)
+}
+
+func TestStreamUsageCaptureObservesEveryPayloadAndFinalizesOnce(t *testing.T) {
+	want := usage.Result{State: usage.StateComplete, Tokens: usage.Tokens{Output: 30}}
+	extractor := &countingUsageStreamExtractor{result: want}
+	capture := newUsageCaptureBoundary().newStream(usageExtractorDialect{
+		Dialect: dialect.NewOpenAI(http.DefaultClient),
+		stream:  func() dialect.UsageStreamExtractor { return extractor },
+	})
+	for range 3 {
+		capture.observe([]byte(`{"event":"payload"}`))
+	}
+	first := capture.finalize()
+	second := capture.finalize()
+
+	if extractor.observeCalls != 3 || extractor.finalizeCalls != 1 || first != want || second != want {
+		t.Fatalf("observe/finalize/results = %d/%d/%#v/%#v, want 3/1/%#v/%#v", extractor.observeCalls, extractor.finalizeCalls, first, second, want, want)
+	}
+}
+
+func TestStreamUsageCaptureContinuesAfterObserveError(t *testing.T) {
+	want := usage.Result{State: usage.StatePartial, Tokens: usage.Tokens{Output: 30}}
+	extractor := &countingUsageStreamExtractor{result: want, observeErrAt: 1}
+	boundary := newUsageCaptureBoundary()
+	capture := boundary.newStream(usageExtractorDialect{
+		Dialect: dialect.NewOpenAI(http.DefaultClient),
+		stream:  func() dialect.UsageStreamExtractor { return extractor },
+	})
+	capture.observe([]byte(`{"event":"first"}`))
+	capture.observe([]byte(`{"event":"second"}`))
+
+	if got := capture.finalize(); got != want || extractor.observeCalls != 2 || extractor.finalizeCalls != 1 || boundary.failureTotal.Load() != 1 {
+		t.Fatalf("result/calls/failures = %#v/%d/%d/%d", got, extractor.observeCalls, extractor.finalizeCalls, boundary.failureTotal.Load())
+	}
+}
+
+func TestStreamUsageCaptureDisablesAfterConstructorOrObservePanic(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		stream func() dialect.UsageStreamExtractor
+		check  func(*testing.T, *countingUsageStreamExtractor)
+	}{
+		{name: "constructor panic", stream: func() dialect.UsageStreamExtractor { panic("STREAM_SECRET_CANARY") }},
+		{name: "nil extractor", stream: func() dialect.UsageStreamExtractor { return nil }},
+		{name: "observe panic", stream: func() dialect.UsageStreamExtractor { return &countingUsageStreamExtractor{panicAt: "observe"} }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			boundary := newUsageCaptureBoundary()
+			capture := boundary.newStream(usageExtractorDialect{Dialect: dialect.NewOpenAI(http.DefaultClient), stream: test.stream})
+			capture.observe([]byte(`{"event":"payload"}`))
+			got := capture.finalize()
+			if got != (usage.Result{State: usage.StateMissing}) || boundary.failureTotal.Load() != 1 {
+				t.Fatalf("result/failures = %#v/%d", got, boundary.failureTotal.Load())
+			}
+		})
+	}
+}
+
+func TestStreamUsageCaptureFinalizeFailureIsMissing(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		stream dialect.UsageStreamExtractor
+	}{
+		{name: "panic", stream: &countingUsageStreamExtractor{panicAt: "finalize"}},
+		{name: "not finalized", stream: finalizeUsageStreamExtractor{result: usage.Result{State: usage.StateComplete}, finalized: false}},
+		{name: "invalid result", stream: finalizeUsageStreamExtractor{result: usage.Result{State: usage.StateMissing, Tokens: usage.Tokens{Output: 1}}, finalized: true}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			boundary := newUsageCaptureBoundary()
+			capture := boundary.newStream(usageExtractorDialect{
+				Dialect: dialect.NewOpenAI(http.DefaultClient),
+				stream:  func() dialect.UsageStreamExtractor { return test.stream },
+			})
+			if got := capture.finalize(); got != (usage.Result{State: usage.StateMissing}) || boundary.failureTotal.Load() != 1 {
+				t.Fatalf("result/failures = %#v/%d", got, boundary.failureTotal.Load())
+			}
+		})
+	}
+}
+
+func TestForwardStreamCapturesCanonicalUsage(t *testing.T) {
+	tests := []struct {
+		name     string
+		dialect  dialect.Dialect
+		fixture  string
+		wantPath string
+		want     usage.Tokens
+	}{
+		{name: "OpenAI", dialect: dialect.NewOpenAI(http.DefaultClient), fixture: "openai/stream.jsonl", wantPath: "/v1/chat/completions", want: usage.Tokens{UncachedInput: 80, CacheRead: 20, Output: 30}},
+		{name: "Anthropic", dialect: dialect.NewAnthropic(http.DefaultClient), fixture: "anthropic/stream.jsonl", wantPath: "/v1/messages", want: usage.Tokens{UncachedInput: 80, CacheRead: 20, CacheWrite5M: 5, CacheWrite1H: 7, Output: 30}},
+		{name: "Gemini", dialect: dialect.NewGemini(http.DefaultClient), fixture: "gemini/stream.jsonl", wantPath: "/v1beta/models/gemini:streamGenerateContent", want: usage.Tokens{UncachedInput: 80, CacheRead: 20, Output: 30}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			wire := usageStreamFixtureAsSSE(t, test.fixture)
+			upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				writer.Header().Set("Content-Type", "text/event-stream")
+				_, _ = writer.Write(wire)
+			}))
+			defer upstream.Close()
+
+			input := usageForwardInput(upstream.URL, test.dialect)
+			input.Group.Timeouts.StreamIdle = time.Second
+			input.Request.Path = test.wantPath
+			input.Request.Body = []byte(`{"stream":true}`)
+			result := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New()).ForwardStream(context.Background(), input, newRecordingResponseWriter())
+			if result.Usage.State != usage.StateComplete || result.Usage.Tokens != test.want {
+				t.Fatalf("Usage = %#v, want complete with %#v", result.Usage, test.want)
+			}
+		})
+	}
+}
+
+func TestForwardStreamUsageStateRequiresProviderFinalEvidence(t *testing.T) {
+	tests := []struct {
+		name    string
+		dialect dialect.Dialect
+		path    string
+		wire    string
+		want    usage.State
+	}{
+		{name: "OpenAI partial", dialect: dialect.NewOpenAI(http.DefaultClient), path: "/v1/chat/completions", wire: `data: {"choices":[{"delta":{}}],"usage":{"prompt_tokens":100,"completion_tokens":30,"prompt_tokens_details":{"cached_tokens":20}}}` + "\n\n", want: usage.StatePartial},
+		{name: "Anthropic partial", dialect: dialect.NewAnthropic(http.DefaultClient), path: "/v1/messages", wire: `data: {"type":"message_start","message":{"usage":{"input_tokens":80,"cache_read_input_tokens":20}}}` + "\n\n", want: usage.StatePartial},
+		{name: "Gemini partial", dialect: dialect.NewGemini(http.DefaultClient), path: "/v1beta/models/gemini:streamGenerateContent", wire: `data: {"usageMetadata":{"promptTokenCount":100,"cachedContentTokenCount":20,"candidatesTokenCount":30}}` + "\n\n", want: usage.StatePartial},
+		{name: "missing", dialect: dialect.NewOpenAI(http.DefaultClient), path: "/v1/chat/completions", wire: "data: {\"choices\":[{\"delta\":{}}]}\n\n", want: usage.StateMissing},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				writer.Header().Set("Content-Type", "text/event-stream")
+				_, _ = writer.Write([]byte(test.wire))
+			}))
+			defer upstream.Close()
+			input := usageForwardInput(upstream.URL, test.dialect)
+			input.Group.Timeouts.StreamIdle = time.Second
+			input.Request.Path = test.path
+			result := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New()).ForwardStream(context.Background(), input, newRecordingResponseWriter())
+			if result.Usage.State != test.want {
+				t.Fatalf("Usage state = %q, want %q", result.Usage.State, test.want)
+			}
+		})
+	}
+}
+
+func TestUsageCaptureWarningsAreCountedThrottledAndRedacted(t *testing.T) {
+	boundary := newUsageCaptureBoundary()
+	var logs bytes.Buffer
+	boundary.logger = logrus.New()
+	boundary.logger.SetOutput(&logs)
+	boundary.logger.SetFormatter(&logrus.JSONFormatter{DisableTimestamp: true})
+	now := time.Unix(100, 0)
+	boundary.now = func() time.Time { return now }
+	for range 3 {
+		boundary.recordFailure("stream_observe", protocol.OpenAI)
+	}
+	now = now.Add(time.Minute)
+	boundary.recordFailure("stream_finalize", protocol.Anthropic)
+
+	lines := bytes.Split(bytes.TrimSpace(logs.Bytes()), []byte{'\n'})
+	if boundary.failureTotal.Load() != 4 || len(lines) != 2 {
+		t.Fatalf("failures/warnings = %d/%d, want 4/2: %q", boundary.failureTotal.Load(), len(lines), logs.String())
+	}
+	for _, canary := range []string{"payload-canary", "credential-canary", "error-canary", "model-canary", "url-canary", "group-canary", "key-canary", "STREAM_SECRET_CANARY"} {
+		if bytes.Contains(logs.Bytes(), []byte(canary)) {
+			t.Fatalf("warning leaked %q: %q", canary, logs.String())
+		}
+	}
+	for _, line := range lines {
+		for _, field := range []string{`"phase":`, `"protocol":`, `"total":`} {
+			if !bytes.Contains(line, []byte(field)) {
+				t.Fatalf("warning missing %s: %q", field, line)
+			}
+		}
+	}
+}
+
+func TestForwardStreamFinalUsageSurvivesDownstreamFailure(t *testing.T) {
+	const wire = "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":100,\"completion_tokens\":30,\"prompt_tokens_details\":{\"cached_tokens\":20}}}\n\n"
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "text/event-stream")
+		_, _ = writer.Write([]byte(wire))
+	}))
+	defer upstream.Close()
+
+	downstream := newRecordingResponseWriter()
+	downstream.writeErr = errors.New("downstream failure")
+	input := streamForwardInput(upstream.URL)
+	result := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New()).ForwardStream(context.Background(), input, downstream)
+	want := usage.Result{State: usage.StateComplete, Tokens: usage.Tokens{UncachedInput: 80, CacheRead: 20, Output: 30}}
+	if result.Usage != want || result.Stream.EndReason != StreamEndDownstreamWriteFailure {
+		t.Fatalf("result = %#v, want Usage %#v and downstream failure", result, want)
+	}
+}
+
+func TestForwardStreamObservesKnownSecretRedactedPayload(t *testing.T) {
+	const secret = "stream-secret-canary"
+	extractor := &safePayloadUsageStreamExtractor{
+		credential: secret,
+		result:     usage.Result{State: usage.StateComplete},
+	}
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "text/event-stream")
+		_, _ = writer.Write([]byte(`data: {"credential":"stream-secret-canary","choices":[]}` + "\n\n"))
+	}))
+	defer upstream.Close()
+
+	input := streamForwardInput(upstream.URL)
+	input.APIKey = secret
+	input.Dialect = usageExtractorDialect{
+		Dialect: dialect.NewOpenAI(http.DefaultClient),
+		stream:  func() dialect.UsageStreamExtractor { return extractor },
+	}
+	downstream := newRecordingResponseWriter()
+	result := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New()).ForwardStream(context.Background(), input, downstream)
+	if result.Err != nil || extractor.observeCalls != 1 || extractor.rawCredentialSeen || !extractor.placeholderSeen || bytes.Contains(downstream.body.Bytes(), []byte(secret)) || !bytes.Contains(downstream.body.Bytes(), []byte(redact.Placeholder)) {
+		t.Fatalf("result/extractor/downstream = %#v/%#v/%q", result, extractor, downstream.body.String())
+	}
+}
+
+func TestForwardStreamRedactionFailurePreventsUsageObserve(t *testing.T) {
+	const secret = "secret"
+	extractor := &safePayloadUsageStreamExtractor{credential: secret, result: usage.Result{State: usage.StateComplete}}
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "text/event-stream")
+		_, _ = writer.Write([]byte(`data: {"secret":"leak","[REDACTED]":"safe"}` + "\n\n"))
+	}))
+	defer upstream.Close()
+
+	input := streamForwardInput(upstream.URL)
+	input.APIKey = secret
+	input.Dialect = usageExtractorDialect{
+		Dialect: dialect.NewOpenAI(http.DefaultClient),
+		stream:  func() dialect.UsageStreamExtractor { return extractor },
+	}
+	result := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New()).ForwardStream(context.Background(), input, newRecordingResponseWriter())
+	if !errors.Is(result.Err, ErrUpstreamProtocol) || extractor.observeCalls != 0 {
+		t.Fatalf("result/observe calls = %#v/%d", result, extractor.observeCalls)
+	}
+}
+
+func TestForwardStreamSkipsNonPayloadSSEEventsForUsage(t *testing.T) {
+	extractor := &safePayloadUsageStreamExtractor{result: usage.Result{State: usage.StatePartial}}
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "text/event-stream")
+		_, _ = writer.Write([]byte(": comment\n\ndata:\n\ndata: [DONE]\n\ndata: {\"one\":\ndata: 1}\n\n"))
+	}))
+	defer upstream.Close()
+
+	input := streamForwardInput(upstream.URL)
+	input.Dialect = usageExtractorDialect{
+		Dialect: dialect.NewOpenAI(http.DefaultClient),
+		stream:  func() dialect.UsageStreamExtractor { return extractor },
+	}
+	result := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New()).ForwardStream(context.Background(), input, newRecordingResponseWriter())
+	if result.Err != nil || extractor.observeCalls != 1 || extractor.finalizeCalls != 1 {
+		t.Fatalf("result/calls = %#v/%d/%d", result, extractor.observeCalls, extractor.finalizeCalls)
+	}
+}
+
+func TestForwardStreamUsageDoesNotBufferWholeResponse(t *testing.T) {
+	payload := `{"padding":"` + strings.Repeat("x", 900) + `"}`
+	event := []byte("data: " + payload + "\n\n")
+	events := int(maxNonStreamingResponseBodyBytes)/len(event) + 1
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "text/event-stream")
+		flusher := writer.(http.Flusher)
+		for index := 0; index < events; index++ {
+			_, _ = writer.Write(event)
+			if index%128 == 0 {
+				flusher.Flush()
+			}
+		}
+	}))
+	defer upstream.Close()
+
+	extractor := &safePayloadUsageStreamExtractor{result: usage.Result{State: usage.StateComplete}}
+	input := streamForwardInput(upstream.URL)
+	input.Dialect = usageExtractorDialect{
+		Dialect: dialect.NewOpenAI(http.DefaultClient),
+		stream:  func() dialect.UsageStreamExtractor { return extractor },
+	}
+	downstream := newHashingResponseWriter()
+	result := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New()).ForwardStream(context.Background(), input, downstream)
+	wantHash := sha256.New()
+	for range events {
+		_, _ = wantHash.Write(event)
+	}
+	if result.Err != nil || downstream.bytes != int64(events*len(event)) || !bytes.Equal(downstream.hash.Sum(nil), wantHash.Sum(nil)) || extractor.observeCalls != events || extractor.finalizeCalls != 1 || result.Usage.State != usage.StateComplete {
+		t.Fatalf("result/bytes/calls/usage = %#v/%d/%d/%d/%#v", result, downstream.bytes, extractor.observeCalls, extractor.finalizeCalls, result.Usage)
+	}
+}
+
+func usageStreamFixtureAsSSE(t *testing.T, name string) []byte {
+	t.Helper()
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller() failed")
+	}
+	body, err := os.ReadFile(filepath.Join(filepath.Dir(file), "..", "dialect", "testdata", "usage", name))
+	if err != nil {
+		t.Fatalf("read %s: %v", name, err)
+	}
+	var wire bytes.Buffer
+	for _, line := range bytes.Split(bytes.TrimSpace(body), []byte{'\n'}) {
+		_, _ = wire.WriteString("data: ")
+		_, _ = wire.Write(line)
+		_, _ = wire.WriteString("\n\n")
+	}
+	return wire.Bytes()
+}
+
+type finalizeUsageStreamExtractor struct {
+	result    usage.Result
+	finalized bool
+}
+
+func (extractor finalizeUsageStreamExtractor) Observe([]byte) error { return nil }
+func (extractor finalizeUsageStreamExtractor) Finalize() (usage.Result, bool) {
+	return extractor.result, extractor.finalized
 }
 
 func usageForwardInput(upstreamURL string, selected dialect.Dialect) ForwardInput {

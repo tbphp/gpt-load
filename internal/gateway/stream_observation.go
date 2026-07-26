@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"gpt-load/internal/telemetry"
+	"gpt-load/internal/usage"
 )
 
 type streamFailureKind uint8
@@ -46,6 +47,7 @@ type StreamObservation struct {
 type streamEventObserver struct {
 	sawErrorEvent bool
 	firstSummary  string
+	usage         *streamUsageCapture
 }
 
 func (observer *streamEventObserver) observeError(summary string) {
@@ -56,6 +58,19 @@ func (observer *streamEventObserver) observeError(summary string) {
 	if observer.firstSummary == "" {
 		observer.firstSummary = summary
 	}
+}
+
+func (observer *streamEventObserver) observeUsage(payload []byte) {
+	if observer != nil && observer.usage != nil {
+		observer.usage.observe(payload)
+	}
+}
+
+func (observer *streamEventObserver) finalizeUsage() usage.Result {
+	if observer == nil || observer.usage == nil {
+		return usage.Result{State: usage.StateMissing}
+	}
+	return observer.usage.finalize()
 }
 
 func observeStreamTermination(

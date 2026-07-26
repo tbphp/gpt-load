@@ -14,12 +14,23 @@ import (
 	"gpt-load/internal/usage"
 )
 
+const usageCaptureWarningInterval = time.Minute
+
 type usageCaptureBoundary struct {
 	failureTotal atomic.Uint64
 	warningMu    sync.Mutex
 	lastWarning  time.Time
 	now          func() time.Time
 	logger       *logrus.Logger
+}
+
+type streamUsageCapture struct {
+	boundary  *usageCaptureBoundary
+	protocol  protocol.Protocol
+	extractor dialect.UsageStreamExtractor
+	active    bool
+	finalized bool
+	result    usage.Result
 }
 
 func newUsageCaptureBoundary() *usageCaptureBoundary {
@@ -67,10 +78,120 @@ func safeExtractUsage(
 	return result, err, false
 }
 
-func (boundary *usageCaptureBoundary) recordFailure(_ string, _ protocol.Protocol) {
-	if boundary != nil {
-		boundary.failureTotal.Add(1)
+func (boundary *usageCaptureBoundary) recordFailure(phase string, value protocol.Protocol) {
+	if boundary == nil {
+		return
 	}
+	total := boundary.failureTotal.Add(1)
+	now := boundary.now()
+	boundary.warningMu.Lock()
+	if !boundary.lastWarning.IsZero() && now.Before(boundary.lastWarning.Add(usageCaptureWarningInterval)) {
+		boundary.warningMu.Unlock()
+		return
+	}
+	boundary.lastWarning = now
+	boundary.warningMu.Unlock()
+	boundary.logger.WithFields(logrus.Fields{
+		"phase":    phase,
+		"protocol": value,
+		"total":    total,
+	}).Warn("Usage capture failure")
+}
+
+func safeNewUsageStreamExtractor(
+	extractor dialect.UsageExtractor,
+) (result dialect.UsageStreamExtractor, panicked bool) {
+	defer func() {
+		if recover() != nil {
+			result = nil
+			panicked = true
+		}
+	}()
+	return extractor.NewUsageStreamExtractor(), false
+}
+
+func safeObserveUsage(
+	extractor dialect.UsageStreamExtractor,
+	payload []byte,
+) (err error, panicked bool) {
+	defer func() {
+		if recover() != nil {
+			err = nil
+			panicked = true
+		}
+	}()
+	err = extractor.Observe(payload)
+	return err, false
+}
+
+func safeFinalizeUsage(
+	extractor dialect.UsageStreamExtractor,
+) (result usage.Result, finalized bool, panicked bool) {
+	defer func() {
+		if recover() != nil {
+			result = usage.Result{}
+			finalized = false
+			panicked = true
+		}
+	}()
+	result, finalized = extractor.Finalize()
+	return result, finalized, false
+}
+
+func (boundary *usageCaptureBoundary) newStream(selected dialect.Dialect) *streamUsageCapture {
+	capture := &streamUsageCapture{boundary: boundary, result: missingUsage(false)}
+	if selected == nil {
+		return capture
+	}
+	capture.protocol = selected.Protocol()
+	extractor, ok := selected.(dialect.UsageExtractor)
+	if !ok {
+		return capture
+	}
+	streamExtractor, panicked := safeNewUsageStreamExtractor(extractor)
+	if panicked || streamExtractor == nil {
+		boundary.recordFailure("stream_constructor", capture.protocol)
+		return capture
+	}
+	capture.extractor = streamExtractor
+	capture.active = true
+	return capture
+}
+
+func (capture *streamUsageCapture) observe(payload []byte) {
+	if capture == nil || !capture.active || capture.finalized {
+		return
+	}
+	err, panicked := safeObserveUsage(capture.extractor, payload)
+	if panicked {
+		capture.boundary.recordFailure("stream_observe", capture.protocol)
+		capture.active = false
+		return
+	}
+	if err != nil {
+		capture.boundary.recordFailure("stream_observe", capture.protocol)
+	}
+}
+
+func (capture *streamUsageCapture) finalize() usage.Result {
+	if capture == nil {
+		return missingUsage(false)
+	}
+	if capture.finalized {
+		return capture.result
+	}
+	capture.finalized = true
+	if !capture.active || capture.extractor == nil {
+		return capture.result
+	}
+	result, finalized, panicked := safeFinalizeUsage(capture.extractor)
+	if panicked || !finalized || !validCapturedUsage(result) {
+		capture.boundary.recordFailure("stream_finalize", capture.protocol)
+		capture.result = missingUsage(false)
+		return capture.result
+	}
+	capture.result = result
+	return capture.result
 }
 
 func (boundary *usageCaptureBoundary) extractNonStreaming(
