@@ -36,7 +36,7 @@ type streamUsageCapture struct {
 }
 
 func newUsageCaptureBoundary() *usageCaptureBoundary {
-	return &usageCaptureBoundary{now: time.Now, logger: logrus.New()}
+	return &usageCaptureBoundary{now: time.Now, logger: logrus.StandardLogger()}
 }
 
 func missingUsage(invalidPayload bool) usage.Result {
@@ -229,7 +229,7 @@ func (capture *streamUsageCapture) observe(payload []byte) {
 	if capture == nil || !capture.active || capture.finalized {
 		return
 	}
-	err, panicked := safeObserveUsage(capture.extractor, payload)
+	err, panicked := safeObserveUsage(capture.extractor, bytes.Clone(payload))
 	if panicked {
 		capture.boundary.recordFailure("stream_observe", capture.protocol)
 		capture.active = false

@@ -54,6 +54,14 @@ type safePayloadUsageStreamExtractor struct {
 	finalizeCalls     int
 }
 
+type mutatingUsageStreamExtractor struct {
+	panicOnObserve bool
+}
+
+type countingUsageWarningHook struct {
+	calls int
+}
+
 type hashingResponseWriter struct {
 	header http.Header
 	status int
@@ -103,6 +111,29 @@ func (extractor *countingUsageStreamExtractor) Finalize() (usage.Result, bool) {
 		panic("STREAM_SECRET_CANARY")
 	}
 	return extractor.result, true
+}
+
+func (extractor *mutatingUsageStreamExtractor) Observe(payload []byte) error {
+	for index := range payload {
+		payload[index] = 'x'
+	}
+	if extractor.panicOnObserve {
+		panic("STREAM_SECRET_CANARY")
+	}
+	return errors.New("STREAM_SECRET_CANARY")
+}
+
+func (*mutatingUsageStreamExtractor) Finalize() (usage.Result, bool) {
+	return usage.Result{State: usage.StateMissing}, true
+}
+
+func (*countingUsageWarningHook) Levels() []logrus.Level {
+	return logrus.AllLevels
+}
+
+func (hook *countingUsageWarningHook) Fire(*logrus.Entry) error {
+	hook.calls++
+	return nil
 }
 
 func (value usageExtractorDialect) ExtractUsage(body []byte) (usage.Result, error) {
@@ -421,6 +452,45 @@ func TestUsageCaptureWarningsAreCountedThrottledAndRedacted(t *testing.T) {
 	}
 }
 
+func TestNewUsageCaptureBoundaryUsesStandardLoggerConfiguration(t *testing.T) {
+	standard := logrus.StandardLogger()
+	originalOutput := standard.Out
+	originalFormatter := standard.Formatter
+	originalLevel := standard.GetLevel()
+	originalHooks := standard.ReplaceHooks(make(logrus.LevelHooks))
+	t.Cleanup(func() {
+		standard.SetOutput(originalOutput)
+		standard.SetFormatter(originalFormatter)
+		standard.SetLevel(originalLevel)
+		standard.ReplaceHooks(originalHooks)
+	})
+
+	var logs bytes.Buffer
+	hook := &countingUsageWarningHook{}
+	standard.SetOutput(&logs)
+	standard.SetFormatter(&logrus.JSONFormatter{DisableTimestamp: true})
+	standard.SetLevel(logrus.WarnLevel)
+	standard.AddHook(hook)
+
+	boundary := newUsageCaptureBoundary()
+	if boundary.logger != standard {
+		t.Fatal("usage capture boundary does not use the standard logger")
+	}
+	boundary.recordFailure("stream_observe", protocol.OpenAI)
+	if hook.calls != 1 ||
+		!bytes.Contains(logs.Bytes(), []byte(`"msg":"Usage capture failure"`)) ||
+		!bytes.Contains(logs.Bytes(), []byte(`"level":"warning"`)) {
+		t.Fatalf("standard logger output/hooks = %q/%d", logs.String(), hook.calls)
+	}
+
+	loggedBytes := logs.Len()
+	standard.SetLevel(logrus.ErrorLevel)
+	newUsageCaptureBoundary().recordFailure("stream_finalize", protocol.OpenAI)
+	if logs.Len() != loggedBytes || hook.calls != 1 {
+		t.Fatalf("LOG_LEVEL was not respected: output=%q hooks=%d", logs.String(), hook.calls)
+	}
+}
+
 func TestForwardStreamFinalUsageSurvivesDownstreamFailure(t *testing.T) {
 	const wire = "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":100,\"completion_tokens\":30,\"prompt_tokens_details\":{\"cached_tokens\":20}}}\n\n"
 	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
@@ -482,6 +552,69 @@ func TestForwardStreamRedactionFailurePreventsUsageObserve(t *testing.T) {
 	result := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New()).ForwardStream(context.Background(), input, newRecordingResponseWriter())
 	if !errors.Is(result.Err, ErrUpstreamProtocol) || extractor.observeCalls != 0 {
 		t.Fatalf("result/observe calls = %#v/%d", result, extractor.observeCalls)
+	}
+}
+
+func TestForwardStreamUsageExtractorMutationCannotAffectDataPlane(t *testing.T) {
+	tests := []struct {
+		name           string
+		panicOnObserve bool
+		rewriteModel   bool
+	}{
+		{name: "error", panicOnObserve: false},
+		{name: "panic with model rewrite", panicOnObserve: true, rewriteModel: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			const providerPayload = `{"error":{"message":"provider-model failed"},"model":"provider-model"}`
+			upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				writer.Header().Set("Content-Type", "text/event-stream")
+				_, _ = writer.Write([]byte("event: error\ndata: " + providerPayload + "\n\n"))
+			}))
+			defer upstream.Close()
+
+			run := func(selected dialect.Dialect) (UpstreamResult, *recordingResponseWriter, uint64) {
+				input := streamForwardInput(upstream.URL)
+				input.Dialect = selected
+				if test.rewriteModel {
+					input.ExternalModel = "public-model"
+					input.UpstreamModelID = "provider-model"
+					input.Request.Body = []byte(`{"model":"public-model","stream":true}`)
+				}
+				forwarder := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New())
+				downstream := newRecordingResponseWriter()
+				result := forwarder.ForwardStream(context.Background(), input, downstream)
+				return result, downstream, forwarder.usageCapture.failureTotal.Load()
+			}
+
+			baselineResult, baselineDownstream, baselineFailures := run(dialect.NewOpenAI(http.DefaultClient))
+			result, downstream, failures := run(usageExtractorDialect{
+				Dialect: dialect.NewOpenAI(http.DefaultClient),
+				stream: func() dialect.UsageStreamExtractor {
+					return &mutatingUsageStreamExtractor{panicOnObserve: test.panicOnObserve}
+				},
+			})
+
+			baselineHeader := baselineDownstream.header.Clone()
+			baselineHeader.Del("Date")
+			header := downstream.header.Clone()
+			header.Del("Date")
+			if baselineResult.Err != nil || result.Err != nil ||
+				result.Committed != baselineResult.Committed ||
+				result.RequestWritten != baselineResult.RequestWritten ||
+				result.Stream != baselineResult.Stream ||
+				result.Usage != baselineResult.Usage ||
+				downstream.status != baselineDownstream.status ||
+				!reflect.DeepEqual(header, baselineHeader) ||
+				!bytes.Equal(downstream.body.Bytes(), baselineDownstream.body.Bytes()) ||
+				baselineFailures != 0 || failures != 1 {
+				t.Fatalf(
+					"mutating extractor changed data plane:\n baseline result=%#v status=%d header=%#v body=%q failures=%d\n observed result=%#v status=%d header=%#v body=%q failures=%d",
+					baselineResult, baselineDownstream.status, baselineHeader, baselineDownstream.body.String(), baselineFailures,
+					result, downstream.status, header, downstream.body.String(), failures,
+				)
+			}
+		})
 	}
 }
 

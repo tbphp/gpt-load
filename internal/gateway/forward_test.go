@@ -2667,6 +2667,125 @@ func TestForwardStreamInjectsUsageAfterModelAliasRewrite(t *testing.T) {
 	}
 }
 
+func TestForwardStreamInvalidatesRequestRepresentationMetadataOnlyWhenBodyChanges(t *testing.T) {
+	type capturedRequest struct {
+		body          []byte
+		headers       http.Header
+		contentLength int64
+	}
+	tests := []struct {
+		name                  string
+		configure             func(*ForwardInput)
+		wantBodyChanged       bool
+		wantMetadataPreserved bool
+		wantReadded           map[string]string
+	}{
+		{
+			name: "usage injection invalidates stale metadata",
+			configure: func(input *ForwardInput) {
+				input.Group.InjectUsageOptions = true
+			},
+			wantBodyChanged: true,
+		},
+		{
+			name:                  "disabled injection preserves metadata",
+			wantMetadataPreserved: true,
+		},
+		{
+			name: "failed injection preserves metadata when body is unchanged",
+			configure: func(input *ForwardInput) {
+				input.Group.InjectUsageOptions = true
+				input.Dialect = streamUsageInjectorDialect{
+					OpenAI: dialect.NewOpenAI(http.DefaultClient),
+					inject: func(*dialect.ParsedRequest) (*dialect.ParsedRequest, error) {
+						return nil, errors.New("inject failed")
+					},
+				}
+			},
+			wantMetadataPreserved: true,
+		},
+		{
+			name: "model alias rewrite invalidates stale metadata",
+			configure: func(input *ForwardInput) {
+				input.ExternalModel = "public-model"
+				input.UpstreamModelID = "provider-model"
+				input.Request.Body = []byte(`{"model":"public-model","stream":true}`)
+			},
+			wantBodyChanged: true,
+		},
+		{
+			name: "group header rules can add fresh metadata",
+			configure: func(input *ForwardInput) {
+				input.Group.InjectUsageOptions = true
+				input.Group.HeaderRules = state.HeaderRules{Set: map[string]string{
+					"Digest":    "sha-256=group-digest",
+					"Signature": "group-signature",
+				}}
+			},
+			wantBodyChanged: true,
+			wantReadded: map[string]string{
+				"Digest":    "sha-256=group-digest",
+				"Signature": "group-signature",
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			received := make(chan capturedRequest, 1)
+			upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				body, err := io.ReadAll(request.Body)
+				if err != nil {
+					t.Error(err)
+				}
+				received <- capturedRequest{
+					body:          body,
+					headers:       request.Header.Clone(),
+					contentLength: request.ContentLength,
+				}
+				writer.Header().Set("Content-Type", "text/event-stream")
+				_, _ = writer.Write([]byte("data: {\"choices\":[]}\n\n"))
+			}))
+			defer upstream.Close()
+
+			input := streamForwardInput(upstream.URL)
+			setRepresentationMetadata(input.Request.Header)
+			if test.configure != nil {
+				test.configure(&input)
+			}
+			originalBody := bytes.Clone(input.Request.Body)
+			result := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New()).ForwardStream(
+				context.Background(), input, newRecordingResponseWriter(),
+			)
+			if result.Err != nil || !result.Committed {
+				t.Fatalf("ForwardStream() = %#v", result)
+			}
+			got := <-received
+			if changed := !bytes.Equal(got.body, originalBody); changed != test.wantBodyChanged {
+				t.Fatalf("body changed = %t, want %t: original=%s upstream=%s", changed, test.wantBodyChanged, originalBody, got.body)
+			}
+			if got.contentLength != int64(len(got.body)) {
+				t.Fatalf("ContentLength = %d, want %d", got.contentLength, len(got.body))
+			}
+
+			if len(test.wantReadded) == 0 {
+				assertRepresentationMetadata(t, got.headers, test.wantMetadataPreserved)
+				return
+			}
+			for name, value := range test.wantReadded {
+				if got.headers.Get(name) != value {
+					t.Errorf("%s = %q, want fresh Group HeaderRules value %q", name, got.headers.Get(name), value)
+				}
+			}
+			withoutReadded := got.headers.Clone()
+			for name := range test.wantReadded {
+				withoutReadded.Del(name)
+			}
+			assertRepresentationMetadata(t, withoutReadded, false)
+		})
+	}
+}
+
 func TestForwardStreamDoesNotInjectWhenEffectiveFalse(t *testing.T) {
 	for _, body := range []string{
 		`{"model":"gpt-4o","stream":true}`,
@@ -2781,12 +2900,12 @@ func assertRepresentationMetadata(t *testing.T, headers http.Header, wantPreserv
 	}
 }
 
-func TestInvalidateRewrittenStreamHeadersRemovesRepresentationMetadata(t *testing.T) {
+func TestInvalidateRewrittenBodyHeadersRemovesRepresentationMetadata(t *testing.T) {
 	headers := make(http.Header)
 	headers.Set("Content-Length", "123")
 	setRepresentationMetadata(headers)
 
-	invalidateRewrittenStreamHeaders(headers)
+	invalidateRewrittenBodyHeaders(headers)
 
 	if headers.Get("Content-Length") != "" {
 		t.Fatalf("Content-Length = %q, want removed", headers.Get("Content-Length"))

@@ -315,7 +315,7 @@ func (forwarder *Forwarder) ForwardStream(
 		}
 		return rewritten, nil
 	})
-	invalidateRewrittenStreamHeaders(headers)
+	invalidateRewrittenBodyHeaders(headers)
 
 	prefix, err := bufferFirstSSEEvent(streamBody)
 	if err != nil {
@@ -401,6 +401,7 @@ func (forwarder *Forwarder) newUpstreamRequest(
 	if stream && input.Group.InjectUsageOptions && forwarder != nil && forwarder.usageCapture != nil {
 		parsed = forwarder.usageCapture.injectStreamUsage(input.Dialect, parsed)
 	}
+	bodyChanged := !bytes.Equal(input.Request.Body, parsed.Body)
 	upstreamURL, err := input.Dialect.BuildUpstreamURL(input.Group.UpstreamURL, parsed)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("build upstream URL: %w", err)
@@ -413,6 +414,9 @@ func (forwarder *Forwarder) newUpstreamRequest(
 	request.ContentLength = int64(len(parsed.Body))
 	request.GetBody = func() (io.ReadCloser, error) { return replay.open(), nil }
 	request.Header = cloneEndToEndHeaders(parsed.Header)
+	if bodyChanged {
+		invalidateRewrittenBodyHeaders(request.Header)
+	}
 	removeDownstreamCredentials(request.Header)
 	dialect.ApplyCredential(input.Dialect, request.Header, input.APIKey, input.Group.HeaderRules)
 	request.Header.Del(requestIDHeader)
@@ -718,16 +722,11 @@ func failClosedErrorBody(headers http.Header) ([]byte, []byte) {
 }
 
 func updateRewrittenBodyHeaders(headers http.Header, bodyLength int) {
-	for _, name := range []string{
-		"ETag", "Digest", "Content-MD5", "Content-Range", "Content-Digest", "Repr-Digest",
-		"Signature", "Signature-Input",
-	} {
-		headers.Del(name)
-	}
+	invalidateRewrittenBodyHeaders(headers)
 	headers.Set("Content-Length", strconv.Itoa(bodyLength))
 }
 
-func invalidateRewrittenStreamHeaders(headers http.Header) {
+func invalidateRewrittenBodyHeaders(headers http.Header) {
 	for _, name := range []string{
 		"Content-Length", "ETag", "Digest", "Content-MD5", "Content-Range", "Content-Digest", "Repr-Digest",
 		"Signature", "Signature-Input",
