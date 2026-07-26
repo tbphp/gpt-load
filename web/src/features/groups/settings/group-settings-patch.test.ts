@@ -21,6 +21,7 @@ const base: GroupDetailDto = {
   config: {
     connect_timeout: 30,
     header_rules: { set: { 'X-Token': 'HEADER_CANARY_PATCH' }, remove: ['X-Debug'] },
+    inject_usage_options: false,
   },
   effective_config: {
     connect_timeout: 30,
@@ -28,6 +29,7 @@ const base: GroupDetailDto = {
     request_timeout: 600,
     stream_idle_timeout: 300,
     header_rules: { set: { 'X-Token': 'HEADER_CANARY_PATCH' }, remove: ['X-Debug'] },
+    inject_usage_options: false,
   },
 }
 
@@ -82,7 +84,7 @@ describe('group settings patch', () => {
     })
   })
 
-  it('owns exactly the five Group runtime keys and sends the complete resulting sparse config', () => {
+  it('owns exactly the six Group runtime keys and sends the complete resulting sparse config', () => {
     let draft = createGroupSettingsDraft(base)
     draft = setGroupConfigOverride(draft, 'connect_timeout', false, base.effective_config)
     draft = setGroupConfigOverride(draft, 'first_byte_timeout', true, base.effective_config)
@@ -97,10 +99,41 @@ describe('group settings patch', () => {
         request_timeout: 600,
         stream_idle_timeout: 300,
         header_rules: { set: { 'X-New': 'HEADER_CANARY_NEW' }, remove: [] },
+        inject_usage_options: false,
       },
     })
     expect(JSON.stringify(patch)).not.toContain('effective_config')
     expect(JSON.stringify(patch)).not.toContain('request_log_retention_days')
+  })
+
+  it('preserves hidden Group false when saving unrelated settings', () => {
+    const draft = createGroupSettingsDraft(base)
+    draft.config.connect_timeout = 45
+
+    expect(buildGroupSettingsPatch(base, draft).config).toEqual({
+      ...base.config,
+      connect_timeout: 45,
+    })
+  })
+
+  it('rebases remote and explicit local Group boolean changes correctly', () => {
+    const untouched = createGroupSettingsDraft(base)
+    const remote: GroupDetailDto = {
+      ...base,
+      config: { ...base.config, inject_usage_options: true },
+      effective_config: { ...base.effective_config, inject_usage_options: true },
+    }
+    expect(rebaseGroupSettingsDraft(base, untouched, remote).config.inject_usage_options).toBe(true)
+
+    const explicit = createGroupSettingsDraft(base)
+    explicit.config.inject_usage_options = true
+    expect(
+      rebaseGroupSettingsDraft(base, explicit, {
+        ...base,
+        config: { ...base.config, inject_usage_options: false },
+        effective_config: { ...base.effective_config, inject_usage_options: false },
+      }).config.inject_usage_options,
+    ).toBe(true)
   })
 
   it('enables HeaderRules from a deep clone of the effective value', () => {
@@ -133,6 +166,7 @@ describe('group settings patch', () => {
       connect_timeout: 45,
       request_timeout: 900,
       header_rules: { set: { 'X-Token': 'HEADER_CANARY_PATCH' }, remove: ['X-Debug'] },
+      inject_usage_options: false,
     })
     expect(buildGroupSettingsPatch(refreshed, rebased)).toEqual({
       name: 'Local rename',
@@ -140,6 +174,7 @@ describe('group settings patch', () => {
         connect_timeout: 45,
         request_timeout: 900,
         header_rules: { set: { 'X-Token': 'HEADER_CANARY_PATCH' }, remove: ['X-Debug'] },
+        inject_usage_options: false,
       },
     })
   })

@@ -325,6 +325,7 @@ func TestCompileMergesTimeoutsAndHeaderRules(t *testing.T) {
 			Set:    map[string]string{"X-System": "system"},
 			Remove: []string{"X-System-Remove"},
 		},
+		InjectUsageOptions:      true,
 		RequestLogRetentionDays: 7,
 	}
 	if !reflect.DeepEqual(snapshot.Settings, wantSettings) {
@@ -362,6 +363,7 @@ func TestCompileUsesDefaultRuntimeSettings(t *testing.T) {
 		RequestTimeout:          600 * time.Second,
 		StreamIdleTimeout:       300 * time.Second,
 		HeaderRules:             HeaderRules{Set: map[string]string{}},
+		InjectUsageOptions:      true,
 		RequestLogRetentionDays: 7,
 	}
 	if !reflect.DeepEqual(snapshot.Settings, wantSettings) {
@@ -381,6 +383,21 @@ func TestCompileUsesDefaultRuntimeSettings(t *testing.T) {
 	wantRules := HeaderRules{Set: map[string]string{}}
 	if !reflect.DeepEqual(group.HeaderRules, wantRules) {
 		t.Errorf("GroupView.HeaderRules = %#v, want %#v", group.HeaderRules, wantRules)
+	}
+}
+
+func TestCompileFreezesInjectUsageOptionsInGroupView(t *testing.T) {
+	groupSettings := config.Settings{SettingInjectUsageOptions: false}
+	snapshot, err := Compile(runtimeSettingsInput(nil, groupSettings))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Groups[1].InjectUsageOptions {
+		t.Fatalf("GroupView.InjectUsageOptions = true, want false")
+	}
+	groupSettings[SettingInjectUsageOptions] = true
+	if snapshot.Groups[1].InjectUsageOptions {
+		t.Fatal("published GroupView changed with source config")
 	}
 }
 

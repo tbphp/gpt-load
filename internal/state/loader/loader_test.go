@@ -380,6 +380,7 @@ func TestLoaderMapsSystemAndGroupRows(t *testing.T) {
 			Set:    map[string]string{"X-System": "system"},
 			Remove: []string{"X-System-Remove"},
 		},
+		InjectUsageOptions:      true,
 		RequestLogRetentionDays: 7,
 	}
 	if !reflect.DeepEqual(snapshot.Settings, wantSettings) {

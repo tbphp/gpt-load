@@ -18,6 +18,7 @@ const (
 	SettingRequestTimeout          = "request_timeout"
 	SettingStreamIdleTimeout       = "stream_idle_timeout"
 	SettingHeaderRules             = "header_rules"
+	SettingInjectUsageOptions      = "inject_usage_options"
 	SettingRequestLogRetentionDays = "request_log_retention_days"
 )
 
@@ -33,7 +34,14 @@ type RuntimeSettings struct {
 	RequestTimeout          time.Duration
 	StreamIdleTimeout       time.Duration
 	HeaderRules             HeaderRules
+	InjectUsageOptions      bool
 	RequestLogRetentionDays int
+}
+
+type ResolvedGroupSettings struct {
+	Timeouts           TimeoutConfig
+	HeaderRules        HeaderRules
+	InjectUsageOptions bool
 }
 
 func DefaultRuntimeSettings() RuntimeSettings {
@@ -43,6 +51,7 @@ func DefaultRuntimeSettings() RuntimeSettings {
 		RequestTimeout:          600 * time.Second,
 		StreamIdleTimeout:       300 * time.Second,
 		HeaderRules:             HeaderRules{Set: map[string]string{}},
+		InjectUsageOptions:      true,
 		RequestLogRetentionDays: defaultRequestLogRetentionDays,
 	}
 }
@@ -54,6 +63,7 @@ func IsRuntimeSettingKey(key string) bool {
 		SettingRequestTimeout,
 		SettingStreamIdleTimeout,
 		SettingHeaderRules,
+		SettingInjectUsageOptions,
 		SettingRequestLogRetentionDays:
 		return true
 	default:
@@ -95,6 +105,12 @@ func ResolveRuntimeSettings(settings config.Settings) (RuntimeSettings, error) {
 				return RuntimeSettings{}, err
 			}
 			resolved.HeaderRules = rules
+		case SettingInjectUsageOptions:
+			value, err := strictBoolean(key, value)
+			if err != nil {
+				return RuntimeSettings{}, err
+			}
+			resolved.InjectUsageOptions = value
 		case SettingRequestLogRetentionDays:
 			days, err := wholeNumberInRange(
 				key,
@@ -116,51 +132,60 @@ func ResolveRuntimeSettings(settings config.Settings) (RuntimeSettings, error) {
 func ResolveGroupRuntimeSettings(
 	base RuntimeSettings,
 	settings config.Settings,
-) (TimeoutConfig, HeaderRules, error) {
-	timeouts := TimeoutConfig{
-		Connect:    base.ConnectTimeout,
-		FirstByte:  base.FirstByteTimeout,
-		Request:    base.RequestTimeout,
-		StreamIdle: base.StreamIdleTimeout,
+) (ResolvedGroupSettings, error) {
+	resolved := ResolvedGroupSettings{
+		Timeouts: TimeoutConfig{
+			Connect:    base.ConnectTimeout,
+			FirstByte:  base.FirstByteTimeout,
+			Request:    base.RequestTimeout,
+			StreamIdle: base.StreamIdleTimeout,
+		},
+		HeaderRules:        cloneHeaderRules(base.HeaderRules),
+		InjectUsageOptions: base.InjectUsageOptions,
 	}
-	rules := cloneHeaderRules(base.HeaderRules)
 	for key, value := range settings {
 		switch key {
 		case SettingConnectTimeout:
 			seconds, err := positiveWholeSeconds(key, value)
 			if err != nil {
-				return TimeoutConfig{}, HeaderRules{}, err
+				return ResolvedGroupSettings{}, err
 			}
-			timeouts.Connect = time.Duration(seconds) * time.Second
+			resolved.Timeouts.Connect = time.Duration(seconds) * time.Second
 		case SettingFirstByteTimeout:
 			seconds, err := positiveWholeSeconds(key, value)
 			if err != nil {
-				return TimeoutConfig{}, HeaderRules{}, err
+				return ResolvedGroupSettings{}, err
 			}
-			timeouts.FirstByte = time.Duration(seconds) * time.Second
+			resolved.Timeouts.FirstByte = time.Duration(seconds) * time.Second
 		case SettingRequestTimeout:
 			seconds, err := positiveWholeSeconds(key, value)
 			if err != nil {
-				return TimeoutConfig{}, HeaderRules{}, err
+				return ResolvedGroupSettings{}, err
 			}
-			timeouts.Request = time.Duration(seconds) * time.Second
+			resolved.Timeouts.Request = time.Duration(seconds) * time.Second
 		case SettingStreamIdleTimeout:
 			seconds, err := positiveWholeSeconds(key, value)
 			if err != nil {
-				return TimeoutConfig{}, HeaderRules{}, err
+				return ResolvedGroupSettings{}, err
 			}
-			timeouts.StreamIdle = time.Duration(seconds) * time.Second
+			resolved.Timeouts.StreamIdle = time.Duration(seconds) * time.Second
 		case SettingHeaderRules:
 			parsed, err := parseHeaderRules(value)
 			if err != nil {
-				return TimeoutConfig{}, HeaderRules{}, err
+				return ResolvedGroupSettings{}, err
 			}
-			rules = parsed
+			resolved.HeaderRules = parsed
+		case SettingInjectUsageOptions:
+			parsed, err := strictBoolean(key, value)
+			if err != nil {
+				return ResolvedGroupSettings{}, err
+			}
+			resolved.InjectUsageOptions = parsed
 		default:
-			return TimeoutConfig{}, HeaderRules{}, fmt.Errorf("unknown group setting %q", key)
+			return ResolvedGroupSettings{}, fmt.Errorf("unknown group setting %q", key)
 		}
 	}
-	return timeouts, rules, nil
+	return resolved, nil
 }
 
 func ValidateRuntimeSetting(key string, value any) error {
@@ -174,6 +199,9 @@ func ValidateRuntimeSetting(key string, value any) error {
 	case SettingHeaderRules:
 		_, err := parseHeaderRules(value)
 		return err
+	case SettingInjectUsageOptions:
+		_, err := strictBoolean(key, value)
+		return err
 	case SettingRequestLogRetentionDays:
 		_, err := wholeNumberInRange(
 			key,
@@ -185,6 +213,14 @@ func ValidateRuntimeSetting(key string, value any) error {
 	default:
 		return fmt.Errorf("unknown runtime setting %q", key)
 	}
+}
+
+func strictBoolean(path string, value any) (bool, error) {
+	parsed, ok := value.(bool)
+	if !ok {
+		return false, fmt.Errorf("%s must be a boolean", path)
+	}
+	return parsed, nil
 }
 
 func wholeNumberInRange(path string, value any, minimum, maximum int) (int, error) {

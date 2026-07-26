@@ -202,6 +202,34 @@ func TestStreamUsageCaptureFinalizeFailureIsMissing(t *testing.T) {
 	}
 }
 
+func TestUsageCaptureBoundaryRejectsInjectedRequestWithAliasedHeaders(t *testing.T) {
+	boundary := newUsageCaptureBoundary()
+	original := &dialect.ParsedRequest{
+		Method: http.MethodPost,
+		Path:   "/v1/chat/completions",
+		Header: http.Header{"X-Original": {"preserve"}},
+		Body:   []byte(`{"stream":true}`),
+	}
+	selected := streamUsageInjectorDialect{
+		OpenAI: dialect.NewOpenAI(http.DefaultClient),
+		inject: func(request *dialect.ParsedRequest) (*dialect.ParsedRequest, error) {
+			return &dialect.ParsedRequest{
+				Method: request.Method,
+				Path:   request.Path,
+				Header: request.Header,
+				Body:   append([]byte(nil), request.Body...),
+			}, nil
+		},
+	}
+
+	if got := boundary.injectStreamUsage(selected, original); got != original {
+		t.Fatalf("injected request = %#v, want original %#v", got, original)
+	}
+	if got := boundary.failureTotal.Load(); got != 1 {
+		t.Fatalf("failure total = %d, want 1", got)
+	}
+}
+
 func TestForwardStreamCapturesCanonicalUsage(t *testing.T) {
 	tests := []struct {
 		name     string

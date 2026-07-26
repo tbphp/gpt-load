@@ -1847,19 +1847,19 @@ func TestSettingsHTTPStableSuccessEnvelopeUpdateAndReset(t *testing.T) {
 	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
 
 	get := serveSettingsRequest(t, engine, http.MethodGet, "test-auth-key", "")
-	const wantDefault = `{"code":0,"message":"Success","data":{"revision":1,"values":{"connect_timeout":15,"first_byte_timeout":120,"request_timeout":600,"stream_idle_timeout":300,"header_rules":{"set":{},"remove":[]},"request_log_retention_days":7},"overrides":[]}}`
+	const wantDefault = `{"code":0,"message":"Success","data":{"revision":1,"values":{"connect_timeout":15,"first_byte_timeout":120,"request_timeout":600,"stream_idle_timeout":300,"header_rules":{"set":{},"remove":[]},"inject_usage_options":true,"request_log_retention_days":7},"overrides":[]}}`
 	if get.Code != http.StatusOK || strings.TrimSpace(get.Body.String()) != wantDefault {
 		t.Fatalf("default response = %d %s, want %s", get.Code, get.Body.String(), wantDefault)
 	}
 
 	update := serveSettingsRequest(t, engine, http.MethodPut, "test-auth-key", `{"settings":{"request_timeout":900,"header_rules":{"set":{},"remove":[]}}}`)
-	const wantUpdate = `{"code":0,"message":"Success","data":{"revision":2,"values":{"connect_timeout":15,"first_byte_timeout":120,"request_timeout":900,"stream_idle_timeout":300,"header_rules":{"set":{},"remove":[]},"request_log_retention_days":7},"overrides":["header_rules","request_timeout"]}}`
+	const wantUpdate = `{"code":0,"message":"Success","data":{"revision":2,"values":{"connect_timeout":15,"first_byte_timeout":120,"request_timeout":900,"stream_idle_timeout":300,"header_rules":{"set":{},"remove":[]},"inject_usage_options":true,"request_log_retention_days":7},"overrides":["header_rules","request_timeout"]}}`
 	if update.Code != http.StatusOK || strings.TrimSpace(update.Body.String()) != wantUpdate {
 		t.Fatalf("update response = %d %s, want %s", update.Code, update.Body.String(), wantUpdate)
 	}
 
 	reset := serveSettingsRequest(t, engine, http.MethodPut, "test-auth-key", `{"settings":{"request_timeout":null,"header_rules":null}}`)
-	const wantReset = `{"code":0,"message":"Success","data":{"revision":3,"values":{"connect_timeout":15,"first_byte_timeout":120,"request_timeout":600,"stream_idle_timeout":300,"header_rules":{"set":{},"remove":[]},"request_log_retention_days":7},"overrides":[]}}`
+	const wantReset = `{"code":0,"message":"Success","data":{"revision":3,"values":{"connect_timeout":15,"first_byte_timeout":120,"request_timeout":600,"stream_idle_timeout":300,"header_rules":{"set":{},"remove":[]},"inject_usage_options":true,"request_log_retention_days":7},"overrides":[]}}`
 	if reset.Code != http.StatusOK || strings.TrimSpace(reset.Body.String()) != wantReset {
 		t.Fatalf("reset response = %d %s, want %s", reset.Code, reset.Body.String(), wantReset)
 	}

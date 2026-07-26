@@ -20,6 +20,7 @@ const requestForwardingKeys: RuntimeSettingKey[] = [
   'request_timeout',
   'stream_idle_timeout',
   'header_rules',
+  'inject_usage_options',
 ]
 const logsMaintenanceKeys: RuntimeSettingKey[] = ['request_log_retention_days']
 
@@ -47,9 +48,13 @@ export function setSettingsOverride(
   }
   if (enabled) {
     next.overrides.add(key)
-    if (key === 'header_rules')
+    if (key === 'header_rules') {
       next.values.header_rules = cloneHeaderRules(base.values.header_rules)
-    else next.values[key] = base.values[key]
+    } else if (key === 'inject_usage_options') {
+      next.values.inject_usage_options = base.values.inject_usage_options
+    } else {
+      next.values[key] = base.values[key]
+    }
   } else {
     next.overrides.delete(key)
   }
@@ -72,8 +77,10 @@ function normalizeHeaderRules(value: HeaderRulesDto): HeaderRulesDto {
 function normalizedValue(
   settings: SettingsValues,
   key: RuntimeSettingKey,
-): number | HeaderRulesDto {
-  return key === 'header_rules' ? normalizeHeaderRules(settings.header_rules) : settings[key]
+): number | boolean | HeaderRulesDto {
+  if (key === 'header_rules') return normalizeHeaderRules(settings.header_rules)
+  if (key === 'inject_usage_options') return settings.inject_usage_options
+  return settings[key]
 }
 
 function sameValue(left: unknown, right: unknown): boolean {
@@ -126,6 +133,8 @@ export function rebaseSettingsDraft(
     rebased.overrides.add(key)
     if (key === 'header_rules') {
       rebased.values.header_rules = cloneHeaderRules(value as HeaderRulesDto)
+    } else if (key === 'inject_usage_options') {
+      rebased.values.inject_usage_options = value as boolean
     } else {
       rebased.values[key] = value as number
     }

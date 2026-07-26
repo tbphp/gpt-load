@@ -17,6 +17,7 @@ const base: SettingsDto = {
     request_timeout: 600,
     stream_idle_timeout: 300,
     header_rules: { set: { 'X-Base': 'secret' }, remove: ['X-Remove'] },
+    inject_usage_options: false,
     request_log_retention_days: 7,
   },
   overrides: ['request_timeout', 'header_rules'],
@@ -108,5 +109,24 @@ describe('settings patching', () => {
     })
     expect(rebased.values.request_timeout).toBe(900)
     expect(rebased.overrides.has('request_timeout')).toBe(true)
+  })
+
+  it('keeps the hidden system boolean through clone patch and rebase', () => {
+    const draft = createSettingsDraft(base)
+    draft.values.connect_timeout = 30
+    draft.overrides.add('connect_timeout')
+    const refreshed: SettingsDto = {
+      ...base,
+      revision: 4,
+      values: { ...base.values, inject_usage_options: true },
+      overrides: [...base.overrides],
+    }
+
+    const rebased = rebaseSettingsDraft(base, draft, refreshed, 'request-forwarding')
+
+    expect(rebased.values.inject_usage_options).toBe(true)
+    expect(buildSettingsPatch(refreshed, rebased, 'request-forwarding')).toEqual({
+      connect_timeout: 30,
+    })
   })
 })

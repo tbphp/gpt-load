@@ -84,7 +84,7 @@ func TestGetGroupReturnsSparseAndEffectiveConfig(t *testing.T) {
 	}
 	group := validControlGroup("effective")
 	group.Enabled = false
-	group.Config = models.JSON(`{"first_byte_timeout":180}`)
+	group.Config = models.JSON(`{"first_byte_timeout":180,"inject_usage_options":false}`)
 	if err := fixture.db.Create(group).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -97,13 +97,13 @@ func TestGetGroupReturnsSparseAndEffectiveConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	firstByte, ok := got.Config[state.SettingFirstByteTimeout].(json.Number)
-	if len(got.Config) != 1 || !ok || firstByte.String() != "180" {
+	if len(got.Config) != 2 || !ok || firstByte.String() != "180" || got.Config[state.SettingInjectUsageOptions] != false {
 		t.Fatalf("sparse config = %#v", got.Config)
 	}
 	if got.EffectiveConfig.ConnectTimeout != 15 ||
 		got.EffectiveConfig.FirstByteTimeout != 180 ||
 		got.EffectiveConfig.RequestTimeout != 700 ||
-		got.EffectiveConfig.StreamIdleTimeout != 300 {
+		got.EffectiveConfig.StreamIdleTimeout != 300 || got.EffectiveConfig.InjectUsageOptions {
 		t.Fatalf("effective config = %#v", got.EffectiveConfig)
 	}
 	if got.EffectiveConfig.HeaderRules.Set == nil || got.EffectiveConfig.HeaderRules.Remove == nil {
@@ -123,11 +123,12 @@ func TestGetGroupReturnsSparseAndEffectiveConfig(t *testing.T) {
 		effectiveConfigFields[name] = struct{}{}
 	}
 	wantEffectiveConfigFields := map[string]struct{}{
-		"connect_timeout":     {},
-		"first_byte_timeout":  {},
-		"request_timeout":     {},
-		"stream_idle_timeout": {},
-		"header_rules":        {},
+		"connect_timeout":      {},
+		"first_byte_timeout":   {},
+		"request_timeout":      {},
+		"stream_idle_timeout":  {},
+		"header_rules":         {},
+		"inject_usage_options": {},
 	}
 	if !reflect.DeepEqual(effectiveConfigFields, wantEffectiveConfigFields) {
 		t.Fatalf(

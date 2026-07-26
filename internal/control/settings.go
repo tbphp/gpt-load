@@ -29,6 +29,7 @@ type SettingsValuesResponse struct {
 	RequestTimeout          int64               `json:"request_timeout"`
 	StreamIdleTimeout       int64               `json:"stream_idle_timeout"`
 	HeaderRules             HeaderRulesResponse `json:"header_rules"`
+	InjectUsageOptions      bool                `json:"inject_usage_options"`
 	RequestLogRetentionDays int                 `json:"request_log_retention_days"`
 }
 
@@ -268,6 +269,7 @@ func mapSettingsResponse(
 				Set:    set,
 				Remove: remove,
 			},
+			InjectUsageOptions:      settings.InjectUsageOptions,
 			RequestLogRetentionDays: settings.RequestLogRetentionDays,
 		},
 		Overrides: overrides,

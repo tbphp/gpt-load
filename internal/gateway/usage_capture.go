@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"net/http"
+	"reflect"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -136,6 +137,53 @@ func safeFinalizeUsage(
 	}()
 	result, finalized = extractor.Finalize()
 	return result, finalized, false
+}
+
+func safeInjectStreamUsage(
+	injector dialect.StreamUsageInjector,
+	request *dialect.ParsedRequest,
+) (result *dialect.ParsedRequest, err error, panicked bool) {
+	defer func() {
+		if recover() != nil {
+			result = nil
+			err = nil
+			panicked = true
+		}
+	}()
+	result, err = injector.InjectStreamUsage(request)
+	return result, err, false
+}
+
+func (boundary *usageCaptureBoundary) injectStreamUsage(
+	selected dialect.Dialect,
+	request *dialect.ParsedRequest,
+) *dialect.ParsedRequest {
+	if boundary == nil || selected == nil || request == nil {
+		return request
+	}
+	injector, ok := selected.(dialect.StreamUsageInjector)
+	if !ok {
+		return request
+	}
+	derived, err, panicked := safeInjectStreamUsage(injector, request)
+	if panicked || err != nil || !isIndependentInjectedRequest(request, derived) || int64(len(derived.Body)) > maxRequestBodyBytes {
+		boundary.recordFailure("inject", selected.Protocol())
+		return request
+	}
+	return derived
+}
+
+func isIndependentInjectedRequest(original, derived *dialect.ParsedRequest) bool {
+	if derived == nil || derived == original ||
+		derived.Method != original.Method || derived.Path != original.Path || derived.RawQuery != original.RawQuery ||
+		!reflect.DeepEqual(derived.Header, original.Header) {
+		return false
+	}
+	if derived.Header != nil && original.Header != nil &&
+		reflect.ValueOf(derived.Header).Pointer() == reflect.ValueOf(original.Header).Pointer() {
+		return false
+	}
+	return len(derived.Body) == 0 || len(original.Body) == 0 || &derived.Body[0] != &original.Body[0]
 }
 
 func (boundary *usageCaptureBoundary) newStream(selected dialect.Dialect) *streamUsageCapture {

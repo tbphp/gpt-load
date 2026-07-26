@@ -34,6 +34,8 @@ function cloneConfig(value: GroupRuntimeConfigDto): GroupRuntimeConfigDto {
   if (value.stream_idle_timeout !== undefined)
     config.stream_idle_timeout = value.stream_idle_timeout
   if (value.header_rules !== undefined) config.header_rules = cloneHeaderRules(value.header_rules)
+  if (value.inject_usage_options !== undefined)
+    config.inject_usage_options = value.inject_usage_options
   return config
 }
 
@@ -62,6 +64,8 @@ function normalizeConfig(value: GroupRuntimeConfigDto): GroupRuntimeConfigDto {
     config.stream_idle_timeout = value.stream_idle_timeout
   if (value.header_rules !== undefined)
     config.header_rules = normalizeHeaderRules(value.header_rules)
+  if (value.inject_usage_options !== undefined)
+    config.inject_usage_options = value.inject_usage_options
   return config
 }
 
@@ -158,6 +162,11 @@ export function rebaseGroupSettingsDraft(
   if (!sameValue(baseHeaders, draftHeaders)) {
     if (draft.config.header_rules === undefined) delete rebased.config.header_rules
     else rebased.config.header_rules = cloneHeaderRules(draft.config.header_rules)
+  }
+
+  if (base.config.inject_usage_options !== draft.config.inject_usage_options) {
+    if (draft.config.inject_usage_options === undefined) delete rebased.config.inject_usage_options
+    else rebased.config.inject_usage_options = draft.config.inject_usage_options
   }
 
   return rebased

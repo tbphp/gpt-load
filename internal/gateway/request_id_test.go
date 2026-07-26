@@ -10,6 +10,8 @@ import (
 	"testing"
 
 	"gpt-load/internal/dialect"
+	platformhttp "gpt-load/internal/platform/httpclient"
+	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/ratelimit"
 	"gpt-load/internal/state"
 )
@@ -120,7 +122,7 @@ func TestNewUpstreamRequestRemovesReservedRequestIDAfterHeaderRules(t *testing.T
 		},
 	}
 
-	request, _, replay, err := newUpstreamRequest(context.Background(), input, false)
+	request, _, replay, err := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New()).newUpstreamRequest(context.Background(), input, false)
 	if err != nil {
 		t.Fatalf("newUpstreamRequest() error = %v", err)
 	}

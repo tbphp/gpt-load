@@ -20,6 +20,7 @@ const base: SettingsDto = {
     request_timeout: 600,
     stream_idle_timeout: 300,
     header_rules: { set: { 'X-Global': headerCanary }, remove: [] },
+    inject_usage_options: true,
     request_log_retention_days: 7,
   },
   overrides: [],

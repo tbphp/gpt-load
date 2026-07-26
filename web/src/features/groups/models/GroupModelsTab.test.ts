@@ -29,6 +29,7 @@ const detail: GroupDetailDto = {
     request_timeout: 600,
     stream_idle_timeout: 300,
     header_rules: { set: { 'X-Canary': 'HEADER_RULE_SECRET' }, remove: [] },
+    inject_usage_options: true,
   },
 }
 

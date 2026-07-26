@@ -26,6 +26,7 @@ const detail: GroupDetailDto = {
     request_timeout: 600,
     stream_idle_timeout: 300,
     header_rules: { set: { 'X-Global': 'HEADER_CANARY_EFFECTIVE' }, remove: ['X-Debug'] },
+    inject_usage_options: true,
   },
 }
 

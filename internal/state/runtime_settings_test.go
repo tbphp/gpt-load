@@ -22,6 +22,7 @@ func TestCompilePublishesDefaultRuntimeSettingsWithoutGroups(t *testing.T) {
 		RequestTimeout:          600 * time.Second,
 		StreamIdleTimeout:       300 * time.Second,
 		HeaderRules:             HeaderRules{Set: map[string]string{}},
+		InjectUsageOptions:      true,
 		RequestLogRetentionDays: 7,
 	}
 	if !reflect.DeepEqual(snapshot.Settings, want) {
@@ -96,24 +97,24 @@ func TestResolveGroupRuntimeSettingsUsesGroupPrecedence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	timeouts, rules, err := ResolveGroupRuntimeSettings(system, config.Settings{
+	resolved, err := ResolveGroupRuntimeSettings(system, config.Settings{
 		SettingFirstByteTimeout: json.Number("180"),
 		SettingHeaderRules:      map[string]any{"set": map[string]any{"X-Group": "group"}},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if timeouts.Request != 700*time.Second || timeouts.FirstByte != 180*time.Second {
-		t.Fatalf("timeouts = %#v", timeouts)
+	if resolved.Timeouts.Request != 700*time.Second || resolved.Timeouts.FirstByte != 180*time.Second {
+		t.Fatalf("timeouts = %#v", resolved.Timeouts)
 	}
 	wantRules := HeaderRules{Set: map[string]string{"X-Group": "group"}}
-	if !reflect.DeepEqual(rules, wantRules) {
-		t.Fatalf("rules = %#v, want replacement %#v", rules, wantRules)
+	if !reflect.DeepEqual(resolved.HeaderRules, wantRules) {
+		t.Fatalf("rules = %#v, want replacement %#v", resolved.HeaderRules, wantRules)
 	}
 }
 
 func TestResolveGroupRuntimeSettingsRejectsPresentNullHeaderRules(t *testing.T) {
-	_, _, err := ResolveGroupRuntimeSettings(
+	_, err := ResolveGroupRuntimeSettings(
 		DefaultRuntimeSettings(),
 		config.Settings{SettingHeaderRules: nil},
 	)
@@ -150,6 +151,7 @@ func TestIsRuntimeSettingKeyRecognizesOnlyPublicRuntimeKeys(t *testing.T) {
 		SettingRequestTimeout,
 		SettingStreamIdleTimeout,
 		SettingHeaderRules,
+		SettingInjectUsageOptions,
 		SettingRequestLogRetentionDays,
 	} {
 		if !IsRuntimeSettingKey(key) {
@@ -189,13 +191,87 @@ func TestResolveGroupRuntimeSettingsOwnsSystemHeaderRuleCopy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, rules, err := ResolveGroupRuntimeSettings(system, nil)
+	resolved, err := ResolveGroupRuntimeSettings(system, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	system.HeaderRules.Set["X-System"] = "mutated"
 	system.HeaderRules.Remove[0] = "X-Mutated"
-	if rules.Set["X-System"] != "system" || rules.Remove[0] != "X-Old" {
-		t.Fatalf("group rules changed with system settings: %#v", rules)
+	if resolved.HeaderRules.Set["X-System"] != "system" || resolved.HeaderRules.Remove[0] != "X-Old" {
+		t.Fatalf("group rules changed with system settings: %#v", resolved.HeaderRules)
+	}
+}
+
+func TestDefaultRuntimeSettingsInjectUsageOptions(t *testing.T) {
+	if !DefaultRuntimeSettings().InjectUsageOptions {
+		t.Fatal("default inject_usage_options = false, want true")
+	}
+}
+
+func TestResolveRuntimeSettingsInjectUsageOptionsRequiresBoolean(t *testing.T) {
+	for _, value := range []any{true, false} {
+		got, err := ResolveRuntimeSettings(config.Settings{SettingInjectUsageOptions: value})
+		if err != nil || got.InjectUsageOptions != value {
+			t.Fatalf("ResolveRuntimeSettings(%#v) = %#v, %v", value, got, err)
+		}
+	}
+	for _, value := range []any{0, 1, "true", nil, []any{}, map[string]any{}} {
+		if _, err := ResolveRuntimeSettings(config.Settings{SettingInjectUsageOptions: value}); err == nil {
+			t.Fatalf("ResolveRuntimeSettings(%#v) accepted non-boolean", value)
+		}
+	}
+}
+
+func TestResolveGroupRuntimeSettingsInjectUsagePrecedence(t *testing.T) {
+	tests := []struct {
+		name   string
+		system config.Settings
+		group  config.Settings
+		want   bool
+	}{
+		{name: "default", want: true},
+		{name: "system false", system: config.Settings{SettingInjectUsageOptions: false}, want: false},
+		{name: "group true", system: config.Settings{SettingInjectUsageOptions: false}, group: config.Settings{SettingInjectUsageOptions: true}, want: true},
+		{name: "group false", system: config.Settings{SettingInjectUsageOptions: true}, group: config.Settings{SettingInjectUsageOptions: false}, want: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			base, err := ResolveRuntimeSettings(test.system)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resolved, err := ResolveGroupRuntimeSettings(base, test.group)
+			if err != nil || resolved.InjectUsageOptions != test.want {
+				t.Fatalf("ResolveGroupRuntimeSettings() = %#v, %v; want %t", resolved, err, test.want)
+			}
+		})
+	}
+	for _, value := range []any{nil, 0, 1, "true", []any{}, map[string]any{}} {
+		if _, err := ResolveGroupRuntimeSettings(DefaultRuntimeSettings(), config.Settings{SettingInjectUsageOptions: value}); err == nil {
+			t.Fatalf("ResolveGroupRuntimeSettings(%#v) accepted non-boolean", value)
+		}
+	}
+}
+
+func TestResolvedGroupSettingsOwnsHeaderRuleCopies(t *testing.T) {
+	base, err := ResolveRuntimeSettings(config.Settings{
+		SettingHeaderRules: map[string]any{"set": map[string]any{"X-System": "system"}, "remove": []any{"X-Old"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := ResolveGroupRuntimeSettings(base, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first.HeaderRules.Set["X-System"] = "changed"
+	first.HeaderRules.Remove[0] = "X-Changed"
+	second, err := ResolveGroupRuntimeSettings(base, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if base.HeaderRules.Set["X-System"] != "system" || base.HeaderRules.Remove[0] != "X-Old" ||
+		second.HeaderRules.Set["X-System"] != "system" || second.HeaderRules.Remove[0] != "X-Old" {
+		t.Fatalf("header rules aliased: base=%#v second=%#v", base.HeaderRules, second.HeaderRules)
 	}
 }

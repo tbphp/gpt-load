@@ -28,7 +28,7 @@ func TestGetSettingsReturnsSnapshotDefaultsAndNoOverrides(t *testing.T) {
 	}
 	if got.Values.ConnectTimeout != 15 || got.Values.FirstByteTimeout != 120 ||
 		got.Values.RequestTimeout != 600 || got.Values.StreamIdleTimeout != 300 ||
-		got.Values.RequestLogRetentionDays != 7 {
+		got.Values.RequestLogRetentionDays != 7 || !got.Values.InjectUsageOptions {
 		t.Fatalf("values = %#v", got.Values)
 	}
 	if got.Values.HeaderRules.Set == nil || len(got.Values.HeaderRules.Set) != 0 {
@@ -39,6 +39,42 @@ func TestGetSettingsReturnsSnapshotDefaultsAndNoOverrides(t *testing.T) {
 	}
 	if got.Overrides == nil {
 		t.Fatal("overrides = nil, want empty slice")
+	}
+}
+
+func TestUpdateSettingsInjectUsageOptionsBooleanAndNullReset(t *testing.T) {
+	fixture := newServiceFixture(t)
+	updated, err := fixture.service.UpdateSettings(t.Context(), SettingsUpdateRequest{
+		Settings: map[string]json.RawMessage{state.SettingInjectUsageOptions: json.RawMessage("false")},
+	})
+	if err != nil || updated.Values.InjectUsageOptions {
+		t.Fatalf("UpdateSettings(false) = %#v, %v", updated, err)
+	}
+	if !reflect.DeepEqual(updated.Overrides, []string{state.SettingInjectUsageOptions}) {
+		t.Fatalf("overrides = %#v", updated.Overrides)
+	}
+	reset, err := fixture.service.UpdateSettings(t.Context(), SettingsUpdateRequest{
+		Settings: map[string]json.RawMessage{state.SettingInjectUsageOptions: json.RawMessage("null")},
+	})
+	if err != nil || !reset.Values.InjectUsageOptions || len(reset.Overrides) != 0 {
+		t.Fatalf("UpdateSettings(null) = %#v, %v", reset, err)
+	}
+}
+
+func TestUpdateSettingsRejectsNonBooleanInjectUsageWithoutMutation(t *testing.T) {
+	for _, raw := range []json.RawMessage{json.RawMessage("0"), json.RawMessage("1"), json.RawMessage(`"true"`), json.RawMessage("[]"), json.RawMessage("{}")} {
+		fixture := newServiceFixture(t)
+		before := fixture.manager.Current().Revision
+		_, err := fixture.service.UpdateSettings(t.Context(), SettingsUpdateRequest{
+			Settings: map[string]json.RawMessage{state.SettingInjectUsageOptions: raw},
+		})
+		if !errors.Is(err, app_errors.ErrValidation) || fixture.manager.Current().Revision != before {
+			t.Fatalf("UpdateSettings(%s) error/revision = %v/%d, want validation/%d", raw, err, fixture.manager.Current().Revision, before)
+		}
+		var count int64
+		if err := fixture.db.Model(&models.SystemSetting{}).Where("key = ?", state.SettingInjectUsageOptions).Count(&count).Error; err != nil || count != 0 {
+			t.Fatalf("persisted rows = %d, %v", count, err)
+		}
 	}
 }
 

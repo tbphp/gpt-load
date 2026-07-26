@@ -14,11 +14,12 @@ import (
 )
 
 type GroupEffectiveConfigResponse struct {
-	ConnectTimeout    int64               `json:"connect_timeout"`
-	FirstByteTimeout  int64               `json:"first_byte_timeout"`
-	RequestTimeout    int64               `json:"request_timeout"`
-	StreamIdleTimeout int64               `json:"stream_idle_timeout"`
-	HeaderRules       HeaderRulesResponse `json:"header_rules"`
+	ConnectTimeout     int64               `json:"connect_timeout"`
+	FirstByteTimeout   int64               `json:"first_byte_timeout"`
+	RequestTimeout     int64               `json:"request_timeout"`
+	StreamIdleTimeout  int64               `json:"stream_idle_timeout"`
+	HeaderRules        HeaderRulesResponse `json:"header_rules"`
+	InjectUsageOptions bool                `json:"inject_usage_options"`
 }
 
 type GroupDetailResponse struct {
@@ -66,23 +67,24 @@ func effectiveGroupConfig(
 	system state.RuntimeSettings,
 	overrides config.Settings,
 ) (GroupEffectiveConfigResponse, error) {
-	timeouts, rules, err := state.ResolveGroupRuntimeSettings(system, overrides)
+	resolved, err := state.ResolveGroupRuntimeSettings(system, overrides)
 	if err != nil {
 		return GroupEffectiveConfigResponse{}, err
 	}
-	set := make(map[string]string, len(rules.Set))
-	for name, value := range rules.Set {
+	set := make(map[string]string, len(resolved.HeaderRules.Set))
+	for name, value := range resolved.HeaderRules.Set {
 		set[name] = value
 	}
 	return GroupEffectiveConfigResponse{
-		ConnectTimeout:    durationSeconds(timeouts.Connect),
-		FirstByteTimeout:  durationSeconds(timeouts.FirstByte),
-		RequestTimeout:    durationSeconds(timeouts.Request),
-		StreamIdleTimeout: durationSeconds(timeouts.StreamIdle),
+		ConnectTimeout:    durationSeconds(resolved.Timeouts.Connect),
+		FirstByteTimeout:  durationSeconds(resolved.Timeouts.FirstByte),
+		RequestTimeout:    durationSeconds(resolved.Timeouts.Request),
+		StreamIdleTimeout: durationSeconds(resolved.Timeouts.StreamIdle),
 		HeaderRules: HeaderRulesResponse{
 			Set:    set,
-			Remove: append([]string{}, rules.Remove...),
+			Remove: append([]string{}, resolved.HeaderRules.Remove...),
 		},
+		InjectUsageOptions: resolved.InjectUsageOptions,
 	}, nil
 }
 

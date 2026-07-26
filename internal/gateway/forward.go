@@ -83,7 +83,7 @@ func (forwarder *Forwarder) Forward(ctx context.Context, input ForwardInput) Ups
 	if forwarder == nil || forwarder.clients == nil || forwarder.redactor == nil || input.Dialect == nil || input.Request == nil {
 		return UpstreamResult{Err: fmt.Errorf("forward input is incomplete")}
 	}
-	request, wroteRequest, _, err := newUpstreamRequest(ctx, input, false)
+	request, wroteRequest, _, err := forwarder.newUpstreamRequest(ctx, input, false)
 	if err != nil {
 		return UpstreamResult{Err: err}
 	}
@@ -201,7 +201,7 @@ func (forwarder *Forwarder) ForwardStream(
 
 	deadline := newFirstEventDeadline(ctx, input.Group.Timeouts.FirstByte)
 	defer deadline.stop()
-	request, wroteRequest, replay, err := newUpstreamRequest(deadline.ctx, input, true)
+	request, wroteRequest, replay, err := forwarder.newUpstreamRequest(deadline.ctx, input, true)
 	if err != nil {
 		return UpstreamResult{Err: err}
 	}
@@ -374,7 +374,7 @@ func releaseCommittedRequestReplay(parsed *dialect.ParsedRequest, replay *reques
 	}
 }
 
-func newUpstreamRequest(
+func (forwarder *Forwarder) newUpstreamRequest(
 	ctx context.Context,
 	input ForwardInput,
 	stream bool,
@@ -397,6 +397,9 @@ func newUpstreamRequest(
 			return nil, nil, nil, fmt.Errorf("%w: rewritten request body exceeds limit", errRequestTooLarge)
 		}
 		parsed = derived
+	}
+	if stream && input.Group.InjectUsageOptions && forwarder != nil && forwarder.usageCapture != nil {
+		parsed = forwarder.usageCapture.injectStreamUsage(input.Dialect, parsed)
 	}
 	upstreamURL, err := input.Dialect.BuildUpstreamURL(input.Group.UpstreamURL, parsed)
 	if err != nil {

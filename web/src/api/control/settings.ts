@@ -9,13 +9,14 @@ export const runtimeSettingKeys = [
   'request_timeout',
   'stream_idle_timeout',
   'header_rules',
+  'inject_usage_options',
   'request_log_retention_days',
 ] as const
 
 export type RuntimeSettingKey = (typeof runtimeSettingKeys)[number]
 export type TimeoutSettingKey = Exclude<
   RuntimeSettingKey,
-  'header_rules' | 'request_log_retention_days'
+  'header_rules' | 'inject_usage_options' | 'request_log_retention_days'
 >
 
 export interface SettingsValues {
@@ -24,6 +25,7 @@ export interface SettingsValues {
   request_timeout: number
   stream_idle_timeout: number
   header_rules: HeaderRulesDto
+  inject_usage_options: boolean
   request_log_retention_days: number
 }
 
@@ -39,6 +41,7 @@ export type SettingsPatch = Partial<{
   request_timeout: number | null
   stream_idle_timeout: number | null
   header_rules: HeaderRulesDto | null
+  inject_usage_options: boolean | null
   request_log_retention_days: number | null
 }>
 
@@ -76,6 +79,7 @@ export function projectSettings(value: unknown): SettingsDto {
     !isPositiveSafeInteger(values.first_byte_timeout) ||
     !isPositiveSafeInteger(values.request_timeout) ||
     !isPositiveSafeInteger(values.stream_idle_timeout) ||
+    typeof values.inject_usage_options !== 'boolean' ||
     !Number.isSafeInteger(values.request_log_retention_days) ||
     (values.request_log_retention_days as number) < 1 ||
     (values.request_log_retention_days as number) > 365 ||
@@ -93,6 +97,7 @@ export function projectSettings(value: unknown): SettingsDto {
       request_timeout: values.request_timeout,
       stream_idle_timeout: values.stream_idle_timeout,
       header_rules: projectHeaderRules(values.header_rules),
+      inject_usage_options: values.inject_usage_options,
       request_log_retention_days: values.request_log_retention_days as number,
     },
     overrides: overrides as RuntimeSettingKey[],

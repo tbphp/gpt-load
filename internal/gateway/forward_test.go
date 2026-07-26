@@ -1775,7 +1775,7 @@ func TestForwardStreamDoesNotRetryParentDeadline(t *testing.T) {
 func TestReleaseCommittedRequestReplayReleasesParsedBodyWithoutMutatingHTTPRequest(t *testing.T) {
 	input := streamForwardInput("https://example.com")
 	wantBody := bytes.Clone(input.Request.Body)
-	request, _, replay, err := newUpstreamRequest(context.Background(), input, true)
+	request, _, replay, err := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New()).newUpstreamRequest(context.Background(), input, true)
 	if err != nil {
 		t.Fatalf("newUpstreamRequest() error = %v", err)
 	}
@@ -2544,6 +2544,120 @@ func streamForwardInput(upstreamURL string) ForwardInput {
 			Method: http.MethodPost, Path: "/v1/chat/completions",
 			Header: make(http.Header), Body: []byte(`{"model":"gpt-4o","stream":true}`),
 		},
+	}
+}
+
+type streamUsageInjectorDialect struct {
+	*dialect.OpenAI
+	inject func(*dialect.ParsedRequest) (*dialect.ParsedRequest, error)
+}
+
+func (d streamUsageInjectorDialect) InjectStreamUsage(request *dialect.ParsedRequest) (*dialect.ParsedRequest, error) {
+	return d.inject(request)
+}
+
+func TestForwardStreamInjectsOpenAIUsageWhenEffective(t *testing.T) {
+	var received map[string]any
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if err := json.NewDecoder(request.Body).Decode(&received); err != nil {
+			t.Error(err)
+		}
+		writer.Header().Set("Content-Type", "text/event-stream")
+		_, _ = writer.Write([]byte("data: {\"choices\":[]}\n\n"))
+	}))
+	defer upstream.Close()
+
+	input := streamForwardInput(upstream.URL)
+	input.Group.InjectUsageOptions = true
+	result := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New()).ForwardStream(
+		context.Background(), input, newRecordingResponseWriter(),
+	)
+	if result.Err != nil || !result.Committed {
+		t.Fatalf("ForwardStream() = %#v", result)
+	}
+	options, ok := received["stream_options"].(map[string]any)
+	if !ok || options["include_usage"] != true {
+		t.Fatalf("upstream request = %#v, want stream_options.include_usage=true", received)
+	}
+}
+
+func TestForwardStreamDoesNotInjectWhenEffectiveFalse(t *testing.T) {
+	for _, body := range []string{
+		`{"model":"gpt-4o","stream":true}`,
+		`{"model":"gpt-4o","stream":true,"stream_options":{"include_usage":false}}`,
+		`{"model":"gpt-4o","stream":true,"stream_options":{"include_usage":true}}`,
+	} {
+		t.Run(body, func(t *testing.T) {
+			var received []byte
+			upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				received, _ = io.ReadAll(request.Body)
+				writer.Header().Set("Content-Type", "text/event-stream")
+				_, _ = writer.Write([]byte("data: {\"choices\":[]}\n\n"))
+			}))
+			defer upstream.Close()
+
+			input := streamForwardInput(upstream.URL)
+			input.Group.InjectUsageOptions = false
+			input.Request.Body = []byte(body)
+			want := bytes.Clone(input.Request.Body)
+			result := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New()).ForwardStream(
+				context.Background(), input, newRecordingResponseWriter(),
+			)
+			if result.Err != nil || !bytes.Equal(received, want) {
+				t.Fatalf("result/body = %#v/%s, want original %s", result, received, want)
+			}
+		})
+	}
+}
+
+func TestForwardStreamUsageInjectionFailureKeepsRewrittenRequest(t *testing.T) {
+	tests := []struct {
+		name   string
+		body   string
+		inject func(*dialect.ParsedRequest) (*dialect.ParsedRequest, error)
+	}{
+		{name: "error", inject: func(*dialect.ParsedRequest) (*dialect.ParsedRequest, error) { return nil, errors.New("inject failed") }},
+		{name: "panic", inject: func(*dialect.ParsedRequest) (*dialect.ParsedRequest, error) { panic("inject panic") }},
+		{name: "nil", inject: func(*dialect.ParsedRequest) (*dialect.ParsedRequest, error) { return nil, nil }},
+		{name: "oversize", inject: func(request *dialect.ParsedRequest) (*dialect.ParsedRequest, error) {
+			return &dialect.ParsedRequest{Method: request.Method, Path: request.Path, RawQuery: request.RawQuery, Header: request.Header.Clone(), Body: bytes.Repeat([]byte("x"), int(maxRequestBodyBytes)+1)}, nil
+		}},
+		{name: "invalid options", body: `{"model":"public-model","stream":true,"stream_options":false}`, inject: dialect.NewOpenAI(http.DefaultClient).InjectStreamUsage},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var received map[string]any
+			upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				if err := json.NewDecoder(request.Body).Decode(&received); err != nil {
+					t.Error(err)
+				}
+				writer.Header().Set("Content-Type", "text/event-stream")
+				_, _ = writer.Write([]byte("data: {\"choices\":[]}\n\n"))
+			}))
+			defer upstream.Close()
+
+			input := streamForwardInput(upstream.URL)
+			input.Group.InjectUsageOptions = true
+			input.ExternalModel = "public-model"
+			input.UpstreamModelID = "upstream-model"
+			if test.body != "" {
+				input.Request.Body = []byte(test.body)
+			} else {
+				input.Request.Body = []byte(`{"model":"public-model","stream":true}`)
+			}
+			input.Dialect = streamUsageInjectorDialect{OpenAI: dialect.NewOpenAI(http.DefaultClient), inject: test.inject}
+			forwarder := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New())
+			result := forwarder.ForwardStream(context.Background(), input, newRecordingResponseWriter())
+			if result.Err != nil || !result.Committed || received["model"] != "upstream-model" {
+				t.Fatalf("result/request = %#v/%#v", result, received)
+			}
+			if options, exists := received["stream_options"].(map[string]any); exists && options["include_usage"] == true {
+				t.Fatalf("fail-open request unexpectedly injected usage: %#v", received)
+			}
+			if forwarder.usageCapture.failureTotal.Load() != 1 {
+				t.Fatalf("failure total = %d, want 1", forwarder.usageCapture.failureTotal.Load())
+			}
+		})
 	}
 }
 

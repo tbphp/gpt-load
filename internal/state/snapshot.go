@@ -81,15 +81,16 @@ type HeaderRules struct {
 }
 
 type GroupView struct {
-	ID              uint
-	Name            string
-	UpstreamURL     string
-	ValidationModel string
-	Protocols       []protocol.Protocol
-	Models          []ModelConfig
-	Timeouts        TimeoutConfig
-	HeaderRules     HeaderRules
-	WeightManual    *int
+	ID                 uint
+	Name               string
+	UpstreamURL        string
+	ValidationModel    string
+	Protocols          []protocol.Protocol
+	Models             []ModelConfig
+	Timeouts           TimeoutConfig
+	HeaderRules        HeaderRules
+	InjectUsageOptions bool
+	WeightManual       *int
 }
 
 type GroupCatalogView struct {
@@ -143,7 +144,7 @@ func Compile(input CompileInput) (*ConfigSnapshot, error) {
 			WeightManual: cloneWeight(group.WeightManual),
 		}
 		appendRouteTarget(snapshot.RouteCatalog, group)
-		timeouts, headerRules, err := ResolveGroupRuntimeSettings(runtimeSettings, group.Settings)
+		resolved, err := ResolveGroupRuntimeSettings(runtimeSettings, group.Settings)
 		if err != nil {
 			return nil, fmt.Errorf("compile group %d settings: %w", group.ID, err)
 		}
@@ -151,15 +152,16 @@ func Compile(input CompileInput) (*ConfigSnapshot, error) {
 			continue
 		}
 		view := GroupView{
-			ID:              group.ID,
-			Name:            group.Name,
-			UpstreamURL:     group.UpstreamURL,
-			ValidationModel: strings.TrimSpace(group.ValidationModel),
-			Protocols:       append([]protocol.Protocol(nil), group.Protocols...),
-			Models:          append([]ModelConfig(nil), group.Models...),
-			Timeouts:        timeouts,
-			HeaderRules:     headerRules,
-			WeightManual:    cloneWeight(group.WeightManual),
+			ID:                 group.ID,
+			Name:               group.Name,
+			UpstreamURL:        group.UpstreamURL,
+			ValidationModel:    strings.TrimSpace(group.ValidationModel),
+			Protocols:          append([]protocol.Protocol(nil), group.Protocols...),
+			Models:             append([]ModelConfig(nil), group.Models...),
+			Timeouts:           resolved.Timeouts,
+			HeaderRules:        resolved.HeaderRules,
+			InjectUsageOptions: resolved.InjectUsageOptions,
+			WeightManual:       cloneWeight(group.WeightManual),
 		}
 		snapshot.Groups[group.ID] = view
 		appendRouteTarget(snapshot.Candidates, group)

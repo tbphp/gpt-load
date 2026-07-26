@@ -13,6 +13,7 @@ export interface GroupRuntimeConfigDto {
   request_timeout?: number
   stream_idle_timeout?: number
   header_rules?: HeaderRulesDto
+  inject_usage_options?: boolean
 }
 
 export interface GroupEffectiveConfigDto {
@@ -21,6 +22,7 @@ export interface GroupEffectiveConfigDto {
   request_timeout: number
   stream_idle_timeout: number
   header_rules: HeaderRulesDto
+  inject_usage_options: boolean
 }
 
 export interface GroupDetailDto extends GroupSummary {
