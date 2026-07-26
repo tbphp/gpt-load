@@ -16,19 +16,44 @@ func TestDockerfileFinalStageDeclaresNonRootPersistentRuntime(t *testing.T) {
 	}
 	finalStage := content[finalStageIndex:]
 
-	for _, required := range []string{
-		"10001",
-		"/app/data",
+	orderedBeforeUser := []string{
+		"addgroup -S -g 10001 gpt-load",
+		"adduser -S -D -H -u 10001 -G gpt-load gpt-load",
+		"mkdir -p /app/data",
+		"chown 10001:10001 /app/data",
+		"chmod 0700 /app/data",
 		"ENV DATA_DIR=/app/data",
 		"USER 10001:10001",
-		`ENTRYPOINT ["/app/gpt-load"]`,
-	} {
-		if !strings.Contains(finalStage, required) {
+	}
+	previousIndex := -1
+	for _, required := range orderedBeforeUser {
+		index := strings.Index(finalStage, required)
+		if index < 0 {
 			t.Fatalf("Dockerfile final stage does not contain %q", required)
 		}
+		if index <= previousIndex {
+			t.Fatalf("Dockerfile final stage places %q out of order", required)
+		}
+		previousIndex = index
 	}
-	if strings.Index(finalStage, "USER 10001:10001") >= strings.Index(finalStage, `ENTRYPOINT ["/app/gpt-load"]`) {
-		t.Fatal("Dockerfile final stage does not switch users before ENTRYPOINT")
+
+	entrypoint := `ENTRYPOINT ["/app/gpt-load"]`
+	entrypointIndex := strings.Index(finalStage, entrypoint)
+	if entrypointIndex < 0 {
+		t.Fatalf("Dockerfile final stage does not contain %q", entrypoint)
+	}
+	if previousIndex >= entrypointIndex {
+		t.Fatal("Dockerfile final stage does not switch users before the direct ENTRYPOINT")
+	}
+	if strings.Count(finalStage, "ENTRYPOINT") != 1 {
+		t.Fatal("Dockerfile final stage must declare exactly one direct ENTRYPOINT")
+	}
+
+	afterUser := finalStage[strings.Index(finalStage, "USER 10001:10001")+len("USER 10001:10001"):]
+	for _, forbidden := range []string{"USER root", "chown"} {
+		if strings.Contains(afterUser, forbidden) {
+			t.Fatalf("Dockerfile final stage contains %q after the non-root USER", forbidden)
+		}
 	}
 }
 
