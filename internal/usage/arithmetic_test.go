@@ -28,13 +28,54 @@ func TestUsageSubtractCached(t *testing.T) {
 	}
 }
 
-func TestUsageCheckedAddAndTotalRejectOverflow(t *testing.T) {
-	if got, ok := CheckedAdd(math.MaxInt64, 1); ok || got != 0 {
-		t.Fatalf("CheckedAdd overflow = %d, %t", got, ok)
+func TestUsageCheckedAdd(t *testing.T) {
+	tests := []struct {
+		name        string
+		left, right int64
+		want        int64
+		wantOK      bool
+	}{
+		{name: "normal", left: 7, right: 5, want: 12, wantOK: true},
+		{name: "left zero", left: 0, right: 5, want: 5, wantOK: true},
+		{name: "right zero", left: 7, right: 0, want: 7, wantOK: true},
+		{name: "negative left", left: -1, right: 5},
+		{name: "negative right", left: 7, right: -1},
+		{name: "overflow", left: math.MaxInt64, right: 1},
 	}
-	tokens := Tokens{UncachedInput: math.MaxInt64, Output: 1}
-	if got, ok := CheckedTotal(tokens); ok || got != 0 {
-		t.Fatalf("CheckedTotal overflow = %d, %t", got, ok)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := CheckedAdd(tt.left, tt.right)
+			if got != tt.want || ok != tt.wantOK {
+				t.Fatalf("CheckedAdd(%d, %d) = %d, %t, want %d, %t", tt.left, tt.right, got, ok, tt.want, tt.wantOK)
+			}
+		})
+	}
+}
+
+func TestUsageCheckedTotal(t *testing.T) {
+	tests := []struct {
+		name   string
+		tokens Tokens
+		want   int64
+		wantOK bool
+	}{
+		{name: "five buckets", tokens: Tokens{UncachedInput: 1, CacheRead: 2, CacheWrite5M: 3, CacheWrite1H: 4, Output: 5}, want: 15, wantOK: true},
+		{name: "negative uncached input", tokens: Tokens{UncachedInput: -1}},
+		{name: "negative cache read", tokens: Tokens{CacheRead: -1}},
+		{name: "negative cache write 5m", tokens: Tokens{CacheWrite5M: -1}},
+		{name: "negative cache write 1h", tokens: Tokens{CacheWrite1H: -1}},
+		{name: "negative output", tokens: Tokens{Output: -1}},
+		{name: "overflow", tokens: Tokens{UncachedInput: math.MaxInt64, Output: 1}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := CheckedTotal(tt.tokens)
+			if got != tt.want || ok != tt.wantOK {
+				t.Fatalf("CheckedTotal(%#v) = %d, %t, want %d, %t", tt.tokens, got, ok, tt.want, tt.wantOK)
+			}
+		})
 	}
 }
 
@@ -58,5 +99,39 @@ func TestUsageDiagnosticsAreFixedAndMergeLatestDelta(t *testing.T) {
 	first.Add(DiagnosticCode("unknown"))
 	if first.Has(DiagnosticCode("unknown")) {
 		t.Fatalf("unknown diagnostic code was retained: %#v", first)
+	}
+}
+
+func TestUsageDiagnosticsAddAndHasEverySupportedCode(t *testing.T) {
+	tests := []struct {
+		name string
+		code DiagnosticCode
+	}{
+		{name: "unsupported billable detail", code: DiagnosticUnsupportedBillableDetail},
+		{name: "cache write defaulted 5m", code: DiagnosticCacheWriteDefaulted5M},
+		{name: "negative value", code: DiagnosticNegativeValue},
+		{name: "invalid number", code: DiagnosticInvalidNumber},
+		{name: "missing required field", code: DiagnosticMissingRequiredField},
+		{name: "inconsistent total", code: DiagnosticInconsistentTotal},
+		{name: "invalid payload", code: DiagnosticInvalidPayload},
+		{name: "invalid event sequence", code: DiagnosticInvalidEventSequence},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var diagnostics Diagnostics
+			diagnostics.Add(tt.code)
+			if !diagnostics.Has(tt.code) {
+				t.Fatalf("Add(%q) was not observable through Has", tt.code)
+			}
+		})
+	}
+}
+
+func TestUsageDiagnosticsSetZeroTotalDeltaIsPresent(t *testing.T) {
+	var diagnostics Diagnostics
+	diagnostics.SetTotalDelta(0)
+	if delta, ok := diagnostics.TotalDelta(); !ok || delta != 0 {
+		t.Fatalf("TotalDelta() = %d, %t, want 0, true", delta, ok)
 	}
 }

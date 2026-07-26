@@ -54,6 +54,33 @@ func TestUsageAccumulatorReplaceSnapshotClearsAbsentFieldsAndDiagnostics(t *test
 	}
 }
 
+func TestUsageAccumulatorReplaceSnapshotClearsPresence(t *testing.T) {
+	one := int64(1)
+	var accumulator Accumulator
+	if err := accumulator.ReplaceSnapshot(Patch{Output: &one}); err != nil {
+		t.Fatal(err)
+	}
+	if err := accumulator.ReplaceSnapshot(Patch{Final: true}); err != nil {
+		t.Fatal(err)
+	}
+	result, ok := accumulator.Finalize(true)
+	if !ok || result.State != StateMissing || result.Tokens != (Tokens{}) {
+		t.Fatalf("replacement without token fields = %#v, %t, want missing with zero tokens", result, ok)
+	}
+}
+
+func TestUsageAccumulatorReplaceSnapshotExplicitZeroIsPresent(t *testing.T) {
+	zero := int64(0)
+	var accumulator Accumulator
+	if err := accumulator.ReplaceSnapshot(Patch{Output: &zero, Final: true}); err != nil {
+		t.Fatal(err)
+	}
+	result, ok := accumulator.Finalize(true)
+	if !ok || result.State != StateComplete || result.Tokens != (Tokens{}) {
+		t.Fatalf("explicit zero replacement = %#v, %t, want complete with zero tokens", result, ok)
+	}
+}
+
 func TestUsageAccumulatorMergePatchPreservesAbsentFieldsAndStickyFinality(t *testing.T) {
 	one, two, three := int64(1), int64(2), int64(3)
 	var first Diagnostics
