@@ -180,7 +180,7 @@ export function projectUsageReport(value: unknown): UsageReportDto {
     const bucketEnd = timestamp(item.bucket_end)
     const start = timestampMs(bucketStart)
     const end = timestampMs(bucketEnd)
-    if (start < previousBucketEnd || start >= end || end > timestampMs(rangeTo)) {
+    if (start < previousBucketEnd || start >= end || start >= timestampMs(rangeTo)) {
       throw new InvalidResponseError()
     }
     previousBucketEnd = end

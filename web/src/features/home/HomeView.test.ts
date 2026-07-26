@@ -2,6 +2,7 @@ import { QueryClient } from '@tanstack/vue-query'
 import { flushPromises } from '@vue/test-utils'
 
 import { ApiError } from '@/api/errors'
+import type { UsageReportDto } from '@/api/control/usage'
 import { controlQueryKeys } from '@/app/query-keys'
 import type { AccessKeyDto, GroupSummary, RuntimeHealthDto } from '@/api/control/types'
 import { FakeApi } from '@/test/fake-api'
@@ -59,7 +60,37 @@ const healthFixture: RuntimeHealthDto = {
   },
 }
 
+const usageFixture: UsageReportDto = {
+  observed_at: '2026-07-25T10:00:01Z',
+  range: {
+    from: '2026-07-24T10:00:00Z',
+    to: '2026-07-25T10:00:00Z',
+    granularity: 'hour',
+  },
+  filters: { group_id: null, model: '' },
+  summary: {
+    request_count: 4,
+    success_count: 3,
+    failure_count: 1,
+    uncached_input_tokens: 10,
+    cache_read_tokens: 2,
+    cache_write_5m_tokens: 0,
+    cache_write_1h_tokens: 0,
+    output_tokens: 5,
+    total_tokens: 17,
+    estimated_cost_usd: 0.0025,
+    usage_missing_count: 0,
+    partial_count: 0,
+    unpriced_request_count: 0,
+  },
+  series: [],
+  breakdown: [],
+  breakdown_truncated: false,
+  request_log: healthFixture.request_log,
+}
+
 async function mountHome(api: FakeApi, origin?: string, queryClient?: QueryClient) {
+  api.when('/api/usage?range=24h').resolve(usageFixture)
   const mounted = await mountApp(HomeView, {
     api,
     queryClient: queryClient ?? new QueryClient({ defaultOptions: { queries: { retry: false } } }),
@@ -95,6 +126,26 @@ describe('HomeView', () => {
     expect(wrapper.text()).toContain('在线')
     expect(wrapper.text()).toContain('Base URL')
     expect(wrapper.text()).toContain('无法加载 Group')
+  })
+
+  it('keeps overview and Groups mounted when the Usage summary fails independently', async () => {
+    const api = new FakeApi()
+    api.when('/api/groups').resolve([groupFixture])
+    api.when('/api/health').resolve(healthFixture)
+    api.when('/api/access-keys').resolve([accessKeyFixture])
+    api
+      .when('/api/usage?range=24h')
+      .reject(new ApiError(500, 'INTERNAL_SERVER_ERROR', 'usage-secret-canary'))
+
+    const wrapper = await mountHome(api)
+
+    expect(wrapper.text()).toContain('在线')
+    expect(wrapper.text()).toContain('Base URL')
+    expect(wrapper.get('[data-group-id="1"]').text()).toContain('Example')
+    expect(wrapper.get('[data-test="home-usage-error"]').text()).toContain(
+      '无法加载最近 24 小时用量摘要',
+    )
+    expect(wrapper.text()).not.toContain('usage-secret-canary')
   })
 
   it('retains stale Health data when a background refresh fails', async () => {
@@ -153,7 +204,7 @@ describe('HomeView', () => {
     expect(wrapper.get('[aria-label="复制 Base URL"]').attributes()).not.toHaveProperty('disabled')
   })
 
-  it('renders real health counts and no fabricated dashboard metrics', async () => {
+  it('renders real health and usage counts without fabricated health metrics or a chart', async () => {
     const api = new FakeApi()
     api.when('/api/groups').resolve([groupFixture])
     api.when('/api/health').resolve(healthFixture)
@@ -164,7 +215,9 @@ describe('HomeView', () => {
     expect(wrapper.text()).toContain('可用 1')
     expect(wrapper.text()).toContain('冷却 1')
     expect(wrapper.text()).toContain('修订 8')
-    expect(wrapper.text()).not.toMatch(/成功率|健康率|吞吐|Token|费用|趋势/)
+    expect(wrapper.text()).toContain('最近 24 小时')
+    expect(wrapper.text()).not.toMatch(/健康率|吞吐|趋势/)
+    expect(wrapper.find('[data-test="usage-sparkline"]').exists()).toBe(false)
     expect(wrapper.html()).not.toContain('ACCESS_KEY_CANARY')
   })
 

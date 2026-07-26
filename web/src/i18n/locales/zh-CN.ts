@@ -187,6 +187,30 @@ export default {
     copyAccessKey: '复制 AccessKey',
     modelPlaceholder: '未找到真实模型时，请将 {model} 替换为实际模型 ID。',
     snippet: '客户端示例',
+    usage: {
+      eyebrow: '用量摘要',
+      title: '最近 24 小时',
+      description: '请求数来自已持久化记录；Token 与预估成本合计不包含未完成或未定价用量。',
+      detail: '查看用量详情',
+      loading: '正在加载最近 24 小时用量摘要…',
+      loadFailed: '无法加载最近 24 小时用量摘要。',
+      stale: '后台刷新失败，用量摘要可能已过期。',
+      empty: {
+        title: '最近 24 小时没有已持久化请求',
+        description: '发送请求后，可在此查看用量与预估成本摘要。',
+      },
+      requests: '已持久化请求',
+      tokens: '已报告 Token',
+      estimatedCost: '预估成本',
+      cost: {
+        unknown: '未知',
+        knownPlusUnknown: '{cost} + 未知',
+      },
+      quality: '缺失 {missing} · 部分 {partial} · 未定价 {unpriced}',
+      pipelineWarning:
+        '当前进程写入管线：丢弃 {dropped} · 写入失败 {failures}；这些累计值不受 24 小时范围限制。',
+      observedAt: '观测时间',
+    },
   },
   monitor: {
     title: '监控',

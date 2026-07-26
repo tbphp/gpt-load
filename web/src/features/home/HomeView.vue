@@ -18,6 +18,7 @@ import SurfaceCard from '@/components/ui/SurfaceCard.vue'
 
 import ConnectionCard from './ConnectionCard.vue'
 import GroupCard from './GroupCard.vue'
+import UsageSummaryCard from './UsageSummaryCard.vue'
 
 const props = withDefaults(defineProps<{ origin?: string }>(), {
   origin: () => window.location.origin,
@@ -156,6 +157,8 @@ const observedAt = computed(() => {
         />
       </div>
     </section>
+
+    <UsageSummaryCard />
 
     <section class="groups-section" aria-labelledby="groups-heading">
       <header class="groups-section__header">

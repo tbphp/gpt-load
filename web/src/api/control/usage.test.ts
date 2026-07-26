@@ -86,6 +86,26 @@ describe('Usage control API', () => {
     })
   })
 
+  it('accepts the current partial bucket when its start is inside the report range', () => {
+    const currentBucketReport = {
+      ...report,
+      observed_at: '2026-07-27T12:21:48Z',
+      range: {
+        ...report.range,
+        to: '2026-07-27T12:21:48Z',
+      },
+      series: [
+        {
+          ...report.series[0],
+          bucket_start: '2026-07-27T12:00:00Z',
+          bucket_end: '2026-07-27T13:00:00Z',
+        },
+      ],
+    }
+
+    expect(projectUsageReport(currentBucketReport)).toEqual(currentBucketReport)
+  })
+
   it.each([
     ['non-object report', null],
     ['missing aggregate field', { ...report, summary: { ...aggregate, total_tokens: undefined } }],

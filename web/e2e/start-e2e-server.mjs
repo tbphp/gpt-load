@@ -36,10 +36,64 @@ const modelList = JSON.stringify({
     },
   ],
 })
-const fakeUpstream = createServer((request, response) => {
+async function requestBody(request) {
+  const chunks = []
+  for await (const chunk of request) chunks.push(chunk)
+  return Buffer.concat(chunks).toString('utf8')
+}
+
+const fakeUpstream = createServer(async (request, response) => {
   if (request.method === 'GET' && request.url === '/v1/models') {
     response.writeHead(200, { 'content-type': 'application/json' })
     response.end(modelList)
+    return
+  }
+
+  if (request.method === 'POST' && request.url === '/v1/chat/completions') {
+    let payload
+    try {
+      payload = JSON.parse(await requestBody(request))
+    } catch {
+      response.writeHead(400, { 'content-type': 'application/json' })
+      response.end('{"error":{"message":"invalid request"}}')
+      return
+    }
+    const content = payload.messages?.[0]?.content
+    if (content === 'partial-usage' && payload.stream === true) {
+      response.writeHead(200, {
+        'cache-control': 'no-cache',
+        connection: 'keep-alive',
+        'content-type': 'text/event-stream',
+      })
+      response.write(
+        'data: {"id":"chatcmpl-e2e-partial","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"partial"}}],"usage":{"prompt_tokens":5,"completion_tokens":3,"total_tokens":8}}\n\n',
+      )
+      response.end('data: [DONE]\n\n')
+      return
+    }
+
+    const result = {
+      id: `chatcmpl-e2e-${content === 'missing-usage' ? 'missing' : 'complete'}`,
+      object: 'chat.completion',
+      created: 1_735_689_600,
+      model: 'e2e-model-one',
+      choices: [
+        {
+          index: 0,
+          message: { role: 'assistant', content: 'ok' },
+          finish_reason: 'stop',
+        },
+      ],
+    }
+    if (content !== 'missing-usage') {
+      result.usage = {
+        prompt_tokens: 11,
+        completion_tokens: 7,
+        total_tokens: 18,
+      }
+    }
+    response.writeHead(200, { 'content-type': 'application/json' })
+    response.end(JSON.stringify(result))
     return
   }
 

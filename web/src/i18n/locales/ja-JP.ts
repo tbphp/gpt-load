@@ -192,6 +192,31 @@ export default {
     copyAccessKey: 'AccessKey をコピー',
     modelPlaceholder: '実在モデルがない場合は、{model} を実際のモデル ID に置き換えてください。',
     snippet: 'クライアント例',
+    usage: {
+      eyebrow: '使用量サマリー',
+      title: '過去 24 時間',
+      description:
+        'リクエスト数は永続化された記録に基づきます。トークンと推定コストの合計には、不完全または価格未設定の使用量を含みません。',
+      detail: '使用量の詳細を表示',
+      loading: '24 時間の使用量サマリーを読み込み中…',
+      loadFailed: '24 時間の使用量サマリーを読み込めません。',
+      stale: 'バックグラウンド更新に失敗したため、使用量サマリーが古い可能性があります。',
+      empty: {
+        title: '過去 24 時間に永続化されたリクエストはありません',
+        description: 'リクエスト送信後、使用量と推定コストのサマリーがここに表示されます。',
+      },
+      requests: '永続化リクエスト',
+      tokens: '報告済みトークン',
+      estimatedCost: '推定コスト',
+      cost: {
+        unknown: '不明',
+        knownPlusUnknown: '{cost} + 不明',
+      },
+      quality: 'なし {missing} · 部分 {partial} · 未設定 {unpriced}',
+      pipelineWarning:
+        '現在プロセスのパイプライン: 破棄 {dropped} · 書き込み失敗 {failures}。これらの累積値は 24 時間の範囲には従いません。',
+      observedAt: '観測時刻',
+    },
   },
   monitor: {
     title: 'モニター',

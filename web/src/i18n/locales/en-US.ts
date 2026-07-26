@@ -195,6 +195,31 @@ export default {
     copyAccessKey: 'Copy AccessKey',
     modelPlaceholder: 'When no real model is available, replace {model} with an actual model ID.',
     snippet: 'Client example',
+    usage: {
+      eyebrow: 'Usage summary',
+      title: 'Last 24 hours',
+      description:
+        'Request counts use persisted records; token and estimated-cost totals exclude incomplete or unpriced usage.',
+      detail: 'View usage details',
+      loading: 'Loading the 24-hour usage summary…',
+      loadFailed: 'Unable to load the 24-hour usage summary.',
+      stale: 'The usage summary may be stale because its background refresh failed.',
+      empty: {
+        title: 'No persisted requests in the last 24 hours',
+        description: 'After a request is sent, its usage and estimated cost summary appears here.',
+      },
+      requests: 'Persisted requests',
+      tokens: 'Reported tokens',
+      estimatedCost: 'Estimated cost',
+      cost: {
+        unknown: 'Unknown',
+        knownPlusUnknown: '{cost} + unknown',
+      },
+      quality: 'Missing {missing} · Partial {partial} · Unpriced {unpriced}',
+      pipelineWarning:
+        'Current process pipeline: Dropped {dropped} · Write failures {failures}. These cumulative values do not follow the 24-hour range.',
+      observedAt: 'Observed at',
+    },
   },
   monitor: {
     title: 'Monitor',
