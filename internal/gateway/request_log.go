@@ -16,6 +16,7 @@ import (
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/scheduler"
 	"gpt-load/internal/telemetry"
+	"gpt-load/internal/usage"
 )
 
 const (
@@ -40,6 +41,7 @@ type requestRecorder struct {
 	clientModel string
 	attempts    []telemetry.Attempt
 	outcome     requestOutcome
+	usage       telemetry.UsageObservation
 	now         func() time.Time
 	emitted     bool
 
@@ -58,6 +60,7 @@ func newRequestRecorder(
 		sink: sink, requestID: requestID, startedAt: startedAt,
 		accessKeyID: accessKeyID, protocol: value, now: now,
 		pendingRetry: -1,
+		usage:        telemetry.UsageObservation{Result: usage.Result{State: usage.StateNotApplicable}},
 	}
 }
 
@@ -86,6 +89,7 @@ func (recorder *requestRecorder) emit() {
 		DurationMs:    duration.Milliseconds(),
 		AffinityHit:   false,
 		Attempts:      append([]telemetry.Attempt(nil), recorder.attempts...),
+		Usage:         recorder.usage,
 	})
 }
 
@@ -213,6 +217,7 @@ func (recorder *requestRecorder) completeReason(value reason) {
 func (recorder *requestRecorder) completeStream(
 	result UpstreamResult,
 	upstreamModel string,
+	attemptIndex int,
 ) {
 	if recorder == nil {
 		return
@@ -239,12 +244,14 @@ func (recorder *requestRecorder) completeStream(
 		outcome.status = telemetry.RequestStatusIncomplete
 	}
 	recorder.outcome = outcome
+	recorder.bindUsage(attemptIndex, result.Usage, true)
 }
 
 func (recorder *requestRecorder) completeResponse(
 	result UpstreamResult,
 	decision health.Result,
 	upstreamModel string,
+	attemptIndex int,
 ) {
 	if recorder == nil {
 		return
@@ -254,6 +261,7 @@ func (recorder *requestRecorder) completeResponse(
 			status: telemetry.RequestStatusSuccess, statusCode: result.StatusCode,
 			upstreamModel: upstreamModel,
 		}
+		recorder.bindUsage(attemptIndex, result.Usage, true)
 		return
 	}
 	code := upstreamErrorCode(result, decision.Category)
@@ -264,6 +272,32 @@ func (recorder *requestRecorder) completeResponse(
 	recorder.outcome = requestOutcome{
 		status: telemetry.RequestStatusError, statusCode: result.StatusCode,
 		errorCode: code, errorSummary: summary, upstreamModel: upstreamModel,
+	}
+	recorder.bindUsage(attemptIndex, result.Usage, false)
+}
+
+func (recorder *requestRecorder) bindUsage(
+	attemptIndex int,
+	result usage.Result,
+	applicable bool,
+) {
+	if recorder == nil || attemptIndex < 0 || attemptIndex >= len(recorder.attempts) {
+		return
+	}
+	attempt := recorder.attempts[attemptIndex]
+	if attempt.GroupID == 0 || attempt.KeyID == 0 || attempt.Sequence < 1 {
+		return
+	}
+	if !applicable {
+		result = usage.Result{State: usage.StateNotApplicable}
+	} else if !validCapturedUsage(result) {
+		result = usage.Result{State: usage.StateMissing}
+	}
+	recorder.usage = telemetry.UsageObservation{
+		Result:          result,
+		GroupID:         attempt.GroupID,
+		KeyID:           attempt.KeyID,
+		AttemptSequence: attempt.Sequence,
 	}
 }
 

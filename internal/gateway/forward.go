@@ -24,6 +24,7 @@ import (
 	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/platform/utils"
 	"gpt-load/internal/state"
+	"gpt-load/internal/usage"
 )
 
 type ForwardInput struct {
@@ -47,6 +48,7 @@ type UpstreamResult struct {
 	Committed             bool
 	RetryableBeforeCommit bool
 	Stream                StreamObservation
+	Usage                 usage.Result
 }
 
 func (result UpstreamResult) HasResponse() bool {
@@ -57,6 +59,7 @@ type Forwarder struct {
 	clients            *platformhttp.HTTPClientManager
 	redactor           *redact.Redactor
 	streamWriteTimeout time.Duration
+	usageCapture       *usageCaptureBoundary
 }
 
 const (
@@ -72,6 +75,7 @@ func NewForwarder(clients *platformhttp.HTTPClientManager, redactor *redact.Reda
 	return &Forwarder{
 		clients: clients, redactor: redactor,
 		streamWriteTimeout: downstreamWriteTimeout,
+		usageCapture:       newUsageCaptureBoundary(),
 	}
 }
 
@@ -111,6 +115,14 @@ func (forwarder *Forwarder) Forward(ctx context.Context, input ForwardInput) Ups
 	}
 
 	headers := cloneEndToEndHeaders(response.Header)
+	capturedUsage := usage.Result{}
+	if success {
+		capturedUsage = forwarder.usageCapture.extractNonStreaming(
+			input.Dialect,
+			headers,
+			body,
+		)
+	}
 	if success && needsModelRewrite(input) {
 		if !inspectableStreamEncoding(response.Header) {
 			return UpstreamResult{
@@ -148,6 +160,7 @@ func (forwarder *Forwarder) Forward(ctx context.Context, input ForwardInput) Ups
 		StatusCode:     response.StatusCode,
 		Body:           body,
 		RequestWritten: true,
+		Usage:          capturedUsage,
 	}
 	if !success {
 		var safeWire, safePlain []byte

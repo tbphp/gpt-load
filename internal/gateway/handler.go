@@ -300,6 +300,7 @@ func (handler *Handler) executeAttempts(
 		result        UpstreamResult
 		decision      health.Result
 		upstreamModel string
+		attemptIndex  int
 	}
 	var lastResponse *deferredAttempt
 	var lastTransport *deferredAttempt
@@ -356,10 +357,10 @@ func (handler *Handler) executeAttempts(
 					result.Err,
 					result.Stream,
 				)
-				recorder.recordStreamAttempt(
+				recordedAttempt := recorder.recordStreamAttempt(
 					selection, apiKey, result, attemptStarted, attemptCompleted,
 				)
-				recorder.completeStream(result, selection.UpstreamModelID)
+				recorder.completeStream(result, selection.UpstreamModelID, recordedAttempt)
 			}
 			return
 		}
@@ -402,13 +403,13 @@ func (handler *Handler) executeAttempts(
 		}
 		if result.HasResponse() {
 			lastResponse = &deferredAttempt{
-				result: result, decision: decision, upstreamModel: selection.UpstreamModelID,
+				result: result, decision: decision, upstreamModel: selection.UpstreamModelID, attemptIndex: recordedAttempt,
 			}
 			if decision.ShouldRetry() {
 				recorder.retryIfAnotherForward(recordedAttempt)
 				continue
 			}
-			recorder.completeResponse(result, decision, selection.UpstreamModelID)
+			recorder.completeResponse(result, decision, selection.UpstreamModelID, recordedAttempt)
 			if err := handler.writeUpstreamResponse(ginContext, result); err != nil {
 				handler.completeWriteTerminal(ginContext, recorder, result.StatusCode)
 				return
@@ -439,6 +440,7 @@ func (handler *Handler) executeAttempts(
 			lastResponse.result,
 			lastResponse.decision,
 			lastResponse.upstreamModel,
+			lastResponse.attemptIndex,
 		)
 		if err := handler.writeUpstreamResponse(ginContext, lastResponse.result); err != nil {
 			handler.completeWriteTerminal(

@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"gpt-load/internal/protocol"
+	"gpt-load/internal/usage"
 )
 
 type RequestStatus string
@@ -55,6 +56,13 @@ type Attempt struct {
 	Committed       bool
 }
 
+type UsageObservation struct {
+	Result          usage.Result
+	GroupID         uint
+	KeyID           uint
+	AttemptSequence int
+}
+
 type RequestEvent struct {
 	RequestID     string
 	CompletedAt   time.Time
@@ -69,6 +77,7 @@ type RequestEvent struct {
 	DurationMs    int64
 	AffinityHit   bool
 	Attempts      []Attempt
+	Usage         UsageObservation
 }
 
 type RequestLogSink interface {

@@ -23,8 +23,10 @@ import (
 	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/ratelimit"
+	"gpt-load/internal/scheduler"
 	"gpt-load/internal/state"
 	"gpt-load/internal/telemetry"
+	"gpt-load/internal/usage"
 )
 
 const fixedRequestID = "11111111-2222-4333-8444-555555555555"
@@ -70,6 +72,182 @@ func (limiter *recordingAccessKeyRPMLimiter) snapshot() []rpmLimiterCall {
 type recordingRequestLogSink struct {
 	mu     sync.Mutex
 	events []telemetry.RequestEvent
+}
+
+func TestNewRequestRecorderInitializesUsageNotApplicable(t *testing.T) {
+	sink := &recordingRequestLogSink{}
+	recorder := newRequestRecorder(
+		sink,
+		"req-usage-initial",
+		time.Unix(100, 0),
+		9,
+		protocol.OpenAI,
+		func() time.Time { return time.Unix(101, 0) },
+	)
+
+	recorder.emit()
+
+	if len(sink.events) != 1 {
+		t.Fatalf("events = %d, want 1", len(sink.events))
+	}
+	event := sink.events[0]
+	if event.Usage.Result.State != usage.StateNotApplicable ||
+		event.Usage.Result.Tokens != (usage.Tokens{}) ||
+		event.Usage.GroupID != 0 ||
+		event.Usage.KeyID != 0 ||
+		event.Usage.AttemptSequence != 0 {
+		t.Fatalf("initial Usage = %#v", event.Usage)
+	}
+}
+
+func TestRequestRecorderBindsUsageToRecordedAttempt(t *testing.T) {
+	tests := []struct {
+		name   string
+		result usage.Result
+	}{
+		{name: "complete", result: usage.Result{State: usage.StateComplete, Tokens: usage.Tokens{UncachedInput: 80, CacheRead: 20, Output: 30}}},
+		{name: "partial", result: usage.Result{State: usage.StatePartial, Tokens: usage.Tokens{Output: 30}}},
+		{name: "missing", result: usage.Result{State: usage.StateMissing}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			sink := &recordingRequestLogSink{}
+			recorder := newRequestRecorder(sink, "req-usage-bind", time.Unix(100, 0), 9, protocol.OpenAI, func() time.Time { return time.Unix(101, 0) })
+			recorder.appendAttempt(scheduler.Selection{GroupID: 11, Group: state.GroupView{Name: "first"}, KeyID: 21}, "sk-first", UpstreamResult{}, telemetry.FailureCategoryOK, telemetry.ActionTerminate, "", "", time.Unix(100, 0), time.Unix(100, 0))
+			second := recorder.appendAttempt(scheduler.Selection{GroupID: 12, Group: state.GroupView{Name: "second"}, KeyID: 22}, "sk-second", UpstreamResult{StatusCode: http.StatusOK}, telemetry.FailureCategoryOK, telemetry.ActionTerminate, "", "", time.Unix(100, 0), time.Unix(100, 0))
+
+			recorder.completeResponse(UpstreamResult{StatusCode: http.StatusOK, Usage: test.result}, health.Result{}, "provider", second)
+			recorder.emit()
+
+			event := sink.events[0]
+			if event.Usage.Result != test.result || event.Usage.GroupID != 12 || event.Usage.KeyID != 22 || event.Usage.AttemptSequence != 2 {
+				t.Fatalf("Usage = %#v", event.Usage)
+			}
+			if event.Attempts[1].GroupID != event.Usage.GroupID || event.Attempts[1].KeyID != event.Usage.KeyID || event.Attempts[1].Sequence != event.Usage.AttemptSequence {
+				t.Fatalf("attempt/Usage identity = %#v/%#v", event.Attempts[1], event.Usage)
+			}
+		})
+	}
+}
+
+func TestRequestRecorderNon2xxKeepsAttributionButNotApplicable(t *testing.T) {
+	sink := &recordingRequestLogSink{}
+	recorder := newRequestRecorder(sink, "req-usage-429", time.Unix(100, 0), 9, protocol.OpenAI, func() time.Time { return time.Unix(101, 0) })
+	index := recorder.appendAttempt(scheduler.Selection{GroupID: 12, Group: state.GroupView{Name: "second"}, KeyID: 22}, "sk-second", UpstreamResult{StatusCode: http.StatusTooManyRequests}, telemetry.FailureCategoryRateLimited, telemetry.ActionRetry, "", "", time.Unix(100, 0), time.Unix(100, 0))
+	recorder.completeResponse(UpstreamResult{StatusCode: http.StatusTooManyRequests, Usage: usage.Result{State: usage.StateComplete, Tokens: usage.Tokens{Output: 30}}}, health.Result{Category: health.FailureCategoryRateLimited}, "provider", index)
+	recorder.emit()
+
+	event := sink.events[0]
+	if event.Usage.Result != (usage.Result{State: usage.StateNotApplicable}) || event.Usage.GroupID != 12 || event.Usage.KeyID != 22 || event.Usage.AttemptSequence != 1 {
+		t.Fatalf("Usage = %#v", event.Usage)
+	}
+}
+
+func TestRequestRecorderInvalidAttemptIndexDoesNotForgeUsageAttribution(t *testing.T) {
+	for _, index := range []int{-1, 1} {
+		t.Run(fmt.Sprintf("index_%d", index), func(t *testing.T) {
+			sink := &recordingRequestLogSink{}
+			recorder := newRequestRecorder(sink, "req-usage-invalid", time.Unix(100, 0), 9, protocol.OpenAI, func() time.Time { return time.Unix(101, 0) })
+			recorder.appendAttempt(scheduler.Selection{GroupID: 12, Group: state.GroupView{Name: "second"}, KeyID: 22}, "sk-second", UpstreamResult{}, telemetry.FailureCategoryOK, telemetry.ActionTerminate, "", "", time.Unix(100, 0), time.Unix(100, 0))
+			recorder.bindUsage(index, usage.Result{State: usage.StateComplete, Tokens: usage.Tokens{Output: 30}}, true)
+			recorder.emit()
+
+			if got := sink.events[0].Usage; got != (telemetry.UsageObservation{Result: usage.Result{State: usage.StateNotApplicable}}) {
+				t.Fatalf("Usage = %#v", got)
+			}
+		})
+	}
+}
+
+func TestRequestRecorderDownstreamFailureKeepsBoundUsage(t *testing.T) {
+	sink := &recordingRequestLogSink{}
+	recorder := newRequestRecorder(sink, "req-usage-write", time.Unix(100, 0), 9, protocol.OpenAI, func() time.Time { return time.Unix(101, 0) })
+	index := recorder.appendAttempt(scheduler.Selection{GroupID: 12, Group: state.GroupView{Name: "second"}, KeyID: 22}, "sk-second", UpstreamResult{StatusCode: http.StatusOK}, telemetry.FailureCategoryOK, telemetry.ActionTerminate, "", "", time.Unix(100, 0), time.Unix(100, 0))
+	result := usage.Result{State: usage.StateComplete, Tokens: usage.Tokens{UncachedInput: 80, CacheRead: 20, Output: 30}}
+	recorder.completeResponse(UpstreamResult{StatusCode: http.StatusOK, Usage: result}, health.Result{}, "provider", index)
+	recorder.completeDownstreamWrite(http.StatusOK)
+	recorder.emit()
+
+	event := sink.events[0]
+	if event.Status != telemetry.RequestStatusIncomplete || event.Usage.Result != result || event.Usage.GroupID != 12 || event.Usage.KeyID != 22 || event.Usage.AttemptSequence != 1 {
+		t.Fatalf("event = %#v", event)
+	}
+}
+
+func TestHandlerPublishesUsageForActualNonStreamingResponseAttempt(t *testing.T) {
+	sink := &recordingRequestLogSink{}
+	forwarder := &scriptedForwarder{results: []UpstreamResult{
+		{StatusCode: http.StatusTooManyRequests, Header: make(http.Header), ClassificationBody: []byte(`{"error":{"type":"rate_limit_error"}}`), Usage: usage.Result{State: usage.StateComplete, Tokens: usage.Tokens{Output: 99}}, RequestWritten: true},
+		{StatusCode: http.StatusOK, Header: make(http.Header), Body: []byte(`{"ok":true}`), Usage: usage.Result{State: usage.StateComplete, Tokens: usage.Tokens{UncachedInput: 80, CacheRead: 20, Output: 30}}, RequestWritten: true},
+	}}
+	engine, handler, _, _ := newRequestLogHandlerTestRuntime(t, forwarder, &recordingAccessKeyRPMLimiter{}, sink, "sk-first", "sk-second")
+	handler.newRandom = func() *rand.Rand { return rand.New(zeroSource{}) }
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"gpt-4o"}`))
+	request.Header.Set("Authorization", "Bearer gl-client")
+	engine.ServeHTTP(httptest.NewRecorder(), request)
+
+	events := sink.snapshot()
+	if len(events) != 1 || events[0].Usage.Result != (usage.Result{State: usage.StateComplete, Tokens: usage.Tokens{UncachedInput: 80, CacheRead: 20, Output: 30}}) || events[0].Usage.GroupID != 1 || events[0].Usage.KeyID != 2 || events[0].Usage.AttemptSequence != 2 {
+		t.Fatalf("events = %#v", events)
+	}
+}
+
+func TestHandlerRememberedLastResponseKeepsOriginalUsageAttempt(t *testing.T) {
+	sink := &recordingRequestLogSink{}
+	forwarder := &scriptedForwarder{results: []UpstreamResult{
+		{StatusCode: http.StatusTooManyRequests, Header: make(http.Header), ClassificationBody: []byte(`{"error":{"type":"rate_limit_error"}}`), RequestWritten: true},
+		{Err: errors.New("transport two"), RetryableBeforeCommit: true},
+		{Err: errors.New("transport three"), RetryableBeforeCommit: true},
+	}}
+	engine, handler, _, _ := newRequestLogHandlerTestRuntime(t, forwarder, &recordingAccessKeyRPMLimiter{}, sink, "sk-first", "sk-second", "sk-third")
+	handler.newRandom = func() *rand.Rand { return rand.New(zeroSource{}) }
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"gpt-4o"}`))
+	request.Header.Set("Authorization", "Bearer gl-client")
+	engine.ServeHTTP(httptest.NewRecorder(), request)
+
+	events := sink.snapshot()
+	if len(events) != 1 || events[0].Usage.Result != (usage.Result{State: usage.StateNotApplicable}) || events[0].Usage.GroupID != 1 || events[0].Usage.KeyID != 1 || events[0].Usage.AttemptSequence != 1 {
+		t.Fatalf("events = %#v", events)
+	}
+}
+
+func TestHandlerFinalNon2xxPublishesNotApplicableWithResponseAttribution(t *testing.T) {
+	sink := &recordingRequestLogSink{}
+	forwarder := &scriptedForwarder{results: []UpstreamResult{{
+		StatusCode: http.StatusTooManyRequests, Header: make(http.Header), ClassificationBody: []byte(`{"error":{"type":"rate_limit_error"}}`), Usage: usage.Result{State: usage.StateComplete, Tokens: usage.Tokens{Output: 99}}, RequestWritten: true,
+	}}}
+	engine, _, _, _ := newRequestLogHandlerTestRuntime(t, forwarder, &recordingAccessKeyRPMLimiter{}, sink, "sk-first")
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"gpt-4o"}`))
+	request.Header.Set("Authorization", "Bearer gl-client")
+	engine.ServeHTTP(httptest.NewRecorder(), request)
+
+	events := sink.snapshot()
+	if len(events) != 1 || events[0].Usage.Result != (usage.Result{State: usage.StateNotApplicable}) || events[0].Usage.GroupID != 1 || events[0].Usage.KeyID != 1 || events[0].Usage.AttemptSequence != 1 {
+		t.Fatalf("events = %#v", events)
+	}
+}
+
+func TestHandlerTransportAndNoCandidateUsageRemainUnattributed(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		forwarder    *scriptedForwarder
+		upstreamKeys []string
+	}{
+		{name: "transport", forwarder: &scriptedForwarder{results: []UpstreamResult{{Err: errors.New("transport"), RequestWritten: true}}}, upstreamKeys: []string{"sk-first"}},
+		{name: "no candidate", forwarder: &scriptedForwarder{}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			sink := &recordingRequestLogSink{}
+			engine, _, _, _ := newRequestLogHandlerTestRuntime(t, test.forwarder, &recordingAccessKeyRPMLimiter{}, sink, test.upstreamKeys...)
+			request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"gpt-4o"}`))
+			request.Header.Set("Authorization", "Bearer gl-client")
+			engine.ServeHTTP(httptest.NewRecorder(), request)
+			events := sink.snapshot()
+			if len(events) != 1 || events[0].Usage != (telemetry.UsageObservation{Result: usage.Result{State: usage.StateNotApplicable}}) {
+				t.Fatalf("events = %#v", events)
+			}
+		})
+	}
 }
 
 func (sink *recordingRequestLogSink) Emit(event telemetry.RequestEvent) {
