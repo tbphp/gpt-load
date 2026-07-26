@@ -37,7 +37,56 @@ func TestUsageAPIRouteUsesManagementAuthentication(t *testing.T) {
 	}
 }
 
-func TestUsageAPIDefaultsToExactTrailing24HoursAndReturnsZeroArrays(t *testing.T) {
+func TestParseUsageQueryUsesFixedUTCAlignedWindows(t *testing.T) {
+	tests := []struct {
+		name        string
+		rawQuery    string
+		observedAt  time.Time
+		wantFrom    time.Time
+		wantTo      time.Time
+		granularity requestlog.UsageGranularity
+	}{
+		{
+			name:        "24 hours crosses the local and UTC day at an exact hour boundary",
+			rawQuery:    "range=24h",
+			observedAt:  time.Date(2026, time.July, 27, 0, 34, 56, 789, time.FixedZone("UTC+8", 8*60*60)),
+			wantFrom:    time.Date(2026, time.July, 25, 17, 0, 0, 0, time.UTC),
+			wantTo:      time.Date(2026, time.July, 26, 17, 0, 0, 0, time.UTC),
+			granularity: requestlog.UsageGranularityHour,
+		},
+		{
+			name:        "30 days crosses the local and UTC day at exact day boundaries",
+			rawQuery:    "range=30d",
+			observedAt:  time.Date(2026, time.July, 26, 20, 34, 56, 789, time.FixedZone("UTC-7", -7*60*60)),
+			wantFrom:    time.Date(2026, time.June, 28, 0, 0, 0, 0, time.UTC),
+			wantTo:      time.Date(2026, time.July, 28, 0, 0, 0, 0, time.UTC),
+			granularity: requestlog.UsageGranularityDay,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			query, apiErr := parseUsageQuery(test.rawQuery, test.observedAt)
+			if apiErr != nil {
+				t.Fatalf("parseUsageQuery() error = %v", apiErr)
+			}
+			if !query.From.Equal(test.wantFrom) || !query.To.Equal(test.wantTo) ||
+				query.Granularity != test.granularity {
+				t.Fatalf(
+					"parseUsageQuery() window = %s to %s (%s), want %s to %s (%s)",
+					query.From.Format(time.RFC3339Nano),
+					query.To.Format(time.RFC3339Nano),
+					query.Granularity,
+					test.wantFrom.Format(time.RFC3339Nano),
+					test.wantTo.Format(time.RFC3339Nano),
+					test.granularity,
+				)
+			}
+		})
+	}
+}
+
+func TestUsageAPIDefaultsToFixedUTCAligned24HoursAndReturnsZeroArrays(t *testing.T) {
 	now := time.Date(2026, time.July, 27, 12, 34, 56, 789, time.FixedZone("UTC+8", 8*60*60))
 	reader := &recordingUsageStatReader{}
 	engine, fixture := newUsageTestEngine(t, now, reader)
@@ -52,8 +101,8 @@ func TestUsageAPIDefaultsToExactTrailing24HoursAndReturnsZeroArrays(t *testing.T
 	}
 	query := reader.queries[0]
 	if query.Granularity != requestlog.UsageGranularityHour ||
-		query.From.Format(time.RFC3339Nano) != "2026-07-26T04:34:56.000000789Z" ||
-		query.To.Format(time.RFC3339Nano) != "2026-07-27T04:34:56.000000789Z" ||
+		query.From.Format(time.RFC3339Nano) != "2026-07-26T05:00:00Z" ||
+		query.To.Format(time.RFC3339Nano) != "2026-07-27T05:00:00Z" ||
 		query.GroupID != nil || query.Model != "" || query.Limit != 100 {
 		t.Fatalf("default UsageQuery = %#v", query)
 	}
@@ -84,8 +133,8 @@ func TestUsageAPISelectsThirtyUTCDaysAndAppliesFilters(t *testing.T) {
 	reader := &recordingUsageStatReader{report: requestlog.UsageReport{
 		Summary: requestlog.UsageAggregate{RequestCount: 1, UncachedInputTokens: 2, OutputTokens: 3, Cost: math.Copysign(0, -1)},
 		Series: []requestlog.UsageSeriesPoint{{
-			BucketStart: time.Date(2026, time.June, 27, 0, 0, 0, 0, time.UTC),
-			BucketEnd:   time.Date(2026, time.June, 28, 0, 0, 0, 0, time.UTC),
+			BucketStart: time.Date(2026, time.June, 28, 0, 0, 0, 0, time.UTC),
+			BucketEnd:   time.Date(2026, time.June, 29, 0, 0, 0, 0, time.UTC),
 			UsageAggregate: requestlog.UsageAggregate{
 				RequestCount: 1, UncachedInputTokens: 2, OutputTokens: 3, Cost: 1.1234567890123,
 			},
@@ -105,8 +154,9 @@ func TestUsageAPISelectsThirtyUTCDaysAndAppliesFilters(t *testing.T) {
 	}
 	query := reader.queries[0]
 	if query.Granularity != requestlog.UsageGranularityDay ||
-		query.From.Format(time.RFC3339Nano) != "2026-06-27T12:00:00Z" ||
-		!query.To.Equal(now) || query.GroupID == nil || *query.GroupID != 9 ||
+		query.From.Format(time.RFC3339Nano) != "2026-06-28T00:00:00Z" ||
+		query.To.Format(time.RFC3339Nano) != "2026-07-28T00:00:00Z" ||
+		query.GroupID == nil || *query.GroupID != 9 ||
 		query.Model != "upstream-model" || query.Limit != 100 {
 		t.Fatalf("30 day UsageQuery = %#v", query)
 	}
@@ -132,7 +182,7 @@ func TestUsageAPISelectsThirtyUTCDaysAndAppliesFilters(t *testing.T) {
 		t.Fatalf("decode response: %v", err)
 	}
 	if envelope.Data.Summary.TotalTokens != 5 || envelope.Data.Summary.EstimatedCostUSD.String() != "0" ||
-		len(envelope.Data.Series) != 1 || envelope.Data.Series[0].BucketStart != "2026-06-27T00:00:00Z" ||
+		len(envelope.Data.Series) != 1 || envelope.Data.Series[0].BucketStart != "2026-06-28T00:00:00Z" ||
 		envelope.Data.Series[0].TotalTokens != 5 || envelope.Data.Series[0].EstimatedCostUSD.String() != "1.12345678901" ||
 		len(envelope.Data.Breakdown) != 1 || envelope.Data.Breakdown[0].GroupID != 9 ||
 		envelope.Data.Breakdown[0].Model != "upstream-model" || envelope.Data.Breakdown[0].Cost.String() != "0.25" {

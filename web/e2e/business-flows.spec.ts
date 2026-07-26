@@ -252,6 +252,17 @@ test('critical management journey works through the embedded binary', async ({ p
       String(expectedUsageRequests),
     )
     await expect(page.locator('[data-test="home-usage-cost"]')).toContainText('Unknown')
+    await expect(page.locator('[data-test="home-usage-tokens"]')).toContainText('Unknown')
+    await expect(page.locator('[data-test="home-usage-tokens"]')).not.toContainText('0')
+    await expect(page.locator('[data-test="home-usage-quality-missing"]')).toContainText(
+      'Usage missing 1',
+    )
+    await expect(page.locator('[data-test="home-usage-quality-partial"]')).toContainText(
+      'Usage partial 1',
+    )
+    await expect(page.locator('[data-test="home-usage-quality-unpriced"]')).toContainText(
+      'Cost unpriced 3',
+    )
     await expect(page.locator('[data-test="home-usage-detail"]')).toHaveAttribute(
       'href',
       '/monitor?tab=usage&range=24h',

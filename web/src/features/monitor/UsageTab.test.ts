@@ -29,8 +29,8 @@ function usageReport(overrides: Partial<UsageReportDto> = {}): UsageReportDto {
   return {
     observed_at: '2026-07-27T04:00:01Z',
     range: {
-      from: '2026-07-26T04:00:00Z',
-      to: '2026-07-27T04:00:00Z',
+      from: '2026-07-26T05:00:00Z',
+      to: '2026-07-27T05:00:00Z',
       granularity: 'hour',
     },
     filters: { group_id: null, model: '' },

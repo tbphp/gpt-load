@@ -28,8 +28,8 @@ function usageReport(overrides: Partial<UsageReportDto> = {}): UsageReportDto {
   return {
     observed_at: '2026-07-27T04:00:01Z',
     range: {
-      from: '2026-07-26T04:00:00Z',
-      to: '2026-07-27T04:00:00Z',
+      from: '2026-07-26T05:00:00Z',
+      to: '2026-07-27T05:00:00Z',
       granularity: 'hour',
     },
     filters: { group_id: null, model: '' },
@@ -147,6 +147,57 @@ describe('UsageSummaryCard', () => {
     )
   })
 
+  it('always renders three known zero quality counts when persisted usage has no quality gaps', async () => {
+    const report = usageReport({
+      summary: {
+        ...aggregate,
+        request_count: 1,
+        success_count: 1,
+        failure_count: 0,
+        total_tokens: 0,
+        estimated_cost_usd: 0,
+        usage_missing_count: 0,
+        partial_count: 0,
+        unpriced_request_count: 0,
+      },
+      request_log: {
+        ...usageReport().request_log,
+        dropped_total: 0,
+        write_failure_total: 0,
+      },
+    })
+    const { wrapper } = await mountSummary(new UsageApi(report))
+
+    expect(wrapper.get('[data-test="home-usage-quality"]').isVisible()).toBe(true)
+    for (const quality of ['missing', 'partial', 'unpriced']) {
+      const status = wrapper.get(`[data-test="home-usage-quality-${quality}"]`)
+      expect(status.text()).toContain('0')
+      expect(status.classes()).toContain('status-badge--success')
+    }
+    expect(wrapper.get('[data-test="home-usage-tokens"]').text()).toContain('0')
+  })
+
+  it('does not present excluded missing usage as a known zero-token value', async () => {
+    const report = usageReport({
+      summary: {
+        ...aggregate,
+        request_count: 1,
+        success_count: 1,
+        failure_count: 0,
+        total_tokens: 0,
+        estimated_cost_usd: 0,
+        usage_missing_count: 1,
+        partial_count: 0,
+        unpriced_request_count: 0,
+      },
+    })
+    const { wrapper } = await mountSummary(new UsageApi(report))
+
+    expect(wrapper.get('[data-test="home-usage-tokens"]').text()).toContain('Unknown')
+    expect(wrapper.get('[data-test="home-usage-tokens"]').text()).not.toMatch(/\b0\b/)
+    expect(wrapper.get('[data-test="home-usage-quality-missing"]').text()).toBe('Usage missing 1')
+  })
+
   it('keeps incomplete, unpriced, dropped, and write-failure quality visible with process scope', async () => {
     const report = usageReport({
       summary: { ...aggregate, estimated_cost_usd: 0 },
@@ -155,9 +206,14 @@ describe('UsageSummaryCard', () => {
 
     expect(wrapper.get('[data-test="home-usage-cost"]').text()).toContain('Unknown')
     expect(wrapper.get('[data-test="home-usage-cost"]').text()).not.toMatch(/\$0|Free/)
-    expect(wrapper.get('[data-test="home-usage-quality"]').text()).toContain('Missing 2')
-    expect(wrapper.get('[data-test="home-usage-quality"]').text()).toContain('Partial 3')
-    expect(wrapper.get('[data-test="home-usage-quality"]').text()).toContain('Unpriced 4')
+    expect(wrapper.get('[data-test="home-usage-quality-missing"]').text()).toBe('Usage missing 2')
+    expect(wrapper.get('[data-test="home-usage-quality-partial"]').text()).toBe('Usage partial 3')
+    expect(wrapper.get('[data-test="home-usage-quality-unpriced"]').text()).toBe('Cost unpriced 4')
+    for (const quality of ['missing', 'partial', 'unpriced']) {
+      expect(wrapper.get(`[data-test="home-usage-quality-${quality}"]`).classes()).toContain(
+        'status-badge--warning',
+      )
+    }
     expect(wrapper.get('[data-test="home-usage-pipeline-warning"]').text()).toMatch(
       /current process/i,
     )

@@ -66,6 +66,9 @@ const requestLogCountKeys = [
   'queue_capacity',
 ] as const
 
+const hourMs = 60 * 60 * 1000
+const dayMs = 24 * hourMs
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
@@ -121,6 +124,16 @@ function timestampMs(value: string): number {
   return result
 }
 
+function isUTCAligned(timestampValue: number, granularity: 'hour' | 'day'): boolean {
+  const date = new Date(timestampValue)
+  return (
+    date.getUTCMinutes() === 0 &&
+    date.getUTCSeconds() === 0 &&
+    date.getUTCMilliseconds() === 0 &&
+    (granularity === 'hour' || date.getUTCHours() === 0)
+  )
+}
+
 function projectAggregate(value: unknown): UsageAggregateDto {
   if (!isRecord(value)) throw new InvalidResponseError()
   for (const key of aggregateKeys) {
@@ -154,10 +167,21 @@ export function projectUsageReport(value: unknown): UsageReportDto {
   const observedAt = timestamp(value.observed_at)
   const rangeFrom = timestamp(value.range.from)
   const rangeTo = timestamp(value.range.to)
+  const granularity = value.range.granularity
+  if (granularity !== 'hour' && granularity !== 'day') {
+    throw new InvalidResponseError()
+  }
+  const observedAtMs = timestampMs(observedAt)
+  const rangeFromMs = timestampMs(rangeFrom)
+  const rangeToMs = timestampMs(rangeTo)
+  const bucketDurationMs = granularity === 'hour' ? hourMs : dayMs
+  const bucketCount = granularity === 'hour' ? 24 : 30
   if (
-    (value.range.granularity !== 'hour' && value.range.granularity !== 'day') ||
-    timestampMs(rangeFrom) >= timestampMs(rangeTo) ||
-    timestampMs(observedAt) < timestampMs(rangeTo)
+    !isUTCAligned(rangeFromMs, granularity) ||
+    !isUTCAligned(rangeToMs, granularity) ||
+    rangeToMs - rangeFromMs !== bucketDurationMs * bucketCount ||
+    observedAtMs < rangeToMs - bucketDurationMs ||
+    observedAtMs >= rangeToMs
   ) {
     throw new InvalidResponseError()
   }
@@ -173,14 +197,21 @@ export function projectUsageReport(value: unknown): UsageReportDto {
     throw new InvalidResponseError()
   }
 
-  let previousBucketEnd = timestampMs(rangeFrom)
+  let previousBucketEnd = rangeFromMs
   const series = value.series.map((item) => {
     if (!isRecord(item)) throw new InvalidResponseError()
     const bucketStart = timestamp(item.bucket_start)
     const bucketEnd = timestamp(item.bucket_end)
     const start = timestampMs(bucketStart)
     const end = timestampMs(bucketEnd)
-    if (start < previousBucketEnd || start >= end || start >= timestampMs(rangeTo)) {
+    if (
+      !isUTCAligned(start, granularity) ||
+      !isUTCAligned(end, granularity) ||
+      end - start !== bucketDurationMs ||
+      start < rangeFromMs ||
+      end > rangeToMs ||
+      start < previousBucketEnd
+    ) {
       throw new InvalidResponseError()
     }
     previousBucketEnd = end
@@ -206,7 +237,7 @@ export function projectUsageReport(value: unknown): UsageReportDto {
   })
   return {
     observed_at: observedAt,
-    range: { from: rangeFrom, to: rangeTo, granularity: value.range.granularity },
+    range: { from: rangeFrom, to: rangeTo, granularity },
     filters: { group_id: filters.group_id, model: filters.model },
     summary: projectAggregate(value.summary),
     series,

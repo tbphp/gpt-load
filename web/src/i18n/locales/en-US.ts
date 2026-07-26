@@ -210,12 +210,20 @@ export default {
       },
       requests: 'Persisted requests',
       tokens: 'Reported tokens',
+      tokenValue: {
+        unknown: 'Unknown',
+        knownPlusUnknown: '{tokens} + unknown',
+      },
       estimatedCost: 'Estimated cost',
       cost: {
         unknown: 'Unknown',
         knownPlusUnknown: '{cost} + unknown',
       },
-      quality: 'Missing {missing} · Partial {partial} · Unpriced {unpriced}',
+      quality: {
+        missing: 'Usage missing',
+        partial: 'Usage partial',
+        unpriced: 'Cost unpriced',
+      },
       pipelineWarning:
         'Current process pipeline: Dropped {dropped} · Write failures {failures}. These cumulative values do not follow the 24-hour range.',
       observedAt: 'Observed at',

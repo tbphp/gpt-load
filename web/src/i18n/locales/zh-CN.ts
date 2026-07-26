@@ -201,12 +201,20 @@ export default {
       },
       requests: '已持久化请求',
       tokens: '已报告 Token',
+      tokenValue: {
+        unknown: '未知',
+        knownPlusUnknown: '{tokens} + 未知',
+      },
       estimatedCost: '预估成本',
       cost: {
         unknown: '未知',
         knownPlusUnknown: '{cost} + 未知',
       },
-      quality: '缺失 {missing} · 部分 {partial} · 未定价 {unpriced}',
+      quality: {
+        missing: '用量缺失',
+        partial: '用量不完整',
+        unpriced: '成本未定价',
+      },
       pipelineWarning:
         '当前进程写入管线：丢弃 {dropped} · 写入失败 {failures}；这些累计值不受 24 小时范围限制。',
       observedAt: '观测时间',

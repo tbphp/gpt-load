@@ -123,17 +123,22 @@ func parseUsageQuery(rawQuery string, observedAt time.Time) (requestlog.UsageQue
 		}
 	}
 
-	query := requestlog.UsageQuery{To: observedAt.UTC(), Limit: usageBreakdownMax}
+	observedAt = observedAt.UTC()
+	query := requestlog.UsageQuery{Limit: usageBreakdownMax}
 	rangeValue := usageRange24Hours
 	if value, ok := singleQueryValue(values, "range"); ok {
 		rangeValue = value
 	}
 	switch rangeValue {
 	case usageRange24Hours:
-		query.From = query.To.Add(-24 * time.Hour)
+		currentHour := observedAt.Truncate(time.Hour)
+		query.From = currentHour.Add(-23 * time.Hour)
+		query.To = currentHour.Add(time.Hour)
 		query.Granularity = requestlog.UsageGranularityHour
 	case usageRange30Days:
-		query.From = query.To.AddDate(0, 0, -30)
+		currentDay := time.Date(observedAt.Year(), observedAt.Month(), observedAt.Day(), 0, 0, 0, 0, time.UTC)
+		query.From = currentDay.AddDate(0, 0, -29)
+		query.To = currentDay.AddDate(0, 0, 1)
 		query.Granularity = requestlog.UsageGranularityDay
 	default:
 		return requestlog.UsageQuery{}, app_errors.ErrValidation

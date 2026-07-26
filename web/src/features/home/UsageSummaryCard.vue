@@ -10,6 +10,7 @@ import { controlQueryKeys } from '@/app/query-keys'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
+import StatusBadge from '@/components/ui/StatusBadge.vue'
 import SurfaceCard from '@/components/ui/SurfaceCard.vue'
 
 const filters = { range: '24h' } as const
@@ -20,15 +21,6 @@ const usageQuery = useQuery({
   queryFn: ({ signal }) => getUsageReport(client, filters, signal),
 })
 const report = computed(() => usageQuery.data.value)
-const hasQualityWarning = computed(() => {
-  const summary = report.value?.summary
-  return Boolean(
-    summary &&
-    (summary.usage_missing_count > 0 ||
-      summary.partial_count > 0 ||
-      summary.unpriced_request_count > 0),
-  )
-})
 const hasPipelineWarning = computed(() =>
   Boolean(
     report.value &&
@@ -46,6 +38,20 @@ const observedAt = computed(() => {
 
 function formatCount(value: number): string {
   return new Intl.NumberFormat(locale.value).format(value)
+}
+
+function formatReportedTokens(aggregate: UsageAggregateDto): string {
+  const hasExcludedUsage =
+    aggregate.usage_missing_count > 0 ||
+    aggregate.partial_count > 0 ||
+    aggregate.unpriced_request_count > 0
+  if (hasExcludedUsage) {
+    if (aggregate.total_tokens === 0) return t('home.usage.tokenValue.unknown')
+    return t('home.usage.tokenValue.knownPlusUnknown', {
+      tokens: formatCount(aggregate.total_tokens),
+    })
+  }
+  return formatCount(aggregate.total_tokens)
 }
 
 function formatEstimatedCost(aggregate: UsageAggregateDto): string {
@@ -125,7 +131,7 @@ function formatEstimatedCost(aggregate: UsageAggregateDto): string {
           <div data-test="home-usage-tokens">
             <Database :size="19" aria-hidden="true" />
             <span>{{ t('home.usage.tokens') }}</span>
-            <strong>{{ formatCount(report.summary.total_tokens) }}</strong>
+            <strong>{{ formatReportedTokens(report.summary) }}</strong>
           </div>
           <div data-test="home-usage-cost">
             <CircleDollarSign :size="19" aria-hidden="true" />
@@ -134,16 +140,33 @@ function formatEstimatedCost(aggregate: UsageAggregateDto): string {
           </div>
         </div>
 
-        <InlineFeedback v-if="hasQualityWarning" data-test="home-usage-quality" tone="warning">
-          <TriangleAlert :size="16" aria-hidden="true" />
-          {{
-            t('home.usage.quality', {
-              missing: formatCount(report.summary.usage_missing_count),
-              partial: formatCount(report.summary.partial_count),
-              unpriced: formatCount(report.summary.unpriced_request_count),
-            })
-          }}
-        </InlineFeedback>
+        <div
+          v-if="report.summary.request_count > 0"
+          class="usage-summary-card__quality"
+          data-test="home-usage-quality"
+        >
+          <StatusBadge
+            data-test="home-usage-quality-missing"
+            :tone="report.summary.usage_missing_count ? 'warning' : 'success'"
+          >
+            {{ t('home.usage.quality.missing') }}
+            {{ formatCount(report.summary.usage_missing_count) }}
+          </StatusBadge>
+          <StatusBadge
+            data-test="home-usage-quality-partial"
+            :tone="report.summary.partial_count ? 'warning' : 'success'"
+          >
+            {{ t('home.usage.quality.partial') }}
+            {{ formatCount(report.summary.partial_count) }}
+          </StatusBadge>
+          <StatusBadge
+            data-test="home-usage-quality-unpriced"
+            :tone="report.summary.unpriced_request_count ? 'warning' : 'success'"
+          >
+            {{ t('home.usage.quality.unpriced') }}
+            {{ formatCount(report.summary.unpriced_request_count) }}
+          </StatusBadge>
+        </div>
         <InlineFeedback
           v-if="hasPipelineWarning"
           data-test="home-usage-pipeline-warning"
@@ -225,6 +248,11 @@ function formatEstimatedCost(aggregate: UsageAggregateDto): string {
   overflow-wrap: anywhere;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 1.125rem;
+}
+.usage-summary-card__quality {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
 }
 .usage-summary-card__observed {
   margin: 0;

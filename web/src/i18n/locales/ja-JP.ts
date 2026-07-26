@@ -207,12 +207,20 @@ export default {
       },
       requests: '永続化リクエスト',
       tokens: '報告済みトークン',
+      tokenValue: {
+        unknown: '不明',
+        knownPlusUnknown: '{tokens} + 不明',
+      },
       estimatedCost: '推定コスト',
       cost: {
         unknown: '不明',
         knownPlusUnknown: '{cost} + 不明',
       },
-      quality: 'なし {missing} · 部分 {partial} · 未設定 {unpriced}',
+      quality: {
+        missing: '使用量なし',
+        partial: '使用量が不完全',
+        unpriced: 'コスト未設定',
+      },
       pipelineWarning:
         '現在プロセスのパイプライン: 破棄 {dropped} · 書き込み失敗 {failures}。これらの累積値は 24 時間の範囲には従いません。',
       observedAt: '観測時刻',

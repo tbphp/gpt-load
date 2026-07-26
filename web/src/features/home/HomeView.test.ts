@@ -63,8 +63,8 @@ const healthFixture: RuntimeHealthDto = {
 const usageFixture: UsageReportDto = {
   observed_at: '2026-07-25T10:00:01Z',
   range: {
-    from: '2026-07-24T10:00:00Z',
-    to: '2026-07-25T10:00:00Z',
+    from: '2026-07-24T11:00:00Z',
+    to: '2026-07-25T11:00:00Z',
     granularity: 'hour',
   },
   filters: { group_id: null, model: '' },

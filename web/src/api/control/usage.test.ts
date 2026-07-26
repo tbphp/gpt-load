@@ -37,18 +37,18 @@ const requestLog = {
 } as const
 
 const report = {
-  observed_at: '2026-07-27T12:00:00Z',
+  observed_at: '2026-07-27T12:21:48Z',
   range: {
-    from: '2026-07-26T12:00:00Z',
-    to: '2026-07-27T12:00:00Z',
+    from: '2026-07-26T13:00:00Z',
+    to: '2026-07-27T13:00:00Z',
     granularity: 'hour',
   },
   filters: { group_id: 7, model: 'gpt-5.6' },
   summary: aggregate,
   series: [
     {
-      bucket_start: '2026-07-26T12:00:00Z',
-      bucket_end: '2026-07-26T13:00:00Z',
+      bucket_start: '2026-07-26T13:00:00Z',
+      bucket_end: '2026-07-26T14:00:00Z',
       ...aggregate,
     },
   ],
@@ -86,14 +86,9 @@ describe('Usage control API', () => {
     })
   })
 
-  it('accepts the current partial bucket when its start is inside the report range', () => {
+  it('accepts the current partial bucket because the response window ends at its aligned boundary', () => {
     const currentBucketReport = {
       ...report,
-      observed_at: '2026-07-27T12:21:48Z',
-      range: {
-        ...report.range,
-        to: '2026-07-27T12:21:48Z',
-      },
       series: [
         {
           ...report.series[0],
@@ -104,6 +99,26 @@ describe('Usage control API', () => {
     }
 
     expect(projectUsageReport(currentBucketReport)).toEqual(currentBucketReport)
+  })
+
+  it('accepts an exact UTC day bucket inside the aligned 30-day window', () => {
+    const dailyReport = {
+      ...report,
+      range: {
+        from: '2026-06-28T00:00:00Z',
+        to: '2026-07-28T00:00:00Z',
+        granularity: 'day' as const,
+      },
+      series: [
+        {
+          ...report.series[0],
+          bucket_start: '2026-07-27T00:00:00Z',
+          bucket_end: '2026-07-28T00:00:00Z',
+        },
+      ],
+    }
+
+    expect(projectUsageReport(dailyReport)).toEqual(dailyReport)
   })
 
   it.each([
@@ -140,8 +155,98 @@ describe('Usage control API', () => {
       },
     ],
     [
-      'bucket outside range',
-      { ...report, series: [{ ...report.series[0], bucket_start: '2026-07-25T12:00:00Z' }] },
+      'rolling response window without UTC-aligned boundaries',
+      {
+        ...report,
+        range: {
+          ...report.range,
+          from: '2026-07-26T12:21:48Z',
+          to: '2026-07-27T12:21:48Z',
+        },
+        series: [],
+      },
+    ],
+    [
+      'aligned response window with the wrong bucket count',
+      {
+        ...report,
+        range: {
+          ...report.range,
+          from: '2026-07-26T14:00:00Z',
+        },
+        series: [],
+      },
+    ],
+    [
+      'misaligned hour bucket',
+      {
+        ...report,
+        series: [
+          {
+            ...report.series[0],
+            bucket_start: '2026-07-27T11:30:00Z',
+            bucket_end: '2026-07-27T12:30:00Z',
+          },
+        ],
+      },
+    ],
+    [
+      'wrong hour bucket length',
+      {
+        ...report,
+        series: [
+          {
+            ...report.series[0],
+            bucket_start: '2026-07-27T12:00:00Z',
+            bucket_end: '2026-07-27T12:30:00Z',
+          },
+        ],
+      },
+    ],
+    [
+      'far-future bucket end',
+      {
+        ...report,
+        series: [
+          {
+            ...report.series[0],
+            bucket_start: '2026-07-27T13:00:00Z',
+            bucket_end: '2026-07-27T14:00:00Z',
+          },
+        ],
+      },
+    ],
+    [
+      'aligned non-current bucket outside the response window',
+      {
+        ...report,
+        series: [
+          {
+            ...report.series[0],
+            bucket_start: '2026-07-26T12:00:00Z',
+            bucket_end: '2026-07-26T13:00:00Z',
+          },
+        ],
+      },
+    ],
+    [
+      'wrong UTC day bucket length',
+      {
+        ...report,
+        observed_at: '2026-07-27T12:21:48Z',
+        range: {
+          from: '2026-06-28T00:00:00Z',
+          to: '2026-07-28T00:00:00Z',
+          granularity: 'day',
+        },
+        series: [
+          {
+            ...report.series[0],
+            bucket_start: '2026-07-27T00:00:00Z',
+            bucket_end: '2026-07-27T23:00:00Z',
+          },
+        ],
+      },
     ],
     [
       'breakdown outside filtered source scope',
