@@ -692,9 +692,13 @@ func TestForwarderSanitizesResponseHeadersOnAllPaths(t *testing.T) {
 		{name: "stream error", stream: true, status: http.StatusUnauthorized},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			const secret = "provider-secret-all-paths"
-			upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+			const (
+				secret           = "provider-secret-all-paths"
+				headerRuleSecret = "independent-header-rule-secret"
+			)
+			upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 				writer.Header().Set("X-Echo", "prefix-"+secret)
+				writer.Header().Set("X-Rule-Echo", "prefix-"+request.Header.Get("X-Custom-Credential"))
 				writer.Header().Set("X-Safe", "kept")
 				writer.WriteHeader(test.status)
 				if test.stream && test.status == http.StatusOK {
@@ -708,6 +712,9 @@ func TestForwarderSanitizesResponseHeadersOnAllPaths(t *testing.T) {
 			forwarder := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New())
 			input := streamForwardInput(upstream.URL)
 			input.APIKey = secret
+			input.Group.HeaderRules = state.HeaderRules{
+				Set: map[string]string{"X-Custom-Credential": headerRuleSecret},
+			}
 			downstream := newRecordingResponseWriter()
 			var result UpstreamResult
 			if test.stream {
@@ -715,11 +722,16 @@ func TestForwarderSanitizesResponseHeadersOnAllPaths(t *testing.T) {
 			} else {
 				result = forwarder.Forward(t.Context(), input)
 			}
-			if result.Err != nil || result.Header.Get("X-Echo") != "" || result.Header.Get("X-Safe") != "kept" {
+			if result.Err != nil ||
+				result.Header.Get("X-Echo") != "" ||
+				result.Header.Get("X-Rule-Echo") != "" ||
+				result.Header.Get("X-Safe") != "kept" {
 				t.Fatalf("result = %#v", result)
 			}
 			if test.stream && test.status == http.StatusOK &&
-				(downstream.header.Get("X-Echo") != "" || downstream.header.Get("X-Safe") != "kept") {
+				(downstream.header.Get("X-Echo") != "" ||
+					downstream.header.Get("X-Rule-Echo") != "" ||
+					downstream.header.Get("X-Safe") != "kept") {
 				t.Fatalf("downstream headers = %#v", downstream.header)
 			}
 		})

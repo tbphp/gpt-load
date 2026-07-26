@@ -1,6 +1,6 @@
 module gpt-load
 
-go 1.25.0
+go 1.25.12
 
 require (
 	github.com/andybalholm/brotli v1.2.0
@@ -13,7 +13,7 @@ require (
 	go.uber.org/dig v1.19.0
 	golang.org/x/crypto v0.51.0
 	golang.org/x/sys v0.45.0
-	golang.org/x/text v0.37.0
+	golang.org/x/text v0.39.0
 	gorm.io/gorm v1.30.0
 )
 

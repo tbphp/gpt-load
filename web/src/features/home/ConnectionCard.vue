@@ -9,7 +9,11 @@ import CopyButton from '@/components/ui/CopyButton.vue'
 import SecretValue from '@/components/ui/SecretValue.vue'
 import SurfaceCard from '@/components/ui/SurfaceCard.vue'
 
-import { isLoopbackHostname, selectInitialAccessKey } from './home-model'
+import {
+  buildChatCompletionsSnippet,
+  isLoopbackHostname,
+  selectInitialAccessKey,
+} from './home-model'
 
 const props = withDefaults(
   defineProps<{
@@ -44,10 +48,7 @@ const hostname = computed(() => {
 })
 const loopback = computed(() => isLoopbackHostname(hostname.value))
 const model = computed(() => props.modelIds[0] ?? modelPlaceholder)
-const snippet = computed(
-  () =>
-    `curl "${props.origin}/v1/chat/completions" \\\n  -H "Authorization: Bearer $GPT_LOAD_API_KEY" \\\n  -H "Content-Type: application/json" \\\n  -d '{"model":"${model.value}"}'`,
-)
+const snippet = computed(() => buildChatCompletionsSnippet(props.origin, model.value))
 </script>
 
 <template>

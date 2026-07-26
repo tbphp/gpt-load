@@ -172,7 +172,7 @@ func (forwarder *Forwarder) Forward(ctx context.Context, input ForwardInput) Ups
 			RequestWritten: true,
 		}
 	}
-	result.Header = sanitizeForwardResponseHeaders(headers, input)
+	result.Header = sanitizeForwardResponseHeaders(headers, input, knownSecrets...)
 	return result
 }
 
@@ -231,7 +231,7 @@ func (forwarder *Forwarder) ForwardStream(
 			"",
 			knownSecrets...,
 		)
-		result.Header = sanitizeForwardResponseHeaders(headers, input)
+		result.Header = sanitizeForwardResponseHeaders(headers, input, knownSecrets...)
 		return result
 	}
 
@@ -326,7 +326,7 @@ func (forwarder *Forwarder) ForwardStream(
 		input.OnStreamReady()
 	}
 
-	result.Header = sanitizeForwardResponseHeaders(headers, input)
+	result.Header = sanitizeForwardResponseHeaders(headers, input, knownSecrets...)
 	streamWriter := newStreamWriteController(downstream, forwarder.streamWriteTimeout)
 	defer func() { _ = streamWriter.clear() }()
 
@@ -920,8 +920,27 @@ func sanitizeUpstreamResponseHeaders(source http.Header, apiKey string) http.Hea
 	return headers
 }
 
-func sanitizeForwardResponseHeaders(source http.Header, input ForwardInput) http.Header {
+func sanitizeForwardResponseHeaders(
+	source http.Header,
+	input ForwardInput,
+	additionalSecrets ...string,
+) http.Header {
 	headers := sanitizeUpstreamResponseHeaders(source, input.APIKey)
+	namesToDelete := make([]string, 0)
+	for actualName, values := range headers {
+		for _, secret := range additionalSecrets {
+			if secret == "" || secret == input.APIKey {
+				continue
+			}
+			if headerValuesContainLiteral(values, secret) {
+				namesToDelete = append(namesToDelete, actualName)
+				break
+			}
+		}
+	}
+	for _, name := range namesToDelete {
+		deleteHeaderField(headers, name)
+	}
 	if !needsModelRewrite(input) {
 		return headers
 	}

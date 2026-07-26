@@ -1,9 +1,11 @@
 import type { AccessKeyDto, GroupSummary, KeyCounts } from '@/api/control/types'
 
 import {
+  buildChatCompletionsSnippet,
   isGroupServiceable,
   isLoopbackHostname,
   normalizeUpstreamHost,
+  quotePosixShellArgument,
   selectInitialAccessKey,
 } from './home-model'
 
@@ -69,5 +71,31 @@ describe('Home model', () => {
   it('shows only the normalized upstream host', () => {
     expect(normalizeUpstreamHost(group.upstream_url)).toBe('api.example.com')
     expect(normalizeUpstreamHost('not a url')).toBe('not a url')
+  })
+
+  it.each([
+    'gpt-4o',
+    "model'with-quote",
+    'model\nwith-newline',
+    String.raw`model\with\slashes`,
+    `safe"}' ; printf MODEL_INJECTION_REACHED ; : #`,
+  ])('quotes model %j as one POSIX shell argument', (model) => {
+    const payload = JSON.stringify({ model })
+    const quoted = quotePosixShellArgument(payload)
+    const escape = `'"'"'`
+
+    expect(quoted.startsWith("'")).toBe(true)
+    expect(quoted.endsWith("'")).toBe(true)
+    expect(quoted.slice(1, -1).split(escape).join("'")).toBe(payload)
+    expect(quoted.slice(1, -1).split(escape).join('')).not.toContain("'")
+    expect(buildChatCompletionsSnippet('https://gateway.example.com', model)).toContain(
+      `-d ${quoted}`,
+    )
+  })
+
+  it('keeps the ordinary curl snippet unchanged', () => {
+    expect(buildChatCompletionsSnippet('https://gateway.example.com', 'gpt-4o')).toBe(
+      `curl "https://gateway.example.com/v1/chat/completions" \\\n  -H "Authorization: Bearer $GPT_LOAD_API_KEY" \\\n  -H "Content-Type: application/json" \\\n  -d '{"model":"gpt-4o"}'`,
+    )
   })
 })

@@ -8,7 +8,7 @@ func MaskAPIKey(key string) string {
 	if length == 0 {
 		return ""
 	}
-	if length <= 8 {
+	if length <= 16 {
 		return "****"
 	}
 	return fmt.Sprintf("%s****%s", key[:4], key[length-4:])
