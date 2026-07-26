@@ -38,7 +38,7 @@ var _ telemetry.RequestLogSink = (*Service)(nil)
 
 type Service struct {
 	db              *gorm.DB
-	queue           chan telemetry.RequestEvent
+	queue           chan queuedEvent
 	writer          batchWriter
 	redactor        *redact.Redactor
 	retentionPolicy RetentionPolicyProvider
@@ -108,7 +108,7 @@ func newService(
 		redactor = redact.New()
 	}
 	return &Service{
-		queue:         make(chan telemetry.RequestEvent, queueCapacity),
+		queue:         make(chan queuedEvent, queueCapacity),
 		writer:        writer,
 		redactor:      redactor,
 		priceTables:   priceTables,
@@ -169,8 +169,9 @@ func (service *Service) Emit(event telemetry.RequestEvent) {
 	}
 
 	cloned := cloneEvent(event)
+	prices := service.priceTables.Load()
 	select {
-	case service.queue <- cloned:
+	case service.queue <- queuedEvent{Event: cloned, Prices: prices}:
 		service.enqueuedTotal.Add(1)
 		service.stateMu.Unlock()
 	default:

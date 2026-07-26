@@ -13,7 +13,9 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"gpt-load/internal/platform/redact"
+	"gpt-load/internal/pricing"
 	"gpt-load/internal/storage/models"
+	"gpt-load/internal/usage"
 )
 
 func TestServiceEmitLifecycleAndDeepCopy(t *testing.T) {
@@ -298,6 +300,62 @@ func TestServiceWarningsExcludeEventContentAndThrottle(t *testing.T) {
 	}
 
 	close(releaseWrite)
+	if err := service.Stop(context.Background()); err != nil {
+		t.Fatalf("Stop() error = %v", err)
+	}
+}
+
+func TestEmitFreezesPriceTableBeforeWorkerFlush(t *testing.T) {
+	tableA := compileRequestLogTestPriceTable(t, "snapshot-model", pricing.Prices{
+		Output: pricing.Price{Value: 1, Set: true},
+	})
+	tableB := compileRequestLogTestPriceTable(t, "snapshot-model", pricing.Prices{
+		Output: pricing.Price{Value: 2, Set: true},
+	})
+	provider := &publishingPriceTableProvider{}
+	provider.Publish(tableA)
+	timers := newManualTimerFactory()
+	writes := make(chan []models.RequestLog, 1)
+	service := newService(
+		batchWriterFunc(func(_ context.Context, rows []models.RequestLog) error {
+			writes <- append([]models.RequestLog(nil), rows...)
+			return nil
+		}),
+		redact.New(),
+		timers.New,
+		provider,
+	)
+	if err := service.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+
+	eventA := testEvent("snapshot-a")
+	eventA.UpstreamModel = "snapshot-model"
+	eventA.Usage.Result = usage.Result{
+		State:  usage.StateComplete,
+		Tokens: usage.Tokens{Output: 1_000_000},
+	}
+	service.Emit(eventA)
+	timer := receiveValue(t, timers.created)
+
+	provider.Publish(tableB)
+	eventB := testEvent("snapshot-b")
+	eventB.UpstreamModel = "snapshot-model"
+	eventB.Usage.Result = usage.Result{
+		State:  usage.StateComplete,
+		Tokens: usage.Tokens{Output: 1_000_000},
+	}
+	service.Emit(eventB)
+	timer.Fire()
+
+	rows := receiveValue(t, writes)
+	if len(rows) != 2 || rows[0].ID != "snapshot-a" || rows[0].Cost != 1 ||
+		rows[1].ID != "snapshot-b" || rows[1].Cost != 2 {
+		t.Fatalf("snapshot-priced rows = %+v, want A/1 then B/2", rows)
+	}
+	if got := provider.loads.Load(); got != 3 {
+		t.Fatalf("PriceTableProvider.Load calls = %d, want Start once plus one per Emit", got)
+	}
 	if err := service.Stop(context.Background()); err != nil {
 		t.Fatalf("Stop() error = %v", err)
 	}

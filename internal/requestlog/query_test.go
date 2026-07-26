@@ -9,10 +9,13 @@ import (
 
 	"gorm.io/gorm"
 
+	"gpt-load/internal/platform/redact"
+	"gpt-load/internal/pricing"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/storage"
 	"gpt-load/internal/storage/models"
 	"gpt-load/internal/telemetry"
+	"gpt-load/internal/usage"
 )
 
 func TestServiceListUsesStableKeysetCursor(t *testing.T) {
@@ -204,6 +207,43 @@ func TestServiceListAppliesAllFiltersAndGroupJSON(t *testing.T) {
 	}
 	if len(conflictingPage.Items) != 0 {
 		t.Fatalf("request ID with conflicting AccessKey filter = %#v, want empty", conflictingPage.Items)
+	}
+}
+
+func TestServiceListGroupFilterUsesAnyAttemptWhileAttributionUsesFinalGroup(t *testing.T) {
+	db := openRequestLogQueryDB(t)
+	event := testEvent("00000000-0000-4000-8000-000000000210")
+	event.Attempts = []telemetry.Attempt{
+		{Sequence: 1, GroupID: 12, UpstreamModel: "retry-model", WillRetry: true},
+		{Sequence: 2, GroupID: 13, UpstreamModel: "final-model"},
+	}
+	event.UpstreamModel = "final-model"
+	event.Usage = telemetry.UsageObservation{
+		GroupID: 13,
+		Result: usage.Result{
+			State: usage.StateNotApplicable,
+		},
+	}
+	row := mapEvent(redact.New(), event, (*pricing.Table)(nil))
+	if row.GroupID != 13 {
+		t.Fatalf("top-level GroupID = %d, want final attribution 13", row.GroupID)
+	}
+	if err := db.Create(&row).Error; err != nil {
+		t.Fatalf("create attributed RequestLog: %v", err)
+	}
+
+	service := newRequestLogTestService(db)
+	for _, groupID := range []uint{12, 13} {
+		page, err := service.List(context.Background(), ListQuery{
+			GroupID: &groupID,
+			Limit:   50,
+		})
+		if err != nil {
+			t.Fatalf("List(GroupID=%d) error = %v", groupID, err)
+		}
+		if got, want := requestIDs(page.Items), []string{event.RequestID}; !reflect.DeepEqual(got, want) {
+			t.Fatalf("List(GroupID=%d) IDs = %v, want %v", groupID, got, want)
+		}
 	}
 }
 

@@ -15,6 +15,8 @@ import (
 
 	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/storage/models"
+	"gpt-load/internal/telemetry"
+	"gpt-load/internal/usage"
 )
 
 func TestServiceSweepUsesSnapshotRetentionPolicy(t *testing.T) {
@@ -221,6 +223,55 @@ func TestServiceSweepStopsOnContextAndDeleteFailure(t *testing.T) {
 			t.Fatalf("Stats() = %#v, want one delete failure", stats)
 		}
 	})
+}
+
+func TestRetentionReplayBoundaryPreservesThenReaggregatesUsageStat(t *testing.T) {
+	db := openRequestLogQueryDB(t)
+	writer := &gormBatchWriter{db: db}
+	now := time.Date(2026, time.July, 24, 12, 0, 0, 0, time.UTC)
+	row := aggregationRow(aggregationRequestID(70), now.Add(-8*24*time.Hour), 15, "retention-aggregate")
+	row.Status = string(telemetry.RequestStatusSuccess)
+	row.UsageState = string(usage.StateComplete)
+
+	if err := writer.WriteBatch(context.Background(), []models.RequestLog{row}); err != nil {
+		t.Fatalf("initial WriteBatch() error = %v", err)
+	}
+	assertRetentionReplayState(t, db, 1, 1)
+
+	if err := writer.WriteBatch(context.Background(), []models.RequestLog{row}); err != nil {
+		t.Fatalf("retained replay WriteBatch() error = %v", err)
+	}
+	assertRetentionReplayState(t, db, 1, 1)
+
+	newRequestLogTestService(db).Sweep(context.Background(), now)
+	assertRetentionReplayState(t, db, 0, 1)
+
+	if err := writer.WriteBatch(context.Background(), []models.RequestLog{row}); err != nil {
+		t.Fatalf("post-retention replay WriteBatch() error = %v", err)
+	}
+	assertRetentionReplayState(t, db, 1, 2)
+}
+
+func assertRetentionReplayState(
+	t *testing.T,
+	db *gorm.DB,
+	wantRequestLogs int64,
+	wantAggregatedRequests int64,
+) {
+	t.Helper()
+	var requestLogs int64
+	if err := db.Model(&models.RequestLog{}).Count(&requestLogs).Error; err != nil {
+		t.Fatalf("count RequestLogs: %v", err)
+	}
+	var stats []models.UsageStat
+	if err := db.Find(&stats).Error; err != nil {
+		t.Fatalf("query UsageStats: %v", err)
+	}
+	if requestLogs != wantRequestLogs || len(stats) != 1 ||
+		stats[0].RequestCount != wantAggregatedRequests {
+		t.Fatalf("retention replay state = logs:%d stats:%+v, want logs:%d requests:%d",
+			requestLogs, stats, wantRequestLogs, wantAggregatedRequests)
+	}
 }
 
 func createRetentionRow(t *testing.T, db *gorm.DB, index int, completedAt time.Time) {

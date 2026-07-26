@@ -6,8 +6,10 @@ import (
 	"unicode/utf8"
 
 	"gpt-load/internal/platform/redact"
+	"gpt-load/internal/pricing"
 	"gpt-load/internal/storage/models"
 	"gpt-load/internal/telemetry"
+	"gpt-load/internal/usage"
 )
 
 const (
@@ -15,7 +17,11 @@ const (
 	truncatedMarker = "...[truncated]"
 )
 
-func mapEvent(redactor *redact.Redactor, event telemetry.RequestEvent) models.RequestLog {
+func mapEvent(
+	redactor *redact.Redactor,
+	event telemetry.RequestEvent,
+	prices *pricing.Table,
+) models.RequestLog {
 	attempts := make([]Attempt, 0, len(event.Attempts))
 	for _, attempt := range event.Attempts {
 		attempts = append(attempts, Attempt{
@@ -40,10 +46,19 @@ func mapEvent(redactor *redact.Redactor, event telemetry.RequestEvent) models.Re
 		encodedAttempts = []byte("[]")
 	}
 
+	result := event.Usage.Result
+	quote := pricing.Quote{State: pricing.CostStateUnpriced}
+	if prices != nil {
+		quote = prices.Quote(event.UpstreamModel, result)
+	} else if result.State == usage.StateNotApplicable {
+		quote.State = pricing.CostStateNotApplicable
+	}
+
 	return models.RequestLog{
 		ID:                 event.RequestID,
 		CreatedAt:          event.CompletedAt.UTC(),
 		AccessKeyID:        event.AccessKeyID,
+		GroupID:            event.Usage.GroupID,
 		Protocol:           string(event.Protocol),
 		ClientModel:        event.ClientModel,
 		UpstreamModel:      event.UpstreamModel,
@@ -53,12 +68,14 @@ func mapEvent(redactor *redact.Redactor, event telemetry.RequestEvent) models.Re
 		ErrorCode:          event.ErrorCode,
 		ErrorSummary:       sanitizeSummary(redactor, event.ErrorSummary),
 		AffinityHit:        false,
-		InputTokens:        0,
-		OutputTokens:       0,
-		CacheReadTokens:    0,
-		CacheWrite5MTokens: 0,
-		CacheWrite1HTokens: 0,
-		Cost:               0,
+		InputTokens:        result.Tokens.UncachedInput,
+		OutputTokens:       result.Tokens.Output,
+		CacheReadTokens:    result.Tokens.CacheRead,
+		CacheWrite5MTokens: result.Tokens.CacheWrite5M,
+		CacheWrite1HTokens: result.Tokens.CacheWrite1H,
+		Cost:               quote.Cost,
+		UsageState:         string(result.State),
+		CostState:          string(quote.State),
 		Attempts:           models.JSON(encodedAttempts),
 	}
 }

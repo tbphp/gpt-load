@@ -4,13 +4,21 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
+	"reflect"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"gorm.io/gorm"
+
 	"gpt-load/internal/platform/redact"
+	"gpt-load/internal/pricing"
 	"gpt-load/internal/storage/models"
+	"gpt-load/internal/telemetry"
+	"gpt-load/internal/usage"
 )
 
 func TestServiceFlushesAtBatchSizeAndDelayInFIFOOrder(t *testing.T) {
@@ -314,4 +322,552 @@ func TestServiceConcurrentStopHonorsOwnDeadlineWithoutDuplicateDrain(t *testing.
 	if stats := service.Stats(); stats.PersistedTotal != 1 || stats.DroppedTotal != 0 {
 		t.Fatalf("stats after shared drain = %+v", stats)
 	}
+}
+
+func TestBatchWriterInsertsOnlyNewRequestLogsAndAggregatesUsage(t *testing.T) {
+	db := openRequestLogQueryDB(t)
+	hour := time.Date(2026, time.July, 24, 12, 0, 0, 0, time.UTC)
+	existing := aggregationRow(aggregationRequestID(1), hour, 7, "aggregate-model")
+	existing.InputTokens = 99
+	if err := db.Create(&existing).Error; err != nil {
+		t.Fatalf("create existing RequestLog: %v", err)
+	}
+	baseline := models.UsageStat{
+		HourBucket:   hour,
+		GroupID:      7,
+		Model:        "aggregate-model",
+		RequestCount: 10,
+		SuccessCount: 10,
+		InputTokens:  100,
+		OutputTokens: 200,
+		Cost:         1,
+	}
+	if err := db.Create(&baseline).Error; err != nil {
+		t.Fatalf("create baseline UsageStat: %v", err)
+	}
+
+	first := aggregationRow(aggregationRequestID(2), hour.Add(time.Minute), 7, "aggregate-model")
+	first.InputTokens = 3
+	first.OutputTokens = 5
+	first.Cost = 0.5
+	duplicate := first
+	duplicate.GroupID = 999
+	duplicate.UpstreamModel = "duplicate-must-lose"
+	duplicate.InputTokens = 1_000
+	replay := existing
+	replay.GroupID = 999
+	replay.UpstreamModel = "existing-must-win"
+	second := aggregationRow(aggregationRequestID(3), hour.Add(2*time.Minute), 7, "aggregate-model")
+	second.InputTokens = 7
+	second.OutputTokens = 11
+	second.Cost = 0.75
+	rows := []models.RequestLog{first, duplicate, replay, second}
+
+	var requestLogQueries, usageStatQueries int
+	countQueries := true
+	const callbackName = "test:batch_writer_query_count"
+	if err := db.Callback().Query().After("gorm:query").Register(callbackName, func(tx *gorm.DB) {
+		if !countQueries {
+			return
+		}
+		switch tx.Statement.Table {
+		case "request_logs":
+			requestLogQueries++
+		case "usage_stats":
+			usageStatQueries++
+		}
+	}); err != nil {
+		t.Fatalf("register query counter: %v", err)
+	}
+	if err := (&gormBatchWriter{db: db}).WriteBatch(context.Background(), rows); err != nil {
+		t.Fatalf("WriteBatch() error = %v", err)
+	}
+	if requestLogQueries != 1 || usageStatQueries != 1 {
+		t.Fatalf("existing queries = request_logs:%d usage_stats:%d, want one each", requestLogQueries, usageStatQueries)
+	}
+	countQueries = false
+
+	var persisted []models.RequestLog
+	if err := db.Order("id ASC").Find(&persisted).Error; err != nil {
+		t.Fatalf("query RequestLogs: %v", err)
+	}
+	if len(persisted) != 3 {
+		t.Fatalf("RequestLog count = %d, want existing plus two new", len(persisted))
+	}
+	var persistedFirst models.RequestLog
+	if err := db.First(&persistedFirst, "id = ?", first.ID).Error; err != nil {
+		t.Fatalf("query first RequestLog: %v", err)
+	}
+	if persistedFirst.GroupID != 7 || persistedFirst.UpstreamModel != "aggregate-model" ||
+		persistedFirst.InputTokens != 3 {
+		t.Fatalf("first-write-wins row = %+v", persistedFirst)
+	}
+	var persistedExisting models.RequestLog
+	if err := db.First(&persistedExisting, "id = ?", existing.ID).Error; err != nil {
+		t.Fatalf("query existing RequestLog: %v", err)
+	}
+	if persistedExisting.GroupID != 7 || persistedExisting.UpstreamModel != "aggregate-model" ||
+		persistedExisting.InputTokens != 99 {
+		t.Fatalf("existing row was updated: %+v", persistedExisting)
+	}
+
+	var stat models.UsageStat
+	if err := db.Where("hour_bucket = ? AND group_id = ? AND model = ?", hour, 7, "aggregate-model").
+		Take(&stat).Error; err != nil {
+		t.Fatalf("query UsageStat: %v", err)
+	}
+	if stat.RequestCount != 12 || stat.SuccessCount != 12 || stat.FailureCount != 0 ||
+		stat.InputTokens != 110 || stat.OutputTokens != 216 || stat.Cost != 2.25 {
+		t.Fatalf("UsageStat = %+v, want baseline plus only two new rows", stat)
+	}
+
+	if err := (&gormBatchWriter{db: db}).WriteBatch(context.Background(), rows); err != nil {
+		t.Fatalf("replay WriteBatch() error = %v", err)
+	}
+	var replayedStat models.UsageStat
+	if err := db.First(&replayedStat, stat.ID).Error; err != nil {
+		t.Fatalf("query replayed UsageStat: %v", err)
+	}
+	if !reflect.DeepEqual(replayedStat, stat) {
+		t.Fatalf("replay changed UsageStat: got %+v want %+v", replayedStat, stat)
+	}
+}
+
+func TestBatchWriterAggregatesStatusQualityAndCompletePricedTotals(t *testing.T) {
+	db := openRequestLogQueryDB(t)
+	hour := time.Date(2026, time.July, 24, 13, 0, 0, 0, time.UTC)
+
+	complete := aggregationRow(aggregationRequestID(10), hour, 8, "quality-model")
+	complete.InputTokens = 1
+	complete.OutputTokens = 2
+	complete.CacheReadTokens = 3
+	complete.CacheWrite5MTokens = 4
+	complete.CacheWrite1HTokens = 5
+	complete.Cost = 1.25
+
+	missing := aggregationRow(aggregationRequestID(11), hour, 8, "quality-model")
+	missing.Status = string(telemetry.RequestStatusError)
+	missing.UsageState = string(usage.StateMissing)
+	missing.CostState = string(pricing.CostStateUnpriced)
+	missing.InputTokens = 100
+	missing.Cost = 0
+
+	partialPriced := aggregationRow(aggregationRequestID(12), hour, 8, "quality-model")
+	partialPriced.Status = string(telemetry.RequestStatusIncomplete)
+	partialPriced.UsageState = string(usage.StatePartial)
+	partialPriced.InputTokens = 200
+	partialPriced.OutputTokens = 300
+	partialPriced.Cost = 2.5
+
+	partialUnpriced := aggregationRow(aggregationRequestID(13), hour, 8, "quality-model")
+	partialUnpriced.Status = string(telemetry.RequestStatusCanceled)
+	partialUnpriced.UsageState = string(usage.StatePartial)
+	partialUnpriced.CostState = string(pricing.CostStateUnpriced)
+	partialUnpriced.Cost = 0
+
+	unknown := aggregationRow(aggregationRequestID(14), hour, 8, "quality-model")
+	unknown.Status = "future_status"
+	unknown.UsageState = string(usage.StateNotApplicable)
+	unknown.CostState = string(pricing.CostStateNotApplicable)
+	unknown.Cost = 0
+
+	if err := (&gormBatchWriter{db: db}).WriteBatch(
+		context.Background(),
+		[]models.RequestLog{complete, missing, partialPriced, partialUnpriced, unknown},
+	); err != nil {
+		t.Fatalf("WriteBatch() error = %v", err)
+	}
+
+	var stat models.UsageStat
+	if err := db.Take(&stat).Error; err != nil {
+		t.Fatalf("query UsageStat: %v", err)
+	}
+	if stat.RequestCount != 5 || stat.SuccessCount != 1 || stat.FailureCount != 4 ||
+		stat.UsageMissingCount != 1 || stat.PartialCount != 2 ||
+		stat.UnpricedRequestCount != 2 {
+		t.Fatalf("status/quality counts = %+v", stat)
+	}
+	if stat.InputTokens != 1 || stat.OutputTokens != 2 || stat.CacheReadTokens != 3 ||
+		stat.CacheWrite5MTokens != 4 || stat.CacheWrite1HTokens != 5 ||
+		stat.Cost != 1.25 {
+		t.Fatalf("complete+priced totals = %+v", stat)
+	}
+	var persistedPartial models.RequestLog
+	if err := db.First(&persistedPartial, "id = ?", partialPriced.ID).Error; err != nil {
+		t.Fatalf("query partial RequestLog: %v", err)
+	}
+	if persistedPartial.InputTokens != 200 || persistedPartial.OutputTokens != 300 ||
+		persistedPartial.Cost != 2.5 {
+		t.Fatalf("partial+priced RequestLog lost usage/cost: %+v", persistedPartial)
+	}
+}
+
+func TestBatchWriterSeparatesHourGroupAndUpstreamModel(t *testing.T) {
+	db := openRequestLogQueryDB(t)
+	location := time.FixedZone("utc-plus-eight", 8*60*60)
+	localHour := time.Date(2026, time.July, 24, 20, 0, 0, 0, location)
+	rows := []models.RequestLog{
+		aggregationRow(aggregationRequestID(20), localHour.Add(time.Minute), 9, "model-a"),
+		aggregationRow(aggregationRequestID(21), localHour.Add(59*time.Minute), 9, "model-a"),
+		aggregationRow(aggregationRequestID(22), localHour.Add(time.Hour), 9, "model-a"),
+		aggregationRow(aggregationRequestID(23), localHour.Add(2*time.Minute), 10, "model-a"),
+		aggregationRow(aggregationRequestID(24), localHour.Add(3*time.Minute), 9, "model-b"),
+		aggregationRow(aggregationRequestID(25), localHour.Add(4*time.Minute), 0, "model-a"),
+		aggregationRow(aggregationRequestID(26), localHour.Add(5*time.Minute), 9, ""),
+	}
+	if err := (&gormBatchWriter{db: db}).WriteBatch(context.Background(), rows); err != nil {
+		t.Fatalf("WriteBatch() error = %v", err)
+	}
+
+	var stats []models.UsageStat
+	if err := db.Order("hour_bucket ASC").Order("group_id ASC").Order("model ASC").Find(&stats).Error; err != nil {
+		t.Fatalf("query UsageStats: %v", err)
+	}
+	if len(stats) != 4 {
+		t.Fatalf("UsageStat rows = %d, want four attributable buckets: %+v", len(stats), stats)
+	}
+	type bucket struct {
+		hour  time.Time
+		group uint
+		model string
+		count int64
+	}
+	got := make([]bucket, 0, len(stats))
+	for _, stat := range stats {
+		got = append(got, bucket{stat.HourBucket.UTC(), stat.GroupID, stat.Model, stat.RequestCount})
+	}
+	want := []bucket{
+		{time.Date(2026, time.July, 24, 12, 0, 0, 0, time.UTC), 9, "model-a", 2},
+		{time.Date(2026, time.July, 24, 12, 0, 0, 0, time.UTC), 9, "model-b", 1},
+		{time.Date(2026, time.July, 24, 12, 0, 0, 0, time.UTC), 10, "model-a", 1},
+		{time.Date(2026, time.July, 24, 13, 0, 0, 0, time.UTC), 9, "model-a", 1},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("buckets = %#v, want %#v", got, want)
+	}
+	var requestCount int64
+	if err := db.Model(&models.RequestLog{}).Count(&requestCount).Error; err != nil {
+		t.Fatalf("count RequestLogs: %v", err)
+	}
+	if requestCount != int64(len(rows)) {
+		t.Fatalf("RequestLog count = %d, want %d including unattributable rows", requestCount, len(rows))
+	}
+}
+
+func TestBatchWriterRollsBackRequestLogsAndStatsOnFailure(t *testing.T) {
+	newRow := func() models.RequestLog {
+		return aggregationRow(
+			aggregationRequestID(30),
+			time.Date(2026, time.July, 24, 14, 0, 0, 0, time.UTC),
+			11,
+			"rollback-model",
+		)
+	}
+
+	t.Run("existing ID query", func(t *testing.T) {
+		db := openRequestLogQueryDB(t)
+		const callbackName = "test:reject_existing_id_query"
+		if err := db.Callback().Query().Before("gorm:query").Register(callbackName, func(tx *gorm.DB) {
+			if tx.Statement.Table == "request_logs" {
+				tx.AddError(errors.New("forced existing ID query failure"))
+			}
+		}); err != nil {
+			t.Fatalf("register callback: %v", err)
+		}
+		if err := (&gormBatchWriter{db: db}).WriteBatch(context.Background(), []models.RequestLog{newRow()}); err == nil {
+			t.Fatal("WriteBatch() error = nil, want existing ID query failure")
+		}
+		assertRequestLogAndUsageStatCounts(t, db, 0, 0)
+	})
+
+	t.Run("RequestLog insert", func(t *testing.T) {
+		db := openRequestLogQueryDB(t)
+		if err := db.Exec(`
+			CREATE TRIGGER reject_request_log
+			BEFORE INSERT ON request_logs
+			BEGIN
+			  SELECT RAISE(ABORT, 'request log rejected');
+			END
+		`).Error; err != nil {
+			t.Fatalf("create trigger: %v", err)
+		}
+		if err := (&gormBatchWriter{db: db}).WriteBatch(context.Background(), []models.RequestLog{newRow()}); err == nil {
+			t.Fatal("WriteBatch() error = nil, want RequestLog insert failure")
+		}
+		assertRequestLogAndUsageStatCounts(t, db, 0, 0)
+	})
+
+	t.Run("existing UsageStat query", func(t *testing.T) {
+		db := openRequestLogQueryDB(t)
+		const callbackName = "test:reject_existing_usage_stat_query"
+		if err := db.Callback().Query().Before("gorm:query").Register(callbackName, func(tx *gorm.DB) {
+			if tx.Statement.Table == "usage_stats" {
+				tx.AddError(errors.New("forced existing UsageStat query failure"))
+			}
+		}); err != nil {
+			t.Fatalf("register callback: %v", err)
+		}
+		if err := (&gormBatchWriter{db: db}).WriteBatch(context.Background(), []models.RequestLog{newRow()}); err == nil {
+			t.Fatal("WriteBatch() error = nil, want UsageStat query failure")
+		}
+		assertRequestLogAndUsageStatCounts(t, db, 0, 0)
+	})
+
+	t.Run("UsageStat UPSERT", func(t *testing.T) {
+		db := openRequestLogQueryDB(t)
+		if err := db.Exec(`
+			CREATE TRIGGER reject_usage_stat
+			BEFORE INSERT ON usage_stats
+			BEGIN
+			  SELECT RAISE(ABORT, 'usage stat rejected');
+			END
+		`).Error; err != nil {
+			t.Fatalf("create trigger: %v", err)
+		}
+		if err := (&gormBatchWriter{db: db}).WriteBatch(context.Background(), []models.RequestLog{newRow()}); err == nil {
+			t.Fatal("WriteBatch() error = nil, want UsageStat UPSERT failure")
+		}
+		assertRequestLogAndUsageStatCounts(t, db, 0, 0)
+	})
+
+	t.Run("commit", func(t *testing.T) {
+		db, dsn := openRequestLogFileDB(t)
+		release := holdRequestLogRollbackJournalReadLock(t, db, dsn)
+		err := (&gormBatchWriter{db: db}).WriteBatch(context.Background(), []models.RequestLog{newRow()})
+		if err == nil {
+			t.Fatal("WriteBatch() error = nil, want COMMIT failure")
+		}
+		release()
+		assertRequestLogAndUsageStatCounts(t, db, 0, 0)
+	})
+}
+
+func TestBatchWriterRejectsIntegerAndCostOverflow(t *testing.T) {
+	hour := time.Date(2026, time.July, 24, 15, 0, 0, 0, time.UTC)
+
+	t.Run("batch token delta overflow", func(t *testing.T) {
+		db := openRequestLogQueryDB(t)
+		first := aggregationRow(aggregationRequestID(40), hour, 12, "overflow-model")
+		first.InputTokens = math.MaxInt64
+		second := aggregationRow(aggregationRequestID(41), hour, 12, "overflow-model")
+		second.InputTokens = 1
+		assertBatchWriterRejectsRowsWithoutChanges(t, db, nil, []models.RequestLog{first, second})
+	})
+
+	t.Run("batch cost overflow", func(t *testing.T) {
+		db := openRequestLogQueryDB(t)
+		first := aggregationRow(aggregationRequestID(42), hour, 12, "overflow-model")
+		first.Cost = math.MaxFloat64
+		second := aggregationRow(aggregationRequestID(43), hour, 12, "overflow-model")
+		second.Cost = math.MaxFloat64
+		assertBatchWriterRejectsRowsWithoutChanges(t, db, nil, []models.RequestLog{first, second})
+	})
+
+	t.Run("existing count overflow", func(t *testing.T) {
+		db := openRequestLogQueryDB(t)
+		existing := models.UsageStat{
+			HourBucket:   hour,
+			GroupID:      12,
+			Model:        "overflow-model",
+			RequestCount: math.MaxInt64,
+		}
+		row := aggregationRow(aggregationRequestID(44), hour, 12, "overflow-model")
+		assertBatchWriterRejectsRowsWithoutChanges(t, db, &existing, []models.RequestLog{row})
+	})
+
+	t.Run("existing token overflow", func(t *testing.T) {
+		db := openRequestLogQueryDB(t)
+		existing := models.UsageStat{
+			HourBucket:  hour,
+			GroupID:     12,
+			Model:       "overflow-model",
+			InputTokens: math.MaxInt64,
+		}
+		row := aggregationRow(aggregationRequestID(45), hour, 12, "overflow-model")
+		assertBatchWriterRejectsRowsWithoutChanges(t, db, &existing, []models.RequestLog{row})
+	})
+
+	t.Run("existing cost overflow", func(t *testing.T) {
+		db := openRequestLogQueryDB(t)
+		existing := models.UsageStat{
+			HourBucket: hour,
+			GroupID:    12,
+			Model:      "overflow-model",
+			Cost:       math.MaxFloat64,
+		}
+		row := aggregationRow(aggregationRequestID(46), hour, 12, "overflow-model")
+		row.Cost = math.MaxFloat64
+		assertBatchWriterRejectsRowsWithoutChanges(t, db, &existing, []models.RequestLog{row})
+	})
+
+	t.Run("negative existing integer", func(t *testing.T) {
+		db := openRequestLogQueryDB(t)
+		existing := models.UsageStat{
+			HourBucket:   hour,
+			GroupID:      12,
+			Model:        "overflow-model",
+			FailureCount: -1,
+		}
+		row := aggregationRow(aggregationRequestID(47), hour, 12, "overflow-model")
+		assertBatchWriterRejectsRowsWithoutChanges(t, db, &existing, []models.RequestLog{row})
+	})
+
+	t.Run("negative row cost", func(t *testing.T) {
+		db := openRequestLogQueryDB(t)
+		row := aggregationRow(aggregationRequestID(48), hour, 12, "overflow-model")
+		row.Cost = -1
+		assertBatchWriterRejectsRowsWithoutChanges(t, db, nil, []models.RequestLog{row})
+	})
+}
+
+func TestBatchWriterRollsBackEarlierBucketWhenLaterUpsertFails(t *testing.T) {
+	db := openRequestLogQueryDB(t)
+	hour := time.Date(2026, time.July, 24, 16, 0, 0, 0, time.UTC)
+	if err := db.Exec(`
+		CREATE TRIGGER reject_second_bucket
+		BEFORE INSERT ON usage_stats
+		WHEN NEW.model = 'model-b'
+		BEGIN
+		  SELECT CASE
+		    WHEN COALESCE((
+		      SELECT request_count
+		      FROM usage_stats
+		      WHERE hour_bucket = NEW.hour_bucket
+		        AND group_id = NEW.group_id
+		        AND model = 'model-a'
+		    ), 0) != 1
+		    THEN RAISE(ABORT, 'first bucket was not upserted')
+		  END;
+		  SELECT RAISE(ABORT, 'second bucket rejected');
+		END
+	`).Error; err != nil {
+		t.Fatalf("create ordered rejection trigger: %v", err)
+	}
+
+	first := aggregationRow(aggregationRequestID(50), hour, 13, "model-a")
+	second := aggregationRow(aggregationRequestID(51), hour, 13, "model-b")
+	err := (&gormBatchWriter{db: db}).WriteBatch(
+		context.Background(),
+		[]models.RequestLog{second, first},
+	)
+	if err == nil || !strings.Contains(err.Error(), "second bucket rejected") {
+		t.Fatalf("WriteBatch() error = %v, want rejection after first sorted bucket", err)
+	}
+	assertRequestLogAndUsageStatCounts(t, db, 0, 0)
+}
+
+func TestWorkerCountsDuplicateReplayAsSuccessfulDeliveryWithoutReaggregation(t *testing.T) {
+	db := openRequestLogQueryDB(t)
+	timers := newManualTimerFactory()
+	service := NewService(
+		db,
+		redact.New(),
+		staticRetentionPolicy{days: 7},
+		newStaticPriceTableProvider(),
+	)
+	service.timerFactory = timers.New
+	if err := service.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+
+	event := testEvent(aggregationRequestID(60))
+	event.UpstreamModel = "gpt-4o"
+	event.Usage = telemetry.UsageObservation{
+		GroupID: 14,
+		Result: usage.Result{
+			State:  usage.StateComplete,
+			Tokens: usage.Tokens{UncachedInput: 1_000_000, Output: 1_000_000},
+		},
+	}
+	for attempt := uint64(1); attempt <= 2; attempt++ {
+		service.Emit(event)
+		receiveValue(t, timers.created).Fire()
+		waitForPersistedTotal(t, service, attempt)
+	}
+	if err := service.Stop(context.Background()); err != nil {
+		t.Fatalf("Stop() error = %v", err)
+	}
+
+	stats := service.Stats()
+	if stats.PersistedTotal != 2 || stats.DroppedPersistFailedTotal != 0 ||
+		stats.DroppedTotal != 0 {
+		t.Fatalf("worker replay stats = %+v", stats)
+	}
+	assertRequestLogAndUsageStatCounts(t, db, 1, 1)
+	var stat models.UsageStat
+	if err := db.Take(&stat).Error; err != nil {
+		t.Fatalf("query UsageStat: %v", err)
+	}
+	if stat.RequestCount != 1 {
+		t.Fatalf("UsageStat.RequestCount = %d, want one after successful replay delivery", stat.RequestCount)
+	}
+}
+
+func assertRequestLogAndUsageStatCounts(
+	t *testing.T,
+	db *gorm.DB,
+	wantRequestLogs int64,
+	wantUsageStats int64,
+) {
+	t.Helper()
+	var requestLogs, usageStats int64
+	if err := db.Raw("SELECT COUNT(*) FROM request_logs").Scan(&requestLogs).Error; err != nil {
+		t.Fatalf("count RequestLogs: %v", err)
+	}
+	if err := db.Raw("SELECT COUNT(*) FROM usage_stats").Scan(&usageStats).Error; err != nil {
+		t.Fatalf("count UsageStats: %v", err)
+	}
+	if requestLogs != wantRequestLogs || usageStats != wantUsageStats {
+		t.Fatalf("row counts = RequestLog:%d UsageStat:%d, want %d/%d",
+			requestLogs, usageStats, wantRequestLogs, wantUsageStats)
+	}
+}
+
+func assertBatchWriterRejectsRowsWithoutChanges(
+	t *testing.T,
+	db *gorm.DB,
+	existing *models.UsageStat,
+	rows []models.RequestLog,
+) {
+	t.Helper()
+	if existing != nil {
+		if err := db.Create(existing).Error; err != nil {
+			t.Fatalf("create existing UsageStat: %v", err)
+		}
+	}
+	var before []models.UsageStat
+	if err := db.Order("id ASC").Find(&before).Error; err != nil {
+		t.Fatalf("query UsageStats before write: %v", err)
+	}
+
+	if err := (&gormBatchWriter{db: db}).WriteBatch(context.Background(), rows); err == nil {
+		t.Fatal("WriteBatch() error = nil, want checked arithmetic rejection")
+	}
+
+	var requestLogCount int64
+	if err := db.Model(&models.RequestLog{}).Count(&requestLogCount).Error; err != nil {
+		t.Fatalf("count RequestLogs: %v", err)
+	}
+	if requestLogCount != 0 {
+		t.Fatalf("RequestLog count = %d, want rollback to zero", requestLogCount)
+	}
+	var after []models.UsageStat
+	if err := db.Order("id ASC").Find(&after).Error; err != nil {
+		t.Fatalf("query UsageStats after write: %v", err)
+	}
+	if !reflect.DeepEqual(after, before) {
+		t.Fatalf("UsageStats changed after rejection: got %+v want %+v", after, before)
+	}
+}
+
+func waitForPersistedTotal(t *testing.T, service *Service, want uint64) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if service.Stats().PersistedTotal >= want {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("PersistedTotal = %d, want at least %d", service.Stats().PersistedTotal, want)
 }
