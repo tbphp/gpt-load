@@ -126,8 +126,11 @@ func TestUpdateGroupReplacesOnlySuppliedFieldsAndPublishesOnce(t *testing.T) {
 	validation := optionalField[string]{Set: true, Null: true}
 	weight := optionalField[int]{Set: true, Value: 0}
 	settings := optionalField[config.Settings]{
-		Set:   true,
-		Value: config.Settings{"first_byte_timeout": json.Number("180")},
+		Set: true,
+		Value: config.Settings{
+			"first_byte_timeout":            json.Number("180"),
+			state.SettingInjectUsageOptions: false,
+		},
 	}
 
 	result, err := fixture.service.UpdateGroup(t.Context(), groupID, GroupUpdateRequest{
@@ -144,19 +147,24 @@ func TestUpdateGroupReplacesOnlySuppliedFieldsAndPublishesOnce(t *testing.T) {
 		t.Fatalf("result = %#v", result)
 	}
 	firstByte, ok := result.Group.Config[state.SettingFirstByteTimeout].(json.Number)
-	if len(result.Group.Config) != 1 || !ok || firstByte.String() != "180" {
+	if len(result.Group.Config) != 2 || !ok || firstByte.String() != "180" ||
+		result.Group.Config[state.SettingInjectUsageOptions] != false {
 		t.Fatalf("sparse config = %#v", result.Group.Config)
 	}
 	if result.Group.EffectiveConfig.ConnectTimeout != 15 ||
 		result.Group.EffectiveConfig.FirstByteTimeout != 180 ||
 		result.Group.EffectiveConfig.RequestTimeout != 700 ||
 		result.Group.EffectiveConfig.StreamIdleTimeout != 300 ||
+		result.Group.EffectiveConfig.InjectUsageOptions ||
 		result.Group.EffectiveConfig.HeaderRules.Set == nil ||
 		result.Group.EffectiveConfig.HeaderRules.Remove == nil {
 		t.Fatalf("post-write effective config = %#v", result.Group.EffectiveConfig)
 	}
 	if got := fixture.manager.Current().Revision; got != beforeRevision+1 {
 		t.Fatalf("revision = %d, want %d", got, beforeRevision+1)
+	}
+	if _, exists := fixture.manager.Current().Groups[groupID]; exists {
+		t.Fatalf("disabled group %d unexpectedly present in active snapshot", groupID)
 	}
 	var keyRows []models.UpstreamKey
 	if err := fixture.db.Where("group_id = ?", groupID).Find(&keyRows).Error; err != nil {

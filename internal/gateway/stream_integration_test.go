@@ -122,6 +122,122 @@ func TestHandlerStreamRetryUsesEachGroupsInjectUsageSetting(t *testing.T) {
 	}
 }
 
+func TestHandlerRetryDoesNotLeakFaultyInjectorMutationToNextGroup(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	upstream := fakeupstream.New(
+		fakeupstream.Step{Status: http.StatusInternalServerError, Fixture: "openai/500.json"},
+		fakeupstream.Step{Status: http.StatusOK, Fixture: "openai/stream.sse", Stream: true},
+	)
+	defer upstream.Close()
+
+	keyService, err := encryption.NewService("inject-retry-isolation-test-master-key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := state.NewManager()
+	if _, err := manager.Publish(state.CompileInput{
+		Groups: []state.GroupConfig{
+			{
+				ID: 1, Name: "injecting", UpstreamURL: upstream.URL, Enabled: true,
+				Protocols: []protocol.Protocol{protocol.OpenAI},
+				Models:    []state.ModelConfig{{ID: "gpt-4o"}},
+				Settings:  config.Settings{state.SettingInjectUsageOptions: true},
+			},
+			{
+				ID: 2, Name: "plain", UpstreamURL: upstream.URL, Enabled: true,
+				Protocols: []protocol.Protocol{protocol.OpenAI},
+				Models:    []state.ModelConfig{{ID: "gpt-4o"}},
+				Settings:  config.Settings{state.SettingInjectUsageOptions: false},
+			},
+		},
+		AccessKeys: []state.AccessKeyConfig{{
+			ID: 1, Name: "client", KeyHash: keyService.Hash("gl-client"),
+			Status: state.AccessKeyStatusActive,
+		}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	registry := state.NewKeyRegistry()
+	entries := make([]state.KeyEntry, 0, 2)
+	for index, plaintext := range []string{"sk-injecting", "sk-plain"} {
+		encrypted, err := keyService.Encrypt(plaintext)
+		if err != nil {
+			t.Fatal(err)
+		}
+		entries = append(entries, state.KeyEntry{
+			ID: uint(index + 1), GroupID: uint(index + 1),
+			Status: state.KeyStatusActive, EncryptedValue: encrypted,
+		})
+	}
+	if err := registry.Replace(entries); err != nil {
+		t.Fatal(err)
+	}
+
+	injectCalls := 0
+	selected := streamUsageInjectorDialect{
+		OpenAI: dialect.NewOpenAI(http.DefaultClient),
+		inject: func(request *dialect.ParsedRequest) (*dialect.ParsedRequest, error) {
+			injectCalls++
+			request.Header.Set("X-Malicious", "leaked")
+			request.Body = []byte(`{"model":"gpt-4o","stream":true,"malicious":true}`)
+			return nil, errors.New("inject failed")
+		},
+	}
+	sink := &recordingRequestLogSink{}
+	clients := platformhttp.NewHTTPClientManager()
+	handler := NewHandler(
+		manager,
+		registry,
+		keyService,
+		NewForwarder(clients, redact.New()),
+		dialect.NewSet(selected),
+		health.NewStatsStore(),
+		nil,
+		sink,
+	)
+	handler.newRandom = func() *rand.Rand { return rand.New(zeroSource{}) }
+	handler.newRequestID = func() (string, error) { return fixedRequestID, nil }
+	handler.requestNow = newSteppingRequestClock()
+	engine := gin.New()
+	handler.RegisterRoutes(engine)
+
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/v1/chat/completions",
+		strings.NewReader(`{"model":"gpt-4o","stream":true,"client":"preserve"}`),
+	)
+	request.Header.Set("Authorization", "Bearer gl-client")
+	request.Header.Set("X-Client", "preserve")
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK || recorder.Header().Get(debugHeaderAttempts) != "2" || injectCalls != 1 {
+		t.Fatalf("response/attempts/inject calls = %d/%q/%d, want 200/2/1", recorder.Code, recorder.Header().Get(debugHeaderAttempts), injectCalls)
+	}
+	requests := upstream.Requests()
+	if len(requests) != 2 {
+		t.Fatalf("upstream requests = %d, want 2", len(requests))
+	}
+	for index, received := range requests {
+		var body map[string]any
+		if err := json.Unmarshal(received.Body, &body); err != nil {
+			t.Fatalf("decode attempt %d body: %v", index+1, err)
+		}
+		if body["client"] != "preserve" || body["malicious"] != nil ||
+			received.Headers.Get("X-Client") != "preserve" ||
+			received.Headers.Get("X-Malicious") != "" {
+			t.Fatalf("attempt %d received polluted request: body=%#v headers=%#v", index+1, body, received.Headers)
+		}
+	}
+	events := sink.snapshot()
+	if len(events) != 1 || events[0].Usage.GroupID != 2 || events[0].Usage.KeyID != 2 ||
+		events[0].Usage.AttemptSequence != 2 || len(events[0].Attempts) != 2 ||
+		events[0].Attempts[0].GroupID != 1 || events[0].Attempts[1].GroupID != 2 {
+		t.Fatalf("events = %#v, want final usage attributed to Group 2 attempt 2", events)
+	}
+}
+
 func TestHandlerStreamingDebugHeadersRejectUpstreamSpoofing(t *testing.T) {
 	upstream := fakeupstream.New(fakeupstream.Step{
 		Status: http.StatusOK, Fixture: "openai/stream.sse", Stream: true,

@@ -248,28 +248,80 @@ func TestUsageCaptureBoundaryCopiesInjectedRequestWithoutAliasingInput(t *testin
 	}
 }
 
-func TestUsageCaptureBoundaryFailsOpenWhenInjectorReturnsOriginalRequest(t *testing.T) {
-	boundary := newUsageCaptureBoundary()
-	original := &dialect.ParsedRequest{
-		Method: http.MethodPost,
-		Path:   "/v1/chat/completions",
-		Header: http.Header{"X-Original": {"preserve"}},
-		Body:   []byte(`{"stream":true}`),
-	}
-	selected := streamUsageInjectorDialect{
-		OpenAI: dialect.NewOpenAI(http.DefaultClient),
-		inject: func(request *dialect.ParsedRequest) (*dialect.ParsedRequest, error) {
-			request.Header.Set("X-Original", "mutated")
-			return request, nil
+func TestUsageCaptureBoundaryNeverExposesCallerRequestToFaultyInjector(t *testing.T) {
+	tests := []struct {
+		name   string
+		inject func(*dialect.ParsedRequest, *dialect.ParsedRequest) (*dialect.ParsedRequest, error)
+	}{
+		{
+			name: "mutate working then error",
+			inject: func(_ *dialect.ParsedRequest, working *dialect.ParsedRequest) (*dialect.ParsedRequest, error) {
+				working.Method = http.MethodDelete
+				working.Path = "/mutated"
+				working.RawQuery = "leaked=true"
+				working.Header["X-Original"][0] = "mutated"
+				working.Body[0] = 'X'
+				return nil, errors.New("inject failed")
+			},
+		},
+		{
+			name: "mutate working then panic",
+			inject: func(_ *dialect.ParsedRequest, working *dialect.ParsedRequest) (*dialect.ParsedRequest, error) {
+				working.Path = "/panic"
+				working.Header.Set("X-Malicious", "present")
+				working.Body = []byte(`{"malicious":true}`)
+				panic("inject panic")
+			},
+		},
+		{
+			name: "return caller",
+			inject: func(caller, _ *dialect.ParsedRequest) (*dialect.ParsedRequest, error) {
+				return caller, nil
+			},
+		},
+		{
+			name: "return working",
+			inject: func(_ *dialect.ParsedRequest, working *dialect.ParsedRequest) (*dialect.ParsedRequest, error) {
+				return working, nil
+			},
 		},
 	}
 
-	got := boundary.injectStreamUsage(selected, original)
-	if got == original || got.Header.Get("X-Original") != "preserve" || !bytes.Equal(got.Body, []byte(`{"stream":true}`)) {
-		t.Fatalf("fail-open request = %#v, want independent original values", got)
-	}
-	if got := boundary.failureTotal.Load(); got != 1 {
-		t.Fatalf("failure total = %d, want 1", got)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			boundary := newUsageCaptureBoundary()
+			caller := &dialect.ParsedRequest{
+				Method:   http.MethodPost,
+				Path:     "/v1/chat/completions",
+				RawQuery: "beta=true",
+				Header:   http.Header{"X-Original": {"preserve"}},
+				Body:     []byte(`{"model":"gpt-4o","stream":true}`),
+			}
+			want := &dialect.ParsedRequest{
+				Method:   http.MethodPost,
+				Path:     "/v1/chat/completions",
+				RawQuery: "beta=true",
+				Header:   http.Header{"X-Original": {"preserve"}},
+				Body:     []byte(`{"model":"gpt-4o","stream":true}`),
+			}
+			selected := streamUsageInjectorDialect{
+				OpenAI: dialect.NewOpenAI(http.DefaultClient),
+				inject: func(working *dialect.ParsedRequest) (*dialect.ParsedRequest, error) {
+					return test.inject(caller, working)
+				},
+			}
+
+			got := boundary.injectStreamUsage(selected, caller)
+			if !reflect.DeepEqual(caller, want) {
+				t.Fatalf("caller-owned request changed:\n got %#v\nwant %#v", caller, want)
+			}
+			if got == caller || !reflect.DeepEqual(got, want) {
+				t.Fatalf("fail-open request = %#v, want independent %#v", got, want)
+			}
+			if got := boundary.failureTotal.Load(); got != 1 {
+				t.Fatalf("failure total = %d, want 1", got)
+			}
+		})
 	}
 }
 

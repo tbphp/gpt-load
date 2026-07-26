@@ -44,7 +44,8 @@ func TestCreateGroupNormalizesAndPublishesOnce(t *testing.T) {
 				{ID: "claude-3-5", Alias: ""},
 			},
 		},
-		Keys: " sk-a \n\n sk-a\nsk-b\n",
+		Config: config.Settings{state.SettingInjectUsageOptions: false},
+		Keys:   " sk-a \n\n sk-a\nsk-b\n",
 	})
 	if err != nil {
 		t.Fatalf("CreateGroup() error = %v", err)
@@ -63,7 +64,7 @@ func TestCreateGroupNormalizesAndPublishesOnce(t *testing.T) {
 		t.Fatalf("query created group: %v", err)
 	}
 	if group.Name != "primary upstream" || group.UpstreamURL != "https://api.example.com/v1" ||
-		string(group.Config) != "{}" || !group.Enabled {
+		string(group.Config) != `{"inject_usage_options":false}` || !group.Enabled {
 		t.Fatalf("stored group = %#v", group)
 	}
 	var storedProtocols []protocol.Protocol
@@ -83,8 +84,17 @@ func TestCreateGroupNormalizesAndPublishesOnce(t *testing.T) {
 	}
 	view, ok := snapshot.Groups[result.GroupID]
 	if !ok || view.UpstreamURL != group.UpstreamURL ||
+		view.InjectUsageOptions ||
 		!reflect.DeepEqual(view.Protocols, []protocol.Protocol{protocol.OpenAI, protocol.Anthropic}) {
 		t.Fatalf("snapshot group = %#v, exists=%t", view, ok)
+	}
+	detail, err := fixture.service.GetGroup(t.Context(), result.GroupID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(detail.Config) != 1 || detail.Config[state.SettingInjectUsageOptions] != false ||
+		detail.EffectiveConfig.InjectUsageOptions {
+		t.Fatalf("created group config/effective = %#v/%#v", detail.Config, detail.EffectiveConfig)
 	}
 	if candidates := fixture.registry.CollectCandidates([]uint{result.GroupID}, nil, time.Time{}); len(candidates) != 2 {
 		t.Fatalf("Registry candidates = %#v, want two", candidates)

@@ -151,6 +151,7 @@ func TestGetGroupEffectiveConfigMatchesEnabledSnapshot(t *testing.T) {
 	group := validControlGroup("effective-enabled")
 	group.Config = models.JSON(`{
 		"connect_timeout":20,
+		"inject_usage_options":false,
 		"header_rules":{"set":{"X-Test":"value"},"remove":["X-Debug"]}
 	}`)
 	if err := fixture.db.Create(group).Error; err != nil {
@@ -170,6 +171,8 @@ func TestGetGroupEffectiveConfigMatchesEnabledSnapshot(t *testing.T) {
 		got.EffectiveConfig.FirstByteTimeout != int64(view.Timeouts.FirstByte/time.Second) ||
 		got.EffectiveConfig.RequestTimeout != int64(view.Timeouts.Request/time.Second) ||
 		got.EffectiveConfig.StreamIdleTimeout != int64(view.Timeouts.StreamIdle/time.Second) ||
+		got.EffectiveConfig.InjectUsageOptions != view.InjectUsageOptions ||
+		got.EffectiveConfig.InjectUsageOptions ||
 		!reflect.DeepEqual(got.EffectiveConfig.HeaderRules.Set, view.HeaderRules.Set) ||
 		!reflect.DeepEqual(got.EffectiveConfig.HeaderRules.Remove, view.HeaderRules.Remove) {
 		t.Fatalf("effective/snapshot = %#v/%#v", got.EffectiveConfig, view)

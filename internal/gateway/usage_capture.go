@@ -167,8 +167,9 @@ func (boundary *usageCaptureBoundary) injectStreamUsage(
 		return request
 	}
 	fallback := cloneParsedRequest(request)
-	derived, err, panicked := safeInjectStreamUsage(injector, request)
-	if panicked || err != nil || !isValidInjectedRequest(request, fallback, derived) ||
+	working := cloneParsedRequest(fallback)
+	derived, err, panicked := safeInjectStreamUsage(injector, working)
+	if panicked || err != nil || !isValidInjectedRequest(request, fallback, working, derived) ||
 		int64(len(derived.Body)) > maxRequestBodyBytes {
 		boundary.recordFailure("inject", selected.Protocol())
 		return fallback
@@ -190,12 +191,15 @@ func cloneParsedRequest(request *dialect.ParsedRequest) *dialect.ParsedRequest {
 }
 
 func isValidInjectedRequest(
-	request, original, derived *dialect.ParsedRequest,
+	request, fallback, working, derived *dialect.ParsedRequest,
 ) bool {
-	if request == nil || original == nil || derived == nil || derived == request ||
-		!reflect.DeepEqual(request, original) ||
-		derived.Method != original.Method || derived.Path != original.Path || derived.RawQuery != original.RawQuery ||
-		!reflect.DeepEqual(derived.Header, original.Header) {
+	if request == nil || fallback == nil || working == nil || derived == nil ||
+		derived == request || derived == working ||
+		!reflect.DeepEqual(request, fallback) ||
+		!reflect.DeepEqual(working, fallback) ||
+		derived.Method != fallback.Method || derived.Path != fallback.Path ||
+		derived.RawQuery != fallback.RawQuery ||
+		!reflect.DeepEqual(derived.Header, fallback.Header) {
 		return false
 	}
 	return true
