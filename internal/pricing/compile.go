@@ -80,7 +80,7 @@ func validateRule(rule Rule) error {
 		rule.Prices.CacheWrite1H,
 		rule.Prices.Output,
 	} {
-		if math.IsNaN(price.Value) || math.IsInf(price.Value, 0) || (price.Set && price.Value < 0) {
+		if math.IsNaN(price.Value) || math.IsInf(price.Value, 0) || price.Value < 0 {
 			return fmt.Errorf("pricing price must be finite and non-negative")
 		}
 		priceSet = priceSet || price.Set

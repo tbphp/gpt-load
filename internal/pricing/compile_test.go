@@ -76,6 +76,7 @@ func TestCompileRejectsInvalidRules(t *testing.T) {
 		{name: "invalid source", rule: Rule{Pattern: "gpt-4o", Prices: priced(1), Source: Source("remote")}},
 		{name: "all prices unset", rule: Rule{Pattern: "gpt-4o", Source: SourceUser}},
 		{name: "negative price", rule: Rule{Pattern: "gpt-4o", Prices: Prices{Output: Price{Value: -1, Set: true}}, Source: SourceUser}},
+		{name: "negative unset price", rule: Rule{Pattern: "gpt-4o", Prices: Prices{UncachedInput: Price{Value: -1}, Output: Price{Value: 1, Set: true}}, Source: SourceUser}},
 		{name: "nan price", rule: Rule{Pattern: "gpt-4o", Prices: Prices{Output: Price{Value: math.NaN(), Set: true}}, Source: SourceUser}},
 		{name: "positive infinity price", rule: Rule{Pattern: "gpt-4o", Prices: Prices{Output: Price{Value: math.Inf(1), Set: true}}, Source: SourceUser}},
 		{name: "negative infinity price", rule: Rule{Pattern: "gpt-4o", Prices: Prices{Output: Price{Value: math.Inf(-1), Set: true}}, Source: SourceUser}},
