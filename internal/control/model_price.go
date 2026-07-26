@@ -3,6 +3,7 @@ package control
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -57,12 +58,45 @@ func (s *Service) UpsertModelPrice(ctx context.Context, input ModelPriceInput) e
 }
 
 func (s *Service) ResetModelPrice(ctx context.Context, pattern string) error {
+	if err := pricing.ValidatePattern(pattern); err != nil {
+		return app_errors.ErrValidation
+	}
 	return s.writePriceTable(ctx, func(tx *gorm.DB) error {
 		if err := tx.Where("pattern = ?", pattern).Delete(&models.ModelPrice{}).Error; err != nil {
 			return fmt.Errorf("delete model price: %w", app_errors.ParseDBError(err))
 		}
 		return nil
 	})
+}
+
+func (s *Service) ListModelPrices(ctx context.Context) ([]modelPriceRuleResponse, error) {
+	s.writeMu.RLock()
+	defer s.writeMu.RUnlock()
+
+	var rows []models.ModelPrice
+	if err := s.db.WithContext(ctx).Order("pattern ASC").Find(&rows).Error; err != nil {
+		return nil, app_errors.ParseDBError(err)
+	}
+
+	rules := pricing.BuiltinRules()
+	for _, row := range rows {
+		if row.Source != string(pricing.SourceUser) {
+			return nil, app_errors.ErrInternalServer
+		}
+		rules = append(rules, modelPriceRule(row))
+	}
+	sort.Slice(rules, func(left, right int) bool {
+		if rules[left].Source != rules[right].Source {
+			return rules[left].Source < rules[right].Source
+		}
+		return rules[left].Pattern < rules[right].Pattern
+	})
+
+	result := make([]modelPriceRuleResponse, 0, len(rules))
+	for _, rule := range rules {
+		result = append(result, newModelPriceRuleResponse(rule))
+	}
+	return result, nil
 }
 
 func (s *Service) writePriceTable(

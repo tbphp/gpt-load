@@ -50,23 +50,8 @@ func Compile(rules []Rule) (*Table, error) {
 }
 
 func validateRule(rule Rule) error {
-	if len(rule.Pattern) == 0 || len(rule.Pattern) > 255 {
-		return fmt.Errorf("pricing pattern must be 1 through 255 bytes")
-	}
-	if strings.TrimSpace(rule.Pattern) != rule.Pattern {
-		return fmt.Errorf("pricing pattern must not have surrounding whitespace")
-	}
-	for _, character := range rule.Pattern {
-		if unicode.IsControl(character) {
-			return fmt.Errorf("pricing pattern must not contain control characters")
-		}
-	}
-	starCount := strings.Count(rule.Pattern, "*")
-	if starCount > 1 || (starCount == 1 && !strings.HasSuffix(rule.Pattern, "*")) {
-		return fmt.Errorf("pricing pattern may contain one trailing star")
-	}
-	if strings.Contains(rule.Pattern, "?") {
-		return fmt.Errorf("pricing pattern must not contain question marks")
+	if err := ValidatePattern(rule.Pattern); err != nil {
+		return err
 	}
 	if rule.Source != SourceBuiltin && rule.Source != SourceUser {
 		return fmt.Errorf("unsupported pricing source %q", rule.Source)
@@ -93,6 +78,29 @@ func validateRule(rule Rule) error {
 	}
 	if rule.Source == SourceUser && rule.SourceURL != "" {
 		return fmt.Errorf("user pricing rule must not have a source URL")
+	}
+	return nil
+}
+
+// ValidatePattern validates a model-pricing exact or trailing-star prefix pattern.
+func ValidatePattern(pattern string) error {
+	if len(pattern) == 0 || len(pattern) > 255 {
+		return fmt.Errorf("pricing pattern must be 1 through 255 bytes")
+	}
+	if strings.TrimSpace(pattern) != pattern {
+		return fmt.Errorf("pricing pattern must not have surrounding whitespace")
+	}
+	for _, character := range pattern {
+		if unicode.IsControl(character) {
+			return fmt.Errorf("pricing pattern must not contain control characters")
+		}
+	}
+	starCount := strings.Count(pattern, "*")
+	if starCount > 1 || (starCount == 1 && !strings.HasSuffix(pattern, "*")) {
+		return fmt.Errorf("pricing pattern may contain one trailing star")
+	}
+	if strings.Contains(pattern, "?") {
+		return fmt.Errorf("pricing pattern must not contain question marks")
 	}
 	return nil
 }

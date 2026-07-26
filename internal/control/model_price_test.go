@@ -354,6 +354,21 @@ func TestResetModelPriceRestoresBuiltinAndIsIdempotent(t *testing.T) {
 	assertModelPriceCount(t, fixture, 0)
 }
 
+func TestResetModelPriceRejectsInvalidPatternBeforeWrite(t *testing.T) {
+	fixture := newServiceFixture(t)
+	mustEnsureInitialPrices(t, fixture)
+	beforeTable := fixture.priceRuntime.Load()
+
+	err := fixture.service.ResetModelPrice(context.Background(), "invalid?pattern")
+	if !errors.Is(err, app_errors.ErrValidation) {
+		t.Fatalf("ResetModelPrice() error = %v, want validation error", err)
+	}
+	if fixture.priceRuntime.Load() != beforeTable {
+		t.Fatal("invalid reset changed PriceRuntime")
+	}
+	assertModelPriceCount(t, fixture, 0)
+}
+
 func TestModelPriceWritesDoNotPublishConfigSnapshot(t *testing.T) {
 	fixture := newServiceFixture(t)
 	mustEnsureInitialPrices(t, fixture)

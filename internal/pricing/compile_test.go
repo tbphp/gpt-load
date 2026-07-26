@@ -8,6 +8,36 @@ import (
 	"time"
 )
 
+func TestValidatePattern(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		pattern string
+		wantErr bool
+	}{
+		{name: "exact", pattern: "gpt-5.6"},
+		{name: "prefix", pattern: "vendor-*"},
+		{name: "global", pattern: "*"},
+		{name: "empty", pattern: "", wantErr: true},
+		{name: "too long", pattern: strings.Repeat("a", 256), wantErr: true},
+		{name: "leading whitespace", pattern: " gpt-5.6", wantErr: true},
+		{name: "trailing whitespace", pattern: "gpt-5.6 ", wantErr: true},
+		{name: "control character", pattern: "gpt-\a5.6", wantErr: true},
+		{name: "question mark", pattern: "vendor-?", wantErr: true},
+		{name: "embedded star", pattern: "vendor-*model", wantErr: true},
+		{name: "multiple stars", pattern: "vendor-**", wantErr: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := ValidatePattern(test.pattern)
+			if (err != nil) != test.wantErr {
+				t.Fatalf("ValidatePattern(%q) error = %v, wantErr %t", test.pattern, err, test.wantErr)
+			}
+		})
+	}
+}
+
 func TestCompileMatchUsesSourceKindAndLongestPrefixPriority(t *testing.T) {
 	t.Parallel()
 
