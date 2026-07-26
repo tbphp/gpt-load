@@ -56,6 +56,15 @@ function logFixture(overrides: Partial<RequestLogItemDto> = {}): RequestLogItemD
       attempt(1),
       attempt(2, { group_name: 'Second Group', key_mask: 'sk-up…second' }),
     ],
+    group_id: 7,
+    usage_state: 'complete',
+    cost_state: 'priced',
+    uncached_input_tokens: 100,
+    cache_read_tokens: 20,
+    cache_write_5m_tokens: 3,
+    cache_write_1h_tokens: 4,
+    output_tokens: 50,
+    estimated_cost_usd: 0.123,
     ...overrides,
   }
 }

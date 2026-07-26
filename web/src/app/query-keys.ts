@@ -1,4 +1,5 @@
 import type { RequestLogFilters } from '@/api/control/request-logs'
+import type { UsageFilters } from '@/api/control/usage'
 
 export const controlQueryKeys = {
   all: ['control'] as const,
@@ -13,6 +14,14 @@ export const controlQueryKeys = {
   health: () => ['control', 'health'] as const,
   logs: {
     list: (filters: RequestLogFilters) => ['control', 'logs', 'list', filters] as const,
+  },
+  usage: {
+    report: (filters: UsageFilters) => {
+      const normalized: UsageFilters = { range: filters.range }
+      if (filters.group_id !== undefined) normalized.group_id = filters.group_id
+      if (filters.model !== undefined) normalized.model = filters.model
+      return ['control', 'usage', 'report', normalized] as const
+    },
   },
   accessKeys: {
     list: () => ['control', 'access-keys', 'list'] as const,

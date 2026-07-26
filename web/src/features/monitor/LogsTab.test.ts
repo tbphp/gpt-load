@@ -51,6 +51,15 @@ function logFixture(overrides: Partial<RequestLogItemDto> = {}): RequestLogItemD
     error_summary: '',
     affinity_hit: false,
     attempts: [],
+    group_id: 7,
+    usage_state: 'complete',
+    cost_state: 'priced',
+    uncached_input_tokens: 100,
+    cache_read_tokens: 20,
+    cache_write_5m_tokens: 3,
+    cache_write_1h_tokens: 4,
+    output_tokens: 50,
+    estimated_cost_usd: 0.123,
     ...overrides,
   }
 }

@@ -25,6 +25,12 @@ describe('controlQueryKeys', () => {
     expect(controlQueryKeys.settings()).toEqual(['control', 'settings'])
     expect(controlQueryKeys.systemInfo()).toEqual(['control', 'system-info'])
     expect(controlQueryKeys.modelPrices()).toEqual(['control', 'model-prices'])
+    expect(controlQueryKeys.usage.report({ range: '30d', group_id: 7, model: 'gpt-5.6' })).toEqual([
+      'control',
+      'usage',
+      'report',
+      { range: '30d', group_id: 7, model: 'gpt-5.6' },
+    ])
   })
 
   it('contains normalized resource identity but never secret material', () => {
@@ -32,6 +38,7 @@ describe('controlQueryKeys', () => {
       controlQueryKeys.groups.detail(7),
       controlQueryKeys.groups.keys(7),
       controlQueryKeys.logs.list({ access_key_id: 12 }),
+      controlQueryKeys.usage.report({ range: '24h' }),
       controlQueryKeys.accessKeys.list(),
       controlQueryKeys.accessKeys.options(),
     ]
@@ -40,5 +47,16 @@ describe('controlQueryKeys', () => {
     expect(JSON.stringify(keys)).not.toContain('ACCESS_KEY_CANARY')
     expect(JSON.stringify(keys)).not.toContain('UPSTREAM_KEY_CANARY')
     expect(JSON.stringify(keys)).not.toContain('HEADER_RULE_CANARY')
+  })
+
+  it('creates a fresh normalized primitive usage filter identity', () => {
+    const filters = { range: '24h' as const, group_id: undefined, model: undefined }
+    const first = controlQueryKeys.usage.report(filters)
+    const second = controlQueryKeys.usage.report(filters)
+
+    expect(first).toEqual(['control', 'usage', 'report', { range: '24h' }])
+    expect(second).toEqual(first)
+    expect(first[3]).not.toBe(filters)
+    expect(first[3]).not.toBe(second[3])
   })
 })
