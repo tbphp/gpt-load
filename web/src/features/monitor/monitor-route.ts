@@ -2,8 +2,15 @@ import type { LocationQueryRaw } from 'vue-router'
 
 import type { AccessProtocol } from '@/api/control/types'
 import type { RequestLogStatus } from '@/api/control/request-logs'
+import type { UsageFilters } from '@/api/control/usage'
 
-export type MonitorTab = 'health' | 'logs' | 'inspector'
+import {
+  normalizeUsageGroupID,
+  normalizeUsageModel,
+  parseAppliedUsageFilters,
+} from './usage-filters'
+
+export type MonitorTab = 'health' | 'logs' | 'inspector' | 'usage'
 
 export const requestLogStatuses = [
   'success',
@@ -17,14 +24,29 @@ const rfc3339Pattern =
   /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/
 
 export function normalizeMonitorTab(raw: unknown): MonitorTab {
-  return raw === 'logs' || raw === 'inspector' || raw === 'health' ? raw : 'health'
+  return raw === 'logs' || raw === 'inspector' || raw === 'usage' || raw === 'health'
+    ? raw
+    : 'health'
 }
 
 export function normalizeMonitorQuery(query: Record<string, unknown>): LocationQueryRaw {
   const tab = normalizeMonitorTab(query.tab)
   if (tab === 'health') return { tab }
   if (tab === 'inspector') return normalizeInspectorQuery(query, tab)
+  if (tab === 'usage') return usageMonitorQuery(parseAppliedUsageFilters(query))
   return normalizeLogsQuery(query, tab)
+}
+
+export function usageMonitorQuery(filters: UsageFilters = { range: '24h' }): LocationQueryRaw {
+  const normalized: LocationQueryRaw = {
+    tab: 'usage',
+    range: filters.range === '30d' ? '30d' : '24h',
+  }
+  const groupID = normalizeUsageGroupID(filters.group_id)
+  const model = normalizeUsageModel(filters.model)
+  if (groupID !== undefined) normalized.group_id = String(groupID)
+  if (model !== undefined) normalized.model = model
+  return normalized
 }
 
 export function sameMonitorQuery(left: LocationQueryRaw, right: LocationQueryRaw): boolean {

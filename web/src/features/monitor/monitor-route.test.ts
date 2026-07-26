@@ -1,4 +1,9 @@
-import { normalizeMonitorQuery, normalizeMonitorTab, sameMonitorQuery } from './monitor-route'
+import {
+  normalizeMonitorQuery,
+  normalizeMonitorTab,
+  sameMonitorQuery,
+  usageMonitorQuery,
+} from './monitor-route'
 
 describe('monitor route normalization', () => {
   it('defaults an absent, legacy, or multi-valued tab to Health without retaining unrelated query values', () => {
@@ -66,6 +71,79 @@ describe('monitor route normalization', () => {
     })
   })
 
+  it('canonicalizes Usage URLs with a default range and only Usage-owned filters', () => {
+    expect(
+      normalizeMonitorQuery({
+        tab: 'usage',
+        range: '30d',
+        group_id: '7',
+        model: 'provider/model:Exact',
+        status: 'error',
+        access_key_id: '12',
+      }),
+    ).toEqual({
+      tab: 'usage',
+      range: '30d',
+      group_id: '7',
+      model: 'provider/model:Exact',
+    })
+    expect(normalizeMonitorQuery({ tab: 'usage', range: 'week', group_id: '0' })).toEqual({
+      tab: 'usage',
+      range: '24h',
+    })
+  })
+
+  it('rejects unsafe Usage models while retaining valid UTF-8 models up to 255 bytes', () => {
+    const model255Bytes = `${'模'.repeat(85)}`
+    const model256Bytes = `${'模'.repeat(85)}a`
+
+    expect(
+      normalizeMonitorQuery({
+        tab: 'usage',
+        range: '24h',
+        group_id: '9007199254740991',
+        model: model255Bytes,
+      }),
+    ).toEqual({
+      tab: 'usage',
+      range: '24h',
+      group_id: '9007199254740991',
+      model: model255Bytes,
+    })
+    expect(
+      normalizeMonitorQuery({
+        tab: 'usage',
+        range: ['24h'],
+        group_id: '9007199254740992',
+        model: model256Bytes,
+      }),
+    ).toEqual({ tab: 'usage', range: '24h' })
+    expect(normalizeMonitorQuery({ tab: 'usage', model: ' leading-model' })).toEqual({
+      tab: 'usage',
+      range: '24h',
+    })
+  })
+
+  it('drops Usage-only query fields for non-Usage tabs and builds canonical user navigation', () => {
+    expect(
+      normalizeMonitorQuery({
+        tab: 'logs',
+        range: '30d',
+        group_id: '7',
+        model: 'client-model',
+      }),
+    ).toEqual({ tab: 'logs', group_id: '7', model: 'client-model' })
+    expect(usageMonitorQuery()).toEqual({ tab: 'usage', range: '24h' })
+    expect(usageMonitorQuery({ range: '30d', group_id: 7, model: 'provider/model:Exact' })).toEqual(
+      {
+        tab: 'usage',
+        range: '30d',
+        group_id: '7',
+        model: 'provider/model:Exact',
+      },
+    )
+  })
+
   it('drops pagination cursors so they cannot enter Logs URL history', () => {
     expect(normalizeMonitorQuery({ tab: 'logs', cursor: 'opaque' })).toEqual({ tab: 'logs' })
   })
@@ -96,6 +174,7 @@ describe('monitor route normalization', () => {
     ['health', 'health'],
     ['logs', 'logs'],
     ['inspector', 'inspector'],
+    ['usage', 'usage'],
     [undefined, 'health'],
     [['logs'], 'health'],
   ])('normalizes tab %j to %s', (raw, expected) => {
