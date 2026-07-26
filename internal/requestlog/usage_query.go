@@ -109,10 +109,11 @@ func rollbackUsageReadTransaction(connection *gorm.DB) error {
 }
 
 func discardUsageReadConnection(connection *sql.Conn) error {
-	if err := connection.Raw(func(any) error { return driver.ErrBadConn }); err != nil && !errors.Is(err, driver.ErrBadConn) {
-		return err
+	err := connection.Raw(func(any) error { return driver.ErrBadConn })
+	if err == nil || errors.Is(err, driver.ErrBadConn) {
+		return nil
 	}
-	return connection.Close()
+	return fmt.Errorf("discard usage read database connection: %w", err)
 }
 
 func validateUsageQuery(input UsageQuery) error {

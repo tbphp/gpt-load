@@ -247,27 +247,55 @@ func TestQueryUsageRejectsCorruptRowsOutsideTopBreakdown(t *testing.T) {
 		rows = append(rows, usageStat(start, groupID, "top", 3))
 	}
 	compensating := usageStat(start, 101, "compensating", 2)
-	compensating.SuccessCount = 1
+	compensating.SuccessCount = 2
 	compensating.FailureCount = 0
 	compensating.InputTokens = 1
 	compensating.Cost = 1
 	corrupt := usageStat(start, 102, "corrupt", 1)
 	corrupt.SuccessCount = 1
-	corrupt.FailureCount = 1
+	corrupt.FailureCount = 0
 	corrupt.InputTokens = -1
 	corrupt.Cost = -1
 	rows = append(rows, compensating, corrupt)
 	createUsageStats(t, db, rows...)
 
-	_, err := service.QueryUsage(context.Background(), UsageQuery{
+	input := UsageQuery{
 		From:        start,
 		To:          start.Add(time.Hour),
 		Granularity: UsageGranularityHour,
 		Limit:       100,
-	})
+	}
+	if summary, err := queryUsageSummary(usageStatScope(db, input)); err != nil || summary.RequestCount != 303 {
+		t.Fatalf("pre-integrity summary = %#v/%v, want valid 303-request aggregate", summary, err)
+	}
+	if series, err := queryUsageSeries(usageStatScope(db, input), input.Granularity); err != nil || len(series) != 1 {
+		t.Fatalf("pre-integrity series = %#v/%v, want one valid hour aggregate", series, err)
+	}
+	if breakdown, truncated, err := queryUsageBreakdown(usageStatScope(db, input), input.Limit); err != nil ||
+		len(breakdown) != 100 || !truncated || breakdown[99].GroupID != 100 {
+		t.Fatalf("pre-integrity breakdown = %#v/%t/%v, want valid top 100 without group 102", breakdown, truncated, err)
+	}
+
+	_, err := service.QueryUsage(context.Background(), input)
 	if err == nil {
 		t.Fatal("QueryUsage() error = nil, want corrupt 102nd breakdown row rejection")
 	}
+}
+
+func TestDiscardUsageReadConnectionTreatsBadConnectionAsSuccessfulCleanup(t *testing.T) {
+	db := openRequestLogQueryDB(t)
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("get requestlog database: %v", err)
+	}
+	connection, err := sqlDB.Conn(context.Background())
+	if err != nil {
+		t.Fatalf("get requestlog connection: %v", err)
+	}
+	if err := discardUsageReadConnection(connection); err != nil {
+		t.Fatalf("discardUsageReadConnection() error = %v, want nil", err)
+	}
+
 }
 
 func TestQueryUsageRejectsCorruptAggregates(t *testing.T) {
