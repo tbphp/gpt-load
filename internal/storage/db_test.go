@@ -524,6 +524,259 @@ func TestAutoMigrateCreatesRequestLogV1FieldsAndCompositeIndexes(t *testing.T) {
 	}
 }
 
+type m4ColumnInfo struct {
+	Name         string
+	NotNull      int     `gorm:"column:notnull"`
+	DefaultValue *string `gorm:"column:dflt_value"`
+}
+
+type m4IndexInfo struct {
+	Name   string
+	Unique int
+}
+
+func TestAutoMigrateCreatesM4UsagePricingColumnsAndConstraints(t *testing.T) {
+	t.Parallel()
+
+	db := openMigratedDatabase(t)
+
+	var requestColumns []m4ColumnInfo
+	if err := db.Raw("PRAGMA table_info('request_logs')").Scan(&requestColumns).Error; err != nil {
+		t.Fatalf("inspect request_logs columns: %v", err)
+	}
+	for _, want := range []struct {
+		name         string
+		defaultValue string
+	}{
+		{name: "group_id", defaultValue: "0"},
+		{name: "usage_state", defaultValue: "not_applicable"},
+		{name: "cost_state", defaultValue: "not_applicable"},
+	} {
+		column, ok := findColumn(requestColumns, want.name)
+		if !ok {
+			t.Errorf("request_logs missing column %q", want.name)
+			continue
+		}
+		if column.NotNull != 1 {
+			t.Errorf("request_logs.%s notnull = %d, want 1", want.name, column.NotNull)
+		}
+		if column.DefaultValue == nil || strings.Trim(*column.DefaultValue, "'\"") != want.defaultValue {
+			t.Errorf("request_logs.%s default = %v, want %q", want.name, column.DefaultValue, want.defaultValue)
+		}
+	}
+
+	var requestIndexes []m4IndexInfo
+	if err := db.Raw("PRAGMA index_list('request_logs')").Scan(&requestIndexes).Error; err != nil {
+		t.Fatalf("inspect request_logs indexes: %v", err)
+	}
+	for _, index := range requestIndexes {
+		type indexColumn struct {
+			Name string
+			Key  int
+		}
+		var columns []indexColumn
+		if err := db.Raw("PRAGMA index_xinfo('" + index.Name + "')").Scan(&columns).Error; err != nil {
+			t.Fatalf("inspect request_logs index %s: %v", index.Name, err)
+		}
+		for _, column := range columns {
+			if column.Key == 1 && column.Name == "group_id" {
+				t.Errorf("request_logs has unexpected GroupID index %q", index.Name)
+			}
+		}
+	}
+
+	var usageColumns []m4ColumnInfo
+	if err := db.Raw("PRAGMA table_info('usage_stats')").Scan(&usageColumns).Error; err != nil {
+		t.Fatalf("inspect usage_stats columns: %v", err)
+	}
+	for _, name := range []string{"usage_missing_count", "partial_count", "unpriced_request_count"} {
+		column, ok := findColumn(usageColumns, name)
+		if !ok {
+			t.Errorf("usage_stats missing column %q", name)
+			continue
+		}
+		if column.NotNull != 1 || column.DefaultValue == nil || strings.Trim(*column.DefaultValue, "'\"") != "0" {
+			t.Errorf("usage_stats.%s = notnull:%d default:%v, want notnull:1 default:0", name, column.NotNull, column.DefaultValue)
+		}
+	}
+	var usageIndexes []m4IndexInfo
+	if err := db.Raw("PRAGMA index_list('usage_stats')").Scan(&usageIndexes).Error; err != nil {
+		t.Fatalf("inspect usage_stats indexes: %v", err)
+	}
+	if !hasUniqueIndex(usageIndexes, "idx_usage_stats_hour_group_model") {
+		t.Error("usage_stats unique hour/group/model index is missing")
+	}
+
+	var priceColumns []m4ColumnInfo
+	if err := db.Raw("PRAGMA table_info('model_prices')").Scan(&priceColumns).Error; err != nil {
+		t.Fatalf("inspect model_prices columns: %v", err)
+	}
+	priceColumnNames := map[string]struct{}{
+		"input_price": {}, "output_price": {}, "cache_read_price": {}, "cache_write_5m_price": {}, "cache_write_1h_price": {},
+	}
+	for _, column := range priceColumns {
+		if _, ok := priceColumnNames[column.Name]; ok && column.NotNull != 0 {
+			t.Errorf("model_prices.%s notnull = %d, want nullable", column.Name, column.NotNull)
+		}
+		if strings.Contains(column.Name, "uncached_input") {
+			t.Errorf("model_prices has unexpected conceptual price column %q", column.Name)
+		}
+	}
+	var priceIndexes []m4IndexInfo
+	if err := db.Raw("PRAGMA index_list('model_prices')").Scan(&priceIndexes).Error; err != nil {
+		t.Fatalf("inspect model_prices indexes: %v", err)
+	}
+	if !hasUniqueIndex(priceIndexes, "idx_model_prices_pattern") {
+		t.Error("model_prices Pattern unique index is missing")
+	}
+
+	validRequest := models.RequestLog{
+		ID:            "m4-pricing-constraint",
+		AccessKeyID:   1,
+		Protocol:      "openai",
+		ClientModel:   "client-model",
+		UpstreamModel: "upstream-model",
+		Status:        "success",
+	}
+	invalidUsage := validRequest
+	invalidUsage.UsageState = "unexpected"
+	if err := db.Create(&invalidUsage).Error; err == nil {
+		t.Error("invalid RequestLog UsageState was accepted")
+	}
+	invalidCost := validRequest
+	invalidCost.ID = "m4-pricing-cost-constraint"
+	invalidCost.CostState = "unexpected"
+	if err := db.Create(&invalidCost).Error; err == nil {
+		t.Error("invalid RequestLog CostState was accepted")
+	}
+	if err := db.Create(&models.ModelPrice{Pattern: "model-*", Source: "builtin"}).Error; err == nil {
+		t.Error("builtin ModelPrice Source was accepted")
+	}
+
+	if storage.CurrentSchemaVersion != 1 {
+		t.Errorf("CurrentSchemaVersion = %d, want 1", storage.CurrentSchemaVersion)
+	}
+	if err := storage.AutoMigrate(db); err != nil {
+		t.Fatalf("second AutoMigrate() error = %v", err)
+	}
+}
+
+func TestAutoMigrateUpgradesCurrentModelPriceDDLWithoutRenamingColumns(t *testing.T) {
+	t.Parallel()
+
+	db, err := storage.Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open(:memory:) error = %v", err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("DB() error = %v", err)
+	}
+	t.Cleanup(func() {
+		if err := sqlDB.Close(); err != nil {
+			t.Errorf("close database: %v", err)
+		}
+	})
+	if err := db.Exec(`CREATE TABLE schema_info (version integer PRIMARY KEY)`).Error; err != nil {
+		t.Fatalf("create schema_info: %v", err)
+	}
+	if err := db.Exec(`INSERT INTO schema_info(version) VALUES (1)`).Error; err != nil {
+		t.Fatalf("insert schema version: %v", err)
+	}
+	if err := db.Exec(`CREATE TABLE model_prices (
+id integer PRIMARY KEY AUTOINCREMENT,
+pattern varchar(255) NOT NULL,
+input_price real NOT NULL DEFAULT 0,
+output_price real NOT NULL DEFAULT 0,
+cache_read_price real NOT NULL DEFAULT 0,
+cache_write_5m_price real NOT NULL DEFAULT 0,
+cache_write_1h_price real NOT NULL DEFAULT 0,
+source varchar(32) NOT NULL,
+created_at datetime,
+updated_at datetime
+)`).Error; err != nil {
+		t.Fatalf("create current model_prices DDL: %v", err)
+	}
+	if err := db.Exec(`CREATE INDEX idx_model_prices_pattern ON model_prices(pattern)`).Error; err != nil {
+		t.Fatalf("create current model_prices Pattern index: %v", err)
+	}
+	if err := db.Exec(`INSERT INTO model_prices(pattern, input_price, output_price, cache_read_price, cache_write_5m_price, cache_write_1h_price, source) VALUES
+('nonzero', 1.25, 2.5, 3.75, 5, 6.25, 'user'),
+('zero', 0, 0, 0, 0, 0, 'user')`).Error; err != nil {
+		t.Fatalf("insert current model_prices rows: %v", err)
+	}
+
+	if err := storage.AutoMigrate(db); err != nil {
+		t.Fatalf("AutoMigrate() error = %v", err)
+	}
+	assertModelPriceUpgrade(t, db)
+	if err := storage.AutoMigrate(db); err != nil {
+		t.Fatalf("second AutoMigrate() error = %v", err)
+	}
+	assertModelPriceUpgrade(t, db)
+}
+
+func assertModelPriceUpgrade(t *testing.T, db *gorm.DB) {
+	t.Helper()
+	type columnInfo struct {
+		Name    string
+		NotNull int `gorm:"column:notnull"`
+	}
+	var columns []columnInfo
+	if err := db.Raw("PRAGMA table_info('model_prices')").Scan(&columns).Error; err != nil {
+		t.Fatalf("inspect upgraded model_prices columns: %v", err)
+	}
+	for _, column := range columns {
+		if strings.Contains(column.Name, "uncached_input") {
+			t.Fatalf("model_prices has unexpected renamed price column %q", column.Name)
+		}
+		if column.Name == "input_price" || column.Name == "output_price" || column.Name == "cache_read_price" || column.Name == "cache_write_5m_price" || column.Name == "cache_write_1h_price" {
+			if column.NotNull != 0 {
+				t.Errorf("model_prices.%s notnull = %d, want nullable", column.Name, column.NotNull)
+			}
+		}
+	}
+	type row struct {
+		Pattern           string
+		InputPrice        float64 `gorm:"column:input_price"`
+		OutputPrice       float64 `gorm:"column:output_price"`
+		CacheReadPrice    float64 `gorm:"column:cache_read_price"`
+		CacheWrite5MPrice float64 `gorm:"column:cache_write_5m_price"`
+		CacheWrite1HPrice float64 `gorm:"column:cache_write_1h_price"`
+	}
+	var rows []row
+	if err := db.Raw("SELECT pattern, input_price, output_price, cache_read_price, cache_write_5m_price, cache_write_1h_price FROM model_prices ORDER BY pattern").Scan(&rows).Error; err != nil {
+		t.Fatalf("read upgraded model_prices: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("upgraded model_prices rows = %d, want 2", len(rows))
+	}
+	if rows[0] != (row{Pattern: "nonzero", InputPrice: 1.25, OutputPrice: 2.5, CacheReadPrice: 3.75, CacheWrite5MPrice: 5, CacheWrite1HPrice: 6.25}) {
+		t.Errorf("nonzero upgraded row = %+v", rows[0])
+	}
+	if rows[1] != (row{Pattern: "zero"}) {
+		t.Errorf("zero upgraded row = %+v", rows[1])
+	}
+}
+
+func findColumn(columns []m4ColumnInfo, name string) (m4ColumnInfo, bool) {
+	for _, column := range columns {
+		if column.Name == name {
+			return column, true
+		}
+	}
+	return m4ColumnInfo{}, false
+}
+
+func hasUniqueIndex(indexes []m4IndexInfo, name string) bool {
+	for _, index := range indexes {
+		if index.Name == name && index.Unique == 1 {
+			return true
+		}
+	}
+	return false
+}
+
 func TestAutoMigrateOmitsGroupSignature(t *testing.T) {
 	t.Parallel()
 

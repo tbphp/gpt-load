@@ -119,6 +119,68 @@ func migrateCurrentSchema(db *gorm.DB) error {
 	); err != nil {
 		return fmt.Errorf("auto-migrate SQLite schema: %w", err)
 	}
+	if err := rebuildModelPricesIfNeeded(db); err != nil {
+		return err
+	}
+	return nil
+}
+
+func rebuildModelPricesIfNeeded(db *gorm.DB) error {
+	if !db.Migrator().HasTable(&models.ModelPrice{}) {
+		return nil
+	}
+
+	type columnInfo struct {
+		Name    string
+		NotNull int `gorm:"column:notnull"`
+	}
+	var columns []columnInfo
+	if err := db.Raw("PRAGMA table_info('model_prices')").Scan(&columns).Error; err != nil {
+		return fmt.Errorf("inspect model_prices columns: %w", err)
+	}
+	for _, column := range columns {
+		switch column.Name {
+		case "input_price", "output_price", "cache_read_price", "cache_write_5m_price", "cache_write_1h_price":
+			if column.NotNull != 0 {
+				return rebuildModelPrices(db)
+			}
+		}
+	}
+	return nil
+}
+
+func rebuildModelPrices(db *gorm.DB) error {
+	if err := db.Exec(`CREATE TABLE model_prices__m4_rebuild (
+	id integer PRIMARY KEY AUTOINCREMENT,
+	pattern varchar(255) NOT NULL,
+	input_price real,
+	output_price real,
+	cache_read_price real,
+	cache_write_5m_price real,
+	cache_write_1h_price real,
+	source varchar(32) NOT NULL,
+	created_at datetime,
+	updated_at datetime,
+	CONSTRAINT chk_model_price_source CHECK (source = 'user')
+)`).Error; err != nil {
+		return fmt.Errorf("create rebuilt model_prices table: %w", err)
+	}
+	if err := db.Exec(`INSERT INTO model_prices__m4_rebuild (
+	id, pattern, input_price, output_price, cache_read_price, cache_write_5m_price, cache_write_1h_price, source, created_at, updated_at
+)
+SELECT id, pattern, input_price, output_price, cache_read_price, cache_write_5m_price, cache_write_1h_price, source, created_at, updated_at
+FROM model_prices`).Error; err != nil {
+		return fmt.Errorf("copy model_prices into rebuilt table: %w", err)
+	}
+	if err := db.Exec("DROP TABLE model_prices").Error; err != nil {
+		return fmt.Errorf("drop previous model_prices table: %w", err)
+	}
+	if err := db.Exec("ALTER TABLE model_prices__m4_rebuild RENAME TO model_prices").Error; err != nil {
+		return fmt.Errorf("rename rebuilt model_prices table: %w", err)
+	}
+	if err := db.Exec("CREATE UNIQUE INDEX idx_model_prices_pattern ON model_prices(pattern)").Error; err != nil {
+		return fmt.Errorf("create rebuilt model_prices Pattern index: %w", err)
+	}
 	return nil
 }
 
