@@ -116,7 +116,7 @@ func (forwarder *Forwarder) Forward(ctx context.Context, input ForwardInput) Ups
 
 	headers := cloneEndToEndHeaders(response.Header)
 	capturedUsage := usage.Result{}
-	if success {
+	if success && forwarder.usageCapture != nil {
 		capturedUsage = forwarder.usageCapture.extractNonStreaming(
 			input.Dialect,
 			headers,

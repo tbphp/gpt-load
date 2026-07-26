@@ -6,12 +6,15 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
+	"strconv"
 	"testing"
 	"time"
 
 	"github.com/sirupsen/logrus"
 
 	"gpt-load/internal/dialect"
+	"gpt-load/internal/health"
 	platformhttp "gpt-load/internal/platform/httpclient"
 	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/platform/utils"
@@ -36,6 +39,54 @@ func (value usageExtractorDialect) NewUsageStreamExtractor() dialect.UsageStream
 		return nil
 	}
 	return value.stream()
+}
+
+func (value usageExtractorDialect) RewriteRequestModel(request *dialect.ParsedRequest, upstreamModel string) (*dialect.ParsedRequest, error) {
+	return value.Dialect.(dialect.ModelRewriter).RewriteRequestModel(request, upstreamModel)
+}
+
+func (value usageExtractorDialect) RewriteResponseModel(body []byte, externalModel string) ([]byte, error) {
+	return value.Dialect.(dialect.ModelRewriter).RewriteResponseModel(body, externalModel)
+}
+
+func usageForwardInput(upstreamURL string, selected dialect.Dialect) ForwardInput {
+	return ForwardInput{
+		Dialect: selected,
+		Group: state.GroupView{
+			ID: 1, UpstreamURL: upstreamURL,
+			Timeouts: state.TimeoutConfig{Connect: time.Second, FirstByte: time.Second, Request: time.Second},
+		},
+		APIKey: "sk-test",
+		Request: &dialect.ParsedRequest{
+			Method: http.MethodPost, Path: "/v1/chat/completions",
+			Header: make(http.Header), Body: []byte(`{"model":"gpt-4o"}`),
+		},
+	}
+}
+
+func assertForwardWireContract(t *testing.T, selected dialect.Dialect, got, want UpstreamResult) {
+	t.Helper()
+	if got.StatusCode != want.StatusCode || !reflect.DeepEqual(got.Header, want.Header) ||
+		!bytes.Equal(got.Body, want.Body) || !bytes.Equal(got.ClassificationBody, want.ClassificationBody) ||
+		got.Err != want.Err || got.RequestWritten != want.RequestWritten {
+		t.Fatalf("wire result = %#v, baseline = %#v", got, want)
+	}
+	toAttempt := func(result UpstreamResult) health.Attempt {
+		return health.Attempt{
+			StatusCode: result.StatusCode, Body: result.ClassificationBody, Header: result.Header,
+			Now: time.Unix(100, 0), Err: result.Err, RequestWritten: result.RequestWritten,
+			Committed: result.Committed, RetryableBeforeCommit: result.RetryableBeforeCommit,
+		}
+	}
+	if decision := health.Judge(selected, toAttempt(got)); decision != health.Judge(selected, toAttempt(want)) {
+		t.Fatalf("health decision = %#v, baseline = %#v", decision, health.Judge(selected, toAttempt(want)))
+	}
+}
+
+func forwardWithCaptureDisabled(input ForwardInput) UpstreamResult {
+	forwarder := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New())
+	forwarder.usageCapture = nil
+	return forwarder.Forward(context.Background(), input)
 }
 
 func TestUsageCaptureBoundaryExtractsValidNonStreamingResult(t *testing.T) {
@@ -206,20 +257,90 @@ func TestForwardUsageCapturePreservesCompressedSuccessWire(t *testing.T) {
 	}
 	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 		writer.Header().Set("Content-Encoding", "gzip")
+		writer.Header().Set("Content-Length", strconv.Itoa(len(wire)))
 		writer.Header().Set("ETag", `"wire-v1"`)
 		writer.Header().Set("Digest", "sha-256=wire-digest")
+		writer.Header().Set("Date", "Mon, 02 Jan 2006 15:04:05 GMT")
 		_, _ = writer.Write(wire)
 	}))
 	defer upstream.Close()
 
-	result := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New()).Forward(context.Background(), ForwardInput{
-		Dialect: dialect.NewOpenAI(http.DefaultClient),
-		Group:   state.GroupView{ID: 1, UpstreamURL: upstream.URL, Timeouts: state.TimeoutConfig{Connect: time.Second, FirstByte: time.Second, Request: time.Second}},
-		APIKey:  "sk-test",
-		Request: &dialect.ParsedRequest{Method: http.MethodPost, Path: "/v1/chat/completions", Header: make(http.Header), Body: []byte(`{}`)},
-	})
+	selected := dialect.NewOpenAI(http.DefaultClient)
+	input := usageForwardInput(upstream.URL, selected)
+	result := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New()).Forward(context.Background(), input)
+	baseline := forwardWithCaptureDisabled(input)
 	want := usage.Result{State: usage.StateComplete, Tokens: usage.Tokens{UncachedInput: 80, CacheRead: 20, Output: 30}}
-	if result.Err != nil || result.Usage != want || !bytes.Equal(result.Body, wire) || result.Header.Get("Content-Encoding") != "gzip" || result.Header.Get("ETag") != `"wire-v1"` || result.Header.Get("Digest") != "sha-256=wire-digest" {
+	if result.Usage != want || baseline.Usage != (usage.Result{}) || !bytes.Equal(result.Body, wire) || result.Header.Get("Content-Length") != strconv.Itoa(len(wire)) {
 		t.Fatalf("result = %#v", result)
 	}
+	assertForwardWireContract(t, selected, result, baseline)
+}
+
+func TestForwardUsageCaptureFailureAndMissingCasesPreserveWireContract(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		selected     dialect.Dialect
+		body         []byte
+		wantUsage    usage.Result
+		wantFailures uint64
+	}{
+		{name: "missing capability", selected: dialectWithoutUsage{Dialect: dialect.NewOpenAI(http.DefaultClient)}, body: []byte(`{"id":"ok"}`), wantUsage: usage.Result{State: usage.StateMissing}},
+		{name: "malformed provider payload", selected: dialect.NewOpenAI(http.DefaultClient), body: []byte(`{"usage":`), wantUsage: missingUsage(true), wantFailures: 1},
+		{name: "extractor error", selected: usageExtractorDialect{Dialect: dialect.NewOpenAI(http.DefaultClient), extract: func([]byte) (usage.Result, error) { return usage.Result{}, errors.New("capture error") }}, body: []byte(`{"id":"ok"}`), wantUsage: missingUsage(true), wantFailures: 1},
+		{name: "extractor panic", selected: usageExtractorDialect{Dialect: dialect.NewOpenAI(http.DefaultClient), extract: func([]byte) (usage.Result, error) { panic("capture panic") }}, body: []byte(`{"id":"ok"}`), wantUsage: missingUsage(true), wantFailures: 1},
+		{name: "invalid extractor result", selected: usageExtractorDialect{Dialect: dialect.NewOpenAI(http.DefaultClient), extract: func([]byte) (usage.Result, error) {
+			return usage.Result{State: usage.StateComplete, Tokens: usage.Tokens{Output: -1}}, nil
+		}}, body: []byte(`{"id":"ok"}`), wantUsage: missingUsage(true), wantFailures: 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				writer.Header().Set("Content-Type", "application/json")
+				writer.Header().Set("Date", "Mon, 02 Jan 2006 15:04:05 GMT")
+				_, _ = writer.Write(test.body)
+			}))
+			defer upstream.Close()
+
+			input := usageForwardInput(upstream.URL, test.selected)
+			forwarder := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New())
+			got := forwarder.Forward(context.Background(), input)
+			baseline := forwardWithCaptureDisabled(input)
+			if got.Usage != test.wantUsage || baseline.Usage != (usage.Result{}) || forwarder.usageCapture.failureTotal.Load() != test.wantFailures {
+				t.Fatalf("Usage/failures = %#v/%d, want %#v/%d", got.Usage, forwarder.usageCapture.failureTotal.Load(), test.wantUsage, test.wantFailures)
+			}
+			assertForwardWireContract(t, test.selected, got, baseline)
+		})
+	}
+}
+
+func TestForwardUsageCaptureReadsProviderBodyBeforeAliasRewrite(t *testing.T) {
+	const (
+		upstreamModel = "provider-model"
+		externalModel = "public-model"
+	)
+	body := []byte(`{"model":"provider-model","usage":{"prompt_tokens":100,"completion_tokens":30,"prompt_tokens_details":{"cached_tokens":20}}}`)
+	seenProviderBody := false
+	selected := usageExtractorDialect{
+		Dialect: dialect.NewOpenAI(http.DefaultClient),
+		extract: func(captured []byte) (usage.Result, error) {
+			seenProviderBody = bytes.Contains(captured, []byte(upstreamModel)) && !bytes.Contains(captured, []byte(externalModel))
+			return usage.Result{State: usage.StateComplete, Tokens: usage.Tokens{UncachedInput: 80, CacheRead: 20, Output: 30}}, nil
+		},
+	}
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		writer.Header().Set("Date", "Mon, 02 Jan 2006 15:04:05 GMT")
+		_, _ = writer.Write(body)
+	}))
+	defer upstream.Close()
+
+	input := usageForwardInput(upstream.URL, selected)
+	input.ExternalModel = externalModel
+	input.UpstreamModelID = upstreamModel
+	input.Request.Body = []byte(`{"model":"public-model"}`)
+	got := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New()).Forward(context.Background(), input)
+	baseline := forwardWithCaptureDisabled(input)
+	if !seenProviderBody || got.Usage != (usage.Result{State: usage.StateComplete, Tokens: usage.Tokens{UncachedInput: 80, CacheRead: 20, Output: 30}}) || baseline.Usage != (usage.Result{}) || !bytes.Contains(got.Body, []byte(externalModel)) || bytes.Contains(got.Body, []byte(upstreamModel)) {
+		t.Fatalf("seen/body/Usage = %t/%q/%#v", seenProviderBody, got.Body, got.Usage)
+	}
+	assertForwardWireContract(t, selected, got, baseline)
 }
