@@ -162,7 +162,7 @@ Usage/Cost 质量边界：
 - SQLite 使用 WAL。备份前先停止入口流量，发送 `SIGTERM` 并等待进程正常退出，再整体复制持久化资产；不要在运行时只复制 `gpt-load.db`。
 - 不要把 AUTH_KEY、ENCRYPTION_KEY、AccessKey 或上游 Key 粘贴到日志、公开 issue、截图或普通备份清单中。
 
-正式运维事实源是 Notion teamspace「GPT-Load 2.0」的「🚀 运维部署」分类下的 **《GPT-Load 2.0 部署、备份恢复与 1.x 切换 Runbook》**。Task 11 负责创建或更新该页面并回填可解析链接；在此之前本 README 不虚构 URL。
+正式运维事实源是 Notion teamspace「GPT-Load 2.0」的「🚀 运维部署」分类下的[《GPT-Load 2.0 部署、备份恢复与 1.x 切换 Runbook》](https://app.notion.com/p/3a95e49ce6ae813db7f9c7d6b8d83f02)。
 
 ## 从 1.x 切换
 

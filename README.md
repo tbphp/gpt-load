@@ -163,7 +163,7 @@ See [`.env.example`](.env.example) for the complete process configuration. Conne
 - SQLite uses WAL. Before backup, stop incoming traffic, send `SIGTERM`, wait for a clean process exit, and then copy the full persistent asset set. Never copy only `gpt-load.db` while the service is running.
 - Never paste AUTH_KEY, ENCRYPTION_KEY, AccessKeys, or upstream keys into logs, public issues, screenshots, or ordinary backup manifests.
 
-The canonical operations source is **“GPT-Load 2.0 Deployment, Backup/Restore, and 1.x Cutover Runbook”** (`GPT-Load 2.0 部署、备份恢复与 1.x 切换 Runbook`) under the “🚀 Operations & Deployment” (`🚀 运维部署`) category in the “GPT-Load 2.0” Notion teamspace. Task 11 creates or updates that page and resolves its link; this README does not invent a URL in advance.
+The canonical operations source is the [“GPT-Load 2.0 Deployment, Backup/Restore, and 1.x Cutover Runbook”](https://app.notion.com/p/3a95e49ce6ae813db7f9c7d6b8d83f02) (`GPT-Load 2.0 部署、备份恢复与 1.x 切换 Runbook`) under the “🚀 Operations & Deployment” (`🚀 运维部署`) category in the “GPT-Load 2.0” Notion teamspace.
 
 ## Moving from 1.x
 

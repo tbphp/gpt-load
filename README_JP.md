@@ -163,7 +163,7 @@ Usage/Costの品質境界：
 - SQLiteはWALを使用します。バックアップ前に新規トラフィックを止め、`SIGTERM`を送信して正常終了を待ち、その後で永続資産全体をコピーしてください。実行中に`gpt-load.db`だけをコピーしないでください。
 - AUTH_KEY、ENCRYPTION_KEY、AccessKey、上流キーをログ、公開issue、スクリーンショット、通常のバックアップ一覧に貼り付けないでください。
 
-正式な運用情報源は、Notion teamspace「GPT-Load 2.0」の「🚀 運用デプロイ（🚀 运维部署）」分類にある **「GPT-Load 2.0 デプロイ、バックアップ/リストア、1.x切り替えRunbook（GPT-Load 2.0 部署、备份恢复与 1.x 切换 Runbook）」** です。Task 11がそのページを作成または更新し、リンクを確定します。それまでは、このREADMEでURLを推測しません。
+正式な運用情報源は、Notion teamspace「GPT-Load 2.0」の「🚀 運用デプロイ（🚀 运维部署）」分類にある[「GPT-Load 2.0 デプロイ、バックアップ/リストア、1.x切り替えRunbook（GPT-Load 2.0 部署、备份恢复与 1.x 切换 Runbook）」](https://app.notion.com/p/3a95e49ce6ae813db7f9c7d6b8d83f02)です。
 
 ## 1.xからの切り替え
 
