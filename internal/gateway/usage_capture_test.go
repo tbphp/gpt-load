@@ -285,6 +285,7 @@ func TestForwardUsageCaptureFailureAndMissingCasesPreserveWireContract(t *testin
 		wantFailures uint64
 	}{
 		{name: "missing capability", selected: dialectWithoutUsage{Dialect: dialect.NewOpenAI(http.DefaultClient)}, body: []byte(`{"id":"ok"}`), wantUsage: usage.Result{State: usage.StateMissing}},
+		{name: "success without usage", selected: dialect.NewOpenAI(http.DefaultClient), body: []byte(`{"id":"ok"}`), wantUsage: missingUsage(false)},
 		{name: "malformed provider payload", selected: dialect.NewOpenAI(http.DefaultClient), body: []byte(`{"usage":`), wantUsage: missingUsage(true), wantFailures: 1},
 		{name: "extractor error", selected: usageExtractorDialect{Dialect: dialect.NewOpenAI(http.DefaultClient), extract: func([]byte) (usage.Result, error) { return usage.Result{}, errors.New("capture error") }}, body: []byte(`{"id":"ok"}`), wantUsage: missingUsage(true), wantFailures: 1},
 		{name: "extractor panic", selected: usageExtractorDialect{Dialect: dialect.NewOpenAI(http.DefaultClient), extract: func([]byte) (usage.Result, error) { panic("capture panic") }}, body: []byte(`{"id":"ok"}`), wantUsage: missingUsage(true), wantFailures: 1},
