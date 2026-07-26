@@ -46,12 +46,16 @@ func (e *geminiUsageStreamExtractor) Observe(payload []byte) error {
 		return fmt.Errorf("decode Gemini usage stream payload")
 	}
 
-	patch, found := geminiUsagePatch(root, geminiUsageFinal(root))
+	final := geminiUsageFinal(root)
+	patch, found := geminiUsagePatch(root, final)
 	if !found && usageFieldPresent(root, "usageMetadata") && patch.Diagnostics.Has(usage.DiagnosticInvalidNumber) {
 		e.invalidMetadata = true
 	}
 	if found {
 		return e.accumulator.ReplaceSnapshot(patch)
+	}
+	if final {
+		patch.Final = true
 	}
 	return e.accumulator.MergePatch(patch)
 }

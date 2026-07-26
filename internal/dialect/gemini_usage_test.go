@@ -178,6 +178,67 @@ func TestUsageGeminiRequiredFieldsAndStrictNumbers(t *testing.T) {
 	}
 }
 
+func TestUsageGeminiOptionalNullAndZeroPresence(t *testing.T) {
+	extractor := NewGemini(http.DefaultClient)
+	tests := []struct {
+		name  string
+		body  string
+		state usage.State
+	}{
+		{
+			name:  "optional fields absent do not create presence",
+			body:  `{"usageMetadata":{}}`,
+			state: usage.StateMissing,
+		},
+		{
+			name:  "cached null does not create presence",
+			body:  `{"usageMetadata":{"cachedContentTokenCount":null}}`,
+			state: usage.StateMissing,
+		},
+		{
+			name:  "candidates null does not create presence",
+			body:  `{"usageMetadata":{"candidatesTokenCount":null}}`,
+			state: usage.StateMissing,
+		},
+		{
+			name:  "thoughts null does not create presence",
+			body:  `{"usageMetadata":{"thoughtsTokenCount":null}}`,
+			state: usage.StateMissing,
+		},
+		{
+			name:  "cached zero is present",
+			body:  `{"usageMetadata":{"cachedContentTokenCount":0}}`,
+			state: usage.StateComplete,
+		},
+		{
+			name:  "candidates zero is present",
+			body:  `{"usageMetadata":{"candidatesTokenCount":0}}`,
+			state: usage.StateComplete,
+		},
+		{
+			name:  "thoughts zero is present",
+			body:  `{"usageMetadata":{"thoughtsTokenCount":0}}`,
+			state: usage.StateComplete,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := extractor.ExtractUsage([]byte(tt.body))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.State != tt.state || result.Tokens != (usage.Tokens{}) {
+				t.Fatalf("result = %#v, want state %q with zero tokens", result, tt.state)
+			}
+			requireUsageDiagnostics(t, result.Diagnostics, usage.DiagnosticMissingRequiredField)
+			if _, ok := result.Diagnostics.TotalDelta(); ok {
+				t.Fatalf("TotalDelta() unexpectedly present: %#v", result.Diagnostics)
+			}
+		})
+	}
+}
+
 func TestUsageGeminiStreamSnapshotsFinalityAndMalformedPayload(t *testing.T) {
 	extractor := NewGemini(http.DefaultClient)
 	tests := []struct {
@@ -214,6 +275,29 @@ func TestUsageGeminiStreamSnapshotsFinalityAndMalformedPayload(t *testing.T) {
 			want:  usage.Tokens{UncachedInput: 100},
 		},
 		{
+			name: "candidate terminal without usage completes confirmed snapshot",
+			steps: []string{
+				`{"usageMetadata":{"promptTokenCount":100,"candidatesTokenCount":10}}`,
+				`{"candidates":[{"finishReason":"STOP"}]}`,
+			},
+			state: usage.StateComplete,
+			want:  usage.Tokens{UncachedInput: 100, Output: 10},
+		},
+		{
+			name: "prompt feedback terminal without usage completes confirmed snapshot",
+			steps: []string{
+				`{"usageMetadata":{"promptTokenCount":100,"candidatesTokenCount":10}}`,
+				`{"promptFeedback":{"blockReason":"SAFETY"}}`,
+			},
+			state: usage.StateComplete,
+			want:  usage.Tokens{UncachedInput: 100, Output: 10},
+		},
+		{
+			name:  "terminal without usage remains missing",
+			steps: []string{`{"candidates":[{"finishReason":"STOP"}]}`},
+			state: usage.StateMissing,
+		},
+		{
 			name: "invalid metadata preserves confirmed snapshot",
 			steps: []string{
 				`{"usageMetadata":{"promptTokenCount":100,"cachedContentTokenCount":20,"candidatesTokenCount":10}}`,
@@ -232,6 +316,17 @@ func TestUsageGeminiStreamSnapshotsFinalityAndMalformedPayload(t *testing.T) {
 			},
 			state:       usage.StateComplete,
 			want:        usage.Tokens{UncachedInput: 100, Output: 30},
+			diagnostics: []usage.DiagnosticCode{usage.DiagnosticInvalidNumber},
+		},
+		{
+			name: "invalid metadata then terminal only preserves snapshot and diagnostic",
+			steps: []string{
+				`{"usageMetadata":{"promptTokenCount":100,"candidatesTokenCount":10}}`,
+				`{"usageMetadata":[]}`,
+				`{"candidates":[{"finishReason":"STOP"}]}`,
+			},
+			state:       usage.StateComplete,
+			want:        usage.Tokens{UncachedInput: 100, Output: 10},
 			diagnostics: []usage.DiagnosticCode{usage.DiagnosticInvalidNumber},
 		},
 	}
