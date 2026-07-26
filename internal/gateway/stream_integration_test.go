@@ -25,6 +25,7 @@ import (
 
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/health"
+	"gpt-load/internal/platform/config"
 	"gpt-load/internal/platform/encryption"
 	platformhttp "gpt-load/internal/platform/httpclient"
 	"gpt-load/internal/platform/redact"
@@ -86,6 +87,39 @@ func TestHandlerStreamsFakeUpstreamAndRetriesBeforeCommit(t *testing.T) {
 			t.Fatalf("retry reused credential %q", first)
 		}
 	})
+}
+
+func TestHandlerStreamRetryUsesEachGroupsInjectUsageSetting(t *testing.T) {
+	first := false
+	second := true
+	upstream := fakeupstream.New(
+		fakeupstream.Step{Status: http.StatusInternalServerError, Fixture: "openai/500.json"},
+		fakeupstream.Step{Status: http.StatusOK, Fixture: "openai/stream.sse", Stream: true},
+	)
+	defer upstream.Close()
+
+	engine, _ := newStreamingGatewayEngine(t,
+		streamGatewayGroup{id: 1, name: "first", upstreamURL: upstream.URL, apiKey: "sk-first", injectUsageOptions: &first},
+		streamGatewayGroup{id: 2, name: "second", upstreamURL: upstream.URL, apiKey: "sk-second", injectUsageOptions: &second},
+	)
+	recorder := performStreamingRequest(engine)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("response = %d body=%q", recorder.Code, recorder.Body.Bytes())
+	}
+	requests := upstream.Requests()
+	if len(requests) != 2 {
+		t.Fatalf("upstream requests = %d, want 2", len(requests))
+	}
+	for index, wantInjected := range []bool{false, true} {
+		var body map[string]any
+		if err := json.Unmarshal(requests[index].Body, &body); err != nil {
+			t.Fatalf("decode upstream request %d: %v", index+1, err)
+		}
+		_, injected := body["stream_options"]
+		if injected != wantInjected {
+			t.Fatalf("attempt %d stream_options present = %t, want %t; body=%#v", index+1, injected, wantInjected, body)
+		}
+	}
 }
 
 func TestHandlerStreamingDebugHeadersRejectUpstreamSpoofing(t *testing.T) {
@@ -743,14 +777,15 @@ func (listener *smallWriteBufferListener) Accept() (net.Conn, error) {
 }
 
 type streamGatewayGroup struct {
-	id          uint
-	name        string
-	upstreamURL string
-	apiKey      string
-	modelID     string
-	alias       string
-	firstByte   time.Duration
-	streamIdle  time.Duration
+	id                 uint
+	name               string
+	upstreamURL        string
+	apiKey             string
+	modelID            string
+	alias              string
+	firstByte          time.Duration
+	streamIdle         time.Duration
+	injectUsageOptions *bool
 }
 
 func newStreamingGatewayEngine(t *testing.T, groups ...streamGatewayGroup) (*gin.Engine, *state.KeyRegistry) {
@@ -772,6 +807,7 @@ func newStreamingGatewayEngine(t *testing.T, groups ...streamGatewayGroup) (*gin
 			ID: group.id, Name: group.name, UpstreamURL: group.upstreamURL,
 			Protocols: []protocol.Protocol{protocol.OpenAI},
 			Models:    []state.ModelConfig{{ID: modelID, Alias: group.alias}}, Enabled: true,
+			Settings: streamGatewaySettings(group.injectUsageOptions),
 		})
 		encrypted, encryptErr := keyService.Encrypt(group.apiKey)
 		if encryptErr != nil {
@@ -824,6 +860,13 @@ func newStreamingGatewayEngine(t *testing.T, groups ...streamGatewayGroup) (*gin
 	engine := gin.New()
 	handler.RegisterRoutes(engine)
 	return engine, registry
+}
+
+func streamGatewaySettings(injectUsageOptions *bool) config.Settings {
+	if injectUsageOptions == nil {
+		return nil
+	}
+	return config.Settings{state.SettingInjectUsageOptions: *injectUsageOptions}
 }
 
 func performStreamingRequest(engine *gin.Engine) *httptest.ResponseRecorder {

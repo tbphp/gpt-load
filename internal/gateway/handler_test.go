@@ -20,6 +20,7 @@ import (
 
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/health"
+	"gpt-load/internal/platform/config"
 	"gpt-load/internal/platform/encryption"
 	platformhttp "gpt-load/internal/platform/httpclient"
 	"gpt-load/internal/platform/redact"
@@ -1730,9 +1731,10 @@ func TestHandlerDoesNotExposeAliasedUpstreamModelWhenRetryBudgetIsExhausted(t *t
 	assertHeadersDoNotContain(t, recorder.Header(), upstreamModel)
 }
 
-func TestHandlerKeepsFrozenSnapshotAcrossRetry(t *testing.T) {
+func TestHandlerKeepsFrozenSnapshotAndInjectUsageSettingAcrossRetry(t *testing.T) {
 	forwarder := &scriptedForwarder{results: []UpstreamResult{
 		{StatusCode: http.StatusUnauthorized, Header: make(http.Header), Body: []byte(`{"error":"invalid_api_key"}`), ClassificationBody: []byte(`{"error":"invalid_api_key"}`), RequestWritten: true},
+		{StatusCode: http.StatusOK, Header: make(http.Header), Body: []byte(`{"ok":true}`), RequestWritten: true},
 		{StatusCode: http.StatusOK, Header: make(http.Header), Body: []byte(`{"ok":true}`), RequestWritten: true},
 	}}
 	engine, manager, _ := newHandlerTestRuntime(t, forwarder, "sk-one", "sk-two")
@@ -1744,9 +1746,16 @@ func TestHandlerKeepsFrozenSnapshotAcrossRetry(t *testing.T) {
 		if index != 0 {
 			return
 		}
-		if _, err := manager.Publish(state.CompileInput{AccessKeys: []state.AccessKeyConfig{{
-			ID: 1, Name: "client", KeyHash: keyService.Hash("gl-client"), Status: state.AccessKeyStatusActive,
-		}}}); err != nil {
+		if _, err := manager.Publish(state.CompileInput{
+			Groups: []state.GroupConfig{{
+				ID: 1, Name: "openai", UpstreamURL: "http://upstream.invalid", Enabled: true,
+				Protocols: []protocol.Protocol{protocol.OpenAI}, Models: []state.ModelConfig{{ID: "gpt-4o"}},
+				Settings: config.Settings{state.SettingInjectUsageOptions: false},
+			}},
+			AccessKeys: []state.AccessKeyConfig{{
+				ID: 1, Name: "client", KeyHash: keyService.Hash("gl-client"), Status: state.AccessKeyStatusActive,
+			}},
+		}); err != nil {
 			t.Fatalf("Publish() during request error = %v", err)
 		}
 	}
@@ -1756,11 +1765,20 @@ func TestHandlerKeepsFrozenSnapshotAcrossRetry(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	engine.ServeHTTP(recorder, request)
 
-	if recorder.Code != http.StatusOK || len(forwarder.inputs) != 2 {
-		t.Fatalf("response/attempts = %d/%d, want 200/2", recorder.Code, len(forwarder.inputs))
+	if recorder.Code != http.StatusOK || len(forwarder.inputs) != 2 ||
+		!forwarder.inputs[0].Group.InjectUsageOptions || !forwarder.inputs[1].Group.InjectUsageOptions {
+		t.Fatalf("response/attempts/inject settings = %d/%d/%t/%t, want 200/2/true/true", recorder.Code, len(forwarder.inputs), forwarder.inputs[0].Group.InjectUsageOptions, forwarder.inputs[1].Group.InjectUsageOptions)
 	}
-	if current := manager.Current(); current == nil || len(current.Groups) != 0 {
-		t.Fatalf("current snapshot = %#v, want newly published empty groups", current)
+	if current := manager.Current(); current == nil || current.Groups[1].InjectUsageOptions {
+		t.Fatalf("current snapshot = %#v, want newly published inject_usage_options=false", current)
+	}
+
+	secondRequest := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewBufferString(`{"model":"gpt-4o"}`))
+	secondRequest.Header.Set("Authorization", "Bearer gl-client")
+	secondRecorder := httptest.NewRecorder()
+	engine.ServeHTTP(secondRecorder, secondRequest)
+	if secondRecorder.Code != http.StatusOK || len(forwarder.inputs) != 3 || forwarder.inputs[2].Group.InjectUsageOptions {
+		t.Fatalf("new request/attempts/inject setting = %d/%d/%t, want 200/3/false", secondRecorder.Code, len(forwarder.inputs), forwarder.inputs[2].Group.InjectUsageOptions)
 	}
 }
 

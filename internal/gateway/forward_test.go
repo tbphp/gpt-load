@@ -2556,6 +2556,64 @@ func (d streamUsageInjectorDialect) InjectStreamUsage(request *dialect.ParsedReq
 	return d.inject(request)
 }
 
+type dialectWithoutStreamUsageInjector struct{ dialect.Dialect }
+
+func TestForwardNeverInjectsNonStreamingRequest(t *testing.T) {
+	var received map[string]any
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if err := json.NewDecoder(request.Body).Decode(&received); err != nil {
+			t.Error(err)
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write([]byte(`{"id":"response"}`))
+	}))
+	defer upstream.Close()
+
+	injectCalls := 0
+	input := streamForwardInput(upstream.URL)
+	input.Group.InjectUsageOptions = true
+	input.Request.Body = []byte(`{"model":"gpt-4o"}`)
+	input.Dialect = streamUsageInjectorDialect{
+		OpenAI: dialect.NewOpenAI(http.DefaultClient),
+		inject: func(request *dialect.ParsedRequest) (*dialect.ParsedRequest, error) {
+			injectCalls++
+			return dialect.NewOpenAI(http.DefaultClient).InjectStreamUsage(request)
+		},
+	}
+
+	result := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New()).Forward(context.Background(), input)
+	if result.Err != nil || injectCalls != 0 {
+		t.Fatalf("Forward() result/inject calls = %#v/%d", result, injectCalls)
+	}
+	if _, exists := received["stream_options"]; exists {
+		t.Fatalf("non-stream upstream request was injected: %#v", received)
+	}
+}
+
+func TestForwardStreamSkipsDialectWithoutStreamUsageInjector(t *testing.T) {
+	var received map[string]any
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if err := json.NewDecoder(request.Body).Decode(&received); err != nil {
+			t.Error(err)
+		}
+		writer.Header().Set("Content-Type", "text/event-stream")
+		_, _ = writer.Write([]byte("data: {\"choices\":[]}\n\n"))
+	}))
+	defer upstream.Close()
+
+	input := streamForwardInput(upstream.URL)
+	input.Group.InjectUsageOptions = true
+	input.Dialect = dialectWithoutStreamUsageInjector{Dialect: dialect.NewOpenAI(http.DefaultClient)}
+	forwarder := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New())
+	result := forwarder.ForwardStream(context.Background(), input, newRecordingResponseWriter())
+	if result.Err != nil || !result.Committed || forwarder.usageCapture.failureTotal.Load() != 0 {
+		t.Fatalf("ForwardStream() result/failures = %#v/%d", result, forwarder.usageCapture.failureTotal.Load())
+	}
+	if _, exists := received["stream_options"]; exists {
+		t.Fatalf("capability-less dialect injected usage: %#v", received)
+	}
+}
+
 func TestForwardStreamInjectsOpenAIUsageWhenEffective(t *testing.T) {
 	var received map[string]any
 	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -2578,6 +2636,34 @@ func TestForwardStreamInjectsOpenAIUsageWhenEffective(t *testing.T) {
 	options, ok := received["stream_options"].(map[string]any)
 	if !ok || options["include_usage"] != true {
 		t.Fatalf("upstream request = %#v, want stream_options.include_usage=true", received)
+	}
+}
+
+func TestForwardStreamInjectsUsageAfterModelAliasRewrite(t *testing.T) {
+	var received map[string]any
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if err := json.NewDecoder(request.Body).Decode(&received); err != nil {
+			t.Error(err)
+		}
+		writer.Header().Set("Content-Type", "text/event-stream")
+		_, _ = writer.Write([]byte("data: {\"choices\":[]}\n\n"))
+	}))
+	defer upstream.Close()
+
+	input := streamForwardInput(upstream.URL)
+	input.Group.InjectUsageOptions = true
+	input.ExternalModel = "public-model"
+	input.UpstreamModelID = "provider-model"
+	input.Request.Body = []byte(`{"model":"public-model","stream":true}`)
+	result := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New()).ForwardStream(
+		context.Background(), input, newRecordingResponseWriter(),
+	)
+	if result.Err != nil || !result.Committed || received["model"] != "provider-model" {
+		t.Fatalf("ForwardStream() result/request = %#v/%#v", result, received)
+	}
+	options, ok := received["stream_options"].(map[string]any)
+	if !ok || options["include_usage"] != true {
+		t.Fatalf("rewritten request did not retain injected usage: %#v", received)
 	}
 }
 

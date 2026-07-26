@@ -202,7 +202,53 @@ func TestStreamUsageCaptureFinalizeFailureIsMissing(t *testing.T) {
 	}
 }
 
-func TestUsageCaptureBoundaryRejectsInjectedRequestWithAliasedHeaders(t *testing.T) {
+func TestUsageCaptureBoundaryCopiesInjectedRequestWithoutAliasingInput(t *testing.T) {
+	boundary := newUsageCaptureBoundary()
+	sharedBody := []byte(`x{"stream":true}`)
+	original := &dialect.ParsedRequest{
+		Method: http.MethodPost,
+		Path:   "/v1/chat/completions",
+		Header: http.Header{"X-Original": {"preserve"}},
+		Body:   sharedBody[:len(sharedBody)-1],
+	}
+	wantHeader := original.Header.Clone()
+	wantBody := bytes.Clone(sharedBody[1:])
+	selected := streamUsageInjectorDialect{
+		OpenAI: dialect.NewOpenAI(http.DefaultClient),
+		inject: func(request *dialect.ParsedRequest) (*dialect.ParsedRequest, error) {
+			return &dialect.ParsedRequest{
+				Method: request.Method,
+				Path:   request.Path,
+				Header: http.Header{"X-Original": request.Header["X-Original"]},
+				Body:   sharedBody[1:],
+			}, nil
+		},
+	}
+
+	got := boundary.injectStreamUsage(selected, original)
+	if got == original {
+		t.Fatal("injected request aliases the original request")
+	}
+	if got.Header["X-Original"] == nil || &got.Header["X-Original"][0] == &original.Header["X-Original"][0] ||
+		&got.Body[0] == &original.Body[0] || &got.Body[0] == &sharedBody[1] {
+		t.Fatalf("injected request is not independent: %#v", got)
+	}
+	original.Header["X-Original"][0] = "changed-original"
+	sharedBody[1] = 'X'
+	if !reflect.DeepEqual(got.Header, wantHeader) || !bytes.Equal(got.Body, wantBody) {
+		t.Fatalf("injected request changed after input mutation: %#v", got)
+	}
+	got.Header["X-Original"][0] = "changed-derived"
+	got.Body[0] = 'Y'
+	if original.Header.Get("X-Original") != "changed-original" || sharedBody[1] != 'X' {
+		t.Fatalf("input changed after injected request mutation: header=%#v body=%q", original.Header, sharedBody)
+	}
+	if got := boundary.failureTotal.Load(); got != 0 {
+		t.Fatalf("failure total = %d, want 0 after defensive copy", got)
+	}
+}
+
+func TestUsageCaptureBoundaryFailsOpenWhenInjectorReturnsOriginalRequest(t *testing.T) {
 	boundary := newUsageCaptureBoundary()
 	original := &dialect.ParsedRequest{
 		Method: http.MethodPost,
@@ -213,17 +259,14 @@ func TestUsageCaptureBoundaryRejectsInjectedRequestWithAliasedHeaders(t *testing
 	selected := streamUsageInjectorDialect{
 		OpenAI: dialect.NewOpenAI(http.DefaultClient),
 		inject: func(request *dialect.ParsedRequest) (*dialect.ParsedRequest, error) {
-			return &dialect.ParsedRequest{
-				Method: request.Method,
-				Path:   request.Path,
-				Header: request.Header,
-				Body:   append([]byte(nil), request.Body...),
-			}, nil
+			request.Header.Set("X-Original", "mutated")
+			return request, nil
 		},
 	}
 
-	if got := boundary.injectStreamUsage(selected, original); got != original {
-		t.Fatalf("injected request = %#v, want original %#v", got, original)
+	got := boundary.injectStreamUsage(selected, original)
+	if got == original || got.Header.Get("X-Original") != "preserve" || !bytes.Equal(got.Body, []byte(`{"stream":true}`)) {
+		t.Fatalf("fail-open request = %#v, want independent original values", got)
 	}
 	if got := boundary.failureTotal.Load(); got != 1 {
 		t.Fatalf("failure total = %d, want 1", got)

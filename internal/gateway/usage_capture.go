@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"bytes"
 	"net/http"
 	"reflect"
 	"sync"
@@ -165,25 +166,39 @@ func (boundary *usageCaptureBoundary) injectStreamUsage(
 	if !ok {
 		return request
 	}
+	fallback := cloneParsedRequest(request)
 	derived, err, panicked := safeInjectStreamUsage(injector, request)
-	if panicked || err != nil || !isIndependentInjectedRequest(request, derived) || int64(len(derived.Body)) > maxRequestBodyBytes {
+	if panicked || err != nil || !isValidInjectedRequest(request, fallback, derived) ||
+		int64(len(derived.Body)) > maxRequestBodyBytes {
 		boundary.recordFailure("inject", selected.Protocol())
-		return request
+		return fallback
 	}
-	return derived
+	return cloneParsedRequest(derived)
 }
 
-func isIndependentInjectedRequest(original, derived *dialect.ParsedRequest) bool {
-	if derived == nil || derived == original ||
+func cloneParsedRequest(request *dialect.ParsedRequest) *dialect.ParsedRequest {
+	if request == nil {
+		return nil
+	}
+	return &dialect.ParsedRequest{
+		Method:   request.Method,
+		Path:     request.Path,
+		RawQuery: request.RawQuery,
+		Header:   request.Header.Clone(),
+		Body:     bytes.Clone(request.Body),
+	}
+}
+
+func isValidInjectedRequest(
+	request, original, derived *dialect.ParsedRequest,
+) bool {
+	if request == nil || original == nil || derived == nil || derived == request ||
+		!reflect.DeepEqual(request, original) ||
 		derived.Method != original.Method || derived.Path != original.Path || derived.RawQuery != original.RawQuery ||
 		!reflect.DeepEqual(derived.Header, original.Header) {
 		return false
 	}
-	if derived.Header != nil && original.Header != nil &&
-		reflect.ValueOf(derived.Header).Pointer() == reflect.ValueOf(original.Header).Pointer() {
-		return false
-	}
-	return len(derived.Body) == 0 || len(original.Body) == 0 || &derived.Body[0] != &original.Body[0]
+	return true
 }
 
 func (boundary *usageCaptureBoundary) newStream(selected dialect.Dialect) *streamUsageCapture {
