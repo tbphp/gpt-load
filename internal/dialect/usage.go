@@ -16,3 +16,4 @@ type UsageStreamExtractor interface {
 
 var _ UsageExtractor = (*OpenAI)(nil)
 var _ UsageExtractor = (*Anthropic)(nil)
+var _ UsageExtractor = (*Gemini)(nil)
