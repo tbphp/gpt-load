@@ -34,6 +34,7 @@ type Service struct {
 	encryption            encryption.Service
 	dialects              dialect.Set
 	requestLogs           RequestLogReader
+	usageStats            UsageStatReader
 	stats                 *health.StatsStore
 	requestLogStats       RequestLogStatsReader
 	modelDiscoveryTimeout time.Duration
@@ -50,6 +51,7 @@ func NewService(
 	encryptionService encryption.Service,
 	dialects dialect.Set,
 	requestLogs RequestLogReader,
+	usageStats UsageStatReader,
 	stats *health.StatsStore,
 	requestLogStats RequestLogStatsReader,
 ) *Service {
@@ -57,7 +59,8 @@ func NewService(
 		db: db, manager: manager, registry: registry,
 		priceRuntime: priceRuntime,
 		encryption:   encryptionService, dialects: dialects, requestLogs: requestLogs,
-		stats: stats, requestLogStats: requestLogStats,
+		usageStats: usageStats,
+		stats:      stats, requestLogStats: requestLogStats,
 		modelDiscoveryTimeout: defaultModelDiscoveryTimeout,
 		random:                rand.Reader, now: time.Now,
 	}

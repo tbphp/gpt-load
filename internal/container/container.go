@@ -64,6 +64,9 @@ func BuildContainer() (*dig.Container, error) {
 		func(service *requestlog.Service) control.RequestLogReader {
 			return service
 		},
+		func(service *requestlog.Service) control.UsageStatReader {
+			return service
+		},
 		func(service *requestlog.Service) control.RequestLogStatsReader {
 			return service
 		},

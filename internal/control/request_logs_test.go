@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -15,9 +16,11 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"gpt-load/internal/platform/config"
+	"gpt-load/internal/pricing"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/requestlog"
 	"gpt-load/internal/telemetry"
+	"gpt-load/internal/usage"
 )
 
 func TestRequestLogEndpointRejectsUnknownDuplicateAndMalformedQueries(t *testing.T) {
@@ -118,6 +121,8 @@ func TestRequestLogEndpointReturnsOpaqueCursorAndSafeDTO(t *testing.T) {
 					StatusCode:    200,
 					DurationMs:    1234,
 					AffinityHit:   true,
+					UsageState:    usage.StateNotApplicable,
+					CostState:     pricing.CostStateNotApplicable,
 					Attempts:      nil,
 				}},
 				NextCursor: nextCursor,
@@ -173,9 +178,7 @@ func TestRequestLogEndpointReturnsOpaqueCursorAndSafeDTO(t *testing.T) {
 	if !ok || len(attempts) != 0 {
 		t.Fatalf("attempts = %#v, want []", envelope.Data.Items[0]["attempts"])
 	}
-	for _, forbidden := range []string{
-		"input_tokens", "output_tokens", "cache_", "cost", "headers", "body", "url",
-	} {
+	for _, forbidden := range []string{"headers", "body", "url"} {
 		if strings.Contains(strings.ToLower(recorder.Body.String()), forbidden) {
 			t.Fatalf("response exposes forbidden field %q: %s", forbidden, recorder.Body.String())
 		}
@@ -220,6 +223,85 @@ func TestRequestLogEndpointReturnsOpaqueCursorAndSafeDTO(t *testing.T) {
 	if emptyEnvelope.Data.Items == nil || len(emptyEnvelope.Data.Items) != 0 ||
 		emptyEnvelope.Data.NextCursor != nil {
 		t.Fatalf("empty response = %#v, want items [] and next_cursor null", emptyEnvelope.Data)
+	}
+}
+
+func TestRequestLogEndpointProjectsUsageCostAndNullGroupZero(t *testing.T) {
+	reader := &recordingRequestLogReader{pages: []requestlog.Page{{Items: []requestlog.Record{
+		{
+			RequestID:           "00000000-0000-4000-8000-000000000603",
+			CompletedAt:         time.Date(2026, time.July, 27, 0, 0, 0, 0, time.UTC),
+			Protocol:            protocol.OpenAI,
+			Status:              telemetry.RequestStatusSuccess,
+			GroupID:             0,
+			UsageState:          usage.StateComplete,
+			CostState:           pricing.CostStatePriced,
+			UncachedInputTokens: 1,
+			CacheReadTokens:     2,
+			CacheWrite5MTokens:  3,
+			CacheWrite1HTokens:  4,
+			OutputTokens:        5,
+			EstimatedCostUSD:    0.1234567890123,
+			Attempts:            []requestlog.Attempt{},
+		},
+	}}}}
+	recorder := performRequestLogRequest(newRequestLogTestEngine(t, reader), "test-auth-key", "")
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("response = %d %s", recorder.Code, recorder.Body.String())
+	}
+	var envelope struct {
+		Data struct {
+			Items []struct {
+				GroupID             *uint       `json:"group_id"`
+				UsageState          string      `json:"usage_state"`
+				CostState           string      `json:"cost_state"`
+				UncachedInputTokens int64       `json:"uncached_input_tokens"`
+				CacheReadTokens     int64       `json:"cache_read_tokens"`
+				CacheWrite5MTokens  int64       `json:"cache_write_5m_tokens"`
+				CacheWrite1HTokens  int64       `json:"cache_write_1h_tokens"`
+				OutputTokens        int64       `json:"output_tokens"`
+				EstimatedCostUSD    json.Number `json:"estimated_cost_usd"`
+			} `json:"items"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(envelope.Data.Items) != 1 {
+		t.Fatalf("items = %#v", envelope.Data.Items)
+	}
+	item := envelope.Data.Items[0]
+	if item.GroupID != nil || item.UsageState != "complete" || item.CostState != "priced" ||
+		item.UncachedInputTokens != 1 || item.CacheReadTokens != 2 ||
+		item.CacheWrite5MTokens != 3 || item.CacheWrite1HTokens != 4 ||
+		item.OutputTokens != 5 || item.EstimatedCostUSD.String() != "0.123456789012" {
+		t.Fatalf("usage/cost projection = %#v", item)
+	}
+}
+
+func TestRequestLogUsageCostProjectionRejectsUnsafeValues(t *testing.T) {
+	base := requestlog.Record{
+		UsageState: usage.StateComplete, CostState: pricing.CostStatePriced,
+	}
+	tests := []struct {
+		name   string
+		mutate func(*requestlog.Record)
+	}{
+		{name: "usage state", mutate: func(record *requestlog.Record) { record.UsageState = "invalid" }},
+		{name: "cost state", mutate: func(record *requestlog.Record) { record.CostState = "invalid" }},
+		{name: "negative token", mutate: func(record *requestlog.Record) { record.OutputTokens = -1 }},
+		{name: "unsafe token", mutate: func(record *requestlog.Record) { record.OutputTokens = maxSafeInteger + 1 }},
+		{name: "negative cost", mutate: func(record *requestlog.Record) { record.EstimatedCostUSD = -0.1 }},
+		{name: "infinite cost", mutate: func(record *requestlog.Record) { record.EstimatedCostUSD = math.Inf(1) }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			record := base
+			test.mutate(&record)
+			if _, err := mapRequestLogListResponse(requestlog.Page{Items: []requestlog.Record{record}}); err == nil {
+				t.Fatal("mapRequestLogListResponse() error = nil, want rejection")
+			}
+		})
 	}
 }
 

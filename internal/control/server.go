@@ -46,6 +46,7 @@ func (s *Server) RegisterRoutes(engine *gin.Engine) {
 	api.GET("/auth/session", s.handleAuthSession)
 	api.GET("/health", s.handleRuntimeHealth)
 	api.GET("/logs", s.handleListRequestLogs)
+	api.GET("/usage", s.handleUsage)
 	api.POST("/route/inspect", s.handleRouteInspect)
 	api.GET("/settings", s.handleGetSettings)
 	api.PUT("/settings", s.handleUpdateSettings)

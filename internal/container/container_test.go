@@ -96,6 +96,34 @@ func TestBuildContainerWiresRequestLogRetentionSnapshotProvider(t *testing.T) {
 	}
 }
 
+func TestBuildContainerWiresUsageReaderToSingletonRequestLogService(t *testing.T) {
+	t.Setenv("AUTH_KEY", "test-auth-key")
+	t.Setenv("DATA_DIR", t.TempDir())
+	t.Setenv("DATABASE_DSN", ":memory:")
+	t.Setenv("ENCRYPTION_KEY", "test-master-key-long")
+
+	dependencyContainer, err := BuildContainer()
+	if err != nil {
+		t.Fatalf("BuildContainer() error = %v", err)
+	}
+	err = dependencyContainer.Invoke(func(
+		service *requestlog.Service,
+		reader control.UsageStatReader,
+		db *gorm.DB,
+	) {
+		sqlDB, dbErr := db.DB()
+		if dbErr == nil {
+			t.Cleanup(func() { _ = sqlDB.Close() })
+		}
+		if reader != service {
+			t.Fatalf("UsageStatReader = %T, want singleton %p", reader, service)
+		}
+	})
+	if err != nil {
+		t.Fatalf("resolve usage reader graph: %v", err)
+	}
+}
+
 func TestBuildContainerWiresSingletonPriceRuntime(t *testing.T) {
 	t.Setenv("AUTH_KEY", "test-auth-key")
 	t.Setenv("DATA_DIR", t.TempDir())

@@ -16,14 +16,17 @@ import (
 
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/platform/response"
+	"gpt-load/internal/pricing"
 	"gpt-load/internal/requestlog"
 	"gpt-load/internal/telemetry"
+	"gpt-load/internal/usage"
 )
 
 const (
 	defaultRequestLogLimit = 50
 	maxRequestLogLimit     = 200
 	requestLogCursorV1     = 1
+	maxSafeInteger         = int64(9007199254740991)
 )
 
 var canonicalLowercaseUUIDv4 = regexp.MustCompile(
@@ -64,19 +67,28 @@ type requestLogAttemptResponse struct {
 }
 
 type requestLogItemResponse struct {
-	RequestID     string                      `json:"request_id"`
-	CompletedAt   string                      `json:"completed_at"`
-	AccessKey     requestLogAccessKeyResponse `json:"access_key"`
-	Protocol      string                      `json:"protocol"`
-	ClientModel   string                      `json:"client_model"`
-	UpstreamModel string                      `json:"upstream_model"`
-	Status        telemetry.RequestStatus     `json:"status"`
-	StatusCode    int                         `json:"status_code"`
-	DurationMs    int64                       `json:"duration_ms"`
-	ErrorCode     string                      `json:"error_code"`
-	ErrorSummary  string                      `json:"error_summary"`
-	AffinityHit   bool                        `json:"affinity_hit"`
-	Attempts      []requestLogAttemptResponse `json:"attempts"`
+	RequestID           string                      `json:"request_id"`
+	CompletedAt         string                      `json:"completed_at"`
+	AccessKey           requestLogAccessKeyResponse `json:"access_key"`
+	Protocol            string                      `json:"protocol"`
+	ClientModel         string                      `json:"client_model"`
+	UpstreamModel       string                      `json:"upstream_model"`
+	Status              telemetry.RequestStatus     `json:"status"`
+	StatusCode          int                         `json:"status_code"`
+	DurationMs          int64                       `json:"duration_ms"`
+	ErrorCode           string                      `json:"error_code"`
+	ErrorSummary        string                      `json:"error_summary"`
+	AffinityHit         bool                        `json:"affinity_hit"`
+	Attempts            []requestLogAttemptResponse `json:"attempts"`
+	GroupID             *uint                       `json:"group_id"`
+	UsageState          usage.State                 `json:"usage_state"`
+	CostState           pricing.CostState           `json:"cost_state"`
+	UncachedInputTokens int64                       `json:"uncached_input_tokens"`
+	CacheReadTokens     int64                       `json:"cache_read_tokens"`
+	CacheWrite5MTokens  int64                       `json:"cache_write_5m_tokens"`
+	CacheWrite1HTokens  int64                       `json:"cache_write_1h_tokens"`
+	OutputTokens        int64                       `json:"output_tokens"`
+	EstimatedCostUSD    json.Number                 `json:"estimated_cost_usd"`
 }
 
 type requestLogListResponse struct {
@@ -337,6 +349,10 @@ func mapRequestLogListResponse(page requestlog.Page) (requestLogListResponse, er
 		Items: make([]requestLogItemResponse, 0, len(page.Items)),
 	}
 	for _, record := range page.Items {
+		usageCost, err := mapRequestLogUsageCost(record)
+		if err != nil {
+			return requestLogListResponse{}, err
+		}
 		attempts := make([]requestLogAttemptResponse, 0, len(record.Attempts))
 		for _, attempt := range record.Attempts {
 			attempts = append(attempts, requestLogAttemptResponse{
@@ -364,16 +380,25 @@ func mapRequestLogListResponse(page requestlog.Page) (requestLogListResponse, er
 				Name:    record.AccessKey.Name,
 				Deleted: record.AccessKey.Deleted,
 			},
-			Protocol:      string(record.Protocol),
-			ClientModel:   record.ClientModel,
-			UpstreamModel: record.UpstreamModel,
-			Status:        record.Status,
-			StatusCode:    record.StatusCode,
-			DurationMs:    record.DurationMs,
-			ErrorCode:     record.ErrorCode,
-			ErrorSummary:  record.ErrorSummary,
-			AffinityHit:   record.AffinityHit,
-			Attempts:      attempts,
+			Protocol:            string(record.Protocol),
+			ClientModel:         record.ClientModel,
+			UpstreamModel:       record.UpstreamModel,
+			Status:              record.Status,
+			StatusCode:          record.StatusCode,
+			DurationMs:          record.DurationMs,
+			ErrorCode:           record.ErrorCode,
+			ErrorSummary:        record.ErrorSummary,
+			AffinityHit:         record.AffinityHit,
+			Attempts:            attempts,
+			GroupID:             usageCost.groupID,
+			UsageState:          record.UsageState,
+			CostState:           record.CostState,
+			UncachedInputTokens: record.UncachedInputTokens,
+			CacheReadTokens:     record.CacheReadTokens,
+			CacheWrite5MTokens:  record.CacheWrite5MTokens,
+			CacheWrite1HTokens:  record.CacheWrite1HTokens,
+			OutputTokens:        record.OutputTokens,
+			EstimatedCostUSD:    usageCost.estimatedCostUSD,
 		})
 	}
 	if page.NextCursor != nil {
@@ -382,6 +407,47 @@ func mapRequestLogListResponse(page requestlog.Page) (requestLogListResponse, er
 			return requestLogListResponse{}, err
 		}
 		result.NextCursor = &encoded
+	}
+	return result, nil
+}
+
+type requestLogUsageCostResponse struct {
+	groupID          *uint
+	estimatedCostUSD json.Number
+}
+
+func mapRequestLogUsageCost(record requestlog.Record) (requestLogUsageCostResponse, error) {
+	switch record.UsageState {
+	case usage.StateComplete, usage.StatePartial, usage.StateMissing, usage.StateNotApplicable:
+	default:
+		return requestLogUsageCostResponse{}, fmt.Errorf("map request log usage state: invalid value")
+	}
+	switch record.CostState {
+	case pricing.CostStatePriced, pricing.CostStateUnpriced, pricing.CostStateNotApplicable:
+	default:
+		return requestLogUsageCostResponse{}, fmt.Errorf("map request log cost state: invalid value")
+	}
+	for _, value := range []int64{
+		record.UncachedInputTokens,
+		record.CacheReadTokens,
+		record.CacheWrite5MTokens,
+		record.CacheWrite1HTokens,
+		record.OutputTokens,
+	} {
+		if value < 0 || value > maxSafeInteger {
+			return requestLogUsageCostResponse{}, fmt.Errorf("map request log usage tokens: unsafe value")
+		}
+	}
+	cost, err := mapEstimatedCostUSD(record.EstimatedCostUSD)
+	if err != nil {
+		return requestLogUsageCostResponse{}, err
+	}
+	result := requestLogUsageCostResponse{
+		estimatedCostUSD: cost,
+	}
+	if record.GroupID != 0 {
+		groupID := record.GroupID
+		result.groupID = &groupID
 	}
 	return result, nil
 }

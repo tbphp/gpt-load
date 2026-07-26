@@ -4,8 +4,10 @@ import (
 	"errors"
 	"time"
 
+	"gpt-load/internal/pricing"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/telemetry"
+	"gpt-load/internal/usage"
 )
 
 var (
@@ -63,19 +65,28 @@ type AccessKeyRef struct {
 }
 
 type Record struct {
-	RequestID     string
-	CompletedAt   time.Time
-	AccessKey     AccessKeyRef
-	Protocol      protocol.Protocol
-	ClientModel   string
-	UpstreamModel string
-	Status        telemetry.RequestStatus
-	StatusCode    int
-	DurationMs    int64
-	ErrorCode     string
-	ErrorSummary  string
-	AffinityHit   bool
-	Attempts      []Attempt
+	RequestID           string
+	CompletedAt         time.Time
+	AccessKey           AccessKeyRef
+	Protocol            protocol.Protocol
+	ClientModel         string
+	UpstreamModel       string
+	Status              telemetry.RequestStatus
+	StatusCode          int
+	DurationMs          int64
+	ErrorCode           string
+	ErrorSummary        string
+	AffinityHit         bool
+	Attempts            []Attempt
+	GroupID             uint
+	UsageState          usage.State
+	CostState           pricing.CostState
+	UncachedInputTokens int64
+	CacheReadTokens     int64
+	CacheWrite5MTokens  int64
+	CacheWrite1HTokens  int64
+	OutputTokens        int64
+	EstimatedCostUSD    float64
 }
 
 type Page struct {

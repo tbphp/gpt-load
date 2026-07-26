@@ -96,6 +96,7 @@ func newServiceFixtureWithDSN(t *testing.T, dsn string) serviceFixture {
 			keyService,
 			dialect.NewSet(),
 			nil,
+			nil,
 			stats,
 			requestLogStats,
 		),

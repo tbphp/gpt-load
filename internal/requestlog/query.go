@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 
+	"gpt-load/internal/pricing"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/storage/models"
 	"gpt-load/internal/telemetry"
+	"gpt-load/internal/usage"
 )
 
 const defaultListLimit = 50
@@ -100,23 +103,63 @@ func decodeRequestLogRows(rows []models.RequestLog) ([]Record, error) {
 				attempts = make([]Attempt, 0)
 			}
 		}
+		if err := validateRequestLogUsageCost(row); err != nil {
+			return nil, err
+		}
 		records = append(records, Record{
-			RequestID:     row.ID,
-			CompletedAt:   row.CreatedAt.UTC(),
-			AccessKey:     AccessKeyRef{ID: row.AccessKeyID, Deleted: true},
-			Protocol:      protocol.Protocol(row.Protocol),
-			ClientModel:   row.ClientModel,
-			UpstreamModel: row.UpstreamModel,
-			Status:        telemetry.RequestStatus(row.Status),
-			StatusCode:    row.StatusCode,
-			DurationMs:    row.DurationMs,
-			ErrorCode:     row.ErrorCode,
-			ErrorSummary:  row.ErrorSummary,
-			AffinityHit:   row.AffinityHit,
-			Attempts:      attempts,
+			RequestID:           row.ID,
+			CompletedAt:         row.CreatedAt.UTC(),
+			AccessKey:           AccessKeyRef{ID: row.AccessKeyID, Deleted: true},
+			Protocol:            protocol.Protocol(row.Protocol),
+			ClientModel:         row.ClientModel,
+			UpstreamModel:       row.UpstreamModel,
+			Status:              telemetry.RequestStatus(row.Status),
+			StatusCode:          row.StatusCode,
+			DurationMs:          row.DurationMs,
+			ErrorCode:           row.ErrorCode,
+			ErrorSummary:        row.ErrorSummary,
+			AffinityHit:         row.AffinityHit,
+			Attempts:            attempts,
+			GroupID:             row.GroupID,
+			UsageState:          usage.State(row.UsageState),
+			CostState:           pricing.CostState(row.CostState),
+			UncachedInputTokens: row.InputTokens,
+			CacheReadTokens:     row.CacheReadTokens,
+			CacheWrite5MTokens:  row.CacheWrite5MTokens,
+			CacheWrite1HTokens:  row.CacheWrite1HTokens,
+			OutputTokens:        row.OutputTokens,
+			EstimatedCostUSD:    row.Cost,
 		})
 	}
 	return records, nil
+}
+
+func validateRequestLogUsageCost(row models.RequestLog) error {
+	switch usage.State(row.UsageState) {
+	case usage.StateComplete, usage.StatePartial, usage.StateMissing, usage.StateNotApplicable:
+	default:
+		return fmt.Errorf("decode request log usage state: invalid value")
+	}
+	switch pricing.CostState(row.CostState) {
+	case pricing.CostStatePriced, pricing.CostStateUnpriced, pricing.CostStateNotApplicable:
+	default:
+		return fmt.Errorf("decode request log cost state: invalid value")
+	}
+	for _, value := range []int64{
+		row.InputTokens,
+		row.CacheReadTokens,
+		row.CacheWrite5MTokens,
+		row.CacheWrite1HTokens,
+		row.OutputTokens,
+	} {
+		if value < 0 {
+			return fmt.Errorf("decode request log usage tokens: negative value")
+		}
+	}
+	if row.Cost < 0 || math.IsNaN(row.Cost) || math.IsInf(row.Cost, 0) {
+		return fmt.Errorf("decode request log cost: invalid value")
+	}
+	return nil
 }
 
 func (service *Service) loadAccessKeyRefs(ctx context.Context, records []Record) error {

@@ -3,6 +3,7 @@ package requestlog
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"reflect"
 	"testing"
 	"time"
@@ -17,6 +18,80 @@ import (
 	"gpt-load/internal/telemetry"
 	"gpt-load/internal/usage"
 )
+
+func TestDecodeRequestLogRowsPreservesUsageCostAttribution(t *testing.T) {
+	completedAt := time.Date(2026, time.July, 27, 1, 2, 3, 4, time.FixedZone("UTC+8", 8*60*60))
+	rows := []models.RequestLog{{
+		ID:                 "00000000-0000-4000-8000-000000000601",
+		CreatedAt:          completedAt,
+		AccessKeyID:        61,
+		GroupID:            17,
+		Protocol:           string(protocol.OpenAI),
+		ClientModel:        "client-model",
+		UpstreamModel:      "upstream-model",
+		Status:             string(telemetry.RequestStatusSuccess),
+		StatusCode:         200,
+		DurationMs:         25,
+		InputTokens:        11,
+		CacheReadTokens:    12,
+		CacheWrite5MTokens: 13,
+		CacheWrite1HTokens: 14,
+		OutputTokens:       15,
+		Cost:               0.1234567890123,
+		UsageState:         string(usage.StateComplete),
+		CostState:          string(pricing.CostStatePriced),
+		Attempts:           models.JSON(`[]`),
+	}}
+
+	records, err := decodeRequestLogRows(rows)
+	if err != nil {
+		t.Fatalf("decodeRequestLogRows() error = %v", err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("records = %#v, want one record", records)
+	}
+	got := records[0]
+	if got.GroupID != 17 || got.UsageState != usage.StateComplete ||
+		got.CostState != pricing.CostStatePriced || got.UncachedInputTokens != 11 ||
+		got.CacheReadTokens != 12 || got.CacheWrite5MTokens != 13 ||
+		got.CacheWrite1HTokens != 14 || got.OutputTokens != 15 ||
+		got.EstimatedCostUSD != 0.1234567890123 ||
+		got.CompletedAt.Format(time.RFC3339Nano) != "2026-07-26T17:02:03.000000004Z" {
+		t.Fatalf("decoded usage/cost record = %#v", got)
+	}
+}
+
+func TestDecodeRequestLogRowsRejectsInvalidUsageCostValues(t *testing.T) {
+	base := models.RequestLog{
+		ID:         "00000000-0000-4000-8000-000000000602",
+		CreatedAt:  time.Date(2026, time.July, 27, 0, 0, 0, 0, time.UTC),
+		Protocol:   string(protocol.OpenAI),
+		Status:     string(telemetry.RequestStatusSuccess),
+		UsageState: string(usage.StateComplete),
+		CostState:  string(pricing.CostStatePriced),
+		Attempts:   models.JSON(`[]`),
+	}
+	tests := []struct {
+		name   string
+		mutate func(*models.RequestLog)
+	}{
+		{name: "usage state", mutate: func(row *models.RequestLog) { row.UsageState = "invalid" }},
+		{name: "cost state", mutate: func(row *models.RequestLog) { row.CostState = "invalid" }},
+		{name: "negative token", mutate: func(row *models.RequestLog) { row.InputTokens = -1 }},
+		{name: "negative cost", mutate: func(row *models.RequestLog) { row.Cost = -0.01 }},
+		{name: "infinite cost", mutate: func(row *models.RequestLog) { row.Cost = math.Inf(1) }},
+		{name: "not a number cost", mutate: func(row *models.RequestLog) { row.Cost = math.NaN() }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			row := base
+			test.mutate(&row)
+			if _, err := decodeRequestLogRows([]models.RequestLog{row}); err == nil {
+				t.Fatal("decodeRequestLogRows() error = nil, want invalid row rejection")
+			}
+		})
+	}
+}
 
 func TestServiceListUsesStableKeysetCursor(t *testing.T) {
 	db := openRequestLogQueryDB(t)
