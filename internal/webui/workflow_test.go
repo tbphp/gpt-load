@@ -61,12 +61,34 @@ func TestReleaseWorkflowUsesTagOnlyTriggerAndStrictSemverGuard(t *testing.T) {
 		t.Fatalf("write tag validation script: %v", err)
 	}
 	for _, test := range []struct {
-		tag   string
-		valid bool
+		tag        string
+		valid      bool
+		wantOutput []string
 	}{
-		{tag: "v2.0.0", valid: true},
-		{tag: "v2.0.0-rc.1", valid: true},
-		{tag: "v2.10.3-alpha-1.0", valid: true},
+		{
+			tag:   "v2.0.0",
+			valid: true,
+			wantOutput: []string{
+				"version=v2.0.0", "prerelease=false", "image_exact=v2.0.0",
+				"image_minor=2.0", "image_major=2",
+			},
+		},
+		{
+			tag:   "v2.0.0-rc.1",
+			valid: true,
+			wantOutput: []string{
+				"version=v2.0.0-rc.1", "prerelease=true", "image_exact=v2.0.0-rc.1",
+				"image_minor=2.0", "image_major=2",
+			},
+		},
+		{
+			tag:   "v2.10.3-alpha-1.0",
+			valid: true,
+			wantOutput: []string{
+				"version=v2.10.3-alpha-1.0", "prerelease=true",
+				"image_exact=v2.10.3-alpha-1.0", "image_minor=2.10", "image_major=2",
+			},
+		},
 		{tag: "v2.0.0.1", valid: false},
 		{tag: "v2.01.0", valid: false},
 		{tag: "v2.0.01", valid: false},
@@ -90,6 +112,17 @@ func TestReleaseWorkflowUsesTagOnlyTriggerAndStrictSemverGuard(t *testing.T) {
 			}
 			if !test.valid && err == nil {
 				t.Fatalf("tag %s accepted, want rejection\n%s", test.tag, output)
+			}
+			if test.valid {
+				githubOutput, readErr := os.ReadFile(outputPath)
+				if readErr != nil {
+					t.Fatalf("read tag outputs: %v", readErr)
+				}
+				for _, expected := range test.wantOutput {
+					if !strings.Contains(string(githubOutput), expected+"\n") {
+						t.Fatalf("tag %s outputs do not contain %q:\n%s", test.tag, expected, githubOutput)
+					}
+				}
 			}
 		})
 	}
@@ -178,6 +211,113 @@ func TestReleaseWorkflowPublishesStable2xTagsWithoutLatest(t *testing.T) {
 	}
 	if strings.Contains(strings.ToLower(imageJob), "latest") {
 		t.Fatalf("image publication job contains latest:\n%s", imageJob)
+	}
+}
+
+func TestReleaseWorkflowIncludesCompleteS5NotesAndCSPWithinE2E(t *testing.T) {
+	content := readRepositoryFile(t, ".github/workflows/release.yml")
+	releaseJob := workflowJobBlock(t, content, "publish-github")
+	for _, required := range []string{
+		"Operations Runbook",
+		"1.x cutover and rollback",
+		"https://app.notion.com/p/3a95e49ce6ae813db7f9c7d6b8d83f02",
+		"five raw binaries",
+		"SHA256SUMS",
+		"missing",
+		"partial",
+		"unpriced",
+		"compatible upstream",
+		"encryption key rotation",
+		"2026-07-27",
+		"https://developers.openai.com/api/docs/pricing",
+		"https://platform.claude.com/docs/en/about-claude/pricing",
+		"https://ai.google.dev/gemini-api/docs/pricing",
+	} {
+		if !strings.Contains(releaseJob, required) {
+			t.Fatalf("release notes do not contain %q:\n%s", required, releaseJob)
+		}
+	}
+	if count := strings.Count(content, "pnpm --dir web run test:e2e"); count != 1 {
+		t.Fatalf("release workflow runs unfiltered test:e2e %d times, want exactly once", count)
+	}
+	if strings.Contains(content, "test:csp") {
+		t.Fatal("release workflow redundantly runs test:csp outside the complete Playwright suite")
+	}
+}
+
+func TestReleaseWorkflowVerifiesDownloadedNativeChecksumsAndGeneratedKeys(t *testing.T) {
+	content := readRepositoryFile(t, ".github/workflows/release.yml")
+	nativeJob := workflowJobBlock(t, content, "native-artifact-smoke")
+	for _, required := range []string{
+		"name: release-assets",
+		"SHA256SUMS",
+		"sha256sum",
+		"shasum -a 256",
+		"Get-FileHash",
+		"auth.key",
+		"encryption.key",
+		"AreAccessRulesProtected",
+		"WindowsIdentity]::GetCurrent().User",
+	} {
+		if !strings.Contains(nativeJob, required) {
+			t.Fatalf("native smoke does not contain %q:\n%s", required, nativeJob)
+		}
+	}
+	if strings.Contains(nativeJob, "AUTH_KEY=release-native-smoke") ||
+		strings.Contains(nativeJob, `$env:AUTH_KEY = "release-native-smoke"`) {
+		t.Fatal("native smoke bypasses generated auth.key with an explicit AUTH_KEY")
+	}
+}
+
+func TestReleaseWorkflowRunsCompleteLocalDockerSmoke(t *testing.T) {
+	content := readRepositoryFile(t, ".github/workflows/release.yml")
+	dockerJob := workflowJobBlock(t, content, "docker-smoke")
+	if !strings.Contains(dockerJob, ".github/scripts/release-docker-smoke.sh") {
+		t.Fatalf("Docker smoke job does not invoke the focused script:\n%s", dockerJob)
+	}
+	script := readRepositoryFile(t, ".github/scripts/release-docker-smoke.sh")
+	for _, required := range []string{
+		"10001:10001",
+		"/app/data",
+		"auth.key",
+		"encryption.key",
+		"gpt-load.db",
+		"/api/usage",
+		"/api/model-prices",
+		"/api/groups",
+		"/api/access-keys",
+		"/v1/chat/completions",
+		"finish_reason",
+		"prompt_tokens",
+		"completion_tokens",
+		"docker stop --time 15",
+		"container-first.log",
+		"container-second.log",
+		"secret_free=true",
+	} {
+		if !strings.Contains(script, required) {
+			t.Fatalf("release Docker smoke does not contain %q", required)
+		}
+	}
+}
+
+func TestReleaseWorkflowPostPublishVerifiesAliasesAndExactDigests(t *testing.T) {
+	content := readRepositoryFile(t, ".github/workflows/release.yml")
+	job := workflowJobBlock(t, content, "post-publish-verify")
+	for _, required := range []string{
+		"packages: read",
+		"docker/login-action@v4",
+		"registry: ghcr.io",
+		"image_minor",
+		"image_major",
+		"exact_digest",
+		"alias_digest",
+		"ghcr.io/tbphp/gpt-load",
+		"tbphp/gpt-load",
+	} {
+		if !strings.Contains(job, required) {
+			t.Fatalf("post-publish verification does not contain %q:\n%s", required, job)
+		}
 	}
 }
 

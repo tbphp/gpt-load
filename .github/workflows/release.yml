@@ -61,7 +61,7 @@ jobs:
           {
             printf 'version=%s\n' "${tag}"
             printf 'prerelease=%s\n' "${prerelease}"
-            printf 'image_exact=%s\n' "${version}"
+            printf 'image_exact=%s\n' "${tag}"
             printf 'image_minor=%s.%s\n' "${major}" "${minor}"
             printf 'image_major=%s\n' "${major}"
           } >>"${GITHUB_OUTPUT}"
@@ -233,10 +233,10 @@ jobs:
             filename: gpt-load-windows-amd64.exe
     runs-on: ${{ matrix.runner }}
     steps:
-      - name: Download exact release artifact
+      - name: Download complete release assets
         uses: actions/download-artifact@v4
         with:
-          name: binary-${{ matrix.filename }}
+          name: release-assets
           path: native-smoke
 
       - name: Smoke POSIX native artifact
@@ -245,6 +245,15 @@ jobs:
         run: |
           set -euo pipefail
           binary="${GITHUB_WORKSPACE}/native-smoke/${{ matrix.filename }}"
+          checksum_file="${GITHUB_WORKSPACE}/native-smoke/SHA256SUMS"
+          expected_hash="$(awk -v name="${{ matrix.filename }}" '$2 == name {print $1}' "${checksum_file}")"
+          test -n "${expected_hash}"
+          if command -v sha256sum >/dev/null 2>&1; then
+            before_hash="$(sha256sum "${binary}" | awk '{print $1}')"
+          else
+            before_hash="$(shasum -a 256 "${binary}" | awk '{print $1}')"
+          fi
+          test "${before_hash}" = "${expected_hash}"
           chmod +x "${binary}"
           "${binary}" help >/dev/null
 
@@ -259,8 +268,7 @@ jobs:
           }
           trap cleanup EXIT
 
-          AUTH_KEY=release-native-smoke \
-            DATA_DIR="${data_dir}" \
+          DATA_DIR="${data_dir}" \
             PORT=39113 \
             "${binary}" >"${log_file}" 2>&1 &
           pid=$!
@@ -270,19 +278,28 @@ jobs:
             fi
             sleep 0.25
           done
+          test -f "${data_dir}/auth.key"
+          test -f "${data_dir}/encryption.key"
+          test -f "${data_dir}/gpt-load.db"
+          auth_key="$(cat "${data_dir}/auth.key")"
+          test -n "${auth_key}"
           grep -F "\"version\":\"${GITHUB_REF_NAME}\"" "${data_dir}/health.json"
           curl -fsS http://127.0.0.1:39113/ | grep -F '<div id="app"></div>'
           curl -fsS \
-            -H 'Authorization: Bearer release-native-smoke' \
+            -H "Authorization: Bearer ${auth_key}" \
             'http://127.0.0.1:39113/api/usage?range=24h' >/dev/null
           curl -fsS \
-            -H 'Authorization: Bearer release-native-smoke' \
+            -H "Authorization: Bearer ${auth_key}" \
             http://127.0.0.1:39113/api/model-prices >/dev/null
           kill -TERM "${pid}"
           wait "${pid}"
           pid=
-          test -f "${data_dir}/gpt-load.db"
-          test -f "${data_dir}/encryption.key"
+          if command -v sha256sum >/dev/null 2>&1; then
+            after_hash="$(sha256sum "${binary}" | awk '{print $1}')"
+          else
+            after_hash="$(shasum -a 256 "${binary}" | awk '{print $1}')"
+          fi
+          test "${after_hash}" = "${expected_hash}"
 
       - name: Smoke Windows native artifact
         if: runner.os == 'Windows'
@@ -290,12 +307,18 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           $binary = Join-Path $env:GITHUB_WORKSPACE "native-smoke/${{ matrix.filename }}"
+          $checksumFile = Join-Path $env:GITHUB_WORKSPACE "native-smoke/SHA256SUMS"
+          $checksumLine = Get-Content $checksumFile |
+            Where-Object { $_ -match "\s${{ matrix.filename }}$" }
+          if (-not $checksumLine) { throw "missing checksum" }
+          $expectedHash = ($checksumLine -split "\s+")[0].ToLowerInvariant()
+          $beforeHash = (Get-FileHash -Algorithm SHA256 $binary).Hash.ToLowerInvariant()
+          if ($beforeHash -ne $expectedHash) { throw "checksum mismatch before execution" }
           & $binary help | Out-Null
           if ($LASTEXITCODE -ne 0) { throw "help failed" }
 
           $dataDir = Join-Path $env:RUNNER_TEMP "gpt-load-native-smoke"
           New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
-          $env:AUTH_KEY = "release-native-smoke"
           $env:DATA_DIR = $dataDir
           $env:PORT = "39113"
           $process = Start-Process -FilePath $binary -PassThru
@@ -309,10 +332,36 @@ jobs:
               }
             }
             if ($health.version -ne $env:GITHUB_REF_NAME) { throw "version mismatch" }
+            $authFile = Join-Path $dataDir "auth.key"
+            $encryptionFile = Join-Path $dataDir "encryption.key"
+            $databaseFile = Join-Path $dataDir "gpt-load.db"
+            foreach ($file in @($authFile, $encryptionFile, $databaseFile)) {
+              if (-not (Test-Path $file)) { throw "missing generated asset: $file" }
+            }
+            $currentSid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+            foreach ($file in @($authFile, $encryptionFile)) {
+              $acl = Get-Acl $file
+              if (-not $acl.AreAccessRulesProtected) { throw "credential DACL inherits rules" }
+              $allowRules = @($acl.Access | Where-Object {
+                $_.AccessControlType -eq [System.Security.AccessControl.AccessControlType]::Allow
+              })
+              if ($allowRules.Count -eq 0) { throw "credential DACL has no allow rule" }
+              foreach ($rule in $allowRules) {
+                $sid = $rule.IdentityReference.Translate(
+                  [System.Security.Principal.SecurityIdentifier]
+                )
+                if ($sid.Value -ne $currentSid.Value) {
+                  throw "credential DACL allows another principal"
+                }
+              }
+            }
+            $authKey = (Get-Content $authFile -Raw).Trim()
             Invoke-WebRequest "http://127.0.0.1:39113/" -UseBasicParsing | Out-Null
-            $headers = @{ Authorization = "Bearer release-native-smoke" }
+            $headers = @{ Authorization = "Bearer $authKey" }
             Invoke-RestMethod "http://127.0.0.1:39113/api/usage?range=24h" -Headers $headers | Out-Null
             Invoke-RestMethod "http://127.0.0.1:39113/api/model-prices" -Headers $headers | Out-Null
+            $afterHash = (Get-FileHash -Algorithm SHA256 $binary).Hash.ToLowerInvariant()
+            if ($afterHash -ne $expectedHash) { throw "checksum mismatch after execution" }
           } finally {
             Stop-Process -Id $process.Id -ErrorAction SilentlyContinue
             Wait-Process -Id $process.Id -ErrorAction SilentlyContinue
@@ -331,44 +380,10 @@ jobs:
 
       - name: Build and smoke local image
         shell: bash
-        run: |
-          set -euo pipefail
-          image="gpt-load-release-smoke:${GITHUB_RUN_ID}"
-          container="gpt-load-release-smoke-${GITHUB_RUN_ID}"
-          volume="gpt-load-release-smoke-${GITHUB_RUN_ID}"
-          cleanup() {
-            docker rm -f "${container}" >/dev/null 2>&1 || true
-            docker volume rm "${volume}" >/dev/null 2>&1 || true
-            docker image rm "${image}" >/dev/null 2>&1 || true
-          }
-          trap cleanup EXIT
-
-          docker build \
-            --platform linux/amd64 \
-            --build-arg "VERSION=${GITHUB_REF_NAME}" \
-            -t "${image}" .
-          test "$(docker image inspect -f '{{.Config.User}}' "${image}")" = "10001:10001"
-          docker volume create "${volume}" >/dev/null
-          docker run -d \
-            --name "${container}" \
-            -e AUTH_KEY=release-docker-smoke \
-            -p 39114:3001 \
-            -v "${volume}:/app/data" \
-            "${image}" >/dev/null
-          for _ in $(seq 1 120); do
-            if curl -fsS http://127.0.0.1:39114/health >/tmp/release-health.json; then
-              break
-            fi
-            sleep 0.25
-          done
-          test "$(docker exec "${container}" id -u)" = "10001"
-          grep -F "\"version\":\"${GITHUB_REF_NAME}\"" /tmp/release-health.json
-          curl -fsS http://127.0.0.1:39114/ | grep -F '<div id="app"></div>'
-          curl -fsS \
-            -H 'Authorization: Bearer release-docker-smoke' \
-            'http://127.0.0.1:39114/api/usage?range=24h' >/dev/null
-          docker stop --time 15 "${container}" >/dev/null
-          test "$(docker inspect -f '{{.State.ExitCode}}' "${container}")" = "0"
+        env:
+          RELEASE_VERSION: ${{ github.ref_name }}
+          RELEASE_SMOKE_SUFFIX: ${{ github.run_id }}
+        run: .github/scripts/release-docker-smoke.sh
 
   publish-github:
     needs:
@@ -417,6 +432,20 @@ jobs:
             Docker runs as a fixed non-root user with a named volume. The 2.x image channels
             do not move `latest`. Back up the database together with auth/encryption key files.
             Usage and cost are best-effort estimates, not a billing ledger or provider invoice.
+
+            Follow the [Operations Runbook](https://app.notion.com/p/3a95e49ce6ae813db7f9c7d6b8d83f02)
+            for deployment and backup/restore, and the
+            [1.x cutover and rollback](https://app.notion.com/p/3a95e49ce6ae813db7f9c7d6b8d83f02)
+            procedure. This release contains five raw binaries plus `SHA256SUMS`.
+
+            Usage quality can be `missing`, `partial`, or `unpriced`; a compatible upstream may
+            never provide authoritative terminal usage. Cost remains an estimate, not a provider
+            bill. GPT-Load 2.0.0 does not support encryption key rotation.
+
+            Built-in prices were reviewed on 2026-07-27 against the official
+            [OpenAI](https://developers.openai.com/api/docs/pricing),
+            [Anthropic](https://platform.claude.com/docs/en/about-claude/pricing), and
+            [Gemini](https://ai.google.dev/gemini-api/docs/pricing) sources.
 
   publish-images:
     needs:
@@ -490,6 +519,9 @@ jobs:
       - publish-images
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: read
     steps:
       - name: Checkout tag commit
         uses: actions/checkout@v7
@@ -511,12 +543,45 @@ jobs:
             grep -Fx "${asset}" /tmp/release-assets
           done
 
+      - name: Log in to GHCR for manifest verification
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Verify published image manifests
+        shell: bash
         run: |
-          for image in \
-            "ghcr.io/tbphp/gpt-load:${{ needs.validate-tag.outputs.image_exact }}" \
-            "tbphp/gpt-load:${{ needs.validate-tag.outputs.image_exact }}"; do
-            docker buildx imagetools inspect "${image}" >/tmp/manifest
+          set -euo pipefail
+          ghcr_exact_digest=
+          dockerhub_exact_digest=
+          for repository in ghcr.io/tbphp/gpt-load tbphp/gpt-load; do
+            exact="${repository}:${{ needs.validate-tag.outputs.image_exact }}"
+            docker buildx imagetools inspect "${exact}" >/tmp/manifest
             grep -F 'linux/amd64' /tmp/manifest
             grep -F 'linux/arm64' /tmp/manifest
+            exact_digest="$(
+              docker buildx imagetools inspect "${exact}" --format '{{.Manifest.Digest}}'
+            )"
+            test -n "${exact_digest}"
+            if [[ "${repository}" == ghcr.io/* ]]; then
+              ghcr_exact_digest="${exact_digest}"
+            else
+              dockerhub_exact_digest="${exact_digest}"
+            fi
+
+            if [[ "${{ needs.validate-tag.outputs.prerelease }}" == "false" ]]; then
+              for alias in \
+                "${{ needs.validate-tag.outputs.image_minor }}" \
+                "${{ needs.validate-tag.outputs.image_major }}"; do
+                alias_digest="$(
+                  docker buildx imagetools inspect \
+                    "${repository}:${alias}" \
+                    --format '{{.Manifest.Digest}}'
+                )"
+                test "${alias_digest}" = "${exact_digest}"
+              done
+            fi
           done
+          test "${ghcr_exact_digest}" = "${dockerhub_exact_digest}"
