@@ -445,6 +445,12 @@ func TestBatchWriterAggregatesStatusQualityAndCompletePricedTotals(t *testing.T)
 	complete.CacheWrite1HTokens = 5
 	complete.Cost = 1.25
 
+	completeUnpriced := aggregationRow(aggregationRequestID(15), hour, 8, "quality-model")
+	completeUnpriced.CostState = string(pricing.CostStateUnpriced)
+	completeUnpriced.InputTokens = 400
+	completeUnpriced.OutputTokens = 500
+	completeUnpriced.Cost = 0
+
 	missing := aggregationRow(aggregationRequestID(11), hour, 8, "quality-model")
 	missing.Status = string(telemetry.RequestStatusError)
 	missing.UsageState = string(usage.StateMissing)
@@ -473,7 +479,14 @@ func TestBatchWriterAggregatesStatusQualityAndCompletePricedTotals(t *testing.T)
 
 	if err := (&gormBatchWriter{db: db}).WriteBatch(
 		context.Background(),
-		[]models.RequestLog{complete, missing, partialPriced, partialUnpriced, unknown},
+		[]models.RequestLog{
+			complete,
+			completeUnpriced,
+			missing,
+			partialPriced,
+			partialUnpriced,
+			unknown,
+		},
 	); err != nil {
 		t.Fatalf("WriteBatch() error = %v", err)
 	}
@@ -482,9 +495,9 @@ func TestBatchWriterAggregatesStatusQualityAndCompletePricedTotals(t *testing.T)
 	if err := db.Take(&stat).Error; err != nil {
 		t.Fatalf("query UsageStat: %v", err)
 	}
-	if stat.RequestCount != 5 || stat.SuccessCount != 1 || stat.FailureCount != 4 ||
+	if stat.RequestCount != 6 || stat.SuccessCount != 2 || stat.FailureCount != 4 ||
 		stat.UsageMissingCount != 1 || stat.PartialCount != 2 ||
-		stat.UnpricedRequestCount != 2 {
+		stat.UnpricedRequestCount != 3 {
 		t.Fatalf("status/quality counts = %+v", stat)
 	}
 	if stat.InputTokens != 1 || stat.OutputTokens != 2 || stat.CacheReadTokens != 3 ||
@@ -499,6 +512,14 @@ func TestBatchWriterAggregatesStatusQualityAndCompletePricedTotals(t *testing.T)
 	if persistedPartial.InputTokens != 200 || persistedPartial.OutputTokens != 300 ||
 		persistedPartial.Cost != 2.5 {
 		t.Fatalf("partial+priced RequestLog lost usage/cost: %+v", persistedPartial)
+	}
+	var persistedUnpriced models.RequestLog
+	if err := db.First(&persistedUnpriced, "id = ?", completeUnpriced.ID).Error; err != nil {
+		t.Fatalf("query complete+unpriced RequestLog: %v", err)
+	}
+	if persistedUnpriced.InputTokens != 400 || persistedUnpriced.OutputTokens != 500 ||
+		persistedUnpriced.Cost != 0 {
+		t.Fatalf("complete+unpriced RequestLog lost usage or gained cost: %+v", persistedUnpriced)
 	}
 }
 
