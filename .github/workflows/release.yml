@@ -1,0 +1,522 @@
+name: Release 2.x
+
+on:
+  push:
+    tags:
+      - "v2.*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate-tag:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.tag.outputs.version }}
+      prerelease: ${{ steps.tag.outputs.prerelease }}
+      image_exact: ${{ steps.tag.outputs.image_exact }}
+      image_minor: ${{ steps.tag.outputs.image_minor }}
+      image_major: ${{ steps.tag.outputs.image_major }}
+    steps:
+      - name: Checkout tag commit
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Validate strict 2.x SemVer tag
+        id: tag
+        shell: bash
+        run: |
+          # release-tag-validation:start
+          tag="${GITHUB_REF_NAME}"
+          semver_regex='^v2\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'
+          if [[ ! "${tag}" =~ ${semver_regex} ]]; then
+            printf 'invalid 2.x release tag\n' >&2
+            exit 1
+          fi
+
+          version="${tag#v}"
+          core="${version%%-*}"
+          prerelease=false
+          if [[ "${version}" == *-* ]]; then
+            prerelease=true
+            prerelease_value="${version#*-}"
+            IFS='.' read -r -a identifiers <<<"${prerelease_value}"
+            for identifier in "${identifiers[@]}"; do
+              if [[ "${identifier}" =~ ^[0-9]+$ ]] &&
+                [[ "${identifier}" != "0" ]] &&
+                [[ "${identifier}" == 0* ]]; then
+                printf 'numeric prerelease identifiers cannot contain leading zeroes\n' >&2
+                exit 1
+              fi
+            done
+          fi
+
+          IFS='.' read -r major minor _ <<<"${core}"
+          {
+            printf 'version=%s\n' "${tag}"
+            printf 'prerelease=%s\n' "${prerelease}"
+            printf 'image_exact=%s\n' "${version}"
+            printf 'image_minor=%s.%s\n' "${major}" "${minor}"
+            printf 'image_major=%s\n' "${major}"
+          } >>"${GITHUB_OUTPUT}"
+          # release-tag-validation:end
+
+      - name: Require tag commit in v2 history
+        run: |
+          git fetch --no-tags origin v2
+          git merge-base --is-ancestor "${GITHUB_SHA}" origin/v2
+
+  verify-and-build-web:
+    needs: validate-tag
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout tag commit
+        uses: actions/checkout@v7
+
+      - name: Validate and build web UI
+        uses: ./.github/actions/web-ci
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Check Go formatting
+        run: test -z "$(gofmt -l .)"
+
+      - name: Check module graph
+        run: go mod tidy -diff
+
+      - name: Run Go vet
+        run: go vet ./...
+
+      - name: Build backend
+        run: go build -trimpath -o gpt-load .
+
+      - name: Run race-enabled tests
+        run: go test -race . ./internal/...
+
+      - name: Install Chromium for browser E2E
+        run: pnpm --dir web exec playwright install --with-deps chromium
+
+      - name: Run production browser E2E
+        run: pnpm --dir web run test:e2e
+
+      - name: Check repository invariants
+        run: |
+          git diff --check
+          cmp -s AGENTS.md CLAUDE.md
+
+      - name: Upload verified web dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: verified-web-dist
+          path: internal/webui/dist
+          if-no-files-found: error
+          retention-days: 14
+
+  build-binaries:
+    needs: verify-and-build-web
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            filename: gpt-load-linux-amd64
+          - goos: linux
+            goarch: arm64
+            filename: gpt-load-linux-arm64
+          - goos: darwin
+            goarch: amd64
+            filename: gpt-load-macos-amd64
+          - goos: darwin
+            goarch: arm64
+            filename: gpt-load-macos-arm64
+          - goos: windows
+            goarch: amd64
+            filename: gpt-load-windows-amd64.exe
+    steps:
+      - name: Checkout tag commit
+        uses: actions/checkout@v7
+
+      - name: Download verified web dist
+        uses: actions/download-artifact@v4
+        with:
+          name: verified-web-dist
+          path: internal/webui/dist
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build release binary
+        env:
+          CGO_ENABLED: 0
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          mkdir -p release
+          go build -trimpath \
+            -ldflags "-s -w -X gpt-load/internal/platform/version.Version=${{ github.ref_name }}" \
+            -o "release/${{ matrix.filename }}" .
+
+      - name: Upload release binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: binary-${{ matrix.filename }}
+          path: release/${{ matrix.filename }}
+          if-no-files-found: error
+          retention-days: 14
+
+  package-checksums:
+    needs: build-binaries
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Download all release binaries
+        uses: actions/download-artifact@v4
+        with:
+          pattern: binary-gpt-load-*
+          path: release
+          merge-multiple: true
+
+      - name: Generate SHA256SUMS
+        working-directory: release
+        run: |
+          sha256sum \
+            gpt-load-linux-amd64 \
+            gpt-load-linux-arm64 \
+            gpt-load-macos-amd64 \
+            gpt-load-macos-arm64 \
+            gpt-load-windows-amd64.exe >SHA256SUMS
+          sha256sum --check SHA256SUMS
+
+      - name: Upload complete release assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-assets
+          path: release
+          if-no-files-found: error
+          retention-days: 14
+
+  native-artifact-smoke:
+    needs:
+      - build-binaries
+      - package-checksums
+    timeout-minutes: 10
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            filename: gpt-load-linux-amd64
+          - runner: ubuntu-24.04-arm
+            filename: gpt-load-linux-arm64
+          - runner: macos-15-intel
+            filename: gpt-load-macos-amd64
+          - runner: macos-15
+            filename: gpt-load-macos-arm64
+          - runner: windows-latest
+            filename: gpt-load-windows-amd64.exe
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Download exact release artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: binary-${{ matrix.filename }}
+          path: native-smoke
+
+      - name: Smoke POSIX native artifact
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          binary="${GITHUB_WORKSPACE}/native-smoke/${{ matrix.filename }}"
+          chmod +x "${binary}"
+          "${binary}" help >/dev/null
+
+          data_dir="$(mktemp -d)"
+          log_file="$(mktemp)"
+          cleanup() {
+            if [[ -n "${pid:-}" ]]; then
+              kill -TERM "${pid}" >/dev/null 2>&1 || true
+              wait "${pid}" >/dev/null 2>&1 || true
+            fi
+            rm -rf "${data_dir}" "${log_file}"
+          }
+          trap cleanup EXIT
+
+          AUTH_KEY=release-native-smoke \
+            DATA_DIR="${data_dir}" \
+            PORT=39113 \
+            "${binary}" >"${log_file}" 2>&1 &
+          pid=$!
+          for _ in $(seq 1 80); do
+            if curl -fsS http://127.0.0.1:39113/health >"${data_dir}/health.json"; then
+              break
+            fi
+            sleep 0.25
+          done
+          grep -F "\"version\":\"${GITHUB_REF_NAME}\"" "${data_dir}/health.json"
+          curl -fsS http://127.0.0.1:39113/ | grep -F '<div id="app"></div>'
+          curl -fsS \
+            -H 'Authorization: Bearer release-native-smoke' \
+            'http://127.0.0.1:39113/api/usage?range=24h' >/dev/null
+          curl -fsS \
+            -H 'Authorization: Bearer release-native-smoke' \
+            http://127.0.0.1:39113/api/model-prices >/dev/null
+          kill -TERM "${pid}"
+          wait "${pid}"
+          pid=
+          test -f "${data_dir}/gpt-load.db"
+          test -f "${data_dir}/encryption.key"
+
+      - name: Smoke Windows native artifact
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $binary = Join-Path $env:GITHUB_WORKSPACE "native-smoke/${{ matrix.filename }}"
+          & $binary help | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "help failed" }
+
+          $dataDir = Join-Path $env:RUNNER_TEMP "gpt-load-native-smoke"
+          New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
+          $env:AUTH_KEY = "release-native-smoke"
+          $env:DATA_DIR = $dataDir
+          $env:PORT = "39113"
+          $process = Start-Process -FilePath $binary -PassThru
+          try {
+            for ($attempt = 0; $attempt -lt 80; $attempt++) {
+              try {
+                $health = Invoke-RestMethod "http://127.0.0.1:39113/health"
+                break
+              } catch {
+                Start-Sleep -Milliseconds 250
+              }
+            }
+            if ($health.version -ne $env:GITHUB_REF_NAME) { throw "version mismatch" }
+            Invoke-WebRequest "http://127.0.0.1:39113/" -UseBasicParsing | Out-Null
+            $headers = @{ Authorization = "Bearer release-native-smoke" }
+            Invoke-RestMethod "http://127.0.0.1:39113/api/usage?range=24h" -Headers $headers | Out-Null
+            Invoke-RestMethod "http://127.0.0.1:39113/api/model-prices" -Headers $headers | Out-Null
+          } finally {
+            Stop-Process -Id $process.Id -ErrorAction SilentlyContinue
+            Wait-Process -Id $process.Id -ErrorAction SilentlyContinue
+            Remove-Item -Recurse -Force $dataDir -ErrorAction SilentlyContinue
+          }
+
+  docker-smoke:
+    needs:
+      - validate-tag
+      - verify-and-build-web
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout tag commit
+        uses: actions/checkout@v7
+
+      - name: Build and smoke local image
+        shell: bash
+        run: |
+          set -euo pipefail
+          image="gpt-load-release-smoke:${GITHUB_RUN_ID}"
+          container="gpt-load-release-smoke-${GITHUB_RUN_ID}"
+          volume="gpt-load-release-smoke-${GITHUB_RUN_ID}"
+          cleanup() {
+            docker rm -f "${container}" >/dev/null 2>&1 || true
+            docker volume rm "${volume}" >/dev/null 2>&1 || true
+            docker image rm "${image}" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          docker build \
+            --platform linux/amd64 \
+            --build-arg "VERSION=${GITHUB_REF_NAME}" \
+            -t "${image}" .
+          test "$(docker image inspect -f '{{.Config.User}}' "${image}")" = "10001:10001"
+          docker volume create "${volume}" >/dev/null
+          docker run -d \
+            --name "${container}" \
+            -e AUTH_KEY=release-docker-smoke \
+            -p 39114:3001 \
+            -v "${volume}:/app/data" \
+            "${image}" >/dev/null
+          for _ in $(seq 1 120); do
+            if curl -fsS http://127.0.0.1:39114/health >/tmp/release-health.json; then
+              break
+            fi
+            sleep 0.25
+          done
+          test "$(docker exec "${container}" id -u)" = "10001"
+          grep -F "\"version\":\"${GITHUB_REF_NAME}\"" /tmp/release-health.json
+          curl -fsS http://127.0.0.1:39114/ | grep -F '<div id="app"></div>'
+          curl -fsS \
+            -H 'Authorization: Bearer release-docker-smoke' \
+            'http://127.0.0.1:39114/api/usage?range=24h' >/dev/null
+          docker stop --time 15 "${container}" >/dev/null
+          test "$(docker inspect -f '{{.State.ExitCode}}' "${container}")" = "0"
+
+  publish-github:
+    needs:
+      - validate-tag
+      - verify-and-build-web
+      - build-binaries
+      - package-checksums
+      - native-artifact-smoke
+      - docker-smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Download complete release assets
+        uses: actions/download-artifact@v4
+        with:
+          name: release-assets
+          path: release
+
+      - name: Verify release checksums
+        working-directory: release
+        run: sha256sum --check SHA256SUMS
+
+      - name: Publish one GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: GPT-Load ${{ github.ref_name }}
+          prerelease: ${{ needs.validate-tag.outputs.prerelease }}
+          fail_on_unmatched_files: true
+          files: |
+            release/gpt-load-linux-amd64
+            release/gpt-load-linux-arm64
+            release/gpt-load-macos-amd64
+            release/gpt-load-macos-arm64
+            release/gpt-load-windows-amd64.exe
+            release/SHA256SUMS
+          body: |
+            GPT-Load 2.x is a greenfield rewrite and is not data-compatible with 1.x.
+            Do not open a 1.x database with this release; rebuild configuration and cut over manually.
+
+            This release provides native OpenAI, Anthropic, and Gemini protocol gateways,
+            an embedded management UI, scheduling and health controls, request logs,
+            usage estimates, and model price management. It is single-instance and SQLite-only.
+
+            Docker runs as a fixed non-root user with a named volume. The 2.x image channels
+            do not move `latest`. Back up the database together with auth/encryption key files.
+            Usage and cost are best-effort estimates, not a billing ledger or provider invoice.
+
+  publish-images:
+    needs:
+      - validate-tag
+      - verify-and-build-web
+      - build-binaries
+      - package-checksums
+      - native-artifact-smoke
+      - docker-smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout tag commit
+        uses: actions/checkout@v7
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+        with:
+          platforms: arm64
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate image metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: |
+            ghcr.io/tbphp/gpt-load
+            tbphp/gpt-load
+          tags: |
+            type=raw,value=${{ needs.validate-tag.outputs.image_exact }}
+            type=raw,value=${{ needs.validate-tag.outputs.image_minor }},enable=${{ needs.validate-tag.outputs.prerelease == 'false' }}
+            type=raw,value=${{ needs.validate-tag.outputs.image_major }},enable=${{ needs.validate-tag.outputs.prerelease == 'false' }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ github.ref_name }}
+
+      - name: Build and publish multi-platform images
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ github.ref_name }}
+
+  post-publish-verify:
+    needs:
+      - validate-tag
+      - publish-github
+      - publish-images
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout tag commit
+        uses: actions/checkout@v7
+
+      - name: Verify GitHub Release asset inventory
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "${GITHUB_REF_NAME}" \
+            --json assets \
+            --jq '.assets[].name' >/tmp/release-assets
+          for asset in \
+            gpt-load-linux-amd64 \
+            gpt-load-linux-arm64 \
+            gpt-load-macos-amd64 \
+            gpt-load-macos-arm64 \
+            gpt-load-windows-amd64.exe \
+            SHA256SUMS; do
+            grep -Fx "${asset}" /tmp/release-assets
+          done
+
+      - name: Verify published image manifests
+        run: |
+          for image in \
+            "ghcr.io/tbphp/gpt-load:${{ needs.validate-tag.outputs.image_exact }}" \
+            "tbphp/gpt-load:${{ needs.validate-tag.outputs.image_exact }}"; do
+            docker buildx imagetools inspect "${image}" >/tmp/manifest
+            grep -F 'linux/amd64' /tmp/manifest
+            grep -F 'linux/arm64' /tmp/manifest
+          done
