@@ -33,10 +33,10 @@ func TestUsageOpenAICanonicalFixtures(t *testing.T) {
 func TestUsageOpenAINonStreamOptionalFields(t *testing.T) {
 	extractor := NewOpenAI(http.DefaultClient)
 	tests := []struct {
-		name       string
-		body       string
-		want       usage.Tokens
-		diagnostic usage.DiagnosticCode
+		name        string
+		body        string
+		want        usage.Tokens
+		diagnostics []usage.DiagnosticCode
 	}{
 		{
 			name: "cached missing",
@@ -49,22 +49,22 @@ func TestUsageOpenAINonStreamOptionalFields(t *testing.T) {
 			want: usage.Tokens{UncachedInput: 100, Output: 30},
 		},
 		{
-			name:       "positive cache write is unrepresentable",
-			body:       `{"usage":{"prompt_tokens":100,"completion_tokens":30,"total_tokens":130,"prompt_tokens_details":{"cached_tokens":20,"cache_write_tokens":5}}}`,
-			want:       usage.Tokens{UncachedInput: 80, CacheRead: 20, Output: 30},
-			diagnostic: usage.DiagnosticUnsupportedBillableDetail,
+			name:        "positive cache write is unrepresentable",
+			body:        `{"usage":{"prompt_tokens":100,"completion_tokens":30,"total_tokens":130,"prompt_tokens_details":{"cached_tokens":20,"cache_write_tokens":5}}}`,
+			want:        usage.Tokens{UncachedInput: 80, CacheRead: 20, Output: 30},
+			diagnostics: []usage.DiagnosticCode{usage.DiagnosticUnsupportedBillableDetail},
 		},
 		{
-			name:       "negative cache write is clamped",
-			body:       `{"usage":{"prompt_tokens":100,"completion_tokens":30,"total_tokens":130,"prompt_tokens_details":{"cached_tokens":20,"cache_write_tokens":-5}}}`,
-			want:       usage.Tokens{UncachedInput: 80, CacheRead: 20, Output: 30},
-			diagnostic: usage.DiagnosticNegativeValue,
+			name:        "negative cache write is clamped",
+			body:        `{"usage":{"prompt_tokens":100,"completion_tokens":30,"total_tokens":130,"prompt_tokens_details":{"cached_tokens":20,"cache_write_tokens":-5}}}`,
+			want:        usage.Tokens{UncachedInput: 80, CacheRead: 20, Output: 30},
+			diagnostics: []usage.DiagnosticCode{usage.DiagnosticNegativeValue},
 		},
 		{
-			name:       "invalid cache write is diagnosed",
-			body:       `{"usage":{"prompt_tokens":100,"completion_tokens":30,"total_tokens":130,"prompt_tokens_details":{"cached_tokens":20,"cache_write_tokens":1.5}}}`,
-			want:       usage.Tokens{UncachedInput: 80, CacheRead: 20, Output: 30},
-			diagnostic: usage.DiagnosticInvalidNumber,
+			name:        "invalid cache write is diagnosed",
+			body:        `{"usage":{"prompt_tokens":100,"completion_tokens":30,"total_tokens":130,"prompt_tokens_details":{"cached_tokens":20,"cache_write_tokens":1.5}}}`,
+			want:        usage.Tokens{UncachedInput: 80, CacheRead: 20, Output: 30},
+			diagnostics: []usage.DiagnosticCode{usage.DiagnosticInvalidNumber},
 		},
 	}
 
@@ -77,8 +77,9 @@ func TestUsageOpenAINonStreamOptionalFields(t *testing.T) {
 			if result.State != usage.StateComplete || result.Tokens != tt.want {
 				t.Fatalf("result = %#v, want complete with %#v", result, tt.want)
 			}
-			if tt.diagnostic != "" && !result.Diagnostics.Has(tt.diagnostic) {
-				t.Fatalf("diagnostics = %#v, want %q", result.Diagnostics, tt.diagnostic)
+			requireUsageDiagnostics(t, result.Diagnostics, tt.diagnostics...)
+			if _, ok := result.Diagnostics.TotalDelta(); ok {
+				t.Fatalf("TotalDelta() unexpectedly present: %#v", result.Diagnostics)
 			}
 		})
 	}
@@ -95,15 +96,15 @@ func TestUsageOpenAINonStreamRequiredAndStrictNumbers(t *testing.T) {
 	}{
 		{
 			name:       "prompt missing",
-			body:       `{"usage":{"completion_tokens":30}}`,
-			want:       usage.Tokens{Output: 30},
+			body:       `{"usage":{"completion_tokens":30,"prompt_tokens_details":{"cached_tokens":20}}}`,
+			want:       usage.Tokens{CacheRead: 20, Output: 30},
 			state:      usage.StateComplete,
 			diagnostic: usage.DiagnosticMissingRequiredField,
 		},
 		{
 			name:       "prompt null",
-			body:       `{"usage":{"prompt_tokens":null,"completion_tokens":30}}`,
-			want:       usage.Tokens{Output: 30},
+			body:       `{"usage":{"prompt_tokens":null,"completion_tokens":30,"prompt_tokens_details":{"cached_tokens":20}}}`,
+			want:       usage.Tokens{CacheRead: 20, Output: 30},
 			state:      usage.StateComplete,
 			diagnostic: usage.DiagnosticMissingRequiredField,
 		},
@@ -130,8 +131,8 @@ func TestUsageOpenAINonStreamRequiredAndStrictNumbers(t *testing.T) {
 		},
 		{
 			name:       "fractional prompt",
-			body:       `{"usage":{"prompt_tokens":1.5,"completion_tokens":30}}`,
-			want:       usage.Tokens{Output: 30},
+			body:       `{"usage":{"prompt_tokens":1.5,"completion_tokens":30,"prompt_tokens_details":{"cached_tokens":20}}}`,
+			want:       usage.Tokens{CacheRead: 20, Output: 30},
 			state:      usage.StateComplete,
 			diagnostic: usage.DiagnosticInvalidNumber,
 		},
@@ -145,6 +146,27 @@ func TestUsageOpenAINonStreamRequiredAndStrictNumbers(t *testing.T) {
 		{
 			name:       "string prompt",
 			body:       `{"usage":{"prompt_tokens":"100","completion_tokens":30}}`,
+			want:       usage.Tokens{Output: 30},
+			state:      usage.StateComplete,
+			diagnostic: usage.DiagnosticInvalidNumber,
+		},
+		{
+			name:       "boolean prompt",
+			body:       `{"usage":{"prompt_tokens":true,"completion_tokens":30}}`,
+			want:       usage.Tokens{Output: 30},
+			state:      usage.StateComplete,
+			diagnostic: usage.DiagnosticInvalidNumber,
+		},
+		{
+			name:       "object prompt",
+			body:       `{"usage":{"prompt_tokens":{},"completion_tokens":30}}`,
+			want:       usage.Tokens{Output: 30},
+			state:      usage.StateComplete,
+			diagnostic: usage.DiagnosticInvalidNumber,
+		},
+		{
+			name:       "array prompt",
+			body:       `{"usage":{"prompt_tokens":[],"completion_tokens":30}}`,
 			want:       usage.Tokens{Output: 30},
 			state:      usage.StateComplete,
 			diagnostic: usage.DiagnosticInvalidNumber,
@@ -200,6 +222,18 @@ func TestUsageOpenAIClampsCachedAndChecksTotal(t *testing.T) {
 			wantDelta: -10,
 			code:      usage.DiagnosticInconsistentTotal,
 		},
+		{
+			name: "total overflow",
+			body: `{"usage":{"prompt_tokens":100,"completion_tokens":30,"total_tokens":9223372036854775808}}`,
+			want: usage.Tokens{UncachedInput: 100, Output: 30},
+			code: usage.DiagnosticInvalidNumber,
+		},
+		{
+			name: "normalized total overflow",
+			body: `{"usage":{"prompt_tokens":9223372036854775807,"completion_tokens":1,"total_tokens":9223372036854775807}}`,
+			want: usage.Tokens{UncachedInput: 9223372036854775807, Output: 1},
+			code: usage.DiagnosticInvalidNumber,
+		},
 	}
 
 	for _, tt := range tests {
@@ -219,6 +253,46 @@ func TestUsageOpenAIClampsCachedAndChecksTotal(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestUsageOpenAIInvalidUsageObjectIsDiagnosedAndDoesNotDiscardStreamState(t *testing.T) {
+	extractor := NewOpenAI(http.DefaultClient)
+	result, err := extractor.ExtractUsage([]byte(`{"usage":[]}`))
+	if err != nil || result.State != usage.StateMissing || result.Tokens != (usage.Tokens{}) {
+		t.Fatalf("invalid non-stream usage = %#v, %v", result, err)
+	}
+	requireUsageDiagnostics(t, result.Diagnostics, usage.DiagnosticInvalidNumber)
+
+	partial := extractor.NewUsageStreamExtractor()
+	for _, payload := range []string{
+		`{"choices":[{"delta":{}}],"usage":{"prompt_tokens":100,"completion_tokens":10}}`,
+		`{"usage":[]}`,
+	} {
+		if err := partial.Observe([]byte(payload)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	partialResult, ok := partial.Finalize()
+	if !ok || partialResult.State != usage.StatePartial || partialResult.Tokens != (usage.Tokens{UncachedInput: 100, Output: 10}) {
+		t.Fatalf("partial invalid usage result = %#v, %t", partialResult, ok)
+	}
+	requireUsageDiagnostics(t, partialResult.Diagnostics, usage.DiagnosticInvalidNumber)
+
+	continued := extractor.NewUsageStreamExtractor()
+	for _, payload := range []string{
+		`{"choices":[{"delta":{}}],"usage":{"prompt_tokens":100,"completion_tokens":10}}`,
+		`{"usage":[]}`,
+		`{"choices":[],"usage":{"prompt_tokens":100,"completion_tokens":30}}`,
+	} {
+		if err := continued.Observe([]byte(payload)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	continuedResult, ok := continued.Finalize()
+	if !ok || continuedResult.State != usage.StateComplete || continuedResult.Tokens != (usage.Tokens{UncachedInput: 100, Output: 30}) {
+		t.Fatalf("continued invalid usage result = %#v, %t", continuedResult, ok)
+	}
+	requireUsageDiagnostics(t, continuedResult.Diagnostics, usage.DiagnosticInvalidNumber)
 }
 
 func TestUsageOpenAIStreamSnapshotsAndFinality(t *testing.T) {

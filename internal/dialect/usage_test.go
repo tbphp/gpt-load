@@ -12,6 +12,7 @@ import (
 	"gpt-load/internal/health"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
+	"gpt-load/internal/usage"
 )
 
 var (
@@ -54,6 +55,31 @@ func observeUsageJSONL(t *testing.T, stream UsageStreamExtractor, body []byte) {
 	}
 	if err := scanner.Err(); err != nil {
 		t.Fatalf("scan usage fixture: %v", err)
+	}
+}
+
+func requireUsageDiagnostics(t *testing.T, diagnostics usage.Diagnostics, want ...usage.DiagnosticCode) {
+	t.Helper()
+	for _, code := range []usage.DiagnosticCode{
+		usage.DiagnosticUnsupportedBillableDetail,
+		usage.DiagnosticCacheWriteDefaulted5M,
+		usage.DiagnosticNegativeValue,
+		usage.DiagnosticInvalidNumber,
+		usage.DiagnosticMissingRequiredField,
+		usage.DiagnosticInconsistentTotal,
+		usage.DiagnosticInvalidPayload,
+		usage.DiagnosticInvalidEventSequence,
+	} {
+		wanted := false
+		for _, expected := range want {
+			if code == expected {
+				wanted = true
+				break
+			}
+		}
+		if diagnostics.Has(code) != wanted {
+			t.Fatalf("diagnostic %q present = %t, want %t", code, diagnostics.Has(code), wanted)
+		}
 	}
 }
 

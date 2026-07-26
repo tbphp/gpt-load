@@ -18,6 +18,8 @@ func (d *OpenAI) ExtractUsage(body []byte) (usage.Result, error) {
 		if err := accumulator.ReplaceSnapshot(patch); err != nil {
 			return usage.Result{}, fmt.Errorf("normalize OpenAI usage response")
 		}
+	} else if err := accumulator.MergePatch(patch); err != nil {
+		return usage.Result{}, fmt.Errorf("normalize OpenAI usage response")
 	}
 	result, _ := accumulator.Finalize(true)
 	return result, nil
@@ -44,6 +46,10 @@ func (e *openAIUsageStreamExtractor) Observe(payload []byte) error {
 
 	patch, found := openAIUsagePatch(object, openAIUsageFinal(object))
 	if !found {
+		e.diagnostics.Merge(patch.Diagnostics)
+		if err := e.accumulator.MergePatch(patch); err != nil {
+			return err
+		}
 		return nil
 	}
 	patch.Diagnostics.Merge(e.diagnostics)
@@ -60,7 +66,7 @@ func (e *openAIUsageStreamExtractor) Finalize() (usage.Result, bool) {
 func openAIUsagePatch(root map[string]json.RawMessage, final bool) (usage.Patch, bool) {
 	usageObject, diagnostics := usageOptionalObject(root, "usage")
 	if usageObject == nil {
-		return usage.Patch{}, false
+		return usage.Patch{Diagnostics: diagnostics}, false
 	}
 
 	prompt, promptDiagnostics := usageInteger(usageObject, "prompt_tokens", true)
@@ -85,10 +91,14 @@ func openAIUsagePatch(root map[string]json.RawMessage, final bool) (usage.Patch,
 	}
 
 	patch := usage.Patch{Final: final, Diagnostics: diagnostics}
+	cacheValue := int64(0)
+	if cached != nil {
+		cacheValue = *cached
+		patch.CacheRead = &cacheValue
+	}
 	if prompt != nil {
-		cacheValue := int64(0)
-		if cached != nil {
-			cacheValue = *cached
+		if cached == nil {
+			patch.CacheRead = &cacheValue
 		}
 		uncached, ok := usage.SubtractCached(*prompt, cacheValue)
 		if !ok {
@@ -96,7 +106,6 @@ func openAIUsagePatch(root map[string]json.RawMessage, final bool) (usage.Patch,
 			patch.Diagnostics.Add(usage.DiagnosticNegativeValue)
 		}
 		patch.UncachedInput = &uncached
-		patch.CacheRead = &cacheValue
 	}
 	if completion != nil {
 		patch.Output = completion
