@@ -1,0 +1,13 @@
+{
+  "type": "message",
+  "usage": {
+    "input_tokens": 80,
+    "output_tokens": 30,
+    "cache_read_input_tokens": 20,
+    "cache_creation": {
+      "ephemeral_5m_input_tokens": 5,
+      "ephemeral_1h_input_tokens": 7
+    },
+    "cache_creation_input_tokens": 12
+  }
+}
