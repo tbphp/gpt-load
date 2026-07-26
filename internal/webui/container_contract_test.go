@@ -37,6 +37,46 @@ func TestDockerfileFinalStageDeclaresNonRootPersistentRuntime(t *testing.T) {
 		previousIndex = index
 	}
 
+	linesByMutation := map[string][]string{
+		"USER":  {},
+		"chown": {},
+		"chmod": {},
+	}
+	for _, line := range strings.Split(finalStage, "\n") {
+		trimmed := strings.TrimSpace(line)
+		fields := strings.Fields(trimmed)
+		if len(fields) > 0 && strings.EqualFold(fields[0], "USER") {
+			linesByMutation["USER"] = append(linesByMutation["USER"], trimmed)
+		}
+
+		command := strings.TrimSpace(strings.TrimSuffix(trimmed, `\`))
+		command = strings.TrimSpace(strings.TrimPrefix(command, "RUN "))
+		command = strings.TrimSpace(strings.TrimPrefix(command, "&& "))
+		for _, mutation := range []string{"chown", "chmod"} {
+			if strings.Contains(command, mutation+" ") {
+				linesByMutation[mutation] = append(linesByMutation[mutation], command)
+			}
+		}
+	}
+	for _, expectation := range []struct {
+		label string
+		line  string
+	}{
+		{label: "USER", line: "USER 10001:10001"},
+		{label: "chown", line: "chown 10001:10001 /app/data"},
+		{label: "chmod", line: "chmod 0700 /app/data"},
+	} {
+		lines := linesByMutation[expectation.label]
+		if len(lines) != 1 || lines[0] != expectation.line {
+			t.Fatalf(
+				"Dockerfile final stage %s mutations = %q, want exactly [%q]",
+				expectation.label,
+				lines,
+				expectation.line,
+			)
+		}
+	}
+
 	entrypoint := `ENTRYPOINT ["/app/gpt-load"]`
 	entrypointIndex := strings.Index(finalStage, entrypoint)
 	if entrypointIndex < 0 {
