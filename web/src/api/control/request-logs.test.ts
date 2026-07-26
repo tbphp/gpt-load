@@ -92,6 +92,24 @@ describe('Request log control API', () => {
     ['negative token', { ...item, cache_read_tokens: -1 }],
     ['invalid usage state', { ...item, usage_state: 'unknown' }],
     ['invalid cost state', { ...item, cost_state: 'unknown' }],
+    ['missing usage cannot be priced', { ...item, usage_state: 'missing', cost_state: 'priced' }],
+    [
+      'not applicable cannot be unpriced',
+      { ...item, usage_state: 'not_applicable', cost_state: 'unpriced' },
+    ],
+    [
+      'unpriced usage cannot carry cost',
+      { ...item, usage_state: 'complete', cost_state: 'unpriced', estimated_cost_usd: 0.123 },
+    ],
+    [
+      'not applicable usage cannot carry cost',
+      {
+        ...item,
+        usage_state: 'not_applicable',
+        cost_state: 'not_applicable',
+        estimated_cost_usd: 0.123,
+      },
+    ],
     ['negative estimated cost', { ...item, estimated_cost_usd: -0.01 }],
   ])('rejects %s', (_name, invalidItem) => {
     expect(() => projectRequestLogPage({ items: [invalidItem], next_cursor: null })).toThrow(

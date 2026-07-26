@@ -96,16 +96,25 @@ const tokenKeys = [
   'output_tokens',
 ] as const
 
+function isValidUsageCostCombination(usageState: unknown, costState: unknown): boolean {
+  return (
+    ((usageState === 'complete' || usageState === 'partial') &&
+      (costState === 'priced' || costState === 'unpriced')) ||
+    (usageState === 'missing' && costState === 'unpriced') ||
+    (usageState === 'not_applicable' && costState === 'not_applicable')
+  )
+}
+
 function projectRequestLogItem(value: unknown): RequestLogItemDto {
   if (!isRecord(value)) throw new InvalidResponseError()
   if (
     (value.group_id !== null &&
       (!isSafeNonNegativeInteger(value.group_id) || value.group_id === 0)) ||
-    !['complete', 'partial', 'missing', 'not_applicable'].includes(value.usage_state as string) ||
-    !['priced', 'unpriced', 'not_applicable'].includes(value.cost_state as string) ||
+    !isValidUsageCostCombination(value.usage_state, value.cost_state) ||
     typeof value.estimated_cost_usd !== 'number' ||
     !Number.isFinite(value.estimated_cost_usd) ||
-    value.estimated_cost_usd < 0
+    value.estimated_cost_usd < 0 ||
+    (value.cost_state !== 'priced' && value.estimated_cost_usd !== 0)
   ) {
     throw new InvalidResponseError()
   }
