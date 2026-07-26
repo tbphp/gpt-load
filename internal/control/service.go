@@ -30,6 +30,7 @@ type Service struct {
 	db                    *gorm.DB
 	manager               *state.Manager
 	registry              *state.KeyRegistry
+	priceRuntime          *PriceRuntime
 	encryption            encryption.Service
 	dialects              dialect.Set
 	requestLogs           RequestLogReader
@@ -45,6 +46,7 @@ func NewService(
 	db *gorm.DB,
 	manager *state.Manager,
 	registry *state.KeyRegistry,
+	priceRuntime *PriceRuntime,
 	encryptionService encryption.Service,
 	dialects dialect.Set,
 	requestLogs RequestLogReader,
@@ -53,7 +55,8 @@ func NewService(
 ) *Service {
 	return &Service{
 		db: db, manager: manager, registry: registry,
-		encryption: encryptionService, dialects: dialects, requestLogs: requestLogs,
+		priceRuntime: priceRuntime,
+		encryption:   encryptionService, dialects: dialects, requestLogs: requestLogs,
 		stats: stats, requestLogStats: requestLogStats,
 		modelDiscoveryTimeout: defaultModelDiscoveryTimeout,
 		random:                rand.Reader, now: time.Now,

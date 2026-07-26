@@ -31,7 +31,12 @@ func TestServiceSweepUsesSnapshotRetentionPolicy(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			db := openRequestLogQueryDB(t)
-			service := NewService(db, redact.New(), staticRetentionPolicy{days: tt.days})
+			service := NewService(
+				db,
+				redact.New(),
+				staticRetentionPolicy{days: tt.days},
+				newStaticPriceTableProvider(),
+			)
 			createRetentionRow(t, db, 1, tt.cutoff.Add(-time.Nanosecond))
 			createRetentionRow(t, db, 2, tt.cutoff)
 

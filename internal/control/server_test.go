@@ -1959,6 +1959,7 @@ func TestSettingsHTTPFiltersPrivateRowsAndDoesNotLogValues(t *testing.T) {
 		fixture.db,
 		state.NewManager(),
 		fixture.registry,
+		fixture.priceRuntime,
 		fixture.encryption,
 		fixture.service.dialects,
 		fixture.service.requestLogs,

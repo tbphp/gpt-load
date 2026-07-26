@@ -29,6 +29,7 @@ type serviceFixture struct {
 	db              *gorm.DB
 	manager         *state.Manager
 	registry        *state.KeyRegistry
+	priceRuntime    *PriceRuntime
 	encryption      encryption.Service
 	stats           *health.StatsStore
 	requestLogStats *staticRequestLogStatsReader
@@ -83,13 +84,15 @@ func newServiceFixtureWithDSN(t *testing.T, dsn string) serviceFixture {
 	}
 	stats := health.NewStatsStore()
 	requestLogStats := &staticRequestLogStatsReader{}
+	priceRuntime := NewPriceRuntime()
 	return serviceFixture{
 		db: db, manager: manager, registry: registry, encryption: keyService,
-		stats: stats, requestLogStats: requestLogStats,
+		priceRuntime: priceRuntime, stats: stats, requestLogStats: requestLogStats,
 		service: NewService(
 			db,
 			manager,
 			registry,
+			priceRuntime,
 			keyService,
 			dialect.NewSet(),
 			nil,

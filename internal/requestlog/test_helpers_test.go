@@ -9,6 +9,7 @@ import (
 	"gorm.io/gorm"
 
 	"gpt-load/internal/platform/redact"
+	"gpt-load/internal/pricing"
 	"gpt-load/internal/storage/models"
 	"gpt-load/internal/telemetry"
 )
@@ -20,7 +21,31 @@ func (policy staticRetentionPolicy) RequestLogRetentionDays() int {
 }
 
 func newRequestLogTestService(db *gorm.DB) *Service {
-	return NewService(db, redact.New(), staticRetentionPolicy{days: 7})
+	return NewService(
+		db,
+		redact.New(),
+		staticRetentionPolicy{days: 7},
+		newStaticPriceTableProvider(),
+	)
+}
+
+type staticPriceTableProvider struct {
+	table *pricing.Table
+}
+
+func (provider *staticPriceTableProvider) Load() *pricing.Table {
+	if provider == nil {
+		return nil
+	}
+	return provider.table
+}
+
+func newStaticPriceTableProvider() *staticPriceTableProvider {
+	table, err := pricing.Compile(pricing.BuiltinRules())
+	if err != nil {
+		panic(err)
+	}
+	return &staticPriceTableProvider{table: table}
 }
 
 type batchWriterFunc func(context.Context, []models.RequestLog) error

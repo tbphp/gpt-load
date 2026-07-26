@@ -16,6 +16,7 @@ import (
 	"gorm.io/gorm/logger"
 
 	"gpt-load/internal/platform/encryption"
+	"gpt-load/internal/pricing"
 	"gpt-load/internal/state"
 	"gpt-load/internal/storage/models"
 )
@@ -23,6 +24,110 @@ import (
 const bootstrapMarkerForTest = models.InternalSystemSettingPrefix + "bootstrap.default_access_key.v1"
 
 var errBootstrapEncryption = errors.New("forced bootstrap encryption failure")
+
+func TestEnsureInitialStatePublishesBuiltinPricesWithAndWithoutMarker(t *testing.T) {
+	t.Run("fresh database", func(t *testing.T) {
+		fixture := newServiceFixture(t)
+		beforeRevision := fixture.manager.Current().Revision
+
+		if err := fixture.service.EnsureInitialState(context.Background()); err != nil {
+			t.Fatalf("EnsureInitialState() error = %v", err)
+		}
+
+		assertPublishedPrice(t, fixture.priceRuntime, "gpt-4o", pricing.SourceBuiltin, 2.5)
+		if got := fixture.manager.Current().Revision; got != beforeRevision {
+			t.Fatalf("ConfigSnapshot revision = %d, want unchanged %d", got, beforeRevision)
+		}
+		assertModelPriceCount(t, fixture, 0)
+	})
+
+	t.Run("existing marker and user row", func(t *testing.T) {
+		fixture := newServiceFixture(t)
+		zero := 0.0
+		output := 12.0
+		if err := fixture.db.Create(&models.SystemSetting{
+			Key: bootstrapMarkerForTest, Value: "true",
+		}).Error; err != nil {
+			t.Fatalf("create marker: %v", err)
+		}
+		if err := fixture.db.Create(&models.ModelPrice{
+			Pattern: "gpt-*", InputPrice: &zero, OutputPrice: &output, Source: "user",
+		}).Error; err != nil {
+			t.Fatalf("create user ModelPrice: %v", err)
+		}
+		beforeRevision := fixture.manager.Current().Revision
+
+		if err := fixture.service.EnsureInitialState(context.Background()); err != nil {
+			t.Fatalf("EnsureInitialState() error = %v", err)
+		}
+
+		assertPublishedPrice(t, fixture.priceRuntime, "gpt-4o", pricing.SourceUser, 0)
+		if got := fixture.manager.Current().Revision; got != beforeRevision {
+			t.Fatalf("ConfigSnapshot revision = %d, want unchanged %d", got, beforeRevision)
+		}
+		assertModelPriceCount(t, fixture, 1)
+	})
+
+	t.Run("second service on same file", func(t *testing.T) {
+		first, dsn := newFileServiceFixture(t)
+		if err := first.service.EnsureInitialState(context.Background()); err != nil {
+			t.Fatalf("first EnsureInitialState() error = %v", err)
+		}
+
+		second := newServiceFixtureWithDSN(t, dsn)
+		if second.priceRuntime.Load() != nil {
+			t.Fatal("second PriceRuntime unexpectedly initialized before bootstrap")
+		}
+		beforeRevision := second.manager.Current().Revision
+		if err := second.service.EnsureInitialState(context.Background()); err != nil {
+			t.Fatalf("second EnsureInitialState() error = %v", err)
+		}
+
+		assertPublishedPrice(t, second.priceRuntime, "gpt-4o", pricing.SourceBuiltin, 2.5)
+		if got := second.manager.Current().Revision; got != beforeRevision {
+			t.Fatalf("ConfigSnapshot revision = %d, want unchanged %d", got, beforeRevision)
+		}
+	})
+}
+
+func TestEnsureInitialStateRejectsInvalidPersistedModelPrice(t *testing.T) {
+	fixture := newServiceFixture(t)
+	negative := -1.0
+	if err := fixture.db.Create(&models.ModelPrice{
+		Pattern: "invalid-price", InputPrice: &negative, Source: "user",
+	}).Error; err != nil {
+		t.Fatalf("create invalid persisted ModelPrice: %v", err)
+	}
+
+	err := fixture.service.EnsureInitialState(context.Background())
+	if err == nil {
+		t.Fatal("EnsureInitialState() error = nil, want invalid price error")
+	}
+	if fixture.priceRuntime.Load() != nil {
+		t.Fatal("failed bootstrap published a PriceTable")
+	}
+	assertAccessKeyCount(t, fixture, 0)
+	assertBootstrapMarkerCount(t, fixture, 0)
+}
+
+func TestEnsureInitialStateRollsBackBootstrapWhenPriceCompileFails(t *testing.T) {
+	fixture := newServiceFixture(t)
+	fixture.service.random = bytes.NewReader(make([]byte, 16))
+	unset := models.ModelPrice{Pattern: "unset-price", Source: "user"}
+	if err := fixture.db.Create(&unset).Error; err != nil {
+		t.Fatalf("create invalid persisted ModelPrice: %v", err)
+	}
+
+	err := fixture.service.EnsureInitialState(context.Background())
+	if err == nil {
+		t.Fatal("EnsureInitialState() error = nil, want price compile failure")
+	}
+	assertAccessKeyCount(t, fixture, 0)
+	assertBootstrapMarkerCount(t, fixture, 0)
+	if fixture.priceRuntime.Load() != nil {
+		t.Fatal("failed bootstrap published a PriceTable")
+	}
+}
 
 func TestEnsureInitialStateCreatesDefaultAccessKeyAndMarker(t *testing.T) {
 	fixture := newServiceFixture(t)
@@ -259,5 +364,38 @@ func assertBootstrapMarkerCount(t *testing.T, fixture serviceFixture, want int64
 	}
 	if count != want {
 		t.Fatalf("bootstrap marker count = %d, want %d", count, want)
+	}
+}
+
+func assertModelPriceCount(t *testing.T, fixture serviceFixture, want int64) {
+	t.Helper()
+	var count int64
+	if err := fixture.db.Model(&models.ModelPrice{}).Count(&count).Error; err != nil {
+		t.Fatalf("count ModelPrice rows: %v", err)
+	}
+	if count != want {
+		t.Fatalf("ModelPrice count = %d, want %d", count, want)
+	}
+}
+
+func assertPublishedPrice(
+	t *testing.T,
+	runtime *PriceRuntime,
+	model string,
+	wantSource pricing.Source,
+	wantInput float64,
+) {
+	t.Helper()
+	table := runtime.Load()
+	if table == nil {
+		t.Fatal("PriceRuntime.Load() = nil")
+	}
+	rule, ok := table.Match(model)
+	if !ok {
+		t.Fatalf("PriceTable.Match(%q) missed", model)
+	}
+	if rule.Source != wantSource || !rule.Prices.UncachedInput.Set ||
+		rule.Prices.UncachedInput.Value != wantInput {
+		t.Fatalf("PriceTable.Match(%q) = %+v", model, rule)
 	}
 }

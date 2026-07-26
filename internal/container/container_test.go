@@ -96,6 +96,55 @@ func TestBuildContainerWiresRequestLogRetentionSnapshotProvider(t *testing.T) {
 	}
 }
 
+func TestBuildContainerWiresSingletonPriceRuntime(t *testing.T) {
+	t.Setenv("AUTH_KEY", "test-auth-key")
+	t.Setenv("DATA_DIR", t.TempDir())
+	t.Setenv("DATABASE_DSN", ":memory:")
+	t.Setenv("ENCRYPTION_KEY", "test-master-key-long")
+
+	dependencyContainer, err := BuildContainer()
+	if err != nil {
+		t.Fatalf("BuildContainer() error = %v", err)
+	}
+	err = dependencyContainer.Invoke(func(
+		controlService *control.Service,
+		runtime *control.PriceRuntime,
+		provider requestlog.PriceTableProvider,
+		requestLogService *requestlog.Service,
+		db *gorm.DB,
+	) {
+		sqlDB, dbErr := db.DB()
+		if dbErr == nil {
+			t.Cleanup(func() { _ = sqlDB.Close() })
+		}
+		if provider.Load() != nil || runtime.Load() != nil {
+			t.Fatal("price runtime was published before bootstrap")
+		}
+		if err := storage.AutoMigrate(db); err != nil {
+			t.Fatalf("AutoMigrate() error = %v", err)
+		}
+		if err := controlService.EnsureInitialState(context.Background()); err != nil {
+			t.Fatalf("EnsureInitialState() error = %v", err)
+		}
+		if runtime.Load() == nil || provider.Load() != runtime.Load() {
+			t.Fatalf(
+				"provider table = %p, runtime table = %p, want shared published table",
+				provider.Load(),
+				runtime.Load(),
+			)
+		}
+		if err := requestLogService.Start(); err != nil {
+			t.Fatalf("requestlog.Start() after bootstrap error = %v", err)
+		}
+		if err := requestLogService.Stop(context.Background()); err != nil {
+			t.Fatalf("requestlog.Stop() error = %v", err)
+		}
+	})
+	if err != nil {
+		t.Fatalf("resolve price runtime graph: %v", err)
+	}
+}
+
 func TestBuildContainerResolvesAllDialects(t *testing.T) {
 	t.Setenv("AUTH_KEY", "test-auth-key")
 	t.Setenv("DATA_DIR", t.TempDir())

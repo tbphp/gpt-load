@@ -19,6 +19,7 @@ import (
 	"gpt-load/internal/platform/encryption"
 	"gpt-load/internal/platform/httpclient"
 	"gpt-load/internal/platform/redact"
+	"gpt-load/internal/pricing"
 	"gpt-load/internal/ratelimit"
 	"gpt-load/internal/requestlog"
 	"gpt-load/internal/state"
@@ -44,6 +45,7 @@ func BuildContainer() (*dig.Container, error) {
 		webui.NewServer,
 		state.NewManager,
 		state.NewKeyRegistry,
+		control.NewPriceRuntime,
 		health.NewStatsStore,
 		ratelimit.NewAccessKeyRPM,
 		func(limiter *ratelimit.AccessKeyRPM) gateway.AccessKeyRPMLimiter {
@@ -51,6 +53,9 @@ func BuildContainer() (*dig.Container, error) {
 		},
 		func(manager *state.Manager) requestlog.RetentionPolicyProvider {
 			return retentionSnapshotProvider{manager: manager}
+		},
+		func(runtime *control.PriceRuntime) requestlog.PriceTableProvider {
+			return priceRuntimeProvider{runtime: runtime}
 		},
 		requestlog.NewService,
 		func(service *requestlog.Service) telemetry.RequestLogSink {
@@ -127,4 +132,12 @@ func BuildContainer() (*dig.Container, error) {
 		return nil, fmt.Errorf("register HTTP routes: %w", err)
 	}
 	return dependencyContainer, nil
+}
+
+type priceRuntimeProvider struct {
+	runtime *control.PriceRuntime
+}
+
+func (provider priceRuntimeProvider) Load() *pricing.Table {
+	return provider.runtime.Load()
 }

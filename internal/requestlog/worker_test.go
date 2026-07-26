@@ -23,6 +23,7 @@ func TestServiceFlushesAtBatchSizeAndDelayInFIFOOrder(t *testing.T) {
 		}),
 		redact.New(),
 		timers.New,
+		newStaticPriceTableProvider(),
 	)
 	if err := service.Start(); err != nil {
 		t.Fatalf("Start() error = %v", err)
@@ -80,6 +81,7 @@ func TestServiceDropsFailedBatchAndContinues(t *testing.T) {
 		}),
 		redact.New(),
 		timers.New,
+		newStaticPriceTableProvider(),
 	)
 	if err := service.Start(); err != nil {
 		t.Fatalf("Start() error = %v", err)
@@ -115,6 +117,7 @@ func TestServiceStopDrainsAndIsIdempotent(t *testing.T) {
 		}),
 		redact.New(),
 		newManualTimerFactory().New,
+		newStaticPriceTableProvider(),
 	)
 	if err := service.Start(); err != nil {
 		t.Fatalf("Start() error = %v", err)
@@ -170,6 +173,7 @@ func TestServiceStopDeadlineSeparatesPersistAndShutdownDrops(t *testing.T) {
 		}),
 		redact.New(),
 		newManualTimerFactory().New,
+		newStaticPriceTableProvider(),
 	)
 	if err := service.Start(); err != nil {
 		t.Fatalf("Start() error = %v", err)
@@ -210,6 +214,7 @@ func TestServiceStopDeadlineIsHardBoundaryWhenWriterIgnoresCancellation(t *testi
 		}),
 		redact.New(),
 		newManualTimerFactory().New,
+		newStaticPriceTableProvider(),
 	)
 	if err := service.Start(); err != nil {
 		t.Fatalf("Start() error = %v", err)
@@ -262,6 +267,7 @@ func TestServiceConcurrentStopHonorsOwnDeadlineWithoutDuplicateDrain(t *testing.
 		}),
 		redact.New(),
 		newManualTimerFactory().New,
+		newStaticPriceTableProvider(),
 	)
 	if err := service.Start(); err != nil {
 		t.Fatalf("Start() error = %v", err)

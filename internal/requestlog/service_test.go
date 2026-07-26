@@ -26,6 +26,7 @@ func TestServiceEmitLifecycleAndDeepCopy(t *testing.T) {
 		}),
 		redact.New(),
 		timers.New,
+		newStaticPriceTableProvider(),
 	)
 
 	beforeStart := testEvent("before-start")
@@ -74,6 +75,7 @@ func TestServiceEmitLifecycleAndDeepCopy(t *testing.T) {
 		batchWriterFunc(func(context.Context, []models.RequestLog) error { return nil }),
 		redact.New(),
 		timers.New,
+		newStaticPriceTableProvider(),
 	)
 	if err := neverStarted.Stop(context.Background()); err != nil {
 		t.Fatalf("Stop() in new state error = %v", err)
@@ -83,8 +85,12 @@ func TestServiceEmitLifecycleAndDeepCopy(t *testing.T) {
 	}
 
 	for name, misconfigured := range map[string]*Service{
-		"nil database": NewService(nil, redact.New(), staticRetentionPolicy{days: 7}),
-		"nil provider": NewService(openRequestLogQueryDB(t), redact.New(), nil),
+		"nil database": NewService(
+			nil, redact.New(), staticRetentionPolicy{days: 7}, newStaticPriceTableProvider(),
+		),
+		"nil retention provider": NewService(
+			openRequestLogQueryDB(t), redact.New(), nil, newStaticPriceTableProvider(),
+		),
 	} {
 		t.Run(name, func(t *testing.T) {
 			if err := misconfigured.Start(); err == nil {
@@ -92,6 +98,38 @@ func TestServiceEmitLifecycleAndDeepCopy(t *testing.T) {
 			}
 			if err := misconfigured.Start(); !errors.Is(err, ErrNotRestartable) {
 				t.Fatalf("Start() after initialization failure error = %v, want ErrNotRestartable", err)
+			}
+		})
+	}
+}
+
+func TestServiceStartRequiresPublishedPriceTable(t *testing.T) {
+	db := openRequestLogQueryDB(t)
+	tests := []struct {
+		name     string
+		provider PriceTableProvider
+		want     string
+	}{
+		{
+			name: "nil provider",
+			want: "start request log service: price table provider is nil",
+		},
+		{
+			name:     "unpublished provider",
+			provider: &staticPriceTableProvider{},
+			want:     "start request log service: price table is not published",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			service := NewService(
+				db,
+				redact.New(),
+				staticRetentionPolicy{days: 7},
+				tt.provider,
+			)
+			if err := service.Start(); err == nil || err.Error() != tt.want {
+				t.Fatalf("Start() error = %v, want %q", err, tt.want)
 			}
 		})
 	}
@@ -115,6 +153,7 @@ func TestServiceDropsNewEventAtExactQueueCapacity(t *testing.T) {
 		}),
 		redact.New(),
 		newManualTimerFactory().New,
+		newStaticPriceTableProvider(),
 	)
 	if err := service.Start(); err != nil {
 		t.Fatalf("Start() error = %v", err)
@@ -153,6 +192,7 @@ func TestServiceConcurrentEmitStatsAndStop(t *testing.T) {
 		batchWriterFunc(func(context.Context, []models.RequestLog) error { return nil }),
 		redact.New(),
 		immediateTimerFactory,
+		newStaticPriceTableProvider(),
 	)
 	if err := service.Start(); err != nil {
 		t.Fatalf("Start() error = %v", err)
@@ -219,6 +259,7 @@ func TestServiceWarningsExcludeEventContentAndThrottle(t *testing.T) {
 		}),
 		redact.New(),
 		newManualTimerFactory().New,
+		newStaticPriceTableProvider(),
 	)
 	service.logger = logger
 	service.now = func() time.Time {

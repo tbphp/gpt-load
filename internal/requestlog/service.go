@@ -42,6 +42,7 @@ type Service struct {
 	writer          batchWriter
 	redactor        *redact.Redactor
 	retentionPolicy RetentionPolicyProvider
+	priceTables     PriceTableProvider
 	timerFactory    workerTimerFactory
 	logger          *logrus.Logger
 	now             func() time.Time
@@ -77,6 +78,7 @@ func NewService(
 	db *gorm.DB,
 	redactor *redact.Redactor,
 	retentionPolicy RetentionPolicyProvider,
+	priceTables PriceTableProvider,
 ) *Service {
 	service := newService(
 		&gormBatchWriter{db: db},
@@ -84,6 +86,7 @@ func NewService(
 		func(delay time.Duration) workerTimer {
 			return &realWorkerTimer{timer: time.NewTimer(delay)}
 		},
+		priceTables,
 	)
 	service.db = db
 	service.retentionPolicy = retentionPolicy
@@ -95,7 +98,12 @@ func NewService(
 	return service
 }
 
-func newService(writer batchWriter, redactor *redact.Redactor, timerFactory workerTimerFactory) *Service {
+func newService(
+	writer batchWriter,
+	redactor *redact.Redactor,
+	timerFactory workerTimerFactory,
+	priceTables PriceTableProvider,
+) *Service {
 	if redactor == nil {
 		redactor = redact.New()
 	}
@@ -103,6 +111,7 @@ func newService(writer batchWriter, redactor *redact.Redactor, timerFactory work
 		queue:         make(chan telemetry.RequestEvent, queueCapacity),
 		writer:        writer,
 		redactor:      redactor,
+		priceTables:   priceTables,
 		timerFactory:  timerFactory,
 		logger:        logrus.StandardLogger(),
 		now:           time.Now,
@@ -124,6 +133,14 @@ func (service *Service) Start() error {
 	if service.startErr != nil {
 		service.state = lifecycleStopped
 		return fmt.Errorf("start request log service: %w", service.startErr)
+	}
+	if service.priceTables == nil {
+		service.state = lifecycleStopped
+		return fmt.Errorf("start request log service: price table provider is nil")
+	}
+	if service.priceTables.Load() == nil {
+		service.state = lifecycleStopped
+		return fmt.Errorf("start request log service: price table is not published")
 	}
 	if service.writer == nil || service.timerFactory == nil {
 		service.state = lifecycleStopped
