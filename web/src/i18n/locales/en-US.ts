@@ -346,7 +346,7 @@ export default {
         overlap:
           'Missing, partial, and unpriced counts may overlap. Do not add them into a request total.',
         aggregation:
-          'Missing usage is excluded from token totals. Unpriced requests contribute reported tokens but are excluded from the estimated cost.',
+          'Only complete usage with priced cost is included in default token and estimated-cost totals. Partial, missing, unpriced, and not-applicable requests are excluded from both.',
         openPrices: 'Review model prices',
       },
       trend: {
@@ -600,11 +600,16 @@ export default {
           },
           aggregation: {
             completePriced: 'Included in default token and estimated-cost aggregates.',
-            completeUnpriced: 'Tokens included; estimated cost excluded.',
-            partialPriced: 'Reported tokens and estimated cost included with partial usage.',
-            partialUnpriced: 'Reported tokens included; estimated cost excluded.',
-            missing: 'Excluded from token and estimated-cost aggregates.',
-            notApplicable: 'Excluded from usage and cost aggregates.',
+            completeUnpriced:
+              'Excluded from default token and estimated-cost aggregates because cost is unpriced.',
+            partialPriced:
+              'Excluded from default token and estimated-cost aggregates because usage is partial.',
+            partialUnpriced:
+              'Excluded from default token and estimated-cost aggregates because usage is partial and cost is unpriced.',
+            missing:
+              'Excluded from default token and estimated-cost aggregates because usage is missing and cost is unpriced.',
+            notApplicable:
+              'Excluded from default token and estimated-cost aggregates because usage and cost are not applicable.',
           },
           tokens: {
             uncachedInput: 'Uncached input',

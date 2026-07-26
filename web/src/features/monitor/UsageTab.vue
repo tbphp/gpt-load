@@ -58,13 +58,10 @@ const hasQualityOverlap = computed(() => {
   )
 })
 
-watch(
-  () => route.query,
-  () => {
-    draft.value = createUsageFilterDraft(appliedFilters.value)
-    filterErrors.value = {}
-  },
-)
+watch([() => appliedFilters.value.group_id, () => appliedFilters.value.model], () => {
+  draft.value = createUsageFilterDraft(appliedFilters.value)
+  filterErrors.value = {}
+})
 
 function formatCount(value: number): string {
   return new Intl.NumberFormat(locale.value).format(value)

@@ -180,6 +180,27 @@ describe('UsageTab', () => {
     expect(router.currentRoute.value.fullPath).toBe('/monitor?tab=usage&range=30d')
   })
 
+  it('preserves an unapplied Group/model draft when only range changes', async () => {
+    const api = new UsageApi([usageReport(), usageReport()])
+    const { router, wrapper } = await mountUsage(
+      api,
+      '/monitor?tab=usage&range=24h&group_id=7&model=gpt-upstream',
+    )
+
+    await wrapper.get('[data-test="usage-group"]').setValue('')
+    await wrapper.get('[data-test="usage-model"]').setValue('draft-upstream')
+    await wrapper.get('[data-test="usage-range"]').setValue('30d')
+    await flushPromises()
+
+    expect(router.currentRoute.value.fullPath).toBe(
+      '/monitor?tab=usage&range=30d&group_id=7&model=gpt-upstream',
+    )
+    expect(wrapper.get<HTMLSelectElement>('[data-test="usage-group"]').element.value).toBe('')
+    expect(wrapper.get<HTMLInputElement>('[data-test="usage-model"]').element.value).toBe(
+      'draft-upstream',
+    )
+  })
+
   it('degrades a failed Group option query to a usable positive-ID input', async () => {
     const api = new UsageApi([usageReport()], Promise.reject(new Error('groups-secret')))
     const { wrapper } = await mountUsage(api)
@@ -231,7 +252,7 @@ describe('UsageTab', () => {
     const { wrapper } = await mountUsage(new UsageApi([report]))
 
     expect(wrapper.get('[data-test="usage-aggregation-note"]').text()).toContain(
-      'Missing usage is excluded from token totals',
+      'Only complete usage with priced cost is included in default token and estimated-cost totals',
     )
     expect(
       wrapper.get<HTMLAnchorElement>('[data-test="usage-prices-link"]').attributes('href'),

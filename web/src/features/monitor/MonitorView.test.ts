@@ -88,6 +88,17 @@ describe('MonitorView', () => {
     expect(defaultView.wrapper.find('[data-test="monitor-usage-content"]').exists()).toBe(false)
   })
 
+  it('renders Usage as the fourth tab after Health, Logs, and Inspector', async () => {
+    const { wrapper } = await mountMonitor('/monitor?tab=health')
+
+    expect(wrapper.findAll('[role="tab"]').map((tab) => tab.attributes('data-test'))).toEqual([
+      'monitor-tab-health',
+      'monitor-tab-logs',
+      'monitor-tab-inspector',
+      'monitor-tab-usage',
+    ])
+  })
+
   it('replaces a legacy tab with the canonical Health query', async () => {
     const { router, wrapper } = await mountMonitor('/monitor?tab=requests')
 

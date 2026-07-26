@@ -335,7 +335,7 @@ export default {
         writeFailures: '写入失败',
         overlap: '用量缺失、部分缺失与未定价计数可能重叠，请勿将其相加作为请求总数。',
         aggregation:
-          '用量缺失的请求不计入 Token 总数。未定价请求的已报告 Token 仍计入，但不计入预估成本。',
+          '默认 Token 与预估成本总计仅纳入用量完整且已定价的请求。部分缺失、缺失、未定价和不适用请求均不纳入两项总计。',
         openPrices: '查看模型价格',
       },
       trend: {
@@ -582,11 +582,11 @@ export default {
           },
           aggregation: {
             completePriced: '计入默认 Token 与预估成本聚合。',
-            completeUnpriced: '计入 Token 聚合；不计入预估成本。',
-            partialPriced: '已报告 Token 与预估成本按部分用量计入。',
-            partialUnpriced: '已报告 Token 计入；预估成本不计入。',
-            missing: '不计入 Token 与预估成本聚合。',
-            notApplicable: '不计入用量与成本聚合。',
+            completeUnpriced: '因成本未定价，不计入默认 Token 与预估成本聚合。',
+            partialPriced: '因用量部分缺失，不计入默认 Token 与预估成本聚合。',
+            partialUnpriced: '因用量部分缺失且成本未定价，不计入默认 Token 与预估成本聚合。',
+            missing: '因用量缺失且成本未定价，不计入默认 Token 与预估成本聚合。',
+            notApplicable: '因用量与成本均不适用，不计入默认 Token 与预估成本聚合。',
           },
           tokens: {
             uncachedInput: '未缓存输入',

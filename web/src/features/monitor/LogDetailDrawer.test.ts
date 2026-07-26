@@ -222,7 +222,11 @@ describe('LogDetailDrawer', () => {
     [
       'complete unpriced',
       { usage_state: 'complete', cost_state: 'unpriced', estimated_cost_usd: 0 },
-      ['Complete usage', 'Estimated cost unknown', 'Tokens included; estimated cost excluded'],
+      [
+        'Complete usage',
+        'Estimated cost unknown',
+        'Excluded from default token and estimated-cost aggregates because cost is unpriced',
+      ],
       true,
     ],
     [
@@ -231,7 +235,7 @@ describe('LogDetailDrawer', () => {
       [
         'Partial usage',
         'Estimated cost from reported tokens',
-        'Reported tokens and estimated cost included',
+        'Excluded from default token and estimated-cost aggregates because usage is partial',
       ],
       false,
     ],
@@ -241,7 +245,7 @@ describe('LogDetailDrawer', () => {
       [
         'Partial usage',
         'Estimated cost unknown',
-        'Reported tokens included; estimated cost excluded',
+        'Excluded from default token and estimated-cost aggregates because usage is partial and cost is unpriced',
       ],
       true,
     ],
@@ -251,14 +255,18 @@ describe('LogDetailDrawer', () => {
       [
         'Usage missing',
         'Estimated cost unknown',
-        'Excluded from token and estimated-cost aggregates',
+        'Excluded from default token and estimated-cost aggregates because usage is missing and cost is unpriced',
       ],
       true,
     ],
     [
       'not applicable',
       { usage_state: 'not_applicable', cost_state: 'not_applicable', estimated_cost_usd: 0 },
-      ['Usage not applicable', 'Cost not applicable', 'Excluded from usage and cost aggregates'],
+      [
+        'Usage not applicable',
+        'Cost not applicable',
+        'Excluded from default token and estimated-cost aggregates because usage and cost are not applicable',
+      ],
       false,
     ],
   ] satisfies ReadonlyArray<
