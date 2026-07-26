@@ -129,17 +129,20 @@ func anthropicUsagePatch(usageObject map[string]json.RawMessage, includeOutput, 
 
 	cacheRead, cacheReadDiagnostics := usageInteger(usageObject, "cache_read_input_tokens", false)
 	patch.Diagnostics.Merge(cacheReadDiagnostics)
-	patch.CacheRead = usageValueOrZero(cacheRead)
+	if cacheRead != nil {
+		patch.CacheRead = cacheRead
+	}
 
 	aggregate, aggregateDiagnostics := usageInteger(usageObject, "cache_creation_input_tokens", false)
 	patch.Diagnostics.Merge(aggregateDiagnostics)
 	aggregateValid := aggregate != nil && !aggregateDiagnostics.Has(usage.DiagnosticInvalidNumber) && !aggregateDiagnostics.Has(usage.DiagnosticNegativeValue)
+	detailPresent := usageFieldPresent(usageObject, "cache_creation")
 	detail, detailDiagnostics := usageOptionalObject(usageObject, "cache_creation")
 	patch.Diagnostics.Merge(detailDiagnostics)
 	if detail == nil {
-		patch.CacheWrite5M = usageValueOrZero(aggregate)
-		patch.CacheWrite1H = usageValueOrZero(nil)
-		if aggregateValid {
+		if !detailPresent && aggregateValid {
+			patch.CacheWrite5M = aggregate
+			patch.CacheWrite1H = usageValueOrZero(nil)
 			patch.Diagnostics.Add(usage.DiagnosticCacheWriteDefaulted5M)
 		}
 	} else {
@@ -147,10 +150,14 @@ func anthropicUsagePatch(usageObject map[string]json.RawMessage, includeOutput, 
 		patch.Diagnostics.Merge(write5MDiagnostics)
 		write1H, write1HDiagnostics := usageInteger(detail, "ephemeral_1h_input_tokens", false)
 		patch.Diagnostics.Merge(write1HDiagnostics)
-		patch.CacheWrite5M = usageValueOrZero(write5M)
-		patch.CacheWrite1H = usageValueOrZero(write1H)
-		if aggregateValid {
-			detailTotal, ok := usage.CheckedAdd(*patch.CacheWrite5M, *patch.CacheWrite1H)
+		if write5M != nil {
+			patch.CacheWrite5M = write5M
+		}
+		if write1H != nil {
+			patch.CacheWrite1H = write1H
+		}
+		if aggregateValid && usageIntegerUsable(write5MDiagnostics) && usageIntegerUsable(write1HDiagnostics) {
+			detailTotal, ok := usage.CheckedAdd(usageIntegerValue(write5M), usageIntegerValue(write1H))
 			if !ok {
 				patch.Diagnostics.Add(usage.DiagnosticInvalidNumber)
 			} else if *aggregate != detailTotal {
@@ -187,4 +194,15 @@ func usageValueOrZero(value *int64) *int64 {
 		zero = *value
 	}
 	return &zero
+}
+
+func usageIntegerUsable(diagnostics usage.Diagnostics) bool {
+	return !diagnostics.Has(usage.DiagnosticInvalidNumber) && !diagnostics.Has(usage.DiagnosticNegativeValue)
+}
+
+func usageIntegerValue(value *int64) int64 {
+	if value == nil {
+		return 0
+	}
+	return *value
 }

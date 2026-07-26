@@ -104,6 +104,69 @@ func TestUsageAnthropicCacheCreationMapping(t *testing.T) {
 	}
 }
 
+func TestUsageAnthropicInvalidCacheCreationDoesNotFallback(t *testing.T) {
+	extractor := NewAnthropic(http.DefaultClient)
+	for _, cacheCreation := range []string{`[]`, `"unsupported"`} {
+		result, err := extractor.ExtractUsage([]byte(`{"usage":{"input_tokens":80,"output_tokens":30,"cache_creation":` + cacheCreation + `,"cache_creation_input_tokens":12}}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.State != usage.StateComplete || result.Tokens != (usage.Tokens{UncachedInput: 80, Output: 30}) {
+			t.Fatalf("cache_creation %s result = %#v", cacheCreation, result)
+		}
+		requireUsageDiagnostics(t, result.Diagnostics, usage.DiagnosticInvalidNumber)
+		if _, ok := result.Diagnostics.TotalDelta(); ok {
+			t.Fatalf("cache_creation %s unexpectedly recorded total delta", cacheCreation)
+		}
+	}
+}
+
+func TestUsageAnthropicDetailReconciliationRequiresUsableComponents(t *testing.T) {
+	extractor := NewAnthropic(http.DefaultClient)
+	tests := []struct {
+		name        string
+		value       string
+		want        usage.Tokens
+		diagnostics []usage.DiagnosticCode
+	}{
+		{
+			name:        "invalid component",
+			value:       `"bad"`,
+			want:        usage.Tokens{UncachedInput: 80, CacheWrite1H: 7, Output: 30},
+			diagnostics: []usage.DiagnosticCode{usage.DiagnosticInvalidNumber},
+		},
+		{
+			name:        "overflow component",
+			value:       `9223372036854775808`,
+			want:        usage.Tokens{UncachedInput: 80, CacheWrite1H: 7, Output: 30},
+			diagnostics: []usage.DiagnosticCode{usage.DiagnosticInvalidNumber},
+		},
+		{
+			name:        "negative component",
+			value:       `-1`,
+			want:        usage.Tokens{UncachedInput: 80, CacheWrite1H: 7, Output: 30},
+			diagnostics: []usage.DiagnosticCode{usage.DiagnosticNegativeValue},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body := `{"usage":{"input_tokens":80,"output_tokens":30,"cache_creation":{"ephemeral_5m_input_tokens":` + tt.value + `,"ephemeral_1h_input_tokens":7},"cache_creation_input_tokens":12}}`
+			result, err := extractor.ExtractUsage([]byte(body))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.State != usage.StateComplete || result.Tokens != tt.want {
+				t.Fatalf("result = %#v, want %#v", result, tt.want)
+			}
+			requireUsageDiagnostics(t, result.Diagnostics, tt.diagnostics...)
+			if _, ok := result.Diagnostics.TotalDelta(); ok {
+				t.Fatalf("invalid component unexpectedly recorded total delta: %#v", result.Diagnostics)
+			}
+		})
+	}
+}
+
 func TestUsageAnthropicStrictNumbersAndRequiredFields(t *testing.T) {
 	extractor := NewAnthropic(http.DefaultClient)
 	tests := []struct {
@@ -191,6 +254,41 @@ func TestUsageAnthropicStrictNumbersAndRequiredFields(t *testing.T) {
 	}
 }
 
+func TestUsageAnthropicRequiredPresenceControlsState(t *testing.T) {
+	extractor := NewAnthropic(http.DefaultClient)
+	tests := []struct {
+		name        string
+		body        string
+		state       usage.State
+		diagnostics []usage.DiagnosticCode
+	}{
+		{
+			name:        "empty usage is missing",
+			body:        `{"usage":{}}`,
+			state:       usage.StateMissing,
+			diagnostics: []usage.DiagnosticCode{usage.DiagnosticMissingRequiredField},
+		},
+		{
+			name:  "explicit required zero is complete",
+			body:  `{"usage":{"input_tokens":0,"output_tokens":0}}`,
+			state: usage.StateComplete,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := extractor.ExtractUsage([]byte(tt.body))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.State != tt.state || result.Tokens != (usage.Tokens{}) {
+				t.Fatalf("result = %#v, want state %q", result, tt.state)
+			}
+			requireUsageDiagnostics(t, result.Diagnostics, tt.diagnostics...)
+		})
+	}
+}
+
 func TestUsageAnthropicStreamPatchState(t *testing.T) {
 	extractor := NewAnthropic(http.DefaultClient)
 	tests := []struct {
@@ -252,6 +350,85 @@ func TestUsageAnthropicStreamPatchState(t *testing.T) {
 			state:       usage.StatePartial,
 			want:        usage.Tokens{UncachedInput: 80, Output: 30},
 			diagnostics: []usage.DiagnosticCode{usage.DiagnosticInvalidEventSequence},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stream := extractor.NewUsageStreamExtractor()
+			for _, step := range tt.steps {
+				if err := stream.Observe([]byte(step)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			result, finalized := stream.Finalize()
+			if !finalized || result.State != tt.state || result.Tokens != tt.want {
+				t.Fatalf("Finalize() = %#v, %t, want state %q tokens %#v", result, finalized, tt.state, tt.want)
+			}
+			requireUsageDiagnostics(t, result.Diagnostics, tt.diagnostics...)
+		})
+	}
+}
+
+func TestUsageAnthropicStreamPresenceAndInvalidStartHandling(t *testing.T) {
+	extractor := NewAnthropic(http.DefaultClient)
+	tests := []struct {
+		name        string
+		steps       []string
+		state       usage.State
+		want        usage.Tokens
+		diagnostics []usage.DiagnosticCode
+	}{
+		{
+			name: "repeated start without optional fields preserves cache",
+			steps: []string{
+				`{"type":"message_start","message":{"usage":{"input_tokens":80,"cache_read_input_tokens":20}}}`,
+				`{"type":"message_start","message":{"usage":{"input_tokens":80}}}`,
+				`{"type":"message_delta","usage":{"output_tokens":30}}`,
+			},
+			state: usage.StateComplete,
+			want:  usage.Tokens{UncachedInput: 80, CacheRead: 20, Output: 30},
+		},
+		{
+			name: "invalid input cannot establish start",
+			steps: []string{
+				`{"type":"message_start","message":{"usage":{"input_tokens":"bad"}}}`,
+				`{"type":"message_delta","usage":{"output_tokens":30}}`,
+			},
+			state:       usage.StatePartial,
+			want:        usage.Tokens{Output: 30},
+			diagnostics: []usage.DiagnosticCode{usage.DiagnosticInvalidNumber, usage.DiagnosticInvalidEventSequence},
+		},
+		{
+			name: "negative input cannot establish start",
+			steps: []string{
+				`{"type":"message_start","message":{"usage":{"input_tokens":-1}}}`,
+				`{"type":"message_delta","usage":{"output_tokens":30}}`,
+			},
+			state:       usage.StatePartial,
+			want:        usage.Tokens{Output: 30},
+			diagnostics: []usage.DiagnosticCode{usage.DiagnosticNegativeValue, usage.DiagnosticInvalidEventSequence},
+		},
+		{
+			name: "negative output is not final",
+			steps: []string{
+				`{"type":"message_start","message":{"usage":{"input_tokens":80}}}`,
+				`{"type":"message_delta","usage":{"output_tokens":-1}}`,
+			},
+			state:       usage.StatePartial,
+			want:        usage.Tokens{UncachedInput: 80},
+			diagnostics: []usage.DiagnosticCode{usage.DiagnosticNegativeValue},
+		},
+		{
+			name: "invalid nested object keeps prior state for later delta",
+			steps: []string{
+				`{"type":"message_start","message":{"usage":{"input_tokens":80,"cache_read_input_tokens":20}}}`,
+				`{"type":"message_start","message":{"usage":{"input_tokens":80,"cache_creation":[]}}}`,
+				`{"type":"message_delta","usage":{"output_tokens":30}}`,
+			},
+			state:       usage.StateComplete,
+			want:        usage.Tokens{UncachedInput: 80, CacheRead: 20, Output: 30},
+			diagnostics: []usage.DiagnosticCode{usage.DiagnosticInvalidNumber},
 		},
 	}
 

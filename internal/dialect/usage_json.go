@@ -40,6 +40,11 @@ func usageOptionalObject(object map[string]json.RawMessage, field string) (map[s
 	return nested, usage.Diagnostics{}
 }
 
+func usageFieldPresent(object map[string]json.RawMessage, field string) bool {
+	raw, exists := object[field]
+	return exists && !bytes.Equal(bytes.TrimSpace(raw), []byte("null"))
+}
+
 func usageNormalizedTotal(reported *int64, tokens usage.Tokens, diagnostics *usage.Diagnostics) {
 	if reported == nil {
 		return
