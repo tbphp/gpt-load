@@ -59,6 +59,11 @@ describe('ModelPrice control API', () => {
     ['malformed rule', [{}]],
     ['unknown source', [{ ...builtinRule, source: 'remote' }]],
     ['malformed timestamp', [{ ...builtinRule, updated_at: 'tomorrow' }]],
+    [
+      'normalized invalid calendar timestamp',
+      [{ ...builtinRule, updated_at: '2026-02-30T00:00:00Z' }],
+    ],
+    ['invalid RFC3339 offset', [{ ...builtinRule, updated_at: '2026-07-27T12:30:00+24:00' }]],
     ['missing five-price key', [{ ...builtinRule, prices: { ...prices, output: undefined } }]],
     [
       'non-finite price',

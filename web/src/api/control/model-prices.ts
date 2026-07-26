@@ -48,13 +48,48 @@ function projectPrices(value: unknown): ModelPriceValues {
   }
 }
 
+function isRFC3339Timestamp(value: string): boolean {
+  const match =
+    /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|[+-](\d{2}):(\d{2}))$/.exec(
+      value,
+    )
+  if (match === null) return false
+  const [year, month, day, hour, minute, second] = match.slice(1, 7).map(Number)
+  const [offsetHour, offsetMinute] = match.slice(7, 9).map(Number)
+  if (
+    month < 1 ||
+    month > 12 ||
+    hour > 23 ||
+    minute > 59 ||
+    second > 59 ||
+    (match[7] !== undefined && (offsetHour > 23 || offsetMinute > 59))
+  ) {
+    return false
+  }
+  const daysInMonth = [
+    31,
+    year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0) ? 29 : 28,
+    31,
+    30,
+    31,
+    30,
+    31,
+    31,
+    30,
+    31,
+    30,
+    31,
+  ]
+  return day >= 1 && day <= daysInMonth[month - 1]
+}
+
 function projectRule(value: unknown): ModelPriceRuleDto {
   if (
     !isRecord(value) ||
     typeof value.pattern !== 'string' ||
     (value.source !== 'builtin' && value.source !== 'user') ||
     typeof value.updated_at !== 'string' ||
-    Number.isNaN(Date.parse(value.updated_at))
+    !isRFC3339Timestamp(value.updated_at)
   ) {
     throw new InvalidResponseError()
   }
