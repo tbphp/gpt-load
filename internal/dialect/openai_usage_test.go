@@ -342,6 +342,24 @@ func TestUsageOpenAIStreamSnapshotsAndFinality(t *testing.T) {
 	}
 }
 
+func TestUsageOpenAIStreamReplaceSnapshotClearsAbsentTokensAndDiagnostics(t *testing.T) {
+	stream := NewOpenAI(http.DefaultClient).NewUsageStreamExtractor()
+	for _, payload := range []string{
+		`{"choices":[{"delta":{}}],"usage":{"prompt_tokens":100,"completion_tokens":10,"prompt_tokens_details":{"cached_tokens":20,"cache_write_tokens":1.5}}}`,
+		`{"choices":[],"usage":{"prompt_tokens":100}}`,
+	} {
+		if err := stream.Observe([]byte(payload)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	result, ok := stream.Finalize()
+	if !ok || result.State != usage.StateComplete || result.Tokens != (usage.Tokens{UncachedInput: 100}) {
+		t.Fatalf("Finalize() = %#v, %t, want latest complete snapshot without stale tokens", result, ok)
+	}
+	requireUsageDiagnostics(t, result.Diagnostics, usage.DiagnosticMissingRequiredField)
+}
+
 func TestUsageOpenAIStreamMalformedPayloadKeepsDiagnosticAndState(t *testing.T) {
 	stream := NewOpenAI(http.DefaultClient).NewUsageStreamExtractor()
 	if err := stream.Observe([]byte(`{"choices":[{"delta":{}}],"usage":{"prompt_tokens":100,"completion_tokens":10}}`)); err != nil {

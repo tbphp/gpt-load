@@ -32,6 +32,47 @@ func TestUsageOptionalCapability(t *testing.T) {
 	}
 }
 
+func TestUsageProviderNonStreamConformance(t *testing.T) {
+	tests := []struct {
+		name      string
+		extractor UsageExtractor
+		body      string
+	}{
+		{
+			name:      "OpenAI",
+			extractor: NewOpenAI(http.DefaultClient),
+			body:      `{"usage":{"prompt_tokens":100,"completion_tokens":30,"prompt_tokens_details":{"cached_tokens":20}}}`,
+		},
+		{
+			name:      "Anthropic",
+			extractor: NewAnthropic(http.DefaultClient),
+			body:      `{"usage":{"input_tokens":80,"cache_read_input_tokens":20,"output_tokens":30}}`,
+		},
+		{
+			name:      "Gemini",
+			extractor: NewGemini(http.DefaultClient),
+			body:      `{"usageMetadata":{"promptTokenCount":100,"cachedContentTokenCount":20,"candidatesTokenCount":30}}`,
+		},
+	}
+
+	want := usage.Tokens{UncachedInput: 80, CacheRead: 20, Output: 30}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := tt.extractor.ExtractUsage([]byte(tt.body))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.State != usage.StateComplete || result.Tokens != want {
+				t.Fatalf("ExtractUsage() = %#v, want complete with %#v", result, want)
+			}
+			requireUsageDiagnostics(t, result.Diagnostics)
+			if delta, ok := result.Diagnostics.TotalDelta(); ok {
+				t.Fatalf("TotalDelta() = %d, %t, want absent", delta, ok)
+			}
+		})
+	}
+}
+
 func readUsageFixture(t *testing.T, provider, name string) []byte {
 	t.Helper()
 	body, err := os.ReadFile(filepath.Join("testdata", "usage", provider, name))

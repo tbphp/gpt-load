@@ -30,15 +30,16 @@ func (d *OpenAI) NewUsageStreamExtractor() UsageStreamExtractor {
 }
 
 type openAIUsageStreamExtractor struct {
-	accumulator usage.Accumulator
-	diagnostics usage.Diagnostics
+	accumulator    usage.Accumulator
+	invalidPayload bool
+	invalidUsage   bool
 }
 
 func (e *openAIUsageStreamExtractor) Observe(payload []byte) error {
 	object, err := decodeJSONObject(payload)
 	if err != nil {
-		e.diagnostics.Add(usage.DiagnosticInvalidPayload)
-		if mergeErr := e.accumulator.MergePatch(usage.Patch{Diagnostics: e.diagnostics}); mergeErr != nil {
+		e.invalidPayload = true
+		if mergeErr := e.accumulator.MergePatch(usage.Patch{Diagnostics: usageDiagnostic(usage.DiagnosticInvalidPayload)}); mergeErr != nil {
 			return mergeErr
 		}
 		return fmt.Errorf("decode OpenAI usage stream payload")
@@ -46,13 +47,14 @@ func (e *openAIUsageStreamExtractor) Observe(payload []byte) error {
 
 	patch, found := openAIUsagePatch(object, openAIUsageFinal(object))
 	if !found {
-		e.diagnostics.Merge(patch.Diagnostics)
+		if usageFieldPresent(object, "usage") && patch.Diagnostics.Has(usage.DiagnosticInvalidNumber) {
+			e.invalidUsage = true
+		}
 		if err := e.accumulator.MergePatch(patch); err != nil {
 			return err
 		}
 		return nil
 	}
-	patch.Diagnostics.Merge(e.diagnostics)
 	if err := e.accumulator.ReplaceSnapshot(patch); err != nil {
 		return err
 	}
@@ -60,7 +62,17 @@ func (e *openAIUsageStreamExtractor) Observe(payload []byte) error {
 }
 
 func (e *openAIUsageStreamExtractor) Finalize() (usage.Result, bool) {
-	return e.accumulator.Finalize(true)
+	result, finalized := e.accumulator.Finalize(true)
+	if !finalized {
+		return result, false
+	}
+	if e.invalidPayload {
+		result.Diagnostics.Add(usage.DiagnosticInvalidPayload)
+	}
+	if e.invalidUsage {
+		result.Diagnostics.Add(usage.DiagnosticInvalidNumber)
+	}
+	return result, true
 }
 
 func openAIUsagePatch(root map[string]json.RawMessage, final bool) (usage.Patch, bool) {
