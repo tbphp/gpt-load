@@ -83,6 +83,56 @@ type Page struct {
 	NextCursor *Cursor
 }
 
+type UsageGranularity string
+
+const (
+	UsageGranularityHour UsageGranularity = "hour"
+	UsageGranularityDay  UsageGranularity = "day"
+)
+
+type UsageQuery struct {
+	From        time.Time
+	To          time.Time
+	Granularity UsageGranularity
+	GroupID     *uint
+	Model       string
+	Limit       int
+}
+
+type UsageAggregate struct {
+	RequestCount         int64
+	SuccessCount         int64
+	FailureCount         int64
+	UncachedInputTokens  int64
+	CacheReadTokens      int64
+	CacheWrite5MTokens   int64
+	CacheWrite1HTokens   int64
+	OutputTokens         int64
+	Cost                 float64
+	UsageMissingCount    int64
+	PartialCount         int64
+	UnpricedRequestCount int64
+}
+
+type UsageSeriesPoint struct {
+	BucketStart time.Time
+	BucketEnd   time.Time
+	UsageAggregate
+}
+
+type UsageBreakdown struct {
+	GroupID uint
+	Model   string
+	UsageAggregate
+}
+
+type UsageReport struct {
+	Summary            UsageAggregate
+	Series             []UsageSeriesPoint
+	Breakdown          []UsageBreakdown
+	BreakdownTruncated bool
+}
+
 type Stats struct {
 	EnqueuedTotal               uint64
 	PersistedTotal              uint64
