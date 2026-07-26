@@ -232,6 +232,10 @@ func TestReleaseWorkflowIncludesCompleteS5NotesAndCSPWithinE2E(t *testing.T) {
 		"https://developers.openai.com/api/docs/pricing",
 		"https://platform.claude.com/docs/en/about-claude/pricing",
 		"https://ai.google.dev/gemini-api/docs/pricing",
+		"unified data/control dual-plane architecture",
+		"Groups",
+		"AccessKeys",
+		"model discovery",
 	} {
 		if !strings.Contains(releaseJob, required) {
 			t.Fatalf("release notes do not contain %q:\n%s", required, releaseJob)
@@ -258,6 +262,16 @@ func TestReleaseWorkflowVerifiesDownloadedNativeChecksumsAndGeneratedKeys(t *tes
 		"encryption.key",
 		"AreAccessRulesProtected",
 		"WindowsIdentity]::GetCurrent().User",
+		"CreateProcessW",
+		"CREATE_NEW_PROCESS_GROUP",
+		"GenerateConsoleCtrlEvent",
+		"CTRL_BREAK_EVENT",
+		"GetConsoleCP",
+		"AllocConsole",
+		"ERROR_ACCESS_DENIED",
+		"$process.WaitForExit(15000)",
+		"$process.ExitCode -ne 0",
+		"if (-not $process.HasExited)",
 	} {
 		if !strings.Contains(nativeJob, required) {
 			t.Fatalf("native smoke does not contain %q:\n%s", required, nativeJob)
@@ -266,6 +280,12 @@ func TestReleaseWorkflowVerifiesDownloadedNativeChecksumsAndGeneratedKeys(t *tes
 	if strings.Contains(nativeJob, "AUTH_KEY=release-native-smoke") ||
 		strings.Contains(nativeJob, `$env:AUTH_KEY = "release-native-smoke"`) {
 		t.Fatal("native smoke bypasses generated auth.key with an explicit AUTH_KEY")
+	}
+	if strings.Contains(nativeJob, "$process = Start-Process") {
+		t.Fatal("Windows native smoke uses Start-Process without a new console process group")
+	}
+	if strings.Contains(nativeJob, "CREATE_NEW_CONSOLE") {
+		t.Fatal("Windows native smoke gives the child a separate console that cannot receive the targeted CTRL_BREAK")
 	}
 }
 
@@ -298,6 +318,46 @@ func TestReleaseWorkflowRunsCompleteLocalDockerSmoke(t *testing.T) {
 		if !strings.Contains(script, required) {
 			t.Fatalf("release Docker smoke does not contain %q", required)
 		}
+	}
+}
+
+func TestReleaseDockerSmokeDefersOwnedResourceCleanupUntilAfterConflictChecks(t *testing.T) {
+	script := readRepositoryFile(t, ".github/scripts/release-docker-smoke.sh")
+	tempTrapIndex := strings.Index(script, "trap cleanup_temp EXIT")
+	containerCheckIndex := strings.Index(script, `for target in "${container}" "${probe}"; do`)
+	conflictExitIndex := strings.Index(script, "task image or volume already exists")
+	fullTrapIndex := strings.Index(script, "trap cleanup EXIT")
+	workStartIndex := strings.Index(script, `cat >"${task_tmp}/fake_upstream.py"`)
+	preflightExitIndex := -1
+	if workStartIndex >= 0 {
+		preflightExitIndex = strings.LastIndex(script[:workStartIndex], "exit 1")
+	}
+	for name, index := range map[string]int{
+		"temporary cleanup trap":        tempTrapIndex,
+		"container conflict check":      containerCheckIndex,
+		"image or volume conflict exit": conflictExitIndex,
+		"completed conflict exit":       preflightExitIndex,
+		"owned-resource cleanup trap":   fullTrapIndex,
+		"owned-resource work":           workStartIndex,
+	} {
+		if index < 0 {
+			t.Fatalf("release Docker smoke is missing %s", name)
+		}
+	}
+	if !(tempTrapIndex < containerCheckIndex &&
+		containerCheckIndex < conflictExitIndex &&
+		conflictExitIndex < preflightExitIndex &&
+		preflightExitIndex < fullTrapIndex &&
+		fullTrapIndex < workStartIndex) {
+		t.Fatalf(
+			"cleanup ownership order is unsafe: temp=%d container=%d conflict=%d exit=%d full=%d work=%d",
+			tempTrapIndex,
+			containerCheckIndex,
+			conflictExitIndex,
+			preflightExitIndex,
+			fullTrapIndex,
+			workStartIndex,
+		)
 	}
 }
 

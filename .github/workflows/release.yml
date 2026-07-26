@@ -306,6 +306,142 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
+          Add-Type -TypeDefinition @'
+          using System;
+          using System.ComponentModel;
+          using System.Diagnostics;
+          using System.Runtime.InteropServices;
+          using System.Text;
+
+          public static class ReleaseNativeProcess
+          {
+              private const uint CREATE_NEW_PROCESS_GROUP = 0x00000200;
+              private const uint CTRL_BREAK_EVENT = 1;
+              private const int ERROR_ACCESS_DENIED = 5;
+
+              [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+              private struct STARTUPINFO
+              {
+                  public uint cb;
+                  public string lpReserved;
+                  public string lpDesktop;
+                  public string lpTitle;
+                  public uint dwX;
+                  public uint dwY;
+                  public uint dwXSize;
+                  public uint dwYSize;
+                  public uint dwXCountChars;
+                  public uint dwYCountChars;
+                  public uint dwFillAttribute;
+                  public uint dwFlags;
+                  public ushort wShowWindow;
+                  public ushort cbReserved2;
+                  public IntPtr lpReserved2;
+                  public IntPtr hStdInput;
+                  public IntPtr hStdOutput;
+                  public IntPtr hStdError;
+              }
+
+              [StructLayout(LayoutKind.Sequential)]
+              private struct PROCESS_INFORMATION
+              {
+                  public IntPtr hProcess;
+                  public IntPtr hThread;
+                  public uint dwProcessId;
+                  public uint dwThreadId;
+              }
+
+              [DllImport(
+                  "kernel32.dll",
+                  CharSet = CharSet.Unicode,
+                  ExactSpelling = true,
+                  SetLastError = true)]
+              [return: MarshalAs(UnmanagedType.Bool)]
+              private static extern bool CreateProcessW(
+                  string applicationName,
+                  StringBuilder commandLine,
+                  IntPtr processAttributes,
+                  IntPtr threadAttributes,
+                  [MarshalAs(UnmanagedType.Bool)] bool inheritHandles,
+                  uint creationFlags,
+                  IntPtr environment,
+                  string currentDirectory,
+                  ref STARTUPINFO startupInfo,
+                  out PROCESS_INFORMATION processInformation);
+
+              [DllImport("kernel32.dll", SetLastError = true)]
+              [return: MarshalAs(UnmanagedType.Bool)]
+              private static extern bool GenerateConsoleCtrlEvent(
+                  uint ctrlEvent,
+                  uint processGroupId);
+
+              [DllImport("kernel32.dll", SetLastError = true)]
+              private static extern uint GetConsoleCP();
+
+              [DllImport("kernel32.dll", SetLastError = true)]
+              [return: MarshalAs(UnmanagedType.Bool)]
+              private static extern bool AllocConsole();
+
+              [DllImport("kernel32.dll")]
+              [return: MarshalAs(UnmanagedType.Bool)]
+              private static extern bool CloseHandle(IntPtr handle);
+
+              private static void EnsureConsole()
+              {
+                  if (GetConsoleCP() != 0 || AllocConsole())
+                  {
+                      return;
+                  }
+                  var error = Marshal.GetLastWin32Error();
+                  if (error != ERROR_ACCESS_DENIED || GetConsoleCP() == 0)
+                  {
+                      throw new Win32Exception(error);
+                  }
+              }
+
+              public static Process Start(string path)
+              {
+                  EnsureConsole();
+                  var startupInfo = new STARTUPINFO {
+                      cb = (uint)Marshal.SizeOf<STARTUPINFO>()
+                  };
+                  var commandLine = new StringBuilder("\"" + path + "\"");
+                  PROCESS_INFORMATION processInformation;
+                  if (!CreateProcessW(
+                      path,
+                      commandLine,
+                      IntPtr.Zero,
+                      IntPtr.Zero,
+                      false,
+                      CREATE_NEW_PROCESS_GROUP,
+                      IntPtr.Zero,
+                      null,
+                      ref startupInfo,
+                      out processInformation))
+                  {
+                      throw new Win32Exception(Marshal.GetLastWin32Error());
+                  }
+                  try
+                  {
+                      return Process.GetProcessById((int)processInformation.dwProcessId);
+                  }
+                  finally
+                  {
+                      CloseHandle(processInformation.hThread);
+                      CloseHandle(processInformation.hProcess);
+                  }
+              }
+
+              public static void SendCtrlBreak(int processGroupId)
+              {
+                  if (!GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, (uint)processGroupId))
+                  {
+                      throw new Win32Exception(Marshal.GetLastWin32Error());
+                  }
+              }
+          }
+          '@
+
           $binary = Join-Path $env:GITHUB_WORKSPACE "native-smoke/${{ matrix.filename }}"
           $checksumFile = Join-Path $env:GITHUB_WORKSPACE "native-smoke/SHA256SUMS"
           $checksumLine = Get-Content $checksumFile |
@@ -321,7 +457,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
           $env:DATA_DIR = $dataDir
           $env:PORT = "39113"
-          $process = Start-Process -FilePath $binary -PassThru
+          $process = [ReleaseNativeProcess]::Start($binary)
           try {
             for ($attempt = 0; $attempt -lt 80; $attempt++) {
               try {
@@ -360,11 +496,21 @@ jobs:
             $headers = @{ Authorization = "Bearer $authKey" }
             Invoke-RestMethod "http://127.0.0.1:39113/api/usage?range=24h" -Headers $headers | Out-Null
             Invoke-RestMethod "http://127.0.0.1:39113/api/model-prices" -Headers $headers | Out-Null
+            [ReleaseNativeProcess]::SendCtrlBreak($process.Id)
+            if (-not $process.WaitForExit(15000)) {
+              throw "graceful shutdown timed out"
+            }
+            if ($process.ExitCode -ne 0) {
+              throw "graceful shutdown exited with code $($process.ExitCode)"
+            }
             $afterHash = (Get-FileHash -Algorithm SHA256 $binary).Hash.ToLowerInvariant()
             if ($afterHash -ne $expectedHash) { throw "checksum mismatch after execution" }
           } finally {
-            Stop-Process -Id $process.Id -ErrorAction SilentlyContinue
-            Wait-Process -Id $process.Id -ErrorAction SilentlyContinue
+            # Stop-Process is failure cleanup only; success is proven by CTRL_BREAK and exit code 0.
+            if (-not $process.HasExited) {
+              Stop-Process -Id $process.Id -ErrorAction SilentlyContinue
+              $process.WaitForExit(5000) | Out-Null
+            }
             Remove-Item -Recurse -Force $dataDir -ErrorAction SilentlyContinue
           }
 
@@ -428,6 +574,10 @@ jobs:
             This release provides native OpenAI, Anthropic, and Gemini protocol gateways,
             an embedded management UI, scheduling and health controls, request logs,
             usage estimates, and model price management. It is single-instance and SQLite-only.
+
+            GPT-Load uses a unified data/control dual-plane architecture: Groups define upstream
+            routing and key pools, AccessKeys authorize data-plane access, and model discovery
+            imports available models from compatible upstreams.
 
             Docker runs as a fixed non-root user with a named volume. The 2.x image channels
             do not move `latest`. Back up the database together with auth/encryption key files.

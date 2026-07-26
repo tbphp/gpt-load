@@ -24,6 +24,27 @@ fake_pid=
 exec 3>&1 4>&2
 exec >"${task_tmp}/smoke.stdout" 2>"${task_tmp}/smoke.stderr"
 
+cleanup_temp() {
+  local exit_code=$?
+  rm -rf "${task_tmp}"
+  if ((exit_code != 0)); then
+    printf 'release Docker smoke failed; captured output withheld to protect credentials\n' >&4
+  fi
+}
+trap cleanup_temp EXIT
+
+for target in "${container}" "${probe}"; do
+  if docker container inspect "${target}" >/dev/null 2>&1; then
+    printf 'task container already exists: %s\n' "${target}" >&4
+    exit 1
+  fi
+done
+if docker image inspect "${image}" >/dev/null 2>&1 ||
+  docker volume inspect "${volume}" >/dev/null 2>&1; then
+  printf 'task image or volume already exists\n' >&4
+  exit 1
+fi
+
 cleanup() {
   local exit_code=$?
   if [[ -n "${fake_pid}" ]]; then
@@ -39,18 +60,6 @@ cleanup() {
   fi
 }
 trap cleanup EXIT
-
-for target in "${container}" "${probe}"; do
-  if docker container inspect "${target}" >/dev/null 2>&1; then
-    printf 'task container already exists: %s\n' "${target}" >&4
-    exit 1
-  fi
-done
-if docker image inspect "${image}" >/dev/null 2>&1 ||
-  docker volume inspect "${volume}" >/dev/null 2>&1; then
-  printf 'task image or volume already exists\n' >&4
-  exit 1
-fi
 
 cat >"${task_tmp}/fake_upstream.py" <<'PY'
 import json
