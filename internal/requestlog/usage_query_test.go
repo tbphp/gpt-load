@@ -188,6 +188,88 @@ func TestQueryUsageUsesOneReadSnapshot(t *testing.T) {
 	}
 }
 
+func TestQueryUsageCancelsAfterBeginWithoutPoisoningDatabaseConnection(t *testing.T) {
+	db := openRequestLogQueryDB(t)
+	service := newRequestLogTestService(db)
+	start := time.Date(2026, time.July, 4, 0, 0, 0, 0, time.UTC)
+	createUsageStats(t, db, usageStat(start, 1, "cancelled", 1))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cancelled := false
+	const callbackName = "test:usage_query_cancel_after_begin"
+	if err := db.Callback().Query().After("gorm:query").Register(callbackName, func(tx *gorm.DB) {
+		if cancelled || tx.Statement.Table != "usage_stats" {
+			return
+		}
+		cancelled = true
+		cancel()
+	}); err != nil {
+		t.Fatalf("register query callback: %v", err)
+	}
+	defer func() {
+		if err := db.Callback().Query().Remove(callbackName); err != nil {
+			t.Errorf("remove query callback: %v", err)
+		}
+	}()
+
+	_, err := service.QueryUsage(ctx, UsageQuery{
+		From:        start,
+		To:          start.Add(time.Hour),
+		Granularity: UsageGranularityHour,
+		Limit:       100,
+	})
+	if err == nil || !cancelled {
+		t.Fatalf("QueryUsage() error/cancelled = %v/%t, want cancelled query", err, cancelled)
+	}
+
+	var count int64
+	if err := db.Model(&models.UsageStat{}).Count(&count).Error; err != nil || count != 1 {
+		t.Fatalf("query after cancellation = %d/%v, want 1/nil", count, err)
+	}
+	if err := db.Create(&models.UsageStat{
+		HourBucket:   start,
+		GroupID:      2,
+		Model:        "after-cancellation",
+		RequestCount: 1,
+		SuccessCount: 1,
+	}).Error; err != nil {
+		t.Fatalf("write after cancellation: %v", err)
+	}
+}
+
+func TestQueryUsageRejectsCorruptRowsOutsideTopBreakdown(t *testing.T) {
+	db := openRequestLogQueryDB(t)
+	service := newRequestLogTestService(db)
+	start := time.Date(2026, time.July, 5, 0, 0, 0, 0, time.UTC)
+	rows := make([]models.UsageStat, 0, 102)
+	for groupID := uint(1); groupID <= 100; groupID++ {
+		rows = append(rows, usageStat(start, groupID, "top", 3))
+	}
+	compensating := usageStat(start, 101, "compensating", 2)
+	compensating.SuccessCount = 1
+	compensating.FailureCount = 0
+	compensating.InputTokens = 1
+	compensating.Cost = 1
+	corrupt := usageStat(start, 102, "corrupt", 1)
+	corrupt.SuccessCount = 1
+	corrupt.FailureCount = 1
+	corrupt.InputTokens = -1
+	corrupt.Cost = -1
+	rows = append(rows, compensating, corrupt)
+	createUsageStats(t, db, rows...)
+
+	_, err := service.QueryUsage(context.Background(), UsageQuery{
+		From:        start,
+		To:          start.Add(time.Hour),
+		Granularity: UsageGranularityHour,
+		Limit:       100,
+	})
+	if err == nil {
+		t.Fatal("QueryUsage() error = nil, want corrupt 102nd breakdown row rejection")
+	}
+}
+
 func TestQueryUsageRejectsCorruptAggregates(t *testing.T) {
 	start := time.Date(2026, time.July, 4, 0, 0, 0, 0, time.UTC)
 	tests := []struct {

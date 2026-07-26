@@ -2,6 +2,9 @@ package requestlog
 
 import (
 	"context"
+	"database/sql"
+	"database/sql/driver"
+	"errors"
 	"fmt"
 	"math"
 	"time"
@@ -16,6 +19,7 @@ const (
 	defaultUsageBreakdownLimit = 100
 	maxUsageBreakdownLimit     = 100
 	maxUsageSeriesHours        = 30 * 24
+	usageRollbackTimeout       = time.Second
 )
 
 func (service *Service) QueryUsage(ctx context.Context, input UsageQuery) (UsageReport, error) {
@@ -37,17 +41,22 @@ func (service *Service) QueryUsage(ctx context.Context, input UsageQuery) (Usage
 	}
 
 	var report UsageReport
-	err := service.db.WithContext(ctx).Connection(func(connection *gorm.DB) error {
+	err := service.db.WithContext(ctx).Connection(func(connection *gorm.DB) (operationErr error) {
 		if err := connection.Exec("BEGIN DEFERRED").Error; err != nil {
 			return fmt.Errorf("begin usage read transaction: %w", err)
 		}
 		committed := false
 		defer func() {
 			if !committed {
-				_ = connection.Exec("ROLLBACK").Error
+				if rollbackErr := rollbackUsageReadTransaction(connection); rollbackErr != nil {
+					operationErr = errors.Join(operationErr, rollbackErr)
+				}
 			}
 		}()
 
+		if err := validateUsageStatIntegrity(usageStatScope(connection, input)); err != nil {
+			return err
+		}
 		summary, err := queryUsageSummary(usageStatScope(connection, input))
 		if err != nil {
 			return err
@@ -78,6 +87,34 @@ func (service *Service) QueryUsage(ctx context.Context, input UsageQuery) (Usage
 	return report, nil
 }
 
+func rollbackUsageReadTransaction(connection *gorm.DB) error {
+	sqlConnection, ok := connection.Statement.ConnPool.(*sql.Conn)
+	if !ok {
+		return fmt.Errorf("rollback usage read transaction: expected SQL connection, got %T", connection.Statement.ConnPool)
+	}
+	cleanupContext, cancel := context.WithTimeout(context.Background(), usageRollbackTimeout)
+	defer cancel()
+	if _, err := sqlConnection.ExecContext(cleanupContext, "ROLLBACK"); err == nil {
+		return nil
+	} else {
+		discardErr := discardUsageReadConnection(sqlConnection)
+		if discardErr != nil {
+			return errors.Join(
+				fmt.Errorf("rollback usage read transaction: %w", err),
+				fmt.Errorf("discard usage read connection: %w", discardErr),
+			)
+		}
+		return fmt.Errorf("rollback usage read transaction: %w", err)
+	}
+}
+
+func discardUsageReadConnection(connection *sql.Conn) error {
+	if err := connection.Raw(func(any) error { return driver.ErrBadConn }); err != nil && !errors.Is(err, driver.ErrBadConn) {
+		return err
+	}
+	return connection.Close()
+}
+
 func validateUsageQuery(input UsageQuery) error {
 	if input.From.IsZero() || input.To.IsZero() || !input.From.Before(input.To) {
 		return fmt.Errorf("query usage: invalid time range")
@@ -103,6 +140,34 @@ func usageStatScope(db *gorm.DB, input UsageQuery) *gorm.DB {
 		scope = scope.Where("model = ?", input.Model)
 	}
 	return scope
+}
+
+func validateUsageStatIntegrity(scope *gorm.DB) error {
+	var integrity usageStatIntegrity
+	if err := scope.Select(`
+		COALESCE(MAX(CASE
+			WHEN request_count < 0 OR success_count < 0 OR failure_count < 0
+				OR usage_missing_count < 0 OR partial_count < 0 OR unpriced_request_count < 0
+				OR CASE
+					WHEN request_count < success_count THEN 1
+					WHEN request_count - success_count != failure_count THEN 1
+					ELSE 0
+				END = 1
+			THEN 1 ELSE 0 END), 0) AS invalid_count,
+		COALESCE(MAX(CASE
+			WHEN input_tokens < 0 OR output_tokens < 0 OR cache_read_tokens < 0
+				OR cache_write_5m_tokens < 0 OR cache_write_1h_tokens < 0
+			THEN 1 ELSE 0 END), 0) AS invalid_token,
+		COALESCE(MAX(CASE
+			WHEN cost < 0 OR cost != cost OR cost > ?
+			THEN 1 ELSE 0 END), 0) AS invalid_cost
+	`, math.MaxFloat64).Find(&integrity).Error; err != nil {
+		return fmt.Errorf("check usage stat integrity: %w", err)
+	}
+	if integrity.InvalidCount != 0 || integrity.InvalidToken != 0 || integrity.InvalidCost != 0 {
+		return fmt.Errorf("check usage stat integrity: corrupt row")
+	}
+	return nil
 }
 
 func queryUsageSummary(scope *gorm.DB) (UsageAggregate, error) {
@@ -292,6 +357,12 @@ const usageAggregateSelect = "" +
 type usageHourPoint struct {
 	HourBucket time.Time
 	UsageAggregate
+}
+
+type usageStatIntegrity struct {
+	InvalidCount int64
+	InvalidToken int64
+	InvalidCost  int64
 }
 
 type usageBreakdownRow struct {
