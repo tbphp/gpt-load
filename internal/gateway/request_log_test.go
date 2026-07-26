@@ -74,6 +74,47 @@ type recordingRequestLogSink struct {
 	events []telemetry.RequestEvent
 }
 
+type usageObservingStreamRetryForwarder struct {
+	observed []usage.Result
+}
+
+func (*usageObservingStreamRetryForwarder) Forward(context.Context, ForwardInput) UpstreamResult {
+	return UpstreamResult{Err: errors.New("unexpected non-streaming forward")}
+}
+
+func (forwarder *usageObservingStreamRetryForwarder) ForwardStream(
+	_ context.Context,
+	input ForwardInput,
+	_ http.ResponseWriter,
+) UpstreamResult {
+	payloads := [][]byte{
+		[]byte(`{"choices":[],"usage":{"prompt_tokens":100,"completion_tokens":9,"prompt_tokens_details":{"cached_tokens":20}}}`),
+		[]byte(`{"choices":[],"usage":{"prompt_tokens":100,"completion_tokens":30,"prompt_tokens_details":{"cached_tokens":20}}}`),
+	}
+	index := len(forwarder.observed)
+	if index >= len(payloads) {
+		return UpstreamResult{Err: errors.New("stream script exhausted")}
+	}
+	capture := newUsageCaptureBoundary().newStream(input.Dialect)
+	capture.observe(payloads[index])
+	result := capture.finalize()
+	forwarder.observed = append(forwarder.observed, result)
+	if index == 0 {
+		return UpstreamResult{
+			Err:                   fmt.Errorf("%w: pre-commit stream failure", ErrUpstreamProtocol),
+			RequestWritten:        true,
+			RetryableBeforeCommit: true,
+			Usage:                 result,
+		}
+	}
+	if input.OnStreamReady != nil {
+		input.OnStreamReady()
+	}
+	return UpstreamResult{
+		StatusCode: http.StatusOK, RequestWritten: true, Committed: true, Usage: result,
+	}
+}
+
 func TestNewRequestRecorderInitializesUsageNotApplicable(t *testing.T) {
 	sink := &recordingRequestLogSink{}
 	recorder := newRequestRecorder(
@@ -189,6 +230,41 @@ func TestHandlerPublishesUsageForActualNonStreamingResponseAttempt(t *testing.T)
 	events := sink.snapshot()
 	if len(events) != 1 || events[0].Usage.Result != (usage.Result{State: usage.StateComplete, Tokens: usage.Tokens{UncachedInput: 80, CacheRead: 20, Output: 30}}) || events[0].Usage.GroupID != 1 || events[0].Usage.KeyID != 2 || events[0].Usage.AttemptSequence != 2 {
 		t.Fatalf("events = %#v", events)
+	}
+}
+
+func TestHandlerDiscardsPreCommitStreamUsageOnRetry(t *testing.T) {
+	sink := &recordingRequestLogSink{}
+	forwarder := &usageObservingStreamRetryForwarder{}
+	engine, handler, _, _ := newRequestLogHandlerTestRuntime(
+		t, forwarder, &recordingAccessKeyRPMLimiter{}, sink, "sk-first", "sk-second",
+	)
+	handler.newRandom = func() *rand.Rand { return rand.New(zeroSource{}) }
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/v1/chat/completions",
+		strings.NewReader(`{"model":"gpt-4o","stream":true}`),
+	)
+	request.Header.Set("Authorization", "Bearer gl-client")
+	engine.ServeHTTP(httptest.NewRecorder(), request)
+
+	first := usage.Result{State: usage.StateComplete, Tokens: usage.Tokens{UncachedInput: 80, CacheRead: 20, Output: 9}}
+	second := usage.Result{State: usage.StateComplete, Tokens: usage.Tokens{UncachedInput: 80, CacheRead: 20, Output: 30}}
+	if len(forwarder.observed) != 2 || forwarder.observed[0] != first || forwarder.observed[1] != second {
+		t.Fatalf("observed Usage = %#v, want %#v then %#v", forwarder.observed, first, second)
+	}
+	events := sink.snapshot()
+	if len(events) != 1 {
+		t.Fatalf("events = %#v, want exactly one final event", events)
+	}
+	event := events[0]
+	if event.Usage.Result != second || event.Usage.Result == first ||
+		event.Usage.GroupID != 1 || event.Usage.KeyID != 2 || event.Usage.AttemptSequence != 2 {
+		t.Fatalf("event Usage = %#v, want second attempt Usage", event.Usage)
+	}
+	if len(event.Attempts) != 2 || event.Attempts[1].GroupID != event.Usage.GroupID ||
+		event.Attempts[1].KeyID != event.Usage.KeyID || event.Attempts[1].Sequence != event.Usage.AttemptSequence {
+		t.Fatalf("attempts/Usage = %#v/%#v", event.Attempts, event.Usage)
 	}
 }
 
