@@ -487,12 +487,30 @@ func TestReleaseWorkflowRunsBothPublishedImagesAndPreservesLatest(t *testing.T) 
 		for _, required := range []string{
 			"Log in to Docker Hub",
 			"username: ${{ secrets.DOCKERHUB_USERNAME }}",
-			"password: ${{ secrets.DOCKERHUB_TOKEN }}",
+			"password: ${{ secrets.DOCKERHUB_READ_TOKEN }}",
 		} {
 			if !strings.Contains(block, required) {
 				t.Fatalf("%s does not contain authenticated Docker Hub read %q", name, required)
 			}
 		}
+		if strings.Contains(block, "password: ${{ secrets.DOCKERHUB_TOKEN }}") {
+			t.Fatalf("%s exposes the Docker Hub write token to a read-only job", name)
+		}
+	}
+	if !strings.Contains(
+		imagePublication,
+		"password: ${{ secrets.DOCKERHUB_TOKEN }}",
+	) {
+		t.Fatal("image publication does not use the Docker Hub write token")
+	}
+	if strings.Contains(imagePublication, "DOCKERHUB_READ_TOKEN") {
+		t.Fatal("image publication unexpectedly uses the Docker Hub read-only token")
+	}
+	if !strings.Contains(
+		postPublish,
+		`test "${latest_digest}" != "${exact_digest}"`,
+	) {
+		t.Fatal("post-publication verification does not reject latest pointing at the exact 2.x image")
 	}
 }
 
