@@ -69,32 +69,32 @@ func (s *Service) ResetModelPrice(ctx context.Context, pattern string) error {
 	})
 }
 
-func (s *Service) ListModelPrices(ctx context.Context) ([]modelPriceRuleResponse, error) {
+func (s *Service) ListModelPrices(ctx context.Context) (modelPriceListResponse, error) {
 	s.writeMu.RLock()
 	defer s.writeMu.RUnlock()
 
 	var rows []models.ModelPrice
 	if err := s.db.WithContext(ctx).Order("pattern ASC").Find(&rows).Error; err != nil {
-		return nil, app_errors.ParseDBError(err)
+		return modelPriceListResponse{}, app_errors.ParseDBError(err)
 	}
 
-	rules := pricing.BuiltinRules()
+	builtinRules := pricing.BuiltinRules()
+	sort.Slice(builtinRules, func(left, right int) bool {
+		return builtinRules[left].Pattern < builtinRules[right].Pattern
+	})
+	result := modelPriceListResponse{
+		PriceUnit: "usd_per_million_tokens",
+		Builtin:   make([]modelPriceRuleResponse, 0, len(builtinRules)),
+		Overrides: make([]modelPriceRuleResponse, 0, len(rows)),
+	}
+	for _, rule := range builtinRules {
+		result.Builtin = append(result.Builtin, newModelPriceRuleResponse(rule))
+	}
 	for _, row := range rows {
 		if row.Source != string(pricing.SourceUser) {
-			return nil, app_errors.ErrInternalServer
+			return modelPriceListResponse{}, app_errors.ErrInternalServer
 		}
-		rules = append(rules, modelPriceRule(row))
-	}
-	sort.Slice(rules, func(left, right int) bool {
-		if rules[left].Source != rules[right].Source {
-			return rules[left].Source < rules[right].Source
-		}
-		return rules[left].Pattern < rules[right].Pattern
-	})
-
-	result := make([]modelPriceRuleResponse, 0, len(rules))
-	for _, rule := range rules {
-		result = append(result, newModelPriceRuleResponse(rule))
+		result.Overrides = append(result.Overrides, newModelPriceRuleResponse(modelPriceRule(row)))
 	}
 	return result, nil
 }

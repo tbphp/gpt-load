@@ -1,6 +1,13 @@
 <script setup lang="ts">
 import { useQuery } from '@tanstack/vue-query'
-import { Activity, CircleDollarSign, Database, Gauge, TriangleAlert } from 'lucide-vue-next'
+import {
+  Activity,
+  CircleDollarSign,
+  Database,
+  Gauge,
+  RefreshCw,
+  TriangleAlert,
+} from 'lucide-vue-next'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
@@ -17,6 +24,7 @@ import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import SurfaceCard from '@/components/ui/SurfaceCard.vue'
+import { formatEstimatedUSD } from '@/features/usage/estimated-cost'
 
 import {
   applyUsageFilterDraft,
@@ -48,15 +56,6 @@ const usageQuery = useQuery({
 })
 const report = computed(() => usageQuery.data.value)
 const hasData = computed(() => (report.value?.summary.request_count ?? 0) > 0)
-const hasQualityOverlap = computed(() => {
-  const summary = report.value?.summary
-  if (!summary) return false
-  return (
-    [summary.usage_missing_count, summary.partial_count, summary.unpriced_request_count].filter(
-      (count) => count > 0,
-    ).length > 1
-  )
-})
 
 watch([() => appliedFilters.value.group_id, () => appliedFilters.value.model], () => {
   draft.value = createUsageFilterDraft(appliedFilters.value)
@@ -69,22 +68,17 @@ function formatCount(value: number): string {
 
 function formatEstimatedCost(aggregate: UsageAggregateDto): string {
   if (aggregate.unpriced_request_count > 0) {
-    if (aggregate.estimated_cost_usd === 0) return t('monitor.usage.cost.unknown')
     return t('monitor.usage.cost.knownPlusUnknown', {
-      cost: new Intl.NumberFormat(locale.value, {
-        style: 'currency',
-        currency: 'USD',
-        minimumFractionDigits: 6,
-        maximumFractionDigits: 6,
-      }).format(aggregate.estimated_cost_usd),
+      cost: formatEstimatedUSD(aggregate.estimated_cost_usd, locale.value),
     })
   }
-  return new Intl.NumberFormat(locale.value, {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: 6,
-    maximumFractionDigits: 6,
-  }).format(aggregate.estimated_cost_usd)
+  return formatEstimatedUSD(aggregate.estimated_cost_usd, locale.value)
+}
+
+function groupLabel(groupID: number): string {
+  const known = groupsQuery.data.value?.find((group) => group.id === groupID)
+  if (known) return `${known.name} · #${groupID}`
+  return t('monitor.usage.filters.deletedOrUnknown', { id: groupID })
 }
 
 function filterError(field: keyof UsageFilterDraft): string | undefined {
@@ -173,7 +167,11 @@ async function navigate(filters: UsageFilters): Promise<void> {
                 "
                 :value="draft.group_id"
               >
-                #{{ draft.group_id }}
+                {{
+                  t('monitor.usage.filters.deletedOrUnknown', {
+                    id: draft.group_id,
+                  })
+                }}
               </option>
               <option
                 v-for="group in groupsQuery.data.value ?? []"
@@ -205,6 +203,14 @@ async function navigate(filters: UsageFilters): Promise<void> {
         </FormField>
       </div>
       <div class="usage-filter-actions">
+        <AppButton
+          data-test="usage-refresh"
+          type="button"
+          variant="secondary"
+          @click="usageQuery.refetch()"
+        >
+          <RefreshCw :size="16" aria-hidden="true" />{{ t('monitor.usage.filters.refresh') }}
+        </AppButton>
         <AppButton type="submit">{{ t('monitor.usage.filters.apply') }}</AppButton>
         <AppButton data-test="usage-reset" variant="ghost" @click="resetFilters">
           {{ t('monitor.usage.filters.reset') }}
@@ -270,15 +276,15 @@ async function navigate(filters: UsageFilters): Promise<void> {
               <span>{{ t('monitor.usage.kpi.requests') }}</span>
               <strong>{{ formatCount(report.summary.request_count) }}</strong>
             </SurfaceCard>
-            <SurfaceCard class="usage-kpi">
+            <SurfaceCard class="usage-kpi" data-test="usage-kpi-outcomes">
               <Gauge :size="20" aria-hidden="true" />
-              <span>{{ t('monitor.usage.kpi.successRate') }}</span>
+              <span>{{ t('monitor.usage.kpi.outcomes') }}</span>
               <strong>
                 {{
-                  new Intl.NumberFormat(locale, {
-                    style: 'percent',
-                    maximumFractionDigits: 1,
-                  }).format(report.summary.success_count / report.summary.request_count)
+                  t('monitor.usage.kpi.outcomeCounts', {
+                    success: formatCount(report.summary.success_count),
+                    failure: formatCount(report.summary.failure_count),
+                  })
                 }}
               </strong>
             </SurfaceCard>
@@ -293,58 +299,160 @@ async function navigate(filters: UsageFilters): Promise<void> {
               <strong>{{ formatEstimatedCost(report.summary) }}</strong>
             </SurfaceCard>
           </div>
+          <dl
+            class="usage-token-definition"
+            data-test="usage-summary-token-definition"
+            :aria-label="t('monitor.usage.tokens.title')"
+          >
+            <div>
+              <dt>{{ t('monitor.usage.tokens.uncachedInput') }}</dt>
+              <dd>{{ formatCount(report.summary.uncached_input_tokens) }}</dd>
+            </div>
+            <div>
+              <dt>{{ t('monitor.usage.tokens.cacheRead') }}</dt>
+              <dd>{{ formatCount(report.summary.cache_read_tokens) }}</dd>
+            </div>
+            <div>
+              <dt>{{ t('monitor.usage.tokens.cacheWrite5m') }}</dt>
+              <dd>{{ formatCount(report.summary.cache_write_5m_tokens) }}</dd>
+            </div>
+            <div>
+              <dt>{{ t('monitor.usage.tokens.cacheWrite1h') }}</dt>
+              <dd>{{ formatCount(report.summary.cache_write_1h_tokens) }}</dd>
+            </div>
+            <div>
+              <dt>{{ t('monitor.usage.tokens.output') }}</dt>
+              <dd>{{ formatCount(report.summary.output_tokens) }}</dd>
+            </div>
+          </dl>
         </section>
 
-        <section class="usage-section" aria-labelledby="usage-quality-title">
+        <section
+          class="usage-section"
+          data-test="usage-window-quality"
+          aria-labelledby="usage-quality-title"
+        >
           <div class="usage-heading">
             <div>
               <h2 id="usage-quality-title">{{ t('monitor.usage.quality.title') }}</h2>
-              <p>{{ t('monitor.usage.quality.description') }}</p>
+              <p>{{ t('monitor.usage.quality.windowDescription') }}</p>
             </div>
           </div>
           <div class="usage-quality-grid">
             <SurfaceCard data-test="usage-quality-missing">
-              <StatusBadge :tone="report.summary.usage_missing_count ? 'warning' : 'success'">
+              <StatusBadge :tone="report.summary.usage_missing_count ? 'warning' : 'neutral'">
                 {{ t('monitor.usage.quality.missing') }}
               </StatusBadge>
               <strong>{{ formatCount(report.summary.usage_missing_count) }}</strong>
             </SurfaceCard>
             <SurfaceCard data-test="usage-quality-partial">
-              <StatusBadge :tone="report.summary.partial_count ? 'warning' : 'success'">
+              <StatusBadge :tone="report.summary.partial_count ? 'warning' : 'neutral'">
                 {{ t('monitor.usage.quality.partial') }}
               </StatusBadge>
               <strong>{{ formatCount(report.summary.partial_count) }}</strong>
             </SurfaceCard>
             <SurfaceCard data-test="usage-quality-unpriced">
-              <StatusBadge :tone="report.summary.unpriced_request_count ? 'warning' : 'success'">
+              <StatusBadge :tone="report.summary.unpriced_request_count ? 'warning' : 'neutral'">
                 {{ t('monitor.usage.quality.unpriced') }}
               </StatusBadge>
               <strong>{{ formatCount(report.summary.unpriced_request_count) }}</strong>
             </SurfaceCard>
-            <SurfaceCard data-test="usage-quality-dropped">
-              <StatusBadge :tone="report.request_log.dropped_total ? 'danger' : 'success'">
-                {{ t('monitor.usage.quality.dropped') }}
-              </StatusBadge>
-              <strong>{{ formatCount(report.request_log.dropped_total) }}</strong>
-            </SurfaceCard>
-            <SurfaceCard data-test="usage-quality-write-failures">
-              <StatusBadge :tone="report.request_log.write_failure_total ? 'danger' : 'success'">
-                {{ t('monitor.usage.quality.writeFailures') }}
-              </StatusBadge>
-              <strong>{{ formatCount(report.request_log.write_failure_total) }}</strong>
-            </SurfaceCard>
           </div>
-          <InlineFeedback v-if="hasQualityOverlap" data-test="usage-quality-overlap" tone="warning">
+          <InlineFeedback data-test="usage-quality-overlap" tone="info">
             {{ t('monitor.usage.quality.overlap') }}
+          </InlineFeedback>
+          <InlineFeedback
+            v-if="report.summary.partial_count > 0"
+            data-test="usage-partial-explanation"
+            tone="warning"
+          >
+            {{ t('monitor.usage.quality.partialExplanation') }}
+          </InlineFeedback>
+          <InlineFeedback
+            v-if="report.summary.unpriced_request_count > 0"
+            data-test="usage-unpriced-explanation"
+            tone="warning"
+          >
+            {{ t('monitor.usage.quality.unpricedExplanation') }}
           </InlineFeedback>
           <p class="usage-note" data-test="usage-aggregation-note">
             {{ t('monitor.usage.quality.aggregation') }}
-            <RouterLink data-test="usage-prices-link" to="/settings/model-prices">
+            <RouterLink
+              v-if="report.summary.unpriced_request_count > 0"
+              data-test="usage-prices-link"
+              to="/settings/model-prices"
+            >
               {{ t('monitor.usage.quality.openPrices') }}
             </RouterLink>
           </p>
         </section>
+      </template>
 
+      <section
+        class="usage-section"
+        data-test="usage-process-health"
+        aria-labelledby="usage-process-health-title"
+      >
+        <div class="usage-heading">
+          <div>
+            <h2 id="usage-process-health-title">{{ t('monitor.usage.process.title') }}</h2>
+            <p>{{ t('monitor.usage.process.description') }}</p>
+          </div>
+        </div>
+        <div class="usage-process-grid">
+          <SurfaceCard data-test="usage-quality-dropped">
+            <StatusBadge :tone="report.collection_health.dropped_total ? 'danger' : 'neutral'">
+              {{ t('monitor.usage.quality.dropped') }}
+            </StatusBadge>
+            <strong>{{ formatCount(report.collection_health.dropped_total) }}</strong>
+          </SurfaceCard>
+          <SurfaceCard data-test="usage-quality-write-failures">
+            <StatusBadge
+              :tone="report.collection_health.write_failure_total ? 'danger' : 'neutral'"
+            >
+              {{ t('monitor.usage.quality.writeFailures') }}
+            </StatusBadge>
+            <strong>{{ formatCount(report.collection_health.write_failure_total) }}</strong>
+          </SurfaceCard>
+          <SurfaceCard>
+            <span>{{ t('monitor.usage.process.lastWriteFailure') }}</span>
+            <strong>
+              <time
+                v-if="report.collection_health.last_write_failure_at"
+                :datetime="report.collection_health.last_write_failure_at"
+              >
+                {{ report.collection_health.last_write_failure_at }}
+              </time>
+              <template v-else>{{ t('monitor.usage.process.never') }}</template>
+            </strong>
+          </SurfaceCard>
+        </div>
+        <InlineFeedback
+          v-if="report.collection_health.dropped_total > 0"
+          data-test="usage-process-dropped-warning"
+          tone="danger"
+        >
+          {{ t('monitor.usage.process.droppedWarning') }}
+        </InlineFeedback>
+        <InlineFeedback
+          v-if="report.collection_health.write_failure_total > 0"
+          data-test="usage-process-write-failure-warning"
+          tone="danger"
+        >
+          {{ t('monitor.usage.process.writeFailureWarning') }}
+        </InlineFeedback>
+        <InlineFeedback
+          v-if="
+            report.collection_health.dropped_total === 0 &&
+            report.collection_health.write_failure_total === 0
+          "
+          tone="info"
+        >
+          {{ t('monitor.usage.process.clear') }}
+        </InlineFeedback>
+      </section>
+
+      <template v-if="hasData">
         <section class="usage-section" aria-labelledby="usage-trend-title">
           <div class="usage-heading">
             <div>
@@ -354,7 +462,11 @@ async function navigate(filters: UsageFilters): Promise<void> {
           </div>
           <SurfaceCard>
             <UsageSparkline
-              :range="report.range"
+              :range="{
+                from: report.from,
+                to: report.to,
+                granularity: report.granularity,
+              }"
               :series="report.series"
               :title="t('monitor.usage.trend.title')"
               :description="t('monitor.usage.trend.accessibleDescription')"
@@ -439,6 +551,11 @@ async function navigate(filters: UsageFilters): Promise<void> {
                 <th scope="col">{{ t('monitor.usage.columns.group') }}</th>
                 <th scope="col">{{ t('monitor.usage.columns.upstreamModel') }}</th>
                 <th scope="col">{{ t('monitor.usage.columns.requests') }}</th>
+                <th scope="col">{{ t('monitor.usage.tokens.uncachedInput') }}</th>
+                <th scope="col">{{ t('monitor.usage.tokens.cacheRead') }}</th>
+                <th scope="col">{{ t('monitor.usage.tokens.cacheWrite5m') }}</th>
+                <th scope="col">{{ t('monitor.usage.tokens.cacheWrite1h') }}</th>
+                <th scope="col">{{ t('monitor.usage.tokens.output') }}</th>
                 <th scope="col">{{ t('monitor.usage.columns.totalTokens') }}</th>
                 <th scope="col">{{ t('monitor.usage.columns.estimatedCost') }}</th>
                 <th scope="col">{{ t('monitor.usage.columns.quality') }}</th>
@@ -447,15 +564,17 @@ async function navigate(filters: UsageFilters): Promise<void> {
             <tbody>
               <tr v-for="(row, index) in report.breakdown" :key="`${row.group_id}:${row.model}`">
                 <td>
-                  {{
-                    groupsQuery.data.value?.find((group) => group.id === row.group_id)?.name ??
-                    `#${row.group_id}`
-                  }}
+                  {{ groupLabel(row.group_id) }}
                 </td>
                 <td>
                   <code>{{ row.model }}</code>
                 </td>
                 <td>{{ formatCount(row.request_count) }}</td>
+                <td>{{ formatCount(row.uncached_input_tokens) }}</td>
+                <td>{{ formatCount(row.cache_read_tokens) }}</td>
+                <td>{{ formatCount(row.cache_write_5m_tokens) }}</td>
+                <td>{{ formatCount(row.cache_write_1h_tokens) }}</td>
+                <td>{{ formatCount(row.output_tokens) }}</td>
                 <td>{{ formatCount(row.total_tokens) }}</td>
                 <td :data-test="`usage-breakdown-cost-${index}`">
                   {{ formatEstimatedCost(row) }}
@@ -550,7 +669,9 @@ async function navigate(filters: UsageFilters): Promise<void> {
 }
 
 .usage-kpi-grid,
-.usage-quality-grid {
+.usage-quality-grid,
+.usage-process-grid,
+.usage-token-definition {
   display: grid;
   gap: var(--space-3);
 }
@@ -560,11 +681,37 @@ async function navigate(filters: UsageFilters): Promise<void> {
 }
 
 .usage-quality-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.usage-process-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.usage-token-definition {
   grid-template-columns: repeat(5, minmax(0, 1fr));
+  margin: 0;
+}
+
+.usage-token-definition > div {
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-2);
+}
+
+.usage-token-definition dt,
+.usage-process-grid span {
+  color: var(--color-text-muted);
+  font-size: 0.8125rem;
+}
+
+.usage-token-definition dd {
+  margin: var(--space-1) 0 0;
+  font-weight: 700;
 }
 
 .usage-kpi,
-.usage-quality-grid > :deep(.surface-card) {
+.usage-quality-grid > :deep(.surface-card),
+.usage-process-grid > :deep(.surface-card) {
   display: grid;
   min-width: 0;
   gap: var(--space-2);
@@ -580,7 +727,8 @@ async function navigate(filters: UsageFilters): Promise<void> {
 }
 
 .usage-kpi strong,
-.usage-quality-grid strong {
+.usage-quality-grid strong,
+.usage-process-grid strong {
   font-size: 1.25rem;
   overflow-wrap: anywhere;
 }
@@ -602,7 +750,9 @@ async function navigate(filters: UsageFilters): Promise<void> {
 
 @media (max-width: 1000px) {
   .usage-kpi-grid,
-  .usage-quality-grid {
+  .usage-quality-grid,
+  .usage-process-grid,
+  .usage-token-definition {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -610,7 +760,9 @@ async function navigate(filters: UsageFilters): Promise<void> {
 @media (max-width: 720px) {
   .usage-filter-grid,
   .usage-kpi-grid,
-  .usage-quality-grid {
+  .usage-quality-grid,
+  .usage-process-grid,
+  .usage-token-definition {
     grid-template-columns: minmax(0, 1fr);
   }
 }

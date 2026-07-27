@@ -317,8 +317,14 @@ describe('LogDetailDrawer', () => {
     await mountDrawer(logFixture({ cost_state: 'priced', estimated_cost_usd: 0 }))
 
     const cost = bodyElement('[data-test="log-estimated-cost"]').textContent ?? ''
-    expect(cost).toContain('$0.000000')
+    expect(cost).toContain('$0.00')
     expect(cost).not.toContain('Unknown')
     expect(cost).not.toContain('Free')
+  })
+
+  it('shows the lower-bound marker for a positive estimated cost below display precision', async () => {
+    await mountDrawer(logFixture({ cost_state: 'priced', estimated_cost_usd: 0.000000001 }))
+
+    expect(bodyElement('[data-test="log-estimated-cost"]').textContent).toContain('<$0.00000001')
   })
 })

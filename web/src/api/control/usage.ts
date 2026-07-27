@@ -1,8 +1,6 @@
 import type { ApiClient } from '@/api/client'
 import { InvalidResponseError } from '@/api/errors'
 
-import type { RequestLogHealthDto } from './types'
-
 export interface UsageFilters {
   range: '24h' | '30d'
   group_id?: number
@@ -26,14 +24,22 @@ export interface UsageAggregateDto {
 }
 
 export interface UsageReportDto {
+  range: '24h' | '30d'
+  granularity: 'hour' | 'day'
+  timezone: 'UTC'
+  from: string
+  to: string
   observed_at: string
-  range: { from: string; to: string; granularity: 'hour' | 'day' }
-  filters: { group_id: number | null; model: string }
   summary: UsageAggregateDto
   series: Array<UsageAggregateDto & { bucket_start: string; bucket_end: string }>
   breakdown: Array<UsageAggregateDto & { group_id: number; model: string }>
   breakdown_truncated: boolean
-  request_log: RequestLogHealthDto
+  collection_health: {
+    scope: 'current_process'
+    dropped_total: number
+    write_failure_total: number
+    last_write_failure_at: string | null
+  }
 }
 
 const aggregateKeys = [
@@ -49,21 +55,6 @@ const aggregateKeys = [
   'usage_missing_count',
   'partial_count',
   'unpriced_request_count',
-] as const
-
-const requestLogCountKeys = [
-  'enqueued_total',
-  'persisted_total',
-  'dropped_not_running_total',
-  'dropped_queue_full_total',
-  'dropped_stopping_total',
-  'dropped_persist_failed_total',
-  'dropped_shutdown_total',
-  'dropped_total',
-  'write_failure_total',
-  'retention_delete_failure_total',
-  'queue_depth',
-  'queue_capacity',
 ] as const
 
 const hourMs = 60 * 60 * 1000
@@ -149,33 +140,45 @@ function projectAggregate(value: unknown): UsageAggregateDto {
   return value as unknown as UsageAggregateDto
 }
 
-function projectRequestLog(value: unknown): RequestLogHealthDto {
-  if (!isRecord(value)) throw new InvalidResponseError()
-  for (const key of requestLogCountKeys) {
-    if (!isSafeNonNegativeInteger(value[key])) throw new InvalidResponseError()
+function projectCollectionHealth(value: unknown): UsageReportDto['collection_health'] {
+  if (
+    !isRecord(value) ||
+    value.scope !== 'current_process' ||
+    !isSafeNonNegativeInteger(value.dropped_total) ||
+    !isSafeNonNegativeInteger(value.write_failure_total) ||
+    (value.last_write_failure_at !== null && !isRFC3339Timestamp(value.last_write_failure_at))
+  ) {
+    throw new InvalidResponseError()
   }
-  for (const key of ['last_write_failure_at', 'last_retention_failure_at'] as const) {
-    if (value[key] !== null && !isRFC3339Timestamp(value[key])) throw new InvalidResponseError()
+  return {
+    scope: 'current_process',
+    dropped_total: value.dropped_total,
+    write_failure_total: value.write_failure_total,
+    last_write_failure_at: value.last_write_failure_at,
   }
-  return value as unknown as RequestLogHealthDto
 }
 
 export function projectUsageReport(value: unknown): UsageReportDto {
-  if (!isRecord(value) || !isRecord(value.range) || !isRecord(value.filters)) {
+  if (
+    !isRecord(value) ||
+    (value.range !== '24h' && value.range !== '30d') ||
+    (value.granularity !== 'hour' && value.granularity !== 'day') ||
+    value.timezone !== 'UTC' ||
+    (value.range === '24h' && value.granularity !== 'hour') ||
+    (value.range === '30d' && value.granularity !== 'day')
+  ) {
     throw new InvalidResponseError()
   }
   const observedAt = timestamp(value.observed_at)
-  const rangeFrom = timestamp(value.range.from)
-  const rangeTo = timestamp(value.range.to)
-  const granularity = value.range.granularity
-  if (granularity !== 'hour' && granularity !== 'day') {
-    throw new InvalidResponseError()
-  }
+  const rangeFrom = timestamp(value.from)
+  const rangeTo = timestamp(value.to)
+  const range = value.range
+  const granularity = value.granularity
   const observedAtMs = timestampMs(observedAt)
   const rangeFromMs = timestampMs(rangeFrom)
   const rangeToMs = timestampMs(rangeTo)
   const bucketDurationMs = granularity === 'hour' ? hourMs : dayMs
-  const bucketCount = granularity === 'hour' ? 24 : 30
+  const bucketCount = range === '24h' ? 24 : 30
   if (
     !isUTCAligned(rangeFromMs, granularity) ||
     !isUTCAligned(rangeToMs, granularity) ||
@@ -185,11 +188,7 @@ export function projectUsageReport(value: unknown): UsageReportDto {
   ) {
     throw new InvalidResponseError()
   }
-  const filters = value.filters
   if (
-    (filters.group_id !== null && !isSafeNonNegativeInteger(filters.group_id)) ||
-    (filters.group_id !== null && filters.group_id === 0) ||
-    typeof filters.model !== 'string' ||
     !Array.isArray(value.series) ||
     !Array.isArray(value.breakdown) ||
     typeof value.breakdown_truncated !== 'boolean'
@@ -227,23 +226,20 @@ export function projectUsageReport(value: unknown): UsageReportDto {
     ) {
       throw new InvalidResponseError()
     }
-    if (
-      (filters.group_id !== null && item.group_id !== filters.group_id) ||
-      (filters.model !== '' && item.model !== filters.model)
-    ) {
-      throw new InvalidResponseError()
-    }
     return { ...projectAggregate(item), group_id: item.group_id, model: item.model }
   })
   return {
+    range,
+    granularity,
+    timezone: 'UTC',
+    from: rangeFrom,
+    to: rangeTo,
     observed_at: observedAt,
-    range: { from: rangeFrom, to: rangeTo, granularity },
-    filters: { group_id: filters.group_id, model: filters.model },
     summary: projectAggregate(value.summary),
     series,
     breakdown,
     breakdown_truncated: value.breakdown_truncated,
-    request_log: projectRequestLog(value.request_log),
+    collection_health: projectCollectionHealth(value.collection_health),
   }
 }
 

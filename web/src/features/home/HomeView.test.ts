@@ -62,12 +62,11 @@ const healthFixture: RuntimeHealthDto = {
 
 const usageFixture: UsageReportDto = {
   observed_at: '2026-07-25T10:00:01Z',
-  range: {
-    from: '2026-07-24T11:00:00Z',
-    to: '2026-07-25T11:00:00Z',
-    granularity: 'hour',
-  },
-  filters: { group_id: null, model: '' },
+  range: '24h',
+  granularity: 'hour',
+  timezone: 'UTC',
+  from: '2026-07-24T11:00:00Z',
+  to: '2026-07-25T11:00:00Z',
   summary: {
     request_count: 4,
     success_count: 3,
@@ -86,7 +85,12 @@ const usageFixture: UsageReportDto = {
   series: [],
   breakdown: [],
   breakdown_truncated: false,
-  request_log: healthFixture.request_log,
+  collection_health: {
+    scope: 'current_process',
+    dropped_total: healthFixture.request_log.dropped_total,
+    write_failure_total: healthFixture.request_log.write_failure_total,
+    last_write_failure_at: healthFixture.request_log.last_write_failure_at,
+  },
 }
 
 async function mountHome(api: FakeApi, origin?: string, queryClient?: QueryClient) {

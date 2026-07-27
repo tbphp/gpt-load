@@ -73,7 +73,7 @@ cp .env.example .env
 docker compose config
 ```
 
-Continue only if the resolved configuration uses image `ghcr.io/tbphp/gpt-load:2`, sets `DATA_DIR=/app/data` and `DATABASE_DSN=/app/data/gpt-load.db`, and mounts a named volume at `/app/data`. If the checkout still resolves to `latest` or a host bind mount, the later T18 container closeout has not landed. Do not use that Compose file for a 2.0 production deployment, and do not substitute `latest`.
+Continue only if the resolved configuration uses image `ghcr.io/tbphp/gpt-load:2`, sets `DATA_DIR=/app/data` and `DATABASE_DSN=/app/data/gpt-load.db`, and mounts a named volume at `/app/data`. If it resolves to `latest` or a host bind mount, do not use that Compose file for a 2.0 production deployment, and do not substitute `latest`.
 
 After those preconditions are met:
 

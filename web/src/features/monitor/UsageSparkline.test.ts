@@ -21,7 +21,7 @@ function point(bucketStart: string, requestCount: number) {
 
 function mountSparkline(
   series: Array<{ bucket_start: string; bucket_end: string; request_count: number }>,
-  inputRange: UsageReportDto['range'] = range,
+  inputRange: Pick<UsageReportDto, 'from' | 'to' | 'granularity'> = range,
 ) {
   return mount(UsageSparkline, {
     props: {

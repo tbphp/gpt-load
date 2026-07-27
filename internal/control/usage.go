@@ -7,7 +7,10 @@ import (
 	"math"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
 
@@ -25,17 +28,6 @@ const (
 
 type UsageStatReader interface {
 	QueryUsage(context.Context, requestlog.UsageQuery) (requestlog.UsageReport, error)
-}
-
-type usageRangeResponse struct {
-	From        string                      `json:"from"`
-	To          string                      `json:"to"`
-	Granularity requestlog.UsageGranularity `json:"granularity"`
-}
-
-type usageFiltersResponse struct {
-	GroupID *uint  `json:"group_id"`
-	Model   string `json:"model"`
 }
 
 type usageAggregateResponse struct {
@@ -66,15 +58,25 @@ type usageBreakdownResponse struct {
 	usageAggregateResponse
 }
 
+type usageCollectionHealthResponse struct {
+	Scope              string     `json:"scope"`
+	DroppedTotal       uint64     `json:"dropped_total"`
+	WriteFailureTotal  uint64     `json:"write_failure_total"`
+	LastWriteFailureAt *time.Time `json:"last_write_failure_at"`
+}
+
 type usageResponse struct {
-	ObservedAt         string                   `json:"observed_at"`
-	Range              usageRangeResponse       `json:"range"`
-	Filters            usageFiltersResponse     `json:"filters"`
-	Summary            usageAggregateResponse   `json:"summary"`
-	Series             []usageSeriesResponse    `json:"series"`
-	Breakdown          []usageBreakdownResponse `json:"breakdown"`
-	BreakdownTruncated bool                     `json:"breakdown_truncated"`
-	RequestLog         requestLogHealthResponse `json:"request_log"`
+	Range              string                        `json:"range"`
+	Granularity        requestlog.UsageGranularity   `json:"granularity"`
+	Timezone           string                        `json:"timezone"`
+	From               string                        `json:"from"`
+	To                 string                        `json:"to"`
+	ObservedAt         string                        `json:"observed_at"`
+	Summary            usageAggregateResponse        `json:"summary"`
+	Series             []usageSeriesResponse         `json:"series"`
+	Breakdown          []usageBreakdownResponse      `json:"breakdown"`
+	BreakdownTruncated bool                          `json:"breakdown_truncated"`
+	CollectionHealth   usageCollectionHealthResponse `json:"collection_health"`
 }
 
 func (service *Service) QueryUsage(
@@ -151,12 +153,25 @@ func parseUsageQuery(rawQuery string, observedAt time.Time) (requestlog.UsageQue
 		query.GroupID = &groupID
 	}
 	if value, ok := singleQueryValue(values, "model"); ok {
-		if value == "" {
+		if !validUsageModel(value) {
 			return requestlog.UsageQuery{}, app_errors.ErrValidation
 		}
 		query.Model = value
 	}
 	return query, nil
+}
+
+func validUsageModel(value string) bool {
+	if !utf8.ValidString(value) || len(value) < 1 || len(value) > 255 ||
+		strings.TrimSpace(value) != value {
+		return false
+	}
+	for _, character := range value {
+		if unicode.IsControl(character) {
+			return false
+		}
+	}
+	return true
 }
 
 func parseUsageGroupID(value string) (uint, *app_errors.APIError) {
@@ -182,22 +197,36 @@ func (service *Service) mapUsageResponse(
 	if err != nil {
 		return usageResponse{}, err
 	}
-	requestLog, err := mapRequestLogHealth(service.requestLogStats.Stats())
-	if err != nil {
-		return usageResponse{}, err
+	stats := service.requestLogStats.Stats()
+	if stats.DroppedTotal > uint64(maxSafeInteger) ||
+		stats.WriteFailureTotal > uint64(maxSafeInteger) {
+		return usageResponse{}, fmt.Errorf("map usage collection health: unsafe counter")
+	}
+	rangeValue := usageRange24Hours
+	switch query.Granularity {
+	case requestlog.UsageGranularityHour:
+	case requestlog.UsageGranularityDay:
+		rangeValue = usageRange30Days
+	default:
+		return usageResponse{}, fmt.Errorf("map usage response: invalid granularity")
 	}
 	result := usageResponse{
-		ObservedAt: observedAt.UTC().Format(time.RFC3339Nano),
-		Range: usageRangeResponse{
-			From: query.From.UTC().Format(time.RFC3339Nano), To: query.To.UTC().Format(time.RFC3339Nano),
-			Granularity: query.Granularity,
+		Range:       rangeValue,
+		Granularity: query.Granularity,
+		Timezone:    "UTC",
+		From:        query.From.UTC().Format(time.RFC3339Nano),
+		To:          query.To.UTC().Format(time.RFC3339Nano),
+		ObservedAt:  observedAt.UTC().Format(time.RFC3339Nano),
+		CollectionHealth: usageCollectionHealthResponse{
+			Scope:              "current_process",
+			DroppedTotal:       stats.DroppedTotal,
+			WriteFailureTotal:  stats.WriteFailureTotal,
+			LastWriteFailureAt: optionalUTC(stats.LastWriteFailureAt),
 		},
-		Filters:            usageFiltersResponse{GroupID: query.GroupID, Model: query.Model},
 		Summary:            summary,
 		Series:             make([]usageSeriesResponse, 0, len(report.Series)),
 		Breakdown:          make([]usageBreakdownResponse, 0, len(report.Breakdown)),
 		BreakdownTruncated: report.BreakdownTruncated,
-		RequestLog:         requestLog,
 	}
 	for _, point := range report.Series {
 		aggregate, err := mapUsageAggregate(point.UsageAggregate)

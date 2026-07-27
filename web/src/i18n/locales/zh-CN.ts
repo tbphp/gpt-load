@@ -329,6 +329,8 @@ export default {
         anyGroup: '全部 Group',
         model: '上游模型',
         modelHelp: '可选，精确限定路由后的上游模型。',
+        deletedOrUnknown: '#{id} · 已删除或未知',
+        refresh: '刷新',
         apply: '应用',
         reset: '重置',
       },
@@ -350,8 +352,18 @@ export default {
         description: '后端聚合观测时间：{time}。',
         requests: '持久化请求',
         successRate: '成功率',
+        outcomes: '成功与失败',
+        outcomeCounts: '成功 {success} · 失败 {failure}',
         totalTokens: '已报告 Token 总数',
         estimatedCost: '预估成本',
+      },
+      tokens: {
+        title: '已报告 Token 分类',
+        uncachedInput: '非缓存输入',
+        cacheRead: '缓存读取',
+        cacheWrite5m: '缓存写入（5 分钟）',
+        cacheWrite1h: '缓存写入（1 小时）',
+        output: '输出',
       },
       cost: {
         unknown: '未知',
@@ -360,15 +372,29 @@ export default {
       quality: {
         title: '用量与持久化质量',
         description: '各项计数分开呈现，避免单一分数掩盖不完整用量。',
+        windowDescription: '持久化质量计数只适用于所选时间窗内已持久化的记录。',
         missing: '用量缺失',
         partial: '用量部分缺失',
         unpriced: '成本未定价',
         dropped: '请求丢弃',
         writeFailures: '写入失败',
         overlap: '用量缺失、部分缺失与未定价计数可能重叠，请勿将其相加作为请求总数。',
+        partialExplanation:
+          '只有用量专用的最终数据块提供不完整 Token 明细时会记录部分用量；这些 Token 不计入默认总计。',
+        unpricedExplanation:
+          '未定价请求可能来自不支持的计费明细或诊断路径；其 Token 不计入默认 Token 与预估成本总计。',
         aggregation:
           '默认 Token 与预估成本总计仅纳入用量完整且已定价的请求。部分缺失、缺失、未定价和不适用请求均不纳入两项总计。',
         openPrices: '查看模型价格',
+      },
+      process: {
+        title: '当前进程采集健康',
+        description: '这些当前进程计数不受报告筛选影响，并会在进程重启时重置。',
+        lastWriteFailure: '最近写入失败',
+        never: '尚无记录',
+        clear: '当前进程未报告遥测丢弃或写入失败。',
+        droppedWarning: '发生遥测丢弃时，统计只覆盖成功持久化的请求。',
+        writeFailureWarning: '当前进程发生过 RequestLog 持久化批次失败。',
       },
       trend: {
         title: '持久化请求趋势',
@@ -878,7 +904,13 @@ export default {
     stale: '后台刷新失败，模型价格可能已过期。',
     priceUnit: '美元 / 每百万 Token',
     historyNote: '价格变更只影响后续成本估算，不会重新计算历史用量或成本。',
+    modelIdentityNote: '规则匹配路由后的上游模型 ID；相同模型 ID 在所有 Group 间共用一个全局价格。',
+    precedenceNote: '所有用户覆盖都优先于内置精确规则和前缀规则。',
+    wholeRuleNote: '用户覆盖会替换完整的五槽位规则；未配置槽位不会回退到内置值。',
     notConfigured: '未配置',
+    explicitlyFree: '$0 · 显式免费',
+    configuredPrice: '${price} / 1M',
+    globalUserOverride: '全局用户覆盖',
     kind: {
       exact: '精确模型',
       prefix: '前缀规则',
@@ -899,6 +931,7 @@ export default {
       pattern: '模型模式',
       kind: '规则类型',
       source: '来源',
+      updatedAt: '更新时间',
       actions: '操作',
     },
     builtin: {
@@ -933,6 +966,16 @@ export default {
       globalWarning:
         '所有用户规则都优先于内置规则。单独的 * 会遮蔽全部内置价格规则；更具体的用户规则仍优先于 *。',
       globalConfirm: '我理解 * 会遮蔽全部内置价格规则。',
+      globalDialog: {
+        title: '创建全局用户价格覆盖？',
+        description: '单独的 * 会更改所有没有更具体用户覆盖的模型预估价格规则。',
+        close: '关闭全局价格覆盖确认',
+        precedence: '此全局用户覆盖优先于所有内置精确规则和前缀规则。',
+        noFallback: '未配置价格槽位不会回退；完整的五槽位用户规则会替换内置规则。',
+        futureOnly: '更改只影响后续已完成或 Emit 请求，不会重新计算历史记录。',
+        reset: '重置后，后续请求会恢复使用剩余的用户规则和内置规则。',
+        confirm: '创建全局覆盖',
+      },
       save: '保存覆盖',
       saveFailed: '无法保存模型价格覆盖，输入内容已保留。',
       errors: {

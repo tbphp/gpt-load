@@ -128,6 +128,19 @@ func TestReleaseWorkflowUsesTagOnlyTriggerAndStrictSemverGuard(t *testing.T) {
 	}
 }
 
+func TestReleaseWorkflowDoesNotRequireUntrackedAgentInstructionFiles(t *testing.T) {
+	content := readRepositoryFile(t, ".github/workflows/release.yml")
+	verifyJob := workflowJobBlock(t, content, "verify-and-build-web")
+	if !strings.Contains(verifyJob, "git diff --check") {
+		t.Fatal("release verification does not run git diff --check")
+	}
+	for _, untracked := range []string{"AGENTS.md", "CLAUDE.md"} {
+		if strings.Contains(verifyJob, untracked) {
+			t.Fatalf("release verification requires untracked %s", untracked)
+		}
+	}
+}
+
 func TestReleaseWorkflowBuildsOneWebDistAndFiveVersionedBinaries(t *testing.T) {
 	content := readRepositoryFile(t, ".github/workflows/release.yml")
 	if count := strings.Count(content, "uses: ./.github/actions/web-ci"); count != 1 {
@@ -252,6 +265,17 @@ func TestReleaseWorkflowIncludesCompleteS5NotesAndCSPWithinE2E(t *testing.T) {
 func TestReleaseWorkflowVerifiesDownloadedNativeChecksumsAndGeneratedKeys(t *testing.T) {
 	content := readRepositoryFile(t, ".github/workflows/release.yml")
 	nativeJob := workflowJobBlock(t, content, "native-artifact-smoke")
+	for _, scriptPath := range []string{
+		".github/scripts/release-native-smoke.sh",
+		".github/scripts/release-native-smoke.ps1",
+	} {
+		if !strings.Contains(nativeJob, scriptPath) {
+			t.Fatalf("native smoke does not invoke %s:\n%s", scriptPath, nativeJob)
+		}
+	}
+	nativeImplementation := nativeJob +
+		readRepositoryFile(t, ".github/scripts/release-native-smoke.sh") +
+		readRepositoryFile(t, ".github/scripts/release-native-smoke.ps1")
 	for _, required := range []string{
 		"name: release-assets",
 		"SHA256SUMS",
@@ -273,18 +297,18 @@ func TestReleaseWorkflowVerifiesDownloadedNativeChecksumsAndGeneratedKeys(t *tes
 		"$process.ExitCode -ne 0",
 		"if (-not $process.HasExited)",
 	} {
-		if !strings.Contains(nativeJob, required) {
-			t.Fatalf("native smoke does not contain %q:\n%s", required, nativeJob)
+		if !strings.Contains(nativeImplementation, required) {
+			t.Fatalf("native smoke does not contain %q", required)
 		}
 	}
-	if strings.Contains(nativeJob, "AUTH_KEY=release-native-smoke") ||
-		strings.Contains(nativeJob, `$env:AUTH_KEY = "release-native-smoke"`) {
+	if strings.Contains(nativeImplementation, "AUTH_KEY=release-native-smoke") ||
+		strings.Contains(nativeImplementation, `$env:AUTH_KEY = "release-native-smoke"`) {
 		t.Fatal("native smoke bypasses generated auth.key with an explicit AUTH_KEY")
 	}
-	if strings.Contains(nativeJob, "$process = Start-Process") {
+	if strings.Contains(nativeImplementation, "$process = Start-Process") {
 		t.Fatal("Windows native smoke uses Start-Process without a new console process group")
 	}
-	if strings.Contains(nativeJob, "CREATE_NEW_CONSOLE") {
+	if strings.Contains(nativeImplementation, "CREATE_NEW_CONSOLE") {
 		t.Fatal("Windows native smoke gives the child a separate console that cannot receive the targeted CTRL_BREAK")
 	}
 }
@@ -381,6 +405,163 @@ func TestReleaseWorkflowPostPublishVerifiesAliasesAndExactDigests(t *testing.T) 
 	}
 }
 
+func TestReleaseWorkflowPostPublishDownloadsExactAssetsAndRunsFiveNativeSmokes(t *testing.T) {
+	content := readRepositoryFile(t, ".github/workflows/release.yml")
+	inventoryJob := workflowJobBlock(t, content, "post-publish-verify")
+	for _, required := range []string{
+		"gh release download",
+		"public-release",
+		"SHA256SUMS",
+		"sha256sum --check",
+		"asset_count",
+		`test "${asset_count}" = "6"`,
+	} {
+		if !strings.Contains(inventoryJob, required) {
+			t.Fatalf("post-publish asset inventory does not contain %q:\n%s", required, inventoryJob)
+		}
+	}
+
+	nativeJob := workflowJobBlock(t, content, "post-publish-native-smoke")
+	for _, required := range []string{
+		"publish-github",
+		"publish-images",
+		"ubuntu-24.04",
+		"ubuntu-24.04-arm",
+		"macos-15-intel",
+		"macos-15",
+		"windows-latest",
+		"gpt-load-linux-amd64",
+		"gpt-load-linux-arm64",
+		"gpt-load-macos-amd64",
+		"gpt-load-macos-arm64",
+		"gpt-load-windows-amd64.exe",
+		"gh release download",
+		".github/scripts/release-native-smoke.sh",
+		".github/scripts/release-native-smoke.ps1",
+	} {
+		if !strings.Contains(nativeJob, required) {
+			t.Fatalf("post-publish native smoke does not contain %q:\n%s", required, nativeJob)
+		}
+	}
+}
+
+func TestReleaseWorkflowRunsBothPublishedImagesAndPreservesLatest(t *testing.T) {
+	content := readRepositoryFile(t, ".github/workflows/release.yml")
+	snapshotJob := workflowJobBlock(t, content, "capture-channel-baseline")
+	for _, required := range []string{
+		"ghcr_latest_digest",
+		"dockerhub_latest_digest",
+		"ghcr.io/tbphp/gpt-load:latest",
+		"tbphp/gpt-load:latest",
+		".github/scripts/release-image-digest.sh",
+	} {
+		if !strings.Contains(snapshotJob, required) {
+			t.Fatalf("latest digest snapshot does not contain %q:\n%s", required, snapshotJob)
+		}
+	}
+
+	imagePublication := workflowJobBlock(t, content, "publish-images")
+	if !strings.Contains(imagePublication, "capture-channel-baseline") {
+		t.Fatal("image publication is not ordered after the latest digest snapshot")
+	}
+
+	postPublish := workflowJobBlock(t, content, "post-publish-verify")
+	for _, required := range []string{
+		"capture-channel-baseline",
+		"RELEASE_SMOKE_SOURCE_IMAGE",
+		`ghcr.io/tbphp/gpt-load:${{ needs.validate-tag.outputs.image_exact }}`,
+		`tbphp/gpt-load:${{ needs.validate-tag.outputs.image_exact }}`,
+		".github/scripts/release-docker-smoke.sh",
+		".github/scripts/release-image-digest.sh",
+		"ghcr_latest_digest",
+		"dockerhub_latest_digest",
+	} {
+		if !strings.Contains(postPublish, required) {
+			t.Fatalf("published image runtime verification does not contain %q:\n%s", required, postPublish)
+		}
+	}
+	for name, block := range map[string]string{
+		"capture-channel-baseline": snapshotJob,
+		"post-publish-verify":      postPublish,
+	} {
+		for _, required := range []string{
+			"Log in to Docker Hub",
+			"username: ${{ secrets.DOCKERHUB_USERNAME }}",
+			"password: ${{ secrets.DOCKERHUB_TOKEN }}",
+		} {
+			if !strings.Contains(block, required) {
+				t.Fatalf("%s does not contain authenticated Docker Hub read %q", name, required)
+			}
+		}
+	}
+}
+
+func TestReleaseImageDigestFailsClosedOnOperationalInspectionErrors(t *testing.T) {
+	for _, message := range []string{"rate limit exceeded", "docker: command not found"} {
+		t.Run(message, func(t *testing.T) {
+			script := filepath.Join("..", "..", ".github", "scripts", "release-image-digest.sh")
+			fakeBin := t.TempDir()
+			fakeDocker := filepath.Join(fakeBin, "docker")
+			if err := os.WriteFile(
+				fakeDocker,
+				[]byte("#!/usr/bin/env sh\nprintf '"+message+"\\n' >&2\nexit 1\n"),
+				0o700,
+			); err != nil {
+				t.Fatalf("write fake docker: %v", err)
+			}
+			command := exec.Command("bash", script, "example.test/gpt-load:latest")
+			command.Env = append(os.Environ(), "PATH="+fakeBin+":"+os.Getenv("PATH"))
+			output, err := command.CombinedOutput()
+			if err == nil {
+				t.Fatalf("operational inspect failure returned success: %s", output)
+			}
+			if !strings.Contains(string(output), message) {
+				t.Fatalf("operational inspect failure output = %q", output)
+			}
+		})
+	}
+}
+
+func TestReleaseImageDigestReturnsAbsentOnlyForMissingManifest(t *testing.T) {
+	script := filepath.Join("..", "..", ".github", "scripts", "release-image-digest.sh")
+	fakeBin := t.TempDir()
+	fakeDocker := filepath.Join(fakeBin, "docker")
+	if err := os.WriteFile(
+		fakeDocker,
+		[]byte("#!/usr/bin/env sh\nprintf 'manifest unknown\\n' >&2\nexit 1\n"),
+		0o700,
+	); err != nil {
+		t.Fatalf("write fake docker: %v", err)
+	}
+	command := exec.Command("bash", script, "example.test/gpt-load:latest")
+	command.Env = append(os.Environ(), "PATH="+fakeBin+":"+os.Getenv("PATH"))
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("missing manifest returned error: %v\n%s", err, output)
+	}
+	if strings.TrimSpace(string(output)) != "absent" {
+		t.Fatalf("missing manifest output = %q, want absent", output)
+	}
+}
+
+func TestReleaseDockerSmokeCanUsePublishedSourceWithoutDeletingIt(t *testing.T) {
+	script := readRepositoryFile(t, ".github/scripts/release-docker-smoke.sh")
+	for _, required := range []string{
+		"RELEASE_SMOKE_SOURCE_IMAGE",
+		`docker pull --platform "${platform}" "${source_image}"`,
+		`docker image tag "${source_image}" "${image}"`,
+		`docker image rm "${image}"`,
+		"prices.data.overrides.some",
+	} {
+		if !strings.Contains(script, required) {
+			t.Fatalf("release Docker smoke source-image mode does not contain %q", required)
+		}
+	}
+	if strings.Contains(script, `docker image rm "${source_image}"`) {
+		t.Fatal("release Docker smoke deletes the externally owned source image")
+	}
+}
+
 func TestReleaseWorkflowRemovesObsoletePublishers(t *testing.T) {
 	for _, name := range []string{
 		".github/workflows/docker-build.yml",
@@ -390,6 +571,15 @@ func TestReleaseWorkflowRemovesObsoletePublishers(t *testing.T) {
 	} {
 		if _, err := os.Stat(filepath.Join("..", "..", name)); !os.IsNotExist(err) {
 			t.Fatalf("obsolete publisher still exists: %s", name)
+		}
+	}
+}
+
+func TestReadmesDoNotExposeInternalReleaseTaskNames(t *testing.T) {
+	for _, name := range []string{"README.md", "README_CN.md", "README_JP.md"} {
+		content := readRepositoryFile(t, name)
+		if strings.Contains(content, "T18") {
+			t.Fatalf("%s exposes the completed internal T18 task name", name)
 		}
 	}
 }

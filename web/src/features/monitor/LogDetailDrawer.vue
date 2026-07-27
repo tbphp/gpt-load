@@ -12,6 +12,7 @@ import AppDrawer from '@/components/ui/AppDrawer.vue'
 import CopyButton from '@/components/ui/CopyButton.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
+import { formatEstimatedUSD } from '@/features/usage/estimated-cost'
 
 const props = defineProps<{
   open: boolean
@@ -142,12 +143,7 @@ function tokenValue(log: RequestLogItemDto, value: number): string {
 function estimatedCost(log: RequestLogItemDto): string {
   if (log.cost_state === 'not_applicable') return t('monitor.logs.drawer.usage.notApplicable')
   if (log.cost_state === 'unpriced') return t('monitor.logs.drawer.usage.unknown')
-  return new Intl.NumberFormat(locale.value, {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: 6,
-    maximumFractionDigits: 6,
-  }).format(log.estimated_cost_usd)
+  return formatEstimatedUSD(log.estimated_cost_usd, locale.value)
 }
 </script>
 

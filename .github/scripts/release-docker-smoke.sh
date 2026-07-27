@@ -4,6 +4,7 @@ umask 077
 
 release_version="${RELEASE_VERSION:-v2.0.0-local}"
 suffix="${RELEASE_SMOKE_SUFFIX:-local-$$}"
+source_image="${RELEASE_SMOKE_SOURCE_IMAGE:-}"
 case "${suffix}" in
   *[!A-Za-z0-9_-]*)
     printf 'RELEASE_SMOKE_SUFFIX contains unsupported characters\n' >&2
@@ -117,10 +118,16 @@ case "${docker_arch}" in
     ;;
 esac
 
-docker build \
-  --platform "${platform}" \
-  --build-arg "VERSION=${release_version}" \
-  -t "${image}" .
+if [[ -n "${source_image}" ]]; then
+  test "${source_image}" != "${image}"
+  docker pull --platform "${platform}" "${source_image}"
+  docker image tag "${source_image}" "${image}"
+else
+  docker build \
+    --platform "${platform}" \
+    --build-arg "VERSION=${release_version}" \
+    -t "${image}" .
+fi
 test "$(docker image inspect -f '{{.Config.User}}' "${image}")" = "10001:10001"
 
 docker volume create "${volume}" >/dev/null
@@ -326,7 +333,9 @@ node -e '
   const prices=JSON.parse(fs.readFileSync(process.argv[2],"utf8"));
   const usage=JSON.parse(fs.readFileSync(process.argv[3],"utf8"));
   if(!groups.data.some(item=>item.name==="Task13 Release Smoke Group")) process.exit(1);
-  if(!prices.data.some(item=>item.pattern==="task13-release-model"&&item.source==="user")) process.exit(1);
+  if(!prices.data.overrides.some(
+    item=>item.pattern==="task13-release-model"&&item.source==="user"
+  )) process.exit(1);
   if(usage.data.summary.request_count<1||usage.data.summary.total_tokens!==12) process.exit(1);
 ' \
   "${task_tmp}/groups-second.json" \

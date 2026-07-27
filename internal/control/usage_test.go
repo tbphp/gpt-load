@@ -7,7 +7,7 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
-	"strconv"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -90,7 +90,11 @@ func TestUsageAPIDefaultsToFixedUTCAligned24HoursAndReturnsZeroArrays(t *testing
 	now := time.Date(2026, time.July, 27, 12, 34, 56, 789, time.FixedZone("UTC+8", 8*60*60))
 	reader := &recordingUsageStatReader{}
 	engine, fixture := newUsageTestEngine(t, now, reader)
-	fixture.requestLogStats.value.PersistedTotal = 8
+	fixture.requestLogStats.value.DroppedTotal = 2
+	fixture.requestLogStats.value.WriteFailureTotal = 1
+	fixture.requestLogStats.value.LastWriteFailureAt = time.Date(
+		2026, time.July, 27, 3, 0, 0, 0, time.UTC,
+	)
 
 	recorder := performUsageRequest(engine, "test-auth-key", "")
 	if recorder.Code != http.StatusOK {
@@ -109,22 +113,50 @@ func TestUsageAPIDefaultsToFixedUTCAligned24HoursAndReturnsZeroArrays(t *testing
 	var envelope struct {
 		Code int `json:"code"`
 		Data struct {
-			ObservedAt string            `json:"observed_at"`
-			Series     []json.RawMessage `json:"series"`
-			Breakdown  []json.RawMessage `json:"breakdown"`
-			RequestLog struct {
-				PersistedTotal uint64 `json:"persisted_total"`
-			} `json:"request_log"`
+			Range       string                      `json:"range"`
+			Granularity requestlog.UsageGranularity `json:"granularity"`
+			Timezone    string                      `json:"timezone"`
+			From        string                      `json:"from"`
+			To          string                      `json:"to"`
+			ObservedAt  string                      `json:"observed_at"`
+			Series      []json.RawMessage           `json:"series"`
+			Breakdown   []json.RawMessage           `json:"breakdown"`
+			Health      struct {
+				Scope              string     `json:"scope"`
+				DroppedTotal       uint64     `json:"dropped_total"`
+				WriteFailureTotal  uint64     `json:"write_failure_total"`
+				LastWriteFailureAt *time.Time `json:"last_write_failure_at"`
+			} `json:"collection_health"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if envelope.Code != 0 || envelope.Data.ObservedAt != "2026-07-27T04:34:56.000000789Z" ||
+	if envelope.Code != 0 || envelope.Data.Range != "24h" ||
+		envelope.Data.Granularity != requestlog.UsageGranularityHour ||
+		envelope.Data.Timezone != "UTC" ||
+		envelope.Data.From != "2026-07-26T05:00:00Z" ||
+		envelope.Data.To != "2026-07-27T05:00:00Z" ||
+		envelope.Data.ObservedAt != "2026-07-27T04:34:56.000000789Z" ||
 		envelope.Data.Series == nil || len(envelope.Data.Series) != 0 ||
 		envelope.Data.Breakdown == nil || len(envelope.Data.Breakdown) != 0 ||
-		envelope.Data.RequestLog.PersistedTotal != 8 {
+		envelope.Data.Health.Scope != "current_process" ||
+		envelope.Data.Health.DroppedTotal != 2 ||
+		envelope.Data.Health.WriteFailureTotal != 1 ||
+		envelope.Data.Health.LastWriteFailureAt == nil ||
+		envelope.Data.Health.LastWriteFailureAt.Format(time.RFC3339Nano) != "2026-07-27T03:00:00Z" {
 		t.Fatalf("default usage envelope = %#v", envelope)
+	}
+	var rawEnvelope struct {
+		Data map[string]json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &rawEnvelope); err != nil {
+		t.Fatalf("decode raw response: %v", err)
+	}
+	for _, forbidden := range []string{"filters", "request_log"} {
+		if _, exists := rawEnvelope.Data[forbidden]; exists {
+			t.Fatalf("usage response exposes forbidden %q field: %s", forbidden, recorder.Body.String())
+		}
 	}
 }
 
@@ -162,7 +194,12 @@ func TestUsageAPISelectsThirtyUTCDaysAndAppliesFilters(t *testing.T) {
 	}
 	var envelope struct {
 		Data struct {
-			Summary struct {
+			Range       string                      `json:"range"`
+			Granularity requestlog.UsageGranularity `json:"granularity"`
+			Timezone    string                      `json:"timezone"`
+			From        string                      `json:"from"`
+			To          string                      `json:"to"`
+			Summary     struct {
 				TotalTokens      int64       `json:"total_tokens"`
 				EstimatedCostUSD json.Number `json:"estimated_cost_usd"`
 			} `json:"summary"`
@@ -181,12 +218,63 @@ func TestUsageAPISelectsThirtyUTCDaysAndAppliesFilters(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if envelope.Data.Summary.TotalTokens != 5 || envelope.Data.Summary.EstimatedCostUSD.String() != "0" ||
+	if envelope.Data.Range != "30d" ||
+		envelope.Data.Granularity != requestlog.UsageGranularityDay ||
+		envelope.Data.Timezone != "UTC" ||
+		envelope.Data.From != "2026-06-28T00:00:00Z" ||
+		envelope.Data.To != "2026-07-28T00:00:00Z" ||
+		envelope.Data.Summary.TotalTokens != 5 ||
+		envelope.Data.Summary.EstimatedCostUSD.String() != "0" ||
 		len(envelope.Data.Series) != 1 || envelope.Data.Series[0].BucketStart != "2026-06-28T00:00:00Z" ||
 		envelope.Data.Series[0].TotalTokens != 5 || envelope.Data.Series[0].EstimatedCostUSD.String() != "1.12345678901" ||
 		len(envelope.Data.Breakdown) != 1 || envelope.Data.Breakdown[0].GroupID != 9 ||
 		envelope.Data.Breakdown[0].Model != "upstream-model" || envelope.Data.Breakdown[0].Cost.String() != "0.25" {
 		t.Fatalf("usage response = %#v", envelope.Data)
+	}
+}
+
+func TestUsageAPIValidatesModelAsUTF8BytesWithoutBoundaryWhitespaceOrControls(t *testing.T) {
+	reader := &recordingUsageStatReader{}
+	engine, _ := newUsageTestEngine(
+		t,
+		time.Date(2026, time.July, 27, 0, 0, 0, 0, time.UTC),
+		reader,
+	)
+	validModels := []string{
+		"a",
+		strings.Repeat("a", 252) + "猫",
+		"model variant",
+	}
+	for _, model := range validModels {
+		recorder := performUsageRequest(engine, "test-auth-key", "model="+url.QueryEscape(model))
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("valid model %q response = %d %s", model, recorder.Code, recorder.Body.String())
+		}
+		if got := reader.queries[len(reader.queries)-1].Model; got != model {
+			t.Fatalf("reader model = %q, want %q", got, model)
+		}
+	}
+	validCalls := len(reader.queries)
+
+	invalidModels := []struct {
+		name  string
+		query string
+	}{
+		{name: "invalid UTF-8", query: "model=%FF"},
+		{name: "leading whitespace", query: "model=" + url.QueryEscape(" model")},
+		{name: "trailing whitespace", query: "model=" + url.QueryEscape("model\u3000")},
+		{name: "embedded control", query: "model=" + url.QueryEscape("model\x00id")},
+		{name: "DEL control", query: "model=" + url.QueryEscape("model\x7fid")},
+		{name: "256 UTF-8 bytes", query: "model=" + url.QueryEscape(strings.Repeat("a", 253)+"猫")},
+	}
+	for _, test := range invalidModels {
+		t.Run(test.name, func(t *testing.T) {
+			recorder := performUsageRequest(engine, "test-auth-key", test.query)
+			assertUsageErrorCode(t, recorder, "VALIDATION_FAILED")
+		})
+	}
+	if len(reader.queries) != validCalls {
+		t.Fatalf("reader calls = %d, want %d after invalid models", len(reader.queries), validCalls)
 	}
 }
 
@@ -241,29 +329,8 @@ func TestUsageAPIRejectsUnsafeProcessStatsWithoutLeakingCause(t *testing.T) {
 		name   string
 		mutate func(*requestlog.Stats)
 	}{
-		{name: "enqueued", mutate: func(stats *requestlog.Stats) { stats.EnqueuedTotal = uint64(maxSafeInteger) + 1 }},
-		{name: "persisted", mutate: func(stats *requestlog.Stats) { stats.PersistedTotal = uint64(maxSafeInteger) + 1 }},
-		{name: "dropped not running", mutate: func(stats *requestlog.Stats) { stats.DroppedNotRunningTotal = uint64(maxSafeInteger) + 1 }},
-		{name: "dropped queue full", mutate: func(stats *requestlog.Stats) { stats.DroppedQueueFullTotal = uint64(maxSafeInteger) + 1 }},
-		{name: "dropped stopping", mutate: func(stats *requestlog.Stats) { stats.DroppedStoppingTotal = uint64(maxSafeInteger) + 1 }},
-		{name: "dropped persist failed", mutate: func(stats *requestlog.Stats) { stats.DroppedPersistFailedTotal = uint64(maxSafeInteger) + 1 }},
-		{name: "dropped shutdown", mutate: func(stats *requestlog.Stats) { stats.DroppedShutdownTotal = uint64(maxSafeInteger) + 1 }},
 		{name: "dropped total", mutate: func(stats *requestlog.Stats) { stats.DroppedTotal = uint64(maxSafeInteger) + 1 }},
 		{name: "write failure", mutate: func(stats *requestlog.Stats) { stats.WriteFailureTotal = uint64(maxSafeInteger) + 1 }},
-		{name: "retention delete failure", mutate: func(stats *requestlog.Stats) { stats.RetentionDeleteFailureTotal = uint64(maxSafeInteger) + 1 }},
-		{name: "negative queue depth", mutate: func(stats *requestlog.Stats) { stats.QueueDepth = -1 }},
-	}
-	if strconv.IntSize == 64 {
-		unsafeQueueCapacity := maxSafeInteger + 1
-		tests = append(tests, struct {
-			name   string
-			mutate func(*requestlog.Stats)
-		}{
-			name: "unsafe queue capacity",
-			mutate: func(stats *requestlog.Stats) {
-				stats.QueueCapacity = int(unsafeQueueCapacity)
-			},
-		})
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

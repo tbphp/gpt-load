@@ -340,6 +340,8 @@ export default {
         anyGroup: 'All Groups',
         model: 'Upstream model',
         modelHelp: 'Optional exact upstream model after routing.',
+        deletedOrUnknown: '#{id} · Deleted or unknown',
+        refresh: 'Refresh',
         apply: 'Apply',
         reset: 'Reset',
       },
@@ -361,8 +363,18 @@ export default {
         description: 'Backend aggregate observed at {time}.',
         requests: 'Persisted requests',
         successRate: 'Success rate',
+        outcomes: 'Success and failure',
+        outcomeCounts: 'Success {success} · Failure {failure}',
         totalTokens: 'Total reported tokens',
         estimatedCost: 'Estimated cost',
+      },
+      tokens: {
+        title: 'Reported token categories',
+        uncachedInput: 'Uncached input',
+        cacheRead: 'Cache read',
+        cacheWrite5m: 'Cache write (5m)',
+        cacheWrite1h: 'Cache write (1h)',
+        output: 'Output',
       },
       cost: {
         unknown: 'Unknown',
@@ -371,16 +383,33 @@ export default {
       quality: {
         title: 'Usage and persistence quality',
         description: 'Counts remain separate so incomplete usage is not hidden by a single score.',
+        windowDescription:
+          'Durable quality counts apply only to persisted records in the selected window.',
         missing: 'Usage missing',
         partial: 'Usage partial',
         unpriced: 'Cost unpriced',
-        dropped: 'Requests dropped',
+        dropped: 'Dropped requests',
         writeFailures: 'Write failures',
         overlap:
           'Missing, partial, and unpriced counts may overlap. Do not add them into a request total.',
+        partialExplanation:
+          'Partial usage is recorded when only a usage-only final chunk supplies incomplete token detail; those tokens are excluded from default totals.',
+        unpricedExplanation:
+          'Unpriced requests can reflect an unsupported billing detail or diagnostics. Their tokens are excluded from default token and estimated-cost totals.',
         aggregation:
           'Only complete usage with priced cost is included in default token and estimated-cost totals. Partial, missing, unpriced, and not-applicable requests are excluded from both.',
         openPrices: 'Review model prices',
+      },
+      process: {
+        title: 'Current process collection health',
+        description:
+          'These current process counters ignore report filters and reset when the process restarts.',
+        lastWriteFailure: 'Last write failure',
+        never: 'None reported',
+        clear: 'The current process has not reported dropped telemetry or write failures.',
+        droppedWarning:
+          'Dropped telemetry means the report covers only requests persisted successfully.',
+        writeFailureWarning: 'A request-log persistence batch failed in the current process.',
       },
       trend: {
         title: 'Persisted request trend',
@@ -913,7 +942,15 @@ export default {
     priceUnit: 'USD per one million tokens',
     historyNote:
       'Price changes affect future estimated costs. Historical usage and cost are not recalculated.',
+    modelIdentityNote:
+      'Rules match the upstream model ID after routing; the same model ID shares one global price across Groups.',
+    precedenceNote: 'User overrides take precedence over every built-in exact and prefix rule.',
+    wholeRuleNote:
+      'A user override replaces the whole five-slot rule. Unset slots do not fall back to built-in values.',
     notConfigured: 'Not configured',
+    explicitlyFree: '$0 · Explicitly free',
+    configuredPrice: '${price} / 1M',
+    globalUserOverride: 'Global user override',
     kind: {
       exact: 'Exact model',
       prefix: 'Prefix rule',
@@ -934,6 +971,7 @@ export default {
       pattern: 'Model pattern',
       kind: 'Rule kind',
       source: 'Source',
+      updatedAt: 'Updated',
       actions: 'Actions',
     },
     builtin: {
@@ -971,6 +1009,20 @@ export default {
       globalWarning:
         'All user rules take precedence over built-in rules. A bare * shadows every built-in price rule; more specific user rules still take precedence over *.',
       globalConfirm: 'I understand that * shadows every built-in price rule.',
+      globalDialog: {
+        title: 'Create a global user price override?',
+        description:
+          'A bare * changes the estimated price rule for every model without a more specific user override.',
+        close: 'Close global price override confirmation',
+        precedence:
+          'This global user override takes precedence over every built-in exact and prefix rule.',
+        noFallback:
+          'Unset price slots do not fall back; the whole five-slot user rule replaces the built-in rule.',
+        futureOnly:
+          'The change applies only to future completed or Emit requests and does not recalculate history.',
+        reset: 'Reset restores the remaining user and built-in rules for future requests.',
+        confirm: 'Create global override',
+      },
       save: 'Save override',
       saveFailed: 'Unable to save the model price override. Your input is unchanged.',
       errors: {

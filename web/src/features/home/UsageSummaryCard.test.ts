@@ -26,32 +26,21 @@ const aggregate: UsageAggregateDto = {
 
 function usageReport(overrides: Partial<UsageReportDto> = {}): UsageReportDto {
   return {
+    range: '24h',
+    granularity: 'hour',
+    timezone: 'UTC',
+    from: '2026-07-26T05:00:00Z',
+    to: '2026-07-27T05:00:00Z',
     observed_at: '2026-07-27T04:00:01Z',
-    range: {
-      from: '2026-07-26T05:00:00Z',
-      to: '2026-07-27T05:00:00Z',
-      granularity: 'hour',
-    },
-    filters: { group_id: null, model: '' },
     summary: { ...aggregate },
     series: [],
     breakdown: [],
     breakdown_truncated: false,
-    request_log: {
-      enqueued_total: 20,
-      persisted_total: 18,
-      dropped_not_running_total: 0,
-      dropped_queue_full_total: 1,
-      dropped_stopping_total: 0,
-      dropped_persist_failed_total: 1,
-      dropped_shutdown_total: 0,
+    collection_health: {
+      scope: 'current_process',
       dropped_total: 2,
       write_failure_total: 1,
-      retention_delete_failure_total: 0,
-      queue_depth: 0,
-      queue_capacity: 100,
       last_write_failure_at: '2026-07-27T03:00:00Z',
-      last_retention_failure_at: null,
     },
     ...overrides,
   }
@@ -132,10 +121,11 @@ describe('UsageSummaryCard', () => {
         partial_count: 0,
         unpriced_request_count: 0,
       },
-      request_log: {
-        ...usageReport().request_log,
+      collection_health: {
+        ...usageReport().collection_health,
         dropped_total: 0,
         write_failure_total: 0,
+        last_write_failure_at: null,
       },
     })
     const { wrapper } = await mountSummary(new UsageApi(report))
@@ -160,10 +150,11 @@ describe('UsageSummaryCard', () => {
         partial_count: 0,
         unpriced_request_count: 0,
       },
-      request_log: {
-        ...usageReport().request_log,
+      collection_health: {
+        ...usageReport().collection_health,
         dropped_total: 0,
         write_failure_total: 0,
+        last_write_failure_at: null,
       },
     })
     const { wrapper } = await mountSummary(new UsageApi(report))
@@ -204,8 +195,9 @@ describe('UsageSummaryCard', () => {
     })
     const { wrapper } = await mountSummary(new UsageApi(report))
 
-    expect(wrapper.get('[data-test="home-usage-cost"]').text()).toContain('Unknown')
-    expect(wrapper.get('[data-test="home-usage-cost"]').text()).not.toMatch(/\$0|Free/)
+    expect(wrapper.get('[data-test="home-usage-cost"]').text()).toContain('$0.00')
+    expect(wrapper.get('[data-test="home-usage-cost"]').text()).toContain('unknown')
+    expect(wrapper.get('[data-test="home-usage-cost"]').text()).not.toContain('Free')
     expect(wrapper.get('[data-test="home-usage-quality-missing"]').text()).toBe('Usage missing 2')
     expect(wrapper.get('[data-test="home-usage-quality-partial"]').text()).toBe('Usage partial 3')
     expect(wrapper.get('[data-test="home-usage-quality-unpriced"]').text()).toBe('Cost unpriced 4')
@@ -221,6 +213,21 @@ describe('UsageSummaryCard', () => {
     expect(wrapper.get('[data-test="home-usage-pipeline-warning"]').text()).toContain(
       'Write failures 1',
     )
+  })
+
+  it('keeps a positive sub-cent estimated cost visible', async () => {
+    const report = usageReport({
+      summary: {
+        ...aggregate,
+        estimated_cost_usd: 0.00000049,
+        unpriced_request_count: 0,
+      },
+    })
+    const { wrapper } = await mountSummary(new UsageApi(report))
+
+    const displayedCost = wrapper.get('[data-test="home-usage-cost"] strong').text()
+    expect(displayedCost).toBe('$0.00000049')
+    expect(displayedCost).not.toBe('$0.00')
   })
 
   it('shows a safe initial error without exposing the transport error', async () => {

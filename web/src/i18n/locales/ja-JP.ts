@@ -339,6 +339,8 @@ export default {
         anyGroup: 'すべての Group',
         model: 'アップストリームモデル',
         modelHelp: 'ルーティング後のアップストリームモデルを完全一致で絞り込みます。',
+        deletedOrUnknown: '#{id} · 削除済みまたは不明',
+        refresh: '更新',
         apply: '適用',
         reset: 'リセット',
       },
@@ -361,8 +363,18 @@ export default {
         description: 'バックエンド集計の観測時刻: {time}。',
         requests: '永続化リクエスト',
         successRate: '成功率',
+        outcomes: '成功と失敗',
+        outcomeCounts: '成功 {success} · 失敗 {failure}',
         totalTokens: '報告済みトークン合計',
         estimatedCost: '推定コスト',
+      },
+      tokens: {
+        title: '報告済みトークン分類',
+        uncachedInput: 'キャッシュなし入力',
+        cacheRead: 'キャッシュ読み取り',
+        cacheWrite5m: 'キャッシュ書き込み（5 分）',
+        cacheWrite1h: 'キャッシュ書き込み（1 時間）',
+        output: '出力',
       },
       cost: {
         unknown: '不明',
@@ -371,6 +383,8 @@ export default {
       quality: {
         title: '使用量と永続化の品質',
         description: '不完全な使用量を単一の指標で隠さないよう、各件数を分けて表示します。',
+        windowDescription:
+          '永続化品質の件数は、選択期間内に永続化されたレコードだけを対象とします。',
         missing: '使用量なし',
         partial: '使用量が部分的',
         unpriced: 'コスト未設定',
@@ -378,9 +392,24 @@ export default {
         writeFailures: '書き込み失敗',
         overlap:
           '使用量なし、部分的、未設定の件数は重複する場合があります。リクエスト総数として加算しないでください。',
+        partialExplanation:
+          '使用量専用の最終チャンクに不完全なトークン詳細だけがある場合、部分使用量として記録され、そのトークンは既定の合計から除外されます。',
+        unpricedExplanation:
+          '価格未設定は、未対応の課金詳細や診断経路で発生する場合があります。そのトークンは既定のトークン合計と推定コスト合計から除外されます。',
         aggregation:
           '既定のトークンと推定コスト合計には、使用量が完全で価格設定済みのリクエストのみ含まれます。部分的、使用量なし、価格未設定、該当なしのリクエストはいずれの合計からも除外されます。',
         openPrices: 'モデル価格を確認',
+      },
+      process: {
+        title: '現在プロセスの収集状態',
+        description:
+          '現在プロセスのカウンターはレポートフィルターに従わず、プロセス再起動時にリセットされます。',
+        lastWriteFailure: '直近の書き込み失敗',
+        never: '報告なし',
+        clear: '現在プロセスではテレメトリ破棄や書き込み失敗が報告されていません。',
+        droppedWarning:
+          'テレメトリが破棄された場合、統計は正常に永続化されたリクエストだけを対象とします。',
+        writeFailureWarning: '現在プロセスで RequestLog 永続化バッチの失敗が発生しました。',
       },
       trend: {
         title: '永続化リクエストの推移',
@@ -909,7 +938,16 @@ export default {
     stale: 'バックグラウンド更新に失敗したため、モデル価格が古い可能性があります。',
     priceUnit: '100 万 Token あたりの米ドル',
     historyNote: '価格変更は今後のコスト推定だけに影響し、過去の使用量やコストは再計算されません。',
+    modelIdentityNote:
+      'ルールはルーティング後のアップストリームモデル ID に一致し、同じモデル ID はすべての Group で 1 つのグローバル価格を共有します。',
+    precedenceNote:
+      'ユーザー上書きは、すべての組み込み完全一致ルールとプレフィックスルールより優先されます。',
+    wholeRuleNote:
+      'ユーザー上書きは 5 枠のルール全体を置き換え、未設定の枠は組み込み値へフォールバックしません。',
     notConfigured: '未設定',
+    explicitlyFree: '$0 · 明示的に無料',
+    configuredPrice: '${price} / 1M',
+    globalUserOverride: 'グローバルユーザー上書き',
     kind: {
       exact: '完全一致モデル',
       prefix: 'プレフィックスルール',
@@ -930,6 +968,7 @@ export default {
       pattern: 'モデルパターン',
       kind: 'ルール種別',
       source: '出典',
+      updatedAt: '更新日時',
       actions: '操作',
     },
     builtin: {
@@ -968,6 +1007,21 @@ export default {
       globalWarning:
         'すべてのユーザールールは組み込みルールより優先されます。* はすべての組み込み価格ルールを覆い隠します。より具体的なユーザールールは引き続き * より優先されます。',
       globalConfirm: '* がすべての組み込み価格ルールを覆い隠すことを理解しました。',
+      globalDialog: {
+        title: 'グローバルユーザー価格オーバーライドを作成しますか？',
+        description:
+          '単独の * は、より具体的なユーザー上書きがない全モデルの推定価格ルールを変更します。',
+        close: 'グローバル価格上書きの確認を閉じる',
+        precedence:
+          'このグローバルユーザー上書きは、すべての組み込み完全一致ルールとプレフィックスルールより優先されます。',
+        noFallback:
+          '未設定の価格枠はフォールバックせず、5 枠のユーザールール全体が組み込みルールを置き換えます。',
+        futureOnly:
+          '変更は今後の完了済みまたは Emit リクエストだけに適用され、履歴は再計算されません。',
+        reset:
+          'リセットすると、今後のリクエストでは残りのユーザールールと組み込みルールが復元されます。',
+        confirm: 'グローバル上書きを作成',
+      },
       save: '上書きを保存',
       saveFailed: 'モデル価格上書きを保存できません。入力内容は保持されています。',
       errors: {

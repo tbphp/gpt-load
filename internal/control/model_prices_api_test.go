@@ -41,38 +41,44 @@ func TestModelPriceAPIListsStableBuiltinAndUserRules(t *testing.T) {
 	}
 	var envelope struct {
 		Code int `json:"code"`
-		Data []struct {
-			Pattern   string              `json:"pattern"`
-			Source    string              `json:"source"`
-			Prices    map[string]*float64 `json:"prices"`
-			SourceURL *string             `json:"source_url"`
-			UpdatedAt time.Time           `json:"updated_at"`
+		Data struct {
+			PriceUnit string                       `json:"price_unit"`
+			Builtin   []modelPriceListTestResponse `json:"builtin"`
+			Overrides []modelPriceListTestResponse `json:"overrides"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err != nil {
 		t.Fatalf("decode GET response: %v", err)
 	}
-	if envelope.Code != 0 || len(envelope.Data) < 3 {
+	if envelope.Code != 0 || envelope.Data.PriceUnit != "usd_per_million_tokens" ||
+		len(envelope.Data.Builtin) < 1 || len(envelope.Data.Overrides) != 2 {
 		t.Fatalf("GET envelope = %#v", envelope)
 	}
-	assertModelPriceResponseSorted(t, envelope.Data)
+	assertModelPriceResponseSorted(t, envelope.Data.Builtin)
+	assertModelPriceResponseSorted(t, envelope.Data.Overrides)
 
-	var builtin, userA, userZ *struct {
-		Pattern   string              `json:"pattern"`
-		Source    string              `json:"source"`
-		Prices    map[string]*float64 `json:"prices"`
-		SourceURL *string             `json:"source_url"`
-		UpdatedAt time.Time           `json:"updated_at"`
-	}
-	for index := range envelope.Data {
-		item := &envelope.Data[index]
+	var builtin, userA, userZ *modelPriceListTestResponse
+	for index := range envelope.Data.Builtin {
+		item := &envelope.Data.Builtin[index]
 		switch item.Pattern {
 		case "gpt-5.6":
 			builtin = item
+		default:
+			if item.Source != string(pricing.SourceBuiltin) {
+				t.Fatalf("builtin partition contains source %q", item.Source)
+			}
+		}
+	}
+	for index := range envelope.Data.Overrides {
+		item := &envelope.Data.Overrides[index]
+		switch item.Pattern {
 		case "a-user":
 			userA = item
 		case "z-user":
 			userZ = item
+		}
+		if item.Source != string(pricing.SourceUser) {
+			t.Fatalf("override partition contains source %q", item.Source)
 		}
 	}
 	if builtin == nil || builtin.Source != string(pricing.SourceBuiltin) || builtin.SourceURL == nil ||
@@ -254,26 +260,21 @@ func assertModelPriceAPIError(t *testing.T, recorder *httptest.ResponseRecorder,
 	}
 }
 
-func assertModelPriceResponseSorted(t *testing.T, rules []struct {
+type modelPriceListTestResponse struct {
 	Pattern   string              `json:"pattern"`
 	Source    string              `json:"source"`
 	Prices    map[string]*float64 `json:"prices"`
 	SourceURL *string             `json:"source_url"`
 	UpdatedAt time.Time           `json:"updated_at"`
-}) {
+}
+
+func assertModelPriceResponseSorted(t *testing.T, rules []modelPriceListTestResponse) {
 	t.Helper()
-	patterns := make(map[string][]string)
+	patterns := make([]string, 0, len(rules))
 	for _, rule := range rules {
-		patterns[rule.Source] = append(patterns[rule.Source], rule.Pattern)
+		patterns = append(patterns, rule.Pattern)
 	}
-	for source, values := range patterns {
-		if !sort.StringsAreSorted(values) {
-			t.Fatalf("%s patterns are not sorted: %#v", source, values)
-		}
-	}
-	for index := 1; index < len(rules); index++ {
-		if rules[index-1].Source > rules[index].Source {
-			t.Fatalf("sources are not stable: %#v then %#v", rules[index-1], rules[index])
-		}
+	if !sort.StringsAreSorted(patterns) {
+		t.Fatalf("patterns are not sorted: %#v", patterns)
 	}
 }

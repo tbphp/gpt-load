@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"math"
 
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/protocol"
@@ -135,15 +134,12 @@ func decodeRequestLogRows(rows []models.RequestLog) ([]Record, error) {
 }
 
 func validateRequestLogUsageCost(row models.RequestLog) error {
-	switch usage.State(row.UsageState) {
-	case usage.StateComplete, usage.StatePartial, usage.StateMissing, usage.StateNotApplicable:
-	default:
-		return fmt.Errorf("decode request log usage state: invalid value")
-	}
-	switch pricing.CostState(row.CostState) {
-	case pricing.CostStatePriced, pricing.CostStateUnpriced, pricing.CostStateNotApplicable:
-	default:
-		return fmt.Errorf("decode request log cost state: invalid value")
+	if err := ValidateUsageCostState(
+		usage.State(row.UsageState),
+		pricing.CostState(row.CostState),
+		row.Cost,
+	); err != nil {
+		return fmt.Errorf("decode request log usage/cost: %w", err)
 	}
 	for _, value := range []int64{
 		row.InputTokens,
@@ -155,9 +151,6 @@ func validateRequestLogUsageCost(row models.RequestLog) error {
 		if value < 0 {
 			return fmt.Errorf("decode request log usage tokens: negative value")
 		}
-	}
-	if row.Cost < 0 || math.IsNaN(row.Cost) || math.IsInf(row.Cost, 0) {
-		return fmt.Errorf("decode request log cost: invalid value")
 	}
 	return nil
 }

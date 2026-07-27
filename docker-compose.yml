@@ -10,6 +10,7 @@ services:
     env_file:
       - .env
     environment:
+      PORT: ${PORT:-3001}
       DATA_DIR: /app/data
       DATABASE_DSN: /app/data/gpt-load.db
     restart: always

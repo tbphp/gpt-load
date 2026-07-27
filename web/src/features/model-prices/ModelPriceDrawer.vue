@@ -9,6 +9,7 @@ import { putModelPrice, type ModelPriceRuleDto } from '@/api/control/model-price
 import { RequestCancelledError } from '@/api/errors'
 import { controlQueryKeys } from '@/app/query-keys'
 import AppButton from '@/components/ui/AppButton.vue'
+import AppDialog from '@/components/ui/AppDialog.vue'
 import AppDrawer from '@/components/ui/AppDrawer.vue'
 import FormField from '@/components/ui/FormField.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
@@ -33,7 +34,7 @@ const { t } = useI18n()
 const patternInput = ref<HTMLInputElement>()
 const draft = ref<ModelPriceDraft>(createModelPriceDraft())
 const initialDraft = ref<ModelPriceDraft>(createModelPriceDraft())
-const globalConfirmed = ref(false)
+const globalConfirmOpen = ref(false)
 const pending = ref(false)
 const failed = ref(false)
 let controller: AbortController | undefined
@@ -46,9 +47,7 @@ const dirty = computed(
     props.rule?.source !== 'user' ||
     JSON.stringify(draft.value) !== JSON.stringify(initialDraft.value),
 )
-const valid = computed(
-  () => requestBody.value !== null && dirty.value && (!isGlobal.value || globalConfirmed.value),
-)
+const valid = computed(() => requestBody.value !== null && dirty.value)
 const title = computed(() => {
   if (props.rule?.source === 'builtin') return t('modelPrices.drawer.builtinTitle')
   if (props.rule?.source === 'user') return t('modelPrices.drawer.editTitle')
@@ -80,7 +79,7 @@ async function resetForOpen(): Promise<void> {
   const nextDraft = createModelPriceDraft(props.rule)
   draft.value = nextDraft
   initialDraft.value = { ...nextDraft }
-  globalConfirmed.value = false
+  globalConfirmOpen.value = false
   failed.value = false
   await nextTick()
   await nextTick()
@@ -91,7 +90,7 @@ function setOpen(open: boolean): void {
   if (!open) {
     clearRequest()
     failed.value = false
-    globalConfirmed.value = false
+    globalConfirmOpen.value = false
   }
   emit('update:open', open)
 }
@@ -107,9 +106,23 @@ watch(
 watch(
   () => draft.value.pattern,
   (pattern) => {
-    if (pattern !== '*') globalConfirmed.value = false
+    if (pattern !== '*') globalConfirmOpen.value = false
   },
 )
+
+function requestSave(): void {
+  if (!valid.value || pending.value) return
+  if (isGlobal.value) {
+    globalConfirmOpen.value = true
+    return
+  }
+  void save()
+}
+
+function setGlobalConfirmOpen(open: boolean): void {
+  if (!open && pending.value) clearRequest()
+  globalConfirmOpen.value = open
+}
 
 async function save(): Promise<void> {
   const body = requestBody.value
@@ -124,6 +137,7 @@ async function save(): Promise<void> {
     if (controller !== activeController || !props.open) return
     await queryClient.invalidateQueries({ queryKey: controlQueryKeys.modelPrices() })
     if (controller !== activeController || !props.open) return
+    globalConfirmOpen.value = false
     setOpen(false)
   } catch (error: unknown) {
     if (
@@ -155,7 +169,7 @@ onBeforeUnmount(clearRequest)
   >
     <template #trigger><slot name="trigger" /></template>
 
-    <form class="model-price-drawer" @submit.prevent="save">
+    <form class="model-price-drawer" @submit.prevent="requestSave">
       <InlineFeedback v-if="failed" tone="danger">
         {{ t('modelPrices.drawer.saveFailed') }}
       </InlineFeedback>
@@ -225,15 +239,6 @@ onBeforeUnmount(clearRequest)
       <InlineFeedback v-if="isGlobal" tone="warning">
         {{ t('modelPrices.drawer.globalWarning') }}
       </InlineFeedback>
-      <label v-if="isGlobal" class="model-price-drawer__global-confirm">
-        <input
-          v-model="globalConfirmed"
-          data-test="model-price-global-confirm"
-          type="checkbox"
-          :disabled="pending"
-        />
-        <span>{{ t('modelPrices.drawer.globalConfirm') }}</span>
-      </label>
 
       <div class="model-price-drawer__actions">
         <AppButton variant="secondary" :disabled="pending" @click="setOpen(false)">
@@ -245,6 +250,39 @@ onBeforeUnmount(clearRequest)
       </div>
     </form>
   </AppDrawer>
+
+  <AppDialog
+    :open="globalConfirmOpen"
+    :title="t('modelPrices.drawer.globalDialog.title')"
+    :description="t('modelPrices.drawer.globalDialog.description')"
+    :close-label="t('modelPrices.drawer.globalDialog.close')"
+    @update:open="setGlobalConfirmOpen"
+  >
+    <div class="model-price-drawer__global-dialog" data-test="model-price-global-dialog">
+      <ul>
+        <li>{{ t('modelPrices.drawer.globalDialog.precedence') }}</li>
+        <li>{{ t('modelPrices.drawer.globalDialog.noFallback') }}</li>
+        <li>{{ t('modelPrices.drawer.globalDialog.futureOnly') }}</li>
+        <li>{{ t('modelPrices.drawer.globalDialog.reset') }}</li>
+      </ul>
+      <InlineFeedback v-if="failed" tone="danger">
+        {{ t('modelPrices.drawer.saveFailed') }}
+      </InlineFeedback>
+      <div class="model-price-drawer__actions">
+        <AppButton variant="secondary" :disabled="pending" @click="setGlobalConfirmOpen(false)">
+          {{ t('common.cancel') }}
+        </AppButton>
+        <AppButton
+          data-test="model-price-global-save-confirm"
+          :busy="pending"
+          :disabled="pending"
+          @click="save"
+        >
+          <Save :size="16" aria-hidden="true" />{{ t('modelPrices.drawer.globalDialog.confirm') }}
+        </AppButton>
+      </div>
+    </div>
+  </AppDialog>
 </template>
 
 <style scoped>
@@ -287,17 +325,15 @@ onBeforeUnmount(clearRequest)
 .model-price-drawer__group-error {
   color: var(--color-danger) !important;
 }
-.model-price-drawer__global-confirm {
-  display: flex;
-  min-height: 44px;
-  align-items: center;
-  gap: var(--space-2);
-  font-weight: 650;
-  cursor: pointer;
+.model-price-drawer__global-dialog {
+  display: grid;
+  gap: var(--space-4);
 }
-.model-price-drawer__global-confirm input {
-  width: 20px;
-  height: 20px;
+.model-price-drawer__global-dialog ul {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding-left: var(--space-5);
 }
 .model-price-drawer__actions {
   display: flex;

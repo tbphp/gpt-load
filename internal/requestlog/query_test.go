@@ -81,6 +81,41 @@ func TestDecodeRequestLogRowsRejectsInvalidUsageCostValues(t *testing.T) {
 		{name: "negative cost", mutate: func(row *models.RequestLog) { row.Cost = -0.01 }},
 		{name: "infinite cost", mutate: func(row *models.RequestLog) { row.Cost = math.Inf(1) }},
 		{name: "not a number cost", mutate: func(row *models.RequestLog) { row.Cost = math.NaN() }},
+		{
+			name: "missing usage cannot be priced",
+			mutate: func(row *models.RequestLog) {
+				row.UsageState = string(usage.StateMissing)
+				row.CostState = string(pricing.CostStatePriced)
+			},
+		},
+		{
+			name: "not applicable usage cannot be unpriced",
+			mutate: func(row *models.RequestLog) {
+				row.UsageState = string(usage.StateNotApplicable)
+				row.CostState = string(pricing.CostStateUnpriced)
+			},
+		},
+		{
+			name: "complete usage cannot have not applicable cost",
+			mutate: func(row *models.RequestLog) {
+				row.CostState = string(pricing.CostStateNotApplicable)
+			},
+		},
+		{
+			name: "unpriced cost must be zero",
+			mutate: func(row *models.RequestLog) {
+				row.CostState = string(pricing.CostStateUnpriced)
+				row.Cost = 0.01
+			},
+		},
+		{
+			name: "not applicable cost must be zero",
+			mutate: func(row *models.RequestLog) {
+				row.UsageState = string(usage.StateNotApplicable)
+				row.CostState = string(pricing.CostStateNotApplicable)
+				row.Cost = 0.01
+			},
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -88,6 +123,48 @@ func TestDecodeRequestLogRowsRejectsInvalidUsageCostValues(t *testing.T) {
 			test.mutate(&row)
 			if _, err := decodeRequestLogRows([]models.RequestLog{row}); err == nil {
 				t.Fatal("decodeRequestLogRows() error = nil, want invalid row rejection")
+			}
+		})
+	}
+}
+
+func TestDecodeRequestLogRowsAcceptsApprovedUsageCostMatrix(t *testing.T) {
+	tests := []struct {
+		name       string
+		usageState usage.State
+		costState  pricing.CostState
+		cost       float64
+	}{
+		{name: "complete priced", usageState: usage.StateComplete, costState: pricing.CostStatePriced, cost: 0.01},
+		{name: "complete unpriced", usageState: usage.StateComplete, costState: pricing.CostStateUnpriced},
+		{name: "partial priced", usageState: usage.StatePartial, costState: pricing.CostStatePriced, cost: 0.01},
+		{name: "partial unpriced", usageState: usage.StatePartial, costState: pricing.CostStateUnpriced},
+		{name: "missing unpriced", usageState: usage.StateMissing, costState: pricing.CostStateUnpriced},
+		{
+			name:       "not applicable",
+			usageState: usage.StateNotApplicable,
+			costState:  pricing.CostStateNotApplicable,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			row := models.RequestLog{
+				ID:         "00000000-0000-4000-8000-000000000604",
+				CreatedAt:  time.Date(2026, time.July, 27, 0, 0, 0, 0, time.UTC),
+				Protocol:   string(protocol.OpenAI),
+				Status:     string(telemetry.RequestStatusSuccess),
+				UsageState: string(test.usageState),
+				CostState:  string(test.costState),
+				Cost:       test.cost,
+				Attempts:   models.JSON(`[]`),
+			}
+			records, err := decodeRequestLogRows([]models.RequestLog{row})
+			if err != nil {
+				t.Fatalf("decodeRequestLogRows() error = %v", err)
+			}
+			if len(records) != 1 || records[0].UsageState != test.usageState ||
+				records[0].CostState != test.costState || records[0].EstimatedCostUSD != test.cost {
+				t.Fatalf("records = %#v", records)
 			}
 		})
 	}

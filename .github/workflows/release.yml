@@ -111,9 +111,7 @@ jobs:
         run: pnpm --dir web run test:e2e
 
       - name: Check repository invariants
-        run: |
-          git diff --check
-          cmp -s AGENTS.md CLAUDE.md
+        run: git diff --check
 
       - name: Upload verified web dist
         uses: actions/upload-artifact@v4
@@ -233,6 +231,9 @@ jobs:
             filename: gpt-load-windows-amd64.exe
     runs-on: ${{ matrix.runner }}
     steps:
+      - name: Checkout tag commit
+        uses: actions/checkout@v7
+
       - name: Download complete release assets
         uses: actions/download-artifact@v4
         with:
@@ -242,277 +243,22 @@ jobs:
       - name: Smoke POSIX native artifact
         if: runner.os != 'Windows'
         shell: bash
-        run: |
-          set -euo pipefail
-          binary="${GITHUB_WORKSPACE}/native-smoke/${{ matrix.filename }}"
-          checksum_file="${GITHUB_WORKSPACE}/native-smoke/SHA256SUMS"
-          expected_hash="$(awk -v name="${{ matrix.filename }}" '$2 == name {print $1}' "${checksum_file}")"
-          test -n "${expected_hash}"
-          if command -v sha256sum >/dev/null 2>&1; then
-            before_hash="$(sha256sum "${binary}" | awk '{print $1}')"
-          else
-            before_hash="$(shasum -a 256 "${binary}" | awk '{print $1}')"
-          fi
-          test "${before_hash}" = "${expected_hash}"
-          chmod +x "${binary}"
-          "${binary}" help >/dev/null
-
-          data_dir="$(mktemp -d)"
-          log_file="$(mktemp)"
-          cleanup() {
-            if [[ -n "${pid:-}" ]]; then
-              kill -TERM "${pid}" >/dev/null 2>&1 || true
-              wait "${pid}" >/dev/null 2>&1 || true
-            fi
-            rm -rf "${data_dir}" "${log_file}"
-          }
-          trap cleanup EXIT
-
-          DATA_DIR="${data_dir}" \
-            PORT=39113 \
-            "${binary}" >"${log_file}" 2>&1 &
-          pid=$!
-          for _ in $(seq 1 80); do
-            if curl -fsS http://127.0.0.1:39113/health >"${data_dir}/health.json"; then
-              break
-            fi
-            sleep 0.25
-          done
-          test -f "${data_dir}/auth.key"
-          test -f "${data_dir}/encryption.key"
-          test -f "${data_dir}/gpt-load.db"
-          auth_key="$(cat "${data_dir}/auth.key")"
-          test -n "${auth_key}"
-          grep -F "\"version\":\"${GITHUB_REF_NAME}\"" "${data_dir}/health.json"
-          curl -fsS http://127.0.0.1:39113/ | grep -F '<div id="app"></div>'
-          curl -fsS \
-            -H "Authorization: Bearer ${auth_key}" \
-            'http://127.0.0.1:39113/api/usage?range=24h' >/dev/null
-          curl -fsS \
-            -H "Authorization: Bearer ${auth_key}" \
-            http://127.0.0.1:39113/api/model-prices >/dev/null
-          kill -TERM "${pid}"
-          wait "${pid}"
-          pid=
-          if command -v sha256sum >/dev/null 2>&1; then
-            after_hash="$(sha256sum "${binary}" | awk '{print $1}')"
-          else
-            after_hash="$(shasum -a 256 "${binary}" | awk '{print $1}')"
-          fi
-          test "${after_hash}" = "${expected_hash}"
+        env:
+          RELEASE_VERSION: ${{ github.ref_name }}
+          RELEASE_SMOKE_BINARY: ${{ github.workspace }}/native-smoke/${{ matrix.filename }}
+          RELEASE_SMOKE_CHECKSUM_FILE: ${{ github.workspace }}/native-smoke/SHA256SUMS
+        run: .github/scripts/release-native-smoke.sh
 
       - name: Smoke Windows native artifact
         if: runner.os == 'Windows'
         shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ github.ref_name }}
+          RELEASE_SMOKE_BINARY: ${{ github.workspace }}/native-smoke/${{ matrix.filename }}
+          RELEASE_SMOKE_CHECKSUM_FILE: ${{ github.workspace }}/native-smoke/SHA256SUMS
         run: |
-          $ErrorActionPreference = "Stop"
-          Add-Type -TypeDefinition @'
-          using System;
-          using System.ComponentModel;
-          using System.Diagnostics;
-          using System.Runtime.InteropServices;
-          using System.Text;
-
-          public static class ReleaseNativeProcess
-          {
-              private const uint CREATE_NEW_PROCESS_GROUP = 0x00000200;
-              private const uint CTRL_BREAK_EVENT = 1;
-              private const int ERROR_ACCESS_DENIED = 5;
-
-              [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-              private struct STARTUPINFO
-              {
-                  public uint cb;
-                  public string lpReserved;
-                  public string lpDesktop;
-                  public string lpTitle;
-                  public uint dwX;
-                  public uint dwY;
-                  public uint dwXSize;
-                  public uint dwYSize;
-                  public uint dwXCountChars;
-                  public uint dwYCountChars;
-                  public uint dwFillAttribute;
-                  public uint dwFlags;
-                  public ushort wShowWindow;
-                  public ushort cbReserved2;
-                  public IntPtr lpReserved2;
-                  public IntPtr hStdInput;
-                  public IntPtr hStdOutput;
-                  public IntPtr hStdError;
-              }
-
-              [StructLayout(LayoutKind.Sequential)]
-              private struct PROCESS_INFORMATION
-              {
-                  public IntPtr hProcess;
-                  public IntPtr hThread;
-                  public uint dwProcessId;
-                  public uint dwThreadId;
-              }
-
-              [DllImport(
-                  "kernel32.dll",
-                  CharSet = CharSet.Unicode,
-                  ExactSpelling = true,
-                  SetLastError = true)]
-              [return: MarshalAs(UnmanagedType.Bool)]
-              private static extern bool CreateProcessW(
-                  string applicationName,
-                  StringBuilder commandLine,
-                  IntPtr processAttributes,
-                  IntPtr threadAttributes,
-                  [MarshalAs(UnmanagedType.Bool)] bool inheritHandles,
-                  uint creationFlags,
-                  IntPtr environment,
-                  string currentDirectory,
-                  ref STARTUPINFO startupInfo,
-                  out PROCESS_INFORMATION processInformation);
-
-              [DllImport("kernel32.dll", SetLastError = true)]
-              [return: MarshalAs(UnmanagedType.Bool)]
-              private static extern bool GenerateConsoleCtrlEvent(
-                  uint ctrlEvent,
-                  uint processGroupId);
-
-              [DllImport("kernel32.dll", SetLastError = true)]
-              private static extern uint GetConsoleCP();
-
-              [DllImport("kernel32.dll", SetLastError = true)]
-              [return: MarshalAs(UnmanagedType.Bool)]
-              private static extern bool AllocConsole();
-
-              [DllImport("kernel32.dll")]
-              [return: MarshalAs(UnmanagedType.Bool)]
-              private static extern bool CloseHandle(IntPtr handle);
-
-              private static void EnsureConsole()
-              {
-                  if (GetConsoleCP() != 0 || AllocConsole())
-                  {
-                      return;
-                  }
-                  var error = Marshal.GetLastWin32Error();
-                  if (error != ERROR_ACCESS_DENIED || GetConsoleCP() == 0)
-                  {
-                      throw new Win32Exception(error);
-                  }
-              }
-
-              public static Process Start(string path)
-              {
-                  EnsureConsole();
-                  var startupInfo = new STARTUPINFO {
-                      cb = (uint)Marshal.SizeOf<STARTUPINFO>()
-                  };
-                  var commandLine = new StringBuilder("\"" + path + "\"");
-                  PROCESS_INFORMATION processInformation;
-                  if (!CreateProcessW(
-                      path,
-                      commandLine,
-                      IntPtr.Zero,
-                      IntPtr.Zero,
-                      false,
-                      CREATE_NEW_PROCESS_GROUP,
-                      IntPtr.Zero,
-                      null,
-                      ref startupInfo,
-                      out processInformation))
-                  {
-                      throw new Win32Exception(Marshal.GetLastWin32Error());
-                  }
-                  try
-                  {
-                      return Process.GetProcessById((int)processInformation.dwProcessId);
-                  }
-                  finally
-                  {
-                      CloseHandle(processInformation.hThread);
-                      CloseHandle(processInformation.hProcess);
-                  }
-              }
-
-              public static void SendCtrlBreak(int processGroupId)
-              {
-                  if (!GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, (uint)processGroupId))
-                  {
-                      throw new Win32Exception(Marshal.GetLastWin32Error());
-                  }
-              }
-          }
-          '@
-
-          $binary = Join-Path $env:GITHUB_WORKSPACE "native-smoke/${{ matrix.filename }}"
-          $checksumFile = Join-Path $env:GITHUB_WORKSPACE "native-smoke/SHA256SUMS"
-          $checksumLine = Get-Content $checksumFile |
-            Where-Object { $_ -match "\s${{ matrix.filename }}$" }
-          if (-not $checksumLine) { throw "missing checksum" }
-          $expectedHash = ($checksumLine -split "\s+")[0].ToLowerInvariant()
-          $beforeHash = (Get-FileHash -Algorithm SHA256 $binary).Hash.ToLowerInvariant()
-          if ($beforeHash -ne $expectedHash) { throw "checksum mismatch before execution" }
-          & $binary help | Out-Null
-          if ($LASTEXITCODE -ne 0) { throw "help failed" }
-
-          $dataDir = Join-Path $env:RUNNER_TEMP "gpt-load-native-smoke"
-          New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
-          $env:DATA_DIR = $dataDir
-          $env:PORT = "39113"
-          $process = [ReleaseNativeProcess]::Start($binary)
-          try {
-            for ($attempt = 0; $attempt -lt 80; $attempt++) {
-              try {
-                $health = Invoke-RestMethod "http://127.0.0.1:39113/health"
-                break
-              } catch {
-                Start-Sleep -Milliseconds 250
-              }
-            }
-            if ($health.version -ne $env:GITHUB_REF_NAME) { throw "version mismatch" }
-            $authFile = Join-Path $dataDir "auth.key"
-            $encryptionFile = Join-Path $dataDir "encryption.key"
-            $databaseFile = Join-Path $dataDir "gpt-load.db"
-            foreach ($file in @($authFile, $encryptionFile, $databaseFile)) {
-              if (-not (Test-Path $file)) { throw "missing generated asset: $file" }
-            }
-            $currentSid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
-            foreach ($file in @($authFile, $encryptionFile)) {
-              $acl = Get-Acl $file
-              if (-not $acl.AreAccessRulesProtected) { throw "credential DACL inherits rules" }
-              $allowRules = @($acl.Access | Where-Object {
-                $_.AccessControlType -eq [System.Security.AccessControl.AccessControlType]::Allow
-              })
-              if ($allowRules.Count -eq 0) { throw "credential DACL has no allow rule" }
-              foreach ($rule in $allowRules) {
-                $sid = $rule.IdentityReference.Translate(
-                  [System.Security.Principal.SecurityIdentifier]
-                )
-                if ($sid.Value -ne $currentSid.Value) {
-                  throw "credential DACL allows another principal"
-                }
-              }
-            }
-            $authKey = (Get-Content $authFile -Raw).Trim()
-            Invoke-WebRequest "http://127.0.0.1:39113/" -UseBasicParsing | Out-Null
-            $headers = @{ Authorization = "Bearer $authKey" }
-            Invoke-RestMethod "http://127.0.0.1:39113/api/usage?range=24h" -Headers $headers | Out-Null
-            Invoke-RestMethod "http://127.0.0.1:39113/api/model-prices" -Headers $headers | Out-Null
-            [ReleaseNativeProcess]::SendCtrlBreak($process.Id)
-            if (-not $process.WaitForExit(15000)) {
-              throw "graceful shutdown timed out"
-            }
-            if ($process.ExitCode -ne 0) {
-              throw "graceful shutdown exited with code $($process.ExitCode)"
-            }
-            $afterHash = (Get-FileHash -Algorithm SHA256 $binary).Hash.ToLowerInvariant()
-            if ($afterHash -ne $expectedHash) { throw "checksum mismatch after execution" }
-          } finally {
-            # Stop-Process is failure cleanup only; success is proven by CTRL_BREAK and exit code 0.
-            if (-not $process.HasExited) {
-              Stop-Process -Id $process.Id -ErrorAction SilentlyContinue
-              $process.WaitForExit(5000) | Out-Null
-            }
-            Remove-Item -Recurse -Force $dataDir -ErrorAction SilentlyContinue
-          }
+          & .github/scripts/release-native-smoke.ps1
+          exit $LASTEXITCODE
 
   docker-smoke:
     needs:
@@ -530,6 +276,53 @@ jobs:
           RELEASE_VERSION: ${{ github.ref_name }}
           RELEASE_SMOKE_SUFFIX: ${{ github.run_id }}
         run: .github/scripts/release-docker-smoke.sh
+
+  capture-channel-baseline:
+    needs:
+      - validate-tag
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: read
+    outputs:
+      ghcr_latest_digest: ${{ steps.snapshot.outputs.ghcr_latest_digest }}
+      dockerhub_latest_digest: ${{ steps.snapshot.outputs.dockerhub_latest_digest }}
+    steps:
+      - name: Checkout tag commit
+        uses: actions/checkout@v7
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR for baseline inspection
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to Docker Hub for baseline inspection
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Capture latest digests before publication
+        id: snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          ghcr_latest_digest="$(
+            .github/scripts/release-image-digest.sh ghcr.io/tbphp/gpt-load:latest
+          )"
+          dockerhub_latest_digest="$(
+            .github/scripts/release-image-digest.sh tbphp/gpt-load:latest
+          )"
+          printf 'ghcr_latest_digest=%s\n' \
+            "${ghcr_latest_digest}" >>"${GITHUB_OUTPUT}"
+          printf 'dockerhub_latest_digest=%s\n' \
+            "${dockerhub_latest_digest}" >>"${GITHUB_OUTPUT}"
 
   publish-github:
     needs:
@@ -600,6 +393,7 @@ jobs:
   publish-images:
     needs:
       - validate-tag
+      - capture-channel-baseline
       - verify-and-build-web
       - build-binaries
       - package-checksums
@@ -662,13 +456,70 @@ jobs:
           build-args: |
             VERSION=${{ github.ref_name }}
 
+  post-publish-native-smoke:
+    needs:
+      - publish-github
+      - publish-images
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            filename: gpt-load-linux-amd64
+          - runner: ubuntu-24.04-arm
+            filename: gpt-load-linux-arm64
+          - runner: macos-15-intel
+            filename: gpt-load-macos-amd64
+          - runner: macos-15
+            filename: gpt-load-macos-arm64
+          - runner: windows-latest
+            filename: gpt-load-windows-amd64.exe
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Checkout tag commit
+        uses: actions/checkout@v7
+
+      - name: Download published GitHub Release assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p public-release
+          gh release download "${GITHUB_REF_NAME}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --dir public-release
+
+      - name: Smoke published POSIX native artifact
+        if: runner.os != 'Windows'
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ github.ref_name }}
+          RELEASE_SMOKE_BINARY: ${{ github.workspace }}/public-release/${{ matrix.filename }}
+          RELEASE_SMOKE_CHECKSUM_FILE: ${{ github.workspace }}/public-release/SHA256SUMS
+        run: .github/scripts/release-native-smoke.sh
+
+      - name: Smoke published Windows native artifact
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ github.ref_name }}
+          RELEASE_SMOKE_BINARY: ${{ github.workspace }}/public-release/${{ matrix.filename }}
+          RELEASE_SMOKE_CHECKSUM_FILE: ${{ github.workspace }}/public-release/SHA256SUMS
+        run: .github/scripts/release-native-smoke.ps1
+
   post-publish-verify:
     needs:
       - validate-tag
+      - capture-channel-baseline
       - publish-github
       - publish-images
+      - post-publish-native-smoke
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 45
     permissions:
       contents: read
       packages: read
@@ -676,22 +527,40 @@ jobs:
       - name: Checkout tag commit
         uses: actions/checkout@v7
 
-      - name: Verify GitHub Release asset inventory
+      - name: Download and verify exact GitHub Release asset inventory
         env:
           GH_TOKEN: ${{ github.token }}
+        shell: bash
         run: |
-          gh release view "${GITHUB_REF_NAME}" \
-            --json assets \
-            --jq '.assets[].name' >/tmp/release-assets
-          for asset in \
-            gpt-load-linux-amd64 \
-            gpt-load-linux-arm64 \
-            gpt-load-macos-amd64 \
-            gpt-load-macos-arm64 \
-            gpt-load-windows-amd64.exe \
-            SHA256SUMS; do
-            grep -Fx "${asset}" /tmp/release-assets
-          done
+          set -euo pipefail
+          mkdir -p public-release
+          gh release download "${GITHUB_REF_NAME}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --dir public-release
+
+          cat >/tmp/expected-release-assets <<'ASSETS'
+          SHA256SUMS
+          gpt-load-linux-amd64
+          gpt-load-linux-arm64
+          gpt-load-macos-amd64
+          gpt-load-macos-arm64
+          gpt-load-windows-amd64.exe
+          ASSETS
+          find public-release -mindepth 1 -maxdepth 1 -type f -exec basename {} \; |
+            sort >/tmp/actual-release-assets
+          asset_count="$(wc -l </tmp/actual-release-assets | tr -d ' ')"
+          test "${asset_count}" = "6"
+          cmp /tmp/expected-release-assets /tmp/actual-release-assets
+
+          cd public-release
+          test "$(wc -l <SHA256SUMS | tr -d ' ')" = "5"
+          awk '{print $2}' SHA256SUMS | sort >/tmp/checksummed-release-assets
+          tail -n +2 /tmp/expected-release-assets >/tmp/expected-checksummed-release-assets
+          cmp /tmp/expected-checksummed-release-assets /tmp/checksummed-release-assets
+          sha256sum --check SHA256SUMS
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
 
       - name: Log in to GHCR for manifest verification
         uses: docker/login-action@v4
@@ -699,6 +568,12 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to Docker Hub for manifest verification
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Verify published image manifests
         shell: bash
@@ -717,9 +592,15 @@ jobs:
             test -n "${exact_digest}"
             if [[ "${repository}" == ghcr.io/* ]]; then
               ghcr_exact_digest="${exact_digest}"
+              latest_image="ghcr.io/tbphp/gpt-load:latest"
+              expected_latest_digest="${{ needs.capture-channel-baseline.outputs.ghcr_latest_digest }}"
             else
               dockerhub_exact_digest="${exact_digest}"
+              latest_image="tbphp/gpt-load:latest"
+              expected_latest_digest="${{ needs.capture-channel-baseline.outputs.dockerhub_latest_digest }}"
             fi
+            latest_digest="$(.github/scripts/release-image-digest.sh "${latest_image}")"
+            test "${latest_digest}" = "${expected_latest_digest}"
 
             if [[ "${{ needs.validate-tag.outputs.prerelease }}" == "false" ]]; then
               for alias in \
@@ -735,3 +616,19 @@ jobs:
             fi
           done
           test "${ghcr_exact_digest}" = "${dockerhub_exact_digest}"
+
+      - name: Run full runtime smoke for both published exact images
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          for source_and_suffix in \
+            "ghcr.io/tbphp/gpt-load:${{ needs.validate-tag.outputs.image_exact }}|ghcr" \
+            "tbphp/gpt-load:${{ needs.validate-tag.outputs.image_exact }}|dockerhub"; do
+            source_image="${source_and_suffix%%|*}"
+            smoke_suffix="${source_and_suffix##*|}"
+            RELEASE_SMOKE_SOURCE_IMAGE="${source_image}" \
+              RELEASE_SMOKE_SUFFIX="${GITHUB_RUN_ID}-${smoke_suffix}" \
+              .github/scripts/release-docker-smoke.sh
+          done

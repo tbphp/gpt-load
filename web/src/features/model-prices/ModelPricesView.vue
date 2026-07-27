@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowLeft, ExternalLink, Pencil, Plus, Tags } from 'lucide-vue-next'
+import { ArrowLeft, ExternalLink, Pencil, Plus, Tags, TriangleAlert } from 'lucide-vue-next'
 import { useQuery } from '@tanstack/vue-query'
 import { nextTick, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -54,7 +54,9 @@ async function setDrawerOpen(open: boolean): Promise<void> {
 }
 
 function formatPrice(value: number | null): string {
-  return value === null ? t('modelPrices.notConfigured') : `$${value}`
+  if (value === null) return t('modelPrices.notConfigured')
+  if (value === 0) return t('modelPrices.explicitlyFree')
+  return t('modelPrices.configuredPrice', { price: value })
 }
 
 function kindLabel(pattern: string): string {
@@ -93,6 +95,9 @@ function value(rule: ModelPriceRuleDto, field: ModelPriceField): string {
       <div>
         <strong>{{ t('modelPrices.priceUnit') }}</strong>
         <p>{{ t('modelPrices.historyNote') }}</p>
+        <p>{{ t('modelPrices.modelIdentityNote') }}</p>
+        <p>{{ t('modelPrices.precedenceNote') }}</p>
+        <p>{{ t('modelPrices.wholeRuleNote') }}</p>
       </div>
     </SurfaceCard>
 
@@ -117,7 +122,102 @@ function value(rule: ModelPriceRuleDto, field: ModelPriceField): string {
         @retry="pricesQuery.refetch()"
       />
 
-      <section class="model-prices__section" aria-labelledby="builtin-prices-title">
+      <section
+        class="model-prices__section"
+        data-test="model-price-rule-section"
+        data-source="user"
+        aria-labelledby="override-prices-title"
+      >
+        <div class="model-prices__section-heading">
+          <div>
+            <h2 id="override-prices-title">{{ t('modelPrices.overrides.title') }}</h2>
+            <p>{{ t('modelPrices.overrides.description') }}</p>
+          </div>
+          <StatusBadge>{{ t('modelPrices.source.user') }}</StatusBadge>
+        </div>
+        <EmptyState
+          v-if="pricesQuery.data.value.overrides.length === 0"
+          :title="t('modelPrices.overrides.empty')"
+          :description="t('modelPrices.overrides.emptyDescription')"
+        />
+        <DataTable v-else :caption="t('modelPrices.overrides.caption')" dense>
+          <thead>
+            <tr>
+              <th scope="col">{{ t('modelPrices.table.pattern') }}</th>
+              <th scope="col">{{ t('modelPrices.table.kind') }}</th>
+              <th scope="col">{{ t('modelPrices.fields.uncached_input') }}</th>
+              <th scope="col">{{ t('modelPrices.fields.cache_read') }}</th>
+              <th scope="col">{{ t('modelPrices.fields.cache_write_5m') }}</th>
+              <th scope="col">{{ t('modelPrices.fields.cache_write_1h') }}</th>
+              <th scope="col">{{ t('modelPrices.fields.output') }}</th>
+              <th scope="col">{{ t('modelPrices.table.source') }}</th>
+              <th scope="col">{{ t('modelPrices.table.updatedAt') }}</th>
+              <th scope="col">{{ t('modelPrices.table.actions') }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              v-for="(rule, index) in pricesQuery.data.value.overrides"
+              :key="rule.pattern"
+              :data-test="`override-price-row-${index}`"
+            >
+              <td>
+                <code>{{ rule.pattern }}</code>
+                <span
+                  v-if="rule.pattern === '*'"
+                  class="model-prices__global-warning"
+                  data-test="model-price-global-row-warning"
+                >
+                  <TriangleAlert :size="14" aria-hidden="true" />
+                  {{ t('modelPrices.globalUserOverride') }}
+                </span>
+              </td>
+              <td>
+                <StatusBadge>{{ kindLabel(rule.pattern) }}</StatusBadge>
+                <span class="model-prices__source-label">{{ t('modelPrices.source.user') }}</span>
+              </td>
+              <td :data-test="`override-${index}-uncached_input`">
+                {{ value(rule, 'uncached_input') }}
+              </td>
+              <td :data-test="`override-${index}-cache_read`">
+                {{ value(rule, 'cache_read') }}
+              </td>
+              <td :data-test="`override-${index}-cache_write_5m`">
+                {{ value(rule, 'cache_write_5m') }}
+              </td>
+              <td :data-test="`override-${index}-cache_write_1h`">
+                {{ value(rule, 'cache_write_1h') }}
+              </td>
+              <td :data-test="`override-${index}-output`">{{ value(rule, 'output') }}</td>
+              <td :data-test="`override-source-${index}`">
+                {{ t('modelPrices.source.user') }}
+              </td>
+              <td>
+                <time :datetime="rule.updated_at">{{ rule.updated_at }}</time>
+              </td>
+              <td>
+                <div class="model-prices__row-actions">
+                  <AppButton
+                    :data-test="`override-price-edit-${index}`"
+                    variant="ghost"
+                    @click="editRule(rule, $event)"
+                  >
+                    <Pencil :size="15" aria-hidden="true" />{{ t('modelPrices.overrides.edit') }}
+                  </AppButton>
+                  <ModelPriceResetDialog :rule="rule" />
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </DataTable>
+      </section>
+
+      <section
+        class="model-prices__section"
+        data-test="model-price-rule-section"
+        data-source="builtin"
+        aria-labelledby="builtin-prices-title"
+      >
         <div class="model-prices__section-heading">
           <div>
             <h2 id="builtin-prices-title">{{ t('modelPrices.builtin.title') }}</h2>
@@ -141,6 +241,7 @@ function value(rule: ModelPriceRuleDto, field: ModelPriceField): string {
               <th scope="col">{{ t('modelPrices.fields.cache_write_1h') }}</th>
               <th scope="col">{{ t('modelPrices.fields.output') }}</th>
               <th scope="col">{{ t('modelPrices.table.source') }}</th>
+              <th scope="col">{{ t('modelPrices.table.updatedAt') }}</th>
               <th scope="col">{{ t('modelPrices.table.actions') }}</th>
             </tr>
           </thead>
@@ -185,6 +286,9 @@ function value(rule: ModelPriceRuleDto, field: ModelPriceField): string {
                 </a>
               </td>
               <td>
+                <time :datetime="rule.updated_at">{{ rule.updated_at }}</time>
+              </td>
+              <td>
                 <AppButton
                   :data-test="`builtin-price-edit-${index}`"
                   variant="ghost"
@@ -194,75 +298,6 @@ function value(rule: ModelPriceRuleDto, field: ModelPriceField): string {
                     t('modelPrices.builtin.createOverride')
                   }}
                 </AppButton>
-              </td>
-            </tr>
-          </tbody>
-        </DataTable>
-      </section>
-
-      <section class="model-prices__section" aria-labelledby="override-prices-title">
-        <div class="model-prices__section-heading">
-          <div>
-            <h2 id="override-prices-title">{{ t('modelPrices.overrides.title') }}</h2>
-            <p>{{ t('modelPrices.overrides.description') }}</p>
-          </div>
-          <StatusBadge>{{ t('modelPrices.source.user') }}</StatusBadge>
-        </div>
-        <EmptyState
-          v-if="pricesQuery.data.value.overrides.length === 0"
-          :title="t('modelPrices.overrides.empty')"
-          :description="t('modelPrices.overrides.emptyDescription')"
-        />
-        <DataTable v-else :caption="t('modelPrices.overrides.caption')" dense>
-          <thead>
-            <tr>
-              <th scope="col">{{ t('modelPrices.table.pattern') }}</th>
-              <th scope="col">{{ t('modelPrices.table.kind') }}</th>
-              <th scope="col">{{ t('modelPrices.fields.uncached_input') }}</th>
-              <th scope="col">{{ t('modelPrices.fields.cache_read') }}</th>
-              <th scope="col">{{ t('modelPrices.fields.cache_write_5m') }}</th>
-              <th scope="col">{{ t('modelPrices.fields.cache_write_1h') }}</th>
-              <th scope="col">{{ t('modelPrices.fields.output') }}</th>
-              <th scope="col">{{ t('modelPrices.table.actions') }}</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr
-              v-for="(rule, index) in pricesQuery.data.value.overrides"
-              :key="rule.pattern"
-              :data-test="`override-price-row-${index}`"
-            >
-              <td>
-                <code>{{ rule.pattern }}</code>
-              </td>
-              <td>
-                <StatusBadge>{{ kindLabel(rule.pattern) }}</StatusBadge>
-                <span class="model-prices__source-label">{{ t('modelPrices.source.user') }}</span>
-              </td>
-              <td :data-test="`override-${index}-uncached_input`">
-                {{ value(rule, 'uncached_input') }}
-              </td>
-              <td :data-test="`override-${index}-cache_read`">
-                {{ value(rule, 'cache_read') }}
-              </td>
-              <td :data-test="`override-${index}-cache_write_5m`">
-                {{ value(rule, 'cache_write_5m') }}
-              </td>
-              <td :data-test="`override-${index}-cache_write_1h`">
-                {{ value(rule, 'cache_write_1h') }}
-              </td>
-              <td :data-test="`override-${index}-output`">{{ value(rule, 'output') }}</td>
-              <td>
-                <div class="model-prices__row-actions">
-                  <AppButton
-                    :data-test="`override-price-edit-${index}`"
-                    variant="ghost"
-                    @click="editRule(rule, $event)"
-                  >
-                    <Pencil :size="15" aria-hidden="true" />{{ t('modelPrices.overrides.edit') }}
-                  </AppButton>
-                  <ModelPriceResetDialog :rule="rule" />
-                </div>
               </td>
             </tr>
           </tbody>
@@ -306,6 +341,9 @@ function value(rule: ModelPriceRuleDto, field: ModelPriceField): string {
   margin: 0;
   color: var(--color-text-muted);
 }
+.model-prices__notice p + p {
+  margin-top: var(--space-1);
+}
 .model-prices__section {
   display: grid;
   min-width: 0;
@@ -341,6 +379,16 @@ function value(rule: ModelPriceRuleDto, field: ModelPriceField): string {
   margin-top: var(--space-1);
   color: var(--color-text-muted);
   font-size: 0.75rem;
+}
+.model-prices__global-warning {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-top: var(--space-1);
+  color: var(--color-warning);
+  font-size: 0.75rem;
+  font-weight: 650;
+  white-space: normal;
 }
 .model-prices__row-actions {
   gap: var(--space-2);

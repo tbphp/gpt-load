@@ -416,15 +416,12 @@ type requestLogUsageCostResponse struct {
 }
 
 func mapRequestLogUsageCost(record requestlog.Record) (requestLogUsageCostResponse, error) {
-	switch record.UsageState {
-	case usage.StateComplete, usage.StatePartial, usage.StateMissing, usage.StateNotApplicable:
-	default:
-		return requestLogUsageCostResponse{}, fmt.Errorf("map request log usage state: invalid value")
-	}
-	switch record.CostState {
-	case pricing.CostStatePriced, pricing.CostStateUnpriced, pricing.CostStateNotApplicable:
-	default:
-		return requestLogUsageCostResponse{}, fmt.Errorf("map request log cost state: invalid value")
+	if err := requestlog.ValidateUsageCostState(
+		record.UsageState,
+		record.CostState,
+		record.EstimatedCostUSD,
+	); err != nil {
+		return requestLogUsageCostResponse{}, fmt.Errorf("map request log usage/cost: %w", err)
 	}
 	for _, value := range []int64{
 		record.UncachedInputTokens,
@@ -436,6 +433,9 @@ func mapRequestLogUsageCost(record requestlog.Record) (requestLogUsageCostRespon
 		if value < 0 || value > maxSafeInteger {
 			return requestLogUsageCostResponse{}, fmt.Errorf("map request log usage tokens: unsafe value")
 		}
+	}
+	if uint64(record.GroupID) > uint64(maxSafeInteger) {
+		return requestLogUsageCostResponse{}, fmt.Errorf("map request log final Group ID: unsafe value")
 	}
 	cost, err := mapEstimatedCostUSD(record.EstimatedCostUSD)
 	if err != nil {

@@ -73,7 +73,7 @@ cp .env.example .env
 docker compose config
 ```
 
-只有当解析结果满足以下条件时，才继续：image 为 `ghcr.io/tbphp/gpt-load:2`，`DATA_DIR=/app/data`，`DATABASE_DSN=/app/data/gpt-load.db`，且 `/app/data` 使用 named volume。若当前 checkout 仍解析为 `latest` 或 host bind mount，表示后续 T18 容器收口尚未落地；不要把该 Compose 文件用于 2.0 生产部署，也不要自行改用 `latest`。
+只有当解析结果满足以下条件时，才继续：image 为 `ghcr.io/tbphp/gpt-load:2`，`DATA_DIR=/app/data`，`DATABASE_DSN=/app/data/gpt-load.db`，且 `/app/data` 使用 named volume。若解析结果仍是 `latest` 或 host bind mount，不要把该 Compose 文件用于 2.0 生产部署，也不要自行改用 `latest`。
 
 满足前置条件后：
 

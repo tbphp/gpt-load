@@ -27,13 +27,12 @@ const aggregate: UsageAggregateDto = {
 
 function usageReport(overrides: Partial<UsageReportDto> = {}): UsageReportDto {
   return {
+    range: '24h',
+    granularity: 'hour',
+    timezone: 'UTC',
+    from: '2026-07-26T05:00:00Z',
+    to: '2026-07-27T05:00:00Z',
     observed_at: '2026-07-27T04:00:01Z',
-    range: {
-      from: '2026-07-26T05:00:00Z',
-      to: '2026-07-27T05:00:00Z',
-      granularity: 'hour',
-    },
-    filters: { group_id: null, model: '' },
     summary: { ...aggregate },
     series: [
       {
@@ -44,21 +43,11 @@ function usageReport(overrides: Partial<UsageReportDto> = {}): UsageReportDto {
     ],
     breakdown: [{ ...aggregate, group_id: 7, model: 'gpt-upstream' }],
     breakdown_truncated: false,
-    request_log: {
-      enqueued_total: 20,
-      persisted_total: 18,
-      dropped_not_running_total: 0,
-      dropped_queue_full_total: 1,
-      dropped_stopping_total: 0,
-      dropped_persist_failed_total: 1,
-      dropped_shutdown_total: 0,
+    collection_health: {
+      scope: 'current_process',
       dropped_total: 2,
       write_failure_total: 1,
-      retention_delete_failure_total: 0,
-      queue_depth: 0,
-      queue_capacity: 100,
       last_write_failure_at: '2026-07-27T03:00:00Z',
-      last_retention_failure_at: null,
     },
     ...overrides,
   }
@@ -214,20 +203,140 @@ describe('UsageTab', () => {
     expect(wrapper.text()).not.toContain('groups-secret')
   })
 
-  it('uses backend total_tokens and presents separate quality counts with overlap and process scope', async () => {
+  it('uses backend totals and presents success/failure plus five token categories', async () => {
     const { wrapper } = await mountUsage(new UsageApi())
 
     expect(wrapper.get('[data-test="usage-kpi-total-tokens"]').text()).toContain('177')
+    expect(wrapper.get('[data-test="usage-kpi-outcomes"]').text()).toContain('9')
+    expect(wrapper.get('[data-test="usage-kpi-outcomes"]').text()).toContain('3')
+    expect(wrapper.get('[data-test="usage-kpi-outcomes"]').text()).not.toContain('%')
+    const tokenDefinition = wrapper.get('[data-test="usage-summary-token-definition"]').text()
+    for (const value of ['100', '20', '3', '4', '50']) {
+      expect(tokenDefinition).toContain(value)
+    }
+  })
+
+  it('separates durable-window quality from current-process health with fixed scope semantics', async () => {
+    const { wrapper } = await mountUsage(new UsageApi())
+
+    expect(wrapper.get('[data-test="usage-window-quality"]').text()).toContain('selected window')
     expect(wrapper.get('[data-test="usage-quality-missing"]').text()).toContain('2')
     expect(wrapper.get('[data-test="usage-quality-partial"]').text()).toContain('3')
     expect(wrapper.get('[data-test="usage-quality-unpriced"]').text()).toContain('4')
     expect(wrapper.get('[data-test="usage-quality-overlap"]').text()).toContain('may overlap')
-    expect(wrapper.get('[data-test="usage-scope"]').text()).toContain('current process')
-    expect(wrapper.get('[data-test="usage-quality-dropped"]').text()).toContain('2')
-    expect(wrapper.get('[data-test="usage-quality-write-failures"]').text()).toContain('1')
+    const processHealth = wrapper.get('[data-test="usage-process-health"]')
+    expect(processHealth.text()).toContain('current process')
+    expect(processHealth.text()).toContain('reset when the process restarts')
+    expect(processHealth.text()).toContain('2026-07-27T03:00:00Z')
+    expect(processHealth.get('[data-test="usage-quality-dropped"]').text()).toContain('2')
+    expect(processHealth.get('[data-test="usage-quality-write-failures"]').text()).toContain('1')
+    expect(wrapper.text().indexOf('Current process collection health')).toBeLessThan(
+      wrapper.text().indexOf('Persisted request trend'),
+    )
+    expect(processHealth.get('[data-test="usage-process-dropped-warning"]').text()).toContain(
+      'covers only requests persisted successfully',
+    )
+    expect(processHealth.get('[data-test="usage-process-write-failure-warning"]').text()).toContain(
+      'persistence batch failed',
+    )
   })
 
-  it('explains excluded tokens and links unpriced requests to model prices without calling unknown cost free', async () => {
+  it('always shows overlap and uses neutral process status when current counters are zero', async () => {
+    const report = usageReport({
+      summary: {
+        ...aggregate,
+        usage_missing_count: 0,
+        partial_count: 0,
+        unpriced_request_count: 0,
+      },
+      collection_health: {
+        scope: 'current_process',
+        dropped_total: 0,
+        write_failure_total: 0,
+        last_write_failure_at: null,
+      },
+    })
+    const { wrapper } = await mountUsage(new UsageApi([report]))
+
+    expect(wrapper.get('[data-test="usage-quality-overlap"]').text()).toContain('may overlap')
+    expect(
+      wrapper.get('[data-test="usage-quality-dropped"]').find('[class*="status-badge"]').classes(),
+    ).toContain('status-badge--neutral')
+    expect(
+      wrapper
+        .get('[data-test="usage-quality-write-failures"]')
+        .find('[class*="status-badge"]')
+        .classes(),
+    ).toContain('status-badge--neutral')
+    expect(wrapper.get('[data-test="usage-process-health"]').text()).toContain(
+      'has not reported dropped telemetry or write failures',
+    )
+  })
+
+  it('explains dropped and write-failure process counters independently', async () => {
+    const dropped = await mountUsage(
+      new UsageApi([
+        usageReport({
+          collection_health: {
+            scope: 'current_process',
+            dropped_total: 2,
+            write_failure_total: 0,
+            last_write_failure_at: null,
+          },
+        }),
+      ]),
+    )
+    expect(dropped.wrapper.find('[data-test="usage-process-dropped-warning"]').exists()).toBe(true)
+    expect(dropped.wrapper.find('[data-test="usage-process-write-failure-warning"]').exists()).toBe(
+      false,
+    )
+    dropped.wrapper.unmount()
+
+    const writeFailure = await mountUsage(
+      new UsageApi([
+        usageReport({
+          collection_health: {
+            scope: 'current_process',
+            dropped_total: 0,
+            write_failure_total: 1,
+            last_write_failure_at: '2026-07-27T03:00:00Z',
+          },
+        }),
+      ]),
+    )
+    expect(writeFailure.wrapper.find('[data-test="usage-process-dropped-warning"]').exists()).toBe(
+      false,
+    )
+    expect(
+      writeFailure.wrapper.find('[data-test="usage-process-write-failure-warning"]').exists(),
+    ).toBe(true)
+  })
+
+  it('keeps current-process health visible when the durable window is empty', async () => {
+    const report = usageReport({
+      summary: {
+        ...aggregate,
+        request_count: 0,
+        success_count: 0,
+        failure_count: 0,
+        total_tokens: 0,
+        estimated_cost_usd: 0,
+        usage_missing_count: 0,
+        partial_count: 0,
+        unpriced_request_count: 0,
+      },
+      series: [],
+      breakdown: [],
+    })
+    const { wrapper } = await mountUsage(new UsageApi([report]))
+
+    expect(wrapper.get('[data-test="usage-empty"]').text()).toContain('No persisted usage matches')
+    expect(wrapper.get('[data-test="usage-process-health"]').text()).toContain('Dropped')
+    expect(wrapper.get('[data-test="usage-process-health"]').text()).toContain('2')
+    expect(wrapper.find('[data-test="usage-kpi-total-tokens"]').exists()).toBe(false)
+  })
+
+  it('conditionally explains partial and unpriced exclusions and preserves known zero cost', async () => {
     const report = usageReport({
       summary: { ...aggregate, estimated_cost_usd: 0, unpriced_request_count: 4 },
       series: [
@@ -262,10 +371,44 @@ describe('UsageTab', () => {
       '[data-test="usage-series-cost-0"]',
       '[data-test="usage-breakdown-cost-0"]',
     ]) {
-      expect(wrapper.get(selector).text()).toContain('Unknown')
-      expect(wrapper.get(selector).text()).not.toContain('$0')
+      expect(wrapper.get(selector).text()).toContain('$0.00')
+      expect(wrapper.get(selector).text()).toContain('unknown')
       expect(wrapper.get(selector).text()).not.toContain('Free')
     }
+    expect(wrapper.get('[data-test="usage-unpriced-explanation"]').text()).toContain(
+      'unsupported billing detail or diagnostics',
+    )
+    expect(wrapper.get('[data-test="usage-unpriced-explanation"]').text()).toContain(
+      'tokens are excluded',
+    )
+    expect(wrapper.get('[data-test="usage-partial-explanation"]').text()).toContain(
+      'usage-only final chunk',
+    )
+
+    const complete = await mountUsage(
+      new UsageApi([
+        usageReport({
+          summary: {
+            ...aggregate,
+            partial_count: 0,
+            unpriced_request_count: 0,
+          },
+        }),
+      ]),
+    )
+    expect(complete.wrapper.find('[data-test="usage-unpriced-explanation"]').exists()).toBe(false)
+    expect(complete.wrapper.find('[data-test="usage-partial-explanation"]').exists()).toBe(false)
+  })
+
+  it('refreshes without changing the applied URL filters', async () => {
+    const api = new UsageApi([usageReport(), usageReport()])
+    const { router, wrapper } = await mountUsage(api)
+
+    await wrapper.get('[data-test="usage-refresh"]').trigger('click')
+    await flushPromises()
+
+    expect(api.requests.filter(({ path }) => path.startsWith('/api/usage?'))).toHaveLength(2)
+    expect(router.currentRoute.value.fullPath).toBe('/monitor?tab=usage&range=24h')
   })
 
   it.each([
@@ -283,7 +426,31 @@ describe('UsageTab', () => {
     expect(wrapper.get('[data-test="usage-series-table"]').text()).toContain('2026-07-27T02:00:00Z')
     expect(wrapper.get('[data-test="usage-breakdown-table"]').text()).toContain('gpt-upstream')
     expect(wrapper.get('[data-test="usage-breakdown-table"]').text()).toContain('Upstream model')
+    for (const heading of [
+      'Uncached input',
+      'Cache read',
+      'Cache write (5m)',
+      'Cache write (1h)',
+      'Output',
+    ]) {
+      expect(wrapper.get('[data-test="usage-breakdown-table"]').text()).toContain(heading)
+    }
     expect(wrapper.get('[data-test="usage-breakdown-truncated"]').text()).toContain('top 100')
+  })
+
+  it('labels deleted or unknown Groups in filters and breakdown rows', async () => {
+    const report = usageReport({
+      breakdown: [{ ...aggregate, group_id: 99, model: 'orphan-model' }],
+    })
+    const { wrapper } = await mountUsage(
+      new UsageApi([report], [group(7, 'Primary')]),
+      '/monitor?tab=usage&range=24h&group_id=99',
+    )
+
+    expect(wrapper.get('[data-test="usage-group"]').text()).toContain('#99 · Deleted or unknown')
+    expect(wrapper.get('[data-test="usage-breakdown-table"]').text()).toContain(
+      '#99 · Deleted or unknown',
+    )
   })
 
   it('renders loading, no-data, terminal error, and stale-data states without leaking errors', async () => {
@@ -347,4 +514,25 @@ describe('UsageTab', () => {
     expect(stale.wrapper.get('[data-test="usage-kpi-total-tokens"]').text()).toContain('177')
     expect(stale.wrapper.text()).not.toContain('stale-secret-canary')
   })
+
+  it.each([
+    [0, '$0.00'],
+    [0.01, '$0.01'],
+    [0.00000001, '$0.00000001'],
+    [0.000000001, '<$0.00000001'],
+  ])(
+    'formats estimated USD %s without rounding a positive value to zero',
+    async (cost, expected) => {
+      const report = usageReport({
+        summary: {
+          ...aggregate,
+          estimated_cost_usd: cost,
+          unpriced_request_count: 0,
+        },
+      })
+      const { wrapper } = await mountUsage(new UsageApi([report]))
+
+      expect(wrapper.get('[data-test="usage-kpi-cost"]').text()).toContain(expected)
+    },
+  )
 })

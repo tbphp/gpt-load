@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -293,6 +294,38 @@ func TestRequestLogUsageCostProjectionRejectsUnsafeValues(t *testing.T) {
 		{name: "unsafe token", mutate: func(record *requestlog.Record) { record.OutputTokens = maxSafeInteger + 1 }},
 		{name: "negative cost", mutate: func(record *requestlog.Record) { record.EstimatedCostUSD = -0.1 }},
 		{name: "infinite cost", mutate: func(record *requestlog.Record) { record.EstimatedCostUSD = math.Inf(1) }},
+		{
+			name: "missing usage cannot be priced",
+			mutate: func(record *requestlog.Record) {
+				record.UsageState = usage.StateMissing
+			},
+		},
+		{
+			name: "not applicable usage cannot be unpriced",
+			mutate: func(record *requestlog.Record) {
+				record.UsageState = usage.StateNotApplicable
+				record.CostState = pricing.CostStateUnpriced
+			},
+		},
+		{
+			name: "unpriced cost must be zero",
+			mutate: func(record *requestlog.Record) {
+				record.CostState = pricing.CostStateUnpriced
+				record.EstimatedCostUSD = 0.1
+			},
+		},
+	}
+	if strconv.IntSize == 64 {
+		tests = append(tests, struct {
+			name   string
+			mutate func(*requestlog.Record)
+		}{
+			name: "unsafe final Group ID",
+			mutate: func(record *requestlog.Record) {
+				unsafeGroupID := uint64(maxSafeInteger) + 1
+				record.GroupID = uint(unsafeGroupID)
+			},
+		})
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -300,6 +333,84 @@ func TestRequestLogUsageCostProjectionRejectsUnsafeValues(t *testing.T) {
 			test.mutate(&record)
 			if _, err := mapRequestLogListResponse(requestlog.Page{Items: []requestlog.Record{record}}); err == nil {
 				t.Fatal("mapRequestLogListResponse() error = nil, want rejection")
+			}
+		})
+	}
+}
+
+func TestRequestLogUsageCostProjectionAcceptsMaximumSafeFinalGroupID(t *testing.T) {
+	if strconv.IntSize != 64 {
+		t.Skip("maximum JavaScript safe integer does not fit uint on this architecture")
+	}
+	safeGroupID := uint64(maxSafeInteger)
+	record := requestlog.Record{
+		GroupID: uint(safeGroupID), UsageState: usage.StateComplete,
+		CostState: pricing.CostStatePriced,
+	}
+	result, err := mapRequestLogListResponse(requestlog.Page{Items: []requestlog.Record{record}})
+	if err != nil {
+		t.Fatalf("mapRequestLogListResponse() error = %v", err)
+	}
+	if len(result.Items) != 1 || result.Items[0].GroupID == nil ||
+		uint64(*result.Items[0].GroupID) != safeGroupID {
+		t.Fatalf("projected final Group ID = %#v", result.Items)
+	}
+}
+
+func TestRequestLogEndpointFailsClosedOnCorruptReaderUsageCost(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*requestlog.Record)
+	}{
+		{
+			name: "invalid state matrix",
+			mutate: func(record *requestlog.Record) {
+				record.UsageState = usage.StateMissing
+				record.CostState = pricing.CostStatePriced
+			},
+		},
+		{
+			name: "unpriced nonzero cost",
+			mutate: func(record *requestlog.Record) {
+				record.CostState = pricing.CostStateUnpriced
+				record.EstimatedCostUSD = 0.01
+			},
+		},
+	}
+	if strconv.IntSize == 64 {
+		tests = append(tests, struct {
+			name   string
+			mutate func(*requestlog.Record)
+		}{
+			name: "unsafe final Group ID",
+			mutate: func(record *requestlog.Record) {
+				unsafeGroupID := uint64(maxSafeInteger) + 1
+				record.GroupID = uint(unsafeGroupID)
+			},
+		})
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			record := requestlog.Record{
+				RequestID:   "00000000-0000-4000-8000-000000000605",
+				CompletedAt: time.Date(2026, time.July, 27, 0, 0, 0, 0, time.UTC),
+				UsageState:  usage.StateComplete,
+				CostState:   pricing.CostStatePriced,
+				Attempts:    []requestlog.Attempt{},
+			}
+			test.mutate(&record)
+			reader := &recordingRequestLogReader{
+				pages: []requestlog.Page{{Items: []requestlog.Record{record}}},
+			}
+			recorder := performRequestLogRequest(
+				newRequestLogTestEngine(t, reader),
+				"test-auth-key",
+				"",
+			)
+			if recorder.Code != http.StatusInternalServerError ||
+				!strings.Contains(recorder.Body.String(), "INTERNAL_SERVER_ERROR") ||
+				strings.Contains(strings.ToLower(recorder.Body.String()), "unsafe") {
+				t.Fatalf("corrupt response = %d %s", recorder.Code, recorder.Body.String())
 			}
 		})
 	}

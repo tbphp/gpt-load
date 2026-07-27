@@ -30,6 +30,12 @@ type modelPriceRuleResponse struct {
 	UpdatedAt time.Time                `json:"updated_at"`
 }
 
+type modelPriceListResponse struct {
+	PriceUnit string                   `json:"price_unit"`
+	Builtin   []modelPriceRuleResponse `json:"builtin"`
+	Overrides []modelPriceRuleResponse `json:"overrides"`
+}
+
 type modelPriceUpsertRequest struct {
 	input ModelPriceInput
 }

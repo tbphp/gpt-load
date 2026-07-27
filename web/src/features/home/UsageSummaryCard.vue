@@ -12,6 +12,7 @@ import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import SurfaceCard from '@/components/ui/SurfaceCard.vue'
+import { formatEstimatedUSD } from '@/features/usage/estimated-cost'
 
 const filters = { range: '24h' } as const
 const client = useApiClient()
@@ -24,8 +25,8 @@ const report = computed(() => usageQuery.data.value)
 const hasPipelineWarning = computed(() =>
   Boolean(
     report.value &&
-    (report.value.request_log.dropped_total > 0 ||
-      report.value.request_log.write_failure_total > 0),
+    (report.value.collection_health.dropped_total > 0 ||
+      report.value.collection_health.write_failure_total > 0),
   ),
 )
 const observedAt = computed(() => {
@@ -56,22 +57,11 @@ function formatReportedTokens(aggregate: UsageAggregateDto): string {
 
 function formatEstimatedCost(aggregate: UsageAggregateDto): string {
   if (aggregate.unpriced_request_count > 0) {
-    if (aggregate.estimated_cost_usd === 0) return t('home.usage.cost.unknown')
     return t('home.usage.cost.knownPlusUnknown', {
-      cost: new Intl.NumberFormat(locale.value, {
-        style: 'currency',
-        currency: 'USD',
-        minimumFractionDigits: 6,
-        maximumFractionDigits: 6,
-      }).format(aggregate.estimated_cost_usd),
+      cost: formatEstimatedUSD(aggregate.estimated_cost_usd, locale.value),
     })
   }
-  return new Intl.NumberFormat(locale.value, {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: 6,
-    maximumFractionDigits: 6,
-  }).format(aggregate.estimated_cost_usd)
+  return formatEstimatedUSD(aggregate.estimated_cost_usd, locale.value)
 }
 </script>
 
@@ -175,8 +165,8 @@ function formatEstimatedCost(aggregate: UsageAggregateDto): string {
           <TriangleAlert :size="16" aria-hidden="true" />
           {{
             t('home.usage.pipelineWarning', {
-              dropped: formatCount(report.request_log.dropped_total),
-              failures: formatCount(report.request_log.write_failure_total),
+              dropped: formatCount(report.collection_health.dropped_total),
+              failures: formatCount(report.collection_health.write_failure_total),
             })
           }}
         </InlineFeedback>

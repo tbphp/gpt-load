@@ -19,31 +19,20 @@ const aggregate = {
   unpriced_request_count: 3,
 } as const
 
-const requestLog = {
-  enqueued_total: 12,
-  persisted_total: 10,
-  dropped_not_running_total: 1,
-  dropped_queue_full_total: 0,
-  dropped_stopping_total: 0,
-  dropped_persist_failed_total: 1,
-  dropped_shutdown_total: 0,
+const collectionHealth = {
+  scope: 'current_process',
   dropped_total: 2,
   write_failure_total: 1,
-  retention_delete_failure_total: 0,
-  queue_depth: 2,
-  queue_capacity: 256,
   last_write_failure_at: null,
-  last_retention_failure_at: '2026-07-27T10:00:00Z',
 } as const
 
 const report = {
+  range: '24h',
+  granularity: 'hour',
+  timezone: 'UTC',
+  from: '2026-07-26T13:00:00Z',
+  to: '2026-07-27T13:00:00Z',
   observed_at: '2026-07-27T12:21:48Z',
-  range: {
-    from: '2026-07-26T13:00:00Z',
-    to: '2026-07-27T13:00:00Z',
-    granularity: 'hour',
-  },
-  filters: { group_id: 7, model: 'gpt-5.6' },
   summary: aggregate,
   series: [
     {
@@ -54,7 +43,7 @@ const report = {
   ],
   breakdown: [{ group_id: 7, model: 'gpt-5.6', ...aggregate }],
   breakdown_truncated: false,
-  request_log: requestLog,
+  collection_health: collectionHealth,
 } as const
 
 describe('Usage control API', () => {
@@ -104,11 +93,10 @@ describe('Usage control API', () => {
   it('accepts an exact UTC day bucket inside the aligned 30-day window', () => {
     const dailyReport = {
       ...report,
-      range: {
-        from: '2026-06-28T00:00:00Z',
-        to: '2026-07-28T00:00:00Z',
-        granularity: 'day' as const,
-      },
+      range: '30d' as const,
+      granularity: 'day' as const,
+      from: '2026-06-28T00:00:00Z',
+      to: '2026-07-28T00:00:00Z',
       series: [
         {
           ...report.series[0],
@@ -135,11 +123,11 @@ describe('Usage control API', () => {
       { ...report, summary: { ...aggregate, estimated_cost_usd: Number.POSITIVE_INFINITY } },
     ],
     ['bad observed timestamp', { ...report, observed_at: 'tomorrow' }],
-    [
-      'bad range timestamp',
-      { ...report, range: { ...report.range, from: '2026-02-30T00:00:00Z' } },
-    ],
-    ['unknown granularity', { ...report, range: { ...report.range, granularity: 'week' } }],
+    ['bad range timestamp', { ...report, from: '2026-02-30T00:00:00Z' }],
+    ['unknown range', { ...report, range: '7d' }],
+    ['unknown granularity', { ...report, granularity: 'week' }],
+    ['wrong timezone', { ...report, timezone: 'Asia/Shanghai' }],
+    ['range/granularity mismatch', { ...report, range: '30d' }],
     [
       'out-of-order buckets',
       {
@@ -158,11 +146,8 @@ describe('Usage control API', () => {
       'rolling response window without UTC-aligned boundaries',
       {
         ...report,
-        range: {
-          ...report.range,
-          from: '2026-07-26T12:21:48Z',
-          to: '2026-07-27T12:21:48Z',
-        },
+        from: '2026-07-26T12:21:48Z',
+        to: '2026-07-27T12:21:48Z',
         series: [],
       },
     ],
@@ -170,10 +155,7 @@ describe('Usage control API', () => {
       'aligned response window with the wrong bucket count',
       {
         ...report,
-        range: {
-          ...report.range,
-          from: '2026-07-26T14:00:00Z',
-        },
+        from: '2026-07-26T14:00:00Z',
         series: [],
       },
     ],
@@ -234,11 +216,10 @@ describe('Usage control API', () => {
       {
         ...report,
         observed_at: '2026-07-27T12:21:48Z',
-        range: {
-          from: '2026-06-28T00:00:00Z',
-          to: '2026-07-28T00:00:00Z',
-          granularity: 'day',
-        },
+        range: '30d',
+        granularity: 'day',
+        from: '2026-06-28T00:00:00Z',
+        to: '2026-07-28T00:00:00Z',
         series: [
           {
             ...report.series[0],
@@ -249,12 +230,39 @@ describe('Usage control API', () => {
       },
     ],
     [
-      'breakdown outside filtered source scope',
-      { ...report, breakdown: [{ ...report.breakdown[0], group_id: 8 }] },
+      'unsafe breakdown Group',
+      {
+        ...report,
+        breakdown: [{ ...report.breakdown[0], group_id: Number.MAX_SAFE_INTEGER + 1 }],
+      },
     ],
     [
-      'malformed request-log counter',
-      { ...report, request_log: { ...requestLog, queue_depth: -1 } },
+      'malformed collection-health scope',
+      { ...report, collection_health: { ...collectionHealth, scope: 'all_time' } },
+    ],
+    [
+      'malformed collection-health counter',
+      { ...report, collection_health: { ...collectionHealth, dropped_total: -1 } },
+    ],
+    [
+      'malformed collection-health timestamp',
+      {
+        ...report,
+        collection_health: { ...collectionHealth, last_write_failure_at: 'tomorrow' },
+      },
+    ],
+    [
+      'legacy private response shape',
+      {
+        observed_at: report.observed_at,
+        range: { from: report.from, to: report.to, granularity: report.granularity },
+        filters: { group_id: 7, model: 'gpt-5.6' },
+        summary: aggregate,
+        series: report.series,
+        breakdown: report.breakdown,
+        breakdown_truncated: false,
+        request_log: {},
+      },
     ],
   ])('rejects %s', (_name, value) => {
     expect(() => projectUsageReport(value)).toThrow(InvalidResponseError)

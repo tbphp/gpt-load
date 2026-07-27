@@ -7,6 +7,7 @@ type UsageSeriesPoint = Pick<
   UsageReportDto['series'][number],
   'bucket_start' | 'bucket_end' | 'request_count'
 >
+type UsageWindow = Pick<UsageReportDto, 'from' | 'to' | 'granularity'>
 
 interface SparklinePoint {
   x: number
@@ -15,7 +16,7 @@ interface SparklinePoint {
 }
 
 const props = defineProps<{
-  range: UsageReportDto['range']
+  range: UsageWindow
   series: UsageSeriesPoint[]
   title: string
   description: string

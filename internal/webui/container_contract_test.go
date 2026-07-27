@@ -2,11 +2,66 @@ package webui
 
 import (
 	"encoding/json"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestComposeShellPortOverridesDotEnvEverywhere(t *testing.T) {
+	projectDir := t.TempDir()
+	if err := os.WriteFile(
+		filepath.Join(projectDir, "docker-compose.yml"),
+		[]byte(readRepositoryFile(t, "docker-compose.yml")),
+		0o600,
+	); err != nil {
+		t.Fatalf("write temporary Compose file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(projectDir, ".env"), []byte("PORT=3001\n"), 0o600); err != nil {
+		t.Fatalf("write temporary .env: %v", err)
+	}
+
+	command := exec.Command(
+		"docker", "compose", "config", "--no-env-resolution", "--format", "json",
+	)
+	command.Dir = projectDir
+	command.Env = append(os.Environ(), "PORT=41234")
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("docker compose config: %v\n%s", err, output)
+	}
+
+	var resolved struct {
+		Services map[string]struct {
+			Environment map[string]string `json:"environment"`
+			Healthcheck struct {
+				Test []string `json:"test"`
+			} `json:"healthcheck"`
+			Ports []struct {
+				Target    int    `json:"target"`
+				Published string `json:"published"`
+			} `json:"ports"`
+		} `json:"services"`
+	}
+	if err := json.Unmarshal(output, &resolved); err != nil {
+		t.Fatalf("decode docker compose config: %v\n%s", err, output)
+	}
+
+	service := resolved.Services["gpt-load"]
+	if service.Environment["PORT"] != "41234" {
+		t.Fatalf("resolved application PORT = %q, want shell override 41234", service.Environment["PORT"])
+	}
+	if len(service.Ports) != 1 ||
+		service.Ports[0].Target != 41234 ||
+		service.Ports[0].Published != "41234" {
+		t.Fatalf("resolved ports = %#v, want target/published 41234", service.Ports)
+	}
+	if len(service.Healthcheck.Test) != 2 ||
+		!strings.Contains(service.Healthcheck.Test[1], "localhost:41234/health") {
+		t.Fatalf("resolved healthcheck = %#v, want container PORT 41234", service.Healthcheck.Test)
+	}
+}
 
 func TestDockerfileFinalStageDeclaresNonRootPersistentRuntime(t *testing.T) {
 	content := readRepositoryFile(t, "Dockerfile")

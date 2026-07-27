@@ -110,16 +110,21 @@ function projectBuiltinSourceURL(value: unknown): string {
 }
 
 export function projectModelPrices(value: unknown): ModelPriceReportDto {
-  if (!Array.isArray(value)) throw new InvalidResponseError()
-  const builtin: ModelPriceRuleDto[] = []
-  const overrides: ModelPriceRuleDto[] = []
-  for (const item of value) {
-    const rule = projectRule(item)
-    if (rule.source === 'builtin') {
-      builtin.push(rule)
-    } else {
-      overrides.push(rule)
-    }
+  if (
+    !isRecord(value) ||
+    value.price_unit !== 'usd_per_million_tokens' ||
+    !Array.isArray(value.builtin) ||
+    !Array.isArray(value.overrides)
+  ) {
+    throw new InvalidResponseError()
+  }
+  const builtin = value.builtin.map(projectRule)
+  const overrides = value.overrides.map(projectRule)
+  if (
+    builtin.some((rule) => rule.source !== 'builtin') ||
+    overrides.some((rule) => rule.source !== 'user')
+  ) {
+    throw new InvalidResponseError()
   }
   return { price_unit: 'usd_per_million_tokens', builtin, overrides }
 }

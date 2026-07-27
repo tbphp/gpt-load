@@ -42,36 +42,122 @@ const userRule = {
 describe('ModelPrice control API', () => {
   it('projects valid builtin and user rules while preserving explicit null and zero prices', async () => {
     const signal = new AbortController().signal
-    const request = vi.fn().mockResolvedValue([builtinRule, userRule])
-
-    await expect(
-      getModelPrices({ request: request as ApiClient['request'] }, signal),
-    ).resolves.toEqual({
+    const response = {
       price_unit: 'usd_per_million_tokens',
       builtin: [builtinRule],
       overrides: [userRule],
-    })
+    } as const
+    const request = vi.fn().mockResolvedValue(response)
+
+    await expect(
+      getModelPrices({ request: request as ApiClient['request'] }, signal),
+    ).resolves.toEqual(response)
     expect(request).toHaveBeenCalledWith('/api/model-prices', { method: 'GET', signal })
   })
 
   it.each([
-    ['non-array response', {}],
-    ['malformed rule', [{}]],
-    ['unknown source', [{ ...builtinRule, source: 'remote' }]],
-    ['malformed timestamp', [{ ...builtinRule, updated_at: 'tomorrow' }]],
+    ['legacy flat response', [builtinRule, userRule]],
+    [
+      'wrong price unit',
+      {
+        price_unit: 'usd_per_token',
+        builtin: [builtinRule],
+        overrides: [userRule],
+      },
+    ],
+    ['missing builtin partition', { price_unit: 'usd_per_million_tokens', overrides: [userRule] }],
+    [
+      'malformed rule',
+      { price_unit: 'usd_per_million_tokens', builtin: [{}], overrides: [userRule] },
+    ],
+    [
+      'unknown source',
+      {
+        price_unit: 'usd_per_million_tokens',
+        builtin: [{ ...builtinRule, source: 'remote' }],
+        overrides: [userRule],
+      },
+    ],
+    [
+      'user source in builtin partition',
+      {
+        price_unit: 'usd_per_million_tokens',
+        builtin: [userRule],
+        overrides: [],
+      },
+    ],
+    [
+      'builtin source in override partition',
+      {
+        price_unit: 'usd_per_million_tokens',
+        builtin: [],
+        overrides: [builtinRule],
+      },
+    ],
+    [
+      'malformed timestamp',
+      {
+        price_unit: 'usd_per_million_tokens',
+        builtin: [{ ...builtinRule, updated_at: 'tomorrow' }],
+        overrides: [userRule],
+      },
+    ],
     [
       'normalized invalid calendar timestamp',
-      [{ ...builtinRule, updated_at: '2026-02-30T00:00:00Z' }],
+      {
+        price_unit: 'usd_per_million_tokens',
+        builtin: [{ ...builtinRule, updated_at: '2026-02-30T00:00:00Z' }],
+        overrides: [userRule],
+      },
     ],
-    ['invalid RFC3339 offset', [{ ...builtinRule, updated_at: '2026-07-27T12:30:00+24:00' }]],
-    ['missing five-price key', [{ ...builtinRule, prices: { ...prices, output: undefined } }]],
+    [
+      'invalid RFC3339 offset',
+      {
+        price_unit: 'usd_per_million_tokens',
+        builtin: [{ ...builtinRule, updated_at: '2026-07-27T12:30:00+24:00' }],
+        overrides: [userRule],
+      },
+    ],
+    [
+      'missing five-price key',
+      {
+        price_unit: 'usd_per_million_tokens',
+        builtin: [{ ...builtinRule, prices: { ...prices, output: undefined } }],
+        overrides: [userRule],
+      },
+    ],
     [
       'non-finite price',
-      [{ ...builtinRule, prices: { ...prices, output: Number.POSITIVE_INFINITY } }],
+      {
+        price_unit: 'usd_per_million_tokens',
+        builtin: [{ ...builtinRule, prices: { ...prices, output: Number.POSITIVE_INFINITY } }],
+        overrides: [userRule],
+      },
     ],
-    ['negative price', [{ ...builtinRule, prices: { ...prices, output: -0.01 } }]],
-    ['builtin without source URL', [{ ...builtinRule, source_url: null }]],
-    ['user with source URL', [{ ...userRule, source_url: 'https://example.test/pricing' }]],
+    [
+      'negative price',
+      {
+        price_unit: 'usd_per_million_tokens',
+        builtin: [{ ...builtinRule, prices: { ...prices, output: -0.01 } }],
+        overrides: [userRule],
+      },
+    ],
+    [
+      'builtin without source URL',
+      {
+        price_unit: 'usd_per_million_tokens',
+        builtin: [{ ...builtinRule, source_url: null }],
+        overrides: [userRule],
+      },
+    ],
+    [
+      'user with source URL',
+      {
+        price_unit: 'usd_per_million_tokens',
+        builtin: [builtinRule],
+        overrides: [{ ...userRule, source_url: 'https://example.test/pricing' }],
+      },
+    ],
   ])('rejects %s', (_name, value) => {
     expect(() => projectModelPrices(value)).toThrow(InvalidResponseError)
   })

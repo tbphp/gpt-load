@@ -73,7 +73,7 @@ cp .env.example .env
 docker compose config
 ```
 
-解決後の設定でimageが`ghcr.io/tbphp/gpt-load:2`、`DATA_DIR=/app/data`、`DATABASE_DSN=/app/data/gpt-load.db`となり、`/app/data`にnamed volumeがマウントされる場合だけ続行してください。現在のcheckoutがまだ`latest`またはhost bind mountに解決される場合、後続のT18コンテナ作業は未反映です。そのComposeファイルを2.0の本番デプロイに使用せず、`latest`で代用しないでください。
+解決後の設定でimageが`ghcr.io/tbphp/gpt-load:2`、`DATA_DIR=/app/data`、`DATABASE_DSN=/app/data/gpt-load.db`となり、`/app/data`にnamed volumeがマウントされる場合だけ続行してください。`latest`またはhost bind mountに解決される場合、そのComposeファイルを2.0の本番デプロイに使用せず、`latest`で代用しないでください。
 
 前提条件を満たした後：
 

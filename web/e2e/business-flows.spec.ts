@@ -132,9 +132,22 @@ test('critical management journey works through the embedded binary', async ({ p
     const addDrawer = page.getByRole('dialog', { name: 'Add model price override' })
     await addDrawer.getByLabel('Model pattern').fill('*')
     await addDrawer.getByLabel('Uncached input').fill('1')
-    await expect(addDrawer.getByRole('button', { name: 'Save override' })).toBeDisabled()
-    await addDrawer.getByLabel('I understand that * shadows every built-in price rule.').check()
+    await expect(addDrawer).toContainText('* shadows every built-in price rule')
+    await expect(addDrawer.getByRole('button', { name: 'Save override' })).toBeEnabled()
     await addDrawer.getByRole('button', { name: 'Save override' }).click()
+
+    const globalPriceDialog = page.getByRole('dialog', {
+      name: 'Create a global user price override?',
+    })
+    await expect(globalPriceDialog).toContainText(
+      'takes precedence over every built-in exact and prefix rule',
+    )
+    await expect(globalPriceDialog).toContainText('Unset price slots do not fall back')
+    await expect(globalPriceDialog).toContainText('future completed or Emit requests')
+    await expect(globalPriceDialog).toContainText(
+      'Reset restores the remaining user and built-in rules',
+    )
+    await globalPriceDialog.getByRole('button', { name: 'Create global override' }).click()
 
     const overrideRow = page.locator('[data-test="override-price-row-0"]')
     await expect(overrideRow).toContainText('*')
@@ -145,8 +158,8 @@ test('critical management journey works through the embedded binary', async ({ p
     const editDrawer = page.getByRole('dialog', { name: 'Edit model price override' })
     await expect(editDrawer.getByLabel('Model pattern')).toHaveAttribute('readonly', '')
     await editDrawer.getByLabel('Output').fill('2')
-    await editDrawer.getByLabel('I understand that * shadows every built-in price rule.').check()
     await editDrawer.getByRole('button', { name: 'Save override' }).click()
+    await globalPriceDialog.getByRole('button', { name: 'Create global override' }).click()
     await expect(editPrice).toBeFocused()
     await expect(page.locator('[data-test="override-price-row-0"]')).toContainText('$2')
 
@@ -222,8 +235,7 @@ test('critical management journey works through the embedded binary', async ({ p
     await expect(page.locator('[data-test="usage-quality-missing"]')).toContainText('1')
     await expect(page.locator('[data-test="usage-quality-partial"]')).toContainText('1')
     await expect(page.locator('[data-test="usage-quality-unpriced"]')).toContainText('3')
-    await expect(page.locator('[data-test="usage-kpi-cost"]')).toContainText('Unknown')
-    await expect(page.locator('[data-test="usage-kpi-cost"]')).not.toContainText('$0')
+    await expect(page.locator('[data-test="usage-kpi-cost"]')).toContainText('$0.00 + unknown')
     await expect(page.locator('[data-test="usage-kpi-cost"]')).not.toContainText('Free')
     await expect(page.locator('[data-test="usage-scope"]')).toContainText('current process')
     await expect(page.locator('[data-test="usage-prices-link"]')).toHaveAttribute(
@@ -251,7 +263,7 @@ test('critical management journey works through the embedded binary', async ({ p
     await expect(page.locator('[data-test="home-usage-requests"]')).toContainText(
       String(expectedUsageRequests),
     )
-    await expect(page.locator('[data-test="home-usage-cost"]')).toContainText('Unknown')
+    await expect(page.locator('[data-test="home-usage-cost"]')).toContainText('$0.00 + unknown')
     await expect(page.locator('[data-test="home-usage-tokens"]')).toContainText('Unknown')
     await expect(page.locator('[data-test="home-usage-tokens"]')).not.toContainText('0')
     await expect(page.locator('[data-test="home-usage-quality-missing"]')).toContainText(
