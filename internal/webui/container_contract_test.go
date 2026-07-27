@@ -156,11 +156,22 @@ func TestComposeResolvesNamedVolumeContainerPathsAndStableImage(t *testing.T) {
 	t.Setenv("DATA_DIR", "/host/path/must-not-reach-container")
 	t.Setenv("DATABASE_DSN", "/host/database/must-not-reach-container.db")
 
-	repositoryRoot := filepath.Join("..", "..")
+	projectDir := t.TempDir()
+	if err := os.WriteFile(
+		filepath.Join(projectDir, "docker-compose.yml"),
+		[]byte(readRepositoryFile(t, "docker-compose.yml")),
+		0o600,
+	); err != nil {
+		t.Fatalf("write temporary Compose file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(projectDir, ".env"), nil, 0o600); err != nil {
+		t.Fatalf("write temporary .env: %v", err)
+	}
+
 	command := exec.Command(
 		"docker", "compose", "config", "--no-env-resolution", "--format", "json",
 	)
-	command.Dir = repositoryRoot
+	command.Dir = projectDir
 	output, err := command.CombinedOutput()
 	if err != nil {
 		t.Fatalf("docker compose config: %v\n%s", err, output)
