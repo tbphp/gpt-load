@@ -4,10 +4,10 @@
 
 | Version line | Status |
 |---|---|
-| `2.0.x` | Current release-ready security support line |
+| `2.0.x` | Release-ready code line; public release pending |
 | `1.4.x` | Maintained security support line |
 
-The repository's 2.0 code line is supported while its first public release is being finalized. This status does not assert that a `v2.0.0` tag, GitHub Release, binary, or container image already exists; verify public availability from the actual release assets.
+The repository's 2.0 code line receives security fixes while its first public release is being finalized. This status does not assert that a `v2.0.0` tag, GitHub Release, binary, or container image already exists; verify public availability from the actual release assets.
 
 ## Reporting a vulnerability
 

@@ -163,7 +163,17 @@ See [`.env.example`](.env.example) for the complete process configuration. Conne
 - SQLite uses WAL. Before backup, stop incoming traffic, send `SIGTERM`, wait for a clean process exit, and then copy the full persistent asset set. Never copy only `gpt-load.db` while the service is running.
 - Never paste AUTH_KEY, ENCRYPTION_KEY, AccessKeys, or upstream keys into logs, public issues, screenshots, or ordinary backup manifests.
 
-The canonical operations source is the [“GPT-Load 2.0 Deployment, Backup/Restore, and 1.x Cutover Runbook”](https://app.notion.com/p/3a95e49ce6ae813db7f9c7d6b8d83f02) (`GPT-Load 2.0 部署、备份恢复与 1.x 切换 Runbook`) under the “🚀 Operations & Deployment” (`🚀 运维部署`) category in the “GPT-Load 2.0” Notion teamspace.
+### Public operations baseline
+
+This checklist is self-contained and does not require access to the project's private Notion workspace:
+
+1. Before backup or cutover, call authenticated `GET /api/system/info`. Record the resolved `data_dir`, database location, and secret sources without recording secret values.
+2. Stop incoming traffic, send `SIGTERM`, and wait for a clean process exit. With Compose, run `docker compose stop` and confirm the service container is stopped.
+3. Archive the complete resolved `DATA_DIR` or exact named volume as one recovery set. Use a unique archive name, refuse overwrite, restrict access, and record its SHA-256. Back up any external `DATABASE_DSN`, `AUTH_KEY`, and `ENCRYPTION_KEY` separately.
+4. Restore with the exact same binary or image into an empty target. Verify the checksum first and restore the matching encryption key; never combine restore with an upgrade.
+5. Start the restored instance and verify `/health`, `/api/system/info`, Groups, AccessKeys, model prices, Usage, RequestLog, and a real data-plane canary. When `sqlite3` is available, stop the instance and require `PRAGMA quick_check` to return `ok`.
+
+2.0.0 has no backup CLI or encryption-key rotation. Never replace the encryption key for an existing database.
 
 ## Moving from 1.x
 
@@ -174,7 +184,7 @@ The canonical operations source is the [“GPT-Load 2.0 Deployment, Backup/Resto
 3. Manually rebuild the minimum Groups, upstream keys, AccessKeys, and rules; validate all three dialects, logs, and usage/cost in isolation.
 4. Move entry traffic during a maintenance window or small rollout. On failure, stop 2.0 and switch back to the original 1.x deployment; do not reverse-import new 2.0 data.
 
-`latest` is not a safe 1.x-to-2.0 upgrade channel. Follow the canonical Runbook for cutover, backup, restore, and rollback details.
+`latest` is not a safe 1.x-to-2.0 upgrade channel. Use the public operations baseline above for backup and restore, and keep the original 1.x deployment and data intact until the rollback window closes.
 
 ## Build and verification
 

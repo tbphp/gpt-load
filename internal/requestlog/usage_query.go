@@ -242,6 +242,7 @@ func queryUsageBreakdown(scope *gorm.DB, limit int) ([]UsageBreakdown, bool, err
 }
 
 func mergeUsageHoursToDays(source []usageHourPoint) ([]UsageSeriesPoint, error) {
+	// queryUsageSeries orders source by hour_bucket ASC; adjacent-only daily folding depends on it.
 	series := make([]UsageSeriesPoint, 0, len(source))
 	for _, point := range source {
 		dayStart := point.HourBucket.UTC().Truncate(24 * time.Hour)
@@ -341,6 +342,7 @@ func validateUsageAggregate(aggregate UsageAggregate) error {
 	return nil
 }
 
+// Aliases follow GORM's snake-case mapping for embedded UsageAggregate fields (for example, 5M -> 5_m).
 const usageAggregateSelect = "" +
 	"COALESCE(SUM(request_count), 0) AS request_count, " +
 	"COALESCE(SUM(success_count), 0) AS success_count, " +

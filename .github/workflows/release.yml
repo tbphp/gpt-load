@@ -376,10 +376,9 @@ jobs:
             do not move `latest`. Back up the database together with auth/encryption key files.
             Usage and cost are best-effort estimates, not a billing ledger or provider invoice.
 
-            Follow the [Operations Runbook](https://app.notion.com/p/3a95e49ce6ae813db7f9c7d6b8d83f02)
-            for deployment and backup/restore, and the
-            [1.x cutover and rollback](https://app.notion.com/p/3a95e49ce6ae813db7f9c7d6b8d83f02)
-            procedure. This release contains five raw binaries plus `SHA256SUMS`.
+            Follow the [public operations baseline](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/README.md#public-operations-baseline)
+            for deployment, backup/restore, and 1.x cutover and rollback.
+            This release contains five raw binaries plus `SHA256SUMS`.
 
             Usage quality can be `missing`, `partial`, or `unpriced`; a compatible upstream may
             never provide authoritative terminal usage. Cost remains an estimate, not a provider

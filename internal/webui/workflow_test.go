@@ -231,9 +231,9 @@ func TestReleaseWorkflowIncludesCompleteS5NotesAndCSPWithinE2E(t *testing.T) {
 	content := readRepositoryFile(t, ".github/workflows/release.yml")
 	releaseJob := workflowJobBlock(t, content, "publish-github")
 	for _, required := range []string{
-		"Operations Runbook",
+		"public operations baseline",
 		"1.x cutover and rollback",
-		"https://app.notion.com/p/3a95e49ce6ae813db7f9c7d6b8d83f02",
+		"https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/README.md#public-operations-baseline",
 		"five raw binaries",
 		"SHA256SUMS",
 		"missing",
@@ -253,6 +253,9 @@ func TestReleaseWorkflowIncludesCompleteS5NotesAndCSPWithinE2E(t *testing.T) {
 		if !strings.Contains(releaseJob, required) {
 			t.Fatalf("release notes do not contain %q:\n%s", required, releaseJob)
 		}
+	}
+	if strings.Contains(releaseJob, "app.notion.com") {
+		t.Fatalf("public release notes depend on a private Notion page:\n%s", releaseJob)
 	}
 	if count := strings.Count(content, "pnpm --dir web run test:e2e"); count != 1 {
 		t.Fatalf("release workflow runs unfiltered test:e2e %d times, want exactly once", count)

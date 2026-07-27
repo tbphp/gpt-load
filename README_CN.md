@@ -162,7 +162,17 @@ Usage/Cost 质量边界：
 - SQLite 使用 WAL。备份前先停止入口流量，发送 `SIGTERM` 并等待进程正常退出，再整体复制持久化资产；不要在运行时只复制 `gpt-load.db`。
 - 不要把 AUTH_KEY、ENCRYPTION_KEY、AccessKey 或上游 Key 粘贴到日志、公开 issue、截图或普通备份清单中。
 
-正式运维事实源是 Notion teamspace「GPT-Load 2.0」的「🚀 运维部署」分类下的[《GPT-Load 2.0 部署、备份恢复与 1.x 切换 Runbook》](https://app.notion.com/p/3a95e49ce6ae813db7f9c7d6b8d83f02)。
+### 公开运维基线
+
+以下清单可独立使用，不需要访问项目的私有 Notion 工作区：
+
+1. 备份或切换前，通过管理认证调用 `GET /api/system/info`。只记录解析后的 `data_dir`、数据库位置和 secret 来源，不记录 secret 值。
+2. 停止入口流量，发送 `SIGTERM` 并等待进程正常退出。使用 Compose 时执行 `docker compose stop`，并确认服务容器已经停止。
+3. 将解析后的完整 `DATA_DIR` 或准确的 named volume 作为一组恢复资产归档。归档名必须唯一、禁止覆盖、限制访问并记录 SHA-256；外部 `DATABASE_DSN`、`AUTH_KEY` 和 `ENCRYPTION_KEY` 必须单独备份。
+4. 使用完全相同的二进制或镜像恢复到空目标。解压前先校验 checksum，并恢复匹配的 encryption key；不要把恢复与升级合并为一步。
+5. 启动恢复实例并验证 `/health`、`/api/system/info`、Group、AccessKey、模型价格、Usage、RequestLog 和真实数据面 canary。若有 `sqlite3`，停机后执行 `PRAGMA quick_check`，结果必须为 `ok`。
+
+2.0.0 没有 backup CLI，也不支持 encryption key rotation。不得为已有数据库替换 encryption key。
 
 ## 从 1.x 切换
 
@@ -173,7 +183,7 @@ Usage/Cost 质量边界：
 3. 手工重建最小 Group、上游 Key、AccessKey 与规则，在隔离环境验证三方言、日志及 usage/cost。
 4. 在维护窗或小流量阶段切换入口；失败时停止 2.0 并切回原 1.x，不把 2.0 新数据反向导入 1.x。
 
-`latest` 不是 1.x → 2.0 的安全升级通道。切换、备份、恢复和回滚步骤以正式 Runbook 为准。
+`latest` 不是 1.x → 2.0 的安全升级通道。备份和恢复按上面的公开运维基线执行，并在回滚窗口关闭前保留原 1.x 部署及其数据。
 
 ## 构建与验证
 
