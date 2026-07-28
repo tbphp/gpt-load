@@ -6,7 +6,7 @@ import { useI18n } from 'vue-i18n'
 
 import { listAccessKeyOptions } from '@/api/control/access-keys'
 import { listGroups } from '@/app/resources/groups'
-import { getRuntimeHealth } from '@/api/control/health'
+import { getRuntimeHealth } from '@/app/resources/health'
 import { NetworkError } from '@/api/errors'
 import { useApiClient } from '@/api/client-context'
 import { controlQueryKeys } from '@/app/query-keys'

@@ -1,4 +1,5 @@
-import type { AccessKeyOptionDto, GroupSummary, KeyCounts } from '@/api/control/types'
+import type { AccessKeyOptionDto, GroupSummary } from '@/api/control/types'
+import type { KeyCounts } from '@/app/resources/health'
 
 const posixSingleQuoteEscape = `'"'"'`
 

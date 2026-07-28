@@ -5,7 +5,16 @@ import { inspectRoute } from './route-inspect'
 describe('Route inspect control API', () => {
   it('posts the exact route-inspection request and forwards AbortSignal', async () => {
     const signal = new AbortController().signal
-    const request = vi.fn().mockResolvedValue({}) as ApiClient['request']
+    const request = vi.fn().mockResolvedValue({
+      observed_at: '2026-07-29T01:02:03Z',
+      snapshot_revision: 1,
+      protocol: 'openai',
+      external_model: 'gpt-real',
+      access_key: { id: 12, name: 'Client', status: 'active' },
+      routable: false,
+      reason_code: 'no_route_target',
+      groups: [],
+    }) as ApiClient['request']
     const client: ApiClient = { request }
     const body = { protocol: 'openai' as const, external_model: 'gpt-real', access_key_id: 12 }
 

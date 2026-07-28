@@ -12,7 +12,7 @@ import {
   type RouteInspectReasonCode,
   type RouteInspectRequest,
   type RouteInspectResponseDto,
-} from '@/api/control/route-inspect'
+} from '@/app/resources/route-inspection'
 import type { AccessProtocol } from '@/api/control/types'
 import { RequestCancelledError } from '@/api/errors'
 import { controlQueryKeys } from '@/app/query-keys'

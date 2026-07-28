@@ -67,5 +67,8 @@ describe('resource projector primitives', () => {
         'masked_key',
       ]),
     ).toThrow(InvalidResponseError)
+    expect(() =>
+      assertNoSecretLikeFields({ id: 1, future_mask: 'derived credential' }, ['id']),
+    ).toThrow(InvalidResponseError)
   })
 })

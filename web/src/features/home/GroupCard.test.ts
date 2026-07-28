@@ -1,6 +1,7 @@
 import { mount } from '@vue/test-utils'
 
-import type { GroupSummary, HealthGroupDto } from '@/api/control/types'
+import type { GroupSummary } from '@/api/control/types'
+import type { HealthGroupDto } from '@/app/resources/health'
 import { createTestAppI18n } from '@/test/i18n'
 
 import GroupCard from './GroupCard.vue'

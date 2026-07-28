@@ -11,7 +11,7 @@ interface StringOptions {
 
 const isoInstant = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/
 const secretLikeField =
-  /(?:^|_)(?:authorization|credential|credentials|key|keys|password|secret|token|tokens)(?:_|$)/i
+  /(?:^|_)(?:authorization|credential|credentials|key|keys|mask|masked|password|secret|token|tokens)(?:_|$)/i
 
 function invalidResponse(): never {
   throw new InvalidResponseError()

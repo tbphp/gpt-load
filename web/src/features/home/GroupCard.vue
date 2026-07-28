@@ -3,7 +3,8 @@ import { ArrowRight, Upload } from 'lucide-vue-next'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import type { GroupSummary, HealthGroupDto } from '@/api/control/types'
+import type { GroupSummary } from '@/api/control/types'
+import type { HealthGroupDto } from '@/app/resources/health'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import SurfaceCard from '@/components/ui/SurfaceCard.vue'
 
