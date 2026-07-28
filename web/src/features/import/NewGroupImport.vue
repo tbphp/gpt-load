@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useQueryClient } from '@tanstack/vue-query'
-import { Check, ChevronLeft, ChevronRight, Search, TriangleAlert } from 'lucide-vue-next'
+import { Check } from 'lucide-vue-next'
 import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
@@ -18,17 +18,15 @@ import {
 import type { GroupProtocol } from '@/api/control/types'
 import { ApiError, RequestCancelledError } from '@/api/errors'
 import { applyInvalidationPlan, mutationInvalidationPlans } from '@/app/resources/invalidation'
-import HeaderRulesEditor from '@/components/config/HeaderRulesEditor.vue'
-import ModelDraftEditor from '@/components/config/ModelDraftEditor.vue'
-import AppButton from '@/components/ui/AppButton.vue'
-import InlineFeedback from '@/components/ui/InlineFeedback.vue'
-import SurfaceCard from '@/components/ui/SurfaceCard.vue'
 
 import { channelPresets, type ChannelPreset } from './channel-presets'
+import ImportConnectionStep from './ImportConnectionStep.vue'
+import ImportModelsStep from './ImportModelsStep.vue'
+import ImportOperationNotice from './ImportOperationNotice.vue'
+import ImportReviewStep from './ImportReviewStep.vue'
 import { useImportOperationOwner } from './import-operation-owner'
 import { useImportRecovery } from './import-recovery'
 import { analyzeKeys } from './key-analysis'
-import KeyTextarea from './KeyTextarea.vue'
 import type { ImportDraft } from './model-draft'
 import { createModelDraft, toGroupModels } from './model-draft'
 import { useUnsavedChanges } from '@/app/unsaved-changes'
@@ -71,9 +69,9 @@ const manualMode = ref(
 const errorKey = ref('')
 const conflict = ref<UpstreamUrlConflictData | null>(null)
 const completed = ref(false)
-const step1Heading = ref<HTMLHeadingElement | null>(null)
-const step2Heading = ref<HTMLHeadingElement | null>(null)
-const step3Heading = ref<HTMLHeadingElement | null>(null)
+const connectionStep = ref<InstanceType<typeof ImportConnectionStep>>()
+const modelsStep = ref<InstanceType<typeof ImportModelsStep>>()
+const reviewStep = ref<InstanceType<typeof ImportReviewStep>>()
 const importOperationOwner = useImportOperationOwner()
 const createOperation = importOperationOwner.createGroup
 const appendOperation = importOperationOwner.importKeys
@@ -134,8 +132,6 @@ const canDiscover = computed(
     headerRulesValid.value,
 )
 const canReview = computed(() => !pending.value && toGroupModels(draft.models).length > 0)
-const protocols: GroupProtocol[] = ['openai', 'anthropic', 'gemini']
-
 useUnsavedChanges(dirty)
 const unregisterRecovery = recovery.register(() => (completed.value ? null : snapshotDraft()))
 
@@ -187,9 +183,9 @@ function invalidateDiscovery(): void {
 async function moveToStep(step: ImportDraft['step']): Promise<void> {
   draft.step = step
   await nextTick()
-  const heading =
-    step === 1 ? step1Heading.value : step === 2 ? step2Heading.value : step3Heading.value
-  heading?.focus()
+  const surface =
+    step === 1 ? connectionStep.value : step === 2 ? modelsStep.value : reviewStep.value
+  surface?.focusHeading()
 }
 
 watch(
@@ -202,8 +198,7 @@ watch(
   invalidateDiscovery,
 )
 
-function applyPreset(event: Event): void {
-  const id = (event.target as HTMLSelectElement).value as ChannelPreset['id']
+function applyPreset(id: ChannelPreset['id']): void {
   const preset = channelPresets.find((item) => item.id === id)!
   draft.preset_id = id
   draft.upstream_url = preset.upstream_url
@@ -369,27 +364,13 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="import-workflow">
-    <section
-      v-if="operationNoticeKey"
-      class="operation-notice"
-      data-test="import-operation-notice"
-      aria-live="polite"
-    >
-      <InlineFeedback tone="warning">{{ t(operationNoticeKey) }}</InlineFeedback>
-      <code v-if="operationResourceIdentity" data-test="import-operation-resource">{{
-        operationResourceIdentity
-      }}</code>
-      <AppButton
-        v-else
-        data-test="import-operation-retry"
-        variant="secondary"
-        :disabled="!canRetryOperation"
-        :busy="pending"
-        @click="retryOperation"
-      >
-        {{ t('import.operation.checkResult') }}
-      </AppButton>
-    </section>
+    <ImportOperationNotice
+      :message-key="operationNoticeKey"
+      :resource-identity="operationResourceIdentity"
+      :can-retry="canRetryOperation"
+      :pending="pending"
+      @retry="retryOperation"
+    />
 
     <ol class="stepper" :aria-label="t('import.progress')">
       <li
@@ -406,173 +387,59 @@ onBeforeUnmount(() => {
       </li>
     </ol>
 
-    <SurfaceCard v-if="draft.step === 1" class="import-card">
-      <header>
-        <h2 ref="step1Heading" data-test="import-step-1-heading" tabindex="-1">
-          {{ t('import.connection.title') }}
-        </h2>
-        <p>{{ t('import.connection.description') }}</p>
-      </header>
-      <div class="connection-grid">
-        <label
-          ><span>{{ t('import.connection.preset') }}</span
-          ><select data-test="preset" :value="draft.preset_id" @change="applyPreset">
-            <option v-for="preset in channelPresets" :key="preset.id" :value="preset.id">
-              {{ t(preset.labelKey) }}
-            </option>
-          </select></label
-        >
-        <label
-          ><span>{{ t('import.connection.name') }}</span
-          ><input v-model="draft.name" data-test="group-name" autocomplete="off"
-        /></label>
-        <label class="wide"
-          ><span>{{ t('import.connection.url') }}</span
-          ><input
-            v-model="draft.upstream_url"
-            data-test="upstream-url"
-            type="url"
-            autocomplete="off"
-            spellcheck="false"
-        /></label>
-      </div>
-      <fieldset>
-        <legend>{{ t('import.connection.protocols') }}</legend>
-        <label v-for="protocol in protocols" :key="protocol" class="protocol-option"
-          ><input
-            :data-test="`protocol-${protocol}`"
-            type="checkbox"
-            :checked="draft.protocols.includes(protocol)"
-            @change="toggleProtocol(protocol, ($event.target as HTMLInputElement).checked)"
-          />{{ protocol }}</label
-        >
-      </fieldset>
-      <KeyTextarea v-model="draft.keys" :disabled="pending" />
-      <details
-        class="advanced"
-        :open="
-          Object.keys(draft.header_rules.set).length > 0 || draft.header_rules.remove.length > 0
-        "
-      >
-        <summary>{{ t('import.connection.advanced') }}</summary>
-        <HeaderRulesEditor v-model="draft.header_rules" v-model:valid="headerRulesValid" />
-      </details>
-      <footer class="card-actions">
-        <AppButton
-          data-test="discover"
-          :disabled="!canDiscover"
-          :busy="pending"
-          @click="runDiscovery"
-          ><Search :size="16" aria-hidden="true" />{{ t('import.discover') }}</AppButton
-        >
-      </footer>
-    </SurfaceCard>
+    <ImportConnectionStep
+      v-if="draft.step === 1"
+      ref="connectionStep"
+      :preset-id="draft.preset_id"
+      :name="draft.name"
+      :upstream-url="draft.upstream_url"
+      :protocols="draft.protocols"
+      :keys="draft.keys"
+      :header-rules="draft.header_rules"
+      :pending="pending"
+      :can-discover="canDiscover"
+      @apply-preset="applyPreset"
+      @update:name="draft.name = $event"
+      @update:upstream-url="draft.upstream_url = $event"
+      @toggle-protocol="toggleProtocol"
+      @update:keys="draft.keys = $event"
+      @update:header-rules="draft.header_rules = $event"
+      @header-rules-valid="headerRulesValid = $event"
+      @discover="runDiscovery"
+    />
 
-    <SurfaceCard v-else-if="draft.step === 2" class="import-card">
-      <header>
-        <h2 ref="step2Heading" data-test="import-step-2-heading" tabindex="-1">
-          {{ t('import.models.title') }}
-        </h2>
-        <p>{{ t('import.models.stepDescription') }}</p>
-      </header>
-      <InlineFeedback v-if="errorKey" tone="warning">{{ t(errorKey) }}</InlineFeedback>
-      <button
-        v-if="discoveryFailed && !manualMode"
-        data-test="manual-path"
-        class="manual-path"
-        type="button"
-        @click="showManualPath"
-      >
-        {{ t('import.models.manualPath') }}
-      </button>
-      <ModelDraftEditor v-if="manualMode" v-model="draft.models" />
-      <footer class="card-actions split">
-        <AppButton variant="secondary" @click="moveToStep(1)"
-          ><ChevronLeft :size="16" aria-hidden="true" />{{ t('import.back') }}</AppButton
-        ><AppButton data-test="review" :disabled="!canReview" @click="moveToStep(3)"
-          >{{ t('import.review') }}<ChevronRight :size="16" aria-hidden="true"
-        /></AppButton>
-      </footer>
-    </SurfaceCard>
+    <ImportModelsStep
+      v-else-if="draft.step === 2"
+      ref="modelsStep"
+      :discovery-failed="discoveryFailed"
+      :manual-mode="manualMode"
+      :error-key="errorKey"
+      :models="draft.models"
+      :can-review="canReview"
+      @manual="showManualPath"
+      @update:models="draft.models = $event"
+      @back="moveToStep(1)"
+      @review="moveToStep(3)"
+    />
 
-    <SurfaceCard v-else class="import-card">
-      <header>
-        <h2 ref="step3Heading" data-test="import-step-3-heading" tabindex="-1">
-          {{ t('import.reviewTitle') }}
-        </h2>
-        <p>{{ t('import.reviewDescription') }}</p>
-      </header>
-      <dl class="review-list">
-        <div>
-          <dt>{{ t('import.connection.name') }}</dt>
-          <dd>{{ draft.name || t('import.automaticName') }}</dd>
-        </div>
-        <div>
-          <dt>{{ t('import.connection.url') }}</dt>
-          <dd>
-            <code>{{ draft.upstream_url }}</code>
-          </dd>
-        </div>
-        <div>
-          <dt>{{ t('import.connection.protocols') }}</dt>
-          <dd>{{ draft.protocols.join(', ') }}</dd>
-        </div>
-        <div>
-          <dt>{{ t('import.keys.label') }}</dt>
-          <dd>{{ t('import.keys.count', { count: keyAnalysis.nonEmptyCount }) }}</dd>
-        </div>
-        <div>
-          <dt>{{ t('import.models.title') }}</dt>
-          <dd>
-            {{
-              toGroupModels(draft.models)
-                .map((model) => model.id)
-                .join(', ')
-            }}
-          </dd>
-        </div>
-      </dl>
-      <InlineFeedback v-if="errorKey" tone="danger">{{ t(errorKey) }}</InlineFeedback>
-      <section v-if="conflict" class="conflict" aria-live="polite">
-        <h3><TriangleAlert :size="18" aria-hidden="true" />{{ t('import.conflict.title') }}</h3>
-        <p>{{ t('import.conflict.description') }}</p>
-        <div v-for="group in conflict.groups" :key="group.id" class="conflict-group">
-          <strong>{{ group.name }}</strong
-          ><AppButton
-            :data-test="`conflict-append-${group.id}`"
-            variant="secondary"
-            @click="appendToGroup(group.id)"
-            >{{ t('import.conflict.append') }}</AppButton
-          >
-        </div>
-        <div class="conflict-actions">
-          <AppButton data-test="conflict-confirm-separate" @click="submitCreate(true)">{{
-            t('import.conflict.separate')
-          }}</AppButton
-          ><AppButton
-            data-test="conflict-edit"
-            variant="ghost"
-            :disabled="pending"
-            @click="returnToEdit"
-            >{{ t('import.conflict.edit') }}</AppButton
-          >
-        </div>
-      </section>
-      <footer v-else class="card-actions split">
-        <AppButton
-          variant="secondary"
-          :disabled="pending || operationNoticeKey !== ''"
-          @click="moveToStep(2)"
-          ><ChevronLeft :size="16" aria-hidden="true" />{{ t('import.back') }}</AppButton
-        ><AppButton
-          data-test="create"
-          :disabled="operationNoticeKey !== ''"
-          :busy="pending"
-          @click="submitCreate(false)"
-          >{{ t('import.create') }}</AppButton
-        >
-      </footer>
-    </SurfaceCard>
+    <ImportReviewStep
+      v-else
+      ref="reviewStep"
+      :name="draft.name"
+      :upstream-url="draft.upstream_url"
+      :protocols="draft.protocols"
+      :key-count="keyAnalysis.nonEmptyCount"
+      :models="draft.models"
+      :error-key="errorKey"
+      :conflict="conflict"
+      :pending="pending"
+      :operation-notice-active="operationNoticeKey !== ''"
+      @append="appendToGroup"
+      @separate="submitCreate(true)"
+      @edit="returnToEdit"
+      @back="moveToStep(2)"
+      @create="submitCreate(false)"
+    />
   </div>
 </template>
 
@@ -582,19 +449,6 @@ onBeforeUnmount(() => {
   gap: var(--space-5);
   max-width: 920px;
   margin: 0 auto;
-}
-.operation-notice {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  border: 1px solid var(--color-warning);
-  border-radius: var(--radius-card);
-  background: var(--color-warning-bg);
-  padding: var(--space-3) var(--space-4);
-}
-.operation-notice code {
-  overflow-wrap: anywhere;
 }
 .stepper {
   display: flex;
@@ -641,175 +495,9 @@ onBeforeUnmount(() => {
   background: var(--color-success-bg);
   color: var(--color-success);
 }
-.import-card {
-  display: grid;
-  gap: var(--space-5);
-  padding: var(--space-6);
-}
-header h2,
-header p {
-  margin: 0;
-}
-header h2 {
-  font-size: 1.2rem;
-}
-header p {
-  margin-top: var(--space-1);
-  color: var(--color-text-muted);
-}
-.connection-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--space-4);
-}
-.connection-grid label {
-  display: grid;
-  gap: var(--space-1);
-  color: var(--color-text-muted);
-  font-size: 0.75rem;
-  font-weight: 650;
-}
-.connection-grid .wide {
-  grid-column: 1 / -1;
-}
-.connection-grid input,
-.connection-grid select {
-  width: 100%;
-  min-height: 44px;
-  border: 1px solid var(--color-border-control);
-  border-radius: var(--radius-control);
-  background: var(--color-surface-secondary);
-  color: var(--color-text);
-  padding: var(--space-2) var(--space-3);
-}
-.wide input {
-  font-family: ui-monospace, monospace;
-}
-fieldset {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  border: 0;
-  margin: 0;
-  padding: 0;
-}
-legend {
-  width: 100%;
-  margin-bottom: var(--space-2);
-  color: var(--color-text-muted);
-  font-size: 0.75rem;
-  font-weight: 650;
-}
-.protocol-option {
-  display: inline-flex;
-  min-height: 44px;
-  align-items: center;
-  gap: var(--space-2);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-tag);
-  padding: var(--space-2) var(--space-3);
-  cursor: pointer;
-}
-.advanced {
-  border-top: 1px solid var(--color-border);
-  padding-top: var(--space-3);
-}
-.advanced summary {
-  min-height: 44px;
-  cursor: pointer;
-  color: var(--color-text-muted);
-  font-weight: 650;
-}
-.card-actions {
-  display: flex;
-  justify-content: flex-end;
-}
-.card-actions.split {
-  justify-content: space-between;
-}
-.card-actions :deep(.app-button) {
-  gap: var(--space-2);
-}
-.manual-path {
-  min-height: 44px;
-  border: 1px solid var(--color-primary);
-  border-radius: var(--radius-control);
-  background: var(--color-primary-soft);
-  color: var(--color-primary);
-  padding: var(--space-2) var(--space-4);
-  font-weight: 650;
-  cursor: pointer;
-}
-.review-list {
-  display: grid;
-  gap: 0;
-  margin: 0;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-card);
-}
-.review-list div {
-  display: grid;
-  grid-template-columns: 180px 1fr;
-  gap: var(--space-4);
-  padding: var(--space-3) var(--space-4);
-  border-bottom: 1px solid var(--color-border);
-}
-.review-list div:last-child {
-  border-bottom: 0;
-}
-dt {
-  color: var(--color-text-muted);
-}
-dd {
-  margin: 0;
-  overflow-wrap: anywhere;
-}
-.conflict {
-  display: grid;
-  gap: var(--space-3);
-  border: 1px solid color-mix(in srgb, var(--color-warning) 38%, var(--color-border));
-  border-radius: var(--radius-card);
-  background: var(--color-warning-bg);
-  padding: var(--space-4);
-}
-.conflict h3,
-.conflict p {
-  margin: 0;
-}
-.conflict h3 {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  color: var(--color-warning);
-}
-.conflict-group,
-.conflict-actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-}
-.conflict-actions {
-  justify-content: flex-start;
-  flex-wrap: wrap;
-}
 @media (max-width: 640px) {
   .stepper li {
     font-size: 0;
-  }
-  .connection-grid {
-    grid-template-columns: 1fr;
-  }
-  .connection-grid .wide {
-    grid-column: auto;
-  }
-  .review-list div {
-    grid-template-columns: 1fr;
-    gap: var(--space-1);
-  }
-  .conflict-group {
-    align-items: stretch;
-    flex-direction: column;
   }
 }
 </style>
