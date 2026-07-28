@@ -198,6 +198,33 @@ describe('useSettingsController', () => {
     wrapper.unmount()
   })
 
+  it('confirms a successful save when the forced refetch returns the response identity', async () => {
+    const saved = settings(900, 7, ['request_timeout'])
+    const response = resource(saved, tokens.saved)
+    const request = vi.fn(async () => saved) as ApiClient['request']
+    const { controller, queryClient, wrapper } = await mountController(request)
+    const invalidate = vi.spyOn(queryClient, 'invalidateQueries')
+    vi.spyOn(queryClient, 'refetchQueries').mockImplementation(async () => {
+      queryClient.setQueryData(controlQueryKeys.settings('en-US'), response)
+    })
+    queryClient.setQueryData(
+      controlQueryKeys.settings('en-US'),
+      resource(settings(1_500), tokens.unrelated),
+    )
+
+    changeNumber(controller, 'request_timeout', 900)
+    await controller.saveAll()
+
+    expect(controller.base.value).toEqual(response)
+    expect(controller.dirty.value).toBe(false)
+    expect(controller.concurrent.value).toBe(false)
+    expect(controller.savedAt.value).toEqual(fixedNow)
+    expect(invalidate.mock.calls.map(([filters]) => filters)).toEqual([
+      { queryKey: controlQueryKeys.groups.details() },
+    ])
+    wrapper.unmount()
+  })
+
   it('reconciles a network-unknown PUT with GET without resending the mutation', async () => {
     const applied = settings(900, 30, ['request_timeout', 'request_log_retention_days'])
     const requestMock = vi

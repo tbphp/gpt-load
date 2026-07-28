@@ -421,7 +421,10 @@ describe('GroupModelsTab', () => {
     await flushPromises()
 
     const close = document.querySelector<HTMLButtonElement>('.app-dialog__close')
+    const confirm = document.querySelector<HTMLButtonElement>('[data-test="models-empty-confirm"]')
     expect(close?.disabled).toBe(true)
+    expect(confirm?.disabled).toBe(true)
+    expect(confirm?.getAttribute('aria-busy')).toBe('true')
     close?.click()
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
     document.querySelector<HTMLElement>('.app-dialog__overlay')?.click()
@@ -433,6 +436,25 @@ describe('GroupModelsTab', () => {
     resolveSave(updated)
     await flushPromises()
     expect(document.querySelector('[role="dialog"]')).toBeNull()
+    wrapper.unmount()
+  })
+
+  it('shows an empty-replacement save failure inside the open confirmation', async () => {
+    const oneModel = { ...detail, models: [{ id: 'only', alias: 'public' }] }
+    const request = vi.fn().mockRejectedValue(new Error('save failed')) as ApiClient['request']
+    const { wrapper } = await mountModels(request, oneModel)
+
+    await wrapper.get('[data-test="model-selected-0"]').setValue(false)
+    await wrapper.get('[data-test="models-save"]').trigger('click')
+    await flushPromises()
+    clickDocument('[data-test="models-empty-confirm"]')
+    await flushPromises()
+
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"]')
+    expect(dialog).not.toBeNull()
+    expect(dialog?.querySelector('[data-test="models-empty-save-error"]')?.textContent).toContain(
+      'Unable to replace',
+    )
     wrapper.unmount()
   })
 })

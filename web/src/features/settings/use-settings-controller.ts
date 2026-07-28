@@ -300,6 +300,17 @@ export function useSettingsController(
         })
         if (!isCurrent(owner, controller)) return
         const refreshed = queryClient.getQueryData<SettingsResource>(settingsQueryKey())
+        const refreshedDecision = chooseSettingsMutationResult(
+          response,
+          refreshed,
+          operationBase,
+          operationDraft,
+          'all',
+        )
+        if (refreshedDecision.kind === 'apply') {
+          await markConfirmed(refreshedDecision.resource, refreshedDecision.draft)
+          return
+        }
         if (refreshed && refreshed.settings_etag !== cached?.settings_etag) {
           acceptExternalSettings(refreshed)
         }

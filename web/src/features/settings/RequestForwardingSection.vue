@@ -32,6 +32,7 @@ const emit = defineEmits<{
   change: [change: SettingsDraftChange]
   chooseMine: [key: RuntimeSettingKey]
   chooseLatest: [key: RuntimeSettingKey]
+  'update:headerRulesValid': [valid: boolean]
 }>()
 const { t } = useI18n()
 const disclosureRequested = ref(
@@ -233,6 +234,7 @@ function conflictLabel(key: RuntimeSettingKey): string {
             :model-value="draft.values.header_rules"
             :disabled="disabled"
             @update:model-value="setHeaderRules"
+            @update:valid="emit('update:headerRulesValid', $event)"
           />
         </div>
       </div>

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { BadgeDollarSign, ChevronRight } from 'lucide-vue-next'
-import { computed, nextTick, onBeforeUnmount } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { useApiClient } from '@/api/client-context'
@@ -41,7 +41,7 @@ const {
   draft,
   patch,
   dirty,
-  valid,
+  valid: controllerValid,
   pending,
   failed,
   indeterminate,
@@ -57,6 +57,12 @@ const {
   saveAll,
   checkResult,
 } = useSettingsController(resource)
+const headerRulesValid = ref(true)
+const valid = computed(
+  () =>
+    controllerValid.value &&
+    (!draft.value?.overrides.has('header_rules') || headerRulesValid.value),
+)
 const timeoutKeys: TimeoutSettingKey[] = [
   'connect_timeout',
   'first_byte_timeout',
@@ -78,7 +84,7 @@ const invalidKeys = computed<RuntimeSettingKey[]>(() => {
       return !isValidTimeout(current.values[key as TimeoutSettingKey])
     }
     if (key === 'header_rules') {
-      return hasDuplicateHeaderNames(current.values.header_rules)
+      return !headerRulesValid.value || hasDuplicateHeaderNames(current.values.header_rules)
     }
     if (key === 'request_log_retention_days') {
       return !isValidRetention(current.values.request_log_retention_days)
@@ -243,6 +249,7 @@ onBeforeUnmount(() => {
         @change="updateDraft"
         @choose-mine="chooseMine"
         @choose-latest="chooseLatest"
+        @update:header-rules-valid="headerRulesValid = $event"
       />
       <LogsMaintenanceSection
         :base="base"

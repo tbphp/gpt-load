@@ -211,6 +211,34 @@ describe('SettingsView', () => {
     theme.dispose()
   })
 
+  it('blocks Save all while the HeaderRules editor contains duplicate Set rows', async () => {
+    const { requestMock, theme, wrapper } = await mountView()
+    await wrapper.get('[data-test="settings-header-disclosure"]').trigger('click')
+    await wrapper.get('[data-test="override-header_rules"]').setValue(true)
+    await wrapper.get('[data-test="add-header-rule"]').trigger('click')
+    const names = wrapper.findAll('[data-test="header-name"]')
+    await names[0]!.setValue('X-Api-Key')
+    await names[1]!.setValue('X-Api-Key')
+
+    expect(
+      wrapper.findAll('[role="alert"]').some((feedback) => feedback.text().includes('duplicate')),
+    ).toBe(true)
+    expect(wrapper.get('[data-test="settings-error-link-header_rules"]').attributes('href')).toBe(
+      '#settings-header-rules',
+    )
+    const save = wrapper.get('[data-test="settings-save-all"]')
+    expect(save.attributes()).toHaveProperty('disabled')
+    await save.trigger('click')
+    await flushPromises()
+    expect(
+      requestMock.mock.calls.filter(
+        ([path, options]) => path === '/api/settings' && options?.method === 'PUT',
+      ),
+    ).toHaveLength(0)
+    wrapper.unmount()
+    theme.dispose()
+  })
+
   it('prompts while dirty and blocks busy navigation without a discard prompt', async () => {
     let resolveSave!: () => void
     const pending = new Promise<SettingsDto>((resolve) => {

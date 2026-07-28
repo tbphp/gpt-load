@@ -233,6 +233,9 @@ onBeforeUnmount(() => {
               <Save :size="16" aria-hidden="true" />{{ t('group.modelEditor.save') }}
             </AppButton>
           </template>
+          <InlineFeedback v-if="saveError" data-test="models-empty-save-error" tone="danger">
+            {{ t('group.modelEditor.saveFailed') }}
+          </InlineFeedback>
           <div class="group-models__dialog-actions">
             <AppButton variant="secondary" :disabled="pending" @click="setEmptyConfirmOpen(false)">
               {{ t('group.modelEditor.emptyConfirm.cancel') }}
@@ -241,6 +244,8 @@ onBeforeUnmount(() => {
               class="group-models__confirm-empty"
               data-test="models-empty-confirm"
               variant="secondary"
+              :busy="pending"
+              :disabled="pending"
               @click="confirmEmptyReplace"
             >
               {{ t('group.modelEditor.emptyConfirm.confirm') }}
@@ -288,7 +293,7 @@ onBeforeUnmount(() => {
     <InlineFeedback v-else-if="discoveryError === 'generic'" tone="warning">
       {{ t('group.modelEditor.discoveryFailed') }}
     </InlineFeedback>
-    <InlineFeedback v-if="saveError" tone="danger">
+    <InlineFeedback v-if="saveError && !emptyConfirmOpen" tone="danger">
       {{ t('group.modelEditor.saveFailed') }}
     </InlineFeedback>
     <InlineFeedback v-if="removals" data-test="models-removal-warning" tone="warning">
