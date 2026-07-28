@@ -8,6 +8,7 @@ import { useApiClient } from '@/api/client-context'
 import { discoverGroupModels, replaceGroupModels, type GroupDetailDto } from '@/api/control/groups'
 import { ApiError, RequestCancelledError } from '@/api/errors'
 import { controlQueryKeys } from '@/app/query-keys'
+import { useUnsavedChanges } from '@/app/unsaved-changes'
 import ModelDraftEditor, {
   type ModelDraftEditorItem,
 } from '@/components/config/ModelDraftEditor.vue'
@@ -42,6 +43,7 @@ const emptySelection = computed(() => normalizedModels.value.length === 0)
 const changed = computed(() => !sameNormalizedModels(savedModels.value, draft.value))
 const removals = computed(() => hasModelRemovals(savedModels.value, draft.value))
 const pending = computed(() => pendingAction.value !== null)
+useUnsavedChanges(changed, { blocked: pending })
 
 watch(
   () => props.group.models,

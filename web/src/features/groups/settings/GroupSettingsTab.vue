@@ -14,6 +14,7 @@ import {
 import type { GroupProtocol } from '@/api/control/types'
 import { ApiError, RequestCancelledError } from '@/api/errors'
 import { controlQueryKeys } from '@/app/query-keys'
+import { useUnsavedChanges } from '@/app/unsaved-changes'
 import HeaderRulesEditor from '@/components/config/HeaderRulesEditor.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppDialog from '@/components/ui/AppDialog.vue'
@@ -58,6 +59,7 @@ const timeoutKeys: GroupTimeoutKey[] = [
 const weights = Array.from({ length: 100 }, (_, index) => index + 1)
 const patch = computed(() => buildGroupSettingsPatch(savedGroup.value, draft.value))
 const dirty = computed(() => Object.keys(patch.value).length > 0)
+useUnsavedChanges(dirty, { blocked: pending })
 const nameError = computed(() =>
   draft.value.name.trim() === '' ? t('group.settings.base.nameError') : '',
 )

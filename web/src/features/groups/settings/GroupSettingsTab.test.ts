@@ -1,5 +1,6 @@
 import { QueryClient } from '@tanstack/vue-query'
 import { flushPromises } from '@vue/test-utils'
+import { defineComponent } from 'vue'
 
 import type { ApiClient, ApiRequestOptions } from '@/api/client'
 import type { GroupDetailDto, GroupUpdateResult } from '@/api/control/groups'
@@ -50,6 +51,19 @@ async function mountSettings(request: ApiClient['request'], group = detail) {
   return { ...mounted, queryClient: client }
 }
 
+async function mountRoutedSettings(request: ApiClient['request']) {
+  const client = queryClient()
+  const mounted = await mountApp(defineComponent({ template: '<RouterView />' }), {
+    api: { request },
+    queryClient: client,
+    path: '/groups/7?tab=settings',
+    locale: 'en-US',
+    mounting: { attachTo: document.body },
+  })
+  await flushPromises()
+  return { ...mounted, queryClient: client }
+}
+
 function documentButton(selector: string): HTMLButtonElement {
   const element = document.querySelector<HTMLButtonElement>(selector)
   if (!element) throw new Error(`missing ${selector}`)
@@ -57,6 +71,48 @@ function documentButton(selector: string): HTMLButtonElement {
 }
 
 describe('GroupSettingsTab', () => {
+  it('guards tab navigation and beforeunload while Group Settings are dirty', async () => {
+    const request = vi.fn(async (path: string, options?: ApiRequestOptions) => {
+      if (path === '/api/groups/7' && options?.method === 'GET') return detail
+      throw new Error(`unexpected request: ${path}`)
+    }) as ApiClient['request']
+    const confirm = vi.fn(() => false)
+    vi.stubGlobal('confirm', confirm)
+    const { router, wrapper } = await mountRoutedSettings(request)
+
+    await wrapper.get('[data-test="group-name"]').setValue('Renamed')
+    const event = new Event('beforeunload', { cancelable: true })
+    window.dispatchEvent(event)
+    await router.push('/groups/7?tab=models')
+
+    expect(event.defaultPrevented).toBe(true)
+    expect(router.currentRoute.value.query.tab).toBe('settings')
+    expect(confirm).toHaveBeenCalledOnce()
+    wrapper.unmount()
+    vi.unstubAllGlobals()
+  })
+
+  it('blocks tab navigation without prompting while Group Settings are saving', async () => {
+    const request = vi.fn((path: string, options?: ApiRequestOptions) => {
+      if (path === '/api/groups/7' && options?.method === 'GET') return Promise.resolve(detail)
+      if (path === '/api/groups/7' && options?.method === 'PUT') return new Promise(() => {})
+      throw new Error(`unexpected request: ${path}`)
+    }) as ApiClient['request']
+    const confirm = vi.fn(() => true)
+    vi.stubGlobal('confirm', confirm)
+    const { router, wrapper } = await mountRoutedSettings(request)
+
+    await wrapper.get('[data-test="group-name"]').setValue('Renamed')
+    await wrapper.get('[data-test="group-settings-save"]').trigger('click')
+    await flushPromises()
+    await router.push('/groups/7?tab=models')
+
+    expect(router.currentRoute.value.query.tab).toBe('settings')
+    expect(confirm).not.toHaveBeenCalled()
+    wrapper.unmount()
+    vi.unstubAllGlobals()
+  })
+
   it.each(['resolve', 'reject'] as const)(
     'ignores a signal-ignoring late %s after unmount without recreating Group detail state',
     async (outcome) => {
