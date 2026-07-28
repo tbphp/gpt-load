@@ -524,6 +524,10 @@ describe('AccessKeyDrawer', () => {
     const { wrapper } = await mountDrawer(request)
     const name = element<HTMLInputElement>('[data-test="access-key-name"]')
     const rpm = element<HTMLInputElement>('[data-test="access-key-rpm"]')
+    expect(rpm.getAttribute('aria-describedby')).toBe('access-key-rpm-description')
+    expect(document.getElementById('access-key-rpm-description')?.textContent).toContain(
+      '0 means unlimited',
+    )
     name.value = 'client'
     name.dispatchEvent(new Event('input', { bubbles: true }))
     rpm.value = '1.5'

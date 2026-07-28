@@ -126,5 +126,7 @@ describe('visual runner contract', () => {
     expect(readFileSync(runner, 'utf8')).not.toContain(
       'functional execution requires the Phase 5 cross-browser flow suite',
     )
+    expect(readFileSync(runner, 'utf8')).toContain('e2e/accessibility.spec.ts')
+    expect(readFileSync(runner, 'utf8')).toContain('GPT_LOAD_E2E_SOURCE_SHA')
   })
 })

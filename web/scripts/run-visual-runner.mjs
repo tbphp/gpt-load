@@ -219,7 +219,7 @@ async function buildLinuxApplication(workspace, platform) {
   })
 }
 
-async function runContainerSuite(contract, platform, workspace, browser, spec) {
+async function runContainerSuite(contract, platform, workspace, browser, specs, sourceSHA) {
   const command = [
     'docker',
     'run',
@@ -232,6 +232,7 @@ async function runContainerSuite(contract, platform, workspace, browser, spec) {
     'PLAYWRIGHT_BROWSERS_PATH=/ms-playwright',
     '--env',
     'GPT_LOAD_E2E_APP_PORT=43101',
+    ...(sourceSHA ? ['--env', `GPT_LOAD_E2E_SOURCE_SHA=${sourceSHA}`] : []),
     '--volume',
     `${workspace}:/workspace`,
     '--workdir',
@@ -242,7 +243,7 @@ async function runContainerSuite(contract, platform, workspace, browser, spec) {
     [
       `corepack install --global ${contract.lock.runtime.package_manager}`,
       'corepack pnpm --dir /workspace/web install --frozen-lockfile',
-      `corepack pnpm --dir /workspace/web run test:e2e ${spec} --project=${browser}`,
+      `corepack pnpm --dir /workspace/web run test:e2e ${specs.join(' ')} --project=${browser}`,
     ].join(' && '),
   ]
   const result = await runFile(command[0], command.slice(1), { encoding: 'utf8' })
@@ -351,13 +352,9 @@ async function runCandidate(contract, platform, verification) {
   const stage = await createSourceStage()
   try {
     await buildLinuxApplication(stage.workspace, platform)
-    const execution = await runContainerSuite(
-      contract,
-      platform,
-      stage.workspace,
-      'chromium',
+    const execution = await runContainerSuite(contract, platform, stage.workspace, 'chromium', [
       'e2e/visual-scenarios.spec.ts',
-    )
+    ])
     const artifactRoot = join(
       stage.workspace,
       'web',
@@ -397,14 +394,9 @@ async function runCandidate(contract, platform, verification) {
   }
 }
 
-async function validateFunctionalArtifacts(workspace, browser) {
-  const resultPath = join(
-    workspace,
-    'web',
-    'test-results',
-    `${browser}-serial-business-flows`,
-    '.last-run.json',
-  )
+async function validateFunctionalArtifacts(workspace, browser, sourceSHA) {
+  const artifactRoot = join(workspace, 'web', 'test-results', `${browser}-serial-business-flows`)
+  const resultPath = join(artifactRoot, '.last-run.json')
   const result = JSON.parse(await readFile(resultPath, 'utf8'))
   if (result.status !== 'passed' || !Array.isArray(result.failedTests)) {
     fail(`${browser} functional result is invalid`)
@@ -412,7 +404,31 @@ async function validateFunctionalArtifacts(workspace, browser) {
   if (result.failedTests.length > 0) {
     fail(`${browser} functional result contains failed tests`)
   }
-  return { result, resultPath }
+  const accessibilityJSONPath = join(artifactRoot, 'accessibility-evidence.json')
+  const accessibilityMarkdownPath = join(artifactRoot, 'accessibility-evidence.md')
+  const accessibilityJSONSource = await readFile(accessibilityJSONPath, 'utf8')
+  const accessibilityMarkdownSource = await readFile(accessibilityMarkdownPath, 'utf8')
+  const accessibility = JSON.parse(accessibilityJSONSource)
+  if (
+    accessibility.status !== 'PASS' ||
+    accessibility.source_sha !== sourceSHA ||
+    accessibility.source_dirty !== false ||
+    accessibility.project !== browser ||
+    !Array.isArray(accessibility.results) ||
+    accessibility.results.length === 0 ||
+    accessibility.results.some((entry) => entry.status !== 'PASS')
+  ) {
+    fail(`${browser} accessibility evidence is invalid`)
+  }
+  return {
+    result,
+    accessibility: {
+      status: accessibility.status,
+      result_count: accessibility.results.length,
+      json_sha256: sha256(accessibilityJSONSource),
+      markdown_sha256: sha256(accessibilityMarkdownSource),
+    },
+  }
 }
 
 async function runFunctional(contract, platform, verification, browser) {
@@ -428,9 +444,14 @@ async function runFunctional(contract, platform, verification, browser) {
       platform,
       stage.workspace,
       browser,
-      'e2e/business-flows.spec.ts',
+      ['e2e/business-flows.spec.ts', 'e2e/accessibility.spec.ts'],
+      sourceSHA,
     )
-    const functionalArtifacts = await validateFunctionalArtifacts(stage.workspace, browser)
+    const functionalArtifacts = await validateFunctionalArtifacts(
+      stage.workspace,
+      browser,
+      sourceSHA,
+    )
     const payload = {
       schema_version: 1,
       mode: 'functional',
@@ -448,8 +469,9 @@ async function runFunctional(contract, platform, verification, browser) {
         ...contract.lock.browsers[browser],
       },
       fonts: verification.fingerprint.fonts,
-      spec: 'e2e/business-flows.spec.ts',
+      specs: ['e2e/business-flows.spec.ts', 'e2e/accessibility.spec.ts'],
       result: functionalArtifacts.result,
+      accessibility: functionalArtifacts.accessibility,
     }
     const evidence = {
       ...payload,

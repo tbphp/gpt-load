@@ -65,11 +65,12 @@ defineExpose({ focusName })
       type="number"
       min="0"
       step="1"
+      aria-describedby="access-key-rpm-description"
       :value="rpmLimit"
       :disabled="disabled"
       @input="emit('update:rpmLimit', Number(($event.target as HTMLInputElement).value))"
     />
-    <small>{{ t('accessKeys.drawer.rpmDescription') }}</small>
+    <small id="access-key-rpm-description">{{ t('accessKeys.drawer.rpmDescription') }}</small>
   </label>
 </template>
 
