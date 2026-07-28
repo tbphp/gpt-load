@@ -1,6 +1,6 @@
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query'
 import { flushPromises, mount } from '@vue/test-utils'
-import { defineComponent, nextTick } from 'vue'
+import { defineComponent } from 'vue'
 import { createMemoryHistory } from 'vue-router'
 
 import { createApiClient } from '@/api/client'
@@ -21,7 +21,7 @@ import {
 } from '@/features/import/use-dirty-navigation'
 import { createThemeController, themeControllerKey } from '@/features/preferences/theme'
 import { appI18nKey } from '@/i18n/context'
-import { createAppI18n } from '@/i18n'
+import { createTestAppI18n as createAppI18n } from '@/test/i18n'
 
 import AppShell from './AppShell.vue'
 import { handleGlobalUnauthorized } from './unauthorized'
@@ -135,7 +135,7 @@ describe('AppShell', () => {
     const { appI18n, wrapper } = await mountShell()
 
     wrapper.findComponent(AppSelect).vm.$emit('update:modelValue', 'ja-JP')
-    await nextTick()
+    await flushPromises()
     expect(appI18n.getLocale()).toBe('ja-JP')
 
     await wrapper.get('[aria-label="ダークテーマを使用"]').trigger('click')
@@ -227,7 +227,7 @@ describe('AppShell', () => {
 
     expect(capture).not.toHaveBeenCalled()
     expect(window.sessionStorage.getItem(importRecoveryStorageKey)).toBeNull()
-    expect(router.currentRoute.value.name).toBe('login')
+    await vi.waitFor(() => expect(router.currentRoute.value.name).toBe('login'))
     expect(session.hasCredential()).toBe(false)
     expect(queryClient.getQueryData(controlQueryKeys.groups.list())).toBeUndefined()
     expect(queryClient.getMutationCache().getAll()).toHaveLength(0)

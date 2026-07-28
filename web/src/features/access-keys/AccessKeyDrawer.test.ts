@@ -2,7 +2,8 @@ import { QueryClient } from '@tanstack/vue-query'
 import { flushPromises } from '@vue/test-utils'
 
 import type { ApiClient } from '@/api/client'
-import type { AccessKeyDto, GroupSummary } from '@/api/control/types'
+import type { AccessKeyCreateResultDto, AccessKeyDto, GroupSummary } from '@/api/control/types'
+import { ApiError } from '@/api/errors'
 import { controlQueryKeys } from '@/app/query-keys'
 import { mountApp } from '@/test/mount-app'
 
@@ -24,10 +25,12 @@ const groups: GroupSummary[] = [
 const existing: AccessKeyDto = {
   id: 9,
   name: 'client',
-  key: canary,
+  masked_key: 'sk-gl-••••••••cafe',
   status: 'active',
   filters: { groups: [7], protocols: ['openai-response'], models: ['legacy-free'] },
   rpm_limit: 12,
+  created_at: '2026-07-28T00:00:00Z',
+  updated_at: '2026-07-28T00:00:00Z',
 }
 
 function queryClient() {
@@ -46,7 +49,12 @@ function deferred<T>() {
 
 async function mountDrawer(
   request: ApiClient['request'],
-  props: { open: boolean; accessKey?: AccessKeyDto | null } = { open: true },
+  props: {
+    open: boolean
+    accessKey?: AccessKeyDto | null
+    groups?: GroupSummary[]
+    groupCatalogState?: 'loading' | 'ready' | 'stale' | 'error'
+  } = { open: true },
 ) {
   const client = queryClient()
   const mounted = await mountApp(AccessKeyDrawer, {
@@ -54,7 +62,12 @@ async function mountDrawer(
     queryClient: client,
     locale: 'en-US',
     mounting: {
-      props: { open: props.open, accessKey: props.accessKey ?? null, groups },
+      props: {
+        open: props.open,
+        accessKey: props.accessKey ?? null,
+        groups: props.groups ?? groups,
+        groupCatalogState: props.groupCatalogState ?? 'ready',
+      },
       attachTo: document.body,
     },
   })
@@ -122,21 +135,22 @@ describe('AccessKeyDrawer', () => {
   })
 
   it('sends an explicit filter update when a historical reserved protocol is removed', async () => {
+    const confirm = vi.fn(() => true)
+    Object.defineProperty(window, 'confirm', { configurable: true, value: confirm })
     const saved: AccessKeyDto = {
       ...existing,
       filters: { ...existing.filters, protocols: [] },
     }
     const request = vi.fn().mockResolvedValue(saved) as ApiClient['request']
     const { wrapper } = await mountDrawer(request, { open: true, accessKey: existing })
-    const reserved = protocolLabel('OpenAI Responses')?.querySelector<HTMLInputElement>('input')
-    if (!reserved) throw new Error('missing historical openai-response checkbox')
-
-    reserved.checked = false
-    reserved.dispatchEvent(new Event('change', { bubbles: true }))
+    const mode = element<HTMLSelectElement>('[data-test="access-key-protocols-mode"]')
+    mode.value = 'all'
+    mode.dispatchEvent(new Event('change', { bubbles: true }))
     await flushPromises()
     element<HTMLButtonElement>('[data-test="access-key-save"]').click()
     await flushPromises()
 
+    expect(confirm).toHaveBeenCalled()
     expect(request).toHaveBeenCalledWith('/api/access-keys/9', {
       method: 'PUT',
       json: {
@@ -152,18 +166,23 @@ describe('AccessKeyDrawer', () => {
   })
 
   it('completes one create cycle with one local result and starts fresh only after close', async () => {
-    const firstCreated: AccessKeyDto = {
+    const firstCreated: AccessKeyCreateResultDto = {
       id: 10,
       name: 'new-client',
+      masked_key: 'sk-gl-••••••••aaaa',
       key: canary,
+      replayed: false,
       status: 'active',
       filters: { groups: [], protocols: [], models: [] },
       rpm_limit: 0,
+      created_at: '2026-07-28T00:00:00Z',
+      updated_at: '2026-07-28T00:00:00Z',
     }
-    const secondCreated: AccessKeyDto = {
+    const secondCreated: AccessKeyCreateResultDto = {
       ...firstCreated,
       id: 11,
       name: 'next-client',
+      masked_key: 'sk-gl-••••••••bbbb',
       key: 'sk-gl-SECOND_ACCESS_KEY_CANARY',
     }
     const request = vi.fn().mockResolvedValueOnce(firstCreated).mockResolvedValueOnce(secondCreated)
@@ -182,6 +201,11 @@ describe('AccessKeyDrawer', () => {
 
     expect(request).toHaveBeenCalledWith('/api/access-keys', {
       method: 'POST',
+      headers: {
+        'Idempotency-Key': expect.stringMatching(
+          /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+        ),
+      },
       json: {
         name: 'new-client',
         filters: { groups: [], protocols: [], models: [] },
@@ -192,7 +216,11 @@ describe('AccessKeyDrawer', () => {
     expect((request.mock.calls[0]?.[1] as { json: object }).json).not.toHaveProperty('status')
     expect(invalidate.mock.calls.map(([filters]) => filters)).toEqual([
       { queryKey: controlQueryKeys.accessKeys.list() },
+      { queryKey: controlQueryKeys.accessKeys.options() },
     ])
+    const firstOperationID = (
+      request.mock.calls[0]?.[1] as { headers: { 'Idempotency-Key': string } }
+    ).headers['Idempotency-Key']
     expect(client.getMutationCache().getAll()).toHaveLength(0)
     expect(
       JSON.stringify(
@@ -249,7 +277,11 @@ describe('AccessKeyDrawer', () => {
     await flushPromises()
     expect(request).toHaveBeenCalledTimes(2)
     expect(request.mock.calls[1]?.[0]).toBe('/api/access-keys')
-    expect(invalidate).toHaveBeenCalledTimes(2)
+    const secondOperationID = (
+      request.mock.calls[1]?.[1] as { headers: { 'Idempotency-Key': string } }
+    ).headers['Idempotency-Key']
+    expect(secondOperationID).not.toBe(firstOperationID)
+    expect(invalidate).toHaveBeenCalledTimes(4)
     wrapper.unmount()
   })
 
@@ -287,6 +319,7 @@ describe('AccessKeyDrawer', () => {
     })
     expect(invalidate.mock.calls.map(([filters]) => filters)).toEqual([
       { queryKey: controlQueryKeys.accessKeys.list() },
+      { queryKey: controlQueryKeys.accessKeys.options() },
     ])
 
     expect(document.querySelector('[data-test="access-key-name"]')).not.toBeNull()
@@ -304,15 +337,15 @@ describe('AccessKeyDrawer', () => {
       json: { rpm_limit: 24 },
       signal: expect.any(AbortSignal),
     })
-    expect(invalidate).toHaveBeenCalledTimes(2)
+    expect(invalidate).toHaveBeenCalledTimes(4)
     wrapper.unmount()
   })
 
   it.each(['resolve', 'reject'] as const)(
     'keeps create B pending and isolated when create A settles late by %s',
     async (outcome) => {
-      const createA = deferred<AccessKeyDto>()
-      const createB = deferred<AccessKeyDto>()
+      const createA = deferred<AccessKeyCreateResultDto>()
+      const createB = deferred<AccessKeyCreateResultDto>()
       const request = vi
         .fn()
         .mockImplementationOnce(() => createA.promise)
@@ -349,10 +382,14 @@ describe('AccessKeyDrawer', () => {
         createA.resolve({
           id: 12,
           name: 'session-a',
+          masked_key: 'sk-gl-••••••••cccc',
           key: 'late-a-secret-canary',
+          replayed: false,
           status: 'active',
           filters: { groups: [], protocols: [], models: [] },
           rpm_limit: 0,
+          created_at: '2026-07-28T00:00:00Z',
+          updated_at: '2026-07-28T00:00:00Z',
         })
       } else {
         createA.reject(new Error('late-a-error-canary'))
@@ -371,10 +408,14 @@ describe('AccessKeyDrawer', () => {
       createB.resolve({
         id: 13,
         name: 'session-b',
+        masked_key: 'sk-gl-••••••••dddd',
         key: 'session-b-secret-canary',
+        replayed: false,
         status: 'active',
         filters: { groups: [], protocols: [], models: [] },
         rpm_limit: 0,
+        created_at: '2026-07-28T00:00:00Z',
+        updated_at: '2026-07-28T00:00:00Z',
       })
       await flushPromises()
 
@@ -443,11 +484,98 @@ describe('AccessKeyDrawer', () => {
     wrapper.unmount()
   })
 
+  it('fails closed without a Group catalog while preserving historical filters on metadata edit', async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValue({ ...existing, name: 'renamed' }) as ApiClient['request']
+    const { wrapper } = await mountDrawer(request, {
+      open: true,
+      accessKey: existing,
+      groups: [],
+      groupCatalogState: 'error',
+    })
+
+    expect(document.body.textContent).toContain('Unknown Group #7')
+    expect(element<HTMLSelectElement>('[data-test="access-key-groups-mode"]').disabled).toBe(true)
+    const unknownGroup = protocolLabel('Unknown Group #7')?.querySelector<HTMLInputElement>('input')
+    expect(unknownGroup?.checked).toBe(true)
+    expect(unknownGroup?.disabled).toBe(true)
+
+    const name = element<HTMLInputElement>('[data-test="access-key-name"]')
+    name.value = 'renamed'
+    name.dispatchEvent(new Event('input', { bubbles: true }))
+    await flushPromises()
+    element<HTMLButtonElement>('[data-test="access-key-save"]').click()
+    await flushPromises()
+
+    expect(request).toHaveBeenCalledWith('/api/access-keys/9', {
+      method: 'PUT',
+      json: { name: 'renamed' },
+      signal: expect.any(AbortSignal),
+    })
+    wrapper.unmount()
+
+    const createRequest = vi.fn() as ApiClient['request']
+    const created = await mountDrawer(createRequest, {
+      open: true,
+      groups: [],
+      groupCatalogState: 'error',
+    })
+    const createName = element<HTMLInputElement>('[data-test="access-key-name"]')
+    createName.value = 'unsafe-create'
+    createName.dispatchEvent(new Event('input', { bubbles: true }))
+    await flushPromises()
+    expect(element<HTMLButtonElement>('[data-test="access-key-save"]').disabled).toBe(true)
+    created.wrapper.unmount()
+  })
+
+  it('reuses one idempotency key for retryable reconciliation in the same open lifecycle', async () => {
+    const created: AccessKeyCreateResultDto = {
+      id: 14,
+      name: 'retry-client',
+      masked_key: 'sk-gl-••••••••ffff',
+      key: 'sk-gl-RETRY-CANARY',
+      replayed: false,
+      status: 'active',
+      filters: { groups: [], protocols: [], models: [] },
+      rpm_limit: 0,
+      created_at: '2026-07-28T00:00:00Z',
+      updated_at: '2026-07-28T00:00:00Z',
+    }
+    const request = vi
+      .fn()
+      .mockRejectedValueOnce(
+        new ApiError(503, 'CONTROL_RECOVERY_PENDING', 'pending', {
+          operation_id: 'earlier',
+          operation_kind: 'group_create',
+          failed_stage: 'snapshot_published',
+          retry_after_ms: 1,
+        }),
+      )
+      .mockResolvedValueOnce(created)
+    const { wrapper } = await mountDrawer(request as ApiClient['request'])
+    const name = element<HTMLInputElement>('[data-test="access-key-name"]')
+    name.value = 'retry-client'
+    name.dispatchEvent(new Event('input', { bubbles: true }))
+    await flushPromises()
+
+    element<HTMLButtonElement>('[data-test="access-key-save"]').click()
+    await flushPromises()
+    element<HTMLButtonElement>('[data-test="access-key-save"]').click()
+    await flushPromises()
+
+    const first = request.mock.calls[0]?.[1]?.headers?.['Idempotency-Key']
+    const second = request.mock.calls[1]?.[1]?.headers?.['Idempotency-Key']
+    expect(first).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
+    expect(second).toBe(first)
+    wrapper.unmount()
+  })
+
   it('ignores a late plaintext response after the Drawer closes', async () => {
-    let resolveRequest!: (value: AccessKeyDto) => void
+    let resolveRequest!: (value: AccessKeyCreateResultDto) => void
     const request = vi.fn(
       () =>
-        new Promise<AccessKeyDto>((resolve) => {
+        new Promise<AccessKeyCreateResultDto>((resolve) => {
           resolveRequest = resolve
         }),
     ) as ApiClient['request']
@@ -464,10 +592,14 @@ describe('AccessKeyDrawer', () => {
     resolveRequest({
       id: 11,
       name: 'late-client',
+      masked_key: 'sk-gl-••••••••eeee',
       key: canary,
+      replayed: false,
       status: 'active',
       filters: { groups: [], protocols: [], models: [] },
       rpm_limit: 0,
+      created_at: '2026-07-28T00:00:00Z',
+      updated_at: '2026-07-28T00:00:00Z',
     })
     await flushPromises()
 
@@ -480,7 +612,7 @@ describe('AccessKeyDrawer', () => {
     let rejectRequest!: (error: unknown) => void
     const request = vi.fn(
       () =>
-        new Promise<AccessKeyDto>((_, reject) => {
+        new Promise<AccessKeyCreateResultDto>((_, reject) => {
           rejectRequest = reject
         }),
     ) as ApiClient['request']
@@ -513,7 +645,7 @@ describe('AccessKeyDrawer', () => {
     let rejectRequest!: (error: unknown) => void
     const request = vi.fn(
       () =>
-        new Promise<AccessKeyDto>((_, reject) => {
+        new Promise<AccessKeyCreateResultDto>((_, reject) => {
           rejectRequest = reject
         }),
     ) as ApiClient['request']

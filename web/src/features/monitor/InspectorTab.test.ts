@@ -3,7 +3,7 @@ import { flushPromises } from '@vue/test-utils'
 
 import type { ApiClient, ApiPath, ApiRequestOptions } from '@/api/client'
 import type { RouteInspectReasonCode, RouteInspectResponseDto } from '@/api/control/route-inspect'
-import type { AccessKeyDto } from '@/api/control/types'
+import type { AccessKeyOptionDto } from '@/api/control/types'
 import { ApiError } from '@/api/errors'
 import { controlQueryKeys } from '@/app/query-keys'
 import AppSelect from '@/components/ui/AppSelect.vue'
@@ -11,22 +11,18 @@ import { mountApp } from '@/test/mount-app'
 
 import InspectorTab from './InspectorTab.vue'
 
-const activeAccessKey: AccessKeyDto = {
+const activeAccessKey: AccessKeyOptionDto & { key: string } = {
   id: 12,
   name: 'Client production',
   key: 'sk-gl-raw-access-key-canary',
   status: 'active',
-  filters: { groups: [], protocols: [], models: [] },
-  rpm_limit: 0,
 }
 
-const disabledAccessKey: AccessKeyDto = {
+const disabledAccessKey: AccessKeyOptionDto & { key: string } = {
   id: 13,
   name: 'Client disabled',
   key: 'sk-gl-disabled-raw-canary',
   status: 'disabled',
-  filters: { groups: [], protocols: [], models: [] },
-  rpm_limit: 0,
 }
 
 function inspectionFixture(
@@ -67,7 +63,9 @@ class InspectorApi implements ApiClient {
     private readonly inspections: Array<
       RouteInspectResponseDto | Promise<RouteInspectResponseDto>
     > = [inspectionFixture()],
-    private readonly accessKeys: AccessKeyDto[] | Promise<AccessKeyDto[]> = [
+    private readonly accessKeys:
+      | Array<AccessKeyOptionDto & Partial<{ key: string }>>
+      | Promise<Array<AccessKeyOptionDto & Partial<{ key: string }>>> = [
       activeAccessKey,
       disabledAccessKey,
     ],
@@ -75,7 +73,7 @@ class InspectorApi implements ApiClient {
 
   request<T>(path: ApiPath, options?: ApiRequestOptions): Promise<T> {
     this.requests.push({ path, options })
-    if (path === '/api/access-keys') {
+    if (path === '/api/access-keys/options') {
       return Promise.resolve(this.accessKeys as T)
     }
     if (path === '/api/route/inspect') {

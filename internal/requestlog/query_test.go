@@ -403,14 +403,14 @@ func TestServiceListBatchLoadsCurrentAccessKeyNames(t *testing.T) {
 	db := openRequestLogQueryDB(t)
 	current := models.AccessKey{
 		Name: "before-rename", KeyValue: "cipher-current", KeyHash: "hash-current",
-		Status: "active", Filters: models.JSON(`{}`),
+		KeySuffix: "0001", Status: "active", Filters: models.JSON(`{}`),
 	}
 	if err := db.Create(&current).Error; err != nil {
 		t.Fatalf("create current AccessKey: %v", err)
 	}
 	deleted := models.AccessKey{
 		Name: "deleted", KeyValue: "cipher-deleted", KeyHash: "hash-deleted",
-		Status: "active", Filters: models.JSON(`{}`),
+		KeySuffix: "0002", Status: "active", Filters: models.JSON(`{}`),
 	}
 	if err := db.Create(&deleted).Error; err != nil {
 		t.Fatalf("create deleted AccessKey: %v", err)

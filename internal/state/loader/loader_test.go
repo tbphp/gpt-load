@@ -277,7 +277,8 @@ func TestBuildCompileInputReadsUncommittedTransactionState(t *testing.T) {
 	mustCreate(t, tx, &group)
 	mustCreate(t, tx, &models.AccessKey{
 		Name: "pending", KeyValue: "cipher", KeyHash: "pending-hash",
-		Status: "active", Filters: models.JSON(fmt.Sprintf(`{"groups":[%d]}`, group.ID)),
+		KeySuffix: "0000", Status: "active",
+		Filters: models.JSON(fmt.Sprintf(`{"groups":[%d]}`, group.ID)),
 	})
 
 	input, err := loader.BuildCompileInput(context.Background(), tx)
@@ -298,7 +299,8 @@ func TestBuildCompileInputReturnsIndependentData(t *testing.T) {
 	}
 	mustCreate(t, db, &models.AccessKey{
 		Name: "owned", KeyValue: "cipher", KeyHash: "owned-hash", Status: "active",
-		Filters: models.JSON(fmt.Sprintf(`{"groups":[%d],"protocols":["openai"],"models":["gpt-owned"]}`, group.ID)),
+		KeySuffix: "0001",
+		Filters:   models.JSON(fmt.Sprintf(`{"groups":[%d],"protocols":["openai"],"models":["gpt-owned"]}`, group.ID)),
 	})
 
 	first, err := loader.BuildCompileInput(context.Background(), db)
@@ -337,7 +339,7 @@ func TestBuildCompileInputDoesNotQueryUpstreamKeys(t *testing.T) {
 	group := createRuntimeGroup(t, db, "query-boundary", protocol.OpenAI, "gpt-query")
 	mustCreate(t, db, &models.AccessKey{
 		Name: "query-boundary", KeyValue: "cipher", KeyHash: "query-boundary-hash",
-		Status: "active", Filters: models.JSON(`{}`),
+		KeySuffix: "0002", Status: "active", Filters: models.JSON(`{}`),
 	})
 	mustCreate(t, db, &models.UpstreamKey{
 		GroupID: group.ID, KeyValue: "upstream-cipher", KeyHash: "upstream-query-hash",
@@ -572,7 +574,7 @@ func TestLoaderMapsAccessAndUpstreamKeys(t *testing.T) {
 
 	activeAccess := models.AccessKey{
 		Name: "active access", KeyValue: "access-cipher-active", KeyHash: "active-hash",
-		Status: "active",
+		KeySuffix: "0003", Status: "active",
 		Filters: models.JSON(fmt.Sprintf(
 			`{"groups":[%d,9999],"protocols":["openai"],"models":["Primary"]}`,
 			firstGroup.ID,
@@ -580,7 +582,7 @@ func TestLoaderMapsAccessAndUpstreamKeys(t *testing.T) {
 	}
 	disabledAccess := models.AccessKey{
 		Name: "disabled access", KeyValue: "access-cipher-disabled", KeyHash: "disabled-hash",
-		Status: "disabled", Filters: models.JSON(`{}`),
+		KeySuffix: "0004", Status: "disabled", Filters: models.JSON(`{}`),
 	}
 	mustCreate(t, db, &activeAccess)
 	mustCreate(t, db, &disabledAccess)
@@ -671,11 +673,56 @@ func TestLoaderMapsAccessAndUpstreamKeys(t *testing.T) {
 	}
 }
 
+func TestBuildGroupKeyEntriesReadsOnlyRequestedGroupInStableOrder(t *testing.T) {
+	db := openMigratedDatabase(t)
+	firstGroup := createRuntimeGroup(t, db, "first-entries", protocol.OpenAI, "gpt-4o")
+	secondGroup := createRuntimeGroup(t, db, "second-entries", protocol.Anthropic, "claude")
+	weight := 9
+	keys := []models.UpstreamKey{
+		{
+			GroupID: secondGroup.ID, KeyValue: "other-cipher",
+			KeyHash: "other-hash", Status: models.UpstreamKeyStatusActive,
+		},
+		{
+			GroupID: firstGroup.ID, KeyValue: "first-cipher",
+			KeyHash: "first-hash", Status: models.UpstreamKeyStatusActive,
+		},
+		{
+			GroupID: firstGroup.ID, KeyValue: "second-cipher",
+			KeyHash: "second-hash", Status: models.UpstreamKeyStatusDisabled,
+			WeightManual: &weight,
+		},
+	}
+	for index := range keys {
+		mustCreate(t, db, &keys[index])
+	}
+
+	got, err := loader.BuildGroupKeyEntries(t.Context(), db, firstGroup.ID)
+	if err != nil {
+		t.Fatalf("BuildGroupKeyEntries() error = %v", err)
+	}
+	if len(got) != 2 || got[0].ID != keys[1].ID || got[1].ID != keys[2].ID {
+		t.Fatalf("BuildGroupKeyEntries() = %#v", got)
+	}
+	if got[1].WeightManual == nil || *got[1].WeightManual != weight ||
+		got[1].Status != state.KeyStatusDisabled ||
+		got[1].EncryptedValue != "second-cipher" {
+		t.Fatalf("second entry = %#v", got[1])
+	}
+}
+
+func TestBuildGroupKeyEntriesRejectsMissingGroup(t *testing.T) {
+	db := openMigratedDatabase(t)
+	if _, err := loader.BuildGroupKeyEntries(t.Context(), db, 999); err == nil {
+		t.Fatal("BuildGroupKeyEntries(missing group) error = nil")
+	}
+}
+
 func TestLoaderMapsAccessKeyRPMLimit(t *testing.T) {
 	db := openMigratedDatabase(t)
 	accessKey := models.AccessKey{
 		Name: "rate-limited", KeyValue: "access-cipher", KeyHash: "rate-limited-hash",
-		Status: "active", Filters: models.JSON(`{}`), RPMLimit: 27,
+		KeySuffix: "0005", Status: "active", Filters: models.JSON(`{}`), RPMLimit: 27,
 	}
 	mustCreate(t, db, &accessKey)
 
@@ -708,7 +755,7 @@ func TestLoaderRejectsInvalidCredentialRowsWithoutPublishing(t *testing.T) {
 				}()
 				mustCreate(t, db, &models.AccessKey{
 					Name: "invalid", KeyValue: "access-cipher", KeyHash: "invalid-status-hash",
-					Status: "revoked", Filters: models.JSON(`{}`),
+					KeySuffix: "0006", Status: "revoked", Filters: models.JSON(`{}`),
 				})
 			},
 			wantError: "invalid status",
@@ -718,7 +765,8 @@ func TestLoaderRejectsInvalidCredentialRowsWithoutPublishing(t *testing.T) {
 			insert: func(t *testing.T, db *gorm.DB, _ models.Group) {
 				mustCreate(t, db, &models.AccessKey{
 					Name: "invalid", KeyValue: "access-cipher", KeyHash: "invalid-protocol-hash",
-					Status: "active", Filters: models.JSON(`{"protocols":["unknown"]}`),
+					KeySuffix: "0007", Status: "active",
+					Filters: models.JSON(`{"protocols":["unknown"]}`),
 				})
 			},
 			wantError: "invalid protocol",
@@ -728,7 +776,8 @@ func TestLoaderRejectsInvalidCredentialRowsWithoutPublishing(t *testing.T) {
 			insert: func(t *testing.T, db *gorm.DB, _ models.Group) {
 				mustCreate(t, db, &models.AccessKey{
 					Name: "invalid", KeyValue: "access-cipher", KeyHash: "blank-model-hash",
-					Status: "active", Filters: models.JSON(`{"models":["  "]}`),
+					KeySuffix: "0008", Status: "active",
+					Filters: models.JSON(`{"models":["  "]}`),
 				})
 			},
 			wantError: "filter model is required",
@@ -738,7 +787,8 @@ func TestLoaderRejectsInvalidCredentialRowsWithoutPublishing(t *testing.T) {
 			insert: func(t *testing.T, db *gorm.DB, _ models.Group) {
 				mustCreate(t, db, &models.AccessKey{
 					Name: "invalid", KeyValue: "access-cipher", KeyHash: "unknown-filter-field-hash",
-					Status: "active", Filters: models.JSON(`{"protcols":["openai"]}`),
+					KeySuffix: "0009", Status: "active",
+					Filters: models.JSON(`{"protcols":["openai"]}`),
 				})
 			},
 			wantError: "unknown field",

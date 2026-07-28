@@ -111,6 +111,7 @@ func BuildContainer() (*dig.Container, error) {
 		gateway.NewHandler,
 		control.NewService,
 		func(service *control.Service) app.StartupBootstrap { return service },
+		func(service *control.Service) app.StartupRecovery { return service },
 		control.NewServer,
 		func(db *gorm.DB, manager *state.Manager, registry *state.KeyRegistry) app.RuntimeStateLoader {
 			return stateloader.New(db, manager, registry)

@@ -109,7 +109,7 @@ describe('GroupDeleteDialog', () => {
       { queryKey: controlQueryKeys.groups.list() },
       { queryKey: controlQueryKeys.health() },
     ])
-    expect(router.currentRoute.value.name).toBe('home')
+    await vi.waitFor(() => expect(router.currentRoute.value.name).toBe('home'))
     wrapper.unmount()
   })
 

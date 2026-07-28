@@ -1,9 +1,12 @@
 package control
 
 import (
+	"fmt"
+	"net/http"
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -21,9 +24,18 @@ import (
 )
 
 var (
-	controlI18nOnce sync.Once
-	controlI18nErr  error
+	controlI18nOnce         sync.Once
+	controlI18nErr          error
+	testIdempotencySequence atomic.Uint64
 )
+
+func setRequiredTestIdempotencyHeader(request *http.Request) {
+	sequence := testIdempotencySequence.Add(1)
+	request.Header.Set(
+		"Idempotency-Key",
+		fmt.Sprintf("00000000-0000-4000-8000-%012x", sequence),
+	)
+}
 
 type serviceFixture struct {
 	db              *gorm.DB

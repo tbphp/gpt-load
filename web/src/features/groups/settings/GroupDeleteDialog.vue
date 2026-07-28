@@ -164,7 +164,7 @@ label {
 input {
   width: 100%;
   min-height: 44px;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-border-control);
   border-radius: var(--radius-control);
   background: var(--color-surface-secondary);
   color: var(--color-text);

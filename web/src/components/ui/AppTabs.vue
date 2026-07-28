@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { TabsContent, TabsList, TabsRoot, TabsTrigger } from 'reka-ui'
+import { ref, watch } from 'vue'
 
 export interface AppTabItem {
   value: string
@@ -7,40 +8,58 @@ export interface AppTabItem {
   testId?: string
 }
 
-defineProps<{
+const props = defineProps<{
   modelValue: string
   label: string
   items: AppTabItem[]
 }>()
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
+const root = ref<HTMLElement>()
+
+watch(
+  () => props.modelValue,
+  (value) => {
+    const trigger = [...(root.value?.querySelectorAll<HTMLElement>('[data-tab-value]') ?? [])].find(
+      (candidate) => candidate.dataset.tabValue === value,
+    )
+    trigger?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  },
+  { flush: 'post' },
+)
 </script>
 
 <template>
-  <TabsRoot
-    class="app-tabs"
-    :model-value="modelValue"
-    @update:model-value="(value) => typeof value === 'string' && emit('update:modelValue', value)"
-  >
-    <TabsList class="app-tabs__list" :aria-label="label">
-      <TabsTrigger
-        v-for="item in items"
-        :key="item.value"
-        class="app-tabs__trigger"
-        :value="item.value"
-        :data-test="item.testId"
-        @click="emit('update:modelValue', item.value)"
-      >
-        {{ item.label }}
-      </TabsTrigger>
-    </TabsList>
-    <TabsContent class="app-tabs__content" :value="modelValue">
-      <slot />
-    </TabsContent>
-  </TabsRoot>
+  <div ref="root" class="app-tabs">
+    <TabsRoot
+      class="app-tabs__root"
+      :model-value="modelValue"
+      @update:model-value="(value) => typeof value === 'string' && emit('update:modelValue', value)"
+    >
+      <TabsList class="app-tabs__list" :aria-label="label">
+        <TabsTrigger
+          v-for="item in items"
+          :key="item.value"
+          class="app-tabs__trigger"
+          :value="item.value"
+          :data-test="item.testId"
+          :data-tab-value="item.value"
+          @click="emit('update:modelValue', item.value)"
+        >
+          {{ item.label }}
+        </TabsTrigger>
+      </TabsList>
+      <TabsContent class="app-tabs__content" :value="modelValue">
+        <slot />
+      </TabsContent>
+    </TabsRoot>
+  </div>
 </template>
 
 <style scoped>
 .app-tabs {
+  display: block;
+}
+.app-tabs__root {
   display: grid;
   gap: var(--space-5);
 }

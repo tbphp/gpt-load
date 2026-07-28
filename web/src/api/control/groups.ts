@@ -209,10 +209,12 @@ export function replaceGroupModels(
 export function createGroup(
   client: ApiClient,
   body: GroupCreateRequest,
+  idempotencyKey: string,
   signal?: AbortSignal,
 ): Promise<GroupCreateResult> {
   return client.request<GroupCreateResult>('/api/groups', {
     method: 'POST',
+    headers: { 'Idempotency-Key': idempotencyKey },
     json: body,
     signal,
   })
@@ -222,10 +224,12 @@ export function importGroupKeys(
   client: ApiClient,
   groupID: number,
   body: GroupKeyImportRequest,
+  idempotencyKey: string,
   signal?: AbortSignal,
 ): Promise<GroupKeyImportResult> {
   return client.request<GroupKeyImportResult>(`/api/groups/${groupID}/keys/import`, {
     method: 'POST',
+    headers: { 'Idempotency-Key': idempotencyKey },
     json: body,
     signal,
   })

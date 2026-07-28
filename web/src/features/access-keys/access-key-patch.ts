@@ -1,11 +1,19 @@
 import type { CreateAccessKeyRequest, UpdateAccessKeyRequest } from '@/api/control/access-keys'
-import { enabledDataProtocols } from '@/api/control/protocols'
 import type { AccessKeyDto, AccessKeyFiltersDto } from '@/api/control/types'
+
+import {
+  createAccessKeyScopeModes,
+  materializeAccessKeyFilters,
+  validateAccessKeyScope,
+  type AccessKeyScopeModes,
+  type GroupCatalogState,
+} from './access-key-scope'
 
 export interface AccessKeyDraft {
   name: string
   status: AccessKeyDto['status']
   filters: AccessKeyFiltersDto
+  scopeModes: AccessKeyScopeModes
   rpm_limit: number
 }
 
@@ -22,35 +30,45 @@ export function normalizeAccessKeyFilters(filters: AccessKeyFiltersDto): AccessK
 }
 
 export function createAccessKeyDraft(accessKey?: AccessKeyDto | null): AccessKeyDraft {
+  const filters = normalizeAccessKeyFilters(
+    accessKey?.filters ?? { groups: [], protocols: [], models: [] },
+  )
   return {
     name: accessKey?.name ?? '',
     status: accessKey?.status ?? 'active',
-    filters: normalizeAccessKeyFilters(
-      accessKey?.filters ?? { groups: [], protocols: [], models: [] },
-    ),
+    filters,
+    scopeModes: createAccessKeyScopeModes(filters),
     rpm_limit: accessKey?.rpm_limit ?? 0,
   }
 }
 
-export function isAccessKeyDraftValid(draft: AccessKeyDraft, base?: AccessKeyDto | null): boolean {
-  const baseRetainsReserved = base?.filters.protocols.includes('openai-response') ?? false
-  const protocolsValid = draft.filters.protocols.every(
-    (protocol) =>
-      enabledDataProtocols.some((enabled) => enabled === protocol) ||
-      (protocol === 'openai-response' && baseRetainsReserved),
-  )
+export function isAccessKeyDraftValid(
+  draft: AccessKeyDraft,
+  base?: AccessKeyDto | null,
+  groupCatalog: { state: GroupCatalogState; ids: number[] } = {
+    state: 'ready',
+    ids: [...new Set([...(base?.filters.groups ?? []), ...draft.filters.groups])],
+  },
+): boolean {
   return (
     draft.name.trim().length > 0 &&
     Number.isSafeInteger(draft.rpm_limit) &&
     draft.rpm_limit >= 0 &&
-    protocolsValid
+    validateAccessKeyScope({
+      base: base?.filters ?? null,
+      filters: draft.filters,
+      modes: draft.scopeModes,
+      groupCatalog,
+    })
   )
 }
 
 export function buildCreateAccessKeyInput(draft: AccessKeyDraft): CreateAccessKeyRequest {
   return {
     name: draft.name.trim(),
-    filters: normalizeAccessKeyFilters(draft.filters),
+    filters: normalizeAccessKeyFilters(
+      materializeAccessKeyFilters(draft.filters, draft.scopeModes),
+    ),
     rpm_limit: draft.rpm_limit,
   }
 }
@@ -80,7 +98,9 @@ export function buildAccessKeyUpdatePatch(
 ): UpdateAccessKeyRequest {
   const patch: UpdateAccessKeyRequest = {}
   const name = draft.name.trim()
-  const filters = normalizeAccessKeyFilters(draft.filters)
+  const filters = normalizeAccessKeyFilters(
+    materializeAccessKeyFilters(draft.filters, draft.scopeModes),
+  )
   if (name !== base.name) patch.name = name
   if (draft.status !== base.status) patch.status = draft.status
   if (!equalFilters(filters, base.filters)) patch.filters = filters

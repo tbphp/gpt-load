@@ -1,16 +1,20 @@
 import type { SettingsDto } from '@/api/control/settings'
+import type { SettingsResource } from '@/app/resources/settings'
 
-import { chooseSettingsMutationResult } from './settings-response'
 import { createSettingsDraft } from './settings-patch'
+import {
+  chooseSettingsMutationResult,
+  mergeSettingsConflict,
+  reconcileSettingsMutation,
+} from './settings-response'
 
-function settings(revision: number): SettingsDto {
+function settings(connectTimeout: number, requestTimeout = 600): SettingsDto {
   return {
-    revision,
     values: {
-      connect_timeout: revision * 10,
-      first_byte_timeout: revision * 20,
-      request_timeout: revision * 30,
-      stream_idle_timeout: revision * 40,
+      connect_timeout: connectTimeout,
+      first_byte_timeout: 120,
+      request_timeout: requestTimeout,
+      stream_idle_timeout: 300,
       header_rules: { set: {}, remove: [] },
       inject_usage_options: false,
       request_log_retention_days: 7,
@@ -19,25 +23,20 @@ function settings(revision: number): SettingsDto {
   }
 }
 
-describe('chooseSettingsMutationResult', () => {
-  it.each([
-    ['newer response', 12, 11, 'response'],
-    ['equal response', 11, 11, 'response'],
-    ['stale response', 10, 11, 'cache'],
-  ] as const)(
-    '%s selects the monotonic source and rebases the dirty draft',
-    (_name, responseRevision, cacheRevision, source) => {
-      const response = settings(responseRevision)
-      const cached = settings(cacheRevision)
-      const base = settings(9)
-      const draft = createSettingsDraft(base)
-      draft.overrides.add('connect_timeout')
-      draft.values.connect_timeout = 4321
-      const draftSnapshot = {
-        values: structuredClone(draft.values),
-        overrides: new Set(draft.overrides),
-      }
+function resource(token: string, value: SettingsDto): SettingsResource {
+  return { settings: value, settings_etag: `sha256-${token.repeat(64)}` }
+}
 
+describe('Settings response identity and three-way merge', () => {
+  it('accepts a response only when cache still matches the operation base or the response ETag', () => {
+    const base = resource('a', settings(15))
+    const response = resource('b', settings(30))
+    const matchingResponseCache = resource('b', settings(30))
+    const draft = createSettingsDraft(base.settings)
+    draft.overrides.add('request_timeout')
+    draft.values.request_timeout = 900
+
+    for (const cached of [base, matchingResponseCache]) {
       const result = chooseSettingsMutationResult(
         response,
         cached,
@@ -45,29 +44,122 @@ describe('chooseSettingsMutationResult', () => {
         draft,
         'request-forwarding',
       )
-
       expect(result.kind).toBe('apply')
-      if (result.kind !== 'apply') return
-      expect(result.source).toBe(source)
-      expect(result.settings).toBe(source === 'response' ? response : cached)
-      expect(result.draft).not.toBe(draft)
-      expect(result.draft.values.connect_timeout).toBe(draft.values.connect_timeout)
-      expect(result.draft.values.first_byte_timeout).toBe(result.settings.values.first_byte_timeout)
-      expect(draft).toEqual(draftSnapshot)
-    },
-  )
+      if (result.kind === 'apply') {
+        expect(result.resource).toBe(response)
+        expect(result.draft.values.request_timeout).toBe(900)
+        expect(result.draft.values.connect_timeout).toBe(30)
+      }
+    }
+  })
 
-  it('requires a refetch when cache presence cannot be confirmed', () => {
-    const base = settings(9)
+  it('requires a refetch when cache is absent or has an unrelated ETag', () => {
+    const base = resource('a', settings(15))
+    const response = resource('b', settings(30))
+    const unrelated = resource('c', settings(45))
+    const draft = createSettingsDraft(base.settings)
 
     expect(
-      chooseSettingsMutationResult(
-        settings(10),
-        undefined,
-        base,
-        createSettingsDraft(base),
-        'request-forwarding',
-      ),
+      chooseSettingsMutationResult(response, undefined, base, draft, 'request-forwarding'),
     ).toEqual({ kind: 'refetch' })
+    expect(
+      chooseSettingsMutationResult(response, unrelated, base, draft, 'request-forwarding'),
+    ).toEqual({ kind: 'refetch' })
+  })
+
+  it('merges independent mine/latest changes and keeps the latest ETag', () => {
+    const base = resource('a', settings(15, 600))
+    const latestSettings = settings(30, 600)
+    latestSettings.overrides = ['connect_timeout']
+    const latest = resource('b', latestSettings)
+    const draft = createSettingsDraft(base.settings)
+    draft.overrides.add('request_timeout')
+    draft.values.request_timeout = 900
+
+    const result = mergeSettingsConflict(base, draft, latest, 'request-forwarding')
+
+    expect(result.conflicts).toEqual([])
+    expect(result.resource).toBe(latest)
+    expect(result.draft.values.connect_timeout).toBe(30)
+    expect(result.draft.values.request_timeout).toBe(900)
+    expect(result.draft.overrides).toEqual(new Set(['connect_timeout', 'request_timeout']))
+  })
+
+  it('detects the same-field conflict as override plus normalized value identity', () => {
+    const baseSettings = settings(15)
+    baseSettings.overrides = ['connect_timeout']
+    const base = resource('a', baseSettings)
+    const latestSettings = settings(45)
+    latestSettings.overrides = ['connect_timeout']
+    const latest = resource('b', latestSettings)
+    const draft = createSettingsDraft(base.settings)
+    draft.values.connect_timeout = 30
+
+    const result = mergeSettingsConflict(base, draft, latest, 'request-forwarding')
+
+    expect(result.conflicts).toEqual([
+      {
+        key: 'connect_timeout',
+        mine: { is_override: true, normalized_value: 30 },
+        latest: { is_override: true, normalized_value: 45 },
+      },
+    ])
+  })
+
+  it('uses canonical HeaderRules deep equality for case and ordering', () => {
+    const baseSettings = settings(15)
+    baseSettings.values.header_rules = {
+      set: { 'X-Alpha': 'one', 'X-Beta': 'two' },
+      remove: ['X-Remove'],
+    }
+    baseSettings.overrides = ['header_rules']
+    const base = resource('a', baseSettings)
+    const latestSettings = structuredClone(baseSettings)
+    latestSettings.values.header_rules = {
+      set: { 'x-beta': 'two', 'x-alpha': 'one' },
+      remove: ['x-remove'],
+    }
+    const latest = resource('b', latestSettings)
+    const draft = createSettingsDraft(base.settings)
+
+    expect(mergeSettingsConflict(base, draft, latest, 'request-forwarding').conflicts).toEqual([])
+  })
+
+  it('confirms an unknown write only when latest contains every intended field identity', () => {
+    const base = resource('a', settings(15))
+    const draft = createSettingsDraft(base.settings)
+    draft.overrides.add('connect_timeout')
+    draft.values.connect_timeout = 30
+    const appliedSettings = settings(30)
+    appliedSettings.overrides = ['connect_timeout']
+
+    expect(
+      reconcileSettingsMutation(base, draft, resource('b', appliedSettings), 'request-forwarding')
+        .kind,
+    ).toBe('confirmed')
+    expect(
+      reconcileSettingsMutation(base, draft, resource('a', settings(15)), 'request-forwarding')
+        .kind,
+    ).toBe('indeterminate')
+  })
+
+  it('turns a divergent latest value into an explicit conflict during unknown-write reconciliation', () => {
+    const baseSettings = settings(15)
+    baseSettings.overrides = ['connect_timeout']
+    const base = resource('a', baseSettings)
+    const draft = createSettingsDraft(base.settings)
+    draft.values.connect_timeout = 30
+    const latestSettings = settings(45)
+    latestSettings.overrides = ['connect_timeout']
+
+    const result = reconcileSettingsMutation(
+      base,
+      draft,
+      resource('b', latestSettings),
+      'request-forwarding',
+    )
+
+    expect(result.kind).toBe('conflict')
+    expect(result.conflicts).toHaveLength(1)
   })
 })

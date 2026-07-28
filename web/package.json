@@ -16,8 +16,10 @@
     "format:write": "prettier --write .",
     "type-check": "vue-tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json",
     "test": "vitest run",
-    "test:csp": "playwright test e2e/csp-smoke.spec.ts --config playwright.config.ts",
-    "test:e2e": "playwright test --config playwright.config.ts"
+    "test:csp": "node e2e/run-e2e.mjs e2e/csp-smoke.spec.ts",
+    "test:e2e": "node e2e/run-e2e.mjs",
+    "check:visual": "node scripts/check-visual-runner-lock.mjs --manifest-only",
+    "check:bundle": "node scripts/check-bundle-budget.mjs"
   },
   "dependencies": {
     "@tanstack/vue-query": "5.101.4",

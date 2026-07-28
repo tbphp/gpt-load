@@ -4,7 +4,7 @@ import { flushPromises } from '@vue/test-utils'
 import { ApiError } from '@/api/errors'
 import type { UsageReportDto } from '@/api/control/usage'
 import { controlQueryKeys } from '@/app/query-keys'
-import type { AccessKeyDto, GroupSummary, RuntimeHealthDto } from '@/api/control/types'
+import type { AccessKeyOptionDto, GroupSummary, RuntimeHealthDto } from '@/api/control/types'
 import { FakeApi } from '@/test/fake-api'
 import { mountApp } from '@/test/mount-app'
 
@@ -19,13 +19,10 @@ const groupFixture: GroupSummary = {
   enabled: true,
   key_count: 2,
 }
-const accessKeyFixture: AccessKeyDto = {
+const accessKeyFixture: AccessKeyOptionDto = {
   id: 1,
   name: 'Default',
-  key: 'ACCESS_KEY_CANARY',
   status: 'active',
-  filters: { groups: [], protocols: [], models: [] },
-  rpm_limit: 0,
 }
 const healthFixture: RuntimeHealthDto = {
   observed_at: '2026-07-25T10:00:00Z',
@@ -109,7 +106,7 @@ describe('HomeView', () => {
     const api = new FakeApi()
     api.when('/api/groups').resolve([groupFixture])
     api.when('/api/health').reject(new ApiError(500, 'INTERNAL_SERVER_ERROR', 'failed'))
-    api.when('/api/access-keys').resolve([])
+    api.when('/api/access-keys/options').resolve([])
 
     const wrapper = await mountHome(api)
 
@@ -123,7 +120,7 @@ describe('HomeView', () => {
     const api = new FakeApi()
     api.when('/api/groups').reject(new ApiError(500, 'INTERNAL_SERVER_ERROR', 'failed'))
     api.when('/api/health').resolve(healthFixture)
-    api.when('/api/access-keys').resolve([accessKeyFixture])
+    api.when('/api/access-keys/options').resolve([accessKeyFixture])
 
     const wrapper = await mountHome(api)
 
@@ -136,7 +133,7 @@ describe('HomeView', () => {
     const api = new FakeApi()
     api.when('/api/groups').resolve([groupFixture])
     api.when('/api/health').resolve(healthFixture)
-    api.when('/api/access-keys').resolve([accessKeyFixture])
+    api.when('/api/access-keys/options').resolve([accessKeyFixture])
     api
       .when('/api/usage?range=24h')
       .reject(new ApiError(500, 'INTERNAL_SERVER_ERROR', 'usage-secret-canary'))
@@ -156,7 +153,7 @@ describe('HomeView', () => {
     const api = new FakeApi()
     api.when('/api/groups').resolve([groupFixture])
     api.when('/api/health').reject(new ApiError(500, 'INTERNAL_SERVER_ERROR', 'failed'))
-    api.when('/api/access-keys').resolve([])
+    api.when('/api/access-keys/options').resolve([])
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     queryClient.setQueryData(controlQueryKeys.health(), healthFixture)
 
@@ -171,9 +168,11 @@ describe('HomeView', () => {
     const api = new FakeApi()
     api.when('/api/groups').resolve([groupFixture])
     api.when('/api/health').resolve(healthFixture)
-    api.when('/api/access-keys').reject(new ApiError(500, 'INTERNAL_SERVER_ERROR', 'failed'))
+    api
+      .when('/api/access-keys/options')
+      .reject(new ApiError(500, 'INTERNAL_SERVER_ERROR', 'failed'))
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-    queryClient.setQueryData(controlQueryKeys.accessKeys.list(), [accessKeyFixture])
+    queryClient.setQueryData(controlQueryKeys.accessKeys.options(), [accessKeyFixture])
 
     const wrapper = await mountHome(api, undefined, queryClient)
 
@@ -186,7 +185,7 @@ describe('HomeView', () => {
     const api = new FakeApi()
     api.when('/api/groups').reject(new ApiError(500, 'INTERNAL_SERVER_ERROR', 'failed'))
     api.when('/api/health').resolve(healthFixture)
-    api.when('/api/access-keys').resolve([])
+    api.when('/api/access-keys/options').resolve([])
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     queryClient.setQueryData(controlQueryKeys.groups.list(), [groupFixture])
 
@@ -200,7 +199,7 @@ describe('HomeView', () => {
     const api = new FakeApi()
     api.when('/api/groups').resolve([])
     api.when('/api/health').resolve(healthFixture)
-    api.when('/api/access-keys').resolve([])
+    api.when('/api/access-keys/options').resolve([])
 
     const wrapper = await mountHome(api, 'http://127.0.0.1:3001/')
 
@@ -212,7 +211,9 @@ describe('HomeView', () => {
     const api = new FakeApi()
     api.when('/api/groups').resolve([groupFixture])
     api.when('/api/health').resolve(healthFixture)
-    api.when('/api/access-keys').resolve([accessKeyFixture])
+    api
+      .when('/api/access-keys/options')
+      .resolve([{ ...accessKeyFixture, key: 'ACCESS_KEY_CANARY' }])
 
     const wrapper = await mountHome(api)
 
@@ -229,7 +230,7 @@ describe('HomeView', () => {
     const api = new FakeApi()
     api.when('/api/groups').resolve([])
     api.when('/api/health').resolve({ ...healthFixture, groups: [] })
-    api.when('/api/access-keys').resolve([])
+    api.when('/api/access-keys/options').resolve([])
 
     const wrapper = await mountHome(api)
 

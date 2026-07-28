@@ -11,10 +11,12 @@ import {
 const base: AccessKeyDto = {
   id: 9,
   name: 'client',
-  key: 'sk-gl-ACCESS_KEY_CANARY',
+  masked_key: 'sk-gl-••••••••••••',
   status: 'active',
   filters: { groups: [7], protocols: ['openai-response'], models: ['known', 'free-entry'] },
   rpm_limit: 12,
+  created_at: '2026-07-28T00:00:00Z',
+  updated_at: '2026-07-28T00:00:00Z',
 }
 
 describe('AccessKey request normalization', () => {
@@ -36,6 +38,7 @@ describe('AccessKey request normalization', () => {
     const draft = createAccessKeyDraft()
     draft.name = 'new-client'
     draft.filters.protocols = ['openai-response']
+    draft.scopeModes.protocols = 'restricted'
 
     expect(isAccessKeyDraftValid(draft)).toBe(false)
   })
@@ -61,6 +64,7 @@ describe('AccessKey request normalization', () => {
   it('accepts explicit historical reserved removal and includes it in the update patch', () => {
     const draft = createAccessKeyDraft(base)
     draft.filters.protocols = []
+    draft.scopeModes.protocols = 'all'
 
     expect(isAccessKeyDraftValid(draft, base)).toBe(true)
     expect(buildAccessKeyUpdatePatch(base, draft)).toEqual({
@@ -76,6 +80,7 @@ describe('AccessKey request normalization', () => {
     const draft = createAccessKeyDraft()
     draft.name = 'new-client'
     draft.filters.protocols = ['openai-response']
+    draft.scopeModes.protocols = 'restricted'
 
     expect(buildCreateAccessKeyInput(draft).filters.protocols).toEqual(['openai-response'])
   })

@@ -58,6 +58,16 @@ func GetLocalizer(acceptLang string) *i18n.Localizer {
 	return i18n.NewLocalizer(bundle, langs...)
 }
 
+// ResolveLanguage returns the canonical supported language selected from
+// Accept-Language.
+func ResolveLanguage(acceptLang string) string {
+	languages := parseAcceptLanguage(acceptLang)
+	if len(languages) == 0 {
+		return "zh-CN"
+	}
+	return languages[0]
+}
+
 // parseAcceptLanguage 解析 Accept-Language 头
 func parseAcceptLanguage(acceptLang string) []string {
 	if acceptLang == "" {

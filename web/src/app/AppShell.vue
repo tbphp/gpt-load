@@ -57,7 +57,9 @@ function isPrimaryActive(key: string): boolean {
 }
 
 function setLocale(value: string): void {
-  if (supportedLocales.includes(value as AppLocale)) appI18n.setLocale(value as AppLocale)
+  if (supportedLocales.includes(value as AppLocale)) {
+    void appI18n.setLocale(value as AppLocale)
+  }
 }
 
 function logout(): void {

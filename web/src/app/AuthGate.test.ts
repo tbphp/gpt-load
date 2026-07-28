@@ -16,7 +16,7 @@ import {
   createDirtyNavigationController,
   dirtyNavigationKey,
 } from '@/features/import/use-dirty-navigation'
-import { createAppI18n } from '@/i18n'
+import { createTestAppI18n as createAppI18n } from '@/test/i18n'
 
 import AuthGate from './AuthGate.vue'
 import { createAppRouter } from './router'

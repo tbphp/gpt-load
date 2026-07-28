@@ -28,6 +28,10 @@ type keyMutationCoordinator interface {
 	Do(uint, func())
 }
 
+type operationRecoveryRuntime interface {
+	RunOperationRecovery(context.Context)
+}
+
 // RequestLogCleaner is the control-owned scheduling view of request log
 // retention. The requestlog package owns all cleanup semantics.
 type RequestLogCleaner interface {
@@ -57,6 +61,7 @@ type Runtime struct {
 	mutations          keyMutationCoordinator
 	validator          validationSweep
 	requestLogCleaner  RequestLogCleaner
+	operationRecovery  operationRecoveryRuntime
 	autoWeightInterval time.Duration
 	validationInterval time.Duration
 	validationJitter   func() time.Duration
@@ -72,12 +77,14 @@ func NewRuntime(
 	encryptionService encryption.Service,
 	dialects dialect.Set,
 	requestLogCleaner RequestLogCleaner,
+	operationRecovery *Service,
 ) *Runtime {
 	runtime := &Runtime{
 		registry:           registry,
 		stats:              stats,
 		mutations:          mutations,
 		requestLogCleaner:  requestLogCleaner,
+		operationRecovery:  operationRecovery,
 		autoWeightInterval: autoWeightInterval,
 		validationInterval: validationInterval,
 		validationJitter: func() time.Duration {
@@ -119,6 +126,13 @@ func (runtime *Runtime) Run(ctx context.Context) {
 		go func() {
 			defer wait.Done()
 			runtime.runRetention(ctx, retentionTicker)
+		}()
+	}
+	if runtime.operationRecovery != nil {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			runtime.operationRecovery.RunOperationRecovery(ctx)
 		}()
 	}
 	wait.Wait()

@@ -14,6 +14,7 @@ export default defineConfig({
   build: {
     outDir: '../internal/webui/dist',
     emptyOutDir: true,
+    manifest: true,
   },
   test: {
     environment: 'happy-dom',
@@ -21,7 +22,7 @@ export default defineConfig({
     setupFiles: ['./src/test/setup.ts'],
     exclude: [...configDefaults.exclude, 'e2e/**/*.spec.ts'],
     css: {
-      include: [/base\.css/],
+      include: [/(base|tokens)\.css/],
     },
   },
 })

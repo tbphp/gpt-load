@@ -3,10 +3,9 @@ import { KeyRound, Terminal, TriangleAlert } from 'lucide-vue-next'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import type { AccessKeyDto } from '@/api/control/types'
+import type { AccessKeyOptionDto } from '@/api/control/types'
 import AppSelect from '@/components/ui/AppSelect.vue'
 import CopyButton from '@/components/ui/CopyButton.vue'
-import SecretValue from '@/components/ui/SecretValue.vue'
 import SurfaceCard from '@/components/ui/SurfaceCard.vue'
 
 import {
@@ -17,7 +16,7 @@ import {
 
 const props = withDefaults(
   defineProps<{
-    keys: AccessKeyDto[]
+    keys: AccessKeyOptionDto[]
     modelIds: string[]
     origin?: string
   }>(),
@@ -89,17 +88,10 @@ const snippet = computed(() => buildChatCompletionsSnippet(props.origin, model.v
           @update:model-value="selectedId = Number($event)"
         />
         <div class="connection-card__value">
-          <SecretValue
-            :value="selectedKey.key"
-            :reveal-label="t('common.reveal')"
-            :conceal-label="t('common.conceal')"
-          />
-          <CopyButton
-            :value="selectedKey.key"
-            :label="t('home.copyAccessKey')"
-            :success-label="t('common.copied')"
-            :failure-label="t('common.copyFailed')"
-          />
+          <span>{{ selectedKey.name }}</span>
+          <RouterLink class="text-link" to="/access-keys">
+            {{ t('home.manageAccessKeys') }}
+          </RouterLink>
         </div>
       </template>
       <div v-else class="connection-card__empty">

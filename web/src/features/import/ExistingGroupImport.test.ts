@@ -4,6 +4,7 @@ import { flushPromises } from '@vue/test-utils'
 import type { ApiClient, ApiRequestOptions } from '@/api/client'
 import { ApiError } from '@/api/errors'
 import { controlQueryKeys } from '@/app/query-keys'
+import { createImportOperationOwner } from '@/features/import/import-operation-owner'
 import type { ImportRecoveryService } from '@/features/import/import-recovery'
 import type { ExistingGroupImportDraft } from '@/features/import/model-draft'
 import { mountApp } from '@/test/mount-app'
@@ -56,16 +57,18 @@ async function mountExisting(
 ) {
   const client = queryClient()
   const importRecovery = recovery()
+  const operationOwner = createImportOperationOwner()
   const mounted = await mountApp(ExistingGroupImport, {
     api: { request },
     queryClient: client,
     path,
     locale: 'en-US',
     recovery: importRecovery,
+    operationOwner,
     mounting: { props: { initialDraft } },
   })
   await flushPromises()
-  return { ...mounted, importRecovery, queryClient: client }
+  return { ...mounted, importRecovery, operationOwner, queryClient: client }
 }
 
 describe('ExistingGroupImport', () => {
@@ -79,7 +82,7 @@ describe('ExistingGroupImport', () => {
       throw new Error(`unexpected request: ${path}`)
     })
     const request = requestMock as ApiClient['request']
-    const { importRecovery, queryClient, router, wrapper } = await mountExisting(
+    const { importRecovery, operationOwner, queryClient, router, wrapper } = await mountExisting(
       '/import?mode=existing&group_id=7',
       request,
     )
@@ -103,6 +106,11 @@ describe('ExistingGroupImport', () => {
 
     expect(requestMock).toHaveBeenCalledWith('/api/groups/7/keys/import', {
       method: 'POST',
+      headers: {
+        'Idempotency-Key': expect.stringMatching(
+          /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+        ),
+      },
       json: { keys: ' one\n\none\nsk-gl-warning ' },
       signal: expect.any(AbortSignal),
     })
@@ -124,6 +132,7 @@ describe('ExistingGroupImport', () => {
     ])
     expect(invalidate).not.toHaveBeenCalledWith({ queryKey: controlQueryKeys.all })
     expect(importRecovery.clear).toHaveBeenCalledOnce()
+    expect(operationOwner.importKeys.operation.value).toBeNull()
     expect(router.currentRoute.value.fullPath).toBe('/import?mode=existing&group_id=7')
   })
 
@@ -190,7 +199,7 @@ describe('ExistingGroupImport', () => {
     expect((selector.element as HTMLSelectElement).value).toBe('8')
   })
 
-  it('does not apply a late import result after the route target changes', async () => {
+  it('keeps the original operation target authoritative when the route changes', async () => {
     let settle!: (value: { group_id: number; keys_added: number; keys_duplicated: number }) => void
     const late = new Promise<{ group_id: number; keys_added: number; keys_duplicated: number }>(
       (resolve) => {
@@ -225,9 +234,10 @@ describe('ExistingGroupImport', () => {
     settle({ group_id: 8, keys_added: 1, keys_duplicated: 0 })
     await flushPromises()
 
-    expect(wrapper.find('[data-test="existing-result"]').exists()).toBe(false)
-    expect(invalidate).not.toHaveBeenCalled()
-    expect(importRecovery.clear).not.toHaveBeenCalled()
+    expect(wrapper.find('[data-test="existing-result"]').exists()).toBe(true)
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: controlQueryKeys.groups.keys(8) })
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: controlQueryKeys.groups.detail(8) })
+    expect(importRecovery.clear).toHaveBeenCalledOnce()
     vi.unstubAllGlobals()
     wrapper.unmount()
   })
@@ -260,6 +270,38 @@ describe('ExistingGroupImport', () => {
     ).not.toContain(canary)
     expect(queryClient.getMutationCache().getAll()).toHaveLength(0)
     expect(wrapper.text()).not.toContain(canary)
-    expect(wrapper.text()).toContain('Unable to import keys')
+    expect(wrapper.get('[data-test="import-operation-notice"]').text()).toContain(
+      'could not be confirmed',
+    )
+    expect(wrapper.text()).not.toContain('Unable to import keys')
+  })
+
+  it('renders only the compacted resource identity and offers no resubmit action', async () => {
+    const requestMock = vi.fn(async (path: string) => {
+      if (path === '/api/groups') return groups
+      if (path === '/api/groups/7/keys/import') {
+        throw new ApiError(410, 'IDEMPOTENCY_RESULT_EXPIRED', 'expired', {
+          operation_id: 'server-operation-secret',
+          operation_kind: 'group_key_import',
+          resource_identity: 'group:7:key-import:11',
+          completed_at: '2026-07-20T00:00:00Z',
+        })
+      }
+      throw new Error(`unexpected request: ${path}`)
+    })
+    const { wrapper } = await mountExisting(
+      '/import?mode=existing&group_id=7',
+      requestMock as ApiClient['request'],
+    )
+    await wrapper.get('[data-test="keys"]').setValue('raw-key')
+    await wrapper.get('[data-test="existing-review"]').trigger('click')
+    await wrapper.get('[data-test="existing-submit"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-test="import-operation-resource"]').text()).toBe(
+      'group:7:key-import:11',
+    )
+    expect(wrapper.find('[data-test="import-operation-retry"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('server-operation-secret')
   })
 })

@@ -64,7 +64,7 @@ const attrs = useAttrs()
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-border-control);
   border-radius: var(--radius-control);
   background: var(--color-surface);
   color: var(--color-text);

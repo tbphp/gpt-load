@@ -1,7 +1,7 @@
 import { mount } from '@vue/test-utils'
 import { defineComponent, nextTick, ref } from 'vue'
 
-import { createAppI18n } from '@/i18n'
+import { createTestAppI18n as createAppI18n } from '@/test/i18n'
 
 import HeaderRulesEditor from './HeaderRulesEditor.vue'
 

@@ -82,9 +82,10 @@ async function mountView(request: ApiClient['request']) {
 describe('ModelPricesView', () => {
   it('owns the protected nested route and renders builtin and override tables without merging null and zero', async () => {
     const router = createAppRouter({ hasCredential: () => true }, createMemoryHistory())
-    expect(router.resolve('/settings/model-prices').matched.at(-1)?.components?.default).toBe(
-      ModelPricesView,
-    )
+    const routeComponent = router.resolve('/settings/model-prices').matched.at(-1)
+      ?.components?.default
+    expect(typeof routeComponent).toBe('function')
+    expect(await (routeComponent as () => Promise<unknown>)()).toBe(ModelPricesView)
 
     const request = vi.fn(async (path: string, options?: ApiRequestOptions) => {
       if (path === '/api/model-prices' && options?.method === 'GET') return priceReport()

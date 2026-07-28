@@ -2,7 +2,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createMemoryHistory } from 'vue-router'
 
 import { createAppRouter } from '@/app/router'
-import { createAppI18n } from '@/i18n'
+import { createTestAppI18n as createAppI18n } from '@/test/i18n'
 
 import GroupTabs from './GroupTabs.vue'
 

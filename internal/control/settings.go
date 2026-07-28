@@ -15,6 +15,7 @@ import (
 
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/state"
+	stateloader "gpt-load/internal/state/loader"
 	"gpt-load/internal/storage/models"
 )
 
@@ -37,6 +38,13 @@ type SettingsResponse struct {
 	Revision  uint64                 `json:"revision"`
 	Values    SettingsValuesResponse `json:"values"`
 	Overrides []string               `json:"overrides"`
+}
+
+func (response SettingsResponse) DTO() SettingsDTO {
+	return canonicalizeSettingsDTO(SettingsDTO{
+		Values:    response.Values,
+		Overrides: response.Overrides,
+	})
 }
 
 type SettingsUpdateRequest struct {
@@ -87,8 +95,16 @@ func (s *Service) GetSettings(ctx context.Context) (SettingsResponse, error) {
 	if snapshot == nil {
 		return SettingsResponse{}, app_errors.ErrInternalServer
 	}
+	return s.getSettingsWithSnapshot(ctx, s.db, snapshot)
+}
+
+func (s *Service) getSettingsWithSnapshot(
+	ctx context.Context,
+	db *gorm.DB,
+	snapshot *state.ConfigSnapshot,
+) (SettingsResponse, error) {
 	var rows []models.SystemSetting
-	if err := s.db.WithContext(ctx).Order("key ASC").Find(&rows).Error; err != nil {
+	if err := db.WithContext(ctx).Order("key ASC").Find(&rows).Error; err != nil {
 		return SettingsResponse{}, app_errors.ParseDBError(err)
 	}
 	return mapSettingsResponse(snapshot, rows), nil
@@ -104,31 +120,118 @@ func (s *Service) UpdateSettings(
 	}
 
 	_, err = s.writeConfig(ctx, func(tx *gorm.DB) error {
-		for _, update := range updates {
-			if update.value == nil {
-				if err := tx.Where("key = ?", update.key).
-					Delete(&models.SystemSetting{}).Error; err != nil {
-					return app_errors.ParseDBError(err)
-				}
-				continue
-			}
-			if err := tx.Clauses(clause.OnConflict{
-				Columns:   []clause.Column{{Name: "key"}},
-				DoUpdates: clause.AssignmentColumns([]string{"value", "updated_at"}),
-			}).Create(&models.SystemSetting{
-				Key:       update.key,
-				Value:     *update.value,
-				UpdatedAt: s.now().UTC(),
-			}).Error; err != nil {
-				return app_errors.ParseDBError(err)
-			}
-		}
-		return nil
+		return s.applySettingUpdates(tx, updates)
 	}, nil)
 	if err != nil {
 		return SettingsResponse{}, err
 	}
 	return s.GetSettings(ctx)
+}
+
+func (s *Service) UpdateSettingsIfMatch(
+	ctx context.Context,
+	request SettingsUpdateRequest,
+	expectedETag string,
+	message string,
+) (settingsWireRepresentation, error) {
+	updates, err := normalizeSettingUpdates(request)
+	if err != nil {
+		return settingsWireRepresentation{}, err
+	}
+
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	if blocked, err := s.recoverPendingOperationsLocked(ctx, 0); err != nil {
+		return settingsWireRepresentation{}, s.recoveryPendingError(*blocked)
+	}
+
+	var (
+		input  state.CompileInput
+		result settingsWireRepresentation
+	)
+	err = s.withControlTransaction(ctx, func(tx *gorm.DB) error {
+		currentInput, err := stateloader.BuildCompileInput(ctx, tx)
+		if err != nil {
+			return err
+		}
+		currentSnapshot, err := state.Compile(currentInput)
+		if err != nil {
+			return err
+		}
+		currentSettings, err := s.getSettingsWithSnapshot(ctx, tx, currentSnapshot)
+		if err != nil {
+			return err
+		}
+		currentRepresentation, err := newSettingsWireRepresentation(
+			message,
+			currentSettings.DTO(),
+		)
+		if err != nil {
+			return err
+		}
+		if currentRepresentation.ETag != expectedETag {
+			return app_errors.NewAPIErrorWithData(
+				app_errors.ErrSettingsVersionConflict,
+				SettingsConflictData{
+					Settings:     currentRepresentation.Settings,
+					SettingsETag: currentRepresentation.ETag,
+				},
+			)
+		}
+
+		if err := s.applySettingUpdates(tx, updates); err != nil {
+			return err
+		}
+		input, err = stateloader.BuildCompileInput(ctx, tx)
+		if err != nil {
+			return err
+		}
+		compiled, err := state.Compile(input)
+		if err != nil {
+			return err
+		}
+		updatedSettings, err := s.getSettingsWithSnapshot(ctx, tx, compiled)
+		if err != nil {
+			return err
+		}
+		result, err = newSettingsWireRepresentation(message, updatedSettings.DTO())
+		return err
+	})
+	if err != nil {
+		return settingsWireRepresentation{}, err
+	}
+	if _, err := s.manager.Publish(input); err != nil {
+		return settingsWireRepresentation{}, newControlOperationError(
+			stagePublishCommittedSnapshot,
+		)
+	}
+	return result, nil
+}
+
+func (s *Service) applySettingUpdates(
+	tx *gorm.DB,
+	updates []persistedSettingUpdate,
+) error {
+	for _, update := range updates {
+		if update.value == nil {
+			if err := tx.Where("key = ?", update.key).
+				Delete(&models.SystemSetting{}).Error; err != nil {
+				return app_errors.ParseDBError(err)
+			}
+			continue
+		}
+		if err := tx.Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "key"}},
+			DoUpdates: clause.AssignmentColumns([]string{"value", "updated_at"}),
+		}).Create(&models.SystemSetting{
+			Key:       update.key,
+			Value:     *update.value,
+			UpdatedAt: s.now().UTC(),
+		}).Error; err != nil {
+			return app_errors.ParseDBError(err)
+		}
+	}
+	return nil
 }
 
 func normalizeSettingUpdates(request SettingsUpdateRequest) ([]persistedSettingUpdate, error) {

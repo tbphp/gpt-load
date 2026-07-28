@@ -172,6 +172,38 @@ func (cleaner *controlledRequestLogCleaner) Sweep(ctx context.Context, now time.
 	cleaner.returned <- struct{}{}
 }
 
+type controlledOperationRecovery struct {
+	started  chan struct{}
+	returned chan struct{}
+}
+
+func (recovery *controlledOperationRecovery) RunOperationRecovery(ctx context.Context) {
+	close(recovery.started)
+	<-ctx.Done()
+	close(recovery.returned)
+}
+
+func TestRuntimeRunsOperationRecoveryUntilCancellation(t *testing.T) {
+	recovery := &controlledOperationRecovery{
+		started:  make(chan struct{}),
+		returned: make(chan struct{}),
+	}
+	runtime, _, _, created := newRuntimeHarness(
+		newFakeAutoWeightRegistry(1),
+		health.NewStatsStore(),
+		newFakeValidationSweep(false),
+		time.Now,
+	)
+	runtime.operationRecovery = recovery
+
+	cancel, done := startRuntime(t, runtime)
+	awaitTickers(t, created)
+	awaitSignal(t, recovery.started)
+	cancel()
+	awaitSignal(t, recovery.returned)
+	awaitSignal(t, done)
+}
+
 func TestRuntimeSweepsRequestLogsImmediatelyAndHourlyWithoutOverlap(t *testing.T) {
 	base := time.Date(2026, time.July, 24, 12, 0, 0, 0, time.UTC)
 	clock := &fakeRuntimeClock{now: base}

@@ -629,7 +629,7 @@ async function navigate(filters: UsageFilters): Promise<void> {
 .usage-filter-form select {
   width: 100%;
   min-height: 44px;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-border-control);
   border-radius: var(--radius-control);
   background: var(--color-surface);
   color: var(--color-text);

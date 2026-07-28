@@ -9,6 +9,7 @@ import type { AuthSessionPayload } from './api/types'
 import { createAppQueryClient } from './app/query'
 import { createAppRouter } from './app/router'
 import { handleGlobalUnauthorized } from './app/unauthorized'
+import { clearEphemeralState } from './app/ephemeral-state'
 import { authSessionKey, createAuthSession, type AuthSession } from './features/auth/auth-session'
 import { createImportRecoveryService, importRecoveryKey } from './features/import/import-recovery'
 import {
@@ -21,81 +22,87 @@ import { appI18nKey } from './i18n/context'
 import './styles/tokens.css'
 import './styles/base.css'
 
-const queryClient = createAppQueryClient()
-const getBrowserStorage = (name: 'localStorage' | 'sessionStorage') => {
-  try {
-    return window[name]
-  } catch {
-    return undefined
-  }
-}
-const appI18n = createAppI18n(getBrowserStorage('localStorage'), navigator.language)
-const importRecovery = createImportRecoveryService({
-  storage: getBrowserStorage('sessionStorage'),
-  now: Date.now,
-  setTimer: window.setTimeout.bind(window),
-  clearTimer: window.clearTimeout.bind(window),
-})
-const dirtyNavigation = createDirtyNavigationController()
-importRecovery.sweep()
-const themeController = createBrowserThemeController(
-  window,
-  document.documentElement,
-  getBrowserStorage('localStorage'),
-)
-window.addEventListener(
-  'pagehide',
-  () => {
-    themeController.dispose()
-    importRecovery.dispose()
-  },
-  { once: true },
-)
-
-let authSession: AuthSession | undefined = undefined
-let router: Router | undefined = undefined
-
-const apiClient = createApiClient({
-  fetch: window.fetch.bind(window),
-  getAuthKey: () => authSession?.getAuthKey() ?? '',
-  getLocale: () => appI18n.getLocale(),
-  onUnauthorized: () => {
-    const redirect =
-      router?.currentRoute.value.meta.requiresAuth === true
-        ? router.currentRoute.value.fullPath
-        : '/'
-    if (authSession && router) {
-      void handleGlobalUnauthorized({
-        recovery: importRecovery,
-        dirtyNavigation,
-        session: authSession,
-        router,
-        redirect,
-      })
+async function bootstrap(): Promise<void> {
+  const queryClient = createAppQueryClient()
+  const getBrowserStorage = (name: 'localStorage' | 'sessionStorage') => {
+    try {
+      return window[name]
+    } catch {
+      return undefined
     }
-  },
-})
+  }
+  const appI18n = await createAppI18n(getBrowserStorage('localStorage'), navigator.language)
+  const importRecovery = createImportRecoveryService({
+    storage: getBrowserStorage('sessionStorage'),
+    now: Date.now,
+    setTimer: window.setTimeout.bind(window),
+    clearTimer: window.clearTimeout.bind(window),
+  })
+  const dirtyNavigation = createDirtyNavigationController()
+  importRecovery.sweep()
+  const themeController = createBrowserThemeController(
+    window,
+    document.documentElement,
+    getBrowserStorage('localStorage'),
+  )
+  window.addEventListener(
+    'pagehide',
+    () => {
+      themeController.dispose()
+      importRecovery.dispose()
+      clearEphemeralState()
+    },
+    { once: true },
+  )
 
-authSession = createAuthSession({
-  storage: getBrowserStorage('sessionStorage'),
-  queryClient,
-  validate: (key, globalUnauthorized, signal) =>
-    apiClient.request<AuthSessionPayload>('/api/auth/session', {
-      authKey: key,
-      handleUnauthorized: globalUnauthorized,
-      signal,
-    }),
-})
-router = createAppRouter(authSession)
+  let authSession: AuthSession | undefined = undefined
+  let router: Router | undefined = undefined
 
-createApp(App)
-  .provide(authSessionKey, authSession)
-  .provide(importRecoveryKey, importRecovery)
-  .provide(dirtyNavigationKey, dirtyNavigation)
-  .provide(apiClientKey, apiClient)
-  .provide(appI18nKey, appI18n)
-  .provide(themeControllerKey, themeController)
-  .use(appI18n.plugin)
-  .use(VueQueryPlugin, { queryClient })
-  .use(router)
-  .mount('#app')
+  const apiClient = createApiClient({
+    fetch: window.fetch.bind(window),
+    getAuthKey: () => authSession?.getAuthKey() ?? '',
+    getLocale: () => appI18n.getLocale(),
+    onUnauthorized: () => {
+      const redirect =
+        router?.currentRoute.value.meta.requiresAuth === true
+          ? router.currentRoute.value.fullPath
+          : '/'
+      if (authSession && router) {
+        void handleGlobalUnauthorized({
+          recovery: importRecovery,
+          dirtyNavigation,
+          session: authSession,
+          router,
+          redirect,
+        })
+      }
+    },
+  })
+
+  authSession = createAuthSession({
+    storage: getBrowserStorage('sessionStorage'),
+    queryClient,
+    onClear: clearEphemeralState,
+    validate: (key, globalUnauthorized, signal) =>
+      apiClient.request<AuthSessionPayload>('/api/auth/session', {
+        authKey: key,
+        handleUnauthorized: globalUnauthorized,
+        signal,
+      }),
+  })
+  router = createAppRouter(authSession, undefined, appI18n)
+
+  createApp(App)
+    .provide(authSessionKey, authSession)
+    .provide(importRecoveryKey, importRecovery)
+    .provide(dirtyNavigationKey, dirtyNavigation)
+    .provide(apiClientKey, apiClient)
+    .provide(appI18nKey, appI18n)
+    .provide(themeControllerKey, themeController)
+    .use(appI18n.plugin)
+    .use(VueQueryPlugin, { queryClient })
+    .use(router)
+    .mount('#app')
+}
+
+void bootstrap()

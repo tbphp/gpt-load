@@ -65,6 +65,41 @@ func TestManagerPublishFailureKeepsCurrentSnapshot(t *testing.T) {
 	}
 }
 
+func TestManagerMatchesCompiledInputWithoutChangingRevision(t *testing.T) {
+	manager := NewManager()
+	input := managerCompileInput(1)
+	published, err := manager.Publish(input)
+	if err != nil {
+		t.Fatalf("Publish() error = %v", err)
+	}
+
+	matches, err := manager.Matches(input)
+	if err != nil {
+		t.Fatalf("Matches(same) error = %v", err)
+	}
+	if !matches {
+		t.Fatal("Matches(same) = false, want true")
+	}
+	if current := manager.Current(); current != published || current.Revision != 1 {
+		t.Fatalf("Matches() changed current snapshot: %#v", current)
+	}
+
+	changed := managerCompileInput(2)
+	matches, err = manager.Matches(changed)
+	if err != nil {
+		t.Fatalf("Matches(changed) error = %v", err)
+	}
+	if matches {
+		t.Fatal("Matches(changed) = true, want false")
+	}
+
+	invalid := managerCompileInput(1)
+	invalid.Groups[0].Protocols = []protocol.Protocol{"reserved"}
+	if _, err := manager.Matches(invalid); err == nil {
+		t.Fatal("Matches(invalid) error = nil, want compile rejection")
+	}
+}
+
 func TestManagerConcurrentPublishAndCurrent(t *testing.T) {
 	const goroutines = 32
 

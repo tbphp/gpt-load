@@ -28,7 +28,7 @@ withDefaults(
   height: 44px;
   align-items: center;
   justify-content: center;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-border-control);
   border-radius: var(--radius-control);
   background: var(--color-surface);
   color: var(--color-text-muted);

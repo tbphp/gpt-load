@@ -1,6 +1,7 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './fixtures'
 
-const credentialCanary = 'e2e-auth-canary'
+const credentialCanary = process.env.GPT_LOAD_E2E_AUTH_KEY
+if (!credentialCanary) throw new Error('E2E harness environment is incomplete')
 
 test('Reka overlays work under production CSP', async ({ page }, testInfo) => {
   expect(testInfo.project.use).toMatchObject({

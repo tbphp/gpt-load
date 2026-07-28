@@ -7,7 +7,7 @@ import type {
   RequestLogItemDto,
   RequestLogPageDto,
 } from '@/api/control/request-logs'
-import type { AccessKeyDto, GroupSummary } from '@/api/control/types'
+import type { AccessKeyOptionDto, GroupSummary } from '@/api/control/types'
 import { controlQueryKeys } from '@/app/query-keys'
 import { mountApp } from '@/test/mount-app'
 
@@ -87,7 +87,9 @@ class LogsApi implements ApiClient {
     ],
     private readonly options: {
       groups?: GroupSummary[] | Promise<GroupSummary[]>
-      accessKeys?: AccessKeyDto[] | Promise<AccessKeyDto[]>
+      accessKeys?:
+        | Array<AccessKeyOptionDto & Partial<{ key: string }>>
+        | Promise<Array<AccessKeyOptionDto & Partial<{ key: string }>>>
       groupsError?: Error
       accessKeysError?: Error
     } = {},
@@ -104,7 +106,7 @@ class LogsApi implements ApiClient {
       if (this.options.groupsError) return Promise.reject(this.options.groupsError)
       return Promise.resolve((this.options.groups ?? []) as T)
     }
-    if (path === '/api/access-keys') {
+    if (path === '/api/access-keys/options') {
       if (this.options.accessKeysError) return Promise.reject(this.options.accessKeysError)
       return Promise.resolve((this.options.accessKeys ?? []) as T)
     }
@@ -541,8 +543,6 @@ describe('LogsTab', () => {
           name: 'client',
           key: secret,
           status: 'active',
-          filters: { groups: [], protocols: [], models: [] },
-          rpm_limit: 0,
         },
       ],
     })
@@ -630,13 +630,11 @@ describe('LogsTab', () => {
       enabled: true,
       key_count: 1,
     }
-    const accessKey: AccessKeyDto = {
+    const accessKey: AccessKeyOptionDto & { key: string } = {
       id: 12,
       name: 'client',
       key: 'sk-gl-filter-secret-canary',
       status: 'active',
-      filters: { groups: [], protocols: [], models: [] },
-      rpm_limit: 0,
     }
     const api = new LogsApi(
       [

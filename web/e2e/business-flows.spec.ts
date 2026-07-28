@@ -1,12 +1,14 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './fixtures'
 
-const authKey = 'e2e-auth-canary'
+const authKey = process.env.GPT_LOAD_E2E_AUTH_KEY
+const upstreamURL = process.env.GPT_LOAD_E2E_UPSTREAM_URL
+if (!authKey || !upstreamURL) throw new Error('E2E harness environment is incomplete')
 const firstUpstreamKey = 'e2e-upstream-key-one'
 const secondUpstreamKey = 'e2e-upstream-key-one-secondary'
 const groupName = 'E2E OpenAI Group'
 const accessKeyName =
   'E2EAccessKeyWithAnIntentionallyLongUnbrokenNameForMobileViewportOverflowRegressionCoverage'
-const upstreamURL = 'http://127.0.0.1:3108'
+const upstreamOrigin = new URL(upstreamURL).origin
 const discoveredModel = 'e2e-model-one'
 const secondDiscoveredModel = 'e2e-model-two'
 const rpmLimit = '37'
@@ -19,7 +21,7 @@ test('critical management journey works through the embedded binary', async ({ p
   const browserUpstreamRequests: string[] = []
   page.on('request', (request) => {
     const url = new URL(request.url())
-    if (url.hostname === '127.0.0.1' && url.port === '3108') {
+    if (url.origin === upstreamOrigin) {
       browserUpstreamRequests.push(`${request.method()} ${url.pathname}`)
     }
   })
@@ -78,11 +80,14 @@ test('critical management journey works through the embedded binary', async ({ p
 
     const createDrawer = page.getByRole('dialog', { name: 'Create AccessKey' })
     await createDrawer.getByLabel('Name', { exact: true }).fill(accessKeyName)
+    await createDrawer.locator('[data-test="access-key-groups-mode"]').selectOption('restricted')
     await createDrawer.getByRole('group', { name: 'Group filters' }).getByLabel(groupName).check()
+    await createDrawer.locator('[data-test="access-key-protocols-mode"]').selectOption('restricted')
     await createDrawer
       .getByRole('group', { name: 'Protocol filters' })
       .getByLabel('OpenAI', { exact: true })
       .check()
+    await createDrawer.locator('[data-test="access-key-models-mode"]').selectOption('restricted')
     await createDrawer.getByPlaceholder('Enter a model ID or alias').fill(discoveredModel)
     await createDrawer.getByRole('button', { name: 'Add model' }).click()
     await createDrawer.getByLabel('Requests per minute').fill(rpmLimit)

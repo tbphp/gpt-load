@@ -19,6 +19,7 @@ import (
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/state"
 	stateloader "gpt-load/internal/state/loader"
+	"gpt-load/internal/storage/models"
 )
 
 const (
@@ -27,19 +28,28 @@ const (
 )
 
 type Service struct {
-	db                    *gorm.DB
-	manager               *state.Manager
-	registry              *state.KeyRegistry
-	priceRuntime          *PriceRuntime
-	encryption            encryption.Service
-	dialects              dialect.Set
-	requestLogs           RequestLogReader
-	usageStats            UsageStatReader
-	stats                 *health.StatsStore
-	requestLogStats       RequestLogStatsReader
-	modelDiscoveryTimeout time.Duration
-	random                io.Reader
-	now                   func() time.Time
+	db                          *gorm.DB
+	manager                     *state.Manager
+	registry                    *state.KeyRegistry
+	priceRuntime                *PriceRuntime
+	encryption                  encryption.Service
+	dialects                    dialect.Set
+	requestLogs                 RequestLogReader
+	usageStats                  UsageStatReader
+	stats                       *health.StatsStore
+	requestLogStats             RequestLogStatsReader
+	modelDiscoveryTimeout       time.Duration
+	random                      io.Reader
+	operationRandom             io.Reader
+	now                         func() time.Time
+	publishSnapshot             func(state.CompileInput) (*state.ConfigSnapshot, error)
+	reconcileRegistryGroup      func(uint, []state.KeyEntry) (bool, error)
+	beforeAdvanceOperationStage func(
+		context.Context,
+		*models.ControlOperation,
+		operationStage,
+	) error
+	operationRecoveryWake chan struct{}
 	writeMu               sync.RWMutex
 }
 
@@ -55,15 +65,21 @@ func NewService(
 	stats *health.StatsStore,
 	requestLogStats RequestLogStatsReader,
 ) *Service {
-	return &Service{
+	service := &Service{
 		db: db, manager: manager, registry: registry,
 		priceRuntime: priceRuntime,
 		encryption:   encryptionService, dialects: dialects, requestLogs: requestLogs,
 		usageStats: usageStats,
 		stats:      stats, requestLogStats: requestLogStats,
 		modelDiscoveryTimeout: defaultModelDiscoveryTimeout,
-		random:                rand.Reader, now: time.Now,
+		random:                rand.Reader,
+		operationRandom:       rand.Reader,
+		now:                   time.Now,
+		operationRecoveryWake: make(chan struct{}, 1),
 	}
+	service.publishSnapshot = manager.Publish
+	service.reconcileRegistryGroup = registry.ReconcileGroup
+	return service
 }
 
 func (s *Service) writeConfig(
@@ -73,6 +89,9 @@ func (s *Service) writeConfig(
 ) (*state.ConfigSnapshot, error) {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
+	if blocked, err := s.recoverPendingOperationsLocked(ctx, 0); err != nil {
+		return nil, s.recoveryPendingError(*blocked)
+	}
 
 	var input state.CompileInput
 	err := s.withControlTransaction(ctx, func(tx *gorm.DB) error {
@@ -114,6 +133,9 @@ func (s *Service) writeKeyConfig(
 ) error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
+	if blocked, err := s.recoverPendingOperationsLocked(ctx, 0); err != nil {
+		return s.recoveryPendingError(*blocked)
+	}
 
 	if err := s.withControlTransaction(ctx, mutate); err != nil {
 		return err

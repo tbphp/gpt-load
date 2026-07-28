@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -55,13 +56,47 @@ type AccessKeyUpdateRequest struct {
 	RPMLimit OptionalRPMLimit       `json:"rpm_limit"`
 }
 
-type AccessKeyResponse struct {
-	ID       uint                  `json:"id"`
-	Name     string                `json:"name"`
-	Key      string                `json:"key"`
-	Status   state.AccessKeyStatus `json:"status"`
-	Filters  AccessKeyFilters      `json:"filters"`
-	RPMLimit int64                 `json:"rpm_limit"`
+type AccessKeyMetadata struct {
+	ID        uint                  `json:"id"`
+	Name      string                `json:"name"`
+	MaskedKey string                `json:"masked_key"`
+	Status    state.AccessKeyStatus `json:"status"`
+	Filters   AccessKeyFilters      `json:"filters"`
+	RPMLimit  int64                 `json:"rpm_limit"`
+	CreatedAt time.Time             `json:"created_at"`
+	UpdatedAt time.Time             `json:"updated_at"`
+}
+
+type AccessKeyCreateResult struct {
+	AccessKeyMetadata
+	Key      string `json:"key,omitempty"`
+	Replayed bool   `json:"replayed"`
+}
+
+// AccessKeyResponse is retained as the create-response compatibility name.
+type AccessKeyResponse = AccessKeyCreateResult
+
+type AccessKeyOption struct {
+	ID     uint                  `json:"id"`
+	Name   string                `json:"name"`
+	Status state.AccessKeyStatus `json:"status"`
+}
+
+type AccessKeyRevealResult struct {
+	ID         uint      `json:"id"`
+	Key        string    `json:"key"`
+	RevealedAt time.Time `json:"revealed_at"`
+}
+
+type accessKeyMetadataRow struct {
+	ID        uint
+	Name      string
+	KeySuffix string
+	Status    string
+	Filters   models.JSON
+	RPMLimit  int64
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 const accessKeyPrefix = "sk-gl-"
@@ -85,36 +120,37 @@ func (s *Service) newAccessKeyRow(
 		return models.AccessKey{}, "", fmt.Errorf("encrypt access key: %w", err)
 	}
 	return models.AccessKey{
-		Name:     name,
-		KeyValue: ciphertext,
-		KeyHash:  s.encryption.Hash(plaintext),
-		Status:   string(state.AccessKeyStatusActive),
-		Filters:  models.JSON(encodedFilters),
-		RPMLimit: rpmLimit,
+		Name:      name,
+		KeyValue:  ciphertext,
+		KeyHash:   s.encryption.Hash(plaintext),
+		KeySuffix: plaintext[len(plaintext)-4:],
+		Status:    string(state.AccessKeyStatusActive),
+		Filters:   models.JSON(encodedFilters),
+		RPMLimit:  rpmLimit,
 	}, plaintext, nil
 }
 
 func (s *Service) CreateAccessKey(
 	ctx context.Context,
 	request AccessKeyCreateRequest,
-) (AccessKeyResponse, error) {
+) (AccessKeyCreateResult, error) {
 	name, err := normalizeAccessKeyName(request.Name)
 	if err != nil {
-		return AccessKeyResponse{}, err
+		return AccessKeyCreateResult{}, err
 	}
 	filters, err := normalizeAccessKeyFilters(request.Filters)
 	if err != nil {
-		return AccessKeyResponse{}, err
+		return AccessKeyCreateResult{}, err
 	}
 	if err := validateAccessKeyProtocolsForCreate(filters.Protocols); err != nil {
-		return AccessKeyResponse{}, err
+		return AccessKeyCreateResult{}, err
 	}
 	rpmLimit, err := normalizeRPMLimit(request.RPMLimit, 0)
 	if err != nil {
-		return AccessKeyResponse{}, err
+		return AccessKeyCreateResult{}, err
 	}
 
-	var result AccessKeyResponse
+	var result AccessKeyCreateResult
 	_, err = s.writeConfig(ctx, func(tx *gorm.DB) error {
 		if err := validateFilterGroupReferences(tx, filters.Groups); err != nil {
 			return err
@@ -126,41 +162,46 @@ func (s *Service) CreateAccessKey(
 		if err := tx.Create(&row).Error; err != nil {
 			return app_errors.ParseDBError(err)
 		}
-		result = AccessKeyResponse{
-			ID: row.ID, Name: row.Name, Key: plaintext,
-			Status: state.AccessKeyStatusActive, Filters: filters, RPMLimit: row.RPMLimit,
+		metadata, err := mapAccessKeyMetadataRow(accessKeyMetadataRow{
+			ID: row.ID, Name: row.Name, KeySuffix: row.KeySuffix,
+			Status: row.Status, Filters: row.Filters, RPMLimit: row.RPMLimit,
+			CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
+		})
+		if err != nil {
+			return err
+		}
+		result = AccessKeyCreateResult{
+			AccessKeyMetadata: metadata,
+			Key:               plaintext,
 		}
 		return nil
 	}, nil)
 	if err != nil {
-		return AccessKeyResponse{}, err
+		return AccessKeyCreateResult{}, err
 	}
 	return result, nil
 }
 
-func (s *Service) ListAccessKeys(ctx context.Context) ([]AccessKeyResponse, error) {
-	var rows []models.AccessKey
-	if err := s.db.WithContext(ctx).Order("id ASC").Find(&rows).Error; err != nil {
+func (s *Service) ListAccessKeys(ctx context.Context) ([]AccessKeyMetadata, error) {
+	var rows []accessKeyMetadataRow
+	if err := s.db.WithContext(ctx).
+		Model(&models.AccessKey{}).
+		Select(
+			"id", "name", "key_suffix", "status", "filters", "rpm_limit",
+			"created_at", "updated_at",
+		).
+		Order("id ASC").
+		Scan(&rows).Error; err != nil {
 		return nil, app_errors.ParseDBError(err)
 	}
 
-	result := make([]AccessKeyResponse, 0, len(rows))
+	result := make([]AccessKeyMetadata, 0, len(rows))
 	for _, row := range rows {
-		status := state.AccessKeyStatus(row.Status)
-		if status != state.AccessKeyStatusActive && status != state.AccessKeyStatusDisabled {
-			return nil, fmt.Errorf("access key %d has invalid status", row.ID)
-		}
-		filters, err := decodeStoredAccessKeyFilters(row.Filters)
+		metadata, err := mapAccessKeyMetadataRow(row)
 		if err != nil {
-			return nil, fmt.Errorf("decode access key %d filters: %w", row.ID, err)
+			return nil, err
 		}
-		plaintext, err := s.encryption.Decrypt(row.KeyValue)
-		if err != nil {
-			return nil, fmt.Errorf("decrypt access key %d: %w", row.ID, err)
-		}
-		result = append(result, AccessKeyResponse{
-			ID: row.ID, Name: row.Name, Key: plaintext, Status: status, Filters: filters, RPMLimit: row.RPMLimit,
-		})
+		result = append(result, metadata)
 	}
 	return result, nil
 }
@@ -169,51 +210,60 @@ func (s *Service) UpdateAccessKey(
 	ctx context.Context,
 	id uint,
 	request AccessKeyUpdateRequest,
-) (AccessKeyResponse, error) {
+) (AccessKeyMetadata, error) {
 	if id == 0 || (request.Name == nil && request.Status == nil && request.Filters == nil && !request.RPMLimit.Set) {
-		return AccessKeyResponse{}, app_errors.ErrBadRequest
+		return AccessKeyMetadata{}, app_errors.ErrBadRequest
 	}
 	if _, err := normalizeRPMLimit(request.RPMLimit, 0); err != nil {
-		return AccessKeyResponse{}, err
+		return AccessKeyMetadata{}, err
 	}
 
 	var name *string
 	if request.Name != nil {
 		normalized, err := normalizeAccessKeyName(*request.Name)
 		if err != nil {
-			return AccessKeyResponse{}, err
+			return AccessKeyMetadata{}, err
 		}
 		name = &normalized
 	}
 	if request.Status != nil &&
 		*request.Status != state.AccessKeyStatusActive &&
 		*request.Status != state.AccessKeyStatusDisabled {
-		return AccessKeyResponse{}, app_errors.ErrValidation
+		return AccessKeyMetadata{}, app_errors.ErrValidation
 	}
 	var filters *AccessKeyFilters
 	var encodedFilters []byte
 	if request.Filters != nil {
 		normalized, err := normalizeAccessKeyFilters(request.Filters)
 		if err != nil {
-			return AccessKeyResponse{}, err
+			return AccessKeyMetadata{}, err
 		}
 		encoded, err := json.Marshal(normalized)
 		if err != nil {
-			return AccessKeyResponse{}, fmt.Errorf("encode access key filters: %w", err)
+			return AccessKeyMetadata{}, fmt.Errorf("encode access key filters: %w", err)
 		}
 		filters = &normalized
 		encodedFilters = encoded
 	}
 
-	var result AccessKeyResponse
+	var result AccessKeyMetadata
 	_, err := s.writeConfig(ctx, func(tx *gorm.DB) error {
-		var row models.AccessKey
-		if err := tx.First(&row, id).Error; err != nil {
+		var row accessKeyMetadataRow
+		if err := tx.Model(&models.AccessKey{}).
+			Select(
+				"id", "name", "key_suffix", "status", "filters", "rpm_limit",
+				"created_at", "updated_at",
+			).
+			Where("id = ?", id).
+			Take(&row).Error; err != nil {
 			return app_errors.ParseDBError(err)
 		}
-		plaintext, err := s.encryption.Decrypt(row.KeyValue)
-		if err != nil {
-			return fmt.Errorf("decrypt access key %d: %w", row.ID, err)
+		if !validAccessKeySuffix(row.KeySuffix) {
+			return fmt.Errorf(
+				"access key %d has invalid persisted suffix: %w",
+				row.ID,
+				app_errors.ErrInternalServer,
+			)
 		}
 		currentFilters, err := decodeStoredAccessKeyFilters(row.Filters)
 		if err != nil {
@@ -221,6 +271,13 @@ func (s *Service) UpdateAccessKey(
 		}
 		if filters != nil {
 			if err := validateAccessKeyProtocolUpdate(currentFilters.Protocols, filters.Protocols); err != nil {
+				return err
+			}
+			if err := validateAccessKeyGroupUpdate(
+				tx,
+				currentFilters.Groups,
+				filters.Groups,
+			); err != nil {
 				return err
 			}
 		}
@@ -239,9 +296,6 @@ func (s *Service) UpdateAccessKey(
 			updates["status"] = string(status)
 		}
 		if filters != nil {
-			if err := validateFilterGroupReferences(tx, filters.Groups); err != nil {
-				return err
-			}
 			currentFilters = *filters
 			updates["filters"] = models.JSON(encodedFilters)
 		}
@@ -249,18 +303,139 @@ func (s *Service) UpdateAccessKey(
 			row.RPMLimit = request.RPMLimit.Value
 			updates["rpm_limit"] = row.RPMLimit
 		}
-		if err := tx.Model(&row).Updates(updates).Error; err != nil {
+		if err := tx.Model(&models.AccessKey{}).
+			Where("id = ?", row.ID).
+			Updates(updates).Error; err != nil {
 			return app_errors.ParseDBError(err)
 		}
-		result = AccessKeyResponse{
-			ID: row.ID, Name: row.Name, Key: plaintext, Status: status, Filters: currentFilters, RPMLimit: row.RPMLimit,
+		if err := tx.Model(&models.AccessKey{}).
+			Select(
+				"id", "name", "key_suffix", "status", "filters", "rpm_limit",
+				"created_at", "updated_at",
+			).
+			Where("id = ?", row.ID).
+			Take(&row).Error; err != nil {
+			return app_errors.ParseDBError(err)
 		}
-		return nil
+		result, err = mapAccessKeyMetadataRow(row)
+		return err
 	}, nil)
 	if err != nil {
-		return AccessKeyResponse{}, err
+		return AccessKeyMetadata{}, err
 	}
 	return result, nil
+}
+
+func (s *Service) ListAccessKeyOptions(ctx context.Context) ([]AccessKeyOption, error) {
+	var rows []AccessKeyOption
+	if err := s.db.WithContext(ctx).
+		Model(&models.AccessKey{}).
+		Select("id", "name", "status").
+		Order("id ASC").
+		Scan(&rows).Error; err != nil {
+		return nil, app_errors.ParseDBError(err)
+	}
+	for _, row := range rows {
+		if row.Status != state.AccessKeyStatusActive &&
+			row.Status != state.AccessKeyStatusDisabled {
+			return nil, fmt.Errorf(
+				"access key %d has invalid status: %w",
+				row.ID,
+				app_errors.ErrInternalServer,
+			)
+		}
+	}
+	return rows, nil
+}
+
+func (s *Service) RevealAccessKey(
+	ctx context.Context,
+	id uint,
+) (AccessKeyRevealResult, error) {
+	if id == 0 {
+		return AccessKeyRevealResult{}, app_errors.ErrBadRequest
+	}
+	var row struct {
+		ID       uint
+		KeyValue string
+	}
+	if err := s.db.WithContext(ctx).
+		Model(&models.AccessKey{}).
+		Select("id", "key_value").
+		Where("id = ?", id).
+		Take(&row).Error; err != nil {
+		return AccessKeyRevealResult{}, app_errors.ParseDBError(err)
+	}
+	plaintext, err := s.encryption.Decrypt(row.KeyValue)
+	if err != nil || !validAccessKeyPlaintext(plaintext) {
+		return AccessKeyRevealResult{}, fmt.Errorf(
+			"reveal access key %d: %w",
+			row.ID,
+			app_errors.ErrInternalServer,
+		)
+	}
+	return AccessKeyRevealResult{
+		ID:         row.ID,
+		Key:        plaintext,
+		RevealedAt: s.now().UTC(),
+	}, nil
+}
+
+func mapAccessKeyMetadataRow(row accessKeyMetadataRow) (AccessKeyMetadata, error) {
+	status := state.AccessKeyStatus(row.Status)
+	if status != state.AccessKeyStatusActive && status != state.AccessKeyStatusDisabled {
+		return AccessKeyMetadata{}, fmt.Errorf(
+			"access key %d has invalid status: %w",
+			row.ID,
+			app_errors.ErrInternalServer,
+		)
+	}
+	if !validAccessKeySuffix(row.KeySuffix) {
+		return AccessKeyMetadata{}, fmt.Errorf(
+			"access key %d has invalid persisted suffix: %w",
+			row.ID,
+			app_errors.ErrInternalServer,
+		)
+	}
+	filters, err := decodeStoredAccessKeyFilters(row.Filters)
+	if err != nil {
+		return AccessKeyMetadata{}, fmt.Errorf(
+			"decode access key %d filters: %w",
+			row.ID,
+			app_errors.ErrInternalServer,
+		)
+	}
+	return AccessKeyMetadata{
+		ID: row.ID, Name: row.Name,
+		MaskedKey: accessKeyPrefix + "••••••••" + row.KeySuffix,
+		Status:    status, Filters: filters, RPMLimit: row.RPMLimit,
+		CreatedAt: row.CreatedAt.UTC(), UpdatedAt: row.UpdatedAt.UTC(),
+	}, nil
+}
+
+func validAccessKeySuffix(value string) bool {
+	if len(value) != 4 {
+		return false
+	}
+	for _, character := range []byte(value) {
+		if character < '0' || character > '9' && character < 'a' || character > 'f' {
+			return false
+		}
+	}
+	return true
+}
+
+func validAccessKeyPlaintext(value string) bool {
+	if len(value) != len(accessKeyPrefix)+32 ||
+		!strings.HasPrefix(value, accessKeyPrefix) {
+		return false
+	}
+	for _, character := range []byte(strings.TrimPrefix(value, accessKeyPrefix)) {
+		if character < '0' || character > '9' && character < 'a' || character > 'f' {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *Service) DeleteAccessKey(ctx context.Context, id uint) error {
@@ -381,6 +556,39 @@ func validateFilterGroupReferences(tx *gorm.DB, groupIDs []uint) error {
 	}
 	if count != int64(len(groupIDs)) {
 		return app_errors.ErrValidation
+	}
+	return nil
+}
+
+func validateAccessKeyGroupUpdate(
+	tx *gorm.DB,
+	current []uint,
+	requested []uint,
+) error {
+	if len(requested) == 0 {
+		return nil
+	}
+	currentSet := make(map[uint]struct{}, len(current))
+	for _, groupID := range current {
+		currentSet[groupID] = struct{}{}
+	}
+	var existing []uint
+	if err := tx.Model(&models.Group{}).
+		Where("id IN ?", requested).
+		Pluck("id", &existing).Error; err != nil {
+		return app_errors.ParseDBError(err)
+	}
+	existingSet := make(map[uint]struct{}, len(existing))
+	for _, groupID := range existing {
+		existingSet[groupID] = struct{}{}
+	}
+	for _, groupID := range requested {
+		if _, exists := existingSet[groupID]; exists {
+			continue
+		}
+		if _, historical := currentSet[groupID]; !historical {
+			return app_errors.ErrValidation
+		}
 	}
 	return nil
 }

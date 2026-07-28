@@ -1,58 +1,88 @@
+import type { Component } from 'vue'
 import type { Router, RouterHistory, RouteRecordRaw } from 'vue-router'
 import { createRouter, createWebHistory } from 'vue-router'
 
-import LoginView from '@/features/auth/LoginView.vue'
-import HomeView from '@/features/home/HomeView.vue'
-import GroupDetailView from '@/features/groups/GroupDetailView.vue'
-import ImportView from '@/features/import/ImportView.vue'
-import AccessKeysView from '@/features/access-keys/AccessKeysView.vue'
-import MonitorView from '@/features/monitor/MonitorView.vue'
-import ModelPricesView from '@/features/model-prices/ModelPricesView.vue'
-import SettingsView from '@/features/settings/SettingsView.vue'
+import type { MessageNamespace } from '@/i18n'
+
+function lazyView(loader: () => Promise<{ default: Component }>) {
+  return () => loader().then((module) => module.default)
+}
 
 const routes: RouteRecordRaw[] = [
   {
     path: '/',
     name: 'home',
-    component: HomeView,
+    component: lazyView(() => import('@/features/home/HomeView.vue')),
     meta: { titleKey: 'home.title', requiresAuth: true, primaryNav: 'home' },
   },
-  { path: '/login', name: 'login', component: LoginView },
+  {
+    path: '/login',
+    name: 'login',
+    component: lazyView(() => import('@/features/auth/LoginView.vue')),
+  },
   {
     path: '/import',
     name: 'import',
-    component: ImportView,
-    meta: { titleKey: 'shell.import', requiresAuth: true },
+    component: lazyView(() => import('@/features/import/ImportView.vue')),
+    meta: {
+      titleKey: 'shell.import',
+      requiresAuth: true,
+      messageNamespaces: ['import'],
+    },
   },
   {
     path: '/groups/:id',
     name: 'group-detail',
-    component: GroupDetailView,
-    meta: { titleKey: 'shell.groupDetail', requiresAuth: true },
+    component: lazyView(() => import('@/features/groups/GroupDetailView.vue')),
+    meta: {
+      titleKey: 'shell.groupDetail',
+      requiresAuth: true,
+      messageNamespaces: ['group', 'import'],
+    },
   },
   {
     path: '/access-keys',
     name: 'access-keys',
-    component: AccessKeysView,
-    meta: { titleKey: 'shell.accessKeys', requiresAuth: true, primaryNav: 'access-keys' },
+    component: lazyView(() => import('@/features/access-keys/AccessKeysView.vue')),
+    meta: {
+      titleKey: 'shell.accessKeys',
+      requiresAuth: true,
+      primaryNav: 'access-keys',
+      messageNamespaces: ['access-keys'],
+    },
   },
   {
     path: '/monitor',
     name: 'monitor',
-    component: MonitorView,
-    meta: { titleKey: 'shell.monitor', requiresAuth: true, primaryNav: 'monitor' },
+    component: lazyView(() => import('@/features/monitor/MonitorView.vue')),
+    meta: {
+      titleKey: 'shell.monitor',
+      requiresAuth: true,
+      primaryNav: 'monitor',
+      messageNamespaces: ['monitor'],
+    },
   },
   {
     path: '/settings',
     name: 'settings',
-    component: SettingsView,
-    meta: { titleKey: 'shell.settings', requiresAuth: true, primaryNav: 'settings' },
+    component: lazyView(() => import('@/features/settings/SettingsView.vue')),
+    meta: {
+      titleKey: 'shell.settings',
+      requiresAuth: true,
+      primaryNav: 'settings',
+      messageNamespaces: ['settings', 'model-prices', 'import'],
+    },
   },
   {
     path: '/settings/model-prices',
     name: 'model-prices',
-    component: ModelPricesView,
-    meta: { titleKey: 'modelPrices.title', requiresAuth: true, primaryNav: 'settings' },
+    component: lazyView(() => import('@/features/model-prices/ModelPricesView.vue')),
+    meta: {
+      titleKey: 'modelPrices.title',
+      requiresAuth: true,
+      primaryNav: 'settings',
+      messageNamespaces: ['model-prices'],
+    },
   },
 ]
 
@@ -60,7 +90,15 @@ export interface RouterAuth {
   hasCredential(): boolean
 }
 
-export function createAppRouter(auth: RouterAuth, history: RouterHistory = createWebHistory()) {
+export interface RouterMessages {
+  loadNamespaces(namespaces: readonly MessageNamespace[]): Promise<void>
+}
+
+export function createAppRouter(
+  auth: RouterAuth,
+  history: RouterHistory = createWebHistory(),
+  messages?: RouterMessages,
+) {
   const router = createRouter({ history, routes })
   router.beforeEach((to) => {
     if (!to.meta.requiresAuth || auth.hasCredential()) {
@@ -70,6 +108,11 @@ export function createAppRouter(auth: RouterAuth, history: RouterHistory = creat
       name: 'login',
       query: { redirect: to.fullPath },
     }
+  })
+  router.beforeResolve(async (to) => {
+    const namespaces = (to.meta.messageNamespaces ?? []) as MessageNamespace[]
+    await messages?.loadNamespaces(namespaces)
+    return true
   })
   return router
 }

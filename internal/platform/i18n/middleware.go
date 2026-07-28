@@ -8,6 +8,8 @@ import (
 const (
 	// LocalizerKey 是 gin.Context 中存储 Localizer 的键
 	LocalizerKey = "localizer"
+	// LanguageKey 是 gin.Context 中存储规范语言代码的键
+	LanguageKey = "language"
 )
 
 // Middleware i18n 中间件
@@ -18,12 +20,24 @@ func Middleware() gin.HandlerFunc {
 
 		// 获取 Localizer
 		localizer := GetLocalizer(acceptLang)
+		language := ResolveLanguage(acceptLang)
 
 		// 将 Localizer 存储到 Context 中
 		c.Set(LocalizerKey, localizer)
+		c.Set(LanguageKey, language)
 
 		c.Next()
 	}
+}
+
+// GetLanguageFromContext 返回当前响应应使用的规范语言代码。
+func GetLanguageFromContext(c *gin.Context) string {
+	if value, exists := c.Get(LanguageKey); exists {
+		if language, ok := value.(string); ok && language != "" {
+			return language
+		}
+	}
+	return ResolveLanguage(c.GetHeader("Accept-Language"))
 }
 
 // GetLocalizerFromContext 从 gin.Context 获取 Localizer

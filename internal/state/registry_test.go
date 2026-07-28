@@ -445,6 +445,102 @@ func TestKeyRegistryApplyImportUpsertsOnlyRequestedGroup(t *testing.T) {
 	}
 }
 
+func TestKeyRegistryReconcileGroupUsesDBTruthAndPreservesSatisfiedRuntimeState(t *testing.T) {
+	registry := NewKeyRegistry()
+	mustReplaceKeyEntries(t, registry, []KeyEntry{
+		{
+			ID: 1, GroupID: 10, Status: KeyStatusActive,
+			EncryptedValue: "cipher-one",
+		},
+		{
+			ID: 2, GroupID: 10, Status: KeyStatusActive,
+			EncryptedValue: "stale-cipher",
+		},
+		{
+			ID: 3, GroupID: 10, Status: KeyStatusDisabled,
+			EncryptedValue: "removed-from-db",
+		},
+		{
+			ID: 4, GroupID: 20, Status: KeyStatusActive,
+			EncryptedValue: "other-group",
+		},
+	})
+	if !registry.SetCooldown(1, time.Now().Add(time.Hour)) {
+		t.Fatal("SetCooldown(1) = false")
+	}
+	if _, ok := registry.IncrFailure(1); !ok {
+		t.Fatal("IncrFailure(1) = false")
+	}
+
+	wantGroup := []KeyEntry{
+		{
+			ID: 1, GroupID: 10, Status: KeyStatusActive,
+			EncryptedValue: "cipher-one",
+		},
+		{
+			ID: 2, GroupID: 10, Status: KeyStatusDisabled,
+			EncryptedValue: "cipher-two",
+		},
+	}
+	if registry.MatchesGroup(10, wantGroup) {
+		t.Fatal("MatchesGroup(stale) = true, want false")
+	}
+	changed, err := registry.ReconcileGroup(10, wantGroup)
+	if err != nil {
+		t.Fatalf("ReconcileGroup() error = %v", err)
+	}
+	if !changed {
+		t.Fatal("ReconcileGroup() changed = false, want true")
+	}
+	if !registry.MatchesGroup(10, wantGroup) {
+		t.Fatal("MatchesGroup(reconciled) = false, want true")
+	}
+	if got := registryEntry(t, registry, 1); got.FailureCount != 1 ||
+		got.CooldownUntil.IsZero() {
+		t.Fatalf("satisfied key runtime state was reset: %#v", got)
+	}
+	if got := registryEntry(t, registry, 2); got.Status != KeyStatusDisabled ||
+		got.EncryptedValue != "cipher-two" || got.FailureCount != 0 {
+		t.Fatalf("stale key was not rebuilt from DB truth: %#v", got)
+	}
+	if _, ok := registry.EncryptedValue(3); ok {
+		t.Fatal("key absent from DB truth remains in reconciled group")
+	}
+	if got, ok := registry.EncryptedValue(4); !ok || got != "other-group" {
+		t.Fatalf("other group changed: %q, %t", got, ok)
+	}
+
+	changed, err = registry.ReconcileGroup(10, wantGroup)
+	if err != nil {
+		t.Fatalf("second ReconcileGroup() error = %v", err)
+	}
+	if changed {
+		t.Fatal("second ReconcileGroup() changed = true, want false")
+	}
+	if got := registryEntry(t, registry, 1); got.FailureCount != 1 {
+		t.Fatalf("idempotent reconciliation reset runtime state: %#v", got)
+	}
+}
+
+func TestKeyRegistryReconcileGroupRejectsCrossGroupIdentityWithoutMutation(t *testing.T) {
+	registry := NewKeyRegistry()
+	mustReplaceKeyEntries(t, registry, []KeyEntry{{
+		ID: 1, GroupID: 20, Status: KeyStatusActive,
+		EncryptedValue: "other-group",
+	}})
+
+	_, err := registry.ReconcileGroup(10, []KeyEntry{{
+		ID: 1, GroupID: 10, Status: KeyStatusActive,
+		EncryptedValue: "attempted-move",
+	}})
+	if err == nil {
+		t.Fatal("ReconcileGroup(cross-group key) error = nil")
+	}
+	if got, ok := registry.EncryptedValue(1); !ok || got != "other-group" {
+		t.Fatalf("failed reconciliation mutated registry: %q, %t", got, ok)
+	}
+}
+
 func TestKeyRegistryRemoveKey(t *testing.T) {
 	registry := NewKeyRegistry()
 	mustReplaceKeyEntries(t, registry, []KeyEntry{

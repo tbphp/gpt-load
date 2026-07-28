@@ -233,6 +233,15 @@ func TestControlMutationRejectsDuplicateJSONWithoutSideEffects(t *testing.T) {
 			request := httptest.NewRequest(endpoint.method, endpoint.path, strings.NewReader(endpoint.body))
 			request.Header.Set("Authorization", "Bearer test-auth-key")
 			request.Header.Set("Content-Type", "application/json")
+			if endpoint.path == "/api/groups" || endpoint.path == "/api/access-keys" {
+				setRequiredTestIdempotencyHeader(request)
+			}
+			if endpoint.path == "/api/settings" {
+				request.Header.Set(
+					"If-Match",
+					currentSettingsETag(t, engine, "test-auth-key", "zh-CN"),
+				)
+			}
 			engine.ServeHTTP(recorder, request)
 
 			if recorder.Code != http.StatusBadRequest {
@@ -502,6 +511,13 @@ func TestControlJSONBodyLimitAppliesToEveryJSONEndpoint(t *testing.T) {
 			request.ContentLength = -1
 			request.Header.Set("Authorization", "Bearer test-auth-key")
 			request.Header.Set("Content-Type", "application/json")
+			setRequiredTestIdempotencyHeader(request)
+			if path == "/api/settings" {
+				request.Header.Set(
+					"If-Match",
+					currentSettingsETag(t, engine, "test-auth-key", "zh-CN"),
+				)
+			}
 			recorder := httptest.NewRecorder()
 
 			engine.ServeHTTP(recorder, request)
@@ -554,6 +570,7 @@ func TestControlJSONBodyLimitContentLengthFastPathPreservesAuthenticationPriorit
 			if auth.header != "" {
 				request.Header.Set("Authorization", auth.header)
 			}
+			setRequiredTestIdempotencyHeader(request)
 			recorder := httptest.NewRecorder()
 
 			engine.ServeHTTP(recorder, request)
@@ -595,6 +612,7 @@ func TestControlJSONBodyLimitLocalizes413(t *testing.T) {
 			request.ContentLength = -1
 			request.Header.Set("Authorization", "Bearer test-auth-key")
 			request.Header.Set("Accept-Language", test.language)
+			setRequiredTestIdempotencyHeader(request)
 			recorder := httptest.NewRecorder()
 
 			engine.ServeHTTP(recorder, request)
@@ -717,6 +735,7 @@ func TestCreateGroupEndpointReturnsSuccessAndConflictEnvelopes(t *testing.T) {
 	))
 	request.Header.Set("Authorization", "Bearer test-auth-key")
 	request.Header.Set("Content-Type", "application/json")
+	setRequiredTestIdempotencyHeader(request)
 	recorder := httptest.NewRecorder()
 	engine.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusOK {
@@ -739,6 +758,7 @@ func TestCreateGroupEndpointReturnsSuccessAndConflictEnvelopes(t *testing.T) {
 	))
 	request.Header.Set("Authorization", "Bearer test-auth-key")
 	request.Header.Set("Content-Type", "application/json")
+	setRequiredTestIdempotencyHeader(request)
 	recorder = httptest.NewRecorder()
 	engine.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusConflict {
@@ -775,6 +795,7 @@ func TestImportGroupKeysEndpointReturnsSuccessEnvelope(t *testing.T) {
 	))
 	request.Header.Set("Authorization", "Bearer test-auth-key")
 	request.Header.Set("Content-Type", "application/json")
+	setRequiredTestIdempotencyHeader(request)
 	engine.ServeHTTP(recorder, request)
 
 	if recorder.Code != http.StatusOK {
@@ -836,6 +857,7 @@ func TestImportGroupKeysEndpointRejectsUnknownFieldsAndInvalidGroupID(t *testing
 			request := httptest.NewRequest(http.MethodPost, "/api/groups/"+test.groupID+"/keys/import", strings.NewReader(test.body))
 			request.Header.Set("Authorization", "Bearer test-auth-key")
 			request.Header.Set("Content-Type", "application/json")
+			setRequiredTestIdempotencyHeader(request)
 			engine.ServeHTTP(recorder, request)
 
 			if recorder.Code != http.StatusBadRequest {
@@ -860,6 +882,7 @@ func TestImportGroupKeysEndpointReturnsGroupNotFound(t *testing.T) {
 	request.Header.Set("Authorization", "Bearer test-auth-key")
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Accept-Language", "zh-CN")
+	setRequiredTestIdempotencyHeader(request)
 	engine.ServeHTTP(recorder, request)
 
 	if recorder.Code != http.StatusNotFound {
@@ -904,6 +927,7 @@ func TestManagementWritesRejectUnknownFieldsAndMultipleJSONValues(t *testing.T) 
 		))
 		request.Header.Set("Authorization", "Bearer test-auth-key")
 		request.Header.Set("Content-Type", "application/json")
+		setRequiredTestIdempotencyHeader(request)
 		engine.ServeHTTP(recorder, request)
 
 		if recorder.Code != http.StatusBadRequest {
@@ -927,6 +951,7 @@ func TestManagementWritesRejectUnknownFieldsAndMultipleJSONValues(t *testing.T) 
 		))
 		request.Header.Set("Authorization", "Bearer test-auth-key")
 		request.Header.Set("Content-Type", "application/json")
+		setRequiredTestIdempotencyHeader(request)
 		engine.ServeHTTP(recorder, request)
 
 		if recorder.Code != http.StatusBadRequest {
@@ -1404,7 +1429,9 @@ func TestUpdateAccessKeyRoutesParseIDsAndPreservePointerSemantics(t *testing.T) 
 	request.Header.Set("Content-Type", "application/json")
 	recorder := httptest.NewRecorder()
 	engine.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), created.Key) {
+	if recorder.Code != http.StatusOK ||
+		strings.Contains(recorder.Body.String(), created.Key) ||
+		!strings.Contains(recorder.Body.String(), created.MaskedKey) {
 		t.Fatalf("PUT access key = %d %s", recorder.Code, recorder.Body.String())
 	}
 	row := loadAccessKeyRow(t, fixture.db, created.ID)
@@ -1943,6 +1970,12 @@ func TestSettingsHTTPContract(t *testing.T) {
 			}
 			request.Header.Set("Accept-Language", "en-US")
 			request.Header.Set("Content-Type", "application/json")
+			if test.method == http.MethodPut && test.auth != "" {
+				request.Header.Set(
+					"If-Match",
+					currentSettingsETag(t, engine, strings.TrimPrefix(test.auth, "Bearer "), "en-US"),
+				)
+			}
 			engine.ServeHTTP(recorder, request)
 			if recorder.Code != test.wantStatus {
 				t.Fatalf("response = %d %s, want %d", recorder.Code, recorder.Body.String(), test.wantStatus)
@@ -1976,19 +2009,19 @@ func TestSettingsHTTPStableSuccessEnvelopeUpdateAndReset(t *testing.T) {
 	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
 
 	get := serveSettingsRequest(t, engine, http.MethodGet, "test-auth-key", "")
-	const wantDefault = `{"code":0,"message":"Success","data":{"revision":1,"values":{"connect_timeout":15,"first_byte_timeout":120,"request_timeout":600,"stream_idle_timeout":300,"header_rules":{"set":{},"remove":[]},"inject_usage_options":true,"request_log_retention_days":7},"overrides":[]}}`
+	const wantDefault = `{"code":0,"data":{"overrides":[],"values":{"connect_timeout":15,"first_byte_timeout":120,"header_rules":{"remove":[],"set":{}},"inject_usage_options":true,"request_log_retention_days":7,"request_timeout":600,"stream_idle_timeout":300}},"message":"Success"}`
 	if get.Code != http.StatusOK || strings.TrimSpace(get.Body.String()) != wantDefault {
 		t.Fatalf("default response = %d %s, want %s", get.Code, get.Body.String(), wantDefault)
 	}
 
 	update := serveSettingsRequest(t, engine, http.MethodPut, "test-auth-key", `{"settings":{"request_timeout":900,"header_rules":{"set":{},"remove":[]}}}`)
-	const wantUpdate = `{"code":0,"message":"Success","data":{"revision":2,"values":{"connect_timeout":15,"first_byte_timeout":120,"request_timeout":900,"stream_idle_timeout":300,"header_rules":{"set":{},"remove":[]},"inject_usage_options":true,"request_log_retention_days":7},"overrides":["header_rules","request_timeout"]}}`
+	const wantUpdate = `{"code":0,"data":{"overrides":["header_rules","request_timeout"],"values":{"connect_timeout":15,"first_byte_timeout":120,"header_rules":{"remove":[],"set":{}},"inject_usage_options":true,"request_log_retention_days":7,"request_timeout":900,"stream_idle_timeout":300}},"message":"Success"}`
 	if update.Code != http.StatusOK || strings.TrimSpace(update.Body.String()) != wantUpdate {
 		t.Fatalf("update response = %d %s, want %s", update.Code, update.Body.String(), wantUpdate)
 	}
 
 	reset := serveSettingsRequest(t, engine, http.MethodPut, "test-auth-key", `{"settings":{"request_timeout":null,"header_rules":null}}`)
-	const wantReset = `{"code":0,"message":"Success","data":{"revision":3,"values":{"connect_timeout":15,"first_byte_timeout":120,"request_timeout":600,"stream_idle_timeout":300,"header_rules":{"set":{},"remove":[]},"inject_usage_options":true,"request_log_retention_days":7},"overrides":[]}}`
+	const wantReset = wantDefault
 	if reset.Code != http.StatusOK || strings.TrimSpace(reset.Body.String()) != wantReset {
 		t.Fatalf("reset response = %d %s, want %s", reset.Code, reset.Body.String(), wantReset)
 	}
@@ -2011,6 +2044,7 @@ func TestSettingsHTTPBodyLimitRejectsBeforeMutation(t *testing.T) {
 	request.Header.Set("Authorization", "Bearer test-auth-key")
 	request.Header.Set("Accept-Language", "en-US")
 	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("If-Match", currentSettingsETag(t, engine, "test-auth-key", "en-US"))
 	engine.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusRequestEntityTooLarge ||
 		!strings.Contains(recorder.Body.String(), `"code":"REQUEST_TOO_LARGE"`) {
@@ -2136,6 +2170,31 @@ func serveSettingsRequest(
 	}
 	request.Header.Set("Accept-Language", "en-US")
 	request.Header.Set("Content-Type", "application/json")
+	if method == http.MethodPut && authKey != "" {
+		request.Header.Set("If-Match", currentSettingsETag(t, engine, authKey, "en-US"))
+	}
 	engine.ServeHTTP(recorder, request)
 	return recorder
+}
+
+func currentSettingsETag(
+	t *testing.T,
+	engine *gin.Engine,
+	authKey string,
+	language string,
+) string {
+	t.Helper()
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/settings", nil)
+	request.Header.Set("Authorization", "Bearer "+authKey)
+	request.Header.Set("Accept-Language", language)
+	engine.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("get current Settings ETag = %d %s", recorder.Code, recorder.Body.String())
+	}
+	tag := recorder.Header().Get("ETag")
+	if tag == "" {
+		t.Fatal("get current Settings ETag returned no ETag")
+	}
+	return tag
 }

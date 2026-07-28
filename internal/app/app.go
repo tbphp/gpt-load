@@ -32,6 +32,7 @@ type App struct {
 	runtimeState     RuntimeStateLoader
 	controlRuntime   ControlRuntime
 	startupBootstrap StartupBootstrap
+	startupRecovery  StartupRecovery
 	requestLogs      RequestLogRuntime
 	listen           func(network, address string) (net.Listener, error)
 
@@ -51,6 +52,11 @@ type RuntimeStateLoader interface {
 // StartupBootstrap ensures required persisted state exists before runtime loading.
 type StartupBootstrap interface {
 	EnsureInitialState(context.Context) error
+}
+
+// StartupRecovery restores durable post-commit control-plane side effects.
+type StartupRecovery interface {
+	DrainCommittedOperations(context.Context) error
 }
 
 // ControlRuntime runs background control-plane maintenance.
@@ -73,6 +79,7 @@ type AppParams struct {
 	Encryption       encryption.Service
 	DB               *gorm.DB
 	StartupBootstrap StartupBootstrap
+	StartupRecovery  StartupRecovery `optional:"true"`
 	RuntimeState     RuntimeStateLoader
 	ControlRuntime   ControlRuntime
 	RequestLogs      RequestLogRuntime
@@ -106,6 +113,7 @@ func NewApp(params AppParams) *App {
 		runtimeState:     params.RuntimeState,
 		controlRuntime:   params.ControlRuntime,
 		startupBootstrap: params.StartupBootstrap,
+		startupRecovery:  params.StartupRecovery,
 		requestLogs:      params.RequestLogs,
 		listen:           net.Listen,
 		serveErrors:      make(chan error, 1),
@@ -123,7 +131,11 @@ func (a *App) Start() error {
 	if err := i18n.Init(); err != nil {
 		return fmt.Errorf("initialize i18n: %w", err)
 	}
-	if err := storage.AutoMigrate(a.db); err != nil {
+	if err := storage.AutoMigrateWithEncryption(
+		a.db,
+		a.encryption,
+		a.config.DataDir,
+	); err != nil {
 		return err
 	}
 	if err := a.startupBootstrap.EnsureInitialState(context.Background()); err != nil {
@@ -131,6 +143,11 @@ func (a *App) Start() error {
 	}
 	if err := a.runtimeState.Load(context.Background()); err != nil {
 		return fmt.Errorf("load runtime state: %w", err)
+	}
+	if a.startupRecovery != nil {
+		if err := a.startupRecovery.DrainCommittedOperations(context.Background()); err != nil {
+			return fmt.Errorf("recover committed control operations: %w", err)
+		}
 	}
 
 	address := net.JoinHostPort(a.config.Server.Host, strconv.Itoa(a.config.Server.Port))

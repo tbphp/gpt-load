@@ -35,6 +35,7 @@ export interface AuthSession {
 export interface AuthSessionDependencies {
   storage?: Storage
   queryClient: QueryClient
+  onClear?(): void
   validate(
     key: string,
     globalUnauthorized: boolean,
@@ -89,6 +90,7 @@ export function createAuthSession(deps: AuthSessionDependencies): AuthSession {
     removeStoredCredential(deps.storage)
     state.phase = 'anonymous'
     state.retryAfterSeconds = 0
+    deps.onClear?.()
     void clearAuthenticatedClientState(deps.queryClient)
   }
 

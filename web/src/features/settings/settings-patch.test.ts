@@ -10,7 +10,6 @@ import {
 } from './settings-patch'
 
 const base: SettingsDto = {
-  revision: 3,
   values: {
     connect_timeout: 15,
     first_byte_timeout: 120,
@@ -97,7 +96,6 @@ describe('settings patching', () => {
     draft.overrides.add('connect_timeout')
     const refreshed: SettingsDto = {
       ...base,
-      revision: 4,
       overrides: ['request_timeout', 'header_rules'],
       values: { ...base.values, request_timeout: 900 },
     }
@@ -117,7 +115,6 @@ describe('settings patching', () => {
     draft.overrides.add('connect_timeout')
     const refreshed: SettingsDto = {
       ...base,
-      revision: 4,
       values: { ...base.values, inject_usage_options: true },
       overrides: [...base.overrides],
     }

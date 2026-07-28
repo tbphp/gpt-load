@@ -12,7 +12,8 @@ import {
   type AuthState,
 } from '@/features/auth/auth-session'
 import { importRecoveryKey, type ImportRecoveryService } from '@/features/import/import-recovery'
-import { createAppI18n, type AppLocale } from '@/i18n'
+import type { AppLocale } from '@/i18n'
+import { createTestAppI18n as createAppI18n } from '@/test/i18n'
 
 import LoginView from './LoginView.vue'
 
@@ -214,7 +215,9 @@ describe('LoginView', () => {
     await submitCredential(wrapper, 'candidate-key')
     await flushPromises()
 
-    expect(router.currentRoute.value.fullPath).toBe('/monitor?tab=logs')
+    await vi.waitFor(() => {
+      expect(router.currentRoute.value.fullPath).toBe('/monitor?tab=logs')
+    })
   })
 
   it.each(['/import', '/import?mode=new', '/import?mode=existing&group_id=7'])(
@@ -247,7 +250,9 @@ describe('LoginView', () => {
       await submitCredential(wrapper, 'candidate-key')
       await flushPromises()
 
-      expect(router.currentRoute.value.fullPath).toBe('/')
+      await vi.waitFor(() => {
+        expect(router.currentRoute.value.fullPath).toBe('/')
+      })
     },
   )
 

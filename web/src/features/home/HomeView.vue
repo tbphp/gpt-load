@@ -4,7 +4,7 @@ import { Layers3 } from 'lucide-vue-next'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import { listAccessKeys } from '@/api/control/access-keys'
+import { listAccessKeyOptions } from '@/api/control/access-keys'
 import { listGroups } from '@/api/control/groups'
 import { getRuntimeHealth } from '@/api/control/health'
 import { NetworkError } from '@/api/errors'
@@ -35,8 +35,8 @@ const healthQuery = useQuery({
   queryFn: ({ signal }) => getRuntimeHealth(client, signal),
 })
 const accessKeysQuery = useQuery({
-  queryKey: controlQueryKeys.accessKeys.list(),
-  queryFn: ({ signal }) => listAccessKeys(client, signal),
+  queryKey: controlQueryKeys.accessKeys.options(),
+  queryFn: ({ signal }) => listAccessKeyOptions(client, signal),
   gcTime: 0,
 })
 
