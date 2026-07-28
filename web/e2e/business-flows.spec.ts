@@ -1,4 +1,5 @@
 import { expect, test } from './fixtures'
+import { visualThemes, visualViewports } from './visual-fixtures'
 
 const authKey = process.env.GPT_LOAD_E2E_AUTH_KEY
 const upstreamURL = process.env.GPT_LOAD_E2E_UPSTREAM_URL
@@ -453,44 +454,93 @@ test('critical management journey works through the embedded binary', async ({ p
   })
 
   await test.step('verify responsive light and dark layouts with table-local overflow', async () => {
-    const viewports = [
-      { width: 375, height: 812 },
-      { width: 768, height: 900 },
-      { width: 1024, height: 900 },
-      { width: 1440, height: 900 },
-    ] as const
-
-    for (const theme of ['light', 'dark'] as const) {
+    for (const theme of visualThemes) {
       await page.evaluate((value) => localStorage.setItem('gpt-load.theme', value), theme)
-      for (const viewport of viewports) {
+      for (const viewport of visualViewports) {
         await page.setViewportSize(viewport)
         await page.goto('/')
         await expect(page.locator('html')).toHaveAttribute('data-theme', theme)
         await expect(page.locator('[data-test="home-usage-requests"]')).toBeVisible()
+        await expect(page.locator('[data-test="connection-snippet"]')).toContainText(
+          'GPT_LOAD_API_KEY',
+        )
 
         const layout = await page.evaluate(() => {
+          const topbar = document.querySelector('.app-topbar')?.getBoundingClientRect()
+          const main = document.querySelector('#main-content')?.getBoundingClientRect()
+          const operational = document
+            .querySelector('[data-test="home-operational-overview"]')
+            ?.getBoundingClientRect()
           const overview = document.querySelector('.home-overview')?.getBoundingClientRect()
           const usage = document.querySelector('.usage-summary-section')?.getBoundingClientRect()
           const groups = document.querySelector('.groups-section')?.getBoundingClientRect()
+          const connection = document
+            .querySelector('[data-test="home-connection"]')
+            ?.getBoundingClientRect()
           return {
             documentWidth: document.documentElement.scrollWidth,
+            operationalBottom: operational?.bottom ?? -1,
+            operationalTop: operational?.top ?? -1,
             overviewBottom: overview?.bottom ?? -1,
+            overviewTop: overview?.top ?? -1,
             usageBottom: usage?.bottom ?? -1,
             usageTop: usage?.top ?? -1,
+            groupsBottom: groups?.bottom ?? -1,
             groupsTop: groups?.top ?? -1,
+            connectionTop: connection?.top ?? -1,
+            mainTop: main?.top ?? -1,
+            topbarBottom: topbar?.bottom ?? -1,
+            topbarHeight: topbar?.height ?? -1,
             viewportWidth: window.innerWidth,
           }
         })
         expect(layout.documentWidth).toBeLessThanOrEqual(layout.viewportWidth)
-        expect(layout.usageTop).toBeGreaterThanOrEqual(layout.overviewBottom)
-        expect(layout.groupsTop).toBeGreaterThanOrEqual(layout.usageBottom)
+        expect(layout.mainTop).toBeGreaterThanOrEqual(layout.topbarBottom)
+        expect(layout.topbarHeight).toBeLessThanOrEqual(viewport.width < 640 ? 132 : 80)
+        expect(layout.overviewTop).toBeGreaterThanOrEqual(layout.operationalTop)
+        expect(layout.usageTop).toBeGreaterThanOrEqual(layout.overviewTop)
+        expect(layout.usageBottom).toBeLessThanOrEqual(layout.overviewBottom)
+        expect(layout.groupsTop).toBeGreaterThanOrEqual(layout.operationalBottom)
+        expect(layout.connectionTop).toBeGreaterThanOrEqual(layout.groupsBottom)
       }
     }
 
+    const preferences = page.getByRole('button', { name: 'Preferences' })
+    await preferences.click()
+    await expect(page.locator('[data-test="preferences-panel"]')).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(preferences).toBeFocused()
+
+    const protocol = page.getByLabel('Protocol', { exact: true })
+    await protocol.click()
+    await page.getByRole('option', { name: 'Anthropic' }).click()
+    await expect(page.locator('[data-test="connection-snippet"]')).toContainText('/v1/messages')
+    await expect(page.locator('[data-test="connection-snippet"]')).toContainText(
+      'anthropic-version',
+    )
+    await protocol.click()
+    await page.getByRole('option', { name: 'Gemini' }).click()
+    await expect(page.locator('[data-test="connection-snippet"]')).toContainText('/v1beta/models/')
+    await expect(page.locator('[data-test="connection-snippet"]')).toContainText('x-goog-api-key')
+
     await page.setViewportSize({ width: 375, height: 812 })
     await page.goto('/settings/model-prices')
+    await expect(page.locator('[data-test^="builtin-price-card-"]').first()).toBeVisible()
+    await expect(page.locator('[data-test^="builtin-price-row-"]')).toHaveCount(0)
+
+    await page.goto('/access-keys')
+    await expect(page.locator('[data-test^="access-key-card-"]').first()).toBeVisible()
+    await expect(page.locator('[data-test^="access-key-row-"]')).toHaveCount(0)
+
+    await page.setViewportSize({ width: 768, height: 900 })
+    await page.goto('/settings/model-prices')
+    await expect(page.locator('[data-test^="builtin-price-row-"]').first()).toBeVisible()
+    await expect(page.locator('[data-test^="builtin-price-card-"]')).toHaveCount(0)
     const priceTable = page.locator('.data-table__container').first()
     await expect(priceTable).toBeVisible()
+    await expect(priceTable).toHaveAttribute('tabindex', '0')
+    await priceTable.focus()
+    await expect(priceTable).toBeFocused()
     const overflow = await priceTable.evaluate((table) => ({
       client: table.clientWidth,
       scroll: table.scrollWidth,
@@ -499,6 +549,10 @@ test('critical management journey works through the embedded binary', async ({ p
     }))
     expect(overflow.scroll).toBeGreaterThan(overflow.client)
     expect(overflow.document).toBeLessThanOrEqual(overflow.viewport)
+
+    await page.goto('/access-keys')
+    await expect(page.locator('[data-test^="access-key-row-"]').first()).toBeVisible()
+    await expect(page.locator('[data-test^="access-key-card-"]')).toHaveCount(0)
   })
 
   await test.step('inspect current route', async () => {

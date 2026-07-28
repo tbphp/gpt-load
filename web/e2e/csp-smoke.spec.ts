@@ -10,8 +10,12 @@ test('Reka overlays work under production CSP', async ({ page }, testInfo) => {
     video: 'off',
   })
   const errors: string[] = []
+  const unauthorizedResponses: string[] = []
   page.on('console', (message) => message.type() === 'error' && errors.push(message.text()))
   page.on('pageerror', (error) => errors.push(error.message))
+  page.on('response', (response) => {
+    if (response.status() === 401) unauthorizedResponses.push(response.url())
+  })
   await page.addInitScript(() => {
     localStorage.setItem('gpt-load.locale', 'en-US')
     const violations: string[] = []
@@ -42,18 +46,20 @@ test('Reka overlays work under production CSP', async ({ page }, testInfo) => {
   expect(revealBounds).not.toBeNull()
   expect(revealBounds!.width).toBeGreaterThanOrEqual(44)
   expect(revealBounds!.height).toBeGreaterThanOrEqual(44)
-  const languageTrigger = page.getByLabel('Language')
-  await languageTrigger.click()
+  const preferencesTrigger = page.getByRole('button', { name: 'Preferences' })
+  await preferencesTrigger.click()
+  await expect(page.locator('[data-test="preferences-panel"]')).toBeVisible()
   await page.keyboard.press('Escape')
-  await expect(languageTrigger).toBeFocused()
-  await languageTrigger.click()
-  await page.getByRole('option', { name: 'English' }).click()
-  await page.getByRole('button', { name: 'Use dark theme' }).click()
+  await expect(preferencesTrigger).toBeFocused()
+  await preferencesTrigger.click()
+  await page.getByLabel('English', { exact: true }).check()
+  await page.getByLabel('Dark', { exact: true }).check()
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
   const cspViolations = await page.evaluate(
     () => (window as Window & { __cspViolations?: string[] }).__cspViolations ?? [],
   )
   expect(cspViolations).toEqual([])
+  expect(unauthorizedResponses).toEqual([])
   expect(errors).toEqual([])
 
   const recordings = testInfo.attachments.filter(({ name }) => /trace|screenshot|video/i.test(name))
