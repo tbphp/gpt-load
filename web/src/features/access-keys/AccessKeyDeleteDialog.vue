@@ -85,7 +85,7 @@ onBeforeUnmount(() => controller?.abort())
         <AppButton
           data-test="access-key-delete-confirm"
           class="access-key-delete__confirm"
-          variant="secondary"
+          variant="danger"
           :busy="pending"
           @click="confirmDelete"
         >
@@ -118,9 +118,5 @@ onBeforeUnmount(() => controller?.abort())
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: var(--space-2);
-}
-.access-key-delete__confirm {
-  border-color: var(--color-danger);
-  color: var(--color-danger);
 }
 </style>

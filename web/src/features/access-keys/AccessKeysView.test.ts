@@ -10,7 +10,7 @@ import { controlQueryKeys } from '@/app/query-keys'
 import { createAppRouter } from '@/app/router'
 import { mountApp } from '@/test/mount-app'
 
-import AccessKeyTable from './AccessKeyTable.vue'
+import AccessKeyCollection from './AccessKeyCollection.vue'
 import AccessKeysView from './AccessKeysView.vue'
 
 const canary = 'sk-gl-ACCESS_KEYS_LIST_CANARY'
@@ -366,7 +366,7 @@ describe('AccessKeysView', () => {
     ).element
     const focus = vi.spyOn(createButton, 'focus')
 
-    wrapper.getComponent(AccessKeyTable).vm.$emit('deleted', 'client')
+    wrapper.getComponent(AccessKeyCollection).vm.$emit('deleted', 'client')
     wrapper.unmount()
     await nextTick()
     await flushPromises()

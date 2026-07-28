@@ -17,7 +17,7 @@ import PageHeader from '@/components/ui/PageHeader.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 
 import AccessKeyDrawer from './AccessKeyDrawer.vue'
-import AccessKeyTable from './AccessKeyTable.vue'
+import AccessKeyCollection from './AccessKeyCollection.vue'
 import type { PendingAccessKeyCreateOperation } from './access-key-create-operation'
 import type { PendingAccessKeyEditOperation } from './access-key-edit-operation'
 
@@ -238,7 +238,7 @@ async function focusCreateAfterDelete(name: string): Promise<void> {
       >
         <template #icon><KeyRound :size="22" aria-hidden="true" /></template>
       </EmptyState>
-      <AccessKeyTable
+      <AccessKeyCollection
         v-else
         :access-keys="accessKeysQuery.data.value ?? []"
         :groups="groupsQuery.data.value ?? []"
