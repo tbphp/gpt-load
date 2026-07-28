@@ -90,7 +90,11 @@ jobs:
           cache: true
 
       - name: Check Go formatting
-        run: test -z "$(gofmt -l .)"
+        run: |
+          # go-format-check:start
+          formatted_files="$(gofmt -l .)"
+          test -z "${formatted_files}"
+          # go-format-check:end
 
       - name: Check module graph
         run: go mod tidy -diff
@@ -102,7 +106,7 @@ jobs:
         run: go build -trimpath -o gpt-load .
 
       - name: Run race-enabled tests
-        run: go test -race . ./internal/...
+        run: go test -race -count=1 . ./internal/...
 
       - name: Install Chromium for browser E2E
         run: pnpm --dir web exec playwright install --with-deps chromium
@@ -277,54 +281,7 @@ jobs:
           RELEASE_SMOKE_SUFFIX: ${{ github.run_id }}
         run: .github/scripts/release-docker-smoke.sh
 
-  capture-channel-baseline:
-    needs:
-      - validate-tag
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    permissions:
-      contents: read
-      packages: read
-    outputs:
-      ghcr_latest_digest: ${{ steps.snapshot.outputs.ghcr_latest_digest }}
-      dockerhub_latest_digest: ${{ steps.snapshot.outputs.dockerhub_latest_digest }}
-    steps:
-      - name: Checkout tag commit
-        uses: actions/checkout@v7
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
-
-      - name: Log in to GHCR for baseline inspection
-        uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Log in to Docker Hub for baseline inspection
-        uses: docker/login-action@v4
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_READ_TOKEN }}
-
-      - name: Capture latest digests before publication
-        id: snapshot
-        shell: bash
-        run: |
-          set -euo pipefail
-          ghcr_latest_digest="$(
-            .github/scripts/release-image-digest.sh ghcr.io/tbphp/gpt-load:latest
-          )"
-          dockerhub_latest_digest="$(
-            .github/scripts/release-image-digest.sh tbphp/gpt-load:latest
-          )"
-          printf 'ghcr_latest_digest=%s\n' \
-            "${ghcr_latest_digest}" >>"${GITHUB_OUTPUT}"
-          printf 'dockerhub_latest_digest=%s\n' \
-            "${dockerhub_latest_digest}" >>"${GITHUB_OUTPUT}"
-
-  publish-github:
+  publication-preflight:
     needs:
       - validate-tag
       - verify-and-build-web
@@ -332,6 +289,392 @@ jobs:
       - package-checksums
       - native-artifact-smoke
       - docker-smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: read
+    outputs:
+      publication_state: ${{ steps.classify.outputs.publication_state }}
+      write_mode: ${{ steps.classify.outputs.write_mode }}
+      github_state: ${{ steps.inventory.outputs.github_state }}
+      github_target_sha: ${{ steps.inventory.outputs.github_target_sha }}
+      github_assets: ${{ steps.inventory.outputs.github_assets }}
+      ghcr_state: ${{ steps.inventory.outputs.ghcr_state }}
+      ghcr_digest: ${{ steps.inventory.outputs.ghcr_digest }}
+      ghcr_revision: ${{ steps.inventory.outputs.ghcr_revision }}
+      dockerhub_state: ${{ steps.inventory.outputs.dockerhub_state }}
+      dockerhub_digest: ${{ steps.inventory.outputs.dockerhub_digest }}
+      dockerhub_revision: ${{ steps.inventory.outputs.dockerhub_revision }}
+      ghcr_latest_digest: ${{ steps.inventory.outputs.ghcr_latest_digest }}
+      dockerhub_latest_digest: ${{ steps.inventory.outputs.dockerhub_latest_digest }}
+    steps:
+      - name: Checkout tag commit
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Download complete release assets
+        uses: actions/download-artifact@v4
+        with:
+          name: release-assets
+          path: release
+
+      - name: Verify current-run tag and release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          test "$(git rev-parse "${GITHUB_REF_NAME}^{commit}")" = "${GITHUB_SHA}"
+          git fetch --no-tags origin v2
+          git merge-base --is-ancestor "${GITHUB_SHA}" origin/v2
+
+          cat >/tmp/expected-release-assets <<'ASSETS'
+          SHA256SUMS
+          gpt-load-linux-amd64
+          gpt-load-linux-arm64
+          gpt-load-macos-amd64
+          gpt-load-macos-arm64
+          gpt-load-windows-amd64.exe
+          ASSETS
+          find release -mindepth 1 -maxdepth 1 -type f -exec basename {} \; |
+            sort >/tmp/current-run-release-assets
+          cmp /tmp/expected-release-assets /tmp/current-run-release-assets
+          cd release
+          test "$(wc -l <SHA256SUMS | tr -d ' ')" = "5"
+          sha256sum --check SHA256SUMS
+
+      - name: Require publication credentials and verify read access
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_READ_TOKEN: ${{ secrets.DOCKERHUB_READ_TOKEN }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          for credential in \
+            GH_TOKEN \
+            DOCKERHUB_USERNAME \
+            DOCKERHUB_READ_TOKEN \
+            DOCKERHUB_TOKEN; do
+            if [[ -z "${!credential}" ]]; then
+              printf 'required publication credential is missing: %s\n' \
+                "${credential}" >&2
+              exit 1
+            fi
+          done
+          gh auth status
+          gh api "repos/${GITHUB_REPOSITORY}" --silent
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR for read-only inventory
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to Docker Hub for read-only inventory
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_READ_TOKEN }}
+
+      - name: Inventory publication channels
+        id: inventory
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          github_state=absent
+          github_target_sha=
+          github_assets=absent
+          if gh api \
+            "repos/${GITHUB_REPOSITORY}/releases/tags/${GITHUB_REF_NAME}" \
+            >/tmp/existing-release.json 2>/tmp/existing-release.error; then
+            github_state=present
+            github_target_sha="$(
+              jq -r '.target_commitish // empty' /tmp/existing-release.json
+            )"
+            jq -r '.assets[].name' /tmp/existing-release.json |
+              sort >/tmp/existing-release-assets
+            if cmp \
+              /tmp/expected-release-assets \
+              /tmp/existing-release-assets; then
+              rm -rf existing-release
+              mkdir existing-release
+              gh release download "${GITHUB_REF_NAME}" \
+                --repo "${GITHUB_REPOSITORY}" \
+                --dir existing-release
+              if cmp release/SHA256SUMS existing-release/SHA256SUMS; then
+                if (
+                  cd existing-release
+                  sha256sum --check ../release/SHA256SUMS
+                ); then
+                  github_assets=match
+                else
+                  github_assets=mismatch
+                fi
+              else
+                github_assets=mismatch
+              fi
+            else
+              github_assets=mismatch
+            fi
+          elif grep -Eqi \
+            'HTTP 404|Not Found|release not found' \
+            /tmp/existing-release.error; then
+            github_state=absent
+          else
+            cat /tmp/existing-release.error >&2
+            exit 1
+          fi
+
+          inventory_image() {
+            local image="$1"
+            local digest=
+            local inspection=
+            local revision=mismatch
+
+            digest="$(.github/scripts/release-image-digest.sh "${image}")"
+            if [[ "${digest}" == "absent" ]]; then
+              printf 'absent|absent|\n'
+              return
+            fi
+
+            inspection="$(
+              docker buildx imagetools inspect \
+                "${image}" \
+                --format '{{json .}}'
+            )"
+            # release-image-revision-validation:start
+            if jq -e \
+              --arg expected "${GITHUB_SHA}" \
+              '[
+                .image["linux/amd64"].config.Labels[
+                  "org.opencontainers.image.revision"
+                ],
+                .image["linux/arm64"].config.Labels[
+                  "org.opencontainers.image.revision"
+                ]
+              ] | all(type == "string" and . == $expected)' \
+              <<<"${inspection}" >/dev/null; then
+              revision="${GITHUB_SHA}"
+            fi
+            # release-image-revision-validation:end
+            printf 'present|%s|%s\n' "${digest}" "${revision}"
+          }
+
+          IFS='|' read -r ghcr_state ghcr_digest ghcr_revision < <(
+            inventory_image \
+              "ghcr.io/tbphp/gpt-load:${{ needs.validate-tag.outputs.image_exact }}"
+          )
+          IFS='|' read -r \
+            dockerhub_state \
+            dockerhub_digest \
+            dockerhub_revision < <(
+              inventory_image \
+                "tbphp/gpt-load:${{ needs.validate-tag.outputs.image_exact }}"
+            )
+          ghcr_latest_digest="$(
+            .github/scripts/release-image-digest.sh ghcr.io/tbphp/gpt-load:latest
+          )"
+          dockerhub_latest_digest="$(
+            .github/scripts/release-image-digest.sh tbphp/gpt-load:latest
+          )"
+          {
+            printf 'github_state=%s\n' "${github_state}"
+            printf 'github_target_sha=%s\n' "${github_target_sha}"
+            printf 'github_assets=%s\n' "${github_assets}"
+            printf 'ghcr_state=%s\n' "${ghcr_state}"
+            printf 'ghcr_digest=%s\n' "${ghcr_digest}"
+            printf 'ghcr_revision=%s\n' "${ghcr_revision}"
+            printf 'dockerhub_state=%s\n' "${dockerhub_state}"
+            printf 'dockerhub_digest=%s\n' "${dockerhub_digest}"
+            printf 'dockerhub_revision=%s\n' "${dockerhub_revision}"
+            printf 'ghcr_latest_digest=%s\n' "${ghcr_latest_digest}"
+            printf 'dockerhub_latest_digest=%s\n' \
+              "${dockerhub_latest_digest}"
+          } >>"${GITHUB_OUTPUT}"
+          printf '%s\n' \
+            "github=${github_state}/${github_target_sha}/${github_assets}" \
+            "ghcr=${ghcr_state}/${ghcr_digest}/${ghcr_revision}" \
+            "dockerhub=${dockerhub_state}/${dockerhub_digest}/${dockerhub_revision}" \
+            "ghcr_latest=${ghcr_latest_digest}" \
+            "dockerhub_latest=${dockerhub_latest_digest}"
+
+      - name: Classify publication state
+        id: classify
+        shell: bash
+        env:
+          RELEASE_EXPECTED_SHA: ${{ github.sha }}
+          RELEASE_GITHUB_STATE: ${{ steps.inventory.outputs.github_state }}
+          RELEASE_GITHUB_TARGET_SHA: ${{ steps.inventory.outputs.github_target_sha }}
+          RELEASE_GITHUB_ASSETS: ${{ steps.inventory.outputs.github_assets }}
+          RELEASE_GHCR_STATE: ${{ steps.inventory.outputs.ghcr_state }}
+          RELEASE_GHCR_DIGEST: ${{ steps.inventory.outputs.ghcr_digest }}
+          RELEASE_GHCR_REVISION: ${{ steps.inventory.outputs.ghcr_revision }}
+          RELEASE_DOCKERHUB_STATE: ${{ steps.inventory.outputs.dockerhub_state }}
+          RELEASE_DOCKERHUB_DIGEST: ${{ steps.inventory.outputs.dockerhub_digest }}
+          RELEASE_DOCKERHUB_REVISION: ${{ steps.inventory.outputs.dockerhub_revision }}
+        run: |
+          set -euo pipefail
+          classification="$(.github/scripts/release-publication-state.sh)"
+          printf '%s\n' "${classification}"
+          while IFS='=' read -r key value; do
+            case "${key}" in
+              publication_state | write_mode)
+                printf '%s=%s\n' "${key}" "${value}" >>"${GITHUB_OUTPUT}"
+                ;;
+              *)
+                printf 'unexpected classifier output\n' >&2
+                exit 1
+                ;;
+            esac
+          done <<<"${classification}"
+
+      - name: Reject partial or conflicting publication
+        shell: bash
+        env:
+          WRITE_MODE: ${{ steps.classify.outputs.write_mode }}
+        run: |
+          set -euo pipefail
+          write_mode="${WRITE_MODE}"
+          test "${write_mode}" != "blocked"
+
+  publish-images:
+    needs:
+      - validate-tag
+      - publication-preflight
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout tag commit
+        uses: actions/checkout@v7
+
+      - name: Set up QEMU
+        if: ${{ needs.publication-preflight.outputs.write_mode == 'publish' }}
+        uses: docker/setup-qemu-action@v4
+        with:
+          platforms: arm64
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to Docker Hub for exact verification
+        if: ${{ needs.publication-preflight.outputs.write_mode == 'verify' }}
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_READ_TOKEN }}
+
+      - name: Log in to Docker Hub for publication
+        if: ${{ needs.publication-preflight.outputs.write_mode == 'publish' }}
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate exact image metadata
+        if: ${{ needs.publication-preflight.outputs.write_mode == 'publish' }}
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: |
+            ghcr.io/tbphp/gpt-load
+            tbphp/gpt-load
+          tags: |
+            type=raw,value=${{ needs.validate-tag.outputs.image_exact }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ github.ref_name }}
+
+      - name: Build and publish exact multi-platform images
+        if: ${{ needs.publication-preflight.outputs.write_mode == 'publish' }}
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ github.ref_name }}
+
+      - name: Verify exact published images
+        shell: bash
+        run: |
+          set -euo pipefail
+          verify_exact_image() {
+            local image="$1"
+            local inspection=
+
+            inspection="$(
+              docker buildx imagetools inspect \
+                "${image}" \
+                --format '{{json .}}'
+            )"
+            jq -e \
+              --arg expected "${GITHUB_SHA}" \
+              '[
+                .image["linux/amd64"].config.Labels[
+                  "org.opencontainers.image.revision"
+                ],
+                .image["linux/arm64"].config.Labels[
+                  "org.opencontainers.image.revision"
+                ]
+              ] | all(type == "string" and . == $expected)' \
+              <<<"${inspection}" >/dev/null
+            .github/scripts/release-image-digest.sh "${image}"
+          }
+
+          ghcr_exact_digest="$(
+            verify_exact_image \
+              "ghcr.io/tbphp/gpt-load:${{ needs.validate-tag.outputs.image_exact }}"
+          )"
+          dockerhub_exact_digest="$(
+            verify_exact_image \
+              "tbphp/gpt-load:${{ needs.validate-tag.outputs.image_exact }}"
+          )"
+          test -n "${ghcr_exact_digest}"
+          test "${ghcr_exact_digest}" = "${dockerhub_exact_digest}"
+
+      - name: Update stable major and minor aliases
+        if: ${{ needs.publication-preflight.outputs.write_mode == 'publish' && needs.validate-tag.outputs.prerelease == 'false' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for repository in ghcr.io/tbphp/gpt-load tbphp/gpt-load; do
+            exact="${repository}:${{ needs.validate-tag.outputs.image_exact }}"
+            docker buildx imagetools create \
+              --tag "${repository}:${{ needs.validate-tag.outputs.image_minor }}" \
+              "${exact}"
+            docker buildx imagetools create \
+              --tag "${repository}:${{ needs.validate-tag.outputs.image_major }}" \
+              "${exact}"
+          done
+
+  publish-github:
+    needs:
+      - validate-tag
+      - publication-preflight
+      - publish-images
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -347,10 +690,37 @@ jobs:
         working-directory: release
         run: sha256sum --check SHA256SUMS
 
+      - name: Verify existing GitHub Release
+        if: ${{ needs.publication-preflight.outputs.write_mode == 'verify' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          target="$(
+            gh release view "${GITHUB_REF_NAME}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --json targetCommitish \
+              --jq '.targetCommitish'
+          )"
+          test "${target}" = "${GITHUB_SHA}"
+          rm -rf existing-release
+          mkdir existing-release
+          gh release download "${GITHUB_REF_NAME}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --dir existing-release
+          cmp release/SHA256SUMS existing-release/SHA256SUMS
+          (
+            cd existing-release
+            sha256sum --check ../release/SHA256SUMS
+          )
+
       - name: Publish one GitHub Release
+        if: ${{ needs.publication-preflight.outputs.write_mode == 'publish' }}
         uses: softprops/action-gh-release@v2
         with:
           name: GPT-Load ${{ github.ref_name }}
+          target_commitish: ${{ github.sha }}
           prerelease: ${{ needs.validate-tag.outputs.prerelease }}
           fail_on_unmatched_files: true
           files: |
@@ -373,12 +743,15 @@ jobs:
             imports available models from compatible upstreams.
 
             Docker runs as a fixed non-root user with a named volume. The 2.x image channels
-            do not move `latest`. Back up the database together with auth/encryption key files.
-            Usage and cost are best-effort estimates, not a billing ledger or provider invoice.
+            do not move `latest`. Stop cleanly, then keep the SQLite database, its `-wal`/`-shm`
+            sidecars, and auth/encryption key files together as one recovery set. Usage and cost
+            are best-effort estimates, not a billing ledger or provider invoice.
 
             Follow the [public operations baseline](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/README.md#public-operations-baseline)
             for deployment, backup/restore, and 1.x cutover and rollback.
             This release contains five raw binaries plus `SHA256SUMS`.
+            If publication stops between channels, inspect the reconciliation inventory and
+            recover manually; the workflow does not claim cross-system atomic rollback.
 
             Usage quality can be `missing`, `partial`, or `unpriced`; a compatible upstream may
             never provide authoritative terminal usage. Cost remains an estimate, not a provider
@@ -388,72 +761,6 @@ jobs:
             [OpenAI](https://developers.openai.com/api/docs/pricing),
             [Anthropic](https://platform.claude.com/docs/en/about-claude/pricing), and
             [Gemini](https://ai.google.dev/gemini-api/docs/pricing) sources.
-
-  publish-images:
-    needs:
-      - validate-tag
-      - capture-channel-baseline
-      - verify-and-build-web
-      - build-binaries
-      - package-checksums
-      - native-artifact-smoke
-      - docker-smoke
-    runs-on: ubuntu-24.04
-    timeout-minutes: 45
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - name: Checkout tag commit
-        uses: actions/checkout@v7
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v4
-        with:
-          platforms: arm64
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
-
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v4
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Generate image metadata
-        id: meta
-        uses: docker/metadata-action@v6
-        with:
-          images: |
-            ghcr.io/tbphp/gpt-load
-            tbphp/gpt-load
-          tags: |
-            type=raw,value=${{ needs.validate-tag.outputs.image_exact }}
-            type=raw,value=${{ needs.validate-tag.outputs.image_minor }},enable=${{ needs.validate-tag.outputs.prerelease == 'false' }}
-            type=raw,value=${{ needs.validate-tag.outputs.image_major }},enable=${{ needs.validate-tag.outputs.prerelease == 'false' }}
-          labels: |
-            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-            org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.version=${{ github.ref_name }}
-
-      - name: Build and publish multi-platform images
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          build-args: |
-            VERSION=${{ github.ref_name }}
 
   post-publish-native-smoke:
     needs:
@@ -513,7 +820,7 @@ jobs:
   post-publish-verify:
     needs:
       - validate-tag
-      - capture-channel-baseline
+      - publication-preflight
       - publish-github
       - publish-images
       - post-publish-native-smoke
@@ -582,21 +889,34 @@ jobs:
           dockerhub_exact_digest=
           for repository in ghcr.io/tbphp/gpt-load tbphp/gpt-load; do
             exact="${repository}:${{ needs.validate-tag.outputs.image_exact }}"
-            docker buildx imagetools inspect "${exact}" >/tmp/manifest
-            grep -F 'linux/amd64' /tmp/manifest
-            grep -F 'linux/arm64' /tmp/manifest
+            inspection="$(
+              docker buildx imagetools inspect \
+                "${exact}" \
+                --format '{{json .}}'
+            )"
+            jq -e \
+              --arg expected "${GITHUB_SHA}" \
+              '[
+                .image["linux/amd64"].config.Labels[
+                  "org.opencontainers.image.revision"
+                ],
+                .image["linux/arm64"].config.Labels[
+                  "org.opencontainers.image.revision"
+                ]
+              ] | all(type == "string" and . == $expected)' \
+              <<<"${inspection}" >/dev/null
             exact_digest="$(
-              docker buildx imagetools inspect "${exact}" --format '{{.Manifest.Digest}}'
+              .github/scripts/release-image-digest.sh "${exact}"
             )"
             test -n "${exact_digest}"
             if [[ "${repository}" == ghcr.io/* ]]; then
               ghcr_exact_digest="${exact_digest}"
               latest_image="ghcr.io/tbphp/gpt-load:latest"
-              expected_latest_digest="${{ needs.capture-channel-baseline.outputs.ghcr_latest_digest }}"
+              expected_latest_digest="${{ needs.publication-preflight.outputs.ghcr_latest_digest }}"
             else
               dockerhub_exact_digest="${exact_digest}"
               latest_image="tbphp/gpt-load:latest"
-              expected_latest_digest="${{ needs.capture-channel-baseline.outputs.dockerhub_latest_digest }}"
+              expected_latest_digest="${{ needs.publication-preflight.outputs.dockerhub_latest_digest }}"
             fi
             latest_digest="$(.github/scripts/release-image-digest.sh "${latest_image}")"
             test "${latest_digest}" = "${expected_latest_digest}"
@@ -629,6 +949,134 @@ jobs:
             source_image="${source_and_suffix%%|*}"
             smoke_suffix="${source_and_suffix##*|}"
             RELEASE_SMOKE_SOURCE_IMAGE="${source_image}" \
-              RELEASE_SMOKE_SUFFIX="${GITHUB_RUN_ID}-${smoke_suffix}" \
+            RELEASE_SMOKE_SUFFIX="${GITHUB_RUN_ID}-${smoke_suffix}" \
               .github/scripts/release-docker-smoke.sh
           done
+
+  reconcile-publication:
+    if: ${{ always() }}
+    needs:
+      - publication-preflight
+      - publish-images
+      - publish-github
+      - post-publish-native-smoke
+      - post-publish-verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Checkout tag commit for read-only reconciliation
+        if: ${{ always() }}
+        continue-on-error: true
+        uses: actions/checkout@v7
+
+      - name: Set up Docker Buildx for read-only reconciliation
+        if: ${{ always() }}
+        continue-on-error: true
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR for read-only reconciliation
+        if: ${{ always() }}
+        continue-on-error: true
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to Docker Hub for read-only reconciliation
+        if: ${{ always() }}
+        continue-on-error: true
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_READ_TOKEN }}
+
+      - name: Summarize exact publication inventory and job results
+        if: ${{ always() }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PREFLIGHT_RESULT: ${{ needs.publication-preflight.result }}
+          IMAGE_WRITER_RESULT: ${{ needs.publish-images.result }}
+          GITHUB_WRITER_RESULT: ${{ needs.publish-github.result }}
+          NATIVE_POST_RESULT: ${{ needs.post-publish-native-smoke.result }}
+          VERIFY_POST_RESULT: ${{ needs.post-publish-verify.result }}
+        shell: bash
+        run: |
+          set +e
+          github_inventory="$(
+            gh release view "${GITHUB_REF_NAME}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --json targetCommitish,assets 2>&1
+          )"
+          if [[ $? -ne 0 ]]; then
+            github_inventory=absent-or-unavailable
+          fi
+
+          read_image_inventory() {
+            local image="$1"
+            local digest=
+            local inspection=
+            local revisions=
+
+            if [[ ! -x .github/scripts/release-image-digest.sh ]]; then
+              printf 'unavailable'
+              return
+            fi
+            digest="$(.github/scripts/release-image-digest.sh "${image}" 2>/dev/null)"
+            if [[ $? -ne 0 ]]; then
+              printf 'unavailable'
+              return
+            fi
+            if [[ "${digest}" == "absent" ]]; then
+              printf 'absent'
+              return
+            fi
+            inspection="$(
+              docker buildx imagetools inspect \
+                "${image}" \
+                --format '{{json .}}' 2>/dev/null
+            )"
+            if [[ $? -ne 0 ]]; then
+              printf '%s/revision-unavailable' "${digest}"
+              return
+            fi
+            revisions="$(
+              jq -c '[
+                .image["linux/amd64"].config.Labels[
+                  "org.opencontainers.image.revision"
+                ],
+                .image["linux/arm64"].config.Labels[
+                  "org.opencontainers.image.revision"
+                ]
+              ]' <<<"${inspection}" 2>/dev/null
+            )"
+            printf '%s/%s' "${digest}" "${revisions:-revision-unavailable}"
+          }
+
+          ghcr_inventory="$(
+            read_image_inventory \
+              "ghcr.io/tbphp/gpt-load:${GITHUB_REF_NAME}"
+          )"
+          dockerhub_inventory="$(
+            read_image_inventory \
+              "tbphp/gpt-load:${GITHUB_REF_NAME}"
+          )"
+
+          {
+            printf '## Publication reconciliation\n\n'
+            printf -- '- preflight: `%s`\n' "${PREFLIGHT_RESULT}"
+            printf -- '- image writer: `%s`\n' "${IMAGE_WRITER_RESULT}"
+            printf -- '- GitHub writer: `%s`\n' "${GITHUB_WRITER_RESULT}"
+            printf -- '- published native smoke: `%s`\n' "${NATIVE_POST_RESULT}"
+            printf -- '- post-publish verification: `%s`\n' "${VERIFY_POST_RESULT}"
+            printf -- '- GitHub exact inventory: `%s`\n' "${github_inventory}"
+            printf -- '- GHCR exact inventory: `%s`\n' "${ghcr_inventory}"
+            printf -- '- Docker Hub exact inventory: `%s`\n' \
+              "${dockerhub_inventory}"
+            printf '\nmanual recovery: inspect the exact inventories and job logs; '
+            printf 'do not assume cross-system atomic rollback.\n'
+          } >>"${GITHUB_STEP_SUMMARY}"

@@ -4,6 +4,7 @@ package scheduler
 import (
 	"errors"
 	"math/rand"
+	"sort"
 	"time"
 
 	"gpt-load/internal/protocol"
@@ -20,6 +21,7 @@ type Query struct {
 	Protocol      protocol.Protocol
 	ExternalModel string
 	AccessKey     state.AccessKeyView
+	AllowedKeyIDs map[uint]struct{}
 }
 
 type Selection struct {
@@ -44,6 +46,7 @@ type Iterator struct {
 	random        *rand.Rand
 	targets       map[uint]candidateTarget
 	groupIDs      []uint
+	allowedKeyIDs map[uint]struct{}
 	tried         map[uint]struct{}
 	skippedGroups map[uint]struct{}
 	now           func() time.Time
@@ -51,6 +54,40 @@ type Iterator struct {
 
 func New(snapshot *state.ConfigSnapshot, keys KeySource, query Query, random *rand.Rand) *Iterator {
 	return newWithClock(snapshot, keys, query, random, time.Now)
+}
+
+func CandidateGroupIDs(
+	snapshot *state.ConfigSnapshot,
+	selectedProtocol protocol.Protocol,
+	accessKey state.AccessKeyView,
+) []uint {
+	if snapshot == nil {
+		return nil
+	}
+	groupIDs := make([]uint, 0, len(snapshot.Groups))
+	if accessKey.Status == state.AccessKeyStatusDisabled {
+		return groupIDs
+	}
+	if len(accessKey.Filters.Protocols) > 0 {
+		if _, allowed := accessKey.Filters.Protocols[selectedProtocol]; !allowed {
+			return groupIDs
+		}
+	}
+	for groupID, group := range snapshot.Groups {
+		if len(accessKey.Filters.Groups) > 0 {
+			if _, allowed := accessKey.Filters.Groups[groupID]; !allowed {
+				continue
+			}
+		}
+		for _, groupProtocol := range group.Protocols {
+			if groupProtocol == selectedProtocol {
+				groupIDs = append(groupIDs, groupID)
+				break
+			}
+		}
+	}
+	sort.Slice(groupIDs, func(i, j int) bool { return groupIDs[i] < groupIDs[j] })
+	return groupIDs
 }
 
 func newWithClock(
@@ -64,6 +101,7 @@ func newWithClock(
 		keys:          keys,
 		random:        random,
 		targets:       make(map[uint]candidateTarget),
+		allowedKeyIDs: cloneAllowedKeyIDs(query.AllowedKeyIDs),
 		tried:         make(map[uint]struct{}),
 		skippedGroups: make(map[uint]struct{}),
 		now:           now,
@@ -73,6 +111,17 @@ func newWithClock(
 		iterator.groupIDs = append(iterator.groupIDs, target.target.GroupID)
 	}
 	return iterator
+}
+
+func cloneAllowedKeyIDs(source map[uint]struct{}) map[uint]struct{} {
+	if source == nil {
+		return nil
+	}
+	cloned := make(map[uint]struct{}, len(source))
+	for keyID := range source {
+		cloned[keyID] = struct{}{}
+	}
+	return cloned
 }
 
 func (iterator *Iterator) SkipGroup(groupID uint) {
@@ -96,6 +145,11 @@ func (iterator *Iterator) weightedPool(now time.Time) ([]weightedKey, int64) {
 	weighted := make([]weightedKey, 0, len(pool))
 	var total int64
 	for _, key := range pool {
+		if iterator.allowedKeyIDs != nil {
+			if _, allowed := iterator.allowedKeyIDs[key.ID]; !allowed {
+				continue
+			}
+		}
 		if _, skipped := iterator.skippedGroups[key.GroupID]; skipped {
 			continue
 		}

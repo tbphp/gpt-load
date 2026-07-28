@@ -122,6 +122,28 @@ function inspectionRequests(api: InspectorApi) {
 }
 
 describe('InspectorTab', () => {
+  it('offers exactly the three protocols enabled on the data plane', async () => {
+    const api = new InspectorApi()
+    const { wrapper } = await mountInspector(api)
+
+    expect(wrapper.findAllComponents(AppSelect)[0]?.props('options')).toEqual([
+      { value: 'openai', label: 'OpenAI' },
+      { value: 'anthropic', label: 'Anthropic' },
+      { value: 'gemini', label: 'Gemini' },
+    ])
+  })
+
+  it('drops a reserved protocol deep link without inspecting', async () => {
+    const api = new InspectorApi()
+    const { wrapper } = await mountInspector(
+      api,
+      '/monitor?tab=inspector&protocol=openai-response&external_model=gpt-client&access_key_id=12',
+    )
+
+    expect(wrapper.findAllComponents(AppSelect)[0]?.props('modelValue')).toBe('')
+    expect(inspectionRequests(api)).toEqual([])
+  })
+
   it('prefills a deep link without inspecting and keeps a disabled AccessKey selectable', async () => {
     const api = new InspectorApi()
     const { wrapper } = await mountInspector(
@@ -147,6 +169,7 @@ describe('InspectorTab', () => {
     ['missing model', 'openai', '', '12'],
     ['whitespace-wrapped model', 'openai', ' gpt-client ', '12'],
     ['invalid protocol', 'legacy', 'gpt-client', '12'],
+    ['reserved protocol', 'openai-response', 'gpt-client', '12'],
     ['missing AccessKey', 'openai', 'gpt-client', ''],
   ])('rejects %s locally without sending a request', async (_name, protocol, model, keyID) => {
     const api = new InspectorApi()

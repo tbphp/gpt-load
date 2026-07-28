@@ -8,8 +8,13 @@ import "bytes"
 type sseEventScanner struct {
 	line         []byte
 	hasData      bool
+	dataValues   [][]byte
+	eventName    []byte
 	skipLineFeed bool
+	pendingEvent bool
 	found        bool
+	scannedBytes int
+	hardLimit    int
 }
 
 func (scanner *sseEventScanner) Feed(chunk []byte) (int, bool) {
@@ -18,6 +23,15 @@ func (scanner *sseEventScanner) Feed(chunk []byte) (int, bool) {
 	}
 
 	for index, value := range chunk {
+		scanner.scannedBytes++
+		if scanner.pendingEvent {
+			scanner.pendingEvent = false
+			scanner.found = true
+			if value == '\n' {
+				return index + 1, true
+			}
+			return index, true
+		}
 		if scanner.skipLineFeed {
 			scanner.skipLineFeed = false
 			if value == '\n' {
@@ -29,6 +43,11 @@ func (scanner *sseEventScanner) Feed(chunk []byte) (int, bool) {
 		case '\r':
 			scanner.skipLineFeed = true
 			if scanner.finishLine() {
+				if scanner.hardLimit > 0 && scanner.scannedBytes == scanner.hardLimit {
+					scanner.skipLineFeed = false
+					scanner.pendingEvent = true
+					continue
+				}
 				scanner.found = true
 				return index + 1, true
 			}
@@ -44,12 +63,22 @@ func (scanner *sseEventScanner) Feed(chunk []byte) (int, bool) {
 	return 0, false
 }
 
+func (scanner *sseEventScanner) finishAtEOF() bool {
+	if scanner.pendingEvent {
+		scanner.pendingEvent = false
+		scanner.found = true
+	}
+	return scanner.found
+}
+
 func (scanner *sseEventScanner) finishLine() bool {
 	line := scanner.line
 	scanner.line = scanner.line[:0]
 	if len(line) == 0 {
 		found := scanner.hasData
-		scanner.hasData = false
+		if !found {
+			scanner.resetEvent()
+		}
 		return found
 	}
 	if line[0] == ':' {
@@ -68,5 +97,26 @@ func (scanner *sseEventScanner) finishLine() bool {
 	if bytes.Equal(field, []byte("data")) && len(value) > 0 {
 		scanner.hasData = true
 	}
+	if bytes.Equal(field, []byte("data")) {
+		scanner.dataValues = append(scanner.dataValues, bytes.Clone(value))
+	}
+	if bytes.Equal(field, []byte("event")) {
+		scanner.eventName = bytes.Clone(value)
+	}
 	return false
+}
+
+func (scanner *sseEventScanner) payload() []byte {
+	return bytes.Join(scanner.dataValues, []byte{'\n'})
+}
+
+func (scanner *sseEventScanner) isProviderError() bool {
+	return bytes.Equal(scanner.eventName, []byte("error")) ||
+		isSSEErrorPayload(scanner.payload())
+}
+
+func (scanner *sseEventScanner) resetEvent() {
+	scanner.hasData = false
+	scanner.dataValues = nil
+	scanner.eventName = nil
 }

@@ -18,12 +18,32 @@ func (m *Manager) Current() *ConfigSnapshot {
 	return m.current.Load()
 }
 
+// WithCurrentSnapshot runs a short callback while publication is blocked.
+// Allowed callback work is limited to loading/reading the current snapshot,
+// pure signature recomputation, and coordinated Registry/Stats recovery. It
+// must not decrypt, probe, compile, access DB/network, or log. The lock order
+// is publishMu -> MutationCoordinator stripe -> Registry/Stats internal locks.
+func (m *Manager) WithCurrentSnapshot(fn func(*ConfigSnapshot) bool) bool {
+	if m == nil || fn == nil {
+		return false
+	}
+	m.publishMu.Lock()
+	defer m.publishMu.Unlock()
+	return fn(m.current.Load())
+}
+
 func (m *Manager) Publish(input CompileInput) (*ConfigSnapshot, error) {
 	next, err := Compile(input)
 	if err != nil {
 		return nil, err
 	}
+	return m.publishCompiled(next, nil), nil
+}
 
+func (m *Manager) publishCompiled(next *ConfigSnapshot, beforeLock func()) *ConfigSnapshot {
+	if beforeLock != nil {
+		beforeLock()
+	}
 	m.publishMu.Lock()
 	defer m.publishMu.Unlock()
 	next.Revision = 1
@@ -31,5 +51,5 @@ func (m *Manager) Publish(input CompileInput) (*ConfigSnapshot, error) {
 		next.Revision = current.Revision + 1
 	}
 	m.current.Store(next)
-	return next, nil
+	return next
 }

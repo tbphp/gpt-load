@@ -266,9 +266,47 @@ func TestKeyRegistryRecoverIfMatchRestoresMatchingBlacklistedActiveKey(t *testin
 		t.Fatal("RecoverIfMatch() = false, want true")
 	}
 	if got, want := registryEntry(t, registry, 1), (KeyEntry{
-		ID: 1, GroupID: 10, Status: KeyStatusActive, WeightAuto: DefaultWeight, EncryptedValue: "cipher-one",
+		ID: 1, GroupID: 10, Status: KeyStatusActive, WeightAuto: DefaultWeight,
+		FailureGeneration: 1, EncryptedValue: "cipher-one",
 	}); !reflect.DeepEqual(got, want) {
 		t.Fatalf("entry after RecoverIfMatch() = %#v, want %#v", got, want)
+	}
+}
+
+func TestKeyRegistryRecoverIfMatchRejectsStaleGeneration(t *testing.T) {
+	registry := NewKeyRegistry()
+	mustReplaceKeyEntries(t, registry, []KeyEntry{{
+		ID: 1, GroupID: 10, Status: KeyStatusActive, Blacklisted: true,
+		FailureCount: 3, WeightAuto: 17, EncryptedValue: "cipher-one",
+	}})
+
+	stale := registry.BlacklistedKeys()[0]
+	if stale.FailureGeneration != 0 {
+		t.Fatalf("captured FailureGeneration = %d, want 0", stale.FailureGeneration)
+	}
+	if _, ok := registry.IncrFailure(1); !ok {
+		t.Fatal("IncrFailure(1) = false, want true")
+	}
+	before := registryEntry(t, registry, 1)
+	if ok := registry.RecoverIfMatch(stale, DefaultWeight); ok {
+		t.Fatal("RecoverIfMatch(stale ref) = true, want false")
+	}
+	if got := registryEntry(t, registry, 1); !reflect.DeepEqual(got, before) {
+		t.Fatalf("entry after stale RecoverIfMatch() = %#v, want unchanged %#v", got, before)
+	}
+
+	fresh := registry.BlacklistedKeys()[0]
+	if fresh.FailureGeneration != 1 {
+		t.Fatalf("fresh FailureGeneration = %d, want 1", fresh.FailureGeneration)
+	}
+	if ok := registry.RecoverIfMatch(fresh, DefaultWeight); !ok {
+		t.Fatal("RecoverIfMatch(fresh ref) = false, want true")
+	}
+	if got, want := registryEntry(t, registry, 1), (KeyEntry{
+		ID: 1, GroupID: 10, Status: KeyStatusActive, WeightAuto: DefaultWeight,
+		FailureGeneration: 2, EncryptedValue: "cipher-one",
+	}); !reflect.DeepEqual(got, want) {
+		t.Fatalf("entry after fresh RecoverIfMatch() = %#v, want %#v", got, want)
 	}
 }
 

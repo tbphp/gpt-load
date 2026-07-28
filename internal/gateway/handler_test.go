@@ -10,6 +10,7 @@ import (
 	"math/rand"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -28,7 +29,13 @@ import (
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 	"gpt-load/internal/testutil/fakeupstream"
+	"gpt-load/internal/usage"
 )
+
+func withProviderErrorBeforeCommit(result UpstreamResult) UpstreamResult {
+	result.ProviderErrorBeforeCommit = true
+	return result
+}
 
 type scriptedForwarder struct {
 	results           []UpstreamResult
@@ -47,6 +54,58 @@ type streamReadyBlockingForwarder struct {
 	releaseOnce sync.Once
 }
 
+type recordingDecryptEncryption struct {
+	encryption.Service
+	ciphertexts []string
+}
+
+func (service *recordingDecryptEncryption) Decrypt(ciphertext string) (string, error) {
+	service.ciphertexts = append(service.ciphertexts, ciphertext)
+	return service.Service.Decrypt(ciphertext)
+}
+
+type blockingRequestBody struct {
+	payload      []byte
+	started      chan struct{}
+	release      chan struct{}
+	onFirstRead  func() error
+	firstReadErr error
+	once         sync.Once
+	offset       int
+}
+
+func newBlockingRequestBody(payload string, onFirstRead func() error) *blockingRequestBody {
+	return &blockingRequestBody{
+		payload:     []byte(payload),
+		started:     make(chan struct{}),
+		release:     make(chan struct{}),
+		onFirstRead: onFirstRead,
+	}
+}
+
+func (body *blockingRequestBody) Read(buffer []byte) (int, error) {
+	body.once.Do(func() {
+		if body.onFirstRead != nil {
+			body.firstReadErr = body.onFirstRead()
+		}
+		close(body.started)
+	})
+	<-body.release
+	if body.firstReadErr != nil {
+		return 0, body.firstReadErr
+	}
+	if body.offset >= len(body.payload) {
+		return 0, io.EOF
+	}
+	read := copy(buffer, body.payload[body.offset:])
+	body.offset += read
+	return read, nil
+}
+
+func (*blockingRequestBody) Close() error {
+	return nil
+}
+
 type mutatingRuntimeRegistry struct {
 	*state.KeyRegistry
 	mutate  func()
@@ -59,8 +118,58 @@ type recordingRuntimeRegistry struct {
 	cooldownUntil    time.Time
 	cooldownCalls    int
 	incrFailureCalls int
+	lastFailureCount int
 	blacklistCalls   int
 	clearCalls       int
+}
+
+type gatewayMutationObservation struct {
+	clearCalls       int
+	incrFailureCalls int
+	lastFailureCount int
+	blacklistCalls   int
+	stats            health.KeyStats
+}
+
+type barrierGatewayMutationCoordinator struct {
+	entered      chan struct{}
+	releaseEntry chan struct{}
+	observe      func() gatewayMutationObservation
+	observed     chan gatewayMutationObservation
+	releaseExit  chan struct{}
+}
+
+type gatewayFailureOrderRegistry struct {
+	*state.KeyRegistry
+	failureEntered chan struct{}
+	releaseFailure chan struct{}
+	enterOnce      sync.Once
+}
+
+func (registry *gatewayFailureOrderRegistry) IncrFailure(keyID uint) (int, bool) {
+	registry.enterOnce.Do(func() {
+		close(registry.failureEntered)
+		<-registry.releaseFailure
+	})
+	return registry.KeyRegistry.IncrFailure(keyID)
+}
+
+func newBarrierGatewayMutationCoordinator(
+	observe func() gatewayMutationObservation,
+) *barrierGatewayMutationCoordinator {
+	return &barrierGatewayMutationCoordinator{
+		entered: make(chan struct{}), releaseEntry: make(chan struct{}),
+		observe: observe, observed: make(chan gatewayMutationObservation, 1),
+		releaseExit: make(chan struct{}),
+	}
+}
+
+func (coordinator *barrierGatewayMutationCoordinator) Do(_ uint, fn func()) {
+	close(coordinator.entered)
+	<-coordinator.releaseEntry
+	fn()
+	coordinator.observed <- coordinator.observe()
+	<-coordinator.releaseExit
 }
 
 func receiveTestSignal[T any](t *testing.T, signal <-chan T, name string) T {
@@ -84,7 +193,9 @@ func (registry *recordingRuntimeRegistry) SetCooldown(keyID uint, until time.Tim
 
 func (registry *recordingRuntimeRegistry) IncrFailure(keyID uint) (int, bool) {
 	registry.incrFailureCalls++
-	return registry.KeyRegistry.IncrFailure(keyID)
+	count, ok := registry.KeyRegistry.IncrFailure(keyID)
+	registry.lastFailureCount = count
+	return count, ok
 }
 
 func (registry *recordingRuntimeRegistry) SetBlacklisted(keyID uint) bool {
@@ -95,6 +206,205 @@ func (registry *recordingRuntimeRegistry) SetBlacklisted(keyID uint) bool {
 func (registry *recordingRuntimeRegistry) ClearFailure(keyID uint) bool {
 	registry.clearCalls++
 	return registry.KeyRegistry.ClearFailure(keyID)
+}
+
+func TestHandlerCoordinatesSuccessMutation(t *testing.T) {
+	now := time.Date(2026, time.July, 27, 12, 0, 0, 0, time.UTC)
+	registry := &recordingRuntimeRegistry{KeyRegistry: state.NewKeyRegistry()}
+	if err := registry.Replace([]state.KeyEntry{{
+		ID: 1, GroupID: 1, Status: state.KeyStatusActive, FailureCount: 2, EncryptedValue: "cipher",
+	}}); err != nil {
+		t.Fatalf("Replace() error = %v", err)
+	}
+	stats := health.NewStatsStore()
+	coordinator := newBarrierGatewayMutationCoordinator(func() gatewayMutationObservation {
+		return gatewayMutationObservation{
+			clearCalls: registry.clearCalls,
+			stats:      stats.Snapshot(1, now),
+		}
+	})
+	handler := &Handler{registry: registry, stats: stats, mutations: coordinator}
+
+	done := make(chan struct{})
+	go func() {
+		handler.recordSuccess(1, now)
+		close(done)
+	}()
+	receiveTestSignal(t, coordinator.entered, "success coordinator entry")
+	if registry.clearCalls != 0 || stats.Snapshot(1, now) != (health.KeyStats{}) {
+		t.Fatalf("success bundle changed state before coordinator callback")
+	}
+	close(coordinator.releaseEntry)
+	observed := receiveTestSignal(t, coordinator.observed, "success mutation observation")
+	if observed.clearCalls != 1 || observed.stats != (health.KeyStats{Success: 1}) {
+		t.Fatalf("coordinator callback observation = %#v", observed)
+	}
+	select {
+	case <-done:
+		t.Fatal("success mutation returned before coordinator interval was released")
+	default:
+	}
+	close(coordinator.releaseExit)
+	receiveTestSignal(t, done, "success mutation completion")
+}
+
+func TestHandlerCoordinatesAttributableFailureMutation(t *testing.T) {
+	now := time.Date(2026, time.July, 27, 12, 0, 0, 0, time.UTC)
+	registry := &recordingRuntimeRegistry{KeyRegistry: state.NewKeyRegistry()}
+	if err := registry.Replace([]state.KeyEntry{{
+		ID: 1, GroupID: 1, Status: state.KeyStatusActive, FailureCount: 2, EncryptedValue: "cipher",
+	}}); err != nil {
+		t.Fatalf("Replace() error = %v", err)
+	}
+	stats := health.NewStatsStore()
+	coordinator := newBarrierGatewayMutationCoordinator(func() gatewayMutationObservation {
+		return gatewayMutationObservation{
+			incrFailureCalls: registry.incrFailureCalls,
+			lastFailureCount: registry.lastFailureCount,
+			blacklistCalls:   registry.blacklistCalls,
+			stats:            stats.Snapshot(1, now),
+		}
+	})
+	handler := &Handler{registry: registry, stats: stats, mutations: coordinator}
+
+	done := make(chan struct{})
+	go func() {
+		handler.applyKeyAction(1, health.Result{Action: health.ActionFailKey}, now)
+		close(done)
+	}()
+	receiveTestSignal(t, coordinator.entered, "failure coordinator entry")
+	if registry.incrFailureCalls != 0 || registry.blacklistCalls != 0 ||
+		stats.Snapshot(1, now) != (health.KeyStats{}) {
+		t.Fatalf("failure bundle changed state before coordinator callback")
+	}
+	close(coordinator.releaseEntry)
+	observed := receiveTestSignal(t, coordinator.observed, "failure mutation observation")
+	if observed.incrFailureCalls != 1 || observed.lastFailureCount != 3 ||
+		observed.blacklistCalls != 1 ||
+		observed.stats != (health.KeyStats{Failure: 1, ConsecutiveFailure: 1}) {
+		t.Fatalf("coordinator callback observation = %#v", observed)
+	}
+	select {
+	case <-done:
+		t.Fatal("failure mutation returned before coordinator interval was released")
+	default:
+	}
+	close(coordinator.releaseExit)
+	receiveTestSignal(t, done, "failure mutation completion")
+}
+
+func TestGatewayFailureAndValidationRecoveryFailureFirstKeepsRegistryAndStatsFailed(t *testing.T) {
+	now := time.Date(2026, time.July, 27, 12, 0, 0, 0, time.UTC)
+	baseRegistry := state.NewKeyRegistry()
+	if err := baseRegistry.Replace([]state.KeyEntry{{
+		ID: 1, GroupID: 1, Status: state.KeyStatusActive,
+		Blacklisted: true, FailureCount: 3, EncryptedValue: "cipher",
+	}}); err != nil {
+		t.Fatalf("Replace() error = %v", err)
+	}
+	ref := baseRegistry.BlacklistedKeys()[0]
+	registry := &gatewayFailureOrderRegistry{
+		KeyRegistry:    baseRegistry,
+		failureEntered: make(chan struct{}),
+		releaseFailure: make(chan struct{}),
+	}
+	stats := health.NewStatsStore()
+	stats.Record(1, false, now)
+	mutations := health.NewMutationCoordinator()
+	handler := &Handler{registry: registry, stats: stats, mutations: mutations}
+
+	failureDone := make(chan struct{})
+	go func() {
+		handler.applyKeyAction(1, health.Result{Action: health.ActionFailKey}, now)
+		close(failureDone)
+	}()
+	receiveTestSignal(t, registry.failureEntered, "gateway failure mutation")
+
+	recoveryAttempted := make(chan struct{})
+	recoveryResult := make(chan bool, 1)
+	go func() {
+		close(recoveryAttempted)
+		var recovered bool
+		mutations.Do(1, func() {
+			recovered = baseRegistry.RecoverIfMatch(ref, state.DefaultWeight)
+			if recovered {
+				stats.Reset(1)
+			}
+		})
+		recoveryResult <- recovered
+	}()
+	receiveTestSignal(t, recoveryAttempted, "validation recovery attempt")
+	close(registry.releaseFailure)
+	receiveTestSignal(t, failureDone, "gateway failure completion")
+	if recovered := receiveTestSignal(t, recoveryResult, "validation recovery completion"); recovered {
+		t.Fatal("stale validation recovery = true after gateway failure, want false")
+	}
+
+	if got, want := baseRegistry.BlacklistedKeys(), []state.KeyRef{{
+		ID: 1, GroupID: 1, EncryptedValue: "cipher", FailureGeneration: 1,
+	}}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("blacklisted keys = %#v, want %#v", got, want)
+	}
+	if got, want := stats.Snapshot(1, now), (health.KeyStats{Failure: 2, ConsecutiveFailure: 2}); got != want {
+		t.Fatalf("stats = %#v, want %#v", got, want)
+	}
+}
+
+func TestGatewayFailureAndValidationRecoveryRecoveryFirstLeavesNewFailure(t *testing.T) {
+	now := time.Date(2026, time.July, 27, 12, 0, 0, 0, time.UTC)
+	registry := state.NewKeyRegistry()
+	if err := registry.Replace([]state.KeyEntry{{
+		ID: 1, GroupID: 1, Status: state.KeyStatusActive,
+		Blacklisted: true, FailureCount: 3, EncryptedValue: "cipher",
+	}}); err != nil {
+		t.Fatalf("Replace() error = %v", err)
+	}
+	ref := registry.BlacklistedKeys()[0]
+	stats := health.NewStatsStore()
+	stats.Record(1, false, now)
+	mutations := health.NewMutationCoordinator()
+	handler := &Handler{registry: registry, stats: stats, mutations: mutations}
+
+	recoveryEntered := make(chan struct{})
+	releaseRecovery := make(chan struct{})
+	recoveryResult := make(chan bool, 1)
+	go func() {
+		var recovered bool
+		mutations.Do(1, func() {
+			close(recoveryEntered)
+			<-releaseRecovery
+			recovered = registry.RecoverIfMatch(ref, state.DefaultWeight)
+			if recovered {
+				stats.Reset(1)
+			}
+		})
+		recoveryResult <- recovered
+	}()
+	receiveTestSignal(t, recoveryEntered, "validation recovery mutation")
+
+	failureAttempted := make(chan struct{})
+	failureDone := make(chan struct{})
+	go func() {
+		close(failureAttempted)
+		handler.applyKeyAction(1, health.Result{Action: health.ActionFailKey}, now)
+		close(failureDone)
+	}()
+	receiveTestSignal(t, failureAttempted, "gateway failure attempt")
+	close(releaseRecovery)
+	if recovered := receiveTestSignal(t, recoveryResult, "validation recovery completion"); !recovered {
+		t.Fatal("fresh validation recovery = false, want true")
+	}
+	receiveTestSignal(t, failureDone, "gateway failure completion")
+
+	if got := registry.BlacklistedKeys(); len(got) != 0 {
+		t.Fatalf("blacklisted keys = %#v, want recovered key with new sub-threshold failure", got)
+	}
+	if refs := registry.CaptureActiveKeyRefs([]uint{1}); len(refs) != 1 || refs[0].FailureGeneration != 2 {
+		t.Fatalf("active refs = %#v, want generation 2 after recovery then failure", refs)
+	}
+	if got, want := stats.Snapshot(1, now), (health.KeyStats{Failure: 1, ConsecutiveFailure: 1}); got != want {
+		t.Fatalf("stats = %#v, want %#v", got, want)
+	}
 }
 
 func (registry *mutatingRuntimeRegistry) CollectCandidates(
@@ -456,6 +766,139 @@ func TestHandlerRejectsCaseCollidingModelBeforeAttempt(t *testing.T) {
 	}
 }
 
+func TestHandlerEnforcesModelUTF8ByteLimitBeforeAttempt(t *testing.T) {
+	tests := []struct {
+		name       string
+		model      string
+		wantStatus int
+		wantCode   string
+		wantCalls  int
+	}{
+		{
+			name:       "ASCII 255 bytes accepted",
+			model:      strings.Repeat("a", 255),
+			wantStatus: http.StatusOK,
+			wantCalls:  1,
+		},
+		{
+			name:       "ASCII 256 bytes rejected",
+			model:      strings.Repeat("a", 256),
+			wantStatus: http.StatusBadRequest,
+			wantCode:   reasonCannotExtractModel.Code,
+		},
+		{
+			name:       "multibyte UTF-8 255 bytes accepted",
+			model:      strings.Repeat("界", 85),
+			wantStatus: http.StatusOK,
+			wantCalls:  1,
+		},
+		{
+			name:       "multibyte UTF-8 256 bytes rejected",
+			model:      strings.Repeat("界", 84) + strings.Repeat("é", 2),
+			wantStatus: http.StatusBadRequest,
+			wantCode:   reasonCannotExtractModel.Code,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			forwarder := &scriptedForwarder{results: []UpstreamResult{{
+				StatusCode:     http.StatusOK,
+				Header:         make(http.Header),
+				Body:           []byte(`{"ok":true}`),
+				RequestWritten: true,
+			}}}
+			sink := &recordingRequestLogSink{}
+			engine, handler, manager, _ := newRequestLogHandlerTestRuntime(
+				t,
+				forwarder,
+				&recordingAccessKeyRPMLimiter{},
+				sink,
+				"sk-one",
+			)
+			if _, err := manager.Publish(state.CompileInput{
+				Groups: []state.GroupConfig{{
+					ID: 1, Name: "openai", UpstreamURL: "http://upstream.invalid",
+					Protocols: []protocol.Protocol{protocol.OpenAI},
+					Models: []state.ModelConfig{{
+						ID:    "gpt-4o",
+						Alias: test.model,
+					}},
+					Enabled: true,
+				}},
+				AccessKeys: []state.AccessKeyConfig{{
+					ID:      1,
+					Name:    "client",
+					KeyHash: handler.encryption.Hash("gl-client"),
+					Status:  state.AccessKeyStatusActive,
+				}},
+			}); err != nil {
+				t.Fatalf("Publish() error = %v", err)
+			}
+
+			payload, err := json.Marshal(map[string]string{"model": test.model})
+			if err != nil {
+				t.Fatalf("Marshal() error = %v", err)
+			}
+			request := httptest.NewRequest(
+				http.MethodPost,
+				"/v1/chat/completions",
+				bytes.NewReader(payload),
+			)
+			request.Header.Set("Authorization", "Bearer gl-client")
+			recorder := httptest.NewRecorder()
+			engine.ServeHTTP(recorder, request)
+
+			if recorder.Code != test.wantStatus {
+				t.Fatalf(
+					"status = %d, want %d; body=%s",
+					recorder.Code,
+					test.wantStatus,
+					recorder.Body.String(),
+				)
+			}
+			if len(forwarder.inputs) != test.wantCalls {
+				t.Fatalf("upstream attempts = %d, want %d", len(forwarder.inputs), test.wantCalls)
+			}
+
+			events := sink.snapshot()
+			if len(events) != 1 {
+				t.Fatalf("RequestLog events = %d, want 1", len(events))
+			}
+			event := events[0]
+			if test.wantCode == "" {
+				if event.ClientModel != test.model {
+					t.Fatalf("client model = %q, want accepted model", event.ClientModel)
+				}
+				return
+			}
+
+			var response struct {
+				Code string `json:"code"`
+			}
+			if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+				t.Fatalf("decode response: %v", err)
+			}
+			if response.Code != test.wantCode {
+				t.Fatalf("response code = %q, want %q", response.Code, test.wantCode)
+			}
+			assertDebugHeaders(t, recorder.Header(), "", "", "0")
+			if event.ClientModel != "" || len(event.Attempts) != 0 ||
+				strings.Contains(event.ErrorSummary, test.model) {
+				t.Fatalf("rejected model leaked into RequestLog event: %#v", event)
+			}
+			if strings.Contains(recorder.Body.String(), test.model) ||
+				strings.Contains(fmt.Sprint(recorder.Header()), test.model) {
+				t.Fatalf(
+					"rejected model leaked into response: headers=%v body=%s",
+					recorder.Header(),
+					recorder.Body.String(),
+				)
+			}
+		})
+	}
+}
+
 func TestHandlerServesLocalModelEndpoints(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -570,6 +1013,7 @@ func TestHandlerModelEndpointHasNoDataPlaneSideEffects(t *testing.T) {
 	spyEncryption := &decryptPanicEncryption{Service: keyService}
 	handler := NewHandler(
 		manager, state.NewKeyRegistry(), spyEncryption, panicForwarder{}, dialect.NewSet(), health.NewStatsStore(),
+		health.NewMutationCoordinator(),
 		nil, nil,
 	)
 	handler.registry = panicRuntimeRegistry{}
@@ -643,6 +1087,7 @@ func newModelListHandlerEngineWithLimit(
 	}
 	handler := NewHandler(
 		manager, state.NewKeyRegistry(), keyService, &scriptedForwarder{}, dialect.NewSet(), health.NewStatsStore(),
+		health.NewMutationCoordinator(),
 		nil, nil,
 	)
 	handler.modelListLimit = limit
@@ -659,6 +1104,14 @@ func (panicRuntimeRegistry) CollectCandidates([]uint, func(uint) bool, time.Time
 
 func (panicRuntimeRegistry) ActiveEncryptedValue(uint, uint) (string, bool) {
 	panic("model endpoint read an upstream key")
+}
+
+func (panicRuntimeRegistry) CaptureActiveKeyRefs([]uint) []state.KeyRef {
+	panic("model endpoint captured upstream keys")
+}
+
+func (panicRuntimeRegistry) ActiveEncryptedValueIfMatch(state.KeyRef) (string, bool) {
+	panic("model endpoint matched an upstream key")
 }
 
 func (panicRuntimeRegistry) SetCooldown(uint, time.Time) bool {
@@ -1041,7 +1494,7 @@ func TestHandlerDoesNotRetryOversizedResponse(t *testing.T) {
 	}
 }
 
-func TestHandlerRetriesStreamBeforeCommit(t *testing.T) {
+func TestHandlerTerminatesRequestWrittenStreamFailuresBeforeCommit(t *testing.T) {
 	protocolFailure := fmt.Errorf("%w: gzip", ErrUpstreamProtocol)
 	tests := []struct {
 		name         string
@@ -1051,20 +1504,20 @@ func TestHandlerRetriesStreamBeforeCommit(t *testing.T) {
 		wantAttempts int
 	}{
 		{
-			name: "protocol error then committed success",
+			name: "protocol error does not reach committed success",
 			results: []UpstreamResult{
 				{Err: protocolFailure, RequestWritten: true, RetryableBeforeCommit: true},
 				{StatusCode: http.StatusOK, RequestWritten: true, Committed: true},
 			},
-			wantStatus: http.StatusOK, wantAttempts: 2,
+			wantStatus: http.StatusBadGateway, wantCode: reasonUpstreamProtocol.Code, wantAttempts: 1,
 		},
 		{
-			name: "first-event timeout then committed success",
+			name: "first-event timeout does not reach committed success",
 			results: []UpstreamResult{
 				{Err: context.DeadlineExceeded, RequestWritten: true, RetryableBeforeCommit: true},
 				{StatusCode: http.StatusOK, RequestWritten: true, Committed: true},
 			},
-			wantStatus: http.StatusOK, wantAttempts: 2,
+			wantStatus: http.StatusGatewayTimeout, wantCode: reasonUpstreamTimeout.Code, wantAttempts: 1,
 		},
 		{
 			name: "protocol errors exhausted",
@@ -1072,7 +1525,7 @@ func TestHandlerRetriesStreamBeforeCommit(t *testing.T) {
 				{Err: protocolFailure, RequestWritten: true, RetryableBeforeCommit: true},
 				{Err: protocolFailure, RequestWritten: true, RetryableBeforeCommit: true},
 			},
-			wantStatus: http.StatusBadGateway, wantCode: reasonUpstreamProtocol.Code, wantAttempts: 2,
+			wantStatus: http.StatusBadGateway, wantCode: reasonUpstreamProtocol.Code, wantAttempts: 1,
 		},
 		{
 			name: "first-event timeouts exhausted",
@@ -1080,7 +1533,7 @@ func TestHandlerRetriesStreamBeforeCommit(t *testing.T) {
 				{Err: context.DeadlineExceeded, RequestWritten: true, RetryableBeforeCommit: true},
 				{Err: context.DeadlineExceeded, RequestWritten: true, RetryableBeforeCommit: true},
 			},
-			wantStatus: http.StatusGatewayTimeout, wantCode: reasonUpstreamTimeout.Code, wantAttempts: 2,
+			wantStatus: http.StatusGatewayTimeout, wantCode: reasonUpstreamTimeout.Code, wantAttempts: 1,
 		},
 		{
 			name: "transport failures exhausted",
@@ -1088,7 +1541,7 @@ func TestHandlerRetriesStreamBeforeCommit(t *testing.T) {
 				{Err: errors.New("stream disconnected"), RequestWritten: true, RetryableBeforeCommit: true},
 				{Err: errors.New("stream disconnected"), RequestWritten: true, RetryableBeforeCommit: true},
 			},
-			wantStatus: http.StatusBadGateway, wantCode: reasonUpstreamConnect.Code, wantAttempts: 2,
+			wantStatus: http.StatusBadGateway, wantCode: reasonUpstreamConnect.Code, wantAttempts: 1,
 		},
 	}
 
@@ -1113,6 +1566,177 @@ func TestHandlerRetriesStreamBeforeCommit(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestHandlerRetriesClassifiedFirstProviderErrorAndReturns502OnExhaustion(t *testing.T) {
+	const marker = "rate_limit_error"
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "text/event-stream")
+		writer.Header().Set("Retry-After", "1")
+		_, _ = io.WriteString(
+			writer,
+			`event: error`+"\n"+`data: {"error":{"type":"`+marker+`"}}`+"\n\n",
+		)
+	}))
+	defer upstream.Close()
+
+	input := streamForwardInput(upstream.URL)
+	input.Group.HeaderRules = state.HeaderRules{Set: map[string]string{
+		"X-Ordinary-Marker": marker,
+	}}
+	providerError := NewForwarder(
+		platformhttp.NewHTTPClientManager(),
+		redact.New(),
+	).ForwardStream(t.Context(), input, newRecordingResponseWriter())
+	if providerError.Err != nil ||
+		!providerError.ProviderErrorBeforeCommit ||
+		!bytes.Contains(providerError.ClassificationBody, []byte(marker)) {
+		t.Fatalf(
+			"ordinary HeaderRule changed Provider classification evidence: %#v",
+			providerError,
+		)
+	}
+
+	t.Run("retryable category changes key", func(t *testing.T) {
+		forwarder := &scriptedForwarder{streamResults: []UpstreamResult{
+			providerError,
+			{StatusCode: http.StatusOK, RequestWritten: true, Committed: true},
+		}}
+		engine, _, _ := newHandlerTestRuntime(t, forwarder, "sk-first", "sk-second")
+		request := httptest.NewRequest(
+			http.MethodPost,
+			"/v1/chat/completions",
+			bytes.NewBufferString(`{"model":"gpt-4o","stream":true}`),
+		)
+		request.Header.Set("Authorization", "Bearer gl-client")
+		recorder := httptest.NewRecorder()
+		engine.ServeHTTP(recorder, request)
+
+		if recorder.Code != http.StatusOK || len(forwarder.streamInputs) != 2 {
+			t.Fatalf("status/attempts = %d/%d; body=%s",
+				recorder.Code, len(forwarder.streamInputs), recorder.Body.String())
+		}
+		if forwarder.streamInputs[0].APIKey == forwarder.streamInputs[1].APIKey {
+			t.Fatalf("retry reused key %q", forwarder.streamInputs[0].APIKey)
+		}
+	})
+
+	t.Run("candidate exhaustion returns protocol 502", func(t *testing.T) {
+		forwarder := &scriptedForwarder{streamResults: []UpstreamResult{providerError}}
+		engine, _, _ := newHandlerTestRuntime(t, forwarder, "sk-only")
+		request := httptest.NewRequest(
+			http.MethodPost,
+			"/v1/chat/completions",
+			bytes.NewBufferString(`{"model":"gpt-4o","stream":true}`),
+		)
+		request.Header.Set("Authorization", "Bearer gl-client")
+		recorder := httptest.NewRecorder()
+		engine.ServeHTTP(recorder, request)
+
+		var body struct {
+			Code string `json:"code"`
+		}
+		if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+			t.Fatalf("decode response: %v; body=%s", err, recorder.Body.String())
+		}
+		if recorder.Code != http.StatusBadGateway ||
+			body.Code != reasonUpstreamProtocol.Code ||
+			strings.Contains(recorder.Body.String(), "rate_limit_error") {
+			t.Fatalf("response = %d %s", recorder.Code, recorder.Body.String())
+		}
+	})
+}
+
+func TestHandlerFirstProviderErrorDoesNotCommitOrRecordSuccess(t *testing.T) {
+	now := time.Date(2026, time.July, 27, 12, 0, 0, 0, time.UTC)
+	forwarder := &scriptedForwarder{
+		invokeStreamReady: true,
+		streamResults: []UpstreamResult{withProviderErrorBeforeCommit(UpstreamResult{
+			StatusCode:         http.StatusOK,
+			ClassificationBody: []byte(`{"error":{"type":"unexpected_provider_error"}}`),
+			ErrorSummary:       fixedErrorSummary("upstream_sse_error"),
+			RequestWritten:     true,
+			Usage:              usage.Result{State: usage.StateMissing},
+		})},
+	}
+	engine, handler, registry, stats := newStatsHandlerTestRuntime(t, forwarder, "sk-only")
+	handler.now = func() time.Time { return now }
+	_, _ = registry.IncrFailure(1)
+
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/v1/chat/completions",
+		bytes.NewBufferString(`{"model":"gpt-4o","stream":true}`),
+	)
+	request.Header.Set("Authorization", "Bearer gl-client")
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadGateway || len(forwarder.streamInputs) != 1 {
+		t.Fatalf("status/attempts = %d/%d", recorder.Code, len(forwarder.streamInputs))
+	}
+	if got := stats.Snapshot(1, now); got != (health.KeyStats{}) {
+		t.Fatalf("stats = %#v, want no success/failure record", got)
+	}
+	count, ok := registry.IncrFailure(1)
+	if !ok || count != 2 {
+		t.Fatalf("failure count after provider error = %d/%t, want unchanged then increment to 2", count, ok)
+	}
+}
+
+func TestHandlerDoesNotRetryRequestWrittenAmbiguousPreCommitFailures(t *testing.T) {
+	tests := []struct {
+		name   string
+		result UpstreamResult
+	}{
+		{name: "timeout", result: UpstreamResult{Err: context.DeadlineExceeded, RequestWritten: true, RetryableBeforeCommit: true}},
+		{name: "read error", result: UpstreamResult{Err: errors.New("read failed"), RequestWritten: true, RetryableBeforeCommit: true}},
+		{name: "clean EOF", result: UpstreamResult{Err: errIncompleteSSEEvent, RequestWritten: true, RetryableBeforeCommit: true}},
+		{name: "framing", result: UpstreamResult{Err: fmt.Errorf("%w: framing", ErrUpstreamProtocol), RequestWritten: true, RetryableBeforeCommit: true}},
+		{name: "encoding", result: UpstreamResult{Err: fmt.Errorf("%w: encoding", ErrUpstreamProtocol), RequestWritten: true, RetryableBeforeCommit: true}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			forwarder := &scriptedForwarder{streamResults: []UpstreamResult{
+				test.result,
+				{StatusCode: http.StatusOK, RequestWritten: true, Committed: true},
+			}}
+			engine, _, _ := newHandlerTestRuntime(t, forwarder, "sk-first", "sk-second")
+			request := httptest.NewRequest(
+				http.MethodPost,
+				"/v1/chat/completions",
+				bytes.NewBufferString(`{"model":"gpt-4o","stream":true}`),
+			)
+			request.Header.Set("Authorization", "Bearer gl-client")
+			engine.ServeHTTP(httptest.NewRecorder(), request)
+
+			if len(forwarder.streamInputs) != 1 {
+				t.Fatalf("stream attempts = %d, want 1", len(forwarder.streamInputs))
+			}
+		})
+	}
+}
+
+func TestHandlerRetriesRequestNotWrittenTransportFailure(t *testing.T) {
+	forwarder := &scriptedForwarder{streamResults: []UpstreamResult{
+		{Err: errors.New("dial failed"), RequestWritten: false, RetryableBeforeCommit: true},
+		{StatusCode: http.StatusOK, RequestWritten: true, Committed: true},
+	}}
+	engine, _, _ := newHandlerTestRuntime(t, forwarder, "sk-first", "sk-second")
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/v1/chat/completions",
+		bytes.NewBufferString(`{"model":"gpt-4o","stream":true}`),
+	)
+	request.Header.Set("Authorization", "Bearer gl-client")
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK || len(forwarder.streamInputs) != 2 {
+		t.Fatalf("status/attempts = %d/%d, body=%s",
+			recorder.Code, len(forwarder.streamInputs), recorder.Body.String())
 	}
 }
 
@@ -1830,6 +2454,7 @@ func TestHandlerSkipsCandidateChangedAfterCollection(t *testing.T) {
 			openAI := dialect.NewOpenAI(http.DefaultClient)
 			handler := NewHandler(
 				manager, registry, keyService, forwarder, dialect.NewSet(openAI), health.NewStatsStore(),
+				health.NewMutationCoordinator(),
 				nil, nil,
 			)
 			handler.registry = runtimeRegistry
@@ -1853,6 +2478,289 @@ func TestHandlerSkipsCandidateChangedAfterCollection(t *testing.T) {
 			}
 			if body.Code != reasonNoCandidate.Code {
 				t.Fatalf("response code = %q, want %q", body.Code, reasonNoCandidate.Code)
+			}
+		})
+	}
+}
+
+func TestHandlerFreezesKeyIdentityBeforeReadingBody(t *testing.T) {
+	tests := []struct {
+		name         string
+		seedPlain    string
+		seedStatus   state.KeyStatus
+		currentPlain string
+		mutate       func(*state.KeyRegistry, string) error
+	}{
+		{
+			name: "new import", currentPlain: "sk-imported",
+			mutate: func(registry *state.KeyRegistry, encrypted string) error {
+				return registry.ApplyImport(1, []state.KeyEntry{{
+					ID: 1, GroupID: 1, Status: state.KeyStatusActive,
+					EncryptedValue: encrypted,
+				}})
+			},
+		},
+		{
+			name: "disabled becomes active", seedPlain: "sk-enabled",
+			seedStatus: state.KeyStatusDisabled, currentPlain: "sk-enabled",
+			mutate: func(registry *state.KeyRegistry, _ string) error {
+				return registry.SetKeyStatus(1, state.KeyStatusActive)
+			},
+		},
+		{
+			name: "same ID gets new ciphertext", seedPlain: "sk-old",
+			seedStatus: state.KeyStatusActive, currentPlain: "sk-replaced",
+			mutate: func(registry *state.KeyRegistry, encrypted string) error {
+				return registry.ApplyImport(1, []state.KeyEntry{{
+					ID: 1, GroupID: 1, Status: state.KeyStatusActive,
+					EncryptedValue: encrypted,
+				}})
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			forwarder := &scriptedForwarder{results: []UpstreamResult{
+				{
+					StatusCode: http.StatusOK, Header: make(http.Header),
+					Body: []byte(`{"ok":true}`), RequestWritten: true,
+				},
+				{
+					StatusCode: http.StatusOK, Header: make(http.Header),
+					Body: []byte(`{"ok":true}`), RequestWritten: true,
+				},
+			}}
+			handler, _, registry := newHandlerForTest(t, forwarder)
+			keyService, err := encryption.NewService("handler-test-master-key")
+			if err != nil {
+				t.Fatalf("NewService() error = %v", err)
+			}
+			recordingEncryption := &recordingDecryptEncryption{Service: keyService}
+			handler.encryption = recordingEncryption
+			engine := gin.New()
+			handler.RegisterRoutes(engine)
+			currentCiphertext, err := keyService.Encrypt(test.currentPlain)
+			if err != nil {
+				t.Fatalf("Encrypt(current key) error = %v", err)
+			}
+			if test.seedStatus != "" {
+				seedCiphertext := currentCiphertext
+				if test.seedPlain != test.currentPlain {
+					seedCiphertext, err = keyService.Encrypt(test.seedPlain)
+					if err != nil {
+						t.Fatalf("Encrypt(seed key) error = %v", err)
+					}
+				}
+				if replaceErr := registry.Replace([]state.KeyEntry{{
+					ID: 1, GroupID: 1, Status: test.seedStatus,
+					EncryptedValue: seedCiphertext,
+				}}); replaceErr != nil {
+					t.Fatalf("Replace(seed key) error = %v", replaceErr)
+				}
+			}
+
+			body := newBlockingRequestBody(
+				`{"model":"gpt-4o"}`,
+				func() error { return test.mutate(registry, currentCiphertext) },
+			)
+			request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", body)
+			request.Header.Set("Authorization", "Bearer gl-client")
+			oldRecorder := httptest.NewRecorder()
+			oldDone := make(chan struct{})
+			go func() {
+				engine.ServeHTTP(oldRecorder, request)
+				close(oldDone)
+			}()
+
+			receiveTestSignal(t, body.started, "blocked request body read")
+			close(body.release)
+			receiveTestSignal(t, oldDone, "blocked request completion")
+			if body.firstReadErr != nil {
+				t.Fatalf("first Read identity mutation error = %v", body.firstReadErr)
+			}
+
+			if len(forwarder.inputs) != 0 {
+				t.Fatalf(
+					"blocked old request forwarded with API key %q, want no newly visible identity",
+					forwarder.inputs[0].APIKey,
+				)
+			}
+			if len(recordingEncryption.ciphertexts) != 0 {
+				t.Fatalf(
+					"blocked old request decrypted %d ciphertexts, want 0",
+					len(recordingEncryption.ciphertexts),
+				)
+			}
+			if oldRecorder.Code != http.StatusServiceUnavailable {
+				t.Fatalf("blocked old request status = %d, want 503", oldRecorder.Code)
+			}
+
+			newRequest := httptest.NewRequest(
+				http.MethodPost,
+				"/v1/chat/completions",
+				bytes.NewBufferString(`{"model":"gpt-4o"}`),
+			)
+			newRequest.Header.Set("Authorization", "Bearer gl-client")
+			newRecorder := httptest.NewRecorder()
+			engine.ServeHTTP(newRecorder, newRequest)
+
+			if newRecorder.Code != http.StatusOK || len(forwarder.inputs) != 1 {
+				t.Fatalf(
+					"new request response/attempts = %d/%d, want 200/1; body=%s",
+					newRecorder.Code,
+					len(forwarder.inputs),
+					newRecorder.Body.String(),
+				)
+			}
+			if got := forwarder.inputs[0].APIKey; got != test.currentPlain {
+				t.Fatalf("new request API key = %q, want %q", got, test.currentPlain)
+			}
+			if len(recordingEncryption.ciphertexts) != 1 {
+				t.Fatalf(
+					"new request decrypt calls = %d, want 1",
+					len(recordingEncryption.ciphertexts),
+				)
+			}
+		})
+	}
+}
+
+func TestHandlerAllowsCapturedUnavailableIdentityAfterRecovery(t *testing.T) {
+	tests := []struct {
+		name            string
+		makeUnavailable func(*testing.T, *state.KeyRegistry)
+		recover         func(*testing.T, *state.KeyRegistry, string)
+	}{
+		{
+			name: "blacklisted",
+			makeUnavailable: func(t *testing.T, registry *state.KeyRegistry) {
+				t.Helper()
+				if ok := registry.SetBlacklisted(3); !ok {
+					t.Fatal("SetBlacklisted(3) = false")
+				}
+			},
+			recover: func(t *testing.T, registry *state.KeyRegistry, _ string) {
+				t.Helper()
+				if ok := registry.Recover(3); !ok {
+					t.Fatal("Recover(3) = false")
+				}
+			},
+		},
+		{
+			name: "cooldown",
+			makeUnavailable: func(t *testing.T, registry *state.KeyRegistry) {
+				t.Helper()
+				if ok := registry.SetCooldown(3, time.Now().Add(time.Hour)); !ok {
+					t.Fatal("SetCooldown(3) = false")
+				}
+			},
+			recover: func(t *testing.T, registry *state.KeyRegistry, encrypted string) {
+				t.Helper()
+				if err := registry.ApplyImport(1, []state.KeyEntry{{
+					ID: 3, GroupID: 1, Status: state.KeyStatusActive,
+					EncryptedValue: encrypted,
+				}}); err != nil {
+					t.Fatalf("ApplyImport(recovered cooldown key) error = %v", err)
+				}
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			firstForward := make(chan struct{})
+			releaseForward := make(chan struct{})
+			forwarder := &scriptedForwarder{
+				results: []UpstreamResult{
+					{
+						StatusCode: http.StatusTooManyRequests, Header: make(http.Header),
+						Body:               []byte(`{"error":"rate limit"}`),
+						ClassificationBody: []byte(`{"error":"rate limit"}`),
+						RequestWritten:     true,
+					},
+					{
+						StatusCode: http.StatusOK, Header: make(http.Header),
+						Body: []byte(`{"ok":true}`), RequestWritten: true,
+					},
+				},
+				onCall: func(index int) {
+					if index != 0 {
+						return
+					}
+					close(firstForward)
+					<-releaseForward
+				},
+			}
+			handler, _, registry := newHandlerForTest(t, forwarder)
+			handler.newRandom = func() *rand.Rand { return rand.New(zeroSource{}) }
+			engine := gin.New()
+			handler.RegisterRoutes(engine)
+			keyService, err := encryption.NewService("handler-test-master-key")
+			if err != nil {
+				t.Fatalf("NewService() error = %v", err)
+			}
+			encrypt := func(plaintext string) string {
+				t.Helper()
+				encrypted, encryptErr := keyService.Encrypt(plaintext)
+				if encryptErr != nil {
+					t.Fatalf("Encrypt(%q) error = %v", plaintext, encryptErr)
+				}
+				return encrypted
+			}
+			recoverableCiphertext := encrypt("sk-recoverable")
+			if err := registry.Replace([]state.KeyEntry{
+				{
+					ID: 1, GroupID: 1, Status: state.KeyStatusActive,
+					EncryptedValue: encrypt("sk-first"),
+				},
+				{
+					ID: 2, GroupID: 1, Status: state.KeyStatusDisabled,
+					EncryptedValue: encrypt("sk-newly-enabled"),
+				},
+				{
+					ID: 3, GroupID: 1, Status: state.KeyStatusActive,
+					EncryptedValue: recoverableCiphertext,
+				},
+			}); err != nil {
+				t.Fatalf("Replace(keys) error = %v", err)
+			}
+			test.makeUnavailable(t, registry)
+
+			request := httptest.NewRequest(
+				http.MethodPost,
+				"/v1/chat/completions",
+				bytes.NewBufferString(`{"model":"gpt-4o"}`),
+			)
+			request.Header.Set("Authorization", "Bearer gl-client")
+			recorder := httptest.NewRecorder()
+			done := make(chan struct{})
+			go func() {
+				engine.ServeHTTP(recorder, request)
+				close(done)
+			}()
+
+			receiveTestSignal(t, firstForward, "first forward")
+			if err := registry.SetKeyStatus(2, state.KeyStatusActive); err != nil {
+				t.Fatalf("SetKeyStatus(2, active) error = %v", err)
+			}
+			test.recover(t, registry, recoverableCiphertext)
+			close(releaseForward)
+			receiveTestSignal(t, done, "recovery request completion")
+
+			if recorder.Code != http.StatusOK || len(forwarder.inputs) != 2 {
+				t.Fatalf(
+					"response/attempts = %d/%d, want 200/2; body=%s",
+					recorder.Code,
+					len(forwarder.inputs),
+					recorder.Body.String(),
+				)
+			}
+			if got := forwarder.inputs[1].APIKey; got != "sk-recoverable" {
+				t.Fatalf(
+					"second attempt API key = %q, want captured recovered identity",
+					got,
+				)
 			}
 		})
 	}
@@ -1903,6 +2811,7 @@ func newRealGatewayEngine(t *testing.T, upstreamURL string, upstreamKeys ...stri
 		NewForwarder(clients, redact.New()),
 		dialect.NewSet(openAI),
 		health.NewStatsStore(),
+		health.NewMutationCoordinator(),
 		nil,
 		nil,
 	)
@@ -1998,6 +2907,7 @@ func newHandlerForTestWithStats(
 	openAI := dialect.NewOpenAI(http.DefaultClient)
 	handler := NewHandler(
 		manager, registry, keyService, forwarder, dialect.NewSet(openAI), stats,
+		health.NewMutationCoordinator(),
 		nil, nil,
 	)
 	handler.newRandom = func() *rand.Rand { return rand.New(rand.NewSource(1)) }

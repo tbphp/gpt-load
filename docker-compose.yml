@@ -4,15 +4,14 @@ services:
     # build:
     #   context: .
     #   dockerfile: Dockerfile
-    container_name: gpt-load
     ports:
-      - "${PORT:-3001}:${PORT:-3001}"
+      - "${BIND_ADDRESS:-127.0.0.1}:${PORT:-3001}:${PORT:-3001}"
     env_file:
       - .env
     environment:
+      HOST: 0.0.0.0
       PORT: ${PORT:-3001}
       DATA_DIR: /app/data
-      DATABASE_DSN: /app/data/gpt-load.db
     restart: always
     volumes:
       - gpt-load-data:/app/data

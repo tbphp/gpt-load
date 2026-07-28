@@ -525,8 +525,8 @@ func TestCompileRejectsMalformedRuntimeSettings(t *testing.T) {
 			name: "case-insensitive duplicate header set",
 			groupSettings: config.Settings{"header_rules": map[string]any{
 				"set": map[string]any{
-					"Authorization": "Bearer one",
-					"authorization": "Bearer two",
+					"Authorization": "Bearer ${API_KEY}",
+					"authorization": "Token ${API_KEY}",
 				},
 			}},
 			wantErr: "header_rules.set contains duplicate header \"Authorization\"",

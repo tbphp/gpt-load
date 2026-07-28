@@ -1,15 +1,19 @@
 package storage_test
 
 import (
+	"bytes"
 	"context"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 
+	"gpt-load/internal/platform/config"
 	"gpt-load/internal/storage"
 	"gpt-load/internal/storage/models"
 )
@@ -185,9 +189,9 @@ func TestOpenCreatesSQLiteDatabase(t *testing.T) {
 	t.Parallel()
 
 	dsn := filepath.Join(t.TempDir(), "nested", "gpt-load.db")
-	db, err := storage.Open(dsn)
+	db, err := storage.OpenWithSource(dsn, config.DatabaseSourceManaged)
 	if err != nil {
-		t.Fatalf("Open(%q) error = %v", dsn, err)
+		t.Fatalf("OpenWithSource(%q, managed) error = %v", dsn, err)
 	}
 
 	sqlDB, err := db.DB()
@@ -203,6 +207,144 @@ func TestOpenCreatesSQLiteDatabase(t *testing.T) {
 	if err := sqlDB.Ping(); err != nil {
 		t.Fatalf("Ping() error = %v", err)
 	}
+}
+
+func TestOpenWithSourceExternalRejectsMissingParentWithoutCreation(t *testing.T) {
+	root := t.TempDir()
+	parent := filepath.Join(root, "operator-must-create")
+	dsn := filepath.Join(parent, "external.db")
+
+	db, err := storage.OpenWithSource(dsn, config.DatabaseSourceExternal)
+	if db != nil {
+		sqlDB, sqlErr := db.DB()
+		if sqlErr == nil {
+			_ = sqlDB.Close()
+		}
+	}
+	if err == nil {
+		t.Fatal("OpenWithSource(external) error = nil, want missing-parent rejection")
+	}
+	if _, statErr := os.Stat(parent); !os.IsNotExist(statErr) {
+		t.Fatalf("external parent stat error = %v, want not exist", statErr)
+	}
+}
+
+func TestOpenWithSourceExternalHintDoesNotExposeDSN(t *testing.T) {
+	const sensitiveFilename = "distinctive-operator-secret.db"
+	dsn := filepath.Join(t.TempDir(), sensitiveFilename)
+
+	var logs bytes.Buffer
+	standard := logrus.StandardLogger()
+	previousOutput := standard.Out
+	standard.SetOutput(&logs)
+	t.Cleanup(func() {
+		standard.SetOutput(previousOutput)
+	})
+
+	db, err := storage.OpenWithSource(dsn, config.DatabaseSourceExternal)
+	if err != nil {
+		t.Fatalf("OpenWithSource(external) error = %v", err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("DB() error = %v", err)
+	}
+	t.Cleanup(func() {
+		if err := sqlDB.Close(); err != nil {
+			t.Errorf("close database: %v", err)
+		}
+	})
+
+	output := logs.String()
+	if !strings.Contains(output, "database_source=external") {
+		t.Fatalf("external storage hint = %q, want database_source=external", output)
+	}
+	for _, forbidden := range []string{dsn, sensitiveFilename} {
+		if strings.Contains(output, forbidden) {
+			t.Fatalf("external storage hint exposed %q: %s", forbidden, output)
+		}
+	}
+}
+
+func TestOpenWithSourceFileModeMemoryURIStaysInMemory(t *testing.T) {
+	databasePath := filepath.Join(t.TempDir(), "named-memory.db")
+	dsn := "file:" + filepath.ToSlash(databasePath) + "?mode=memory&cache=shared"
+
+	db, err := storage.OpenWithSource(dsn, config.DatabaseSourceManaged)
+	if err != nil {
+		t.Fatalf("OpenWithSource(file mode=memory) error = %v", err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("DB() error = %v", err)
+	}
+	t.Cleanup(func() {
+		if err := sqlDB.Close(); err != nil {
+			t.Errorf("close database: %v", err)
+		}
+	})
+	assertSQLiteMemoryDatabase(t, db)
+	for _, path := range []string{
+		databasePath,
+		databasePath + "-wal",
+		databasePath + "-shm",
+	} {
+		if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
+			t.Fatalf("memory URI path stat error = %v, want not exist", statErr)
+		}
+	}
+}
+
+func TestOpenWithSourceColonMemoryQueryStaysInMemory(t *testing.T) {
+	db, err := storage.OpenWithSource(
+		":memory:?cache=shared",
+		config.DatabaseSourceExternal,
+	)
+	if err != nil {
+		t.Fatalf("OpenWithSource(:memory:?cache=shared) error = %v", err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("DB() error = %v", err)
+	}
+	t.Cleanup(func() {
+		if err := sqlDB.Close(); err != nil {
+			t.Errorf("close database: %v", err)
+		}
+	})
+	assertSQLiteMemoryDatabase(t, db)
+}
+
+func assertSQLiteMemoryDatabase(t *testing.T, db *gorm.DB) {
+	t.Helper()
+
+	if err := db.Exec(
+		"CREATE TABLE memory_probe (value TEXT NOT NULL)",
+	).Error; err != nil {
+		t.Fatalf("create memory probe table: %v", err)
+	}
+	if err := db.Exec(
+		"INSERT INTO memory_probe(value) VALUES ('probe')",
+	).Error; err != nil {
+		t.Fatalf("write memory probe: %v", err)
+	}
+
+	var databases []struct {
+		Name string
+		File string
+	}
+	if err := db.Raw("PRAGMA database_list").Scan(&databases).Error; err != nil {
+		t.Fatalf("read database list: %v", err)
+	}
+	for _, database := range databases {
+		if database.Name == "main" {
+			if database.File != "" {
+				t.Fatalf("main database file = %q, want in-memory database", database.File)
+			}
+			return
+		}
+	}
+	t.Fatal("PRAGMA database_list did not contain main database")
 }
 
 func TestOpenOverridesSQLiteRuntimeOptions(t *testing.T) {

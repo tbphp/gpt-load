@@ -266,7 +266,7 @@ func (boundary *usageCaptureBoundary) extractNonStreaming(
 	headers http.Header,
 	wire []byte,
 ) usage.Result {
-	extractor, ok := selected.(dialect.UsageExtractor)
+	_, ok := selected.(dialect.UsageExtractor)
 	if !ok {
 		return missingUsage(false)
 	}
@@ -284,7 +284,18 @@ func (boundary *usageCaptureBoundary) extractNonStreaming(
 		boundary.recordFailure("decompress", selected.Protocol())
 		return missingUsage(false)
 	}
-	result, err, panicked := safeExtractUsage(extractor, body)
+	return boundary.extractNonStreamingPlain(selected, body)
+}
+
+func (boundary *usageCaptureBoundary) extractNonStreamingPlain(
+	selected dialect.Dialect,
+	plain []byte,
+) usage.Result {
+	extractor, ok := selected.(dialect.UsageExtractor)
+	if !ok {
+		return missingUsage(false)
+	}
+	result, err, panicked := safeExtractUsage(extractor, bytes.Clone(plain))
 	if err != nil || panicked || !validCapturedUsage(result) {
 		boundary.recordFailure("extract", selected.Protocol())
 		return missingUsage(true)

@@ -20,12 +20,18 @@ const builtin: ModelPriceRuleDto = {
   },
   source_url: 'https://developers.openai.com/api/docs/pricing',
   updated_at: '2026-07-26T00:00:00Z',
+  pricing_policy: {
+    input_threshold_tokens: 272000,
+    input_multiplier: 2,
+    output_multiplier: 1.5,
+  },
 }
 const override: ModelPriceRuleDto = {
   ...builtin,
   pattern: 'vendor-*',
   source: 'user',
   source_url: null,
+  pricing_policy: null,
 }
 
 function queryClient() {

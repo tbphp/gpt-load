@@ -7,13 +7,14 @@ import (
 	"path/filepath"
 	"strconv"
 
-	"gpt-load/internal/platform/authkey"
-
 	"github.com/joho/godotenv"
+
+	"gpt-load/internal/platform/authkey"
+	"gpt-load/internal/platform/securefile"
 )
 
 const (
-	defaultHost                    = "0.0.0.0"
+	defaultHost                    = "127.0.0.1"
 	defaultPort                    = 3001
 	defaultDataDir                 = "./data"
 	defaultGracefulShutdownSeconds = 10
@@ -51,11 +52,27 @@ type SecretMetadata struct {
 	Path   string
 }
 
+// DatabaseSource identifies whether the operator selected the database
+// location or the application supplied its managed default.
+type DatabaseSource string
+
+const (
+	DatabaseSourceManaged  DatabaseSource = "managed"
+	DatabaseSourceExternal DatabaseSource = "external"
+)
+
+// DatabaseMetadata describes database ownership without retaining its DSN or
+// path.
+type DatabaseMetadata struct {
+	Source DatabaseSource
+}
+
 // Config contains static environment configuration for the application process.
 type Config struct {
 	Server                ServerConfig
 	DataDir               string
 	DatabaseDSN           string
+	DatabaseMetadata      DatabaseMetadata
 	EncryptionKey         string
 	AuthKey               string
 	AuthKeyMetadata       SecretMetadata
@@ -95,6 +112,14 @@ func Load() (*Config, error) {
 	}
 
 	dataDir := valueOrDefault("DATA_DIR", defaultDataDir)
+	rawDatabaseDSN := os.Getenv("DATABASE_DSN")
+	databaseMetadata := DatabaseMetadata{Source: DatabaseSourceManaged}
+	if rawDatabaseDSN != "" {
+		databaseMetadata.Source = DatabaseSourceExternal
+	} else if err := securefile.PrepareManagedDataDir(dataDir); err != nil {
+		return nil, err
+	}
+
 	explicitAuthKey := os.Getenv("AUTH_KEY")
 	explicitEncryptionKey := os.Getenv("ENCRYPTION_KEY")
 	authKey, err := authkey.Resolve(explicitAuthKey, dataDir)
@@ -119,7 +144,7 @@ func Load() (*Config, error) {
 		}
 	}
 
-	databaseDSN := os.Getenv("DATABASE_DSN")
+	databaseDSN := rawDatabaseDSN
 	if databaseDSN == "" {
 		databaseDSN = filepath.Join(dataDir, "gpt-load.db")
 	}
@@ -139,6 +164,7 @@ func Load() (*Config, error) {
 		},
 		DataDir:               dataDir,
 		DatabaseDSN:           databaseDSN,
+		DatabaseMetadata:      databaseMetadata,
 		EncryptionKey:         explicitEncryptionKey,
 		AuthKey:               authKey,
 		AuthKeyMetadata:       authKeyMetadata,

@@ -1,4 +1,5 @@
 import type { CreateAccessKeyRequest, UpdateAccessKeyRequest } from '@/api/control/access-keys'
+import { enabledDataProtocols } from '@/api/control/protocols'
 import type { AccessKeyDto, AccessKeyFiltersDto } from '@/api/control/types'
 
 export interface AccessKeyDraft {
@@ -31,9 +32,18 @@ export function createAccessKeyDraft(accessKey?: AccessKeyDto | null): AccessKey
   }
 }
 
-export function isAccessKeyDraftValid(draft: AccessKeyDraft): boolean {
+export function isAccessKeyDraftValid(draft: AccessKeyDraft, base?: AccessKeyDto | null): boolean {
+  const baseRetainsReserved = base?.filters.protocols.includes('openai-response') ?? false
+  const protocolsValid = draft.filters.protocols.every(
+    (protocol) =>
+      enabledDataProtocols.some((enabled) => enabled === protocol) ||
+      (protocol === 'openai-response' && baseRetainsReserved),
+  )
   return (
-    draft.name.trim().length > 0 && Number.isSafeInteger(draft.rpm_limit) && draft.rpm_limit >= 0
+    draft.name.trim().length > 0 &&
+    Number.isSafeInteger(draft.rpm_limit) &&
+    draft.rpm_limit >= 0 &&
+    protocolsValid
   )
 }
 

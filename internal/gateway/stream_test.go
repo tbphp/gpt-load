@@ -12,28 +12,237 @@ import (
 	"time"
 )
 
+type firstChunkThenBarrierReader struct {
+	first      []byte
+	secondRead chan struct{}
+	release    chan struct{}
+	releaseOne sync.Once
+	read       bool
+}
+
+func newFirstChunkThenBarrierReader(first string) *firstChunkThenBarrierReader {
+	return &firstChunkThenBarrierReader{
+		first:      []byte(first),
+		secondRead: make(chan struct{}),
+		release:    make(chan struct{}),
+	}
+}
+
+func (reader *firstChunkThenBarrierReader) Read(buffer []byte) (int, error) {
+	if !reader.read {
+		reader.read = true
+		return copy(buffer, reader.first), nil
+	}
+	select {
+	case <-reader.secondRead:
+	default:
+		close(reader.secondRead)
+	}
+	<-reader.release
+	return 0, io.EOF
+}
+
+func (reader *firstChunkThenBarrierReader) unblock() {
+	reader.releaseOne.Do(func() { close(reader.release) })
+}
+
+func TestBufferFirstSSEEventReturnsProviderErrorMetadata(t *testing.T) {
+	const first = ": keepalive\n\nevent: error\ndata: {\"error\":{\"type\":\"rate_limit_error\"}}\n\n"
+	input := first + "data: later\n\n"
+	event, err := bufferFirstSSEEvent(&chunkedSSEBody{data: []byte(input), maxRead: 1})
+	if err != nil {
+		t.Fatalf("bufferFirstSSEEvent() error = %v", err)
+	}
+	if got := string(event.Prefix); got != first {
+		t.Fatalf("Prefix = %q, want fragmented read prefix %q", got, first)
+	}
+	if got := string(event.Payload); got != `{"error":{"type":"rate_limit_error"}}` {
+		t.Fatalf("Payload = %q", got)
+	}
+	if !event.IsProviderError {
+		t.Fatal("IsProviderError = false, want true")
+	}
+}
+
+func TestBufferFirstSSEEventReturnsBareCRBoundaryWithoutAnotherRead(t *testing.T) {
+	const first = "data: first\r\r"
+	reader := newFirstChunkThenBarrierReader(first)
+	t.Cleanup(reader.unblock)
+	type outcome struct {
+		event firstSSEEvent
+		err   error
+	}
+	done := make(chan outcome, 1)
+	go func() {
+		event, err := bufferFirstSSEEvent(reader)
+		done <- outcome{event: event, err: err}
+	}()
+
+	select {
+	case <-reader.secondRead:
+		reader.unblock()
+		received := <-done
+		t.Fatalf(
+			"bufferFirstSSEEvent() waited for another read after bare CR event: %#v, %v",
+			received.event,
+			received.err,
+		)
+	case received := <-done:
+		if received.err != nil ||
+			string(received.event.Prefix) != first ||
+			string(received.event.Payload) != "first" {
+			t.Fatalf(
+				"bufferFirstSSEEvent() = %#v, %v; want complete first bare-CR event",
+				received.event,
+				received.err,
+			)
+		}
+	}
+}
+
+func TestBufferFirstSSEEventClassifiesThreeDialectErrorsAndNormalData(t *testing.T) {
+	tests := []struct {
+		name      string
+		input     string
+		wantBody  string
+		wantError bool
+	}{
+		{
+			name:      "openai data error marker",
+			input:     "data: {\"error\":{\"type\":\"rate_limit_error\"}}\n\n",
+			wantBody:  `{"error":{"type":"rate_limit_error"}}`,
+			wantError: true,
+		},
+		{
+			name:      "anthropic event error",
+			input:     "event: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\"}}\n\n",
+			wantBody:  `{"type":"error","error":{"type":"overloaded_error"}}`,
+			wantError: true,
+		},
+		{
+			name:      "gemini data error marker",
+			input:     "data: {\"error\":{\"status\":\"RESOURCE_EXHAUSTED\"}}\n\n",
+			wantBody:  `{"error":{"status":"RESOURCE_EXHAUSTED"}}`,
+			wantError: true,
+		},
+		{
+			name:     "ordinary event after comment and empty event",
+			input:    ": keepalive\n\ndata:\n\ndata: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\n",
+			wantBody: `{"choices":[{"delta":{"content":"ok"}}]}`,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			event, err := bufferFirstSSEEvent(&chunkedSSEBody{
+				data:    []byte(test.input),
+				maxRead: 1,
+			})
+			if err != nil {
+				t.Fatalf("bufferFirstSSEEvent() error = %v", err)
+			}
+			if string(event.Prefix) != test.input ||
+				string(event.Payload) != test.wantBody ||
+				event.IsProviderError != test.wantError {
+				t.Fatalf("event = %#v, want payload/error %q/%t",
+					event, test.wantBody, test.wantError)
+			}
+		})
+	}
+}
+
+func TestBufferFirstSSEEventCRLFHardLimitDistinguishesOptionalLineFeed(t *testing.T) {
+	tests := []struct {
+		name         string
+		eventPrefix  string
+		isProvider   bool
+		totalBytes   int
+		wantTooLarge bool
+	}{
+		{
+			name:        "ordinary exact",
+			eventPrefix: "data: ",
+			totalBytes:  maxFirstSSEEventBytes,
+		},
+		{
+			name:         "ordinary overflow",
+			eventPrefix:  "data: ",
+			totalBytes:   maxFirstSSEEventBytes + 1,
+			wantTooLarge: true,
+		},
+		{
+			name:        "provider exact",
+			eventPrefix: "event: error\r\ndata: ",
+			isProvider:  true,
+			totalBytes:  maxFirstSSEEventBytes,
+		},
+		{
+			name:         "provider overflow",
+			eventPrefix:  "event: error\r\ndata: ",
+			isProvider:   true,
+			totalBytes:   maxFirstSSEEventBytes + 1,
+			wantTooLarge: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			const boundary = "\r\n\r\n"
+			paddingBytes := test.totalBytes - len(test.eventPrefix) - len(boundary)
+			if paddingBytes < 1 {
+				t.Fatal("invalid test fixture size")
+			}
+			wire := test.eventPrefix + strings.Repeat("x", paddingBytes) + boundary
+			event, err := bufferFirstSSEEvent(&chunkedSSEBody{
+				data:    []byte(wire),
+				maxRead: 1,
+			})
+			if test.wantTooLarge {
+				if !errors.Is(err, errFirstSSEEventTooLarge) {
+					t.Fatalf("bufferFirstSSEEvent() error = %v, want too large", err)
+				}
+				if event.Prefix != nil {
+					t.Fatalf("overflow Prefix length = %d, want nil", len(event.Prefix))
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("bufferFirstSSEEvent() error = %v", err)
+			}
+			wantPrefix := wire[:len(wire)-1]
+			if !bytes.Equal(event.Prefix, []byte(wantPrefix)) {
+				t.Fatalf("Prefix length/equality = %d/%t, want %d/true",
+					len(event.Prefix), bytes.Equal(event.Prefix, []byte(wantPrefix)), len(wantPrefix))
+			}
+			if event.IsProviderError != test.isProvider {
+				t.Fatalf("IsProviderError = %t, want %t", event.IsProviderError, test.isProvider)
+			}
+		})
+	}
+}
+
 func TestBufferFirstSSEEventAcceptsEventAtHardLimit(t *testing.T) {
 	const framingBytes = len("data: \n\n")
 	input := "data: " + strings.Repeat("x", maxFirstSSEEventBytes-framingBytes) + "\n\n"
 
-	prefix, err := bufferFirstSSEEvent(strings.NewReader(input))
+	event, err := bufferFirstSSEEvent(strings.NewReader(input))
 	if err != nil {
 		t.Fatalf("bufferFirstSSEEvent() error = %v", err)
 	}
-	if len(prefix) != maxFirstSSEEventBytes || string(prefix) != input {
-		t.Fatalf("prefix length/content = %d/%t, want %d/true", len(prefix), string(prefix) == input, maxFirstSSEEventBytes)
+	if len(event.Prefix) != maxFirstSSEEventBytes || string(event.Prefix) != input {
+		t.Fatalf("prefix length/content = %d/%t, want %d/true", len(event.Prefix), string(event.Prefix) == input, maxFirstSSEEventBytes)
 	}
 }
 
 func TestBufferFirstSSEEventRejectsIncompletePrefixAtHardLimit(t *testing.T) {
 	input := ":" + strings.Repeat("x", maxFirstSSEEventBytes-1)
 
-	prefix, err := bufferFirstSSEEvent(strings.NewReader(input))
+	event, err := bufferFirstSSEEvent(strings.NewReader(input))
 	if !errors.Is(err, errFirstSSEEventTooLarge) {
 		t.Fatalf("bufferFirstSSEEvent() error = %v, want first event too large", err)
 	}
-	if prefix != nil {
-		t.Fatalf("prefix length = %d, want nil on overflow", len(prefix))
+	if event.Prefix != nil {
+		t.Fatalf("prefix length = %d, want nil on overflow", len(event.Prefix))
 	}
 }
 
@@ -49,12 +258,12 @@ func TestBufferFirstSSEEventRejectsIncompleteStream(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			prefix, err := bufferFirstSSEEvent(bytes.NewBufferString(tt.input))
+			event, err := bufferFirstSSEEvent(bytes.NewBufferString(tt.input))
 			if !errors.Is(err, errIncompleteSSEEvent) {
 				t.Fatalf("bufferFirstSSEEvent() error = %v, want incomplete event", err)
 			}
-			if string(prefix) != tt.input {
-				t.Fatalf("prefix = %q, want %q", prefix, tt.input)
+			if string(event.Prefix) != tt.input {
+				t.Fatalf("prefix = %q, want %q", event.Prefix, tt.input)
 			}
 		})
 	}
@@ -64,12 +273,12 @@ func TestBufferFirstSSEEventPreservesWireBytesAndReadAhead(t *testing.T) {
 	const input = ": keepalive\n\ndata: first\n\ndata: second\n\n"
 	reader := &eofWithDataReader{data: []byte(input)}
 
-	prefix, err := bufferFirstSSEEvent(reader)
+	event, err := bufferFirstSSEEvent(reader)
 	if err != nil {
 		t.Fatalf("bufferFirstSSEEvent() error = %v", err)
 	}
-	if string(prefix) != input {
-		t.Fatalf("prefix = %q, want every byte already read %q", prefix, input)
+	if string(event.Prefix) != input {
+		t.Fatalf("prefix = %q, want every byte already read %q", event.Prefix, input)
 	}
 }
 
@@ -444,26 +653,167 @@ func TestPumpStreamClosesUpstreamOnIdleTimeout(t *testing.T) {
 	waitForSignal(t, body.closed, "upstream close")
 }
 
-func TestPumpStreamResetsIdleTimeoutAfterData(t *testing.T) {
-	body := newControlledReadCloser()
-	writer := newRecordingResponseWriter()
-	controller := newStreamWriteController(writer, time.Second)
-	done := make(chan error, 1)
-	const idle = 80 * time.Millisecond
-	go func() { done <- pumpStream(context.Background(), body, controller, idle) }()
+type barrierStreamWatchdog struct {
+	mu                sync.Mutex
+	resetCount        int
+	initialReset      chan struct{}
+	chunkReset        chan struct{}
+	releaseChunkReset chan struct{}
+	stopped           chan struct{}
+	cause             error
+}
 
-	waitForSignal(t, body.reads, "first upstream read")
-	time.Sleep(50 * time.Millisecond)
-	body.chunks <- []byte("data: keepalive\n\n")
-	waitForSignal(t, writer.writes, "downstream write")
-	waitForSignal(t, body.reads, "second upstream read")
-
-	select {
-	case err := <-done:
-		t.Fatalf("pumpStream() stopped before reset idle deadline: %v", err)
-	case <-time.After(45 * time.Millisecond):
+func newBarrierStreamWatchdog() *barrierStreamWatchdog {
+	return &barrierStreamWatchdog{
+		initialReset:      make(chan struct{}),
+		chunkReset:        make(chan struct{}),
+		releaseChunkReset: make(chan struct{}),
+		stopped:           make(chan struct{}),
 	}
-	close(body.chunks)
+}
+
+func (watchdog *barrierStreamWatchdog) reset() {
+	watchdog.mu.Lock()
+	watchdog.resetCount++
+	resetCount := watchdog.resetCount
+	watchdog.mu.Unlock()
+
+	switch resetCount {
+	case 1:
+		close(watchdog.initialReset)
+	case 2:
+		close(watchdog.chunkReset)
+		<-watchdog.releaseChunkReset
+	}
+}
+
+func (watchdog *barrierStreamWatchdog) interrupt(cause error) {
+	watchdog.mu.Lock()
+	watchdog.cause = cause
+	watchdog.mu.Unlock()
+}
+
+func (watchdog *barrierStreamWatchdog) stop() {
+	close(watchdog.stopped)
+}
+
+func (watchdog *barrierStreamWatchdog) causeValue() error {
+	watchdog.mu.Lock()
+	defer watchdog.mu.Unlock()
+	return watchdog.cause
+}
+
+type barrierStreamReadCloser struct {
+	firstRead    chan struct{}
+	releaseFirst chan struct{}
+	nextRead     chan struct{}
+	releaseEOF   chan struct{}
+	closeOnce    sync.Once
+	readCount    int
+}
+
+func newBarrierStreamReadCloser() *barrierStreamReadCloser {
+	return &barrierStreamReadCloser{
+		firstRead:    make(chan struct{}),
+		releaseFirst: make(chan struct{}),
+		nextRead:     make(chan struct{}),
+		releaseEOF:   make(chan struct{}),
+	}
+}
+
+func (reader *barrierStreamReadCloser) Read(destination []byte) (int, error) {
+	reader.readCount++
+	switch reader.readCount {
+	case 1:
+		close(reader.firstRead)
+		<-reader.releaseFirst
+		return copy(destination, "data: keepalive\n\n"), nil
+	default:
+		close(reader.nextRead)
+		<-reader.releaseEOF
+		return 0, io.EOF
+	}
+}
+
+func (reader *barrierStreamReadCloser) Close() error {
+	reader.closeOnce.Do(func() {
+		select {
+		case <-reader.releaseFirst:
+		default:
+			close(reader.releaseFirst)
+		}
+		select {
+		case <-reader.releaseEOF:
+		default:
+			close(reader.releaseEOF)
+		}
+	})
+	return nil
+}
+
+type barrierStreamResponseWriter struct {
+	*recordingResponseWriter
+	firstFlush  chan struct{}
+	release     chan struct{}
+	releaseOnce sync.Once
+}
+
+func newBarrierStreamResponseWriter() *barrierStreamResponseWriter {
+	return &barrierStreamResponseWriter{
+		recordingResponseWriter: newRecordingResponseWriter(),
+		firstFlush:              make(chan struct{}),
+		release:                 make(chan struct{}),
+	}
+}
+
+func (writer *barrierStreamResponseWriter) FlushError() error {
+	writer.flushes++
+	close(writer.firstFlush)
+	<-writer.release
+	return nil
+}
+
+func (writer *barrierStreamResponseWriter) unblock() {
+	writer.releaseOnce.Do(func() { close(writer.release) })
+}
+
+func TestPumpStreamResetsIdleTimeoutAfterData(t *testing.T) {
+	body := newBarrierStreamReadCloser()
+	t.Cleanup(func() { _ = body.Close() })
+	writer := newBarrierStreamResponseWriter()
+	t.Cleanup(writer.unblock)
+	controller := newStreamWriteController(writer, time.Second)
+	watchdog := newBarrierStreamWatchdog()
+	done := make(chan error, 1)
+	go func() {
+		done <- pumpStreamWithWatchdog(context.Background(), body, controller, watchdog)
+	}()
+
+	waitForSignal(t, watchdog.initialReset, "initial watchdog reset")
+	waitForSignal(t, body.firstRead, "first upstream read")
+	close(body.releaseFirst)
+	waitForSignal(t, watchdog.chunkReset, "watchdog reset after first chunk")
+	select {
+	case <-writer.writes:
+		t.Fatal("downstream write happened before the chunk watchdog reset returned")
+	default:
+	}
+	close(watchdog.releaseChunkReset)
+	waitForSignal(t, writer.writes, "downstream write")
+	waitForSignal(t, writer.firstFlush, "downstream flush")
+	select {
+	case <-body.nextRead:
+		t.Fatal("next upstream read started before the first chunk was flushed")
+	default:
+	}
+	writer.unblock()
+	waitForSignal(t, body.nextRead, "next upstream read")
+	select {
+	case <-watchdog.stopped:
+		t.Fatal("watchdog stopped before the stream reached clean EOF")
+	default:
+	}
+	close(body.releaseEOF)
 
 	select {
 	case err := <-done:
@@ -472,6 +822,29 @@ func TestPumpStreamResetsIdleTimeoutAfterData(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("pumpStream() did not finish after EOF")
+	}
+	waitForSignal(t, watchdog.stopped, "watchdog stop")
+}
+
+func TestStreamWatchdogIgnoresExpiredGenerationAfterReset(t *testing.T) {
+	body := newBlockingReadCloser()
+	watchdog := newStreamWatchdog(body, time.Hour)
+	t.Cleanup(watchdog.stop)
+
+	watchdog.reset()
+	watchdog.mu.Lock()
+	expiredGeneration := watchdog.generation
+	watchdog.mu.Unlock()
+	watchdog.reset()
+	watchdog.expire(expiredGeneration)
+
+	if cause := watchdog.causeValue(); cause != nil {
+		t.Fatalf("old watchdog generation interrupted the current generation: %v", cause)
+	}
+	select {
+	case <-body.closed:
+		t.Fatal("old watchdog generation closed the stream body")
+	default:
 	}
 }
 

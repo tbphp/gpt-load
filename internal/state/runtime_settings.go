@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"gpt-load/internal/platform/config"
+	"gpt-load/internal/platform/httpheader"
 )
 
 const (
@@ -304,6 +305,12 @@ func parseHeaderRules(value any) (HeaderRules, error) {
 				return HeaderRules{}, fmt.Errorf("header_rules.set contains invalid header name %q", name)
 			}
 			canonicalName := textproto.CanonicalMIMEHeaderKey(name)
+			if httpheader.IsForbiddenRequestRuleSetName(canonicalName) {
+				return HeaderRules{}, fmt.Errorf(
+					"header_rules.set cannot set forbidden header %q",
+					canonicalName,
+				)
+			}
 			identity := strings.ToLower(name)
 			if _, duplicate := seen[identity]; duplicate {
 				return HeaderRules{}, fmt.Errorf(
@@ -318,6 +325,13 @@ func parseHeaderRules(value any) (HeaderRules, error) {
 			}
 			if !validHTTPHeaderValue(text) {
 				return HeaderRules{}, fmt.Errorf("header_rules.set.%s contains invalid header value", name)
+			}
+			if httpheader.IsCredentialName(canonicalName) &&
+				!strings.Contains(text, "${API_KEY}") {
+				return HeaderRules{}, fmt.Errorf(
+					"header_rules.set.%s credential value must contain ${API_KEY}",
+					name,
+				)
 			}
 			rules.Set[canonicalName] = text
 		}

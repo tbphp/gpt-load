@@ -1,7 +1,6 @@
 package control
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/json"
@@ -342,33 +341,15 @@ func (s *Server) handleDeleteAccessKey(c *gin.Context) {
 }
 
 func bindStrictJSON(c *gin.Context, target any) error {
-	decoder, err := newControlJSONDecoder(c)
+	if c.Request.ContentLength > maxControlJSONBodyBytes {
+		return &http.MaxBytesError{Limit: maxControlJSONBodyBytes}
+	}
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxControlJSONBodyBytes)
+	raw, err := io.ReadAll(c.Request.Body)
 	if err != nil {
 		return err
 	}
-	var raw json.RawMessage
-	if err := decoder.Decode(&raw); err != nil {
-		return err
-	}
-	if len(raw) == 0 || bytes.TrimSpace(raw)[0] != '{' {
-		return fmt.Errorf("request body must be a JSON object")
-	}
-
-	var extra json.RawMessage
-	if err := decoder.Decode(&extra); err != io.EOF {
-		if err == nil {
-			return fmt.Errorf("decode JSON request: multiple values")
-		}
-		return err
-	}
-
-	strictDecoder := json.NewDecoder(bytes.NewReader(raw))
-	strictDecoder.UseNumber()
-	strictDecoder.DisallowUnknownFields()
-	if err := strictDecoder.Decode(target); err != nil {
-		return err
-	}
-	return nil
+	return decodeStrictControlJSONObject(raw, target)
 }
 
 func bindOptionalEmptyJSONObject(c *gin.Context) error {

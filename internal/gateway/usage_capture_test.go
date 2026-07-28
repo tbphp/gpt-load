@@ -560,16 +560,20 @@ func TestForwardStreamUsageExtractorMutationCannotAffectDataPlane(t *testing.T) 
 		name           string
 		panicOnObserve bool
 		rewriteModel   bool
+		wantFailures   uint64
 	}{
-		{name: "error", panicOnObserve: false},
-		{name: "panic with model rewrite", panicOnObserve: true, rewriteModel: true},
+		{name: "error", panicOnObserve: false, wantFailures: 2},
+		{name: "panic with model rewrite", panicOnObserve: true, rewriteModel: true, wantFailures: 1},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			const providerPayload = `{"error":{"message":"provider-model failed"},"model":"provider-model"}`
 			upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 				writer.Header().Set("Content-Type", "text/event-stream")
-				_, _ = writer.Write([]byte("event: error\ndata: " + providerPayload + "\n\n"))
+				_, _ = writer.Write([]byte(
+					`data: {"ready":true}` + "\n\n" +
+						"event: error\ndata: " + providerPayload + "\n\n",
+				))
 			}))
 			defer upstream.Close()
 
@@ -607,7 +611,7 @@ func TestForwardStreamUsageExtractorMutationCannotAffectDataPlane(t *testing.T) 
 				downstream.status != baselineDownstream.status ||
 				!reflect.DeepEqual(header, baselineHeader) ||
 				!bytes.Equal(downstream.body.Bytes(), baselineDownstream.body.Bytes()) ||
-				baselineFailures != 0 || failures != 1 {
+				baselineFailures != 0 || failures != test.wantFailures {
 				t.Fatalf(
 					"mutating extractor changed data plane:\n baseline result=%#v status=%d header=%#v body=%q failures=%d\n observed result=%#v status=%d header=%#v body=%q failures=%d",
 					baselineResult, baselineDownstream.status, baselineHeader, baselineDownstream.body.String(), baselineFailures,

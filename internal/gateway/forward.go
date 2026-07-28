@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptrace"
+	"net/textproto"
 	"sort"
 	"strconv"
 	"strings"
@@ -21,6 +22,7 @@ import (
 
 	"gpt-load/internal/dialect"
 	platformhttp "gpt-load/internal/platform/httpclient"
+	platformheader "gpt-load/internal/platform/httpheader"
 	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/platform/utils"
 	"gpt-load/internal/state"
@@ -38,17 +40,18 @@ type ForwardInput struct {
 }
 
 type UpstreamResult struct {
-	StatusCode            int
-	Header                http.Header
-	Body                  []byte
-	ClassificationBody    []byte
-	ErrorSummary          string
-	Err                   error
-	RequestWritten        bool
-	Committed             bool
-	RetryableBeforeCommit bool
-	Stream                StreamObservation
-	Usage                 usage.Result
+	StatusCode                int
+	Header                    http.Header
+	Body                      []byte
+	ClassificationBody        []byte
+	ErrorSummary              string
+	Err                       error
+	RequestWritten            bool
+	Committed                 bool
+	RetryableBeforeCommit     bool
+	ProviderErrorBeforeCommit bool
+	Stream                    StreamObservation
+	Usage                     usage.Result
 }
 
 func (result UpstreamResult) HasResponse() bool {
@@ -87,7 +90,12 @@ func (forwarder *Forwarder) Forward(ctx context.Context, input ForwardInput) Ups
 	if err != nil {
 		return UpstreamResult{Err: err}
 	}
-	knownSecrets := resolvedCredentialSecrets(input, request.Header)
+	knownSecrets := resolvedCredentialSecretValues(input, request.Header)
+	summarySecrets := resolvedErrorSummarySecretValues(
+		input.APIKey,
+		input.Group.HeaderRules,
+		knownSecrets...,
+	)
 	response, err := forwarder.clients.GetClient(nonStreamingClientConfig(input.Group.Timeouts)).Do(request)
 	if err != nil {
 		return UpstreamResult{Err: fmt.Errorf("perform upstream request: %w", err), RequestWritten: wroteRequest.Load()}
@@ -115,52 +123,30 @@ func (forwarder *Forwarder) Forward(ctx context.Context, input ForwardInput) Ups
 	}
 
 	headers := cloneEndToEndHeaders(response.Header)
-	capturedUsage := usage.Result{}
-	if success && forwarder.usageCapture != nil {
-		capturedUsage = forwarder.usageCapture.extractNonStreaming(
-			input.Dialect,
-			headers,
-			body,
-		)
-	}
-	if success && needsModelRewrite(input) {
-		if !inspectableStreamEncoding(response.Header) {
-			return UpstreamResult{
-				Err: fmt.Errorf(
-					"%w: Content-Encoding %q",
-					ErrUpstreamProtocol,
-					response.Header.Values("Content-Encoding"),
-				),
-				RequestWritten: true,
-			}
-		}
-		rewriter, ok := input.Dialect.(dialect.ModelRewriter)
-		if !ok {
-			return UpstreamResult{
-				Err:            fmt.Errorf("%w: dialect does not support model rewrite", ErrUpstreamProtocol),
-				RequestWritten: true,
-			}
-		}
-		body, err = rewriter.RewriteResponseModel(body, input.ExternalModel)
-		if err != nil {
-			return UpstreamResult{
-				Err:            fmt.Errorf("%w: rewrite upstream response model: %v", ErrUpstreamProtocol, err),
-				RequestWritten: true,
-			}
-		}
-		if int64(len(body)) > maxNonStreamingResponseBodyBytes {
-			return UpstreamResult{
-				Err:            fmt.Errorf("%w: rewritten non-streaming response body exceeds limit", ErrUpstreamProtocol),
-				RequestWritten: true,
-			}
-		}
-		updateRewrittenBodyHeaders(headers, len(body))
-	}
 	result := UpstreamResult{
 		StatusCode:     response.StatusCode,
 		Body:           body,
 		RequestWritten: true,
-		Usage:          capturedUsage,
+	}
+	if success {
+		prepared, prepareErr := forwarder.prepareSuccessRepresentation(
+			input,
+			headers,
+			body,
+			knownSecrets,
+		)
+		if prepareErr != nil {
+			return UpstreamResult{Err: prepareErr, RequestWritten: true}
+		}
+		result.Body = prepared.wire
+		result.Header = prepared.headers
+		if forwarder.usageCapture != nil {
+			result.Usage = forwarder.usageCapture.extractNonStreamingPlain(
+				input.Dialect,
+				prepared.plain,
+			)
+		}
+		return result
 	}
 	if !success {
 		var safeWire, safePlain []byte
@@ -177,13 +163,8 @@ func (forwarder *Forwarder) Forward(ctx context.Context, input ForwardInput) Ups
 		result.Body = safeWire
 		result.ClassificationBody = safePlain
 		result.ErrorSummary = summarizeErrorBody(
-			forwarder.redactor, safePlain, "", knownSecrets...,
+			forwarder.redactor, safePlain, "", summarySecrets...,
 		)
-	} else if nonIdentityEncodingContainsKey(headers, input.APIKey) {
-		return UpstreamResult{
-			Err:            fmt.Errorf("%w: credential collision in Content-Encoding", ErrUpstreamProtocol),
-			RequestWritten: true,
-		}
 	}
 	result.Header = sanitizeForwardResponseHeaders(headers, input, knownSecrets...)
 	return result
@@ -205,12 +186,18 @@ func (forwarder *Forwarder) ForwardStream(
 	if err != nil {
 		return UpstreamResult{Err: err}
 	}
-	knownSecrets := resolvedCredentialSecrets(input, request.Header)
+	knownSecrets := resolvedCredentialSecretValues(input, request.Header)
+	summarySecrets := resolvedErrorSummarySecretValues(
+		input.APIKey,
+		input.Group.HeaderRules,
+		knownSecrets...,
+	)
 	response, err := forwarder.clients.GetClient(streamingClientConfig(input.Group.Timeouts)).Do(request)
 	if err != nil {
+		requestWritten := wroteRequest.Load()
 		return UpstreamResult{
 			Err:            streamAttemptError(ctx, deadline.ctx, fmt.Errorf("perform upstream stream request: %w", err)),
-			RequestWritten: wroteRequest.Load(), RetryableBeforeCommit: retryableBeforeCommit(ctx),
+			RequestWritten: requestWritten, RetryableBeforeCommit: retryableBeforeCommit(ctx, requestWritten),
 		}
 	}
 	streamBody := response.Body
@@ -225,7 +212,7 @@ func (forwarder *Forwarder) ForwardStream(
 		body, overflow, readErr := readStreamingErrorBody(streamBody)
 		if readErr != nil {
 			result.Err = streamAttemptError(ctx, deadline.ctx, fmt.Errorf("read upstream stream error response: %w", readErr))
-			result.RetryableBeforeCommit = retryableBeforeCommit(ctx)
+			result.RetryableBeforeCommit = retryableBeforeCommit(ctx, result.RequestWritten)
 			return result
 		}
 		if overflow {
@@ -242,7 +229,7 @@ func (forwarder *Forwarder) ForwardStream(
 			forwarder.redactor,
 			result.ClassificationBody,
 			"",
-			knownSecrets...,
+			summarySecrets...,
 		)
 		result.Header = sanitizeForwardResponseHeaders(headers, input, knownSecrets...)
 		return result
@@ -254,7 +241,7 @@ func (forwarder *Forwarder) ForwardStream(
 
 	if !inspectableStreamEncoding(response.Header) {
 		result.Err = fmt.Errorf("%w: Content-Encoding %q", ErrUpstreamProtocol, response.Header.Values("Content-Encoding"))
-		result.RetryableBeforeCommit = retryableBeforeCommit(ctx)
+		result.RetryableBeforeCommit = retryableBeforeCommit(ctx, result.RequestWritten)
 		return result
 	}
 
@@ -265,11 +252,14 @@ func (forwarder *Forwarder) ForwardStream(
 		rewriter, ok = input.Dialect.(dialect.ModelRewriter)
 		if !ok {
 			result.Err = fmt.Errorf("%w: dialect does not support model rewrite", ErrUpstreamProtocol)
-			result.RetryableBeforeCommit = retryableBeforeCommit(ctx)
+			result.RetryableBeforeCommit = retryableBeforeCommit(ctx, result.RequestWritten)
 			return result
 		}
 	}
+	firstPayloadPending := true
 	streamBody = newSSERewriteStream(streamBody, func(data []byte, errorEvent bool) ([]byte, error) {
+		firstPayload := firstPayloadPending
+		firstPayloadPending = false
 		safePayload := data
 		for _, secret := range knownSecrets {
 			var ok bool
@@ -283,14 +273,17 @@ func (forwarder *Forwarder) ForwardStream(
 				return nil, fmt.Errorf("%w: redact upstream SSE credential", ErrUpstreamProtocol)
 			}
 		}
-		streamEvents.observeUsage(safePayload)
-		if errorEvent {
+		if !firstPayload {
+			streamEvents.observeUsage(safePayload)
+		}
+		if errorEvent && !firstPayload {
 			observationPayload := forwarder.redactor.Bytes(safePayload)
 			streamEvents.observeError(
 				summarizeErrorBody(
 					forwarder.redactor,
 					observationPayload,
 					fixedErrorSummary("upstream_sse_error"),
+					summarySecrets...,
 				),
 			)
 		}
@@ -308,6 +301,7 @@ func (forwarder *Forwarder) ForwardStream(
 			if !ok {
 				return nil, fmt.Errorf("%w: rewrite upstream SSE model literal", ErrUpstreamProtocol)
 			}
+			return safePayload, nil
 		}
 		rewritten, err := rewriter.RewriteResponseModel(safePayload, input.ExternalModel)
 		if err != nil {
@@ -317,7 +311,7 @@ func (forwarder *Forwarder) ForwardStream(
 	})
 	invalidateRewrittenBodyHeaders(headers)
 
-	prefix, err := bufferFirstSSEEvent(streamBody)
+	firstEvent, err := bufferFirstSSEEvent(streamBody)
 	if err != nil {
 		if !rewriteModel && errors.Is(err, errSSEEventTooLarge) {
 			err = errFirstSSEEventTooLarge
@@ -326,18 +320,33 @@ func (forwarder *Forwarder) ForwardStream(
 			err = fmt.Errorf("%w: %w", ErrUpstreamProtocol, err)
 		}
 		result.Err = streamAttemptError(ctx, deadline.ctx, err)
-		result.RetryableBeforeCommit = retryableBeforeCommit(ctx)
+		result.RetryableBeforeCommit = retryableBeforeCommit(ctx, result.RequestWritten)
 		return result
 	}
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		result.Err = ctxErr
 		return result
 	}
-	if !deadline.disarm() {
-		result.Err = streamAttemptError(ctx, deadline.ctx, context.DeadlineExceeded)
-		result.RetryableBeforeCommit = retryableBeforeCommit(ctx)
+
+	if firstEvent.IsProviderError {
+		result.ClassificationBody = forwarder.safeProviderErrorPayload(
+			firstEvent.Payload,
+			knownSecrets,
+		)
+		result.ErrorSummary = fixedErrorSummary("upstream_sse_error")
+		result.Header = providerErrorRateLimitHeaders(
+			sanitizeForwardResponseHeaders(headers, input, knownSecrets...),
+		)
+		result.ProviderErrorBeforeCommit = true
+		result.Usage = usage.Result{State: usage.StateMissing}
 		return result
 	}
+	if !deadline.disarm() {
+		result.Err = streamAttemptError(ctx, deadline.ctx, context.DeadlineExceeded)
+		result.RetryableBeforeCommit = retryableBeforeCommit(ctx, result.RequestWritten)
+		return result
+	}
+	streamEvents.observeUsage(firstEvent.Payload)
 
 	if input.OnStreamReady != nil {
 		input.OnStreamReady()
@@ -349,7 +358,7 @@ func (forwarder *Forwarder) ForwardStream(
 
 	result.Committed = true
 	releaseCommittedRequestReplay(input.Request, replay)
-	if err := commitStream(streamWriter, response.StatusCode, result.Header, prefix); err != nil {
+	if err := commitStream(streamWriter, response.StatusCode, result.Header, firstEvent.Prefix); err != nil {
 		result.Err = err
 		result.Stream = observeStreamTermination(ctx, err, streamEvents)
 		return result
@@ -361,8 +370,49 @@ func (forwarder *Forwarder) ForwardStream(
 	return result
 }
 
-func retryableBeforeCommit(parent context.Context) bool {
-	return parent != nil && parent.Err() == nil
+func retryableBeforeCommit(parent context.Context, requestWritten bool) bool {
+	return !requestWritten && parent != nil && parent.Err() == nil
+}
+
+func providerErrorRateLimitHeaders(source http.Header) http.Header {
+	filtered := make(http.Header)
+	for name, values := range source {
+		lowered := strings.ToLower(name)
+		// Keep this allowlist synchronized with health.ParseRateLimitReset.
+		if lowered != "retry-after" &&
+			!(strings.HasPrefix(lowered, "anthropic-ratelimit-") &&
+				strings.HasSuffix(lowered, "-reset")) &&
+			lowered != "x-ratelimit-reset" &&
+			!strings.HasPrefix(lowered, "x-ratelimit-reset-") {
+			continue
+		}
+		filtered[name] = append([]string(nil), values...)
+	}
+	return filtered
+}
+
+func (forwarder *Forwarder) safeProviderErrorPayload(
+	payload []byte,
+	knownSecrets []string,
+) []byte {
+	safe := bytes.Clone(payload)
+	for _, secret := range knownSecrets {
+		var ok bool
+		safe, ok = rewriteBoundedLiteral(
+			safe,
+			secret,
+			redact.Placeholder,
+			int64(maxFirstSSEEventBytes),
+		)
+		if !ok {
+			return []byte(redact.Placeholder)
+		}
+	}
+	safe = forwarder.redactor.Bytes(safe)
+	if len(safe) > maxFirstSSEEventBytes {
+		return []byte(redact.Placeholder)
+	}
+	return safe
 }
 
 func releaseCommittedRequestReplay(parsed *dialect.ParsedRequest, replay *requestReplay) {
@@ -407,19 +457,20 @@ func (forwarder *Forwarder) newUpstreamRequest(
 		return nil, nil, nil, fmt.Errorf("build upstream URL: %w", err)
 	}
 	replay := newRequestReplay(parsed.Body)
-	request, err := http.NewRequestWithContext(ctx, parsed.Method, upstreamURL, replay.open())
+	request, err := http.NewRequestWithContext(ctx, parsed.Method, upstreamURL, nil)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("create upstream request: %w", err)
 	}
+	request.Body = replay.open()
 	request.ContentLength = int64(len(parsed.Body))
-	request.GetBody = func() (io.ReadCloser, error) { return replay.open(), nil }
+	request.GetBody = nil
 	request.Header = cloneEndToEndHeaders(parsed.Header)
 	if bodyChanged {
 		invalidateRewrittenBodyHeaders(request.Header)
 	}
 	removeDownstreamCredentials(request.Header)
 	dialect.ApplyCredential(input.Dialect, request.Header, input.APIKey, input.Group.HeaderRules)
-	request.Header.Del(requestIDHeader)
+	sanitizeUpstreamRequestHeaders(request.Header)
 	if stream || rewrite {
 		request.Header.Set("Accept-Encoding", "identity")
 	}
@@ -461,7 +512,7 @@ func (forwarder *Forwarder) prepareErrorBody(
 		finalHeaders = resolvedHeaders[0]
 	}
 	safePlain := plain
-	for _, secret := range resolvedCredentialSecrets(input, finalHeaders) {
+	for _, secret := range resolvedCredentialSecretValues(input, finalHeaders) {
 		var ok bool
 		safePlain, ok = rewriteBoundedLiteral(
 			safePlain,
@@ -505,7 +556,27 @@ func (forwarder *Forwarder) prepareErrorBody(
 	return safeWire, safePlain
 }
 
-func resolvedCredentialSecrets(input ForwardInput, finalHeaders http.Header) []string {
+func isResolvedCredentialHeaderName(selected dialect.Dialect, name string) bool {
+	if platformheader.IsCredentialName(name) {
+		return true
+	}
+	namer, ok := selected.(dialect.CredentialHeaderNamer)
+	if !ok {
+		return false
+	}
+	identity := canonicalHeaderIdentity(name)
+	if identity == "" {
+		return false
+	}
+	for _, dialectName := range namer.CredentialHeaderNames() {
+		if identity == canonicalHeaderIdentity(dialectName) {
+			return true
+		}
+	}
+	return false
+}
+
+func resolvedCredentialSecretValues(input ForwardInput, finalHeaders http.Header) []string {
 	if finalHeaders == nil {
 		finalHeaders = make(http.Header)
 		if input.Request != nil {
@@ -518,7 +589,7 @@ func resolvedCredentialSecrets(input ForwardInput, finalHeaders http.Header) []s
 			input.APIKey,
 			input.Group.HeaderRules,
 		)
-		finalHeaders.Del(requestIDHeader)
+		sanitizeUpstreamRequestHeaders(finalHeaders)
 	}
 
 	secrets := make([]string, 0, 8)
@@ -534,18 +605,11 @@ func resolvedCredentialSecrets(input ForwardInput, finalHeaders http.Header) []s
 		secrets = append(secrets, value)
 	}
 	appendSecret(input.APIKey)
-	for _, name := range []string{
-		"Authorization",
-		"X-Api-Key",
-		"X-Goog-Api-Key",
-		"Api-Key",
-	} {
-		for _, value := range finalHeaders.Values(name) {
-			appendSecret(value)
+	for name, values := range finalHeaders {
+		if !isResolvedCredentialHeaderName(input.Dialect, name) {
+			continue
 		}
-	}
-	for name := range input.Group.HeaderRules.Set {
-		for _, value := range finalHeaders.Values(name) {
+		for _, value := range values {
 			appendSecret(value)
 		}
 	}
@@ -726,11 +790,24 @@ func updateRewrittenBodyHeaders(headers http.Header, bodyLength int) {
 	headers.Set("Content-Length", strconv.Itoa(bodyLength))
 }
 
+var representationMetadataHeaderNames = [...]string{
+	"Content-Encoding",
+	"Content-Length",
+	"ETag",
+	"Digest",
+	"Content-MD5",
+	"Content-Range",
+	"Content-Digest",
+	"Repr-Digest",
+	"Signature",
+	"Signature-Input",
+}
+
 func invalidateRewrittenBodyHeaders(headers http.Header) {
-	for _, name := range []string{
-		"Content-Length", "ETag", "Digest", "Content-MD5", "Content-Range", "Content-Digest", "Repr-Digest",
-		"Signature", "Signature-Input",
-	} {
+	for _, name := range representationMetadataHeaderNames {
+		if strings.EqualFold(name, "Content-Encoding") {
+			continue
+		}
 		headers.Del(name)
 	}
 }
@@ -749,6 +826,7 @@ func nonStreamingClientConfig(timeouts state.TimeoutConfig) *platformhttp.Config
 		ForceAttemptHTTP2:     true,
 		TLSHandshakeTimeout:   timeouts.Connect,
 		ExpectContinueTimeout: time.Second,
+		DisableRedirects:      true,
 	}
 }
 
@@ -766,6 +844,7 @@ func streamingClientConfig(timeouts state.TimeoutConfig) *platformhttp.Config {
 		ForceAttemptHTTP2:     true,
 		TLSHandshakeTimeout:   timeouts.Connect,
 		ExpectContinueTimeout: time.Second,
+		DisableRedirects:      true,
 	}
 }
 
@@ -873,22 +952,58 @@ func cloneEndToEndHeaders(source http.Header) http.Header {
 	if cloned == nil {
 		cloned = make(http.Header)
 	}
-	for _, value := range source.Values("Connection") {
-		for _, token := range strings.Split(value, ",") {
-			if name := strings.TrimSpace(token); name != "" {
-				cloned.Del(name)
+	for name, values := range source {
+		if !strings.EqualFold(name, "Connection") {
+			continue
+		}
+		for _, value := range values {
+			for _, token := range strings.Split(value, ",") {
+				if tokenName := strings.TrimSpace(token); tokenName != "" {
+					deleteHeaderField(cloned, tokenName)
+				}
 			}
 		}
 	}
-	for name := range hopByHopHeaders {
-		cloned.Del(name)
-	}
 	for name := range cloned {
-		if isDebugHeader(name) {
+		if isHopByHopHeader(name) || isDebugHeader(name) {
 			delete(cloned, name)
 		}
 	}
 	return cloned
+}
+
+func isHopByHopHeader(name string) bool {
+	for hopName := range hopByHopHeaders {
+		if strings.EqualFold(name, hopName) {
+			return true
+		}
+	}
+	return false
+}
+
+func sanitizeUpstreamRequestHeaders(headers http.Header) {
+	if headers == nil {
+		return
+	}
+	for name, values := range headers {
+		if !strings.EqualFold(name, "Connection") {
+			continue
+		}
+		for _, value := range values {
+			for _, token := range strings.Split(value, ",") {
+				if tokenName := strings.TrimSpace(token); tokenName != "" {
+					deleteHeaderField(headers, tokenName)
+				}
+			}
+		}
+	}
+	for name := range headers {
+		if isHopByHopHeader(name) ||
+			platformheader.IsForbiddenRequestRuleSetName(name) ||
+			isDebugHeader(name) {
+			delete(headers, name)
+		}
+	}
 }
 
 func headerValuesContainLiteral(values []string, literal string) bool {
@@ -924,12 +1039,12 @@ func nonIdentityEncodingContainsKey(headers http.Header, apiKey string) bool {
 
 func sanitizeUpstreamResponseHeaders(source http.Header, apiKey string) http.Header {
 	headers := cloneEndToEndHeaders(source)
-	namesToDelete := []string{
-		"Authorization", "Proxy-Authorization", "Api-Key",
-		"X-Api-Key", "X-Goog-Api-Key",
-	}
+	namesToDelete := make([]string, 0)
 	for actualName, values := range headers {
-		if headerValuesContainLiteral(values, apiKey) {
+		if platformheader.IsCredentialName(actualName) ||
+			strings.EqualFold(actualName, "Set-Cookie") ||
+			strings.EqualFold(actualName, "Set-Cookie2") ||
+			headerValuesContainLiteral(values, apiKey) {
 			namesToDelete = append(namesToDelete, actualName)
 		}
 	}
@@ -944,17 +1059,24 @@ func sanitizeForwardResponseHeaders(
 	input ForwardInput,
 	additionalSecrets ...string,
 ) http.Header {
-	headers := sanitizeUpstreamResponseHeaders(source, input.APIKey)
+	headers := cloneEndToEndHeaders(source)
 	namesToDelete := make([]string, 0)
 	for actualName, values := range headers {
+		deleteField := isResolvedCredentialHeaderName(input.Dialect, actualName) ||
+			strings.EqualFold(actualName, "Set-Cookie") ||
+			strings.EqualFold(actualName, "Set-Cookie2") ||
+			headerValuesContainLiteral(values, input.APIKey)
 		for _, secret := range additionalSecrets {
-			if secret == "" || secret == input.APIKey {
+			if deleteField || secret == "" || secret == input.APIKey {
 				continue
 			}
 			if headerValuesContainLiteral(values, secret) {
-				namesToDelete = append(namesToDelete, actualName)
+				deleteField = true
 				break
 			}
+		}
+		if deleteField {
+			namesToDelete = append(namesToDelete, actualName)
 		}
 	}
 	for _, name := range namesToDelete {
@@ -970,7 +1092,7 @@ func sanitizeForwardResponseHeaders(
 		if !nameContainsModel && !valuesContainModel {
 			continue
 		}
-		if isRequiredRepresentationHeader(name) {
+		if isRequiredRepresentationFramingHeader(name) {
 			continue
 		}
 		if strings.EqualFold(name, "Content-Type") {
@@ -999,7 +1121,16 @@ func headerNameContainsLiteral(name, literal string) bool {
 	return literal != "" && strings.Contains(strings.ToLower(name), strings.ToLower(literal))
 }
 
-func isRequiredRepresentationHeader(name string) bool {
+func isRepresentationMetadataHeader(name string) bool {
+	for _, metadataName := range representationMetadataHeaderNames {
+		if strings.EqualFold(name, metadataName) {
+			return true
+		}
+	}
+	return false
+}
+
+func isRequiredRepresentationFramingHeader(name string) bool {
 	return strings.EqualFold(name, "Content-Encoding") ||
 		strings.EqualFold(name, "Content-Length")
 }
@@ -1055,6 +1186,13 @@ func deleteHeaderField(headers http.Header, name string) {
 	}
 }
 
+func canonicalHeaderIdentity(name string) string {
+	if name == "" {
+		return ""
+	}
+	return strings.ToLower(textproto.CanonicalMIMEHeaderKey(name))
+}
+
 func isDebugHeader(name string) bool {
 	for _, reserved := range debugHeaderNames {
 		if strings.EqualFold(name, reserved) {
@@ -1065,8 +1203,10 @@ func isDebugHeader(name string) bool {
 }
 
 func removeDownstreamCredentials(headers http.Header) {
-	for _, name := range []string{"Authorization", "X-Api-Key", "X-Goog-Api-Key"} {
-		headers.Del(name)
+	for name := range headers {
+		if platformheader.IsCredentialName(name) {
+			delete(headers, name)
+		}
 	}
 }
 

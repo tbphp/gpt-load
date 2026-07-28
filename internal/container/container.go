@@ -39,7 +39,7 @@ func BuildContainer() (*dig.Container, error) {
 			return encryption.NewServiceWithKeyFile(cfg.EncryptionKey, cfg.DataDir)
 		},
 		func(cfg *config.Config) (*gorm.DB, error) {
-			return storage.Open(cfg.DatabaseDSN)
+			return storage.OpenWithSource(cfg.DatabaseDSN, cfg.DatabaseMetadata.Source)
 		},
 		app.NewEngine,
 		webui.NewServer,
@@ -47,6 +47,7 @@ func BuildContainer() (*dig.Container, error) {
 		state.NewKeyRegistry,
 		control.NewPriceRuntime,
 		health.NewStatsStore,
+		health.NewMutationCoordinator,
 		ratelimit.NewAccessKeyRPM,
 		func(limiter *ratelimit.AccessKeyRPM) gateway.AccessKeyRPMLimiter {
 			return limiter

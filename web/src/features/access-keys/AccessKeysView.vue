@@ -22,7 +22,9 @@ const queryClient = useQueryClient()
 const { t } = useI18n()
 const drawerOpen = ref(false)
 const selected = ref<AccessKeyDto | null>(null)
+const viewRoot = ref<HTMLElement | null>(null)
 let restoreFocus: HTMLElement | null = null
+let mounted = true
 
 const accessKeysQuery = useQuery({
   queryKey: controlQueryKeys.accessKeys.list(),
@@ -34,6 +36,7 @@ const groupsQuery = useQuery({
   queryFn: ({ signal }) => listGroups(client, signal),
 })
 onBeforeUnmount(() => {
+  mounted = false
   queryClient.removeQueries({ queryKey: controlQueryKeys.accessKeys.list(), exact: true })
 })
 
@@ -59,10 +62,21 @@ async function setDrawerOpen(open: boolean): Promise<void> {
     target?.focus()
   }
 }
+
+async function focusCreateAfterDelete(): Promise<void> {
+  await queryClient.invalidateQueries({
+    queryKey: controlQueryKeys.accessKeys.list(),
+    exact: true,
+  })
+  await nextTick()
+  if (!mounted) return
+  const target = viewRoot.value?.querySelector('button[data-test="access-key-create"]')
+  if (target instanceof HTMLButtonElement && target.isConnected) target.focus()
+}
 </script>
 
 <template>
-  <section class="access-keys" aria-labelledby="access-keys-title">
+  <section ref="viewRoot" class="access-keys" aria-labelledby="access-keys-title">
     <PageHeader
       id="access-keys-title"
       :title="t('accessKeys.title')"
@@ -123,6 +137,7 @@ async function setDrawerOpen(open: boolean): Promise<void> {
         :access-keys="accessKeysQuery.data.value ?? []"
         :groups="groupsQuery.data.value ?? []"
         @edit="editKey"
+        @deleted="focusCreateAfterDelete"
       />
     </template>
   </section>

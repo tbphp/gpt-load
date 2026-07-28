@@ -110,6 +110,7 @@ func newDialectGatewayEngine(
 		NewForwarder(platformhttp.NewHTTPClientManager(), redact.New()),
 		dialects,
 		health.NewStatsStore(),
+		health.NewMutationCoordinator(),
 		nil,
 		nil,
 	)
@@ -746,7 +747,7 @@ func TestGeminiGatewayStream(t *testing.T) {
 }
 
 func TestGeminiGatewayCompressed(t *testing.T) {
-	t.Run("bad candidate fails over before commit", func(t *testing.T) {
+	t.Run("request-written compressed response terminates before retry", func(t *testing.T) {
 		compressed := fakeupstream.New(fakeupstream.Step{
 			Status: http.StatusOK, Fixture: "stream.sse", Stream: true,
 			Headers: http.Header{"Content-Encoding": {"gzip"}},
@@ -763,8 +764,9 @@ func TestGeminiGatewayCompressed(t *testing.T) {
 		request.Header.Set("Authorization", "Bearer gl-client")
 		recorder := httptest.NewRecorder()
 		engine.ServeHTTP(recorder, request)
-		if recorder.Code != http.StatusOK || recorder.Header().Get(debugHeaderAttempts) != "2" ||
-			len(compressed.Requests()) != 1 || len(backup.Requests()) != 1 {
+		if recorder.Code != http.StatusBadGateway || recorder.Header().Get(debugHeaderAttempts) != "1" ||
+			!strings.Contains(recorder.Body.String(), reasonUpstreamProtocol.Code) ||
+			len(compressed.Requests()) != 1 || len(backup.Requests()) != 0 {
 			t.Fatalf("response = %d headers=%v compressed=%d backup=%d body=%s", recorder.Code, recorder.Header(), len(compressed.Requests()), len(backup.Requests()), recorder.Body.String())
 		}
 	})
@@ -789,7 +791,7 @@ func TestGeminiGatewayCompressed(t *testing.T) {
 		request.Header.Set("Authorization", "Bearer gl-client")
 		recorder := httptest.NewRecorder()
 		engine.ServeHTTP(recorder, request)
-		if recorder.Code != http.StatusBadGateway || recorder.Header().Get(debugHeaderAttempts) != "2" ||
+		if recorder.Code != http.StatusBadGateway || recorder.Header().Get(debugHeaderAttempts) != "1" ||
 			!strings.Contains(recorder.Body.String(), reasonUpstreamProtocol.Code) ||
 			len(registry.CollectCandidates([]uint{1, 2}, nil, time.Time{})) != 2 {
 			t.Fatalf("response = %d headers=%v candidates=%d body=%s", recorder.Code, recorder.Header(), len(registry.CollectCandidates([]uint{1, 2}, nil, time.Time{})), recorder.Body.String())

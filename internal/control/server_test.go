@@ -177,6 +177,135 @@ func TestControlJSONBodyLimitBoundary(t *testing.T) {
 	}
 }
 
+func TestControlMutationRejectsDuplicateJSONWithoutSideEffects(t *testing.T) {
+	initControlI18n(t)
+
+	for _, endpoint := range []struct {
+		name   string
+		method string
+		path   string
+		body   string
+	}{
+		{
+			name:   "group",
+			method: http.MethodPost,
+			path:   "/api/groups",
+			body: `{"name":"first","name":"second",` +
+				`"upstream_url":"https://duplicate.example.com/v1",` +
+				`"protocols":["openai"],"keys":"sk-duplicate"}`,
+		},
+		{
+			name:   "access key",
+			method: http.MethodPost,
+			path:   "/api/access-keys",
+			body:   `{"name":"first","name":"second"}`,
+		},
+		{
+			name:   "settings",
+			method: http.MethodPut,
+			path:   "/api/settings",
+			body:   `{"settings":{"request_timeout":900,"request_timeout":901}}`,
+		},
+		{
+			name:   "model price",
+			method: http.MethodPut,
+			path:   "/api/model-prices",
+			body: `{"pattern":"duplicate-model","prices":{"uncached_input":1,` +
+				`"cache_read":2,"cache_read":3,"cache_write_5m":4,` +
+				`"cache_write_1h":5,"output":6}}`,
+		},
+		{
+			name:   "route inspector",
+			method: http.MethodPost,
+			path:   "/api/route/inspect",
+			body: `{"protocol":"openai","protocol":"openai",` +
+				`"external_model":"gpt-4o","access_key_id":1}`,
+		},
+	} {
+		t.Run(endpoint.name, func(t *testing.T) {
+			fixture := newServiceFixture(t)
+			engine := gin.New()
+			NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).
+				RegisterRoutes(engine)
+			before := captureDuplicateJSONControlState(t, fixture)
+
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(endpoint.method, endpoint.path, strings.NewReader(endpoint.body))
+			request.Header.Set("Authorization", "Bearer test-auth-key")
+			request.Header.Set("Content-Type", "application/json")
+			engine.ServeHTTP(recorder, request)
+
+			if recorder.Code != http.StatusBadRequest {
+				t.Errorf("response = %d %s, want 400", recorder.Code, recorder.Body.String())
+			} else {
+				var envelope struct {
+					Code string `json:"code"`
+				}
+				if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err != nil {
+					t.Errorf("decode response: %v", err)
+				} else if envelope.Code != app_errors.ErrInvalidJSON.Code {
+					t.Errorf("response code = %q, want %q", envelope.Code, app_errors.ErrInvalidJSON.Code)
+				}
+			}
+			assertDuplicateJSONControlStateUnchanged(t, fixture, before)
+		})
+	}
+}
+
+type duplicateJSONControlState struct {
+	rowCounts [5]int64
+	snapshot  *state.ConfigSnapshot
+	registry  []state.KeyRuntimeView
+}
+
+func captureDuplicateJSONControlState(
+	t *testing.T,
+	fixture serviceFixture,
+) duplicateJSONControlState {
+	t.Helper()
+	var counts [5]int64
+	for index, model := range []any{
+		&models.Group{},
+		&models.UpstreamKey{},
+		&models.AccessKey{},
+		&models.SystemSetting{},
+		&models.ModelPrice{},
+	} {
+		if err := fixture.db.Model(model).Count(&counts[index]).Error; err != nil {
+			t.Fatalf("count %T rows: %v", model, err)
+		}
+	}
+	return duplicateJSONControlState{
+		rowCounts: counts,
+		snapshot:  fixture.manager.Current(),
+		registry:  fixture.registry.Snapshot(),
+	}
+}
+
+func assertDuplicateJSONControlStateUnchanged(
+	t *testing.T,
+	fixture serviceFixture,
+	want duplicateJSONControlState,
+) {
+	t.Helper()
+	got := captureDuplicateJSONControlState(t, fixture)
+	if got.rowCounts != want.rowCounts {
+		t.Errorf("database row counts = %v, want unchanged %v", got.rowCounts, want.rowCounts)
+	}
+	if got.snapshot != want.snapshot || got.snapshot.Revision != want.snapshot.Revision {
+		t.Errorf(
+			"snapshot pointer/revision = %p/%d, want unchanged %p/%d",
+			got.snapshot,
+			got.snapshot.Revision,
+			want.snapshot,
+			want.snapshot.Revision,
+		)
+	}
+	if !reflect.DeepEqual(got.registry, want.registry) {
+		t.Errorf("Registry runtime = %#v, want unchanged %#v", got.registry, want.registry)
+	}
+}
+
 type controlWhitespaceReader struct{}
 
 func (controlWhitespaceReader) Read(buffer []byte) (int, error) {

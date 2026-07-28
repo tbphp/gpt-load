@@ -14,6 +14,7 @@ import (
 
 const (
 	maxSummaryBytes = 1024
+	maxModelBytes   = 255
 	truncatedMarker = "...[truncated]"
 )
 
@@ -30,7 +31,7 @@ func mapEvent(
 			GroupName:       attempt.GroupName,
 			KeyID:           attempt.KeyID,
 			KeyMask:         attempt.KeyMask,
-			UpstreamModel:   attempt.UpstreamModel,
+			UpstreamModel:   projectModel(attempt.UpstreamModel),
 			StatusCode:      attempt.StatusCode,
 			DurationMs:      attempt.DurationMs,
 			FailureCategory: attempt.FailureCategory,
@@ -60,8 +61,8 @@ func mapEvent(
 		AccessKeyID:        event.AccessKeyID,
 		GroupID:            event.Usage.GroupID,
 		Protocol:           string(event.Protocol),
-		ClientModel:        event.ClientModel,
-		UpstreamModel:      event.UpstreamModel,
+		ClientModel:        projectModel(event.ClientModel),
+		UpstreamModel:      projectModel(event.UpstreamModel),
 		Status:             string(event.Status),
 		StatusCode:         event.StatusCode,
 		DurationMs:         event.DurationMs,
@@ -78,6 +79,19 @@ func mapEvent(
 		CostState:          string(quote.State),
 		Attempts:           models.JSON(encodedAttempts),
 	}
+}
+
+func projectModel(model string) string {
+	model = strings.ToValidUTF8(model, "\uFFFD")
+	if len(model) <= maxModelBytes {
+		return model
+	}
+
+	prefixBytes := maxModelBytes - len(truncatedMarker)
+	for prefixBytes > 0 && !utf8.ValidString(model[:prefixBytes]) {
+		prefixBytes--
+	}
+	return model[:prefixBytes] + truncatedMarker
 }
 
 func sanitizeSummary(redactor *redact.Redactor, summary string) string {

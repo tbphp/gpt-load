@@ -30,6 +30,7 @@ type Config struct {
 	TLSHandshakeTimeout   time.Duration
 	ExpectContinueTimeout time.Duration
 	ProxyURL              string
+	DisableRedirects      bool
 }
 
 // HTTPClientManager manages the lifecycle of HTTP clients.
@@ -101,10 +102,16 @@ func (m *HTTPClientManager) GetClient(config *Config) *http.Client {
 		transport.Proxy = http.ProxyFromEnvironment
 	}
 
+	checkRedirect := rejectCrossOriginRedirect
+	if config.DisableRedirects {
+		checkRedirect = func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		}
+	}
 	newClient := &http.Client{
 		Transport:     transport,
 		Timeout:       config.RequestTimeout,
-		CheckRedirect: rejectCrossOriginRedirect,
+		CheckRedirect: checkRedirect,
 	}
 
 	m.clients[fingerprint] = newClient
@@ -170,7 +177,7 @@ func normalizedOrigin(request *http.Request) (scheme, host, port string, ok bool
 // getFingerprint generates a unique string representation of the client configuration.
 func (c *Config) getFingerprint() string {
 	return fmt.Sprintf(
-		"ct:%.0fs|rt:%.0fs|it:%.0fs|mic:%d|mich:%d|rht:%.0fs|dc:%t|wbs:%d|rbs:%d|fh2:%t|tlst:%.0fs|ect:%.0fs|proxy:%s",
+		"ct:%.0fs|rt:%.0fs|it:%.0fs|mic:%d|mich:%d|rht:%.0fs|dc:%t|wbs:%d|rbs:%d|fh2:%t|tlst:%.0fs|ect:%.0fs|proxy:%s|dr:%t",
 		c.ConnectTimeout.Seconds(),
 		c.RequestTimeout.Seconds(),
 		c.IdleConnTimeout.Seconds(),
@@ -184,5 +191,6 @@ func (c *Config) getFingerprint() string {
 		c.TLSHandshakeTimeout.Seconds(),
 		c.ExpectContinueTimeout.Seconds(),
 		c.ProxyURL,
+		c.DisableRedirects,
 	)
 }

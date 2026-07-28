@@ -1,11 +1,13 @@
 package dialect
 
 import (
+	"fmt"
 	"math"
 	"net/http"
 	"strings"
 	"testing"
 
+	"gpt-load/internal/pricing"
 	"gpt-load/internal/usage"
 )
 
@@ -302,6 +304,300 @@ func TestUsageAnthropicRequiredPresenceControlsState(t *testing.T) {
 	}
 }
 
+func TestUsageAnthropicStreamCompletesOnlyAtMessageStop(t *testing.T) {
+	start := `{"type":"message_start","message":{"usage":{"input_tokens":80,"cache_read_input_tokens":20,"cache_creation":{"ephemeral_5m_input_tokens":5,"ephemeral_1h_input_tokens":7},"output_tokens":0}}}`
+	delta := `{"type":"message_delta","usage":{"output_tokens":30}}`
+
+	partial := NewAnthropic(http.DefaultClient).NewUsageStreamExtractor()
+	for _, event := range []string{start, delta} {
+		if err := partial.Observe([]byte(event)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	partialResult, finalized := partial.Finalize()
+	want := usage.Tokens{UncachedInput: 80, CacheRead: 20, CacheWrite5M: 5, CacheWrite1H: 7, Output: 30}
+	if !finalized || partialResult.State != usage.StatePartial || partialResult.Tokens != want {
+		t.Fatalf("stream without stop = %#v, %t, want partial with %#v", partialResult, finalized, want)
+	}
+	requireUsageDiagnostics(t, partialResult.Diagnostics)
+
+	complete := NewAnthropic(http.DefaultClient).NewUsageStreamExtractor()
+	for _, event := range []string{start, delta, `{"type":"message_stop"}`} {
+		if err := complete.Observe([]byte(event)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	completeResult, finalized := complete.Finalize()
+	if !finalized || completeResult.State != usage.StateComplete || completeResult.Tokens != want {
+		t.Fatalf("stream with stop = %#v, %t, want complete with %#v", completeResult, finalized, want)
+	}
+	requireUsageDiagnostics(t, completeResult.Diagnostics)
+}
+
+func TestUsageAnthropicStreamMergesCumulativeDeltaFields(t *testing.T) {
+	stream := NewAnthropic(http.DefaultClient).NewUsageStreamExtractor()
+	for _, event := range []string{
+		`{"type":"message_start","message":{"usage":{"input_tokens":80,"cache_read_input_tokens":20,"cache_creation":{"ephemeral_5m_input_tokens":5,"ephemeral_1h_input_tokens":7},"output_tokens":0}}}`,
+		`{"type":"message_delta","usage":{"output_tokens":10}}`,
+		`{"type":"message_delta","usage":{"cache_read_input_tokens":25}}`,
+		`{"type":"message_delta","usage":{"input_tokens":90,"cache_creation":{"ephemeral_5m_input_tokens":8}}}`,
+		`{"type":"message_delta","usage":{"output_tokens":30}}`,
+		`{"type":"message_stop"}`,
+	} {
+		if err := stream.Observe([]byte(event)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	result, finalized := stream.Finalize()
+	want := usage.Tokens{UncachedInput: 90, CacheRead: 25, CacheWrite5M: 8, CacheWrite1H: 7, Output: 30}
+	if !finalized || result.State != usage.StateComplete || result.Tokens != want {
+		t.Fatalf("Finalize() = %#v, %t, want complete with %#v", result, finalized, want)
+	}
+	requireUsageDiagnostics(t, result.Diagnostics)
+
+	fallback := NewAnthropic(http.DefaultClient).NewUsageStreamExtractor()
+	for _, event := range []string{
+		`{"type":"message_start","message":{"usage":{"input_tokens":80,"cache_creation_input_tokens":12}}}`,
+		`{"type":"message_stop"}`,
+	} {
+		if err := fallback.Observe([]byte(event)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fallbackResult, finalized := fallback.Finalize()
+	if !finalized || fallbackResult.State != usage.StateComplete ||
+		fallbackResult.Tokens != (usage.Tokens{UncachedInput: 80, CacheWrite5M: 12}) {
+		t.Fatalf("aggregate fallback = %#v, %t", fallbackResult, finalized)
+	}
+	requireUsageDiagnostics(t, fallbackResult.Diagnostics, usage.DiagnosticCacheWriteDefaulted5M)
+}
+
+func TestUsageAnthropicStreamReconcilesAggregateAfterCumulativeMerge(t *testing.T) {
+	tests := []struct {
+		name        string
+		events      []string
+		want        usage.Tokens
+		diagnostics []usage.DiagnosticCode
+	}{
+		{
+			name: "aggregate-only delta reuses trusted detail breakdown",
+			events: []string{
+				`{"type":"message_start","message":{"usage":{"input_tokens":80,"cache_creation":{"ephemeral_5m_input_tokens":5,"ephemeral_1h_input_tokens":7},"cache_creation_input_tokens":12}}}`,
+				`{"type":"message_delta","usage":{"cache_creation_input_tokens":12}}`,
+				`{"type":"message_stop"}`,
+			},
+			want: usage.Tokens{UncachedInput: 80, CacheWrite5M: 5, CacheWrite1H: 7},
+		},
+		{
+			name: "partial delta detail reconciles with trusted omitted field",
+			events: []string{
+				`{"type":"message_start","message":{"usage":{"input_tokens":80,"cache_creation":{"ephemeral_1h_input_tokens":7}}}}`,
+				`{"type":"message_delta","usage":{"cache_creation":{"ephemeral_5m_input_tokens":8},"cache_creation_input_tokens":15}}`,
+				`{"type":"message_stop"}`,
+			},
+			want: usage.Tokens{UncachedInput: 80, CacheWrite5M: 8, CacheWrite1H: 7},
+		},
+		{
+			name: "real detail replaces provisional aggregate fallback",
+			events: []string{
+				`{"type":"message_start","message":{"usage":{"input_tokens":80,"cache_creation_input_tokens":12}}}`,
+				`{"type":"message_delta","usage":{"cache_creation":{"ephemeral_5m_input_tokens":5,"ephemeral_1h_input_tokens":7},"cache_creation_input_tokens":12}}`,
+				`{"type":"message_stop"}`,
+			},
+			want:        usage.Tokens{UncachedInput: 80, CacheWrite5M: 5, CacheWrite1H: 7},
+			diagnostics: []usage.DiagnosticCode{usage.DiagnosticCacheWriteDefaulted5M},
+		},
+		{
+			name: "invalid detail does not trigger aggregate fallback",
+			events: []string{
+				`{"type":"message_start","message":{"usage":{"input_tokens":80,"cache_creation":[],"cache_creation_input_tokens":12}}}`,
+				`{"type":"message_stop"}`,
+			},
+			want:        usage.Tokens{UncachedInput: 80},
+			diagnostics: []usage.DiagnosticCode{usage.DiagnosticInvalidNumber},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stream := NewAnthropic(http.DefaultClient).NewUsageStreamExtractor()
+			for _, event := range tt.events {
+				if err := stream.Observe([]byte(event)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			result, finalized := stream.Finalize()
+			if !finalized || result.State != usage.StateComplete || result.Tokens != tt.want {
+				t.Fatalf("Finalize() = %#v, %t, want complete with %#v", result, finalized, tt.want)
+			}
+			requireUsageDiagnostics(t, result.Diagnostics, tt.diagnostics...)
+		})
+	}
+}
+
+func TestUsageAnthropicStreamRejectsOutOfOrderAndRegressingCumulatives(t *testing.T) {
+	t.Run("delta and stop without valid start", func(t *testing.T) {
+		stream := NewAnthropic(http.DefaultClient).NewUsageStreamExtractor()
+		for _, event := range []string{
+			`{"type":"message_delta","usage":{"output_tokens":30}}`,
+			`{"type":"message_stop"}`,
+		} {
+			if err := stream.Observe([]byte(event)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		result, finalized := stream.Finalize()
+		if !finalized || result.State != usage.StateMissing || result.Tokens != (usage.Tokens{}) {
+			t.Fatalf("Finalize() = %#v, %t, want missing", result, finalized)
+		}
+		requireUsageDiagnostics(t, result.Diagnostics, usage.DiagnosticInvalidEventSequence)
+	})
+
+	t.Run("last good cumulatives survive invalid events", func(t *testing.T) {
+		stream := NewAnthropic(http.DefaultClient).NewUsageStreamExtractor()
+		for _, event := range []string{
+			`{"type":"message_start","message":{"usage":{"input_tokens":80,"output_tokens":0}}}`,
+			`{"type":"message_delta","usage":{"output_tokens":10,"cache_read_input_tokens":4}}`,
+			`{"type":"message_delta","usage":{"output_tokens":5}}`,
+			`{"type":"message_delta","usage":{"cache_read_input_tokens":-1}}`,
+			`{"type":"message_delta","usage":{"input_tokens":"invalid"}}`,
+			`{"type":"message_stop"}`,
+			`{"type":"message_delta","usage":{"output_tokens":20}}`,
+			`{"type":"message_stop"}`,
+		} {
+			if err := stream.Observe([]byte(event)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		result, finalized := stream.Finalize()
+		want := usage.Tokens{UncachedInput: 80, CacheRead: 4, Output: 10}
+		if !finalized || result.State != usage.StateComplete || result.Tokens != want {
+			t.Fatalf("Finalize() = %#v, %t, want complete with %#v", result, finalized, want)
+		}
+		requireUsageDiagnostics(
+			t,
+			result.Diagnostics,
+			usage.DiagnosticNegativeValue,
+			usage.DiagnosticInvalidNumber,
+			usage.DiagnosticInvalidEventSequence,
+		)
+	})
+}
+
+func TestUsageAnthropicStreamStartStopWithoutDelta(t *testing.T) {
+	stream := NewAnthropic(http.DefaultClient).NewUsageStreamExtractor()
+	for _, event := range []string{
+		`{"type":"message_start","message":{"usage":{"input_tokens":80,"cache_read_input_tokens":20,"output_tokens":0}}}`,
+		`{"type":"message_stop"}`,
+	} {
+		if err := stream.Observe([]byte(event)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	result, finalized := stream.Finalize()
+	want := usage.Tokens{UncachedInput: 80, CacheRead: 20, Output: 0}
+	if !finalized || result.State != usage.StateComplete || result.Tokens != want {
+		t.Fatalf("Finalize() = %#v, %t, want complete with %#v", result, finalized, want)
+	}
+	requireUsageDiagnostics(t, result.Diagnostics)
+}
+
+func TestUsageAnthropicStreamEOFRemainsPartial(t *testing.T) {
+	stream := NewAnthropic(http.DefaultClient).NewUsageStreamExtractor()
+	for _, event := range []string{
+		`{"type":"message_start","message":{"usage":{"input_tokens":80}}}`,
+		`{"type":"message_delta","usage":{"output_tokens":30}}`,
+	} {
+		if err := stream.Observe([]byte(event)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	result, finalized := stream.Finalize()
+	want := usage.Tokens{UncachedInput: 80, Output: 30}
+	if !finalized || result.State != usage.StatePartial || result.Tokens != want {
+		t.Fatalf("Finalize() = %#v, %t, want partial with %#v", result, finalized, want)
+	}
+	requireUsageDiagnostics(t, result.Diagnostics)
+}
+
+func TestUsageAnthropicServerToolDetailRemainsUnpriced(t *testing.T) {
+	stream := NewAnthropic(http.DefaultClient).NewUsageStreamExtractor()
+	observeUsageJSONL(t, stream, readUsageFixture(t, "anthropic", "server-tool.jsonl"))
+	result, finalized := stream.Finalize()
+	if !finalized || result.State != usage.StateComplete ||
+		result.Tokens != (usage.Tokens{UncachedInput: 80, Output: 30}) {
+		t.Fatalf("Finalize() = %#v, %t", result, finalized)
+	}
+	requireUsageDiagnostics(t, result.Diagnostics, usage.DiagnosticUnsupportedBillableDetail)
+
+	table, err := pricing.Compile([]pricing.Rule{{
+		Pattern: "claude-test",
+		Prices: pricing.Prices{
+			UncachedInput: pricing.Price{Value: 1, Set: true},
+			Output:        pricing.Price{Value: 1, Set: true},
+		},
+		Source: pricing.SourceUser,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if quote := table.Quote("claude-test", result); quote.State != pricing.CostStateUnpriced || quote.Cost != 0 {
+		t.Fatalf("Quote() = %+v, want unpriced zero", quote)
+	}
+}
+
+func TestUsageAnthropicNonStreamServerToolDetailPricing(t *testing.T) {
+	table, err := pricing.Compile([]pricing.Rule{{
+		Pattern: "claude-test",
+		Prices: pricing.Prices{
+			UncachedInput: pricing.Price{Value: 1, Set: true},
+			Output:        pricing.Price{Value: 1, Set: true},
+		},
+		Source: pricing.SourceUser,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tt := range []struct {
+		name        string
+		count       int
+		diagnostics []usage.DiagnosticCode
+		costState   pricing.CostState
+	}{
+		{
+			name:        "nonzero detail is unpriced",
+			count:       2,
+			diagnostics: []usage.DiagnosticCode{usage.DiagnosticUnsupportedBillableDetail},
+			costState:   pricing.CostStateUnpriced,
+		},
+		{
+			name:      "zero detail is not diagnosed",
+			count:     0,
+			costState: pricing.CostStatePriced,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			body := fmt.Sprintf(
+				`{"usage":{"input_tokens":80,"output_tokens":30,"server_tool_use":{"web_search_requests":%d}}}`,
+				tt.count,
+			)
+			result, extractErr := NewAnthropic(http.DefaultClient).ExtractUsage([]byte(body))
+			if extractErr != nil {
+				t.Fatal(extractErr)
+			}
+			if result.State != usage.StateComplete ||
+				result.Tokens != (usage.Tokens{UncachedInput: 80, Output: 30}) {
+				t.Fatalf("ExtractUsage() = %#v", result)
+			}
+			requireUsageDiagnostics(t, result.Diagnostics, tt.diagnostics...)
+			if quote := table.Quote("claude-test", result); quote.State != tt.costState {
+				t.Fatalf("Quote() = %+v, want state %q", quote, tt.costState)
+			}
+		})
+	}
+}
+
 func TestUsageAnthropicStreamPatchState(t *testing.T) {
 	extractor := NewAnthropic(http.DefaultClient)
 	tests := []struct {
@@ -318,10 +614,9 @@ func TestUsageAnthropicStreamPatchState(t *testing.T) {
 			want:  usage.Tokens{UncachedInput: 80, CacheRead: 20, CacheWrite5M: 5, CacheWrite1H: 7},
 		},
 		{
-			name:        "delta only preserves output but remains partial",
+			name:        "delta only is rejected without trusted tokens",
 			steps:       []string{`{"type":"message_delta","usage":{"output_tokens":30}}`},
-			state:       usage.StatePartial,
-			want:        usage.Tokens{Output: 30},
+			state:       usage.StateMissing,
 			diagnostics: []usage.DiagnosticCode{usage.DiagnosticInvalidEventSequence},
 		},
 		{
@@ -330,9 +625,8 @@ func TestUsageAnthropicStreamPatchState(t *testing.T) {
 				`{"type":"message_start","message":{"usage":{"input_tokens":80}}}`,
 				`{"type":"message_delta","usage":{}}`,
 			},
-			state:       usage.StatePartial,
-			want:        usage.Tokens{UncachedInput: 80},
-			diagnostics: []usage.DiagnosticCode{usage.DiagnosticMissingRequiredField},
+			state: usage.StatePartial,
+			want:  usage.Tokens{UncachedInput: 80},
 		},
 		{
 			name: "start then invalid output remains partial",
@@ -350,6 +644,7 @@ func TestUsageAnthropicStreamPatchState(t *testing.T) {
 				`{"type":"message_start","message":{"usage":{"input_tokens":80}}}`,
 				`{"type":"message_delta","usage":{"output_tokens":10}}`,
 				`{"type":"message_delta","usage":{"output_tokens":30}}`,
+				`{"type":"message_stop"}`,
 			},
 			state: usage.StateComplete,
 			want:  usage.Tokens{UncachedInput: 80, Output: 30},
@@ -361,7 +656,7 @@ func TestUsageAnthropicStreamPatchState(t *testing.T) {
 				`{"type":"message_start","message":{"usage":{"input_tokens":80}}}`,
 			},
 			state:       usage.StatePartial,
-			want:        usage.Tokens{UncachedInput: 80, Output: 30},
+			want:        usage.Tokens{UncachedInput: 80},
 			diagnostics: []usage.DiagnosticCode{usage.DiagnosticInvalidEventSequence},
 		},
 	}
@@ -398,9 +693,11 @@ func TestUsageAnthropicStreamPresenceAndInvalidStartHandling(t *testing.T) {
 				`{"type":"message_start","message":{"usage":{"input_tokens":80,"cache_read_input_tokens":20}}}`,
 				`{"type":"message_start","message":{"usage":{"input_tokens":80}}}`,
 				`{"type":"message_delta","usage":{"output_tokens":30}}`,
+				`{"type":"message_stop"}`,
 			},
-			state: usage.StateComplete,
-			want:  usage.Tokens{UncachedInput: 80, CacheRead: 20, Output: 30},
+			state:       usage.StateComplete,
+			want:        usage.Tokens{UncachedInput: 80, CacheRead: 20, Output: 30},
+			diagnostics: []usage.DiagnosticCode{usage.DiagnosticInvalidEventSequence},
 		},
 		{
 			name: "invalid input cannot establish start",
@@ -408,8 +705,7 @@ func TestUsageAnthropicStreamPresenceAndInvalidStartHandling(t *testing.T) {
 				`{"type":"message_start","message":{"usage":{"input_tokens":"bad"}}}`,
 				`{"type":"message_delta","usage":{"output_tokens":30}}`,
 			},
-			state:       usage.StatePartial,
-			want:        usage.Tokens{Output: 30},
+			state:       usage.StateMissing,
 			diagnostics: []usage.DiagnosticCode{usage.DiagnosticInvalidNumber, usage.DiagnosticInvalidEventSequence},
 		},
 		{
@@ -418,8 +714,7 @@ func TestUsageAnthropicStreamPresenceAndInvalidStartHandling(t *testing.T) {
 				`{"type":"message_start","message":{"usage":{"input_tokens":-1}}}`,
 				`{"type":"message_delta","usage":{"output_tokens":30}}`,
 			},
-			state:       usage.StatePartial,
-			want:        usage.Tokens{Output: 30},
+			state:       usage.StateMissing,
 			diagnostics: []usage.DiagnosticCode{usage.DiagnosticNegativeValue, usage.DiagnosticInvalidEventSequence},
 		},
 		{
@@ -438,10 +733,11 @@ func TestUsageAnthropicStreamPresenceAndInvalidStartHandling(t *testing.T) {
 				`{"type":"message_start","message":{"usage":{"input_tokens":80,"cache_read_input_tokens":20}}}`,
 				`{"type":"message_start","message":{"usage":{"input_tokens":80,"cache_creation":[]}}}`,
 				`{"type":"message_delta","usage":{"output_tokens":30}}`,
+				`{"type":"message_stop"}`,
 			},
 			state:       usage.StateComplete,
 			want:        usage.Tokens{UncachedInput: 80, CacheRead: 20, Output: 30},
-			diagnostics: []usage.DiagnosticCode{usage.DiagnosticInvalidNumber},
+			diagnostics: []usage.DiagnosticCode{usage.DiagnosticInvalidNumber, usage.DiagnosticInvalidEventSequence},
 		},
 	}
 
@@ -474,6 +770,9 @@ func TestUsageAnthropicMalformedPayloadPreservesStateAndDoesNotLeak(t *testing.T
 		t.Fatalf("malformed error leaked payload: %q", err)
 	}
 	if err := stream.Observe([]byte(`{"type":"message_delta","usage":{"output_tokens":30}}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := stream.Observe([]byte(`{"type":"message_stop"}`)); err != nil {
 		t.Fatal(err)
 	}
 	result, finalized := stream.Finalize()

@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -51,6 +52,120 @@ func TestValidationWorkerFallsBackToFirstRealModelID(t *testing.T) {
 
 	if got, want := probes.calls(), []validationProbeCall{{protocol: protocol.OpenAI, model: "real-model", apiKey: "plain-key-7"}}; !sameValidationProbeCalls(got, want) {
 		t.Fatalf("Probe calls = %#v, want %#v", got, want)
+	}
+}
+
+func TestValidationSignatureUsesCanonicalLengthPrefixedEncoding(t *testing.T) {
+	group := state.GroupView{
+		ID:              42,
+		UpstreamURL:     "https://upstream.example.com/v1",
+		Protocols:       []protocol.Protocol{protocol.OpenAI},
+		ValidationModel: " model-a ",
+		HeaderRules: state.HeaderRules{
+			Set: map[string]string{
+				"X-Zeta":  "last",
+				"x-alpha": "first",
+			},
+			Remove: []string{"X-Old", "x-beta"},
+		},
+	}
+
+	target, ok := buildGroupValidationTarget(group)
+	if !ok {
+		t.Fatal("buildGroupValidationTarget() ok = false, want true")
+	}
+	if target.protocol != protocol.OpenAI || target.model != "model-a" {
+		t.Fatalf("target protocol/model = %q/%q, want openai/model-a", target.protocol, target.model)
+	}
+	const want = "31aef1941ace227941aba7ed020cdc08773eec427b696d13aebeaaacfc86045f"
+	if got := fmt.Sprintf("%x", target.signature); got != want {
+		t.Fatalf("validation signature = %s, want canonical digest %s", got, want)
+	}
+}
+
+func TestValidationSignatureChangesForEveryCoveredInput(t *testing.T) {
+	base := validationSignatureGroup()
+	tests := []struct {
+		name   string
+		base   state.GroupView
+		mutate func(*state.GroupView)
+	}{
+		{name: "group id", base: base, mutate: func(group *state.GroupView) {
+			group.ID++
+		}},
+		{name: "upstream URL", base: base, mutate: func(group *state.GroupView) {
+			group.UpstreamURL += "/changed"
+		}},
+		{name: "selected protocol", base: base, mutate: func(group *state.GroupView) {
+			group.Protocols[0] = protocol.Anthropic
+		}},
+		{name: "explicit validation model", base: base, mutate: func(group *state.GroupView) {
+			group.ValidationModel = "model-b"
+		}},
+		{name: "fallback first model", base: func() state.GroupView {
+			group := base
+			group.ValidationModel = ""
+			return group
+		}(), mutate: func(group *state.GroupView) {
+			group.Models[0].ID = "model-b"
+		}},
+		{name: "header set name", base: base, mutate: func(group *state.GroupView) {
+			value := group.HeaderRules.Set["X-Alpha"]
+			delete(group.HeaderRules.Set, "X-Alpha")
+			group.HeaderRules.Set["X-Renamed"] = value
+		}},
+		{name: "header set value", base: base, mutate: func(group *state.GroupView) {
+			group.HeaderRules.Set["X-Alpha"] = "changed"
+		}},
+		{name: "header remove", base: base, mutate: func(group *state.GroupView) {
+			group.HeaderRules.Remove[0] = "X-Changed"
+		}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			before := cloneValidationGroup(test.base)
+			after := cloneValidationGroup(test.base)
+			test.mutate(&after)
+
+			beforeTarget, beforeOK := buildGroupValidationTarget(before)
+			afterTarget, afterOK := buildGroupValidationTarget(after)
+			if !beforeOK || !afterOK {
+				t.Fatalf("build target ok = %t/%t, want true/true", beforeOK, afterOK)
+			}
+			if beforeTarget.signature == afterTarget.signature {
+				t.Fatalf("signature did not change after mutating %s", test.name)
+			}
+		})
+	}
+}
+
+func TestValidationSignatureIsStableAcrossNormalizedHeaderOrder(t *testing.T) {
+	first := validationSignatureGroup()
+	first.HeaderRules.Set = map[string]string{
+		"X-Alpha": "first",
+		"X-Zeta":  "last",
+	}
+	first.HeaderRules.Remove = []string{"X-Beta", "X-Old"}
+
+	second := validationSignatureGroup()
+	second.HeaderRules.Set = map[string]string{
+		"x-zeta":  "last",
+		"x-alpha": "first",
+	}
+	second.HeaderRules.Remove = []string{"x-old", "x-beta"}
+
+	firstTarget, firstOK := buildGroupValidationTarget(first)
+	secondTarget, secondOK := buildGroupValidationTarget(second)
+	if !firstOK || !secondOK {
+		t.Fatalf("build target ok = %t/%t, want true/true", firstOK, secondOK)
+	}
+	if firstTarget.signature != secondTarget.signature {
+		t.Fatalf(
+			"semantically equal HeaderRules signatures differ: %x != %x",
+			firstTarget.signature,
+			secondTarget.signature,
+		)
 	}
 }
 
@@ -100,19 +215,41 @@ func TestValidationWorkerKeepsKeyBlacklistedOnDecryptOrProbeFailure(t *testing.T
 	}
 }
 
-func TestValidationWorkerRecoversInRequiredOrder(t *testing.T) {
+func TestValidationWorkerCoordinatesConditionalRecoveryAndStatsReset(t *testing.T) {
 	probes := &validationProbeRecorder{}
 	worker := newValidationWorkerForTest(
 		validationSnapshot(map[uint]state.GroupView{1: validationGroup([]protocol.Protocol{protocol.OpenAI}, "model", nil)}),
 		[]state.KeyRef{{ID: 7, GroupID: 1, EncryptedValue: "key-7"}},
 		probes,
 	)
+	coordinator := &barrierValidationMutationCoordinator{
+		entered: make(chan struct{}), releaseEntry: make(chan struct{}),
+		observe: worker.recorder.events, observed: make(chan []string, 1),
+		releaseExit: make(chan struct{}),
+	}
+	worker.mutations = coordinator
 
-	worker.Validate(context.Background())
+	done := make(chan struct{})
+	go func() {
+		worker.Validate(context.Background())
+		close(done)
+	}()
 
-	if got, want := worker.recorder.events(), []string{"stats.reset:7", "registry.weight:7:50", "registry.recover:7"}; !sameValidationEvents(got, want) {
+	awaitSignal(t, coordinator.entered)
+	if got := worker.recorder.events(); len(got) != 0 {
+		t.Fatalf("recovery events before coordinator callback = %#v, want none", got)
+	}
+	close(coordinator.releaseEntry)
+	if got, want := awaitValue(t, coordinator.observed), []string{"registry.weight:7:50", "registry.recover:7", "stats.reset:7"}; !sameValidationEvents(got, want) {
 		t.Fatalf("recovery events = %#v, want %#v", got, want)
 	}
+	select {
+	case <-done:
+		t.Fatal("validation returned before coordinator interval was released")
+	default:
+	}
+	close(coordinator.releaseExit)
+	awaitSignal(t, done)
 	if got := worker.snapshots.(*validationSnapshotRecorder).calls(); got != 1 {
 		t.Fatalf("snapshot reads = %d, want 1", got)
 	}
@@ -121,7 +258,7 @@ func TestValidationWorkerRecoversInRequiredOrder(t *testing.T) {
 	}
 }
 
-func TestValidationWorkerDoesNotReportRecoveredWhenConditionalRecoveryFails(t *testing.T) {
+func TestValidationWorkerRecoverIfMatchFailsDoesNotResetStats(t *testing.T) {
 	probes := &validationProbeRecorder{}
 	worker := newValidationWorkerForTest(
 		validationSnapshot(map[uint]state.GroupView{1: validationGroup([]protocol.Protocol{protocol.OpenAI}, "model", nil)}),
@@ -132,9 +269,457 @@ func TestValidationWorkerDoesNotReportRecoveredWhenConditionalRecoveryFails(t *t
 
 	worker.Validate(context.Background())
 
-	if got, want := worker.recorder.events(), []string{"stats.reset:7"}; !sameValidationEvents(got, want) {
-		t.Fatalf("recovery events = %#v, want %#v", got, want)
+	if got := worker.recorder.events(); len(got) != 0 {
+		t.Fatalf("recovery events = %#v, want none", got)
 	}
+}
+
+func TestValidationWorkerFailureGenerationChangesDuringProbeRejectsRecovery(t *testing.T) {
+	now := time.Date(2026, time.July, 27, 12, 0, 0, 0, time.UTC)
+	registry := state.NewKeyRegistry()
+	if err := registry.Replace([]state.KeyEntry{{
+		ID: 7, GroupID: 1, Status: state.KeyStatusActive,
+		Blacklisted: true, FailureCount: 3, EncryptedValue: "key-7",
+	}}); err != nil {
+		t.Fatalf("Replace() error = %v", err)
+	}
+	stats := health.NewStatsStore()
+	stats.Record(7, false, now)
+	probeStarted := make(chan struct{})
+	releaseProbe := make(chan struct{})
+	worker := &validationWorker{
+		snapshots: &validationSnapshotRecorder{snapshot: validationSnapshot(map[uint]state.GroupView{
+			1: validationSignatureGroup(),
+		})},
+		registry:  registry,
+		stats:     stats,
+		mutations: health.NewMutationCoordinator(),
+		decryptor: validationDecryptor{},
+		dialects: dialect.Set{protocol.OpenAI: &validationTestDialect{
+			protocol: protocol.OpenAI,
+			probes: &validationProbeRecorder{probe: func(context.Context, protocol.Protocol, string, string) error {
+				close(probeStarted)
+				<-releaseProbe
+				return nil
+			}},
+		}},
+	}
+
+	done := make(chan struct{})
+	go func() {
+		worker.Validate(context.Background())
+		close(done)
+	}()
+	awaitSignal(t, probeStarted)
+	if count, ok := registry.IncrFailure(7); !ok || count != 4 {
+		t.Fatalf("IncrFailure() = %d/%t, want 4/true", count, ok)
+	}
+	close(releaseProbe)
+	awaitValidationDone(t, done)
+
+	if got, want := registry.BlacklistedKeys(), []state.KeyRef{{
+		ID: 7, GroupID: 1, EncryptedValue: "key-7", FailureGeneration: 1,
+	}}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("blacklisted keys = %#v, want stale recovery rejected as %#v", got, want)
+	}
+	if got, want := stats.Snapshot(7, now), (health.KeyStats{Failure: 1, ConsecutiveFailure: 1}); got != want {
+		t.Fatalf("stats after stale recovery = %#v, want %#v", got, want)
+	}
+}
+
+func TestValidationSignatureChangesDuringProbeRejectRecovery(t *testing.T) {
+	oldGroup := validationSignatureGroup()
+	tests := []struct {
+		name    string
+		prepare func(*state.GroupView)
+		mutate  func(*state.GroupView)
+	}{
+		{name: "upstream URL", mutate: func(group *state.GroupView) {
+			group.UpstreamURL += "/changed"
+		}},
+		{name: "protocol", mutate: func(group *state.GroupView) {
+			group.Protocols[0] = protocol.Anthropic
+		}},
+		{name: "explicit model", mutate: func(group *state.GroupView) {
+			group.ValidationModel = "model-b"
+		}},
+		{name: "fallback model", prepare: func(group *state.GroupView) {
+			group.ValidationModel = ""
+		}, mutate: func(group *state.GroupView) {
+			group.Models[0].ID = "model-b"
+		}},
+		{name: "HeaderRules set", mutate: func(group *state.GroupView) {
+			group.HeaderRules.Set["X-Alpha"] = "changed-secret"
+		}},
+		{name: "HeaderRules remove", mutate: func(group *state.GroupView) {
+			group.HeaderRules.Remove[0] = "X-Changed"
+		}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			captured := cloneValidationGroup(oldGroup)
+			if test.prepare != nil {
+				test.prepare(&captured)
+			}
+			worker := newValidationWorkerForTest(
+				validationSnapshot(map[uint]state.GroupView{1: captured}),
+				[]state.KeyRef{{ID: 7, GroupID: 1, EncryptedValue: "key-7"}},
+				&validationProbeRecorder{},
+			)
+			current := cloneValidationGroup(captured)
+			test.mutate(&current)
+			worker.validationWorker.dialects[protocol.OpenAI] = &validationTestDialect{
+				protocol: protocol.OpenAI,
+				probes: &validationProbeRecorder{probe: func(context.Context, protocol.Protocol, string, string) error {
+					worker.snapshots.(*validationSnapshotRecorder).setSnapshot(
+						validationSnapshot(map[uint]state.GroupView{1: current}),
+					)
+					return nil
+				}},
+			}
+
+			worker.Validate(context.Background())
+
+			if got := worker.recorder.events(); len(got) != 0 {
+				t.Fatalf("recovery events after %s change = %#v, want none", test.name, got)
+			}
+		})
+	}
+}
+
+func TestValidationWorkerUnrelatedSnapshotRevisionAllowsRecovery(t *testing.T) {
+	oldGroup := validationSignatureGroup()
+	worker := newValidationWorkerForTest(
+		&state.ConfigSnapshot{
+			Revision: 1,
+			Groups:   map[uint]state.GroupView{1: cloneValidationGroup(oldGroup)},
+		},
+		[]state.KeyRef{{ID: 7, GroupID: 1, EncryptedValue: "key-7"}},
+		&validationProbeRecorder{},
+	)
+	worker.validationWorker.dialects[protocol.OpenAI] = &validationTestDialect{
+		protocol: protocol.OpenAI,
+		probes: &validationProbeRecorder{probe: func(context.Context, protocol.Protocol, string, string) error {
+			worker.snapshots.(*validationSnapshotRecorder).setSnapshot(&state.ConfigSnapshot{
+				Revision: 2,
+				Groups: map[uint]state.GroupView{
+					1: cloneValidationGroup(oldGroup),
+					2: {
+						ID: 2, UpstreamURL: "https://unrelated.example.com",
+						Protocols: []protocol.Protocol{protocol.Anthropic},
+						Models:    []state.ModelConfig{{ID: "unrelated"}},
+					},
+				},
+			})
+			return nil
+		}},
+	}
+
+	worker.Validate(context.Background())
+
+	if got, want := worker.recorder.events(), []string{
+		"registry.weight:7:50",
+		"registry.recover:7",
+		"stats.reset:7",
+	}; !sameValidationEvents(got, want) {
+		t.Fatalf("recovery events = %#v, want unrelated revision allowed %#v", got, want)
+	}
+}
+
+func TestValidationSignatureRemovedOrDisabledGroupRejectsRecovery(t *testing.T) {
+	for _, name := range []string{"removed", "disabled"} {
+		t.Run(name, func(t *testing.T) {
+			worker := newValidationWorkerForTest(
+				validationSnapshot(map[uint]state.GroupView{1: validationSignatureGroup()}),
+				[]state.KeyRef{{ID: 7, GroupID: 1, EncryptedValue: "key-7"}},
+				&validationProbeRecorder{},
+			)
+			worker.validationWorker.dialects[protocol.OpenAI] = &validationTestDialect{
+				protocol: protocol.OpenAI,
+				probes: &validationProbeRecorder{probe: func(context.Context, protocol.Protocol, string, string) error {
+					// Disabled Groups are omitted from ConfigSnapshot.Groups, as are removed Groups.
+					worker.snapshots.(*validationSnapshotRecorder).setSnapshot(validationSnapshot(nil))
+					return nil
+				}},
+			}
+
+			worker.Validate(context.Background())
+
+			if got := worker.recorder.events(); len(got) != 0 {
+				t.Fatalf("recovery events for %s Group = %#v, want none", name, got)
+			}
+		})
+	}
+}
+
+type observableValidationSnapshotSource struct {
+	manager        *state.Manager
+	callbackActive atomic.Bool
+}
+
+func (source *observableValidationSnapshotSource) Current() *state.ConfigSnapshot {
+	return source.manager.Current()
+}
+
+func (source *observableValidationSnapshotSource) WithCurrentSnapshot(
+	fn func(*state.ConfigSnapshot) bool,
+) bool {
+	return source.manager.WithCurrentSnapshot(func(snapshot *state.ConfigSnapshot) bool {
+		if !source.callbackActive.CompareAndSwap(false, true) {
+			panic("nested validation publication callback")
+		}
+		defer source.callbackActive.Store(false)
+		return fn(snapshot)
+	})
+}
+
+func (source *observableValidationSnapshotSource) active() bool {
+	return source.callbackActive.Load()
+}
+
+type publicationValidationRegistry struct {
+	delegate              *state.KeyRegistry
+	callbackActive        func() bool
+	recoverCallbackActive chan bool
+	recoverEntered        chan struct{}
+	releaseRecover        chan struct{}
+}
+
+func (registry *publicationValidationRegistry) BlacklistedKeys() []state.KeyRef {
+	return registry.delegate.BlacklistedKeys()
+}
+
+func (registry *publicationValidationRegistry) RecoverIfMatch(ref state.KeyRef, weight int) bool {
+	registry.recoverCallbackActive <- registry.callbackActive()
+	close(registry.recoverEntered)
+	<-registry.releaseRecover
+	return registry.delegate.RecoverIfMatch(ref, weight)
+}
+
+type publicationValidationStats struct {
+	delegate            *health.StatsStore
+	callbackActive      func() bool
+	resetCallbackActive chan bool
+	resetEntered        chan struct{}
+	releaseReset        chan struct{}
+}
+
+func (stats *publicationValidationStats) Reset(keyID uint) {
+	stats.delegate.Reset(keyID)
+	stats.resetCallbackActive <- stats.callbackActive()
+	close(stats.resetEntered)
+	<-stats.releaseReset
+}
+
+func TestValidationWorkerPublicationBoundaryBlocksPublishThroughRecoverAndReset(t *testing.T) {
+	manager := state.NewManager()
+	if _, err := manager.Publish(validationManagerCompileInput("https://upstream.example.com")); err != nil {
+		t.Fatalf("initial Publish() error = %v", err)
+	}
+	registry := state.NewKeyRegistry()
+	if err := registry.Replace([]state.KeyEntry{{
+		ID: 7, GroupID: 1, Status: state.KeyStatusActive,
+		Blacklisted: true, FailureCount: 3, EncryptedValue: "key-7",
+	}}); err != nil {
+		t.Fatalf("Replace() error = %v", err)
+	}
+	stats := health.NewStatsStore()
+	now := time.Date(2026, time.July, 27, 12, 0, 0, 0, time.UTC)
+	stats.Record(7, false, now)
+	snapshots := &observableValidationSnapshotSource{manager: manager}
+	blockingRegistry := &publicationValidationRegistry{
+		delegate:              registry,
+		callbackActive:        snapshots.active,
+		recoverCallbackActive: make(chan bool, 1),
+		recoverEntered:        make(chan struct{}),
+		releaseRecover:        make(chan struct{}),
+	}
+	blockingStats := &publicationValidationStats{
+		delegate:            stats,
+		callbackActive:      snapshots.active,
+		resetCallbackActive: make(chan bool, 1),
+		resetEntered:        make(chan struct{}),
+		releaseReset:        make(chan struct{}),
+	}
+	probes := &validationProbeRecorder{}
+	worker := &validationWorker{
+		snapshots: snapshots,
+		registry:  blockingRegistry,
+		stats:     blockingStats,
+		mutations: health.NewMutationCoordinator(),
+		decryptor: validationDecryptor{},
+		dialects: dialect.Set{protocol.OpenAI: &validationTestDialect{
+			protocol: protocol.OpenAI,
+			probes:   probes,
+		}},
+	}
+
+	validationDone := make(chan struct{})
+	go func() {
+		worker.Validate(context.Background())
+		close(validationDone)
+	}()
+	awaitSignal(t, blockingRegistry.recoverEntered)
+	if active := awaitValue(t, blockingRegistry.recoverCallbackActive); !active {
+		t.Fatal("RecoverIfMatch ran outside the active Manager snapshot callback")
+	}
+
+	publishAttempted := make(chan struct{})
+	publishDone := make(chan error, 1)
+	go func() {
+		close(publishAttempted)
+		_, err := manager.Publish(validationManagerCompileInput("https://changed.example.com"))
+		publishDone <- err
+	}()
+	awaitSignal(t, publishAttempted)
+	assertValidationPublishBlocked(t, publishDone, "RecoverIfMatch")
+
+	close(blockingRegistry.releaseRecover)
+	awaitSignal(t, blockingStats.resetEntered)
+	if active := awaitValue(t, blockingStats.resetCallbackActive); !active {
+		t.Fatal("Stats.Reset ran outside the active Manager snapshot callback")
+	}
+	assertValidationPublishBlocked(t, publishDone, "Stats.Reset")
+
+	close(blockingStats.releaseReset)
+	awaitValidationDone(t, validationDone)
+	select {
+	case err := <-publishDone:
+		if err != nil {
+			t.Fatalf("concurrent Publish() error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for Publish after validation callback returned")
+	}
+
+	if got := registry.BlacklistedKeys(); len(got) != 0 {
+		t.Fatalf("blacklisted keys after recovery = %#v, want none", got)
+	}
+	if got := stats.Snapshot(7, now); got != (health.KeyStats{}) {
+		t.Fatalf("stats after recovery = %#v, want reset", got)
+	}
+	if snapshots.active() {
+		t.Fatal("Manager snapshot callback remained active after validation returned")
+	}
+}
+
+func TestValidationSignatureMismatchLogDoesNotLeakSensitiveInputs(t *testing.T) {
+	var logs bytes.Buffer
+	logger := logrus.StandardLogger()
+	previousOutput, previousFormatter, previousLevel := logger.Out, logger.Formatter, logger.GetLevel()
+	logrus.SetOutput(&logs)
+	logrus.SetFormatter(&logrus.JSONFormatter{DisableTimestamp: true})
+	logrus.SetLevel(logrus.WarnLevel)
+	t.Cleanup(func() {
+		logrus.SetOutput(previousOutput)
+		logrus.SetFormatter(previousFormatter)
+		logrus.SetLevel(previousLevel)
+	})
+
+	oldGroup := validationSignatureGroup()
+	oldGroup.UpstreamURL = "https://sensitive.example.com/path"
+	oldGroup.HeaderRules.Set["X-Secret"] = "sensitive-header-value"
+	oldTarget, ok := buildGroupValidationTarget(oldGroup)
+	if !ok {
+		t.Fatal("build old validation target failed")
+	}
+	currentGroup := cloneValidationGroup(oldGroup)
+	currentGroup.HeaderRules.Set["X-Secret"] = "changed-sensitive-header-value"
+	currentTarget, ok := buildGroupValidationTarget(currentGroup)
+	if !ok {
+		t.Fatal("build current validation target failed")
+	}
+	worker := newValidationWorkerForTest(
+		validationSnapshot(map[uint]state.GroupView{1: oldGroup}),
+		[]state.KeyRef{{ID: 7, GroupID: 1, EncryptedValue: "cipher-secret"}},
+		&validationProbeRecorder{},
+	)
+	worker.validationWorker.dialects[protocol.OpenAI] = &validationTestDialect{
+		protocol: protocol.OpenAI,
+		probes: &validationProbeRecorder{probe: func(context.Context, protocol.Protocol, string, string) error {
+			worker.snapshots.(*validationSnapshotRecorder).setSnapshot(
+				validationSnapshot(map[uint]state.GroupView{1: currentGroup}),
+			)
+			return nil
+		}},
+	}
+
+	worker.Validate(context.Background())
+
+	output := logs.String()
+	if !strings.Contains(output, `"stage":"conditional_recover"`) {
+		t.Fatalf("log output = %q, want conditional_recover stage", output)
+	}
+	for _, forbidden := range []string{
+		"cipher-secret",
+		"plain-cipher-secret",
+		"sensitive-header-value",
+		"changed-sensitive-header-value",
+		"https://sensitive.example.com",
+		fmt.Sprintf("%x", oldTarget.signature),
+		fmt.Sprintf("%x", currentTarget.signature),
+	} {
+		if strings.Contains(output, forbidden) {
+			t.Fatalf("log output leaked %q: %q", forbidden, output)
+		}
+	}
+}
+
+func assertValidationPublishBlocked(t *testing.T, publishDone <-chan error, stage string) {
+	t.Helper()
+	select {
+	case err := <-publishDone:
+		t.Fatalf("Publish() returned during %s: %v", stage, err)
+	default:
+	}
+}
+
+type barrierValidationMutationCoordinator struct {
+	entered      chan struct{}
+	releaseEntry chan struct{}
+	observe      func() []string
+	observed     chan []string
+	releaseExit  chan struct{}
+}
+
+func (coordinator *barrierValidationMutationCoordinator) Do(_ uint, fn func()) {
+	close(coordinator.entered)
+	<-coordinator.releaseEntry
+	fn()
+	coordinator.observed <- coordinator.observe()
+	<-coordinator.releaseExit
+}
+
+func TestValidationWorkerConditionalRecoveryFailureCompletesCoordinatorInterval(t *testing.T) {
+	worker := newValidationWorkerForTest(
+		validationSnapshot(map[uint]state.GroupView{1: validationGroup([]protocol.Protocol{protocol.OpenAI}, "model", nil)}),
+		[]state.KeyRef{{ID: 7, GroupID: 1, EncryptedValue: "key-7"}},
+		&validationProbeRecorder{},
+	)
+	worker.registry.(*validationRegistryRecorder).recoveryOK = false
+	coordinator := &barrierValidationMutationCoordinator{
+		entered: make(chan struct{}), releaseEntry: make(chan struct{}),
+		observe: worker.recorder.events, observed: make(chan []string, 1),
+		releaseExit: make(chan struct{}),
+	}
+	worker.mutations = coordinator
+
+	done := make(chan struct{})
+	go func() {
+		worker.Validate(context.Background())
+		close(done)
+	}()
+	awaitSignal(t, coordinator.entered)
+	if got := worker.recorder.events(); len(got) != 0 {
+		t.Fatalf("recovery events before coordinator callback = %#v, want none", got)
+	}
+	close(coordinator.releaseEntry)
+	if got := awaitValue(t, coordinator.observed); len(got) != 0 {
+		t.Fatalf("recovery events = %#v, want none", got)
+	}
+	close(coordinator.releaseExit)
+	awaitSignal(t, done)
 }
 
 func TestValidationWorkerDoesNotRecoverDisabledOrReplacedKeyRef(t *testing.T) {
@@ -205,7 +790,9 @@ func TestValidationWorkerDoesNotRecoverDisabledOrReplacedKeyRef(t *testing.T) {
 					t.Fatalf("SetKeyStatus() error = %v", err)
 				}
 			}
-			if got, want := registry.BlacklistedKeys(), []state.KeyRef{{ID: 7, GroupID: 1, EncryptedValue: test.expectedCipher}}; !reflect.DeepEqual(got, want) {
+			if got, want := registry.BlacklistedKeys(), []state.KeyRef{{
+				ID: 7, GroupID: 1, EncryptedValue: test.expectedCipher, FailureGeneration: 0,
+			}}; !reflect.DeepEqual(got, want) {
 				t.Fatalf("blacklisted keys after stale recovery = %#v, want %#v", got, want)
 			}
 			if got := registry.CollectCandidates([]uint{1}, nil, time.Time{}); len(got) != 0 {
@@ -403,6 +990,23 @@ func (source *validationSnapshotRecorder) Current() *state.ConfigSnapshot {
 	return source.snapshot
 }
 
+func (source *validationSnapshotRecorder) WithCurrentSnapshot(
+	fn func(*state.ConfigSnapshot) bool,
+) bool {
+	if fn == nil {
+		return false
+	}
+	source.mu.Lock()
+	defer source.mu.Unlock()
+	return fn(source.snapshot)
+}
+
+func (source *validationSnapshotRecorder) setSnapshot(snapshot *state.ConfigSnapshot) {
+	source.mu.Lock()
+	source.snapshot = snapshot
+	source.mu.Unlock()
+}
+
 func (source *validationSnapshotRecorder) calls() int {
 	source.mu.Lock()
 	defer source.mu.Unlock()
@@ -573,12 +1177,12 @@ func newValidationWorkerForTest(snapshot *state.ConfigSnapshot, refs []state.Key
 	}
 	return &validationTestWorker{
 		validationWorker: &validationWorker{
-			snapshots:   &validationSnapshotRecorder{snapshot: snapshot},
-			registry:    registry,
-			stats:       &validationStatsRecorder{recorder: recorder},
-			decryptor:   validationDecryptor{},
-			dialects:    dialects,
-			maintenance: &sync.Mutex{},
+			snapshots: &validationSnapshotRecorder{snapshot: snapshot},
+			registry:  registry,
+			stats:     &validationStatsRecorder{recorder: recorder},
+			mutations: health.NewMutationCoordinator(),
+			decryptor: validationDecryptor{},
+			dialects:  dialects,
 		},
 		recorder: recorder,
 	}
@@ -589,11 +1193,11 @@ func newRealRegistryValidationWorker(registry *state.KeyRegistry, probes *valida
 		snapshots: &validationSnapshotRecorder{snapshot: validationSnapshot(map[uint]state.GroupView{
 			1: validationGroup([]protocol.Protocol{protocol.OpenAI}, "model", nil),
 		})},
-		registry:    registry,
-		stats:       health.NewStatsStore(),
-		decryptor:   validationDecryptor{},
-		dialects:    dialect.Set{protocol.OpenAI: &validationTestDialect{protocol: protocol.OpenAI, probes: probes}},
-		maintenance: &sync.Mutex{},
+		registry:  registry,
+		stats:     health.NewStatsStore(),
+		mutations: health.NewMutationCoordinator(),
+		decryptor: validationDecryptor{},
+		dialects:  dialect.Set{protocol.OpenAI: &validationTestDialect{protocol: protocol.OpenAI, probes: probes}},
 	}
 }
 
@@ -608,6 +1212,47 @@ func validationGroup(protocols []protocol.Protocol, validationModel string, mode
 		ValidationModel: validationModel,
 		Models:          models,
 	}
+}
+
+func validationSignatureGroup() state.GroupView {
+	return state.GroupView{
+		ID:              1,
+		UpstreamURL:     "https://upstream.example.com",
+		Protocols:       []protocol.Protocol{protocol.OpenAI},
+		ValidationModel: "model-a",
+		Models:          []state.ModelConfig{{ID: "model-a"}},
+		HeaderRules: state.HeaderRules{
+			Set: map[string]string{
+				"X-Alpha": "first",
+				"X-Zeta":  "last",
+			},
+			Remove: []string{"X-Old"},
+		},
+	}
+}
+
+func cloneValidationGroup(group state.GroupView) state.GroupView {
+	cloned := group
+	cloned.Protocols = append([]protocol.Protocol(nil), group.Protocols...)
+	cloned.Models = append([]state.ModelConfig(nil), group.Models...)
+	cloned.HeaderRules.Set = make(map[string]string, len(group.HeaderRules.Set))
+	for name, value := range group.HeaderRules.Set {
+		cloned.HeaderRules.Set[name] = value
+	}
+	cloned.HeaderRules.Remove = append([]string(nil), group.HeaderRules.Remove...)
+	return cloned
+}
+
+func validationManagerCompileInput(upstreamURL string) state.CompileInput {
+	return state.CompileInput{Groups: []state.GroupConfig{{
+		ID:              1,
+		Name:            "group",
+		UpstreamURL:     upstreamURL,
+		ValidationModel: "model-a",
+		Protocols:       []protocol.Protocol{protocol.OpenAI},
+		Models:          []state.ModelConfig{{ID: "model-a"}},
+		Enabled:         true,
+	}}}
 }
 
 func validationRefs(count int) []state.KeyRef {

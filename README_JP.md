@@ -39,9 +39,9 @@ GPT-Loadは、Goで構築されたセルフホスト型のAI APIキー集約・�
 ## 2.0のリリース状況
 
 > [!WARNING]
-> 2.0は現在release-readyの最終段階にあります。ただし、`v2.0.0`タグ、GitHub Release、バイナリ、コンテナイメージが公開済みという意味ではありません。デプロイ前に実在するrelease artifactを確認し、リポジトリのブランチ状態をリリース成功の証拠として扱わないでください。
+> 2.0は現在、**プレリリースのローカル候補**です。M3/M4の候補コードとローカル検証の保存済み証跡はありますが、正式なリリース判断・承認と公開は完了していません。`v2.0.0`タグ、GitHub Release、公開バイナリ、公開コンテナイメージが利用可能だと確認できる証拠はありません。checkoutやブランチの状態はリリースの証拠にはなりません。
 
-2.0は1.xとデータ互換性のないgreenfield rewriteです。`main`は引き続き1.4.xメンテナンスラインを提供します。2.0は`latest`を自動更新せず、安定したコンテナチャネルには明示的な`2`、`2.0`、`v2.0.0`タグを使用します。
+2.0は1.xとデータ互換性のないgreenfield rewriteです。`main`は引き続き1.4.xメンテナンスラインを提供します。リリース契約では明示的な`2`、`2.0`、`v2.0.0`コンテナタグを予約し、`latest`を自動更新しませんが、これらの名前自体はイメージの公開を意味しません。
 
 ## 2.0の機能
 
@@ -51,13 +51,14 @@ GPT-Loadは、Goで構築されたセルフホスト型のAI APIキー集約・�
 - **制御と可観測性**：ランタイム設定、ルート検査、ヘルス表示、RequestLog、中国語・英語・日本語の管理UI。
 - **使用量と推定コスト**：3方言から取得可能なusage、24時間/30日レポート、リクエスト単位の品質状態、組み込み価格、ユーザー価格の上書き。
 
-価格とコストは、上流から返されたusageと現在の価格ルールに基づくbest-effortの**推定値**です。billing ledger、請求書、プロバイダー請求ではなく、過去のリクエストを再計算することもありません。
+M3のコントロールプレーンUIとM4のusage/pricing範囲はローカル候補に含まれていますが、正式なリリース判断・承認と公開は未完了です。価格とコストは、上流から返されたusageと現在の価格ルールに基づくbest-effortの**推定値**です。billing ledger、請求書、プロバイダー請求ではなく、過去のリクエストを再計算することもありません。
 
 ## 2.0.0のサポート境界
 
 - 正しさを保証するのは**単一アプリケーションインスタンス**のみで、複数インスタンスの協調には対応しません。
 - **SQLiteのみ**をサポートし、PostgreSQL、MySQL、その他のデータベースには対応しません。
 - GroupはAccessKeyとランタイム設定で選択され、データプレーンURLには含まれません。
+- `openai-response`は既知の歴史的・予約済みプロトコル値にすぎず、有効なデータプレーンプロトコルではありません。`/v1/responses`はルーティングされません。
 - 上流キーは必ず保存時に暗号化され、平文へのフォールバックはありません。2.0.0はマスターキーのローテーションに対応せず、`migrate-keys`は明示的に失敗する延期コマンドのままです。
 - 1.xデータの自動移行、インプレースアップグレード、逆同期には対応しません。
 - プロトコル変換、オンライン請求照合、自動価格取得、オンラインバックアップAPI、バックアップCLIは提供しません。
@@ -66,16 +67,16 @@ GPT-Loadは、Goで構築されたセルフホスト型のAI APIキー集約・�
 
 ### Docker Compose
 
-2.xのComposeリリース契約では`ghcr.io/tbphp/gpt-load:2`、コンテナ内パス`/app/data`、named volume `gpt-load-data`を使用し、`latest`は使用しません。まず現在のcheckoutを確認します。
+現在の2.x Compose候補契約は`ghcr.io/tbphp/gpt-load:2`、コンテナ内パス`/app/data`、named volume `gpt-load-data`を参照します。これはローカル契約であり、公開イメージが利用可能であることの証拠ではありません。契約は`latest`を使用しません。まず現在のcheckoutを確認します。
 
 ```console
 cp .env.example .env
 docker compose config
 ```
 
-解決後の設定でimageが`ghcr.io/tbphp/gpt-load:2`、`DATA_DIR=/app/data`、`DATABASE_DSN=/app/data/gpt-load.db`となり、`/app/data`にnamed volumeがマウントされる場合だけ続行してください。`latest`またはhost bind mountに解決される場合、そのComposeファイルを2.0の本番デプロイに使用せず、`latest`で代用しないでください。
+解決後の設定が次を満たす場合だけ続行してください。imageは`ghcr.io/tbphp/gpt-load:2`、**コンテナ内**環境は`HOST=0.0.0.0`と`DATA_DIR=/app/data`、`DATABASE_DSN`は空または未設定のままでプロセスがmanaged `/app/data/gpt-load.db`を選択し、**ホスト側**は`${BIND_ADDRESS:-127.0.0.1}`に公開され、`/app/data`にはnamed volumeがマウントされます。固定`container_name`はなく、Compose project nameでインスタンスを分離します。公開イメージが利用できない場合は、公開済みと仮定せず、コメントされたローカルbuild overrideを使用してください。
 
-前提条件を満たした後：
+上記の設定とimage/buildの可用性を確認した後：
 
 ```console
 docker compose up -d
@@ -87,6 +88,8 @@ docker compose exec gpt-load sh -c 'cat /app/data/auth.key'
 
 デフォルトのnamed volumeにはSQLite、`auth.key`、`encryption.key`が保持されます。本番環境では、保護されたsecret処理を通じて明示的な`AUTH_KEY`と`ENCRYPTION_KEY`を注入してください。実際のsecretを`.env`、ログ、issueへコミットしないでください。コンテナで`DATABASE_DSN`を変更する場合、**コンテナ内**パスと対応するvolume mountをCompose overrideで同時に設定する必要があります。
 
+Composeはコンテナ内でのみ全インターフェースをlistenし、ホスト側はデフォルトでloopbackにだけ公開します。`BIND_ADDRESS=0.0.0.0`、またはネイティブプロセスの`HOST=0.0.0.0`は明示的なopt-inです。本番では、TLS reverse proxyとACL/firewallを備えた管理下のネットワーク境界の内側でのみ公開してください。
+
 ### ネイティブバイナリ
 
 公開後、GitHub Releaseからプラットフォームに合うartifactをダウンロードし、`SHA256SUMS`で検証します。release artifactが実際に存在するまでは、「ビルドと検証」に従って現在のcheckoutからビルドし、既に公開済みと仮定しないでください。
@@ -96,7 +99,7 @@ Linux amd64の例：
 ```console
 chmod +x ./gpt-load-linux-amd64
 mkdir -p ./data
-DATA_DIR=./data ./gpt-load-linux-amd64
+HOST=127.0.0.1 DATA_DIR=./data ./gpt-load-linux-amd64
 ```
 
 別の端末で確認します。
@@ -124,6 +127,8 @@ curl --fail http://localhost:3001/health
 
 GPT-Loadは方言間の変換を行いません。GroupはAccessKeyとランタイム設定で選択され、URLパスセグメントとして渡しません。
 
+履歴データや既知プロトコルのメタデータに`openai-response`が現れる場合がありますが、現在は予約値であり、新しいデータプレーントラフィックには利用できません。特に`POST /v1/responses`はルーティングされません。
+
 ## 管理、使用量、コスト
 
 管理UIは`/`、管理APIは`/api`で提供され、どちらも`AUTH_KEY`を使用します。UIにはGroup、上流キー、AccessKey、ランタイム設定、ヘルス、ログ、ルート検査、Usage、モデル価格管理があります。管理APIの事実源は現在のコードとUIであり、このREADMEでは変化しやすいルート一覧を複製しません。
@@ -133,6 +138,7 @@ Usage/Costの品質境界：
 - `complete + priced`のリクエストだけが、デフォルトのtoken合計と推定コスト合計に入ります。
 - `missing`、`partial`、`unpriced`もリクエスト数と品質カウントには入りますが、デフォルトのtoken/コスト合計には入りません。`complete + unpriced`に推測価格を割り当てることもありません。
 - ストリームのclean EOFは完全なusageを保証せず、互換中継サービスがプロバイダー公式の終端usageを返さない場合もあります。
+- APIの`pricing_policy`は読み取り専用です。UIは表示のみを行い、ユーザー定義価格ルールから内部pricing policyを宣言することはできません。
 - 価格変更は今後の書き込みにだけ影響し、過去のRequestLogやUsageStatは再計算されません。
 - 現在のプロセスにおけるdropped/write-failureカウンターと、データベース期間内の永続集計は異なる範囲です。
 
@@ -140,10 +146,11 @@ Usage/Costの品質境界：
 
 | 変数 | デフォルト | 用途 |
 |---|---|---|
-| `HOST` | `0.0.0.0` | HTTPリッスンアドレス |
+| `HOST` | `127.0.0.1` | ネイティブHTTPリッスンアドレス。`0.0.0.0`は明示的なopt-inで、リリースコンテナは内部だけ`0.0.0.0`に上書き |
+| `BIND_ADDRESS` | `127.0.0.1` | Composeのホスト側公開アドレス。プロセス設定ではない |
 | `PORT` | `3001` | HTTPリッスンポート |
-| `DATA_DIR` | `./data` | ネイティブプロセスの永続ディレクトリ。コンテナのリリース契約では`/app/data`に固定 |
-| `DATABASE_DSN` | `${DATA_DIR}/gpt-load.db` | SQLiteパス/DSN。コンテナパスはコンテナ名前空間に存在し、対応するvolumeが必要 |
+| `DATA_DIR` | `./data` | ネイティブの永続ディレクトリ。コンテナ内では`/app/data`に上書き |
+| `DATABASE_DSN` | 空 → `${DATA_DIR}/gpt-load.db` | 空ならmanaged SQLiteを選択。デフォルトと同じ文字列でも、operatorが設定した非空値はすべてexternal |
 | `AUTH_KEY` | keyfileを自動生成 | 管理bearer認証情報。明示値に空白は使用不可。空の場合`${DATA_DIR}/auth.key`を読み取りまたは作成 |
 | `ENCRYPTION_KEY` | keyfileを自動生成 | 上流キー暗号化用マスターキー。空の場合`${DATA_DIR}/encryption.key`を読み取りまたは作成 |
 | `GRACEFUL_SHUTDOWN_TIMEOUT` | `10` | グレースフルシャットダウンの秒数 |
@@ -157,20 +164,21 @@ Usage/Costの品質境界：
 
 ## 永続化とセキュリティ
 
-- デフォルトでは`${DATA_DIR}`にSQLite、`auth.key`、`encryption.key`が含まれます。これらを一組の復旧資産として保護し、バックアップしてください。
-- `encryption.key`を失う、または置換すると、暗号化済みの上流キーを復号できません。2.0.0には自動修復やマスターキーのローテーションがありません。
-- 外部`DATABASE_DSN`または明示管理するsecretは別途バックアップが必要です。DATA_DIRのバックアップだけでは外部資産を保護できません。
-- SQLiteはWALを使用します。バックアップ前に新規トラフィックを止め、`SIGTERM`を送信して正常終了を待ち、その後で永続資産全体をコピーしてください。実行中に`gpt-load.db`だけをコピーしないでください。
+- データベースの所有区分はraw `DATABASE_DSN`だけで決まります。空なら`${DATA_DIR}`配下のmanaged DB/WAL/SHM、非空ならoperator所有のexternalデータベースです。externalではGPT-Loadはmkdir/chmodを行わず、operatorが別途バックアップします。
+- secretの所有区分はデータベースとは独立しています。`/api/system/info`がsecretごとにsourceを返します。データベースのsourceにかかわらず、`key_file`なら`DATA_DIR`内の対応する`auth.key` / `encryption.key`をアーカイブし、`environment`なら保護された外部secret systemから別途復元します。
+- POSIXではmanaged `${DATA_DIR}`を`0700`、managed DB/WAL/SHMとアプリケーションが作成したkeyファイルを`0600`に制限します。Windowsでは実行ユーザー専用ACLを使用しますが、この候補についてWindows runtimeの停止/ACLゲートは未実行です。
+- sourceにかかわらず、対応する`encryption.key`を失うと、暗号化済みの上流キーは復旧できません。2.0.0には自動修復やマスターキーのローテーションがありません。
+- SQLiteはWALを使用します。バックアップ前に新規トラフィックを止め、clean exitを待ちます。POSIXでは`SIGTERM`、WindowsではCtrl+C、Ctrl+Break、またはservice managerの停止操作を使用します。実行中に`gpt-load.db`だけをhot copyしないでください。
 - AUTH_KEY、ENCRYPTION_KEY、AccessKey、上流キーをログ、公開issue、スクリーンショット、通常のバックアップ一覧に貼り付けないでください。
 
 ### 公開運用ベースライン
 
 以下のチェックリストは、プロジェクトの非公開Notionワークスペースへアクセスせずに利用できます。
 
-1. バックアップまたは切り替え前に、管理認証付きで`GET /api/system/info`を呼び出します。解決済みの`data_dir`、データベースの場所、secretの取得元だけを記録し、secret値は記録しません。
-2. 新規トラフィックを止め、`SIGTERM`を送信して正常終了を待ちます。Composeでは`docker compose stop`を実行し、サービスコンテナが停止したことを確認します。
-3. 解決済みの`DATA_DIR`全体、または正確なnamed volumeを一組の復旧資産としてアーカイブします。一意な名前を使い、上書きを拒否し、アクセスを制限してSHA-256を記録します。外部`DATABASE_DSN`、`AUTH_KEY`、`ENCRYPTION_KEY`は別途バックアップします。
-4. まったく同じバイナリまたはイメージを使い、空のターゲットへ復元します。展開前にchecksumを検証し、対応するencryption keyを復元します。復元とアップグレードを同時に行わないでください。
+1. 実際のenvironment、service、container設定からデータベースのsourceと場所を判断し、管理認証付きの`GET /api/system/info`で各secretの安全なsource/pathメタデータを値なしで記録します。このendpointはdatabase source、DSN、場所を意図的に返しません。
+2. 新規トラフィックを止め、上記のPOSIXまたはWindowsの方法でclean exitを待ちます。Composeでは`docker compose stop`を実行し、サービスコンテナが停止したことを確認します。
+3. 独立した2軸から完全な復旧セットを作ります。`DATABASE_DSN`が空ならmanaged DB/WAL/SHMをアーカイブし、非空ならoperatorの手順でexternal DBを別途バックアップします。どちらの場合も、auth/encryptionの各`key_file`をアーカイブし、各`environment` secretを保護された外部secret systemから復元します。一意なアーカイブ名を使い、上書きを拒否し、アクセスを制限してSHA-256を記録します。
+4. まったく同じバイナリまたはイメージを使い、空のターゲットへデータベースとsecretの両方を復元します。先にchecksumを検証し、完全に対応するencryption keyを復元します。復元とアップグレードを同時に行わないでください。
 5. 復元したインスタンスを起動し、`/health`、`/api/system/info`、Group、AccessKey、モデル価格、Usage、RequestLog、実データプレーンcanaryを確認します。`sqlite3`が利用できる場合は停止後に`PRAGMA quick_check`を実行し、`ok`を必須とします。
 
 2.0.0にはbackup CLIがなく、encryption key rotationにも対応しません。既存データベースのencryption keyを置換しないでください。
@@ -180,7 +188,7 @@ Usage/Costの品質境界：
 2.0は1.xデータベースを開く、インポートする、インプレースアップグレードすることができず、1.xの`DATA_DIR`も再利用できません。推奨手順：
 
 1. 1.xを稼働させたまま、バックアップから復元できることを確認します。
-2. 2.0には別のポート、`DATA_DIR` / named volume、データベースを用意します。
+2. 2.0には別のポート、`DATA_DIR`、データベース、Compose project、named volumeを用意し、1.xと共有しません。
 3. 最小限のGroup、上流キー、AccessKey、ルールを手動で再構築し、3方言、ログ、usage/costを隔離環境で検証します。
 4. メンテナンス時間または小規模なロールアウトで入口トラフィックを切り替えます。失敗した場合は2.0を停止して元の1.xへ戻し、2.0で新たに生成されたデータを1.xへ逆インポートしません。
 

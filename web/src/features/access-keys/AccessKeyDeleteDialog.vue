@@ -2,13 +2,11 @@
 import { Trash2 } from 'lucide-vue-next'
 import { onBeforeUnmount, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useQueryClient } from '@tanstack/vue-query'
 
 import { useApiClient } from '@/api/client-context'
 import { deleteAccessKey } from '@/api/control/access-keys'
 import type { AccessKeyDto } from '@/api/control/types'
 import { RequestCancelledError } from '@/api/errors'
-import { controlQueryKeys } from '@/app/query-keys'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppDialog from '@/components/ui/AppDialog.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
@@ -16,7 +14,6 @@ import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 const props = defineProps<{ accessKey: AccessKeyDto; total: number }>()
 const emit = defineEmits<{ deleted: [] }>()
 const client = useApiClient()
-const queryClient = useQueryClient()
 const { t } = useI18n()
 const open = ref(false)
 const pending = ref(false)
@@ -40,7 +37,6 @@ async function confirmDelete(): Promise<void> {
   const activeController = controller
   try {
     await deleteAccessKey(client, props.accessKey.id, activeController.signal)
-    await queryClient.invalidateQueries({ queryKey: controlQueryKeys.accessKeys.list() })
     open.value = false
     emit('deleted')
   } catch (error: unknown) {

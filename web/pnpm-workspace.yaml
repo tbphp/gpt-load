@@ -1,2 +1,6 @@
 allowBuilds:
   vue-demi: true
+
+overrides:
+  brace-expansion@5.0.7: 5.0.8
+  minimatch@9.0.9: 10.2.5

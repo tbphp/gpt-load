@@ -85,7 +85,7 @@ func TestGatewayNeverExposesPlaintextKeys(t *testing.T) {
 	})
 }
 
-func TestGatewayNeverExposesProviderKeyInResponseHeaders(t *testing.T) {
+func TestForwardStripsCookiesAndCredentialHeadersOnEveryPath(t *testing.T) {
 	for _, test := range []struct {
 		name   string
 		stream bool
@@ -99,12 +99,16 @@ func TestGatewayNeverExposesProviderKeyInResponseHeaders(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			const secret = "provider-secret-client-surface"
 			upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				writer.Header().Set("Connection", "X-Upstream-Hop")
+				writer.Header().Set("X-Upstream-Hop", "drop")
 				writer.Header().Set("Authorization", "Bearer unrelated")
 				writer.Header().Set("Proxy-Authorization", "unrelated")
 				writer.Header().Set("Api-Key", "unrelated")
 				writer.Header().Set("X-Api-Key", "unrelated")
 				writer.Header().Set("X-Goog-Api-Key", "unrelated")
 				writer.Header().Set("X-Echo", "prefix-"+secret)
+				writer.Header().Add("Set-Cookie", "session=fake; Secure")
+				writer.Header().Add("Set-Cookie2", "legacy=fake; Secure")
 				writer.Header().Set("X-Safe", "kept")
 				writer.WriteHeader(test.status)
 				if test.stream && test.status == http.StatusOK {
@@ -133,6 +137,7 @@ func TestGatewayNeverExposesProviderKeyInResponseHeaders(t *testing.T) {
 			for _, name := range []string{
 				"Authorization", "Proxy-Authorization", "Api-Key",
 				"X-Api-Key", "X-Goog-Api-Key", "X-Echo",
+				"Connection", "X-Upstream-Hop", "Set-Cookie", "Set-Cookie2",
 			} {
 				if recorder.Header().Values(name) != nil {
 					t.Fatalf("client response Header %s survived: %#v", name, recorder.Header().Values(name))

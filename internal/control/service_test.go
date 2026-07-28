@@ -27,8 +27,110 @@ import (
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 	stateloader "gpt-load/internal/state/loader"
+	"gpt-load/internal/storage"
 	"gpt-load/internal/storage/models"
 )
+
+func TestReadSnapshotKeepsOneVersionWhileWALWriterCommits(t *testing.T) {
+	fixture, dsn := newFileServiceFixture(t)
+	group := validControlGroup("read-snapshot-old")
+	if err := fixture.db.Create(group).Error; err != nil {
+		t.Fatal(err)
+	}
+	writer, err := storage.Open(dsn)
+	if err != nil {
+		t.Fatalf("storage.Open(writer) error = %v", err)
+	}
+	writerSQL, err := writer.DB()
+	if err != nil {
+		t.Fatalf("writer.DB() error = %v", err)
+	}
+	t.Cleanup(func() {
+		if err := writerSQL.Close(); err != nil {
+			t.Errorf("close writer database: %v", err)
+		}
+	})
+
+	firstRead := make(chan struct{})
+	releaseRead := make(chan struct{})
+	readDone := make(chan error, 1)
+	var firstName, secondName string
+	go func() {
+		readDone <- fixture.service.withReadSnapshot(t.Context(), func(tx *gorm.DB) error {
+			var first models.Group
+			if err := tx.First(&first, group.ID).Error; err != nil {
+				return err
+			}
+			firstName = first.Name
+			close(firstRead)
+			<-releaseRead
+			var second models.Group
+			if err := tx.First(&second, group.ID).Error; err != nil {
+				return err
+			}
+			secondName = second.Name
+			return nil
+		})
+	}()
+	select {
+	case <-firstRead:
+	case <-time.After(time.Second):
+		t.Fatal("read snapshot did not complete its first SELECT")
+	}
+
+	writeDone := make(chan error, 1)
+	go func() {
+		writeDone <- writer.Model(&models.Group{}).
+			Where("id = ?", group.ID).
+			Update("name", "read-snapshot-new").Error
+	}()
+	select {
+	case err := <-writeDone:
+		if err != nil {
+			t.Fatalf("WAL writer update error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("read snapshot blocked WAL writer")
+	}
+	close(releaseRead)
+	select {
+	case err := <-readDone:
+		if err != nil {
+			t.Fatalf("withReadSnapshot() error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("read snapshot did not finish after release")
+	}
+	if firstName != "read-snapshot-old" || secondName != firstName {
+		t.Fatalf("snapshot names = %q/%q, want one old version", firstName, secondName)
+	}
+}
+
+func TestReadSnapshotCancellationTakesPrecedenceAndReleasesConnection(t *testing.T) {
+	fixture := newServiceFixture(t)
+	ctx, cancel := context.WithCancel(t.Context())
+	const callbackCause = "callback detail must not win over cancellation"
+
+	err := fixture.service.withReadSnapshot(ctx, func(tx *gorm.DB) error {
+		var count int64
+		if err := tx.Model(&models.Group{}).Count(&count).Error; err != nil {
+			return err
+		}
+		cancel()
+		return errors.New(callbackCause)
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("withReadSnapshot() error = %v, want context.Canceled", err)
+	}
+	if strings.Contains(err.Error(), callbackCause) {
+		t.Fatalf("cancellation error exposed lower-priority callback detail: %v", err)
+	}
+
+	var count int64
+	if err := fixture.db.Model(&models.Group{}).Count(&count).Error; err != nil {
+		t.Fatalf("query after canceled snapshot error = %v", err)
+	}
+}
 
 func TestWriteKeyConfigCommitsDatabaseThenAppliesRegistryWithoutPublishing(t *testing.T) {
 	fixture := newServiceFixture(t)
@@ -401,6 +503,7 @@ func TestWriteConfigMakesCreatedGroupAndFirstKeyAtomicallyVisibleToDataPlane(t *
 		gateway.NewForwarder(platformhttp.NewHTTPClientManager(), redact.New()),
 		dialects,
 		health.NewStatsStore(),
+		health.NewMutationCoordinator(),
 		nil,
 		nil,
 	)

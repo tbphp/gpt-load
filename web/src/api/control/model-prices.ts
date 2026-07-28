@@ -11,12 +11,19 @@ export interface ModelPriceValues {
   output: number | null
 }
 
+export interface ModelPricePolicyDto {
+  input_threshold_tokens: number
+  input_multiplier: number
+  output_multiplier: number
+}
+
 export interface ModelPriceRuleDto {
   pattern: string
   source: ModelPriceSource
   prices: ModelPriceValues
   source_url: string | null
   updated_at: string
+  pricing_policy: ModelPricePolicyDto | null
 }
 
 export interface ModelPriceReportDto {
@@ -45,6 +52,36 @@ function projectPrices(value: unknown): ModelPriceValues {
     cache_write_5m: projectPrice(value.cache_write_5m),
     cache_write_1h: projectPrice(value.cache_write_1h),
     output: projectPrice(value.output),
+  }
+}
+
+function projectPricingPolicy(
+  value: unknown,
+  source: ModelPriceSource,
+): ModelPricePolicyDto | null {
+  if (value === null) return null
+  if (source === 'user' || !isRecord(value)) throw new InvalidResponseError()
+  const keys = Object.keys(value).sort()
+  if (
+    keys.length !== 3 ||
+    keys[0] !== 'input_multiplier' ||
+    keys[1] !== 'input_threshold_tokens' ||
+    keys[2] !== 'output_multiplier' ||
+    !Number.isSafeInteger(value.input_threshold_tokens) ||
+    (value.input_threshold_tokens as number) <= 0 ||
+    typeof value.input_multiplier !== 'number' ||
+    !Number.isFinite(value.input_multiplier) ||
+    value.input_multiplier <= 0 ||
+    typeof value.output_multiplier !== 'number' ||
+    !Number.isFinite(value.output_multiplier) ||
+    value.output_multiplier <= 0
+  ) {
+    throw new InvalidResponseError()
+  }
+  return {
+    input_threshold_tokens: value.input_threshold_tokens as number,
+    input_multiplier: value.input_multiplier,
+    output_multiplier: value.output_multiplier,
   }
 }
 
@@ -95,12 +132,14 @@ function projectRule(value: unknown): ModelPriceRuleDto {
   }
   const sourceURL = value.source === 'builtin' ? projectBuiltinSourceURL(value.source_url) : null
   if (value.source === 'user' && value.source_url !== null) throw new InvalidResponseError()
+  const pricingPolicy = projectPricingPolicy(value.pricing_policy, value.source)
   return {
     pattern: value.pattern,
     source: value.source,
     prices: projectPrices(value.prices),
     source_url: sourceURL,
     updated_at: value.updated_at,
+    pricing_policy: pricingPolicy,
   }
 }
 

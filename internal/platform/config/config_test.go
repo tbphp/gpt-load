@@ -19,8 +19,8 @@ func TestLoadUsesDefaultConfiguration(t *testing.T) {
 		t.Fatalf("Load() error = %v", err)
 	}
 
-	if cfg.Server.Host != "0.0.0.0" {
-		t.Fatalf("Host = %q, want 0.0.0.0", cfg.Server.Host)
+	if cfg.Server.Host != "127.0.0.1" {
+		t.Fatalf("Host = %q, want 127.0.0.1", cfg.Server.Host)
 	}
 	if cfg.Server.Port != 3001 {
 		t.Fatalf("Port = %d, want 3001", cfg.Server.Port)
@@ -42,6 +42,21 @@ func TestLoadUsesDefaultConfiguration(t *testing.T) {
 	}
 	if cfg.Log.Level != "info" || cfg.Log.Format != "text" {
 		t.Fatalf("Log = %#v, want info/text", cfg.Log)
+	}
+}
+
+func TestLoadPreservesExplicitAllInterfacesHost(t *testing.T) {
+	clearEnvironment(t)
+	t.Setenv("AUTH_KEY", "test-auth-key")
+	t.Setenv("HOST", "0.0.0.0")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	if cfg.Server.Host != "0.0.0.0" {
+		t.Fatalf("Host = %q, want explicit 0.0.0.0", cfg.Server.Host)
 	}
 }
 
@@ -130,6 +145,88 @@ func TestLoadDerivesDatabaseDSNFromDataDir(t *testing.T) {
 	}
 }
 
+func TestLoadDefaultsDatabaseSourceToManaged(t *testing.T) {
+	clearEnvironment(t)
+	t.Setenv("AUTH_KEY", "test-auth-key")
+	dataDir := t.TempDir()
+	t.Setenv("DATA_DIR", dataDir)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.DatabaseMetadata.Source != DatabaseSourceManaged {
+		t.Fatalf("DatabaseMetadata.Source = %q, want %q", cfg.DatabaseMetadata.Source, DatabaseSourceManaged)
+	}
+}
+
+func TestLoadClassifiesNonEmptyDatabaseDSNAsExternal(t *testing.T) {
+	clearEnvironment(t)
+	t.Setenv("AUTH_KEY", "test-auth-key")
+	t.Setenv("DATABASE_DSN", ":memory:")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.DatabaseMetadata.Source != DatabaseSourceExternal {
+		t.Fatalf("DatabaseMetadata.Source = %q, want %q", cfg.DatabaseMetadata.Source, DatabaseSourceExternal)
+	}
+}
+
+func TestLoadExplicitDefaultDatabaseDSNRemainsExternal(t *testing.T) {
+	clearEnvironment(t)
+	t.Setenv("AUTH_KEY", "test-auth-key")
+	dataDir := t.TempDir()
+	t.Setenv("DATA_DIR", dataDir)
+	t.Setenv("DATABASE_DSN", filepath.Join(dataDir, "gpt-load.db"))
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.DatabaseMetadata.Source != DatabaseSourceExternal {
+		t.Fatalf("DatabaseMetadata.Source = %q, want %q", cfg.DatabaseMetadata.Source, DatabaseSourceExternal)
+	}
+}
+
+func TestLoadManagedDatabaseRejectsUnsafeDataDirBeforeCreatingSecrets(t *testing.T) {
+	tests := []struct {
+		name   string
+		suffix string
+	}{
+		{name: "symlink"},
+		{name: "symlink with trailing separator", suffix: string(os.PathSeparator)},
+		{name: "symlink with dot suffix", suffix: string(os.PathSeparator) + "."},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			clearEnvironment(t)
+			targetDir := t.TempDir()
+			dataDirLink := filepath.Join(t.TempDir(), "sensitive-managed-data-dir")
+			if err := os.Symlink(targetDir, dataDirLink); err != nil {
+				t.Skipf("create DATA_DIR symlink: %v", err)
+			}
+			dataDir := dataDirLink + tt.suffix
+			t.Setenv("DATA_DIR", dataDir)
+
+			_, err := Load()
+			if err == nil {
+				t.Fatal("Load() error = nil, want unsafe managed DATA_DIR rejection")
+			}
+			if strings.Contains(err.Error(), dataDir) {
+				t.Fatalf("Load() error exposes DATA_DIR: %v", err)
+			}
+			for _, fileName := range []string{authkey.FileName, encryption.KeyFileName} {
+				if _, statErr := os.Stat(filepath.Join(targetDir, fileName)); !os.IsNotExist(statErr) {
+					t.Fatalf("%s created before DATA_DIR validation: %v", fileName, statErr)
+				}
+			}
+		})
+	}
+}
+
 func TestLoadGeneratesAuthKeyInsideConfiguredDataDir(t *testing.T) {
 	clearEnvironment(t)
 	dataDir := t.TempDir()
@@ -200,6 +297,7 @@ func TestLoadRejectsInvalidRequiredAndNumericValues(t *testing.T) {
 
 func clearEnvironment(t *testing.T) {
 	t.Helper()
+	t.Chdir(t.TempDir())
 	for _, key := range []string{
 		"HOST", "PORT", "DATA_DIR", "DATABASE_DSN", "ENCRYPTION_KEY", "AUTH_KEY",
 		"LOG_LEVEL", "LOG_FORMAT", "GRACEFUL_SHUTDOWN_TIMEOUT",

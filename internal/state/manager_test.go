@@ -3,6 +3,7 @@ package state
 import (
 	"sync"
 	"testing"
+	"time"
 
 	"gpt-load/internal/protocol"
 )
@@ -99,6 +100,115 @@ func TestManagerConcurrentPublishAndCurrent(t *testing.T) {
 	}
 	if current.Revision != goroutines {
 		t.Fatalf("Current().Revision = %d, want %d", current.Revision, goroutines)
+	}
+}
+
+func TestManagerWithCurrentSnapshotHandlesNilAndReturnsCallbackResult(t *testing.T) {
+	var nilManager *Manager
+	if nilManager.WithCurrentSnapshot(func(*ConfigSnapshot) bool { return true }) {
+		t.Fatal("nil Manager.WithCurrentSnapshot() = true, want false")
+	}
+
+	manager := NewManager()
+	if manager.WithCurrentSnapshot(nil) {
+		t.Fatal("WithCurrentSnapshot(nil) = true, want false")
+	}
+	published, err := manager.Publish(managerCompileInput(1))
+	if err != nil {
+		t.Fatalf("Publish() error = %v", err)
+	}
+
+	var callbackSnapshot *ConfigSnapshot
+	if got := manager.WithCurrentSnapshot(func(snapshot *ConfigSnapshot) bool {
+		callbackSnapshot = snapshot
+		return true
+	}); !got {
+		t.Fatal("WithCurrentSnapshot(true callback) = false, want true")
+	}
+	if callbackSnapshot != published {
+		t.Fatalf("callback snapshot = %p, want current %p", callbackSnapshot, published)
+	}
+	if got := manager.WithCurrentSnapshot(func(*ConfigSnapshot) bool {
+		return false
+	}); got {
+		t.Fatal("WithCurrentSnapshot(false callback) = true, want false")
+	}
+}
+
+func TestManagerWithCurrentSnapshotBlocksConcurrentPublishUntilCallbackReturns(t *testing.T) {
+	manager := NewManager()
+	first, err := manager.Publish(managerCompileInput(1))
+	if err != nil {
+		t.Fatalf("first Publish() error = %v", err)
+	}
+
+	callbackEntered := make(chan struct{})
+	releaseCallback := make(chan struct{})
+	callbackReturned := make(chan struct{})
+	withCurrentDone := make(chan bool, 1)
+	go func() {
+		withCurrentDone <- manager.WithCurrentSnapshot(func(snapshot *ConfigSnapshot) bool {
+			if snapshot != first {
+				t.Errorf("callback snapshot = %p, want first %p", snapshot, first)
+			}
+			close(callbackEntered)
+			<-releaseCallback
+			close(callbackReturned)
+			return true
+		})
+	}()
+	awaitManagerSignal(t, callbackEntered, "WithCurrentSnapshot callback entry")
+
+	next, err := Compile(managerCompileInput(2))
+	if err != nil {
+		t.Fatalf("Compile(next snapshot) error = %v", err)
+	}
+	publishLockAttempted := make(chan struct{})
+	publishReturned := make(chan *ConfigSnapshot, 1)
+	go func() {
+		publishReturned <- manager.publishCompiled(next, func() {
+			close(publishLockAttempted)
+		})
+	}()
+	awaitManagerSignal(t, publishLockAttempted, "concurrent publishMu lock attempt")
+
+	if manager.publishMu.TryLock() {
+		manager.publishMu.Unlock()
+		t.Fatal("publishMu was unlocked while WithCurrentSnapshot callback was blocked")
+	}
+	select {
+	case published := <-publishReturned:
+		t.Fatalf("Publish() returned snapshot %p while callback was blocked", published)
+	default:
+	}
+
+	close(releaseCallback)
+	awaitManagerSignal(t, callbackReturned, "WithCurrentSnapshot callback return")
+	select {
+	case got := <-withCurrentDone:
+		if !got {
+			t.Fatal("WithCurrentSnapshot() = false, want callback result true")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for WithCurrentSnapshot to return")
+	}
+
+	select {
+	case published := <-publishReturned:
+		if published.Revision != 2 {
+			t.Fatalf("concurrent Publish().Revision = %d, want 2", published.Revision)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for concurrent Publish to return")
+	}
+}
+
+func awaitManagerSignal(t *testing.T, signal <-chan struct{}, name string) {
+	t.Helper()
+	select {
+	case <-signal:
+	case <-time.After(time.Second):
+		t.Fatalf("timed out waiting for %s", name)
 	}
 }
 

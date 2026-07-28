@@ -20,6 +20,7 @@ const override: ModelPriceRuleDto = {
   },
   source_url: null,
   updated_at: '2026-07-27T00:00:00Z',
+  pricing_policy: null,
 }
 
 async function mountDialog(

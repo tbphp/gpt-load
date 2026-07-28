@@ -25,6 +25,7 @@ import {
   validateSettingsSection,
   type SettingsDraft,
 } from './settings-patch'
+import { chooseSettingsMutationResult } from './settings-response'
 
 const props = defineProps<{ settings: SettingsDto }>()
 const client = useApiClient()
@@ -144,10 +145,34 @@ async function save(): Promise<void> {
     if (controller !== activeController) return
     await queryClient.cancelQueries({ queryKey: controlQueryKeys.settings(), exact: true })
     if (controller !== activeController) return
-    rebase(settings)
+
+    const cached = queryClient.getQueryData<SettingsDto>(controlQueryKeys.settings())
+    const decision = chooseSettingsMutationResult(
+      settings,
+      cached,
+      base.value,
+      draft.value,
+      'request-forwarding',
+    )
+    if (decision.kind === 'refetch') {
+      await queryClient.refetchQueries({
+        queryKey: controlQueryKeys.settings(),
+        exact: true,
+      })
+      if (controller !== activeController) return
+      return
+    }
+
+    base.value = decision.settings
+    draft.value = decision.draft
+    headerValid.value = !hasDuplicateHeaderNames(decision.draft.values.header_rules)
+    disclosureRequested.value = decision.settings.overrides.includes('header_rules')
+    if (decision.source === 'response') {
+      queryClient.setQueryData(controlQueryKeys.settings(), decision.settings)
+    }
     succeeded.value = true
-    queryClient.setQueryData(controlQueryKeys.settings(), settings)
     await queryClient.invalidateQueries({ queryKey: controlQueryKeys.groups.details() })
+    if (controller !== activeController) return
   } catch (error: unknown) {
     if (controller !== activeController || error instanceof RequestCancelledError) return
     failed.value = true

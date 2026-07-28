@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net/http"
+	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -15,6 +17,7 @@ import (
 	"gpt-load/internal/platform/utils"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/scheduler"
+	"gpt-load/internal/state"
 	"gpt-load/internal/telemetry"
 	"gpt-load/internal/usage"
 )
@@ -43,6 +46,7 @@ type requestRecorder struct {
 	outcome     requestOutcome
 	usage       telemetry.UsageObservation
 	now         func() time.Time
+	redactor    *redact.Redactor
 	emitted     bool
 
 	pendingRetry int
@@ -60,6 +64,7 @@ func newRequestRecorder(
 		sink: sink, requestID: requestID, startedAt: startedAt,
 		accessKeyID: accessKeyID, protocol: value, now: now,
 		pendingRetry: -1,
+		redactor:     redact.New(),
 		usage:        telemetry.UsageObservation{Result: usage.Result{State: usage.StateNotApplicable}},
 	}
 }
@@ -121,6 +126,14 @@ func (recorder *requestRecorder) recordAttempt(
 	if recorder == nil {
 		return -1
 	}
+	rules := state.HeaderRules{}
+	if result.HasResponse() && !result.ProviderErrorBeforeCommit {
+		rules = selection.Group.HeaderRules
+	}
+	summarySecrets := resolvedErrorSummarySecretValues(
+		apiKey,
+		rules,
+	)
 	return recorder.appendAttempt(
 		selection,
 		apiKey,
@@ -128,7 +141,7 @@ func (recorder *requestRecorder) recordAttempt(
 		telemetryFailureCategory(decision.Category),
 		telemetryAction(decision.Action),
 		upstreamErrorCode(result, decision.Category),
-		result.ErrorSummary,
+		sanitizeErrorSummary(recorder.redactor, result.ErrorSummary, summarySecrets...),
 		startedAt,
 		completedAt,
 	)
@@ -145,6 +158,14 @@ func (recorder *requestRecorder) recordStreamAttempt(
 		return -1
 	}
 	category, action := streamAttemptObservation(result)
+	rules := state.HeaderRules{}
+	if result.Stream.EndReason == StreamEndSSEError {
+		rules = selection.Group.HeaderRules
+	}
+	summarySecrets := resolvedErrorSummarySecretValues(
+		apiKey,
+		rules,
+	)
 	return recorder.appendAttempt(
 		selection,
 		apiKey,
@@ -152,7 +173,11 @@ func (recorder *requestRecorder) recordStreamAttempt(
 		category,
 		action,
 		streamErrorCode(result.Stream.EndReason),
-		result.Stream.ErrorSummary,
+		sanitizeErrorSummary(
+			recorder.redactor,
+			result.Stream.ErrorSummary,
+			summarySecrets...,
+		),
 		startedAt,
 		completedAt,
 	)
@@ -224,6 +249,9 @@ func (recorder *requestRecorder) completeStream(
 	}
 	code := streamErrorCode(result.Stream.EndReason)
 	summary := result.Stream.ErrorSummary
+	if attemptIndex >= 0 && attemptIndex < len(recorder.attempts) {
+		summary = recorder.attempts[attemptIndex].ErrorSummary
+	}
 	if code != "" && summary == "" {
 		summary = fixedErrorSummary(code)
 	}
@@ -266,6 +294,9 @@ func (recorder *requestRecorder) completeResponse(
 	}
 	code := upstreamErrorCode(result, decision.Category)
 	summary := result.ErrorSummary
+	if attemptIndex >= 0 && attemptIndex < len(recorder.attempts) {
+		summary = recorder.attempts[attemptIndex].ErrorSummary
+	}
 	if summary == "" {
 		summary = fixedErrorSummary(code)
 	}
@@ -274,6 +305,27 @@ func (recorder *requestRecorder) completeResponse(
 		errorCode: code, errorSummary: summary, upstreamModel: upstreamModel,
 	}
 	recorder.bindUsage(attemptIndex, result.Usage, false)
+}
+
+func (recorder *requestRecorder) completeProviderError(
+	upstreamModel string,
+	attemptIndex int,
+) {
+	if recorder == nil {
+		return
+	}
+	recorder.outcome = requestOutcome{
+		status:        telemetry.RequestStatusError,
+		statusCode:    reasonUpstreamProtocol.Status,
+		errorCode:     reasonUpstreamProtocol.Code,
+		errorSummary:  reasonUpstreamProtocol.Message,
+		upstreamModel: upstreamModel,
+	}
+	recorder.bindUsage(
+		attemptIndex,
+		usage.Result{State: usage.StateMissing},
+		true,
+	)
 }
 
 func (recorder *requestRecorder) bindUsage(
@@ -329,6 +381,22 @@ func (recorder *requestRecorder) completeDownstreamWrite(status int) {
 	recorder.outcome.statusCode = status
 	recorder.outcome.errorCode = "downstream_write_failed"
 	recorder.outcome.errorSummary = fixedErrorSummary("downstream_write_failed")
+}
+
+func (recorder *requestRecorder) completeMissingOutcome(written bool, statusCode int) {
+	if recorder == nil || recorder.outcome.status != "" {
+		return
+	}
+	recorder.outcome = requestOutcome{
+		status:       telemetry.RequestStatusError,
+		statusCode:   http.StatusInternalServerError,
+		errorCode:    "internal_error",
+		errorSummary: fixedErrorSummary("internal_error"),
+	}
+	if written {
+		recorder.outcome.status = telemetry.RequestStatusIncomplete
+		recorder.outcome.statusCode = statusCode
+	}
 }
 
 func telemetryFailureCategory(value health.FailureCategory) telemetry.FailureCategory {
@@ -426,6 +494,8 @@ func fixedErrorSummary(code string) string {
 		return "Upstream stream timed out while idle."
 	case "downstream_write_failed":
 		return "The downstream response could not be completed."
+	case "internal_error":
+		return "The request failed due to an internal error."
 	case "client_canceled":
 		return "The client canceled the request."
 	default:
@@ -443,8 +513,19 @@ func summarizeErrorBody(
 	if summary == "" {
 		summary = fallback
 	}
+	return sanitizeErrorSummary(redactor, summary, knownSecrets...)
+}
+
+func sanitizeErrorSummary(
+	redactor *redact.Redactor,
+	summary string,
+	knownSecrets ...string,
+) string {
 	summary = strings.ToValidUTF8(summary, "\uFFFD")
-	summary = strings.Join(strings.Fields(summary), " ")
+	if redactor != nil {
+		summary = redactor.String(summary, knownSecrets...)
+	}
+	summary = normalizeErrorSummaryWhitespace(summary)
 	if redactor != nil {
 		summary = redactor.String(summary, knownSecrets...)
 	}
@@ -456,6 +537,52 @@ func summarizeErrorBody(
 		prefixBytes--
 	}
 	return summary[:prefixBytes] + requestLogTruncatedMarker
+}
+
+func resolvedErrorSummarySecretValues(
+	apiKey string,
+	rules state.HeaderRules,
+	knownSecrets ...string,
+) []string {
+	secrets := make([]string, 0, len(knownSecrets)+len(rules.Set)*2+1)
+	seen := make(map[string]struct{})
+	appendSecret := func(secret string) {
+		if secret == "" {
+			return
+		}
+		if _, exists := seen[secret]; exists {
+			return
+		}
+		seen[secret] = struct{}{}
+		secrets = append(secrets, secret)
+		normalized := normalizeErrorSummaryWhitespace(
+			strings.ToValidUTF8(secret, "\uFFFD"),
+		)
+		if normalized == "" || normalized == secret {
+			return
+		}
+		if _, exists := seen[normalized]; exists {
+			return
+		}
+		seen[normalized] = struct{}{}
+		secrets = append(secrets, normalized)
+	}
+	for _, secret := range knownSecrets {
+		appendSecret(secret)
+	}
+	appendSecret(apiKey)
+	for _, value := range rules.Set {
+		appendSecret(value)
+		appendSecret(strings.ReplaceAll(value, "${API_KEY}", apiKey))
+	}
+	sort.SliceStable(secrets, func(left, right int) bool {
+		return len(secrets[left]) > len(secrets[right])
+	})
+	return secrets
+}
+
+func normalizeErrorSummaryWhitespace(value string) string {
+	return strings.Join(strings.Fields(value), " ")
 }
 
 func allowedErrorSummary(body []byte) string {

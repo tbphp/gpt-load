@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -359,6 +360,74 @@ func TestBuildContainerUsesSingletonAccessKeyRPMLimiter(t *testing.T) {
 	if first != second {
 		t.Fatalf("AccessKeyRPM instances differ: first=%p second=%p", first, second)
 	}
+}
+
+func TestBuildContainerWiresSingletonMutationCoordinator(t *testing.T) {
+	t.Setenv("AUTH_KEY", "test-auth-key")
+	t.Setenv("DATA_DIR", t.TempDir())
+	t.Setenv("DATABASE_DSN", ":memory:")
+	t.Setenv("ENCRYPTION_KEY", "test-master-key-long")
+
+	dependencyContainer, err := BuildContainer()
+	if err != nil {
+		t.Fatalf("BuildContainer() error = %v", err)
+	}
+	err = dependencyContainer.Invoke(func(
+		coordinator *health.MutationCoordinator,
+		handler *gateway.Handler,
+		runtime *control.Runtime,
+		db *gorm.DB,
+	) {
+		t.Cleanup(func() {
+			sqlDB, dbErr := db.DB()
+			if dbErr == nil {
+				_ = sqlDB.Close()
+			}
+		})
+		want := reflect.ValueOf(coordinator).Pointer()
+		handlerMutation := mutationCoordinatorFieldPointer(t, reflect.ValueOf(handler), "mutations")
+		runtimeMutation := mutationCoordinatorFieldPointer(t, reflect.ValueOf(runtime), "mutations")
+
+		runtimeValue := reflect.ValueOf(runtime).Elem()
+		validator := runtimeValue.FieldByName("validator")
+		if !validator.IsValid() || validator.IsNil() {
+			t.Fatal("Runtime validator is not wired")
+		}
+		validationMutation := mutationCoordinatorFieldPointer(t, validator.Elem(), "mutations")
+		if handlerMutation != want || runtimeMutation != want || validationMutation != want {
+			t.Fatalf(
+				"mutation coordinators = handler:%#x runtime:%#x validation:%#x want:%#x",
+				handlerMutation,
+				runtimeMutation,
+				validationMutation,
+				want,
+			)
+		}
+	})
+	if err != nil {
+		t.Fatalf("resolve singleton mutation graph: %v", err)
+	}
+}
+
+func mutationCoordinatorFieldPointer(t *testing.T, value reflect.Value, fieldName string) uintptr {
+	t.Helper()
+	if value.Kind() == reflect.Pointer {
+		value = value.Elem()
+	}
+	field := value.FieldByName(fieldName)
+	if !field.IsValid() {
+		t.Fatalf("%s has no %s field", value.Type(), fieldName)
+	}
+	if field.Kind() == reflect.Interface {
+		if field.IsNil() {
+			t.Fatalf("%s.%s is nil", value.Type(), fieldName)
+		}
+		field = field.Elem()
+	}
+	if field.Kind() != reflect.Pointer || field.IsNil() {
+		t.Fatalf("%s.%s = %s, want non-nil pointer", value.Type(), fieldName, field.Kind())
+	}
+	return field.Pointer()
 }
 
 func TestBuildContainerUsesSingletonDataPlaneRuntimeServices(t *testing.T) {

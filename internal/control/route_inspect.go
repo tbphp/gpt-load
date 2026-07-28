@@ -68,7 +68,7 @@ func optionalReason(value scheduler.ReasonCode) *scheduler.ReasonCode {
 }
 
 func validateRouteInspectRequest(request routeInspectRequest) error {
-	if !request.Protocol.Valid() ||
+	if !request.Protocol.DataPlaneEnabled() ||
 		request.AccessKeyID == 0 ||
 		request.ExternalModel == "" ||
 		strings.TrimSpace(request.ExternalModel) != request.ExternalModel {

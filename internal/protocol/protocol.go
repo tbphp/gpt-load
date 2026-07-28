@@ -18,3 +18,12 @@ func (p Protocol) Valid() bool {
 		return false
 	}
 }
+
+func (p Protocol) DataPlaneEnabled() bool {
+	switch p {
+	case OpenAI, Anthropic, Gemini:
+		return true
+	default:
+		return false
+	}
+}

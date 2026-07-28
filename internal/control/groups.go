@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"gorm.io/gorm"
+
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/storage/models"
@@ -25,28 +27,72 @@ type GroupResponse struct {
 	KeyCount    int64               `json:"key_count"`
 }
 
-func (s *Service) ListGroups(ctx context.Context) ([]GroupResponse, error) {
-	var groups []models.Group
-	if err := s.db.WithContext(ctx).Order("id ASC").Find(&groups).Error; err != nil {
-		return nil, app_errors.ParseDBError(err)
-	}
+type groupKeyCountRow struct {
+	GroupID uint
+	Count   int64
+}
 
-	type keyCountRow struct {
-		GroupID uint
-		Count   int64
+type listGroupsSnapshotRows struct {
+	groups    []models.Group
+	keyCounts []groupKeyCountRow
+}
+
+func (s *Service) readListGroupsSnapshot(
+	ctx context.Context,
+) (listGroupsSnapshotRows, error) {
+	var rows listGroupsSnapshotRows
+	err := s.withReadSnapshot(ctx, func(tx *gorm.DB) error {
+		var groups []models.Group
+		if err := tx.Order("id ASC").Find(&groups).Error; err != nil {
+			return err
+		}
+		var keyCounts []groupKeyCountRow
+		if err := tx.Model(&models.UpstreamKey{}).
+			Select("group_id, COUNT(*) AS count").
+			Group("group_id").
+			Find(&keyCounts).Error; err != nil {
+			return err
+		}
+		rows.groups = cloneGroupRows(groups)
+		rows.keyCounts = append([]groupKeyCountRow(nil), keyCounts...)
+		return nil
+	})
+	if err != nil {
+		return listGroupsSnapshotRows{}, err
 	}
-	var countRows []keyCountRow
-	if err := s.db.WithContext(ctx).Model(&models.UpstreamKey{}).
-		Select("group_id, COUNT(*) AS count").Group("group_id").Find(&countRows).Error; err != nil {
-		return nil, app_errors.ParseDBError(err)
+	return rows, nil
+}
+
+func cloneGroupRows(rows []models.Group) []models.Group {
+	cloned := make([]models.Group, len(rows))
+	for index := range rows {
+		cloned[index] = rows[index]
+		cloned[index].Protocols = append(models.JSON(nil), rows[index].Protocols...)
+		cloned[index].Models = append(models.JSON(nil), rows[index].Models...)
+		cloned[index].Config = append(models.JSON(nil), rows[index].Config...)
+		if rows[index].WeightManual != nil {
+			value := *rows[index].WeightManual
+			cloned[index].WeightManual = &value
+		}
+		if rows[index].ValidationModel != nil {
+			value := *rows[index].ValidationModel
+			cloned[index].ValidationModel = &value
+		}
+		cloned[index].UpstreamKeys = nil
 	}
-	counts := make(map[uint]int64, len(countRows))
-	for _, row := range countRows {
+	return cloned
+}
+
+func mapListGroupsSnapshot(
+	rows listGroupsSnapshotRows,
+) ([]GroupResponse, error) {
+	counts := make(map[uint]int64, len(rows.keyCounts))
+	for _, row := range rows.keyCounts {
 		counts[row.GroupID] = row.Count
 	}
 
-	result := make([]GroupResponse, 0, len(groups))
-	for _, group := range groups {
+	result := make([]GroupResponse, 0, len(rows.groups))
+	for _, group := range rows.groups {
 		var protocols []protocol.Protocol
 		if err := json.Unmarshal(group.Protocols, &protocols); err != nil {
 			return nil, fmt.Errorf("decode group %d protocols: %w", group.ID, err)
@@ -62,4 +108,19 @@ func (s *Service) ListGroups(ctx context.Context) ([]GroupResponse, error) {
 		})
 	}
 	return result, nil
+}
+
+func (s *Service) ListGroups(ctx context.Context) ([]GroupResponse, error) {
+	rows, err := s.readListGroupsSnapshot(ctx)
+	if parentErr := ctx.Err(); parentErr != nil {
+		return nil, parentErr
+	}
+	if err != nil {
+		return nil, app_errors.ParseDBError(err)
+	}
+	result, err := mapListGroupsSnapshot(rows)
+	if parentErr := ctx.Err(); parentErr != nil {
+		return nil, parentErr
+	}
+	return result, err
 }

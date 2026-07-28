@@ -82,6 +82,47 @@ func TestLoadSystemSettingsDecodesPersistedValues(t *testing.T) {
 	}
 }
 
+func TestMapSystemSettingsMapsOwnedRowsWithoutDatabase(t *testing.T) {
+	rows := []models.SystemSetting{
+		{Key: "plain", Value: "not-json"},
+		{Key: "number", Value: "12.50"},
+		{Key: "object", Value: `{"set":{"X-Test":"original"},"remove":["X-Old"]}`},
+		{
+			Key:   models.InternalSystemSettingPrefix + "bootstrap.default_access_key.v1",
+			Value: "true",
+		},
+	}
+	settings, err := loader.MapSystemSettings(rows)
+	if err != nil {
+		t.Fatalf("MapSystemSettings() error = %v", err)
+	}
+	want := config.Settings{
+		"number": json.Number("12.50"),
+		"object": map[string]any{
+			"set":    map[string]any{"X-Test": "original"},
+			"remove": []any{"X-Old"},
+		},
+		"plain": "not-json",
+	}
+	if !reflect.DeepEqual(settings, want) {
+		t.Fatalf("settings = %#v, want %#v", settings, want)
+	}
+
+	rows[0].Value = "mutated-after-map"
+	settings["object"].(map[string]any)["set"].(map[string]any)["X-Test"] = "mutated"
+	remapped, err := loader.MapSystemSettings([]models.SystemSetting{
+		{Key: "plain", Value: "not-json"},
+		{Key: "object", Value: `{"set":{"X-Test":"original"},"remove":["X-Old"]}`},
+	})
+	if err != nil {
+		t.Fatalf("second MapSystemSettings() error = %v", err)
+	}
+	if remapped["plain"] != "not-json" ||
+		remapped["object"].(map[string]any)["set"].(map[string]any)["X-Test"] != "original" {
+		t.Fatalf("MapSystemSettings retained caller aliases: %#v", remapped)
+	}
+}
+
 func TestBuildCompileInputExcludesInternalSystemSettings(t *testing.T) {
 	db := openMigratedDatabase(t)
 	for _, row := range []models.SystemSetting{

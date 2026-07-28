@@ -31,6 +31,21 @@ describe('monitor route normalization', () => {
     })
   })
 
+  it('drops a reserved Inspector protocol deep link while preserving independent valid inputs', () => {
+    expect(
+      normalizeMonitorQuery({
+        tab: 'inspector',
+        protocol: 'openai-response',
+        external_model: 'gpt-real',
+        access_key_id: '12',
+      }),
+    ).toEqual({
+      tab: 'inspector',
+      external_model: 'gpt-real',
+      access_key_id: '12',
+    })
+  })
+
   it('rejects unsafe scalar, identity, enum, timestamp, and request-id filters', () => {
     expect(
       normalizeMonitorQuery({

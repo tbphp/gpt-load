@@ -38,13 +38,18 @@ func newAuthFailureLimiter() *authFailureLimiter {
 
 func (l *authFailureLimiter) evaluate(
 	peer string,
-	credentialValid func() bool,
+	credentialValid bool,
 ) authDecision {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
 	now := l.now()
 	l.cleanup(now)
+	if credentialValid {
+		delete(l.entries, peer)
+		return authDecision{authorized: true}
+	}
+
 	entry := l.entries[peer]
 	if now.Before(entry.lockedUntil) {
 		return authDecision{retryAfter: entry.lockedUntil.Sub(now)}
@@ -55,11 +60,6 @@ func (l *authFailureLimiter) evaluate(
 	}
 
 	entry.failures = retainRecentFailures(entry.failures, now.Add(-authFailureWindow))
-	if credentialValid() {
-		delete(l.entries, peer)
-		return authDecision{authorized: true}
-	}
-
 	entry.failures = append(entry.failures, now)
 	if len(entry.failures) >= authFailureLimit {
 		entry.failures = nil

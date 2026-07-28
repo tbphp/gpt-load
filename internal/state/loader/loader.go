@@ -190,6 +190,11 @@ func LoadSystemSettings(ctx context.Context, db *gorm.DB) (config.Settings, erro
 	if err := db.WithContext(ctx).Order("key ASC").Find(&rows).Error; err != nil {
 		return nil, fmt.Errorf("query system settings: %w", err)
 	}
+	return MapSystemSettings(rows)
+}
+
+// MapSystemSettings maps persisted system setting rows without accessing the database.
+func MapSystemSettings(rows []models.SystemSetting) (config.Settings, error) {
 	settings := make(config.Settings, len(rows))
 	for _, row := range rows {
 		if isInternalSystemSetting(row.Key) {

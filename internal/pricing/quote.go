@@ -25,15 +25,28 @@ func (table *Table) Quote(upstreamModel string, result usage.Result) Quote {
 		return Quote{State: CostStateUnpriced}
 	}
 
+	inputTokens, ok := checkedInputTokens(result.Tokens)
+	if !ok {
+		return Quote{State: CostStateUnpriced}
+	}
+	inputMultiplier := float64(1)
+	outputMultiplier := float64(1)
+	if policy := rule.LongContextPolicy; policy != nil &&
+		inputTokens > policy.InputThresholdTokens {
+		inputMultiplier = policy.InputMultiplier
+		outputMultiplier = policy.OutputMultiplier
+	}
+
 	components := [...]struct {
-		tokens int64
-		price  Price
+		tokens     int64
+		price      Price
+		multiplier float64
 	}{
-		{tokens: result.Tokens.UncachedInput, price: rule.Prices.UncachedInput},
-		{tokens: result.Tokens.CacheRead, price: rule.Prices.CacheRead},
-		{tokens: result.Tokens.CacheWrite5M, price: rule.Prices.CacheWrite5M},
-		{tokens: result.Tokens.CacheWrite1H, price: rule.Prices.CacheWrite1H},
-		{tokens: result.Tokens.Output, price: rule.Prices.Output},
+		{tokens: result.Tokens.UncachedInput, price: rule.Prices.UncachedInput, multiplier: inputMultiplier},
+		{tokens: result.Tokens.CacheRead, price: rule.Prices.CacheRead, multiplier: inputMultiplier},
+		{tokens: result.Tokens.CacheWrite5M, price: rule.Prices.CacheWrite5M, multiplier: inputMultiplier},
+		{tokens: result.Tokens.CacheWrite1H, price: rule.Prices.CacheWrite1H, multiplier: inputMultiplier},
+		{tokens: result.Tokens.Output, price: rule.Prices.Output, multiplier: outputMultiplier},
 	}
 
 	totalTokens := int64(0)
@@ -53,7 +66,11 @@ func (table *Table) Quote(upstreamModel string, result usage.Result) Quote {
 		if !component.price.Set {
 			return Quote{State: CostStateUnpriced}
 		}
-		componentCost := component.price.Value * float64(component.tokens) / tokensPerMillion
+		effectivePrice := component.price.Value * component.multiplier
+		if !isFinite(effectivePrice) {
+			return Quote{State: CostStateUnpriced}
+		}
+		componentCost := effectivePrice * float64(component.tokens) / tokensPerMillion
 		if !isFinite(componentCost) {
 			return Quote{State: CostStateUnpriced}
 		}
@@ -63,6 +80,26 @@ func (table *Table) Quote(upstreamModel string, result usage.Result) Quote {
 		}
 	}
 	return Quote{State: CostStatePriced, Cost: cost}
+}
+
+func checkedInputTokens(tokens usage.Tokens) (int64, bool) {
+	total := int64(0)
+	for _, value := range [...]int64{
+		tokens.UncachedInput,
+		tokens.CacheRead,
+		tokens.CacheWrite5M,
+		tokens.CacheWrite1H,
+	} {
+		if value < 0 {
+			return 0, false
+		}
+		var ok bool
+		total, ok = usage.CheckedAdd(total, value)
+		if !ok {
+			return 0, false
+		}
+	}
+	return total, true
 }
 
 func hasBlockingDiagnostic(diagnostics usage.Diagnostics) bool {

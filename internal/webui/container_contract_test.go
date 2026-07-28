@@ -10,6 +10,8 @@ import (
 )
 
 func TestComposeShellPortOverridesDotEnvEverywhere(t *testing.T) {
+	t.Setenv("BIND_ADDRESS", "")
+
 	projectDir := t.TempDir()
 	if err := os.WriteFile(
 		filepath.Join(projectDir, "docker-compose.yml"),
@@ -41,6 +43,7 @@ func TestComposeShellPortOverridesDotEnvEverywhere(t *testing.T) {
 			Ports []struct {
 				Target    int    `json:"target"`
 				Published string `json:"published"`
+				HostIP    string `json:"host_ip"`
 			} `json:"ports"`
 		} `json:"services"`
 	}
@@ -52,10 +55,14 @@ func TestComposeShellPortOverridesDotEnvEverywhere(t *testing.T) {
 	if service.Environment["PORT"] != "41234" {
 		t.Fatalf("resolved application PORT = %q, want shell override 41234", service.Environment["PORT"])
 	}
+	if service.Environment["HOST"] != "0.0.0.0" {
+		t.Fatalf("resolved application HOST = %q, want 0.0.0.0", service.Environment["HOST"])
+	}
 	if len(service.Ports) != 1 ||
 		service.Ports[0].Target != 41234 ||
-		service.Ports[0].Published != "41234" {
-		t.Fatalf("resolved ports = %#v, want target/published 41234", service.Ports)
+		service.Ports[0].Published != "41234" ||
+		service.Ports[0].HostIP != "127.0.0.1" {
+		t.Fatalf("resolved ports = %#v, want 127.0.0.1:41234:41234", service.Ports)
 	}
 	if len(service.Healthcheck.Test) != 2 ||
 		!strings.Contains(service.Healthcheck.Test[1], "localhost:41234/health") {
@@ -77,6 +84,7 @@ func TestDockerfileFinalStageDeclaresNonRootPersistentRuntime(t *testing.T) {
 		"mkdir -p /app/data",
 		"chown 10001:10001 /app/data",
 		"chmod 0700 /app/data",
+		"ENV HOST=0.0.0.0",
 		"ENV DATA_DIR=/app/data",
 		"USER 10001:10001",
 	}
@@ -152,6 +160,142 @@ func TestDockerfileFinalStageDeclaresNonRootPersistentRuntime(t *testing.T) {
 	}
 }
 
+func TestComposeBindsLoopbackAndConfiguresContainerAllInterfaces(t *testing.T) {
+	t.Setenv("BIND_ADDRESS", "")
+	t.Setenv("PORT", "")
+
+	projectDir := t.TempDir()
+	if err := os.WriteFile(
+		filepath.Join(projectDir, "docker-compose.yml"),
+		[]byte(readRepositoryFile(t, "docker-compose.yml")),
+		0o600,
+	); err != nil {
+		t.Fatalf("write temporary Compose file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(projectDir, ".env"), nil, 0o600); err != nil {
+		t.Fatalf("write temporary .env: %v", err)
+	}
+
+	command := exec.Command(
+		"docker", "compose", "config", "--no-env-resolution", "--format", "json",
+	)
+	command.Dir = projectDir
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("docker compose config: %v\n%s", err, output)
+	}
+
+	var resolved struct {
+		Services map[string]struct {
+			Environment map[string]string `json:"environment"`
+			Ports       []struct {
+				Target    int    `json:"target"`
+				Published string `json:"published"`
+				HostIP    string `json:"host_ip"`
+			} `json:"ports"`
+		} `json:"services"`
+	}
+	if err := json.Unmarshal(output, &resolved); err != nil {
+		t.Fatalf("decode docker compose config: %v\n%s", err, output)
+	}
+
+	service := resolved.Services["gpt-load"]
+	if service.Environment["HOST"] != "0.0.0.0" {
+		t.Fatalf("resolved application HOST = %q, want 0.0.0.0", service.Environment["HOST"])
+	}
+	if len(service.Ports) != 1 ||
+		service.Ports[0].Target != 3001 ||
+		service.Ports[0].Published != "3001" ||
+		service.Ports[0].HostIP != "127.0.0.1" {
+		t.Fatalf("resolved ports = %#v, want 127.0.0.1:3001:3001", service.Ports)
+	}
+}
+
+func TestComposeProjectsHaveIndependentNamesPortsAndVolumes(t *testing.T) {
+	t.Setenv("BIND_ADDRESS", "")
+	t.Setenv("PORT", "")
+
+	projectDir := t.TempDir()
+	if err := os.WriteFile(
+		filepath.Join(projectDir, "docker-compose.yml"),
+		[]byte(readRepositoryFile(t, "docker-compose.yml")),
+		0o600,
+	); err != nil {
+		t.Fatalf("write temporary Compose file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(projectDir, ".env"), nil, 0o600); err != nil {
+		t.Fatalf("write temporary .env: %v", err)
+	}
+
+	type composeConfig struct {
+		Name     string `json:"name"`
+		Services map[string]struct {
+			ContainerName string `json:"container_name"`
+			Ports         []struct {
+				Target    int    `json:"target"`
+				Published string `json:"published"`
+				HostIP    string `json:"host_ip"`
+			} `json:"ports"`
+		} `json:"services"`
+		Volumes map[string]struct {
+			Name string `json:"name"`
+		} `json:"volumes"`
+	}
+
+	render := func(projectName, publishedPort string) composeConfig {
+		t.Helper()
+		command := exec.Command(
+			"docker", "compose", "--project-name", projectName,
+			"config", "--no-env-resolution", "--format", "json",
+		)
+		command.Dir = projectDir
+		command.Env = append(os.Environ(), "PORT="+publishedPort)
+		output, err := command.CombinedOutput()
+		if err != nil {
+			t.Fatalf("docker compose config for %s: %v\n%s", projectName, err, output)
+		}
+
+		var resolved composeConfig
+		if err := json.Unmarshal(output, &resolved); err != nil {
+			t.Fatalf("decode docker compose config for %s: %v\n%s", projectName, err, output)
+		}
+		return resolved
+	}
+
+	first := render("review-one", "41001")
+	second := render("review-two", "41002")
+	for _, item := range []struct {
+		projectName   string
+		publishedPort string
+		targetPort    int
+		config        composeConfig
+	}{
+		{projectName: "review-one", publishedPort: "41001", targetPort: 41001, config: first},
+		{projectName: "review-two", publishedPort: "41002", targetPort: 41002, config: second},
+	} {
+		if item.config.Name != item.projectName {
+			t.Fatalf("resolved project name = %q, want %q", item.config.Name, item.projectName)
+		}
+		service := item.config.Services["gpt-load"]
+		if service.ContainerName != "" {
+			t.Fatalf("resolved project %s fixes container_name to %q", item.projectName, service.ContainerName)
+		}
+		if len(service.Ports) != 1 ||
+			service.Ports[0].Target != item.targetPort ||
+			service.Ports[0].Published != item.publishedPort ||
+			service.Ports[0].HostIP != "127.0.0.1" {
+			t.Fatalf("resolved project %s ports = %#v", item.projectName, service.Ports)
+		}
+		wantVolume := item.projectName + "_gpt-load-data"
+		if got := item.config.Volumes["gpt-load-data"].Name; got != wantVolume {
+			t.Fatalf("resolved project %s volume = %q, want %q", item.projectName, got, wantVolume)
+		}
+	}
+	if first.Volumes["gpt-load-data"].Name == second.Volumes["gpt-load-data"].Name {
+		t.Fatal("different Compose projects resolve the same named volume")
+	}
+}
+
 func TestComposeResolvesNamedVolumeContainerPathsAndStableImage(t *testing.T) {
 	t.Setenv("DATA_DIR", "/host/path/must-not-reach-container")
 	t.Setenv("DATABASE_DSN", "/host/database/must-not-reach-container.db")
@@ -206,11 +350,8 @@ func TestComposeResolvesNamedVolumeContainerPathsAndStableImage(t *testing.T) {
 	if service.Environment["DATA_DIR"] != "/app/data" {
 		t.Fatalf("resolved DATA_DIR = %q, want /app/data", service.Environment["DATA_DIR"])
 	}
-	if service.Environment["DATABASE_DSN"] != "/app/data/gpt-load.db" {
-		t.Fatalf(
-			"resolved DATABASE_DSN = %q, want /app/data/gpt-load.db",
-			service.Environment["DATABASE_DSN"],
-		)
+	if databaseDSN, ok := service.Environment["DATABASE_DSN"]; ok {
+		t.Fatalf("resolved DATABASE_DSN = %q, want managed default to remain unset", databaseDSN)
 	}
 	if service.Privileged {
 		t.Fatal("resolved Compose enables privileged mode")

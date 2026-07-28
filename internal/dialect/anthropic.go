@@ -57,6 +57,10 @@ func (d *Anthropic) InjectCredential(headers http.Header, apiKey string) {
 	}
 }
 
+func (d *Anthropic) CredentialHeaderNames() []string {
+	return []string{"X-Api-Key"}
+}
+
 func (d *Anthropic) BuildUpstreamURL(base string, req *ParsedRequest) (string, error) {
 	return buildUpstreamURL(base, req)
 }
@@ -185,4 +189,8 @@ func (d *Anthropic) ExtractModel(req *ParsedRequest) (string, bool, error) {
 
 func (d *Anthropic) ClassifyStatus(status int, body []byte) health.FailureCategory {
 	return classifyStatusWithMarkers(status, body, anthropicFailureMarkers)
+}
+
+func (d *Anthropic) ClassifyProviderError(body []byte) health.FailureCategory {
+	return classifyProviderErrorWithMarkers(body, anthropicFailureMarkers)
 }

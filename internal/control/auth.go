@@ -52,18 +52,16 @@ func (s *Server) authenticate() gin.HandlerFunc {
 			return
 		}
 
-		decision := s.authFailures.evaluate(peer, func() bool {
-			fields := strings.Fields(c.GetHeader("Authorization"))
-			token := ""
-			if len(fields) == 2 {
-				token = fields[1]
-			}
-			requestDigest := sha256.Sum256([]byte(token))
-			formatValid := len(fields) == 2 &&
-				strings.EqualFold(fields[0], "Bearer")
-			matches := s.compareDigest(requestDigest[:], s.authDigest[:]) == 1
-			return formatValid && matches
-		})
+		fields := strings.Fields(c.GetHeader("Authorization"))
+		formatValid := len(fields) == 2 &&
+			strings.EqualFold(fields[0], "Bearer")
+		token := ""
+		if formatValid {
+			token = fields[1]
+		}
+		requestDigest := sha256.Sum256([]byte(token))
+		matches := s.compareDigest(requestDigest[:], s.authDigest[:]) == 1
+		decision := s.authFailures.evaluate(peer, formatValid && matches)
 
 		if decision.retryAfter > 0 {
 			seconds := retryAfterSeconds(decision.retryAfter)

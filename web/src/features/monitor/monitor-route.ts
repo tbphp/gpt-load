@@ -1,6 +1,6 @@
 import type { LocationQueryRaw } from 'vue-router'
 
-import type { AccessProtocol } from '@/api/control/types'
+import { enabledDataProtocols } from '@/api/control/protocols'
 import type { RequestLogStatus } from '@/api/control/request-logs'
 import type { UsageFilters } from '@/api/control/usage'
 
@@ -18,7 +18,6 @@ export const requestLogStatuses = [
   'incomplete',
   'canceled',
 ] as const satisfies readonly RequestLogStatus[]
-const accessProtocols: AccessProtocol[] = ['openai', 'anthropic', 'gemini', 'openai-response']
 const requestIDPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 const rfc3339Pattern =
   /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/
@@ -67,7 +66,7 @@ function normalizeInspectorQuery(
   tab: MonitorTab,
 ): LocationQueryRaw {
   const normalized: LocationQueryRaw = { tab }
-  const protocol = scalarEnum(query.protocol, accessProtocols)
+  const protocol = scalarEnum(query.protocol, enabledDataProtocols)
   const externalModel = scalarText(query.external_model)
   const accessKeyID = scalarPositiveID(query.access_key_id)
 

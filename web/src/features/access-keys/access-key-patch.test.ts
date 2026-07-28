@@ -32,6 +32,54 @@ describe('AccessKey request normalization', () => {
     expect(input).not.toHaveProperty('status')
   })
 
+  it('rejects an injected reserved protocol for a create draft', () => {
+    const draft = createAccessKeyDraft()
+    draft.name = 'new-client'
+    draft.filters.protocols = ['openai-response']
+
+    expect(isAccessKeyDraftValid(draft)).toBe(false)
+  })
+
+  it('rejects an injected reserved protocol for an ordinary edit draft', () => {
+    const ordinaryBase: AccessKeyDto = {
+      ...base,
+      filters: { ...base.filters, protocols: ['openai'] },
+    }
+    const draft = createAccessKeyDraft(ordinaryBase)
+    draft.filters.protocols = ['openai', 'openai-response']
+
+    expect(isAccessKeyDraftValid(draft, ordinaryBase)).toBe(false)
+  })
+
+  it('accepts retaining a historical reserved protocol alongside enabled changes', () => {
+    const draft = createAccessKeyDraft(base)
+    draft.filters.protocols = ['openai-response', 'gemini']
+
+    expect(isAccessKeyDraftValid(draft, base)).toBe(true)
+  })
+
+  it('accepts explicit historical reserved removal and includes it in the update patch', () => {
+    const draft = createAccessKeyDraft(base)
+    draft.filters.protocols = []
+
+    expect(isAccessKeyDraftValid(draft, base)).toBe(true)
+    expect(buildAccessKeyUpdatePatch(base, draft)).toEqual({
+      filters: {
+        groups: [7],
+        protocols: [],
+        models: ['known', 'free-entry'],
+      },
+    })
+  })
+
+  it('keeps reserved draft values intact in builders instead of silently filtering them', () => {
+    const draft = createAccessKeyDraft()
+    draft.name = 'new-client'
+    draft.filters.protocols = ['openai-response']
+
+    expect(buildCreateAccessKeyInput(draft).filters.protocols).toEqual(['openai-response'])
+  })
+
   it('returns an empty update patch for a normalized no-op', () => {
     const draft = createAccessKeyDraft(base)
     draft.name = ' client '

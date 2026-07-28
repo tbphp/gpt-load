@@ -1,5 +1,6 @@
 import { QueryClient } from '@tanstack/vue-query'
 import { flushPromises } from '@vue/test-utils'
+import { nextTick } from 'vue'
 import { createMemoryHistory } from 'vue-router'
 
 import type { ApiClient, ApiRequestOptions } from '@/api/client'
@@ -8,6 +9,7 @@ import { controlQueryKeys } from '@/app/query-keys'
 import { createAppRouter } from '@/app/router'
 import { mountApp } from '@/test/mount-app'
 
+import AccessKeyTable from './AccessKeyTable.vue'
 import AccessKeysView from './AccessKeysView.vue'
 
 const canary = 'sk-gl-ACCESS_KEYS_LIST_CANARY'
@@ -57,6 +59,12 @@ async function mountView(request: ApiClient['request']) {
   })
   await flushPromises()
   return { ...mounted, queryClient: client }
+}
+
+function documentButton(selector: string): HTMLButtonElement {
+  const button = document.querySelector<HTMLButtonElement>(selector)
+  if (!button) throw new Error(`missing ${selector}`)
+  return button
 }
 
 describe('AccessKeysView', () => {
@@ -136,5 +144,89 @@ describe('AccessKeysView', () => {
     expect(wrapper.html()).not.toContain('sk-gl-GENERIC_ERROR_CANARY')
     expect(wrapper.html()).not.toContain(canary)
     wrapper.unmount()
+  })
+
+  it('focuses Create after deleting the only row and rendering the refreshed empty list', async () => {
+    let currentKeys = [...keys]
+    const request = vi.fn(async (path: string, options?: ApiRequestOptions) => {
+      if (path === '/api/groups' && options?.method === 'GET') return groups
+      if (path === '/api/access-keys' && options?.method === 'GET') return currentKeys
+      if (path === '/api/access-keys/9' && options?.method === 'DELETE') {
+        currentKeys = []
+        return undefined
+      }
+      throw new Error(`unexpected ${path}`)
+    }) as ApiClient['request']
+    const { wrapper } = await mountView(request)
+
+    await wrapper
+      .get('[data-test="access-key-row-9"]')
+      .get('[data-test="access-key-delete-open"]')
+      .trigger('click')
+    await flushPromises()
+    documentButton('[data-test="access-key-delete-confirm"]').click()
+    await flushPromises()
+
+    expect(wrapper.find('[data-test="access-key-row-9"]').exists()).toBe(false)
+    expect(document.activeElement).toBe(
+      wrapper.get('button[data-test="access-key-create"]').element,
+    )
+    wrapper.unmount()
+  })
+
+  it('focuses Create after deleting one row and rendering the refreshed remaining rows', async () => {
+    const otherKey: AccessKeyDto = {
+      ...keys[0],
+      id: 10,
+      name: 'secondary',
+      key: 'sk-gl-SECONDARY_LIST_CANARY',
+    }
+    let currentKeys = [...keys, otherKey]
+    const request = vi.fn(async (path: string, options?: ApiRequestOptions) => {
+      if (path === '/api/groups' && options?.method === 'GET') return groups
+      if (path === '/api/access-keys' && options?.method === 'GET') return currentKeys
+      if (path === '/api/access-keys/9' && options?.method === 'DELETE') {
+        currentKeys = currentKeys.filter((accessKey) => accessKey.id !== 9)
+        return undefined
+      }
+      throw new Error(`unexpected ${path}`)
+    }) as ApiClient['request']
+    const { wrapper } = await mountView(request)
+
+    await wrapper
+      .get('[data-test="access-key-row-9"]')
+      .get('[data-test="access-key-delete-open"]')
+      .trigger('click')
+    await flushPromises()
+    documentButton('[data-test="access-key-delete-confirm"]').click()
+    await flushPromises()
+
+    expect(wrapper.find('[data-test="access-key-row-9"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="access-key-row-10"]').exists()).toBe(true)
+    expect(document.activeElement).toBe(
+      wrapper.get('button[data-test="access-key-create"]').element,
+    )
+    wrapper.unmount()
+  })
+
+  it('does not focus detached content when deleted is followed by immediate unmount', async () => {
+    const request = vi.fn(async (path: string, options?: ApiRequestOptions) => {
+      if (path === '/api/access-keys' && options?.method === 'GET') return keys
+      if (path === '/api/groups' && options?.method === 'GET') return groups
+      throw new Error(`unexpected ${path}`)
+    }) as ApiClient['request']
+    const { wrapper } = await mountView(request)
+    const createButton = wrapper.get<HTMLButtonElement>(
+      'button[data-test="access-key-create"]',
+    ).element
+    const focus = vi.spyOn(createButton, 'focus')
+
+    wrapper.getComponent(AccessKeyTable).vm.$emit('deleted')
+    wrapper.unmount()
+    await nextTick()
+    await flushPromises()
+
+    expect(createButton.isConnected).toBe(false)
+    expect(focus).not.toHaveBeenCalled()
   })
 })

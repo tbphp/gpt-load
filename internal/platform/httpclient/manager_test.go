@@ -9,8 +9,77 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
+
+func TestHTTPClientManagerDisableRedirectsReturnsEvery3xxWithoutFollowup(t *testing.T) {
+	for _, status := range []int{
+		http.StatusMovedPermanently,
+		http.StatusFound,
+		http.StatusSeeOther,
+		http.StatusTemporaryRedirect,
+		http.StatusPermanentRedirect,
+	} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			var firstHopCalls atomic.Int32
+			var followupCalls atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				switch request.URL.Path {
+				case "/redirect":
+					firstHopCalls.Add(1)
+					writer.Header().Set("Location", "/followup")
+					writer.WriteHeader(status)
+				case "/followup":
+					followupCalls.Add(1)
+					writer.WriteHeader(http.StatusNoContent)
+				default:
+					http.NotFound(writer, request)
+				}
+			}))
+			defer server.Close()
+
+			manager := NewHTTPClientManager()
+			followRedirects := &Config{}
+			response, err := manager.GetClient(followRedirects).Get(server.URL + "/redirect")
+			if err != nil {
+				t.Fatalf("default redirect request failed: %v", err)
+			}
+			_ = response.Body.Close()
+			if response.StatusCode != http.StatusNoContent ||
+				firstHopCalls.Load() != 1 ||
+				followupCalls.Load() != 1 {
+				t.Fatalf(
+					"default status/first/followup = %d/%d/%d, want %d/1/1",
+					response.StatusCode,
+					firstHopCalls.Load(),
+					followupCalls.Load(),
+					http.StatusNoContent,
+				)
+			}
+
+			firstHopCalls.Store(0)
+			followupCalls.Store(0)
+			disableRedirects := &Config{DisableRedirects: true}
+			response, err = manager.GetClient(disableRedirects).Get(server.URL + "/redirect")
+			if err != nil {
+				t.Fatalf("disabled redirect request failed: %v", err)
+			}
+			_ = response.Body.Close()
+			if response.StatusCode != status ||
+				firstHopCalls.Load() != 1 ||
+				followupCalls.Load() != 0 {
+				t.Fatalf(
+					"disabled status/first/followup = %d/%d/%d, want %d/1/0",
+					response.StatusCode,
+					firstHopCalls.Load(),
+					followupCalls.Load(),
+					status,
+				)
+			}
+		})
+	}
+}
 
 func TestSameOriginUsesEffectivePorts(t *testing.T) {
 	tests := []struct {

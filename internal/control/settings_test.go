@@ -4,14 +4,18 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
+	"gpt-load/internal/platform/config"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/state"
 	"gpt-load/internal/storage/models"
@@ -249,6 +253,61 @@ func TestUpdateSettingsCanonicalizesValuesAndReturnsEffectiveHeaderRules(t *test
 	wantTime := time.Date(2026, time.July, 24, 4, 30, 0, 0, time.UTC)
 	if !row.UpdatedAt.Equal(wantTime) {
 		t.Fatalf("updated_at = %s, want %s", row.UpdatedAt, wantTime)
+	}
+}
+
+func TestUpdateSettingsPersistsCredentialTemplateWithoutLiteralSecret(t *testing.T) {
+	initControlI18n(t)
+	const (
+		authKey       = "settings-template-test-auth"
+		providerToken = "fake-provider-token-canary"
+	)
+	fixture := newServiceFixture(t)
+	engine := gin.New()
+	NewServer(&config.Config{AuthKey: authKey}, fixture.service).RegisterRoutes(engine)
+
+	accepted := serveSettingsRequest(
+		t,
+		engine,
+		http.MethodPut,
+		authKey,
+		`{"settings":{"header_rules":{"set":{"Authorization":"Bearer ${API_KEY}"}}}}`,
+	)
+	if accepted.Code != http.StatusOK {
+		t.Fatalf("template response = %d %s, want 200", accepted.Code, accepted.Body.String())
+	}
+	var persisted models.SystemSetting
+	if err := fixture.db.First(&persisted, "key = ?", state.SettingHeaderRules).Error; err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(persisted.Value, `${API_KEY}`) ||
+		strings.Contains(persisted.Value, providerToken) {
+		t.Fatalf("persisted HeaderRules = %q, want template without provider token", persisted.Value)
+	}
+	beforeSnapshot := fixture.manager.Current()
+	beforeValue := persisted.Value
+
+	rejected := serveSettingsRequest(
+		t,
+		engine,
+		http.MethodPut,
+		authKey,
+		`{"settings":{"header_rules":{"set":{"Authorization":"Bearer `+providerToken+`"}}}}`,
+	)
+	if rejected.Code != http.StatusBadRequest ||
+		!strings.Contains(rejected.Body.String(), `"code":"VALIDATION_FAILED"`) {
+		t.Fatalf("literal response = %d %s, want 400 validation", rejected.Code, rejected.Body.String())
+	}
+	if fixture.manager.Current() != beforeSnapshot {
+		t.Fatal("rejected literal credential published a new Snapshot revision")
+	}
+	var rows []models.SystemSetting
+	if err := fixture.db.Where("key = ?", state.SettingHeaderRules).Find(&rows).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].Value != beforeValue ||
+		strings.Contains(rows[0].Value, providerToken) {
+		t.Fatalf("rejected literal credential changed persisted rows: %#v", rows)
 	}
 }
 

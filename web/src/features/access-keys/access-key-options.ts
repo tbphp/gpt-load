@@ -1,11 +1,13 @@
 import type { AccessProtocol, GroupSummary } from '@/api/control/types'
+import { enabledDataProtocols } from '@/api/control/protocols'
 
-export const accessKeyProtocols: AccessProtocol[] = [
-  'openai',
-  'anthropic',
-  'gemini',
-  'openai-response',
-]
+export function accessKeyProtocolOptions(
+  editingBaseProtocols: readonly AccessProtocol[] = [],
+): AccessProtocol[] {
+  return editingBaseProtocols.includes('openai-response')
+    ? [...enabledDataProtocols, 'openai-response']
+    : [...enabledDataProtocols]
+}
 
 export function buildAccessKeyModelOptions(
   groups: GroupSummary[],

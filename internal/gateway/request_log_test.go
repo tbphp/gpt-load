@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"math/rand"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -15,6 +17,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
+	"github.com/sirupsen/logrus"
 
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/health"
@@ -101,10 +104,13 @@ func (forwarder *usageObservingStreamRetryForwarder) ForwardStream(
 	forwarder.observed = append(forwarder.observed, result)
 	if index == 0 {
 		return UpstreamResult{
-			Err:                   fmt.Errorf("%w: pre-commit stream failure", ErrUpstreamProtocol),
-			RequestWritten:        true,
-			RetryableBeforeCommit: true,
-			Usage:                 result,
+			StatusCode:                http.StatusOK,
+			Header:                    http.Header{"Retry-After": {"1"}},
+			ClassificationBody:        []byte(`{"error":{"type":"rate_limit_error"}}`),
+			ErrorSummary:              fixedErrorSummary("upstream_sse_error"),
+			RequestWritten:            true,
+			ProviderErrorBeforeCommit: true,
+			Usage:                     result,
 		}
 	}
 	if input.OnStreamReady != nil {
@@ -268,6 +274,71 @@ func TestHandlerDiscardsPreCommitStreamUsageOnRetry(t *testing.T) {
 	}
 }
 
+func TestHandlerFirstProviderErrorRequestLogContract(t *testing.T) {
+	sink := &recordingRequestLogSink{}
+	const (
+		apiKey      = "sk-obviously-fake-log-contract"
+		providerRaw = "provider-body-must-not-be-logged"
+	)
+	forwarder := &scriptedForwarder{streamResults: []UpstreamResult{
+		withProviderErrorBeforeCommit(UpstreamResult{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Retry-After": {"1"}},
+			ClassificationBody: []byte(
+				`{"error":{"type":"rate_limit_error","message":"` + providerRaw + ` ` + apiKey + `"}}`,
+			),
+			ErrorSummary:   fixedErrorSummary("upstream_sse_error"),
+			RequestWritten: true,
+			Usage:          usage.Result{State: usage.StateMissing},
+		}),
+	}}
+	engine, handler, _, _ := newRequestLogHandlerTestRuntime(
+		t,
+		forwarder,
+		&recordingAccessKeyRPMLimiter{},
+		sink,
+		apiKey,
+	)
+	handler.newRandom = func() *rand.Rand { return rand.New(zeroSource{}) }
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/v1/chat/completions",
+		strings.NewReader(`{"model":"gpt-4o","stream":true}`),
+	)
+	request.Header.Set("Authorization", "Bearer gl-client")
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, request)
+
+	events := sink.snapshot()
+	if len(events) != 1 {
+		t.Fatalf("events = %#v", events)
+	}
+	event := events[0]
+	if response.Code != http.StatusBadGateway ||
+		event.Status != telemetry.RequestStatusError ||
+		event.StatusCode != http.StatusBadGateway ||
+		event.ErrorCode != reasonUpstreamProtocol.Code ||
+		event.ErrorSummary != reasonUpstreamProtocol.Message ||
+		event.Usage.Result.State != usage.StateMissing ||
+		len(event.Attempts) != 1 {
+		t.Fatalf("response/event = %d/%#v", response.Code, event)
+	}
+	attempt := event.Attempts[0]
+	if attempt.StatusCode != http.StatusOK ||
+		attempt.FailureCategory != telemetry.FailureCategoryRateLimited ||
+		attempt.Action != telemetry.ActionCooldownKey ||
+		attempt.Committed ||
+		attempt.ErrorSummary != fixedErrorSummary("upstream_sse_error") {
+		t.Fatalf("attempt = %#v", attempt)
+	}
+	serialized := fmt.Sprintf("%#v", event)
+	for _, forbidden := range []string{apiKey, providerRaw, "rate_limit_error"} {
+		if strings.Contains(serialized, forbidden) {
+			t.Fatalf("request log leaked %q: %s", forbidden, serialized)
+		}
+	}
+}
+
 func TestHandlerRememberedLastResponseKeepsOriginalUsageAttempt(t *testing.T) {
 	sink := &recordingRequestLogSink{}
 	forwarder := &scriptedForwarder{results: []UpstreamResult{
@@ -341,6 +412,151 @@ func (sink *recordingRequestLogSink) snapshot() []telemetry.RequestEvent {
 		events[index].Attempts = append([]telemetry.Attempt(nil), events[index].Attempts...)
 	}
 	return events
+}
+
+func TestHandlerPanicFallbackEmitsFailClosedRequestLogBeforeAndAfterHeaders(t *testing.T) {
+	const panicCanary = "forwarder-panic-canary-must-not-leak"
+	tests := []struct {
+		name       string
+		body       string
+		configure  func(*scriptedForwarder)
+		wantStatus telemetry.RequestStatus
+		wantCode   int
+	}{
+		{
+			name: "before downstream write",
+			body: `{"model":"gpt-4o"}`,
+			configure: func(forwarder *scriptedForwarder) {
+				forwarder.onCall = func(int) { panic(panicCanary) }
+			},
+			wantStatus: telemetry.RequestStatusError,
+			wantCode:   http.StatusInternalServerError,
+		},
+		{
+			name: "after accepted stream headers",
+			body: `{"model":"gpt-4o","stream":true}`,
+			configure: func(forwarder *scriptedForwarder) {
+				forwarder.onStreamCall = func(_ int, writer http.ResponseWriter) {
+					writer.WriteHeader(http.StatusAccepted)
+					_, _ = writer.Write(nil)
+					panic(panicCanary)
+				}
+			},
+			wantStatus: telemetry.RequestStatusIncomplete,
+			wantCode:   http.StatusAccepted,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			forwarder := &scriptedForwarder{}
+			test.configure(forwarder)
+			sink := &recordingRequestLogSink{}
+			engine, _, _, _ := newRequestLogHandlerTestRuntime(
+				t,
+				forwarder,
+				&recordingAccessKeyRPMLimiter{},
+				sink,
+				"sk-panic-fallback",
+			)
+			request := httptest.NewRequest(
+				http.MethodPost,
+				"/v1/chat/completions",
+				strings.NewReader(test.body),
+			)
+			request.Header.Set("Authorization", "Bearer gl-client")
+			response := httptest.NewRecorder()
+
+			var logs bytes.Buffer
+			logger := logrus.StandardLogger()
+			previousOutput := logger.Out
+			logger.SetOutput(&logs)
+			defer logger.SetOutput(previousOutput)
+
+			var recovered any
+			func() {
+				defer func() { recovered = recover() }()
+				engine.ServeHTTP(response, request)
+			}()
+
+			if recovered != panicCanary {
+				t.Fatalf("outer recovery received %#v, want original panic %q", recovered, panicCanary)
+			}
+			events := sink.snapshot()
+			if len(events) != 1 {
+				t.Fatalf("events = %#v, want exactly one event", events)
+			}
+			event := events[0]
+			if event.Status != test.wantStatus ||
+				event.StatusCode != test.wantCode ||
+				event.ErrorCode != "internal_error" ||
+				event.ErrorSummary != "The request failed due to an internal error." {
+				t.Fatalf("event = %#v", event)
+			}
+			for _, surface := range []string{
+				fmt.Sprintf("%#v", event),
+				response.Body.String(),
+				fmt.Sprintf("%v", response.Header()),
+				logs.String(),
+			} {
+				if strings.Contains(surface, panicCanary) {
+					t.Fatalf("panic canary leaked to %q", surface)
+				}
+			}
+		})
+	}
+}
+
+func TestRequestRecorderBoundsModelsAtUTF8Boundary(t *testing.T) {
+	const requestID = "00000000-0000-4000-8000-000000000206"
+	clientModel := strings.Repeat("界", 85)
+	upstreamModel := strings.Repeat("upstream-", 32)
+	attemptModel := strings.Repeat("模", 86)
+	sink := &recordingRequestLogSink{}
+	startedAt := time.Date(2026, time.July, 27, 10, 0, 0, 0, time.UTC)
+	recorder := newRequestRecorder(
+		sink,
+		requestID,
+		startedAt,
+		1,
+		protocol.OpenAI,
+		func() time.Time { return startedAt.Add(time.Second) },
+	)
+	recorder.setClientModel(clientModel)
+	recorder.attempts = []telemetry.Attempt{{
+		Sequence:      1,
+		UpstreamModel: attemptModel,
+	}}
+	recorder.outcome = requestOutcome{
+		status:        telemetry.RequestStatusSuccess,
+		statusCode:    http.StatusOK,
+		upstreamModel: upstreamModel,
+	}
+
+	recorder.emit()
+
+	events := sink.snapshot()
+	if len(events) != 1 {
+		t.Fatalf("events = %d, want 1", len(events))
+	}
+	event := events[0]
+	if len(clientModel) != 255 || event.ClientModel != clientModel {
+		t.Fatalf(
+			"client model bytes/value = %d/%q, want 255-byte model unchanged",
+			len(event.ClientModel),
+			event.ClientModel,
+		)
+	}
+	if len(upstreamModel) <= 255 || event.UpstreamModel != upstreamModel {
+		t.Fatalf("overall upstream model was changed before pricing: %q", event.UpstreamModel)
+	}
+	if len(event.Attempts) != 1 || len(attemptModel) <= 255 ||
+		event.Attempts[0].UpstreamModel != attemptModel {
+		t.Fatalf(
+			"attempt upstream model was changed before SQLite projection: %#v",
+			event.Attempts,
+		)
+	}
 }
 
 type observingReadCloser struct {
@@ -536,6 +752,7 @@ func TestHandlerUsesFrozenRPMLimitAcrossSnapshotPublish(t *testing.T) {
 		&scriptedForwarder{},
 		dialect.NewSet(),
 		health.NewStatsStore(),
+		health.NewMutationCoordinator(),
 		limiter,
 		telemetry.NoopRequestLogSink{},
 	)
@@ -1548,19 +1765,23 @@ func TestHandlerPrioritizesClientCancellationOverDownstreamWriteFailure(t *testi
 
 func TestForwarderRedactsResolvedCredentialSecretsBeforeClassification(t *testing.T) {
 	const (
-		apiKey         = "opaque-provider-secret"
-		authorization  = "Token resolved-opaque-auth"
-		apiKeyHeader   = "resolved-opaque-api-header"
-		customRule     = "resolved-opaque-custom-rule"
-		disallowedBody = "resolved-opaque-disallowed"
+		apiKey           = "opaque-provider-secret"
+		authorization    = "Token " + apiKey
+		apiKeyHeader     = "Secondary " + apiKey
+		customRule       = "opaque  literal\tvalue"
+		ordinaryEncoding = "gzip"
+		disallowedBody   = "resolved-opaque-disallowed"
 	)
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		writer.Header().Set("Content-Type", "application/json")
 		writer.WriteHeader(http.StatusBadRequest)
+		message := strings.Join(
+			[]string{apiKey, authorization, apiKeyHeader, customRule, ordinaryEncoding},
+			" ",
+		)
 		_, _ = writer.Write([]byte(
-			`{"error":{"message":"` + apiKey + ` ` + authorization + ` ` +
-				apiKeyHeader + ` ` + customRule +
-				`"},"debug":"` + disallowedBody + `"}`,
+			`{"error":{"message":` + strconv.Quote(message) +
+				`},"debug":"` + disallowedBody + `"}`,
 		))
 	}))
 	defer server.Close()
@@ -1570,9 +1791,10 @@ func TestForwarderRedactsResolvedCredentialSecretsBeforeClassification(t *testin
 		Group: state.GroupView{
 			UpstreamURL: server.URL,
 			HeaderRules: state.HeaderRules{Set: map[string]string{
-				"Authorization": authorization,
-				"Api-Key":       apiKeyHeader,
-				"X-Custom-Rule": customRule,
+				"Authorization":   "Token ${API_KEY}",
+				"Api-Key":         "Secondary ${API_KEY}",
+				"X-Custom-Rule":   customRule,
+				"Accept-Encoding": ordinaryEncoding,
 			}},
 		},
 		APIKey: apiKey,
@@ -1586,17 +1808,260 @@ func TestForwarderRedactsResolvedCredentialSecretsBeforeClassification(t *testin
 	forwarder := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New())
 	result := forwarder.Forward(context.Background(), input)
 
-	for _, secret := range []string{apiKey, authorization, apiKeyHeader, customRule} {
+	for _, secret := range []string{apiKey, authorization, apiKeyHeader} {
 		if strings.Contains(string(result.ClassificationBody), secret) ||
 			strings.Contains(result.ErrorSummary, secret) {
 			t.Fatalf("resolved credential %q leaked: %#v", secret, result)
 		}
+	}
+	classificationSummary := allowedErrorSummary(result.ClassificationBody)
+	for _, ordinary := range []string{customRule, ordinaryEncoding} {
+		if !strings.Contains(classificationSummary, ordinary) {
+			t.Fatalf(
+				"ordinary HeaderRule value %q was changed in ClassificationBody summary %q: %#v",
+				ordinary,
+				classificationSummary,
+				result,
+			)
+		}
+		if strings.Contains(result.ErrorSummary, ordinary) {
+			t.Fatalf("ErrorSummary leaked HeaderRules value %q: %#v", ordinary, result)
+		}
+	}
+	if strings.Contains(result.ErrorSummary, "opaque literal value") {
+		t.Fatalf("ErrorSummary leaked normalized HeaderRules value: %#v", result)
 	}
 	if result.ErrorSummary == "" || !strings.Contains(result.ErrorSummary, redact.Placeholder) {
 		t.Fatalf("ErrorSummary = %q, want non-empty redacted allowed-path summary", result.ErrorSummary)
 	}
 	if strings.Contains(result.ErrorSummary, disallowedBody) {
 		t.Fatalf("ErrorSummary used disallowed JSON path: %q", result.ErrorSummary)
+	}
+}
+
+func TestRequestRecorderRedactsHeaderRuleLiteralsFromNonStreamingAndSSESummaries(t *testing.T) {
+	const (
+		apiKey           = "fake-recorder-provider-key"
+		customRule       = "opaque  literal\tvalue"
+		ordinaryEncoding = "gzip"
+	)
+	selection := scheduler.Selection{
+		GroupID: 11,
+		Group: state.GroupView{
+			ID: 11,
+			HeaderRules: state.HeaderRules{Set: map[string]string{
+				"X-Custom":        customRule,
+				"Accept-Encoding": ordinaryEncoding,
+			}},
+		},
+		KeyID: 21,
+	}
+	for _, test := range []struct {
+		name   string
+		record func(*requestRecorder, UpstreamResult) int
+		finish func(*requestRecorder, UpstreamResult, int)
+		result UpstreamResult
+	}{
+		{
+			name: "non-streaming",
+			result: UpstreamResult{
+				StatusCode:   http.StatusBadRequest,
+				ErrorSummary: "echo opaque literal value " + ordinaryEncoding,
+			},
+			record: func(recorder *requestRecorder, result UpstreamResult) int {
+				return recorder.recordAttempt(
+					selection,
+					apiKey,
+					result,
+					health.Result{
+						Category: health.FailureCategoryClientError,
+						Action:   health.ActionTerminate,
+					},
+					time.Unix(100, 0),
+					time.Unix(101, 0),
+				)
+			},
+			finish: func(recorder *requestRecorder, result UpstreamResult, attempt int) {
+				recorder.completeResponse(
+					result,
+					health.Result{Category: health.FailureCategoryClientError},
+					"provider-model",
+					attempt,
+				)
+			},
+		},
+		{
+			name: "SSE",
+			result: UpstreamResult{
+				StatusCode: http.StatusOK,
+				Committed:  true,
+				Stream: StreamObservation{
+					EndReason:    StreamEndSSEError,
+					ErrorSummary: "echo opaque literal value " + ordinaryEncoding,
+				},
+			},
+			record: func(recorder *requestRecorder, result UpstreamResult) int {
+				return recorder.recordStreamAttempt(
+					selection,
+					apiKey,
+					result,
+					time.Unix(100, 0),
+					time.Unix(101, 0),
+				)
+			},
+			finish: func(recorder *requestRecorder, result UpstreamResult, attempt int) {
+				recorder.completeStream(result, "provider-model", attempt)
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			sink := &recordingRequestLogSink{}
+			recorder := newRequestRecorder(
+				sink,
+				"req-header-rule-summary-"+test.name,
+				time.Unix(100, 0),
+				9,
+				protocol.OpenAI,
+				func() time.Time { return time.Unix(102, 0) },
+			)
+			attempt := test.record(recorder, test.result)
+			test.finish(recorder, test.result, attempt)
+			recorder.emit()
+
+			if len(sink.events) != 1 || len(sink.events[0].Attempts) != 1 {
+				t.Fatalf("events = %#v, want one event with one attempt", sink.events)
+			}
+			event := sink.events[0]
+			for _, surface := range []string{
+				event.ErrorSummary,
+				event.Attempts[0].ErrorSummary,
+			} {
+				for _, forbidden := range []string{
+					apiKey,
+					customRule,
+					"opaque literal value",
+					ordinaryEncoding,
+				} {
+					if strings.Contains(surface, forbidden) {
+						t.Fatalf("%s summary leaked %q: %q", test.name, forbidden, surface)
+					}
+				}
+				if !strings.Contains(surface, redact.Placeholder) {
+					t.Fatalf("%s summary = %q, want redaction placeholder", test.name, surface)
+				}
+			}
+		})
+	}
+}
+
+func TestRequestRecorderPreservesFixedTerminalSummariesWithShortHeaderRuleLiteral(t *testing.T) {
+	const shortLiteral = "a"
+	selection := scheduler.Selection{
+		GroupID: 11,
+		Group: state.GroupView{
+			ID: 11,
+			HeaderRules: state.HeaderRules{Set: map[string]string{
+				"X-Short": shortLiteral,
+			}},
+		},
+		KeyID: 21,
+	}
+	sink := &recordingRequestLogSink{}
+	recorder := newRequestRecorder(
+		sink,
+		"req-fixed-terminal-summary",
+		time.Unix(100, 0),
+		9,
+		protocol.OpenAI,
+		func() time.Time { return time.Unix(102, 0) },
+	)
+	result := UpstreamResult{
+		StatusCode: http.StatusOK,
+		Committed:  true,
+		Stream: streamTerminalObservation(
+			StreamEndUpstreamTerminated,
+		),
+	}
+	attempt := recorder.recordStreamAttempt(
+		selection,
+		"fake-fixed-summary-provider-key",
+		result,
+		time.Unix(100, 0),
+		time.Unix(101, 0),
+	)
+	recorder.completeStream(result, "provider-model", attempt)
+	recorder.emit()
+
+	if len(sink.events) != 1 || len(sink.events[0].Attempts) != 1 {
+		t.Fatalf("events = %#v, want one event with one attempt", sink.events)
+	}
+	want := fixedErrorSummary("upstream_stream_terminated")
+	event := sink.events[0]
+	if event.ErrorSummary != want || event.Attempts[0].ErrorSummary != want {
+		t.Fatalf(
+			"fixed summaries = outcome %q / attempt %q, want %q",
+			event.ErrorSummary,
+			event.Attempts[0].ErrorSummary,
+			want,
+		)
+	}
+}
+
+func TestRequestRecorderPreservesProviderErrorFixedSummaryWithOrdinaryHeaderRules(t *testing.T) {
+	const marker = "rate_limit_error"
+	selection := scheduler.Selection{
+		GroupID: 11,
+		Group: state.GroupView{
+			ID: 11,
+			HeaderRules: state.HeaderRules{Set: map[string]string{
+				"X-Ordinary-Marker": marker,
+				"X-Short-Literal":   "a",
+			}},
+		},
+		KeyID: 21,
+	}
+	sink := &recordingRequestLogSink{}
+	recorder := newRequestRecorder(
+		sink,
+		"req-provider-fixed-summary",
+		time.Unix(100, 0),
+		9,
+		protocol.OpenAI,
+		func() time.Time { return time.Unix(102, 0) },
+	)
+	result := UpstreamResult{
+		StatusCode:                http.StatusOK,
+		ClassificationBody:        []byte(`{"error":{"type":"` + marker + `"}}`),
+		ErrorSummary:              fixedErrorSummary("upstream_sse_error"),
+		RequestWritten:            true,
+		ProviderErrorBeforeCommit: true,
+		Usage:                     usage.Result{State: usage.StateMissing},
+	}
+	decision := health.Result{
+		Category: health.FailureCategoryRateLimited,
+		Action:   health.ActionCooldownKey,
+	}
+
+	recorder.recordAttempt(
+		selection,
+		"fake-provider-fixed-summary-key",
+		result,
+		decision,
+		time.Unix(100, 0),
+		time.Unix(101, 0),
+	)
+	recorder.emit()
+
+	events := sink.snapshot()
+	if len(events) != 1 || len(events[0].Attempts) != 1 {
+		t.Fatalf("events = %#v, want one event with one attempt", events)
+	}
+	want := fixedErrorSummary("upstream_sse_error")
+	if got := events[0].Attempts[0].ErrorSummary; got != want {
+		t.Fatalf("provider fixed attempt summary = %q, want %q", got, want)
+	}
+	if serialized := fmt.Sprintf("%#v", events[0]); strings.Contains(serialized, marker) {
+		t.Fatalf("request log leaked ordinary Provider marker %q: %s", marker, serialized)
 	}
 }
 

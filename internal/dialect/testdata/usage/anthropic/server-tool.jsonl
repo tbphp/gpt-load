@@ -1,0 +1,3 @@
+{"type":"message_start","message":{"usage":{"input_tokens":80}}}
+{"type":"message_delta","usage":{"output_tokens":30,"server_tool_use":{"web_search_requests":2}}}
+{"type":"message_stop"}

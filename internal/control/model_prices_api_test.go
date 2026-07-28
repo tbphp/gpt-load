@@ -100,6 +100,79 @@ func TestModelPriceAPIListsStableBuiltinAndUserRules(t *testing.T) {
 	}
 }
 
+func TestModelPriceAPIListsReadOnlyPricingPolicy(t *testing.T) {
+	fixture := newServiceFixture(t)
+	mustEnsureInitialPrices(t, fixture)
+	output := 7.5
+	if err := fixture.service.UpsertModelPrice(t.Context(), ModelPriceInput{
+		Pattern: "user-model", Output: &output,
+	}); err != nil {
+		t.Fatalf("seed user model price: %v", err)
+	}
+
+	recorder := serveModelPriceRequest(
+		newModelPriceTestEngine(t, fixture),
+		http.MethodGet,
+		"/api/model-prices",
+		"",
+		true,
+	)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("GET model prices = %d %s, want 200", recorder.Code, recorder.Body.String())
+	}
+	var envelope struct {
+		Data struct {
+			Builtin []struct {
+				Pattern       string          `json:"pattern"`
+				PricingPolicy json.RawMessage `json:"pricing_policy"`
+			} `json:"builtin"`
+			Overrides []struct {
+				Pattern       string          `json:"pattern"`
+				PricingPolicy json.RawMessage `json:"pricing_policy"`
+			} `json:"overrides"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode GET response: %v", err)
+	}
+
+	var policyModel, noPolicyModel, userModel json.RawMessage
+	for _, rule := range envelope.Data.Builtin {
+		switch rule.Pattern {
+		case "gpt-5.6":
+			policyModel = rule.PricingPolicy
+		case "gpt-5.5-pro":
+			noPolicyModel = rule.PricingPolicy
+		}
+	}
+	for _, rule := range envelope.Data.Overrides {
+		if rule.Pattern == "user-model" {
+			userModel = rule.PricingPolicy
+		}
+	}
+	var policy modelPricePolicyResponse
+	if len(policyModel) == 0 || string(policyModel) == "null" {
+		t.Fatalf("gpt-5.6 pricing_policy = %s, want object", policyModel)
+	}
+	if err := json.Unmarshal(policyModel, &policy); err != nil {
+		t.Fatalf("decode gpt-5.6 pricing_policy: %v", err)
+	}
+	wantPolicy := modelPricePolicyResponse{
+		InputThresholdTokens: 272_000,
+		InputMultiplier:      2,
+		OutputMultiplier:     1.5,
+	}
+	if policy != wantPolicy {
+		t.Fatalf("gpt-5.6 pricing_policy = %+v, want %+v", policy, wantPolicy)
+	}
+	if string(noPolicyModel) != "null" {
+		t.Fatalf("gpt-5.5-pro pricing_policy = %s, want null", noPolicyModel)
+	}
+	if string(userModel) != "null" {
+		t.Fatalf("user pricing_policy = %s, want null", userModel)
+	}
+}
+
 func TestModelPriceAPIPutStrictlyReplacesFivePrices(t *testing.T) {
 	fixture := newServiceFixture(t)
 	mustEnsureInitialPrices(t, fixture)
@@ -128,6 +201,7 @@ func TestModelPriceAPIPutStrictlyReplacesFivePrices(t *testing.T) {
 
 	for _, body := range []string{
 		`{"pattern":"strict-model","prices":{"uncached_input":1,"cache_read":2,"cache_write_5m":3,"cache_write_1h":4,"output":5},"unknown":true}`,
+		`{"pattern":"strict-model","prices":{"uncached_input":1,"cache_read":2,"cache_write_5m":3,"cache_write_1h":4,"output":5},"pricing_policy":null}`,
 		`{"pattern":"strict-model","pattern":"other","prices":{"uncached_input":1,"cache_read":2,"cache_write_5m":3,"cache_write_1h":4,"output":5}}`,
 		`{"pattern":"strict-model","prices":{"uncached_input":1,"cache_read":2,"cache_read":3,"cache_write_5m":3,"cache_write_1h":4,"output":5}}`,
 		`{"pattern":"strict-model","prices":{"uncached_input":1,"cache_read":2,"cache_write_5m":3,"cache_write_1h":4}}`,

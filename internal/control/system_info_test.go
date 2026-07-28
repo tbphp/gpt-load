@@ -12,8 +12,11 @@ import (
 
 func TestSystemInfoResponseContainsOnlySafeMetadata(t *testing.T) {
 	cfg := &config.Config{
-		DataDir:       "./safe-data",
-		DatabaseDSN:   "file:distinctive-secret-dsn",
+		DataDir:     "./safe-data",
+		DatabaseDSN: "file:distinctive-secret-dsn",
+		DatabaseMetadata: config.DatabaseMetadata{
+			Source: config.DatabaseSourceExternal,
+		},
 		AuthKey:       "distinctive-auth-secret",
 		EncryptionKey: "distinctive-encryption-secret",
 		AuthKeyMetadata: config.SecretMetadata{
@@ -33,6 +36,7 @@ func TestSystemInfoResponseContainsOnlySafeMetadata(t *testing.T) {
 		"distinctive-auth-secret",
 		"distinctive-encryption-secret",
 		"distinctive-secret-dsn",
+		"external",
 	} {
 		if bytes.Contains(encoded, []byte(forbidden)) {
 			t.Fatalf("response exposed %q: %s", forbidden, encoded)

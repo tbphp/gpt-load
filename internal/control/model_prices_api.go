@@ -22,12 +22,19 @@ type modelPriceValuesResponse struct {
 	Output        *float64 `json:"output"`
 }
 
+type modelPricePolicyResponse struct {
+	InputThresholdTokens int64   `json:"input_threshold_tokens"`
+	InputMultiplier      float64 `json:"input_multiplier"`
+	OutputMultiplier     float64 `json:"output_multiplier"`
+}
+
 type modelPriceRuleResponse struct {
-	Pattern   string                   `json:"pattern"`
-	Source    pricing.Source           `json:"source"`
-	Prices    modelPriceValuesResponse `json:"prices"`
-	SourceURL *string                  `json:"source_url"`
-	UpdatedAt time.Time                `json:"updated_at"`
+	Pattern       string                    `json:"pattern"`
+	Source        pricing.Source            `json:"source"`
+	Prices        modelPriceValuesResponse  `json:"prices"`
+	SourceURL     *string                   `json:"source_url"`
+	UpdatedAt     time.Time                 `json:"updated_at"`
+	PricingPolicy *modelPricePolicyResponse `json:"pricing_policy"`
 }
 
 type modelPriceListResponse struct {
@@ -183,6 +190,13 @@ func newModelPriceRuleResponse(rule pricing.Rule) modelPriceRuleResponse {
 	if rule.SourceURL != "" {
 		sourceURL := rule.SourceURL
 		result.SourceURL = &sourceURL
+	}
+	if rule.LongContextPolicy != nil {
+		result.PricingPolicy = &modelPricePolicyResponse{
+			InputThresholdTokens: rule.LongContextPolicy.InputThresholdTokens,
+			InputMultiplier:      rule.LongContextPolicy.InputMultiplier,
+			OutputMultiplier:     rule.LongContextPolicy.OutputMultiplier,
+		}
 	}
 	return result
 }

@@ -8,6 +8,15 @@ release_version="${RELEASE_VERSION:?RELEASE_VERSION is required}"
 port="${RELEASE_SMOKE_PORT:-39113}"
 filename="$(basename "${binary}")"
 
+path_mode() {
+  local path="$1"
+  if stat -c '%a' "${path}" >/dev/null 2>&1; then
+    stat -c '%a' "${path}"
+  else
+    stat -f '%Lp' "${path}"
+  fi
+}
+
 expected_hash="$(awk -v name="${filename}" '$2 == name {print $1}' "${checksum_file}")"
 test -n "${expected_hash}"
 if command -v sha256sum >/dev/null 2>&1; then
@@ -57,6 +66,18 @@ curl -fsS \
 curl -fsS \
   -H "Authorization: Bearer ${auth_key}" \
   "http://127.0.0.1:${port}/api/model-prices" >/dev/null
+curl -fsS \
+  -X POST \
+  -H "Authorization: Bearer ${auth_key}" \
+  -H "Content-Type: application/json" \
+  --data-binary '{"name":"Release Native Smoke Access"}' \
+  "http://127.0.0.1:${port}/api/access-keys" >/dev/null
+
+test "$(path_mode "${data_dir}")" = "700"
+for asset in auth.key encryption.key gpt-load.db gpt-load.db-wal gpt-load.db-shm; do
+  test -f "${data_dir}/${asset}"
+  test "$(path_mode "${data_dir}/${asset}")" = "600"
+done
 
 kill -TERM "${pid}"
 wait "${pid}"

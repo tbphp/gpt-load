@@ -23,6 +23,11 @@ const builtinRule = {
   prices,
   source_url: 'https://developers.openai.com/api/docs/pricing',
   updated_at: '2026-07-26T00:00:00Z',
+  pricing_policy: {
+    input_threshold_tokens: 272000,
+    input_multiplier: 2,
+    output_multiplier: 1.5,
+  },
 } as const
 
 const userRule = {
@@ -37,6 +42,7 @@ const userRule = {
   },
   source_url: null,
   updated_at: '2026-07-27T12:30:00Z',
+  pricing_policy: null,
 } as const
 
 describe('ModelPrice control API', () => {
@@ -156,6 +162,85 @@ describe('ModelPrice control API', () => {
         price_unit: 'usd_per_million_tokens',
         builtin: [builtinRule],
         overrides: [{ ...userRule, source_url: 'https://example.test/pricing' }],
+      },
+    ],
+    [
+      'missing pricing policy',
+      {
+        price_unit: 'usd_per_million_tokens',
+        builtin: [{ ...builtinRule, pricing_policy: undefined }],
+        overrides: [userRule],
+      },
+    ],
+    [
+      'non-object pricing policy',
+      {
+        price_unit: 'usd_per_million_tokens',
+        builtin: [{ ...builtinRule, pricing_policy: 'long-context' }],
+        overrides: [userRule],
+      },
+    ],
+    [
+      'pricing policy with an unknown field',
+      {
+        price_unit: 'usd_per_million_tokens',
+        builtin: [
+          {
+            ...builtinRule,
+            pricing_policy: { ...builtinRule.pricing_policy, inherited_by_user: false },
+          },
+        ],
+        overrides: [userRule],
+      },
+    ],
+    [
+      'pricing policy with a non-positive threshold',
+      {
+        price_unit: 'usd_per_million_tokens',
+        builtin: [
+          {
+            ...builtinRule,
+            pricing_policy: { ...builtinRule.pricing_policy, input_threshold_tokens: 0 },
+          },
+        ],
+        overrides: [userRule],
+      },
+    ],
+    [
+      'pricing policy with a fractional threshold',
+      {
+        price_unit: 'usd_per_million_tokens',
+        builtin: [
+          {
+            ...builtinRule,
+            pricing_policy: { ...builtinRule.pricing_policy, input_threshold_tokens: 272000.5 },
+          },
+        ],
+        overrides: [userRule],
+      },
+    ],
+    [
+      'pricing policy with a non-finite multiplier',
+      {
+        price_unit: 'usd_per_million_tokens',
+        builtin: [
+          {
+            ...builtinRule,
+            pricing_policy: {
+              ...builtinRule.pricing_policy,
+              output_multiplier: Number.POSITIVE_INFINITY,
+            },
+          },
+        ],
+        overrides: [userRule],
+      },
+    ],
+    [
+      'user pricing policy',
+      {
+        price_unit: 'usd_per_million_tokens',
+        builtin: [builtinRule],
+        overrides: [{ ...userRule, pricing_policy: builtinRule.pricing_policy }],
       },
     ],
   ])('rejects %s', (_name, value) => {

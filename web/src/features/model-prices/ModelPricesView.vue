@@ -20,7 +20,7 @@ import ModelPriceResetDialog from './ModelPriceResetDialog.vue'
 import { modelPricePatternKind, type ModelPriceField } from './model-price-form'
 
 const client = useApiClient()
-const { t } = useI18n()
+const { n, t } = useI18n()
 const drawerOpen = ref(false)
 const selected = ref<ModelPriceRuleDto | null>(null)
 let restoreFocus: HTMLElement | null = null
@@ -65,6 +65,16 @@ function kindLabel(pattern: string): string {
 
 function value(rule: ModelPriceRuleDto, field: ModelPriceField): string {
   return formatPrice(rule.prices[field])
+}
+
+function pricingPolicySummary(rule: ModelPriceRuleDto): string {
+  const policy = rule.pricing_policy
+  if (policy === null) return ''
+  return t('modelPrices.builtin.longContext.summary', {
+    threshold: n(policy.input_threshold_tokens),
+    inputMultiplier: n(policy.input_multiplier),
+    outputMultiplier: n(policy.output_multiplier),
+  })
 }
 </script>
 
@@ -253,6 +263,14 @@ function value(rule: ModelPriceRuleDto, field: ModelPriceField): string {
             >
               <td>
                 <code>{{ rule.pattern }}</code>
+                <div
+                  v-if="rule.pricing_policy"
+                  class="model-prices__pricing-policy"
+                  :data-test="`builtin-pricing-policy-${index}`"
+                >
+                  <StatusBadge>{{ t('modelPrices.builtin.longContext.label') }}</StatusBadge>
+                  <span>{{ pricingPolicySummary(rule) }}</span>
+                </div>
               </td>
               <td>
                 <StatusBadge>{{ kindLabel(rule.pattern) }}</StatusBadge>
@@ -379,6 +397,19 @@ function value(rule: ModelPriceRuleDto, field: ModelPriceField): string {
   margin-top: var(--space-1);
   color: var(--color-text-muted);
   font-size: 0.75rem;
+}
+.model-prices__pricing-policy {
+  display: grid;
+  max-width: 22rem;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  white-space: normal;
+}
+.model-prices__pricing-policy > :first-child {
+  width: fit-content;
 }
 .model-prices__global-warning {
   display: flex;

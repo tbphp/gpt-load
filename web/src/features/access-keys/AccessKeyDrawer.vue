@@ -15,7 +15,7 @@ import CopyButton from '@/components/ui/CopyButton.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import SecretValue from '@/components/ui/SecretValue.vue'
 
-import { accessKeyProtocols, buildAccessKeyModelOptions } from './access-key-options'
+import { accessKeyProtocolOptions, buildAccessKeyModelOptions } from './access-key-options'
 import {
   buildAccessKeyUpdatePatch,
   buildCreateAccessKeyInput,
@@ -43,6 +43,8 @@ const modelInput = ref('')
 let controller: AbortController | undefined
 
 const editing = computed(() => base.value !== null)
+const createCompleted = computed(() => !editing.value && result.value !== null)
+const protocolOptions = computed(() => accessKeyProtocolOptions(base.value?.filters.protocols))
 const modelOptions = computed(() =>
   buildAccessKeyModelOptions(props.groups, draft.value.filters.models),
 )
@@ -52,7 +54,7 @@ const patch = computed(() =>
     : buildCreateAccessKeyInput(draft.value),
 )
 const dirty = computed(() => !base.value || Object.keys(patch.value).length > 0)
-const valid = computed(() => isAccessKeyDraftValid(draft.value))
+const valid = computed(() => isAccessKeyDraftValid(draft.value, base.value))
 
 function clearLocalState(): void {
   controller?.abort()
@@ -118,7 +120,7 @@ function setRPM(event: Event): void {
 }
 
 async function save(): Promise<void> {
-  if (pending.value || !valid.value || !dirty.value) return
+  if (createCompleted.value || pending.value || !valid.value || !dirty.value) return
   const currentBase = base.value
   const updateBody = currentBase ? buildAccessKeyUpdatePatch(currentBase, draft.value) : null
   if (updateBody && Object.keys(updateBody).length === 0) return
@@ -148,8 +150,10 @@ async function save(): Promise<void> {
     if (controller !== activeController || !props.open) return
     if (!(error instanceof RequestCancelledError)) failed.value = true
   } finally {
-    if (controller === activeController) controller = undefined
-    pending.value = false
+    if (controller === activeController) {
+      controller = undefined
+      pending.value = false
+    }
   }
 }
 
@@ -171,118 +175,129 @@ onBeforeUnmount(clearLocalState)
         t('accessKeys.drawer.saveFailed')
       }}</InlineFeedback>
 
-      <label class="access-key-drawer__field" for="access-key-name">
-        <span>{{ t('accessKeys.drawer.name') }}</span>
-        <input
-          id="access-key-name"
-          ref="nameInput"
-          v-model="draft.name"
-          data-test="access-key-name"
-          type="text"
-          autocomplete="off"
-          :disabled="pending"
-        />
-      </label>
-
-      <label v-if="editing" class="access-key-drawer__field" for="access-key-status">
-        <span>{{ t('accessKeys.drawer.status') }}</span>
-        <select
-          id="access-key-status"
-          v-model="draft.status"
-          data-test="access-key-status"
-          :disabled="pending"
-        >
-          <option value="active">{{ t('accessKeys.status.active') }}</option>
-          <option value="disabled">{{ t('accessKeys.status.disabled') }}</option>
-        </select>
-      </label>
-
-      <fieldset>
-        <legend>{{ t('accessKeys.drawer.groups') }}</legend>
-        <p>{{ t('accessKeys.drawer.emptyMeansAll') }}</p>
-        <label v-for="group in groups" :key="group.id" class="access-key-drawer__check">
+      <template v-if="!createCompleted">
+        <label class="access-key-drawer__field" for="access-key-name">
+          <span>{{ t('accessKeys.drawer.name') }}</span>
           <input
-            type="checkbox"
-            :checked="draft.filters.groups.includes(group.id)"
-            :disabled="pending"
-            @change="toggleGroup(group.id, ($event.target as HTMLInputElement).checked)"
-          />
-          <span>{{ group.name }}</span>
-        </label>
-      </fieldset>
-
-      <fieldset>
-        <legend>{{ t('accessKeys.drawer.protocols') }}</legend>
-        <p>{{ t('accessKeys.drawer.emptyMeansAll') }}</p>
-        <label
-          v-for="protocol in accessKeyProtocols"
-          :key="protocol"
-          class="access-key-drawer__check"
-        >
-          <input
-            type="checkbox"
-            :checked="draft.filters.protocols.includes(protocol)"
-            :disabled="pending"
-            @change="toggleProtocol(protocol, ($event.target as HTMLInputElement).checked)"
-          />
-          <span>{{ t(`group.protocols.${protocol}`) }}</span>
-        </label>
-      </fieldset>
-
-      <fieldset>
-        <legend>{{ t('accessKeys.drawer.models') }}</legend>
-        <p>{{ t('accessKeys.drawer.modelsDescription') }}</p>
-        <div class="access-key-drawer__model-entry">
-          <input
-            v-model="modelInput"
-            data-test="access-key-model-input"
+            id="access-key-name"
+            ref="nameInput"
+            v-model="draft.name"
+            data-test="access-key-name"
             type="text"
-            list="access-key-model-options"
             autocomplete="off"
-            :placeholder="t('accessKeys.drawer.modelPlaceholder')"
             :disabled="pending"
-            @keydown.enter.prevent="addModel"
           />
-          <datalist id="access-key-model-options">
-            <option v-for="model in modelOptions" :key="model" :value="model" />
-          </datalist>
-          <AppButton
-            variant="secondary"
-            :disabled="pending || !modelInput.trim()"
-            @click="addModel"
-          >
-            <Plus :size="16" aria-hidden="true" />{{ t('accessKeys.drawer.addModel') }}
-          </AppButton>
-        </div>
-        <div v-if="draft.filters.models.length" class="access-key-drawer__models">
-          <span v-for="model in draft.filters.models" :key="model" class="access-key-drawer__model">
-            <code>{{ model }}</code>
-            <button
-              type="button"
-              :aria-label="t('accessKeys.drawer.removeModel', { model })"
-              :disabled="pending"
-              @click="removeModel(model)"
-            >
-              <X :size="15" aria-hidden="true" />
-            </button>
-          </span>
-        </div>
-      </fieldset>
+        </label>
 
-      <label class="access-key-drawer__field" for="access-key-rpm">
-        <span>{{ t('accessKeys.drawer.rpm') }}</span>
-        <input
-          id="access-key-rpm"
-          data-test="access-key-rpm"
-          type="number"
-          min="0"
-          step="1"
-          :value="draft.rpm_limit"
-          :disabled="pending"
-          @input="setRPM"
-        />
-        <small>{{ t('accessKeys.drawer.rpmDescription') }}</small>
-      </label>
+        <label v-if="editing" class="access-key-drawer__field" for="access-key-status">
+          <span>{{ t('accessKeys.drawer.status') }}</span>
+          <select
+            id="access-key-status"
+            v-model="draft.status"
+            data-test="access-key-status"
+            :disabled="pending"
+          >
+            <option value="active">{{ t('accessKeys.status.active') }}</option>
+            <option value="disabled">{{ t('accessKeys.status.disabled') }}</option>
+          </select>
+        </label>
+
+        <fieldset>
+          <legend>{{ t('accessKeys.drawer.groups') }}</legend>
+          <p>{{ t('accessKeys.drawer.emptyMeansAll') }}</p>
+          <label v-for="group in groups" :key="group.id" class="access-key-drawer__check">
+            <input
+              type="checkbox"
+              :checked="draft.filters.groups.includes(group.id)"
+              :disabled="pending"
+              @change="toggleGroup(group.id, ($event.target as HTMLInputElement).checked)"
+            />
+            <span>{{ group.name }}</span>
+          </label>
+        </fieldset>
+
+        <fieldset>
+          <legend>{{ t('accessKeys.drawer.protocols') }}</legend>
+          <p>{{ t('accessKeys.drawer.emptyMeansAll') }}</p>
+          <label
+            v-for="protocol in protocolOptions"
+            :key="protocol"
+            class="access-key-drawer__check"
+          >
+            <input
+              type="checkbox"
+              :checked="draft.filters.protocols.includes(protocol)"
+              :disabled="pending"
+              @change="toggleProtocol(protocol, ($event.target as HTMLInputElement).checked)"
+            />
+            <span class="access-key-drawer__check-content">
+              <span>{{ t(`group.protocols.${protocol}`) }}</span>
+              <small v-if="protocol === 'openai-response'">{{
+                t('accessKeys.drawer.reservedProtocolHint')
+              }}</small>
+            </span>
+          </label>
+        </fieldset>
+
+        <fieldset>
+          <legend>{{ t('accessKeys.drawer.models') }}</legend>
+          <p>{{ t('accessKeys.drawer.modelsDescription') }}</p>
+          <div class="access-key-drawer__model-entry">
+            <input
+              v-model="modelInput"
+              data-test="access-key-model-input"
+              type="text"
+              list="access-key-model-options"
+              autocomplete="off"
+              :placeholder="t('accessKeys.drawer.modelPlaceholder')"
+              :disabled="pending"
+              @keydown.enter.prevent="addModel"
+            />
+            <datalist id="access-key-model-options">
+              <option v-for="model in modelOptions" :key="model" :value="model" />
+            </datalist>
+            <AppButton
+              variant="secondary"
+              :disabled="pending || !modelInput.trim()"
+              @click="addModel"
+            >
+              <Plus :size="16" aria-hidden="true" />{{ t('accessKeys.drawer.addModel') }}
+            </AppButton>
+          </div>
+          <div v-if="draft.filters.models.length" class="access-key-drawer__models">
+            <span
+              v-for="model in draft.filters.models"
+              :key="model"
+              class="access-key-drawer__model"
+            >
+              <code>{{ model }}</code>
+              <button
+                type="button"
+                :aria-label="t('accessKeys.drawer.removeModel', { model })"
+                :disabled="pending"
+                @click="removeModel(model)"
+              >
+                <X :size="15" aria-hidden="true" />
+              </button>
+            </span>
+          </div>
+        </fieldset>
+
+        <label class="access-key-drawer__field" for="access-key-rpm">
+          <span>{{ t('accessKeys.drawer.rpm') }}</span>
+          <input
+            id="access-key-rpm"
+            data-test="access-key-rpm"
+            type="number"
+            min="0"
+            step="1"
+            :value="draft.rpm_limit"
+            :disabled="pending"
+            @input="setRPM"
+          />
+          <small>{{ t('accessKeys.drawer.rpmDescription') }}</small>
+        </label>
+      </template>
 
       <section v-if="result" class="access-key-drawer__result" aria-live="polite">
         <div class="access-key-drawer__result-title">
@@ -308,9 +323,10 @@ onBeforeUnmount(clearLocalState)
 
       <div class="access-key-drawer__actions">
         <AppButton variant="secondary" :disabled="pending" @click="setOpen(false)">
-          {{ t('common.cancel') }}
+          {{ t(createCompleted ? 'common.close' : 'common.cancel') }}
         </AppButton>
         <AppButton
+          v-if="!createCompleted"
           data-test="access-key-save"
           type="submit"
           :busy="pending"
@@ -371,6 +387,10 @@ small,
 .access-key-drawer__check input {
   width: 20px;
   min-height: 20px;
+}
+.access-key-drawer__check-content {
+  display: grid;
+  gap: var(--space-1);
 }
 .access-key-drawer__model-entry,
 .access-key-drawer__secret,

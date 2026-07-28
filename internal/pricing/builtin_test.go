@@ -1,6 +1,7 @@
 package pricing
 
 import (
+	"reflect"
 	"testing"
 	"time"
 )
@@ -13,16 +14,16 @@ func TestBuiltinRulesMatchGoldenTable(t *testing.T) {
 	const anthropicURL = "https://platform.claude.com/docs/en/about-claude/pricing"
 	const geminiURL = "https://ai.google.dev/gemini-api/docs/pricing"
 	want := []Rule{
-		{Pattern: "gpt-5.6", Prices: builtinPrices(5, 0.5, unsetPrice(), unsetPrice(), 30), Source: SourceBuiltin, SourceURL: openAIURL, UpdatedAt: updatedAt},
-		{Pattern: "gpt-5.6-sol", Prices: builtinPrices(5, 0.5, unsetPrice(), unsetPrice(), 30), Source: SourceBuiltin, SourceURL: openAIURL, UpdatedAt: updatedAt},
-		{Pattern: "gpt-5.6-terra", Prices: builtinPrices(2.5, 0.25, unsetPrice(), unsetPrice(), 15), Source: SourceBuiltin, SourceURL: openAIURL, UpdatedAt: updatedAt},
-		{Pattern: "gpt-5.6-luna", Prices: builtinPrices(1, 0.1, unsetPrice(), unsetPrice(), 6), Source: SourceBuiltin, SourceURL: openAIURL, UpdatedAt: updatedAt},
-		{Pattern: "gpt-5.5", Prices: builtinPrices(5, 0.5, unsetPrice(), unsetPrice(), 30), Source: SourceBuiltin, SourceURL: openAIURL, UpdatedAt: updatedAt},
+		{Pattern: "gpt-5.6", Prices: builtinPrices(5, 0.5, unsetPrice(), unsetPrice(), 30), Source: SourceBuiltin, SourceURL: openAIURL, UpdatedAt: updatedAt, LongContextPolicy: testLongContextPolicy()},
+		{Pattern: "gpt-5.6-sol", Prices: builtinPrices(5, 0.5, unsetPrice(), unsetPrice(), 30), Source: SourceBuiltin, SourceURL: openAIURL, UpdatedAt: updatedAt, LongContextPolicy: testLongContextPolicy()},
+		{Pattern: "gpt-5.6-terra", Prices: builtinPrices(2.5, 0.25, unsetPrice(), unsetPrice(), 15), Source: SourceBuiltin, SourceURL: openAIURL, UpdatedAt: updatedAt, LongContextPolicy: testLongContextPolicy()},
+		{Pattern: "gpt-5.6-luna", Prices: builtinPrices(1, 0.1, unsetPrice(), unsetPrice(), 6), Source: SourceBuiltin, SourceURL: openAIURL, UpdatedAt: updatedAt, LongContextPolicy: testLongContextPolicy()},
+		{Pattern: "gpt-5.5", Prices: builtinPrices(5, 0.5, unsetPrice(), unsetPrice(), 30), Source: SourceBuiltin, SourceURL: openAIURL, UpdatedAt: updatedAt, LongContextPolicy: testLongContextPolicy()},
 		{Pattern: "gpt-5.5-pro", Prices: builtinPrices(30, unsetPrice(), unsetPrice(), unsetPrice(), 180), Source: SourceBuiltin, SourceURL: openAIURL, UpdatedAt: updatedAt},
-		{Pattern: "gpt-5.4", Prices: builtinPrices(2.5, 0.25, unsetPrice(), unsetPrice(), 15), Source: SourceBuiltin, SourceURL: openAIURL, UpdatedAt: updatedAt},
+		{Pattern: "gpt-5.4", Prices: builtinPrices(2.5, 0.25, unsetPrice(), unsetPrice(), 15), Source: SourceBuiltin, SourceURL: openAIURL, UpdatedAt: updatedAt, LongContextPolicy: testLongContextPolicy()},
 		{Pattern: "gpt-5.4-mini", Prices: builtinPrices(0.75, 0.075, unsetPrice(), unsetPrice(), 4.5), Source: SourceBuiltin, SourceURL: openAIURL, UpdatedAt: updatedAt},
 		{Pattern: "gpt-5.4-nano", Prices: builtinPrices(0.2, 0.02, unsetPrice(), unsetPrice(), 1.25), Source: SourceBuiltin, SourceURL: openAIURL, UpdatedAt: updatedAt},
-		{Pattern: "gpt-5.4-pro", Prices: builtinPrices(30, unsetPrice(), unsetPrice(), unsetPrice(), 180), Source: SourceBuiltin, SourceURL: openAIURL, UpdatedAt: updatedAt},
+		{Pattern: "gpt-5.4-pro", Prices: builtinPrices(30, unsetPrice(), unsetPrice(), unsetPrice(), 180), Source: SourceBuiltin, SourceURL: openAIURL, UpdatedAt: updatedAt, LongContextPolicy: testLongContextPolicy()},
 		{Pattern: "gpt-4.1", Prices: builtinPrices(2, 0.5, unsetPrice(), unsetPrice(), 8), Source: SourceBuiltin, SourceURL: openAIURL, UpdatedAt: updatedAt},
 		{Pattern: "gpt-4.1-mini", Prices: builtinPrices(0.4, 0.1, unsetPrice(), unsetPrice(), 1.6), Source: SourceBuiltin, SourceURL: openAIURL, UpdatedAt: updatedAt},
 		{Pattern: "gpt-4.1-nano", Prices: builtinPrices(0.1, 0.025, unsetPrice(), unsetPrice(), 0.4), Source: SourceBuiltin, SourceURL: openAIURL, UpdatedAt: updatedAt},
@@ -55,7 +56,7 @@ func TestBuiltinRulesMatchGoldenTable(t *testing.T) {
 		t.Fatalf("BuiltinRules() length = %d, want %d", len(got), len(want))
 	}
 	for index, rule := range want {
-		if got[index] != rule {
+		if !reflect.DeepEqual(got[index], rule) {
 			t.Errorf("BuiltinRules()[%d] = %+v, want %+v", index, got[index], rule)
 		}
 	}
@@ -63,8 +64,13 @@ func TestBuiltinRulesMatchGoldenTable(t *testing.T) {
 		t.Fatal("BuiltinRules() unexpectedly empty")
 	}
 	got[0].Pattern = "mutated"
-	if again := BuiltinRules(); again[0].Pattern != "gpt-5.6" {
-		t.Fatalf("BuiltinRules() returned mutable backing data: %q", again[0].Pattern)
+	if got[0].LongContextPolicy != nil {
+		got[0].LongContextPolicy.InputMultiplier = 99
+	}
+	again := BuiltinRules()
+	if again[0].Pattern != "gpt-5.6" || again[0].LongContextPolicy == nil ||
+		again[0].LongContextPolicy.InputMultiplier != 2 {
+		t.Fatalf("BuiltinRules() returned mutable backing data: %+v", again[0])
 	}
 }
 
@@ -81,6 +87,7 @@ func TestBuiltinRulesDoNotMatchUnsupportedModelFamilies(t *testing.T) {
 		"gpt-audio",
 		"gpt-4o-audio-preview",
 		"gpt-4o-transcribe",
+		"gpt-5.6-future",
 		"gemini-2.5-flash-image",
 		"gemini-2.5-flash-preview-native-audio-dialog",
 		"gemini-2.5-flash-preview-tts",

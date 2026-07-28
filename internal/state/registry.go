@@ -15,15 +15,16 @@ const (
 )
 
 type KeyEntry struct {
-	ID             uint
-	GroupID        uint
-	WeightManual   *int
-	WeightAuto     int
-	Status         KeyStatus
-	CooldownUntil  time.Time
-	Blacklisted    bool
-	FailureCount   int
-	EncryptedValue string
+	ID                uint
+	GroupID           uint
+	WeightManual      *int
+	WeightAuto        int
+	Status            KeyStatus
+	CooldownUntil     time.Time
+	Blacklisted       bool
+	FailureCount      int
+	FailureGeneration uint64
+	EncryptedValue    string
 }
 
 type KeyMeta struct {
@@ -34,9 +35,10 @@ type KeyMeta struct {
 }
 
 type KeyRef struct {
-	ID             uint
-	GroupID        uint
-	EncryptedValue string
+	ID                uint
+	GroupID           uint
+	EncryptedValue    string
+	FailureGeneration uint64
 }
 
 type KeyRegistry struct {
@@ -228,6 +230,57 @@ func (r *KeyRegistry) ActiveEncryptedValue(keyID, expectedGroupID uint) (string,
 	return entry.EncryptedValue, true
 }
 
+func (r *KeyRegistry) CaptureActiveKeyRefs(groupIDs []uint) []KeyRef {
+	selectedGroups := make(map[uint]struct{}, len(groupIDs))
+	for _, groupID := range groupIDs {
+		if groupID != 0 {
+			selectedGroups[groupID] = struct{}{}
+		}
+	}
+
+	r.mu.RLock()
+	refs := make([]KeyRef, 0)
+	for groupID := range selectedGroups {
+		for _, entry := range r.buckets[groupID] {
+			if entry.Status != KeyStatusActive {
+				continue
+			}
+			refs = append(refs, KeyRef{
+				ID: entry.ID, GroupID: entry.GroupID, EncryptedValue: entry.EncryptedValue,
+				FailureGeneration: entry.FailureGeneration,
+			})
+		}
+	}
+	r.mu.RUnlock()
+	sort.Slice(refs, func(i, j int) bool {
+		if refs[i].GroupID != refs[j].GroupID {
+			return refs[i].GroupID < refs[j].GroupID
+		}
+		return refs[i].ID < refs[j].ID
+	})
+	return refs
+}
+
+func (r *KeyRegistry) ActiveEncryptedValueIfMatch(ref KeyRef) (string, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	groupID, ok := r.keyGroups[ref.ID]
+	if !ok || groupID != ref.GroupID {
+		return "", false
+	}
+	entry, ok := r.buckets[groupID][ref.ID]
+	if !ok ||
+		entry.ID != ref.ID ||
+		entry.GroupID != ref.GroupID ||
+		entry.EncryptedValue != ref.EncryptedValue ||
+		entry.Status != KeyStatusActive {
+		return "", false
+	}
+	// FailureGeneration is intentionally excluded: failure accounting must not
+	// invalidate a request that already captured this key identity.
+	return entry.EncryptedValue, true
+}
+
 func (r *KeyRegistry) ActiveKeyIDs() []uint {
 	r.mu.RLock()
 	ids := make([]uint, 0, len(r.keyGroups))
@@ -311,7 +364,10 @@ func (r *KeyRegistry) SetBlacklisted(keyID uint) bool {
 	if !ok {
 		return false
 	}
-	entry.Blacklisted = true
+	if !entry.Blacklisted {
+		entry.Blacklisted = true
+		entry.FailureGeneration++
+	}
 	return true
 }
 
@@ -323,6 +379,7 @@ func (r *KeyRegistry) IncrFailure(keyID uint) (int, bool) {
 		return 0, false
 	}
 	entry.FailureCount++
+	entry.FailureGeneration++
 	return entry.FailureCount, true
 }
 
@@ -333,7 +390,10 @@ func (r *KeyRegistry) ClearFailure(keyID uint) bool {
 	if !ok {
 		return false
 	}
-	entry.FailureCount = 0
+	if entry.FailureCount != 0 {
+		entry.FailureCount = 0
+		entry.FailureGeneration++
+	}
 	return true
 }
 
@@ -344,8 +404,11 @@ func (r *KeyRegistry) Recover(keyID uint) bool {
 	if !ok {
 		return false
 	}
-	entry.Blacklisted = false
-	entry.FailureCount = 0
+	if entry.Blacklisted || entry.FailureCount != 0 {
+		entry.Blacklisted = false
+		entry.FailureCount = 0
+		entry.FailureGeneration++
+	}
 	return true
 }
 
@@ -360,12 +423,13 @@ func (r *KeyRegistry) RecoverIfMatch(ref KeyRef, weight int) bool {
 		return false
 	}
 	entry, ok := r.buckets[groupID][ref.ID]
-	if !ok || entry.Status != KeyStatusActive || !entry.Blacklisted || entry.GroupID != ref.GroupID || entry.EncryptedValue != ref.EncryptedValue {
+	if !ok || entry.Status != KeyStatusActive || !entry.Blacklisted || entry.GroupID != ref.GroupID || entry.EncryptedValue != ref.EncryptedValue || entry.FailureGeneration != ref.FailureGeneration {
 		return false
 	}
 	entry.WeightAuto = weight
 	entry.Blacklisted = false
 	entry.FailureCount = 0
+	entry.FailureGeneration++
 	return true
 }
 
@@ -379,6 +443,7 @@ func (r *KeyRegistry) BlacklistedKeys() []KeyRef {
 			}
 			refs = append(refs, KeyRef{
 				ID: entry.ID, GroupID: entry.GroupID, EncryptedValue: entry.EncryptedValue,
+				FailureGeneration: entry.FailureGeneration,
 			})
 		}
 	}
@@ -403,6 +468,7 @@ func (r *KeyRegistry) entryLocked(keyID uint) (*KeyEntry, bool) {
 
 func cloneKeyEntry(entry KeyEntry) KeyEntry {
 	entry.WeightManual = cloneWeight(entry.WeightManual)
+	entry.FailureGeneration = 0
 	if entry.WeightAuto == 0 {
 		entry.WeightAuto = DefaultWeight
 	}

@@ -45,6 +45,10 @@ func (d *OpenAI) InjectCredential(headers http.Header, apiKey string) {
 	headers.Set("Authorization", "Bearer "+apiKey)
 }
 
+func (d *OpenAI) CredentialHeaderNames() []string {
+	return []string{"Authorization"}
+}
+
 func (d *OpenAI) BuildUpstreamURL(base string, req *ParsedRequest) (string, error) {
 	return buildUpstreamURL(base, req)
 }
@@ -141,6 +145,10 @@ func (d *OpenAI) ExtractModel(req *ParsedRequest) (string, bool, error) {
 
 func (d *OpenAI) ClassifyStatus(status int, body []byte) health.FailureCategory {
 	return classifyStatusWithMarkers(status, body, openAIFailureMarkers)
+}
+
+func (d *OpenAI) ClassifyProviderError(body []byte) health.FailureCategory {
+	return classifyProviderErrorWithMarkers(body, openAIFailureMarkers)
 }
 
 func buildUpstreamURL(base string, req *ParsedRequest) (string, error) {

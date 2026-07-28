@@ -75,6 +75,7 @@ func TestControlWriteLockDoesNotBlockDataPlane(t *testing.T) {
 		gateway.NewForwarder(platformhttp.NewHTTPClientManager(), redact.New()),
 		dialect.NewSet(openAI),
 		health.NewStatsStore(),
+		health.NewMutationCoordinator(),
 		nil,
 		nil,
 	)

@@ -28,6 +28,19 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Check Go formatting
+        run: |
+          # go-format-check:start
+          formatted_files="$(gofmt -l .)"
+          test -z "${formatted_files}"
+          # go-format-check:end
+
+      - name: Check module graph
+        run: go mod tidy -diff
+
+      - name: Run Go vet
+        run: go vet ./...
+
       - name: Build backend
         run: go build -o gpt-load .
 
@@ -38,7 +51,10 @@ jobs:
         run: pnpm --dir web run test:e2e
 
       - name: Run race-enabled tests
-        run: go test -race . ./internal/...
+        run: go test -race -count=1 . ./internal/...
+
+      - name: Check repository invariants
+        run: git diff --check
 
   windows-encryption-acl:
     runs-on: windows-latest
@@ -53,5 +69,5 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Test Windows encryption ACL
-        run: go test -v ./internal/platform/encryption -count=1
+      - name: Test Windows secure file and storage ACLs
+        run: go test -v -count=1 ./internal/platform/securefile ./internal/platform/encryption ./internal/storage

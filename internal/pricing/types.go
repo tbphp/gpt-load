@@ -18,6 +18,13 @@ type Prices struct {
 	Output        Price
 }
 
+// LongContextPolicy adjusts component prices after an input-token threshold.
+type LongContextPolicy struct {
+	InputThresholdTokens int64
+	InputMultiplier      float64
+	OutputMultiplier     float64
+}
+
 // Source identifies where a pricing rule came from.
 type Source string
 
@@ -28,11 +35,12 @@ const (
 
 // Rule matches an upstream model pattern to a price breakdown.
 type Rule struct {
-	Pattern   string
-	Prices    Prices
-	Source    Source
-	SourceURL string
-	UpdatedAt time.Time
+	Pattern           string
+	Prices            Prices
+	Source            Source
+	SourceURL         string
+	UpdatedAt         time.Time
+	LongContextPolicy *LongContextPolicy
 }
 
 // CostState describes whether a usage result can be priced.

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { toRef } from 'vue'
+import { nextTick, ref, toRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 
@@ -15,10 +15,29 @@ const recovery = useImportRecovery()
 const router = useRouter()
 const { t } = useI18n()
 const countdown = useCountdown(toRef(session.state, 'retryAfterSeconds'))
+const gateRoot = ref<HTMLElement | null>(null)
 
 if (session.state.phase !== 'validated') {
   void session.ensureValidated().catch(() => {})
 }
+
+watch(
+  () => session.state.phase,
+  async (phase) => {
+    if (phase !== 'invalid-response') return
+
+    await nextTick()
+    if (session.state.phase !== 'invalid-response') return
+
+    const retry = gateRoot.value?.querySelector<HTMLButtonElement>(
+      'button[data-test="invalid-response-retry"]',
+    )
+    if (retry instanceof HTMLButtonElement && retry.isConnected) {
+      retry.focus()
+    }
+  },
+  { immediate: true },
+)
 
 async function retryValidation(): Promise<void> {
   try {
@@ -38,7 +57,7 @@ function changeAuthKey(): void {
 <template>
   <slot v-if="session.state.phase === 'validated'" />
 
-  <main v-else class="auth-gate-shell">
+  <main v-else ref="gateRoot" class="auth-gate-shell">
     <SurfaceCard class="auth-gate-card" aria-labelledby="auth-gate-title">
       <h1 id="auth-gate-title" class="auth-gate-title">{{ t('common.appName') }}</h1>
 
@@ -76,9 +95,24 @@ function changeAuthKey(): void {
         </div>
       </template>
 
-      <InlineFeedback v-else-if="session.state.phase === 'invalid-response'" tone="danger">
-        {{ t('auth.invalidResponse') }}
-      </InlineFeedback>
+      <template v-else-if="session.state.phase === 'invalid-response'">
+        <InlineFeedback tone="danger">
+          {{ t('auth.invalidResponse') }}
+        </InlineFeedback>
+        <div class="auth-gate-actions">
+          <AppButton
+            data-test="invalid-response-retry"
+            type="button"
+            variant="secondary"
+            @click="retryValidation"
+          >
+            {{ t('common.retry') }}
+          </AppButton>
+          <AppButton type="button" variant="ghost" @click="changeAuthKey">
+            {{ t('common.changeKey') }}
+          </AppButton>
+        </div>
+      </template>
     </SurfaceCard>
   </main>
 </template>

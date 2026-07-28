@@ -168,6 +168,88 @@ func (s *Service) withControlTransaction(
 	})
 }
 
+func (s *Service) withReadSnapshot(
+	ctx context.Context,
+	read func(*gorm.DB) error,
+) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	err := s.db.WithContext(ctx).Connection(func(connection *gorm.DB) error {
+		sqlConn, ok := connection.Statement.ConnPool.(*sql.Conn)
+		if !ok {
+			return fmt.Errorf("pin read snapshot connection: %w", app_errors.ErrInternalServer)
+		}
+		snapshot := connection.Session(&gorm.Session{
+			NewDB: true, SkipDefaultTransaction: true, Context: ctx,
+		})
+		if err := snapshot.Exec("BEGIN").Error; err != nil {
+			if parentErr := ctx.Err(); parentErr != nil {
+				return parentErr
+			}
+			return fmt.Errorf("begin read snapshot: %w", app_errors.ErrDatabase)
+		}
+
+		active := true
+		defer func() {
+			if active {
+				_ = rollbackReadSnapshot(connection, sqlConn, false)
+			}
+		}()
+		if err := read(snapshot); err != nil {
+			cleanupErr := rollbackReadSnapshot(connection, sqlConn, false)
+			active = false
+			if parentErr := ctx.Err(); parentErr != nil {
+				return errors.Join(parentErr, cleanupErr)
+			}
+			return errors.Join(err, cleanupErr)
+		}
+		if parentErr := ctx.Err(); parentErr != nil {
+			cleanupErr := rollbackReadSnapshot(connection, sqlConn, false)
+			active = false
+			return errors.Join(parentErr, cleanupErr)
+		}
+		if err := snapshot.Exec("COMMIT").Error; err != nil {
+			cleanupErr := rollbackReadSnapshot(connection, sqlConn, true)
+			active = false
+			if parentErr := ctx.Err(); parentErr != nil {
+				return errors.Join(parentErr, cleanupErr)
+			}
+			return errors.Join(
+				fmt.Errorf("commit read snapshot: %w", app_errors.ErrDatabase),
+				cleanupErr,
+			)
+		}
+		active = false
+		return nil
+	})
+	if parentErr := ctx.Err(); parentErr != nil {
+		return parentErr
+	}
+	return err
+}
+
+func rollbackReadSnapshot(
+	connection *gorm.DB,
+	sqlConn *sql.Conn,
+	discardAlways bool,
+) error {
+	cleanupCtx, cancel := context.WithTimeout(context.Background(), controlTransactionCleanupTimeout)
+	defer cancel()
+	cleanupDB := connection.Session(&gorm.Session{
+		NewDB: true, SkipDefaultTransaction: true, Context: cleanupCtx,
+	})
+	rollbackErr := cleanupDB.Exec("ROLLBACK").Error
+	var discardErr error
+	if rollbackErr != nil || discardAlways {
+		discardErr = discardControlConnection(sqlConn)
+	}
+	if rollbackErr == nil && discardErr == nil {
+		return nil
+	}
+	return fmt.Errorf("cleanup read snapshot: %w", app_errors.ErrDatabase)
+}
+
 func rollbackControlTransaction(
 	connection *gorm.DB,
 	sqlConn *sql.Conn,

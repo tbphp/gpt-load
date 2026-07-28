@@ -61,6 +61,78 @@ func TestResolveRuntimeSettingsRejectsPresentNullHeaderRules(t *testing.T) {
 	}
 }
 
+func TestParseHeaderRulesRejectsUnsafeSetNames(t *testing.T) {
+	names := []string{
+		"Connection",
+		"proxy-connection",
+		"KEEP-ALIVE",
+		"te",
+		"Trailer",
+		"transfer-encoding",
+		"Upgrade",
+		"cookie",
+		"Cookie2",
+		"Proxy-Authorization",
+		"pRoXy-Custom",
+	}
+	for _, name := range names {
+		for _, value := range []string{"ordinary", "Bearer ${API_KEY}"} {
+			err := ValidateRuntimeSetting(SettingHeaderRules, map[string]any{
+				"set": map[string]any{name: value},
+			})
+			if err == nil {
+				t.Errorf("parseHeaderRules accepted unsafe set %q=%q", name, value)
+			}
+		}
+	}
+}
+
+func TestParseHeaderRulesRequiresAPIKeyTemplateForCredentials(t *testing.T) {
+	for _, name := range []string{
+		"Authorization",
+		"Api-Key",
+		"x-api-key",
+		"X-Goog-Api-Key",
+	} {
+		err := ValidateRuntimeSetting(SettingHeaderRules, map[string]any{
+			"set": map[string]any{name: "secret-canary"},
+		})
+		if err == nil {
+			t.Errorf("parseHeaderRules accepted literal credential %q", name)
+		}
+
+		err = ValidateRuntimeSetting(SettingHeaderRules, map[string]any{
+			"set": map[string]any{name: "Bearer ${API_KEY}"},
+		})
+		if err != nil {
+			t.Errorf("parseHeaderRules rejected template credential %q: %v", name, err)
+		}
+	}
+
+	err := ValidateRuntimeSetting(SettingHeaderRules, map[string]any{
+		"remove": []any{
+			"Authorization",
+			"Proxy-Authorization",
+			"Api-Key",
+			"X-Api-Key",
+			"X-Goog-Api-Key",
+		},
+	})
+	if err != nil {
+		t.Errorf("parseHeaderRules rejected credential removals: %v", err)
+	}
+
+	err = ValidateRuntimeSetting(SettingHeaderRules, map[string]any{
+		"set": map[string]any{
+			"Accept-Encoding": "gzip",
+			"X-Custom":        "ordinary",
+		},
+	})
+	if err != nil {
+		t.Errorf("parseHeaderRules rejected ordinary values: %v", err)
+	}
+}
+
 func TestResolveRuntimeSettingsAppliesSystemOverrides(t *testing.T) {
 	got, err := ResolveRuntimeSettings(config.Settings{
 		SettingConnectTimeout:    json.Number("20"),

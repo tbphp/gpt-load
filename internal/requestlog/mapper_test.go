@@ -114,6 +114,103 @@ func TestMapEventDefensivelyRedactsAndBoundsSummaries(t *testing.T) {
 	}
 }
 
+func TestMapEventBoundsModelsAtUTF8Boundary(t *testing.T) {
+	const wantMaxModelBytes = 255
+	exactASCII := strings.Repeat("a", 255)
+	exactMultibyte := strings.Repeat("界", 85)
+	overlongASCII := strings.Repeat("b", 256)
+	overlongMultibyte := strings.Repeat("模", 86)
+	invalidAndOverlong := string([]byte{0xff}) + strings.Repeat("c", 255)
+	event := telemetry.RequestEvent{
+		ClientModel:   invalidAndOverlong,
+		UpstreamModel: overlongASCII,
+		Attempts: []telemetry.Attempt{
+			{Sequence: 1, UpstreamModel: overlongMultibyte},
+			{Sequence: 2, UpstreamModel: exactASCII},
+			{Sequence: 3, UpstreamModel: exactMultibyte},
+		},
+	}
+
+	projectedPriceTable := compileRequestLogTestPriceTable(
+		t,
+		strings.Repeat("b", wantMaxModelBytes-len(truncatedMarker))+truncatedMarker,
+		pricing.Prices{Output: pricing.Price{Value: 1, Set: true}},
+	)
+	row := mapEvent(redact.New(), event, projectedPriceTable)
+
+	assertProjectedModel := func(name, projected, original string, wantTruncated bool) {
+		t.Helper()
+		if len(projected) > wantMaxModelBytes || !utf8.ValidString(projected) {
+			t.Fatalf(
+				"%s bytes/UTF-8 = %d/%t, want <= %d/true",
+				name,
+				len(projected),
+				utf8.ValidString(projected),
+				wantMaxModelBytes,
+			)
+		}
+		if strings.Contains(projected, string([]byte{0xff})) {
+			t.Fatalf("%s retained invalid UTF-8: %q", name, projected)
+		}
+		if wantTruncated != strings.HasSuffix(projected, truncatedMarker) {
+			t.Fatalf(
+				"%s truncated marker = %t, want %t: %q",
+				name,
+				strings.HasSuffix(projected, truncatedMarker),
+				wantTruncated,
+				projected,
+			)
+		}
+		if !wantTruncated && projected != original {
+			t.Fatalf("%s = %q, want unchanged %q", name, projected, original)
+		}
+	}
+
+	assertProjectedModel("client model", row.ClientModel, invalidAndOverlong, true)
+	assertProjectedModel("overall upstream model", row.UpstreamModel, overlongASCII, true)
+	var attempts []Attempt
+	if err := json.Unmarshal(row.Attempts, &attempts); err != nil {
+		t.Fatalf("unmarshal attempts: %v", err)
+	}
+	if len(attempts) != 3 {
+		t.Fatalf("attempts = %d, want 3", len(attempts))
+	}
+	assertProjectedModel("attempt 1 upstream model", attempts[0].UpstreamModel, overlongMultibyte, true)
+	assertProjectedModel("attempt 2 upstream model", attempts[1].UpstreamModel, exactASCII, false)
+	assertProjectedModel("attempt 3 upstream model", attempts[2].UpstreamModel, exactMultibyte, false)
+	if row.CostState != string(pricing.CostStateUnpriced) {
+		t.Fatalf(
+			"cost state = %q, want unpriced because Quote must use untruncated telemetry model",
+			row.CostState,
+		)
+	}
+
+	rawInvalidModel := "billable-" + string([]byte{0xff}) + "-model"
+	rawPriceTable := compileRequestLogTestPriceTable(
+		t,
+		rawInvalidModel,
+		pricing.Prices{Output: pricing.Price{Value: 2, Set: true}},
+	)
+	pricedEvent := telemetry.RequestEvent{
+		UpstreamModel: rawInvalidModel,
+		Usage: telemetry.UsageObservation{Result: usage.Result{
+			State:  usage.StateComplete,
+			Tokens: usage.Tokens{Output: 1_000_000},
+		}},
+	}
+	pricedRow := mapEvent(redact.New(), pricedEvent, rawPriceTable)
+	if pricedRow.UpstreamModel == rawInvalidModel || !utf8.ValidString(pricedRow.UpstreamModel) {
+		t.Fatalf("priced row upstream model was not projected safely: %q", pricedRow.UpstreamModel)
+	}
+	if pricedRow.CostState != string(pricing.CostStatePriced) || pricedRow.Cost != 2 {
+		t.Fatalf(
+			"raw telemetry model quote = %q/%v, want priced/2",
+			pricedRow.CostState,
+			pricedRow.Cost,
+		)
+	}
+}
+
 func TestMapEventPersistsUsageAttributionAndQuote(t *testing.T) {
 	table := compileRequestLogTestPriceTable(t, "actual-upstream", pricing.Prices{
 		UncachedInput: pricing.Price{Value: 1, Set: true},

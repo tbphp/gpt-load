@@ -43,6 +43,25 @@ func classifyStatusWithMarkers(
 	}
 }
 
+func classifyProviderErrorWithMarkers(
+	body []byte,
+	markers failureMarkers,
+) health.FailureCategory {
+	lowered := strings.ToLower(string(body))
+	switch {
+	case containsFailureMarker(lowered, markers.rateLimited):
+		return health.FailureCategoryRateLimited
+	case containsFailureMarker(lowered, markers.modelUnavailable):
+		return health.FailureCategoryModelUnavailable
+	case containsFailureMarker(lowered, markers.invalidKey):
+		return health.FailureCategoryInvalidKey
+	case containsFailureMarker(lowered, markers.upstreamHost):
+		return health.FailureCategoryUpstreamHostError
+	default:
+		return health.FailureCategoryClientError
+	}
+}
+
 func containsFailureMarker(body string, markers []string) bool {
 	for _, marker := range markers {
 		if strings.Contains(body, marker) {

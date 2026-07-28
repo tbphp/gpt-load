@@ -115,6 +115,11 @@ func TestRouteInspectEndpointRejectsMalformedAndInvalidRequests(t *testing.T) {
 			wantCode: app_errors.ErrValidation.Code,
 		},
 		{
+			name:     "reserved protocol",
+			body:     `{"protocol":"openai-response","external_model":"model","access_key_id":1}`,
+			wantCode: app_errors.ErrValidation.Code,
+		},
+		{
 			name:     "empty model",
 			body:     `{"protocol":"openai","external_model":"","access_key_id":1}`,
 			wantCode: app_errors.ErrValidation.Code,

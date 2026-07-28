@@ -87,6 +87,101 @@ func TestFilterTargetsSkipsCandidateWithoutGroupView(t *testing.T) {
 	}
 }
 
+func TestCandidateGroupIDsUsesFrozenAccessKeyProtocolAndFilters(t *testing.T) {
+	snapshot, err := state.Compile(state.CompileInput{
+		Groups: []state.GroupConfig{
+			{
+				ID: 4, Name: "disabled-openai",
+				Protocols: []protocol.Protocol{protocol.OpenAI},
+				Models:    []state.ModelConfig{{ID: "disabled-model"}},
+				Enabled:   false,
+			},
+			{
+				ID: 3, Name: "multi",
+				Protocols: []protocol.Protocol{protocol.OpenAI, protocol.Anthropic},
+				Models:    []state.ModelConfig{{ID: "multi-model"}},
+				Enabled:   true,
+			},
+			{
+				ID: 2, Name: "anthropic",
+				Protocols: []protocol.Protocol{protocol.Anthropic},
+				Models:    []state.ModelConfig{{ID: "anthropic-model"}},
+				Enabled:   true,
+			},
+			{
+				ID: 1, Name: "openai",
+				Protocols: []protocol.Protocol{protocol.OpenAI},
+				Models:    []state.ModelConfig{{ID: "openai-model"}},
+				Enabled:   true,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Compile() error = %v", err)
+	}
+
+	tests := []struct {
+		name      string
+		selected  protocol.Protocol
+		accessKey state.AccessKeyView
+		want      []uint
+	}{
+		{
+			name:     "enabled protocol groups sorted without model",
+			selected: protocol.OpenAI,
+			accessKey: state.AccessKeyView{
+				Status: state.AccessKeyStatusActive,
+				Filters: state.FilterSet{
+					Models: map[string]struct{}{"model-known-after-body": {}},
+				},
+			},
+			want: []uint{1, 3},
+		},
+		{
+			name:     "group filter",
+			selected: protocol.OpenAI,
+			accessKey: state.AccessKeyView{
+				Status: state.AccessKeyStatusActive,
+				Filters: state.FilterSet{
+					Groups: map[uint]struct{}{2: {}, 3: {}},
+				},
+			},
+			want: []uint{3},
+		},
+		{
+			name:     "allowed protocol filter",
+			selected: protocol.Anthropic,
+			accessKey: state.AccessKeyView{
+				Status: state.AccessKeyStatusActive,
+				Filters: state.FilterSet{
+					Protocols: map[protocol.Protocol]struct{}{protocol.Anthropic: {}},
+				},
+			},
+			want: []uint{2, 3},
+		},
+		{
+			name:     "denied protocol filter",
+			selected: protocol.OpenAI,
+			accessKey: state.AccessKeyView{
+				Status: state.AccessKeyStatusActive,
+				Filters: state.FilterSet{
+					Protocols: map[protocol.Protocol]struct{}{protocol.Anthropic: {}},
+				},
+			},
+			want: []uint{},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := CandidateGroupIDs(snapshot, test.selected, test.accessKey)
+			if !reflect.DeepEqual(got, test.want) {
+				t.Fatalf("CandidateGroupIDs() = %#v, want %#v", got, test.want)
+			}
+		})
+	}
+}
+
 type fakeKeySource struct {
 	keys []state.KeyMeta
 }
@@ -452,6 +547,43 @@ func TestIteratorReadsRegistryChangesBetweenNextCalls(t *testing.T) {
 	second, err := iterator.Next()
 	if err != nil || second.KeyID != 12 {
 		t.Fatalf("second Next() = (%#v, %v), want newly added key 12", second, err)
+	}
+}
+
+func TestIteratorRestrictsLiveCandidatesToAllowedKeyIDs(t *testing.T) {
+	registry := state.NewKeyRegistry()
+	if err := registry.Replace([]state.KeyEntry{{
+		ID: 11, GroupID: 1, Status: state.KeyStatusActive,
+		EncryptedValue: "cipher-captured",
+	}}); err != nil {
+		t.Fatalf("Replace() error = %v", err)
+	}
+	allowed := map[uint]struct{}{11: {}}
+	iterator := New(
+		schedulerSnapshot(),
+		registry,
+		Query{
+			Protocol: protocol.OpenAI, ExternalModel: "gpt-4o",
+			AllowedKeyIDs: allowed,
+		},
+		rand.New(zeroRandSource{}),
+	)
+
+	delete(allowed, 11)
+	allowed[12] = struct{}{}
+	if err := registry.ApplyImport(1, []state.KeyEntry{{
+		ID: 12, GroupID: 1, Status: state.KeyStatusActive,
+		EncryptedValue: "cipher-imported-after-iterator",
+	}}); err != nil {
+		t.Fatalf("ApplyImport() error = %v", err)
+	}
+
+	first, err := iterator.Next()
+	if err != nil || first.KeyID != 11 {
+		t.Fatalf("first Next() = (%#v, %v), want captured key 11", first, err)
+	}
+	if _, err := iterator.Next(); !errors.Is(err, ErrExhausted) {
+		t.Fatalf("second Next() error = %v, want ErrExhausted", err)
 	}
 }
 

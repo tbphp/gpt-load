@@ -158,6 +158,160 @@ func TestCompileRejectsInvalidRules(t *testing.T) {
 	}
 }
 
+func TestCompileRejectsUserAndPrefixLongContextPolicies(t *testing.T) {
+	t.Parallel()
+
+	updatedAt := time.Date(2026, 7, 26, 0, 0, 0, 0, time.UTC)
+	validPolicy := func() *LongContextPolicy {
+		return &LongContextPolicy{
+			InputThresholdTokens: 272_000,
+			InputMultiplier:      2,
+			OutputMultiplier:     1.5,
+		}
+	}
+	validBuiltin := func(pattern string) Rule {
+		return Rule{
+			Pattern:           pattern,
+			Prices:            priced(1),
+			Source:            SourceBuiltin,
+			SourceURL:         "https://builtin.example/pricing",
+			UpdatedAt:         updatedAt,
+			LongContextPolicy: validPolicy(),
+		}
+	}
+	tests := []struct {
+		name string
+		rule Rule
+	}{
+		{
+			name: "user exact policy",
+			rule: Rule{
+				Pattern: "gpt-5.6", Prices: priced(1), Source: SourceUser,
+				LongContextPolicy: validPolicy(),
+			},
+		},
+		{
+			name: "user prefix policy",
+			rule: Rule{
+				Pattern: "gpt-*", Prices: priced(1), Source: SourceUser,
+				LongContextPolicy: validPolicy(),
+			},
+		},
+		{
+			name: "user global policy",
+			rule: Rule{
+				Pattern: "*", Prices: priced(1), Source: SourceUser,
+				LongContextPolicy: validPolicy(),
+			},
+		},
+		{name: "builtin prefix policy", rule: validBuiltin("gpt-*")},
+		{
+			name: "zero threshold",
+			rule: func() Rule {
+				rule := validBuiltin("gpt-5.6")
+				rule.LongContextPolicy.InputThresholdTokens = 0
+				return rule
+			}(),
+		},
+		{
+			name: "negative threshold",
+			rule: func() Rule {
+				rule := validBuiltin("gpt-5.6")
+				rule.LongContextPolicy.InputThresholdTokens = -1
+				return rule
+			}(),
+		},
+		{
+			name: "zero input multiplier",
+			rule: func() Rule {
+				rule := validBuiltin("gpt-5.6")
+				rule.LongContextPolicy.InputMultiplier = 0
+				return rule
+			}(),
+		},
+		{
+			name: "negative output multiplier",
+			rule: func() Rule {
+				rule := validBuiltin("gpt-5.6")
+				rule.LongContextPolicy.OutputMultiplier = -1
+				return rule
+			}(),
+		},
+		{
+			name: "nan input multiplier",
+			rule: func() Rule {
+				rule := validBuiltin("gpt-5.6")
+				rule.LongContextPolicy.InputMultiplier = math.NaN()
+				return rule
+			}(),
+		},
+		{
+			name: "infinite output multiplier",
+			rule: func() Rule {
+				rule := validBuiltin("gpt-5.6")
+				rule.LongContextPolicy.OutputMultiplier = math.Inf(1)
+				return rule
+			}(),
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := Compile([]Rule{test.rule}); err == nil {
+				t.Fatal("Compile() error = nil, want invalid long-context policy error")
+			}
+		})
+	}
+}
+
+func TestCompileCopiesLongContextPolicy(t *testing.T) {
+	t.Parallel()
+
+	policy := &LongContextPolicy{
+		InputThresholdTokens: 272_000,
+		InputMultiplier:      2,
+		OutputMultiplier:     1.5,
+	}
+	rules := []Rule{{
+		Pattern:           "gpt-5.6",
+		Prices:            priced(1),
+		Source:            SourceBuiltin,
+		SourceURL:         "https://builtin.example/pricing",
+		UpdatedAt:         time.Date(2026, 7, 26, 0, 0, 0, 0, time.UTC),
+		LongContextPolicy: policy,
+	}}
+	table, err := Compile(rules)
+	if err != nil {
+		t.Fatalf("Compile() error = %v", err)
+	}
+
+	policy.InputThresholdTokens = 1
+	policy.InputMultiplier = 99
+	first, ok := table.Match("gpt-5.6")
+	if !ok || first.LongContextPolicy == nil {
+		t.Fatalf("first Match() = %+v, %t; want policy", first, ok)
+	}
+	if first.LongContextPolicy.InputThresholdTokens != 272_000 ||
+		first.LongContextPolicy.InputMultiplier != 2 ||
+		first.LongContextPolicy.OutputMultiplier != 1.5 {
+		t.Fatalf("first Match() policy = %+v, want original values", first.LongContextPolicy)
+	}
+	if first.LongContextPolicy == policy {
+		t.Fatal("Compile() retained the caller's policy pointer")
+	}
+
+	first.LongContextPolicy.OutputMultiplier = 99
+	second, ok := table.Match("gpt-5.6")
+	if !ok || second.LongContextPolicy == nil {
+		t.Fatalf("second Match() = %+v, %t; want policy", second, ok)
+	}
+	if second.LongContextPolicy.OutputMultiplier != 1.5 {
+		t.Fatalf("second Match() policy = %+v, want immutable copy", second.LongContextPolicy)
+	}
+	if second.LongContextPolicy == first.LongContextPolicy {
+		t.Fatal("Match() returned its internal policy pointer")
+	}
+}
+
 func TestCompileCopiesInputAndReturnsRuleValues(t *testing.T) {
 	t.Parallel()
 

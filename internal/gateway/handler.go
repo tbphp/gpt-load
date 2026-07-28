@@ -26,6 +26,7 @@ import (
 const (
 	maxAttempts               = 3
 	maxRequestBodyBytes       = int64(32 << 20)
+	maxDataPlaneModelBytes    = 255
 	fixedCooldown             = time.Minute
 	blacklistFailureThreshold = 3
 	debugHeaderGroup          = "X-GPTLoad-Group"
@@ -51,9 +52,14 @@ type AccessKeyRPMLimiter interface {
 	Allow(accessKeyID uint, limit int64) ratelimit.LimitDecision
 }
 
+type keyMutationCoordinator interface {
+	Do(uint, func())
+}
+
 type runtimeKeyRegistry interface {
 	scheduler.KeySource
-	ActiveEncryptedValue(keyID, expectedGroupID uint) (string, bool)
+	CaptureActiveKeyRefs(groupIDs []uint) []state.KeyRef
+	ActiveEncryptedValueIfMatch(ref state.KeyRef) (string, bool)
 	SetCooldown(keyID uint, until time.Time) bool
 	IncrFailure(keyID uint) (int, bool)
 	SetBlacklisted(keyID uint) bool
@@ -67,6 +73,7 @@ type Handler struct {
 	forwarder      AttemptForwarder
 	dialects       dialect.Set
 	stats          *health.StatsStore
+	mutations      keyMutationCoordinator
 	limiter        AccessKeyRPMLimiter
 	requestLogSink telemetry.RequestLogSink
 	newRandom      func() *rand.Rand
@@ -84,6 +91,7 @@ func NewHandler(
 	forwarder AttemptForwarder,
 	dialects dialect.Set,
 	stats *health.StatsStore,
+	mutations *health.MutationCoordinator,
 	limiter AccessKeyRPMLimiter,
 	requestLogSink telemetry.RequestLogSink,
 ) *Handler {
@@ -95,7 +103,7 @@ func NewHandler(
 	}
 	return &Handler{
 		manager: manager, registry: registry, encryption: encryptionService,
-		forwarder: forwarder, dialects: dialects, stats: stats,
+		forwarder: forwarder, dialects: dialects, stats: stats, mutations: mutations,
 		limiter: limiter, requestLogSink: requestLogSink,
 		newRandom:      func() *rand.Rand { return rand.New(rand.NewSource(rand.Int63())) },
 		newRequestID:   newRequestID,
@@ -125,12 +133,21 @@ func (handler *Handler) applyKeyAction(
 		}
 		_ = handler.registry.SetCooldown(keyID, until)
 	case health.ActionFailKey:
-		handler.stats.Record(keyID, false, attemptNow)
-		count, ok := handler.registry.IncrFailure(keyID)
-		if ok && count >= blacklistFailureThreshold {
-			_ = handler.registry.SetBlacklisted(keyID)
-		}
+		handler.mutations.Do(keyID, func() {
+			count, ok := handler.registry.IncrFailure(keyID)
+			if ok && count >= blacklistFailureThreshold {
+				_ = handler.registry.SetBlacklisted(keyID)
+			}
+			handler.stats.Record(keyID, false, attemptNow)
+		})
 	}
+}
+
+func (handler *Handler) recordSuccess(keyID uint, at time.Time) {
+	handler.mutations.Do(keyID, func() {
+		_ = handler.registry.ClearFailure(keyID)
+		handler.stats.Record(keyID, true, at)
+	})
 }
 
 func (handler *Handler) RegisterRoutes(engine *gin.Engine) {
@@ -171,7 +188,13 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 			selectedRoute.Protocol,
 			handler.requestNow,
 		)
-		defer recorder.emit()
+		defer func() {
+			recorder.completeMissingOutcome(
+				ginContext.Writer.Written(),
+				ginContext.Writer.Status(),
+			)
+			recorder.emit()
+		}()
 	}
 
 	limitDecision := handler.limiter.Allow(accessKey.ID, accessKey.RPMLimit)
@@ -192,6 +215,17 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 	if !dialectReady || selectedRoute.Kind != endpointChat {
 		handler.completeReason(ginContext, recorder, reasonEndpointNotFound)
 		return
+	}
+
+	candidateGroupIDs := scheduler.CandidateGroupIDs(
+		snapshot,
+		selectedRoute.Protocol,
+		accessKey,
+	)
+	capturedRefs := handler.registry.CaptureActiveKeyRefs(candidateGroupIDs)
+	allowedKeyRefs := make(map[uint]state.KeyRef, len(capturedRefs))
+	for _, ref := range capturedRefs {
+		allowedKeyRefs[ref.ID] = ref
 	}
 
 	body, err := readRequestBody(ginContext.Request.Body, maxRequestBodyBytes)
@@ -223,12 +257,30 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 		handler.completeReason(ginContext, recorder, reasonCannotExtractModel)
 		return
 	}
+	if len(model) > maxDataPlaneModelBytes {
+		handler.completeReason(ginContext, recorder, reasonCannotExtractModel)
+		return
+	}
 	recorder.setClientModel(model)
 
+	allowedKeyIDs := make(map[uint]struct{}, len(allowedKeyRefs))
+	for keyID := range allowedKeyRefs {
+		allowedKeyIDs[keyID] = struct{}{}
+	}
 	iterator := scheduler.New(snapshot, handler.registry, scheduler.Query{
 		Protocol: selectedRoute.Protocol, ExternalModel: model, AccessKey: accessKey,
+		AllowedKeyIDs: allowedKeyIDs,
 	}, handler.newRandom())
-	handler.executeAttempts(ginContext, iterator, selectedDialect, parsed, model, stream, recorder)
+	handler.executeAttempts(
+		ginContext,
+		iterator,
+		allowedKeyRefs,
+		selectedDialect,
+		parsed,
+		model,
+		stream,
+		recorder,
+	)
 }
 
 func retryAfterSeconds(duration time.Duration) int {
@@ -290,6 +342,7 @@ func readRequestBody(reader io.Reader, limit int64) ([]byte, error) {
 func (handler *Handler) executeAttempts(
 	ginContext *gin.Context,
 	iterator *scheduler.Iterator,
+	allowedKeyRefs map[uint]state.KeyRef,
 	selectedDialect dialect.Dialect,
 	parsed *dialect.ParsedRequest,
 	externalModel string,
@@ -304,6 +357,7 @@ func (handler *Handler) executeAttempts(
 	}
 	var lastResponse *deferredAttempt
 	var lastTransport *deferredAttempt
+	var lastProviderError *deferredAttempt
 	attempts := 0
 	for attempts < maxAttempts {
 		if ginContext.Request.Context().Err() != nil {
@@ -317,8 +371,12 @@ func (handler *Handler) executeAttempts(
 		if err != nil {
 			break
 		}
-		encrypted, ok := handler.registry.ActiveEncryptedValue(selection.KeyID, selection.GroupID)
-		if !ok {
+		ref, allowed := allowedKeyRefs[selection.KeyID]
+		if !allowed || ref.GroupID != selection.GroupID {
+			continue
+		}
+		encrypted, active := handler.registry.ActiveEncryptedValueIfMatch(ref)
+		if !active {
 			continue
 		}
 		apiKey, err := handler.encryption.Decrypt(encrypted)
@@ -334,8 +392,7 @@ func (handler *Handler) executeAttempts(
 			ExternalModel:   externalModel,
 			UpstreamModelID: selection.UpstreamModelID,
 			OnStreamReady: func() {
-				_ = handler.registry.ClearFailure(selectedKeyID)
-				handler.stats.Record(selectedKeyID, true, handler.now())
+				handler.recordSuccess(selectedKeyID, handler.now())
 			},
 		}
 		attemptStarted := recorder.beforeForward()
@@ -382,17 +439,17 @@ func (handler *Handler) executeAttempts(
 			return
 		}
 		attemptNow := handler.now()
-		if !stream && result.HasResponse() &&
+		if !stream && !result.ProviderErrorBeforeCommit && result.HasResponse() &&
 			result.StatusCode >= http.StatusOK &&
 			result.StatusCode < http.StatusMultipleChoices {
-			_ = handler.registry.ClearFailure(selection.KeyID)
-			handler.stats.Record(selection.KeyID, true, attemptNow)
+			handler.recordSuccess(selection.KeyID, attemptNow)
 		}
 		decision := health.Judge(selectedDialect, health.Attempt{
 			StatusCode: result.StatusCode, Body: result.ClassificationBody,
 			Header: result.Header, Now: attemptNow,
 			Err: result.Err, RequestWritten: result.RequestWritten,
 			Committed: result.Committed, RetryableBeforeCommit: result.RetryableBeforeCommit,
+			ProviderErrorBeforeCommit: result.ProviderErrorBeforeCommit,
 		})
 		recordedAttempt := recorder.recordAttempt(
 			selection, apiKey, result, decision, attemptStarted, attemptCompleted,
@@ -400,6 +457,23 @@ func (handler *Handler) executeAttempts(
 		handler.applyKeyAction(selection.KeyID, decision, attemptNow)
 		if decision.Action == health.ActionSkipGroup {
 			iterator.SkipGroup(selection.GroupID)
+		}
+		if result.ProviderErrorBeforeCommit {
+			if decision.ShouldRetry() {
+				lastProviderError = &deferredAttempt{
+					result:        result,
+					decision:      decision,
+					upstreamModel: selection.UpstreamModelID,
+					attemptIndex:  recordedAttempt,
+				}
+				recorder.retryIfAnotherForward(recordedAttempt)
+				continue
+			}
+			recorder.completeProviderError(selection.UpstreamModelID, recordedAttempt)
+			if err := handler.writeReason(ginContext, reasonUpstreamProtocol); err != nil {
+				handler.completeWriteTerminal(ginContext, recorder, reasonUpstreamProtocol.Status)
+			}
+			return
 		}
 		if result.HasResponse() {
 			lastResponse = &deferredAttempt{
@@ -435,6 +509,16 @@ func (handler *Handler) executeAttempts(
 		return
 	}
 
+	if lastProviderError != nil {
+		recorder.completeProviderError(
+			lastProviderError.upstreamModel,
+			lastProviderError.attemptIndex,
+		)
+		if err := handler.writeReason(ginContext, reasonUpstreamProtocol); err != nil {
+			handler.completeWriteTerminal(ginContext, recorder, reasonUpstreamProtocol.Status)
+		}
+		return
+	}
 	if lastResponse != nil {
 		recorder.completeResponse(
 			lastResponse.result,

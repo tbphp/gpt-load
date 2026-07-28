@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -22,11 +23,22 @@ import (
 	"github.com/klauspost/compress/zstd"
 
 	"gpt-load/internal/dialect"
+	"gpt-load/internal/health"
 	platformhttp "gpt-load/internal/platform/httpclient"
+	platformheader "gpt-load/internal/platform/httpheader"
 	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/platform/utils"
 	"gpt-load/internal/state"
+	"gpt-load/internal/usage"
 )
+
+type dialectSpecificCredentialHeaders struct {
+	dialect.Dialect
+}
+
+func (dialectSpecificCredentialHeaders) CredentialHeaderNames() []string {
+	return []string{"X-Dialect-Credential"}
+}
 
 func TestReadBodyAtMostDoesNotReturnPartialBody(t *testing.T) {
 	if body, overflow, err := readBodyAtMost(strings.NewReader("1234"), 4); err != nil || overflow || string(body) != "1234" {
@@ -50,6 +62,225 @@ func TestReadBodyAtMostDoesNotReturnPartialBody(t *testing.T) {
 	body, overflow, err = readBodyAtMost(strings.NewReader("x"), -1)
 	if err == nil || overflow || body != nil {
 		t.Fatalf("negative limit = %q, %t, %v", body, overflow, err)
+	}
+}
+
+func TestForwardCredentialSecretsExcludeOrdinaryHeaderRuleValues(t *testing.T) {
+	const apiKey = "fake-provider-key-for-redaction"
+	input := ForwardInput{
+		Dialect: dialect.NewOpenAI(http.DefaultClient),
+		Group: state.GroupView{
+			HeaderRules: state.HeaderRules{Set: map[string]string{
+				"Authorization":   "Bearer ${API_KEY}",
+				"Accept-Encoding": "gzip",
+				"X-Custom":        "ordinary",
+			}},
+		},
+		APIKey: apiKey,
+		Request: &dialect.ParsedRequest{
+			Header: make(http.Header),
+		},
+	}
+
+	got := resolvedCredentialSecretValues(input, nil)
+	want := []string{"Bearer " + apiKey, apiKey}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("resolvedCredentialSecretValues() = %#v, want %#v", got, want)
+	}
+	got[0] = "mutated"
+	if next := resolvedCredentialSecretValues(input, nil); !reflect.DeepEqual(next, want) {
+		t.Fatalf("resolvedCredentialSecretValues() returned aliased values: %#v", next)
+	}
+
+	for _, selected := range []dialect.Dialect{
+		dialect.NewOpenAI(http.DefaultClient),
+		dialect.NewAnthropic(http.DefaultClient),
+		dialect.NewGemini(http.DefaultClient),
+	} {
+		namer, ok := selected.(dialect.CredentialHeaderNamer)
+		if !ok {
+			t.Fatalf("%T does not implement CredentialHeaderNamer", selected)
+		}
+		names := namer.CredentialHeaderNames()
+		if len(names) == 0 {
+			t.Fatalf("%T returned no credential Header names", selected)
+		}
+		original := names[0]
+		names[0] = "mutated"
+		if next := namer.CredentialHeaderNames(); len(next) == 0 || next[0] != original {
+			t.Fatalf("%T returned an aliased credential Header slice: %#v", selected, next)
+		}
+	}
+}
+
+func TestGatewayCredentialPolicyRecognizesSharedBaseAndDialectSpecificNames(t *testing.T) {
+	baseNames := []string{
+		"Authorization",
+		"Proxy-Authorization",
+		"Api-Key",
+		"X-Api-Key",
+		"X-Goog-Api-Key",
+	}
+	selected := dialectSpecificCredentialHeaders{
+		Dialect: dialect.NewOpenAI(http.DefaultClient),
+	}
+	source := http.Header{"X-Safe": {"kept"}}
+	for index, name := range baseNames {
+		if !platformheader.IsCredentialName(name) {
+			t.Fatalf("shared policy does not recognize base credential Header %q", name)
+		}
+		source.Set(name, fmt.Sprintf("base-secret-%d", index))
+	}
+	source.Set("X-Dialect-Credential", "dialect-secret")
+	input := ForwardInput{
+		Dialect: selected,
+		APIKey:  "provider-api-key",
+		Request: &dialect.ParsedRequest{Header: make(http.Header)},
+	}
+
+	sanitized := sanitizeForwardResponseHeaders(source, input)
+	for _, name := range append(baseNames, "X-Dialect-Credential") {
+		if values := sanitized.Values(name); values != nil {
+			t.Errorf("credential response Header %q survived: %#v", name, values)
+		}
+	}
+	if got := sanitized.Get("X-Safe"); got != "kept" {
+		t.Fatalf("safe response Header = %q, want kept", got)
+	}
+
+	finalHeaders := http.Header{
+		"Authorization":        {"base-final-secret"},
+		"X-Dialect-Credential": {"dialect-final-secret"},
+	}
+	secrets := resolvedCredentialSecretValues(input, finalHeaders)
+	for _, want := range []string{
+		"provider-api-key",
+		"base-final-secret",
+		"dialect-final-secret",
+	} {
+		if !slices.Contains(secrets, want) {
+			t.Errorf("resolved credential secrets = %#v, want %q", secrets, want)
+		}
+	}
+}
+
+func TestForwardRequestRulesCannotRestoreReservedHeaders(t *testing.T) {
+	const apiKey = "fake-request-sanitizer-provider-key"
+	input := ForwardInput{
+		Dialect: dialect.NewOpenAI(http.DefaultClient),
+		Group: state.GroupView{
+			UpstreamURL: "https://api.example.test",
+			HeaderRules: state.HeaderRules{Set: map[string]string{
+				"Authorization":       "Token ${API_KEY}",
+				"Connection":          "X-Rule-Hop",
+				"X-Rule-Hop":          "restored",
+				"Cookie":              "session=fake",
+				"Cookie2":             "legacy=fake",
+				"Proxy-Authorization": "Bearer proxy-fake",
+				"Proxy-Custom":        "proxy-fake",
+				requestIDHeader:       "restored-request-id",
+				debugHeaderGroup:      "restored-group",
+				debugHeaderKey:        "restored-key",
+				debugHeaderAttempts:   "restored-attempts",
+			}},
+		},
+		APIKey: apiKey,
+		Request: &dialect.ParsedRequest{
+			Method: http.MethodPost,
+			Path:   "/v1/chat/completions",
+			Header: http.Header{
+				"Connection":       {"X-Client-Hop"},
+				"X-Client-Hop":     {"client-hop"},
+				"Cookie":           {"client=fake"},
+				"Proxy-Client-Hop": {"proxy-client"},
+			},
+			Body: []byte(`{"model":"gpt-test"}`),
+		},
+	}
+
+	forwarder := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New())
+	request, _, replay, err := forwarder.newUpstreamRequest(t.Context(), input, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = request.Body.Close()
+		replay.release()
+	})
+
+	if got := request.Header.Get("Authorization"); got != "Token "+apiKey {
+		t.Fatalf("Authorization = %q, want configured credential", got)
+	}
+	for _, name := range []string{
+		"Connection",
+		"X-Rule-Hop",
+		"X-Client-Hop",
+		"Cookie",
+		"Cookie2",
+		"Proxy-Authorization",
+		"Proxy-Custom",
+		"Proxy-Client-Hop",
+		requestIDHeader,
+		debugHeaderGroup,
+		debugHeaderKey,
+		debugHeaderAttempts,
+	} {
+		if values := request.Header.Values(name); values != nil {
+			t.Errorf("upstream request Header %s survived: %#v", name, values)
+		}
+	}
+}
+
+func TestNewUpstreamRequestDoesNotExposeGetBody(t *testing.T) {
+	const payload = `{"model":"gpt-test","messages":[]}`
+	input := ForwardInput{
+		Dialect: dialect.NewOpenAI(http.DefaultClient),
+		Group: state.GroupView{
+			UpstreamURL: "https://example.com",
+		},
+		APIKey: "fake-provider-key",
+		Request: &dialect.ParsedRequest{
+			Method: http.MethodPost,
+			Path:   "/v1/chat/completions",
+			Header: http.Header{
+				"Idempotency-Key":   {"client-idempotency"},
+				"X-Idempotency-Key": {"client-x-idempotency"},
+			},
+			Body: []byte(payload),
+		},
+	}
+
+	request, _, replay, err := NewForwarder(
+		platformhttp.NewHTTPClientManager(),
+		redact.New(),
+	).newUpstreamRequest(t.Context(), input, false)
+	if err != nil {
+		t.Fatalf("newUpstreamRequest() error = %v", err)
+	}
+	t.Cleanup(func() {
+		_ = request.Body.Close()
+		replay.release()
+	})
+
+	body, err := io.ReadAll(request.Body)
+	if err != nil {
+		t.Fatalf("read upstream Body: %v", err)
+	}
+	if string(body) != payload || request.ContentLength != int64(len(payload)) {
+		t.Fatalf(
+			"upstream Body/ContentLength = %q/%d, want %q/%d",
+			body,
+			request.ContentLength,
+			payload,
+			len(payload),
+		)
+	}
+	if request.GetBody != nil {
+		t.Fatal("newUpstreamRequest() exposed GetBody to net/http.Transport")
+	}
+	if request.Header.Get("Idempotency-Key") != "client-idempotency" ||
+		request.Header.Get("X-Idempotency-Key") != "client-x-idempotency" {
+		t.Fatalf("idempotency headers = %#v", request.Header)
 	}
 }
 
@@ -693,8 +924,8 @@ func TestForwarderSanitizesResponseHeadersOnAllPaths(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			const (
-				secret           = "provider-secret-all-paths"
-				headerRuleSecret = "independent-header-rule-secret"
+				secret            = "provider-secret-all-paths"
+				ordinaryRuleValue = "independent-header-rule-value"
 			)
 			upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 				writer.Header().Set("X-Echo", "prefix-"+secret)
@@ -713,7 +944,7 @@ func TestForwarderSanitizesResponseHeadersOnAllPaths(t *testing.T) {
 			input := streamForwardInput(upstream.URL)
 			input.APIKey = secret
 			input.Group.HeaderRules = state.HeaderRules{
-				Set: map[string]string{"X-Custom-Credential": headerRuleSecret},
+				Set: map[string]string{"X-Custom-Credential": ordinaryRuleValue},
 			}
 			downstream := newRecordingResponseWriter()
 			var result UpstreamResult
@@ -724,13 +955,13 @@ func TestForwarderSanitizesResponseHeadersOnAllPaths(t *testing.T) {
 			}
 			if result.Err != nil ||
 				result.Header.Get("X-Echo") != "" ||
-				result.Header.Get("X-Rule-Echo") != "" ||
+				result.Header.Get("X-Rule-Echo") != "prefix-"+ordinaryRuleValue ||
 				result.Header.Get("X-Safe") != "kept" {
 				t.Fatalf("result = %#v", result)
 			}
 			if test.stream && test.status == http.StatusOK &&
 				(downstream.header.Get("X-Echo") != "" ||
-					downstream.header.Get("X-Rule-Echo") != "" ||
+					downstream.header.Get("X-Rule-Echo") != "prefix-"+ordinaryRuleValue ||
 					downstream.header.Get("X-Safe") != "kept") {
 				t.Fatalf("downstream headers = %#v", downstream.header)
 			}
@@ -965,6 +1196,199 @@ func TestForwardStreamCallsReadyBeforeCommit(t *testing.T) {
 	}
 }
 
+func providerErrorBeforeCommit(result UpstreamResult) bool {
+	return result.ProviderErrorBeforeCommit
+}
+
+func TestForwardStreamReturnsFirstProviderErrorBeforeCommit(t *testing.T) {
+	const secret = "sk-obviously-fake-provider-error"
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "text/event-stream")
+		writer.Header().Set("Retry-After", "9")
+		_, _ = io.WriteString(
+			writer,
+			"event: error\ndata: {\"error\":{\"type\":\"rate_limit_error\",\"message\":\""+secret+"\"}}\n\n",
+		)
+	}))
+	defer upstream.Close()
+
+	var ready atomic.Int32
+	input := streamForwardInput(upstream.URL)
+	input.APIKey = secret
+	input.OnStreamReady = func() { ready.Add(1) }
+	downstream := newRecordingResponseWriter()
+	result := NewForwarder(
+		platformhttp.NewHTTPClientManager(),
+		redact.New(),
+	).ForwardStream(context.Background(), input, downstream)
+
+	if result.Err != nil || result.StatusCode != http.StatusOK || result.Committed ||
+		!providerErrorBeforeCommit(result) || !result.RequestWritten {
+		t.Fatalf("ForwardStream() result = %#v", result)
+	}
+	if result.Body != nil || bytes.Contains(result.ClassificationBody, []byte(secret)) ||
+		!bytes.Contains(result.ClassificationBody, []byte("rate_limit_error")) {
+		t.Fatalf("body/classification = %q/%q", result.Body, result.ClassificationBody)
+	}
+	if result.ErrorSummary != fixedErrorSummary("upstream_sse_error") {
+		t.Fatalf("ErrorSummary = %q", result.ErrorSummary)
+	}
+	if result.Header.Get("Retry-After") != "9" || ready.Load() != 0 ||
+		downstream.status != 0 || downstream.body.Len() != 0 {
+		t.Fatalf("header/ready/downstream = %#v/%d/%d/%q",
+			result.Header, ready.Load(), downstream.status, downstream.body.String())
+	}
+	if result.Usage.State != usage.StateMissing {
+		t.Fatalf("Usage = %#v, want missing", result.Usage)
+	}
+}
+
+func TestForwardStreamBoundsAndRedactsFirstProviderError(t *testing.T) {
+	const (
+		secret       = "sk-obviously-fake-bounded-error"
+		headerSecret = "obviously-fake-header-rule-value"
+	)
+	padding := strings.Repeat("x", maxFirstSSEEventBytes-256)
+	payload := `{"error":{"type":"server_overloaded","message":"` +
+		secret + ` ` + headerSecret + ` ` + padding + `"}}`
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(writer, "data: "+payload+"\n\n")
+	}))
+	defer upstream.Close()
+
+	input := streamForwardInput(upstream.URL)
+	input.APIKey = secret
+	input.Group.HeaderRules = state.HeaderRules{Set: map[string]string{
+		"X-Provider-Trace": headerSecret,
+	}}
+	result := NewForwarder(
+		platformhttp.NewHTTPClientManager(),
+		redact.New(),
+	).ForwardStream(context.Background(), input, newRecordingResponseWriter())
+
+	if result.Err != nil || !providerErrorBeforeCommit(result) {
+		t.Fatalf("ForwardStream() result = %#v", result)
+	}
+	if len(result.ClassificationBody) > maxFirstSSEEventBytes ||
+		bytes.Contains(result.ClassificationBody, []byte(secret)) ||
+		!bytes.Contains(result.ClassificationBody, []byte(headerSecret)) {
+		t.Fatalf("unsafe ClassificationBody length/content = %d/%q",
+			len(result.ClassificationBody), result.ClassificationBody)
+	}
+	if strings.Contains(result.ErrorSummary, secret) ||
+		strings.Contains(result.ErrorSummary, headerSecret) ||
+		len(result.ErrorSummary) > maxRequestLogSummaryBytes {
+		t.Fatalf("unsafe ErrorSummary = %q", result.ErrorSummary)
+	}
+}
+
+func TestForwardStreamClassifiesAliasedNonObjectProviderErrorBeforeRewrite(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		payload string
+	}{
+		{name: "plain text", payload: "rate_limit_error provider-model"},
+		{name: "JSON array", payload: `["rate_limit_error","provider-model"]`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				writer.Header().Set("Content-Type", "text/event-stream")
+				_, _ = io.WriteString(writer, "event: error\ndata: "+test.payload+"\n\n")
+			}))
+			defer upstream.Close()
+
+			input := streamForwardInput(upstream.URL)
+			input.ExternalModel = "public-model"
+			input.UpstreamModelID = "provider-model"
+			input.Request.Body = []byte(`{"model":"public-model","stream":true}`)
+			downstream := newRecordingResponseWriter()
+			result := NewForwarder(
+				platformhttp.NewHTTPClientManager(),
+				redact.New(),
+			).ForwardStream(context.Background(), input, downstream)
+
+			if result.Err != nil || !result.ProviderErrorBeforeCommit ||
+				result.Committed || result.StatusCode != http.StatusOK {
+				t.Fatalf("ForwardStream() result = %#v", result)
+			}
+			if bytes.Contains(result.ClassificationBody, []byte("provider-model")) ||
+				!bytes.Contains(result.ClassificationBody, []byte("public-model")) ||
+				!bytes.Contains(result.ClassificationBody, []byte("rate_limit_error")) {
+				t.Fatalf("ClassificationBody = %q", result.ClassificationBody)
+			}
+			decision := health.Judge(input.Dialect, health.Attempt{
+				StatusCode:                result.StatusCode,
+				Body:                      result.ClassificationBody,
+				Header:                    result.Header,
+				Now:                       time.Unix(1, 0),
+				ProviderErrorBeforeCommit: true,
+			})
+			if decision.Category != health.FailureCategoryRateLimited ||
+				decision.Action != health.ActionCooldownKey {
+				t.Fatalf("health decision = %#v", decision)
+			}
+			if downstream.status != 0 || downstream.body.Len() != 0 {
+				t.Fatalf("downstream status/body = %d/%q", downstream.status, downstream.body.String())
+			}
+		})
+	}
+}
+
+func TestForwardStreamProviderErrorReturnsOnlyRateLimitHeaders(t *testing.T) {
+	const (
+		apiKey     = "sk-obviously-fake-provider-header"
+		ruleEcho   = "ordinary-header-rule-literal"
+		retryAfter = "9"
+	)
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "text/event-stream")
+		writer.Header().Set("Retry-After", retryAfter)
+		writer.Header().Set("Anthropic-Ratelimit-Tokens-Reset", "30s")
+		writer.Header().Set("X-Ratelimit-Reset-Requests", "45s")
+		writer.Header().Set("X-Rule-Echo", ruleEcho)
+		writer.Header().Set("Authorization", "Bearer "+apiKey)
+		writer.Header().Set("X-Api-Key", apiKey)
+		_, _ = io.WriteString(writer, "event: error\ndata: rate_limit_error\n\n")
+	}))
+	defer upstream.Close()
+
+	input := streamForwardInput(upstream.URL)
+	input.APIKey = apiKey
+	input.Group.HeaderRules = state.HeaderRules{Set: map[string]string{
+		"X-Rule-Echo": ruleEcho,
+	}}
+	result := NewForwarder(
+		platformhttp.NewHTTPClientManager(),
+		redact.New(),
+	).ForwardStream(context.Background(), input, newRecordingResponseWriter())
+
+	if result.Err != nil || !result.ProviderErrorBeforeCommit {
+		t.Fatalf("ForwardStream() result = %#v", result)
+	}
+	want := http.Header{
+		"Retry-After":                      {retryAfter},
+		"Anthropic-Ratelimit-Tokens-Reset": {"30s"},
+		"X-Ratelimit-Reset-Requests":       {"45s"},
+	}
+	if !reflect.DeepEqual(result.Header, want) {
+		t.Fatalf("provider error Header = %#v, want %#v", result.Header, want)
+	}
+	now := time.Date(2026, time.July, 27, 12, 0, 0, 0, time.UTC)
+	decision := health.Judge(input.Dialect, health.Attempt{
+		StatusCode:                result.StatusCode,
+		Body:                      result.ClassificationBody,
+		Header:                    result.Header,
+		Now:                       now,
+		ProviderErrorBeforeCommit: true,
+	})
+	if decision.Category != health.FailureCategoryRateLimited ||
+		decision.Action != health.ActionCooldownKey ||
+		!decision.CooldownUntil.Equal(now.Add(9*time.Second)) {
+		t.Fatalf("health decision = %#v", decision)
+	}
+}
+
 func TestForwardStreamObservesCleanEOFAndFirstSSEError(t *testing.T) {
 	t.Run("clean EOF", func(t *testing.T) {
 		const wire = "data: {\"model\":\"gpt-4o\"}\n\n"
@@ -1003,18 +1427,27 @@ func TestForwardStreamObservesCleanEOFAndFirstSSEError(t *testing.T) {
 	t.Run("first safe SSE error summary", func(t *testing.T) {
 		const (
 			apiKey            = "opaque-provider-secret"
-			resolvedAuth      = "Token resolved-opaque-auth"
-			resolvedRule      = "resolved-opaque-custom-rule"
+			resolvedAuth      = "Token " + apiKey
+			resolvedRule      = "opaque  literal\tvalue"
+			ordinaryEncoding  = "gzip"
 			globalSecret      = "sk-global-secret-123456789"
 			upstreamModel     = "upstream-private-model"
 			externalModel     = "public-model"
 			disallowedSummary = "must-not-persist"
 		)
-		firstPayload := `{"error":{"message":"` + apiKey + ` ` +
-			resolvedAuth + ` ` + resolvedRule + ` ` + globalSecret + ` ` +
-			upstreamModel + `"},"debug":"` + disallowedSummary + `"}`
+		firstMessage := strings.Join([]string{
+			apiKey,
+			resolvedAuth,
+			resolvedRule,
+			ordinaryEncoding,
+			globalSecret,
+			upstreamModel,
+		}, " ")
+		firstPayload := `{"error":{"message":` + strconv.Quote(firstMessage) +
+			`},"debug":"` + disallowedSummary + `"}`
 		secondPayload := `{"error":{"message":"second error must not replace first"}}`
-		wire := "event: error\r\ndata: " + firstPayload + "\r\n\r\n" +
+		wire := "data: {\"model\":\"" + upstreamModel + "\",\"ready\":true}\r\n\r\n" +
+			"event: error\r\ndata: " + firstPayload + "\r\n\r\n" +
 			"event: error\ndata: " + secondPayload + "\n\n"
 		upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 			writer.Header().Set("Content-Type", "text/event-stream")
@@ -1025,8 +1458,9 @@ func TestForwardStreamObservesCleanEOFAndFirstSSEError(t *testing.T) {
 		input := streamForwardInput(upstream.URL)
 		input.APIKey = apiKey
 		input.Group.HeaderRules = state.HeaderRules{Set: map[string]string{
-			"Authorization": resolvedAuth,
-			"X-Custom":      resolvedRule,
+			"Authorization":   "Token ${API_KEY}",
+			"X-Custom":        resolvedRule,
+			"Accept-Encoding": ordinaryEncoding,
 		}}
 		input.ExternalModel = externalModel
 		input.UpstreamModelID = upstreamModel
@@ -1037,7 +1471,7 @@ func TestForwardStreamObservesCleanEOFAndFirstSSEError(t *testing.T) {
 			redact.New(),
 		).ForwardStream(context.Background(), input, downstream)
 
-		wantSummary := strings.Repeat(redact.Placeholder+" ", 4) + upstreamModel
+		wantSummary := strings.Repeat(redact.Placeholder+" ", 5) + upstreamModel
 		if result.Err != nil || !result.Committed ||
 			result.Stream.EndReason != StreamEndSSEError ||
 			result.Stream.ErrorSummary != wantSummary {
@@ -1048,12 +1482,54 @@ func TestForwardStreamObservesCleanEOFAndFirstSSEError(t *testing.T) {
 			)
 		}
 		output := downstream.body.String()
-		for _, secret := range []string{
-			apiKey, resolvedAuth, resolvedRule, upstreamModel,
-		} {
+		for _, secret := range []string{apiKey, resolvedAuth, upstreamModel} {
 			if strings.Contains(output, secret) {
 				t.Fatalf("downstream SSE leaked %q: %q", secret, output)
 			}
+		}
+		firstBoundary := strings.Index(output, "\r\n\r\n")
+		if firstBoundary < 0 {
+			t.Fatalf("downstream SSE lacks first CRLF event boundary: %q", output)
+		}
+		secondBoundaryOffset := strings.Index(output[firstBoundary+len("\r\n\r\n"):], "\r\n\r\n")
+		if secondBoundaryOffset < 0 {
+			t.Fatalf("downstream SSE lacks committed error event boundary: %q", output)
+		}
+		secondStart := firstBoundary + len("\r\n\r\n")
+		secondEvent := output[secondStart : secondStart+secondBoundaryOffset]
+		dataIndex := strings.Index(secondEvent, "data: ")
+		if dataIndex < 0 {
+			t.Fatalf("first downstream SSE error event lacks data: %q", secondEvent)
+		}
+		var decodedFirstPayload map[string]any
+		if err := json.Unmarshal(
+			[]byte(secondEvent[dataIndex+len("data: "):]),
+			&decodedFirstPayload,
+		); err != nil {
+			t.Fatalf("decode first downstream SSE payload: %v", err)
+		}
+		firstError, ok := decodedFirstPayload["error"].(map[string]any)
+		if !ok {
+			t.Fatalf("first downstream SSE error = %#v", decodedFirstPayload["error"])
+		}
+		downstreamMessage, ok := firstError["message"].(string)
+		if !ok {
+			t.Fatalf("first downstream SSE error message = %#v", firstError["message"])
+		}
+		for _, ordinary := range []string{resolvedRule, ordinaryEncoding} {
+			if !strings.Contains(downstreamMessage, ordinary) {
+				t.Fatalf(
+					"ordinary HeaderRule value %q was changed in downstream SSE message: %q",
+					ordinary,
+					downstreamMessage,
+				)
+			}
+			if strings.Contains(result.Stream.ErrorSummary, ordinary) {
+				t.Fatalf("stream ErrorSummary leaked HeaderRules value %q: %q", ordinary, result.Stream.ErrorSummary)
+			}
+		}
+		if strings.Contains(result.Stream.ErrorSummary, "opaque literal value") {
+			t.Fatalf("stream ErrorSummary leaked normalized HeaderRules value: %q", result.Stream.ErrorSummary)
 		}
 		if !strings.Contains(output, globalSecret) {
 			t.Fatalf("observation redactor changed downstream SSE: %q", output)
@@ -1188,7 +1664,7 @@ func TestForwardStreamRejectsUnsupportedSuccessEncodingBeforeCommit(t *testing.T
 				return
 			}
 			if !errors.Is(result.Err, ErrUpstreamProtocol) || result.Committed ||
-				!result.RetryableBeforeCommit || calls.Load() != 0 {
+				result.RetryableBeforeCommit || calls.Load() != 0 {
 				t.Fatalf("ForwardStream() protocol result = %#v, calls=%d", result, calls.Load())
 			}
 			if downstream.status != 0 || downstream.body.Len() != 0 || downstream.flushes != 0 {
@@ -1214,8 +1690,8 @@ func TestForwardStreamRejectsOversizedFirstEventAsProtocolError(t *testing.T) {
 
 	if !errors.Is(result.Err, ErrUpstreamProtocol) ||
 		!errors.Is(result.Err, errFirstSSEEventTooLarge) ||
-		result.Committed || !result.RetryableBeforeCommit || calls.Load() != 0 {
-		t.Fatalf("ForwardStream() result = %#v calls=%d, want retryable pre-commit protocol error",
+		result.Committed || result.RetryableBeforeCommit || calls.Load() != 0 {
+		t.Fatalf("ForwardStream() result = %#v calls=%d, want terminal pre-commit protocol error",
 			result, calls.Load())
 	}
 	if downstream.status != 0 || downstream.body.Len() != 0 || downstream.flushes != 0 {
@@ -1242,7 +1718,7 @@ func TestForwardStreamRejectsOversizedAliasedEventAsProtocolError(t *testing.T) 
 	)
 
 	if !errors.Is(result.Err, ErrUpstreamProtocol) || !errors.Is(result.Err, errSSEEventTooLarge) ||
-		result.Committed || !result.RetryableBeforeCommit {
+		result.Committed || result.RetryableBeforeCommit {
 		t.Fatalf("ForwardStream() result = %#v", result)
 	}
 }
@@ -1264,8 +1740,8 @@ func TestForwardStreamRejectsMalformedAliasedEventAsProtocolError(t *testing.T) 
 		context.Background(), input, downstream,
 	)
 
-	if !errors.Is(result.Err, ErrUpstreamProtocol) || result.Committed || !result.RetryableBeforeCommit {
-		t.Fatalf("ForwardStream() result = %#v, want retryable pre-commit protocol error", result)
+	if !errors.Is(result.Err, ErrUpstreamProtocol) || result.Committed || result.RetryableBeforeCommit {
+		t.Fatalf("ForwardStream() result = %#v, want terminal pre-commit protocol error", result)
 	}
 	if downstream.status != 0 || downstream.body.Len() != 0 || downstream.flushes != 0 {
 		t.Fatalf("downstream was touched before malformed event rejection: %#v", downstream)
@@ -1278,7 +1754,8 @@ func TestForwardStreamSanitizesAliasedErrorEventPayloads(t *testing.T) {
 		externalModel = "public-model"
 		secret        = "stream/secret"
 	)
-	stream := "event: error\n" +
+	stream := `data: {"ready":true}` + "\n\n" +
+		"event: error\n" +
 		`data: {"model":"org/model","org\/model":"org\u002fmodel failed","credential":"stream\u002fsecret"}` + "\n\n" +
 		"event: error\n" +
 		`data: {"message":"later org\/model stream\u002fsecret"}` + "\n\n"
@@ -1301,16 +1778,16 @@ func TestForwardStreamSanitizesAliasedErrorEventPayloads(t *testing.T) {
 		t.Fatalf("ForwardStream() result = %#v", result)
 	}
 	payloads := decodeSSEJSONPayloads(t, downstream.body.Bytes())
-	if len(payloads) != 2 {
+	if len(payloads) != 3 {
 		t.Fatalf("decoded payload count = %d, wire=%q", len(payloads), downstream.body.String())
 	}
-	if payloads[0]["model"] != externalModel ||
-		payloads[0][externalModel] != externalModel+" failed" ||
-		payloads[0]["credential"] != redact.Placeholder {
-		t.Fatalf("first error payload = %#v", payloads[0])
+	if payloads[1]["model"] != externalModel ||
+		payloads[1][externalModel] != externalModel+" failed" ||
+		payloads[1]["credential"] != redact.Placeholder {
+		t.Fatalf("first error payload = %#v", payloads[1])
 	}
-	if payloads[1]["message"] != "later "+externalModel+" "+redact.Placeholder {
-		t.Fatalf("later error payload = %#v", payloads[1])
+	if payloads[2]["message"] != "later "+externalModel+" "+redact.Placeholder {
+		t.Fatalf("later error payload = %#v", payloads[2])
 	}
 }
 
@@ -1321,7 +1798,9 @@ func TestForwardStreamSanitizesDataOnlyAliasedErrorPayloads(t *testing.T) {
 	)
 	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 		writer.Header().Set("Content-Type", "text/event-stream")
-		_, _ = io.WriteString(writer, `data: {"error":{"message":"provider-model failed"}}
+		_, _ = io.WriteString(writer, `data: {"ready":true}
+
+data: {"error":{"message":"provider-model failed"}}
 
 `)
 	}))
@@ -1339,10 +1818,10 @@ func TestForwardStreamSanitizesDataOnlyAliasedErrorPayloads(t *testing.T) {
 		t.Fatalf("ForwardStream() result = %#v", result)
 	}
 	payloads := decodeSSEJSONPayloads(t, downstream.body.Bytes())
-	if len(payloads) != 1 {
+	if len(payloads) != 2 {
 		t.Fatalf("decoded payloads = %#v, wire=%q", payloads, downstream.body.String())
 	}
-	errorObject := payloads[0]["error"].(map[string]any)
+	errorObject := payloads[1]["error"].(map[string]any)
 	if errorObject["message"] != externalModel+" failed" {
 		t.Fatalf("error message = %#v, want %q", errorObject["message"], externalModel+" failed")
 	}
@@ -1351,7 +1830,9 @@ func TestForwardStreamSanitizesDataOnlyAliasedErrorPayloads(t *testing.T) {
 func TestForwardStreamSanitizesTypeErrorAliasedPayloads(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 		writer.Header().Set("Content-Type", "text/event-stream")
-		_, _ = io.WriteString(writer, `data: {"type":"error","message":"provider-model failed"}
+		_, _ = io.WriteString(writer, `data: {"ready":true}
+
+data: {"type":"error","message":"provider-model failed"}
 
 `)
 	}))
@@ -1369,7 +1850,7 @@ func TestForwardStreamSanitizesTypeErrorAliasedPayloads(t *testing.T) {
 		t.Fatalf("ForwardStream() result = %#v", result)
 	}
 	payloads := decodeSSEJSONPayloads(t, downstream.body.Bytes())
-	if len(payloads) != 1 || payloads[0]["message"] != "public-model failed" {
+	if len(payloads) != 2 || payloads[1]["message"] != "public-model failed" {
 		t.Fatalf("sanitized payloads = %#v, wire=%q", payloads, downstream.body.String())
 	}
 }
@@ -1454,7 +1935,8 @@ func TestForwardStreamUsesFinalSSEEventTypeForAliasSanitization(t *testing.T) {
 
 func TestForwardStreamSanitizesUnaliasedErrorEventPayloads(t *testing.T) {
 	const secret = "stream/secret"
-	stream := "event: error\n" +
+	stream := `data: {"ready":true}` + "\n\n" +
+		"event: error\n" +
 		`data: {"credential":"stream\u002fsecret","raw":"stream/secret"}` + "\n\n" +
 		"event: error\n" +
 		`data: {"message":"later stream\/secret"}` + "\n\n"
@@ -1476,9 +1958,9 @@ func TestForwardStreamSanitizesUnaliasedErrorEventPayloads(t *testing.T) {
 		t.Fatalf("ForwardStream() result = %#v", result)
 	}
 	payloads := decodeSSEJSONPayloads(t, downstream.body.Bytes())
-	if len(payloads) != 2 || payloads[0]["credential"] != redact.Placeholder ||
-		payloads[0]["raw"] != redact.Placeholder ||
-		payloads[1]["message"] != "later "+redact.Placeholder {
+	if len(payloads) != 3 || payloads[1]["credential"] != redact.Placeholder ||
+		payloads[1]["raw"] != redact.Placeholder ||
+		payloads[2]["message"] != "later "+redact.Placeholder {
 		t.Fatalf("sanitized unaliased payloads = %#v, wire=%q", payloads, downstream.body.String())
 	}
 	assertRepresentationMetadata(t, result.Header, false)
@@ -1580,8 +2062,8 @@ func TestForwardStreamUnaliasedCredentialRewriteFailureRespectsCommitBoundary(t 
 			if !errors.Is(result.Err, ErrUpstreamProtocol) || result.Committed != test.wantCommit {
 				t.Fatalf("ForwardStream() result = %#v, want protocol error committed=%t", result, test.wantCommit)
 			}
-			if !test.wantCommit && !result.RetryableBeforeCommit {
-				t.Fatalf("pre-commit failure is not retryable: %#v", result)
+			if !test.wantCommit && result.RetryableBeforeCommit {
+				t.Fatalf("request-written pre-commit failure is retryable: %#v", result)
 			}
 			if downstream.body.String() != test.wantBody {
 				t.Fatalf("downstream body = %q, want %q", downstream.body.String(), test.wantBody)
@@ -1598,7 +2080,9 @@ func TestForwardStreamRedactsEscapedAPIKeyBeforeOverlappingModelLiteral(t *testi
 	)
 	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 		writer.Header().Set("Content-Type", "text/event-stream")
-		_, _ = io.WriteString(writer, `event: error
+		_, _ = io.WriteString(writer, `data: {"ready":true}
+
+event: error
 data: {"message":"provider\u002fsecret"}
 
 `)
@@ -1618,7 +2102,7 @@ data: {"message":"provider\u002fsecret"}
 		t.Fatalf("ForwardStream() result = %#v", result)
 	}
 	payloads := decodeSSEJSONPayloads(t, downstream.body.Bytes())
-	if len(payloads) != 1 || payloads[0]["message"] != redact.Placeholder {
+	if len(payloads) != 2 || payloads[1]["message"] != redact.Placeholder {
 		t.Fatalf("sanitized overlapping payloads = %#v, wire=%q", payloads, downstream.body.String())
 	}
 }
@@ -1665,8 +2149,8 @@ func TestForwardStreamAliasPayloadRewriteFailureRespectsCommitBoundary(t *testin
 			if !errors.Is(result.Err, ErrUpstreamProtocol) || result.Committed != test.wantCommit {
 				t.Fatalf("ForwardStream() result = %#v, want protocol error committed=%t", result, test.wantCommit)
 			}
-			if !test.wantCommit && !result.RetryableBeforeCommit {
-				t.Fatalf("pre-commit failure is not retryable: %#v", result)
+			if !test.wantCommit && result.RetryableBeforeCommit {
+				t.Fatalf("request-written pre-commit failure is retryable: %#v", result)
 			}
 			if downstream.body.String() != test.wantBody {
 				t.Fatalf("downstream body = %q, want %q", downstream.body.String(), test.wantBody)
@@ -1744,7 +2228,7 @@ func TestForwardStreamTimesOutBeforeCompleteFirstEvent(t *testing.T) {
 	result := forwarder.ForwardStream(context.Background(), input, downstream)
 
 	if !errors.Is(result.Err, context.DeadlineExceeded) || result.Committed ||
-		!result.RetryableBeforeCommit || calls.Load() != 0 {
+		result.RetryableBeforeCommit || calls.Load() != 0 {
 		t.Fatalf("ForwardStream() timeout result = %#v calls=%d", result, calls.Load())
 	}
 	if downstream.status != 0 || downstream.body.Len() != 0 {
@@ -1779,20 +2263,8 @@ func TestReleaseCommittedRequestReplayReleasesParsedBodyWithoutMutatingHTTPReque
 	if err != nil {
 		t.Fatalf("newUpstreamRequest() error = %v", err)
 	}
-	if request.GetBody == nil {
-		t.Fatal("newUpstreamRequest() GetBody is nil; 307/308 cannot replay the request")
-	}
-	redirectBody, err := request.GetBody()
-	if err != nil {
-		t.Fatalf("GetBody() before release error = %v", err)
-	}
-	redirectPayload, err := io.ReadAll(redirectBody)
-	_ = redirectBody.Close()
-	if err != nil {
-		t.Fatalf("read GetBody() before release: %v", err)
-	}
-	if !bytes.Equal(redirectPayload, wantBody) {
-		t.Fatalf("GetBody() before release = %q, want %q", redirectPayload, wantBody)
+	if request.GetBody != nil {
+		t.Fatal("newUpstreamRequest() exposed GetBody before commit")
 	}
 	originalBody := request.Body
 
@@ -1801,7 +2273,7 @@ func TestReleaseCommittedRequestReplayReleasesParsedBodyWithoutMutatingHTTPReque
 	if input.Request.Body != nil {
 		t.Fatal("ParsedRequest.Body still retains the replay buffer")
 	}
-	if request.Body != originalBody || request.GetBody == nil {
+	if request.Body != originalBody || request.GetBody != nil {
 		t.Fatal("committed release mutated fields owned by the HTTP transport")
 	}
 	activeBody, err := io.ReadAll(request.Body)
@@ -1810,18 +2282,6 @@ func TestReleaseCommittedRequestReplayReleasesParsedBodyWithoutMutatingHTTPReque
 	}
 	if !bytes.Equal(activeBody, wantBody) {
 		t.Fatalf("active request body = %q, want %q", activeBody, wantBody)
-	}
-	replayed, err := request.GetBody()
-	if err != nil {
-		t.Fatalf("GetBody() after release error = %v", err)
-	}
-	futureBody, err := io.ReadAll(replayed)
-	_ = replayed.Close()
-	if err != nil {
-		t.Fatalf("read GetBody() after release: %v", err)
-	}
-	if len(futureBody) != 0 {
-		t.Fatalf("GetBody() after release = %q, want empty", futureBody)
 	}
 }
 
@@ -1874,36 +2334,38 @@ func TestForwardStreamPreservesParsedRequestBeforeCommit(t *testing.T) {
 }
 
 func TestForwardStreamReleasesParsedBodyAfterCommit(t *testing.T) {
-	releaseUpstream := make(chan struct{})
-	var releaseOnce sync.Once
-	release := func() { releaseOnce.Do(func() { close(releaseUpstream) }) }
+	requestBodyRead := make(chan struct{})
+	firstSSEEvent := make(chan struct{})
+	downstream := newBarrierStreamResponseWriter()
 
 	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		_, _ = io.Copy(io.Discard, request.Body)
+		close(requestBodyRead)
 		writer.Header().Set("Content-Type", "text/event-stream")
 		_, _ = writer.Write([]byte("data: ready\n\n"))
 		writer.(http.Flusher).Flush()
-		<-releaseUpstream
+		close(firstSSEEvent)
+		<-downstream.release
 	}))
 	defer func() {
-		release()
+		downstream.unblock()
 		upstream.Close()
 	}()
 
 	input := streamForwardInput(upstream.URL)
-	input.Request.Body = make([]byte, maxRequestBodyBytes)
 	forwarder := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New())
-	downstream := newRecordingResponseWriter()
 	done := make(chan UpstreamResult, 1)
 	go func() {
 		done <- forwarder.ForwardStream(context.Background(), input, downstream)
 	}()
 
-	waitForSignal(t, downstream.writes, "committed stream write")
+	waitForSignal(t, requestBodyRead, "upstream request body read")
+	waitForSignal(t, firstSSEEvent, "first upstream SSE event")
+	waitForSignal(t, downstream.firstFlush, "first downstream SSE event flush")
 	if input.Request.Body != nil {
 		t.Fatalf("committed stream still retains %d request body bytes", len(input.Request.Body))
 	}
-	release()
+	downstream.unblock()
 
 	select {
 	case result := <-done:
@@ -1934,6 +2396,21 @@ func TestStreamingClientConfigHasNoTotalTimeout(t *testing.T) {
 	}
 	if config.RequestTimeout != 0 {
 		t.Fatalf("stream RequestTimeout = %s, want 0", config.RequestTimeout)
+	}
+}
+
+func TestGatewayClientConfigsDisableRedirects(t *testing.T) {
+	timeouts := state.TimeoutConfig{
+		Connect: 2 * time.Second, FirstByte: 3 * time.Second,
+		Request: 4 * time.Second, StreamIdle: 5 * time.Second,
+	}
+	for name, config := range map[string]*platformhttp.Config{
+		"non-streaming": nonStreamingClientConfig(timeouts),
+		"streaming":     streamingClientConfig(timeouts),
+	} {
+		if !config.DisableRedirects {
+			t.Errorf("%s client DisableRedirects = false, want true", name)
+		}
 	}
 }
 

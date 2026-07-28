@@ -9,6 +9,7 @@ export default {
     reveal: '显示密钥',
     conceal: '隐藏密钥',
     cancel: '取消',
+    close: '关闭',
   },
   auth: {
     loginTitle: '登录管理界面',
@@ -102,6 +103,8 @@ export default {
     headerRules: {
       title: 'HeaderRules',
       description: '设置或移除上游请求 Header。',
+      storageNotice:
+        '密码遮挡仅减少旁观泄露，并不代表静态加密。普通 HeaderRules 字面值会以明文写入 SQLite 和备份。Provider 凭据 Header 必须使用 {template} 模板。',
       add: '添加规则',
       action: '操作',
       set: '设置',
@@ -871,6 +874,7 @@ export default {
       status: '状态',
       groups: 'Group 过滤',
       protocols: '协议过滤',
+      reservedProtocolHint: '当前已停用；仅为此历史 AccessKey 保留。',
       models: '模型过滤',
       emptyMeansAll: '不选择表示全部。',
       modelsDescription: '可选择已知模型，也可输入任意有效模型字符串。',
@@ -942,6 +946,11 @@ export default {
       caption: '内置模型价格规则',
       source: '官方来源',
       createOverride: '创建覆盖',
+      longContext: {
+        label: '超长上下文政策',
+        summary:
+          '输入 Token 超过 {threshold} 时，所有输入价格 ×{inputMultiplier}，输出价格 ×{outputMultiplier}。',
+      },
     },
     overrides: {
       title: '用户覆盖',

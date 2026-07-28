@@ -107,6 +107,7 @@ describe('model-price form helpers', () => {
       },
       source_url: 'https://example.test/pricing',
       updated_at: '2026-07-27T00:00:00Z',
+      pricing_policy: null,
     }
 
     expect(createModelPriceDraft(rule)).toEqual({

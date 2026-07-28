@@ -18,6 +18,7 @@ func Compile(rules []Rule) (*Table, error) {
 		if err := validateRule(rule); err != nil {
 			return nil, err
 		}
+		rule = cloneRule(rule)
 		if strings.HasSuffix(rule.Pattern, "*") {
 			if rule.Source == SourceUser {
 				table.userPrefixes = append(table.userPrefixes, rule)
@@ -79,6 +80,18 @@ func validateRule(rule Rule) error {
 	if rule.Source == SourceUser && rule.SourceURL != "" {
 		return fmt.Errorf("user pricing rule must not have a source URL")
 	}
+	if policy := rule.LongContextPolicy; policy != nil {
+		if rule.Source != SourceBuiltin || strings.HasSuffix(rule.Pattern, "*") {
+			return fmt.Errorf("long-context policy requires an exact builtin pricing rule")
+		}
+		if policy.InputThresholdTokens <= 0 {
+			return fmt.Errorf("long-context input threshold must be positive")
+		}
+		if !isFinite(policy.InputMultiplier) || policy.InputMultiplier <= 0 ||
+			!isFinite(policy.OutputMultiplier) || policy.OutputMultiplier <= 0 {
+			return fmt.Errorf("long-context multipliers must be finite and positive")
+		}
+	}
 	return nil
 }
 
@@ -131,13 +144,13 @@ func (table *Table) Match(upstreamModel string) (Rule, bool) {
 		return Rule{}, false
 	}
 	if rule, ok := table.userExact[upstreamModel]; ok {
-		return rule, true
+		return cloneRule(rule), true
 	}
 	if rule, ok := matchPrefix(table.userPrefixes, upstreamModel); ok {
 		return rule, true
 	}
 	if rule, ok := table.builtinExact[upstreamModel]; ok {
-		return rule, true
+		return cloneRule(rule), true
 	}
 	return matchPrefix(table.builtinPrefixes, upstreamModel)
 }
@@ -145,8 +158,16 @@ func (table *Table) Match(upstreamModel string) (Rule, bool) {
 func matchPrefix(rules []Rule, upstreamModel string) (Rule, bool) {
 	for _, rule := range rules {
 		if strings.HasPrefix(upstreamModel, strings.TrimSuffix(rule.Pattern, "*")) {
-			return rule, true
+			return cloneRule(rule), true
 		}
 	}
 	return Rule{}, false
+}
+
+func cloneRule(rule Rule) Rule {
+	if rule.LongContextPolicy != nil {
+		policy := *rule.LongContextPolicy
+		rule.LongContextPolicy = &policy
+	}
+	return rule
 }

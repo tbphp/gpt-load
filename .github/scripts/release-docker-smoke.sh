@@ -129,6 +129,8 @@ else
     -t "${image}" .
 fi
 test "$(docker image inspect -f '{{.Config.User}}' "${image}")" = "10001:10001"
+docker image inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "${image}" |
+  grep -Fx 'HOST=0.0.0.0' >/dev/null
 
 docker volume create "${volume}" >/dev/null
 docker run --name "${probe}" \
@@ -185,6 +187,7 @@ wait_for_health
 first_container_id="$(docker inspect -f '{{.Id}}' "${container}")"
 test "$(docker exec "${container}" id -u):$(docker exec "${container}" id -g)" = "10001:10001"
 test "$(docker exec "${container}" printenv DATA_DIR)" = "/app/data"
+test "$(docker exec "${container}" printenv HOST)" = "0.0.0.0"
 
 for asset in auth.key encryption.key gpt-load.db; do
   docker exec "${container}" test -f "/app/data/${asset}"
@@ -295,6 +298,10 @@ for _ in $(seq 1 80); do
   sleep 0.25
 done
 test "${usage_complete}" = true
+test "$(docker exec "${container}" stat -c '%a' /app/data)" = "700"
+for asset in auth.key encryption.key gpt-load.db gpt-load.db-wal gpt-load.db-shm; do
+  test "$(docker exec "${container}" stat -c '%a' "/app/data/${asset}")" = "600"
+done
 
 docker stop --time 15 "${container}" >/dev/null
 docker logs "${container}" >"${task_tmp}/container-first.log" 2>&1
@@ -353,6 +360,10 @@ summary_file="${task_tmp}/summary.txt"
 {
   printf 'platform=%s\n' "${platform}"
   printf 'configured_user=10001:10001\n'
+  printf 'image_and_container_host=0.0.0.0\n'
+  printf 'direct_docker_run_publish_reachable=true\n'
+  printf 'managed_data_dir_mode=0700\n'
+  printf 'managed_recovery_set_mode=0600\n'
   printf 'write_delete_canary=true\n'
   printf 'generated_assets=true\n'
   printf 'unauthenticated_management_and_data_plane=401\n'

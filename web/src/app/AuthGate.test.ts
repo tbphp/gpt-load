@@ -76,7 +76,7 @@ function createFakeSession(
   }
 }
 
-async function mountGate(session: AuthSession, path = '/login') {
+async function mountGate(session: AuthSession, path = '/login', attachTo?: Element) {
   const recovery: ImportRecoveryService = {
     register: () => () => {},
     captureForUnauthorized: () => 'no-active-draft',
@@ -90,6 +90,7 @@ async function mountGate(session: AuthSession, path = '/login') {
   await router.isReady()
   const appI18n = createAppI18n(undefined, 'zh-CN')
   const wrapper = mount(AuthGate, {
+    ...(attachTo ? { attachTo } : {}),
     slots: {
       default: '<main>protected content</main>',
     },
@@ -293,6 +294,7 @@ describe('AuthGate', () => {
     await flushPromises()
     expect(wrapper.get('[role="alert"]').text()).toContain('无法连接到管理 API')
     expect(wrapper.get('[role="alert"] [aria-hidden="true"]').text()).not.toBe('')
+    expect(wrapper.findAll('button').map((button) => button.text())).toEqual(['重试'])
 
     await wrapper.get('button').trigger('click')
     await flushPromises()
@@ -301,12 +303,17 @@ describe('AuthGate', () => {
     expect(session.getAuthKey()).toBe('restored-key')
   })
 
-  it('shows invalid-response feedback separately', async () => {
+  it('offers ordered recovery actions without exposing a rejected retry error', async () => {
+    let retries = 0
     const session = createFakeSession(
       { phase: 'invalid-response', retryAfterSeconds: 0 },
       {
         ensureValidated: async () => {
           throw new Error('invalid response')
+        },
+        retryValidation: async () => {
+          retries += 1
+          throw new Error('external-invalid-response-canary')
         },
       },
     )
@@ -316,5 +323,78 @@ describe('AuthGate', () => {
 
     expect(wrapper.get('[role="alert"]').text()).toContain('管理 API 返回了无法识别的响应。')
     expect(wrapper.text()).not.toContain('无法连接到管理 API')
+    const actions = wrapper.findAll('button')
+    expect(actions.map((button) => button.text())).toEqual(['重试', '更换 AUTH_KEY'])
+
+    await actions[0]?.trigger('click')
+    await flushPromises()
+
+    expect(retries).toBe(1)
+    expect(wrapper.get('[role="alert"]').text()).toContain('管理 API 返回了无法识别的响应。')
+    expect(wrapper.text()).not.toContain('external-invalid-response-canary')
+  })
+
+  it('clears recovery and credential state when changing AUTH_KEY from invalid-response', async () => {
+    const session = createFakeSession(
+      { phase: 'invalid-response', retryAfterSeconds: 0 },
+      {
+        ensureValidated: async () => {
+          throw new Error('invalid response')
+        },
+      },
+    )
+    const clear = vi.spyOn(session, 'clear')
+
+    const { recovery, router, wrapper } = await mountGate(session, '/')
+    await flushPromises()
+    await wrapper.findAll('button')[1]?.trigger('click')
+    await flushPromises()
+
+    expect(recovery.clear).toHaveBeenCalledOnce()
+    expect(clear).toHaveBeenCalledOnce()
+    expect(session.hasCredential()).toBe(false)
+    expect(router.currentRoute.value.name).toBe('login')
+  })
+
+  it('focuses Retry when mounted in invalid-response', async () => {
+    const session = createFakeSession(
+      { phase: 'invalid-response', retryAfterSeconds: 0 },
+      {
+        ensureValidated: async () => {
+          throw new Error('invalid response')
+        },
+      },
+    )
+
+    const { wrapper } = await mountGate(session, '/login', document.body)
+    try {
+      await flushPromises()
+
+      expect(document.activeElement).toBe(
+        wrapper.get('[data-test="invalid-response-retry"]').element,
+      )
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it('focuses Retry when a mounted gate enters invalid-response', async () => {
+    const state = reactive<AuthState>({ phase: 'network-error', retryAfterSeconds: 0 })
+    const session = createFakeSession(state)
+
+    const { wrapper } = await mountGate(session, '/login', document.body)
+    try {
+      await flushPromises()
+      expect(document.activeElement).not.toBe(wrapper.get('button').element)
+
+      state.phase = 'invalid-response'
+      await flushPromises()
+
+      expect(document.activeElement).toBe(
+        wrapper.get('[data-test="invalid-response-retry"]').element,
+      )
+    } finally {
+      wrapper.unmount()
+    }
   })
 })

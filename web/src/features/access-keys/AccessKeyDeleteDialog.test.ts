@@ -3,7 +3,6 @@ import { flushPromises } from '@vue/test-utils'
 
 import type { ApiClient } from '@/api/client'
 import type { AccessKeyDto } from '@/api/control/types'
-import { controlQueryKeys } from '@/app/query-keys'
 import { mountApp } from '@/test/mount-app'
 
 import AccessKeyDeleteDialog from './AccessKeyDeleteDialog.vue'
@@ -24,7 +23,7 @@ function documentButton(selector: string): HTMLButtonElement {
 }
 
 describe('AccessKeyDeleteDialog', () => {
-  it('warns for the last key, deletes the exact path, and invalidates only the list', async () => {
+  it('warns for the last key, deletes the exact path, and emits deletion without refreshing', async () => {
     const request = vi.fn().mockResolvedValue(undefined) as ApiClient['request']
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     const { wrapper } = await mountApp(AccessKeyDeleteDialog, {
@@ -33,7 +32,7 @@ describe('AccessKeyDeleteDialog', () => {
       locale: 'en-US',
       mounting: { props: { accessKey, total: 1 }, attachTo: document.body },
     })
-    const invalidate = vi.spyOn(client, 'invalidateQueries').mockResolvedValue()
+    const invalidate = vi.spyOn(client, 'invalidateQueries')
 
     await wrapper.get('[data-test="access-key-delete-open"]').trigger('click')
     await flushPromises()
@@ -45,9 +44,8 @@ describe('AccessKeyDeleteDialog', () => {
       method: 'DELETE',
       signal: expect.any(AbortSignal),
     })
-    expect(invalidate.mock.calls.map(([filters]) => filters)).toEqual([
-      { queryKey: controlQueryKeys.accessKeys.list() },
-    ])
+    expect(wrapper.emitted('deleted')).toEqual([[]])
+    expect(invalidate).not.toHaveBeenCalled()
     expect(client.getMutationCache().getAll()).toHaveLength(0)
     wrapper.unmount()
   })
@@ -71,6 +69,7 @@ describe('AccessKeyDeleteDialog', () => {
     await flushPromises()
     expect(document.body.textContent).toContain('Unable to delete')
     expect(document.body.textContent).not.toContain('sk-gl-ERROR_CANARY')
+    expect(wrapper.emitted('deleted')).toBeUndefined()
     wrapper.unmount()
   })
 })

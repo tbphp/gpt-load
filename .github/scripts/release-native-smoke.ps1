@@ -10,6 +10,37 @@ foreach ($required in @($binary, $checksumFile, $releaseVersion)) {
   }
 }
 
+function Assert-CurrentUserOnlyProtectedAcl {
+  param(
+    [Parameter(Mandatory = $true)][string]$Path,
+    [Parameter(Mandatory = $true)]
+    [System.Security.Principal.SecurityIdentifier]$CurrentSid
+  )
+
+  $acl = Get-Acl $Path
+  if (-not $acl.AreAccessRulesProtected) {
+    throw "managed path DACL inherits rules"
+  }
+  $rules = @($acl.Access)
+  if ($rules.Count -eq 0) {
+    throw "managed path DACL has no access rule"
+  }
+  $allowRules = @($rules | Where-Object {
+    $_.AccessControlType -eq [System.Security.AccessControl.AccessControlType]::Allow
+  })
+  if ($allowRules.Count -eq 0) {
+    throw "managed path DACL has no allow rule"
+  }
+  foreach ($rule in $rules) {
+    $sid = $rule.IdentityReference.Translate(
+      [System.Security.Principal.SecurityIdentifier]
+    )
+    if ($sid.Value -ne $CurrentSid.Value) {
+      throw "managed path DACL references another principal"
+    }
+  }
+}
+
 Add-Type -TypeDefinition @'
 using System;
 using System.ComponentModel;
@@ -182,29 +213,34 @@ try {
     if (-not (Test-Path $file)) { throw "missing generated asset: $file" }
   }
 
-  $currentSid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
-  foreach ($file in @($authFile, $encryptionFile)) {
-    $acl = Get-Acl $file
-    if (-not $acl.AreAccessRulesProtected) { throw "credential DACL inherits rules" }
-    $allowRules = @($acl.Access | Where-Object {
-      $_.AccessControlType -eq [System.Security.AccessControl.AccessControlType]::Allow
-    })
-    if ($allowRules.Count -eq 0) { throw "credential DACL has no allow rule" }
-    foreach ($rule in $allowRules) {
-      $sid = $rule.IdentityReference.Translate(
-        [System.Security.Principal.SecurityIdentifier]
-      )
-      if ($sid.Value -ne $currentSid.Value) {
-        throw "credential DACL allows another principal"
-      }
-    }
-  }
-
   $authKey = (Get-Content $authFile -Raw).Trim()
   Invoke-WebRequest "http://127.0.0.1:$port/" -UseBasicParsing | Out-Null
   $headers = @{ Authorization = "Bearer $authKey" }
   Invoke-RestMethod "http://127.0.0.1:$port/api/usage?range=24h" -Headers $headers | Out-Null
   Invoke-RestMethod "http://127.0.0.1:$port/api/model-prices" -Headers $headers | Out-Null
+  Invoke-RestMethod `
+    "http://127.0.0.1:$port/api/access-keys" `
+    -Method Post `
+    -Headers $headers `
+    -ContentType "application/json" `
+    -Body '{"name":"Release Native Smoke Access"}' | Out-Null
+
+  $walFile = "$databaseFile-wal"
+  $shmFile = "$databaseFile-shm"
+  foreach ($file in @($walFile, $shmFile)) {
+    if (-not (Test-Path $file)) { throw "missing SQLite recovery file: $file" }
+  }
+  $currentSid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+  foreach ($path in @(
+    $dataDir,
+    $authFile,
+    $encryptionFile,
+    $databaseFile,
+    $walFile,
+    $shmFile
+  )) {
+    Assert-CurrentUserOnlyProtectedAcl -Path $path -CurrentSid $currentSid
+  }
 
   [ReleaseNativeProcess]::SendCtrlBreak($process.Id)
   if (-not $process.WaitForExit(15000)) {

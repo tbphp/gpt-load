@@ -6,6 +6,7 @@ import { useRoute, useRouter } from 'vue-router'
 
 import { useApiClient } from '@/api/client-context'
 import { listAccessKeyOptions } from '@/api/control/access-keys'
+import { enabledDataProtocols } from '@/api/control/protocols'
 import {
   inspectRoute,
   type RouteInspectReasonCode,
@@ -25,12 +26,6 @@ import SurfaceCard from '@/components/ui/SurfaceCard.vue'
 type InspectorField = 'protocol' | 'externalModel' | 'accessKey'
 type InspectorErrors = Partial<Record<InspectorField, string>>
 
-const accessProtocols = [
-  'openai',
-  'anthropic',
-  'gemini',
-  'openai-response',
-] as const satisfies readonly AccessProtocol[]
 const knownReasons = new Set<RouteInspectReasonCode>([
   'access_key_disabled',
   'protocol_filtered',
@@ -70,7 +65,7 @@ const accessKeyOptionsQuery = useQuery({
   gcTime: 0,
 })
 const protocolOptions = computed(() =>
-  accessProtocols.map((protocol) => ({
+  enabledDataProtocols.map((protocol) => ({
     value: protocol,
     label: t(`monitor.inspector.protocols.${protocol}`),
   })),
@@ -115,7 +110,7 @@ const inputChanged = computed(() => {
 })
 
 function readProtocol(raw: unknown): AccessProtocol | '' {
-  return typeof raw === 'string' && accessProtocols.includes(raw as AccessProtocol)
+  return typeof raw === 'string' && enabledDataProtocols.some((protocol) => protocol === raw)
     ? (raw as AccessProtocol)
     : ''
 }
@@ -161,7 +156,7 @@ watch(
 
 function validatedRequest(): RouteInspectRequest | undefined {
   const errors: InspectorErrors = {}
-  if (!accessProtocols.includes(draftProtocol.value as AccessProtocol)) {
+  if (!enabledDataProtocols.some((protocol) => protocol === draftProtocol.value)) {
     errors.protocol = 'monitor.inspector.errors.protocol'
   }
   if (

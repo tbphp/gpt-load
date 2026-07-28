@@ -6,15 +6,233 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
+
+	"gorm.io/gorm"
 
 	"gpt-load/internal/dialect"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
+	"gpt-load/internal/storage"
 	"gpt-load/internal/storage/models"
 )
+
+func TestDiscoveryUsesSingleReadSnapshot(t *testing.T) {
+	fixture, dsn := newFileServiceFixture(t)
+	group := seedPersistedDiscoveryGroup(t, fixture, true, models.JSON(`{}`))
+	group.Name = "discovery-snapshot-old"
+	group.UpstreamURL = "https://discovery-old.example/v1"
+	group.Protocols = models.JSON(`["openai"]`)
+	if err := fixture.db.Save(&group).Error; err != nil {
+		t.Fatalf("seed old Group version: %v", err)
+	}
+	seedPersistedDiscoveryKey(
+		t,
+		fixture,
+		group.ID,
+		1,
+		"discovery-key-old",
+		models.UpstreamKeyStatusActive,
+	)
+	if err := fixture.db.Create(&models.SystemSetting{
+		Key: "header_rules", Value: `{"set":{"X-Version":"old"}}`,
+	}).Error; err != nil {
+		t.Fatalf("seed old system settings: %v", err)
+	}
+
+	writer, err := storage.Open(dsn)
+	if err != nil {
+		t.Fatalf("storage.Open(writer) error = %v", err)
+	}
+	writerSQL, err := writer.DB()
+	if err != nil {
+		t.Fatalf("writer.DB() error = %v", err)
+	}
+	t.Cleanup(func() {
+		if err := writerSQL.Close(); err != nil {
+			t.Errorf("close writer database: %v", err)
+		}
+	})
+	newCiphertext, err := fixture.encryption.Encrypt("discovery-key-new")
+	if err != nil {
+		t.Fatalf("encrypt new key version: %v", err)
+	}
+
+	firstSelect := make(chan struct{})
+	releaseReader := make(chan struct{})
+	var barrierOnce sync.Once
+	const callbackName = "test:discovery_single_read_snapshot"
+	if err := fixture.db.Callback().Query().After("gorm:query").Register(
+		callbackName,
+		func(tx *gorm.DB) {
+			if tx.Statement.Table != "groups" {
+				return
+			}
+			barrierOnce.Do(func() {
+				close(firstSelect)
+				<-releaseReader
+			})
+		},
+	); err != nil {
+		t.Fatalf("register discovery query barrier: %v", err)
+	}
+
+	type observedTarget struct {
+		baseURL string
+		apiKey  string
+		version string
+	}
+	observed := make(chan observedTarget, 1)
+	fixture.service.dialects = dialect.NewSet(&recordingDiscoveryDialect{
+		value: protocol.OpenAI,
+		listFn: func(
+			_ context.Context,
+			baseURL, apiKey string,
+			rules state.HeaderRules,
+		) ([]string, error) {
+			observed <- observedTarget{
+				baseURL: baseURL,
+				apiKey:  apiKey,
+				version: rules.Set["X-Version"],
+			}
+			return []string{"model"}, nil
+		},
+	})
+	discoveryDone := make(chan error, 1)
+	go func() {
+		_, err := fixture.service.DiscoverGroupModels(t.Context(), group.ID)
+		discoveryDone <- err
+	}()
+	select {
+	case <-firstSelect:
+	case <-time.After(time.Second):
+		t.Fatal("discovery did not pause after its first SELECT")
+	}
+
+	writeDone := make(chan error, 1)
+	go func() {
+		writeDone <- writer.Transaction(func(tx *gorm.DB) error {
+			if err := tx.Model(&models.Group{}).Where("id = ?", group.ID).
+				Updates(map[string]any{
+					"name":         "discovery-snapshot-new",
+					"upstream_url": "https://discovery-new.example/v1",
+				}).Error; err != nil {
+				return err
+			}
+			if err := tx.Model(&models.UpstreamKey{}).Where("group_id = ?", group.ID).
+				Update("key_value", newCiphertext).Error; err != nil {
+				return err
+			}
+			return tx.Model(&models.SystemSetting{}).Where("key = ?", "header_rules").
+				Update("value", `{"set":{"X-Version":"new"}}`).Error
+		})
+	}()
+	select {
+	case err := <-writeDone:
+		if err != nil {
+			t.Fatalf("concurrent version update error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("discovery read blocked WAL writer")
+	}
+	close(releaseReader)
+
+	select {
+	case err := <-discoveryDone:
+		if err != nil {
+			t.Fatalf("DiscoverGroupModels() error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("discovery did not finish after query barrier release")
+	}
+	var got observedTarget
+	select {
+	case got = <-observed:
+	default:
+		t.Fatal("discovery did not reach provider mapping")
+	}
+	old := observedTarget{
+		baseURL: "https://discovery-old.example/v1",
+		apiKey:  "discovery-key-old",
+		version: "old",
+	}
+	newVersion := observedTarget{
+		baseURL: "https://discovery-new.example/v1",
+		apiKey:  "discovery-key-new",
+		version: "new",
+	}
+	if got != old && got != newVersion {
+		t.Fatalf("discovery observed mixed versions: %#v", got)
+	}
+}
+
+func TestDiscoveryReleasesReadSnapshotBeforeDecrypt(t *testing.T) {
+	fixture, _ := newFileServiceFixture(t)
+	group := seedPersistedDiscoveryGroup(t, fixture, true, models.JSON(`{}`))
+	group.Protocols = models.JSON(`["openai"]`)
+	if err := fixture.db.Save(&group).Error; err != nil {
+		t.Fatal(err)
+	}
+	seedPersistedDiscoveryKey(
+		t,
+		fixture,
+		group.ID,
+		1,
+		"release-snapshot-key",
+		models.UpstreamKeyStatusActive,
+	)
+	decryptStarted := make(chan struct{})
+	releaseDecrypt := make(chan struct{})
+	fixture.service.encryption = blockingDecryptService{
+		Service: fixture.encryption,
+		started: decryptStarted,
+		release: releaseDecrypt,
+	}
+	fixture.service.dialects = dialect.NewSet(&recordingDiscoveryDialect{
+		value: protocol.OpenAI,
+		listFn: func(context.Context, string, string, state.HeaderRules) ([]string, error) {
+			return []string{"model"}, nil
+		},
+	})
+
+	discoveryDone := make(chan error, 1)
+	go func() {
+		_, err := fixture.service.DiscoverGroupModels(t.Context(), group.ID)
+		discoveryDone <- err
+	}()
+	select {
+	case <-decryptStarted:
+	case <-time.After(time.Second):
+		t.Fatal("discovery did not reach decrypt mapping")
+	}
+
+	writeDone := make(chan error, 1)
+	go func() {
+		writeDone <- fixture.db.Model(&models.Group{}).
+			Where("id = ?", group.ID).
+			Update("name", "write-during-decrypt").Error
+	}()
+	select {
+	case err := <-writeDone:
+		if err != nil {
+			t.Fatalf("write during decrypt error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("decrypt mapping retained the single pooled read connection")
+	}
+	close(releaseDecrypt)
+	select {
+	case err := <-discoveryDone:
+		if err != nil {
+			t.Fatalf("DiscoverGroupModels() error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("discovery did not finish after decrypt release")
+	}
+}
 
 func TestDiscoverGroupModelsUsesDisabledGroupAndActiveKeysInIDOrder(t *testing.T) {
 	fixture := newServiceFixture(t)

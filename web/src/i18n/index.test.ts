@@ -110,4 +110,31 @@ describe('createAppI18n', () => {
       dictionaryKeys(zhCN.monitor.logs.drawer.usage),
     )
   })
+
+  it('keeps the HeaderRules storage notice in all three locale dictionaries', () => {
+    expect(zhCN.import.headerRules.storageNotice).toBe(
+      '密码遮挡仅减少旁观泄露，并不代表静态加密。普通 HeaderRules 字面值会以明文写入 SQLite 和备份。Provider 凭据 Header 必须使用 {template} 模板。',
+    )
+    expect(enUS.import.headerRules.storageNotice).toBe(
+      'Password masking only reduces shoulder-surfing exposure; it is not encryption at rest. Ordinary HeaderRules literals are stored in plaintext in SQLite and backups. Provider credential headers must use the {template} template.',
+    )
+    expect(jaJP.import.headerRules.storageNotice).toBe(
+      'パスワード表示のマスクは覗き見による漏えいを減らすだけで、保存時の暗号化ではありません。通常の HeaderRules リテラルは SQLite とバックアップに平文で保存されます。Provider 認証情報ヘッダーには {template} テンプレートを使用してください。',
+    )
+  })
+
+  it('keeps the read-only long-context pricing policy copy in all three locales', () => {
+    const policies = [zhCN, enUS, jaJP].map(
+      (locale) =>
+        (locale.modelPrices.builtin as Record<string, unknown>).longContext as
+          Record<string, string> | undefined,
+    )
+
+    for (const policy of policies) {
+      expect(typeof policy?.label).toBe('string')
+      expect(typeof policy?.summary).toBe('string')
+      expect(policy?.label ?? '').not.toHaveLength(0)
+      expect(policy?.summary ?? '').not.toHaveLength(0)
+    }
+  })
 })

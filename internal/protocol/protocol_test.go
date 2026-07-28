@@ -2,22 +2,31 @@ package protocol
 
 import "testing"
 
-func TestProtocolValid(t *testing.T) {
+func TestProtocolKnownAndDataPlaneEnabled(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		protocol Protocol
-		want     bool
+		value   Protocol
+		known   bool
+		enabled bool
 	}{
-		{protocol: OpenAI, want: true},
-		{protocol: Anthropic, want: true},
-		{protocol: Gemini, want: true},
-		{protocol: OpenAIResponse, want: true},
-		{protocol: Protocol("unknown"), want: false},
-		{protocol: "", want: false},
+		{value: OpenAI, known: true, enabled: true},
+		{value: Anthropic, known: true, enabled: true},
+		{value: Gemini, known: true, enabled: true},
+		{value: OpenAIResponse, known: true, enabled: false},
+		{value: Protocol("unknown"), known: false, enabled: false},
+		{value: "", known: false, enabled: false},
 	}
 	for _, tt := range tests {
-		if got := tt.protocol.Valid(); got != tt.want {
-			t.Errorf("Protocol(%q).Valid() = %t, want %t", tt.protocol, got, tt.want)
+		if got := tt.value.Valid(); got != tt.known {
+			t.Errorf("Protocol(%q).Valid() = %t, want %t", tt.value, got, tt.known)
+		}
+		if got := tt.value.DataPlaneEnabled(); got != tt.enabled {
+			t.Errorf(
+				"Protocol(%q).DataPlaneEnabled() = %t, want %t",
+				tt.value,
+				got,
+				tt.enabled,
+			)
 		}
 	}
 }

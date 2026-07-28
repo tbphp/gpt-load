@@ -1,6 +1,7 @@
 package control
 
 import (
+	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/json"
 	"net/http"
@@ -96,17 +97,13 @@ func TestAuthenticateFailsClosedForInvalidPeerWithoutComparison(t *testing.T) {
 	}
 }
 
-func TestAuthenticateIgnoresForwardingHeaders(t *testing.T) {
+func TestAuthenticateLockedRequestsIgnoreForwardingHeaders(t *testing.T) {
 	initControlI18n(t)
 	_, engine := newAuthProbeServer(t)
+	const peer = "192.0.2.10:1234"
 
-	for index, wantStatus := range []int{
-		http.StatusUnauthorized,
-		http.StatusUnauthorized,
-		http.StatusUnauthorized,
-		http.StatusUnauthorized,
-		http.StatusTooManyRequests,
-	} {
+	lockPeer(t, engine, peer)
+	for index := 0; index < 2; index++ {
 		headers := map[string]string{
 			"X-Forwarded-For": "203.0.113." + strconv.Itoa(index+1),
 			"X-Real-IP":       "198.51.100." + strconv.Itoa(index+1),
@@ -114,12 +111,12 @@ func TestAuthenticateIgnoresForwardingHeaders(t *testing.T) {
 		recorder := serveAuthRequest(
 			engine,
 			"/api/probe",
-			"192.0.2.10:1234",
+			peer,
 			"Bearer wrong-key",
 			headers,
 		)
-		if recorder.Code != wantStatus {
-			t.Fatalf("attempt %d response = %d %s, want %d", index+1, recorder.Code, recorder.Body.String(), wantStatus)
+		if recorder.Code != http.StatusTooManyRequests {
+			t.Fatalf("attempt %d response = %d %s, want 429", index+1, recorder.Code, recorder.Body.String())
 		}
 	}
 }
@@ -183,25 +180,112 @@ func TestAuthenticateComparesEveryUnlockedCredentialShapeOnce(t *testing.T) {
 	}
 }
 
-func TestAuthenticateLockedCorrectKeyReturns429WithoutComparison(t *testing.T) {
+func TestAuthenticateComparesEveryLockedAuthorizationShapeOnce(t *testing.T) {
 	initControlI18n(t)
-	server, engine := newAuthProbeServer(t)
-	const peer = "192.0.2.20:1234"
+	for index, test := range []struct {
+		name          string
+		header        string
+		wantCandidate string
+		wantStatus    int
+	}{
+		{name: "missing", wantStatus: http.StatusTooManyRequests},
+		{name: "malformed", header: "Bearer", wantStatus: http.StatusTooManyRequests},
+		{
+			name:          "wrong",
+			header:        "Bearer wrong-key",
+			wantCandidate: "wrong-key",
+			wantStatus:    http.StatusTooManyRequests,
+		},
+		{
+			name:          "correct",
+			header:        "Bearer " + authTestKey,
+			wantCandidate: authTestKey,
+			wantStatus:    http.StatusOK,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			server, engine := newAuthProbeServer(t)
+			peer := "192.0.2." + strconv.Itoa(20+index) + ":1234"
+			lockPeer(t, engine, peer)
+
+			comparisons := 0
+			fixedLength := false
+			var comparedCandidate [sha256.Size]byte
+			server.compareDigest = func(left, right []byte) int {
+				comparisons++
+				fixedLength = len(left) == sha256.Size && len(right) == sha256.Size
+				copy(comparedCandidate[:], left)
+				return subtle.ConstantTimeCompare(left, right)
+			}
+
+			recorder := serveAuthRequest(engine, "/api/probe", peer, test.header, nil)
+
+			if recorder.Code != test.wantStatus {
+				t.Fatalf("response = %d %s, want %d", recorder.Code, recorder.Body.String(), test.wantStatus)
+			}
+			if comparisons != 1 {
+				t.Fatalf("credential comparisons = %d, want 1", comparisons)
+			}
+			if !fixedLength {
+				t.Fatal("credential comparison did not receive two fixed-length SHA-256 digests")
+			}
+			if want := sha256.Sum256([]byte(test.wantCandidate)); comparedCandidate != want {
+				t.Fatalf("candidate digest = %x, want SHA-256 of selected candidate", comparedCandidate)
+			}
+		})
+	}
+}
+
+func TestAuthenticateLockedCorrectKeyClearsPeerAndNextFailureReturns401(t *testing.T) {
+	initControlI18n(t)
+	_, engine := newAuthProbeServer(t)
+	const peer = "192.0.2.30:1234"
 
 	lockPeer(t, engine, peer)
-	comparisons := 0
-	server.compareDigest = func(_, _ []byte) int {
-		comparisons++
-		return 1
-	}
+	assertAuthStatus(t, engine, peer, "Bearer "+authTestKey, http.StatusOK)
+	assertAuthStatus(t, engine, peer, "Bearer wrong-key", http.StatusUnauthorized)
+}
 
-	recorder := serveAuthRequest(engine, "/api/probe", peer, "Bearer "+authTestKey, nil)
-
-	if recorder.Code != http.StatusTooManyRequests {
-		t.Fatalf("response = %d %s, want 429", recorder.Code, recorder.Body.String())
+func TestAuthenticateLockedWrongTokensPreserve429ShapeAndRetryAfter(t *testing.T) {
+	initControlI18n(t)
+	server, engine := newAuthProbeServer(t)
+	server.authFailures.now = func() time.Time {
+		return time.Date(2026, 7, 23, 0, 0, 0, 0, time.UTC)
 	}
-	if comparisons != 0 {
-		t.Fatalf("credential comparisons = %d, want 0", comparisons)
+	const peer = "192.0.2.31:1234"
+
+	lockPeer(t, engine, peer)
+	first := serveAuthRequest(engine, "/api/probe", peer, "Bearer first-wrong-key", nil)
+	second := serveAuthRequest(engine, "/api/probe", peer, "Bearer second-wrong-key", nil)
+
+	for index, recorder := range []*httptest.ResponseRecorder{first, second} {
+		if recorder.Code != http.StatusTooManyRequests {
+			t.Fatalf("response %d = %d %s, want 429", index+1, recorder.Code, recorder.Body.String())
+		}
+		var envelope struct {
+			Code string `json:"code"`
+			Data struct {
+				RetryAfterSeconds int64 `json:"retry_after_seconds"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err != nil {
+			t.Fatalf("decode response %d: %v", index+1, err)
+		}
+		if envelope.Code != "AUTH_LOCKED" ||
+			envelope.Data.RetryAfterSeconds != int64(authLockDuration/time.Second) {
+			t.Fatalf("response %d envelope = %#v, want locked response shape", index+1, envelope)
+		}
+	}
+	if first.Header().Get("Retry-After") == "" ||
+		first.Header().Get("Retry-After") != second.Header().Get("Retry-After") {
+		t.Fatalf(
+			"Retry-After values = %q/%q, want equal non-empty values",
+			first.Header().Get("Retry-After"),
+			second.Header().Get("Retry-After"),
+		)
+	}
+	if first.Body.String() != second.Body.String() {
+		t.Fatalf("locked response bodies differ by wrong token: %q/%q", first.Body.String(), second.Body.String())
 	}
 }
 
@@ -229,7 +313,7 @@ func TestAuthenticateLockExpiresAfterThirtyMinutes(t *testing.T) {
 
 	lockPeer(t, engine, peer)
 	current = current.Add(authLockDuration - time.Second)
-	assertAuthStatus(t, engine, peer, "Bearer "+authTestKey, http.StatusTooManyRequests)
+	assertAuthStatus(t, engine, peer, "Bearer wrong-key", http.StatusTooManyRequests)
 	current = current.Add(time.Second)
 	assertAuthStatus(t, engine, peer, "Bearer "+authTestKey, http.StatusOK)
 }

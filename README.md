@@ -39,9 +39,9 @@ For the maintained 1.4.x release documentation, visit the [official documentatio
 ## 2.0 release status
 
 > [!WARNING]
-> 2.0 is currently in release-ready closeout. This does not mean that a `v2.0.0` tag, GitHub Release, binary, or container image has been published. Check the actual release assets before deploying; a repository branch is not evidence of a successful release.
+> 2.0 is a **pre-release local candidate**. M3/M4 candidate code and retained local verification evidence exist, but release exit and publication are not complete. No `v2.0.0` tag, GitHub Release, public binary, or public container image has been verified as available. A checkout or branch is not release evidence.
 
-2.0 is a greenfield rewrite whose data is incompatible with 1.x. `main` remains the 1.4.x maintenance line. 2.0 does not automatically move `latest`; stable container channels use explicit `2`, `2.0`, and `v2.0.0` tags.
+2.0 is a greenfield rewrite whose data is incompatible with 1.x. `main` remains the 1.4.x maintenance line. The release contract reserves explicit `2`, `2.0`, and `v2.0.0` container tags and does not move `latest` automatically; these names do not imply that images have been published.
 
 ## 2.0 capabilities
 
@@ -51,13 +51,14 @@ For the maintained 1.4.x release documentation, visit the [official documentatio
 - **Control and observability:** runtime settings, route inspection, health views, RequestLog, and a Chinese, English, and Japanese admin UI.
 - **Usage and estimated cost:** usage extraction for the three dialects, 24-hour/30-day reports, per-request quality states, built-in prices, and user price overrides.
 
-Prices and costs are best-effort **estimates** derived from upstream usage and the active pricing rules. They are not a billing ledger, invoice, or provider bill, and historical requests are not repriced.
+The M3 control-plane UI and M4 usage/pricing scope are present in the local candidate, but their formal exit and public release are unfinished. Prices and costs are best-effort **estimates** derived from upstream usage and the active pricing rules. They are not a billing ledger, invoice, or provider bill, and historical requests are not repriced.
 
 ## 2.0.0 support boundaries
 
 - Correctness is guaranteed for a **single application instance** only; multi-instance coordination is not supported.
 - **SQLite only**; PostgreSQL, MySQL, and other databases are not supported.
 - The AccessKey and runtime configuration select the Group. A Group never appears in the data-plane URL.
+- `openai-response` is a known historical/reserved protocol value, not an enabled data-plane protocol; `/v1/responses` is not routed.
 - Upstream keys must be encrypted at rest with no plaintext fallback. 2.0.0 has no master-key rotation; `migrate-keys` remains an explicitly failing deferred command.
 - There is no automatic 1.x migration, in-place upgrade, or reverse synchronization.
 - There is no protocol conversion, online billing reconciliation, automatic price fetcher, online backup API, or backup CLI.
@@ -66,16 +67,16 @@ Prices and costs are best-effort **estimates** derived from upstream usage and t
 
 ### Docker Compose
 
-The 2.x Compose release contract uses `ghcr.io/tbphp/gpt-load:2`, container path `/app/data`, and the `gpt-load-data` named volume. It never uses `latest`. Check the current checkout first:
+The candidate 2.x Compose contract references `ghcr.io/tbphp/gpt-load:2`, container path `/app/data`, and the `gpt-load-data` named volume. This is a local contract, not proof that the image is publicly available. It never uses `latest`. Check the current checkout first:
 
 ```console
 cp .env.example .env
 docker compose config
 ```
 
-Continue only if the resolved configuration uses image `ghcr.io/tbphp/gpt-load:2`, sets `DATA_DIR=/app/data` and `DATABASE_DSN=/app/data/gpt-load.db`, and mounts a named volume at `/app/data`. If it resolves to `latest` or a host bind mount, do not use that Compose file for a 2.0 production deployment, and do not substitute `latest`.
+Continue only if the resolved configuration uses image `ghcr.io/tbphp/gpt-load:2`, sets the **container** environment to `HOST=0.0.0.0` and `DATA_DIR=/app/data`, leaves `DATABASE_DSN` empty/absent so the process selects managed `/app/data/gpt-load.db`, publishes the **host** side on `${BIND_ADDRESS:-127.0.0.1}`, and mounts a named volume at `/app/data`. The service has no fixed `container_name`, so Compose project names provide instance isolation. If the public image is unavailable, use the commented local build override instead of assuming it was published.
 
-After those preconditions are met:
+After those preconditions and image/build availability are met:
 
 ```console
 docker compose up -d
@@ -87,6 +88,8 @@ docker compose exec gpt-load sh -c 'cat /app/data/auth.key'
 
 The named volume preserves SQLite, `auth.key`, and `encryption.key`. Production deployments should inject explicit `AUTH_KEY` and `ENCRYPTION_KEY` values through protected secret handling. Never commit real secrets to `.env`, logs, or issues. A custom container `DATABASE_DSN` requires a Compose override with both a **container** path and a matching volume mount.
 
+Compose listens on all interfaces only inside the container while publishing to host loopback by default. Setting `BIND_ADDRESS=0.0.0.0`, or running a native binary with `HOST=0.0.0.0`, is an explicit opt-in. In production, expose either only behind a controlled network boundary with a TLS reverse proxy and ACL/firewall controls.
+
 ### Native binary
 
 After publication, download the platform-matching artifact from the GitHub Release and verify it against `SHA256SUMS`. Until release assets actually exist, build from the current checkout as shown under “Build and verification”; do not assume that an artifact has been published.
@@ -96,7 +99,7 @@ Linux amd64 example:
 ```console
 chmod +x ./gpt-load-linux-amd64
 mkdir -p ./data
-DATA_DIR=./data ./gpt-load-linux-amd64
+HOST=127.0.0.1 DATA_DIR=./data ./gpt-load-linux-amd64
 ```
 
 In another terminal:
@@ -124,6 +127,8 @@ Data-plane requests use an AccessKey. Provider-compatible credentials are accept
 
 GPT-Load does not translate one dialect into another. The AccessKey and runtime configuration select the Group; it is not passed as a URL path segment.
 
+`openai-response` may appear in historical data or known-protocol metadata, but it is reserved and not enabled for new data-plane traffic. In particular, `POST /v1/responses` is not routed.
+
 ## Management, usage, and cost
 
 The admin UI is served at `/`, and management APIs are under `/api`; both use `AUTH_KEY`. The UI covers Groups, upstream keys, AccessKeys, runtime settings, health, logs, route inspection, Usage, and model-price management. Current code and UI are the management API reference; this README intentionally avoids copying a route list that can drift.
@@ -133,6 +138,7 @@ Usage/Cost quality boundaries:
 - `complete + priced` requests contribute to default token and estimated-cost totals.
 - `missing`, `partial`, and `unpriced` requests still contribute to request and quality counts but not to default token/cost totals. `complete + unpriced` requests are never assigned guessed prices.
 - A clean EOF on a stream does not guarantee complete usage, and compatible relays may omit the provider's official terminal usage.
+- The API's `pricing_policy` is read-only; the UI displays it but does not let user-defined price rules declare an internal pricing policy.
 - Price changes affect future writes only. Historical RequestLog and UsageStat rows are not recalculated.
 - Current-process dropped/write-failure counters and durable database-window aggregates have different scopes.
 
@@ -140,10 +146,11 @@ Usage/Cost quality boundaries:
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `HOST` | `0.0.0.0` | HTTP listen address |
+| `HOST` | `127.0.0.1` | Native HTTP listen address; `0.0.0.0` is an explicit opt-in. The release container overrides this to `0.0.0.0` internally |
+| `BIND_ADDRESS` | `127.0.0.1` | Compose host-side publish address; not a process setting |
 | `PORT` | `3001` | HTTP listen port |
-| `DATA_DIR` | `./data` | Persistent directory for a native process; fixed to `/app/data` by the container release contract |
-| `DATABASE_DSN` | `${DATA_DIR}/gpt-load.db` | SQLite path/DSN; a container path must exist in the container namespace and have a matching volume |
+| `DATA_DIR` | `./data` | Native persistent directory; the container overrides it to `/app/data` |
+| `DATABASE_DSN` | empty → `${DATA_DIR}/gpt-load.db` | Empty selects a managed SQLite database; every non-empty operator value is external, even if it names the same path |
 | `AUTH_KEY` | generated keyfile | Management bearer credential; an explicit value cannot contain whitespace; otherwise reads or creates `${DATA_DIR}/auth.key` |
 | `ENCRYPTION_KEY` | generated keyfile | Master key for encrypted upstream keys; otherwise reads or creates `${DATA_DIR}/encryption.key` |
 | `GRACEFUL_SHUTDOWN_TIMEOUT` | `10` | Graceful shutdown timeout in seconds |
@@ -157,20 +164,21 @@ See [`.env.example`](.env.example) for the complete process configuration. Conne
 
 ## Persistence and security
 
-- By default, `${DATA_DIR}` contains SQLite, `auth.key`, and `encryption.key`. Protect and back up these assets as one recovery set.
-- Losing or replacing `encryption.key` makes encrypted upstream keys unreadable. 2.0.0 has no automatic repair or master-key rotation.
-- An external `DATABASE_DSN` or explicitly managed secrets must be backed up separately; backing up DATA_DIR no longer covers those external assets.
-- SQLite uses WAL. Before backup, stop incoming traffic, send `SIGTERM`, wait for a clean process exit, and then copy the full persistent asset set. Never copy only `gpt-load.db` while the service is running.
+- Database ownership follows only the raw `DATABASE_DSN`: empty means managed DB/WAL/SHM under `${DATA_DIR}`; every non-empty value means an external, operator-owned database that GPT-Load does not mkdir or chmod and that must be backed up separately.
+- Secret ownership is independent of database ownership. For each secret, `/api/system/info` reports `key_file` or `environment`: archive a reported `key_file` (`auth.key` or `encryption.key`) from `DATA_DIR` regardless of the database source, or restore an `environment` secret separately from the protected external secret system.
+- On POSIX, managed `${DATA_DIR}` is restricted to `0700` and managed DB/WAL/SHM plus application-created key files to `0600`. Windows uses current-user-only ACLs, but the Windows runtime stop/ACL gate has not been executed for this candidate.
+- Losing the matching `encryption.key`, from either source, makes encrypted upstream keys unrecoverable. 2.0.0 has no automatic repair or master-key rotation.
+- SQLite uses WAL. Before backup, stop incoming traffic and wait for a clean exit: use `SIGTERM` on POSIX, or Ctrl+C, Ctrl+Break, or the service manager's stop action on Windows. Never hot-copy only `gpt-load.db`.
 - Never paste AUTH_KEY, ENCRYPTION_KEY, AccessKeys, or upstream keys into logs, public issues, screenshots, or ordinary backup manifests.
 
 ### Public operations baseline
 
 This checklist is self-contained and does not require access to the project's private Notion workspace:
 
-1. Before backup or cutover, call authenticated `GET /api/system/info`. Record the resolved `data_dir`, database location, and secret sources without recording secret values.
-2. Stop incoming traffic, send `SIGTERM`, and wait for a clean process exit. With Compose, run `docker compose stop` and confirm the service container is stopped.
-3. Archive the complete resolved `DATA_DIR` or exact named volume as one recovery set. Use a unique archive name, refuse overwrite, restrict access, and record its SHA-256. Back up any external `DATABASE_DSN`, `AUTH_KEY`, and `ENCRYPTION_KEY` separately.
-4. Restore with the exact same binary or image into an empty target. Verify the checksum first and restore the matching encryption key; never combine restore with an upgrade.
+1. Determine the database source and location from the actual environment, service, or container configuration, then call authenticated `GET /api/system/info` to record each secret's safe source/path metadata without recording its value. The endpoint deliberately omits database source, DSN, and location.
+2. Stop incoming traffic and wait for a clean process exit using the POSIX or Windows mechanism above. With Compose, run `docker compose stop` and confirm the service container is stopped.
+3. Build the complete recovery set across both independent axes: archive managed DB/WAL/SHM when `DATABASE_DSN` is empty, or back up the external DB with its operator procedure when non-empty; for both database cases, archive every `key_file` reported for auth/encryption and recover every `environment` secret from its protected external secret system. Use unique archive names, refuse overwrite, restrict access, and record SHA-256.
+4. Restore both the database and secret sides with the exact same binary or image into an empty target. Verify checksums first and restore the exact matching encryption key; never combine restore with an upgrade.
 5. Start the restored instance and verify `/health`, `/api/system/info`, Groups, AccessKeys, model prices, Usage, RequestLog, and a real data-plane canary. When `sqlite3` is available, stop the instance and require `PRAGMA quick_check` to return `ok`.
 
 2.0.0 has no backup CLI or encryption-key rotation. Never replace the encryption key for an existing database.
@@ -180,7 +188,7 @@ This checklist is self-contained and does not require access to the project's pr
 2.0 cannot open, import, or upgrade a 1.x database in place, and it must not reuse a 1.x `DATA_DIR`. The recommended flow is:
 
 1. Keep 1.x running and verify that its backup can be restored.
-2. Give 2.0 a separate port, `DATA_DIR` / named volume, and database.
+2. Give 2.0 a separate port, `DATA_DIR`, database, and Compose project/named volume. Do not share any of these with 1.x.
 3. Manually rebuild the minimum Groups, upstream keys, AccessKeys, and rules; validate all three dialects, logs, and usage/cost in isolation.
 4. Move entry traffic during a maintenance window or small rollout. On failure, stop 2.0 and switch back to the original 1.x deployment; do not reverse-import new 2.0 data.
 

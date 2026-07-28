@@ -1,6 +1,6 @@
 import type { GroupSummary } from '@/api/control/types'
 
-import { accessKeyProtocols, buildAccessKeyModelOptions } from './access-key-options'
+import { accessKeyProtocolOptions, buildAccessKeyModelOptions } from './access-key-options'
 
 const groups: GroupSummary[] = [
   {
@@ -27,8 +27,22 @@ const groups: GroupSummary[] = [
 ]
 
 describe('AccessKey filter options', () => {
-  it('includes every supported protocol including openai-response', () => {
-    expect(accessKeyProtocols).toEqual(['openai', 'anthropic', 'gemini', 'openai-response'])
+  it('offers only enabled protocols for create and ordinary edit', () => {
+    expect(accessKeyProtocolOptions()).toEqual(['openai', 'anthropic', 'gemini'])
+    expect(accessKeyProtocolOptions(['openai', 'anthropic'])).toEqual([
+      'openai',
+      'anthropic',
+      'gemini',
+    ])
+  })
+
+  it('appends one reserved option only when the editing base historically contains it', () => {
+    expect(accessKeyProtocolOptions(['openai-response', 'openai-response'])).toEqual([
+      'openai',
+      'anthropic',
+      'gemini',
+      'openai-response',
+    ])
   })
 
   it('deduplicates known model IDs/aliases and preserves existing or free-entry values', () => {

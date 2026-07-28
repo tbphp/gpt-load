@@ -6,13 +6,17 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
 	"github.com/glebarez/sqlite"
+	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
+	"gpt-load/internal/platform/config"
+	"gpt-load/internal/platform/securefile"
 	"gpt-load/internal/storage/models"
 )
 
@@ -25,12 +29,20 @@ type schemaInfo struct {
 	Version uint `gorm:"primaryKey;autoIncrement:false"`
 }
 
+type sqliteTarget struct {
+	fileBacked   bool
+	databasePath string
+	directory    string
+}
+
 var databaseLogger = logger.New(log.New(os.Stdout, "\r\n", log.LstdFlags), logger.Config{
 	SlowThreshold:        200 * time.Millisecond,
 	LogLevel:             logger.Warn,
 	ParameterizedQueries: true,
 	Colorful:             true,
 })
+
+var hardenManagedFileIfExists = securefile.HardenManagedFileIfExists
 
 func (schemaInfo) TableName() string {
 	return "schema_info"
@@ -39,16 +51,32 @@ func (schemaInfo) TableName() string {
 // Open opens a SQLite database using a fully resolved DSN.
 // Resolving an empty DSN to DATA_DIR belongs to platform/config.
 func Open(dsn string) (*gorm.DB, error) {
+	return OpenWithSource(dsn, config.DatabaseSourceExternal)
+}
+
+// OpenWithSource opens a SQLite database and applies file controls only when
+// the application owns the managed database location.
+func OpenWithSource(dsn string, source config.DatabaseSource) (*gorm.DB, error) {
 	dsn = strings.TrimSpace(dsn)
-	if err := validateSQLiteDSN(dsn); err != nil {
+	target, err := parseSQLiteTarget(dsn)
+	if err != nil {
 		return nil, err
 	}
-	if err := ensureSQLiteDirectory(dsn); err != nil {
-		return nil, err
+	switch source {
+	case config.DatabaseSourceManaged:
+		if target.fileBacked {
+			if err := secureManagedSQLiteTarget(target); err != nil {
+				return nil, err
+			}
+		}
+	case config.DatabaseSourceExternal:
+		logrus.WithField("database_source", config.DatabaseSourceExternal).
+			Info("SQLite database storage is managed by the operator")
+	default:
+		return nil, fmt.Errorf("open SQLite database: unsupported database source")
 	}
 
-	fileBacked := !isSQLiteMemoryDSN(dsn)
-	runtimeDSN, err := withSQLiteRuntimeOptions(dsn, fileBacked)
+	runtimeDSN, err := withSQLiteRuntimeOptions(dsn, target.fileBacked)
 	if err != nil {
 		return nil, err
 	}
@@ -63,9 +91,15 @@ func Open(dsn string) (*gorm.DB, error) {
 	}
 	sqlDB.SetMaxOpenConns(1)
 	sqlDB.SetMaxIdleConns(1)
-	if err := verifySQLiteRuntime(db, fileBacked); err != nil {
+	if err := verifySQLiteRuntime(db, target.fileBacked); err != nil {
 		_ = sqlDB.Close()
 		return nil, err
+	}
+	if source == config.DatabaseSourceManaged && target.fileBacked {
+		if err := hardenSQLiteRecoverySet(target); err != nil {
+			_ = sqlDB.Close()
+			return nil, err
+		}
 	}
 
 	return db, nil
@@ -236,8 +270,12 @@ func withSQLiteRuntimeOptions(dsn string, fileBacked bool) (string, error) {
 }
 
 func isSQLiteMemoryDSN(dsn string) bool {
-	if dsn == ":memory:" {
+	base, _, _ := strings.Cut(dsn, "?")
+	if base == ":memory:" {
 		return true
+	}
+	if !strings.HasPrefix(dsn, "file:") {
+		return false
 	}
 	parsed, err := url.Parse(dsn)
 	if err != nil {
@@ -246,8 +284,7 @@ func isSQLiteMemoryDSN(dsn string) bool {
 	if strings.EqualFold(parsed.Query().Get("mode"), "memory") {
 		return true
 	}
-	return strings.EqualFold(parsed.Scheme, "file") &&
-		(parsed.Path == ":memory:" || parsed.Opaque == ":memory:")
+	return parsed.Path == ":memory:" || parsed.Opaque == ":memory:"
 }
 
 func verifySQLiteRuntime(db *gorm.DB, fileBacked bool) error {
@@ -276,24 +313,66 @@ func verifySQLiteRuntime(db *gorm.DB, fileBacked bool) error {
 	return nil
 }
 
-func ensureSQLiteDirectory(dsn string) error {
-	if dsn == ":memory:" {
-		return nil
+func parseSQLiteTarget(dsn string) (sqliteTarget, error) {
+	if isSQLiteMemoryDSN(dsn) {
+		return sqliteTarget{}, nil
+	}
+	if err := validateSQLiteDSN(dsn); err != nil {
+		return sqliteTarget{}, err
 	}
 
-	databasePath := dsn
-	if parsed, err := url.Parse(dsn); err == nil && strings.EqualFold(parsed.Scheme, "file") {
+	databasePath, _, _ := strings.Cut(dsn, "?")
+	parsed, err := url.Parse(dsn)
+	if err != nil {
+		return sqliteTarget{}, fmt.Errorf("open SQLite database: invalid DSN: %w", err)
+	}
+	if strings.HasPrefix(dsn, "file:") {
 		databasePath = parsed.Path
 		if databasePath == "" {
 			databasePath = parsed.Opaque
+			databasePath, err = url.PathUnescape(databasePath)
+			if err != nil {
+				return sqliteTarget{}, fmt.Errorf("open SQLite database: invalid file URI: %w", err)
+			}
 		}
+		if runtime.GOOS == "windows" &&
+			len(databasePath) >= 3 &&
+			databasePath[0] == '/' &&
+			databasePath[2] == ':' &&
+			(databasePath[1] >= 'A' && databasePath[1] <= 'Z' ||
+				databasePath[1] >= 'a' && databasePath[1] <= 'z') {
+			databasePath = databasePath[1:]
+		}
+		databasePath = filepath.FromSlash(databasePath)
 	}
+	if databasePath == "" {
+		return sqliteTarget{}, fmt.Errorf("open SQLite database: file path is empty")
+	}
+
 	directory := filepath.Dir(databasePath)
-	if directory == "." || directory == "" {
-		return nil
+	return sqliteTarget{
+		fileBacked:   true,
+		databasePath: databasePath,
+		directory:    directory,
+	}, nil
+}
+
+func secureManagedSQLiteTarget(target sqliteTarget) error {
+	if err := securefile.PrepareManagedDataDir(target.directory); err != nil {
+		return fmt.Errorf("secure managed SQLite directory: %w", err)
 	}
-	if err := os.MkdirAll(directory, 0o755); err != nil {
-		return fmt.Errorf("create SQLite database directory: %w", err)
+	return hardenSQLiteRecoverySet(target)
+}
+
+func hardenSQLiteRecoverySet(target sqliteTarget) error {
+	for _, path := range []string{
+		target.databasePath,
+		target.databasePath + "-wal",
+		target.databasePath + "-shm",
+	} {
+		if err := hardenManagedFileIfExists(path); err != nil {
+			return fmt.Errorf("secure managed SQLite recovery set: %w", err)
+		}
 	}
 	return nil
 }
@@ -310,7 +389,10 @@ func validateSQLiteDSN(dsn string) error {
 	if err != nil {
 		return fmt.Errorf("open SQLite database: invalid DSN: %w", err)
 	}
-	if parsed.Scheme != "" && !strings.EqualFold(parsed.Scheme, "file") {
+	if parsed.Scheme == "file" && !strings.HasPrefix(dsn, "file:") {
+		return fmt.Errorf("open SQLite database: unsupported non-canonical DSN scheme")
+	}
+	if parsed.Scheme != "" && parsed.Scheme != "file" {
 		return fmt.Errorf("open SQLite database: unsupported DSN scheme %q", parsed.Scheme)
 	}
 	return nil

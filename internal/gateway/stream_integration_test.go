@@ -18,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -87,6 +88,44 @@ func TestHandlerStreamsFakeUpstreamAndRetriesBeforeCommit(t *testing.T) {
 			t.Fatalf("retry reused credential %q", first)
 		}
 	})
+}
+
+func TestHandlerRetriesAliasedNonObjectProviderErrorAndReturns502(t *testing.T) {
+	var requests atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		writer.Header().Set("Content-Type", "text/event-stream")
+		writer.Header().Set("Retry-After", "1")
+		_, _ = io.WriteString(
+			writer,
+			"event: error\ndata: rate_limit_error provider-model\n\n",
+		)
+	}))
+	defer upstream.Close()
+
+	engine, _ := newStreamingGatewayEngine(
+		t,
+		streamGatewayGroup{
+			id: 1, name: "first", upstreamURL: upstream.URL,
+			apiKey: "sk-obviously-fake-first", modelID: "provider-model", alias: "gpt-4o",
+		},
+		streamGatewayGroup{
+			id: 2, name: "second", upstreamURL: upstream.URL,
+			apiKey: "sk-obviously-fake-second", modelID: "provider-model", alias: "gpt-4o",
+		},
+	)
+	recorder := performStreamingRequest(engine)
+
+	if recorder.Code != http.StatusBadGateway ||
+		!strings.Contains(recorder.Body.String(), reasonUpstreamProtocol.Code) ||
+		requests.Load() != 2 {
+		t.Fatalf("response/requests = %d/%d body=%s",
+			recorder.Code, requests.Load(), recorder.Body.String())
+	}
+	if strings.Contains(recorder.Body.String(), "rate_limit_error") ||
+		strings.Contains(recorder.Body.String(), "provider-model") {
+		t.Fatalf("provider payload reached downstream: %s", recorder.Body.String())
+	}
 }
 
 func TestHandlerStreamRetryUsesEachGroupsInjectUsageSetting(t *testing.T) {
@@ -193,6 +232,7 @@ func TestHandlerRetryDoesNotLeakFaultyInjectorMutationToNextGroup(t *testing.T) 
 		NewForwarder(clients, redact.New()),
 		dialect.NewSet(selected),
 		health.NewStatsStore(),
+		health.NewMutationCoordinator(),
 		nil,
 		sink,
 	)
@@ -260,8 +300,8 @@ func TestHandlerStreamingDebugHeadersRejectUpstreamSpoofing(t *testing.T) {
 	}
 }
 
-func TestHandlerFailsOverCompressedStream(t *testing.T) {
-	t.Run("compressed group fails over without blaming key", func(t *testing.T) {
+func TestHandlerTerminatesCompressedStreamBeforeRetry(t *testing.T) {
+	t.Run("compressed request-written response terminates without blaming key", func(t *testing.T) {
 		compressed := fakeupstream.New(
 			fakeupstream.Step{
 				Status: http.StatusOK, Fixture: "openai/stream.sse", Stream: true,
@@ -280,10 +320,11 @@ func TestHandlerFailsOverCompressedStream(t *testing.T) {
 			streamGatewayGroup{id: 2, name: "backup", upstreamURL: backup.URL, apiKey: "sk-backup"},
 		)
 		first := performStreamingRequest(engine)
-		if first.Code != http.StatusOK || !bytes.Equal(first.Body.Bytes(), openAIStreamFixture(t)) {
+		if first.Code != http.StatusBadGateway ||
+			!strings.Contains(first.Body.String(), reasonUpstreamProtocol.Code) {
 			t.Fatalf("first response = %d %q", first.Code, first.Body.Bytes())
 		}
-		if len(compressed.Requests()) != 1 || len(backup.Requests()) != 1 {
+		if len(compressed.Requests()) != 1 || len(backup.Requests()) != 0 {
 			t.Fatalf("first request counts = compressed:%d backup:%d", len(compressed.Requests()), len(backup.Requests()))
 		}
 		if candidates := registry.CollectCandidates([]uint{1, 2}, nil, time.Time{}); len(candidates) != 2 {
@@ -291,7 +332,7 @@ func TestHandlerFailsOverCompressedStream(t *testing.T) {
 		}
 
 		second := performStreamingRequest(engine)
-		if second.Code != http.StatusOK || len(compressed.Requests()) != 2 || len(backup.Requests()) != 1 {
+		if second.Code != http.StatusOK || len(compressed.Requests()) != 2 || len(backup.Requests()) != 0 {
 			t.Fatalf("second response/counts = %d compressed:%d backup:%d", second.Code, len(compressed.Requests()), len(backup.Requests()))
 		}
 	})
@@ -319,7 +360,8 @@ func TestHandlerFailsOverCompressedStream(t *testing.T) {
 		if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
 			t.Fatalf("decode response: %v", err)
 		}
-		if recorder.Code != http.StatusBadGateway || body.Code != reasonUpstreamProtocol.Code {
+		if recorder.Code != http.StatusBadGateway || body.Code != reasonUpstreamProtocol.Code ||
+			len(first.Requests())+len(second.Requests()) != 1 {
 			t.Fatalf("response = %d %s", recorder.Code, recorder.Body.String())
 		}
 		for _, forbidden := range []string{"data:", "sk-plain-a", "sk-plain-b"} {
@@ -469,7 +511,7 @@ func TestAliasedStreamRemainsProgressive(t *testing.T) {
 }
 
 func TestHandlerStreamFirstEventTimeout(t *testing.T) {
-	t.Run("partial event times out then backup succeeds", func(t *testing.T) {
+	t.Run("request-written partial event times out without backup", func(t *testing.T) {
 		canceled := make(chan struct{})
 		partial := newPartialStreamServer(canceled)
 		defer partial.Close()
@@ -484,16 +526,17 @@ func TestHandlerStreamFirstEventTimeout(t *testing.T) {
 		)
 		recorder := performStreamingRequest(engine)
 
-		if recorder.Code != http.StatusOK || !bytes.Equal(recorder.Body.Bytes(), openAIStreamFixture(t)) {
+		if recorder.Code != http.StatusGatewayTimeout ||
+			!strings.Contains(recorder.Body.String(), reasonUpstreamTimeout.Code) {
 			t.Fatalf("response = %d %q", recorder.Code, recorder.Body.Bytes())
 		}
 		waitForStreamSignal(t, canceled, "timed-out upstream cancellation")
-		if bytes.Contains(recorder.Body.Bytes(), []byte("partial")) || len(backup.Requests()) != 1 {
+		if bytes.Contains(recorder.Body.Bytes(), []byte("partial")) || len(backup.Requests()) != 0 {
 			t.Fatalf("partial event leaked or backup not used: body=%q backup=%d", recorder.Body.Bytes(), len(backup.Requests()))
 		}
 	})
 
-	t.Run("all partial events return timeout", func(t *testing.T) {
+	t.Run("first partial candidate returns timeout without retry", func(t *testing.T) {
 		firstCanceled := make(chan struct{})
 		first := newPartialStreamServer(firstCanceled)
 		defer first.Close()
@@ -507,7 +550,11 @@ func TestHandlerStreamFirstEventTimeout(t *testing.T) {
 		)
 		recorder := performStreamingRequest(engine)
 		waitForStreamSignal(t, firstCanceled, "first timed-out upstream cancellation")
-		waitForStreamSignal(t, secondCanceled, "second timed-out upstream cancellation")
+		select {
+		case <-secondCanceled:
+			t.Fatal("second partial upstream was unexpectedly attempted")
+		default:
+		}
 
 		var body struct {
 			Code string `json:"code"`
@@ -969,6 +1016,7 @@ func newStreamingGatewayEngine(t *testing.T, groups ...streamGatewayGroup) (*gin
 		NewForwarder(clients, redact.New()),
 		dialect.NewSet(dialect.NewOpenAI(http.DefaultClient)),
 		health.NewStatsStore(),
+		health.NewMutationCoordinator(),
 		nil,
 		nil,
 	)

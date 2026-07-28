@@ -106,6 +106,21 @@ type fakeRuntimeClock struct {
 	now time.Time
 }
 
+type barrierRuntimeMutationCoordinator struct {
+	entered      chan struct{}
+	releaseEntry chan struct{}
+	callbackDone chan struct{}
+	releaseExit  chan struct{}
+}
+
+func (coordinator *barrierRuntimeMutationCoordinator) Do(_ uint, fn func()) {
+	close(coordinator.entered)
+	<-coordinator.releaseEntry
+	fn()
+	close(coordinator.callbackDone)
+	<-coordinator.releaseExit
+}
+
 func (clock *fakeRuntimeClock) set(now time.Time) {
 	clock.mu.Lock()
 	clock.now = now
@@ -389,7 +404,9 @@ func TestRuntimeUpdatesRegistryWeightSeenByCandidateCollection(t *testing.T) {
 		stats.Record(1, true, base)
 	}
 
-	runtime := &Runtime{registry: registry, stats: stats}
+	runtime := &Runtime{
+		registry: registry, stats: stats, mutations: health.NewMutationCoordinator(),
+	}
 	runtime.recompute(base)
 	candidates := registry.CollectCandidates([]uint{10}, nil, base)
 	if len(candidates) != 1 || candidates[0].WeightAuto != 92 {
@@ -397,7 +414,49 @@ func TestRuntimeUpdatesRegistryWeightSeenByCandidateCollection(t *testing.T) {
 	}
 }
 
-func TestRuntimeAutoWeightCannotOverwriteCompletedValidationRecovery(t *testing.T) {
+func TestRuntimeCoordinatesStatsSnapshotAndAutoWeightWrite(t *testing.T) {
+	now := time.Date(2026, time.July, 27, 12, 0, 0, 0, time.UTC)
+	registry := newFakeAutoWeightRegistry(1)
+	stats := health.NewStatsStore()
+	for range 10 {
+		stats.Record(1, true, now)
+	}
+	coordinator := &barrierRuntimeMutationCoordinator{
+		entered:      make(chan struct{}),
+		releaseEntry: make(chan struct{}),
+		callbackDone: make(chan struct{}),
+		releaseExit:  make(chan struct{}),
+	}
+	runtime := &Runtime{registry: registry, stats: stats, mutations: coordinator}
+
+	done := make(chan struct{})
+	go func() {
+		runtime.recompute(now)
+		close(done)
+	}()
+	awaitSignal(t, coordinator.entered)
+	select {
+	case write := <-registry.wrote:
+		t.Fatalf("auto-weight write before coordinator callback = %#v", write)
+	default:
+	}
+	stats.Record(1, false, now)
+	close(coordinator.releaseEntry)
+	awaitSignal(t, coordinator.callbackDone)
+
+	if got, want := awaitValue(t, registry.wrote), (autoWeightWrite{keyID: 1, weight: 42}); got != want {
+		t.Fatalf("auto-weight write = %#v, want %#v", got, want)
+	}
+	select {
+	case <-done:
+		t.Fatal("recompute returned before coordinator interval was released")
+	default:
+	}
+	close(coordinator.releaseExit)
+	awaitSignal(t, done)
+}
+
+func TestRuntimeCoordinatesAutoWeightWithValidationRecovery(t *testing.T) {
 	base := time.Date(2026, time.July, 22, 12, 0, 0, 0, time.UTC)
 	stats := health.NewStatsStore()
 	for range 10 {
@@ -409,16 +468,17 @@ func TestRuntimeAutoWeightCannotOverwriteCompletedValidationRecovery(t *testing.
 		close(probePassed)
 		return nil
 	}}
-	runtime := &Runtime{registry: registry, stats: stats}
+	mutations := health.NewMutationCoordinator()
+	runtime := &Runtime{registry: registry, stats: stats, mutations: mutations}
 	worker := &validationWorker{
 		snapshots: &validationSnapshotRecorder{snapshot: validationSnapshot(map[uint]state.GroupView{
 			1: validationGroup([]protocol.Protocol{protocol.OpenAI}, "model", nil),
 		})},
-		registry:    registry,
-		stats:       stats,
-		decryptor:   validationDecryptor{},
-		dialects:    dialect.Set{protocol.OpenAI: &validationTestDialect{protocol: protocol.OpenAI, probes: probes}},
-		maintenance: &runtime.maintenance,
+		registry:  registry,
+		stats:     stats,
+		mutations: mutations,
+		decryptor: validationDecryptor{},
+		dialects:  dialect.Set{protocol.OpenAI: &validationTestDialect{protocol: protocol.OpenAI, probes: probes}},
 	}
 
 	autoDone := make(chan struct{})
@@ -538,6 +598,7 @@ func newTestRuntime(
 	return &Runtime{
 		registry:           registry,
 		stats:              stats,
+		mutations:          health.NewMutationCoordinator(),
 		validator:          validator,
 		autoWeightInterval: 30 * time.Second,
 		validationInterval: 30 * time.Minute,

@@ -9,6 +9,7 @@ export default {
     reveal: 'Reveal key',
     conceal: 'Conceal key',
     cancel: 'Cancel',
+    close: 'Close',
   },
   auth: {
     loginTitle: 'Sign in to the admin interface',
@@ -103,6 +104,8 @@ export default {
     headerRules: {
       title: 'Header rules',
       description: 'Set or remove upstream request headers.',
+      storageNotice:
+        'Password masking only reduces shoulder-surfing exposure; it is not encryption at rest. Ordinary HeaderRules literals are stored in plaintext in SQLite and backups. Provider credential headers must use the {template} template.',
       add: 'Add rule',
       action: 'Action',
       set: 'Set',
@@ -906,6 +909,7 @@ export default {
       status: 'Status',
       groups: 'Group filters',
       protocols: 'Protocol filters',
+      reservedProtocolHint: 'Currently disabled; retained only for this historical AccessKey.',
       models: 'Model filters',
       emptyMeansAll: 'No selection means all.',
       modelsDescription: 'Choose known models or enter any valid model string.',
@@ -982,6 +986,11 @@ export default {
       caption: 'Built-in model price rules',
       source: 'Official source',
       createOverride: 'Create override',
+      longContext: {
+        label: 'Long-context policy',
+        summary:
+          'More than {threshold} input tokens: input prices ×{inputMultiplier}; output price ×{outputMultiplier}.',
+      },
     },
     overrides: {
       title: 'User overrides',

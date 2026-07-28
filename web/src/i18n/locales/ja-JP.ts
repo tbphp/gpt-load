@@ -9,6 +9,7 @@ export default {
     reveal: 'キーを表示',
     conceal: 'キーを隠す',
     cancel: 'キャンセル',
+    close: '閉じる',
   },
   auth: {
     loginTitle: '管理画面にログイン',
@@ -104,6 +105,8 @@ export default {
     headerRules: {
       title: 'HeaderRules',
       description: 'アップストリーム要求ヘッダーを設定または削除します。',
+      storageNotice:
+        'パスワード表示のマスクは覗き見による漏えいを減らすだけで、保存時の暗号化ではありません。通常の HeaderRules リテラルは SQLite とバックアップに平文で保存されます。Provider 認証情報ヘッダーには {template} テンプレートを使用してください。',
       add: 'ルールを追加',
       action: '操作',
       set: '設定',
@@ -902,6 +905,8 @@ export default {
       status: '状態',
       groups: 'Group フィルター',
       protocols: 'プロトコルフィルター',
+      reservedProtocolHint:
+        '現在は無効です。この既存 AccessKey の履歴フィルターとしてのみ保持されます。',
       models: 'モデルフィルター',
       emptyMeansAll: '未選択はすべてを意味します。',
       modelsDescription: '既知のモデルを選ぶか、有効なモデル文字列を入力できます。',
@@ -979,6 +984,11 @@ export default {
       caption: '組み込みモデル価格ルール',
       source: '公式ソース',
       createOverride: '上書きを作成',
+      longContext: {
+        label: '長いコンテキストの価格ポリシー',
+        summary:
+          '入力 Token が {threshold} を超える場合、すべての入力価格は ×{inputMultiplier}、出力価格は ×{outputMultiplier} になります。',
+      },
     },
     overrides: {
       title: 'ユーザー上書き',

@@ -40,6 +40,9 @@ func TestSSEScannerCommitsOnlyAtCompleteNonEmptyDataEvent(t *testing.T) {
 					break
 				}
 			}
+			if foundChunk == 0 && scanner.finishAtEOF() {
+				foundChunk = len(tt.chunks)
+			}
 			if foundChunk != tt.wantFoundChunk {
 				t.Fatalf("Feed() found after chunk %d, want %d", foundChunk, tt.wantFoundChunk)
 			}

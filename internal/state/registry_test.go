@@ -102,6 +102,134 @@ func TestKeyRegistryActiveEncryptedValueRequiresExpectedGroupAndActiveStatus(t *
 	}
 }
 
+func TestKeyRegistryCaptureActiveKeyRefsIncludesTemporarilyUnavailableKeys(t *testing.T) {
+	now := time.Date(2026, time.July, 27, 12, 0, 0, 0, time.UTC)
+	registry := NewKeyRegistry()
+	mustReplaceKeyEntries(t, registry, []KeyEntry{
+		{
+			ID: 21, GroupID: 2, Status: KeyStatusActive,
+			CooldownUntil: now.Add(time.Hour), EncryptedValue: "cipher-cooldown",
+		},
+		{
+			ID: 12, GroupID: 1, Status: KeyStatusDisabled,
+			EncryptedValue: "cipher-disabled",
+		},
+		{
+			ID: 11, GroupID: 1, Status: KeyStatusActive,
+			Blacklisted: true, EncryptedValue: "cipher-blacklisted",
+		},
+		{
+			ID: 22, GroupID: 2, Status: KeyStatusActive,
+			EncryptedValue: "cipher-available",
+		},
+		{
+			ID: 31, GroupID: 3, Status: KeyStatusActive,
+			EncryptedValue: "cipher-other-group",
+		},
+	})
+
+	want := []KeyRef{
+		{ID: 11, GroupID: 1, EncryptedValue: "cipher-blacklisted"},
+		{ID: 21, GroupID: 2, EncryptedValue: "cipher-cooldown"},
+		{ID: 22, GroupID: 2, EncryptedValue: "cipher-available"},
+	}
+	got := registry.CaptureActiveKeyRefs([]uint{2, 1})
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("CaptureActiveKeyRefs() = %#v, want %#v", got, want)
+	}
+	if _, ok := registry.IncrFailure(11); !ok {
+		t.Fatal("IncrFailure(11) = false, want true")
+	}
+	want[0].FailureGeneration = 1
+	if got := registry.CaptureActiveKeyRefs([]uint{1, 2}); !reflect.DeepEqual(got, want) {
+		t.Fatalf("CaptureActiveKeyRefs() after failure = %#v, want %#v", got, want)
+	}
+
+	got[0].EncryptedValue = "caller-mutated"
+	if again := registry.CaptureActiveKeyRefs([]uint{1, 2}); !reflect.DeepEqual(again, want) {
+		t.Fatalf("CaptureActiveKeyRefs() aliases caller result: %#v", again)
+	}
+}
+
+func TestKeyRegistryActiveEncryptedValueIfMatchRejectsIdentityChanges(t *testing.T) {
+	ref := KeyRef{ID: 1, GroupID: 10, EncryptedValue: "cipher-original"}
+	newRegistry := func(t *testing.T) *KeyRegistry {
+		t.Helper()
+		registry := NewKeyRegistry()
+		mustReplaceKeyEntries(t, registry, []KeyEntry{{
+			ID: 1, GroupID: 10, Status: KeyStatusActive,
+			EncryptedValue: "cipher-original",
+		}})
+		return registry
+	}
+
+	t.Run("matching active identity", func(t *testing.T) {
+		registry := newRegistry(t)
+		got, ok := registry.ActiveEncryptedValueIfMatch(ref)
+		if !ok || got != "cipher-original" {
+			t.Fatalf(
+				"ActiveEncryptedValueIfMatch() = %q, %t, want cipher-original, true",
+				got,
+				ok,
+			)
+		}
+	})
+
+	t.Run("failure generation does not invalidate in-flight identity", func(t *testing.T) {
+		registry := newRegistry(t)
+		if _, ok := registry.IncrFailure(1); !ok {
+			t.Fatal("IncrFailure(1) = false, want true")
+		}
+		got, ok := registry.ActiveEncryptedValueIfMatch(ref)
+		if !ok || got != "cipher-original" {
+			t.Fatalf("ActiveEncryptedValueIfMatch() = %q, %t, want cipher-original, true", got, ok)
+		}
+	})
+
+	t.Run("different key ID", func(t *testing.T) {
+		registry := newRegistry(t)
+		mismatched := ref
+		mismatched.ID = 2
+		if got, ok := registry.ActiveEncryptedValueIfMatch(mismatched); ok || got != "" {
+			t.Fatalf("ActiveEncryptedValueIfMatch(wrong ID) = %q, %t, want empty, false", got, ok)
+		}
+	})
+
+	t.Run("replaced ciphertext", func(t *testing.T) {
+		registry := newRegistry(t)
+		if err := registry.ApplyImport(10, []KeyEntry{{
+			ID: 1, GroupID: 10, Status: KeyStatusActive,
+			EncryptedValue: "cipher-replaced",
+		}}); err != nil {
+			t.Fatalf("ApplyImport(replacement) error = %v", err)
+		}
+		if got, ok := registry.ActiveEncryptedValueIfMatch(ref); ok || got != "" {
+			t.Fatalf("ActiveEncryptedValueIfMatch(replaced) = %q, %t, want empty, false", got, ok)
+		}
+	})
+
+	t.Run("moved group", func(t *testing.T) {
+		registry := newRegistry(t)
+		mustReplaceKeyEntries(t, registry, []KeyEntry{{
+			ID: 1, GroupID: 20, Status: KeyStatusActive,
+			EncryptedValue: "cipher-original",
+		}})
+		if got, ok := registry.ActiveEncryptedValueIfMatch(ref); ok || got != "" {
+			t.Fatalf("ActiveEncryptedValueIfMatch(moved) = %q, %t, want empty, false", got, ok)
+		}
+	})
+
+	t.Run("disabled", func(t *testing.T) {
+		registry := newRegistry(t)
+		if err := registry.SetKeyStatus(1, KeyStatusDisabled); err != nil {
+			t.Fatalf("SetKeyStatus(disabled) error = %v", err)
+		}
+		if got, ok := registry.ActiveEncryptedValueIfMatch(ref); ok || got != "" {
+			t.Fatalf("ActiveEncryptedValueIfMatch(disabled) = %q, %t, want empty, false", got, ok)
+		}
+	})
+}
+
 func TestKeyRegistryActiveKeyIDs(t *testing.T) {
 	registry := NewKeyRegistry()
 	mustReplaceKeyEntries(t, registry, []KeyEntry{
@@ -177,6 +305,80 @@ func TestKeyRegistrySnapshotIsSortedDetachedAndCredentialFree(t *testing.T) {
 			t.Fatalf("KeyRuntimeView exposes forbidden field %s", forbidden)
 		}
 	}
+}
+
+func TestKeyRuntimeViewDoesNotExposeFailureGeneration(t *testing.T) {
+	typ := reflect.TypeOf(KeyRuntimeView{})
+	if _, exists := typ.FieldByName("FailureGeneration"); exists {
+		t.Fatal("KeyRuntimeView exposes forbidden field FailureGeneration")
+	}
+}
+
+func TestKeyRegistryFailureGenerationTracksActualFailureStateChanges(t *testing.T) {
+	registry := NewKeyRegistry()
+	mustReplaceKeyEntries(t, registry, []KeyEntry{{
+		ID: 1, GroupID: 10, Status: KeyStatusActive,
+		FailureGeneration: 99, EncryptedValue: "cipher-one",
+	}})
+
+	assertGeneration := func(want uint64) {
+		t.Helper()
+		if got := registryEntry(t, registry, 1).FailureGeneration; got != want {
+			t.Fatalf("FailureGeneration = %d, want %d", got, want)
+		}
+	}
+	assertGeneration(0)
+
+	if _, ok := registry.IncrFailure(1); !ok {
+		t.Fatal("IncrFailure(1) = false, want true")
+	}
+	assertGeneration(1)
+	if !registry.SetBlacklisted(1) {
+		t.Fatal("SetBlacklisted(1) = false, want true")
+	}
+	assertGeneration(2)
+	if !registry.SetBlacklisted(1) {
+		t.Fatal("SetBlacklisted(1) = false on existing key, want true")
+	}
+	assertGeneration(2)
+	if !registry.ClearFailure(1) {
+		t.Fatal("ClearFailure(1) = false, want true")
+	}
+	assertGeneration(3)
+	if !registry.ClearFailure(1) {
+		t.Fatal("ClearFailure(1) = false on existing key, want true")
+	}
+	assertGeneration(3)
+	if !registry.Recover(1) {
+		t.Fatal("Recover(1) = false, want true")
+	}
+	assertGeneration(4)
+	if !registry.Recover(1) {
+		t.Fatal("Recover(1) = false on existing key, want true")
+	}
+	assertGeneration(4)
+
+	if registry.SetBlacklisted(99) || registry.ClearFailure(99) || registry.Recover(99) {
+		t.Fatal("missing-key failure mutation = true, want false")
+	}
+	if _, ok := registry.IncrFailure(99); ok {
+		t.Fatal("IncrFailure(missing key) = true, want false")
+	}
+	assertGeneration(4)
+
+	if err := registry.ApplyImport(10, []KeyEntry{{
+		ID: 1, GroupID: 10, Status: KeyStatusActive,
+		FailureGeneration: 73, EncryptedValue: "cipher-imported",
+	}}); err != nil {
+		t.Fatalf("ApplyImport() error = %v", err)
+	}
+	assertGeneration(0)
+
+	mustReplaceKeyEntries(t, registry, []KeyEntry{{
+		ID: 1, GroupID: 10, Status: KeyStatusActive,
+		FailureGeneration: 42, EncryptedValue: "cipher-replaced",
+	}})
+	assertGeneration(0)
 }
 
 func TestKeyRegistryReplaceFailurePreservesRegistry(t *testing.T) {

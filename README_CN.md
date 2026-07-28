@@ -39,9 +39,9 @@ GPT-Load 是一个用 Go 构建的自托管 AI API Key 聚合与原生协议网�
 ## 2.0 发布状态
 
 > [!WARNING]
-> 2.0 当前处于 release-ready 收口阶段，但这不表示 `v2.0.0` tag、GitHub Release、二进制或容器镜像已经公开发布。部署前请核对实际可用的 release artifact；不要把仓库分支状态当作发布成功证据。
+> 2.0 当前是**发布前本地候选**。M3/M4 候选代码及本地验证留存证据已经存在，但正式出口和发布仍未完成；目前没有证据表明 `v2.0.0` tag、GitHub Release、公开二进制或公开容器镜像已经可用。checkout 或分支状态不能作为发布证据。
 
-2.0 是与 1.x 数据不兼容的 greenfield rewrite。`main` 继续承载 1.4.x 维护线；2.0 不会自动移动 `latest`，稳定容器通道使用显式的 `2` / `2.0` / `v2.0.0` tag。
+2.0 是与 1.x 数据不兼容的 greenfield rewrite。`main` 继续承载 1.4.x 维护线。发布契约预留显式的 `2`、`2.0`、`v2.0.0` 容器 tag，且不会自动移动 `latest`；这些名称本身不代表镜像已经发布。
 
 ## 2.0 能力
 
@@ -51,13 +51,14 @@ GPT-Load 是一个用 Go 构建的自托管 AI API Key 聚合与原生协议网�
 - **控制与可观测性**：运行设置、路由检查、健康视图、RequestLog，以及中文、英文、日文管理 UI。
 - **用量与估算成本**：采集三种方言可获得的 usage，提供 24 小时/30 天汇总、明细质量状态、内置价格和用户价格覆盖。
 
-价格和成本是基于上游返回 usage 与当前价格规则的 best-effort **估算**，不是 billing ledger、发票或供应商账单，也不会对历史请求重新计价。
+M3 控制面 UI 与 M4 用量/定价范围已经进入本地候选，但正式出口与公开发布尚未完成。价格和成本是基于上游返回 usage 与当前价格规则的 best-effort **估算**，不是 billing ledger、发票或供应商账单，也不会对历史请求重新计价。
 
 ## 2.0.0 支持边界
 
 - 只保证**单应用实例**正确性，不支持多实例协调。
 - 只支持 **SQLite**；不支持 PostgreSQL、MySQL 或其他数据库。
 - Group 由 AccessKey 和运行时配置选择，不出现在数据面 URL 中。
+- `openai-response` 只是已知的历史/预留协议值，不是已启用的数据面协议；当前不路由 `/v1/responses`。
 - 上游密钥必须静态加密，不允许明文回退；2.0.0 不支持主密钥轮换，`migrate-keys` 仍是明确失败的延后命令。
 - 不支持 1.x 数据自动迁移、原地升级或反向同步。
 - 不提供协议转换、在线账单对账、自动价格抓取、在线备份 API 或备份 CLI。
@@ -66,16 +67,16 @@ GPT-Load 是一个用 Go 构建的自托管 AI API Key 聚合与原生协议网�
 
 ### Docker Compose
 
-2.x 的 Compose 发布契约使用 `ghcr.io/tbphp/gpt-load:2`、容器内 `/app/data` 和 named volume `gpt-load-data`，绝不使用 `latest`。执行前先检查当前 checkout：
+当前 2.x Compose 候选契约引用 `ghcr.io/tbphp/gpt-load:2`、容器内 `/app/data` 和 named volume `gpt-load-data`。这只是本地契约，不证明公开镜像已经可用；契约不使用 `latest`。执行前先检查当前 checkout：
 
 ```console
 cp .env.example .env
 docker compose config
 ```
 
-只有当解析结果满足以下条件时，才继续：image 为 `ghcr.io/tbphp/gpt-load:2`，`DATA_DIR=/app/data`，`DATABASE_DSN=/app/data/gpt-load.db`，且 `/app/data` 使用 named volume。若解析结果仍是 `latest` 或 host bind mount，不要把该 Compose 文件用于 2.0 生产部署，也不要自行改用 `latest`。
+只有当解析结果满足以下条件时才继续：image 为 `ghcr.io/tbphp/gpt-load:2`；**容器内**环境为 `HOST=0.0.0.0`、`DATA_DIR=/app/data`；`DATABASE_DSN` 保持空/未设置，由进程在运行时选择 managed `/app/data/gpt-load.db`；**宿主机**发布地址为 `${BIND_ADDRESS:-127.0.0.1}`；`/app/data` 使用 named volume。服务不固定 `container_name`，不同实例通过 Compose project name 隔离。若公开镜像不可用，应启用注释中的本地 build override，不能假定镜像已经发布。
 
-满足前置条件后：
+满足上述配置及 image/build 可用性前置条件后：
 
 ```console
 docker compose up -d
@@ -86,6 +87,8 @@ docker compose exec gpt-load sh -c 'cat /app/data/auth.key'
 
 默认 named volume 会保存 SQLite、`auth.key` 和 `encryption.key`。生产环境建议通过受保护的 secret 注入显式 `AUTH_KEY` 与 `ENCRYPTION_KEY`；不要把真实 secret 提交到 `.env`、日志或 issue。自定义容器 `DATABASE_DSN` 时，必须通过 Compose override 同时提供**容器内**路径和匹配的 volume mount。
 
+Compose 仅在容器内部监听所有接口，默认仍只发布到宿主 loopback。设置 `BIND_ADDRESS=0.0.0.0`，或为原生进程设置 `HOST=0.0.0.0`，都属于显式 opt-in；生产环境只能在受控网络边界、TLS reverse proxy 及 ACL/firewall 保护下暴露。
+
 ### 原生二进制
 
 公开发布后，从 GitHub Release 下载与平台匹配的 artifact，并先校验 `SHA256SUMS`。在 release artifact 尚未出现前，可按“构建与验证”从当前 checkout 构建；不要假定文件已经发布。
@@ -95,7 +98,7 @@ docker compose exec gpt-load sh -c 'cat /app/data/auth.key'
 ```console
 chmod +x ./gpt-load-linux-amd64
 mkdir -p ./data
-DATA_DIR=./data ./gpt-load-linux-amd64
+HOST=127.0.0.1 DATA_DIR=./data ./gpt-load-linux-amd64
 ```
 
 另一个终端验证：
@@ -123,6 +126,8 @@ curl --fail http://localhost:3001/health
 
 GPT-Load 不把一种方言转换为另一种方言。Group 由 AccessKey 与运行时配置选择，不作为 URL 路径段传入。
 
+历史数据或已知协议元数据中可能出现 `openai-response`，但它当前仅为预留值，不接受新的数据面流量；尤其不会路由 `POST /v1/responses`。
+
 ## 管理面与用量成本
 
 管理 UI 位于 `/`，管理 API 位于 `/api`；两者都使用 `AUTH_KEY`。UI 包含 Group、上游 Key、AccessKey、运行设置、健康、日志、路由检查、Usage 与模型价格管理。完整管理 API 以当前代码和 UI 为准，本 README 不复制容易漂移的路由清单。
@@ -132,6 +137,7 @@ Usage/Cost 质量边界：
 - `complete + priced` 请求进入默认 token 与估算成本汇总。
 - `missing`、`partial` 与 `unpriced` 仍进入请求数和对应质量计数，但不进入默认 token/成本汇总；`complete + unpriced` 也不会被猜价。
 - 流式连接 clean EOF 不代表一定获得完整 usage；兼容中转站也可能不返回官方终态 usage。
+- API 返回的 `pricing_policy` 是只读字段；UI 只展示，用户自定义价格规则不能声明内部定价策略。
 - 修改模型价格只影响后续写入，不重算历史 RequestLog 或 UsageStat。
 - 当前进程的 dropped/write-failure 计数与数据库窗口内的耐久汇总是不同口径。
 
@@ -139,10 +145,11 @@ Usage/Cost 质量边界：
 
 | 变量 | 默认值 | 用途 |
 |---|---|---|
-| `HOST` | `0.0.0.0` | HTTP 监听地址 |
+| `HOST` | `127.0.0.1` | 原生 HTTP 监听地址；`0.0.0.0` 是显式 opt-in，发布容器仅在内部覆盖为 `0.0.0.0` |
+| `BIND_ADDRESS` | `127.0.0.1` | Compose 宿主机侧发布地址，不是进程配置 |
 | `PORT` | `3001` | HTTP 监听端口 |
-| `DATA_DIR` | `./data` | 原生进程的持久目录；容器发布契约固定为 `/app/data` |
-| `DATABASE_DSN` | `${DATA_DIR}/gpt-load.db` | SQLite 路径/DSN；容器路径必须存在于容器命名空间并有匹配 volume |
+| `DATA_DIR` | `./data` | 原生持久目录；容器内覆盖为 `/app/data` |
+| `DATABASE_DSN` | 空 → `${DATA_DIR}/gpt-load.db` | 空值选择 managed SQLite；任何非空 operator 值都属于 external，即使文本与默认路径相同 |
 | `AUTH_KEY` | 自动生成 keyfile | 管理 bearer 凭据；显式值不能包含空白，留空时读取或创建 `${DATA_DIR}/auth.key` |
 | `ENCRYPTION_KEY` | 自动生成 keyfile | 加密上游 Key 的主密钥；留空时读取或创建 `${DATA_DIR}/encryption.key` |
 | `GRACEFUL_SHUTDOWN_TIMEOUT` | `10` | 优雅停机超时，单位为秒 |
@@ -156,20 +163,21 @@ Usage/Cost 质量边界：
 
 ## 持久化与安全
 
-- 默认 `${DATA_DIR}` 同时包含 SQLite、`auth.key` 和 `encryption.key`；这三类资产必须作为一组保护和备份。
-- 丢失或替换 `encryption.key` 会使已加密上游 Key 无法解密。2.0.0 没有自动修复或主密钥轮换。
-- 使用外部 `DATABASE_DSN` 或显式 secret 时，必须单独纳入备份；“备份 DATA_DIR”不再覆盖这些外部资产。
-- SQLite 使用 WAL。备份前先停止入口流量，发送 `SIGTERM` 并等待进程正常退出，再整体复制持久化资产；不要在运行时只复制 `gpt-load.db`。
+- 数据库归属只由 raw `DATABASE_DSN` 决定：空值表示 `${DATA_DIR}` 下的 managed DB/WAL/SHM；任何非空值都表示 operator 管理的 external 数据库，GPT-Load 不为其 mkdir/chmod，必须单独备份。
+- secret 归属与数据库归属相互独立。`/api/system/info` 会分别报告 secret source：无论数据库是哪种 source，`key_file` 都必须归档 `DATA_DIR` 中对应的 `auth.key` / `encryption.key`；`environment` 则必须从受保护的外部 secret system 单独恢复。
+- POSIX 下 managed `${DATA_DIR}` 权限收紧为 `0700`，managed DB/WAL/SHM 及应用创建的 key 文件为 `0600`。Windows 使用当前用户专属 ACL，但当前候选尚未执行 Windows runtime 停机/ACL 门禁。
+- 无论来自哪种 source，丢失匹配的 `encryption.key` 都会使已加密上游 Key 无法恢复。2.0.0 没有自动修复或主密钥轮换。
+- SQLite 使用 WAL。备份前先停止入口流量并等待 clean exit：POSIX 使用 `SIGTERM`，Windows 使用 Ctrl+C、Ctrl+Break 或 service manager stop。禁止运行中只热复制 `gpt-load.db`。
 - 不要把 AUTH_KEY、ENCRYPTION_KEY、AccessKey 或上游 Key 粘贴到日志、公开 issue、截图或普通备份清单中。
 
 ### 公开运维基线
 
 以下清单可独立使用，不需要访问项目的私有 Notion 工作区：
 
-1. 备份或切换前，通过管理认证调用 `GET /api/system/info`。只记录解析后的 `data_dir`、数据库位置和 secret 来源，不记录 secret 值。
-2. 停止入口流量，发送 `SIGTERM` 并等待进程正常退出。使用 Compose 时执行 `docker compose stop`，并确认服务容器已经停止。
-3. 将解析后的完整 `DATA_DIR` 或准确的 named volume 作为一组恢复资产归档。归档名必须唯一、禁止覆盖、限制访问并记录 SHA-256；外部 `DATABASE_DSN`、`AUTH_KEY` 和 `ENCRYPTION_KEY` 必须单独备份。
-4. 使用完全相同的二进制或镜像恢复到空目标。解压前先校验 checksum，并恢复匹配的 encryption key；不要把恢复与升级合并为一步。
+1. 从实际 environment、service 或 container 配置判断数据库 source 与位置，再通过管理认证调用 `GET /api/system/info`，记录每个 secret 的安全 source/path 元数据但不记录值。该端点刻意不返回 database source、DSN 或位置。
+2. 停止入口流量，按上面的 POSIX 或 Windows 方式等待进程正常退出。使用 Compose 时执行 `docker compose stop`，并确认服务容器已经停止。
+3. 沿两个正交维度组成完整恢复资产：`DATABASE_DSN` 为空时归档 managed DB/WAL/SHM，非空时按 operator 流程单独备份 external DB；两种数据库场景都必须归档 auth/encryption 的每个 `key_file`，并从受保护的外部 secret system 恢复每个 `environment` secret。归档名必须唯一、禁止覆盖、限制访问并记录 SHA-256。
+4. 使用完全相同的二进制或镜像，在空目标中同时恢复数据库与 secret 两部分。先校验 checksum，并恢复完全匹配的 encryption key；不要把恢复与升级合并为一步。
 5. 启动恢复实例并验证 `/health`、`/api/system/info`、Group、AccessKey、模型价格、Usage、RequestLog 和真实数据面 canary。若有 `sqlite3`，停机后执行 `PRAGMA quick_check`，结果必须为 `ok`。
 
 2.0.0 没有 backup CLI，也不支持 encryption key rotation。不得为已有数据库替换 encryption key。
@@ -179,7 +187,7 @@ Usage/Cost 质量边界：
 2.0 不能打开、导入或原地升级 1.x 数据库，也不能复用 1.x `DATA_DIR`。推荐流程是：
 
 1. 保持 1.x 运行并先验证其备份可恢复。
-2. 为 2.0 使用独立端口、`DATA_DIR` / named volume 和数据库。
+2. 为 2.0 使用独立端口、`DATA_DIR`、数据库、Compose project 与 named volume，不与 1.x 共享任何一项。
 3. 手工重建最小 Group、上游 Key、AccessKey 与规则，在隔离环境验证三方言、日志及 usage/cost。
 4. 在维护窗或小流量阶段切换入口；失败时停止 2.0 并切回原 1.x，不把 2.0 新数据反向导入 1.x。
 

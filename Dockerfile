@@ -43,6 +43,7 @@ RUN apk add --no-cache ca-certificates tzdata \
     && chown 10001:10001 /app/data \
     && chmod 0700 /app/data
 
+ENV HOST=0.0.0.0
 ENV DATA_DIR=/app/data
 COPY --from=go-builder /build/gpt-load .
 EXPOSE 3001

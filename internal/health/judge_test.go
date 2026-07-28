@@ -18,6 +18,55 @@ func fixedCategory(category FailureCategory) StatusClassifier {
 	return classifierFunc(func(int, []byte) FailureCategory { return category })
 }
 
+type providerClassifier struct {
+	status   FailureCategory
+	provider FailureCategory
+}
+
+func (classifier providerClassifier) ClassifyStatus(int, []byte) FailureCategory {
+	return classifier.status
+}
+
+func (classifier providerClassifier) ClassifyProviderError([]byte) FailureCategory {
+	return classifier.provider
+}
+
+func TestClassifyProviderErrorIgnoresHTTP2xxShortcut(t *testing.T) {
+	now := time.Date(2026, time.July, 27, 12, 0, 0, 0, time.UTC)
+	attempt := Attempt{
+		StatusCode:                http.StatusOK,
+		Body:                      []byte(`{"error":{"type":"rate_limit_error"}}`),
+		Header:                    http.Header{"Retry-After": {"15"}},
+		Now:                       now,
+		ProviderErrorBeforeCommit: true,
+	}
+	got := Judge(providerClassifier{
+		status:   FailureCategoryOK,
+		provider: FailureCategoryRateLimited,
+	}, attempt)
+	want := Result{
+		Category:      FailureCategoryRateLimited,
+		Action:        ActionCooldownKey,
+		CooldownUntil: now.Add(15 * time.Second),
+	}
+	if got != want {
+		t.Fatalf("Judge() = %#v, want %#v", got, want)
+	}
+
+	withoutCapability := Attempt{
+		StatusCode:                http.StatusOK,
+		Body:                      attempt.Body,
+		Now:                       now,
+		ProviderErrorBeforeCommit: true,
+	}
+	if got := Judge(fixedCategory(FailureCategoryOK), withoutCapability); got != (Result{
+		Category: FailureCategoryAmbiguous,
+		Action:   ActionTerminate,
+	}) {
+		t.Fatalf("Judge() without optional classifier = %#v, want fail-closed ambiguous", got)
+	}
+}
+
 func TestJudgeAppliesRulesInSafetyOrder(t *testing.T) {
 	now := time.Date(2026, time.July, 20, 12, 0, 0, 0, time.UTC)
 
@@ -46,9 +95,9 @@ func TestJudgeAppliesRulesInSafetyOrder(t *testing.T) {
 			want:    Result{Category: FailureCategoryAmbiguous, Action: ActionTerminate},
 		},
 		{
-			name:    "explicit safe pre-commit signal retries",
+			name:    "request-written explicit pre-commit signal terminates",
 			attempt: Attempt{Err: errors.New("first event timeout"), RequestWritten: true, RetryableBeforeCommit: true},
-			want:    Result{Category: FailureCategoryAmbiguous, Action: ActionRetry},
+			want:    Result{Category: FailureCategoryAmbiguous, Action: ActionTerminate},
 		},
 		{
 			name:    "pre-write transport skips group",

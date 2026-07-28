@@ -23,6 +23,7 @@ var geminiFailureMarkers = failureMarkers{
 	rateLimited:      []string{"resource_exhausted", "rate_limit", "rate limit", "quota_exceeded", "quota exceeded"},
 	modelUnavailable: []string{"model_not_found", "model not found", "model_not_supported", "model not supported", "no access to model"},
 	invalidKey:       []string{"api_key_invalid", "unauthenticated", "permission_denied", "api key not valid", "invalid api key", "api key disabled", "api key banned"},
+	upstreamHost:     []string{"service_unavailable", "backend_error", "internal_error"},
 }
 
 type Gemini struct {
@@ -51,6 +52,10 @@ func (d *Gemini) InjectCredential(headers http.Header, apiKey string) {
 		return
 	}
 	headers.Set("X-Goog-Api-Key", apiKey)
+}
+
+func (d *Gemini) CredentialHeaderNames() []string {
+	return []string{"X-Goog-Api-Key"}
 }
 
 func (d *Gemini) ExtractModel(req *ParsedRequest) (string, bool, error) {
@@ -219,6 +224,10 @@ func (d *Gemini) Probe(
 
 func (d *Gemini) ClassifyStatus(status int, body []byte) health.FailureCategory {
 	return classifyStatusWithMarkers(status, body, geminiFailureMarkers)
+}
+
+func (d *Gemini) ClassifyProviderError(body []byte) health.FailureCategory {
+	return classifyProviderErrorWithMarkers(body, geminiFailureMarkers)
 }
 
 func parseGeminiGenerationPath(path string) (model string, stream bool, err error) {

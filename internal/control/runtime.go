@@ -24,6 +24,10 @@ type autoWeightRegistry interface {
 	SetAutoWeight(keyID uint, weight int) bool
 }
 
+type keyMutationCoordinator interface {
+	Do(uint, func())
+}
+
 // RequestLogCleaner is the control-owned scheduling view of request log
 // retention. The requestlog package owns all cleanup semantics.
 type RequestLogCleaner interface {
@@ -50,6 +54,7 @@ func (ticker standardRuntimeTicker) Stop() {
 type Runtime struct {
 	registry           autoWeightRegistry
 	stats              *health.StatsStore
+	mutations          keyMutationCoordinator
 	validator          validationSweep
 	requestLogCleaner  RequestLogCleaner
 	autoWeightInterval time.Duration
@@ -57,12 +62,12 @@ type Runtime struct {
 	validationJitter   func() time.Duration
 	now                func() time.Time
 	newTicker          func(time.Duration) runtimeTicker
-	maintenance        sync.Mutex
 }
 
 func NewRuntime(
 	registry *state.KeyRegistry,
 	stats *health.StatsStore,
+	mutations *health.MutationCoordinator,
 	manager *state.Manager,
 	encryptionService encryption.Service,
 	dialects dialect.Set,
@@ -71,6 +76,7 @@ func NewRuntime(
 	runtime := &Runtime{
 		registry:           registry,
 		stats:              stats,
+		mutations:          mutations,
 		requestLogCleaner:  requestLogCleaner,
 		autoWeightInterval: autoWeightInterval,
 		validationInterval: validationInterval,
@@ -82,7 +88,14 @@ func NewRuntime(
 			return standardRuntimeTicker{ticker: time.NewTicker(interval)}
 		},
 	}
-	runtime.validator = newValidationWorker(manager, registry, stats, encryptionService, dialects, &runtime.maintenance)
+	runtime.validator = newValidationWorker(
+		manager,
+		registry,
+		stats,
+		mutations,
+		encryptionService,
+		dialects,
+	)
 	return runtime
 }
 
@@ -164,9 +177,9 @@ func (runtime *Runtime) runRetention(ctx context.Context, ticker runtimeTicker) 
 
 func (runtime *Runtime) recompute(now time.Time) {
 	for _, keyID := range runtime.registry.ActiveKeyIDs() {
-		runtime.maintenance.Lock()
-		stats := runtime.stats.Snapshot(keyID, now)
-		runtime.registry.SetAutoWeight(keyID, calculateAutoWeight(stats))
-		runtime.maintenance.Unlock()
+		runtime.mutations.Do(keyID, func() {
+			stats := runtime.stats.Snapshot(keyID, now)
+			runtime.registry.SetAutoWeight(keyID, calculateAutoWeight(stats))
+		})
 	}
 }

@@ -22,6 +22,11 @@ const builtin: ModelPriceRuleDto = {
   },
   source_url: 'https://developers.openai.com/api/docs/pricing',
   updated_at: '2026-07-26T00:00:00Z',
+  pricing_policy: {
+    input_threshold_tokens: 272000,
+    input_multiplier: 2,
+    output_multiplier: 1.5,
+  },
 }
 const override: ModelPriceRuleDto = {
   pattern: 'vendor-*',
@@ -35,6 +40,7 @@ const override: ModelPriceRuleDto = {
   },
   source_url: null,
   updated_at: '2026-07-27T00:00:00Z',
+  pricing_policy: null,
 }
 const exactOverride: ModelPriceRuleDto = {
   ...override,
@@ -97,6 +103,14 @@ describe('ModelPricesView', () => {
     expect(wrapper.get('[data-test="builtin-0-output"]').text()).toBe('$30 / 1M')
     expect(wrapper.get('[data-test="override-0-output"]').text()).toBe('$8 / 1M')
     expect(wrapper.get('[data-test="override-source-0"]').text()).toContain('Override')
+    const policy = wrapper.get('[data-test="builtin-pricing-policy-0"]')
+    expect(policy.text()).toContain('Long-context policy')
+    expect(policy.text()).toContain('More than 272,000 input tokens')
+    expect(policy.text()).toContain('input prices ×2')
+    expect(policy.text()).toContain('output price ×1.5')
+    expect(policy.find('button').exists()).toBe(false)
+    expect(policy.find('input').exists()).toBe(false)
+    expect(wrapper.findAll('[data-test^="builtin-pricing-policy-"]')).toHaveLength(1)
     expect(wrapper.get('time[datetime="2026-07-26T00:00:00Z"]')).toBeDefined()
     expect(wrapper.get('time[datetime="2026-07-27T00:00:00Z"]')).toBeDefined()
     const source = wrapper.get<HTMLAnchorElement>('[data-test="builtin-source-0"]')

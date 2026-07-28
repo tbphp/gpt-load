@@ -1,6 +1,7 @@
 package webui
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -38,6 +39,112 @@ func TestWebCICompositeActionRunsCompleteFrontendGate(t *testing.T) {
 			t.Fatalf("web-ci action does not run %q in the required order", command)
 		}
 		previousIndex = commandIndex
+	}
+}
+
+func TestBranchCIContainsStaticGoAndFreshRaceGates(t *testing.T) {
+	content := readRepositoryFile(t, ".github/workflows/ci.yml")
+	testJob := workflowJobBlock(t, content, "test")
+	workflowGoFormattingScript(t, content, "test")
+	for _, test := range []struct {
+		name string
+		run  string
+	}{
+		{name: "Check module graph", run: "go mod tidy -diff"},
+		{name: "Run Go vet", run: "go vet ./..."},
+		{name: "Run race-enabled tests", run: "go test -race -count=1 . ./internal/..."},
+		{name: "Check repository invariants", run: "git diff --check"},
+	} {
+		assertWorkflowGateStep(t, testJob, test.name, test.run)
+	}
+
+	releaseJob := workflowJobBlock(
+		t,
+		readRepositoryFile(t, ".github/workflows/release.yml"),
+		"verify-and-build-web",
+	)
+	assertWorkflowGateStep(
+		t,
+		releaseJob,
+		"Run race-enabled tests",
+		"go test -race -count=1 . ./internal/...",
+	)
+}
+
+func TestWindowsCIExecutesManagedStorageACLTests(t *testing.T) {
+	content := readRepositoryFile(t, ".github/workflows/ci.yml")
+	job := workflowJobBlock(t, content, "windows-encryption-acl")
+	if count := strings.Count(job, "runs-on: windows-latest"); count != 1 {
+		t.Fatalf("Windows ACL job contains runs-on declaration %d times, want exactly once", count)
+	}
+	assertWorkflowGateStep(
+		t,
+		job,
+		"Test Windows secure file and storage ACLs",
+		"go test -v -count=1 ./internal/platform/securefile ./internal/platform/encryption ./internal/storage",
+	)
+}
+
+func TestGoFormattingScriptsFailClosed(t *testing.T) {
+	for _, workflow := range []struct {
+		name string
+		file string
+		job  string
+	}{
+		{name: "branch", file: ".github/workflows/ci.yml", job: "test"},
+		{name: "release", file: ".github/workflows/release.yml", job: "verify-and-build-web"},
+	} {
+		t.Run(workflow.name, func(t *testing.T) {
+			script := workflowGoFormattingScript(
+				t,
+				readRepositoryFile(t, workflow.file),
+				workflow.job,
+			)
+			scriptPath := filepath.Join(t.TempDir(), "check-go-format.sh")
+			if err := os.WriteFile(
+				scriptPath,
+				[]byte("#!/usr/bin/env bash\nset -e\n"+script),
+				0o700,
+			); err != nil {
+				t.Fatalf("write Go formatting script: %v", err)
+			}
+
+			fakeBin := t.TempDir()
+			fakeGofmt := filepath.Join(fakeBin, "gofmt")
+			if err := os.WriteFile(fakeGofmt, []byte(`#!/usr/bin/env bash
+case "${GOFMT_TEST_MODE}" in
+  clean) exit 0 ;;
+  unformatted) printf 'unformatted.go\n'; exit 0 ;;
+  failed) exit 2 ;;
+  *) exit 64 ;;
+esac
+`), 0o700); err != nil {
+				t.Fatalf("write fake gofmt: %v", err)
+			}
+
+			for _, test := range []struct {
+				name    string
+				mode    string
+				wantErr bool
+			}{
+				{name: "clean", mode: "clean"},
+				{name: "unformatted", mode: "unformatted", wantErr: true},
+				{name: "formatter failure", mode: "failed", wantErr: true},
+			} {
+				t.Run(test.name, func(t *testing.T) {
+					command := exec.Command("bash", scriptPath)
+					command.Env = append(
+						os.Environ(),
+						"GOFMT_TEST_MODE="+test.mode,
+						"PATH="+fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"),
+					)
+					output, err := command.CombinedOutput()
+					if (err != nil) != test.wantErr {
+						t.Fatalf("Go formatting check error = %v, want error %t\n%s", err, test.wantErr, output)
+					}
+				})
+			}
+		})
 	}
 }
 
@@ -128,6 +235,168 @@ func TestReleaseWorkflowUsesTagOnlyTriggerAndStrictSemverGuard(t *testing.T) {
 	}
 }
 
+func TestReleasePublicationStateClassifiesFreshConsistentConflictAndPartial(t *testing.T) {
+	script := filepath.Join("..", "..", ".github", "scripts", "release-publication-state.sh")
+	expectedSHA := "0123456789abcdef0123456789abcdef01234567"
+	base := map[string]string{
+		"RELEASE_EXPECTED_SHA":       expectedSHA,
+		"RELEASE_GITHUB_STATE":       "absent",
+		"RELEASE_GITHUB_TARGET_SHA":  "",
+		"RELEASE_GITHUB_ASSETS":      "absent",
+		"RELEASE_GHCR_STATE":         "absent",
+		"RELEASE_GHCR_DIGEST":        "absent",
+		"RELEASE_GHCR_REVISION":      "",
+		"RELEASE_DOCKERHUB_STATE":    "absent",
+		"RELEASE_DOCKERHUB_DIGEST":   "absent",
+		"RELEASE_DOCKERHUB_REVISION": "",
+	}
+	clone := func(overrides map[string]string) map[string]string {
+		values := make(map[string]string, len(base))
+		for key, value := range base {
+			values[key] = value
+		}
+		for key, value := range overrides {
+			values[key] = value
+		}
+		return values
+	}
+	run := func(t *testing.T, values map[string]string) (string, error) {
+		t.Helper()
+		command := exec.Command("bash", script)
+		command.Env = []string{"PATH=" + os.Getenv("PATH")}
+		for key, value := range values {
+			command.Env = append(command.Env, key+"="+value)
+		}
+		output, err := command.CombinedOutput()
+		return string(output), err
+	}
+	allPresent := map[string]string{
+		"RELEASE_GITHUB_STATE":       "present",
+		"RELEASE_GITHUB_TARGET_SHA":  expectedSHA,
+		"RELEASE_GITHUB_ASSETS":      "match",
+		"RELEASE_GHCR_STATE":         "present",
+		"RELEASE_GHCR_DIGEST":        "sha256:aaaaaaaa",
+		"RELEASE_GHCR_REVISION":      expectedSHA,
+		"RELEASE_DOCKERHUB_STATE":    "present",
+		"RELEASE_DOCKERHUB_DIGEST":   "sha256:aaaaaaaa",
+		"RELEASE_DOCKERHUB_REVISION": expectedSHA,
+	}
+	present := func(overrides map[string]string) map[string]string {
+		values := clone(allPresent)
+		for key, value := range overrides {
+			values[key] = value
+		}
+		return values
+	}
+
+	for _, test := range []struct {
+		name   string
+		values map[string]string
+		want   string
+	}{
+		{
+			name:   "fresh",
+			values: clone(nil),
+			want:   "publication_state=fresh\nwrite_mode=publish\n",
+		},
+		{
+			name:   "consistent",
+			values: present(nil),
+			want:   "publication_state=consistent\nwrite_mode=verify\n",
+		},
+		{
+			name: "conflict/GitHub target",
+			values: present(map[string]string{
+				"RELEASE_GITHUB_TARGET_SHA": "fedcba9876543210fedcba9876543210fedcba98",
+			}),
+			want: "publication_state=conflict\nwrite_mode=blocked\n",
+		},
+		{
+			name: "conflict/GitHub assets or checksum",
+			values: present(map[string]string{
+				"RELEASE_GITHUB_ASSETS": "mismatch",
+			}),
+			want: "publication_state=conflict\nwrite_mode=blocked\n",
+		},
+		{
+			name: "conflict/GHCR revision",
+			values: present(map[string]string{
+				"RELEASE_GHCR_REVISION": "fedcba9876543210fedcba9876543210fedcba98",
+			}),
+			want: "publication_state=conflict\nwrite_mode=blocked\n",
+		},
+		{
+			name: "conflict/Docker Hub revision",
+			values: present(map[string]string{
+				"RELEASE_DOCKERHUB_REVISION": "fedcba9876543210fedcba9876543210fedcba98",
+			}),
+			want: "publication_state=conflict\nwrite_mode=blocked\n",
+		},
+		{
+			name: "conflict/registry digest",
+			values: present(map[string]string{
+				"RELEASE_DOCKERHUB_DIGEST": "sha256:bbbbbbbb",
+			}),
+			want: "publication_state=conflict\nwrite_mode=blocked\n",
+		},
+		{
+			name: "partial",
+			values: clone(map[string]string{
+				"RELEASE_GITHUB_STATE":      "present",
+				"RELEASE_GITHUB_TARGET_SHA": expectedSHA,
+				"RELEASE_GITHUB_ASSETS":     "match",
+			}),
+			want: "publication_state=partial\nwrite_mode=blocked\n",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			output, err := run(t, test.values)
+			if err != nil {
+				t.Fatalf("classifier rejected legal state: %v\n%s", err, output)
+			}
+			if output != test.want {
+				t.Fatalf("classifier output = %q, want %q", output, test.want)
+			}
+		})
+	}
+
+	for _, test := range []struct {
+		name   string
+		values map[string]string
+	}{
+		{
+			name:   "missing expected sha",
+			values: map[string]string{},
+		},
+		{
+			name: "invalid state enum",
+			values: clone(map[string]string{
+				"RELEASE_GHCR_STATE": "unknown",
+			}),
+		},
+		{
+			name: "absent channel with digest",
+			values: clone(map[string]string{
+				"RELEASE_GHCR_DIGEST": "sha256:aaaaaaaa",
+			}),
+		},
+		{
+			name: "present channel without revision",
+			values: clone(map[string]string{
+				"RELEASE_GHCR_STATE":  "present",
+				"RELEASE_GHCR_DIGEST": "sha256:aaaaaaaa",
+			}),
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			output, err := run(t, test.values)
+			if err == nil {
+				t.Fatalf("classifier accepted invalid input:\n%s", output)
+			}
+		})
+	}
+}
+
 func TestReleaseWorkflowDoesNotRequireUntrackedAgentInstructionFiles(t *testing.T) {
 	content := readRepositoryFile(t, ".github/workflows/release.yml")
 	verifyJob := workflowJobBlock(t, content, "verify-and-build-web")
@@ -177,17 +446,17 @@ func TestReleaseWorkflowBuildsOneWebDistAndFiveVersionedBinaries(t *testing.T) {
 
 func TestReleaseWorkflowGatesSingleReleaseWriterAndImagePublication(t *testing.T) {
 	content := readRepositoryFile(t, ".github/workflows/release.yml")
-	for _, jobName := range []string{"publish-github", "publish-images"} {
-		job := workflowJobBlock(t, content, jobName)
-		for _, dependency := range []string{
-			"verify-and-build-web",
-			"build-binaries",
-			"native-artifact-smoke",
-			"docker-smoke",
-		} {
-			if !strings.Contains(job, dependency) {
-				t.Fatalf("%s does not need %s:\n%s", jobName, dependency, job)
-			}
+	preflight := workflowJobBlock(t, content, "publication-preflight")
+	for _, dependency := range []string{
+		"validate-tag",
+		"verify-and-build-web",
+		"build-binaries",
+		"package-checksums",
+		"native-artifact-smoke",
+		"docker-smoke",
+	} {
+		if !strings.Contains(preflight, dependency) {
+			t.Fatalf("publication preflight does not need %s:\n%s", dependency, preflight)
 		}
 	}
 	if count := strings.Count(content, "softprops/action-gh-release@"); count != 1 {
@@ -204,6 +473,438 @@ func TestReleaseWorkflowGatesSingleReleaseWriterAndImagePublication(t *testing.T
 	}
 }
 
+func TestReleaseWorkflowUsesOneSharedPublicationPreflight(t *testing.T) {
+	content := readRepositoryFile(t, ".github/workflows/release.yml")
+	if count := strings.Count(content, "  publication-preflight:"); count != 1 {
+		t.Fatalf("publication preflight job count = %d, want exactly 1", count)
+	}
+	if strings.Contains(content, "  capture-channel-baseline:") {
+		t.Fatal("release workflow keeps a separate channel-baseline path")
+	}
+
+	preflight := workflowJobBlock(t, content, "publication-preflight")
+	for _, required := range []string{
+		"name: release-assets",
+		"sha256sum --check SHA256SUMS",
+		"git merge-base --is-ancestor",
+		"DOCKERHUB_READ_TOKEN",
+		"DOCKERHUB_TOKEN",
+		"ghcr.io/tbphp/gpt-load:latest",
+		"tbphp/gpt-load:latest",
+		".github/scripts/release-publication-state.sh",
+		"publication_state:",
+		"write_mode:",
+		`test "${write_mode}" != "blocked"`,
+	} {
+		if !strings.Contains(preflight, required) {
+			t.Fatalf("publication preflight does not contain %q:\n%s", required, preflight)
+		}
+	}
+	for _, jobName := range []string{"publish-images", "publish-github"} {
+		job := workflowJobBlock(t, content, jobName)
+		if !strings.Contains(job, "publication-preflight") {
+			t.Fatalf("%s does not depend on the shared preflight:\n%s", jobName, job)
+		}
+	}
+}
+
+func TestReleaseWorkflowUsesTrustedCurrentRunChecksumForExistingRelease(t *testing.T) {
+	content := readRepositoryFile(t, ".github/workflows/release.yml")
+	for _, test := range []struct {
+		job  string
+		step string
+	}{
+		{
+			job:  "publication-preflight",
+			step: "Inventory publication channels",
+		},
+		{
+			job:  "publish-github",
+			step: "Verify existing GitHub Release",
+		},
+	} {
+		step := workflowStepBlock(
+			t,
+			workflowJobBlock(t, content, test.job),
+			test.step,
+		)
+		compare := strings.Index(
+			step,
+			"cmp release/SHA256SUMS existing-release/SHA256SUMS",
+		)
+		trustedCheck := strings.Index(
+			step,
+			"sha256sum --check ../release/SHA256SUMS",
+		)
+		if compare < 0 || trustedCheck < 0 || compare >= trustedCheck {
+			t.Fatalf(
+				"%s does not compare the checksum identity before using the trusted checksum: cmp=%d check=%d\n%s",
+				test.step,
+				compare,
+				trustedCheck,
+				step,
+			)
+		}
+		if strings.Contains(step, "sha256sum --check SHA256SUMS") {
+			t.Fatalf("%s executes the untrusted remote checksum:\n%s", test.step, step)
+		}
+	}
+}
+
+func TestReleaseWorkflowKeepsUntrustedImageRevisionInsideJQComparison(t *testing.T) {
+	content := readRepositoryFile(t, ".github/workflows/release.yml")
+	expectedSHA := "0123456789abcdef0123456789abcdef01234567"
+	validation := workflowMarkedScript(t, content, "release-image-revision-validation")
+	scriptPath := filepath.Join(t.TempDir(), "validate-image-revision.sh")
+	script := "#!/usr/bin/env bash\nset -euo pipefail\n" +
+		"GITHUB_SHA=" + expectedSHA + "\n" +
+		"inspection=\"${RELEASE_TEST_INSPECTION}\"\n" +
+		"revision=mismatch\n" +
+		validation +
+		"printf '%s\\n' \"${revision}\"\n"
+	if err := os.WriteFile(scriptPath, []byte(script), 0o700); err != nil {
+		t.Fatalf("write image revision validation script: %v", err)
+	}
+	inspection := func(amd64, arm64 any) string {
+		value := map[string]any{
+			"image": map[string]any{
+				"linux/amd64": map[string]any{
+					"config": map[string]any{
+						"Labels": map[string]any{
+							"org.opencontainers.image.revision": amd64,
+						},
+					},
+				},
+				"linux/arm64": map[string]any{
+					"config": map[string]any{
+						"Labels": map[string]any{
+							"org.opencontainers.image.revision": arm64,
+						},
+					},
+				},
+			},
+		}
+		encoded, err := json.Marshal(value)
+		if err != nil {
+			t.Fatalf("marshal image inspection: %v", err)
+		}
+		return string(encoded)
+	}
+	for _, test := range []struct {
+		name       string
+		inspection string
+		want       string
+	}{
+		{
+			name:       "exact",
+			inspection: inspection(expectedSHA, expectedSHA),
+			want:       expectedSHA,
+		},
+		{
+			name:       "newline",
+			inspection: inspection(expectedSHA+"\ninjected", expectedSHA),
+			want:       "mismatch",
+		},
+		{
+			name:       "pipe",
+			inspection: inspection(expectedSHA+"|injected", expectedSHA),
+			want:       "mismatch",
+		},
+		{
+			name:       "NUL",
+			inspection: inspection(expectedSHA+"\x00injected", expectedSHA),
+			want:       "mismatch",
+		},
+		{
+			name:       "unequal",
+			inspection: inspection("other", expectedSHA),
+			want:       "mismatch",
+		},
+		{
+			name:       "missing",
+			inspection: `{}`,
+			want:       "mismatch",
+		},
+		{
+			name:       "non-string",
+			inspection: inspection(123, expectedSHA),
+			want:       "mismatch",
+		},
+		{
+			name:       "malformed",
+			inspection: `{`,
+			want:       "mismatch",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			command := exec.Command("bash", scriptPath)
+			command.Env = []string{
+				"PATH=" + os.Getenv("PATH"),
+				"RELEASE_TEST_INSPECTION=" + test.inspection,
+			}
+			output, err := command.Output()
+			if err != nil {
+				t.Fatalf("image revision validation failed: %v", err)
+			}
+			if got := strings.TrimSpace(string(output)); got != test.want {
+				t.Fatalf("revision = %q, want %q", got, test.want)
+			}
+		})
+	}
+
+	inventoryStep := workflowStepBlock(
+		t,
+		workflowJobBlock(t, content, "publication-preflight"),
+		"Inventory publication channels",
+	)
+	functionStart := strings.Index(inventoryStep, "inventory_image() {")
+	functionEnd := strings.Index(inventoryStep, "\n          IFS='|' read -r")
+	if functionStart < 0 || functionEnd <= functionStart {
+		t.Fatalf("cannot isolate inventory_image:\n%s", inventoryStep)
+	}
+	inventoryFunction := inventoryStep[functionStart:functionEnd]
+	for _, required := range []string{
+		"jq -e",
+		`--arg expected "${GITHUB_SHA}"`,
+		`local revision=mismatch`,
+		`revision="${GITHUB_SHA}"`,
+		`linux/amd64`,
+		`linux/arm64`,
+		`org.opencontainers.image.revision`,
+		`. == $expected`,
+	} {
+		if !strings.Contains(inventoryFunction, required) {
+			t.Fatalf("inventory_image does not contain %q:\n%s", required, inventoryFunction)
+		}
+	}
+	for _, forbidden := range []string{
+		"child_revision",
+		`revision="$(`,
+		`revision="${child_revision`,
+	} {
+		if strings.Contains(inventoryFunction, forbidden) {
+			t.Fatalf("inventory_image exposes raw revision via %q:\n%s", forbidden, inventoryFunction)
+		}
+	}
+
+	for _, test := range []struct {
+		job  string
+		step string
+	}{
+		{
+			job:  "publish-images",
+			step: "Verify exact published images",
+		},
+		{
+			job:  "post-publish-verify",
+			step: "Verify published image manifests",
+		},
+	} {
+		step := workflowStepBlock(
+			t,
+			workflowJobBlock(t, content, test.job),
+			test.step,
+		)
+		for _, required := range []string{
+			"jq -e",
+			`--arg expected "${GITHUB_SHA}"`,
+			`linux/amd64`,
+			`linux/arm64`,
+			`org.opencontainers.image.revision`,
+			`. == $expected`,
+		} {
+			if !strings.Contains(step, required) {
+				t.Fatalf("%s does not contain %q:\n%s", test.step, required, step)
+			}
+		}
+		if strings.Contains(step, `revision="$(`) {
+			t.Fatalf("%s transfers a raw revision into shell:\n%s", test.step, step)
+		}
+	}
+}
+
+func TestReleaseWorkflowPublishesImagesBeforeGitHubRelease(t *testing.T) {
+	content := readRepositoryFile(t, ".github/workflows/release.yml")
+	imageJob := workflowJobBlock(t, content, "publish-images")
+	releaseJob := workflowJobBlock(t, content, "publish-github")
+	if strings.Contains(imageJob, "publish-github") {
+		t.Fatalf("image publication depends on GitHub publication:\n%s", imageJob)
+	}
+	for _, dependency := range []string{"publication-preflight", "publish-images"} {
+		if !strings.Contains(releaseJob, dependency) {
+			t.Fatalf("GitHub publication does not need %s:\n%s", dependency, releaseJob)
+		}
+	}
+}
+
+func TestReleaseWorkflowUpdatesAliasesOnlyAfterExactVerification(t *testing.T) {
+	content := readRepositoryFile(t, ".github/workflows/release.yml")
+	imageJob := workflowJobBlock(t, content, "publish-images")
+	exactVerification := strings.Index(imageJob, "name: Verify exact published images")
+	aliasUpdate := strings.Index(imageJob, "name: Update stable major and minor aliases")
+	if exactVerification < 0 || aliasUpdate < 0 || exactVerification >= aliasUpdate {
+		t.Fatalf(
+			"alias update is not ordered after exact verification: exact=%d alias=%d\n%s",
+			exactVerification,
+			aliasUpdate,
+			imageJob,
+		)
+	}
+	exactStep := workflowStepBlock(t, imageJob, "Verify exact published images")
+	for _, required := range []string{
+		"linux/amd64",
+		"linux/arm64",
+		"org.opencontainers.image.revision",
+		"GITHUB_SHA",
+		"ghcr_exact_digest",
+		"dockerhub_exact_digest",
+		`test "${ghcr_exact_digest}" = "${dockerhub_exact_digest}"`,
+	} {
+		if !strings.Contains(exactStep, required) {
+			t.Fatalf("exact image verification does not contain %q:\n%s", required, exactStep)
+		}
+	}
+	metadataStep := workflowStepBlock(t, imageJob, "Generate exact image metadata")
+	if !strings.Contains(metadataStep, "needs.validate-tag.outputs.image_exact") {
+		t.Fatalf("exact image metadata does not contain the exact tag:\n%s", metadataStep)
+	}
+	for _, forbidden := range []string{
+		"needs.validate-tag.outputs.image_minor",
+		"needs.validate-tag.outputs.image_major",
+		"latest",
+	} {
+		if strings.Contains(metadataStep, forbidden) {
+			t.Fatalf("exact image metadata contains non-exact tag %q:\n%s", forbidden, metadataStep)
+		}
+	}
+	aliasStep := workflowStepBlock(t, imageJob, "Update stable major and minor aliases")
+	for _, required := range []string{
+		"needs.publication-preflight.outputs.write_mode == 'publish'",
+		"needs.validate-tag.outputs.prerelease == 'false'",
+		"docker buildx imagetools create",
+		"image_minor",
+		"image_major",
+	} {
+		if !strings.Contains(aliasStep, required) {
+			t.Fatalf("alias update does not contain %q:\n%s", required, aliasStep)
+		}
+	}
+	if strings.Contains(strings.ToLower(aliasStep), "latest") {
+		t.Fatalf("alias update writes latest:\n%s", aliasStep)
+	}
+}
+
+func TestReleaseWorkflowConsistentRerunIsVerifyOnly(t *testing.T) {
+	content := readRepositoryFile(t, ".github/workflows/release.yml")
+	for _, test := range []struct {
+		job  string
+		step string
+		call string
+	}{
+		{
+			job:  "publish-images",
+			step: "Build and publish exact multi-platform images",
+			call: "docker/build-push-action@v7",
+		},
+		{
+			job:  "publish-github",
+			step: "Publish one GitHub Release",
+			call: "softprops/action-gh-release@v2",
+		},
+	} {
+		job := workflowJobBlock(t, content, test.job)
+		step := workflowStepBlock(t, job, test.step)
+		for _, required := range []string{
+			"needs.publication-preflight.outputs.write_mode == 'publish'",
+			test.call,
+		} {
+			if !strings.Contains(step, required) {
+				t.Fatalf("%s write step does not contain %q:\n%s", test.job, required, step)
+			}
+		}
+	}
+
+	imageVerification := workflowStepBlock(
+		t,
+		workflowJobBlock(t, content, "publish-images"),
+		"Verify exact published images",
+	)
+	if strings.Contains(imageVerification, "write_mode == 'publish'") {
+		t.Fatalf("exact image verification is disabled in consistent mode:\n%s", imageVerification)
+	}
+	releaseVerification := workflowStepBlock(
+		t,
+		workflowJobBlock(t, content, "publish-github"),
+		"Verify existing GitHub Release",
+	)
+	if !strings.Contains(releaseVerification, "write_mode == 'verify'") {
+		t.Fatalf("consistent GitHub writer does not use verify-only mode:\n%s", releaseVerification)
+	}
+}
+
+func TestReleaseWorkflowAlwaysReconcilesWriterAndPostPublishResults(t *testing.T) {
+	content := readRepositoryFile(t, ".github/workflows/release.yml")
+	job := workflowJobBlock(t, content, "reconcile-publication")
+	if !strings.Contains(job, "if: ${{ always() }}") {
+		t.Fatalf("publication reconciliation does not always run:\n%s", job)
+	}
+	for _, dependency := range []string{
+		"publication-preflight",
+		"publish-images",
+		"publish-github",
+		"post-publish-native-smoke",
+		"post-publish-verify",
+	} {
+		if !strings.Contains(job, dependency) {
+			t.Fatalf("publication reconciliation does not need %s:\n%s", dependency, job)
+		}
+	}
+	for _, result := range []string{
+		"needs.publication-preflight.result",
+		"needs.publish-images.result",
+		"needs.publish-github.result",
+		"needs.post-publish-native-smoke.result",
+		"needs.post-publish-verify.result",
+	} {
+		if !strings.Contains(job, result) {
+			t.Fatalf("publication reconciliation does not summarize %s:\n%s", result, job)
+		}
+	}
+}
+
+func TestReleaseWorkflowReconciliationIsReadOnly(t *testing.T) {
+	content := readRepositoryFile(t, ".github/workflows/release.yml")
+	job := workflowJobBlock(t, content, "reconcile-publication")
+	for _, required := range []string{
+		"contents: read",
+		"packages: read",
+		"DOCKERHUB_READ_TOKEN",
+		"manual recovery",
+		"gh release view",
+		".github/scripts/release-image-digest.sh",
+	} {
+		if !strings.Contains(job, required) {
+			t.Fatalf("publication reconciliation does not contain %q:\n%s", required, job)
+		}
+	}
+	lower := strings.ToLower(job)
+	for _, forbidden := range []string{
+		"contents: write",
+		"packages: write",
+		"softprops/action-gh-release",
+		"docker/build-push-action",
+		"buildx imagetools create",
+		"gh release delete",
+		"gh release create",
+		"gh release upload",
+		"docker push",
+	} {
+		if strings.Contains(lower, forbidden) {
+			t.Fatalf("publication reconciliation contains write/delete operation %q:\n%s", forbidden, job)
+		}
+	}
+}
+
 func TestReleaseWorkflowPublishesStable2xTagsWithoutLatest(t *testing.T) {
 	content := readRepositoryFile(t, ".github/workflows/release.yml")
 	imageJob := workflowJobBlock(t, content, "publish-images")
@@ -215,8 +916,9 @@ func TestReleaseWorkflowPublishesStable2xTagsWithoutLatest(t *testing.T) {
 		"docker/build-push-action@v7",
 		"linux/amd64,linux/arm64",
 		`value=${{ needs.validate-tag.outputs.image_exact }}`,
-		`value=${{ needs.validate-tag.outputs.image_minor }}`,
-		`value=${{ needs.validate-tag.outputs.image_major }}`,
+		"docker buildx imagetools create",
+		`needs.validate-tag.outputs.image_minor`,
+		`needs.validate-tag.outputs.image_major`,
 	} {
 		if !strings.Contains(imageJob, required) {
 			t.Fatalf("image publication job does not contain %q:\n%s", required, imageJob)
@@ -236,6 +938,9 @@ func TestReleaseWorkflowIncludesCompleteS5NotesAndCSPWithinE2E(t *testing.T) {
 		"https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/README.md#public-operations-baseline",
 		"five raw binaries",
 		"SHA256SUMS",
+		"Stop cleanly",
+		"`-wal`/`-shm`",
+		"recovery set",
 		"missing",
 		"partial",
 		"unpriced",
@@ -450,7 +1155,7 @@ func TestReleaseWorkflowPostPublishDownloadsExactAssetsAndRunsFiveNativeSmokes(t
 
 func TestReleaseWorkflowRunsBothPublishedImagesAndPreservesLatest(t *testing.T) {
 	content := readRepositoryFile(t, ".github/workflows/release.yml")
-	snapshotJob := workflowJobBlock(t, content, "capture-channel-baseline")
+	snapshotJob := workflowJobBlock(t, content, "publication-preflight")
 	for _, required := range []string{
 		"ghcr_latest_digest",
 		"dockerhub_latest_digest",
@@ -464,13 +1169,13 @@ func TestReleaseWorkflowRunsBothPublishedImagesAndPreservesLatest(t *testing.T) 
 	}
 
 	imagePublication := workflowJobBlock(t, content, "publish-images")
-	if !strings.Contains(imagePublication, "capture-channel-baseline") {
+	if !strings.Contains(imagePublication, "publication-preflight") {
 		t.Fatal("image publication is not ordered after the latest digest snapshot")
 	}
 
 	postPublish := workflowJobBlock(t, content, "post-publish-verify")
 	for _, required := range []string{
-		"capture-channel-baseline",
+		"publication-preflight",
 		"RELEASE_SMOKE_SOURCE_IMAGE",
 		`ghcr.io/tbphp/gpt-load:${{ needs.validate-tag.outputs.image_exact }}`,
 		`tbphp/gpt-load:${{ needs.validate-tag.outputs.image_exact }}`,
@@ -484,8 +1189,8 @@ func TestReleaseWorkflowRunsBothPublishedImagesAndPreservesLatest(t *testing.T) 
 		}
 	}
 	for name, block := range map[string]string{
-		"capture-channel-baseline": snapshotJob,
-		"post-publish-verify":      postPublish,
+		"publication-preflight": snapshotJob,
+		"post-publish-verify":   postPublish,
 	} {
 		for _, required := range []string{
 			"Log in to Docker Hub",
@@ -500,14 +1205,37 @@ func TestReleaseWorkflowRunsBothPublishedImagesAndPreservesLatest(t *testing.T) 
 			t.Fatalf("%s exposes the Docker Hub write token to a read-only job", name)
 		}
 	}
-	if !strings.Contains(
+	imageReadLogin := workflowStepBlock(
+		t,
 		imagePublication,
-		"password: ${{ secrets.DOCKERHUB_TOKEN }}",
-	) {
-		t.Fatal("image publication does not use the Docker Hub write token")
+		"Log in to Docker Hub for exact verification",
+	)
+	for _, required := range []string{
+		"write_mode == 'verify'",
+		"password: ${{ secrets.DOCKERHUB_READ_TOKEN }}",
+	} {
+		if !strings.Contains(imageReadLogin, required) {
+			t.Fatalf("consistent image verification login does not contain %q", required)
+		}
 	}
-	if strings.Contains(imagePublication, "DOCKERHUB_READ_TOKEN") {
-		t.Fatal("image publication unexpectedly uses the Docker Hub read-only token")
+	if strings.Contains(imageReadLogin, "DOCKERHUB_TOKEN }}") {
+		t.Fatal("consistent image verification receives the Docker Hub write token")
+	}
+	imageWriteLogin := workflowStepBlock(
+		t,
+		imagePublication,
+		"Log in to Docker Hub for publication",
+	)
+	for _, required := range []string{
+		"write_mode == 'publish'",
+		"password: ${{ secrets.DOCKERHUB_TOKEN }}",
+	} {
+		if !strings.Contains(imageWriteLogin, required) {
+			t.Fatalf("fresh image publication login does not contain %q", required)
+		}
+	}
+	if strings.Contains(imageWriteLogin, "DOCKERHUB_READ_TOKEN") {
+		t.Fatal("fresh image publication unexpectedly uses the Docker Hub read-only token")
 	}
 	if !strings.Contains(
 		postPublish,
@@ -677,6 +1405,67 @@ func workflowJobBlock(t *testing.T, content, name string) string {
 		}
 	}
 	return strings.Join(lines[start:end], "\n")
+}
+
+func workflowStepBlock(t *testing.T, job, name string) string {
+	t.Helper()
+	lines := strings.Split(job, "\n")
+	start := -1
+	for index, line := range lines {
+		if line == "      - name: "+name {
+			start = index
+			break
+		}
+	}
+	if start < 0 {
+		t.Fatalf("workflow job does not contain step %s", name)
+	}
+	end := len(lines)
+	for index := start + 1; index < len(lines); index++ {
+		if strings.HasPrefix(lines[index], "      - name: ") {
+			end = index
+			break
+		}
+	}
+	return strings.Join(lines[start:end], "\n")
+}
+
+func assertWorkflowGateStep(t *testing.T, job, name, wantRun string) {
+	t.Helper()
+	step := strings.TrimSuffix(workflowStepBlock(t, job, name), "\n")
+	want := "      - name: " + name + "\n        run: " + wantRun
+	if step != want {
+		t.Fatalf("workflow gate %s block does not match strict allowlist:\ngot:\n%s\nwant:\n%s", name, step, want)
+	}
+}
+
+func workflowGoFormattingScript(t *testing.T, content, job string) string {
+	t.Helper()
+	const marker = "go-format-check"
+	startMarker := "# " + marker + ":start"
+	endMarker := "# " + marker + ":end"
+	jobBlock := workflowJobBlock(t, content, job)
+	step := workflowStepBlock(t, jobBlock, "Check Go formatting")
+	for scope, block := range map[string]string{
+		"formatting step": step,
+		"workflow":        content,
+	} {
+		if startCount, endCount := strings.Count(block, startMarker), strings.Count(block, endMarker); startCount != 1 || endCount != 1 {
+			t.Fatalf("%s contains format markers start=%d end=%d, want exactly one pair", scope, startCount, endCount)
+		}
+	}
+	want := strings.Join([]string{
+		"      - name: Check Go formatting",
+		"        run: |",
+		"          # go-format-check:start",
+		`          formatted_files="$(gofmt -l .)"`,
+		`          test -z "${formatted_files}"`,
+		"          # go-format-check:end",
+	}, "\n")
+	if got := strings.TrimSuffix(step, "\n"); got != want {
+		t.Fatalf("workflow %s formatting step does not match strict allowlist:\ngot:\n%s\nwant:\n%s", job, got, want)
+	}
+	return workflowMarkedScript(t, step, marker)
 }
 
 func workflowMarkedScript(t *testing.T, content, marker string) string {

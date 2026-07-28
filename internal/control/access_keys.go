@@ -106,6 +106,9 @@ func (s *Service) CreateAccessKey(
 	if err != nil {
 		return AccessKeyResponse{}, err
 	}
+	if err := validateAccessKeyProtocolsForCreate(filters.Protocols); err != nil {
+		return AccessKeyResponse{}, err
+	}
 	rpmLimit, err := normalizeRPMLimit(request.RPMLimit, 0)
 	if err != nil {
 		return AccessKeyResponse{}, err
@@ -216,6 +219,11 @@ func (s *Service) UpdateAccessKey(
 		if err != nil {
 			return fmt.Errorf("decode access key %d filters: %w", row.ID, err)
 		}
+		if filters != nil {
+			if err := validateAccessKeyProtocolUpdate(currentFilters.Protocols, filters.Protocols); err != nil {
+				return err
+			}
+		}
 		status := state.AccessKeyStatus(row.Status)
 		if status != state.AccessKeyStatusActive && status != state.AccessKeyStatusDisabled {
 			return fmt.Errorf("access key %d has invalid status", row.ID)
@@ -270,6 +278,34 @@ func (s *Service) DeleteAccessKey(ctx context.Context, id uint) error {
 		return nil
 	}, nil)
 	return err
+}
+
+func validateAccessKeyProtocolsForCreate(values []protocol.Protocol) error {
+	for _, value := range values {
+		if !value.DataPlaneEnabled() {
+			return app_errors.ErrValidation
+		}
+	}
+	return nil
+}
+
+func validateAccessKeyProtocolUpdate(
+	current []protocol.Protocol,
+	requested []protocol.Protocol,
+) error {
+	currentSet := make(map[protocol.Protocol]struct{}, len(current))
+	for _, value := range current {
+		currentSet[value] = struct{}{}
+	}
+	for _, value := range requested {
+		if value.DataPlaneEnabled() {
+			continue
+		}
+		if _, exists := currentSet[value]; !exists {
+			return app_errors.ErrValidation
+		}
+	}
+	return nil
 }
 
 func normalizeAccessKeyName(raw string) (string, error) {

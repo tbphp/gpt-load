@@ -24,34 +24,58 @@ var (
 	errStreamIdleTimeout     = errors.New("upstream stream idle timeout")
 )
 
-func bufferFirstSSEEvent(reader io.Reader) ([]byte, error) {
+type firstSSEEvent struct {
+	Prefix          []byte
+	Payload         []byte
+	IsProviderError bool
+}
+
+func bufferFirstSSEEvent(reader io.Reader) (firstSSEEvent, error) {
 	if reader == nil {
-		return nil, fmt.Errorf("stream reader is required")
+		return firstSSEEvent{}, fmt.Errorf("stream reader is required")
 	}
 
-	scanner := &sseEventScanner{}
+	scanner := &sseEventScanner{hardLimit: maxFirstSSEEventBytes}
 	var buffered bytes.Buffer
 	chunk := make([]byte, streamReadBufferSize)
 	for {
 		remaining := maxFirstSSEEventBytes - buffered.Len()
 		if remaining == 0 {
-			return nil, errFirstSSEEventTooLarge
+			if !scanner.pendingEvent {
+				return firstSSEEvent{}, errFirstSSEEventTooLarge
+			}
+			remaining = 1
 		}
+		bufferedBeforeRead := buffered.Len()
 		read, err := reader.Read(chunk[:min(len(chunk), remaining)])
 		if read > 0 {
 			_, _ = buffered.Write(chunk[:read])
-			if _, found := scanner.Feed(chunk[:read]); found {
-				return buffered.Bytes(), nil
+			if boundary, found := scanner.Feed(chunk[:read]); found {
+				if bufferedBeforeRead+boundary > maxFirstSSEEventBytes {
+					return firstSSEEvent{}, errFirstSSEEventTooLarge
+				}
+				return firstSSEEvent{
+					Prefix:          buffered.Bytes(),
+					Payload:         scanner.payload(),
+					IsProviderError: scanner.isProviderError(),
+				}, nil
 			}
-			if buffered.Len() == maxFirstSSEEventBytes {
-				return nil, errFirstSSEEventTooLarge
+			if buffered.Len() == maxFirstSSEEventBytes && !scanner.pendingEvent {
+				return firstSSEEvent{}, errFirstSSEEventTooLarge
 			}
 		}
 		if err != nil {
 			if errors.Is(err, io.EOF) {
-				return buffered.Bytes(), errIncompleteSSEEvent
+				if scanner.finishAtEOF() {
+					return firstSSEEvent{
+						Prefix:          buffered.Bytes(),
+						Payload:         scanner.payload(),
+						IsProviderError: scanner.isProviderError(),
+					}, nil
+				}
+				return firstSSEEvent{Prefix: buffered.Bytes()}, errIncompleteSSEEvent
 			}
-			return buffered.Bytes(), fmt.Errorf("read first SSE event: %w", err)
+			return firstSSEEvent{Prefix: buffered.Bytes()}, fmt.Errorf("read first SSE event: %w", err)
 		}
 	}
 }
@@ -233,6 +257,13 @@ func commitStream(writer *streamWriteController, status int, headers http.Header
 	return nil
 }
 
+type streamWatchdogController interface {
+	reset()
+	interrupt(error)
+	stop()
+	causeValue() error
+}
+
 func pumpStream(ctx context.Context, body io.ReadCloser, writer *streamWriteController, idleTimeout time.Duration) error {
 	if body == nil || writer == nil || writer.writer == nil {
 		return fmt.Errorf("stream body and downstream writer are required")
@@ -242,6 +273,15 @@ func pumpStream(ctx context.Context, body io.ReadCloser, writer *streamWriteCont
 	}
 
 	watchdog := newStreamWatchdog(body, idleTimeout)
+	return pumpStreamWithWatchdog(ctx, body, writer, watchdog)
+}
+
+func pumpStreamWithWatchdog(
+	ctx context.Context,
+	body io.ReadCloser,
+	writer *streamWriteController,
+	watchdog streamWatchdogController,
+) error {
 	watchdog.reset()
 	stopCancellation := context.AfterFunc(ctx, func() {
 		watchdog.interrupt(ctx.Err())

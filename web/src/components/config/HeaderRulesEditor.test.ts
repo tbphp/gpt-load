@@ -20,6 +20,19 @@ function mountEditor(initial = { set: {}, remove: [] as string[] }, disabled = f
 }
 
 describe('HeaderRulesEditor', () => {
+  it('explains plaintext storage and requires the API key template', () => {
+    const wrapper = mountEditor({ set: { 'X-Test': 'ordinary' }, remove: [] })
+
+    const notice = wrapper.get('[data-test="header-rules-storage-notice"]').text()
+    expect(notice).toContain('Password masking')
+    expect(notice).toContain('not encryption at rest')
+    expect(notice).toContain('plaintext in SQLite and backups')
+    expect(notice).toContain('Provider credential headers')
+    expect(notice).toContain('${API_KEY}')
+    expect(wrapper.get('[data-test="header-value"]').attributes('type')).toBe('password')
+    wrapper.unmount()
+  })
+
   it('emits structured Set and Remove rules and masks every Set value by default', async () => {
     const wrapper = mountEditor()
     await wrapper.get('[data-test="add-header-rule"]').trigger('click')

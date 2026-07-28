@@ -142,6 +142,9 @@ function setValue(row: RuleRow, event: Event): void {
       <div>
         <h3>{{ t('import.headerRules.title') }}</h3>
         <p>{{ t('import.headerRules.description') }}</p>
+        <p data-test="header-rules-storage-notice">
+          {{ t('import.headerRules.storageNotice', { template: '${API_KEY}' }) }}
+        </p>
       </div>
       <button
         data-test="add-header-rule"
