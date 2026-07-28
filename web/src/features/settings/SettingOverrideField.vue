@@ -37,6 +37,7 @@ function updateValue(event: Event): void {
     </div>
     <label class="setting-override-field__toggle">
       <input
+        :id="`settings-override-${settingKey}`"
         :data-test="`override-${settingKey}`"
         type="checkbox"
         :checked="owned"
@@ -48,6 +49,7 @@ function updateValue(event: Event): void {
     <label v-if="owned" class="setting-override-field__input">
       <span class="sr-only">{{ label }}</span>
       <input
+        :id="`settings-value-${settingKey}`"
         :data-test="`value-${settingKey}`"
         type="number"
         step="1"
@@ -56,9 +58,15 @@ function updateValue(event: Event): void {
         :value="modelValue"
         :disabled="disabled"
         :aria-invalid="error ? 'true' : undefined"
+        :aria-describedby="error ? `settings-error-${settingKey}` : undefined"
         @input="updateValue"
       />
-      <small v-if="error" :data-test="`error-${settingKey}`" class="setting-override-field__error">
+      <small
+        v-if="error"
+        :id="`settings-error-${settingKey}`"
+        :data-test="`error-${settingKey}`"
+        class="setting-override-field__error"
+      >
         {{ error }}
       </small>
     </label>

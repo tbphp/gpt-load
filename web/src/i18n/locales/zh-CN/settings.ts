@@ -7,6 +7,18 @@ export default {
     stale: '后台刷新失败，运行设置可能已过期。',
     save: '保存变更',
     saved: '设置已保存。',
+    savedAt: '设置已于 {time} 保存。',
+    saveFailed: '无法更新运行设置，输入内容已保留。',
+    discard: '放弃更改',
+    dirtySummary: '{count} 项运行设置尚未保存',
+    navigation: {
+      label: '运行设置分区',
+      request: '请求与转发',
+      logs: '日志与维护',
+    },
+    validation: {
+      title: '保存前请修正以下设置：',
+    },
     effectiveValue: '当前有效值：{value}',
     override: '显式覆盖',
     default: '代码默认值',
