@@ -8,24 +8,18 @@ html {
   min-width: 320px;
   min-height: 100%;
   scroll-padding-top: 80px;
-  background: var(--color-page);
+  background: var(--color-canvas);
 }
 
 body {
   min-width: 320px;
   min-height: 100vh;
   margin: 0;
-  background: var(--color-page);
+  background: var(--color-canvas);
   color: var(--color-text);
-  font-family:
-    ui-sans-serif,
-    system-ui,
-    -apple-system,
-    BlinkMacSystemFont,
-    'Segoe UI',
-    sans-serif;
-  font-size: 14px;
-  line-height: 1.6;
+  font-family: var(--font-sans);
+  font-size: var(--text-md);
+  line-height: var(--line-relaxed);
   text-rendering: optimizeLegibility;
 }
 
@@ -45,7 +39,7 @@ a {
 
 :focus-visible {
   border-radius: var(--radius-tag);
-  outline: 2px solid var(--color-primary);
+  outline: 2px solid var(--color-focus);
   outline-offset: 2px;
   box-shadow: var(--focus-ring);
 }
@@ -145,7 +139,7 @@ a {
 }
 
 .page-content {
-  width: min(100% - 40px, 1280px);
+  width: min(calc(100% - (2 * var(--page-gutter))), var(--content-max));
   margin: 0 auto;
   padding: 18px 0;
 }
