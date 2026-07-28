@@ -57,6 +57,9 @@ export function validateVisualRunnerLock(lock) {
       fail(`missing runtime ${field}`)
     }
   }
+  if (!/^pnpm@\d+\.\d+\.\d+$/.test(lock.runtime.package_manager)) {
+    fail('package manager must pin an exact pnpm version')
+  }
   for (const browser of ['chromium', 'webkit']) {
     if (
       typeof lock.browsers?.[browser]?.revision !== 'string' ||

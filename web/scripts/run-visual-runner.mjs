@@ -240,6 +240,7 @@ async function runContainerSuite(contract, platform, workspace, browser, spec) {
     'bash',
     '-lc',
     [
+      `corepack install --global ${contract.lock.runtime.package_manager}`,
       'corepack pnpm --dir /workspace/web install --frozen-lockfile',
       `corepack pnpm --dir /workspace/web run test:e2e ${spec} --project=${browser}`,
     ].join(' && '),

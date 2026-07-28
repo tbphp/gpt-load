@@ -112,5 +112,8 @@ describe('visual runner contract', () => {
     expect(readFileSync(runner, 'utf8')).not.toContain(
       'candidate execution requires the deterministic Phase 5 scenario suite',
     )
+    expect(readFileSync(runner, 'utf8')).toContain(
+      'corepack install --global ${contract.lock.runtime.package_manager}',
+    )
   })
 })
