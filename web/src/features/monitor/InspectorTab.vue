@@ -510,7 +510,6 @@ onBeforeUnmount(() => {
   gap: var(--space-4);
 }
 
-.inspector-form-card,
 .inspector-result {
   display: grid;
   min-width: 0;
@@ -545,10 +544,8 @@ onBeforeUnmount(() => {
   color: var(--color-text-muted);
 }
 
-.inspector-boundary,
 .inspector-input-changed,
-.inspector-complete-empty,
-.inspector-inline-error {
+.inspector-complete-empty {
   margin: 0;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-control);
@@ -561,39 +558,6 @@ onBeforeUnmount(() => {
   border-color: var(--color-warning);
   background: var(--color-warning-bg);
   color: var(--color-text);
-}
-
-.inspector-inline-error {
-  border-color: var(--color-danger);
-  background: var(--color-danger-bg);
-  color: var(--color-text);
-}
-
-.inspector-form {
-  display: grid;
-  grid-template-columns: minmax(150px, 0.8fr) minmax(220px, 1.4fr) minmax(220px, 1.2fr) auto;
-  align-items: end;
-  gap: var(--space-3);
-}
-
-.inspector-form > * {
-  min-width: 0;
-}
-
-.inspector-form :deep(.app-select__trigger) {
-  width: 100%;
-}
-
-.inspector-form input {
-  width: 100%;
-  min-height: 44px;
-  border: 1px solid var(--color-border-control);
-  border-radius: var(--radius-control);
-  background: var(--color-surface-secondary);
-  color: var(--color-text);
-  padding: 8px 10px;
-  font: inherit;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
 .inspector-meta,
@@ -690,10 +654,6 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 960px) {
-  .inspector-form {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
   .inspector-facts,
   .inspector-key-facts {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -701,7 +661,6 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 640px) {
-  .inspector-form,
   .inspector-facts,
   .inspector-key-facts,
   .inspector-facts--compact {

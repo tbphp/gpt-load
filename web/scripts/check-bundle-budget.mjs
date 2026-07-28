@@ -49,6 +49,117 @@ export function collectStaticAssets(manifest, roots) {
   }
 }
 
+function collectDynamicRoots(manifest, roots, boundaryEntries) {
+  const visitedEntries = new Set()
+  const dynamicRoots = new Set()
+
+  function visit(key) {
+    if (visitedEntries.has(key) || boundaryEntries.has(key)) return
+    const entry = manifest[key]
+    if (!entry) throw new Error(`bundle manifest entry not found: ${key}`)
+    visitedEntries.add(key)
+    for (const dependency of entry.imports ?? []) visit(dependency)
+    for (const dependency of entry.dynamicImports ?? []) {
+      dynamicRoots.add(dependency)
+      visit(dependency)
+    }
+  }
+
+  for (const root of roots) visit(root)
+  return [...dynamicRoots].sort()
+}
+
+function difference(values, excluded) {
+  const excludedValues = new Set(excluded)
+  return values.filter((value) => !excludedValues.has(value))
+}
+
+export function collectRouteAssets(manifest, initialRoots, lazyOriginRoots) {
+  const initial = collectStaticAssets(manifest, initialRoots)
+  const lazyOrigins = new Set(lazyOriginRoots)
+  const boundaryEntries = new Set(
+    collectStaticAssets(
+      manifest,
+      initialRoots.filter((root) => !lazyOrigins.has(root)),
+    ).entries,
+  )
+  const lazyRoots = collectDynamicRoots(manifest, lazyOriginRoots, boundaryEntries)
+  const lazyGraph = collectStaticAssets(manifest, lazyRoots)
+
+  return {
+    initial,
+    lazy: {
+      roots: lazyRoots,
+      entries: difference(lazyGraph.entries, initial.entries),
+      javascript: difference(lazyGraph.javascript, initial.javascript),
+      css: difference(lazyGraph.css, initial.css),
+    },
+  }
+}
+
+export function findUntrackedRouteSources(manifest, trackedSources) {
+  const tracked = new Set(trackedSources)
+  return Object.entries(manifest)
+    .filter(([, entry]) => entry.isDynamicEntry === true)
+    .map(([key, entry]) => entry.src ?? key)
+    .filter((source) => /^src\/features\/.+View\.vue$/.test(source) && !tracked.has(source))
+    .sort()
+}
+
+export function collectDuplicateLargeAssets(assets, minimumRawBytes) {
+  const byDigest = new Map()
+  for (const asset of assets) {
+    if (asset.raw < minimumRawBytes) continue
+    const paths = byDigest.get(asset.sha256) ?? []
+    paths.push(asset.path)
+    byDigest.set(asset.sha256, paths)
+  }
+  return [...byDigest.values()]
+    .filter((paths) => paths.length > 1)
+    .map((paths) => paths.sort())
+    .sort((left, right) => left[0].localeCompare(right[0]))
+}
+
+function regressionCeiling(baseline, policy) {
+  const allowance = Math.min(Math.ceil(baseline * policy.relative), policy.absolute_bytes)
+  return baseline + allowance
+}
+
+export function collectRouteBudgetFailures(routes, lock) {
+  const failures = []
+  const actualNames = Object.keys(routes).sort()
+  const lockedNames = Object.keys(lock.routes ?? {}).sort()
+
+  for (const name of actualNames.filter((candidate) => !lockedNames.includes(candidate))) {
+    failures.push(`${name} route is missing from bundle budget lock`)
+  }
+  for (const name of lockedNames.filter((candidate) => !actualNames.includes(candidate))) {
+    failures.push(`${name} locked route is missing from bundle report`)
+  }
+
+  for (const name of actualNames.filter((candidate) => lockedNames.includes(candidate))) {
+    for (const phase of ['initial', 'lazy']) {
+      for (const assetType of ['javascript', 'css']) {
+        for (const encoding of ['gzip', 'brotli']) {
+          const actual = routes[name][phase].totals[assetType][encoding]
+          const baseline = lock.routes[name]?.[phase]?.[assetType]?.[encoding]
+          if (!Number.isSafeInteger(baseline) || baseline < 0) {
+            failures.push(`${name} ${phase} ${assetType} ${encoding} lock is invalid`)
+            continue
+          }
+          const ceiling = regressionCeiling(baseline, lock.regression_policy)
+          if (actual > ceiling) {
+            failures.push(
+              `${name} ${phase} ${assetType} ${encoding} ${actual} > regression ceiling ${ceiling}`,
+            )
+          }
+        }
+      }
+    }
+  }
+  return failures
+}
+
 export function collectLazyCSSAssets(manifest, entry) {
   const initialCSS = new Set(collectStaticAssets(manifest, [entry]).css)
   return [
@@ -116,51 +227,93 @@ async function run() {
   const core = findManifestKey(manifest, 'src/i18n/locales/en-US/core.ts')
   const routeDefinitions = {
     Home: {
-      sources: ['src/features/home/HomeView.vue'],
+      view: 'src/features/home/HomeView.vue',
+      messages: [],
     },
     Login: {
-      sources: ['src/features/auth/LoginView.vue'],
+      view: 'src/features/auth/LoginView.vue',
+      messages: [],
+    },
+    Import: {
+      view: 'src/features/import/ImportView.vue',
+      messages: ['src/i18n/locales/en-US/import.ts'],
+    },
+    GroupDetail: {
+      view: 'src/features/groups/GroupDetailView.vue',
+      messages: ['src/i18n/locales/en-US/group.ts', 'src/i18n/locales/en-US/import.ts'],
     },
     AccessKeys: {
-      sources: [
-        'src/features/access-keys/AccessKeysView.vue',
-        'src/i18n/locales/en-US/access-keys.ts',
-      ],
+      view: 'src/features/access-keys/AccessKeysView.vue',
+      messages: ['src/i18n/locales/en-US/access-keys.ts'],
     },
     Usage: {
-      sources: ['src/features/monitor/MonitorView.vue', 'src/i18n/locales/en-US/monitor.ts'],
+      view: 'src/features/monitor/MonitorView.vue',
+      messages: ['src/i18n/locales/en-US/monitor.ts'],
+    },
+    Settings: {
+      view: 'src/features/settings/SettingsView.vue',
+      messages: [
+        'src/i18n/locales/en-US/settings.ts',
+        'src/i18n/locales/en-US/model-prices.ts',
+        'src/i18n/locales/en-US/import.ts',
+      ],
     },
     ModelPrices: {
-      sources: [
-        'src/features/model-prices/ModelPricesView.vue',
-        'src/i18n/locales/en-US/model-prices.ts',
-      ],
+      view: 'src/features/model-prices/ModelPricesView.vue',
+      messages: ['src/i18n/locales/en-US/model-prices.ts'],
+    },
+    NotFound: {
+      view: 'src/features/not-found/NotFoundView.vue',
+      messages: [],
     },
   }
   const assetMetrics = new Map()
   async function metric(path) {
     if (!assetMetrics.has(path)) {
       const bytes = await readFile(join(distRoot, path))
-      assetMetrics.set(path, { path, ...canonicalCompress(bytes) })
+      assetMetrics.set(path, {
+        path,
+        sha256: createHash('sha256').update(bytes).digest('hex'),
+        ...canonicalCompress(bytes),
+      })
     }
     return assetMetrics.get(path)
   }
 
   const routes = {}
   for (const [name, definition] of Object.entries(routeDefinitions)) {
+    const view = findManifestKey(manifest, definition.view)
     const roots = [
       entry,
       core,
-      ...definition.sources.map((source) => findManifestKey(manifest, source)),
+      view,
+      ...definition.messages.map((source) => findManifestKey(manifest, source)),
     ]
-    const graph = collectStaticAssets(manifest, roots)
-    const javascript = await Promise.all(graph.javascript.map(metric))
-    const css = await Promise.all(graph.css.map(metric))
+    const graph = collectRouteAssets(manifest, roots, [view])
+    const initialJavaScript = await Promise.all(graph.initial.javascript.map(metric))
+    const initialCSS = await Promise.all(graph.initial.css.map(metric))
+    const lazyJavaScript = await Promise.all(graph.lazy.javascript.map(metric))
+    const lazyCSS = await Promise.all(graph.lazy.css.map(metric))
     routes[name] = {
-      roots,
-      entries: graph.entries,
-      assets: { javascript, css },
-      totals: { javascript: sumAssets(javascript), css: sumAssets(css) },
+      sources: { view: definition.view, messages: definition.messages },
+      initial: {
+        roots,
+        entries: graph.initial.entries,
+        assets: { javascript: initialJavaScript, css: initialCSS },
+        totals: {
+          javascript: sumAssets(initialJavaScript),
+          css: sumAssets(initialCSS),
+        },
+      },
+      lazy: {
+        roots: graph.lazy.roots,
+        entries: graph.lazy.entries,
+        assets: { javascript: lazyJavaScript, css: lazyCSS },
+        totals: {
+          javascript: sumAssets(lazyJavaScript),
+          css: sumAssets(lazyCSS),
+        },
+      },
     }
   }
 
@@ -174,9 +327,25 @@ async function run() {
   ].sort()
   const lazyMetrics = await Promise.all(lazyJavaScript.map(metric))
   const lazyCSSMetrics = await Promise.all(collectLazyCSSAssets(manifest, entry).map(metric))
+  const allRuntimeAssets = [
+    ...new Set(
+      Object.values(manifest).flatMap((manifestEntry) => [
+        ...(isJavaScript(manifestEntry.file) || isCSS(manifestEntry.file)
+          ? [manifestEntry.file]
+          : []),
+        ...(manifestEntry.css ?? []).filter(isCSS),
+      ]),
+    ),
+  ].sort()
+  const allRuntimeMetrics = await Promise.all(allRuntimeAssets.map(metric))
+  const untrackedRouteSources = findUntrackedRouteSources(
+    manifest,
+    Object.values(routeDefinitions).map(({ view }) => view),
+  )
+  const duplicateLargeAssets = collectDuplicateLargeAssets(allRuntimeMetrics, 10 * 1024)
   const failures = []
-  for (const name of ['Home', 'Login']) {
-    const totals = routes[name].totals
+  for (const [name, route] of Object.entries(routes)) {
+    const totals = route.initial.totals
     if (totals.javascript.gzip > 161_678) {
       failures.push(`${name} initial JS gzip ${totals.javascript.gzip} > 161678`)
     }
@@ -195,21 +364,52 @@ async function run() {
       failures.push(`${asset.path} lazy JS gzip ${asset.gzip} > ${75 * 1024}`)
     }
   }
+  for (const source of untrackedRouteSources) {
+    failures.push(`untracked route chunk: ${source}`)
+  }
+  for (const paths of duplicateLargeAssets) {
+    failures.push(`duplicate large output assets: ${paths.join(', ')}`)
+  }
+
+  const lockPath = join(webRoot, 'bundle-budget.lock.json')
+  let lockSource = null
+  let budgetLock = null
+  try {
+    lockSource = await readFile(lockPath, 'utf8')
+    budgetLock = JSON.parse(lockSource)
+  } catch (error) {
+    failures.push(
+      `bundle budget lock unavailable: ${error instanceof Error ? error.message : String(error)}`,
+    )
+  }
+  if (budgetLock) {
+    if (budgetLock.schema_version !== 1) {
+      failures.push(`bundle budget lock schema ${budgetLock.schema_version} is unsupported`)
+    } else {
+      failures.push(...collectRouteBudgetFailures(routes, budgetLock))
+    }
+  }
 
   const report = {
-    schema_version: 1,
+    schema_version: 2,
     runtime: actualRuntime,
     compression: compressionOptions,
     manifest_sha256: createHash('sha256').update(manifestSource).digest('hex'),
+    budget_lock_sha256:
+      lockSource === null ? null : createHash('sha256').update(lockSource).digest('hex'),
     routes,
     lazy_javascript: lazyMetrics,
     lazy_css: lazyCSSMetrics,
+    untracked_route_sources: untrackedRouteSources,
+    duplicate_large_assets: duplicateLargeAssets,
     budgets: {
       initial_js_gzip: 161_678,
       initial_js_brotli: 135_125,
       initial_css_gzip: 15_946,
       initial_css_brotli: 13_921,
       lazy_chunk_gzip: 75 * 1024,
+      duplicate_asset_raw: 10 * 1024,
+      regression: budgetLock?.regression_policy ?? null,
     },
     failures,
   }
@@ -220,7 +420,13 @@ async function run() {
     `${JSON.stringify({
       report: reportPath,
       routes: Object.fromEntries(
-        Object.entries(routes).map(([name, route]) => [name, route.totals]),
+        Object.entries(routes).map(([name, route]) => [
+          name,
+          {
+            initial: route.initial.totals,
+            lazy: route.lazy.totals,
+          },
+        ]),
       ),
       failures,
     })}\n`,

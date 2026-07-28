@@ -394,8 +394,7 @@ function remainingTime(key: HealthProblemKeyDto): string {
 
 <style scoped>
 .health-tab,
-.health-section,
-.problem-sections {
+.health-section {
   display: grid;
   gap: var(--space-5);
 }
@@ -408,8 +407,7 @@ function remainingTime(key: HealthProblemKeyDto): string {
 }
 
 .health-card__heading,
-.health-section__heading,
-.problem-key__summary {
+.health-section__heading {
   display: flex;
   min-width: 0;
   align-items: flex-start;
@@ -423,8 +421,7 @@ function remainingTime(key: HealthProblemKeyDto): string {
 }
 
 .health-card__heading h2,
-.health-section__heading h2,
-.problem-section h3 {
+.health-section__heading h2 {
   margin: 0;
   font-size: 1rem;
 }
@@ -445,9 +442,7 @@ function remainingTime(key: HealthProblemKeyDto): string {
 }
 
 .health-meta span,
-.count-grid span,
-.recovery-facts span,
-.recovery-facts time {
+.count-grid span {
   border-radius: var(--radius-tag);
   background: var(--color-tag);
   padding: 6px 10px;
@@ -497,76 +492,10 @@ function remainingTime(key: HealthProblemKeyDto): string {
   padding: var(--space-4);
 }
 
-.problem-section {
-  display: grid;
-  gap: var(--space-3);
-}
-
-.problem-key {
-  min-width: 0;
-  overflow: hidden;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-card);
-  background: var(--color-surface);
-}
-
-.problem-key__toggle {
-  display: flex;
-  width: 100%;
-  min-height: 44px;
-  align-items: center;
-  justify-content: space-between;
-  border: 0;
-  background: transparent;
-  color: var(--color-text);
-  padding: var(--space-3) var(--space-4);
-  cursor: pointer;
-}
-
-.problem-key__toggle > * {
-  min-width: 0;
-}
-
-.problem-key__identity,
-.problem-key__remaining,
-.detail-grid dd,
 .request-log-grid dd {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
-.problem-key__identity {
-  font-weight: 700;
-}
-
-.problem-key__chevron {
-  transition: transform var(--duration-fast) ease;
-}
-
-.problem-key__chevron--expanded {
-  transform: rotate(180deg);
-}
-
-.problem-key__summary {
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: flex-start;
-  border-top: 1px solid var(--color-border);
-  padding: var(--space-3) var(--space-4);
-}
-
-.problem-key__remaining {
-  margin-left: auto;
-}
-
-.problem-key__details {
-  display: grid;
-  gap: var(--space-4);
-  border-top: 1px solid var(--color-border);
-  background: var(--color-surface-secondary);
-  padding: var(--space-4);
-}
-
-.detail-grid,
 .request-log-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
@@ -574,28 +503,19 @@ function remainingTime(key: HealthProblemKeyDto): string {
   margin: 0;
 }
 
-.detail-grid div,
 .request-log-grid div {
   min-width: 0;
 }
 
-.detail-grid dt,
 .request-log-grid dt {
   color: var(--color-text-muted);
   font-size: 0.8125rem;
 }
 
-.detail-grid dd,
 .request-log-grid dd {
   margin: var(--space-1) 0 0;
   overflow-wrap: anywhere;
   font-weight: 700;
-}
-
-.recovery-facts {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
 }
 
 .health-tab :deep(.query-feedback--error > span) {
@@ -603,8 +523,7 @@ function remainingTime(key: HealthProblemKeyDto): string {
 }
 
 @media (max-width: 760px) {
-  .health-card__heading,
-  .problem-key__summary {
+  .health-card__heading {
     align-items: flex-start;
     flex-direction: column;
   }
@@ -615,16 +534,6 @@ function remainingTime(key: HealthProblemKeyDto): string {
 
   .count-grid span {
     text-align: left;
-  }
-
-  .problem-key__remaining {
-    margin-left: 0;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .problem-key__chevron {
-    transition: none;
   }
 }
 </style>

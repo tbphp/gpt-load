@@ -439,17 +439,6 @@ onBeforeUnmount(() => {
   gap: var(--space-4);
 }
 
-.logs-filter-form {
-  display: grid;
-  min-width: 0;
-  gap: var(--space-4);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-card);
-  background: var(--color-surface);
-  padding: var(--space-4);
-  box-shadow: var(--shadow-card);
-}
-
 .logs-applied,
 .logs-freshness {
   display: flex;
@@ -482,31 +471,6 @@ onBeforeUnmount(() => {
   gap: var(--space-2);
 }
 
-.logs-filter-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(150px, 1fr));
-  gap: var(--space-3);
-}
-
-.logs-filter-form input,
-.logs-filter-form select {
-  width: 100%;
-  min-height: 44px;
-  border: 1px solid var(--color-border-control);
-  border-radius: var(--radius-control);
-  background: var(--color-surface);
-  color: var(--color-text);
-  padding: 8px 10px;
-  font: inherit;
-}
-
-.logs-filter-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-}
-
-.logs-filter-dirty,
 .logs-refresh-failed,
 .logs-next-page-failed {
   display: flex;
@@ -514,16 +478,6 @@ onBeforeUnmount(() => {
   align-items: center;
   flex-wrap: wrap;
   gap: var(--space-2);
-}
-
-.logs-filter-dirty {
-  margin: 0;
-  color: var(--color-text);
-  font-weight: 650;
-}
-
-.logs-filter-dirty svg {
-  color: var(--color-warning);
 }
 
 .log-cell-stack {
@@ -551,17 +505,5 @@ onBeforeUnmount(() => {
 .logs-tab :deep(.inline-feedback--danger > span:last-child),
 .logs-tab :deep(.query-feedback--error > span) {
   color: var(--color-text);
-}
-
-@media (max-width: 900px) {
-  .logs-filter-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 560px) {
-  .logs-filter-grid {
-    grid-template-columns: 1fr;
-  }
 }
 </style>

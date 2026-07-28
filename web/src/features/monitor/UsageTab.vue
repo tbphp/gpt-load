@@ -486,7 +486,6 @@ async function navigate(filters: UsageFilters): Promise<void> {
   gap: var(--space-4);
 }
 
-.usage-filter-form,
 .usage-scope,
 .usage-applied,
 .usage-freshness {
@@ -497,30 +496,6 @@ async function navigate(filters: UsageFilters): Promise<void> {
   box-shadow: var(--shadow-card);
 }
 
-.usage-filter-form {
-  display: grid;
-  gap: var(--space-4);
-}
-
-.usage-filter-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(180px, 1fr));
-  gap: var(--space-3);
-}
-
-.usage-filter-form input,
-.usage-filter-form select {
-  width: 100%;
-  min-height: 44px;
-  border: 1px solid var(--color-border-control);
-  border-radius: var(--radius-control);
-  background: var(--color-surface);
-  color: var(--color-text);
-  padding: 8px 10px;
-  font: inherit;
-}
-
-.usage-filter-actions,
 .usage-scope,
 .usage-heading,
 .usage-applied,
@@ -577,16 +552,10 @@ async function navigate(filters: UsageFilters): Promise<void> {
   font-size: 1rem;
 }
 
-.usage-kpi-grid,
 .usage-quality-grid,
-.usage-process-grid,
-.usage-token-definition {
+.usage-process-grid {
   display: grid;
   gap: var(--space-3);
-}
-
-.usage-kpi-grid {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .usage-quality-grid {
@@ -597,28 +566,11 @@ async function navigate(filters: UsageFilters): Promise<void> {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
-.usage-token-definition {
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  margin: 0;
-}
-
-.usage-token-definition > div {
-  border-top: 1px solid var(--color-border);
-  padding-top: var(--space-2);
-}
-
-.usage-token-definition dt,
 .usage-process-grid span {
   color: var(--color-text-muted);
   font-size: 0.8125rem;
 }
 
-.usage-token-definition dd {
-  margin: var(--space-1) 0 0;
-  font-weight: 700;
-}
-
-.usage-kpi,
 .usage-quality-grid > :deep(.surface-card),
 .usage-process-grid > :deep(.surface-card) {
   display: grid;
@@ -626,16 +578,6 @@ async function navigate(filters: UsageFilters): Promise<void> {
   gap: var(--space-2);
 }
 
-.usage-kpi > svg {
-  color: var(--color-primary);
-}
-
-.usage-kpi > span {
-  color: var(--color-text-muted);
-  font-size: 0.8125rem;
-}
-
-.usage-kpi strong,
 .usage-quality-grid strong,
 .usage-process-grid strong {
   font-size: 1.25rem;
@@ -658,20 +600,15 @@ async function navigate(filters: UsageFilters): Promise<void> {
 }
 
 @media (max-width: 1000px) {
-  .usage-kpi-grid,
   .usage-quality-grid,
-  .usage-process-grid,
-  .usage-token-definition {
+  .usage-process-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
 @media (max-width: 720px) {
-  .usage-filter-grid,
-  .usage-kpi-grid,
   .usage-quality-grid,
-  .usage-process-grid,
-  .usage-token-definition {
+  .usage-process-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 }

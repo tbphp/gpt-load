@@ -502,24 +502,7 @@ small {
 .group-settings__section-heading {
   gap: 0;
 }
-.group-settings__grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--space-4);
-}
-.group-settings__grid label,
-fieldset {
-  display: grid;
-  gap: var(--space-2);
-}
-.group-settings__grid label > span,
-legend {
-  font-weight: 650;
-}
-.group-settings input[type='text'],
-.group-settings input[type='url'],
-.group-settings input[type='number'],
-.group-settings select {
+.group-settings input[type='number'] {
   width: 100%;
   min-height: 44px;
   border: 1px solid var(--color-border-control);
@@ -529,22 +512,9 @@ legend {
   padding: var(--space-2) var(--space-3);
   font: inherit;
 }
-.group-settings__mono,
 .group-settings__runtime-input {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
-fieldset {
-  margin: 0;
-  border: 0;
-  padding: 0;
-}
-.group-settings__checks {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2) var(--space-4);
-}
-.group-settings__checks label,
-.group-settings__enabled,
 .group-settings__override-toggle {
   display: inline-flex;
   min-height: 44px;
@@ -604,10 +574,6 @@ fieldset {
   color: var(--color-warning);
 }
 @media (max-width: 760px) {
-  .group-settings__header,
-  .group-settings__grid {
-    grid-template-columns: 1fr;
-  }
   .group-settings__header {
     align-items: stretch;
     flex-direction: column;
