@@ -116,6 +116,11 @@ export default {
         refresh: '更新',
         apply: '適用',
         reset: 'リセット',
+        applied: '適用中のフィルター',
+        anyModel: 'すべてのアップストリームモデル',
+        dirty: 'フィルターの変更はまだ適用されていません。',
+        observedAt: 'バックエンド観測時刻',
+        refreshedAt: '最終更新時刻',
       },
       errors: {
         positiveId: '有効な正の Group ID を入力してください。',

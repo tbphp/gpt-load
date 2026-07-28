@@ -16,6 +16,7 @@ import { useApiClient } from '@/api/client-context'
 import { listGroups } from '@/api/control/groups'
 import { getUsageReport, type UsageAggregateDto, type UsageFilters } from '@/api/control/usage'
 import { controlQueryKeys } from '@/app/query-keys'
+import { useUnsavedChanges } from '@/app/unsaved-changes'
 import AppButton from '@/components/ui/AppButton.vue'
 import DataTable from '@/components/ui/DataTable.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
@@ -56,11 +57,30 @@ const usageQuery = useQuery({
 })
 const report = computed(() => usageQuery.data.value)
 const hasData = computed(() => (report.value?.summary.request_count ?? 0) > 0)
-
-watch([() => appliedFilters.value.group_id, () => appliedFilters.value.model], () => {
-  draft.value = createUsageFilterDraft(appliedFilters.value)
-  filterErrors.value = {}
+const draftDirty = computed(() => {
+  const appliedDraft = createUsageFilterDraft(appliedFilters.value)
+  return (
+    draft.value.range !== appliedDraft.range ||
+    draft.value.group_id !== appliedDraft.group_id ||
+    draft.value.model !== appliedDraft.model
+  )
 })
+const lastRefreshedAt = computed(() =>
+  usageQuery.dataUpdatedAt.value > 0 ? new Date(usageQuery.dataUpdatedAt.value) : null,
+)
+const unsavedChanges = useUnsavedChanges(draftDirty)
+
+watch(
+  [
+    () => appliedFilters.value.range,
+    () => appliedFilters.value.group_id,
+    () => appliedFilters.value.model,
+  ],
+  () => {
+    draft.value = createUsageFilterDraft(appliedFilters.value)
+    filterErrors.value = {}
+  },
+)
 
 function formatCount(value: number): string {
   return new Intl.NumberFormat(locale.value).format(value)
@@ -81,27 +101,21 @@ function groupLabel(groupID: number): string {
   return t('monitor.usage.filters.deletedOrUnknown', { id: groupID })
 }
 
-function filterError(field: keyof UsageFilterDraft): string | undefined {
+function filterError(field: keyof UsageFilterErrors): string | undefined {
   const key = filterErrors.value[field]
   return key ? t(key) : undefined
-}
-
-async function changeRange(event: Event): Promise<void> {
-  const range = (event.target as HTMLSelectElement).value === '30d' ? '30d' : '24h'
-  await navigate({ ...appliedFilters.value, range })
 }
 
 async function applyFilters(): Promise<void> {
   const errors = validateUsageFilterDraft(draft.value)
   filterErrors.value = errors
   if (Object.keys(errors).length > 0) return
-  await navigate(applyUsageFilterDraft(appliedFilters.value.range, draft.value))
+  await unsavedChanges.runWithoutPrompt(() => navigate(applyUsageFilterDraft(draft.value)))
 }
 
-async function resetFilters(): Promise<void> {
+function resetFilters(): void {
   draft.value = resetUsageFilterDraft()
   filterErrors.value = {}
-  await navigate({ range: appliedFilters.value.range })
 }
 
 async function navigate(filters: UsageFilters): Promise<void> {
@@ -119,12 +133,7 @@ async function navigate(filters: UsageFilters): Promise<void> {
     >
       <div class="usage-filter-grid">
         <FormField id="usage-range" :label="t('monitor.usage.filters.range')">
-          <select
-            id="usage-range"
-            data-test="usage-range"
-            :value="appliedFilters.range"
-            @change="changeRange"
-          >
+          <select id="usage-range" v-model="draft.range" data-test="usage-range">
             <option value="24h">{{ t('monitor.usage.filters.range24h') }}</option>
             <option value="30d">{{ t('monitor.usage.filters.range30d') }}</option>
           </select>
@@ -207,6 +216,7 @@ async function navigate(filters: UsageFilters): Promise<void> {
           data-test="usage-refresh"
           type="button"
           variant="secondary"
+          :busy="usageQuery.isFetching.value"
           @click="usageQuery.refetch()"
         >
           <RefreshCw :size="16" aria-hidden="true" />{{ t('monitor.usage.filters.refresh') }}
@@ -217,6 +227,30 @@ async function navigate(filters: UsageFilters): Promise<void> {
         </AppButton>
       </div>
     </form>
+
+    <section class="usage-applied" data-test="usage-applied-filters">
+      <strong>{{ t('monitor.usage.filters.applied') }}</strong>
+      <span class="usage-filter-chip">
+        {{
+          appliedFilters.range === '30d'
+            ? t('monitor.usage.filters.range30d')
+            : t('monitor.usage.filters.range24h')
+        }}
+      </span>
+      <span class="usage-filter-chip">
+        {{
+          appliedFilters.group_id === undefined
+            ? t('monitor.usage.filters.anyGroup')
+            : groupLabel(appliedFilters.group_id)
+        }}
+      </span>
+      <span class="usage-filter-chip">
+        {{ appliedFilters.model ?? t('monitor.usage.filters.anyModel') }}
+      </span>
+    </section>
+    <InlineFeedback v-if="draftDirty" data-test="usage-filter-dirty" tone="info">
+      {{ t('monitor.usage.filters.dirty') }}
+    </InlineFeedback>
 
     <InlineFeedback
       v-if="groupsQuery.isError.value"
@@ -255,6 +289,21 @@ async function navigate(filters: UsageFilters): Promise<void> {
         :retry-label="t('common.retry')"
         @retry="usageQuery.refetch()"
       />
+
+      <section class="usage-freshness" data-test="usage-freshness">
+        <p>
+          <strong>{{ t('monitor.usage.filters.observedAt') }}</strong>
+          <time data-test="usage-observed-at" :datetime="report.observed_at">
+            {{ report.observed_at }}
+          </time>
+        </p>
+        <p v-if="lastRefreshedAt">
+          <strong>{{ t('monitor.usage.filters.refreshedAt') }}</strong>
+          <time data-test="usage-refreshed-at" :datetime="lastRefreshedAt.toISOString()">
+            {{ lastRefreshedAt.toISOString() }}
+          </time>
+        </p>
+      </section>
 
       <EmptyState
         v-if="!hasData"
@@ -606,7 +655,9 @@ async function navigate(filters: UsageFilters): Promise<void> {
 }
 
 .usage-filter-form,
-.usage-scope {
+.usage-scope,
+.usage-applied,
+.usage-freshness {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-card);
   background: var(--color-surface);
@@ -639,7 +690,9 @@ async function navigate(filters: UsageFilters): Promise<void> {
 
 .usage-filter-actions,
 .usage-scope,
-.usage-heading {
+.usage-heading,
+.usage-applied,
+.usage-freshness {
   display: flex;
   min-width: 0;
   align-items: center;
@@ -649,6 +702,30 @@ async function navigate(filters: UsageFilters): Promise<void> {
 
 .usage-scope {
   align-items: flex-start;
+}
+
+.usage-applied {
+  box-shadow: none;
+}
+
+.usage-filter-chip {
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface-secondary);
+  padding: var(--space-1) var(--space-2);
+  font-size: 0.8125rem;
+}
+
+.usage-freshness {
+  justify-content: space-between;
+  box-shadow: none;
+}
+
+.usage-freshness p {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
 }
 
 .usage-scope > svg {

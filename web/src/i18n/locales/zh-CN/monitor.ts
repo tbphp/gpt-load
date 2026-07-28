@@ -112,6 +112,11 @@ export default {
         refresh: '刷新',
         apply: '应用',
         reset: '重置',
+        applied: '已应用筛选',
+        anyModel: '全部上游模型',
+        dirty: '筛选条件的更改尚未应用。',
+        observedAt: '后端观测时间',
+        refreshedAt: '最近刷新时间',
       },
       errors: {
         positiveId: '请输入有效的正整数 Group ID。',

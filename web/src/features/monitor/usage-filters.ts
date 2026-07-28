@@ -1,13 +1,14 @@
 import type { UsageFilters } from '@/api/control/usage'
 
 export interface UsageFilterDraft {
+  range: UsageFilters['range']
   group_id: string
   model: string
 }
 
-export type UsageFilterErrors = Partial<Record<keyof UsageFilterDraft, string>>
+export type UsageFilterErrors = Partial<Record<Exclude<keyof UsageFilterDraft, 'range'>, string>>
 
-const emptyDraft = (): UsageFilterDraft => ({ group_id: '', model: '' })
+const emptyDraft = (): UsageFilterDraft => ({ range: '24h', group_id: '', model: '' })
 
 export function normalizeUsageRange(raw: unknown): UsageFilters['range'] {
   return raw === '30d' ? '30d' : '24h'
@@ -43,6 +44,7 @@ export function parseAppliedUsageFilters(query: Record<string, unknown>): UsageF
 export function createUsageFilterDraft(filters: UsageFilters): UsageFilterDraft {
   return {
     ...emptyDraft(),
+    range: filters.range,
     group_id: filters.group_id === undefined ? '' : String(filters.group_id),
     model: filters.model ?? '',
   }
@@ -52,11 +54,8 @@ export function resetUsageFilterDraft(): UsageFilterDraft {
   return emptyDraft()
 }
 
-export function applyUsageFilterDraft(
-  range: UsageFilters['range'],
-  draft: UsageFilterDraft,
-): UsageFilters {
-  const filters: UsageFilters = { range: normalizeUsageRange(range) }
+export function applyUsageFilterDraft(draft: UsageFilterDraft): UsageFilters {
+  const filters: UsageFilters = { range: normalizeUsageRange(draft.range) }
   const groupID = normalizeUsageGroupID(draft.group_id)
   const model = normalizeUsageModel(draft.model)
   if (groupID !== undefined) filters.group_id = groupID

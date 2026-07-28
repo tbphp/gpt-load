@@ -114,6 +114,11 @@ export default {
         refresh: 'Refresh',
         apply: 'Apply',
         reset: 'Reset',
+        applied: 'Applied filters',
+        anyModel: 'All upstream models',
+        dirty: 'Filter changes are not applied yet.',
+        observedAt: 'Backend observed',
+        refreshedAt: 'Last refreshed',
       },
       errors: {
         positiveId: 'Enter a valid positive Group ID.',
