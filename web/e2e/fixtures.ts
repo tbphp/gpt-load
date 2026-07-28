@@ -1,12 +1,13 @@
 import { expect, test as base } from '@playwright/test'
 
 import { deterministicUUIDPrefix } from './deterministic-ids'
+import { visualClock } from './visual-fixtures'
 
 function deterministicInitScript(uuidPrefix: string): string {
   return String.raw`
 (() => {
   const uuidPrefix = ${JSON.stringify(uuidPrefix)}
-  const fixedNow = Date.parse('2026-07-28T00:00:00.000Z')
+  const fixedNow = Date.parse(${JSON.stringify(visualClock)})
   const NativeDate = Date
   class DeterministicDate extends NativeDate {
     constructor(...args) {

@@ -44,17 +44,20 @@ it('fails before starting services when the harness runs on Windows', async () =
   }
 })
 
-it('uses ephemeral ports with explicit serial, per-run isolation', async () => {
+it('uses ephemeral ports by default and an explicit fixed visual port', async () => {
   const launcherPath = resolve(process.cwd(), 'e2e/start-e2e-server.mjs')
   const runnerPath = resolve(process.cwd(), 'e2e/run-e2e.mjs')
   const source = `${await readFile(launcherPath, 'utf8')}\n${await readFile(runnerPath, 'utf8')}`
 
   expect(source).toContain('server.listen(0, host')
-  expect(source).not.toMatch(/\b3107\b|\b3108\b/)
+  expect(source).toContain('GPT_LOAD_E2E_APP_PORT')
+  expect(source).toContain("'43101'")
   expect(source).toContain('`${artifactStem}-ready.json`')
   expect(source).toContain('`${project}-serial-${scenario}`')
   expect(source).toContain("isolation: 'per-run'")
   expect(source).toContain('workers: 1')
+  expect(source).toContain("project === 'webkit'")
+  expect(source).toContain("'--project=chromium'")
 })
 
 it('accepts only a canonical harness-owned run directory beside the ready file', async () => {

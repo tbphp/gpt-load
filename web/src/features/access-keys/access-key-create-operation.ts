@@ -1,4 +1,4 @@
-import type { CreateAccessKeyRequest } from '@/api/control/access-keys'
+import type { CreateAccessKeyRequest } from '@/app/resources/access-keys'
 
 export interface PendingAccessKeyCreateOperation {
   idempotencyKey: string

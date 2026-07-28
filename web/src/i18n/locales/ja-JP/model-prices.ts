@@ -16,6 +16,9 @@ export default {
       'ユーザー上書きは、すべての組み込み完全一致ルールとプレフィックスルールより優先されます。',
     wholeRuleNote:
       'ユーザー上書きは 5 枠のルール全体を置き換え、未設定の枠は組み込み値へフォールバックしません。',
+    scrollHint: '横方向にスクロールすると、モデル価格のすべての列を確認できます。',
+    details: '価格フィールドとメタデータ',
+    sourceUnavailable: 'ソースを利用できません',
     notConfigured: '未設定',
     explicitlyFree: '$0 · 明示的に無料',
     configuredPrice: '${price} / 1M',

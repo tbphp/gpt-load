@@ -1,25 +1,24 @@
 <script setup lang="ts">
 import { useInfiniteQuery, useQuery, useQueryClient, type InfiniteData } from '@tanstack/vue-query'
-import { ListFilter } from 'lucide-vue-next'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
 import { useApiClient } from '@/api/client-context'
-import { listAccessKeyOptions } from '@/api/control/access-keys'
-import { listGroups } from '@/api/control/groups'
+import { accessKeyOptionsQueryOptions } from '@/app/resources/access-keys'
+import { groupListQueryOptions } from '@/app/resources/groups'
 import {
   listRequestLogs,
+  requestLogInfiniteQueryOptions,
   type RequestLogItemDto,
   type RequestLogPageDto,
-} from '@/api/control/request-logs'
+} from '@/app/resources/request-logs'
 import { RequestCancelledError } from '@/api/errors'
 import { controlQueryKeys } from '@/app/query-keys'
 import { useUnsavedChanges } from '@/app/unsaved-changes'
 import AppButton from '@/components/ui/AppButton.vue'
 import DataTable from '@/components/ui/DataTable.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
-import FormField from '@/components/ui/FormField.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
@@ -34,6 +33,7 @@ import {
   type LogFilterErrors,
 } from './log-filters'
 import LogDetailDrawer from './LogDetailDrawer.vue'
+import LogsFilterForm from './LogsFilterForm.vue'
 import { parseSelectedRequestID } from './monitor-route'
 
 const client = useApiClient()
@@ -50,23 +50,9 @@ const refreshFailed = ref(false)
 let refreshOwner = 0
 let refreshController: AbortController | undefined
 let detailFocusTimer: number | undefined
-const groupsQuery = useQuery({
-  queryKey: controlQueryKeys.groups.list(),
-  queryFn: ({ signal }) => listGroups(client, signal),
-})
-const accessKeyOptionsQuery = useQuery({
-  queryKey: controlQueryKeys.accessKeys.options(),
-  queryFn: ({ signal }) => listAccessKeyOptions(client, signal),
-  gcTime: 0,
-})
-const logsQuery = useInfiniteQuery({
-  queryKey: computed(() => controlQueryKeys.logs.list(appliedFilters.value)),
-  initialPageParam: null as string | null,
-  queryFn: ({ pageParam, signal }) =>
-    listRequestLogs(client, appliedFilters.value, pageParam ?? undefined, signal),
-  getNextPageParam: (lastPage) => lastPage.next_cursor ?? undefined,
-  gcTime: 0,
-})
+const groupsQuery = useQuery(groupListQueryOptions(client))
+const accessKeyOptionsQuery = useQuery(accessKeyOptionsQueryOptions(client))
+const logsQuery = useInfiniteQuery(requestLogInfiniteQueryOptions(client, appliedFilters))
 const logs = computed(() => {
   const unique: RequestLogItemDto[] = []
   const seen = new Set<string>()
@@ -195,9 +181,8 @@ async function applyFilters(): Promise<void> {
   )
 }
 
-function filterError(field: keyof LogFilterDraft): string | undefined {
-  const key = filterErrors.value[field]
-  return key ? t(key) : undefined
+function updateDraftField(field: keyof LogFilterDraft, value: string): void {
+  draft.value = { ...draft.value, [field]: value }
 }
 
 function resetFilters(): void {
@@ -270,187 +255,20 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="logs-tab">
-    <form
-      class="logs-filter-form"
-      data-test="logs-filter-form"
-      :aria-label="t('monitor.logs.filters.label')"
-      @submit.prevent="applyFilters"
-    >
-      <div class="logs-filter-grid">
-        <FormField
-          id="logs-from"
-          :label="t('monitor.logs.filters.from')"
-          :error="filterError('from')"
-        >
-          <template #default="{ describedBy }">
-            <input
-              id="logs-from"
-              v-model="draft.from"
-              data-test="logs-from"
-              type="datetime-local"
-              :aria-describedby="describedBy"
-              :aria-invalid="filterError('from') ? 'true' : undefined"
-            />
-          </template>
-        </FormField>
-        <FormField id="logs-to" :label="t('monitor.logs.filters.to')" :error="filterError('to')">
-          <template #default="{ describedBy }">
-            <input
-              id="logs-to"
-              v-model="draft.to"
-              data-test="logs-to"
-              type="datetime-local"
-              :aria-describedby="describedBy"
-              :aria-invalid="filterError('to') ? 'true' : undefined"
-            />
-          </template>
-        </FormField>
-        <FormField
-          id="logs-group"
-          :label="t('monitor.logs.filters.group')"
-          :description="t('monitor.logs.filters.groupHelp')"
-          :error="filterError('group_id')"
-        >
-          <template #default="{ describedBy }">
-            <select
-              id="logs-group"
-              v-model="draft.group_id"
-              data-test="logs-group"
-              :aria-describedby="describedBy"
-              :aria-invalid="filterError('group_id') ? 'true' : undefined"
-              :disabled="groupsQuery.isError.value"
-            >
-              <option value="">{{ t('monitor.logs.filters.anyGroup') }}</option>
-              <option
-                v-if="
-                  draft.group_id &&
-                  !groupsQuery.data.value?.some((group) => String(group.id) === draft.group_id)
-                "
-                :value="draft.group_id"
-              >
-                #{{ draft.group_id }}
-              </option>
-              <option
-                v-for="group in groupsQuery.data.value ?? []"
-                :key="group.id"
-                :value="String(group.id)"
-              >
-                {{ group.name }} · #{{ group.id }}
-              </option>
-            </select>
-          </template>
-        </FormField>
-        <FormField
-          id="logs-model"
-          :label="t('monitor.logs.filters.model')"
-          :error="filterError('model')"
-        >
-          <template #default="{ describedBy }">
-            <input
-              id="logs-model"
-              v-model="draft.model"
-              data-test="logs-model"
-              type="text"
-              autocomplete="off"
-              :aria-describedby="describedBy"
-              :aria-invalid="filterError('model') ? 'true' : undefined"
-            />
-          </template>
-        </FormField>
-        <FormField
-          id="logs-access-key"
-          :label="t('monitor.logs.filters.accessKey')"
-          :error="filterError('access_key_id')"
-        >
-          <template #default="{ describedBy }">
-            <select
-              id="logs-access-key"
-              v-model="draft.access_key_id"
-              data-test="logs-access-key"
-              :aria-describedby="describedBy"
-              :aria-invalid="filterError('access_key_id') ? 'true' : undefined"
-              :disabled="accessKeyOptionsQuery.isError.value"
-            >
-              <option value="">{{ t('monitor.logs.filters.anyAccessKey') }}</option>
-              <option
-                v-if="
-                  draft.access_key_id &&
-                  !accessKeyOptionsQuery.data.value?.some(
-                    (key) => String(key.id) === draft.access_key_id,
-                  )
-                "
-                :value="draft.access_key_id"
-              >
-                #{{ draft.access_key_id }}
-              </option>
-              <option
-                v-for="key in accessKeyOptionsQuery.data.value ?? []"
-                :key="key.id"
-                :value="String(key.id)"
-              >
-                {{ key.name }} · #{{ key.id }}
-              </option>
-            </select>
-          </template>
-        </FormField>
-        <FormField
-          id="logs-status"
-          :label="t('monitor.logs.filters.status')"
-          :error="filterError('status')"
-        >
-          <template #default="{ describedBy }">
-            <select
-              id="logs-status"
-              v-model="draft.status"
-              data-test="logs-status"
-              :aria-describedby="describedBy"
-              :aria-invalid="filterError('status') ? 'true' : undefined"
-            >
-              <option value="">{{ t('monitor.logs.filters.anyStatus') }}</option>
-              <option value="success">{{ t('monitor.logs.status.success') }}</option>
-              <option value="error">{{ t('monitor.logs.status.error') }}</option>
-              <option value="incomplete">{{ t('monitor.logs.status.incomplete') }}</option>
-              <option value="canceled">{{ t('monitor.logs.status.canceled') }}</option>
-            </select>
-          </template>
-        </FormField>
-        <FormField
-          id="logs-request-id"
-          :label="t('monitor.logs.filters.requestId')"
-          :error="filterError('request_id')"
-        >
-          <template #default="{ describedBy }">
-            <input
-              id="logs-request-id"
-              v-model="draft.request_id"
-              data-test="logs-request-id"
-              type="text"
-              autocomplete="off"
-              :aria-describedby="describedBy"
-              :aria-invalid="filterError('request_id') ? 'true' : undefined"
-            />
-          </template>
-        </FormField>
-      </div>
-      <p v-if="draftIsDirty" class="logs-filter-dirty" data-test="logs-filter-dirty" role="status">
-        <ListFilter :size="16" aria-hidden="true" />
-        <span>{{ t('monitor.logs.filters.dirty') }}</span>
-      </p>
-      <div class="logs-filter-actions">
-        <AppButton type="submit">{{ t('monitor.logs.filters.apply') }}</AppButton>
-        <AppButton data-test="logs-reset" variant="ghost" @click="resetFilters">
-          {{ t('monitor.logs.filters.reset') }}
-        </AppButton>
-        <AppButton
-          data-test="logs-refresh"
-          variant="secondary"
-          :busy="refreshPending"
-          @click="refreshFirstPage"
-        >
-          {{ t('monitor.logs.refresh') }}
-        </AppButton>
-      </div>
-    </form>
+    <LogsFilterForm
+      :draft="draft"
+      :errors="filterErrors"
+      :groups="groupsQuery.data.value ?? []"
+      :access-keys="accessKeyOptionsQuery.data.value ?? []"
+      :groups-failed="groupsQuery.isError.value"
+      :access-keys-failed="accessKeyOptionsQuery.isError.value"
+      :dirty="draftIsDirty"
+      :refresh-pending="refreshPending"
+      @update-field="updateDraftField"
+      @apply="applyFilters"
+      @reset="resetFilters"
+      @refresh="refreshFirstPage"
+    />
 
     <section class="logs-applied" data-test="logs-applied-filters">
       <strong>{{ t('monitor.logs.filters.applied') }}</strong>
@@ -621,17 +439,6 @@ onBeforeUnmount(() => {
   gap: var(--space-4);
 }
 
-.logs-filter-form {
-  display: grid;
-  min-width: 0;
-  gap: var(--space-4);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-card);
-  background: var(--color-surface);
-  padding: var(--space-4);
-  box-shadow: var(--shadow-card);
-}
-
 .logs-applied,
 .logs-freshness {
   display: flex;
@@ -664,31 +471,6 @@ onBeforeUnmount(() => {
   gap: var(--space-2);
 }
 
-.logs-filter-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(150px, 1fr));
-  gap: var(--space-3);
-}
-
-.logs-filter-form input,
-.logs-filter-form select {
-  width: 100%;
-  min-height: 44px;
-  border: 1px solid var(--color-border-control);
-  border-radius: var(--radius-control);
-  background: var(--color-surface);
-  color: var(--color-text);
-  padding: 8px 10px;
-  font: inherit;
-}
-
-.logs-filter-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-}
-
-.logs-filter-dirty,
 .logs-refresh-failed,
 .logs-next-page-failed {
   display: flex;
@@ -696,16 +478,6 @@ onBeforeUnmount(() => {
   align-items: center;
   flex-wrap: wrap;
   gap: var(--space-2);
-}
-
-.logs-filter-dirty {
-  margin: 0;
-  color: var(--color-text);
-  font-weight: 650;
-}
-
-.logs-filter-dirty svg {
-  color: var(--color-warning);
 }
 
 .log-cell-stack {
@@ -733,17 +505,5 @@ onBeforeUnmount(() => {
 .logs-tab :deep(.inline-feedback--danger > span:last-child),
 .logs-tab :deep(.query-feedback--error > span) {
   color: var(--color-text);
-}
-
-@media (max-width: 900px) {
-  .logs-filter-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 560px) {
-  .logs-filter-grid {
-    grid-template-columns: 1fr;
-  }
 }
 </style>

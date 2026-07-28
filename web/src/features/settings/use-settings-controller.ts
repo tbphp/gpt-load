@@ -9,11 +9,12 @@ import {
   updateSettings,
   type RuntimeSettingKey,
   type SettingsPatch,
-} from '@/api/control/settings'
+} from '@/app/resources/settings'
 import { RequestCancelledError } from '@/api/errors'
 import { classifyMutationOutcome } from '@/app/mutation-outcome'
 import { controlQueryKeys } from '@/app/query-keys'
 import type { SettingsResource } from '@/app/resources/settings'
+import { applyInvalidationPlan, mutationInvalidationPlans } from '@/app/resources/invalidation'
 
 import {
   buildSettingsPatch,
@@ -146,7 +147,7 @@ export function useSettingsController(
     unknownOperation = undefined
     savedAt.value = new Date(now().getTime())
     queryClient.setQueryData(settingsQueryKey(), next)
-    await queryClient.invalidateQueries({ queryKey: controlQueryKeys.groups.details() })
+    await applyInvalidationPlan(queryClient, mutationInvalidationPlans.settings.update())
   }
 
   async function applyUnknownLatest(latest: SettingsResource): Promise<void> {

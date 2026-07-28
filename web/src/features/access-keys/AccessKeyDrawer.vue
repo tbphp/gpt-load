@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { KeyRound, Plus, Save, X } from 'lucide-vue-next'
+import { Save } from 'lucide-vue-next'
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useQueryClient } from '@tanstack/vue-query'
@@ -11,21 +11,23 @@ import {
   revealAccessKey,
   updateAccessKey,
   type CreateAccessKeyRequest,
-} from '@/api/control/access-keys'
+} from '@/app/resources/access-keys'
 import type { AccessKeyDto, AccessProtocol, GroupSummary } from '@/api/control/types'
 import { RequestCancelledError } from '@/api/errors'
 import { classifyMutationOutcome } from '@/app/mutation-outcome'
-import { accessKeyMutationInvalidations, accessKeyResources } from '@/app/resources/access-keys'
+import { accessKeyResources } from '@/app/resources/access-keys'
+import { applyInvalidationPlan, mutationInvalidationPlans } from '@/app/resources/invalidation'
 import { useUnsavedChanges } from '@/app/unsaved-changes'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppDrawer from '@/components/ui/AppDrawer.vue'
-import CopyButton from '@/components/ui/CopyButton.vue'
-import InlineFeedback from '@/components/ui/InlineFeedback.vue'
-import SecretValue from '@/components/ui/SecretValue.vue'
 
 import { accessKeyProtocolOptions, buildAccessKeyModelOptions } from './access-key-options'
 import type { PendingAccessKeyCreateOperation } from './access-key-create-operation'
 import type { PendingAccessKeyEditOperation } from './access-key-edit-operation'
+import AccessKeyFormFields from './AccessKeyFormFields.vue'
+import AccessKeyOperationFeedback from './AccessKeyOperationFeedback.vue'
+import AccessKeyResultPanel from './AccessKeyResultPanel.vue'
+import AccessKeyScopeEditor from './AccessKeyScopeEditor.vue'
 import {
   materializeAccessKeyFilters,
   validateAccessKeyScope,
@@ -64,7 +66,7 @@ const emit = defineEmits<{
 const client = useApiClient()
 const queryClient = useQueryClient()
 const { t } = useI18n()
-const nameInput = ref<HTMLInputElement>()
+const formFields = ref<InstanceType<typeof AccessKeyFormFields>>()
 const base = ref<AccessKeyDto | null>(null)
 const draft = ref<AccessKeyDraft>(createAccessKeyDraft())
 const result = ref<AccessKeyDto | null>(null)
@@ -238,7 +240,7 @@ async function resetForOpen(): Promise<void> {
   modelInput.value = ''
   await nextTick()
   await nextTick()
-  nameInput.value?.focus()
+  formFields.value?.focusName()
 }
 
 function setOpen(open: boolean): void {
@@ -304,9 +306,7 @@ function canChangeScopeValue(
   return base.value?.filters.groups.includes(value as number) ?? false
 }
 
-function setScopeMode(dimension: AccessKeyScopeDimension, event: Event): void {
-  const target = event.target as HTMLSelectElement
-  const nextMode = target.value as AccessKeyScopeMode
+function setScopeMode(dimension: AccessKeyScopeDimension, nextMode: AccessKeyScopeMode): void {
   const currentMode = draft.value.scopeModes[dimension]
   const catalogBlocksChange =
     dimension === 'groups'
@@ -317,7 +317,6 @@ function setScopeMode(dimension: AccessKeyScopeDimension, event: Event): void {
     catalogBlocksChange ||
     (nextMode !== 'all' && nextMode !== 'restricted')
   ) {
-    target.value = currentMode
     return
   }
   if (
@@ -325,14 +324,9 @@ function setScopeMode(dimension: AccessKeyScopeDimension, event: Event): void {
     nextMode === 'all' &&
     !window.confirm(t('accessKeys.drawer.expandScopeConfirmation'))
   ) {
-    target.value = currentMode
     return
   }
   draft.value.scopeModes[dimension] = nextMode
-}
-
-function setRPM(event: Event): void {
-  draft.value.rpm_limit = Number((event.target as HTMLInputElement).value)
 }
 
 async function save(): Promise<void> {
@@ -419,10 +413,9 @@ async function save(): Promise<void> {
         ephemeralSecret.expose(`access-key:${metadata.id}`, key)
       }
     }
-    await Promise.all(
-      accessKeyMutationInvalidations[currentBase ? 'update' : 'create'].map((queryKey) =>
-        queryClient.invalidateQueries({ queryKey }),
-      ),
+    await applyInvalidationPlan(
+      queryClient,
+      mutationInvalidationPlans.accessKey[currentBase ? 'update' : 'create'],
     )
   } catch (error: unknown) {
     if (controller !== activeController || !props.open || operationID.value !== activeOperationID) {
@@ -494,7 +487,7 @@ async function reconcileEdit(): Promise<void> {
       return
     }
     queryClient.setQueryData(accessKeyResources.list.queryKey, accessKeys)
-    void queryClient.invalidateQueries({ queryKey: accessKeyResources.options.queryKey })
+    void applyInvalidationPlan(queryClient, mutationInvalidationPlans.accessKey.reconcile)
     const latest = accessKeys.find((accessKey) => accessKey.id === attempt.base.id)
     if (!latest) {
       editReconciliation.value = null
@@ -605,238 +598,53 @@ onBeforeUnmount(clearLocalState)
     <template #trigger><slot name="trigger" /></template>
 
     <form class="access-key-drawer" @submit.prevent="save">
-      <InlineFeedback v-if="failed" tone="danger">{{
-        t(editNotApplied ? 'accessKeys.drawer.editNotApplied' : 'accessKeys.drawer.saveFailed')
-      }}</InlineFeedback>
-      <InlineFeedback v-if="revealFailed" tone="danger">{{
-        t('accessKeys.revealFailed')
-      }}</InlineFeedback>
-      <InlineFeedback v-if="mutationFeedbackKey" tone="warning">{{
-        t(mutationFeedbackKey)
-      }}</InlineFeedback>
-      <InlineFeedback v-if="scopeFeedbackKey && !createOperationActive" tone="warning">{{
-        t(scopeFeedbackKey)
-      }}</InlineFeedback>
+      <AccessKeyOperationFeedback
+        :failed="failed"
+        :edit-not-applied="editNotApplied"
+        :reveal-failed="revealFailed"
+        :mutation-feedback-key="mutationFeedbackKey"
+        :scope-feedback-key="scopeFeedbackKey"
+        :show-scope-feedback="!createOperationActive"
+      />
 
       <template v-if="!createCompleted">
-        <label class="access-key-drawer__field" for="access-key-name">
-          <span>{{ t('accessKeys.drawer.name') }}</span>
-          <input
-            id="access-key-name"
-            ref="nameInput"
-            v-model="draft.name"
-            data-test="access-key-name"
-            type="text"
-            autocomplete="off"
-            :disabled="formLocked"
-          />
-        </label>
-
-        <label v-if="editing" class="access-key-drawer__field" for="access-key-status">
-          <span>{{ t('accessKeys.drawer.status') }}</span>
-          <select
-            id="access-key-status"
-            v-model="draft.status"
-            data-test="access-key-status"
-            :disabled="formLocked"
-          >
-            <option value="active">{{ t('accessKeys.status.active') }}</option>
-            <option value="disabled">{{ t('accessKeys.status.disabled') }}</option>
-          </select>
-        </label>
-
-        <fieldset>
-          <legend>{{ t('accessKeys.drawer.groups') }}</legend>
-          <label class="access-key-drawer__field">
-            <span>{{ t('accessKeys.drawer.scopeMode') }}</span>
-            <select
-              data-test="access-key-groups-mode"
-              :value="draft.scopeModes.groups"
-              :disabled="formLocked || groupCatalogState !== 'ready'"
-              @change="setScopeMode('groups', $event)"
-            >
-              <option value="all">{{ t('accessKeys.drawer.scopeAll') }}</option>
-              <option value="restricted">{{ t('accessKeys.drawer.scopeRestricted') }}</option>
-            </select>
-          </label>
-          <label v-for="group in groupOptions" :key="group.id" class="access-key-drawer__check">
-            <input
-              type="checkbox"
-              :checked="draft.filters.groups.includes(group.id)"
-              :disabled="
-                formLocked ||
-                draft.scopeModes.groups !== 'restricted' ||
-                groupCatalogState === 'loading' ||
-                groupCatalogState === 'error' ||
-                (groupCatalogState === 'stale' && !base?.filters.groups.includes(group.id))
-              "
-              @change="toggleGroup(group.id, ($event.target as HTMLInputElement).checked)"
-            />
-            <span>{{ group.label }}</span>
-          </label>
-        </fieldset>
-
-        <fieldset>
-          <legend>{{ t('accessKeys.drawer.protocols') }}</legend>
-          <label class="access-key-drawer__field">
-            <span>{{ t('accessKeys.drawer.scopeMode') }}</span>
-            <select
-              data-test="access-key-protocols-mode"
-              :value="draft.scopeModes.protocols"
-              :disabled="
-                formLocked || groupCatalogState === 'loading' || groupCatalogState === 'error'
-              "
-              @change="setScopeMode('protocols', $event)"
-            >
-              <option value="all">{{ t('accessKeys.drawer.scopeAll') }}</option>
-              <option value="restricted">{{ t('accessKeys.drawer.scopeRestricted') }}</option>
-            </select>
-          </label>
-          <label
-            v-for="protocol in protocolOptions"
-            :key="protocol"
-            class="access-key-drawer__check"
-          >
-            <input
-              type="checkbox"
-              :checked="draft.filters.protocols.includes(protocol)"
-              :disabled="
-                formLocked ||
-                draft.scopeModes.protocols !== 'restricted' ||
-                groupCatalogState === 'loading' ||
-                groupCatalogState === 'error'
-              "
-              @change="toggleProtocol(protocol, ($event.target as HTMLInputElement).checked)"
-            />
-            <span class="access-key-drawer__check-content">
-              <span>{{ t(`common.protocols.${protocol}`) }}</span>
-              <small v-if="protocol === 'openai-response'">{{
-                t('accessKeys.drawer.reservedProtocolHint')
-              }}</small>
-            </span>
-          </label>
-        </fieldset>
-
-        <fieldset>
-          <legend>{{ t('accessKeys.drawer.models') }}</legend>
-          <label class="access-key-drawer__field">
-            <span>{{ t('accessKeys.drawer.scopeMode') }}</span>
-            <select
-              data-test="access-key-models-mode"
-              :value="draft.scopeModes.models"
-              :disabled="
-                formLocked || groupCatalogState === 'loading' || groupCatalogState === 'error'
-              "
-              @change="setScopeMode('models', $event)"
-            >
-              <option value="all">{{ t('accessKeys.drawer.scopeAll') }}</option>
-              <option value="restricted">{{ t('accessKeys.drawer.scopeRestricted') }}</option>
-            </select>
-          </label>
-          <p>{{ t('accessKeys.drawer.modelsDescription') }}</p>
-          <div class="access-key-drawer__model-entry">
-            <input
-              v-model="modelInput"
-              data-test="access-key-model-input"
-              type="text"
-              list="access-key-model-options"
-              autocomplete="off"
-              :placeholder="t('accessKeys.drawer.modelPlaceholder')"
-              :disabled="
-                formLocked ||
-                draft.scopeModes.models !== 'restricted' ||
-                groupCatalogState === 'loading' ||
-                groupCatalogState === 'error'
-              "
-              @keydown.enter.prevent="addModel"
-            />
-            <datalist id="access-key-model-options">
-              <option v-for="model in modelOptions" :key="model" :value="model" />
-            </datalist>
-            <AppButton
-              variant="secondary"
-              :disabled="
-                formLocked ||
-                !modelInput.trim() ||
-                draft.scopeModes.models !== 'restricted' ||
-                groupCatalogState === 'loading' ||
-                groupCatalogState === 'error'
-              "
-              @click="addModel"
-            >
-              <Plus :size="16" aria-hidden="true" />{{ t('accessKeys.drawer.addModel') }}
-            </AppButton>
-          </div>
-          <div v-if="draft.filters.models.length" class="access-key-drawer__models">
-            <span
-              v-for="model in draft.filters.models"
-              :key="model"
-              class="access-key-drawer__model"
-            >
-              <code>{{ model }}</code>
-              <button
-                type="button"
-                :aria-label="t('accessKeys.drawer.removeModel', { model })"
-                :disabled="
-                  formLocked || groupCatalogState === 'loading' || groupCatalogState === 'error'
-                "
-                @click="removeModel(model)"
-              >
-                <X :size="15" aria-hidden="true" />
-              </button>
-            </span>
-          </div>
-        </fieldset>
-
-        <label class="access-key-drawer__field" for="access-key-rpm">
-          <span>{{ t('accessKeys.drawer.rpm') }}</span>
-          <input
-            id="access-key-rpm"
-            data-test="access-key-rpm"
-            type="number"
-            min="0"
-            step="1"
-            :value="draft.rpm_limit"
-            :disabled="formLocked"
-            @input="setRPM"
-          />
-          <small>{{ t('accessKeys.drawer.rpmDescription') }}</small>
-        </label>
+        <AccessKeyFormFields
+          ref="formFields"
+          :name="draft.name"
+          :status="draft.status"
+          :rpm-limit="draft.rpm_limit"
+          :editing="editing"
+          :disabled="formLocked"
+          @update:name="draft.name = $event"
+          @update:status="draft.status = $event"
+          @update:rpm-limit="draft.rpm_limit = $event"
+        />
+        <AccessKeyScopeEditor
+          v-model:model-input="modelInput"
+          :modes="draft.scopeModes"
+          :filters="draft.filters"
+          :group-options="groupOptions"
+          :group-catalog-state="groupCatalogState"
+          :protocol-options="protocolOptions"
+          :model-options="modelOptions"
+          :base-group-ids="base?.filters.groups ?? []"
+          :disabled="formLocked"
+          @set-scope-mode="setScopeMode"
+          @toggle-group="toggleGroup"
+          @toggle-protocol="toggleProtocol"
+          @add-model="addModel"
+          @remove-model="removeModel"
+        />
       </template>
 
-      <section v-if="result" class="access-key-drawer__result" aria-live="polite">
-        <div class="access-key-drawer__result-title">
-          <KeyRound :size="18" aria-hidden="true" />
-          <strong>{{ t('accessKeys.drawer.resultTitle') }}</strong>
-        </div>
-        <p>{{ t('accessKeys.drawer.resultDescription') }}</p>
-        <div class="access-key-drawer__secret">
-          <template v-if="resultSecret">
-            <SecretValue
-              :value="resultSecret"
-              :reveal-label="t('common.reveal')"
-              :conceal-label="t('common.conceal')"
-              button-test="access-key-result-reveal"
-              @conceal="ephemeralSecret.clear"
-            />
-            <CopyButton
-              :value="resultSecret"
-              :label="t('accessKeys.copy')"
-              :success-label="t('common.copied')"
-              :failure-label="t('common.copyFailed')"
-            />
-          </template>
-          <AppButton
-            v-else
-            data-test="access-key-result-reveal"
-            variant="secondary"
-            :busy="revealPending"
-            @click="revealResultSecret"
-          >
-            {{ t('common.reveal') }}
-          </AppButton>
-        </div>
-      </section>
+      <AccessKeyResultPanel
+        v-if="result"
+        :result="result"
+        :secret="resultSecret"
+        :reveal-pending="revealPending"
+        @reveal="revealResultSecret"
+        @clear="ephemeralSecret.clear"
+      />
 
       <div class="access-key-drawer__actions">
         <AppButton variant="secondary" :disabled="closeBlocked" @click="setOpen(false)">
@@ -868,102 +676,11 @@ onBeforeUnmount(clearLocalState)
   gap: var(--space-5);
   font-size: 1rem;
 }
-.access-key-drawer__field,
-fieldset {
-  display: grid;
-  gap: var(--space-2);
-}
-.access-key-drawer__field > span,
-legend {
-  font-weight: 700;
-}
-input,
-select {
-  width: 100%;
-  min-height: 44px;
-  border: 1px solid var(--color-border-control);
-  border-radius: var(--radius-control);
-  background: var(--color-surface-secondary);
-  color: var(--color-text);
-  padding: var(--space-2) var(--space-3);
-  font: inherit;
-}
-fieldset {
-  min-width: 0;
-  margin: 0;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-control);
-  padding: var(--space-3);
-}
-fieldset p,
-small,
-.access-key-drawer__result p {
-  margin: 0;
-  color: var(--color-text-muted);
-}
-.access-key-drawer__check {
-  display: flex;
-  min-height: 44px;
-  align-items: center;
-  gap: var(--space-2);
-}
-.access-key-drawer__check input {
-  width: 20px;
-  min-height: 20px;
-}
-.access-key-drawer__check-content {
-  display: grid;
-  gap: var(--space-1);
-}
-.access-key-drawer__model-entry,
-.access-key-drawer__secret,
 .access-key-drawer__actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
-}
-.access-key-drawer__model-entry input {
-  flex: 1 1 220px;
-}
-.access-key-drawer__models {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-}
-.access-key-drawer__model {
-  display: inline-flex;
-  min-height: 44px;
-  align-items: center;
-  gap: var(--space-1);
-  border-radius: var(--radius-tag);
-  background: var(--color-tag);
-  padding-left: var(--space-2);
-}
-.access-key-drawer__model button {
-  display: inline-flex;
-  width: 44px;
-  height: 44px;
-  align-items: center;
-  justify-content: center;
-  border: 0;
-  background: transparent;
-  color: var(--color-text-muted);
-  cursor: pointer;
-}
-.access-key-drawer__result {
-  display: grid;
-  gap: var(--space-2);
-  border: 1px solid var(--color-success);
-  border-radius: var(--radius-control);
-  background: var(--color-success-bg);
-  padding: var(--space-3);
-}
-.access-key-drawer__result-title {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  color: var(--color-success);
 }
 .access-key-drawer__actions {
   justify-content: flex-end;

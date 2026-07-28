@@ -2,7 +2,7 @@ import { QueryClient } from '@tanstack/vue-query'
 import { flushPromises } from '@vue/test-utils'
 
 import type { ApiClient, ApiRequestOptions } from '@/api/client'
-import type { GroupDetailDto } from '@/api/control/groups'
+import type { GroupDetailDto } from '@/app/resources/groups'
 import { ApiError } from '@/api/errors'
 import { controlQueryKeys } from '@/app/query-keys'
 import { mountApp } from '@/test/mount-app'
@@ -106,8 +106,8 @@ describe('GroupDeleteDialog', () => {
       { queryKey: controlQueryKeys.groups.keys(7), exact: true },
     ])
     expect(invalidate.mock.calls.map(([filters]) => filters)).toEqual([
-      { queryKey: controlQueryKeys.groups.list() },
-      { queryKey: controlQueryKeys.health() },
+      { queryKey: controlQueryKeys.groups.list(), exact: true },
+      { queryKey: controlQueryKeys.health(), exact: true },
     ])
     await vi.waitFor(() => expect(router.currentRoute.value.name).toBe('home'))
     wrapper.unmount()

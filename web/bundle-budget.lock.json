@@ -1,0 +1,99 @@
+{
+  "schema_version": 1,
+  "regression_policy": {
+    "relative": 0.05,
+    "absolute_bytes": 10240
+  },
+  "routes": {
+    "Home": {
+      "initial": {
+        "javascript": { "gzip": 143294, "brotli": 127153 },
+        "css": { "gzip": 10128, "brotli": 8700 }
+      },
+      "lazy": {
+        "javascript": { "gzip": 0, "brotli": 0 },
+        "css": { "gzip": 0, "brotli": 0 }
+      }
+    },
+    "Login": {
+      "initial": {
+        "javascript": { "gzip": 116753, "brotli": 103326 },
+        "css": { "gzip": 6204, "brotli": 5511 }
+      },
+      "lazy": {
+        "javascript": { "gzip": 0, "brotli": 0 },
+        "css": { "gzip": 0, "brotli": 0 }
+      }
+    },
+    "Import": {
+      "initial": {
+        "javascript": { "gzip": 121263, "brotli": 107230 },
+        "css": { "gzip": 7631, "brotli": 6654 }
+      },
+      "lazy": {
+        "javascript": { "gzip": 18089, "brotli": 16285 },
+        "css": { "gzip": 3418, "brotli": 2803 }
+      }
+    },
+    "GroupDetail": {
+      "initial": {
+        "javascript": { "gzip": 132991, "brotli": 117681 },
+        "css": { "gzip": 8154, "brotli": 7095 }
+      },
+      "lazy": {
+        "javascript": { "gzip": 17781, "brotli": 16030 },
+        "css": { "gzip": 4834, "brotli": 3926 }
+      }
+    },
+    "AccessKeys": {
+      "initial": {
+        "javascript": { "gzip": 136059, "brotli": 120512 },
+        "css": { "gzip": 10576, "brotli": 8985 }
+      },
+      "lazy": {
+        "javascript": { "gzip": 7757, "brotli": 6956 },
+        "css": { "gzip": 723, "brotli": 591 }
+      }
+    },
+    "Usage": {
+      "initial": {
+        "javascript": { "gzip": 128197, "brotli": 113476 },
+        "css": { "gzip": 7686, "brotli": 6699 }
+      },
+      "lazy": {
+        "javascript": { "gzip": 43401, "brotli": 39033 },
+        "css": { "gzip": 6127, "brotli": 5051 }
+      }
+    },
+    "Settings": {
+      "initial": {
+        "javascript": { "gzip": 139806, "brotli": 123502 },
+        "css": { "gzip": 10027, "brotli": 8646 }
+      },
+      "lazy": {
+        "javascript": { "gzip": 0, "brotli": 0 },
+        "css": { "gzip": 0, "brotli": 0 }
+      }
+    },
+    "ModelPrices": {
+      "initial": {
+        "javascript": { "gzip": 133240, "brotli": 118012 },
+        "css": { "gzip": 10236, "brotli": 8737 }
+      },
+      "lazy": {
+        "javascript": { "gzip": 3161, "brotli": 2871 },
+        "css": { "gzip": 439, "brotli": 347 }
+      }
+    },
+    "NotFound": {
+      "initial": {
+        "javascript": { "gzip": 115454, "brotli": 102175 },
+        "css": { "gzip": 6603, "brotli": 5833 }
+      },
+      "lazy": {
+        "javascript": { "gzip": 0, "brotli": 0 },
+        "css": { "gzip": 0, "brotli": 0 }
+      }
+    }
+  }
+}

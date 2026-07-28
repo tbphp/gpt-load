@@ -5,9 +5,9 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { useApiClient } from '@/api/client-context'
-import { putModelPrice, type ModelPriceRuleDto } from '@/api/control/model-prices'
+import { putModelPrice, type ModelPriceRuleDto } from '@/app/resources/model-prices'
+import { applyInvalidationPlan, mutationInvalidationPlans } from '@/app/resources/invalidation'
 import { RequestCancelledError } from '@/api/errors'
-import { controlQueryKeys } from '@/app/query-keys'
 import { useUnsavedChanges } from '@/app/unsaved-changes'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppDrawer from '@/components/ui/AppDrawer.vue'
@@ -145,7 +145,7 @@ async function save(): Promise<void> {
   try {
     await putModelPrice(client, body.pattern, body.prices, activeController.signal)
     if (controller !== activeController || !props.open) return
-    await queryClient.invalidateQueries({ queryKey: controlQueryKeys.modelPrices() })
+    await applyInvalidationPlan(queryClient, mutationInvalidationPlans.modelPrice.upsert)
     if (controller !== activeController || !props.open) return
     globalConfirmOpen.value = false
     initialDraft.value = { ...draft.value }

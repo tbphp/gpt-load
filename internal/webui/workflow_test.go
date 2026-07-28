@@ -981,9 +981,9 @@ func TestReleaseWorkflowVerifiesDownloadedNativeChecksumsAndGeneratedKeys(t *tes
 			t.Fatalf("native smoke does not invoke %s:\n%s", scriptPath, nativeJob)
 		}
 	}
-	nativeImplementation := nativeJob +
-		readRepositoryFile(t, ".github/scripts/release-native-smoke.sh") +
-		readRepositoryFile(t, ".github/scripts/release-native-smoke.ps1")
+	nativeShellImplementation := readRepositoryFile(t, ".github/scripts/release-native-smoke.sh")
+	nativePowerShellImplementation := readRepositoryFile(t, ".github/scripts/release-native-smoke.ps1")
+	nativeImplementation := nativeJob + nativeShellImplementation + nativePowerShellImplementation
 	for _, required := range []string{
 		"name: release-assets",
 		"SHA256SUMS",
@@ -1007,6 +1007,14 @@ func TestReleaseWorkflowVerifiesDownloadedNativeChecksumsAndGeneratedKeys(t *tes
 	} {
 		if !strings.Contains(nativeImplementation, required) {
 			t.Fatalf("native smoke does not contain %q", required)
+		}
+	}
+	for name, implementation := range map[string]string{
+		"POSIX":   nativeShellImplementation,
+		"Windows": nativePowerShellImplementation,
+	} {
+		if !strings.Contains(implementation, "Idempotency-Key") {
+			t.Fatalf("%s native smoke does not send Idempotency-Key", name)
 		}
 	}
 	if strings.Contains(nativeImplementation, "AUTH_KEY=release-native-smoke") ||
@@ -1046,6 +1054,7 @@ func TestReleaseWorkflowRunsCompleteLocalDockerSmoke(t *testing.T) {
 		"container-first.log",
 		"container-second.log",
 		"secret_free=true",
+		"Idempotency-Key",
 	} {
 		if !strings.Contains(script, required) {
 			t.Fatalf("release Docker smoke does not contain %q", required)

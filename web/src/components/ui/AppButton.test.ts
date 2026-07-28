@@ -39,4 +39,21 @@ describe('AppButton', () => {
     await button.trigger('click')
     expect(onClick).not.toHaveBeenCalled()
   })
+
+  it('exposes danger and size as semantic classes', () => {
+    const wrapper = mount(AppButton, {
+      props: {
+        variant: 'danger',
+        size: 'lg',
+      },
+      slots: {
+        default: 'Delete permanently',
+      },
+    })
+
+    expect(wrapper.get('button').classes()).toEqual(
+      expect.arrayContaining(['app-button--danger', 'app-button--lg']),
+    )
+    expect(wrapper.text()).toBe('Delete permanently')
+  })
 })

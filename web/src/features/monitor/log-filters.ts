@@ -1,6 +1,6 @@
 import type { LocationQueryRaw } from 'vue-router'
 
-import type { RequestLogFilters, RequestLogStatus } from '@/api/control/request-logs'
+import type { RequestLogFilters, RequestLogStatus } from '@/app/resources/request-logs'
 
 import { requestLogStatuses } from './monitor-route'
 

@@ -5,36 +5,24 @@ import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 
 import { useApiClient } from '@/api/client-context'
-import { getGroup } from '@/api/control/groups'
-import { controlQueryKeys } from '@/app/query-keys'
+import { lazySurface } from '@/app/async-surface'
+import { groupDetailQueryOptions } from '@/app/resources/groups'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 
 import GroupHeader from './GroupHeader.vue'
 import GroupTabs from './GroupTabs.vue'
 import { normalizeGroupTab, parsePositiveId } from './group-route'
-import GroupKeysTab from './keys/GroupKeysTab.vue'
-import GroupModelsTab from './models/GroupModelsTab.vue'
-import GroupSettingsTab from './settings/GroupSettingsTab.vue'
+
+const GroupKeysTab = lazySurface(() => import('./keys/GroupKeysTab.vue'))
+const GroupModelsTab = lazySurface(() => import('./models/GroupModelsTab.vue'))
+const GroupSettingsTab = lazySurface(() => import('./settings/GroupSettingsTab.vue'))
 
 const route = useRoute()
 const client = useApiClient()
 const { t } = useI18n()
 const groupId = computed(() => parsePositiveId(route.params.id))
 const activeTab = computed(() => normalizeGroupTab(route.query.tab))
-const detailQuery = useQuery({
-  queryKey: computed(() =>
-    groupId.value
-      ? controlQueryKeys.groups.detail(groupId.value)
-      : controlQueryKeys.groups.details(),
-  ),
-  queryFn: ({ signal }) => {
-    const id = groupId.value
-    if (!id) throw new Error('INVALID_GROUP_ID')
-    return getGroup(client, id, signal)
-  },
-  enabled: computed(() => groupId.value !== undefined),
-  gcTime: 0,
-})
+const detailQuery = useQuery(groupDetailQueryOptions(client, groupId))
 </script>
 
 <template>

@@ -78,7 +78,7 @@ describe('AccessKey control API', () => {
     expect(createBody).not.toHaveProperty('status')
   })
 
-  it('projects an allowlisted metadata list and never retains an unexpected plaintext field', async () => {
+  it('fails closed when metadata contains unexpected secret-like fields', async () => {
     const request = vi.fn().mockResolvedValue([
       {
         id: 12,
@@ -93,23 +93,7 @@ describe('AccessKey control API', () => {
         secret_debug: 'DO_NOT_CACHE',
       },
     ]) as ApiClient['request']
-    const client: ApiClient = { request }
-
-    const list = await listAccessKeys(client)
-    expect(list).toEqual([
-      {
-        id: 12,
-        name: 'Client',
-        masked_key: 'sk-gl-••••••••cafe',
-        status: 'active',
-        filters: { groups: [], protocols: [], models: [] },
-        rpm_limit: 0,
-        created_at: '2026-07-28T00:00:00Z',
-        updated_at: '2026-07-28T01:00:00Z',
-      },
-    ])
-    expect(JSON.stringify(list)).not.toContain('sk-gl-CANARY')
-    expect(JSON.stringify(list)).not.toContain('DO_NOT_CACHE')
+    await expect(listAccessKeys({ request })).rejects.toThrow('INVALID_API_RESPONSE')
   })
 
   it.each([
@@ -137,10 +121,10 @@ describe('AccessKey control API', () => {
     },
   )
 
-  it('reads options directly and reveals plaintext only through the reveal endpoint', async () => {
+  it('reads safe options and reveals plaintext only through the reveal endpoint', async () => {
     const request = vi
       .fn()
-      .mockResolvedValueOnce([{ id: 12, name: 'Client', status: 'active', key: 'DO_NOT_KEEP' }])
+      .mockResolvedValueOnce([{ id: 12, name: 'Client', status: 'active' }])
       .mockResolvedValueOnce({
         id: 12,
         key: 'sk-gl-REVEAL-CANARY',
@@ -151,7 +135,6 @@ describe('AccessKey control API', () => {
 
     const options = await listAccessKeyOptions(client)
     expect(options).toEqual([{ id: 12, name: 'Client', status: 'active' }])
-    expect(JSON.stringify(options)).not.toContain('DO_NOT_KEEP')
     expect(await revealAccessKey(client, 12)).toEqual({
       id: 12,
       key: 'sk-gl-REVEAL-CANARY',

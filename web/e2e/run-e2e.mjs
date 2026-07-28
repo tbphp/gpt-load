@@ -17,13 +17,22 @@ const repositoryRoot = resolve(webRoot, '..')
 const binary = join(repositoryRoot, 'gpt-load')
 await access(binary)
 
-const project = 'chromium'
 const playwrightArgs = process.argv.slice(2)
+const projectArgument = playwrightArgs.find((value) => value.startsWith('--project='))
+const project = projectArgument?.slice('--project='.length) ?? 'chromium'
+if (!(project === 'chromium' || project === 'webkit')) {
+  console.error(`E2E harness does not support project ${project}`)
+  process.exit(1)
+}
+const effectivePlaywrightArgs =
+  projectArgument === undefined ? [...playwrightArgs, '--project=chromium'] : playwrightArgs
 const scenario = (playwrightArgs.find((value) => value.endsWith('.spec.ts')) ?? 'full')
   .replace(/^.*\//, '')
   .replace(/\.spec\.ts$/, '')
   .replace(/[^a-z0-9-]/gi, '-')
 const artifactStem = `${project}-serial-${scenario}`
+const visualAppPort =
+  scenario === 'visual-scenarios' ? (process.env.GPT_LOAD_E2E_APP_PORT ?? '43101') : undefined
 const runDirectory = await mkdtemp(join(tmpdir(), 'gpt-load-e2e-run-'))
 const readyFile = join(runDirectory, `${artifactStem}-ready.json`)
 const authKey = `e2e-auth-${randomBytes(24).toString('hex')}`
@@ -35,6 +44,7 @@ const server = spawn(process.execPath, [join(webRoot, 'e2e/start-e2e-server.mjs'
     GPT_LOAD_E2E_AUTH_KEY: authKey,
     GPT_LOAD_E2E_PROJECT: project,
     GPT_LOAD_E2E_SCENARIO: scenario,
+    ...(visualAppPort === undefined ? {} : { GPT_LOAD_E2E_APP_PORT: visualAppPort }),
   },
   stdio: ['ignore', 'inherit', 'inherit'],
 })
@@ -86,7 +96,7 @@ try {
   const cli = join(webRoot, 'node_modules/@playwright/test/cli.js')
   const playwright = spawn(
     process.execPath,
-    [cli, 'test', ...playwrightArgs, '--config', 'playwright.config.ts'],
+    [cli, 'test', ...effectivePlaywrightArgs, '--config', 'playwright.config.ts'],
     {
       cwd: webRoot,
       env: {

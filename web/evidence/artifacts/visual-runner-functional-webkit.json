@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "mode": "functional",
+  "status": "PASS",
+  "source_sha": "c28dc80a725d2254f82898357a87a7dbe4b2d8d0",
+  "source_dirty": false,
+  "lock_sha256": "1057d8cb6a6ab7a3a1f4c8a371a1c4cf6c0fd9723938e42026e8ec7beb68a68a",
+  "image": "mcr.microsoft.com/playwright:v1.61.1-noble@sha256:5b8f294aff9041b7191c34a4bab3ac270157a28774d4b0660e9743297b697e48",
+  "platform": "linux/arm64",
+  "platform_digest": "sha256:824f1a789072e648c62541c2cfa4479c4061a290d5c27766d67dc1dcbc19b321",
+  "host_fallback": false,
+  "runtime": {
+    "container_node": "24.17.0",
+    "zlib": "1.3.1-e00f703",
+    "brotli": "1.2.0",
+    "platform": "linux",
+    "architecture": "arm64"
+  },
+  "browser": {
+    "name": "webkit",
+    "revision": "2311",
+    "version": "26.5"
+  },
+  "fonts": {
+    "count": 50,
+    "sha256": "b8ef8574b460985896b67131880009351c299e3bdbe3346a77b16650714d6365"
+  },
+  "specs": [
+    "e2e/business-flows.spec.ts",
+    "e2e/accessibility.spec.ts"
+  ],
+  "result": {
+    "status": "passed",
+    "failedTests": []
+  },
+  "accessibility": {
+    "status": "PASS",
+    "result_count": 7,
+    "json_sha256": "0f1b3795c3b66563dab27f8bb4b34ff16c99fcf5f8952cbb769a60b50f9e2236",
+    "markdown_sha256": "7b2318de378ecda3dfa6c5c2264739f50eae669e945b6db75f545a6fae1c3958"
+  },
+  "evidence_sha256": "72fe95f9482066ac3f6819168dbadb80f325b413574e6431a64e3f48de6f928a"
+}

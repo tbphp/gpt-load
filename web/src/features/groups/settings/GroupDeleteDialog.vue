@@ -6,9 +6,10 @@ import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 
 import { useApiClient } from '@/api/client-context'
-import { deleteGroup, isGroupInUseData, type AccessKeyReferenceDto } from '@/api/control/groups'
+import { deleteGroup, isGroupInUseData, type AccessKeyReferenceDto } from '@/app/resources/groups'
 import { ApiError, RequestCancelledError } from '@/api/errors'
 import { controlQueryKeys } from '@/app/query-keys'
+import { applyInvalidationPlan, mutationInvalidationPlans } from '@/app/resources/invalidation'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppDialog from '@/components/ui/AppDialog.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
@@ -65,8 +66,7 @@ async function confirmDelete(): Promise<void> {
       queryKey: controlQueryKeys.groups.keys(props.groupId),
       exact: true,
     })
-    await queryClient.invalidateQueries({ queryKey: controlQueryKeys.groups.list() })
-    await queryClient.invalidateQueries({ queryKey: controlQueryKeys.health() })
+    await applyInvalidationPlan(queryClient, mutationInvalidationPlans.group.delete)
     await router.replace({ name: 'home' })
   } catch (error: unknown) {
     if (error instanceof RequestCancelledError) return

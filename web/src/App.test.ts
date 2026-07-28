@@ -88,7 +88,7 @@ describe('App', () => {
   })
 
   it('uses the compact reference rhythm for login fields and shared navigation', () => {
-    expect(baseCss).toMatch(/body\s*\{[^}]*font-size:\s*14px;/)
+    expect(baseCss).toMatch(/body\s*\{[^}]*font-size:\s*var\(--text-md\);/)
     expect(baseCss).toMatch(/\.topbar\s*\{[^}]*gap:\s*20px;[^}]*padding:\s*8px 20px;/)
     expect(baseCss).toMatch(/\.nav\s*\{[^}]*gap:\s*20px;/)
     expect(baseCss).toMatch(/\.nav-link\s*\{[^}]*padding-inline:\s*2px;/)

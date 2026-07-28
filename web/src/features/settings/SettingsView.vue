@@ -6,11 +6,11 @@ import { useI18n } from 'vue-i18n'
 
 import { useApiClient } from '@/api/client-context'
 import {
-  getSettings,
   runtimeSettingKeys,
+  settingsQueryOptions,
   type RuntimeSettingKey,
   type TimeoutSettingKey,
-} from '@/api/control/settings'
+} from '@/app/resources/settings'
 import { controlQueryKeys } from '@/app/query-keys'
 import { useUnsavedChanges } from '@/app/unsaved-changes'
 import AppButton from '@/components/ui/AppButton.vue'
@@ -29,12 +29,7 @@ import { useSettingsController } from './use-settings-controller'
 const client = useApiClient()
 const queryClient = useQueryClient()
 const { locale, t } = useI18n()
-const settingsQueryKey = computed(() => controlQueryKeys.settings(locale.value))
-const settingsQuery = useQuery({
-  queryKey: settingsQueryKey,
-  queryFn: ({ signal }) => getSettings(client, signal),
-  gcTime: 0,
-})
+const settingsQuery = useQuery(settingsQueryOptions(client, locale))
 const resource = computed(() => settingsQuery.data.value ?? null)
 const {
   base,
@@ -120,7 +115,7 @@ async function focusTarget(id: string): Promise<void> {
 }
 
 onBeforeUnmount(() => {
-  queryClient.removeQueries({ queryKey: ['control', 'settings'] })
+  queryClient.removeQueries({ queryKey: controlQueryKeys.settingsAll })
 })
 </script>
 

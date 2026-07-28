@@ -1,5 +1,9 @@
+<script setup lang="ts">
+import Surface from './Surface.vue'
+</script>
+
 <template>
-  <section class="surface-card">
+  <Surface as="section" variant="raised" class="surface-card">
     <slot />
-  </section>
+  </Surface>
 </template>

@@ -4,7 +4,7 @@ import type {
   GroupCreateRequest,
   GroupCreateResult,
   GroupKeyImportResult,
-} from '@/api/control/groups'
+} from '@/app/resources/groups'
 import { registerEphemeralStateCleaner } from '@/app/ephemeral-state'
 
 import { useStableImportOperation } from './import-operation'

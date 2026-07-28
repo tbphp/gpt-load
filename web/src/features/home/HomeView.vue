@@ -1,15 +1,15 @@
 <script setup lang="ts">
 import { useQuery } from '@tanstack/vue-query'
-import { Layers3 } from 'lucide-vue-next'
+import { CircleAlert, CircleCheck, CircleOff, Layers3 } from 'lucide-vue-next'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import { listAccessKeyOptions } from '@/api/control/access-keys'
-import { listGroups } from '@/api/control/groups'
-import { getRuntimeHealth } from '@/api/control/health'
+import { accessKeyOptionsQueryOptions } from '@/app/resources/access-keys'
+import { groupListQueryOptions } from '@/app/resources/groups'
+import { healthQueryOptions } from '@/app/resources/health'
 import { NetworkError } from '@/api/errors'
 import { useApiClient } from '@/api/client-context'
-import { controlQueryKeys } from '@/app/query-keys'
+import AppDateTime from '@/components/ui/AppDateTime.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
@@ -26,19 +26,9 @@ const props = withDefaults(defineProps<{ origin?: string }>(), {
 const client = useApiClient()
 const { locale, t } = useI18n()
 
-const groupsQuery = useQuery({
-  queryKey: controlQueryKeys.groups.list(),
-  queryFn: ({ signal }) => listGroups(client, signal),
-})
-const healthQuery = useQuery({
-  queryKey: controlQueryKeys.health(),
-  queryFn: ({ signal }) => getRuntimeHealth(client, signal),
-})
-const accessKeysQuery = useQuery({
-  queryKey: controlQueryKeys.accessKeys.options(),
-  queryFn: ({ signal }) => listAccessKeyOptions(client, signal),
-  gcTime: 0,
-})
+const groupsQuery = useQuery(groupListQueryOptions(client))
+const healthQuery = useQuery(healthQueryOptions(client))
+const accessKeysQuery = useQuery(accessKeyOptionsQueryOptions(client))
 
 const healthByGroup = computed(
   () => new Map(healthQuery.data.value?.groups.map((group) => [group.id, group]) ?? []),
@@ -51,116 +41,136 @@ const healthErrorMessage = computed(() =>
     ? t('home.networkUnavailable')
     : t('home.healthUnavailable'),
 )
-const observedAt = computed(() => {
-  const value = healthQuery.data.value?.observed_at
-  if (!value) return ''
-  return new Intl.DateTimeFormat(locale.value, {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(new Date(value))
-})
 </script>
 
 <template>
   <div class="home-page">
     <PageHeader :title="t('home.title')" :description="t('home.description')" />
 
-    <section class="home-overview" :aria-labelledby="'service-heading'">
-      <SurfaceCard class="service-card">
-        <div class="section-heading">
-          <div>
-            <p class="eyebrow">{{ t('home.service') }}</p>
-            <h2 id="service-heading">{{ t('home.service') }}</h2>
-          </div>
-          <StatusBadge v-if="healthQuery.isSuccess.value" tone="success">
-            {{ t('home.online') }}
-          </StatusBadge>
-          <StatusBadge
-            v-else-if="healthQuery.isError.value && healthQuery.data.value"
-            tone="warning"
-          >
-            {{ t('home.healthStale') }}
-          </StatusBadge>
-          <StatusBadge v-else-if="healthQuery.isError.value" tone="warning">
-            {{ healthErrorMessage }}
-          </StatusBadge>
-        </div>
+    <section
+      class="operational-overview"
+      data-test="home-operational-overview"
+      aria-labelledby="operational-overview-heading"
+    >
+      <header class="operational-overview__header">
+        <h2 id="operational-overview-heading">{{ t('home.operationalOverview') }}</h2>
+        <p>{{ t('home.operationalOverviewDescription') }}</p>
+      </header>
 
-        <QueryFeedback
-          v-if="healthQuery.isPending.value"
-          state="loading"
-          :message="t('auth.checking')"
-        />
-        <QueryFeedback
-          v-else-if="healthQuery.isError.value && !healthQuery.data.value"
-          state="error"
-          :message="healthErrorMessage"
-          :retry-label="t('common.retry')"
-          @retry="healthQuery.refetch()"
-        />
-        <template v-else-if="healthQuery.data.value">
+      <div class="home-overview">
+        <SurfaceCard class="service-card">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">{{ t('home.service') }}</p>
+              <h3 id="service-heading">{{ t('home.service') }}</h3>
+            </div>
+            <span
+              v-if="healthQuery.isSuccess.value"
+              class="service-status service-status--normal"
+              data-test="home-service-status"
+            >
+              <CircleCheck :size="14" aria-hidden="true" />
+              {{ t('home.online') }}
+            </span>
+            <StatusBadge
+              v-else-if="healthQuery.isError.value && healthQuery.data.value"
+              tone="warning"
+            >
+              {{ t('home.healthStale') }}
+            </StatusBadge>
+            <StatusBadge v-else-if="healthQuery.isError.value" tone="warning">
+              {{ healthErrorMessage }}
+            </StatusBadge>
+          </div>
+
           <QueryFeedback
-            v-if="healthQuery.isError.value"
-            state="stale"
-            :message="t('home.healthStale')"
+            v-if="healthQuery.isPending.value"
+            state="loading"
+            :message="t('auth.checking')"
+          />
+          <QueryFeedback
+            v-else-if="healthQuery.isError.value && !healthQuery.data.value"
+            state="error"
+            :message="healthErrorMessage"
             :retry-label="t('common.retry')"
             @retry="healthQuery.refetch()"
           />
-          <div class="health-meta">
-            <span>{{
-              t('home.revision', { revision: healthQuery.data.value.snapshot_revision })
-            }}</span>
-            <span>{{ t('home.observedAt', { time: observedAt }) }}</span>
-          </div>
-          <div class="health-counts">
-            <span>{{ t('home.keyTotal', { count: healthQuery.data.value.counts.total }) }}</span>
-            <span>{{
-              t('home.keyAvailable', { count: healthQuery.data.value.counts.available })
-            }}</span>
-            <span>{{
-              t('home.keyCooldown', { count: healthQuery.data.value.counts.cooldown })
-            }}</span>
-            <span>{{
-              t('home.keyBlacklisted', { count: healthQuery.data.value.counts.blacklisted })
-            }}</span>
-            <span>{{
-              t('home.keyDisabled', { count: healthQuery.data.value.counts.disabled })
-            }}</span>
-          </div>
-        </template>
-      </SurfaceCard>
+          <template v-else-if="healthQuery.data.value">
+            <QueryFeedback
+              v-if="healthQuery.isError.value"
+              state="stale"
+              :message="t('home.healthStale')"
+              :retry-label="t('common.retry')"
+              @retry="healthQuery.refetch()"
+            />
+            <div class="health-meta">
+              <span>{{
+                t('home.revision', { revision: healthQuery.data.value.snapshot_revision })
+              }}</span>
+              <i18n-t keypath="home.observedAt" tag="span">
+                <template #time>
+                  <AppDateTime :instant="healthQuery.data.value.observed_at" :locale="locale" />
+                </template>
+              </i18n-t>
+            </div>
+            <div class="health-counts">
+              <span data-test="home-health-total" data-state="normal">{{
+                t('home.keyTotal', { count: healthQuery.data.value.counts.total })
+              }}</span>
+              <span data-test="home-health-available" data-state="normal">{{
+                t('home.keyAvailable', { count: healthQuery.data.value.counts.available })
+              }}</span>
+              <span
+                data-test="home-health-cooldown"
+                :data-state="healthQuery.data.value.counts.cooldown > 0 ? 'anomaly' : 'normal'"
+                :class="{
+                  'health-count--warning': healthQuery.data.value.counts.cooldown > 0,
+                }"
+              >
+                <CircleAlert
+                  v-if="healthQuery.data.value.counts.cooldown > 0"
+                  :size="14"
+                  aria-hidden="true"
+                />
+                {{ t('home.keyCooldown', { count: healthQuery.data.value.counts.cooldown }) }}
+              </span>
+              <span
+                data-test="home-health-blacklisted"
+                :data-state="healthQuery.data.value.counts.blacklisted > 0 ? 'anomaly' : 'normal'"
+                :class="{
+                  'health-count--danger': healthQuery.data.value.counts.blacklisted > 0,
+                }"
+              >
+                <CircleOff
+                  v-if="healthQuery.data.value.counts.blacklisted > 0"
+                  :size="14"
+                  aria-hidden="true"
+                />
+                {{ t('home.keyBlacklisted', { count: healthQuery.data.value.counts.blacklisted }) }}
+              </span>
+              <span
+                data-test="home-health-disabled"
+                :data-state="healthQuery.data.value.counts.disabled > 0 ? 'anomaly' : 'normal'"
+                :class="{
+                  'health-count--warning': healthQuery.data.value.counts.disabled > 0,
+                }"
+              >
+                <CircleOff
+                  v-if="healthQuery.data.value.counts.disabled > 0"
+                  :size="14"
+                  aria-hidden="true"
+                />
+                {{ t('home.keyDisabled', { count: healthQuery.data.value.counts.disabled }) }}
+              </span>
+            </div>
+          </template>
+        </SurfaceCard>
 
-      <QueryFeedback
-        v-if="accessKeysQuery.isPending.value"
-        state="loading"
-        :message="t('auth.checking')"
-      />
-      <QueryFeedback
-        v-else-if="accessKeysQuery.isError.value && !accessKeysQuery.data.value"
-        state="error"
-        :message="t('home.accessKeysError')"
-        :retry-label="t('common.retry')"
-        @retry="accessKeysQuery.refetch()"
-      />
-      <div v-else class="connection-section">
-        <QueryFeedback
-          v-if="accessKeysQuery.isError.value"
-          state="stale"
-          :message="t('home.accessKeysStale')"
-          :retry-label="t('common.retry')"
-          @retry="accessKeysQuery.refetch()"
-        />
-        <ConnectionCard
-          :keys="accessKeysQuery.data.value ?? []"
-          :model-ids="modelIds"
-          :origin="props.origin"
-        />
+        <UsageSummaryCard heading-as="h3" />
       </div>
     </section>
 
-    <UsageSummaryCard />
-
-    <section class="groups-section" aria-labelledby="groups-heading">
+    <section class="groups-section" data-test="home-groups" aria-labelledby="groups-heading">
       <header class="groups-section__header">
         <div>
           <h2 id="groups-heading">{{ t('home.groups') }}</h2>
@@ -208,6 +218,39 @@ const observedAt = computed(() => {
         </div>
       </template>
     </section>
+
+    <section
+      class="connection-section"
+      data-test="home-connection"
+      :aria-label="t('home.connection')"
+    >
+      <QueryFeedback
+        v-if="accessKeysQuery.isPending.value"
+        state="loading"
+        :message="t('auth.checking')"
+      />
+      <QueryFeedback
+        v-else-if="accessKeysQuery.isError.value && !accessKeysQuery.data.value"
+        state="error"
+        :message="t('home.accessKeysError')"
+        :retry-label="t('common.retry')"
+        @retry="accessKeysQuery.refetch()"
+      />
+      <template v-else>
+        <QueryFeedback
+          v-if="accessKeysQuery.isError.value"
+          state="stale"
+          :message="t('home.accessKeysStale')"
+          :retry-label="t('common.retry')"
+          @retry="accessKeysQuery.refetch()"
+        />
+        <ConnectionCard
+          :keys="accessKeysQuery.data.value ?? []"
+          :model-ids="modelIds"
+          :origin="props.origin"
+        />
+      </template>
+    </section>
   </div>
 </template>
 
@@ -216,14 +259,29 @@ const observedAt = computed(() => {
   display: grid;
   gap: var(--space-8);
 }
+.operational-overview,
+.connection-section {
+  display: grid;
+  gap: var(--space-4);
+}
+.operational-overview__header h2,
+.operational-overview__header p {
+  margin: 0;
+}
+.operational-overview__header h2 {
+  font-size: 1.25rem;
+}
+.operational-overview__header p {
+  margin-top: var(--space-1);
+  color: var(--color-text-muted);
+}
 .home-overview {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(320px, 0.9fr);
   gap: var(--space-5);
   align-items: start;
 }
-.service-card,
-.connection-section {
+.service-card {
   display: grid;
   gap: var(--space-5);
 }
@@ -236,10 +294,22 @@ const observedAt = computed(() => {
   justify-content: space-between;
   gap: var(--space-3);
 }
-.section-heading h2,
+.section-heading h3,
 .groups-section h2 {
   margin: 0;
   font-size: 1.125rem;
+}
+.service-status {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  gap: var(--space-1);
+  border-radius: var(--radius-tag);
+  background: var(--color-surface-sunken);
+  color: var(--color-text-muted);
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: 650;
 }
 .health-meta,
 .health-counts {
@@ -252,9 +322,24 @@ const observedAt = computed(() => {
   font-size: 0.8125rem;
 }
 .health-counts span {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
   border-radius: var(--radius-tag);
   background: var(--color-surface-secondary);
   padding: var(--space-2) var(--space-3);
+}
+.health-counts .health-count--warning {
+  background: var(--color-warning-bg);
+}
+.health-counts .health-count--warning svg {
+  color: var(--color-warning);
+}
+.health-counts .health-count--danger {
+  background: var(--color-danger-bg);
+}
+.health-counts .health-count--danger svg {
+  color: var(--color-danger);
 }
 .groups-section {
   display: grid;

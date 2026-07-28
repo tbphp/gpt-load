@@ -1,4 +1,4 @@
-import type { UpstreamKeyPatch, UpstreamKeyStatus } from '@/api/control/upstream-keys'
+import type { UpstreamKeyPatch, UpstreamKeyStatus } from '@/app/resources/upstream-keys'
 
 export interface UpstreamKeyEditable {
   status: UpstreamKeyStatus

@@ -3,7 +3,7 @@ import { flushPromises } from '@vue/test-utils'
 import { defineComponent } from 'vue'
 
 import type { ApiClient, ApiRequestOptions } from '@/api/client'
-import type { GroupDetailDto } from '@/api/control/groups'
+import type { GroupDetailDto } from '@/app/resources/groups'
 import { ApiError } from '@/api/errors'
 import { controlQueryKeys } from '@/app/query-keys'
 import { mountApp } from '@/test/mount-app'
@@ -342,7 +342,7 @@ describe('GroupModelsTab', () => {
     )
     expect(setQueryData).toHaveBeenCalledWith(controlQueryKeys.groups.detail(7), updated)
     expect(invalidate.mock.calls.map(([filters]) => filters)).toEqual([
-      { queryKey: controlQueryKeys.groups.list() },
+      { queryKey: controlQueryKeys.groups.list(), exact: true },
     ])
     expect(invalidate).not.toHaveBeenCalledWith({ queryKey: controlQueryKeys.health() })
     expect(client.getMutationCache().getAll()).toHaveLength(0)

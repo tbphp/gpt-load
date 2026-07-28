@@ -2,7 +2,10 @@ import { QueryClient } from '@tanstack/vue-query'
 import { flushPromises } from '@vue/test-utils'
 
 import type { ApiClient, ApiPath, ApiRequestOptions } from '@/api/client'
-import type { RouteInspectReasonCode, RouteInspectResponseDto } from '@/api/control/route-inspect'
+import type {
+  RouteInspectReasonCode,
+  RouteInspectResponseDto,
+} from '@/app/resources/route-inspection'
 import type { AccessKeyOptionDto } from '@/api/control/types'
 import { ApiError } from '@/api/errors'
 import { controlQueryKeys } from '@/app/query-keys'
@@ -11,17 +14,15 @@ import { mountApp } from '@/test/mount-app'
 
 import InspectorTab from './InspectorTab.vue'
 
-const activeAccessKey: AccessKeyOptionDto & { key: string } = {
+const activeAccessKey: AccessKeyOptionDto = {
   id: 12,
   name: 'Client production',
-  key: 'sk-gl-raw-access-key-canary',
   status: 'active',
 }
 
-const disabledAccessKey: AccessKeyOptionDto & { key: string } = {
+const disabledAccessKey: AccessKeyOptionDto = {
   id: 13,
   name: 'Client disabled',
-  key: 'sk-gl-disabled-raw-canary',
   status: 'disabled',
 }
 
@@ -63,9 +64,7 @@ class InspectorApi implements ApiClient {
     private readonly inspections: Array<
       RouteInspectResponseDto | Promise<RouteInspectResponseDto>
     > = [inspectionFixture()],
-    private readonly accessKeys:
-      | Array<AccessKeyOptionDto & Partial<{ key: string }>>
-      | Promise<Array<AccessKeyOptionDto & Partial<{ key: string }>>> = [
+    private readonly accessKeys: AccessKeyOptionDto[] | Promise<AccessKeyOptionDto[]> = [
       activeAccessKey,
       disabledAccessKey,
     ],
@@ -500,8 +499,6 @@ describe('InspectorTab', () => {
   })
 
   it('renders current-runtime facts, raw weights, and upstream Key identities without selection claims', async () => {
-    const upstreamMask = 'upstream-mask-never-render'
-    const upstreamName = 'upstream-name-never-render'
     const api = new InspectorApi([
       inspectionFixture({
         groups: [
@@ -522,8 +519,6 @@ describe('InspectorTab', () => {
                 weight_auto: 37,
                 effective_weight: 1850,
                 cooldown_until: null,
-                name: upstreamName,
-                mask: upstreamMask,
               },
               {
                 key_id: 32,
@@ -572,8 +567,6 @@ describe('InspectorTab', () => {
     expect(wrapper.get('[data-test="inspector-key-31-auto-weight"]').text()).toContain('37')
     expect(wrapper.get('[data-test="inspector-key-31-effective-weight"]').text()).toContain('1850')
     expect(wrapper.get('[data-test="inspector-key-32-manual-weight"]').text()).toContain('7')
-    expect(result.text()).not.toContain(upstreamMask)
-    expect(result.text()).not.toContain(upstreamName)
     expect(result.text().toLowerCase()).not.toContain('selected')
     expect(result.text().toLowerCase()).not.toContain('predicted')
   })
@@ -607,7 +600,7 @@ describe('InspectorTab', () => {
     )
   })
 
-  it('maps all 14 reason codes and uses a safe fallback for an unknown code', async () => {
+  it('maps all 14 stable reason codes', async () => {
     const reasons: Array<[RouteInspectReasonCode, string]> = [
       ['access_key_disabled', 'AccessKey is disabled'],
       ['protocol_filtered', 'AccessKey filters exclude this protocol'],
@@ -624,7 +617,6 @@ describe('InspectorTab', () => {
       ['key_weight_zero', 'Key effective weight is zero'],
       ['no_available_key', 'Group has no currently available Key'],
     ]
-    const unknownReason = 'future-reason-secret-canary'
     const api = new InspectorApi([
       inspectionFixture({
         routable: false,
@@ -640,16 +632,6 @@ describe('InspectorTab', () => {
             reason_code: reason,
             keys: [],
           })),
-          {
-            group_id: 99,
-            group_name: 'Future Group',
-            upstream_model: 'future-upstream',
-            weight_manual: null,
-            included: false,
-            routable: false,
-            reason_code: unknownReason,
-            keys: [],
-          },
         ],
       } as Partial<RouteInspectResponseDto>),
     ])
@@ -662,13 +644,11 @@ describe('InspectorTab', () => {
     await flushPromises()
 
     for (const [, label] of reasons) expect(wrapper.text()).toContain(label)
-    expect(wrapper.text()).toContain('Unknown route reason')
-    expect(wrapper.text()).not.toContain(unknownReason)
   })
 
-  it('never exposes raw AccessKeys and caches only gcTime-zero safe options', async () => {
+  it('caches only projected gcTime-zero AccessKey options', async () => {
     const api = new InspectorApi()
-    const { queryClient, router, wrapper } = await mountInspector(
+    const { queryClient, wrapper } = await mountInspector(
       api,
       '/monitor?tab=inspector&protocol=openai&external_model=gpt-client&access_key_id=12',
     )
@@ -676,9 +656,6 @@ describe('InspectorTab', () => {
     await wrapper.get('[data-test="inspector-form"]').trigger('submit')
     await flushPromises()
 
-    expect(wrapper.text()).not.toContain(activeAccessKey.key)
-    expect(wrapper.text()).not.toContain(disabledAccessKey.key)
-    expect(JSON.stringify(router.currentRoute.value.query)).not.toContain(activeAccessKey.key)
     expect(queryClient.getQueryData(controlQueryKeys.accessKeys.options())).toEqual([
       { id: 12, name: 'Client production', status: 'active' },
       { id: 13, name: 'Client disabled', status: 'disabled' },
@@ -687,7 +664,6 @@ describe('InspectorTab', () => {
       queryClient.getQueryCache().find({ queryKey: controlQueryKeys.accessKeys.options() })?.options
         .gcTime,
     ).toBe(0)
-    expect(JSON.stringify(queryClient.getQueryCache().getAll())).not.toContain(activeAccessKey.key)
     expect(queryClient.getMutationCache().getAll()).toEqual([])
 
     wrapper.unmount()

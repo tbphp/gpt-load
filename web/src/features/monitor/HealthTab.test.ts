@@ -8,7 +8,7 @@ import type {
   KeyCounts,
   RequestLogHealthDto,
   RuntimeHealthDto,
-} from '@/api/control/types'
+} from '@/app/resources/health'
 import { controlQueryKeys } from '@/app/query-keys'
 import { mountApp } from '@/test/mount-app'
 
@@ -40,11 +40,10 @@ const emptyRequestLog: RequestLogHealthDto = {
   last_retention_failure_at: null,
 }
 
-const cooldownKey: HealthProblemKeyDto & { key: string } = {
+const cooldownKey: HealthProblemKeyDto = {
   key_id: 11,
   group_id: 7,
   group_name: 'Alpha',
-  key: 'sk-never-render-this',
   cooldown_until: '2026-07-25T10:02:00Z',
   failure_count: 5,
   recent_success_count: 2,
@@ -254,21 +253,11 @@ describe('HealthTab', () => {
     })
   })
 
-  it('shows safe problem details, explicit Keys links, and a neutral unknown recovery fallback', async () => {
-    const unknownRecoveryCanary = 'future-secret-recovery-mode'
-    const unknownRecoveryKey: HealthProblemKeyDto = {
-      ...blacklistedKey,
-      key_id: 13,
-      recovery: {
-        automatic: true,
-        mode: unknownRecoveryCanary,
-        at: null,
-      },
-    }
+  it('shows safe problem details and explicit Keys links for the fixed recovery modes', async () => {
     const api = new HealthApi(() =>
       Promise.resolve(
         healthFixture({
-          counts: { total: 4, available: 1, cooldown: 1, blacklisted: 2, disabled: 0 },
+          counts: { total: 3, available: 1, cooldown: 1, blacklisted: 1, disabled: 0 },
           groups: [
             {
               id: 7,
@@ -284,7 +273,7 @@ describe('HealthTab', () => {
             },
           ],
           cooldown_keys: [cooldownKey],
-          blacklisted_keys: [blacklistedKey, unknownRecoveryKey],
+          blacklisted_keys: [blacklistedKey],
         }),
       ),
     )
@@ -304,13 +293,9 @@ describe('HealthTab', () => {
 
     await wrapper.get('[data-test="problem-key-11"]').trigger('click')
     await wrapper.get('[data-test="problem-key-12"]').trigger('click')
-    await wrapper.get('[data-test="problem-key-13"]').trigger('click')
     expect(wrapper.text()).toContain('冷却到期')
     expect(wrapper.text()).toContain('验证探测')
-    expect(wrapper.text()).toContain('恢复方式由运行时决定')
     expect(wrapper.text()).toContain('运行时决定探测时间')
-    expect(wrapper.text()).not.toContain(unknownRecoveryCanary)
-    expect(wrapper.text()).not.toContain(cooldownKey.key)
     expect(wrapper.text()).not.toMatch(/下次探测.*\d/)
     expect(wrapper.text()).not.toMatch(/成功率|健康率|百分比|Usage|Token|费用|趋势/)
     expect(wrapper.find('svg[data-chart]').exists()).toBe(false)

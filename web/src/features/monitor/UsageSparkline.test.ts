@@ -1,6 +1,6 @@
 import { mount } from '@vue/test-utils'
 
-import type { UsageReportDto } from '@/api/control/usage'
+import type { UsageReportDto } from '@/app/resources/usage'
 
 import UsageSparkline from './UsageSparkline.vue'
 

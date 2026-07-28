@@ -2,9 +2,10 @@ import { QueryClient } from '@tanstack/vue-query'
 import { flushPromises } from '@vue/test-utils'
 
 import { ApiError } from '@/api/errors'
-import type { UsageReportDto } from '@/api/control/usage'
+import type { UsageReportDto } from '@/app/resources/usage'
 import { controlQueryKeys } from '@/app/query-keys'
-import type { AccessKeyOptionDto, GroupSummary, RuntimeHealthDto } from '@/api/control/types'
+import type { AccessKeyOptionDto, GroupSummary } from '@/api/control/types'
+import type { RuntimeHealthDto } from '@/app/resources/health'
 import { FakeApi } from '@/test/fake-api'
 import { mountApp } from '@/test/mount-app'
 
@@ -102,6 +103,25 @@ async function mountHome(api: FakeApi, origin?: string, queryClient?: QueryClien
 }
 
 describe('HomeView', () => {
+  it('keeps the semantic task order Operational Overview, Groups, then Connection Setup', async () => {
+    const api = new FakeApi()
+    api.when('/api/groups').resolve([groupFixture])
+    api.when('/api/health').resolve(healthFixture)
+    api.when('/api/access-keys/options').resolve([accessKeyFixture])
+
+    const wrapper = await mountHome(api)
+    const sections = wrapper.findAll(
+      '[data-test="home-operational-overview"], [data-test="home-groups"], [data-test="home-connection"]',
+    )
+
+    expect(sections.map((section) => section.attributes('data-test'))).toEqual([
+      'home-operational-overview',
+      'home-groups',
+      'home-connection',
+    ])
+    expect(sections[0]?.find('[data-test="home-usage-requests"]').exists()).toBe(true)
+  })
+
   it('keeps Groups visible when Health fails', async () => {
     const api = new FakeApi()
     api.when('/api/groups').resolve([groupFixture])
@@ -217,6 +237,22 @@ describe('HomeView', () => {
 
     const wrapper = await mountHome(api)
 
+    expect(wrapper.get('[data-test="home-service-status"]').classes()).toContain(
+      'service-status--normal',
+    )
+    expect(wrapper.get('[data-test="home-health-available"]').attributes('data-state')).toBe(
+      'normal',
+    )
+    expect(wrapper.get('[data-test="home-health-cooldown"]').attributes('data-state')).toBe(
+      'anomaly',
+    )
+    expect(wrapper.get('[data-test="home-health-cooldown"]').find('svg').exists()).toBe(true)
+    expect(wrapper.get('[data-test="home-health-blacklisted"]').attributes('data-state')).toBe(
+      'normal',
+    )
+    expect(wrapper.get('[data-test="home-health-disabled"]').attributes('data-state')).toBe(
+      'normal',
+    )
     expect(wrapper.text()).toContain('可用 1')
     expect(wrapper.text()).toContain('冷却 1')
     expect(wrapper.text()).toContain('修订 8')

@@ -4,7 +4,7 @@ import type {
   GroupRuntimeConfigDto,
   GroupUpdateRequest,
   HeaderRulesDto,
-} from '@/api/control/groups'
+} from '@/app/resources/groups'
 import type { GroupProtocol } from '@/api/control/types'
 
 export type GroupTimeoutKey =

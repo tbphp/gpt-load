@@ -1,27 +1,16 @@
 <script setup lang="ts">
-import {
-  Activity,
-  House,
-  KeyRound,
-  LogOut,
-  Menu,
-  Monitor,
-  Moon,
-  Settings,
-  Sun,
-  Upload,
-} from 'lucide-vue-next'
+import { Activity, House, KeyRound, LogOut, Menu, Settings, Upload } from 'lucide-vue-next'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { isNavigationFailure, RouterLink, useRoute, useRouter } from 'vue-router'
 
 import AppDrawer from '@/components/ui/AppDrawer.vue'
-import AppSelect from '@/components/ui/AppSelect.vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import { useAuthSession } from '@/features/auth/auth-session'
 import { useImportRecovery } from '@/features/import/import-recovery'
 import { useUnsavedChangesController } from '@/app/unsaved-changes'
-import { useTheme, type AppTheme } from '@/features/preferences/theme'
+import PreferencesControl from '@/features/preferences/PreferencesControl.vue'
+import { useTheme } from '@/features/preferences/theme'
 import { supportedLocales, type AppLocale } from '@/i18n'
 import { useAppI18n } from '@/i18n/context'
 
@@ -41,16 +30,7 @@ const navigation = computed(() => [
   { key: 'monitor', to: '/monitor', label: t('shell.monitor'), icon: Activity },
   { key: 'settings', to: '/settings', label: t('shell.settings'), icon: Settings },
 ])
-const localeOptions = computed(() => [
-  { value: 'zh-CN', label: t('shell.localeZh') },
-  { value: 'en-US', label: t('shell.localeEn') },
-  { value: 'ja-JP', label: t('shell.localeJa') },
-])
-const themeOptions = computed<Array<{ value: AppTheme; label: string; icon: typeof Sun }>>(() => [
-  { value: 'system', label: t('shell.useSystemTheme'), icon: Monitor },
-  { value: 'light', label: t('shell.useLightTheme'), icon: Sun },
-  { value: 'dark', label: t('shell.useDarkTheme'), icon: Moon },
-])
+const currentLocale = computed(() => locale.value as AppLocale)
 
 function isPrimaryActive(key: string): boolean {
   return route.meta.primaryNav === key
@@ -120,24 +100,13 @@ watch(
         <RouterLink class="button-link import-action" to="/import">
           <Upload :size="16" aria-hidden="true" />{{ t('shell.import') }}
         </RouterLink>
-        <AppSelect
-          class="shell-locale"
-          :model-value="appI18n.getLocale()"
-          :label="t('shell.language')"
-          :options="localeOptions"
-          @update:model-value="setLocale"
+        <PreferencesControl
+          compact
+          :locale="currentLocale"
+          :theme="theme.theme.value"
+          @update:locale="setLocale"
+          @update:theme="theme.setTheme"
         />
-        <div class="theme-actions" role="group" :aria-label="t('shell.themeSystem')">
-          <IconButton
-            v-for="option in themeOptions"
-            :key="option.value"
-            :label="option.label"
-            :pressed="theme.theme.value === option.value"
-            @click="theme.setTheme(option.value)"
-          >
-            <component :is="option.icon" :size="17" aria-hidden="true" />
-          </IconButton>
-        </div>
         <IconButton class="logout-action" :label="t('shell.signOut')" @click="logout">
           <LogOut :size="18" aria-hidden="true" />
         </IconButton>
@@ -175,23 +144,12 @@ watch(
             </RouterLink>
           </nav>
           <div class="mobile-preferences">
-            <AppSelect
-              :model-value="appI18n.getLocale()"
-              :label="t('shell.language')"
-              :options="localeOptions"
-              @update:model-value="setLocale"
+            <PreferencesControl
+              :locale="currentLocale"
+              :theme="theme.theme.value"
+              @update:locale="setLocale"
+              @update:theme="theme.setTheme"
             />
-            <div class="theme-actions" role="group" :aria-label="t('shell.themeSystem')">
-              <IconButton
-                v-for="option in themeOptions"
-                :key="option.value"
-                :label="option.label"
-                :pressed="theme.theme.value === option.value"
-                @click="theme.setTheme(option.value)"
-              >
-                <component :is="option.icon" :size="17" aria-hidden="true" />
-              </IconButton>
-            </div>
             <button
               class="mobile-sign-out"
               type="button"
@@ -273,15 +231,6 @@ watch(
 .button-link {
   gap: var(--space-2);
 }
-.theme-actions {
-  display: flex;
-  gap: var(--space-1);
-}
-.theme-actions :deep(.icon-button[aria-pressed='true']) {
-  border-color: var(--color-primary);
-  background: var(--color-primary-soft);
-  color: var(--color-primary);
-}
 .mobile-menu-trigger {
   display: none;
 }
@@ -343,9 +292,6 @@ watch(
     width: 100%;
     justify-content: space-between;
     margin-left: 0;
-  }
-  .shell-locale :deep(.app-select__trigger) {
-    min-width: 118px;
   }
 }
 @media (max-width: 767px) {

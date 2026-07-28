@@ -212,11 +212,5 @@ func assertSingleSecureBackup(t *testing.T, pattern string) {
 	if len(matches) != 1 {
 		t.Fatalf("backup matches = %v, want exactly one", matches)
 	}
-	info, err := os.Stat(matches[0])
-	if err != nil {
-		t.Fatalf("stat backup: %v", err)
-	}
-	if info.Mode().Perm() != 0o600 {
-		t.Fatalf("backup permissions = %o, want 600", info.Mode().Perm())
-	}
+	assertSecureBackupPermissions(t, matches[0])
 }

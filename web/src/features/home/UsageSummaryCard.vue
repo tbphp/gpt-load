@@ -5,8 +5,8 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { useApiClient } from '@/api/client-context'
-import { getUsageReport, type UsageAggregateDto } from '@/api/control/usage'
-import { controlQueryKeys } from '@/app/query-keys'
+import { usageQueryOptions, type UsageAggregateDto } from '@/app/resources/usage'
+import AppDateTime from '@/components/ui/AppDateTime.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
@@ -14,13 +14,19 @@ import StatusBadge from '@/components/ui/StatusBadge.vue'
 import SurfaceCard from '@/components/ui/SurfaceCard.vue'
 import { formatEstimatedUSD } from '@/features/usage/estimated-cost'
 
+withDefaults(
+  defineProps<{
+    headingAs?: 'h2' | 'h3'
+  }>(),
+  {
+    headingAs: 'h2',
+  },
+)
+
 const filters = { range: '24h' } as const
 const client = useApiClient()
 const { locale, t } = useI18n()
-const usageQuery = useQuery({
-  queryKey: controlQueryKeys.usage.report(filters),
-  queryFn: ({ signal }) => getUsageReport(client, filters, signal),
-})
+const usageQuery = useQuery(usageQueryOptions(client, filters))
 const report = computed(() => usageQuery.data.value)
 const hasPipelineWarning = computed(() =>
   Boolean(
@@ -29,14 +35,6 @@ const hasPipelineWarning = computed(() =>
       report.value.collection_health.write_failure_total > 0),
   ),
 )
-const observedAt = computed(() => {
-  if (!report.value) return ''
-  return new Intl.DateTimeFormat(locale.value, {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(new Date(report.value.observed_at))
-})
-
 function formatCount(value: number): string {
   return new Intl.NumberFormat(locale.value).format(value)
 }
@@ -71,7 +69,7 @@ function formatEstimatedCost(aggregate: UsageAggregateDto): string {
       <header class="usage-summary-card__header">
         <div>
           <p class="eyebrow">{{ t('home.usage.eyebrow') }}</p>
-          <h2 id="home-usage-heading">{{ t('home.usage.title') }}</h2>
+          <component :is="headingAs" id="home-usage-heading">{{ t('home.usage.title') }}</component>
           <p>{{ t('home.usage.description') }}</p>
         </div>
         <RouterLink
@@ -137,21 +135,21 @@ function formatEstimatedCost(aggregate: UsageAggregateDto): string {
         >
           <StatusBadge
             data-test="home-usage-quality-missing"
-            :tone="report.summary.usage_missing_count ? 'warning' : 'success'"
+            :tone="report.summary.usage_missing_count ? 'warning' : 'neutral'"
           >
             {{ t('home.usage.quality.missing') }}
             {{ formatCount(report.summary.usage_missing_count) }}
           </StatusBadge>
           <StatusBadge
             data-test="home-usage-quality-partial"
-            :tone="report.summary.partial_count ? 'warning' : 'success'"
+            :tone="report.summary.partial_count ? 'warning' : 'neutral'"
           >
             {{ t('home.usage.quality.partial') }}
             {{ formatCount(report.summary.partial_count) }}
           </StatusBadge>
           <StatusBadge
             data-test="home-usage-quality-unpriced"
-            :tone="report.summary.unpriced_request_count ? 'warning' : 'success'"
+            :tone="report.summary.unpriced_request_count ? 'warning' : 'neutral'"
           >
             {{ t('home.usage.quality.unpriced') }}
             {{ formatCount(report.summary.unpriced_request_count) }}
@@ -172,7 +170,7 @@ function formatEstimatedCost(aggregate: UsageAggregateDto): string {
         </InlineFeedback>
         <p class="usage-summary-card__observed">
           {{ t('home.usage.observedAt') }}
-          <time :datetime="report.observed_at">{{ observedAt }}</time>
+          <AppDateTime :instant="report.observed_at" :locale="locale" />
         </p>
       </template>
     </SurfaceCard>
@@ -191,14 +189,14 @@ function formatEstimatedCost(aggregate: UsageAggregateDto): string {
   justify-content: space-between;
   gap: var(--space-4);
 }
-.usage-summary-card__header h2,
+.usage-summary-card__header :is(h2, h3),
 .usage-summary-card__header p {
   margin: 0;
 }
-.usage-summary-card__header h2 {
+.usage-summary-card__header :is(h2, h3) {
   font-size: 1.125rem;
 }
-.usage-summary-card__header h2 + p {
+.usage-summary-card__header :is(h2, h3) + p {
   margin-top: var(--space-1);
   color: var(--color-text-muted);
 }

@@ -1,10 +1,51 @@
 <script setup lang="ts">
-defineProps<{ caption: string; dense?: boolean }>()
+import { onBeforeUnmount, onMounted, ref, useId } from 'vue'
+
+defineProps<{
+  caption: string
+  dense?: boolean
+  scrollHint?: string
+}>()
+
+const container = ref<HTMLElement | null>(null)
+const table = ref<HTMLTableElement | null>(null)
+const overflowing = ref(false)
+const identity = useId().replace(/[^a-zA-Z0-9_-]/g, '-')
+const scrollHintId = `data-table-${identity}-scroll-hint`
+let resizeObserver: ResizeObserver | undefined
+
+function updateOverflow(): void {
+  const element = container.value
+  overflowing.value = Boolean(element && element.scrollWidth > element.clientWidth + 1)
+}
+
+onMounted(() => {
+  updateOverflow()
+  if (typeof ResizeObserver === 'function' && container.value) {
+    resizeObserver = new ResizeObserver(updateOverflow)
+    resizeObserver.observe(container.value)
+    if (table.value) resizeObserver.observe(table.value)
+  }
+  window.addEventListener('resize', updateOverflow)
+})
+
+onBeforeUnmount(() => {
+  resizeObserver?.disconnect()
+  window.removeEventListener('resize', updateOverflow)
+})
 </script>
 
 <template>
-  <div class="data-table__container" :class="{ 'data-table__container--dense': dense }">
-    <table class="data-table">
+  <div
+    ref="container"
+    data-table-scroll
+    class="data-table__container"
+    :class="{ 'data-table__container--dense': dense }"
+    :tabindex="overflowing ? 0 : undefined"
+    :aria-label="overflowing ? caption : undefined"
+    :aria-describedby="overflowing && scrollHint ? scrollHintId : undefined"
+  >
+    <table ref="table" class="data-table">
       <caption class="sr-only">
         {{
           caption
@@ -12,6 +53,7 @@ defineProps<{ caption: string; dense?: boolean }>()
       </caption>
       <slot />
     </table>
+    <span v-if="scrollHint" :id="scrollHintId" class="sr-only">{{ scrollHint }}</span>
   </div>
 </template>
 
@@ -26,13 +68,10 @@ defineProps<{ caption: string; dense?: boolean }>()
   overscroll-behavior-inline: contain;
 }
 .data-table {
-  width: 100%;
-  min-width: 920px;
+  width: max-content;
+  min-width: 100%;
   border-collapse: collapse;
   font-size: 0.8125rem;
-}
-.data-table__container--dense .data-table {
-  min-width: 780px;
 }
 .data-table :deep(th) {
   border-bottom: 1px solid var(--color-border);
@@ -61,5 +100,9 @@ defineProps<{ caption: string; dense?: boolean }>()
 .data-table :deep(th:last-child),
 .data-table :deep(td:last-child) {
   padding-right: var(--space-4);
+}
+
+.data-table :deep([data-column-priority='high']) {
+  position: relative;
 }
 </style>

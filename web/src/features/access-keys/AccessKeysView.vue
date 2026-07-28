@@ -5,21 +5,22 @@ import { computed, nextTick, onBeforeUnmount, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { useApiClient } from '@/api/client-context'
-import { listAccessKeys } from '@/api/control/access-keys'
-import { listGroups } from '@/api/control/groups'
+import { lazySurface } from '@/app/async-surface'
+import { accessKeyListQueryOptions, accessKeyResources } from '@/app/resources/access-keys'
+import { groupListQueryOptions } from '@/app/resources/groups'
 import type { AccessKeyDto } from '@/api/control/types'
-import { controlQueryKeys } from '@/app/query-keys'
-import { accessKeyMutationInvalidations, accessKeyResources } from '@/app/resources/access-keys'
+import { applyInvalidationPlan, mutationInvalidationPlans } from '@/app/resources/invalidation'
 import AppButton from '@/components/ui/AppButton.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 
-import AccessKeyDrawer from './AccessKeyDrawer.vue'
-import AccessKeyTable from './AccessKeyTable.vue'
+import AccessKeyCollection from './AccessKeyCollection.vue'
 import type { PendingAccessKeyCreateOperation } from './access-key-create-operation'
 import type { PendingAccessKeyEditOperation } from './access-key-edit-operation'
+
+const AccessKeyDrawer = lazySurface(() => import('./AccessKeyDrawer.vue'))
 
 const client = useApiClient()
 const queryClient = useQueryClient()
@@ -29,19 +30,13 @@ const selected = ref<AccessKeyDto | null>(null)
 const createOperation = ref<PendingAccessKeyCreateOperation | null>(null)
 const editOperation = ref<PendingAccessKeyEditOperation | null>(null)
 const viewRoot = ref<HTMLElement | null>(null)
+const collection = ref<InstanceType<typeof AccessKeyCollection> | null>(null)
 const deletionAnnouncement = ref('')
 let restoreFocus: HTMLElement | null = null
 let mounted = true
 
-const accessKeysQuery = useQuery({
-  queryKey: accessKeyResources.list.queryKey,
-  queryFn: ({ signal }) => listAccessKeys(client, signal),
-  gcTime: accessKeyResources.list.gcTime,
-})
-const groupsQuery = useQuery({
-  queryKey: controlQueryKeys.groups.list(),
-  queryFn: ({ signal }) => listGroups(client, signal),
-})
+const accessKeysQuery = useQuery(accessKeyListQueryOptions(client))
+const groupsQuery = useQuery(groupListQueryOptions(client))
 onBeforeUnmount(() => {
   mounted = false
   queryClient.removeQueries({ queryKey: accessKeyResources.list.queryKey, exact: true })
@@ -109,6 +104,7 @@ function checkEditOperation(): void {
 async function setDrawerOpen(open: boolean): Promise<void> {
   drawerOpen.value = open
   if (!open) {
+    collection.value?.conceal()
     selected.value = null
     const target = restoreFocus
     restoreFocus = null
@@ -120,11 +116,7 @@ async function setDrawerOpen(open: boolean): Promise<void> {
 async function focusCreateAfterDelete(name: string): Promise<void> {
   deletionAnnouncement.value = ''
   await nextTick()
-  await Promise.all(
-    accessKeyMutationInvalidations.delete.map((queryKey) =>
-      queryClient.invalidateQueries({ queryKey, exact: true }),
-    ),
-  )
+  await applyInvalidationPlan(queryClient, mutationInvalidationPlans.accessKey.delete)
   await nextTick()
   if (!mounted) return
   deletionAnnouncement.value = t('accessKeys.delete.deletedAnnouncement', { name })
@@ -141,25 +133,24 @@ async function focusCreateAfterDelete(name: string): Promise<void> {
       :description="t('accessKeys.description')"
     >
       <template #actions>
-        <AccessKeyDrawer
-          :open="drawerOpen"
-          :access-key="selected"
-          :groups="groupsQuery.data.value ?? []"
-          :group-catalog-state="groupCatalogState"
-          :create-operation="createOperation"
-          :edit-operation="selected?.id === editOperation?.base.id ? editOperation : null"
-          @update:create-operation="setCreateOperation"
-          @update:edit-operation="setEditOperation"
-          @update:open="setDrawerOpen"
-        >
-          <template #trigger>
-            <AppButton data-test="access-key-create" @click="createKey">
-              <Plus :size="16" aria-hidden="true" />{{ t('accessKeys.create') }}
-            </AppButton>
-          </template>
-        </AccessKeyDrawer>
+        <AppButton data-test="access-key-create" @click="createKey">
+          <Plus :size="16" aria-hidden="true" />{{ t('accessKeys.create') }}
+        </AppButton>
       </template>
     </PageHeader>
+
+    <AccessKeyDrawer
+      v-if="drawerOpen"
+      :open="drawerOpen"
+      :access-key="selected"
+      :groups="groupsQuery.data.value ?? []"
+      :group-catalog-state="groupCatalogState"
+      :create-operation="createOperation"
+      :edit-operation="selected?.id === editOperation?.base.id ? editOperation : null"
+      @update:create-operation="setCreateOperation"
+      @update:edit-operation="setEditOperation"
+      @update:open="setDrawerOpen"
+    />
 
     <section
       v-if="createOperation"
@@ -238,8 +229,9 @@ async function focusCreateAfterDelete(name: string): Promise<void> {
       >
         <template #icon><KeyRound :size="22" aria-hidden="true" /></template>
       </EmptyState>
-      <AccessKeyTable
+      <AccessKeyCollection
         v-else
+        ref="collection"
         :access-keys="accessKeysQuery.data.value ?? []"
         :groups="groupsQuery.data.value ?? []"
         @edit="editKey"

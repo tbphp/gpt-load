@@ -156,10 +156,10 @@ describe('ExistingGroupImport', () => {
     expect(wrapper.get('[data-test="existing-result"]').text()).toContain('3')
     expect(wrapper.get('[data-test="existing-result"]').text()).toContain('2')
     expect(invalidate.mock.calls.map(([filters]) => filters)).toEqual([
-      { queryKey: controlQueryKeys.groups.keys(7) },
-      { queryKey: controlQueryKeys.groups.detail(7) },
-      { queryKey: controlQueryKeys.groups.list() },
-      { queryKey: controlQueryKeys.health() },
+      { queryKey: controlQueryKeys.groups.keys(7), exact: true },
+      { queryKey: controlQueryKeys.groups.detail(7), exact: true },
+      { queryKey: controlQueryKeys.groups.list(), exact: true },
+      { queryKey: controlQueryKeys.health(), exact: true },
     ])
     expect(invalidate).not.toHaveBeenCalledWith({ queryKey: controlQueryKeys.all })
     expect(importRecovery.clear).toHaveBeenCalledOnce()
@@ -266,8 +266,14 @@ describe('ExistingGroupImport', () => {
     await flushPromises()
 
     expect(wrapper.find('[data-test="existing-result"]').exists()).toBe(true)
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: controlQueryKeys.groups.keys(8) })
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: controlQueryKeys.groups.detail(8) })
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: controlQueryKeys.groups.keys(8),
+      exact: true,
+    })
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: controlQueryKeys.groups.detail(8),
+      exact: true,
+    })
     expect(importRecovery.clear).toHaveBeenCalledOnce()
     vi.unstubAllGlobals()
     wrapper.unmount()

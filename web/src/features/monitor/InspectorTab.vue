@@ -5,23 +5,21 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
 import { useApiClient } from '@/api/client-context'
-import { listAccessKeyOptions } from '@/api/control/access-keys'
+import { accessKeyOptionsQueryOptions } from '@/app/resources/access-keys'
 import { enabledDataProtocols } from '@/api/control/protocols'
 import {
   inspectRoute,
   type RouteInspectReasonCode,
   type RouteInspectRequest,
   type RouteInspectResponseDto,
-} from '@/api/control/route-inspect'
+} from '@/app/resources/route-inspection'
 import type { AccessProtocol } from '@/api/control/types'
 import { RequestCancelledError } from '@/api/errors'
-import { controlQueryKeys } from '@/app/query-keys'
-import AppButton from '@/components/ui/AppButton.vue'
-import AppSelect from '@/components/ui/AppSelect.vue'
-import FormField from '@/components/ui/FormField.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import SurfaceCard from '@/components/ui/SurfaceCard.vue'
+
+import InspectorForm from './InspectorForm.vue'
 
 type InspectorField = 'protocol' | 'externalModel' | 'accessKey'
 type InspectorErrors = Partial<Record<InspectorField, string>>
@@ -60,11 +58,7 @@ const resultSummary = ref<HTMLHeadingElement | null>(null)
 let owner = 0
 let controller: AbortController | undefined
 
-const accessKeyOptionsQuery = useQuery({
-  queryKey: controlQueryKeys.accessKeys.options(),
-  queryFn: ({ signal }) => listAccessKeyOptions(client, signal),
-  gcTime: 0,
-})
+const accessKeyOptionsQuery = useQuery(accessKeyOptionsQueryOptions(client))
 const protocolOptions = computed(() =>
   enabledDataProtocols.map((protocol) => ({
     value: protocol,
@@ -99,7 +93,6 @@ const accessKeyOptions = computed(() => {
     ...options,
   ]
 })
-const hasValidationError = computed(() => Object.keys(fieldErrors.value).length > 0)
 const inputChanged = computed(() => {
   const previous = submitted.value
   if (!previous) return false
@@ -187,9 +180,8 @@ function validatedRequest(): RouteInspectRequest | undefined {
   }
 }
 
-function fieldError(field: InspectorField): string | undefined {
-  const key = fieldErrors.value[field]
-  return key ? t(key) : undefined
+function setDraftProtocol(value: string): void {
+  draftProtocol.value = value as AccessProtocol | ''
 }
 
 async function inspect(): Promise<void> {
@@ -270,119 +262,22 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="inspector-tab">
-    <SurfaceCard class="inspector-form-card">
-      <header class="inspector-heading">
-        <div>
-          <h2>{{ t('monitor.inspector.title') }}</h2>
-          <p>{{ t('monitor.inspector.description') }}</p>
-        </div>
-      </header>
-
-      <p class="inspector-boundary">{{ t('monitor.inspector.boundary') }}</p>
-
-      <QueryFeedback
-        v-if="accessKeyOptionsQuery.isPending.value"
-        state="loading"
-        :message="t('monitor.inspector.options.loading')"
-      />
-      <QueryFeedback
-        v-else-if="accessKeyOptionsQuery.isError.value"
-        state="error"
-        :message="t('monitor.inspector.options.failed')"
-        :retry-label="t('common.retry')"
-        @retry="accessKeyOptionsQuery.refetch()"
-      />
-
-      <form
-        class="inspector-form"
-        data-test="inspector-form"
-        :aria-label="t('monitor.inspector.form.label')"
-        @submit.prevent="inspect"
-      >
-        <FormField
-          id="inspector-protocol"
-          :label="t('monitor.inspector.form.protocol')"
-          :error="fieldError('protocol')"
-        >
-          <template #default="{ describedBy }">
-            <AppSelect
-              id="inspector-protocol"
-              v-model="draftProtocol"
-              data-test="inspector-protocol"
-              :label="t('monitor.inspector.form.protocol')"
-              :options="protocolOptions"
-              :aria-describedby="describedBy"
-              :aria-invalid="fieldError('protocol') ? 'true' : undefined"
-            />
-          </template>
-        </FormField>
-
-        <FormField
-          id="inspector-model"
-          :label="t('monitor.inspector.form.model')"
-          :error="fieldError('externalModel')"
-        >
-          <template #default="{ describedBy }">
-            <input
-              id="inspector-model"
-              v-model="draftModel"
-              data-test="inspector-model"
-              type="text"
-              autocomplete="off"
-              :aria-describedby="describedBy"
-              :aria-invalid="fieldError('externalModel') ? 'true' : undefined"
-            />
-          </template>
-        </FormField>
-
-        <FormField
-          id="inspector-access-key"
-          :label="t('monitor.inspector.form.accessKey')"
-          :error="fieldError('accessKey')"
-        >
-          <template #default="{ describedBy }">
-            <AppSelect
-              id="inspector-access-key"
-              v-model="draftAccessKeyID"
-              data-test="inspector-access-key"
-              :label="t('monitor.inspector.form.accessKey')"
-              :options="accessKeyOptions"
-              :aria-describedby="describedBy"
-              :aria-invalid="fieldError('accessKey') ? 'true' : undefined"
-            />
-          </template>
-        </FormField>
-
-        <AppButton
-          type="submit"
-          data-test="inspector-submit"
-          :disabled="accessKeyOptionsQuery.isPending.value"
-        >
-          {{ t('monitor.inspector.form.submit') }}
-        </AppButton>
-      </form>
-
-      <p
-        v-if="missingAccessKeyOption"
-        class="inspector-inline-error"
-        data-test="inspector-access-key-missing"
-        role="alert"
-      >
-        {{
-          t('monitor.inspector.errors.missingDeepLinkAccessKey', {
-            id: draftAccessKeyID,
-          })
-        }}
-      </p>
-      <p
-        v-if="hasValidationError"
-        class="sr-only"
-        data-test="inspector-validation-error"
-        role="alert"
-      >
-        {{ t('monitor.inspector.errors.summary') }}
-      </p>
-    </SurfaceCard>
+    <InspectorForm
+      :protocol="draftProtocol"
+      :model="draftModel"
+      :access-key-id="draftAccessKeyID"
+      :protocol-options="protocolOptions"
+      :access-key-options="accessKeyOptions"
+      :errors="fieldErrors"
+      :options-pending="accessKeyOptionsQuery.isPending.value"
+      :options-failed="accessKeyOptionsQuery.isError.value"
+      :missing-access-key="missingAccessKeyOption"
+      @update:protocol="setDraftProtocol"
+      @update:model="draftModel = $event"
+      @update:access-key-id="draftAccessKeyID = $event"
+      @submit="inspect"
+      @retry-options="accessKeyOptionsQuery.refetch()"
+    />
 
     <QueryFeedback
       v-if="pending"
@@ -615,7 +510,6 @@ onBeforeUnmount(() => {
   gap: var(--space-4);
 }
 
-.inspector-form-card,
 .inspector-result {
   display: grid;
   min-width: 0;
@@ -650,10 +544,8 @@ onBeforeUnmount(() => {
   color: var(--color-text-muted);
 }
 
-.inspector-boundary,
 .inspector-input-changed,
-.inspector-complete-empty,
-.inspector-inline-error {
+.inspector-complete-empty {
   margin: 0;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-control);
@@ -666,39 +558,6 @@ onBeforeUnmount(() => {
   border-color: var(--color-warning);
   background: var(--color-warning-bg);
   color: var(--color-text);
-}
-
-.inspector-inline-error {
-  border-color: var(--color-danger);
-  background: var(--color-danger-bg);
-  color: var(--color-text);
-}
-
-.inspector-form {
-  display: grid;
-  grid-template-columns: minmax(150px, 0.8fr) minmax(220px, 1.4fr) minmax(220px, 1.2fr) auto;
-  align-items: end;
-  gap: var(--space-3);
-}
-
-.inspector-form > * {
-  min-width: 0;
-}
-
-.inspector-form :deep(.app-select__trigger) {
-  width: 100%;
-}
-
-.inspector-form input {
-  width: 100%;
-  min-height: 44px;
-  border: 1px solid var(--color-border-control);
-  border-radius: var(--radius-control);
-  background: var(--color-surface-secondary);
-  color: var(--color-text);
-  padding: 8px 10px;
-  font: inherit;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
 .inspector-meta,
@@ -795,10 +654,6 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 960px) {
-  .inspector-form {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
   .inspector-facts,
   .inspector-key-facts {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -806,7 +661,6 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 640px) {
-  .inspector-form,
   .inspector-facts,
   .inspector-key-facts,
   .inspector-facts--compact {

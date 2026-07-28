@@ -6,7 +6,7 @@ import type {
   RequestLogAttemptDto,
   RequestLogItemDto,
   RequestLogPageDto,
-} from '@/api/control/request-logs'
+} from '@/app/resources/request-logs'
 import type { AccessKeyOptionDto, GroupSummary } from '@/api/control/types'
 import { controlQueryKeys } from '@/app/query-keys'
 import { mountApp } from '@/test/mount-app'
@@ -26,7 +26,7 @@ function attemptFixture(sequence: number): RequestLogAttemptDto {
     group_id: 7,
     group_name: 'Historical Group',
     key_id: 21,
-    key_mask: 'sk-up…safe',
+    key_mask: 'sk-u****safe',
     upstream_model: 'gpt-upstream',
     status_code: 200,
     duration_ms: 100,
@@ -90,9 +90,7 @@ class LogsApi implements ApiClient {
     ],
     private readonly options: {
       groups?: GroupSummary[] | Promise<GroupSummary[]>
-      accessKeys?:
-        | Array<AccessKeyOptionDto & Partial<{ key: string }>>
-        | Promise<Array<AccessKeyOptionDto & Partial<{ key: string }>>>
+      accessKeys?: AccessKeyOptionDto[] | Promise<AccessKeyOptionDto[]>
       groupsError?: Error
       accessKeysError?: Error
     } = {},
@@ -550,7 +548,6 @@ describe('LogsTab', () => {
   })
 
   it('disables only the failed selector, preserves its deep-link value, and caches safe options', async () => {
-    const secret = 'sk-gl-options-secret-canary'
     const groupError = 'group-options-secret-canary'
     const api = new LogsApi([{ items: [logFixture()], next_cursor: null }], {
       groupsError: new Error(groupError),
@@ -558,7 +555,6 @@ describe('LogsTab', () => {
         {
           id: 12,
           name: 'client',
-          key: secret,
           status: 'active',
         },
       ],
@@ -571,7 +567,6 @@ describe('LogsTab', () => {
       '无法加载 Group 筛选选项',
     )
     expect(wrapper.text()).not.toContain(groupError)
-    expect(wrapper.text()).not.toContain(secret)
     expect(wrapper.get<HTMLSelectElement>('[data-test="logs-group"]').element.disabled).toBe(true)
     expect(wrapper.get<HTMLSelectElement>('[data-test="logs-group"]').element.value).toBe('7')
     expect(wrapper.get('[data-test="logs-group"]').text()).toContain('#7')
@@ -581,7 +576,6 @@ describe('LogsTab', () => {
     expect(queryClient.getQueryData(controlQueryKeys.accessKeys.options())).toEqual([
       { id: 12, name: 'client', status: 'active' },
     ])
-    expect(JSON.stringify(queryClient.getQueryCache().getAll())).not.toContain(secret)
 
     wrapper.unmount()
     await flushPromises()
@@ -647,10 +641,9 @@ describe('LogsTab', () => {
       enabled: true,
       key_count: 1,
     }
-    const accessKey: AccessKeyOptionDto & { key: string } = {
+    const accessKey: AccessKeyOptionDto = {
       id: 12,
       name: 'client',
-      key: 'sk-gl-filter-secret-canary',
       status: 'active',
     }
     const api = new LogsApi(
@@ -686,7 +679,6 @@ describe('LogsTab', () => {
       request_id: 'a4d4e121-8ac3-4df4-8ceb-63b10ddc6173',
     })
     expect(wrapper.text()).toContain('匹配任一尝试')
-    expect(wrapper.text()).not.toContain(accessKey.key)
 
     await wrapper.get('[data-test="logs-reset"]').trigger('click')
     await flushPromises()

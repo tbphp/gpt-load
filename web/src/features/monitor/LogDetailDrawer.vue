@@ -7,7 +7,7 @@ import type {
   RequestLogAction,
   RequestLogItemDto,
   RequestLogStatus,
-} from '@/api/control/request-logs'
+} from '@/app/resources/request-logs'
 import AppDrawer from '@/components/ui/AppDrawer.vue'
 import CopyButton from '@/components/ui/CopyButton.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'

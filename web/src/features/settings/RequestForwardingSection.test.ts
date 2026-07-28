@@ -1,7 +1,7 @@
 import { QueryClient } from '@tanstack/vue-query'
 
 import type { ApiClient } from '@/api/client'
-import type { SettingsDto } from '@/api/control/settings'
+import type { SettingsDto } from '@/app/resources/settings'
 import type { SettingsResource } from '@/app/resources/settings'
 import { mountApp } from '@/test/mount-app'
 

@@ -272,8 +272,8 @@ describe('AccessKeyDrawer', () => {
     })
     expect((request.mock.calls[0]?.[1] as { json: object }).json).not.toHaveProperty('status')
     expect(invalidate.mock.calls.map(([filters]) => filters)).toEqual([
-      { queryKey: controlQueryKeys.accessKeys.list() },
-      { queryKey: controlQueryKeys.accessKeys.options() },
+      { queryKey: controlQueryKeys.accessKeys.list(), exact: true },
+      { queryKey: controlQueryKeys.accessKeys.options(), exact: true },
     ])
     const firstOperationID = (
       request.mock.calls[0]?.[1] as { headers: { 'Idempotency-Key': string } }
@@ -375,8 +375,8 @@ describe('AccessKeyDrawer', () => {
       signal: expect.any(AbortSignal),
     })
     expect(invalidate.mock.calls.map(([filters]) => filters)).toEqual([
-      { queryKey: controlQueryKeys.accessKeys.list() },
-      { queryKey: controlQueryKeys.accessKeys.options() },
+      { queryKey: controlQueryKeys.accessKeys.list(), exact: true },
+      { queryKey: controlQueryKeys.accessKeys.options(), exact: true },
     ])
 
     expect(document.querySelector('[data-test="access-key-name"]')).not.toBeNull()
@@ -524,6 +524,10 @@ describe('AccessKeyDrawer', () => {
     const { wrapper } = await mountDrawer(request)
     const name = element<HTMLInputElement>('[data-test="access-key-name"]')
     const rpm = element<HTMLInputElement>('[data-test="access-key-rpm"]')
+    expect(rpm.getAttribute('aria-describedby')).toBe('access-key-rpm-description')
+    expect(document.getElementById('access-key-rpm-description')?.textContent).toContain(
+      '0 means unlimited',
+    )
     name.value = 'client'
     name.dispatchEvent(new Event('input', { bubbles: true }))
     rpm.value = '1.5'

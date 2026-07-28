@@ -3,7 +3,8 @@ import { ArrowRight, Upload } from 'lucide-vue-next'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import type { GroupSummary, HealthGroupDto } from '@/api/control/types'
+import type { GroupSummary } from '@/api/control/types'
+import type { HealthGroupDto } from '@/app/resources/health'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import SurfaceCard from '@/components/ui/SurfaceCard.vue'
 
@@ -19,6 +20,13 @@ const serviceTone = computed(() => {
 const serviceLabel = computed(() => {
   if (serviceable.value === undefined) return t('home.unknown')
   return serviceable.value ? t('home.serviceable') : t('home.unavailable')
+})
+const serviceReason = computed(() => {
+  if (!props.group.enabled) return t('home.groupDisabledReason')
+  if (props.group.models.length === 0) return t('home.noModelsReason')
+  if (!props.health) return t('home.healthUnknownReason')
+  if (props.health.counts.available === 0) return t('home.noAvailableKeysReason')
+  return ''
 })
 </script>
 
@@ -37,9 +45,13 @@ const serviceLabel = computed(() => {
         {{ group.enabled ? t('home.enabled') : t('home.disabled') }}
       </StatusBadge>
       <span v-for="protocol in group.protocols" :key="protocol" class="meta-tag">{{
-        protocol
+        t(`common.protocols.${protocol}`)
       }}</span>
     </div>
+
+    <p v-if="serviceReason" data-test="group-service-reason" class="group-card__reason">
+      {{ serviceReason }}
+    </p>
 
     <div class="group-card__facts">
       <span>{{ t('home.models', { count: group.models.length }) }}</span>
@@ -80,6 +92,7 @@ const serviceLabel = computed(() => {
 .group-card h3 {
   margin: 0;
   font-size: 1.0625rem;
+  overflow-wrap: anywhere;
 }
 .group-card__header p {
   margin: var(--space-1) 0 0;
@@ -95,6 +108,10 @@ const serviceLabel = computed(() => {
   gap: var(--space-2);
 }
 .group-card__facts {
+  color: var(--color-text-muted);
+}
+.group-card__reason {
+  margin: 0;
   color: var(--color-text-muted);
 }
 .group-card__facts span + span::before {

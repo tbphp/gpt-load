@@ -23,6 +23,7 @@ const detail = {
     request_timeout: 600,
     stream_idle_timeout: 300,
     header_rules: { set: { 'X-Canary': 'HEADER_RULE_CANARY_9c41' }, remove: [] },
+    inject_usage_options: false,
   },
   key_count: 0,
 }
@@ -43,7 +44,7 @@ const group7Keys = [
   {
     id: 11,
     group_id: 7,
-    mask: 'sk-group-7-…a1b2',
+    mask: 'sk-g****a1b2',
     status: 'active' as const,
     effective_status: 'available' as const,
     weight_manual: null,
@@ -58,7 +59,7 @@ const group8Keys = [
   {
     id: 21,
     group_id: 8,
-    mask: 'sk-group-8-…c3d4',
+    mask: 'sk-g****c3d4',
     status: 'active' as const,
     effective_status: 'available' as const,
     weight_manual: null,
@@ -107,6 +108,7 @@ describe('GroupDetailView', () => {
       locale: 'en-US',
     })
     await flushPromises()
+    await vi.waitFor(() => expect(requestMock).toHaveBeenCalledTimes(2))
 
     expect(requestMock.mock.calls.map(([path]) => path)).toEqual([
       '/api/groups/7',
@@ -159,6 +161,9 @@ describe('GroupDetailView', () => {
       locale: 'en-US',
     })
     await flushPromises()
+    await vi.waitFor(() =>
+      expect(mounted.wrapper.find('[data-test="models-discover"]').exists()).toBe(true),
+    )
 
     expect(mounted.wrapper.get('[data-test="models-discover"]').text()).toContain('Rediscover')
     expect(mounted.wrapper.text()).not.toContain('delivered in the next T23 task')
@@ -192,6 +197,9 @@ describe('GroupDetailView', () => {
       locale: 'en-US',
     })
     await flushPromises()
+    await vi.waitFor(() =>
+      expect(mounted.wrapper.find('[data-test="group-settings-save"]').exists()).toBe(true),
+    )
 
     expect(mounted.wrapper.get('[data-test="group-settings-save"]').text()).toContain('Save')
     expect(mounted.wrapper.text()).not.toContain('delivered in the following T23 task')
@@ -219,8 +227,9 @@ describe('GroupDetailView', () => {
       locale: 'en-US',
     })
     await flushPromises()
+    await vi.waitFor(() => expect(wrapper.text()).toContain('sk-g****a1b2'))
 
-    expect(wrapper.text()).toContain('sk-group-7-…a1b2')
+    expect(wrapper.text()).toContain('sk-g****a1b2')
     await wrapper.get('[data-test="key-weight-11"]').setValue('42')
     await wrapper.get('[data-test="key-delete-11"]').trigger('click')
     await flushPromises()
@@ -228,10 +237,11 @@ describe('GroupDetailView', () => {
 
     await router.push('/groups/8?tab=keys')
     await flushPromises()
+    await vi.waitFor(() => expect(wrapper.text()).toContain('sk-g****c3d4'))
 
     expect(requestMock.mock.calls.map(([path]) => path)).toContain('/api/groups/8/keys')
-    expect(wrapper.text()).not.toContain('sk-group-7-…a1b2')
-    expect(wrapper.text()).toContain('sk-group-8-…c3d4')
+    expect(wrapper.text()).not.toContain('sk-g****a1b2')
+    expect(wrapper.text()).toContain('sk-g****c3d4')
     expect(document.querySelector('[role="dialog"]')).toBeNull()
     expect((wrapper.get('[data-test="key-weight-21"]').element as HTMLSelectElement).value).toBe(
       'auto',

@@ -1,0 +1,232 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-07-28T21:39:11Z",
+  "evidence_head": "7196b1bf50be8550ec78b4a743a1032b0c3a5c3d",
+  "environment": {
+    "os": "macOS 26.6 build 25G72",
+    "architecture": "arm64",
+    "go": "go1.25.12 darwin/arm64",
+    "node": "24.18.0",
+    "pnpm": "11.15.1",
+    "docker": {
+      "client": "29.4.0",
+      "server": "29.4.0",
+      "server_os": "linux",
+      "server_architecture": "arm64",
+      "driver": "orbstack"
+    }
+  },
+  "gates": [
+    {
+      "id": "full-repository-gates",
+      "status": "PASS",
+      "tested_sha": "22d9b2435a54f09a422e2a5b6ddcd4ba6d3f40b7",
+      "commands": [
+        "formatted_files=\"$(gofmt -l .)\" && test -z \"${formatted_files}\"",
+        "go mod tidy -diff",
+        "go vet ./...",
+        "make web-check",
+        "go build -o gpt-load .",
+        "corepack pnpm --dir web exec playwright install --with-deps chromium webkit",
+        "corepack pnpm --dir web run test:e2e",
+        "go test -race -count=1 . ./internal/...",
+        "git diff --check"
+      ],
+      "result": {
+        "web_unit": "142 files, 1033 tests passed",
+        "browser_e2e": "26 tests passed",
+        "go_race": "all root and internal packages passed",
+        "production_build": "passed"
+      },
+      "notes": "The later 7196b1b commit changes only release-smoke scripts and their repository contract test. Its affected full gates are recorded separately."
+    },
+    {
+      "id": "release-smoke-regression-gates",
+      "status": "PASS",
+      "tested_sha": "7196b1bf50be8550ec78b4a743a1032b0c3a5c3d",
+      "commands": [
+        "bash -n .github/scripts/release-native-smoke.sh",
+        "bash -n .github/scripts/release-docker-smoke.sh",
+        "go test ./internal/webui -count=1",
+        "go vet ./...",
+        "git diff --check"
+      ],
+      "result": {
+        "internal_webui": "passed",
+        "go_vet": "passed",
+        "shell_syntax": "passed",
+        "diff_check": "passed"
+      }
+    },
+    {
+      "id": "bundle-budget",
+      "status": "PASS",
+      "tested_sha": "7196b1bf50be8550ec78b4a743a1032b0c3a5c3d",
+      "command": "corepack pnpm --dir web run check:bundle",
+      "result": {
+        "failures": [],
+        "home_initial_javascript": {
+          "raw": 412713,
+          "gzip": 143313,
+          "brotli": 127166
+        },
+        "home_initial_css": {
+          "raw": 40436,
+          "gzip": 10136,
+          "brotli": 8695
+        }
+      }
+    },
+    {
+      "id": "pinned-visual-runner",
+      "status": "PASS",
+      "tested_sha": "7196b1bf50be8550ec78b4a743a1032b0c3a5c3d",
+      "commands": [
+        "corepack pnpm --dir web run check:visual",
+        "corepack pnpm --dir web run visual:run -- --verify"
+      ],
+      "result": {
+        "runner_execution_verified": true,
+        "platform": "linux/arm64",
+        "platform_digest": "sha256:824f1a789072e648c62541c2cfa4479c4061a290d5c27766d67dc1dcbc19b321",
+        "lock_sha256": "1057d8cb6a6ab7a3a1f4c8a371a1c4cf6c0fd9723938e42026e8ec7beb68a68a",
+        "pixel_baseline_enabled": false
+      },
+      "notes": "Runner execution passed. Pixel activation remains disabled because the generated candidate has not received human approval."
+    },
+    {
+      "id": "accessibility-evidence-validator",
+      "status": "PASS",
+      "tested_sha": "7196b1bf50be8550ec78b4a743a1032b0c3a5c3d",
+      "command": "corepack pnpm --dir web run check:a11y-evidence",
+      "result": {
+        "matrix_source_sha": "c28dc80a725d2254f82898357a87a7dbe4b2d8d0",
+        "rows": 6,
+        "automated_pass": ["linux-chromium-automated", "linux-webkit-automated"]
+      }
+    },
+    {
+      "id": "five-native-builds-and-checksums",
+      "status": "PASS",
+      "tested_sha": "22d9b2435a54f09a422e2a5b6ddcd4ba6d3f40b7",
+      "release_version": "v2.0.0-local-phase5",
+      "artifacts": [
+        {
+          "name": "gpt-load-linux-amd64",
+          "sha256": "a367529a7b41d354a13fabff3b0babca0ab126c6a5e7c38e669e7cafc39477cf"
+        },
+        {
+          "name": "gpt-load-linux-arm64",
+          "sha256": "51820dffed057720acc077b6f7afbf7de5e54248979240c6aec2113fa90a29c4"
+        },
+        {
+          "name": "gpt-load-macos-amd64",
+          "sha256": "79ec74dba2c5c68d56ade11d16e17f64a6aaf60a546e7bd6a6aa9aa12771d0f0"
+        },
+        {
+          "name": "gpt-load-macos-arm64",
+          "sha256": "d594619287002337ce129c4d0f90513ec14a741d88bbe8b34560631d42cf5adb"
+        },
+        {
+          "name": "gpt-load-windows-amd64.exe",
+          "sha256": "9bdb197450f0bc2f6a4c31c769222fc8220bfe85b79496e18c0186ab02889cef"
+        }
+      ],
+      "notes": "All five binaries were built and matched the generated checksum manifest. Cross-platform build success is not runtime-smoke evidence for the other operating systems."
+    },
+    {
+      "id": "native-runtime-smoke-macos-arm64",
+      "status": "PASS",
+      "tested_sha": "7196b1bf50be8550ec78b4a743a1032b0c3a5c3d",
+      "command": ".github/scripts/release-native-smoke.sh",
+      "binary_source_sha": "22d9b2435a54f09a422e2a5b6ddcd4ba6d3f40b7",
+      "result": {
+        "version": "v2.0.0-local-phase5",
+        "managed_permissions": "passed",
+        "embedded_webui": "passed",
+        "authenticated_read_and_idempotent_write": "passed",
+        "graceful_shutdown": "passed",
+        "checksum_unchanged": "passed"
+      }
+    },
+    {
+      "id": "native-runtime-smoke-linux-amd64",
+      "status": "NOT RUN",
+      "reason": "The local host is macOS arm64; build and checksum evidence exists, but native Linux runtime evidence requires a Linux runner."
+    },
+    {
+      "id": "native-runtime-smoke-linux-arm64",
+      "status": "NOT RUN",
+      "reason": "The local host is macOS arm64; build and checksum evidence exists, but native Linux runtime evidence requires a Linux runner."
+    },
+    {
+      "id": "native-runtime-smoke-macos-amd64",
+      "status": "NOT RUN",
+      "reason": "The local host is arm64 and no Rosetta runtime smoke was claimed."
+    },
+    {
+      "id": "native-runtime-smoke-windows-amd64",
+      "status": "EXTERNAL",
+      "reason": "A Windows runner and PowerShell runtime were unavailable. The PowerShell script was contract-tested but not executed."
+    },
+    {
+      "id": "docker-release-smoke",
+      "status": "PASS",
+      "tested_sha": "7196b1bf50be8550ec78b4a743a1032b0c3a5c3d",
+      "command": ".github/scripts/release-docker-smoke.sh",
+      "result": {
+        "non_root_user": "10001:10001",
+        "managed_volume_persistence": "passed",
+        "generated_secrets": "passed",
+        "authenticated_control_writes": "passed",
+        "data_plane_usage": "passed",
+        "restart": "passed",
+        "graceful_shutdown": "passed",
+        "secret_free_logs": "passed"
+      }
+    },
+    {
+      "id": "docker-separate-platform-builds",
+      "status": "PASS",
+      "tested_sha": "7196b1bf50be8550ec78b4a743a1032b0c3a5c3d",
+      "images": [
+        {
+          "platform": "linux/amd64",
+          "image_id": "sha256:2e43ee4853d568cf7d190527226e71804c9476fdcffd0d0439c24c2b593e5d17",
+          "user": "10001:10001"
+        },
+        {
+          "platform": "linux/arm64",
+          "image_id": "sha256:f2c195caa0fac27ff4f5877ae90290e7dfbfb6e4eef55c7c5fe40dc9d159b19e",
+          "user": "10001:10001"
+        }
+      ]
+    },
+    {
+      "id": "docker-multi-platform-oci-manifest",
+      "status": "NOT RUN",
+      "reason": "The local OrbStack docker driver reported that the OCI exporter is unsupported. Separate amd64 and arm64 image builds passed, but that does not prove a combined manifest."
+    },
+    {
+      "id": "compose-render-contract",
+      "status": "PASS",
+      "tested_sha": "7196b1bf50be8550ec78b4a743a1032b0c3a5c3d",
+      "result": {
+        "image": "ghcr.io/tbphp/gpt-load:2",
+        "host_publish": "127.0.0.1:3001",
+        "container_host": "0.0.0.0",
+        "container_data_dir": "/app/data",
+        "named_volume": "gpt-load-data",
+        "stop_grace_period": "15s"
+      },
+      "notes": "Rendered with a temporary credential-free .env because the repository intentionally ignores local .env files; the temporary file was removed from the worktree."
+    }
+  ],
+  "boundaries": [
+    "No push, tag, GitHub Release, or registry mutation was performed.",
+    "Candidate pixels exist, but no human pixel approval was performed and the canonical baseline remains disabled.",
+    "Safari plus VoiceOver and Windows plus NVDA remain manual or external gates.",
+    "A local Docker build is not registry pull or public multi-architecture manifest evidence.",
+    "Remote exact-SHA CI, release assets, registry runtime, real-provider flows, and migration rehearsal are audited separately."
+  ]
+}

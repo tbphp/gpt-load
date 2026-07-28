@@ -1,8 +1,8 @@
 import type { LocationQueryRaw } from 'vue-router'
 
 import { enabledDataProtocols } from '@/api/control/protocols'
-import type { RequestLogStatus } from '@/api/control/request-logs'
-import type { UsageFilters } from '@/api/control/usage'
+import type { RequestLogStatus } from '@/app/resources/request-logs'
+import type { UsageFilters } from '@/app/resources/usage'
 
 import {
   normalizeUsageGroupID,

@@ -3,14 +3,16 @@ import { computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
+import { lazySurface } from '@/app/async-surface'
 import AppTabs, { type AppTabItem } from '@/components/ui/AppTabs.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
 
-import HealthTab from './HealthTab.vue'
-import InspectorTab from './InspectorTab.vue'
-import LogsTab from './LogsTab.vue'
 import { normalizeMonitorQuery, normalizeMonitorTab, sameMonitorQuery } from './monitor-route'
-import UsageTab from './UsageTab.vue'
+
+const HealthTab = lazySurface(() => import('./HealthTab.vue'))
+const InspectorTab = lazySurface(() => import('./InspectorTab.vue'))
+const LogsTab = lazySurface(() => import('./LogsTab.vue'))
+const UsageTab = lazySurface(() => import('./UsageTab.vue'))
 
 const route = useRoute()
 const router = useRouter()

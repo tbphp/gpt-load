@@ -3,19 +3,23 @@ withDefaults(
   defineProps<{
     label: string
     disabled?: boolean
+    busy?: boolean
     pressed?: boolean
+    variant?: 'default' | 'danger'
   }>(),
-  { disabled: false, pressed: undefined },
+  { disabled: false, busy: false, pressed: undefined, variant: 'default' },
 )
 </script>
 
 <template>
   <button
     class="icon-button"
+    :class="`icon-button--${variant}`"
     type="button"
     :aria-label="label"
     :aria-pressed="pressed"
-    :disabled="disabled"
+    :aria-busy="busy ? 'true' : undefined"
+    :disabled="disabled || busy"
   >
     <slot />
   </button>
@@ -46,5 +50,14 @@ withDefaults(
 .icon-button:disabled {
   cursor: not-allowed;
   opacity: 0.6;
+}
+
+.icon-button--danger {
+  border-color: var(--color-danger);
+  color: var(--color-danger);
+}
+
+.icon-button[aria-busy='true'] {
+  cursor: wait;
 }
 </style>

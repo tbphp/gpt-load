@@ -1,12 +1,12 @@
-import type { HeaderRulesDto } from '@/api/control/groups'
+import type { HeaderRulesDto } from '@/app/resources/groups'
 import type {
   RuntimeSettingKey,
   SettingsDto,
   SettingsPatch,
   SettingsValues,
   TimeoutSettingKey,
-} from '@/api/control/settings'
-import { runtimeSettingKeys } from '@/api/control/settings'
+} from '@/app/resources/settings'
+import { runtimeSettingKeys } from '@/app/resources/settings'
 
 export type SettingsSection = 'request-forwarding' | 'logs-maintenance'
 export type SettingsScope = SettingsSection | 'all'

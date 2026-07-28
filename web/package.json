@@ -19,6 +19,8 @@
     "test:csp": "node e2e/run-e2e.mjs e2e/csp-smoke.spec.ts",
     "test:e2e": "node e2e/run-e2e.mjs",
     "check:visual": "node scripts/check-visual-runner-lock.mjs --manifest-only",
+    "check:a11y-evidence": "node scripts/check-accessibility-evidence.mjs",
+    "visual:run": "node scripts/run-visual-runner.mjs",
     "check:bundle": "node scripts/check-bundle-budget.mjs"
   },
   "dependencies": {

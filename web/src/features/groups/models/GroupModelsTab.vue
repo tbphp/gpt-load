@@ -5,9 +5,14 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { useApiClient } from '@/api/client-context'
-import { discoverGroupModels, replaceGroupModels, type GroupDetailDto } from '@/api/control/groups'
+import {
+  discoverGroupModels,
+  replaceGroupModels,
+  type GroupDetailDto,
+} from '@/app/resources/groups'
 import { ApiError, RequestCancelledError } from '@/api/errors'
 import { controlQueryKeys } from '@/app/query-keys'
+import { applyInvalidationPlan, mutationInvalidationPlans } from '@/app/resources/invalidation'
 import { useUnsavedChanges } from '@/app/unsaved-changes'
 import ModelDraftEditor, {
   type ModelDraftEditorItem,
@@ -182,7 +187,7 @@ async function runReplace(): Promise<void> {
     discoveryError.value = 'none'
     emptyConfirmOpen.value = false
     queryClient.setQueryData(controlQueryKeys.groups.detail(props.groupId), result)
-    await queryClient.invalidateQueries({ queryKey: controlQueryKeys.groups.list() })
+    await applyInvalidationPlan(queryClient, mutationInvalidationPlans.group.replaceModels())
   } catch (error: unknown) {
     if (activeController === controller && !(error instanceof RequestCancelledError))
       saveError.value = true

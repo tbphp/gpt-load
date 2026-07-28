@@ -2,7 +2,7 @@ import { QueryClient } from '@tanstack/vue-query'
 import { flushPromises } from '@vue/test-utils'
 
 import type { ApiClient } from '@/api/client'
-import type { ModelPriceRuleDto } from '@/api/control/model-prices'
+import type { ModelPriceRuleDto } from '@/app/resources/model-prices'
 import { controlQueryKeys } from '@/app/query-keys'
 import { mountApp } from '@/test/mount-app'
 
@@ -155,7 +155,7 @@ describe('ModelPriceDrawer', () => {
       signal: expect.any(AbortSignal),
     })
     expect(invalidate.mock.calls.map(([filters]) => filters)).toEqual([
-      { queryKey: controlQueryKeys.modelPrices() },
+      { queryKey: controlQueryKeys.modelPrices(), exact: true },
     ])
     expect(client.getMutationCache().getAll()).toHaveLength(0)
     expect(wrapper.emitted('update:open')).toContainEqual([false])

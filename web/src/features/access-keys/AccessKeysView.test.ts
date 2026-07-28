@@ -10,7 +10,7 @@ import { controlQueryKeys } from '@/app/query-keys'
 import { createAppRouter } from '@/app/router'
 import { mountApp } from '@/test/mount-app'
 
-import AccessKeyTable from './AccessKeyTable.vue'
+import AccessKeyCollection from './AccessKeyCollection.vue'
 import AccessKeysView from './AccessKeysView.vue'
 
 const canary = 'sk-gl-ACCESS_KEYS_LIST_CANARY'
@@ -136,6 +136,34 @@ describe('AccessKeysView', () => {
     expect(snapshotSafeOutput).not.toContain(canary)
   })
 
+  it('conceals revealed plaintext when an AccessKey drawer closes', async () => {
+    const request = vi.fn(async (path: string, options?: ApiRequestOptions) => {
+      if (path === '/api/access-keys' && options?.method === 'GET') return keys
+      if (path === '/api/groups' && options?.method === 'GET') return groups
+      if (path === '/api/access-keys/9/reveal' && options?.method === 'POST') {
+        return { id: 9, key: canary, revealed_at: '2026-07-28T01:00:00Z' }
+      }
+      throw new Error(`unexpected ${path}`)
+    }) as ApiClient['request']
+    const { wrapper } = await mountView(request)
+
+    await wrapper.get('[data-test="access-key-reveal-9"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain(canary)
+
+    await wrapper.get('[data-test="access-key-edit-9"]').trigger('click')
+    await flushPromises()
+    await vi.waitFor(() => expect(document.querySelector('.app-drawer__close')).not.toBeNull())
+    documentButton('.app-drawer__close').click()
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain(canary)
+    expect(wrapper.get('[data-test="access-key-reveal-9"]').attributes('aria-pressed')).toBe(
+      'false',
+    )
+    wrapper.unmount()
+  })
+
   it('retains masked stale list data and never renders generic error details', async () => {
     let listCalls = 0
     const request = vi.fn(async (path: string, options?: ApiRequestOptions) => {
@@ -250,7 +278,11 @@ describe('AccessKeysView', () => {
     const request = requestMock as ApiClient['request']
     const { wrapper } = await mountView(request)
 
+    expect(wrapper.find('[data-test="async-surface-loading"]').exists()).toBe(false)
     await wrapper.get('[data-test="access-key-create"]').trigger('click')
+    await vi.waitFor(() =>
+      expect(document.querySelector('[data-test="access-key-name"]')).not.toBeNull(),
+    )
     const name = document.querySelector<HTMLInputElement>('[data-test="access-key-name"]')
     if (!name) throw new Error('missing create name')
     name.value = 'reconcile-client'
@@ -307,6 +339,9 @@ describe('AccessKeysView', () => {
 
     await wrapper.get('[data-test="access-key-edit-9"]').trigger('click')
     await flushPromises()
+    await vi.waitFor(() =>
+      expect(document.querySelector('[data-test="access-key-name"]')).not.toBeNull(),
+    )
     const name = document.querySelector<HTMLInputElement>('[data-test="access-key-name"]')
     if (!name) throw new Error('missing edit name')
     name.value = 'renamed-client'
@@ -366,7 +401,7 @@ describe('AccessKeysView', () => {
     ).element
     const focus = vi.spyOn(createButton, 'focus')
 
-    wrapper.getComponent(AccessKeyTable).vm.$emit('deleted', 'client')
+    wrapper.getComponent(AccessKeyCollection).vm.$emit('deleted', 'client')
     wrapper.unmount()
     await nextTick()
     await flushPromises()

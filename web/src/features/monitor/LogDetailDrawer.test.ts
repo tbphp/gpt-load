@@ -7,7 +7,7 @@ import type {
   RequestLogAction,
   RequestLogAttemptDto,
   RequestLogItemDto,
-} from '@/api/control/request-logs'
+} from '@/app/resources/request-logs'
 import { mountApp } from '@/test/mount-app'
 
 import LogDetailDrawer from './LogDetailDrawer.vue'
@@ -23,7 +23,7 @@ function attempt(
     group_id: 7,
     group_name: 'Historical Group',
     key_id: 21,
-    key_mask: 'sk-up…safe',
+    key_mask: 'sk-u****safe',
     upstream_model: 'gpt-upstream',
     status_code: 429,
     duration_ms: 40,
@@ -52,9 +52,9 @@ function logFixture(overrides: Partial<RequestLogItemDto> = {}): RequestLogItemD
     error_summary: '<script data-canary="log-summary">unsafe()</script>',
     affinity_hit: false,
     attempts: [
-      attempt(3, { group_name: 'Third Group', key_mask: 'sk-up…third' }),
+      attempt(3, { group_name: 'Third Group', key_mask: 'sk-u****thrd' }),
       attempt(1),
-      attempt(2, { group_name: 'Second Group', key_mask: 'sk-up…second' }),
+      attempt(2, { group_name: 'Second Group', key_mask: 'sk-u****scnd' }),
     ],
     group_id: 7,
     usage_state: 'complete',
@@ -106,7 +106,7 @@ describe('LogDetailDrawer', () => {
       ),
     ).toEqual(['log-attempt-1', 'log-attempt-2', 'log-attempt-3'])
     expect(bodyElement('[data-test="log-attempt-1"]').textContent).toContain('Historical Group')
-    expect(bodyElement('[data-test="log-attempt-1"]').textContent).toContain('sk-up…safe')
+    expect(bodyElement('[data-test="log-attempt-1"]').textContent).toContain('sk-u****safe')
     expect(document.body.textContent).toContain(
       '<script data-canary="log-summary">unsafe()</script>',
     )

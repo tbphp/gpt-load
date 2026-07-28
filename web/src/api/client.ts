@@ -30,12 +30,18 @@ export interface ApiResponse<T> {
 }
 
 export interface ApiClient {
-  request<T>(path: ApiPath, options?: ApiRequestOptions): Promise<T>
-  requestWithResponse?<T>(path: ApiPath, options?: ApiRequestOptions): Promise<ApiResponse<T>>
+  request<T = unknown>(path: ApiPath, options?: ApiRequestOptions): Promise<T>
+  requestWithResponse?<T = unknown>(
+    path: ApiPath,
+    options?: ApiRequestOptions,
+  ): Promise<ApiResponse<T>>
 }
 
 export interface ApiClientWithResponse extends ApiClient {
-  requestWithResponse<T>(path: ApiPath, options?: ApiRequestOptions): Promise<ApiResponse<T>>
+  requestWithResponse<T = unknown>(
+    path: ApiPath,
+    options?: ApiRequestOptions,
+  ): Promise<ApiResponse<T>>
 }
 
 type Envelope = SuccessEnvelope<unknown> | ErrorEnvelope

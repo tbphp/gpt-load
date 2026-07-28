@@ -54,7 +54,7 @@ describe('Settings control API', () => {
     ])
   })
 
-  it('projects only the exact runtime settings and keeps overrides as a string array', async () => {
+  it('fails closed when the settings scope contains unknown or secret-like fields', async () => {
     expect(runtimeSettingKeys).toEqual([
       'connect_timeout',
       'first_byte_timeout',
@@ -76,16 +76,12 @@ describe('Settings control API', () => {
       headers: new Headers({ ETag: `"sha256-${'b'.repeat(64)}"` }),
     })
 
-    const resource = await getSettings({
-      request: vi.fn() as ApiClient['request'],
-      requestWithResponse: requestWithResponse as ApiClientWithResponse['requestWithResponse'],
-    })
-    const settings = resource.settings
-
-    expect(settings).toEqual(response)
-    expect(Array.isArray(settings.overrides)).toBe(true)
-    expect(JSON.stringify(settings)).not.toContain('DO_NOT_CACHE')
-    expect(Object.keys(settings.values)).toEqual(runtimeSettingKeys)
+    await expect(
+      getSettings({
+        request: vi.fn() as ApiClient['request'],
+        requestWithResponse: requestWithResponse as ApiClientWithResponse['requestWithResponse'],
+      }),
+    ).rejects.toBeInstanceOf(InvalidResponseError)
   })
 
   it('projects a strict inject_usage_options boolean', async () => {

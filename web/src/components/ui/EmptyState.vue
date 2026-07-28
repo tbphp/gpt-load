@@ -1,11 +1,20 @@
 <script setup lang="ts">
-defineProps<{ title: string; description: string }>()
+withDefaults(
+  defineProps<{
+    title: string
+    description: string
+    headingAs?: 'h2' | 'h3' | 'h4' | 'p'
+  }>(),
+  {
+    headingAs: 'h2',
+  },
+)
 </script>
 
 <template>
   <div class="empty-state">
     <div class="empty-state__icon" aria-hidden="true"><slot name="icon" /></div>
-    <h2>{{ title }}</h2>
+    <component :is="headingAs" class="empty-state__title">{{ title }}</component>
     <p>{{ description }}</p>
     <div v-if="$slots.actions" class="empty-state__actions"><slot name="actions" /></div>
   </div>
@@ -26,9 +35,10 @@ defineProps<{ title: string; description: string }>()
 .empty-state__icon {
   color: var(--color-text-faint);
 }
-.empty-state h2 {
+.empty-state__title {
   margin: var(--space-3) 0 0;
   font-size: 1.125rem;
+  font-weight: 650;
 }
 .empty-state p {
   max-width: 54ch;

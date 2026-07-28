@@ -10,7 +10,24 @@ import {
 describe('upstream-key control API', () => {
   it('uses the exact Group-key list, partial update, and delete contracts', async () => {
     const signal = new AbortController().signal
-    const request = vi.fn().mockResolvedValue([]) as ApiClient['request']
+    const key = {
+      id: 11,
+      group_id: 7,
+      mask: 'sk-p****a1b2',
+      status: 'disabled',
+      effective_status: 'disabled',
+      weight_manual: null,
+      weight_auto: 50,
+      blacklisted: false,
+      cooldown_until: null,
+      failure_count: 0,
+    }
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce(key)
+      .mockResolvedValueOnce(key)
+      .mockResolvedValueOnce(undefined) as ApiClient['request']
     const client = { request }
 
     await listGroupKeys(client, 7, signal)

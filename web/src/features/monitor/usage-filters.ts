@@ -1,4 +1,4 @@
-import type { UsageFilters } from '@/api/control/usage'
+import type { UsageFilters } from '@/app/resources/usage'
 
 export interface UsageFilterDraft {
   range: UsageFilters['range']

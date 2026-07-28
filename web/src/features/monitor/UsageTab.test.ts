@@ -2,7 +2,7 @@ import { QueryClient } from '@tanstack/vue-query'
 import { flushPromises } from '@vue/test-utils'
 
 import type { ApiClient, ApiPath, ApiRequestOptions } from '@/api/client'
-import type { UsageAggregateDto, UsageReportDto } from '@/api/control/usage'
+import type { UsageAggregateDto, UsageReportDto } from '@/app/resources/usage'
 import type { GroupSummary } from '@/api/control/types'
 import { controlQueryKeys } from '@/app/query-keys'
 import { mountApp } from '@/test/mount-app'
@@ -24,6 +24,15 @@ const aggregate: UsageAggregateDto = {
   partial_count: 3,
   unpriced_request_count: 4,
 }
+
+const zeroTokens = {
+  uncached_input_tokens: 0,
+  cache_read_tokens: 0,
+  cache_write_5m_tokens: 0,
+  cache_write_1h_tokens: 0,
+  output_tokens: 0,
+  total_tokens: 0,
+} as const
 
 function usageReport(overrides: Partial<UsageReportDto> = {}): UsageReportDto {
   return {
@@ -342,10 +351,10 @@ describe('UsageTab', () => {
     const report = usageReport({
       summary: {
         ...aggregate,
+        ...zeroTokens,
         request_count: 0,
         success_count: 0,
         failure_count: 0,
-        total_tokens: 0,
         estimated_cost_usd: 0,
         usage_missing_count: 0,
         partial_count: 0,
@@ -496,10 +505,10 @@ describe('UsageTab', () => {
         usageReport({
           summary: {
             ...aggregate,
+            ...zeroTokens,
             request_count: 0,
             success_count: 0,
             failure_count: 0,
-            total_tokens: 0,
             estimated_cost_usd: 0,
             usage_missing_count: 0,
             partial_count: 0,

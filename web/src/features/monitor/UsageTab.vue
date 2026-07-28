@@ -1,26 +1,16 @@
 <script setup lang="ts">
 import { useQuery } from '@tanstack/vue-query'
-import {
-  Activity,
-  CircleDollarSign,
-  Database,
-  Gauge,
-  RefreshCw,
-  TriangleAlert,
-} from 'lucide-vue-next'
+import { Database, TriangleAlert } from 'lucide-vue-next'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
 import { useApiClient } from '@/api/client-context'
-import { listGroups } from '@/api/control/groups'
-import { getUsageReport, type UsageAggregateDto, type UsageFilters } from '@/api/control/usage'
-import { controlQueryKeys } from '@/app/query-keys'
+import { groupListQueryOptions } from '@/app/resources/groups'
+import { usageQueryOptions, type UsageAggregateDto, type UsageFilters } from '@/app/resources/usage'
 import { useUnsavedChanges } from '@/app/unsaved-changes'
-import AppButton from '@/components/ui/AppButton.vue'
 import DataTable from '@/components/ui/DataTable.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
-import FormField from '@/components/ui/FormField.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
@@ -37,7 +27,9 @@ import {
   type UsageFilterErrors,
 } from './usage-filters'
 import { usageMonitorQuery } from './monitor-route'
+import UsageFilterForm from './UsageFilterForm.vue'
 import UsageSparkline from './UsageSparkline.vue'
+import UsageSummary from './UsageSummary.vue'
 
 const client = useApiClient()
 const route = useRoute()
@@ -47,14 +39,8 @@ const appliedFilters = computed(() => parseAppliedUsageFilters(route.query))
 const draft = ref<UsageFilterDraft>(createUsageFilterDraft(appliedFilters.value))
 const filterErrors = ref<UsageFilterErrors>({})
 
-const groupsQuery = useQuery({
-  queryKey: controlQueryKeys.groups.list(),
-  queryFn: ({ signal }) => listGroups(client, signal),
-})
-const usageQuery = useQuery({
-  queryKey: computed(() => controlQueryKeys.usage.report(appliedFilters.value)),
-  queryFn: ({ signal }) => getUsageReport(client, appliedFilters.value, signal),
-})
+const groupsQuery = useQuery(groupListQueryOptions(client))
+const usageQuery = useQuery(usageQueryOptions(client, appliedFilters))
 const report = computed(() => usageQuery.data.value)
 const hasData = computed(() => (report.value?.summary.request_count ?? 0) > 0)
 const draftDirty = computed(() => {
@@ -101,9 +87,8 @@ function groupLabel(groupID: number): string {
   return t('monitor.usage.filters.deletedOrUnknown', { id: groupID })
 }
 
-function filterError(field: keyof UsageFilterErrors): string | undefined {
-  const key = filterErrors.value[field]
-  return key ? t(key) : undefined
+function updateDraftField(field: keyof UsageFilterDraft, value: string): void {
+  draft.value = { ...draft.value, [field]: value }
 }
 
 async function applyFilters(): Promise<void> {
@@ -125,108 +110,17 @@ async function navigate(filters: UsageFilters): Promise<void> {
 
 <template>
   <div class="usage-tab">
-    <form
-      class="usage-filter-form"
-      data-test="usage-filter-form"
-      :aria-label="t('monitor.usage.filters.label')"
-      @submit.prevent="applyFilters"
-    >
-      <div class="usage-filter-grid">
-        <FormField id="usage-range" :label="t('monitor.usage.filters.range')">
-          <select id="usage-range" v-model="draft.range" data-test="usage-range">
-            <option value="24h">{{ t('monitor.usage.filters.range24h') }}</option>
-            <option value="30d">{{ t('monitor.usage.filters.range30d') }}</option>
-          </select>
-        </FormField>
-        <FormField
-          id="usage-group"
-          :label="t('monitor.usage.filters.group')"
-          :description="
-            groupsQuery.isError.value
-              ? t('monitor.usage.filters.groupIdHelp')
-              : t('monitor.usage.filters.groupHelp')
-          "
-          :error="filterError('group_id')"
-        >
-          <template #default="{ describedBy }">
-            <input
-              v-if="groupsQuery.isError.value"
-              id="usage-group"
-              v-model="draft.group_id"
-              data-test="usage-group"
-              type="text"
-              inputmode="numeric"
-              autocomplete="off"
-              :aria-describedby="describedBy"
-              :aria-invalid="filterError('group_id') ? 'true' : undefined"
-            />
-            <select
-              v-else
-              id="usage-group"
-              v-model="draft.group_id"
-              data-test="usage-group"
-              :aria-describedby="describedBy"
-              :aria-invalid="filterError('group_id') ? 'true' : undefined"
-            >
-              <option value="">{{ t('monitor.usage.filters.anyGroup') }}</option>
-              <option
-                v-if="
-                  draft.group_id &&
-                  !groupsQuery.data.value?.some((group) => String(group.id) === draft.group_id)
-                "
-                :value="draft.group_id"
-              >
-                {{
-                  t('monitor.usage.filters.deletedOrUnknown', {
-                    id: draft.group_id,
-                  })
-                }}
-              </option>
-              <option
-                v-for="group in groupsQuery.data.value ?? []"
-                :key="group.id"
-                :value="String(group.id)"
-              >
-                {{ group.name }} · #{{ group.id }}
-              </option>
-            </select>
-          </template>
-        </FormField>
-        <FormField
-          id="usage-model"
-          :label="t('monitor.usage.filters.model')"
-          :description="t('monitor.usage.filters.modelHelp')"
-          :error="filterError('model')"
-        >
-          <template #default="{ describedBy }">
-            <input
-              id="usage-model"
-              v-model="draft.model"
-              data-test="usage-model"
-              type="text"
-              autocomplete="off"
-              :aria-describedby="describedBy"
-              :aria-invalid="filterError('model') ? 'true' : undefined"
-            />
-          </template>
-        </FormField>
-      </div>
-      <div class="usage-filter-actions">
-        <AppButton
-          data-test="usage-refresh"
-          type="button"
-          variant="secondary"
-          :busy="usageQuery.isFetching.value"
-          @click="usageQuery.refetch()"
-        >
-          <RefreshCw :size="16" aria-hidden="true" />{{ t('monitor.usage.filters.refresh') }}
-        </AppButton>
-        <AppButton type="submit">{{ t('monitor.usage.filters.apply') }}</AppButton>
-        <AppButton data-test="usage-reset" variant="ghost" @click="resetFilters">
-          {{ t('monitor.usage.filters.reset') }}
-        </AppButton>
-      </div>
-    </form>
+    <UsageFilterForm
+      :draft="draft"
+      :errors="filterErrors"
+      :groups="groupsQuery.data.value ?? []"
+      :groups-failed="groupsQuery.isError.value"
+      :fetching="usageQuery.isFetching.value"
+      @update-field="updateDraftField"
+      @apply="applyFilters"
+      @reset="resetFilters"
+      @refresh="usageQuery.refetch()"
+    />
 
     <section class="usage-applied" data-test="usage-applied-filters">
       <strong>{{ t('monitor.usage.filters.applied') }}</strong>
@@ -312,69 +206,7 @@ async function navigate(filters: UsageFilters): Promise<void> {
         :description="t('monitor.usage.empty.description')"
       />
       <template v-else>
-        <section class="usage-section" aria-labelledby="usage-kpi-title">
-          <div class="usage-heading">
-            <div>
-              <h2 id="usage-kpi-title">{{ t('monitor.usage.kpi.title') }}</h2>
-              <p>{{ t('monitor.usage.kpi.description', { time: report.observed_at }) }}</p>
-            </div>
-          </div>
-          <div class="usage-kpi-grid">
-            <SurfaceCard class="usage-kpi">
-              <Activity :size="20" aria-hidden="true" />
-              <span>{{ t('monitor.usage.kpi.requests') }}</span>
-              <strong>{{ formatCount(report.summary.request_count) }}</strong>
-            </SurfaceCard>
-            <SurfaceCard class="usage-kpi" data-test="usage-kpi-outcomes">
-              <Gauge :size="20" aria-hidden="true" />
-              <span>{{ t('monitor.usage.kpi.outcomes') }}</span>
-              <strong>
-                {{
-                  t('monitor.usage.kpi.outcomeCounts', {
-                    success: formatCount(report.summary.success_count),
-                    failure: formatCount(report.summary.failure_count),
-                  })
-                }}
-              </strong>
-            </SurfaceCard>
-            <SurfaceCard class="usage-kpi" data-test="usage-kpi-total-tokens">
-              <Database :size="20" aria-hidden="true" />
-              <span>{{ t('monitor.usage.kpi.totalTokens') }}</span>
-              <strong>{{ formatCount(report.summary.total_tokens) }}</strong>
-            </SurfaceCard>
-            <SurfaceCard class="usage-kpi" data-test="usage-kpi-cost">
-              <CircleDollarSign :size="20" aria-hidden="true" />
-              <span>{{ t('monitor.usage.kpi.estimatedCost') }}</span>
-              <strong>{{ formatEstimatedCost(report.summary) }}</strong>
-            </SurfaceCard>
-          </div>
-          <dl
-            class="usage-token-definition"
-            data-test="usage-summary-token-definition"
-            :aria-label="t('monitor.usage.tokens.title')"
-          >
-            <div>
-              <dt>{{ t('monitor.usage.tokens.uncachedInput') }}</dt>
-              <dd>{{ formatCount(report.summary.uncached_input_tokens) }}</dd>
-            </div>
-            <div>
-              <dt>{{ t('monitor.usage.tokens.cacheRead') }}</dt>
-              <dd>{{ formatCount(report.summary.cache_read_tokens) }}</dd>
-            </div>
-            <div>
-              <dt>{{ t('monitor.usage.tokens.cacheWrite5m') }}</dt>
-              <dd>{{ formatCount(report.summary.cache_write_5m_tokens) }}</dd>
-            </div>
-            <div>
-              <dt>{{ t('monitor.usage.tokens.cacheWrite1h') }}</dt>
-              <dd>{{ formatCount(report.summary.cache_write_1h_tokens) }}</dd>
-            </div>
-            <div>
-              <dt>{{ t('monitor.usage.tokens.output') }}</dt>
-              <dd>{{ formatCount(report.summary.output_tokens) }}</dd>
-            </div>
-          </dl>
-        </section>
+        <UsageSummary :observed-at="report.observed_at" :summary="report.summary" />
 
         <section
           class="usage-section"
@@ -654,7 +486,6 @@ async function navigate(filters: UsageFilters): Promise<void> {
   gap: var(--space-4);
 }
 
-.usage-filter-form,
 .usage-scope,
 .usage-applied,
 .usage-freshness {
@@ -665,30 +496,6 @@ async function navigate(filters: UsageFilters): Promise<void> {
   box-shadow: var(--shadow-card);
 }
 
-.usage-filter-form {
-  display: grid;
-  gap: var(--space-4);
-}
-
-.usage-filter-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(180px, 1fr));
-  gap: var(--space-3);
-}
-
-.usage-filter-form input,
-.usage-filter-form select {
-  width: 100%;
-  min-height: 44px;
-  border: 1px solid var(--color-border-control);
-  border-radius: var(--radius-control);
-  background: var(--color-surface);
-  color: var(--color-text);
-  padding: 8px 10px;
-  font: inherit;
-}
-
-.usage-filter-actions,
 .usage-scope,
 .usage-heading,
 .usage-applied,
@@ -745,16 +552,10 @@ async function navigate(filters: UsageFilters): Promise<void> {
   font-size: 1rem;
 }
 
-.usage-kpi-grid,
 .usage-quality-grid,
-.usage-process-grid,
-.usage-token-definition {
+.usage-process-grid {
   display: grid;
   gap: var(--space-3);
-}
-
-.usage-kpi-grid {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .usage-quality-grid {
@@ -765,28 +566,11 @@ async function navigate(filters: UsageFilters): Promise<void> {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
-.usage-token-definition {
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  margin: 0;
-}
-
-.usage-token-definition > div {
-  border-top: 1px solid var(--color-border);
-  padding-top: var(--space-2);
-}
-
-.usage-token-definition dt,
 .usage-process-grid span {
   color: var(--color-text-muted);
   font-size: 0.8125rem;
 }
 
-.usage-token-definition dd {
-  margin: var(--space-1) 0 0;
-  font-weight: 700;
-}
-
-.usage-kpi,
 .usage-quality-grid > :deep(.surface-card),
 .usage-process-grid > :deep(.surface-card) {
   display: grid;
@@ -794,16 +578,6 @@ async function navigate(filters: UsageFilters): Promise<void> {
   gap: var(--space-2);
 }
 
-.usage-kpi > svg {
-  color: var(--color-primary);
-}
-
-.usage-kpi > span {
-  color: var(--color-text-muted);
-  font-size: 0.8125rem;
-}
-
-.usage-kpi strong,
 .usage-quality-grid strong,
 .usage-process-grid strong {
   font-size: 1.25rem;
@@ -826,20 +600,15 @@ async function navigate(filters: UsageFilters): Promise<void> {
 }
 
 @media (max-width: 1000px) {
-  .usage-kpi-grid,
   .usage-quality-grid,
-  .usage-process-grid,
-  .usage-token-definition {
+  .usage-process-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
 @media (max-width: 720px) {
-  .usage-filter-grid,
-  .usage-kpi-grid,
   .usage-quality-grid,
-  .usage-process-grid,
-  .usage-token-definition {
+  .usage-process-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 }

@@ -1,4 +1,4 @@
-import type { GroupDetailDto } from '@/api/control/groups'
+import type { GroupDetailDto } from '@/app/resources/groups'
 
 import {
   buildGroupSettingsPatch,
