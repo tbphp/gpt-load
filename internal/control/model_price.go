@@ -105,6 +105,9 @@ func (s *Service) writePriceTable(
 ) error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
+	if blocked, err := s.recoverPendingOperationsLocked(ctx, 0); err != nil {
+		return s.recoveryPendingError(*blocked)
+	}
 
 	var table *pricing.Table
 	err := s.withControlTransaction(ctx, func(tx *gorm.DB) error {

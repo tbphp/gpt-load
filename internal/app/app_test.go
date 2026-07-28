@@ -45,6 +45,12 @@ func noopStartupBootstrap(context.Context) error {
 	return nil
 }
 
+type startupRecoveryFunc func(context.Context) error
+
+func (f startupRecoveryFunc) DrainCommittedOperations(ctx context.Context) error {
+	return f(ctx)
+}
+
 type requestLogRuntimeFake struct {
 	startFunc  func() error
 	stopFunc   func(context.Context) error
@@ -302,7 +308,7 @@ func TestAppStartMigratesDatabaseAndServesHTTP(t *testing.T) {
 	}
 	for _, table := range []string{
 		"groups", "upstream_keys", "access_keys", "request_logs", "usage_stats",
-		"model_prices", "system_settings", "jobs", "schema_info",
+		"model_prices", "system_settings", "jobs", "control_operations", "schema_info",
 	} {
 		if !db.Migrator().HasTable(table) {
 			t.Errorf("Start() did not migrate table %q", table)
@@ -316,6 +322,78 @@ func TestAppStartMigratesDatabaseAndServesHTTP(t *testing.T) {
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
 		t.Fatalf("running /health status = %d", response.StatusCode)
+	}
+}
+
+func TestAppStartUsesEncryptionForSchemaV1UpgradeBeforeRuntimeLoad(t *testing.T) {
+	db, err := storage.Open(":memory:")
+	if err != nil {
+		t.Fatalf("storage.Open() error = %v", err)
+	}
+	keyService, err := encryption.NewService("schema-v1-app-test-master-key")
+	if err != nil {
+		t.Fatalf("encryption.NewService() error = %v", err)
+	}
+	for _, statement := range []string{
+		`CREATE TABLE schema_info (version integer PRIMARY KEY)`,
+		`INSERT INTO schema_info(version) VALUES (1)`,
+		`CREATE TABLE access_keys (
+			id integer PRIMARY KEY AUTOINCREMENT,
+			name varchar(255) NOT NULL,
+			key_value text NOT NULL,
+			key_hash varchar(128) NOT NULL UNIQUE,
+			status varchar(32) NOT NULL DEFAULT 'active'
+				CHECK (status IN ('active','disabled')),
+			filters json,
+			rpm_limit integer NOT NULL DEFAULT 0,
+			daily_cost_limit real NOT NULL DEFAULT 0,
+			monthly_cost_limit real NOT NULL DEFAULT 0,
+			created_at datetime,
+			updated_at datetime
+		)`,
+	} {
+		if err := db.Exec(statement).Error; err != nil {
+			t.Fatalf("create schema v1 fixture: %v", err)
+		}
+	}
+	const plaintext = "sk-gl-00112233445566778899aabbccdd7f2a"
+	ciphertext, err := keyService.Encrypt(plaintext)
+	if err != nil {
+		t.Fatalf("Encrypt() error = %v", err)
+	}
+	if err := db.Exec(`INSERT INTO access_keys
+		(name,key_value,key_hash,status,filters,rpm_limit,daily_cost_limit,monthly_cost_limit)
+		VALUES (?,?,?,?,?,?,?,?)`,
+		"legacy", ciphertext, keyService.Hash(plaintext), "active",
+		`{"groups":[],"protocols":[],"models":[]}`, 0, 0, 0,
+	).Error; err != nil {
+		t.Fatalf("insert legacy AccessKey: %v", err)
+	}
+
+	loadErr := errors.New("stop after schema upgrade")
+	application := NewApp(AppParams{
+		Engine:           mustNewEngine(t),
+		Config:           testConfig(t),
+		Encryption:       keyService,
+		DB:               db,
+		StartupBootstrap: startupBootstrapFunc(noopStartupBootstrap),
+		RuntimeState: runtimeStateLoaderFunc(func(context.Context) error {
+			return loadErr
+		}),
+		ControlRuntime: newControlRuntimeFake(nil, false),
+		RequestLogs:    newRequestLogRuntimeFake(nil, nil),
+	})
+	cleanupApp(t, application)
+
+	if err := application.Start(); !errors.Is(err, loadErr) {
+		t.Fatalf("Start() error = %v, want runtime load sentinel", err)
+	}
+	var suffix string
+	if err := db.Raw("SELECT key_suffix FROM access_keys WHERE name = 'legacy'").Scan(&suffix).Error; err != nil {
+		t.Fatalf("read migrated suffix: %v", err)
+	}
+	if suffix != "7f2a" {
+		t.Fatalf("migrated suffix = %q, want 7f2a", suffix)
 	}
 }
 
@@ -359,6 +437,54 @@ func TestAppStartBootstrapsAfterMigrationBeforeRuntimeLoad(t *testing.T) {
 	}
 	if want := []string{"bootstrap", "load"}; !slices.Equal(order, want) {
 		t.Fatalf("startup order = %#v, want %#v", order, want)
+	}
+}
+
+func TestAppStartDrainsCommittedOperationsAfterRuntimeLoadBeforeListen(t *testing.T) {
+	db, err := storage.Open(":memory:")
+	if err != nil {
+		t.Fatalf("storage.Open() error = %v", err)
+	}
+	keyService, err := encryption.NewService("test-master-key")
+	if err != nil {
+		t.Fatalf("encryption.NewService() error = %v", err)
+	}
+
+	var order []string
+	recoveryErr := errors.New("durable recovery failed")
+	application := NewApp(AppParams{
+		Engine:           mustNewEngine(t),
+		Config:           testConfig(t),
+		Encryption:       keyService,
+		DB:               db,
+		StartupBootstrap: startupBootstrapFunc(noopStartupBootstrap),
+		RuntimeState: runtimeStateLoaderFunc(func(context.Context) error {
+			order = append(order, "load")
+			return nil
+		}),
+		StartupRecovery: startupRecoveryFunc(func(context.Context) error {
+			order = append(order, "recover")
+			return recoveryErr
+		}),
+		ControlRuntime: newControlRuntimeFake(nil, false),
+		RequestLogs:    newRequestLogRuntimeFake(nil, nil),
+	})
+	listenCalled := false
+	application.listen = func(string, string) (net.Listener, error) {
+		listenCalled = true
+		return nil, errors.New("unexpected listen")
+	}
+	cleanupApp(t, application)
+
+	err = application.Start()
+	if !errors.Is(err, recoveryErr) {
+		t.Fatalf("Start() error = %v, want recovery failure", err)
+	}
+	if want := []string{"load", "recover"}; !slices.Equal(order, want) {
+		t.Fatalf("startup order = %#v, want %#v", order, want)
+	}
+	if listenCalled {
+		t.Fatal("Start() listened before committed operations drained")
 	}
 }
 

@@ -1,6 +1,7 @@
 package state
 
 import (
+	"reflect"
 	"sync"
 	"sync/atomic"
 )
@@ -38,6 +39,24 @@ func (m *Manager) Publish(input CompileInput) (*ConfigSnapshot, error) {
 		return nil, err
 	}
 	return m.publishCompiled(next, nil), nil
+}
+
+// Matches reports whether input compiles to the currently published runtime
+// configuration. Snapshot revisions are ordering metadata and are ignored.
+func (m *Manager) Matches(input CompileInput) (bool, error) {
+	next, err := Compile(input)
+	if err != nil {
+		return false, err
+	}
+	m.publishMu.Lock()
+	defer m.publishMu.Unlock()
+	current := m.current.Load()
+	if current == nil {
+		return false, nil
+	}
+	currentValue := *current
+	currentValue.Revision = 0
+	return reflect.DeepEqual(&currentValue, next), nil
 }
 
 func (m *Manager) publishCompiled(next *ConfigSnapshot, beforeLock func()) *ConfigSnapshot {

@@ -170,7 +170,7 @@ func TestAccessKeyCreateRejectsReservedProtocolWithoutPublishing(t *testing.T) {
 
 func TestAccessKeyHistoricalReservedProtocolPreservedAcrossReadAndNameUpdate(t *testing.T) {
 	fixture := newServiceFixture(t)
-	row, plaintext := seedHistoricalAccessKeyWithReservedProtocol(
+	row, _ := seedHistoricalAccessKeyWithReservedProtocol(
 		t,
 		fixture,
 		[]protocol.Protocol{protocol.OpenAIResponse, protocol.OpenAI},
@@ -183,7 +183,7 @@ func TestAccessKeyHistoricalReservedProtocolPreservedAcrossReadAndNameUpdate(t *
 	wantProtocols := []protocol.Protocol{protocol.OpenAIResponse, protocol.OpenAI}
 	if len(listed) != 1 ||
 		listed[0].ID != row.ID ||
-		listed[0].Key != plaintext ||
+		listed[0].MaskedKey != "sk-gl-••••••••abab" ||
 		!reflect.DeepEqual(listed[0].Filters.Protocols, wantProtocols) {
 		t.Fatalf("ListAccessKeys() = %#v, want historical protocols preserved", listed)
 	}
@@ -205,7 +205,7 @@ func TestAccessKeyHistoricalReservedProtocolPreservedAcrossReadAndNameUpdate(t *
 		t.Fatalf("name-only UpdateAccessKey() error = %v", err)
 	}
 	if updated.Name != "renamed legacy" ||
-		updated.Key != plaintext ||
+		updated.MaskedKey != "sk-gl-••••••••abab" ||
 		!reflect.DeepEqual(updated.Filters.Protocols, wantProtocols) {
 		t.Fatalf("name-only UpdateAccessKey() = %#v", updated)
 	}
@@ -357,7 +357,7 @@ func TestAccessKeyFiltersRejectInvalidCurrentInputWithoutPublishing(t *testing.T
 	}
 }
 
-func TestListAccessKeysReturnsPlaintextInIDOrderAndFailsClosed(t *testing.T) {
+func TestListAccessKeysReturnsMaskedMetadataInIDOrderWithoutDecrypting(t *testing.T) {
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	randomBytes := make([]byte, 32)
@@ -378,7 +378,11 @@ func TestListAccessKeysReturnsPlaintextInIDOrderAndFailsClosed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListAccessKeys() error = %v", err)
 	}
-	if len(listed) != 2 || listed[0].ID != first.ID || listed[0].Key != first.Key || listed[1].ID != second.ID || listed[1].Key != second.Key {
+	if len(listed) != 2 ||
+		listed[0].ID != first.ID ||
+		listed[0].MaskedKey != "sk-gl-••••••••0e0f" ||
+		listed[1].ID != second.ID ||
+		listed[1].MaskedKey != "sk-gl-••••••••1e1f" {
 		t.Fatalf("ListAccessKeys() = %#v", listed)
 	}
 
@@ -386,8 +390,13 @@ func TestListAccessKeysReturnsPlaintextInIDOrderAndFailsClosed(t *testing.T) {
 	if err := fixture.db.Model(&models.AccessKey{}).Where("id = ?", second.ID).UpdateColumn("key_value", corruptCiphertext).Error; err != nil {
 		t.Fatalf("corrupt second ciphertext: %v", err)
 	}
-	if partial, err := fixture.service.ListAccessKeys(context.Background()); err == nil || partial != nil {
-		t.Fatalf("ListAccessKeys() = %#v, %v, want nil/error", partial, err)
+	if afterCorruption, err := fixture.service.ListAccessKeys(context.Background()); err != nil ||
+		!reflect.DeepEqual(afterCorruption, listed) {
+		t.Fatalf(
+			"ListAccessKeys() after ciphertext corruption = %#v, %v, want unchanged metadata",
+			afterCorruption,
+			err,
+		)
 	}
 
 	engine := gin.New()
@@ -396,7 +405,7 @@ func TestListAccessKeysReturnsPlaintextInIDOrderAndFailsClosed(t *testing.T) {
 	request := httptest.NewRequest(http.MethodGet, "/api/access-keys", nil)
 	request.Header.Set("Authorization", "Bearer test-auth-key")
 	engine.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusInternalServerError || !strings.Contains(recorder.Body.String(), "INTERNAL_SERVER_ERROR") {
+	if recorder.Code != http.StatusOK {
 		t.Fatalf("GET access keys = %d %s", recorder.Code, recorder.Body.String())
 	}
 	for _, forbidden := range []string{first.Key, corruptCiphertext} {
@@ -429,7 +438,9 @@ func TestUpdateAccessKeyPreservesCredentialAcrossPointerPatches(t *testing.T) {
 	if err != nil {
 		t.Fatalf("name-only UpdateAccessKey() error = %v", err)
 	}
-	if updated.Name != "after" || updated.Status != state.AccessKeyStatusActive || updated.Key != created.Key {
+	if updated.Name != "after" ||
+		updated.Status != state.AccessKeyStatusActive ||
+		updated.MaskedKey != created.MaskedKey {
 		t.Fatalf("name-only update = %#v", updated)
 	}
 	assertAccessKeyCredentialUnchanged(t, fixture.db, created.ID, original)
@@ -557,7 +568,7 @@ func TestUpdateAccessKeyStatusAndDeletePublishWithoutMutatingRegistry(t *testing
 	}
 }
 
-func TestUpdateAccessKeyRollsBackWhenCredentialCannotDecrypt(t *testing.T) {
+func TestUpdateAccessKeyDoesNotReadCredentialCiphertext(t *testing.T) {
 	fixture := newServiceFixture(t)
 	fixture.service.random = bytes.NewReader(make([]byte, 16))
 	created, err := fixture.service.CreateAccessKey(context.Background(), AccessKeyCreateRequest{Name: "before"})
@@ -568,12 +579,16 @@ func TestUpdateAccessKeyRollsBackWhenCredentialCannotDecrypt(t *testing.T) {
 		t.Fatalf("corrupt AccessKey: %v", err)
 	}
 	before := fixture.manager.Current().Revision
-	if _, err := fixture.service.UpdateAccessKey(context.Background(), created.ID, AccessKeyUpdateRequest{Name: stringPointer("after")}); err == nil {
-		t.Fatal("UpdateAccessKey() error = nil")
+	if _, err := fixture.service.UpdateAccessKey(
+		context.Background(),
+		created.ID,
+		AccessKeyUpdateRequest{Name: stringPointer("after")},
+	); err != nil {
+		t.Fatalf("UpdateAccessKey() error = %v", err)
 	}
 	row := loadAccessKeyRow(t, fixture.db, created.ID)
-	if row.Name != "before" || fixture.manager.Current().Revision != before {
-		t.Fatalf("failed update changed row/revision: name=%q revision=%d", row.Name, fixture.manager.Current().Revision)
+	if row.Name != "after" || fixture.manager.Current().Revision != before+1 {
+		t.Fatalf("update row/revision: name=%q revision=%d", row.Name, fixture.manager.Current().Revision)
 	}
 }
 
@@ -586,7 +601,8 @@ func TestAccessKeyDanglingFiltersDoNotBlockUnrelatedUpdate(t *testing.T) {
 	}
 	if err := fixture.db.Create(&models.AccessKey{
 		Name: "legacy", KeyValue: danglingCiphertext, KeyHash: fixture.encryption.Hash(danglingPlaintext),
-		Status: string(state.AccessKeyStatusActive), Filters: models.JSON(`{"groups":[999],"protocols":[],"models":[]}`),
+		KeySuffix: "0000", Status: string(state.AccessKeyStatusActive),
+		Filters: models.JSON(`{"groups":[999],"protocols":[],"models":[]}`),
 	}).Error; err != nil {
 		t.Fatalf("create dangling AccessKey: %v", err)
 	}
@@ -738,6 +754,9 @@ func TestAccessKeyEndpointsDistinguishRPMLimit(t *testing.T) {
 		request := httptest.NewRequest(method, path, strings.NewReader(payload))
 		request.Header.Set("Authorization", "Bearer "+authKey)
 		request.Header.Set("Content-Type", "application/json")
+		if method == http.MethodPost && path == "/api/access-keys" {
+			setRequiredTestIdempotencyHeader(request)
+		}
 		engine.ServeHTTP(recorder, request)
 		return recorder
 	}
@@ -909,11 +928,12 @@ func seedHistoricalAccessKeyWithReservedProtocol(
 		t.Fatalf("encode historical AccessKey filters: %v", err)
 	}
 	row := models.AccessKey{
-		Name:     "legacy",
-		KeyValue: ciphertext,
-		KeyHash:  fixture.encryption.Hash(plaintext),
-		Status:   string(state.AccessKeyStatusActive),
-		Filters:  models.JSON(encodedFilters),
+		Name:      "legacy",
+		KeyValue:  ciphertext,
+		KeyHash:   fixture.encryption.Hash(plaintext),
+		KeySuffix: "abab",
+		Status:    string(state.AccessKeyStatusActive),
+		Filters:   models.JSON(encodedFilters),
 	}
 	if _, err := fixture.service.writeConfig(
 		t.Context(),

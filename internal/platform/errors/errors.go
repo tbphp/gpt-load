@@ -38,6 +38,14 @@ var (
 	ErrUpstreamURLChangeConfirmationRequired = &APIError{HTTPStatus: http.StatusConflict, Code: "UPSTREAM_URL_CHANGE_CONFIRMATION_REQUIRED", Message: "Upstream URL change requires explicit confirmation"}
 	ErrNoActiveUpstreamKey                   = &APIError{HTTPStatus: http.StatusConflict, Code: "NO_ACTIVE_UPSTREAM_KEY", Message: "No active upstream key available for this group"}
 	ErrBadGateway                            = &APIError{HTTPStatus: http.StatusBadGateway, Code: "BAD_GATEWAY", Message: "Upstream service error"}
+	ErrIdempotencyKeyRequired                = &APIError{HTTPStatus: http.StatusPreconditionRequired, Code: "IDEMPOTENCY_KEY_REQUIRED", Message: "Idempotency-Key is required"}
+	ErrInvalidIdempotencyKey                 = &APIError{HTTPStatus: http.StatusBadRequest, Code: "INVALID_IDEMPOTENCY_KEY", Message: "Idempotency-Key must be a canonical UUID v4"}
+	ErrIdempotencyKeyReused                  = &APIError{HTTPStatus: http.StatusConflict, Code: "IDEMPOTENCY_KEY_REUSED", Message: "Idempotency-Key was already used for another request"}
+	ErrIdempotencyResultExpired              = &APIError{HTTPStatus: http.StatusGone, Code: "IDEMPOTENCY_RESULT_EXPIRED", Message: "The idempotent result retention period expired"}
+	ErrControlOperationIncomplete            = &APIError{HTTPStatus: http.StatusServiceUnavailable, Code: "CONTROL_OPERATION_INCOMPLETE", Message: "The resource was committed but runtime recovery is incomplete"}
+	ErrControlRecoveryPending                = &APIError{HTTPStatus: http.StatusServiceUnavailable, Code: "CONTROL_RECOVERY_PENDING", Message: "An earlier committed operation is still recovering"}
+	ErrSettingsPreconditionRequired          = &APIError{HTTPStatus: http.StatusPreconditionRequired, Code: "SETTINGS_PRECONDITION_REQUIRED", Message: "If-Match is required"}
+	ErrSettingsVersionConflict               = &APIError{HTTPStatus: http.StatusPreconditionFailed, Code: "SETTINGS_VERSION_CONFLICT", Message: "Settings changed since they were loaded"}
 )
 
 // NewAPIErrorWithData creates a copy of an APIError with response data.

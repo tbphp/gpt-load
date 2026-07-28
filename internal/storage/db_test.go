@@ -91,11 +91,12 @@ func TestAccessKeyStatusAcceptsOnlyDurableOperatorStates(t *testing.T) {
 	db := openMigratedDatabase(t)
 	for index, status := range []string{"active", "disabled"} {
 		key := models.AccessKey{
-			Name:     "allowed-" + string(rune('a'+index)),
-			KeyValue: "ciphertext",
-			KeyHash:  "allowed-status-" + string(rune('a'+index)),
-			Status:   status,
-			Filters:  models.JSON(`{}`),
+			Name:      "allowed-" + string(rune('a'+index)),
+			KeyValue:  "ciphertext",
+			KeyHash:   "allowed-status-" + string(rune('a'+index)),
+			KeySuffix: "7f2a",
+			Status:    status,
+			Filters:   models.JSON(`{}`),
 		}
 		if err := db.Create(&key).Error; err != nil {
 			t.Fatalf("create access key with status %q: %v", status, err)
@@ -103,11 +104,12 @@ func TestAccessKeyStatusAcceptsOnlyDurableOperatorStates(t *testing.T) {
 	}
 
 	invalid := models.AccessKey{
-		Name:     "invalid",
-		KeyValue: "ciphertext",
-		KeyHash:  "invalid-status",
-		Status:   "blacklisted",
-		Filters:  models.JSON(`{}`),
+		Name:      "invalid",
+		KeyValue:  "ciphertext",
+		KeyHash:   "invalid-status",
+		KeySuffix: "7f2a",
+		Status:    "blacklisted",
+		Filters:   models.JSON(`{}`),
 	}
 	if err := db.Create(&invalid).Error; err == nil {
 		t.Fatal("blacklisted status error = nil, want CHECK constraint error")
@@ -662,8 +664,8 @@ func TestAutoMigrateCreatesRequestLogV1FieldsAndCompositeIndexes(t *testing.T) {
 		}
 	}
 
-	if storage.CurrentSchemaVersion != 1 {
-		t.Fatalf("CurrentSchemaVersion = %d, want 1", storage.CurrentSchemaVersion)
+	if storage.CurrentSchemaVersion != 2 {
+		t.Fatalf("CurrentSchemaVersion = %d, want 2", storage.CurrentSchemaVersion)
 	}
 }
 
@@ -803,8 +805,8 @@ func TestAutoMigrateCreatesM4UsagePricingColumnsAndConstraints(t *testing.T) {
 		t.Error("builtin ModelPrice Source was accepted")
 	}
 
-	if storage.CurrentSchemaVersion != 1 {
-		t.Errorf("CurrentSchemaVersion = %d, want 1", storage.CurrentSchemaVersion)
+	if storage.CurrentSchemaVersion != 2 {
+		t.Errorf("CurrentSchemaVersion = %d, want 2", storage.CurrentSchemaVersion)
 	}
 	if err := storage.AutoMigrate(db); err != nil {
 		t.Fatalf("second AutoMigrate() error = %v", err)
@@ -1079,10 +1081,11 @@ func TestAutoMigrateCreatesCriticalUniqueConstraints(t *testing.T) {
 
 	t.Run("access key hash", func(t *testing.T) {
 		first := models.AccessKey{
-			Name:     "access-one",
-			KeyValue: "ciphertext-one",
-			KeyHash:  "same-access-key-hash",
-			Filters:  models.JSON(`{}`),
+			Name:      "access-one",
+			KeyValue:  "ciphertext-one",
+			KeyHash:   "same-access-key-hash",
+			KeySuffix: "7f2a",
+			Filters:   models.JSON(`{}`),
 		}
 		second := first
 		second.ID = 0

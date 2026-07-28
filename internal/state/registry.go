@@ -137,6 +137,111 @@ func (r *KeyRegistry) ApplyImport(groupID uint, entries []KeyEntry) error {
 	return nil
 }
 
+// MatchesGroup compares the persisted configuration-owned fields for one
+// group. Runtime health state is intentionally excluded.
+func (r *KeyRegistry) MatchesGroup(groupID uint, entries []KeyEntry) bool {
+	if groupID == 0 || ValidateKeyEntries(entries) != nil {
+		return false
+	}
+	for _, entry := range entries {
+		if entry.GroupID != groupID {
+			return false
+		}
+	}
+
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.matchesGroupLocked(groupID, entries)
+}
+
+// ReconcileGroup makes one group match DB truth while preserving runtime
+// health state for entries whose persisted configuration is already equal.
+func (r *KeyRegistry) ReconcileGroup(groupID uint, entries []KeyEntry) (bool, error) {
+	if groupID == 0 {
+		return false, fmt.Errorf("group id is required")
+	}
+	if err := ValidateKeyEntries(entries); err != nil {
+		return false, err
+	}
+	for _, entry := range entries {
+		if entry.GroupID != groupID {
+			return false, fmt.Errorf(
+				"key %d belongs to group %d, want %d",
+				entry.ID,
+				entry.GroupID,
+				groupID,
+			)
+		}
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, entry := range entries {
+		if existingGroupID, exists := r.keyGroups[entry.ID]; exists &&
+			existingGroupID != groupID {
+			return false, fmt.Errorf(
+				"key %d already belongs to group %d",
+				entry.ID,
+				existingGroupID,
+			)
+		}
+	}
+	if r.matchesGroupLocked(groupID, entries) {
+		return false, nil
+	}
+
+	previous := r.buckets[groupID]
+	next := make(map[uint]*KeyEntry, len(entries))
+	for _, desired := range entries {
+		if existing := previous[desired.ID]; existing != nil &&
+			samePersistedKeyConfig(*existing, desired) {
+			next[desired.ID] = existing
+			continue
+		}
+		cloned := cloneKeyEntry(desired)
+		next[desired.ID] = &cloned
+	}
+	for keyID := range previous {
+		delete(r.keyGroups, keyID)
+	}
+	if len(next) == 0 {
+		delete(r.buckets, groupID)
+	} else {
+		r.buckets[groupID] = next
+		for keyID := range next {
+			r.keyGroups[keyID] = groupID
+		}
+	}
+	return true, nil
+}
+
+func (r *KeyRegistry) matchesGroupLocked(groupID uint, entries []KeyEntry) bool {
+	current := r.buckets[groupID]
+	if len(current) != len(entries) {
+		return false
+	}
+	for _, desired := range entries {
+		existing := current[desired.ID]
+		if existing == nil || !samePersistedKeyConfig(*existing, desired) {
+			return false
+		}
+	}
+	return true
+}
+
+func samePersistedKeyConfig(left, right KeyEntry) bool {
+	if left.ID != right.ID ||
+		left.GroupID != right.GroupID ||
+		left.Status != right.Status ||
+		left.EncryptedValue != right.EncryptedValue {
+		return false
+	}
+	if left.WeightManual == nil || right.WeightManual == nil {
+		return left.WeightManual == nil && right.WeightManual == nil
+	}
+	return *left.WeightManual == *right.WeightManual
+}
+
 func (r *KeyRegistry) RemoveKey(keyID uint) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()

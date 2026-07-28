@@ -66,6 +66,8 @@ func (s *Server) RegisterRoutes(engine *gin.Engine) {
 	api.POST("/groups/:group_id/models/discover", s.handleDiscoverGroupModels)
 	api.POST("/models/discover", s.handleDiscoverModels)
 	api.POST("/access-keys", s.handleCreateAccessKey)
+	api.GET("/access-keys/options", s.handleListAccessKeyOptions)
+	api.POST("/access-keys/:id/reveal", s.handleRevealAccessKey)
 	api.GET("/access-keys", s.handleListAccessKeys)
 	api.PUT("/access-keys/:id", s.handleUpdateAccessKey)
 	api.DELETE("/access-keys/:id", s.handleDeleteAccessKey)
@@ -77,21 +79,38 @@ func (s *Server) handleGetSettings(c *gin.Context) {
 		writeServiceError(c, "get_settings", err)
 		return
 	}
-	response.SuccessI18n(c, "common.success", result)
+	representation, err := newSettingsWireRepresentation(
+		i18n.Message(c, "common.success"),
+		result.DTO(),
+	)
+	if err != nil {
+		writeServiceError(c, "get_settings", err)
+		return
+	}
+	writeSettingsRepresentation(c, representation)
 }
 
 func (s *Server) handleUpdateSettings(c *gin.Context) {
+	expectedETag, ok := requiredSettingsIfMatch(c)
+	if !ok {
+		return
+	}
 	var request SettingsUpdateRequest
 	if err := bindStrictJSON(c, &request); err != nil {
 		writeServiceError(c, "update_settings", mapControlJSONError(err))
 		return
 	}
-	result, err := s.service.UpdateSettings(c.Request.Context(), request)
+	result, err := s.service.UpdateSettingsIfMatch(
+		c.Request.Context(),
+		request,
+		expectedETag,
+		i18n.Message(c, "common.success"),
+	)
 	if err != nil {
 		writeServiceError(c, "update_settings", err)
 		return
 	}
-	response.SuccessI18n(c, "common.success", result)
+	writeSettingsRepresentation(c, result)
 }
 
 func (s *Server) handleListGroups(c *gin.Context) {
@@ -117,12 +136,20 @@ func (s *Server) handleGetGroup(c *gin.Context) {
 }
 
 func (s *Server) handleCreateGroup(c *gin.Context) {
+	idempotencyKey, ok := requiredIdempotencyKey(c, "create_group")
+	if !ok {
+		return
+	}
 	var request GroupCreateRequest
 	if err := bindStrictJSON(c, &request); err != nil {
 		writeServiceError(c, "create_group", mapControlJSONError(err))
 		return
 	}
-	result, err := s.service.CreateGroup(c.Request.Context(), request)
+	result, err := s.service.CreateGroupIdempotent(
+		c.Request.Context(),
+		idempotencyKey,
+		request,
+	)
 	if err != nil {
 		writeServiceError(c, "create_group", err)
 		return
@@ -243,12 +270,21 @@ func (s *Server) handleImportGroupKeys(c *gin.Context) {
 	if !ok {
 		return
 	}
+	idempotencyKey, ok := requiredIdempotencyKey(c, "import_group_keys")
+	if !ok {
+		return
+	}
 	var request GroupKeyImportRequest
 	if err := bindStrictJSON(c, &request); err != nil {
 		writeServiceError(c, "import_group_keys", mapControlJSONError(err))
 		return
 	}
-	result, err := s.service.ImportGroupKeys(c.Request.Context(), id, request)
+	result, err := s.service.ImportGroupKeysIdempotent(
+		c.Request.Context(),
+		idempotencyKey,
+		id,
+		request,
+	)
 	if err != nil {
 		writeServiceError(c, "import_group_keys", err)
 		return
@@ -288,16 +324,48 @@ func (s *Server) handleDiscoverModels(c *gin.Context) {
 }
 
 func (s *Server) handleCreateAccessKey(c *gin.Context) {
+	idempotencyKey, ok := requiredIdempotencyKey(c, "create_access_key")
+	if !ok {
+		return
+	}
 	var request AccessKeyCreateRequest
 	if err := bindStrictJSON(c, &request); err != nil {
 		writeServiceError(c, "create_access_key", mapControlJSONError(err))
 		return
 	}
-	result, err := s.service.CreateAccessKey(c.Request.Context(), request)
+	result, err := s.service.CreateAccessKeyIdempotent(
+		c.Request.Context(),
+		idempotencyKey,
+		request,
+	)
 	if err != nil {
 		writeServiceError(c, "create_access_key", err)
 		return
 	}
+	setSecretResponseHeaders(c)
+	response.SuccessI18n(c, "common.success", result)
+}
+
+func (s *Server) handleListAccessKeyOptions(c *gin.Context) {
+	result, err := s.service.ListAccessKeyOptions(c.Request.Context())
+	if err != nil {
+		writeServiceError(c, "list_access_key_options", err)
+		return
+	}
+	response.SuccessI18n(c, "common.success", result)
+}
+
+func (s *Server) handleRevealAccessKey(c *gin.Context) {
+	id, ok := accessKeyID(c)
+	if !ok {
+		return
+	}
+	result, err := s.service.RevealAccessKey(c.Request.Context(), id)
+	if err != nil {
+		writeServiceError(c, "reveal_access_key", err)
+		return
+	}
+	setSecretResponseHeaders(c)
 	response.SuccessI18n(c, "common.success", result)
 }
 
@@ -396,6 +464,56 @@ func mapControlJSONError(err error) *app_errors.APIError {
 	return app_errors.ErrInvalidJSON
 }
 
+func requiredIdempotencyKey(
+	c *gin.Context,
+	operation string,
+) (string, bool) {
+	values := c.Request.Header.Values("Idempotency-Key")
+	if len(values) == 0 || len(values) == 1 && values[0] == "" {
+		writeServiceError(c, operation, app_errors.ErrIdempotencyKeyRequired)
+		return "", false
+	}
+	if len(values) != 1 || validateIdempotencyKey(values[0]) != nil {
+		writeServiceError(c, operation, app_errors.ErrInvalidIdempotencyKey)
+		return "", false
+	}
+	return values[0], true
+}
+
+func requiredSettingsIfMatch(c *gin.Context) (string, bool) {
+	values := c.Request.Header.Values("If-Match")
+	if len(values) == 0 || len(values) == 1 && values[0] == "" {
+		writeServiceError(c, "update_settings", app_errors.ErrSettingsPreconditionRequired)
+		return "", false
+	}
+	if len(values) != 1 {
+		writeServiceError(c, "update_settings", app_errors.ErrBadRequest)
+		return "", false
+	}
+	token, valid := parseSettingsHeaderETag(values[0])
+	if !valid {
+		writeServiceError(c, "update_settings", app_errors.ErrBadRequest)
+		return "", false
+	}
+	return token, true
+}
+
+func writeSettingsRepresentation(
+	c *gin.Context,
+	representation settingsWireRepresentation,
+) {
+	c.Header("ETag", representation.HeaderETag)
+	c.Header("Content-Language", i18n.GetLanguageFromContext(c))
+	c.Header("Vary", "Accept-Language")
+	c.Header("Content-Encoding", "identity")
+	c.Data(http.StatusOK, "application/json; charset=utf-8", representation.Body)
+}
+
+func setSecretResponseHeaders(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	c.Header("Pragma", "no-cache")
+}
+
 func accessKeyID(c *gin.Context) (uint, bool) {
 	parsed, err := strconv.ParseUint(c.Param("id"), 10, strconv.IntSize)
 	if err != nil || parsed == 0 {
@@ -459,6 +577,22 @@ func serviceErrorMessageID(
 	apiErr *app_errors.APIError,
 ) string {
 	switch apiErr.Code {
+	case app_errors.ErrIdempotencyKeyRequired.Code:
+		return "idempotency.required"
+	case app_errors.ErrInvalidIdempotencyKey.Code:
+		return "idempotency.invalid"
+	case app_errors.ErrIdempotencyKeyReused.Code:
+		return "idempotency.reused"
+	case app_errors.ErrIdempotencyResultExpired.Code:
+		return "idempotency.expired"
+	case app_errors.ErrControlOperationIncomplete.Code:
+		return "control.operation_incomplete"
+	case app_errors.ErrControlRecoveryPending.Code:
+		return "control.recovery_pending"
+	case app_errors.ErrSettingsPreconditionRequired.Code:
+		return "settings.precondition_required"
+	case app_errors.ErrSettingsVersionConflict.Code:
+		return "settings.version_conflict"
 	case app_errors.ErrRequestTooLarge.Code:
 		return "request_too_large"
 	case app_errors.ErrBadRequest.Code, app_errors.ErrInvalidJSON.Code, app_errors.ErrValidation.Code:

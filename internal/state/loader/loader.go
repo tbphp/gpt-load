@@ -94,7 +94,10 @@ func queryCompileRows(ctx context.Context, db *gorm.DB) (compileRows, error) {
 	if err := db.Order("id ASC").Find(&rows.groups).Error; err != nil {
 		return compileRows{}, fmt.Errorf("query groups: %w", err)
 	}
-	if err := db.Order("id ASC").Find(&rows.accessKeys).Error; err != nil {
+	if err := db.
+		Select("id", "name", "key_hash", "status", "filters", "rpm_limit").
+		Order("id ASC").
+		Find(&rows.accessKeys).Error; err != nil {
 		return compileRows{}, fmt.Errorf("query access keys: %w", err)
 	}
 	return rows, nil
@@ -123,6 +126,38 @@ func BuildCompileInput(ctx context.Context, db *gorm.DB) (state.CompileInput, er
 		return state.CompileInput{}, err
 	}
 	return input, nil
+}
+
+// BuildGroupKeyEntries maps the persisted key configuration for one group.
+// Runtime health fields are initialized to their durable baseline.
+func BuildGroupKeyEntries(
+	ctx context.Context,
+	db *gorm.DB,
+	groupID uint,
+) ([]state.KeyEntry, error) {
+	if groupID == 0 {
+		return nil, fmt.Errorf("group id is required")
+	}
+	var group struct{ ID uint }
+	if err := db.WithContext(ctx).
+		Model(&models.Group{}).
+		Select("id").
+		Where("id = ?", groupID).
+		Take(&group).Error; err != nil {
+		return nil, fmt.Errorf("query group %d: %w", groupID, err)
+	}
+	var rows []models.UpstreamKey
+	if err := db.WithContext(ctx).
+		Where("group_id = ?", groupID).
+		Order("id ASC").
+		Find(&rows).Error; err != nil {
+		return nil, fmt.Errorf("query group %d upstream keys: %w", groupID, err)
+	}
+	entries := mapUpstreamKeys(rows)
+	if err := state.ValidateKeyEntries(entries); err != nil {
+		return nil, fmt.Errorf("validate group %d upstream keys: %w", groupID, err)
+	}
+	return entries, nil
 }
 
 func (l *Loader) read(ctx context.Context) (state.CompileInput, []state.KeyEntry, error) {

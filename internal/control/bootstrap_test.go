@@ -238,11 +238,12 @@ func TestEnsureInitialStateWithExistingAccessKeyOnlyWritesMarker(t *testing.T) {
 		t.Fatalf("Encrypt(existing key) error = %v", err)
 	}
 	existing := models.AccessKey{
-		Name:     "Existing",
-		KeyValue: ciphertext,
-		KeyHash:  fixture.encryption.Hash(plaintext),
-		Status:   string(state.AccessKeyStatusActive),
-		Filters:  models.JSON(`{"groups":[],"protocols":[],"models":[]}`),
+		Name:      "Existing",
+		KeyValue:  ciphertext,
+		KeyHash:   fixture.encryption.Hash(plaintext),
+		KeySuffix: "0000",
+		Status:    string(state.AccessKeyStatusActive),
+		Filters:   models.JSON(`{"groups":[],"protocols":[],"models":[]}`),
 	}
 	if err := fixture.db.Create(&existing).Error; err != nil {
 		t.Fatalf("create existing AccessKey: %v", err)

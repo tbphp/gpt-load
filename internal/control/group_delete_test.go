@@ -30,18 +30,21 @@ func TestDeleteGroupRejectsActiveAndDisabledExplicitAccessKeyReferences(t *testi
 	for _, row := range []models.AccessKey{
 		{
 			Name: "Active", KeyValue: "cipher-client-one", KeyHash: "client-hash-one",
-			Status:  string(state.AccessKeyStatusActive),
-			Filters: models.JSON(fmt.Sprintf(`{"groups":[%d],"protocols":[],"models":[]}`, groupID)),
+			KeySuffix: "0001",
+			Status:    string(state.AccessKeyStatusActive),
+			Filters:   models.JSON(fmt.Sprintf(`{"groups":[%d],"protocols":[],"models":[]}`, groupID)),
 		},
 		{
 			Name: "Disabled", KeyValue: "cipher-client-two", KeyHash: "client-hash-two",
-			Status:  string(state.AccessKeyStatusDisabled),
-			Filters: models.JSON(fmt.Sprintf(`{"groups":[%d,%d],"protocols":[],"models":[]}`, other.ID, groupID)),
+			KeySuffix: "0002",
+			Status:    string(state.AccessKeyStatusDisabled),
+			Filters:   models.JSON(fmt.Sprintf(`{"groups":[%d,%d],"protocols":[],"models":[]}`, other.ID, groupID)),
 		},
 		{
 			Name: "Unrestricted", KeyValue: "cipher-client-three", KeyHash: "client-hash-three",
-			Status:  string(state.AccessKeyStatusActive),
-			Filters: models.JSON(`{"groups":[],"protocols":["openai"],"models":["gpt-4o"]}`),
+			KeySuffix: "0003",
+			Status:    string(state.AccessKeyStatusActive),
+			Filters:   models.JSON(`{"groups":[],"protocols":["openai"],"models":["gpt-4o"]}`),
 		},
 	} {
 		row := row
@@ -194,7 +197,7 @@ func TestDeleteGroupCorruptAccessKeyFiltersPreservesDatabaseRegistryAndSnapshot(
 	groupID := createGroupForKeyImport(t, fixture, "sk-delete-corrupt-filter")
 	corrupt := models.AccessKey{
 		Name: "Corrupt filters", KeyValue: "cipher-corrupt-filter", KeyHash: "hash-corrupt-filter",
-		Status: string(state.AccessKeyStatusDisabled), Filters: models.JSON(`{}`),
+		KeySuffix: "0004", Status: string(state.AccessKeyStatusDisabled), Filters: models.JSON(`{}`),
 	}
 	if err := fixture.db.Create(&corrupt).Error; err != nil {
 		t.Fatal(err)
@@ -307,11 +310,12 @@ func TestDeleteGroupEndpointAuthenticationValidationNotFoundConflictAndSuccess(t
 		{language: "ja-JP", message: "グループはアクセスキーから参照されています"},
 	} {
 		row := models.AccessKey{
-			Name:     "HTTP reference " + test.language,
-			KeyValue: "cipher-http-" + test.language,
-			KeyHash:  "hash-http-" + test.language,
-			Status:   string(state.AccessKeyStatusActive),
-			Filters:  models.JSON(fmt.Sprintf(`{"groups":[%d]}`, groupID)),
+			Name:      "HTTP reference " + test.language,
+			KeyValue:  "cipher-http-" + test.language,
+			KeyHash:   "hash-http-" + test.language,
+			KeySuffix: "0005",
+			Status:    string(state.AccessKeyStatusActive),
+			Filters:   models.JSON(fmt.Sprintf(`{"groups":[%d]}`, groupID)),
 		}
 		if err := fixture.db.Create(&row).Error; err != nil {
 			t.Fatal(err)
