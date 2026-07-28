@@ -19,10 +19,22 @@ test.setTimeout(120_000)
 
 test('critical management journey works through the embedded binary', async ({ page }) => {
   const browserUpstreamRequests: string[] = []
+  const settingsPutBodies: unknown[] = []
+  const usageRequests: string[] = []
+  const logRequests: string[] = []
   page.on('request', (request) => {
     const url = new URL(request.url())
     if (url.origin === upstreamOrigin) {
       browserUpstreamRequests.push(`${request.method()} ${url.pathname}`)
+    }
+    if (request.method() === 'PUT' && url.pathname === '/api/settings') {
+      settingsPutBodies.push(request.postDataJSON())
+    }
+    if (request.method() === 'GET' && url.pathname === '/api/usage') {
+      usageRequests.push(`${url.pathname}${url.search}`)
+    }
+    if (request.method() === 'GET' && url.pathname === '/api/logs') {
+      logRequests.push(`${url.pathname}${url.search}`)
     }
   })
 
@@ -36,6 +48,18 @@ test('critical management journey works through the embedded binary', async ({ p
 
     await expect(page).toHaveURL('/')
     await expect(page.getByRole('navigation', { name: 'Primary navigation' })).toBeVisible()
+  })
+
+  await test.step('focus and announce SPA navigation', async () => {
+    await page
+      .getByRole('navigation', { name: 'Primary navigation' })
+      .getByRole('link', { name: 'Monitor' })
+      .click()
+
+    await expect(page).toHaveURL('/monitor?tab=health')
+    const heading = page.getByRole('heading', { level: 1, name: 'Monitor' })
+    await expect(heading).toBeFocused()
+    await expect(page.locator('[data-test="route-announcer"]')).toHaveText('Monitor')
   })
 
   await test.step('discover and create Group', async () => {
@@ -124,7 +148,29 @@ test('critical management journey works through the embedded binary', async ({ p
       editDrawer.getByRole('button', { name: `Remove model ${discoveredModel}` }),
     ).toBeVisible()
     await expect(editDrawer.getByLabel('Requests per minute')).toHaveValue(rpmLimit)
-    await editDrawer.getByRole('button', { name: 'Close AccessKey editor' }).click()
+    await editDrawer.getByLabel('Name', { exact: true }).fill(`${accessKeyName} draft`)
+
+    const closeEditor = editDrawer.getByRole('button', { name: 'Close AccessKey editor' })
+    const rejectedDialogPromise = page.waitForEvent('dialog')
+    const rejectedClosePromise = closeEditor.click()
+    const rejectedDialog = await rejectedDialogPromise
+    expect(rejectedDialog.type()).toBe('confirm')
+    await rejectedDialog.dismiss()
+    await rejectedClosePromise
+    await expect(editDrawer).toBeVisible()
+    await expect(editDrawer.getByLabel('Name', { exact: true })).toHaveValue(
+      `${accessKeyName} draft`,
+    )
+
+    const acceptedDialogPromise = page.waitForEvent('dialog')
+    const acceptedClosePromise = closeEditor.click()
+    const acceptedDialog = await acceptedDialogPromise
+    expect(acceptedDialog.type()).toBe('confirm')
+    await acceptedDialog.accept()
+    await acceptedClosePromise
+    await expect(editDrawer).toBeHidden()
+    await expect(accessKeyRow).toContainText(accessKeyName)
+    await expect(accessKeyRow).not.toContainText(`${accessKeyName} draft`)
   })
 
   await test.step('manage a global price override through the canonical deep link', async () => {
@@ -141,18 +187,20 @@ test('critical management journey works through the embedded binary', async ({ p
     await expect(addDrawer.getByRole('button', { name: 'Save override' })).toBeEnabled()
     await addDrawer.getByRole('button', { name: 'Save override' }).click()
 
-    const globalPriceDialog = page.getByRole('dialog', {
-      name: 'Create a global user price override?',
-    })
-    await expect(globalPriceDialog).toContainText(
+    await expect(page.getByRole('dialog')).toHaveCount(1)
+    const globalPriceConfirmation = addDrawer.locator('[data-test="model-price-global-confirm"]')
+    await expect(globalPriceConfirmation).toContainText(
       'takes precedence over every built-in exact and prefix rule',
     )
-    await expect(globalPriceDialog).toContainText('Unset price slots do not fall back')
-    await expect(globalPriceDialog).toContainText('future completed or Emit requests')
-    await expect(globalPriceDialog).toContainText(
+    await expect(globalPriceConfirmation).toContainText('Unset price slots do not fall back')
+    await expect(globalPriceConfirmation).toContainText('future completed or Emit requests')
+    await expect(globalPriceConfirmation).toContainText(
       'Reset restores the remaining user and built-in rules',
     )
-    await globalPriceDialog.getByRole('button', { name: 'Create global override' }).click()
+    await expect(
+      globalPriceConfirmation.locator('[data-test="model-price-global-confirm-heading"]'),
+    ).toBeFocused()
+    await globalPriceConfirmation.getByRole('button', { name: 'Create global override' }).click()
 
     const overrideRow = page.locator('[data-test="override-price-row-0"]')
     await expect(overrideRow).toContainText('*')
@@ -164,7 +212,16 @@ test('critical management journey works through the embedded binary', async ({ p
     await expect(editDrawer.getByLabel('Model pattern')).toHaveAttribute('readonly', '')
     await editDrawer.getByLabel('Output').fill('2')
     await editDrawer.getByRole('button', { name: 'Save override' }).click()
-    await globalPriceDialog.getByRole('button', { name: 'Create global override' }).click()
+    await expect(page.getByRole('dialog')).toHaveCount(1)
+    const editGlobalPriceConfirmation = editDrawer.locator(
+      '[data-test="model-price-global-confirm"]',
+    )
+    await expect(
+      editGlobalPriceConfirmation.locator('[data-test="model-price-global-confirm-heading"]'),
+    ).toBeFocused()
+    await editGlobalPriceConfirmation
+      .getByRole('button', { name: 'Create global override' })
+      .click()
     await expect(editPrice).toBeFocused()
     await expect(page.locator('[data-test="override-price-row-0"]')).toContainText('$2')
 
@@ -178,6 +235,36 @@ test('critical management journey works through the embedded binary', async ({ p
     await resetPrice.click()
     await resetDialog.getByRole('button', { name: 'Reset override' }).click()
     await expect(page.getByText('No overrides configured', { exact: true })).toBeVisible()
+  })
+
+  await test.step('save Request and Logs settings as one page-owned mutation', async () => {
+    await page.goto('/settings')
+    await expect(page.getByRole('heading', { level: 1, name: 'Settings' })).toBeVisible()
+
+    await page.locator('[data-test="override-request_timeout"]').check()
+    await page.locator('[data-test="value-request_timeout"]').fill('901')
+    await page.locator('[data-test="override-request_log_retention_days"]').check()
+    await page.locator('[data-test="value-request_log_retention_days"]').fill('31')
+    await expect(page.locator('[data-test="settings-dirty-summary"]')).toContainText(
+      '2 unsaved runtime settings',
+    )
+
+    const putCountBefore = settingsPutBodies.length
+    const settingsPut = page.waitForRequest((request) => {
+      const url = new URL(request.url())
+      return request.method() === 'PUT' && url.pathname === '/api/settings'
+    })
+    await page.locator('[data-test="settings-save-all"]').click()
+    const request = await settingsPut
+
+    expect(request.postDataJSON()).toEqual({
+      settings: {
+        request_timeout: 901,
+        request_log_retention_days: 31,
+      },
+    })
+    await expect(page.locator('[data-test="settings-saved-at"]')).toBeVisible()
+    expect(settingsPutBodies.slice(putCountBefore)).toHaveLength(1)
   })
 
   await test.step('produce persisted complete, partial, and missing usage safely', async () => {
@@ -237,6 +324,43 @@ test('critical management journey works through the embedded binary', async ({ p
   await test.step('review usage quality, request detail usage, and the Home summary', async () => {
     await page.goto('/monitor?tab=usage&range=24h')
     await expect(page).toHaveURL('/monitor?tab=usage&range=24h')
+    await expect(page.locator('[data-test="usage-freshness"]')).toBeVisible()
+    const usageRequestCountBeforeDraft = usageRequests.length
+    const usageApplied = page.locator('[data-test="usage-applied-filters"]')
+    await expect(usageApplied).toContainText('Last 24 hours')
+    await expect(usageApplied).not.toContainText(discoveredModel)
+
+    await page.locator('[data-test="usage-range"]').selectOption('30d')
+    await page.locator('[data-test="usage-group"]').selectOption(groupID)
+    await page.locator('[data-test="usage-model"]').fill(discoveredModel)
+    await expect(page).toHaveURL('/monitor?tab=usage&range=24h')
+    expect(usageRequests).toHaveLength(usageRequestCountBeforeDraft)
+    await expect(usageApplied).toContainText('Last 24 hours')
+    await expect(usageApplied).not.toContainText(discoveredModel)
+
+    await page.getByRole('button', { name: 'Apply' }).click()
+    await expect(page).toHaveURL(
+      `/monitor?tab=usage&range=30d&group_id=${groupID}&model=${discoveredModel}`,
+    )
+    await expect.poll(() => usageRequests.length).toBe(usageRequestCountBeforeDraft + 1)
+    await expect(usageApplied).toContainText('Last 30 days')
+    await expect(usageApplied).toContainText(groupName)
+    await expect(usageApplied).toContainText(discoveredModel)
+
+    const usageRequestCountBeforeReset = usageRequests.length
+    await page.locator('[data-test="usage-reset"]').click()
+    await expect(page).toHaveURL(
+      `/monitor?tab=usage&range=30d&group_id=${groupID}&model=${discoveredModel}`,
+    )
+    expect(usageRequests).toHaveLength(usageRequestCountBeforeReset)
+    await expect(page.locator('[data-test="usage-range"]')).toHaveValue('24h')
+    await expect(page.locator('[data-test="usage-group"]')).toHaveValue('')
+    await expect(page.locator('[data-test="usage-model"]')).toHaveValue('')
+    await expect(usageApplied).toContainText(discoveredModel)
+
+    await page.getByRole('button', { name: 'Apply' }).click()
+    await expect(page).toHaveURL('/monitor?tab=usage&range=24h')
+    await expect.poll(() => usageRequests.length).toBe(usageRequestCountBeforeReset + 1)
     await expect(page.locator('[data-test="usage-quality-missing"]')).toContainText('1')
     await expect(page.locator('[data-test="usage-quality-partial"]')).toContainText('1')
     await expect(page.locator('[data-test="usage-quality-unpriced"]')).toContainText('3')
@@ -251,8 +375,42 @@ test('critical management journey works through the embedded binary', async ({ p
     await page.goto('/monitor?tab=logs')
     const firstLogRow = page.locator('[data-test^="log-row-"]').first()
     await expect(firstLogRow).toBeVisible()
+    const logRequestCountBeforeDraft = logRequests.length
+    const logsApplied = page.locator('[data-test="logs-applied-filters"]')
+    await expect(logsApplied).toContainText('No filters')
+    await page.locator('[data-test="logs-status"]').selectOption('error')
+    await expect(page).toHaveURL('/monitor?tab=logs')
+    expect(logRequests).toHaveLength(logRequestCountBeforeDraft)
+    await expect(logsApplied).not.toContainText('Status Error')
+
+    await page.locator('[data-test="logs-reset"]').click()
+    await expect(page.locator('[data-test="logs-status"]')).toHaveValue('')
+    await expect(page).toHaveURL('/monitor?tab=logs')
+    expect(logRequests).toHaveLength(logRequestCountBeforeDraft)
+    await expect(logsApplied).toContainText('No filters')
+
+    await page.locator('[data-test="logs-status"]').selectOption('success')
+    await page.getByRole('button', { name: 'Apply' }).click()
+    await expect(page).toHaveURL('/monitor?tab=logs&status=success')
+    await expect.poll(() => logRequests.length).toBe(logRequestCountBeforeDraft + 1)
+    await expect(logsApplied).toContainText('Status Success')
+
+    const firstLogTestID = await firstLogRow.getAttribute('data-test')
+    const firstLogID = firstLogTestID?.replace('log-row-', '') ?? ''
+    expect(firstLogID).toMatch(/^[0-9a-f-]{36}$/)
+    const logRequestCountBeforeSelection = logRequests.length
     await firstLogRow.getByRole('button', { name: 'View details' }).click()
+    const selectedLogsURL = `/monitor?tab=logs&status=success&selected_request_id=${firstLogID}`
+    await expect(page).toHaveURL(selectedLogsURL)
+    expect(logRequests).toHaveLength(logRequestCountBeforeSelection)
+
     const logDrawer = page.getByRole('dialog', { name: 'Request log details' })
+    await logDrawer.locator('[data-test="log-inspector-link"]').click()
+    await expect(page).toHaveURL(/\/monitor\?tab=inspector&protocol=openai/)
+    await page.goBack()
+    await expect(page).toHaveURL(selectedLogsURL)
+    await expect(logDrawer).toBeVisible()
+
     const logUsage = logDrawer.locator('[data-test="log-usage-cost"]')
     await expect(logUsage).toContainText('Complete usage')
     await expect(logUsage).toContainText('Estimated cost unknown')
@@ -262,7 +420,10 @@ test('critical management journey works through the embedded binary', async ({ p
       'href',
       '/settings/model-prices',
     )
+    const logDetailTrigger = page.locator(`[data-test="log-details-${firstLogID}"]`)
     await logDrawer.getByRole('button', { name: 'Close request log details' }).click()
+    await expect(page).toHaveURL('/monitor?tab=logs&status=success')
+    await expect(logDetailTrigger).toBeFocused()
 
     await page.goto('/')
     await expect(page.locator('[data-test="home-usage-requests"]')).toContainText(
@@ -393,5 +554,12 @@ test('critical management journey works through the embedded binary', async ({ p
     await expect(result).toContainText(groupName)
     await expect(result).toContainText(discoveredModel)
     expect(browserUpstreamRequests).toHaveLength(upstreamRequestCountBeforeInspect)
+  })
+
+  await test.step('recover from an unknown route', async () => {
+    await page.goto('/phase-2-unknown-route')
+    await expect(page).toHaveURL('/phase-2-unknown-route')
+    await expect(page.getByRole('heading', { level: 1, name: 'Page not found' })).toBeVisible()
+    await expect(page.getByRole('link', { name: 'Back to Home' })).toHaveAttribute('href', '/')
   })
 })
