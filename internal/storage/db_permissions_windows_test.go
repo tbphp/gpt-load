@@ -74,19 +74,46 @@ func TestOpenWithSourceManagedWindowsProtectsSQLiteRecoverySet(t *testing.T) {
 				t.Fatalf("write permission probe: %v", err)
 			}
 
-			for _, path := range []string{
-				dataDir,
-				databasePath,
-				databasePath + "-wal",
-				databasePath + "-shm",
+			for _, target := range []struct {
+				name             string
+				path             string
+				requireProtected bool
+			}{
+				{
+					name:             "data directory",
+					path:             dataDir,
+					requireProtected: true,
+				},
+				{
+					name: "database",
+					path: databasePath,
+				},
+				{
+					name: "write-ahead log",
+					path: databasePath + "-wal",
+				},
+				{
+					name: "shared memory",
+					path: databasePath + "-shm",
+				},
 			} {
-				assertStorageCurrentUserOnlyProtectedACL(t, path)
+				t.Run(target.name, func(t *testing.T) {
+					assertStorageCurrentUserOnlyACL(
+						t,
+						target.path,
+						target.requireProtected,
+					)
+				})
 			}
 		})
 	}
 }
 
-func assertStorageCurrentUserOnlyProtectedACL(t *testing.T, path string) {
+func assertStorageCurrentUserOnlyACL(
+	t *testing.T,
+	path string,
+	requireProtected bool,
+) {
 	t.Helper()
 
 	if _, err := os.Stat(path); err != nil {
@@ -104,36 +131,56 @@ func assertStorageCurrentUserOnlyProtectedACL(t *testing.T, path string) {
 	if err != nil {
 		t.Fatalf("security descriptor Control() error = %v", err)
 	}
-	if control&windows.SE_DACL_PROTECTED == 0 {
+	protected := control&windows.SE_DACL_PROTECTED != 0
+	if requireProtected && !protected {
 		t.Fatalf("security descriptor control = %#x, want protected DACL", control)
 	}
 	dacl, _, err := descriptor.DACL()
 	if err != nil {
 		t.Fatalf("DACL() error = %v", err)
 	}
-	if dacl == nil || dacl.AceCount != 1 {
-		t.Fatalf("DACL = %#v, want exactly one current-user ACE", dacl)
+	if dacl == nil || dacl.AceCount == 0 {
+		t.Fatalf("DACL = %#v, want current-user ACEs", dacl)
 	}
 
-	var ace *windows.ACCESS_ALLOWED_ACE
-	if err := windows.GetAce(dacl, 0, &ace); err != nil {
-		t.Fatalf("GetAce() error = %v", err)
-	}
-	if ace.Header.AceType != windows.ACCESS_ALLOWED_ACE_TYPE ||
-		ace.Mask != storageFileAllAccessMask {
-		t.Fatalf(
-			"ACE type/mask = %d/%#x, want allowed/%#x",
-			ace.Header.AceType,
-			ace.Mask,
-			storageFileAllAccessMask,
-		)
-	}
 	user, err := windows.GetCurrentProcessToken().GetTokenUser()
 	if err != nil {
 		t.Fatalf("GetTokenUser() error = %v", err)
 	}
-	aceSID := (*windows.SID)(unsafe.Pointer(&ace.SidStart))
-	if !aceSID.Equals(user.User.Sid) {
-		t.Fatalf("ACE SID = %s, want current user %s", aceSID.String(), user.User.Sid.String())
+	hasInheritedACE := false
+	for index := uint16(0); index < dacl.AceCount; index++ {
+		var ace *windows.ACCESS_ALLOWED_ACE
+		if err := windows.GetAce(dacl, uint32(index), &ace); err != nil {
+			t.Fatalf("GetAce(%d) error = %v", index, err)
+		}
+		if ace.Header.AceType != windows.ACCESS_ALLOWED_ACE_TYPE ||
+			ace.Mask != storageFileAllAccessMask {
+			t.Fatalf(
+				"ACE %d type/mask = %d/%#x, want allowed/%#x",
+				index,
+				ace.Header.AceType,
+				ace.Mask,
+				storageFileAllAccessMask,
+			)
+		}
+		aceSID := (*windows.SID)(unsafe.Pointer(&ace.SidStart))
+		if !aceSID.Equals(user.User.Sid) {
+			t.Fatalf(
+				"ACE %d SID = %s, want current user %s",
+				index,
+				aceSID.String(),
+				user.User.Sid.String(),
+			)
+		}
+		if ace.Header.AceFlags&windows.INHERITED_ACE != 0 {
+			hasInheritedACE = true
+		}
+	}
+	if !protected &&
+		(control&windows.SE_DACL_AUTO_INHERITED == 0 || !hasInheritedACE) {
+		t.Fatalf(
+			"security descriptor control = %#x, want protected or inherited current-user DACL",
+			control,
+		)
 	}
 }
