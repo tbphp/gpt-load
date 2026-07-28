@@ -216,12 +216,16 @@ try {
   $authKey = (Get-Content $authFile -Raw).Trim()
   Invoke-WebRequest "http://127.0.0.1:$port/" -UseBasicParsing | Out-Null
   $headers = @{ Authorization = "Bearer $authKey" }
+  $writeHeaders = @{
+    Authorization = "Bearer $authKey"
+    "Idempotency-Key" = "00000000-0000-4000-8000-000000000101"
+  }
   Invoke-RestMethod "http://127.0.0.1:$port/api/usage?range=24h" -Headers $headers | Out-Null
   Invoke-RestMethod "http://127.0.0.1:$port/api/model-prices" -Headers $headers | Out-Null
   Invoke-RestMethod `
     "http://127.0.0.1:$port/api/access-keys" `
     -Method Post `
-    -Headers $headers `
+    -Headers $writeHeaders `
     -ContentType "application/json" `
     -Body '{"name":"Release Native Smoke Access"}' | Out-Null
 

@@ -174,10 +174,16 @@ api_write() {
   local method="$1"
   local path="$2"
   local body="$3"
+  local idempotency_key="${4:-}"
+  local idempotency_header=()
+  if [[ -n "${idempotency_key}" ]]; then
+    idempotency_header=(-H "Idempotency-Key: ${idempotency_key}")
+  fi
   curl -fsS \
     -X "${method}" \
     -H "Authorization: Bearer ${auth_key}" \
     -H "Content-Type: application/json" \
+    "${idempotency_header[@]}" \
     --data-binary "${body}" \
     "${base_url}${path}"
 }
@@ -231,7 +237,7 @@ group_response="$(
         confirm_same_upstream_url:false,
       }));
     ' "http://host.docker.internal:${fake_port}/v1" "${upstream_key}"
-  )"
+  )" "00000000-0000-4000-8000-000000000201"
 )"
 printf '%s' "${group_response}" | node -e '
   const fs=require("fs");
@@ -252,7 +258,8 @@ api_write PUT "/api/model-prices" '{
 }' >"${task_tmp}/price-create.json"
 
 access_response="$(
-  api_write POST "/api/access-keys" '{"name":"Task13 Release Smoke Access"}'
+  api_write POST "/api/access-keys" '{"name":"Task13 Release Smoke Access"}' \
+    "00000000-0000-4000-8000-000000000202"
 )"
 access_key="$(
   printf '%s' "${access_response}" | node -e '
