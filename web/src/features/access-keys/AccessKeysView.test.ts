@@ -4,7 +4,8 @@ import { nextTick } from 'vue'
 import { createMemoryHistory } from 'vue-router'
 
 import type { ApiClient, ApiRequestOptions } from '@/api/client'
-import type { AccessKeyDto, GroupSummary } from '@/api/control/types'
+import type { AccessKeyCreateResultDto, AccessKeyDto, GroupSummary } from '@/api/control/types'
+import { NetworkError } from '@/api/errors'
 import { controlQueryKeys } from '@/app/query-keys'
 import { createAppRouter } from '@/app/router'
 import { mountApp } from '@/test/mount-app'
@@ -217,6 +218,65 @@ describe('AccessKeysView', () => {
     expect(document.activeElement).toBe(
       wrapper.get('button[data-test="access-key-create"]').element,
     )
+    wrapper.unmount()
+  })
+
+  it('keeps an unknown create operation at page scope and reconciles with the same identity', async () => {
+    const created: AccessKeyCreateResultDto = {
+      id: 11,
+      name: 'reconcile-client',
+      masked_key: 'sk-gl-••••••••babe',
+      replayed: true,
+      status: 'active',
+      filters: { groups: [], protocols: [], models: [] },
+      rpm_limit: 0,
+      created_at: '2026-07-28T00:00:00Z',
+      updated_at: '2026-07-28T00:00:00Z',
+    }
+    let createAttempts = 0
+    const requestMock = vi.fn(async (path: string, options?: ApiRequestOptions) => {
+      if (path === '/api/access-keys' && options?.method === 'GET') return keys
+      if (path === '/api/groups' && options?.method === 'GET') return groups
+      if (path === '/api/access-keys' && options?.method === 'POST') {
+        createAttempts += 1
+        if (createAttempts === 1) throw new NetworkError()
+        return created
+      }
+      throw new Error(`unexpected ${path}`)
+    })
+    const request = requestMock as ApiClient['request']
+    const { wrapper } = await mountView(request)
+
+    await wrapper.get('[data-test="access-key-create"]').trigger('click')
+    const name = document.querySelector<HTMLInputElement>('[data-test="access-key-name"]')
+    if (!name) throw new Error('missing create name')
+    name.value = 'reconcile-client'
+    name.dispatchEvent(new Event('input', { bubbles: true }))
+    await flushPromises()
+    documentButton('[data-test="access-key-save"]').click()
+    await flushPromises()
+    document
+      .querySelector<HTMLButtonElement>('.access-key-drawer__actions .app-button--secondary')
+      ?.click()
+    await flushPromises()
+
+    expect(wrapper.get('[data-test="access-key-operation-notice"]').text()).toContain(
+      'outcome is unknown',
+    )
+    await wrapper.get('[data-test="access-key-operation-check"]').trigger('click')
+    await flushPromises()
+    documentButton('[data-test="access-key-save"]').click()
+    await flushPromises()
+
+    const createCalls = requestMock.mock.calls.filter(
+      ([path, options]) => path === '/api/access-keys' && options?.method === 'POST',
+    )
+    expect(createCalls).toHaveLength(2)
+    expect(new Headers(createCalls[1]?.[1]?.headers).get('Idempotency-Key')).toBe(
+      new Headers(createCalls[0]?.[1]?.headers).get('Idempotency-Key'),
+    )
+    expect(createCalls[1]?.[1]?.json).toEqual(createCalls[0]?.[1]?.json)
+    expect(wrapper.find('[data-test="access-key-operation-notice"]').exists()).toBe(false)
     wrapper.unmount()
   })
 

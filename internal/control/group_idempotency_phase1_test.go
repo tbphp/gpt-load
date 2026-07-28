@@ -2,10 +2,12 @@ package control
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"reflect"
 	"testing"
 
+	"gpt-load/internal/platform/config"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/storage/models"
@@ -51,6 +53,40 @@ func TestCreateGroupIdempotentReplaysOriginalCountsAndPreservesKeyMultiplicity(t
 	different.Keys = "K"
 	_, err = fixture.service.CreateGroupIdempotent(t.Context(), key, different)
 	assertAPIErrorCode(t, err, app_errors.ErrIdempotencyKeyReused.Code)
+}
+
+func TestCreateGroupIdempotentCanonicalizesEquivalentWholeNumberSettings(t *testing.T) {
+	fixture := newServiceFixture(t)
+	request := GroupCreateRequest{
+		Name:        stringPointer("canonical-settings"),
+		UpstreamURL: "https://canonical-settings.example.com",
+		Protocols:   []protocol.Protocol{protocol.OpenAI},
+		Config:      config.Settings{"connect_timeout": json.Number("2e1")},
+		Keys:        "key-one",
+	}
+	const key = "238f47a2-9c35-4d6e-8b1a-1234567890ab"
+
+	first, err := fixture.service.CreateGroupIdempotent(t.Context(), key, request)
+	if err != nil {
+		t.Fatalf("first CreateGroupIdempotent() error = %v", err)
+	}
+	equivalent := request
+	equivalent.Config = config.Settings{"connect_timeout": json.Number("20.0")}
+	replayed, err := fixture.service.CreateGroupIdempotent(t.Context(), key, equivalent)
+	if err != nil {
+		t.Fatalf("equivalent replay CreateGroupIdempotent() error = %v", err)
+	}
+	if !reflect.DeepEqual(replayed, first) {
+		t.Fatalf("equivalent replay = %#v, first = %#v", replayed, first)
+	}
+
+	var group models.Group
+	if err := fixture.db.First(&group, first.GroupID).Error; err != nil {
+		t.Fatalf("read created group: %v", err)
+	}
+	if got := string(group.Config); got != `{"connect_timeout":20}` {
+		t.Fatalf("stored config = %s, want canonical whole number", got)
+	}
 }
 
 func TestImportGroupKeysIdempotentReplaysOriginalCountsWithoutSecondInsert(t *testing.T) {

@@ -529,6 +529,96 @@ describe('AccessKeyDrawer', () => {
     created.wrapper.unmount()
   })
 
+  it('keeps model edits valid when only the Group catalog becomes stale', async () => {
+    const ordinary: AccessKeyDto = {
+      ...existing,
+      filters: { groups: [7], protocols: ['openai'], models: [] },
+    }
+    const request = vi.fn() as ApiClient['request']
+    const { wrapper } = await mountDrawer(request, { open: true, accessKey: ordinary })
+    const modelMode = element<HTMLSelectElement>('[data-test="access-key-models-mode"]')
+    modelMode.value = 'restricted'
+    modelMode.dispatchEvent(new Event('change', { bubbles: true }))
+    const model = element<HTMLInputElement>('[data-test="access-key-model-input"]')
+    model.value = 'new-model'
+    model.dispatchEvent(new Event('input', { bubbles: true }))
+    await flushPromises()
+    document
+      .querySelector('.access-key-drawer__model-entry')
+      ?.querySelector<HTMLButtonElement>('button')
+      ?.click()
+    await flushPromises()
+
+    await wrapper.setProps({ groupCatalogState: 'stale' })
+    await flushPromises()
+
+    expect(element<HTMLInputElement>('[data-test="access-key-model-input"]').disabled).toBe(false)
+    expect(element<HTMLButtonElement>('[data-test="access-key-save"]').disabled).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('explains why a newly added Group cannot be saved after the catalog becomes stale', async () => {
+    const ordinary: AccessKeyDto = {
+      ...existing,
+      filters: { groups: [7], protocols: ['openai'], models: [] },
+    }
+    const request = vi.fn() as ApiClient['request']
+    const { wrapper } = await mountDrawer(request, {
+      open: true,
+      accessKey: ordinary,
+      groups: [
+        ...groups,
+        {
+          ...groups[0],
+          id: 8,
+          name: 'Secondary',
+        },
+      ],
+    })
+    const secondary = [...document.querySelectorAll<HTMLLabelElement>('.access-key-drawer__check')]
+      .find((label) => label.textContent?.includes('Secondary'))
+      ?.querySelector<HTMLInputElement>('input')
+    if (!secondary) throw new Error('missing Secondary Group')
+    secondary.checked = true
+    secondary.dispatchEvent(new Event('change', { bubbles: true }))
+    await flushPromises()
+
+    await wrapper.setProps({ groupCatalogState: 'stale' })
+    await flushPromises()
+
+    expect(element<HTMLButtonElement>('[data-test="access-key-save"]').disabled).toBe(true)
+    expect(document.body.textContent).toContain(
+      'Stale Group data can only retain or remove Groups already authorized',
+    )
+    wrapper.unmount()
+  })
+
+  it('allows restoring an originally authorized Group while the catalog is stale', async () => {
+    const ordinary: AccessKeyDto = {
+      ...existing,
+      filters: { groups: [7], protocols: ['openai'], models: [] },
+    }
+    const request = vi.fn() as ApiClient['request']
+    const { wrapper } = await mountDrawer(request, {
+      open: true,
+      accessKey: ordinary,
+      groupCatalogState: 'stale',
+    })
+    const group = document.querySelector<HTMLInputElement>('.access-key-drawer__check input')
+    if (!group) throw new Error('missing authorized Group')
+
+    group.checked = false
+    group.dispatchEvent(new Event('change', { bubbles: true }))
+    await flushPromises()
+    expect(group.disabled).toBe(false)
+
+    group.checked = true
+    group.dispatchEvent(new Event('change', { bubbles: true }))
+    await flushPromises()
+    expect(element<HTMLButtonElement>('[data-test="access-key-save"]').disabled).toBe(true)
+    wrapper.unmount()
+  })
+
   it('reuses one idempotency key for retryable reconciliation in the same open lifecycle', async () => {
     const created: AccessKeyCreateResultDto = {
       id: 14,
@@ -568,6 +658,102 @@ describe('AccessKeyDrawer', () => {
     const second = request.mock.calls[1]?.[1]?.headers?.['Idempotency-Key']
     expect(first).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
     expect(second).toBe(first)
+    wrapper.unmount()
+  })
+
+  it('blocks X, Escape, overlay, and Cancel while create is submitting', async () => {
+    const request = vi.fn(() => new Promise(() => {})) as ApiClient['request']
+    const { wrapper } = await mountDrawer(request)
+    const name = element<HTMLInputElement>('[data-test="access-key-name"]')
+    name.value = 'pending-client'
+    name.dispatchEvent(new Event('input', { bubbles: true }))
+    await flushPromises()
+    element<HTMLButtonElement>('[data-test="access-key-save"]').click()
+    await flushPromises()
+
+    const close = element<HTMLButtonElement>('.app-drawer__close')
+    const cancel = element<HTMLButtonElement>('.access-key-drawer__actions .app-button--secondary')
+    expect(close.disabled).toBe(true)
+    expect(cancel.disabled).toBe(true)
+    close.click()
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    const overlay = element<HTMLElement>('.app-drawer__overlay')
+    overlay.dispatchEvent(new Event('pointerdown', { bubbles: true }))
+    overlay.click()
+    await flushPromises()
+
+    expect(wrapper.emitted('update:open') ?? []).not.toContainEqual([false])
+    wrapper.unmount()
+  })
+
+  it('starts a new idempotency identity after an explicit create rejection', async () => {
+    const created: AccessKeyCreateResultDto = {
+      id: 15,
+      name: 'corrected-client',
+      masked_key: 'sk-gl-••••••••abcd',
+      replayed: false,
+      status: 'active',
+      filters: { groups: [], protocols: [], models: [] },
+      rpm_limit: 0,
+      created_at: '2026-07-28T00:00:00Z',
+      updated_at: '2026-07-28T00:00:00Z',
+    }
+    const requestMock = vi
+      .fn()
+      .mockRejectedValueOnce(new ApiError(400, 'VALIDATION_FAILED', 'invalid'))
+      .mockResolvedValueOnce(created)
+    const request = requestMock as ApiClient['request']
+    const { wrapper } = await mountDrawer(request)
+    const name = element<HTMLInputElement>('[data-test="access-key-name"]')
+    name.value = 'invalid-client'
+    name.dispatchEvent(new Event('input', { bubbles: true }))
+    await flushPromises()
+
+    element<HTMLButtonElement>('[data-test="access-key-save"]').click()
+    await flushPromises()
+    name.value = 'corrected-client'
+    name.dispatchEvent(new Event('input', { bubbles: true }))
+    await flushPromises()
+    element<HTMLButtonElement>('[data-test="access-key-save"]').click()
+    await flushPromises()
+
+    const first = requestMock.mock.calls[0]?.[1]?.headers?.['Idempotency-Key']
+    const second = requestMock.mock.calls[1]?.[1]?.headers?.['Idempotency-Key']
+    expect(second).not.toBe(first)
+    expect(requestMock.mock.calls[1]?.[1]?.json).toMatchObject({ name: 'corrected-client' })
+    wrapper.unmount()
+  })
+
+  it('reports reveal failure separately from save failure', async () => {
+    const created: AccessKeyCreateResultDto = {
+      id: 16,
+      name: 'reveal-client',
+      masked_key: 'sk-gl-••••••••dcba',
+      replayed: false,
+      status: 'active',
+      filters: { groups: [], protocols: [], models: [] },
+      rpm_limit: 0,
+      created_at: '2026-07-28T00:00:00Z',
+      updated_at: '2026-07-28T00:00:00Z',
+    }
+    const requestMock = vi
+      .fn()
+      .mockResolvedValueOnce(created)
+      .mockRejectedValueOnce(new ApiError(500, 'INTERNAL_SERVER_ERROR', 'failed'))
+    const request = requestMock as ApiClient['request']
+    const { wrapper } = await mountDrawer(request)
+    const name = element<HTMLInputElement>('[data-test="access-key-name"]')
+    name.value = 'reveal-client'
+    name.dispatchEvent(new Event('input', { bubbles: true }))
+    await flushPromises()
+    element<HTMLButtonElement>('[data-test="access-key-save"]').click()
+    await flushPromises()
+
+    element<HTMLButtonElement>('[data-test="access-key-result-reveal"]').click()
+    await flushPromises()
+
+    expect(document.body.textContent).toContain('Unable to reveal this AccessKey.')
+    expect(document.body.textContent).not.toContain('Unable to save the AccessKey.')
     wrapper.unmount()
   })
 

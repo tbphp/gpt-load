@@ -121,4 +121,27 @@ describe('AccessKey scope contract', () => {
       }),
     ).toBe(false)
   })
+
+  it('uses stale Group data only to constrain Group filters', () => {
+    expect(
+      validateAccessKeyScope({
+        base: {
+          groups: [7],
+          protocols: ['openai'],
+          models: ['legacy-model'],
+        },
+        filters: {
+          groups: [7],
+          protocols: ['anthropic'],
+          models: ['new-model'],
+        },
+        modes: {
+          groups: 'restricted',
+          protocols: 'restricted',
+          models: 'restricted',
+        },
+        groupCatalog: { state: 'stale', ids: [7] },
+      }),
+    ).toBe(true)
+  })
 })

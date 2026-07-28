@@ -40,7 +40,7 @@ async function mountSection(
 ) {
   const queryClient = client()
   const initial = resource(settings, settingsETag)
-  queryClient.setQueryData(controlQueryKeys.settings(), initial)
+  queryClient.setQueryData(controlQueryKeys.settings('en-US'), initial)
   const mounted = await mountApp(RequestForwardingSection, {
     api: apiWithResponseMetadata(request, tokenFor),
     queryClient,
@@ -139,7 +139,7 @@ describe('RequestForwardingSection', () => {
       json: { settings: { request_timeout: 900, header_rules: null } },
       signal: expect.any(AbortSignal),
     })
-    expect(queryClient.getQueryData(controlQueryKeys.settings())).toEqual(
+    expect(queryClient.getQueryData(controlQueryKeys.settings('en-US'))).toEqual(
       resource(returned, testSettingsETags.put),
     )
     expect(invalidate).toHaveBeenCalledWith({
@@ -304,15 +304,15 @@ describe('RequestForwardingSection', () => {
     await wrapper.get('[data-test="override-connect_timeout"]').setValue(true)
     await wrapper.get('[data-test="value-connect_timeout"]').setValue('33')
     await wrapper.get('[data-test="request-forwarding-save"]').trigger('click')
-    queryClient.setQueryData(controlQueryKeys.settings(), unrelated)
+    queryClient.setQueryData(controlQueryKeys.settings('en-US'), unrelated)
     resolve({ ...inherited, values: { ...inherited.values, connect_timeout: 99 } })
     await flushPromises()
 
     expect(refetch).toHaveBeenCalledWith({
-      queryKey: controlQueryKeys.settings(),
+      queryKey: controlQueryKeys.settings('en-US'),
       exact: true,
     })
-    expect(queryClient.getQueryData(controlQueryKeys.settings())).toEqual(unrelated)
+    expect(queryClient.getQueryData(controlQueryKeys.settings('en-US'))).toEqual(unrelated)
     expect(wrapper.text()).not.toContain('Settings saved.')
     wrapper.unmount()
   })
@@ -406,11 +406,11 @@ describe('RequestForwardingSection', () => {
     await wrapper.get('[data-test="override-request_timeout"]').setValue(true)
     await wrapper.get('[data-test="request-forwarding-save"]').trigger('click')
     wrapper.unmount()
-    queryClient.removeQueries({ queryKey: controlQueryKeys.settings(), exact: true })
+    queryClient.removeQueries({ queryKey: controlQueryKeys.settings('en-US'), exact: true })
     resolve(inherited)
     await flushPromises()
 
-    expect(queryClient.getQueryData(controlQueryKeys.settings())).toBeUndefined()
+    expect(queryClient.getQueryData(controlQueryKeys.settings('en-US'))).toBeUndefined()
     expect(invalidate).not.toHaveBeenCalled()
   })
 })

@@ -505,7 +505,6 @@ func writeSettingsRepresentation(
 	c.Header("ETag", representation.HeaderETag)
 	c.Header("Content-Language", i18n.GetLanguageFromContext(c))
 	c.Header("Vary", "Accept-Language")
-	c.Header("Content-Encoding", "identity")
 	c.Data(http.StatusOK, "application/json; charset=utf-8", representation.Body)
 }
 

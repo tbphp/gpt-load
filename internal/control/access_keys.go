@@ -73,9 +73,6 @@ type AccessKeyCreateResult struct {
 	Replayed bool   `json:"replayed"`
 }
 
-// AccessKeyResponse is retained as the create-response compatibility name.
-type AccessKeyResponse = AccessKeyCreateResult
-
 type AccessKeyOption struct {
 	ID     uint                  `json:"id"`
 	Name   string                `json:"name"`

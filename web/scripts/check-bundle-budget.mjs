@@ -49,6 +49,20 @@ export function collectStaticAssets(manifest, roots) {
   }
 }
 
+export function collectLazyCSSAssets(manifest, entry) {
+  const initialCSS = new Set(collectStaticAssets(manifest, [entry]).css)
+  return [
+    ...new Set(
+      Object.values(manifest).flatMap((manifestEntry) => [
+        ...(isCSS(manifestEntry.file) ? [manifestEntry.file] : []),
+        ...(manifestEntry.css ?? []).filter(isCSS),
+      ]),
+    ),
+  ]
+    .filter((asset) => !initialCSS.has(asset))
+    .sort()
+}
+
 export function canonicalCompress(bytes) {
   const gzip = gzipSync(bytes, { level: compressionOptions.gzip.level, mtime: 0 })
   const brotli = brotliCompressSync(bytes, {
@@ -159,6 +173,7 @@ async function run() {
     ),
   ].sort()
   const lazyMetrics = await Promise.all(lazyJavaScript.map(metric))
+  const lazyCSSMetrics = await Promise.all(collectLazyCSSAssets(manifest, entry).map(metric))
   const failures = []
   for (const name of ['Home', 'Login']) {
     const totals = routes[name].totals
@@ -188,6 +203,7 @@ async function run() {
     manifest_sha256: createHash('sha256').update(manifestSource).digest('hex'),
     routes,
     lazy_javascript: lazyMetrics,
+    lazy_css: lazyCSSMetrics,
     budgets: {
       initial_js_gzip: 161_678,
       initial_js_brotli: 135_125,

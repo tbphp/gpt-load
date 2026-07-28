@@ -34,7 +34,8 @@ import {
 const props = defineProps<{ resource: SettingsResource }>()
 const client = useApiClient()
 const queryClient = useQueryClient()
-const { t } = useI18n()
+const { locale, t } = useI18n()
+const settingsQueryKey = () => controlQueryKeys.settings(locale.value)
 const base = ref(props.resource)
 const draft = ref<SettingsDraft>(createSettingsDraft(props.resource.settings))
 const pending = ref(false)
@@ -140,7 +141,7 @@ async function applyUnknownLatest(latest: SettingsResource): Promise<void> {
   base.value = result.resource
   draft.value = result.draft
   conflicts.value = result.conflicts
-  queryClient.setQueryData(controlQueryKeys.settings(), latest)
+  queryClient.setQueryData(settingsQueryKey(), latest)
 
   if (result.kind === 'confirmed') {
     unknownOperation = undefined
@@ -204,10 +205,10 @@ async function save(): Promise<void> {
       activeController.signal,
     )
     if (controller !== activeController) return
-    await queryClient.cancelQueries({ queryKey: controlQueryKeys.settings(), exact: true })
+    await queryClient.cancelQueries({ queryKey: settingsQueryKey(), exact: true })
     if (controller !== activeController) return
 
-    const cached = queryClient.getQueryData<SettingsResource>(controlQueryKeys.settings())
+    const cached = queryClient.getQueryData<SettingsResource>(settingsQueryKey())
     const decision = chooseSettingsMutationResult(
       resource,
       cached,
@@ -217,7 +218,7 @@ async function save(): Promise<void> {
     )
     if (decision.kind === 'refetch') {
       await queryClient.refetchQueries({
-        queryKey: controlQueryKeys.settings(),
+        queryKey: settingsQueryKey(),
         exact: true,
       })
       if (controller !== activeController) return
@@ -226,7 +227,7 @@ async function save(): Promise<void> {
 
     base.value = decision.resource
     draft.value = decision.draft
-    queryClient.setQueryData(controlQueryKeys.settings(), decision.resource)
+    queryClient.setQueryData(settingsQueryKey(), decision.resource)
     unknownOperation = undefined
     succeeded.value = true
     await queryClient.invalidateQueries({ queryKey: controlQueryKeys.groups.details() })
@@ -245,7 +246,7 @@ async function save(): Promise<void> {
       draft.value = merged.draft
       conflicts.value = merged.conflicts
       concurrent.value = true
-      queryClient.setQueryData(controlQueryKeys.settings(), latest)
+      queryClient.setQueryData(settingsQueryKey(), latest)
       return
     }
     const outcome = classifyMutationOutcome<SettingsResource>({

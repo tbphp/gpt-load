@@ -20,6 +20,12 @@ export default {
     filterGroups: 'Groups',
     filterProtocols: 'Protocols',
     filterModels: 'Models',
+    operation: {
+      indeterminate:
+        'The AccessKey create outcome is unknown. Reconcile it before starting another create.',
+      reconciling: 'The AccessKey was committed and runtime recovery is still in progress.',
+      checkResult: 'Check result',
+    },
     status: {
       active: 'Active',
       disabled: 'Disabled',
@@ -57,10 +63,16 @@ export default {
       rpm: 'Requests per minute',
       rpmDescription: 'Use a non-negative whole number. 0 means unlimited.',
       save: 'Save AccessKey',
+      checkResult: 'Check result',
       saveFailed: 'Unable to save the AccessKey. Your input is unchanged.',
       saveIndeterminate:
         'The request outcome is unknown. Check the result with this same operation before retrying.',
       saveReconciling: 'The AccessKey was committed and runtime recovery is still in progress.',
+      scopeIncomplete: 'Select at least one value for every restricted scope.',
+      groupScopeUnavailable:
+        'Group scope cannot be changed until the Group catalog is available again.',
+      staleGroupScopeInvalid:
+        'Stale Group data can only retain or remove Groups already authorized by this AccessKey.',
       resultTitle: 'Plaintext AccessKey',
       resultDescription: 'Reveal or copy it only here. Closing this drawer clears this result.',
     },

@@ -61,7 +61,10 @@ describe('MonitorView', () => {
     expect(wrapper.find('[data-test="monitor-logs-content"]').exists()).toBe(true)
     expect(wrapper.find('[data-test="monitor-inspector-slot"]').exists()).toBe(false)
 
-    await wrapper.get('[data-test="monitor-tab-inspector"]').trigger('click')
+    await wrapper.get('[data-test="monitor-tab-inspector"]').trigger('mousedown', {
+      button: 0,
+      ctrlKey: false,
+    })
     await flushPromises()
     expect(router.currentRoute.value.fullPath).toBe('/monitor?tab=inspector')
     expect(wrapper.find('[data-test="monitor-inspector-content"]').exists()).toBe(true)

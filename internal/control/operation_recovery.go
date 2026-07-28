@@ -62,6 +62,20 @@ func (s *Service) recoverPendingOperationsLocked(
 	return nil, nil
 }
 
+func (s *Service) enforceOperationRecoveryBarrierLocked(
+	ctx context.Context,
+	beforeCommitSequence uint64,
+) error {
+	blocked, err := s.recoverPendingOperationsLocked(ctx, beforeCommitSequence)
+	if err == nil {
+		return nil
+	}
+	if blocked == nil {
+		return err
+	}
+	return s.recoveryPendingError(*blocked)
+}
+
 func (s *Service) recoveryPendingError(
 	operation models.ControlOperation,
 ) error {

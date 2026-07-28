@@ -20,6 +20,12 @@ export default {
     filterGroups: 'Group',
     filterProtocols: 'プロトコル',
     filterModels: 'モデル',
+    operation: {
+      indeterminate:
+        'AccessKey の作成結果は不明です。新しい作成を始める前に、この操作の結果を確認してください。',
+      reconciling: 'AccessKey は確定しましたが、ランタイムの復旧処理が続いています。',
+      checkResult: '結果を確認',
+    },
     status: {
       active: '有効',
       disabled: '無効',
@@ -59,9 +65,14 @@ export default {
       rpm: '1 分あたりのリクエスト数',
       rpmDescription: '0 以上の整数を入力してください。0 は無制限です。',
       save: 'AccessKey を保存',
+      checkResult: '結果を確認',
       saveFailed: 'AccessKey を保存できません。入力内容は保持されています。',
       saveIndeterminate: 'リクエスト結果は不明です。再試行前に同じ操作で結果を確認してください。',
       saveReconciling: 'AccessKey は確定しましたが、ランタイムの復旧処理が続いています。',
+      scopeIncomplete: '制限された各範囲には、1 つ以上の値を選択してください。',
+      groupScopeUnavailable: 'Group カタログが再び利用可能になるまで Group 範囲は変更できません。',
+      staleGroupScopeInvalid:
+        '古い Group データでは、この AccessKey が既に許可している Group の保持または削除のみ可能です。',
       resultTitle: '平文 AccessKey',
       resultDescription:
         '表示またはコピーはここでのみ行えます。Drawer を閉じると結果は消去されます。',

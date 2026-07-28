@@ -41,6 +41,13 @@ describe('semantic token contrast', () => {
   const light = themeTokens(':root')
   const dark = themeTokens(":root[data-theme='dark']")
 
+  it('keeps the approved semantic token values', () => {
+    expect(light['text-faint']).toBe('#746f67')
+    expect(light['border-control']).toBe('#918b81')
+    expect(dark['text-faint']).toBe('#938c80')
+    expect(dark['border-control']).toBe('#716a5f')
+  })
+
   it.each([
     ['light', light],
     ['dark', dark],

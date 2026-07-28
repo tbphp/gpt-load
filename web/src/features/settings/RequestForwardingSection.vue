@@ -44,7 +44,8 @@ import {
 const props = defineProps<{ resource: SettingsResource }>()
 const client = useApiClient()
 const queryClient = useQueryClient()
-const { t } = useI18n()
+const { locale, t } = useI18n()
+const settingsQueryKey = () => controlQueryKeys.settings(locale.value)
 const base = ref(props.resource)
 const draft = ref<SettingsDraft>(createSettingsDraft(props.resource.settings))
 const pending = ref(false)
@@ -214,7 +215,7 @@ async function applyUnknownLatest(latest: SettingsResource): Promise<void> {
   conflicts.value = result.conflicts
   headerValid.value = !hasDuplicateHeaderNames(result.draft.values.header_rules)
   headerSaveError.value = result.conflicts.some((conflict) => conflict.key === 'header_rules')
-  queryClient.setQueryData(controlQueryKeys.settings(), latest)
+  queryClient.setQueryData(settingsQueryKey(), latest)
 
   if (result.kind === 'confirmed') {
     unknownOperation = undefined
@@ -279,10 +280,10 @@ async function save(): Promise<void> {
       activeController.signal,
     )
     if (controller !== activeController) return
-    await queryClient.cancelQueries({ queryKey: controlQueryKeys.settings(), exact: true })
+    await queryClient.cancelQueries({ queryKey: settingsQueryKey(), exact: true })
     if (controller !== activeController) return
 
-    const cached = queryClient.getQueryData<SettingsResource>(controlQueryKeys.settings())
+    const cached = queryClient.getQueryData<SettingsResource>(settingsQueryKey())
     const decision = chooseSettingsMutationResult(
       resource,
       cached,
@@ -292,7 +293,7 @@ async function save(): Promise<void> {
     )
     if (decision.kind === 'refetch') {
       await queryClient.refetchQueries({
-        queryKey: controlQueryKeys.settings(),
+        queryKey: settingsQueryKey(),
         exact: true,
       })
       if (controller !== activeController) return
@@ -303,7 +304,7 @@ async function save(): Promise<void> {
     draft.value = decision.draft
     headerValid.value = !hasDuplicateHeaderNames(decision.draft.values.header_rules)
     disclosureRequested.value = decision.resource.settings.overrides.includes('header_rules')
-    queryClient.setQueryData(controlQueryKeys.settings(), decision.resource)
+    queryClient.setQueryData(settingsQueryKey(), decision.resource)
     unknownOperation = undefined
     succeeded.value = true
     await queryClient.invalidateQueries({ queryKey: controlQueryKeys.groups.details() })
@@ -324,7 +325,7 @@ async function save(): Promise<void> {
       concurrent.value = true
       headerSaveError.value = merged.conflicts.some((conflict) => conflict.key === 'header_rules')
       headerValid.value = !hasDuplicateHeaderNames(draft.value.values.header_rules)
-      queryClient.setQueryData(controlQueryKeys.settings(), latest)
+      queryClient.setQueryData(settingsQueryKey(), latest)
       return
     }
     const outcome = classifyMutationOutcome<SettingsResource>({

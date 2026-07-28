@@ -1,7 +1,11 @@
 import { expect, test as base } from '@playwright/test'
 
-const deterministicInitScript = String.raw`
+import { deterministicUUIDPrefix } from './deterministic-ids'
+
+function deterministicInitScript(uuidPrefix: string): string {
+  return String.raw`
 (() => {
+  const uuidPrefix = ${JSON.stringify(uuidPrefix)}
   const fixedNow = Date.parse('2026-07-28T00:00:00.000Z')
   const NativeDate = Date
   class DeterministicDate extends NativeDate {
@@ -28,7 +32,7 @@ const deterministicInitScript = String.raw`
     configurable: true,
     value: () => {
       const suffix = String(nextSequence('gpt-load.e2e.uuid')).padStart(12, '0')
-      return '00000000-0000-4000-8000-' + suffix
+      return uuidPrefix + suffix
     },
   })
 
@@ -39,7 +43,7 @@ const deterministicInitScript = String.raw`
     )
     if (!headers.has('X-Request-ID')) {
       const suffix = String(nextSequence('gpt-load.e2e.request')).padStart(12, '0')
-      headers.set('X-Request-ID', '00000000-0000-4000-8000-' + suffix)
+      headers.set('X-Request-ID', uuidPrefix + suffix)
     }
     return nativeFetch(input, { ...init, headers })
   }
@@ -51,10 +55,11 @@ const deterministicInitScript = String.raw`
 
 })()
 `
+}
 
 export const test = base.extend<{ deterministicHarness: void }>({
   deterministicHarness: [
-    async ({ page }, use) => {
+    async ({ page }, use, testInfo) => {
       await page.route(/\.css(?:\?|$)/, async (route) => {
         const response = await route.fetch()
         const source = await response.text()
@@ -71,7 +76,16 @@ export const test = base.extend<{ deterministicHarness: void }>({
           },
         })
       })
-      await page.addInitScript({ content: deterministicInitScript })
+      await page.addInitScript({
+        content: deterministicInitScript(
+          deterministicUUIDPrefix({
+            parallelIndex: testInfo.parallelIndex,
+            repeatEachIndex: testInfo.repeatEachIndex,
+            retry: testInfo.retry,
+            testId: testInfo.testId,
+          }),
+        ),
+      })
       await use()
     },
     { auto: true },

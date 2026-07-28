@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { BadgeDollarSign, ChevronRight } from 'lucide-vue-next'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
-import { onBeforeUnmount } from 'vue'
+import { computed, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { useApiClient } from '@/api/client-context'
@@ -18,15 +18,16 @@ import SystemInfoSection from './SystemInfoSection.vue'
 
 const client = useApiClient()
 const queryClient = useQueryClient()
-const { t } = useI18n()
+const { locale, t } = useI18n()
+const settingsQueryKey = computed(() => controlQueryKeys.settings(locale.value))
 const settingsQuery = useQuery({
-  queryKey: controlQueryKeys.settings(),
+  queryKey: settingsQueryKey,
   queryFn: ({ signal }) => getSettings(client, signal),
   gcTime: 0,
 })
 
 onBeforeUnmount(() => {
-  queryClient.removeQueries({ queryKey: controlQueryKeys.settings(), exact: true })
+  queryClient.removeQueries({ queryKey: settingsQueryKey.value, exact: true })
 })
 </script>
 

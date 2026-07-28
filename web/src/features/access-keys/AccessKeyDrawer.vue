@@ -5,7 +5,12 @@ import { useI18n } from 'vue-i18n'
 import { useQueryClient } from '@tanstack/vue-query'
 
 import { useApiClient } from '@/api/client-context'
-import { createAccessKey, revealAccessKey, updateAccessKey } from '@/api/control/access-keys'
+import {
+  createAccessKey,
+  revealAccessKey,
+  updateAccessKey,
+  type CreateAccessKeyRequest,
+} from '@/api/control/access-keys'
 import type { AccessKeyDto, AccessProtocol, GroupSummary } from '@/api/control/types'
 import { RequestCancelledError } from '@/api/errors'
 import { classifyMutationOutcome } from '@/app/mutation-outcome'
@@ -17,15 +22,19 @@ import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import SecretValue from '@/components/ui/SecretValue.vue'
 
 import { accessKeyProtocolOptions, buildAccessKeyModelOptions } from './access-key-options'
-import type {
-  AccessKeyScopeDimension,
-  AccessKeyScopeMode,
-  GroupCatalogState,
+import type { PendingAccessKeyCreateOperation } from './access-key-create-operation'
+import {
+  materializeAccessKeyFilters,
+  validateAccessKeyScope,
+  type AccessKeyScopeDimension,
+  type AccessKeyScopeMode,
+  type GroupCatalogState,
 } from './access-key-scope'
 import {
   buildAccessKeyUpdatePatch,
   buildCreateAccessKeyInput,
   createAccessKeyDraft,
+  createAccessKeyDraftFromCreateInput,
   isAccessKeyDraftValid,
   type AccessKeyDraft,
 } from './access-key-patch'
@@ -37,10 +46,14 @@ const props = withDefaults(
     accessKey: AccessKeyDto | null
     groups: GroupSummary[]
     groupCatalogState?: GroupCatalogState
+    createOperation?: PendingAccessKeyCreateOperation | null
   }>(),
-  { groupCatalogState: 'ready' },
+  { createOperation: null, groupCatalogState: 'ready' },
 )
-const emit = defineEmits<{ 'update:open': [open: boolean] }>()
+const emit = defineEmits<{
+  'update:open': [open: boolean]
+  'update:createOperation': [operation: PendingAccessKeyCreateOperation | null]
+}>()
 const client = useApiClient()
 const queryClient = useQueryClient()
 const { t } = useI18n()
@@ -49,10 +62,12 @@ const base = ref<AccessKeyDto | null>(null)
 const draft = ref<AccessKeyDraft>(createAccessKeyDraft())
 const result = ref<AccessKeyDto | null>(null)
 const operationID = ref('')
+const createPayload = ref<CreateAccessKeyRequest | null>(null)
 const pending = ref(false)
 const failed = ref(false)
 const mutationState = ref<'idle' | 'indeterminate' | 'reconciling'>('idle')
 const revealPending = ref(false)
+const revealFailed = ref(false)
 const modelInput = ref('')
 let controller: AbortController | undefined
 let revealController: AbortController | undefined
@@ -60,6 +75,13 @@ const ephemeralSecret = useEphemeralSecret()
 
 const editing = computed(() => base.value !== null)
 const createCompleted = computed(() => !editing.value && result.value !== null)
+const createOperationActive = computed(
+  () =>
+    !editing.value &&
+    createPayload.value !== null &&
+    (mutationState.value !== 'idle' || failed.value),
+)
+const formLocked = computed(() => pending.value || createOperationActive.value)
 const resultSecret = computed(() =>
   result.value ? ephemeralSecret.read(`access-key:${result.value.id}`) : null,
 )
@@ -77,7 +99,34 @@ const groupCatalog = computed(() => ({
   state: props.groupCatalogState,
   ids: props.groups.map(({ id }) => id),
 }))
+const scopeValid = computed(() =>
+  validateAccessKeyScope({
+    base: base.value?.filters ?? null,
+    filters: draft.value.filters,
+    modes: draft.value.scopeModes,
+    groupCatalog: groupCatalog.value,
+  }),
+)
 const valid = computed(() => isAccessKeyDraftValid(draft.value, base.value, groupCatalog.value))
+const scopeFeedbackKey = computed(() => {
+  if (scopeValid.value) return ''
+  const effective = materializeAccessKeyFilters(draft.value.filters, draft.value.scopeModes)
+  if (
+    (['groups', 'protocols', 'models'] as const).some(
+      (dimension) =>
+        draft.value.scopeModes[dimension] === 'restricted' && effective[dimension].length === 0,
+    )
+  ) {
+    return 'accessKeys.drawer.scopeIncomplete'
+  }
+  if (props.groupCatalogState === 'loading' || props.groupCatalogState === 'error') {
+    return 'accessKeys.drawer.groupScopeUnavailable'
+  }
+  if (props.groupCatalogState === 'stale') {
+    return 'accessKeys.drawer.staleGroupScopeInvalid'
+  }
+  return 'accessKeys.drawer.scopeIncomplete'
+})
 const groupOptions = computed(() => {
   const options = props.groups.map((group) => ({
     id: group.id,
@@ -93,6 +142,18 @@ const groupOptions = computed(() => {
   return options
 })
 
+function cloneCreatePayload(payload: CreateAccessKeyRequest): CreateAccessKeyRequest {
+  return {
+    name: payload.name,
+    filters: {
+      groups: [...payload.filters.groups],
+      protocols: [...payload.filters.protocols],
+      models: [...payload.filters.models],
+    },
+    rpm_limit: payload.rpm_limit,
+  }
+}
+
 function clearLocalState(): void {
   controller?.abort()
   revealController?.abort()
@@ -103,21 +164,29 @@ function clearLocalState(): void {
   draft.value = createAccessKeyDraft()
   result.value = null
   operationID.value = ''
+  createPayload.value = null
   pending.value = false
   revealPending.value = false
+  revealFailed.value = false
   failed.value = false
   mutationState.value = 'idle'
   modelInput.value = ''
 }
 
 async function resetForOpen(): Promise<void> {
+  const carriedOperation = props.accessKey ? null : props.createOperation
   base.value = props.accessKey
-  draft.value = createAccessKeyDraft(props.accessKey)
+  draft.value = carriedOperation
+    ? createAccessKeyDraftFromCreateInput(carriedOperation.payload)
+    : createAccessKeyDraft(props.accessKey)
   result.value = null
-  operationID.value = props.accessKey ? '' : crypto.randomUUID()
+  operationID.value = props.accessKey
+    ? ''
+    : (carriedOperation?.idempotencyKey ?? crypto.randomUUID())
+  createPayload.value = carriedOperation ? cloneCreatePayload(carriedOperation.payload) : null
   ephemeralSecret.clear()
   failed.value = false
-  mutationState.value = 'idle'
+  mutationState.value = carriedOperation?.state ?? 'idle'
   modelInput.value = ''
   await nextTick()
   await nextTick()
@@ -125,6 +194,7 @@ async function resetForOpen(): Promise<void> {
 }
 
 function setOpen(open: boolean): void {
+  if (!open && pending.value) return
   if (!open) clearLocalState()
   emit('update:open', open)
 }
@@ -175,20 +245,30 @@ function canChangeScopeValue(
   value: number | string,
   adding: boolean,
 ): boolean {
-  if (pending.value || draft.value.scopeModes[dimension] !== 'restricted') return false
+  if (formLocked.value || draft.value.scopeModes[dimension] !== 'restricted') return false
+  if (dimension !== 'groups') {
+    if (props.groupCatalogState === 'loading' || props.groupCatalogState === 'error') return false
+    return true
+  }
   if (props.groupCatalogState === 'ready') return true
-  if (props.groupCatalogState !== 'stale' || adding) return false
-  return (
-    (base.value?.filters[dimension] as readonly (number | string)[] | undefined)?.includes(value) ??
-    false
-  )
+  if (props.groupCatalogState !== 'stale') return false
+  if (!adding) return true
+  return base.value?.filters.groups.includes(value as number) ?? false
 }
 
 function setScopeMode(dimension: AccessKeyScopeDimension, event: Event): void {
   const target = event.target as HTMLSelectElement
   const nextMode = target.value as AccessKeyScopeMode
   const currentMode = draft.value.scopeModes[dimension]
-  if (props.groupCatalogState !== 'ready' || (nextMode !== 'all' && nextMode !== 'restricted')) {
+  const catalogBlocksChange =
+    dimension === 'groups'
+      ? props.groupCatalogState !== 'ready'
+      : props.groupCatalogState === 'loading' || props.groupCatalogState === 'error'
+  if (
+    formLocked.value ||
+    catalogBlocksChange ||
+    (nextMode !== 'all' && nextMode !== 'restricted')
+  ) {
     target.value = currentMode
     return
   }
@@ -208,11 +288,23 @@ function setRPM(event: Event): void {
 }
 
 async function save(): Promise<void> {
-  if (createCompleted.value || pending.value || !valid.value || !dirty.value) return
+  if (
+    createCompleted.value ||
+    pending.value ||
+    (!createOperationActive.value && (!valid.value || !dirty.value))
+  ) {
+    return
+  }
   const currentBase = base.value
   const updateBody = currentBase ? buildAccessKeyUpdatePatch(currentBase, draft.value) : null
+  const activeCreatePayload = currentBase
+    ? null
+    : (createPayload.value ?? buildCreateAccessKeyInput(draft.value))
   if (updateBody && Object.keys(updateBody).length === 0) return
 
+  if (activeCreatePayload && !createPayload.value) {
+    createPayload.value = cloneCreatePayload(activeCreatePayload)
+  }
   pending.value = true
   failed.value = false
   mutationState.value = 'idle'
@@ -244,7 +336,7 @@ async function save(): Promise<void> {
     } else {
       const saved = await createAccessKey(
         client,
-        buildCreateAccessKeyInput(draft.value),
+        activeCreatePayload!,
         activeOperationID,
         activeController.signal,
       )
@@ -267,6 +359,8 @@ async function save(): Promise<void> {
         updated_at: saved.updated_at,
       }
       result.value = metadata
+      createPayload.value = null
+      emit('update:createOperation', null)
       if (key && ephemeralSecret.epoch.value === expectedSecretEpoch) {
         ephemeralSecret.expose(`access-key:${metadata.id}`, key)
       }
@@ -287,6 +381,21 @@ async function save(): Promise<void> {
       requestSent: true,
     })
     failed.value = outcome.kind === 'failed'
+    if (!currentBase && outcome.kind === 'failed' && outcome.reason === 'rejected') {
+      operationID.value = crypto.randomUUID()
+      createPayload.value = null
+      emit('update:createOperation', null)
+    } else if (
+      !currentBase &&
+      activeCreatePayload &&
+      (outcome.kind === 'indeterminate' || outcome.kind === 'reconciling')
+    ) {
+      emit('update:createOperation', {
+        idempotencyKey: activeOperationID,
+        payload: cloneCreatePayload(activeCreatePayload),
+        state: outcome.kind,
+      })
+    }
     mutationState.value =
       outcome.kind === 'reconciling'
         ? 'reconciling'
@@ -313,6 +422,7 @@ async function revealResultSecret(): Promise<void> {
   revealController = controller
   const expectedEpoch = ephemeralSecret.epoch.value
   revealPending.value = true
+  revealFailed.value = false
   try {
     const revealed = await revealAccessKey(client, current.id, controller.signal)
     if (
@@ -325,7 +435,7 @@ async function revealResultSecret(): Promise<void> {
     }
   } catch (error: unknown) {
     if (revealController === controller && !(error instanceof RequestCancelledError)) {
-      failed.value = true
+      revealFailed.value = true
     }
   } finally {
     if (revealController === controller) {
@@ -344,6 +454,7 @@ onBeforeUnmount(clearLocalState)
     :title="editing ? t('accessKeys.drawer.editTitle') : t('accessKeys.drawer.createTitle')"
     :description="t('accessKeys.drawer.description')"
     :close-label="t('accessKeys.drawer.close')"
+    :dismissible="!pending"
     @update:open="setOpen"
   >
     <template #trigger><slot name="trigger" /></template>
@@ -352,11 +463,17 @@ onBeforeUnmount(clearLocalState)
       <InlineFeedback v-if="failed" tone="danger">{{
         t('accessKeys.drawer.saveFailed')
       }}</InlineFeedback>
+      <InlineFeedback v-if="revealFailed" tone="danger">{{
+        t('accessKeys.revealFailed')
+      }}</InlineFeedback>
       <InlineFeedback v-if="mutationState === 'indeterminate'" tone="warning">{{
         t('accessKeys.drawer.saveIndeterminate')
       }}</InlineFeedback>
       <InlineFeedback v-if="mutationState === 'reconciling'" tone="warning">{{
         t('accessKeys.drawer.saveReconciling')
+      }}</InlineFeedback>
+      <InlineFeedback v-if="scopeFeedbackKey && !createOperationActive" tone="warning">{{
+        t(scopeFeedbackKey)
       }}</InlineFeedback>
 
       <template v-if="!createCompleted">
@@ -369,7 +486,7 @@ onBeforeUnmount(clearLocalState)
             data-test="access-key-name"
             type="text"
             autocomplete="off"
-            :disabled="pending"
+            :disabled="formLocked"
           />
         </label>
 
@@ -379,7 +496,7 @@ onBeforeUnmount(clearLocalState)
             id="access-key-status"
             v-model="draft.status"
             data-test="access-key-status"
-            :disabled="pending"
+            :disabled="formLocked"
           >
             <option value="active">{{ t('accessKeys.status.active') }}</option>
             <option value="disabled">{{ t('accessKeys.status.disabled') }}</option>
@@ -393,7 +510,7 @@ onBeforeUnmount(clearLocalState)
             <select
               data-test="access-key-groups-mode"
               :value="draft.scopeModes.groups"
-              :disabled="pending || groupCatalogState !== 'ready'"
+              :disabled="formLocked || groupCatalogState !== 'ready'"
               @change="setScopeMode('groups', $event)"
             >
               <option value="all">{{ t('accessKeys.drawer.scopeAll') }}</option>
@@ -405,11 +522,11 @@ onBeforeUnmount(clearLocalState)
               type="checkbox"
               :checked="draft.filters.groups.includes(group.id)"
               :disabled="
-                pending ||
+                formLocked ||
                 draft.scopeModes.groups !== 'restricted' ||
                 groupCatalogState === 'loading' ||
                 groupCatalogState === 'error' ||
-                (groupCatalogState === 'stale' && !draft.filters.groups.includes(group.id))
+                (groupCatalogState === 'stale' && !base?.filters.groups.includes(group.id))
               "
               @change="toggleGroup(group.id, ($event.target as HTMLInputElement).checked)"
             />
@@ -424,7 +541,9 @@ onBeforeUnmount(clearLocalState)
             <select
               data-test="access-key-protocols-mode"
               :value="draft.scopeModes.protocols"
-              :disabled="pending || groupCatalogState !== 'ready'"
+              :disabled="
+                formLocked || groupCatalogState === 'loading' || groupCatalogState === 'error'
+              "
               @change="setScopeMode('protocols', $event)"
             >
               <option value="all">{{ t('accessKeys.drawer.scopeAll') }}</option>
@@ -440,11 +559,10 @@ onBeforeUnmount(clearLocalState)
               type="checkbox"
               :checked="draft.filters.protocols.includes(protocol)"
               :disabled="
-                pending ||
+                formLocked ||
                 draft.scopeModes.protocols !== 'restricted' ||
                 groupCatalogState === 'loading' ||
-                groupCatalogState === 'error' ||
-                (groupCatalogState === 'stale' && !draft.filters.protocols.includes(protocol))
+                groupCatalogState === 'error'
               "
               @change="toggleProtocol(protocol, ($event.target as HTMLInputElement).checked)"
             />
@@ -464,7 +582,9 @@ onBeforeUnmount(clearLocalState)
             <select
               data-test="access-key-models-mode"
               :value="draft.scopeModes.models"
-              :disabled="pending || groupCatalogState !== 'ready'"
+              :disabled="
+                formLocked || groupCatalogState === 'loading' || groupCatalogState === 'error'
+              "
               @change="setScopeMode('models', $event)"
             >
               <option value="all">{{ t('accessKeys.drawer.scopeAll') }}</option>
@@ -481,7 +601,10 @@ onBeforeUnmount(clearLocalState)
               autocomplete="off"
               :placeholder="t('accessKeys.drawer.modelPlaceholder')"
               :disabled="
-                pending || draft.scopeModes.models !== 'restricted' || groupCatalogState !== 'ready'
+                formLocked ||
+                draft.scopeModes.models !== 'restricted' ||
+                groupCatalogState === 'loading' ||
+                groupCatalogState === 'error'
               "
               @keydown.enter.prevent="addModel"
             />
@@ -491,10 +614,11 @@ onBeforeUnmount(clearLocalState)
             <AppButton
               variant="secondary"
               :disabled="
-                pending ||
+                formLocked ||
                 !modelInput.trim() ||
                 draft.scopeModes.models !== 'restricted' ||
-                groupCatalogState !== 'ready'
+                groupCatalogState === 'loading' ||
+                groupCatalogState === 'error'
               "
               @click="addModel"
             >
@@ -512,7 +636,7 @@ onBeforeUnmount(clearLocalState)
                 type="button"
                 :aria-label="t('accessKeys.drawer.removeModel', { model })"
                 :disabled="
-                  pending || groupCatalogState === 'loading' || groupCatalogState === 'error'
+                  formLocked || groupCatalogState === 'loading' || groupCatalogState === 'error'
                 "
                 @click="removeModel(model)"
               >
@@ -531,7 +655,7 @@ onBeforeUnmount(clearLocalState)
             min="0"
             step="1"
             :value="draft.rpm_limit"
-            :disabled="pending"
+            :disabled="formLocked"
             @input="setRPM"
           />
           <small>{{ t('accessKeys.drawer.rpmDescription') }}</small>
@@ -581,9 +705,11 @@ onBeforeUnmount(clearLocalState)
           data-test="access-key-save"
           type="submit"
           :busy="pending"
-          :disabled="!valid || !dirty"
+          :disabled="!createOperationActive && (!valid || !dirty)"
         >
-          <Save :size="16" aria-hidden="true" />{{ t('accessKeys.drawer.save') }}
+          <Save :size="16" aria-hidden="true" />{{
+            t(createOperationActive ? 'accessKeys.drawer.checkResult' : 'accessKeys.drawer.save')
+          }}
         </AppButton>
       </div>
     </form>

@@ -2,7 +2,7 @@ import { QueryClient } from '@tanstack/vue-query'
 import { flushPromises } from '@vue/test-utils'
 import { createMemoryHistory } from 'vue-router'
 
-import type { ApiClient, ApiRequestOptions } from '@/api/client'
+import type { ApiClient, ApiPath, ApiRequestOptions } from '@/api/client'
 import type { SettingsDto } from '@/api/control/settings'
 import { controlQueryKeys } from '@/app/query-keys'
 import { createAppRouter } from '@/app/router'
@@ -48,6 +48,7 @@ function queryClient() {
 
 async function mountView(
   putResponse: SettingsDto | ((options?: ApiRequestOptions) => SettingsDto) = updated,
+  tokenFor?: (path: ApiPath, options: ApiRequestOptions | undefined, data: unknown) => string,
 ) {
   const client = queryClient()
   client.setQueryData(controlQueryKeys.groups.list(), [{ id: 7 }])
@@ -71,7 +72,7 @@ async function mountView(
     matchMedia: window.matchMedia.bind(window),
   })
   const mounted = await mountApp(SettingsView, {
-    api: apiWithResponseMetadata(requestMock as ApiClient['request']),
+    api: apiWithResponseMetadata(requestMock as ApiClient['request'], tokenFor),
     queryClient: client,
     locale: 'en-US',
     path: '/settings',
@@ -104,12 +105,12 @@ describe('SettingsView', () => {
     const { queryClient: client, theme, wrapper } = await mountView()
     expect(wrapper.get('h1').text()).toBe('Settings')
     expect(
-      client.getQueryCache().find({ queryKey: controlQueryKeys.settings() })?.options.gcTime,
+      client.getQueryCache().find({ queryKey: controlQueryKeys.settings('en-US') })?.options.gcTime,
     ).toBe(0)
     expect(wrapper.html()).not.toContain(headerCanary)
     wrapper.unmount()
     await flushPromises()
-    expect(client.getQueryData(controlQueryKeys.settings())).toBeUndefined()
+    expect(client.getQueryData(controlQueryKeys.settings('en-US'))).toBeUndefined()
     expect(JSON.stringify(client.getQueryCache().getAll())).not.toContain(headerCanary)
     theme.dispose()
   })
@@ -130,7 +131,7 @@ describe('SettingsView', () => {
       json: { settings: { request_timeout: 900 } },
       signal: expect.any(AbortSignal),
     })
-    expect(setQueryData).toHaveBeenCalledWith(controlQueryKeys.settings(), {
+    expect(setQueryData).toHaveBeenCalledWith(controlQueryKeys.settings('en-US'), {
       settings: updated,
       settings_etag: testSettingsETags.put,
     })
@@ -147,6 +148,38 @@ describe('SettingsView', () => {
     expect(JSON.stringify(wrapper.vm.$route)).not.toContain(headerCanary)
     expect(JSON.stringify(controlQueryKeys)).not.toContain(headerCanary)
     expect(JSON.stringify(localStorage)).not.toContain(headerCanary)
+    wrapper.unmount()
+    theme.dispose()
+  })
+
+  it('refetches the localized Settings representation before saving after a locale change', async () => {
+    const localizedETag = `sha256-${'c'.repeat(64)}`
+    let getRepresentations = 0
+    const { appI18n, requestMock, theme, wrapper } = await mountView(updated, (_path, options) => {
+      if (options?.method === 'PUT') return testSettingsETags.put
+      getRepresentations += 1
+      return getRepresentations === 1 ? testSettingsETags.get : localizedETag
+    })
+
+    await appI18n.setLocale('ja-JP')
+    await flushPromises()
+    expect(
+      requestMock.mock.calls.filter(
+        ([path, options]) => path === '/api/settings' && options?.method === undefined,
+      ),
+    ).toHaveLength(2)
+
+    await wrapper.get('[data-test="override-request_timeout"]').setValue(true)
+    await wrapper.get('[data-test="value-request_timeout"]').setValue('900')
+    await wrapper.get('[data-test="request-forwarding-save"]').trigger('click')
+    await flushPromises()
+
+    expect(requestMock).toHaveBeenLastCalledWith('/api/settings', {
+      method: 'PUT',
+      headers: { 'If-Match': `"${localizedETag}"` },
+      json: { settings: { request_timeout: 900 } },
+      signal: expect.any(AbortSignal),
+    })
     wrapper.unmount()
     theme.dispose()
   })

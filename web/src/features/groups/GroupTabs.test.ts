@@ -24,11 +24,17 @@ describe('GroupTabs', () => {
     expect(router.currentRoute.value.fullPath).toBe('/groups/7?tab=keys')
     expect(wrapper.get('[data-test="group-tab-keys"]').attributes()['aria-selected']).toBe('true')
 
-    await wrapper.get('[data-test="group-tab-models"]').trigger('click')
+    await wrapper.get('[data-test="group-tab-models"]').trigger('mousedown', {
+      button: 0,
+      ctrlKey: false,
+    })
     await flushPromises()
     expect(router.currentRoute.value.fullPath).toBe('/groups/7?tab=models')
 
-    await wrapper.get('[data-test="group-tab-settings"]').trigger('click')
+    await wrapper.get('[data-test="group-tab-settings"]').trigger('mousedown', {
+      button: 0,
+      ctrlKey: false,
+    })
     await flushPromises()
     expect(router.currentRoute.value.fullPath).toBe('/groups/7?tab=settings')
 

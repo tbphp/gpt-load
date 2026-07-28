@@ -179,6 +179,42 @@ func TestOperationBarrierBlocksNewMutationBehindOlderRecovery(t *testing.T) {
 	}
 }
 
+func TestOperationBarrierReturnsDatabaseErrorWhenRecoveryQueryFails(t *testing.T) {
+	fixture := newServiceFixture(t)
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	ordinaryMutations := 0
+	_, err := fixture.service.writeConfig(ctx, func(operationTransaction) error {
+		ordinaryMutations++
+		return nil
+	}, nil)
+	if !errors.Is(err, app_errors.ErrDatabase) {
+		t.Fatalf("writeConfig() error = %v, want database error", err)
+	}
+	if ordinaryMutations != 0 {
+		t.Fatalf("writeConfig() ran mutation %d times", ordinaryMutations)
+	}
+
+	idempotentMutations := 0
+	_, err = fixture.service.executeIdempotentOperation(ctx, idempotentOperationInput{
+		IdempotencyKey: "078f47a2-9c35-4d6e-8b1a-1234567890ab",
+		DigestVersion:  1,
+		RequestDigest:  [32]byte{7},
+		Kind:           operationKindAccessKeyCreate,
+		Mutate: func(operationTransaction) (idempotentMutationResult, error) {
+			idempotentMutations++
+			return idempotentMutationResult{}, nil
+		},
+	})
+	if !errors.Is(err, app_errors.ErrDatabase) {
+		t.Fatalf("executeIdempotentOperation() error = %v, want database error", err)
+	}
+	if idempotentMutations != 0 {
+		t.Fatalf("executeIdempotentOperation() ran mutation %d times", idempotentMutations)
+	}
+}
+
 func TestDrainCommittedOperationsFailsClosedOnUnsupportedDigestVersion(t *testing.T) {
 	fixture := newServiceFixture(t)
 	stages, err := json.Marshal([]operationStage{

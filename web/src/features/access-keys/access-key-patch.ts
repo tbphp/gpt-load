@@ -42,6 +42,17 @@ export function createAccessKeyDraft(accessKey?: AccessKeyDto | null): AccessKey
   }
 }
 
+export function createAccessKeyDraftFromCreateInput(input: CreateAccessKeyRequest): AccessKeyDraft {
+  const filters = normalizeAccessKeyFilters(input.filters)
+  return {
+    name: input.name,
+    status: 'active',
+    filters,
+    scopeModes: createAccessKeyScopeModes(filters),
+    rpm_limit: input.rpm_limit,
+  }
+}
+
 export function isAccessKeyDraftValid(
   draft: AccessKeyDraft,
   base?: AccessKeyDto | null,

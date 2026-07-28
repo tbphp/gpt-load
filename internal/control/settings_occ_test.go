@@ -247,8 +247,8 @@ func assertSettingsRepresentationHeaders(
 	if got := recorder.Header().Get("Content-Type"); got != "application/json; charset=utf-8" {
 		t.Fatalf("Content-Type = %q", got)
 	}
-	if got := recorder.Header().Get("Content-Encoding"); got != "identity" {
-		t.Fatalf("Content-Encoding = %q", got)
+	if got := recorder.Header().Get("Content-Encoding"); got != "" {
+		t.Fatalf("Content-Encoding = %q, want header omitted", got)
 	}
 	if got := recorder.Header().Get("Content-Language"); got != language {
 		t.Fatalf("Content-Language = %q, want %q", got, language)

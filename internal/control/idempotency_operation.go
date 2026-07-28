@@ -154,19 +154,19 @@ func (s *Service) executeIdempotentOperation(
 		if err := validateOperationComparator(&existing, input); err != nil {
 			return idempotentOperationResult{}, err
 		}
-		if blocked, recoveryErr := s.recoverPendingOperationsLocked(
+		if recoveryErr := s.enforceOperationRecoveryBarrierLocked(
 			ctx,
 			existing.CommitSequence,
 		); recoveryErr != nil {
-			return idempotentOperationResult{}, s.recoveryPendingError(*blocked)
+			return idempotentOperationResult{}, recoveryErr
 		}
 		return s.replayIdempotentOperationLocked(ctx, &existing, input)
 	}
 	if !errors.Is(query.Error, gorm.ErrRecordNotFound) {
 		return idempotentOperationResult{}, app_errors.ParseDBError(query.Error)
 	}
-	if blocked, recoveryErr := s.recoverPendingOperationsLocked(ctx, 0); recoveryErr != nil {
-		return idempotentOperationResult{}, s.recoveryPendingError(*blocked)
+	if recoveryErr := s.enforceOperationRecoveryBarrierLocked(ctx, 0); recoveryErr != nil {
+		return idempotentOperationResult{}, recoveryErr
 	}
 
 	requiredStages, err := operationRequiredStages(input.Kind)

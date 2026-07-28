@@ -12,17 +12,20 @@ import { controlQueryKeys } from '@/app/query-keys'
 import { accessKeyMutationInvalidations, accessKeyResources } from '@/app/resources/access-keys'
 import AppButton from '@/components/ui/AppButton.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
+import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 
 import AccessKeyDrawer from './AccessKeyDrawer.vue'
 import AccessKeyTable from './AccessKeyTable.vue'
+import type { PendingAccessKeyCreateOperation } from './access-key-create-operation'
 
 const client = useApiClient()
 const queryClient = useQueryClient()
 const { t } = useI18n()
 const drawerOpen = ref(false)
 const selected = ref<AccessKeyDto | null>(null)
+const createOperation = ref<PendingAccessKeyCreateOperation | null>(null)
 const viewRoot = ref<HTMLElement | null>(null)
 let restoreFocus: HTMLElement | null = null
 let mounted = true
@@ -45,6 +48,11 @@ const groupCatalogState = computed(() => {
   if (groupsQuery.isPending.value) return 'loading'
   return 'ready'
 })
+const operationNoticeKey = computed(() =>
+  createOperation.value?.state === 'reconciling'
+    ? 'accessKeys.operation.reconciling'
+    : 'accessKeys.operation.indeterminate',
+)
 
 function createKey(): void {
   selected.value = null
@@ -55,6 +63,17 @@ function createKey(): void {
 function editKey(accessKey: AccessKeyDto, trigger: HTMLElement): void {
   selected.value = accessKey
   restoreFocus = trigger
+  drawerOpen.value = true
+}
+
+function setCreateOperation(operation: PendingAccessKeyCreateOperation | null): void {
+  createOperation.value = operation
+}
+
+function checkCreateOperation(): void {
+  if (!createOperation.value) return
+  selected.value = null
+  restoreFocus = null
   drawerOpen.value = true
 }
 
@@ -95,6 +114,8 @@ async function focusCreateAfterDelete(): Promise<void> {
           :access-key="selected"
           :groups="groupsQuery.data.value ?? []"
           :group-catalog-state="groupCatalogState"
+          :create-operation="createOperation"
+          @update:create-operation="setCreateOperation"
           @update:open="setDrawerOpen"
         >
           <template #trigger>
@@ -105,6 +126,22 @@ async function focusCreateAfterDelete(): Promise<void> {
         </AccessKeyDrawer>
       </template>
     </PageHeader>
+
+    <section
+      v-if="createOperation"
+      class="access-keys__operation"
+      data-test="access-key-operation-notice"
+      aria-live="polite"
+    >
+      <InlineFeedback tone="warning">{{ t(operationNoticeKey) }}</InlineFeedback>
+      <AppButton
+        data-test="access-key-operation-check"
+        variant="secondary"
+        @click="checkCreateOperation"
+      >
+        {{ t('accessKeys.operation.checkResult') }}
+      </AppButton>
+    </section>
 
     <QueryFeedback
       v-if="accessKeysQuery.isPending.value"
@@ -156,5 +193,21 @@ async function focusCreateAfterDelete(): Promise<void> {
   display: grid;
   gap: var(--space-5);
   min-width: 0;
+}
+.access-keys__operation {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  border: 1px solid var(--color-warning);
+  border-radius: var(--radius-card);
+  background: var(--color-warning-bg);
+  padding: var(--space-3) var(--space-4);
+}
+@media (max-width: 640px) {
+  .access-keys__operation {
+    align-items: stretch;
+    flex-direction: column;
+  }
 }
 </style>

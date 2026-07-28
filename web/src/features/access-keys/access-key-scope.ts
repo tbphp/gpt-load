@@ -73,18 +73,11 @@ export function validateAccessKeyScope(input: AccessKeyScopeValidation): boolean
   if (input.groupCatalog.state === 'stale') {
     if (!input.base) return false
     const baseModes = createAccessKeyScopeModes(input.base)
-    return (
-      (baseModes.groups === 'all'
+    const groupsValid =
+      baseModes.groups === 'all'
         ? input.modes.groups === 'all'
-        : input.modes.groups === 'restricted' && isSubset(effective.groups, input.base.groups)) &&
-      (baseModes.protocols === 'all'
-        ? input.modes.protocols === 'all'
-        : input.modes.protocols === 'restricted' &&
-          isSubset(effective.protocols, input.base.protocols)) &&
-      (baseModes.models === 'all'
-        ? input.modes.models === 'all'
-        : input.modes.models === 'restricted' && isSubset(effective.models, input.base.models))
-    )
+        : input.modes.groups === 'restricted' && isSubset(effective.groups, input.base.groups)
+    if (!groupsValid) return false
   }
 
   const baseGroups = input.base?.groups ?? []

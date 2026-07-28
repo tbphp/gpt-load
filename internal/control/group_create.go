@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math/big"
 
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
@@ -189,7 +190,37 @@ func normalizeGroupSettings(settings config.Settings) (config.Settings, models.J
 	if err := decoder.Decode(&normalized); err != nil {
 		return nil, nil, app_errors.ErrValidation
 	}
+	for key, value := range normalized {
+		normalized[key] = canonicalizeGroupSettingNumbers(value)
+	}
+	encoded, err = json.Marshal(normalized)
+	if err != nil {
+		return nil, nil, app_errors.ErrValidation
+	}
 	return normalized, models.JSON(encoded), nil
+}
+
+func canonicalizeGroupSettingNumbers(value any) any {
+	switch typed := value.(type) {
+	case json.Number:
+		parsed, ok := new(big.Rat).SetString(typed.String())
+		if ok && parsed.IsInt() && parsed.Num().IsInt64() {
+			return parsed.Num().Int64()
+		}
+		return typed
+	case map[string]any:
+		for key, nested := range typed {
+			typed[key] = canonicalizeGroupSettingNumbers(nested)
+		}
+		return typed
+	case []any:
+		for index, nested := range typed {
+			typed[index] = canonicalizeGroupSettingNumbers(nested)
+		}
+		return typed
+	default:
+		return value
+	}
 }
 
 func findGroupsByUpstreamURL(tx *gorm.DB, upstreamURL string) ([]ExistingGroupSummary, error) {

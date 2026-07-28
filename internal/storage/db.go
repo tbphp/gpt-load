@@ -283,17 +283,6 @@ FROM model_prices`).Error; err != nil {
 	return nil
 }
 
-func validateSchemaVersion(db *gorm.DB) error {
-	version, err := readSchemaVersion(db)
-	if err != nil {
-		return err
-	}
-	if version != CurrentSchemaVersion {
-		return fmt.Errorf("unsupported schema version %d, want %d", version, CurrentSchemaVersion)
-	}
-	return nil
-}
-
 func readSchemaVersion(db *gorm.DB) (uint, error) {
 	var count int64
 	if err := db.Model(&schemaInfo{}).Count(&count).Error; err != nil {

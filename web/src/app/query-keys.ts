@@ -27,7 +27,7 @@ export const controlQueryKeys = {
     list: () => ['control', 'access-keys', 'list'] as const,
     options: () => ['control', 'access-keys', 'options'] as const,
   },
-  settings: () => ['control', 'settings'] as const,
+  settings: (locale: string) => ['control', 'settings', locale] as const,
   systemInfo: () => ['control', 'system-info'] as const,
   modelPrices: () => ['control', 'model-prices'] as const,
 }

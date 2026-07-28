@@ -288,6 +288,7 @@ async function submitCreate(confirmSameURL = false): Promise<void> {
   if (!componentActive) return
   if (outcome.kind === 'failed' && outcome.reason === 'rejected') {
     const error = createOperation.lastError.value
+    createOperation.reset()
     if (
       error instanceof ApiError &&
       error.code === 'UPSTREAM_URL_CONFLICT' &&
@@ -333,8 +334,10 @@ async function appendToGroup(groupID: number): Promise<void> {
     return
   }
   if (!componentActive) return
-  if (outcome.kind === 'failed' && outcome.reason === 'rejected')
+  if (outcome.kind === 'failed' && outcome.reason === 'rejected') {
+    appendOperation.reset()
     errorKey.value = 'import.appendFailed'
+  }
 }
 
 async function retryOperation(): Promise<void> {

@@ -627,7 +627,7 @@ func TestAccessKeyDanglingFiltersDoNotBlockUnrelatedUpdate(t *testing.T) {
 
 func TestConcurrentAccessKeyCRUDPublishesDatabaseTruth(t *testing.T) {
 	fixture := newServiceFixture(t)
-	rows := make([]AccessKeyResponse, 4)
+	rows := make([]AccessKeyCreateResult, 4)
 	for index := range rows {
 		created, err := fixture.service.CreateAccessKey(context.Background(), AccessKeyCreateRequest{Name: "seed-" + string(rune('a'+index))})
 		if err != nil {
@@ -760,10 +760,10 @@ func TestAccessKeyEndpointsDistinguishRPMLimit(t *testing.T) {
 		engine.ServeHTTP(recorder, request)
 		return recorder
 	}
-	decodeAccessKey := func(t *testing.T, body []byte) AccessKeyResponse {
+	decodeAccessKey := func(t *testing.T, body []byte) AccessKeyCreateResult {
 		t.Helper()
 		var envelope struct {
-			Data AccessKeyResponse `json:"data"`
+			Data AccessKeyCreateResult `json:"data"`
 		}
 		if err := json.Unmarshal(body, &envelope); err != nil {
 			t.Fatalf("decode response: %v", err)

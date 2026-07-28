@@ -11,25 +11,42 @@ import {
   DialogTrigger,
 } from 'reka-ui'
 
-defineProps<{
-  open: boolean
-  title: string
-  description: string
-  closeLabel: string
-}>()
-defineEmits<{ 'update:open': [open: boolean] }>()
+const props = withDefaults(
+  defineProps<{
+    open: boolean
+    title: string
+    description: string
+    closeLabel: string
+    dismissible?: boolean
+  }>(),
+  { dismissible: true },
+)
+const emit = defineEmits<{ 'update:open': [open: boolean] }>()
+
+function setOpen(open: boolean): void {
+  if (!open && !props.dismissible) return
+  emit('update:open', open)
+}
+
+function guardDismiss(event: Event): void {
+  if (!props.dismissible) event.preventDefault()
+}
 </script>
 
 <template>
-  <DialogRoot :open="open" @update:open="$emit('update:open', $event)">
+  <DialogRoot :open="open" @update:open="setOpen">
     <DialogTrigger as-child><slot name="trigger" /></DialogTrigger>
     <DialogPortal>
       <DialogOverlay class="app-drawer__overlay" />
-      <DialogContent class="app-drawer__content" @escape-key-down="$emit('update:open', false)">
+      <DialogContent
+        class="app-drawer__content"
+        @escape-key-down="guardDismiss"
+        @interact-outside="guardDismiss"
+      >
         <header class="app-drawer__header">
           <DialogTitle class="app-drawer__title">{{ title }}</DialogTitle>
           <DialogDescription class="sr-only">{{ description }}</DialogDescription>
-          <DialogClose class="app-drawer__close" :aria-label="closeLabel">
+          <DialogClose class="app-drawer__close" :aria-label="closeLabel" :disabled="!dismissible">
             <X :size="20" aria-hidden="true" />
           </DialogClose>
         </header>
@@ -83,6 +100,10 @@ defineEmits<{ 'update:open': [open: boolean] }>()
   background: transparent;
   color: var(--color-text-muted);
   cursor: pointer;
+}
+.app-drawer__close:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 .app-drawer__body {
   overflow-y: auto;

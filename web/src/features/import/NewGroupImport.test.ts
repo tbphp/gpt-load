@@ -341,6 +341,39 @@ describe('NewGroupImport', () => {
     expect(wrapper.find('.conflict').exists()).toBe(false)
   })
 
+  it('uses edited payload and a new identity after an explicit create rejection', async () => {
+    const requestMock = vi
+      .fn()
+      .mockResolvedValueOnce({ models: ['gpt-4o'] })
+      .mockRejectedValueOnce(new ApiError(400, 'VALIDATION_FAILED', 'invalid'))
+      .mockResolvedValueOnce({ models: ['gpt-4o'] })
+      .mockResolvedValueOnce({ group_id: 19 })
+    const request = requestMock as ApiClient['request']
+    const { wrapper } = await mountImport(request)
+    await enterConnection(wrapper)
+    await discoverAndReview(wrapper)
+    await wrapper.get('[data-test="create"]').trigger('click')
+    await flushPromises()
+
+    const reviewBack = wrapper.findAll('button').find((button) => button.text() === 'Back')
+    await reviewBack?.trigger('click')
+    const modelsBack = wrapper.findAll('button').find((button) => button.text() === 'Back')
+    await modelsBack?.trigger('click')
+    await wrapper.get('[data-test="group-name"]').setValue('Corrected')
+    await wrapper.get('[data-test="discover"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-test="review"]').trigger('click')
+    await wrapper.get('[data-test="create"]').trigger('click')
+    await flushPromises()
+
+    const createCalls = requestMock.mock.calls.filter(([path]) => path === '/api/groups')
+    expect(createCalls).toHaveLength(2)
+    expect(createCalls[1]?.[1]?.json).toMatchObject({ name: 'Corrected' })
+    expect(createCalls[1]?.[1]?.headers?.['Idempotency-Key']).not.toBe(
+      createCalls[0]?.[1]?.headers?.['Idempotency-Key'],
+    )
+  })
+
   it.each([
     { groups: [{ id: Number.MAX_SAFE_INTEGER + 1, name: 'Unsafe' }] },
     { groups: [{ id: 7, name: '   ' }] },

@@ -36,7 +36,7 @@ async function mountSection(
 ) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const initial = resource(settings)
-  queryClient.setQueryData(controlQueryKeys.settings(), initial)
+  queryClient.setQueryData(controlQueryKeys.settings('en-US'), initial)
   const mounted = await mountApp(LogsMaintenanceSection, {
     api: apiWithResponseMetadata(request, tokenFor),
     queryClient,
@@ -99,7 +99,7 @@ describe('LogsMaintenanceSection', () => {
       json: { settings: { request_log_retention_days: null } },
       signal: expect.any(AbortSignal),
     })
-    expect(queryClient.getQueryData(controlQueryKeys.settings())).toEqual(
+    expect(queryClient.getQueryData(controlQueryKeys.settings('en-US'))).toEqual(
       resource(base, testSettingsETags.put),
     )
     expect(invalidate).toHaveBeenCalledWith({
@@ -124,15 +124,15 @@ describe('LogsMaintenanceSection', () => {
     await wrapper.get('[data-test="override-request_log_retention_days"]').setValue(true)
     await wrapper.get('[data-test="value-request_log_retention_days"]').setValue('8')
     await wrapper.get('[data-test="logs-maintenance-save"]').trigger('click')
-    queryClient.setQueryData(controlQueryKeys.settings(), unrelated)
+    queryClient.setQueryData(controlQueryKeys.settings('en-US'), unrelated)
     resolve({ ...base, values: { ...base.values, request_log_retention_days: 99 } })
     await flushPromises()
 
     expect(refetch).toHaveBeenCalledWith({
-      queryKey: controlQueryKeys.settings(),
+      queryKey: controlQueryKeys.settings('en-US'),
       exact: true,
     })
-    expect(queryClient.getQueryData(controlQueryKeys.settings())).toEqual(unrelated)
+    expect(queryClient.getQueryData(controlQueryKeys.settings('en-US'))).toEqual(unrelated)
     expect(wrapper.text()).not.toContain('Settings saved.')
     wrapper.unmount()
   })
@@ -231,11 +231,11 @@ describe('LogsMaintenanceSection', () => {
     await wrapper.get('[data-test="override-request_log_retention_days"]').setValue(true)
     await wrapper.get('[data-test="logs-maintenance-save"]').trigger('click')
     wrapper.unmount()
-    queryClient.removeQueries({ queryKey: controlQueryKeys.settings(), exact: true })
+    queryClient.removeQueries({ queryKey: controlQueryKeys.settings('en-US'), exact: true })
     resolve(base)
     await flushPromises()
 
-    expect(queryClient.getQueryData(controlQueryKeys.settings())).toBeUndefined()
+    expect(queryClient.getQueryData(controlQueryKeys.settings('en-US'))).toBeUndefined()
     expect(invalidate).not.toHaveBeenCalled()
   })
 })

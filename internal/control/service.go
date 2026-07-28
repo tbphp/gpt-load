@@ -89,8 +89,8 @@ func (s *Service) writeConfig(
 ) (*state.ConfigSnapshot, error) {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
-	if blocked, err := s.recoverPendingOperationsLocked(ctx, 0); err != nil {
-		return nil, s.recoveryPendingError(*blocked)
+	if err := s.enforceOperationRecoveryBarrierLocked(ctx, 0); err != nil {
+		return nil, err
 	}
 
 	var input state.CompileInput
@@ -133,8 +133,8 @@ func (s *Service) writeKeyConfig(
 ) error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
-	if blocked, err := s.recoverPendingOperationsLocked(ctx, 0); err != nil {
-		return s.recoveryPendingError(*blocked)
+	if err := s.enforceOperationRecoveryBarrierLocked(ctx, 0); err != nil {
+		return err
 	}
 
 	if err := s.withControlTransaction(ctx, mutate); err != nil {

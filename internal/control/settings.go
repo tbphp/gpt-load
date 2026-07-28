@@ -141,8 +141,8 @@ func (s *Service) UpdateSettingsIfMatch(
 
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
-	if blocked, err := s.recoverPendingOperationsLocked(ctx, 0); err != nil {
-		return settingsWireRepresentation{}, s.recoveryPendingError(*blocked)
+	if err := s.enforceOperationRecoveryBarrierLocked(ctx, 0); err != nil {
+		return settingsWireRepresentation{}, err
 	}
 
 	var (

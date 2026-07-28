@@ -43,7 +43,6 @@ watch(
           :value="item.value"
           :data-test="item.testId"
           :data-tab-value="item.value"
-          @click="emit('update:modelValue', item.value)"
         >
           {{ item.label }}
         </TabsTrigger>

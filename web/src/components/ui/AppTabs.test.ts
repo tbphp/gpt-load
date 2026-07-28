@@ -3,6 +3,28 @@ import { mount } from '@vue/test-utils'
 import AppTabs from './AppTabs.vue'
 
 describe('AppTabs active trigger visibility', () => {
+  it('emits one semantic change for one trigger interaction', async () => {
+    const wrapper = mount(AppTabs, {
+      props: {
+        modelValue: 'overview',
+        label: 'Sections',
+        items: [
+          { value: 'overview', label: 'Overview' },
+          { value: 'health', label: 'Health' },
+        ],
+      },
+      slots: { default: 'content' },
+    })
+
+    await wrapper.get('[data-tab-value="health"]').trigger('mousedown', {
+      button: 0,
+      ctrlKey: false,
+    })
+    await wrapper.get('[data-tab-value="health"]').trigger('click')
+
+    expect(wrapper.emitted('update:modelValue')).toEqual([['health']])
+  })
+
   it.each([375, 768, 1024])(
     'scrolls the active trigger into the nearest visible geometry at %dpx',
     async (viewportWidth) => {

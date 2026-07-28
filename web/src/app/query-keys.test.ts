@@ -22,7 +22,8 @@ describe('controlQueryKeys', () => {
     ])
     expect(controlQueryKeys.accessKeys.list()).toEqual(['control', 'access-keys', 'list'])
     expect(controlQueryKeys.accessKeys.options()).toEqual(['control', 'access-keys', 'options'])
-    expect(controlQueryKeys.settings()).toEqual(['control', 'settings'])
+    expect(controlQueryKeys.settings('en-US')).toEqual(['control', 'settings', 'en-US'])
+    expect(controlQueryKeys.settings('ja-JP')).not.toEqual(controlQueryKeys.settings('en-US'))
     expect(controlQueryKeys.systemInfo()).toEqual(['control', 'system-info'])
     expect(controlQueryKeys.modelPrices()).toEqual(['control', 'model-prices'])
     expect(controlQueryKeys.usage.report({ range: '30d', group_id: 7, model: 'gpt-5.6' })).toEqual([
