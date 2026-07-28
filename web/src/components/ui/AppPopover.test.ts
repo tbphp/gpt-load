@@ -1,11 +1,10 @@
-import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 
 import AppPopover from './AppPopover.vue'
 
 describe('AppPopover', () => {
   it('closes on Escape and restores focus to its trigger', async () => {
-    let wrapper!: VueWrapper
-    wrapper = mount(AppPopover, {
+    const wrapper = mount(AppPopover, {
       attachTo: document.body,
       props: {
         open: false,

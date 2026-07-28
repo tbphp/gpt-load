@@ -1,4 +1,6 @@
 <script setup lang="ts">
+defineOptions({ name: 'AppSurface' })
+
 withDefaults(
   defineProps<{
     as?: 'article' | 'aside' | 'div' | 'section'

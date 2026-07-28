@@ -4,7 +4,7 @@ import { useI18n } from 'vue-i18n'
 
 import CopyButton from '@/components/ui/CopyButton.vue'
 
-const props = defineProps<{
+defineProps<{
   id: number
   maskedKey: string
   revealedValue?: string
