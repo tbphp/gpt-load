@@ -16,6 +16,7 @@ interface Rect {
 interface VisualGeometry {
   viewport: { width: number; height: number }
   document: { width: number; height: number }
+  scroll: { x: number; y: number }
   main: Rect
   heading: Rect
   horizontalOverflow: number
@@ -72,6 +73,7 @@ export async function captureVisualScenario(
         width: document.documentElement.scrollWidth,
         height: document.documentElement.scrollHeight,
       },
+      scroll: { x: window.scrollX, y: window.scrollY },
       main: rect(mainRect),
       heading: rect(headingRect),
       horizontalOverflow: Math.max(
@@ -89,6 +91,9 @@ export async function captureVisualScenario(
   }
   if (geometry.horizontalOverflow !== 0) {
     throw new Error(`Body overflowed horizontally for ${scenarioCase.id}`)
+  }
+  if (geometry.scroll.x !== 0 || geometry.scroll.y !== 0) {
+    throw new Error(`Visual capture did not start at the document origin for ${scenarioCase.id}`)
   }
   if (
     geometry.heading.width <= 0 ||

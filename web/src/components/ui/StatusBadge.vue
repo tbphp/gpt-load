@@ -60,6 +60,7 @@ const icon = computed(() => {
 <style scoped>
 .status-badge {
   display: inline-flex;
+  flex-shrink: 0;
   min-height: 28px;
   align-items: center;
   gap: var(--space-1);
@@ -69,6 +70,7 @@ const icon = computed(() => {
   padding: 4px 8px;
   font-size: 0.8125rem;
   font-weight: 650;
+  white-space: nowrap;
 }
 .status-badge--success {
   background: var(--color-success-bg);

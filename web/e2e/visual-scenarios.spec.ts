@@ -57,6 +57,16 @@ async function prepareScenario(
 
   if (item.scenario === 'access-keys-long') {
     await expect(page.getByText(visualFixtureData.longIdentifier, { exact: true })).toBeVisible()
+    if (item.viewport.width === 375) {
+      const statusLayout = await page
+        .locator('.status-badge')
+        .first()
+        .evaluate((element) => {
+          const style = getComputedStyle(element)
+          return { flexShrink: style.flexShrink, whiteSpace: style.whiteSpace }
+        })
+      expect(statusLayout).toEqual({ flexShrink: '0', whiteSpace: 'nowrap' })
+    }
     return
   }
 
@@ -132,6 +142,7 @@ for (const item of visualScenarioCases) {
     await prepareScenario(page, item)
     await expect(page.locator('.query-feedback--loading')).toHaveCount(0)
     await page.evaluate(async () => {
+      window.scrollTo(0, 0)
       await document.fonts.ready
       await new Promise<void>((resolveFrame) => requestAnimationFrame(() => resolveFrame()))
       await new Promise<void>((resolveFrame) => requestAnimationFrame(() => resolveFrame()))
