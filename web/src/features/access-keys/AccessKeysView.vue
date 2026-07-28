@@ -5,6 +5,7 @@ import { computed, nextTick, onBeforeUnmount, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { useApiClient } from '@/api/client-context'
+import { lazySurface } from '@/app/async-surface'
 import { accessKeyListQueryOptions, accessKeyResources } from '@/app/resources/access-keys'
 import { groupListQueryOptions } from '@/app/resources/groups'
 import type { AccessKeyDto } from '@/api/control/types'
@@ -15,10 +16,11 @@ import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 
-import AccessKeyDrawer from './AccessKeyDrawer.vue'
 import AccessKeyCollection from './AccessKeyCollection.vue'
 import type { PendingAccessKeyCreateOperation } from './access-key-create-operation'
 import type { PendingAccessKeyEditOperation } from './access-key-edit-operation'
+
+const AccessKeyDrawer = lazySurface(() => import('./AccessKeyDrawer.vue'))
 
 const client = useApiClient()
 const queryClient = useQueryClient()
@@ -131,25 +133,24 @@ async function focusCreateAfterDelete(name: string): Promise<void> {
       :description="t('accessKeys.description')"
     >
       <template #actions>
-        <AccessKeyDrawer
-          :open="drawerOpen"
-          :access-key="selected"
-          :groups="groupsQuery.data.value ?? []"
-          :group-catalog-state="groupCatalogState"
-          :create-operation="createOperation"
-          :edit-operation="selected?.id === editOperation?.base.id ? editOperation : null"
-          @update:create-operation="setCreateOperation"
-          @update:edit-operation="setEditOperation"
-          @update:open="setDrawerOpen"
-        >
-          <template #trigger>
-            <AppButton data-test="access-key-create" @click="createKey">
-              <Plus :size="16" aria-hidden="true" />{{ t('accessKeys.create') }}
-            </AppButton>
-          </template>
-        </AccessKeyDrawer>
+        <AppButton data-test="access-key-create" @click="createKey">
+          <Plus :size="16" aria-hidden="true" />{{ t('accessKeys.create') }}
+        </AppButton>
       </template>
     </PageHeader>
+
+    <AccessKeyDrawer
+      v-if="drawerOpen"
+      :open="drawerOpen"
+      :access-key="selected"
+      :groups="groupsQuery.data.value ?? []"
+      :group-catalog-state="groupCatalogState"
+      :create-operation="createOperation"
+      :edit-operation="selected?.id === editOperation?.base.id ? editOperation : null"
+      @update:create-operation="setCreateOperation"
+      @update:edit-operation="setEditOperation"
+      @update:open="setDrawerOpen"
+    />
 
     <section
       v-if="createOperation"

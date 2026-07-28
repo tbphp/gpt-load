@@ -5,6 +5,7 @@ import { nextTick, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { useApiClient } from '@/api/client-context'
+import { lazySurface } from '@/app/async-surface'
 import { modelPriceQueryOptions, type ModelPriceRuleDto } from '@/app/resources/model-prices'
 import AppButton from '@/components/ui/AppButton.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
@@ -14,7 +15,8 @@ import StatusBadge from '@/components/ui/StatusBadge.vue'
 import SurfaceCard from '@/components/ui/SurfaceCard.vue'
 
 import ModelPriceCollection from './ModelPriceCollection.vue'
-import ModelPriceDrawer from './ModelPriceDrawer.vue'
+
+const ModelPriceDrawer = lazySurface(() => import('./ModelPriceDrawer.vue'))
 
 const client = useApiClient()
 const { t } = useI18n()
@@ -60,15 +62,18 @@ async function setDrawerOpen(open: boolean): Promise<void> {
       :description="t('modelPrices.description')"
     >
       <template #actions>
-        <ModelPriceDrawer :open="drawerOpen" :rule="selected" @update:open="setDrawerOpen">
-          <template #trigger>
-            <AppButton data-test="model-price-add" @click="addOverride">
-              <Plus :size="16" aria-hidden="true" />{{ t('modelPrices.add') }}
-            </AppButton>
-          </template>
-        </ModelPriceDrawer>
+        <AppButton data-test="model-price-add" @click="addOverride">
+          <Plus :size="16" aria-hidden="true" />{{ t('modelPrices.add') }}
+        </AppButton>
       </template>
     </PageHeader>
+
+    <ModelPriceDrawer
+      v-if="drawerOpen"
+      :open="drawerOpen"
+      :rule="selected"
+      @update:open="setDrawerOpen"
+    />
 
     <SurfaceCard class="model-prices__notice">
       <Tags :size="18" aria-hidden="true" />

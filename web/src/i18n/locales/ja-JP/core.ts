@@ -10,6 +10,8 @@ export default {
     conceal: 'キーを隠す',
     cancel: 'キャンセル',
     close: '閉じる',
+    asyncLoading: 'このセクションを読み込んでいます…',
+    asyncLoadFailed: 'このセクションを読み込めません。ページを再読み込みしてください。',
     unsavedChanges: '未保存の変更を破棄しますか？編集を続けるにはキャンセルしてください。',
     protocols: {
       openai: 'OpenAI',

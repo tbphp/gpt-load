@@ -5,15 +5,17 @@ import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 
 import { useApiClient } from '@/api/client-context'
+import { lazySurface } from '@/app/async-surface'
 import { groupDetailQueryOptions } from '@/app/resources/groups'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 
 import GroupHeader from './GroupHeader.vue'
 import GroupTabs from './GroupTabs.vue'
 import { normalizeGroupTab, parsePositiveId } from './group-route'
-import GroupKeysTab from './keys/GroupKeysTab.vue'
-import GroupModelsTab from './models/GroupModelsTab.vue'
-import GroupSettingsTab from './settings/GroupSettingsTab.vue'
+
+const GroupKeysTab = lazySurface(() => import('./keys/GroupKeysTab.vue'))
+const GroupModelsTab = lazySurface(() => import('./models/GroupModelsTab.vue'))
+const GroupSettingsTab = lazySurface(() => import('./settings/GroupSettingsTab.vue'))
 
 const route = useRoute()
 const client = useApiClient()

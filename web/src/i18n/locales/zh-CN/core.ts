@@ -10,6 +10,8 @@ export default {
     conceal: '隐藏密钥',
     cancel: '取消',
     close: '关闭',
+    asyncLoading: '正在加载此区域…',
+    asyncLoadFailed: '无法加载此区域，请刷新页面后重试。',
     unsavedChanges: '要放弃未保存的修改吗？选择“取消”可继续编辑。',
     protocols: {
       openai: 'OpenAI',

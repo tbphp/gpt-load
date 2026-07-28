@@ -136,8 +136,10 @@ describe('ModelPricesView', () => {
     const request = vi.fn().mockResolvedValue(priceReport()) as ApiClient['request']
     const { wrapper } = await mountView(request)
 
+    expect(wrapper.find('[data-test="async-surface-loading"]').exists()).toBe(false)
     await wrapper.get('[data-test="model-price-add"]').trigger('click')
     await flushPromises()
+    await vi.waitFor(() => expect(document.querySelector('[role="dialog"]')).not.toBeNull())
     expect(document.querySelector('[role="dialog"]')?.textContent).toContain(
       'Add model price override',
     )

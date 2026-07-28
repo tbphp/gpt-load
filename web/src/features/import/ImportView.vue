@@ -3,13 +3,15 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
+import { lazySurface } from '@/app/async-surface'
 import PageHeader from '@/components/ui/PageHeader.vue'
 
-import ExistingGroupImport from './ExistingGroupImport.vue'
 import { useImportOperationOwner } from './import-operation-owner'
 import { useImportRecovery } from './import-recovery'
 import type { ExistingGroupImportDraft, ImportDraft } from './model-draft'
-import NewGroupImport from './NewGroupImport.vue'
+
+const ExistingGroupImport = lazySurface(() => import('./ExistingGroupImport.vue'))
+const NewGroupImport = lazySurface(() => import('./NewGroupImport.vue'))
 
 const route = useRoute()
 const router = useRouter()

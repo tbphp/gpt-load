@@ -10,6 +10,8 @@ export default {
     conceal: 'Conceal key',
     cancel: 'Cancel',
     close: 'Close',
+    asyncLoading: 'Loading this section…',
+    asyncLoadFailed: 'Unable to load this section. Reload the page and try again.',
     unsavedChanges: 'Discard unsaved changes? Choose Cancel to continue editing.',
     protocols: {
       openai: 'OpenAI',

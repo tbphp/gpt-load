@@ -138,6 +138,11 @@ describe('MonitorView', () => {
     await flushPromises()
 
     expect(router.currentRoute.value.fullPath).toBe('/monitor?tab=logs')
+    await vi.waitFor(() => {
+      expect(
+        api.requests.filter(({ path: requestPath }) => requestPath.startsWith('/api/logs')),
+      ).toHaveLength(1)
+    })
     expect(
       api.requests.filter(({ path: requestPath }) => requestPath.startsWith('/api/logs')),
     ).toEqual([

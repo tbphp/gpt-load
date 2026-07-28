@@ -108,6 +108,7 @@ describe('GroupDetailView', () => {
       locale: 'en-US',
     })
     await flushPromises()
+    await vi.waitFor(() => expect(requestMock).toHaveBeenCalledTimes(2))
 
     expect(requestMock.mock.calls.map(([path]) => path)).toEqual([
       '/api/groups/7',
@@ -160,6 +161,9 @@ describe('GroupDetailView', () => {
       locale: 'en-US',
     })
     await flushPromises()
+    await vi.waitFor(() =>
+      expect(mounted.wrapper.find('[data-test="models-discover"]').exists()).toBe(true),
+    )
 
     expect(mounted.wrapper.get('[data-test="models-discover"]').text()).toContain('Rediscover')
     expect(mounted.wrapper.text()).not.toContain('delivered in the next T23 task')
@@ -193,6 +197,9 @@ describe('GroupDetailView', () => {
       locale: 'en-US',
     })
     await flushPromises()
+    await vi.waitFor(() =>
+      expect(mounted.wrapper.find('[data-test="group-settings-save"]').exists()).toBe(true),
+    )
 
     expect(mounted.wrapper.get('[data-test="group-settings-save"]').text()).toContain('Save')
     expect(mounted.wrapper.text()).not.toContain('delivered in the following T23 task')
@@ -220,6 +227,7 @@ describe('GroupDetailView', () => {
       locale: 'en-US',
     })
     await flushPromises()
+    await vi.waitFor(() => expect(wrapper.text()).toContain('sk-g****a1b2'))
 
     expect(wrapper.text()).toContain('sk-g****a1b2')
     await wrapper.get('[data-test="key-weight-11"]').setValue('42')
@@ -229,6 +237,7 @@ describe('GroupDetailView', () => {
 
     await router.push('/groups/8?tab=keys')
     await flushPromises()
+    await vi.waitFor(() => expect(wrapper.text()).toContain('sk-g****c3d4'))
 
     expect(requestMock.mock.calls.map(([path]) => path)).toContain('/api/groups/8/keys')
     expect(wrapper.text()).not.toContain('sk-g****a1b2')

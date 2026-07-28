@@ -153,6 +153,7 @@ describe('AccessKeysView', () => {
 
     await wrapper.get('[data-test="access-key-edit-9"]').trigger('click')
     await flushPromises()
+    await vi.waitFor(() => expect(document.querySelector('.app-drawer__close')).not.toBeNull())
     documentButton('.app-drawer__close').click()
     await flushPromises()
 
@@ -277,7 +278,11 @@ describe('AccessKeysView', () => {
     const request = requestMock as ApiClient['request']
     const { wrapper } = await mountView(request)
 
+    expect(wrapper.find('[data-test="async-surface-loading"]').exists()).toBe(false)
     await wrapper.get('[data-test="access-key-create"]').trigger('click')
+    await vi.waitFor(() =>
+      expect(document.querySelector('[data-test="access-key-name"]')).not.toBeNull(),
+    )
     const name = document.querySelector<HTMLInputElement>('[data-test="access-key-name"]')
     if (!name) throw new Error('missing create name')
     name.value = 'reconcile-client'
@@ -334,6 +339,9 @@ describe('AccessKeysView', () => {
 
     await wrapper.get('[data-test="access-key-edit-9"]').trigger('click')
     await flushPromises()
+    await vi.waitFor(() =>
+      expect(document.querySelector('[data-test="access-key-name"]')).not.toBeNull(),
+    )
     const name = document.querySelector<HTMLInputElement>('[data-test="access-key-name"]')
     if (!name) throw new Error('missing edit name')
     name.value = 'renamed-client'
