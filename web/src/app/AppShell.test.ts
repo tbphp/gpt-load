@@ -6,7 +6,6 @@ import { createMemoryHistory } from 'vue-router'
 import { createApiClient } from '@/api/client'
 import { controlQueryKeys } from '@/app/query-keys'
 import { createAppRouter } from '@/app/router'
-import AppSelect from '@/components/ui/AppSelect.vue'
 import { authSessionKey, createAuthSession } from '@/features/auth/auth-session'
 import {
   createImportRecoveryService,
@@ -131,11 +130,21 @@ describe('AppShell', () => {
   it('changes locale and theme through injected controllers', async () => {
     const { appI18n, wrapper } = await mountShell()
 
-    wrapper.findComponent(AppSelect).vm.$emit('update:modelValue', 'ja-JP')
+    await wrapper.get('[aria-label="Preferences"]').trigger('click')
+    await flushPromises()
+    const localeChoice = document.querySelector<HTMLInputElement>(
+      'input[data-test="preference-locale"][value="ja-JP"]',
+    )
+    if (!localeChoice) throw new Error('missing locale choice')
+    localeChoice.click()
     await flushPromises()
     expect(appI18n.getLocale()).toBe('ja-JP')
 
-    await wrapper.get('[aria-label="ダークテーマを使用"]').trigger('click')
+    const themeChoice = document.querySelector<HTMLInputElement>(
+      'input[data-test="preference-theme"][value="dark"]',
+    )
+    if (!themeChoice) throw new Error('missing theme choice')
+    themeChoice.click()
     expect(document.documentElement.dataset.theme).toBe('dark')
   })
 
