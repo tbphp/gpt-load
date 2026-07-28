@@ -1,9 +1,9 @@
 import { QueryClient } from '@tanstack/vue-query'
 import { flushPromises } from '@vue/test-utils'
 
-import type { ApiClient } from '@/api/client'
+import type { ApiClient, ApiRequestOptions } from '@/api/client'
 import type { AccessKeyCreateResultDto, AccessKeyDto, GroupSummary } from '@/api/control/types'
-import { ApiError } from '@/api/errors'
+import { ApiError, NetworkError } from '@/api/errors'
 import { controlQueryKeys } from '@/app/query-keys'
 import { mountApp } from '@/test/mount-app'
 
@@ -81,6 +81,24 @@ function element<T extends Element>(selector: string): T {
   return found
 }
 
+function requestDrawerClose(path: 'cancel' | 'close' | 'escape' | 'outside'): void {
+  if (path === 'cancel') {
+    element<HTMLButtonElement>('.access-key-drawer__actions .app-button--secondary').click()
+    return
+  }
+  if (path === 'close') {
+    element<HTMLButtonElement>('.app-drawer__close').click()
+    return
+  }
+  if (path === 'escape') {
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    return
+  }
+  const overlay = element<HTMLElement>('.app-drawer__overlay')
+  overlay.dispatchEvent(new Event('pointerdown', { bubbles: true }))
+  overlay.click()
+}
+
 function protocolLabel(name: string): HTMLLabelElement | undefined {
   return [...document.querySelectorAll<HTMLLabelElement>('.access-key-drawer__check')].find(
     (label) => label.textContent?.includes(name),
@@ -88,6 +106,45 @@ function protocolLabel(name: string): HTMLLabelElement | undefined {
 }
 
 describe('AccessKeyDrawer', () => {
+  it('closes an untouched create draft without a discard prompt', async () => {
+    const confirm = vi.fn(() => false)
+    vi.stubGlobal('confirm', confirm)
+    const { wrapper } = await mountDrawer(vi.fn() as ApiClient['request'])
+
+    requestDrawerClose('cancel')
+    await flushPromises()
+
+    expect(confirm).not.toHaveBeenCalled()
+    expect(wrapper.emitted('update:open')).toContainEqual([false])
+    wrapper.unmount()
+    vi.unstubAllGlobals()
+  })
+
+  it.each(['cancel', 'close', 'escape', 'outside'] as const)(
+    'confirms a dirty AccessKey draft before %s close',
+    async (path) => {
+      const confirm = vi.fn(() => false)
+      vi.stubGlobal('confirm', confirm)
+      const { wrapper } = await mountDrawer(vi.fn() as ApiClient['request'])
+      const name = element<HTMLInputElement>('[data-test="access-key-name"]')
+      name.value = 'draft-client'
+      name.dispatchEvent(new Event('input', { bubbles: true }))
+      await flushPromises()
+
+      requestDrawerClose(path)
+      await flushPromises()
+      expect(wrapper.emitted('update:open') ?? []).not.toContainEqual([false])
+
+      confirm.mockReturnValue(true)
+      requestDrawerClose(path)
+      await flushPromises()
+      expect(wrapper.emitted('update:open')).toContainEqual([false])
+      expect(confirm).toHaveBeenCalledTimes(2)
+      wrapper.unmount()
+      vi.unstubAllGlobals()
+    },
+  )
+
   it('does not offer the reserved protocol while creating an AccessKey', async () => {
     const request = vi.fn() as ApiClient['request']
     const { wrapper } = await mountDrawer(request)
@@ -685,6 +742,97 @@ describe('AccessKeyDrawer', () => {
     expect(wrapper.emitted('update:open') ?? []).not.toContainEqual([false])
     wrapper.unmount()
   })
+
+  it('blocks every close path without aborting a pending metadata update', async () => {
+    let signal: AbortSignal | null | undefined
+    const request = vi.fn((_path: string, options?: ApiRequestOptions) => {
+      signal = options?.signal
+      return new Promise<AccessKeyDto>(() => {})
+    }) as ApiClient['request']
+    const confirm = vi.fn(() => true)
+    vi.stubGlobal('confirm', confirm)
+    const { wrapper } = await mountDrawer(request, { open: true, accessKey: existing })
+    const status = element<HTMLSelectElement>('[data-test="access-key-status"]')
+    status.value = 'disabled'
+    status.dispatchEvent(new Event('change', { bubbles: true }))
+    await flushPromises()
+    element<HTMLButtonElement>('[data-test="access-key-save"]').click()
+    await flushPromises()
+
+    for (const path of ['cancel', 'close', 'escape', 'outside'] as const) {
+      requestDrawerClose(path)
+    }
+    await flushPromises()
+
+    expect(request).toHaveBeenCalledTimes(1)
+    expect(signal?.aborted).toBe(false)
+    expect(confirm).not.toHaveBeenCalled()
+    expect(wrapper.emitted('update:open') ?? []).not.toContainEqual([false])
+    wrapper.unmount()
+    expect(signal?.aborted).toBe(true)
+    vi.unstubAllGlobals()
+  })
+
+  it.each([
+    ['applied', { ...existing, name: 'renamed' }],
+    ['unchanged', existing],
+    ['divergent', { ...existing, name: 'other-name' }],
+  ] as const)(
+    'reconciles an indeterminate metadata update when the resource is %s',
+    async (outcome, latest) => {
+      const requestMock = vi
+        .fn()
+        .mockRejectedValueOnce(new NetworkError())
+        .mockResolvedValueOnce([latest])
+      const { wrapper } = await mountDrawer(requestMock as ApiClient['request'], {
+        open: true,
+        accessKey: existing,
+      })
+      const name = element<HTMLInputElement>('[data-test="access-key-name"]')
+      name.value = 'renamed'
+      name.dispatchEvent(new Event('input', { bubbles: true }))
+      await flushPromises()
+      element<HTMLButtonElement>('[data-test="access-key-save"]').click()
+      await flushPromises()
+
+      const check = element<HTMLButtonElement>('[data-test="access-key-save"]')
+      expect(check.textContent).toContain('Check result')
+      expect(element<HTMLButtonElement>('.app-drawer__close').disabled).toBe(true)
+      requestDrawerClose('close')
+      expect(wrapper.emitted('update:open') ?? []).not.toContainEqual([false])
+
+      check.click()
+      await flushPromises()
+
+      expect(requestMock).toHaveBeenNthCalledWith(1, '/api/access-keys/9', {
+        method: 'PUT',
+        json: { name: 'renamed' },
+        signal: expect.any(AbortSignal),
+      })
+      expect(requestMock).toHaveBeenNthCalledWith(2, '/api/access-keys', {
+        method: 'GET',
+        signal: expect.any(AbortSignal),
+      })
+      expect(requestMock.mock.calls.filter((call) => call[1]?.method === 'PUT')).toHaveLength(1)
+
+      if (outcome === 'applied') {
+        expect(element<HTMLInputElement>('[data-test="access-key-name"]').value).toBe('renamed')
+        expect(element<HTMLButtonElement>('[data-test="access-key-save"]').disabled).toBe(true)
+        expect(element<HTMLButtonElement>('.app-drawer__close').disabled).toBe(false)
+      } else if (outcome === 'unchanged') {
+        expect(document.body.textContent).toContain('latest AccessKey metadata is unchanged')
+        expect(element<HTMLButtonElement>('[data-test="access-key-save"]').disabled).toBe(false)
+        expect(element<HTMLButtonElement>('.app-drawer__close').disabled).toBe(false)
+      } else {
+        expect(document.body.textContent).toContain('request outcome is unknown')
+        expect(element<HTMLButtonElement>('[data-test="access-key-save"]').textContent).toContain(
+          'Check result',
+        )
+        expect(element<HTMLButtonElement>('.app-drawer__close').disabled).toBe(true)
+      }
+      wrapper.unmount()
+    },
+  )
 
   it('starts a new idempotency identity after an explicit create rejection', async () => {
     const created: AccessKeyCreateResultDto = {

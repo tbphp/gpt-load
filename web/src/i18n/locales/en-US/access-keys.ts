@@ -65,6 +65,12 @@ export default {
       save: 'Save AccessKey',
       checkResult: 'Check result',
       saveFailed: 'Unable to save the AccessKey. Your input is unchanged.',
+      editNotApplied:
+        'The latest AccessKey metadata is unchanged. Review the draft and retry when ready.',
+      editIndeterminate:
+        'The update request outcome is unknown. Check current metadata; this action does not resend the update.',
+      editReconciling:
+        'The update was committed, but current AccessKey metadata must be checked before continuing.',
       saveIndeterminate:
         'The request outcome is unknown. Check the result with this same operation before retrying.',
       saveReconciling: 'The AccessKey was committed and runtime recovery is still in progress.',

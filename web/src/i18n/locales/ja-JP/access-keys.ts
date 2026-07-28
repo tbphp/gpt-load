@@ -67,6 +67,12 @@ export default {
       save: 'AccessKey を保存',
       checkResult: '結果を確認',
       saveFailed: 'AccessKey を保存できません。入力内容は保持されています。',
+      editNotApplied:
+        '最新の AccessKey メタデータは変更されていません。下書きを確認してから再試行してください。',
+      editIndeterminate:
+        '更新リクエストの結果は不明です。現在のメタデータを確認してください。この操作で更新は再送されません。',
+      editReconciling:
+        '更新は確定しましたが、続行する前に現在の AccessKey メタデータを確認する必要があります。',
       saveIndeterminate: 'リクエスト結果は不明です。再試行前に同じ操作で結果を確認してください。',
       saveReconciling: 'AccessKey は確定しましたが、ランタイムの復旧処理が続いています。',
       scopeIncomplete: '制限された各範囲には、1 つ以上の値を選択してください。',

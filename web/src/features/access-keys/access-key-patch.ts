@@ -103,6 +103,36 @@ function equalFilters(left: AccessKeyFiltersDto, right: AccessKeyFiltersDto): bo
   return JSON.stringify(canonicalFilters(left)) === JSON.stringify(canonicalFilters(right))
 }
 
+export function isAccessKeyDraftDirty(draft: AccessKeyDraft, base?: AccessKeyDto | null): boolean {
+  const initial = createAccessKeyDraft(base)
+  if (
+    draft.scopeModes.groups !== initial.scopeModes.groups ||
+    draft.scopeModes.protocols !== initial.scopeModes.protocols ||
+    draft.scopeModes.models !== initial.scopeModes.models
+  ) {
+    return true
+  }
+  if (base) return Object.keys(buildAccessKeyUpdatePatch(base, draft)).length > 0
+  return (
+    draft.name !== initial.name ||
+    draft.status !== initial.status ||
+    draft.rpm_limit !== initial.rpm_limit ||
+    !equalFilters(draft.filters, initial.filters)
+  )
+}
+
+export function accessKeyMatchesUpdatePatch(
+  accessKey: AccessKeyDto,
+  patch: UpdateAccessKeyRequest,
+): boolean {
+  return (
+    (patch.name === undefined || patch.name === accessKey.name) &&
+    (patch.status === undefined || patch.status === accessKey.status) &&
+    (patch.filters === undefined || equalFilters(patch.filters, accessKey.filters)) &&
+    (patch.rpm_limit === undefined || patch.rpm_limit === accessKey.rpm_limit)
+  )
+}
+
 export function buildAccessKeyUpdatePatch(
   base: AccessKeyDto,
   draft: AccessKeyDraft,
