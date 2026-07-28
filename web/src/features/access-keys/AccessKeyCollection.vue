@@ -241,6 +241,11 @@ onBeforeUnmount(() => {
   overflow-wrap: anywhere;
 }
 
+.access-key-collection__cards :deep(.status-badge) {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
 .access-key-card__summary {
   display: grid;
   grid-template-columns: minmax(6rem, auto) minmax(0, 1fr);

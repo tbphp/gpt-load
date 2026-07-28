@@ -46,6 +46,13 @@ async function prepareScenario(
     await page.locator('a.brand').click()
     await expect(page.locator('[data-test="home-operational-overview"]')).toBeVisible()
     await expect(page.getByText(/stale|旧数据/).first()).toBeVisible()
+    const [card, badge] = await Promise.all([
+      page.locator('.service-card').boundingBox(),
+      page.locator('.service-card .status-badge').boundingBox(),
+    ])
+    expect(card).not.toBeNull()
+    expect(badge).not.toBeNull()
+    expect(badge!.x + badge!.width).toBeLessThanOrEqual(card!.x + card!.width)
     return
   }
 
