@@ -7,10 +7,7 @@ import { apiClientKey } from '@/api/client-context'
 import { ApiError, NetworkError } from '@/api/errors'
 import { controlQueryKeys } from '@/app/query-keys'
 import { createAppRouter } from '@/app/router'
-import {
-  createDirtyNavigationController,
-  dirtyNavigationKey,
-} from '@/features/import/use-dirty-navigation'
+import { createUnsavedChangesController, unsavedChangesKey } from '@/app/unsaved-changes'
 import type { ImportRecoveryService } from '@/features/import/import-recovery'
 import type { ImportDraft } from '@/features/import/model-draft'
 import { importRecoveryKey } from '@/features/import/import-recovery'
@@ -54,7 +51,7 @@ async function mountImport(request: ApiClient['request'], initialDraft?: ImportD
         [apiClientKey as symbol]: { request },
         [importRecoveryKey as symbol]: importRecovery,
         [importOperationOwnerKey as symbol]: operationOwner,
-        [dirtyNavigationKey as symbol]: createDirtyNavigationController(),
+        [unsavedChangesKey as symbol]: createUnsavedChangesController(),
       },
     },
   })

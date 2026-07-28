@@ -20,14 +20,14 @@ import AppSelect from '@/components/ui/AppSelect.vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import { useAuthSession } from '@/features/auth/auth-session'
 import { useImportRecovery } from '@/features/import/import-recovery'
-import { useDirtyNavigationController } from '@/features/import/use-dirty-navigation'
+import { useUnsavedChangesController } from '@/app/unsaved-changes'
 import { useTheme, type AppTheme } from '@/features/preferences/theme'
 import { supportedLocales, type AppLocale } from '@/i18n'
 import { useAppI18n } from '@/i18n/context'
 
 const session = useAuthSession()
 const recovery = useImportRecovery()
-const dirtyNavigation = useDirtyNavigationController()
+const unsavedChanges = useUnsavedChangesController()
 const appI18n = useAppI18n()
 const theme = useTheme()
 const route = useRoute()
@@ -66,10 +66,10 @@ function logout(): void {
   drawerOpen.value = false
   recovery.clear()
   const bypassDirtyImport = route.name === 'import'
-  if (bypassDirtyImport) dirtyNavigation.bypassNext()
+  if (bypassDirtyImport) unsavedChanges.bypassNext()
   session.clear()
   void router.replace({ name: 'login' }).finally(() => {
-    if (bypassDirtyImport) dirtyNavigation.consumeBypass()
+    if (bypassDirtyImport) unsavedChanges.consumeBypass()
   })
 }
 

@@ -31,7 +31,7 @@ import { analyzeKeys } from './key-analysis'
 import KeyTextarea from './KeyTextarea.vue'
 import type { ImportDraft } from './model-draft'
 import { createModelDraft, toGroupModels } from './model-draft'
-import { useDirtyNavigation } from './use-dirty-navigation'
+import { useUnsavedChanges } from '@/app/unsaved-changes'
 
 const props = defineProps<{ initialDraft?: ImportDraft | null }>()
 const api = useApiClient()
@@ -133,7 +133,7 @@ const canDiscover = computed(
 const canReview = computed(() => !pending.value && toGroupModels(draft.models).length > 0)
 const protocols: GroupProtocol[] = ['openai', 'anthropic', 'gemini']
 
-useDirtyNavigation(dirty)
+useUnsavedChanges(dirty)
 const unregisterRecovery = recovery.register(() => (completed.value ? null : snapshotDraft()))
 
 function snapshotDraft(): ImportDraft {

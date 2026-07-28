@@ -108,6 +108,5 @@ export default {
       separate: 'Create a separate Group',
       edit: 'Return to edit',
     },
-    unsavedConfirm: 'Discard unsaved import changes?',
   },
 } as const

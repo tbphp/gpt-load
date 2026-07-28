@@ -1,4 +1,4 @@
-import { createDirtyNavigationController } from '@/features/import/use-dirty-navigation'
+import { createUnsavedChangesController } from '@/app/unsaved-changes'
 
 import { handleGlobalUnauthorized } from './unauthorized'
 
@@ -16,7 +16,7 @@ describe('handleGlobalUnauthorized', () => {
           return 'stored'
         },
       },
-      dirtyNavigation: { bypassNext: () => order.push('bypass'), consumeBypass: () => false },
+      unsavedChanges: { bypassNext: () => order.push('bypass'), consumeBypass: () => false },
       session: { hasCredential: () => true, clear: () => order.push('clear') },
       router: { replace },
       redirect: '/import?mode=new',
@@ -27,15 +27,15 @@ describe('handleGlobalUnauthorized', () => {
   })
 
   it('does not leave a stale dirty-navigation bypass after Login navigation completes', async () => {
-    const dirtyNavigation = createDirtyNavigationController()
+    const unsavedChanges = createUnsavedChangesController()
     await handleGlobalUnauthorized({
       recovery: { captureForUnauthorized: () => 'no-active-draft' },
-      dirtyNavigation,
+      unsavedChanges,
       session: { hasCredential: () => true, clear: () => {} },
       router: { replace: vi.fn(async () => {}) },
       redirect: '/',
     })
-    expect(dirtyNavigation.consumeBypass()).toBe(false)
+    expect(unsavedChanges.consumeBypass()).toBe(false)
   })
 
   it('continues credential cleanup and Login navigation when recovery storage is unavailable', async () => {
@@ -45,7 +45,7 @@ describe('handleGlobalUnauthorized', () => {
     await expect(
       handleGlobalUnauthorized({
         recovery: { captureForUnauthorized: () => 'storage-unavailable' },
-        dirtyNavigation: { bypassNext, consumeBypass: () => false },
+        unsavedChanges: { bypassNext, consumeBypass: () => false },
         session: { hasCredential: () => true, clear },
         router: { replace },
         redirect: '/import',

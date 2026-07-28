@@ -10,6 +10,7 @@ export default {
     conceal: 'Conceal key',
     cancel: 'Cancel',
     close: 'Close',
+    unsavedChanges: 'Discard unsaved changes? Choose Cancel to continue editing.',
     protocols: {
       openai: 'OpenAI',
       anthropic: 'Anthropic',

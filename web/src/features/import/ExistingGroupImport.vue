@@ -17,7 +17,7 @@ import { useImportRecovery } from './import-recovery'
 import { analyzeKeys } from './key-analysis'
 import KeyTextarea from './KeyTextarea.vue'
 import type { ExistingGroupImportDraft } from './model-draft'
-import { useDirtyNavigation } from './use-dirty-navigation'
+import { useUnsavedChanges } from '@/app/unsaved-changes'
 
 const props = defineProps<{ initialDraft?: ExistingGroupImportDraft | null }>()
 const api = useApiClient()
@@ -79,7 +79,7 @@ const canReview = computed(
 )
 const dirty = computed(() => !completed.value && keys.value !== '')
 
-useDirtyNavigation(dirty)
+useUnsavedChanges(dirty)
 const unregisterRecovery = recovery.register(() =>
   completed.value
     ? null

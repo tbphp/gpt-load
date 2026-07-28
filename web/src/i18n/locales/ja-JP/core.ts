@@ -10,6 +10,7 @@ export default {
     conceal: 'キーを隠す',
     cancel: 'キャンセル',
     close: '閉じる',
+    unsavedChanges: '未保存の変更を破棄しますか？編集を続けるにはキャンセルしてください。',
     protocols: {
       openai: 'OpenAI',
       anthropic: 'Anthropic',

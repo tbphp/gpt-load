@@ -12,10 +12,7 @@ import {
   type AuthState,
 } from '@/features/auth/auth-session'
 import { importRecoveryKey, type ImportRecoveryService } from '@/features/import/import-recovery'
-import {
-  createDirtyNavigationController,
-  dirtyNavigationKey,
-} from '@/features/import/use-dirty-navigation'
+import { createUnsavedChangesController, unsavedChangesKey } from '@/app/unsaved-changes'
 import { createTestAppI18n as createAppI18n } from '@/test/i18n'
 
 import AuthGate from './AuthGate.vue'
@@ -99,7 +96,7 @@ async function mountGate(session: AuthSession, path = '/login', attachTo?: Eleme
       provide: {
         [authSessionKey as symbol]: session,
         [importRecoveryKey as symbol]: recovery,
-        [dirtyNavigationKey as symbol]: createDirtyNavigationController(),
+        [unsavedChangesKey as symbol]: createUnsavedChangesController(),
       },
     },
   })

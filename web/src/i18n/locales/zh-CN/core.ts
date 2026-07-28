@@ -10,6 +10,7 @@ export default {
     conceal: '隐藏密钥',
     cancel: '取消',
     close: '关闭',
+    unsavedChanges: '要放弃未保存的修改吗？选择“取消”可继续编辑。',
     protocols: {
       openai: 'OpenAI',
       anthropic: 'Anthropic',

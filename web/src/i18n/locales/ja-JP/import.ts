@@ -105,6 +105,5 @@ export default {
       separate: '別の Group を作成',
       edit: '編集に戻る',
     },
-    unsavedConfirm: '保存していないインポート内容を破棄しますか？',
   },
 } as const
