@@ -142,7 +142,7 @@ describe('UsageTab', () => {
     )
   })
 
-  it('updates range immediately while Group/model remain an explicit Apply/Reset draft', async () => {
+  it('keeps every filter as one draft and applies range, Group, and model atomically', async () => {
     const api = new UsageApi([usageReport(), usageReport(), usageReport(), usageReport()])
     const { router, wrapper } = await mountUsage(
       api,
@@ -150,27 +150,44 @@ describe('UsageTab', () => {
     )
 
     await wrapper.get('[data-test="usage-range"]').setValue('30d')
-    await flushPromises()
-    expect(router.currentRoute.value.fullPath).toBe(
-      '/monitor?tab=usage&range=30d&group_id=7&model=gpt-upstream',
-    )
-
     await wrapper.get('[data-test="usage-group"]').setValue('')
     await wrapper.get('[data-test="usage-model"]').setValue('claude-upstream')
-    expect(router.currentRoute.value.fullPath).toContain('model=gpt-upstream')
+    expect(router.currentRoute.value.fullPath).toBe(
+      '/monitor?tab=usage&range=24h&group_id=7&model=gpt-upstream',
+    )
+    expect(api.requests.filter(({ path }) => path.startsWith('/api/usage?'))).toHaveLength(1)
+    expect(wrapper.get('[data-test="usage-filter-dirty"]').text()).toContain('not applied')
+    const appliedBefore = wrapper.get('[data-test="usage-applied-filters"]').text()
+    expect(appliedBefore).toContain('Last 24 hours')
+    expect(appliedBefore).toContain('gpt-upstream')
+    expect(appliedBefore).not.toContain('claude-upstream')
+
     await wrapper.get('[data-test="usage-filter-form"]').trigger('submit')
     await flushPromises()
     expect(router.currentRoute.value.fullPath).toBe(
       '/monitor?tab=usage&range=30d&model=claude-upstream',
     )
+    expect(api.requests.filter(({ path }) => path.startsWith('/api/usage?'))).toHaveLength(2)
+    expect(wrapper.find('[data-test="usage-filter-dirty"]').exists()).toBe(false)
 
     await wrapper.get('[data-test="usage-reset"]').trigger('click')
     await flushPromises()
-    expect(router.currentRoute.value.fullPath).toBe('/monitor?tab=usage&range=30d')
+    expect(router.currentRoute.value.fullPath).toBe(
+      '/monitor?tab=usage&range=30d&model=claude-upstream',
+    )
+    expect(api.requests.filter(({ path }) => path.startsWith('/api/usage?'))).toHaveLength(2)
+    expect(wrapper.get<HTMLSelectElement>('[data-test="usage-range"]').element.value).toBe('24h')
+    expect(wrapper.get<HTMLInputElement>('[data-test="usage-model"]').element.value).toBe('')
+    expect(wrapper.get('[data-test="usage-applied-filters"]').text()).toContain('claude-upstream')
+
+    await wrapper.get('[data-test="usage-filter-form"]').trigger('submit')
+    await flushPromises()
+    expect(router.currentRoute.value.fullPath).toBe('/monitor?tab=usage&range=24h')
+    expect(api.requests.filter(({ path }) => path.startsWith('/api/usage?'))).toHaveLength(3)
   })
 
-  it('preserves an unapplied Group/model draft when only range changes', async () => {
-    const api = new UsageApi([usageReport(), usageReport()])
+  it('preserves an unapplied complete draft on Refresh and separates observed/refreshed time', async () => {
+    const api = new UsageApi([usageReport(), usageReport({ observed_at: '2026-07-27T04:30:00Z' })])
     const { router, wrapper } = await mountUsage(
       api,
       '/monitor?tab=usage&range=24h&group_id=7&model=gpt-upstream',
@@ -179,14 +196,23 @@ describe('UsageTab', () => {
     await wrapper.get('[data-test="usage-group"]').setValue('')
     await wrapper.get('[data-test="usage-model"]').setValue('draft-upstream')
     await wrapper.get('[data-test="usage-range"]').setValue('30d')
+    await wrapper.get('[data-test="usage-refresh"]').trigger('click')
     await flushPromises()
 
     expect(router.currentRoute.value.fullPath).toBe(
-      '/monitor?tab=usage&range=30d&group_id=7&model=gpt-upstream',
+      '/monitor?tab=usage&range=24h&group_id=7&model=gpt-upstream',
     )
+    expect(api.requests.filter(({ path }) => path.startsWith('/api/usage?'))).toHaveLength(2)
+    expect(wrapper.get<HTMLSelectElement>('[data-test="usage-range"]').element.value).toBe('30d')
     expect(wrapper.get<HTMLSelectElement>('[data-test="usage-group"]').element.value).toBe('')
     expect(wrapper.get<HTMLInputElement>('[data-test="usage-model"]').element.value).toBe(
       'draft-upstream',
+    )
+    expect(wrapper.get('[data-test="usage-observed-at"]').attributes('datetime')).toBe(
+      '2026-07-27T04:30:00Z',
+    )
+    expect(wrapper.get('[data-test="usage-refreshed-at"]').attributes('datetime')).not.toBe(
+      '2026-07-27T04:30:00Z',
     )
   })
 

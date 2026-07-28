@@ -15,10 +15,7 @@ import {
   type ImportRecoveryService,
 } from '@/features/import/import-recovery'
 import type { ImportDraft } from '@/features/import/model-draft'
-import {
-  createDirtyNavigationController,
-  dirtyNavigationKey,
-} from '@/features/import/use-dirty-navigation'
+import { createUnsavedChangesController, unsavedChangesKey } from '@/app/unsaved-changes'
 import { createThemeController, themeControllerKey } from '@/features/preferences/theme'
 import { appI18nKey } from '@/i18n/context'
 import { createTestAppI18n as createAppI18n } from '@/test/i18n'
@@ -60,7 +57,7 @@ async function mountShell(path = '/') {
     sweep: () => {},
     dispose: () => {},
   }
-  const dirtyNavigation = createDirtyNavigationController()
+  const unsavedChanges = createUnsavedChangesController()
   const wrapper = mount(AppShell, {
     slots: { default: TestPage },
     attachTo: document.body,
@@ -71,11 +68,11 @@ async function mountShell(path = '/') {
         [appI18nKey as symbol]: appI18n,
         [themeControllerKey as symbol]: theme,
         [importRecoveryKey as symbol]: recovery,
-        [dirtyNavigationKey as symbol]: dirtyNavigation,
+        [unsavedChangesKey as symbol]: unsavedChanges,
       },
     },
   })
-  return { appI18n, dirtyNavigation, recovery, router, session, theme, wrapper }
+  return { appI18n, unsavedChanges, recovery, router, session, theme, wrapper }
 }
 
 describe('AppShell', () => {
@@ -174,7 +171,7 @@ describe('AppShell', () => {
     }
     const unregister = recovery.register(() => recoveredDraft)
     const capture = vi.spyOn(recovery, 'captureForUnauthorized')
-    const dirtyNavigation = createDirtyNavigationController()
+    const unsavedChanges = createUnsavedChangesController()
     const delayed = deferred<Response>()
     const apiClient = createApiClient({
       fetch: vi.fn(() => delayed.promise) as typeof fetch,
@@ -187,7 +184,7 @@ describe('AppShell', () => {
             : '/'
         void handleGlobalUnauthorized({
           recovery,
-          dirtyNavigation,
+          unsavedChanges,
           session,
           router,
           redirect,
@@ -210,7 +207,7 @@ describe('AppShell', () => {
           [appI18nKey as symbol]: appI18n,
           [themeControllerKey as symbol]: theme,
           [importRecoveryKey as symbol]: recovery,
-          [dirtyNavigationKey as symbol]: dirtyNavigation,
+          [unsavedChangesKey as symbol]: unsavedChanges,
         },
       },
     })
@@ -231,7 +228,7 @@ describe('AppShell', () => {
     expect(session.hasCredential()).toBe(false)
     expect(queryClient.getQueryData(controlQueryKeys.groups.list())).toBeUndefined()
     expect(queryClient.getMutationCache().getAll()).toHaveLength(0)
-    expect(dirtyNavigation.consumeBypass()).toBe(false)
+    expect(unsavedChanges.consumeBypass()).toBe(false)
 
     unregister()
     wrapper.unmount()
@@ -239,14 +236,33 @@ describe('AppShell', () => {
     theme.dispose()
   })
 
+  it('keeps the session and recovery state when dirty-page logout navigation is canceled', async () => {
+    const { unsavedChanges, recovery, router, session, theme, wrapper } =
+      await mountShell('/settings')
+    const removeGuard = router.beforeEach((to) => (to.name === 'login' ? false : true))
+
+    await wrapper.get('[aria-label="Sign out"]').trigger('click')
+    await flushPromises()
+
+    expect(router.currentRoute.value.path).toBe('/settings')
+    expect(session.hasCredential()).toBe(true)
+    expect(recovery.clear).not.toHaveBeenCalled()
+    expect(unsavedChanges.consumeBypass()).toBe(false)
+
+    removeGuard()
+    wrapper.unmount()
+    theme.dispose()
+  })
+
   it('logs out without placing the credential in rendered markup', async () => {
-    const { dirtyNavigation, recovery, session, wrapper } = await mountShell()
+    const { unsavedChanges, recovery, session, wrapper } = await mountShell()
 
     expect(wrapper.html()).not.toContain('test-key')
     await wrapper.get('[aria-label="Sign out"]').trigger('click')
+    await flushPromises()
 
     expect(session.hasCredential()).toBe(false)
     expect(recovery.clear).toHaveBeenCalledOnce()
-    expect(dirtyNavigation.consumeBypass()).toBe(false)
+    expect(unsavedChanges.consumeBypass()).toBe(false)
   })
 })

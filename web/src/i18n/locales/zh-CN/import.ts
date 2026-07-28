@@ -100,6 +100,5 @@ export default {
       separate: '创建独立 Group',
       edit: '返回编辑',
     },
-    unsavedConfirm: '放弃尚未保存的导入内容吗？',
   },
 } as const

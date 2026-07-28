@@ -63,6 +63,9 @@ export default {
       save: '保存 AccessKey',
       checkResult: '核对结果',
       saveFailed: '无法保存 AccessKey，输入内容已保留。',
+      editNotApplied: '最新 AccessKey 元数据仍未改变；请检查草稿后再重试。',
+      editIndeterminate: '更新请求结果未知；请核对当前元数据，此操作不会重新发送更新。',
+      editReconciling: '更新已提交，但继续前仍需核对当前 AccessKey 元数据。',
       saveIndeterminate: '请求结果未知；重试前请使用同一操作核对结果。',
       saveReconciling: 'AccessKey 已提交，运行时仍在恢复。',
       scopeIncomplete: '每个受限范围都必须至少选择一个值。',
@@ -79,6 +82,7 @@ export default {
       lastWarning: '这是最后一个 AccessKey。删除后，数据面客户端将没有已签发凭据。',
       confirm: '删除 AccessKey',
       failed: '无法删除 AccessKey。',
+      deletedAnnouncement: '已删除 AccessKey“{name}”。',
     },
   },
 } as const

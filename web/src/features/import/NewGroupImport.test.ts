@@ -7,10 +7,7 @@ import { apiClientKey } from '@/api/client-context'
 import { ApiError, NetworkError } from '@/api/errors'
 import { controlQueryKeys } from '@/app/query-keys'
 import { createAppRouter } from '@/app/router'
-import {
-  createDirtyNavigationController,
-  dirtyNavigationKey,
-} from '@/features/import/use-dirty-navigation'
+import { createUnsavedChangesController, unsavedChangesKey } from '@/app/unsaved-changes'
 import type { ImportRecoveryService } from '@/features/import/import-recovery'
 import type { ImportDraft } from '@/features/import/model-draft'
 import { importRecoveryKey } from '@/features/import/import-recovery'
@@ -33,7 +30,11 @@ function recovery(): ImportRecoveryService {
   }
 }
 
-async function mountImport(request: ApiClient['request'], initialDraft?: ImportDraft) {
+async function mountImport(
+  request: ApiClient['request'],
+  initialDraft?: ImportDraft,
+  attachTo?: Element,
+) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
@@ -44,6 +45,7 @@ async function mountImport(request: ApiClient['request'], initialDraft?: ImportD
   const operationOwner = createImportOperationOwner()
   const wrapper = mount(NewGroupImport, {
     props: { initialDraft },
+    attachTo,
     global: {
       plugins: [
         router,
@@ -54,7 +56,7 @@ async function mountImport(request: ApiClient['request'], initialDraft?: ImportD
         [apiClientKey as symbol]: { request },
         [importRecoveryKey as symbol]: importRecovery,
         [importOperationOwnerKey as symbol]: operationOwner,
-        [dirtyNavigationKey as symbol]: createDirtyNavigationController(),
+        [unsavedChangesKey as symbol]: createUnsavedChangesController(),
       },
     },
   })
@@ -76,6 +78,31 @@ async function discoverAndReview(wrapper: ReturnType<typeof mount>) {
 }
 
 describe('NewGroupImport', () => {
+  it('focuses the new heading after every explicit step transition', async () => {
+    const request = vi.fn().mockResolvedValue({ models: ['gpt-4o'] }) as ApiClient['request']
+    const { wrapper } = await mountImport(request, undefined, document.body)
+    await enterConnection(wrapper)
+
+    await wrapper.get('[data-test="discover"]').trigger('click')
+    await flushPromises()
+    expect(document.activeElement).toBe(wrapper.get('[data-test="import-step-2-heading"]').element)
+
+    await wrapper.get('[data-test="review"]').trigger('click')
+    await flushPromises()
+    expect(document.activeElement).toBe(wrapper.get('[data-test="import-step-3-heading"]').element)
+
+    const reviewBack = wrapper.findAll('button').find((button) => button.text() === 'Back')
+    await reviewBack?.trigger('click')
+    await flushPromises()
+    expect(document.activeElement).toBe(wrapper.get('[data-test="import-step-2-heading"]').element)
+
+    const modelsBack = wrapper.findAll('button').find((button) => button.text() === 'Back')
+    await modelsBack?.trigger('click')
+    await flushPromises()
+    expect(document.activeElement).toBe(wrapper.get('[data-test="import-step-1-heading"]').element)
+    wrapper.unmount()
+  })
+
   it('disables conflict Edit while append is pending', async () => {
     const request = vi
       .fn()

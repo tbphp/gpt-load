@@ -7,6 +7,18 @@ export default {
     stale: 'バックグラウンド更新に失敗したため、実行設定が古い可能性があります。',
     save: '変更を保存',
     saved: '設定を保存しました。',
+    savedAt: '{time} に設定を保存しました。',
+    saveFailed: '実行設定を更新できません。入力内容は保持されています。',
+    discard: '変更を破棄',
+    dirtySummary: '未保存の実行設定が {count} 件あります',
+    navigation: {
+      label: '実行設定セクション',
+      request: 'リクエストと転送',
+      logs: 'ログとメンテナンス',
+    },
+    validation: {
+      title: '保存前に次の設定を修正してください:',
+    },
     effectiveValue: '現在の有効値: {value}',
     override: '上書き',
     default: 'コード既定値',

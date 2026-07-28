@@ -12,7 +12,7 @@ import AppDialog from '@/components/ui/AppDialog.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 
 const props = defineProps<{ accessKey: AccessKeyDto; total: number }>()
-const emit = defineEmits<{ deleted: [] }>()
+const emit = defineEmits<{ deleted: [name: string] }>()
 const client = useApiClient()
 const { t } = useI18n()
 const open = ref(false)
@@ -21,6 +21,7 @@ const failed = ref(false)
 let controller: AbortController | undefined
 
 function setOpen(value: boolean): void {
+  if (!value && pending.value) return
   if (!value) {
     controller?.abort()
     controller = undefined
@@ -38,7 +39,7 @@ async function confirmDelete(): Promise<void> {
   try {
     await deleteAccessKey(client, props.accessKey.id, activeController.signal)
     open.value = false
-    emit('deleted')
+    emit('deleted', props.accessKey.name)
   } catch (error: unknown) {
     if (!(error instanceof RequestCancelledError)) failed.value = true
   } finally {
@@ -56,6 +57,7 @@ onBeforeUnmount(() => controller?.abort())
     :title="t('accessKeys.delete.title')"
     :description="t('accessKeys.delete.description', { name: accessKey.name })"
     :close-label="t('accessKeys.delete.close')"
+    :dismissible="!pending"
     @update:open="setOpen"
   >
     <template #trigger>

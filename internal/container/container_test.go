@@ -862,6 +862,20 @@ func TestBuildContainerRegistersWebUIControlAndGatewayRoutes(t *testing.T) {
 			}
 		}
 
+		unknownPageRecorder := httptest.NewRecorder()
+		unknownPageRequest := httptest.NewRequest(http.MethodGet, "/phase-2-unknown-route", nil)
+		unknownPageRequest.Header.Set("Accept", "text/html,application/xhtml+xml")
+		engine.ServeHTTP(unknownPageRecorder, unknownPageRequest)
+		if unknownPageRecorder.Code != http.StatusOK ||
+			!strings.HasPrefix(unknownPageRecorder.Header().Get("Content-Type"), "text/html") ||
+			unknownPageRecorder.Body.String() != indexBody {
+			t.Fatalf(
+				"unknown browser page response = %d %s, want shared embedded HTML",
+				unknownPageRecorder.Code,
+				unknownPageRecorder.Body.String(),
+			)
+		}
+
 		healthRecorder := httptest.NewRecorder()
 		engine.ServeHTTP(healthRecorder, httptest.NewRequest(http.MethodGet, "/health", nil))
 		if healthRecorder.Code != http.StatusOK || !strings.Contains(healthRecorder.Body.String(), `"status":"ok"`) {
@@ -928,6 +942,7 @@ func TestBuildContainerRegistersWebUIControlAndGatewayRoutes(t *testing.T) {
 			unknownRecorder := httptest.NewRecorder()
 			unknownRequest := httptest.NewRequest(http.MethodGet, "/api/unknown", nil)
 			unknownRequest.RemoteAddr = untrustedPeer
+			unknownRequest.Header.Set("Accept", "text/html,application/xhtml+xml")
 			engine.ServeHTTP(unknownRecorder, unknownRequest)
 			var unknownEnvelope struct {
 				Code string `json:"code"`

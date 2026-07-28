@@ -133,6 +133,7 @@ func BuildContainer() (*dig.Container, error) {
 		gatewayHandler.RegisterRoutes(engine)
 		controlServer.RegisterRoutes(engine)
 		webUIServer.RegisterRoutes(engine)
+		webUIServer.RegisterFallback(engine, gatewayHandler.Handle)
 	}); err != nil {
 		return nil, fmt.Errorf("register HTTP routes: %w", err)
 	}

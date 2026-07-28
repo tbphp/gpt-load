@@ -143,12 +143,16 @@ describe('GroupKeysTab', () => {
 
   it('deletes through an accessible dialog, restores trigger focus, and uses the exact invalidation set', async () => {
     let resolveDelete!: () => void
+    let deleteSignal: AbortSignal | null | undefined
     const deleteResult = new Promise<void>((resolve) => {
       resolveDelete = resolve
     })
     const requestMock = vi.fn(async (path: string, options?: ApiRequestOptions) => {
       if (path === '/api/groups/7/keys' && options?.method === 'GET') return keys
-      if (path === '/api/groups/7/keys/11' && options?.method === 'DELETE') return deleteResult
+      if (path === '/api/groups/7/keys/11' && options?.method === 'DELETE') {
+        deleteSignal = options.signal
+        return deleteResult
+      }
       throw new Error(`unexpected request: ${path}`)
     })
     const { queryClient: client, wrapper } = await mountKeys(requestMock as ApiClient['request'])
@@ -171,14 +175,25 @@ describe('GroupKeysTab', () => {
     await flushPromises()
     clickDocument('[data-test="key-delete-confirm-11"]')
     await flushPromises()
-    expect(document.activeElement).toBe(trigger.element)
     expect(requestMock).toHaveBeenCalledWith('/api/groups/7/keys/11', {
       method: 'DELETE',
       signal: expect.any(AbortSignal),
     })
+    const close = document.querySelector<HTMLButtonElement>('.app-dialog__close')
+    expect(close?.disabled).toBe(true)
+    expect(
+      document.querySelector<HTMLButtonElement>('[data-test="key-delete-cancel-11"]')?.disabled,
+    ).toBe(true)
+    close?.click()
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    document.querySelector<HTMLElement>('.app-dialog__overlay')?.click()
+    await flushPromises()
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull()
+    expect(deleteSignal?.aborted).toBe(false)
 
     resolveDelete()
     await flushPromises()
+    expect(document.activeElement).toBe(trigger.element)
     expect(invalidate.mock.calls.map(([filters]) => filters)).toEqual([
       { queryKey: controlQueryKeys.groups.keys(7) },
       { queryKey: controlQueryKeys.groups.detail(7) },

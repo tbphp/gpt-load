@@ -16,10 +16,7 @@ import {
   importRecoveryKey,
   type ImportRecoveryService,
 } from '@/features/import/import-recovery'
-import {
-  createDirtyNavigationController,
-  dirtyNavigationKey,
-} from '@/features/import/use-dirty-navigation'
+import { createUnsavedChangesController, unsavedChangesKey } from '@/app/unsaved-changes'
 import { appI18nKey } from '@/i18n/context'
 import { createTestAppI18n } from '@/test/i18n'
 
@@ -57,7 +54,7 @@ export async function mountApp(
         [appI18nKey as symbol]: appI18n,
         [importRecoveryKey as symbol]: recovery,
         [importOperationOwnerKey as symbol]: options.operationOwner ?? createImportOperationOwner(),
-        [dirtyNavigationKey as symbol]: createDirtyNavigationController(),
+        [unsavedChangesKey as symbol]: createUnsavedChangesController(),
       },
     },
   })

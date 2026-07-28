@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useQuery } from '@tanstack/vue-query'
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -56,6 +56,7 @@ const failed = ref(false)
 const resultStale = ref(false)
 const submitted = ref<RouteInspectRequest>()
 const observation = ref<RouteInspectResponseDto>()
+const resultSummary = ref<HTMLHeadingElement | null>(null)
 let owner = 0
 let controller: AbortController | undefined
 
@@ -217,6 +218,10 @@ async function inspect(): Promise<void> {
       submitted.value = request
       observation.value = result
       resultStale.value = false
+      await nextTick()
+      if (currentOwner === owner && !currentController.signal.aborted && !result.routable) {
+        resultSummary.value?.focus()
+      }
     }
   } catch (error: unknown) {
     if (
@@ -393,7 +398,13 @@ onBeforeUnmount(() => {
       @retry="inspect"
     />
 
-    <SurfaceCard v-if="observation" class="inspector-result" data-test="inspector-result">
+    <SurfaceCard
+      v-if="observation"
+      class="inspector-result"
+      data-test="inspector-result"
+      aria-live="polite"
+      aria-atomic="true"
+    >
       <p
         v-if="inputChanged"
         class="inspector-input-changed"
@@ -413,7 +424,9 @@ onBeforeUnmount(() => {
 
       <header class="inspector-heading inspector-result__heading">
         <div>
-          <h2>{{ t('monitor.inspector.result.title') }}</h2>
+          <h2 ref="resultSummary" data-test="inspector-result-summary" tabindex="-1">
+            {{ t('monitor.inspector.result.title') }}
+          </h2>
           <p>{{ t('monitor.inspector.boundary') }}</p>
         </div>
         <StatusBadge

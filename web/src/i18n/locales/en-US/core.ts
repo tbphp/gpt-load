@@ -10,6 +10,7 @@ export default {
     conceal: 'Conceal key',
     cancel: 'Cancel',
     close: 'Close',
+    unsavedChanges: 'Discard unsaved changes? Choose Cancel to continue editing.',
     protocols: {
       openai: 'OpenAI',
       anthropic: 'Anthropic',
@@ -61,6 +62,11 @@ export default {
     navigationTitle: 'Navigation',
     signOut: 'Sign out',
     placeholderDescription: 'This management feature will arrive in a later task in this stage.',
+    backHome: 'Back to Home',
+  },
+  notFound: {
+    title: 'Page not found',
+    description: 'The requested management page does not exist or is no longer available.',
     backHome: 'Back to Home',
   },
   home: {

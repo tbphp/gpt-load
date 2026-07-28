@@ -1,21 +1,10 @@
 <script setup lang="ts">
-import { useQueryClient } from '@tanstack/vue-query'
-import { ChevronDown, Save, SlidersHorizontal } from 'lucide-vue-next'
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { ChevronDown, SlidersHorizontal } from 'lucide-vue-next'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import { useApiClient } from '@/api/client-context'
-import {
-  getSettings,
-  projectSettingsConflict,
-  updateSettings,
-  type RuntimeSettingKey,
-  type TimeoutSettingKey,
-} from '@/api/control/settings'
 import type { HeaderRulesDto } from '@/api/control/groups'
-import { RequestCancelledError } from '@/api/errors'
-import { classifyMutationOutcome } from '@/app/mutation-outcome'
-import { controlQueryKeys } from '@/app/query-keys'
+import type { RuntimeSettingKey, TimeoutSettingKey } from '@/api/control/settings'
 import type { SettingsResource } from '@/app/resources/settings'
 import HeaderRulesEditor from '@/components/config/HeaderRulesEditor.vue'
 import AppButton from '@/components/ui/AppButton.vue'
@@ -25,170 +14,104 @@ import SurfaceCard from '@/components/ui/SurfaceCard.vue'
 
 import SettingOverrideField from './SettingOverrideField.vue'
 import {
-  buildSettingsPatch,
   createSettingsDraft,
-  hasDuplicateHeaderNames,
   isValidTimeout,
-  replaceDraftFieldFromSettings,
   setSettingsOverride,
-  validateSettingsSection,
   type SettingsDraft,
 } from './settings-patch'
-import {
-  chooseSettingsMutationResult,
-  mergeSettingsConflict,
-  reconcileSettingsMutation,
-  type SettingsMergeConflict,
-} from './settings-response'
+import type { SettingsMergeConflict } from './settings-response'
+import type { SettingsDraftChange } from './use-settings-controller'
 
-const props = defineProps<{ resource: SettingsResource }>()
-const client = useApiClient()
-const queryClient = useQueryClient()
-const { locale, t } = useI18n()
-const settingsQueryKey = () => controlQueryKeys.settings(locale.value)
-const base = ref(props.resource)
-const draft = ref<SettingsDraft>(createSettingsDraft(props.resource.settings))
-const pending = ref(false)
-const failed = ref(false)
-const succeeded = ref(false)
-const concurrent = ref(false)
-const indeterminate = ref(false)
-const reconciling = ref(false)
-const conflicts = ref<SettingsMergeConflict[]>([])
-const headerSaveError = ref(false)
-const disclosureRequested = ref(props.resource.settings.overrides.includes('header_rules'))
-const headerValid = ref(!hasDuplicateHeaderNames(props.resource.settings.values.header_rules))
-let controller: AbortController | undefined
-let unknownOperation: { base: SettingsResource; draft: SettingsDraft } | undefined
-
+const props = defineProps<{
+  base: SettingsResource
+  draft: SettingsDraft
+  disabled: boolean
+  conflicts: SettingsMergeConflict[]
+}>()
+const emit = defineEmits<{
+  change: [change: SettingsDraftChange]
+  chooseMine: [key: RuntimeSettingKey]
+  chooseLatest: [key: RuntimeSettingKey]
+}>()
+const { t } = useI18n()
+const disclosureRequested = ref(
+  props.draft.overrides.has('header_rules') ||
+    props.conflicts.some((conflict) => conflict.key === 'header_rules'),
+)
 const timeoutKeys: TimeoutSettingKey[] = [
   'connect_timeout',
   'first_byte_timeout',
   'request_timeout',
   'stream_idle_timeout',
 ]
-const patch = computed(() =>
-  buildSettingsPatch(base.value.settings, draft.value, 'request-forwarding'),
-)
-const dirty = computed(() => Object.keys(patch.value).length > 0)
-const operationLocked = computed(() => pending.value || indeterminate.value || reconciling.value)
-const valid = computed(
-  () =>
-    conflicts.value.length === 0 &&
-    (!draft.value.overrides.has('header_rules') || headerValid.value) &&
-    validateSettingsSection(draft.value, 'request-forwarding'),
-)
-const headerDirty = computed(() =>
-  Object.prototype.hasOwnProperty.call(patch.value, 'header_rules'),
+const relevantConflicts = computed(() =>
+  props.conflicts.filter(
+    (conflict) =>
+      conflict.key === 'header_rules' ||
+      timeoutKeys.some((timeoutKey) => timeoutKey === conflict.key),
+  ),
 )
 const headerOpen = computed(
   () =>
     disclosureRequested.value ||
-    draft.value.overrides.has('header_rules') ||
-    headerDirty.value ||
-    (!headerValid.value && draft.value.overrides.has('header_rules')) ||
-    headerSaveError.value,
+    props.draft.overrides.has('header_rules') ||
+    relevantConflicts.value.some((conflict) => conflict.key === 'header_rules'),
 )
 
-function rebase(resource: SettingsResource): void {
-  base.value = resource
-  draft.value = createSettingsDraft(resource.settings)
-  headerValid.value = !hasDuplicateHeaderNames(resource.settings.values.header_rules)
-  disclosureRequested.value = resource.settings.overrides.includes('header_rules')
-  failed.value = false
-  concurrent.value = false
-  conflicts.value = []
-  indeterminate.value = false
-  reconciling.value = false
-  unknownOperation = undefined
-  headerSaveError.value = false
+function cloneCurrentDraft(): SettingsDraft {
+  return createSettingsDraft({
+    values: props.draft.values,
+    overrides: [...props.draft.overrides],
+  })
 }
 
-function acceptExternalSettings(resource: SettingsResource): void {
-  if (resource.settings_etag === base.value.settings_etag) return
-  if (unknownOperation) {
-    void applyUnknownLatest(resource)
-    return
-  }
-  if (dirty.value) {
-    const merged = mergeSettingsConflict(base.value, draft.value, resource, 'request-forwarding')
-    base.value = merged.resource
-    draft.value = merged.draft
-    conflicts.value = merged.conflicts
-    concurrent.value = true
-    headerSaveError.value = merged.conflicts.some((conflict) => conflict.key === 'header_rules')
-    headerValid.value = !hasDuplicateHeaderNames(draft.value.values.header_rules)
-    return
-  }
-  rebase(resource)
-}
-
-watch(() => props.resource, acceptExternalSettings)
-
-function clearConflict(key: RuntimeSettingKey): void {
-  conflicts.value = conflicts.value.filter((conflict) => conflict.key !== key)
-  if (conflicts.value.length === 0) concurrent.value = false
+function publish(key: RuntimeSettingKey, draft: SettingsDraft): void {
+  emit('change', { key, draft })
 }
 
 function hasOverride(key: TimeoutSettingKey | 'header_rules'): boolean {
-  return draft.value.overrides.has(key)
+  return props.draft.overrides.has(key)
 }
 
 function setOverride(key: TimeoutSettingKey, enabled: boolean): void {
-  draft.value = setSettingsOverride(base.value.settings, draft.value, key, enabled)
-  clearConflict(key)
-  succeeded.value = false
+  publish(key, setSettingsOverride(props.base.settings, props.draft, key, enabled))
 }
 
 function setTimeoutValue(key: TimeoutSettingKey, value: number): void {
-  draft.value = {
-    values: { ...draft.value.values, [key]: value },
-    overrides: new Set(draft.value.overrides),
-  }
-  clearConflict(key)
-  succeeded.value = false
+  const draft = cloneCurrentDraft()
+  draft.values[key] = value
+  publish(key, draft)
 }
 
 function timeoutError(key: TimeoutSettingKey): string | undefined {
-  return hasOverride(key) && !isValidTimeout(draft.value.values[key])
+  return hasOverride(key) && !isValidTimeout(props.draft.values[key])
     ? t('settings.request.timeoutError')
     : undefined
 }
 
 function setHeaderOverride(enabled: boolean): void {
-  draft.value = setSettingsOverride(base.value.settings, draft.value, 'header_rules', enabled)
-  clearConflict('header_rules')
   if (enabled) disclosureRequested.value = true
-  succeeded.value = false
+  publish(
+    'header_rules',
+    setSettingsOverride(props.base.settings, props.draft, 'header_rules', enabled),
+  )
 }
 
 function setHeaderRules(value: HeaderRulesDto): void {
-  draft.value = {
-    values: { ...draft.value.values, header_rules: value },
-    overrides: new Set(draft.value.overrides),
-  }
-  clearConflict('header_rules')
-  succeeded.value = false
+  const draft = cloneCurrentDraft()
+  draft.values.header_rules = value
+  publish('header_rules', draft)
 }
 
 function toggleDisclosure(): void {
   disclosureRequested.value = !headerOpen.value
 }
 
-function chooseMine(key: RuntimeSettingKey): void {
-  clearConflict(key)
-}
-
-function chooseLatest(key: RuntimeSettingKey): void {
-  draft.value = replaceDraftFieldFromSettings(draft.value, base.value.settings, key)
-  clearConflict(key)
-}
-
 function conflictValue(conflict: SettingsMergeConflict, side: 'mine' | 'latest'): string {
   const identity = conflict[side]
   if (!identity.is_override) return t('settings.default')
   if (conflict.key === 'header_rules') {
-    const rules = identity.normalized_value as { set: Record<string, string>; remove: string[] }
+    const rules = identity.normalized_value as HeaderRulesDto
     return t('settings.conflict.headerRulesSummary', {
       set: Object.keys(rules.set).length,
       remove: rules.remove.length,
@@ -200,165 +123,15 @@ function conflictValue(conflict: SettingsMergeConflict, side: 'mine' | 'latest')
 function conflictLabel(key: RuntimeSettingKey): string {
   return key === 'header_rules' ? t('settings.request.headerRules') : t(`settings.request.${key}`)
 }
-
-async function applyUnknownLatest(latest: SettingsResource): Promise<void> {
-  const operation = unknownOperation
-  if (!operation) return
-  const result = reconcileSettingsMutation(
-    operation.base,
-    operation.draft,
-    latest,
-    'request-forwarding',
-  )
-  base.value = result.resource
-  draft.value = result.draft
-  conflicts.value = result.conflicts
-  headerValid.value = !hasDuplicateHeaderNames(result.draft.values.header_rules)
-  headerSaveError.value = result.conflicts.some((conflict) => conflict.key === 'header_rules')
-  queryClient.setQueryData(settingsQueryKey(), latest)
-
-  if (result.kind === 'confirmed') {
-    unknownOperation = undefined
-    indeterminate.value = false
-    concurrent.value = false
-    succeeded.value = true
-    await queryClient.invalidateQueries({ queryKey: controlQueryKeys.groups.details() })
-    return
-  }
-  if (result.kind === 'conflict') {
-    unknownOperation = undefined
-    indeterminate.value = false
-    concurrent.value = true
-  }
-}
-
-async function reconcileUnknownOperation(activeController: AbortController): Promise<void> {
-  if (!unknownOperation || controller !== activeController) return
-  reconciling.value = true
-  try {
-    const latest = await getSettings(client, activeController.signal)
-    if (controller !== activeController) return
-    await applyUnknownLatest(latest)
-  } catch (error: unknown) {
-    if (controller !== activeController || error instanceof RequestCancelledError) return
-    indeterminate.value = true
-  } finally {
-    if (controller === activeController) reconciling.value = false
-  }
-}
-
-async function checkUnknownResult(): Promise<void> {
-  if (!unknownOperation || reconciling.value) return
-  controller?.abort()
-  controller = new AbortController()
-  const activeController = controller
-  await reconcileUnknownOperation(activeController)
-  if (controller === activeController) controller = undefined
-}
-
-async function save(): Promise<void> {
-  if (operationLocked.value || !valid.value) return
-  const normalizedPatch = buildSettingsPatch(base.value.settings, draft.value, 'request-forwarding')
-  if (Object.keys(normalizedPatch).length === 0) return
-  const operationBase = base.value
-  const operationDraft = draft.value
-
-  pending.value = true
-  failed.value = false
-  succeeded.value = false
-  concurrent.value = false
-  indeterminate.value = false
-  headerSaveError.value = false
-  controller?.abort()
-  controller = new AbortController()
-  const activeController = controller
-  try {
-    const resource = await updateSettings(
-      client,
-      normalizedPatch,
-      operationBase.settings_etag,
-      activeController.signal,
-    )
-    if (controller !== activeController) return
-    await queryClient.cancelQueries({ queryKey: settingsQueryKey(), exact: true })
-    if (controller !== activeController) return
-
-    const cached = queryClient.getQueryData<SettingsResource>(settingsQueryKey())
-    const decision = chooseSettingsMutationResult(
-      resource,
-      cached,
-      operationBase,
-      operationDraft,
-      'request-forwarding',
-    )
-    if (decision.kind === 'refetch') {
-      await queryClient.refetchQueries({
-        queryKey: settingsQueryKey(),
-        exact: true,
-      })
-      if (controller !== activeController) return
-      return
-    }
-
-    base.value = decision.resource
-    draft.value = decision.draft
-    headerValid.value = !hasDuplicateHeaderNames(decision.draft.values.header_rules)
-    disclosureRequested.value = decision.resource.settings.overrides.includes('header_rules')
-    queryClient.setQueryData(settingsQueryKey(), decision.resource)
-    unknownOperation = undefined
-    succeeded.value = true
-    await queryClient.invalidateQueries({ queryKey: controlQueryKeys.groups.details() })
-    if (controller !== activeController) return
-  } catch (error: unknown) {
-    if (controller !== activeController || error instanceof RequestCancelledError) return
-    const latest = projectSettingsConflict(error)
-    if (latest) {
-      const merged = mergeSettingsConflict(
-        operationBase,
-        operationDraft,
-        latest,
-        'request-forwarding',
-      )
-      base.value = merged.resource
-      draft.value = merged.draft
-      conflicts.value = merged.conflicts
-      concurrent.value = true
-      headerSaveError.value = merged.conflicts.some((conflict) => conflict.key === 'header_rules')
-      headerValid.value = !hasDuplicateHeaderNames(draft.value.values.header_rules)
-      queryClient.setQueryData(settingsQueryKey(), latest)
-      return
-    }
-    const outcome = classifyMutationOutcome<SettingsResource>({
-      kind: 'error',
-      error,
-      requestSent: true,
-    })
-    if (outcome.kind === 'failed') {
-      failed.value = true
-      headerSaveError.value = Object.prototype.hasOwnProperty.call(normalizedPatch, 'header_rules')
-      return
-    }
-    unknownOperation = { base: operationBase, draft: operationDraft }
-    indeterminate.value = true
-    await reconcileUnknownOperation(activeController)
-  } finally {
-    if (controller === activeController) {
-      controller = undefined
-      pending.value = false
-    }
-  }
-}
-
-onBeforeUnmount(() => {
-  controller?.abort()
-  controller = undefined
-  unknownOperation = undefined
-})
 </script>
 
 <template>
-  <SurfaceCard class="settings-card request-forwarding">
-    <header class="settings-card__heading settings-card__heading--actions">
+  <SurfaceCard
+    id="settings-request-forwarding"
+    class="settings-card request-forwarding"
+    tabindex="-1"
+  >
+    <header class="settings-card__heading">
       <div class="settings-card__title">
         <span class="settings-card__icon"><SlidersHorizontal :size="18" aria-hidden="true" /></span>
         <div>
@@ -366,44 +139,32 @@ onBeforeUnmount(() => {
           <p>{{ t('settings.request.description') }}</p>
         </div>
       </div>
-      <AppButton
-        data-test="request-forwarding-save"
-        :busy="pending"
-        :disabled="!dirty || !valid || operationLocked"
-        @click="save"
-      >
-        <Save :size="16" aria-hidden="true" />{{ t('settings.save') }}
-      </AppButton>
     </header>
 
-    <InlineFeedback v-if="failed" tone="danger">{{
-      t('settings.request.saveFailed')
-    }}</InlineFeedback>
-    <InlineFeedback v-if="succeeded" tone="info">{{ t('settings.saved') }}</InlineFeedback>
-    <InlineFeedback v-if="reconciling" data-test="settings-reconciling" tone="info">{{
-      t('settings.outcome.reconciling')
-    }}</InlineFeedback>
-    <div v-else-if="indeterminate" data-test="settings-indeterminate">
-      <InlineFeedback tone="warning">{{ t('settings.outcome.indeterminate') }}</InlineFeedback>
-      <AppButton data-test="settings-check-result" variant="secondary" @click="checkUnknownResult">
-        {{ t('settings.outcome.checkResult') }}
-      </AppButton>
-    </div>
-    <InlineFeedback v-if="concurrent" tone="warning">{{
-      conflicts.length > 0 ? t('settings.conflict.blocked') : t('settings.conflict.rebased')
-    }}</InlineFeedback>
-    <ul v-if="conflicts.length > 0" class="settings-conflicts" data-test="settings-conflicts">
-      <li v-for="conflict in conflicts" :key="conflict.key">
+    <ul
+      v-if="relevantConflicts.length > 0"
+      class="settings-conflicts"
+      data-test="settings-conflicts"
+    >
+      <li v-for="conflict in relevantConflicts" :key="conflict.key">
         <strong>{{ conflictLabel(conflict.key) }}</strong>
         <span>{{ t('settings.conflict.mine') }}: {{ conflictValue(conflict, 'mine') }}</span>
         <span>{{ t('settings.conflict.latest') }}: {{ conflictValue(conflict, 'latest') }}</span>
         <div>
-          <AppButton variant="secondary" @click="chooseMine(conflict.key)">{{
-            t('settings.conflict.useMine')
-          }}</AppButton>
-          <AppButton variant="ghost" @click="chooseLatest(conflict.key)">{{
-            t('settings.conflict.useLatest')
-          }}</AppButton>
+          <AppButton
+            :data-test="`settings-conflict-mine-${conflict.key}`"
+            variant="secondary"
+            @click="emit('chooseMine', conflict.key)"
+          >
+            {{ t('settings.conflict.useMine') }}
+          </AppButton>
+          <AppButton
+            :data-test="`settings-conflict-latest-${conflict.key}`"
+            variant="ghost"
+            @click="emit('chooseLatest', conflict.key)"
+          >
+            {{ t('settings.conflict.useLatest') }}
+          </AppButton>
         </div>
       </li>
     </ul>
@@ -420,7 +181,7 @@ onBeforeUnmount(() => {
         :model-value="draft.values[key]"
         :error="timeoutError(key)"
         :min="1"
-        :disabled="operationLocked"
+        :disabled="disabled"
         @update:owned="setOverride(key, $event)"
         @update:model-value="setTimeoutValue(key, $event)"
       />
@@ -428,11 +189,12 @@ onBeforeUnmount(() => {
 
     <section class="request-forwarding__advanced">
       <button
+        id="settings-header-rules"
         data-test="settings-header-disclosure"
         class="request-forwarding__disclosure"
         type="button"
         :aria-expanded="headerOpen"
-        aria-controls="settings-header-rules"
+        aria-controls="settings-header-rules-editor"
         @click="toggleDisclosure"
       >
         <span>
@@ -450,13 +212,17 @@ onBeforeUnmount(() => {
         <ChevronDown :size="18" aria-hidden="true" :class="{ rotated: headerOpen }" />
       </button>
 
-      <div v-if="headerOpen" id="settings-header-rules" class="request-forwarding__advanced-body">
+      <div
+        v-if="headerOpen"
+        id="settings-header-rules-editor"
+        class="request-forwarding__advanced-body"
+      >
         <label class="request-forwarding__header-toggle">
           <input
             data-test="override-header_rules"
             type="checkbox"
             :checked="hasOverride('header_rules')"
-            :disabled="operationLocked"
+            :disabled="disabled"
             @change="setHeaderOverride(($event.target as HTMLInputElement).checked)"
           />
           {{ t('settings.useOverride') }}
@@ -465,9 +231,8 @@ onBeforeUnmount(() => {
         <div v-if="hasOverride('header_rules')" data-test="header-rules-editor">
           <HeaderRulesEditor
             :model-value="draft.values.header_rules"
-            :disabled="operationLocked"
+            :disabled="disabled"
             @update:model-value="setHeaderRules"
-            @update:valid="headerValid = $event"
           />
         </div>
       </div>
@@ -484,15 +249,9 @@ onBeforeUnmount(() => {
 .request-forwarding__advanced-body {
   display: grid;
 }
-.settings-card {
-  gap: var(--space-4);
-}
+.settings-card,
 .settings-card__heading {
   gap: var(--space-4);
-}
-.settings-card__heading--actions {
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: start;
 }
 .settings-card__title {
   grid-template-columns: auto minmax(0, 1fr);
@@ -518,9 +277,6 @@ onBeforeUnmount(() => {
   border-radius: var(--radius-control);
   background: var(--color-primary-soft);
   color: var(--color-primary);
-}
-.settings-card__heading :deep(.app-button) {
-  gap: var(--space-2);
 }
 .request-forwarding__fields,
 .request-forwarding__advanced-body {
@@ -589,12 +345,6 @@ onBeforeUnmount(() => {
   height: 18px;
 }
 @media (max-width: 640px) {
-  .settings-card__heading--actions {
-    grid-template-columns: 1fr;
-  }
-  .settings-card__heading :deep(.app-button) {
-    width: 100%;
-  }
   .request-forwarding__disclosure {
     grid-template-columns: minmax(0, 1fr) auto;
   }

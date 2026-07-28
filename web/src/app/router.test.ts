@@ -37,6 +37,7 @@ describe('application routes', () => {
       monitor: 'shell.monitor',
       settings: 'shell.settings',
       'model-prices': 'modelPrices.title',
+      'not-found': 'notFound.title',
     })
     expect(JSON.stringify(titles)).not.toMatch(/导入密钥|访问密钥|监控|设置/)
   })
@@ -73,10 +74,12 @@ describe('application routes', () => {
     expect(loadNamespaces).toHaveBeenLastCalledWith([])
   })
 
-  it('does not install a client-side catch-all route', () => {
+  it('resolves unknown UI paths to a protected NotFound route', () => {
     const router = createAppRouter(createAuth(true), createMemoryHistory())
 
-    expect(router.resolve('/api/unknown').matched).toHaveLength(0)
+    const resolved = router.resolve('/missing/page')
+    expect(resolved.name).toBe('not-found')
+    expect(resolved.meta.requiresAuth).toBe(true)
   })
 
   it('marks every non-login route as protected', () => {

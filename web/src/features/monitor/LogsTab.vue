@@ -15,6 +15,7 @@ import {
 } from '@/api/control/request-logs'
 import { RequestCancelledError } from '@/api/errors'
 import { controlQueryKeys } from '@/app/query-keys'
+import { useUnsavedChanges } from '@/app/unsaved-changes'
 import AppButton from '@/components/ui/AppButton.vue'
 import DataTable from '@/components/ui/DataTable.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
@@ -33,16 +34,17 @@ import {
   type LogFilterErrors,
 } from './log-filters'
 import LogDetailDrawer from './LogDetailDrawer.vue'
+import { parseSelectedRequestID } from './monitor-route'
 
 const client = useApiClient()
 const route = useRoute()
 const router = useRouter()
 const queryClient = useQueryClient()
-const { t } = useI18n()
+const { locale, t } = useI18n()
 const appliedFilters = computed(() => parseAppliedLogFilters(route.query))
 const draft = ref(createLogFilterDraft(appliedFilters.value))
 const filterErrors = ref<LogFilterErrors>({})
-const openDetailID = ref<string | null>(null)
+const selectedRequestID = computed(() => parseSelectedRequestID(route.query))
 const refreshPending = ref(false)
 const refreshFailed = ref(false)
 let refreshOwner = 0
@@ -84,15 +86,66 @@ const draftIsDirty = computed(() =>
     (field) => draft.value[field] !== appliedDraft.value[field],
   ),
 )
-
-watch(
-  () => route.query,
-  () => {
-    cancelManualRefresh()
-    draft.value = createLogFilterDraft(appliedFilters.value)
-    filterErrors.value = {}
-  },
+const unsavedChanges = useUnsavedChanges(draftIsDirty)
+const appliedFilterSignature = computed(() =>
+  JSON.stringify(serializeAppliedLogFilters(appliedFilters.value)),
 )
+const currentTimezone = computed(
+  () => new Intl.DateTimeFormat(locale.value).resolvedOptions().timeZone || 'UTC',
+)
+const lastSuccessfulRefreshAt = computed(() =>
+  logsQuery.dataUpdatedAt.value > 0 ? new Date(logsQuery.dataUpdatedAt.value) : null,
+)
+const logsAreStale = computed(() => refreshFailed.value || logsQuery.isRefetchError.value)
+const appliedFilterChips = computed(() => {
+  const filters = appliedFilters.value
+  const errors = validateLogFilterDraft(appliedDraft.value)
+  const values: string[] = []
+  if (appliedDraft.value.from && !errors.from) {
+    values.push(t('monitor.logs.filters.appliedFrom', { value: appliedDraft.value.from }))
+  }
+  if (appliedDraft.value.to && !errors.to) {
+    values.push(t('monitor.logs.filters.appliedTo', { value: appliedDraft.value.to }))
+  }
+  if (filters.group_id !== undefined && !errors.group_id) {
+    const group = groupsQuery.data.value?.find(({ id }) => id === filters.group_id)
+    values.push(
+      t('monitor.logs.filters.appliedGroup', {
+        value: group ? `${group.name} · #${group.id}` : `#${filters.group_id}`,
+      }),
+    )
+  }
+  if (filters.model !== undefined && !errors.model) {
+    values.push(t('monitor.logs.filters.appliedModel', { value: filters.model }))
+  }
+  if (filters.access_key_id !== undefined && !errors.access_key_id) {
+    const accessKey = accessKeyOptionsQuery.data.value?.find(
+      ({ id }) => id === filters.access_key_id,
+    )
+    values.push(
+      t('monitor.logs.filters.appliedAccessKey', {
+        value: accessKey ? `${accessKey.name} · #${accessKey.id}` : `#${filters.access_key_id}`,
+      }),
+    )
+  }
+  if (filters.status !== undefined && !errors.status) {
+    values.push(
+      t('monitor.logs.filters.appliedStatus', {
+        value: t(`monitor.logs.status.${filters.status}`),
+      }),
+    )
+  }
+  if (filters.request_id !== undefined && !errors.request_id) {
+    values.push(t('monitor.logs.filters.appliedRequestId', { value: filters.request_id }))
+  }
+  return values
+})
+
+watch(appliedFilterSignature, () => {
+  cancelManualRefresh()
+  draft.value = createLogFilterDraft(appliedFilters.value)
+  filterErrors.value = {}
+})
 
 function statusTone(
   status: 'success' | 'error' | 'incomplete' | 'canceled',
@@ -116,6 +169,13 @@ function accessKeyLabel(log: RequestLogItemDto): string {
   return `#${log.access_key.id}`
 }
 
+function formatLocalInstant(value: Date): string {
+  return new Intl.DateTimeFormat(locale.value, {
+    dateStyle: 'medium',
+    timeStyle: 'medium',
+  }).format(value)
+}
+
 function loadMore(): void {
   if (refreshPending.value || !logsQuery.hasNextPage.value || logsQuery.isFetchingNextPage.value) {
     return
@@ -127,10 +187,12 @@ async function applyFilters(): Promise<void> {
   const errors = validateLogFilterDraft(draft.value)
   filterErrors.value = errors
   if (Object.keys(errors).length > 0) return
-  await router.push({
-    name: 'monitor',
-    query: serializeAppliedLogFilters(applyLogFilterDraft(draft.value)),
-  })
+  await unsavedChanges.runWithoutPrompt(() =>
+    router.push({
+      name: 'monitor',
+      query: serializeAppliedLogFilters(applyLogFilterDraft(draft.value)),
+    }),
+  )
 }
 
 function filterError(field: keyof LogFilterDraft): string | undefined {
@@ -138,15 +200,17 @@ function filterError(field: keyof LogFilterDraft): string | undefined {
   return key ? t(key) : undefined
 }
 
-async function resetFilters(): Promise<void> {
-  cancelManualRefresh()
+function resetFilters(): void {
   filterErrors.value = {}
   draft.value = createLogFilterDraft()
-  await router.push({ name: 'monitor', query: { tab: 'logs' } })
 }
 
-function setDetailOpen(requestID: string, open: boolean): void {
-  openDetailID.value = open ? requestID : null
+async function setDetailOpen(requestID: string, open: boolean): Promise<void> {
+  const query = serializeAppliedLogFilters(appliedFilters.value)
+  if (open) query.selected_request_id = requestID
+  await unsavedChanges.runWithoutPrompt(() =>
+    open ? router.push({ name: 'monitor', query }) : router.replace({ name: 'monitor', query }),
+  )
   if (open) return
   window.clearTimeout(detailFocusTimer)
   detailFocusTimer = window.setTimeout(() => {
@@ -388,6 +452,28 @@ onBeforeUnmount(() => {
       </div>
     </form>
 
+    <section class="logs-applied" data-test="logs-applied-filters">
+      <strong>{{ t('monitor.logs.filters.applied') }}</strong>
+      <span v-for="value in appliedFilterChips" :key="value" class="logs-filter-chip">
+        {{ value }}
+      </span>
+      <span v-if="appliedFilterChips.length === 0" class="logs-filter-chip">
+        {{ t('monitor.logs.filters.noneApplied') }}
+      </span>
+    </section>
+    <section class="logs-freshness" data-test="logs-freshness">
+      <span data-test="logs-timezone">
+        <strong>{{ t('monitor.logs.filters.timezone') }}</strong>
+        {{ currentTimezone }}
+      </span>
+      <span v-if="lastSuccessfulRefreshAt">
+        <strong>{{ t('monitor.logs.filters.lastRefreshed') }}</strong>
+        <time data-test="logs-last-refreshed" :datetime="lastSuccessfulRefreshAt.toISOString()">
+          {{ formatLocalInstant(lastSuccessfulRefreshAt) }}
+        </time>
+      </span>
+    </section>
+
     <InlineFeedback
       v-if="groupsQuery.isError.value"
       data-test="logs-group-options-failed"
@@ -409,6 +495,9 @@ onBeforeUnmount(() => {
         {{ t('common.retry') }}
       </AppButton>
     </div>
+    <InlineFeedback v-if="logsAreStale" data-test="logs-stale" tone="warning">
+      {{ t('monitor.logs.stale') }}
+    </InlineFeedback>
     <div
       v-if="logsQuery.isFetchNextPageError.value"
       class="logs-next-page-failed"
@@ -480,7 +569,7 @@ onBeforeUnmount(() => {
           </td>
           <td>
             <LogDetailDrawer
-              :open="openDetailID === log.request_id"
+              :open="selectedRequestID === log.request_id"
               :log="log"
               @update:open="setDetailOpen(log.request_id, $event)"
             >
@@ -541,6 +630,38 @@ onBeforeUnmount(() => {
   background: var(--color-surface);
   padding: var(--space-4);
   box-shadow: var(--shadow-card);
+}
+
+.logs-applied,
+.logs-freshness {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+  padding: var(--space-3) var(--space-4);
+}
+
+.logs-filter-chip {
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface-secondary);
+  padding: var(--space-1) var(--space-2);
+  font-size: 0.8125rem;
+}
+
+.logs-freshness {
+  justify-content: space-between;
+}
+
+.logs-freshness > span {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--space-2);
 }
 
 .logs-filter-grid {

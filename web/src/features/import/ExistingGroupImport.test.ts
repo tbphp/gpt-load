@@ -54,6 +54,7 @@ async function mountExisting(
   path: string,
   request: ApiClient['request'],
   initialDraft?: ExistingGroupImportDraft,
+  attachTo?: Element,
 ) {
   const client = queryClient()
   const importRecovery = recovery()
@@ -65,13 +66,43 @@ async function mountExisting(
     locale: 'en-US',
     recovery: importRecovery,
     operationOwner,
-    mounting: { props: { initialDraft } },
+    mounting: { props: { initialDraft }, attachTo },
   })
   await flushPromises()
   return { ...mounted, importRecovery, operationOwner, queryClient: client }
 }
 
 describe('ExistingGroupImport', () => {
+  it('focuses the review heading and then the confirmed result heading', async () => {
+    const request = vi.fn(async (path: string) => {
+      if (path === '/api/groups') return groups
+      if (path === '/api/groups/7/keys/import') {
+        return { group_id: 7, keys_added: 1, keys_duplicated: 0 }
+      }
+      throw new Error(`unexpected request: ${path}`)
+    }) as ApiClient['request']
+    const { wrapper } = await mountExisting(
+      '/import?mode=existing&group_id=7',
+      request,
+      undefined,
+      document.body,
+    )
+
+    await wrapper.get('[data-test="keys"]').setValue('raw-key')
+    await wrapper.get('[data-test="existing-review"]').trigger('click')
+    await flushPromises()
+    expect(document.activeElement).toBe(
+      wrapper.get('[data-test="existing-review-heading"]').element,
+    )
+
+    await wrapper.get('[data-test="existing-submit"]').trigger('click')
+    await flushPromises()
+    expect(document.activeElement).toBe(
+      wrapper.get('[data-test="existing-result-heading"]').element,
+    )
+    wrapper.unmount()
+  })
+
   it('preselects a positive route Group and imports exact raw keys without discovery or Group mutation', async () => {
     const requestMock = vi.fn(async (path: string, _options?: ApiRequestOptions) => {
       void _options

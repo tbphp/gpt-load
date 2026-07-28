@@ -14,6 +14,7 @@ import {
 import type { GroupProtocol } from '@/api/control/types'
 import { ApiError, RequestCancelledError } from '@/api/errors'
 import { controlQueryKeys } from '@/app/query-keys'
+import { useUnsavedChanges } from '@/app/unsaved-changes'
 import HeaderRulesEditor from '@/components/config/HeaderRulesEditor.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppDialog from '@/components/ui/AppDialog.vue'
@@ -58,6 +59,7 @@ const timeoutKeys: GroupTimeoutKey[] = [
 const weights = Array.from({ length: 100 }, (_, index) => index + 1)
 const patch = computed(() => buildGroupSettingsPatch(savedGroup.value, draft.value))
 const dirty = computed(() => Object.keys(patch.value).length > 0)
+useUnsavedChanges(dirty, { blocked: pending })
 const nameError = computed(() =>
   draft.value.name.trim() === '' ? t('group.settings.base.nameError') : '',
 )
@@ -158,6 +160,11 @@ async function restoreFocusAfterURLConfirmation(): Promise<void> {
   } else {
     headingFocusTarget.value?.focus()
   }
+}
+
+function setURLConfirmOpen(open: boolean): void {
+  if (!open && pending.value) return
+  urlConfirmOpen.value = open
 }
 
 async function runSave(confirmUpstreamURLChange = false): Promise<void> {
@@ -516,17 +523,19 @@ onBeforeUnmount(() => {
       :title="t('group.settings.urlConfirm.title')"
       :description="t('group.settings.urlConfirm.description')"
       :close-label="t('group.settings.urlConfirm.close')"
+      :dismissible="!pending"
       prevent-close-auto-focus
-      @update:open="urlConfirmOpen = $event"
+      @update:open="setURLConfirmOpen"
     >
       <div class="group-settings__dialog-actions">
-        <AppButton variant="secondary" @click="urlConfirmOpen = false">
+        <AppButton variant="secondary" :disabled="pending" @click="setURLConfirmOpen(false)">
           {{ t('group.settings.urlConfirm.cancel') }}
         </AppButton>
         <AppButton
           data-test="group-url-confirm"
           class="group-settings__confirm-url"
           variant="secondary"
+          :busy="pending"
           @click="runSave(true)"
         >
           {{ t('group.settings.urlConfirm.confirm') }}

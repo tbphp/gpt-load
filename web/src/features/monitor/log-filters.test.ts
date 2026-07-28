@@ -37,6 +37,7 @@ describe('log filters', () => {
       access_key_id: '12',
       status: 'error',
       request_id: 'a4d4e121-8ac3-4df4-8ceb-63b10ddc6173',
+      selected_request_id: 'b4d4e121-8ac3-4df4-8ceb-63b10ddc6173',
     })
 
     expect(filters).toEqual({

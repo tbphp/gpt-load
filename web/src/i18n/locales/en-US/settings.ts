@@ -8,6 +8,18 @@ export default {
     stale: 'Runtime settings may be stale because the background refresh failed.',
     save: 'Save changes',
     saved: 'Settings saved.',
+    savedAt: 'Settings saved at {time}.',
+    saveFailed: 'Unable to update runtime settings. Your input is unchanged.',
+    discard: 'Discard',
+    dirtySummary: '{count} unsaved runtime settings',
+    navigation: {
+      label: 'Runtime settings sections',
+      request: 'Request and forwarding',
+      logs: 'Logs and maintenance',
+    },
+    validation: {
+      title: 'Fix these settings before saving:',
+    },
     effectiveValue: 'Effective value: {value}',
     override: 'Override',
     default: 'Code default',

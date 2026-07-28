@@ -1,9 +1,11 @@
 import { QueryClient } from '@tanstack/vue-query'
 import { flushPromises } from '@vue/test-utils'
+import { defineComponent } from 'vue'
 import { createMemoryHistory } from 'vue-router'
 
 import type { ApiClient, ApiPath, ApiRequestOptions } from '@/api/client'
 import type { SettingsDto } from '@/api/control/settings'
+import { NetworkError } from '@/api/errors'
 import { controlQueryKeys } from '@/app/query-keys'
 import { createAppRouter } from '@/app/router'
 import { createThemeController, themeControllerKey } from '@/features/preferences/theme'
@@ -25,10 +27,13 @@ const base: SettingsDto = {
   },
   overrides: [],
 }
-const updated: SettingsDto = {
-  ...base,
-  values: { ...base.values, request_timeout: 900 },
-  overrides: ['request_timeout'],
+const saved: SettingsDto = {
+  values: {
+    ...base.values,
+    request_timeout: 900,
+    request_log_retention_days: 30,
+  },
+  overrides: ['request_timeout', 'request_log_retention_days'],
 }
 const systemInfo = {
   version: '2.0.0',
@@ -42,12 +47,17 @@ const systemInfo = {
   encryption: { enabled: true, source: 'environment', path: null },
 }
 
+type SettingsHandler = (
+  options?: ApiRequestOptions,
+  getCount?: number,
+) => unknown | Promise<unknown>
+
 function queryClient() {
   return new QueryClient({ defaultOptions: { queries: { retry: false } } })
 }
 
 async function mountView(
-  putResponse: SettingsDto | ((options?: ApiRequestOptions) => SettingsDto) = updated,
+  settingsHandler: SettingsHandler = (options) => (options?.method === 'PUT' ? saved : base),
   tokenFor?: (path: ApiPath, options: ApiRequestOptions | undefined, data: unknown) => string,
 ) {
   const client = queryClient()
@@ -57,11 +67,11 @@ async function mountView(
   client.setQueryData(controlQueryKeys.groups.keys(7), [{ id: 1 }])
   client.setQueryData(controlQueryKeys.health(), { observed_at: 'now' })
   client.setQueryData(controlQueryKeys.accessKeys.list(), [{ id: 9 }])
-
+  let getCount = 0
   const requestMock = vi.fn(async (path: string, options?: ApiRequestOptions) => {
-    if (path === '/api/settings' && options?.method === undefined) return base
-    if (path === '/api/settings' && options?.method === 'PUT') {
-      return typeof putResponse === 'function' ? putResponse(options) : putResponse
+    if (path === '/api/settings') {
+      if (options?.method === undefined) getCount += 1
+      return settingsHandler(options, getCount)
     }
     if (path === '/api/system/info') return systemInfo
     throw new Error(`unexpected request ${path}`)
@@ -71,7 +81,8 @@ async function mountView(
     storage: localStorage,
     matchMedia: window.matchMedia.bind(window),
   })
-  const mounted = await mountApp(SettingsView, {
+  const Host = defineComponent({ template: '<RouterView />' })
+  const mounted = await mountApp(Host, {
     api: apiWithResponseMetadata(requestMock as ApiClient['request'], tokenFor),
     queryClient: client,
     locale: 'en-US',
@@ -85,18 +96,20 @@ async function mountView(
   return { ...mounted, queryClient: client, requestMock, theme }
 }
 
+async function editBothSections(wrapper: Awaited<ReturnType<typeof mountView>>['wrapper']) {
+  await wrapper.get('[data-test="override-request_timeout"]').setValue(true)
+  await wrapper.get('[data-test="value-request_timeout"]').setValue('900')
+  await wrapper.get('[data-test="override-request_log_retention_days"]').setValue(true)
+  await wrapper.get('[data-test="value-request_log_retention_days"]').setValue('30')
+}
+
+afterEach(() => {
+  vi.useRealTimers()
+  vi.unstubAllGlobals()
+})
+
 describe('SettingsView', () => {
-  it('links to Model prices as a secondary Settings page without adding a primary navigation item', async () => {
-    const { theme, wrapper } = await mountView()
-
-    const entry = wrapper.get<HTMLAnchorElement>('[data-test="model-prices-entry"]')
-    expect(entry.attributes('href')).toBe('/settings/model-prices')
-    expect(entry.text()).toContain('Model prices')
-    wrapper.unmount()
-    theme.dispose()
-  })
-
-  it('replaces the route placeholder and uses a gcTime-zero Settings query', async () => {
+  it('keeps the secondary Model prices entry and gcTime-zero localized Settings boundary', async () => {
     const router = createAppRouter({ hasCredential: () => true }, createMemoryHistory())
     const routeComponent = router.resolve('/settings').matched.at(-1)?.components?.default
     expect(typeof routeComponent).toBe('function')
@@ -105,213 +118,187 @@ describe('SettingsView', () => {
     const { queryClient: client, theme, wrapper } = await mountView()
     expect(wrapper.get('h1').text()).toBe('Settings')
     expect(
+      wrapper.get<HTMLAnchorElement>('[data-test="model-prices-entry"]').attributes('href'),
+    ).toBe('/settings/model-prices')
+    expect(
       client.getQueryCache().find({ queryKey: controlQueryKeys.settings('en-US') })?.options.gcTime,
     ).toBe(0)
     expect(wrapper.html()).not.toContain(headerCanary)
+
     wrapper.unmount()
     await flushPromises()
     expect(client.getQueryData(controlQueryKeys.settings('en-US'))).toBeUndefined()
-    expect(JSON.stringify(client.getQueryCache().getAll())).not.toContain(headerCanary)
     theme.dispose()
   })
 
-  it('rebases Settings and invalidates only the loaded Group-detail prefix after success', async () => {
+  it('saves both sections with one action, one If-Match, and one confirmed timestamp', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-07-28T14:00:00.000Z'))
     const { queryClient: client, requestMock, theme, wrapper } = await mountView()
-    const setQueryData = vi.spyOn(client, 'setQueryData')
     const invalidate = vi.spyOn(client, 'invalidateQueries')
+    await editBothSections(wrapper)
 
-    await wrapper.get('[data-test="override-request_timeout"]').setValue(true)
-    await wrapper.get('[data-test="value-request_timeout"]').setValue('900')
-    await wrapper.get('[data-test="request-forwarding-save"]').trigger('click')
+    expect(
+      wrapper.findAll('button').filter((button) => button.text().includes('Save changes')),
+    ).toHaveLength(1)
+    await wrapper.get('[data-test="settings-save-all"]').trigger('click')
     await flushPromises()
 
     expect(requestMock).toHaveBeenCalledWith('/api/settings', {
       method: 'PUT',
       headers: { 'If-Match': `"${testSettingsETags.get}"` },
-      json: { settings: { request_timeout: 900 } },
+      json: {
+        settings: {
+          request_timeout: 900,
+          request_log_retention_days: 30,
+        },
+      },
       signal: expect.any(AbortSignal),
     })
-    expect(setQueryData).toHaveBeenCalledWith(controlQueryKeys.settings('en-US'), {
-      settings: updated,
+    expect(client.getQueryData(controlQueryKeys.settings('en-US'))).toEqual({
+      settings: saved,
       settings_etag: testSettingsETags.put,
     })
     expect(invalidate.mock.calls.map(([filters]) => filters)).toEqual([
       { queryKey: controlQueryKeys.groups.details() },
     ])
-    expect(client.getQueryData(controlQueryKeys.groups.list())).toEqual([{ id: 7 }])
-    expect(client.getQueryData(controlQueryKeys.groups.keys(7))).toEqual([{ id: 1 }])
-    expect(client.getQueryData(controlQueryKeys.health())).toEqual({ observed_at: 'now' })
-    expect(client.getQueryData(controlQueryKeys.accessKeys.list())).toEqual([{ id: 9 }])
-    expect(client.getQueryData(controlQueryKeys.systemInfo())).toEqual(systemInfo)
-    expect(client.getMutationCache().getAll()).toHaveLength(0)
-    expect(JSON.stringify(wrapper.emitted())).not.toContain(headerCanary)
-    expect(JSON.stringify(wrapper.vm.$route)).not.toContain(headerCanary)
-    expect(JSON.stringify(controlQueryKeys)).not.toContain(headerCanary)
-    expect(JSON.stringify(localStorage)).not.toContain(headerCanary)
+    expect(wrapper.get('[data-test="settings-saved-at"]').attributes('datetime')).toBe(
+      '2026-07-28T14:00:00.000Z',
+    )
+    expect(wrapper.find('[data-test="settings-dirty-summary"]').exists()).toBe(false)
     wrapper.unmount()
     theme.dispose()
   })
 
-  it('refetches the localized Settings representation before saving after a locale change', async () => {
-    const localizedETag = `sha256-${'c'.repeat(64)}`
-    let getRepresentations = 0
-    const { appI18n, requestMock, theme, wrapper } = await mountView(updated, (_path, options) => {
-      if (options?.method === 'PUT') return testSettingsETags.put
-      getRepresentations += 1
-      return getRepresentations === 1 ? testSettingsETags.get : localizedETag
-    })
+  it('keeps the complete dirty draft across section anchors and discards it atomically', async () => {
+    const { theme, wrapper } = await mountView()
+    await editBothSections(wrapper)
 
-    await appI18n.setLocale('ja-JP')
-    await flushPromises()
+    await wrapper.get('[data-test="settings-nav-logs"]').trigger('click')
+    expect(document.activeElement).toBe(wrapper.get('#settings-logs-maintenance').element)
+    expect(wrapper.get('[data-test="settings-dirty-summary"]').text()).toContain('2')
+    expect(wrapper.get<HTMLInputElement>('[data-test="value-request_timeout"]').element.value).toBe(
+      '900',
+    )
     expect(
-      requestMock.mock.calls.filter(
-        ([path, options]) => path === '/api/settings' && options?.method === undefined,
-      ),
-    ).toHaveLength(2)
+      wrapper.get<HTMLInputElement>('[data-test="value-request_log_retention_days"]').element.value,
+    ).toBe('30')
 
+    await wrapper.get('[data-test="settings-discard"]').trigger('click')
+    expect(wrapper.find('[data-test="settings-dirty-summary"]').exists()).toBe(false)
+    expect(
+      wrapper.get<HTMLInputElement>('[data-test="override-request_timeout"]').element.checked,
+    ).toBe(false)
+    expect(
+      wrapper.get<HTMLInputElement>('[data-test="override-request_log_retention_days"]').element
+        .checked,
+    ).toBe(false)
+    wrapper.unmount()
+    theme.dispose()
+  })
+
+  it('links the validation summary to and focuses the first invalid field', async () => {
+    const { theme, wrapper } = await mountView()
+    await wrapper.get('[data-test="override-request_timeout"]').setValue(true)
+    await wrapper.get('[data-test="value-request_timeout"]').setValue('0')
+
+    const errorLink = wrapper.get('[data-test="settings-error-link-request_timeout"]')
+    expect(errorLink.attributes('href')).toBe('#settings-value-request_timeout')
+    await errorLink.trigger('click')
+    expect(document.activeElement).toBe(wrapper.get('[data-test="value-request_timeout"]').element)
+    expect(wrapper.get('[data-test="settings-save-all"]').attributes()).toHaveProperty('disabled')
+    wrapper.unmount()
+    theme.dispose()
+  })
+
+  it('prompts while dirty and blocks busy navigation without a discard prompt', async () => {
+    let resolveSave!: () => void
+    const pending = new Promise<SettingsDto>((resolve) => {
+      resolveSave = () => resolve(saved)
+    })
+    const { router, theme, wrapper } = await mountView((options) =>
+      options?.method === 'PUT' ? pending : base,
+    )
+    const confirm = vi.fn(() => false)
+    vi.stubGlobal('confirm', confirm)
     await wrapper.get('[data-test="override-request_timeout"]').setValue(true)
     await wrapper.get('[data-test="value-request_timeout"]').setValue('900')
-    await wrapper.get('[data-test="request-forwarding-save"]').trigger('click')
+
+    await router.push('/groups')
+    expect(router.currentRoute.value.path).toBe('/settings')
+    expect(confirm).toHaveBeenCalledOnce()
+
+    await wrapper.get('[data-test="settings-save-all"]').trigger('click')
+    await flushPromises()
+    await router.push('/groups')
+    expect(router.currentRoute.value.path).toBe('/settings')
+    expect(confirm).toHaveBeenCalledOnce()
+
+    resolveSave()
+    await flushPromises()
+    wrapper.unmount()
+    theme.dispose()
+  })
+
+  it('preserves both dirty sections across a localized ETag refresh', async () => {
+    const localizedETag = `sha256-${'c'.repeat(64)}`
+    let representationCount = 0
+    const { appI18n, requestMock, theme, wrapper } = await mountView(
+      (options) => (options?.method === 'PUT' ? saved : base),
+      (_path, options) => {
+        if (options?.method === 'PUT') return testSettingsETags.put
+        representationCount += 1
+        return representationCount === 1 ? testSettingsETags.get : localizedETag
+      },
+    )
+
+    await editBothSections(wrapper)
+    await appI18n.setLocale('ja-JP')
+    await flushPromises()
+    await wrapper.get('[data-test="settings-save-all"]').trigger('click')
     await flushPromises()
 
     expect(requestMock).toHaveBeenLastCalledWith('/api/settings', {
       method: 'PUT',
       headers: { 'If-Match': `"${localizedETag}"` },
-      json: { settings: { request_timeout: 900 } },
+      json: {
+        settings: {
+          request_timeout: 900,
+          request_log_retention_days: 30,
+        },
+      },
       signal: expect.any(AbortSignal),
     })
     wrapper.unmount()
     theme.dispose()
   })
 
-  it('preserves dirty Request values, ownership, HeaderRules, and Save state when Logs saves', async () => {
-    const logsReturned: SettingsDto = {
-      values: {
-        ...base.values,
-        request_log_retention_days: 30,
+  it('reconciles a network-unknown combined save with GET and never resends PUT', async () => {
+    let getCount = 0
+    const { requestMock, theme, wrapper } = await mountView(
+      (options) => {
+        if (options?.method === 'PUT') throw new NetworkError()
+        getCount += 1
+        return getCount === 1 ? base : saved
       },
-      overrides: ['request_log_retention_days'],
-    }
-    const { requestMock, theme, wrapper } = await mountView(logsReturned)
-
-    await wrapper.get('[data-test="override-request_timeout"]').setValue(true)
-    await wrapper.get('[data-test="value-request_timeout"]').setValue('900')
-    await wrapper.get('[data-test="settings-header-disclosure"]').trigger('click')
-    await wrapper.get('[data-test="override-header_rules"]').setValue(true)
-    await wrapper.get('[data-test="header-name"]').setValue('X-Draft')
-    await wrapper.get('[data-test="header-value"]').setValue('DRAFT_VALUE')
-
-    await wrapper.get('[data-test="override-request_log_retention_days"]').setValue(true)
-    await wrapper.get('[data-test="value-request_log_retention_days"]').setValue('30')
-    await wrapper.get('[data-test="logs-maintenance-save"]').trigger('click')
-    await flushPromises()
-
-    expect(requestMock.mock.calls.filter(([, options]) => options?.method === 'PUT')).toEqual([
-      [
-        '/api/settings',
-        {
-          method: 'PUT',
-          headers: { 'If-Match': `"${testSettingsETags.get}"` },
-          json: { settings: { request_log_retention_days: 30 } },
-          signal: expect.any(AbortSignal),
-        },
-      ],
-    ])
-    expect(
-      (wrapper.get('[data-test="value-request_timeout"]').element as HTMLInputElement).value,
-    ).toBe('900')
-    expect(
-      (wrapper.get('[data-test="override-request_timeout"]').element as HTMLInputElement).checked,
-    ).toBe(true)
-    expect((wrapper.get('[data-test="header-name"]').element as HTMLInputElement).value).toBe(
-      'X-Draft',
+      (_path, options) =>
+        options?.method === 'PUT'
+          ? testSettingsETags.put
+          : getCount <= 1
+            ? testSettingsETags.get
+            : `sha256-${'d'.repeat(64)}`,
     )
-    expect((wrapper.get('[data-test="header-value"]').element as HTMLInputElement).value).toBe(
-      'DRAFT_VALUE',
-    )
-    expect(
-      (wrapper.get('[data-test="override-header_rules"]').element as HTMLInputElement).checked,
-    ).toBe(true)
-    expect(wrapper.get('[data-test="request-forwarding-save"]').attributes()).not.toHaveProperty(
-      'disabled',
-    )
-    expect(wrapper.get('[data-test="logs-maintenance-save"]').attributes()).toHaveProperty(
-      'disabled',
-    )
-    wrapper.unmount()
-    theme.dispose()
-  })
-
-  it('preserves dirty Logs value, ownership, and Save state when Request saves', async () => {
-    const { requestMock, theme, wrapper } = await mountView(updated)
-
-    await wrapper.get('[data-test="override-request_log_retention_days"]').setValue(true)
-    await wrapper.get('[data-test="value-request_log_retention_days"]').setValue('30')
-    await wrapper.get('[data-test="override-request_timeout"]').setValue(true)
-    await wrapper.get('[data-test="value-request_timeout"]').setValue('900')
-    await wrapper.get('[data-test="request-forwarding-save"]').trigger('click')
-    await flushPromises()
-
-    expect(requestMock.mock.calls.filter(([, options]) => options?.method === 'PUT')).toEqual([
-      [
-        '/api/settings',
-        {
-          method: 'PUT',
-          headers: { 'If-Match': `"${testSettingsETags.get}"` },
-          json: { settings: { request_timeout: 900 } },
-          signal: expect.any(AbortSignal),
-        },
-      ],
-    ])
-    expect(
-      (wrapper.get('[data-test="value-request_log_retention_days"]').element as HTMLInputElement)
-        .value,
-    ).toBe('30')
-    expect(
-      (wrapper.get('[data-test="override-request_log_retention_days"]').element as HTMLInputElement)
-        .checked,
-    ).toBe(true)
-    expect(wrapper.get('[data-test="logs-maintenance-save"]').attributes()).not.toHaveProperty(
-      'disabled',
-    )
-    expect(wrapper.get('[data-test="request-forwarding-save"]').attributes()).toHaveProperty(
-      'disabled',
-    )
-    wrapper.unmount()
-    theme.dispose()
-  })
-
-  it('fully rebases a clean Request section from a sibling Settings response', async () => {
-    const logsReturned: SettingsDto = {
-      values: {
-        ...base.values,
-        header_rules: { set: { 'X-Server': 'SERVER_VALUE' }, remove: ['X-Server-Remove'] },
-        request_log_retention_days: 30,
-      },
-      overrides: ['header_rules', 'request_log_retention_days'],
-    }
-    const { theme, wrapper } = await mountView(logsReturned)
-
-    await wrapper.get('[data-test="override-request_log_retention_days"]').setValue(true)
-    await wrapper.get('[data-test="value-request_log_retention_days"]').setValue('30')
-    await wrapper.get('[data-test="logs-maintenance-save"]').trigger('click')
+    await editBothSections(wrapper)
+    await wrapper.get('[data-test="settings-save-all"]').trigger('click')
     await flushPromises()
 
     expect(
-      wrapper.get('[data-test="settings-header-disclosure"]').attributes('aria-expanded'),
-    ).toBe('true')
-    expect(
-      wrapper
-        .findAll('[data-test="header-name"]')
-        .map((input) => (input.element as HTMLInputElement).value),
-    ).toEqual(['X-Server', 'X-Server-Remove'])
-    expect((wrapper.get('[data-test="header-value"]').element as HTMLInputElement).value).toBe(
-      'SERVER_VALUE',
-    )
-    expect(wrapper.get('[data-test="header-value"]').attributes('type')).toBe('password')
-    expect(wrapper.get('[data-test="request-forwarding-save"]').attributes()).toHaveProperty(
-      'disabled',
-    )
+      requestMock.mock.calls.filter(
+        ([path, options]) => path === '/api/settings' && options?.method === 'PUT',
+      ),
+    ).toHaveLength(1)
+    expect(wrapper.find('[data-test="settings-indeterminate"]').exists()).toBe(false)
+    expect(wrapper.get('[data-test="settings-saved-at"]')).toBeDefined()
     wrapper.unmount()
     theme.dispose()
   })

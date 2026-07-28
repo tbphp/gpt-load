@@ -70,8 +70,64 @@ async function setInput(selector: string, value: string): Promise<void> {
   await flushPromises()
 }
 
+function requestDrawerClose(path: 'cancel' | 'close' | 'escape' | 'outside'): void {
+  if (path === 'cancel') {
+    element<HTMLButtonElement>('.model-price-drawer__actions .app-button--secondary').click()
+    return
+  }
+  if (path === 'close') {
+    element<HTMLButtonElement>('.app-drawer__close').click()
+    return
+  }
+  if (path === 'escape') {
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    return
+  }
+  const overlay = element<HTMLElement>('.app-drawer__overlay')
+  overlay.dispatchEvent(new Event('pointerdown', { bubbles: true }))
+  overlay.click()
+}
+
 describe('ModelPriceDrawer', () => {
+  it('closes an untouched add draft without a discard prompt', async () => {
+    const confirm = vi.fn(() => false)
+    vi.stubGlobal('confirm', confirm)
+    const { wrapper } = await mountDrawer(vi.fn() as ApiClient['request'])
+
+    requestDrawerClose('cancel')
+    await flushPromises()
+
+    expect(confirm).not.toHaveBeenCalled()
+    expect(wrapper.emitted('update:open')).toContainEqual([false])
+    wrapper.unmount()
+    vi.unstubAllGlobals()
+  })
+
+  it.each(['cancel', 'close', 'escape', 'outside'] as const)(
+    'confirms a changed model price draft before %s close',
+    async (path) => {
+      const confirm = vi.fn(() => false)
+      vi.stubGlobal('confirm', confirm)
+      const { wrapper } = await mountDrawer(vi.fn() as ApiClient['request'])
+      await setInput('[data-test="model-price-pattern"]', 'vendor-*')
+
+      requestDrawerClose(path)
+      await flushPromises()
+      expect(wrapper.emitted('update:open') ?? []).not.toContainEqual([false])
+
+      confirm.mockReturnValue(true)
+      requestDrawerClose(path)
+      await flushPromises()
+      expect(wrapper.emitted('update:open')).toContainEqual([false])
+      expect(confirm).toHaveBeenCalledTimes(2)
+      wrapper.unmount()
+      vi.unstubAllGlobals()
+    },
+  )
+
   it('adds a complete five-price override and invalidates only modelPrices', async () => {
+    const confirm = vi.fn(() => false)
+    vi.stubGlobal('confirm', confirm)
     const request = vi.fn().mockResolvedValue(undefined) as ApiClient['request']
     const { queryClient: client, wrapper } = await mountDrawer(request)
     const invalidate = vi.spyOn(client, 'invalidateQueries').mockResolvedValue()
@@ -103,7 +159,9 @@ describe('ModelPriceDrawer', () => {
     ])
     expect(client.getMutationCache().getAll()).toHaveLength(0)
     expect(wrapper.emitted('update:open')).toContainEqual([false])
+    expect(confirm).not.toHaveBeenCalled()
     wrapper.unmount()
+    vi.unstubAllGlobals()
   })
 
   it.each([
@@ -120,7 +178,22 @@ describe('ModelPriceDrawer', () => {
     wrapper.unmount()
   })
 
-  it('requires an explicit dialog confirmation before saving a bare global star', async () => {
+  it('separates a clean built-in projection from its available override action', async () => {
+    const confirm = vi.fn(() => false)
+    vi.stubGlobal('confirm', confirm)
+    const { wrapper } = await mountDrawer(vi.fn() as ApiClient['request'], builtin)
+
+    expect(element<HTMLButtonElement>('[data-test="model-price-save"]').disabled).toBe(false)
+    requestDrawerClose('close')
+    await flushPromises()
+
+    expect(confirm).not.toHaveBeenCalled()
+    expect(wrapper.emitted('update:open')).toContainEqual([false])
+    wrapper.unmount()
+    vi.unstubAllGlobals()
+  })
+
+  it('requires an inline confirmation in the same Drawer before saving a bare global star', async () => {
     const request = vi.fn().mockResolvedValue(undefined) as ApiClient['request']
     const { wrapper } = await mountDrawer(request)
 
@@ -137,17 +210,22 @@ describe('ModelPriceDrawer', () => {
     await flushPromises()
     expect(request).not.toHaveBeenCalled()
 
-    const dialogBody = element<HTMLElement>('[data-test="model-price-global-dialog"]')
-    const dialog = dialogBody.closest<HTMLElement>('[role="dialog"]')
-    if (!dialog) throw new Error('missing global price confirmation dialog')
-    expect(dialog.textContent).toContain('Create a global user price override?')
-    expect(dialog.textContent).toContain(
+    const drawer = element<HTMLElement>('.app-drawer__content')
+    const confirmation = element<HTMLElement>('[data-test="model-price-global-confirm"]')
+    expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1)
+    expect(drawer.contains(confirmation)).toBe(true)
+    expect(confirmation.textContent).toContain('Create a global user price override?')
+    expect(confirmation.textContent).toContain(
       'takes precedence over every built-in exact and prefix rule',
     )
-    expect(dialog.textContent).toContain('Unset price slots do not fall back')
-    expect(dialog.textContent).toContain('future completed or Emit requests')
-    expect(dialog.textContent).toContain('Reset restores the remaining user and built-in rules')
-    expect(dialog.contains(document.activeElement)).toBe(true)
+    expect(confirmation.textContent).toContain('Unset price slots do not fall back')
+    expect(confirmation.textContent).toContain('future completed or Emit requests')
+    expect(confirmation.textContent).toContain(
+      'Reset restores the remaining user and built-in rules',
+    )
+    expect(document.activeElement).toBe(
+      element<HTMLElement>('[data-test="model-price-global-confirm-heading"]'),
+    )
 
     element<HTMLButtonElement>('[data-test="model-price-global-save-confirm"]').click()
     await flushPromises()
@@ -181,23 +259,20 @@ describe('ModelPriceDrawer', () => {
       element<HTMLButtonElement>('[data-test="model-price-save"]').click()
       await flushPromises()
       expect(
-        element<HTMLElement>('[data-test="model-price-global-dialog"]').closest('[role="dialog"]')
-          ?.textContent,
+        element<HTMLElement>('[data-test="model-price-global-confirm"]').textContent,
       ).toContain(dialogTitle)
 
       wrapper.unmount()
     },
   )
 
-  it('retains input after a generic failure and aborts an in-flight save when closed', async () => {
-    let rejectRequest!: (error: unknown) => void
+  it('retains input and blocks every close path while a save is pending', async () => {
+    let resolveRequest!: () => void
     const requestMock = vi.fn(
       (_path, options) =>
-        new Promise<void>((_resolve, reject) => {
-          rejectRequest = reject
-          options?.signal?.addEventListener('abort', () =>
-            reject(new DOMException('x', 'AbortError')),
-          )
+        new Promise<void>((resolve) => {
+          resolveRequest = resolve
+          void options
         }),
     )
     const request = requestMock as ApiClient['request']
@@ -211,13 +286,16 @@ describe('ModelPriceDrawer', () => {
     expect(element<HTMLButtonElement>('[data-test="model-price-save"]').disabled).toBe(true)
     const signal = requestMock.mock.calls[0]?.[1]?.signal
 
-    document.querySelector<HTMLButtonElement>('[aria-label="Close model price editor"]')?.click()
+    for (const path of ['cancel', 'close', 'escape', 'outside'] as const) {
+      requestDrawerClose(path)
+    }
     await flushPromises()
-    expect(signal?.aborted).toBe(true)
-    rejectRequest(new Error('PRICE_SAVE_CANARY'))
+    expect(signal?.aborted).toBe(false)
+    expect(wrapper.emitted('update:open') ?? []).not.toContainEqual([false])
+
+    resolveRequest()
     await flushPromises()
-    expect(invalidate).not.toHaveBeenCalled()
-    expect(document.body.textContent).not.toContain('PRICE_SAVE_CANARY')
+    expect(invalidate).toHaveBeenCalledOnce()
     wrapper.unmount()
   })
 

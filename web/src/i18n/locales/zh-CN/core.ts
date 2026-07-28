@@ -10,6 +10,7 @@ export default {
     conceal: '隐藏密钥',
     cancel: '取消',
     close: '关闭',
+    unsavedChanges: '要放弃未保存的修改吗？选择“取消”可继续编辑。',
     protocols: {
       openai: 'OpenAI',
       anthropic: 'Anthropic',
@@ -61,6 +62,11 @@ export default {
     navigationTitle: '导航',
     signOut: '退出登录',
     placeholderDescription: '该管理功能将在当前实施阶段的后续任务中完成。',
+    backHome: '返回首页',
+  },
+  notFound: {
+    title: '页面不存在',
+    description: '请求的管理页面不存在或已不可用。',
     backHome: '返回首页',
   },
   home: {

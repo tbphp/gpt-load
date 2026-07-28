@@ -84,6 +84,67 @@ func TestServerServesModelPricesDeepLinkWithoutCatchingUnknownSettingsPaths(t *t
 	}
 }
 
+func TestServerFallbackServesOnlyUnknownBrowserPageNavigation(t *testing.T) {
+	server := newServer(fstest.MapFS{
+		"dist/index.html": &fstest.MapFile{Data: []byte("<!doctype html><title>fallback</title>")},
+	}, "dist")
+	engine := testEngine(server)
+	server.RegisterFallback(engine, func(c *gin.Context) {
+		c.String(http.StatusTeapot, "backend fallback")
+	})
+
+	browserPage := httptest.NewRecorder()
+	browserPageRequest := httptest.NewRequest(http.MethodGet, "/phase-2-unknown-route", nil)
+	browserPageRequest.Header.Set("Accept", "text/html,application/xhtml+xml;q=0.9")
+	engine.ServeHTTP(browserPage, browserPageRequest)
+	if browserPage.Code != http.StatusOK ||
+		!strings.Contains(browserPage.Body.String(), "<title>fallback</title>") {
+		t.Fatalf(
+			"unknown browser page = %d %q, want SPA index",
+			browserPage.Code,
+			browserPage.Body.String(),
+		)
+	}
+
+	for _, testCase := range []struct {
+		name   string
+		method string
+		target string
+		accept string
+	}{
+		{name: "non HTML client", method: http.MethodGet, target: "/unknown"},
+		{
+			name:   "HTML explicitly unacceptable",
+			method: http.MethodGet,
+			target: "/unknown",
+			accept: "text/html;q=0, application/json",
+		},
+		{name: "non GET browser request", method: http.MethodPost, target: "/unknown", accept: "text/html"},
+		{name: "control namespace", method: http.MethodGet, target: "/api/unknown", accept: "text/html"},
+		{name: "OpenAI namespace", method: http.MethodGet, target: "/v1/unknown", accept: "text/html"},
+		{name: "Gemini namespace", method: http.MethodGet, target: "/v1beta/unknown", accept: "text/html"},
+		{name: "health namespace", method: http.MethodGet, target: "/health/unknown", accept: "text/html"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(testCase.method, testCase.target, nil)
+			if testCase.accept != "" {
+				request.Header.Set("Accept", testCase.accept)
+			}
+			engine.ServeHTTP(recorder, request)
+			if recorder.Code != http.StatusTeapot || recorder.Body.String() != "backend fallback" {
+				t.Fatalf(
+					"%s %s = %d %q, want backend fallback",
+					testCase.method,
+					testCase.target,
+					recorder.Code,
+					recorder.Body.String(),
+				)
+			}
+		})
+	}
+}
+
 func TestServerUsesCompileFallbackWhenIndexIsMissing(t *testing.T) {
 	server := newServer(fstest.MapFS{
 		"dist/assets/embed-placeholder.txt": &fstest.MapFile{Data: []byte("marker")},

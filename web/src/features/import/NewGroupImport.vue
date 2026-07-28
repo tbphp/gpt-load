@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useQueryClient } from '@tanstack/vue-query'
 import { Check, ChevronLeft, ChevronRight, Search, TriangleAlert } from 'lucide-vue-next'
-import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 
@@ -31,7 +31,7 @@ import { analyzeKeys } from './key-analysis'
 import KeyTextarea from './KeyTextarea.vue'
 import type { ImportDraft } from './model-draft'
 import { createModelDraft, toGroupModels } from './model-draft'
-import { useDirtyNavigation } from './use-dirty-navigation'
+import { useUnsavedChanges } from '@/app/unsaved-changes'
 
 const props = defineProps<{ initialDraft?: ImportDraft | null }>()
 const api = useApiClient()
@@ -71,6 +71,9 @@ const manualMode = ref(
 const errorKey = ref('')
 const conflict = ref<UpstreamUrlConflictData | null>(null)
 const completed = ref(false)
+const step1Heading = ref<HTMLHeadingElement | null>(null)
+const step2Heading = ref<HTMLHeadingElement | null>(null)
+const step3Heading = ref<HTMLHeadingElement | null>(null)
 const importOperationOwner = useImportOperationOwner()
 const createOperation = importOperationOwner.createGroup
 const appendOperation = importOperationOwner.importKeys
@@ -133,7 +136,7 @@ const canDiscover = computed(
 const canReview = computed(() => !pending.value && toGroupModels(draft.models).length > 0)
 const protocols: GroupProtocol[] = ['openai', 'anthropic', 'gemini']
 
-useDirtyNavigation(dirty)
+useUnsavedChanges(dirty)
 const unregisterRecovery = recovery.register(() => (completed.value ? null : snapshotDraft()))
 
 function snapshotDraft(): ImportDraft {
@@ -181,6 +184,14 @@ function invalidateDiscovery(): void {
   if (draft.step > 1) draft.step = 1
 }
 
+async function moveToStep(step: ImportDraft['step']): Promise<void> {
+  draft.step = step
+  await nextTick()
+  const heading =
+    step === 1 ? step1Heading.value : step === 2 ? step2Heading.value : step3Heading.value
+  heading?.focus()
+}
+
 watch(
   [
     () => draft.upstream_url,
@@ -225,12 +236,12 @@ async function runDiscovery(): Promise<void> {
     discoveryReady.value = true
     discoveryFailed.value = false
     manualMode.value = true
-    draft.step = 2
+    await moveToStep(2)
   } catch (error: unknown) {
     if (discoveryController !== controller || error instanceof RequestCancelledError) return
     discoveryFailed.value = true
     manualMode.value = false
-    draft.step = 2
+    await moveToStep(2)
     errorKey.value = 'import.discoveryFailed'
   } finally {
     finishAction(controller)
@@ -349,11 +360,11 @@ async function retryOperation(): Promise<void> {
   if (createOperation.operation.value) await submitCreate()
 }
 
-function returnToEdit(): void {
+async function returnToEdit(): Promise<void> {
   createOperation.reset()
   appendOperation.reset()
   conflict.value = null
-  draft.step = 1
+  await moveToStep(1)
 }
 
 onBeforeUnmount(() => {
@@ -405,7 +416,9 @@ onBeforeUnmount(() => {
 
     <SurfaceCard v-if="draft.step === 1" class="import-card">
       <header>
-        <h2>{{ t('import.connection.title') }}</h2>
+        <h2 ref="step1Heading" data-test="import-step-1-heading" tabindex="-1">
+          {{ t('import.connection.title') }}
+        </h2>
         <p>{{ t('import.connection.description') }}</p>
       </header>
       <div class="connection-grid">
@@ -465,7 +478,9 @@ onBeforeUnmount(() => {
 
     <SurfaceCard v-else-if="draft.step === 2" class="import-card">
       <header>
-        <h2>{{ t('import.models.title') }}</h2>
+        <h2 ref="step2Heading" data-test="import-step-2-heading" tabindex="-1">
+          {{ t('import.models.title') }}
+        </h2>
         <p>{{ t('import.models.stepDescription') }}</p>
       </header>
       <InlineFeedback v-if="errorKey" tone="warning">{{ t(errorKey) }}</InlineFeedback>
@@ -480,9 +495,9 @@ onBeforeUnmount(() => {
       </button>
       <ModelDraftEditor v-if="manualMode" v-model="draft.models" />
       <footer class="card-actions split">
-        <AppButton variant="secondary" @click="draft.step = 1"
+        <AppButton variant="secondary" @click="moveToStep(1)"
           ><ChevronLeft :size="16" aria-hidden="true" />{{ t('import.back') }}</AppButton
-        ><AppButton data-test="review" :disabled="!canReview" @click="draft.step = 3"
+        ><AppButton data-test="review" :disabled="!canReview" @click="moveToStep(3)"
           >{{ t('import.review') }}<ChevronRight :size="16" aria-hidden="true"
         /></AppButton>
       </footer>
@@ -490,7 +505,9 @@ onBeforeUnmount(() => {
 
     <SurfaceCard v-else class="import-card">
       <header>
-        <h2>{{ t('import.reviewTitle') }}</h2>
+        <h2 ref="step3Heading" data-test="import-step-3-heading" tabindex="-1">
+          {{ t('import.reviewTitle') }}
+        </h2>
         <p>{{ t('import.reviewDescription') }}</p>
       </header>
       <dl class="review-list">
@@ -553,7 +570,7 @@ onBeforeUnmount(() => {
         <AppButton
           variant="secondary"
           :disabled="pending || operationNoticeKey !== ''"
-          @click="draft.step = 2"
+          @click="moveToStep(2)"
           ><ChevronLeft :size="16" aria-hidden="true" />{{ t('import.back') }}</AppButton
         ><AppButton
           data-test="create"

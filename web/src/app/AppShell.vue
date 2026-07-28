@@ -13,21 +13,21 @@ import {
 } from 'lucide-vue-next'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { RouterLink, useRoute, useRouter } from 'vue-router'
+import { isNavigationFailure, RouterLink, useRoute, useRouter } from 'vue-router'
 
 import AppDrawer from '@/components/ui/AppDrawer.vue'
 import AppSelect from '@/components/ui/AppSelect.vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import { useAuthSession } from '@/features/auth/auth-session'
 import { useImportRecovery } from '@/features/import/import-recovery'
-import { useDirtyNavigationController } from '@/features/import/use-dirty-navigation'
+import { useUnsavedChangesController } from '@/app/unsaved-changes'
 import { useTheme, type AppTheme } from '@/features/preferences/theme'
 import { supportedLocales, type AppLocale } from '@/i18n'
 import { useAppI18n } from '@/i18n/context'
 
 const session = useAuthSession()
 const recovery = useImportRecovery()
-const dirtyNavigation = useDirtyNavigationController()
+const unsavedChanges = useUnsavedChangesController()
 const appI18n = useAppI18n()
 const theme = useTheme()
 const route = useRoute()
@@ -62,15 +62,25 @@ function setLocale(value: string): void {
   }
 }
 
-function logout(): void {
+async function logout(): Promise<void> {
   drawerOpen.value = false
-  recovery.clear()
   const bypassDirtyImport = route.name === 'import'
-  if (bypassDirtyImport) dirtyNavigation.bypassNext()
+  if (bypassDirtyImport) {
+    recovery.clear()
+    unsavedChanges.bypassNext()
+    session.clear()
+    try {
+      await router.replace({ name: 'login' })
+    } finally {
+      unsavedChanges.consumeBypass()
+    }
+    return
+  }
+
+  const failure = await router.replace({ name: 'login' })
+  if (isNavigationFailure(failure)) return
+  recovery.clear()
   session.clear()
-  void router.replace({ name: 'login' }).finally(() => {
-    if (bypassDirtyImport) dirtyNavigation.consumeBypass()
-  })
 }
 
 watch(

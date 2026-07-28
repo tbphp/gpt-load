@@ -7,6 +7,7 @@ import (
 	"mime"
 	"net/http"
 	"path"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -35,6 +36,8 @@ var pageRoutes = []string{
 	"/settings",
 	"/settings/model-prices",
 }
+
+var backendPathPrefixes = []string{"/api", "/assets", "/health", "/v1", "/v1beta"}
 
 //go:embed all:dist
 var embeddedFiles embed.FS
@@ -66,6 +69,46 @@ func (s *Server) RegisterRoutes(engine *gin.Engine) {
 		engine.GET(route, s.serveIndex)
 	}
 	engine.GET("/assets/*filepath", s.serveAsset)
+}
+
+// RegisterFallback serves the SPA for browser navigation without consuming backend namespaces.
+func (s *Server) RegisterFallback(engine *gin.Engine, fallback gin.HandlerFunc) {
+	engine.NoRoute(func(c *gin.Context) {
+		if shouldServeIndexFallback(c.Request) {
+			s.serveIndex(c)
+			return
+		}
+		fallback(c)
+	})
+}
+
+func shouldServeIndexFallback(request *http.Request) bool {
+	if request.Method != http.MethodGet || !acceptsHTML(request.Header.Get("Accept")) {
+		return false
+	}
+	for _, prefix := range backendPathPrefixes {
+		if request.URL.Path == prefix || strings.HasPrefix(request.URL.Path, prefix+"/") {
+			return false
+		}
+	}
+	return true
+}
+
+func acceptsHTML(value string) bool {
+	for _, candidate := range strings.Split(value, ",") {
+		mediaType, parameters, err := mime.ParseMediaType(strings.TrimSpace(candidate))
+		if err != nil || (mediaType != "text/html" && mediaType != "application/xhtml+xml") {
+			continue
+		}
+		quality := 1.0
+		if rawQuality, ok := parameters["q"]; ok {
+			quality, err = strconv.ParseFloat(rawQuality, 64)
+		}
+		if err == nil && quality > 0 && quality <= 1 {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Server) serveIndex(c *gin.Context) {

@@ -7,14 +7,17 @@ import { useQueryClient } from '@tanstack/vue-query'
 import { useApiClient } from '@/api/client-context'
 import {
   createAccessKey,
+  listAccessKeys,
   revealAccessKey,
   updateAccessKey,
   type CreateAccessKeyRequest,
+  type UpdateAccessKeyRequest,
 } from '@/api/control/access-keys'
 import type { AccessKeyDto, AccessProtocol, GroupSummary } from '@/api/control/types'
 import { RequestCancelledError } from '@/api/errors'
 import { classifyMutationOutcome } from '@/app/mutation-outcome'
-import { accessKeyMutationInvalidations } from '@/app/resources/access-keys'
+import { accessKeyMutationInvalidations, accessKeyResources } from '@/app/resources/access-keys'
+import { useUnsavedChanges } from '@/app/unsaved-changes'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppDrawer from '@/components/ui/AppDrawer.vue'
 import CopyButton from '@/components/ui/CopyButton.vue'
@@ -31,14 +34,21 @@ import {
   type GroupCatalogState,
 } from './access-key-scope'
 import {
+  accessKeyMatchesUpdatePatch,
   buildAccessKeyUpdatePatch,
   buildCreateAccessKeyInput,
   createAccessKeyDraft,
   createAccessKeyDraftFromCreateInput,
+  isAccessKeyDraftDirty,
   isAccessKeyDraftValid,
   type AccessKeyDraft,
 } from './access-key-patch'
 import { useEphemeralSecret } from './use-ephemeral-secret'
+
+interface PendingAccessKeyEditReconciliation {
+  base: AccessKeyDto
+  patch: UpdateAccessKeyRequest
+}
 
 const props = withDefaults(
   defineProps<{
@@ -63,9 +73,12 @@ const draft = ref<AccessKeyDraft>(createAccessKeyDraft())
 const result = ref<AccessKeyDto | null>(null)
 const operationID = ref('')
 const createPayload = ref<CreateAccessKeyRequest | null>(null)
+const createOperationRetained = ref(false)
 const pending = ref(false)
 const failed = ref(false)
 const mutationState = ref<'idle' | 'indeterminate' | 'reconciling'>('idle')
+const editReconciliation = ref<PendingAccessKeyEditReconciliation | null>(null)
+const editNotApplied = ref(false)
 const revealPending = ref(false)
 const revealFailed = ref(false)
 const modelInput = ref('')
@@ -81,7 +94,10 @@ const createOperationActive = computed(
     createPayload.value !== null &&
     (mutationState.value !== 'idle' || failed.value),
 )
-const formLocked = computed(() => pending.value || createOperationActive.value)
+const formLocked = computed(
+  () => pending.value || createOperationActive.value || editReconciliation.value !== null,
+)
+const closeBlocked = computed(() => pending.value || editReconciliation.value !== null)
 const resultSecret = computed(() =>
   result.value ? ephemeralSecret.read(`access-key:${result.value.id}`) : null,
 )
@@ -89,12 +105,13 @@ const protocolOptions = computed(() => accessKeyProtocolOptions(base.value?.filt
 const modelOptions = computed(() =>
   buildAccessKeyModelOptions(props.groups, draft.value.filters.models),
 )
-const patch = computed(() =>
-  base.value
-    ? buildAccessKeyUpdatePatch(base.value, draft.value)
-    : buildCreateAccessKeyInput(draft.value),
+const dirty = computed(() => isAccessKeyDraftDirty(draft.value, base.value))
+const unsavedDirty = computed(
+  () =>
+    dirty.value &&
+    !createCompleted.value &&
+    !(createOperationActive.value && createOperationRetained.value),
 )
-const dirty = computed(() => !base.value || Object.keys(patch.value).length > 0)
 const groupCatalog = computed(() => ({
   state: props.groupCatalogState,
   ids: props.groups.map(({ id }) => id),
@@ -108,6 +125,17 @@ const scopeValid = computed(() =>
   }),
 )
 const valid = computed(() => isAccessKeyDraftValid(draft.value, base.value, groupCatalog.value))
+const mutationFeedbackKey = computed(() => {
+  if (mutationState.value === 'idle') return ''
+  if (editReconciliation.value) {
+    return mutationState.value === 'reconciling'
+      ? 'accessKeys.drawer.editReconciling'
+      : 'accessKeys.drawer.editIndeterminate'
+  }
+  return mutationState.value === 'reconciling'
+    ? 'accessKeys.drawer.saveReconciling'
+    : 'accessKeys.drawer.saveIndeterminate'
+})
 const scopeFeedbackKey = computed(() => {
   if (scopeValid.value) return ''
   const effective = materializeAccessKeyFilters(draft.value.filters, draft.value.scopeModes)
@@ -141,6 +169,7 @@ const groupOptions = computed(() => {
   }
   return options
 })
+const unsavedChanges = useUnsavedChanges(unsavedDirty, { blocked: closeBlocked })
 
 function cloneCreatePayload(payload: CreateAccessKeyRequest): CreateAccessKeyRequest {
   return {
@@ -165,11 +194,14 @@ function clearLocalState(): void {
   result.value = null
   operationID.value = ''
   createPayload.value = null
+  createOperationRetained.value = false
   pending.value = false
   revealPending.value = false
   revealFailed.value = false
   failed.value = false
   mutationState.value = 'idle'
+  editReconciliation.value = null
+  editNotApplied.value = false
   modelInput.value = ''
 }
 
@@ -184,9 +216,12 @@ async function resetForOpen(): Promise<void> {
     ? ''
     : (carriedOperation?.idempotencyKey ?? crypto.randomUUID())
   createPayload.value = carriedOperation ? cloneCreatePayload(carriedOperation.payload) : null
+  createOperationRetained.value = carriedOperation !== null
   ephemeralSecret.clear()
   failed.value = false
   mutationState.value = carriedOperation?.state ?? 'idle'
+  editReconciliation.value = null
+  editNotApplied.value = false
   modelInput.value = ''
   await nextTick()
   await nextTick()
@@ -194,7 +229,7 @@ async function resetForOpen(): Promise<void> {
 }
 
 function setOpen(open: boolean): void {
-  if (!open && pending.value) return
+  if (!open && !unsavedChanges.confirmDiscard()) return
   if (!open) clearLocalState()
   emit('update:open', open)
 }
@@ -288,13 +323,14 @@ function setRPM(event: Event): void {
 }
 
 async function save(): Promise<void> {
-  if (
-    createCompleted.value ||
-    pending.value ||
-    (!createOperationActive.value && (!valid.value || !dirty.value))
-  ) {
+  if (createCompleted.value || pending.value) {
     return
   }
+  if (editReconciliation.value) {
+    await reconcileEdit()
+    return
+  }
+  if (!createOperationActive.value && (!valid.value || !dirty.value)) return
   const currentBase = base.value
   const updateBody = currentBase ? buildAccessKeyUpdatePatch(currentBase, draft.value) : null
   const activeCreatePayload = currentBase
@@ -307,6 +343,7 @@ async function save(): Promise<void> {
   }
   pending.value = true
   failed.value = false
+  editNotApplied.value = false
   mutationState.value = 'idle'
   result.value = null
   ephemeralSecret.clear()
@@ -333,6 +370,7 @@ async function save(): Promise<void> {
       base.value = saved
       draft.value = createAccessKeyDraft(saved)
       result.value = null
+      editReconciliation.value = null
     } else {
       const saved = await createAccessKey(
         client,
@@ -360,6 +398,7 @@ async function save(): Promise<void> {
       }
       result.value = metadata
       createPayload.value = null
+      createOperationRetained.value = false
       emit('update:createOperation', null)
       if (key && ephemeralSecret.epoch.value === expectedSecretEpoch) {
         ephemeralSecret.expose(`access-key:${metadata.id}`, key)
@@ -384,6 +423,7 @@ async function save(): Promise<void> {
     if (!currentBase && outcome.kind === 'failed' && outcome.reason === 'rejected') {
       operationID.value = crypto.randomUUID()
       createPayload.value = null
+      createOperationRetained.value = false
       emit('update:createOperation', null)
     } else if (
       !currentBase &&
@@ -395,6 +435,16 @@ async function save(): Promise<void> {
         payload: cloneCreatePayload(activeCreatePayload),
         state: outcome.kind,
       })
+      createOperationRetained.value = true
+    } else if (
+      currentBase &&
+      updateBody &&
+      (outcome.kind === 'indeterminate' || outcome.kind === 'reconciling')
+    ) {
+      editReconciliation.value = {
+        base: currentBase,
+        patch: updateBody,
+      }
     }
     mutationState.value =
       outcome.kind === 'reconciling'
@@ -402,6 +452,64 @@ async function save(): Promise<void> {
         : outcome.kind === 'indeterminate'
           ? 'indeterminate'
           : 'idle'
+  } finally {
+    if (controller === activeController) {
+      controller = undefined
+      pending.value = false
+    }
+  }
+}
+
+async function reconcileEdit(): Promise<void> {
+  const attempt = editReconciliation.value
+  if (!attempt || pending.value) return
+  pending.value = true
+  failed.value = false
+  editNotApplied.value = false
+  controller?.abort()
+  controller = new AbortController()
+  const activeController = controller
+  try {
+    const accessKeys = await listAccessKeys(client, activeController.signal)
+    if (controller !== activeController || editReconciliation.value !== attempt || !props.open) {
+      return
+    }
+    queryClient.setQueryData(accessKeyResources.list.queryKey, accessKeys)
+    void queryClient.invalidateQueries({ queryKey: accessKeyResources.options.queryKey })
+    const latest = accessKeys.find((accessKey) => accessKey.id === attempt.base.id)
+    if (!latest) {
+      editReconciliation.value = null
+      mutationState.value = 'idle'
+      failed.value = true
+      return
+    }
+    if (accessKeyMatchesUpdatePatch(latest, attempt.patch)) {
+      base.value = latest
+      draft.value = createAccessKeyDraft(latest)
+      editReconciliation.value = null
+      mutationState.value = 'idle'
+      return
+    }
+    if (
+      Object.keys(buildAccessKeyUpdatePatch(attempt.base, createAccessKeyDraft(latest))).length ===
+      0
+    ) {
+      base.value = latest
+      editReconciliation.value = null
+      mutationState.value = 'idle'
+      failed.value = true
+      editNotApplied.value = true
+      return
+    }
+    mutationState.value = 'indeterminate'
+  } catch (error: unknown) {
+    if (
+      controller === activeController &&
+      editReconciliation.value === attempt &&
+      !(error instanceof RequestCancelledError)
+    ) {
+      mutationState.value = 'indeterminate'
+    }
   } finally {
     if (controller === activeController) {
       controller = undefined
@@ -454,23 +562,20 @@ onBeforeUnmount(clearLocalState)
     :title="editing ? t('accessKeys.drawer.editTitle') : t('accessKeys.drawer.createTitle')"
     :description="t('accessKeys.drawer.description')"
     :close-label="t('accessKeys.drawer.close')"
-    :dismissible="!pending"
+    :dismissible="!closeBlocked"
     @update:open="setOpen"
   >
     <template #trigger><slot name="trigger" /></template>
 
     <form class="access-key-drawer" @submit.prevent="save">
       <InlineFeedback v-if="failed" tone="danger">{{
-        t('accessKeys.drawer.saveFailed')
+        t(editNotApplied ? 'accessKeys.drawer.editNotApplied' : 'accessKeys.drawer.saveFailed')
       }}</InlineFeedback>
       <InlineFeedback v-if="revealFailed" tone="danger">{{
         t('accessKeys.revealFailed')
       }}</InlineFeedback>
-      <InlineFeedback v-if="mutationState === 'indeterminate'" tone="warning">{{
-        t('accessKeys.drawer.saveIndeterminate')
-      }}</InlineFeedback>
-      <InlineFeedback v-if="mutationState === 'reconciling'" tone="warning">{{
-        t('accessKeys.drawer.saveReconciling')
+      <InlineFeedback v-if="mutationFeedbackKey" tone="warning">{{
+        t(mutationFeedbackKey)
       }}</InlineFeedback>
       <InlineFeedback v-if="scopeFeedbackKey && !createOperationActive" tone="warning">{{
         t(scopeFeedbackKey)
@@ -697,7 +802,7 @@ onBeforeUnmount(clearLocalState)
       </section>
 
       <div class="access-key-drawer__actions">
-        <AppButton variant="secondary" :disabled="pending" @click="setOpen(false)">
+        <AppButton variant="secondary" :disabled="closeBlocked" @click="setOpen(false)">
           {{ t(createCompleted ? 'common.close' : 'common.cancel') }}
         </AppButton>
         <AppButton
@@ -705,10 +810,14 @@ onBeforeUnmount(clearLocalState)
           data-test="access-key-save"
           type="submit"
           :busy="pending"
-          :disabled="!createOperationActive && (!valid || !dirty)"
+          :disabled="!editReconciliation && !createOperationActive && (!valid || !dirty)"
         >
           <Save :size="16" aria-hidden="true" />{{
-            t(createOperationActive ? 'accessKeys.drawer.checkResult' : 'accessKeys.drawer.save')
+            t(
+              editReconciliation || createOperationActive
+                ? 'accessKeys.drawer.checkResult'
+                : 'accessKeys.drawer.save',
+            )
           }}
         </AppButton>
       </div>

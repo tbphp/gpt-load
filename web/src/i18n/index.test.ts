@@ -86,7 +86,7 @@ describe('createAppI18n', () => {
     const appI18n = await createAppI18n(window.localStorage, 'en-US')
     const initial = appI18n.plugin.global.getLocaleMessage('en-US')
 
-    expect(Object.keys(initial)).toEqual(['common', 'auth', 'shell', 'home'])
+    expect(Object.keys(initial)).toEqual(['common', 'auth', 'shell', 'notFound', 'home'])
     expect(initial).not.toHaveProperty('monitor')
 
     await appI18n.loadNamespaces(['monitor'])

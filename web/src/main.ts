@@ -12,10 +12,7 @@ import { handleGlobalUnauthorized } from './app/unauthorized'
 import { clearEphemeralState } from './app/ephemeral-state'
 import { authSessionKey, createAuthSession, type AuthSession } from './features/auth/auth-session'
 import { createImportRecoveryService, importRecoveryKey } from './features/import/import-recovery'
-import {
-  createDirtyNavigationController,
-  dirtyNavigationKey,
-} from './features/import/use-dirty-navigation'
+import { createUnsavedChangesController, unsavedChangesKey } from './app/unsaved-changes'
 import { createBrowserThemeController, themeControllerKey } from './features/preferences/theme'
 import { createAppI18n } from './i18n'
 import { appI18nKey } from './i18n/context'
@@ -38,7 +35,7 @@ async function bootstrap(): Promise<void> {
     setTimer: window.setTimeout.bind(window),
     clearTimer: window.clearTimeout.bind(window),
   })
-  const dirtyNavigation = createDirtyNavigationController()
+  const unsavedChanges = createUnsavedChangesController()
   importRecovery.sweep()
   const themeController = createBrowserThemeController(
     window,
@@ -70,7 +67,7 @@ async function bootstrap(): Promise<void> {
       if (authSession && router) {
         void handleGlobalUnauthorized({
           recovery: importRecovery,
-          dirtyNavigation,
+          unsavedChanges,
           session: authSession,
           router,
           redirect,
@@ -95,7 +92,7 @@ async function bootstrap(): Promise<void> {
   createApp(App)
     .provide(authSessionKey, authSession)
     .provide(importRecoveryKey, importRecovery)
-    .provide(dirtyNavigationKey, dirtyNavigation)
+    .provide(unsavedChangesKey, unsavedChanges)
     .provide(apiClientKey, apiClient)
     .provide(appI18nKey, appI18n)
     .provide(themeControllerKey, themeController)

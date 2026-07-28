@@ -1,7 +1,7 @@
 import { QueryClient } from '@tanstack/vue-query'
 import { flushPromises } from '@vue/test-utils'
 
-import type { ApiClient } from '@/api/client'
+import type { ApiClient, ApiRequestOptions } from '@/api/client'
 import type { AccessKeyDto } from '@/api/control/types'
 import { mountApp } from '@/test/mount-app'
 
@@ -46,7 +46,7 @@ describe('AccessKeyDeleteDialog', () => {
       method: 'DELETE',
       signal: expect.any(AbortSignal),
     })
-    expect(wrapper.emitted('deleted')).toEqual([[]])
+    expect(wrapper.emitted('deleted')).toEqual([['client']])
     expect(invalidate).not.toHaveBeenCalled()
     expect(client.getMutationCache().getAll()).toHaveLength(0)
     wrapper.unmount()
@@ -72,6 +72,43 @@ describe('AccessKeyDeleteDialog', () => {
     expect(document.body.textContent).toContain('Unable to delete')
     expect(document.body.textContent).not.toContain('sk-gl-ERROR_CANARY')
     expect(wrapper.emitted('deleted')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('keeps a pending deletion open and does not abort it through dismiss controls', async () => {
+    let resolveDelete!: () => void
+    let signal: AbortSignal | null | undefined
+    const request = vi.fn((_path: string, options?: ApiRequestOptions) => {
+      signal = options?.signal
+      return new Promise<void>((resolve) => {
+        resolveDelete = resolve
+      })
+    }) as ApiClient['request']
+    const { wrapper } = await mountApp(AccessKeyDeleteDialog, {
+      api: { request },
+      queryClient: new QueryClient({ defaultOptions: { queries: { retry: false } } }),
+      locale: 'en-US',
+      mounting: { props: { accessKey, total: 2 }, attachTo: document.body },
+    })
+
+    await wrapper.get('[data-test="access-key-delete-open"]').trigger('click')
+    await flushPromises()
+    documentButton('[data-test="access-key-delete-confirm"]').click()
+    await flushPromises()
+
+    const close = documentButton('.app-dialog__close')
+    expect(close.disabled).toBe(true)
+    close.click()
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    document.querySelector<HTMLElement>('.app-dialog__overlay')?.click()
+    await flushPromises()
+
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull()
+    expect(signal?.aborted).toBe(false)
+
+    resolveDelete()
+    await flushPromises()
+    expect(wrapper.emitted('deleted')).toEqual([['client']])
     wrapper.unmount()
   })
 })

@@ -1,9 +1,11 @@
 import type { AccessKeyDto } from '@/api/control/types'
 
 import {
+  accessKeyMatchesUpdatePatch,
   buildAccessKeyUpdatePatch,
   buildCreateAccessKeyInput,
   createAccessKeyDraft,
+  isAccessKeyDraftDirty,
   isAccessKeyDraftValid,
   type AccessKeyDraft,
 } from './access-key-patch'
@@ -20,6 +22,51 @@ const base: AccessKeyDto = {
 }
 
 describe('AccessKey request normalization', () => {
+  it('treats untouched create and normalized edit drafts as clean', () => {
+    expect(isAccessKeyDraftDirty(createAccessKeyDraft(), null)).toBe(false)
+
+    const draft = createAccessKeyDraft(base)
+    draft.name = ' client '
+    draft.filters = {
+      groups: [...base.filters.groups].reverse(),
+      protocols: [...base.filters.protocols].reverse(),
+      models: [...base.filters.models].reverse(),
+    }
+    expect(isAccessKeyDraftDirty(draft, base)).toBe(false)
+
+    draft.scopeModes.groups = 'all'
+    expect(isAccessKeyDraftDirty(draft, base)).toBe(true)
+  })
+
+  it('matches only the normalized fields targeted by an update patch', () => {
+    expect(
+      accessKeyMatchesUpdatePatch(
+        { ...base, status: 'disabled', updated_at: '2026-07-28T01:00:00Z' },
+        { status: 'disabled' },
+      ),
+    ).toBe(true)
+    expect(
+      accessKeyMatchesUpdatePatch(
+        {
+          ...base,
+          filters: {
+            groups: [7],
+            protocols: ['openai-response'],
+            models: ['free-entry', 'known'],
+          },
+        },
+        {
+          filters: {
+            groups: [7],
+            protocols: ['openai-response'],
+            models: ['known', 'free-entry'],
+          },
+        },
+      ),
+    ).toBe(true)
+    expect(accessKeyMatchesUpdatePatch(base, { name: 'renamed' })).toBe(false)
+  })
+
   it('builds a create body with exact empty arrays, zero RPM, and no status', () => {
     const draft = createAccessKeyDraft()
     draft.name = ' client '

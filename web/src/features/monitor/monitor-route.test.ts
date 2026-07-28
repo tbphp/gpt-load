@@ -71,6 +71,7 @@ describe('monitor route normalization', () => {
         model: 'gpt-real',
         group_id: '7',
         request_id: 'a4d4e121-8ac3-4df4-8ceb-63b10ddc6173',
+        selected_request_id: 'b4d4e121-8ac3-4df4-8ceb-63b10ddc6173',
         from: '2026-07-25T10:00:00.000Z',
         access_key_id: '12',
       }),
@@ -82,6 +83,27 @@ describe('monitor route normalization', () => {
       model: 'gpt-real',
       access_key_id: '12',
       status: 'error',
+      request_id: 'a4d4e121-8ac3-4df4-8ceb-63b10ddc6173',
+      selected_request_id: 'b4d4e121-8ac3-4df4-8ceb-63b10ddc6173',
+    })
+  })
+
+  it('keeps only a canonical lowercase UUIDv4 as the UI-only selected request identity', () => {
+    expect(
+      normalizeMonitorQuery({
+        tab: 'logs',
+        status: 'error',
+        selected_request_id: 'B4D4E121-8AC3-4DF4-8CEB-63B10DDC6173',
+      }),
+    ).toEqual({ tab: 'logs', status: 'error' })
+    expect(
+      normalizeMonitorQuery({
+        tab: 'logs',
+        request_id: 'a4d4e121-8ac3-4df4-8ceb-63b10ddc6173',
+        selected_request_id: 'not-a-request-id',
+      }),
+    ).toEqual({
+      tab: 'logs',
       request_id: 'a4d4e121-8ac3-4df4-8ceb-63b10ddc6173',
     })
   })

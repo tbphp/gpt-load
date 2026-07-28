@@ -7,10 +7,7 @@ import { apiClientKey } from './api/client-context'
 import { createAppRouter } from './app/router'
 import { authSessionKey, createAuthSession } from './features/auth/auth-session'
 import { createImportRecoveryService, importRecoveryKey } from './features/import/import-recovery'
-import {
-  createDirtyNavigationController,
-  dirtyNavigationKey,
-} from './features/import/use-dirty-navigation'
+import { createUnsavedChangesController, unsavedChangesKey } from './app/unsaved-changes'
 import { createThemeController, themeControllerKey } from './features/preferences/theme'
 import { appI18nKey } from './i18n/context'
 import { FakeApi } from './test/fake-api'
@@ -77,7 +74,7 @@ async function mountAt(
         [appI18nKey as symbol]: appI18n,
         [themeControllerKey as symbol]: theme,
         [importRecoveryKey as symbol]: recovery,
-        [dirtyNavigationKey as symbol]: createDirtyNavigationController(),
+        [unsavedChangesKey as symbol]: createUnsavedChangesController(),
       },
     },
   })
