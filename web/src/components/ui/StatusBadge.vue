@@ -1,20 +1,57 @@
 <script setup lang="ts">
-import { CircleAlert, CircleCheck, CircleHelp, CircleOff } from 'lucide-vue-next'
+import { CircleAlert, CircleCheck, CircleHelp, CircleOff, LoaderCircle } from 'lucide-vue-next'
 import { computed } from 'vue'
 
-const props = withDefaults(defineProps<{ tone?: 'success' | 'warning' | 'danger' | 'neutral' }>(), {
-  tone: 'neutral',
+import {
+  presentMutationStatus,
+  presentOperationalStatus,
+  type MutationStatus,
+  type OperationalStatus,
+  type StatusIcon,
+  type StatusTone,
+} from './status-presenter'
+
+const props = withDefaults(
+  defineProps<{
+    tone?: StatusTone
+    status?: OperationalStatus | MutationStatus
+  }>(),
+  {
+    tone: 'neutral',
+    status: undefined,
+  },
+)
+const presentation = computed(() => {
+  if (!props.status) return { tone: props.tone, icon: undefined }
+  if (
+    props.status === 'confirmed' ||
+    props.status === 'failed' ||
+    props.status === 'indeterminate' ||
+    props.status === 'reconciling'
+  ) {
+    return presentMutationStatus(props.status)
+  }
+  return presentOperationalStatus(props.status)
 })
+const resolvedTone = computed(() => presentation.value.tone)
 const icon = computed(() => {
-  if (props.tone === 'success') return CircleCheck
-  if (props.tone === 'warning') return CircleAlert
-  if (props.tone === 'danger') return CircleOff
+  const statusIcon = presentation.value.icon as StatusIcon | undefined
+  if (statusIcon === 'progress') return LoaderCircle
+  if (statusIcon === 'check' || (!statusIcon && resolvedTone.value === 'success'))
+    return CircleCheck
+  if (statusIcon === 'alert' || (!statusIcon && resolvedTone.value === 'warning'))
+    return CircleAlert
+  if (statusIcon === 'off' || (!statusIcon && resolvedTone.value === 'danger')) return CircleOff
   return CircleHelp
 })
 </script>
 
 <template>
-  <span class="status-badge" :class="`status-badge--${tone}`">
+  <span
+    class="status-badge"
+    :class="`status-badge--${resolvedTone}`"
+    :data-status="status || undefined"
+  >
     <component :is="icon" :size="14" aria-hidden="true" />
     <slot />
   </span>

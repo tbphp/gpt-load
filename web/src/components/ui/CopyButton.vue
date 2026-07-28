@@ -31,7 +31,13 @@ onBeforeUnmount(() => window.clearTimeout(resetTimer))
       <Check v-if="state === 'success'" :size="16" aria-hidden="true" />
       <Copy v-else :size="16" aria-hidden="true" />
     </button>
-    <span v-if="state !== 'idle'" class="copy-control__feedback" role="status">
+    <span
+      v-if="state !== 'idle'"
+      class="copy-control__feedback"
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+    >
       {{ state === 'success' ? successLabel : failureLabel }}
     </span>
   </span>
