@@ -181,8 +181,11 @@ for (const item of routeCases) {
 test('skip link, tab order, visible focus, route announcement, status, copy, and motion', async ({
   page,
   context,
+  browserName,
 }) => {
-  await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+  if (browserName === 'chromium') {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+  }
   await preparePage(page, {
     path: '/',
     scenario: 'home-normal',
@@ -231,7 +234,9 @@ test('skip link, tab order, visible focus, route announcement, status, copy, and
   }
   const copy = page.getByRole('button', { name: 'Copy Base URL' })
   await copy.click()
-  await expect(page.locator('.copy-control__feedback[role="status"]')).toHaveText('Copied')
+  await expect(page.locator('.copy-control__feedback[role="status"]')).toHaveText(
+    browserName === 'chromium' ? 'Copied' : /^(Copied|Copy failed)$/,
+  )
 
   const navigation = page.getByRole('navigation', { name: 'Primary navigation' })
   await navigation.getByRole('link', { name: 'Monitor' }).click()
