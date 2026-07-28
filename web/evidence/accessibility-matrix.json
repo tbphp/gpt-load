@@ -1,0 +1,211 @@
+{
+  "schema_version": 1,
+  "source_sha": "c28dc80a725d2254f82898357a87a7dbe4b2d8d0",
+  "generated_at": "2026-07-28T21:19:41Z",
+  "rows": [
+    {
+      "id": "linux-chromium-automated",
+      "mode": "automated",
+      "status": "PASS",
+      "operator": "Codex automated runner",
+      "source_sha": "c28dc80a725d2254f82898357a87a7dbe4b2d8d0",
+      "executed_at": "2026-07-28T21:19:41Z",
+      "environment": {
+        "os_name": "Ubuntu",
+        "os_version": "24.04 Playwright Noble image",
+        "architecture": "arm64"
+      },
+      "browser": {
+        "name": "Chromium",
+        "version": "149.0.7827.55 revision 1228"
+      },
+      "assistive_technology": {
+        "name": "none",
+        "version": "not applicable"
+      },
+      "scenarios": [
+        "critical embedded management journey",
+        "skip link and single H1",
+        "route focus and live announcement",
+        "tab order and visible focus",
+        "44x44 pointer targets",
+        "dialog focus trap, Escape, and focus restoration",
+        "keyboard-accessible horizontal scroll",
+        "status text plus hidden icon",
+        "field label, description, error, and focus link",
+        "copy live feedback",
+        "reduced motion",
+        "375, 768, 1024, and 1440 viewports",
+        "English and Simplified Chinese",
+        "light and dark themes"
+      ],
+      "artifacts": [
+        {
+          "path": "evidence/artifacts/visual-runner-functional-chromium.json",
+          "sha256": "a77f3d4ef31dcc06d5a15bbf429e83a4f467ac0d1a80ad80ee70c741f88158b7"
+        }
+      ],
+      "notes": "Automated DOM, keyboard, geometry, focus, and live-region assertions only; this is not human assistive-technology evidence."
+    },
+    {
+      "id": "linux-webkit-automated",
+      "mode": "automated",
+      "status": "PASS",
+      "operator": "Codex automated runner",
+      "source_sha": "c28dc80a725d2254f82898357a87a7dbe4b2d8d0",
+      "executed_at": "2026-07-28T21:19:41Z",
+      "environment": {
+        "os_name": "Ubuntu",
+        "os_version": "24.04 Playwright Noble image",
+        "architecture": "arm64"
+      },
+      "browser": {
+        "name": "WebKit",
+        "version": "26.5 revision 2311"
+      },
+      "assistive_technology": {
+        "name": "none",
+        "version": "not applicable"
+      },
+      "scenarios": [
+        "critical embedded management journey",
+        "skip link and single H1",
+        "route focus and live announcement",
+        "tab order and visible focus",
+        "44x44 pointer targets",
+        "dialog focus trap, Escape, and focus restoration",
+        "keyboard-accessible horizontal scroll",
+        "status text plus hidden icon",
+        "field label, description, error, and focus link",
+        "copy live feedback",
+        "reduced motion",
+        "375, 768, 1024, and 1440 viewports",
+        "English and Simplified Chinese",
+        "light and dark themes"
+      ],
+      "artifacts": [
+        {
+          "path": "evidence/artifacts/visual-runner-functional-webkit.json",
+          "sha256": "994abdd803ca6a343936df2254227f1a224982efa8622e91d5de64128d21b1e9"
+        }
+      ],
+      "notes": "Automated DOM, keyboard, geometry, focus, and live-region assertions only; this is not Safari or VoiceOver evidence."
+    },
+    {
+      "id": "macos-chrome-manual",
+      "mode": "manual-geometry-functional",
+      "status": "NOT RUN",
+      "operator": "NOT RUN",
+      "source_sha": "c28dc80a725d2254f82898357a87a7dbe4b2d8d0",
+      "executed_at": null,
+      "environment": {
+        "os_name": "macOS",
+        "os_version": "26.6 build 25G72",
+        "architecture": "arm64"
+      },
+      "browser": {
+        "name": "Google Chrome",
+        "version": "150.0.7871.187"
+      },
+      "assistive_technology": {
+        "name": "none",
+        "version": "not applicable"
+      },
+      "scenarios": [
+        "manual responsive geometry",
+        "manual critical functional journey",
+        "manual keyboard focus visibility"
+      ],
+      "artifacts": [],
+      "notes": "The installed browser version was inspected, but no genuine human manual session was executed."
+    },
+    {
+      "id": "macos-safari-manual",
+      "mode": "manual-geometry-functional",
+      "status": "NOT RUN",
+      "operator": "NOT RUN",
+      "source_sha": "c28dc80a725d2254f82898357a87a7dbe4b2d8d0",
+      "executed_at": null,
+      "environment": {
+        "os_name": "macOS",
+        "os_version": "26.6 build 25G72",
+        "architecture": "arm64"
+      },
+      "browser": {
+        "name": "Safari",
+        "version": "26.6"
+      },
+      "assistive_technology": {
+        "name": "none",
+        "version": "not applicable"
+      },
+      "scenarios": [
+        "manual responsive geometry",
+        "manual critical functional journey",
+        "manual keyboard focus visibility"
+      ],
+      "artifacts": [],
+      "notes": "The installed browser version was inspected, but no genuine human manual session was executed."
+    },
+    {
+      "id": "safari-voiceover-manual",
+      "mode": "manual-at",
+      "status": "NOT RUN",
+      "operator": "NOT RUN",
+      "source_sha": "c28dc80a725d2254f82898357a87a7dbe4b2d8d0",
+      "executed_at": null,
+      "environment": {
+        "os_name": "macOS",
+        "os_version": "26.6 build 25G72",
+        "architecture": "arm64"
+      },
+      "browser": {
+        "name": "Safari",
+        "version": "26.6"
+      },
+      "assistive_technology": {
+        "name": "VoiceOver",
+        "version": "macOS 26.6 built-in"
+      },
+      "scenarios": [
+        "landmark and heading navigation",
+        "form label, description, and error announcement",
+        "dialog focus and Escape behavior",
+        "route and mutation live announcements",
+        "table and card comprehension"
+      ],
+      "artifacts": [],
+      "notes": "Automation cannot substitute for human VoiceOver judgment; no manual AT evidence was produced."
+    },
+    {
+      "id": "windows-chrome-nvda-external",
+      "mode": "external-at",
+      "status": "EXTERNAL",
+      "operator": "EXTERNAL",
+      "source_sha": "c28dc80a725d2254f82898357a87a7dbe4b2d8d0",
+      "executed_at": null,
+      "environment": {
+        "os_name": "Windows",
+        "os_version": "UNAVAILABLE",
+        "architecture": "UNAVAILABLE"
+      },
+      "browser": {
+        "name": "Google Chrome",
+        "version": "UNAVAILABLE"
+      },
+      "assistive_technology": {
+        "name": "NVDA",
+        "version": "UNAVAILABLE"
+      },
+      "scenarios": [
+        "landmark and heading navigation",
+        "form label, description, and error announcement",
+        "dialog focus and Escape behavior",
+        "route and mutation live announcements",
+        "table and card comprehension"
+      ],
+      "artifacts": [],
+      "notes": "A Windows Chrome and NVDA environment was not available locally; this remains an external release gate."
+    }
+  ]
+}
