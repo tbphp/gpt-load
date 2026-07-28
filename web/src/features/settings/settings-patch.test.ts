@@ -1,10 +1,11 @@
-import type { SettingsDto } from '@/api/control/settings'
+import { runtimeSettingKeys, type SettingsDto } from '@/api/control/settings'
 
 import {
   buildSettingsPatch,
   createSettingsDraft,
   hasDuplicateHeaderNames,
   rebaseSettingsDraft,
+  settingsScopeKeys,
   setSettingsOverride,
   validateSettingsSection,
 } from './settings-patch'
@@ -23,6 +24,37 @@ const base: SettingsDto = {
 }
 
 describe('settings patching', () => {
+  it('enumerates every runtime setting exactly once for the all scope', () => {
+    const keys = settingsScopeKeys('all')
+
+    expect(keys).toEqual(runtimeSettingKeys)
+    expect(new Set(keys).size).toBe(runtimeSettingKeys.length)
+  })
+
+  it('builds and rebases one normalized patch across both sections', () => {
+    const draft = createSettingsDraft(base)
+    draft.values.request_timeout = 900
+    draft.values.request_log_retention_days = 30
+    draft.overrides.add('request_log_retention_days')
+
+    expect(buildSettingsPatch(base, draft, 'all')).toEqual({
+      request_timeout: 900,
+      request_log_retention_days: 30,
+    })
+
+    const refreshed: SettingsDto = {
+      values: { ...base.values, connect_timeout: 45 },
+      overrides: [...base.overrides, 'connect_timeout'],
+    }
+    const rebased = rebaseSettingsDraft(base, draft, refreshed, 'all')
+
+    expect(buildSettingsPatch(refreshed, rebased, 'all')).toEqual({
+      request_timeout: 900,
+      request_log_retention_days: 30,
+    })
+    expect(rebased.values.connect_timeout).toBe(45)
+  })
+
   it('builds a normalized dirty patch independently for request forwarding', () => {
     const draft = createSettingsDraft(base)
     draft.values.request_timeout = 900

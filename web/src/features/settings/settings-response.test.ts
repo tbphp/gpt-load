@@ -28,6 +28,47 @@ function resource(token: string, value: SettingsDto): SettingsResource {
 }
 
 describe('Settings response identity and three-way merge', () => {
+  it('merges 412 conflicts across both Settings sections in one all-scope operation', () => {
+    const base = resource('a', settings(15))
+    const draft = createSettingsDraft(base.settings)
+    draft.overrides.add('request_timeout')
+    draft.values.request_timeout = 900
+    draft.overrides.add('request_log_retention_days')
+    draft.values.request_log_retention_days = 30
+    const latestSettings = settings(15, 1_200)
+    latestSettings.values.request_log_retention_days = 60
+    latestSettings.overrides = ['request_timeout', 'request_log_retention_days']
+
+    const result = mergeSettingsConflict(base, draft, resource('b', latestSettings), 'all')
+
+    expect(result.conflicts.map(({ key }) => key)).toEqual([
+      'request_timeout',
+      'request_log_retention_days',
+    ])
+  })
+
+  it('confirms an all-scope unknown write only after every intended field is observed', () => {
+    const base = resource('a', settings(15))
+    const draft = createSettingsDraft(base.settings)
+    draft.overrides.add('request_timeout')
+    draft.values.request_timeout = 900
+    draft.overrides.add('request_log_retention_days')
+    draft.values.request_log_retention_days = 30
+    const partiallyApplied = settings(15)
+    partiallyApplied.values.request_log_retention_days = 30
+    partiallyApplied.overrides = ['request_log_retention_days']
+    const fullyApplied = structuredClone(partiallyApplied)
+    fullyApplied.values.request_timeout = 900
+    fullyApplied.overrides.push('request_timeout')
+
+    expect(
+      reconcileSettingsMutation(base, draft, resource('b', partiallyApplied), 'all').kind,
+    ).toBe('indeterminate')
+    expect(reconcileSettingsMutation(base, draft, resource('c', fullyApplied), 'all').kind).toBe(
+      'confirmed',
+    )
+  })
+
   it('accepts a response only when cache still matches the operation base or the response ETag', () => {
     const base = resource('a', settings(15))
     const response = resource('b', settings(30))

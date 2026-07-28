@@ -6,10 +6,10 @@ import {
   rebaseSettingsDraft,
   sameSettingsFieldIdentity,
   settingsFieldIdentity,
-  settingsSectionKeys,
+  settingsScopeKeys,
   type SettingsDraft,
   type SettingsFieldIdentity,
-  type SettingsSection,
+  type SettingsScope,
 } from './settings-patch'
 
 export type SettingsMutationDecision =
@@ -41,7 +41,7 @@ export function chooseSettingsMutationResult(
   cached: SettingsResource | undefined,
   base: SettingsResource,
   draft: SettingsDraft,
-  section: SettingsSection,
+  scope: SettingsScope,
 ): SettingsMutationDecision {
   if (cached === undefined) return { kind: 'refetch' }
 
@@ -55,7 +55,7 @@ export function chooseSettingsMutationResult(
   return {
     kind: 'apply',
     resource: response,
-    draft: rebaseSettingsDraft(base.settings, draft, response.settings, section),
+    draft: rebaseSettingsDraft(base.settings, draft, response.settings, scope),
   }
 }
 
@@ -63,12 +63,12 @@ export function mergeSettingsConflict(
   base: SettingsResource,
   draft: SettingsDraft,
   latest: SettingsResource,
-  section: SettingsSection,
+  scope: SettingsScope,
 ): SettingsMergeResult {
-  const rebased = rebaseSettingsDraft(base.settings, draft, latest.settings, section)
+  const rebased = rebaseSettingsDraft(base.settings, draft, latest.settings, scope)
   const conflicts: SettingsMergeConflict[] = []
 
-  for (const key of settingsSectionKeys(section)) {
+  for (const key of settingsScopeKeys(scope)) {
     const baseIdentity = settingsFieldIdentity(base.settings, key)
     const mineIdentity = draftFieldIdentity(draft, key)
     const latestIdentity = settingsFieldIdentity(latest.settings, key)
@@ -91,14 +91,14 @@ export function reconcileSettingsMutation(
   base: SettingsResource,
   draft: SettingsDraft,
   latest: SettingsResource,
-  section: SettingsSection,
+  scope: SettingsScope,
 ): SettingsReconciliationResult {
-  const merged = mergeSettingsConflict(base, draft, latest, section)
+  const merged = mergeSettingsConflict(base, draft, latest, scope)
   if (merged.conflicts.length > 0) {
     return { kind: 'conflict', ...merged }
   }
 
-  const changedKeys = settingsSectionKeys(section).filter(
+  const changedKeys = settingsScopeKeys(scope).filter(
     (key) =>
       !sameSettingsFieldIdentity(
         draftFieldIdentity(draft, key),

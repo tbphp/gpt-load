@@ -6,8 +6,10 @@ import type {
   SettingsValues,
   TimeoutSettingKey,
 } from '@/api/control/settings'
+import { runtimeSettingKeys } from '@/api/control/settings'
 
 export type SettingsSection = 'request-forwarding' | 'logs-maintenance'
+export type SettingsScope = SettingsSection | 'all'
 
 export interface SettingsDraft {
   values: SettingsValues
@@ -117,6 +119,10 @@ export function settingsSectionKeys(section: SettingsSection): RuntimeSettingKey
   return [...(section === 'request-forwarding' ? requestForwardingKeys : logsMaintenanceKeys)]
 }
 
+export function settingsScopeKeys(scope: SettingsScope): RuntimeSettingKey[] {
+  return scope === 'all' ? [...runtimeSettingKeys] : settingsSectionKeys(scope)
+}
+
 export function settingsFieldIdentity(
   settings: SettingsDto,
   key: RuntimeSettingKey,
@@ -171,11 +177,11 @@ export function replaceDraftFieldFromSettings(
 export function buildSettingsPatch(
   base: SettingsDto,
   draft: SettingsDraft,
-  section: SettingsSection,
+  scope: SettingsScope,
 ): SettingsPatch {
   const patch: SettingsPatch = {}
   const baseOverrides = new Set(base.overrides)
-  for (const key of settingsSectionKeys(section)) {
+  for (const key of settingsScopeKeys(scope)) {
     const wasOwned = baseOverrides.has(key)
     const isOwned = draft.overrides.has(key)
     if (wasOwned && !isOwned) {
@@ -201,12 +207,12 @@ export function rebaseSettingsDraft(
   base: SettingsDto,
   draft: SettingsDraft,
   refreshed: SettingsDto,
-  section: SettingsSection,
+  scope: SettingsScope,
 ): SettingsDraft {
-  const patch = buildSettingsPatch(base, draft, section)
+  const patch = buildSettingsPatch(base, draft, scope)
   const rebased = createSettingsDraft(refreshed)
 
-  for (const key of settingsSectionKeys(section)) {
+  for (const key of settingsScopeKeys(scope)) {
     if (!Object.prototype.hasOwnProperty.call(patch, key)) continue
     const value = patch[key]
     if (value === null) {
