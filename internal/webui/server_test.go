@@ -207,6 +207,39 @@ func TestServerServesAssetsWithImmutableCaching(t *testing.T) {
 	}
 }
 
+func TestServerServesThemeBootstrapAsExplicitRootAsset(t *testing.T) {
+	server := newServer(fstest.MapFS{
+		"dist/index.html":         &fstest.MapFile{Data: []byte("<!doctype html>")},
+		"dist/theme-bootstrap.js": &fstest.MapFile{Data: []byte("document.documentElement.dataset.theme = 'dark'")},
+	}, "dist")
+	recorder := httptest.NewRecorder()
+
+	testEngine(server).ServeHTTP(
+		recorder,
+		httptest.NewRequest(http.MethodGet, "/theme-bootstrap.js", nil),
+	)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("theme bootstrap status = %d, want 200", recorder.Code)
+	}
+	mediaType, _, err := mime.ParseMediaType(recorder.Header().Get("Content-Type"))
+	if err != nil {
+		t.Fatalf("parse theme bootstrap Content-Type: %v", err)
+	}
+	if mediaType != "text/javascript" && mediaType != "application/javascript" {
+		t.Fatalf("theme bootstrap Content-Type = %q, want JavaScript", mediaType)
+	}
+	if got := recorder.Header().Get("Cache-Control"); got != "no-cache" {
+		t.Fatalf("theme bootstrap Cache-Control = %q, want no-cache", got)
+	}
+	if got := recorder.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+		t.Fatalf("theme bootstrap X-Content-Type-Options = %q, want nosniff", got)
+	}
+	if !strings.Contains(recorder.Body.String(), "dataset.theme") {
+		t.Fatalf("theme bootstrap body = %q", recorder.Body.String())
+	}
+}
+
 func TestServerDoesNotExposeFilesOutsideAssets(t *testing.T) {
 	const (
 		indexSecret = "outer-index-secret"

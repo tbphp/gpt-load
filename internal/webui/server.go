@@ -68,6 +68,7 @@ func (s *Server) RegisterRoutes(engine *gin.Engine) {
 	for _, route := range pageRoutes {
 		engine.GET(route, s.serveIndex)
 	}
+	engine.GET("/theme-bootstrap.js", s.serveThemeBootstrap)
 	engine.GET("/assets/*filepath", s.serveAsset)
 }
 
@@ -117,6 +118,18 @@ func (s *Server) serveIndex(c *gin.Context) {
 	c.Header("X-Content-Type-Options", "nosniff")
 	c.Header("X-Frame-Options", "DENY")
 	c.Data(http.StatusOK, "text/html; charset=utf-8", s.index)
+}
+
+func (s *Server) serveThemeBootstrap(c *gin.Context) {
+	content, err := fs.ReadFile(s.files, path.Join(s.root, "theme-bootstrap.js"))
+	if err != nil {
+		c.Status(http.StatusNotFound)
+		return
+	}
+
+	c.Header("Cache-Control", "no-cache")
+	c.Header("X-Content-Type-Options", "nosniff")
+	c.Data(http.StatusOK, "text/javascript; charset=utf-8", content)
 }
 
 func (s *Server) serveAsset(c *gin.Context) {
