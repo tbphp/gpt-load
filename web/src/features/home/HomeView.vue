@@ -65,102 +65,86 @@ const observedAt = computed(() => {
   <div class="home-page">
     <PageHeader :title="t('home.title')" :description="t('home.description')" />
 
-    <section class="home-overview" :aria-labelledby="'service-heading'">
-      <SurfaceCard class="service-card">
-        <div class="section-heading">
-          <div>
-            <p class="eyebrow">{{ t('home.service') }}</p>
-            <h2 id="service-heading">{{ t('home.service') }}</h2>
-          </div>
-          <StatusBadge v-if="healthQuery.isSuccess.value" tone="success">
-            {{ t('home.online') }}
-          </StatusBadge>
-          <StatusBadge
-            v-else-if="healthQuery.isError.value && healthQuery.data.value"
-            tone="warning"
-          >
-            {{ t('home.healthStale') }}
-          </StatusBadge>
-          <StatusBadge v-else-if="healthQuery.isError.value" tone="warning">
-            {{ healthErrorMessage }}
-          </StatusBadge>
-        </div>
+    <section
+      class="operational-overview"
+      data-test="home-operational-overview"
+      aria-labelledby="operational-overview-heading"
+    >
+      <header class="operational-overview__header">
+        <h2 id="operational-overview-heading">{{ t('home.operationalOverview') }}</h2>
+        <p>{{ t('home.operationalOverviewDescription') }}</p>
+      </header>
 
-        <QueryFeedback
-          v-if="healthQuery.isPending.value"
-          state="loading"
-          :message="t('auth.checking')"
-        />
-        <QueryFeedback
-          v-else-if="healthQuery.isError.value && !healthQuery.data.value"
-          state="error"
-          :message="healthErrorMessage"
-          :retry-label="t('common.retry')"
-          @retry="healthQuery.refetch()"
-        />
-        <template v-else-if="healthQuery.data.value">
+      <div class="home-overview">
+        <SurfaceCard class="service-card">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">{{ t('home.service') }}</p>
+              <h3 id="service-heading">{{ t('home.service') }}</h3>
+            </div>
+            <StatusBadge v-if="healthQuery.isSuccess.value" tone="success">
+              {{ t('home.online') }}
+            </StatusBadge>
+            <StatusBadge
+              v-else-if="healthQuery.isError.value && healthQuery.data.value"
+              tone="warning"
+            >
+              {{ t('home.healthStale') }}
+            </StatusBadge>
+            <StatusBadge v-else-if="healthQuery.isError.value" tone="warning">
+              {{ healthErrorMessage }}
+            </StatusBadge>
+          </div>
+
           <QueryFeedback
-            v-if="healthQuery.isError.value"
-            state="stale"
-            :message="t('home.healthStale')"
+            v-if="healthQuery.isPending.value"
+            state="loading"
+            :message="t('auth.checking')"
+          />
+          <QueryFeedback
+            v-else-if="healthQuery.isError.value && !healthQuery.data.value"
+            state="error"
+            :message="healthErrorMessage"
             :retry-label="t('common.retry')"
             @retry="healthQuery.refetch()"
           />
-          <div class="health-meta">
-            <span>{{
-              t('home.revision', { revision: healthQuery.data.value.snapshot_revision })
-            }}</span>
-            <span>{{ t('home.observedAt', { time: observedAt }) }}</span>
-          </div>
-          <div class="health-counts">
-            <span>{{ t('home.keyTotal', { count: healthQuery.data.value.counts.total }) }}</span>
-            <span>{{
-              t('home.keyAvailable', { count: healthQuery.data.value.counts.available })
-            }}</span>
-            <span>{{
-              t('home.keyCooldown', { count: healthQuery.data.value.counts.cooldown })
-            }}</span>
-            <span>{{
-              t('home.keyBlacklisted', { count: healthQuery.data.value.counts.blacklisted })
-            }}</span>
-            <span>{{
-              t('home.keyDisabled', { count: healthQuery.data.value.counts.disabled })
-            }}</span>
-          </div>
-        </template>
-      </SurfaceCard>
+          <template v-else-if="healthQuery.data.value">
+            <QueryFeedback
+              v-if="healthQuery.isError.value"
+              state="stale"
+              :message="t('home.healthStale')"
+              :retry-label="t('common.retry')"
+              @retry="healthQuery.refetch()"
+            />
+            <div class="health-meta">
+              <span>{{
+                t('home.revision', { revision: healthQuery.data.value.snapshot_revision })
+              }}</span>
+              <span>{{ t('home.observedAt', { time: observedAt }) }}</span>
+            </div>
+            <div class="health-counts">
+              <span>{{ t('home.keyTotal', { count: healthQuery.data.value.counts.total }) }}</span>
+              <span>{{
+                t('home.keyAvailable', { count: healthQuery.data.value.counts.available })
+              }}</span>
+              <span>{{
+                t('home.keyCooldown', { count: healthQuery.data.value.counts.cooldown })
+              }}</span>
+              <span>{{
+                t('home.keyBlacklisted', { count: healthQuery.data.value.counts.blacklisted })
+              }}</span>
+              <span>{{
+                t('home.keyDisabled', { count: healthQuery.data.value.counts.disabled })
+              }}</span>
+            </div>
+          </template>
+        </SurfaceCard>
 
-      <QueryFeedback
-        v-if="accessKeysQuery.isPending.value"
-        state="loading"
-        :message="t('auth.checking')"
-      />
-      <QueryFeedback
-        v-else-if="accessKeysQuery.isError.value && !accessKeysQuery.data.value"
-        state="error"
-        :message="t('home.accessKeysError')"
-        :retry-label="t('common.retry')"
-        @retry="accessKeysQuery.refetch()"
-      />
-      <div v-else class="connection-section">
-        <QueryFeedback
-          v-if="accessKeysQuery.isError.value"
-          state="stale"
-          :message="t('home.accessKeysStale')"
-          :retry-label="t('common.retry')"
-          @retry="accessKeysQuery.refetch()"
-        />
-        <ConnectionCard
-          :keys="accessKeysQuery.data.value ?? []"
-          :model-ids="modelIds"
-          :origin="props.origin"
-        />
+        <UsageSummaryCard heading-as="h3" />
       </div>
     </section>
 
-    <UsageSummaryCard />
-
-    <section class="groups-section" aria-labelledby="groups-heading">
+    <section class="groups-section" data-test="home-groups" aria-labelledby="groups-heading">
       <header class="groups-section__header">
         <div>
           <h2 id="groups-heading">{{ t('home.groups') }}</h2>
@@ -208,6 +192,39 @@ const observedAt = computed(() => {
         </div>
       </template>
     </section>
+
+    <section
+      class="connection-section"
+      data-test="home-connection"
+      :aria-label="t('home.connection')"
+    >
+      <QueryFeedback
+        v-if="accessKeysQuery.isPending.value"
+        state="loading"
+        :message="t('auth.checking')"
+      />
+      <QueryFeedback
+        v-else-if="accessKeysQuery.isError.value && !accessKeysQuery.data.value"
+        state="error"
+        :message="t('home.accessKeysError')"
+        :retry-label="t('common.retry')"
+        @retry="accessKeysQuery.refetch()"
+      />
+      <template v-else>
+        <QueryFeedback
+          v-if="accessKeysQuery.isError.value"
+          state="stale"
+          :message="t('home.accessKeysStale')"
+          :retry-label="t('common.retry')"
+          @retry="accessKeysQuery.refetch()"
+        />
+        <ConnectionCard
+          :keys="accessKeysQuery.data.value ?? []"
+          :model-ids="modelIds"
+          :origin="props.origin"
+        />
+      </template>
+    </section>
   </div>
 </template>
 
@@ -216,14 +233,29 @@ const observedAt = computed(() => {
   display: grid;
   gap: var(--space-8);
 }
+.operational-overview,
+.connection-section {
+  display: grid;
+  gap: var(--space-4);
+}
+.operational-overview__header h2,
+.operational-overview__header p {
+  margin: 0;
+}
+.operational-overview__header h2 {
+  font-size: 1.25rem;
+}
+.operational-overview__header p {
+  margin-top: var(--space-1);
+  color: var(--color-text-muted);
+}
 .home-overview {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(320px, 0.9fr);
   gap: var(--space-5);
   align-items: start;
 }
-.service-card,
-.connection-section {
+.service-card {
   display: grid;
   gap: var(--space-5);
 }
@@ -236,7 +268,7 @@ const observedAt = computed(() => {
   justify-content: space-between;
   gap: var(--space-3);
 }
-.section-heading h2,
+.section-heading h3,
 .groups-section h2 {
   margin: 0;
   font-size: 1.125rem;

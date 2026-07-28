@@ -69,8 +69,9 @@ export function buildConnectionSnippet(input: ConnectionSnippetInput): Connectio
 }
 
 export function isGroupServiceable(group: GroupSummary, counts?: KeyCounts): boolean | undefined {
+  if (!group.enabled || group.models.length === 0) return false
   if (!counts) return undefined
-  return group.enabled && group.models.length > 0 && counts.available > 0
+  return counts.available > 0
 }
 
 export function selectInitialAccessKey(keys: AccessKeyOptionDto[]): number | undefined {

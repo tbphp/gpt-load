@@ -76,6 +76,9 @@ export default {
   home: {
     title: '運用概要',
     description: '実際のランタイム状態、Group のサービス可否、クライアント接続設定を確認します。',
+    operationalOverview: '運用概要',
+    operationalOverviewDescription:
+      'ランタイムの状態と過去 24 時間に永続化された使用量をまとめます。',
     service: '管理サービス',
     online: 'オンライン',
     healthUnavailable: 'サービスは応答しましたが、ヘルス状態を取得できません。',
@@ -102,6 +105,10 @@ export default {
     serviceable: 'サービス可能',
     unavailable: 'サービス不可',
     unknown: '状態不明',
+    groupDisabledReason: 'この Group は無効です。',
+    noModelsReason: 'この Group にはモデルが設定されていません。',
+    healthUnknownReason: '現在のアップストリームキーの可用性は不明です。',
+    noAvailableKeysReason: '現在利用可能なアップストリームキーがありません。',
     models: '{count} モデル',
     keys: '{count} キー',
     details: '詳細を見る',

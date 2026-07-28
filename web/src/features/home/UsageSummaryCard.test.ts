@@ -137,7 +137,7 @@ describe('UsageSummaryCard', () => {
     )
   })
 
-  it('always renders three known zero quality counts when persisted usage has no quality gaps', async () => {
+  it('keeps known zero quality counts neutral when persisted usage has no quality gaps', async () => {
     const report = usageReport({
       summary: {
         ...aggregate,
@@ -163,7 +163,7 @@ describe('UsageSummaryCard', () => {
     for (const quality of ['missing', 'partial', 'unpriced']) {
       const status = wrapper.get(`[data-test="home-usage-quality-${quality}"]`)
       expect(status.text()).toContain('0')
-      expect(status.classes()).toContain('status-badge--success')
+      expect(status.classes()).toContain('status-badge--neutral')
     }
     expect(wrapper.get('[data-test="home-usage-tokens"]').text()).toContain('0')
   })

@@ -14,6 +14,15 @@ import StatusBadge from '@/components/ui/StatusBadge.vue'
 import SurfaceCard from '@/components/ui/SurfaceCard.vue'
 import { formatEstimatedUSD } from '@/features/usage/estimated-cost'
 
+withDefaults(
+  defineProps<{
+    headingAs?: 'h2' | 'h3'
+  }>(),
+  {
+    headingAs: 'h2',
+  },
+)
+
 const filters = { range: '24h' } as const
 const client = useApiClient()
 const { locale, t } = useI18n()
@@ -71,7 +80,7 @@ function formatEstimatedCost(aggregate: UsageAggregateDto): string {
       <header class="usage-summary-card__header">
         <div>
           <p class="eyebrow">{{ t('home.usage.eyebrow') }}</p>
-          <h2 id="home-usage-heading">{{ t('home.usage.title') }}</h2>
+          <component :is="headingAs" id="home-usage-heading">{{ t('home.usage.title') }}</component>
           <p>{{ t('home.usage.description') }}</p>
         </div>
         <RouterLink
@@ -137,21 +146,21 @@ function formatEstimatedCost(aggregate: UsageAggregateDto): string {
         >
           <StatusBadge
             data-test="home-usage-quality-missing"
-            :tone="report.summary.usage_missing_count ? 'warning' : 'success'"
+            :tone="report.summary.usage_missing_count ? 'warning' : 'neutral'"
           >
             {{ t('home.usage.quality.missing') }}
             {{ formatCount(report.summary.usage_missing_count) }}
           </StatusBadge>
           <StatusBadge
             data-test="home-usage-quality-partial"
-            :tone="report.summary.partial_count ? 'warning' : 'success'"
+            :tone="report.summary.partial_count ? 'warning' : 'neutral'"
           >
             {{ t('home.usage.quality.partial') }}
             {{ formatCount(report.summary.partial_count) }}
           </StatusBadge>
           <StatusBadge
             data-test="home-usage-quality-unpriced"
-            :tone="report.summary.unpriced_request_count ? 'warning' : 'success'"
+            :tone="report.summary.unpriced_request_count ? 'warning' : 'neutral'"
           >
             {{ t('home.usage.quality.unpriced') }}
             {{ formatCount(report.summary.unpriced_request_count) }}
@@ -191,14 +200,14 @@ function formatEstimatedCost(aggregate: UsageAggregateDto): string {
   justify-content: space-between;
   gap: var(--space-4);
 }
-.usage-summary-card__header h2,
+.usage-summary-card__header :is(h2, h3),
 .usage-summary-card__header p {
   margin: 0;
 }
-.usage-summary-card__header h2 {
+.usage-summary-card__header :is(h2, h3) {
   font-size: 1.125rem;
 }
-.usage-summary-card__header h2 + p {
+.usage-summary-card__header :is(h2, h3) + p {
   margin-top: var(--space-1);
   color: var(--color-text-muted);
 }

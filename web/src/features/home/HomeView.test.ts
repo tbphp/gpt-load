@@ -102,6 +102,25 @@ async function mountHome(api: FakeApi, origin?: string, queryClient?: QueryClien
 }
 
 describe('HomeView', () => {
+  it('keeps the semantic task order Operational Overview, Groups, then Connection Setup', async () => {
+    const api = new FakeApi()
+    api.when('/api/groups').resolve([groupFixture])
+    api.when('/api/health').resolve(healthFixture)
+    api.when('/api/access-keys/options').resolve([accessKeyFixture])
+
+    const wrapper = await mountHome(api)
+    const sections = wrapper.findAll(
+      '[data-test="home-operational-overview"], [data-test="home-groups"], [data-test="home-connection"]',
+    )
+
+    expect(sections.map((section) => section.attributes('data-test'))).toEqual([
+      'home-operational-overview',
+      'home-groups',
+      'home-connection',
+    ])
+    expect(sections[0]?.find('[data-test="home-usage-requests"]').exists()).toBe(true)
+  })
+
   it('keeps Groups visible when Health fails', async () => {
     const api = new FakeApi()
     api.when('/api/groups').resolve([groupFixture])
