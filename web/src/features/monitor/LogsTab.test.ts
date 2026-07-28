@@ -15,7 +15,10 @@ import LogsTab from './LogsTab.vue'
 
 const firstRequestID = 'a4d4e121-8ac3-4df4-8ceb-63b10ddc6173'
 
-afterEach(() => vi.unstubAllEnvs())
+afterEach(() => {
+  vi.unstubAllEnvs()
+  vi.unstubAllGlobals()
+})
 
 function attemptFixture(sequence: number): RequestLogAttemptDto {
   return {
@@ -247,6 +250,7 @@ describe('LogsTab', () => {
     expect(wrapper.findAll('tbody tr')).toHaveLength(1)
     expect(wrapper.find(`[data-test="log-row-${firstRequestID}"]`).exists()).toBe(true)
     expect(wrapper.get('[data-test="logs-next-page-failed"]').text()).toContain('加载下一页失败')
+    expect(wrapper.find('[data-test="logs-stale"]').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('next-page-secret-canary')
 
     await wrapper.get('[data-test="logs-next-page-retry"]').trigger('click')
@@ -459,6 +463,7 @@ describe('LogsTab', () => {
   })
 
   it('preserves every cached page when Refresh fails and offers a local retry', async () => {
+    vi.stubEnv('TZ', 'UTC')
     const refresh = deferred<RequestLogPageDto>()
     const retry = deferred<RequestLogPageDto>()
     const secondRequestID = '34d4e121-8ac3-4df4-8ceb-63b10ddc6173'
@@ -481,6 +486,11 @@ describe('LogsTab', () => {
     const { queryClient, wrapper } = await mountLogs(api, '/monitor?tab=logs&status=error')
     await wrapper.get('[data-test="logs-load-more"]').trigger('click')
     await flushPromises()
+    await wrapper.get('[data-test="logs-model"]').setValue('unapplied-model')
+    const lastSuccessful = wrapper.get('[data-test="logs-last-refreshed"]').attributes('datetime')
+
+    expect(lastSuccessful).toBeTruthy()
+    expect(wrapper.get('[data-test="logs-timezone"]').text()).toContain('UTC')
 
     await wrapper.get('[data-test="logs-refresh"]').trigger('click')
     await flushPromises()
@@ -493,6 +503,13 @@ describe('LogsTab', () => {
     })
     expect(wrapper.findAll('tbody tr')).toHaveLength(2)
     expect(wrapper.get('[data-test="logs-refresh-failed"]').text()).toContain('刷新请求日志失败')
+    expect(wrapper.get('[data-test="logs-stale"]').text()).toContain('最近一次成功')
+    expect(wrapper.get('[data-test="logs-last-refreshed"]').attributes('datetime')).toBe(
+      lastSuccessful,
+    )
+    expect(wrapper.get<HTMLInputElement>('[data-test="logs-model"]').element.value).toBe(
+      'unapplied-model',
+    )
     expect(wrapper.text()).not.toContain('refresh-secret-canary')
 
     await wrapper.get('[data-test="logs-refresh-retry"]').trigger('click')
@@ -619,7 +636,7 @@ describe('LogsTab', () => {
     expect(wrapper.find('[data-test="logs-filter-dirty"]').exists()).toBe(false)
   })
 
-  it('applies every explicit filter exactly and Reset clears both draft and URL', async () => {
+  it('applies every explicit filter once while Reset changes only the local draft', async () => {
     vi.stubEnv('TZ', 'UTC')
     const group: GroupSummary = {
       id: 7,
@@ -674,7 +691,17 @@ describe('LogsTab', () => {
     await wrapper.get('[data-test="logs-reset"]').trigger('click')
     await flushPromises()
 
-    expect(router.currentRoute.value.fullPath).toBe('/monitor?tab=logs')
+    expect(router.currentRoute.value.query).toEqual({
+      tab: 'logs',
+      from: '2026-07-25T10:00:00.000Z',
+      to: '2026-07-25T11:00:00.000Z',
+      group_id: '7',
+      model: 'provider/model:Exact',
+      access_key_id: '12',
+      status: 'error',
+      request_id: 'a4d4e121-8ac3-4df4-8ceb-63b10ddc6173',
+    })
+    expect(api.requests.filter(({ path }) => path.startsWith('/api/logs'))).toHaveLength(2)
     for (const testID of [
       'logs-from',
       'logs-to',
@@ -686,6 +713,41 @@ describe('LogsTab', () => {
     ]) {
       expect((wrapper.get(`[data-test="${testID}"]`).element as HTMLInputElement).value).toBe('')
     }
+    expect(wrapper.get('[data-test="logs-applied-filters"]').text()).toContain(
+      'provider/model:Exact',
+    )
+
+    await wrapper.get('[data-test="logs-filter-form"]').trigger('submit')
+    await flushPromises()
+    expect(router.currentRoute.value.fullPath).toBe('/monitor?tab=logs')
+    expect(api.requests.filter(({ path }) => path.startsWith('/api/logs'))).toHaveLength(3)
+  })
+
+  it('bypasses its own dirty prompt on Apply and keeps applied chips isolated from the draft', async () => {
+    const confirm = vi.fn(() => false)
+    vi.stubGlobal('confirm', confirm)
+    const api = new LogsApi([
+      { items: [logFixture({ status: 'success' })], next_cursor: null },
+      { items: [logFixture({ status: 'error' })], next_cursor: null },
+    ])
+    const { router, wrapper } = await mountLogs(
+      api,
+      `/monitor?tab=logs&status=success&selected_request_id=${firstRequestID}`,
+      'en-US',
+    )
+
+    await wrapper.get('[data-test="logs-status"]').setValue('error')
+
+    const appliedBefore = wrapper.get('[data-test="logs-applied-filters"]').text()
+    expect(appliedBefore).toContain('Success')
+    expect(appliedBefore).not.toContain('Error')
+
+    await wrapper.get('[data-test="logs-filter-form"]').trigger('submit')
+    await flushPromises()
+
+    expect(router.currentRoute.value.fullPath).toBe('/monitor?tab=logs&status=error')
+    expect(confirm).not.toHaveBeenCalled()
+    expect(wrapper.get('[data-test="logs-applied-filters"]').text()).toContain('Error')
   })
 
   it('rejects invalid fields locally and marks every field error with aria-invalid', async () => {
@@ -760,14 +822,23 @@ describe('LogsTab', () => {
     expect(wrapper.get(`[data-test="log-row-${firstRequestID}"]`).text()).toContain('Deleted · #99')
   })
 
-  it('opens a real detail drawer and restores focus to the row trigger on close', async () => {
-    const { wrapper } = await mountLogs(new LogsApi(), '/monitor?tab=logs', 'en-US')
+  it('drives the detail drawer from the canonical URL and restores trigger focus on close', async () => {
+    const api = new LogsApi()
+    const { queryClient, router, wrapper } = await mountLogs(api, '/monitor?tab=logs', 'en-US')
     const trigger = wrapper.get<HTMLButtonElement>(`[data-test="log-details-${firstRequestID}"]`)
     trigger.element.focus()
 
     await trigger.trigger('click')
     await flushPromises()
 
+    expect(router.currentRoute.value.query).toEqual({
+      tab: 'logs',
+      selected_request_id: firstRequestID,
+    })
+    expect(api.requests.filter(({ path }) => path.startsWith('/api/logs'))).toHaveLength(1)
+    expect(JSON.stringify(queryClient.getQueryCache().getAll())).not.toContain(
+      'selected_request_id',
+    )
     expect(document.body.textContent).toContain('Request log details')
     const close = document.body.querySelector<HTMLButtonElement>(
       'button[aria-label="Close request log details"]',
@@ -777,9 +848,35 @@ describe('LogsTab', () => {
     await flushPromises()
     await new Promise((resolve) => setTimeout(resolve, 50))
 
+    expect(router.currentRoute.value.fullPath).toBe('/monitor?tab=logs')
     expect(document.body.querySelector('button[aria-label="Close request log details"]')).toBeNull()
     expect(document.activeElement).toBe(
       wrapper.get(`[data-test="log-details-${firstRequestID}"]`).element,
     )
+  })
+
+  it('restores a deep-linked selected request and its applied filters through browser history', async () => {
+    const selectedPath = `/monitor?tab=logs&status=error&selected_request_id=${firstRequestID}`
+    const { router, wrapper } = await mountLogs(
+      new LogsApi([{ items: [logFixture({ status: 'error' })], next_cursor: null }]),
+      selectedPath,
+      'en-US',
+    )
+
+    expect(document.body.textContent).toContain('Request log details')
+    const inspectorLink = document.body.querySelector<HTMLAnchorElement>(
+      '[data-test="log-inspector-link"]',
+    )
+    if (!inspectorLink) throw new Error('Missing Inspector link')
+    inspectorLink.click()
+    await flushPromises()
+    expect(router.currentRoute.value.query.tab).toBe('inspector')
+
+    router.back()
+    await flushPromises()
+
+    expect(router.currentRoute.value.fullPath).toBe(selectedPath)
+    expect(wrapper.get<HTMLSelectElement>('[data-test="logs-status"]').element.value).toBe('error')
+    expect(document.body.textContent).toContain('Request log details')
   })
 })

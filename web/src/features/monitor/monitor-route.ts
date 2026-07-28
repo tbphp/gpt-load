@@ -91,13 +91,19 @@ function normalizeLogsQuery(query: Record<string, unknown>, tab: MonitorTab): Lo
   const accessKeyID = scalarPositiveID(query.access_key_id)
   const status = scalarEnum(query.status, requestLogStatuses)
   const requestID = scalarUUIDv4(query.request_id)
+  const selectedRequestID = parseSelectedRequestID(query)
 
   if (groupID !== undefined) normalized.group_id = groupID
   if (model !== undefined) normalized.model = model
   if (accessKeyID !== undefined) normalized.access_key_id = accessKeyID
   if (status !== undefined) normalized.status = status
   if (requestID !== undefined) normalized.request_id = requestID
+  if (selectedRequestID !== undefined) normalized.selected_request_id = selectedRequestID
   return normalized
+}
+
+export function parseSelectedRequestID(query: Record<string, unknown>): string | undefined {
+  return scalarUUIDv4(query.selected_request_id)
 }
 
 function scalarText(raw: unknown): string | undefined {
