@@ -1,0 +1,125 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-07-28T21:43:43Z",
+  "audit_source_sha": "e8b6fe1be3e5426034e1cfff2369bec64998170b",
+  "repository": {
+    "name": "tbphp/gpt-load",
+    "url": "https://github.com/tbphp/gpt-load",
+    "default_branch": "main",
+    "remote_v2_sha": "3744cd5a4ebe8ec06f9c9a8f550f74737829a562",
+    "remote_v2_protected": false,
+    "release_policy": {
+      "trigger": "push tag v2.*",
+      "required_tag_shape": "strict 2.x SemVer",
+      "tag_commit_must_be_in": "origin/v2",
+      "expected_native_assets": 5,
+      "image_platforms": ["linux/amd64", "linux/arm64"],
+      "image_registries": ["ghcr.io/tbphp/gpt-load", "docker.io/tbphp/gpt-load"]
+    }
+  },
+  "gates": [
+    {
+      "id": "feature-head-visible-on-github",
+      "status": "NOT RUN",
+      "expected_sha": "e8b6fe1be3e5426034e1cfff2369bec64998170b",
+      "evidence": "The GitHub commits API did not find the local feature head.",
+      "reason": "The feature branch has intentionally not been pushed."
+    },
+    {
+      "id": "exact-feature-sha-ci",
+      "status": "NOT RUN",
+      "expected_sha": "e8b6fe1be3e5426034e1cfff2369bec64998170b",
+      "reason": "An unpushed SHA cannot have GitHub Actions runs or checks."
+    },
+    {
+      "id": "remote-v2-ci",
+      "status": "FAIL",
+      "tested_sha": "3744cd5a4ebe8ec06f9c9a8f550f74737829a562",
+      "workflow": "V2 CI",
+      "run_id": 30382845830,
+      "url": "https://github.com/tbphp/gpt-load/actions/runs/30382845830",
+      "jobs": [
+        {
+          "name": "test",
+          "status": "PASS",
+          "url": "https://github.com/tbphp/gpt-load/actions/runs/30382845830/job/90354693490"
+        },
+        {
+          "name": "windows-encryption-acl",
+          "status": "FAIL",
+          "url": "https://github.com/tbphp/gpt-load/actions/runs/30382845830/job/90354693593",
+          "failure": "TestAutoMigrateUpgradesV1AccessKeyWithBackups: backup permissions = 666, want 600"
+        }
+      ]
+    },
+    {
+      "id": "windows-acl-prior-success",
+      "status": "EXTERNAL",
+      "tested_sha": "6ec83dabf145dad51909adbd3573db7f7ff6b321",
+      "workflow": "V2 CI",
+      "run_id": 30329551379,
+      "url": "https://github.com/tbphp/gpt-load/actions/runs/30329551379",
+      "result": "Both test and windows-encryption-acl jobs passed.",
+      "reason": "This success predates the current remote v2 and the local Phase 3–5 head, so it is stale evidence rather than a current PASS."
+    },
+    {
+      "id": "v2-release-tag",
+      "status": "NOT RUN",
+      "evidence": "No public tag beginning with v2 was returned by the GitHub tags API."
+    },
+    {
+      "id": "v2-github-release-and-five-native-assets",
+      "status": "NOT RUN",
+      "evidence": "The newest public GitHub Release is v1.4.9; no 2.x release or 2.x release assets exist."
+    },
+    {
+      "id": "ghcr-v2-exact-and-major-images",
+      "status": "NOT RUN",
+      "checked_images": ["ghcr.io/tbphp/gpt-load:2.0.0", "ghcr.io/tbphp/gpt-load:2"],
+      "evidence": "Public manifest inspection returned not found for both tags."
+    },
+    {
+      "id": "dockerhub-v2-exact-and-major-images",
+      "status": "NOT RUN",
+      "checked_images": ["docker.io/tbphp/gpt-load:2.0.0", "docker.io/tbphp/gpt-load:2"],
+      "evidence": "Public manifest inspection returned not found for both tags."
+    },
+    {
+      "id": "public-registry-pull-and-runtime-smoke",
+      "status": "NOT RUN",
+      "reason": "No public 2.x image manifest exists to pull or execute."
+    },
+    {
+      "id": "published-native-runtime-matrix",
+      "status": "NOT RUN",
+      "reason": "No public 2.x GitHub Release exists. Workflow code is not execution evidence."
+    },
+    {
+      "id": "migration-rehearsal",
+      "status": "EXTERNAL",
+      "reason": "No current exact-SHA operator rehearsal artifact or public run was found. Local migration unit tests do not replace an operational rehearsal."
+    },
+    {
+      "id": "real-provider-protocol-flows",
+      "status": "EXTERNAL",
+      "reason": "No current exact-SHA evidence was found for live OpenAI, Anthropic, and Gemini provider flows. Fake upstream tests do not establish this gate."
+    },
+    {
+      "id": "human-pixel-approval",
+      "status": "EXTERNAL",
+      "reason": "The canonical Chromium candidate exists locally, but human approval has not been performed and the baseline remains disabled."
+    },
+    {
+      "id": "manual-assistive-technology",
+      "status": "EXTERNAL",
+      "reason": "Safari plus VoiceOver and Windows Chrome plus NVDA require genuine human sessions; automated WebKit/DOM checks are not substitutes."
+    }
+  ],
+  "mutations": {
+    "push": false,
+    "workflow_dispatch": false,
+    "tag": false,
+    "release": false,
+    "registry_write": false
+  }
+}
