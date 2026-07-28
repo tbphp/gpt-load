@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { useQuery } from '@tanstack/vue-query'
-import { ChevronDown } from 'lucide-vue-next'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
@@ -13,6 +12,8 @@ import {
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import SurfaceCard from '@/components/ui/SurfaceCard.vue'
+
+import HealthProblemCollection from './HealthProblemCollection.vue'
 
 const client = useApiClient()
 const { t } = useI18n()
@@ -45,6 +46,13 @@ const problemSections = computed(() => [
     keys: healthQuery.data.value?.blacklisted_keys ?? [],
   },
 ])
+const remainingByKey = computed(() =>
+  Object.fromEntries(
+    problemSections.value.flatMap((section) =>
+      section.keys.map((key) => [key.key_id, remainingTime(key)]),
+    ),
+  ),
+)
 const requestLogCounters = computed(() => {
   const requestLog = healthQuery.data.value?.request_log
   if (!requestLog) return []
@@ -190,10 +198,6 @@ function groupStatusTone(
   return 'success'
 }
 
-function isExpanded(keyId: number): boolean {
-  return expandedKeyIds.value.has(keyId)
-}
-
 function toggleExpanded(keyId: number): void {
   const next = new Set(expandedKeyIds.value)
   if (next.has(keyId)) next.delete(keyId)
@@ -214,12 +218,6 @@ function remainingTime(key: HealthProblemKeyDto): string {
   const minutes = Math.floor(remainingSeconds / 60)
   const seconds = String(remainingSeconds % 60).padStart(2, '0')
   return `${minutes}:${seconds}`
-}
-
-function recoveryModeLabel(mode: string): string {
-  if (mode === 'cooldown_expiry') return t('monitor.health.recovery.cooldownExpiry')
-  if (mode === 'validation_probe') return t('monitor.health.recovery.validationProbe')
-  return t('monitor.health.recovery.unknown')
 }
 </script>
 
@@ -344,123 +342,12 @@ function recoveryModeLabel(mode: string): string {
         </div>
       </section>
 
-      <section class="health-section" aria-labelledby="health-problems-heading">
-        <header class="health-section__heading">
-          <div>
-            <h2 id="health-problems-heading">{{ t('monitor.health.problems.title') }}</h2>
-            <p>{{ t('monitor.health.problems.description') }}</p>
-          </div>
-        </header>
-
-        <p
-          v-if="
-            healthQuery.data.value.cooldown_keys.length === 0 &&
-            healthQuery.data.value.blacklisted_keys.length === 0
-          "
-          class="health-empty"
-        >
-          {{ t('monitor.health.problems.empty') }}
-        </p>
-        <div v-else class="problem-sections">
-          <section v-for="section in problemSections" :key="section.kind" class="problem-section">
-            <h3>{{ section.label }}</h3>
-            <p v-if="section.keys.length === 0" class="health-empty">
-              {{ t('monitor.health.problems.noneForStatus') }}
-            </p>
-            <article
-              v-for="key in section.keys"
-              :key="key.key_id"
-              class="problem-key"
-              :data-key-id="key.key_id"
-            >
-              <button
-                type="button"
-                class="problem-key__toggle"
-                :data-test="`problem-key-${key.key_id}`"
-                :aria-expanded="isExpanded(key.key_id)"
-                :aria-controls="`problem-key-details-${key.key_id}`"
-                @click="toggleExpanded(key.key_id)"
-              >
-                <span class="problem-key__identity">
-                  {{ t('monitor.health.problems.keyId', { id: key.key_id }) }}
-                </span>
-                <ChevronDown
-                  class="problem-key__chevron"
-                  :class="{ 'problem-key__chevron--expanded': isExpanded(key.key_id) }"
-                  :size="18"
-                  aria-hidden="true"
-                />
-              </button>
-
-              <div class="problem-key__summary">
-                <RouterLink class="group-link" :to="`/groups/${key.group_id}?tab=keys`">
-                  {{ key.group_name }} · #{{ key.group_id }}
-                </RouterLink>
-                <StatusBadge :tone="section.tone">{{ section.label }}</StatusBadge>
-                <span
-                  v-if="key.cooldown_until"
-                  class="problem-key__remaining"
-                  :data-test="`remaining-${key.key_id}`"
-                >
-                  {{
-                    t('monitor.health.problems.remaining', {
-                      time: remainingTime(key),
-                    })
-                  }}
-                </span>
-              </div>
-
-              <div
-                v-if="isExpanded(key.key_id)"
-                :id="`problem-key-details-${key.key_id}`"
-                class="problem-key__details"
-                :data-test="`problem-key-details-${key.key_id}`"
-              >
-                <dl class="detail-grid">
-                  <div>
-                    <dt>{{ t('monitor.health.details.failureCount') }}</dt>
-                    <dd :data-test="`failure-count-${key.key_id}`">{{ key.failure_count }}</dd>
-                  </div>
-                  <div>
-                    <dt>{{ t('monitor.health.details.recentSuccessCount') }}</dt>
-                    <dd>{{ key.recent_success_count }}</dd>
-                  </div>
-                  <div>
-                    <dt>{{ t('monitor.health.details.recentFailureCount') }}</dt>
-                    <dd>{{ key.recent_failure_count }}</dd>
-                  </div>
-                  <div>
-                    <dt>{{ t('monitor.health.details.consecutiveFailureCount') }}</dt>
-                    <dd>{{ key.consecutive_failure_count }}</dd>
-                  </div>
-                  <div>
-                    <dt>{{ t('monitor.health.details.manualWeight') }}</dt>
-                    <dd>{{ key.weight_manual ?? t('monitor.health.details.automatic') }}</dd>
-                  </div>
-                  <div>
-                    <dt>{{ t('monitor.health.details.autoWeight') }}</dt>
-                    <dd :data-test="`auto-weight-${key.key_id}`">{{ key.weight_auto }}</dd>
-                  </div>
-                </dl>
-                <div class="recovery-facts">
-                  <span>{{
-                    key.recovery.automatic
-                      ? t('monitor.health.recovery.automatic')
-                      : t('monitor.health.recovery.notAutomatic')
-                  }}</span>
-                  <span>{{ recoveryModeLabel(key.recovery.mode) }}</span>
-                  <time v-if="key.recovery.at" :datetime="key.recovery.at">
-                    {{ key.recovery.at }}
-                  </time>
-                  <span v-else-if="key.recovery.mode === 'validation_probe'">
-                    {{ t('monitor.health.recovery.runtimeDecides') }}
-                  </span>
-                </div>
-              </div>
-            </article>
-          </section>
-        </div>
-      </section>
+      <HealthProblemCollection
+        :sections="problemSections"
+        :expanded-key-ids="expandedKeyIds"
+        :remaining-by-key="remainingByKey"
+        @toggle="toggleExpanded"
+      />
 
       <SurfaceCard class="health-card request-log-health">
         <header class="health-card__heading">

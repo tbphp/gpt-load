@@ -24,6 +24,7 @@ import StatusBadge from '@/components/ui/StatusBadge.vue'
 import SurfaceCard from '@/components/ui/SurfaceCard.vue'
 
 import GroupDeleteDialog from './GroupDeleteDialog.vue'
+import GroupSettingsBaseForm from './GroupSettingsBaseForm.vue'
 import {
   buildGroupSettingsPatch,
   createGroupSettingsDraft,
@@ -50,14 +51,12 @@ let controller: AbortController | undefined
 const saveFocusTarget = ref<HTMLElement | null>(null)
 const headingFocusTarget = ref<HTMLElement | null>(null)
 
-const protocols: GroupProtocol[] = ['openai', 'anthropic', 'gemini']
 const timeoutKeys: GroupTimeoutKey[] = [
   'connect_timeout',
   'first_byte_timeout',
   'request_timeout',
   'stream_idle_timeout',
 ]
-const weights = Array.from({ length: 100 }, (_, index) => index + 1)
 const patch = computed(() => buildGroupSettingsPatch(savedGroup.value, draft.value))
 const dirty = computed(() => Object.keys(patch.value).length > 0)
 useUnsavedChanges(dirty, { blocked: pending })
@@ -143,11 +142,6 @@ function toggleProtocol(protocol: GroupProtocol, checked: boolean): void {
       ? [...new Set([...draft.value.protocols, protocol])]
       : draft.value.protocols.filter((value) => value !== protocol),
   }
-}
-
-function setWeight(event: Event): void {
-  const value = (event.target as HTMLSelectElement).value
-  draft.value.weight_manual = value === 'auto' ? null : Number(value)
 }
 
 function healthAffected(body: ReturnType<typeof buildGroupSettingsPatch>): boolean {
@@ -296,118 +290,24 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <SurfaceCard class="group-settings__card">
-      <div class="group-settings__section-heading">
-        <h3>{{ t('group.settings.base.title') }}</h3>
-        <p>{{ t('group.settings.base.description') }}</p>
-      </div>
-      <div class="group-settings__grid">
-        <label>
-          <span>{{ t('group.settings.base.name') }}</span>
-          <input
-            v-model="draft.name"
-            data-test="group-name"
-            type="text"
-            autocomplete="off"
-            :aria-invalid="nameError ? 'true' : undefined"
-            :aria-describedby="nameError ? 'group-name-error' : undefined"
-            :disabled="pending"
-          />
-          <small
-            v-if="nameError"
-            id="group-name-error"
-            data-test="group-name-error"
-            class="group-settings__field-error"
-            role="alert"
-            >{{ nameError }}</small
-          >
-        </label>
-        <label>
-          <span>{{ t('group.settings.base.upstreamUrl') }}</span>
-          <input
-            v-model="draft.upstream_url"
-            data-test="group-upstream-url"
-            class="group-settings__mono"
-            type="url"
-            autocomplete="off"
-            :aria-invalid="upstreamURLError ? 'true' : undefined"
-            :aria-describedby="
-              upstreamURLError ? 'group-upstream-url-error group-upstream-url-warning' : undefined
-            "
-            :disabled="pending"
-          />
-          <small
-            v-if="upstreamURLError"
-            id="group-upstream-url-error"
-            data-test="group-upstream-url-error"
-            class="group-settings__field-error"
-            role="alert"
-            >{{ upstreamURLError }}</small
-          >
-          <small id="group-upstream-url-warning">{{ t('group.settings.base.urlWarning') }}</small>
-        </label>
-        <label>
-          <span>{{ t('group.settings.base.validationModel') }}</span>
-          <input
-            data-test="group-validation-model"
-            class="group-settings__mono"
-            type="text"
-            autocomplete="off"
-            :value="draft.validation_model ?? ''"
-            :disabled="pending"
-            @input="draft.validation_model = ($event.target as HTMLInputElement).value || null"
-          />
-        </label>
-        <label>
-          <span>{{ t('group.settings.base.weight') }}</span>
-          <select
-            data-test="group-weight"
-            :value="draft.weight_manual ?? 'auto'"
-            :disabled="pending"
-            @change="setWeight"
-          >
-            <option value="auto">{{ t('group.settings.base.auto') }}</option>
-            <option v-if="draft.weight_manual === 0" value="0" disabled>0</option>
-            <option v-for="weight in weights" :key="weight" :value="weight">{{ weight }}</option>
-          </select>
-        </label>
-      </div>
-      <fieldset
-        :aria-invalid="protocolsError ? 'true' : undefined"
-        :aria-describedby="protocolsError ? 'group-protocols-error' : undefined"
-      >
-        <legend>{{ t('group.settings.base.protocols') }}</legend>
-        <div class="group-settings__checks">
-          <label v-for="protocol in protocols" :key="protocol">
-            <input
-              :data-test="`group-protocol-${protocol}`"
-              type="checkbox"
-              :checked="draft.protocols.includes(protocol)"
-              :disabled="pending"
-              @change="toggleProtocol(protocol, ($event.target as HTMLInputElement).checked)"
-            />
-            {{ t(`common.protocols.${protocol}`) }}
-          </label>
-        </div>
-        <small
-          v-if="protocolsError"
-          id="group-protocols-error"
-          data-test="group-protocols-error"
-          class="group-settings__field-error"
-          role="alert"
-          >{{ protocolsError }}</small
-        >
-      </fieldset>
-      <label class="group-settings__enabled">
-        <input
-          v-model="draft.enabled"
-          data-test="group-enabled"
-          type="checkbox"
-          :disabled="pending"
-        />
-        <span>{{ t('group.settings.base.enabled') }}</span>
-      </label>
-    </SurfaceCard>
+    <GroupSettingsBaseForm
+      :name="draft.name"
+      :upstream-url="draft.upstream_url"
+      :validation-model="draft.validation_model"
+      :weight-manual="draft.weight_manual"
+      :protocols="draft.protocols"
+      :enabled="draft.enabled"
+      :pending="pending"
+      :name-error="nameError"
+      :upstream-url-error="upstreamURLError"
+      :protocols-error="protocolsError"
+      @update:name="draft.name = $event"
+      @update:upstream-url="draft.upstream_url = $event"
+      @update:validation-model="draft.validation_model = $event"
+      @update:weight-manual="draft.weight_manual = $event"
+      @toggle-protocol="toggleProtocol"
+      @update:enabled="draft.enabled = $event"
+    />
 
     <SurfaceCard class="group-settings__card">
       <div class="group-settings__section-heading">

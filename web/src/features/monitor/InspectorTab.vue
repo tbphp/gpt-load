@@ -15,12 +15,11 @@ import {
 } from '@/app/resources/route-inspection'
 import type { AccessProtocol } from '@/api/control/types'
 import { RequestCancelledError } from '@/api/errors'
-import AppButton from '@/components/ui/AppButton.vue'
-import AppSelect from '@/components/ui/AppSelect.vue'
-import FormField from '@/components/ui/FormField.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import SurfaceCard from '@/components/ui/SurfaceCard.vue'
+
+import InspectorForm from './InspectorForm.vue'
 
 type InspectorField = 'protocol' | 'externalModel' | 'accessKey'
 type InspectorErrors = Partial<Record<InspectorField, string>>
@@ -94,7 +93,6 @@ const accessKeyOptions = computed(() => {
     ...options,
   ]
 })
-const hasValidationError = computed(() => Object.keys(fieldErrors.value).length > 0)
 const inputChanged = computed(() => {
   const previous = submitted.value
   if (!previous) return false
@@ -182,9 +180,8 @@ function validatedRequest(): RouteInspectRequest | undefined {
   }
 }
 
-function fieldError(field: InspectorField): string | undefined {
-  const key = fieldErrors.value[field]
-  return key ? t(key) : undefined
+function setDraftProtocol(value: string): void {
+  draftProtocol.value = value as AccessProtocol | ''
 }
 
 async function inspect(): Promise<void> {
@@ -265,119 +262,22 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="inspector-tab">
-    <SurfaceCard class="inspector-form-card">
-      <header class="inspector-heading">
-        <div>
-          <h2>{{ t('monitor.inspector.title') }}</h2>
-          <p>{{ t('monitor.inspector.description') }}</p>
-        </div>
-      </header>
-
-      <p class="inspector-boundary">{{ t('monitor.inspector.boundary') }}</p>
-
-      <QueryFeedback
-        v-if="accessKeyOptionsQuery.isPending.value"
-        state="loading"
-        :message="t('monitor.inspector.options.loading')"
-      />
-      <QueryFeedback
-        v-else-if="accessKeyOptionsQuery.isError.value"
-        state="error"
-        :message="t('monitor.inspector.options.failed')"
-        :retry-label="t('common.retry')"
-        @retry="accessKeyOptionsQuery.refetch()"
-      />
-
-      <form
-        class="inspector-form"
-        data-test="inspector-form"
-        :aria-label="t('monitor.inspector.form.label')"
-        @submit.prevent="inspect"
-      >
-        <FormField
-          id="inspector-protocol"
-          :label="t('monitor.inspector.form.protocol')"
-          :error="fieldError('protocol')"
-        >
-          <template #default="{ describedBy }">
-            <AppSelect
-              id="inspector-protocol"
-              v-model="draftProtocol"
-              data-test="inspector-protocol"
-              :label="t('monitor.inspector.form.protocol')"
-              :options="protocolOptions"
-              :aria-describedby="describedBy"
-              :aria-invalid="fieldError('protocol') ? 'true' : undefined"
-            />
-          </template>
-        </FormField>
-
-        <FormField
-          id="inspector-model"
-          :label="t('monitor.inspector.form.model')"
-          :error="fieldError('externalModel')"
-        >
-          <template #default="{ describedBy }">
-            <input
-              id="inspector-model"
-              v-model="draftModel"
-              data-test="inspector-model"
-              type="text"
-              autocomplete="off"
-              :aria-describedby="describedBy"
-              :aria-invalid="fieldError('externalModel') ? 'true' : undefined"
-            />
-          </template>
-        </FormField>
-
-        <FormField
-          id="inspector-access-key"
-          :label="t('monitor.inspector.form.accessKey')"
-          :error="fieldError('accessKey')"
-        >
-          <template #default="{ describedBy }">
-            <AppSelect
-              id="inspector-access-key"
-              v-model="draftAccessKeyID"
-              data-test="inspector-access-key"
-              :label="t('monitor.inspector.form.accessKey')"
-              :options="accessKeyOptions"
-              :aria-describedby="describedBy"
-              :aria-invalid="fieldError('accessKey') ? 'true' : undefined"
-            />
-          </template>
-        </FormField>
-
-        <AppButton
-          type="submit"
-          data-test="inspector-submit"
-          :disabled="accessKeyOptionsQuery.isPending.value"
-        >
-          {{ t('monitor.inspector.form.submit') }}
-        </AppButton>
-      </form>
-
-      <p
-        v-if="missingAccessKeyOption"
-        class="inspector-inline-error"
-        data-test="inspector-access-key-missing"
-        role="alert"
-      >
-        {{
-          t('monitor.inspector.errors.missingDeepLinkAccessKey', {
-            id: draftAccessKeyID,
-          })
-        }}
-      </p>
-      <p
-        v-if="hasValidationError"
-        class="sr-only"
-        data-test="inspector-validation-error"
-        role="alert"
-      >
-        {{ t('monitor.inspector.errors.summary') }}
-      </p>
-    </SurfaceCard>
+    <InspectorForm
+      :protocol="draftProtocol"
+      :model="draftModel"
+      :access-key-id="draftAccessKeyID"
+      :protocol-options="protocolOptions"
+      :access-key-options="accessKeyOptions"
+      :errors="fieldErrors"
+      :options-pending="accessKeyOptionsQuery.isPending.value"
+      :options-failed="accessKeyOptionsQuery.isError.value"
+      :missing-access-key="missingAccessKeyOption"
+      @update:protocol="setDraftProtocol"
+      @update:model="draftModel = $event"
+      @update:access-key-id="draftAccessKeyID = $event"
+      @submit="inspect"
+      @retry-options="accessKeyOptionsQuery.refetch()"
+    />
 
     <QueryFeedback
       v-if="pending"

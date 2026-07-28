@@ -1,13 +1,6 @@
 <script setup lang="ts">
 import { useQuery } from '@tanstack/vue-query'
-import {
-  Activity,
-  CircleDollarSign,
-  Database,
-  Gauge,
-  RefreshCw,
-  TriangleAlert,
-} from 'lucide-vue-next'
+import { Database, TriangleAlert } from 'lucide-vue-next'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
@@ -16,10 +9,8 @@ import { useApiClient } from '@/api/client-context'
 import { groupListQueryOptions } from '@/app/resources/groups'
 import { usageQueryOptions, type UsageAggregateDto, type UsageFilters } from '@/app/resources/usage'
 import { useUnsavedChanges } from '@/app/unsaved-changes'
-import AppButton from '@/components/ui/AppButton.vue'
 import DataTable from '@/components/ui/DataTable.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
-import FormField from '@/components/ui/FormField.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
@@ -36,7 +27,9 @@ import {
   type UsageFilterErrors,
 } from './usage-filters'
 import { usageMonitorQuery } from './monitor-route'
+import UsageFilterForm from './UsageFilterForm.vue'
 import UsageSparkline from './UsageSparkline.vue'
+import UsageSummary from './UsageSummary.vue'
 
 const client = useApiClient()
 const route = useRoute()
@@ -94,9 +87,8 @@ function groupLabel(groupID: number): string {
   return t('monitor.usage.filters.deletedOrUnknown', { id: groupID })
 }
 
-function filterError(field: keyof UsageFilterErrors): string | undefined {
-  const key = filterErrors.value[field]
-  return key ? t(key) : undefined
+function updateDraftField(field: keyof UsageFilterDraft, value: string): void {
+  draft.value = { ...draft.value, [field]: value }
 }
 
 async function applyFilters(): Promise<void> {
@@ -118,108 +110,17 @@ async function navigate(filters: UsageFilters): Promise<void> {
 
 <template>
   <div class="usage-tab">
-    <form
-      class="usage-filter-form"
-      data-test="usage-filter-form"
-      :aria-label="t('monitor.usage.filters.label')"
-      @submit.prevent="applyFilters"
-    >
-      <div class="usage-filter-grid">
-        <FormField id="usage-range" :label="t('monitor.usage.filters.range')">
-          <select id="usage-range" v-model="draft.range" data-test="usage-range">
-            <option value="24h">{{ t('monitor.usage.filters.range24h') }}</option>
-            <option value="30d">{{ t('monitor.usage.filters.range30d') }}</option>
-          </select>
-        </FormField>
-        <FormField
-          id="usage-group"
-          :label="t('monitor.usage.filters.group')"
-          :description="
-            groupsQuery.isError.value
-              ? t('monitor.usage.filters.groupIdHelp')
-              : t('monitor.usage.filters.groupHelp')
-          "
-          :error="filterError('group_id')"
-        >
-          <template #default="{ describedBy }">
-            <input
-              v-if="groupsQuery.isError.value"
-              id="usage-group"
-              v-model="draft.group_id"
-              data-test="usage-group"
-              type="text"
-              inputmode="numeric"
-              autocomplete="off"
-              :aria-describedby="describedBy"
-              :aria-invalid="filterError('group_id') ? 'true' : undefined"
-            />
-            <select
-              v-else
-              id="usage-group"
-              v-model="draft.group_id"
-              data-test="usage-group"
-              :aria-describedby="describedBy"
-              :aria-invalid="filterError('group_id') ? 'true' : undefined"
-            >
-              <option value="">{{ t('monitor.usage.filters.anyGroup') }}</option>
-              <option
-                v-if="
-                  draft.group_id &&
-                  !groupsQuery.data.value?.some((group) => String(group.id) === draft.group_id)
-                "
-                :value="draft.group_id"
-              >
-                {{
-                  t('monitor.usage.filters.deletedOrUnknown', {
-                    id: draft.group_id,
-                  })
-                }}
-              </option>
-              <option
-                v-for="group in groupsQuery.data.value ?? []"
-                :key="group.id"
-                :value="String(group.id)"
-              >
-                {{ group.name }} · #{{ group.id }}
-              </option>
-            </select>
-          </template>
-        </FormField>
-        <FormField
-          id="usage-model"
-          :label="t('monitor.usage.filters.model')"
-          :description="t('monitor.usage.filters.modelHelp')"
-          :error="filterError('model')"
-        >
-          <template #default="{ describedBy }">
-            <input
-              id="usage-model"
-              v-model="draft.model"
-              data-test="usage-model"
-              type="text"
-              autocomplete="off"
-              :aria-describedby="describedBy"
-              :aria-invalid="filterError('model') ? 'true' : undefined"
-            />
-          </template>
-        </FormField>
-      </div>
-      <div class="usage-filter-actions">
-        <AppButton
-          data-test="usage-refresh"
-          type="button"
-          variant="secondary"
-          :busy="usageQuery.isFetching.value"
-          @click="usageQuery.refetch()"
-        >
-          <RefreshCw :size="16" aria-hidden="true" />{{ t('monitor.usage.filters.refresh') }}
-        </AppButton>
-        <AppButton type="submit">{{ t('monitor.usage.filters.apply') }}</AppButton>
-        <AppButton data-test="usage-reset" variant="ghost" @click="resetFilters">
-          {{ t('monitor.usage.filters.reset') }}
-        </AppButton>
-      </div>
-    </form>
+    <UsageFilterForm
+      :draft="draft"
+      :errors="filterErrors"
+      :groups="groupsQuery.data.value ?? []"
+      :groups-failed="groupsQuery.isError.value"
+      :fetching="usageQuery.isFetching.value"
+      @update-field="updateDraftField"
+      @apply="applyFilters"
+      @reset="resetFilters"
+      @refresh="usageQuery.refetch()"
+    />
 
     <section class="usage-applied" data-test="usage-applied-filters">
       <strong>{{ t('monitor.usage.filters.applied') }}</strong>
@@ -305,69 +206,7 @@ async function navigate(filters: UsageFilters): Promise<void> {
         :description="t('monitor.usage.empty.description')"
       />
       <template v-else>
-        <section class="usage-section" aria-labelledby="usage-kpi-title">
-          <div class="usage-heading">
-            <div>
-              <h2 id="usage-kpi-title">{{ t('monitor.usage.kpi.title') }}</h2>
-              <p>{{ t('monitor.usage.kpi.description', { time: report.observed_at }) }}</p>
-            </div>
-          </div>
-          <div class="usage-kpi-grid">
-            <SurfaceCard class="usage-kpi">
-              <Activity :size="20" aria-hidden="true" />
-              <span>{{ t('monitor.usage.kpi.requests') }}</span>
-              <strong>{{ formatCount(report.summary.request_count) }}</strong>
-            </SurfaceCard>
-            <SurfaceCard class="usage-kpi" data-test="usage-kpi-outcomes">
-              <Gauge :size="20" aria-hidden="true" />
-              <span>{{ t('monitor.usage.kpi.outcomes') }}</span>
-              <strong>
-                {{
-                  t('monitor.usage.kpi.outcomeCounts', {
-                    success: formatCount(report.summary.success_count),
-                    failure: formatCount(report.summary.failure_count),
-                  })
-                }}
-              </strong>
-            </SurfaceCard>
-            <SurfaceCard class="usage-kpi" data-test="usage-kpi-total-tokens">
-              <Database :size="20" aria-hidden="true" />
-              <span>{{ t('monitor.usage.kpi.totalTokens') }}</span>
-              <strong>{{ formatCount(report.summary.total_tokens) }}</strong>
-            </SurfaceCard>
-            <SurfaceCard class="usage-kpi" data-test="usage-kpi-cost">
-              <CircleDollarSign :size="20" aria-hidden="true" />
-              <span>{{ t('monitor.usage.kpi.estimatedCost') }}</span>
-              <strong>{{ formatEstimatedCost(report.summary) }}</strong>
-            </SurfaceCard>
-          </div>
-          <dl
-            class="usage-token-definition"
-            data-test="usage-summary-token-definition"
-            :aria-label="t('monitor.usage.tokens.title')"
-          >
-            <div>
-              <dt>{{ t('monitor.usage.tokens.uncachedInput') }}</dt>
-              <dd>{{ formatCount(report.summary.uncached_input_tokens) }}</dd>
-            </div>
-            <div>
-              <dt>{{ t('monitor.usage.tokens.cacheRead') }}</dt>
-              <dd>{{ formatCount(report.summary.cache_read_tokens) }}</dd>
-            </div>
-            <div>
-              <dt>{{ t('monitor.usage.tokens.cacheWrite5m') }}</dt>
-              <dd>{{ formatCount(report.summary.cache_write_5m_tokens) }}</dd>
-            </div>
-            <div>
-              <dt>{{ t('monitor.usage.tokens.cacheWrite1h') }}</dt>
-              <dd>{{ formatCount(report.summary.cache_write_1h_tokens) }}</dd>
-            </div>
-            <div>
-              <dt>{{ t('monitor.usage.tokens.output') }}</dt>
-              <dd>{{ formatCount(report.summary.output_tokens) }}</dd>
-            </div>
-          </dl>
-        </section>
+        <UsageSummary :observed-at="report.observed_at" :summary="report.summary" />
 
         <section
           class="usage-section"
