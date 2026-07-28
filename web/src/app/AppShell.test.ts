@@ -236,11 +236,30 @@ describe('AppShell', () => {
     theme.dispose()
   })
 
+  it('keeps the session and recovery state when dirty-page logout navigation is canceled', async () => {
+    const { unsavedChanges, recovery, router, session, theme, wrapper } =
+      await mountShell('/settings')
+    const removeGuard = router.beforeEach((to) => (to.name === 'login' ? false : true))
+
+    await wrapper.get('[aria-label="Sign out"]').trigger('click')
+    await flushPromises()
+
+    expect(router.currentRoute.value.path).toBe('/settings')
+    expect(session.hasCredential()).toBe(true)
+    expect(recovery.clear).not.toHaveBeenCalled()
+    expect(unsavedChanges.consumeBypass()).toBe(false)
+
+    removeGuard()
+    wrapper.unmount()
+    theme.dispose()
+  })
+
   it('logs out without placing the credential in rendered markup', async () => {
     const { unsavedChanges, recovery, session, wrapper } = await mountShell()
 
     expect(wrapper.html()).not.toContain('test-key')
     await wrapper.get('[aria-label="Sign out"]').trigger('click')
+    await flushPromises()
 
     expect(session.hasCredential()).toBe(false)
     expect(recovery.clear).toHaveBeenCalledOnce()

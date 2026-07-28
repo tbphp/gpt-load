@@ -6,6 +6,7 @@ import type { ApiClient, ApiRequestOptions } from '@/api/client'
 import type { GroupDetailDto, GroupUpdateResult } from '@/api/control/groups'
 import { ApiError } from '@/api/errors'
 import { controlQueryKeys } from '@/app/query-keys'
+import AppDialog from '@/components/ui/AppDialog.vue'
 import { mountApp } from '@/test/mount-app'
 
 import GroupSettingsTab from './GroupSettingsTab.vue'
@@ -378,6 +379,43 @@ describe('GroupSettingsTab', () => {
     expect(wrapper.get('[data-test="group-rediscovery-action"]').attributes('href')).toBe(
       '/groups/7?tab=models',
     )
+    wrapper.unmount()
+  })
+
+  it('keeps the URL confirmation open and the request active while confirmed save is pending', async () => {
+    let confirmedSignal: AbortSignal | null | undefined
+    const confirmedSave = new Promise<GroupUpdateResult>(() => {})
+    const request = vi
+      .fn()
+      .mockRejectedValueOnce(
+        new ApiError(409, 'UPSTREAM_URL_CHANGE_CONFIRMATION_REQUIRED', 'confirmation required'),
+      )
+      .mockImplementationOnce((_path: string, options?: ApiRequestOptions) => {
+        confirmedSignal = options?.signal
+        return confirmedSave
+      }) as ApiClient['request']
+    const { wrapper } = await mountSettings(request)
+
+    await wrapper.get('[data-test="group-upstream-url"]').setValue('https://new.example.com/v1')
+    await wrapper.get('[data-test="group-settings-save"]').trigger('click')
+    await flushPromises()
+    documentButton('[data-test="group-url-confirm"]').click()
+    await flushPromises()
+
+    const dialog = wrapper.findAllComponents(AppDialog).find((candidate) => candidate.props('open'))
+    expect(dialog?.props('dismissible')).toBe(false)
+    dialog?.vm.$emit('update:open', false)
+    await flushPromises()
+
+    const renderedDialog = document.querySelector<HTMLElement>('[role="dialog"]')
+    expect(renderedDialog).not.toBeNull()
+    expect(renderedDialog?.querySelector<HTMLButtonElement>('.app-dialog__close')?.disabled).toBe(
+      true,
+    )
+    expect(renderedDialog?.querySelectorAll<HTMLButtonElement>('button')[1]?.disabled).toBe(true)
+    expect(documentButton('[data-test="group-url-confirm"]').getAttribute('aria-busy')).toBe('true')
+    expect(confirmedSignal?.aborted).toBe(false)
+
     wrapper.unmount()
   })
 

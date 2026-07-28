@@ -13,7 +13,7 @@ import {
 } from 'lucide-vue-next'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { RouterLink, useRoute, useRouter } from 'vue-router'
+import { isNavigationFailure, RouterLink, useRoute, useRouter } from 'vue-router'
 
 import AppDrawer from '@/components/ui/AppDrawer.vue'
 import AppSelect from '@/components/ui/AppSelect.vue'
@@ -62,15 +62,25 @@ function setLocale(value: string): void {
   }
 }
 
-function logout(): void {
+async function logout(): Promise<void> {
   drawerOpen.value = false
-  recovery.clear()
   const bypassDirtyImport = route.name === 'import'
-  if (bypassDirtyImport) unsavedChanges.bypassNext()
+  if (bypassDirtyImport) {
+    recovery.clear()
+    unsavedChanges.bypassNext()
+    session.clear()
+    try {
+      await router.replace({ name: 'login' })
+    } finally {
+      unsavedChanges.consumeBypass()
+    }
+    return
+  }
+
+  const failure = await router.replace({ name: 'login' })
+  if (isNavigationFailure(failure)) return
+  recovery.clear()
   session.clear()
-  void router.replace({ name: 'login' }).finally(() => {
-    if (bypassDirtyImport) unsavedChanges.consumeBypass()
-  })
 }
 
 watch(

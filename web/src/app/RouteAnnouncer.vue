@@ -1,18 +1,25 @@
 <script setup lang="ts">
-import { nextTick, ref, watch } from 'vue'
+import { computed, inject, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 
+import { authSessionKey } from '@/features/auth/auth-session'
+
 const route = useRoute()
+const session = inject(authSessionKey, null)
 const { t } = useI18n()
 const announcement = ref('')
+const routeReady = computed(
+  () => route.meta.requiresAuth !== true || session?.state.phase === 'validated',
+)
 let navigationSequence = 0
 
 watch(
-  [() => route.name, () => route.path],
-  async () => {
+  [() => route.name, () => route.path, routeReady],
+  async ([, , ready]) => {
     const sequence = ++navigationSequence
     announcement.value = ''
+    if (!ready) return
     await nextTick()
     await new Promise<void>((resolve) => {
       requestAnimationFrame(() => resolve())

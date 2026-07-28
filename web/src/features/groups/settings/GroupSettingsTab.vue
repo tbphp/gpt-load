@@ -162,6 +162,11 @@ async function restoreFocusAfterURLConfirmation(): Promise<void> {
   }
 }
 
+function setURLConfirmOpen(open: boolean): void {
+  if (!open && pending.value) return
+  urlConfirmOpen.value = open
+}
+
 async function runSave(confirmUpstreamURLChange = false): Promise<void> {
   if (!confirmUpstreamURLChange)
     saveFocusTarget.value = document.activeElement as HTMLElement | null
@@ -518,17 +523,19 @@ onBeforeUnmount(() => {
       :title="t('group.settings.urlConfirm.title')"
       :description="t('group.settings.urlConfirm.description')"
       :close-label="t('group.settings.urlConfirm.close')"
+      :dismissible="!pending"
       prevent-close-auto-focus
-      @update:open="urlConfirmOpen = $event"
+      @update:open="setURLConfirmOpen"
     >
       <div class="group-settings__dialog-actions">
-        <AppButton variant="secondary" @click="urlConfirmOpen = false">
+        <AppButton variant="secondary" :disabled="pending" @click="setURLConfirmOpen(false)">
           {{ t('group.settings.urlConfirm.cancel') }}
         </AppButton>
         <AppButton
           data-test="group-url-confirm"
           class="group-settings__confirm-url"
           variant="secondary"
+          :busy="pending"
           @click="runSave(true)"
         >
           {{ t('group.settings.urlConfirm.confirm') }}

@@ -113,6 +113,12 @@ func TestServerFallbackServesOnlyUnknownBrowserPageNavigation(t *testing.T) {
 		accept string
 	}{
 		{name: "non HTML client", method: http.MethodGet, target: "/unknown"},
+		{
+			name:   "HTML explicitly unacceptable",
+			method: http.MethodGet,
+			target: "/unknown",
+			accept: "text/html;q=0, application/json",
+		},
 		{name: "non GET browser request", method: http.MethodPost, target: "/unknown", accept: "text/html"},
 		{name: "control namespace", method: http.MethodGet, target: "/api/unknown", accept: "text/html"},
 		{name: "OpenAI namespace", method: http.MethodGet, target: "/v1/unknown", accept: "text/html"},

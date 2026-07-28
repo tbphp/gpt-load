@@ -7,6 +7,7 @@ import (
 	"mime"
 	"net/http"
 	"path"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -95,8 +96,15 @@ func shouldServeIndexFallback(request *http.Request) bool {
 
 func acceptsHTML(value string) bool {
 	for _, candidate := range strings.Split(value, ",") {
-		mediaType, _, err := mime.ParseMediaType(strings.TrimSpace(candidate))
-		if err == nil && (mediaType == "text/html" || mediaType == "application/xhtml+xml") {
+		mediaType, parameters, err := mime.ParseMediaType(strings.TrimSpace(candidate))
+		if err != nil || (mediaType != "text/html" && mediaType != "application/xhtml+xml") {
+			continue
+		}
+		quality := 1.0
+		if rawQuality, ok := parameters["q"]; ok {
+			quality, err = strconv.ParseFloat(rawQuality, 64)
+		}
+		if err == nil && quality > 0 && quality <= 1 {
 			return true
 		}
 	}
