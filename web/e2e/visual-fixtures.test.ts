@@ -7,23 +7,28 @@ import {
   visualClock,
   visualFixtureData,
   visualLocales,
+  visualScenarioCases,
   visualScenarios,
   visualThemes,
   visualViewports,
 } from './visual-fixtures'
 
-const businessFlowSource = readFileSync(resolve('e2e/business-flows.spec.ts'), 'utf8')
+const visualScenarioSource = readFileSync(resolve('e2e/visual-scenarios.spec.ts'), 'utf8')
 
 describe('deterministic visual fixtures', () => {
   it('freezes the approved scenario, viewport, theme, and locale matrix', () => {
     expect(visualScenarios).toEqual([
       'home-normal',
       'home-anomaly',
+      'home-empty-error',
       'access-keys-long',
+      'access-key-operation',
       'model-prices-mixed',
       'settings-dirty',
+      'settings-validation',
       'usage-quality',
       'logs-signal-path',
+      'inspector-routing',
     ])
     expect(visualViewports).toEqual([
       { width: 375, height: 812 },
@@ -48,10 +53,21 @@ describe('deterministic visual fixtures', () => {
     expect(serialized).not.toContain('Bearer ')
   })
 
-  it('binds every named scenario and locale to the executable browser journey', () => {
+  it('binds every scenario and each approved render dimension to executable cases', () => {
     for (const scenario of visualScenarios) {
-      expect(businessFlowSource).toContain(`visualScenarioLabel('${scenario}')`)
+      expect(visualScenarioCases.some((candidate) => candidate.scenario === scenario)).toBe(true)
     }
-    expect(businessFlowSource).toContain('for (const locale of visualLocales)')
+    for (const viewport of visualViewports) {
+      expect(visualScenarioCases.some((candidate) => candidate.viewport === viewport)).toBe(true)
+    }
+    for (const locale of visualLocales) {
+      expect(visualScenarioCases.some((candidate) => candidate.locale === locale)).toBe(true)
+    }
+    for (const theme of visualThemes) {
+      expect(visualScenarioCases.some((candidate) => candidate.theme === theme)).toBe(true)
+    }
+
+    expect(visualScenarioSource).toContain('installVisualApi')
+    expect(visualScenarioSource).toContain('captureVisualScenario')
   })
 })

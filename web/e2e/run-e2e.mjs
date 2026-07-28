@@ -24,6 +24,8 @@ const scenario = (playwrightArgs.find((value) => value.endsWith('.spec.ts')) ?? 
   .replace(/\.spec\.ts$/, '')
   .replace(/[^a-z0-9-]/gi, '-')
 const artifactStem = `${project}-serial-${scenario}`
+const visualAppPort =
+  scenario === 'visual-scenarios' ? (process.env.GPT_LOAD_E2E_APP_PORT ?? '43101') : undefined
 const runDirectory = await mkdtemp(join(tmpdir(), 'gpt-load-e2e-run-'))
 const readyFile = join(runDirectory, `${artifactStem}-ready.json`)
 const authKey = `e2e-auth-${randomBytes(24).toString('hex')}`
@@ -35,6 +37,7 @@ const server = spawn(process.execPath, [join(webRoot, 'e2e/start-e2e-server.mjs'
     GPT_LOAD_E2E_AUTH_KEY: authKey,
     GPT_LOAD_E2E_PROJECT: project,
     GPT_LOAD_E2E_SCENARIO: scenario,
+    ...(visualAppPort === undefined ? {} : { GPT_LOAD_E2E_APP_PORT: visualAppPort }),
   },
   stdio: ['ignore', 'inherit', 'inherit'],
 })

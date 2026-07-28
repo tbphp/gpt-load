@@ -67,6 +67,17 @@ async function reserveEphemeralPort() {
   return port
 }
 
+function configuredAppPort() {
+  const value = process.env.GPT_LOAD_E2E_APP_PORT
+  if (value === undefined) return undefined
+  if (!/^\d+$/.test(value)) throw new Error('E2E application port must be a decimal integer')
+  const port = Number(value)
+  if (!Number.isSafeInteger(port) || port < 1 || port > 65_535) {
+    throw new Error('E2E application port is outside the valid range')
+  }
+  return port
+}
+
 async function requestBody(request) {
   const chunks = []
   for await (const chunk of request) chunks.push(chunk)
@@ -139,7 +150,7 @@ try {
   await rm(dataDir, { recursive: true, force: true })
   throw error
 }
-const appPort = await reserveEphemeralPort()
+const appPort = configuredAppPort() ?? (await reserveEphemeralPort())
 const child = spawn(binary, [], {
   detached: true,
   env: {
