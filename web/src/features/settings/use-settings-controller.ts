@@ -9,7 +9,7 @@ import {
   updateSettings,
   type RuntimeSettingKey,
   type SettingsPatch,
-} from '@/api/control/settings'
+} from '@/app/resources/settings'
 import { RequestCancelledError } from '@/api/errors'
 import { classifyMutationOutcome } from '@/app/mutation-outcome'
 import { controlQueryKeys } from '@/app/query-keys'

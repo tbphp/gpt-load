@@ -5,7 +5,7 @@ import { computed, nextTick, onBeforeUnmount, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { useApiClient } from '@/api/client-context'
-import { listAccessKeys } from '@/api/control/access-keys'
+import { listAccessKeys } from '@/app/resources/access-keys'
 import { listGroups } from '@/app/resources/groups'
 import type { AccessKeyDto } from '@/api/control/types'
 import { controlQueryKeys } from '@/app/query-keys'

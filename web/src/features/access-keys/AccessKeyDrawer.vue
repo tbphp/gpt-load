@@ -11,7 +11,7 @@ import {
   revealAccessKey,
   updateAccessKey,
   type CreateAccessKeyRequest,
-} from '@/api/control/access-keys'
+} from '@/app/resources/access-keys'
 import type { AccessKeyDto, AccessProtocol, GroupSummary } from '@/api/control/types'
 import { RequestCancelledError } from '@/api/errors'
 import { classifyMutationOutcome } from '@/app/mutation-outcome'

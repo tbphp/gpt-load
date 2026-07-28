@@ -4,7 +4,7 @@ import { onBeforeUnmount, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { useApiClient } from '@/api/client-context'
-import { deleteAccessKey } from '@/api/control/access-keys'
+import { deleteAccessKey } from '@/app/resources/access-keys'
 import type { AccessKeyDto } from '@/api/control/types'
 import { RequestCancelledError } from '@/api/errors'
 import AppButton from '@/components/ui/AppButton.vue'

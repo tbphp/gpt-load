@@ -1,4 +1,4 @@
-import type { CreateAccessKeyRequest, UpdateAccessKeyRequest } from '@/api/control/access-keys'
+import type { CreateAccessKeyRequest, UpdateAccessKeyRequest } from '@/app/resources/access-keys'
 import type { AccessKeyDto, AccessKeyFiltersDto } from '@/api/control/types'
 
 import {

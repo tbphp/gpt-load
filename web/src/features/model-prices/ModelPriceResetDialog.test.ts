@@ -2,7 +2,7 @@ import { QueryClient } from '@tanstack/vue-query'
 import { flushPromises } from '@vue/test-utils'
 
 import type { ApiClient, ApiRequestOptions } from '@/api/client'
-import type { ModelPriceRuleDto } from '@/api/control/model-prices'
+import type { ModelPriceRuleDto } from '@/app/resources/model-prices'
 import { controlQueryKeys } from '@/app/query-keys'
 import { mountApp } from '@/test/mount-app'
 

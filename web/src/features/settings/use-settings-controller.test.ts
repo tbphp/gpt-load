@@ -3,7 +3,7 @@ import { flushPromises } from '@vue/test-utils'
 import { defineComponent, h, toRef, type PropType } from 'vue'
 
 import type { ApiClient, ApiPath, ApiRequestOptions } from '@/api/client'
-import type { RuntimeSettingKey, SettingsDto, TimeoutSettingKey } from '@/api/control/settings'
+import type { RuntimeSettingKey, SettingsDto, TimeoutSettingKey } from '@/app/resources/settings'
 import { ApiError, NetworkError } from '@/api/errors'
 import { controlQueryKeys } from '@/app/query-keys'
 import type { SettingsResource } from '@/app/resources/settings'

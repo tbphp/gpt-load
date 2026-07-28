@@ -137,7 +137,7 @@ describe('AccessKey control API', () => {
     },
   )
 
-  it('reads options directly and reveals plaintext only through the reveal endpoint', async () => {
+  it('reads safe options and reveals plaintext only through the reveal endpoint', async () => {
     const request = vi
       .fn()
       .mockResolvedValueOnce([{ id: 12, name: 'Client', status: 'active', key: 'DO_NOT_KEEP' }])

@@ -5,7 +5,7 @@ import { onBeforeUnmount, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { useApiClient } from '@/api/client-context'
-import { resetModelPrice, type ModelPriceRuleDto } from '@/api/control/model-prices'
+import { resetModelPrice, type ModelPriceRuleDto } from '@/app/resources/model-prices'
 import { RequestCancelledError } from '@/api/errors'
 import { controlQueryKeys } from '@/app/query-keys'
 import AppButton from '@/components/ui/AppButton.vue'

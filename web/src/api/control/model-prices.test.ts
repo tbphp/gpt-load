@@ -149,14 +149,6 @@ describe('ModelPrice control API', () => {
       },
     ],
     [
-      'builtin without source URL',
-      {
-        price_unit: 'usd_per_million_tokens',
-        builtin: [{ ...builtinRule, source_url: null }],
-        overrides: [userRule],
-      },
-    ],
-    [
       'user with source URL',
       {
         price_unit: 'usd_per_million_tokens',

@@ -1,6 +1,6 @@
 import { QueryClient } from '@tanstack/vue-query'
 
-import type { ModelPriceRuleDto } from '@/api/control/model-prices'
+import type { ModelPriceRuleDto } from '@/app/resources/model-prices'
 import { mountApp } from '@/test/mount-app'
 
 import ModelPriceCollection from './ModelPriceCollection.vue'

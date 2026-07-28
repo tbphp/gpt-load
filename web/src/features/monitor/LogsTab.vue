@@ -6,7 +6,7 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
 import { useApiClient } from '@/api/client-context'
-import { listAccessKeyOptions } from '@/api/control/access-keys'
+import { listAccessKeyOptions } from '@/app/resources/access-keys'
 import { listGroups } from '@/app/resources/groups'
 import {
   listRequestLogs,

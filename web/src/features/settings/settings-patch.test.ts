@@ -1,4 +1,4 @@
-import { runtimeSettingKeys, type SettingsDto } from '@/api/control/settings'
+import { runtimeSettingKeys, type SettingsDto } from '@/app/resources/settings'
 
 import {
   buildSettingsPatch,

@@ -10,7 +10,7 @@ import {
   runtimeSettingKeys,
   type RuntimeSettingKey,
   type TimeoutSettingKey,
-} from '@/api/control/settings'
+} from '@/app/resources/settings'
 import { controlQueryKeys } from '@/app/query-keys'
 import { useUnsavedChanges } from '@/app/unsaved-changes'
 import AppButton from '@/components/ui/AppButton.vue'

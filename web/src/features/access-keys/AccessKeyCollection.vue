@@ -4,7 +4,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { useApiClient } from '@/api/client-context'
-import { revealAccessKey } from '@/api/control/access-keys'
+import { revealAccessKey } from '@/app/resources/access-keys'
 import type { AccessKeyDto, GroupSummary } from '@/api/control/types'
 import { RequestCancelledError } from '@/api/errors'
 import AppDateTime from '@/components/ui/AppDateTime.vue'

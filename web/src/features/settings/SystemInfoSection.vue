@@ -4,7 +4,7 @@ import { Info, LockKeyhole } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 
 import { useApiClient } from '@/api/client-context'
-import { getSystemInfo, type SecretSource } from '@/api/control/system-info'
+import { getSystemInfo, type SecretSource } from '@/app/resources/system-info'
 import { controlQueryKeys } from '@/app/query-keys'
 import CopyButton from '@/components/ui/CopyButton.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'

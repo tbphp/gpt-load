@@ -3,7 +3,7 @@ import { ExternalLink, Pencil, TriangleAlert } from 'lucide-vue-next'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import type { ModelPriceRuleDto, ModelPriceSource } from '@/api/control/model-prices'
+import type { ModelPriceRuleDto, ModelPriceSource } from '@/app/resources/model-prices'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppDateTime from '@/components/ui/AppDateTime.vue'
 import DataTable from '@/components/ui/DataTable.vue'

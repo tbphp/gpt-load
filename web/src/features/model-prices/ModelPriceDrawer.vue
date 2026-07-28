@@ -5,7 +5,7 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { useApiClient } from '@/api/client-context'
-import { putModelPrice, type ModelPriceRuleDto } from '@/api/control/model-prices'
+import { putModelPrice, type ModelPriceRuleDto } from '@/app/resources/model-prices'
 import { RequestCancelledError } from '@/api/errors'
 import { controlQueryKeys } from '@/app/query-keys'
 import { useUnsavedChanges } from '@/app/unsaved-changes'

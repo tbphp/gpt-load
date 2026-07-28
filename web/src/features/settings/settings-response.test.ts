@@ -1,4 +1,4 @@
-import type { SettingsDto } from '@/api/control/settings'
+import type { SettingsDto } from '@/app/resources/settings'
 import type { SettingsResource } from '@/app/resources/settings'
 
 import { createSettingsDraft } from './settings-patch'

@@ -1,4 +1,4 @@
-import type { RuntimeSettingKey } from '@/api/control/settings'
+import type { RuntimeSettingKey } from '@/app/resources/settings'
 import type { SettingsResource } from '@/app/resources/settings'
 
 import {

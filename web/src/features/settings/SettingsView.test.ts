@@ -4,7 +4,7 @@ import { defineComponent } from 'vue'
 import { createMemoryHistory } from 'vue-router'
 
 import type { ApiClient, ApiPath, ApiRequestOptions } from '@/api/client'
-import type { SettingsDto } from '@/api/control/settings'
+import type { SettingsDto } from '@/app/resources/settings'
 import { NetworkError } from '@/api/errors'
 import { controlQueryKeys } from '@/app/query-keys'
 import { createAppRouter } from '@/app/router'

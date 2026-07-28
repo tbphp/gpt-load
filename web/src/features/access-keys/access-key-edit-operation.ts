@@ -1,4 +1,4 @@
-import type { UpdateAccessKeyRequest } from '@/api/control/access-keys'
+import type { UpdateAccessKeyRequest } from '@/app/resources/access-keys'
 import type { AccessKeyDto } from '@/api/control/types'
 
 export interface PendingAccessKeyEditOperation {

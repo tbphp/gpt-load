@@ -3,7 +3,7 @@ import { FileClock } from 'lucide-vue-next'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import type { RuntimeSettingKey } from '@/api/control/settings'
+import type { RuntimeSettingKey } from '@/app/resources/settings'
 import type { SettingsResource } from '@/app/resources/settings'
 import AppButton from '@/components/ui/AppButton.vue'
 import SurfaceCard from '@/components/ui/SurfaceCard.vue'

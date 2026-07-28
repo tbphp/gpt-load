@@ -1,4 +1,4 @@
-import type { ModelPriceRuleDto } from '@/api/control/model-prices'
+import type { ModelPriceRuleDto } from '@/app/resources/model-prices'
 
 export type ModelPricePatternKind = 'exact' | 'prefix' | 'global'
 export const modelPriceFields = [

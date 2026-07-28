@@ -4,7 +4,7 @@ import { CircleAlert, CircleCheck, CircleOff, Layers3 } from 'lucide-vue-next'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import { listAccessKeyOptions } from '@/api/control/access-keys'
+import { listAccessKeyOptions } from '@/app/resources/access-keys'
 import { listGroups } from '@/app/resources/groups'
 import { getRuntimeHealth } from '@/app/resources/health'
 import { NetworkError } from '@/api/errors'

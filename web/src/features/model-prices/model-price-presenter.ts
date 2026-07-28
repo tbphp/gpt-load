@@ -3,7 +3,7 @@ import type {
   ModelPriceRuleDto,
   ModelPriceSource,
   ModelPriceValues,
-} from '@/api/control/model-prices'
+} from '@/app/resources/model-prices'
 
 export type ModelPriceField = keyof ModelPriceValues
 export type ModelPriceValueState = 'not-configured' | 'free' | 'configured'
