@@ -65,6 +65,11 @@ export default {
     placeholderDescription: 'この管理機能は、このステージの後続タスクで実装されます。',
     backHome: 'ホームへ戻る',
   },
+  notFound: {
+    title: 'ページが見つかりません',
+    description: '指定された管理ページは存在しないか、現在利用できません。',
+    backHome: 'ホームへ戻る',
+  },
   home: {
     title: '運用概要',
     description: '実際のランタイム状態、Group のサービス可否、クライアント接続設定を確認します。',

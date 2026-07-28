@@ -64,6 +64,11 @@ export default {
     placeholderDescription: 'This management feature will arrive in a later task in this stage.',
     backHome: 'Back to Home',
   },
+  notFound: {
+    title: 'Page not found',
+    description: 'The requested management page does not exist or is no longer available.',
+    backHome: 'Back to Home',
+  },
   home: {
     title: 'Operational overview',
     description:

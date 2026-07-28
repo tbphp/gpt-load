@@ -84,6 +84,15 @@ const routes: RouteRecordRaw[] = [
       messageNamespaces: ['model-prices'],
     },
   },
+  {
+    path: '/:pathMatch(.*)*',
+    name: 'not-found',
+    component: lazyView(() => import('@/features/not-found/NotFoundView.vue')),
+    meta: {
+      titleKey: 'notFound.title',
+      requiresAuth: true,
+    },
+  },
 ]
 
 export interface RouterAuth {
@@ -141,6 +150,7 @@ export function safeRedirect(raw: unknown, router: Router): string {
   if (
     resolved.matched.length === 0 ||
     resolved.name === 'login' ||
+    resolved.name === 'not-found' ||
     resolved.meta.requiresAuth !== true
   ) {
     return '/'

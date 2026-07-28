@@ -64,6 +64,11 @@ export default {
     placeholderDescription: '该管理功能将在当前实施阶段的后续任务中完成。',
     backHome: '返回首页',
   },
+  notFound: {
+    title: '页面不存在',
+    description: '请求的管理页面不存在或已不可用。',
+    backHome: '返回首页',
+  },
   home: {
     title: '运行概览',
     description: '查看真实运行健康状态、Group 服务能力和客户端连接配置。',
