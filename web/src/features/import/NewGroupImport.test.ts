@@ -6,6 +6,7 @@ import type { ApiClient } from '@/api/client'
 import { apiClientKey } from '@/api/client-context'
 import { ApiError, NetworkError } from '@/api/errors'
 import { controlQueryKeys } from '@/app/query-keys'
+import type { GroupCreateResult, GroupKeyImportResult } from '@/app/resources/groups'
 import { createAppRouter } from '@/app/router'
 import { createUnsavedChangesController, unsavedChangesKey } from '@/app/unsaved-changes'
 import type { ImportRecoveryService } from '@/features/import/import-recovery'
@@ -18,6 +19,16 @@ import {
 import { createTestAppI18n as createAppI18n } from '@/test/i18n'
 
 import NewGroupImport from './NewGroupImport.vue'
+
+function groupCreateResult(groupID: number): GroupCreateResult {
+  return {
+    group_id: groupID,
+    group_name: 'Primary',
+    keys_added: 1,
+    keys_duplicated: 0,
+    models: [{ id: 'gpt-4o', alias: '' }],
+  }
+}
 
 function recovery(): ImportRecoveryService {
   return {
@@ -374,7 +385,7 @@ describe('NewGroupImport', () => {
       .mockResolvedValueOnce({ models: ['gpt-4o'] })
       .mockRejectedValueOnce(new ApiError(400, 'VALIDATION_FAILED', 'invalid'))
       .mockResolvedValueOnce({ models: ['gpt-4o'] })
-      .mockResolvedValueOnce({ group_id: 19 })
+      .mockResolvedValueOnce(groupCreateResult(19))
     const request = requestMock as ApiClient['request']
     const { wrapper } = await mountImport(request)
     await enterConnection(wrapper)
@@ -477,7 +488,7 @@ describe('NewGroupImport', () => {
     const request = vi
       .fn()
       .mockResolvedValueOnce({ models: ['gpt-4o'] })
-      .mockResolvedValueOnce({ group_id: 42 }) as ApiClient['request']
+      .mockResolvedValueOnce(groupCreateResult(42)) as ApiClient['request']
     const { importRecovery, operationOwner, queryClient, router, wrapper } =
       await mountImport(request)
     const push = vi.spyOn(router, 'push')
@@ -502,9 +513,9 @@ describe('NewGroupImport', () => {
   it.each(['resolve', 'reject'] as const)(
     'ignores late create %s after unmount before invalidations',
     async (outcome) => {
-      let settle!: (value: { group_id: number }) => void
+      let settle!: (value: GroupCreateResult) => void
       let fail!: (reason: Error) => void
-      const late = new Promise<{ group_id: number }>((resolve, reject) => {
+      const late = new Promise<GroupCreateResult>((resolve, reject) => {
         settle = resolve
         fail = reject
       })
@@ -519,7 +530,7 @@ describe('NewGroupImport', () => {
       await discoverAndReview(wrapper)
       await wrapper.get('[data-test="create"]').trigger('click')
       wrapper.unmount()
-      if (outcome === 'resolve') settle({ group_id: 42 })
+      if (outcome === 'resolve') settle(groupCreateResult(42))
       else fail(new Error('late ordinary failure'))
       await flushPromises()
 
@@ -571,9 +582,9 @@ describe('NewGroupImport', () => {
   it.each(['resolve', 'reject'] as const)(
     'ignores late append %s after unmount before invalidations',
     async (outcome) => {
-      let settle!: (value: { group_id: number }) => void
+      let settle!: (value: GroupKeyImportResult) => void
       let fail!: (reason: Error) => void
-      const late = new Promise<{ group_id: number }>((resolve, reject) => {
+      const late = new Promise<GroupKeyImportResult>((resolve, reject) => {
         settle = resolve
         fail = reject
       })
@@ -595,8 +606,9 @@ describe('NewGroupImport', () => {
       await flushPromises()
       await wrapper.get('[data-test="conflict-append-7"]').trigger('click')
       wrapper.unmount()
-      if (outcome === 'resolve') settle({ group_id: 7 })
-      else fail(new Error('late ordinary failure'))
+      if (outcome === 'resolve') {
+        settle({ group_id: 7, keys_added: 1, keys_duplicated: 0 })
+      } else fail(new Error('late ordinary failure'))
       await flushPromises()
 
       expect(invalidate).not.toHaveBeenCalled()
@@ -614,7 +626,7 @@ describe('NewGroupImport', () => {
       .fn()
       .mockResolvedValueOnce({ models: ['gpt-4o'] })
       .mockRejectedValueOnce(conflict)
-      .mockResolvedValueOnce({ group_id: 10 })
+      .mockResolvedValueOnce(groupCreateResult(10))
     const request = requestMock as ApiClient['request']
     const { wrapper } = await mountImport(request)
     await enterConnection(wrapper)
@@ -633,7 +645,7 @@ describe('NewGroupImport', () => {
       .fn()
       .mockResolvedValueOnce({ models: ['gpt-4o'] })
       .mockRejectedValueOnce(new NetworkError())
-      .mockResolvedValueOnce({ group_id: 23 })
+      .mockResolvedValueOnce(groupCreateResult(23))
     const { router, wrapper } = await mountImport(requestMock as ApiClient['request'])
     await enterConnection(wrapper, 'stable-raw-key')
     await discoverAndReview(wrapper)

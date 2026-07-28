@@ -7,7 +7,7 @@ import { useRoute, useRouter } from 'vue-router'
 
 import { useApiClient } from '@/api/client-context'
 import { listAccessKeyOptions } from '@/api/control/access-keys'
-import { listGroups } from '@/api/control/groups'
+import { listGroups } from '@/app/resources/groups'
 import {
   listRequestLogs,
   type RequestLogItemDto,

@@ -12,7 +12,7 @@ const keys = [
   {
     id: 11,
     group_id: 7,
-    mask: 'sk-proj-…a1b2',
+    mask: 'sk-p****a1b2',
     status: 'active' as const,
     effective_status: 'available' as const,
     weight_manual: null,
@@ -24,7 +24,7 @@ const keys = [
   {
     id: 12,
     group_id: 7,
-    mask: 'sk-proj-…c3d4',
+    mask: 'sk-p****c3d4',
     status: 'disabled' as const,
     effective_status: 'disabled' as const,
     weight_manual: 50,
@@ -67,8 +67,8 @@ describe('GroupKeysTab', () => {
     }) as ApiClient['request']
     const { wrapper } = await mountKeys(request)
 
-    expect(wrapper.text()).toContain('sk-proj-…a1b2')
-    expect(wrapper.text()).toContain('sk-proj-…c3d4')
+    expect(wrapper.text()).toContain('sk-p****a1b2')
+    expect(wrapper.text()).toContain('sk-p****c3d4')
     expect(wrapper.text()).not.toContain(plaintext)
     const row = wrapper.get('[data-test="key-row-11"]')
     expect(row.text()).toContain('Active')

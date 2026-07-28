@@ -12,6 +12,27 @@ import {
 } from './groups'
 
 describe('Group control API', () => {
+  const detail = {
+    id: 7,
+    name: 'Primary',
+    upstream_url: 'https://api.example.com',
+    protocols: ['openai'] as const,
+    models: [{ id: 'gpt-4o', alias: 'public' }],
+    enabled: true,
+    validation_model: null,
+    weight_manual: null,
+    config: {},
+    effective_config: {
+      connect_timeout: 15,
+      first_byte_timeout: 120,
+      request_timeout: 600,
+      stream_idle_timeout: 300,
+      header_rules: { set: {}, remove: [] },
+      inject_usage_options: false,
+    },
+    key_count: 1,
+  }
+
   it('requests GET /api/groups and forwards AbortSignal', async () => {
     const signal = new AbortController().signal
     const request = vi.fn().mockResolvedValue([]) as ApiClient['request']
@@ -52,7 +73,7 @@ describe('Group control API', () => {
 
   it('replaces the exact full normalized Group model list', async () => {
     const signal = new AbortController().signal
-    const request = vi.fn().mockResolvedValue({ id: 7 }) as ApiClient['request']
+    const request = vi.fn().mockResolvedValue(detail) as ApiClient['request']
     const models = [
       { id: 'gpt-4o', alias: 'public' },
       { id: 'o3', alias: '' },
@@ -69,7 +90,20 @@ describe('Group control API', () => {
 
   it('creates a Group and imports raw keys through separate exact endpoints', async () => {
     const signal = new AbortController().signal
-    const request = vi.fn().mockResolvedValue({ group_id: 7 }) as ApiClient['request']
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce({
+        group_id: 7,
+        group_name: 'Primary',
+        keys_added: 1,
+        keys_duplicated: 0,
+        models: [{ id: 'gpt-4o', alias: 'primary' }],
+      })
+      .mockResolvedValueOnce({
+        group_id: 7,
+        keys_added: 1,
+        keys_duplicated: 0,
+      }) as ApiClient['request']
     const createOperationID = '318f47a2-9c35-4d6e-8b1a-1234567890ab'
     const importOperationID = 'd4ba3f42-67bc-4b5b-b594-1234567890ab'
     const createBody = {

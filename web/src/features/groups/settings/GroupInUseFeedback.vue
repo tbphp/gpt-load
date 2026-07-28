@@ -2,7 +2,7 @@
 import { KeyRound, TriangleAlert } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 
-import type { AccessKeyReferenceDto } from '@/api/control/groups'
+import type { AccessKeyReferenceDto } from '@/app/resources/groups'
 
 defineProps<{ references: AccessKeyReferenceDto[] }>()
 const { t } = useI18n()

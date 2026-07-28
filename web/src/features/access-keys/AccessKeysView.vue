@@ -6,7 +6,7 @@ import { useI18n } from 'vue-i18n'
 
 import { useApiClient } from '@/api/client-context'
 import { listAccessKeys } from '@/api/control/access-keys'
-import { listGroups } from '@/api/control/groups'
+import { listGroups } from '@/app/resources/groups'
 import type { AccessKeyDto } from '@/api/control/types'
 import { controlQueryKeys } from '@/app/query-keys'
 import { accessKeyMutationInvalidations, accessKeyResources } from '@/app/resources/access-keys'

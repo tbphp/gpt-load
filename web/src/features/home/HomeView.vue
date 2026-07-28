@@ -5,7 +5,7 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { listAccessKeyOptions } from '@/api/control/access-keys'
-import { listGroups } from '@/api/control/groups'
+import { listGroups } from '@/app/resources/groups'
 import { getRuntimeHealth } from '@/api/control/health'
 import { NetworkError } from '@/api/errors'
 import { useApiClient } from '@/api/client-context'

@@ -3,7 +3,7 @@ import { flushPromises } from '@vue/test-utils'
 import { defineComponent } from 'vue'
 
 import type { ApiClient, ApiRequestOptions } from '@/api/client'
-import type { GroupDetailDto, GroupUpdateResult } from '@/api/control/groups'
+import type { GroupDetailDto, GroupUpdateResult } from '@/app/resources/groups'
 import { ApiError } from '@/api/errors'
 import { controlQueryKeys } from '@/app/query-keys'
 import AppDialog from '@/components/ui/AppDialog.vue'

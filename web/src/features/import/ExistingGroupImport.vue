@@ -6,7 +6,7 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
 import { useApiClient } from '@/api/client-context'
-import { importGroupKeys, listGroups, type GroupKeyImportResult } from '@/api/control/groups'
+import { importGroupKeys, listGroups, type GroupKeyImportResult } from '@/app/resources/groups'
 import { controlQueryKeys } from '@/app/query-keys'
 import AppButton from '@/components/ui/AppButton.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'

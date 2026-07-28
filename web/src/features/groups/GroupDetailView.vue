@@ -5,7 +5,7 @@ import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 
 import { useApiClient } from '@/api/client-context'
-import { getGroup } from '@/api/control/groups'
+import { getGroup } from '@/app/resources/groups'
 import { controlQueryKeys } from '@/app/query-keys'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 

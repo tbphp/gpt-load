@@ -13,7 +13,7 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
 import { useApiClient } from '@/api/client-context'
-import { listGroups } from '@/api/control/groups'
+import { listGroups } from '@/app/resources/groups'
 import { getUsageReport, type UsageAggregateDto, type UsageFilters } from '@/api/control/usage'
 import { controlQueryKeys } from '@/app/query-keys'
 import { useUnsavedChanges } from '@/app/unsaved-changes'

@@ -14,7 +14,7 @@ import {
   type GroupCreateRequest,
   type GroupRuntimeConfigDto,
   type UpstreamUrlConflictData,
-} from '@/api/control/groups'
+} from '@/app/resources/groups'
 import type { GroupProtocol } from '@/api/control/types'
 import { ApiError, RequestCancelledError } from '@/api/errors'
 import { controlQueryKeys } from '@/app/query-keys'

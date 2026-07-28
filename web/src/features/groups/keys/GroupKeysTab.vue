@@ -10,7 +10,7 @@ import {
   updateGroupKey,
   type UpstreamKeyDto,
   type UpstreamKeyEffectiveStatus,
-} from '@/api/control/upstream-keys'
+} from '@/app/resources/upstream-keys'
 import { controlQueryKeys } from '@/app/query-keys'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppDialog from '@/components/ui/AppDialog.vue'

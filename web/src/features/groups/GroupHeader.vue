@@ -2,7 +2,7 @@
 import { ArrowLeft, Upload } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 
-import type { GroupDetailDto } from '@/api/control/groups'
+import type { GroupDetailDto } from '@/app/resources/groups'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import { normalizeUpstreamHost } from '@/features/home/home-model'
 

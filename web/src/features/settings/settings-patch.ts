@@ -1,4 +1,4 @@
-import type { HeaderRulesDto } from '@/api/control/groups'
+import type { HeaderRulesDto } from '@/app/resources/groups'
 import type {
   RuntimeSettingKey,
   SettingsDto,

@@ -3,7 +3,7 @@ import { ChevronDown, SlidersHorizontal } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import type { HeaderRulesDto } from '@/api/control/groups'
+import type { HeaderRulesDto } from '@/app/resources/groups'
 import type { RuntimeSettingKey, TimeoutSettingKey } from '@/api/control/settings'
 import type { SettingsResource } from '@/app/resources/settings'
 import HeaderRulesEditor from '@/components/config/HeaderRulesEditor.vue'

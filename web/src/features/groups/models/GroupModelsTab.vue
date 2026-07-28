@@ -5,7 +5,11 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { useApiClient } from '@/api/client-context'
-import { discoverGroupModels, replaceGroupModels, type GroupDetailDto } from '@/api/control/groups'
+import {
+  discoverGroupModels,
+  replaceGroupModels,
+  type GroupDetailDto,
+} from '@/app/resources/groups'
 import { ApiError, RequestCancelledError } from '@/api/errors'
 import { controlQueryKeys } from '@/app/query-keys'
 import { useUnsavedChanges } from '@/app/unsaved-changes'

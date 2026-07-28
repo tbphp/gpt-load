@@ -6,7 +6,7 @@ import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 
 import { useApiClient } from '@/api/client-context'
-import { deleteGroup, isGroupInUseData, type AccessKeyReferenceDto } from '@/api/control/groups'
+import { deleteGroup, isGroupInUseData, type AccessKeyReferenceDto } from '@/app/resources/groups'
 import { ApiError, RequestCancelledError } from '@/api/errors'
 import { controlQueryKeys } from '@/app/query-keys'
 import AppButton from '@/components/ui/AppButton.vue'

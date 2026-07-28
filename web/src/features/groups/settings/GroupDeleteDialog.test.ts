@@ -2,7 +2,7 @@ import { QueryClient } from '@tanstack/vue-query'
 import { flushPromises } from '@vue/test-utils'
 
 import type { ApiClient, ApiRequestOptions } from '@/api/client'
-import type { GroupDetailDto } from '@/api/control/groups'
+import type { GroupDetailDto } from '@/app/resources/groups'
 import { ApiError } from '@/api/errors'
 import { controlQueryKeys } from '@/app/query-keys'
 import { mountApp } from '@/test/mount-app'
