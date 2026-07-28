@@ -1,10 +1,11 @@
 import { spawn } from 'node:child_process'
 import { once } from 'node:events'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, rename, rm, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
-import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+
+import { resolveSafeRunDirectory } from './run-directory-safety.mjs'
 
 if (process.platform === 'win32') {
   console.error('E2E harness requires a POSIX platform')
@@ -12,12 +13,19 @@ if (process.platform === 'win32') {
 }
 
 const host = '127.0.0.1'
-const appPort = 3107
-const upstreamPort = 3108
+const readyFile = process.env.GPT_LOAD_E2E_READY_FILE
+const authKey = process.env.GPT_LOAD_E2E_AUTH_KEY
+if (!readyFile || !authKey) {
+  console.error('E2E harness configuration is incomplete')
+  process.exit(1)
+}
+
 const fakeUpstreamForceCloseDelayMs = 250
 const fakeUpstreamShutdownTimeoutMs = 1_000
 const childShutdownTimeoutMs = 2_000
-const dataDir = await mkdtemp(join(tmpdir(), 'gpt-load-e2e-'))
+const startupTimeoutMs = 30_000
+const runDirectory = await resolveSafeRunDirectory(readyFile)
+const dataDir = await mkdtemp(join(runDirectory, 'data-'))
 const binary = resolve(fileURLToPath(new URL('../..', import.meta.url)), 'gpt-load')
 const modelList = JSON.stringify({
   object: 'list',
@@ -36,6 +44,29 @@ const modelList = JSON.stringify({
     },
   ],
 })
+
+async function listenOnEphemeralPort(server) {
+  await new Promise((resolveListen, rejectListen) => {
+    server.once('error', rejectListen)
+    server.listen(0, host, () => {
+      server.off('error', rejectListen)
+      resolveListen()
+    })
+  })
+  const address = server.address()
+  if (!address || typeof address === 'string') throw new Error('E2E server address unavailable')
+  return address.port
+}
+
+async function reserveEphemeralPort() {
+  const reservation = createServer()
+  const port = await listenOnEphemeralPort(reservation)
+  await new Promise((resolveClose, rejectClose) =>
+    reservation.close((error) => (error ? rejectClose(error) : resolveClose())),
+  )
+  return port
+}
+
 async function requestBody(request) {
   const chunks = []
   for await (const chunk of request) chunks.push(chunk)
@@ -101,26 +132,21 @@ const fakeUpstream = createServer(async (request, response) => {
   response.end('{"error":"not_found"}')
 })
 
+let upstreamPort
 try {
-  await new Promise((resolveListen, rejectListen) => {
-    fakeUpstream.once('error', rejectListen)
-    fakeUpstream.listen(upstreamPort, host, () => {
-      fakeUpstream.off('error', rejectListen)
-      resolveListen()
-    })
-  })
+  upstreamPort = await listenOnEphemeralPort(fakeUpstream)
 } catch (error) {
   await rm(dataDir, { recursive: true, force: true })
   throw error
 }
-
+const appPort = await reserveEphemeralPort()
 const child = spawn(binary, [], {
   detached: true,
   env: {
     ...process.env,
     HOST: host,
     PORT: String(appPort),
-    AUTH_KEY: 'e2e-auth-canary',
+    AUTH_KEY: authKey,
     DATA_DIR: dataDir,
     DATABASE_DSN: '',
     ENCRYPTION_KEY: '',
@@ -134,22 +160,15 @@ async function closeFakeUpstream() {
   let forceClose
   let timeout
   const closed = new Promise((resolveClose, rejectClose) => {
-    fakeUpstream.close((error) => {
-      if (error) {
-        rejectClose(error)
-        return
-      }
-      resolveClose()
-    })
+    fakeUpstream.close((error) => (error ? rejectClose(error) : resolveClose()))
   })
   fakeUpstream.closeIdleConnections()
   const timedOut = new Promise((_, rejectTimeout) => {
-    forceClose = setTimeout(() => {
-      fakeUpstream.closeAllConnections()
-    }, fakeUpstreamForceCloseDelayMs)
-    timeout = setTimeout(() => {
-      rejectTimeout(new Error('Fake upstream shutdown timed out'))
-    }, fakeUpstreamShutdownTimeoutMs)
+    forceClose = setTimeout(() => fakeUpstream.closeAllConnections(), fakeUpstreamForceCloseDelayMs)
+    timeout = setTimeout(
+      () => rejectTimeout(new Error('Fake upstream shutdown timed out')),
+      fakeUpstreamShutdownTimeoutMs,
+    )
   })
   try {
     await Promise.race([closed, timedOut])
@@ -161,7 +180,6 @@ async function closeFakeUpstream() {
 
 async function terminateChild() {
   if (child.exitCode !== null || child.signalCode !== null) return
-
   const exited = once(child, 'exit')
   child.kill('SIGTERM')
   let timeout
@@ -173,55 +191,28 @@ async function terminateChild() {
   ])
   clearTimeout(timeout)
   if (exitedGracefully) return
-
   child.kill('SIGKILL')
   await exited
 }
 
 let stopping = false
 let stopPromise
-
 function stop() {
   if (stopPromise) return stopPromise
   stopping = true
   stopPromise = (async () => {
-    let cleanupFailed = false
-    try {
-      await closeFakeUpstream()
-    } catch {
-      cleanupFailed = true
+    const results = await Promise.allSettled([
+      terminateChild(),
+      closeFakeUpstream(),
+      rm(readyFile, { force: true }),
+      rm(`${readyFile}.tmp`, { force: true }),
+    ])
+    await rm(dataDir, { recursive: true, force: true })
+    if (results.some(({ status }) => status === 'rejected')) {
+      throw new Error('E2E harness cleanup failed')
     }
-    try {
-      await terminateChild()
-    } catch {
-      cleanupFailed = true
-    }
-    try {
-      await rm(dataDir, { recursive: true, force: true })
-    } catch {
-      cleanupFailed = true
-    }
-    if (cleanupFailed) throw new Error('E2E harness cleanup failed')
   })()
   return stopPromise
-}
-
-function handleUnexpectedExit(code, signal) {
-  if (stopping) return
-  stopping = true
-  stopPromise = (async () => {
-    try {
-      await closeFakeUpstream()
-    } finally {
-      await rm(dataDir, { recursive: true, force: true })
-    }
-  })()
-  void stopPromise.finally(() => {
-    console.error(
-      `E2E test server exited unexpectedly (code=${code ?? 'null'}, signal=${signal ?? 'null'})`,
-    )
-    process.exit(code && code > 0 ? code : 1)
-  })
 }
 
 for (const signal of ['SIGINT', 'SIGTERM']) {
@@ -233,5 +224,52 @@ for (const signal of ['SIGINT', 'SIGTERM']) {
   })
 }
 
-child.on('error', () => handleUnexpectedExit(null, null))
-child.on('exit', handleUnexpectedExit)
+async function waitUntilHealthy() {
+  const deadline = Date.now() + startupTimeoutMs
+  const healthURL = `http://${host}:${appPort}/health`
+  while (Date.now() < deadline) {
+    if (child.exitCode !== null || child.signalCode !== null) {
+      throw new Error('E2E application exited before readiness')
+    }
+    try {
+      const response = await fetch(healthURL)
+      if (response.ok) return
+    } catch {
+      // The application may still be starting.
+    }
+    await new Promise((resolveWait) => setTimeout(resolveWait, 100))
+  }
+  throw new Error('E2E application readiness timed out')
+}
+
+try {
+  await waitUntilHealthy()
+  const ready = {
+    schema_version: 1,
+    project: process.env.GPT_LOAD_E2E_PROJECT ?? 'chromium',
+    isolation: 'per-run',
+    workers: 1,
+    scenario: process.env.GPT_LOAD_E2E_SCENARIO ?? 'full',
+    base_url: `http://${host}:${appPort}`,
+    upstream_url: `http://${host}:${upstreamPort}`,
+    data_dir: dataDir,
+  }
+  await writeFile(`${readyFile}.tmp`, `${JSON.stringify(ready)}\n`, { mode: 0o600 })
+  await rename(`${readyFile}.tmp`, readyFile)
+} catch (error) {
+  await stop().catch(() => undefined)
+  throw error
+}
+
+child.on('error', () => {
+  if (!stopping) void stop().finally(() => process.exit(1))
+})
+child.on('exit', (code, signal) => {
+  if (stopping) return
+  void stop().finally(() => {
+    console.error(
+      `E2E test server exited unexpectedly (code=${code ?? 'null'}, signal=${signal ?? 'null'})`,
+    )
+    process.exit(code && code > 0 ? code : 1)
+  })
+})

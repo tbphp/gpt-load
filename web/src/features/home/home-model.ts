@@ -1,4 +1,4 @@
-import type { AccessKeyDto, GroupSummary, KeyCounts } from '@/api/control/types'
+import type { AccessKeyOptionDto, GroupSummary, KeyCounts } from '@/api/control/types'
 
 const posixSingleQuoteEscape = `'"'"'`
 
@@ -16,7 +16,7 @@ export function isGroupServiceable(group: GroupSummary, counts?: KeyCounts): boo
   return group.enabled && group.models.length > 0 && counts.available > 0
 }
 
-export function selectInitialAccessKey(keys: AccessKeyDto[]): number | undefined {
+export function selectInitialAccessKey(keys: AccessKeyOptionDto[]): number | undefined {
   return keys.find((key) => key.status === 'active')?.id ?? keys[0]?.id
 }
 

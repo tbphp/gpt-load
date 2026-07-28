@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { KeyRound, Plus } from 'lucide-vue-next'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
-import { nextTick, onBeforeUnmount, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { useApiClient } from '@/api/client-context'
@@ -9,6 +9,7 @@ import { listAccessKeys } from '@/api/control/access-keys'
 import { listGroups } from '@/api/control/groups'
 import type { AccessKeyDto } from '@/api/control/types'
 import { controlQueryKeys } from '@/app/query-keys'
+import { accessKeyMutationInvalidations, accessKeyResources } from '@/app/resources/access-keys'
 import AppButton from '@/components/ui/AppButton.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
@@ -27,9 +28,9 @@ let restoreFocus: HTMLElement | null = null
 let mounted = true
 
 const accessKeysQuery = useQuery({
-  queryKey: controlQueryKeys.accessKeys.list(),
+  queryKey: accessKeyResources.list.queryKey,
   queryFn: ({ signal }) => listAccessKeys(client, signal),
-  gcTime: 0,
+  gcTime: accessKeyResources.list.gcTime,
 })
 const groupsQuery = useQuery({
   queryKey: controlQueryKeys.groups.list(),
@@ -37,7 +38,12 @@ const groupsQuery = useQuery({
 })
 onBeforeUnmount(() => {
   mounted = false
-  queryClient.removeQueries({ queryKey: controlQueryKeys.accessKeys.list(), exact: true })
+  queryClient.removeQueries({ queryKey: accessKeyResources.list.queryKey, exact: true })
+})
+const groupCatalogState = computed(() => {
+  if (groupsQuery.isError.value) return groupsQuery.data.value ? 'stale' : 'error'
+  if (groupsQuery.isPending.value) return 'loading'
+  return 'ready'
 })
 
 function createKey(): void {
@@ -64,10 +70,11 @@ async function setDrawerOpen(open: boolean): Promise<void> {
 }
 
 async function focusCreateAfterDelete(): Promise<void> {
-  await queryClient.invalidateQueries({
-    queryKey: controlQueryKeys.accessKeys.list(),
-    exact: true,
-  })
+  await Promise.all(
+    accessKeyMutationInvalidations.delete.map((queryKey) =>
+      queryClient.invalidateQueries({ queryKey, exact: true }),
+    ),
+  )
   await nextTick()
   if (!mounted) return
   const target = viewRoot.value?.querySelector('button[data-test="access-key-create"]')
@@ -87,6 +94,7 @@ async function focusCreateAfterDelete(): Promise<void> {
           :open="drawerOpen"
           :access-key="selected"
           :groups="groupsQuery.data.value ?? []"
+          :group-catalog-state="groupCatalogState"
           @update:open="setDrawerOpen"
         >
           <template #trigger>

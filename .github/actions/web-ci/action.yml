@@ -37,6 +37,14 @@ runs:
       shell: bash
       run: pnpm --dir web run test
 
+    - name: Validate visual runner manifest (runner and pixel gate remain external)
+      shell: bash
+      run: pnpm --dir web run check:visual
+
     - name: Build embedded web assets
       shell: bash
       run: pnpm --dir web run build
+
+    - name: Check canonical bundle budgets
+      shell: bash
+      run: pnpm --dir web run check:bundle

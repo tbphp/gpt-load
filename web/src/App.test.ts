@@ -12,9 +12,9 @@ import {
   dirtyNavigationKey,
 } from './features/import/use-dirty-navigation'
 import { createThemeController, themeControllerKey } from './features/preferences/theme'
-import { createAppI18n } from './i18n'
 import { appI18nKey } from './i18n/context'
 import { FakeApi } from './test/fake-api'
+import { createTestAppI18n as createAppI18n } from './test/i18n'
 import baseCss from './styles/base.css?raw'
 
 function createMemoryStorage(credential?: string): Storage {

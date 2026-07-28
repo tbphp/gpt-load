@@ -5,9 +5,18 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { useApiClient } from '@/api/client-context'
-import { updateSettings, type SettingsDto, type TimeoutSettingKey } from '@/api/control/settings'
+import {
+  getSettings,
+  projectSettingsConflict,
+  updateSettings,
+  type RuntimeSettingKey,
+  type TimeoutSettingKey,
+} from '@/api/control/settings'
+import type { HeaderRulesDto } from '@/api/control/groups'
 import { RequestCancelledError } from '@/api/errors'
+import { classifyMutationOutcome } from '@/app/mutation-outcome'
 import { controlQueryKeys } from '@/app/query-keys'
+import type { SettingsResource } from '@/app/resources/settings'
 import HeaderRulesEditor from '@/components/config/HeaderRulesEditor.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
@@ -20,26 +29,36 @@ import {
   createSettingsDraft,
   hasDuplicateHeaderNames,
   isValidTimeout,
-  rebaseSettingsDraft,
+  replaceDraftFieldFromSettings,
   setSettingsOverride,
   validateSettingsSection,
   type SettingsDraft,
 } from './settings-patch'
-import { chooseSettingsMutationResult } from './settings-response'
+import {
+  chooseSettingsMutationResult,
+  mergeSettingsConflict,
+  reconcileSettingsMutation,
+  type SettingsMergeConflict,
+} from './settings-response'
 
-const props = defineProps<{ settings: SettingsDto }>()
+const props = defineProps<{ resource: SettingsResource }>()
 const client = useApiClient()
 const queryClient = useQueryClient()
 const { t } = useI18n()
-const base = ref(props.settings)
-const draft = ref<SettingsDraft>(createSettingsDraft(props.settings))
+const base = ref(props.resource)
+const draft = ref<SettingsDraft>(createSettingsDraft(props.resource.settings))
 const pending = ref(false)
 const failed = ref(false)
 const succeeded = ref(false)
+const concurrent = ref(false)
+const indeterminate = ref(false)
+const reconciling = ref(false)
+const conflicts = ref<SettingsMergeConflict[]>([])
 const headerSaveError = ref(false)
-const disclosureRequested = ref(props.settings.overrides.includes('header_rules'))
-const headerValid = ref(!hasDuplicateHeaderNames(props.settings.values.header_rules))
+const disclosureRequested = ref(props.resource.settings.overrides.includes('header_rules'))
+const headerValid = ref(!hasDuplicateHeaderNames(props.resource.settings.values.header_rules))
 let controller: AbortController | undefined
+let unknownOperation: { base: SettingsResource; draft: SettingsDraft } | undefined
 
 const timeoutKeys: TimeoutSettingKey[] = [
   'connect_timeout',
@@ -47,10 +66,14 @@ const timeoutKeys: TimeoutSettingKey[] = [
   'request_timeout',
   'stream_idle_timeout',
 ]
-const patch = computed(() => buildSettingsPatch(base.value, draft.value, 'request-forwarding'))
+const patch = computed(() =>
+  buildSettingsPatch(base.value.settings, draft.value, 'request-forwarding'),
+)
 const dirty = computed(() => Object.keys(patch.value).length > 0)
+const operationLocked = computed(() => pending.value || indeterminate.value || reconciling.value)
 const valid = computed(
   () =>
+    conflicts.value.length === 0 &&
     (!draft.value.overrides.has('header_rules') || headerValid.value) &&
     validateSettingsSection(draft.value, 'request-forwarding'),
 )
@@ -66,33 +89,53 @@ const headerOpen = computed(
     headerSaveError.value,
 )
 
-function rebase(settings: SettingsDto): void {
-  base.value = settings
-  draft.value = createSettingsDraft(settings)
-  headerValid.value = !hasDuplicateHeaderNames(settings.values.header_rules)
-  disclosureRequested.value = settings.overrides.includes('header_rules')
+function rebase(resource: SettingsResource): void {
+  base.value = resource
+  draft.value = createSettingsDraft(resource.settings)
+  headerValid.value = !hasDuplicateHeaderNames(resource.settings.values.header_rules)
+  disclosureRequested.value = resource.settings.overrides.includes('header_rules')
   failed.value = false
+  concurrent.value = false
+  conflicts.value = []
+  indeterminate.value = false
+  reconciling.value = false
+  unknownOperation = undefined
   headerSaveError.value = false
 }
 
-function acceptExternalSettings(settings: SettingsDto): void {
+function acceptExternalSettings(resource: SettingsResource): void {
+  if (resource.settings_etag === base.value.settings_etag) return
+  if (unknownOperation) {
+    void applyUnknownLatest(resource)
+    return
+  }
   if (dirty.value) {
-    draft.value = rebaseSettingsDraft(base.value, draft.value, settings, 'request-forwarding')
-    base.value = settings
+    const merged = mergeSettingsConflict(base.value, draft.value, resource, 'request-forwarding')
+    base.value = merged.resource
+    draft.value = merged.draft
+    conflicts.value = merged.conflicts
+    concurrent.value = true
+    headerSaveError.value = merged.conflicts.some((conflict) => conflict.key === 'header_rules')
     headerValid.value = !hasDuplicateHeaderNames(draft.value.values.header_rules)
     return
   }
-  rebase(settings)
+  rebase(resource)
 }
 
-watch(() => props.settings, acceptExternalSettings)
+watch(() => props.resource, acceptExternalSettings)
+
+function clearConflict(key: RuntimeSettingKey): void {
+  conflicts.value = conflicts.value.filter((conflict) => conflict.key !== key)
+  if (conflicts.value.length === 0) concurrent.value = false
+}
 
 function hasOverride(key: TimeoutSettingKey | 'header_rules'): boolean {
   return draft.value.overrides.has(key)
 }
 
 function setOverride(key: TimeoutSettingKey, enabled: boolean): void {
-  draft.value = setSettingsOverride(base.value, draft.value, key, enabled)
+  draft.value = setSettingsOverride(base.value.settings, draft.value, key, enabled)
+  clearConflict(key)
   succeeded.value = false
 }
 
@@ -101,6 +144,7 @@ function setTimeoutValue(key: TimeoutSettingKey, value: number): void {
     values: { ...draft.value.values, [key]: value },
     overrides: new Set(draft.value.overrides),
   }
+  clearConflict(key)
   succeeded.value = false
 }
 
@@ -111,16 +155,18 @@ function timeoutError(key: TimeoutSettingKey): string | undefined {
 }
 
 function setHeaderOverride(enabled: boolean): void {
-  draft.value = setSettingsOverride(base.value, draft.value, 'header_rules', enabled)
+  draft.value = setSettingsOverride(base.value.settings, draft.value, 'header_rules', enabled)
+  clearConflict('header_rules')
   if (enabled) disclosureRequested.value = true
   succeeded.value = false
 }
 
-function setHeaderRules(value: SettingsDto['values']['header_rules']): void {
+function setHeaderRules(value: HeaderRulesDto): void {
   draft.value = {
     values: { ...draft.value.values, header_rules: value },
     overrides: new Set(draft.value.overrides),
   }
+  clearConflict('header_rules')
   succeeded.value = false
 }
 
@@ -128,30 +174,120 @@ function toggleDisclosure(): void {
   disclosureRequested.value = !headerOpen.value
 }
 
+function chooseMine(key: RuntimeSettingKey): void {
+  clearConflict(key)
+}
+
+function chooseLatest(key: RuntimeSettingKey): void {
+  draft.value = replaceDraftFieldFromSettings(draft.value, base.value.settings, key)
+  clearConflict(key)
+}
+
+function conflictValue(conflict: SettingsMergeConflict, side: 'mine' | 'latest'): string {
+  const identity = conflict[side]
+  if (!identity.is_override) return t('settings.default')
+  if (conflict.key === 'header_rules') {
+    const rules = identity.normalized_value as { set: Record<string, string>; remove: string[] }
+    return t('settings.conflict.headerRulesSummary', {
+      set: Object.keys(rules.set).length,
+      remove: rules.remove.length,
+    })
+  }
+  return String(identity.normalized_value)
+}
+
+function conflictLabel(key: RuntimeSettingKey): string {
+  return key === 'header_rules' ? t('settings.request.headerRules') : t(`settings.request.${key}`)
+}
+
+async function applyUnknownLatest(latest: SettingsResource): Promise<void> {
+  const operation = unknownOperation
+  if (!operation) return
+  const result = reconcileSettingsMutation(
+    operation.base,
+    operation.draft,
+    latest,
+    'request-forwarding',
+  )
+  base.value = result.resource
+  draft.value = result.draft
+  conflicts.value = result.conflicts
+  headerValid.value = !hasDuplicateHeaderNames(result.draft.values.header_rules)
+  headerSaveError.value = result.conflicts.some((conflict) => conflict.key === 'header_rules')
+  queryClient.setQueryData(controlQueryKeys.settings(), latest)
+
+  if (result.kind === 'confirmed') {
+    unknownOperation = undefined
+    indeterminate.value = false
+    concurrent.value = false
+    succeeded.value = true
+    await queryClient.invalidateQueries({ queryKey: controlQueryKeys.groups.details() })
+    return
+  }
+  if (result.kind === 'conflict') {
+    unknownOperation = undefined
+    indeterminate.value = false
+    concurrent.value = true
+  }
+}
+
+async function reconcileUnknownOperation(activeController: AbortController): Promise<void> {
+  if (!unknownOperation || controller !== activeController) return
+  reconciling.value = true
+  try {
+    const latest = await getSettings(client, activeController.signal)
+    if (controller !== activeController) return
+    await applyUnknownLatest(latest)
+  } catch (error: unknown) {
+    if (controller !== activeController || error instanceof RequestCancelledError) return
+    indeterminate.value = true
+  } finally {
+    if (controller === activeController) reconciling.value = false
+  }
+}
+
+async function checkUnknownResult(): Promise<void> {
+  if (!unknownOperation || reconciling.value) return
+  controller?.abort()
+  controller = new AbortController()
+  const activeController = controller
+  await reconcileUnknownOperation(activeController)
+  if (controller === activeController) controller = undefined
+}
+
 async function save(): Promise<void> {
-  if (pending.value || !valid.value) return
-  const normalizedPatch = buildSettingsPatch(base.value, draft.value, 'request-forwarding')
+  if (operationLocked.value || !valid.value) return
+  const normalizedPatch = buildSettingsPatch(base.value.settings, draft.value, 'request-forwarding')
   if (Object.keys(normalizedPatch).length === 0) return
+  const operationBase = base.value
+  const operationDraft = draft.value
 
   pending.value = true
   failed.value = false
   succeeded.value = false
+  concurrent.value = false
+  indeterminate.value = false
   headerSaveError.value = false
   controller?.abort()
   controller = new AbortController()
   const activeController = controller
   try {
-    const settings = await updateSettings(client, normalizedPatch, activeController.signal)
+    const resource = await updateSettings(
+      client,
+      normalizedPatch,
+      operationBase.settings_etag,
+      activeController.signal,
+    )
     if (controller !== activeController) return
     await queryClient.cancelQueries({ queryKey: controlQueryKeys.settings(), exact: true })
     if (controller !== activeController) return
 
-    const cached = queryClient.getQueryData<SettingsDto>(controlQueryKeys.settings())
+    const cached = queryClient.getQueryData<SettingsResource>(controlQueryKeys.settings())
     const decision = chooseSettingsMutationResult(
-      settings,
+      resource,
       cached,
-      base.value,
-      draft.value,
+      operationBase,
+      operationDraft,
       'request-forwarding',
     )
     if (decision.kind === 'refetch') {
@@ -163,20 +299,47 @@ async function save(): Promise<void> {
       return
     }
 
-    base.value = decision.settings
+    base.value = decision.resource
     draft.value = decision.draft
     headerValid.value = !hasDuplicateHeaderNames(decision.draft.values.header_rules)
-    disclosureRequested.value = decision.settings.overrides.includes('header_rules')
-    if (decision.source === 'response') {
-      queryClient.setQueryData(controlQueryKeys.settings(), decision.settings)
-    }
+    disclosureRequested.value = decision.resource.settings.overrides.includes('header_rules')
+    queryClient.setQueryData(controlQueryKeys.settings(), decision.resource)
+    unknownOperation = undefined
     succeeded.value = true
     await queryClient.invalidateQueries({ queryKey: controlQueryKeys.groups.details() })
     if (controller !== activeController) return
   } catch (error: unknown) {
     if (controller !== activeController || error instanceof RequestCancelledError) return
-    failed.value = true
-    headerSaveError.value = Object.prototype.hasOwnProperty.call(normalizedPatch, 'header_rules')
+    const latest = projectSettingsConflict(error)
+    if (latest) {
+      const merged = mergeSettingsConflict(
+        operationBase,
+        operationDraft,
+        latest,
+        'request-forwarding',
+      )
+      base.value = merged.resource
+      draft.value = merged.draft
+      conflicts.value = merged.conflicts
+      concurrent.value = true
+      headerSaveError.value = merged.conflicts.some((conflict) => conflict.key === 'header_rules')
+      headerValid.value = !hasDuplicateHeaderNames(draft.value.values.header_rules)
+      queryClient.setQueryData(controlQueryKeys.settings(), latest)
+      return
+    }
+    const outcome = classifyMutationOutcome<SettingsResource>({
+      kind: 'error',
+      error,
+      requestSent: true,
+    })
+    if (outcome.kind === 'failed') {
+      failed.value = true
+      headerSaveError.value = Object.prototype.hasOwnProperty.call(normalizedPatch, 'header_rules')
+      return
+    }
+    unknownOperation = { base: operationBase, draft: operationDraft }
+    indeterminate.value = true
+    await reconcileUnknownOperation(activeController)
   } finally {
     if (controller === activeController) {
       controller = undefined
@@ -188,6 +351,7 @@ async function save(): Promise<void> {
 onBeforeUnmount(() => {
   controller?.abort()
   controller = undefined
+  unknownOperation = undefined
 })
 </script>
 
@@ -204,7 +368,7 @@ onBeforeUnmount(() => {
       <AppButton
         data-test="request-forwarding-save"
         :busy="pending"
-        :disabled="!dirty || !valid"
+        :disabled="!dirty || !valid || operationLocked"
         @click="save"
       >
         <Save :size="16" aria-hidden="true" />{{ t('settings.save') }}
@@ -215,7 +379,33 @@ onBeforeUnmount(() => {
       t('settings.request.saveFailed')
     }}</InlineFeedback>
     <InlineFeedback v-if="succeeded" tone="info">{{ t('settings.saved') }}</InlineFeedback>
-    <InlineFeedback tone="info">{{ t('settings.lastWriteWins') }}</InlineFeedback>
+    <InlineFeedback v-if="reconciling" data-test="settings-reconciling" tone="info">{{
+      t('settings.outcome.reconciling')
+    }}</InlineFeedback>
+    <div v-else-if="indeterminate" data-test="settings-indeterminate">
+      <InlineFeedback tone="warning">{{ t('settings.outcome.indeterminate') }}</InlineFeedback>
+      <AppButton data-test="settings-check-result" variant="secondary" @click="checkUnknownResult">
+        {{ t('settings.outcome.checkResult') }}
+      </AppButton>
+    </div>
+    <InlineFeedback v-if="concurrent" tone="warning">{{
+      conflicts.length > 0 ? t('settings.conflict.blocked') : t('settings.conflict.rebased')
+    }}</InlineFeedback>
+    <ul v-if="conflicts.length > 0" class="settings-conflicts" data-test="settings-conflicts">
+      <li v-for="conflict in conflicts" :key="conflict.key">
+        <strong>{{ conflictLabel(conflict.key) }}</strong>
+        <span>{{ t('settings.conflict.mine') }}: {{ conflictValue(conflict, 'mine') }}</span>
+        <span>{{ t('settings.conflict.latest') }}: {{ conflictValue(conflict, 'latest') }}</span>
+        <div>
+          <AppButton variant="secondary" @click="chooseMine(conflict.key)">{{
+            t('settings.conflict.useMine')
+          }}</AppButton>
+          <AppButton variant="ghost" @click="chooseLatest(conflict.key)">{{
+            t('settings.conflict.useLatest')
+          }}</AppButton>
+        </div>
+      </li>
+    </ul>
 
     <div class="request-forwarding__fields">
       <SettingOverrideField
@@ -224,12 +414,12 @@ onBeforeUnmount(() => {
         :setting-key="key"
         :label="t(`settings.request.${key}`)"
         :description="t('settings.request.seconds')"
-        :effective-value="base.values[key]"
+        :effective-value="base.settings.values[key]"
         :owned="hasOverride(key)"
         :model-value="draft.values[key]"
         :error="timeoutError(key)"
         :min="1"
-        :disabled="pending"
+        :disabled="operationLocked"
         @update:owned="setOverride(key, $event)"
         @update:model-value="setTimeoutValue(key, $event)"
       />
@@ -248,8 +438,8 @@ onBeforeUnmount(() => {
           <strong>{{ t('settings.request.headerRules') }}</strong>
           <small>{{
             t('settings.request.headerSummary', {
-              set: Object.keys(base.values.header_rules.set).length,
-              remove: base.values.header_rules.remove.length,
+              set: Object.keys(base.settings.values.header_rules.set).length,
+              remove: base.settings.values.header_rules.remove.length,
             })
           }}</small>
         </span>
@@ -265,7 +455,7 @@ onBeforeUnmount(() => {
             data-test="override-header_rules"
             type="checkbox"
             :checked="hasOverride('header_rules')"
-            :disabled="pending"
+            :disabled="operationLocked"
             @change="setHeaderOverride(($event.target as HTMLInputElement).checked)"
           />
           {{ t('settings.useOverride') }}
@@ -274,7 +464,7 @@ onBeforeUnmount(() => {
         <div v-if="hasOverride('header_rules')" data-test="header-rules-editor">
           <HeaderRulesEditor
             :model-value="draft.values.header_rules"
-            :disabled="pending"
+            :disabled="operationLocked"
             @update:model-value="setHeaderRules"
             @update:valid="headerValid = $event"
           />
@@ -339,6 +529,25 @@ onBeforeUnmount(() => {
   gap: var(--space-3);
   border-top: 1px solid var(--color-border);
   padding-top: var(--space-4);
+}
+.settings-conflicts {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.settings-conflicts li {
+  display: grid;
+  gap: var(--space-2);
+  border: 1px solid var(--color-warning);
+  border-radius: var(--radius-control);
+  padding: var(--space-3);
+}
+.settings-conflicts li > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
 }
 .request-forwarding__disclosure {
   display: grid;

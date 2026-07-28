@@ -60,8 +60,8 @@ onBeforeUnmount(() => {
         :retry-label="t('common.retry')"
         @retry="settingsQuery.refetch()"
       />
-      <RequestForwardingSection :settings="settingsQuery.data.value" />
-      <LogsMaintenanceSection :settings="settingsQuery.data.value" />
+      <RequestForwardingSection :resource="settingsQuery.data.value" />
+      <LogsMaintenanceSection :resource="settingsQuery.data.value" />
     </template>
 
     <SurfaceCard class="settings-card model-prices-entry">

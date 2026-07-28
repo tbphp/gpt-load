@@ -7,12 +7,12 @@ import { useRoute, useRouter } from 'vue-router'
 
 import { useApiClient } from '@/api/client-context'
 import { importGroupKeys, listGroups, type GroupKeyImportResult } from '@/api/control/groups'
-import { RequestCancelledError } from '@/api/errors'
 import { controlQueryKeys } from '@/app/query-keys'
 import AppButton from '@/components/ui/AppButton.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import SurfaceCard from '@/components/ui/SurfaceCard.vue'
 
+import { useImportOperationOwner } from './import-operation-owner'
 import { useImportRecovery } from './import-recovery'
 import { analyzeKeys } from './key-analysis'
 import KeyTextarea from './KeyTextarea.vue'
@@ -29,11 +29,31 @@ const { t } = useI18n()
 
 const keys = ref(props.initialDraft?.keys ?? '')
 const reviewing = ref(false)
-const pending = ref(false)
 const completed = ref(false)
 const errorKey = ref('')
 const result = ref<GroupKeyImportResult | null>(null)
-let activeController: AbortController | undefined
+const importOperationOwner = useImportOperationOwner()
+const operation = importOperationOwner.importKeys
+if (operation.outcome.value?.kind === 'confirmed') operation.reset()
+const pending = operation.pending
+const operationNoticeKey = computed(() => {
+  const outcome = operation.outcome.value
+  if (!outcome) return ''
+  if (outcome.kind === 'reconciling') return 'import.operation.reconciling'
+  if (outcome.kind === 'indeterminate') return 'import.operation.indeterminate'
+  if (outcome.kind === 'failed' && outcome.reason === 'retryable-precondition')
+    return 'import.operation.waiting'
+  if (outcome.kind === 'failed' && outcome.reason === 'expired-known')
+    return 'import.operation.expired'
+  return ''
+})
+const operationResourceIdentity = computed(() => {
+  const outcome = operation.outcome.value
+  return outcome?.kind === 'failed' && outcome.reason === 'expired-known'
+    ? outcome.resource_identity
+    : ''
+})
+let componentActive = true
 
 function parsePositiveID(value: unknown): number | null {
   if (typeof value !== 'string' || !/^\d+$/.test(value)) return null
@@ -71,6 +91,7 @@ const unregisterRecovery = recovery.register(() =>
 )
 
 function selectGroup(event: Event): void {
+  if (operation.operation.value) return
   const id = parsePositiveID((event.target as HTMLSelectElement).value)
   reviewing.value = false
   errorKey.value = ''
@@ -86,6 +107,13 @@ function showReview(): void {
   reviewing.value = true
 }
 
+function returnToEdit(): void {
+  if (operationNoticeKey.value) return
+  operation.reset()
+  errorKey.value = ''
+  reviewing.value = false
+}
+
 async function submit(): Promise<void> {
   const group = selectedGroup.value
   if (
@@ -97,45 +125,78 @@ async function submit(): Promise<void> {
     return
   }
 
-  activeController?.abort()
-  const controller = new AbortController()
-  activeController = controller
-  const ownsAction = () => activeController === controller && selectedID.value === group.id
-  pending.value = true
+  if (!importOperationOwner.beginImportKeys({ groupID: group.id, keys: keys.value }, 'existing')) {
+    return
+  }
+  await executeImportOperation()
+}
+
+async function executeImportOperation(): Promise<void> {
+  if (!operation.operation.value) return
   errorKey.value = ''
-  try {
-    const imported = await importGroupKeys(api, group.id, { keys: keys.value }, controller.signal)
-    if (!ownsAction()) return
+  const outcome = await operation.execute((current, signal) =>
+    importGroupKeys(
+      api,
+      current.payload.groupID,
+      { keys: current.payload.keys },
+      current.idempotencyKey,
+      signal,
+    ),
+  )
+  if (!outcome) return
+  if (outcome.kind === 'confirmed') {
+    const imported = outcome.value
+    const targetID = imported.group_id
+    operation.reset()
+    if (!componentActive) return
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: controlQueryKeys.groups.keys(group.id) }),
-      queryClient.invalidateQueries({ queryKey: controlQueryKeys.groups.detail(group.id) }),
+      queryClient.invalidateQueries({ queryKey: controlQueryKeys.groups.keys(targetID) }),
+      queryClient.invalidateQueries({ queryKey: controlQueryKeys.groups.detail(targetID) }),
       queryClient.invalidateQueries({ queryKey: controlQueryKeys.groups.list() }),
       queryClient.invalidateQueries({ queryKey: controlQueryKeys.health() }),
     ])
-    if (!ownsAction()) return
+    if (!componentActive) return
     result.value = imported
     completed.value = true
     keys.value = ''
     recovery.clear()
-  } catch (error: unknown) {
-    if (ownsAction() && !(error instanceof RequestCancelledError))
-      errorKey.value = 'import.existing.importFailed'
-  } finally {
-    if (activeController === controller) {
-      activeController = undefined
-      pending.value = false
-    }
+    return
   }
+  if (!componentActive) return
+  if (outcome.kind === 'failed' && outcome.reason === 'rejected')
+    errorKey.value = 'import.existing.importFailed'
 }
 
 onBeforeUnmount(() => {
-  activeController?.abort()
+  componentActive = false
   unregisterRecovery()
 })
 </script>
 
 <template>
   <div class="existing-import">
+    <section
+      v-if="operationNoticeKey"
+      class="operation-notice"
+      data-test="import-operation-notice"
+      aria-live="polite"
+    >
+      <InlineFeedback tone="warning">{{ t(operationNoticeKey) }}</InlineFeedback>
+      <code v-if="operationResourceIdentity" data-test="import-operation-resource">{{
+        operationResourceIdentity
+      }}</code>
+      <AppButton
+        v-else
+        data-test="import-operation-retry"
+        variant="secondary"
+        :disabled="!operation.canRetry.value"
+        :busy="pending"
+        @click="executeImportOperation"
+      >
+        {{ t('import.operation.checkResult') }}
+      </AppButton>
+    </section>
+
     <SurfaceCard class="existing-card">
       <header>
         <h2>{{ t('import.existing.title') }}</h2>
@@ -159,7 +220,7 @@ onBeforeUnmount(() => {
             id="existing-group-select"
             data-test="existing-group"
             :value="selectedGroup?.id ?? ''"
-            :disabled="pending"
+            :disabled="pending || operation.operation.value !== null"
             @change="selectGroup"
           >
             <option value="">{{ t('import.existing.groupPlaceholder') }}</option>
@@ -195,7 +256,11 @@ onBeforeUnmount(() => {
           </section>
           <InlineFeedback v-if="errorKey" tone="danger">{{ t(errorKey) }}</InlineFeedback>
           <footer class="card-actions split">
-            <AppButton variant="secondary" :disabled="pending" @click="reviewing = false">
+            <AppButton
+              variant="secondary"
+              :disabled="pending || operationNoticeKey !== ''"
+              @click="returnToEdit"
+            >
               <ChevronLeft :size="16" aria-hidden="true" />{{ t('import.back') }}
             </AppButton>
             <AppButton data-test="existing-submit" :busy="pending" @click="submit">
@@ -225,9 +290,24 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .existing-import {
+  display: grid;
+  gap: var(--space-4);
   width: 100%;
   max-width: 760px;
   margin: 0 auto;
+}
+.operation-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  border: 1px solid var(--color-warning);
+  border-radius: var(--radius-card);
+  background: var(--color-warning-bg);
+  padding: var(--space-3) var(--space-4);
+}
+.operation-notice code {
+  overflow-wrap: anywhere;
 }
 .existing-card {
   display: grid;
@@ -262,7 +342,7 @@ header p,
 .group-selector select {
   width: 100%;
   min-height: 44px;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-border-control);
   border-radius: var(--radius-control);
   background: var(--color-surface-secondary);
   color: var(--color-text);

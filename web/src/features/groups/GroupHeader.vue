@@ -22,7 +22,7 @@ const { t } = useI18n()
       </div>
       <div class="group-header__meta">
         <span v-for="protocol in group.protocols" :key="protocol" class="meta-tag">
-          {{ t(`group.protocols.${protocol}`) }}
+          {{ t(`common.protocols.${protocol}`) }}
         </span>
         <StatusBadge :tone="group.enabled ? 'success' : 'neutral'">
           {{ group.enabled ? t('group.enabled') : t('group.disabled') }}

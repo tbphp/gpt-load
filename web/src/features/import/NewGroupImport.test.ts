@@ -14,7 +14,11 @@ import {
 import type { ImportRecoveryService } from '@/features/import/import-recovery'
 import type { ImportDraft } from '@/features/import/model-draft'
 import { importRecoveryKey } from '@/features/import/import-recovery'
-import { createAppI18n } from '@/i18n'
+import {
+  createImportOperationOwner,
+  importOperationOwnerKey,
+} from '@/features/import/import-operation-owner'
+import { createTestAppI18n as createAppI18n } from '@/test/i18n'
 
 import NewGroupImport from './NewGroupImport.vue'
 
@@ -37,6 +41,7 @@ async function mountImport(request: ApiClient['request'], initialDraft?: ImportD
   await router.push('/import')
   await router.isReady()
   const importRecovery = recovery()
+  const operationOwner = createImportOperationOwner()
   const wrapper = mount(NewGroupImport, {
     props: { initialDraft },
     global: {
@@ -48,11 +53,12 @@ async function mountImport(request: ApiClient['request'], initialDraft?: ImportD
       provide: {
         [apiClientKey as symbol]: { request },
         [importRecoveryKey as symbol]: importRecovery,
+        [importOperationOwnerKey as symbol]: operationOwner,
         [dirtyNavigationKey as symbol]: createDirtyNavigationController(),
       },
     },
   })
-  return { importRecovery, queryClient, router, wrapper }
+  return { importRecovery, operationOwner, queryClient, router, wrapper }
 }
 
 async function enterConnection(wrapper: ReturnType<typeof mount>, keys = 'raw-key\nraw-key') {
@@ -294,6 +300,11 @@ describe('NewGroupImport', () => {
 
     expect(request).toHaveBeenLastCalledWith('/api/groups', {
       method: 'POST',
+      headers: {
+        'Idempotency-Key': expect.stringMatching(
+          /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+        ),
+      },
       json: {
         name: 'Primary',
         upstream_url: 'https://api.example.com',
@@ -307,7 +318,9 @@ describe('NewGroupImport', () => {
     })
     expect(invalidate).toHaveBeenCalledWith({ queryKey: controlQueryKeys.groups.list() })
     expect(invalidate).toHaveBeenCalledWith({ queryKey: controlQueryKeys.health() })
-    expect(router.currentRoute.value.fullPath).toBe('/groups/9')
+    await vi.waitFor(() => {
+      expect(router.currentRoute.value.fullPath).toBe('/groups/9')
+    })
     expect(importRecovery.clear).toHaveBeenCalled()
   })
 
@@ -378,6 +391,11 @@ describe('NewGroupImport', () => {
 
     expect(request).toHaveBeenLastCalledWith('/api/groups/7/keys/import', {
       method: 'POST',
+      headers: {
+        'Idempotency-Key': expect.stringMatching(
+          /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+        ),
+      },
       json: { keys: 'raw-conflict-key' },
       signal: expect.any(AbortSignal),
     })
@@ -388,7 +406,9 @@ describe('NewGroupImport', () => {
     expect(invalidate).toHaveBeenCalledWith({ queryKey: controlQueryKeys.groups.detail(7) })
     expect(invalidate).toHaveBeenCalledWith({ queryKey: controlQueryKeys.groups.list() })
     expect(invalidate).toHaveBeenCalledWith({ queryKey: controlQueryKeys.health() })
-    expect(router.currentRoute.value.fullPath).toBe('/groups/7')
+    await vi.waitFor(() => {
+      expect(router.currentRoute.value.fullPath).toBe('/groups/7')
+    })
   })
 
   it('does not navigate or clear recovery when create invalidations finish after unmount', async () => {
@@ -398,14 +418,19 @@ describe('NewGroupImport', () => {
       .fn()
       .mockResolvedValueOnce({ models: ['gpt-4o'] })
       .mockResolvedValueOnce({ group_id: 42 }) as ApiClient['request']
-    const { importRecovery, queryClient, router, wrapper } = await mountImport(request)
+    const { importRecovery, operationOwner, queryClient, router, wrapper } =
+      await mountImport(request)
     const push = vi.spyOn(router, 'push')
     vi.spyOn(queryClient, 'invalidateQueries').mockImplementation(() => invalidations)
-    await enterConnection(wrapper)
+    await enterConnection(wrapper, 'CREATE_SUCCESS_SECRET_CANARY')
     await discoverAndReview(wrapper)
 
     await wrapper.get('[data-test="create"]').trigger('click')
     await flushPromises()
+    expect(operationOwner.createGroup.operation.value).toBeNull()
+    expect(JSON.stringify(operationOwner.createGroup.operation.value)).not.toContain(
+      'CREATE_SUCCESS_SECRET_CANARY',
+    )
     wrapper.unmount()
     resolveInvalidations()
     await flushPromises()
@@ -461,15 +486,20 @@ describe('NewGroupImport', () => {
         keys_added: 1,
         keys_duplicated: 0,
       }) as ApiClient['request']
-    const { importRecovery, queryClient, router, wrapper } = await mountImport(request)
+    const { importRecovery, operationOwner, queryClient, router, wrapper } =
+      await mountImport(request)
     const push = vi.spyOn(router, 'push')
     vi.spyOn(queryClient, 'invalidateQueries').mockImplementation(() => invalidations)
-    await enterConnection(wrapper)
+    await enterConnection(wrapper, 'APPEND_SUCCESS_SECRET_CANARY')
     await discoverAndReview(wrapper)
     await wrapper.get('[data-test="create"]').trigger('click')
     await flushPromises()
     await wrapper.get('[data-test="conflict-append-7"]').trigger('click')
     await flushPromises()
+    expect(operationOwner.importKeys.operation.value).toBeNull()
+    expect(JSON.stringify(operationOwner.importKeys.operation.value)).not.toContain(
+      'APPEND_SUCCESS_SECRET_CANARY',
+    )
     wrapper.unmount()
     resolveInvalidations()
     await flushPromises()
@@ -535,6 +565,37 @@ describe('NewGroupImport', () => {
     await flushPromises()
     expect(requestMock.mock.calls[2]?.[1]).toMatchObject({
       json: { confirm_same_upstream_url: true },
+    })
+  })
+
+  it('checks an indeterminate create with the exact same UUID and frozen payload', async () => {
+    const requestMock = vi
+      .fn()
+      .mockResolvedValueOnce({ models: ['gpt-4o'] })
+      .mockRejectedValueOnce(new NetworkError())
+      .mockResolvedValueOnce({ group_id: 23 })
+    const { router, wrapper } = await mountImport(requestMock as ApiClient['request'])
+    await enterConnection(wrapper, 'stable-raw-key')
+    await discoverAndReview(wrapper)
+
+    await wrapper.get('[data-test="create"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-test="import-operation-notice"]').text()).toContain(
+      'could not be confirmed',
+    )
+
+    const first = requestMock.mock.calls[1]?.[1]
+    await wrapper.get('[data-test="import-operation-retry"]').trigger('click')
+    await flushPromises()
+    const second = requestMock.mock.calls[2]?.[1]
+
+    expect(first?.headers?.['Idempotency-Key']).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    )
+    expect(second?.headers?.['Idempotency-Key']).toBe(first?.headers?.['Idempotency-Key'])
+    expect(second?.json).toEqual(first?.json)
+    await vi.waitFor(() => {
+      expect(router.currentRoute.value.fullPath).toBe('/groups/23')
     })
   })
 })

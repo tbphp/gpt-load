@@ -189,7 +189,7 @@ function estimatedCost(log: RequestLogItemDto): string {
           </div>
           <div>
             <dt>{{ t('monitor.logs.drawer.protocol') }}</dt>
-            <dd>{{ t(`group.protocols.${log.protocol}`) }}</dd>
+            <dd>{{ t(`common.protocols.${log.protocol}`) }}</dd>
           </div>
           <div>
             <dt>{{ t('monitor.logs.drawer.accessKey') }}</dt>

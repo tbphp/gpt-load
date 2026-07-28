@@ -1,5 +1,10 @@
-import type { ApiClient } from '@/api/client'
-import { InvalidResponseError } from '@/api/errors'
+import type { ApiClient, ApiClientWithResponse } from '@/api/client'
+import { ApiError, InvalidResponseError } from '@/api/errors'
+import {
+  settingsResourceFromResponse,
+  settingsResourceFromToken,
+  type SettingsResource,
+} from '@/app/resources/settings'
 
 import type { HeaderRulesDto } from './groups'
 
@@ -30,7 +35,6 @@ export interface SettingsValues {
 }
 
 export interface SettingsDto {
-  revision: number
   values: SettingsValues
   overrides: RuntimeSettingKey[]
 }
@@ -70,9 +74,6 @@ export function projectSettings(value: unknown): SettingsDto {
   if (!isRecord(value) || !isRecord(value.values) || !Array.isArray(value.overrides)) {
     throw new InvalidResponseError()
   }
-  if (!Number.isSafeInteger(value.revision) || (value.revision as number) < 0) {
-    throw new InvalidResponseError()
-  }
   const values = value.values
   if (
     !isPositiveSafeInteger(values.connect_timeout) ||
@@ -90,7 +91,6 @@ export function projectSettings(value: unknown): SettingsDto {
   const allowlist = new Set<string>(runtimeSettingKeys)
   const overrides = [...new Set(value.overrides.filter((key) => allowlist.has(key)))]
   return {
-    revision: value.revision as number,
     values: {
       connect_timeout: values.connect_timeout,
       first_byte_timeout: values.first_byte_timeout,
@@ -104,20 +104,45 @@ export function projectSettings(value: unknown): SettingsDto {
   }
 }
 
-export async function getSettings(client: ApiClient, signal?: AbortSignal): Promise<SettingsDto> {
-  return projectSettings(await client.request<unknown>('/api/settings', { signal }))
+function clientWithResponse(client: ApiClient): ApiClientWithResponse {
+  if (!client.requestWithResponse) throw new InvalidResponseError()
+  return client as ApiClientWithResponse
+}
+
+export async function getSettings(
+  client: ApiClient,
+  signal?: AbortSignal,
+): Promise<SettingsResource> {
+  const response = await clientWithResponse(client).requestWithResponse<unknown>('/api/settings', {
+    signal,
+  })
+  return settingsResourceFromResponse(projectSettings(response.data), response.headers)
 }
 
 export async function updateSettings(
   client: ApiClient,
   patch: SettingsPatch,
+  settingsETag: string,
   signal?: AbortSignal,
-): Promise<SettingsDto> {
-  return projectSettings(
-    await client.request<unknown>('/api/settings', {
-      method: 'PUT',
-      json: { settings: patch },
-      signal,
-    }),
-  )
+): Promise<SettingsResource> {
+  const response = await clientWithResponse(client).requestWithResponse<unknown>('/api/settings', {
+    method: 'PUT',
+    headers: { 'If-Match': `"${settingsETag}"` },
+    json: { settings: patch },
+    signal,
+  })
+  return settingsResourceFromResponse(projectSettings(response.data), response.headers)
+}
+
+export function projectSettingsConflict(error: unknown): SettingsResource | undefined {
+  if (
+    !(error instanceof ApiError) ||
+    error.status !== 412 ||
+    error.code !== 'SETTINGS_VERSION_CONFLICT' ||
+    !isRecord(error.data) ||
+    typeof error.data.settings_etag !== 'string'
+  ) {
+    return undefined
+  }
+  return settingsResourceFromToken(projectSettings(error.data.settings), error.data.settings_etag)
 }

@@ -147,6 +147,28 @@ describe('createAuthSession', () => {
     expect(dependencies.queryClient.getMutationCache().getAll()).toHaveLength(0)
   })
 
+  it('clears feature-local ephemeral operation state on logout or global 401', async () => {
+    const explicitClear = vi.fn()
+    const logoutDependencies = { ...createDependencies(), onClear: explicitClear }
+    createAuthSession(logoutDependencies).clear()
+    expect(explicitClear).toHaveBeenCalledOnce()
+
+    const unauthorizedClear = vi.fn()
+    const unauthorizedDependencies = {
+      ...createDependencies(async () => {
+        throw new ApiError(401, 'UNAUTHORIZED', 'UNAUTHORIZED')
+      }),
+      onClear: unauthorizedClear,
+    }
+    window.sessionStorage.setItem(authStorageKey, 'restored-key')
+    const restoredSession = createAuthSession(unauthorizedDependencies)
+    await expect(restoredSession.ensureValidated()).rejects.toMatchObject({
+      code: 'UNAUTHORIZED',
+    })
+    expect(unauthorizedClear).toHaveBeenCalledOnce()
+    expect(restoredSession.getAuthKey()).toBe('')
+  })
+
   it('suppresses stale in-flight control results after logout', async () => {
     const dependencies = createDependencies()
     const session = createAuthSession(dependencies)

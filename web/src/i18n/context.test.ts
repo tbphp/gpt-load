@@ -2,7 +2,8 @@ import { mount } from '@vue/test-utils'
 import { defineComponent } from 'vue'
 
 import { appI18nKey, useAppI18n } from './context'
-import { createAppI18n, type AppI18n } from './index'
+import type { AppI18n } from './index'
+import { createTestAppI18n as createAppI18n } from '../test/i18n'
 
 let injected: AppI18n | undefined
 const AppI18nConsumer = defineComponent({

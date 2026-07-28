@@ -1,4 +1,4 @@
-import type { AccessKeyDto, GroupSummary, KeyCounts } from '@/api/control/types'
+import type { AccessKeyOptionDto, GroupSummary, KeyCounts } from '@/api/control/types'
 
 import {
   buildChatCompletionsSnippet,
@@ -25,13 +25,10 @@ const counts: KeyCounts = {
   blacklisted: 0,
   disabled: 0,
 }
-const accessKey = (id: number, status: AccessKeyDto['status']): AccessKeyDto => ({
+const accessKey = (id: number, status: AccessKeyOptionDto['status']): AccessKeyOptionDto => ({
   id,
   name: `key-${id}`,
-  key: `sk-gl-${id}`,
   status,
-  filters: { groups: [], protocols: [], models: [] },
-  rpm_limit: 0,
 })
 
 describe('Home model', () => {

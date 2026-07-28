@@ -48,6 +48,31 @@ describe('application routes', () => {
     expect(router.resolve('/settings/model-prices').meta.primaryNav).toBe('settings')
   })
 
+  it('keeps every route component behind a dynamic import boundary', () => {
+    const router = createAppRouter(createAuth(true), createMemoryHistory())
+
+    for (const route of router.getRoutes()) {
+      expect(typeof route.components?.default).toBe('function')
+    }
+  })
+
+  it('loads only the message namespaces declared by the destination route', async () => {
+    const loadNamespaces = vi.fn().mockResolvedValue(undefined)
+    const router = createAppRouter(createAuth(true), createMemoryHistory(), { loadNamespaces })
+
+    await router.push('/access-keys')
+    expect(loadNamespaces).toHaveBeenLastCalledWith(['access-keys'])
+
+    await router.push('/groups/42')
+    expect(loadNamespaces).toHaveBeenLastCalledWith(['group', 'import'])
+
+    await router.push('/settings')
+    expect(loadNamespaces).toHaveBeenLastCalledWith(['settings', 'model-prices', 'import'])
+
+    await router.push('/')
+    expect(loadNamespaces).toHaveBeenLastCalledWith([])
+  })
+
   it('does not install a client-side catch-all route', () => {
     const router = createAppRouter(createAuth(true), createMemoryHistory())
 

@@ -5,10 +5,11 @@ import { useI18n } from 'vue-i18n'
 import { useQueryClient } from '@tanstack/vue-query'
 
 import { useApiClient } from '@/api/client-context'
-import { createAccessKey, updateAccessKey } from '@/api/control/access-keys'
+import { createAccessKey, revealAccessKey, updateAccessKey } from '@/api/control/access-keys'
 import type { AccessKeyDto, AccessProtocol, GroupSummary } from '@/api/control/types'
 import { RequestCancelledError } from '@/api/errors'
-import { controlQueryKeys } from '@/app/query-keys'
+import { classifyMutationOutcome } from '@/app/mutation-outcome'
+import { accessKeyMutationInvalidations } from '@/app/resources/access-keys'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppDrawer from '@/components/ui/AppDrawer.vue'
 import CopyButton from '@/components/ui/CopyButton.vue'
@@ -16,6 +17,11 @@ import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import SecretValue from '@/components/ui/SecretValue.vue'
 
 import { accessKeyProtocolOptions, buildAccessKeyModelOptions } from './access-key-options'
+import type {
+  AccessKeyScopeDimension,
+  AccessKeyScopeMode,
+  GroupCatalogState,
+} from './access-key-scope'
 import {
   buildAccessKeyUpdatePatch,
   buildCreateAccessKeyInput,
@@ -23,12 +29,17 @@ import {
   isAccessKeyDraftValid,
   type AccessKeyDraft,
 } from './access-key-patch'
+import { useEphemeralSecret } from './use-ephemeral-secret'
 
-const props = defineProps<{
-  open: boolean
-  accessKey: AccessKeyDto | null
-  groups: GroupSummary[]
-}>()
+const props = withDefaults(
+  defineProps<{
+    open: boolean
+    accessKey: AccessKeyDto | null
+    groups: GroupSummary[]
+    groupCatalogState?: GroupCatalogState
+  }>(),
+  { groupCatalogState: 'ready' },
+)
 const emit = defineEmits<{ 'update:open': [open: boolean] }>()
 const client = useApiClient()
 const queryClient = useQueryClient()
@@ -37,13 +48,21 @@ const nameInput = ref<HTMLInputElement>()
 const base = ref<AccessKeyDto | null>(null)
 const draft = ref<AccessKeyDraft>(createAccessKeyDraft())
 const result = ref<AccessKeyDto | null>(null)
+const operationID = ref('')
 const pending = ref(false)
 const failed = ref(false)
+const mutationState = ref<'idle' | 'indeterminate' | 'reconciling'>('idle')
+const revealPending = ref(false)
 const modelInput = ref('')
 let controller: AbortController | undefined
+let revealController: AbortController | undefined
+const ephemeralSecret = useEphemeralSecret()
 
 const editing = computed(() => base.value !== null)
 const createCompleted = computed(() => !editing.value && result.value !== null)
+const resultSecret = computed(() =>
+  result.value ? ephemeralSecret.read(`access-key:${result.value.id}`) : null,
+)
 const protocolOptions = computed(() => accessKeyProtocolOptions(base.value?.filters.protocols))
 const modelOptions = computed(() =>
   buildAccessKeyModelOptions(props.groups, draft.value.filters.models),
@@ -54,16 +73,40 @@ const patch = computed(() =>
     : buildCreateAccessKeyInput(draft.value),
 )
 const dirty = computed(() => !base.value || Object.keys(patch.value).length > 0)
-const valid = computed(() => isAccessKeyDraftValid(draft.value, base.value))
+const groupCatalog = computed(() => ({
+  state: props.groupCatalogState,
+  ids: props.groups.map(({ id }) => id),
+}))
+const valid = computed(() => isAccessKeyDraftValid(draft.value, base.value, groupCatalog.value))
+const groupOptions = computed(() => {
+  const options = props.groups.map((group) => ({
+    id: group.id,
+    label: group.name,
+    dangling: false,
+  }))
+  const known = new Set(options.map(({ id }) => id))
+  for (const id of base.value?.filters.groups ?? []) {
+    if (!known.has(id)) {
+      options.push({ id, label: t('accessKeys.drawer.unknownGroup', { id }), dangling: true })
+    }
+  }
+  return options
+})
 
 function clearLocalState(): void {
   controller?.abort()
+  revealController?.abort()
   controller = undefined
+  revealController = undefined
+  ephemeralSecret.clear()
   base.value = null
   draft.value = createAccessKeyDraft()
   result.value = null
+  operationID.value = ''
   pending.value = false
+  revealPending.value = false
   failed.value = false
+  mutationState.value = 'idle'
   modelInput.value = ''
 }
 
@@ -71,7 +114,10 @@ async function resetForOpen(): Promise<void> {
   base.value = props.accessKey
   draft.value = createAccessKeyDraft(props.accessKey)
   result.value = null
+  operationID.value = props.accessKey ? '' : crypto.randomUUID()
+  ephemeralSecret.clear()
   failed.value = false
+  mutationState.value = 'idle'
   modelInput.value = ''
   await nextTick()
   await nextTick()
@@ -93,12 +139,14 @@ watch(
 )
 
 function toggleGroup(groupId: number, checked: boolean): void {
+  if (!canChangeScopeValue('groups', groupId, checked)) return
   draft.value.filters.groups = checked
     ? [...new Set([...draft.value.filters.groups, groupId])]
     : draft.value.filters.groups.filter((id) => id !== groupId)
 }
 
 function toggleProtocol(protocol: AccessProtocol, checked: boolean): void {
+  if (!canChangeScopeValue('protocols', protocol, checked)) return
   draft.value.filters.protocols = checked
     ? [...new Set([...draft.value.filters.protocols, protocol])]
     : draft.value.filters.protocols.filter((value) => value !== protocol)
@@ -106,13 +154,53 @@ function toggleProtocol(protocol: AccessProtocol, checked: boolean): void {
 
 function addModel(): void {
   const model = modelInput.value.trim()
-  if (!model || draft.value.filters.models.includes(model)) return
+  if (
+    !model ||
+    draft.value.filters.models.includes(model) ||
+    !canChangeScopeValue('models', model, true)
+  ) {
+    return
+  }
   draft.value.filters.models = [...draft.value.filters.models, model]
   modelInput.value = ''
 }
 
 function removeModel(model: string): void {
+  if (!canChangeScopeValue('models', model, false)) return
   draft.value.filters.models = draft.value.filters.models.filter((value) => value !== model)
+}
+
+function canChangeScopeValue(
+  dimension: AccessKeyScopeDimension,
+  value: number | string,
+  adding: boolean,
+): boolean {
+  if (pending.value || draft.value.scopeModes[dimension] !== 'restricted') return false
+  if (props.groupCatalogState === 'ready') return true
+  if (props.groupCatalogState !== 'stale' || adding) return false
+  return (
+    (base.value?.filters[dimension] as readonly (number | string)[] | undefined)?.includes(value) ??
+    false
+  )
+}
+
+function setScopeMode(dimension: AccessKeyScopeDimension, event: Event): void {
+  const target = event.target as HTMLSelectElement
+  const nextMode = target.value as AccessKeyScopeMode
+  const currentMode = draft.value.scopeModes[dimension]
+  if (props.groupCatalogState !== 'ready' || (nextMode !== 'all' && nextMode !== 'restricted')) {
+    target.value = currentMode
+    return
+  }
+  if (
+    currentMode === 'restricted' &&
+    nextMode === 'all' &&
+    !window.confirm(t('accessKeys.drawer.expandScopeConfirmation'))
+  ) {
+    target.value = currentMode
+    return
+  }
+  draft.value.scopeModes[dimension] = nextMode
 }
 
 function setRPM(event: Event): void {
@@ -127,32 +215,122 @@ async function save(): Promise<void> {
 
   pending.value = true
   failed.value = false
+  mutationState.value = 'idle'
   result.value = null
+  ephemeralSecret.clear()
+  const expectedSecretEpoch = ephemeralSecret.epoch.value
   controller?.abort()
   controller = new AbortController()
   const activeController = controller
+  const activeOperationID = operationID.value
   try {
-    const saved = currentBase
-      ? await updateAccessKey(client, currentBase.id, updateBody!, activeController.signal)
-      : await createAccessKey(
-          client,
-          buildCreateAccessKeyInput(draft.value),
-          activeController.signal,
-        )
-    if (controller !== activeController || !props.open) return
-    result.value = saved
     if (currentBase) {
+      const saved = await updateAccessKey(
+        client,
+        currentBase.id,
+        updateBody!,
+        activeController.signal,
+      )
+      if (
+        controller !== activeController ||
+        !props.open ||
+        operationID.value !== activeOperationID
+      ) {
+        return
+      }
       base.value = saved
       draft.value = createAccessKeyDraft(saved)
+      result.value = null
+    } else {
+      const saved = await createAccessKey(
+        client,
+        buildCreateAccessKeyInput(draft.value),
+        activeOperationID,
+        activeController.signal,
+      )
+      if (
+        controller !== activeController ||
+        !props.open ||
+        operationID.value !== activeOperationID
+      ) {
+        return
+      }
+      const key = saved.key
+      const metadata: AccessKeyDto = {
+        id: saved.id,
+        name: saved.name,
+        masked_key: saved.masked_key,
+        status: saved.status,
+        filters: saved.filters,
+        rpm_limit: saved.rpm_limit,
+        created_at: saved.created_at,
+        updated_at: saved.updated_at,
+      }
+      result.value = metadata
+      if (key && ephemeralSecret.epoch.value === expectedSecretEpoch) {
+        ephemeralSecret.expose(`access-key:${metadata.id}`, key)
+      }
     }
-    await queryClient.invalidateQueries({ queryKey: controlQueryKeys.accessKeys.list() })
+    await Promise.all(
+      accessKeyMutationInvalidations[currentBase ? 'update' : 'create'].map((queryKey) =>
+        queryClient.invalidateQueries({ queryKey }),
+      ),
+    )
   } catch (error: unknown) {
-    if (controller !== activeController || !props.open) return
-    if (!(error instanceof RequestCancelledError)) failed.value = true
+    if (controller !== activeController || !props.open || operationID.value !== activeOperationID) {
+      return
+    }
+    if (error instanceof RequestCancelledError) return
+    const outcome = classifyMutationOutcome({
+      kind: 'error',
+      error,
+      requestSent: true,
+    })
+    failed.value = outcome.kind === 'failed'
+    mutationState.value =
+      outcome.kind === 'reconciling'
+        ? 'reconciling'
+        : outcome.kind === 'indeterminate'
+          ? 'indeterminate'
+          : 'idle'
   } finally {
     if (controller === activeController) {
       controller = undefined
       pending.value = false
+    }
+  }
+}
+
+async function revealResultSecret(): Promise<void> {
+  const current = result.value
+  if (!current || revealPending.value) return
+  if (resultSecret.value) {
+    ephemeralSecret.clear()
+    return
+  }
+  revealController?.abort()
+  const controller = new AbortController()
+  revealController = controller
+  const expectedEpoch = ephemeralSecret.epoch.value
+  revealPending.value = true
+  try {
+    const revealed = await revealAccessKey(client, current.id, controller.signal)
+    if (
+      revealController === controller &&
+      result.value?.id === current.id &&
+      props.open &&
+      ephemeralSecret.epoch.value === expectedEpoch
+    ) {
+      ephemeralSecret.expose(`access-key:${current.id}`, revealed.key)
+    }
+  } catch (error: unknown) {
+    if (revealController === controller && !(error instanceof RequestCancelledError)) {
+      failed.value = true
+    }
+  } finally {
+    if (revealController === controller) {
+      revealController = undefined
+      revealPending.value = false
     }
   }
 }
@@ -173,6 +351,12 @@ onBeforeUnmount(clearLocalState)
     <form class="access-key-drawer" @submit.prevent="save">
       <InlineFeedback v-if="failed" tone="danger">{{
         t('accessKeys.drawer.saveFailed')
+      }}</InlineFeedback>
+      <InlineFeedback v-if="mutationState === 'indeterminate'" tone="warning">{{
+        t('accessKeys.drawer.saveIndeterminate')
+      }}</InlineFeedback>
+      <InlineFeedback v-if="mutationState === 'reconciling'" tone="warning">{{
+        t('accessKeys.drawer.saveReconciling')
       }}</InlineFeedback>
 
       <template v-if="!createCompleted">
@@ -204,21 +388,49 @@ onBeforeUnmount(clearLocalState)
 
         <fieldset>
           <legend>{{ t('accessKeys.drawer.groups') }}</legend>
-          <p>{{ t('accessKeys.drawer.emptyMeansAll') }}</p>
-          <label v-for="group in groups" :key="group.id" class="access-key-drawer__check">
+          <label class="access-key-drawer__field">
+            <span>{{ t('accessKeys.drawer.scopeMode') }}</span>
+            <select
+              data-test="access-key-groups-mode"
+              :value="draft.scopeModes.groups"
+              :disabled="pending || groupCatalogState !== 'ready'"
+              @change="setScopeMode('groups', $event)"
+            >
+              <option value="all">{{ t('accessKeys.drawer.scopeAll') }}</option>
+              <option value="restricted">{{ t('accessKeys.drawer.scopeRestricted') }}</option>
+            </select>
+          </label>
+          <label v-for="group in groupOptions" :key="group.id" class="access-key-drawer__check">
             <input
               type="checkbox"
               :checked="draft.filters.groups.includes(group.id)"
-              :disabled="pending"
+              :disabled="
+                pending ||
+                draft.scopeModes.groups !== 'restricted' ||
+                groupCatalogState === 'loading' ||
+                groupCatalogState === 'error' ||
+                (groupCatalogState === 'stale' && !draft.filters.groups.includes(group.id))
+              "
               @change="toggleGroup(group.id, ($event.target as HTMLInputElement).checked)"
             />
-            <span>{{ group.name }}</span>
+            <span>{{ group.label }}</span>
           </label>
         </fieldset>
 
         <fieldset>
           <legend>{{ t('accessKeys.drawer.protocols') }}</legend>
-          <p>{{ t('accessKeys.drawer.emptyMeansAll') }}</p>
+          <label class="access-key-drawer__field">
+            <span>{{ t('accessKeys.drawer.scopeMode') }}</span>
+            <select
+              data-test="access-key-protocols-mode"
+              :value="draft.scopeModes.protocols"
+              :disabled="pending || groupCatalogState !== 'ready'"
+              @change="setScopeMode('protocols', $event)"
+            >
+              <option value="all">{{ t('accessKeys.drawer.scopeAll') }}</option>
+              <option value="restricted">{{ t('accessKeys.drawer.scopeRestricted') }}</option>
+            </select>
+          </label>
           <label
             v-for="protocol in protocolOptions"
             :key="protocol"
@@ -227,11 +439,17 @@ onBeforeUnmount(clearLocalState)
             <input
               type="checkbox"
               :checked="draft.filters.protocols.includes(protocol)"
-              :disabled="pending"
+              :disabled="
+                pending ||
+                draft.scopeModes.protocols !== 'restricted' ||
+                groupCatalogState === 'loading' ||
+                groupCatalogState === 'error' ||
+                (groupCatalogState === 'stale' && !draft.filters.protocols.includes(protocol))
+              "
               @change="toggleProtocol(protocol, ($event.target as HTMLInputElement).checked)"
             />
             <span class="access-key-drawer__check-content">
-              <span>{{ t(`group.protocols.${protocol}`) }}</span>
+              <span>{{ t(`common.protocols.${protocol}`) }}</span>
               <small v-if="protocol === 'openai-response'">{{
                 t('accessKeys.drawer.reservedProtocolHint')
               }}</small>
@@ -241,6 +459,18 @@ onBeforeUnmount(clearLocalState)
 
         <fieldset>
           <legend>{{ t('accessKeys.drawer.models') }}</legend>
+          <label class="access-key-drawer__field">
+            <span>{{ t('accessKeys.drawer.scopeMode') }}</span>
+            <select
+              data-test="access-key-models-mode"
+              :value="draft.scopeModes.models"
+              :disabled="pending || groupCatalogState !== 'ready'"
+              @change="setScopeMode('models', $event)"
+            >
+              <option value="all">{{ t('accessKeys.drawer.scopeAll') }}</option>
+              <option value="restricted">{{ t('accessKeys.drawer.scopeRestricted') }}</option>
+            </select>
+          </label>
           <p>{{ t('accessKeys.drawer.modelsDescription') }}</p>
           <div class="access-key-drawer__model-entry">
             <input
@@ -250,7 +480,9 @@ onBeforeUnmount(clearLocalState)
               list="access-key-model-options"
               autocomplete="off"
               :placeholder="t('accessKeys.drawer.modelPlaceholder')"
-              :disabled="pending"
+              :disabled="
+                pending || draft.scopeModes.models !== 'restricted' || groupCatalogState !== 'ready'
+              "
               @keydown.enter.prevent="addModel"
             />
             <datalist id="access-key-model-options">
@@ -258,7 +490,12 @@ onBeforeUnmount(clearLocalState)
             </datalist>
             <AppButton
               variant="secondary"
-              :disabled="pending || !modelInput.trim()"
+              :disabled="
+                pending ||
+                !modelInput.trim() ||
+                draft.scopeModes.models !== 'restricted' ||
+                groupCatalogState !== 'ready'
+              "
               @click="addModel"
             >
               <Plus :size="16" aria-hidden="true" />{{ t('accessKeys.drawer.addModel') }}
@@ -274,7 +511,9 @@ onBeforeUnmount(clearLocalState)
               <button
                 type="button"
                 :aria-label="t('accessKeys.drawer.removeModel', { model })"
-                :disabled="pending"
+                :disabled="
+                  pending || groupCatalogState === 'loading' || groupCatalogState === 'error'
+                "
                 @click="removeModel(model)"
               >
                 <X :size="15" aria-hidden="true" />
@@ -306,18 +545,30 @@ onBeforeUnmount(clearLocalState)
         </div>
         <p>{{ t('accessKeys.drawer.resultDescription') }}</p>
         <div class="access-key-drawer__secret">
-          <SecretValue
-            :value="result.key"
-            :reveal-label="t('common.reveal')"
-            :conceal-label="t('common.conceal')"
-            button-test="access-key-result-reveal"
-          />
-          <CopyButton
-            :value="result.key"
-            :label="t('accessKeys.copy')"
-            :success-label="t('common.copied')"
-            :failure-label="t('common.copyFailed')"
-          />
+          <template v-if="resultSecret">
+            <SecretValue
+              :value="resultSecret"
+              :reveal-label="t('common.reveal')"
+              :conceal-label="t('common.conceal')"
+              button-test="access-key-result-reveal"
+              @conceal="ephemeralSecret.clear"
+            />
+            <CopyButton
+              :value="resultSecret"
+              :label="t('accessKeys.copy')"
+              :success-label="t('common.copied')"
+              :failure-label="t('common.copyFailed')"
+            />
+          </template>
+          <AppButton
+            v-else
+            data-test="access-key-result-reveal"
+            variant="secondary"
+            :busy="revealPending"
+            @click="revealResultSecret"
+          >
+            {{ t('common.reveal') }}
+          </AppButton>
         </div>
       </section>
 
@@ -358,7 +609,7 @@ input,
 select {
   width: 100%;
   min-height: 44px;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-border-control);
   border-radius: var(--radius-control);
   background: var(--color-surface-secondary);
   color: var(--color-text);

@@ -14,6 +14,11 @@ export interface SettingsDraft {
   overrides: Set<RuntimeSettingKey>
 }
 
+export interface SettingsFieldIdentity {
+  is_override: boolean
+  normalized_value: number | boolean | HeaderRulesDto
+}
+
 const requestForwardingKeys: RuntimeSettingKey[] = [
   'connect_timeout',
   'first_byte_timeout',
@@ -74,7 +79,7 @@ function normalizeHeaderRules(value: HeaderRulesDto): HeaderRulesDto {
   return { set, remove }
 }
 
-function normalizedValue(
+function normalizedWireValue(
   settings: SettingsValues,
   key: RuntimeSettingKey,
 ): number | boolean | HeaderRulesDto {
@@ -83,12 +88,84 @@ function normalizedValue(
   return settings[key]
 }
 
+function canonicalHeaderRulesIdentity(value: HeaderRulesDto): HeaderRulesDto {
+  const set = Object.fromEntries(
+    Object.entries(value.set)
+      .map(([name, headerValue]) => [asciiLower(name.trim()), headerValue] as const)
+      .filter(([name]) => name.length > 0)
+      .sort(([left], [right]) => left.localeCompare(right)),
+  )
+  const remove = [
+    ...new Set(value.remove.map((name) => asciiLower(name.trim())).filter(Boolean)),
+  ].sort((left, right) => left.localeCompare(right))
+  return { set, remove }
+}
+
+function normalizedIdentityValue(
+  settings: SettingsValues,
+  key: RuntimeSettingKey,
+): number | boolean | HeaderRulesDto {
+  if (key === 'header_rules') return canonicalHeaderRulesIdentity(settings.header_rules)
+  return normalizedWireValue(settings, key)
+}
+
 function sameValue(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right)
 }
 
-function sectionKeys(section: SettingsSection): RuntimeSettingKey[] {
-  return section === 'request-forwarding' ? requestForwardingKeys : logsMaintenanceKeys
+export function settingsSectionKeys(section: SettingsSection): RuntimeSettingKey[] {
+  return [...(section === 'request-forwarding' ? requestForwardingKeys : logsMaintenanceKeys)]
+}
+
+export function settingsFieldIdentity(
+  settings: SettingsDto,
+  key: RuntimeSettingKey,
+): SettingsFieldIdentity {
+  return {
+    is_override: settings.overrides.includes(key),
+    normalized_value: normalizedIdentityValue(settings.values, key),
+  }
+}
+
+export function draftFieldIdentity(
+  draft: SettingsDraft,
+  key: RuntimeSettingKey,
+): SettingsFieldIdentity {
+  return {
+    is_override: draft.overrides.has(key),
+    normalized_value: normalizedIdentityValue(draft.values, key),
+  }
+}
+
+export function sameSettingsFieldIdentity(
+  left: SettingsFieldIdentity,
+  right: SettingsFieldIdentity,
+): boolean {
+  return (
+    left.is_override === right.is_override &&
+    sameValue(left.normalized_value, right.normalized_value)
+  )
+}
+
+export function replaceDraftFieldFromSettings(
+  draft: SettingsDraft,
+  settings: SettingsDto,
+  key: RuntimeSettingKey,
+): SettingsDraft {
+  const next: SettingsDraft = {
+    values: cloneValues(draft.values),
+    overrides: new Set(draft.overrides),
+  }
+  if (settings.overrides.includes(key)) next.overrides.add(key)
+  else next.overrides.delete(key)
+  if (key === 'header_rules') {
+    next.values.header_rules = cloneHeaderRules(settings.values.header_rules)
+  } else if (key === 'inject_usage_options') {
+    next.values.inject_usage_options = settings.values.inject_usage_options
+  } else {
+    next.values[key] = settings.values[key]
+  }
+  return next
 }
 
 export function buildSettingsPatch(
@@ -98,7 +175,7 @@ export function buildSettingsPatch(
 ): SettingsPatch {
   const patch: SettingsPatch = {}
   const baseOverrides = new Set(base.overrides)
-  for (const key of sectionKeys(section)) {
+  for (const key of settingsSectionKeys(section)) {
     const wasOwned = baseOverrides.has(key)
     const isOwned = draft.overrides.has(key)
     if (wasOwned && !isOwned) {
@@ -106,8 +183,14 @@ export function buildSettingsPatch(
       continue
     }
     if (!isOwned) continue
-    const value = normalizedValue(draft.values, key)
-    if (!wasOwned || !sameValue(value, normalizedValue(base.values, key))) {
+    const value = normalizedWireValue(draft.values, key)
+    if (
+      !wasOwned ||
+      !sameValue(
+        normalizedIdentityValue(draft.values, key),
+        normalizedIdentityValue(base.values, key),
+      )
+    ) {
       ;(patch as Record<string, unknown>)[key] = value
     }
   }
@@ -123,7 +206,7 @@ export function rebaseSettingsDraft(
   const patch = buildSettingsPatch(base, draft, section)
   const rebased = createSettingsDraft(refreshed)
 
-  for (const key of sectionKeys(section)) {
+  for (const key of settingsSectionKeys(section)) {
     if (!Object.prototype.hasOwnProperty.call(patch, key)) continue
     const value = patch[key]
     if (value === null) {

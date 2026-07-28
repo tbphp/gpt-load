@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "container": {
+    "image": "mcr.microsoft.com/playwright:v1.61.1-noble@sha256:5b8f294aff9041b7191c34a4bab3ac270157a28774d4b0660e9743297b697e48",
+    "platform_digests": {
+      "linux/amd64": "sha256:cf0daee9b994042e011bc29f20cdff1a9f682a039b43fcd738f7d8a9d3bcd9d6",
+      "linux/arm64": "sha256:824f1a789072e648c62541c2cfa4479c4061a290d5c27766d67dc1dcbc19b321"
+    }
+  },
+  "runtime": {
+    "node": "24.18.0",
+    "playwright": "1.61.1",
+    "vite": "8.1.5",
+    "zlib": "1.3.1-e00f703",
+    "brotli": "1.2.0"
+  },
+  "render_fingerprint": {
+    "browser": "chromium",
+    "browser_revision": "1228",
+    "browser_version": "149.0.7827.55",
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "device_scale_factor": 1,
+    "locale": "en-US",
+    "timezone": "UTC",
+    "color_scheme": "light",
+    "reduced_motion": "reduce",
+    "animations_disabled": true
+  },
+  "pixel_baseline": {
+    "enabled": false,
+    "external_gate": "Phase 5 canonical Linux runner capture and human approval"
+  }
+}

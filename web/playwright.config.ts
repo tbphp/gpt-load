@@ -1,35 +1,29 @@
-import { defineConfig, devices } from '@playwright/test'
+import { defineConfig } from '@playwright/test'
 
-const port = 3107
+const baseURL = process.env.GPT_LOAD_E2E_BASE_URL
+if (!baseURL) {
+  throw new Error('Use pnpm run test:e2e so the isolated E2E harness can provide a base URL')
+}
 
 export default defineConfig({
   testDir: './e2e',
   testMatch: '**/*.spec.ts',
-  outputDir: 'test-results',
+  outputDir: process.env.GPT_LOAD_E2E_ARTIFACT_DIR ?? 'test-results/unscoped',
   fullyParallel: false,
   workers: 1,
   reporter: 'list',
   globalTeardown: './e2e/global-teardown.ts',
   use: {
-    baseURL: `http://127.0.0.1:${port}`,
+    baseURL,
+    viewport: { width: 1440, height: 900 },
+    deviceScaleFactor: 1,
+    locale: 'en-US',
+    timezoneId: 'UTC',
+    colorScheme: 'light',
+    contextOptions: { reducedMotion: 'reduce' },
     trace: 'off',
     screenshot: 'off',
     video: 'off',
   },
-  projects: [
-    {
-      name: 'chromium',
-      use: { ...devices['Desktop Chrome'] },
-    },
-  ],
-  webServer: {
-    command: 'node e2e/start-e2e-server.mjs',
-    url: `http://127.0.0.1:${port}/health`,
-    reuseExistingServer: false,
-    timeout: 30_000,
-    gracefulShutdown: {
-      signal: 'SIGTERM',
-      timeout: 0,
-    },
-  },
+  projects: [{ name: 'chromium', use: { browserName: 'chromium' } }],
 })

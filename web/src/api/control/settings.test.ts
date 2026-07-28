@@ -1,8 +1,9 @@
-import type { ApiClient } from '@/api/client'
-import { InvalidResponseError } from '@/api/errors'
+import type { ApiClient, ApiClientWithResponse } from '@/api/client'
+import { ApiError, InvalidResponseError } from '@/api/errors'
 
 import {
   getSettings,
+  projectSettingsConflict,
   runtimeSettingKeys,
   updateSettings,
   type SettingsDto,
@@ -10,7 +11,6 @@ import {
 } from './settings'
 
 const response: SettingsDto = {
-  revision: 7,
   values: {
     connect_timeout: 15,
     first_byte_timeout: 120,
@@ -24,18 +24,33 @@ const response: SettingsDto = {
 }
 
 describe('Settings control API', () => {
-  it('uses exact GET and PUT contracts with AbortSignals and a settings patch body', async () => {
+  it('uses exact GET and strong If-Match PUT contracts with response metadata', async () => {
     const signal = new AbortController().signal
     const patch: SettingsPatch = { request_timeout: 900, header_rules: null }
-    const request = vi.fn().mockResolvedValue(response)
-    const client: ApiClient = { request: request as ApiClient['request'] }
+    const requestWithResponse = vi.fn().mockResolvedValue({
+      data: response,
+      status: 200,
+      headers: new Headers({ ETag: `"sha256-${'a'.repeat(64)}"` }),
+    })
+    const client: ApiClient = {
+      request: vi.fn() as ApiClient['request'],
+      requestWithResponse: requestWithResponse as ApiClientWithResponse['requestWithResponse'],
+    }
 
     await getSettings(client, signal)
-    await updateSettings(client, patch, signal)
+    await updateSettings(client, patch, `sha256-${'a'.repeat(64)}`, signal)
 
-    expect(request.mock.calls).toEqual([
+    expect(requestWithResponse.mock.calls).toEqual([
       ['/api/settings', { signal }],
-      ['/api/settings', { method: 'PUT', json: { settings: patch }, signal }],
+      [
+        '/api/settings',
+        {
+          method: 'PUT',
+          headers: { 'If-Match': `"sha256-${'a'.repeat(64)}"` },
+          json: { settings: patch },
+          signal,
+        },
+      ],
     ])
   })
 
@@ -55,9 +70,17 @@ describe('Settings control API', () => {
       overrides: [...response.overrides, 'future_setting'],
       secret_debug: 'DO_NOT_CACHE',
     }
-    const request = vi.fn().mockResolvedValue(raw)
+    const requestWithResponse = vi.fn().mockResolvedValue({
+      data: raw,
+      status: 200,
+      headers: new Headers({ ETag: `"sha256-${'b'.repeat(64)}"` }),
+    })
 
-    const settings = await getSettings({ request: request as ApiClient['request'] })
+    const resource = await getSettings({
+      request: vi.fn() as ApiClient['request'],
+      requestWithResponse: requestWithResponse as ApiClientWithResponse['requestWithResponse'],
+    })
+    const settings = resource.settings
 
     expect(settings).toEqual(response)
     expect(Array.isArray(settings.overrides)).toBe(true)
@@ -66,26 +89,77 @@ describe('Settings control API', () => {
   })
 
   it('projects a strict inject_usage_options boolean', async () => {
-    const request = vi.fn().mockResolvedValue(response)
-    await expect(getSettings({ request: request as ApiClient['request'] })).resolves.toMatchObject({
-      values: { inject_usage_options: true },
+    const requestWithResponse = vi.fn().mockResolvedValue({
+      data: response,
+      status: 200,
+      headers: new Headers({ ETag: `"sha256-${'c'.repeat(64)}"` }),
+    })
+    const client: ApiClient = {
+      request: vi.fn() as ApiClient['request'],
+      requestWithResponse: requestWithResponse as ApiClientWithResponse['requestWithResponse'],
+    }
+    await expect(getSettings(client)).resolves.toMatchObject({
+      settings: { values: { inject_usage_options: true } },
     })
     for (const invalid of [0, 1, 'true', null, [], {}]) {
-      request.mockResolvedValueOnce({
-        ...response,
-        values: { ...response.values, inject_usage_options: invalid },
+      requestWithResponse.mockResolvedValueOnce({
+        data: {
+          ...response,
+          values: { ...response.values, inject_usage_options: invalid },
+        },
+        status: 200,
+        headers: new Headers({ ETag: `"sha256-${'c'.repeat(64)}"` }),
       })
-      await expect(
-        getSettings({ request: request as ApiClient['request'] }),
-      ).rejects.toBeInstanceOf(InvalidResponseError)
+      await expect(getSettings(client)).rejects.toBeInstanceOf(InvalidResponseError)
     }
   })
 
   it('rejects malformed settings DTOs with a generic invalid-response error', async () => {
-    const request = vi.fn().mockResolvedValue({ ...response, overrides: 'request_timeout' })
+    const requestWithResponse = vi.fn().mockResolvedValue({
+      data: { ...response, overrides: 'request_timeout' },
+      status: 200,
+      headers: new Headers({ ETag: `"sha256-${'d'.repeat(64)}"` }),
+    })
 
-    await expect(getSettings({ request: request as ApiClient['request'] })).rejects.toBeInstanceOf(
-      InvalidResponseError,
-    )
+    await expect(
+      getSettings({
+        request: vi.fn() as ApiClient['request'],
+        requestWithResponse: requestWithResponse as ApiClientWithResponse['requestWithResponse'],
+      }),
+    ).rejects.toBeInstanceOf(InvalidResponseError)
+  })
+
+  it('projects only a valid 412 latest Settings resource', () => {
+    const token = `sha256-${'e'.repeat(64)}`
+    expect(
+      projectSettingsConflict(
+        new ApiError(412, 'SETTINGS_VERSION_CONFLICT', 'conflict', {
+          settings: response,
+          settings_etag: token,
+          diagnostic: 'DO_NOT_CACHE',
+        }),
+      ),
+    ).toEqual({ settings: response, settings_etag: token })
+
+    for (const error of [
+      new ApiError(409, 'SETTINGS_VERSION_CONFLICT', 'wrong status', {
+        settings: response,
+        settings_etag: token,
+      }),
+      new ApiError(412, 'SETTINGS_VERSION_CONFLICT', 'bad token', {
+        settings: response,
+        settings_etag: 'weak',
+      }),
+      new ApiError(412, 'OTHER', 'wrong code', {
+        settings: response,
+        settings_etag: token,
+      }),
+    ]) {
+      if (error.data && (error.data as { settings_etag?: string }).settings_etag === 'weak') {
+        expect(() => projectSettingsConflict(error)).toThrow(InvalidResponseError)
+      } else {
+        expect(projectSettingsConflict(error)).toBeUndefined()
+      }
+    }
   })
 })

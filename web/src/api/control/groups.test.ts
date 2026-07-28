@@ -70,6 +70,8 @@ describe('Group control API', () => {
   it('creates a Group and imports raw keys through separate exact endpoints', async () => {
     const signal = new AbortController().signal
     const request = vi.fn().mockResolvedValue({ group_id: 7 }) as ApiClient['request']
+    const createOperationID = '318f47a2-9c35-4d6e-8b1a-1234567890ab'
+    const importOperationID = 'd4ba3f42-67bc-4b5b-b594-1234567890ab'
     const createBody = {
       name: 'Primary',
       upstream_url: 'https://api.example.com',
@@ -80,16 +82,18 @@ describe('Group control API', () => {
       confirm_same_upstream_url: false,
     }
 
-    await createGroup({ request }, createBody, signal)
-    await importGroupKeys({ request }, 7, { keys: 'raw-key' }, signal)
+    await createGroup({ request }, createBody, createOperationID, signal)
+    await importGroupKeys({ request }, 7, { keys: 'raw-key' }, importOperationID, signal)
 
     expect(request).toHaveBeenNthCalledWith(1, '/api/groups', {
       method: 'POST',
+      headers: { 'Idempotency-Key': createOperationID },
       json: createBody,
       signal,
     })
     expect(request).toHaveBeenNthCalledWith(2, '/api/groups/7/keys/import', {
       method: 'POST',
+      headers: { 'Idempotency-Key': importOperationID },
       json: { keys: 'raw-key' },
       signal,
     })

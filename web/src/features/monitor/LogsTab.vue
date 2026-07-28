@@ -455,7 +455,7 @@ onBeforeUnmount(() => {
           <td>
             <div class="log-cell-stack">
               <span>{{ t('monitor.logs.drawer.protocol') }}</span>
-              <code>{{ t(`group.protocols.${log.protocol}`) }}</code>
+              <code>{{ t(`common.protocols.${log.protocol}`) }}</code>
               <span>{{ t('monitor.logs.drawer.clientModel') }}</span>
               <code>{{ log.client_model }}</code>
               <span>{{ t('monitor.logs.drawer.upstreamModel') }}</span>
@@ -553,7 +553,7 @@ onBeforeUnmount(() => {
 .logs-filter-form select {
   width: 100%;
   min-height: 44px;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-border-control);
   border-radius: var(--radius-control);
   background: var(--color-surface);
   color: var(--color-text);

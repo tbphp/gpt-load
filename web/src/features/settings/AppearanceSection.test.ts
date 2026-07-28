@@ -3,8 +3,8 @@ import { mount } from '@vue/test-utils'
 import type { ApiClient } from '@/api/client'
 import { apiClientKey } from '@/api/client-context'
 import { createThemeController, themeControllerKey } from '@/features/preferences/theme'
-import { createAppI18n } from '@/i18n'
 import { appI18nKey } from '@/i18n/context'
+import { createTestAppI18n as createAppI18n } from '@/test/i18n'
 
 import AppearanceSection from './AppearanceSection.vue'
 

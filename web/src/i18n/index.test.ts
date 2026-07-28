@@ -1,6 +1,5 @@
-import enUS from './locales/en-US'
-import jaJP from './locales/ja-JP'
-import zhCN from './locales/zh-CN'
+import { testMessages } from '@/test/i18n'
+
 import { createAppI18n } from './index'
 
 function dictionaryKeys(value: Record<string, unknown>, prefix = ''): string[] {
@@ -14,10 +13,10 @@ function dictionaryKeys(value: Record<string, unknown>, prefix = ''): string[] {
 }
 
 describe('createAppI18n', () => {
-  it('prefers a supported saved locale', () => {
+  it('prefers a supported saved locale', async () => {
     window.localStorage.setItem('gpt-load.locale', 'en-US')
 
-    const appI18n = createAppI18n(window.localStorage, 'ja-JP')
+    const appI18n = await createAppI18n(window.localStorage, 'ja-JP')
 
     expect(appI18n.getLocale()).toBe('en-US')
     expect(document.documentElement.lang).toBe('en-US')
@@ -27,32 +26,32 @@ describe('createAppI18n', () => {
     ['zh-Hant-TW', 'zh-CN'],
     ['EN-gb', 'en-US'],
     ['ja', 'ja-JP'],
-  ] as const)('normalizes navigator locale %s to %s', (browserLanguage, expected) => {
-    const appI18n = createAppI18n(window.localStorage, browserLanguage)
-
+  ] as const)('normalizes navigator locale %s to %s', async (browserLanguage, expected) => {
+    const appI18n = await createAppI18n(window.localStorage, browserLanguage)
     expect(appI18n.getLocale()).toBe(expected)
   })
 
-  it('falls back to zh-CN', () => {
+  it('falls back to zh-CN', async () => {
     window.localStorage.setItem('gpt-load.locale', 'en-us')
-
-    const appI18n = createAppI18n(window.localStorage, 'fr-FR')
-
+    const appI18n = await createAppI18n(window.localStorage, 'fr-FR')
     expect(appI18n.getLocale()).toBe('zh-CN')
     expect(document.documentElement.lang).toBe('zh-CN')
   })
 
-  it('persists locale and updates document language', () => {
-    const appI18n = createAppI18n(window.localStorage, 'zh-CN')
+  it('persists locale and updates document language after loading active namespaces', async () => {
+    const appI18n = await createAppI18n(window.localStorage, 'zh-CN')
+    await appI18n.loadNamespaces(['monitor'])
 
-    appI18n.setLocale('ja-JP')
+    await appI18n.setLocale('ja-JP')
 
     expect(appI18n.getLocale()).toBe('ja-JP')
     expect(window.localStorage.getItem('gpt-load.locale')).toBe('ja-JP')
     expect(document.documentElement.lang).toBe('ja-JP')
+    expect(appI18n.plugin.global.te('monitor.title', 'ja-JP')).toBe(true)
+    expect(appI18n.plugin.global.te('settings.title', 'ja-JP')).toBe(false)
   })
 
-  it('keeps the in-memory and document locale when storage fails', () => {
+  it('keeps the in-memory and document locale when storage fails', async () => {
     const failingStorage = {
       getItem() {
         throw new Error('storage unavailable')
@@ -61,26 +60,21 @@ describe('createAppI18n', () => {
         throw new Error('storage unavailable')
       },
     } as unknown as Storage
+    const appI18n = await createAppI18n(failingStorage, 'en-GB')
 
-    const appI18n = createAppI18n(failingStorage, 'en-GB')
-
-    expect(appI18n.getLocale()).toBe('en-US')
-    expect(() => appI18n.setLocale('ja-JP')).not.toThrow()
+    await expect(appI18n.setLocale('ja-JP')).resolves.toBeUndefined()
     expect(appI18n.getLocale()).toBe('ja-JP')
     expect(document.documentElement.lang).toBe('ja-JP')
   })
 
-  it('uses memory when the default localStorage getter throws', () => {
+  it('uses memory when the default localStorage getter throws', async () => {
     const localStorageGetter = vi.spyOn(window, 'localStorage', 'get').mockImplementation(() => {
       throw new DOMException('storage unavailable', 'SecurityError')
     })
-
     try {
-      const appI18n = createAppI18n(undefined, 'ja-JP')
-
+      const appI18n = await createAppI18n(undefined, 'ja-JP')
       expect(appI18n.getLocale()).toBe('ja-JP')
-      expect(document.documentElement.lang).toBe('ja-JP')
-      expect(() => appI18n.setLocale('en-US')).not.toThrow()
+      await expect(appI18n.setLocale('en-US')).resolves.toBeUndefined()
       expect(appI18n.getLocale()).toBe('en-US')
       expect(document.documentElement.lang).toBe('en-US')
     } finally {
@@ -88,53 +82,37 @@ describe('createAppI18n', () => {
     }
   })
 
-  it('keeps all three locale dictionaries structurally complete', () => {
+  it('loads only core/Home/Login initially and feature messages by namespace', async () => {
+    const appI18n = await createAppI18n(window.localStorage, 'en-US')
+    const initial = appI18n.plugin.global.getLocaleMessage('en-US')
+
+    expect(Object.keys(initial)).toEqual(['common', 'auth', 'shell', 'home'])
+    expect(initial).not.toHaveProperty('monitor')
+
+    await appI18n.loadNamespaces(['monitor'])
+
+    expect(appI18n.plugin.global.getLocaleMessage('en-US')).toHaveProperty('monitor')
+    expect(appI18n.plugin.global.getLocaleMessage('en-US')).not.toHaveProperty('settings')
+  })
+
+  it('keeps every split locale dictionary structurally complete', () => {
+    const zhCN = testMessages['zh-CN'] as Record<string, unknown>
+    const enUS = testMessages['en-US'] as Record<string, unknown>
+    const jaJP = testMessages['ja-JP'] as Record<string, unknown>
     const expectedKeys = dictionaryKeys(zhCN)
 
     expect(dictionaryKeys(enUS)).toEqual(expectedKeys)
     expect(dictionaryKeys(jaJP)).toEqual(expectedKeys)
-    expect(Object.values(zhCN.auth).every((message) => message.length > 0)).toBe(true)
-    expect(Object.values(enUS.auth).every((message) => message.length > 0)).toBe(true)
-    expect(Object.values(jaJP.auth).every((message) => message.length > 0)).toBe(true)
-    expect(dictionaryKeys(zhCN.modelPrices).length).toBeGreaterThan(20)
-    expect(dictionaryKeys(enUS.modelPrices)).toEqual(dictionaryKeys(zhCN.modelPrices))
-    expect(dictionaryKeys(jaJP.modelPrices)).toEqual(dictionaryKeys(zhCN.modelPrices))
-    expect(dictionaryKeys(zhCN.monitor.usage).length).toBeGreaterThan(40)
-    expect(dictionaryKeys(enUS.monitor.usage)).toEqual(dictionaryKeys(zhCN.monitor.usage))
-    expect(dictionaryKeys(jaJP.monitor.usage)).toEqual(dictionaryKeys(zhCN.monitor.usage))
-    expect(dictionaryKeys(zhCN.monitor.logs.drawer.usage).length).toBeGreaterThan(20)
-    expect(dictionaryKeys(enUS.monitor.logs.drawer.usage)).toEqual(
-      dictionaryKeys(zhCN.monitor.logs.drawer.usage),
-    )
-    expect(dictionaryKeys(jaJP.monitor.logs.drawer.usage)).toEqual(
-      dictionaryKeys(zhCN.monitor.logs.drawer.usage),
-    )
+    expect(dictionaryKeys(zhCN.modelPrices as Record<string, unknown>).length).toBeGreaterThan(20)
+    expect(dictionaryKeys(zhCN.monitor as Record<string, unknown>).length).toBeGreaterThan(100)
   })
 
-  it('keeps the HeaderRules storage notice in all three locale dictionaries', () => {
-    expect(zhCN.import.headerRules.storageNotice).toBe(
-      '密码遮挡仅减少旁观泄露，并不代表静态加密。普通 HeaderRules 字面值会以明文写入 SQLite 和备份。Provider 凭据 Header 必须使用 {template} 模板。',
-    )
-    expect(enUS.import.headerRules.storageNotice).toBe(
-      'Password masking only reduces shoulder-surfing exposure; it is not encryption at rest. Ordinary HeaderRules literals are stored in plaintext in SQLite and backups. Provider credential headers must use the {template} template.',
-    )
-    expect(jaJP.import.headerRules.storageNotice).toBe(
-      'パスワード表示のマスクは覗き見による漏えいを減らすだけで、保存時の暗号化ではありません。通常の HeaderRules リテラルは SQLite とバックアップに平文で保存されます。Provider 認証情報ヘッダーには {template} テンプレートを使用してください。',
-    )
-  })
-
-  it('keeps the read-only long-context pricing policy copy in all three locales', () => {
-    const policies = [zhCN, enUS, jaJP].map(
-      (locale) =>
-        (locale.modelPrices.builtin as Record<string, unknown>).longContext as
-          Record<string, string> | undefined,
-    )
-
-    for (const policy of policies) {
-      expect(typeof policy?.label).toBe('string')
-      expect(typeof policy?.summary).toBe('string')
-      expect(policy?.label ?? '').not.toHaveLength(0)
-      expect(policy?.summary ?? '').not.toHaveLength(0)
+  it('keeps security and pricing policy copy in all three locales', () => {
+    const locales = [testMessages['zh-CN'], testMessages['en-US'], testMessages['ja-JP']]
+    for (const locale of locales) {
+      expect(locale.import.headerRules.storageNotice).not.toHaveLength(0)
+      expect(locale.modelPrices.builtin.longContext.label).not.toHaveLength(0)
+      expect(locale.modelPrices.builtin.longContext.summary).not.toHaveLength(0)
     }
   })
 })

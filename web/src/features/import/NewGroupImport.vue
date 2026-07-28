@@ -25,6 +25,7 @@ import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import SurfaceCard from '@/components/ui/SurfaceCard.vue'
 
 import { channelPresets, type ChannelPreset } from './channel-presets'
+import { useImportOperationOwner } from './import-operation-owner'
 import { useImportRecovery } from './import-recovery'
 import { analyzeKeys } from './key-analysis'
 import KeyTextarea from './KeyTextarea.vue'
@@ -60,7 +61,7 @@ const draft = reactive<ImportDraft>({
   header_rules: { set: { ...source.header_rules.set }, remove: [...source.header_rules.remove] },
   models: source.models.map((model) => ({ ...model })),
 })
-const pending = ref(false)
+const discoveryPending = ref(false)
 const discoveryReady = ref(draft.step > 1 && draft.models.length > 0)
 const discoveryFailed = ref(false)
 const manualMode = ref(
@@ -70,7 +71,42 @@ const manualMode = ref(
 const errorKey = ref('')
 const conflict = ref<UpstreamUrlConflictData | null>(null)
 const completed = ref(false)
-let activeController: AbortController | undefined
+const importOperationOwner = useImportOperationOwner()
+const createOperation = importOperationOwner.createGroup
+const appendOperation = importOperationOwner.importKeys
+if (createOperation.outcome.value?.kind === 'confirmed') createOperation.reset()
+if (appendOperation.outcome.value?.kind === 'confirmed') appendOperation.reset()
+const pending = computed(
+  () => discoveryPending.value || createOperation.pending.value || appendOperation.pending.value,
+)
+const activeMutation = computed(() =>
+  appendOperation.operation.value
+    ? appendOperation
+    : createOperation.operation.value
+      ? createOperation
+      : null,
+)
+const mutationOutcome = computed(() => activeMutation.value?.outcome.value ?? null)
+const operationNoticeKey = computed(() => {
+  const outcome = mutationOutcome.value
+  if (!outcome) return ''
+  if (outcome.kind === 'reconciling') return 'import.operation.reconciling'
+  if (outcome.kind === 'indeterminate') return 'import.operation.indeterminate'
+  if (outcome.kind === 'failed' && outcome.reason === 'retryable-precondition')
+    return 'import.operation.waiting'
+  if (outcome.kind === 'failed' && outcome.reason === 'expired-known')
+    return 'import.operation.expired'
+  return ''
+})
+const operationResourceIdentity = computed(() => {
+  const outcome = mutationOutcome.value
+  return outcome?.kind === 'failed' && outcome.reason === 'expired-known'
+    ? outcome.resource_identity
+    : ''
+})
+const canRetryOperation = computed(() => activeMutation.value?.canRetry.value ?? false)
+let discoveryController: AbortController | undefined
+let componentActive = true
 
 const keyAnalysis = computed(() => analyzeKeys(draft.keys))
 const dirty = computed(
@@ -117,25 +153,25 @@ function buildDraftConfig(): GroupRuntimeConfigDto {
 }
 
 function startAction(): AbortController {
-  activeController?.abort()
-  activeController = new AbortController()
-  pending.value = true
+  discoveryController?.abort()
+  discoveryController = new AbortController()
+  discoveryPending.value = true
   errorKey.value = ''
-  return activeController
+  return discoveryController
 }
 
 function finishAction(controller: AbortController): void {
-  if (activeController === controller) {
-    activeController = undefined
-    pending.value = false
+  if (discoveryController === controller) {
+    discoveryController = undefined
+    discoveryPending.value = false
   }
 }
 
 function invalidateDiscovery(): void {
-  if (activeController) {
-    activeController.abort()
-    activeController = undefined
-    pending.value = false
+  if (discoveryController) {
+    discoveryController.abort()
+    discoveryController = undefined
+    discoveryPending.value = false
   }
   if (!discoveryReady.value && !discoveryFailed.value) return
   discoveryReady.value = false
@@ -184,14 +220,14 @@ async function runDiscovery(): Promise<void> {
       },
       controller.signal,
     )
-    if (activeController !== controller) return
+    if (discoveryController !== controller) return
     draft.models = createModelDraft(result.models)
     discoveryReady.value = true
     discoveryFailed.value = false
     manualMode.value = true
     draft.step = 2
   } catch (error: unknown) {
-    if (activeController !== controller || error instanceof RequestCancelledError) return
+    if (discoveryController !== controller || error instanceof RequestCancelledError) return
     discoveryFailed.value = true
     manualMode.value = false
     draft.step = 2
@@ -219,13 +255,13 @@ function buildCreateBody(confirmSameURL: boolean): GroupCreateRequest {
   }
 }
 
-async function finishSuccess(controller: AbortController, groupID: number): Promise<void> {
-  if (activeController !== controller) return
+async function finishSuccess(groupID: number): Promise<void> {
+  if (!componentActive) return
   await Promise.all([
     queryClient.invalidateQueries({ queryKey: controlQueryKeys.groups.list() }),
     queryClient.invalidateQueries({ queryKey: controlQueryKeys.health() }),
   ])
-  if (activeController !== controller) return
+  if (!componentActive) return
   completed.value = true
   draft.keys = ''
   recovery.clear()
@@ -234,14 +270,24 @@ async function finishSuccess(controller: AbortController, groupID: number): Prom
 
 async function submitCreate(confirmSameURL = false): Promise<void> {
   if (pending.value || toGroupModels(draft.models).length === 0) return
-  const controller = startAction()
+  if (confirmSameURL) createOperation.reset()
+  if (!importOperationOwner.beginCreate(buildCreateBody(confirmSameURL))) return
   if (!confirmSameURL) conflict.value = null
-  try {
-    const result = await createGroup(api, buildCreateBody(confirmSameURL), controller.signal)
-    if (activeController !== controller) return
-    await finishSuccess(controller, result.group_id)
-  } catch (error: unknown) {
-    if (activeController !== controller || error instanceof RequestCancelledError) return
+  errorKey.value = ''
+  const outcome = await createOperation.execute((operation, signal) =>
+    createGroup(api, operation.payload, operation.idempotencyKey, signal),
+  )
+  if (!outcome) return
+  if (outcome.kind === 'confirmed') {
+    const targetID = outcome.value.group_id
+    createOperation.reset()
+    if (!componentActive) return
+    await finishSuccess(targetID)
+    return
+  }
+  if (!componentActive) return
+  if (outcome.kind === 'failed' && outcome.reason === 'rejected') {
+    const error = createOperation.lastError.value
     if (
       error instanceof ApiError &&
       error.code === 'UPSTREAM_URL_CONFLICT' &&
@@ -251,50 +297,94 @@ async function submitCreate(confirmSameURL = false): Promise<void> {
       return
     }
     errorKey.value = 'import.createFailed'
-  } finally {
-    finishAction(controller)
   }
 }
 
 async function appendToGroup(groupID: number): Promise<void> {
   if (pending.value) return
-  const controller = startAction()
-  try {
-    await importGroupKeys(api, groupID, { keys: draft.keys }, controller.signal)
-    if (activeController !== controller) return
+  createOperation.reset()
+  if (!importOperationOwner.beginImportKeys({ groupID, keys: draft.keys }, 'new')) return
+  errorKey.value = ''
+  const outcome = await appendOperation.execute((operation, signal) =>
+    importGroupKeys(
+      api,
+      operation.payload.groupID,
+      { keys: operation.payload.keys },
+      operation.idempotencyKey,
+      signal,
+    ),
+  )
+  if (!outcome) return
+  if (outcome.kind === 'confirmed') {
+    const targetID = outcome.value.group_id
+    appendOperation.reset()
+    if (!componentActive) return
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: controlQueryKeys.groups.keys(groupID) }),
-      queryClient.invalidateQueries({ queryKey: controlQueryKeys.groups.detail(groupID) }),
+      queryClient.invalidateQueries({ queryKey: controlQueryKeys.groups.keys(targetID) }),
+      queryClient.invalidateQueries({ queryKey: controlQueryKeys.groups.detail(targetID) }),
       queryClient.invalidateQueries({ queryKey: controlQueryKeys.groups.list() }),
       queryClient.invalidateQueries({ queryKey: controlQueryKeys.health() }),
     ])
-    if (activeController !== controller) return
+    if (!componentActive) return
     completed.value = true
     draft.keys = ''
     recovery.clear()
-    await router.push({ name: 'group-detail', params: { id: groupID } })
-  } catch (error: unknown) {
-    if (activeController === controller && !(error instanceof RequestCancelledError))
-      errorKey.value = 'import.appendFailed'
-  } finally {
-    finishAction(controller)
+    await router.push({ name: 'group-detail', params: { id: targetID } })
+    return
   }
+  if (!componentActive) return
+  if (outcome.kind === 'failed' && outcome.reason === 'rejected')
+    errorKey.value = 'import.appendFailed'
+}
+
+async function retryOperation(): Promise<void> {
+  if (appendOperation.operation.value) {
+    const groupID = appendOperation.operation.value.payload.groupID
+    await appendToGroup(groupID)
+    return
+  }
+  if (createOperation.operation.value) await submitCreate()
 }
 
 function returnToEdit(): void {
+  createOperation.reset()
+  appendOperation.reset()
   conflict.value = null
   draft.step = 1
 }
 
 onBeforeUnmount(() => {
-  activeController?.abort()
-  activeController = undefined
+  componentActive = false
+  discoveryController?.abort()
+  discoveryController = undefined
   unregisterRecovery()
 })
 </script>
 
 <template>
   <div class="import-workflow">
+    <section
+      v-if="operationNoticeKey"
+      class="operation-notice"
+      data-test="import-operation-notice"
+      aria-live="polite"
+    >
+      <InlineFeedback tone="warning">{{ t(operationNoticeKey) }}</InlineFeedback>
+      <code v-if="operationResourceIdentity" data-test="import-operation-resource">{{
+        operationResourceIdentity
+      }}</code>
+      <AppButton
+        v-else
+        data-test="import-operation-retry"
+        variant="secondary"
+        :disabled="!canRetryOperation"
+        :busy="pending"
+        @click="retryOperation"
+      >
+        {{ t('import.operation.checkResult') }}
+      </AppButton>
+    </section>
+
     <ol class="stepper" :aria-label="t('import.progress')">
       <li
         v-for="number in [1, 2, 3]"
@@ -457,11 +547,18 @@ onBeforeUnmount(() => {
         </div>
       </section>
       <footer v-else class="card-actions split">
-        <AppButton variant="secondary" :disabled="pending" @click="draft.step = 2"
+        <AppButton
+          variant="secondary"
+          :disabled="pending || operationNoticeKey !== ''"
+          @click="draft.step = 2"
           ><ChevronLeft :size="16" aria-hidden="true" />{{ t('import.back') }}</AppButton
-        ><AppButton data-test="create" :busy="pending" @click="submitCreate(false)">{{
-          t('import.create')
-        }}</AppButton>
+        ><AppButton
+          data-test="create"
+          :disabled="operationNoticeKey !== ''"
+          :busy="pending"
+          @click="submitCreate(false)"
+          >{{ t('import.create') }}</AppButton
+        >
       </footer>
     </SurfaceCard>
   </div>
@@ -473,6 +570,19 @@ onBeforeUnmount(() => {
   gap: var(--space-5);
   max-width: 920px;
   margin: 0 auto;
+}
+.operation-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  border: 1px solid var(--color-warning);
+  border-radius: var(--radius-card);
+  background: var(--color-warning-bg);
+  padding: var(--space-3) var(--space-4);
+}
+.operation-notice code {
+  overflow-wrap: anywhere;
 }
 .stepper {
   display: flex;
@@ -554,7 +664,7 @@ header p {
 .connection-grid select {
   width: 100%;
   min-height: 44px;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-border-control);
   border-radius: var(--radius-control);
   background: var(--color-surface-secondary);
   color: var(--color-text);

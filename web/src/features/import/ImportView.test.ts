@@ -1,10 +1,16 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { createMemoryHistory } from 'vue-router'
 
+import { NetworkError } from '@/api/errors'
 import { createAppRouter } from '@/app/router'
+import {
+  createImportOperationOwner,
+  importOperationOwnerKey,
+  type ImportOperationOwner,
+} from '@/features/import/import-operation-owner'
 import type { ImportRecoveryService } from '@/features/import/import-recovery'
 import { importRecoveryKey } from '@/features/import/import-recovery'
-import { createAppI18n } from '@/i18n'
+import { createTestAppI18n as createAppI18n } from '@/test/i18n'
 
 import ImportView from './ImportView.vue'
 
@@ -20,14 +26,21 @@ function recovery(overrides: Partial<ImportRecoveryService> = {}): ImportRecover
   }
 }
 
-async function mountView(path: string, service = recovery()) {
+async function mountView(
+  path: string,
+  service = recovery(),
+  operationOwner = createImportOperationOwner(),
+) {
   const router = createAppRouter({ hasCredential: () => true }, createMemoryHistory())
   await router.push(path)
   await router.isReady()
   const wrapper = mount(ImportView, {
     global: {
       plugins: [router, createAppI18n(undefined, 'en-US').plugin],
-      provide: { [importRecoveryKey as symbol]: service },
+      provide: {
+        [importRecoveryKey as symbol]: service,
+        [importOperationOwnerKey as symbol]: operationOwner,
+      },
       stubs: {
         NewGroupImport: {
           props: ['initialDraft'],
@@ -70,6 +83,50 @@ describe('ImportView', () => {
     router.forward()
     await flushPromises()
     expect(wrapper.get('[data-test="new-import"]').text()).toBe('new')
+  })
+
+  it('retains an indeterminate operation identity across mode and page component lifecycles', async () => {
+    const operationOwner: ImportOperationOwner = createImportOperationOwner()
+    const operation = operationOwner.beginCreate({
+      name: 'Primary',
+      upstream_url: 'https://api.example.com',
+      protocols: ['openai'],
+      models: [{ id: 'gpt-4o', alias: '' }],
+      config: {},
+      keys: 'UPSTREAM_KEY_CANARY',
+      confirm_same_upstream_url: false,
+    })
+    expect(operation).not.toBeNull()
+    if (!operation) throw new Error('expected create operation')
+    await operationOwner.createGroup.execute(async () => {
+      throw new NetworkError()
+    })
+
+    const first = await mountView('/import?mode=existing', recovery(), operationOwner)
+    await flushPromises()
+    expect(first.wrapper.find('[data-test="new-import"]').exists()).toBe(true)
+    expect(first.wrapper.get('[data-test="mode-existing"]').attributes()).toHaveProperty('disabled')
+    expect(operationOwner.createGroup.operation.value?.idempotencyKey).toBe(
+      operation.idempotencyKey,
+    )
+    await first.wrapper.get('[data-test="mode-existing"]').trigger('click')
+    await flushPromises()
+    expect(first.wrapper.find('[data-test="existing-import"]').exists()).toBe(false)
+    expect(
+      operationOwner.beginImportKeys({ groupID: 7, keys: 'SECOND_KEY_CANARY' }, 'existing'),
+    ).toBeNull()
+    expect(operationOwner.createGroup.operation.value?.idempotencyKey).toBe(
+      operation.idempotencyKey,
+    )
+    first.wrapper.unmount()
+
+    const second = await mountView('/import?mode=new', recovery(), operationOwner)
+    expect(operationOwner.createGroup.operation.value?.idempotencyKey).toBe(
+      operation.idempotencyKey,
+    )
+    expect(JSON.stringify(second.router.currentRoute.value)).not.toContain('UPSTREAM_KEY_CANARY')
+    second.wrapper.unmount()
+    operationOwner.clear()
   })
 
   it('consumes a 401 recovery immediately even when Login preserved an Import query variant', async () => {

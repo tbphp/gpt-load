@@ -10,10 +10,12 @@ import AccessKeyDeleteDialog from './AccessKeyDeleteDialog.vue'
 const accessKey: AccessKeyDto = {
   id: 9,
   name: 'client',
-  key: 'sk-gl-DELETE_CANARY',
+  masked_key: 'sk-gl-••••••••••••',
   status: 'active',
   filters: { groups: [], protocols: [], models: [] },
   rpm_limit: 0,
+  created_at: '2026-07-28T00:00:00Z',
+  updated_at: '2026-07-28T00:00:00Z',
 }
 
 function documentButton(selector: string): HTMLButtonElement {

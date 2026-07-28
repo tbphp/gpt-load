@@ -1,18 +1,81 @@
 <script setup lang="ts">
-import { Pencil } from 'lucide-vue-next'
+import { Eye, EyeOff, Pencil } from 'lucide-vue-next'
+import { onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
+import { useApiClient } from '@/api/client-context'
+import { revealAccessKey } from '@/api/control/access-keys'
 import type { AccessKeyDto, GroupSummary } from '@/api/control/types'
+import { RequestCancelledError } from '@/api/errors'
 import CopyButton from '@/components/ui/CopyButton.vue'
 import DataTable from '@/components/ui/DataTable.vue'
-import SecretValue from '@/components/ui/SecretValue.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 
 import AccessKeyDeleteDialog from './AccessKeyDeleteDialog.vue'
+import { useEphemeralSecret } from './use-ephemeral-secret'
 
 const props = defineProps<{ accessKeys: AccessKeyDto[]; groups: GroupSummary[] }>()
 const emit = defineEmits<{ edit: [accessKey: AccessKeyDto, trigger: HTMLElement]; deleted: [] }>()
+const client = useApiClient()
 const { locale, t } = useI18n()
+const secret = useEphemeralSecret()
+const revealPending = ref<number | null>(null)
+const revealFailed = ref<number | null>(null)
+let revealController: AbortController | undefined
+let mounted = true
+
+function secretOwner(id: number): string {
+  return `access-key:${id}`
+}
+
+function revealedSecret(id: number): string | null {
+  return secret.read(secretOwner(id))
+}
+
+async function toggleReveal(id: number): Promise<void> {
+  if (revealedSecret(id)) {
+    secret.clear()
+    revealFailed.value = null
+    return
+  }
+  revealController?.abort()
+  secret.clear()
+  const expectedEpoch = secret.epoch.value
+  const controller = new AbortController()
+  revealController = controller
+  revealPending.value = id
+  revealFailed.value = null
+  try {
+    const result = await revealAccessKey(client, id, controller.signal)
+    if (mounted && revealController === controller && secret.epoch.value === expectedEpoch) {
+      secret.expose(secretOwner(id), result.key)
+    }
+  } catch (error: unknown) {
+    if (mounted && revealController === controller && !(error instanceof RequestCancelledError)) {
+      revealFailed.value = id
+    }
+  } finally {
+    if (revealController === controller) {
+      revealController = undefined
+      revealPending.value = null
+    }
+  }
+}
+
+watch(
+  () => props.accessKeys.map(({ id }) => id),
+  (ids) => {
+    const owner = secret.owner.value
+    if (owner && !ids.some((id) => secretOwner(id) === owner)) secret.clear()
+  },
+)
+
+onBeforeUnmount(() => {
+  mounted = false
+  revealController?.abort()
+  revealController = undefined
+  secret.clear()
+})
 
 function groupSummary(ids: number[]): string {
   if (ids.length === 0) return t('accessKeys.allGroups')
@@ -22,7 +85,7 @@ function groupSummary(ids: number[]): string {
 
 function protocolSummary(protocols: AccessKeyDto['filters']['protocols']): string {
   if (protocols.length === 0) return t('accessKeys.allProtocols')
-  return protocols.map((protocol) => t(`group.protocols.${protocol}`)).join(', ')
+  return protocols.map((protocol) => t(`common.protocols.${protocol}`)).join(', ')
 }
 
 function modelSummary(models: string[]): string {
@@ -55,19 +118,30 @@ function rpmSummary(rpm: number): string {
         <td class="access-key-table__name">{{ accessKey.name }}</td>
         <td>
           <div class="access-key-table__secret">
-            <SecretValue
-              :value="accessKey.key"
-              :reveal-label="t('common.reveal')"
-              :conceal-label="t('common.conceal')"
-              :button-test="`access-key-reveal-${accessKey.id}`"
-            />
+            <code>{{ revealedSecret(accessKey.id) ?? accessKey.masked_key }}</code>
+            <button
+              type="button"
+              class="access-key-table__reveal"
+              :aria-label="revealedSecret(accessKey.id) ? t('common.conceal') : t('common.reveal')"
+              :aria-pressed="Boolean(revealedSecret(accessKey.id))"
+              :data-test="`access-key-reveal-${accessKey.id}`"
+              :disabled="revealPending === accessKey.id"
+              @click="toggleReveal(accessKey.id)"
+            >
+              <EyeOff v-if="revealedSecret(accessKey.id)" :size="16" aria-hidden="true" />
+              <Eye v-else :size="16" aria-hidden="true" />
+            </button>
             <CopyButton
-              :value="accessKey.key"
+              v-if="revealedSecret(accessKey.id)"
+              :value="revealedSecret(accessKey.id) ?? ''"
               :label="t('accessKeys.copy')"
               :success-label="t('common.copied')"
               :failure-label="t('common.copyFailed')"
               :data-test="`access-key-copy-${accessKey.id}`"
             />
+            <small v-if="revealFailed === accessKey.id" role="alert">{{
+              t('accessKeys.revealFailed')
+            }}</small>
           </div>
         </td>
         <td>
@@ -147,6 +221,25 @@ function rpmSummary(rpm: number): string {
 .access-key-table__number {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
+}
+.access-key-table__reveal {
+  display: inline-flex;
+  width: 44px;
+  height: 44px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.access-key-table__secret code {
+  overflow-wrap: anywhere;
+  color: var(--color-code);
+}
+.access-key-table__secret small {
+  color: var(--color-danger);
 }
 .access-key-table__edit {
   display: inline-flex;

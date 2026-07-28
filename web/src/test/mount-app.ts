@@ -7,6 +7,11 @@ import type { ApiClient } from '@/api/client'
 import { apiClientKey } from '@/api/client-context'
 import { createAppRouter } from '@/app/router'
 import {
+  createImportOperationOwner,
+  importOperationOwnerKey,
+  type ImportOperationOwner,
+} from '@/features/import/import-operation-owner'
+import {
   createImportRecoveryService,
   importRecoveryKey,
   type ImportRecoveryService,
@@ -16,7 +21,7 @@ import {
   dirtyNavigationKey,
 } from '@/features/import/use-dirty-navigation'
 import { appI18nKey } from '@/i18n/context'
-import { createAppI18n } from '@/i18n'
+import { createTestAppI18n } from '@/test/i18n'
 
 export async function mountApp(
   component: Component,
@@ -27,12 +32,13 @@ export async function mountApp(
     locale?: 'zh-CN' | 'en-US' | 'ja-JP'
     mounting?: ComponentMountingOptions<Component>
     recovery?: ImportRecoveryService
+    operationOwner?: ImportOperationOwner
   },
 ) {
   const router = createAppRouter({ hasCredential: () => true }, createMemoryHistory())
   await router.push(options.path ?? '/')
   await router.isReady()
-  const appI18n = createAppI18n(undefined, options.locale ?? 'zh-CN')
+  const appI18n = createTestAppI18n(undefined, options.locale ?? 'zh-CN')
   const recovery =
     options.recovery ??
     createImportRecoveryService({
@@ -50,6 +56,7 @@ export async function mountApp(
         [apiClientKey as symbol]: options.api,
         [appI18nKey as symbol]: appI18n,
         [importRecoveryKey as symbol]: recovery,
+        [importOperationOwnerKey as symbol]: options.operationOwner ?? createImportOperationOwner(),
         [dirtyNavigationKey as symbol]: createDirtyNavigationController(),
       },
     },

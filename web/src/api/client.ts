@@ -18,12 +18,24 @@ export interface ApiClientDependencies {
 
 export interface ApiRequestOptions extends Omit<RequestInit, 'body' | 'headers'> {
   authKey?: string
+  headers?: HeadersInit
   json?: unknown
   handleUnauthorized?: boolean
 }
 
+export interface ApiResponse<T> {
+  data: T
+  status: number
+  headers: Headers
+}
+
 export interface ApiClient {
   request<T>(path: ApiPath, options?: ApiRequestOptions): Promise<T>
+  requestWithResponse?<T>(path: ApiPath, options?: ApiRequestOptions): Promise<ApiResponse<T>>
+}
+
+export interface ApiClientWithResponse extends ApiClient {
+  requestWithResponse<T>(path: ApiPath, options?: ApiRequestOptions): Promise<ApiResponse<T>>
 }
 
 type Envelope = SuccessEnvelope<unknown> | ErrorEnvelope
@@ -121,7 +133,7 @@ function readRetryAfter(data: unknown, headers: Headers): number | undefined {
   return undefined
 }
 
-export function createApiClient(deps: ApiClientDependencies): ApiClient {
+export function createApiClient(deps: ApiClientDependencies): ApiClientWithResponse {
   let unauthorizedHandled = false
   let generation = 0
 
@@ -144,68 +156,83 @@ export function createApiClient(deps: ApiClientDependencies): ApiClient {
     }
   }
 
-  return {
-    async request<T>(path: ApiPath, options: ApiRequestOptions = {}) {
-      if (!isSafeApiPath(path)) {
-        throw new InvalidRequestPathError()
-      }
+  async function requestWithResponse<T>(
+    path: ApiPath,
+    options: ApiRequestOptions = {},
+  ): Promise<ApiResponse<T>> {
+    if (!isSafeApiPath(path)) {
+      throw new InvalidRequestPathError()
+    }
 
-      const requestGeneration = generation
-      const {
-        authKey = deps.getAuthKey(),
-        json,
-        handleUnauthorized = true,
-        ...requestInit
-      } = options
-      const headers = new Headers()
-      if (authKey) {
-        headers.set('Authorization', `Bearer ${authKey}`)
-      }
-      headers.set('Accept-Language', deps.getLocale())
-      if (json !== undefined) {
-        headers.set('Content-Type', 'application/json')
-      }
+    const requestGeneration = generation
+    const {
+      authKey = deps.getAuthKey(),
+      headers: callerHeaders,
+      json,
+      handleUnauthorized = true,
+      ...requestInit
+    } = options
+    const headers = new Headers(callerHeaders)
+    if (authKey) {
+      headers.set('Authorization', `Bearer ${authKey}`)
+    } else {
+      headers.delete('Authorization')
+    }
+    headers.set('Accept-Language', deps.getLocale())
+    if (json !== undefined) {
+      headers.set('Content-Type', 'application/json')
+    }
 
-      let result: Response
-      try {
-        result = await deps.fetch(path, {
-          ...requestInit,
-          headers,
-          body: json === undefined ? undefined : JSON.stringify(json),
-        })
-      } catch (error) {
-        if (error instanceof Error && error.name === 'AbortError') {
-          throw new RequestCancelledError()
-        }
-        throw new NetworkError()
+    let result: Response
+    try {
+      result = await deps.fetch(path, {
+        ...requestInit,
+        headers,
+        body: json === undefined ? undefined : JSON.stringify(json),
+      })
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        throw new RequestCancelledError()
       }
+      throw new NetworkError()
+    }
 
-      let envelope: Envelope
-      try {
-        envelope = await parseEnvelope(result)
-      } catch (error) {
-        handleUnauthorizedStatus(result.status, handleUnauthorized, requestGeneration)
-        throw error
-      }
-
+    let envelope: Envelope
+    try {
+      envelope = await parseEnvelope(result)
+    } catch (error) {
       handleUnauthorizedStatus(result.status, handleUnauthorized, requestGeneration)
-      if (result.ok && envelope.code === 0) {
-        handleSuccessfulResponse(requestGeneration)
-        return envelope.data as T
-      }
-      if (envelope.code === 0) {
-        throw new InvalidResponseError()
-      }
+      throw error
+    }
 
-      const retryAfterSeconds =
-        result.status === 429 ? readRetryAfter(envelope.data, result.headers) : undefined
-      throw new ApiError(
-        result.status,
-        envelope.code,
-        envelope.message,
-        envelope.data,
-        retryAfterSeconds,
-      )
+    handleUnauthorizedStatus(result.status, handleUnauthorized, requestGeneration)
+    if (result.ok && envelope.code === 0) {
+      handleSuccessfulResponse(requestGeneration)
+      return {
+        data: envelope.data as T,
+        status: result.status,
+        headers: new Headers(result.headers),
+      }
+    }
+    if (envelope.code === 0) {
+      throw new InvalidResponseError()
+    }
+
+    const retryAfterSeconds =
+      result.status === 429 ? readRetryAfter(envelope.data, result.headers) : undefined
+    throw new ApiError(
+      result.status,
+      envelope.code,
+      envelope.message,
+      envelope.data,
+      retryAfterSeconds,
+    )
+  }
+
+  return {
+    async request<T>(path: ApiPath, options?: ApiRequestOptions) {
+      return (await requestWithResponse<T>(path, options)).data
     },
+    requestWithResponse,
   }
 }

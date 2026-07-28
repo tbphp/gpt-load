@@ -8,6 +8,7 @@ const props = defineProps<{
   concealLabel: string
   buttonTest?: string
 }>()
+const emit = defineEmits<{ reveal: []; conceal: [] }>()
 const revealed = ref(false)
 const displayValue = computed(() =>
   revealed.value ? props.value : `${props.value.slice(0, 6)}${'•'.repeat(12)}`,
@@ -16,6 +17,15 @@ watch(
   () => props.value,
   () => (revealed.value = false),
 )
+
+function toggle(): void {
+  revealed.value = !revealed.value
+  if (revealed.value) {
+    emit('reveal')
+    return
+  }
+  emit('conceal')
+}
 </script>
 
 <template>
@@ -26,7 +36,7 @@ watch(
       :aria-label="revealed ? concealLabel : revealLabel"
       :data-test="buttonTest"
       :aria-pressed="revealed"
-      @click="revealed = !revealed"
+      @click="toggle"
     >
       <EyeOff v-if="revealed" :size="16" aria-hidden="true" />
       <Eye v-else :size="16" aria-hidden="true" />

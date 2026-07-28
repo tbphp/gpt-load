@@ -137,6 +137,55 @@ describe('createApiClient', () => {
     expect(jsonRequest?.body).toBe('null')
   })
 
+  it('exposes safe response metadata without changing the data-only request API', async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockImplementation(async () =>
+        envelopeResponse(
+          { code: 0, message: 'ok', data: { values: true } },
+          { status: 200, headers: { ETag: '"sha256-test"', 'Content-Language': 'en-US' } },
+        ),
+      )
+    const client = createApiClient(createDependencies(fetchMock))
+
+    await expect(client.request<{ values: boolean }>('/api/settings')).resolves.toEqual({
+      values: true,
+    })
+    const response = await client.requestWithResponse<{ values: boolean }>('/api/settings')
+
+    expect(response.data).toEqual({ values: true })
+    expect(response.status).toBe(200)
+    expect(response.headers.get('ETag')).toBe('"sha256-test"')
+    expect(response.headers.get('Content-Language')).toBe('en-US')
+  })
+
+  it('allows operation headers but never lets callers override auth or locale', async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(envelopeResponse({ code: 0, message: 'ok' }))
+    const client = createApiClient(createDependencies(fetchMock))
+
+    await client.request('/api/settings', {
+      method: 'PUT',
+      headers: {
+        Authorization: 'Bearer attacker-controlled',
+        'Accept-Language': 'attacker-controlled',
+        'Idempotency-Key': '00000000-0000-4000-8000-000000000001',
+        'If-Match': '"sha256-version"',
+        'X-Trace': 'allowed',
+      },
+      json: { settings: {} },
+    })
+
+    const headers = fetchMock.mock.calls[0]?.[1]?.headers as Headers
+    expect(headers.get('Authorization')).toBe('Bearer current-key')
+    expect(headers.get('Accept-Language')).toBe('zh-CN')
+    expect(headers.get('Idempotency-Key')).toBe('00000000-0000-4000-8000-000000000001')
+    expect(headers.get('If-Match')).toBe('"sha256-version"')
+    expect(headers.get('X-Trace')).toBe('allowed')
+    expect(headers.get('Content-Type')).toBe('application/json')
+  })
+
   it('throws ApiError with stable code and safe data', async () => {
     const secret = 'AUTH-KEY-MUST-NOT-LEAK'
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(

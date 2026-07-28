@@ -28,10 +28,12 @@ const keys: AccessKeyDto[] = [
   {
     id: 9,
     name: 'client',
-    key: canary,
+    masked_key: 'sk-gl-••••••••cafe',
     status: 'active',
     filters: { groups: [], protocols: [], models: [] },
     rpm_limit: 0,
+    created_at: '2026-07-28T00:00:00Z',
+    updated_at: '2026-07-28T00:00:00Z',
   },
 ]
 
@@ -70,11 +72,16 @@ function documentButton(selector: string): HTMLButtonElement {
 describe('AccessKeysView', () => {
   it('replaces the route placeholder, loads real Groups and AccessKeys, and renders empty filters as all', async () => {
     const router = createAppRouter({ hasCredential: () => true }, createMemoryHistory())
-    expect(router.resolve('/access-keys').matched.at(-1)?.components?.default).toBe(AccessKeysView)
+    const routeComponent = router.resolve('/access-keys').matched.at(-1)?.components?.default
+    expect(typeof routeComponent).toBe('function')
+    expect(await (routeComponent as () => Promise<unknown>)()).toBe(AccessKeysView)
 
     const request = vi.fn(async (path: string, options?: ApiRequestOptions) => {
       if (path === '/api/access-keys' && options?.method === 'GET') return keys
       if (path === '/api/groups' && options?.method === 'GET') return groups
+      if (path === '/api/access-keys/9/reveal' && options?.method === 'POST') {
+        return { id: 9, key: canary, revealed_at: '2026-07-28T01:00:00Z' }
+      }
       throw new Error(`unexpected ${path}`)
     }) as ApiClient['request']
     const { wrapper } = await mountView(request)
@@ -95,12 +102,16 @@ describe('AccessKeysView', () => {
     const request = vi.fn(async (path: string, options?: ApiRequestOptions) => {
       if (path === '/api/access-keys' && options?.method === 'GET') return keys
       if (path === '/api/groups' && options?.method === 'GET') return groups
+      if (path === '/api/access-keys/9/reveal' && options?.method === 'POST') {
+        return { id: 9, key: canary, revealed_at: '2026-07-28T01:00:00Z' }
+      }
       throw new Error(`unexpected ${path}`)
     }) as ApiClient['request']
     const { queryClient: client, router, wrapper } = await mountView(request)
 
     expect(wrapper.text()).not.toContain(canary)
     await wrapper.get('[data-test="access-key-reveal-9"]').trigger('click')
+    await flushPromises()
     expect(wrapper.text()).toContain(canary)
     await wrapper.get('[data-test="access-key-copy-9"] button').trigger('click')
     await flushPromises()
@@ -179,7 +190,7 @@ describe('AccessKeysView', () => {
       ...keys[0],
       id: 10,
       name: 'secondary',
-      key: 'sk-gl-SECONDARY_LIST_CANARY',
+      masked_key: 'sk-gl-••••••••beef',
     }
     let currentKeys = [...keys, otherKey]
     const request = vi.fn(async (path: string, options?: ApiRequestOptions) => {

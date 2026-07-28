@@ -88,14 +88,27 @@ export interface AccessKeyFiltersDto {
 export interface AccessKeyDto {
   id: number
   name: string
-  key: string
+  masked_key: string
   status: 'active' | 'disabled'
   filters: AccessKeyFiltersDto
   rpm_limit: number
+  created_at: string
+  updated_at: string
 }
 
 export interface AccessKeyOptionDto {
   id: number
   name: string
   status: AccessKeyDto['status']
+}
+
+export interface AccessKeyCreateResultDto extends AccessKeyDto {
+  key?: string
+  replayed: boolean
+}
+
+export interface AccessKeyRevealDto {
+  id: number
+  key: string
+  revealed_at: string
 }

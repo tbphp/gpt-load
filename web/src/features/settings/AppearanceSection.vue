@@ -14,7 +14,9 @@ const themes: AppTheme[] = ['system', 'light', 'dark']
 
 function setLocale(event: Event): void {
   const value = (event.target as HTMLSelectElement).value
-  if (supportedLocales.includes(value as AppLocale)) appI18n.setLocale(value as AppLocale)
+  if (supportedLocales.includes(value as AppLocale)) {
+    void appI18n.setLocale(value as AppLocale)
+  }
 }
 
 function setTheme(event: Event): void {
@@ -105,7 +107,7 @@ function setTheme(event: Event): void {
 }
 .appearance-section select {
   min-height: 44px;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-border-control);
   border-radius: var(--radius-control);
   background: var(--color-surface-secondary);
   color: var(--color-text);

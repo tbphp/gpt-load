@@ -4,7 +4,7 @@ import { createMemoryHistory } from 'vue-router'
 
 import type { ApiClient, ApiPath, ApiRequestOptions } from '@/api/client'
 import { createAppRouter } from '@/app/router'
-import { createAppI18n } from '@/i18n'
+import { createTestAppI18n as createAppI18n } from '@/test/i18n'
 import { mountApp } from '@/test/mount-app'
 
 import MonitorView from './MonitorView.vue'

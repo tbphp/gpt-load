@@ -8,12 +8,12 @@ import { controlQueryKeys } from '@/app/query-keys'
 import { createAppRouter } from '@/app/router'
 import { createThemeController, themeControllerKey } from '@/features/preferences/theme'
 import { mountApp } from '@/test/mount-app'
+import { apiWithResponseMetadata, testSettingsETags } from '@/test/api-response'
 
 import SettingsView from './SettingsView.vue'
 
 const headerCanary = 'HEADER_RULE_CACHE_CANARY_8f31'
 const base: SettingsDto = {
-  revision: 10,
   values: {
     connect_timeout: 15,
     first_byte_timeout: 120,
@@ -27,7 +27,6 @@ const base: SettingsDto = {
 }
 const updated: SettingsDto = {
   ...base,
-  revision: 11,
   values: { ...base.values, request_timeout: 900 },
   overrides: ['request_timeout'],
 }
@@ -72,7 +71,7 @@ async function mountView(
     matchMedia: window.matchMedia.bind(window),
   })
   const mounted = await mountApp(SettingsView, {
-    api: { request: requestMock as ApiClient['request'] },
+    api: apiWithResponseMetadata(requestMock as ApiClient['request']),
     queryClient: client,
     locale: 'en-US',
     path: '/settings',
@@ -98,7 +97,9 @@ describe('SettingsView', () => {
 
   it('replaces the route placeholder and uses a gcTime-zero Settings query', async () => {
     const router = createAppRouter({ hasCredential: () => true }, createMemoryHistory())
-    expect(router.resolve('/settings').matched.at(-1)?.components?.default).toBe(SettingsView)
+    const routeComponent = router.resolve('/settings').matched.at(-1)?.components?.default
+    expect(typeof routeComponent).toBe('function')
+    expect(await (routeComponent as () => Promise<unknown>)()).toBe(SettingsView)
 
     const { queryClient: client, theme, wrapper } = await mountView()
     expect(wrapper.get('h1').text()).toBe('Settings')
@@ -125,10 +126,14 @@ describe('SettingsView', () => {
 
     expect(requestMock).toHaveBeenCalledWith('/api/settings', {
       method: 'PUT',
+      headers: { 'If-Match': `"${testSettingsETags.get}"` },
       json: { settings: { request_timeout: 900 } },
       signal: expect.any(AbortSignal),
     })
-    expect(setQueryData).toHaveBeenCalledWith(controlQueryKeys.settings(), updated)
+    expect(setQueryData).toHaveBeenCalledWith(controlQueryKeys.settings(), {
+      settings: updated,
+      settings_etag: testSettingsETags.put,
+    })
     expect(invalidate.mock.calls.map(([filters]) => filters)).toEqual([
       { queryKey: controlQueryKeys.groups.details() },
     ])
@@ -148,13 +153,11 @@ describe('SettingsView', () => {
 
   it('preserves dirty Request values, ownership, HeaderRules, and Save state when Logs saves', async () => {
     const logsReturned: SettingsDto = {
-      revision: 11,
       values: {
         ...base.values,
-        header_rules: { set: { 'X-Server': 'SERVER_VALUE' }, remove: ['X-Server-Remove'] },
         request_log_retention_days: 30,
       },
-      overrides: ['header_rules', 'request_log_retention_days'],
+      overrides: ['request_log_retention_days'],
     }
     const { requestMock, theme, wrapper } = await mountView(logsReturned)
 
@@ -175,6 +178,7 @@ describe('SettingsView', () => {
         '/api/settings',
         {
           method: 'PUT',
+          headers: { 'If-Match': `"${testSettingsETags.get}"` },
           json: { settings: { request_log_retention_days: 30 } },
           signal: expect.any(AbortSignal),
         },
@@ -220,6 +224,7 @@ describe('SettingsView', () => {
         '/api/settings',
         {
           method: 'PUT',
+          headers: { 'If-Match': `"${testSettingsETags.get}"` },
           json: { settings: { request_timeout: 900 } },
           signal: expect.any(AbortSignal),
         },
@@ -245,7 +250,6 @@ describe('SettingsView', () => {
 
   it('fully rebases a clean Request section from a sibling Settings response', async () => {
     const logsReturned: SettingsDto = {
-      revision: 11,
       values: {
         ...base.values,
         header_rules: { set: { 'X-Server': 'SERVER_VALUE' }, remove: ['X-Server-Remove'] },

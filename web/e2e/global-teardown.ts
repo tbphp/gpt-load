@@ -6,7 +6,11 @@ import type { FullConfig } from '@playwright/test'
 import { removeArtifacts } from './artifact-removal'
 import { findSensitiveArtifacts, type ArtifactFile } from './artifact-safety'
 
-const credentialCanaries = ['e2e-auth-canary', 'e2e-upstream-key-one']
+const credentialCanaries = [
+  process.env.GPT_LOAD_E2E_AUTH_KEY,
+  'e2e-auth-canary',
+  'e2e-upstream-key-one',
+].filter((value): value is string => Boolean(value))
 const artifactSafetyFailure = 'Playwright artifact safety check failed'
 
 async function readArtifactFiles(directory: string): Promise<ArtifactFile[]> {
