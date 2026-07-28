@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-07-28T21:43:43Z",
-  "audit_source_sha": "e8b6fe1be3e5426034e1cfff2369bec64998170b",
+  "generated_at": "2026-07-28T21:46:48Z",
+  "audit_source_sha": "3d7496579d373589da3265395f35af096f75d97e",
   "repository": {
     "name": "tbphp/gpt-load",
     "url": "https://github.com/tbphp/gpt-load",
@@ -21,14 +21,14 @@
     {
       "id": "feature-head-visible-on-github",
       "status": "NOT RUN",
-      "expected_sha": "e8b6fe1be3e5426034e1cfff2369bec64998170b",
+      "expected_sha": "3d7496579d373589da3265395f35af096f75d97e",
       "evidence": "The GitHub commits API did not find the local feature head.",
       "reason": "The feature branch has intentionally not been pushed."
     },
     {
       "id": "exact-feature-sha-ci",
       "status": "NOT RUN",
-      "expected_sha": "e8b6fe1be3e5426034e1cfff2369bec64998170b",
+      "expected_sha": "3d7496579d373589da3265395f35af096f75d97e",
       "reason": "An unpushed SHA cannot have GitHub Actions runs or checks."
     },
     {
@@ -61,6 +61,16 @@
       "url": "https://github.com/tbphp/gpt-load/actions/runs/30329551379",
       "result": "Both test and windows-encryption-acl jobs passed.",
       "reason": "This success predates the current remote v2 and the local Phase 3–5 head, so it is stale evidence rather than a current PASS."
+    },
+    {
+      "id": "windows-backup-permission-remediation",
+      "status": "EXTERNAL",
+      "local_commit": "3d7496579d373589da3265395f35af096f75d97e",
+      "local_evidence": [
+        "The focused migration backup test and complete internal/storage package passed on macOS.",
+        "The Windows internal/storage test binary cross-compiled successfully."
+      ],
+      "reason": "The invalid POSIX mode assertion was replaced by an exact protected current-user Windows DACL assertion, but no Windows runner has executed this local commit."
     },
     {
       "id": "v2-release-tag",
