@@ -122,7 +122,14 @@ export default {
     copyAccessKey: 'Copy AccessKey',
     manageAccessKeys: 'Manage AccessKeys',
     modelPlaceholder: 'When no real model is available, replace {model} with an actual model ID.',
+    protocol: 'Protocol',
+    model: 'Model',
+    collapseConnection: 'Collapse',
+    expandConnection: 'Expand',
+    environmentKeyHint:
+      'Set GPT_LOAD_API_KEY in your shell. The copied command never contains plaintext key material.',
     snippet: 'Client example',
+    copySnippet: 'Copy client example',
     usage: {
       eyebrow: 'Usage summary',
       title: 'Last 24 hours',

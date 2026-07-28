@@ -1,6 +1,7 @@
 import type { AccessKeyOptionDto, GroupSummary, KeyCounts } from '@/api/control/types'
 
 import {
+  buildConnectionSnippet,
   buildChatCompletionsSnippet,
   isGroupServiceable,
   isLoopbackHostname,
@@ -94,5 +95,42 @@ describe('Home model', () => {
     expect(buildChatCompletionsSnippet('https://gateway.example.com', 'gpt-4o')).toBe(
       `curl "https://gateway.example.com/v1/chat/completions" \\\n  -H "Authorization: Bearer $GPT_LOAD_API_KEY" \\\n  -H "Content-Type: application/json" \\\n  -d '{"model":"gpt-4o"}'`,
     )
+  })
+
+  it.each([
+    ['openai', '/v1/chat/completions', 'Authorization: Bearer $GPT_LOAD_API_KEY', undefined],
+    ['anthropic', '/v1/messages', 'x-api-key: $GPT_LOAD_API_KEY', 'anthropic-version:'],
+    [
+      'gemini',
+      '/v1beta/models/gemini-2.5-flash:generateContent',
+      'x-goog-api-key: $GPT_LOAD_API_KEY',
+      undefined,
+    ],
+  ] as const)(
+    'builds the native %s endpoint and authentication contract',
+    (protocol, path, authentication, extraHeader) => {
+      const snippet = buildConnectionSnippet({
+        origin: 'https://gateway.example.com/',
+        protocol,
+        model: protocol === 'gemini' ? 'gemini-2.5-flash' : 'model-real',
+      })
+
+      expect(snippet.path).toBe(path)
+      expect(snippet.language).toBe('bash')
+      expect(snippet.command).toContain(`https://gateway.example.com${path}`)
+      expect(snippet.command).toContain(authentication)
+      if (extraHeader) expect(snippet.command).toContain(extraHeader)
+      expect(snippet.command).not.toContain('ACCESS_KEY_CANARY')
+    },
+  )
+
+  it('keeps an explicit model placeholder readable in the Gemini path', () => {
+    expect(
+      buildConnectionSnippet({
+        origin: 'https://gateway.example.com',
+        protocol: 'gemini',
+        model: '<MODEL_ID>',
+      }).path,
+    ).toBe('/v1beta/models/<MODEL_ID>:generateContent')
   })
 })

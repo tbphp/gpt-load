@@ -121,7 +121,14 @@ export default {
     copyAccessKey: 'AccessKey をコピー',
     manageAccessKeys: 'AccessKey を管理',
     modelPlaceholder: '実在モデルがない場合は、{model} を実際のモデル ID に置き換えてください。',
+    protocol: 'プロトコル',
+    model: 'モデル',
+    collapseConnection: '折りたたむ',
+    expandConnection: '展開',
+    environmentKeyHint:
+      'シェルで GPT_LOAD_API_KEY を設定してください。コピーされるコマンドにキーの平文は含まれません。',
     snippet: 'クライアント例',
+    copySnippet: 'クライアント例をコピー',
     usage: {
       eyebrow: '使用量サマリー',
       title: '過去 24 時間',

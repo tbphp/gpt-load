@@ -118,7 +118,13 @@ export default {
     copyAccessKey: '复制 AccessKey',
     manageAccessKeys: '管理 AccessKey',
     modelPlaceholder: '未找到真实模型时，请将 {model} 替换为实际模型 ID。',
+    protocol: '协议',
+    model: '模型',
+    collapseConnection: '收起',
+    expandConnection: '展开',
+    environmentKeyHint: '请在终端中设置 GPT_LOAD_API_KEY；复制的命令永远不会包含密钥明文。',
     snippet: '客户端示例',
+    copySnippet: '复制客户端示例',
     usage: {
       eyebrow: '用量摘要',
       title: '最近 24 小时',
