@@ -14,7 +14,7 @@ import { useRoute, useRouter } from 'vue-router'
 
 import { useApiClient } from '@/api/client-context'
 import { listGroups } from '@/app/resources/groups'
-import { getUsageReport, type UsageAggregateDto, type UsageFilters } from '@/api/control/usage'
+import { getUsageReport, type UsageAggregateDto, type UsageFilters } from '@/app/resources/usage'
 import { controlQueryKeys } from '@/app/query-keys'
 import { useUnsavedChanges } from '@/app/unsaved-changes'
 import AppButton from '@/components/ui/AppButton.vue'

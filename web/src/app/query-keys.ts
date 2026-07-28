@@ -1,5 +1,5 @@
-import type { RequestLogFilters } from '@/api/control/request-logs'
-import type { UsageFilters } from '@/api/control/usage'
+import type { RequestLogFilters } from '@/app/resources/request-logs'
+import type { UsageFilters } from '@/app/resources/usage'
 
 export const controlQueryKeys = {
   all: ['control'] as const,

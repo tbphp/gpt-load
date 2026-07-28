@@ -5,7 +5,7 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { useApiClient } from '@/api/client-context'
-import { getUsageReport, type UsageAggregateDto } from '@/api/control/usage'
+import { getUsageReport, type UsageAggregateDto } from '@/app/resources/usage'
 import { controlQueryKeys } from '@/app/query-keys'
 import AppDateTime from '@/components/ui/AppDateTime.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'

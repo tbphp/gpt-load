@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, useId } from 'vue'
 
-import type { UsageReportDto } from '@/api/control/usage'
+import type { UsageReportDto } from '@/app/resources/usage'
 
 type UsageSeriesPoint = Pick<
   UsageReportDto['series'][number],

@@ -6,7 +6,7 @@ import type {
   RequestLogAttemptDto,
   RequestLogItemDto,
   RequestLogPageDto,
-} from '@/api/control/request-logs'
+} from '@/app/resources/request-logs'
 import type { AccessKeyOptionDto, GroupSummary } from '@/api/control/types'
 import { controlQueryKeys } from '@/app/query-keys'
 import { mountApp } from '@/test/mount-app'
@@ -26,7 +26,7 @@ function attemptFixture(sequence: number): RequestLogAttemptDto {
     group_id: 7,
     group_name: 'Historical Group',
     key_id: 21,
-    key_mask: 'sk-up…safe',
+    key_mask: 'sk-u****safe',
     upstream_model: 'gpt-upstream',
     status_code: 200,
     duration_ms: 100,

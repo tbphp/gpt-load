@@ -2,7 +2,7 @@ import { QueryClient } from '@tanstack/vue-query'
 import { flushPromises } from '@vue/test-utils'
 
 import { ApiError } from '@/api/errors'
-import type { UsageReportDto } from '@/api/control/usage'
+import type { UsageReportDto } from '@/app/resources/usage'
 import { controlQueryKeys } from '@/app/query-keys'
 import type { AccessKeyOptionDto, GroupSummary } from '@/api/control/types'
 import type { RuntimeHealthDto } from '@/app/resources/health'

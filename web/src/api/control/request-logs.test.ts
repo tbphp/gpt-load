@@ -4,7 +4,7 @@ import { InvalidResponseError } from '@/api/errors'
 import { listRequestLogs, projectRequestLogPage } from './request-logs'
 
 const item = {
-  request_id: 'request-1',
+  request_id: 'a4d4e121-8ac3-4df4-8ceb-63b10ddc6173',
   completed_at: '2026-07-27T12:00:00Z',
   access_key: { id: 4, name: null, deleted: false },
   protocol: 'openai',

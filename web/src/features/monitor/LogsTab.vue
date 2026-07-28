@@ -12,7 +12,7 @@ import {
   listRequestLogs,
   type RequestLogItemDto,
   type RequestLogPageDto,
-} from '@/api/control/request-logs'
+} from '@/app/resources/request-logs'
 import { RequestCancelledError } from '@/api/errors'
 import { controlQueryKeys } from '@/app/query-keys'
 import { useUnsavedChanges } from '@/app/unsaved-changes'
