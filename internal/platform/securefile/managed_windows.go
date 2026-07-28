@@ -110,6 +110,6 @@ func currentUserInheritableSecurityDescriptor() (*windows.SECURITY_DESCRIPTOR, e
 		return nil, err
 	}
 	return windows.SecurityDescriptorFromString(
-		"D:P(A;OICI;GA;;;" + user.User.Sid.String() + ")",
+		"D:P(A;OICI;FA;;;" + user.User.Sid.String() + ")",
 	)
 }
