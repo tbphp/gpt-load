@@ -12,7 +12,7 @@ import AppDialog from '@/components/ui/AppDialog.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 
 const props = defineProps<{ accessKey: AccessKeyDto; total: number }>()
-const emit = defineEmits<{ deleted: [] }>()
+const emit = defineEmits<{ deleted: [name: string] }>()
 const client = useApiClient()
 const { t } = useI18n()
 const open = ref(false)
@@ -39,7 +39,7 @@ async function confirmDelete(): Promise<void> {
   try {
     await deleteAccessKey(client, props.accessKey.id, activeController.signal)
     open.value = false
-    emit('deleted')
+    emit('deleted', props.accessKey.name)
   } catch (error: unknown) {
     if (!(error instanceof RequestCancelledError)) failed.value = true
   } finally {

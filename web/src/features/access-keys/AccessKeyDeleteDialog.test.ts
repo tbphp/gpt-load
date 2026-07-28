@@ -46,7 +46,7 @@ describe('AccessKeyDeleteDialog', () => {
       method: 'DELETE',
       signal: expect.any(AbortSignal),
     })
-    expect(wrapper.emitted('deleted')).toEqual([[]])
+    expect(wrapper.emitted('deleted')).toEqual([['client']])
     expect(invalidate).not.toHaveBeenCalled()
     expect(client.getMutationCache().getAll()).toHaveLength(0)
     wrapper.unmount()
@@ -108,7 +108,7 @@ describe('AccessKeyDeleteDialog', () => {
 
     resolveDelete()
     await flushPromises()
-    expect(wrapper.emitted('deleted')).toEqual([[]])
+    expect(wrapper.emitted('deleted')).toEqual([['client']])
     wrapper.unmount()
   })
 })

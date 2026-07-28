@@ -91,6 +91,7 @@ export default {
         'This is the last AccessKey. Deleting it leaves data-plane clients without an issued credential.',
       confirm: 'Delete AccessKey',
       failed: 'Unable to delete the AccessKey.',
+      deletedAnnouncement: 'Deleted AccessKey “{name}”.',
     },
   },
 } as const

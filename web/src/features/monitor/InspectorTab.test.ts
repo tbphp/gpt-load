@@ -197,6 +197,8 @@ describe('InspectorTab', () => {
       '/monitor?tab=inspector&protocol=anthropic&external_model=claude-exact&access_key_id=13&raw_access_key=sk-gl-route-canary',
     )
 
+    const submit = wrapper.get<HTMLButtonElement>('[data-test="inspector-submit"]').element
+    submit.focus()
     await wrapper.get('[data-test="inspector-form"]').trigger('submit')
     await flushPromises()
 
@@ -224,6 +226,8 @@ describe('InspectorTab', () => {
     expect(wrapper.get('[data-test="inspector-access-key-status"]').classes()).toContain(
       'status-badge--neutral',
     )
+    expect(wrapper.get('[data-test="inspector-result"]').attributes('aria-live')).toBe('polite')
+    expect(document.activeElement).toBe(submit)
   })
 
   it('requires reselection when a deep-linked AccessKey no longer exists', async () => {
@@ -598,6 +602,9 @@ describe('InspectorTab', () => {
       'complete current-runtime explanation',
     )
     expect(wrapper.find('[data-test="inspector-request-error"]').exists()).toBe(false)
+    expect(document.activeElement).toBe(
+      wrapper.get('[data-test="inspector-result-summary"]').element,
+    )
   })
 
   it('maps all 14 reason codes and uses a safe fallback for an unknown code', async () => {

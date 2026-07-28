@@ -92,6 +92,7 @@ export default {
         'これは最後の AccessKey です。削除すると、データプレーンクライアントに発行済み資格情報がなくなります。',
       confirm: 'AccessKey を削除',
       failed: 'AccessKey を削除できません。',
+      deletedAnnouncement: 'AccessKey「{name}」を削除しました。',
     },
   },
 } as const

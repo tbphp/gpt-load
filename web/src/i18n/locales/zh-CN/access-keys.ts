@@ -82,6 +82,7 @@ export default {
       lastWarning: '这是最后一个 AccessKey。删除后，数据面客户端将没有已签发凭据。',
       confirm: '删除 AccessKey',
       failed: '无法删除 AccessKey。',
+      deletedAnnouncement: '已删除 AccessKey“{name}”。',
     },
   },
 } as const

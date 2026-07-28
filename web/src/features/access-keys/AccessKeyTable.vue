@@ -15,7 +15,10 @@ import AccessKeyDeleteDialog from './AccessKeyDeleteDialog.vue'
 import { useEphemeralSecret } from './use-ephemeral-secret'
 
 const props = defineProps<{ accessKeys: AccessKeyDto[]; groups: GroupSummary[] }>()
-const emit = defineEmits<{ edit: [accessKey: AccessKeyDto, trigger: HTMLElement]; deleted: [] }>()
+const emit = defineEmits<{
+  edit: [accessKey: AccessKeyDto, trigger: HTMLElement]
+  deleted: [name: string]
+}>()
 const client = useApiClient()
 const { locale, t } = useI18n()
 const secret = useEphemeralSecret()
@@ -179,7 +182,7 @@ function rpmSummary(rpm: number): string {
             <AccessKeyDeleteDialog
               :access-key="accessKey"
               :total="accessKeys.length"
-              @deleted="emit('deleted')"
+              @deleted="emit('deleted', $event)"
             />
           </div>
         </td>

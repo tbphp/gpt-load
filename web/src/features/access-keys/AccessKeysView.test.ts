@@ -183,6 +183,9 @@ describe('AccessKeysView', () => {
     expect(document.activeElement).toBe(
       wrapper.get('button[data-test="access-key-create"]').element,
     )
+    const announcement = wrapper.get('[data-test="access-key-delete-announcement"]')
+    expect(announcement.attributes('aria-live')).toBe('polite')
+    expect(announcement.text()).toContain('Deleted AccessKey “client”.')
     wrapper.unmount()
   })
 
@@ -292,7 +295,7 @@ describe('AccessKeysView', () => {
     ).element
     const focus = vi.spyOn(createButton, 'focus')
 
-    wrapper.getComponent(AccessKeyTable).vm.$emit('deleted')
+    wrapper.getComponent(AccessKeyTable).vm.$emit('deleted', 'client')
     wrapper.unmount()
     await nextTick()
     await flushPromises()

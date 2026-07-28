@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { Check, ChevronLeft } from 'lucide-vue-next'
-import { computed, onBeforeUnmount, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -32,6 +32,8 @@ const reviewing = ref(false)
 const completed = ref(false)
 const errorKey = ref('')
 const result = ref<GroupKeyImportResult | null>(null)
+const reviewHeading = ref<HTMLHeadingElement | null>(null)
+const resultHeading = ref<HTMLHeadingElement | null>(null)
 const importOperationOwner = useImportOperationOwner()
 const operation = importOperationOwner.importKeys
 if (operation.outcome.value?.kind === 'confirmed') operation.reset()
@@ -101,10 +103,12 @@ function selectGroup(event: Event): void {
   void router.push({ name: 'import', query })
 }
 
-function showReview(): void {
+async function showReview(): Promise<void> {
   if (!canReview.value) return
   errorKey.value = ''
   reviewing.value = true
+  await nextTick()
+  reviewHeading.value?.focus()
 }
 
 function returnToEdit(): void {
@@ -160,6 +164,8 @@ async function executeImportOperation(): Promise<void> {
     completed.value = true
     keys.value = ''
     recovery.clear()
+    await nextTick()
+    resultHeading.value?.focus()
     return
   }
   if (!componentActive) return
@@ -241,7 +247,14 @@ onBeforeUnmount(() => {
 
         <template v-else>
           <section class="review" :aria-labelledby="'existing-review-title'">
-            <h3 id="existing-review-title">{{ t('import.existing.reviewTitle') }}</h3>
+            <h3
+              id="existing-review-title"
+              ref="reviewHeading"
+              data-test="existing-review-heading"
+              tabindex="-1"
+            >
+              {{ t('import.existing.reviewTitle') }}
+            </h3>
             <p>{{ t('import.existing.reviewDescription') }}</p>
             <dl>
               <div>
@@ -273,7 +286,9 @@ onBeforeUnmount(() => {
       <section v-else data-test="existing-result" class="result" role="status" aria-live="polite">
         <Check :size="22" aria-hidden="true" />
         <div>
-          <h3>{{ t('import.existing.successTitle') }}</h3>
+          <h3 ref="resultHeading" data-test="existing-result-heading" tabindex="-1">
+            {{ t('import.existing.successTitle') }}
+          </h3>
           <p>
             {{
               t('import.existing.successSummary', {

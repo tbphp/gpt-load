@@ -27,6 +27,7 @@ const drawerOpen = ref(false)
 const selected = ref<AccessKeyDto | null>(null)
 const createOperation = ref<PendingAccessKeyCreateOperation | null>(null)
 const viewRoot = ref<HTMLElement | null>(null)
+const deletionAnnouncement = ref('')
 let restoreFocus: HTMLElement | null = null
 let mounted = true
 
@@ -88,7 +89,9 @@ async function setDrawerOpen(open: boolean): Promise<void> {
   }
 }
 
-async function focusCreateAfterDelete(): Promise<void> {
+async function focusCreateAfterDelete(name: string): Promise<void> {
+  deletionAnnouncement.value = ''
+  await nextTick()
   await Promise.all(
     accessKeyMutationInvalidations.delete.map((queryKey) =>
       queryClient.invalidateQueries({ queryKey, exact: true }),
@@ -96,6 +99,7 @@ async function focusCreateAfterDelete(): Promise<void> {
   )
   await nextTick()
   if (!mounted) return
+  deletionAnnouncement.value = t('accessKeys.delete.deletedAnnouncement', { name })
   const target = viewRoot.value?.querySelector('button[data-test="access-key-create"]')
   if (target instanceof HTMLButtonElement && target.isConnected) target.focus()
 }
@@ -142,6 +146,15 @@ async function focusCreateAfterDelete(): Promise<void> {
         {{ t('accessKeys.operation.checkResult') }}
       </AppButton>
     </section>
+
+    <p
+      class="sr-only"
+      data-test="access-key-delete-announcement"
+      aria-live="polite"
+      aria-atomic="true"
+    >
+      {{ deletionAnnouncement }}
+    </p>
 
     <QueryFeedback
       v-if="accessKeysQuery.isPending.value"
