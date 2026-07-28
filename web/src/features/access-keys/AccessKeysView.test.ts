@@ -283,6 +283,77 @@ describe('AccessKeysView', () => {
     wrapper.unmount()
   })
 
+  it('keeps an unknown edit operation at page scope after the drawer closes', async () => {
+    const applied: AccessKeyDto = { ...keys[0], name: 'renamed-client' }
+    const secondary: AccessKeyDto = {
+      ...keys[0],
+      id: 10,
+      name: 'secondary-client',
+      masked_key: 'sk-gl-••••••••beef',
+    }
+    let listCalls = 0
+    const requestMock = vi.fn(async (path: string, options?: ApiRequestOptions) => {
+      if (path === '/api/groups' && options?.method === 'GET') return groups
+      if (path === '/api/access-keys' && options?.method === 'GET') {
+        listCalls += 1
+        return listCalls === 1 ? [keys[0], secondary] : [applied, secondary]
+      }
+      if (path === '/api/access-keys/9' && options?.method === 'PUT') throw new NetworkError()
+      throw new Error(`unexpected ${path}`)
+    })
+    const confirm = vi.fn(() => false)
+    vi.stubGlobal('confirm', confirm)
+    const { wrapper } = await mountView(requestMock as ApiClient['request'])
+
+    await wrapper.get('[data-test="access-key-edit-9"]').trigger('click')
+    await flushPromises()
+    const name = document.querySelector<HTMLInputElement>('[data-test="access-key-name"]')
+    if (!name) throw new Error('missing edit name')
+    name.value = 'renamed-client'
+    name.dispatchEvent(new Event('input', { bubbles: true }))
+    await flushPromises()
+    documentButton('[data-test="access-key-save"]').click()
+    await flushPromises()
+
+    const close = documentButton('.app-drawer__close')
+    expect(close.disabled).toBe(false)
+    close.click()
+    await flushPromises()
+
+    expect(confirm).not.toHaveBeenCalled()
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
+    expect(wrapper.get('[data-test="access-key-edit-operation-notice"]').text()).toContain(
+      'renamed-client',
+    )
+    expect(wrapper.get('[data-test="access-key-edit-operation-notice"]').text()).toContain(
+      'unknown outcome',
+    )
+
+    await wrapper.get('[data-test="access-key-edit-10"]').trigger('click')
+    await flushPromises()
+    expect(document.querySelector<HTMLInputElement>('[data-test="access-key-name"]')?.value).toBe(
+      'renamed-client',
+    )
+    documentButton('.app-drawer__close').click()
+    await flushPromises()
+
+    await wrapper.get('[data-test="access-key-edit-operation-check"]').trigger('click')
+    await flushPromises()
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull()
+    documentButton('[data-test="access-key-save"]').click()
+    await flushPromises()
+
+    expect(
+      requestMock.mock.calls.filter(
+        ([path, options]) => path === '/api/access-keys/9' && options?.method === 'PUT',
+      ),
+    ).toHaveLength(1)
+    expect(listCalls).toBe(2)
+    expect(wrapper.find('[data-test="access-key-edit-operation-notice"]').exists()).toBe(false)
+    wrapper.unmount()
+    vi.unstubAllGlobals()
+  })
+
   it('does not focus detached content when deleted is followed by immediate unmount', async () => {
     const request = vi.fn(async (path: string, options?: ApiRequestOptions) => {
       if (path === '/api/access-keys' && options?.method === 'GET') return keys

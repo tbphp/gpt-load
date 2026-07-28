@@ -24,6 +24,10 @@ export default {
       indeterminate:
         'The AccessKey create outcome is unknown. Reconcile it before starting another create.',
       reconciling: 'The AccessKey was committed and runtime recovery is still in progress.',
+      editIndeterminate:
+        'The update to AccessKey “{name}” has an unknown outcome. Check current metadata before editing another AccessKey.',
+      editReconciling:
+        'The update to AccessKey “{name}” was committed and still needs metadata reconciliation.',
       checkResult: 'Check result',
     },
     status: {

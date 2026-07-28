@@ -23,6 +23,9 @@ export default {
     operation: {
       indeterminate: 'AccessKey 创建结果未知；开始新的创建前，请先核对本次操作。',
       reconciling: 'AccessKey 已提交，运行时仍在恢复。',
+      editIndeterminate:
+        'AccessKey“{name}”的更新结果未知；编辑其他 AccessKey 前请先核对当前元数据。',
+      editReconciling: 'AccessKey“{name}”的更新已提交，仍需核对当前元数据。',
       checkResult: '核对结果',
     },
     status: {

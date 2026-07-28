@@ -11,7 +11,6 @@ import {
   revealAccessKey,
   updateAccessKey,
   type CreateAccessKeyRequest,
-  type UpdateAccessKeyRequest,
 } from '@/api/control/access-keys'
 import type { AccessKeyDto, AccessProtocol, GroupSummary } from '@/api/control/types'
 import { RequestCancelledError } from '@/api/errors'
@@ -26,6 +25,7 @@ import SecretValue from '@/components/ui/SecretValue.vue'
 
 import { accessKeyProtocolOptions, buildAccessKeyModelOptions } from './access-key-options'
 import type { PendingAccessKeyCreateOperation } from './access-key-create-operation'
+import type { PendingAccessKeyEditOperation } from './access-key-edit-operation'
 import {
   materializeAccessKeyFilters,
   validateAccessKeyScope,
@@ -45,11 +45,6 @@ import {
 } from './access-key-patch'
 import { useEphemeralSecret } from './use-ephemeral-secret'
 
-interface PendingAccessKeyEditReconciliation {
-  base: AccessKeyDto
-  patch: UpdateAccessKeyRequest
-}
-
 const props = withDefaults(
   defineProps<{
     open: boolean
@@ -57,12 +52,14 @@ const props = withDefaults(
     groups: GroupSummary[]
     groupCatalogState?: GroupCatalogState
     createOperation?: PendingAccessKeyCreateOperation | null
+    editOperation?: PendingAccessKeyEditOperation | null
   }>(),
-  { createOperation: null, groupCatalogState: 'ready' },
+  { createOperation: null, editOperation: null, groupCatalogState: 'ready' },
 )
 const emit = defineEmits<{
   'update:open': [open: boolean]
   'update:createOperation': [operation: PendingAccessKeyCreateOperation | null]
+  'update:editOperation': [operation: PendingAccessKeyEditOperation | null]
 }>()
 const client = useApiClient()
 const queryClient = useQueryClient()
@@ -74,10 +71,11 @@ const result = ref<AccessKeyDto | null>(null)
 const operationID = ref('')
 const createPayload = ref<CreateAccessKeyRequest | null>(null)
 const createOperationRetained = ref(false)
+const editOperationRetained = ref(false)
 const pending = ref(false)
 const failed = ref(false)
 const mutationState = ref<'idle' | 'indeterminate' | 'reconciling'>('idle')
-const editReconciliation = ref<PendingAccessKeyEditReconciliation | null>(null)
+const editReconciliation = ref<PendingAccessKeyEditOperation | null>(null)
 const editNotApplied = ref(false)
 const revealPending = ref(false)
 const revealFailed = ref(false)
@@ -97,7 +95,7 @@ const createOperationActive = computed(
 const formLocked = computed(
   () => pending.value || createOperationActive.value || editReconciliation.value !== null,
 )
-const closeBlocked = computed(() => pending.value || editReconciliation.value !== null)
+const closeBlocked = computed(() => pending.value)
 const resultSecret = computed(() =>
   result.value ? ephemeralSecret.read(`access-key:${result.value.id}`) : null,
 )
@@ -110,7 +108,8 @@ const unsavedDirty = computed(
   () =>
     dirty.value &&
     !createCompleted.value &&
-    !(createOperationActive.value && createOperationRetained.value),
+    !(createOperationActive.value && createOperationRetained.value) &&
+    !(editReconciliation.value && editOperationRetained.value),
 )
 const groupCatalog = computed(() => ({
   state: props.groupCatalogState,
@@ -195,6 +194,7 @@ function clearLocalState(): void {
   operationID.value = ''
   createPayload.value = null
   createOperationRetained.value = false
+  editOperationRetained.value = false
   pending.value = false
   revealPending.value = false
   revealFailed.value = false
@@ -206,21 +206,34 @@ function clearLocalState(): void {
 }
 
 async function resetForOpen(): Promise<void> {
-  const carriedOperation = props.accessKey ? null : props.createOperation
-  base.value = props.accessKey
-  draft.value = carriedOperation
-    ? createAccessKeyDraftFromCreateInput(carriedOperation.payload)
-    : createAccessKeyDraft(props.accessKey)
+  const carriedCreateOperation = props.accessKey ? null : props.createOperation
+  const carriedEditOperation =
+    props.accessKey && props.editOperation?.base.id === props.accessKey.id
+      ? props.editOperation
+      : null
+  base.value = carriedEditOperation?.base ?? props.accessKey
+  draft.value = carriedCreateOperation
+    ? createAccessKeyDraftFromCreateInput(carriedCreateOperation.payload)
+    : carriedEditOperation
+      ? createAccessKeyDraft({
+          ...carriedEditOperation.base,
+          ...carriedEditOperation.patch,
+          filters: carriedEditOperation.patch.filters ?? carriedEditOperation.base.filters,
+        })
+      : createAccessKeyDraft(props.accessKey)
   result.value = null
   operationID.value = props.accessKey
     ? ''
-    : (carriedOperation?.idempotencyKey ?? crypto.randomUUID())
-  createPayload.value = carriedOperation ? cloneCreatePayload(carriedOperation.payload) : null
-  createOperationRetained.value = carriedOperation !== null
+    : (carriedCreateOperation?.idempotencyKey ?? crypto.randomUUID())
+  createPayload.value = carriedCreateOperation
+    ? cloneCreatePayload(carriedCreateOperation.payload)
+    : null
+  createOperationRetained.value = carriedCreateOperation !== null
+  editOperationRetained.value = carriedEditOperation !== null
   ephemeralSecret.clear()
   failed.value = false
-  mutationState.value = carriedOperation?.state ?? 'idle'
-  editReconciliation.value = null
+  mutationState.value = carriedCreateOperation?.state ?? carriedEditOperation?.state ?? 'idle'
+  editReconciliation.value = carriedEditOperation
   editNotApplied.value = false
   modelInput.value = ''
   await nextTick()
@@ -371,6 +384,8 @@ async function save(): Promise<void> {
       draft.value = createAccessKeyDraft(saved)
       result.value = null
       editReconciliation.value = null
+      editOperationRetained.value = false
+      emit('update:editOperation', null)
     } else {
       const saved = await createAccessKey(
         client,
@@ -441,10 +456,14 @@ async function save(): Promise<void> {
       updateBody &&
       (outcome.kind === 'indeterminate' || outcome.kind === 'reconciling')
     ) {
-      editReconciliation.value = {
+      const operation: PendingAccessKeyEditOperation = {
         base: currentBase,
         patch: updateBody,
+        state: outcome.kind,
       }
+      editReconciliation.value = operation
+      editOperationRetained.value = true
+      emit('update:editOperation', operation)
     }
     mutationState.value =
       outcome.kind === 'reconciling'
@@ -479,6 +498,8 @@ async function reconcileEdit(): Promise<void> {
     const latest = accessKeys.find((accessKey) => accessKey.id === attempt.base.id)
     if (!latest) {
       editReconciliation.value = null
+      editOperationRetained.value = false
+      emit('update:editOperation', null)
       mutationState.value = 'idle'
       failed.value = true
       return
@@ -487,6 +508,8 @@ async function reconcileEdit(): Promise<void> {
       base.value = latest
       draft.value = createAccessKeyDraft(latest)
       editReconciliation.value = null
+      editOperationRetained.value = false
+      emit('update:editOperation', null)
       mutationState.value = 'idle'
       return
     }
@@ -496,19 +519,33 @@ async function reconcileEdit(): Promise<void> {
     ) {
       base.value = latest
       editReconciliation.value = null
+      editOperationRetained.value = false
+      emit('update:editOperation', null)
       mutationState.value = 'idle'
       failed.value = true
       editNotApplied.value = true
       return
     }
-    mutationState.value = 'indeterminate'
+    const operation: PendingAccessKeyEditOperation = {
+      ...attempt,
+      state: 'indeterminate',
+    }
+    editReconciliation.value = operation
+    emit('update:editOperation', operation)
+    mutationState.value = operation.state
   } catch (error: unknown) {
     if (
       controller === activeController &&
       editReconciliation.value === attempt &&
       !(error instanceof RequestCancelledError)
     ) {
-      mutationState.value = 'indeterminate'
+      const operation: PendingAccessKeyEditOperation = {
+        ...attempt,
+        state: 'indeterminate',
+      }
+      editReconciliation.value = operation
+      emit('update:editOperation', operation)
+      mutationState.value = operation.state
     }
   } finally {
     if (controller === activeController) {

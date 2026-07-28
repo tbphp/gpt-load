@@ -24,6 +24,10 @@ export default {
       indeterminate:
         'AccessKey の作成結果は不明です。新しい作成を始める前に、この操作の結果を確認してください。',
       reconciling: 'AccessKey は確定しましたが、ランタイムの復旧処理が続いています。',
+      editIndeterminate:
+        'AccessKey「{name}」の更新結果は不明です。別の AccessKey を編集する前に現在のメタデータを確認してください。',
+      editReconciling:
+        'AccessKey「{name}」の更新は確定しましたが、現在のメタデータを確認する必要があります。',
       checkResult: '結果を確認',
     },
     status: {

@@ -797,9 +797,7 @@ describe('AccessKeyDrawer', () => {
 
       const check = element<HTMLButtonElement>('[data-test="access-key-save"]')
       expect(check.textContent).toContain('Check result')
-      expect(element<HTMLButtonElement>('.app-drawer__close').disabled).toBe(true)
-      requestDrawerClose('close')
-      expect(wrapper.emitted('update:open') ?? []).not.toContainEqual([false])
+      expect(element<HTMLButtonElement>('.app-drawer__close').disabled).toBe(false)
 
       check.click()
       await flushPromises()
@@ -828,7 +826,7 @@ describe('AccessKeyDrawer', () => {
         expect(element<HTMLButtonElement>('[data-test="access-key-save"]').textContent).toContain(
           'Check result',
         )
-        expect(element<HTMLButtonElement>('.app-drawer__close').disabled).toBe(true)
+        expect(element<HTMLButtonElement>('.app-drawer__close').disabled).toBe(false)
       }
       wrapper.unmount()
     },

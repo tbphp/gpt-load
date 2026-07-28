@@ -19,6 +19,7 @@ import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import AccessKeyDrawer from './AccessKeyDrawer.vue'
 import AccessKeyTable from './AccessKeyTable.vue'
 import type { PendingAccessKeyCreateOperation } from './access-key-create-operation'
+import type { PendingAccessKeyEditOperation } from './access-key-edit-operation'
 
 const client = useApiClient()
 const queryClient = useQueryClient()
@@ -26,6 +27,7 @@ const { t } = useI18n()
 const drawerOpen = ref(false)
 const selected = ref<AccessKeyDto | null>(null)
 const createOperation = ref<PendingAccessKeyCreateOperation | null>(null)
+const editOperation = ref<PendingAccessKeyEditOperation | null>(null)
 const viewRoot = ref<HTMLElement | null>(null)
 const deletionAnnouncement = ref('')
 let restoreFocus: HTMLElement | null = null
@@ -54,6 +56,14 @@ const operationNoticeKey = computed(() =>
     ? 'accessKeys.operation.reconciling'
     : 'accessKeys.operation.indeterminate',
 )
+const editOperationNoticeKey = computed(() =>
+  editOperation.value?.state === 'reconciling'
+    ? 'accessKeys.operation.editReconciling'
+    : 'accessKeys.operation.editIndeterminate',
+)
+const editOperationName = computed(
+  () => editOperation.value?.patch.name ?? editOperation.value?.base.name ?? '',
+)
 
 function createKey(): void {
   selected.value = null
@@ -62,6 +72,10 @@ function createKey(): void {
 }
 
 function editKey(accessKey: AccessKeyDto, trigger: HTMLElement): void {
+  if (editOperation.value && editOperation.value.base.id !== accessKey.id) {
+    checkEditOperation()
+    return
+  }
   selected.value = accessKey
   restoreFocus = trigger
   drawerOpen.value = true
@@ -71,9 +85,23 @@ function setCreateOperation(operation: PendingAccessKeyCreateOperation | null): 
   createOperation.value = operation
 }
 
+function setEditOperation(operation: PendingAccessKeyEditOperation | null): void {
+  editOperation.value = operation
+}
+
 function checkCreateOperation(): void {
   if (!createOperation.value) return
   selected.value = null
+  restoreFocus = null
+  drawerOpen.value = true
+}
+
+function checkEditOperation(): void {
+  const operation = editOperation.value
+  if (!operation) return
+  selected.value =
+    accessKeysQuery.data.value?.find((accessKey) => accessKey.id === operation.base.id) ??
+    operation.base
   restoreFocus = null
   drawerOpen.value = true
 }
@@ -119,7 +147,9 @@ async function focusCreateAfterDelete(name: string): Promise<void> {
           :groups="groupsQuery.data.value ?? []"
           :group-catalog-state="groupCatalogState"
           :create-operation="createOperation"
+          :edit-operation="selected?.id === editOperation?.base.id ? editOperation : null"
           @update:create-operation="setCreateOperation"
+          @update:edit-operation="setEditOperation"
           @update:open="setDrawerOpen"
         >
           <template #trigger>
@@ -142,6 +172,24 @@ async function focusCreateAfterDelete(name: string): Promise<void> {
         data-test="access-key-operation-check"
         variant="secondary"
         @click="checkCreateOperation"
+      >
+        {{ t('accessKeys.operation.checkResult') }}
+      </AppButton>
+    </section>
+
+    <section
+      v-if="editOperation"
+      class="access-keys__operation"
+      data-test="access-key-edit-operation-notice"
+      aria-live="polite"
+    >
+      <InlineFeedback tone="warning">{{
+        t(editOperationNoticeKey, { name: editOperationName })
+      }}</InlineFeedback>
+      <AppButton
+        data-test="access-key-edit-operation-check"
+        variant="secondary"
+        @click="checkEditOperation"
       >
         {{ t('accessKeys.operation.checkResult') }}
       </AppButton>
