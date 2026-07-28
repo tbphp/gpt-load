@@ -29,6 +29,7 @@ function clearRequest(): void {
 }
 
 function setOpen(value: boolean): void {
+  if (!value && pending.value) return
   if (!value) {
     clearRequest()
     failed.value = false
@@ -75,6 +76,7 @@ onBeforeUnmount(clearRequest)
     :title="t('modelPrices.reset.title')"
     :description="t('modelPrices.reset.description', { pattern: rule.pattern })"
     :close-label="t('modelPrices.reset.close')"
+    :dismissible="!pending"
     @update:open="setOpen"
   >
     <template #trigger>

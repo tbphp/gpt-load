@@ -119,15 +119,16 @@ describe('ModelPriceResetDialog', () => {
     wrapper.unmount()
   })
 
-  it('disables duplicate confirmation and aborts an in-flight reset when closed', async () => {
+  it('disables duplicate confirmation and blocks dismissing an in-flight reset', async () => {
     let signal: AbortSignal | null | undefined
+    let resolveReset!: () => void
     const requestMock = vi.fn((path: string, options?: ApiRequestOptions) => {
       if (path !== '/api/model-prices?pattern=vendor-%2A') {
         throw new Error(`unexpected ${path}`)
       }
       signal = options?.signal
-      return new Promise<void>(() => {
-        // Remains pending until the dialog aborts the request.
+      return new Promise<void>((resolve) => {
+        resolveReset = resolve
       })
     })
     const request = requestMock as ApiClient['request']
@@ -140,11 +141,17 @@ describe('ModelPriceResetDialog', () => {
     await flushPromises()
     expect(request).toHaveBeenCalledTimes(1)
     expect(button('[data-test="model-price-reset-confirm"]').disabled).toBe(true)
-    document
-      .querySelector<HTMLButtonElement>('[aria-label="Close model price reset confirmation"]')
-      ?.click()
+    const close = button('[aria-label="Close model price reset confirmation"]')
+    expect(close.disabled).toBe(true)
+    close.click()
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    document.querySelector<HTMLElement>('.app-dialog__overlay')?.click()
     await flushPromises()
-    expect(signal?.aborted).toBe(true)
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull()
+    expect(signal?.aborted).toBe(false)
+
+    resolveReset()
+    await flushPromises()
     wrapper.unmount()
   })
 })

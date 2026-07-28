@@ -94,6 +94,7 @@ onBeforeUnmount(() => controller?.abort())
     :title="t('group.settings.delete.title')"
     :description="t('group.settings.delete.description', { name: groupName })"
     :close-label="t('group.settings.delete.close')"
+    :dismissible="!pending"
     @update:open="setOpen"
   >
     <template #trigger>

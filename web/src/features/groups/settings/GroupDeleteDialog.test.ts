@@ -113,6 +113,41 @@ describe('GroupDeleteDialog', () => {
     wrapper.unmount()
   })
 
+  it('keeps a pending deletion open across every dismiss control', async () => {
+    let resolveDelete!: () => void
+    let signal: AbortSignal | null | undefined
+    const request = vi.fn((_path: string, options?: ApiRequestOptions) => {
+      signal = options?.signal
+      return new Promise<void>((resolve) => {
+        resolveDelete = resolve
+      })
+    }) as ApiClient['request']
+    const { wrapper } = await mountDelete(request)
+
+    await wrapper.get('[data-test="group-delete-open"]').trigger('click')
+    await flushPromises()
+    const input = documentInput('[data-test="group-delete-name"]')
+    input.value = 'Primary'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    await flushPromises()
+    documentButton('[data-test="group-delete-confirm"]').click()
+    await flushPromises()
+
+    const close = documentButton('.app-dialog__close')
+    expect(close.disabled).toBe(true)
+    close.click()
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    document.querySelector<HTMLElement>('.app-dialog__overlay')?.click()
+    await flushPromises()
+
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull()
+    expect(signal?.aborted).toBe(false)
+
+    resolveDelete()
+    await flushPromises()
+    wrapper.unmount()
+  })
+
   it('retains the page, cache, and typed form while rendering GROUP_IN_USE references', async () => {
     const request = vi.fn().mockRejectedValue(
       new ApiError(409, 'GROUP_IN_USE', 'must not render generic server detail', {

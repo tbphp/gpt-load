@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useQueryClient } from '@tanstack/vue-query'
 import { RefreshCw, Save, TriangleAlert } from 'lucide-vue-next'
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { useApiClient } from '@/api/client-context'
@@ -152,10 +152,13 @@ function requestSave(): void {
   void runReplace()
 }
 
-async function confirmEmptyReplace(): Promise<void> {
-  emptyConfirmOpen.value = false
-  await nextTick()
-  await runReplace()
+function setEmptyConfirmOpen(open: boolean): void {
+  if (!open && pending.value) return
+  emptyConfirmOpen.value = open
+}
+
+function confirmEmptyReplace(): void {
+  void runReplace()
 }
 
 async function runReplace(): Promise<void> {
@@ -175,6 +178,7 @@ async function runReplace(): Promise<void> {
     draft.value = buildModelDiff(savedModels.value, [])
     discoveryRan.value = false
     discoveryError.value = 'none'
+    emptyConfirmOpen.value = false
     queryClient.setQueryData(controlQueryKeys.groups.detail(props.groupId), result)
     await queryClient.invalidateQueries({ queryKey: controlQueryKeys.groups.list() })
   } catch (error: unknown) {
@@ -214,7 +218,8 @@ onBeforeUnmount(() => {
           :title="t('group.modelEditor.emptyConfirm.title')"
           :description="t('group.modelEditor.emptyConfirm.description')"
           :close-label="t('group.modelEditor.emptyConfirm.close')"
-          @update:open="emptyConfirmOpen = $event"
+          :dismissible="!pending"
+          @update:open="setEmptyConfirmOpen"
         >
           <template #trigger>
             <AppButton
@@ -227,7 +232,7 @@ onBeforeUnmount(() => {
             </AppButton>
           </template>
           <div class="group-models__dialog-actions">
-            <AppButton variant="secondary" @click="emptyConfirmOpen = false">
+            <AppButton variant="secondary" :disabled="pending" @click="setEmptyConfirmOpen(false)">
               {{ t('group.modelEditor.emptyConfirm.cancel') }}
             </AppButton>
             <AppButton

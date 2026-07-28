@@ -21,6 +21,7 @@ const failed = ref(false)
 let controller: AbortController | undefined
 
 function setOpen(value: boolean): void {
+  if (!value && pending.value) return
   if (!value) {
     controller?.abort()
     controller = undefined
@@ -56,6 +57,7 @@ onBeforeUnmount(() => controller?.abort())
     :title="t('accessKeys.delete.title')"
     :description="t('accessKeys.delete.description', { name: accessKey.name })"
     :close-label="t('accessKeys.delete.close')"
+    :dismissible="!pending"
     @update:open="setOpen"
   >
     <template #trigger>

@@ -343,4 +343,39 @@ describe('GroupModelsTab', () => {
     })
     wrapper.unmount()
   })
+
+  it('keeps the empty-selection confirmation open while replacement is pending', async () => {
+    const oneModel = { ...detail, models: [{ id: 'only', alias: 'public' }] }
+    const updated = { ...oneModel, models: [] }
+    let resolveSave!: (value: GroupDetailDto) => void
+    let signal: AbortSignal | null | undefined
+    const request = vi.fn((_path: string, options?: ApiRequestOptions) => {
+      signal = options?.signal
+      return new Promise<GroupDetailDto>((resolve) => {
+        resolveSave = resolve
+      })
+    }) as ApiClient['request']
+    const { wrapper } = await mountModels(request, oneModel)
+
+    await wrapper.get('[data-test="model-selected-0"]').setValue(false)
+    await wrapper.get('[data-test="models-save"]').trigger('click')
+    await flushPromises()
+    clickDocument('[data-test="models-empty-confirm"]')
+    await flushPromises()
+
+    const close = document.querySelector<HTMLButtonElement>('.app-dialog__close')
+    expect(close?.disabled).toBe(true)
+    close?.click()
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    document.querySelector<HTMLElement>('.app-dialog__overlay')?.click()
+    await flushPromises()
+
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull()
+    expect(signal?.aborted).toBe(false)
+
+    resolveSave(updated)
+    await flushPromises()
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
+    wrapper.unmount()
+  })
 })

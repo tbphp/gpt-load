@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
-import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { useApiClient } from '@/api/client-context'
@@ -147,14 +147,12 @@ function toggleStatus(key: UpstreamKeyDto): void {
 }
 
 function setDeleteDialog(open: boolean, keyId: number): void {
-  if (open && pending(keyId)) return
+  if (pending(keyId)) return
   deleteKeyId.value = open ? keyId : null
 }
 
 async function confirmDelete(key: UpstreamKeyDto): Promise<void> {
   if (pending(key.id)) return
-  deleteKeyId.value = null
-  await nextTick()
   actionError.value = ''
   setPending(key.id, true)
   const controller = new AbortController()
@@ -162,6 +160,7 @@ async function confirmDelete(key: UpstreamKeyDto): Promise<void> {
   try {
     await deleteGroupKey(client, props.groupId, key.id, controller.signal)
     await invalidateKeyResources()
+    deleteKeyId.value = null
   } catch {
     actionError.value = t('group.keys.deleteFailed')
   } finally {
@@ -280,6 +279,7 @@ const effectiveLabels = computed(() => ({
                   :title="t('group.keys.deleteTitle')"
                   :description="t('group.keys.deleteDescription', { mask: key.mask })"
                   :close-label="t('group.keys.closeDialog')"
+                  :dismissible="!pending(key.id)"
                   @update:open="setDeleteDialog($event, key.id)"
                 >
                   <template #trigger>
@@ -297,7 +297,8 @@ const effectiveLabels = computed(() => ({
                     <AppButton
                       variant="secondary"
                       :data-test="`key-delete-cancel-${key.id}`"
-                      @click="deleteKeyId = null"
+                      :disabled="pending(key.id)"
+                      @click="setDeleteDialog(false, key.id)"
                     >
                       {{ t('group.keys.cancel') }}
                     </AppButton>
@@ -305,6 +306,8 @@ const effectiveLabels = computed(() => ({
                       class="group-keys__confirm-delete"
                       variant="secondary"
                       :data-test="`key-delete-confirm-${key.id}`"
+                      :busy="pending(key.id)"
+                      :disabled="pending(key.id)"
                       @click="confirmDelete(key)"
                     >
                       {{ t('group.keys.confirmDelete') }}
