@@ -29,4 +29,42 @@ describe('FormField', () => {
     )
     expect(wrapper.get('#auth-key-error [aria-hidden="true"]').text()).toBe('▲')
   })
+
+  it('exposes required, invalid and disabled-reason metadata to the control slot', () => {
+    const wrapper = mount(FormField, {
+      props: {
+        id: 'group-name',
+        label: 'Name',
+        required: true,
+        requiredText: 'Required',
+        error: 'Name is required.',
+        disabledReason: 'Wait for discovery to finish.',
+      },
+      slots: {
+        default: ({
+          describedBy,
+          invalid,
+          required,
+        }: {
+          describedBy?: string
+          invalid: boolean
+          required: boolean
+        }) =>
+          h('input', {
+            id: 'group-name',
+            'aria-describedby': describedBy,
+            'aria-invalid': invalid,
+            required,
+          }),
+      },
+    })
+
+    expect(wrapper.get('label').text()).toContain('Required')
+    expect(wrapper.get('input').attributes('required')).toBe('')
+    expect(wrapper.get('input').attributes('aria-invalid')).toBe('true')
+    expect(wrapper.get('input').attributes('aria-describedby')).toBe(
+      'group-name-disabled-reason group-name-error',
+    )
+    expect(wrapper.get('#group-name-disabled-reason').text()).toBe('Wait for discovery to finish.')
+  })
 })

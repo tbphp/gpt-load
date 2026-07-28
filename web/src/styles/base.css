@@ -294,7 +294,7 @@ h1 {
 
 .app-button {
   display: inline-flex;
-  min-height: 44px;
+  min-height: var(--control-md);
   align-items: center;
   justify-content: center;
   border: 1px solid transparent;
@@ -308,6 +308,17 @@ h1 {
     border-color var(--duration-fast) ease,
     color var(--duration-fast) ease,
     opacity var(--duration-fast) ease;
+}
+
+.app-button--sm {
+  min-height: var(--control-sm);
+  padding: 6px 12px;
+  font-size: var(--text-sm);
+}
+
+.app-button--lg {
+  min-height: var(--control-lg);
+  padding: 11px 18px;
 }
 
 .app-button--primary {
@@ -324,6 +335,12 @@ h1 {
 .app-button--ghost {
   background: transparent;
   color: var(--color-text-muted);
+}
+
+.app-button--danger {
+  border-color: var(--color-danger);
+  background: var(--color-danger);
+  color: var(--color-text-inverse);
 }
 
 .app-button:hover:not(:disabled) {

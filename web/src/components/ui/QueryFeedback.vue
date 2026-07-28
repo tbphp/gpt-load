@@ -3,7 +3,7 @@ import { LoaderCircle, RefreshCw, TriangleAlert } from 'lucide-vue-next'
 
 withDefaults(
   defineProps<{
-    state: 'loading' | 'error' | 'stale'
+    state: 'loading' | 'error' | 'stale' | 'indeterminate'
     message: string
     retryLabel?: string
   }>(),
@@ -16,7 +16,7 @@ defineEmits<{ retry: [] }>()
   <div
     class="query-feedback"
     :class="`query-feedback--${state}`"
-    :role="state === 'loading' ? 'status' : 'alert'"
+    :role="state === 'loading' || state === 'indeterminate' ? 'status' : 'alert'"
   >
     <LoaderCircle v-if="state === 'loading'" class="query-feedback__spin" :size="18" />
     <TriangleAlert v-else :size="18" />
@@ -43,6 +43,11 @@ defineEmits<{ retry: [] }>()
   border-color: var(--color-danger);
   background: var(--color-danger-bg);
   color: var(--color-danger);
+}
+.query-feedback--indeterminate {
+  border-color: var(--color-border-control);
+  background: var(--color-action-soft);
+  color: var(--color-text);
 }
 .query-feedback button {
   display: inline-flex;

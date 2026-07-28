@@ -4,13 +4,15 @@ withDefaults(
     type?: 'button' | 'submit' | 'reset'
     disabled?: boolean
     busy?: boolean
-    variant?: 'primary' | 'secondary' | 'ghost'
+    variant?: 'primary' | 'secondary' | 'ghost' | 'danger'
+    size?: 'sm' | 'md' | 'lg'
   }>(),
   {
     type: 'button',
     disabled: false,
     busy: false,
     variant: 'primary',
+    size: 'md',
   },
 )
 </script>
@@ -18,7 +20,7 @@ withDefaults(
 <template>
   <button
     class="app-button"
-    :class="`app-button--${variant}`"
+    :class="[`app-button--${variant}`, `app-button--${size}`]"
     :type="type"
     :disabled="disabled || busy"
     :aria-busy="busy ? 'true' : undefined"
