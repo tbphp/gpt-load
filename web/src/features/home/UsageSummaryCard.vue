@@ -7,6 +7,7 @@ import { useI18n } from 'vue-i18n'
 import { useApiClient } from '@/api/client-context'
 import { getUsageReport, type UsageAggregateDto } from '@/api/control/usage'
 import { controlQueryKeys } from '@/app/query-keys'
+import AppDateTime from '@/components/ui/AppDateTime.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
@@ -38,14 +39,6 @@ const hasPipelineWarning = computed(() =>
       report.value.collection_health.write_failure_total > 0),
   ),
 )
-const observedAt = computed(() => {
-  if (!report.value) return ''
-  return new Intl.DateTimeFormat(locale.value, {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(new Date(report.value.observed_at))
-})
-
 function formatCount(value: number): string {
   return new Intl.NumberFormat(locale.value).format(value)
 }
@@ -181,7 +174,7 @@ function formatEstimatedCost(aggregate: UsageAggregateDto): string {
         </InlineFeedback>
         <p class="usage-summary-card__observed">
           {{ t('home.usage.observedAt') }}
-          <time :datetime="report.observed_at">{{ observedAt }}</time>
+          <AppDateTime :instant="report.observed_at" :locale="locale" />
         </p>
       </template>
     </SurfaceCard>

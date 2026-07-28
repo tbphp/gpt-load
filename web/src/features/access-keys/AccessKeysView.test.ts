@@ -136,6 +136,33 @@ describe('AccessKeysView', () => {
     expect(snapshotSafeOutput).not.toContain(canary)
   })
 
+  it('conceals revealed plaintext when an AccessKey drawer closes', async () => {
+    const request = vi.fn(async (path: string, options?: ApiRequestOptions) => {
+      if (path === '/api/access-keys' && options?.method === 'GET') return keys
+      if (path === '/api/groups' && options?.method === 'GET') return groups
+      if (path === '/api/access-keys/9/reveal' && options?.method === 'POST') {
+        return { id: 9, key: canary, revealed_at: '2026-07-28T01:00:00Z' }
+      }
+      throw new Error(`unexpected ${path}`)
+    }) as ApiClient['request']
+    const { wrapper } = await mountView(request)
+
+    await wrapper.get('[data-test="access-key-reveal-9"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain(canary)
+
+    await wrapper.get('[data-test="access-key-edit-9"]').trigger('click')
+    await flushPromises()
+    documentButton('.app-drawer__close').click()
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain(canary)
+    expect(wrapper.get('[data-test="access-key-reveal-9"]').attributes('aria-pressed')).toBe(
+      'false',
+    )
+    wrapper.unmount()
+  })
+
   it('retains masked stale list data and never renders generic error details', async () => {
     let listCalls = 0
     const request = vi.fn(async (path: string, options?: ApiRequestOptions) => {

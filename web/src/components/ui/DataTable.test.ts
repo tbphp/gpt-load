@@ -3,17 +3,24 @@ import { nextTick } from 'vue'
 
 import DataTable from './DataTable.vue'
 
-let notifyResize: (() => void) | undefined
+const observedElements: Element[][] = []
+const resizeCallbacks: ResizeObserverCallback[] = []
 
 beforeEach(() => {
-  notifyResize = undefined
+  observedElements.length = 0
+  resizeCallbacks.length = 0
   vi.stubGlobal(
     'ResizeObserver',
     class {
+      private readonly index: number
+
       constructor(callback: ResizeObserverCallback) {
-        notifyResize = () => callback([], this as unknown as ResizeObserver)
+        this.index = resizeCallbacks.push(callback) - 1
+        observedElements[this.index] = []
       }
-      observe() {}
+      observe(element: Element) {
+        observedElements[this.index]?.push(element)
+      }
       disconnect() {}
       unobserve() {}
     },
@@ -25,6 +32,12 @@ afterEach(() => {
 })
 
 describe('DataTable', () => {
+  function notifyResize(): void {
+    for (const callback of resizeCallbacks) {
+      callback([], {} as ResizeObserver)
+    }
+  }
+
   it('makes only an overflowing table region keyboard focusable and describes scrolling', async () => {
     const wrapper = mount(DataTable, {
       props: {
@@ -41,18 +54,53 @@ describe('DataTable', () => {
       scrollWidth: { configurable: true, value: 720 },
     })
 
-    notifyResize?.()
+    notifyResize()
     await nextTick()
 
     expect(container.attributes('tabindex')).toBe('0')
     expect(container.attributes('aria-label')).toBe('Request logs')
-    expect(container.attributes('aria-describedby')).toBe('request-logs-scroll-hint')
-    expect(wrapper.get('#request-logs-scroll-hint').text()).toContain('Scroll horizontally')
+    const scrollHintId = container.attributes('aria-describedby')
+    expect(scrollHintId).toMatch(/^data-table-.+-scroll-hint$/)
+    expect(wrapper.get(`#${scrollHintId}`).text()).toContain('Scroll horizontally')
 
     Object.defineProperty(container.element, 'scrollWidth', { configurable: true, value: 320 })
-    notifyResize?.()
+    notifyResize()
     await nextTick()
 
     expect(container.attributes('tabindex')).toBeUndefined()
+  })
+
+  it('uses an instance-unique hint id for non-Latin captions', () => {
+    const wrapper = mount({
+      components: { DataTable },
+      template: `
+        <div>
+          <DataTable caption="用户覆盖价格" scroll-hint="横向滚动">
+            <tbody><tr><td>first</td></tr></tbody>
+          </DataTable>
+          <DataTable caption="内置价格" scroll-hint="横向滚动">
+            <tbody><tr><td>second</td></tr></tbody>
+          </DataTable>
+        </div>
+      `,
+    })
+
+    const [firstId, secondId] = wrapper.findAll('.sr-only[id]').map((hint) => hint.attributes('id'))
+    expect(firstId).toMatch(/^data-table-.+-scroll-hint$/)
+    expect(secondId).toMatch(/^data-table-.+-scroll-hint$/)
+    expect(firstId).not.toBe(secondId)
+  })
+
+  it('observes both the scroll container and table content width', () => {
+    const wrapper = mount(DataTable, {
+      props: { caption: 'Dynamic table' },
+      slots: { default: '<tbody><tr><td>value</td></tr></tbody>' },
+    })
+
+    expect(observedElements).toHaveLength(1)
+    expect(observedElements[0]).toEqual([
+      wrapper.get('[data-table-scroll]').element,
+      wrapper.get('table').element,
+    ])
   })
 })

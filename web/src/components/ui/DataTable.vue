@@ -1,21 +1,17 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref, useId } from 'vue'
 
-const props = defineProps<{
+defineProps<{
   caption: string
   dense?: boolean
   scrollHint?: string
 }>()
 
 const container = ref<HTMLElement | null>(null)
+const table = ref<HTMLTableElement | null>(null)
 const overflowing = ref(false)
-const scrollHintId = computed(
-  () =>
-    `${props.caption
-      .toLocaleLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-|-$/g, '')}-scroll-hint`,
-)
+const identity = useId().replace(/[^a-zA-Z0-9_-]/g, '-')
+const scrollHintId = `data-table-${identity}-scroll-hint`
 let resizeObserver: ResizeObserver | undefined
 
 function updateOverflow(): void {
@@ -28,6 +24,7 @@ onMounted(() => {
   if (typeof ResizeObserver === 'function' && container.value) {
     resizeObserver = new ResizeObserver(updateOverflow)
     resizeObserver.observe(container.value)
+    if (table.value) resizeObserver.observe(table.value)
   }
   window.addEventListener('resize', updateOverflow)
 })
@@ -48,7 +45,7 @@ onBeforeUnmount(() => {
     :aria-label="overflowing ? caption : undefined"
     :aria-describedby="overflowing && scrollHint ? scrollHintId : undefined"
   >
-    <table class="data-table">
+    <table ref="table" class="data-table">
       <caption class="sr-only">
         {{
           caption

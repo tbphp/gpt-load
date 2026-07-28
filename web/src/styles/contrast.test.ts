@@ -113,6 +113,17 @@ describe('semantic token contrast', () => {
     expect(style.getPropertyValue('--font-mono')).toContain('ui-monospace')
   })
 
+  it('keeps standard motion within the approved 150–200ms range', () => {
+    const style = styleRule(':root')
+    for (const token of ['--duration-fast', '--duration-normal']) {
+      const value = style.getPropertyValue(token).trim()
+      expect(value).toMatch(/^\d+ms$/)
+      const milliseconds = Number.parseInt(value, 10)
+      expect(milliseconds, token).toBeGreaterThanOrEqual(150)
+      expect(milliseconds, token).toBeLessThanOrEqual(200)
+    }
+  })
+
   it('uses the control border token on shared form controls', () => {
     expect(styleRule('.form-field input').cssText).toContain('var(--color-border-control)')
   })

@@ -58,7 +58,7 @@
   --shadow-overlay: 0 18px 48px rgba(30, 26, 20, 0.18);
   --focus-ring: 0 0 0 3px color-mix(in srgb, var(--color-focus) 24%, transparent);
   --duration-fast: 180ms;
-  --duration-normal: 240ms;
+  --duration-normal: 200ms;
   --easing-standard: cubic-bezier(0.2, 0, 0, 1);
   --space-1: 4px;
   --space-2: 8px;

@@ -13,6 +13,20 @@ export const visualScenarios = [
 
 export type VisualScenario = (typeof visualScenarios)[number]
 
+const visualScenarioDescriptions: Record<VisualScenario, string> = {
+  'home-normal': 'Home normal operation',
+  'home-anomaly': 'Home usage and health anomaly',
+  'access-keys-long': 'AccessKey long record',
+  'model-prices-mixed': 'Model prices mixed values',
+  'settings-dirty': 'Settings dirty state',
+  'usage-quality': 'Usage quality signals',
+  'logs-signal-path': 'Logs signal path',
+}
+
+export function visualScenarioLabel(scenario: VisualScenario): string {
+  return `[visual:${scenario}] ${visualScenarioDescriptions[scenario]}`
+}
+
 export const visualViewports = [
   { width: 375, height: 812 },
   { width: 768, height: 900 },

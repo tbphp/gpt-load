@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -8,6 +11,8 @@ import {
   visualThemes,
   visualViewports,
 } from './visual-fixtures'
+
+const businessFlowSource = readFileSync(resolve('e2e/business-flows.spec.ts'), 'utf8')
 
 describe('deterministic visual fixtures', () => {
   it('freezes the approved scenario, viewport, theme, and locale matrix', () => {
@@ -41,5 +46,12 @@ describe('deterministic visual fixtures', () => {
     const serialized = JSON.stringify(visualFixtureData)
     expect(serialized).not.toMatch(/sk-gl-[0-9a-z]{16,}/i)
     expect(serialized).not.toContain('Bearer ')
+  })
+
+  it('binds every named scenario and locale to the executable browser journey', () => {
+    for (const scenario of visualScenarios) {
+      expect(businessFlowSource).toContain(`visualScenarioLabel('${scenario}')`)
+    }
+    expect(businessFlowSource).toContain('for (const locale of visualLocales)')
   })
 })

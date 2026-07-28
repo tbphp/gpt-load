@@ -116,6 +116,17 @@ function updateMedia(event: MediaQueryListEvent): void {
   mobile.value = event.matches
 }
 
+function conceal(): void {
+  const controller = revealController
+  revealController = undefined
+  controller?.abort()
+  revealPending.value = undefined
+  revealFailed.value = undefined
+  secret.clear()
+}
+
+defineExpose({ conceal })
+
 onMounted(() => mediaQuery?.addEventListener('change', updateMedia))
 
 watch(
@@ -128,9 +139,7 @@ watch(
 onBeforeUnmount(() => {
   mounted = false
   mediaQuery?.removeEventListener('change', updateMedia)
-  revealController?.abort()
-  revealController = undefined
-  secret.clear()
+  conceal()
 })
 </script>
 
@@ -173,11 +182,11 @@ onBeforeUnmount(() => {
             </template>
             <dt>{{ t('accessKeys.createdAt') }}</dt>
             <dd>
-              <AppDateTime :instant="record.createdAt" :locale="locale" time-zone="UTC" />
+              <AppDateTime :instant="record.createdAt" :locale="locale" />
             </dd>
             <dt>{{ t('accessKeys.updatedAt') }}</dt>
             <dd>
-              <AppDateTime :instant="record.updatedAt" :locale="locale" time-zone="UTC" />
+              <AppDateTime :instant="record.updatedAt" :locale="locale" />
             </dd>
           </dl>
         </details>

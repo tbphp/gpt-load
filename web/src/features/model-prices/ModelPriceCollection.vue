@@ -131,7 +131,7 @@ onBeforeUnmount(() => mediaQuery?.removeEventListener('change', updateMedia))
             </dd>
             <dt>{{ t('modelPrices.table.updatedAt') }}</dt>
             <dd>
-              <AppDateTime :instant="record.updatedAt" :locale="locale" time-zone="UTC" />
+              <AppDateTime :instant="record.updatedAt" :locale="locale" />
             </dd>
           </dl>
           <p
@@ -239,7 +239,7 @@ onBeforeUnmount(() => mediaQuery?.removeEventListener('change', updateMedia))
             </span>
           </td>
           <td>
-            <AppDateTime :instant="record.updatedAt" :locale="locale" time-zone="UTC" />
+            <AppDateTime :instant="record.updatedAt" :locale="locale" />
           </td>
           <td>
             <div class="model-price-collection__row-actions">

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useQuery } from '@tanstack/vue-query'
-import { Layers3 } from 'lucide-vue-next'
+import { CircleAlert, CircleCheck, CircleOff, Layers3 } from 'lucide-vue-next'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
@@ -10,6 +10,7 @@ import { getRuntimeHealth } from '@/api/control/health'
 import { NetworkError } from '@/api/errors'
 import { useApiClient } from '@/api/client-context'
 import { controlQueryKeys } from '@/app/query-keys'
+import AppDateTime from '@/components/ui/AppDateTime.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
@@ -51,14 +52,6 @@ const healthErrorMessage = computed(() =>
     ? t('home.networkUnavailable')
     : t('home.healthUnavailable'),
 )
-const observedAt = computed(() => {
-  const value = healthQuery.data.value?.observed_at
-  if (!value) return ''
-  return new Intl.DateTimeFormat(locale.value, {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(new Date(value))
-})
 </script>
 
 <template>
@@ -82,9 +75,14 @@ const observedAt = computed(() => {
               <p class="eyebrow">{{ t('home.service') }}</p>
               <h3 id="service-heading">{{ t('home.service') }}</h3>
             </div>
-            <StatusBadge v-if="healthQuery.isSuccess.value" tone="success">
+            <span
+              v-if="healthQuery.isSuccess.value"
+              class="service-status service-status--normal"
+              data-test="home-service-status"
+            >
+              <CircleCheck :size="14" aria-hidden="true" />
               {{ t('home.online') }}
-            </StatusBadge>
+            </span>
             <StatusBadge
               v-else-if="healthQuery.isError.value && healthQuery.data.value"
               tone="warning"
@@ -120,22 +118,61 @@ const observedAt = computed(() => {
               <span>{{
                 t('home.revision', { revision: healthQuery.data.value.snapshot_revision })
               }}</span>
-              <span>{{ t('home.observedAt', { time: observedAt }) }}</span>
+              <i18n-t keypath="home.observedAt" tag="span">
+                <template #time>
+                  <AppDateTime :instant="healthQuery.data.value.observed_at" :locale="locale" />
+                </template>
+              </i18n-t>
             </div>
             <div class="health-counts">
-              <span>{{ t('home.keyTotal', { count: healthQuery.data.value.counts.total }) }}</span>
-              <span>{{
+              <span data-test="home-health-total" data-state="normal">{{
+                t('home.keyTotal', { count: healthQuery.data.value.counts.total })
+              }}</span>
+              <span data-test="home-health-available" data-state="normal">{{
                 t('home.keyAvailable', { count: healthQuery.data.value.counts.available })
               }}</span>
-              <span>{{
-                t('home.keyCooldown', { count: healthQuery.data.value.counts.cooldown })
-              }}</span>
-              <span>{{
-                t('home.keyBlacklisted', { count: healthQuery.data.value.counts.blacklisted })
-              }}</span>
-              <span>{{
-                t('home.keyDisabled', { count: healthQuery.data.value.counts.disabled })
-              }}</span>
+              <span
+                data-test="home-health-cooldown"
+                :data-state="healthQuery.data.value.counts.cooldown > 0 ? 'anomaly' : 'normal'"
+                :class="{
+                  'health-count--warning': healthQuery.data.value.counts.cooldown > 0,
+                }"
+              >
+                <CircleAlert
+                  v-if="healthQuery.data.value.counts.cooldown > 0"
+                  :size="14"
+                  aria-hidden="true"
+                />
+                {{ t('home.keyCooldown', { count: healthQuery.data.value.counts.cooldown }) }}
+              </span>
+              <span
+                data-test="home-health-blacklisted"
+                :data-state="healthQuery.data.value.counts.blacklisted > 0 ? 'anomaly' : 'normal'"
+                :class="{
+                  'health-count--danger': healthQuery.data.value.counts.blacklisted > 0,
+                }"
+              >
+                <CircleOff
+                  v-if="healthQuery.data.value.counts.blacklisted > 0"
+                  :size="14"
+                  aria-hidden="true"
+                />
+                {{ t('home.keyBlacklisted', { count: healthQuery.data.value.counts.blacklisted }) }}
+              </span>
+              <span
+                data-test="home-health-disabled"
+                :data-state="healthQuery.data.value.counts.disabled > 0 ? 'anomaly' : 'normal'"
+                :class="{
+                  'health-count--warning': healthQuery.data.value.counts.disabled > 0,
+                }"
+              >
+                <CircleOff
+                  v-if="healthQuery.data.value.counts.disabled > 0"
+                  :size="14"
+                  aria-hidden="true"
+                />
+                {{ t('home.keyDisabled', { count: healthQuery.data.value.counts.disabled }) }}
+              </span>
             </div>
           </template>
         </SurfaceCard>
@@ -273,6 +310,18 @@ const observedAt = computed(() => {
   margin: 0;
   font-size: 1.125rem;
 }
+.service-status {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  gap: var(--space-1);
+  border-radius: var(--radius-tag);
+  background: var(--color-surface-sunken);
+  color: var(--color-text-muted);
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: 650;
+}
 .health-meta,
 .health-counts {
   display: flex;
@@ -284,9 +333,24 @@ const observedAt = computed(() => {
   font-size: 0.8125rem;
 }
 .health-counts span {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
   border-radius: var(--radius-tag);
   background: var(--color-surface-secondary);
   padding: var(--space-2) var(--space-3);
+}
+.health-counts .health-count--warning {
+  background: var(--color-warning-bg);
+}
+.health-counts .health-count--warning svg {
+  color: var(--color-warning);
+}
+.health-counts .health-count--danger {
+  background: var(--color-danger-bg);
+}
+.health-counts .health-count--danger svg {
+  color: var(--color-danger);
 }
 .groups-section {
   display: grid;

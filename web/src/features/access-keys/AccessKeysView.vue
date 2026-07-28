@@ -29,6 +29,7 @@ const selected = ref<AccessKeyDto | null>(null)
 const createOperation = ref<PendingAccessKeyCreateOperation | null>(null)
 const editOperation = ref<PendingAccessKeyEditOperation | null>(null)
 const viewRoot = ref<HTMLElement | null>(null)
+const collection = ref<InstanceType<typeof AccessKeyCollection> | null>(null)
 const deletionAnnouncement = ref('')
 let restoreFocus: HTMLElement | null = null
 let mounted = true
@@ -109,6 +110,7 @@ function checkEditOperation(): void {
 async function setDrawerOpen(open: boolean): Promise<void> {
   drawerOpen.value = open
   if (!open) {
+    collection.value?.conceal()
     selected.value = null
     const target = restoreFocus
     restoreFocus = null
@@ -240,6 +242,7 @@ async function focusCreateAfterDelete(name: string): Promise<void> {
       </EmptyState>
       <AccessKeyCollection
         v-else
+        ref="collection"
         :access-keys="accessKeysQuery.data.value ?? []"
         :groups="groupsQuery.data.value ?? []"
         @edit="editKey"

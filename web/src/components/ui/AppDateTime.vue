@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 
+import { resolveLocalTimeZone } from './date-time'
+
 const props = withDefaults(
   defineProps<{
     instant: string
@@ -9,7 +11,7 @@ const props = withDefaults(
     relativeTo?: Date
   }>(),
   {
-    timeZone: 'UTC',
+    timeZone: resolveLocalTimeZone(),
     relativeTo: undefined,
   },
 )

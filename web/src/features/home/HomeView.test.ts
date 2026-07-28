@@ -236,6 +236,22 @@ describe('HomeView', () => {
 
     const wrapper = await mountHome(api)
 
+    expect(wrapper.get('[data-test="home-service-status"]').classes()).toContain(
+      'service-status--normal',
+    )
+    expect(wrapper.get('[data-test="home-health-available"]').attributes('data-state')).toBe(
+      'normal',
+    )
+    expect(wrapper.get('[data-test="home-health-cooldown"]').attributes('data-state')).toBe(
+      'anomaly',
+    )
+    expect(wrapper.get('[data-test="home-health-cooldown"]').find('svg').exists()).toBe(true)
+    expect(wrapper.get('[data-test="home-health-blacklisted"]').attributes('data-state')).toBe(
+      'normal',
+    )
+    expect(wrapper.get('[data-test="home-health-disabled"]').attributes('data-state')).toBe(
+      'normal',
+    )
     expect(wrapper.text()).toContain('可用 1')
     expect(wrapper.text()).toContain('冷却 1')
     expect(wrapper.text()).toContain('修订 8')
