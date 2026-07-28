@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "container": {
     "image": "mcr.microsoft.com/playwright:v1.61.1-noble@sha256:5b8f294aff9041b7191c34a4bab3ac270157a28774d4b0660e9743297b697e48",
     "platform_digests": {
@@ -8,29 +8,43 @@
     }
   },
   "runtime": {
-    "node": "24.18.0",
+    "container_node": "24.17.0",
+    "package_manager": "pnpm@11.15.1",
     "playwright": "1.61.1",
     "vite": "8.1.5",
     "zlib": "1.3.1-e00f703",
     "brotli": "1.2.0"
   },
-  "render_fingerprint": {
-    "browser": "chromium",
-    "browser_revision": "1228",
-    "browser_version": "149.0.7827.55",
-    "viewport": {
-      "width": 1440,
-      "height": 900
+  "browsers": {
+    "chromium": {
+      "revision": "1228",
+      "version": "149.0.7827.55"
     },
+    "webkit": {
+      "revision": "2311",
+      "version": "26.5"
+    }
+  },
+  "fonts": {
+    "count": 50,
+    "sha256": "b8ef8574b460985896b67131880009351c299e3bdbe3346a77b16650714d6365"
+  },
+  "render_fingerprint": {
+    "viewports": [
+      { "width": 375, "height": 812 },
+      { "width": 768, "height": 900 },
+      { "width": 1024, "height": 900 },
+      { "width": 1440, "height": 900 }
+    ],
     "device_scale_factor": 1,
-    "locale": "en-US",
+    "locales": ["en-US", "zh-CN"],
     "timezone": "UTC",
-    "color_scheme": "light",
+    "color_schemes": ["light", "dark"],
     "reduced_motion": "reduce",
     "animations_disabled": true
   },
   "pixel_baseline": {
     "enabled": false,
-    "external_gate": "Phase 5 canonical Linux runner capture and human approval"
+    "external_gate": "Candidate capture requires explicit human approval before activation"
   }
 }
