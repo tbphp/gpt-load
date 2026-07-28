@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 import { validateVisualRunnerLock } from './check-visual-runner-lock.mjs'
+import { parseVisualRunnerInvocation } from './run-visual-runner.mjs'
 
 describe('visual runner contract', () => {
   const checker = resolve(process.cwd(), 'scripts/check-visual-runner-lock.mjs')
@@ -98,5 +99,18 @@ describe('visual runner contract', () => {
       },
       command: expect.arrayContaining(['docker', 'run', '--rm']),
     })
+  })
+
+  it('accepts only the canonical Chromium candidate invocation', () => {
+    expect(parseVisualRunnerInvocation(['--candidate', '--browser=chromium'])).toEqual({
+      mode: 'candidate',
+      browser: 'chromium',
+    })
+    expect(() => parseVisualRunnerInvocation(['--candidate', '--browser=webkit'])).toThrowError(
+      /Chromium/,
+    )
+    expect(readFileSync(runner, 'utf8')).not.toContain(
+      'candidate execution requires the deterministic Phase 5 scenario suite',
+    )
   })
 })
