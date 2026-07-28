@@ -56,8 +56,10 @@ function optionDisabled(dimension: 'protocols' | 'models'): boolean {
   return props.disabled || props.modes[dimension] !== 'restricted' || catalogUnavailable()
 }
 
-function scopeMode(event: Event): AccessKeyScopeMode {
-  return (event.target as HTMLSelectElement).value as AccessKeyScopeMode
+function requestScopeMode(dimension: AccessKeyScopeDimension, event: Event): void {
+  const target = event.target as HTMLSelectElement
+  emit('setScopeMode', dimension, target.value as AccessKeyScopeMode)
+  target.value = props.modes[dimension]
 }
 </script>
 
@@ -70,7 +72,7 @@ function scopeMode(event: Event): AccessKeyScopeMode {
         data-test="access-key-groups-mode"
         :value="modes.groups"
         :disabled="disabled || groupCatalogState !== 'ready'"
-        @change="emit('setScopeMode', 'groups', scopeMode($event))"
+        @change="requestScopeMode('groups', $event)"
       >
         <option value="all">{{ t('accessKeys.drawer.scopeAll') }}</option>
         <option value="restricted">{{ t('accessKeys.drawer.scopeRestricted') }}</option>
@@ -95,7 +97,7 @@ function scopeMode(event: Event): AccessKeyScopeMode {
         data-test="access-key-protocols-mode"
         :value="modes.protocols"
         :disabled="disabled || catalogUnavailable()"
-        @change="emit('setScopeMode', 'protocols', scopeMode($event))"
+        @change="requestScopeMode('protocols', $event)"
       >
         <option value="all">{{ t('accessKeys.drawer.scopeAll') }}</option>
         <option value="restricted">{{ t('accessKeys.drawer.scopeRestricted') }}</option>
@@ -125,7 +127,7 @@ function scopeMode(event: Event): AccessKeyScopeMode {
         data-test="access-key-models-mode"
         :value="modes.models"
         :disabled="disabled || catalogUnavailable()"
-        @change="emit('setScopeMode', 'models', scopeMode($event))"
+        @change="requestScopeMode('models', $event)"
       >
         <option value="all">{{ t('accessKeys.drawer.scopeAll') }}</option>
         <option value="restricted">{{ t('accessKeys.drawer.scopeRestricted') }}</option>

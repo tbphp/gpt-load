@@ -6,6 +6,7 @@ import {
   accessKeyResources,
   listAccessKeys,
   projectAccessKeyMetadata,
+  projectAccessKeyOption,
   revealAccessKey,
 } from './access-keys'
 
@@ -54,9 +55,18 @@ describe('AccessKey resource policy', () => {
       { ...metadata, filters: { ...metadata.filters, protocols: ['future-protocol'] } },
       { ...metadata, filters: { ...metadata.filters, models: [''] } },
       { ...metadata, filters: { ...metadata.filters, plaintext_key: 'CANARY' } },
+      { ...metadata, plaintext_key: 'CANARY' },
     ]) {
       expect(() => projectAccessKeyMetadata(unsafe)).toThrow(InvalidResponseError)
     }
+    expect(() =>
+      projectAccessKeyOption({
+        id: metadata.id,
+        name: metadata.name,
+        status: metadata.status,
+        key: 'CANARY',
+      }),
+    ).toThrow(InvalidResponseError)
 
     const request = vi.fn().mockResolvedValue([metadata]) as ApiClient['request']
     await expect(listAccessKeys({ request })).resolves.toEqual([metadata])

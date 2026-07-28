@@ -14,17 +14,15 @@ import { mountApp } from '@/test/mount-app'
 
 import InspectorTab from './InspectorTab.vue'
 
-const activeAccessKey: AccessKeyOptionDto & { key: string } = {
+const activeAccessKey: AccessKeyOptionDto = {
   id: 12,
   name: 'Client production',
-  key: 'sk-gl-raw-access-key-canary',
   status: 'active',
 }
 
-const disabledAccessKey: AccessKeyOptionDto & { key: string } = {
+const disabledAccessKey: AccessKeyOptionDto = {
   id: 13,
   name: 'Client disabled',
-  key: 'sk-gl-disabled-raw-canary',
   status: 'disabled',
 }
 
@@ -66,9 +64,7 @@ class InspectorApi implements ApiClient {
     private readonly inspections: Array<
       RouteInspectResponseDto | Promise<RouteInspectResponseDto>
     > = [inspectionFixture()],
-    private readonly accessKeys:
-      | Array<AccessKeyOptionDto & Partial<{ key: string }>>
-      | Promise<Array<AccessKeyOptionDto & Partial<{ key: string }>>> = [
+    private readonly accessKeys: AccessKeyOptionDto[] | Promise<AccessKeyOptionDto[]> = [
       activeAccessKey,
       disabledAccessKey,
     ],
@@ -650,9 +646,9 @@ describe('InspectorTab', () => {
     for (const [, label] of reasons) expect(wrapper.text()).toContain(label)
   })
 
-  it('never exposes raw AccessKeys and caches only gcTime-zero safe options', async () => {
+  it('caches only projected gcTime-zero AccessKey options', async () => {
     const api = new InspectorApi()
-    const { queryClient, router, wrapper } = await mountInspector(
+    const { queryClient, wrapper } = await mountInspector(
       api,
       '/monitor?tab=inspector&protocol=openai&external_model=gpt-client&access_key_id=12',
     )
@@ -660,9 +656,6 @@ describe('InspectorTab', () => {
     await wrapper.get('[data-test="inspector-form"]').trigger('submit')
     await flushPromises()
 
-    expect(wrapper.text()).not.toContain(activeAccessKey.key)
-    expect(wrapper.text()).not.toContain(disabledAccessKey.key)
-    expect(JSON.stringify(router.currentRoute.value.query)).not.toContain(activeAccessKey.key)
     expect(queryClient.getQueryData(controlQueryKeys.accessKeys.options())).toEqual([
       { id: 12, name: 'Client production', status: 'active' },
       { id: 13, name: 'Client disabled', status: 'disabled' },
@@ -671,7 +664,6 @@ describe('InspectorTab', () => {
       queryClient.getQueryCache().find({ queryKey: controlQueryKeys.accessKeys.options() })?.options
         .gcTime,
     ).toBe(0)
-    expect(JSON.stringify(queryClient.getQueryCache().getAll())).not.toContain(activeAccessKey.key)
     expect(queryClient.getMutationCache().getAll()).toEqual([])
 
     wrapper.unmount()

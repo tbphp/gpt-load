@@ -54,6 +54,9 @@ describe('AccessKey drawer presentation boundaries', () => {
     })
 
     await wrapper.get('[data-test="access-key-groups-mode"]').setValue('all')
+    expect(
+      wrapper.get<HTMLSelectElement>('[data-test="access-key-groups-mode"]').element.value,
+    ).toBe('restricted')
     await wrapper.get('input[type="checkbox"]').setValue(false)
     await wrapper.get('[data-test="access-key-model-input"]').setValue('gpt-4.1')
     await wrapper.setProps({ modelInput: 'gpt-4.1' })

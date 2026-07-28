@@ -87,6 +87,7 @@ function projectFilters(value: unknown): AccessKeyFiltersDto {
 
 export function projectAccessKeyMetadata(value: unknown): AccessKeyDto {
   const record = projectRecord(value)
+  assertNoSecretLikeFields(record, metadataFields)
   const maskedKey = projectString(record.masked_key)
   if (!canonicalMaskedAccessKey.test(maskedKey)) invalidResponse()
   return {
@@ -103,6 +104,7 @@ export function projectAccessKeyMetadata(value: unknown): AccessKeyDto {
 
 export function projectAccessKeyOption(value: unknown): AccessKeyOptionDto {
   const record = projectRecord(value)
+  assertNoSecretLikeFields(record, optionFields)
   return {
     id: projectSafeInteger(record.id, { minimum: 1 }),
     name: projectNonBlankTrimmedString(record.name),
