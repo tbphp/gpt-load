@@ -116,4 +116,15 @@ describe('visual runner contract', () => {
       'corepack install --global ${contract.lock.runtime.package_manager}',
     )
   })
+
+  it('requires an explicit pinned browser for functional execution', () => {
+    expect(parseVisualRunnerInvocation(['--functional', '--browser=webkit'])).toEqual({
+      mode: 'functional',
+      browser: 'webkit',
+    })
+    expect(() => parseVisualRunnerInvocation(['--functional'])).toThrowError(/explicit browser/)
+    expect(readFileSync(runner, 'utf8')).not.toContain(
+      'functional execution requires the Phase 5 cross-browser flow suite',
+    )
+  })
 })

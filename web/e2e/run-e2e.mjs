@@ -17,8 +17,15 @@ const repositoryRoot = resolve(webRoot, '..')
 const binary = join(repositoryRoot, 'gpt-load')
 await access(binary)
 
-const project = 'chromium'
 const playwrightArgs = process.argv.slice(2)
+const projectArgument = playwrightArgs.find((value) => value.startsWith('--project='))
+const project = projectArgument?.slice('--project='.length) ?? 'chromium'
+if (!(project === 'chromium' || project === 'webkit')) {
+  console.error(`E2E harness does not support project ${project}`)
+  process.exit(1)
+}
+const effectivePlaywrightArgs =
+  projectArgument === undefined ? [...playwrightArgs, '--project=chromium'] : playwrightArgs
 const scenario = (playwrightArgs.find((value) => value.endsWith('.spec.ts')) ?? 'full')
   .replace(/^.*\//, '')
   .replace(/\.spec\.ts$/, '')
@@ -89,7 +96,7 @@ try {
   const cli = join(webRoot, 'node_modules/@playwright/test/cli.js')
   const playwright = spawn(
     process.execPath,
-    [cli, 'test', ...playwrightArgs, '--config', 'playwright.config.ts'],
+    [cli, 'test', ...effectivePlaywrightArgs, '--config', 'playwright.config.ts'],
     {
       cwd: webRoot,
       env: {

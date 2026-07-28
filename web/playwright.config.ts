@@ -25,5 +25,8 @@ export default defineConfig({
     screenshot: 'off',
     video: 'off',
   },
-  projects: [{ name: 'chromium', use: { browserName: 'chromium' } }],
+  projects: [
+    { name: 'chromium', use: { browserName: 'chromium' } },
+    { name: 'webkit', use: { browserName: 'webkit' } },
+  ],
 })

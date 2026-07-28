@@ -56,6 +56,8 @@ it('uses ephemeral ports by default and an explicit fixed visual port', async ()
   expect(source).toContain('`${project}-serial-${scenario}`')
   expect(source).toContain("isolation: 'per-run'")
   expect(source).toContain('workers: 1')
+  expect(source).toContain("project === 'webkit'")
+  expect(source).toContain("'--project=chromium'")
 })
 
 it('accepts only a canonical harness-owned run directory beside the ready file', async () => {

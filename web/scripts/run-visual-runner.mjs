@@ -176,8 +176,8 @@ async function gitValue(arguments_) {
   return result.stdout.trim()
 }
 
-async function writeRunnerEvidence(evidence) {
-  const path = join(webRoot, 'test-results', 'visual-runner.json')
+async function writeRunnerEvidence(evidence, name = 'visual-runner') {
+  const path = join(webRoot, 'test-results', `${name}.json`)
   await mkdir(dirname(path), { recursive: true })
   await writeFile(path, `${JSON.stringify(evidence, null, 2)}\n`)
   return path
@@ -299,6 +299,7 @@ async function publishCandidate({
   await mkdir(pending)
   try {
     await cp(artifactRoot, join(pending, 'artifacts'), { recursive: true })
+    await rm(join(pending, 'artifacts', '.last-run.json'), { force: true })
     const payload = {
       schema_version: 1,
       status: 'CANDIDATE',
@@ -396,6 +397,88 @@ async function runCandidate(contract, platform, verification) {
   }
 }
 
+async function validateFunctionalArtifacts(workspace, browser) {
+  const resultPath = join(
+    workspace,
+    'web',
+    'test-results',
+    `${browser}-serial-business-flows`,
+    '.last-run.json',
+  )
+  const result = JSON.parse(await readFile(resultPath, 'utf8'))
+  if (result.status !== 'passed' || !Array.isArray(result.failedTests)) {
+    fail(`${browser} functional result is invalid`)
+  }
+  if (result.failedTests.length > 0) {
+    fail(`${browser} functional result contains failed tests`)
+  }
+  return { result, resultPath }
+}
+
+async function runFunctional(contract, platform, verification, browser) {
+  const sourceDirty =
+    (await gitValue(['status', '--porcelain', '--untracked-files=all'])).length > 0
+  if (sourceDirty) fail('functional execution requires a clean source tree')
+  const sourceSHA = await gitValue(['rev-parse', 'HEAD'])
+  const stage = await createSourceStage()
+  try {
+    await buildLinuxApplication(stage.workspace, platform)
+    const execution = await runContainerSuite(
+      contract,
+      platform,
+      stage.workspace,
+      browser,
+      'e2e/business-flows.spec.ts',
+    )
+    const functionalArtifacts = await validateFunctionalArtifacts(stage.workspace, browser)
+    const payload = {
+      schema_version: 1,
+      mode: 'functional',
+      status: 'PASS',
+      source_sha: sourceSHA,
+      source_dirty: false,
+      lock_sha256: contract.lockSha256,
+      image: contract.lock.container.image,
+      platform,
+      platform_digest: verification.actualPlatformDigest,
+      host_fallback: false,
+      runtime: verification.fingerprint.runtime,
+      browser: {
+        name: browser,
+        ...contract.lock.browsers[browser],
+      },
+      fonts: verification.fingerprint.fonts,
+      spec: 'e2e/business-flows.spec.ts',
+      result: functionalArtifacts.result,
+    }
+    const evidence = {
+      ...payload,
+      evidence_sha256: sha256(JSON.stringify(payload)),
+    }
+    const evidencePath = await writeRunnerEvidence(evidence, `visual-runner-functional-${browser}`)
+    return {
+      mode: 'functional',
+      browser,
+      runner_execution_verified: true,
+      source_sha: sourceSHA,
+      source_dirty: false,
+      platform,
+      platform_digest: verification.actualPlatformDigest,
+      evidence: evidencePath,
+      stdout: execution.stdout.trim(),
+      stderr: execution.stderr.trim(),
+    }
+  } finally {
+    if (
+      dirname(stage.temporaryRoot) !== resolve(tmpdir()) ||
+      !basename(stage.temporaryRoot).startsWith(runnerTemporaryPrefix)
+    ) {
+      fail('refusing to remove an unsafe visual runner directory')
+    }
+    await rm(stage.temporaryRoot, { recursive: true, force: true })
+  }
+}
+
 async function main() {
   const contract = await loadVisualRunnerContract()
   const platform = selectedPlatform()
@@ -434,7 +517,12 @@ async function main() {
     return
   }
   if (invocation.mode === 'functional') {
-    fail('functional execution requires the Phase 5 cross-browser flow suite')
+    process.stdout.write(
+      `${JSON.stringify(
+        await runFunctional(contract, platform, verification, invocation.browser),
+      )}\n`,
+    )
+    return
   }
 
   const evidence = {
