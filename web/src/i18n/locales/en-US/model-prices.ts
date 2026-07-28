@@ -16,6 +16,9 @@ export default {
     precedenceNote: 'User overrides take precedence over every built-in exact and prefix rule.',
     wholeRuleNote:
       'A user override replaces the whole five-slot rule. Unset slots do not fall back to built-in values.',
+    scrollHint: 'Scroll horizontally to inspect every model price column.',
+    details: 'Price fields and metadata',
+    sourceUnavailable: 'Source unavailable',
     notConfigured: 'Not configured',
     explicitlyFree: '$0 · Explicitly free',
     configuredPrice: '${price} / 1M',
