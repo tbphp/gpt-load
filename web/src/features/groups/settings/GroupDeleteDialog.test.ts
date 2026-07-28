@@ -106,8 +106,8 @@ describe('GroupDeleteDialog', () => {
       { queryKey: controlQueryKeys.groups.keys(7), exact: true },
     ])
     expect(invalidate.mock.calls.map(([filters]) => filters)).toEqual([
-      { queryKey: controlQueryKeys.groups.list() },
-      { queryKey: controlQueryKeys.health() },
+      { queryKey: controlQueryKeys.groups.list(), exact: true },
+      { queryKey: controlQueryKeys.health(), exact: true },
     ])
     await vi.waitFor(() => expect(router.currentRoute.value.name).toBe('home'))
     wrapper.unmount()

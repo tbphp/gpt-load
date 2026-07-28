@@ -1,3 +1,5 @@
+import { queryOptions } from '@tanstack/vue-query'
+
 import type { ApiClient } from '@/api/client'
 import type {
   AccessKeyCreateResultDto,
@@ -128,6 +130,22 @@ export async function listAccessKeyOptions(
   )
 }
 
+export function accessKeyListQueryOptions(client: ApiClient) {
+  return queryOptions({
+    queryKey: controlQueryKeys.accessKeys.list(),
+    queryFn: ({ signal }) => listAccessKeys(client, signal),
+    gcTime: 0,
+  })
+}
+
+export function accessKeyOptionsQueryOptions(client: ApiClient) {
+  return queryOptions({
+    queryKey: controlQueryKeys.accessKeys.options(),
+    queryFn: ({ signal }) => listAccessKeyOptions(client, signal),
+    gcTime: 0,
+  })
+}
+
 export async function createAccessKey(
   client: ApiClient,
   body: CreateAccessKeyRequest,
@@ -211,11 +229,4 @@ export const accessKeyResources = {
     optimisticUpdates: false,
     allowedFields: optionFields,
   },
-} as const
-
-export const accessKeyMutationInvalidations = {
-  create: [accessKeyResources.list.queryKey, accessKeyResources.options.queryKey],
-  update: [accessKeyResources.list.queryKey, accessKeyResources.options.queryKey],
-  delete: [accessKeyResources.list.queryKey, accessKeyResources.options.queryKey],
-  reveal: [],
 } as const

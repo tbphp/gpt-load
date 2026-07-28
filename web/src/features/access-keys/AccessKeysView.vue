@@ -5,11 +5,10 @@ import { computed, nextTick, onBeforeUnmount, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { useApiClient } from '@/api/client-context'
-import { listAccessKeys } from '@/app/resources/access-keys'
-import { listGroups } from '@/app/resources/groups'
+import { accessKeyListQueryOptions, accessKeyResources } from '@/app/resources/access-keys'
+import { groupListQueryOptions } from '@/app/resources/groups'
 import type { AccessKeyDto } from '@/api/control/types'
-import { controlQueryKeys } from '@/app/query-keys'
-import { accessKeyMutationInvalidations, accessKeyResources } from '@/app/resources/access-keys'
+import { applyInvalidationPlan, mutationInvalidationPlans } from '@/app/resources/invalidation'
 import AppButton from '@/components/ui/AppButton.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
@@ -34,15 +33,8 @@ const deletionAnnouncement = ref('')
 let restoreFocus: HTMLElement | null = null
 let mounted = true
 
-const accessKeysQuery = useQuery({
-  queryKey: accessKeyResources.list.queryKey,
-  queryFn: ({ signal }) => listAccessKeys(client, signal),
-  gcTime: accessKeyResources.list.gcTime,
-})
-const groupsQuery = useQuery({
-  queryKey: controlQueryKeys.groups.list(),
-  queryFn: ({ signal }) => listGroups(client, signal),
-})
+const accessKeysQuery = useQuery(accessKeyListQueryOptions(client))
+const groupsQuery = useQuery(groupListQueryOptions(client))
 onBeforeUnmount(() => {
   mounted = false
   queryClient.removeQueries({ queryKey: accessKeyResources.list.queryKey, exact: true })
@@ -122,11 +114,7 @@ async function setDrawerOpen(open: boolean): Promise<void> {
 async function focusCreateAfterDelete(name: string): Promise<void> {
   deletionAnnouncement.value = ''
   await nextTick()
-  await Promise.all(
-    accessKeyMutationInvalidations.delete.map((queryKey) =>
-      queryClient.invalidateQueries({ queryKey, exact: true }),
-    ),
-  )
+  await applyInvalidationPlan(queryClient, mutationInvalidationPlans.accessKey.delete)
   await nextTick()
   if (!mounted) return
   deletionAnnouncement.value = t('accessKeys.delete.deletedAnnouncement', { name })

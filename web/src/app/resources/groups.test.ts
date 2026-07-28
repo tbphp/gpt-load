@@ -1,14 +1,7 @@
 import type { ApiClient } from '@/api/client'
 import { InvalidResponseError } from '@/api/errors'
-import { controlQueryKeys } from '@/app/query-keys'
 
-import {
-  createGroup,
-  groupMutationInvalidations,
-  listGroups,
-  projectGroupDetail,
-  projectGroupList,
-} from './groups'
+import { createGroup, listGroups, projectGroupDetail, projectGroupList } from './groups'
 
 const group = {
   id: 7,
@@ -70,17 +63,12 @@ describe('Group resource', () => {
     )
   })
 
-  it('projects transport data before returning and owns canonical create invalidations', async () => {
+  it('projects transport data before returning', async () => {
     const request = vi.fn().mockResolvedValue([group])
     const apiRequest = request as ApiClient['request']
     await expect(listGroups({ request: apiRequest })).resolves.toEqual([group])
     request.mockResolvedValueOnce([{ ...group, id: 0 }])
     await expect(listGroups({ request: apiRequest })).rejects.toBeInstanceOf(InvalidResponseError)
-
-    expect(groupMutationInvalidations.create).toEqual([
-      controlQueryKeys.groups.list(),
-      controlQueryKeys.health(),
-    ])
   })
 
   it('serializes an idempotent create and projects its non-secret result', async () => {

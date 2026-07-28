@@ -5,7 +5,7 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
 import { useApiClient } from '@/api/client-context'
-import { listAccessKeyOptions } from '@/app/resources/access-keys'
+import { accessKeyOptionsQueryOptions } from '@/app/resources/access-keys'
 import { enabledDataProtocols } from '@/api/control/protocols'
 import {
   inspectRoute,
@@ -15,7 +15,6 @@ import {
 } from '@/app/resources/route-inspection'
 import type { AccessProtocol } from '@/api/control/types'
 import { RequestCancelledError } from '@/api/errors'
-import { controlQueryKeys } from '@/app/query-keys'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppSelect from '@/components/ui/AppSelect.vue'
 import FormField from '@/components/ui/FormField.vue'
@@ -60,11 +59,7 @@ const resultSummary = ref<HTMLHeadingElement | null>(null)
 let owner = 0
 let controller: AbortController | undefined
 
-const accessKeyOptionsQuery = useQuery({
-  queryKey: controlQueryKeys.accessKeys.options(),
-  queryFn: ({ signal }) => listAccessKeyOptions(client, signal),
-  gcTime: 0,
-})
+const accessKeyOptionsQuery = useQuery(accessKeyOptionsQueryOptions(client))
 const protocolOptions = computed(() =>
   enabledDataProtocols.map((protocol) => ({
     value: protocol,

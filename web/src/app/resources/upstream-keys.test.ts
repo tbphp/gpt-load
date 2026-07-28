@@ -1,13 +1,7 @@
 import type { ApiClient } from '@/api/client'
 import { InvalidResponseError } from '@/api/errors'
-import { controlQueryKeys } from '@/app/query-keys'
 
-import {
-  listGroupKeys,
-  projectUpstreamKey,
-  updateGroupKey,
-  upstreamKeyMutationInvalidations,
-} from './upstream-keys'
+import { listGroupKeys, projectUpstreamKey, updateGroupKey } from './upstream-keys'
 
 const key = {
   id: 11,
@@ -44,7 +38,7 @@ describe('UpstreamKey resource', () => {
     expect(() => projectUpstreamKey(unsafe)).toThrow(InvalidResponseError)
   })
 
-  it('projects list and update responses and owns exact mutation invalidations', async () => {
+  it('projects list and update responses', async () => {
     const request = vi
       .fn()
       .mockResolvedValueOnce([key])
@@ -58,11 +52,5 @@ describe('UpstreamKey resource', () => {
     await expect(updateGroupKey({ request }, 7, 11, { status: 'disabled' })).resolves.toMatchObject(
       { id: 11, status: 'disabled', effective_status: 'disabled' },
     )
-    expect(upstreamKeyMutationInvalidations.update(7)).toEqual([
-      controlQueryKeys.groups.keys(7),
-      controlQueryKeys.groups.detail(7),
-      controlQueryKeys.groups.list(),
-      controlQueryKeys.health(),
-    ])
   })
 })

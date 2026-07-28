@@ -155,7 +155,7 @@ describe('ModelPriceDrawer', () => {
       signal: expect.any(AbortSignal),
     })
     expect(invalidate.mock.calls.map(([filters]) => filters)).toEqual([
-      { queryKey: controlQueryKeys.modelPrices() },
+      { queryKey: controlQueryKeys.modelPrices(), exact: true },
     ])
     expect(client.getMutationCache().getAll()).toHaveLength(0)
     expect(wrapper.emitted('update:open')).toContainEqual([false])

@@ -1,3 +1,5 @@
+import { queryOptions } from '@tanstack/vue-query'
+
 import type { ApiClient } from '@/api/client'
 import { InvalidResponseError } from '@/api/errors'
 import { controlQueryKeys } from '@/app/query-keys'
@@ -147,6 +149,13 @@ export async function getModelPrices(
   return projectModelPrices(await client.request('/api/model-prices', { method: 'GET', signal }))
 }
 
+export function modelPriceQueryOptions(client: ApiClient) {
+  return queryOptions({
+    queryKey: controlQueryKeys.modelPrices(),
+    queryFn: ({ signal }) => getModelPrices(client, signal),
+  })
+}
+
 export function putModelPrice(
   client: ApiClient,
   pattern: string,
@@ -171,8 +180,3 @@ export function resetModelPrice(
     signal,
   })
 }
-
-export const modelPriceMutationInvalidations = {
-  upsert: [controlQueryKeys.modelPrices()],
-  reset: [controlQueryKeys.modelPrices()],
-} as const

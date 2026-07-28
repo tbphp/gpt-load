@@ -1,5 +1,8 @@
+import { queryOptions } from '@tanstack/vue-query'
+
 import type { ApiClient } from '@/api/client'
 import { InvalidResponseError } from '@/api/errors'
+import { controlQueryKeys } from '@/app/query-keys'
 
 import {
   assertNoSecretLikeFields,
@@ -92,4 +95,11 @@ export async function getSystemInfo(
   signal?: AbortSignal,
 ): Promise<SystemInfoDto> {
   return projectSystemInfo(await client.request('/api/system/info', { signal }))
+}
+
+export function systemInfoQueryOptions(client: ApiClient) {
+  return queryOptions({
+    queryKey: controlQueryKeys.systemInfo(),
+    queryFn: ({ signal }) => getSystemInfo(client, signal),
+  })
 }

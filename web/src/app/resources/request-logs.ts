@@ -1,3 +1,5 @@
+import { computed, toValue, type MaybeRefOrGetter } from 'vue'
+
 import type { ApiClient } from '@/api/client'
 import type { AccessProtocol } from '@/api/control/types'
 import { InvalidResponseError } from '@/api/errors'
@@ -313,4 +315,18 @@ export async function listRequestLogs(
   const query = params.toString()
   const path: `/api/${string}` = query === '' ? '/api/logs' : `/api/logs?${query}`
   return projectRequestLogPage(await client.request(path, { method: 'GET', signal }))
+}
+
+export function requestLogInfiniteQueryOptions(
+  client: ApiClient,
+  filters: MaybeRefOrGetter<RequestLogFilters>,
+) {
+  return {
+    queryKey: computed(() => requestLogQueryIdentity(toValue(filters))),
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam, signal }: { pageParam: string | null; signal: AbortSignal }) =>
+      listRequestLogs(client, toValue(filters), pageParam ?? undefined, signal),
+    getNextPageParam: (lastPage: RequestLogPageDto) => lastPage.next_cursor ?? undefined,
+    gcTime: 0,
+  }
 }

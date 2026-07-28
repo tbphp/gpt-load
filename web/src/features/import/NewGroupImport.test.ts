@@ -354,8 +354,14 @@ describe('NewGroupImport', () => {
       },
       signal: expect.any(AbortSignal),
     })
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: controlQueryKeys.groups.list() })
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: controlQueryKeys.health() })
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: controlQueryKeys.groups.list(),
+      exact: true,
+    })
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: controlQueryKeys.health(),
+      exact: true,
+    })
     await vi.waitFor(() => {
       expect(router.currentRoute.value.fullPath).toBe('/groups/9')
     })
@@ -473,10 +479,22 @@ describe('NewGroupImport', () => {
     expect(requestMock.mock.calls.filter(([path]) => String(path).includes('/models')).length).toBe(
       1,
     )
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: controlQueryKeys.groups.keys(7) })
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: controlQueryKeys.groups.detail(7) })
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: controlQueryKeys.groups.list() })
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: controlQueryKeys.health() })
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: controlQueryKeys.groups.keys(7),
+      exact: true,
+    })
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: controlQueryKeys.groups.detail(7),
+      exact: true,
+    })
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: controlQueryKeys.groups.list(),
+      exact: true,
+    })
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: controlQueryKeys.health(),
+      exact: true,
+    })
     await vi.waitFor(() => {
       expect(router.currentRoute.value.fullPath).toBe('/groups/7')
     })

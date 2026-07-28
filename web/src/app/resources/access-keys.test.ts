@@ -4,7 +4,6 @@ import { controlQueryKeys } from '@/app/query-keys'
 
 import {
   accessKeyResources,
-  accessKeyMutationInvalidations,
   listAccessKeys,
   projectAccessKeyMetadata,
   revealAccessKey,
@@ -49,15 +48,6 @@ describe('AccessKey resource policy', () => {
     expect(JSON.stringify(accessKeyResources)).not.toContain('"key"')
   })
 
-  it('centralizes the mutation invalidation graph', () => {
-    expect(accessKeyMutationInvalidations).toEqual({
-      create: [controlQueryKeys.accessKeys.list(), controlQueryKeys.accessKeys.options()],
-      update: [controlQueryKeys.accessKeys.list(), controlQueryKeys.accessKeys.options()],
-      delete: [controlQueryKeys.accessKeys.list(), controlQueryKeys.accessKeys.options()],
-      reveal: [],
-    })
-  })
-
   it('fails closed on unknown scope values before metadata reaches cache', async () => {
     for (const unsafe of [
       { ...metadata, filters: { ...metadata.filters, groups: [0] } },
@@ -85,6 +75,5 @@ describe('AccessKey resource policy', () => {
       revealed_at: '2026-07-29T02:00:00Z',
     })
     expect(JSON.stringify(accessKeyResources)).not.toContain('REVEAL-CANARY')
-    expect(accessKeyMutationInvalidations.reveal).toEqual([])
   })
 })

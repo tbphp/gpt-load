@@ -6,12 +6,12 @@ import { useI18n } from 'vue-i18n'
 import { useApiClient } from '@/api/client-context'
 import {
   deleteGroupKey,
-  listGroupKeys,
+  upstreamKeyListQueryOptions,
   updateGroupKey,
   type UpstreamKeyDto,
   type UpstreamKeyEffectiveStatus,
 } from '@/app/resources/upstream-keys'
-import { controlQueryKeys } from '@/app/query-keys'
+import { applyInvalidationPlan, mutationInvalidationPlans } from '@/app/resources/invalidation'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppDialog from '@/components/ui/AppDialog.vue'
 import DataTable from '@/components/ui/DataTable.vue'
@@ -31,10 +31,7 @@ const pendingIds = ref(new Set<number>())
 const deleteKeyId = ref<number | null>(null)
 const actionError = ref('')
 const controllers = new Set<AbortController>()
-const keysQuery = useQuery({
-  queryKey: controlQueryKeys.groups.keys(props.groupId),
-  queryFn: ({ signal }) => listGroupKeys(client, props.groupId, signal),
-})
+const keysQuery = useQuery(upstreamKeyListQueryOptions(client, () => props.groupId))
 
 watch(
   () => keysQuery.data.value,
@@ -98,15 +95,6 @@ function formatCooldown(value: string | null): string {
   }).format(new Date(value))
 }
 
-async function invalidateKeyResources(): Promise<void> {
-  await Promise.all([
-    queryClient.invalidateQueries({ queryKey: controlQueryKeys.groups.keys(props.groupId) }),
-    queryClient.invalidateQueries({ queryKey: controlQueryKeys.groups.detail(props.groupId) }),
-    queryClient.invalidateQueries({ queryKey: controlQueryKeys.groups.list() }),
-    queryClient.invalidateQueries({ queryKey: controlQueryKeys.health() }),
-  ])
-}
-
 async function runUpdate(
   key: UpstreamKeyDto,
   patch: ReturnType<typeof buildUpstreamKeyPatch>,
@@ -118,7 +106,10 @@ async function runUpdate(
   controllers.add(controller)
   try {
     await updateGroupKey(client, props.groupId, key.id, patch, controller.signal)
-    await invalidateKeyResources()
+    await applyInvalidationPlan(
+      queryClient,
+      mutationInvalidationPlans.upstreamKey.update(props.groupId),
+    )
   } catch {
     actionError.value = t('group.keys.updateFailed')
   } finally {
@@ -159,7 +150,10 @@ async function confirmDelete(key: UpstreamKeyDto): Promise<void> {
   controllers.add(controller)
   try {
     await deleteGroupKey(client, props.groupId, key.id, controller.signal)
-    await invalidateKeyResources()
+    await applyInvalidationPlan(
+      queryClient,
+      mutationInvalidationPlans.upstreamKey.delete(props.groupId),
+    )
     deleteKeyId.value = null
   } catch {
     actionError.value = t('group.keys.deleteFailed')

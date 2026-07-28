@@ -4,12 +4,11 @@ import { CircleAlert, CircleCheck, CircleOff, Layers3 } from 'lucide-vue-next'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import { listAccessKeyOptions } from '@/app/resources/access-keys'
-import { listGroups } from '@/app/resources/groups'
-import { getRuntimeHealth } from '@/app/resources/health'
+import { accessKeyOptionsQueryOptions } from '@/app/resources/access-keys'
+import { groupListQueryOptions } from '@/app/resources/groups'
+import { healthQueryOptions } from '@/app/resources/health'
 import { NetworkError } from '@/api/errors'
 import { useApiClient } from '@/api/client-context'
-import { controlQueryKeys } from '@/app/query-keys'
 import AppDateTime from '@/components/ui/AppDateTime.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
@@ -27,19 +26,9 @@ const props = withDefaults(defineProps<{ origin?: string }>(), {
 const client = useApiClient()
 const { locale, t } = useI18n()
 
-const groupsQuery = useQuery({
-  queryKey: controlQueryKeys.groups.list(),
-  queryFn: ({ signal }) => listGroups(client, signal),
-})
-const healthQuery = useQuery({
-  queryKey: controlQueryKeys.health(),
-  queryFn: ({ signal }) => getRuntimeHealth(client, signal),
-})
-const accessKeysQuery = useQuery({
-  queryKey: controlQueryKeys.accessKeys.options(),
-  queryFn: ({ signal }) => listAccessKeyOptions(client, signal),
-  gcTime: 0,
-})
+const groupsQuery = useQuery(groupListQueryOptions(client))
+const healthQuery = useQuery(healthQueryOptions(client))
+const accessKeysQuery = useQuery(accessKeyOptionsQueryOptions(client))
 
 const healthByGroup = computed(
   () => new Map(healthQuery.data.value?.groups.map((group) => [group.id, group]) ?? []),

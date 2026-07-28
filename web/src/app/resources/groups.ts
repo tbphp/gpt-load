@@ -1,3 +1,6 @@
+import { queryOptions } from '@tanstack/vue-query'
+import { computed, toValue, type MaybeRefOrGetter } from 'vue'
+
 import type { ApiClient } from '@/api/client'
 import type { GroupModelDto, GroupProtocol, GroupSummary } from '@/api/control/types'
 import { InvalidResponseError } from '@/api/errors'
@@ -323,6 +326,34 @@ export async function getGroup(
   )
 }
 
+export function groupListQueryOptions(client: ApiClient) {
+  return queryOptions({
+    queryKey: controlQueryKeys.groups.list(),
+    queryFn: ({ signal }) => listGroups(client, signal),
+  })
+}
+
+export function groupDetailQueryOptions(
+  client: ApiClient,
+  groupID: MaybeRefOrGetter<number | undefined>,
+) {
+  return queryOptions({
+    queryKey: computed(() => {
+      const id = toValue(groupID)
+      return id === undefined
+        ? controlQueryKeys.groups.details()
+        : controlQueryKeys.groups.detail(id)
+    }),
+    queryFn: ({ signal }) => {
+      const id = toValue(groupID)
+      if (id === undefined) throw new InvalidResponseError()
+      return getGroup(client, id, signal)
+    },
+    enabled: computed(() => toValue(groupID) !== undefined),
+    gcTime: 0,
+  })
+}
+
 export async function updateGroup(
   client: ApiClient,
   groupID: number,
@@ -420,23 +451,3 @@ export async function importGroupKeys(
     }),
   )
 }
-
-export const groupMutationInvalidations = {
-  create: [controlQueryKeys.groups.list(), controlQueryKeys.health()],
-  update: (groupID: number) => [
-    controlQueryKeys.groups.detail(groupID),
-    controlQueryKeys.groups.list(),
-    controlQueryKeys.health(),
-  ],
-  delete: [controlQueryKeys.groups.list(), controlQueryKeys.health()],
-  replaceModels: (groupID: number) => [
-    controlQueryKeys.groups.detail(groupID),
-    controlQueryKeys.groups.list(),
-  ],
-  importKeys: (groupID: number) => [
-    controlQueryKeys.groups.keys(groupID),
-    controlQueryKeys.groups.detail(groupID),
-    controlQueryKeys.groups.list(),
-    controlQueryKeys.health(),
-  ],
-} as const

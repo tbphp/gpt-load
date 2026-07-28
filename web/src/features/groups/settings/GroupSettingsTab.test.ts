@@ -304,8 +304,8 @@ describe('GroupSettingsTab', () => {
     )
     expect(setQueryData).toHaveBeenCalledWith(controlQueryKeys.groups.detail(7), updated)
     expect(invalidate.mock.calls.map(([filters]) => filters)).toEqual([
-      { queryKey: controlQueryKeys.groups.list() },
-      { queryKey: controlQueryKeys.health() },
+      { queryKey: controlQueryKeys.groups.list(), exact: true },
+      { queryKey: controlQueryKeys.health(), exact: true },
     ])
     expect(client.getMutationCache().getAll()).toHaveLength(0)
     wrapper.unmount()
@@ -330,7 +330,7 @@ describe('GroupSettingsTab', () => {
       signal: expect.any(AbortSignal),
     })
     expect(invalidate.mock.calls.map(([filters]) => filters)).toEqual([
-      { queryKey: controlQueryKeys.groups.list() },
+      { queryKey: controlQueryKeys.groups.list(), exact: true },
     ])
     wrapper.unmount()
   })

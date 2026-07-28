@@ -1,3 +1,6 @@
+import { queryOptions } from '@tanstack/vue-query'
+import { computed, toValue, type MaybeRefOrGetter } from 'vue'
+
 import type { ApiClient } from '@/api/client'
 import { InvalidResponseError } from '@/api/errors'
 import { controlQueryKeys } from '@/app/query-keys'
@@ -117,6 +120,13 @@ export async function listGroupKeys(
   )
 }
 
+export function upstreamKeyListQueryOptions(client: ApiClient, groupID: MaybeRefOrGetter<number>) {
+  return queryOptions({
+    queryKey: computed(() => controlQueryKeys.groups.keys(toValue(groupID))),
+    queryFn: ({ signal }) => listGroupKeys(client, toValue(groupID), signal),
+  })
+}
+
 export async function updateGroupKey(
   client: ApiClient,
   groupId: number,
@@ -145,18 +155,3 @@ export async function deleteGroupKey(
     signal,
   })
 }
-
-export const upstreamKeyMutationInvalidations = {
-  update: (groupID: number) => [
-    controlQueryKeys.groups.keys(groupID),
-    controlQueryKeys.groups.detail(groupID),
-    controlQueryKeys.groups.list(),
-    controlQueryKeys.health(),
-  ],
-  delete: (groupID: number) => [
-    controlQueryKeys.groups.keys(groupID),
-    controlQueryKeys.groups.detail(groupID),
-    controlQueryKeys.groups.list(),
-    controlQueryKeys.health(),
-  ],
-} as const

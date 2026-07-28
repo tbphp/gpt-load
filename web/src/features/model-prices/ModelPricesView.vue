@@ -5,8 +5,7 @@ import { nextTick, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { useApiClient } from '@/api/client-context'
-import { getModelPrices, type ModelPriceRuleDto } from '@/app/resources/model-prices'
-import { controlQueryKeys } from '@/app/query-keys'
+import { modelPriceQueryOptions, type ModelPriceRuleDto } from '@/app/resources/model-prices'
 import AppButton from '@/components/ui/AppButton.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
@@ -23,10 +22,7 @@ const drawerOpen = ref(false)
 const selected = ref<ModelPriceRuleDto | null>(null)
 let restoreFocus: HTMLElement | null = null
 
-const pricesQuery = useQuery({
-  queryKey: controlQueryKeys.modelPrices(),
-  queryFn: ({ signal }) => getModelPrices(client, signal),
-})
+const pricesQuery = useQuery(modelPriceQueryOptions(client))
 
 function addOverride(): void {
   selected.value = null

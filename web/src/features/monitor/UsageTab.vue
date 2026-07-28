@@ -13,9 +13,8 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
 import { useApiClient } from '@/api/client-context'
-import { listGroups } from '@/app/resources/groups'
-import { getUsageReport, type UsageAggregateDto, type UsageFilters } from '@/app/resources/usage'
-import { controlQueryKeys } from '@/app/query-keys'
+import { groupListQueryOptions } from '@/app/resources/groups'
+import { usageQueryOptions, type UsageAggregateDto, type UsageFilters } from '@/app/resources/usage'
 import { useUnsavedChanges } from '@/app/unsaved-changes'
 import AppButton from '@/components/ui/AppButton.vue'
 import DataTable from '@/components/ui/DataTable.vue'
@@ -47,14 +46,8 @@ const appliedFilters = computed(() => parseAppliedUsageFilters(route.query))
 const draft = ref<UsageFilterDraft>(createUsageFilterDraft(appliedFilters.value))
 const filterErrors = ref<UsageFilterErrors>({})
 
-const groupsQuery = useQuery({
-  queryKey: controlQueryKeys.groups.list(),
-  queryFn: ({ signal }) => listGroups(client, signal),
-})
-const usageQuery = useQuery({
-  queryKey: computed(() => controlQueryKeys.usage.report(appliedFilters.value)),
-  queryFn: ({ signal }) => getUsageReport(client, appliedFilters.value, signal),
-})
+const groupsQuery = useQuery(groupListQueryOptions(client))
+const usageQuery = useQuery(usageQueryOptions(client, appliedFilters))
 const report = computed(() => usageQuery.data.value)
 const hasData = computed(() => (report.value?.summary.request_count ?? 0) > 0)
 const draftDirty = computed(() => {

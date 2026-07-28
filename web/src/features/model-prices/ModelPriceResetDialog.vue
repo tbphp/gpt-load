@@ -6,8 +6,8 @@ import { useI18n } from 'vue-i18n'
 
 import { useApiClient } from '@/api/client-context'
 import { resetModelPrice, type ModelPriceRuleDto } from '@/app/resources/model-prices'
+import { applyInvalidationPlan, mutationInvalidationPlans } from '@/app/resources/invalidation'
 import { RequestCancelledError } from '@/api/errors'
-import { controlQueryKeys } from '@/app/query-keys'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppDialog from '@/components/ui/AppDialog.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
@@ -46,7 +46,7 @@ async function confirmReset(): Promise<void> {
   try {
     await resetModelPrice(client, props.rule.pattern, activeController.signal)
     if (controller !== activeController || !open.value) return
-    await queryClient.invalidateQueries({ queryKey: controlQueryKeys.modelPrices() })
+    await applyInvalidationPlan(queryClient, mutationInvalidationPlans.modelPrice.reset)
     if (controller !== activeController || !open.value) return
     open.value = false
     emit('reset')

@@ -1,3 +1,6 @@
+import { queryOptions } from '@tanstack/vue-query'
+import { computed, toValue, type MaybeRefOrGetter } from 'vue'
+
 import type { ApiClient } from '@/api/client'
 import { InvalidResponseError } from '@/api/errors'
 import { controlQueryKeys } from '@/app/query-keys'
@@ -306,4 +309,11 @@ export async function getUsageReport(
   return projectUsageReport(
     await client.request(`/api/usage?${params.toString()}`, { method: 'GET', signal }),
   )
+}
+
+export function usageQueryOptions(client: ApiClient, filters: MaybeRefOrGetter<UsageFilters>) {
+  return queryOptions({
+    queryKey: computed(() => usageQueryIdentity(toValue(filters))),
+    queryFn: ({ signal }) => getUsageReport(client, toValue(filters), signal),
+  })
 }

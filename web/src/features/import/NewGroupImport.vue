@@ -17,7 +17,7 @@ import {
 } from '@/app/resources/groups'
 import type { GroupProtocol } from '@/api/control/types'
 import { ApiError, RequestCancelledError } from '@/api/errors'
-import { controlQueryKeys } from '@/app/query-keys'
+import { applyInvalidationPlan, mutationInvalidationPlans } from '@/app/resources/invalidation'
 import HeaderRulesEditor from '@/components/config/HeaderRulesEditor.vue'
 import ModelDraftEditor from '@/components/config/ModelDraftEditor.vue'
 import AppButton from '@/components/ui/AppButton.vue'
@@ -268,10 +268,7 @@ function buildCreateBody(confirmSameURL: boolean): GroupCreateRequest {
 
 async function finishSuccess(groupID: number): Promise<void> {
   if (!componentActive) return
-  await Promise.all([
-    queryClient.invalidateQueries({ queryKey: controlQueryKeys.groups.list() }),
-    queryClient.invalidateQueries({ queryKey: controlQueryKeys.health() }),
-  ])
+  await applyInvalidationPlan(queryClient, mutationInvalidationPlans.group.create)
   if (!componentActive) return
   completed.value = true
   draft.keys = ''
@@ -331,12 +328,7 @@ async function appendToGroup(groupID: number): Promise<void> {
     const targetID = outcome.value.group_id
     appendOperation.reset()
     if (!componentActive) return
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: controlQueryKeys.groups.keys(targetID) }),
-      queryClient.invalidateQueries({ queryKey: controlQueryKeys.groups.detail(targetID) }),
-      queryClient.invalidateQueries({ queryKey: controlQueryKeys.groups.list() }),
-      queryClient.invalidateQueries({ queryKey: controlQueryKeys.health() }),
-    ])
+    await applyInvalidationPlan(queryClient, mutationInvalidationPlans.group.importKeys(targetID))
     if (!componentActive) return
     completed.value = true
     draft.keys = ''

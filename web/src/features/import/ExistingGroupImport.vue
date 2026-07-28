@@ -6,8 +6,12 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
 import { useApiClient } from '@/api/client-context'
-import { importGroupKeys, listGroups, type GroupKeyImportResult } from '@/app/resources/groups'
-import { controlQueryKeys } from '@/app/query-keys'
+import {
+  groupListQueryOptions,
+  importGroupKeys,
+  type GroupKeyImportResult,
+} from '@/app/resources/groups'
+import { applyInvalidationPlan, mutationInvalidationPlans } from '@/app/resources/invalidation'
 import AppButton from '@/components/ui/AppButton.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import SurfaceCard from '@/components/ui/SurfaceCard.vue'
@@ -64,10 +68,7 @@ function parsePositiveID(value: unknown): number | null {
 }
 
 const selectedID = computed(() => parsePositiveID(route.query.group_id))
-const groupsQuery = useQuery({
-  queryKey: controlQueryKeys.groups.list(),
-  queryFn: ({ signal }) => listGroups(api, signal),
-})
+const groupsQuery = useQuery(groupListQueryOptions(api))
 const selectedGroup = computed(
   () => groupsQuery.data.value?.find((group) => group.id === selectedID.value) ?? null,
 )
@@ -153,12 +154,7 @@ async function executeImportOperation(): Promise<void> {
     const targetID = imported.group_id
     operation.reset()
     if (!componentActive) return
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: controlQueryKeys.groups.keys(targetID) }),
-      queryClient.invalidateQueries({ queryKey: controlQueryKeys.groups.detail(targetID) }),
-      queryClient.invalidateQueries({ queryKey: controlQueryKeys.groups.list() }),
-      queryClient.invalidateQueries({ queryKey: controlQueryKeys.health() }),
-    ])
+    await applyInvalidationPlan(queryClient, mutationInvalidationPlans.group.importKeys(targetID))
     if (!componentActive) return
     result.value = imported
     completed.value = true

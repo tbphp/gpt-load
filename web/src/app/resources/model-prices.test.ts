@@ -1,8 +1,7 @@
 import type { ApiClient } from '@/api/client'
 import { InvalidResponseError } from '@/api/errors'
-import { controlQueryKeys } from '@/app/query-keys'
 
-import { getModelPrices, modelPriceMutationInvalidations, projectModelPrices } from './model-prices'
+import { getModelPrices, projectModelPrices } from './model-prices'
 
 const prices = {
   uncached_input: 1.25,
@@ -57,11 +56,4 @@ describe('ModelPrice resource', () => {
       ).toThrow(InvalidResponseError)
     },
   )
-
-  it('owns exact upsert and reset invalidations', () => {
-    expect(modelPriceMutationInvalidations).toEqual({
-      upsert: [controlQueryKeys.modelPrices()],
-      reset: [controlQueryKeys.modelPrices()],
-    })
-  })
 })

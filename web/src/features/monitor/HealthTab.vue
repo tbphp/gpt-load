@@ -5,8 +5,11 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { useApiClient } from '@/api/client-context'
-import { getRuntimeHealth, type HealthProblemKeyDto, type KeyCounts } from '@/app/resources/health'
-import { controlQueryKeys } from '@/app/query-keys'
+import {
+  healthQueryOptions,
+  type HealthProblemKeyDto,
+  type KeyCounts,
+} from '@/app/resources/health'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import SurfaceCard from '@/components/ui/SurfaceCard.vue'
@@ -14,13 +17,7 @@ import SurfaceCard from '@/components/ui/SurfaceCard.vue'
 const client = useApiClient()
 const { t } = useI18n()
 
-const healthQuery = useQuery({
-  queryKey: controlQueryKeys.health(),
-  queryFn: ({ signal }) => getRuntimeHealth(client, signal),
-  refetchInterval: 10_000,
-  refetchIntervalInBackground: false,
-  refetchOnWindowFocus: false,
-})
+const healthQuery = useQuery(healthQueryOptions(client, true))
 
 const isVisible = ref(document.visibilityState !== 'hidden')
 const elapsedMs = ref(0)

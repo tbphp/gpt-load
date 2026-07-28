@@ -6,10 +6,11 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
 import { useApiClient } from '@/api/client-context'
-import { listAccessKeyOptions } from '@/app/resources/access-keys'
-import { listGroups } from '@/app/resources/groups'
+import { accessKeyOptionsQueryOptions } from '@/app/resources/access-keys'
+import { groupListQueryOptions } from '@/app/resources/groups'
 import {
   listRequestLogs,
+  requestLogInfiniteQueryOptions,
   type RequestLogItemDto,
   type RequestLogPageDto,
 } from '@/app/resources/request-logs'
@@ -50,23 +51,9 @@ const refreshFailed = ref(false)
 let refreshOwner = 0
 let refreshController: AbortController | undefined
 let detailFocusTimer: number | undefined
-const groupsQuery = useQuery({
-  queryKey: controlQueryKeys.groups.list(),
-  queryFn: ({ signal }) => listGroups(client, signal),
-})
-const accessKeyOptionsQuery = useQuery({
-  queryKey: controlQueryKeys.accessKeys.options(),
-  queryFn: ({ signal }) => listAccessKeyOptions(client, signal),
-  gcTime: 0,
-})
-const logsQuery = useInfiniteQuery({
-  queryKey: computed(() => controlQueryKeys.logs.list(appliedFilters.value)),
-  initialPageParam: null as string | null,
-  queryFn: ({ pageParam, signal }) =>
-    listRequestLogs(client, appliedFilters.value, pageParam ?? undefined, signal),
-  getNextPageParam: (lastPage) => lastPage.next_cursor ?? undefined,
-  gcTime: 0,
-})
+const groupsQuery = useQuery(groupListQueryOptions(client))
+const accessKeyOptionsQuery = useQuery(accessKeyOptionsQueryOptions(client))
+const logsQuery = useInfiniteQuery(requestLogInfiniteQueryOptions(client, appliedFilters))
 const logs = computed(() => {
   const unique: RequestLogItemDto[] = []
   const seen = new Set<string>()

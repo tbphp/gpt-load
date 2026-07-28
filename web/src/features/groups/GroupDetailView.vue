@@ -5,8 +5,7 @@ import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 
 import { useApiClient } from '@/api/client-context'
-import { getGroup } from '@/app/resources/groups'
-import { controlQueryKeys } from '@/app/query-keys'
+import { groupDetailQueryOptions } from '@/app/resources/groups'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 
 import GroupHeader from './GroupHeader.vue'
@@ -21,20 +20,7 @@ const client = useApiClient()
 const { t } = useI18n()
 const groupId = computed(() => parsePositiveId(route.params.id))
 const activeTab = computed(() => normalizeGroupTab(route.query.tab))
-const detailQuery = useQuery({
-  queryKey: computed(() =>
-    groupId.value
-      ? controlQueryKeys.groups.detail(groupId.value)
-      : controlQueryKeys.groups.details(),
-  ),
-  queryFn: ({ signal }) => {
-    const id = groupId.value
-    if (!id) throw new Error('INVALID_GROUP_ID')
-    return getGroup(client, id, signal)
-  },
-  enabled: computed(() => groupId.value !== undefined),
-  gcTime: 0,
-})
+const detailQuery = useQuery(groupDetailQueryOptions(client, groupId))
 </script>
 
 <template>

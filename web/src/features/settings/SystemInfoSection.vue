@@ -4,8 +4,7 @@ import { Info, LockKeyhole } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 
 import { useApiClient } from '@/api/client-context'
-import { getSystemInfo, type SecretSource } from '@/app/resources/system-info'
-import { controlQueryKeys } from '@/app/query-keys'
+import { systemInfoQueryOptions, type SecretSource } from '@/app/resources/system-info'
 import CopyButton from '@/components/ui/CopyButton.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
@@ -13,10 +12,7 @@ import SurfaceCard from '@/components/ui/SurfaceCard.vue'
 
 const client = useApiClient()
 const { t } = useI18n()
-const infoQuery = useQuery({
-  queryKey: controlQueryKeys.systemInfo(),
-  queryFn: ({ signal }) => getSystemInfo(client, signal),
-})
+const infoQuery = useQuery(systemInfoQueryOptions(client))
 
 function sourceLabel(source: SecretSource): string {
   return t(`settings.system.sources.${source}`)

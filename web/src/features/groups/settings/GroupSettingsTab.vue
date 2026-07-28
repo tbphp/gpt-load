@@ -14,6 +14,7 @@ import {
 import type { GroupProtocol } from '@/api/control/types'
 import { ApiError, RequestCancelledError } from '@/api/errors'
 import { controlQueryKeys } from '@/app/query-keys'
+import { applyInvalidationPlan, mutationInvalidationPlans } from '@/app/resources/invalidation'
 import { useUnsavedChanges } from '@/app/unsaved-changes'
 import HeaderRulesEditor from '@/components/config/HeaderRulesEditor.vue'
 import AppButton from '@/components/ui/AppButton.vue'
@@ -197,11 +198,11 @@ async function runSave(confirmUpstreamURLChange = false): Promise<void> {
     rediscoveryRecommended.value =
       rediscoveryRecommended.value || result.model_rediscovery_recommended
     queryClient.setQueryData(controlQueryKeys.groups.detail(props.groupId), result.group)
-    await queryClient.invalidateQueries({ queryKey: controlQueryKeys.groups.list() })
-    if (controller !== activeController) return
-    if (healthAffected(normalizedPatch)) {
-      await queryClient.invalidateQueries({ queryKey: controlQueryKeys.health() })
-    }
+    await applyInvalidationPlan(
+      queryClient,
+      mutationInvalidationPlans.group.update(props.groupId, healthAffected(normalizedPatch)),
+      () => controller === activeController,
+    )
   } catch (error: unknown) {
     if (controller !== activeController || error instanceof RequestCancelledError) return
     if (error instanceof ApiError && error.code === 'UPSTREAM_URL_CHANGE_CONFIRMATION_REQUIRED') {

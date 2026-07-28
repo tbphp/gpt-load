@@ -1,3 +1,5 @@
+import { queryOptions } from '@tanstack/vue-query'
+
 import type { ApiClient } from '@/api/client'
 import type {
   HealthGroupDto,
@@ -8,6 +10,7 @@ import type {
   RuntimeHealthDto,
 } from '@/api/control/types'
 import { InvalidResponseError } from '@/api/errors'
+import { controlQueryKeys } from '@/app/query-keys'
 
 import {
   assertNoSecretLikeFields,
@@ -192,4 +195,18 @@ export async function getRuntimeHealth(
   signal?: AbortSignal,
 ): Promise<RuntimeHealthDto> {
   return projectRuntimeHealth(await client.request('/api/health', { method: 'GET', signal }))
+}
+
+export function healthQueryOptions(client: ApiClient, polling = false) {
+  return queryOptions({
+    queryKey: controlQueryKeys.health(),
+    queryFn: ({ signal }) => getRuntimeHealth(client, signal),
+    ...(polling
+      ? {
+          refetchInterval: 10_000,
+          refetchIntervalInBackground: false,
+          refetchOnWindowFocus: false,
+        }
+      : {}),
+  })
 }

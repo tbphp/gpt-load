@@ -272,8 +272,8 @@ describe('AccessKeyDrawer', () => {
     })
     expect((request.mock.calls[0]?.[1] as { json: object }).json).not.toHaveProperty('status')
     expect(invalidate.mock.calls.map(([filters]) => filters)).toEqual([
-      { queryKey: controlQueryKeys.accessKeys.list() },
-      { queryKey: controlQueryKeys.accessKeys.options() },
+      { queryKey: controlQueryKeys.accessKeys.list(), exact: true },
+      { queryKey: controlQueryKeys.accessKeys.options(), exact: true },
     ])
     const firstOperationID = (
       request.mock.calls[0]?.[1] as { headers: { 'Idempotency-Key': string } }
@@ -375,8 +375,8 @@ describe('AccessKeyDrawer', () => {
       signal: expect.any(AbortSignal),
     })
     expect(invalidate.mock.calls.map(([filters]) => filters)).toEqual([
-      { queryKey: controlQueryKeys.accessKeys.list() },
-      { queryKey: controlQueryKeys.accessKeys.options() },
+      { queryKey: controlQueryKeys.accessKeys.list(), exact: true },
+      { queryKey: controlQueryKeys.accessKeys.options(), exact: true },
     ])
 
     expect(document.querySelector('[data-test="access-key-name"]')).not.toBeNull()

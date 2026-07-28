@@ -5,8 +5,7 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { useApiClient } from '@/api/client-context'
-import { getUsageReport, type UsageAggregateDto } from '@/app/resources/usage'
-import { controlQueryKeys } from '@/app/query-keys'
+import { usageQueryOptions, type UsageAggregateDto } from '@/app/resources/usage'
 import AppDateTime from '@/components/ui/AppDateTime.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
@@ -27,10 +26,7 @@ withDefaults(
 const filters = { range: '24h' } as const
 const client = useApiClient()
 const { locale, t } = useI18n()
-const usageQuery = useQuery({
-  queryKey: controlQueryKeys.usage.report(filters),
-  queryFn: ({ signal }) => getUsageReport(client, filters, signal),
-})
+const usageQuery = useQuery(usageQueryOptions(client, filters))
 const report = computed(() => usageQuery.data.value)
 const hasPipelineWarning = computed(() =>
   Boolean(

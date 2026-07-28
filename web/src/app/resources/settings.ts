@@ -1,3 +1,6 @@
+import { queryOptions } from '@tanstack/vue-query'
+import { computed, toValue, type MaybeRefOrGetter } from 'vue'
+
 import type { ApiClient, ApiClientWithResponse } from '@/api/client'
 import { ApiError, InvalidResponseError } from '@/api/errors'
 import { controlQueryKeys } from '@/app/query-keys'
@@ -151,6 +154,14 @@ export async function getSettings(
     signal,
   })
   return settingsResourceFromResponse(projectSettings(response.data), response.headers)
+}
+
+export function settingsQueryOptions(client: ApiClient, locale: MaybeRefOrGetter<string>) {
+  return queryOptions({
+    queryKey: computed(() => settingsQueryIdentity(toValue(locale))),
+    queryFn: ({ signal }) => getSettings(client, signal),
+    gcTime: 0,
+  })
 }
 
 export async function updateSettings(

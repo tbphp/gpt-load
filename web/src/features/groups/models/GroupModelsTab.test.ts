@@ -342,7 +342,7 @@ describe('GroupModelsTab', () => {
     )
     expect(setQueryData).toHaveBeenCalledWith(controlQueryKeys.groups.detail(7), updated)
     expect(invalidate.mock.calls.map(([filters]) => filters)).toEqual([
-      { queryKey: controlQueryKeys.groups.list() },
+      { queryKey: controlQueryKeys.groups.list(), exact: true },
     ])
     expect(invalidate).not.toHaveBeenCalledWith({ queryKey: controlQueryKeys.health() })
     expect(client.getMutationCache().getAll()).toHaveLength(0)

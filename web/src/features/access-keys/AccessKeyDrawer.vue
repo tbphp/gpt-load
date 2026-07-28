@@ -15,7 +15,8 @@ import {
 import type { AccessKeyDto, AccessProtocol, GroupSummary } from '@/api/control/types'
 import { RequestCancelledError } from '@/api/errors'
 import { classifyMutationOutcome } from '@/app/mutation-outcome'
-import { accessKeyMutationInvalidations, accessKeyResources } from '@/app/resources/access-keys'
+import { accessKeyResources } from '@/app/resources/access-keys'
+import { applyInvalidationPlan, mutationInvalidationPlans } from '@/app/resources/invalidation'
 import { useUnsavedChanges } from '@/app/unsaved-changes'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppDrawer from '@/components/ui/AppDrawer.vue'
@@ -419,10 +420,9 @@ async function save(): Promise<void> {
         ephemeralSecret.expose(`access-key:${metadata.id}`, key)
       }
     }
-    await Promise.all(
-      accessKeyMutationInvalidations[currentBase ? 'update' : 'create'].map((queryKey) =>
-        queryClient.invalidateQueries({ queryKey }),
-      ),
+    await applyInvalidationPlan(
+      queryClient,
+      mutationInvalidationPlans.accessKey[currentBase ? 'update' : 'create'],
     )
   } catch (error: unknown) {
     if (controller !== activeController || !props.open || operationID.value !== activeOperationID) {
@@ -494,7 +494,7 @@ async function reconcileEdit(): Promise<void> {
       return
     }
     queryClient.setQueryData(accessKeyResources.list.queryKey, accessKeys)
-    void queryClient.invalidateQueries({ queryKey: accessKeyResources.options.queryKey })
+    void applyInvalidationPlan(queryClient, mutationInvalidationPlans.accessKey.reconcile)
     const latest = accessKeys.find((accessKey) => accessKey.id === attempt.base.id)
     if (!latest) {
       editReconciliation.value = null

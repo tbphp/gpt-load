@@ -132,10 +132,10 @@ describe('GroupKeysTab', () => {
       signal: expect.any(AbortSignal),
     })
     expect(invalidate.mock.calls.map(([filters]) => filters)).toEqual([
-      { queryKey: controlQueryKeys.groups.keys(7) },
-      { queryKey: controlQueryKeys.groups.detail(7) },
-      { queryKey: controlQueryKeys.groups.list() },
-      { queryKey: controlQueryKeys.health() },
+      { queryKey: controlQueryKeys.groups.keys(7), exact: true },
+      { queryKey: controlQueryKeys.groups.detail(7), exact: true },
+      { queryKey: controlQueryKeys.groups.list(), exact: true },
+      { queryKey: controlQueryKeys.health(), exact: true },
     ])
     expect(client.getMutationCache().getAll()).toHaveLength(0)
     wrapper.unmount()
@@ -195,10 +195,10 @@ describe('GroupKeysTab', () => {
     await flushPromises()
     expect(document.activeElement).toBe(trigger.element)
     expect(invalidate.mock.calls.map(([filters]) => filters)).toEqual([
-      { queryKey: controlQueryKeys.groups.keys(7) },
-      { queryKey: controlQueryKeys.groups.detail(7) },
-      { queryKey: controlQueryKeys.groups.list() },
-      { queryKey: controlQueryKeys.health() },
+      { queryKey: controlQueryKeys.groups.keys(7), exact: true },
+      { queryKey: controlQueryKeys.groups.detail(7), exact: true },
+      { queryKey: controlQueryKeys.groups.list(), exact: true },
+      { queryKey: controlQueryKeys.health(), exact: true },
     ])
     expect(client.getMutationCache().getAll()).toHaveLength(0)
     wrapper.unmount()
