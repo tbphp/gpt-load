@@ -770,6 +770,28 @@ func TestAppStopCancelsAndWaitsForControlRuntime(t *testing.T) {
 	}
 }
 
+func TestAppStopClosesListenerBeforeHTTPServerRegistersIt(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("net.Listen() error = %v", err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+
+	application := &App{
+		httpServer: &http.Server{},
+		listener:   listener,
+	}
+	if err := application.Stop(context.Background()); err != nil {
+		t.Fatalf("Stop() error = %v", err)
+	}
+
+	connection, dialErr := net.DialTimeout("tcp", listener.Addr().String(), time.Second)
+	if dialErr == nil {
+		_ = connection.Close()
+		t.Fatalf("listener still accepts connections after Stop() returned")
+	}
+}
+
 func TestAppStopHonorsDeadlineWhileWaitingForControlRuntime(t *testing.T) {
 	db, err := storage.Open(":memory:")
 	if err != nil {

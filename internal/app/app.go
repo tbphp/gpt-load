@@ -225,6 +225,7 @@ func (a *App) Stop(ctx context.Context) error {
 
 	a.mu.Lock()
 	server := a.httpServer
+	listener := a.listener
 	cancelRuntime := a.runtimeCancel
 	runtimeDone := a.runtimeDone
 	requestLogs := a.requestLogs
@@ -240,6 +241,11 @@ func (a *App) Stop(ctx context.Context) error {
 			if closeErr := server.Close(); closeErr != nil {
 				errs = append(errs, fmt.Errorf("force close HTTP server: %w", closeErr))
 			}
+		}
+	}
+	if listener != nil {
+		if err := listener.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+			errs = append(errs, fmt.Errorf("close HTTP listener: %w", err))
 		}
 	}
 	if runtimeDone != nil {
