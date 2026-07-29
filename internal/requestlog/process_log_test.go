@@ -3,6 +3,7 @@ package requestlog
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"reflect"
@@ -14,6 +15,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"gpt-load/internal/platform/redact"
+	"gpt-load/internal/platform/utils"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/telemetry"
@@ -241,6 +243,109 @@ func TestProjectProcessLogBoundsAndRedactsErrorSummary(t *testing.T) {
 		len(summary) > maxProcessSummaryBytes ||
 		!strings.HasSuffix(summary, truncatedMarker) {
 		t.Fatalf("unsafe bounded summary = %q (%d bytes)", summary, len(summary))
+	}
+}
+
+func TestProcessLogFormatterSecretMatrix(t *testing.T) {
+	const (
+		accessKey      = "gl-client-access-secret-0002"
+		headerSecret   = "sk-header-rule-secret-0008"
+		requestSecret  = "sk-request-body-secret-0009"
+		responseSecret = "sk-response-summary-secret-0010"
+	)
+	event := testEvent("00000000-0000-4000-8000-000000000509")
+	event.Status = telemetry.RequestStatusError
+	event.StatusCode = http.StatusBadGateway
+	event.ClientModel = "safe-client/" + accessKey
+	event.UpstreamModel = "safe-upstream/" + requestSecret
+	event.ErrorCode = "upstream_error"
+	event.ErrorSummary = "safe-summary " + responseSecret
+	event.Attempts = []telemetry.Attempt{{
+		Sequence:  1,
+		GroupID:   71,
+		GroupName: "safe-group/" + headerSecret,
+		KeyID:     81,
+		WillRetry: false,
+	}}
+	event.Usage = telemetry.UsageObservation{
+		GroupID: 71, KeyID: 81, AttemptSequence: 1,
+		Result: usage.Result{State: usage.StateNotApplicable},
+	}
+
+	redactor := redact.New()
+	level, fields, ok := projectProcessLog(redactor, event, nil)
+	if !ok || level != logrus.WarnLevel {
+		t.Fatalf("projection = %t/%s, want true/warning", ok, level)
+	}
+	projected := fmt.Sprint(fields)
+	for _, forbidden := range []string{
+		accessKey,
+		headerSecret,
+		requestSecret,
+		responseSecret,
+	} {
+		if strings.Contains(projected, forbidden) {
+			t.Fatalf(
+				"projection contains %q before runtime hook: %s",
+				forbidden,
+				projected,
+			)
+		}
+	}
+
+	formatters := map[string]logrus.Formatter{
+		"text": &logrus.TextFormatter{
+			DisableTimestamp: true,
+			DisableColors:    true,
+		},
+		"json": &logrus.JSONFormatter{DisableTimestamp: true},
+	}
+	for name, formatter := range formatters {
+		t.Run(name, func(t *testing.T) {
+			var output bytes.Buffer
+			logger := logrus.New()
+			logger.SetOutput(&output)
+			logger.SetFormatter(formatter)
+			logger.AddHook(redact.NewHook(redactor))
+			utils.LogBestEffort(
+				logger,
+				level,
+				fields,
+				"Data plane request completed",
+			)
+			logText := output.String()
+			for _, forbidden := range []string{
+				accessKey,
+				headerSecret,
+				requestSecret,
+				responseSecret,
+			} {
+				if strings.Contains(logText, forbidden) {
+					t.Fatalf(
+						"%s log contains %q: %s",
+						name,
+						forbidden,
+						logText,
+					)
+				}
+			}
+			for _, allowed := range []string{
+				"data_plane_request_completed",
+				event.RequestID,
+				"safe-client",
+				"safe-upstream",
+				"safe-group",
+			} {
+				if !strings.Contains(logText, allowed) {
+					t.Fatalf(
+						"%s log missing %q: %s",
+						name,
+						allowed,
+						logText,
+					)
+				}
+			}
+		})
 	}
 }
 

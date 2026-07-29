@@ -8,11 +8,15 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
 
 	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/platform/utils"
+	"gpt-load/internal/protocol"
+	"gpt-load/internal/state"
 )
 
 func TestGatewayNeverExposesPlaintextKeys(t *testing.T) {
@@ -84,6 +88,292 @@ func TestGatewayNeverExposesPlaintextKeys(t *testing.T) {
 			t.Fatalf("protocol response = %d %s", recorder.Code, recorder.Body.String())
 		}
 	})
+
+	t.Run("ordinary client error body", func(t *testing.T) {
+		const secret = "QZVX-provider-secret-WKJP"
+		upstream := httptest.NewServer(http.HandlerFunc(func(
+			writer http.ResponseWriter,
+			request *http.Request,
+		) {
+			_, _ = io.Copy(io.Discard, request.Body)
+			writer.Header().Set("Content-Type", "application/json")
+			writer.WriteHeader(http.StatusBadRequest)
+			_, _ = writer.Write([]byte(
+				`{"error":{"api_key":"` + secret + `"}}`,
+			))
+		}))
+		defer upstream.Close()
+
+		engine, _ := newStreamingGatewayEngine(
+			t,
+			streamGatewayGroup{
+				id: 1, name: "client-error-group",
+				upstreamURL: upstream.URL, apiKey: secret,
+			},
+		)
+		request := httptest.NewRequest(
+			http.MethodPost,
+			"/v1/chat/completions",
+			strings.NewReader(`{"model":"gpt-4o"}`),
+		)
+		request.Header.Set("Authorization", "Bearer gl-client")
+		recorder := httptest.NewRecorder()
+		engine.ServeHTTP(recorder, request)
+
+		assertNoPlaintextSecrets(t, recorder, logs.String(), secret)
+		if !strings.Contains(
+			recorder.Body.String(),
+			redact.Placeholder,
+		) {
+			t.Fatalf(
+				"safe client error body = %s, want placeholder",
+				recorder.Body.String(),
+			)
+		}
+	})
+}
+
+func TestGatewaySecurityEventFormatterSecretMatrix(t *testing.T) {
+	const (
+		accessKey           = "gl-client-access-secret-0002"
+		providerKey         = "QZVX-provider-secret-WKJP"
+		authorizationSecret = "gl-authorization-secret-0004"
+		xAPISecret          = "sk-x-api-secret-0005"
+		xGoogSecret         = "sk-x-goog-secret-0006"
+		geminiQuerySecret   = "sk-gemini-query-secret-0007"
+		requestBodySecret   = "sk-request-body-secret-0009"
+	)
+	formatters := map[string]logrus.Formatter{
+		"text": &logrus.TextFormatter{
+			DisableTimestamp: true,
+			DisableColors:    true,
+		},
+		"json": &logrus.JSONFormatter{DisableTimestamp: true},
+	}
+	for name, formatter := range formatters {
+		t.Run(name, func(t *testing.T) {
+			forwarder := &scriptedForwarder{
+				results: []UpstreamResult{
+					{
+						StatusCode: http.StatusBadRequest,
+						Header:     make(http.Header),
+						Body:       []byte(`{"error":"safe"}`),
+						ClassificationBody: []byte(
+							`{"error":"safe"}`,
+						),
+						RequestWritten: true,
+					},
+					{
+						StatusCode: http.StatusBadRequest,
+						Header:     make(http.Header),
+						Body:       []byte(`{"error":"safe"}`),
+						ClassificationBody: []byte(
+							`{"error":"safe"}`,
+						),
+						RequestWritten: true,
+					},
+				},
+			}
+			handler, manager, _ := newHandlerForTest(
+				t,
+				forwarder,
+				providerKey,
+			)
+			if _, err := manager.Publish(state.CompileInput{
+				Groups: []state.GroupConfig{{
+					ID:          1,
+					Name:        "safe-group",
+					UpstreamURL: "http://upstream.invalid",
+					Protocols:   []protocol.Protocol{protocol.OpenAI},
+					Models:      []state.ModelConfig{{ID: "safe-model"}},
+					Enabled:     true,
+				}},
+				AccessKeys: []state.AccessKeyConfig{{
+					ID:      77,
+					Name:    "safe-client",
+					KeyHash: handler.encryption.Hash(accessKey),
+					Status:  state.AccessKeyStatusActive,
+				}},
+			}); err != nil {
+				t.Fatalf("publish secret-matrix snapshot: %v", err)
+			}
+
+			var output bytes.Buffer
+			logger := logrus.New()
+			logger.SetOutput(&output)
+			logger.SetFormatter(formatter)
+			handler.logger = logger
+			engine := gin.New()
+			handler.RegisterRoutes(engine)
+			serveGatewaySecretMatrixRequests(
+				t,
+				engine,
+				accessKey,
+				providerKey,
+				authorizationSecret,
+				xAPISecret,
+				xGoogSecret,
+				geminiQuerySecret,
+				requestBodySecret,
+			)
+			assertGatewaySecretMatrixOutput(
+				t,
+				name+" without hook",
+				output.String(),
+				accessKey,
+				providerKey,
+				authorizationSecret,
+				xAPISecret,
+				xGoogSecret,
+				geminiQuerySecret,
+				requestBodySecret,
+			)
+
+			output.Reset()
+			logger.AddHook(redact.NewHook(redact.New()))
+			handler.authFailureEvents =
+				utils.NewRateLimitedEventCounter(time.Minute, time.Now)
+			handler.routeNotFoundEvents =
+				utils.NewRateLimitedEventCounter(time.Minute, time.Now)
+			serveGatewaySecretMatrixRequests(
+				t,
+				engine,
+				accessKey,
+				providerKey,
+				authorizationSecret,
+				xAPISecret,
+				xGoogSecret,
+				geminiQuerySecret,
+				requestBodySecret,
+			)
+			assertGatewaySecretMatrixOutput(
+				t,
+				name+" with hook",
+				output.String(),
+				accessKey,
+				providerKey,
+				authorizationSecret,
+				xAPISecret,
+				xGoogSecret,
+				geminiQuerySecret,
+				requestBodySecret,
+			)
+		})
+	}
+}
+
+func serveGatewaySecretMatrixRequests(
+	t *testing.T,
+	engine http.Handler,
+	accessKey string,
+	providerKey string,
+	authorizationSecret string,
+	xAPISecret string,
+	xGoogSecret string,
+	geminiQuerySecret string,
+	requestBodySecret string,
+) {
+	target := "/raw-" + requestBodySecret +
+		"?key=" + geminiQuerySecret
+	invalid := httptest.NewRequest(
+		http.MethodPost,
+		target,
+		strings.NewReader(
+			`{"secret":"`+requestBodySecret+`"}`,
+		),
+	)
+	invalid.RemoteAddr = "192.0.2.90:1000"
+	invalid.Header.Set(
+		"Authorization",
+		"Bearer "+authorizationSecret,
+	)
+	invalid.Header.Set("X-Api-Key", xAPISecret)
+	invalid.Header.Set("X-Goog-Api-Key", xGoogSecret)
+	engine.ServeHTTP(httptest.NewRecorder(), invalid)
+
+	valid := httptest.NewRequest(
+		http.MethodPost,
+		target,
+		strings.NewReader(
+			`{"secret":"`+requestBodySecret+`"}`,
+		),
+	)
+	valid.RemoteAddr = "192.0.2.91:1000"
+	valid.Header.Set("Authorization", "Bearer "+accessKey)
+	valid.Header.Set("X-Api-Key", xAPISecret)
+	valid.Header.Set("X-Goog-Api-Key", xGoogSecret)
+	engine.ServeHTTP(httptest.NewRecorder(), valid)
+
+	inference := httptest.NewRequest(
+		http.MethodPost,
+		"/v1/chat/completions",
+		strings.NewReader(
+			`{"model":"safe-model","metadata":"`+
+				requestBodySecret+`"}`,
+		),
+	)
+	inference.RemoteAddr = "192.0.2.92:1000"
+	inference.Header.Set("Authorization", "Bearer "+accessKey)
+	inferenceRecorder := httptest.NewRecorder()
+	engine.ServeHTTP(inferenceRecorder, inference)
+	for _, surface := range []string{
+		inferenceRecorder.Body.String(),
+		fmt.Sprint(inferenceRecorder.Header()),
+	} {
+		for _, forbidden := range []string{
+			providerKey,
+			providerKey[:4],
+			providerKey[len(providerKey)-4:],
+			utils.MaskAPIKey(providerKey),
+		} {
+			if strings.Contains(surface, forbidden) {
+				t.Fatalf(
+					"inference response contains %q: %s",
+					forbidden,
+					surface,
+				)
+			}
+		}
+	}
+}
+
+func assertGatewaySecretMatrixOutput(
+	t *testing.T,
+	label string,
+	logText string,
+	accessKey string,
+	providerKey string,
+	secrets ...string,
+) {
+	t.Helper()
+	for _, required := range []string{
+		"data_plane_auth_failed",
+		"data_plane_route_not_found",
+		"access_key_id",
+	} {
+		if !strings.Contains(logText, required) {
+			t.Fatalf("%s log missing %q: %s", label, required, logText)
+		}
+	}
+	for _, forbidden := range append(
+		[]string{
+			accessKey,
+			providerKey,
+			providerKey[:4],
+			providerKey[len(providerKey)-4:],
+			utils.MaskAPIKey(providerKey),
+		},
+		secrets...,
+	) {
+		if strings.Contains(logText, forbidden) {
+			t.Fatalf(
+				"%s log contains %q: %s",
+				label,
+				forbidden,
+				logText,
+			)
+		}
+	}
 }
 
 func TestForwardStripsCookiesAndCredentialHeadersOnEveryPath(t *testing.T) {

@@ -9,12 +9,15 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/sirupsen/logrus"
 
 	"gpt-load/internal/platform/config"
 	app_errors "gpt-load/internal/platform/errors"
+	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/platform/utils"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/state"
@@ -897,6 +900,244 @@ func TestAccessKeyRevealAudit(t *testing.T) {
 			created.Key,
 		)
 	})
+}
+
+func TestControlSecurityEventFormatterSecretMatrix(t *testing.T) {
+	initControlI18n(t)
+	const (
+		authKey             = "gl-control-auth-secret-0001"
+		accessKeyCanary     = "gl-client-access-secret-0002"
+		providerKey         = "QZVX-provider-secret-WKJP"
+		authorizationSecret = "gl-authorization-secret-0004"
+		xAPISecret          = "sk-x-api-secret-0005"
+		xGoogSecret         = "sk-x-goog-secret-0006"
+		geminiQuerySecret   = "sk-gemini-query-secret-0007"
+		headerSecret        = "sk-header-rule-secret-0008"
+		requestBodySecret   = "sk-request-body-secret-0009"
+		responseSecret      = "sk-response-summary-secret-0010"
+		panicSecret         = "sk-panic-secret-0011"
+	)
+	formatters := map[string]logrus.Formatter{
+		"text": &logrus.TextFormatter{
+			DisableTimestamp: true,
+			DisableColors:    true,
+		},
+		"json": &logrus.JSONFormatter{DisableTimestamp: true},
+	}
+	for formatterName, formatter := range formatters {
+		for _, withHook := range []bool{false, true} {
+			name := formatterName + "/without-hook"
+			if withHook {
+				name = formatterName + "/with-hook"
+			}
+			t.Run(name, func(t *testing.T) {
+				fixture := newServiceFixture(t)
+				revealed := seedAuditAccessKey(t, fixture)
+				var output bytes.Buffer
+				logger := logrus.New()
+				logger.SetOutput(&output)
+				logger.SetFormatter(formatter)
+				if withHook {
+					logger.AddHook(redact.NewHook(redact.New()))
+				}
+				server := NewServer(
+					&config.Config{AuthKey: authKey},
+					fixture.service,
+				)
+				server.logger = logger
+				engine := gin.New()
+				server.RegisterRoutes(engine)
+
+				for range authFailureLimit {
+					request := httptest.NewRequest(
+						http.MethodGet,
+						"/api/health",
+						nil,
+					)
+					request.RemoteAddr = "192.0.2.94:1000"
+					request.Header.Set(
+						"Authorization",
+						"Bearer "+authorizationSecret,
+					)
+					request.Header.Set("X-Api-Key", xAPISecret)
+					request.Header.Set(
+						"X-Goog-Api-Key",
+						xGoogSecret,
+					)
+					request.Header.Set(
+						"X-Access-Key",
+						accessKeyCanary,
+					)
+					engine.ServeHTTP(httptest.NewRecorder(), request)
+				}
+
+				initial := serveSettingsOCCRequest(
+					t,
+					engine,
+					http.MethodGet,
+					authKey,
+					"en-US",
+					"",
+					"",
+				)
+				if initial.Code != http.StatusOK {
+					t.Fatalf(
+						"GET settings = %d %s",
+						initial.Code,
+						initial.Body.String(),
+					)
+				}
+				settingsBody := fmt.Sprintf(
+					`{"settings":{"header_rules":{"set":{`+
+						`"X-Provider":%q,"X-Header":%q,`+
+						`"X-Request":%q,"X-Response":%q},`+
+						`"remove":[]}}}`,
+					providerKey,
+					headerSecret,
+					requestBodySecret,
+					responseSecret,
+				)
+				updated := serveSettingsOCCRequest(
+					t,
+					engine,
+					http.MethodPut,
+					authKey,
+					"en-US",
+					initial.Header().Get("ETag"),
+					settingsBody,
+				)
+				if updated.Code != http.StatusOK {
+					t.Fatalf(
+						"PUT settings = %d %s",
+						updated.Code,
+						updated.Body.String(),
+					)
+				}
+
+				rawQuery := httptest.NewRequest(
+					http.MethodDelete,
+					"/api/model-prices?pattern="+
+						geminiQuerySecret+"&extra=value",
+					nil,
+				)
+				rawQuery.Header.Set(
+					"Authorization",
+					"Bearer "+authKey,
+				)
+				engine.ServeHTTP(httptest.NewRecorder(), rawQuery)
+
+				reveal := httptest.NewRequest(
+					http.MethodPost,
+					fmt.Sprintf(
+						"/api/access-keys/%d/reveal",
+						revealed.ID,
+					),
+					nil,
+				)
+				reveal.Header.Set(
+					"Authorization",
+					"Bearer "+authKey,
+				)
+				revealRecorder := httptest.NewRecorder()
+				engine.ServeHTTP(revealRecorder, reveal)
+				if revealRecorder.Code != http.StatusOK ||
+					!strings.Contains(
+						revealRecorder.Body.String(),
+						revealed.Key,
+					) {
+					t.Fatalf(
+						"reveal = %d %s",
+						revealRecorder.Code,
+						revealRecorder.Body.String(),
+					)
+				}
+
+				panicEngine := gin.New()
+				panicEngine.Use(func(c *gin.Context) {
+					defer func() {
+						if recover() != nil {
+							c.Status(http.StatusInternalServerError)
+							c.Abort()
+						}
+					}()
+					c.Next()
+				})
+				panicEngine.POST(
+					"/panic",
+					func(c *gin.Context) {
+						c.Set(
+							controlPeerContextKey,
+							"192.0.2.95",
+						)
+					},
+					server.auditMutation(newMutationDescriptor(
+						"panic_probe",
+						"probe",
+						staticMutationLocator("probe:1"),
+					)),
+					func(*gin.Context) {
+						panic(panicSecret)
+					},
+				)
+				panicEngine.ServeHTTP(
+					httptest.NewRecorder(),
+					httptest.NewRequest(
+						http.MethodPost,
+						"/panic",
+						nil,
+					),
+				)
+
+				logText := output.String()
+				for _, required := range []string{
+					"control_plane_auth_failed",
+					"control_plane_auth_locked",
+					"control_plane_mutation",
+					"settings_update",
+					"settings:global",
+					"access_key_reveal",
+					fmt.Sprintf(
+						"access-key:%d",
+						revealed.ID,
+					),
+				} {
+					if !strings.Contains(logText, required) {
+						t.Fatalf(
+							"log missing %q: %s",
+							required,
+							logText,
+						)
+					}
+				}
+				for _, forbidden := range []string{
+					authKey,
+					accessKeyCanary,
+					revealed.Key,
+					providerKey,
+					providerKey[:4],
+					providerKey[len(providerKey)-4:],
+					utils.MaskAPIKey(providerKey),
+					authorizationSecret,
+					xAPISecret,
+					xGoogSecret,
+					geminiQuerySecret,
+					headerSecret,
+					requestBodySecret,
+					responseSecret,
+					panicSecret,
+					"stack",
+				} {
+					if strings.Contains(logText, forbidden) {
+						t.Fatalf(
+							"log contains %q: %s",
+							forbidden,
+							logText,
+						)
+					}
+				}
+			})
+		}
+	}
 }
 
 func seedAuditAccessKey(

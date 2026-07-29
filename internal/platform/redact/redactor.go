@@ -10,6 +10,10 @@ import (
 
 const Placeholder = "[REDACTED]"
 
+var controlledAccessKeyLocator = regexp.MustCompile(
+	`^access-key:(?:[1-9][0-9]*|unknown)$`,
+)
+
 type replacement struct {
 	pattern *regexp.Regexp
 	value   string
@@ -53,6 +57,9 @@ func (r *Redactor) String(text string, knownSecrets ...string) string {
 		if secret != "" {
 			result = strings.ReplaceAll(result, secret, Placeholder)
 		}
+	}
+	if controlledAccessKeyLocator.MatchString(result) {
+		return result
 	}
 	for _, item := range r.replacements {
 		result = item.pattern.ReplaceAllString(result, item.value)

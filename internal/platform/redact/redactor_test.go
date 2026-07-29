@@ -75,6 +75,30 @@ func TestRedactorUsesExactKnownSecretForCustomPrefixes(t *testing.T) {
 	}
 }
 
+func TestRedactorPreservesControlledAccessKeyLocator(t *testing.T) {
+	redactor := New()
+	for _, locator := range []string{
+		"access-key:1",
+		"access-key:18446744073709551615",
+		"access-key:unknown",
+	} {
+		if got := redactor.String(locator); got != locator {
+			t.Errorf("String(%q) = %q, want controlled locator", locator, got)
+		}
+	}
+	for _, unsafe := range []string{
+		"access-key:0",
+		"access-key:-1",
+		"access-key:gl-client-access-secret-0002",
+		"prefix access-key:1",
+	} {
+		if got := redactor.String(unsafe); got == unsafe ||
+			!strings.Contains(got, Placeholder) {
+			t.Errorf("String(%q) = %q, want redacted", unsafe, got)
+		}
+	}
+}
+
 func TestRedactorLeavesOrdinaryTextAndEmptySecretsAlone(t *testing.T) {
 	inputs := []string{
 		"model gpt-4o completed normally",
