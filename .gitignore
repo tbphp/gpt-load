@@ -58,6 +58,7 @@ node_modules/
 web/coverage/
 web/test-results/
 web/playwright-report/
+web/visual-baselines/candidates/*/artifacts/
 
 !internal/webui/dist/
 internal/webui/dist/*

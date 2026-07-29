@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 import { validateVisualRunnerLock } from './check-visual-runner-lock.mjs'
-import { parseVisualRunnerInvocation } from './run-visual-runner.mjs'
+import { candidateArtifactRetention, parseVisualRunnerInvocation } from './run-visual-runner.mjs'
 
 describe('visual runner contract', () => {
   const checker = resolve(process.cwd(), 'scripts/check-visual-runner-lock.mjs')
@@ -115,6 +115,13 @@ describe('visual runner contract', () => {
     expect(readFileSync(runner, 'utf8')).toContain(
       'corepack install --global ${contract.lock.runtime.package_manager}',
     )
+  })
+
+  it('keeps candidate pixels local while versioning traceable metadata', () => {
+    expect(candidateArtifactRetention).toEqual({
+      local_only: ['artifacts/'],
+      versioned: ['candidate.json', 'inspection.md'],
+    })
   })
 
   it('requires an explicit pinned browser for functional execution', () => {

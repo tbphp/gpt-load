@@ -13,6 +13,11 @@ const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const repositoryRoot = resolve(webRoot, '..')
 const runnerTemporaryPrefix = 'gpt-load-visual-runner-'
 
+export const candidateArtifactRetention = {
+  local_only: ['artifacts/'],
+  versioned: ['candidate.json', 'inspection.md'],
+}
+
 function fail(message) {
   throw new Error(`visual runner: ${message}`)
 }
@@ -380,6 +385,7 @@ async function runCandidate(contract, platform, verification) {
       platform_digest: verification.actualPlatformDigest,
       scenario_manifest_sha256: scenarioArtifacts.manifestFileSha256,
       candidate: target,
+      artifact_retention: candidateArtifactRetention,
       stdout: execution.stdout.trim(),
       stderr: execution.stderr.trim(),
     }
