@@ -1067,6 +1067,15 @@ func TestReleaseWorkflowVerifiesDownloadedNativeChecksumsAndGeneratedKeys(t *tes
 		if !strings.Contains(implementation, "Idempotency-Key") {
 			t.Fatalf("%s native smoke does not send Idempotency-Key", name)
 		}
+		if strings.Contains(implementation, "00000000-0000-4000-8000-") {
+			t.Fatalf("%s native smoke reuses a fixed Idempotency-Key", name)
+		}
+	}
+	if !strings.Contains(nativeShellImplementation, "uuid.uuid4()") {
+		t.Fatal("POSIX native smoke does not generate a UUIDv4 for its write")
+	}
+	if !strings.Contains(nativePowerShellImplementation, "[guid]::NewGuid()") {
+		t.Fatal("Windows native smoke does not generate a GUID for its write")
 	}
 	if strings.Contains(nativeImplementation, "AUTH_KEY=release-native-smoke") ||
 		strings.Contains(nativeImplementation, `$env:AUTH_KEY = "release-native-smoke"`) {
@@ -1114,6 +1123,12 @@ func TestReleaseWorkflowRunsCompleteLocalDockerSmoke(t *testing.T) {
 		if !strings.Contains(script, required) {
 			t.Fatalf("release Docker smoke does not contain %q", required)
 		}
+	}
+	if strings.Contains(script, "00000000-0000-4000-8000-") {
+		t.Fatal("release Docker smoke reuses fixed Idempotency-Keys")
+	}
+	if strings.Count(script, "uuid.uuid4()") < 2 {
+		t.Fatal("release Docker smoke does not generate independent UUIDv4 keys for its writes")
 	}
 }
 

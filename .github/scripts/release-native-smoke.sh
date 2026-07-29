@@ -66,10 +66,11 @@ curl -fsS \
 curl -fsS \
   -H "Authorization: Bearer ${auth_key}" \
   "http://127.0.0.1:${port}/api/model-prices" >/dev/null
+idempotency_key="$(python3 -c 'import uuid; print(uuid.uuid4())')"
 curl -fsS \
   -X POST \
   -H "Authorization: Bearer ${auth_key}" \
-  -H "Idempotency-Key: 00000000-0000-4000-8000-000000000101" \
+  -H "Idempotency-Key: ${idempotency_key}" \
   -H "Content-Type: application/json" \
   --data-binary '{"name":"Release Native Smoke Access"}' \
   "http://127.0.0.1:${port}/api/access-keys" >/dev/null

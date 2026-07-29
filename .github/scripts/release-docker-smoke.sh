@@ -234,6 +234,7 @@ api_get "/api/usage?range=24h" >"${task_tmp}/usage-empty.json"
 api_get "/api/model-prices" >"${task_tmp}/prices-empty.json"
 
 upstream_key="task13-upstream-${suffix}-$(openssl rand -hex 12)"
+group_idempotency_key="$(python3 -c 'import uuid; print(uuid.uuid4())')"
 group_response="$(
   api_write POST "/api/groups" "$(
     node -e '
@@ -247,7 +248,7 @@ group_response="$(
         confirm_same_upstream_url:false,
       }));
     ' "http://host.docker.internal:${fake_port}/v1" "${upstream_key}"
-  )" "00000000-0000-4000-8000-000000000201"
+  )" "${group_idempotency_key}"
 )"
 printf '%s' "${group_response}" | node -e '
   const fs=require("fs");
@@ -267,9 +268,10 @@ api_write PUT "/api/model-prices" '{
   }
 }' >"${task_tmp}/price-create.json"
 
+access_key_idempotency_key="$(python3 -c 'import uuid; print(uuid.uuid4())')"
 access_response="$(
   api_write POST "/api/access-keys" '{"name":"Task13 Release Smoke Access"}' \
-    "00000000-0000-4000-8000-000000000202"
+    "${access_key_idempotency_key}"
 )"
 access_key="$(
   printf '%s' "${access_response}" | node -e '
