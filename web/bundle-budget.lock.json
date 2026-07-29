@@ -1,5 +1,24 @@
 {
   "schema_version": 1,
+  "baseline_approval": {
+    "status": "APPROVED",
+    "approved_by": "project_owner",
+    "approved_at": "2026-07-29",
+    "previous": {
+      "route": "Home",
+      "initial_javascript_gzip": 131738,
+      "source_phase": "phase2"
+    },
+    "current": {
+      "route": "Home",
+      "initial_javascript_gzip": 143294,
+      "source_sha": "a862f27cfa23eee2f4852ecc8599af8664571198"
+    },
+    "delta_bytes": 11556,
+    "delta_relative": 0.08771956459032322,
+    "spec_reference": "frontend experience architecture spec 20.6 initial-route regression approval",
+    "reason": "Phase 3 moved native-protocol connection snippets, operational summaries, semantic status/date presenters, responsive Home composition, AppSelect, and query projection into the immediately visible Home graph. Keeping these first-view elements together avoids an extra loading waterfall; the frozen absolute ceilings and future 5%/10 KiB regression gates remain unchanged."
+  },
   "regression_policy": {
     "relative": 0.05,
     "absolute_bytes": 10240

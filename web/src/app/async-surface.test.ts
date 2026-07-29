@@ -29,9 +29,34 @@ describe('lazySurface', () => {
     await vi.waitFor(() => expect(wrapper.find('[data-test="loaded"]').exists()).toBe(true))
   })
 
+  it('retries two failed loader attempts before rendering the child', async () => {
+    const loader = vi
+      .fn<() => Promise<Component>>()
+      .mockRejectedValueOnce(new Error('first chunk failure'))
+      .mockRejectedValueOnce(new Error('second chunk failure'))
+      .mockResolvedValue({ render: () => h('div', { 'data-test': 'loaded' }) })
+    const wrapper = mount(
+      {
+        render: () => h(lazySurface(loader)),
+      },
+      {
+        global: {
+          plugins: [createTestAppI18n().plugin],
+          config: { errorHandler: () => undefined },
+        },
+      },
+    )
+
+    await flushPromises()
+    await vi.waitFor(() => expect(wrapper.find('[data-test="loaded"]').exists()).toBe(true))
+    expect(loader).toHaveBeenCalledTimes(3)
+    expect(wrapper.find('[data-test="async-surface-error"]').exists()).toBe(false)
+  })
+
   it('renders a reload recovery action when the child fails', async () => {
     const reload = vi.fn()
-    const component = lazySurface(() => Promise.reject(new Error('chunk failed')))
+    const loader = vi.fn(() => Promise.reject(new Error('chunk failed')))
+    const component = lazySurface(loader)
     const wrapper = mount(
       {
         render: () => h(component),
@@ -48,6 +73,7 @@ describe('lazySurface', () => {
     await vi.waitFor(() =>
       expect(wrapper.find('[data-test="async-surface-error"]').exists()).toBe(true),
     )
+    expect(loader).toHaveBeenCalledTimes(3)
 
     await wrapper.get('[data-test="async-surface-error"] button').trigger('click')
     expect(reload).toHaveBeenCalledTimes(1)

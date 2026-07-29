@@ -13,5 +13,12 @@ export function lazySurface(loader: () => Promise<LazyComponentModule>) {
     delay: 0,
     timeout: 30_000,
     suspensible: false,
+    onError(_error, retry, fail, attempts) {
+      if (attempts <= 2) {
+        retry()
+        return
+      }
+      fail()
+    },
   })
 }
