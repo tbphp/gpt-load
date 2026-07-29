@@ -2,7 +2,7 @@
   "schema_version": 1,
   "mode": "functional",
   "status": "PASS",
-  "source_sha": "feda4d292e258ae455bb52c36c010d745eb23f84",
+  "source_sha": "93f4f07bbbfd6c8430be4b28d0c8fed7f981a7c4",
   "source_dirty": false,
   "lock_sha256": "fa4675051866e77d984dde8bf826c6fac100aa1d0b916a634f88699285bd3ccb",
   "image": "mcr.microsoft.com/playwright:v1.62.0-noble@sha256:baed2032d533817f3dbe6425de795788430ba345e819a1201337009ba17c9d07",
@@ -36,8 +36,8 @@
   "accessibility": {
     "status": "PASS",
     "result_count": 7,
-    "json_sha256": "85d00e96de093d8699270e0bd3e68ca42e3c1929f4108723a97e55e617b26240",
-    "markdown_sha256": "5c96705b8b5b0f5f0fedab9182f6057080e6442064c56ce367216eea396278c5"
+    "json_sha256": "fa3a1fac18dca8afb86649fe66741d848e1b42a0ea8d482b2d10fdd4f94efa3a",
+    "markdown_sha256": "a493da12a94ce8233c48f4bb5e3bfc0e63f2e7be346a4e6af9d23e3a66dc3315"
   },
-  "evidence_sha256": "28c7b9c91c13fc88f946be95aec50d6ac446fb45fe2c16d59713900d090970e9"
+  "evidence_sha256": "a572260da489227efce291308651af5f4af2c531956e693f2468c8ac367d78da"
 }

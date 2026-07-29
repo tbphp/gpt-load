@@ -1,23 +1,23 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-07-29T05:10:37Z",
-  "audit_source_sha": "feda4d292e258ae455bb52c36c010d745eb23f84",
+  "generated_at": "2026-07-29T05:38:41Z",
+  "audit_source_sha": "93f4f07bbbfd6c8430be4b28d0c8fed7f981a7c4",
   "phase5_delivery_head": "06ec29fddee966828bde604d9a989e31b98ffdb8",
-  "remediation_production_head": "feda4d292e258ae455bb52c36c010d745eb23f84",
+  "remediation_production_head": "93f4f07bbbfd6c8430be4b28d0c8fed7f981a7c4",
   "audit_refresh": {
-    "checked_at": "2026-07-29T05:10:37Z",
+    "checked_at": "2026-07-29T05:38:41Z",
     "feature_head": "c1874b80e0792d47bb04194348d144777077b0a7",
     "local_merge_head": "06ec29fddee966828bde604d9a989e31b98ffdb8",
-    "remote_v2_sha": "a6a25a571ba3e1cce996ea57d402d12c46b2ff5c",
+    "remote_v2_sha": "9e39723086a537edac4c13571bed4445affeb625",
     "feature_visible_on_github": true,
     "local_merge_visible_on_github": true,
-    "notes": "A read-only GitHub refresh confirmed that the Phase 3–5 feature and merge commits are public ancestors of origin/v2. The exact current remote v2 SHA completed V2 CI successfully. The remediation production head had not been pushed when this audit snapshot was recorded, so its remote CI is not claimed."
+    "notes": "A read-only GitHub refresh confirmed that the first remediation delivery reached origin/v2. Its V2 CI failed only in an existing App.Stop listener-registration race while the Windows ACL job and all earlier test steps passed. The focused lifecycle fix is bound to the local remediation production head and had not been pushed when this audit snapshot was recorded."
   },
   "repository": {
     "name": "tbphp/gpt-load",
     "url": "https://github.com/tbphp/gpt-load",
     "default_branch": "main",
-    "remote_v2_sha": "a6a25a571ba3e1cce996ea57d402d12c46b2ff5c",
+    "remote_v2_sha": "9e39723086a537edac4c13571bed4445affeb625",
     "remote_v2_protected": false,
     "release_policy": {
       "trigger": "push tag v2.*",
@@ -50,29 +50,30 @@
     },
     {
       "id": "remote-v2-ci",
-      "status": "PASS",
-      "tested_sha": "a6a25a571ba3e1cce996ea57d402d12c46b2ff5c",
+      "status": "FAIL",
+      "tested_sha": "9e39723086a537edac4c13571bed4445affeb625",
       "workflow": "V2 CI",
-      "run_id": 30418344812,
-      "url": "https://github.com/tbphp/gpt-load/actions/runs/30418344812",
+      "run_id": 30424373580,
+      "url": "https://github.com/tbphp/gpt-load/actions/runs/30424373580",
       "jobs": [
         {
           "name": "test",
-          "status": "PASS",
-          "url": "https://github.com/tbphp/gpt-load/actions/runs/30418344812/job/90469606800"
+          "status": "FAIL",
+          "url": "https://github.com/tbphp/gpt-load/actions/runs/30424373580/job/90487486241",
+          "reason": "TestAppStopHonorsDeadlineWhileWaitingForControlRuntime observed that the listener still accepted connections after Stop returned."
         },
         {
           "name": "windows-encryption-acl",
           "status": "PASS",
-          "url": "https://github.com/tbphp/gpt-load/actions/runs/30418344812/job/90469606749"
+          "url": "https://github.com/tbphp/gpt-load/actions/runs/30424373580/job/90487486288"
         }
       ]
     },
     {
       "id": "remediation-production-head-ci",
       "status": "NOT RUN",
-      "expected_sha": "feda4d292e258ae455bb52c36c010d745eb23f84",
-      "reason": "The remediation production head had not been pushed at audit time. GitHub Actions after the authorized push is the final source of truth."
+      "expected_sha": "93f4f07bbbfd6c8430be4b28d0c8fed7f981a7c4",
+      "reason": "The focused App.Stop remediation production head had not been pushed at audit time. GitHub Actions after the authorized push is the final source of truth."
     },
     {
       "id": "windows-acl-prior-success",
@@ -88,11 +89,11 @@
       "id": "windows-backup-permission-remediation",
       "status": "PASS",
       "local_commit": "3d7496579d373589da3265395f35af096f75d97e",
-      "tested_sha": "a6a25a571ba3e1cce996ea57d402d12c46b2ff5c",
+      "tested_sha": "9e39723086a537edac4c13571bed4445affeb625",
       "workflow": "V2 CI",
-      "run_id": 30418344812,
-      "url": "https://github.com/tbphp/gpt-load/actions/runs/30418344812/job/90469606749",
-      "result": "The Windows runner passed the secure-file and storage ACL test job with the remediation commit in its history."
+      "run_id": 30424373580,
+      "url": "https://github.com/tbphp/gpt-load/actions/runs/30424373580/job/90487486288",
+      "result": "The Windows runner passed the secure-file and storage ACL test job on the first remediation delivery."
     },
     {
       "id": "v2-release-tag",

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-07-29T05:09:41Z",
-  "evidence_head": "feda4d292e258ae455bb52c36c010d745eb23f84",
+  "generated_at": "2026-07-29T05:37:39Z",
+  "evidence_head": "93f4f07bbbfd6c8430be4b28d0c8fed7f981a7c4",
   "binding": {
     "meaning": "evidence_head is the exact production commit tested before this evidence-only commit",
     "source_dirty": false,
@@ -24,7 +24,7 @@
     {
       "id": "exact-production-head-verification",
       "status": "PASS",
-      "tested_sha": "feda4d292e258ae455bb52c36c010d745eb23f84",
+      "tested_sha": "93f4f07bbbfd6c8430be4b28d0c8fed7f981a7c4",
       "commands": [
         "formatted_files=\"$(gofmt -l .)\" && test -z \"$formatted_files\"",
         "go mod tidy -diff",
@@ -50,7 +50,7 @@
     {
       "id": "bundle-budget",
       "status": "PASS",
-      "tested_sha": "feda4d292e258ae455bb52c36c010d745eb23f84",
+      "tested_sha": "93f4f07bbbfd6c8430be4b28d0c8fed7f981a7c4",
       "command": "corepack pnpm --dir web run check:bundle",
       "result": {
         "failures": [],
@@ -70,7 +70,7 @@
     {
       "id": "pinned-visual-runner",
       "status": "PASS",
-      "tested_sha": "feda4d292e258ae455bb52c36c010d745eb23f84",
+      "tested_sha": "93f4f07bbbfd6c8430be4b28d0c8fed7f981a7c4",
       "commands": [
         "corepack pnpm --dir web run check:visual",
         "corepack pnpm --dir web run visual:run -- --verify"
@@ -87,7 +87,7 @@
     {
       "id": "accessibility-functional-evidence",
       "status": "PASS",
-      "tested_sha": "feda4d292e258ae455bb52c36c010d745eb23f84",
+      "tested_sha": "93f4f07bbbfd6c8430be4b28d0c8fed7f981a7c4",
       "commands": [
         "corepack pnpm --dir web run visual:run -- --browser=chromium --functional",
         "corepack pnpm --dir web run visual:run -- --browser=webkit --functional",
@@ -102,18 +102,18 @@
       "artifacts": [
         {
           "path": "web/evidence/artifacts/visual-runner-functional-chromium.json",
-          "sha256": "f907dc28603d4ed59a6dc5a52b6f35f2e652f6adaa3e34c2b8e066c941258a76"
+          "sha256": "44a2512fd23eba2f72371aa5cf1f7e5e1fa8f6c5d38deb6eb74a619b582a4a7f"
         },
         {
           "path": "web/evidence/artifacts/visual-runner-functional-webkit.json",
-          "sha256": "e27e1da64875a857f1e8ba446230c93de8143beb5b295f116e68a1bd02e57bdc"
+          "sha256": "9168e9c8b113c5d94418e2cfb865922e6b859bc7eb5f187ae111c6029d676e50"
         }
       ]
     },
     {
       "id": "release-contract-and-runtime-smoke",
       "status": "PASS",
-      "tested_sha": "feda4d292e258ae455bb52c36c010d745eb23f84",
+      "tested_sha": "93f4f07bbbfd6c8430be4b28d0c8fed7f981a7c4",
       "commands": [
         "bash -n .github/scripts/release-native-smoke.sh",
         "bash -n .github/scripts/release-docker-smoke.sh",

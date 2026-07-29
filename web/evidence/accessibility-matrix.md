@@ -1,6 +1,6 @@
 # GPT-Load 2.0 accessibility evidence matrix
 
-This matrix separates reproducible automated checks from genuine human browser and assistive-technology evidence. It is bound to the exact production commit `feda4d292e258ae455bb52c36c010d745eb23f84`.
+This matrix separates reproducible automated checks from genuine human browser and assistive-technology evidence. It is bound to the exact production commit `93f4f07bbbfd6c8430be4b28d0c8fed7f981a7c4`.
 
 | Environment           | Mode                      |   Result | Version                                         | Evidence                                                            |
 | --------------------- | ------------------------- | -------: | ----------------------------------------------- | ------------------------------------------------------------------- |

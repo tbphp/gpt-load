@@ -1,15 +1,15 @@
 {
   "schema_version": 1,
-  "source_sha": "feda4d292e258ae455bb52c36c010d745eb23f84",
-  "generated_at": "2026-07-29T05:06:07Z",
+  "source_sha": "93f4f07bbbfd6c8430be4b28d0c8fed7f981a7c4",
+  "generated_at": "2026-07-29T05:36:28Z",
   "rows": [
     {
       "id": "linux-chromium-automated",
       "mode": "automated",
       "status": "PASS",
       "operator": "Codex automated runner",
-      "source_sha": "feda4d292e258ae455bb52c36c010d745eb23f84",
-      "executed_at": "2026-07-29T05:05:25Z",
+      "source_sha": "93f4f07bbbfd6c8430be4b28d0c8fed7f981a7c4",
+      "executed_at": "2026-07-29T05:33:46Z",
       "environment": {
         "os_name": "Ubuntu",
         "os_version": "24.04 Playwright Noble image",
@@ -42,7 +42,7 @@
       "artifacts": [
         {
           "path": "evidence/artifacts/visual-runner-functional-chromium.json",
-          "sha256": "f907dc28603d4ed59a6dc5a52b6f35f2e652f6adaa3e34c2b8e066c941258a76"
+          "sha256": "44a2512fd23eba2f72371aa5cf1f7e5e1fa8f6c5d38deb6eb74a619b582a4a7f"
         }
       ],
       "notes": "Automated DOM, keyboard, geometry, focus, and live-region assertions only; this is not human assistive-technology evidence."
@@ -52,8 +52,8 @@
       "mode": "automated",
       "status": "PASS",
       "operator": "Codex automated runner",
-      "source_sha": "feda4d292e258ae455bb52c36c010d745eb23f84",
-      "executed_at": "2026-07-29T05:06:07Z",
+      "source_sha": "93f4f07bbbfd6c8430be4b28d0c8fed7f981a7c4",
+      "executed_at": "2026-07-29T05:36:28Z",
       "environment": {
         "os_name": "Ubuntu",
         "os_version": "24.04 Playwright Noble image",
@@ -86,7 +86,7 @@
       "artifacts": [
         {
           "path": "evidence/artifacts/visual-runner-functional-webkit.json",
-          "sha256": "e27e1da64875a857f1e8ba446230c93de8143beb5b295f116e68a1bd02e57bdc"
+          "sha256": "9168e9c8b113c5d94418e2cfb865922e6b859bc7eb5f187ae111c6029d676e50"
         }
       ],
       "notes": "Automated DOM, keyboard, geometry, focus, and live-region assertions only; this is not Safari or VoiceOver evidence."
@@ -96,7 +96,7 @@
       "mode": "manual-geometry-functional",
       "status": "NOT RUN",
       "operator": "NOT RUN",
-      "source_sha": "feda4d292e258ae455bb52c36c010d745eb23f84",
+      "source_sha": "93f4f07bbbfd6c8430be4b28d0c8fed7f981a7c4",
       "executed_at": null,
       "environment": {
         "os_name": "macOS",
@@ -124,7 +124,7 @@
       "mode": "manual-geometry-functional",
       "status": "NOT RUN",
       "operator": "NOT RUN",
-      "source_sha": "feda4d292e258ae455bb52c36c010d745eb23f84",
+      "source_sha": "93f4f07bbbfd6c8430be4b28d0c8fed7f981a7c4",
       "executed_at": null,
       "environment": {
         "os_name": "macOS",
@@ -152,7 +152,7 @@
       "mode": "manual-at",
       "status": "NOT RUN",
       "operator": "NOT RUN",
-      "source_sha": "feda4d292e258ae455bb52c36c010d745eb23f84",
+      "source_sha": "93f4f07bbbfd6c8430be4b28d0c8fed7f981a7c4",
       "executed_at": null,
       "environment": {
         "os_name": "macOS",
@@ -182,7 +182,7 @@
       "mode": "external-at",
       "status": "EXTERNAL",
       "operator": "EXTERNAL",
-      "source_sha": "feda4d292e258ae455bb52c36c010d745eb23f84",
+      "source_sha": "93f4f07bbbfd6c8430be4b28d0c8fed7f981a7c4",
       "executed_at": null,
       "environment": {
         "os_name": "Windows",

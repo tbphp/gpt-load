@@ -1,26 +1,27 @@
 # GPT-Load 2.0 Phase 5 外部门禁审计
 
-审计时间：2026-07-29 05:10:37 UTC
+审计时间：2026-07-29 05:38:41 UTC
 
-审计基线 SHA：`feda4d292e258ae455bb52c36c010d745eb23f84`
+审计基线 SHA：`93f4f07bbbfd6c8430be4b28d0c8fed7f981a7c4`
 
 最终 feature SHA：`c1874b80e0792d47bb04194348d144777077b0a7`
 
 本地 `v2` merge SHA：`06ec29fddee966828bde604d9a989e31b98ffdb8`
 
-整改生产 SHA：`feda4d292e258ae455bb52c36c010d745eb23f84`
+整改生产 SHA：`93f4f07bbbfd6c8430be4b28d0c8fed7f981a7c4`
 
-远端 `v2` SHA：`a6a25a571ba3e1cce996ea57d402d12c46b2ff5c`
+远端 `v2` SHA：`9e39723086a537edac4c13571bed4445affeb625`
 
 ## 结论
 
 - Phase 3–5 feature 与 merge commit 均已出现在远端 `v2` 历史中，但 GitHub Actions
   没有以这两个中间 commit 为 head SHA 的独立 run，因此它们的 exact-SHA CI 仍为
   `NOT RUN`。
-- 当前远端 `v2` 的 [V2 CI run 30418344812](https://github.com/tbphp/gpt-load/actions/runs/30418344812)
-  整体为 `PASS`：`test` 与 `windows-encryption-acl` 两个 job 均通过。
-- 整改生产 SHA 在本次只读审计时尚未 push，因此它的远端 exact-SHA CI 为
-  `NOT RUN`；授权 push 后以 GitHub Actions 实际结果为准。
+- 第一轮整改提交的 [V2 CI run 30424373580](https://github.com/tbphp/gpt-load/actions/runs/30424373580)
+  整体为 `FAIL`：Windows ACL job 通过，主 job 的前端、依赖审计、vet、构建与 E2E
+  通过，但 race 测试暴露 `App.Stop` 在 `Serve` 尚未登记 listener 时可能提前返回。
+- 本地整改生产 SHA 已用确定性回归测试修复该生命周期竞态；在本次只读审计时尚未
+  push，因此其远端 exact-SHA CI 为 `NOT RUN`。
 - `3d74965` 的 Windows DACL 整改已由当前远端 Windows runner 覆盖并通过，不再是
   `EXTERNAL`。
 - GitHub 没有 `v2.*` tag 或 2.x Release。GHCR 与 Docker Hub 的 `2.0.0`、`2` 标签均不存在。
@@ -37,8 +38,8 @@
 | ----------------------------- | -------- | --------------------------------------- |
 | feature 精确 SHA CI           | NOT RUN  | commit 已公开，但没有 exact-head run    |
 | merge 精确 SHA CI             | NOT RUN  | commit 已公开，但没有 exact-head run    |
-| 当前远端 v2 CI                | PASS     | Linux 与 Windows job 均通过             |
-| 整改生产 SHA CI               | NOT RUN  | 审计时尚未 push                         |
+| 当前远端 v2 CI                | FAIL     | app listener 注册竞态；Windows job 通过 |
+| 整改生产 SHA CI               | NOT RUN  | 修复提交在审计时尚未 push               |
 | 2.x tag / GitHub Release      | NOT RUN  | 当前公开 release 最新为 v1.4.9          |
 | 五平台公开原生制品            | NOT RUN  | 无 2.x Release                          |
 | GHCR 2.0.0 / 2 manifest       | NOT RUN  | public manifest not found               |

@@ -2,7 +2,7 @@
   "schema_version": 1,
   "mode": "functional",
   "status": "PASS",
-  "source_sha": "feda4d292e258ae455bb52c36c010d745eb23f84",
+  "source_sha": "93f4f07bbbfd6c8430be4b28d0c8fed7f981a7c4",
   "source_dirty": false,
   "lock_sha256": "fa4675051866e77d984dde8bf826c6fac100aa1d0b916a634f88699285bd3ccb",
   "image": "mcr.microsoft.com/playwright:v1.62.0-noble@sha256:baed2032d533817f3dbe6425de795788430ba345e819a1201337009ba17c9d07",
@@ -36,8 +36,8 @@
   "accessibility": {
     "status": "PASS",
     "result_count": 7,
-    "json_sha256": "5811710491f40d69519d6827b921561aa66b6a9a542a71d741f785d65b46405a",
-    "markdown_sha256": "bc4b5bcd19d845236a5c203b13fe8df5dfc1ab12161aec2cd48585977c1e0656"
+    "json_sha256": "6c32e3bedd78b9dae7f216d75eb41640cfa9f817ee34f12947b61917f947db95",
+    "markdown_sha256": "8eee31c47c7be2dc07fe424282d3790f67801abd22a5faebb07698f628b700d8"
   },
-  "evidence_sha256": "8145ab0cdbdac742c763d6fe48f138329ccdbb825ab8ca3cf718b0400ab502ef"
+  "evidence_sha256": "0739b037e4d2be979ff2a54655cc17ded3b2b9b37f187b631ed0aabe8a892372"
 }
