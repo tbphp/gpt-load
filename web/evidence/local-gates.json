@@ -1,7 +1,14 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-07-28T21:39:11Z",
-  "evidence_head": "7196b1bf50be8550ec78b4a743a1032b0c3a5c3d",
+  "generated_at": "2026-07-29T00:11:19Z",
+  "evidence_head": "06ec29fddee966828bde604d9a989e31b98ffdb8",
+  "delivery_lineage": {
+    "feature_head": "c1874b80e0792d47bb04194348d144777077b0a7",
+    "local_merge_head": "06ec29fddee966828bde604d9a989e31b98ffdb8",
+    "feature_tree": "41fae9c4358e83f46e4dc61ecc81c06ce019640f",
+    "merge_tree": "41fae9c4358e83f46e4dc61ecc81c06ce019640f",
+    "feature_to_merge_diff": "empty"
+  },
   "environment": {
     "os": "macOS 26.6 build 25G72",
     "architecture": "arm64",
@@ -17,6 +24,64 @@
     }
   },
   "gates": [
+    {
+      "id": "phase5-feature-head-verification",
+      "status": "PASS",
+      "tested_sha": "c1874b80e0792d47bb04194348d144777077b0a7",
+      "commands": [
+        "formatted_files=\"$(gofmt -l .)\" && test -z \"${formatted_files}\"",
+        "go mod tidy -diff",
+        "go vet ./...",
+        "make web-check",
+        "go build -o gpt-load .",
+        "corepack pnpm --dir web run test:e2e",
+        "go test -race -count=1 . ./internal/...",
+        "corepack pnpm --dir web run check:bundle",
+        "corepack pnpm --dir web run check:visual",
+        "corepack pnpm --dir web run visual:run -- --verify",
+        "git diff --check"
+      ],
+      "result": {
+        "web_unit": "142 files, 1033 tests passed",
+        "browser_e2e": "26 tests passed",
+        "go_race": "all root and internal packages passed",
+        "production_build": "passed",
+        "bundle_failures": [],
+        "runner_execution_verified": true
+      },
+      "notes": "Fresh output was retained before the local merge. Release-smoke and container gates remain bound to 7196b1b because c1874b8 does not modify their scripts, container contract, or runtime implementation."
+    },
+    {
+      "id": "phase5-local-merge-verification",
+      "status": "PASS",
+      "tested_sha": "06ec29fddee966828bde604d9a989e31b98ffdb8",
+      "commands": [
+        "formatted_files=\"$(gofmt -l .)\" && test -z \"${formatted_files}\"",
+        "go mod tidy -diff",
+        "go vet ./...",
+        "make web-check",
+        "go build -o gpt-load .",
+        "corepack pnpm --dir web run test:e2e",
+        "go test -race -count=1 . ./internal/...",
+        "corepack pnpm --dir web run check:bundle",
+        "corepack pnpm --dir web run check:visual",
+        "corepack pnpm --dir web run visual:run -- --verify",
+        "corepack pnpm --dir web run visual:run -- --browser=chromium --functional",
+        "corepack pnpm --dir web run visual:run -- --browser=webkit --functional",
+        "git diff --check"
+      ],
+      "result": {
+        "web_unit": "142 files, 1033 tests passed",
+        "browser_e2e": "26 tests passed",
+        "go_race": "all root and internal packages passed",
+        "production_build": "passed",
+        "bundle_failures": [],
+        "runner_execution_verified": true,
+        "pinned_chromium_functional": "8 tests passed",
+        "pinned_webkit_functional": "8 tests passed"
+      },
+      "notes": "The feature and merge commits have identical Git trees. Chromium and WebKit functional evidence was regenerated on the clean exact merge SHA during review remediation."
+    },
     {
       "id": "full-repository-gates",
       "status": "PASS",
@@ -61,26 +126,49 @@
     {
       "id": "bundle-budget",
       "status": "PASS",
-      "tested_sha": "7196b1bf50be8550ec78b4a743a1032b0c3a5c3d",
+      "tested_sha": "06ec29fddee966828bde604d9a989e31b98ffdb8",
       "command": "corepack pnpm --dir web run check:bundle",
       "result": {
         "failures": [],
         "home_initial_javascript": {
-          "raw": 412713,
-          "gzip": 143313,
-          "brotli": 127166
+          "raw": 412732,
+          "gzip": 143296,
+          "brotli": 127173
         },
         "home_initial_css": {
           "raw": 40436,
           "gzip": 10136,
           "brotli": 8695
         }
+      },
+      "regression_approval": {
+        "status": "ACCEPTED_WITHIN_APPROVED_PHASE_3_SCOPE",
+        "comparison_sha": "f27b4a4d1174b52ef143123e2b08ab8431f56702",
+        "home_initial_javascript_gzip": {
+          "before": 131738,
+          "after": 143296,
+          "delta_bytes": 11558,
+          "delta_ratio": 0.08773474623874661
+        },
+        "home_initial_javascript_brotli": {
+          "before": 117017,
+          "after": 127173,
+          "delta_bytes": 10156,
+          "delta_ratio": 0.08679080817317142
+        },
+        "home_initial_css_gzip": {
+          "before": 8178,
+          "after": 10136,
+          "delta_bytes": 1958,
+          "delta_ratio": 0.23942284177060405
+        },
+        "reason": "The increase comes from the approved Phase 3 Home native-protocol snippets, operational overview, semantic presenters, and responsive first-view composition. These are immediately visible Home content; splitting them would add a first-view network waterfall. All compressed values remain below the frozen absolute ceilings, so the measured regression is accepted and locked as the go-forward baseline."
       }
     },
     {
       "id": "pinned-visual-runner",
       "status": "PASS",
-      "tested_sha": "7196b1bf50be8550ec78b4a743a1032b0c3a5c3d",
+      "tested_sha": "06ec29fddee966828bde604d9a989e31b98ffdb8",
       "commands": [
         "corepack pnpm --dir web run check:visual",
         "corepack pnpm --dir web run visual:run -- --verify"
@@ -97,10 +185,10 @@
     {
       "id": "accessibility-evidence-validator",
       "status": "PASS",
-      "tested_sha": "7196b1bf50be8550ec78b4a743a1032b0c3a5c3d",
+      "tested_sha": "06ec29fddee966828bde604d9a989e31b98ffdb8",
       "command": "corepack pnpm --dir web run check:a11y-evidence",
       "result": {
-        "matrix_source_sha": "c28dc80a725d2254f82898357a87a7dbe4b2d8d0",
+        "matrix_source_sha": "06ec29fddee966828bde604d9a989e31b98ffdb8",
         "rows": 6,
         "automated_pass": ["linux-chromium-automated", "linux-webkit-automated"]
       }

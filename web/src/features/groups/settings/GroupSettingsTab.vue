@@ -194,7 +194,7 @@ async function runSave(confirmUpstreamURLChange = false): Promise<void> {
     queryClient.setQueryData(controlQueryKeys.groups.detail(props.groupId), result.group)
     await applyInvalidationPlan(
       queryClient,
-      mutationInvalidationPlans.group.update(props.groupId, healthAffected(normalizedPatch)),
+      mutationInvalidationPlans.group.update(healthAffected(normalizedPatch)),
       () => controller === activeController,
     )
   } catch (error: unknown) {

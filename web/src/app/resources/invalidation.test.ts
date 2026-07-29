@@ -30,11 +30,11 @@ describe('resource mutation invalidation graph', () => {
       exact: [controlQueryKeys.groups.list(), controlQueryKeys.health()],
       prefixes: [],
     })
-    expect(mutationInvalidationPlans.group.update(7, true)).toEqual({
+    expect(mutationInvalidationPlans.group.update(true)).toEqual({
       exact: [controlQueryKeys.groups.list(), controlQueryKeys.health()],
       prefixes: [],
     })
-    expect(mutationInvalidationPlans.group.update(7, false)).toEqual({
+    expect(mutationInvalidationPlans.group.update(false)).toEqual({
       exact: [controlQueryKeys.groups.list()],
       prefixes: [],
     })
@@ -52,7 +52,7 @@ describe('resource mutation invalidation graph', () => {
     )
     for (const plan of [
       mutationInvalidationPlans.group.create,
-      mutationInvalidationPlans.group.update(7, true),
+      mutationInvalidationPlans.group.update(true),
       mutationInvalidationPlans.group.importKeys(7),
     ]) {
       expect([...plan.exact, ...plan.prefixes]).not.toContainEqual(controlQueryKeys.all)
@@ -83,7 +83,7 @@ describe('resource mutation invalidation graph', () => {
     })
     await applyInvalidationPlan(
       queryClient,
-      mutationInvalidationPlans.group.update(7, true),
+      mutationInvalidationPlans.group.update(true),
       () => current,
     )
     expect(invalidate).toHaveBeenCalledTimes(1)

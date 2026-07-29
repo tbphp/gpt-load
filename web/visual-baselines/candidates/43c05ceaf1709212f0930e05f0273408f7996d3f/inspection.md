@@ -37,3 +37,18 @@ Two defects found in earlier candidates were fixed before this candidate was gen
 
 The final implementation resets capture scroll deterministically and limits non-shrinking,
 single-line badge behavior to AccessKey mobile cards. No candidate was activated automatically.
+
+## Post-capture delta review
+
+The candidate remains bound to `43c05ceaf1709212f0930e05f0273408f7996d3f`. The reviewed range
+through local merge `06ec29fddee966828bde604d9a989e31b98ffdb8` contains no later
+pixel-affecting implementation change:
+
+- `8a3a022078128820a3a54556fb72bf315051038a` adds only `id` and
+  `aria-describedby` relationships to the AccessKey RPM field;
+- `c1874b80e0792d47bb04194348d144777077b0a7` hardens response projection and
+  controlled select event handling without changing rendered text, structure, or style;
+- the other intervening commits change tests, evidence, release scripts, or Go platform tests.
+
+The candidate was therefore not regenerated or relabeled. Human baseline approval remains
+`NOT RUN`, and activation remains disabled.

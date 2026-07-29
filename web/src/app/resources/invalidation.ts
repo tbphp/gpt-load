@@ -28,7 +28,7 @@ export const mutationInvalidationPlans = {
   },
   group: {
     create: plan([controlQueryKeys.groups.list(), controlQueryKeys.health()]),
-    update: (groupID: number, healthAffected: boolean) =>
+    update: (healthAffected: boolean) =>
       plan([
         controlQueryKeys.groups.list(),
         ...(healthAffected ? [controlQueryKeys.health()] : []),

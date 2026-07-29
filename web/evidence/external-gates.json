@@ -1,7 +1,17 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-07-28T21:46:48Z",
+  "generated_at": "2026-07-29T00:15:10Z",
   "audit_source_sha": "3d7496579d373589da3265395f35af096f75d97e",
+  "phase5_delivery_head": "06ec29fddee966828bde604d9a989e31b98ffdb8",
+  "audit_refresh": {
+    "checked_at": "2026-07-29T00:15:10Z",
+    "feature_head": "c1874b80e0792d47bb04194348d144777077b0a7",
+    "local_merge_head": "06ec29fddee966828bde604d9a989e31b98ffdb8",
+    "remote_v2_sha": "3744cd5a4ebe8ec06f9c9a8f550f74737829a562",
+    "feature_visible_on_github": false,
+    "local_merge_visible_on_github": false,
+    "notes": "The original external audit remains bound to 3d74965. A read-only GitHub API refresh confirmed that neither final local SHA is public and origin/v2 is unchanged."
+  },
   "repository": {
     "name": "tbphp/gpt-load",
     "url": "https://github.com/tbphp/gpt-load",
@@ -21,15 +31,22 @@
     {
       "id": "feature-head-visible-on-github",
       "status": "NOT RUN",
-      "expected_sha": "3d7496579d373589da3265395f35af096f75d97e",
+      "expected_sha": "c1874b80e0792d47bb04194348d144777077b0a7",
       "evidence": "The GitHub commits API did not find the local feature head.",
       "reason": "The feature branch has intentionally not been pushed."
     },
     {
       "id": "exact-feature-sha-ci",
       "status": "NOT RUN",
-      "expected_sha": "3d7496579d373589da3265395f35af096f75d97e",
+      "expected_sha": "c1874b80e0792d47bb04194348d144777077b0a7",
       "reason": "An unpushed SHA cannot have GitHub Actions runs or checks."
+    },
+    {
+      "id": "exact-local-merge-sha-ci",
+      "status": "NOT RUN",
+      "expected_sha": "06ec29fddee966828bde604d9a989e31b98ffdb8",
+      "evidence": "The GitHub commits API did not find the local merge head.",
+      "reason": "The local v2 merge has intentionally not been pushed."
     },
     {
       "id": "remote-v2-ci",
