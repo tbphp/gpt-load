@@ -104,6 +104,12 @@ function accessKeyLabel(log: RequestLogItemDto): string {
   return `#${log.access_key.id}`
 }
 
+function protocolLabel(log: RequestLogItemDto): string {
+  return log.protocol
+    ? t(`common.protocols.${log.protocol}`)
+    : t('monitor.logs.drawer.usage.unknown')
+}
+
 function usageStateLabel(log: RequestLogItemDto): string {
   return t(`monitor.logs.drawer.usage.state.${log.usage_state}`)
 }
@@ -189,7 +195,7 @@ function estimatedCost(log: RequestLogItemDto): string {
           </div>
           <div>
             <dt>{{ t('monitor.logs.drawer.protocol') }}</dt>
-            <dd>{{ t(`common.protocols.${log.protocol}`) }}</dd>
+            <dd>{{ protocolLabel(log) }}</dd>
           </div>
           <div>
             <dt>{{ t('monitor.logs.drawer.accessKey') }}</dt>

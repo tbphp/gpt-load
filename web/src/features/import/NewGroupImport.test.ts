@@ -1,6 +1,7 @@
 import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query'
 import { flushPromises, mount } from '@vue/test-utils'
-import { createMemoryHistory } from 'vue-router'
+import { computed } from 'vue'
+import { createMemoryHistory, matchedRouteKey } from 'vue-router'
 
 import type { ApiClient } from '@/api/client'
 import { apiClientKey } from '@/api/client-context'
@@ -53,6 +54,7 @@ async function mountImport(
   const router = createAppRouter({ hasCredential: () => true }, createMemoryHistory())
   await router.push('/import')
   await router.isReady()
+  const activeRouteRecord = computed(() => router.currentRoute.value.matched.at(-1))
   const importRecovery = recovery()
   const operationOwner = createImportOperationOwner()
   const wrapper = mount(NewGroupImport, {
@@ -69,6 +71,7 @@ async function mountImport(
         [importRecoveryKey as symbol]: importRecovery,
         [importOperationOwnerKey as symbol]: operationOwner,
         [unsavedChangesKey as symbol]: createUnsavedChangesController(),
+        [matchedRouteKey as symbol]: activeRouteRecord,
       },
     },
   })

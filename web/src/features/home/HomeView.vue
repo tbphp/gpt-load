@@ -107,7 +107,7 @@ const healthErrorMessage = computed(() =>
               <span>{{
                 t('home.revision', { revision: healthQuery.data.value.snapshot_revision })
               }}</span>
-              <i18n-t keypath="home.observedAt" tag="span">
+              <i18n-t keypath="home.observedAt" scope="global" tag="span">
                 <template #time>
                   <AppDateTime :instant="healthQuery.data.value.observed_at" :locale="locale" />
                 </template>
