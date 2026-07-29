@@ -29,7 +29,6 @@ type Attempt struct {
 	GroupID         uint                      `json:"group_id"`
 	GroupName       string                    `json:"group_name"`
 	KeyID           uint                      `json:"key_id"`
-	KeyMask         string                    `json:"key_mask"`
 	UpstreamModel   string                    `json:"upstream_model"`
 	StatusCode      int                       `json:"status_code"`
 	DurationMs      int64                     `json:"duration_ms"`

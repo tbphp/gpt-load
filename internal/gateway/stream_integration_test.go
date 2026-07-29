@@ -30,7 +30,6 @@ import (
 	"gpt-load/internal/platform/encryption"
 	platformhttp "gpt-load/internal/platform/httpclient"
 	"gpt-load/internal/platform/redact"
-	"gpt-load/internal/platform/utils"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 	"gpt-load/internal/testutil/fakeupstream"
@@ -294,7 +293,7 @@ func TestHandlerStreamingDebugHeadersRejectUpstreamSpoofing(t *testing.T) {
 	})
 	recorder := performStreamingRequest(engine)
 
-	assertDebugHeaders(t, recorder.Header(), "stream-group", utils.MaskAPIKey("sk-real-stream-key"), "1")
+	assertDebugHeaders(t, recorder.Header(), "stream-group", "1")
 	if strings.Contains(recorder.Body.String(), "sk-real-stream-key") || strings.Contains(recorder.Body.String(), "sk-spoofed-plaintext") {
 		t.Fatalf("stream response leaked a plaintext key: %s", recorder.Body.String())
 	}

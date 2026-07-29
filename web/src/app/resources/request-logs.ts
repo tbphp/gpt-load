@@ -48,7 +48,6 @@ export interface RequestLogAttemptDto {
   group_id: number
   group_name: string
   key_id: number
-  key_mask: string
   upstream_model: string
   status_code: number
   duration_ms: number
@@ -95,7 +94,6 @@ export interface RequestLogPageDto {
 }
 
 const requestIDPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
-const canonicalMask = /^(?:\*{4}|.{4}\*{4}.{4})$/u
 const protocols = ['openai', 'anthropic', 'gemini'] as const
 const statuses = ['success', 'error', 'incomplete', 'canceled'] as const
 const failureCategories = [
@@ -116,7 +114,6 @@ const attemptFields = [
   'group_id',
   'group_name',
   'key_id',
-  'key_mask',
   'upstream_model',
   'status_code',
   'duration_ms',
@@ -168,12 +165,6 @@ function projectRequestID(value: unknown): string {
   return result
 }
 
-function projectMask(value: unknown): string {
-  const result = projectString(value)
-  if (!canonicalMask.test(result)) invalidResponse()
-  return result
-}
-
 function projectStatusCode(value: unknown): number {
   return projectSafeInteger(value, { minimum: 0, maximum: 999 })
 }
@@ -196,7 +187,6 @@ function projectAttempt(value: unknown): RequestLogAttemptDto {
     group_id: projectSafeInteger(record.group_id, { minimum: 1 }),
     group_name: projectNonBlankString(record.group_name),
     key_id: projectSafeInteger(record.key_id, { minimum: 1 }),
-    key_mask: projectMask(record.key_mask),
     upstream_model: projectNonBlankString(record.upstream_model),
     status_code: projectStatusCode(record.status_code),
     duration_ms: projectSafeInteger(record.duration_ms, { minimum: 0 }),

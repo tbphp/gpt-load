@@ -12,6 +12,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"gpt-load/internal/platform/redact"
+	"gpt-load/internal/platform/utils"
 )
 
 func TestGatewayNeverExposesPlaintextKeys(t *testing.T) {
@@ -154,9 +155,19 @@ func assertNoPlaintextSecrets(t *testing.T, recorder *httptest.ResponseRecorder,
 	t.Helper()
 	surfaces := []string{recorder.Body.String(), fmt.Sprint(recorder.Header()), logs}
 	for _, secret := range secrets {
-		for _, surface := range surfaces {
-			if strings.Contains(surface, secret) {
-				t.Fatalf("gateway exposed plaintext secret %q in %q", secret, surface)
+		if len(secret) <= 16 {
+			t.Fatalf("test secret %q is too short to verify masked fragments", secret)
+		}
+		for _, forbidden := range []string{
+			secret,
+			secret[:4],
+			secret[len(secret)-4:],
+			utils.MaskAPIKey(secret),
+		} {
+			for _, surface := range surfaces {
+				if strings.Contains(surface, forbidden) {
+					t.Fatalf("gateway exposed provider key fragment %q in %q", forbidden, surface)
+				}
 			}
 		}
 	}

@@ -737,7 +737,7 @@ func TestHandlerInitializesDebugHeadersBeforeValidation(t *testing.T) {
 			recorder := httptest.NewRecorder()
 			engine.ServeHTTP(recorder, request)
 
-			assertDebugHeaders(t, recorder.Header(), "", "", "0")
+			assertDebugHeaders(t, recorder.Header(), "", "0")
 			if len(forwarder.inputs)+len(forwarder.streamInputs) != 0 {
 				t.Fatal("validation failure reached upstream forwarder")
 			}
@@ -882,7 +882,7 @@ func TestHandlerEnforcesModelUTF8ByteLimitBeforeAttempt(t *testing.T) {
 			if response.Code != test.wantCode {
 				t.Fatalf("response code = %q, want %q", response.Code, test.wantCode)
 			}
-			assertDebugHeaders(t, recorder.Header(), "", "", "0")
+			assertDebugHeaders(t, recorder.Header(), "", "0")
 			if event.ClientModel != "" || len(event.Attempts) != 0 ||
 				strings.Contains(event.ErrorSummary, test.model) {
 				t.Fatalf("rejected model leaked into RequestLog event: %#v", event)
@@ -943,7 +943,7 @@ func TestHandlerServesLocalModelEndpoints(t *testing.T) {
 				t.Fatalf("response = %d %s", recorder.Code, recorder.Body.String())
 			}
 			assertJSONEqual(t, recorder.Body.String(), test.expected)
-			assertDebugHeaders(t, recorder.Header(), "", "", "0")
+			assertDebugHeaders(t, recorder.Header(), "", "0")
 		})
 	}
 }
@@ -960,7 +960,7 @@ func TestHandlerModelEndpointsApplyFiltersAndKeepEmptyShape(t *testing.T) {
 		recorder := httptest.NewRecorder()
 		engine.ServeHTTP(recorder, request)
 		assertJSONEqual(t, recorder.Body.String(), `{"object":"list","data":[{"id":"alpha","object":"model","created":1735689600,"owned_by":"gpt-load"}]}`)
-		assertDebugHeaders(t, recorder.Header(), "", "", "0")
+		assertDebugHeaders(t, recorder.Header(), "", "0")
 	})
 
 	t.Run("protocol denied keeps official empty envelope", func(t *testing.T) {
@@ -972,7 +972,7 @@ func TestHandlerModelEndpointsApplyFiltersAndKeepEmptyShape(t *testing.T) {
 		recorder := httptest.NewRecorder()
 		engine.ServeHTTP(recorder, request)
 		assertJSONEqual(t, recorder.Body.String(), `{"object":"list","data":[]}`)
-		assertDebugHeaders(t, recorder.Header(), "", "", "0")
+		assertDebugHeaders(t, recorder.Header(), "", "0")
 	})
 }
 
@@ -988,7 +988,7 @@ func TestHandlerModelEndpointsRequireValidAccessKey(t *testing.T) {
 		if recorder.Code != http.StatusUnauthorized || !strings.Contains(recorder.Body.String(), reasonInvalidAccessKey.Code) {
 			t.Fatalf("response = %d %s", recorder.Code, recorder.Body.String())
 		}
-		assertDebugHeaders(t, recorder.Header(), "", "", "0")
+		assertDebugHeaders(t, recorder.Header(), "", "0")
 	}
 }
 
@@ -1158,6 +1158,44 @@ func (panicReadCloser) Close() error {
 	return nil
 }
 
+func TestHandlerNeverExposesProviderKeyFragmentsInResponseHeaders(t *testing.T) {
+	const providerKey = "prov-fragment-test-abcdefghwxyz"
+	forwarder := &scriptedForwarder{results: []UpstreamResult{{
+		StatusCode: http.StatusOK,
+		Header:     make(http.Header),
+		Body:       []byte(`{"ok":true}`),
+	}}}
+	engine, _, _ := newHandlerTestRuntime(t, forwarder, providerKey)
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/v1/chat/completions",
+		bytes.NewBufferString(`{"model":"gpt-4o"}`),
+	)
+	request.Header.Set("Authorization", "Bearer gl-client")
+	recorder := httptest.NewRecorder()
+
+	engine.ServeHTTP(recorder, request)
+
+	if values := recorder.Header().Values(debugHeaderKey); len(values) != 0 {
+		t.Fatalf("%s = %#v, want absent", debugHeaderKey, values)
+	}
+	if recorder.Header().Get(debugHeaderGroup) != "openai" ||
+		recorder.Header().Get(debugHeaderAttempts) != "1" {
+		t.Fatalf("debug headers = %#v", recorder.Header())
+	}
+	serialized := fmt.Sprint(recorder.Header())
+	for _, forbidden := range []string{
+		providerKey,
+		providerKey[:4],
+		providerKey[len(providerKey)-4:],
+		utils.MaskAPIKey(providerKey),
+	} {
+		if strings.Contains(serialized, forbidden) {
+			t.Fatalf("response headers expose provider key fragment %q: %s", forbidden, serialized)
+		}
+	}
+}
+
 func TestHandlerReportsFinalAttemptInDebugHeaders(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -1197,11 +1235,7 @@ func TestHandlerReportsFinalAttemptInDebugHeaders(t *testing.T) {
 			recorder := httptest.NewRecorder()
 			engine.ServeHTTP(recorder, request)
 
-			last := forwarder.inputs[len(forwarder.inputs)-1]
-			assertDebugHeaders(t, recorder.Header(), "openai", utils.MaskAPIKey(last.APIKey), tt.wantAttempts)
-			if strings.Contains(strings.Join(recorder.Header().Values("X-GPTLoad-Key"), ","), last.APIKey) {
-				t.Fatal("debug header exposed plaintext key")
-			}
+			assertDebugHeaders(t, recorder.Header(), "openai", tt.wantAttempts)
 		})
 	}
 }
@@ -1327,19 +1361,22 @@ func TestHandlerRejectsSpoofedDebugHeaders(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	engine.ServeHTTP(recorder, request)
 
-	assertDebugHeaders(t, recorder.Header(), "openai", utils.MaskAPIKey("sk-real-key"), "1")
+	assertDebugHeaders(t, recorder.Header(), "openai", "1")
 }
 
-func assertDebugHeaders(t *testing.T, headers http.Header, group, key, attempts string) {
+func assertDebugHeaders(t *testing.T, headers http.Header, group, attempts string) {
 	t.Helper()
 	want := map[string]string{
-		"X-GPTLoad-Group": group, "X-GPTLoad-Key": key, "X-GPTLoad-Attempts": attempts,
+		debugHeaderGroup: group, debugHeaderAttempts: attempts,
 	}
 	for name, value := range want {
 		values, exists := headers[http.CanonicalHeaderKey(name)]
 		if !exists || len(values) != 1 || values[0] != value {
 			t.Errorf("%s = %#v (exists=%t), want exactly [%q]", name, values, exists, value)
 		}
+	}
+	if values := headers.Values(debugHeaderKey); len(values) != 0 {
+		t.Errorf("%s = %#v, want absent", debugHeaderKey, values)
 	}
 }
 

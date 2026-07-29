@@ -16,7 +16,6 @@ import (
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/health"
 	"gpt-load/internal/platform/encryption"
-	"gpt-load/internal/platform/utils"
 	"gpt-load/internal/ratelimit"
 	"gpt-load/internal/scheduler"
 	"gpt-load/internal/state"
@@ -30,8 +29,9 @@ const (
 	fixedCooldown             = time.Minute
 	blacklistFailureThreshold = 3
 	debugHeaderGroup          = "X-GPTLoad-Group"
-	debugHeaderKey            = "X-GPTLoad-Key"
-	debugHeaderAttempts       = "X-GPTLoad-Attempts"
+	// debugHeaderKey remains reserved so an upstream cannot inject it downstream.
+	debugHeaderKey      = "X-GPTLoad-Key"
+	debugHeaderAttempts = "X-GPTLoad-Attempts"
 )
 
 var debugHeaderNames = []string{
@@ -385,7 +385,7 @@ func (handler *Handler) executeAttempts(
 		}
 
 		attempts++
-		updateDebugHeaders(ginContext.Writer.Header(), selection.Group.Name, apiKey, attempts)
+		updateDebugHeaders(ginContext.Writer.Header(), selection.Group.Name, attempts)
 		selectedKeyID := selection.KeyID
 		input := ForwardInput{
 			Dialect: selectedDialect, Group: selection.Group, APIKey: apiKey, Request: parsed,
@@ -549,13 +549,11 @@ func (handler *Handler) executeAttempts(
 
 func initializeDebugHeaders(headers http.Header) {
 	headers.Set(debugHeaderGroup, "")
-	headers.Set(debugHeaderKey, "")
 	headers.Set(debugHeaderAttempts, "0")
 }
 
-func updateDebugHeaders(headers http.Header, group, apiKey string, attempts int) {
+func updateDebugHeaders(headers http.Header, group string, attempts int) {
 	headers.Set(debugHeaderGroup, group)
-	headers.Set(debugHeaderKey, utils.MaskAPIKey(apiKey))
 	headers.Set(debugHeaderAttempts, strconv.Itoa(attempts))
 }
 

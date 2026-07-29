@@ -14,7 +14,6 @@ import (
 
 	"gpt-load/internal/health"
 	"gpt-load/internal/platform/redact"
-	"gpt-load/internal/platform/utils"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/scheduler"
 	"gpt-load/internal/state"
@@ -136,7 +135,6 @@ func (recorder *requestRecorder) recordAttempt(
 	)
 	return recorder.appendAttempt(
 		selection,
-		apiKey,
 		result,
 		telemetryFailureCategory(decision.Category),
 		telemetryAction(decision.Action),
@@ -168,7 +166,6 @@ func (recorder *requestRecorder) recordStreamAttempt(
 	)
 	return recorder.appendAttempt(
 		selection,
-		apiKey,
 		result,
 		category,
 		action,
@@ -185,7 +182,6 @@ func (recorder *requestRecorder) recordStreamAttempt(
 
 func (recorder *requestRecorder) appendAttempt(
 	selection scheduler.Selection,
-	apiKey string,
 	result UpstreamResult,
 	category telemetry.FailureCategory,
 	action telemetry.Action,
@@ -206,7 +202,6 @@ func (recorder *requestRecorder) appendAttempt(
 		GroupID:         selection.GroupID,
 		GroupName:       selection.Group.Name,
 		KeyID:           selection.KeyID,
-		KeyMask:         utils.MaskAPIKey(apiKey),
 		UpstreamModel:   selection.UpstreamModelID,
 		StatusCode:      result.StatusCode,
 		DurationMs:      duration.Milliseconds(),

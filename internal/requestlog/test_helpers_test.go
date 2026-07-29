@@ -272,7 +272,6 @@ func testEvent(id string) telemetry.RequestEvent {
 			GroupID:         7,
 			GroupName:       "primary",
 			KeyID:           8,
-			KeyMask:         "sk-...mask",
 			UpstreamModel:   "upstream-model",
 			StatusCode:      200,
 			DurationMs:      20,

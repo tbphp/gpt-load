@@ -280,7 +280,6 @@ func TestServiceWarningsExcludeEventContentAndThrottle(t *testing.T) {
 	}
 	sensitive := testEvent("request-id-must-not-appear")
 	sensitive.ErrorSummary = "authorization: Bearer sk-sensitive-warning-secret"
-	sensitive.Attempts[0].KeyMask = "sensitive-key-mask"
 	service.Emit(sensitive)
 	service.Emit(sensitive)
 
@@ -291,7 +290,6 @@ func TestServiceWarningsExcludeEventContentAndThrottle(t *testing.T) {
 	for _, forbidden := range []string{
 		sensitive.RequestID,
 		sensitive.ErrorSummary,
-		sensitive.Attempts[0].KeyMask,
 		"sk-sensitive-warning-secret",
 	} {
 		if bytes.Contains(output.Bytes(), []byte(forbidden)) {

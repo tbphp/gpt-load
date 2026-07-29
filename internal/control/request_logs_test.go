@@ -124,7 +124,18 @@ func TestRequestLogEndpointReturnsOpaqueCursorAndSafeDTO(t *testing.T) {
 					AffinityHit:   true,
 					UsageState:    usage.StateNotApplicable,
 					CostState:     pricing.CostStateNotApplicable,
-					Attempts:      nil,
+					Attempts: []requestlog.Attempt{{
+						Sequence:        1,
+						GroupID:         12,
+						GroupName:       "Primary",
+						KeyID:           11,
+						UpstreamModel:   "upstream-model",
+						StatusCode:      200,
+						DurationMs:      1234,
+						FailureCategory: telemetry.FailureCategoryOK,
+						Action:          telemetry.ActionTerminate,
+						Committed:       true,
+					}},
 				}},
 				NextCursor: nextCursor,
 			},
@@ -176,8 +187,15 @@ func TestRequestLogEndpointReturnsOpaqueCursorAndSafeDTO(t *testing.T) {
 		t.Fatalf("first response envelope = %#v", envelope)
 	}
 	attempts, ok := envelope.Data.Items[0]["attempts"].([]any)
-	if !ok || len(attempts) != 0 {
-		t.Fatalf("attempts = %#v, want []", envelope.Data.Items[0]["attempts"])
+	if !ok || len(attempts) != 1 {
+		t.Fatalf("attempts = %#v, want one", envelope.Data.Items[0]["attempts"])
+	}
+	attempt, ok := attempts[0].(map[string]any)
+	if !ok || attempt["key_id"] != float64(11) {
+		t.Fatalf("attempt = %#v, want key_id 11", attempts[0])
+	}
+	if _, exists := attempt["key_mask"]; exists {
+		t.Fatalf("attempt exposes key_mask: %#v", attempt)
 	}
 	for _, forbidden := range []string{"headers", "body", "url"} {
 		if strings.Contains(strings.ToLower(recorder.Body.String()), forbidden) {

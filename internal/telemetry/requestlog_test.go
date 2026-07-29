@@ -37,7 +37,6 @@ func TestRequestTelemetryContractUsesExactFieldAllowlist(t *testing.T) {
 			"GroupID",
 			"GroupName",
 			"KeyID",
-			"KeyMask",
 			"UpstreamModel",
 			"StatusCode",
 			"DurationMs",

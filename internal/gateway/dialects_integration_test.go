@@ -23,7 +23,6 @@ import (
 	"gpt-load/internal/platform/encryption"
 	platformhttp "gpt-load/internal/platform/httpclient"
 	"gpt-load/internal/platform/redact"
-	"gpt-load/internal/platform/utils"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 	"gpt-load/internal/testutil/fakeupstream"
@@ -613,8 +612,8 @@ func TestAnthropicGatewayStream(t *testing.T) {
 	if err != nil || !strings.Contains(string(rest), "message_stop") || strings.Contains(string(rest), `"code":`) {
 		t.Fatalf("remaining stream = %q, %v", rest, err)
 	}
-	if response.Header.Get(debugHeaderKey) != utils.MaskAPIKey("sk-primary") {
-		t.Fatalf("debug key = %q", response.Header.Get(debugHeaderKey))
+	if values := response.Header.Values(debugHeaderKey); len(values) != 0 {
+		t.Fatalf("debug key = %#v, want absent", values)
 	}
 }
 

@@ -29,7 +29,6 @@ const item = {
       group_id: 7,
       group_name: 'Primary',
       key_id: 11,
-      key_mask: 'sk-u****safe',
       upstream_model: 'gpt-upstream',
       status_code: 200,
       duration_ms: 40,
@@ -67,10 +66,20 @@ describe('RequestLog resource', () => {
     { ...item, status: 'unknown' },
     { ...item, duration_ms: Number.POSITIVE_INFINITY },
     { ...item, access_key: { ...item.access_key, key: 'plaintext' } },
-    { ...item, attempts: [{ ...item.attempts[0], key_mask: 'plaintext' }] },
     { ...item, attempts: [{ ...item.attempts[0], action: 'future_action' }] },
     { ...item, attempts: [{ ...item.attempts[0], secret_token: 'plaintext' }] },
   ])('rejects an unsafe rendered log field %#j', (unsafe) => {
+    expect(() => projectRequestLogPage({ items: [unsafe], next_cursor: null })).toThrow(
+      InvalidResponseError,
+    )
+  })
+
+  it('rejects a legacy upstream key mask instead of rendering it', () => {
+    const unsafe = {
+      ...item,
+      attempts: [{ ...item.attempts[0], key_mask: 'sk-u****safe' }],
+    }
+
     expect(() => projectRequestLogPage({ items: [unsafe], next_cursor: null })).toThrow(
       InvalidResponseError,
     )

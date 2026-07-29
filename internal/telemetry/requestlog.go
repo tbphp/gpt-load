@@ -44,7 +44,6 @@ type Attempt struct {
 	GroupID         uint
 	GroupName       string
 	KeyID           uint
-	KeyMask         string
 	UpstreamModel   string
 	StatusCode      int
 	DurationMs      int64

@@ -26,7 +26,6 @@ function attemptFixture(sequence: number): RequestLogAttemptDto {
     group_id: 7,
     group_name: 'Historical Group',
     key_id: 21,
-    key_mask: 'sk-u****safe',
     upstream_model: 'gpt-upstream',
     status_code: 200,
     duration_ms: 100,

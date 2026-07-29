@@ -53,7 +53,6 @@ type requestLogAttemptResponse struct {
 	GroupID         uint                      `json:"group_id"`
 	GroupName       string                    `json:"group_name"`
 	KeyID           uint                      `json:"key_id"`
-	KeyMask         string                    `json:"key_mask"`
 	UpstreamModel   string                    `json:"upstream_model"`
 	StatusCode      int                       `json:"status_code"`
 	DurationMs      int64                     `json:"duration_ms"`
@@ -359,7 +358,6 @@ func mapRequestLogListResponse(page requestlog.Page) (requestLogListResponse, er
 				GroupID:         attempt.GroupID,
 				GroupName:       attempt.GroupName,
 				KeyID:           attempt.KeyID,
-				KeyMask:         attempt.KeyMask,
 				UpstreamModel:   attempt.UpstreamModel,
 				StatusCode:      attempt.StatusCode,
 				DurationMs:      attempt.DurationMs,

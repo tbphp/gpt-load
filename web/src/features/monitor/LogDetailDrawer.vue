@@ -331,9 +331,7 @@ function estimatedCost(log: RequestLogItemDto): string {
             </div>
             <div>
               <dt>{{ t('monitor.logs.drawer.upstreamKey') }}</dt>
-              <dd>
-                <code>{{ attempt.key_mask }}</code> · #{{ attempt.key_id }}
-              </dd>
+              <dd>#{{ attempt.key_id }}</dd>
             </div>
             <div>
               <dt>{{ t('monitor.logs.drawer.upstreamModel') }}</dt>

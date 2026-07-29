@@ -35,7 +35,6 @@ func TestMapEventPersistsCompletedAtZeroUsageAndJSONArray(t *testing.T) {
 			GroupID:         12,
 			GroupName:       "Anthropic Primary",
 			KeyID:           34,
-			KeyMask:         "sk-ant-...wxyz",
 			UpstreamModel:   "claude-sonnet-5",
 			StatusCode:      429,
 			DurationMs:      800,

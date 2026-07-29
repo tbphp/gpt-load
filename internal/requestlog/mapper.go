@@ -30,7 +30,6 @@ func mapEvent(
 			GroupID:         attempt.GroupID,
 			GroupName:       attempt.GroupName,
 			KeyID:           attempt.KeyID,
-			KeyMask:         attempt.KeyMask,
 			UpstreamModel:   projectModel(attempt.UpstreamModel),
 			StatusCode:      attempt.StatusCode,
 			DurationMs:      attempt.DurationMs,

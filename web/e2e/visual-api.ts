@@ -236,7 +236,6 @@ const requestLogPage = {
           group_id: group.id,
           group_name: group.name,
           key_id: 91,
-          key_mask: 'sk-v****1234',
           upstream_model: visualFixtureData.modelName,
           status_code: 429,
           duration_ms: 842,

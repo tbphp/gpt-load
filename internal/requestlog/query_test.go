@@ -1,6 +1,7 @@
 package requestlog
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"math"
@@ -58,6 +59,37 @@ func TestDecodeRequestLogRowsPreservesUsageCostAttribution(t *testing.T) {
 		got.EstimatedCostUSD != 0.1234567890123 ||
 		got.CompletedAt.Format(time.RFC3339Nano) != "2026-07-26T17:02:03.000000004Z" {
 		t.Fatalf("decoded usage/cost record = %#v", got)
+	}
+}
+
+func TestDecodeRequestLogRowsIgnoresHistoricalKeyMask(t *testing.T) {
+	rows := []models.RequestLog{{
+		ID:         "00000000-0000-4000-8000-000000000605",
+		CreatedAt:  time.Date(2026, time.July, 27, 0, 0, 0, 0, time.UTC),
+		Protocol:   string(protocol.OpenAI),
+		Status:     string(telemetry.RequestStatusSuccess),
+		UsageState: string(usage.StateNotApplicable),
+		CostState:  string(pricing.CostStateNotApplicable),
+		Attempts: models.JSON(
+			`[{"sequence":1,"group_id":7,"group_name":"Primary","key_id":11,"key_mask":"prov****safe","upstream_model":"model","status_code":200,"duration_ms":10,"failure_category":"ok","action":"terminate","will_retry":false,"error_code":"","error_summary":"","committed":true}]`,
+		),
+	}}
+
+	records, err := decodeRequestLogRows(rows)
+	if err != nil {
+		t.Fatalf("decodeRequestLogRows() error = %v", err)
+	}
+	if len(records) != 1 || len(records[0].Attempts) != 1 {
+		t.Fatalf("records = %#v, want one historical attempt", records)
+	}
+	encoded, err := json.Marshal(records[0].Attempts[0])
+	if err != nil {
+		t.Fatalf("marshal decoded attempt: %v", err)
+	}
+	for _, forbidden := range [][]byte{[]byte(`"key_mask"`), []byte("prov"), []byte("safe")} {
+		if bytes.Contains(encoded, forbidden) {
+			t.Fatalf("decoded attempt retains historical key material %q: %s", forbidden, encoded)
+		}
 	}
 }
 
