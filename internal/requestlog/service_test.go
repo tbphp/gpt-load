@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -15,8 +16,150 @@ import (
 	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/storage/models"
+	"gpt-load/internal/telemetry"
 	"gpt-load/internal/usage"
 )
+
+func TestServiceEmitLogsAcceptedCompletionExactlyOnce(t *testing.T) {
+	var output bytes.Buffer
+	timers := newManualTimerFactory()
+	service := newService(
+		batchWriterFunc(func(context.Context, []models.RequestLog) error {
+			return nil
+		}),
+		redact.New(),
+		timers.New,
+		newStaticPriceTableProvider(),
+	)
+	service.logger = newRequestLogJSONLogger(&output)
+	if err := service.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+
+	service.Emit(testEvent("accepted"))
+
+	if got := service.Stats().EnqueuedTotal; got != 1 {
+		t.Fatalf("EnqueuedTotal = %d, want 1", got)
+	}
+	entries := processLogEntries(t, output.Bytes())
+	if len(entries) != 1 ||
+		entries[0]["request_id"] != "accepted" ||
+		entries[0]["msg"] != "Data plane request completed" {
+		t.Fatalf("completion entries = %#v, want accepted event", entries)
+	}
+	if err := service.Stop(context.Background()); err != nil {
+		t.Fatalf("Stop() error = %v", err)
+	}
+}
+
+func TestServiceEmitSkipsCompletionForEmptyIDAndInactiveLifecycle(t *testing.T) {
+	var output bytes.Buffer
+	timers := newManualTimerFactory()
+	service := newService(
+		batchWriterFunc(func(context.Context, []models.RequestLog) error {
+			return nil
+		}),
+		redact.New(),
+		timers.New,
+		newStaticPriceTableProvider(),
+	)
+	service.logger = newRequestLogJSONLogger(&output)
+
+	service.Emit(testEvent("before-start"))
+	if len(processLogEntries(t, output.Bytes())) != 0 {
+		t.Fatalf("new lifecycle output = %s", output.String())
+	}
+	if err := service.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	service.Emit(testEvent(""))
+	if got := service.Stats().EnqueuedTotal; got != 1 {
+		t.Fatalf("empty-ID EnqueuedTotal = %d, want 1", got)
+	}
+	if len(processLogEntries(t, output.Bytes())) != 0 {
+		t.Fatalf("empty-ID output = %s", output.String())
+	}
+	if err := service.Stop(context.Background()); err != nil {
+		t.Fatalf("Stop() error = %v", err)
+	}
+	service.Emit(testEvent("after-stop"))
+	if len(processLogEntries(t, output.Bytes())) != 0 {
+		t.Fatalf("stopped lifecycle output = %s", output.String())
+	}
+}
+
+type countingPanicLogHook struct {
+	calls atomic.Uint64
+}
+
+func (hook *countingPanicLogHook) Levels() []logrus.Level {
+	return logrus.AllLevels
+}
+
+func (hook *countingPanicLogHook) Fire(*logrus.Entry) error {
+	hook.calls.Add(1)
+	panic("request log hook must be isolated")
+}
+
+func TestServiceEmitLoggerPanicDoesNotPreventEnqueue(t *testing.T) {
+	service := newService(
+		batchWriterFunc(func(context.Context, []models.RequestLog) error {
+			return nil
+		}),
+		redact.New(),
+		newManualTimerFactory().New,
+		newStaticPriceTableProvider(),
+	)
+	hook := &countingPanicLogHook{}
+	service.logger = logrus.New()
+	service.logger.AddHook(hook)
+	if err := service.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+
+	service.Emit(testEvent("panic-hook"))
+
+	if hook.calls.Load() != 1 {
+		t.Fatalf("hook calls = %d, want 1", hook.calls.Load())
+	}
+	if got := service.Stats().EnqueuedTotal; got != 1 {
+		t.Fatalf("EnqueuedTotal = %d, want 1", got)
+	}
+	if err := service.Stop(context.Background()); err != nil {
+		t.Fatalf("Stop() error = %v", err)
+	}
+}
+
+func TestServiceEmitCompletionSurvivesLaterWriteFailure(t *testing.T) {
+	var output bytes.Buffer
+	timers := newManualTimerFactory()
+	service := newService(
+		batchWriterFunc(func(context.Context, []models.RequestLog) error {
+			return errors.New("injected write failure")
+		}),
+		redact.New(),
+		timers.New,
+		newStaticPriceTableProvider(),
+	)
+	service.logger = newRequestLogJSONLogger(&output)
+	if err := service.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+
+	service.Emit(testEvent("persist-failed"))
+	receiveValue(t, timers.created).Fire()
+	if err := service.Stop(context.Background()); err != nil {
+		t.Fatalf("Stop() error = %v", err)
+	}
+
+	if got := service.Stats().WriteFailureTotal; got != 1 {
+		t.Fatalf("WriteFailureTotal = %d, want 1", got)
+	}
+	entries := processLogEntries(t, output.Bytes())
+	if len(entries) != 1 || entries[0]["request_id"] != "persist-failed" {
+		t.Fatalf("completion entries = %#v, want persisted-failed event", entries)
+	}
+}
 
 func TestServiceEmitLifecycleAndDeepCopy(t *testing.T) {
 	timers := newManualTimerFactory()
@@ -141,6 +284,7 @@ func TestServiceDropsNewEventAtExactQueueCapacity(t *testing.T) {
 	writeStarted := make(chan struct{}, 1)
 	releaseWrite := make(chan struct{})
 	var signalWriteStarted sync.Once
+	var output bytes.Buffer
 	service := newService(
 		batchWriterFunc(func(ctx context.Context, _ []models.RequestLog) error {
 			signalWriteStarted.Do(func() {
@@ -157,6 +301,8 @@ func TestServiceDropsNewEventAtExactQueueCapacity(t *testing.T) {
 		newManualTimerFactory().New,
 		newStaticPriceTableProvider(),
 	)
+	service.logger = newRequestLogJSONLogger(&output)
+	service.logger.SetLevel(logrus.WarnLevel)
 	if err := service.Start(); err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
@@ -171,11 +317,19 @@ func TestServiceDropsNewEventAtExactQueueCapacity(t *testing.T) {
 	if got := service.Stats().QueueDepth; got != queueCapacity {
 		t.Fatalf("QueueDepth = %d, want exact capacity %d", got, queueCapacity)
 	}
-	service.Emit(testEvent("must-drop"))
+	dropped := testEvent("must-drop")
+	dropped.Status = telemetry.RequestStatusError
+	dropped.StatusCode = 502
+	dropped.ErrorCode = "upstream_error"
+	service.Emit(dropped)
 	stats := service.Stats()
 	if stats.DroppedQueueFullTotal != 1 || stats.EnqueuedTotal != batchSize+queueCapacity ||
 		stats.DroppedTotal != 1 {
 		t.Fatalf("stats at capacity = %+v", stats)
+	}
+	entries := processLogEntries(t, output.Bytes())
+	if len(entries) != 1 || entries[0]["request_id"] != "must-drop" {
+		t.Fatalf("queue-full completion entries = %#v", entries)
 	}
 
 	close(releaseWrite)
@@ -283,17 +437,34 @@ func TestServiceWarningsExcludeEventContentAndThrottle(t *testing.T) {
 	service.Emit(sensitive)
 	service.Emit(sensitive)
 
-	logged := output.String()
-	if got := bytes.Count(output.Bytes(), []byte("\n")); got != 1 {
-		t.Fatalf("warning count = %d, want throttled count 1; output=%s", got, logged)
+	var warnings []map[string]any
+	for _, line := range bytes.Split(bytes.TrimSpace(output.Bytes()), []byte("\n")) {
+		var entry map[string]any
+		if err := json.Unmarshal(line, &entry); err != nil {
+			t.Fatalf("decode logger output: %v", err)
+		}
+		if entry["msg"] == "Request log event loss" {
+			warnings = append(warnings, entry)
+		}
+	}
+	if len(warnings) != 1 {
+		t.Fatalf("warning entries = %#v, want one throttled warning", warnings)
+	}
+	encodedWarnings, err := json.Marshal(warnings)
+	if err != nil {
+		t.Fatalf("encode warning entries: %v", err)
 	}
 	for _, forbidden := range []string{
 		sensitive.RequestID,
 		sensitive.ErrorSummary,
 		"sk-sensitive-warning-secret",
 	} {
-		if bytes.Contains(output.Bytes(), []byte(forbidden)) {
-			t.Fatalf("warning output contains event content %q: %s", forbidden, logged)
+		if bytes.Contains(encodedWarnings, []byte(forbidden)) {
+			t.Fatalf(
+				"warning output contains event content %q: %s",
+				forbidden,
+				encodedWarnings,
+			)
 		}
 	}
 
@@ -314,6 +485,7 @@ func TestEmitFreezesPriceTableBeforeWorkerFlush(t *testing.T) {
 	provider.Publish(tableA)
 	timers := newManualTimerFactory()
 	writes := make(chan []models.RequestLog, 1)
+	var output bytes.Buffer
 	service := newService(
 		batchWriterFunc(func(_ context.Context, rows []models.RequestLog) error {
 			writes <- append([]models.RequestLog(nil), rows...)
@@ -323,6 +495,7 @@ func TestEmitFreezesPriceTableBeforeWorkerFlush(t *testing.T) {
 		timers.New,
 		provider,
 	)
+	service.logger = newRequestLogJSONLogger(&output)
 	if err := service.Start(); err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
@@ -335,6 +508,12 @@ func TestEmitFreezesPriceTableBeforeWorkerFlush(t *testing.T) {
 	}
 	service.Emit(eventA)
 	timer := receiveValue(t, timers.created)
+	entries := processLogEntries(t, output.Bytes())
+	if len(entries) != 1 ||
+		entries[0]["request_id"] != "snapshot-a" ||
+		entries[0]["estimated_cost_usd"] != "1" {
+		t.Fatalf("snapshot-a completion entries = %#v", entries)
+	}
 
 	provider.Publish(tableB)
 	eventB := testEvent("snapshot-b")

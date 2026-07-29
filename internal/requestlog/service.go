@@ -11,6 +11,7 @@ import (
 	"gorm.io/gorm"
 
 	"gpt-load/internal/platform/redact"
+	"gpt-load/internal/platform/utils"
 	"gpt-load/internal/storage/models"
 	"gpt-load/internal/telemetry"
 )
@@ -170,15 +171,20 @@ func (service *Service) Emit(event telemetry.RequestEvent) {
 
 	cloned := cloneEvent(event)
 	prices := service.priceTables.Load()
+	queueFull := false
 	select {
 	case service.queue <- queuedEvent{Event: cloned, Prices: prices}:
 		service.enqueuedTotal.Add(1)
-		service.stateMu.Unlock()
 	default:
 		service.droppedQueueFullTotal.Add(1)
-		service.stateMu.Unlock()
+		queueFull = true
+	}
+	service.stateMu.Unlock()
+
+	if queueFull {
 		service.warn("queue_full", 0)
 	}
+	service.logCompletedRequest(cloned, prices)
 }
 
 func (service *Service) Stop(ctx context.Context) error {
@@ -313,13 +319,18 @@ func (service *Service) warn(failureType string, failedBatchSize int) {
 	service.warningMu.Unlock()
 
 	stats := service.Stats()
-	service.logger.WithFields(logrus.Fields{
-		"failure_type":        failureType,
-		"batch_size":          failedBatchSize,
-		"queue_depth":         stats.QueueDepth,
-		"dropped_total":       stats.DroppedTotal,
-		"write_failure_total": stats.WriteFailureTotal,
-	}).Warn("Request log event loss")
+	utils.LogBestEffort(
+		service.logger,
+		logrus.WarnLevel,
+		logrus.Fields{
+			"failure_type":        failureType,
+			"batch_size":          failedBatchSize,
+			"queue_depth":         stats.QueueDepth,
+			"dropped_total":       stats.DroppedTotal,
+			"write_failure_total": stats.WriteFailureTotal,
+		},
+		"Request log event loss",
+	)
 }
 
 func cloneEvent(event telemetry.RequestEvent) telemetry.RequestEvent {

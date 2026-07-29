@@ -94,16 +94,24 @@ func projectModel(model string) string {
 }
 
 func sanitizeSummary(redactor *redact.Redactor, summary string) string {
+	return sanitizeSummaryLimit(redactor, summary, maxSummaryBytes)
+}
+
+func sanitizeSummaryLimit(
+	redactor *redact.Redactor,
+	summary string,
+	limit int,
+) string {
 	summary = strings.ToValidUTF8(summary, "\uFFFD")
 	summary = strings.Join(strings.Fields(summary), " ")
 	if redactor != nil {
 		summary = redactor.String(summary)
 	}
-	if len(summary) <= maxSummaryBytes {
+	if len(summary) <= limit {
 		return summary
 	}
 
-	prefixBytes := maxSummaryBytes - len(truncatedMarker)
+	prefixBytes := limit - len(truncatedMarker)
 	for prefixBytes > 0 && !utf8.ValidString(summary[:prefixBytes]) {
 		prefixBytes--
 	}
