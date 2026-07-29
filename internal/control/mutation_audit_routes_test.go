@@ -3,6 +3,7 @@ package control
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 
 	"gpt-load/internal/platform/config"
 	app_errors "gpt-load/internal/platform/errors"
+	"gpt-load/internal/platform/utils"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/state"
 	"gpt-load/internal/storage/models"
@@ -495,6 +497,462 @@ func TestModelPriceMutationAudit(t *testing.T) {
 			"warning",
 		)
 	})
+}
+
+func TestAccessKeyMutationAudit(t *testing.T) {
+	t.Run("create and replay", func(t *testing.T) {
+		fixture := newServiceFixture(t)
+		fixture.service.random = bytes.NewReader(
+			bytes.Repeat([]byte{0xab}, 16),
+		)
+		var logs bytes.Buffer
+		_, engine := newMutationAuditRouteServer(t, fixture, &logs)
+		request := mutationAuditRequest{
+			method:         http.MethodPost,
+			path:           "/api/access-keys",
+			body:           `{"name":"audit-client"}`,
+			idempotencyKey: "00000000-0000-4000-8000-000000002001",
+		}
+
+		firstRecorder := httptest.NewRecorder()
+		engine.ServeHTTP(
+			firstRecorder,
+			newMutationAuditHTTPRequest(request),
+		)
+		if firstRecorder.Code != http.StatusOK ||
+			firstRecorder.Header().Get("Cache-Control") != "no-store" ||
+			firstRecorder.Header().Get("Pragma") != "no-cache" {
+			t.Fatalf(
+				"first create = %d headers=%v body=%s",
+				firstRecorder.Code,
+				firstRecorder.Header(),
+				firstRecorder.Body.String(),
+			)
+		}
+		var firstEnvelope struct {
+			Data AccessKeyCreateResult `json:"data"`
+		}
+		if err := json.Unmarshal(
+			firstRecorder.Body.Bytes(),
+			&firstEnvelope,
+		); err != nil {
+			t.Fatalf("decode first create: %v", err)
+		}
+		if firstEnvelope.Data.ID == 0 ||
+			firstEnvelope.Data.Key == "" ||
+			firstEnvelope.Data.Replayed {
+			t.Fatalf("first create data = %#v", firstEnvelope.Data)
+		}
+
+		replayRecorder := httptest.NewRecorder()
+		engine.ServeHTTP(
+			replayRecorder,
+			newMutationAuditHTTPRequest(request),
+		)
+		if replayRecorder.Code != http.StatusOK {
+			t.Fatalf(
+				"replay = %d %s",
+				replayRecorder.Code,
+				replayRecorder.Body.String(),
+			)
+		}
+		var replayEnvelope struct {
+			Data AccessKeyCreateResult `json:"data"`
+		}
+		if err := json.Unmarshal(
+			replayRecorder.Body.Bytes(),
+			&replayEnvelope,
+		); err != nil {
+			t.Fatalf("decode replay: %v", err)
+		}
+		if !replayEnvelope.Data.Replayed ||
+			replayEnvelope.Data.ID != firstEnvelope.Data.ID ||
+			replayEnvelope.Data.Key != "" {
+			t.Fatalf("replay data = %#v", replayEnvelope.Data)
+		}
+
+		events := controlEventsNamed(
+			decodeControlJSONLogs(t, logs.Bytes()),
+			"control_plane_mutation",
+		)
+		if len(events) != 2 {
+			t.Fatalf("mutation events = %#v, want two", events)
+		}
+		for _, event := range events {
+			assertMutationEvent(
+				t,
+				event,
+				"access_key_create",
+				"access_key",
+				fmt.Sprintf(
+					"access-key:%d",
+					firstEnvelope.Data.ID,
+				),
+				"192.0.2.1",
+				"succeeded",
+				http.StatusOK,
+				"",
+				"info",
+			)
+		}
+		assertAccessKeyAuditLogExcludes(
+			t,
+			logs.String(),
+			firstEnvelope.Data.Key,
+		)
+	})
+
+	t.Run("update success", func(t *testing.T) {
+		fixture := newServiceFixture(t)
+		created := seedAuditAccessKey(t, fixture)
+		event, status := runMutationAuditRequest(
+			t,
+			fixture,
+			mutationAuditRequest{
+				method: http.MethodPut,
+				path: fmt.Sprintf(
+					"/api/access-keys/%d",
+					created.ID,
+				),
+				body: `{"name":"audit-client-updated"}`,
+			},
+		)
+		assertMutationEvent(
+			t,
+			event,
+			"access_key_update",
+			"access_key",
+			fmt.Sprintf("access-key:%d", created.ID),
+			"192.0.2.1",
+			"succeeded",
+			status,
+			"",
+			"info",
+		)
+	})
+
+	t.Run("delete success", func(t *testing.T) {
+		fixture := newServiceFixture(t)
+		created := seedAuditAccessKey(t, fixture)
+		event, status := runMutationAuditRequest(
+			t,
+			fixture,
+			mutationAuditRequest{
+				method: http.MethodDelete,
+				path: fmt.Sprintf(
+					"/api/access-keys/%d",
+					created.ID,
+				),
+			},
+		)
+		assertMutationEvent(
+			t,
+			event,
+			"access_key_delete",
+			"access_key",
+			fmt.Sprintf("access-key:%d", created.ID),
+			"192.0.2.1",
+			"succeeded",
+			status,
+			"",
+			"info",
+		)
+	})
+
+	for _, test := range []struct {
+		name      string
+		operation string
+		request   mutationAuditRequest
+	}{
+		{
+			name: "create rejected", operation: "access_key_create",
+			request: mutationAuditRequest{
+				method: http.MethodPost,
+				path:   "/api/access-keys",
+				body:   `{"name":"audit-client"}`,
+			},
+		},
+		{
+			name: "update rejected", operation: "access_key_update",
+			request: mutationAuditRequest{
+				method: http.MethodPut,
+				path:   "/api/access-keys/not-a-number",
+				body:   `{"name":"updated"}`,
+			},
+		},
+		{
+			name: "delete rejected", operation: "access_key_delete",
+			request: mutationAuditRequest{
+				method: http.MethodDelete,
+				path:   "/api/access-keys/0",
+			},
+		},
+		{
+			name: "reveal rejected", operation: "access_key_reveal",
+			request: mutationAuditRequest{
+				method: http.MethodPost,
+				path:   "/api/access-keys/raw-secret/reveal",
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newServiceFixture(t)
+			event, status := runMutationAuditRequest(
+				t,
+				fixture,
+				test.request,
+			)
+			errorCode := app_errors.ErrBadRequest.Code
+			locator := "access-key:unknown"
+			if test.operation == "access_key_create" {
+				errorCode =
+					app_errors.ErrIdempotencyKeyRequired.Code
+				locator = "new"
+			}
+			assertMutationEvent(
+				t,
+				event,
+				test.operation,
+				"access_key",
+				locator,
+				"192.0.2.1",
+				"rejected",
+				status,
+				errorCode,
+				"warning",
+			)
+		})
+	}
+
+	for _, test := range []struct {
+		name      string
+		operation string
+		request   func(*testing.T, serviceFixture) (
+			mutationAuditRequest,
+			string,
+		)
+	}{
+		{
+			name: "create database", operation: "access_key_create",
+			request: func(
+				_ *testing.T,
+				_ serviceFixture,
+			) (mutationAuditRequest, string) {
+				return mutationAuditRequest{
+					method: http.MethodPost,
+					path:   "/api/access-keys",
+					body:   `{"name":"audit-client"}`,
+					idempotencyKey: "00000000-0000-4000-8000-" +
+						"000000002002",
+				}, "new"
+			},
+		},
+		{
+			name: "update database", operation: "access_key_update",
+			request: accessKeyAuditSeedRequest(
+				http.MethodPut,
+				`{"name":"audit-client-updated"}`,
+				"",
+			),
+		},
+		{
+			name: "delete database", operation: "access_key_delete",
+			request: accessKeyAuditSeedRequest(
+				http.MethodDelete,
+				"",
+				"",
+			),
+		},
+		{
+			name: "reveal database", operation: "access_key_reveal",
+			request: accessKeyAuditSeedRequest(
+				http.MethodPost,
+				"",
+				"/reveal",
+			),
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newServiceFixture(t)
+			request, locator := test.request(t, fixture)
+			closeMutationAuditDB(t, fixture)
+			event, status := runMutationAuditRequest(
+				t,
+				fixture,
+				request,
+			)
+			assertMutationEvent(
+				t,
+				event,
+				test.operation,
+				"access_key",
+				locator,
+				"192.0.2.1",
+				"failed",
+				status,
+				app_errors.ErrDatabase.Code,
+				"warning",
+			)
+		})
+	}
+}
+
+func TestAccessKeyRevealAudit(t *testing.T) {
+	t.Run("success excludes credential", func(t *testing.T) {
+		fixture := newServiceFixture(t)
+		created := seedAuditAccessKey(t, fixture)
+		var logs bytes.Buffer
+		_, engine := newMutationAuditRouteServer(t, fixture, &logs)
+		recorder := httptest.NewRecorder()
+		engine.ServeHTTP(
+			recorder,
+			newMutationAuditHTTPRequest(mutationAuditRequest{
+				method: http.MethodPost,
+				path: fmt.Sprintf(
+					"/api/access-keys/%d/reveal",
+					created.ID,
+				),
+			}),
+		)
+		if recorder.Code != http.StatusOK ||
+			recorder.Header().Get("Cache-Control") != "no-store" ||
+			recorder.Header().Get("Pragma") != "no-cache" {
+			t.Fatalf(
+				"reveal = %d headers=%v body=%s",
+				recorder.Code,
+				recorder.Header(),
+				recorder.Body.String(),
+			)
+		}
+		var envelope struct {
+			Data AccessKeyRevealResult `json:"data"`
+		}
+		if err := json.Unmarshal(
+			recorder.Body.Bytes(),
+			&envelope,
+		); err != nil {
+			t.Fatalf("decode reveal: %v", err)
+		}
+		if envelope.Data.ID != created.ID ||
+			envelope.Data.Key != created.Key {
+			t.Fatalf("reveal data = %#v", envelope.Data)
+		}
+		assertMutationEvent(
+			t,
+			oneMutationAuditEvent(t, logs.Bytes()),
+			"access_key_reveal",
+			"access_key",
+			fmt.Sprintf("access-key:%d", created.ID),
+			"192.0.2.1",
+			"succeeded",
+			http.StatusOK,
+			"",
+			"info",
+		)
+		assertAccessKeyAuditLogExcludes(
+			t,
+			logs.String(),
+			created.Key,
+		)
+	})
+
+	t.Run("corrupt ciphertext", func(t *testing.T) {
+		fixture := newServiceFixture(t)
+		created := seedAuditAccessKey(t, fixture)
+		const corruptCiphertext = "known-corrupt-ciphertext"
+		if err := fixture.db.Model(&models.AccessKey{}).
+			Where("id = ?", created.ID).
+			Update("key_value", corruptCiphertext).Error; err != nil {
+			t.Fatalf("corrupt AccessKey ciphertext: %v", err)
+		}
+		var logs bytes.Buffer
+		_, engine := newMutationAuditRouteServer(t, fixture, &logs)
+		recorder := httptest.NewRecorder()
+		engine.ServeHTTP(
+			recorder,
+			newMutationAuditHTTPRequest(mutationAuditRequest{
+				method: http.MethodPost,
+				path: fmt.Sprintf(
+					"/api/access-keys/%d/reveal",
+					created.ID,
+				),
+			}),
+		)
+		assertMutationEvent(
+			t,
+			oneMutationAuditEvent(t, logs.Bytes()),
+			"access_key_reveal",
+			"access_key",
+			fmt.Sprintf("access-key:%d", created.ID),
+			"192.0.2.1",
+			"failed",
+			recorder.Code,
+			app_errors.ErrInternalServer.Code,
+			"warning",
+		)
+		assertControlLogExcludes(
+			t,
+			logs.String(),
+			corruptCiphertext,
+			created.Key,
+		)
+	})
+}
+
+func seedAuditAccessKey(
+	t *testing.T,
+	fixture serviceFixture,
+) AccessKeyCreateResult {
+	t.Helper()
+	fixture.service.random = bytes.NewReader(
+		bytes.Repeat([]byte{0xcd}, 16),
+	)
+	result, err := fixture.service.CreateAccessKey(
+		t.Context(),
+		AccessKeyCreateRequest{Name: "audit-client"},
+	)
+	if err != nil {
+		t.Fatalf("seed AccessKey: %v", err)
+	}
+	return result
+}
+
+func accessKeyAuditSeedRequest(
+	method string,
+	body string,
+	suffix string,
+) func(*testing.T, serviceFixture) (mutationAuditRequest, string) {
+	return func(
+		t *testing.T,
+		fixture serviceFixture,
+	) (mutationAuditRequest, string) {
+		created := seedAuditAccessKey(t, fixture)
+		return mutationAuditRequest{
+			method: method,
+			path: fmt.Sprintf(
+				"/api/access-keys/%d%s",
+				created.ID,
+				suffix,
+			),
+			body: body,
+		}, fmt.Sprintf("access-key:%d", created.ID)
+	}
+}
+
+func assertAccessKeyAuditLogExcludes(
+	t *testing.T,
+	logText string,
+	plaintext string,
+) {
+	t.Helper()
+	assertControlLogExcludes(
+		t,
+		logText,
+		plaintext,
+		plaintext[:4],
+		plaintext[len(plaintext)-4:],
+		utils.MaskAPIKey(plaintext),
+	)
 }
 
 func seedAuditModelPrice(t *testing.T, fixture serviceFixture) {

@@ -154,12 +154,44 @@ func (s *Server) RegisterRoutes(engine *gin.Engine) {
 	)
 	api.POST("/groups/:group_id/models/discover", s.handleDiscoverGroupModels)
 	api.POST("/models/discover", s.handleDiscoverModels)
-	api.POST("/access-keys", s.handleCreateAccessKey)
+	api.POST(
+		"/access-keys",
+		s.auditMutation(newMutationDescriptor(
+			"access_key_create",
+			"access_key",
+			staticMutationLocator("new"),
+		)),
+		s.handleCreateAccessKey,
+	)
 	api.GET("/access-keys/options", s.handleListAccessKeyOptions)
-	api.POST("/access-keys/:id/reveal", s.handleRevealAccessKey)
+	api.POST(
+		"/access-keys/:id/reveal",
+		s.auditMutation(newMutationDescriptor(
+			"access_key_reveal",
+			"access_key",
+			accessKeyMutationLocator,
+		)),
+		s.handleRevealAccessKey,
+	)
 	api.GET("/access-keys", s.handleListAccessKeys)
-	api.PUT("/access-keys/:id", s.handleUpdateAccessKey)
-	api.DELETE("/access-keys/:id", s.handleDeleteAccessKey)
+	api.PUT(
+		"/access-keys/:id",
+		s.auditMutation(newMutationDescriptor(
+			"access_key_update",
+			"access_key",
+			accessKeyMutationLocator,
+		)),
+		s.handleUpdateAccessKey,
+	)
+	api.DELETE(
+		"/access-keys/:id",
+		s.auditMutation(newMutationDescriptor(
+			"access_key_delete",
+			"access_key",
+			accessKeyMutationLocator,
+		)),
+		s.handleDeleteAccessKey,
+	)
 }
 
 func (s *Server) handleGetSettings(c *gin.Context) {
@@ -435,6 +467,10 @@ func (s *Server) handleCreateAccessKey(c *gin.Context) {
 		writeServiceError(c, "create_access_key", err)
 		return
 	}
+	setMutationResourceLocator(
+		c,
+		fmt.Sprintf("access-key:%d", result.ID),
+	)
 	setSecretResponseHeaders(c)
 	response.SuccessI18n(c, "common.success", result)
 }
