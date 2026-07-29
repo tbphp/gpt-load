@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowLeft, Plus, Tags } from 'lucide-vue-next'
+import { ArrowLeft, Plus, Tags } from '@lucide/vue'
 import { useQuery } from '@tanstack/vue-query'
 import { nextTick, ref } from 'vue'
 import { useI18n } from 'vue-i18n'

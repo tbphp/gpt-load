@@ -27,8 +27,8 @@ describe('visual runner contract', () => {
         },
       },
       browsers: {
-        chromium: { revision: '1228', version: '149.0.7827.55' },
-        webkit: { revision: '2311', version: '26.5' },
+        chromium: { revision: '1234', version: '151.0.7922.34' },
+        webkit: { revision: '2336', version: '26.5' },
       },
       fonts: {
         count: 50,

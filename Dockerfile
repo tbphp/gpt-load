@@ -1,8 +1,8 @@
-FROM --platform=$BUILDPLATFORM node:24.18.0-alpine AS web-builder
+FROM --platform=$BUILDPLATFORM node:24.18.0-alpine3.24@sha256:a0b9bf06e4e6193cf7a0f58816cc935ff8c2a908f81e6f1a95432d679c54fbfd AS web-builder
 
 WORKDIR /build
 RUN corepack enable \
-    && corepack install --global pnpm@11.15.1
+    && corepack install --global pnpm@11.17.0
 
 COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml ./web/
 RUN pnpm --dir web install --frozen-lockfile
@@ -11,7 +11,7 @@ COPY web ./web
 RUN pnpm --dir web run build
 
 
-FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS go-builder
+FROM --platform=$BUILDPLATFORM golang:1.26.5-alpine3.24@sha256:0178a641fbb4858c5f1b48e34bdaabe0350a330a1b1149aabd498d0699ff5fb2 AS go-builder
 
 ARG VERSION=2.0.0-dev
 ARG TARGETOS
@@ -32,7 +32,7 @@ RUN GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build \
     -o gpt-load
 
 
-FROM alpine
+FROM alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
 
 WORKDIR /app
 RUN apk add --no-cache ca-certificates tzdata \

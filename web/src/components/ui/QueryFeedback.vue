@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { LoaderCircle, RefreshCw, TriangleAlert } from 'lucide-vue-next'
+import { LoaderCircle, RefreshCw, TriangleAlert } from '@lucide/vue'
 
 withDefaults(
   defineProps<{

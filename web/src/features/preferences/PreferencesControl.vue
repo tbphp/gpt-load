@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Languages, Monitor, Moon, Settings2, Sun } from 'lucide-vue-next'
+import { Languages, Monitor, Moon, Settings2, Sun } from '@lucide/vue'
 import { useId, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 

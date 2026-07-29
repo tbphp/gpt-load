@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
-import { BadgeDollarSign, ChevronRight } from 'lucide-vue-next'
+import { BadgeDollarSign, ChevronRight } from '@lucide/vue'
 import { computed, nextTick, onBeforeUnmount, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 

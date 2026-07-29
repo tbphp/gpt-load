@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ListFilter } from 'lucide-vue-next'
+import { ListFilter } from '@lucide/vue'
 import { useI18n } from 'vue-i18n'
 
 import type { AccessKeyOptionDto, GroupSummary } from '@/api/control/types'

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ChevronDown } from 'lucide-vue-next'
+import { ChevronDown } from '@lucide/vue'
 import { useI18n } from 'vue-i18n'
 
 import type { HealthProblemKeyDto } from '@/app/resources/health'

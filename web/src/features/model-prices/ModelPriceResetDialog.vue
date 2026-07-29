@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { RotateCcw } from 'lucide-vue-next'
+import { RotateCcw } from '@lucide/vue'
 import { useQueryClient } from '@tanstack/vue-query'
 import { onBeforeUnmount, ref } from 'vue'
 import { useI18n } from 'vue-i18n'

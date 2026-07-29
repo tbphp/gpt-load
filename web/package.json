@@ -3,10 +3,10 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "packageManager": "pnpm@11.15.1",
+  "packageManager": "pnpm@11.17.0",
   "engines": {
     "node": ">=24.11.0",
-    "pnpm": "11.15.1"
+    "pnpm": "11.17.0"
   },
   "scripts": {
     "dev": "vite",
@@ -24,29 +24,29 @@
     "check:bundle": "node scripts/check-bundle-budget.mjs"
   },
   "dependencies": {
+    "@lucide/vue": "1.27.0",
     "@tanstack/vue-query": "5.101.4",
-    "lucide-vue-next": "1.0.0",
     "reka-ui": "2.10.1",
     "vue": "3.5.40",
-    "vue-i18n": "11.4.7",
+    "vue-i18n": "11.4.8",
     "vue-router": "5.2.0"
   },
   "devDependencies": {
-    "@playwright/test": "1.61.1",
+    "@playwright/test": "1.62.0",
     "@tailwindcss/vite": "4.3.3",
     "@types/node": "24.13.3",
     "@vitejs/plugin-vue": "6.0.8",
     "@vue/eslint-config-typescript": "14.9.0",
     "@vue/test-utils": "2.4.11",
-    "eslint": "10.7.0",
+    "eslint": "10.8.0",
     "eslint-config-prettier": "10.1.8",
     "eslint-plugin-vue": "10.10.0",
-    "happy-dom": "20.11.0",
+    "happy-dom": "20.11.1",
     "prettier": "3.9.6",
     "tailwindcss": "4.3.3",
     "typescript": "6.0.3",
     "vite": "8.1.5",
     "vitest": "4.1.10",
-    "vue-tsc": "3.3.7"
+    "vue-tsc": "3.3.8"
   }
 }

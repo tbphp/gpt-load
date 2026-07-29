@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowLeft, Upload } from 'lucide-vue-next'
+import { ArrowLeft, Upload } from '@lucide/vue'
 import { useI18n } from 'vue-i18n'
 
 import type { GroupDetailDto } from '@/app/resources/groups'

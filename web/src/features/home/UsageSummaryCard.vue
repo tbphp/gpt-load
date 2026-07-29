@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useQuery } from '@tanstack/vue-query'
-import { Activity, CircleDollarSign, Database, TriangleAlert } from 'lucide-vue-next'
+import { Activity, CircleDollarSign, Database, TriangleAlert } from '@lucide/vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 

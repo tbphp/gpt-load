@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { CircleAlert, LoaderCircle } from 'lucide-vue-next'
+import { CircleAlert, LoaderCircle } from '@lucide/vue'
 
 import AppButton from './AppButton.vue'
 

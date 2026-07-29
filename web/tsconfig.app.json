@@ -8,14 +8,12 @@
     "noEmit": true,
     "skipLibCheck": true,
     "resolveJsonModule": true,
-    "ignoreDeprecations": "6.0",
     "isolatedModules": true,
     "verbatimModuleSyntax": true,
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "types": ["vite/client", "vitest/globals"],
-    "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["./src/*"]
     }
   },
   "include": ["src/**/*.ts", "src/**/*.d.ts", "src/**/*.tsx", "src/**/*.vue"]

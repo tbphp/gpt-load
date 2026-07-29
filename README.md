@@ -196,7 +196,7 @@ This checklist is self-contained and does not require access to the project's pr
 
 ## Build and verification
 
-Baseline tools: Go `1.25.12`, Node.js `>=24.11.0`, and pnpm `11.15.1`.
+Baseline tools: Go `1.26.5`, Node.js `>=24.11.0`, and pnpm `11.17.0`.
 
 Build the single binary with its embedded admin UI:
 

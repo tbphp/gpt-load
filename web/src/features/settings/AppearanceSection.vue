@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Monitor, Palette } from 'lucide-vue-next'
+import { Monitor, Palette } from '@lucide/vue'
 import { useI18n } from 'vue-i18n'
 
 import SurfaceCard from '@/components/ui/SurfaceCard.vue'

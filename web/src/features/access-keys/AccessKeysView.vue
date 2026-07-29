@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { KeyRound, Plus } from 'lucide-vue-next'
+import { KeyRound, Plus } from '@lucide/vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, nextTick, onBeforeUnmount, ref } from 'vue'
 import { useI18n } from 'vue-i18n'

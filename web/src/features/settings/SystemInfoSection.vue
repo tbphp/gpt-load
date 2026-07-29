@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useQuery } from '@tanstack/vue-query'
-import { Info, LockKeyhole } from 'lucide-vue-next'
+import { Info, LockKeyhole } from '@lucide/vue'
 import { useI18n } from 'vue-i18n'
 
 import { useApiClient } from '@/api/client-context'

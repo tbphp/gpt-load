@@ -5,6 +5,7 @@ umask 077
 release_version="${RELEASE_VERSION:-v2.0.0-local}"
 suffix="${RELEASE_SMOKE_SUFFIX:-local-$$}"
 source_image="${RELEASE_SMOKE_SOURCE_IMAGE:-}"
+trivy_image="${RELEASE_SMOKE_TRIVY_IMAGE:-aquasec/trivy:0.72.0@sha256:cffe3f5161a47a6823fbd23d985795b3ed72a4c806da4c4df16266c02accdd6f}"
 case "${suffix}" in
   *[!A-Za-z0-9_-]*)
     printf 'RELEASE_SMOKE_SUFFIX contains unsupported characters\n' >&2
@@ -128,6 +129,15 @@ else
     --build-arg "VERSION=${release_version}" \
     -t "${image}" .
 fi
+docker run --rm \
+  --volume /var/run/docker.sock:/var/run/docker.sock \
+  "${trivy_image}" image \
+  --scanners vuln \
+  --severity CRITICAL,HIGH \
+  --ignore-unfixed \
+  --exit-code 1 \
+  --no-progress \
+  "${image}"
 test "$(docker image inspect -f '{{.Config.User}}' "${image}")" = "10001:10001"
 docker image inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "${image}" |
   grep -Fx 'HOST=0.0.0.0' >/dev/null

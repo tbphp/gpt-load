@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { FileClock } from 'lucide-vue-next'
+import { FileClock } from '@lucide/vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 

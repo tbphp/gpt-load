@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Activity, House, KeyRound, LogOut, Menu, Settings, Upload } from 'lucide-vue-next'
+import { Activity, House, KeyRound, LogOut, Menu, Settings, Upload } from '@lucide/vue'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { isNavigationFailure, RouterLink, useRoute, useRouter } from 'vue-router'

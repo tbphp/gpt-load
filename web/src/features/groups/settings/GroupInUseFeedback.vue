@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { KeyRound, TriangleAlert } from 'lucide-vue-next'
+import { KeyRound, TriangleAlert } from '@lucide/vue'
 import { useI18n } from 'vue-i18n'
 
 import type { AccessKeyReferenceDto } from '@/app/resources/groups'

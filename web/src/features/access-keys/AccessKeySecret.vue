@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Eye, EyeOff } from 'lucide-vue-next'
+import { Eye, EyeOff } from '@lucide/vue'
 import { useI18n } from 'vue-i18n'
 
 import CopyButton from '@/components/ui/CopyButton.vue'

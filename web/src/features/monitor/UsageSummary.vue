@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Activity, CircleDollarSign, Database, Gauge } from 'lucide-vue-next'
+import { Activity, CircleDollarSign, Database, Gauge } from '@lucide/vue'
 import { useI18n } from 'vue-i18n'
 
 import type { UsageAggregateDto } from '@/app/resources/usage'

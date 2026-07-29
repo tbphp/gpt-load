@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ExternalLink, Pencil, TriangleAlert } from 'lucide-vue-next'
+import { ExternalLink, Pencil, TriangleAlert } from '@lucide/vue'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 

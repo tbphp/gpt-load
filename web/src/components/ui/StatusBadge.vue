@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { CircleAlert, CircleCheck, CircleHelp, CircleOff, LoaderCircle } from 'lucide-vue-next'
+import { CircleAlert, CircleCheck, CircleHelp, CircleOff, LoaderCircle } from '@lucide/vue'
 import { computed } from 'vue'
 
 import {

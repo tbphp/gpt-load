@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ChevronDown, SlidersHorizontal } from 'lucide-vue-next'
+import { ChevronDown, SlidersHorizontal } from '@lucide/vue'
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Pencil } from 'lucide-vue-next'
+import { Pencil } from '@lucide/vue'
 import { useI18n } from 'vue-i18n'
 
 import type { AccessKeyDto } from '@/api/control/types'

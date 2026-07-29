@@ -5,16 +5,32 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
+)
+
+const (
+	checkoutActionRef         = "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"
+	setupGoActionRef          = "actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e"
+	setupNodeActionRef        = "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020"
+	pnpmSetupActionRef        = "pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271"
+	uploadArtifactActionRef   = "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
+	downloadArtifactActionRef = "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c"
+	qemuActionRef             = "docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8"
+	buildxActionRef           = "docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c"
+	dockerLoginActionRef      = "docker/login-action@371161bbe7024a29a25c5e19bfcbc0804fe9ad2c"
+	dockerMetadataActionRef   = "docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302"
+	dockerBuildActionRef      = "docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a"
+	githubReleaseActionRef    = "softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228"
 )
 
 func TestWebCICompositeActionRunsCompleteFrontendGate(t *testing.T) {
 	content := readRepositoryFile(t, ".github/actions/web-ci/action.yml")
 	for _, required := range []string{
-		"pnpm/action-setup@v6",
-		"version: 11.15.1",
-		"actions/setup-node@v6",
+		pnpmSetupActionRef,
+		"version: 11.17.0",
+		setupNodeActionRef,
 		"node-version: 24.18.0",
 	} {
 		if !strings.Contains(content, required) {
@@ -25,6 +41,7 @@ func TestWebCICompositeActionRunsCompleteFrontendGate(t *testing.T) {
 	previousIndex := -1
 	for _, command := range []string{
 		"pnpm --dir web install --frozen-lockfile",
+		"pnpm --dir web audit --audit-level high",
 		"pnpm --dir web run lint",
 		"pnpm --dir web run format",
 		"pnpm --dir web run type-check",
@@ -51,6 +68,7 @@ func TestBranchCIContainsStaticGoAndFreshRaceGates(t *testing.T) {
 		run  string
 	}{
 		{name: "Check module graph", run: "go mod tidy -diff"},
+		{name: "Audit Go dependencies", run: "go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./..."},
 		{name: "Run Go vet", run: "go vet ./..."},
 		{name: "Run race-enabled tests", run: "go test -race -count=1 . ./internal/..."},
 		{name: "Check repository invariants", run: "git diff --check"},
@@ -74,7 +92,7 @@ func TestBranchCIContainsStaticGoAndFreshRaceGates(t *testing.T) {
 func TestWindowsCIExecutesManagedStorageACLTests(t *testing.T) {
 	content := readRepositoryFile(t, ".github/workflows/ci.yml")
 	job := workflowJobBlock(t, content, "windows-encryption-acl")
-	if count := strings.Count(job, "runs-on: windows-latest"); count != 1 {
+	if count := strings.Count(job, "runs-on: windows-2025"); count != 1 {
 		t.Fatalf("Windows ACL job contains runs-on declaration %d times, want exactly once", count)
 	}
 	assertWorkflowGateStep(
@@ -83,6 +101,37 @@ func TestWindowsCIExecutesManagedStorageACLTests(t *testing.T) {
 		"Test Windows secure file and storage ACLs",
 		"go test -v -count=1 ./internal/platform/securefile ./internal/platform/encryption ./internal/storage",
 	)
+}
+
+func TestWorkflowsPinExternalActionsAndHostedRunners(t *testing.T) {
+	actionRef := regexp.MustCompile(`(?m)^\s*uses:\s+([^#\s]+)`)
+	immutableRef := regexp.MustCompile(`^[^@\s]+@[0-9a-f]{40}$`)
+	for _, name := range []string{
+		".github/actions/web-ci/action.yml",
+		".github/workflows/ci.yml",
+		".github/workflows/release.yml",
+	} {
+		content := readRepositoryFile(t, name)
+		for _, match := range actionRef.FindAllStringSubmatch(content, -1) {
+			ref := match[1]
+			if strings.HasPrefix(ref, "./") {
+				continue
+			}
+			if !immutableRef.MatchString(ref) {
+				t.Errorf("%s contains mutable or invalid action reference %q", name, ref)
+			}
+		}
+	}
+
+	ci := readRepositoryFile(t, ".github/workflows/ci.yml")
+	for _, required := range []string{"runs-on: ubuntu-24.04", "runs-on: windows-2025"} {
+		if !strings.Contains(ci, required) {
+			t.Errorf("branch CI does not contain %q", required)
+		}
+	}
+	if strings.Contains(ci, "-latest") {
+		t.Error("branch CI contains a mutable hosted runner label")
+	}
 }
 
 func TestGoFormattingScriptsFailClosed(t *testing.T) {
@@ -416,8 +465,10 @@ func TestReleaseWorkflowBuildsOneWebDistAndFiveVersionedBinaries(t *testing.T) {
 		t.Fatalf("release workflow invokes web-ci %d times, want exactly once", count)
 	}
 	for _, required := range []string{
-		"actions/checkout@v7",
-		"actions/setup-go@v7",
+		checkoutActionRef,
+		setupGoActionRef,
+		uploadArtifactActionRef,
+		downloadArtifactActionRef,
 		"name: verified-web-dist",
 		"path: internal/webui/dist",
 		"CGO_ENABLED: 0",
@@ -804,12 +855,12 @@ func TestReleaseWorkflowConsistentRerunIsVerifyOnly(t *testing.T) {
 		{
 			job:  "publish-images",
 			step: "Build and publish exact multi-platform images",
-			call: "docker/build-push-action@v7",
+			call: dockerBuildActionRef,
 		},
 		{
 			job:  "publish-github",
 			step: "Publish one GitHub Release",
-			call: "softprops/action-gh-release@v2",
+			call: githubReleaseActionRef,
 		},
 	} {
 		job := workflowJobBlock(t, content, test.job)
@@ -909,11 +960,11 @@ func TestReleaseWorkflowPublishesStable2xTagsWithoutLatest(t *testing.T) {
 	content := readRepositoryFile(t, ".github/workflows/release.yml")
 	imageJob := workflowJobBlock(t, content, "publish-images")
 	for _, required := range []string{
-		"docker/metadata-action@v6",
-		"docker/login-action@v4",
-		"docker/setup-qemu-action@v4",
-		"docker/setup-buildx-action@v4",
-		"docker/build-push-action@v7",
+		dockerMetadataActionRef,
+		dockerLoginActionRef,
+		qemuActionRef,
+		buildxActionRef,
+		dockerBuildActionRef,
 		"linux/amd64,linux/arm64",
 		`value=${{ needs.validate-tag.outputs.image_exact }}`,
 		"docker buildx imagetools create",
@@ -1037,6 +1088,10 @@ func TestReleaseWorkflowRunsCompleteLocalDockerSmoke(t *testing.T) {
 	}
 	script := readRepositoryFile(t, ".github/scripts/release-docker-smoke.sh")
 	for _, required := range []string{
+		"RELEASE_SMOKE_TRIVY_IMAGE",
+		"--severity CRITICAL,HIGH",
+		"--ignore-unfixed",
+		"--exit-code 1",
 		"10001:10001",
 		"/app/data",
 		"auth.key",
@@ -1107,7 +1162,7 @@ func TestReleaseWorkflowPostPublishVerifiesAliasesAndExactDigests(t *testing.T) 
 	job := workflowJobBlock(t, content, "post-publish-verify")
 	for _, required := range []string{
 		"packages: read",
-		"docker/login-action@v4",
+		dockerLoginActionRef,
 		"registry: ghcr.io",
 		"image_minor",
 		"image_major",
@@ -1146,7 +1201,7 @@ func TestReleaseWorkflowPostPublishDownloadsExactAssetsAndRunsFiveNativeSmokes(t
 		"ubuntu-24.04-arm",
 		"macos-15-intel",
 		"macos-15",
-		"windows-latest",
+		"windows-2025",
 		"gpt-load-linux-amd64",
 		"gpt-load-linux-arm64",
 		"gpt-load-macos-amd64",
@@ -1357,6 +1412,20 @@ func TestDockerfileCopiesWebInstallPolicyBeforeInstalling(t *testing.T) {
 	}
 	if copyIndex >= installIndex {
 		t.Fatal("Dockerfile copies the web install policy after installing dependencies")
+	}
+}
+
+func TestDockerfilePinsBuildAndRuntimeImagesByVersionAndDigest(t *testing.T) {
+	content := readRepositoryFile(t, "Dockerfile")
+	for _, required := range []string{
+		"node:24.18.0-alpine3.24@sha256:a0b9bf06e4e6193cf7a0f58816cc935ff8c2a908f81e6f1a95432d679c54fbfd",
+		"pnpm@11.17.0",
+		"golang:1.26.5-alpine3.24@sha256:0178a641fbb4858c5f1b48e34bdaabe0350a330a1b1149aabd498d0699ff5fb2",
+		"alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b",
+	} {
+		if !strings.Contains(content, required) {
+			t.Errorf("Dockerfile does not contain %q", required)
+		}
 	}
 }
 
