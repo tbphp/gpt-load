@@ -564,6 +564,7 @@ func writeServiceErrorResponse(
 ) {
 	var apiErr *app_errors.APIError
 	if errors.As(err, &apiErr) {
+		setMutationErrorCode(c, apiErr.Code)
 		if apiErr.HTTPStatus >= http.StatusInternalServerError {
 			logServiceError(operation, err, apiErr.Code)
 		}
@@ -575,6 +576,7 @@ func writeServiceErrorResponse(
 		return
 	}
 
+	setMutationErrorCode(c, app_errors.ErrInternalServer.Code)
 	logServiceError(operation, err, app_errors.ErrInternalServer.Code)
 	response.ErrorI18nFromAPIError(c, app_errors.ErrInternalServer, "internal_error")
 }
