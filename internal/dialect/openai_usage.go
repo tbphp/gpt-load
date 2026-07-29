@@ -142,6 +142,22 @@ func openAIUsageFinal(root map[string]json.RawMessage) bool {
 	if !exists {
 		return false
 	}
-	var choices []json.RawMessage
-	return json.Unmarshal(rawChoices, &choices) == nil && choices != nil && len(choices) == 0
+	var choices []map[string]json.RawMessage
+	if json.Unmarshal(rawChoices, &choices) != nil || choices == nil {
+		return false
+	}
+	if len(choices) == 0 {
+		return true
+	}
+	for _, choice := range choices {
+		rawReason, exists := choice["finish_reason"]
+		if !exists {
+			continue
+		}
+		var reason string
+		if json.Unmarshal(rawReason, &reason) == nil && reason != "" {
+			return true
+		}
+	}
+	return false
 }

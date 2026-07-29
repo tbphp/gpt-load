@@ -314,8 +314,17 @@ func TestUsageOpenAIStreamSnapshotsAndFinality(t *testing.T) {
 			want:  usage.Tokens{UncachedInput: 100, Output: 30},
 		},
 		{
+			name: "terminal choice with usage is complete",
+			steps: []string{
+				`{"choices":[{"index":0,"delta":{"content":"你好"},"finish_reason":null}]}`,
+				`{"choices":[{"index":0,"delta":{},"finish_reason":"stop","native_finish_reason":"stop"}],"usage":{"completion_tokens":13,"total_tokens":317,"prompt_tokens":304,"prompt_tokens_details":{"cached_tokens":0,"cached_creation_tokens":0},"completion_tokens_details":{"reasoning_tokens":0}}}`,
+			},
+			state: usage.StateComplete,
+			want:  usage.Tokens{UncachedInput: 304, Output: 13},
+		},
+		{
 			name:  "usage without final marker is partial",
-			steps: []string{`{"choices":[{"delta":{}}],"usage":{"prompt_tokens":100,"completion_tokens":30}}`},
+			steps: []string{`{"choices":[{"delta":{},"finish_reason":null}],"usage":{"prompt_tokens":100,"completion_tokens":30}}`},
 			state: usage.StatePartial,
 			want:  usage.Tokens{UncachedInput: 100, Output: 30},
 		},

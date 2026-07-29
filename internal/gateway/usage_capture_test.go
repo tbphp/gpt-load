@@ -398,6 +398,15 @@ func TestForwardStreamUsageStateRequiresProviderFinalEvidence(t *testing.T) {
 		want    usage.State
 	}{
 		{name: "OpenAI partial", dialect: dialect.NewOpenAI(http.DefaultClient), path: "/v1/chat/completions", wire: `data: {"choices":[{"delta":{}}],"usage":{"prompt_tokens":100,"completion_tokens":30,"prompt_tokens_details":{"cached_tokens":20}}}` + "\n\n", want: usage.StatePartial},
+		{
+			name:    "OpenAI terminal choice",
+			dialect: dialect.NewOpenAI(http.DefaultClient),
+			path:    "/v1/chat/completions",
+			wire: "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"你好\"},\"finish_reason\":null}]}\n\n" +
+				"data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\",\"native_finish_reason\":\"stop\"}],\"usage\":{\"completion_tokens\":13,\"total_tokens\":317,\"prompt_tokens\":304,\"prompt_tokens_details\":{\"cached_tokens\":0,\"cached_creation_tokens\":0},\"completion_tokens_details\":{\"reasoning_tokens\":0}}}\n\n" +
+				"data: [DONE]\n\n",
+			want: usage.StateComplete,
+		},
 		{name: "Anthropic partial", dialect: dialect.NewAnthropic(http.DefaultClient), path: "/v1/messages", wire: `data: {"type":"message_start","message":{"usage":{"input_tokens":80,"cache_read_input_tokens":20}}}` + "\n\n", want: usage.StatePartial},
 		{name: "Gemini partial", dialect: dialect.NewGemini(http.DefaultClient), path: "/v1beta/models/gemini:streamGenerateContent", wire: `data: {"usageMetadata":{"promptTokenCount":100,"cachedContentTokenCount":20,"candidatesTokenCount":30}}` + "\n\n", want: usage.StatePartial},
 		{name: "missing", dialect: dialect.NewOpenAI(http.DefaultClient), path: "/v1/chat/completions", wire: "data: {\"choices\":[{\"delta\":{}}]}\n\n", want: usage.StateMissing},
