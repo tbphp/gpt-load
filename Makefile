@@ -1,64 +1,56 @@
-# Default target
 .DEFAULT_GOAL := help
 
+APP := gpt-load
 WEB_DIR := web
+GO ?= go
 PNPM ?= corepack pnpm
 
-# ==============================================================================
-# Build & Web UI
-# ==============================================================================
-.PHONY: web-install
-web-install: ## Install frozen web dependencies
+.PHONY: _web-deps
+_web-deps:
 	$(PNPM) --dir $(WEB_DIR) install --frozen-lockfile
 
-.PHONY: web-lint
-web-lint: web-install ## Lint web source
-	$(PNPM) --dir $(WEB_DIR) run lint
-
-.PHONY: web-format
-web-format: web-install ## Check web formatting
-	$(PNPM) --dir $(WEB_DIR) run format
-
-.PHONY: web-type-check
-web-type-check: web-install ## Type-check web source
-	$(PNPM) --dir $(WEB_DIR) run type-check
-
-.PHONY: web-test
-web-test: web-install ## Run web unit tests
-	$(PNPM) --dir $(WEB_DIR) run test
-
-.PHONY: web-build
-web-build: web-install ## Build embedded web assets
+.PHONY: _web-build
+_web-build: _web-deps
 	$(PNPM) --dir $(WEB_DIR) run build
 
-.PHONY: web-check
-web-check: web-lint web-format web-type-check web-test web-build ## Run all web quality gates
+.PHONY: dev
+dev: _web-build ## Build the Web UI and run with race detection
+	$(GO) run -race .
+
+.PHONY: run
+run: _web-build ## Build the Web UI and run the application
+	$(GO) run .
 
 .PHONY: build
-build: web-build ## Build the single GPT-Load binary
-	go build -o gpt-load .
+build: _web-build ## Build the Web UI and application binary
+	$(GO) build -o $(APP) .
 
-# ==============================================================================
-# Run & Development
-# ==============================================================================
-.PHONY: run
-run: ## Run server
-	@echo "--- Starting backend... ---"
-	go run .
+.PHONY: test
+test: _web-deps ## Run Web and Go unit tests
+	$(PNPM) --dir $(WEB_DIR) run test
+	$(GO) test -count=1 . ./internal/...
 
-.PHONY: dev
-dev: ## Run in development mode (with race detection)
-	@echo "🔧 Starting development mode..."
-	go run -race .
+.PHONY: check
+check: _web-deps ## Run all local quality gates except browser E2E
+	@formatted_files="$$(gofmt -l .)"; test -z "$${formatted_files}"
+	$(GO) mod tidy -diff
+	$(GO) vet ./...
+	$(PNPM) --dir $(WEB_DIR) run lint
+	$(PNPM) --dir $(WEB_DIR) run format
+	$(PNPM) --dir $(WEB_DIR) run type-check
+	$(PNPM) --dir $(WEB_DIR) run test
+	$(PNPM) --dir $(WEB_DIR) run build
+	$(PNPM) --dir $(WEB_DIR) run check:bundle
+	$(PNPM) --dir $(WEB_DIR) run check:visual
+	$(PNPM) --dir $(WEB_DIR) run check:a11y-evidence
+	$(GO) build -o $(APP) .
+	$(GO) test -race -count=1 . ./internal/...
+	git diff --check
 
-# ==============================================================================
-# Deferred Key Migration
-# ==============================================================================
-.PHONY: migrate-keys
-migrate-keys: ## Reserved for the 2.0 key rotation tool
-	@echo "migrate-keys will be available in a later release"
-	@exit 1
+.PHONY: e2e
+e2e: build ## Run production browser E2E tests
+	$(PNPM) --dir $(WEB_DIR) run test:e2e
 
 .PHONY: help
-help: ## Display this help message
-	@awk 'BEGIN {FS = ":.*?## "; printf "Usage:\n  make \033[36m<target>\033[0m\n\nTargets:\n"} /^[a-zA-Z0-9_-]+:.*?## / { printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
+help: ## Display available targets
+	@awk 'BEGIN {FS = ":.*?## "; printf "Usage:\n  make \033[36m<target>\033[0m\n\nTargets:\n"} /^[a-zA-Z0-9_-]+:.*?## / { printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)

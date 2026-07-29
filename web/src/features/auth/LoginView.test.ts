@@ -14,6 +14,7 @@ import {
 import { importRecoveryKey, type ImportRecoveryService } from '@/features/import/import-recovery'
 import type { AppLocale } from '@/i18n'
 import { createTestAppI18n as createAppI18n } from '@/test/i18n'
+import { waitForRoute } from '@/test/router'
 
 import LoginView from './LoginView.vue'
 
@@ -211,13 +212,13 @@ describe('LoginView', () => {
     const { router, wrapper } = await mountLogin(createFakeSession(), {
       redirect: '/monitor?tab=logs',
     })
+    const navigation = waitForRoute(router, '/monitor?tab=logs')
 
     await submitCredential(wrapper, 'candidate-key')
     await flushPromises()
+    await navigation
 
-    await vi.waitFor(() => {
-      expect(router.currentRoute.value.fullPath).toBe('/monitor?tab=logs')
-    })
+    expect(router.currentRoute.value.fullPath).toBe('/monitor?tab=logs')
   })
 
   it.each(['/import', '/import?mode=new', '/import?mode=existing&group_id=7'])(
@@ -246,13 +247,13 @@ describe('LoginView', () => {
     'falls back to home for external, double-slash and unknown redirects',
     async (redirect) => {
       const { router, wrapper } = await mountLogin(createFakeSession(), { redirect })
+      const navigation = waitForRoute(router, '/')
 
       await submitCredential(wrapper, 'candidate-key')
       await flushPromises()
+      await navigation
 
-      await vi.waitFor(() => {
-        expect(router.currentRoute.value.fullPath).toBe('/')
-      })
+      expect(router.currentRoute.value.fullPath).toBe('/')
     },
   )
 

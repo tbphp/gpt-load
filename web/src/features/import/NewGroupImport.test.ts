@@ -17,6 +17,7 @@ import {
   importOperationOwnerKey,
 } from '@/features/import/import-operation-owner'
 import { createTestAppI18n as createAppI18n } from '@/test/i18n'
+import { waitForRoute } from '@/test/router'
 
 import NewGroupImport from './NewGroupImport.vue'
 
@@ -333,8 +334,10 @@ describe('NewGroupImport', () => {
     await wrapper.get('[data-test="manual-model-alias"]').setValue('local')
     await wrapper.get('[data-test="add-manual-model"]').trigger('click')
     await wrapper.get('[data-test="review"]').trigger('click')
+    const navigation = waitForRoute(router, '/groups/9')
     await wrapper.get('[data-test="create"]').trigger('click')
     await flushPromises()
+    await navigation
 
     expect(request).toHaveBeenLastCalledWith('/api/groups', {
       method: 'POST',
@@ -362,9 +365,7 @@ describe('NewGroupImport', () => {
       queryKey: controlQueryKeys.health(),
       exact: true,
     })
-    await vi.waitFor(() => {
-      expect(router.currentRoute.value.fullPath).toBe('/groups/9')
-    })
+    expect(router.currentRoute.value.fullPath).toBe('/groups/9')
     expect(importRecovery.clear).toHaveBeenCalled()
   })
 
@@ -463,8 +464,10 @@ describe('NewGroupImport', () => {
     expect(wrapper.text()).toContain('Existing')
     expect(wrapper.find('[data-test="conflict-confirm-separate"]').exists()).toBe(true)
     expect(wrapper.find('[data-test="conflict-edit"]').exists()).toBe(true)
+    const navigation = waitForRoute(router, '/groups/7')
     await wrapper.get('[data-test="conflict-append-7"]').trigger('click')
     await flushPromises()
+    await navigation
 
     expect(request).toHaveBeenLastCalledWith('/api/groups/7/keys/import', {
       method: 'POST',
@@ -495,9 +498,7 @@ describe('NewGroupImport', () => {
       queryKey: controlQueryKeys.health(),
       exact: true,
     })
-    await vi.waitFor(() => {
-      expect(router.currentRoute.value.fullPath).toBe('/groups/7')
-    })
+    expect(router.currentRoute.value.fullPath).toBe('/groups/7')
   })
 
   it('does not navigate or clear recovery when create invalidations finish after unmount', async () => {
@@ -675,8 +676,10 @@ describe('NewGroupImport', () => {
     )
 
     const first = requestMock.mock.calls[1]?.[1]
+    const navigation = waitForRoute(router, '/groups/23')
     await wrapper.get('[data-test="import-operation-retry"]').trigger('click')
     await flushPromises()
+    await navigation
     const second = requestMock.mock.calls[2]?.[1]
 
     expect(first?.headers?.['Idempotency-Key']).toMatch(
@@ -684,8 +687,6 @@ describe('NewGroupImport', () => {
     )
     expect(second?.headers?.['Idempotency-Key']).toBe(first?.headers?.['Idempotency-Key'])
     expect(second?.json).toEqual(first?.json)
-    await vi.waitFor(() => {
-      expect(router.currentRoute.value.fullPath).toBe('/groups/23')
-    })
+    expect(router.currentRoute.value.fullPath).toBe('/groups/23')
   })
 })
