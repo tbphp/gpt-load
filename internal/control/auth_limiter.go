@@ -18,8 +18,9 @@ type authFailureEntry struct {
 }
 
 type authDecision struct {
-	authorized bool
-	retryAfter time.Duration
+	authorized  bool
+	retryAfter  time.Duration
+	newlyLocked bool
 }
 
 type authFailureLimiter struct {
@@ -65,7 +66,10 @@ func (l *authFailureLimiter) evaluate(
 		entry.failures = nil
 		entry.lockedUntil = now.Add(authLockDuration)
 		l.entries[peer] = entry
-		return authDecision{retryAfter: authLockDuration}
+		return authDecision{
+			retryAfter:  authLockDuration,
+			newlyLocked: true,
+		}
 	}
 	l.entries[peer] = entry
 	return authDecision{}

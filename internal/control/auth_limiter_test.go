@@ -6,6 +6,27 @@ import (
 	"time"
 )
 
+func TestAuthFailureLimiterMarksOnlyNewLockTransition(t *testing.T) {
+	limiter := newAuthFailureLimiter()
+	now := time.Date(2026, 7, 29, 12, 0, 0, 0, time.UTC)
+	limiter.now = func() time.Time { return now }
+
+	for attempt := 1; attempt < authFailureLimit; attempt++ {
+		decision := limiter.evaluate("192.0.2.10", false)
+		if decision.newlyLocked || decision.retryAfter != 0 {
+			t.Fatalf("attempt %d decision = %#v", attempt, decision)
+		}
+	}
+	locked := limiter.evaluate("192.0.2.10", false)
+	if !locked.newlyLocked || locked.retryAfter != authLockDuration {
+		t.Fatalf("lock decision = %#v", locked)
+	}
+	stillLocked := limiter.evaluate("192.0.2.10", false)
+	if stillLocked.newlyLocked || stillLocked.retryAfter <= 0 {
+		t.Fatalf("locked retry decision = %#v", stillLocked)
+	}
+}
+
 func TestAuthFailureLimiterLocksOnFifthFailure(t *testing.T) {
 	current := time.Date(2026, 7, 23, 0, 0, 0, 0, time.UTC)
 	limiter := newAuthFailureLimiter()

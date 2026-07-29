@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
@@ -17,14 +18,17 @@ import (
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/platform/i18n"
 	"gpt-load/internal/platform/response"
+	"gpt-load/internal/platform/utils"
 )
 
 type Server struct {
-	authDigest    [sha256.Size]byte
-	service       *Service
-	systemInfo    systemInfoResponse
-	authFailures  *authFailureLimiter
-	compareDigest func([]byte, []byte) int
+	authDigest        [sha256.Size]byte
+	service           *Service
+	systemInfo        systemInfoResponse
+	authFailures      *authFailureLimiter
+	compareDigest     func([]byte, []byte) int
+	logger            *logrus.Logger
+	authFailureEvents *utils.RateLimitedEventCounter
 }
 
 const maxControlJSONBodyBytes int64 = 32 << 20
@@ -36,6 +40,11 @@ func NewServer(cfg *config.Config, service *Service) *Server {
 		systemInfo:    newSystemInfoResponse(cfg),
 		authFailures:  newAuthFailureLimiter(),
 		compareDigest: subtle.ConstantTimeCompare,
+		logger:        logrus.StandardLogger(),
+		authFailureEvents: utils.NewRateLimitedEventCounter(
+			time.Minute,
+			time.Now,
+		),
 	}
 }
 
