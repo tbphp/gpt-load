@@ -57,10 +57,34 @@ func (s *Server) RegisterRoutes(engine *gin.Engine) {
 	api.GET("/usage", s.handleUsage)
 	api.POST("/route/inspect", s.handleRouteInspect)
 	api.GET("/settings", s.handleGetSettings)
-	api.PUT("/settings", s.handleUpdateSettings)
+	api.PUT(
+		"/settings",
+		s.auditMutation(newMutationDescriptor(
+			"settings_update",
+			"settings",
+			staticMutationLocator("settings:global"),
+		)),
+		s.handleUpdateSettings,
+	)
 	api.GET("/model-prices", s.handleListModelPrices)
-	api.PUT("/model-prices", s.handleUpsertModelPrice)
-	api.DELETE("/model-prices", s.handleResetModelPrice)
+	api.PUT(
+		"/model-prices",
+		s.auditMutation(newMutationDescriptor(
+			"model_price_upsert",
+			"model_price",
+			staticMutationLocator("model-price:unknown"),
+		)),
+		s.handleUpsertModelPrice,
+	)
+	api.DELETE(
+		"/model-prices",
+		s.auditMutation(newMutationDescriptor(
+			"model_price_reset",
+			"model_price",
+			staticMutationLocator("model-price:unknown"),
+		)),
+		s.handleResetModelPrice,
+	)
 	api.GET("/system/info", s.handleSystemInfo)
 	api.GET("/groups", s.handleListGroups)
 	api.GET("/groups/:group_id", s.handleGetGroup)

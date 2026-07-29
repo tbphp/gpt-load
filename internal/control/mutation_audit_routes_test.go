@@ -14,6 +14,7 @@ import (
 
 	"gpt-load/internal/platform/config"
 	app_errors "gpt-load/internal/platform/errors"
+	"gpt-load/internal/pricing"
 	"gpt-load/internal/state"
 	"gpt-load/internal/storage/models"
 )
@@ -201,6 +202,318 @@ func TestGroupMutationAuditExcludesInternalCalls(t *testing.T) {
 	)
 	if len(events) != 0 {
 		t.Fatalf("mutation events = %#v, want none", events)
+	}
+}
+
+func TestSettingsMutationAudit(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
+		fixture := newServiceFixture(t)
+		var logs bytes.Buffer
+		_, engine := newMutationAuditRouteServer(t, fixture, &logs)
+		initial := serveSettingsOCCRequest(
+			t,
+			engine,
+			http.MethodGet,
+			authTestKey,
+			"en-US",
+			"",
+			"",
+		)
+		if initial.Code != http.StatusOK {
+			t.Fatalf(
+				"GET settings = %d %s",
+				initial.Code,
+				initial.Body.String(),
+			)
+		}
+		logs.Reset()
+		updated := serveSettingsOCCRequest(
+			t,
+			engine,
+			http.MethodPut,
+			authTestKey,
+			"en-US",
+			initial.Header().Get("ETag"),
+			`{"settings":{"request_timeout":900}}`,
+		)
+		if updated.Code != http.StatusOK {
+			t.Fatalf(
+				"PUT settings = %d %s",
+				updated.Code,
+				updated.Body.String(),
+			)
+		}
+		assertMutationEvent(
+			t,
+			oneMutationAuditEvent(t, logs.Bytes()),
+			"settings_update",
+			"settings",
+			"settings:global",
+			"192.0.2.1",
+			"succeeded",
+			http.StatusOK,
+			"",
+			"info",
+		)
+	})
+
+	t.Run("rejected", func(t *testing.T) {
+		fixture := newServiceFixture(t)
+		event, status := runMutationAuditRequest(
+			t,
+			fixture,
+			mutationAuditRequest{
+				method: http.MethodPut,
+				path:   "/api/settings",
+				body:   `{"settings":{"request_timeout":900}}`,
+			},
+		)
+		assertMutationEvent(
+			t,
+			event,
+			"settings_update",
+			"settings",
+			"settings:global",
+			"192.0.2.1",
+			"rejected",
+			status,
+			app_errors.ErrSettingsPreconditionRequired.Code,
+			"warning",
+		)
+	})
+
+	t.Run("database", func(t *testing.T) {
+		fixture := newServiceFixture(t)
+		var logs bytes.Buffer
+		_, engine := newMutationAuditRouteServer(t, fixture, &logs)
+		initial := serveSettingsOCCRequest(
+			t,
+			engine,
+			http.MethodGet,
+			authTestKey,
+			"en-US",
+			"",
+			"",
+		)
+		if initial.Code != http.StatusOK {
+			t.Fatalf(
+				"GET settings = %d %s",
+				initial.Code,
+				initial.Body.String(),
+			)
+		}
+		logs.Reset()
+		closeMutationAuditDB(t, fixture)
+		updated := serveSettingsOCCRequest(
+			t,
+			engine,
+			http.MethodPut,
+			authTestKey,
+			"en-US",
+			initial.Header().Get("ETag"),
+			`{"settings":{"request_timeout":900}}`,
+		)
+		assertMutationEvent(
+			t,
+			oneMutationAuditEvent(t, logs.Bytes()),
+			"settings_update",
+			"settings",
+			"settings:global",
+			"192.0.2.1",
+			"failed",
+			updated.Code,
+			app_errors.ErrDatabase.Code,
+			"warning",
+		)
+	})
+}
+
+func TestModelPriceMutationAudit(t *testing.T) {
+	const upsertBody = `{"pattern":"audit-model","prices":{` +
+		`"uncached_input":1,"cache_read":null,` +
+		`"cache_write_5m":null,"cache_write_1h":null,"output":2}}`
+
+	t.Run("upsert success", func(t *testing.T) {
+		fixture := newServiceFixture(t)
+		event, status := runMutationAuditRequest(
+			t,
+			fixture,
+			mutationAuditRequest{
+				method: http.MethodPut,
+				path:   "/api/model-prices",
+				body:   upsertBody,
+			},
+		)
+		assertMutationEvent(
+			t,
+			event,
+			"model_price_upsert",
+			"model_price",
+			"model-price:audit-model",
+			"192.0.2.1",
+			"succeeded",
+			status,
+			"",
+			"info",
+		)
+	})
+
+	t.Run("reset success", func(t *testing.T) {
+		fixture := newServiceFixture(t)
+		seedAuditModelPrice(t, fixture)
+		event, status := runMutationAuditRequest(
+			t,
+			fixture,
+			mutationAuditRequest{
+				method: http.MethodDelete,
+				path:   "/api/model-prices?pattern=audit-model",
+			},
+		)
+		assertMutationEvent(
+			t,
+			event,
+			"model_price_reset",
+			"model_price",
+			"model-price:audit-model",
+			"192.0.2.1",
+			"succeeded",
+			status,
+			"",
+			"info",
+		)
+	})
+
+	t.Run("upsert rejected", func(t *testing.T) {
+		fixture := newServiceFixture(t)
+		event, status := runMutationAuditRequest(
+			t,
+			fixture,
+			mutationAuditRequest{
+				method: http.MethodPut,
+				path:   "/api/model-prices",
+				body: `{"pattern":"","prices":{` +
+					`"uncached_input":1,"cache_read":null,` +
+					`"cache_write_5m":null,` +
+					`"cache_write_1h":null,"output":2}}`,
+			},
+		)
+		assertMutationEvent(
+			t,
+			event,
+			"model_price_upsert",
+			"model_price",
+			"model-price:unknown",
+			"192.0.2.1",
+			"rejected",
+			status,
+			app_errors.ErrValidation.Code,
+			"warning",
+		)
+	})
+
+	t.Run("reset rejected", func(t *testing.T) {
+		fixture := newServiceFixture(t)
+		var logs bytes.Buffer
+		_, engine := newMutationAuditRouteServer(t, fixture, &logs)
+		recorder := httptest.NewRecorder()
+		engine.ServeHTTP(
+			recorder,
+			newMutationAuditHTTPRequest(mutationAuditRequest{
+				method: http.MethodDelete,
+				path: "/api/model-prices?" +
+					"pattern=raw-query-secret&extra=value",
+			}),
+		)
+		assertMutationEvent(
+			t,
+			oneMutationAuditEvent(t, logs.Bytes()),
+			"model_price_reset",
+			"model_price",
+			"model-price:unknown",
+			"192.0.2.1",
+			"rejected",
+			recorder.Code,
+			app_errors.ErrBadRequest.Code,
+			"warning",
+		)
+		assertControlLogExcludes(
+			t,
+			logs.String(),
+			"raw-query-secret",
+			"extra=value",
+		)
+	})
+
+	t.Run("upsert database", func(t *testing.T) {
+		fixture := newServiceFixture(t)
+		closeMutationAuditDB(t, fixture)
+		event, status := runMutationAuditRequest(
+			t,
+			fixture,
+			mutationAuditRequest{
+				method: http.MethodPut,
+				path:   "/api/model-prices",
+				body:   upsertBody,
+			},
+		)
+		assertMutationEvent(
+			t,
+			event,
+			"model_price_upsert",
+			"model_price",
+			"model-price:audit-model",
+			"192.0.2.1",
+			"failed",
+			status,
+			app_errors.ErrDatabase.Code,
+			"warning",
+		)
+	})
+
+	t.Run("reset database", func(t *testing.T) {
+		fixture := newServiceFixture(t)
+		seedAuditModelPrice(t, fixture)
+		closeMutationAuditDB(t, fixture)
+		event, status := runMutationAuditRequest(
+			t,
+			fixture,
+			mutationAuditRequest{
+				method: http.MethodDelete,
+				path:   "/api/model-prices?pattern=audit-model",
+			},
+		)
+		assertMutationEvent(
+			t,
+			event,
+			"model_price_reset",
+			"model_price",
+			"model-price:audit-model",
+			"192.0.2.1",
+			"failed",
+			status,
+			app_errors.ErrDatabase.Code,
+			"warning",
+		)
+	})
+}
+
+func seedAuditModelPrice(t *testing.T, fixture serviceFixture) {
+	t.Helper()
+	uncachedInput := 1.0
+	output := 2.0
+	if err := fixture.service.UpsertModelPrice(
+		t.Context(),
+		ModelPriceInput{
+			Pattern:       "audit-model",
+			UncachedInput: &uncachedInput,
+			Output:        &output,
+		},
+	); err != nil {
+		t.Fatalf("seed model price: %v", err)
+	}
+	if rule, ok := fixture.priceRuntime.Load().Match("audit-model"); !ok ||
+		rule.Source != pricing.SourceUser {
+		t.Fatalf("seeded model price runtime = %#v, %t", rule, ok)
 	}
 }
 

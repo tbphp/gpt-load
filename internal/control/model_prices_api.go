@@ -141,6 +141,12 @@ func (s *Server) handleUpsertModelPrice(c *gin.Context) {
 		writeServiceError(c, "upsert_model_price", mapControlJSONError(err))
 		return
 	}
+	if pricing.ValidatePattern(request.input.Pattern) == nil {
+		setMutationResourceLocator(
+			c,
+			"model-price:"+request.input.Pattern,
+		)
+	}
 	if err := s.service.UpsertModelPrice(c.Request.Context(), request.input); err != nil {
 		writeServiceError(c, "upsert_model_price", err)
 		return
@@ -154,6 +160,7 @@ func (s *Server) handleResetModelPrice(c *gin.Context) {
 		writeServiceError(c, "reset_model_price", apiErr)
 		return
 	}
+	setMutationResourceLocator(c, "model-price:"+pattern)
 	if err := s.service.ResetModelPrice(c.Request.Context(), pattern); err != nil {
 		writeServiceError(c, "reset_model_price", err)
 		return
