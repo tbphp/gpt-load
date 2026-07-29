@@ -1,11 +1,11 @@
 # GPT-Load 2.0 accessibility evidence matrix
 
-This matrix separates reproducible automated checks from genuine human browser and assistive-technology evidence. It is bound to the exact local merge commit `06ec29fddee966828bde604d9a989e31b98ffdb8`.
+This matrix separates reproducible automated checks from genuine human browser and assistive-technology evidence. It is bound to the exact production commit `feda4d292e258ae455bb52c36c010d745eb23f84`.
 
 | Environment           | Mode                      |   Result | Version                                         | Evidence                                                            |
 | --------------------- | ------------------------- | -------: | ----------------------------------------------- | ------------------------------------------------------------------- |
-| Linux arm64 Chromium  | Automated                 |     PASS | Ubuntu 24.04; Chromium 149.0.7827.55 (rev 1228) | [runner evidence](artifacts/visual-runner-functional-chromium.json) |
-| Linux arm64 WebKit    | Automated                 |     PASS | Ubuntu 24.04; WebKit 26.5 (rev 2311)            | [runner evidence](artifacts/visual-runner-functional-webkit.json)   |
+| Linux arm64 Chromium  | Automated                 |     PASS | Ubuntu 24.04; Chromium 151.0.7922.34 (rev 1234) | [runner evidence](artifacts/visual-runner-functional-chromium.json) |
+| Linux arm64 WebKit    | Automated                 |     PASS | Ubuntu 24.04; WebKit 26.5 (rev 2336)            | [runner evidence](artifacts/visual-runner-functional-webkit.json)   |
 | macOS Chrome          | Human geometry/functional |  NOT RUN | macOS 26.6; Chrome 150.0.7871.187               | No human session                                                    |
 | macOS Safari          | Human geometry/functional |  NOT RUN | macOS 26.6; Safari 26.6                         | No human session                                                    |
 | Safari + VoiceOver    | Human AT                  |  NOT RUN | macOS/Safari 26.6; built-in VoiceOver           | No human AT session                                                 |

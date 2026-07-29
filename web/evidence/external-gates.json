@@ -1,22 +1,23 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-07-29T00:15:10Z",
-  "audit_source_sha": "3d7496579d373589da3265395f35af096f75d97e",
+  "generated_at": "2026-07-29T05:10:37Z",
+  "audit_source_sha": "feda4d292e258ae455bb52c36c010d745eb23f84",
   "phase5_delivery_head": "06ec29fddee966828bde604d9a989e31b98ffdb8",
+  "remediation_production_head": "feda4d292e258ae455bb52c36c010d745eb23f84",
   "audit_refresh": {
-    "checked_at": "2026-07-29T00:15:10Z",
+    "checked_at": "2026-07-29T05:10:37Z",
     "feature_head": "c1874b80e0792d47bb04194348d144777077b0a7",
     "local_merge_head": "06ec29fddee966828bde604d9a989e31b98ffdb8",
-    "remote_v2_sha": "3744cd5a4ebe8ec06f9c9a8f550f74737829a562",
-    "feature_visible_on_github": false,
-    "local_merge_visible_on_github": false,
-    "notes": "The original external audit remains bound to 3d74965. A read-only GitHub API refresh confirmed that neither final local SHA is public and origin/v2 is unchanged."
+    "remote_v2_sha": "a6a25a571ba3e1cce996ea57d402d12c46b2ff5c",
+    "feature_visible_on_github": true,
+    "local_merge_visible_on_github": true,
+    "notes": "A read-only GitHub refresh confirmed that the Phase 3–5 feature and merge commits are public ancestors of origin/v2. The exact current remote v2 SHA completed V2 CI successfully. The remediation production head had not been pushed when this audit snapshot was recorded, so its remote CI is not claimed."
   },
   "repository": {
     "name": "tbphp/gpt-load",
     "url": "https://github.com/tbphp/gpt-load",
     "default_branch": "main",
-    "remote_v2_sha": "3744cd5a4ebe8ec06f9c9a8f550f74737829a562",
+    "remote_v2_sha": "a6a25a571ba3e1cce996ea57d402d12c46b2ff5c",
     "remote_v2_protected": false,
     "release_policy": {
       "trigger": "push tag v2.*",
@@ -30,44 +31,48 @@
   "gates": [
     {
       "id": "feature-head-visible-on-github",
-      "status": "NOT RUN",
+      "status": "PASS",
       "expected_sha": "c1874b80e0792d47bb04194348d144777077b0a7",
-      "evidence": "The GitHub commits API did not find the local feature head.",
-      "reason": "The feature branch has intentionally not been pushed."
+      "evidence": "The GitHub commits API returned the exact feature commit, now reachable through the pushed v2 history."
     },
     {
       "id": "exact-feature-sha-ci",
       "status": "NOT RUN",
       "expected_sha": "c1874b80e0792d47bb04194348d144777077b0a7",
-      "reason": "An unpushed SHA cannot have GitHub Actions runs or checks."
+      "reason": "The commit is public, but GitHub Actions has no run whose head SHA is this exact feature commit."
     },
     {
       "id": "exact-local-merge-sha-ci",
       "status": "NOT RUN",
       "expected_sha": "06ec29fddee966828bde604d9a989e31b98ffdb8",
-      "evidence": "The GitHub commits API did not find the local merge head.",
-      "reason": "The local v2 merge has intentionally not been pushed."
+      "evidence": "The GitHub commits API returned the exact merge commit.",
+      "reason": "The commit is public, but GitHub Actions has no run whose head SHA is this exact merge commit."
     },
     {
       "id": "remote-v2-ci",
-      "status": "FAIL",
-      "tested_sha": "3744cd5a4ebe8ec06f9c9a8f550f74737829a562",
+      "status": "PASS",
+      "tested_sha": "a6a25a571ba3e1cce996ea57d402d12c46b2ff5c",
       "workflow": "V2 CI",
-      "run_id": 30382845830,
-      "url": "https://github.com/tbphp/gpt-load/actions/runs/30382845830",
+      "run_id": 30418344812,
+      "url": "https://github.com/tbphp/gpt-load/actions/runs/30418344812",
       "jobs": [
         {
           "name": "test",
           "status": "PASS",
-          "url": "https://github.com/tbphp/gpt-load/actions/runs/30382845830/job/90354693490"
+          "url": "https://github.com/tbphp/gpt-load/actions/runs/30418344812/job/90469606800"
         },
         {
           "name": "windows-encryption-acl",
-          "status": "FAIL",
-          "url": "https://github.com/tbphp/gpt-load/actions/runs/30382845830/job/90354693593",
-          "failure": "TestAutoMigrateUpgradesV1AccessKeyWithBackups: backup permissions = 666, want 600"
+          "status": "PASS",
+          "url": "https://github.com/tbphp/gpt-load/actions/runs/30418344812/job/90469606749"
         }
       ]
+    },
+    {
+      "id": "remediation-production-head-ci",
+      "status": "NOT RUN",
+      "expected_sha": "feda4d292e258ae455bb52c36c010d745eb23f84",
+      "reason": "The remediation production head had not been pushed at audit time. GitHub Actions after the authorized push is the final source of truth."
     },
     {
       "id": "windows-acl-prior-success",
@@ -81,13 +86,13 @@
     },
     {
       "id": "windows-backup-permission-remediation",
-      "status": "EXTERNAL",
+      "status": "PASS",
       "local_commit": "3d7496579d373589da3265395f35af096f75d97e",
-      "local_evidence": [
-        "The focused migration backup test and complete internal/storage package passed on macOS.",
-        "The Windows internal/storage test binary cross-compiled successfully."
-      ],
-      "reason": "The invalid POSIX mode assertion was replaced by an exact protected current-user Windows DACL assertion, but no Windows runner has executed this local commit."
+      "tested_sha": "a6a25a571ba3e1cce996ea57d402d12c46b2ff5c",
+      "workflow": "V2 CI",
+      "run_id": 30418344812,
+      "url": "https://github.com/tbphp/gpt-load/actions/runs/30418344812/job/90469606749",
+      "result": "The Windows runner passed the secure-file and storage ACL test job with the remediation commit in its history."
     },
     {
       "id": "v2-release-tag",

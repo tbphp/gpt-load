@@ -1,174 +1,76 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-07-29T00:11:19Z",
-  "evidence_head": "06ec29fddee966828bde604d9a989e31b98ffdb8",
-  "delivery_lineage": {
-    "feature_head": "c1874b80e0792d47bb04194348d144777077b0a7",
-    "local_merge_head": "06ec29fddee966828bde604d9a989e31b98ffdb8",
-    "feature_tree": "41fae9c4358e83f46e4dc61ecc81c06ce019640f",
-    "merge_tree": "41fae9c4358e83f46e4dc61ecc81c06ce019640f",
-    "feature_to_merge_diff": "empty"
+  "generated_at": "2026-07-29T05:09:41Z",
+  "evidence_head": "feda4d292e258ae455bb52c36c010d745eb23f84",
+  "binding": {
+    "meaning": "evidence_head is the exact production commit tested before this evidence-only commit",
+    "source_dirty": false,
+    "final_evidence_commit_scope": "web/evidence/**"
   },
   "environment": {
     "os": "macOS 26.6 build 25G72",
     "architecture": "arm64",
-    "go": "go1.25.12 darwin/arm64",
+    "go": "go1.26.5 darwin/arm64",
     "node": "24.18.0",
-    "pnpm": "11.15.1",
+    "pnpm": "11.17.0",
     "docker": {
       "client": "29.4.0",
       "server": "29.4.0",
       "server_os": "linux",
-      "server_architecture": "arm64",
-      "driver": "orbstack"
+      "server_architecture": "arm64"
     }
   },
   "gates": [
     {
-      "id": "phase5-feature-head-verification",
+      "id": "exact-production-head-verification",
       "status": "PASS",
-      "tested_sha": "c1874b80e0792d47bb04194348d144777077b0a7",
+      "tested_sha": "feda4d292e258ae455bb52c36c010d745eb23f84",
       "commands": [
-        "formatted_files=\"$(gofmt -l .)\" && test -z \"${formatted_files}\"",
+        "formatted_files=\"$(gofmt -l .)\" && test -z \"$formatted_files\"",
         "go mod tidy -diff",
         "go vet ./...",
         "make web-check",
         "go build -o gpt-load .",
         "corepack pnpm --dir web run test:e2e",
         "go test -race -count=1 . ./internal/...",
-        "corepack pnpm --dir web run check:bundle",
-        "corepack pnpm --dir web run check:visual",
-        "corepack pnpm --dir web run visual:run -- --verify",
         "git diff --check"
       ],
       "result": {
-        "web_unit": "142 files, 1033 tests passed",
-        "browser_e2e": "26 tests passed",
-        "go_race": "all root and internal packages passed",
-        "production_build": "passed",
-        "bundle_failures": [],
-        "runner_execution_verified": true
-      },
-      "notes": "Fresh output was retained before the local merge. Release-smoke and container gates remain bound to 7196b1b because c1874b8 does not modify their scripts, container contract, or runtime implementation."
-    },
-    {
-      "id": "phase5-local-merge-verification",
-      "status": "PASS",
-      "tested_sha": "06ec29fddee966828bde604d9a989e31b98ffdb8",
-      "commands": [
-        "formatted_files=\"$(gofmt -l .)\" && test -z \"${formatted_files}\"",
-        "go mod tidy -diff",
-        "go vet ./...",
-        "make web-check",
-        "go build -o gpt-load .",
-        "corepack pnpm --dir web run test:e2e",
-        "go test -race -count=1 . ./internal/...",
-        "corepack pnpm --dir web run check:bundle",
-        "corepack pnpm --dir web run check:visual",
-        "corepack pnpm --dir web run visual:run -- --verify",
-        "corepack pnpm --dir web run visual:run -- --browser=chromium --functional",
-        "corepack pnpm --dir web run visual:run -- --browser=webkit --functional",
-        "git diff --check"
-      ],
-      "result": {
-        "web_unit": "142 files, 1033 tests passed",
-        "browser_e2e": "26 tests passed",
-        "go_race": "all root and internal packages passed",
-        "production_build": "passed",
-        "bundle_failures": [],
-        "runner_execution_verified": true,
-        "pinned_chromium_functional": "8 tests passed",
-        "pinned_webkit_functional": "8 tests passed"
-      },
-      "notes": "The feature and merge commits have identical Git trees. Chromium and WebKit functional evidence was regenerated on the clean exact merge SHA during review remediation."
-    },
-    {
-      "id": "full-repository-gates",
-      "status": "PASS",
-      "tested_sha": "22d9b2435a54f09a422e2a5b6ddcd4ba6d3f40b7",
-      "commands": [
-        "formatted_files=\"$(gofmt -l .)\" && test -z \"${formatted_files}\"",
-        "go mod tidy -diff",
-        "go vet ./...",
-        "make web-check",
-        "go build -o gpt-load .",
-        "corepack pnpm --dir web exec playwright install --with-deps chromium webkit",
-        "corepack pnpm --dir web run test:e2e",
-        "go test -race -count=1 . ./internal/...",
-        "git diff --check"
-      ],
-      "result": {
-        "web_unit": "142 files, 1033 tests passed",
-        "browser_e2e": "26 tests passed",
-        "go_race": "all root and internal packages passed",
-        "production_build": "passed"
-      },
-      "notes": "The later 7196b1b commit changes only release-smoke scripts and their repository contract test. Its affected full gates are recorded separately."
-    },
-    {
-      "id": "release-smoke-regression-gates",
-      "status": "PASS",
-      "tested_sha": "7196b1bf50be8550ec78b4a743a1032b0c3a5c3d",
-      "commands": [
-        "bash -n .github/scripts/release-native-smoke.sh",
-        "bash -n .github/scripts/release-docker-smoke.sh",
-        "go test ./internal/webui -count=1",
-        "go vet ./...",
-        "git diff --check"
-      ],
-      "result": {
-        "internal_webui": "passed",
+        "gofmt": "passed",
+        "go_mod_tidy_diff": "passed",
         "go_vet": "passed",
-        "shell_syntax": "passed",
+        "web_unit": "142 files, 1035 tests passed",
+        "web_lint_format_typecheck_build": "passed",
+        "browser_e2e": "26 tests passed",
+        "go_race": "all root and internal packages passed",
+        "production_build": "passed",
         "diff_check": "passed"
       }
     },
     {
       "id": "bundle-budget",
       "status": "PASS",
-      "tested_sha": "06ec29fddee966828bde604d9a989e31b98ffdb8",
+      "tested_sha": "feda4d292e258ae455bb52c36c010d745eb23f84",
       "command": "corepack pnpm --dir web run check:bundle",
       "result": {
         "failures": [],
         "home_initial_javascript": {
-          "raw": 412732,
-          "gzip": 143296,
-          "brotli": 127173
+          "raw": 413041,
+          "gzip": 143636,
+          "brotli": 127374
         },
         "home_initial_css": {
           "raw": 40436,
-          "gzip": 10136,
-          "brotli": 8695
+          "gzip": 10141,
+          "brotli": 8706
         }
       },
-      "regression_approval": {
-        "status": "ACCEPTED_WITHIN_APPROVED_PHASE_3_SCOPE",
-        "comparison_sha": "f27b4a4d1174b52ef143123e2b08ab8431f56702",
-        "home_initial_javascript_gzip": {
-          "before": 131738,
-          "after": 143296,
-          "delta_bytes": 11558,
-          "delta_ratio": 0.08773474623874661
-        },
-        "home_initial_javascript_brotli": {
-          "before": 117017,
-          "after": 127173,
-          "delta_bytes": 10156,
-          "delta_ratio": 0.08679080817317142
-        },
-        "home_initial_css_gzip": {
-          "before": 8178,
-          "after": 10136,
-          "delta_bytes": 1958,
-          "delta_ratio": 0.23942284177060405
-        },
-        "reason": "The increase comes from the approved Phase 3 Home native-protocol snippets, operational overview, semantic presenters, and responsive first-view composition. These are immediately visible Home content; splitting them would add a first-view network waterfall. All compressed values remain below the frozen absolute ceilings, so the measured regression is accepted and locked as the go-forward baseline."
-      }
+      "notes": "The approved Home baseline regression is documented in web/bundle-budget.lock.json. The exact-head values remain below the frozen absolute ceilings."
     },
     {
       "id": "pinned-visual-runner",
       "status": "PASS",
-      "tested_sha": "06ec29fddee966828bde604d9a989e31b98ffdb8",
+      "tested_sha": "feda4d292e258ae455bb52c36c010d745eb23f84",
       "commands": [
         "corepack pnpm --dir web run check:visual",
         "corepack pnpm --dir web run visual:run -- --verify"
@@ -176,145 +78,90 @@
       "result": {
         "runner_execution_verified": true,
         "platform": "linux/arm64",
-        "platform_digest": "sha256:824f1a789072e648c62541c2cfa4479c4061a290d5c27766d67dc1dcbc19b321",
-        "lock_sha256": "1057d8cb6a6ab7a3a1f4c8a371a1c4cf6c0fd9723938e42026e8ec7beb68a68a",
+        "platform_digest": "sha256:5361940f845a5077926d54746122f7b68a121cc2aa27df6241087b774203fc44",
+        "lock_sha256": "fa4675051866e77d984dde8bf826c6fac100aa1d0b916a634f88699285bd3ccb",
         "pixel_baseline_enabled": false
       },
-      "notes": "Runner execution passed. Pixel activation remains disabled because the generated candidate has not received human approval."
+      "notes": "Runner verification passed. Candidate generation and human pixel approval remain intentionally deferred."
     },
     {
-      "id": "accessibility-evidence-validator",
+      "id": "accessibility-functional-evidence",
       "status": "PASS",
-      "tested_sha": "06ec29fddee966828bde604d9a989e31b98ffdb8",
-      "command": "corepack pnpm --dir web run check:a11y-evidence",
+      "tested_sha": "feda4d292e258ae455bb52c36c010d745eb23f84",
+      "commands": [
+        "corepack pnpm --dir web run visual:run -- --browser=chromium --functional",
+        "corepack pnpm --dir web run visual:run -- --browser=webkit --functional",
+        "corepack pnpm --dir web run check:a11y-evidence"
+      ],
       "result": {
-        "matrix_source_sha": "06ec29fddee966828bde604d9a989e31b98ffdb8",
-        "rows": 6,
+        "pinned_chromium": "8 tests passed",
+        "pinned_webkit": "8 tests passed",
+        "matrix_rows": 6,
         "automated_pass": ["linux-chromium-automated", "linux-webkit-automated"]
-      }
-    },
-    {
-      "id": "five-native-builds-and-checksums",
-      "status": "PASS",
-      "tested_sha": "22d9b2435a54f09a422e2a5b6ddcd4ba6d3f40b7",
-      "release_version": "v2.0.0-local-phase5",
+      },
       "artifacts": [
         {
-          "name": "gpt-load-linux-amd64",
-          "sha256": "a367529a7b41d354a13fabff3b0babca0ab126c6a5e7c38e669e7cafc39477cf"
+          "path": "web/evidence/artifacts/visual-runner-functional-chromium.json",
+          "sha256": "f907dc28603d4ed59a6dc5a52b6f35f2e652f6adaa3e34c2b8e066c941258a76"
         },
         {
-          "name": "gpt-load-linux-arm64",
-          "sha256": "51820dffed057720acc077b6f7afbf7de5e54248979240c6aec2113fa90a29c4"
-        },
-        {
-          "name": "gpt-load-macos-amd64",
-          "sha256": "79ec74dba2c5c68d56ade11d16e17f64a6aaf60a546e7bd6a6aa9aa12771d0f0"
-        },
-        {
-          "name": "gpt-load-macos-arm64",
-          "sha256": "d594619287002337ce129c4d0f90513ec14a741d88bbe8b34560631d42cf5adb"
-        },
-        {
-          "name": "gpt-load-windows-amd64.exe",
-          "sha256": "9bdb197450f0bc2f6a4c31c769222fc8220bfe85b79496e18c0186ab02889cef"
-        }
-      ],
-      "notes": "All five binaries were built and matched the generated checksum manifest. Cross-platform build success is not runtime-smoke evidence for the other operating systems."
-    },
-    {
-      "id": "native-runtime-smoke-macos-arm64",
-      "status": "PASS",
-      "tested_sha": "7196b1bf50be8550ec78b4a743a1032b0c3a5c3d",
-      "command": ".github/scripts/release-native-smoke.sh",
-      "binary_source_sha": "22d9b2435a54f09a422e2a5b6ddcd4ba6d3f40b7",
-      "result": {
-        "version": "v2.0.0-local-phase5",
-        "managed_permissions": "passed",
-        "embedded_webui": "passed",
-        "authenticated_read_and_idempotent_write": "passed",
-        "graceful_shutdown": "passed",
-        "checksum_unchanged": "passed"
-      }
-    },
-    {
-      "id": "native-runtime-smoke-linux-amd64",
-      "status": "NOT RUN",
-      "reason": "The local host is macOS arm64; build and checksum evidence exists, but native Linux runtime evidence requires a Linux runner."
-    },
-    {
-      "id": "native-runtime-smoke-linux-arm64",
-      "status": "NOT RUN",
-      "reason": "The local host is macOS arm64; build and checksum evidence exists, but native Linux runtime evidence requires a Linux runner."
-    },
-    {
-      "id": "native-runtime-smoke-macos-amd64",
-      "status": "NOT RUN",
-      "reason": "The local host is arm64 and no Rosetta runtime smoke was claimed."
-    },
-    {
-      "id": "native-runtime-smoke-windows-amd64",
-      "status": "EXTERNAL",
-      "reason": "A Windows runner and PowerShell runtime were unavailable. The PowerShell script was contract-tested but not executed."
-    },
-    {
-      "id": "docker-release-smoke",
-      "status": "PASS",
-      "tested_sha": "7196b1bf50be8550ec78b4a743a1032b0c3a5c3d",
-      "command": ".github/scripts/release-docker-smoke.sh",
-      "result": {
-        "non_root_user": "10001:10001",
-        "managed_volume_persistence": "passed",
-        "generated_secrets": "passed",
-        "authenticated_control_writes": "passed",
-        "data_plane_usage": "passed",
-        "restart": "passed",
-        "graceful_shutdown": "passed",
-        "secret_free_logs": "passed"
-      }
-    },
-    {
-      "id": "docker-separate-platform-builds",
-      "status": "PASS",
-      "tested_sha": "7196b1bf50be8550ec78b4a743a1032b0c3a5c3d",
-      "images": [
-        {
-          "platform": "linux/amd64",
-          "image_id": "sha256:2e43ee4853d568cf7d190527226e71804c9476fdcffd0d0439c24c2b593e5d17",
-          "user": "10001:10001"
-        },
-        {
-          "platform": "linux/arm64",
-          "image_id": "sha256:f2c195caa0fac27ff4f5877ae90290e7dfbfb6e4eef55c7c5fe40dc9d159b19e",
-          "user": "10001:10001"
+          "path": "web/evidence/artifacts/visual-runner-functional-webkit.json",
+          "sha256": "e27e1da64875a857f1e8ba446230c93de8143beb5b295f116e68a1bd02e57bdc"
         }
       ]
     },
     {
-      "id": "docker-multi-platform-oci-manifest",
-      "status": "NOT RUN",
-      "reason": "The local OrbStack docker driver reported that the OCI exporter is unsupported. Separate amd64 and arm64 image builds passed, but that does not prove a combined manifest."
+      "id": "release-contract-and-runtime-smoke",
+      "status": "PASS",
+      "tested_sha": "feda4d292e258ae455bb52c36c010d745eb23f84",
+      "commands": [
+        "bash -n .github/scripts/release-native-smoke.sh",
+        "bash -n .github/scripts/release-docker-smoke.sh",
+        "go test ./internal/webui -count=1",
+        ".github/scripts/release-native-smoke.sh",
+        ".github/scripts/release-docker-smoke.sh"
+      ],
+      "result": {
+        "shell_syntax": "passed",
+        "internal_webui": "passed",
+        "native_macos_arm64": {
+          "version": "2.0.0-dev",
+          "managed_permissions": "passed",
+          "embedded_webui": "passed",
+          "authenticated_read_and_idempotent_write": "passed",
+          "graceful_shutdown": "passed",
+          "checksum_unchanged": "passed"
+        },
+        "docker_linux_arm64": {
+          "build_and_scan": "passed",
+          "non_root_user": "passed",
+          "managed_volume_persistence": "passed",
+          "authenticated_control_writes": "passed",
+          "data_plane_usage": "passed",
+          "restart_and_graceful_shutdown": "passed",
+          "secret_free_logs": "passed"
+        }
+      }
     },
     {
-      "id": "compose-render-contract",
-      "status": "PASS",
-      "tested_sha": "7196b1bf50be8550ec78b4a743a1032b0c3a5c3d",
-      "result": {
-        "image": "ghcr.io/tbphp/gpt-load:2",
-        "host_publish": "127.0.0.1:3001",
-        "container_host": "0.0.0.0",
-        "container_data_dir": "/app/data",
-        "named_volume": "gpt-load-data",
-        "stop_grace_period": "15s"
-      },
-      "notes": "Rendered with a temporary credential-free .env because the repository intentionally ignores local .env files; the temporary file was removed from the worktree."
+      "id": "powershell-native-smoke-parse",
+      "status": "NOT RUN",
+      "reason": "pwsh is unavailable on the local macOS host. The PowerShell script remains covered by repository contract tests; actual execution requires a Windows or PowerShell runner."
+    },
+    {
+      "id": "human-pixel-approval",
+      "status": "NOT RUN",
+      "reason": "The user deferred candidate generation and human pixel approval; the canonical pixel baseline remains disabled."
+    },
+    {
+      "id": "manual-assistive-technology",
+      "status": "EXTERNAL",
+      "reason": "Safari plus VoiceOver and Windows Chrome plus NVDA require genuine human sessions and were explicitly deferred."
     }
   ],
   "boundaries": [
-    "No push, tag, GitHub Release, or registry mutation was performed.",
-    "Candidate pixels exist, but no human pixel approval was performed and the canonical baseline remains disabled.",
-    "Safari plus VoiceOver and Windows plus NVDA remain manual or external gates.",
-    "A local Docker build is not registry pull or public multi-architecture manifest evidence.",
-    "Remote exact-SHA CI, release assets, registry runtime, real-provider flows, and migration rehearsal are audited separately."
+    "This file records local pre-verification on the exact production commit; GitHub Actions is the final source of truth after push.",
+    "No tag, GitHub Release or registry write was performed.",
+    "Real Provider flows, migration rehearsal, public release artifacts and public registry runtime remain outside this delivery."
   ]
 }
