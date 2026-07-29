@@ -64,14 +64,70 @@ func (s *Server) RegisterRoutes(engine *gin.Engine) {
 	api.GET("/system/info", s.handleSystemInfo)
 	api.GET("/groups", s.handleListGroups)
 	api.GET("/groups/:group_id", s.handleGetGroup)
-	api.POST("/groups", s.handleCreateGroup)
-	api.PUT("/groups/:group_id", s.handleUpdateGroup)
-	api.PUT("/groups/:group_id/models", s.handleUpdateGroupModels)
-	api.DELETE("/groups/:group_id", s.handleDeleteGroup)
+	api.POST(
+		"/groups",
+		s.auditMutation(newMutationDescriptor(
+			"group_create",
+			"group",
+			staticMutationLocator("new"),
+		)),
+		s.handleCreateGroup,
+	)
+	api.PUT(
+		"/groups/:group_id",
+		s.auditMutation(newMutationDescriptor(
+			"group_update",
+			"group",
+			groupMutationLocator,
+		)),
+		s.handleUpdateGroup,
+	)
+	api.PUT(
+		"/groups/:group_id/models",
+		s.auditMutation(newMutationDescriptor(
+			"group_update_models",
+			"group",
+			groupMutationLocator,
+		)),
+		s.handleUpdateGroupModels,
+	)
+	api.DELETE(
+		"/groups/:group_id",
+		s.auditMutation(newMutationDescriptor(
+			"group_delete",
+			"group",
+			groupMutationLocator,
+		)),
+		s.handleDeleteGroup,
+	)
 	api.GET("/groups/:group_id/keys", s.handleListGroupKeys)
-	api.PUT("/groups/:group_id/keys/:key_id", s.handleUpdateGroupKey)
-	api.DELETE("/groups/:group_id/keys/:key_id", s.handleDeleteGroupKey)
-	api.POST("/groups/:group_id/keys/import", s.handleImportGroupKeys)
+	api.PUT(
+		"/groups/:group_id/keys/:key_id",
+		s.auditMutation(newMutationDescriptor(
+			"group_key_update",
+			"group_key",
+			groupKeyMutationLocator,
+		)),
+		s.handleUpdateGroupKey,
+	)
+	api.DELETE(
+		"/groups/:group_id/keys/:key_id",
+		s.auditMutation(newMutationDescriptor(
+			"group_key_delete",
+			"group_key",
+			groupKeyMutationLocator,
+		)),
+		s.handleDeleteGroupKey,
+	)
+	api.POST(
+		"/groups/:group_id/keys/import",
+		s.auditMutation(newMutationDescriptor(
+			"group_key_import",
+			"group_key",
+			groupKeysMutationLocator,
+		)),
+		s.handleImportGroupKeys,
+	)
 	api.POST("/groups/:group_id/models/discover", s.handleDiscoverGroupModels)
 	api.POST("/models/discover", s.handleDiscoverModels)
 	api.POST("/access-keys", s.handleCreateAccessKey)
@@ -163,6 +219,10 @@ func (s *Server) handleCreateGroup(c *gin.Context) {
 		writeServiceError(c, "create_group", err)
 		return
 	}
+	setMutationResourceLocator(
+		c,
+		fmt.Sprintf("group:%d", result.GroupID),
+	)
 	response.SuccessI18n(c, "common.success", result)
 }
 
