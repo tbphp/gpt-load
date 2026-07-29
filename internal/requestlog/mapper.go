@@ -28,9 +28,9 @@ func mapEvent(
 		attempts = append(attempts, Attempt{
 			Sequence:        attempt.Sequence,
 			GroupID:         attempt.GroupID,
-			GroupName:       attempt.GroupName,
+			GroupName:       redactIdentityValue(redactor, attempt.GroupName),
 			KeyID:           attempt.KeyID,
-			UpstreamModel:   projectModel(attempt.UpstreamModel),
+			UpstreamModel:   redactIdentityValue(redactor, projectModel(attempt.UpstreamModel)),
 			StatusCode:      attempt.StatusCode,
 			DurationMs:      attempt.DurationMs,
 			FailureCategory: attempt.FailureCategory,
@@ -60,8 +60,8 @@ func mapEvent(
 		AccessKeyID:        event.AccessKeyID,
 		GroupID:            event.Usage.GroupID,
 		Protocol:           string(event.Protocol),
-		ClientModel:        projectModel(event.ClientModel),
-		UpstreamModel:      projectModel(event.UpstreamModel),
+		ClientModel:        redactIdentityValue(redactor, projectModel(event.ClientModel)),
+		UpstreamModel:      redactIdentityValue(redactor, projectModel(event.UpstreamModel)),
 		Status:             string(event.Status),
 		StatusCode:         event.StatusCode,
 		DurationMs:         event.DurationMs,
@@ -78,6 +78,13 @@ func mapEvent(
 		CostState:          string(quote.State),
 		Attempts:           models.JSON(encodedAttempts),
 	}
+}
+
+func redactIdentityValue(redactor *redact.Redactor, value string) string {
+	if redactor == nil {
+		return value
+	}
+	return redactor.String(value)
 }
 
 func projectModel(model string) string {

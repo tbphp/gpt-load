@@ -25,13 +25,7 @@ func projectProcessLog(
 
 	row := mapEvent(redactor, event, prices)
 	groupID, keyID, groupName := attributedAttempt(event)
-	clientModel := row.ClientModel
-	upstreamModel := row.UpstreamModel
-	if redactor != nil {
-		clientModel = redactor.String(clientModel)
-		upstreamModel = redactor.String(upstreamModel)
-		groupName = redactor.String(groupName)
-	}
+	groupName = redactIdentityValue(redactor, groupName)
 	retryCount := 0
 	for _, attempt := range event.Attempts {
 		if attempt.WillRetry {
@@ -68,8 +62,8 @@ func projectProcessLog(
 		"status_code":           row.StatusCode,
 		"protocol":              row.Protocol,
 		"access_key_id":         row.AccessKeyID,
-		"client_model":          clientModel,
-		"upstream_model":        upstreamModel,
+		"client_model":          row.ClientModel,
+		"upstream_model":        row.UpstreamModel,
 		"group_id":              groupID,
 		"key_id":                keyID,
 		"group_name":            groupName,

@@ -404,6 +404,59 @@ func TestProjectProcessLogMatchesDurableProjection(t *testing.T) {
 	}
 }
 
+func TestProcessAndDurableProjectionsRedactSensitiveIdentityFieldsConsistently(
+	t *testing.T,
+) {
+	event := testEvent("projection-sensitive-identity")
+	event.ClientModel = "client/sk-client-model-secret-0001"
+	event.UpstreamModel = "upstream/sk-upstream-model-secret-0002"
+	event.Attempts = []telemetry.Attempt{{
+		Sequence:      3,
+		GroupID:       11,
+		GroupName:     "group/sk-group-name-secret-0003",
+		KeyID:         12,
+		UpstreamModel: "attempt/sk-attempt-model-secret-0004",
+	}}
+	event.Usage = telemetry.UsageObservation{
+		GroupID: 11, KeyID: 12, AttemptSequence: 3,
+		Result: usage.Result{State: usage.StateNotApplicable},
+	}
+
+	redactor := redact.New()
+	row := mapEvent(redactor, event, nil)
+	var attempts []Attempt
+	if err := json.Unmarshal(row.Attempts, &attempts); err != nil {
+		t.Fatalf("unmarshal durable attempts: %v", err)
+	}
+	if row.ClientModel != "client/[REDACTED]" ||
+		row.UpstreamModel != "upstream/[REDACTED]" ||
+		len(attempts) != 1 ||
+		attempts[0].GroupName != "group/[REDACTED]" ||
+		attempts[0].UpstreamModel != "attempt/[REDACTED]" {
+		t.Fatalf(
+			"durable sensitive identity projection = %q/%q/%+v",
+			row.ClientModel,
+			row.UpstreamModel,
+			attempts,
+		)
+	}
+
+	_, fields, ok := projectProcessLog(redactor, event, nil)
+	if !ok {
+		t.Fatal("process projection skipped")
+	}
+	if fields["client_model"] != row.ClientModel ||
+		fields["upstream_model"] != row.UpstreamModel ||
+		fields["group_name"] != attempts[0].GroupName {
+		t.Fatalf(
+			"process/durable identity projection mismatch: fields=%#v row=%+v attempts=%+v",
+			fields,
+			row,
+			attempts,
+		)
+	}
+}
+
 func assertProcessFields(
 	t *testing.T,
 	got logrus.Fields,
