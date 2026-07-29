@@ -16,6 +16,7 @@ import (
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/health"
 	"gpt-load/internal/platform/encryption"
+	"gpt-load/internal/platform/utils"
 	"gpt-load/internal/ratelimit"
 	"gpt-load/internal/scheduler"
 	"gpt-load/internal/state"
@@ -67,21 +68,24 @@ type runtimeKeyRegistry interface {
 }
 
 type Handler struct {
-	manager        *state.Manager
-	registry       runtimeKeyRegistry
-	encryption     encryption.Service
-	forwarder      AttemptForwarder
-	dialects       dialect.Set
-	stats          *health.StatsStore
-	mutations      keyMutationCoordinator
-	limiter        AccessKeyRPMLimiter
-	requestLogSink telemetry.RequestLogSink
-	newRandom      func() *rand.Rand
-	newRequestID   func() (string, error)
-	requestNow     func() time.Time
-	now            func() time.Time
-	writeTimeout   time.Duration
-	modelListLimit int64
+	manager             *state.Manager
+	registry            runtimeKeyRegistry
+	encryption          encryption.Service
+	forwarder           AttemptForwarder
+	dialects            dialect.Set
+	stats               *health.StatsStore
+	mutations           keyMutationCoordinator
+	limiter             AccessKeyRPMLimiter
+	requestLogSink      telemetry.RequestLogSink
+	newRandom           func() *rand.Rand
+	newRequestID        func() (string, error)
+	requestNow          func() time.Time
+	now                 func() time.Time
+	writeTimeout        time.Duration
+	modelListLimit      int64
+	logger              *logrus.Logger
+	authFailureEvents   *utils.RateLimitedEventCounter
+	routeNotFoundEvents *utils.RateLimitedEventCounter
 }
 
 func NewHandler(
@@ -111,6 +115,15 @@ func NewHandler(
 		now:            time.Now,
 		writeTimeout:   downstreamWriteTimeout,
 		modelListLimit: maxNonStreamingResponseBodyBytes,
+		logger:         logrus.StandardLogger(),
+		authFailureEvents: utils.NewRateLimitedEventCounter(
+			time.Minute,
+			time.Now,
+		),
+		routeNotFoundEvents: utils.NewRateLimitedEventCounter(
+			time.Minute,
+			time.Now,
+		),
 	}
 }
 
@@ -161,11 +174,16 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 	initializeDebugHeaders(ginContext.Writer.Header())
 	accessKey, ok := authenticate(ginContext.Request, snapshot, handler.encryption)
 	if !ok {
+		handler.logDataPlaneAuthFailed(ginContext.Request)
 		_ = handler.writeReason(ginContext, reasonInvalidAccessKey)
 		return
 	}
 	selectedRoute, ok := determineRoute(ginContext.Request.Method, ginContext.Request.URL.Path, ginContext.Request.Header)
 	if !ok {
+		handler.logDataPlaneRouteNotFound(
+			ginContext.Request,
+			accessKey.ID,
+		)
 		_ = handler.writeReason(ginContext, reasonEndpointNotFound)
 		return
 	}
@@ -213,6 +231,10 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 
 	selectedDialect, dialectReady := handler.dialects[selectedRoute.Protocol]
 	if !dialectReady || selectedRoute.Kind != endpointChat {
+		handler.logDataPlaneRouteNotFound(
+			ginContext.Request,
+			accessKey.ID,
+		)
 		handler.completeReason(ginContext, recorder, reasonEndpointNotFound)
 		return
 	}
