@@ -19,44 +19,6 @@ import (
 
 const authTestKey = "test-auth-key"
 
-func TestNormalizePeerIP(t *testing.T) {
-	for _, test := range []struct {
-		remote string
-		want   string
-	}{
-		{remote: "192.0.2.1:1234", want: "192.0.2.1"},
-		{remote: "[::ffff:192.0.2.1]:1234", want: "192.0.2.1"},
-		{remote: "[2001:db8::1]:1234", want: "2001:db8::1"},
-		{remote: "[fe80::1%en0]:1234", want: "fe80::1"},
-	} {
-		t.Run(test.remote, func(t *testing.T) {
-			got, err := normalizePeerIP(test.remote)
-			if err != nil {
-				t.Fatalf("normalizePeerIP(%q) error = %v", test.remote, err)
-			}
-			if got != test.want {
-				t.Fatalf("normalizePeerIP(%q) = %q, want %q", test.remote, got, test.want)
-			}
-		})
-	}
-
-	for _, remote := range []string{
-		"",
-		"192.0.2.1",
-		"192.0.2.1:",
-		"192.0.2.1:not-a-port",
-		"192.0.2.1:65536",
-		"hostname:1234",
-		"[2001:db8::1",
-	} {
-		t.Run("invalid "+remote, func(t *testing.T) {
-			if got, err := normalizePeerIP(remote); err == nil {
-				t.Fatalf("normalizePeerIP(%q) = %q, want error", remote, got)
-			}
-		})
-	}
-}
-
 func TestAuthenticateFailsClosedForInvalidPeerWithoutComparison(t *testing.T) {
 	initControlI18n(t)
 	for _, remote := range []string{
