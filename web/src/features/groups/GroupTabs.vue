@@ -5,7 +5,7 @@ import { useRoute, useRouter } from 'vue-router'
 
 import AppTabs, { type AppTabItem } from '@/components/ui/AppTabs.vue'
 
-import { normalizeGroupTab, type GroupTab } from './group-route'
+import { normalizeGroupQuery, normalizeGroupTab, type GroupTab } from './group-route'
 
 const route = useRoute()
 const router = useRouter()
@@ -20,9 +20,17 @@ const items = computed<AppTabItem[]>(() => [
 watch(
   () => route.query,
   (query) => {
-    const tab = normalizeGroupTab(query.tab)
-    if (query.tab !== tab || Object.keys(query).length !== 1) {
-      void router.replace({ name: 'group-detail', params: { id: route.params.id }, query: { tab } })
+    const canonical = normalizeGroupQuery(query)
+    const canonicalKeys = Object.keys(canonical)
+    const isCanonical =
+      Object.keys(query).length === canonicalKeys.length &&
+      canonicalKeys.every((key) => query[key] === canonical[key])
+    if (!isCanonical) {
+      void router.replace({
+        name: 'group-detail',
+        params: { id: route.params.id },
+        query: canonical,
+      })
     }
   },
   { immediate: true },
@@ -31,7 +39,11 @@ watch(
 function selectTab(value: string): void {
   const tab = normalizeGroupTab(value)
   if (tab === activeTab.value) return
-  void router.push({ name: 'group-detail', params: { id: route.params.id }, query: { tab } })
+  void router.push({
+    name: 'group-detail',
+    params: { id: route.params.id },
+    query: normalizeGroupQuery({ ...route.query, tab }),
+  })
 }
 </script>
 

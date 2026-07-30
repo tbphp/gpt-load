@@ -153,8 +153,8 @@ function sourceLabel(source: SecretSource): string {
   align-items: center;
   justify-content: center;
   border-radius: var(--radius-control);
-  background: var(--color-primary-soft);
-  color: var(--color-primary);
+  background: var(--color-action-soft);
+  color: var(--color-action);
 }
 .system-info__grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -163,7 +163,7 @@ function sourceLabel(source: SecretSource): string {
 .system-info__grid > div {
   min-width: 0;
   gap: var(--space-2);
-  border-top: 1px solid var(--color-border);
+  border-top: 1px solid var(--color-border-subtle);
   padding-top: var(--space-3);
 }
 .system-info__grid dt {

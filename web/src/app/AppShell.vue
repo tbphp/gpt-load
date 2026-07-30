@@ -78,7 +78,7 @@ watch(
     <a class="skip-link" href="#main-content">{{ t('shell.skip') }}</a>
     <header class="app-topbar">
       <RouterLink class="brand" to="/" :aria-label="`${t('common.appName')} · ${t('shell.home')}`">
-        <span class="brand-mark" aria-hidden="true"></span>
+        <span class="brand-mark" data-test="ledger-brand-mark" aria-hidden="true"></span>
         <span>{{ t('common.appName') }}</span>
       </RouterLink>
 
@@ -180,8 +180,8 @@ watch(
   left: var(--space-2);
   transform: translateY(-160%);
   border-radius: var(--radius-control);
-  background: var(--color-primary);
-  color: var(--color-primary-ink);
+  background: var(--color-action);
+  color: var(--color-text-inverse);
   padding: var(--space-2) var(--space-3);
 }
 .skip-link:focus {
@@ -192,17 +192,36 @@ watch(
   z-index: var(--z-sticky);
   top: 0;
   display: flex;
-  min-height: 64px;
+  min-height: 68px;
   align-items: center;
   gap: var(--space-6);
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border-subtle);
   background: var(--color-surface);
-  padding: var(--space-2) max(var(--space-5), calc((100vw - 1440px) / 2));
+  padding: var(--space-2)
+    max(var(--page-gutter), calc((100vw - var(--content-max)) / 2 + var(--page-gutter)));
+}
+.brand {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: var(--text-lg);
+  font-weight: 650;
+}
+.brand-mark {
+  width: 8px;
+  height: 28px;
+  flex: 0 0 8px;
+  border-radius: 1px;
+  background: var(--color-action);
 }
 .desktop-nav {
   display: flex;
   align-items: center;
   gap: var(--space-5);
+}
+.desktop-nav :deep(svg) {
+  display: none;
 }
 .nav-link {
   display: inline-flex;
@@ -212,6 +231,9 @@ watch(
   border-bottom: 2px solid transparent;
   color: var(--color-text-muted);
   padding: var(--space-2) 2px;
+  transition:
+    color var(--duration-fast) var(--easing-standard),
+    border-color var(--duration-fast) var(--easing-standard);
 }
 .nav-link:hover,
 .nav-link.router-link-active,
@@ -220,7 +242,7 @@ watch(
 }
 .nav-link.router-link-active,
 .nav-link--active {
-  border-bottom-color: var(--color-primary);
+  border-bottom-color: var(--color-action);
 }
 .shell-actions {
   display: flex;
@@ -231,13 +253,18 @@ watch(
 .button-link {
   gap: var(--space-2);
 }
+.import-action {
+  border: 1px solid var(--color-border-strong);
+  background: transparent;
+  color: var(--color-action);
+}
 .mobile-menu-trigger {
   display: none;
 }
 .app-content {
-  width: min(calc(100% - 40px), 1280px);
+  width: min(calc(100% - (2 * var(--page-gutter))), var(--content-max));
   margin: 0 auto;
-  padding: var(--space-7) 0 var(--space-10);
+  padding: var(--space-8) 0 var(--space-10);
 }
 .mobile-nav {
   display: grid;
@@ -259,19 +286,19 @@ watch(
 }
 .mobile-nav__link.router-link-active,
 .mobile-nav__link--active {
-  background: var(--color-primary-soft);
-  color: var(--color-primary);
+  background: var(--color-action-soft);
+  color: var(--color-action);
 }
 .mobile-nav__link--primary {
   margin-top: var(--space-3);
-  background: var(--color-primary);
-  color: var(--color-primary-ink);
+  background: var(--color-action);
+  color: var(--color-text-inverse);
 }
 .mobile-preferences {
   display: grid;
   gap: var(--space-4);
   margin-top: var(--space-8);
-  border-top: 1px solid var(--color-border);
+  border-top: 1px solid var(--color-border-subtle);
   padding-top: var(--space-5);
 }
 @media (max-width: 1199px) {
@@ -299,7 +326,7 @@ watch(
     padding-inline: var(--space-5);
   }
   .app-content {
-    width: min(calc(100% - 32px), 1280px);
+    width: min(calc(100% - 32px), var(--content-max));
     padding-top: var(--space-5);
   }
 }

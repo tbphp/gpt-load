@@ -248,6 +248,42 @@ func TestHandlerCoordinatesSuccessMutation(t *testing.T) {
 	receiveTestSignal(t, done, "success mutation completion")
 }
 
+func TestHandlerRecordsCooldownFailureContext(t *testing.T) {
+	now := time.Date(2026, time.July, 27, 12, 0, 0, 0, time.UTC)
+	registry := &recordingRuntimeRegistry{KeyRegistry: state.NewKeyRegistry()}
+	if err := registry.Replace([]state.KeyEntry{{
+		ID: 1, GroupID: 1, Status: state.KeyStatusActive, EncryptedValue: "cipher",
+	}}); err != nil {
+		t.Fatalf("Replace() error = %v", err)
+	}
+	stats := health.NewStatsStore()
+	handler := &Handler{registry: registry, stats: stats}
+	until := now.Add(30 * time.Second)
+
+	handler.applyKeyAction(1, health.Result{
+		Category:      health.FailureCategoryRateLimited,
+		Action:        health.ActionCooldownKey,
+		CooldownUntil: until,
+	}, http.StatusTooManyRequests, now)
+
+	if registry.cooldownCalls != 1 || registry.cooldownKeyID != 1 ||
+		!registry.cooldownUntil.Equal(until) {
+		t.Fatalf(
+			"cooldown mutation = calls:%d key:%d until:%s",
+			registry.cooldownCalls,
+			registry.cooldownKeyID,
+			registry.cooldownUntil,
+		)
+	}
+	if got, want := stats.Snapshot(1, now), (health.KeyStats{
+		ConsecutiveProblem:  1,
+		LastFailureCategory: health.FailureCategoryRateLimited,
+		LastStatusCode:      http.StatusTooManyRequests,
+	}); got != want {
+		t.Fatalf("cooldown stats = %#v, want %#v", got, want)
+	}
+}
+
 func TestHandlerCoordinatesAttributableFailureMutation(t *testing.T) {
 	now := time.Date(2026, time.July, 27, 12, 0, 0, 0, time.UTC)
 	registry := &recordingRuntimeRegistry{KeyRegistry: state.NewKeyRegistry()}
@@ -269,7 +305,10 @@ func TestHandlerCoordinatesAttributableFailureMutation(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		handler.applyKeyAction(1, health.Result{Action: health.ActionFailKey}, now)
+		handler.applyKeyAction(1, health.Result{
+			Category: health.FailureCategoryInvalidKey,
+			Action:   health.ActionFailKey,
+		}, http.StatusUnauthorized, now)
 		close(done)
 	}()
 	receiveTestSignal(t, coordinator.entered, "failure coordinator entry")
@@ -281,7 +320,13 @@ func TestHandlerCoordinatesAttributableFailureMutation(t *testing.T) {
 	observed := receiveTestSignal(t, coordinator.observed, "failure mutation observation")
 	if observed.incrFailureCalls != 1 || observed.lastFailureCount != 3 ||
 		observed.blacklistCalls != 1 ||
-		observed.stats != (health.KeyStats{Failure: 1, ConsecutiveFailure: 1}) {
+		observed.stats != (health.KeyStats{
+			Failure:             1,
+			ConsecutiveFailure:  1,
+			ConsecutiveProblem:  1,
+			LastFailureCategory: health.FailureCategoryInvalidKey,
+			LastStatusCode:      http.StatusUnauthorized,
+		}) {
 		t.Fatalf("coordinator callback observation = %#v", observed)
 	}
 	select {
@@ -309,13 +354,13 @@ func TestGatewayFailureAndValidationRecoveryFailureFirstKeepsRegistryAndStatsFai
 		releaseFailure: make(chan struct{}),
 	}
 	stats := health.NewStatsStore()
-	stats.Record(1, false, now)
+	stats.RecordFailure(1, health.FailureCategoryAmbiguous, 0, now)
 	mutations := health.NewMutationCoordinator()
 	handler := &Handler{registry: registry, stats: stats, mutations: mutations}
 
 	failureDone := make(chan struct{})
 	go func() {
-		handler.applyKeyAction(1, health.Result{Action: health.ActionFailKey}, now)
+		handler.applyKeyAction(1, health.Result{Action: health.ActionFailKey}, 0, now)
 		close(failureDone)
 	}()
 	receiveTestSignal(t, registry.failureEntered, "gateway failure mutation")
@@ -345,7 +390,9 @@ func TestGatewayFailureAndValidationRecoveryFailureFirstKeepsRegistryAndStatsFai
 	}}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("blacklisted keys = %#v, want %#v", got, want)
 	}
-	if got, want := stats.Snapshot(1, now), (health.KeyStats{Failure: 2, ConsecutiveFailure: 2}); got != want {
+	if got, want := stats.Snapshot(1, now), (health.KeyStats{
+		Failure: 2, ConsecutiveFailure: 2, ConsecutiveProblem: 2,
+	}); got != want {
 		t.Fatalf("stats = %#v, want %#v", got, want)
 	}
 }
@@ -361,7 +408,7 @@ func TestGatewayFailureAndValidationRecoveryRecoveryFirstLeavesNewFailure(t *tes
 	}
 	ref := registry.BlacklistedKeys()[0]
 	stats := health.NewStatsStore()
-	stats.Record(1, false, now)
+	stats.RecordFailure(1, health.FailureCategoryAmbiguous, 0, now)
 	mutations := health.NewMutationCoordinator()
 	handler := &Handler{registry: registry, stats: stats, mutations: mutations}
 
@@ -386,7 +433,7 @@ func TestGatewayFailureAndValidationRecoveryRecoveryFirstLeavesNewFailure(t *tes
 	failureDone := make(chan struct{})
 	go func() {
 		close(failureAttempted)
-		handler.applyKeyAction(1, health.Result{Action: health.ActionFailKey}, now)
+		handler.applyKeyAction(1, health.Result{Action: health.ActionFailKey}, 0, now)
 		close(failureDone)
 	}()
 	receiveTestSignal(t, failureAttempted, "gateway failure attempt")
@@ -402,7 +449,9 @@ func TestGatewayFailureAndValidationRecoveryRecoveryFirstLeavesNewFailure(t *tes
 	if refs := registry.CaptureActiveKeyRefs([]uint{1}); len(refs) != 1 || refs[0].FailureGeneration != 2 {
 		t.Fatalf("active refs = %#v, want generation 2 after recovery then failure", refs)
 	}
-	if got, want := stats.Snapshot(1, now), (health.KeyStats{Failure: 1, ConsecutiveFailure: 1}); got != want {
+	if got, want := stats.Snapshot(1, now), (health.KeyStats{
+		Failure: 1, ConsecutiveFailure: 1, ConsecutiveProblem: 1,
+	}); got != want {
 		t.Fatalf("stats = %#v, want %#v", got, want)
 	}
 }
@@ -474,7 +523,7 @@ func (forwarder *streamReadyBlockingForwarder) Release() {
 	forwarder.releaseOnce.Do(func() { close(forwarder.release) })
 }
 
-func TestHandlerRecordsOnlyAttributableNonStreamingResults(t *testing.T) {
+func TestHandlerRecordsNonStreamingResultStatsByAction(t *testing.T) {
 	now := time.Date(2026, time.July, 22, 10, 0, 0, 0, time.UTC)
 	tests := []struct {
 		name   string
@@ -494,7 +543,13 @@ func TestHandlerRecordsOnlyAttributableNonStreamingResults(t *testing.T) {
 				StatusCode: http.StatusUnauthorized, Header: make(http.Header), Body: []byte(`{"error":"invalid key"}`),
 				ClassificationBody: []byte(`{"error":"invalid key"}`), RequestWritten: true,
 			},
-			want: health.KeyStats{Failure: 1, ConsecutiveFailure: 1},
+			want: health.KeyStats{
+				Failure:             1,
+				ConsecutiveFailure:  1,
+				ConsecutiveProblem:  1,
+				LastFailureCategory: health.FailureCategoryInvalidKey,
+				LastStatusCode:      http.StatusUnauthorized,
+			},
 		},
 		{
 			name: "client error",
@@ -510,7 +565,11 @@ func TestHandlerRecordsOnlyAttributableNonStreamingResults(t *testing.T) {
 				StatusCode: http.StatusTooManyRequests, Header: make(http.Header), Body: []byte(`{"error":"rate limit"}`),
 				ClassificationBody: []byte(`{"error":"rate limit"}`), RequestWritten: true,
 			},
-			want: health.KeyStats{},
+			want: health.KeyStats{
+				ConsecutiveProblem:  1,
+				LastFailureCategory: health.FailureCategoryRateLimited,
+				LastStatusCode:      http.StatusTooManyRequests,
+			},
 		},
 		{
 			name: "model unavailable",
@@ -518,7 +577,11 @@ func TestHandlerRecordsOnlyAttributableNonStreamingResults(t *testing.T) {
 				StatusCode: http.StatusNotFound, Header: make(http.Header), Body: []byte(`{"error":"model not found"}`),
 				ClassificationBody: []byte(`{"error":"model not found"}`), RequestWritten: true,
 			},
-			want: health.KeyStats{},
+			want: health.KeyStats{
+				ConsecutiveProblem:  1,
+				LastFailureCategory: health.FailureCategoryModelUnavailable,
+				LastStatusCode:      http.StatusNotFound,
+			},
 		},
 		{
 			name: "host error",
@@ -588,7 +651,13 @@ func TestHandlerRecordsInvalidKeyPerAttempt(t *testing.T) {
 	request.Header.Set("Authorization", "Bearer gl-client")
 	engine.ServeHTTP(httptest.NewRecorder(), request)
 
-	if got := stats.Snapshot(1, now); got != (health.KeyStats{Failure: 1, ConsecutiveFailure: 1}) {
+	if got := stats.Snapshot(1, now); got != (health.KeyStats{
+		Failure:             1,
+		ConsecutiveFailure:  1,
+		ConsecutiveProblem:  1,
+		LastFailureCategory: health.FailureCategoryInvalidKey,
+		LastStatusCode:      http.StatusUnauthorized,
+	}) {
 		t.Fatalf("first key stats = %#v, want one failure", got)
 	}
 	if got := stats.Snapshot(2, now); got != (health.KeyStats{Success: 1}) {
@@ -2226,7 +2295,7 @@ func TestHandlerLeavesKeyRegistryUnchangedForNonKeyActions(t *testing.T) {
 		t.Run(fmt.Sprintf("action_%d", action), func(t *testing.T) {
 			recording := &recordingRuntimeRegistry{KeyRegistry: state.NewKeyRegistry()}
 			handler := &Handler{registry: recording}
-			handler.applyKeyAction(1, health.Result{Action: action}, time.Time{})
+			handler.applyKeyAction(1, health.Result{Action: action}, 0, time.Time{})
 			if recording.cooldownCalls != 0 || recording.incrFailureCalls != 0 ||
 				recording.blacklistCalls != 0 || recording.clearCalls != 0 {
 				t.Fatalf("mutation calls = cooldown:%d failure:%d blacklist:%d clear:%d",

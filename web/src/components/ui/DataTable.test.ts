@@ -2,6 +2,7 @@ import { mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
 
 import DataTable from './DataTable.vue'
+import dataTableSource from './DataTable.vue?raw'
 
 const observedElements: Element[][] = []
 const resizeCallbacks: ResizeObserverCallback[] = []
@@ -102,5 +103,14 @@ describe('DataTable', () => {
       wrapper.get('[data-table-scroll]').element,
       wrapper.get('table').element,
     ])
+  })
+
+  it('hides only explicitly low-priority columns below the compact breakpoint', () => {
+    expect(dataTableSource).toMatch(
+      /@media \(max-width: 759px\)\s*\{[\s\S]*\[data-column-priority='low'\][\s\S]*display: none;/,
+    )
+    expect(dataTableSource).not.toMatch(
+      /\[data-column-priority='high'\][^{]*\{[^}]*display:\s*none;/,
+    )
   })
 })

@@ -51,6 +51,9 @@ const cooldownKey: HealthProblemKeyDto = {
   consecutive_failure_count: 2,
   weight_manual: null,
   weight_auto: 80,
+  mask: 'rate****safe',
+  last_failure_category: 'rate_limited',
+  last_status_code: 429,
   recovery: {
     automatic: true,
     mode: 'cooldown_expiry',
@@ -68,6 +71,9 @@ const blacklistedKey: HealthProblemKeyDto = {
   consecutive_failure_count: 5,
   weight_manual: 40,
   weight_auto: 0,
+  mask: 'inva****lock',
+  last_failure_category: 'invalid_key',
+  last_status_code: 401,
   recovery: {
     automatic: true,
     mode: 'validation_probe',
@@ -283,6 +289,12 @@ describe('HealthTab', () => {
     expect(wrapper.text()).toContain('Key #11')
     expect(wrapper.text()).toContain('Key #12')
     expect(wrapper.text()).not.toContain('sk-')
+    expect(wrapper.get('[data-key-id="11"] [data-problem-key-mask]').text()).toBe('rate****safe')
+    expect(wrapper.get('[data-key-id="11"] [data-problem-key-category]').text()).toBe('触发限流')
+    expect(wrapper.get('[data-key-id="11"] [data-problem-key-http-status]').text()).toBe('429')
+    expect(wrapper.get('[data-key-id="12"] [data-problem-key-mask]').text()).toBe('inva****lock')
+    expect(wrapper.get('[data-key-id="12"] [data-problem-key-category]').text()).toBe('密钥无效')
+    expect(wrapper.get('[data-key-id="12"] [data-problem-key-http-status]').text()).toBe('401')
     expect(wrapper.get('[data-key-id="11"]').get('a[href="/groups/7?tab=keys"]').text()).toBe(
       'Alpha · #7',
     )

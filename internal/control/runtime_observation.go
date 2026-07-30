@@ -14,6 +14,11 @@ type runtimeObservation struct {
 	keys       []state.KeyRuntimeView
 }
 
+type runtimeHealthObservation struct {
+	runtimeObservation
+	problemCiphertexts map[uint]string
+}
+
 func (service *Service) captureRuntimeObservation() (runtimeObservation, error) {
 	if service == nil || service.manager == nil || service.registry == nil ||
 		service.now == nil {
@@ -49,5 +54,65 @@ func (service *Service) captureRuntimeObservation() (runtimeObservation, error) 
 		observedAt: observedAt,
 		snapshot:   snapshot,
 		keys:       keys,
+	}, nil
+}
+
+func (service *Service) captureRuntimeHealthObservation() (
+	runtimeHealthObservation,
+	error,
+) {
+	if service == nil || service.manager == nil || service.registry == nil ||
+		service.now == nil {
+		return runtimeHealthObservation{}, fmt.Errorf(
+			"capture runtime health observation: %w",
+			app_errors.ErrInternalServer,
+		)
+	}
+
+	service.writeMu.RLock()
+	defer service.writeMu.RUnlock()
+
+	snapshot := service.manager.Current()
+	if snapshot == nil {
+		return runtimeHealthObservation{}, fmt.Errorf(
+			"capture runtime health observation: Snapshot is nil: %w",
+			app_errors.ErrInternalServer,
+		)
+	}
+	keys := service.registry.Snapshot()
+	observedAt := service.now().UTC()
+	problemCiphertexts := make(map[uint]string)
+	for _, key := range keys {
+		group, exists := snapshot.GroupCatalog[key.GroupID]
+		if !exists {
+			return runtimeHealthObservation{}, fmt.Errorf(
+				"capture runtime health observation: key %d group %d missing from catalog: %w",
+				key.ID,
+				key.GroupID,
+				app_errors.ErrInternalServer,
+			)
+		}
+		bucket := classifyHealthKey(group, key, observedAt)
+		if bucket != healthBucketCooldown && bucket != healthBucketBlacklisted {
+			continue
+		}
+		ciphertext, exists := service.registry.EncryptedValue(key.ID)
+		if !exists || ciphertext == "" {
+			return runtimeHealthObservation{}, fmt.Errorf(
+				"capture runtime health observation: key %d ciphertext unavailable: %w",
+				key.ID,
+				app_errors.ErrInternalServer,
+			)
+		}
+		problemCiphertexts[key.ID] = ciphertext
+	}
+
+	return runtimeHealthObservation{
+		runtimeObservation: runtimeObservation{
+			observedAt: observedAt,
+			snapshot:   snapshot,
+			keys:       keys,
+		},
+		problemCiphertexts: problemCiphertexts,
 	}, nil
 }

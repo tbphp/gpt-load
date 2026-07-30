@@ -66,7 +66,7 @@ onBeforeUnmount(() => window.clearTimeout(resetTimer))
   top: calc(100% + var(--space-1));
   right: 0;
   width: max-content;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-tag);
   background: var(--color-surface);
   color: var(--color-text);

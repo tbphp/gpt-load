@@ -217,7 +217,7 @@ select {
   min-height: 44px;
   border: 1px solid var(--color-border-control);
   border-radius: var(--radius-control);
-  background: var(--color-surface-secondary);
+  background: var(--color-surface-sunken);
   color: var(--color-text);
   padding: var(--space-2) var(--space-3);
   font: inherit;
@@ -247,7 +247,7 @@ input[type='checkbox'] {
   width: 18px;
   height: 18px;
 }
-@media (max-width: 760px) {
+@media (max-width: 759px) {
   .group-settings__grid {
     grid-template-columns: 1fr;
   }

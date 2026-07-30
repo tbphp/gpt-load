@@ -59,6 +59,9 @@ export default {
         recentSuccessCount: '近期成功',
         recentFailureCount: '近期失败',
         consecutiveFailureCount: '连续失败',
+        failureCategory: '失败原因',
+        statusCode: 'HTTP 状态',
+        statusUnavailable: '无 HTTP 状态',
         manualWeight: '手动权重',
         autoWeight: '自动权重',
         automatic: '自动',
@@ -68,8 +71,18 @@ export default {
         notAutomatic: '非自动恢复',
         cooldownExpiry: '冷却到期',
         validationProbe: '验证探测',
+        recoversAt: '自动恢复时间',
         runtimeDecides: '运行时决定探测时间',
         unknown: '恢复方式由运行时决定',
+      },
+      failureCategories: {
+        rate_limited: '触发限流',
+        model_unavailable: '模型不可用',
+        invalid_key: '密钥无效',
+        upstream_host_error: '上游服务错误',
+        client_error: '客户端请求错误',
+        downstream_cancel: '下游已取消',
+        ambiguous: '结果不明确',
       },
       requestLog: {
         title: '请求日志管道',
@@ -183,7 +196,7 @@ export default {
       trend: {
         title: '持久化请求趋势',
         description: '稀疏 UTC 桶保持稀疏，不推断缺失点。',
-        accessibleDescription: '后端返回的每个 UTC 桶中的持久化请求数。',
+        accessibleDescription: '后端返回的每个 UTC 桶中的持久化请求数与失败请求数。',
         empty: '该范围内未返回持久化请求时间桶。',
       },
       series: {

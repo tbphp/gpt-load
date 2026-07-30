@@ -18,7 +18,7 @@ import HealthProblemCollection from './HealthProblemCollection.vue'
 const client = useApiClient()
 const { t } = useI18n()
 
-const healthQuery = useQuery(healthQueryOptions(client, true))
+const healthQuery = useQuery(healthQueryOptions(client, 10_000))
 
 const isVisible = ref(document.visibilityState !== 'hidden')
 const elapsedMs = ref(0)
@@ -471,7 +471,7 @@ function remainingTime(key: HealthProblemKeyDto): string {
   max-width: 100%;
   min-height: 44px;
   align-items: center;
-  color: var(--color-primary);
+  color: var(--color-action);
   font-weight: 700;
   overflow-wrap: anywhere;
   text-decoration: underline;
@@ -485,9 +485,9 @@ function remainingTime(key: HealthProblemKeyDto): string {
 
 .health-empty {
   margin: 0;
-  border: 1px dashed var(--color-border);
+  border: 1px dashed var(--color-border-subtle);
   border-radius: var(--radius-control);
-  background: var(--color-surface-secondary);
+  background: var(--color-surface-sunken);
   color: var(--color-text-muted);
   padding: var(--space-4);
 }
@@ -522,7 +522,7 @@ function remainingTime(key: HealthProblemKeyDto): string {
   color: var(--color-text);
 }
 
-@media (max-width: 760px) {
+@media (max-width: 759px) {
   .health-card__heading {
     align-items: flex-start;
     flex-direction: column;

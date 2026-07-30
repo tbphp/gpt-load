@@ -58,7 +58,7 @@ textarea {
   resize: vertical;
   border: 1px solid var(--color-border-control);
   border-radius: var(--radius-control);
-  background: var(--color-surface-secondary);
+  background: var(--color-surface-sunken);
   color: var(--color-text);
   padding: var(--space-3);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;

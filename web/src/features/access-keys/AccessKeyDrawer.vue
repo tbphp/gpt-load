@@ -684,7 +684,7 @@ onBeforeUnmount(clearLocalState)
 }
 .access-key-drawer__actions {
   justify-content: flex-end;
-  border-top: 1px solid var(--color-border);
+  border-top: 1px solid var(--color-border-subtle);
   padding-top: var(--space-4);
 }
 </style>

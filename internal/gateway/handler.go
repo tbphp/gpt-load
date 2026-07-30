@@ -136,6 +136,7 @@ func (unlimitedAccessKeyRPMLimiter) Allow(uint, int64) ratelimit.LimitDecision {
 func (handler *Handler) applyKeyAction(
 	keyID uint,
 	decision health.Result,
+	statusCode int,
 	attemptNow time.Time,
 ) {
 	switch decision.Action {
@@ -145,13 +146,14 @@ func (handler *Handler) applyKeyAction(
 			until = attemptNow.Add(fixedCooldown)
 		}
 		_ = handler.registry.SetCooldown(keyID, until)
+		handler.stats.RecordProblem(keyID, decision.Category, statusCode, attemptNow)
 	case health.ActionFailKey:
 		handler.mutations.Do(keyID, func() {
 			count, ok := handler.registry.IncrFailure(keyID)
 			if ok && count >= blacklistFailureThreshold {
 				_ = handler.registry.SetBlacklisted(keyID)
 			}
-			handler.stats.Record(keyID, false, attemptNow)
+			handler.stats.RecordFailure(keyID, decision.Category, statusCode, attemptNow)
 		})
 	}
 }
@@ -159,7 +161,7 @@ func (handler *Handler) applyKeyAction(
 func (handler *Handler) recordSuccess(keyID uint, at time.Time) {
 	handler.mutations.Do(keyID, func() {
 		_ = handler.registry.ClearFailure(keyID)
-		handler.stats.Record(keyID, true, at)
+		handler.stats.RecordSuccess(keyID, at)
 	})
 }
 
@@ -502,7 +504,7 @@ func (handler *Handler) executeAttempts(
 		recordedAttempt := recorder.recordAttempt(
 			selection, apiKey, result, decision, attemptStarted, attemptCompleted,
 		)
-		handler.applyKeyAction(selection.KeyID, decision, attemptNow)
+		handler.applyKeyAction(selection.KeyID, decision, result.StatusCode, attemptNow)
 		if decision.Action == health.ActionSkipGroup {
 			iterator.SkipGroup(selection.GroupID)
 		}

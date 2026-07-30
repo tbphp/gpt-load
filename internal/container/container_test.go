@@ -769,6 +769,7 @@ func TestContainerHealthEndpointReadsSharedStatsStore(t *testing.T) {
 		manager *state.Manager,
 		registry *state.KeyRegistry,
 		stats *health.StatsStore,
+		keyService encryption.Service,
 		db *gorm.DB,
 	) {
 		t.Cleanup(func() {
@@ -783,13 +784,17 @@ func TestContainerHealthEndpointReadsSharedStatsStore(t *testing.T) {
 		}}}); publishErr != nil {
 			t.Fatalf("Publish() error = %v", publishErr)
 		}
+		ciphertext, encryptErr := keyService.Encrypt("container-shared-secret")
+		if encryptErr != nil {
+			t.Fatalf("Encrypt() error = %v", encryptErr)
+		}
 		if replaceErr := registry.Replace([]state.KeyEntry{{
 			ID: 1, GroupID: 1, Status: state.KeyStatusActive,
-			Blacklisted: true, EncryptedValue: "cipher",
+			Blacklisted: true, EncryptedValue: ciphertext,
 		}}); replaceErr != nil {
 			t.Fatalf("Replace() error = %v", replaceErr)
 		}
-		stats.Record(1, false, time.Now())
+		stats.RecordFailure(1, health.FailureCategoryAmbiguous, 0, time.Now())
 
 		request := httptest.NewRequest(http.MethodGet, "/api/health", nil)
 		request.Header.Set("Authorization", "Bearer test-auth-key")

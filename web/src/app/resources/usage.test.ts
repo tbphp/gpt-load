@@ -37,6 +37,8 @@ const report = {
   ],
   breakdown: [{ ...aggregate, group_id: 7, model: 'gpt-upstream' }],
   breakdown_truncated: false,
+  breakdown_order: 'cost',
+  breakdown_group_count: 14,
   collection_health: {
     scope: 'current_process',
     dropped_total: 0,
@@ -55,6 +57,11 @@ describe('Usage resource', () => {
     { ...report, summary: { ...aggregate, success_count: 7 } },
     { ...report, summary: { ...aggregate, estimated_cost_usd: Number.NaN } },
     { ...report, breakdown: [{ ...report.breakdown[0], group_id: 0 }] },
+    { ...report, breakdown_order: 'unknown' },
+    { ...report, breakdown_group_count: -1 },
+    { ...report, breakdown_group_count: Number.MAX_SAFE_INTEGER + 1 },
+    { ...report, breakdown_order: undefined },
+    { ...report, breakdown_group_count: undefined },
     { ...report, billing_token: 'plaintext' },
     {
       ...report,
@@ -65,16 +72,41 @@ describe('Usage resource', () => {
   })
 
   it('normalizes query identity and serializes only supported filters', async () => {
-    const filters = { range: '24h' as const, model: 'gpt-upstream', selected_request_id: 'ignored' }
+    const filters = {
+      range: '24h' as const,
+      breakdown_order: 'cost' as const,
+      model: 'gpt-upstream',
+      selected_request_id: 'ignored',
+    }
     expect(usageQueryIdentity(filters)).toEqual(
-      controlQueryKeys.usage.report({ range: '24h', model: 'gpt-upstream' }),
+      controlQueryKeys.usage.report({
+        range: '24h',
+        breakdown_order: 'cost',
+        model: 'gpt-upstream',
+      }),
+    )
+    expect(usageQueryIdentity({ range: '24h' })).toEqual(
+      controlQueryKeys.usage.report({ range: '24h', breakdown_order: 'requests' }),
+    )
+    expect(usageQueryIdentity({ range: '24h', breakdown_order: 'cost' })).not.toEqual(
+      usageQueryIdentity({ range: '24h', breakdown_order: 'requests' }),
     )
 
     const request = vi.fn().mockResolvedValue(report) as ApiClient['request']
     await getUsageReport({ request }, filters)
-    expect(request).toHaveBeenCalledWith('/api/usage?range=24h&model=gpt-upstream', {
-      method: 'GET',
-      signal: undefined,
-    })
+    expect(request).toHaveBeenCalledWith(
+      '/api/usage?range=24h&breakdown_order=cost&model=gpt-upstream',
+      {
+        method: 'GET',
+        signal: undefined,
+      },
+    )
+  })
+
+  it('rejects a response whose order does not match the normalized query', async () => {
+    const request = vi.fn().mockResolvedValue(report) as ApiClient['request']
+    await expect(getUsageReport({ request }, { range: '24h' })).rejects.toThrow(
+      InvalidResponseError,
+    )
   })
 })

@@ -355,7 +355,7 @@ header p,
   min-height: 44px;
   border: 1px solid var(--color-border-control);
   border-radius: var(--radius-control);
-  background: var(--color-surface-secondary);
+  background: var(--color-surface-sunken);
   color: var(--color-text);
   padding: var(--space-2) var(--space-3);
 }
@@ -376,7 +376,7 @@ header p,
 .review dl {
   display: grid;
   margin: 0;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-card);
 }
 .review dl div {
@@ -384,7 +384,7 @@ header p,
   grid-template-columns: minmax(140px, 0.5fr) 1fr;
   gap: var(--space-4);
   padding: var(--space-3) var(--space-4);
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border-subtle);
 }
 .review dl div:last-child {
   border-bottom: 0;
@@ -400,7 +400,7 @@ header p,
   display: flex;
   align-items: flex-start;
   gap: var(--space-3);
-  border: 1px solid color-mix(in srgb, var(--color-success) 35%, var(--color-border));
+  border: 1px solid color-mix(in srgb, var(--color-success) 35%, var(--color-border-subtle));
   border-radius: var(--radius-card);
   background: var(--color-success-bg);
   color: var(--color-success);

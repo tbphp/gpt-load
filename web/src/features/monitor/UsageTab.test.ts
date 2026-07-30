@@ -8,6 +8,7 @@ import { controlQueryKeys } from '@/app/query-keys'
 import { mountApp } from '@/test/mount-app'
 
 import UsageTab from './UsageTab.vue'
+import usageTabSource from './UsageTab.vue?raw'
 
 const aggregate: UsageAggregateDto = {
   request_count: 12,
@@ -52,6 +53,8 @@ function usageReport(overrides: Partial<UsageReportDto> = {}): UsageReportDto {
     ],
     breakdown: [{ ...aggregate, group_id: 7, model: 'gpt-upstream' }],
     breakdown_truncated: false,
+    breakdown_order: 'requests',
+    breakdown_group_count: 1,
     collection_health: {
       scope: 'current_process',
       dropped_total: 2,
@@ -447,12 +450,21 @@ describe('UsageTab', () => {
   })
 
   it.each([
-    ['one point', [usageReport().series[0]], 'usage-sparkline-marker'],
-    ['no points', [], 'usage-sparkline-empty'],
-  ])('renders the %s sparkline state without fabricating data', async (_case, series, testID) => {
+    ['one point', [usageReport().series[0]], 'trend-request-marker'],
+    ['no points', [], 'trend-chart-empty'],
+  ])('renders the %s trend state without fabricating data', async (_case, series, testID) => {
     const { wrapper } = await mountUsage(new UsageApi([usageReport({ series })]))
 
     expect(wrapper.find(`[data-test="${testID}"]`).exists()).toBe(true)
+  })
+
+  it('uses the shared request-and-failure TrendChart without retaining the old sparkline', async () => {
+    const { wrapper } = await mountUsage(new UsageApi())
+
+    expect(wrapper.get('[data-test="trend-request-path"]').attributes('d')).not.toBe('')
+    expect(wrapper.findAll('[data-test="trend-failure-bar"]')).toHaveLength(1)
+    expect(usageTabSource).toContain("import TrendChart from '@/components/charts/TrendChart.vue'")
+    expect(usageTabSource).not.toContain(['Usage', 'Sparkline'].join(''))
   })
 
   it('renders time and upstream-model breakdown tables plus the backend top-100 warning', async () => {

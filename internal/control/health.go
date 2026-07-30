@@ -10,6 +10,7 @@ import (
 	"gpt-load/internal/health"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/platform/response"
+	"gpt-load/internal/platform/utils"
 	"gpt-load/internal/requestlog"
 	"gpt-load/internal/state"
 )
@@ -43,6 +44,9 @@ type healthProblemKeyResponse struct {
 	KeyID                   uint                   `json:"key_id"`
 	GroupID                 uint                   `json:"group_id"`
 	GroupName               string                 `json:"group_name"`
+	Mask                    string                 `json:"mask"`
+	LastFailureCategory     string                 `json:"last_failure_category"`
+	LastStatusCode          *int                   `json:"last_status_code"`
 	CooldownUntil           *time.Time             `json:"cooldown_until,omitempty"`
 	FailureCount            int                    `json:"failure_count"`
 	RecentSuccessCount      uint64                 `json:"recent_success_count"`
@@ -141,8 +145,54 @@ func cloneInt(value *int) *int {
 	return &cloned
 }
 
+func optionalHealthStatusCode(value int) *int {
+	if value < 100 || value > 999 {
+		return nil
+	}
+	cloned := value
+	return &cloned
+}
+
+func (service *Service) healthProblemMask(
+	ciphertexts map[uint]string,
+	keyID uint,
+) (string, error) {
+	if service == nil || service.encryption == nil || keyID == 0 {
+		return "", fmt.Errorf(
+			"map runtime health problem key: %w",
+			app_errors.ErrInternalServer,
+		)
+	}
+	ciphertext, exists := ciphertexts[keyID]
+	if !exists || ciphertext == "" {
+		return "", fmt.Errorf(
+			"map runtime health problem key %d: ciphertext unavailable: %w",
+			keyID,
+			app_errors.ErrInternalServer,
+		)
+	}
+	plaintext, err := service.encryption.Decrypt(ciphertext)
+	if err != nil {
+		return "", fmt.Errorf(
+			"map runtime health problem key %d: decrypt credential: %v: %w",
+			keyID,
+			err,
+			app_errors.ErrInternalServer,
+		)
+	}
+	mask := utils.MaskAPIKey(plaintext)
+	if mask == "" {
+		return "", fmt.Errorf(
+			"map runtime health problem key %d: empty credential: %w",
+			keyID,
+			app_errors.ErrInternalServer,
+		)
+	}
+	return mask, nil
+}
+
 func (service *Service) RuntimeHealth() (runtimeHealthResponse, error) {
-	observation, err := service.captureRuntimeObservation()
+	observation, err := service.captureRuntimeHealthObservation()
 	if err != nil {
 		return runtimeHealthResponse{}, err
 	}
@@ -182,15 +232,28 @@ func (service *Service) RuntimeHealth() (runtimeHealthResponse, error) {
 		if bucket != healthBucketCooldown && bucket != healthBucketBlacklisted {
 			continue
 		}
+		mask, err := service.healthProblemMask(observation.problemCiphertexts, key.ID)
+		if err != nil {
+			return runtimeHealthResponse{}, err
+		}
 		stats := service.stats.Snapshot(key.ID, observation.observedAt)
+		lastFailureCategory := stats.LastFailureCategory
+		lastStatusCode := stats.LastStatusCode
+		if lastFailureCategory == health.FailureCategoryOK {
+			lastFailureCategory = health.FailureCategoryAmbiguous
+			lastStatusCode = 0
+		}
 		detail := healthProblemKeyResponse{
 			KeyID:                   key.ID,
 			GroupID:                 key.GroupID,
 			GroupName:               group.Name,
+			Mask:                    mask,
+			LastFailureCategory:     lastFailureCategory.String(),
+			LastStatusCode:          optionalHealthStatusCode(lastStatusCode),
 			FailureCount:            key.FailureCount,
 			RecentSuccessCount:      stats.Success,
 			RecentFailureCount:      stats.Failure,
-			ConsecutiveFailureCount: stats.ConsecutiveFailure,
+			ConsecutiveFailureCount: stats.ConsecutiveProblem,
 			WeightManual:            cloneInt(key.WeightManual),
 			WeightAuto:              key.WeightAuto,
 		}

@@ -478,7 +478,7 @@ onBeforeUnmount(() => {
   content: '';
   flex: 1;
   height: 1px;
-  background: var(--color-border);
+  background: var(--color-border-subtle);
   margin-inline: var(--space-3);
 }
 .stepper li > span {
@@ -487,7 +487,7 @@ onBeforeUnmount(() => {
   height: 26px;
   flex: none;
   place-items: center;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-border-subtle);
   border-radius: 50%;
   font-family: ui-monospace, monospace;
 }
@@ -496,9 +496,9 @@ onBeforeUnmount(() => {
   font-weight: 650;
 }
 .stepper li.active > span {
-  border-color: var(--color-primary);
-  background: var(--color-primary);
-  color: var(--color-primary-ink);
+  border-color: var(--color-action);
+  background: var(--color-action);
+  color: var(--color-text-inverse);
 }
 .stepper li.done > span {
   border-color: transparent;

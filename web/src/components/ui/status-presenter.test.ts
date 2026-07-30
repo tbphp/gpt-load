@@ -7,6 +7,7 @@ describe('status presenter', () => {
     ['blacklisted', 'danger', 'off'],
     ['disabled', 'neutral', 'off'],
     ['unavailable', 'danger', 'off'],
+    ['unknown', 'neutral', 'help'],
   ] as const)('maps operational %s to %s with %s icon', (status, tone, icon) => {
     expect(presentOperationalStatus(status)).toEqual({ tone, icon })
   })

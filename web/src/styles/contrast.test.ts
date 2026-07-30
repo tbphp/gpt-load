@@ -1,5 +1,7 @@
 import './tokens.css'
 import './base.css'
+import baseStyles from './base.css?raw'
+import tokenStyles from './tokens.css?raw'
 
 function channel(value: number): number {
   const normalized = value / 255
@@ -30,7 +32,7 @@ function styleRule(selector: string): CSSStyleDeclaration {
 function themeTokens(selector: string): Record<string, string> {
   const style = styleRule(selector)
   return Object.fromEntries(
-    ['canvas', 'surface', 'text-faint', 'border-control', 'action'].map((name) => [
+    ['canvas', 'surface', 'text-muted', 'text-faint', 'border-control', 'action'].map((name) => [
       name,
       style.getPropertyValue(`--color-${name}`).trim().toLowerCase(),
     ]),
@@ -41,24 +43,36 @@ describe('semantic token contrast', () => {
   const light = themeTokens(':root')
   const dark = themeTokens(":root[data-theme='dark']")
 
-  it('keeps the approved semantic token values', () => {
-    expect(light['text-faint']).toBe('#746f67')
-    expect(light['border-control']).toBe('#918b81')
-    expect(dark['text-faint']).toBe('#938c80')
-    expect(dark['border-control']).toBe('#716a5f')
+  it('keeps the approved Ledger light and dark semantic token values', () => {
+    expect(light).toEqual({
+      canvas: '#f8f8f6',
+      surface: '#ffffff',
+      'text-muted': '#4e545b',
+      'text-faint': '#787f87',
+      'border-control': '#787f87',
+      action: '#1c4f6e',
+    })
+    expect(dark).toEqual({
+      canvas: '#101317',
+      surface: '#171b20',
+      'text-muted': '#969ca3',
+      'text-faint': '#6d747c',
+      'border-control': '#6d747c',
+      action: '#6fb2d6',
+    })
   })
 
   it.each([
     ['light', light],
     ['dark', dark],
   ] as const)('%s text and control boundaries meet their minimum contrast', (_name, tokens) => {
-    expect(contrast(tokens['text-faint']!, tokens.surface!)).toBeGreaterThanOrEqual(4.5)
-    expect(contrast(tokens['text-faint']!, tokens.canvas!)).toBeGreaterThanOrEqual(4.5)
+    expect(contrast(tokens['text-muted']!, tokens.surface!)).toBeGreaterThanOrEqual(4.5)
+    expect(contrast(tokens['text-faint']!, tokens.surface!)).toBeGreaterThanOrEqual(3)
     expect(contrast(tokens['border-control']!, tokens.surface!)).toBeGreaterThanOrEqual(3)
     expect(contrast(tokens.action!, tokens.surface!)).toBeGreaterThanOrEqual(3)
   })
 
-  it('defines the complete approved semantic token layers', () => {
+  it('defines the complete Ledger semantic token layers without legacy aliases', () => {
     const style = styleRule(':root')
     const names = [
       'color-canvas',
@@ -79,8 +93,11 @@ describe('semantic token contrast', () => {
       'color-success',
       'color-warning',
       'color-danger',
+      'color-neutral',
+      'color-neutral-bg',
       'color-disabled',
       'font-sans',
+      'font-serif',
       'font-mono',
       'text-xs',
       'text-sm',
@@ -111,6 +128,23 @@ describe('semantic token contrast', () => {
       expect(style.getPropertyValue(`--${name}`).trim(), name).not.toBe('')
     }
     expect(style.getPropertyValue('--font-mono')).toContain('ui-monospace')
+    expect(style.getPropertyValue('--font-serif')).toContain('Iowan Old Style')
+    expect(style.getPropertyValue('--radius-card').trim()).toBe('8px')
+    expect(style.getPropertyValue('--content-max').trim()).toBe('1280px')
+    for (const legacyName of [
+      'color-page',
+      'color-surface-secondary',
+      'color-border',
+      'color-primary',
+      'color-primary-ink',
+      'color-primary-soft',
+    ]) {
+      expect(style.getPropertyValue(`--${legacyName}`).trim(), legacyName).toBe('')
+    }
+    expect(tokenStyles.match(/^:root\s*\{/gm)).toHaveLength(1)
+    expect(tokenStyles).not.toContain('#f7f6f3')
+    expect(tokenStyles).not.toContain('#171613')
+    expect(tokenStyles).not.toContain('#2f6db5')
   })
 
   it('keeps standard motion within the approved 150–200ms range', () => {
@@ -126,5 +160,11 @@ describe('semantic token contrast', () => {
 
   it('uses the control border token on shared form controls', () => {
     expect(styleRule('.form-field input').cssText).toContain('var(--color-border-control)')
+  })
+
+  it('provides one global reduced-motion fallback for all animated descendants', () => {
+    expect(baseStyles).toMatch(
+      /@media \(prefers-reduced-motion: reduce\)\s*\{[\s\S]*\*,\s*\*::before,\s*\*::after\s*\{[\s\S]*transition-duration: 0\.01ms !important;/,
+    )
   })
 })

@@ -20,6 +20,8 @@ import { appI18nKey } from '@/i18n/context'
 import { createTestAppI18n as createAppI18n } from '@/test/i18n'
 
 import AppShell from './AppShell.vue'
+import appShellSource from './AppShell.vue?raw'
+import baseStyles from '@/styles/base.css?raw'
 import { handleGlobalUnauthorized } from './unauthorized'
 
 function deferred<T>() {
@@ -75,6 +77,23 @@ async function mountShell(path = '/') {
 }
 
 describe('AppShell', () => {
+  it('uses the Ledger vertical brand rule without changing the navigation contract', () => {
+    expect(appShellSource).toContain('data-test="ledger-brand-mark"')
+    expect(appShellSource).toMatch(
+      /\.brand-mark\s*\{[\s\S]*width: 8px;[\s\S]*height: 28px;[\s\S]*background: var\(--color-action\);/,
+    )
+    expect(appShellSource).toMatch(
+      /\.app-topbar\s*\{[\s\S]*border-bottom: 1px solid var\(--color-border-subtle\);/,
+    )
+    expect(appShellSource).toMatch(
+      /\.brand\s*\{[\s\S]*display: inline-flex;[\s\S]*min-height: 44px;[\s\S]*font-weight: 650;/,
+    )
+    expect(appShellSource).toMatch(/\.nav-link\s*\{[\s\S]*display: inline-flex;[\s\S]*transition:/)
+    for (const legacySelector of ['page-shell', 'topbar', 'brand', 'brand-mark', 'nav']) {
+      expect(baseStyles).not.toMatch(new RegExp(`\\.${legacySelector}\\s*\\{`))
+    }
+  })
+
   it('renders shared navigation, import action, skip link and main landmark', async () => {
     const { wrapper } = await mountShell()
 

@@ -100,13 +100,21 @@ const (
 	UsageGranularityDay  UsageGranularity = "day"
 )
 
+type UsageBreakdownOrder string
+
+const (
+	UsageBreakdownOrderRequests UsageBreakdownOrder = "requests"
+	UsageBreakdownOrderCost     UsageBreakdownOrder = "cost"
+)
+
 type UsageQuery struct {
-	From        time.Time
-	To          time.Time
-	Granularity UsageGranularity
-	GroupID     *uint
-	Model       string
-	Limit       int
+	From           time.Time
+	To             time.Time
+	Granularity    UsageGranularity
+	GroupID        *uint
+	Model          string
+	Limit          int
+	BreakdownOrder UsageBreakdownOrder
 }
 
 type UsageAggregate struct {
@@ -137,10 +145,12 @@ type UsageBreakdown struct {
 }
 
 type UsageReport struct {
-	Summary            UsageAggregate
-	Series             []UsageSeriesPoint
-	Breakdown          []UsageBreakdown
-	BreakdownTruncated bool
+	Summary             UsageAggregate
+	Series              []UsageSeriesPoint
+	Breakdown           []UsageBreakdown
+	BreakdownTruncated  bool
+	BreakdownOrder      UsageBreakdownOrder
+	BreakdownGroupCount int64
 }
 
 type Stats struct {

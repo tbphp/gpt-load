@@ -446,16 +446,16 @@ onBeforeUnmount(() => {
   align-items: center;
   flex-wrap: wrap;
   gap: var(--space-2);
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-card);
   background: var(--color-surface);
   padding: var(--space-3) var(--space-4);
 }
 
 .logs-filter-chip {
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-border-subtle);
   border-radius: 999px;
-  background: var(--color-surface-secondary);
+  background: var(--color-surface-sunken);
   padding: var(--space-1) var(--space-2);
   font-size: 0.8125rem;
 }

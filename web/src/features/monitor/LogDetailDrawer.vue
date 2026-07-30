@@ -455,9 +455,9 @@ function estimatedCost(log: RequestLogItemDto): string {
 
 .log-detail__summary,
 .log-attempt {
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-control);
-  background: var(--color-surface-secondary);
+  background: var(--color-surface-sunken);
   padding: var(--space-3);
 }
 
@@ -478,7 +478,7 @@ function estimatedCost(log: RequestLogItemDto): string {
   min-width: 0;
   min-height: 44px;
   align-items: center;
-  color: var(--color-primary);
+  color: var(--color-action);
   font-weight: 650;
   overflow-wrap: anywhere;
 }
@@ -496,7 +496,7 @@ function estimatedCost(log: RequestLogItemDto): string {
   width: fit-content;
   min-height: 44px;
   align-items: center;
-  color: var(--color-primary);
+  color: var(--color-action);
   font-weight: 650;
 }
 

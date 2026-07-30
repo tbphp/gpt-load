@@ -3,7 +3,7 @@ withDefaults(
   defineProps<{
     title: string
     description: string
-    headingAs?: 'h2' | 'h3' | 'h4' | 'p'
+    headingAs?: 'h1' | 'h2' | 'h3' | 'h4' | 'p'
   }>(),
   {
     headingAs: 'h2',
@@ -28,7 +28,7 @@ withDefaults(
   align-content: center;
   border: 1px dashed var(--color-border-strong);
   border-radius: var(--radius-card);
-  background: var(--color-surface-secondary);
+  background: var(--color-surface-sunken);
   padding: var(--space-8);
   text-align: center;
 }

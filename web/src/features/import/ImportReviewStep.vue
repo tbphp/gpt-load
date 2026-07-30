@@ -157,7 +157,7 @@ header p {
   display: grid;
   gap: 0;
   margin: 0;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-card);
 }
 .review-list div {
@@ -165,7 +165,7 @@ header p {
   grid-template-columns: 180px 1fr;
   gap: var(--space-4);
   padding: var(--space-3) var(--space-4);
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border-subtle);
 }
 .review-list div:last-child {
   border-bottom: 0;
@@ -180,7 +180,7 @@ dd {
 .conflict {
   display: grid;
   gap: var(--space-3);
-  border: 1px solid color-mix(in srgb, var(--color-warning) 38%, var(--color-border));
+  border: 1px solid color-mix(in srgb, var(--color-warning) 38%, var(--color-border-subtle));
   border-radius: var(--radius-card);
   background: var(--color-warning-bg);
   padding: var(--space-4);

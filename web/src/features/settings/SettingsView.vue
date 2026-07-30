@@ -305,7 +305,7 @@ onBeforeUnmount(() => {
 }
 .settings-navigation a {
   min-height: 44px;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-control);
   padding: var(--space-2) var(--space-3);
   font-weight: 650;
@@ -323,7 +323,7 @@ onBeforeUnmount(() => {
 }
 .settings-dirty {
   border: 1px solid var(--color-border-strong);
-  background: var(--color-surface-secondary);
+  background: var(--color-surface-sunken);
 }
 .settings-dirty span {
   color: var(--color-text-muted);
@@ -362,8 +362,8 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: center;
   border-radius: var(--radius-control);
-  background: var(--color-primary-soft);
-  color: var(--color-primary);
+  background: var(--color-action-soft);
+  color: var(--color-action);
 }
 .model-prices-entry__copy h2,
 .model-prices-entry__copy p {
@@ -388,9 +388,9 @@ onBeforeUnmount(() => {
     background-color var(--duration-fast) ease;
 }
 .model-prices-entry__link:hover {
-  border-color: var(--color-primary);
-  background: var(--color-primary-soft);
-  color: var(--color-primary);
+  border-color: var(--color-action);
+  background: var(--color-action-soft);
+  color: var(--color-action);
 }
 @media (max-width: 640px) {
   .settings :deep(.settings-card) {

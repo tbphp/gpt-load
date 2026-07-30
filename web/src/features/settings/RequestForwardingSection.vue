@@ -277,8 +277,8 @@ function conflictLabel(key: RuntimeSettingKey): string {
   align-items: center;
   justify-content: center;
   border-radius: var(--radius-control);
-  background: var(--color-primary-soft);
-  color: var(--color-primary);
+  background: var(--color-action-soft);
+  color: var(--color-action);
 }
 .request-forwarding__fields,
 .request-forwarding__advanced-body {
@@ -286,7 +286,7 @@ function conflictLabel(key: RuntimeSettingKey): string {
 }
 .request-forwarding__advanced {
   gap: var(--space-3);
-  border-top: 1px solid var(--color-border);
+  border-top: 1px solid var(--color-border-subtle);
   padding-top: var(--space-4);
 }
 .settings-conflicts {

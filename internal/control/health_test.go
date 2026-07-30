@@ -12,6 +12,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"gpt-load/internal/health"
 	"gpt-load/internal/platform/config"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/protocol"
@@ -23,10 +24,21 @@ func healthNow() time.Time {
 	return time.Date(2026, time.July, 24, 10, 0, 0, 0, time.UTC)
 }
 
+func encryptHealthKey(t *testing.T, fixture serviceFixture, plaintext string) string {
+	t.Helper()
+	ciphertext, err := fixture.encryption.Encrypt(plaintext)
+	if err != nil {
+		t.Fatalf("Encrypt() error = %v", err)
+	}
+	return ciphertext
+}
+
 func TestRuntimeHealthReturnsMutuallyExclusiveCurrentState(t *testing.T) {
 	fixture := newServiceFixture(t)
 	now := healthNow()
 	fixture.service.now = func() time.Time { return now }
+	cooldownPlaintext := "rate-limit-secret-safe"
+	blacklistedPlaintext := "invalid-key-secret-lock"
 	zero := 0
 	if _, err := fixture.manager.Publish(state.CompileInput{
 		Groups: []state.GroupConfig{
@@ -57,12 +69,13 @@ func TestRuntimeHealthReturnsMutuallyExclusiveCurrentState(t *testing.T) {
 		{
 			ID: 12, GroupID: 1, Status: state.KeyStatusActive,
 			CooldownUntil: now.Add(time.Minute), FailureCount: 1,
-			EncryptedValue: "cooldown",
+			EncryptedValue: encryptHealthKey(t, fixture, cooldownPlaintext),
 		},
 		{
 			ID: 13, GroupID: 1, Status: state.KeyStatusActive,
 			Blacklisted: true, CooldownUntil: now.Add(time.Hour),
-			FailureCount: 3, EncryptedValue: "blacklisted",
+			FailureCount:   3,
+			EncryptedValue: encryptHealthKey(t, fixture, blacklistedPlaintext),
 		},
 		{
 			ID: 14, GroupID: 1, Status: state.KeyStatusDisabled,
@@ -78,9 +91,9 @@ func TestRuntimeHealthReturnsMutuallyExclusiveCurrentState(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("Replace() error = %v", err)
 	}
-	fixture.stats.Record(12, true, now)
-	fixture.stats.Record(12, false, now)
-	fixture.stats.Record(13, false, now)
+	fixture.stats.RecordSuccess(12, now)
+	fixture.stats.RecordProblem(12, health.FailureCategoryRateLimited, 429, now)
+	fixture.stats.RecordFailure(13, health.FailureCategoryInvalidKey, 401, now)
 	fixture.requestLogStats.value = requestlog.Stats{
 		EnqueuedTotal: 100, PersistedTotal: 98,
 		DroppedQueueFullTotal: 1, DroppedPersistFailedTotal: 1,
@@ -117,12 +130,22 @@ func TestRuntimeHealthReturnsMutuallyExclusiveCurrentState(t *testing.T) {
 		t.Fatalf("disabled/zero/empty group counts = %#v", got.Groups)
 	}
 	if len(got.CooldownKeys) != 1 || got.CooldownKeys[0].KeyID != 12 ||
+		got.CooldownKeys[0].Mask != "rate****safe" ||
+		got.CooldownKeys[0].LastFailureCategory != "rate_limited" ||
+		got.CooldownKeys[0].LastStatusCode == nil ||
+		*got.CooldownKeys[0].LastStatusCode != 429 ||
 		got.CooldownKeys[0].RecentSuccessCount != 1 ||
-		got.CooldownKeys[0].RecentFailureCount != 1 ||
+		got.CooldownKeys[0].RecentFailureCount != 0 ||
+		got.CooldownKeys[0].ConsecutiveFailureCount != 1 ||
 		got.CooldownKeys[0].Recovery.Mode != "cooldown_expiry" {
 		t.Fatalf("cooldown details = %#v", got.CooldownKeys)
 	}
 	if len(got.BlacklistedKeys) != 1 || got.BlacklistedKeys[0].KeyID != 13 ||
+		got.BlacklistedKeys[0].Mask != "inva****lock" ||
+		got.BlacklistedKeys[0].LastFailureCategory != "invalid_key" ||
+		got.BlacklistedKeys[0].LastStatusCode == nil ||
+		*got.BlacklistedKeys[0].LastStatusCode != 401 ||
+		got.BlacklistedKeys[0].ConsecutiveFailureCount != 1 ||
 		got.BlacklistedKeys[0].Recovery.Mode != "validation_probe" ||
 		got.BlacklistedKeys[0].Recovery.At != nil {
 		t.Fatalf("blacklisted details = %#v", got.BlacklistedKeys)
@@ -155,23 +178,28 @@ func TestRuntimeHealthSortsProblemKeysByGroupAndKey(t *testing.T) {
 	if err := fixture.registry.Replace([]state.KeyEntry{
 		{
 			ID: 22, GroupID: 2, Status: state.KeyStatusActive,
-			CooldownUntil: now.Add(time.Minute), EncryptedValue: "cooldown-22",
+			CooldownUntil:  now.Add(time.Minute),
+			EncryptedValue: encryptHealthKey(t, fixture, "cooldown-secret-0022"),
 		},
 		{
 			ID: 13, GroupID: 1, Status: state.KeyStatusActive,
-			Blacklisted: true, EncryptedValue: "blacklisted-13",
+			Blacklisted:    true,
+			EncryptedValue: encryptHealthKey(t, fixture, "blacklisted-secret-0013"),
 		},
 		{
 			ID: 12, GroupID: 1, Status: state.KeyStatusActive,
-			CooldownUntil: now.Add(time.Minute), EncryptedValue: "cooldown-12",
+			CooldownUntil:  now.Add(time.Minute),
+			EncryptedValue: encryptHealthKey(t, fixture, "cooldown-secret-0012"),
 		},
 		{
 			ID: 21, GroupID: 2, Status: state.KeyStatusActive,
-			Blacklisted: true, EncryptedValue: "blacklisted-21",
+			Blacklisted:    true,
+			EncryptedValue: encryptHealthKey(t, fixture, "blacklisted-secret-0021"),
 		},
 		{
 			ID: 11, GroupID: 1, Status: state.KeyStatusActive,
-			CooldownUntil: now.Add(time.Minute), EncryptedValue: "cooldown-11",
+			CooldownUntil:  now.Add(time.Minute),
+			EncryptedValue: encryptHealthKey(t, fixture, "cooldown-secret-0011"),
 		},
 	}); err != nil {
 		t.Fatalf("Replace() error = %v", err)
@@ -202,6 +230,8 @@ func TestRuntimeHealthSortsProblemKeysByGroupAndKey(t *testing.T) {
 func TestRuntimeHealthJSONOmitsScoresCredentialsAndZeroTimes(t *testing.T) {
 	fixture := newServiceFixture(t)
 	fixture.service.now = healthNow
+	plaintext := "provider-secret-credential-tail"
+	ciphertext := encryptHealthKey(t, fixture, plaintext)
 	if _, err := fixture.manager.Publish(state.CompileInput{Groups: []state.GroupConfig{{
 		ID: 1, Name: "safe", Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions},
 		Models: []state.ModelConfig{{ID: "model"}}, Enabled: true,
@@ -210,7 +240,7 @@ func TestRuntimeHealthJSONOmitsScoresCredentialsAndZeroTimes(t *testing.T) {
 	}
 	if err := fixture.registry.Replace([]state.KeyEntry{{
 		ID: 1, GroupID: 1, Status: state.KeyStatusActive,
-		Blacklisted: true, EncryptedValue: "cipher-must-not-appear",
+		Blacklisted: true, EncryptedValue: ciphertext,
 	}}); err != nil {
 		t.Fatalf("Replace() error = %v", err)
 	}
@@ -221,6 +251,12 @@ func TestRuntimeHealthJSONOmitsScoresCredentialsAndZeroTimes(t *testing.T) {
 	result, err := fixture.service.RuntimeHealth()
 	if err != nil {
 		t.Fatalf("RuntimeHealth() error = %v", err)
+	}
+	if len(result.BlacklistedKeys) != 1 ||
+		result.BlacklistedKeys[0].Mask != "prov****tail" ||
+		result.BlacklistedKeys[0].LastFailureCategory != "ambiguous" ||
+		result.BlacklistedKeys[0].LastStatusCode != nil {
+		t.Fatalf("blacklisted details = %#v", result.BlacklistedKeys)
 	}
 	body, err := json.Marshal(result)
 	if err != nil {
@@ -258,7 +294,8 @@ func TestRuntimeHealthJSONOmitsScoresCredentialsAndZeroTimes(t *testing.T) {
 
 	lower := strings.ToLower(string(body))
 	for _, forbidden := range []string{
-		"cipher-must-not-appear", "encrypted", "hash", "header_rules",
+		strings.ToLower(plaintext), strings.ToLower(ciphertext),
+		"encrypted", "hash", "header_rules",
 		"percentage", "success_rate", "score", "average_latency",
 		"0001-01-01",
 	} {
@@ -270,6 +307,40 @@ func TestRuntimeHealthJSONOmitsScoresCredentialsAndZeroTimes(t *testing.T) {
 		!reflect.DeepEqual(fixture.registry.Snapshot(), beforeKeys) ||
 		fixture.stats.Snapshot(1, healthNow()) != beforeStats {
 		t.Fatal("RuntimeHealth() mutated runtime state")
+	}
+}
+
+func TestRuntimeHealthFailsClosedWhenProblemKeyCannotBeDecrypted(t *testing.T) {
+	fixture := newServiceFixture(t)
+	fixture.service.now = healthNow
+	if _, err := fixture.manager.Publish(state.CompileInput{Groups: []state.GroupConfig{{
+		ID: 1, Name: "safe", Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions},
+		Models: []state.ModelConfig{{ID: "model"}}, Enabled: true,
+	}}}); err != nil {
+		t.Fatalf("Publish() error = %v", err)
+	}
+	if err := fixture.registry.Replace([]state.KeyEntry{{
+		ID: 1, GroupID: 1, Status: state.KeyStatusActive,
+		Blacklisted: true, EncryptedValue: "not-a-valid-ciphertext",
+	}}); err != nil {
+		t.Fatalf("Replace() error = %v", err)
+	}
+
+	if _, err := fixture.service.RuntimeHealth(); !errors.Is(
+		err,
+		app_errors.ErrInternalServer,
+	) {
+		t.Fatalf("RuntimeHealth() error = %v, want INTERNAL_SERVER_ERROR", err)
+	}
+}
+
+func TestHealthProblemMaskFailsClosedWhenCiphertextIsMissing(t *testing.T) {
+	fixture := newServiceFixture(t)
+	if _, err := fixture.service.healthProblemMask(nil, 1); !errors.Is(
+		err,
+		app_errors.ErrInternalServer,
+	) {
+		t.Fatalf("healthProblemMask() error = %v, want INTERNAL_SERVER_ERROR", err)
 	}
 }
 

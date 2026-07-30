@@ -12,3 +12,24 @@ const (
 	FailureCategoryClientError
 	FailureCategoryDownstreamCancel
 )
+
+func (category FailureCategory) String() string {
+	switch category {
+	case FailureCategoryOK:
+		return "ok"
+	case FailureCategoryRateLimited:
+		return "rate_limited"
+	case FailureCategoryModelUnavailable:
+		return "model_unavailable"
+	case FailureCategoryInvalidKey:
+		return "invalid_key"
+	case FailureCategoryUpstreamHostError:
+		return "upstream_host_error"
+	case FailureCategoryClientError:
+		return "client_error"
+	case FailureCategoryDownstreamCancel:
+		return "downstream_cancel"
+	default:
+		return "ambiguous"
+	}
+}

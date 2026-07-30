@@ -60,6 +60,9 @@ export default {
         recentSuccessCount: 'Recent successes',
         recentFailureCount: 'Recent failures',
         consecutiveFailureCount: 'Consecutive failures',
+        failureCategory: 'Failure category',
+        statusCode: 'HTTP status',
+        statusUnavailable: 'No HTTP status',
         manualWeight: 'Manual weight',
         autoWeight: 'Automatic weight',
         automatic: 'Automatic',
@@ -69,8 +72,18 @@ export default {
         notAutomatic: 'No automatic recovery',
         cooldownExpiry: 'Cooldown expiry',
         validationProbe: 'Validation probe',
+        recoversAt: 'Recovers at',
         runtimeDecides: 'The runtime decides the probe time',
         unknown: 'The runtime determines recovery',
+      },
+      failureCategories: {
+        rate_limited: 'Rate limited',
+        model_unavailable: 'Model unavailable',
+        invalid_key: 'Invalid key',
+        upstream_host_error: 'Upstream host error',
+        client_error: 'Client request error',
+        downstream_cancel: 'Downstream canceled',
+        ambiguous: 'Ambiguous failure',
       },
       requestLog: {
         title: 'Request-log pipeline',
@@ -189,7 +202,8 @@ export default {
       trend: {
         title: 'Persisted request trend',
         description: 'Sparse UTC buckets remain sparse; absent points are not inferred.',
-        accessibleDescription: 'Persisted request count for each returned UTC bucket.',
+        accessibleDescription:
+          'Persisted request and failed-request counts for each returned UTC bucket.',
         empty: 'No persisted request buckets were returned for this range.',
       },
       series: {

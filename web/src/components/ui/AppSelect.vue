@@ -86,7 +86,7 @@ const attrs = useAttrs()
   max-width: var(--reka-select-content-available-width);
   max-height: min(320px, var(--reka-select-content-available-height));
   overflow-y: auto;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-control);
   background: var(--color-surface);
   padding: var(--space-1);
@@ -108,12 +108,12 @@ const attrs = useAttrs()
   white-space: normal;
 }
 .app-select__item[data-highlighted] {
-  background: var(--color-surface-secondary);
+  background: var(--color-surface-sunken);
 }
 .app-select__indicator {
   position: absolute;
   left: 10px;
   display: inline-flex;
-  color: var(--color-primary);
+  color: var(--color-action);
 }
 </style>

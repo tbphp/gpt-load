@@ -178,9 +178,9 @@ function error(field: InspectorField): string | undefined {
 .inspector-boundary,
 .inspector-inline-error {
   margin: 0;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-control);
-  background: var(--color-surface-secondary);
+  background: var(--color-surface-sunken);
   color: var(--color-text-muted);
   padding: var(--space-3);
 }
@@ -206,7 +206,7 @@ function error(field: InspectorField): string | undefined {
   min-height: 44px;
   border: 1px solid var(--color-border-control);
   border-radius: var(--radius-control);
-  background: var(--color-surface-secondary);
+  background: var(--color-surface-sunken);
   color: var(--color-text);
   padding: 8px 10px;
   font: inherit;

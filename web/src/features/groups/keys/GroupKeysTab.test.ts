@@ -33,18 +33,42 @@ const keys = [
     cooldown_until: null,
     failure_count: 3,
   },
+  {
+    id: 13,
+    group_id: 7,
+    mask: 'sk-p****e5f6',
+    status: 'active' as const,
+    effective_status: 'cooldown' as const,
+    weight_manual: null,
+    weight_auto: 44,
+    blacklisted: false,
+    cooldown_until: '2026-07-29T12:00:00Z',
+    failure_count: 4,
+  },
+  {
+    id: 14,
+    group_id: 7,
+    mask: 'sk-p****g7h8',
+    status: 'active' as const,
+    effective_status: 'blacklisted' as const,
+    weight_manual: null,
+    weight_auto: 0,
+    blacklisted: true,
+    cooldown_until: null,
+    failure_count: 9,
+  },
 ]
 
 function queryClient() {
   return new QueryClient({ defaultOptions: { queries: { retry: false } } })
 }
 
-async function mountKeys(request: ApiClient['request']) {
+async function mountKeys(request: ApiClient['request'], path = '/groups/7?tab=keys') {
   const client = queryClient()
   const mounted = await mountApp(GroupKeysTab, {
     api: { request },
     queryClient: client,
-    path: '/groups/7?tab=keys',
+    path,
     locale: 'en-US',
     mounting: { props: { groupId: 7 }, attachTo: document.body },
   })
@@ -59,6 +83,42 @@ function clickDocument(selector: string): void {
 }
 
 describe('GroupKeysTab', () => {
+  it('shows only cooldown and blacklisted keys for the problem deep link and can clear it', async () => {
+    const request = vi.fn(async (path: string) => {
+      if (path === '/api/groups/7/keys') return keys
+      throw new Error(`unexpected request: ${path}`)
+    }) as ApiClient['request']
+    const { router, wrapper } = await mountKeys(request, '/groups/7?tab=keys&key_state=problem')
+
+    expect(wrapper.find('[data-test="key-row-11"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="key-row-12"]').exists()).toBe(false)
+    expect(wrapper.get('[data-test="key-row-13"]').text()).toContain('Cooldown')
+    expect(wrapper.get('[data-test="key-row-14"]').text()).toContain('Blacklisted')
+    expect(wrapper.get('[data-test="problem-key-filter"]').text()).toContain(
+      'Showing only problem keys',
+    )
+
+    await wrapper.get('[data-test="clear-problem-key-filter"]').trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.fullPath).toBe('/groups/7?tab=keys')
+    for (const key of keys) {
+      expect(wrapper.get(`[data-test="key-row-${key.id}"]`)).toBeDefined()
+    }
+    wrapper.unmount()
+  })
+
+  it('uses a filtered empty state when the Group has keys but none are problems', async () => {
+    const request = vi.fn(async (path: string) => {
+      if (path === '/api/groups/7/keys') return keys.slice(0, 2)
+      throw new Error(`unexpected request: ${path}`)
+    }) as ApiClient['request']
+    const { wrapper } = await mountKeys(request, '/groups/7?tab=keys&key_state=problem')
+
+    expect(wrapper.text()).toContain('No problem keys right now')
+    expect(wrapper.text()).not.toContain('No upstream keys')
+    wrapper.unmount()
+  })
+
   it('renders only masks and provides icon, text, and semantic tone for configured and effective status', async () => {
     const plaintext = 'UPSTREAM_KEY_PLAINTEXT_CANARY_7f21'
     const request = vi.fn(async (path: string) => {

@@ -133,6 +133,11 @@ export default {
       deleteFailed: 'アップストリームキーを削除できません。',
       emptyTitle: 'アップストリームキーがありません',
       emptyDescription: 'この Group にキーをインポートすると、リクエストをルーティングできます。',
+      problemFilter: 'クールダウン中またはブラックリスト登録済みの問題キーのみを表示しています。',
+      clearProblemFilter: 'フィルターを解除',
+      problemEmptyTitle: '現在、問題のあるキーはありません',
+      problemEmptyDescription:
+        'この Group にはクールダウン中またはブラックリスト登録済みのキーがありません。',
       caption: 'この Group のアップストリームキー',
       auto: '自動',
       none: '—',

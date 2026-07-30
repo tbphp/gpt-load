@@ -323,7 +323,7 @@ func TestValidationWorkerFailureGenerationChangesDuringProbeRejectsRecovery(t *t
 		t.Fatalf("Replace() error = %v", err)
 	}
 	stats := health.NewStatsStore()
-	stats.Record(7, false, now)
+	stats.RecordFailure(7, health.FailureCategoryAmbiguous, 0, now)
 	probeStarted := make(chan struct{})
 	releaseProbe := make(chan struct{})
 	worker := &validationWorker{
@@ -361,7 +361,9 @@ func TestValidationWorkerFailureGenerationChangesDuringProbeRejectsRecovery(t *t
 	}}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("blacklisted keys = %#v, want stale recovery rejected as %#v", got, want)
 	}
-	if got, want := stats.Snapshot(7, now), (health.KeyStats{Failure: 1, ConsecutiveFailure: 1}); got != want {
+	if got, want := stats.Snapshot(7, now), (health.KeyStats{
+		Failure: 1, ConsecutiveFailure: 1, ConsecutiveProblem: 1,
+	}); got != want {
 		t.Fatalf("stats after stale recovery = %#v, want %#v", got, want)
 	}
 }
@@ -565,7 +567,7 @@ func TestValidationWorkerPublicationBoundaryBlocksPublishThroughRecoverAndReset(
 	}
 	stats := health.NewStatsStore()
 	now := time.Date(2026, time.July, 27, 12, 0, 0, 0, time.UTC)
-	stats.Record(7, false, now)
+	stats.RecordFailure(7, health.FailureCategoryAmbiguous, 0, now)
 	snapshots := &observableValidationSnapshotSource{manager: manager}
 	blockingRegistry := &publicationValidationRegistry{
 		delegate:              registry,

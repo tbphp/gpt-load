@@ -1,4 +1,4 @@
-import { normalizeGroupTab, parsePositiveId } from './group-route'
+import { normalizeGroupQuery, normalizeGroupTab, parsePositiveId } from './group-route'
 
 describe('Group route parsing', () => {
   it.each([
@@ -34,5 +34,18 @@ describe('Group route parsing', () => {
     [['models'], 'keys'],
   ])('normalizes tab %j to %s', (raw, expected) => {
     expect(normalizeGroupTab(raw)).toBe(expected)
+  })
+
+  it.each([
+    [
+      { tab: 'keys', key_state: 'problem' },
+      { tab: 'keys', key_state: 'problem' },
+    ],
+    [{ tab: 'models', key_state: 'problem' }, { tab: 'models' }],
+    [{ tab: 'settings', key_state: 'problem' }, { tab: 'settings' }],
+    [{ tab: 'unknown', unsafe: 'discarded' }, { tab: 'keys' }],
+    [{ tab: ['keys'], key_state: ['problem'] }, { tab: 'keys' }],
+  ])('normalizes Group query %#j to %#j', (query, expected) => {
+    expect(normalizeGroupQuery(query)).toEqual(expected)
   })
 })

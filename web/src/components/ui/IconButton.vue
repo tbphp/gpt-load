@@ -43,7 +43,7 @@ withDefaults(
 }
 
 .icon-button:hover:not(:disabled) {
-  background: var(--color-surface-secondary);
+  background: var(--color-surface-sunken);
   color: var(--color-text);
 }
 

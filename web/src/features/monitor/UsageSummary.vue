@@ -124,7 +124,7 @@ function formatEstimatedCost(): string {
   margin: 0;
 }
 .usage-token-definition > div {
-  border-top: 1px solid var(--color-border);
+  border-top: 1px solid var(--color-border-subtle);
   padding-top: var(--space-2);
 }
 .usage-token-definition dt {
@@ -141,7 +141,7 @@ function formatEstimatedCost(): string {
   gap: var(--space-2);
 }
 .usage-kpi > svg {
-  color: var(--color-primary);
+  color: var(--color-action);
 }
 .usage-kpi > span {
   color: var(--color-text-muted);

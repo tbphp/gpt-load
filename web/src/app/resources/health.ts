@@ -55,6 +55,9 @@ const problemKeyFields = [
   'weight_manual',
   'weight_auto',
   'recovery',
+  'mask',
+  'last_failure_category',
+  'last_status_code',
 ] as const
 const requestLogFields = [
   'enqueued_total',
@@ -73,6 +76,16 @@ const requestLogFields = [
   'last_retention_failure_at',
 ] as const
 const recoveryModes = ['cooldown_expiry', 'validation_probe'] as const
+const problemFailureCategories = [
+  'rate_limited',
+  'model_unavailable',
+  'invalid_key',
+  'upstream_host_error',
+  'client_error',
+  'downstream_cancel',
+  'ambiguous',
+] as const
+const longMaskPattern = /^.{4}\*{4}.{4}$/u
 
 function invalidResponse(): never {
   throw new InvalidResponseError()
@@ -86,6 +99,12 @@ function projectNonBlankString(value: unknown): string {
 
 function projectNullableInstant(value: unknown): string | null {
   return value === null ? null : projectISOInstant(value)
+}
+
+function projectHealthKeyMask(value: unknown): string {
+  const mask = projectString(value)
+  if (mask !== '****' && !longMaskPattern.test(mask)) invalidResponse()
+  return mask
 }
 
 export function projectHealthCounts(value: unknown): KeyCounts {
@@ -160,6 +179,12 @@ function projectProblemKey(value: unknown): HealthProblemKeyDto {
         : projectSafeInteger(record.weight_manual, { minimum: 0, maximum: 100 }),
     weight_auto: projectSafeInteger(record.weight_auto, { minimum: 0, maximum: 100 }),
     recovery,
+    mask: projectHealthKeyMask(record.mask),
+    last_failure_category: projectEnum(record.last_failure_category, problemFailureCategories),
+    last_status_code:
+      record.last_status_code === null
+        ? null
+        : projectSafeInteger(record.last_status_code, { minimum: 100, maximum: 999 }),
   }
 }
 
@@ -197,13 +222,13 @@ export async function getRuntimeHealth(
   return projectRuntimeHealth(await client.request('/api/health', { method: 'GET', signal }))
 }
 
-export function healthQueryOptions(client: ApiClient, polling = false) {
+export function healthQueryOptions(client: ApiClient, intervalMs?: number) {
   return queryOptions({
     queryKey: controlQueryKeys.health(),
     queryFn: ({ signal }) => getRuntimeHealth(client, signal),
-    ...(polling
+    ...(intervalMs !== undefined
       ? {
-          refetchInterval: 10_000,
+          refetchInterval: intervalMs,
           refetchIntervalInBackground: false,
           refetchOnWindowFocus: false,
         }

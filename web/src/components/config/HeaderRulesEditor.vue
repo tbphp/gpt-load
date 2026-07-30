@@ -239,7 +239,7 @@ function setValue(row: RuleRow, event: Event): void {
 .header-rules {
   display: grid;
   gap: var(--space-3);
-  border-top: 1px solid var(--color-border);
+  border-top: 1px solid var(--color-border-subtle);
   padding-top: var(--space-4);
 }
 .header-rules__heading {
@@ -267,10 +267,10 @@ h3 {
   min-width: 44px;
   align-items: center;
   justify-content: center;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-control);
   background: transparent;
-  color: var(--color-primary);
+  color: var(--color-action);
   cursor: pointer;
 }
 .header-rules__add {
@@ -294,7 +294,7 @@ h3 {
   min-height: 44px;
   border: 1px solid var(--color-border-control);
   border-radius: var(--radius-control);
-  background: var(--color-surface-secondary);
+  background: var(--color-surface-sunken);
   color: var(--color-text);
   padding: var(--space-2) var(--space-3);
 }
@@ -315,7 +315,7 @@ h3 {
   color: var(--color-danger);
   font-size: 0.8125rem;
 }
-@media (max-width: 760px) {
+@media (max-width: 759px) {
   .header-rule {
     grid-template-columns: 1fr 44px;
   }

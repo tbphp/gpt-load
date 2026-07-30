@@ -4,7 +4,8 @@ import { useI18n } from 'vue-i18n'
 
 import type { GroupDetailDto } from '@/app/resources/groups'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
-import { normalizeUpstreamHost } from '@/features/home/home-model'
+
+import { normalizeUpstreamHost } from './upstream-host'
 
 defineProps<{ group: GroupDetailDto }>()
 const { t } = useI18n()

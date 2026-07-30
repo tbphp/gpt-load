@@ -9,6 +9,7 @@ import { useApiClient } from '@/api/client-context'
 import { groupListQueryOptions } from '@/app/resources/groups'
 import { usageQueryOptions, type UsageAggregateDto, type UsageFilters } from '@/app/resources/usage'
 import { useUnsavedChanges } from '@/app/unsaved-changes'
+import TrendChart from '@/components/charts/TrendChart.vue'
 import DataTable from '@/components/ui/DataTable.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
@@ -28,7 +29,6 @@ import {
 } from './usage-filters'
 import { usageMonitorQuery } from './monitor-route'
 import UsageFilterForm from './UsageFilterForm.vue'
-import UsageSparkline from './UsageSparkline.vue'
 import UsageSummary from './UsageSummary.vue'
 
 const client = useApiClient()
@@ -342,16 +342,13 @@ async function navigate(filters: UsageFilters): Promise<void> {
             </div>
           </div>
           <SurfaceCard>
-            <UsageSparkline
-              :range="{
-                from: report.from,
-                to: report.to,
-                granularity: report.granularity,
-              }"
+            <TrendChart
               :series="report.series"
               :title="t('monitor.usage.trend.title')"
               :description="t('monitor.usage.trend.accessibleDescription')"
               :empty-label="t('monitor.usage.trend.empty')"
+              :request-label="t('monitor.usage.columns.requests')"
+              :failure-label="t('monitor.usage.columns.failure')"
             />
           </SurfaceCard>
         </section>
@@ -489,7 +486,7 @@ async function navigate(filters: UsageFilters): Promise<void> {
 .usage-scope,
 .usage-applied,
 .usage-freshness {
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-card);
   background: var(--color-surface);
   padding: var(--space-4);
@@ -516,9 +513,9 @@ async function navigate(filters: UsageFilters): Promise<void> {
 }
 
 .usage-filter-chip {
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-border-subtle);
   border-radius: 999px;
-  background: var(--color-surface-secondary);
+  background: var(--color-surface-sunken);
   padding: var(--space-1) var(--space-2);
   font-size: 0.8125rem;
 }
@@ -537,7 +534,7 @@ async function navigate(filters: UsageFilters): Promise<void> {
 
 .usage-scope > svg {
   flex: 0 0 auto;
-  color: var(--color-primary);
+  color: var(--color-action);
 }
 
 .usage-scope p,
@@ -585,7 +582,7 @@ async function navigate(filters: UsageFilters): Promise<void> {
 }
 
 .usage-note a {
-  color: var(--color-primary);
+  color: var(--color-action);
   font-weight: 650;
 }
 

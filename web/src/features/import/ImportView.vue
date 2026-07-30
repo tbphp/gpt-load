@@ -107,9 +107,9 @@ function selectMode(mode: 'new' | 'existing'): void {
   width: fit-content;
   max-width: 100%;
   gap: var(--space-1);
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-control);
-  background: var(--color-surface-secondary);
+  background: var(--color-surface-sunken);
   padding: var(--space-1);
 }
 .mode-selector button {
@@ -128,7 +128,7 @@ function selectMode(mode: 'new' | 'existing'): void {
 }
 .mode-selector button[aria-pressed='true'] {
   background: var(--color-surface);
-  color: var(--color-primary);
+  color: var(--color-action);
   box-shadow: var(--shadow-card);
 }
 @media (max-width: 480px) {

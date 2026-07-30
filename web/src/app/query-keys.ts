@@ -19,7 +19,10 @@ function normalizeLogFilters(filters: RequestLogFilters): RequestLogFilters {
 }
 
 function normalizeUsageFilters(filters: UsageFilters): UsageFilters {
-  const result: UsageFilters = { range: filters.range }
+  const result: UsageFilters = {
+    range: filters.range,
+    breakdown_order: filters.breakdown_order ?? 'requests',
+  }
   if (filters.group_id !== undefined) result.group_id = filters.group_id
   if (filters.model !== undefined) result.model = filters.model
   return result

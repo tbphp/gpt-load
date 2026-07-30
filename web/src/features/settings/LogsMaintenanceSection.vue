@@ -147,8 +147,8 @@ function setValue(value: number): void {
   align-items: center;
   justify-content: center;
   border-radius: var(--radius-control);
-  background: var(--color-primary-soft);
-  color: var(--color-primary);
+  background: var(--color-action-soft);
+  color: var(--color-action);
 }
 .settings-conflict {
   display: grid;
