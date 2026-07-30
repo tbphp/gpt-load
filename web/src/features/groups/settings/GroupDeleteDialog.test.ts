@@ -13,7 +13,7 @@ const detail: GroupDetailDto = {
   id: 7,
   name: 'Primary',
   upstream_url: 'https://api.example.com/v1',
-  protocols: ['openai'],
+  protocols: ['openai-chat-completions'],
   models: [{ id: 'gpt-4o', alias: '' }],
   enabled: true,
   key_count: 1,

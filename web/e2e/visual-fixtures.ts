@@ -170,7 +170,7 @@ export const visualScenarioCases: readonly VisualScenarioCase[] = [
   {
     id: 'inspector-routing-desktop-en-light',
     scenario: 'inspector-routing',
-    path: '/monitor?tab=inspector&protocol=openai&external_model=stable-public-alias&access_key_id=12',
+    path: '/monitor?tab=inspector&protocol=openai-chat-completions&external_model=stable-public-alias&access_key_id=12',
     viewport: visualViewports[3],
     theme: 'light',
     locale: 'en-US',
@@ -178,7 +178,7 @@ export const visualScenarioCases: readonly VisualScenarioCase[] = [
   {
     id: 'inspector-routing-tablet-zh-dark',
     scenario: 'inspector-routing',
-    path: '/monitor?tab=inspector&protocol=openai&external_model=stable-public-alias&access_key_id=12',
+    path: '/monitor?tab=inspector&protocol=openai-chat-completions&external_model=stable-public-alias&access_key_id=12',
     viewport: visualViewports[1],
     theme: 'dark',
     locale: 'zh-CN',

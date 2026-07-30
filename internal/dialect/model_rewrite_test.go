@@ -23,6 +23,19 @@ func TestModelRewritersDeriveRequestsWithoutMutatingOriginal(t *testing.T) {
 			wantPath: "/v1/chat/completions", wantModel: "provider-openai",
 		},
 		{
+			name:     "openai responses",
+			rewriter: NewOpenAIResponses(http.DefaultClient),
+			upstream: "provider-responses",
+			request: &ParsedRequest{
+				Method: http.MethodPost,
+				Path:   "/v1/responses",
+				Header: http.Header{"X-Test": {"one"}},
+				Body:   []byte(`{"model":"public","input":"ping"}`),
+			},
+			wantPath:  "/v1/responses",
+			wantModel: "provider-responses",
+		},
+		{
 			name: "anthropic", rewriter: NewAnthropic(http.DefaultClient), upstream: "provider-claude",
 			request:  &ParsedRequest{Method: http.MethodPost, Path: "/v1/messages", Body: []byte(`{"model":"public","messages":[]}`)},
 			wantPath: "/v1/messages", wantModel: "provider-claude",
@@ -48,12 +61,12 @@ func TestModelRewritersDeriveRequestsWithoutMutatingOriginal(t *testing.T) {
 				t.Fatalf("derived path = %q, want %q", derived.Path, test.wantPath)
 			}
 			if test.wantModel != "" {
-				model, _, err := test.rewriter.(Dialect).ExtractModel(derived)
+				metadata, err := test.rewriter.(Dialect).InspectRequest(derived)
 				if err != nil {
-					t.Fatalf("ExtractModel(derived) error = %v", err)
+					t.Fatalf("InspectRequest(derived) error = %v", err)
 				}
-				if model != test.wantModel {
-					t.Fatalf("derived model = %q, want %q", model, test.wantModel)
+				if metadata.Model == nil || *metadata.Model != test.wantModel {
+					t.Fatalf("derived model = %#v, want %q", metadata.Model, test.wantModel)
 				}
 			}
 			if !reflect.DeepEqual(test.request, original) {
@@ -82,6 +95,8 @@ func TestModelRewritersRewriteResponseFields(t *testing.T) {
 		path     []string
 	}{
 		{name: "openai", rewriter: NewOpenAI(http.DefaultClient), body: `{"model":"real","n":9007199254740993}`, path: []string{"model"}},
+		{name: "openai responses object", rewriter: NewOpenAIResponses(http.DefaultClient), body: `{"type":"response","model":"real","n":9007199254740993}`, path: []string{"model"}},
+		{name: "openai responses event", rewriter: NewOpenAIResponses(http.DefaultClient), body: `{"type":"response.completed","response":{"model":"real"},"n":9007199254740993}`, path: []string{"response", "model"}},
 		{name: "anthropic response", rewriter: NewAnthropic(http.DefaultClient), body: `{"type":"message","model":"real"}`, path: []string{"model"}},
 		{name: "anthropic message_start", rewriter: NewAnthropic(http.DefaultClient), body: `{"type":"message_start","message":{"model":"real"}}`, path: []string{"message", "model"}},
 		{name: "gemini", rewriter: NewGemini(http.DefaultClient), body: `{"modelVersion":"real"}`, path: []string{"modelVersion"}},
@@ -115,6 +130,18 @@ func TestModelRewritersRewriteResponseFields(t *testing.T) {
 	}
 }
 
+func TestOpenAIResponsesResponseModelRewriteTreatsNullResponseAsAbsent(t *testing.T) {
+	body := []byte(`{"type":"response.output_text.delta","response":null,"delta":"hello"}`)
+
+	got, err := NewOpenAIResponses(http.DefaultClient).RewriteResponseModel(body, "public")
+	if err != nil {
+		t.Fatalf("RewriteResponseModel() error = %v", err)
+	}
+	if !bytes.Equal(got, body) {
+		t.Fatalf("RewriteResponseModel() = %q, want %q", got, body)
+	}
+}
+
 func TestModelRewritersRejectInvalidTargetModels(t *testing.T) {
 	rewriters := []struct {
 		name  string
@@ -122,6 +149,7 @@ func TestModelRewritersRejectInvalidTargetModels(t *testing.T) {
 		req   *ParsedRequest
 	}{
 		{name: "openai", value: NewOpenAI(http.DefaultClient), req: &ParsedRequest{Body: []byte(`{"model":"public"}`)}},
+		{name: "openai responses", value: NewOpenAIResponses(http.DefaultClient), req: &ParsedRequest{Body: []byte(`{"model":"public"}`)}},
 		{name: "anthropic", value: NewAnthropic(http.DefaultClient), req: &ParsedRequest{Body: []byte(`{"model":"public"}`)}},
 		{name: "gemini", value: NewGemini(http.DefaultClient), req: &ParsedRequest{Path: "/v1beta/models/public:generateContent"}},
 	}
@@ -154,6 +182,7 @@ func TestModelRewritersRequireRequestModelAndCloneAbsentResponse(t *testing.T) {
 		response []byte
 	}{
 		{name: "openai", rewriter: NewOpenAI(http.DefaultClient), request: &ParsedRequest{Body: []byte(`{}`)}, response: []byte(`{"id":"one"}`)},
+		{name: "openai responses", rewriter: NewOpenAIResponses(http.DefaultClient), request: &ParsedRequest{Body: []byte(`{}`)}, response: []byte(`{"id":"resp_one"}`)},
 		{name: "anthropic", rewriter: NewAnthropic(http.DefaultClient), request: &ParsedRequest{Body: []byte(`{}`)}, response: []byte(`{"type":"content_block_delta"}`)},
 		{name: "gemini", rewriter: NewGemini(http.DefaultClient), request: &ParsedRequest{Path: "/v1beta/models/:generateContent"}, response: []byte(`{"candidates":[]}`)},
 	} {

@@ -4,6 +4,7 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import type { GroupSummary } from '@/api/control/types'
+import { supportsProtocolOnlyRouting } from '@/api/control/protocols'
 import type { HealthGroupDto } from '@/app/resources/health'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import SurfaceCard from '@/components/ui/SurfaceCard.vue'
@@ -12,6 +13,9 @@ import { isGroupServiceable, normalizeUpstreamHost } from './home-model'
 
 const props = defineProps<{ group: GroupSummary; health?: HealthGroupDto }>()
 const { t } = useI18n()
+const resourceOnly = computed(
+  () => props.group.models.length === 0 && supportsProtocolOnlyRouting(props.group.protocols),
+)
 const serviceable = computed(() => isGroupServiceable(props.group, props.health?.counts))
 const serviceTone = computed(() => {
   if (serviceable.value === undefined) return 'neutral'
@@ -23,9 +27,10 @@ const serviceLabel = computed(() => {
 })
 const serviceReason = computed(() => {
   if (!props.group.enabled) return t('home.groupDisabledReason')
-  if (props.group.models.length === 0) return t('home.noModelsReason')
+  if (props.group.models.length === 0 && !resourceOnly.value) return t('home.noModelsReason')
   if (!props.health) return t('home.healthUnknownReason')
   if (props.health.counts.available === 0) return t('home.noAvailableKeysReason')
+  if (resourceOnly.value) return t('home.responsesResourceOnlyReason')
   return ''
 })
 </script>

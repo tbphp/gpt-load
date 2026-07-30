@@ -189,7 +189,7 @@ func TestSettingsETagIgnoresOtherResourcesAndSurvivesRuntimeReload(t *testing.T)
 	if _, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
 		Name:        &groupName,
 		UpstreamURL: "https://example.com/v1",
-		Protocols:   []protocol.Protocol{protocol.OpenAI},
+		Protocols:   []protocol.Protocol{protocol.OpenAIChatCompletions},
 		Keys:        "sk-unrelated-etag-key",
 	}); err != nil {
 		t.Fatal(err)

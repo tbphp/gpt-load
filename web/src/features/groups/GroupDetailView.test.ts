@@ -11,7 +11,7 @@ const detail = {
   id: 7,
   name: 'Primary',
   upstream_url: 'https://api.example.com/v1',
-  protocols: ['openai' as const],
+  protocols: ['openai-chat-completions' as const],
   models: [{ id: 'gpt-4o', alias: '' }],
   enabled: true,
   validation_model: null,

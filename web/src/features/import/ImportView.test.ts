@@ -90,7 +90,7 @@ describe('ImportView', () => {
     const operation = operationOwner.beginCreate({
       name: 'Primary',
       upstream_url: 'https://api.example.com',
-      protocols: ['openai'],
+      protocols: ['openai-chat-completions'],
       models: [{ id: 'gpt-4o', alias: '' }],
       config: {},
       keys: 'UPSTREAM_KEY_CANARY',

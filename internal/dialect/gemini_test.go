@@ -19,7 +19,7 @@ import (
 	"gpt-load/internal/state"
 )
 
-func TestGeminiExtractModel(t *testing.T) {
+func TestGeminiInspectRequest(t *testing.T) {
 	value := NewGemini(http.DefaultClient)
 	tests := []struct {
 		name       string
@@ -40,15 +40,18 @@ func TestGeminiExtractModel(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			model, stream, err := value.ExtractModel(test.request)
+			metadata, err := value.InspectRequest(test.request)
 			if test.wantErr {
 				if err == nil {
-					t.Fatalf("ExtractModel() = (%q, %t, nil), want error", model, stream)
+					t.Fatalf("InspectRequest() = (%#v, nil), want error", metadata)
 				}
 				return
 			}
-			if err != nil || model != test.wantModel || stream != test.wantStream {
-				t.Fatalf("ExtractModel() = (%q, %t, %v), want (%q, %t)", model, stream, err, test.wantModel, test.wantStream)
+			if err != nil || metadata.Model == nil ||
+				*metadata.Model != test.wantModel ||
+				metadata.Stream != test.wantStream ||
+				!metadata.ObserveUsage {
+				t.Fatalf("InspectRequest() = (%#v, %v), want model=%q stream=%t observe=true", metadata, err, test.wantModel, test.wantStream)
 			}
 		})
 	}

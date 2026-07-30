@@ -7,7 +7,7 @@ const groups: GroupSummary[] = [
     id: 7,
     name: 'Primary',
     upstream_url: 'https://api.example.com',
-    protocols: ['openai'],
+    protocols: ['openai-chat-completions'],
     models: [
       { id: 'gpt-4.1', alias: 'public-gpt' },
       { id: 'shared', alias: '' },
@@ -27,21 +27,14 @@ const groups: GroupSummary[] = [
 ]
 
 describe('AccessKey filter options', () => {
-  it('offers only enabled protocols for create and ordinary edit', () => {
-    expect(accessKeyProtocolOptions()).toEqual(['openai', 'anthropic', 'gemini'])
-    expect(accessKeyProtocolOptions(['openai', 'anthropic'])).toEqual([
-      'openai',
+  it('offers all enabled protocols in canonical order for create and edit', () => {
+    const expected = ['openai-chat-completions', 'openai-responses', 'anthropic', 'gemini']
+    expect(accessKeyProtocolOptions()).toEqual(expected)
+    expect(accessKeyProtocolOptions()).toEqual([
+      'openai-chat-completions',
+      'openai-responses',
       'anthropic',
       'gemini',
-    ])
-  })
-
-  it('appends one reserved option only when the editing base historically contains it', () => {
-    expect(accessKeyProtocolOptions(['openai-response', 'openai-response'])).toEqual([
-      'openai',
-      'anthropic',
-      'gemini',
-      'openai-response',
     ])
   })
 

@@ -15,7 +15,11 @@ const metadata = {
   name: 'Client',
   masked_key: 'sk-gl-••••••••cafe',
   status: 'active',
-  filters: { groups: [7], protocols: ['openai'], models: ['gpt-5.6'] },
+  filters: {
+    groups: [7],
+    protocols: ['openai-chat-completions', 'openai-responses'],
+    models: ['gpt-5.6'],
+  },
   rpm_limit: 0,
   created_at: '2026-07-29T01:00:00Z',
   updated_at: '2026-07-29T02:00:00Z',

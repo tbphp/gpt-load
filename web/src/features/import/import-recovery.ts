@@ -1,5 +1,6 @@
 import { inject, type InjectionKey } from 'vue'
 
+import { isDataProtocol } from '@/api/control/protocols'
 import type { GroupProtocol } from '@/api/control/types'
 
 import type { ChannelPreset } from './channel-presets'
@@ -35,7 +36,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isProtocol(value: unknown): value is GroupProtocol {
-  return ['openai', 'anthropic', 'gemini'].includes(String(value))
+  return isDataProtocol(value)
 }
 
 function isPreset(value: unknown): value is ChannelPreset['id'] {

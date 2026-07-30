@@ -139,9 +139,6 @@ func (s *Service) CreateAccessKey(
 	if err != nil {
 		return AccessKeyCreateResult{}, err
 	}
-	if err := validateAccessKeyProtocolsForCreate(filters.Protocols); err != nil {
-		return AccessKeyCreateResult{}, err
-	}
 	rpmLimit, err := normalizeRPMLimit(request.RPMLimit, 0)
 	if err != nil {
 		return AccessKeyCreateResult{}, err
@@ -267,9 +264,6 @@ func (s *Service) UpdateAccessKey(
 			return fmt.Errorf("decode access key %d filters: %w", row.ID, err)
 		}
 		if filters != nil {
-			if err := validateAccessKeyProtocolUpdate(currentFilters.Protocols, filters.Protocols); err != nil {
-				return err
-			}
 			if err := validateAccessKeyGroupUpdate(
 				tx,
 				currentFilters.Groups,
@@ -452,34 +446,6 @@ func (s *Service) DeleteAccessKey(ctx context.Context, id uint) error {
 	return err
 }
 
-func validateAccessKeyProtocolsForCreate(values []protocol.Protocol) error {
-	for _, value := range values {
-		if !value.DataPlaneEnabled() {
-			return app_errors.ErrValidation
-		}
-	}
-	return nil
-}
-
-func validateAccessKeyProtocolUpdate(
-	current []protocol.Protocol,
-	requested []protocol.Protocol,
-) error {
-	currentSet := make(map[protocol.Protocol]struct{}, len(current))
-	for _, value := range current {
-		currentSet[value] = struct{}{}
-	}
-	for _, value := range requested {
-		if value.DataPlaneEnabled() {
-			continue
-		}
-		if _, exists := currentSet[value]; !exists {
-			return app_errors.ErrValidation
-		}
-	}
-	return nil
-}
-
 func normalizeAccessKeyName(raw string) (string, error) {
 	normalized, err := normalizeGroupName(&raw)
 	if err != nil {
@@ -519,14 +485,15 @@ func normalizeAccessKeyFilters(input *AccessKeyFilters) (AccessKeyFilters, error
 	}
 	seenProtocols := make(map[protocol.Protocol]struct{}, len(input.Protocols))
 	for _, value := range input.Protocols {
-		if !value.Valid() {
+		if !value.DataPlaneEnabled() {
 			return AccessKeyFilters{}, app_errors.ErrValidation
 		}
-		if _, duplicate := seenProtocols[value]; duplicate {
-			continue
-		}
 		seenProtocols[value] = struct{}{}
-		result.Protocols = append(result.Protocols, value)
+	}
+	for _, value := range protocol.DataPlaneProtocols() {
+		if _, exists := seenProtocols[value]; exists {
+			result.Protocols = append(result.Protocols, value)
+		}
 	}
 	seenModels := make(map[string]struct{}, len(input.Models))
 	for _, value := range input.Models {

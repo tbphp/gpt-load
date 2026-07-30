@@ -1,6 +1,7 @@
 import { computed, toValue, type MaybeRefOrGetter } from 'vue'
 
 import type { ApiClient } from '@/api/client'
+import { enabledDataProtocols } from '@/api/control/protocols'
 import type { AccessProtocol } from '@/api/control/types'
 import { InvalidResponseError } from '@/api/errors'
 import { controlQueryKeys } from '@/app/query-keys'
@@ -48,7 +49,7 @@ export interface RequestLogAttemptDto {
   group_id: number
   group_name: string
   key_id: number
-  upstream_model: string
+  upstream_model: string | null
   status_code: number
   duration_ms: number
   failure_category: FailureCategory
@@ -68,8 +69,8 @@ export interface RequestLogItemDto {
     deleted: boolean
   }
   protocol: AccessProtocol
-  client_model: string
-  upstream_model: string
+  client_model: string | null
+  upstream_model: string | null
   status: RequestLogStatus
   status_code: number
   duration_ms: number
@@ -94,7 +95,6 @@ export interface RequestLogPageDto {
 }
 
 const requestIDPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
-const protocols = ['openai', 'anthropic', 'gemini'] as const
 const statuses = ['success', 'error', 'incomplete', 'canceled'] as const
 const failureCategories = [
   'ok',
@@ -159,6 +159,10 @@ function projectNonBlankString(value: unknown): string {
   return result
 }
 
+function projectNullableModel(value: unknown): string | null {
+  return value === null ? null : projectNonBlankString(value)
+}
+
 function projectRequestID(value: unknown): string {
   const result = projectString(value)
   if (!requestIDPattern.test(result)) invalidResponse()
@@ -187,7 +191,7 @@ function projectAttempt(value: unknown): RequestLogAttemptDto {
     group_id: projectSafeInteger(record.group_id, { minimum: 1 }),
     group_name: projectNonBlankString(record.group_name),
     key_id: projectSafeInteger(record.key_id, { minimum: 1 }),
-    upstream_model: projectNonBlankString(record.upstream_model),
+    upstream_model: projectNullableModel(record.upstream_model),
     status_code: projectStatusCode(record.status_code),
     duration_ms: projectSafeInteger(record.duration_ms, { minimum: 0 }),
     failure_category: projectEnum(record.failure_category, failureCategories),
@@ -233,9 +237,9 @@ export function projectRequestLogItem(value: unknown): RequestLogItemDto {
     request_id: projectRequestID(record.request_id),
     completed_at: projectISOInstant(record.completed_at),
     access_key: projectAccessKey(record.access_key),
-    protocol: projectEnum(record.protocol, protocols),
-    client_model: projectNonBlankString(record.client_model),
-    upstream_model: projectString(record.upstream_model, { allowEmpty: true }),
+    protocol: projectEnum(record.protocol, enabledDataProtocols),
+    client_model: projectNullableModel(record.client_model),
+    upstream_model: projectNullableModel(record.upstream_model),
     status: projectEnum(record.status, statuses),
     status_code: projectStatusCode(record.status_code),
     duration_ms: projectSafeInteger(record.duration_ms, { minimum: 0 }),

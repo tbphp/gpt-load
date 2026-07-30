@@ -56,8 +56,8 @@ export default {
       status: '状態',
       groups: 'Group フィルター',
       protocols: 'プロトコルフィルター',
-      reservedProtocolHint:
-        '現在は無効です。この既存 AccessKey の履歴フィルターとしてのみ保持されます。',
+      responsesAffinityHint:
+        'このフィルターは Responses トラフィックを許可しますが、関連リクエストが同じアップストリーム Key に到達することは保証しません。',
       models: 'モデルフィルター',
       scopeMode: '範囲',
       scopeAll: 'すべて',

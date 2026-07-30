@@ -25,7 +25,7 @@ func TestDiscoveryUsesSingleReadSnapshot(t *testing.T) {
 	group := seedPersistedDiscoveryGroup(t, fixture, true, models.JSON(`{}`))
 	group.Name = "discovery-snapshot-old"
 	group.UpstreamURL = "https://discovery-old.example/v1"
-	group.Protocols = models.JSON(`["openai"]`)
+	group.Protocols = models.JSON(`["openai-chat-completions"]`)
 	if err := fixture.db.Save(&group).Error; err != nil {
 		t.Fatalf("seed old Group version: %v", err)
 	}
@@ -87,7 +87,7 @@ func TestDiscoveryUsesSingleReadSnapshot(t *testing.T) {
 	}
 	observed := make(chan observedTarget, 1)
 	fixture.service.dialects = dialect.NewSet(&recordingDiscoveryDialect{
-		value: protocol.OpenAI,
+		value: protocol.OpenAIChatCompletions,
 		listFn: func(
 			_ context.Context,
 			baseURL, apiKey string,
@@ -172,7 +172,7 @@ func TestDiscoveryUsesSingleReadSnapshot(t *testing.T) {
 func TestDiscoveryReleasesReadSnapshotBeforeDecrypt(t *testing.T) {
 	fixture, _ := newFileServiceFixture(t)
 	group := seedPersistedDiscoveryGroup(t, fixture, true, models.JSON(`{}`))
-	group.Protocols = models.JSON(`["openai"]`)
+	group.Protocols = models.JSON(`["openai-chat-completions"]`)
 	if err := fixture.db.Save(&group).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -192,7 +192,7 @@ func TestDiscoveryReleasesReadSnapshotBeforeDecrypt(t *testing.T) {
 		release: releaseDecrypt,
 	}
 	fixture.service.dialects = dialect.NewSet(&recordingDiscoveryDialect{
-		value: protocol.OpenAI,
+		value: protocol.OpenAIChatCompletions,
 		listFn: func(context.Context, string, string, state.HeaderRules) ([]string, error) {
 			return []string{"model"}, nil
 		},
@@ -267,7 +267,7 @@ func TestDiscoverGroupModelsUsesDisabledGroupAndActiveKeysInIDOrder(t *testing.T
 				if !reflect.DeepEqual(rules, wantRules) {
 					t.Fatalf("HeaderRules = %#v, want persisted Group override %#v", rules, wantRules)
 				}
-				if value == protocol.OpenAI && apiKey == "key-1" {
+				if value == protocol.Anthropic && apiKey == "key-1" {
 					return []string{"z-model", "a-model"}, nil
 				}
 				return nil, errors.New("try next candidate")
@@ -276,7 +276,7 @@ func TestDiscoverGroupModelsUsesDisabledGroupAndActiveKeysInIDOrder(t *testing.T
 	}
 	fixture.service.dialects = dialect.NewSet(
 		newRecorder(protocol.Anthropic),
-		newRecorder(protocol.OpenAI),
+		newRecorder(protocol.OpenAIChatCompletions),
 	)
 
 	result, err := fixture.service.DiscoverGroupModels(t.Context(), group.ID)
@@ -287,9 +287,9 @@ func TestDiscoverGroupModelsUsesDisabledGroupAndActiveKeysInIDOrder(t *testing.T
 		t.Fatalf("models = %#v, want upstream order", result.Models)
 	}
 	wantCalls := []string{
+		"openai-chat-completions:key-1",
+		"openai-chat-completions:key-3",
 		"anthropic:key-1",
-		"anthropic:key-3",
-		"openai:key-1",
 	}
 	if !reflect.DeepEqual(calls, wantCalls) {
 		t.Fatalf("calls = %#v, want protocol-outer active-key-ID-inner order %#v", calls, wantCalls)
@@ -383,7 +383,7 @@ func TestDiscoverGroupModelsDoesNotMutateDatabaseSnapshotOrRegistry(t *testing.T
 			fixture := newServiceFixture(t)
 			created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
 				UpstreamURL: "https://state.example.com/v1",
-				Protocols:   []protocol.Protocol{protocol.OpenAI},
+				Protocols:   []protocol.Protocol{protocol.OpenAIChatCompletions},
 				Keys:        "state-key",
 				Models: optionalGroupModels{
 					Set: true, Values: []GroupModel{{ID: "persisted-model"}},
@@ -396,7 +396,7 @@ func TestDiscoverGroupModelsDoesNotMutateDatabaseSnapshotOrRegistry(t *testing.T
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 			fixture.service.dialects = dialect.NewSet(&recordingDiscoveryDialect{
-				value: protocol.OpenAI,
+				value: protocol.OpenAIChatCompletions,
 				listFn: func(ctx context.Context, _, _ string, _ state.HeaderRules) ([]string, error) {
 					return test.listFn(ctx, cancel)
 				},
@@ -421,7 +421,7 @@ func TestDiscoverGroupModelsDoesNotAcquireWriteMuOrBlockWrites(t *testing.T) {
 	fixture := newServiceFixture(t)
 	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
 		UpstreamURL: "https://discovery-lock.example.com/v1",
-		Protocols:   []protocol.Protocol{protocol.OpenAI},
+		Protocols:   []protocol.Protocol{protocol.OpenAIChatCompletions},
 		Keys:        "key-1",
 	})
 	if err != nil {
@@ -429,7 +429,7 @@ func TestDiscoverGroupModelsDoesNotAcquireWriteMuOrBlockWrites(t *testing.T) {
 	}
 	fixture.service.modelDiscoveryTimeout = 3 * time.Second
 	fixture.service.dialects = dialect.NewSet(&recordingDiscoveryDialect{
-		value: protocol.OpenAI,
+		value: protocol.OpenAIChatCompletions,
 		listFn: func(context.Context, string, string, state.HeaderRules) ([]string, error) {
 			return []string{"model"}, nil
 		},
@@ -455,7 +455,7 @@ func TestDiscoverGroupModelsDoesNotAcquireWriteMuOrBlockWrites(t *testing.T) {
 	entered := make(chan struct{})
 	release := make(chan struct{})
 	fixture.service.dialects = dialect.NewSet(&recordingDiscoveryDialect{
-		value: protocol.OpenAI,
+		value: protocol.OpenAIChatCompletions,
 		listFn: func(ctx context.Context, _, _ string, _ state.HeaderRules) ([]string, error) {
 			close(entered)
 			select {
@@ -569,7 +569,7 @@ func seedPersistedDiscoveryGroup(
 	t.Helper()
 	group := models.Group{
 		Name: "persisted-discovery", UpstreamURL: "https://persisted.example.com/v1",
-		Protocols: models.JSON(`["anthropic","openai"]`),
+		Protocols: models.JSON(`["anthropic","openai-chat-completions"]`),
 		Models:    models.JSON(`[{"id":"persisted-only"}]`), Config: groupConfig, Enabled: enabled,
 	}
 	if err := fixture.db.Create(&group).Error; err != nil {

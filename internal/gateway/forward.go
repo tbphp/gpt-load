@@ -31,6 +31,7 @@ import (
 
 type ForwardInput struct {
 	Dialect         dialect.Dialect
+	ObserveUsage    bool
 	Group           state.GroupView
 	APIKey          string
 	Request         *dialect.ParsedRequest
@@ -127,6 +128,7 @@ func (forwarder *Forwarder) Forward(ctx context.Context, input ForwardInput) Ups
 		StatusCode:     response.StatusCode,
 		Body:           body,
 		RequestWritten: true,
+		Usage:          usage.Result{State: usage.StateNotApplicable},
 	}
 	if success {
 		prepared, prepareErr := forwarder.prepareSuccessRepresentation(
@@ -140,7 +142,7 @@ func (forwarder *Forwarder) Forward(ctx context.Context, input ForwardInput) Ups
 		}
 		result.Body = prepared.wire
 		result.Header = prepared.headers
-		if forwarder.usageCapture != nil {
+		if input.ObserveUsage && forwarder.usageCapture != nil {
 			result.Usage = forwarder.usageCapture.extractNonStreamingPlain(
 				input.Dialect,
 				prepared.plain,
@@ -234,9 +236,13 @@ func (forwarder *Forwarder) ForwardStream(
 		result.Header = sanitizeForwardResponseHeaders(headers, input, knownSecrets...)
 		return result
 	}
-	streamEvents := &streamEventObserver{
-		usage: forwarder.usageCapture.newStream(input.Dialect),
-	}
+	streamEvents := newStreamEventObserver(
+		input.Dialect,
+		forwarder.usageCapture.newStreamForRequest(
+			input.Dialect,
+			input.ObserveUsage,
+		),
+	)
 	defer func() { result.Usage = streamEvents.finalizeUsage() }()
 
 	if !inspectableStreamEncoding(response.Header) {
@@ -257,10 +263,13 @@ func (forwarder *Forwarder) ForwardStream(
 		}
 	}
 	firstPayloadPending := true
-	streamBody = newSSERewriteStream(streamBody, func(data []byte, errorEvent bool) ([]byte, error) {
+	streamBody = newSSEEventRewriteStream(streamBody, func(
+		event dialect.StreamEvent,
+		errorEvent bool,
+	) ([]byte, error) {
 		firstPayload := firstPayloadPending
 		firstPayloadPending = false
-		safePayload := data
+		safePayload := event.Payload
 		for _, secret := range knownSecrets {
 			var ok bool
 			safePayload, ok = rewriteBoundedLiteral(
@@ -273,10 +282,21 @@ func (forwarder *Forwarder) ForwardStream(
 				return nil, fmt.Errorf("%w: redact upstream SSE credential", ErrUpstreamProtocol)
 			}
 		}
-		if !firstPayload {
-			streamEvents.observeUsage(safePayload)
+		safeEvent := dialect.StreamEvent{
+			Name:    event.Name,
+			Payload: safePayload,
 		}
-		if errorEvent && !firstPayload {
+		providerError, err := streamEvents.classify(
+			safeEvent,
+			errorEvent,
+		)
+		if err != nil {
+			return nil, err
+		}
+		if !firstPayload {
+			streamEvents.observeUsageEvent(safeEvent)
+		}
+		if providerError {
 			observationPayload := forwarder.redactor.Bytes(safePayload)
 			streamEvents.observeError(
 				summarizeErrorBody(
@@ -290,7 +310,7 @@ func (forwarder *Forwarder) ForwardStream(
 		if !rewriteModel {
 			return safePayload, nil
 		}
-		if errorEvent {
+		if providerError {
 			var ok bool
 			safePayload, ok = rewriteBoundedLiteral(
 				safePayload,
@@ -328,7 +348,11 @@ func (forwarder *Forwarder) ForwardStream(
 		return result
 	}
 
-	if firstEvent.IsProviderError {
+	if firstEvent.IsProviderError || streamEvents.firstProviderError {
+		streamEvents.observeUsageEvent(dialect.StreamEvent{
+			Name:    firstEvent.Name,
+			Payload: firstEvent.Payload,
+		})
 		result.ClassificationBody = forwarder.safeProviderErrorPayload(
 			firstEvent.Payload,
 			knownSecrets,
@@ -346,7 +370,10 @@ func (forwarder *Forwarder) ForwardStream(
 		result.RetryableBeforeCommit = retryableBeforeCommit(ctx, result.RequestWritten)
 		return result
 	}
-	streamEvents.observeUsage(firstEvent.Payload)
+	streamEvents.observeUsageEvent(dialect.StreamEvent{
+		Name:    firstEvent.Name,
+		Payload: firstEvent.Payload,
+	})
 
 	if input.OnStreamReady != nil {
 		input.OnStreamReady()
@@ -365,6 +392,9 @@ func (forwarder *Forwarder) ForwardStream(
 	}
 	if err := pumpStream(deadline.ctx, streamBody, streamWriter, input.Group.Timeouts.StreamIdle); err != nil {
 		result.Err = err
+	}
+	if result.Err == nil {
+		result.Err = streamEvents.validateEOF()
 	}
 	result.Stream = observeStreamTermination(ctx, result.Err, streamEvents)
 	return result

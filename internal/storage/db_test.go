@@ -52,7 +52,7 @@ func TestUpstreamKeyStatusAcceptsOnlyDurableOperatorStates(t *testing.T) {
 	group := models.Group{
 		Name:        "status-parent",
 		UpstreamURL: "https://status.example.com",
-		Protocols:   models.JSON(`["openai"]`),
+		Protocols:   models.JSON(`["openai-chat-completions"]`),
 		Models:      models.JSON(`[]`),
 	}
 	if err := db.Create(&group).Error; err != nil {
@@ -785,7 +785,7 @@ func TestAutoMigrateCreatesM4UsagePricingColumnsAndConstraints(t *testing.T) {
 	validRequest := models.RequestLog{
 		ID:            "m4-pricing-constraint",
 		AccessKeyID:   1,
-		Protocol:      "openai",
+		Protocol:      "openai-chat-completions",
 		ClientModel:   "client-model",
 		UpstreamModel: "upstream-model",
 		Status:        "success",
@@ -985,7 +985,7 @@ func TestAutoMigrateAllowsDuplicateUpstreamURLs(t *testing.T) {
 	first := models.Group{
 		Name:        "group-one",
 		UpstreamURL: "https://same.example.com/v1",
-		Protocols:   models.JSON(`["openai"]`),
+		Protocols:   models.JSON(`["openai-chat-completions"]`),
 		Models:      models.JSON(`[]`),
 		Config:      models.JSON(`{}`),
 		Enabled:     true,
@@ -1045,7 +1045,7 @@ func TestAutoMigrateCreatesCriticalUniqueConstraints(t *testing.T) {
 		first := models.Group{
 			Name:        "group-one",
 			UpstreamURL: "https://one.example.com",
-			Protocols:   models.JSON(`["openai"]`),
+			Protocols:   models.JSON(`["openai-chat-completions"]`),
 			Models:      models.JSON(`[]`),
 			Config:      models.JSON(`{}`),
 		}
@@ -1060,7 +1060,7 @@ func TestAutoMigrateCreatesCriticalUniqueConstraints(t *testing.T) {
 		group := models.Group{
 			Name:        "upstream-key-parent",
 			UpstreamURL: "https://keys.example.com",
-			Protocols:   models.JSON(`["openai"]`),
+			Protocols:   models.JSON(`["openai-chat-completions"]`),
 			Models:      models.JSON(`[]`),
 		}
 		if err := db.Create(&group).Error; err != nil {
@@ -1142,7 +1142,7 @@ func TestAutoMigrateCreatesUpstreamKeyForeignKeyWithCascade(t *testing.T) {
 	group := models.Group{
 		Name:        "cascade-parent",
 		UpstreamURL: "https://cascade.example.com",
-		Protocols:   models.JSON(`["openai"]`),
+		Protocols:   models.JSON(`["openai-chat-completions"]`),
 		Models:      models.JSON(`[]`),
 	}
 	if err := db.Create(&group).Error; err != nil {

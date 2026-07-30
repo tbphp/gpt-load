@@ -158,12 +158,12 @@ func (value usageExtractorDialect) RewriteResponseModel(body []byte, externalMod
 func TestStreamUsageCaptureObservesEveryPayloadAndFinalizesOnce(t *testing.T) {
 	want := usage.Result{State: usage.StateComplete, Tokens: usage.Tokens{Output: 30}}
 	extractor := &countingUsageStreamExtractor{result: want}
-	capture := newUsageCaptureBoundary().newStream(usageExtractorDialect{
+	capture := newUsageCaptureBoundary().newStreamForRequest(usageExtractorDialect{
 		Dialect: dialect.NewOpenAI(http.DefaultClient),
 		stream:  func() dialect.UsageStreamExtractor { return extractor },
-	})
+	}, true)
 	for range 3 {
-		capture.observe([]byte(`{"event":"payload"}`))
+		capture.observeEvent(dialect.StreamEvent{Payload: []byte(`{"event":"payload"}`)})
 	}
 	first := capture.finalize()
 	second := capture.finalize()
@@ -177,12 +177,12 @@ func TestStreamUsageCaptureContinuesAfterObserveError(t *testing.T) {
 	want := usage.Result{State: usage.StatePartial, Tokens: usage.Tokens{Output: 30}}
 	extractor := &countingUsageStreamExtractor{result: want, observeErrAt: 1}
 	boundary := newUsageCaptureBoundary()
-	capture := boundary.newStream(usageExtractorDialect{
+	capture := boundary.newStreamForRequest(usageExtractorDialect{
 		Dialect: dialect.NewOpenAI(http.DefaultClient),
 		stream:  func() dialect.UsageStreamExtractor { return extractor },
-	})
-	capture.observe([]byte(`{"event":"first"}`))
-	capture.observe([]byte(`{"event":"second"}`))
+	}, true)
+	capture.observeEvent(dialect.StreamEvent{Payload: []byte(`{"event":"first"}`)})
+	capture.observeEvent(dialect.StreamEvent{Payload: []byte(`{"event":"second"}`)})
 
 	if got := capture.finalize(); got != want || extractor.observeCalls != 2 || extractor.finalizeCalls != 1 || boundary.failureTotal.Load() != 1 {
 		t.Fatalf("result/calls/failures = %#v/%d/%d/%d", got, extractor.observeCalls, extractor.finalizeCalls, boundary.failureTotal.Load())
@@ -201,8 +201,16 @@ func TestStreamUsageCaptureDisablesAfterConstructorOrObservePanic(t *testing.T) 
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			boundary := newUsageCaptureBoundary()
-			capture := boundary.newStream(usageExtractorDialect{Dialect: dialect.NewOpenAI(http.DefaultClient), stream: test.stream})
-			capture.observe([]byte(`{"event":"payload"}`))
+			capture := boundary.newStreamForRequest(
+				usageExtractorDialect{
+					Dialect: dialect.NewOpenAI(http.DefaultClient),
+					stream:  test.stream,
+				},
+				true,
+			)
+			capture.observeEvent(
+				dialect.StreamEvent{Payload: []byte(`{"event":"payload"}`)},
+			)
 			got := capture.finalize()
 			if got != (usage.Result{State: usage.StateMissing}) || boundary.failureTotal.Load() != 1 {
 				t.Fatalf("result/failures = %#v/%d", got, boundary.failureTotal.Load())
@@ -222,10 +230,10 @@ func TestStreamUsageCaptureFinalizeFailureIsMissing(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			boundary := newUsageCaptureBoundary()
-			capture := boundary.newStream(usageExtractorDialect{
+			capture := boundary.newStreamForRequest(usageExtractorDialect{
 				Dialect: dialect.NewOpenAI(http.DefaultClient),
 				stream:  func() dialect.UsageStreamExtractor { return test.stream },
-			})
+			}, true)
 			if got := capture.finalize(); got != (usage.Result{State: usage.StateMissing}) || boundary.failureTotal.Load() != 1 {
 				t.Fatalf("result/failures = %#v/%d", got, boundary.failureTotal.Load())
 			}
@@ -438,7 +446,7 @@ func TestUsageCaptureWarningsAreCountedThrottledAndRedacted(t *testing.T) {
 	now := time.Unix(100, 0)
 	boundary.now = func() time.Time { return now }
 	for range 3 {
-		boundary.recordFailure("stream_observe", protocol.OpenAI)
+		boundary.recordFailure("stream_observe", protocol.OpenAIChatCompletions)
 	}
 	now = now.Add(time.Minute)
 	boundary.recordFailure("stream_finalize", protocol.Anthropic)
@@ -485,7 +493,7 @@ func TestNewUsageCaptureBoundaryUsesStandardLoggerConfiguration(t *testing.T) {
 	if boundary.logger != standard {
 		t.Fatal("usage capture boundary does not use the standard logger")
 	}
-	boundary.recordFailure("stream_observe", protocol.OpenAI)
+	boundary.recordFailure("stream_observe", protocol.OpenAIChatCompletions)
 	if hook.calls != 1 ||
 		!bytes.Contains(logs.Bytes(), []byte(`"msg":"Usage capture failure"`)) ||
 		!bytes.Contains(logs.Bytes(), []byte(`"level":"warning"`)) {
@@ -494,7 +502,7 @@ func TestNewUsageCaptureBoundaryUsesStandardLoggerConfiguration(t *testing.T) {
 
 	loggedBytes := logs.Len()
 	standard.SetLevel(logrus.ErrorLevel)
-	newUsageCaptureBoundary().recordFailure("stream_finalize", protocol.OpenAI)
+	newUsageCaptureBoundary().recordFailure("stream_finalize", protocol.OpenAIChatCompletions)
 	if logs.Len() != loggedBytes || hook.calls != 1 {
 		t.Fatalf("LOG_LEVEL was not respected: output=%q hooks=%d", logs.String(), hook.calls)
 	}
@@ -714,7 +722,8 @@ func (extractor finalizeUsageStreamExtractor) Finalize() (usage.Result, bool) {
 
 func usageForwardInput(upstreamURL string, selected dialect.Dialect) ForwardInput {
 	return ForwardInput{
-		Dialect: selected,
+		Dialect:      selected,
+		ObserveUsage: true,
 		Group: state.GroupView{
 			ID: 1, UpstreamURL: upstreamURL,
 			Timeouts: state.TimeoutConfig{Connect: time.Second, FirstByte: time.Second, Request: time.Second},
@@ -724,6 +733,84 @@ func usageForwardInput(upstreamURL string, selected dialect.Dialect) ForwardInpu
 			Method: http.MethodPost, Path: "/v1/chat/completions",
 			Header: make(http.Header), Body: []byte(`{"model":"gpt-4o"}`),
 		},
+	}
+}
+
+func TestResponsesObserveUsageGatesNonStreamingCapture(t *testing.T) {
+	t.Parallel()
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(
+		writer http.ResponseWriter,
+		_ *http.Request,
+	) {
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write([]byte(`{
+			"id":"resp_123",
+			"usage":{
+				"input_tokens":100,
+				"input_tokens_details":{"cached_tokens":20},
+				"output_tokens":30,
+				"total_tokens":130
+			}
+		}`))
+	}))
+	defer upstream.Close()
+
+	selected := dialect.NewOpenAIResponses(http.DefaultClient)
+	forwarder := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New())
+	newInput := func(observe bool, method, path, body string) ForwardInput {
+		return ForwardInput{
+			Dialect:      selected,
+			ObserveUsage: observe,
+			Group: state.GroupView{
+				ID: 1, UpstreamURL: upstream.URL,
+				Timeouts: state.TimeoutConfig{
+					Connect: time.Second,
+					Request: time.Second,
+				},
+			},
+			APIKey: "sk-responses",
+			Request: &dialect.ParsedRequest{
+				Method: method,
+				Path:   path,
+				Header: make(http.Header),
+				Body:   []byte(body),
+			},
+		}
+	}
+
+	create := forwarder.Forward(
+		context.Background(),
+		newInput(
+			true,
+			http.MethodPost,
+			"/v1/responses",
+			`{"model":"gpt-5","input":"ping"}`,
+		),
+	)
+	want := usage.Result{
+		State: usage.StateComplete,
+		Tokens: usage.Tokens{
+			UncachedInput: 80,
+			CacheRead:     20,
+			Output:        30,
+		},
+	}
+	if create.Usage != want {
+		t.Fatalf("create Usage = %#v, want %#v", create.Usage, want)
+	}
+
+	retrieve := forwarder.Forward(
+		context.Background(),
+		newInput(
+			false,
+			http.MethodGet,
+			"/v1/responses/resp_123",
+			"",
+		),
+	)
+	if retrieve.Usage != (usage.Result{State: usage.StateNotApplicable}) {
+		t.Fatalf("retrieve Usage = %#v, want not_applicable", retrieve.Usage)
 	}
 }
 
@@ -900,10 +987,11 @@ func TestForwardCapturesCanonicalNonStreamingUsage(t *testing.T) {
 			defer upstream.Close()
 
 			result := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New()).Forward(context.Background(), ForwardInput{
-				Dialect: test.dialect,
-				Group:   state.GroupView{ID: 1, UpstreamURL: upstream.URL, Timeouts: state.TimeoutConfig{Connect: time.Second, FirstByte: time.Second, Request: time.Second}},
-				APIKey:  "sk-test",
-				Request: &dialect.ParsedRequest{Method: http.MethodPost, Path: test.path, Header: make(http.Header), Body: []byte(`{}`)},
+				Dialect:      test.dialect,
+				ObserveUsage: true,
+				Group:        state.GroupView{ID: 1, UpstreamURL: upstream.URL, Timeouts: state.TimeoutConfig{Connect: time.Second, FirstByte: time.Second, Request: time.Second}},
+				APIKey:       "sk-test",
+				Request:      &dialect.ParsedRequest{Method: http.MethodPost, Path: test.path, Header: make(http.Header), Body: []byte(`{}`)},
 			})
 			if result.Err != nil || result.Usage != want {
 				t.Fatalf("result = %#v, want Usage %#v", result, want)
@@ -933,7 +1021,7 @@ func TestForwardUsageCapturePreservesCompressedSuccessWire(t *testing.T) {
 	result := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New()).Forward(context.Background(), input)
 	baseline := forwardWithCaptureDisabled(input)
 	want := usage.Result{State: usage.StateComplete, Tokens: usage.Tokens{UncachedInput: 80, CacheRead: 20, Output: 30}}
-	if result.Usage != want || baseline.Usage != (usage.Result{}) || !bytes.Equal(result.Body, wire) || result.Header.Get("Content-Length") != strconv.Itoa(len(wire)) {
+	if result.Usage != want || baseline.Usage != (usage.Result{State: usage.StateNotApplicable}) || !bytes.Equal(result.Body, wire) || result.Header.Get("Content-Length") != strconv.Itoa(len(wire)) {
 		t.Fatalf("result = %#v", result)
 	}
 	assertForwardWireContract(t, selected, result, baseline)
@@ -968,7 +1056,7 @@ func TestForwardUsageCaptureFailureAndMissingCasesPreserveWireContract(t *testin
 			forwarder := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New())
 			got := forwarder.Forward(context.Background(), input)
 			baseline := forwardWithCaptureDisabled(input)
-			if got.Usage != test.wantUsage || baseline.Usage != (usage.Result{}) || forwarder.usageCapture.failureTotal.Load() != test.wantFailures {
+			if got.Usage != test.wantUsage || baseline.Usage != (usage.Result{State: usage.StateNotApplicable}) || forwarder.usageCapture.failureTotal.Load() != test.wantFailures {
 				t.Fatalf("Usage/failures = %#v/%d, want %#v/%d", got.Usage, forwarder.usageCapture.failureTotal.Load(), test.wantUsage, test.wantFailures)
 			}
 			assertForwardWireContract(t, test.selected, got, baseline)
@@ -1003,7 +1091,7 @@ func TestForwardUsageCaptureReadsProviderBodyBeforeAliasRewrite(t *testing.T) {
 	input.Request.Body = []byte(`{"model":"public-model"}`)
 	got := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New()).Forward(context.Background(), input)
 	baseline := forwardWithCaptureDisabled(input)
-	if !seenProviderBody || got.Usage != (usage.Result{State: usage.StateComplete, Tokens: usage.Tokens{UncachedInput: 80, CacheRead: 20, Output: 30}}) || baseline.Usage != (usage.Result{}) || !bytes.Contains(got.Body, []byte(externalModel)) || bytes.Contains(got.Body, []byte(upstreamModel)) {
+	if !seenProviderBody || got.Usage != (usage.Result{State: usage.StateComplete, Tokens: usage.Tokens{UncachedInput: 80, CacheRead: 20, Output: 30}}) || baseline.Usage != (usage.Result{State: usage.StateNotApplicable}) || !bytes.Contains(got.Body, []byte(externalModel)) || bytes.Contains(got.Body, []byte(upstreamModel)) {
 		t.Fatalf("seen/body/Usage = %t/%q/%#v", seenProviderBody, got.Body, got.Usage)
 	}
 	assertForwardWireContract(t, selected, got, baseline)

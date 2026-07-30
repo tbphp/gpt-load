@@ -15,7 +15,7 @@ const base: AccessKeyDto = {
   name: 'client',
   masked_key: 'sk-gl-••••••••••••',
   status: 'active',
-  filters: { groups: [7], protocols: ['openai-response'], models: ['known', 'free-entry'] },
+  filters: { groups: [7], protocols: ['openai-responses'], models: ['known', 'free-entry'] },
   rpm_limit: 12,
   created_at: '2026-07-28T00:00:00Z',
   updated_at: '2026-07-28T00:00:00Z',
@@ -51,14 +51,14 @@ describe('AccessKey request normalization', () => {
           ...base,
           filters: {
             groups: [7],
-            protocols: ['openai-response'],
+            protocols: ['openai-responses'],
             models: ['free-entry', 'known'],
           },
         },
         {
           filters: {
             groups: [7],
-            protocols: ['openai-response'],
+            protocols: ['openai-responses'],
             models: ['known', 'free-entry'],
           },
         },
@@ -81,34 +81,34 @@ describe('AccessKey request normalization', () => {
     expect(input).not.toHaveProperty('status')
   })
 
-  it('rejects an injected reserved protocol for a create draft', () => {
+  it('accepts Responses for a create draft', () => {
     const draft = createAccessKeyDraft()
     draft.name = 'new-client'
-    draft.filters.protocols = ['openai-response']
+    draft.filters.protocols = ['openai-responses']
     draft.scopeModes.protocols = 'restricted'
 
-    expect(isAccessKeyDraftValid(draft)).toBe(false)
+    expect(isAccessKeyDraftValid(draft)).toBe(true)
   })
 
-  it('rejects an injected reserved protocol for an ordinary edit draft', () => {
+  it('accepts adding Responses to an ordinary edit draft', () => {
     const ordinaryBase: AccessKeyDto = {
       ...base,
-      filters: { ...base.filters, protocols: ['openai'] },
+      filters: { ...base.filters, protocols: ['openai-chat-completions'] },
     }
     const draft = createAccessKeyDraft(ordinaryBase)
-    draft.filters.protocols = ['openai', 'openai-response']
+    draft.filters.protocols = ['openai-chat-completions', 'openai-responses']
 
-    expect(isAccessKeyDraftValid(draft, ordinaryBase)).toBe(false)
+    expect(isAccessKeyDraftValid(draft, ordinaryBase)).toBe(true)
   })
 
-  it('accepts retaining a historical reserved protocol alongside enabled changes', () => {
+  it('accepts Responses alongside other enabled protocols', () => {
     const draft = createAccessKeyDraft(base)
-    draft.filters.protocols = ['openai-response', 'gemini']
+    draft.filters.protocols = ['openai-responses', 'gemini']
 
     expect(isAccessKeyDraftValid(draft, base)).toBe(true)
   })
 
-  it('accepts explicit historical reserved removal and includes it in the update patch', () => {
+  it('accepts explicit Responses removal and includes it in the update patch', () => {
     const draft = createAccessKeyDraft(base)
     draft.filters.protocols = []
     draft.scopeModes.protocols = 'all'
@@ -123,13 +123,13 @@ describe('AccessKey request normalization', () => {
     })
   })
 
-  it('keeps reserved draft values intact in builders instead of silently filtering them', () => {
+  it('keeps canonical Responses values intact in builders', () => {
     const draft = createAccessKeyDraft()
     draft.name = 'new-client'
-    draft.filters.protocols = ['openai-response']
+    draft.filters.protocols = ['openai-responses']
     draft.scopeModes.protocols = 'restricted'
 
-    expect(buildCreateAccessKeyInput(draft).filters.protocols).toEqual(['openai-response'])
+    expect(buildCreateAccessKeyInput(draft).filters.protocols).toEqual(['openai-responses'])
   })
 
   it('returns an empty update patch for a normalized no-op', () => {
@@ -144,14 +144,14 @@ describe('AccessKey request normalization', () => {
       ...base,
       filters: {
         groups: [7, 3],
-        protocols: ['openai-response', 'anthropic'],
+        protocols: ['openai-responses', 'anthropic'],
         models: ['known', 'free-entry'],
       },
     }
     const draft = createAccessKeyDraft(reorderedBase)
     draft.filters = {
       groups: [3, 7],
-      protocols: ['anthropic', 'openai-response'],
+      protocols: ['anthropic', 'openai-responses'],
       models: ['free-entry', 'known'],
     }
 

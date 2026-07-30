@@ -26,6 +26,7 @@ var (
 
 type firstSSEEvent struct {
 	Prefix          []byte
+	Name            string
 	Payload         []byte
 	IsProviderError bool
 }
@@ -56,6 +57,7 @@ func bufferFirstSSEEvent(reader io.Reader) (firstSSEEvent, error) {
 				}
 				return firstSSEEvent{
 					Prefix:          buffered.Bytes(),
+					Name:            string(scanner.eventName),
 					Payload:         scanner.payload(),
 					IsProviderError: scanner.isProviderError(),
 				}, nil
@@ -69,6 +71,7 @@ func bufferFirstSSEEvent(reader io.Reader) (firstSSEEvent, error) {
 				if scanner.finishAtEOF() {
 					return firstSSEEvent{
 						Prefix:          buffered.Bytes(),
+						Name:            string(scanner.eventName),
 						Payload:         scanner.payload(),
 						IsProviderError: scanner.isProviderError(),
 					}, nil

@@ -53,7 +53,7 @@ export default {
       status: '状态',
       groups: 'Group 过滤',
       protocols: '协议过滤',
-      reservedProtocolHint: '当前已停用；仅为此历史 AccessKey 保留。',
+      responsesAffinityHint: '该过滤可放行 Responses 流量，但不保证关联请求命中同一上游 Key。',
       models: '模型过滤',
       scopeMode: '范围',
       scopeAll: '全部',

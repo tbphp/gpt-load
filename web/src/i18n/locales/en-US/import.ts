@@ -48,6 +48,8 @@ export default {
       title: 'Connect an upstream',
       description:
         'Choose a preset or enter a compatible upstream. Presets only fill URL and protocols.',
+      responsesAffinityWarning:
+        'Responses has no resource affinity yet. Stateful multi-turn and resource operations are reliable only when they reach the same upstream key or shared upstream storage; otherwise the upstream error is returned.',
       preset: 'Channel preset',
       name: 'Group name (optional)',
       url: 'Upstream URL',
@@ -88,6 +90,9 @@ export default {
       manualId: 'Manual model ID',
       add: 'Add model',
       manualPath: 'Continue with manual model IDs',
+      none: 'No configured models',
+      resourceOnlyNotice:
+        'No models are selected. This Group can route model-free Responses resource endpoints only; requests that include a model cannot use it.',
     },
     discover: 'Discover models',
     discoveryFailed:

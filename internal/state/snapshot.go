@@ -109,14 +109,16 @@ type AccessKeyView struct {
 }
 
 type ConfigSnapshot struct {
-	Revision         uint64
-	Settings         RuntimeSettings
-	Candidates       map[protocol.Protocol]map[string][]RouteTarget
-	Groups           map[uint]GroupView
-	AccessKeysByHash map[string]AccessKeyView
-	RouteCatalog     map[protocol.Protocol]map[string][]RouteTarget
-	GroupCatalog     map[uint]GroupCatalogView
-	AccessKeysByID   map[uint]AccessKeyView
+	Revision             uint64
+	Settings             RuntimeSettings
+	Candidates           map[protocol.Protocol]map[string][]RouteTarget
+	ProtocolCandidates   map[protocol.Protocol][]uint
+	Groups               map[uint]GroupView
+	AccessKeysByHash     map[string]AccessKeyView
+	RouteCatalog         map[protocol.Protocol]map[string][]RouteTarget
+	ProtocolRouteCatalog map[protocol.Protocol][]uint
+	GroupCatalog         map[uint]GroupCatalogView
+	AccessKeysByID       map[uint]AccessKeyView
 }
 
 func Compile(input CompileInput) (*ConfigSnapshot, error) {
@@ -129,13 +131,15 @@ func Compile(input CompileInput) (*ConfigSnapshot, error) {
 	}
 
 	snapshot := &ConfigSnapshot{
-		Settings:         runtimeSettings,
-		Candidates:       make(map[protocol.Protocol]map[string][]RouteTarget),
-		Groups:           make(map[uint]GroupView),
-		AccessKeysByHash: make(map[string]AccessKeyView),
-		RouteCatalog:     make(map[protocol.Protocol]map[string][]RouteTarget),
-		GroupCatalog:     make(map[uint]GroupCatalogView),
-		AccessKeysByID:   make(map[uint]AccessKeyView),
+		Settings:             runtimeSettings,
+		Candidates:           make(map[protocol.Protocol]map[string][]RouteTarget),
+		ProtocolCandidates:   make(map[protocol.Protocol][]uint),
+		Groups:               make(map[uint]GroupView),
+		AccessKeysByHash:     make(map[string]AccessKeyView),
+		RouteCatalog:         make(map[protocol.Protocol]map[string][]RouteTarget),
+		ProtocolRouteCatalog: make(map[protocol.Protocol][]uint),
+		GroupCatalog:         make(map[uint]GroupCatalogView),
+		AccessKeysByID:       make(map[uint]AccessKeyView),
 	}
 
 	for _, group := range input.Groups {
@@ -144,6 +148,7 @@ func Compile(input CompileInput) (*ConfigSnapshot, error) {
 			WeightManual: cloneWeight(group.WeightManual),
 		}
 		appendRouteTarget(snapshot.RouteCatalog, group)
+		appendProtocolGroup(snapshot.ProtocolRouteCatalog, group)
 		resolved, err := ResolveGroupRuntimeSettings(runtimeSettings, group.Settings)
 		if err != nil {
 			return nil, fmt.Errorf("compile group %d settings: %w", group.ID, err)
@@ -165,6 +170,7 @@ func Compile(input CompileInput) (*ConfigSnapshot, error) {
 		}
 		snapshot.Groups[group.ID] = view
 		appendRouteTarget(snapshot.Candidates, group)
+		appendProtocolGroup(snapshot.ProtocolCandidates, group)
 	}
 
 	for _, accessKey := range input.AccessKeys {
@@ -176,6 +182,8 @@ func Compile(input CompileInput) (*ConfigSnapshot, error) {
 
 	sortRouteIndex(snapshot.Candidates)
 	sortRouteIndex(snapshot.RouteCatalog)
+	sortProtocolGroupIndex(snapshot.ProtocolCandidates)
+	sortProtocolGroupIndex(snapshot.ProtocolRouteCatalog)
 	return snapshot, nil
 }
 
@@ -199,6 +207,20 @@ func appendRouteTarget(index map[protocol.Protocol]map[string][]RouteTarget, gro
 			}
 			index[value][external] = append(index[value][external], target)
 		}
+	}
+}
+
+func appendProtocolGroup(index map[protocol.Protocol][]uint, group GroupConfig) {
+	for _, value := range group.Protocols {
+		index[value] = append(index[value], group.ID)
+	}
+}
+
+func sortProtocolGroupIndex(index map[protocol.Protocol][]uint) {
+	for value := range index {
+		sort.Slice(index[value], func(i, j int) bool {
+			return index[value][i] < index[value][j]
+		})
 	}
 }
 

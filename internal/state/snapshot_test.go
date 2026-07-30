@@ -15,7 +15,7 @@ func TestCompileIndexesExternalModelsAndPreservesUpstreamIDs(t *testing.T) {
 	input := CompileInput{Groups: []GroupConfig{
 		{
 			ID: 1, Name: "one", UpstreamURL: "https://one.example.com",
-			Protocols: []protocol.Protocol{protocol.OpenAI},
+			Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions},
 			Models: []ModelConfig{
 				{ID: "provider-a", Alias: "public"},
 				{ID: "provider-a", Alias: "secondary"},
@@ -25,7 +25,7 @@ func TestCompileIndexesExternalModelsAndPreservesUpstreamIDs(t *testing.T) {
 		},
 		{
 			ID: 2, Name: "two", UpstreamURL: "https://two.example.com",
-			Protocols: []protocol.Protocol{protocol.OpenAI},
+			Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions},
 			Models:    []ModelConfig{{ID: "provider-b", Alias: "public"}}, Enabled: true,
 		},
 	}}
@@ -38,16 +38,16 @@ func TestCompileIndexesExternalModelsAndPreservesUpstreamIDs(t *testing.T) {
 		{GroupID: 1, UpstreamModelID: "provider-a"},
 		{GroupID: 2, UpstreamModelID: "provider-b"},
 	}
-	if got := snapshot.Candidates[protocol.OpenAI]["public"]; !reflect.DeepEqual(got, wantPublic) {
+	if got := snapshot.Candidates[protocol.OpenAIChatCompletions]["public"]; !reflect.DeepEqual(got, wantPublic) {
 		t.Fatalf("public targets = %#v, want %#v", got, wantPublic)
 	}
-	if got := snapshot.Candidates[protocol.OpenAI]["secondary"]; len(got) != 1 || got[0].UpstreamModelID != "provider-a" {
+	if got := snapshot.Candidates[protocol.OpenAIChatCompletions]["secondary"]; len(got) != 1 || got[0].UpstreamModelID != "provider-a" {
 		t.Fatalf("secondary targets = %#v", got)
 	}
-	if got := snapshot.Candidates[protocol.OpenAI]["plain"]; len(got) != 1 || got[0].UpstreamModelID != "plain" {
+	if got := snapshot.Candidates[protocol.OpenAIChatCompletions]["plain"]; len(got) != 1 || got[0].UpstreamModelID != "plain" {
 		t.Fatalf("plain targets = %#v", got)
 	}
-	if _, exists := snapshot.Candidates[protocol.OpenAI]["provider-a"]; exists {
+	if _, exists := snapshot.Candidates[protocol.OpenAIChatCompletions]["provider-a"]; exists {
 		t.Fatal("aliased upstream id entered external index")
 	}
 }
@@ -58,13 +58,13 @@ func TestCompileBuildsManagementCatalogsWithoutChangingActiveIndexes(t *testing.
 		Groups: []GroupConfig{
 			{
 				ID: 2, Name: "disabled", UpstreamURL: "https://disabled.example",
-				Protocols:    []protocol.Protocol{protocol.OpenAI},
+				Protocols:    []protocol.Protocol{protocol.OpenAIChatCompletions},
 				Models:       []ModelConfig{{ID: "provider-disabled", Alias: "public"}},
 				WeightManual: &disabledWeight, Enabled: false,
 			},
 			{
 				ID: 1, Name: "active", UpstreamURL: "https://active.example",
-				Protocols: []protocol.Protocol{protocol.OpenAI},
+				Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions},
 				Models:    []ModelConfig{{ID: "provider-active", Alias: "public"}},
 				Enabled:   true,
 			},
@@ -92,7 +92,7 @@ func TestCompileBuildsManagementCatalogsWithoutChangingActiveIndexes(t *testing.
 	if len(snapshot.Groups) != 1 || snapshot.Groups[1].Name != "active" {
 		t.Fatalf("active Groups = %#v", snapshot.Groups)
 	}
-	if got := snapshot.Candidates[protocol.OpenAI]["public"]; !reflect.DeepEqual(got, []RouteTarget{{
+	if got := snapshot.Candidates[protocol.OpenAIChatCompletions]["public"]; !reflect.DeepEqual(got, []RouteTarget{{
 		GroupID: 1, UpstreamModelID: "provider-active",
 	}}) {
 		t.Fatalf("active Candidates = %#v", got)
@@ -101,7 +101,7 @@ func TestCompileBuildsManagementCatalogsWithoutChangingActiveIndexes(t *testing.
 		{GroupID: 1, UpstreamModelID: "provider-active"},
 		{GroupID: 2, UpstreamModelID: "provider-disabled"},
 	}
-	if got := snapshot.RouteCatalog[protocol.OpenAI]["public"]; !reflect.DeepEqual(got, wantRoutes) {
+	if got := snapshot.RouteCatalog[protocol.OpenAIChatCompletions]["public"]; !reflect.DeepEqual(got, wantRoutes) {
 		t.Fatalf("RouteCatalog = %#v, want %#v", got, wantRoutes)
 	}
 	if got := snapshot.GroupCatalog[2]; got.ID != 2 || got.Name != "disabled" ||
@@ -121,13 +121,52 @@ func TestCompileBuildsManagementCatalogsWithoutChangingActiveIndexes(t *testing.
 	}
 }
 
+func TestCompileBuildsProtocolOnlyRuntimeAndCatalogIndexes(t *testing.T) {
+	t.Parallel()
+
+	snapshot, err := Compile(CompileInput{Groups: []GroupConfig{
+		{
+			ID: 3, Name: "disabled responses",
+			Protocols: []protocol.Protocol{protocol.OpenAIResponses},
+			Enabled:   false,
+		},
+		{
+			ID: 2, Name: "active both",
+			Protocols: []protocol.Protocol{
+				protocol.OpenAIChatCompletions,
+				protocol.OpenAIResponses,
+			},
+			Models:  []ModelConfig{{ID: "provider", Alias: "public"}},
+			Enabled: true,
+		},
+		{
+			ID: 1, Name: "active responses without models",
+			Protocols: []protocol.Protocol{protocol.OpenAIResponses},
+			Enabled:   true,
+		},
+	}})
+	if err != nil {
+		t.Fatalf("Compile() error = %v", err)
+	}
+
+	if got, want := snapshot.ProtocolCandidates[protocol.OpenAIResponses], []uint{1, 2}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("Responses ProtocolCandidates = %#v, want %#v", got, want)
+	}
+	if got, want := snapshot.ProtocolRouteCatalog[protocol.OpenAIResponses], []uint{1, 2, 3}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("Responses ProtocolRouteCatalog = %#v, want %#v", got, want)
+	}
+	if got, want := snapshot.ProtocolCandidates[protocol.OpenAIChatCompletions], []uint{2}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("Chat ProtocolCandidates = %#v, want %#v", got, want)
+	}
+}
+
 func TestCompileCarriesValidationModelWithoutChangingCandidates(t *testing.T) {
 	snapshot, err := Compile(CompileInput{Groups: []GroupConfig{{
 		ID:              1,
 		Name:            "one",
 		UpstreamURL:     "https://one.example.com",
 		ValidationModel: "probe-model",
-		Protocols:       []protocol.Protocol{protocol.OpenAI},
+		Protocols:       []protocol.Protocol{protocol.OpenAIChatCompletions},
 		Models:          []ModelConfig{{ID: "real-model", Alias: "public-model"}},
 		Enabled:         true,
 	}}})
@@ -137,7 +176,7 @@ func TestCompileCarriesValidationModelWithoutChangingCandidates(t *testing.T) {
 	if got := snapshot.Groups[1].ValidationModel; got != "probe-model" {
 		t.Fatalf("ValidationModel = %q, want probe-model", got)
 	}
-	if got := snapshot.Candidates[protocol.OpenAI]["public-model"][0].UpstreamModelID; got != "real-model" {
+	if got := snapshot.Candidates[protocol.OpenAIChatCompletions]["public-model"][0].UpstreamModelID; got != "real-model" {
 		t.Fatalf("candidate upstream model = %q, want real-model", got)
 	}
 }
@@ -155,7 +194,7 @@ func TestCompileRejectsDuplicateExternalModelWithinGroup(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			_, err := Compile(CompileInput{Groups: []GroupConfig{{
 				ID: 1, Name: "group", UpstreamURL: "https://example.com",
-				Protocols: []protocol.Protocol{protocol.OpenAI}, Models: test.models, Enabled: true,
+				Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions}, Models: test.models, Enabled: true,
 			}}})
 			if err == nil || !strings.Contains(err.Error(), "duplicate external model") {
 				t.Fatalf("Compile() error = %v", err)
@@ -174,7 +213,7 @@ func TestCompileValidatesDisabledCatalogEntries(t *testing.T) {
 		{
 			name: "disabled group zero id",
 			input: CompileInput{Groups: []GroupConfig{{
-				Protocols: []protocol.Protocol{protocol.OpenAI},
+				Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions},
 				Models:    []ModelConfig{{ID: "model"}}, Enabled: false,
 			}}},
 			wantErr: "group id is required",
@@ -190,7 +229,7 @@ func TestCompileValidatesDisabledCatalogEntries(t *testing.T) {
 		{
 			name: "disabled group invalid weight",
 			input: CompileInput{Groups: []GroupConfig{{
-				ID: 1, Protocols: []protocol.Protocol{protocol.OpenAI},
+				ID: 1, Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions},
 				Models:       []ModelConfig{{ID: "model"}},
 				WeightManual: &invalidWeight, Enabled: false,
 			}}},
@@ -229,10 +268,60 @@ func TestCompileValidatesDisabledCatalogEntries(t *testing.T) {
 	}
 }
 
+func TestCompileRejectsLegacyProtocolValuesWithObjectIdentity(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		input      CompileInput
+		wantObject string
+		wantValue  string
+	}{
+		{
+			name: "group legacy openai",
+			input: CompileInput{Groups: []GroupConfig{{
+				ID: 41, Protocols: []protocol.Protocol{"openai"}, Enabled: true,
+			}}},
+			wantObject: "group 41",
+			wantValue:  `"openai"`,
+		},
+		{
+			name: "access key legacy openai response",
+			input: CompileInput{AccessKeys: []AccessKeyConfig{{
+				ID: 52, KeyHash: "legacy", Status: AccessKeyStatusActive,
+				Filters: FilterSet{Protocols: map[protocol.Protocol]struct{}{
+					"openai-response": {},
+				}},
+			}}},
+			wantObject: "access key 52",
+			wantValue:  `"openai-response"`,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := Compile(test.input)
+			if err == nil {
+				t.Fatal("Compile() error = nil")
+			}
+			if !strings.Contains(err.Error(), test.wantObject) ||
+				!strings.Contains(err.Error(), test.wantValue) {
+				t.Fatalf(
+					"Compile() error = %q, want object %q and value %q",
+					err,
+					test.wantObject,
+					test.wantValue,
+				)
+			}
+		})
+	}
+}
+
 func TestCompileRejectsDuplicateCatalogIDs(t *testing.T) {
 	validGroup := func(id uint, enabled bool) GroupConfig {
 		return GroupConfig{
-			ID: id, Protocols: []protocol.Protocol{protocol.OpenAI},
+			ID: id, Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions},
 			Models: []ModelConfig{{ID: "model"}}, Enabled: enabled,
 		}
 	}
@@ -264,7 +353,7 @@ func TestCompileManagementCatalogsOwnCopies(t *testing.T) {
 	filterGroups := map[uint]struct{}{1: {}}
 	input := CompileInput{
 		Groups: []GroupConfig{{
-			ID: 1, Name: "group", Protocols: []protocol.Protocol{protocol.OpenAI},
+			ID: 1, Name: "group", Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions},
 			Models:       []ModelConfig{{ID: "provider", Alias: "public"}},
 			WeightManual: &groupWeight, Enabled: false,
 		}},
@@ -283,7 +372,7 @@ func TestCompileManagementCatalogsOwnCopies(t *testing.T) {
 	if got := snapshot.GroupCatalog[1].WeightManual; got == nil || *got != 20 {
 		t.Fatalf("GroupCatalog weight = %v, want 20", got)
 	}
-	if got := snapshot.RouteCatalog[protocol.OpenAI]["public"]; len(got) != 1 ||
+	if got := snapshot.RouteCatalog[protocol.OpenAIChatCompletions]["public"]; len(got) != 1 ||
 		got[0].UpstreamModelID != "provider" {
 		t.Fatalf("RouteCatalog after caller mutation = %#v", got)
 	}
@@ -608,7 +697,7 @@ func runtimeSettingsInput(systemSettings, groupSettings config.Settings) Compile
 		SystemSettings: systemSettings,
 		Groups: []GroupConfig{{
 			ID:        1,
-			Protocols: []protocol.Protocol{protocol.OpenAI},
+			Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions},
 			Models:    []ModelConfig{{ID: "model"}},
 			Settings:  groupSettings,
 			Enabled:   true,
@@ -625,7 +714,7 @@ func TestCompileRejectsInvalidCandidateConfiguration(t *testing.T) {
 		{
 			name: "zero group id",
 			input: CompileInput{Groups: []GroupConfig{{
-				Protocols: []protocol.Protocol{protocol.OpenAI},
+				Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions},
 				Models:    []ModelConfig{{ID: "model"}},
 				Enabled:   true,
 			}}},
@@ -636,7 +725,7 @@ func TestCompileRejectsInvalidCandidateConfiguration(t *testing.T) {
 			input: CompileInput{Groups: []GroupConfig{
 				{
 					ID:        1,
-					Protocols: []protocol.Protocol{protocol.OpenAI},
+					Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions},
 					Models:    []ModelConfig{{ID: "model-one"}},
 					Enabled:   true,
 				},
@@ -672,7 +761,7 @@ func TestCompileRejectsInvalidCandidateConfiguration(t *testing.T) {
 			name: "duplicate protocol",
 			input: CompileInput{Groups: []GroupConfig{{
 				ID:        1,
-				Protocols: []protocol.Protocol{protocol.OpenAI, protocol.OpenAI},
+				Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions, protocol.OpenAIChatCompletions},
 				Models:    []ModelConfig{{ID: "model"}},
 				Enabled:   true,
 			}}},
@@ -682,7 +771,7 @@ func TestCompileRejectsInvalidCandidateConfiguration(t *testing.T) {
 			name: "whitespace model id",
 			input: CompileInput{Groups: []GroupConfig{{
 				ID:        1,
-				Protocols: []protocol.Protocol{protocol.OpenAI},
+				Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions},
 				Models:    []ModelConfig{{ID: " \t"}},
 				Enabled:   true,
 			}}},
@@ -767,10 +856,10 @@ func TestCompileAllowsDanglingFilterGroupIDs(t *testing.T) {
 }
 
 func TestCompileOwnsIndependentCopiesOfInput(t *testing.T) {
-	protocols := []protocol.Protocol{protocol.OpenAI}
+	protocols := []protocol.Protocol{protocol.OpenAIChatCompletions}
 	models := []ModelConfig{{ID: "model-real", Alias: "model-alias"}}
 	filterGroups := map[uint]struct{}{1: {}}
-	filterProtocols := map[protocol.Protocol]struct{}{protocol.OpenAI: {}}
+	filterProtocols := map[protocol.Protocol]struct{}{protocol.OpenAIChatCompletions: {}}
 	filterModels := map[string]struct{}{"model-real": {}}
 	input := CompileInput{
 		Groups: []GroupConfig{{
@@ -800,14 +889,14 @@ func TestCompileOwnsIndependentCopiesOfInput(t *testing.T) {
 	models[0] = ModelConfig{ID: "changed", Alias: "changed"}
 	delete(filterGroups, 1)
 	filterGroups[2] = struct{}{}
-	delete(filterProtocols, protocol.OpenAI)
+	delete(filterProtocols, protocol.OpenAIChatCompletions)
 	filterProtocols[protocol.Gemini] = struct{}{}
 	delete(filterModels, "model-real")
 	filterModels["changed"] = struct{}{}
 
 	group := snapshot.Groups[1]
-	if got := group.Protocols[0]; got != protocol.OpenAI {
-		t.Errorf("GroupView.Protocols[0] = %q, want %q", got, protocol.OpenAI)
+	if got := group.Protocols[0]; got != protocol.OpenAIChatCompletions {
+		t.Errorf("GroupView.Protocols[0] = %q, want %q", got, protocol.OpenAIChatCompletions)
 	}
 	if got := group.Models[0]; got != (ModelConfig{ID: "model-real", Alias: "model-alias"}) {
 		t.Errorf("GroupView.Models[0] = %#v, want original model", got)
@@ -819,7 +908,7 @@ func TestCompileOwnsIndependentCopiesOfInput(t *testing.T) {
 	if _, ok := filters.Groups[2]; ok {
 		t.Error("AccessKeyView.Filters.Groups contains caller mutation")
 	}
-	if _, ok := filters.Protocols[protocol.OpenAI]; !ok {
+	if _, ok := filters.Protocols[protocol.OpenAIChatCompletions]; !ok {
 		t.Error("AccessKeyView.Filters.Protocols lost original protocol")
 	}
 	if _, ok := filters.Protocols[protocol.Gemini]; ok {

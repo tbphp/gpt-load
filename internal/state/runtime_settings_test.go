@@ -45,7 +45,7 @@ func TestCompileRejectsInvalidGlobalSettingsWithoutGroups(t *testing.T) {
 
 func TestCompileValidatesDisabledGroupSettings(t *testing.T) {
 	_, err := Compile(CompileInput{Groups: []GroupConfig{{
-		ID: 1, Protocols: []protocol.Protocol{protocol.OpenAI},
+		ID: 1, Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions},
 		Settings: config.Settings{"request_log_retention_days": 30},
 		Enabled:  false,
 	}}})

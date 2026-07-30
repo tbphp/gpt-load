@@ -504,13 +504,13 @@ func TestRuntimeCoordinatesAutoWeightWithValidationRecovery(t *testing.T) {
 	runtime := &Runtime{registry: registry, stats: stats, mutations: mutations}
 	worker := &validationWorker{
 		snapshots: &validationSnapshotRecorder{snapshot: validationSnapshot(map[uint]state.GroupView{
-			1: validationGroup([]protocol.Protocol{protocol.OpenAI}, "model", nil),
+			1: validationGroup([]protocol.Protocol{protocol.OpenAIChatCompletions}, "model", nil),
 		})},
 		registry:  registry,
 		stats:     stats,
 		mutations: mutations,
 		decryptor: validationDecryptor{},
-		dialects:  dialect.Set{protocol.OpenAI: &validationTestDialect{protocol: protocol.OpenAI, probes: probes}},
+		dialects:  dialect.Set{protocol.OpenAIChatCompletions: &validationTestDialect{protocol: protocol.OpenAIChatCompletions, probes: probes}},
 	}
 
 	autoDone := make(chan struct{})

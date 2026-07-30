@@ -73,7 +73,10 @@ test('critical management journey works through the embedded binary', async ({ p
     await page.getByLabel('Channel preset').selectOption('custom')
     await page.getByLabel('Group name (optional)').fill(groupName)
     await page.getByLabel('Upstream URL').fill(upstreamURL)
-    await page.getByRole('group', { name: 'Protocols' }).getByLabel('openai').check()
+    await page
+      .getByRole('group', { name: 'Protocols' })
+      .getByLabel('OpenAI Chat Completions')
+      .check()
     await page.getByLabel('Upstream keys').fill(firstUpstreamKey)
     await page.getByRole('button', { name: 'Discover models' }).click()
 
@@ -115,7 +118,7 @@ test('critical management journey works through the embedded binary', async ({ p
     await createDrawer.locator('[data-test="access-key-protocols-mode"]').selectOption('restricted')
     await createDrawer
       .getByRole('group', { name: 'Protocol filters' })
-      .getByLabel('OpenAI', { exact: true })
+      .getByLabel('OpenAI Chat Completions', { exact: true })
       .check()
     await createDrawer.locator('[data-test="access-key-models-mode"]').selectOption('restricted')
     await createDrawer.getByPlaceholder('Enter a model ID or alias').fill(discoveredModel)
@@ -135,7 +138,7 @@ test('critical management journey works through the embedded binary', async ({ p
     const protocolFilter = accessKeyRow.locator('dl > div', {
       has: page.getByText('Protocols', { exact: true }),
     })
-    await expect(protocolFilter.locator('dd')).toHaveText('OpenAI')
+    await expect(protocolFilter.locator('dd')).toHaveText('OpenAI Chat Completions')
     await expect(accessKeyRow).toContainText(discoveredModel)
     await expect(accessKeyRow).toContainText(rpmLimit)
     await accessKeyRow.getByRole('button', { name: 'Edit' }).click()
@@ -148,7 +151,7 @@ test('critical management journey works through the embedded binary', async ({ p
     await expect(
       editDrawer
         .getByRole('group', { name: 'Protocol filters' })
-        .getByLabel('OpenAI', { exact: true }),
+        .getByLabel('OpenAI Chat Completions', { exact: true }),
     ).toBeChecked()
     await expect(
       editDrawer.getByRole('button', { name: `Remove model ${discoveredModel}` }),
@@ -418,7 +421,7 @@ test('critical management journey works through the embedded binary', async ({ p
 
       const logDrawer = page.getByRole('dialog', { name: 'Request log details' })
       await logDrawer.locator('[data-test="log-inspector-link"]').click()
-      await expect(page).toHaveURL(/\/monitor\?tab=inspector&protocol=openai/)
+      await expect(page).toHaveURL(/\/monitor\?tab=inspector&protocol=openai-chat-completions/)
       await page.goBack()
       await expect(page).toHaveURL(selectedLogsURL)
       await expect(logDrawer).toBeVisible()
@@ -590,7 +593,7 @@ test('critical management journey works through the embedded binary', async ({ p
     expect(upstreamRequestCountBeforeInspect).toBe(0)
 
     await page.getByLabel('Protocol', { exact: true }).click()
-    await page.getByRole('option', { name: 'OpenAI', exact: true }).click()
+    await page.getByRole('option', { name: 'OpenAI Chat Completions', exact: true }).click()
     await page.getByLabel('Client model').fill(discoveredModel)
     const accessKeyTrigger = page.getByLabel('AccessKey', { exact: true })
     await accessKeyTrigger.click()
@@ -624,7 +627,7 @@ test('critical management journey works through the embedded binary', async ({ p
     await page.getByRole('button', { name: 'Inspect current route' }).click()
     const routeInspectRequest = await routeInspectRequestPromise
     expect(routeInspectRequest.postDataJSON()).toMatchObject({
-      protocol: 'openai',
+      protocol: 'openai-chat-completions',
       external_model: discoveredModel,
     })
 

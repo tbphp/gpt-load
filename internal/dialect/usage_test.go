@@ -24,8 +24,8 @@ var (
 
 func TestUsageOptionalCapability(t *testing.T) {
 	dialect := Dialect(&usageDialectOnly{})
-	if dialect.Protocol() != protocol.OpenAI {
-		t.Fatalf("Protocol() = %q, want %q", dialect.Protocol(), protocol.OpenAI)
+	if dialect.Protocol() != protocol.OpenAIChatCompletions {
+		t.Fatalf("Protocol() = %q, want %q", dialect.Protocol(), protocol.OpenAIChatCompletions)
 	}
 	if _, ok := dialect.(UsageExtractor); ok {
 		t.Fatal("Dialect-only implementation unexpectedly has UsageExtractor capability")
@@ -126,9 +126,11 @@ func requireUsageDiagnostics(t *testing.T, diagnostics usage.Diagnostics, want .
 
 type usageDialectOnly struct{}
 
-func (d *usageDialectOnly) Protocol() protocol.Protocol { return protocol.OpenAI }
+func (d *usageDialectOnly) Protocol() protocol.Protocol { return protocol.OpenAIChatCompletions }
 
-func (d *usageDialectOnly) ExtractModel(*ParsedRequest) (string, bool, error) { return "", false, nil }
+func (d *usageDialectOnly) InspectRequest(*ParsedRequest) (RequestMetadata, error) {
+	return RequestMetadata{}, nil
+}
 
 func (d *usageDialectOnly) BuildUpstreamURL(string, *ParsedRequest) (string, error) { return "", nil }
 

@@ -114,7 +114,7 @@ func safeNewUsageStreamExtractor(
 
 func safeObserveUsage(
 	extractor dialect.UsageStreamExtractor,
-	payload []byte,
+	event dialect.StreamEvent,
 ) (err error, panicked bool) {
 	defer func() {
 		if recover() != nil {
@@ -122,7 +122,11 @@ func safeObserveUsage(
 			panicked = true
 		}
 	}()
-	err = extractor.Observe(payload)
+	if observer, ok := extractor.(dialect.UsageStreamEventObserver); ok {
+		err = observer.ObserveStreamEvent(event)
+	} else {
+		err = extractor.Observe(event.Payload)
+	}
 	return err, false
 }
 
@@ -205,8 +209,18 @@ func isValidInjectedRequest(
 	return true
 }
 
-func (boundary *usageCaptureBoundary) newStream(selected dialect.Dialect) *streamUsageCapture {
-	capture := &streamUsageCapture{boundary: boundary, result: missingUsage(false)}
+func (boundary *usageCaptureBoundary) newStreamForRequest(
+	selected dialect.Dialect,
+	applicable bool,
+) *streamUsageCapture {
+	initial := missingUsage(false)
+	if !applicable {
+		initial = usage.Result{State: usage.StateNotApplicable}
+	}
+	capture := &streamUsageCapture{boundary: boundary, result: initial}
+	if !applicable {
+		return capture
+	}
 	if selected == nil {
 		return capture
 	}
@@ -225,11 +239,15 @@ func (boundary *usageCaptureBoundary) newStream(selected dialect.Dialect) *strea
 	return capture
 }
 
-func (capture *streamUsageCapture) observe(payload []byte) {
+func (capture *streamUsageCapture) observeEvent(event dialect.StreamEvent) {
 	if capture == nil || !capture.active || capture.finalized {
 		return
 	}
-	err, panicked := safeObserveUsage(capture.extractor, bytes.Clone(payload))
+	safeEvent := dialect.StreamEvent{
+		Name:    event.Name,
+		Payload: bytes.Clone(event.Payload),
+	}
+	err, panicked := safeObserveUsage(capture.extractor, safeEvent)
 	if panicked {
 		capture.boundary.recordFailure("stream_observe", capture.protocol)
 		capture.active = false

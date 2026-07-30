@@ -16,7 +16,7 @@ describe('Group control API', () => {
     id: 7,
     name: 'Primary',
     upstream_url: 'https://api.example.com',
-    protocols: ['openai'] as const,
+    protocols: ['openai-chat-completions'] as const,
     models: [{ id: 'gpt-4o', alias: 'public' }],
     enabled: true,
     validation_model: null,
@@ -45,7 +45,7 @@ describe('Group control API', () => {
     const request = vi.fn().mockResolvedValue({ models: ['gpt-4o'] }) as ApiClient['request']
     const body = {
       upstream_url: 'https://api.example.com',
-      protocols: ['openai'] as const,
+      protocols: ['openai-chat-completions'] as const,
       keys: 'raw-key\nraw-key',
       config: { header_rules: { set: { 'X-Test': 'secret' }, remove: [] } },
     }
@@ -109,7 +109,7 @@ describe('Group control API', () => {
     const createBody = {
       name: 'Primary',
       upstream_url: 'https://api.example.com',
-      protocols: ['openai'] as const,
+      protocols: ['openai-chat-completions'] as const,
       models: [{ id: 'gpt-4o', alias: 'primary' }],
       config: { header_rules: { set: {}, remove: [] } },
       keys: 'raw-key',

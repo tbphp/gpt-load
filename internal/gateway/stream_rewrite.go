@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"sync"
+
+	"gpt-load/internal/dialect"
 )
 
 const maxSSEEventBytes = 1 << 20
@@ -16,14 +18,17 @@ var (
 	errSSEEventIncomplete = errors.New("stream ended with an incomplete SSE event")
 )
 
-type ssePayloadRewriter func([]byte, bool) ([]byte, error)
+type sseEventPayloadRewriter func(
+	dialect.StreamEvent,
+	bool,
+) ([]byte, error)
 
 type sseRewriteStream struct {
 	readMu sync.Mutex
 	mu     sync.Mutex
 
 	body    io.ReadCloser
-	rewrite ssePayloadRewriter
+	rewrite sseEventPayloadRewriter
 
 	pending     []byte
 	output      []byte
@@ -34,9 +39,9 @@ type sseRewriteStream struct {
 	closed      bool
 }
 
-func newSSERewriteStream(
+func newSSEEventRewriteStream(
 	body io.ReadCloser,
-	rewrite ssePayloadRewriter,
+	rewrite sseEventPayloadRewriter,
 ) io.ReadCloser {
 	return &sseRewriteStream{
 		body: body, rewrite: rewrite,
@@ -105,7 +110,7 @@ func (stream *sseRewriteStream) Read(target []byte) (int, error) {
 			rewrite := stream.rewrite
 			stream.mu.Unlock()
 
-			rewritten, err := rewriteSSEEvent(event, rewrite)
+			rewritten, err := rewriteSSEEventWithMetadata(event, rewrite)
 			if err != nil {
 				stream.mu.Lock()
 				stream.finishLocked()
@@ -319,7 +324,10 @@ type sseEventLine struct {
 	data       []byte
 }
 
-func rewriteSSEEvent(event []byte, rewrite ssePayloadRewriter) ([]byte, error) {
+func rewriteSSEEventWithMetadata(
+	event []byte,
+	rewrite sseEventPayloadRewriter,
+) ([]byte, error) {
 	if rewrite == nil {
 		return nil, fmt.Errorf("SSE rewrite callback is required")
 	}
@@ -347,7 +355,10 @@ func rewriteSSEEvent(event []byte, rewrite ssePayloadRewriter) ([]byte, error) {
 		return bytes.Clone(event), nil
 	}
 	errorEvent := bytes.Equal(eventName, []byte("error")) || isSSEErrorPayload(payload)
-	rewritten, err := rewrite(payload, errorEvent)
+	rewritten, err := rewrite(dialect.StreamEvent{
+		Name:    string(eventName),
+		Payload: payload,
+	}, errorEvent)
 	if err != nil {
 		return nil, fmt.Errorf("rewrite SSE event payload: %w", err)
 	}

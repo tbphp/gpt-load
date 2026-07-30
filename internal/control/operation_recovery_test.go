@@ -348,7 +348,7 @@ func newDurableGroupOperationInput(
 			group := models.Group{
 				Name:        "group-" + idempotencyKey[:4],
 				UpstreamURL: "https://upstream.example.com",
-				Protocols:   models.JSON(`["` + string(protocol.OpenAI) + `"]`),
+				Protocols:   models.JSON(`["` + string(protocol.OpenAIChatCompletions) + `"]`),
 				Models:      models.JSON(`[]`),
 				Config:      models.JSON(`{}`),
 				Enabled:     true,

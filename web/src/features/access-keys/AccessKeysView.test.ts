@@ -19,7 +19,7 @@ const groups: GroupSummary[] = [
     id: 7,
     name: 'Primary',
     upstream_url: 'https://api.example.com',
-    protocols: ['openai'],
+    protocols: ['openai-chat-completions'],
     models: [{ id: 'gpt-4.1', alias: 'public-gpt' }],
     enabled: true,
     key_count: 1,

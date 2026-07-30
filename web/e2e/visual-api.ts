@@ -8,7 +8,7 @@ const group = {
   id: 7,
   name: visualFixtureData.groupName,
   upstream_url: 'https://visual-fixture.example/v1',
-  protocols: ['openai'],
+  protocols: ['openai-chat-completions', 'openai-responses'],
   models: [
     { id: visualFixtureData.modelName, alias: 'stable-public-alias' },
     { id: 'visual-fixture-secondary-model', alias: '' },
@@ -24,7 +24,7 @@ const accessKey = {
   status: 'active',
   filters: {
     groups: [group.id],
-    protocols: ['openai'],
+    protocols: ['openai-chat-completions', 'openai-responses'],
     models: [visualFixtureData.modelName],
   },
   rpm_limit: 120,
@@ -221,7 +221,7 @@ const requestLogPage = {
       request_id: visualFixtureData.requestId,
       completed_at: visualClock,
       access_key: { id: accessKey.id, name: accessKey.name, deleted: false },
-      protocol: 'openai',
+      protocol: 'openai-chat-completions',
       client_model: 'stable-public-alias',
       upstream_model: visualFixtureData.modelName,
       status: 'error',
@@ -264,7 +264,7 @@ const requestLogPage = {
 const routeInspection = {
   observed_at: visualClock,
   snapshot_revision: 42,
-  protocol: 'openai',
+  protocol: 'openai-chat-completions',
   external_model: 'stable-public-alias',
   access_key: { id: accessKey.id, name: accessKey.name, status: 'active' },
   routable: true,

@@ -17,7 +17,7 @@ import (
 
 type routeInspectRequest struct {
 	Protocol      protocol.Protocol `json:"protocol"`
-	ExternalModel string            `json:"external_model"`
+	ExternalModel *string           `json:"external_model"`
 	AccessKeyID   uint              `json:"access_key_id"`
 }
 
@@ -40,7 +40,7 @@ type routeInspectKeyResponse struct {
 type routeInspectGroupResponse struct {
 	GroupID       uint                      `json:"group_id"`
 	GroupName     string                    `json:"group_name"`
-	UpstreamModel string                    `json:"upstream_model"`
+	UpstreamModel *string                   `json:"upstream_model"`
 	WeightManual  *int                      `json:"weight_manual"`
 	Included      bool                      `json:"included"`
 	Routable      bool                      `json:"routable"`
@@ -52,7 +52,7 @@ type routeInspectResponse struct {
 	ObservedAt       time.Time                     `json:"observed_at"`
 	SnapshotRevision uint64                        `json:"snapshot_revision"`
 	Protocol         protocol.Protocol             `json:"protocol"`
-	ExternalModel    string                        `json:"external_model"`
+	ExternalModel    *string                       `json:"external_model"`
 	AccessKey        routeInspectAccessKeyResponse `json:"access_key"`
 	Routable         bool                          `json:"routable"`
 	ReasonCode       *scheduler.ReasonCode         `json:"reason_code"`
@@ -69,9 +69,12 @@ func optionalReason(value scheduler.ReasonCode) *scheduler.ReasonCode {
 
 func validateRouteInspectRequest(request routeInspectRequest) error {
 	if !request.Protocol.DataPlaneEnabled() ||
-		request.AccessKeyID == 0 ||
-		request.ExternalModel == "" ||
-		strings.TrimSpace(request.ExternalModel) != request.ExternalModel {
+		request.AccessKeyID == 0 {
+		return app_errors.ErrValidation
+	}
+	if request.ExternalModel != nil &&
+		(*request.ExternalModel == "" ||
+			strings.TrimSpace(*request.ExternalModel) != *request.ExternalModel) {
 		return app_errors.ErrValidation
 	}
 	return nil
@@ -96,7 +99,7 @@ func (service *Service) InspectRoute(
 		observation.keys,
 		scheduler.Query{
 			Protocol:      request.Protocol,
-			ExternalModel: request.ExternalModel,
+			ExternalModel: cloneRouteModel(request.ExternalModel),
 			AccessKey:     accessKey,
 		},
 		observation.observedAt,
@@ -128,7 +131,7 @@ func mapRouteInspectResponse(
 		ObservedAt:       observation.observedAt,
 		SnapshotRevision: observation.snapshot.Revision,
 		Protocol:         request.Protocol,
-		ExternalModel:    request.ExternalModel,
+		ExternalModel:    cloneRouteModel(request.ExternalModel),
 		AccessKey: routeInspectAccessKeyResponse{
 			ID: accessKey.ID, Name: accessKey.Name, Status: accessKey.Status,
 		},
@@ -140,7 +143,7 @@ func mapRouteInspectResponse(
 		groupResponse := routeInspectGroupResponse{
 			GroupID:       group.GroupID,
 			GroupName:     group.GroupName,
-			UpstreamModel: group.UpstreamModelID,
+			UpstreamModel: cloneRouteModel(group.UpstreamModelID),
 			WeightManual:  cloneInt(group.WeightManual),
 			Included:      group.Included,
 			Routable:      group.Routable,
@@ -161,6 +164,14 @@ func mapRouteInspectResponse(
 		result.Groups = append(result.Groups, groupResponse)
 	}
 	return result
+}
+
+func cloneRouteModel(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
 }
 
 func (server *Server) handleRouteInspect(c *gin.Context) {

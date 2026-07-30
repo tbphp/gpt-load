@@ -8,7 +8,6 @@ import { controlQueryKeys } from '@/app/query-keys'
 import { mountApp } from '@/test/mount-app'
 
 import AccessKeyDrawer from './AccessKeyDrawer.vue'
-import type { AccessKeyDraft } from './access-key-patch'
 
 const canary = 'sk-gl-ACCESS_KEY_DRAWER_CANARY'
 const groups: GroupSummary[] = [
@@ -16,7 +15,7 @@ const groups: GroupSummary[] = [
     id: 7,
     name: 'Primary',
     upstream_url: 'https://api.example.com',
-    protocols: ['openai'],
+    protocols: ['openai-chat-completions'],
     models: [{ id: 'gpt-4.1', alias: 'public-gpt' }],
     enabled: true,
     key_count: 1,
@@ -27,7 +26,7 @@ const existing: AccessKeyDto = {
   name: 'client',
   masked_key: 'sk-gl-••••••••cafe',
   status: 'active',
-  filters: { groups: [7], protocols: ['openai-response'], models: ['legacy-free'] },
+  filters: { groups: [7], protocols: ['openai-responses'], models: ['legacy-free'] },
   rpm_limit: 12,
   created_at: '2026-07-28T00:00:00Z',
   updated_at: '2026-07-28T00:00:00Z',
@@ -145,53 +144,45 @@ describe('AccessKeyDrawer', () => {
     },
   )
 
-  it('does not offer the reserved protocol while creating an AccessKey', async () => {
+  it('offers both OpenAI protocols while creating an AccessKey', async () => {
     const request = vi.fn() as ApiClient['request']
     const { wrapper } = await mountDrawer(request)
 
-    expect(protocolLabel('OpenAI')).toBeDefined()
+    expect(protocolLabel('OpenAI Chat Completions')).toBeDefined()
+    expect(protocolLabel('OpenAI Responses')).toBeDefined()
     expect(protocolLabel('Anthropic')).toBeDefined()
     expect(protocolLabel('Gemini')).toBeDefined()
-    expect(protocolLabel('OpenAI Responses')).toBeUndefined()
     wrapper.unmount()
   })
 
-  it('shows a retained historical reserved protocol checked with a disabled hint', async () => {
+  it('shows an enabled Responses protocol checked with an affinity hint', async () => {
     const request = vi.fn() as ApiClient['request']
     const { wrapper } = await mountDrawer(request, { open: true, accessKey: existing })
-    const reserved = protocolLabel('OpenAI Responses')
+    const responses = protocolLabel('OpenAI Responses')
 
-    expect(reserved).toBeDefined()
-    expect(reserved?.querySelector<HTMLInputElement>('input')?.checked).toBe(true)
-    expect(reserved?.textContent).toContain(
-      'Currently disabled; retained only for this historical AccessKey.',
+    expect(responses).toBeDefined()
+    expect(responses?.querySelector<HTMLInputElement>('input')?.checked).toBe(true)
+    expect(responses?.textContent).toContain(
+      'does not guarantee that related requests reach the same upstream key',
     )
     wrapper.unmount()
   })
 
-  it('does not render or submit an injected reserved protocol for an ordinary edit', async () => {
+  it('renders Responses as an ordinary selectable protocol during edit', async () => {
     const ordinary: AccessKeyDto = {
       ...existing,
-      filters: { ...existing.filters, protocols: ['openai'] },
+      filters: { ...existing.filters, protocols: ['openai-chat-completions'] },
     }
     const request = vi.fn() as ApiClient['request']
     const { wrapper } = await mountDrawer(request, { open: true, accessKey: ordinary })
 
-    expect(protocolLabel('OpenAI Responses')).toBeUndefined()
-    const setupState = wrapper.vm.$.setupState as { draft: AccessKeyDraft }
-    setupState.draft.filters.protocols = ['openai', 'openai-response']
-    await flushPromises()
-
-    expect(element<HTMLButtonElement>('[data-test="access-key-save"]').disabled).toBe(true)
-    element<HTMLFormElement>('.access-key-drawer').dispatchEvent(
-      new Event('submit', { bubbles: true, cancelable: true }),
-    )
-    await flushPromises()
-    expect(request).not.toHaveBeenCalled()
+    const responses = protocolLabel('OpenAI Responses')
+    expect(responses).toBeDefined()
+    expect(responses?.querySelector<HTMLInputElement>('input')?.checked).toBe(false)
     wrapper.unmount()
   })
 
-  it('sends an explicit filter update when a historical reserved protocol is removed', async () => {
+  it('sends an explicit filter update when a Responses restriction is removed', async () => {
     const confirm = vi.fn(() => true)
     Object.defineProperty(window, 'confirm', { configurable: true, value: confirm })
     const saved: AccessKeyDto = {
@@ -342,7 +333,7 @@ describe('AccessKeyDrawer', () => {
     wrapper.unmount()
   })
 
-  it('keeps a historical reserved filter while edit mutation controls remain reusable', async () => {
+  it('keeps a Responses filter while edit mutation controls remain reusable', async () => {
     const request = vi
       .fn()
       .mockResolvedValueOnce({ ...existing, status: 'disabled' })
@@ -495,15 +486,15 @@ describe('AccessKeyDrawer', () => {
       ...existing,
       filters: {
         groups: [7],
-        protocols: ['openai-response', 'openai'],
+        protocols: ['openai-responses', 'openai-chat-completions'],
         models: ['legacy-free', 'gpt-4.1'],
       },
     }
     const request = vi.fn() as ApiClient['request']
     const { wrapper } = await mountDrawer(request, { open: true, accessKey: reordered })
-    const protocolCheckboxes = document.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')
-    const openAIResponse = protocolCheckboxes[4]
-    if (!openAIResponse) throw new Error('missing openai-response checkbox')
+    const openAIResponse =
+      protocolLabel('OpenAI Responses')?.querySelector<HTMLInputElement>('input')
+    if (!openAIResponse) throw new Error('missing Responses checkbox')
 
     openAIResponse.checked = false
     openAIResponse.dispatchEvent(new Event('change', { bubbles: true }))
@@ -593,7 +584,7 @@ describe('AccessKeyDrawer', () => {
   it('keeps model edits valid when only the Group catalog becomes stale', async () => {
     const ordinary: AccessKeyDto = {
       ...existing,
-      filters: { groups: [7], protocols: ['openai'], models: [] },
+      filters: { groups: [7], protocols: ['openai-chat-completions'], models: [] },
     }
     const request = vi.fn() as ApiClient['request']
     const { wrapper } = await mountDrawer(request, { open: true, accessKey: ordinary })
@@ -621,7 +612,7 @@ describe('AccessKeyDrawer', () => {
   it('explains why a newly added Group cannot be saved after the catalog becomes stale', async () => {
     const ordinary: AccessKeyDto = {
       ...existing,
-      filters: { groups: [7], protocols: ['openai'], models: [] },
+      filters: { groups: [7], protocols: ['openai-chat-completions'], models: [] },
     }
     const request = vi.fn() as ApiClient['request']
     const { wrapper } = await mountDrawer(request, {
@@ -657,7 +648,7 @@ describe('AccessKeyDrawer', () => {
   it('allows restoring an originally authorized Group while the catalog is stale', async () => {
     const ordinary: AccessKeyDto = {
       ...existing,
-      filters: { groups: [7], protocols: ['openai'], models: [] },
+      filters: { groups: [7], protocols: ['openai-chat-completions'], models: [] },
     }
     const request = vi.fn() as ApiClient['request']
     const { wrapper } = await mountDrawer(request, {

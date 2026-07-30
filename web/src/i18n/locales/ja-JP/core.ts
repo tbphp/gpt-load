@@ -14,10 +14,10 @@ export default {
     asyncLoadFailed: 'このセクションを読み込めません。ページを再読み込みしてください。',
     unsavedChanges: '未保存の変更を破棄しますか？編集を続けるにはキャンセルしてください。',
     protocols: {
-      openai: 'OpenAI',
+      'openai-chat-completions': 'OpenAI Chat Completions',
+      'openai-responses': 'OpenAI Responses',
       anthropic: 'Anthropic',
       gemini: 'Gemini',
-      'openai-response': 'OpenAI Responses',
     },
   },
   auth: {
@@ -95,7 +95,7 @@ export default {
     keyDisabled: '無効 {count}',
     groups: 'Groups',
     groupsDescription:
-      'サービスには、有効な Group、実在モデル、利用可能なアップストリームキーが必要です。',
+      'サービスには、有効な Group、ルーティング可能なプロトコル機能、利用可能なアップストリームキーが必要です。model を含む要求にはモデル設定も必要です。',
     groupsLoading: 'Group を読み込み中…',
     groupsError: 'Group を読み込めません。',
     groupsStale: 'バックグラウンド更新に失敗したため、Group データが古い可能性があります。',
@@ -109,6 +109,8 @@ export default {
     unknown: '状態不明',
     groupDisabledReason: 'この Group は無効です。',
     noModelsReason: 'この Group にはモデルが設定されていません。',
+    responsesResourceOnlyReason:
+      'この Group は model を含まない Responses リソース API を処理できます。model ベースの要求にはモデル設定が必要です。',
     healthUnknownReason: '現在のアップストリームキーの可用性は不明です。',
     noAvailableKeysReason: '現在利用可能なアップストリームキーがありません。',
     models: '{count} モデル',
@@ -130,6 +132,8 @@ export default {
     copyAccessKey: 'AccessKey をコピー',
     manageAccessKeys: 'AccessKey を管理',
     modelPlaceholder: '実在モデルがない場合は、{model} を実際のモデル ID に置き換えてください。',
+    responsesAffinityWarning:
+      'Responses にはまだリソースアフィニティがありません。関連する状態付きリクエストは、同じアップストリーム Key または共有ストレージに到達した場合のみ確実で、それ以外はアップストリームエラーをそのまま返します。',
     protocol: 'プロトコル',
     model: 'モデル',
     collapseConnection: '折りたたむ',

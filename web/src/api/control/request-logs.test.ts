@@ -7,7 +7,7 @@ const item = {
   request_id: 'a4d4e121-8ac3-4df4-8ceb-63b10ddc6173',
   completed_at: '2026-07-27T12:00:00Z',
   access_key: { id: 4, name: null, deleted: false },
-  protocol: 'openai',
+  protocol: 'openai-chat-completions',
   client_model: 'gpt-5.6',
   upstream_model: 'provider-gpt-5.6',
   status: 'success',

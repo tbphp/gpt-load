@@ -44,7 +44,7 @@ describe('AccessKey drawer presentation boundaries', () => {
           filters: { groups: [7], protocols: [], models: [] },
           groupOptions: [{ id: 7, label: 'Primary', dangling: false }],
           groupCatalogState: 'ready',
-          protocolOptions: ['openai'],
+          protocolOptions: ['openai-chat-completions'],
           modelOptions: ['gpt-4.1'],
           modelInput: '',
           baseGroupIds: [7],

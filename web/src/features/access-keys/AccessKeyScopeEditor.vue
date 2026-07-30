@@ -112,8 +112,8 @@ function requestScopeMode(dimension: AccessKeyScopeDimension, event: Event): voi
       />
       <span class="access-key-drawer__check-content">
         <span>{{ t(`common.protocols.${protocol}`) }}</span>
-        <small v-if="protocol === 'openai-response'">{{
-          t('accessKeys.drawer.reservedProtocolHint')
+        <small v-if="protocol === 'openai-responses'">{{
+          t('accessKeys.drawer.responsesAffinityHint')
         }}</small>
       </span>
     </label>

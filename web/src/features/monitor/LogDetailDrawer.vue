@@ -44,20 +44,20 @@ const orderedAttempts = computed(() =>
 const inspectorTarget = computed(() => {
   if (
     !props.log?.protocol ||
-    props.log.client_model.trim() === '' ||
     !Number.isSafeInteger(props.log.access_key.id) ||
     props.log.access_key.id <= 0
   ) {
     return null
   }
+  const query: Record<string, string | number> = {
+    tab: 'inspector',
+    protocol: props.log.protocol,
+  }
+  if (props.log.client_model !== null) query.external_model = props.log.client_model
+  query.access_key_id = props.log.access_key.id
   return {
     name: 'monitor',
-    query: {
-      tab: 'inspector',
-      protocol: props.log.protocol,
-      external_model: props.log.client_model,
-      access_key_id: props.log.access_key.id,
-    },
+    query,
   }
 })
 const usageTone = computed(() => {
@@ -108,6 +108,10 @@ function protocolLabel(log: RequestLogItemDto): string {
   return log.protocol
     ? t(`common.protocols.${log.protocol}`)
     : t('monitor.logs.drawer.usage.unknown')
+}
+
+function modelLabel(model: string | null): string {
+  return model ?? t('monitor.logs.drawer.modelNotSpecified')
 }
 
 function usageStateLabel(log: RequestLogItemDto): string {
@@ -204,13 +208,13 @@ function estimatedCost(log: RequestLogItemDto): string {
           <div>
             <dt>{{ t('monitor.logs.drawer.clientModel') }}</dt>
             <dd>
-              <code>{{ log.client_model }}</code>
+              <code>{{ modelLabel(log.client_model) }}</code>
             </dd>
           </div>
           <div>
             <dt>{{ t('monitor.logs.drawer.upstreamModel') }}</dt>
             <dd>
-              <code>{{ log.upstream_model }}</code>
+              <code>{{ modelLabel(log.upstream_model) }}</code>
             </dd>
           </div>
           <div>
@@ -342,7 +346,7 @@ function estimatedCost(log: RequestLogItemDto): string {
             <div>
               <dt>{{ t('monitor.logs.drawer.upstreamModel') }}</dt>
               <dd>
-                <code>{{ attempt.upstream_model }}</code>
+                <code>{{ modelLabel(attempt.upstream_model) }}</code>
               </dd>
             </div>
             <div>

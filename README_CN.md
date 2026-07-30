@@ -46,10 +46,10 @@ GPT-Load 是一个用 Go 构建的自托管 AI API Key 聚合与原生协议网�
 ## 2.0 能力
 
 - **双平面**：数据面保留服务商原生路径；管理 API 统一位于 `/api`，管理 UI 内嵌在同一个 Go 二进制中。
-- **三种原生方言**：OpenAI、Anthropic、Gemini 请求分别按对应协议转发，不做协议互转。
+- **四种可选原生协议**：OpenAI Chat Completions、OpenAI Responses、Anthropic Messages 与 Gemini 请求分别按对应协议转发；Group 可以任意多选，不做协议互转。
 - **密钥与流量管理**：Group、加密上游 Key、AccessKey、模型发现、筛选与限流、调度、健康状态、cooldown、blacklist 和自动权重。
 - **控制与可观测性**：运行设置、路由检查、健康视图、RequestLog，以及中文、英文、日文管理 UI。
-- **用量与估算成本**：采集三种方言可获得的 usage，提供 24 小时/30 天汇总、明细质量状态、内置价格和用户价格覆盖。
+- **用量与估算成本**：对四种协议中会返回生成 usage 的接口进行采集，提供 24 小时/30 天汇总、明细质量状态、内置价格和用户价格覆盖。
 
 M3 控制面 UI 与 M4 用量/定价范围已经进入本地候选，但正式出口与公开发布尚未完成。价格和成本是基于上游返回 usage 与当前价格规则的 best-effort **估算**，不是 billing ledger、发票或供应商账单，也不会对历史请求重新计价。
 
@@ -58,7 +58,9 @@ M3 控制面 UI 与 M4 用量/定价范围已经进入本地候选，但正式�
 - 只保证**单应用实例**正确性，不支持多实例协调。
 - 只支持 **SQLite**；不支持 PostgreSQL、MySQL 或其他数据库。
 - Group 由 AccessKey 和运行时配置选择，不出现在数据面 URL 中。
-- `openai-response` 只是已知的历史/预留协议值，不是已启用的数据面协议；当前不路由 `/v1/responses`。
+- 协议配置采用 clean break：只允许 `openai-chat-completions`、`openai-responses`、`anthropic`、`gemini`。旧值 `openai` 与 `openai-response` 均无效，不提供兼容。
+- 数据库中只要保留一个旧协议值，整个 `ConfigSnapshot` 就会编译失败，进而阻止启动或配置发布；错误会包含 Group 或 AccessKey ID 及非法值。启动前需要重建发布前 2.0 数据，不提供协议值原地迁移。
+- OpenAI Responses 资源路由暂时没有 Key 亲和。使用 `previous_response_id` 或 `conversation` 的有状态多轮，以及后续 retrieve/delete/cancel/input-items 请求，只有在单上游 Key 或上游跨 Key 共享资源存储时才可靠；否则可能由被选中的上游返回资源不存在。
 - 上游密钥必须静态加密，不允许明文回退；2.0.0 不支持主密钥轮换，`migrate-keys` 仍是明确失败的延后命令。
 - 不支持 1.x 数据自动迁移、原地升级或反向同步。
 - 不提供协议转换、在线账单对账、自动价格抓取、在线备份 API 或备份 CLI。
@@ -118,6 +120,7 @@ curl --fail http://localhost:3001/health
 | 服务商 | 方法与路径 | 行为 |
 |---|---|---|
 | OpenAI | `POST /v1/chat/completions` | OpenAI Chat Completions 原生请求 |
+| OpenAI | `/v1/responses` 与 `/v1/responses/...` | OpenAI Responses 原生命名空间；普通 HTTP method 直接转发 |
 | OpenAI / Anthropic | `GET /v1/models` | 默认返回 OpenAI 格式；携带 `anthropic-version` 时返回 Anthropic 格式 |
 | Anthropic | `POST /v1/messages` | Anthropic Messages 原生请求 |
 | Gemini | `GET /v1beta/models` | Gemini 原生模型列表 |
@@ -126,7 +129,61 @@ curl --fail http://localhost:3001/health
 
 GPT-Load 不把一种方言转换为另一种方言。Group 由 AccessKey 与运行时配置选择，不作为 URL 路径段传入。
 
-历史数据或已知协议元数据中可能出现 `openai-response`，但它当前仅为预留值，不接受新的数据面流量；尤其不会路由 `POST /v1/responses`。
+规范协议配置值与展示名如下：
+
+| 配置值 | 展示名 |
+|---|---|
+| `openai-chat-completions` | OpenAI Chat Completions |
+| `openai-responses` | OpenAI Responses |
+| `anthropic` | Anthropic |
+| `gemini` | Gemini |
+
+内置 OpenAI 供应商预设仍使用 `openai` 作为 preset ID，URL 仍是 `https://api.openai.com`，但默认同时勾选两种 OpenAI 协议。它们仍是普通、相互独立的多选项，用户可以只选任意一种或两种都选。
+
+Responses 路由按命名空间边界匹配，不维护资源接口白名单。AccessKey 认证完成后，`/v1/responses` 及其普通子路径都会进入同一套调度和转发管线；已解码的 `.` 或 `..` 路径段会在本地拒绝，避免路径规范化或重定向逃逸已授权命名空间。`OPTIONS`、`CONNECT`、`TRACE` 也在本地拒绝，其他 method（包括 `GET`、`POST`、`DELETE`、`HEAD`）直接转发。路径与 query 在 Go URL 规范化边界内保留：已解码的 `URL.Path` 会重新编码，`RawPath` 不保留。GPT-Load 不会根据资源 ID 跨 Key 查找；被选中上游的响应（包括资源不存在错误）会经过统一响应安全边界后返回。
+
+选择 Responses 的 Group 可以不配置模型，并继续服务不含 model 的 Responses 资源接口；含 model 的请求（包括常规 create）仍需存在可匹配的模型路由。
+
+> [!WARNING]
+> 2.0.0 尚未实现 Responses 亲和。携带 `previous_response_id` 或 `conversation` 的有状态多轮，以及对既有 response ID 的资源操作，可能命中不同 Group/Key 并收到上游 404。在亲和完成前，请使用单 Key、`store: false` 的无状态 item replay，或使用跨 Key 共享资源存储的上游。
+
+Responses create 与 compact 请求参与 usage 抽取；retrieve、delete、cancel、input-items、input-token-count 及未知扩展子路径在 RequestLog 中记录为 usage `not_applicable`。`InjectUsageOptions` 继续按能力接口生效：Responses dialect 不支持 Chat Completions 的 `stream_options.include_usage`，因此该 Group 设置对 Responses 会被忽略。仅选择 Responses 的 Group 会用 `input: "ping"`、`max_output_tokens: 16`、`store: false` 进行探测；同时选择两种 OpenAI 协议时，以 Chat Completions 作为 Group/Key 的代表性探测。健康状态不细分到协议级别。
+
+Chat Completions 示例：
+
+```console
+curl http://127.0.0.1:3001/v1/chat/completions \
+  -H "Authorization: Bearer $GPT_LOAD_ACCESS_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"<MODEL_ID>","messages":[{"role":"user","content":"Hello"}]}'
+```
+
+Responses 示例：
+
+```console
+curl http://127.0.0.1:3001/v1/responses \
+  -H "Authorization: Bearer $GPT_LOAD_ACCESS_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"<MODEL_ID>","input":"Hello","store":false}'
+```
+
+OpenAI 官方 SDK 可以直接使用同一个原生端点：
+
+```python
+import os
+from openai import OpenAI
+
+client = OpenAI(
+    base_url="http://127.0.0.1:3001/v1",
+    api_key=os.environ["GPT_LOAD_ACCESS_KEY"],
+)
+response = client.responses.create(
+    model="<MODEL_ID>",
+    input="Hello",
+    store=False,
+)
+print(response.output_text)
+```
 
 ## 管理面与用量成本
 
@@ -188,7 +245,7 @@ Usage/Cost 质量边界：
 
 1. 保持 1.x 运行并先验证其备份可恢复。
 2. 为 2.0 使用独立端口、`DATA_DIR`、数据库、Compose project 与 named volume，不与 1.x 共享任何一项。
-3. 手工重建最小 Group、上游 Key、AccessKey 与规则，在隔离环境验证三方言、日志及 usage/cost。
+3. 手工重建最小 Group、上游 Key、AccessKey 与规则，在隔离环境验证四种协议、日志及 usage/cost。
 4. 在维护窗或小流量阶段切换入口；失败时停止 2.0 并切回原 1.x，不把 2.0 新数据反向导入 1.x。
 
 `latest` 不是 1.x → 2.0 的安全升级通道。备份和恢复按上面的公开运维基线执行，并在回滚窗口关闭前保留原 1.x 部署及其数据。

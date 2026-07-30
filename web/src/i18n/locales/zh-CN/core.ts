@@ -14,10 +14,10 @@ export default {
     asyncLoadFailed: '无法加载此区域，请刷新页面后重试。',
     unsavedChanges: '要放弃未保存的修改吗？选择“取消”可继续编辑。',
     protocols: {
-      openai: 'OpenAI',
+      'openai-chat-completions': 'OpenAI Chat Completions',
+      'openai-responses': 'OpenAI Responses',
       anthropic: 'Anthropic',
       gemini: 'Gemini',
-      'openai-response': 'OpenAI Responses',
     },
   },
   auth: {
@@ -92,7 +92,8 @@ export default {
     keyBlacklisted: '黑名单 {count}',
     keyDisabled: '停用 {count}',
     groups: 'Groups',
-    groupsDescription: '每个 Group 的服务能力由已启用、真实模型和可用上游密钥共同决定。',
+    groupsDescription:
+      'Group 需要已启用、具备可路由协议能力且有可用上游密钥；含 model 的请求还需要配置模型。',
     groupsLoading: '正在加载 Group…',
     groupsError: '无法加载 Group。',
     groupsStale: 'Group 数据可能已过期；后台刷新失败。',
@@ -106,6 +107,8 @@ export default {
     unknown: '状态未知',
     groupDisabledReason: '该 Group 已停用。',
     noModelsReason: '该 Group 尚未配置模型。',
+    responsesResourceOnlyReason:
+      '该 Group 可服务不含 model 的 Responses 资源接口；含 model 的请求仍需配置模型。',
     healthUnknownReason: '当前上游密钥可用性未知。',
     noAvailableKeysReason: '当前没有可用的上游密钥。',
     models: '{count} 个模型',
@@ -126,6 +129,8 @@ export default {
     copyAccessKey: '复制 AccessKey',
     manageAccessKeys: '管理 AccessKey',
     modelPlaceholder: '未找到真实模型时，请将 {model} 替换为实际模型 ID。',
+    responsesAffinityWarning:
+      'Responses 暂无资源亲和。关联的有状态请求仅在命中同一上游 Key 或上游共享存储时可靠，否则会直接返回上游错误。',
     protocol: '协议',
     model: '模型',
     collapseConnection: '收起',

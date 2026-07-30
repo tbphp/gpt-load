@@ -1,9 +1,12 @@
 package gateway
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"fmt"
 
+	"gpt-load/internal/dialect"
 	"gpt-load/internal/telemetry"
 	"gpt-load/internal/usage"
 )
@@ -37,6 +40,7 @@ const (
 	StreamEndIdleTimeout
 	StreamEndDownstreamWriteFailure
 	StreamEndClientCanceled
+	StreamEndProviderIncomplete
 )
 
 type StreamObservation struct {
@@ -45,9 +49,98 @@ type StreamObservation struct {
 }
 
 type streamEventObserver struct {
-	sawErrorEvent bool
-	firstSummary  string
-	usage         *streamUsageCapture
+	classifier          dialect.StreamEventClassifier
+	terminalRequired    bool
+	sawTerminal         bool
+	terminalDisposition dialect.StreamEventDisposition
+	eventCount          int
+	firstProviderError  bool
+	sawErrorEvent       bool
+	firstSummary        string
+	usage               *streamUsageCapture
+}
+
+func newStreamEventObserver(
+	selected dialect.Dialect,
+	capture *streamUsageCapture,
+) *streamEventObserver {
+	observer := &streamEventObserver{usage: capture}
+	classifier, ok := selected.(dialect.StreamEventClassifier)
+	if !ok {
+		return observer
+	}
+	observer.classifier = classifier
+	observer.terminalRequired = classifier.RequiresTerminalEvent()
+	return observer
+}
+
+func safeClassifyStreamEvent(
+	classifier dialect.StreamEventClassifier,
+	event dialect.StreamEvent,
+) (result dialect.StreamEventClassification, err error, panicked bool) {
+	defer func() {
+		if recover() != nil {
+			result = dialect.StreamEventClassification{}
+			err = nil
+			panicked = true
+		}
+	}()
+	result, err = classifier.ClassifyStreamEvent(dialect.StreamEvent{
+		Name:    event.Name,
+		Payload: bytes.Clone(event.Payload),
+	})
+	return result, err, false
+}
+
+func validStreamEventDisposition(value dialect.StreamEventDisposition) bool {
+	return value >= dialect.StreamEventContinue &&
+		value <= dialect.StreamEventFailed
+}
+
+func (observer *streamEventObserver) classify(
+	event dialect.StreamEvent,
+	genericProviderError bool,
+) (bool, error) {
+	if observer == nil {
+		return genericProviderError, nil
+	}
+	if observer.sawTerminal {
+		return false, fmt.Errorf(
+			"%w: SSE data event received after terminal event",
+			ErrUpstreamProtocol,
+		)
+	}
+
+	classification := dialect.StreamEventClassification{
+		Disposition: dialect.StreamEventContinue,
+	}
+	if observer.classifier != nil {
+		var err error
+		var panicked bool
+		classification, err, panicked = safeClassifyStreamEvent(
+			observer.classifier,
+			event,
+		)
+		if panicked || err != nil ||
+			!validStreamEventDisposition(classification.Disposition) {
+			return false, fmt.Errorf(
+				"%w: classify upstream SSE event",
+				ErrUpstreamProtocol,
+			)
+		}
+	}
+
+	if classification.IsTerminal() {
+		observer.sawTerminal = true
+		observer.terminalDisposition = classification.Disposition
+	}
+	providerError := genericProviderError ||
+		classification.IsProviderError()
+	observer.eventCount++
+	if observer.eventCount == 1 {
+		observer.firstProviderError = providerError
+	}
+	return providerError, nil
 }
 
 func (observer *streamEventObserver) observeError(summary string) {
@@ -60,9 +153,11 @@ func (observer *streamEventObserver) observeError(summary string) {
 	}
 }
 
-func (observer *streamEventObserver) observeUsage(payload []byte) {
+func (observer *streamEventObserver) observeUsageEvent(
+	event dialect.StreamEvent,
+) {
 	if observer != nil && observer.usage != nil {
-		observer.usage.observe(payload)
+		observer.usage.observeEvent(event)
 	}
 }
 
@@ -73,18 +168,42 @@ func (observer *streamEventObserver) finalizeUsage() usage.Result {
 	return observer.usage.finalize()
 }
 
+func (observer *streamEventObserver) endObservation() StreamObservation {
+	if observer == nil {
+		return StreamObservation{EndReason: StreamEndCleanEOF}
+	}
+	if observer.sawErrorEvent {
+		return StreamObservation{
+			EndReason:    StreamEndSSEError,
+			ErrorSummary: observer.firstSummary,
+		}
+	}
+	if observer.sawTerminal &&
+		observer.terminalDisposition == dialect.StreamEventIncomplete {
+		return streamTerminalObservation(StreamEndProviderIncomplete)
+	}
+	return StreamObservation{EndReason: StreamEndCleanEOF}
+}
+
+func (observer *streamEventObserver) validateEOF() error {
+	if observer == nil || !observer.terminalRequired || observer.sawTerminal {
+		return nil
+	}
+	return &streamFailure{
+		kind: streamFailureProtocol,
+		err: fmt.Errorf(
+			"%w: stream ended before required terminal event",
+			ErrUpstreamProtocol,
+		),
+	}
+}
+
 func observeStreamTermination(
 	ctx context.Context,
 	err error,
 	events *streamEventObserver,
 ) StreamObservation {
-	observation := StreamObservation{EndReason: StreamEndCleanEOF}
-	if events != nil && events.sawErrorEvent {
-		observation = StreamObservation{
-			EndReason:    StreamEndSSEError,
-			ErrorSummary: events.firstSummary,
-		}
-	}
+	observation := events.endObservation()
 	return prioritizeStreamObservation(ctx, err, observation)
 }
 
@@ -143,7 +262,7 @@ func streamAttemptObservation(
 
 func categoryForStream(reason StreamEndReason) telemetry.FailureCategory {
 	switch reason {
-	case StreamEndCleanEOF:
+	case StreamEndCleanEOF, StreamEndProviderIncomplete:
 		return telemetry.FailureCategoryOK
 	case StreamEndClientCanceled:
 		return telemetry.FailureCategoryDownstreamCancel
@@ -168,6 +287,8 @@ func streamErrorCode(reason StreamEndReason) string {
 		return "downstream_write_failed"
 	case StreamEndClientCanceled:
 		return "client_canceled"
+	case StreamEndProviderIncomplete:
+		return "upstream_response_incomplete"
 	default:
 		return "upstream_stream_terminated"
 	}

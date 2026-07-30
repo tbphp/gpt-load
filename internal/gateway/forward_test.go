@@ -3008,7 +3008,8 @@ func testForward(t *testing.T, upstreamURL, apiKey string, timeout time.Duration
 
 func streamForwardInput(upstreamURL string) ForwardInput {
 	return ForwardInput{
-		Dialect: dialect.NewOpenAI(http.DefaultClient),
+		Dialect:      dialect.NewOpenAI(http.DefaultClient),
+		ObserveUsage: true,
 		Group: state.GroupView{
 			ID: 1, Name: "openai", UpstreamURL: upstreamURL,
 			Timeouts: state.TimeoutConfig{

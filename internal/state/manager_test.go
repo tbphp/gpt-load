@@ -252,7 +252,7 @@ func managerCompileInput(groupID uint) CompileInput {
 		ID:          groupID,
 		Name:        "group",
 		UpstreamURL: "https://upstream.example.com",
-		Protocols:   []protocol.Protocol{protocol.OpenAI},
+		Protocols:   []protocol.Protocol{protocol.OpenAIChatCompletions},
 		Models:      []ModelConfig{{ID: "model"}},
 		Enabled:     true,
 	}}}

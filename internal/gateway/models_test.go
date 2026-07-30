@@ -16,7 +16,7 @@ func TestVisibleModelIDs(t *testing.T) {
 		Groups: []state.GroupConfig{
 			{
 				ID: 1, Name: "first", UpstreamURL: "https://first.example.com",
-				Protocols: []protocol.Protocol{protocol.OpenAI, protocol.Anthropic, protocol.Gemini},
+				Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions, protocol.Anthropic, protocol.Gemini},
 				Models: []state.ModelConfig{
 					{ID: "zeta"}, {ID: "shared", Alias: "first-alias"}, {ID: "alpha"},
 				},
@@ -24,7 +24,7 @@ func TestVisibleModelIDs(t *testing.T) {
 			},
 			{
 				ID: 2, Name: "second", UpstreamURL: "https://second.example.com",
-				Protocols: []protocol.Protocol{protocol.OpenAI, protocol.Anthropic},
+				Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions, protocol.Anthropic},
 				Models: []state.ModelConfig{
 					{ID: "shared", Alias: "second-alias"}, {ID: "beta"},
 				},
@@ -48,21 +48,100 @@ func TestVisibleModelIDs(t *testing.T) {
 		value     protocol.Protocol
 		want      []string
 	}{
-		{name: "no filters sorted and deduplicated", snapshot: snapshot, value: protocol.OpenAI, want: []string{"alpha", "beta", "first-alias", "second-alias", "zeta"}},
-		{name: "protocol allowed", snapshot: snapshot, accessKey: state.AccessKeyView{Filters: state.FilterSet{Protocols: map[protocol.Protocol]struct{}{protocol.OpenAI: {}}}}, value: protocol.OpenAI, want: []string{"alpha", "beta", "first-alias", "second-alias", "zeta"}},
-		{name: "protocol denied", snapshot: snapshot, accessKey: state.AccessKeyView{Filters: state.FilterSet{Protocols: map[protocol.Protocol]struct{}{protocol.Gemini: {}}}}, value: protocol.OpenAI, want: []string{}},
-		{name: "model filter matches aliases", snapshot: snapshot, accessKey: state.AccessKeyView{Filters: state.FilterSet{Models: map[string]struct{}{"first-alias": {}, "zeta": {}, "shared": {}, "missing": {}}}}, value: protocol.OpenAI, want: []string{"first-alias", "zeta"}},
-		{name: "group filter keeps any matching target", snapshot: snapshot, accessKey: state.AccessKeyView{Filters: state.FilterSet{Groups: map[uint]struct{}{2: {}}}}, value: protocol.OpenAI, want: []string{"beta", "second-alias"}},
+		{name: "no filters sorted and deduplicated", snapshot: snapshot, value: protocol.OpenAIChatCompletions, want: []string{"alpha", "beta", "first-alias", "second-alias", "zeta"}},
+		{name: "protocol allowed", snapshot: snapshot, accessKey: state.AccessKeyView{Filters: state.FilterSet{Protocols: map[protocol.Protocol]struct{}{protocol.OpenAIChatCompletions: {}}}}, value: protocol.OpenAIChatCompletions, want: []string{"alpha", "beta", "first-alias", "second-alias", "zeta"}},
+		{name: "protocol denied", snapshot: snapshot, accessKey: state.AccessKeyView{Filters: state.FilterSet{Protocols: map[protocol.Protocol]struct{}{protocol.Gemini: {}}}}, value: protocol.OpenAIChatCompletions, want: []string{}},
+		{name: "model filter matches aliases", snapshot: snapshot, accessKey: state.AccessKeyView{Filters: state.FilterSet{Models: map[string]struct{}{"first-alias": {}, "zeta": {}, "shared": {}, "missing": {}}}}, value: protocol.OpenAIChatCompletions, want: []string{"first-alias", "zeta"}},
+		{name: "group filter keeps any matching target", snapshot: snapshot, accessKey: state.AccessKeyView{Filters: state.FilterSet{Groups: map[uint]struct{}{2: {}}}}, value: protocol.OpenAIChatCompletions, want: []string{"beta", "second-alias"}},
 		{name: "joint filters", snapshot: snapshot, accessKey: state.AccessKeyView{Filters: state.FilterSet{Protocols: map[protocol.Protocol]struct{}{protocol.Anthropic: {}}, Models: map[string]struct{}{"beta": {}, "second-alias": {}, "shared": {}}, Groups: map[uint]struct{}{2: {}}}}, value: protocol.Anthropic, want: []string{"beta", "second-alias"}},
-		{name: "dangling group filter", snapshot: snapshot, accessKey: state.AccessKeyView{Filters: state.FilterSet{Groups: map[uint]struct{}{99: {}}}}, value: protocol.OpenAI, want: []string{}},
+		{name: "dangling group filter", snapshot: snapshot, accessKey: state.AccessKeyView{Filters: state.FilterSet{Groups: map[uint]struct{}{99: {}}}}, value: protocol.OpenAIChatCompletions, want: []string{}},
 		{name: "disabled group model absent", snapshot: snapshot, value: protocol.Gemini, want: []string{"alpha", "first-alias", "zeta"}},
-		{name: "missing protocol", snapshot: snapshot, value: protocol.OpenAIResponse, want: []string{}},
-		{name: "nil snapshot", snapshot: nil, value: protocol.OpenAI, want: []string{}},
+		{name: "missing protocol", snapshot: snapshot, value: protocol.OpenAIResponses, want: []string{}},
+		{name: "nil snapshot", snapshot: nil, value: protocol.OpenAIChatCompletions, want: []string{}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			got := visibleModelIDs(test.snapshot, test.accessKey, test.value)
 			if got == nil || !reflect.DeepEqual(got, test.want) {
+				t.Fatalf("visibleModelIDs() = %#v, want %#v", got, test.want)
+			}
+		})
+	}
+}
+
+func TestVisibleOpenAIModelIDsUnionsChatAndResponses(t *testing.T) {
+	t.Parallel()
+
+	snapshot, err := state.Compile(state.CompileInput{Groups: []state.GroupConfig{
+		{
+			ID:        1,
+			Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions},
+			Models: []state.ModelConfig{
+				{ID: "chat-only"},
+				{ID: "shared"},
+			},
+			Enabled: true,
+		},
+		{
+			ID:        2,
+			Protocols: []protocol.Protocol{protocol.OpenAIResponses},
+			Models: []state.ModelConfig{
+				{ID: "responses-only"},
+				{ID: "shared"},
+			},
+			Enabled: true,
+		},
+		{
+			ID: 3,
+			Protocols: []protocol.Protocol{
+				protocol.OpenAIChatCompletions,
+				protocol.OpenAIResponses,
+			},
+			Models:  []state.ModelConfig{{ID: "both"}},
+			Enabled: true,
+		},
+	}})
+	if err != nil {
+		t.Fatalf("Compile() error = %v", err)
+	}
+
+	tests := []struct {
+		name      string
+		accessKey state.AccessKeyView
+		want      []string
+	}{
+		{
+			name: "unrestricted union",
+			want: []string{"both", "chat-only", "responses-only", "shared"},
+		},
+		{
+			name: "responses protocol filter",
+			accessKey: state.AccessKeyView{Filters: state.FilterSet{
+				Protocols: map[protocol.Protocol]struct{}{
+					protocol.OpenAIResponses: {},
+				},
+			}},
+			want: []string{"both", "responses-only", "shared"},
+		},
+		{
+			name: "chat protocol filter",
+			accessKey: state.AccessKeyView{Filters: state.FilterSet{
+				Protocols: map[protocol.Protocol]struct{}{
+					protocol.OpenAIChatCompletions: {},
+				},
+			}},
+			want: []string{"both", "chat-only", "shared"},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := visibleModelIDs(
+				snapshot,
+				test.accessKey,
+				protocol.OpenAIChatCompletions,
+			)
+			if !reflect.DeepEqual(got, test.want) {
 				t.Fatalf("visibleModelIDs() = %#v, want %#v", got, test.want)
 			}
 		})
@@ -77,7 +156,7 @@ func TestMarshalModelList(t *testing.T) {
 		expected string
 	}{
 		{
-			name: "OpenAI", value: protocol.OpenAI, ids: []string{"alpha", "zeta"},
+			name: "OpenAI", value: protocol.OpenAIChatCompletions, ids: []string{"alpha", "zeta"},
 			expected: `{"object":"list","data":[{"id":"alpha","object":"model","created":1735689600,"owned_by":"gpt-load"},{"id":"zeta","object":"model","created":1735689600,"owned_by":"gpt-load"}]}`,
 		},
 		{
@@ -89,7 +168,7 @@ func TestMarshalModelList(t *testing.T) {
 			expected: `{"models":[{"name":"models/models/custom"}]}`,
 		},
 		{
-			name: "OpenAI empty", value: protocol.OpenAI, ids: nil,
+			name: "OpenAI empty", value: protocol.OpenAIChatCompletions, ids: nil,
 			expected: `{"object":"list","data":[]}`,
 		},
 		{

@@ -12,6 +12,10 @@ import (
 	"gpt-load/internal/state"
 )
 
+func modelPointer(value string) *string {
+	return &value
+}
+
 func TestFilterTargetsAppliesAccessKeyDimensions(t *testing.T) {
 	snapshot := schedulerSnapshot()
 	tests := []struct {
@@ -21,50 +25,50 @@ func TestFilterTargetsAppliesAccessKeyDimensions(t *testing.T) {
 		filters    state.FilterSet
 		wantGroups []uint
 	}{
-		{name: "unrestricted", protocol: protocol.OpenAI, model: "gpt-4o", wantGroups: []uint{1, 2}},
+		{name: "unrestricted", protocol: protocol.OpenAIChatCompletions, model: "gpt-4o", wantGroups: []uint{1, 2}},
 		{
 			name:       "group filter",
-			protocol:   protocol.OpenAI,
+			protocol:   protocol.OpenAIChatCompletions,
 			model:      "gpt-4o",
 			filters:    state.FilterSet{Groups: map[uint]struct{}{2: {}}},
 			wantGroups: []uint{2},
 		},
 		{
 			name:       "protocol allowed",
-			protocol:   protocol.OpenAI,
+			protocol:   protocol.OpenAIChatCompletions,
 			model:      "gpt-4o",
-			filters:    state.FilterSet{Protocols: map[protocol.Protocol]struct{}{protocol.OpenAI: {}}},
+			filters:    state.FilterSet{Protocols: map[protocol.Protocol]struct{}{protocol.OpenAIChatCompletions: {}}},
 			wantGroups: []uint{1, 2},
 		},
 		{
 			name:       "protocol denied",
-			protocol:   protocol.OpenAI,
+			protocol:   protocol.OpenAIChatCompletions,
 			model:      "gpt-4o",
 			filters:    state.FilterSet{Protocols: map[protocol.Protocol]struct{}{protocol.Anthropic: {}}},
 			wantGroups: []uint{},
 		},
 		{
 			name:       "model allowed",
-			protocol:   protocol.OpenAI,
+			protocol:   protocol.OpenAIChatCompletions,
 			model:      "gpt-4o",
 			filters:    state.FilterSet{Models: map[string]struct{}{"gpt-4o": {}}},
 			wantGroups: []uint{1, 2},
 		},
 		{
 			name:       "model denied",
-			protocol:   protocol.OpenAI,
+			protocol:   protocol.OpenAIChatCompletions,
 			model:      "gpt-4o",
 			filters:    state.FilterSet{Models: map[string]struct{}{"gpt-4o-mini": {}}},
 			wantGroups: []uint{},
 		},
-		{name: "unknown model", protocol: protocol.OpenAI, model: "missing", wantGroups: []uint{}},
+		{name: "unknown model", protocol: protocol.OpenAIChatCompletions, model: "missing", wantGroups: []uint{}},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			targets := filterTargets(snapshot, Query{
+			targets, _ := filterTargetsWithReason(snapshot, Query{
 				Protocol:      tt.protocol,
-				ExternalModel: tt.model,
+				ExternalModel: modelPointer(tt.model),
 				AccessKey:     state.AccessKeyView{ID: 10, Filters: tt.filters},
 			})
 			got := make([]uint, 0, len(targets))
@@ -81,7 +85,13 @@ func TestFilterTargetsAppliesAccessKeyDimensions(t *testing.T) {
 func TestFilterTargetsSkipsCandidateWithoutGroupView(t *testing.T) {
 	snapshot := schedulerSnapshot()
 	delete(snapshot.Groups, 2)
-	got := filterTargets(snapshot, Query{Protocol: protocol.OpenAI, ExternalModel: "gpt-4o"})
+	got, _ := filterTargetsWithReason(
+		snapshot,
+		Query{
+			Protocol:      protocol.OpenAIChatCompletions,
+			ExternalModel: modelPointer("gpt-4o"),
+		},
+	)
 	if len(got) != 1 || got[0].target.GroupID != 1 {
 		t.Fatalf("targets = %#v, want only group 1", got)
 	}
@@ -92,13 +102,13 @@ func TestCandidateGroupIDsUsesFrozenAccessKeyProtocolAndFilters(t *testing.T) {
 		Groups: []state.GroupConfig{
 			{
 				ID: 4, Name: "disabled-openai",
-				Protocols: []protocol.Protocol{protocol.OpenAI},
+				Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions},
 				Models:    []state.ModelConfig{{ID: "disabled-model"}},
 				Enabled:   false,
 			},
 			{
 				ID: 3, Name: "multi",
-				Protocols: []protocol.Protocol{protocol.OpenAI, protocol.Anthropic},
+				Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions, protocol.Anthropic},
 				Models:    []state.ModelConfig{{ID: "multi-model"}},
 				Enabled:   true,
 			},
@@ -110,7 +120,7 @@ func TestCandidateGroupIDsUsesFrozenAccessKeyProtocolAndFilters(t *testing.T) {
 			},
 			{
 				ID: 1, Name: "openai",
-				Protocols: []protocol.Protocol{protocol.OpenAI},
+				Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions},
 				Models:    []state.ModelConfig{{ID: "openai-model"}},
 				Enabled:   true,
 			},
@@ -128,7 +138,7 @@ func TestCandidateGroupIDsUsesFrozenAccessKeyProtocolAndFilters(t *testing.T) {
 	}{
 		{
 			name:     "enabled protocol groups sorted without model",
-			selected: protocol.OpenAI,
+			selected: protocol.OpenAIChatCompletions,
 			accessKey: state.AccessKeyView{
 				Status: state.AccessKeyStatusActive,
 				Filters: state.FilterSet{
@@ -139,7 +149,7 @@ func TestCandidateGroupIDsUsesFrozenAccessKeyProtocolAndFilters(t *testing.T) {
 		},
 		{
 			name:     "group filter",
-			selected: protocol.OpenAI,
+			selected: protocol.OpenAIChatCompletions,
 			accessKey: state.AccessKeyView{
 				Status: state.AccessKeyStatusActive,
 				Filters: state.FilterSet{
@@ -161,7 +171,7 @@ func TestCandidateGroupIDsUsesFrozenAccessKeyProtocolAndFilters(t *testing.T) {
 		},
 		{
 			name:     "denied protocol filter",
-			selected: protocol.OpenAI,
+			selected: protocol.OpenAIChatCompletions,
 			accessKey: state.AccessKeyView{
 				Status: state.AccessKeyStatusActive,
 				Filters: state.FilterSet{
@@ -179,6 +189,69 @@ func TestCandidateGroupIDsUsesFrozenAccessKeyProtocolAndFilters(t *testing.T) {
 				t.Fatalf("CandidateGroupIDs() = %#v, want %#v", got, test.want)
 			}
 		})
+	}
+}
+
+func TestIteratorSelectsProtocolOnlyGroupWithoutModel(t *testing.T) {
+	t.Parallel()
+
+	snapshot, err := state.Compile(state.CompileInput{Groups: []state.GroupConfig{{
+		ID:        7,
+		Name:      "responses",
+		Protocols: []protocol.Protocol{protocol.OpenAIResponses},
+		Enabled:   true,
+	}}})
+	if err != nil {
+		t.Fatalf("Compile() error = %v", err)
+	}
+	source := fakeKeySource{keys: []state.KeyMeta{{
+		ID: 71, GroupID: 7, WeightAuto: state.DefaultWeight,
+	}}}
+
+	selection, err := New(
+		snapshot,
+		source,
+		Query{
+			Protocol:      protocol.OpenAIResponses,
+			ExternalModel: nil,
+			AccessKey: state.AccessKeyView{
+				Status: state.AccessKeyStatusActive,
+			},
+		},
+		rand.New(zeroRandSource{}),
+	).Next()
+	if err != nil {
+		t.Fatalf("Next() error = %v", err)
+	}
+	if selection.GroupID != 7 || selection.KeyID != 71 ||
+		selection.UpstreamModelID != nil {
+		t.Fatalf("Selection = %#v, want protocol-only group/key and nil model", selection)
+	}
+}
+
+func TestCandidateGroupIDsUsesProtocolProjectionWithoutModels(t *testing.T) {
+	t.Parallel()
+
+	snapshot, err := state.Compile(state.CompileInput{Groups: []state.GroupConfig{{
+		ID:        8,
+		Protocols: []protocol.Protocol{protocol.OpenAIResponses},
+		Enabled:   true,
+	}}})
+	if err != nil {
+		t.Fatalf("Compile() error = %v", err)
+	}
+	got := CandidateGroupIDs(
+		snapshot,
+		protocol.OpenAIResponses,
+		state.AccessKeyView{
+			Status: state.AccessKeyStatusActive,
+			Filters: state.FilterSet{
+				Models: map[string]struct{}{"must-not-apply-before-body": {}},
+			},
+		},
+	)
+	if !reflect.DeepEqual(got, []uint{8}) {
+		t.Fatalf("CandidateGroupIDs() = %#v, want [8]", got)
 	}
 }
 
@@ -217,7 +290,7 @@ func TestIteratorUsesInjectedTimeForCandidateEligibility(t *testing.T) {
 		t.Fatalf("Replace() error = %v", err)
 	}
 
-	query := Query{Protocol: protocol.OpenAI, ExternalModel: "gpt-4o"}
+	query := Query{Protocol: protocol.OpenAIChatCompletions, ExternalModel: modelPointer("gpt-4o")}
 	cooling := newWithClock(schedulerSnapshot(), registry, query, rand.New(rand.NewSource(1)), func() time.Time {
 		return now
 	})
@@ -239,7 +312,7 @@ func TestIteratorSkipGroupExcludesWholeGroup(t *testing.T) {
 		{ID: 11, GroupID: 1}, {ID: 12, GroupID: 1}, {ID: 21, GroupID: 2},
 	}}
 	iterator := New(schedulerSnapshot(), source,
-		Query{Protocol: protocol.OpenAI, ExternalModel: "gpt-4o"},
+		Query{Protocol: protocol.OpenAIChatCompletions, ExternalModel: modelPointer("gpt-4o")},
 		rand.New(zeroRandSource{}))
 	first, err := iterator.Next()
 	if err != nil || first.KeyID != 11 {
@@ -260,7 +333,7 @@ func TestIteratorSkipGroupIsRequestLocal(t *testing.T) {
 	source := fakeKeySource{keys: []state.KeyMeta{
 		{ID: 11, GroupID: 1}, {ID: 21, GroupID: 2},
 	}}
-	query := Query{Protocol: protocol.OpenAI, ExternalModel: "gpt-4o"}
+	query := Query{Protocol: protocol.OpenAIChatCompletions, ExternalModel: modelPointer("gpt-4o")}
 	first := New(schedulerSnapshot(), source, query, rand.New(zeroRandSource{}))
 	first.SkipGroup(1)
 	selection, err := first.Next()
@@ -280,7 +353,7 @@ func TestIteratorSkipGroupIgnoresNilReceiverAndZeroID(t *testing.T) {
 
 	iterator := New(schedulerSnapshot(), fakeKeySource{keys: []state.KeyMeta{
 		{ID: 11, GroupID: 1}, {ID: 21, GroupID: 2},
-	}}, Query{Protocol: protocol.OpenAI, ExternalModel: "gpt-4o"}, rand.New(zeroRandSource{}))
+	}}, Query{Protocol: protocol.OpenAIChatCompletions, ExternalModel: modelPointer("gpt-4o")}, rand.New(zeroRandSource{}))
 	iterator.SkipGroup(0)
 	selection, err := iterator.Next()
 	if err != nil || selection.GroupID != 1 {
@@ -297,7 +370,7 @@ func TestIteratorSkipGroupExcludesKeysAddedAfterSkip(t *testing.T) {
 		t.Fatalf("Replace() error = %v", err)
 	}
 	iterator := New(schedulerSnapshot(), registry,
-		Query{Protocol: protocol.OpenAI, ExternalModel: "gpt-4o"},
+		Query{Protocol: protocol.OpenAIChatCompletions, ExternalModel: modelPointer("gpt-4o")},
 		rand.New(zeroRandSource{}))
 	iterator.SkipGroup(1)
 	if err := registry.ApplyImport(1, []state.KeyEntry{{
@@ -323,7 +396,7 @@ func TestIteratorNextNeverRepeatsAndExhausts(t *testing.T) {
 	iterator := New(
 		schedulerSnapshot(),
 		source,
-		Query{Protocol: protocol.OpenAI, ExternalModel: "gpt-4o"},
+		Query{Protocol: protocol.OpenAIChatCompletions, ExternalModel: modelPointer("gpt-4o")},
 		rand.New(rand.NewSource(7)),
 	)
 
@@ -337,7 +410,9 @@ func TestIteratorNextNeverRepeatsAndExhausts(t *testing.T) {
 			t.Fatalf("key %d selected twice", selection.KeyID)
 		}
 		seen[selection.KeyID] = struct{}{}
-		if selection.Group.ID != selection.GroupID || selection.UpstreamModelID == "" {
+		if selection.Group.ID != selection.GroupID ||
+			selection.UpstreamModelID == nil ||
+			*selection.UpstreamModelID == "" {
 			t.Fatalf("invalid selection: %#v", selection)
 		}
 	}
@@ -363,7 +438,7 @@ func TestIteratorUsesEffectiveWeights(t *testing.T) {
 	counts := map[uint]int{}
 	random := rand.New(rand.NewSource(99))
 	for range 12000 {
-		iterator := New(snapshot, source, Query{Protocol: protocol.OpenAI, ExternalModel: "gpt-4o"}, random)
+		iterator := New(snapshot, source, Query{Protocol: protocol.OpenAIChatCompletions, ExternalModel: modelPointer("gpt-4o")}, random)
 		selection, err := iterator.Next()
 		if err != nil {
 			t.Fatalf("Next() error = %v", err)
@@ -388,7 +463,7 @@ func TestIteratorUsesKeyWeights(t *testing.T) {
 		iterator := New(
 			schedulerSnapshot(),
 			source,
-			Query{Protocol: protocol.OpenAI, ExternalModel: "gpt-4o"},
+			Query{Protocol: protocol.OpenAIChatCompletions, ExternalModel: modelPointer("gpt-4o")},
 			random,
 		)
 		selection, err := iterator.Next()
@@ -446,7 +521,7 @@ func TestIteratorExcludesZeroManualWeights(t *testing.T) {
 
 		random := rand.New(rand.NewSource(1))
 		for range 200 {
-			iterator := New(snapshot, source, Query{Protocol: protocol.OpenAI, ExternalModel: "gpt-4o"}, random)
+			iterator := New(snapshot, source, Query{Protocol: protocol.OpenAIChatCompletions, ExternalModel: modelPointer("gpt-4o")}, random)
 			selection, err := iterator.Next()
 			if err != nil || selection.KeyID != 21 {
 				t.Fatalf("Next() = (%#v, %v), want enabled group key 21", selection, err)
@@ -463,7 +538,7 @@ func TestIteratorExcludesZeroManualWeights(t *testing.T) {
 
 		random := rand.New(rand.NewSource(1))
 		for range 200 {
-			iterator := New(schedulerSnapshot(), source, Query{Protocol: protocol.OpenAI, ExternalModel: "gpt-4o"}, random)
+			iterator := New(schedulerSnapshot(), source, Query{Protocol: protocol.OpenAIChatCompletions, ExternalModel: modelPointer("gpt-4o")}, random)
 			selection, err := iterator.Next()
 			if err != nil || selection.KeyID != 12 {
 				t.Fatalf("Next() = (%#v, %v), want enabled key 12", selection, err)
@@ -484,7 +559,7 @@ func TestIteratorExhaustsWhenEffectiveWeightPoolIsEmpty(t *testing.T) {
 		iterator := New(
 			snapshot,
 			fakeKeySource{keys: []state.KeyMeta{{ID: 11, GroupID: 1, WeightAuto: state.DefaultWeight}}},
-			Query{Protocol: protocol.OpenAI, ExternalModel: "gpt-4o"},
+			Query{Protocol: protocol.OpenAIChatCompletions, ExternalModel: modelPointer("gpt-4o")},
 			rand.New(rand.NewSource(1)),
 		)
 		if _, err := iterator.Next(); !errors.Is(err, ErrExhausted) {
@@ -500,7 +575,7 @@ func TestIteratorExhaustsWhenEffectiveWeightPoolIsEmpty(t *testing.T) {
 				{ID: 11, GroupID: 1, WeightManual: &zero, WeightAuto: state.DefaultWeight},
 				{ID: 21, GroupID: 2, WeightManual: &zero, WeightAuto: state.DefaultWeight},
 			}},
-			Query{Protocol: protocol.OpenAI, ExternalModel: "gpt-4o"},
+			Query{Protocol: protocol.OpenAIChatCompletions, ExternalModel: modelPointer("gpt-4o")},
 			rand.New(rand.NewSource(1)),
 		)
 		if _, err := iterator.Next(); !errors.Is(err, ErrExhausted) {
@@ -513,7 +588,7 @@ func TestIteratorUsesDefaultWeights(t *testing.T) {
 	iterator := New(
 		schedulerSnapshot(),
 		fakeKeySource{keys: []state.KeyMeta{{ID: 11, GroupID: 1}}},
-		Query{Protocol: protocol.OpenAI, ExternalModel: "gpt-4o"},
+		Query{Protocol: protocol.OpenAIChatCompletions, ExternalModel: modelPointer("gpt-4o")},
 		rand.New(rand.NewSource(1)),
 	)
 	selection, err := iterator.Next()
@@ -532,7 +607,7 @@ func TestIteratorReadsRegistryChangesBetweenNextCalls(t *testing.T) {
 	iterator := New(
 		schedulerSnapshot(),
 		registry,
-		Query{Protocol: protocol.OpenAI, ExternalModel: "gpt-4o"},
+		Query{Protocol: protocol.OpenAIChatCompletions, ExternalModel: modelPointer("gpt-4o")},
 		rand.New(rand.NewSource(1)),
 	)
 	first, err := iterator.Next()
@@ -563,7 +638,7 @@ func TestIteratorRestrictsLiveCandidatesToAllowedKeyIDs(t *testing.T) {
 		schedulerSnapshot(),
 		registry,
 		Query{
-			Protocol: protocol.OpenAI, ExternalModel: "gpt-4o",
+			Protocol: protocol.OpenAIChatCompletions, ExternalModel: modelPointer("gpt-4o"),
 			AllowedKeyIDs: allowed,
 		},
 		rand.New(zeroRandSource{}),
@@ -603,18 +678,19 @@ func TestIteratorPropertyNeverEscapesAccessFilters(t *testing.T) {
 			filters.Groups = map[uint]struct{}{allowedGroup: {}}
 		}
 		if generator.Intn(2) == 1 {
-			filters.Protocols = map[protocol.Protocol]struct{}{protocol.OpenAI: {}}
+			filters.Protocols = map[protocol.Protocol]struct{}{protocol.OpenAIChatCompletions: {}}
 		}
 		if generator.Intn(2) == 1 {
 			filters.Models = map[string]struct{}{"gpt-4o": {}}
 		}
 		query := Query{
-			Protocol:      protocol.OpenAI,
-			ExternalModel: "gpt-4o",
+			Protocol:      protocol.OpenAIChatCompletions,
+			ExternalModel: modelPointer("gpt-4o"),
 			AccessKey:     state.AccessKeyView{ID: uint(caseIndex + 1), Filters: filters},
 		}
 		frozenGroups := make(map[uint]struct{})
-		for _, target := range filterTargets(snapshot, query) {
+		targets, _ := filterTargetsWithReason(snapshot, query)
+		for _, target := range targets {
 			frozenGroups[target.target.GroupID] = struct{}{}
 		}
 		iterator := New(snapshot, source, query, rand.New(rand.NewSource(int64(caseIndex+1))))
@@ -639,7 +715,9 @@ func TestIteratorPropertyNeverEscapesAccessFilters(t *testing.T) {
 					t.Fatalf("case %d selection %#v escaped group filter %#v", caseIndex, selection, filters.Groups)
 				}
 			}
-			if selection.UpstreamModelID == "" || selection.GroupID == 0 {
+			if selection.UpstreamModelID == nil ||
+				*selection.UpstreamModelID == "" ||
+				selection.GroupID == 0 {
 				t.Fatalf("case %d invalid selection %#v", caseIndex, selection)
 			}
 			if generator.Intn(2) == 1 {
@@ -656,8 +734,8 @@ func TestIteratorExhaustsForNilOrEmptyDependencies(t *testing.T) {
 		iterator *Iterator
 	}{
 		{name: "nil snapshot", iterator: New(nil, fakeKeySource{}, Query{}, rand.New(rand.NewSource(1)))},
-		{name: "nil key source", iterator: New(schedulerSnapshot(), nil, Query{Protocol: protocol.OpenAI, ExternalModel: "gpt-4o"}, rand.New(rand.NewSource(1)))},
-		{name: "nil random", iterator: New(schedulerSnapshot(), fakeKeySource{}, Query{Protocol: protocol.OpenAI, ExternalModel: "gpt-4o"}, nil)},
+		{name: "nil key source", iterator: New(schedulerSnapshot(), nil, Query{Protocol: protocol.OpenAIChatCompletions, ExternalModel: modelPointer("gpt-4o")}, rand.New(rand.NewSource(1)))},
+		{name: "nil random", iterator: New(schedulerSnapshot(), fakeKeySource{}, Query{Protocol: protocol.OpenAIChatCompletions, ExternalModel: modelPointer("gpt-4o")}, nil)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -671,7 +749,7 @@ func TestIteratorExhaustsForNilOrEmptyDependencies(t *testing.T) {
 func schedulerSnapshot() *state.ConfigSnapshot {
 	return &state.ConfigSnapshot{
 		Candidates: map[protocol.Protocol]map[string][]state.RouteTarget{
-			protocol.OpenAI: {
+			protocol.OpenAIChatCompletions: {
 				"gpt-4o": {
 					{GroupID: 1, UpstreamModelID: "gpt-4o"},
 					{GroupID: 2, UpstreamModelID: "provider-gpt-4o"},

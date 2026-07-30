@@ -82,7 +82,7 @@ async function enterConnection(wrapper: ReturnType<typeof mount>, keys = 'raw-ke
   await wrapper.get('[data-test="preset"]').setValue('custom')
   await wrapper.get('[data-test="group-name"]').setValue('Primary')
   await wrapper.get('[data-test="upstream-url"]').setValue('https://api.example.com')
-  await wrapper.get('[data-test="protocol-openai"]').setValue(true)
+  await wrapper.get('[data-test="protocol-openai-chat-completions"]').setValue(true)
   await wrapper.get('[data-test="keys"]').setValue(keys)
 }
 
@@ -181,10 +181,17 @@ describe('NewGroupImport', () => {
     expect(wrapper.text()).not.toContain('late-model')
     expect(wrapper.text()).not.toContain('Unable to discover')
   })
-  it('renders only Group protocols', async () => {
+  it('renders all canonical Group protocols and warns for Responses', async () => {
     const { wrapper } = await mountImport(vi.fn() as ApiClient['request'])
 
+    expect(wrapper.find('[data-test="protocol-openai-chat-completions"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="protocol-openai-responses"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="protocol-anthropic"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="protocol-gemini"]').exists()).toBe(true)
     expect(wrapper.find('[data-test="protocol-openai-response"]').exists()).toBe(false)
+    expect(wrapper.get('[data-test="import-responses-affinity-warning"]').text()).toContain(
+      'same upstream key',
+    )
   })
   it('immediately exposes manual model entry for a recovered step-2 draft with no models', async () => {
     const request = vi.fn() as ApiClient['request']
@@ -194,7 +201,7 @@ describe('NewGroupImport', () => {
       preset_id: 'custom',
       name: 'Recovered',
       upstream_url: 'https://api.example.com',
-      protocols: ['openai'],
+      protocols: ['openai-chat-completions'],
       keys: 'recovered-key',
       header_rules: { set: {}, remove: [] },
       models: [],
@@ -205,6 +212,55 @@ describe('NewGroupImport', () => {
     expect(wrapper.get('[data-test="manual-model-id"]')).toBeDefined()
     expect(wrapper.find('[data-test="manual-path"]').exists()).toBe(false)
     expect(request).not.toHaveBeenCalled()
+  })
+
+  it('creates a Responses resource-only Group without configured models', async () => {
+    const request = vi.fn().mockResolvedValue({
+      group_id: 28,
+      group_name: 'Resources',
+      keys_added: 1,
+      keys_duplicated: 0,
+      models: [],
+    }) as ApiClient['request']
+    const recovered: ImportDraft = {
+      mode: 'new',
+      step: 2,
+      preset_id: 'custom',
+      name: 'Resources',
+      upstream_url: 'https://api.example.com',
+      protocols: ['openai-responses'],
+      keys: 'resource-key',
+      header_rules: { set: {}, remove: [] },
+      models: [],
+    }
+
+    const { wrapper } = await mountImport(request, recovered)
+
+    expect(wrapper.get('[data-test="review"]').attributes()).not.toHaveProperty('disabled')
+    expect(wrapper.text()).toMatch(/responses resource endpoints/i)
+    await wrapper.get('[data-test="review"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-test="create"]').trigger('click')
+    await flushPromises()
+
+    expect(request).toHaveBeenCalledWith('/api/groups', {
+      method: 'POST',
+      headers: {
+        'Idempotency-Key': expect.stringMatching(
+          /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+        ),
+      },
+      json: {
+        name: 'Resources',
+        upstream_url: 'https://api.example.com',
+        protocols: ['openai-responses'],
+        models: [],
+        config: {},
+        keys: 'resource-key',
+        confirm_same_upstream_url: false,
+      },
+      signal: expect.any(AbortSignal),
+    })
   })
 
   it('applies presets, keeps Custom editable, sends raw discovery input, and shows non-blocking key hints', async () => {
@@ -233,7 +289,7 @@ describe('NewGroupImport', () => {
       method: 'POST',
       json: {
         upstream_url: 'https://api.example.com',
-        protocols: ['openai'],
+        protocols: ['openai-chat-completions'],
         keys: 'raw-key\nraw-key\nsk-gl-warning',
         config: { header_rules: { set: { 'X-Test': 'secret' }, remove: [] } },
       },
@@ -278,7 +334,7 @@ describe('NewGroupImport', () => {
       method: 'POST',
       json: {
         upstream_url: 'https://api.example.com',
-        protocols: ['openai'],
+        protocols: ['openai-chat-completions'],
         keys: 'raw-key',
         config: {},
       },
@@ -352,7 +408,7 @@ describe('NewGroupImport', () => {
       json: {
         name: 'Primary',
         upstream_url: 'https://api.example.com',
-        protocols: ['openai'],
+        protocols: ['openai-chat-completions'],
         models: [{ id: 'manual-model', alias: 'local' }],
         config: {},
         keys: 'raw-authoritative-key',

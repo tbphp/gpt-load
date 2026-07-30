@@ -14,10 +14,10 @@ export default {
     asyncLoadFailed: 'Unable to load this section. Reload the page and try again.',
     unsavedChanges: 'Discard unsaved changes? Choose Cancel to continue editing.',
     protocols: {
-      openai: 'OpenAI',
+      'openai-chat-completions': 'OpenAI Chat Completions',
+      'openai-responses': 'OpenAI Responses',
       anthropic: 'Anthropic',
       gemini: 'Gemini',
-      'openai-response': 'OpenAI Responses',
     },
   },
   auth: {
@@ -94,7 +94,7 @@ export default {
     keyDisabled: 'Disabled {count}',
     groups: 'Groups',
     groupsDescription:
-      'Serviceability requires an enabled Group, real models, and an available upstream key.',
+      'Serviceability requires an enabled Group, a routable protocol capability, and an available upstream key. Model-based requests also require configured models.',
     groupsLoading: 'Loading Groups…',
     groupsError: 'Unable to load Groups.',
     groupsStale: 'Group data may be stale because the background refresh failed.',
@@ -109,6 +109,8 @@ export default {
     unknown: 'Status unknown',
     groupDisabledReason: 'This Group is disabled.',
     noModelsReason: 'This Group has no models configured.',
+    responsesResourceOnlyReason:
+      'This Group can serve model-free Responses resource endpoints; model-based requests need configured models.',
     healthUnknownReason: 'Current upstream-key availability is unknown.',
     noAvailableKeysReason: 'No upstream key is currently available.',
     models: '{count} models',
@@ -130,6 +132,8 @@ export default {
     copyAccessKey: 'Copy AccessKey',
     manageAccessKeys: 'Manage AccessKeys',
     modelPlaceholder: 'When no real model is available, replace {model} with an actual model ID.',
+    responsesAffinityWarning:
+      'Responses has no resource affinity yet. Related stateful requests are reliable only when they reach the same upstream key or shared upstream storage; otherwise the upstream error is returned.',
     protocol: 'Protocol',
     model: 'Model',
     collapseConnection: 'Collapse',

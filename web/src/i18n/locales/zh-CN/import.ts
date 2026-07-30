@@ -43,6 +43,8 @@ export default {
     connection: {
       title: '连接上游',
       description: '选择预设或输入兼容上游；预设只填充 URL 和协议。',
+      responsesAffinityWarning:
+        'Responses 暂无资源亲和。有状态多轮与资源操作仅在命中同一上游 Key 或上游共享存储时可靠，否则会直接返回上游错误。',
       preset: '渠道预设',
       name: 'Group 名称（可选）',
       url: '上游 URL',
@@ -82,6 +84,9 @@ export default {
       manualId: '手动模型 ID',
       add: '添加模型',
       manualPath: '改为手动录入模型 ID',
+      none: '未配置模型',
+      resourceOnlyNotice:
+        '当前未选择模型。该 Group 只能路由不含 model 的 Responses 资源接口；含 model 的请求无法使用它。',
     },
     discover: '发现模型',
     discoveryFailed: '模型发现失败。草稿已保留，可重试或手动录入模型。',

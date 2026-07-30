@@ -184,7 +184,7 @@ func TestGatewaySecurityEventFormatterSecretMatrix(t *testing.T) {
 					ID:          1,
 					Name:        "safe-group",
 					UpstreamURL: "http://upstream.invalid",
-					Protocols:   []protocol.Protocol{protocol.OpenAI},
+					Protocols:   []protocol.Protocol{protocol.OpenAIChatCompletions},
 					Models:      []state.ModelConfig{{ID: "safe-model"}},
 					Enabled:     true,
 				}},

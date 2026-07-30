@@ -175,16 +175,17 @@ func (d *Anthropic) Probe(
 	})
 }
 
-func (d *Anthropic) ExtractModel(req *ParsedRequest) (string, bool, error) {
+func (d *Anthropic) InspectRequest(req *ParsedRequest) (RequestMetadata, error) {
 	if req == nil {
-		return "", false, fmt.Errorf("parsed request is required")
+		return RequestMetadata{}, fmt.Errorf("parsed request is required")
 	}
 
-	model, stream, err := extractJSONRequestFields(req.Body)
+	metadata, err := inspectJSONRequestFields(req.Body, true)
 	if err != nil {
-		return "", false, fmt.Errorf("decode %s request: %w", d.Protocol(), err)
+		return RequestMetadata{}, fmt.Errorf("decode %s request: %w", d.Protocol(), err)
 	}
-	return model, stream, nil
+	metadata.ObserveUsage = true
+	return metadata, nil
 }
 
 func (d *Anthropic) ClassifyStatus(status int, body []byte) health.FailureCategory {

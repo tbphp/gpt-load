@@ -46,10 +46,10 @@ For the maintained 1.4.x release documentation, visit the [official documentatio
 ## 2.0 capabilities
 
 - **Two planes:** provider-native paths on the data plane; management APIs under `/api`, with the admin UI embedded in the same Go binary.
-- **Three native dialects:** OpenAI, Anthropic, and Gemini requests are forwarded in their respective protocols. GPT-Load does not translate between protocols.
+- **Four selectable native protocols:** OpenAI Chat Completions, OpenAI Responses, Anthropic Messages, and Gemini requests are forwarded in their respective protocols. A Group may enable any combination. GPT-Load does not translate between protocols.
 - **Key and traffic management:** Groups, encrypted upstream keys, AccessKeys, model discovery, filtering and rate limits, scheduling, health state, cooldown, blacklist, and automatic weights.
 - **Control and observability:** runtime settings, route inspection, health views, RequestLog, and a Chinese, English, and Japanese admin UI.
-- **Usage and estimated cost:** usage extraction for the three dialects, 24-hour/30-day reports, per-request quality states, built-in prices, and user price overrides.
+- **Usage and estimated cost:** usage extraction for the four protocols where the endpoint returns generation usage, 24-hour/30-day reports, per-request quality states, built-in prices, and user price overrides.
 
 The M3 control-plane UI and M4 usage/pricing scope are present in the local candidate, but their formal exit and public release are unfinished. Prices and costs are best-effort **estimates** derived from upstream usage and the active pricing rules. They are not a billing ledger, invoice, or provider bill, and historical requests are not repriced.
 
@@ -58,7 +58,9 @@ The M3 control-plane UI and M4 usage/pricing scope are present in the local cand
 - Correctness is guaranteed for a **single application instance** only; multi-instance coordination is not supported.
 - **SQLite only**; PostgreSQL, MySQL, and other databases are not supported.
 - The AccessKey and runtime configuration select the Group. A Group never appears in the data-plane URL.
-- `openai-response` is a known historical/reserved protocol value, not an enabled data-plane protocol; `/v1/responses` is not routed.
+- Protocol configuration is a clean break: use `openai-chat-completions`, `openai-responses`, `anthropic`, or `gemini`. The old `openai` and `openai-response` values are invalid and have no compatibility path.
+- A stored old protocol value causes the complete `ConfigSnapshot` compilation, and therefore startup/publication, to fail. The error identifies the Group or AccessKey and invalid value. Rebuild the pre-release 2.0 data before starting; there is no in-place protocol-value migration.
+- OpenAI Responses resource routing has no Key affinity. Stateful turns using `previous_response_id` or `conversation`, and later retrieve/delete/cancel/input-item calls, are reliable only with one upstream Key or an upstream that shares resource storage across Keys. Otherwise the selected upstream may return a resource-not-found error.
 - Upstream keys must be encrypted at rest with no plaintext fallback. 2.0.0 has no master-key rotation; `migrate-keys` remains an explicitly failing deferred command.
 - There is no automatic 1.x migration, in-place upgrade, or reverse synchronization.
 - There is no protocol conversion, online billing reconciliation, automatic price fetcher, online backup API, or backup CLI.
@@ -119,6 +121,7 @@ Data-plane requests use an AccessKey. Provider-compatible credentials are accept
 | Provider | Method and path | Behavior |
 |---|---|---|
 | OpenAI | `POST /v1/chat/completions` | Native OpenAI Chat Completions request |
+| OpenAI | `/v1/responses` and `/v1/responses/...` | Native OpenAI Responses namespace; ordinary HTTP methods are forwarded |
 | OpenAI / Anthropic | `GET /v1/models` | OpenAI shape by default; Anthropic shape when `anthropic-version` is present |
 | Anthropic | `POST /v1/messages` | Native Anthropic Messages request |
 | Gemini | `GET /v1beta/models` | Native Gemini model list |
@@ -127,7 +130,61 @@ Data-plane requests use an AccessKey. Provider-compatible credentials are accept
 
 GPT-Load does not translate one dialect into another. The AccessKey and runtime configuration select the Group; it is not passed as a URL path segment.
 
-`openai-response` may appear in historical data or known-protocol metadata, but it is reserved and not enabled for new data-plane traffic. In particular, `POST /v1/responses` is not routed.
+The canonical protocol configuration values and display names are:
+
+| Configuration value | Display name |
+|---|---|
+| `openai-chat-completions` | OpenAI Chat Completions |
+| `openai-responses` | OpenAI Responses |
+| `anthropic` | Anthropic |
+| `gemini` | Gemini |
+
+The built-in OpenAI provider preset keeps the `openai` preset ID and `https://api.openai.com` URL, but enables both OpenAI protocols by default. They remain ordinary independent checkboxes: either one or both may be selected.
+
+Responses routing uses the namespace boundary, not a per-resource allowlist. After AccessKey authentication, `/v1/responses` and its ordinary subpaths are sent through the same scheduler and forwarding pipeline. Decoded `.` or `..` path segments are rejected locally so normalization or redirects cannot escape the authorized namespace. `OPTIONS`, `CONNECT`, and `TRACE` are also rejected locally; other methods, including `GET`, `POST`, `DELETE`, and `HEAD`, are forwarded. Paths and queries are preserved within Go URL normalization: decoded `URL.Path` is re-encoded and `RawPath` is not retained. GPT-Load does not search other Keys for a resource ID; the selected upstream's response, including a resource-not-found error, is returned through the normal response-safety boundary.
+
+A Group that enables Responses may keep an empty model list and still serve model-free Responses resource endpoints. Requests that include a model, including ordinary create requests, still require a configured model route.
+
+> [!WARNING]
+> 2.0.0 does not implement Responses affinity. Stateful multi-turn requests using `previous_response_id` or `conversation`, and resource operations on an earlier response ID, may reach a different Group/Key and receive an upstream 404. Use a single Key, stateless item replay with `store: false`, or an upstream with shared resource storage until affinity is implemented.
+
+Responses create and compact requests participate in usage extraction. Retrieve, delete, cancel, input-items, input-token-count, and unknown extension subpaths are recorded with usage `not_applicable`. `InjectUsageOptions` remains capability-based: the Responses dialect does not support Chat Completions' `stream_options.include_usage`, so that Group setting is ignored for Responses. A Responses-only Group probe sends `input: "ping"`, `max_output_tokens: 16`, and `store: false`; when both OpenAI protocols are selected, Chat Completions is the representative Group/Key probe. Health is not tracked per protocol.
+
+Chat Completions example:
+
+```console
+curl http://127.0.0.1:3001/v1/chat/completions \
+  -H "Authorization: Bearer $GPT_LOAD_ACCESS_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"<MODEL_ID>","messages":[{"role":"user","content":"Hello"}]}'
+```
+
+Responses example:
+
+```console
+curl http://127.0.0.1:3001/v1/responses \
+  -H "Authorization: Bearer $GPT_LOAD_ACCESS_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"<MODEL_ID>","input":"Hello","store":false}'
+```
+
+The official OpenAI SDK can use the same native endpoint:
+
+```python
+import os
+from openai import OpenAI
+
+client = OpenAI(
+    base_url="http://127.0.0.1:3001/v1",
+    api_key=os.environ["GPT_LOAD_ACCESS_KEY"],
+)
+response = client.responses.create(
+    model="<MODEL_ID>",
+    input="Hello",
+    store=False,
+)
+print(response.output_text)
+```
 
 ## Management, usage, and cost
 
@@ -189,7 +246,7 @@ This checklist is self-contained and does not require access to the project's pr
 
 1. Keep 1.x running and verify that its backup can be restored.
 2. Give 2.0 a separate port, `DATA_DIR`, database, and Compose project/named volume. Do not share any of these with 1.x.
-3. Manually rebuild the minimum Groups, upstream keys, AccessKeys, and rules; validate all three dialects, logs, and usage/cost in isolation.
+3. Manually rebuild the minimum Groups, upstream keys, AccessKeys, and rules; validate all four protocol variants, logs, and usage/cost in isolation.
 4. Move entry traffic during a maintenance window or small rollout. On failure, stop 2.0 and switch back to the original 1.x deployment; do not reverse-import new 2.0 data.
 
 `latest` is not a safe 1.x-to-2.0 upgrade channel. Use the public operations baseline above for backup and restore, and keep the original 1.x deployment and data intact until the rollback window closes.

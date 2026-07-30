@@ -145,7 +145,10 @@ func TestProbeAcceptsOnly2xxAndRedactsTransportDetails(t *testing.T) {
 			return nil, errors.New("transport failed for https://bad.example.com?token=" + secret)
 		})}
 		err := NewOpenAI(client).Probe(context.Background(), "https://api.example.com", secret, state.HeaderRules{}, "gpt-test")
-		if err == nil || !strings.Contains(err.Error(), "request openai probe failed") {
+		if err == nil || !strings.Contains(
+			err.Error(),
+			"request openai-chat-completions probe failed",
+		) {
 			t.Fatalf("Probe() error = %v, want redacted transport failure", err)
 		}
 		for _, forbidden := range []string{secret, "bad.example.com", "api.example.com"} {
@@ -157,7 +160,10 @@ func TestProbeAcceptsOnly2xxAndRedactsTransportDetails(t *testing.T) {
 
 	t.Run("nil client returns a safe error", func(t *testing.T) {
 		err := NewOpenAI(nil).Probe(context.Background(), "https://api.example.com", "secret", state.HeaderRules{}, "gpt-test")
-		if err == nil || !strings.Contains(err.Error(), "request openai probe failed") || strings.Contains(err.Error(), "secret") {
+		if err == nil || !strings.Contains(
+			err.Error(),
+			"request openai-chat-completions probe failed",
+		) || strings.Contains(err.Error(), "secret") {
 			t.Fatalf("Probe() error = %v, want redacted nil-client failure", err)
 		}
 	})

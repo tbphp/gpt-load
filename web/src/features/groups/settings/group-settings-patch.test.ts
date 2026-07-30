@@ -12,7 +12,7 @@ const base: GroupDetailDto = {
   id: 7,
   name: 'Primary',
   upstream_url: 'https://api.example.com/v1',
-  protocols: ['openai'],
+  protocols: ['openai-chat-completions'],
   models: [{ id: 'gpt-4o', alias: '' }],
   enabled: true,
   key_count: 2,
@@ -70,7 +70,7 @@ describe('group settings patch', () => {
     draft.name = ' Renamed '
     draft.enabled = false
     draft.upstream_url = ' https://new.example.com/v1 '
-    draft.protocols = ['gemini', 'openai', 'gemini']
+    draft.protocols = ['gemini', 'openai-responses', 'openai-chat-completions', 'openai-responses']
     draft.validation_model = ' gemini-2.5-pro '
     draft.weight_manual = 42
 
@@ -78,7 +78,7 @@ describe('group settings patch', () => {
       name: 'Renamed',
       enabled: false,
       upstream_url: 'https://new.example.com/v1',
-      protocols: ['openai', 'gemini'],
+      protocols: ['openai-chat-completions', 'openai-responses', 'gemini'],
       validation_model: 'gemini-2.5-pro',
       weight_manual: 42,
     })

@@ -178,13 +178,13 @@ func TestHandlerRetryDoesNotLeakFaultyInjectorMutationToNextGroup(t *testing.T) 
 		Groups: []state.GroupConfig{
 			{
 				ID: 1, Name: "injecting", UpstreamURL: upstream.URL, Enabled: true,
-				Protocols: []protocol.Protocol{protocol.OpenAI},
+				Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions},
 				Models:    []state.ModelConfig{{ID: "gpt-4o"}},
 				Settings:  config.Settings{state.SettingInjectUsageOptions: true},
 			},
 			{
 				ID: 2, Name: "plain", UpstreamURL: upstream.URL, Enabled: true,
-				Protocols: []protocol.Protocol{protocol.OpenAI},
+				Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions},
 				Models:    []state.ModelConfig{{ID: "gpt-4o"}},
 				Settings:  config.Settings{state.SettingInjectUsageOptions: false},
 			},
@@ -967,7 +967,7 @@ func newStreamingGatewayEngine(t *testing.T, groups ...streamGatewayGroup) (*gin
 		}
 		groupConfigs = append(groupConfigs, state.GroupConfig{
 			ID: group.id, Name: group.name, UpstreamURL: group.upstreamURL,
-			Protocols: []protocol.Protocol{protocol.OpenAI},
+			Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions},
 			Models:    []state.ModelConfig{{ID: modelID, Alias: group.alias}}, Enabled: true,
 			Settings: streamGatewaySettings(group.injectUsageOptions),
 		})

@@ -13,7 +13,7 @@ func TestCompileCopiesAndValidatesGroupManualWeight(t *testing.T) {
 	weight := 25
 	input := CompileInput{Groups: []GroupConfig{{
 		ID: 1, Name: "weighted", UpstreamURL: "https://weighted.example.com",
-		Protocols: []protocol.Protocol{protocol.OpenAI},
+		Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions},
 		Models:    []ModelConfig{{ID: "gpt-weighted"}}, WeightManual: &weight, Enabled: true,
 	}}}
 

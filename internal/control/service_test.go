@@ -702,11 +702,11 @@ func TestConcurrentCreateGroupsPublishDatabaseTruth(t *testing.T) {
 	fixture := newServiceFixture(t)
 	before := fixture.manager.Current().Revision
 	requests := []GroupCreateRequest{
-		{UpstreamURL: "https://shared.example.com/v1", Protocols: []protocol.Protocol{protocol.OpenAI}, Keys: "sk-shared-a", ConfirmSameUpstreamURL: true},
+		{UpstreamURL: "https://shared.example.com/v1", Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions}, Keys: "sk-shared-a", ConfirmSameUpstreamURL: true},
 		{UpstreamURL: "https://shared.example.com/v1", Protocols: []protocol.Protocol{protocol.Anthropic}, Keys: "sk-shared-b", ConfirmSameUpstreamURL: true},
-		{UpstreamURL: "https://one.example.com/v1", Protocols: []protocol.Protocol{protocol.OpenAI}, Keys: "sk-one"},
+		{UpstreamURL: "https://one.example.com/v1", Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions}, Keys: "sk-one"},
 		{UpstreamURL: "https://two.example.com/v1", Protocols: []protocol.Protocol{protocol.Gemini}, Keys: "sk-two"},
-		{UpstreamURL: "https://three.example.com/v1", Protocols: []protocol.Protocol{protocol.OpenAI}, Keys: "sk-three"},
+		{UpstreamURL: "https://three.example.com/v1", Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions}, Keys: "sk-three"},
 		{UpstreamURL: "https://four.example.com/v1", Protocols: []protocol.Protocol{protocol.Anthropic}, Keys: "sk-four"},
 	}
 
@@ -752,7 +752,7 @@ func TestConcurrentCreateGroupsPublishDatabaseTruth(t *testing.T) {
 func validControlGroup(name string) *models.Group {
 	return &models.Group{
 		Name: name, UpstreamURL: "https://" + name + ".example/v1",
-		Protocols: models.JSON(`["openai"]`),
+		Protocols: models.JSON(`["openai-chat-completions"]`),
 		Models:    models.JSON(`[{"id":"gpt-4o"}]`), Config: models.JSON(`{}`), Enabled: true,
 	}
 }

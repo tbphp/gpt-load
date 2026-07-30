@@ -34,9 +34,6 @@ func (s *Service) CreateAccessKeyIdempotent(
 	if err != nil {
 		return AccessKeyCreateResult{}, err
 	}
-	if err := validateAccessKeyProtocolsForCreate(filters.Protocols); err != nil {
-		return AccessKeyCreateResult{}, err
-	}
 	rpmLimit, err := normalizeRPMLimit(request.RPMLimit, 0)
 	if err != nil {
 		return AccessKeyCreateResult{}, err

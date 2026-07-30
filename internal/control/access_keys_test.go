@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -19,7 +18,6 @@ import (
 	"gorm.io/gorm"
 
 	"gpt-load/internal/platform/config"
-	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 	stateloader "gpt-load/internal/state/loader"
@@ -104,7 +102,7 @@ func TestAccessKeyFiltersNormalizeAndAcceptExistingDisabledGroups(t *testing.T) 
 		Name: "filtered",
 		Filters: &AccessKeyFilters{
 			Groups:    []uint{enabled.ID, disabled.ID, enabled.ID},
-			Protocols: []protocol.Protocol{protocol.OpenAI, protocol.Anthropic, protocol.OpenAI},
+			Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions, protocol.Anthropic, protocol.OpenAIChatCompletions},
 			Models:    []string{" gpt-4o ", "gpt-4o", "claude"},
 		},
 	})
@@ -114,7 +112,7 @@ func TestAccessKeyFiltersNormalizeAndAcceptExistingDisabledGroups(t *testing.T) 
 	if len(result.Filters.Groups) != 2 || result.Filters.Groups[0] != enabled.ID || result.Filters.Groups[1] != disabled.ID {
 		t.Fatalf("normalized groups = %#v", result.Filters.Groups)
 	}
-	if len(result.Filters.Protocols) != 2 || result.Filters.Protocols[0] != protocol.OpenAI || result.Filters.Protocols[1] != protocol.Anthropic {
+	if len(result.Filters.Protocols) != 2 || result.Filters.Protocols[0] != protocol.OpenAIChatCompletions || result.Filters.Protocols[1] != protocol.Anthropic {
 		t.Fatalf("normalized protocols = %#v", result.Filters.Protocols)
 	}
 	if len(result.Filters.Models) != 2 || result.Filters.Models[0] != "gpt-4o" || result.Filters.Models[1] != "claude" {
@@ -141,184 +139,28 @@ func TestAccessKeyFiltersNormalizeAndAcceptExistingDisabledGroups(t *testing.T) 
 	}
 }
 
-func TestAccessKeyCreateRejectsReservedProtocolWithoutPublishing(t *testing.T) {
+func TestAccessKeyCreateAcceptsAllEnabledProtocolsInCanonicalOrder(t *testing.T) {
 	fixture := newServiceFixture(t)
 	fixture.service.random = bytes.NewReader(make([]byte, 16))
-	beforeRevision := fixture.manager.Current().Revision
 
-	_, err := fixture.service.CreateAccessKey(t.Context(), AccessKeyCreateRequest{
-		Name: "reserved",
+	result, err := fixture.service.CreateAccessKey(t.Context(), AccessKeyCreateRequest{
+		Name: "all protocols",
 		Filters: &AccessKeyFilters{
-			Protocols: []protocol.Protocol{protocol.OpenAIResponse},
+			Protocols: []protocol.Protocol{
+				protocol.Gemini,
+				protocol.OpenAIResponses,
+				protocol.Anthropic,
+				protocol.OpenAIChatCompletions,
+				protocol.OpenAIResponses,
+			},
 		},
 	})
-	if !errors.Is(err, app_errors.ErrValidation) {
-		t.Errorf("CreateAccessKey() error = %v, want validation error", err)
-	}
-
-	var count int64
-	if err := fixture.db.Model(&models.AccessKey{}).Count(&count).Error; err != nil {
-		t.Fatalf("count AccessKeys: %v", err)
-	}
-	if count != 0 {
-		t.Errorf("AccessKey row count = %d, want 0", count)
-	}
-	if got := fixture.manager.Current().Revision; got != beforeRevision {
-		t.Errorf("revision = %d, want unchanged %d", got, beforeRevision)
-	}
-}
-
-func TestAccessKeyHistoricalReservedProtocolPreservedAcrossReadAndNameUpdate(t *testing.T) {
-	fixture := newServiceFixture(t)
-	row, _ := seedHistoricalAccessKeyWithReservedProtocol(
-		t,
-		fixture,
-		[]protocol.Protocol{protocol.OpenAIResponse, protocol.OpenAI},
-	)
-
-	listed, err := fixture.service.ListAccessKeys(t.Context())
 	if err != nil {
-		t.Fatalf("ListAccessKeys() error = %v", err)
+		t.Fatalf("CreateAccessKey() error = %v", err)
 	}
-	wantProtocols := []protocol.Protocol{protocol.OpenAIResponse, protocol.OpenAI}
-	if len(listed) != 1 ||
-		listed[0].ID != row.ID ||
-		listed[0].MaskedKey != "sk-gl-••••••••abab" ||
-		!reflect.DeepEqual(listed[0].Filters.Protocols, wantProtocols) {
-		t.Fatalf("ListAccessKeys() = %#v, want historical protocols preserved", listed)
-	}
-	published, ok := fixture.manager.Current().AccessKeysByHash[row.KeyHash]
-	if !ok {
-		t.Fatalf("published snapshot lacks historical AccessKey hash %q", row.KeyHash)
-	}
-	if _, ok := published.Filters.Protocols[protocol.OpenAIResponse]; !ok {
-		t.Fatalf("published filters = %#v, want reserved protocol", published.Filters)
-	}
-
-	beforeRevision := fixture.manager.Current().Revision
-	updated, err := fixture.service.UpdateAccessKey(
-		t.Context(),
-		row.ID,
-		AccessKeyUpdateRequest{Name: stringPointer("renamed legacy")},
-	)
-	if err != nil {
-		t.Fatalf("name-only UpdateAccessKey() error = %v", err)
-	}
-	if updated.Name != "renamed legacy" ||
-		updated.MaskedKey != "sk-gl-••••••••abab" ||
-		!reflect.DeepEqual(updated.Filters.Protocols, wantProtocols) {
-		t.Fatalf("name-only UpdateAccessKey() = %#v", updated)
-	}
-	if got := fixture.manager.Current().Revision; got != beforeRevision+1 {
-		t.Fatalf("revision = %d, want %d", got, beforeRevision+1)
-	}
-	published = fixture.manager.Current().AccessKeysByHash[row.KeyHash]
-	if _, ok := published.Filters.Protocols[protocol.OpenAIResponse]; !ok {
-		t.Fatalf("published filters after name update = %#v, want reserved protocol", published.Filters)
-	}
-}
-
-func TestAccessKeyHistoricalReservedProtocolCanStayDuringEnabledChangesAndBeRemoved(t *testing.T) {
-	fixture := newServiceFixture(t)
-	row, _ := seedHistoricalAccessKeyWithReservedProtocol(
-		t,
-		fixture,
-		[]protocol.Protocol{protocol.OpenAIResponse, protocol.OpenAI},
-	)
-
-	changedFilters := AccessKeyFilters{
-		Protocols: []protocol.Protocol{protocol.OpenAIResponse, protocol.Anthropic},
-	}
-	updated, err := fixture.service.UpdateAccessKey(
-		t.Context(),
-		row.ID,
-		AccessKeyUpdateRequest{Filters: &changedFilters},
-	)
-	if err != nil {
-		t.Fatalf("UpdateAccessKey() keeping reserved protocol error = %v", err)
-	}
-	if !reflect.DeepEqual(updated.Filters.Protocols, changedFilters.Protocols) {
-		t.Fatalf("updated protocols = %#v, want %#v", updated.Filters.Protocols, changedFilters.Protocols)
-	}
-	stored, err := decodeStoredAccessKeyFilters(loadAccessKeyRow(t, fixture.db, row.ID).Filters)
-	if err != nil {
-		t.Fatalf("decode stored filters: %v", err)
-	}
-	if !reflect.DeepEqual(stored.Protocols, changedFilters.Protocols) {
-		t.Fatalf("stored protocols = %#v, want %#v", stored.Protocols, changedFilters.Protocols)
-	}
-
-	removedFilters := AccessKeyFilters{
-		Protocols: []protocol.Protocol{protocol.Gemini},
-	}
-	updated, err = fixture.service.UpdateAccessKey(
-		t.Context(),
-		row.ID,
-		AccessKeyUpdateRequest{Filters: &removedFilters},
-	)
-	if err != nil {
-		t.Fatalf("UpdateAccessKey() removing reserved protocol error = %v", err)
-	}
-	if !reflect.DeepEqual(updated.Filters.Protocols, removedFilters.Protocols) {
-		t.Fatalf("protocols after removal = %#v, want %#v", updated.Filters.Protocols, removedFilters.Protocols)
-	}
-	stored, err = decodeStoredAccessKeyFilters(loadAccessKeyRow(t, fixture.db, row.ID).Filters)
-	if err != nil {
-		t.Fatalf("decode stored filters after removal: %v", err)
-	}
-	if !reflect.DeepEqual(stored.Protocols, removedFilters.Protocols) {
-		t.Fatalf("stored protocols after removal = %#v, want %#v", stored.Protocols, removedFilters.Protocols)
-	}
-	published := fixture.manager.Current().AccessKeysByHash[row.KeyHash]
-	if _, ok := published.Filters.Protocols[protocol.OpenAIResponse]; ok {
-		t.Fatalf("published filters after removal = %#v, want no reserved protocol", published.Filters)
-	}
-	if _, ok := published.Filters.Protocols[protocol.Gemini]; !ok {
-		t.Fatalf("published filters after removal = %#v, want Gemini", published.Filters)
-	}
-}
-
-func TestAccessKeyUpdateRejectsReservedProtocolAfterExplicitRemoval(t *testing.T) {
-	fixture := newServiceFixture(t)
-	row, _ := seedHistoricalAccessKeyWithReservedProtocol(
-		t,
-		fixture,
-		[]protocol.Protocol{protocol.OpenAIResponse, protocol.OpenAI},
-	)
-	enabledOnly := AccessKeyFilters{
-		Protocols: []protocol.Protocol{protocol.OpenAI},
-	}
-	if _, err := fixture.service.UpdateAccessKey(
-		t.Context(),
-		row.ID,
-		AccessKeyUpdateRequest{Filters: &enabledOnly},
-	); err != nil {
-		t.Fatalf("UpdateAccessKey() removing reserved protocol error = %v", err)
-	}
-
-	beforeRow := loadAccessKeyRow(t, fixture.db, row.ID)
-	beforeRevision := fixture.manager.Current().Revision
-	readded := AccessKeyFilters{
-		Protocols: []protocol.Protocol{protocol.OpenAI, protocol.OpenAIResponse},
-	}
-	_, err := fixture.service.UpdateAccessKey(
-		t.Context(),
-		row.ID,
-		AccessKeyUpdateRequest{Filters: &readded},
-	)
-	if !errors.Is(err, app_errors.ErrValidation) {
-		t.Errorf("UpdateAccessKey() re-adding reserved protocol error = %v, want validation error", err)
-	}
-	afterRow := loadAccessKeyRow(t, fixture.db, row.ID)
-	if !reflect.DeepEqual(afterRow, beforeRow) {
-		t.Errorf("rejected update changed row\nbefore=%#v\nafter=%#v", beforeRow, afterRow)
-	}
-	if got := fixture.manager.Current().Revision; got != beforeRevision {
-		t.Errorf("revision = %d, want unchanged %d", got, beforeRevision)
-	}
-	published := fixture.manager.Current().AccessKeysByHash[row.KeyHash]
-	if _, ok := published.Filters.Protocols[protocol.OpenAIResponse]; ok {
-		t.Fatalf("published filters after rejected re-add = %#v, want no reserved protocol", published.Filters)
+	want := protocol.DataPlaneProtocols()
+	if !reflect.DeepEqual(result.Filters.Protocols, want) {
+		t.Fatalf("protocols = %#v, want %#v", result.Filters.Protocols, want)
 	}
 }
 
@@ -335,6 +177,8 @@ func TestAccessKeyFiltersRejectInvalidCurrentInputWithoutPublishing(t *testing.T
 		{name: "control name", request: AccessKeyCreateRequest{Name: controlName}},
 		{name: "zero group", request: AccessKeyCreateRequest{Name: "client", Filters: &AccessKeyFilters{Groups: []uint{0}}}},
 		{name: "missing group", request: AccessKeyCreateRequest{Name: "client", Filters: &AccessKeyFilters{Groups: []uint{999}}}},
+		{name: "legacy openai protocol", request: AccessKeyCreateRequest{Name: "client", Filters: &AccessKeyFilters{Protocols: []protocol.Protocol{"openai"}}}},
+		{name: "legacy response protocol", request: AccessKeyCreateRequest{Name: "client", Filters: &AccessKeyFilters{Protocols: []protocol.Protocol{"openai-response"}}}},
 		{name: "unknown protocol", request: AccessKeyCreateRequest{Name: "client", Filters: &AccessKeyFilters{Protocols: []protocol.Protocol{"unknown"}}}},
 		{name: "blank model", request: AccessKeyCreateRequest{Name: "client", Filters: &AccessKeyFilters{Models: []string{" "}}}},
 	}
@@ -425,7 +269,7 @@ func TestUpdateAccessKeyPreservesCredentialAcrossPointerPatches(t *testing.T) {
 	created, err := fixture.service.CreateAccessKey(context.Background(), AccessKeyCreateRequest{
 		Name: "before",
 		Filters: &AccessKeyFilters{
-			Groups: []uint{group.ID}, Protocols: []protocol.Protocol{protocol.OpenAI}, Models: []string{"gpt-4o"},
+			Groups: []uint{group.ID}, Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions}, Models: []string{"gpt-4o"},
 		},
 	})
 	if err != nil {

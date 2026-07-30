@@ -35,7 +35,7 @@ func NewOpenAI(client *http.Client) *OpenAI {
 }
 
 func (d *OpenAI) Protocol() protocol.Protocol {
-	return protocol.OpenAI
+	return protocol.OpenAIChatCompletions
 }
 
 func (d *OpenAI) InjectCredential(headers http.Header, apiKey string) {
@@ -131,16 +131,17 @@ func (d *OpenAI) Probe(
 	})
 }
 
-func (d *OpenAI) ExtractModel(req *ParsedRequest) (string, bool, error) {
+func (d *OpenAI) InspectRequest(req *ParsedRequest) (RequestMetadata, error) {
 	if req == nil {
-		return "", false, fmt.Errorf("parsed request is required")
+		return RequestMetadata{}, fmt.Errorf("parsed request is required")
 	}
 
-	model, stream, err := extractJSONRequestFields(req.Body)
+	metadata, err := inspectJSONRequestFields(req.Body, true)
 	if err != nil {
-		return "", false, fmt.Errorf("decode %s request: %w", d.Protocol(), err)
+		return RequestMetadata{}, fmt.Errorf("decode %s request: %w", d.Protocol(), err)
 	}
-	return model, stream, nil
+	metadata.ObserveUsage = true
+	return metadata, nil
 }
 
 func (d *OpenAI) ClassifyStatus(status int, body []byte) health.FailureCategory {

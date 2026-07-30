@@ -22,17 +22,17 @@ func inspectSnapshot(t *testing.T) *state.ConfigSnapshot {
 	snapshot, err := state.Compile(state.CompileInput{
 		Groups: []state.GroupConfig{
 			{
-				ID: 2, Name: "disabled", Protocols: []protocol.Protocol{protocol.OpenAI},
+				ID: 2, Name: "disabled", Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions},
 				Models:  []state.ModelConfig{{ID: "provider-disabled", Alias: "public"}},
 				Enabled: false,
 			},
 			{
-				ID: 1, Name: "active", Protocols: []protocol.Protocol{protocol.OpenAI},
+				ID: 1, Name: "active", Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions},
 				Models:  []state.ModelConfig{{ID: "provider-active", Alias: "public"}},
 				Enabled: true,
 			},
 			{
-				ID: 3, Name: "weight-zero", Protocols: []protocol.Protocol{protocol.OpenAI},
+				ID: 3, Name: "weight-zero", Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions},
 				Models:       []state.ModelConfig{{ID: "provider-zero", Alias: "public"}},
 				WeightManual: &zero, Enabled: true,
 			},
@@ -54,7 +54,7 @@ func TestInspectAppliesTopLevelReasonPriority(t *testing.T) {
 		{
 			name: "access key disabled",
 			query: Query{
-				Protocol: protocol.OpenAI, ExternalModel: "public",
+				Protocol: protocol.OpenAIChatCompletions, ExternalModel: modelPointer("public"),
 				AccessKey: state.AccessKeyView{Status: state.AccessKeyStatusDisabled},
 			},
 			reason: ReasonAccessKeyDisabled,
@@ -62,7 +62,7 @@ func TestInspectAppliesTopLevelReasonPriority(t *testing.T) {
 		{
 			name: "protocol filtered before model",
 			query: Query{
-				Protocol: protocol.OpenAI, ExternalModel: "public",
+				Protocol: protocol.OpenAIChatCompletions, ExternalModel: modelPointer("public"),
 				AccessKey: state.AccessKeyView{
 					Status: state.AccessKeyStatusActive,
 					Filters: state.FilterSet{
@@ -76,7 +76,7 @@ func TestInspectAppliesTopLevelReasonPriority(t *testing.T) {
 		{
 			name: "model filtered",
 			query: Query{
-				Protocol: protocol.OpenAI, ExternalModel: "public",
+				Protocol: protocol.OpenAIChatCompletions, ExternalModel: modelPointer("public"),
 				AccessKey: state.AccessKeyView{
 					Status:  state.AccessKeyStatusActive,
 					Filters: state.FilterSet{Models: map[string]struct{}{"other": {}}},
@@ -87,7 +87,7 @@ func TestInspectAppliesTopLevelReasonPriority(t *testing.T) {
 		{
 			name: "no route target",
 			query: Query{
-				Protocol: protocol.OpenAI, ExternalModel: "missing",
+				Protocol: protocol.OpenAIChatCompletions, ExternalModel: modelPointer("missing"),
 				AccessKey: state.AccessKeyView{Status: state.AccessKeyStatusActive},
 			},
 			reason: ReasonNoRouteTarget,
@@ -103,6 +103,32 @@ func TestInspectAppliesTopLevelReasonPriority(t *testing.T) {
 				t.Fatalf("Inspection = %#v, want reason %q and empty groups", got, test.reason)
 			}
 		})
+	}
+}
+
+func TestInspectRequiresModelWhenAccessKeyHasModelFilter(t *testing.T) {
+	t.Parallel()
+
+	got, err := Inspect(inspectSnapshot(t), nil, Query{
+		Protocol:      protocol.OpenAIChatCompletions,
+		ExternalModel: nil,
+		AccessKey: state.AccessKeyView{
+			Status: state.AccessKeyStatusActive,
+			Filters: state.FilterSet{
+				Models: map[string]struct{}{"public": {}},
+			},
+		},
+	}, inspectNow())
+	if err != nil {
+		t.Fatalf("Inspect() error = %v", err)
+	}
+	if got.Routable || got.Reason != ReasonModelRequiredByFilter ||
+		len(got.Groups) != 0 {
+		t.Fatalf(
+			"Inspection = %#v, want reason %q and empty groups",
+			got,
+			ReasonModelRequiredByFilter,
+		)
 	}
 }
 
@@ -130,7 +156,7 @@ func TestInspectExplainsGroupsAndKeysInStableOrder(t *testing.T) {
 	}
 	before := append([]state.KeyRuntimeView(nil), keys...)
 	got, err := Inspect(snapshot, keys, Query{
-		Protocol: protocol.OpenAI, ExternalModel: "public",
+		Protocol: protocol.OpenAIChatCompletions, ExternalModel: modelPointer("public"),
 		AccessKey: state.AccessKeyView{
 			Status:  state.AccessKeyStatusActive,
 			Filters: state.FilterSet{Groups: map[uint]struct{}{1: {}, 3: {}}},
@@ -204,7 +230,7 @@ func TestInspectEligiblePoolMatchesIteratorInitialWeightedPool(t *testing.T) {
 		t.Fatalf("Replace() error = %v", err)
 	}
 	query := Query{
-		Protocol: protocol.OpenAI, ExternalModel: "public",
+		Protocol: protocol.OpenAIChatCompletions, ExternalModel: modelPointer("public"),
 		AccessKey: state.AccessKeyView{Status: state.AccessKeyStatusActive},
 	}
 	inspection, err := Inspect(snapshot, registry.Snapshot(), query, now)
@@ -254,7 +280,7 @@ func TestInspectRejectsCatalogRegistryMismatch(t *testing.T) {
 	_, err := Inspect(inspectSnapshot(t), []state.KeyRuntimeView{{
 		ID: 99, GroupID: 999, Status: state.KeyStatusActive,
 	}}, Query{
-		Protocol: protocol.OpenAI, ExternalModel: "public",
+		Protocol: protocol.OpenAIChatCompletions, ExternalModel: modelPointer("public"),
 		AccessKey: state.AccessKeyView{Status: state.AccessKeyStatusActive},
 	}, inspectNow())
 	if !errors.Is(err, ErrInconsistentSnapshot) {
@@ -264,8 +290,8 @@ func TestInspectRejectsCatalogRegistryMismatch(t *testing.T) {
 
 func TestInspectReportsNoKeysForIncludedGroup(t *testing.T) {
 	got, err := Inspect(inspectSnapshot(t), nil, Query{
-		Protocol:      protocol.OpenAI,
-		ExternalModel: "public",
+		Protocol:      protocol.OpenAIChatCompletions,
+		ExternalModel: modelPointer("public"),
 		AccessKey: state.AccessKeyView{
 			Status:  state.AccessKeyStatusActive,
 			Filters: state.FilterSet{Groups: map[uint]struct{}{1: {}}},
@@ -308,7 +334,7 @@ func TestInspectUsesExactKeyReasonPriority(t *testing.T) {
 		},
 	}
 	got, err := Inspect(snapshot, keys, Query{
-		Protocol: protocol.OpenAI, ExternalModel: "public",
+		Protocol: protocol.OpenAIChatCompletions, ExternalModel: modelPointer("public"),
 		AccessKey: state.AccessKeyView{
 			Status:  state.AccessKeyStatusActive,
 			Filters: state.FilterSet{Groups: map[uint]struct{}{1: {}}},
@@ -338,7 +364,7 @@ func TestInspectSummarizesStaticGroupExclusions(t *testing.T) {
 	group := func(id uint, enabled bool) state.GroupConfig {
 		return state.GroupConfig{
 			ID: id, Name: fmt.Sprintf("group-%d", id),
-			Protocols: []protocol.Protocol{protocol.OpenAI},
+			Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions},
 			Models:    []state.ModelConfig{{ID: fmt.Sprintf("provider-%d", id), Alias: "public"}},
 			Enabled:   enabled,
 		}
@@ -374,8 +400,8 @@ func TestInspectSummarizesStaticGroupExclusions(t *testing.T) {
 				t.Fatalf("Compile() error = %v", err)
 			}
 			result, err := Inspect(snapshot, nil, Query{
-				Protocol:      protocol.OpenAI,
-				ExternalModel: "public",
+				Protocol:      protocol.OpenAIChatCompletions,
+				ExternalModel: modelPointer("public"),
 				AccessKey: state.AccessKeyView{
 					Status:  state.AccessKeyStatusActive,
 					Filters: state.FilterSet{Groups: test.allowedGroups},

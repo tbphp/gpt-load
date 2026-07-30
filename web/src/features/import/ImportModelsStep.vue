@@ -16,6 +16,7 @@ defineProps<{
   errorKey: string
   models: ImportDraft['models']
   canReview: boolean
+  resourceOnly: boolean
 }>()
 const emit = defineEmits<{
   manual: []
@@ -42,6 +43,9 @@ defineExpose({ focusHeading })
       <p>{{ t('import.models.stepDescription') }}</p>
     </header>
     <InlineFeedback v-if="errorKey" tone="warning">{{ t(errorKey) }}</InlineFeedback>
+    <InlineFeedback v-if="resourceOnly" data-test="responses-resource-only-notice" tone="warning">
+      {{ t('import.models.resourceOnlyNotice') }}
+    </InlineFeedback>
     <button
       v-if="discoveryFailed && !manualMode"
       data-test="manual-path"

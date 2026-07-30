@@ -6,7 +6,7 @@ import { inspectRoute, projectRouteInspection } from './route-inspection'
 const inspection = {
   observed_at: '2026-07-29T01:02:03Z',
   snapshot_revision: 9,
-  protocol: 'openai',
+  protocol: 'openai-chat-completions',
   external_model: 'gpt-client',
   access_key: { id: 12, name: 'Client', status: 'active' },
   routable: true,
@@ -41,7 +41,7 @@ describe('Route Inspection resource', () => {
   })
 
   it.each([
-    { ...inspection, protocol: 'openai-response' },
+    { ...inspection, protocol: 'openai' },
     { ...inspection, observed_at: 'later' },
     { ...inspection, access_key: { ...inspection.access_key, status: 'paused' } },
     { ...inspection, reason_code: 'future_reason' },
@@ -72,10 +72,29 @@ describe('Route Inspection resource', () => {
     expect(() => projectRouteInspection(unsafe)).toThrow(InvalidResponseError)
   })
 
+  it('projects model-less Responses inspection with the shared filter reason', () => {
+    const modelLess = {
+      ...inspection,
+      protocol: 'openai-responses',
+      external_model: null,
+      routable: false,
+      reason_code: 'model_required_by_filter',
+      groups: [
+        {
+          ...inspection.groups[0],
+          upstream_model: null,
+          routable: false,
+          reason_code: 'model_required_by_filter',
+        },
+      ],
+    }
+    expect(projectRouteInspection(modelLess)).toEqual(modelLess)
+  })
+
   it('serializes the strict request and projects the response', async () => {
     const request = vi.fn().mockResolvedValue(inspection) as ApiClient['request']
     const body = {
-      protocol: 'openai' as const,
+      protocol: 'openai-chat-completions' as const,
       external_model: 'gpt-client',
       access_key_id: 12,
     }

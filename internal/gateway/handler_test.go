@@ -758,7 +758,7 @@ func TestHandlerRejectsCaseCollidingModelBeforeAttempt(t *testing.T) {
 	engine.ServeHTTP(recorder, request)
 
 	if recorder.Code != http.StatusBadRequest ||
-		!strings.Contains(recorder.Body.String(), `"code":"cannot_extract_model"`) {
+		!strings.Contains(recorder.Body.String(), `"code":"invalid_protocol_request"`) {
 		t.Fatalf("response = %d %s", recorder.Code, recorder.Body.String())
 	}
 	if len(forwarder.inputs)+len(forwarder.streamInputs) != 0 {
@@ -784,7 +784,7 @@ func TestHandlerEnforcesModelUTF8ByteLimitBeforeAttempt(t *testing.T) {
 			name:       "ASCII 256 bytes rejected",
 			model:      strings.Repeat("a", 256),
 			wantStatus: http.StatusBadRequest,
-			wantCode:   reasonCannotExtractModel.Code,
+			wantCode:   reasonInvalidProtocolRequest.Code,
 		},
 		{
 			name:       "multibyte UTF-8 255 bytes accepted",
@@ -796,7 +796,7 @@ func TestHandlerEnforcesModelUTF8ByteLimitBeforeAttempt(t *testing.T) {
 			name:       "multibyte UTF-8 256 bytes rejected",
 			model:      strings.Repeat("界", 84) + strings.Repeat("é", 2),
 			wantStatus: http.StatusBadRequest,
-			wantCode:   reasonCannotExtractModel.Code,
+			wantCode:   reasonInvalidProtocolRequest.Code,
 		},
 	}
 
@@ -819,7 +819,7 @@ func TestHandlerEnforcesModelUTF8ByteLimitBeforeAttempt(t *testing.T) {
 			if _, err := manager.Publish(state.CompileInput{
 				Groups: []state.GroupConfig{{
 					ID: 1, Name: "openai", UpstreamURL: "http://upstream.invalid",
-					Protocols: []protocol.Protocol{protocol.OpenAI},
+					Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions},
 					Models: []state.ModelConfig{{
 						ID:    "gpt-4o",
 						Alias: test.model,
@@ -951,7 +951,7 @@ func TestHandlerServesLocalModelEndpoints(t *testing.T) {
 func TestHandlerModelEndpointsApplyFiltersAndKeepEmptyShape(t *testing.T) {
 	t.Run("joint filters", func(t *testing.T) {
 		engine := newModelListHandlerEngine(t, state.FilterSet{
-			Protocols: map[protocol.Protocol]struct{}{protocol.OpenAI: {}},
+			Protocols: map[protocol.Protocol]struct{}{protocol.OpenAIChatCompletions: {}},
 			Models:    map[string]struct{}{"alpha": {}},
 			Groups:    map[uint]struct{}{1: {}},
 		})
@@ -1001,7 +1001,7 @@ func TestHandlerModelEndpointHasNoDataPlaneSideEffects(t *testing.T) {
 	if _, err := manager.Publish(state.CompileInput{
 		Groups: []state.GroupConfig{{
 			ID: 1, Name: "openai", UpstreamURL: "https://unused.example.com",
-			Protocols: []protocol.Protocol{protocol.OpenAI},
+			Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions},
 			Models:    []state.ModelConfig{{ID: "alpha"}}, Enabled: true,
 		}},
 		AccessKeys: []state.AccessKeyConfig{{
@@ -1069,12 +1069,12 @@ func newModelListHandlerEngineWithLimit(
 		Groups: []state.GroupConfig{
 			{
 				ID: 1, Name: "multi", UpstreamURL: "https://multi.example.com",
-				Protocols: []protocol.Protocol{protocol.OpenAI, protocol.Anthropic, protocol.Gemini},
+				Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions, protocol.Anthropic, protocol.Gemini},
 				Models:    []state.ModelConfig{{ID: "zeta"}, {ID: "alpha"}}, Enabled: true,
 			},
 			{
 				ID: 2, Name: "openai", UpstreamURL: "https://openai.example.com",
-				Protocols: []protocol.Protocol{protocol.OpenAI, protocol.Anthropic},
+				Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions, protocol.Anthropic},
 				Models:    []state.ModelConfig{{ID: "beta"}}, Enabled: true,
 			},
 		},
@@ -2209,7 +2209,7 @@ func TestHandlerReturnsStableTerminalReasons(t *testing.T) {
 	}{
 		{name: "invalid access key", path: "/v1/chat/completions", accessKey: "wrong", body: `{"model":"gpt-4o"}`, wantStatus: http.StatusUnauthorized, wantCode: "invalid_access_key"},
 		{name: "unknown endpoint after auth", path: "/unknown", accessKey: "gl-client", body: `{}`, wantStatus: http.StatusNotFound, wantCode: "protocol_endpoint_not_found"},
-		{name: "cannot extract model", path: "/v1/chat/completions", accessKey: "gl-client", body: `{}`, wantStatus: http.StatusBadRequest, wantCode: "cannot_extract_model"},
+		{name: "invalid protocol request", path: "/v1/chat/completions", accessKey: "gl-client", body: `{}`, wantStatus: http.StatusBadRequest, wantCode: "invalid_protocol_request"},
 		{name: "no candidate", path: "/v1/chat/completions", accessKey: "gl-client", body: `{"model":"gpt-4o"}`, wantStatus: http.StatusServiceUnavailable, wantCode: "no_available_candidate"},
 		{
 			name: "post-write timeout",
@@ -2252,6 +2252,62 @@ func TestHandlerReturnsStableTerminalReasons(t *testing.T) {
 				t.Fatalf("code = %q, want %q", body.Code, tt.wantCode)
 			}
 		})
+	}
+}
+
+func TestHandlerReturnsModelRequiredByFilterForProtocolOnlyRequest(t *testing.T) {
+	forwarder := &scriptedForwarder{}
+	handler, manager, _ := newHandlerForTest(t, forwarder, "sk-responses")
+	keyService, err := encryption.NewService("handler-test-master-key")
+	if err != nil {
+		t.Fatalf("NewService() error = %v", err)
+	}
+	if _, err := manager.Publish(state.CompileInput{
+		Groups: []state.GroupConfig{{
+			ID:        1,
+			Name:      "responses",
+			Protocols: []protocol.Protocol{protocol.OpenAIResponses},
+			Enabled:   true,
+		}},
+		AccessKeys: []state.AccessKeyConfig{{
+			ID:      1,
+			Name:    "client",
+			KeyHash: keyService.Hash("gl-client"),
+			Status:  state.AccessKeyStatusActive,
+			Filters: state.FilterSet{
+				Models: map[string]struct{}{"public-model": {}},
+			},
+		}},
+	}); err != nil {
+		t.Fatalf("Publish() error = %v", err)
+	}
+	handler.dialects = dialect.NewSet(
+		dialect.NewOpenAIResponses(http.DefaultClient),
+	)
+	engine := gin.New()
+	handler.RegisterRoutes(engine)
+
+	request := httptest.NewRequest(
+		http.MethodGet,
+		"/v1/responses/resp_123",
+		nil,
+	)
+	request.Header.Set("Authorization", "Bearer gl-client")
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest ||
+		!strings.Contains(
+			recorder.Body.String(),
+			`"code":"model_required_by_filter"`,
+		) ||
+		len(forwarder.inputs) != 0 {
+		t.Fatalf(
+			"response/attempts = %d %s / %d, want 400 reason and no forward",
+			recorder.Code,
+			recorder.Body.String(),
+			len(forwarder.inputs),
+		)
 	}
 }
 
@@ -2360,7 +2416,7 @@ func TestHandlerDoesNotExposeAliasedUpstreamModelWhenRetryBudgetIsExhausted(t *t
 	}))
 	defer upstream.Close()
 
-	engine, _ := newDialectGatewayEngine(t, protocol.OpenAI, externalModel,
+	engine, _ := newDialectGatewayEngine(t, protocol.OpenAIChatCompletions, externalModel,
 		dialect.NewSet(dialect.NewOpenAI(http.DefaultClient)),
 		dialectGatewayGroup{id: 1, name: "openai-1", upstreamURL: upstream.URL,
 			apiKeys: []string{"sk-one"},
@@ -2410,7 +2466,7 @@ func TestHandlerKeepsFrozenSnapshotAndInjectUsageSettingAcrossRetry(t *testing.T
 		if _, err := manager.Publish(state.CompileInput{
 			Groups: []state.GroupConfig{{
 				ID: 1, Name: "openai", UpstreamURL: "http://upstream.invalid", Enabled: true,
-				Protocols: []protocol.Protocol{protocol.OpenAI}, Models: []state.ModelConfig{{ID: "gpt-4o"}},
+				Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions}, Models: []state.ModelConfig{{ID: "gpt-4o"}},
 				Settings: config.Settings{state.SettingInjectUsageOptions: false},
 			}},
 			AccessKeys: []state.AccessKeyConfig{{
@@ -2814,7 +2870,7 @@ func newRealGatewayEngine(t *testing.T, upstreamURL string, upstreamKeys ...stri
 	if _, err := manager.Publish(state.CompileInput{
 		Groups: []state.GroupConfig{{
 			ID: 1, Name: "openai", UpstreamURL: upstreamURL,
-			Protocols: []protocol.Protocol{protocol.OpenAI},
+			Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions},
 			Models:    []state.ModelConfig{{ID: "gpt-4o"}}, Enabled: true,
 		}},
 		AccessKeys: []state.AccessKeyConfig{{
@@ -2916,7 +2972,7 @@ func newHandlerForTestWithStats(
 	if _, err := manager.Publish(state.CompileInput{
 		Groups: []state.GroupConfig{{
 			ID: 1, Name: "openai", UpstreamURL: "http://upstream.invalid",
-			Protocols: []protocol.Protocol{protocol.OpenAI},
+			Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions},
 			Models:    []state.ModelConfig{{ID: "gpt-4o"}}, Enabled: true,
 		}},
 		AccessKeys: []state.AccessKeyConfig{{

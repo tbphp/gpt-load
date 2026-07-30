@@ -39,8 +39,8 @@ func TestParsedRequestCarriesForwardingInputs(t *testing.T) {
 func TestOpenAIProtocol(t *testing.T) {
 	dialect := NewOpenAI(http.DefaultClient)
 
-	if got := dialect.Protocol(); got != protocol.OpenAI {
-		t.Fatalf("OpenAI.Protocol() = %q, want %q", got, protocol.OpenAI)
+	if got := dialect.Protocol(); got != protocol.OpenAIChatCompletions {
+		t.Fatalf("OpenAI.Protocol() = %q, want %q", got, protocol.OpenAIChatCompletions)
 	}
 }
 
@@ -149,7 +149,7 @@ func TestOpenAIBuildUpstreamURL(t *testing.T) {
 	}
 }
 
-func TestOpenAIExtractModel(t *testing.T) {
+func TestOpenAIInspectRequest(t *testing.T) {
 	dialect := NewOpenAI(http.DefaultClient)
 	tests := []struct {
 		name       string
@@ -199,21 +199,21 @@ func TestOpenAIExtractModel(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			model, stream, err := dialect.ExtractModel(tt.request)
+			metadata, err := dialect.InspectRequest(tt.request)
 			if tt.wantErr {
 				if err == nil {
-					t.Fatalf("ExtractModel() = (%q, %t, nil), want error", model, stream)
+					t.Fatalf("InspectRequest() = (%#v, nil), want error", metadata)
 				}
 				return
 			}
 			if err != nil {
-				t.Fatalf("ExtractModel() error = %v", err)
+				t.Fatalf("InspectRequest() error = %v", err)
 			}
-			if model != tt.wantModel || stream != tt.wantStream {
+			if metadata.Model == nil || *metadata.Model != tt.wantModel ||
+				metadata.Stream != tt.wantStream || !metadata.ObserveUsage {
 				t.Fatalf(
-					"ExtractModel() = (%q, %t), want (%q, %t)",
-					model,
-					stream,
+					"InspectRequest() = %#v, want model=%q stream=%t observe=true",
+					metadata,
 					tt.wantModel,
 					tt.wantStream,
 				)

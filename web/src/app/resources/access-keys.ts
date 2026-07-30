@@ -8,6 +8,7 @@ import type {
   AccessKeyOptionDto,
   AccessKeyRevealDto,
 } from '@/api/control/types'
+import { knownAccessProtocols } from '@/api/control/protocols'
 import { InvalidResponseError } from '@/api/errors'
 import { controlQueryKeys } from '@/app/query-keys'
 
@@ -43,7 +44,6 @@ export type UpdateAccessKeyRequest = Partial<{
   rpm_limit: number
 }>
 
-const knownAccessProtocols = ['openai', 'anthropic', 'gemini', 'openai-response'] as const
 const metadataFields = [
   'id',
   'name',

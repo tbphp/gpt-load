@@ -119,13 +119,326 @@ func newDialectGatewayEngine(
 	return engine, registry
 }
 
+func TestResponsesNamespaceRoutesOrdinaryMethodsAndRejectsDangerousMethodsLocally(t *testing.T) {
+	var (
+		mu       sync.Mutex
+		received []*http.Request
+	)
+	upstream := httptest.NewServer(http.HandlerFunc(func(
+		writer http.ResponseWriter,
+		request *http.Request,
+	) {
+		mu.Lock()
+		received = append(received, request.Clone(request.Context()))
+		mu.Unlock()
+		writer.Header().Set("Content-Type", "application/json")
+		if request.URL.Path == "/v1/responses/resp_missing" {
+			writer.WriteHeader(http.StatusNotFound)
+			_, _ = writer.Write([]byte(`{"error":{"message":"resource missing"}}`))
+			return
+		}
+		_, _ = writer.Write([]byte(`{"id":"resp_123","object":"response"}`))
+	}))
+	defer upstream.Close()
+
+	engine, _ := newDialectGatewayEngine(
+		t,
+		protocol.OpenAIResponses,
+		"public-model",
+		dialect.NewSet(dialect.NewOpenAIResponses(http.DefaultClient)),
+		dialectGatewayGroup{
+			id: 1, name: "responses", upstreamURL: upstream.URL,
+			apiKeys: []string{"sk-responses"},
+		},
+	)
+
+	tests := []struct {
+		name            string
+		method          string
+		target          string
+		body            string
+		status          int
+		wantBody        string
+		wantContentType string
+	}{
+		{
+			name:   "create",
+			method: http.MethodPost,
+			target: "/v1/responses?trace=true",
+			body:   `{"model":"public-model","input":"ping"}`,
+			status: http.StatusOK,
+		},
+		{
+			name:   "retrieve",
+			method: http.MethodGet,
+			target: "/v1/responses/resp_123?stream=false&include=output",
+			status: http.StatusOK,
+		},
+		{
+			name:   "delete",
+			method: http.MethodDelete,
+			target: "/v1/responses/resp_123",
+			status: http.StatusOK,
+		},
+		{
+			name:   "head",
+			method: http.MethodHead,
+			target: "/v1/responses/resp_123",
+			status: http.StatusOK,
+		},
+		{
+			name:   "cancel",
+			method: http.MethodPost,
+			target: "/v1/responses/resp_123/cancel",
+			status: http.StatusOK,
+		},
+		{
+			name:   "input items",
+			method: http.MethodGet,
+			target: "/v1/responses/resp_123/input_items?limit=20",
+			status: http.StatusOK,
+		},
+		{
+			name:   "compact",
+			method: http.MethodPost,
+			target: "/v1/responses/compact",
+			body:   `{"model":"public-model","input":"ping"}`,
+			status: http.StatusOK,
+		},
+		{
+			name:   "input tokens",
+			method: http.MethodPost,
+			target: "/v1/responses/input_tokens",
+			body:   `{"model":"public-model","input":"ping"}`,
+			status: http.StatusOK,
+		},
+		{
+			name:   "unknown resource extension",
+			method: http.MethodPatch,
+			target: "/v1/responses/vendor-extension/nested",
+			status: http.StatusOK,
+		},
+		{
+			name:            "upstream resource error",
+			method:          http.MethodGet,
+			target:          "/v1/responses/resp_missing",
+			status:          http.StatusNotFound,
+			wantBody:        `{"error":{"message":"resource missing"}}`,
+			wantContentType: "application/json",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			request := httptest.NewRequest(
+				test.method,
+				test.target,
+				strings.NewReader(test.body),
+			)
+			request.Header.Set("Authorization", "Bearer gl-client")
+			recorder := httptest.NewRecorder()
+			engine.ServeHTTP(recorder, request)
+			if recorder.Code != test.status {
+				t.Fatalf(
+					"response = %d %s, want %d",
+					recorder.Code,
+					recorder.Body.String(),
+					test.status,
+				)
+			}
+			if test.wantBody != "" && recorder.Body.String() != test.wantBody {
+				t.Fatalf("response body = %q, want %q", recorder.Body.String(), test.wantBody)
+			}
+			if test.wantContentType != "" &&
+				recorder.Header().Get("Content-Type") != test.wantContentType {
+				t.Fatalf(
+					"Content-Type = %q, want %q",
+					recorder.Header().Get("Content-Type"),
+					test.wantContentType,
+				)
+			}
+		})
+	}
+
+	for _, test := range []struct {
+		name       string
+		method     string
+		authorized bool
+		wantStatus int
+		wantCode   string
+	}{
+		{
+			name:       "unauthenticated options keeps auth first",
+			method:     http.MethodOptions,
+			wantStatus: http.StatusUnauthorized,
+			wantCode:   "invalid_access_key",
+		},
+		{
+			name:       "authenticated options rejected locally",
+			method:     http.MethodOptions,
+			authorized: true,
+			wantStatus: http.StatusNotFound,
+			wantCode:   "protocol_endpoint_not_found",
+		},
+		{
+			name:       "authenticated connect rejected locally",
+			method:     http.MethodConnect,
+			authorized: true,
+			wantStatus: http.StatusNotFound,
+			wantCode:   "protocol_endpoint_not_found",
+		},
+		{
+			name:       "authenticated trace rejected locally",
+			method:     http.MethodTrace,
+			authorized: true,
+			wantStatus: http.StatusNotFound,
+			wantCode:   "protocol_endpoint_not_found",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			request := httptest.NewRequest(
+				test.method,
+				"/v1/responses",
+				nil,
+			)
+			if test.authorized {
+				request.Header.Set("Authorization", "Bearer gl-client")
+			}
+			recorder := httptest.NewRecorder()
+			engine.ServeHTTP(recorder, request)
+			if recorder.Code != test.wantStatus ||
+				!strings.Contains(
+					recorder.Body.String(),
+					`"code":"`+test.wantCode+`"`,
+				) {
+				t.Fatalf(
+					"response = %d %s, want %d/%s",
+					recorder.Code,
+					recorder.Body.String(),
+					test.wantStatus,
+					test.wantCode,
+				)
+			}
+		})
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(received) != len(tests) {
+		t.Fatalf("upstream requests = %d, want %d", len(received), len(tests))
+	}
+	for index, request := range received {
+		if request.Method != tests[index].method ||
+			request.URL.RequestURI() != tests[index].target ||
+			request.Header.Get("Authorization") != "Bearer sk-responses" {
+			t.Fatalf("upstream request %d = %s %s headers=%v", index, request.Method, request.URL.RequestURI(), request.Header)
+		}
+	}
+}
+
+func TestResponsesNamespaceRejectsNormalizationEscapesBeforeForward(t *testing.T) {
+	var upstreamCalls atomic.Int64
+	upstream := httptest.NewServer(http.HandlerFunc(func(
+		writer http.ResponseWriter,
+		_ *http.Request,
+	) {
+		upstreamCalls.Add(1)
+		writer.Header().Set("Location", "/v1/models")
+		writer.WriteHeader(http.StatusTemporaryRedirect)
+	}))
+	defer upstream.Close()
+
+	engine, _ := newDialectGatewayEngine(
+		t,
+		protocol.OpenAIResponses,
+		"public-model",
+		dialect.NewSet(dialect.NewOpenAIResponses(http.DefaultClient)),
+		dialectGatewayGroup{
+			id: 1, name: "responses", upstreamURL: upstream.URL,
+			apiKeys: []string{"sk-responses"},
+		},
+	)
+
+	for _, target := range []string{
+		"/v1/responses/../models",
+		"/v1/responses/./resp_123",
+		"/v1/responses/%2e%2e/models",
+		"/v1/responses//%2e%2e/models",
+	} {
+		t.Run(target, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodGet, target, nil)
+			request.Header.Set("Authorization", "Bearer gl-client")
+			recorder := httptest.NewRecorder()
+			engine.ServeHTTP(recorder, request)
+			if recorder.Code != http.StatusNotFound ||
+				!strings.Contains(
+					recorder.Body.String(),
+					`"code":"protocol_endpoint_not_found"`,
+				) {
+				t.Fatalf(
+					"response = %d %s, want local endpoint rejection",
+					recorder.Code,
+					recorder.Body.String(),
+				)
+			}
+		})
+	}
+	if calls := upstreamCalls.Load(); calls != 0 {
+		t.Fatalf("upstream calls = %d, want 0", calls)
+	}
+}
+
+func TestResponsesNamespaceRejectsDecodedDuplicateStreamQueryBeforeForward(t *testing.T) {
+	var upstreamCalls atomic.Int64
+	upstream := httptest.NewServer(http.HandlerFunc(func(
+		writer http.ResponseWriter,
+		_ *http.Request,
+	) {
+		upstreamCalls.Add(1)
+		writer.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+
+	engine, _ := newDialectGatewayEngine(
+		t,
+		protocol.OpenAIResponses,
+		"public-model",
+		dialect.NewSet(dialect.NewOpenAIResponses(http.DefaultClient)),
+		dialectGatewayGroup{
+			id: 1, name: "responses", upstreamURL: upstream.URL,
+			apiKeys: []string{"sk-responses"},
+		},
+	)
+	request := httptest.NewRequest(
+		http.MethodGet,
+		"/v1/responses/resp_123?stream=true&%73tream=false",
+		nil,
+	)
+	request.Header.Set("Authorization", "Bearer gl-client")
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest ||
+		!strings.Contains(
+			recorder.Body.String(),
+			`"code":"invalid_protocol_request"`,
+		) ||
+		upstreamCalls.Load() != 0 {
+		t.Fatalf(
+			"response/upstream calls = %d %s / %d",
+			recorder.Code,
+			recorder.Body.String(),
+			upstreamCalls.Load(),
+		)
+	}
+}
+
 func TestGatewayRewritesEachAttemptFromOriginal(t *testing.T) {
 	first := fakeupstream.New(fakeupstream.Step{Status: http.StatusUnauthorized, Fixture: "401.json"})
 	defer first.Close()
 	second := fakeupstream.New(fakeupstream.Step{Status: http.StatusOK, Fixture: "success.json"})
 	defer second.Close()
 
-	engine, _ := newDialectGatewayEngine(t, protocol.OpenAI, "public",
+	engine, _ := newDialectGatewayEngine(t, protocol.OpenAIChatCompletions, "public",
 		dialect.NewSet(dialect.NewOpenAI(http.DefaultClient)),
 		dialectGatewayGroup{
 			id: 1, name: "first", upstreamURL: first.URL, apiKeys: []string{"sk-first"},
@@ -176,7 +489,7 @@ func TestHandlerHostFailureSkipsGroupForCurrentRequestOnly(t *testing.T) {
 	)
 	defer backup.Close()
 
-	engine, _ := newDialectGatewayEngine(t, protocol.OpenAI, "gpt-4o",
+	engine, _ := newDialectGatewayEngine(t, protocol.OpenAIChatCompletions, "gpt-4o",
 		dialect.NewSet(dialect.NewOpenAI(http.DefaultClient)),
 		dialectGatewayGroup{id: 1, name: "primary", upstreamURL: primary.URL,
 			apiKeys: []string{"sk-primary-one", "sk-primary-two"}},
@@ -209,7 +522,7 @@ func TestHandlerReturnsLastHostErrorWhenSkippedGroupHasNoBackup(t *testing.T) {
 	)
 	defer upstream.Close()
 
-	engine, _ := newDialectGatewayEngine(t, protocol.OpenAI, "gpt-4o",
+	engine, _ := newDialectGatewayEngine(t, protocol.OpenAIChatCompletions, "gpt-4o",
 		dialect.NewSet(dialect.NewOpenAI(http.DefaultClient)),
 		dialectGatewayGroup{id: 1, name: "only", upstreamURL: upstream.URL,
 			apiKeys: []string{"sk-one", "sk-two"}},
@@ -238,10 +551,17 @@ func TestForwarderRewritesAliasedNonStreamingResponses(t *testing.T) {
 		responseField    string
 	}{
 		{
-			name: "OpenAI", value: protocol.OpenAI,
+			name: "OpenAI", value: protocol.OpenAIChatCompletions,
 			dialects: dialect.NewSet(dialect.NewOpenAI(http.DefaultClient)),
 			path:     "/v1/chat/completions", requestBody: `{"model":"public-model"}`,
 			upstreamResponse: `{"id":"chatcmpl-1","model":"provider-response"}`,
+			responseField:    "model",
+		},
+		{
+			name: "OpenAI Responses", value: protocol.OpenAIResponses,
+			dialects: dialect.NewSet(dialect.NewOpenAIResponses(http.DefaultClient)),
+			path:     "/v1/responses", requestBody: `{"model":"public-model","input":"ping"}`,
+			upstreamResponse: `{"id":"resp-1","object":"response","model":"provider-response"}`,
 			responseField:    "model",
 		},
 		{
@@ -333,7 +653,7 @@ func TestTransparentModelRoutePreservesWire(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	engine, _ := newDialectGatewayEngine(t, protocol.OpenAI, "same-model",
+	engine, _ := newDialectGatewayEngine(t, protocol.OpenAIChatCompletions, "same-model",
 		dialect.NewSet(dialect.NewOpenAI(http.DefaultClient)),
 		dialectGatewayGroup{
 			id: 1, name: "transparent", upstreamURL: upstream.URL, apiKeys: []string{"provider-key"},
@@ -367,7 +687,7 @@ func TestGatewayRewritesAliasedStreams(t *testing.T) {
 		unchanged   string
 	}{
 		{
-			name: "OpenAI", value: protocol.OpenAI,
+			name: "OpenAI", value: protocol.OpenAIChatCompletions,
 			dialects: dialect.NewSet(dialect.NewOpenAI(http.DefaultClient)),
 			path:     "/v1/chat/completions", requestBody: `{"model":"public-model","stream":true}`,
 			streamBody: "data: {\"id\":\"1\",\"model\":\"provider-model\",\"choices\":[]}\n\ndata: [DONE]\n\n",

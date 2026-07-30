@@ -100,6 +100,7 @@ func TestOnlyOpenAIImplementsStreamUsageInjector(t *testing.T) {
 		want  bool
 	}{
 		{name: "OpenAI", value: NewOpenAI(http.DefaultClient), want: true},
+		{name: "OpenAI Responses", value: NewOpenAIResponses(http.DefaultClient), want: false},
 		{name: "Anthropic", value: NewAnthropic(http.DefaultClient), want: false},
 		{name: "Gemini", value: NewGemini(http.DefaultClient), want: false},
 		{name: "dialect only", value: &usageDialectOnly{}, want: false},

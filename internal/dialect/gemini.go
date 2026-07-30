@@ -58,11 +58,19 @@ func (d *Gemini) CredentialHeaderNames() []string {
 	return []string{"X-Goog-Api-Key"}
 }
 
-func (d *Gemini) ExtractModel(req *ParsedRequest) (string, bool, error) {
+func (d *Gemini) InspectRequest(req *ParsedRequest) (RequestMetadata, error) {
 	if req == nil {
-		return "", false, fmt.Errorf("parsed request is required")
+		return RequestMetadata{}, fmt.Errorf("parsed request is required")
 	}
-	return parseGeminiGenerationPath(req.Path)
+	model, stream, err := parseGeminiGenerationPath(req.Path)
+	if err != nil {
+		return RequestMetadata{}, err
+	}
+	return RequestMetadata{
+		Model:        &model,
+		Stream:       stream,
+		ObserveUsage: true,
+	}, nil
 }
 
 func (d *Gemini) BuildUpstreamURL(base string, req *ParsedRequest) (string, error) {

@@ -18,6 +18,7 @@ defineProps<{
   protocols: GroupProtocol[]
   keyCount: number
   models: ImportDraft['models']
+  resourceOnly: boolean
   errorKey: string
   conflict: UpstreamUrlConflictData | null
   pending: boolean
@@ -71,13 +72,22 @@ defineExpose({ focusHeading })
         <dt>{{ t('import.models.title') }}</dt>
         <dd>
           {{
-            toGroupModels(models)
-              .map((model) => model.id)
-              .join(', ')
+            toGroupModels(models).length === 0
+              ? t('import.models.none')
+              : toGroupModels(models)
+                  .map((model) => model.id)
+                  .join(', ')
           }}
         </dd>
       </div>
     </dl>
+    <InlineFeedback
+      v-if="resourceOnly"
+      data-test="review-responses-resource-only-notice"
+      tone="warning"
+    >
+      {{ t('import.models.resourceOnlyNotice') }}
+    </InlineFeedback>
     <InlineFeedback v-if="errorKey" tone="danger">{{ t(errorKey) }}</InlineFeedback>
     <section v-if="conflict" class="conflict" aria-live="polite">
       <h3><TriangleAlert :size="18" aria-hidden="true" />{{ t('import.conflict.title') }}</h3>

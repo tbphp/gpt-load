@@ -61,7 +61,7 @@ func TestUpdateGroupModelsReplacesAuthoritativeListAndPublishesOnce(t *testing.T
 	fixture := newServiceFixture(t)
 	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
 		UpstreamURL: "https://model-save.example.com/v1",
-		Protocols:   []protocol.Protocol{protocol.OpenAI},
+		Protocols:   []protocol.Protocol{protocol.OpenAIChatCompletions},
 		Models: optionalGroupModels{
 			Set:    true,
 			Values: []GroupModel{{ID: "provider-old", Alias: "old-public"}},
@@ -162,7 +162,7 @@ func TestUpdateGroupModelsReplacesAuthoritativeListAndPublishesOnce(t *testing.T
 		!reflect.DeepEqual(got.EffectiveConfig.HeaderRules.Remove, view.HeaderRules.Remove) {
 		t.Fatalf("effective/snapshot = %#v/%#v", got.EffectiveConfig, view)
 	}
-	targets := snapshot.Candidates[protocol.OpenAI]
+	targets := snapshot.Candidates[protocol.OpenAIChatCompletions]
 	if len(targets) != 2 ||
 		targets["public-a"][0].UpstreamModelID != "provider-a" ||
 		targets["public-b"][0].UpstreamModelID != "provider-b" {
@@ -171,7 +171,7 @@ func TestUpdateGroupModelsReplacesAuthoritativeListAndPublishesOnce(t *testing.T
 	if _, exists := targets["old-public"]; exists {
 		t.Fatalf("authoritative replacement retained old model: %#v", targets)
 	}
-	routes := snapshot.RouteCatalog[protocol.OpenAI]
+	routes := snapshot.RouteCatalog[protocol.OpenAIChatCompletions]
 	if len(routes) != 2 ||
 		routes["public-a"][0].UpstreamModelID != "provider-a" ||
 		routes["public-b"][0].UpstreamModelID != "provider-b" {
@@ -183,7 +183,7 @@ func TestUpdateGroupModelsAllowsEmptyList(t *testing.T) {
 	fixture := newServiceFixture(t)
 	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
 		UpstreamURL: "https://empty-models.example.com/v1",
-		Protocols:   []protocol.Protocol{protocol.OpenAI},
+		Protocols:   []protocol.Protocol{protocol.OpenAIChatCompletions},
 		Models: optionalGroupModels{
 			Set:    true,
 			Values: []GroupModel{{ID: "provider-old", Alias: "old-public"}},
@@ -206,8 +206,8 @@ func TestUpdateGroupModelsAllowsEmptyList(t *testing.T) {
 	if fixture.manager.Current().Revision != before+1 {
 		t.Fatalf("revision = %d, want %d", fixture.manager.Current().Revision, before+1)
 	}
-	if len(fixture.manager.Current().Candidates[protocol.OpenAI]) != 0 ||
-		len(fixture.manager.Current().RouteCatalog[protocol.OpenAI]) != 0 {
+	if len(fixture.manager.Current().Candidates[protocol.OpenAIChatCompletions]) != 0 ||
+		len(fixture.manager.Current().RouteCatalog[protocol.OpenAIChatCompletions]) != 0 {
 		t.Fatalf("model indexes = candidates:%#v routes:%#v",
 			fixture.manager.Current().Candidates, fixture.manager.Current().RouteCatalog)
 	}
@@ -231,7 +231,7 @@ func TestUpdateGroupModelsNeverCallsDiscoveryOrChangesAccessKeyFilters(t *testin
 		t.Fatal(err)
 	}
 	fixture.service.dialects = dialect.NewSet(&recordingDiscoveryDialect{
-		value: protocol.OpenAI,
+		value: protocol.OpenAIChatCompletions,
 		listFn: func(context.Context, string, string, state.HeaderRules) ([]string, error) {
 			t.Fatal("UpdateGroupModels must not call model discovery")
 			return nil, nil
@@ -316,7 +316,7 @@ func TestUpdateGroupModelsFailuresDoNotPublish(t *testing.T) {
 		fixture, dsn := newFileServiceFixture(t)
 		created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
 			UpstreamURL: "https://commit-failure-models.example.com/v1",
-			Protocols:   []protocol.Protocol{protocol.OpenAI},
+			Protocols:   []protocol.Protocol{protocol.OpenAIChatCompletions},
 			Models: optionalGroupModels{
 				Set:    true,
 				Values: []GroupModel{{ID: "provider-old", Alias: "old-public"}},

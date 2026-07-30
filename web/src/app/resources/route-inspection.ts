@@ -1,4 +1,5 @@
 import type { ApiClient } from '@/api/client'
+import { enabledDataProtocols } from '@/api/control/protocols'
 import type { AccessKeyDto, AccessProtocol } from '@/api/control/types'
 import { InvalidResponseError } from '@/api/errors'
 
@@ -17,6 +18,7 @@ export type RouteInspectReasonCode =
   | 'access_key_disabled'
   | 'protocol_filtered'
   | 'model_filtered'
+  | 'model_required_by_filter'
   | 'no_route_target'
   | 'group_disabled'
   | 'group_filtered'
@@ -31,7 +33,7 @@ export type RouteInspectReasonCode =
 
 export interface RouteInspectRequest {
   protocol: AccessProtocol
-  external_model: string
+  external_model?: string | null
   access_key_id: number
 }
 
@@ -48,7 +50,7 @@ export interface RouteInspectKeyDto {
 export interface RouteInspectGroupDto {
   group_id: number
   group_name: string
-  upstream_model: string
+  upstream_model: string | null
   weight_manual: number | null
   included: boolean
   routable: boolean
@@ -60,7 +62,7 @@ export interface RouteInspectResponseDto {
   observed_at: string
   snapshot_revision: number
   protocol: AccessProtocol
-  external_model: string
+  external_model: string | null
   access_key: {
     id: number
     name: string
@@ -71,12 +73,12 @@ export interface RouteInspectResponseDto {
   groups: RouteInspectGroupDto[]
 }
 
-const protocols = ['openai', 'anthropic', 'gemini'] as const
 const accessKeyStatuses = ['active', 'disabled'] as const
 const reasonCodes = [
   'access_key_disabled',
   'protocol_filtered',
   'model_filtered',
+  'model_required_by_filter',
   'no_route_target',
   'group_disabled',
   'group_filtered',
@@ -98,6 +100,10 @@ function projectNonBlankString(value: unknown): string {
   const result = projectString(value)
   if (result.trim().length === 0 || result !== result.trim()) invalidResponse()
   return result
+}
+
+function projectNullableNonBlankString(value: unknown): string | null {
+  return value === null ? null : projectNonBlankString(value)
 }
 
 function projectReason(value: unknown): RouteInspectReasonCode | null {
@@ -146,7 +152,7 @@ function projectRouteGroup(value: unknown): RouteInspectGroupDto {
   return {
     group_id: projectSafeInteger(record.group_id, { minimum: 1 }),
     group_name: projectNonBlankString(record.group_name),
-    upstream_model: projectNonBlankString(record.upstream_model),
+    upstream_model: projectNullableNonBlankString(record.upstream_model),
     weight_manual: projectNullableWeight(record.weight_manual),
     included: projectBoolean(record.included),
     routable: projectBoolean(record.routable),
@@ -180,8 +186,8 @@ export function projectRouteInspection(value: unknown): RouteInspectResponseDto 
   return {
     observed_at: projectISOInstant(record.observed_at),
     snapshot_revision: projectSafeInteger(record.snapshot_revision, { minimum: 1 }),
-    protocol: projectEnum(record.protocol, protocols),
-    external_model: projectNonBlankString(record.external_model),
+    protocol: projectEnum(record.protocol, enabledDataProtocols),
+    external_model: projectNullableNonBlankString(record.external_model),
     access_key: projectAccessKey(record.access_key),
     routable: projectBoolean(record.routable),
     reason_code: projectReason(record.reason_code),

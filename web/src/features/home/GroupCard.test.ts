@@ -11,7 +11,7 @@ const group: GroupSummary = {
   id: 9,
   name: longName,
   upstream_url: `https://${'long-host-'.repeat(12)}example.com/v1`,
-  protocols: ['openai', 'anthropic'],
+  protocols: ['openai-chat-completions', 'anthropic'],
   models: [],
   enabled: true,
   key_count: 2,
@@ -74,5 +74,29 @@ describe('GroupCard', () => {
     expect(wrapper.get('[data-test="group-service-reason"]').text()).toMatch(
       /no upstream key is currently available/i,
     )
+  })
+
+  it('shows a zero-model Responses Group as resource-only serviceable', () => {
+    const wrapper = mountCard(
+      {
+        ...group,
+        protocols: ['openai-responses'],
+        models: [],
+      },
+      {
+        ...health,
+        counts: {
+          ...health.counts,
+          available: 1,
+          cooldown: 1,
+        },
+      },
+    )
+
+    expect(wrapper.text()).toContain('Serviceable')
+    expect(wrapper.get('[data-test="group-service-reason"]').text()).toMatch(
+      /responses resource endpoints/i,
+    )
+    expect(wrapper.text()).not.toContain('This Group has no models configured.')
   })
 })

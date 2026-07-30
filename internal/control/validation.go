@@ -229,10 +229,10 @@ func (worker *validationWorker) validateRef(ctx context.Context, snapshot *state
 }
 
 func buildGroupValidationTarget(group state.GroupView) (groupValidationTarget, bool) {
-	if len(group.Protocols) == 0 {
+	selectedProtocol, ok := representativeProtocol(group.Protocols)
+	if !ok {
 		return groupValidationTarget{}, false
 	}
-	selectedProtocol := group.Protocols[0]
 	probeModel := strings.TrimSpace(group.ValidationModel)
 	if probeModel == "" && len(group.Models) > 0 {
 		probeModel = strings.TrimSpace(group.Models[0].ID)
@@ -245,6 +245,21 @@ func buildGroupValidationTarget(group state.GroupView) (groupValidationTarget, b
 		model:     probeModel,
 		signature: computeGroupValidationSignature(group, selectedProtocol, probeModel),
 	}, true
+}
+
+func representativeProtocol(
+	values []protocol.Protocol,
+) (protocol.Protocol, bool) {
+	present := make(map[protocol.Protocol]struct{}, len(values))
+	for _, value := range values {
+		present[value] = struct{}{}
+	}
+	for _, value := range protocol.DataPlaneProtocols() {
+		if _, exists := present[value]; exists {
+			return value, true
+		}
+	}
+	return "", false
 }
 
 func computeGroupValidationSignature(

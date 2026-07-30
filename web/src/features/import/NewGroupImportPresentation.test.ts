@@ -19,7 +19,7 @@ describe('new Group import presentation boundaries', () => {
           presetId: 'openai',
           name: '',
           upstreamUrl: 'https://api.openai.com',
-          protocols: ['openai'],
+          protocols: ['openai-chat-completions', 'openai-responses'],
           keys: '',
           headerRules: { set: {}, remove: [] },
           pending: false,
@@ -31,6 +31,17 @@ describe('new Group import presentation boundaries', () => {
     await wrapper.get('[data-test="group-name"]').setValue('Primary')
     await wrapper.get('[data-test="discover"]').trigger('click')
 
+    expect(
+      wrapper.findAll('[data-test^="protocol-"]').map((option) => option.attributes('data-test')),
+    ).toEqual([
+      'protocol-openai-chat-completions',
+      'protocol-openai-responses',
+      'protocol-anthropic',
+      'protocol-gemini',
+    ])
+    expect(wrapper.get('[data-test="import-responses-affinity-warning"]').text()).toContain(
+      '上游 Key',
+    )
     expect(wrapper.emitted('update:name')?.[0]).toEqual(['Primary'])
     expect(wrapper.emitted('discover')).toHaveLength(1)
   })
@@ -46,6 +57,7 @@ describe('new Group import presentation boundaries', () => {
           errorKey: 'import.discoveryFailed',
           models: [],
           canReview: false,
+          resourceOnly: false,
         },
       },
     })
@@ -77,9 +89,10 @@ describe('new Group import presentation boundaries', () => {
         props: {
           name: '',
           upstreamUrl: 'https://api.openai.com',
-          protocols: ['openai'],
+          protocols: ['openai-chat-completions', 'openai-responses'],
           keyCount: 1,
           models: [{ id: 'gpt-4.1', aliases: [] }],
+          resourceOnly: false,
           errorKey: '',
           conflict: null,
           pending: false,

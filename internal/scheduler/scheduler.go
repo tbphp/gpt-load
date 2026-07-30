@@ -4,7 +4,6 @@ package scheduler
 import (
 	"errors"
 	"math/rand"
-	"sort"
 	"time"
 
 	"gpt-load/internal/protocol"
@@ -19,7 +18,7 @@ type KeySource interface {
 
 type Query struct {
 	Protocol      protocol.Protocol
-	ExternalModel string
+	ExternalModel *string
 	AccessKey     state.AccessKeyView
 	AllowedKeyIDs map[uint]struct{}
 }
@@ -27,12 +26,12 @@ type Query struct {
 type Selection struct {
 	KeyID           uint
 	GroupID         uint
-	UpstreamModelID string
+	UpstreamModelID *string
 	Group           state.GroupView
 }
 
 type candidateTarget struct {
-	target state.RouteTarget
+	target evaluationTarget
 	group  state.GroupView
 }
 
@@ -49,6 +48,7 @@ type Iterator struct {
 	allowedKeyIDs map[uint]struct{}
 	tried         map[uint]struct{}
 	skippedGroups map[uint]struct{}
+	staticReason  ReasonCode
 	now           func() time.Time
 }
 
@@ -73,20 +73,11 @@ func CandidateGroupIDs(
 			return groupIDs
 		}
 	}
-	for groupID, group := range snapshot.Groups {
-		if len(accessKey.Filters.Groups) > 0 {
-			if _, allowed := accessKey.Filters.Groups[groupID]; !allowed {
-				continue
-			}
-		}
-		for _, groupProtocol := range group.Protocols {
-			if groupProtocol == selectedProtocol {
-				groupIDs = append(groupIDs, groupID)
-				break
-			}
+	for _, groupID := range snapshot.ProtocolCandidates[selectedProtocol] {
+		if accessKeyAllowsGroup(accessKey, groupID) {
+			groupIDs = append(groupIDs, groupID)
 		}
 	}
-	sort.Slice(groupIDs, func(i, j int) bool { return groupIDs[i] < groupIDs[j] })
 	return groupIDs
 }
 
@@ -106,11 +97,20 @@ func newWithClock(
 		skippedGroups: make(map[uint]struct{}),
 		now:           now,
 	}
-	for _, target := range filterTargets(snapshot, query) {
+	targets, staticReason := filterTargetsWithReason(snapshot, query)
+	iterator.staticReason = staticReason
+	for _, target := range targets {
 		iterator.targets[target.target.GroupID] = target
 		iterator.groupIDs = append(iterator.groupIDs, target.target.GroupID)
 	}
 	return iterator
+}
+
+func (iterator *Iterator) StaticReason() ReasonCode {
+	if iterator == nil {
+		return ""
+	}
+	return iterator.staticReason
 }
 
 func cloneAllowedKeyIDs(source map[uint]struct{}) map[uint]struct{} {
@@ -194,18 +194,26 @@ func (iterator *Iterator) Next() (Selection, error) {
 	return Selection{
 		KeyID:           selected.ID,
 		GroupID:         selected.GroupID,
-		UpstreamModelID: target.target.UpstreamModelID,
+		UpstreamModelID: cloneString(target.target.UpstreamModelID),
 		Group:           target.group,
 	}, nil
 }
 
-func filterTargets(snapshot *state.ConfigSnapshot, query Query) []candidateTarget {
+func filterTargetsWithReason(
+	snapshot *state.ConfigSnapshot,
+	query Query,
+) ([]candidateTarget, ReasonCode) {
 	if snapshot == nil {
-		return nil
+		return nil, ""
 	}
-	decisions, _, err := evaluateTargets(snapshot, snapshot.Candidates, query)
+	decisions, staticReason, err := evaluateTargets(
+		snapshot,
+		snapshot.Candidates,
+		snapshot.ProtocolCandidates,
+		query,
+	)
 	if err != nil {
-		return nil
+		return nil, ""
 	}
 	targets := make([]candidateTarget, 0, len(decisions))
 	for _, decision := range decisions {
@@ -221,5 +229,13 @@ func filterTargets(snapshot *state.ConfigSnapshot, query Query) []candidateTarge
 			group:  group,
 		})
 	}
-	return targets
+	return targets, staticReason
+}
+
+func cloneString(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
 }

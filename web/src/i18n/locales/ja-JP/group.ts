@@ -65,6 +65,10 @@ export default {
         auto: '自動',
         protocols: 'プロトコル',
         protocolsError: '少なくとも 1 つのプロトコルを選択してください。',
+        responsesAffinityWarning:
+          'Responses にはまだリソースアフィニティがありません。状態を持つ複数ターンやリソース操作は、同じアップストリーム Key または共有ストレージに到達した場合のみ確実で、それ以外はアップストリームエラーをそのまま返します。',
+        responsesUsageOptionsHelp:
+          'InjectUsageOptions はプロトコルの能力に応じて適用され、Responses は stream_options の注入を無視します。',
         enabled: 'Group を有効化',
       },
       runtime: {

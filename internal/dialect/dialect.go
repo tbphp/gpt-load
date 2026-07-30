@@ -17,9 +17,15 @@ type ParsedRequest struct {
 	Body     []byte
 }
 
+type RequestMetadata struct {
+	Model        *string
+	Stream       bool
+	ObserveUsage bool
+}
+
 type Dialect interface {
 	Protocol() protocol.Protocol
-	ExtractModel(req *ParsedRequest) (model string, stream bool, err error)
+	InspectRequest(req *ParsedRequest) (RequestMetadata, error)
 	BuildUpstreamURL(base string, req *ParsedRequest) (string, error)
 	InjectCredential(headers http.Header, apiKey string)
 	ListModels(

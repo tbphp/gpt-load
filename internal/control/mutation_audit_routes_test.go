@@ -1399,7 +1399,7 @@ func groupMutationAuditCases() []groupMutationAuditCase {
 func groupCreateAuditBody(name string, upstreamURL string) string {
 	return fmt.Sprintf(
 		`{"name":%q,"upstream_url":%q,`+
-			`"protocols":["openai"],`+
+			`"protocols":["openai-chat-completions"],`+
 			`"models":[{"id":"gpt-4o"}],`+
 			`"config":{},"keys":"sk-audit-upstream"}`,
 		name,

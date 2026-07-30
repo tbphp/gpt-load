@@ -46,10 +46,10 @@ GPT-Loadは、Goで構築されたセルフホスト型のAI APIキー集約・�
 ## 2.0の機能
 
 - **2つのプレーン**：データプレーンはプロバイダーのネイティブパスを維持し、管理APIは`/api`に統一されます。管理UIは同じGoバイナリに内蔵されます。
-- **3つのネイティブ方言**：OpenAI、Anthropic、Geminiのリクエストをそれぞれのプロトコルで転送し、プロトコル間の変換は行いません。
+- **4つの選択可能なネイティブプロトコル**：OpenAI Chat Completions、OpenAI Responses、Anthropic Messages、Geminiのリクエストをそれぞれのプロトコルで転送します。Groupでは任意に複数選択でき、プロトコル間の変換は行いません。
 - **キーとトラフィックの管理**：Group、暗号化された上流Key、AccessKey、モデル検出、フィルターとレート制限、スケジューリング、ヘルス状態、cooldown、blacklist、自動重み付け。
 - **制御と可観測性**：ランタイム設定、ルート検査、ヘルス表示、RequestLog、中国語・英語・日本語の管理UI。
-- **使用量と推定コスト**：3方言から取得可能なusage、24時間/30日レポート、リクエスト単位の品質状態、組み込み価格、ユーザー価格の上書き。
+- **使用量と推定コスト**：4プロトコルのうち生成usageを返すエンドポイントからusageを取得し、24時間/30日レポート、リクエスト単位の品質状態、組み込み価格、ユーザー価格の上書きを提供します。
 
 M3のコントロールプレーンUIとM4のusage/pricing範囲はローカル候補に含まれていますが、正式なリリース判断・承認と公開は未完了です。価格とコストは、上流から返されたusageと現在の価格ルールに基づくbest-effortの**推定値**です。billing ledger、請求書、プロバイダー請求ではなく、過去のリクエストを再計算することもありません。
 
@@ -58,7 +58,9 @@ M3のコントロールプレーンUIとM4のusage/pricing範囲はローカル�
 - 正しさを保証するのは**単一アプリケーションインスタンス**のみで、複数インスタンスの協調には対応しません。
 - **SQLiteのみ**をサポートし、PostgreSQL、MySQL、その他のデータベースには対応しません。
 - GroupはAccessKeyとランタイム設定で選択され、データプレーンURLには含まれません。
-- `openai-response`は既知の歴史的・予約済みプロトコル値にすぎず、有効なデータプレーンプロトコルではありません。`/v1/responses`はルーティングされません。
+- プロトコル設定はclean breakです。使用できる値は`openai-chat-completions`、`openai-responses`、`anthropic`、`gemini`だけです。旧値`openai`と`openai-response`に互換処理はありません。
+- データベースに旧プロトコル値が1件でも残ると、`ConfigSnapshot`全体のコンパイルが失敗し、起動または設定公開を停止します。エラーにはGroupまたはAccessKeyのIDと不正な値が含まれます。起動前にプレリリース2.0のデータを再構築してください。プロトコル値のインプレース移行はありません。
+- OpenAI ResponsesのリソースルーティングにはKey affinityがありません。`previous_response_id`または`conversation`を使うステートフルな複数ターンと、後続のretrieve/delete/cancel/input-itemsは、上流Keyが1つの場合、または上流がKey間でリソースストレージを共有する場合だけ確実です。それ以外では、選択された上流からresource-not-foundが返る可能性があります。
 - 上流キーは必ず保存時に暗号化され、平文へのフォールバックはありません。2.0.0はマスターキーのローテーションに対応せず、`migrate-keys`は明示的に失敗する延期コマンドのままです。
 - 1.xデータの自動移行、インプレースアップグレード、逆同期には対応しません。
 - プロトコル変換、オンライン請求照合、自動価格取得、オンラインバックアップAPI、バックアップCLIは提供しません。
@@ -119,6 +121,7 @@ curl --fail http://localhost:3001/health
 | プロバイダー | メソッドとパス | 動作 |
 |---|---|---|
 | OpenAI | `POST /v1/chat/completions` | ネイティブOpenAI Chat Completionsリクエスト |
+| OpenAI | `/v1/responses`および`/v1/responses/...` | ネイティブOpenAI Responses名前空間。通常のHTTP methodを転送 |
 | OpenAI / Anthropic | `GET /v1/models` | デフォルトはOpenAI形式、`anthropic-version`がある場合はAnthropic形式 |
 | Anthropic | `POST /v1/messages` | ネイティブAnthropic Messagesリクエスト |
 | Gemini | `GET /v1beta/models` | ネイティブGeminiモデル一覧 |
@@ -127,7 +130,61 @@ curl --fail http://localhost:3001/health
 
 GPT-Loadは方言間の変換を行いません。GroupはAccessKeyとランタイム設定で選択され、URLパスセグメントとして渡しません。
 
-履歴データや既知プロトコルのメタデータに`openai-response`が現れる場合がありますが、現在は予約値であり、新しいデータプレーントラフィックには利用できません。特に`POST /v1/responses`はルーティングされません。
+正規のプロトコル設定値と表示名は次のとおりです。
+
+| 設定値 | 表示名 |
+|---|---|
+| `openai-chat-completions` | OpenAI Chat Completions |
+| `openai-responses` | OpenAI Responses |
+| `anthropic` | Anthropic |
+| `gemini` | Gemini |
+
+組み込みOpenAIプロバイダープリセットは、preset IDとして`openai`を維持し、URLも`https://api.openai.com`のままですが、デフォルトで2つのOpenAIプロトコルを有効にします。両方とも通常の独立した選択肢で、どちらか一方または両方を選択できます。
+
+Responsesルーティングはリソースごとのallowlistではなく、名前空間境界で一致します。AccessKey認証後、`/v1/responses`と通常のサブパスは同じスケジューラーおよび転送パイプラインに入ります。デコード済みの`.`または`..`パスセグメントは、正規化やリダイレクトによる認可済み名前空間からの逸脱を防ぐためローカルで拒否します。`OPTIONS`、`CONNECT`、`TRACE`もローカルで拒否し、`GET`、`POST`、`DELETE`、`HEAD`を含むその他のmethodは転送します。パスとqueryはGo URL正規化の範囲内で保持され、デコード済み`URL.Path`は再エンコードされ、`RawPath`は保持されません。GPT-LoadはリソースIDを使って別のKeyを検索しません。選択された上流の応答（resource-not-foundを含む）は、共通の応答安全境界を通して返されます。
+
+Responsesを有効にしたGroupはモデル一覧が空でも、modelを含まないResponsesリソースAPIを処理できます。通常のcreateを含むmodel付き要求には、引き続き一致するモデルルートが必要です。
+
+> [!WARNING]
+> 2.0.0はResponses affinityを実装していません。`previous_response_id`または`conversation`を使うステートフルな複数ターン、および既存response IDへのリソース操作は、別のGroup/Keyに到達して上流404を受ける場合があります。affinity実装までは、単一Key、`store: false`によるステートレスなitem replay、またはKey間でリソースストレージを共有する上流を使用してください。
+
+Responsesのcreateとcompactはusage抽出の対象です。retrieve、delete、cancel、input-items、input-token-count、不明な拡張サブパスはRequestLogでusage `not_applicable`として記録されます。`InjectUsageOptions`は引き続きcapabilityベースです。Responses dialectはChat Completionsの`stream_options.include_usage`を実装しないため、このGroup設定はResponsesでは無視されます。Responsesだけを選択したGroupは`input: "ping"`、`max_output_tokens: 16`、`store: false`でprobeします。2つのOpenAIプロトコルを選択した場合は、Chat CompletionsをGroup/Keyの代表probeとして使用します。プロトコル単位のヘルス状態はありません。
+
+Chat Completionsの例：
+
+```console
+curl http://127.0.0.1:3001/v1/chat/completions \
+  -H "Authorization: Bearer $GPT_LOAD_ACCESS_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"<MODEL_ID>","messages":[{"role":"user","content":"Hello"}]}'
+```
+
+Responsesの例：
+
+```console
+curl http://127.0.0.1:3001/v1/responses \
+  -H "Authorization: Bearer $GPT_LOAD_ACCESS_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"<MODEL_ID>","input":"Hello","store":false}'
+```
+
+OpenAI公式SDKも同じネイティブエンドポイントを使用できます。
+
+```python
+import os
+from openai import OpenAI
+
+client = OpenAI(
+    base_url="http://127.0.0.1:3001/v1",
+    api_key=os.environ["GPT_LOAD_ACCESS_KEY"],
+)
+response = client.responses.create(
+    model="<MODEL_ID>",
+    input="Hello",
+    store=False,
+)
+print(response.output_text)
+```
 
 ## 管理、使用量、コスト
 
@@ -189,7 +246,7 @@ Usage/Costの品質境界：
 
 1. 1.xを稼働させたまま、バックアップから復元できることを確認します。
 2. 2.0には別のポート、`DATA_DIR`、データベース、Compose project、named volumeを用意し、1.xと共有しません。
-3. 最小限のGroup、上流キー、AccessKey、ルールを手動で再構築し、3方言、ログ、usage/costを隔離環境で検証します。
+3. 最小限のGroup、上流キー、AccessKey、ルールを手動で再構築し、4つのプロトコル、ログ、usage/costを隔離環境で検証します。
 4. メンテナンス時間または小規模なロールアウトで入口トラフィックを切り替えます。失敗した場合は2.0を停止して元の1.xへ戻し、2.0で新たに生成されたデータを1.xへ逆インポートしません。
 
 `latest`は1.xから2.0への安全なアップグレードチャネルではありません。バックアップと復元は上記の公開運用ベースラインに従い、ロールバック期間が終了するまで元の1.xデプロイとデータを保持してください。

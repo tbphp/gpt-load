@@ -15,7 +15,7 @@ const detail: GroupDetailDto = {
   id: 7,
   name: 'Primary',
   upstream_url: 'https://api.example.com/v1',
-  protocols: ['openai'],
+  protocols: ['openai-chat-completions'],
   models: [{ id: 'gpt-4o', alias: '' }],
   enabled: true,
   key_count: 2,
@@ -179,7 +179,7 @@ describe('GroupSettingsTab', () => {
       '[data-test="group-upstream-url"]',
       '[data-test="group-validation-model"]',
       '[data-test="group-weight"]',
-      '[data-test="group-protocol-openai"]',
+      '[data-test="group-protocol-openai-chat-completions"]',
       '[data-test="group-enabled"]',
       '[data-test="override-connect_timeout"]',
     ]) {
@@ -187,9 +187,10 @@ describe('GroupSettingsTab', () => {
     }
     wrapper.unmount()
   })
-  it('renders only Group protocols', async () => {
+  it('renders all canonical Group protocols', async () => {
     const { wrapper } = await mountSettings(vi.fn() as ApiClient['request'])
 
+    expect(wrapper.find('[data-test="group-protocol-openai-responses"]').exists()).toBe(true)
     expect(wrapper.find('[data-test="group-protocol-openai-response"]').exists()).toBe(false)
     wrapper.unmount()
   })

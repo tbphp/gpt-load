@@ -197,7 +197,7 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 	}
 
 	var recorder *requestRecorder
-	if selectedRoute.Kind == endpointChat && requestID != "" {
+	if selectedRoute.Kind == endpointForward && requestID != "" {
 		recorder = newRequestRecorder(
 			handler.requestLogSink,
 			requestID,
@@ -230,7 +230,7 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 	}
 
 	selectedDialect, dialectReady := handler.dialects[selectedRoute.Protocol]
-	if !dialectReady || selectedRoute.Kind != endpointChat {
+	if !dialectReady || selectedRoute.Kind != endpointForward {
 		handler.logDataPlaneRouteNotFound(
 			ginContext.Request,
 			accessKey.ID,
@@ -260,7 +260,7 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 			handler.completeReason(ginContext, recorder, reasonRequestTooLarge)
 			return
 		}
-		handler.completeReason(ginContext, recorder, reasonCannotExtractModel)
+		handler.completeReason(ginContext, recorder, reasonInvalidProtocolRequest)
 		return
 	}
 	parsed := &dialect.ParsedRequest{
@@ -270,27 +270,32 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 		Header:   ginContext.Request.Header.Clone(),
 		Body:     body,
 	}
-	model, stream, err := selectedDialect.ExtractModel(parsed)
+	metadata, err := selectedDialect.InspectRequest(parsed)
 	if err != nil {
 		if ginContext.Request.Context().Err() != nil {
 			recorder.completeCanceled(0)
 			return
 		}
-		handler.completeReason(ginContext, recorder, reasonCannotExtractModel)
+		handler.completeReason(ginContext, recorder, reasonInvalidProtocolRequest)
 		return
 	}
+	model := ""
+	if metadata.Model != nil {
+		model = *metadata.Model
+	}
 	if len(model) > maxDataPlaneModelBytes {
-		handler.completeReason(ginContext, recorder, reasonCannotExtractModel)
+		handler.completeReason(ginContext, recorder, reasonInvalidProtocolRequest)
 		return
 	}
 	recorder.setClientModel(model)
+	recorder.setUsageApplicable(metadata.ObserveUsage)
 
 	allowedKeyIDs := make(map[uint]struct{}, len(allowedKeyRefs))
 	for keyID := range allowedKeyRefs {
 		allowedKeyIDs[keyID] = struct{}{}
 	}
 	iterator := scheduler.New(snapshot, handler.registry, scheduler.Query{
-		Protocol: selectedRoute.Protocol, ExternalModel: model, AccessKey: accessKey,
+		Protocol: selectedRoute.Protocol, ExternalModel: metadata.Model, AccessKey: accessKey,
 		AllowedKeyIDs: allowedKeyIDs,
 	}, handler.newRandom())
 	handler.executeAttempts(
@@ -300,9 +305,17 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 		selectedDialect,
 		parsed,
 		model,
-		stream,
+		metadata.Stream,
+		metadata.ObserveUsage,
 		recorder,
 	)
+}
+
+func optionalModelValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
 
 func retryAfterSeconds(duration time.Duration) int {
@@ -369,6 +382,7 @@ func (handler *Handler) executeAttempts(
 	parsed *dialect.ParsedRequest,
 	externalModel string,
 	stream bool,
+	observeUsage bool,
 	recorder *requestRecorder,
 ) {
 	type deferredAttempt struct {
@@ -410,9 +424,10 @@ func (handler *Handler) executeAttempts(
 		updateDebugHeaders(ginContext.Writer.Header(), selection.Group.Name, attempts)
 		selectedKeyID := selection.KeyID
 		input := ForwardInput{
-			Dialect: selectedDialect, Group: selection.Group, APIKey: apiKey, Request: parsed,
+			Dialect: selectedDialect, ObserveUsage: observeUsage,
+			Group: selection.Group, APIKey: apiKey, Request: parsed,
 			ExternalModel:   externalModel,
-			UpstreamModelID: selection.UpstreamModelID,
+			UpstreamModelID: optionalModelValue(selection.UpstreamModelID),
 			OnStreamReady: func() {
 				handler.recordSuccess(selectedKeyID, handler.now())
 			},
@@ -439,7 +454,7 @@ func (handler *Handler) executeAttempts(
 				recordedAttempt := recorder.recordStreamAttempt(
 					selection, apiKey, result, attemptStarted, attemptCompleted,
 				)
-				recorder.completeStream(result, selection.UpstreamModelID, recordedAttempt)
+				recorder.completeStream(result, optionalModelValue(selection.UpstreamModelID), recordedAttempt)
 			}
 			return
 		}
@@ -485,13 +500,17 @@ func (handler *Handler) executeAttempts(
 				lastProviderError = &deferredAttempt{
 					result:        result,
 					decision:      decision,
-					upstreamModel: selection.UpstreamModelID,
+					upstreamModel: optionalModelValue(selection.UpstreamModelID),
 					attemptIndex:  recordedAttempt,
 				}
 				recorder.retryIfAnotherForward(recordedAttempt)
 				continue
 			}
-			recorder.completeProviderError(selection.UpstreamModelID, recordedAttempt)
+			recorder.completeProviderError(
+				result,
+				optionalModelValue(selection.UpstreamModelID),
+				recordedAttempt,
+			)
 			if err := handler.writeReason(ginContext, reasonUpstreamProtocol); err != nil {
 				handler.completeWriteTerminal(ginContext, recorder, reasonUpstreamProtocol.Status)
 			}
@@ -499,13 +518,13 @@ func (handler *Handler) executeAttempts(
 		}
 		if result.HasResponse() {
 			lastResponse = &deferredAttempt{
-				result: result, decision: decision, upstreamModel: selection.UpstreamModelID, attemptIndex: recordedAttempt,
+				result: result, decision: decision, upstreamModel: optionalModelValue(selection.UpstreamModelID), attemptIndex: recordedAttempt,
 			}
 			if decision.ShouldRetry() {
 				recorder.retryIfAnotherForward(recordedAttempt)
 				continue
 			}
-			recorder.completeResponse(result, decision, selection.UpstreamModelID, recordedAttempt)
+			recorder.completeResponse(result, decision, optionalModelValue(selection.UpstreamModelID), recordedAttempt)
 			if err := handler.writeUpstreamResponse(ginContext, result); err != nil {
 				handler.completeWriteTerminal(ginContext, recorder, result.StatusCode)
 				return
@@ -518,13 +537,13 @@ func (handler *Handler) executeAttempts(
 		}
 		if decision.ShouldRetry() {
 			lastTransport = &deferredAttempt{
-				result: result, decision: decision, upstreamModel: selection.UpstreamModelID,
+				result: result, decision: decision, upstreamModel: optionalModelValue(selection.UpstreamModelID),
 			}
 			recorder.retryIfAnotherForward(recordedAttempt)
 			continue
 		}
 		value := transportReason(result)
-		recorder.completeTransport(value, selection.UpstreamModelID)
+		recorder.completeTransport(value, optionalModelValue(selection.UpstreamModelID))
 		if err := handler.writeReason(ginContext, value); err != nil {
 			handler.completeWriteTerminal(ginContext, recorder, value.Status)
 		}
@@ -533,6 +552,7 @@ func (handler *Handler) executeAttempts(
 
 	if lastProviderError != nil {
 		recorder.completeProviderError(
+			lastProviderError.result,
 			lastProviderError.upstreamModel,
 			lastProviderError.attemptIndex,
 		)
@@ -564,6 +584,10 @@ func (handler *Handler) executeAttempts(
 		if err := handler.writeReason(ginContext, value); err != nil {
 			handler.completeWriteTerminal(ginContext, recorder, value.Status)
 		}
+		return
+	}
+	if iterator.StaticReason() == scheduler.ReasonModelRequiredByFilter {
+		handler.completeReason(ginContext, recorder, reasonModelRequiredByFilter)
 		return
 	}
 	handler.completeReason(ginContext, recorder, reasonNoCandidate)
