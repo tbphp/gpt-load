@@ -11,6 +11,7 @@ import type {
 import { knownAccessProtocols } from '@/api/control/protocols'
 import { InvalidResponseError } from '@/api/errors'
 import { controlQueryKeys } from '@/app/query-keys'
+import { isCanonicalMaskedAccessKey } from '@/lib/access-key-mask'
 
 import {
   assertNoSecretLikeFields,
@@ -55,7 +56,6 @@ const metadataFields = [
   'updated_at_ms',
 ] as const
 const optionFields = ['id', 'name', 'status'] as const
-const canonicalMaskedAccessKey = /^sk-gl-••••••••[0-9a-f]{4}$/
 
 function invalidResponse(): never {
   throw new InvalidResponseError()
@@ -89,7 +89,7 @@ export function projectAccessKeyMetadata(value: unknown): AccessKeyDto {
   const record = projectRecord(value)
   assertNoSecretLikeFields(record, metadataFields)
   const maskedKey = projectString(record.masked_key)
-  if (!canonicalMaskedAccessKey.test(maskedKey)) invalidResponse()
+  if (!isCanonicalMaskedAccessKey(maskedKey)) invalidResponse()
   return {
     id: projectSafeInteger(record.id, { minimum: 1 }),
     name: projectNonBlankTrimmedString(record.name),

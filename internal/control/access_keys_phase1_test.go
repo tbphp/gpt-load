@@ -48,7 +48,7 @@ func TestAccessKeyMetadataListAndUpdateNeverDecryptCiphertext(t *testing.T) {
 		t.Fatalf("ListAccessKeys() error = %v", err)
 	}
 	if len(list) != 1 || list[0].ID != created.ID ||
-		list[0].MaskedKey != "sk-gl-••••••••0000" {
+		list[0].MaskedKey != "sk-gl-****0000" {
 		t.Fatalf("ListAccessKeys() = %#v", list)
 	}
 	encoded, err := json.Marshal(list)

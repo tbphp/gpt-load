@@ -1,8 +1,9 @@
 import { currentTimeZone } from './time'
 
+export { formatMaskedAccessKey } from './access-key-mask'
+
 const NANO_USD_PER_USD = 1_000_000_000n
 const NANO_USD_PER_MICRO_USD = 1_000n
-const MASK_PREFIX = 'sk-gl-••••••••'
 
 export function formatLocalInstant(
   ms: number,
@@ -119,13 +120,6 @@ export function formatEstimatedCost(nanoUSD: string, locale: string): string {
       : rawFraction.replace(/0+$/u, '').padEnd(minimumFractionDigits, '0')
 
   return formatCurrency(whole, fraction, locale)
-}
-
-export function formatMaskedAccessKey(suffix: string): string {
-  if (!/^[0-9a-f]{4}$/u.test(suffix)) {
-    throw new RangeError('Access key suffix must be four lowercase hexadecimal characters')
-  }
-  return `${MASK_PREFIX}${suffix}`
 }
 
 function validDate(ms: number): Date | null {

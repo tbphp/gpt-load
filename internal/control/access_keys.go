@@ -415,10 +415,14 @@ func mapAccessKeyMetadataRow(row accessKeyMetadataRow) (AccessKeyMetadata, error
 	}
 	return AccessKeyMetadata{
 		ID: row.ID, Name: row.Name,
-		MaskedKey: accessKeyPrefix + "••••••••" + row.KeySuffix,
+		MaskedKey: maskedAccessKey(row.KeySuffix),
 		Status:    status, Filters: filters, RPMLimit: row.RPMLimit,
 		CreatedAtMS: row.CreatedAtMS, UpdatedAtMS: row.UpdatedAtMS,
 	}, nil
+}
+
+func maskedAccessKey(suffix string) string {
+	return accessKeyPrefix + "****" + suffix
 }
 
 func validAccessKeySuffix(value string) bool {

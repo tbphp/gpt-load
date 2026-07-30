@@ -325,7 +325,7 @@ func mapHomeAccessKeys(rows []homeAccessKeyRow) ([]HomeAccessKey, error) {
 		}
 		result = append(result, HomeAccessKey{
 			ID: row.ID, Name: row.Name,
-			MaskedKey: accessKeyPrefix + "••••••••" + row.KeySuffix,
+			MaskedKey: maskedAccessKey(row.KeySuffix),
 			Protocols: protocols,
 		})
 	}

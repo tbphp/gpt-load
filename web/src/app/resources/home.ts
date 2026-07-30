@@ -6,6 +6,7 @@ import type { AccessProtocol } from '@/api/control/types'
 import { knownAccessProtocols } from '@/api/control/protocols'
 import { InvalidResponseError } from '@/api/errors'
 import { controlQueryKeys } from '@/app/query-keys'
+import { isCanonicalMaskedAccessKey } from '@/lib/access-key-mask'
 
 import {
   assertNoSecretLikeFields,
@@ -149,7 +150,6 @@ const rankingMetricFields = ['request_count', 'total_tokens', 'estimated_cost_na
 const modelRankingFields = ['model', 'group', ...rankingMetricFields] as const
 const groupRankingFields = ['group', ...rankingMetricFields] as const
 const accessKeyRankingFields = ['access_key', ...rankingMetricFields] as const
-const canonicalMaskedAccessKey = /^sk-gl-••••••••[0-9a-f]{4}$/u
 const hourMilliseconds = 3_600_000
 const dayMilliseconds = 86_400_000
 const rankingLimit = 5
@@ -184,7 +184,7 @@ function projectHomeAccessKey(value: unknown): HomeBaseDto['access_keys'][number
   const record = projectRecord(value)
   assertNoSecretLikeFields(record, accessKeyFields)
   const maskedKey = projectString(record.masked_key)
-  if (!canonicalMaskedAccessKey.test(maskedKey)) invalidResponse()
+  if (!isCanonicalMaskedAccessKey(maskedKey)) invalidResponse()
   const protocols = projectArray(record.protocols, (protocol) =>
     projectEnum(protocol, knownAccessProtocols),
   )
@@ -532,6 +532,7 @@ export function homeBaseQueryOptions(client: ApiClient) {
     queryKey: controlQueryKeys.home.base(),
     queryFn: ({ signal }) => getHomeBase(client, signal),
     staleTime: Number.POSITIVE_INFINITY,
+    refetchOnMount: 'always',
   })
 }
 
