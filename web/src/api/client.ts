@@ -46,6 +46,9 @@ export interface ApiClientWithResponse extends ApiClient {
 
 type Envelope = SuccessEnvelope<unknown> | ErrorEnvelope
 
+const maxApiPathLength = 8192
+const maxPercentEncodingDepth = 2
+
 function hasControlCharacter(value: string): boolean {
   for (const character of value) {
     const codePoint = character.codePointAt(0)
@@ -57,26 +60,35 @@ function hasControlCharacter(value: string): boolean {
   return false
 }
 
-function hasEncodedControlCharacter(value: string): boolean {
-  let encodedValue = value
-  for (let depth = 0; depth <= value.length; depth += 1) {
-    if (/%(?:0[0-9a-f]|1[0-9a-f]|7f)/i.test(encodedValue)) {
-      return true
-    }
-
-    const decodedPercents = encodedValue.replace(/%25/gi, '%')
-    if (decodedPercents === encodedValue) {
-      return false
-    }
-    encodedValue = decodedPercents
+function isSafeApiQuery(query: string): boolean {
+  try {
+    decodeURIComponent(query)
+  } catch {
+    return false
   }
 
-  return true
+  let encodedQuery = query
+  for (let encodingDepth = 1; encodingDepth <= maxPercentEncodingDepth; encodingDepth += 1) {
+    if (/%(?:0[0-9a-f]|1[0-9a-f]|7f)/i.test(encodedQuery)) {
+      return false
+    }
+
+    const expandedQuery = encodedQuery.replace(/%25/gi, '%')
+    if (expandedQuery === encodedQuery) {
+      return true
+    }
+    if (encodingDepth === maxPercentEncodingDepth) {
+      return false
+    }
+    encodedQuery = expandedQuery
+  }
+
+  return false
 }
 
 function isSafeApiPathSegment(segment: string): boolean {
   let decodedSegment = segment
-  for (let depth = 0; depth <= segment.length; depth += 1) {
+  for (let encodingDepth = 0; encodingDepth <= maxPercentEncodingDepth; encodingDepth += 1) {
     if (
       decodedSegment.length === 0 ||
       decodedSegment === '.' ||
@@ -93,6 +105,9 @@ function isSafeApiPathSegment(segment: string): boolean {
     if (!decodedSegment.includes('%')) {
       return true
     }
+    if (encodingDepth === maxPercentEncodingDepth) {
+      return false
+    }
 
     try {
       decodedSegment = decodeURIComponent(decodedSegment)
@@ -107,6 +122,7 @@ function isSafeApiPathSegment(segment: string): boolean {
 function isSafeApiPath(path: unknown): path is ApiPath {
   if (
     typeof path !== 'string' ||
+    path.length > maxApiPathLength ||
     !path.startsWith('/api/') ||
     path.startsWith('//') ||
     path.includes('\\') ||
@@ -119,12 +135,7 @@ function isSafeApiPath(path: unknown): path is ApiPath {
   const queryStart = path.indexOf('?')
   const pathname = queryStart === -1 ? path : path.slice(0, queryStart)
   const query = queryStart === -1 ? '' : path.slice(queryStart + 1)
-  try {
-    decodeURIComponent(query)
-  } catch {
-    return false
-  }
-  if (hasEncodedControlCharacter(query)) {
+  if (!isSafeApiQuery(query)) {
     return false
   }
 
