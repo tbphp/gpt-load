@@ -6,9 +6,8 @@ import { useI18n } from 'vue-i18n'
 import type { UsageAggregateDto, UsageReportDto } from '@/app/resources/usage'
 import { monitorLocation } from '@/app/route-locations'
 import DataTable from '@/components/ui/DataTable.vue'
-import { formatEstimatedCost } from '@/lib/format'
+import { formatEstimatedCost, formatTokens } from '@/lib/format'
 
-import { formatCompactMetric } from './home-format'
 import { usageBreakdownLocation } from './home-presenter'
 
 const props = defineProps<{
@@ -73,7 +72,7 @@ function modelName(model: string): string {
           <td class="home-ranking__model">{{ modelName(row.model) }}</td>
           <td>{{ formatCount(row.request_count) }}</td>
           <td data-column-priority="low">
-            {{ formatCompactMetric(row.total_tokens, locale) }}
+            {{ formatTokens(row.total_tokens, locale) }}
           </td>
           <td>{{ formatCost(row) }}</td>
         </tr>

@@ -17,13 +17,12 @@ import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import SegmentedControl from '@/components/ui/SegmentedControl.vue'
 import StatFigure from '@/components/ui/StatFigure.vue'
-import { formatEstimatedCost } from '@/lib/format'
+import { formatEstimatedCost, formatTokens } from '@/lib/format'
 
 import ConnectionPlaceholder from './ConnectionPlaceholder.vue'
 import HomeCostRanking from './HomeCostRanking.vue'
 import HomeLede from './HomeLede.vue'
 import HomeProblemGroups from './HomeProblemGroups.vue'
-import { formatCompactMetric } from './home-format'
 import { failureLogsLocation, presentHome, type HomeQueryResult } from './home-presenter'
 
 const client = useApiClient()
@@ -128,7 +127,7 @@ const estimatedCost = computed(() => {
 })
 const costDetail = computed(() => {
   if (report.value === undefined) return ''
-  const tokens = formatCompactMetric(report.value.summary.total_tokens, locale.value)
+  const tokens = formatTokens(report.value.summary.total_tokens, locale.value)
   if (report.value.summary.unpriced_request_count === 0) {
     return t('home.metrics.costTokens', { tokens })
   }

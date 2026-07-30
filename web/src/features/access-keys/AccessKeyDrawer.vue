@@ -504,6 +504,11 @@ async function reconcileEdit(): Promise<void> {
       editOperationRetained.value = false
       emit('update:editOperation', null)
       mutationState.value = 'idle'
+      await applyInvalidationPlan(
+        queryClient,
+        mutationInvalidationPlans.accessKey.reconcileConfirmed,
+        () => controller === activeController && props.open,
+      )
       return
     }
     if (
