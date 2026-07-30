@@ -24,7 +24,7 @@ function updateValue(event: Event): void {
 </script>
 
 <template>
-  <div :data-test="`setting-timeout-${settingKey}`" class="setting-override-field">
+  <div class="setting-override-field">
     <div class="setting-override-field__summary">
       <div>
         <strong>{{ label }}</strong>
@@ -38,7 +38,6 @@ function updateValue(event: Event): void {
     <label class="setting-override-field__toggle">
       <input
         :id="`settings-override-${settingKey}`"
-        :data-test="`override-${settingKey}`"
         type="checkbox"
         :checked="owned"
         :disabled="disabled"
@@ -50,7 +49,6 @@ function updateValue(event: Event): void {
       <span class="sr-only">{{ label }}</span>
       <input
         :id="`settings-value-${settingKey}`"
-        :data-test="`value-${settingKey}`"
         type="number"
         step="1"
         :min="min"
@@ -64,7 +62,6 @@ function updateValue(event: Event): void {
       <small
         v-if="error"
         :id="`settings-error-${settingKey}`"
-        :data-test="`error-${settingKey}`"
         class="setting-override-field__error"
       >
         {{ error }}

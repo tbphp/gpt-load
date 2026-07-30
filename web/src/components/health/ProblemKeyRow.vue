@@ -62,13 +62,13 @@ const compactFailureSummary = computed(() => {
     :aria-label="appearance === 'compact' ? `${statusLabel}: ${problemKey.mask}` : undefined"
   >
     <template v-if="appearance === 'compact'">
-      <code class="problem-key-row__compact-mask" data-problem-key-mask>
+      <code class="problem-key-row__compact-mask">
         {{ problemKey.mask }}
       </code>
-      <span class="problem-key-row__compact-summary" data-problem-key-summary>
+      <span class="problem-key-row__compact-summary">
         {{ compactFailureSummary }}
       </span>
-      <span class="problem-key-row__compact-recovery" data-problem-key-recovery>
+      <span class="problem-key-row__compact-recovery">
         <time v-if="problemKey.recovery.at && recoveryClock" :datetime="problemKey.recovery.at">
           {{ recoveryClock }} {{ labels.automaticRecovery ?? labels.recoversAt }}
         </time>
@@ -78,8 +78,8 @@ const compactFailureSummary = computed(() => {
 
     <template v-else>
       <div class="problem-key-row__identity">
-        <code data-problem-key-mask>{{ problemKey.mask }}</code>
-        <StatusBadge :tone="tone" data-problem-key-status>
+        <code>{{ problemKey.mask }}</code>
+        <StatusBadge :tone="tone">
           {{ statusLabel }}
         </StatusBadge>
       </div>
@@ -87,21 +87,21 @@ const compactFailureSummary = computed(() => {
       <dl class="problem-key-row__facts">
         <div>
           <dt>{{ labels.consecutiveFailures }}</dt>
-          <dd data-problem-key-failures>{{ problemKey.consecutive_failure_count }}</dd>
+          <dd>{{ problemKey.consecutive_failure_count }}</dd>
         </div>
         <div>
           <dt>{{ labels.failureCategory }}</dt>
-          <dd data-problem-key-category>{{ failureCategoryLabel }}</dd>
+          <dd>{{ failureCategoryLabel }}</dd>
         </div>
         <div>
           <dt>{{ labels.statusCode }}</dt>
-          <dd data-problem-key-http-status>
+          <dd>
             {{ problemKey.last_status_code ?? labels.statusUnavailable }}
           </dd>
         </div>
         <div>
           <dt>{{ labels.recoversAt }}</dt>
-          <dd data-problem-key-recovery>
+          <dd>
             <time v-if="problemKey.recovery.at && recoveryTime" :datetime="problemKey.recovery.at">
               {{ recoveryTime }}
             </time>

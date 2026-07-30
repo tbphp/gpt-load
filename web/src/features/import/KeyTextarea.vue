@@ -15,7 +15,6 @@ const analysis = computed(() => analyzeKeys(props.modelValue))
     <label for="upstream-keys">{{ t('import.keys.label') }}</label>
     <textarea
       id="upstream-keys"
-      data-test="keys"
       :value="modelValue"
       :disabled="disabled"
       autocomplete="off"

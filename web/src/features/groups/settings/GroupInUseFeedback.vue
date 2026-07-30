@@ -22,11 +22,7 @@ const { t } = useI18n()
           <code>#{{ reference.id }}</code>
         </li>
       </ul>
-      <RouterLink
-        data-test="group-in-use-access-keys"
-        class="button-link button-link--secondary"
-        :to="accessKeysLocation()"
-      >
+      <RouterLink class="button-link button-link--secondary" :to="accessKeysLocation()">
         {{ t('group.settings.delete.manageAccessKeys') }}
       </RouterLink>
     </div>

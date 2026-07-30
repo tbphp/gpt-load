@@ -290,48 +290,28 @@ onBeforeUnmount(() => {
     />
     <QueryFeedback
       v-if="failed"
-      data-test="inspector-request-error"
       state="error"
       :message="t('monitor.inspector.request.failed')"
       :retry-label="t('common.retry')"
       @retry="inspect"
     />
 
-    <SurfaceCard
-      v-if="observation"
-      class="inspector-result"
-      data-test="inspector-result"
-      aria-live="polite"
-      aria-atomic="true"
-    >
-      <p
-        v-if="inputChanged"
-        class="inspector-input-changed"
-        data-test="inspector-input-changed"
-        role="status"
-      >
+    <SurfaceCard v-if="observation" class="inspector-result" aria-live="polite" aria-atomic="true">
+      <p v-if="inputChanged" class="inspector-input-changed" role="status">
         {{ t('monitor.inspector.result.inputChanged') }}
       </p>
-      <p
-        v-if="resultStale"
-        class="inspector-input-changed"
-        data-test="inspector-result-stale"
-        role="status"
-      >
+      <p v-if="resultStale" class="inspector-input-changed" role="status">
         {{ t('monitor.inspector.result.stale') }}
       </p>
 
       <header class="inspector-heading inspector-result__heading">
         <div>
-          <h2 ref="resultSummary" data-test="inspector-result-summary" tabindex="-1">
+          <h2 ref="resultSummary" tabindex="-1">
             {{ t('monitor.inspector.result.title') }}
           </h2>
           <p>{{ t('monitor.inspector.boundary') }}</p>
         </div>
-        <StatusBadge
-          :tone="observation.routable ? 'success' : 'danger'"
-          data-test="inspector-result-state"
-        >
+        <StatusBadge :tone="observation.routable ? 'success' : 'danger'">
           {{
             observation.routable
               ? t('monitor.inspector.result.routable')
@@ -341,7 +321,7 @@ onBeforeUnmount(() => {
       </header>
 
       <div class="inspector-meta">
-        <time data-test="inspector-observed-at" :datetime="observation.observed_at">{{
+        <time :datetime="observation.observed_at">{{
           t('monitor.inspector.result.observedAt', { time: observation.observed_at })
         }}</time>
         <span>{{
@@ -367,17 +347,14 @@ onBeforeUnmount(() => {
         <div>
           <dt>{{ t('monitor.inspector.result.accessKeyStatus') }}</dt>
           <dd>
-            <StatusBadge
-              :tone="accessKeyStatusTone(observation.access_key.status)"
-              data-test="inspector-access-key-status"
-            >
+            <StatusBadge :tone="accessKeyStatusTone(observation.access_key.status)">
               {{ t(`monitor.inspector.accessKeyStatus.${observation.access_key.status}`) }}
             </StatusBadge>
           </dd>
         </div>
         <div class="inspector-facts__wide">
           <dt>{{ t('monitor.inspector.result.reason') }}</dt>
-          <dd data-test="inspector-result-reason">
+          <dd>
             {{ reasonLabel(observation.reason_code) }}
           </dd>
         </div>
@@ -389,11 +366,7 @@ onBeforeUnmount(() => {
           <p>{{ t('monitor.inspector.groups.description') }}</p>
         </header>
 
-        <p
-          v-if="observation.groups.length === 0"
-          class="inspector-complete-empty"
-          data-test="inspector-groups-complete-empty"
-        >
+        <p v-if="observation.groups.length === 0" class="inspector-complete-empty">
           {{ t('monitor.inspector.groups.completeEmpty') }}
         </p>
 
@@ -402,7 +375,6 @@ onBeforeUnmount(() => {
             v-for="group in observation.groups"
             :key="group.group_id"
             class="inspector-group"
-            :data-test="`inspector-group-${group.group_id}`"
           >
             <header class="inspector-group__heading">
               <div>
@@ -442,12 +414,7 @@ onBeforeUnmount(() => {
               {{ t('monitor.inspector.keys.noneReturned') }}
             </p>
             <div v-else class="inspector-key-list">
-              <article
-                v-for="key in group.keys"
-                :key="key.key_id"
-                class="inspector-key"
-                :data-test="`inspector-key-${key.key_id}`"
-              >
+              <article v-for="key in group.keys" :key="key.key_id" class="inspector-key">
                 <header class="inspector-key__heading">
                   <strong>{{ t('monitor.inspector.keys.identity', { id: key.key_id }) }}</strong>
                   <StatusBadge :tone="key.available ? 'success' : 'danger'">
@@ -465,30 +432,26 @@ onBeforeUnmount(() => {
                   </div>
                   <div>
                     <dt>{{ t('monitor.inspector.weights.manual') }}</dt>
-                    <dd :data-test="`inspector-key-${key.key_id}-manual-weight`">
+                    <dd>
                       {{ nullableWeight(key.weight_manual) }}
                     </dd>
                   </div>
                   <div>
                     <dt>{{ t('monitor.inspector.weights.auto') }}</dt>
-                    <dd :data-test="`inspector-key-${key.key_id}-auto-weight`">
+                    <dd>
                       {{ key.weight_auto }}
                     </dd>
                   </div>
                   <div>
                     <dt>{{ t('monitor.inspector.weights.effective') }}</dt>
-                    <dd :data-test="`inspector-key-${key.key_id}-effective-weight`">
+                    <dd>
                       {{ key.effective_weight }}
                     </dd>
                   </div>
                   <div>
                     <dt>{{ t('monitor.inspector.keys.cooldownUntil') }}</dt>
                     <dd>
-                      <time
-                        v-if="key.cooldown_until"
-                        :datetime="key.cooldown_until"
-                        :data-test="`inspector-key-${key.key_id}-cooldown`"
-                      >
+                      <time v-if="key.cooldown_until" :datetime="key.cooldown_until">
                         {{ key.cooldown_until }}
                       </time>
                       <span v-else>{{ t('monitor.inspector.keys.none') }}</span>

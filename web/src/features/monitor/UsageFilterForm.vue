@@ -32,7 +32,6 @@ function error(field: keyof UsageFilterErrors): string | undefined {
 <template>
   <form
     class="usage-filter-form"
-    data-test="usage-filter-form"
     :aria-label="t('monitor.usage.filters.label')"
     @submit.prevent="emit('apply')"
   >
@@ -41,7 +40,6 @@ function error(field: keyof UsageFilterErrors): string | undefined {
         <select
           id="usage-range"
           :value="draft.range"
-          data-test="usage-range"
           @change="emit('updateField', 'range', ($event.target as HTMLSelectElement).value)"
         >
           <option value="24h">{{ t('monitor.usage.filters.range24h') }}</option>
@@ -63,7 +61,6 @@ function error(field: keyof UsageFilterErrors): string | undefined {
             v-if="groupsFailed"
             id="usage-group"
             :value="draft.group_id"
-            data-test="usage-group"
             type="text"
             inputmode="numeric"
             autocomplete="off"
@@ -75,7 +72,6 @@ function error(field: keyof UsageFilterErrors): string | undefined {
             v-else
             id="usage-group"
             :value="draft.group_id"
-            data-test="usage-group"
             :aria-describedby="describedBy"
             :aria-invalid="error('group_id') ? 'true' : undefined"
             @change="emit('updateField', 'group_id', ($event.target as HTMLSelectElement).value)"
@@ -103,7 +99,6 @@ function error(field: keyof UsageFilterErrors): string | undefined {
           <input
             id="usage-model"
             :value="draft.model"
-            data-test="usage-model"
             type="text"
             autocomplete="off"
             :aria-describedby="describedBy"
@@ -114,17 +109,11 @@ function error(field: keyof UsageFilterErrors): string | undefined {
       </FormField>
     </div>
     <div class="usage-filter-actions">
-      <AppButton
-        data-test="usage-refresh"
-        type="button"
-        variant="secondary"
-        :busy="fetching"
-        @click="emit('refresh')"
-      >
+      <AppButton type="button" variant="secondary" :busy="fetching" @click="emit('refresh')">
         <RefreshCw :size="16" aria-hidden="true" />{{ t('monitor.usage.filters.refresh') }}
       </AppButton>
       <AppButton type="submit">{{ t('monitor.usage.filters.apply') }}</AppButton>
-      <AppButton data-test="usage-reset" variant="ghost" @click="emit('reset')">
+      <AppButton variant="ghost" @click="emit('reset')">
         {{ t('monitor.usage.filters.reset') }}
       </AppButton>
     </div>

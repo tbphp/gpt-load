@@ -29,11 +29,14 @@ type Server struct {
 	compareDigest     func([]byte, []byte) int
 	logger            *logrus.Logger
 	authFailureEvents *utils.RateLimitedEventCounter
+	startedAt         time.Time
+	now               func() time.Time
 }
 
 const maxControlJSONBodyBytes int64 = 32 << 20
 
 func NewServer(cfg *config.Config, service *Service) *Server {
+	now := time.Now
 	return &Server{
 		authDigest:    sha256.Sum256([]byte(cfg.AuthKey)),
 		service:       service,
@@ -41,6 +44,8 @@ func NewServer(cfg *config.Config, service *Service) *Server {
 		authFailures:  newAuthFailureLimiter(),
 		compareDigest: subtle.ConstantTimeCompare,
 		logger:        logrus.StandardLogger(),
+		startedAt:     now().UTC(),
+		now:           now,
 		authFailureEvents: utils.NewRateLimitedEventCounter(
 			time.Minute,
 			time.Now,

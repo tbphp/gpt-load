@@ -246,12 +246,7 @@ onBeforeUnmount(() => {
         </h2>
         <p>{{ t('group.settings.description') }}</p>
       </div>
-      <AppButton
-        data-test="group-settings-save"
-        :busy="pending"
-        :disabled="!dirty || !valid"
-        @click="runSave(false)"
-      >
+      <AppButton :busy="pending" :disabled="!dirty || !valid" @click="runSave(false)">
         <Save :size="16" aria-hidden="true" />{{ t('group.settings.save') }}
       </AppButton>
     </header>
@@ -259,26 +254,16 @@ onBeforeUnmount(() => {
     <InlineFeedback v-if="genericError" tone="danger">
       {{ t('group.settings.saveFailed') }}
     </InlineFeedback>
-    <InlineFeedback
-      v-if="rediscoveryRecommended"
-      data-test="group-rediscovery-recommended"
-      tone="warning"
-    >
+    <InlineFeedback v-if="rediscoveryRecommended" tone="warning">
       <span>{{ t('group.settings.rediscoveryRecommended') }}</span>
       <RouterLink
-        data-test="group-rediscovery-action"
         class="group-settings__inline-action"
         :to="groupDetailLocation(groupId, { tab: 'models' })"
       >
         {{ t('group.settings.rediscoverAction') }}
       </RouterLink>
     </InlineFeedback>
-    <div
-      v-if="urlConflict"
-      data-test="group-url-conflict"
-      class="group-settings__conflict"
-      role="alert"
-    >
+    <div v-if="urlConflict" class="group-settings__conflict" role="alert">
       <TriangleAlert :size="18" aria-hidden="true" />
       <div>
         <strong>{{ t('group.settings.urlConflict.title') }}</strong>
@@ -316,12 +301,7 @@ onBeforeUnmount(() => {
         <p>{{ t('group.settings.runtime.description') }}</p>
       </div>
       <div class="group-settings__runtime-list">
-        <div
-          v-for="key in timeoutKeys"
-          :key="key"
-          :data-test="`runtime-${key}`"
-          class="group-settings__runtime-row"
-        >
+        <div v-for="key in timeoutKeys" :key="key" class="group-settings__runtime-row">
           <div>
             <strong>{{ t(`group.settings.runtime.${key}`) }}</strong>
             <p>
@@ -339,7 +319,6 @@ onBeforeUnmount(() => {
           </StatusBadge>
           <label class="group-settings__override-toggle">
             <input
-              :data-test="`override-${key}`"
               type="checkbox"
               :checked="hasOverride(key)"
               :disabled="pending"
@@ -365,17 +344,13 @@ onBeforeUnmount(() => {
           <small
             v-if="timeoutError(key)"
             :id="`runtime-${key}-error`"
-            :data-test="`runtime-${key}-error`"
             class="group-settings__field-error"
             role="alert"
             >{{ timeoutError(key) }}</small
           >
         </div>
 
-        <div
-          data-test="runtime-header_rules"
-          class="group-settings__runtime-row group-settings__headers"
-        >
+        <div class="group-settings__runtime-row group-settings__headers">
           <div>
             <strong>{{ t('group.settings.runtime.header_rules') }}</strong>
             <p>{{ effectiveHeaderSummary() }}</p>
@@ -389,7 +364,6 @@ onBeforeUnmount(() => {
           </StatusBadge>
           <label class="group-settings__override-toggle">
             <input
-              data-test="override-header_rules"
               type="checkbox"
               :checked="hasOverride('header_rules')"
               :disabled="pending"
@@ -398,7 +372,7 @@ onBeforeUnmount(() => {
             {{ t('group.settings.runtime.useOverride') }}
           </label>
           <div v-if="draft.config.header_rules" class="group-settings__header-editor">
-            <InlineFeedback data-test="header-rules-replacement-warning" tone="warning">
+            <InlineFeedback tone="warning">
               {{ t('group.settings.runtime.headerReplacementWarning') }}
             </InlineFeedback>
             <HeaderRulesEditor
@@ -434,7 +408,6 @@ onBeforeUnmount(() => {
           {{ t('group.settings.urlConfirm.cancel') }}
         </AppButton>
         <AppButton
-          data-test="group-url-confirm"
           class="group-settings__confirm-url"
           variant="secondary"
           :busy="pending"

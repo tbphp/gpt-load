@@ -56,8 +56,6 @@ const presentations = computed(() =>
     }),
   ),
 )
-const testPrefix = computed(() => (props.source === 'user' ? 'override' : 'builtin'))
-
 function sourceRule(index: number): ModelPriceRuleDto {
   const rule = props.rules[index]
   if (!rule) throw new Error(`MODEL_PRICE_SOURCE_MISSING:${index}`)
@@ -83,7 +81,6 @@ onBeforeUnmount(() => mediaQuery?.removeEventListener('change', updateMedia))
         v-for="(record, index) in presentations"
         :key="record.pattern"
         :label="record.pattern"
-        :data-test="`${testPrefix}-price-card-${index}`"
       >
         <template #header>
           <div class="model-price-card__identity">
@@ -93,11 +90,7 @@ onBeforeUnmount(() => mediaQuery?.removeEventListener('change', updateMedia))
           <StatusBadge>{{ record.source }}</StatusBadge>
         </template>
 
-        <p
-          v-if="record.globalOverride"
-          class="model-price-card__warning"
-          data-test="model-price-global-row-warning"
-        >
+        <p v-if="record.globalOverride" class="model-price-card__warning">
           <TriangleAlert :size="14" aria-hidden="true" />
           {{ t('modelPrices.globalUserOverride') }}
         </p>
@@ -106,13 +99,12 @@ onBeforeUnmount(() => mediaQuery?.removeEventListener('change', updateMedia))
           <dl>
             <template v-for="price in record.priceRows" :key="price.field">
               <dt>{{ price.label }}</dt>
-              <dd :data-state="price.state">{{ price.value }}</dd>
+              <dd>{{ price.value }}</dd>
             </template>
             <dt>{{ t('modelPrices.table.source') }}</dt>
             <dd>
               <a
                 v-if="record.sourceUrl"
-                :data-test="`${testPrefix}-source-${index}`"
                 class="model-price-collection__source"
                 :href="record.sourceUrl"
                 target="_blank"
@@ -121,7 +113,7 @@ onBeforeUnmount(() => mediaQuery?.removeEventListener('change', updateMedia))
                 {{ t('modelPrices.builtin.source') }}
                 <ExternalLink :size="14" aria-hidden="true" />
               </a>
-              <span v-else :data-test="`${testPrefix}-source-${index}`">
+              <span v-else>
                 {{
                   source === 'builtin'
                     ? t('modelPrices.sourceUnavailable')
@@ -134,22 +126,14 @@ onBeforeUnmount(() => mediaQuery?.removeEventListener('change', updateMedia))
               <AppDateTime :instant="record.updatedAt" :locale="locale" />
             </dd>
           </dl>
-          <p
-            v-if="record.policySummary"
-            :data-test="`builtin-pricing-policy-${index}`"
-            class="model-price-collection__policy"
-          >
+          <p v-if="record.policySummary" class="model-price-collection__policy">
             <StatusBadge>{{ t('modelPrices.builtin.longContext.label') }}</StatusBadge>
             <span>{{ record.policySummary }}</span>
           </p>
         </details>
 
         <template #actions>
-          <AppButton
-            :data-test="`${testPrefix}-price-edit-${index}`"
-            variant="ghost"
-            @click="edit(index, $event.currentTarget as HTMLElement)"
-          >
+          <AppButton variant="ghost" @click="edit(index, $event.currentTarget as HTMLElement)">
             <Pencil :size="15" aria-hidden="true" />{{
               source === 'user'
                 ? t('modelPrices.overrides.edit')
@@ -182,26 +166,14 @@ onBeforeUnmount(() => mediaQuery?.removeEventListener('change', updateMedia))
         </tr>
       </thead>
       <tbody>
-        <tr
-          v-for="(record, index) in presentations"
-          :key="record.pattern"
-          :data-test="`${testPrefix}-price-row-${index}`"
-        >
+        <tr v-for="(record, index) in presentations" :key="record.pattern">
           <td>
             <code>{{ record.pattern }}</code>
-            <span
-              v-if="record.globalOverride"
-              class="model-price-collection__global-warning"
-              data-test="model-price-global-row-warning"
-            >
+            <span v-if="record.globalOverride" class="model-price-collection__global-warning">
               <TriangleAlert :size="14" aria-hidden="true" />
               {{ t('modelPrices.globalUserOverride') }}
             </span>
-            <div
-              v-if="record.policySummary"
-              class="model-price-collection__policy"
-              :data-test="`builtin-pricing-policy-${index}`"
-            >
+            <div v-if="record.policySummary" class="model-price-collection__policy">
               <StatusBadge>{{ t('modelPrices.builtin.longContext.label') }}</StatusBadge>
               <span>{{ record.policySummary }}</span>
             </div>
@@ -210,18 +182,12 @@ onBeforeUnmount(() => mediaQuery?.removeEventListener('change', updateMedia))
             <StatusBadge>{{ record.kind }}</StatusBadge>
             <span class="model-price-collection__source-label">{{ record.source }}</span>
           </td>
-          <td
-            v-for="price in record.priceRows"
-            :key="price.field"
-            :data-test="`${testPrefix}-${index}-${price.field}`"
-            :data-state="price.state"
-          >
+          <td v-for="price in record.priceRows" :key="price.field">
             {{ price.value }}
           </td>
           <td>
             <a
               v-if="record.sourceUrl"
-              :data-test="`${testPrefix}-source-${index}`"
               class="model-price-collection__source"
               :href="record.sourceUrl"
               target="_blank"
@@ -230,7 +196,7 @@ onBeforeUnmount(() => mediaQuery?.removeEventListener('change', updateMedia))
               {{ t('modelPrices.builtin.source') }}
               <ExternalLink :size="14" aria-hidden="true" />
             </a>
-            <span v-else :data-test="`${testPrefix}-source-${index}`">
+            <span v-else>
               {{
                 source === 'builtin'
                   ? t('modelPrices.sourceUnavailable')
@@ -243,11 +209,7 @@ onBeforeUnmount(() => mediaQuery?.removeEventListener('change', updateMedia))
           </td>
           <td>
             <div class="model-price-collection__row-actions">
-              <AppButton
-                :data-test="`${testPrefix}-price-edit-${index}`"
-                variant="ghost"
-                @click="edit(index, $event.currentTarget as HTMLElement)"
-              >
+              <AppButton variant="ghost" @click="edit(index, $event.currentTarget as HTMLElement)">
                 <Pencil :size="15" aria-hidden="true" />{{
                   source === 'user'
                     ? t('modelPrices.overrides.edit')

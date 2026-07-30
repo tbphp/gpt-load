@@ -8,9 +8,9 @@ defineProps<{
 
 <template>
   <div class="stat-figure">
-    <span class="stat-figure__label" data-stat-label>{{ label }}</span>
-    <strong class="stat-figure__value" data-stat-value>{{ value }}</strong>
-    <span v-if="detail" class="stat-figure__detail" data-stat-detail>{{ detail }}</span>
+    <span class="stat-figure__label">{{ label }}</span>
+    <strong class="stat-figure__value">{{ value }}</strong>
+    <span v-if="detail" class="stat-figure__detail">{{ detail }}</span>
   </div>
 </template>
 
@@ -24,15 +24,15 @@ defineProps<{
 .stat-figure__label {
   color: var(--color-text-faint);
   font-size: var(--text-sm);
-  font-weight: 650;
-  letter-spacing: 0.06em;
+  font-weight: 400;
+  letter-spacing: 0.025em;
   text-transform: uppercase;
 }
 .stat-figure__value {
   color: var(--color-text);
   font-family: var(--font-serif);
   font-size: clamp(2.25rem, 4vw, 3rem);
-  font-weight: 500;
+  font-weight: 400;
   letter-spacing: -0.035em;
   line-height: 1;
 }
@@ -40,5 +40,6 @@ defineProps<{
   color: var(--color-text-faint);
   font-family: var(--font-mono);
   font-size: var(--text-sm);
+  font-weight: 400;
 }
 </style>

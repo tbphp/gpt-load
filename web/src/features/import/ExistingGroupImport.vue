@@ -178,19 +178,11 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="existing-import">
-    <section
-      v-if="operationNoticeKey"
-      class="operation-notice"
-      data-test="import-operation-notice"
-      aria-live="polite"
-    >
+    <section v-if="operationNoticeKey" class="operation-notice" aria-live="polite">
       <InlineFeedback tone="warning">{{ t(operationNoticeKey) }}</InlineFeedback>
-      <code v-if="operationResourceIdentity" data-test="import-operation-resource">{{
-        operationResourceIdentity
-      }}</code>
+      <code v-if="operationResourceIdentity">{{ operationResourceIdentity }}</code>
       <AppButton
         v-else
-        data-test="import-operation-retry"
         variant="secondary"
         :disabled="!operation.canRetry.value"
         :busy="pending"
@@ -221,7 +213,6 @@ onBeforeUnmount(() => {
           <span>{{ t('import.existing.groupLabel') }}</span>
           <select
             id="existing-group-select"
-            data-test="existing-group"
             :value="selectedGroup?.id ?? ''"
             :disabled="pending || operation.operation.value !== null"
             @change="selectGroup"
@@ -236,7 +227,7 @@ onBeforeUnmount(() => {
         <template v-if="!reviewing">
           <KeyTextarea v-model="keys" :disabled="pending" />
           <footer class="card-actions">
-            <AppButton data-test="existing-review" :disabled="!canReview" @click="showReview">
+            <AppButton :disabled="!canReview" @click="showReview">
               {{ t('import.review') }}
             </AppButton>
           </footer>
@@ -244,12 +235,7 @@ onBeforeUnmount(() => {
 
         <template v-else>
           <section class="review" :aria-labelledby="'existing-review-title'">
-            <h3
-              id="existing-review-title"
-              ref="reviewHeading"
-              data-test="existing-review-heading"
-              tabindex="-1"
-            >
+            <h3 id="existing-review-title" ref="reviewHeading" tabindex="-1">
               {{ t('import.existing.reviewTitle') }}
             </h3>
             <p>{{ t('import.existing.reviewDescription') }}</p>
@@ -273,17 +259,17 @@ onBeforeUnmount(() => {
             >
               <ChevronLeft :size="16" aria-hidden="true" />{{ t('import.back') }}
             </AppButton>
-            <AppButton data-test="existing-submit" :busy="pending" @click="submit">
+            <AppButton :busy="pending" @click="submit">
               {{ t('import.existing.submit') }}
             </AppButton>
           </footer>
         </template>
       </template>
 
-      <section v-else data-test="existing-result" class="result" role="status" aria-live="polite">
+      <section v-else class="result" role="status" aria-live="polite">
         <Check :size="22" aria-hidden="true" />
         <div>
-          <h3 ref="resultHeading" data-test="existing-result-heading" tabindex="-1">
+          <h3 ref="resultHeading" tabindex="-1">
             {{ t('import.existing.successTitle') }}
           </h3>
           <p>

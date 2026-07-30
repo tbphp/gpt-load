@@ -69,7 +69,6 @@ function requestScopeMode(dimension: AccessKeyScopeDimension, event: Event): voi
     <label class="access-key-drawer__field">
       <span>{{ t('accessKeys.drawer.scopeMode') }}</span>
       <select
-        data-test="access-key-groups-mode"
         :value="modes.groups"
         :disabled="disabled || groupCatalogState !== 'ready'"
         @change="requestScopeMode('groups', $event)"
@@ -94,7 +93,6 @@ function requestScopeMode(dimension: AccessKeyScopeDimension, event: Event): voi
     <label class="access-key-drawer__field">
       <span>{{ t('accessKeys.drawer.scopeMode') }}</span>
       <select
-        data-test="access-key-protocols-mode"
         :value="modes.protocols"
         :disabled="disabled || catalogUnavailable()"
         @change="requestScopeMode('protocols', $event)"
@@ -124,7 +122,6 @@ function requestScopeMode(dimension: AccessKeyScopeDimension, event: Event): voi
     <label class="access-key-drawer__field">
       <span>{{ t('accessKeys.drawer.scopeMode') }}</span>
       <select
-        data-test="access-key-models-mode"
         :value="modes.models"
         :disabled="disabled || catalogUnavailable()"
         @change="requestScopeMode('models', $event)"
@@ -137,7 +134,6 @@ function requestScopeMode(dimension: AccessKeyScopeDimension, event: Event): voi
     <div class="access-key-drawer__model-entry">
       <input
         :value="modelInput"
-        data-test="access-key-model-input"
         type="text"
         list="access-key-model-options"
         autocomplete="off"
@@ -150,7 +146,6 @@ function requestScopeMode(dimension: AccessKeyScopeDimension, event: Event): voi
         <option v-for="model in modelOptions" :key="model" :value="model" />
       </datalist>
       <AppButton
-        data-test="access-key-model-add"
         variant="secondary"
         :disabled="optionDisabled('models') || !modelInput.trim()"
         @click="emit('addModel')"

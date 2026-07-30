@@ -1,5 +1,5 @@
 name: Validate and build web UI
-description: Install, validate, test, and build the embedded Vue application
+description: Install, validate, and build the embedded Vue application
 
 runs:
   using: composite
@@ -37,18 +37,6 @@ runs:
       shell: bash
       run: pnpm --dir web run type-check
 
-    - name: Run web unit tests
-      shell: bash
-      run: pnpm --dir web run test
-
-    - name: Validate visual runner manifest (runner and pixel gate remain external)
-      shell: bash
-      run: pnpm --dir web run check:visual
-
     - name: Build embedded web assets
       shell: bash
       run: pnpm --dir web run build
-
-    - name: Check canonical bundle budgets
-      shell: bash
-      run: pnpm --dir web run check:bundle

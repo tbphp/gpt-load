@@ -35,6 +35,8 @@ export type {
 const countFields = ['total', 'available', 'cooldown', 'blacklisted', 'disabled'] as const
 const healthFields = [
   'observed_at',
+  'version',
+  'uptime_seconds',
   'snapshot_revision',
   'stats_window_seconds',
   'counts',
@@ -205,6 +207,8 @@ export function projectRuntimeHealth(value: unknown): RuntimeHealthDto {
   assertNoSecretLikeFields(record, healthFields)
   return {
     observed_at: projectISOInstant(record.observed_at),
+    version: projectNonBlankString(record.version),
+    uptime_seconds: projectSafeInteger(record.uptime_seconds, { minimum: 0 }),
     snapshot_revision: projectSafeInteger(record.snapshot_revision, { minimum: 1 }),
     stats_window_seconds: projectSafeInteger(record.stats_window_seconds, { minimum: 1 }),
     counts: projectHealthCounts(record.counts),

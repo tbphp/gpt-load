@@ -37,18 +37,17 @@ defineExpose({ focusHeading })
 <template>
   <SurfaceCard class="import-card">
     <header>
-      <h2 ref="heading" data-test="import-step-2-heading" tabindex="-1">
+      <h2 ref="heading" tabindex="-1">
         {{ t('import.models.title') }}
       </h2>
       <p>{{ t('import.models.stepDescription') }}</p>
     </header>
     <InlineFeedback v-if="errorKey" tone="warning">{{ t(errorKey) }}</InlineFeedback>
-    <InlineFeedback v-if="resourceOnly" data-test="responses-resource-only-notice" tone="warning">
+    <InlineFeedback v-if="resourceOnly" tone="warning">
       {{ t('import.models.resourceOnlyNotice') }}
     </InlineFeedback>
     <button
       v-if="discoveryFailed && !manualMode"
-      data-test="manual-path"
       class="manual-path"
       type="button"
       @click="emit('manual')"
@@ -64,7 +63,7 @@ defineExpose({ focusHeading })
       <AppButton variant="secondary" @click="emit('back')">
         <ChevronLeft :size="16" aria-hidden="true" />{{ t('import.back') }}
       </AppButton>
-      <AppButton data-test="review" :disabled="!canReview" @click="emit('review')">
+      <AppButton :disabled="!canReview" @click="emit('review')">
         {{ t('import.review') }}<ChevronRight :size="16" aria-hidden="true" />
       </AppButton>
     </footer>

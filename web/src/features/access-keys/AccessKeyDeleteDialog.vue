@@ -61,12 +61,7 @@ onBeforeUnmount(() => controller?.abort())
     @update:open="setOpen"
   >
     <template #trigger>
-      <button
-        type="button"
-        class="access-key-delete__trigger"
-        data-test="access-key-delete-open"
-        @click="setOpen(true)"
-      >
+      <button type="button" class="access-key-delete__trigger" @click="setOpen(true)">
         <Trash2 :size="16" aria-hidden="true" />{{ t('accessKeys.delete.open') }}
       </button>
     </template>
@@ -83,7 +78,6 @@ onBeforeUnmount(() => controller?.abort())
           {{ t('common.cancel') }}
         </AppButton>
         <AppButton
-          data-test="access-key-delete-confirm"
           class="access-key-delete__confirm"
           variant="danger"
           :busy="pending"

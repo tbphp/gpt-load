@@ -35,7 +35,6 @@ function error(field: keyof LogFilterDraft): string | undefined {
 <template>
   <form
     class="logs-filter-form"
-    data-test="logs-filter-form"
     :aria-label="t('monitor.logs.filters.label')"
     @submit.prevent="emit('apply')"
   >
@@ -45,7 +44,6 @@ function error(field: keyof LogFilterDraft): string | undefined {
           <input
             id="logs-from"
             :value="draft.from"
-            data-test="logs-from"
             type="datetime-local"
             :aria-describedby="describedBy"
             :aria-invalid="error('from') ? 'true' : undefined"
@@ -58,7 +56,6 @@ function error(field: keyof LogFilterDraft): string | undefined {
           <input
             id="logs-to"
             :value="draft.to"
-            data-test="logs-to"
             type="datetime-local"
             :aria-describedby="describedBy"
             :aria-invalid="error('to') ? 'true' : undefined"
@@ -76,7 +73,6 @@ function error(field: keyof LogFilterDraft): string | undefined {
           <select
             id="logs-group"
             :value="draft.group_id"
-            data-test="logs-group"
             :aria-describedby="describedBy"
             :aria-invalid="error('group_id') ? 'true' : undefined"
             :disabled="groupsFailed"
@@ -100,7 +96,6 @@ function error(field: keyof LogFilterDraft): string | undefined {
           <input
             id="logs-model"
             :value="draft.model"
-            data-test="logs-model"
             type="text"
             autocomplete="off"
             :aria-describedby="describedBy"
@@ -118,7 +113,6 @@ function error(field: keyof LogFilterDraft): string | undefined {
           <select
             id="logs-access-key"
             :value="draft.access_key_id"
-            data-test="logs-access-key"
             :aria-describedby="describedBy"
             :aria-invalid="error('access_key_id') ? 'true' : undefined"
             :disabled="accessKeysFailed"
@@ -151,7 +145,6 @@ function error(field: keyof LogFilterDraft): string | undefined {
           <select
             id="logs-status"
             :value="draft.status"
-            data-test="logs-status"
             :aria-describedby="describedBy"
             :aria-invalid="error('status') ? 'true' : undefined"
             @change="emit('updateField', 'status', ($event.target as HTMLSelectElement).value)"
@@ -173,7 +166,6 @@ function error(field: keyof LogFilterDraft): string | undefined {
           <input
             id="logs-request-id"
             :value="draft.request_id"
-            data-test="logs-request-id"
             type="text"
             autocomplete="off"
             :aria-describedby="describedBy"
@@ -183,21 +175,16 @@ function error(field: keyof LogFilterDraft): string | undefined {
         </template>
       </FormField>
     </div>
-    <p v-if="dirty" class="logs-filter-dirty" data-test="logs-filter-dirty" role="status">
+    <p v-if="dirty" class="logs-filter-dirty" role="status">
       <ListFilter :size="16" aria-hidden="true" />
       <span>{{ t('monitor.logs.filters.dirty') }}</span>
     </p>
     <div class="logs-filter-actions">
       <AppButton type="submit">{{ t('monitor.logs.filters.apply') }}</AppButton>
-      <AppButton data-test="logs-reset" variant="ghost" @click="emit('reset')">
+      <AppButton variant="ghost" @click="emit('reset')">
         {{ t('monitor.logs.filters.reset') }}
       </AppButton>
-      <AppButton
-        data-test="logs-refresh"
-        variant="secondary"
-        :busy="refreshPending"
-        @click="emit('refresh')"
-      >
+      <AppButton variant="secondary" :busy="refreshPending" @click="emit('refresh')">
         {{ t('monitor.logs.refresh') }}
       </AppButton>
     </div>

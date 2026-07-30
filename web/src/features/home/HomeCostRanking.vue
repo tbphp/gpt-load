@@ -38,7 +38,7 @@ function groupName(groupID: number): string {
 </script>
 
 <template>
-  <section class="home-ranking" data-test="home-cost-ranking" aria-labelledby="home-ranking-title">
+  <section class="home-ranking" aria-labelledby="home-ranking-title">
     <header class="home-ranking__header">
       <h2 id="home-ranking-title">{{ t('home.ranking.title', { range: report.range }) }}</h2>
     </header>
@@ -59,13 +59,13 @@ function groupName(groupID: number): string {
         </tr>
       </thead>
       <tbody>
-        <tr v-for="row in rows" :key="`${row.group_id}:${row.model}`" data-ranking-row>
-          <td data-ranking-group>
+        <tr v-for="row in rows" :key="`${row.group_id}:${row.model}`">
+          <td>
             <RouterLink :to="usageBreakdownLocation(report.range, row.group_id, row.model)">
               {{ groupName(row.group_id) }}
             </RouterLink>
           </td>
-          <td data-ranking-model>{{ row.model }}</td>
+          <td class="home-ranking__model">{{ row.model }}</td>
           <td>{{ formatCount(row.request_count) }}</td>
           <td data-column-priority="low">
             {{ formatCompactMetric(row.total_tokens, locale) }}
@@ -76,7 +76,7 @@ function groupName(groupID: number): string {
     </DataTable>
     <p v-else class="home-ranking__empty">{{ t('home.ranking.empty') }}</p>
 
-    <footer class="home-ranking__footer" data-test="home-ranking-footer">
+    <footer class="home-ranking__footer">
       <span>{{ t('home.ranking.footer', { count: report.breakdown_group_count }) }}</span>
       <RouterLink :to="monitorLocation({ tab: 'usage', range: report.range })">
         {{ t('home.ranking.viewAll') }}
@@ -114,7 +114,7 @@ function groupName(groupID: number): string {
   color: var(--color-action);
   font-weight: 650;
 }
-.home-ranking [data-ranking-model] {
+.home-ranking__model {
   color: var(--color-text-muted);
 }
 .home-ranking th:nth-child(n + 3),

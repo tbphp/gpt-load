@@ -38,7 +38,7 @@ function formatEstimatedCost(): string {
         <span>{{ t('monitor.usage.kpi.requests') }}</span>
         <strong>{{ formatCount(summary.request_count) }}</strong>
       </SurfaceCard>
-      <SurfaceCard class="usage-kpi" data-test="usage-kpi-outcomes">
+      <SurfaceCard class="usage-kpi">
         <Gauge :size="20" aria-hidden="true" />
         <span>{{ t('monitor.usage.kpi.outcomes') }}</span>
         <strong>
@@ -50,22 +50,18 @@ function formatEstimatedCost(): string {
           }}
         </strong>
       </SurfaceCard>
-      <SurfaceCard class="usage-kpi" data-test="usage-kpi-total-tokens">
+      <SurfaceCard class="usage-kpi">
         <Database :size="20" aria-hidden="true" />
         <span>{{ t('monitor.usage.kpi.totalTokens') }}</span>
         <strong>{{ formatCount(summary.total_tokens) }}</strong>
       </SurfaceCard>
-      <SurfaceCard class="usage-kpi" data-test="usage-kpi-cost">
+      <SurfaceCard class="usage-kpi">
         <CircleDollarSign :size="20" aria-hidden="true" />
         <span>{{ t('monitor.usage.kpi.estimatedCost') }}</span>
         <strong>{{ formatEstimatedCost() }}</strong>
       </SurfaceCard>
     </div>
-    <dl
-      class="usage-token-definition"
-      data-test="usage-summary-token-definition"
-      :aria-label="t('monitor.usage.tokens.title')"
-    >
+    <dl class="usage-token-definition" :aria-label="t('monitor.usage.tokens.title')">
       <div>
         <dt>{{ t('monitor.usage.tokens.uncachedInput') }}</dt>
         <dd>{{ formatCount(summary.uncached_input_tokens) }}</dd>

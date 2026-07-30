@@ -80,12 +80,7 @@ onBeforeUnmount(clearRequest)
     @update:open="setOpen"
   >
     <template #trigger>
-      <button
-        type="button"
-        class="model-price-reset__trigger"
-        data-test="model-price-reset-open"
-        @click="setOpen(true)"
-      >
+      <button type="button" class="model-price-reset__trigger" @click="setOpen(true)">
         <RotateCcw :size="16" aria-hidden="true" />{{ t('modelPrices.reset.open') }}
       </button>
     </template>
@@ -100,7 +95,6 @@ onBeforeUnmount(clearRequest)
           {{ t('common.cancel') }}
         </AppButton>
         <AppButton
-          data-test="model-price-reset-confirm"
           class="model-price-reset__confirm"
           variant="secondary"
           :busy="pending"

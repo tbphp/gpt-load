@@ -120,7 +120,7 @@ async function focusCreateAfterDelete(name: string): Promise<void> {
   await nextTick()
   if (!mounted) return
   deletionAnnouncement.value = t('accessKeys.delete.deletedAnnouncement', { name })
-  const target = viewRoot.value?.querySelector('button[data-test="access-key-create"]')
+  const target = viewRoot.value?.querySelector('button.access-key-create')
   if (target instanceof HTMLButtonElement && target.isConnected) target.focus()
 }
 </script>
@@ -133,7 +133,7 @@ async function focusCreateAfterDelete(name: string): Promise<void> {
       :description="t('accessKeys.description')"
     >
       <template #actions>
-        <AppButton data-test="access-key-create" @click="createKey">
+        <AppButton class="access-key-create" @click="createKey">
           <Plus :size="16" aria-hidden="true" />{{ t('accessKeys.create') }}
         </AppButton>
       </template>
@@ -152,46 +152,23 @@ async function focusCreateAfterDelete(name: string): Promise<void> {
       @update:open="setDrawerOpen"
     />
 
-    <section
-      v-if="createOperation"
-      class="access-keys__operation"
-      data-test="access-key-operation-notice"
-      aria-live="polite"
-    >
+    <section v-if="createOperation" class="access-keys__operation" aria-live="polite">
       <InlineFeedback tone="warning">{{ t(operationNoticeKey) }}</InlineFeedback>
-      <AppButton
-        data-test="access-key-operation-check"
-        variant="secondary"
-        @click="checkCreateOperation"
-      >
+      <AppButton variant="secondary" @click="checkCreateOperation">
         {{ t('accessKeys.operation.checkResult') }}
       </AppButton>
     </section>
 
-    <section
-      v-if="editOperation"
-      class="access-keys__operation"
-      data-test="access-key-edit-operation-notice"
-      aria-live="polite"
-    >
+    <section v-if="editOperation" class="access-keys__operation" aria-live="polite">
       <InlineFeedback tone="warning">{{
         t(editOperationNoticeKey, { name: editOperationName })
       }}</InlineFeedback>
-      <AppButton
-        data-test="access-key-edit-operation-check"
-        variant="secondary"
-        @click="checkEditOperation"
-      >
+      <AppButton variant="secondary" @click="checkEditOperation">
         {{ t('accessKeys.operation.checkResult') }}
       </AppButton>
     </section>
 
-    <p
-      class="sr-only"
-      data-test="access-key-delete-announcement"
-      aria-live="polite"
-      aria-atomic="true"
-    >
+    <p class="sr-only" aria-live="polite" aria-atomic="true">
       {{ deletionAnnouncement }}
     </p>
 

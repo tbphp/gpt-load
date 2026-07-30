@@ -221,19 +221,9 @@ const effectiveLabels = computed(() => ({
         @retry="keysQuery.refetch()"
       />
       <p v-if="actionError" class="group-keys__action-error" role="alert">{{ actionError }}</p>
-      <div
-        v-if="problemFilterActive"
-        class="group-keys__filter"
-        data-test="problem-key-filter"
-        role="status"
-      >
+      <div v-if="problemFilterActive" class="group-keys__filter" role="status">
         <p>{{ t('group.keys.problemFilter') }}</p>
-        <AppButton
-          variant="ghost"
-          size="sm"
-          data-test="clear-problem-key-filter"
-          @click="clearProblemFilter"
-        >
+        <AppButton variant="ghost" size="sm" @click="clearProblemFilter">
           {{ t('group.keys.clearProblemFilter') }}
         </AppButton>
       </div>
@@ -261,7 +251,7 @@ const effectiveLabels = computed(() => ({
           </tr>
         </thead>
         <tbody>
-          <tr v-for="key in visibleKeys" :key="key.id" :data-test="`key-row-${key.id}`">
+          <tr v-for="key in visibleKeys" :key="key.id">
             <td class="group-keys__mask">{{ key.mask }}</td>
             <td>
               <StatusBadge :tone="key.status === 'active' ? 'success' : 'neutral'">
@@ -275,7 +265,6 @@ const effectiveLabels = computed(() => ({
             </td>
             <td>
               <select
-                :data-test="`key-weight-${key.id}`"
                 :aria-label="t('group.keys.weightFor', { mask: key.mask })"
                 :value="weightDrafts.get(key.id)"
                 :disabled="pending(key.id)"
@@ -298,7 +287,6 @@ const effectiveLabels = computed(() => ({
                 </AppButton>
                 <AppButton
                   variant="secondary"
-                  :data-test="`key-save-${key.id}`"
                   :disabled="!hasWeightPatch(key)"
                   :busy="pending(key.id)"
                   @click="saveWeight(key)"
@@ -317,7 +305,6 @@ const effectiveLabels = computed(() => ({
                     <AppButton
                       class="group-keys__delete"
                       variant="ghost"
-                      :data-test="`key-delete-${key.id}`"
                       :aria-disabled="pending(key.id) ? 'true' : undefined"
                       @click="!pending(key.id) && (deleteKeyId = key.id)"
                     >
@@ -327,7 +314,6 @@ const effectiveLabels = computed(() => ({
                   <div class="group-keys__dialog-actions">
                     <AppButton
                       variant="secondary"
-                      :data-test="`key-delete-cancel-${key.id}`"
                       :disabled="pending(key.id)"
                       @click="setDeleteDialog(false, key.id)"
                     >
@@ -336,7 +322,6 @@ const effectiveLabels = computed(() => ({
                     <AppButton
                       class="group-keys__confirm-delete"
                       variant="secondary"
-                      :data-test="`key-delete-confirm-${key.id}`"
                       :busy="pending(key.id)"
                       :disabled="pending(key.id)"
                       @click="confirmDelete(key)"

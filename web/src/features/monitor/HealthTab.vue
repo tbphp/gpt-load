@@ -61,62 +61,50 @@ const requestLogCounters = computed(() => {
     {
       label: t('monitor.health.requestLog.enqueued'),
       value: requestLog.enqueued_total,
-      testId: 'request-log-enqueued',
     },
     {
       label: t('monitor.health.requestLog.persisted'),
       value: requestLog.persisted_total,
-      testId: 'request-log-persisted',
     },
     {
       label: t('monitor.health.requestLog.droppedNotRunning'),
       value: requestLog.dropped_not_running_total,
-      testId: 'request-log-dropped-not-running',
     },
     {
       label: t('monitor.health.requestLog.droppedQueueFull'),
       value: requestLog.dropped_queue_full_total,
-      testId: 'request-log-dropped-queue-full',
     },
     {
       label: t('monitor.health.requestLog.droppedStopping'),
       value: requestLog.dropped_stopping_total,
-      testId: 'request-log-dropped-stopping',
     },
     {
       label: t('monitor.health.requestLog.droppedPersistFailed'),
       value: requestLog.dropped_persist_failed_total,
-      testId: 'request-log-dropped-persist-failed',
     },
     {
       label: t('monitor.health.requestLog.droppedShutdown'),
       value: requestLog.dropped_shutdown_total,
-      testId: 'request-log-dropped-shutdown',
     },
     {
       label: t('monitor.health.requestLog.droppedTotal'),
       value: requestLog.dropped_total,
-      testId: 'request-log-dropped-total',
     },
     {
       label: t('monitor.health.requestLog.writeFailures'),
       value: requestLog.write_failure_total,
-      testId: 'request-log-write-failures',
     },
     {
       label: t('monitor.health.requestLog.retentionFailures'),
       value: requestLog.retention_delete_failure_total,
-      testId: 'request-log-retention-failures',
     },
     {
       label: t('monitor.health.requestLog.queueDepth'),
       value: requestLog.queue_depth,
-      testId: 'request-log-queue-depth',
     },
     {
       label: t('monitor.health.requestLog.queueCapacity'),
       value: requestLog.queue_capacity,
-      testId: 'request-log-queue-capacity',
     },
   ]
 })
@@ -359,9 +347,9 @@ function remainingTime(key: HealthProblemKeyDto): string {
         </header>
 
         <dl class="request-log-grid">
-          <div v-for="counter in requestLogCounters" :key="counter.testId">
+          <div v-for="counter in requestLogCounters" :key="counter.label">
             <dt>{{ counter.label }}</dt>
-            <dd :data-test="counter.testId">{{ counter.value }}</dd>
+            <dd>{{ counter.value }}</dd>
           </div>
           <div>
             <dt>{{ t('monitor.health.requestLog.lastWriteFailureAt') }}</dt>

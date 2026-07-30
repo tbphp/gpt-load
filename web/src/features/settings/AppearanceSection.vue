@@ -37,7 +37,7 @@ function setTheme(event: Event): void {
     <div class="appearance-section__grid">
       <label>
         <span>{{ t('settings.appearance.locale') }}</span>
-        <select data-test="appearance-locale" :value="locale" @change="setLocale">
+        <select :value="locale" @change="setLocale">
           <option value="zh-CN">{{ t('shell.localeZh') }}</option>
           <option value="en-US">{{ t('shell.localeEn') }}</option>
           <option value="ja-JP">{{ t('shell.localeJa') }}</option>
@@ -45,7 +45,7 @@ function setTheme(event: Event): void {
       </label>
       <label>
         <span>{{ t('settings.appearance.theme') }}</span>
-        <select data-test="appearance-theme" :value="theme.theme.value" @change="setTheme">
+        <select :value="theme.theme.value" @change="setTheme">
           <option value="system">{{ t('shell.themeSystem') }}</option>
           <option value="light">{{ t('shell.themeLight') }}</option>
           <option value="dark">{{ t('shell.themeDark') }}</option>

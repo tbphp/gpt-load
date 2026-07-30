@@ -33,7 +33,6 @@ defineExpose({ focusName })
       id="access-key-name"
       ref="nameInput"
       :value="name"
-      data-test="access-key-name"
       type="text"
       autocomplete="off"
       :disabled="disabled"
@@ -46,7 +45,6 @@ defineExpose({ focusName })
     <select
       id="access-key-status"
       :value="status"
-      data-test="access-key-status"
       :disabled="disabled"
       @change="
         emit('update:status', ($event.target as HTMLSelectElement).value as AccessKeyDto['status'])
@@ -61,7 +59,6 @@ defineExpose({ focusName })
     <span>{{ t('accessKeys.drawer.rpm') }}</span>
     <input
       id="access-key-rpm"
-      data-test="access-key-rpm"
       type="number"
       min="0"
       step="1"

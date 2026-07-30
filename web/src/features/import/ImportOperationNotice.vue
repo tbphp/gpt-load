@@ -15,19 +15,11 @@ const { t } = useI18n()
 </script>
 
 <template>
-  <section
-    v-if="messageKey"
-    class="operation-notice"
-    data-test="import-operation-notice"
-    aria-live="polite"
-  >
+  <section v-if="messageKey" class="operation-notice" aria-live="polite">
     <InlineFeedback tone="warning">{{ t(messageKey) }}</InlineFeedback>
-    <code v-if="resourceIdentity" data-test="import-operation-resource">{{
-      resourceIdentity
-    }}</code>
+    <code v-if="resourceIdentity">{{ resourceIdentity }}</code>
     <AppButton
       v-else
-      data-test="import-operation-retry"
       variant="secondary"
       :disabled="!canRetry"
       :busy="pending"

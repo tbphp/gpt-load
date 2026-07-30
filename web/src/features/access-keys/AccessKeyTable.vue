@@ -47,11 +47,7 @@ function source(id: number): AccessKeyDto {
       </tr>
     </thead>
     <tbody>
-      <tr
-        v-for="record in presentations"
-        :key="record.id"
-        :data-test="`access-key-row-${record.id}`"
-      >
+      <tr v-for="record in presentations" :key="record.id">
         <td class="access-key-table__name">{{ record.name }}</td>
         <td>
           <AccessKeySecret
@@ -82,7 +78,6 @@ function source(id: number): AccessKeyDto {
             <button
               type="button"
               class="access-key-table__edit"
-              :data-test="`access-key-edit-${record.id}`"
               @click="emit('edit', source(record.id), $event.currentTarget as HTMLElement)"
             >
               <Pencil :size="16" aria-hidden="true" />{{ t('accessKeys.edit') }}

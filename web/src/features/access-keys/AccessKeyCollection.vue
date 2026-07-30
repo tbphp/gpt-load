@@ -146,12 +146,7 @@ onBeforeUnmount(() => {
 <template>
   <div class="access-key-collection">
     <div v-if="mobile" class="access-key-collection__cards">
-      <MobileRecordCard
-        v-for="record in presentations"
-        :key="record.id"
-        :label="record.name"
-        :data-test="`access-key-card-${record.id}`"
-      >
+      <MobileRecordCard v-for="record in presentations" :key="record.id" :label="record.name">
         <template #header>
           <h2>{{ record.name }}</h2>
           <StatusBadge :tone="record.status === 'active' ? 'success' : 'neutral'">
@@ -195,7 +190,6 @@ onBeforeUnmount(() => {
           <button
             type="button"
             class="access-key-card__edit"
-            :data-test="`access-key-edit-${record.id}`"
             @click="emit('edit', source(record.id), $event.currentTarget as HTMLElement)"
           >
             <Pencil :size="16" aria-hidden="true" />{{ t('accessKeys.edit') }}

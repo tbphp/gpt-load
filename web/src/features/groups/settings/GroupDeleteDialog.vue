@@ -99,12 +99,7 @@ onBeforeUnmount(() => controller?.abort())
     @update:open="setOpen"
   >
     <template #trigger>
-      <AppButton
-        data-test="group-delete-open"
-        class="group-delete__open"
-        variant="secondary"
-        @click="setOpen(true)"
-      >
+      <AppButton class="group-delete__open" variant="secondary" @click="setOpen(true)">
         <Trash2 :size="16" aria-hidden="true" />{{ t('group.settings.delete.open') }}
       </AppButton>
     </template>
@@ -117,7 +112,6 @@ onBeforeUnmount(() => controller?.abort())
         id="group-delete-name"
         ref="nameInput"
         v-model="typedName"
-        data-test="group-delete-name"
         type="text"
         autocomplete="off"
         spellcheck="false"
@@ -132,7 +126,6 @@ onBeforeUnmount(() => controller?.abort())
           {{ t('group.settings.delete.cancel') }}
         </AppButton>
         <AppButton
-          data-test="group-delete-confirm"
           class="group-delete__confirm"
           variant="secondary"
           :busy="pending"

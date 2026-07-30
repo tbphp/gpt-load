@@ -75,7 +75,6 @@ function selectMode(mode: 'new' | 'existing'): void {
     <PageHeader :title="t('import.title')" :description="t('import.description')" />
     <div class="mode-selector" :aria-label="t('import.mode.label')" role="group">
       <button
-        data-test="mode-new"
         type="button"
         :aria-pressed="activeMode === 'new'"
         :disabled="operationMode !== null"
@@ -84,7 +83,6 @@ function selectMode(mode: 'new' | 'existing'): void {
         {{ t('import.mode.new') }}
       </button>
       <button
-        data-test="mode-existing"
         type="button"
         :aria-pressed="activeMode === 'existing'"
         :disabled="operationMode !== null"

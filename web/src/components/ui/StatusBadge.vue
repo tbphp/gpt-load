@@ -52,12 +52,8 @@ const icon = computed(() => {
 </script>
 
 <template>
-  <span
-    class="status-badge"
-    :class="`status-badge--${resolvedTone}`"
-    :data-status="status || undefined"
-  >
-    <component :is="icon" :size="14" :data-status-icon="resolvedIcon" aria-hidden="true" />
+  <span class="status-badge" :class="`status-badge--${resolvedTone}`">
+    <component :is="icon" :size="14" aria-hidden="true" />
     <slot />
   </span>
 </template>

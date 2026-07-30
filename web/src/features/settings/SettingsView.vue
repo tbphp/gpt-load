@@ -154,45 +154,28 @@ onBeforeUnmount(() => {
       <nav class="settings-navigation" :aria-label="t('settings.navigation.label')">
         <a
           href="#settings-request-forwarding"
-          data-test="settings-nav-request"
           @click.prevent="focusTarget('settings-request-forwarding')"
         >
           {{ t('settings.navigation.request') }}
         </a>
         <a
           href="#settings-logs-maintenance"
-          data-test="settings-nav-logs"
           @click.prevent="focusTarget('settings-logs-maintenance')"
         >
           {{ t('settings.navigation.logs') }}
         </a>
       </nav>
 
-      <section
-        v-if="dirty"
-        class="settings-dirty"
-        data-test="settings-dirty-summary"
-        aria-live="polite"
-      >
+      <section v-if="dirty" class="settings-dirty" aria-live="polite">
         <strong>{{ t('settings.dirtySummary', { count: changedKeys.length }) }}</strong>
         <span>{{ changedKeys.map(settingLabel).join(', ') }}</span>
       </section>
 
-      <section
-        v-if="invalidKeys.length > 0"
-        class="settings-validation"
-        data-test="settings-validation-summary"
-        role="alert"
-        tabindex="-1"
-      >
+      <section v-if="invalidKeys.length > 0" class="settings-validation" role="alert" tabindex="-1">
         <strong>{{ t('settings.validation.title') }}</strong>
         <ul>
           <li v-for="key in invalidKeys" :key="key">
-            <a
-              :href="`#${settingTarget(key)}`"
-              :data-test="`settings-error-link-${key}`"
-              @click.prevent="focusTarget(settingTarget(key))"
-            >
+            <a :href="`#${settingTarget(key)}`" @click.prevent="focusTarget(settingTarget(key))">
               {{ settingLabel(key) }}
             </a>
           </li>
@@ -200,12 +183,12 @@ onBeforeUnmount(() => {
       </section>
 
       <InlineFeedback v-if="failed" tone="danger">{{ t('settings.saveFailed') }}</InlineFeedback>
-      <InlineFeedback v-if="reconciling" data-test="settings-reconciling" tone="info">
+      <InlineFeedback v-if="reconciling" tone="info">
         {{ t('settings.outcome.reconciling') }}
       </InlineFeedback>
-      <div v-else-if="indeterminate" data-test="settings-indeterminate">
+      <div v-else-if="indeterminate">
         <InlineFeedback tone="warning">{{ t('settings.outcome.indeterminate') }}</InlineFeedback>
-        <AppButton data-test="settings-check-result" variant="secondary" @click="checkResult">
+        <AppButton variant="secondary" @click="checkResult">
           {{ t('settings.outcome.checkResult') }}
         </AppButton>
       </div>
@@ -213,26 +196,16 @@ onBeforeUnmount(() => {
         {{ conflicts.length > 0 ? t('settings.conflict.blocked') : t('settings.conflict.rebased') }}
       </InlineFeedback>
       <p v-if="savedAt" class="settings-saved" aria-live="polite">
-        <time data-test="settings-saved-at" :datetime="savedAt.toISOString()">
+        <time :datetime="savedAt.toISOString()">
           {{ t('settings.savedAt', { time: savedAtLabel }) }}
         </time>
       </p>
 
       <div class="settings-actions">
-        <AppButton
-          data-test="settings-discard"
-          variant="secondary"
-          :disabled="!dirty || operationLocked"
-          @click="discard"
-        >
+        <AppButton variant="secondary" :disabled="!dirty || operationLocked" @click="discard">
           {{ t('settings.discard') }}
         </AppButton>
-        <AppButton
-          data-test="settings-save-all"
-          :busy="pending"
-          :disabled="!dirty || !valid || operationLocked"
-          @click="saveAll"
-        >
+        <AppButton :busy="pending" :disabled="!dirty || !valid || operationLocked" @click="saveAll">
           {{ t('settings.save') }}
         </AppButton>
       </div>
@@ -268,11 +241,7 @@ onBeforeUnmount(() => {
           <p>{{ t('modelPrices.settingsEntry.description') }}</p>
         </div>
       </div>
-      <RouterLink
-        class="model-prices-entry__link"
-        data-test="model-prices-entry"
-        :to="modelPricesLocation()"
-      >
+      <RouterLink class="model-prices-entry__link" :to="modelPricesLocation()">
         {{ t('modelPrices.settingsEntry.open') }}
         <ChevronRight :size="16" aria-hidden="true" />
       </RouterLink>

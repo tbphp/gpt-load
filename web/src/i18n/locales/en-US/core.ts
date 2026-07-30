@@ -92,6 +92,7 @@ export default {
       estimatedCost: 'Estimated cost · last {range}',
       successDetail: '{requests} requests · {failures} failures',
       knownPlusUnknown: '{cost} + unknown',
+      costTokens: '{tokens} tokens',
       costDetail: '{tokens} tokens · {unpriced} unpriced',
     },
     range: {
@@ -117,8 +118,6 @@ export default {
       requests: 'Requests',
       failures: 'Failures',
       now: 'Now',
-      perHour: '/h',
-      perDay: '/d',
       failureStripHourly: 'Failed requests · hourly count',
       failureStripDaily: 'Failed requests · daily count',
       failureLink: 'Failed requests',
@@ -140,8 +139,9 @@ export default {
         'The latest observation showed key exceptions in {problems} Groups and {available}/{total} available keys.',
       staleDescription: 'The current health check failed, so this conclusion may be stale.',
       observation: 'Health observation',
-      observedAt: 'Observed',
-      revision: 'Configuration rev.{revision}',
+      updatedAt: 'Updated:',
+      version: 'Version:',
+      uptime: 'Uptime',
     },
     problems: {
       title: 'Keys requiring attention',

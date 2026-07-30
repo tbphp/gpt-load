@@ -232,23 +232,14 @@ function estimatedCost(log: RequestLogItemDto): string {
         </dl>
         <div class="log-detail__summary">
           <h3>{{ t('monitor.logs.drawer.errorSummary') }}</h3>
-          <p data-test="log-error-summary">{{ log.error_summary || t('monitor.logs.none') }}</p>
+          <p>{{ log.error_summary || t('monitor.logs.none') }}</p>
         </div>
-        <RouterLink
-          v-if="inspectorTarget"
-          class="log-detail__inspector"
-          data-test="log-inspector-link"
-          :to="inspectorTarget"
-        >
+        <RouterLink v-if="inspectorTarget" class="log-detail__inspector" :to="inspectorTarget">
           {{ t('monitor.logs.drawer.openInspector') }}
         </RouterLink>
       </section>
 
-      <section
-        class="log-detail__section"
-        data-test="log-usage-cost"
-        aria-labelledby="log-detail-usage-heading"
-      >
+      <section class="log-detail__section" aria-labelledby="log-detail-usage-heading">
         <h2 id="log-detail-usage-heading">{{ t('monitor.logs.drawer.usage.title') }}</h2>
         <p class="log-detail__section-description">
           {{ t('monitor.logs.drawer.usage.description') }}
@@ -260,7 +251,7 @@ function estimatedCost(log: RequestLogItemDto): string {
         <dl class="log-detail__facts">
           <div>
             <dt>{{ t('monitor.logs.drawer.usage.finalGroup') }}</dt>
-            <dd data-test="log-final-group">
+            <dd>
               {{
                 log.group_id === null
                   ? t('monitor.logs.drawer.usage.unknown')
@@ -270,7 +261,7 @@ function estimatedCost(log: RequestLogItemDto): string {
           </div>
           <div>
             <dt>{{ t('monitor.logs.drawer.usage.estimatedCost') }}</dt>
-            <dd data-test="log-estimated-cost">{{ estimatedCost(log) }}</dd>
+            <dd>{{ estimatedCost(log) }}</dd>
           </div>
           <div>
             <dt>{{ t('monitor.logs.drawer.usage.tokens.uncachedInput') }}</dt>
@@ -303,7 +294,6 @@ function estimatedCost(log: RequestLogItemDto): string {
         <RouterLink
           v-if="log.cost_state === 'unpriced'"
           class="log-detail__prices"
-          data-test="log-usage-prices-link"
           :to="modelPricesLocation()"
         >
           {{ t('monitor.logs.drawer.usage.openPrices') }}
@@ -320,7 +310,6 @@ function estimatedCost(log: RequestLogItemDto): string {
           v-else
           :key="attempt.sequence"
           class="log-attempt"
-          :data-test="`log-attempt-${attempt.sequence}`"
         >
           <header>
             <h3>{{ t('monitor.logs.drawer.attempt', { sequence: attempt.sequence }) }}</h3>

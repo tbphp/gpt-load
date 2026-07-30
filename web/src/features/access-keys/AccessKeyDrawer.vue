@@ -652,7 +652,6 @@ onBeforeUnmount(clearLocalState)
         </AppButton>
         <AppButton
           v-if="!createCompleted"
-          data-test="access-key-save"
           type="submit"
           :busy="pending"
           :disabled="!editReconciliation && !createOperationActive && (!valid || !dirty)"

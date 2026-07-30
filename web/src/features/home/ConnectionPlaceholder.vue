@@ -6,11 +6,7 @@ const { t } = useI18n()
 </script>
 
 <template>
-  <section
-    class="connection-placeholder"
-    data-test="home-connection-placeholder"
-    aria-labelledby="connection-placeholder-title"
-  >
+  <section class="connection-placeholder" aria-labelledby="connection-placeholder-title">
     <header class="connection-placeholder__header">
       <div class="connection-placeholder__title">
         <Cable :size="22" aria-hidden="true" />
@@ -20,7 +16,7 @@ const { t } = useI18n()
         {{ t('home.connectionPlaceholder.badge') }}
       </span>
     </header>
-    <div class="connection-placeholder__surface" data-test="connection-placeholder-surface">
+    <div class="connection-placeholder__surface">
       <p>{{ t('home.connectionPlaceholder.description') }}</p>
     </div>
   </section>

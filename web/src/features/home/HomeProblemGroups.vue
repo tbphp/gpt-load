@@ -28,17 +28,11 @@ function categoryLabel(category: HealthProblemKeyDto['last_failure_category']): 
 </script>
 
 <template>
-  <section
-    class="home-problems"
-    data-test="home-problem-groups"
-    :aria-label="t('home.problems.title')"
-  >
+  <section class="home-problems" :aria-label="t('home.problems.title')">
     <template v-for="group in groups" :key="group.groupId">
       <article
         v-if="group.cooldownKeys.length > 0"
         class="home-problem-panel home-problem-status--warning"
-        data-problem-kind="cooldown"
-        :data-problem-group-id="group.groupId"
       >
         <header class="home-problem-panel__header">
           <h3>
@@ -48,7 +42,7 @@ function categoryLabel(category: HealthProblemKeyDto['last_failure_category']): 
               {{ t('home.problems.cooldown', { count: group.cooldownKeys.length }) }}
             </span>
           </h3>
-          <RouterLink data-test="home-problem-link" :to="problemKeysLocation(group.groupId)">
+          <RouterLink :to="problemKeysLocation(group.groupId)">
             {{ t('home.problems.viewKeys') }}
             <ArrowRight :size="16" aria-hidden="true" />
           </RouterLink>
@@ -69,8 +63,6 @@ function categoryLabel(category: HealthProblemKeyDto['last_failure_category']): 
       <article
         v-if="group.blacklistedKeys.length > 0"
         class="home-problem-panel home-problem-status--danger"
-        data-problem-kind="blacklisted"
-        :data-problem-group-id="group.groupId"
       >
         <header class="home-problem-panel__header">
           <h3>
@@ -80,7 +72,7 @@ function categoryLabel(category: HealthProblemKeyDto['last_failure_category']): 
               {{ t('home.problems.blacklisted', { count: group.blacklistedKeys.length }) }}
             </span>
           </h3>
-          <RouterLink data-test="home-problem-link" :to="problemKeysLocation(group.groupId)">
+          <RouterLink :to="problemKeysLocation(group.groupId)">
             {{ t('home.problems.viewKeys') }}
             <ArrowRight :size="16" aria-hidden="true" />
           </RouterLink>

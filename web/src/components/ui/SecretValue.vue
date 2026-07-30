@@ -6,7 +6,6 @@ const props = defineProps<{
   value: string
   revealLabel: string
   concealLabel: string
-  buttonTest?: string
 }>()
 const emit = defineEmits<{ reveal: []; conceal: [] }>()
 const revealed = ref(false)
@@ -34,7 +33,6 @@ function toggle(): void {
     <button
       type="button"
       :aria-label="revealed ? concealLabel : revealLabel"
-      :data-test="buttonTest"
       :aria-pressed="revealed"
       @click="toggle"
     >

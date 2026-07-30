@@ -53,11 +53,9 @@ function addManual(): void {
         :key="index"
         class="model-row"
         :class="{ 'model-row--with-status': $slots.status }"
-        :data-test="`model-row-${index}`"
       >
         <label class="model-row__check">
           <input
-            :data-test="`model-selected-${index}`"
             type="checkbox"
             :checked="model.selected"
             :disabled="props.disabled"
@@ -68,7 +66,6 @@ function addManual(): void {
         <label>
           <span class="sr-only">{{ t('import.models.aliasFor', { id: model.id }) }}</span>
           <input
-            :data-test="`model-alias-${index}`"
             :value="model.alias"
             :placeholder="t('import.models.alias')"
             :disabled="props.disabled"
@@ -83,7 +80,6 @@ function addManual(): void {
         <span>{{ t('import.models.manualId') }}</span>
         <input
           v-model="manualID"
-          data-test="manual-model-id"
           autocomplete="off"
           spellcheck="false"
           :disabled="props.disabled"
@@ -91,19 +87,9 @@ function addManual(): void {
       </label>
       <label>
         <span>{{ t('import.models.alias') }}</span>
-        <input
-          v-model="manualAlias"
-          data-test="manual-model-alias"
-          autocomplete="off"
-          :disabled="props.disabled"
-        />
+        <input v-model="manualAlias" autocomplete="off" :disabled="props.disabled" />
       </label>
-      <button
-        data-test="add-manual-model"
-        type="button"
-        :disabled="props.disabled || !manualID.trim()"
-        @click="addManual"
-      >
+      <button type="button" :disabled="props.disabled || !manualID.trim()" @click="addManual">
         <Plus :size="16" aria-hidden="true" />{{ t('import.models.add') }}
       </button>
     </div>

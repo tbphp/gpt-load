@@ -24,7 +24,6 @@ const { t } = useI18n()
       class="access-key-secret__reveal"
       :aria-label="revealedValue ? t('common.conceal') : t('common.reveal')"
       :aria-pressed="Boolean(revealedValue)"
-      :data-test="`access-key-reveal-${id}`"
       :disabled="pending"
       @click="$emit('toggle', id)"
     >
@@ -37,7 +36,6 @@ const { t } = useI18n()
       :label="t('accessKeys.copy')"
       :success-label="t('common.copied')"
       :failure-label="t('common.copyFailed')"
-      :data-test="`access-key-copy-${id}`"
     />
     <small v-if="failed" role="alert">{{ t('accessKeys.revealFailed') }}</small>
   </div>

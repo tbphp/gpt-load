@@ -9,7 +9,6 @@ import type { HomeHealthState } from './home-presenter'
 
 const props = defineProps<{
   state: HomeHealthState
-  observedDate: string
 }>()
 const emit = defineEmits<{ retry: [] }>()
 const { locale, t } = useI18n()
@@ -76,10 +75,19 @@ const observedTime = computed(() => {
     hourCycle: 'h23',
   }).format(new Date(report.observed_at))
 })
+const uptime = computed(() => {
+  const seconds = health.value?.uptime_seconds
+  if (seconds === undefined) return ''
+  const days = Math.floor(seconds / 86_400)
+  const hours = Math.floor((seconds % 86_400) / 3_600)
+  if (days > 0) return `${days}d${hours}h`
+  if (hours > 0) return `${hours}h`
+  return `${Math.floor(seconds / 60)}m`
+})
 </script>
 
 <template>
-  <section class="home-lede" :class="`home-lede--${tone}`" data-test="home-lede">
+  <section class="home-lede" :class="`home-lede--${tone}`">
     <template v-if="state.kind === 'loading'">
       <span class="sr-only" role="status">{{ t('home.healthLoading') }}</span>
       <div class="home-lede__loading">
@@ -94,14 +102,11 @@ const observedTime = computed(() => {
           <CircleCheck v-if="state.kind === 'normal'" :size="18" aria-hidden="true" />
           <TriangleAlert v-else-if="state.kind === 'problem'" :size="18" aria-hidden="true" />
           <CircleHelp v-else :size="18" aria-hidden="true" />
-          {{ t('home.lede.currentStatus') }} ·
-          <time :datetime="observedDate">{{ observedDate }}</time>
+          {{ t('home.lede.currentStatus') }}
         </p>
         <h1 v-if="problemTitle">
           {{ problemTitle.normal
-          }}<span class="home-lede__problem-emphasis" data-test="home-lede-problem-emphasis">{{
-            problemTitle.emphasis
-          }}</span
+          }}<span class="home-lede__problem-emphasis">{{ problemTitle.emphasis }}</span
           >{{ problemTitle.availability }}
         </h1>
         <h1 v-else>{{ title }}</h1>
@@ -115,20 +120,21 @@ const observedTime = computed(() => {
 
       <aside v-if="health" class="home-lede__stamp" :aria-label="t('home.lede.observation')">
         <span>
-          {{ t('home.lede.observedAt') }}
-          <time data-test="home-observed-time" :datetime="health.observed_at">
+          <span>{{ t('home.lede.updatedAt') }}</span>
+          <time :datetime="health.observed_at">
             {{ observedTime }}
           </time>
         </span>
-        <span>{{ t('home.lede.revision', { revision: health.snapshot_revision }) }}</span>
+        <span>
+          <span>{{ t('home.lede.version') }}</span>
+          <b>{{ health.version }}</b>
+        </span>
+        <span>
+          <span>{{ t('home.lede.uptime') }}</span>
+          <b>{{ uptime }}</b>
+        </span>
       </aside>
-      <button
-        v-else
-        class="home-lede__retry"
-        data-test="home-health-retry"
-        type="button"
-        @click="emit('retry')"
-      >
+      <button v-else class="home-lede__retry" type="button" @click="emit('retry')">
         <RefreshCw :size="16" aria-hidden="true" />
         {{ t('common.retry') }}
       </button>
@@ -155,9 +161,8 @@ const observedTime = computed(() => {
   gap: var(--space-2);
   margin: 0 0 var(--space-3);
   color: var(--color-text-faint);
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  letter-spacing: 0.05em;
+  font-size: var(--text-md);
+  letter-spacing: 0;
 }
 .home-lede__eyebrow svg {
   border-radius: 50%;
@@ -179,11 +184,11 @@ const observedTime = computed(() => {
 }
 .home-lede h1 {
   max-width: 34ch;
-  font-family: var(--font-serif);
-  font-size: clamp(2rem, 2.5vw, 2.25rem);
-  font-weight: 500;
-  letter-spacing: -0.035em;
-  line-height: 1.14;
+  font-family: var(--font-sans);
+  font-size: clamp(1.875rem, 2.35vw, 2.125rem);
+  font-weight: 600;
+  letter-spacing: -0.028em;
+  line-height: 1.18;
 }
 .home-lede__problem-emphasis {
   color: var(--color-warning);
@@ -202,8 +207,17 @@ const observedTime = computed(() => {
   gap: var(--space-1);
   color: var(--color-text-faint);
   font-family: var(--font-mono);
-  font-size: var(--text-sm);
+  font-size: var(--text-md);
   white-space: nowrap;
+}
+.home-lede__stamp > span {
+  display: grid;
+  grid-template-columns: auto minmax(86px, auto);
+  gap: var(--space-2);
+}
+.home-lede__stamp > span > :last-child {
+  color: var(--color-text-muted);
+  font-weight: 400;
 }
 .home-lede__retry {
   display: inline-flex;

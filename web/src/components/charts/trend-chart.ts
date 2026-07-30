@@ -8,6 +8,7 @@ export interface TrendDatum {
 export interface TrendGeometry {
   requestPath: string
   requestAreaPath: string
+  requestPoints: Array<{ x: number; y: number; value: number }>
   requestMarkers: Array<{ x: number; y: number; value: number }>
   failures: Array<{ x: number; height: number; value: number }>
 }
@@ -72,6 +73,7 @@ export function buildTrendGeometry(
     return {
       requestPath: '',
       requestAreaPath: '',
+      requestPoints: [],
       requestMarkers: [],
       failures: [],
     }
@@ -105,6 +107,7 @@ export function buildTrendGeometry(
   const domainDuration = pointDomainEnd - domainStart
   const maximumRequests = Math.max(0, ...series.map((datum) => datum.request_count))
   const maximumFailures = Math.max(0, ...series.map((datum) => datum.failure_count))
+  const requestTopInset = Math.min(14, requestHeight * 0.08)
   const points = series.map<TrendPoint>((datum, index) => {
     const timing = parsed[index]!
     return {
@@ -115,7 +118,8 @@ export function buildTrendGeometry(
       y: round(
         maximumRequests === 0
           ? requestHeight
-          : requestHeight - (datum.request_count / maximumRequests) * requestHeight,
+          : requestTopInset +
+              (1 - datum.request_count / maximumRequests) * (requestHeight - requestTopInset),
       ),
       value: datum.request_count,
     }
@@ -149,6 +153,7 @@ export function buildTrendGeometry(
   return {
     requestPath,
     requestAreaPath,
+    requestPoints: points.map(({ x, y, value }) => ({ x, y, value })),
     requestMarkers: requestMarkers.map(({ x, y, value }) => ({ x, y, value })),
     failures,
   }

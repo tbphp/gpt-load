@@ -268,7 +268,7 @@ onBeforeUnmount(() => {
       @refresh="refreshFirstPage"
     />
 
-    <section class="logs-applied" data-test="logs-applied-filters">
+    <section class="logs-applied">
       <strong>{{ t('monitor.logs.filters.applied') }}</strong>
       <span v-for="value in appliedFilterChips" :key="value" class="logs-filter-chip">
         {{ value }}
@@ -277,50 +277,38 @@ onBeforeUnmount(() => {
         {{ t('monitor.logs.filters.noneApplied') }}
       </span>
     </section>
-    <section class="logs-freshness" data-test="logs-freshness">
-      <span data-test="logs-timezone">
+    <section class="logs-freshness">
+      <span>
         <strong>{{ t('monitor.logs.filters.timezone') }}</strong>
         {{ currentTimezone }}
       </span>
       <span v-if="lastSuccessfulRefreshAt">
         <strong>{{ t('monitor.logs.filters.lastRefreshed') }}</strong>
-        <time data-test="logs-last-refreshed" :datetime="lastSuccessfulRefreshAt.toISOString()">
+        <time :datetime="lastSuccessfulRefreshAt.toISOString()">
           {{ formatLocalInstant(lastSuccessfulRefreshAt) }}
         </time>
       </span>
     </section>
 
-    <InlineFeedback
-      v-if="groupsQuery.isError.value"
-      data-test="logs-group-options-failed"
-      tone="warning"
-    >
+    <InlineFeedback v-if="groupsQuery.isError.value" tone="warning">
       {{ t('monitor.logs.options.groupsFailed') }}
     </InlineFeedback>
-    <InlineFeedback
-      v-if="accessKeyOptionsQuery.isError.value"
-      data-test="logs-access-key-options-failed"
-      tone="warning"
-    >
+    <InlineFeedback v-if="accessKeyOptionsQuery.isError.value" tone="warning">
       {{ t('monitor.logs.options.accessKeysFailed') }}
     </InlineFeedback>
 
-    <div v-if="refreshFailed" class="logs-refresh-failed" data-test="logs-refresh-failed">
+    <div v-if="refreshFailed" class="logs-refresh-failed">
       <InlineFeedback tone="danger">{{ t('monitor.logs.refreshFailed') }}</InlineFeedback>
-      <AppButton data-test="logs-refresh-retry" variant="secondary" @click="refreshFirstPage">
+      <AppButton variant="secondary" @click="refreshFirstPage">
         {{ t('common.retry') }}
       </AppButton>
     </div>
-    <InlineFeedback v-if="logsAreStale" data-test="logs-stale" tone="warning">
+    <InlineFeedback v-if="logsAreStale" tone="warning">
       {{ t('monitor.logs.stale') }}
     </InlineFeedback>
-    <div
-      v-if="logsQuery.isFetchNextPageError.value"
-      class="logs-next-page-failed"
-      data-test="logs-next-page-failed"
-    >
+    <div v-if="logsQuery.isFetchNextPageError.value" class="logs-next-page-failed">
       <InlineFeedback tone="danger">{{ t('monitor.logs.nextPageFailed') }}</InlineFeedback>
-      <AppButton data-test="logs-next-page-retry" variant="secondary" @click="loadMore">
+      <AppButton variant="secondary" @click="loadMore">
         {{ t('common.retry') }}
       </AppButton>
     </div>
@@ -350,7 +338,7 @@ onBeforeUnmount(() => {
         </tr>
       </thead>
       <tbody>
-        <tr v-for="log in logs" :key="log.request_id" :data-test="`log-row-${log.request_id}`">
+        <tr v-for="log in logs" :key="log.request_id">
           <td>
             <time :datetime="log.completed_at">{{ log.completed_at }}</time>
           </td>
@@ -390,11 +378,7 @@ onBeforeUnmount(() => {
               @update:open="setDetailOpen(log.request_id, $event)"
             >
               <template #trigger>
-                <AppButton
-                  :id="`log-details-${log.request_id}`"
-                  :data-test="`log-details-${log.request_id}`"
-                  variant="ghost"
-                >
+                <AppButton :id="`log-details-${log.request_id}`" variant="ghost">
                   {{ t('monitor.logs.details') }}
                 </AppButton>
               </template>
@@ -405,7 +389,6 @@ onBeforeUnmount(() => {
     </DataTable>
     <EmptyState
       v-else-if="logsQuery.data.value"
-      :data-test="hasAppliedFilters ? 'logs-empty-filtered' : 'logs-empty-unfiltered'"
       :title="
         t(hasAppliedFilters ? 'monitor.logs.empty.filteredTitle' : 'monitor.logs.empty.title')
       "
@@ -419,7 +402,6 @@ onBeforeUnmount(() => {
     />
     <AppButton
       v-if="logsQuery.hasNextPage.value"
-      data-test="logs-load-more"
       variant="secondary"
       :busy="logsQuery.isFetchingNextPage.value"
       :disabled="refreshPending"

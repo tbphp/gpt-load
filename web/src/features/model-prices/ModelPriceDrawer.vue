@@ -206,7 +206,6 @@ onBeforeUnmount(clearRequest)
             id="model-price-pattern"
             ref="patternInput"
             v-model="draft.pattern"
-            data-test="model-price-pattern"
             class="model-price-drawer__input mono"
             type="text"
             autocomplete="off"
@@ -231,7 +230,6 @@ onBeforeUnmount(clearRequest)
           <template #default="{ describedBy }">
             <input
               :id="`model-price-${field}`"
-              :data-test="`model-price-${field}`"
               class="model-price-drawer__input mono"
               type="number"
               min="0"
@@ -258,18 +256,14 @@ onBeforeUnmount(clearRequest)
         <AppButton variant="secondary" :disabled="pending" @click="setOpen(false)">
           {{ t('common.cancel') }}
         </AppButton>
-        <AppButton data-test="model-price-save" type="submit" :busy="pending" :disabled="!canSave">
+        <AppButton type="submit" :busy="pending" :disabled="!canSave">
           <Save :size="16" aria-hidden="true" />{{ t('modelPrices.drawer.save') }}
         </AppButton>
       </div>
     </form>
 
-    <section
-      v-else
-      class="model-price-drawer__global-confirm"
-      data-test="model-price-global-confirm"
-    >
-      <h2 ref="globalConfirmHeading" data-test="model-price-global-confirm-heading" tabindex="-1">
+    <section v-else class="model-price-drawer__global-confirm">
+      <h2 ref="globalConfirmHeading" tabindex="-1">
         {{ t('modelPrices.drawer.globalDialog.title') }}
       </h2>
       <p>{{ t('modelPrices.drawer.globalDialog.description') }}</p>
@@ -286,12 +280,7 @@ onBeforeUnmount(clearRequest)
         <AppButton variant="secondary" :disabled="pending" @click="setGlobalConfirmOpen(false)">
           {{ t('common.cancel') }}
         </AppButton>
-        <AppButton
-          data-test="model-price-global-save-confirm"
-          :busy="pending"
-          :disabled="pending"
-          @click="save"
-        >
+        <AppButton :busy="pending" :disabled="pending" @click="save">
           <Save :size="16" aria-hidden="true" />{{ t('modelPrices.drawer.globalDialog.confirm') }}
         </AppButton>
       </div>

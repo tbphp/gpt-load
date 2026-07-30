@@ -59,27 +59,17 @@ function failureCategoryLabel(category: HealthProblemKeyDto['last_failure_catego
         <p v-if="section.keys.length === 0" class="health-empty">
           {{ t('monitor.health.problems.noneForStatus') }}
         </p>
-        <article
-          v-for="key in section.keys"
-          :key="key.key_id"
-          class="problem-key"
-          :data-key-id="key.key_id"
-        >
+        <article v-for="key in section.keys" :key="key.key_id" class="problem-key">
           <div class="problem-key__summary">
             <RouterLink class="group-link" :to="groupDetailLocation(key.group_id, { tab: 'keys' })">
               {{ key.group_name }} · #{{ key.group_id }}
             </RouterLink>
-            <span
-              v-if="key.cooldown_until"
-              class="problem-key__remaining"
-              :data-test="`remaining-${key.key_id}`"
-            >
+            <span v-if="key.cooldown_until" class="problem-key__remaining">
               {{ t('monitor.health.problems.remaining', { time: remainingByKey[key.key_id] }) }}
             </span>
             <button
               type="button"
               class="problem-key__toggle"
-              :data-test="`problem-key-${key.key_id}`"
               :aria-expanded="expandedKeyIds.has(key.key_id)"
               :aria-controls="`problem-key-details-${key.key_id}`"
               @click="emit('toggle', key.key_id)"
@@ -111,12 +101,11 @@ function failureCategoryLabel(category: HealthProblemKeyDto['last_failure_catego
             v-if="expandedKeyIds.has(key.key_id)"
             :id="`problem-key-details-${key.key_id}`"
             class="problem-key__details"
-            :data-test="`problem-key-details-${key.key_id}`"
           >
             <dl class="detail-grid">
               <div>
                 <dt>{{ t('monitor.health.details.failureCount') }}</dt>
-                <dd :data-test="`failure-count-${key.key_id}`">{{ key.failure_count }}</dd>
+                <dd>{{ key.failure_count }}</dd>
               </div>
               <div>
                 <dt>{{ t('monitor.health.details.recentSuccessCount') }}</dt>
@@ -136,7 +125,7 @@ function failureCategoryLabel(category: HealthProblemKeyDto['last_failure_catego
               </div>
               <div>
                 <dt>{{ t('monitor.health.details.autoWeight') }}</dt>
-                <dd :data-test="`auto-weight-${key.key_id}`">{{ key.weight_auto }}</dd>
+                <dd>{{ key.weight_auto }}</dd>
               </div>
             </dl>
             <div class="recovery-facts">

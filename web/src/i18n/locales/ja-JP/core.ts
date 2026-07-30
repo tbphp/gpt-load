@@ -93,6 +93,7 @@ export default {
       estimatedCost: '推定コスト · 過去 {range}',
       successDetail: '{requests} リクエスト · {failures} 件失敗',
       knownPlusUnknown: '{cost} + 不明',
+      costTokens: '{tokens} tokens',
       costDetail: '{tokens} tokens · 価格未設定 {unpriced} 件',
     },
     range: {
@@ -117,8 +118,6 @@ export default {
       requests: 'リクエスト',
       failures: '失敗',
       now: '現在',
-      perHour: '/h',
-      perDay: '/d',
       failureStripHourly: '失敗リクエスト · 1時間ごとの件数',
       failureStripDaily: '失敗リクエスト · 1日ごとの件数',
       failureLink: '失敗リクエスト',
@@ -140,8 +139,9 @@ export default {
         '直近の観測では {problems} Group にキー異常があり、{available}/{total} キーが利用可能でした。',
       staleDescription: '現在のヘルスチェックが失敗したため、この結論は古い可能性があります。',
       observation: 'ヘルス観測情報',
-      observedAt: '観測',
-      revision: '設定バージョン rev.{revision}',
+      updatedAt: '更新:',
+      version: 'バージョン:',
+      uptime: '稼働時間',
     },
     problems: {
       title: '確認が必要なキー',

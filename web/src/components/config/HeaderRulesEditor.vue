@@ -142,17 +142,11 @@ function setValue(row: RuleRow, event: Event): void {
       <div>
         <h3>{{ t('import.headerRules.title') }}</h3>
         <p>{{ t('import.headerRules.description') }}</p>
-        <p data-test="header-rules-storage-notice">
+        <p>
           {{ t('import.headerRules.storageNotice', { template: '${API_KEY}' }) }}
         </p>
       </div>
-      <button
-        data-test="add-header-rule"
-        class="header-rules__add"
-        type="button"
-        :disabled="props.disabled"
-        @click="addRow"
-      >
+      <button class="header-rules__add" type="button" :disabled="props.disabled" @click="addRow">
         <Plus :size="16" aria-hidden="true" />{{ t('import.headerRules.add') }}
       </button>
     </div>
@@ -164,7 +158,6 @@ function setValue(row: RuleRow, event: Event): void {
         }}</label>
         <select
           :id="`header-action-${row.key}`"
-          data-test="header-action"
           :value="row.action"
           :disabled="props.disabled"
           @change="setAction(row, $event)"
@@ -177,7 +170,6 @@ function setValue(row: RuleRow, event: Event): void {
         }}</label>
         <input
           :id="`header-name-${row.key}`"
-          data-test="header-name"
           :value="row.name"
           :placeholder="t('import.headerRules.name')"
           autocomplete="off"
@@ -191,7 +183,6 @@ function setValue(row: RuleRow, event: Event): void {
           }}</label>
           <input
             :id="`header-value-${row.key}`"
-            data-test="header-value"
             :type="row.revealed ? 'text' : 'password'"
             :value="row.value"
             :placeholder="t('import.headerRules.value')"
@@ -201,7 +192,6 @@ function setValue(row: RuleRow, event: Event): void {
             @input="setValue(row, $event)"
           />
           <button
-            data-test="toggle-header-value"
             class="header-rule__icon"
             type="button"
             :style="touchTargetStyle"
@@ -217,7 +207,6 @@ function setValue(row: RuleRow, event: Event): void {
           t('import.headerRules.removeHint')
         }}</span>
         <button
-          data-test="delete-header-rule"
           class="header-rule__icon"
           type="button"
           :style="touchTargetStyle"

@@ -212,7 +212,6 @@ onBeforeUnmount(() => {
       </div>
       <div class="group-models__actions">
         <AppButton
-          data-test="models-discover"
           variant="secondary"
           :busy="pendingAction === 'discover'"
           :disabled="pending"
@@ -231,7 +230,6 @@ onBeforeUnmount(() => {
         >
           <template #trigger>
             <AppButton
-              data-test="models-save"
               :busy="pendingAction === 'save'"
               :disabled="pending || !changed"
               @click="requestSave"
@@ -239,7 +237,7 @@ onBeforeUnmount(() => {
               <Save :size="16" aria-hidden="true" />{{ t('group.modelEditor.save') }}
             </AppButton>
           </template>
-          <InlineFeedback v-if="saveError" data-test="models-empty-save-error" tone="danger">
+          <InlineFeedback v-if="saveError" tone="danger">
             {{ t('group.modelEditor.saveFailed') }}
           </InlineFeedback>
           <div class="group-models__dialog-actions">
@@ -248,7 +246,6 @@ onBeforeUnmount(() => {
             </AppButton>
             <AppButton
               class="group-models__confirm-empty"
-              data-test="models-empty-confirm"
               variant="secondary"
               :busy="pending"
               :disabled="pending"
@@ -260,7 +257,6 @@ onBeforeUnmount(() => {
         </AppDialog>
         <AppButton
           v-else
-          data-test="models-save"
           :busy="pendingAction === 'save'"
           :disabled="pending || !changed"
           @click="requestSave"
@@ -276,15 +272,10 @@ onBeforeUnmount(() => {
         <strong>{{ t('group.modelEditor.noActiveKey.title') }}</strong>
         <p>{{ t('group.modelEditor.noActiveKey.description') }}</p>
         <div class="group-models__guidance-actions">
-          <RouterLink
-            data-test="models-keys-action"
-            class="button-link"
-            :to="groupDetailLocation(groupId, { tab: 'keys' })"
-          >
+          <RouterLink class="button-link" :to="groupDetailLocation(groupId, { tab: 'keys' })">
             {{ t('group.modelEditor.noActiveKey.keysAction') }}
           </RouterLink>
           <RouterLink
-            data-test="models-import-action"
             class="button-link button-link--secondary"
             :to="importLocation({ mode: 'existing', group_id: groupId })"
           >
@@ -302,13 +293,13 @@ onBeforeUnmount(() => {
     <InlineFeedback v-if="saveError && !emptyConfirmOpen" tone="danger">
       {{ t('group.modelEditor.saveFailed') }}
     </InlineFeedback>
-    <InlineFeedback v-if="removals" data-test="models-removal-warning" tone="warning">
+    <InlineFeedback v-if="removals" tone="warning">
       {{ t('group.modelEditor.removalWarning') }}
     </InlineFeedback>
 
     <ModelDraftEditor :model-value="draft" :disabled="pending" @update:model-value="updateDraft">
       <template #status="{ index }">
-        <StatusBadge :data-test="`model-status-${index}`" :tone="statusTone(index)">
+        <StatusBadge :tone="statusTone(index)">
           {{ statusLabel(index) }}
         </StatusBadge>
       </template>

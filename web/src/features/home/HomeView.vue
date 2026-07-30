@@ -100,13 +100,6 @@ const report = computed(() => {
   }
   return undefined
 })
-const observedDate = computed(() => {
-  const state = presentation.value.health
-  if (state.kind === 'normal' || state.kind === 'problem' || state.kind === 'stale') {
-    return state.health.observed_at.slice(0, 10)
-  }
-  return new Date().toISOString().slice(0, 10)
-})
 const groupNames = computed(
   () => new Map((groupsQuery.data.value ?? []).map((group) => [group.id, group.name] as const)),
 )
@@ -135,8 +128,12 @@ const estimatedCost = computed(() => {
 })
 const costDetail = computed(() => {
   if (report.value === undefined) return ''
+  const tokens = formatCompactMetric(report.value.summary.total_tokens, locale.value)
+  if (report.value.summary.unpriced_request_count === 0) {
+    return t('home.metrics.costTokens', { tokens })
+  }
   return t('home.metrics.costDetail', {
-    tokens: formatCompactMetric(report.value.summary.total_tokens, locale.value),
+    tokens,
     unpriced: formatCount(report.value.summary.unpriced_request_count),
   })
 })
@@ -154,13 +151,11 @@ function setRange(value: string): void {
   <div class="home-page">
     <QueryFeedback
       v-if="presentation.inventory.kind === 'loading'"
-      data-test="home-inventory-loading"
       state="loading"
       :message="t('home.inventory.loading')"
     />
     <QueryFeedback
       v-else-if="presentation.inventory.kind === 'error'"
-      data-test="home-inventory-error"
       state="error"
       :message="t('home.inventory.error')"
       :retry-label="t('common.retry')"
@@ -168,7 +163,6 @@ function setRange(value: string): void {
     />
     <QueryFeedback
       v-else-if="presentation.inventory.kind === 'stale'"
-      data-test="home-inventory-stale"
       state="stale"
       :message="t('home.inventory.stale')"
       :retry-label="t('common.retry')"
@@ -177,7 +171,6 @@ function setRange(value: string): void {
 
     <EmptyState
       v-if="presentation.zeroGroups"
-      data-test="home-zero-groups"
       :title="t('home.noGroupsTitle')"
       :description="t('home.noGroupsDescription')"
       heading-as="h1"
@@ -191,19 +184,11 @@ function setRange(value: string): void {
     </EmptyState>
 
     <template v-else>
-      <HomeLede
-        :state="presentation.health"
-        :observed-date="observedDate"
-        @retry="healthQuery.refetch()"
-      />
+      <HomeLede :state="presentation.health" @retry="healthQuery.refetch()" />
 
       <ConnectionPlaceholder v-if="presentation.usage.kind === 'empty'" />
 
-      <InlineFeedback
-        v-if="presentation.pipelineWarning"
-        data-test="home-pipeline-warning"
-        tone="warning"
-      >
+      <InlineFeedback v-if="presentation.pipelineWarning" tone="warning">
         {{
           t('home.pipeline.warning', {
             dropped: formatCount(presentation.pipelineWarning.droppedTotal),
@@ -222,18 +207,15 @@ function setRange(value: string): void {
         :class="{
           'home-usage--after-problems': presentation.problemGroups.length > 0,
         }"
-        data-test="home-usage"
         aria-labelledby="home-usage-title"
       >
         <QueryFeedback
           v-if="presentation.usage.kind === 'loading'"
-          data-test="home-usage-loading"
           state="loading"
           :message="t('home.usageState.loading')"
         />
         <QueryFeedback
           v-else-if="presentation.usage.kind === 'error'"
-          data-test="home-usage-error"
           state="error"
           :message="t('home.usageState.error')"
           :retry-label="t('common.retry')"
@@ -242,7 +224,6 @@ function setRange(value: string): void {
         <template v-else>
           <QueryFeedback
             v-if="presentation.usage.kind === 'stale'"
-            data-test="home-usage-stale"
             state="stale"
             :message="t('home.usageState.stale')"
             :retry-label="t('common.retry')"
@@ -251,7 +232,6 @@ function setRange(value: string): void {
 
           <EmptyState
             v-if="presentation.usage.kind === 'empty'"
-            data-test="home-zero-usage"
             :title="t('home.zeroUsage.title')"
             :description="t('home.zeroUsage.description')"
           >
@@ -261,13 +241,11 @@ function setRange(value: string): void {
           <template v-else-if="report">
             <div class="home-metrics">
               <StatFigure
-                data-test="home-success-rate"
                 :label="t('home.metrics.successRate', { range: report.range })"
                 :value="successRate"
                 :detail="successDetail"
               />
               <StatFigure
-                data-test="home-estimated-cost"
                 :label="t('home.metrics.estimatedCost', { range: report.range })"
                 :value="estimatedCost"
                 :detail="costDetail"
@@ -284,7 +262,6 @@ function setRange(value: string): void {
             <p
               v-if="presentation.health.kind === 'unknown' || presentation.health.kind === 'stale'"
               class="home-health-note"
-              data-test="home-health-usage-independence"
               role="status"
             >
               <CircleHelp :size="16" aria-hidden="true" />
@@ -316,9 +293,6 @@ function setRange(value: string): void {
                 :range-end="report.to"
                 :locale="locale"
                 :now-label="t('home.trend.now')"
-                :rate-suffix="
-                  report.granularity === 'hour' ? t('home.trend.perHour') : t('home.trend.perDay')
-                "
                 :failure-strip-label="
                   report.granularity === 'hour'
                     ? t('home.trend.failureStripHourly')
@@ -368,6 +342,16 @@ function setRange(value: string): void {
 .home-metrics__range {
   justify-self: end;
 }
+.home-metrics__range :deep(.segmented-control__list) {
+  grid-auto-columns: 48px;
+  border-radius: 6px;
+}
+.home-metrics__range :deep(.segmented-control__trigger) {
+  min-height: 32px;
+  padding: 4px 10px;
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
 .home-trend {
   display: grid;
   min-width: 0;
@@ -379,7 +363,7 @@ function setRange(value: string): void {
 }
 .home-section-heading h2 {
   font-family: var(--font-serif);
-  font-size: 1.45rem;
+  font-size: 1.25rem;
   font-weight: 500;
   line-height: var(--line-compact);
 }

@@ -10,7 +10,6 @@ const reload = inject<() => void>('asyncSurfaceReload', () => window.location.re
 
 <template>
   <QueryFeedback
-    data-test="async-surface-error"
     state="error"
     :message="t('common.asyncLoadFailed')"
     :retry-label="t('common.retry')"

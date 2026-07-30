@@ -11,6 +11,7 @@ import (
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/platform/response"
 	"gpt-load/internal/platform/utils"
+	"gpt-load/internal/platform/version"
 	"gpt-load/internal/requestlog"
 	"gpt-load/internal/state"
 )
@@ -76,6 +77,8 @@ type requestLogHealthResponse struct {
 
 type runtimeHealthResponse struct {
 	ObservedAt         time.Time                  `json:"observed_at"`
+	Version            string                     `json:"version"`
+	UptimeSeconds      int64                      `json:"uptime_seconds"`
 	SnapshotRevision   uint64                     `json:"snapshot_revision"`
 	StatsWindowSeconds int64                      `json:"stats_window_seconds"`
 	Counts             healthCountsResponse       `json:"counts"`
@@ -326,5 +329,12 @@ func (server *Server) handleRuntimeHealth(c *gin.Context) {
 		writeServiceError(c, "runtime_health", err)
 		return
 	}
+	now := server.now().UTC()
+	uptime := now.Sub(server.startedAt)
+	if uptime < 0 {
+		uptime = 0
+	}
+	result.Version = version.Version
+	result.UptimeSeconds = int64(uptime / time.Second)
 	response.SuccessI18n(c, "common.success", result)
 }

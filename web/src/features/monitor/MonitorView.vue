@@ -22,10 +22,10 @@ const activeTab = computed(() => normalizeMonitorTab(route.query.tab))
 const canonicalQuery = computed(() => normalizeMonitorQuery(route.query))
 const isCanonicalQuery = computed(() => sameMonitorQuery(route.query, canonicalQuery.value))
 const items = computed<AppTabItem[]>(() => [
-  { value: 'health', label: t('monitor.tabs.health'), testId: 'monitor-tab-health' },
-  { value: 'logs', label: t('monitor.tabs.logs'), testId: 'monitor-tab-logs' },
-  { value: 'inspector', label: t('monitor.tabs.inspector'), testId: 'monitor-tab-inspector' },
-  { value: 'usage', label: t('monitor.tabs.usage'), testId: 'monitor-tab-usage' },
+  { value: 'health', label: t('monitor.tabs.health') },
+  { value: 'logs', label: t('monitor.tabs.logs') },
+  { value: 'inspector', label: t('monitor.tabs.inspector') },
+  { value: 'usage', label: t('monitor.tabs.usage') },
 ])
 
 watch(
@@ -60,16 +60,16 @@ function selectTab(value: string): void {
       @update:model-value="selectTab"
     >
       <template v-if="isCanonicalQuery">
-        <div v-if="activeTab === 'health'" class="monitor-panel" data-test="monitor-health-slot">
+        <div v-if="activeTab === 'health'" class="monitor-panel">
           <HealthTab />
         </div>
-        <div v-else-if="activeTab === 'logs'" class="monitor-panel" data-test="monitor-logs-slot">
+        <div v-else-if="activeTab === 'logs'" class="monitor-panel">
           <LogsTab />
         </div>
-        <div v-else-if="activeTab === 'usage'" class="monitor-panel" data-test="monitor-usage-slot">
+        <div v-else-if="activeTab === 'usage'" class="monitor-panel">
           <UsageTab />
         </div>
-        <div v-else class="monitor-panel" data-test="monitor-inspector-slot">
+        <div v-else class="monitor-panel">
           <InspectorTab />
         </div>
       </template>

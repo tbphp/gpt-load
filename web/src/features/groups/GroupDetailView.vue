@@ -28,12 +28,7 @@ const detailQuery = useQuery(groupDetailQueryOptions(client, groupId))
 
 <template>
   <div class="group-detail-page">
-    <div
-      v-if="groupId === undefined"
-      class="group-detail-invalid"
-      data-test="invalid-group-id"
-      role="alert"
-    >
+    <div v-if="groupId === undefined" class="group-detail-invalid" role="alert">
       <h1>{{ t('group.invalidTitle') }}</h1>
       <p>{{ t('group.invalidDescription') }}</p>
       <RouterLink class="button-link" :to="homeLocation()">

@@ -63,7 +63,7 @@ async function setDrawerOpen(open: boolean): Promise<void> {
       :description="t('modelPrices.description')"
     >
       <template #actions>
-        <AppButton data-test="model-price-add" @click="addOverride">
+        <AppButton @click="addOverride">
           <Plus :size="16" aria-hidden="true" />{{ t('modelPrices.add') }}
         </AppButton>
       </template>
@@ -108,12 +108,7 @@ async function setDrawerOpen(open: boolean): Promise<void> {
         @retry="pricesQuery.refetch()"
       />
 
-      <section
-        class="model-prices__section"
-        data-test="model-price-rule-section"
-        data-source="user"
-        aria-labelledby="override-prices-title"
-      >
+      <section class="model-prices__section" aria-labelledby="override-prices-title">
         <div class="model-prices__section-heading">
           <div>
             <h2 id="override-prices-title">{{ t('modelPrices.overrides.title') }}</h2>
@@ -134,12 +129,7 @@ async function setDrawerOpen(open: boolean): Promise<void> {
         />
       </section>
 
-      <section
-        class="model-prices__section"
-        data-test="model-price-rule-section"
-        data-source="builtin"
-        aria-labelledby="builtin-prices-title"
-      >
+      <section class="model-prices__section" aria-labelledby="builtin-prices-title">
         <div class="model-prices__section-heading">
           <div>
             <h2 id="builtin-prices-title">{{ t('modelPrices.builtin.title') }}</h2>

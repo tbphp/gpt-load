@@ -13,9 +13,9 @@ const router = useRouter()
 const { t } = useI18n()
 const activeTab = computed(() => normalizeGroupTab(route.query.tab))
 const items = computed<AppTabItem[]>(() => [
-  { value: 'keys', label: t('group.tabs.keys'), testId: 'group-tab-keys' },
-  { value: 'models', label: t('group.tabs.models'), testId: 'group-tab-models' },
-  { value: 'settings', label: t('group.tabs.settings'), testId: 'group-tab-settings' },
+  { value: 'keys', label: t('group.tabs.keys') },
+  { value: 'models', label: t('group.tabs.models') },
+  { value: 'settings', label: t('group.tabs.settings') },
 ])
 
 watch(

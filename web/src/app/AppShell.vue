@@ -96,7 +96,7 @@ watch(
         :to="homeLocation()"
         :aria-label="`${t('common.appName')} · ${t('shell.home')}`"
       >
-        <span class="brand-mark" data-test="ledger-brand-mark" aria-hidden="true"></span>
+        <span class="brand-mark" aria-hidden="true"></span>
         <span>{{ t('common.appName') }}</span>
       </RouterLink>
 
@@ -212,7 +212,7 @@ watch(
   display: flex;
   min-height: 64px;
   align-items: center;
-  gap: var(--space-8);
+  gap: 40px;
   border-bottom: 1px solid var(--color-border-subtle);
   background: var(--color-surface);
   padding: 0 var(--space-8);
@@ -226,11 +226,10 @@ watch(
   font-size: 1.25rem;
   font-weight: 500;
   letter-spacing: -0.02em;
-  text-transform: lowercase;
 }
 .brand-mark {
   width: 8px;
-  height: 28px;
+  height: 24px;
   flex: 0 0 8px;
   border-radius: 1px;
   background: var(--color-action);
@@ -238,7 +237,7 @@ watch(
 .desktop-nav {
   display: flex;
   align-items: center;
-  gap: var(--space-6);
+  gap: var(--space-7);
 }
 .desktop-nav :deep(svg) {
   display: none;
@@ -252,7 +251,7 @@ watch(
   color: var(--color-text-muted);
   padding: var(--space-2) 2px;
   font-size: 0.9375rem;
-  font-weight: 500;
+  font-weight: 400;
   transition:
     color var(--duration-fast) var(--easing-standard),
     border-color var(--duration-fast) var(--easing-standard);
@@ -265,7 +264,7 @@ watch(
 .nav-link.router-link-active,
 .nav-link--active {
   border-bottom-color: var(--color-action);
-  font-weight: 650;
+  font-weight: 600;
 }
 .shell-actions {
   display: flex;
@@ -277,13 +276,23 @@ watch(
   gap: var(--space-2);
 }
 .import-action {
-  min-height: 36px;
+  min-height: 34px;
   border: 0;
   background: transparent;
   color: var(--color-action);
   padding: var(--space-1) var(--space-2);
-  font-size: var(--text-sm);
+  font-size: var(--text-md);
   font-weight: 500;
+}
+.shell-actions :deep(.icon-button) {
+  width: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+}
+.shell-actions :deep(.icon-button:hover:not(:disabled)) {
+  background: var(--color-surface-sunken);
 }
 .mobile-menu-trigger {
   display: none;
@@ -291,7 +300,7 @@ watch(
 .app-content {
   width: min(calc(100% - (2 * var(--page-gutter))), var(--content-max));
   margin: 0 auto;
-  padding: var(--space-8) 0 var(--space-10);
+  padding: var(--space-10) 0 var(--space-10);
 }
 .mobile-nav {
   display: grid;

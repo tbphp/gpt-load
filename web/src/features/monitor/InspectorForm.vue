@@ -68,7 +68,6 @@ function error(field: InspectorField): string | undefined {
 
     <form
       class="inspector-form"
-      data-test="inspector-form"
       :aria-label="t('monitor.inspector.form.label')"
       @submit.prevent="emit('submit')"
     >
@@ -81,7 +80,6 @@ function error(field: InspectorField): string | undefined {
           <AppSelect
             id="inspector-protocol"
             :model-value="protocol"
-            data-test="inspector-protocol"
             :label="t('monitor.inspector.form.protocol')"
             :options="protocolOptions"
             :aria-describedby="describedBy"
@@ -101,7 +99,6 @@ function error(field: InspectorField): string | undefined {
           <input
             id="inspector-model"
             :value="model"
-            data-test="inspector-model"
             type="text"
             autocomplete="off"
             :aria-describedby="describedBy"
@@ -120,7 +117,6 @@ function error(field: InspectorField): string | undefined {
           <AppSelect
             id="inspector-access-key"
             :model-value="accessKeyId"
-            data-test="inspector-access-key"
             :label="t('monitor.inspector.form.accessKey')"
             :options="accessKeyOptions"
             :aria-describedby="describedBy"
@@ -130,25 +126,15 @@ function error(field: InspectorField): string | undefined {
         </template>
       </FormField>
 
-      <AppButton type="submit" data-test="inspector-submit" :disabled="optionsPending">
+      <AppButton type="submit" :disabled="optionsPending">
         {{ t('monitor.inspector.form.submit') }}
       </AppButton>
     </form>
 
-    <p
-      v-if="missingAccessKey"
-      class="inspector-inline-error"
-      data-test="inspector-access-key-missing"
-      role="alert"
-    >
+    <p v-if="missingAccessKey" class="inspector-inline-error" role="alert">
       {{ t('monitor.inspector.errors.missingDeepLinkAccessKey', { id: accessKeyId }) }}
     </p>
-    <p
-      v-if="hasValidationError"
-      class="sr-only"
-      data-test="inspector-validation-error"
-      role="alert"
-    >
+    <p v-if="hasValidationError" class="sr-only" role="alert">
       {{ t('monitor.inspector.errors.summary') }}
     </p>
   </SurfaceCard>

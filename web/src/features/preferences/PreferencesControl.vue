@@ -65,7 +65,7 @@ function updateTheme(event: Event): void {
         <Settings2 :size="18" aria-hidden="true" />
       </IconButton>
     </template>
-    <div data-test="preferences-panel" class="preferences-panel">
+    <div class="preferences-panel">
       <header>
         <h2>{{ t('shell.preferences') }}</h2>
         <p>{{ t('shell.preferencesDescription') }}</p>
@@ -74,7 +74,6 @@ function updateTheme(event: Event): void {
         <legend><Languages :size="16" aria-hidden="true" />{{ t('shell.language') }}</legend>
         <label v-for="option in localeOptions" :key="option.value">
           <input
-            data-test="preference-locale"
             type="radio"
             :name="`${identity}-locale`"
             :value="option.value"
@@ -88,7 +87,6 @@ function updateTheme(event: Event): void {
         <legend><Monitor :size="16" aria-hidden="true" />{{ t('shell.theme') }}</legend>
         <label v-for="option in themeOptions" :key="option.value">
           <input
-            data-test="preference-theme"
             type="radio"
             :name="`${identity}-theme`"
             :value="option.value"
@@ -102,12 +100,11 @@ function updateTheme(event: Event): void {
     </div>
   </AppPopover>
 
-  <div v-else data-test="preferences-panel" class="preferences-control preferences-panel">
+  <div v-else class="preferences-control preferences-panel">
     <fieldset>
       <legend><Languages :size="16" aria-hidden="true" />{{ t('shell.language') }}</legend>
       <label v-for="option in localeOptions" :key="option.value">
         <input
-          data-test="preference-locale"
           type="radio"
           :name="`${identity}-locale`"
           :value="option.value"
@@ -121,7 +118,6 @@ function updateTheme(event: Event): void {
       <legend><Monitor :size="16" aria-hidden="true" />{{ t('shell.theme') }}</legend>
       <label v-for="option in themeOptions" :key="option.value">
         <input
-          data-test="preference-theme"
           type="radio"
           :name="`${identity}-theme`"
           :value="option.value"

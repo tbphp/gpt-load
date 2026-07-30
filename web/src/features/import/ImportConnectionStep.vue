@@ -48,7 +48,7 @@ defineExpose({ focusHeading })
 <template>
   <SurfaceCard class="import-card">
     <header>
-      <h2 ref="heading" data-test="import-step-1-heading" tabindex="-1">
+      <h2 ref="heading" tabindex="-1">
         {{ t('import.connection.title') }}
       </h2>
       <p>{{ t('import.connection.description') }}</p>
@@ -57,7 +57,6 @@ defineExpose({ focusHeading })
       <label>
         <span>{{ t('import.connection.preset') }}</span>
         <select
-          data-test="preset"
           :value="presetId"
           @change="
             emit('applyPreset', ($event.target as HTMLSelectElement).value as ChannelPreset['id'])
@@ -72,7 +71,6 @@ defineExpose({ focusHeading })
         <span>{{ t('import.connection.name') }}</span>
         <input
           :value="name"
-          data-test="group-name"
           autocomplete="off"
           @input="emit('update:name', ($event.target as HTMLInputElement).value)"
         />
@@ -81,7 +79,6 @@ defineExpose({ focusHeading })
         <span>{{ t('import.connection.url') }}</span>
         <input
           :value="upstreamUrl"
-          data-test="upstream-url"
           type="url"
           autocomplete="off"
           spellcheck="false"
@@ -93,7 +90,6 @@ defineExpose({ focusHeading })
       <legend>{{ t('import.connection.protocols') }}</legend>
       <label v-for="protocol in protocolOptions" :key="protocol.value" class="protocol-option">
         <input
-          :data-test="`protocol-${protocol.value}`"
           type="checkbox"
           :checked="protocols.includes(protocol.value)"
           @change="
@@ -102,11 +98,7 @@ defineExpose({ focusHeading })
         />{{ t(protocol.labelKey) }}
       </label>
     </fieldset>
-    <InlineFeedback
-      v-if="protocols.includes('openai-responses')"
-      data-test="import-responses-affinity-warning"
-      tone="warning"
-    >
+    <InlineFeedback v-if="protocols.includes('openai-responses')" tone="warning">
       {{ t('import.connection.responsesAffinityWarning') }}
     </InlineFeedback>
     <KeyTextarea
@@ -126,12 +118,7 @@ defineExpose({ focusHeading })
       />
     </details>
     <footer class="card-actions">
-      <AppButton
-        data-test="discover"
-        :disabled="!canDiscover"
-        :busy="pending"
-        @click="emit('discover')"
-      >
+      <AppButton :disabled="!canDiscover" :busy="pending" @click="emit('discover')">
         <Search :size="16" aria-hidden="true" />{{ t('import.discover') }}
       </AppButton>
     </footer>

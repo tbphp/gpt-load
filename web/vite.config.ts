@@ -2,7 +2,7 @@ import { fileURLToPath, URL } from 'node:url'
 
 import tailwindcss from '@tailwindcss/vite'
 import vue from '@vitejs/plugin-vue'
-import { configDefaults, defineConfig } from 'vitest/config'
+import { defineConfig } from 'vite'
 
 export const webRootPath = fileURLToPath(new URL('.', import.meta.url))
 export const pageRouteManifestPath = fileURLToPath(
@@ -22,19 +22,16 @@ export default defineConfig({
     fs: {
       allow: devServerFileSystemAllow,
     },
+    proxy: {
+      '/api': {
+        target: 'http://127.0.0.1:3001',
+        changeOrigin: true,
+      },
+    },
   },
   build: {
     outDir: '../internal/webui/dist',
     emptyOutDir: true,
     manifest: true,
-  },
-  test: {
-    environment: 'happy-dom',
-    globals: true,
-    setupFiles: ['./src/test/setup.ts'],
-    exclude: [...configDefaults.exclude, 'e2e/**/*.spec.ts'],
-    css: {
-      include: [/(base|tokens)\.css/],
-    },
   },
 })

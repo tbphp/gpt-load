@@ -44,7 +44,7 @@ defineExpose({ focusHeading })
 <template>
   <SurfaceCard class="import-card">
     <header>
-      <h2 ref="heading" data-test="import-step-3-heading" tabindex="-1">
+      <h2 ref="heading" tabindex="-1">
         {{ t('import.reviewTitle') }}
       </h2>
       <p>{{ t('import.reviewDescription') }}</p>
@@ -81,11 +81,7 @@ defineExpose({ focusHeading })
         </dd>
       </div>
     </dl>
-    <InlineFeedback
-      v-if="resourceOnly"
-      data-test="review-responses-resource-only-notice"
-      tone="warning"
-    >
+    <InlineFeedback v-if="resourceOnly" tone="warning">
       {{ t('import.models.resourceOnlyNotice') }}
     </InlineFeedback>
     <InlineFeedback v-if="errorKey" tone="danger">{{ t(errorKey) }}</InlineFeedback>
@@ -94,24 +90,15 @@ defineExpose({ focusHeading })
       <p>{{ t('import.conflict.description') }}</p>
       <div v-for="group in conflict.groups" :key="group.id" class="conflict-group">
         <strong>{{ group.name }}</strong>
-        <AppButton
-          :data-test="`conflict-append-${group.id}`"
-          variant="secondary"
-          @click="emit('append', group.id)"
-        >
+        <AppButton variant="secondary" @click="emit('append', group.id)">
           {{ t('import.conflict.append') }}
         </AppButton>
       </div>
       <div class="conflict-actions">
-        <AppButton data-test="conflict-confirm-separate" @click="emit('separate')">
+        <AppButton @click="emit('separate')">
           {{ t('import.conflict.separate') }}
         </AppButton>
-        <AppButton
-          data-test="conflict-edit"
-          variant="ghost"
-          :disabled="pending"
-          @click="emit('edit')"
-        >
+        <AppButton variant="ghost" :disabled="pending" @click="emit('edit')">
           {{ t('import.conflict.edit') }}
         </AppButton>
       </div>
@@ -124,12 +111,7 @@ defineExpose({ focusHeading })
       >
         <ChevronLeft :size="16" aria-hidden="true" />{{ t('import.back') }}
       </AppButton>
-      <AppButton
-        data-test="create"
-        :disabled="operationNoticeActive"
-        :busy="pending"
-        @click="emit('create')"
-      >
+      <AppButton :disabled="operationNoticeActive" :busy="pending" @click="emit('create')">
         {{ t('import.create') }}
       </AppButton>
     </footer>

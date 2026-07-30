@@ -7,12 +7,7 @@ const { t } = useI18n()
 </script>
 
 <template>
-  <div
-    class="async-surface-loading"
-    data-test="async-surface-loading"
-    role="status"
-    :aria-label="t('common.asyncLoading')"
-  >
+  <div class="async-surface-loading" role="status" :aria-label="t('common.asyncLoading')">
     <SkeletonBlock height="48px" />
     <SkeletonBlock height="120px" />
   </div>

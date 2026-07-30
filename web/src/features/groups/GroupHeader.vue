@@ -32,7 +32,6 @@ const { t } = useI18n()
       </div>
       <RouterLink
         class="button-link group-header__import"
-        data-test="group-import-link"
         :to="importLocation({ mode: 'existing', group_id: group.id })"
       >
         <Upload :size="16" aria-hidden="true" />{{ t('group.importKeys') }}

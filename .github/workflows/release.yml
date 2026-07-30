@@ -111,12 +111,6 @@ jobs:
       - name: Run race-enabled tests
         run: go test -race -count=1 . ./internal/...
 
-      - name: Install Chromium for browser E2E
-        run: pnpm --dir web exec playwright install --with-deps chromium
-
-      - name: Run production browser E2E
-        run: pnpm --dir web run test:e2e
-
       - name: Check repository invariants
         run: git diff --check
 

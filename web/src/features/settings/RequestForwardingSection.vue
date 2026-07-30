@@ -142,28 +142,16 @@ function conflictLabel(key: RuntimeSettingKey): string {
       </div>
     </header>
 
-    <ul
-      v-if="relevantConflicts.length > 0"
-      class="settings-conflicts"
-      data-test="settings-conflicts"
-    >
+    <ul v-if="relevantConflicts.length > 0" class="settings-conflicts">
       <li v-for="conflict in relevantConflicts" :key="conflict.key">
         <strong>{{ conflictLabel(conflict.key) }}</strong>
         <span>{{ t('settings.conflict.mine') }}: {{ conflictValue(conflict, 'mine') }}</span>
         <span>{{ t('settings.conflict.latest') }}: {{ conflictValue(conflict, 'latest') }}</span>
         <div>
-          <AppButton
-            :data-test="`settings-conflict-mine-${conflict.key}`"
-            variant="secondary"
-            @click="emit('chooseMine', conflict.key)"
-          >
+          <AppButton variant="secondary" @click="emit('chooseMine', conflict.key)">
             {{ t('settings.conflict.useMine') }}
           </AppButton>
-          <AppButton
-            :data-test="`settings-conflict-latest-${conflict.key}`"
-            variant="ghost"
-            @click="emit('chooseLatest', conflict.key)"
-          >
+          <AppButton variant="ghost" @click="emit('chooseLatest', conflict.key)">
             {{ t('settings.conflict.useLatest') }}
           </AppButton>
         </div>
@@ -191,7 +179,6 @@ function conflictLabel(key: RuntimeSettingKey): string {
     <section class="request-forwarding__advanced">
       <button
         id="settings-header-rules"
-        data-test="settings-header-disclosure"
         class="request-forwarding__disclosure"
         type="button"
         :aria-expanded="headerOpen"
@@ -220,7 +207,6 @@ function conflictLabel(key: RuntimeSettingKey): string {
       >
         <label class="request-forwarding__header-toggle">
           <input
-            data-test="override-header_rules"
             type="checkbox"
             :checked="hasOverride('header_rules')"
             :disabled="disabled"
@@ -229,7 +215,7 @@ function conflictLabel(key: RuntimeSettingKey): string {
           {{ t('settings.useOverride') }}
         </label>
         <InlineFeedback tone="warning">{{ t('settings.request.headerWarning') }}</InlineFeedback>
-        <div v-if="hasOverride('header_rules')" data-test="header-rules-editor">
+        <div v-if="hasOverride('header_rules')">
           <HeaderRulesEditor
             :model-value="draft.values.header_rules"
             :disabled="disabled"

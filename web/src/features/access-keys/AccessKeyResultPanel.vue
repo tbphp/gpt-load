@@ -29,7 +29,6 @@ const { t } = useI18n()
           :value="secret"
           :reveal-label="t('common.reveal')"
           :conceal-label="t('common.conceal')"
-          button-test="access-key-result-reveal"
           @conceal="emit('clear')"
         />
         <CopyButton
@@ -39,13 +38,7 @@ const { t } = useI18n()
           :failure-label="t('common.copyFailed')"
         />
       </template>
-      <AppButton
-        v-else
-        data-test="access-key-result-reveal"
-        variant="secondary"
-        :busy="revealPending"
-        @click="emit('reveal')"
-      >
+      <AppButton v-else variant="secondary" :busy="revealPending" @click="emit('reveal')">
         {{ t('common.reveal') }}
       </AppButton>
     </div>

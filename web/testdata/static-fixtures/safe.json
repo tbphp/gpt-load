@@ -1,4 +1,0 @@
-{
-  "status": "safe",
-  "note": "Static fixtures must never contain generated AccessKey material."
-}

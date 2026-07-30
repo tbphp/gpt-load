@@ -123,7 +123,7 @@ async function navigate(filters: UsageFilters): Promise<void> {
       @refresh="usageQuery.refetch()"
     />
 
-    <section class="usage-applied" data-test="usage-applied-filters">
+    <section class="usage-applied">
       <strong>{{ t('monitor.usage.filters.applied') }}</strong>
       <span class="usage-filter-chip">
         {{
@@ -143,19 +143,15 @@ async function navigate(filters: UsageFilters): Promise<void> {
         {{ appliedFilters.model ?? t('monitor.usage.filters.anyModel') }}
       </span>
     </section>
-    <InlineFeedback v-if="draftDirty" data-test="usage-filter-dirty" tone="info">
+    <InlineFeedback v-if="draftDirty" tone="info">
       {{ t('monitor.usage.filters.dirty') }}
     </InlineFeedback>
 
-    <InlineFeedback
-      v-if="groupsQuery.isError.value"
-      data-test="usage-group-options-failed"
-      tone="warning"
-    >
+    <InlineFeedback v-if="groupsQuery.isError.value" tone="warning">
       {{ t('monitor.usage.options.groupsFailed') }}
     </InlineFeedback>
 
-    <SurfaceCard class="usage-scope" data-test="usage-scope">
+    <SurfaceCard class="usage-scope">
       <Database :size="20" aria-hidden="true" />
       <div>
         <strong>{{ t('monitor.usage.scope.title') }}</strong>
@@ -178,23 +174,22 @@ async function navigate(filters: UsageFilters): Promise<void> {
     <template v-else-if="report">
       <QueryFeedback
         v-if="usageQuery.isError.value"
-        data-test="usage-stale"
         state="stale"
         :message="t('monitor.usage.stale')"
         :retry-label="t('common.retry')"
         @retry="usageQuery.refetch()"
       />
 
-      <section class="usage-freshness" data-test="usage-freshness">
+      <section class="usage-freshness">
         <p>
           <strong>{{ t('monitor.usage.filters.observedAt') }}</strong>
-          <time data-test="usage-observed-at" :datetime="report.observed_at">
+          <time :datetime="report.observed_at">
             {{ report.observed_at }}
           </time>
         </p>
         <p v-if="lastRefreshedAt">
           <strong>{{ t('monitor.usage.filters.refreshedAt') }}</strong>
-          <time data-test="usage-refreshed-at" :datetime="lastRefreshedAt.toISOString()">
+          <time :datetime="lastRefreshedAt.toISOString()">
             {{ lastRefreshedAt.toISOString() }}
           </time>
         </p>
@@ -202,18 +197,13 @@ async function navigate(filters: UsageFilters): Promise<void> {
 
       <EmptyState
         v-if="!hasData"
-        data-test="usage-empty"
         :title="t('monitor.usage.empty.title')"
         :description="t('monitor.usage.empty.description')"
       />
       <template v-else>
         <UsageSummary :observed-at="report.observed_at" :summary="report.summary" />
 
-        <section
-          class="usage-section"
-          data-test="usage-window-quality"
-          aria-labelledby="usage-quality-title"
-        >
+        <section class="usage-section" aria-labelledby="usage-quality-title">
           <div class="usage-heading">
             <div>
               <h2 id="usage-quality-title">{{ t('monitor.usage.quality.title') }}</h2>
@@ -221,47 +211,38 @@ async function navigate(filters: UsageFilters): Promise<void> {
             </div>
           </div>
           <div class="usage-quality-grid">
-            <SurfaceCard data-test="usage-quality-missing">
+            <SurfaceCard>
               <StatusBadge :tone="report.summary.usage_missing_count ? 'warning' : 'neutral'">
                 {{ t('monitor.usage.quality.missing') }}
               </StatusBadge>
               <strong>{{ formatCount(report.summary.usage_missing_count) }}</strong>
             </SurfaceCard>
-            <SurfaceCard data-test="usage-quality-partial">
+            <SurfaceCard>
               <StatusBadge :tone="report.summary.partial_count ? 'warning' : 'neutral'">
                 {{ t('monitor.usage.quality.partial') }}
               </StatusBadge>
               <strong>{{ formatCount(report.summary.partial_count) }}</strong>
             </SurfaceCard>
-            <SurfaceCard data-test="usage-quality-unpriced">
+            <SurfaceCard>
               <StatusBadge :tone="report.summary.unpriced_request_count ? 'warning' : 'neutral'">
                 {{ t('monitor.usage.quality.unpriced') }}
               </StatusBadge>
               <strong>{{ formatCount(report.summary.unpriced_request_count) }}</strong>
             </SurfaceCard>
           </div>
-          <InlineFeedback data-test="usage-quality-overlap" tone="info">
+          <InlineFeedback tone="info">
             {{ t('monitor.usage.quality.overlap') }}
           </InlineFeedback>
-          <InlineFeedback
-            v-if="report.summary.partial_count > 0"
-            data-test="usage-partial-explanation"
-            tone="warning"
-          >
+          <InlineFeedback v-if="report.summary.partial_count > 0" tone="warning">
             {{ t('monitor.usage.quality.partialExplanation') }}
           </InlineFeedback>
-          <InlineFeedback
-            v-if="report.summary.unpriced_request_count > 0"
-            data-test="usage-unpriced-explanation"
-            tone="warning"
-          >
+          <InlineFeedback v-if="report.summary.unpriced_request_count > 0" tone="warning">
             {{ t('monitor.usage.quality.unpricedExplanation') }}
           </InlineFeedback>
-          <p class="usage-note" data-test="usage-aggregation-note">
+          <p class="usage-note">
             {{ t('monitor.usage.quality.aggregation') }}
             <RouterLink
               v-if="report.summary.unpriced_request_count > 0"
-              data-test="usage-prices-link"
               :to="modelPricesLocation()"
             >
               {{ t('monitor.usage.quality.openPrices') }}
@@ -270,11 +251,7 @@ async function navigate(filters: UsageFilters): Promise<void> {
         </section>
       </template>
 
-      <section
-        class="usage-section"
-        data-test="usage-process-health"
-        aria-labelledby="usage-process-health-title"
-      >
+      <section class="usage-section" aria-labelledby="usage-process-health-title">
         <div class="usage-heading">
           <div>
             <h2 id="usage-process-health-title">{{ t('monitor.usage.process.title') }}</h2>
@@ -282,13 +259,13 @@ async function navigate(filters: UsageFilters): Promise<void> {
           </div>
         </div>
         <div class="usage-process-grid">
-          <SurfaceCard data-test="usage-quality-dropped">
+          <SurfaceCard>
             <StatusBadge :tone="report.collection_health.dropped_total ? 'danger' : 'neutral'">
               {{ t('monitor.usage.quality.dropped') }}
             </StatusBadge>
             <strong>{{ formatCount(report.collection_health.dropped_total) }}</strong>
           </SurfaceCard>
-          <SurfaceCard data-test="usage-quality-write-failures">
+          <SurfaceCard>
             <StatusBadge
               :tone="report.collection_health.write_failure_total ? 'danger' : 'neutral'"
             >
@@ -309,18 +286,10 @@ async function navigate(filters: UsageFilters): Promise<void> {
             </strong>
           </SurfaceCard>
         </div>
-        <InlineFeedback
-          v-if="report.collection_health.dropped_total > 0"
-          data-test="usage-process-dropped-warning"
-          tone="danger"
-        >
+        <InlineFeedback v-if="report.collection_health.dropped_total > 0" tone="danger">
           {{ t('monitor.usage.process.droppedWarning') }}
         </InlineFeedback>
-        <InlineFeedback
-          v-if="report.collection_health.write_failure_total > 0"
-          data-test="usage-process-write-failure-warning"
-          tone="danger"
-        >
+        <InlineFeedback v-if="report.collection_health.write_failure_total > 0" tone="danger">
           {{ t('monitor.usage.process.writeFailureWarning') }}
         </InlineFeedback>
         <InlineFeedback
@@ -363,11 +332,7 @@ async function navigate(filters: UsageFilters): Promise<void> {
               <p>{{ t('monitor.usage.series.description') }}</p>
             </div>
           </div>
-          <DataTable
-            data-test="usage-series-table"
-            :caption="t('monitor.usage.series.caption')"
-            dense
-          >
+          <DataTable :caption="t('monitor.usage.series.caption')" dense>
             <thead>
               <tr>
                 <th scope="col">{{ t('monitor.usage.columns.window') }}</th>
@@ -390,7 +355,7 @@ async function navigate(filters: UsageFilters): Promise<void> {
                 <td>{{ formatCount(bucket.success_count) }}</td>
                 <td>{{ formatCount(bucket.failure_count) }}</td>
                 <td>{{ formatCount(bucket.total_tokens) }}</td>
-                <td :data-test="`usage-series-cost-${index}`">
+                <td>
                   {{ formatEstimatedCost(bucket) }}
                 </td>
                 <td>
@@ -414,19 +379,11 @@ async function navigate(filters: UsageFilters): Promise<void> {
               <p>{{ t('monitor.usage.breakdown.description') }}</p>
             </div>
           </div>
-          <InlineFeedback
-            v-if="report.breakdown_truncated"
-            data-test="usage-breakdown-truncated"
-            tone="warning"
-          >
+          <InlineFeedback v-if="report.breakdown_truncated" tone="warning">
             <TriangleAlert :size="16" aria-hidden="true" />
             {{ t('monitor.usage.breakdown.truncated') }}
           </InlineFeedback>
-          <DataTable
-            data-test="usage-breakdown-table"
-            :caption="t('monitor.usage.breakdown.caption')"
-            dense
-          >
+          <DataTable :caption="t('monitor.usage.breakdown.caption')" dense>
             <thead>
               <tr>
                 <th scope="col">{{ t('monitor.usage.columns.group') }}</th>
@@ -457,7 +414,7 @@ async function navigate(filters: UsageFilters): Promise<void> {
                 <td>{{ formatCount(row.cache_write_1h_tokens) }}</td>
                 <td>{{ formatCount(row.output_tokens) }}</td>
                 <td>{{ formatCount(row.total_tokens) }}</td>
-                <td :data-test="`usage-breakdown-cost-${index}`">
+                <td>
                   {{ formatEstimatedCost(row) }}
                 </td>
                 <td>

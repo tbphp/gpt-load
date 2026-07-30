@@ -42,7 +42,6 @@ const weights = Array.from({ length: 100 }, (_, index) => index + 1)
         <span>{{ t('group.settings.base.name') }}</span>
         <input
           :value="name"
-          data-test="group-name"
           type="text"
           autocomplete="off"
           :aria-invalid="nameError ? 'true' : undefined"
@@ -53,7 +52,6 @@ const weights = Array.from({ length: 100 }, (_, index) => index + 1)
         <small
           v-if="nameError"
           id="group-name-error"
-          data-test="group-name-error"
           class="group-settings__field-error"
           role="alert"
         >
@@ -64,7 +62,6 @@ const weights = Array.from({ length: 100 }, (_, index) => index + 1)
         <span>{{ t('group.settings.base.upstreamUrl') }}</span>
         <input
           :value="upstreamUrl"
-          data-test="group-upstream-url"
           class="group-settings__mono"
           type="url"
           autocomplete="off"
@@ -78,7 +75,6 @@ const weights = Array.from({ length: 100 }, (_, index) => index + 1)
         <small
           v-if="upstreamUrlError"
           id="group-upstream-url-error"
-          data-test="group-upstream-url-error"
           class="group-settings__field-error"
           role="alert"
         >
@@ -89,7 +85,6 @@ const weights = Array.from({ length: 100 }, (_, index) => index + 1)
       <label>
         <span>{{ t('group.settings.base.validationModel') }}</span>
         <input
-          data-test="group-validation-model"
           class="group-settings__mono"
           type="text"
           autocomplete="off"
@@ -101,7 +96,6 @@ const weights = Array.from({ length: 100 }, (_, index) => index + 1)
       <label>
         <span>{{ t('group.settings.base.weight') }}</span>
         <select
-          data-test="group-weight"
           :value="weightManual ?? 'auto'"
           :disabled="pending"
           @change="
@@ -127,7 +121,6 @@ const weights = Array.from({ length: 100 }, (_, index) => index + 1)
       <div class="group-settings__checks">
         <label v-for="protocol in protocolOptions" :key="protocol">
           <input
-            :data-test="`group-protocol-${protocol}`"
             type="checkbox"
             :checked="protocols.includes(protocol)"
             :disabled="pending"
@@ -139,30 +132,21 @@ const weights = Array.from({ length: 100 }, (_, index) => index + 1)
       <small
         v-if="protocolsError"
         id="group-protocols-error"
-        data-test="group-protocols-error"
         class="group-settings__field-error"
         role="alert"
       >
         {{ protocolsError }}
       </small>
-      <InlineFeedback
-        v-if="protocols.includes('openai-responses')"
-        data-test="group-responses-affinity-warning"
-        tone="warning"
-      >
+      <InlineFeedback v-if="protocols.includes('openai-responses')" tone="warning">
         {{ t('group.settings.base.responsesAffinityWarning') }}
       </InlineFeedback>
-      <small
-        v-if="protocols.includes('openai-responses')"
-        data-test="group-responses-usage-options-help"
-      >
+      <small v-if="protocols.includes('openai-responses')">
         {{ t('group.settings.base.responsesUsageOptionsHelp') }}
       </small>
     </fieldset>
     <label class="group-settings__enabled">
       <input
         :checked="enabled"
-        data-test="group-enabled"
         type="checkbox"
         :disabled="pending"
         @change="emit('update:enabled', ($event.target as HTMLInputElement).checked)"

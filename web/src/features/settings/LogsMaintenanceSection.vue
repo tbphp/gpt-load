@@ -68,7 +68,7 @@ function setValue(value: number): void {
       </div>
     </header>
 
-    <section v-if="conflict" class="settings-conflict" data-test="settings-conflicts">
+    <section v-if="conflict" class="settings-conflict">
       <strong>{{ t('settings.logs.retention') }}</strong>
       <span>
         {{ t('settings.conflict.mine') }}:
@@ -79,18 +79,10 @@ function setValue(value: number): void {
         {{ conflict.latest.normalized_value }}
       </span>
       <div>
-        <AppButton
-          :data-test="`settings-conflict-mine-${settingKey}`"
-          variant="secondary"
-          @click="emit('chooseMine', settingKey)"
-        >
+        <AppButton variant="secondary" @click="emit('chooseMine', settingKey)">
           {{ t('settings.conflict.useMine') }}
         </AppButton>
-        <AppButton
-          :data-test="`settings-conflict-latest-${settingKey}`"
-          variant="ghost"
-          @click="emit('chooseLatest', settingKey)"
-        >
+        <AppButton variant="ghost" @click="emit('chooseLatest', settingKey)">
           {{ t('settings.conflict.useLatest') }}
         </AppButton>
       </div>

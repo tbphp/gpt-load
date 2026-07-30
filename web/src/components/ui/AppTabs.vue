@@ -5,7 +5,6 @@ import { ref, watch } from 'vue'
 export interface AppTabItem {
   value: string
   label: string
-  testId?: string
 }
 
 const props = defineProps<{
@@ -41,7 +40,6 @@ watch(
           :key="item.value"
           class="app-tabs__trigger"
           :value="item.value"
-          :data-test="item.testId"
           :data-tab-value="item.value"
         >
           {{ item.label }}

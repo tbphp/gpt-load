@@ -92,7 +92,7 @@ watch(
 </script>
 
 <template>
-  <p class="sr-only" data-test="route-announcer" aria-live="polite" aria-atomic="true">
+  <p class="sr-only" aria-live="polite" aria-atomic="true">
     {{ announcement }}
   </p>
 </template>

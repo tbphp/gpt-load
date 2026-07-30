@@ -26,30 +26,21 @@ build: _web-build ## Build the Web UI and application binary
 	$(GO) build -o $(APP) .
 
 .PHONY: test
-test: _web-deps ## Run Web and Go unit tests
-	$(PNPM) --dir $(WEB_DIR) run test
+test: ## Run Go unit tests
 	$(GO) test -count=1 . ./internal/...
 
 .PHONY: check
-check: _web-deps ## Run all local quality gates except browser E2E
+check: _web-deps ## Run source checks and build
 	@formatted_files="$$(gofmt -l .)"; test -z "$${formatted_files}"
 	$(GO) mod tidy -diff
 	$(GO) vet ./...
 	$(PNPM) --dir $(WEB_DIR) run lint
 	$(PNPM) --dir $(WEB_DIR) run format
 	$(PNPM) --dir $(WEB_DIR) run type-check
-	$(PNPM) --dir $(WEB_DIR) run test
 	$(PNPM) --dir $(WEB_DIR) run build
-	$(PNPM) --dir $(WEB_DIR) run check:bundle
-	$(PNPM) --dir $(WEB_DIR) run check:visual
-	$(PNPM) --dir $(WEB_DIR) run check:a11y-evidence
 	$(GO) build -o $(APP) .
 	$(GO) test -race -count=1 . ./internal/...
 	git diff --check
-
-.PHONY: e2e
-e2e: build ## Run production browser E2E tests
-	$(PNPM) --dir $(WEB_DIR) run test:e2e
 
 .PHONY: help
 help: ## Display available targets

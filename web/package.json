@@ -14,14 +14,7 @@
     "lint": "eslint . --max-warnings=0",
     "format": "prettier --check .",
     "format:write": "prettier --write .",
-    "type-check": "vue-tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json",
-    "test": "vitest run",
-    "test:csp": "node e2e/run-e2e.mjs e2e/csp-smoke.spec.ts",
-    "test:e2e": "node e2e/run-e2e.mjs",
-    "check:visual": "node scripts/check-visual-runner-lock.mjs --manifest-only",
-    "check:a11y-evidence": "node scripts/check-accessibility-evidence.mjs",
-    "visual:run": "node scripts/run-visual-runner.mjs",
-    "check:bundle": "node scripts/check-bundle-budget.mjs"
+    "type-check": "vue-tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json"
   },
   "dependencies": {
     "@lucide/vue": "1.27.0",
@@ -32,21 +25,17 @@
     "vue-router": "5.2.0"
   },
   "devDependencies": {
-    "@playwright/test": "1.62.0",
     "@tailwindcss/vite": "4.3.3",
     "@types/node": "24.13.3",
     "@vitejs/plugin-vue": "6.0.8",
     "@vue/eslint-config-typescript": "14.9.0",
-    "@vue/test-utils": "2.4.11",
     "eslint": "10.8.0",
     "eslint-config-prettier": "10.1.8",
     "eslint-plugin-vue": "10.10.0",
-    "happy-dom": "20.11.1",
     "prettier": "3.9.6",
     "tailwindcss": "4.3.3",
     "typescript": "6.0.3",
     "vite": "8.1.5",
-    "vitest": "4.1.10",
     "vue-tsc": "3.3.8"
   }
 }

@@ -84,6 +84,8 @@ export interface RequestLogHealthDto {
 
 export interface RuntimeHealthDto {
   observed_at: string
+  version: string
+  uptime_seconds: number
   snapshot_revision: number
   stats_window_seconds: number
   counts: KeyCounts

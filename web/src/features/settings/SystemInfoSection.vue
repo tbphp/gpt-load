@@ -67,7 +67,6 @@ function sourceLabel(source: SecretSource): string {
           <dd class="system-info__path mono">
             <span>{{ infoQuery.data.value.data_dir }}</span>
             <CopyButton
-              data-test="copy-data-dir"
               :value="infoQuery.data.value.data_dir"
               :label="t('settings.system.copyPath')"
               :success-label="t('common.copied')"
@@ -82,7 +81,6 @@ function sourceLabel(source: SecretSource): string {
             <span v-if="infoQuery.data.value.auth_key.path" class="system-info__path mono">
               <span>{{ infoQuery.data.value.auth_key.path }}</span>
               <CopyButton
-                data-test="copy-auth-key-path"
                 :value="infoQuery.data.value.auth_key.path"
                 :label="t('settings.system.copyPath')"
                 :success-label="t('common.copied')"
@@ -101,7 +99,6 @@ function sourceLabel(source: SecretSource): string {
             <span v-if="infoQuery.data.value.encryption.path" class="system-info__path mono">
               <span>{{ infoQuery.data.value.encryption.path }}</span>
               <CopyButton
-                data-test="copy-encryption-path"
                 :value="infoQuery.data.value.encryption.path"
                 :label="t('settings.system.copyPath')"
                 :success-label="t('common.copied')"

@@ -31,7 +31,7 @@ watch(
     if (session.state.phase !== 'invalid-response') return
 
     const retry = gateRoot.value?.querySelector<HTMLButtonElement>(
-      'button[data-test="invalid-response-retry"]',
+      'button.auth-gate-invalid-response-retry',
     )
     if (retry instanceof HTMLButtonElement && retry.isConnected) {
       retry.focus()
@@ -102,7 +102,7 @@ function changeAuthKey(): void {
         </InlineFeedback>
         <div class="auth-gate-actions">
           <AppButton
-            data-test="invalid-response-retry"
+            class="auth-gate-invalid-response-retry"
             type="button"
             variant="secondary"
             @click="retryValidation"
