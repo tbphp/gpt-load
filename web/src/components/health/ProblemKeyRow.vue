@@ -3,7 +3,7 @@ import { computed } from 'vue'
 
 import type { HealthProblemKeyDto } from '@/app/resources/health'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
-import { formatLocalInstant } from '@/lib/format'
+import { formatISOInstant, formatLocalInstant } from '@/lib/format'
 
 export interface ProblemKeyRowLabels {
   consecutiveFailures: string
@@ -36,6 +36,10 @@ const recoveryTime = computed(() => {
   const value = props.problemKey.recovery.at_ms
   if (value === null) return null
   return formatLocalInstant(value, props.locale)
+})
+const recoveryDateTime = computed(() => {
+  const value = props.problemKey.recovery.at_ms
+  return value === null ? undefined : formatISOInstant(value)
 })
 const recoveryClock = computed(() => {
   const value = props.problemKey.recovery.at_ms
@@ -72,7 +76,10 @@ const compactFailureSummary = computed(() => {
         {{ compactFailureSummary }}
       </span>
       <span class="problem-key-row__compact-recovery">
-        <time v-if="problemKey.recovery.at_ms !== null && recoveryClock">
+        <time
+          v-if="problemKey.recovery.at_ms !== null && recoveryClock"
+          :datetime="recoveryDateTime"
+        >
           {{ recoveryClock }} {{ labels.automaticRecovery ?? labels.recoversAt }}
         </time>
         <template v-else>{{ labels.probeRecovery ?? labels.validationProbe }}</template>
@@ -105,7 +112,10 @@ const compactFailureSummary = computed(() => {
         <div>
           <dt>{{ labels.recoversAt }}</dt>
           <dd>
-            <time v-if="problemKey.recovery.at_ms !== null && recoveryTime">
+            <time
+              v-if="problemKey.recovery.at_ms !== null && recoveryTime"
+              :datetime="recoveryDateTime"
+            >
               {{ recoveryTime }}
             </time>
             <template v-else>{{ labels.validationProbe }}</template>

@@ -169,6 +169,8 @@ export default {
       cost: '成本',
       knownPlusUnknown: '{cost} + 未知',
       unknownGroup: '分组 #{id}',
+      unattributedGroup: '未归属 Group',
+      unknownModel: '未知模型',
       empty: '当前范围没有可展示的成本明细。',
       footer: '共 {count} 组',
       viewAll: '查看全部',

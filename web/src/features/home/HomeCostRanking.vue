@@ -28,12 +28,17 @@ function formatCost(row: UsageAggregateDto): string {
 }
 
 function groupName(groupID: number): string {
+  if (groupID === 0) return t('home.ranking.unattributedGroup')
   return (
     props.groupNames.get(groupID) ??
     t('home.ranking.unknownGroup', {
       id: groupID,
     })
   )
+}
+
+function modelName(model: string): string {
+  return model === '' ? t('home.ranking.unknownModel') : model
 }
 </script>
 
@@ -65,7 +70,7 @@ function groupName(groupID: number): string {
               {{ groupName(row.group_id) }}
             </RouterLink>
           </td>
-          <td class="home-ranking__model">{{ row.model }}</td>
+          <td class="home-ranking__model">{{ modelName(row.model) }}</td>
           <td>{{ formatCount(row.request_count) }}</td>
           <td data-column-priority="low">
             {{ formatCompactMetric(row.total_tokens, locale) }}

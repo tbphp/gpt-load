@@ -85,9 +85,14 @@ function formatAggregateEstimatedCost(aggregate: UsageAggregateDto): string {
 }
 
 function groupLabel(groupID: number): string {
+  if (groupID === 0) return t('monitor.usage.breakdown.unattributedGroup')
   const known = groupsQuery.data.value?.find((group) => group.id === groupID)
   if (known) return `${known.name} · #${groupID}`
   return t('monitor.usage.filters.deletedOrUnknown', { id: groupID })
+}
+
+function modelLabel(model: string): string {
+  return model === '' ? t('monitor.usage.breakdown.unknownModel') : model
 }
 
 function updateDraftField(field: keyof UsageFilterDraft, value: string): void {
@@ -402,7 +407,7 @@ async function navigate(filters: UsageFilters): Promise<void> {
                   {{ groupLabel(row.group_id) }}
                 </td>
                 <td>
-                  <code>{{ row.model }}</code>
+                  <code>{{ modelLabel(row.model) }}</code>
                 </td>
                 <td>{{ formatCount(row.request_count) }}</td>
                 <td>{{ formatCount(row.uncached_input_tokens) }}</td>

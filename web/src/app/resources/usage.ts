@@ -219,13 +219,13 @@ export function projectUsageReport(value: unknown): UsageReportDto {
       'group_id',
       'model',
     ])
-    const model = projectString(item.model)
-    if (model.trim().length === 0 || model !== model.trim()) invalidResponse()
+    const model = projectString(item.model, { allowEmpty: true })
+    if (model !== model.trim()) invalidResponse()
     return {
       ...projectUsageAggregate(
         Object.fromEntries(aggregateFields.map((field) => [field, item[field]])),
       ),
-      group_id: projectSafeInteger(item.group_id, { minimum: 1 }),
+      group_id: projectSafeInteger(item.group_id, { minimum: 0 }),
       model,
     }
   })

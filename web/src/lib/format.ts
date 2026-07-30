@@ -29,6 +29,11 @@ export function formatLocalInstant(
   }
 }
 
+export function formatISOInstant(ms: number): string | undefined {
+  if (!Number.isSafeInteger(ms) || ms < 0) return undefined
+  return validDate(ms)?.toISOString()
+}
+
 export function formatLocalTime(ms: number, locale: string): string {
   return formatLocalInstant(ms, locale, {
     year: undefined,

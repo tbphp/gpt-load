@@ -185,7 +185,7 @@ export function usageBreakdownLocation(range: '24h' | '30d', groupId: number, mo
   return monitorLocation({
     tab: 'usage',
     range,
-    group_id: groupId,
-    model,
+    ...(groupId === 0 ? {} : { group_id: groupId }),
+    ...(model === '' ? {} : { model }),
   })
 }

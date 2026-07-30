@@ -175,6 +175,8 @@ export default {
       cost: 'コスト',
       knownPlusUnknown: '{cost} + 不明',
       unknownGroup: 'Group #{id}',
+      unattributedGroup: '未帰属 Group',
+      unknownModel: '不明なモデル',
       empty: 'この期間に表示できるコスト内訳はありません。',
       footer: '{count} Group',
       viewAll: 'すべて表示',

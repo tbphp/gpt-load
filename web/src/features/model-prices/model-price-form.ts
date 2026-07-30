@@ -33,7 +33,7 @@ export interface ModelPriceFormErrors {
 
 const maximumInt64 = 9_223_372_036_854_775_807n
 const nanoUSDPerUSD = 1_000_000_000n
-const canonicalPrice = /^(?:0|[1-9]\d*)(?:\.\d{0,8}[1-9])?$/
+const acceptedPrice = /^\d+(?:\.\d{1,9})?$/
 
 function formatPrice(value: string | null): string {
   return value ?? ''
@@ -63,10 +63,14 @@ function patternError(pattern: string): ModelPriceFormErrors['pattern'] {
 
 function parsePrice(raw: string): string | null | undefined {
   if (raw === '') return null
-  if (!canonicalPrice.test(raw)) return undefined
+  if (!acceptedPrice.test(raw)) return undefined
   const [whole = '', fraction = ''] = raw.split('.')
   const nanoUSD = BigInt(whole) * nanoUSDPerUSD + BigInt(fraction.padEnd(9, '0') || '0')
-  return nanoUSD <= maximumInt64 ? raw : undefined
+  if (nanoUSD > maximumInt64) return undefined
+
+  const canonicalWhole = whole.replace(/^0+(?=\d)/, '')
+  const canonicalFraction = fraction.replace(/0+$/, '')
+  return canonicalFraction === '' ? canonicalWhole : `${canonicalWhole}.${canonicalFraction}`
 }
 
 export function validateModelPriceDraft(draft: ModelPriceDraft): ModelPriceFormErrors {

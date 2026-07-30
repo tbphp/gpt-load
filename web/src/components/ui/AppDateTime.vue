@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 
-import { formatLocalInstant } from '@/lib/format'
+import { formatISOInstant, formatLocalInstant } from '@/lib/format'
 import { currentTimeZone } from '@/lib/time'
 
 const props = withDefaults(
@@ -15,19 +15,13 @@ const props = withDefaults(
   },
 )
 
-const instantMs = computed(() => {
-  if (!Number.isSafeInteger(props.instant) || props.instant < 0) return null
-  return Number.isNaN(new Date(props.instant).getTime()) ? null : props.instant
-})
+const dateTime = computed(() => formatISOInstant(props.instant))
+const instantMs = computed(() => (dateTime.value === undefined ? null : props.instant))
 
 const absolute = computed(() => {
   if (instantMs.value === null) return String(props.instant)
   return formatLocalInstant(instantMs.value, props.locale, { timeZone: props.timeZone })
 })
-
-const dateTime = computed(() =>
-  instantMs.value === null ? undefined : new Date(instantMs.value).toISOString(),
-)
 </script>
 
 <template>

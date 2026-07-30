@@ -174,6 +174,8 @@ export default {
       cost: 'Cost',
       knownPlusUnknown: '{cost} + unknown',
       unknownGroup: 'Group #{id}',
+      unattributedGroup: 'Unattributed Group',
+      unknownModel: 'Unknown model',
       empty: 'No cost breakdown is available for this range.',
       footer: '{count} Groups',
       viewAll: 'View all',
