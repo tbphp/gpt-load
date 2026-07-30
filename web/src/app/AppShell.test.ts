@@ -86,7 +86,7 @@ describe('AppShell', () => {
       /\.app-topbar\s*\{[\s\S]*border-bottom: 1px solid var\(--color-border-subtle\);/,
     )
     expect(appShellSource).toMatch(
-      /\.brand\s*\{[\s\S]*display: inline-flex;[\s\S]*min-height: 44px;[\s\S]*font-weight: 650;/,
+      /\.brand\s*\{[\s\S]*display: inline-flex;[\s\S]*min-height: 44px;[\s\S]*font-family: var\(--font-serif\);[\s\S]*font-weight: 500;[\s\S]*text-transform: lowercase;/,
     )
     expect(appShellSource).toMatch(/\.nav-link\s*\{[\s\S]*display: inline-flex;[\s\S]*transition:/)
     for (const legacySelector of ['page-shell', 'topbar', 'brand', 'brand-mark', 'nav']) {
@@ -94,10 +94,21 @@ describe('AppShell', () => {
     }
   })
 
+  it('keeps the compact topbar on one 64px row at the narrow breakpoint', () => {
+    expect(appShellSource).toMatch(
+      /\.app-topbar\s*\{[\s\S]*min-height: 64px;[\s\S]*align-items: center;/,
+    )
+    expect(appShellSource).not.toMatch(
+      /@media \(max-width: 640px\)\s*\{[\s\S]*?\.app-topbar\s*\{[\s\S]*?flex-wrap: wrap;/,
+    )
+    expect(appShellSource).not.toMatch(/\.shell-actions\s*\{[^}]*width: 100%;/)
+  })
+
   it('renders shared navigation, import action, skip link and main landmark', async () => {
     const { wrapper } = await mountShell()
 
     expect(wrapper.get('[href="#main-content"]').text()).toBe('Skip to main content')
+    expect(wrapper.get('.brand').text()).toBe('GPT-Load')
     expect(wrapper.get('nav').attributes('aria-label')).toBe('Primary navigation')
     expect(wrapper.get('[href="/import"]').text()).toContain('Import upstream keys')
     expect(wrapper.get('main#main-content').text()).toContain('Page body')

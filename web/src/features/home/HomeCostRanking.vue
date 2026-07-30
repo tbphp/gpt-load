@@ -8,6 +8,7 @@ import { monitorLocation } from '@/app/route-locations'
 import DataTable from '@/components/ui/DataTable.vue'
 import { formatEstimatedUSD } from '@/features/usage/estimated-cost'
 
+import { formatCompactMetric } from './home-format'
 import { usageBreakdownLocation } from './home-presenter'
 
 const props = defineProps<{
@@ -39,16 +40,14 @@ function groupName(groupID: number): string {
 <template>
   <section class="home-ranking" data-test="home-cost-ranking" aria-labelledby="home-ranking-title">
     <header class="home-ranking__header">
-      <div>
-        <h2 id="home-ranking-title">{{ t('home.ranking.title', { range: report.range }) }}</h2>
-        <p>{{ t('home.ranking.description') }}</p>
-      </div>
+      <h2 id="home-ranking-title">{{ t('home.ranking.title', { range: report.range }) }}</h2>
     </header>
 
     <DataTable
       v-if="rows.length > 0"
       :caption="t('home.ranking.caption')"
       :scroll-hint="t('home.ranking.scrollHint')"
+      appearance="editorial"
     >
       <thead>
         <tr>
@@ -61,14 +60,16 @@ function groupName(groupID: number): string {
       </thead>
       <tbody>
         <tr v-for="row in rows" :key="`${row.group_id}:${row.model}`" data-ranking-row>
-          <td>{{ groupName(row.group_id) }}</td>
-          <td data-ranking-model>
+          <td data-ranking-group>
             <RouterLink :to="usageBreakdownLocation(report.range, row.group_id, row.model)">
-              {{ row.model }}
+              {{ groupName(row.group_id) }}
             </RouterLink>
           </td>
+          <td data-ranking-model>{{ row.model }}</td>
           <td>{{ formatCount(row.request_count) }}</td>
-          <td data-column-priority="low">{{ formatCount(row.total_tokens) }}</td>
+          <td data-column-priority="low">
+            {{ formatCompactMetric(row.total_tokens, locale) }}
+          </td>
           <td>{{ formatCost(row) }}</td>
         </tr>
       </tbody>
@@ -88,10 +89,9 @@ function groupName(groupID: number): string {
 <style scoped>
 .home-ranking {
   display: grid;
-  gap: var(--space-4);
+  gap: var(--space-3);
 }
 .home-ranking__header h2,
-.home-ranking__header p,
 .home-ranking__empty {
   margin: 0;
 }
@@ -99,10 +99,7 @@ function groupName(groupID: number): string {
   font-family: var(--font-serif);
   font-size: 1.45rem;
   font-weight: 500;
-}
-.home-ranking__header p {
-  margin-top: var(--space-1);
-  color: var(--color-text-muted);
+  line-height: var(--line-compact);
 }
 .home-ranking td,
 .home-ranking th {
@@ -116,6 +113,13 @@ function groupName(groupID: number): string {
 .home-ranking td a {
   color: var(--color-action);
   font-weight: 650;
+}
+.home-ranking [data-ranking-model] {
+  color: var(--color-text-muted);
+}
+.home-ranking th:nth-child(n + 3),
+.home-ranking td:nth-child(n + 3) {
+  text-align: right;
 }
 .home-ranking__empty {
   border-top: 1px solid var(--color-border-subtle);
@@ -140,5 +144,24 @@ function groupName(groupID: number): string {
   color: var(--color-action);
   font-family: var(--font-sans);
   font-weight: 650;
+}
+@media (min-width: 760px) {
+  .home-ranking :deep(.data-table) {
+    width: 100%;
+    table-layout: fixed;
+  }
+  .home-ranking th:nth-child(1) {
+    width: 28%;
+  }
+  .home-ranking th:nth-child(2) {
+    width: 34%;
+  }
+  .home-ranking th:nth-child(3) {
+    width: 10%;
+  }
+  .home-ranking th:nth-child(4),
+  .home-ranking th:nth-child(5) {
+    width: 14%;
+  }
 }
 </style>

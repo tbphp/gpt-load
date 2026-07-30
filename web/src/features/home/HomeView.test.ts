@@ -10,6 +10,7 @@ import { FakeApi } from '@/test/fake-api'
 import { mountApp } from '@/test/mount-app'
 
 import HomeView from './HomeView.vue'
+import homeViewSource from './HomeView.vue?raw'
 
 const usage24Path = '/api/usage?range=24h&breakdown_order=cost' as const
 const usage30Path = '/api/usage?range=30d&breakdown_order=cost' as const
@@ -215,8 +216,13 @@ describe('HomeView Ledger states', () => {
     const connection = wrapper.get('[data-test="home-connection-placeholder"]')
 
     expect(wrapper.get('[data-test="home-lede"]').classes()).toContain('home-lede--normal')
+    expect(wrapper.get('[data-test="home-lede"] h1').text()).toBe(
+      '1 个分组运行正常，3/3 把密钥可用。',
+    )
     expect(wrapper.get('[data-test="home-success-rate"]').text()).toContain('90')
     expect(wrapper.find('[data-test="trend-request-path"]').exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('折线展示请求量，红色标记展示失败请求。')
+    expect(wrapper.text()).not.toContain('按后端成本排序展示前 5 个 Group 与上游模型组合。')
     expect(appearsBefore(ranking.element, connection.element)).toBe(true)
     expect(wrapper.find('[data-group-id]').exists()).toBe(false)
     expect(
@@ -225,13 +231,38 @@ describe('HomeView Ledger states', () => {
         .exists(),
     ).toBe(false)
     expect(connection.text()).toContain('占位 · 待专门设计')
+    expect(connection.find('[data-test="connection-placeholder-surface"]').exists()).toBe(true)
     expect(connection.text()).not.toMatch(/Base URL|curl|复制/)
+    expect(wrapper.get('[data-test="home-usage"]').classes()).not.toContain(
+      'home-usage--after-problems',
+    )
     expect(api.requests.map(({ path }) => path)).toEqual([
       '/api/groups',
       '/api/health',
       usage24Path,
     ])
     expect(api.requests.some(({ path }) => path.includes('access-keys'))).toBe(false)
+  })
+
+  it('keeps unpriced requests in the cost detail instead of appending unknown to the main value', async () => {
+    const api = new FakeApi()
+    configureNormal(
+      api,
+      usage('24h', {
+        summary: {
+          ...aggregate,
+          estimated_cost_usd: 58.2,
+          unpriced_request_count: 3,
+        },
+      }),
+    )
+    const { wrapper } = await mountHome(api)
+    const cost = wrapper.get('[data-test="home-estimated-cost"]')
+
+    expect(cost.get('[data-stat-value]').text()).toBe('$58.20')
+    expect(cost.get('[data-stat-detail]').text()).toContain('1.6K tokens')
+    expect(cost.get('[data-stat-detail]').text()).toContain('3 条未定价')
+    expect(cost.text()).not.toContain('+ 未知')
   })
 
   it('renders warning problem Groups with safe masks and canonical deep links', async () => {
@@ -247,6 +278,9 @@ describe('HomeView Ledger states', () => {
     expect(wrapper.get('[data-test="home-problem-link"]').attributes('href')).toBe(
       '/groups/7?tab=keys&key_state=problem',
     )
+    expect(wrapper.get('[data-test="home-usage"]').classes()).toContain(
+      'home-usage--after-problems',
+    )
   })
 
   it('keeps usage visible when health is unknown without cached data', async () => {
@@ -258,11 +292,32 @@ describe('HomeView Ledger states', () => {
 
     expect(wrapper.get('h1').text()).toContain('无法确认服务状态')
     expect(wrapper.find('[data-test="home-health-retry"]').exists()).toBe(true)
-    expect(wrapper.get('[data-test="home-health-usage-independence"]').text()).toContain(
-      '用量数据来自独立数据源',
-    )
+    const healthNote = wrapper.get('[data-test="home-health-usage-independence"]')
+    expect(healthNote.text()).toContain('用量数据来自独立数据源')
+    expect(healthNote.classes()).toContain('home-health-note')
+    expect(healthNote.classes()).not.toContain('inline-feedback')
+    expect(healthNote.find('svg').exists()).toBe(true)
+    expect(
+      appearsBefore(
+        wrapper.get('[data-test="home-success-rate"]').element,
+        wrapper.get('[data-test="home-health-usage-independence"]').element,
+      ),
+    ).toBe(true)
+    expect(
+      appearsBefore(
+        wrapper.get('[data-test="home-health-usage-independence"]').element,
+        wrapper.get('.home-trend').element,
+      ),
+    ).toBe(true)
     expect(wrapper.get('[data-test="home-success-rate"]').text()).toContain('90')
     expect(wrapper.text()).not.toContain('health-canary')
+  })
+
+  it('uses the compact Ledger section rhythm instead of dashboard-card spacing', () => {
+    expect(homeViewSource).toMatch(
+      /\.home-section-heading h2\s*\{[\s\S]*line-height: var\(--line-compact\);/,
+    )
+    expect(homeViewSource).toMatch(/\.home-trend\s*\{[\s\S]*gap: var\(--space-6\);/)
   })
 
   it('retains cached health as stale while leaving current usage independent', async () => {
@@ -278,6 +333,8 @@ describe('HomeView Ledger states', () => {
     expect(wrapper.get('h1').text()).toContain('最近一次观测')
     expect(wrapper.text()).toContain('当前健康检查失败')
     expect(wrapper.find('[data-test="home-success-rate"]').exists()).toBe(true)
+    expect(wrapper.get('.home-trend__failure-link').text()).toBe('失败请求')
+    expect(wrapper.find('.home-trend__failure-link svg').exists()).toBe(true)
   })
 
   it('renders one full-page first-run state only after Groups are confirmed empty', async () => {

@@ -66,15 +66,29 @@ describe('HomeProblemGroups', () => {
     expect(wrapper.get('[data-problem-kind="blacklisted"]').classes()).toContain(
       'home-problem-status--danger',
     )
+    expect(wrapper.find('.home-section-heading').exists()).toBe(false)
+    expect(wrapper.get('[data-problem-kind="cooldown"] h3').text()).toContain(
+      'Primary · 1 把密钥冷却中',
+    )
+    expect(wrapper.get('[data-problem-kind="blacklisted"] h3').text()).toContain(
+      'Primary · 1 把密钥已拉黑',
+    )
+    expect(wrapper.findAll('.problem-key-row--compact')).toHaveLength(2)
     expect(wrapper.text()).toContain('rate****safe')
     expect(wrapper.text()).toContain('inva****lock')
     expect(
-      wrapper.get<HTMLAnchorElement>('[data-test="home-problem-link"]').attributes('href'),
-    ).toBe('/groups/7?tab=keys&key_state=problem')
+      wrapper
+        .findAll<HTMLAnchorElement>('[data-test="home-problem-link"]')
+        .every((link) => link.attributes('href') === '/groups/7?tab=keys&key_state=problem'),
+    ).toBe(true)
   })
 
   it('stays a pure projection with no resource query', () => {
     expect(homeProblemGroupsSource).not.toMatch(/useQuery|ApiClient|healthQueryOptions/)
+    expect(homeProblemGroupsSource).not.toContain("t('monitor.")
     expect(homeProblemGroupsSource).toContain('ProblemKeyRow')
+    expect(homeProblemGroupsSource).toMatch(
+      /\.home-problems \.problem-key-row--compact\s*\{[\s\S]*grid-template-columns: 150px minmax\(0, 1fr\) auto;/,
+    )
   })
 })

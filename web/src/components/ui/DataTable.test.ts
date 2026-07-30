@@ -105,6 +105,33 @@ describe('DataTable', () => {
     ])
   })
 
+  it('offers a flat editorial appearance without changing the default table chrome', () => {
+    const editorial = mount(DataTable, {
+      props: { caption: 'Ledger ranking', appearance: 'editorial' },
+      slots: { default: '<tbody><tr><td>value</td></tr></tbody>' },
+    })
+    const regular = mount(DataTable, {
+      props: { caption: 'Management table' },
+      slots: { default: '<tbody><tr><td>value</td></tr></tbody>' },
+    })
+
+    expect(editorial.get('[data-table-scroll]').classes()).toContain(
+      'data-table__container--editorial',
+    )
+    expect(regular.get('[data-table-scroll]').classes()).not.toContain(
+      'data-table__container--editorial',
+    )
+    expect(dataTableSource).toMatch(
+      /\.data-table__container--editorial\s*\{[\s\S]*border: 0;[\s\S]*border-radius: 0;[\s\S]*background: transparent;[\s\S]*box-shadow: none;/,
+    )
+    expect(dataTableSource).toMatch(
+      /\.data-table__container--editorial[\s\S]*:first-child\)[\s\S]*padding-left: 0;/,
+    )
+    expect(dataTableSource).toMatch(
+      /\.data-table__container--editorial[\s\S]*:last-child\)[\s\S]*padding-right: 0;/,
+    )
+  })
+
   it('hides only explicitly low-priority columns below the compact breakpoint', () => {
     expect(dataTableSource).toMatch(
       /@media \(max-width: 759px\)\s*\{[\s\S]*\[data-column-priority='low'\][\s\S]*display: none;/,

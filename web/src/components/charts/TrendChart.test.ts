@@ -27,6 +27,12 @@ function mountChart(input = series) {
       emptyLabel: 'No returned buckets.',
       requestLabel: 'Requests',
       failureLabel: 'Failed',
+      locale: 'en-US',
+      nowLabel: 'Now',
+      rateSuffix: '/h',
+      failureStripLabel: 'Failed requests · hourly count',
+      rangeStart: '2026-07-29T00:00:00.000Z',
+      rangeEnd: '2026-07-30T00:00:00.000Z',
     },
   })
 }
@@ -34,7 +40,7 @@ function mountChart(input = series) {
 describe('TrendChart', () => {
   it('renders one accessible SVG with separate request geometry and failure bars', () => {
     const wrapper = mountChart()
-    const svg = wrapper.get('svg')
+    const svg = wrapper.get('svg[role="img"]')
 
     expect(svg.attributes('role')).toBe('img')
     expect(svg.attributes('aria-labelledby')).toMatch(
@@ -44,17 +50,22 @@ describe('TrendChart', () => {
     expect(wrapper.get('desc').text()).toBe('Requests and failed requests by returned bucket.')
     expect(wrapper.get('[data-test="trend-request-area"]').attributes('d')).not.toBe('')
     expect(wrapper.get('[data-test="trend-request-path"]').attributes('d')).not.toBe('')
+    expect(wrapper.find('[data-test="trend-request-marker"]').exists()).toBe(true)
     expect(wrapper.findAll('[data-test="trend-failure-bar"]')).toHaveLength(1)
   })
 
-  it('keeps the last returned bucket summary visible outside the SVG', () => {
+  it('shows editorial ticks and the last rate without exposing raw ISO timestamps', () => {
     const wrapper = mountChart()
-    const summary = wrapper.get('[data-test="trend-last-bucket"]')
+    const ticks = wrapper.get('[data-test="trend-time-axis"]')
 
-    expect(summary.text()).toContain('2026-07-29T02:00:00.000Z')
-    expect(summary.text()).toContain('Requests 12')
-    expect(summary.text()).toContain('Failed 2')
-    expect(summary.get('time').attributes('datetime')).toBe('2026-07-29T02:00:00.000Z')
+    expect(ticks.text()).toContain('00:00')
+    expect(ticks.text()).toContain('12:00')
+    expect(ticks.text()).toContain('Now')
+    expect(wrapper.get('[data-test="trend-last-value"]').text()).toBe('12/h')
+    expect(wrapper.get('[data-test="trend-failure-label"]').text()).toBe(
+      'Failed requests · hourly count',
+    )
+    expect(wrapper.text()).not.toContain('2026-07-29T02:00:00.000Z')
   })
 
   it('renders a named empty state instead of fabricating a chart', () => {
@@ -68,5 +79,15 @@ describe('TrendChart', () => {
   it('has no tooltip dependency or information-bearing animation', () => {
     expect(trendChartSource).not.toMatch(/tooltip|<animate|animation:|transition:/i)
     expect(trendChartSource).toContain("from './trend-chart'")
+    expect(trendChartSource).toMatch(/\.trend-chart__request-graphic\s*\{[\s\S]*height: 185px;/)
+    expect(trendChartSource).toMatch(/\.trend-chart\s*\{[\s\S]*padding-bottom: var\(--space-2\);/)
+    expect(trendChartSource).toMatch(/\.trend-chart__axis\s*\{[\s\S]*margin-top: var\(--space-4\);/)
+    expect(trendChartSource).toContain(
+      'color-mix(in srgb, var(--color-action) 12%, var(--color-canvas))',
+    )
+    expect(trendChartSource).toMatch(/\.trend-chart__failure-strip\s*\{[\s\S]*display: grid;/)
+    expect(trendChartSource).not.toMatch(
+      /\.trend-chart__failure-label\s*\{[\s\S]*position: absolute;/,
+    )
   })
 })

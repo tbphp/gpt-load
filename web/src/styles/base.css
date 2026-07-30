@@ -44,6 +44,12 @@ a {
   box-shadow: var(--focus-ring);
 }
 
+#main-content[tabindex='-1']:focus-visible,
+main h1[tabindex='-1']:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
 .sr-only {
   position: absolute;
   width: 1px;

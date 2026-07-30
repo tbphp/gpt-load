@@ -4,6 +4,7 @@ import type { RuntimeHealthDto } from '@/app/resources/health'
 import { mountApp } from '@/test/mount-app'
 
 import HomeLede from './HomeLede.vue'
+import homeLedeSource from './HomeLede.vue?raw'
 import type { HomeHealthState } from './home-presenter'
 
 const api = { request: vi.fn() }
@@ -72,11 +73,13 @@ describe('HomeLede', () => {
     const wrapper = await mountLede({ kind: 'normal', health: normalHealth })
 
     expect(wrapper.findAll('h1')).toHaveLength(1)
-    expect(wrapper.get('h1').text()).toContain('14 个 Group 运行正常')
-    expect(wrapper.get('h1').text()).toContain('38/42 把密钥可用')
+    expect(wrapper.get('h1').text()).toBe('14 个分组运行正常，38/42 把密钥可用。')
+    expect(wrapper.get('h1').text()).not.toContain('Group')
     expect(wrapper.classes()).toContain('home-lede--normal')
     expect(wrapper.text()).toContain('2026-07-29')
-    expect(wrapper.text()).toContain('rev.28')
+    expect(wrapper.get('[data-test="home-observed-time"]').text()).toMatch(/14:32:07|06:32:07/)
+    expect(wrapper.get('[data-test="home-observed-time"]').text()).not.toMatch(/2026|GMT/)
+    expect(wrapper.text()).toContain('配置版本 rev.28')
   })
 
   it('uses warning emphasis for problem health without turning the lede danger', async () => {
@@ -100,8 +103,15 @@ describe('HomeLede', () => {
       ],
     })
 
-    expect(wrapper.get('h1').text()).toContain('12 个 Group 运行正常')
-    expect(wrapper.get('h1').text()).toContain('2 个 Group 存在密钥异常')
+    expect(wrapper.get('h1').text()).toBe(
+      '12 个分组运行正常，2 个分组存在密钥异常：38/42 把密钥可用。',
+    )
+    expect(wrapper.get('[data-test="home-lede-problem-emphasis"]').text()).toBe(
+      '2 个分组存在密钥异常：',
+    )
+    expect(wrapper.get('[data-test="home-lede-problem-emphasis"]').classes()).toContain(
+      'home-lede__problem-emphasis',
+    )
     expect(wrapper.classes()).toContain('home-lede--warning')
     expect(wrapper.classes()).not.toContain('home-lede--danger')
   })
@@ -111,6 +121,9 @@ describe('HomeLede', () => {
 
     expect(wrapper.get('h1').text()).toContain('无法确认服务状态')
     expect(wrapper.classes()).toContain('home-lede--neutral')
+    expect(homeLedeSource).toMatch(
+      /\.home-lede--neutral h1\s*\{[\s\S]*color: var\(--color-text-muted\);/,
+    )
     await wrapper.get('[data-test="home-health-retry"]').trigger('click')
     expect(wrapper.emitted('retry')).toHaveLength(1)
   })
@@ -128,5 +141,22 @@ describe('HomeLede', () => {
     expect(wrapper.get('h1').text()).toContain('最近一次观测')
     expect(wrapper.text()).toContain('当前健康检查失败')
     expect(wrapper.classes()).toContain('home-lede--neutral')
+  })
+
+  it('caps the editorial conclusion instead of scaling it to dashboard-display size', () => {
+    expect(homeLedeSource).toMatch(
+      /\.home-lede h1\s*\{[\s\S]*font-size: clamp\(2rem, 2\.5vw, 2\.25rem\);/,
+    )
+    expect(homeLedeSource).toMatch(
+      /\.home-lede\s*\{[\s\S]*padding: var\(--space-2\) 0 var\(--space-7\);/,
+    )
+    expect(homeLedeSource).toMatch(/\.home-lede h1\s*\{[\s\S]*max-width: 34ch;/)
+    expect(homeLedeSource).toMatch(
+      /\.home-lede--normal \.home-lede__eyebrow svg\s*\{[\s\S]*background: var\(--color-success-bg\);/,
+    )
+    expect(homeLedeSource).toMatch(
+      /\.home-lede--warning \.home-lede__eyebrow svg\s*\{[\s\S]*background: var\(--color-warning-bg\);/,
+    )
+    expect(homeLedeSource).not.toContain('3.35rem')
   })
 })

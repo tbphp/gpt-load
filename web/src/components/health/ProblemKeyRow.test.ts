@@ -12,6 +12,9 @@ const labels = {
   statusUnavailable: 'No HTTP status',
   recoversAt: 'Recovers at',
   validationProbe: 'Validation probe',
+  failureUnit: 'times',
+  automaticRecovery: 'automatic recovery',
+  probeRecovery: 'probe recovery',
 }
 
 function problemKey(overrides: Partial<HealthProblemKeyDto> = {}): HealthProblemKeyDto {
@@ -44,6 +47,8 @@ function mountRow(
     tone?: 'warning' | 'danger'
     statusLabel?: string
     failureCategoryLabel?: string
+    appearance?: 'detail' | 'compact'
+    locale?: string
   } = {},
 ) {
   return mount(ProblemKeyRow, {
@@ -53,7 +58,8 @@ function mountRow(
       statusLabel: options.statusLabel ?? 'Cooldown',
       failureCategoryLabel: options.failureCategoryLabel ?? 'Rate limited',
       labels,
-      locale: 'en-US',
+      locale: options.locale ?? 'en-US',
+      appearance: options.appearance ?? 'detail',
     },
   })
 }
@@ -116,8 +122,56 @@ describe('ProblemKeyRow', () => {
     expect(wrapper.find('time').exists()).toBe(false)
   })
 
+  it('renders the Home compact sentence and recovery treatment without a nested badge', () => {
+    const compactLabels = {
+      ...labels,
+      consecutiveFailures: '连续失败',
+      failureUnit: '次',
+      automaticRecovery: '自动恢复',
+      probeRecovery: '靠探测恢复',
+    }
+    const key = problemKey()
+    const wrapper = mount(ProblemKeyRow, {
+      props: {
+        problemKey: key,
+        tone: 'warning',
+        statusLabel: '冷却中',
+        failureCategoryLabel: '触发限流',
+        labels: compactLabels,
+        locale: 'zh-CN',
+        appearance: 'compact',
+      },
+    })
+    const recoveryClock = new Intl.DateTimeFormat('zh-CN', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    }).format(new Date(key.recovery.at!))
+
+    expect(wrapper.classes()).toContain('problem-key-row--compact')
+    expect(wrapper.get('[data-problem-key-summary]').text()).toBe('连续失败 5 次 · 429')
+    expect(wrapper.get('[data-problem-key-recovery]').text()).toBe(`${recoveryClock} 自动恢复`)
+    expect(wrapper.find('[data-problem-key-status]').exists()).toBe(false)
+
+    const probe = mount(ProblemKeyRow, {
+      props: {
+        problemKey: problemKey({
+          recovery: { automatic: true, mode: 'validation_probe', at: null },
+        }),
+        tone: 'danger',
+        statusLabel: '已拉黑',
+        failureCategoryLabel: '密钥无效',
+        labels: compactLabels,
+        locale: 'zh-CN',
+        appearance: 'compact',
+      },
+    })
+    expect(probe.get('[data-problem-key-recovery]').text()).toBe('靠探测恢复')
+  })
+
   it('is a pure projected row without query or secret-bearing props', () => {
     expect(problemKeyRowSource).not.toMatch(/useQuery|ApiClient|ciphertext|plaintext|api[_-]?key/i)
     expect(problemKeyRowSource).toContain('HealthProblemKeyDto')
+    expect(problemKeyRowSource).not.toMatch(/\.problem-key-row--compact\s*\{/)
   })
 })

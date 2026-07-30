@@ -11,26 +11,34 @@ const { t } = useI18n()
     data-test="home-connection-placeholder"
     aria-labelledby="connection-placeholder-title"
   >
-    <div class="connection-placeholder__title">
-      <Cable :size="22" aria-hidden="true" />
-      <h2 id="connection-placeholder-title">{{ t('home.connectionPlaceholder.title') }}</h2>
+    <header class="connection-placeholder__header">
+      <div class="connection-placeholder__title">
+        <Cable :size="22" aria-hidden="true" />
+        <h2 id="connection-placeholder-title">{{ t('home.connectionPlaceholder.title') }}</h2>
+      </div>
+      <span class="connection-placeholder__badge">
+        {{ t('home.connectionPlaceholder.badge') }}
+      </span>
+    </header>
+    <div class="connection-placeholder__surface" data-test="connection-placeholder-surface">
+      <p>{{ t('home.connectionPlaceholder.description') }}</p>
     </div>
-    <span class="connection-placeholder__badge">
-      {{ t('home.connectionPlaceholder.badge') }}
-    </span>
-    <p>{{ t('home.connectionPlaceholder.description') }}</p>
   </section>
 </template>
 
 <style scoped>
 .connection-placeholder {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: var(--space-3) var(--space-5);
+  gap: var(--space-3);
   border-top: 1px solid var(--color-border-strong);
-  border-bottom: 1px solid var(--color-border-strong);
-  padding: var(--space-5) 0;
+  padding-top: var(--space-5);
+}
+.connection-placeholder__header {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-5);
 }
 .connection-placeholder__title {
   display: flex;
@@ -50,8 +58,8 @@ const { t } = useI18n()
   font-weight: 500;
 }
 .connection-placeholder p {
-  grid-column: 1 / -1;
   color: var(--color-text-muted);
+  text-align: center;
 }
 .connection-placeholder__badge {
   border: 1px dashed var(--color-border-strong);
@@ -61,12 +69,27 @@ const { t } = useI18n()
   font-family: var(--font-mono);
   font-size: var(--text-xs);
 }
+.connection-placeholder__surface {
+  display: grid;
+  min-height: 116px;
+  place-items: center;
+  border: 1px dashed var(--color-border-strong);
+  border-radius: var(--radius-card);
+  background: var(--color-surface-sunken);
+  padding: var(--space-6);
+}
 @media (max-width: 759px) {
-  .connection-placeholder {
-    grid-template-columns: minmax(0, 1fr);
+  .connection-placeholder__header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: var(--space-2);
   }
   .connection-placeholder__badge {
     justify-self: start;
+  }
+  .connection-placeholder__surface {
+    min-height: 96px;
+    padding: var(--space-5);
   }
 }
 </style>
