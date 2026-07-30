@@ -38,11 +38,20 @@ const routes: RouteRecordRaw[] = [
       messageNamespaces: ['import'],
     },
   }),
+  pageRoute(pageRouteNames.groups, {
+    component: lazyView(() => import('@/features/groups/GroupsView.vue')),
+    meta: {
+      titleKey: 'groups.title',
+      requiresAuth: true,
+      primaryNav: 'groups',
+    },
+  }),
   pageRoute(pageRouteNames.groupDetail, {
     component: lazyView(() => import('@/features/groups/GroupDetailView.vue')),
     meta: {
       titleKey: 'shell.groupDetail',
       requiresAuth: true,
+      primaryNav: 'groups',
       messageNamespaces: ['group', 'import'],
     },
   }),

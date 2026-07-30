@@ -6,6 +6,7 @@ const sharedPageRouteNames = {
   home: 'home',
   login: 'login',
   import: 'import',
+  groups: 'groups',
   groupDetail: 'group-detail',
   accessKeys: 'access-keys',
   monitor: 'monitor',
@@ -45,6 +46,10 @@ export function loginLocation(redirect?: string): RouteLocationRaw {
 
 export function importLocation(query?: LocationQueryRaw): RouteLocationRaw {
   return namedLocation(pageRouteNames.import, query)
+}
+
+export function groupsLocation(): RouteLocationRaw {
+  return namedLocation(pageRouteNames.groups)
 }
 
 export function groupDetailLocation(

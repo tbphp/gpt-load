@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { Activity, House, KeyRound, Menu, Settings } from '@lucide/vue'
+import { Activity, House, KeyRound, Layers3, Menu, Settings } from '@lucide/vue'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { isNavigationFailure, RouterLink, useRoute, useRouter } from 'vue-router'
 
 import {
   accessKeysLocation,
+  groupsLocation,
   homeLocation,
   importLocation,
   loginLocation,
@@ -35,6 +36,7 @@ const drawerOpen = ref(false)
 
 const navigation = computed(() => [
   { key: 'home', to: homeLocation(), label: t('shell.home'), icon: House },
+  { key: 'groups', to: groupsLocation(), label: t('shell.groups'), icon: Layers3 },
   {
     key: 'access-keys',
     to: accessKeysLocation(),

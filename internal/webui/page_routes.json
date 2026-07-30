@@ -4,6 +4,7 @@
     { "name": "home", "path": "/" },
     { "name": "login", "path": "/login" },
     { "name": "import", "path": "/import" },
+    { "name": "groups", "path": "/groups" },
     { "name": "group-detail", "path": "/groups/:id" },
     { "name": "access-keys", "path": "/access-keys" },
     { "name": "monitor", "path": "/monitor" },
