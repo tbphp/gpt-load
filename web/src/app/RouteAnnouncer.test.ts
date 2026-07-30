@@ -114,4 +114,77 @@ describe('RouteAnnouncer', () => {
     })
     wrapper.unmount()
   })
+
+  it('promotes focus and announcement when an asynchronous route heading appears', async () => {
+    const viewState = reactive({ ready: false })
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/', name: 'home', component: Home }],
+    })
+    await router.push('/')
+    await router.isReady()
+    const wrapper = mount(
+      {
+        components: { RouteAnnouncer },
+        setup: () => ({ viewState }),
+        template: `
+          <RouteAnnouncer />
+          <main id="main-content" tabindex="-1">
+            <h1 v-if="viewState.ready">Asynchronous home</h1>
+          </main>
+        `,
+      },
+      {
+        attachTo: document.body,
+        global: {
+          plugins: [router, createTestAppI18n(undefined, 'en-US').plugin],
+        },
+      },
+    )
+
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+    await flushPromises()
+    expect(document.activeElement?.id).toBe('main-content')
+
+    viewState.ready = true
+    await flushPromises()
+    await vi.waitFor(() => {
+      expect(document.activeElement).toBe(wrapper.get('h1').element)
+      expect(wrapper.get('[data-test="route-announcer"]').text()).toBe('Asynchronous home')
+    })
+    wrapper.unmount()
+  })
+
+  it('cancels pending focus work when unmounted before the animation frame', async () => {
+    const callbacks: FrameRequestCallback[] = []
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      callbacks.push(callback)
+      return callbacks.length
+    })
+    const persistentMain = document.createElement('main')
+    persistentMain.id = 'main-content'
+    persistentMain.tabIndex = -1
+    document.body.append(persistentMain)
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/', name: 'home', component: Home }],
+    })
+    await router.push('/')
+    await router.isReady()
+    const wrapper = mount(RouteAnnouncer, {
+      attachTo: document.body,
+      global: {
+        plugins: [router, createTestAppI18n(undefined, 'en-US').plugin],
+      },
+    })
+    await flushPromises()
+    expect(callbacks).toHaveLength(1)
+
+    wrapper.unmount()
+    callbacks[0]?.(performance.now())
+    await flushPromises()
+
+    expect(document.activeElement).not.toBe(persistentMain)
+    persistentMain.remove()
+  })
 })

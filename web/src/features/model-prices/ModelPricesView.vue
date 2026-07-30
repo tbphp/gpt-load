@@ -7,6 +7,7 @@ import { useI18n } from 'vue-i18n'
 import { useApiClient } from '@/api/client-context'
 import { lazySurface } from '@/app/async-surface'
 import { modelPriceQueryOptions, type ModelPriceRuleDto } from '@/app/resources/model-prices'
+import { settingsLocation } from '@/app/route-locations'
 import AppButton from '@/components/ui/AppButton.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
@@ -52,7 +53,7 @@ async function setDrawerOpen(open: boolean): Promise<void> {
 
 <template>
   <section class="model-prices" aria-labelledby="model-prices-title">
-    <RouterLink class="model-prices__back" to="/settings">
+    <RouterLink class="model-prices__back" :to="settingsLocation()">
       <ArrowLeft :size="16" aria-hidden="true" />{{ t('modelPrices.back') }}
     </RouterLink>
 

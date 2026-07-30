@@ -1,48 +1,52 @@
 import type { Component } from 'vue'
-import type { Router, RouterHistory, RouteRecordRaw } from 'vue-router'
+import type { Router, RouterHistory, RouteRecordRaw, RouteRecordSingleView } from 'vue-router'
 import { createRouter, createWebHistory } from 'vue-router'
 
 import type { MessageNamespace } from '@/i18n'
+
+import { pagePath, pagePathMatches } from './page-routes'
+import { loginLocation, notFoundLocation, pageRouteNames } from './route-locations'
 
 function lazyView(loader: () => Promise<{ default: Component }>) {
   return () => loader().then((module) => module.default)
 }
 
+function pageRoute(
+  name: string,
+  definition: Omit<RouteRecordSingleView, 'name' | 'path'>,
+): RouteRecordRaw {
+  return {
+    ...definition,
+    name,
+    path: pagePath(name),
+  }
+}
+
 const routes: RouteRecordRaw[] = [
-  {
-    path: '/',
-    name: 'home',
+  pageRoute(pageRouteNames.home, {
     component: lazyView(() => import('@/features/home/HomeView.vue')),
     meta: { titleKey: 'home.title', requiresAuth: true, primaryNav: 'home' },
-  },
-  {
-    path: '/login',
-    name: 'login',
+  }),
+  pageRoute(pageRouteNames.login, {
     component: lazyView(() => import('@/features/auth/LoginView.vue')),
-  },
-  {
-    path: '/import',
-    name: 'import',
+  }),
+  pageRoute(pageRouteNames.import, {
     component: lazyView(() => import('@/features/import/ImportView.vue')),
     meta: {
       titleKey: 'shell.import',
       requiresAuth: true,
       messageNamespaces: ['import'],
     },
-  },
-  {
-    path: '/groups/:id',
-    name: 'group-detail',
+  }),
+  pageRoute(pageRouteNames.groupDetail, {
     component: lazyView(() => import('@/features/groups/GroupDetailView.vue')),
     meta: {
       titleKey: 'shell.groupDetail',
       requiresAuth: true,
       messageNamespaces: ['group', 'import'],
     },
-  },
-  {
-    path: '/access-keys',
-    name: 'access-keys',
+  }),
+  pageRoute(pageRouteNames.accessKeys, {
     component: lazyView(() => import('@/features/access-keys/AccessKeysView.vue')),
     meta: {
       titleKey: 'shell.accessKeys',
@@ -50,10 +54,8 @@ const routes: RouteRecordRaw[] = [
       primaryNav: 'access-keys',
       messageNamespaces: ['access-keys'],
     },
-  },
-  {
-    path: '/monitor',
-    name: 'monitor',
+  }),
+  pageRoute(pageRouteNames.monitor, {
     component: lazyView(() => import('@/features/monitor/MonitorView.vue')),
     meta: {
       titleKey: 'shell.monitor',
@@ -61,10 +63,8 @@ const routes: RouteRecordRaw[] = [
       primaryNav: 'monitor',
       messageNamespaces: ['monitor'],
     },
-  },
-  {
-    path: '/settings',
-    name: 'settings',
+  }),
+  pageRoute(pageRouteNames.settings, {
     component: lazyView(() => import('@/features/settings/SettingsView.vue')),
     meta: {
       titleKey: 'shell.settings',
@@ -72,10 +72,8 @@ const routes: RouteRecordRaw[] = [
       primaryNav: 'settings',
       messageNamespaces: ['settings', 'model-prices', 'import'],
     },
-  },
-  {
-    path: '/settings/model-prices',
-    name: 'model-prices',
+  }),
+  pageRoute(pageRouteNames.modelPrices, {
     component: lazyView(() => import('@/features/model-prices/ModelPricesView.vue')),
     meta: {
       titleKey: 'modelPrices.title',
@@ -83,10 +81,10 @@ const routes: RouteRecordRaw[] = [
       primaryNav: 'settings',
       messageNamespaces: ['model-prices'],
     },
-  },
+  }),
   {
     path: '/:pathMatch(.*)*',
-    name: 'not-found',
+    name: pageRouteNames.notFound,
     component: lazyView(() => import('@/features/not-found/NotFoundView.vue')),
     meta: {
       titleKey: 'notFound.title',
@@ -108,15 +106,24 @@ export function createAppRouter(
   history: RouterHistory = createWebHistory(),
   messages?: RouterMessages,
 ) {
-  const router = createRouter({ history, routes })
+  const router = createRouter({
+    history,
+    routes,
+    sensitive: true,
+    strict: true,
+  })
   router.beforeEach((to) => {
+    if (
+      typeof to.name === 'string' &&
+      to.name !== pageRouteNames.notFound &&
+      !pagePathMatches(to.name, to.path)
+    ) {
+      return notFoundLocation(decodedPathSegments(to.path))
+    }
     if (!to.meta.requiresAuth || auth.hasCredential()) {
       return true
     }
-    return {
-      name: 'login',
-      query: { redirect: to.fullPath },
-    }
+    return loginLocation(to.fullPath)
   })
   router.beforeResolve(async (to) => {
     const namespaces = (to.meta.messageNamespaces ?? []) as MessageNamespace[]
@@ -126,34 +133,46 @@ export function createAppRouter(
   return router
 }
 
+function decodedPathSegments(path: string): string[] {
+  try {
+    const segments = decodeURIComponent(path).split('/').filter(Boolean)
+    return segments.length > 0 ? segments : ['invalid-path']
+  } catch {
+    return ['invalid-path']
+  }
+}
+
 export function safeRedirect(raw: unknown, router: Router): string {
+  const fallback = pagePath(pageRouteNames.home)
   if (
     typeof raw !== 'string' ||
     !raw.startsWith('/') ||
     raw.startsWith('//') ||
     raw.includes('\\')
   ) {
-    return '/'
+    return fallback
   }
 
   let decodedRaw: string
   try {
     decodedRaw = decodeURIComponent(raw)
   } catch {
-    return '/'
+    return fallback
   }
   if (decodedRaw.startsWith('//') || decodedRaw.includes('\\')) {
-    return '/'
+    return fallback
   }
 
   const resolved = router.resolve(raw)
   if (
     resolved.matched.length === 0 ||
-    resolved.name === 'login' ||
-    resolved.name === 'not-found' ||
+    typeof resolved.name !== 'string' ||
+    !pagePathMatches(resolved.name, resolved.path) ||
+    resolved.name === pageRouteNames.login ||
+    resolved.name === pageRouteNames.notFound ||
     resolved.meta.requiresAuth !== true
   ) {
-    return '/'
+    return fallback
   }
   return resolved.fullPath
 }

@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "routes": [
+    { "name": "home", "path": "/" },
+    { "name": "login", "path": "/login" },
+    { "name": "import", "path": "/import" },
+    { "name": "group-detail", "path": "/groups/:id" },
+    { "name": "access-keys", "path": "/access-keys" },
+    { "name": "monitor", "path": "/monitor" },
+    { "name": "settings", "path": "/settings" },
+    { "name": "model-prices", "path": "/settings/model-prices" }
+  ]
+}

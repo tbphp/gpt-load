@@ -81,7 +81,7 @@ func TestControlWriteLockDoesNotBlockDataPlane(t *testing.T) {
 	)
 	gin.SetMode(gin.ReleaseMode)
 	engine := gin.New()
-	handler.RegisterRoutes(engine)
+	registerGatewayRoutes(t, engine, handler)
 
 	fixture.service.writeMu.Lock()
 	locked := true

@@ -12,6 +12,7 @@ import {
   type TimeoutSettingKey,
 } from '@/app/resources/settings'
 import { controlQueryKeys } from '@/app/query-keys'
+import { modelPricesLocation } from '@/app/route-locations'
 import { useUnsavedChanges } from '@/app/unsaved-changes'
 import AppButton from '@/components/ui/AppButton.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
@@ -270,7 +271,7 @@ onBeforeUnmount(() => {
       <RouterLink
         class="model-prices-entry__link"
         data-test="model-prices-entry"
-        to="/settings/model-prices"
+        :to="modelPricesLocation()"
       >
         {{ t('modelPrices.settingsEntry.open') }}
         <ChevronRight :size="16" aria-hidden="true" />

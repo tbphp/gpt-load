@@ -3,6 +3,8 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute } from 'vue-router'
 
+import { homeLocation } from '@/app/route-locations'
+
 const route = useRoute()
 const { t } = useI18n()
 const title = computed(() => t(String(route.meta.titleKey ?? 'common.appName')))
@@ -14,7 +16,9 @@ const title = computed(() => t(String(route.meta.titleKey ?? 'common.appName')))
     <h1 :id="`${String(route.name)}-title`">{{ title }}</h1>
     <p class="lead">{{ t('shell.placeholderDescription') }}</p>
     <div class="meta-row">
-      <RouterLink class="button-link" to="/">{{ t('shell.backHome') }}</RouterLink>
+      <RouterLink class="button-link" :to="homeLocation()">
+        {{ t('shell.backHome') }}
+      </RouterLink>
     </div>
   </section>
 </template>

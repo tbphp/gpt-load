@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
 import { lazySurface } from '@/app/async-surface'
+import { importLocation } from '@/app/route-locations'
 import PageHeader from '@/components/ui/PageHeader.vue'
 
 import { useImportOperationOwner } from './import-operation-owner'
@@ -39,15 +40,15 @@ if (!operationMode.value) {
     if (recoveredDraft.value.group_id !== null) {
       query.group_id = String(recoveredDraft.value.group_id)
     }
-    void router.replace({ name: 'import', query })
+    void router.replace(importLocation(query))
   } else if (recoveredDraft.value?.mode === 'new') {
-    void router.replace({ name: 'import', query: { mode: 'new' } })
+    void router.replace(importLocation({ mode: 'new' }))
   } else if (
     rawMode.value !== undefined &&
     rawMode.value !== 'new' &&
     rawMode.value !== 'existing'
   ) {
-    void router.replace({ name: 'import', query: { mode: 'new' } })
+    void router.replace(importLocation({ mode: 'new' }))
   }
 }
 
@@ -55,7 +56,7 @@ watch(
   operationMode,
   (mode) => {
     if (mode && rawMode.value !== mode) {
-      void router.replace({ name: 'import', query: { mode } })
+      void router.replace(importLocation({ mode }))
     }
   },
   { immediate: true },
@@ -65,7 +66,7 @@ function selectMode(mode: 'new' | 'existing'): void {
   if (operationMode.value) return
   if (activeMode.value === mode) return
   recoveredDraft.value = null
-  void router.push({ name: 'import', query: { mode } })
+  void router.push(importLocation({ mode }))
 }
 </script>
 

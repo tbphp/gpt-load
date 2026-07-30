@@ -12,20 +12,20 @@ const (
 	LanguageKey = "language"
 )
 
+// AttachRequestLanguage resolves and stores the request language on a context.
+func AttachRequestLanguage(c *gin.Context) {
+	if c == nil {
+		return
+	}
+	acceptLang := c.GetHeader("Accept-Language")
+	c.Set(LocalizerKey, GetLocalizer(acceptLang))
+	c.Set(LanguageKey, ResolveLanguage(acceptLang))
+}
+
 // Middleware i18n 中间件
 func Middleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// 获取 Accept-Language 头
-		acceptLang := c.GetHeader("Accept-Language")
-
-		// 获取 Localizer
-		localizer := GetLocalizer(acceptLang)
-		language := ResolveLanguage(acceptLang)
-
-		// 将 Localizer 存储到 Context 中
-		c.Set(LocalizerKey, localizer)
-		c.Set(LanguageKey, language)
-
+		AttachRequestLanguage(c)
 		c.Next()
 	}
 }

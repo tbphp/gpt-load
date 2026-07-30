@@ -85,7 +85,7 @@ type AppParams struct {
 	RequestLogs      RequestLogRuntime
 }
 
-// NewEngine creates the HTTP engine and health endpoint.
+// NewEngine creates the process HTTP engine and global middleware.
 func NewEngine() (*gin.Engine, error) {
 	gin.SetMode(gin.ReleaseMode)
 	engine := gin.New()
@@ -94,12 +94,6 @@ func NewEngine() (*gin.Engine, error) {
 		return nil, fmt.Errorf("disable trusted proxies: %w", err)
 	}
 	engine.Use(recoveryMiddleware())
-	engine.GET("/health", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{
-			"status":  "ok",
-			"version": version.Version,
-		})
-	})
 	return engine, nil
 }
 

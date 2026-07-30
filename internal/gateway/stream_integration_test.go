@@ -239,7 +239,7 @@ func TestHandlerRetryDoesNotLeakFaultyInjectorMutationToNextGroup(t *testing.T) 
 	handler.newRequestID = func() (string, error) { return fixedRequestID, nil }
 	handler.requestNow = newSteppingRequestClock()
 	engine := gin.New()
-	handler.RegisterRoutes(engine)
+	bindGatewayRoutesForTest(t, engine, handler)
 
 	request := httptest.NewRequest(
 		http.MethodPost,
@@ -1021,7 +1021,7 @@ func newStreamingGatewayEngine(t *testing.T, groups ...streamGatewayGroup) (*gin
 	)
 	handler.newRandom = func() *rand.Rand { return rand.New(zeroSource{}) }
 	engine := gin.New()
-	handler.RegisterRoutes(engine)
+	bindGatewayRoutesForTest(t, engine, handler)
 	return engine, registry
 }
 

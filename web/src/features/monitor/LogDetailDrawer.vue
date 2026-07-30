@@ -8,6 +8,7 @@ import type {
   RequestLogItemDto,
   RequestLogStatus,
 } from '@/app/resources/request-logs'
+import { modelPricesLocation, monitorLocation } from '@/app/route-locations'
 import AppDrawer from '@/components/ui/AppDrawer.vue'
 import CopyButton from '@/components/ui/CopyButton.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
@@ -55,10 +56,7 @@ const inspectorTarget = computed(() => {
   }
   if (props.log.client_model !== null) query.external_model = props.log.client_model
   query.access_key_id = props.log.access_key.id
-  return {
-    name: 'monitor',
-    query,
-  }
+  return monitorLocation(query)
 })
 const usageTone = computed(() => {
   if (props.log?.usage_state === 'complete') return 'success'
@@ -306,7 +304,7 @@ function estimatedCost(log: RequestLogItemDto): string {
           v-if="log.cost_state === 'unpriced'"
           class="log-detail__prices"
           data-test="log-usage-prices-link"
-          to="/settings/model-prices"
+          :to="modelPricesLocation()"
         >
           {{ t('monitor.logs.drawer.usage.openPrices') }}
         </RouterLink>

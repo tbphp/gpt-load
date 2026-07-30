@@ -3,6 +3,7 @@ import { computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
+import { groupDetailLocation } from '@/app/route-locations'
 import AppTabs, { type AppTabItem } from '@/components/ui/AppTabs.vue'
 
 import { normalizeGroupQuery, normalizeGroupTab, type GroupTab } from './group-route'
@@ -26,11 +27,7 @@ watch(
       Object.keys(query).length === canonicalKeys.length &&
       canonicalKeys.every((key) => query[key] === canonical[key])
     if (!isCanonical) {
-      void router.replace({
-        name: 'group-detail',
-        params: { id: route.params.id },
-        query: canonical,
-      })
+      void router.replace(groupDetailLocation(String(route.params.id), canonical))
     }
   },
   { immediate: true },
@@ -39,11 +36,9 @@ watch(
 function selectTab(value: string): void {
   const tab = normalizeGroupTab(value)
   if (tab === activeTab.value) return
-  void router.push({
-    name: 'group-detail',
-    params: { id: route.params.id },
-    query: normalizeGroupQuery({ ...route.query, tab }),
-  })
+  void router.push(
+    groupDetailLocation(String(route.params.id), normalizeGroupQuery({ ...route.query, tab })),
+  )
 }
 </script>
 

@@ -19,6 +19,7 @@ import type { GroupProtocol } from '@/api/control/types'
 import { supportsProtocolOnlyRouting } from '@/api/control/protocols'
 import { ApiError, RequestCancelledError } from '@/api/errors'
 import { applyInvalidationPlan, mutationInvalidationPlans } from '@/app/resources/invalidation'
+import { groupDetailLocation } from '@/app/route-locations'
 
 import { channelPresets, type ChannelPreset } from './channel-presets'
 import ImportConnectionStep from './ImportConnectionStep.vue'
@@ -274,7 +275,7 @@ async function finishSuccess(groupID: number): Promise<void> {
   completed.value = true
   draft.keys = ''
   recovery.clear()
-  await router.push({ name: 'group-detail', params: { id: groupID } })
+  await router.push(groupDetailLocation(groupID))
 }
 
 async function submitCreate(confirmSameURL = false): Promise<void> {
@@ -336,7 +337,7 @@ async function appendToGroup(groupID: number): Promise<void> {
     completed.value = true
     draft.keys = ''
     recovery.clear()
-    await router.push({ name: 'group-detail', params: { id: targetID } })
+    await router.push(groupDetailLocation(targetID))
     return
   }
   if (!componentActive) return

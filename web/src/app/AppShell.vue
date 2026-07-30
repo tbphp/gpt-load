@@ -4,11 +4,20 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { isNavigationFailure, RouterLink, useRoute, useRouter } from 'vue-router'
 
+import {
+  accessKeysLocation,
+  homeLocation,
+  importLocation,
+  loginLocation,
+  monitorLocation,
+  pageRouteNames,
+  settingsLocation,
+} from '@/app/route-locations'
+import { useUnsavedChangesController } from '@/app/unsaved-changes'
 import AppDrawer from '@/components/ui/AppDrawer.vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import { useAuthSession } from '@/features/auth/auth-session'
 import { useImportRecovery } from '@/features/import/import-recovery'
-import { useUnsavedChangesController } from '@/app/unsaved-changes'
 import PreferencesControl from '@/features/preferences/PreferencesControl.vue'
 import { useTheme } from '@/features/preferences/theme'
 import { supportedLocales, type AppLocale } from '@/i18n'
@@ -25,10 +34,15 @@ const { locale, t } = useI18n()
 const drawerOpen = ref(false)
 
 const navigation = computed(() => [
-  { key: 'home', to: '/', label: t('shell.home'), icon: House },
-  { key: 'access-keys', to: '/access-keys', label: t('shell.accessKeys'), icon: KeyRound },
-  { key: 'monitor', to: '/monitor', label: t('shell.monitor'), icon: Activity },
-  { key: 'settings', to: '/settings', label: t('shell.settings'), icon: Settings },
+  { key: 'home', to: homeLocation(), label: t('shell.home'), icon: House },
+  {
+    key: 'access-keys',
+    to: accessKeysLocation(),
+    label: t('shell.accessKeys'),
+    icon: KeyRound,
+  },
+  { key: 'monitor', to: monitorLocation(), label: t('shell.monitor'), icon: Activity },
+  { key: 'settings', to: settingsLocation(), label: t('shell.settings'), icon: Settings },
 ])
 const currentLocale = computed(() => locale.value as AppLocale)
 
@@ -44,20 +58,20 @@ function setLocale(value: string): void {
 
 async function logout(): Promise<void> {
   drawerOpen.value = false
-  const bypassDirtyImport = route.name === 'import'
+  const bypassDirtyImport = route.name === pageRouteNames.import
   if (bypassDirtyImport) {
     recovery.clear()
     unsavedChanges.bypassNext()
     session.clear()
     try {
-      await router.replace({ name: 'login' })
+      await router.replace(loginLocation())
     } finally {
       unsavedChanges.consumeBypass()
     }
     return
   }
 
-  const failure = await router.replace({ name: 'login' })
+  const failure = await router.replace(loginLocation())
   if (isNavigationFailure(failure)) return
   recovery.clear()
   session.clear()
@@ -77,7 +91,11 @@ watch(
   <div class="app-shell">
     <a class="skip-link" href="#main-content">{{ t('shell.skip') }}</a>
     <header class="app-topbar">
-      <RouterLink class="brand" to="/" :aria-label="`${t('common.appName')} · ${t('shell.home')}`">
+      <RouterLink
+        class="brand"
+        :to="homeLocation()"
+        :aria-label="`${t('common.appName')} · ${t('shell.home')}`"
+      >
         <span class="brand-mark" data-test="ledger-brand-mark" aria-hidden="true"></span>
         <span>{{ t('common.appName') }}</span>
       </RouterLink>
@@ -97,7 +115,7 @@ watch(
       </nav>
 
       <div class="shell-actions">
-        <RouterLink class="button-link import-action" to="/import">
+        <RouterLink class="button-link import-action" :to="importLocation()">
           <Upload :size="16" aria-hidden="true" />{{ t('shell.import') }}
         </RouterLink>
         <PreferencesControl
@@ -137,7 +155,7 @@ watch(
             </RouterLink>
             <RouterLink
               class="mobile-nav__link mobile-nav__link--primary"
-              to="/import"
+              :to="importLocation()"
               @click="drawerOpen = false"
             >
               <Upload :size="18" aria-hidden="true" />{{ t('shell.import') }}

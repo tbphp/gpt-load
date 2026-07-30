@@ -165,35 +165,22 @@ func (handler *Handler) recordSuccess(keyID uint, at time.Time) {
 	})
 }
 
-func (handler *Handler) RegisterRoutes(engine *gin.Engine) {
-	engine.POST("/v1/chat/completions", handler.Handle)
-	engine.POST("/v1/messages", handler.Handle)
-	engine.POST("/v1beta/models/:model_action", handler.Handle)
-	engine.GET("/v1beta/models", handler.Handle)
-	engine.GET("/v1/models", handler.Handle)
-	engine.Any("/v1/responses", handler.Handle)
-	engine.Any("/v1/responses/*resource_path", handler.Handle)
-}
-
 func (handler *Handler) Handle(ginContext *gin.Context) {
-	requestStarted := handler.requestNow()
-	snapshot := handler.manager.Current()
-	initializeDebugHeaders(ginContext.Writer.Header())
-	accessKey, ok := authenticate(ginContext.Request, snapshot, handler.encryption)
-	if !ok {
-		handler.logDataPlaneAuthFailed(ginContext.Request)
-		_ = handler.writeReason(ginContext, reasonInvalidAccessKey)
+	requestContext, ok := dataPlaneRequestContextFrom(ginContext)
+	if !ok ||
+		!requestContext.authenticated ||
+		requestContext.snapshot == nil {
+		handler.dataPlaneRouteNotFound(ginContext)
 		return
 	}
-	selectedRoute, ok := determineRoute(
-		ginContext.Request.Method,
-		ginContext.Request.URL.Path,
-		ginContext.Request.Header,
-	)
-	if !ok {
-		_ = handler.writeReason(ginContext, reasonEndpointNotFound)
+	if requestContext.locallyRejected {
+		handler.dataPlaneRouteNotFound(ginContext)
 		return
 	}
+	requestStarted := requestContext.requestStarted
+	snapshot := requestContext.snapshot
+	accessKey := requestContext.accessKey
+	selectedRoute := requestContext.selectedRoute
 
 	requestID, err := handler.newRequestID()
 	if err != nil {

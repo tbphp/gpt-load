@@ -68,7 +68,7 @@ func TestSystemInfoHTTPContract(t *testing.T) {
 	}{
 		{name: "get", method: http.MethodGet, auth: "Bearer distinctive-system-info-auth-secret", wantStatus: http.StatusOK},
 		{name: "unauthorized", method: http.MethodGet, wantStatus: http.StatusUnauthorized},
-		{name: "put not registered", method: http.MethodPut, auth: "Bearer distinctive-system-info-auth-secret", wantStatus: http.StatusNotFound},
+		{name: "put method not allowed", method: http.MethodPut, auth: "Bearer distinctive-system-info-auth-secret", wantStatus: http.StatusMethodNotAllowed},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			recorder := httptest.NewRecorder()

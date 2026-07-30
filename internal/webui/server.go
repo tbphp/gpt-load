@@ -26,19 +26,6 @@ const (
 </html>`
 )
 
-var pageRoutes = []string{
-	"/",
-	"/login",
-	"/import",
-	"/groups/:id",
-	"/access-keys",
-	"/monitor",
-	"/settings",
-	"/settings/model-prices",
-}
-
-var backendPathPrefixes = []string{"/api", "/assets", "/health", "/v1", "/v1beta"}
-
 //go:embed all:dist
 var embeddedFiles embed.FS
 
@@ -47,53 +34,38 @@ type Server struct {
 	files fs.FS
 	root  string
 	index []byte
+	pages []pageRoute
 }
 
 // NewServer creates an embedded UI server.
-func NewServer() *Server {
-	return newServer(embeddedFiles, distRoot)
+func NewServer() (*Server, error) {
+	pages, err := loadPageRoutes()
+	if err != nil {
+		return nil, err
+	}
+	return newServerWithPages(embeddedFiles, distRoot, pages), nil
 }
 
 func newServer(files fs.FS, root string) *Server {
+	pages, err := loadPageRoutes()
+	if err != nil {
+		panic(err)
+	}
+	return newServerWithPages(files, root, pages)
+}
+
+func newServerWithPages(files fs.FS, root string, pages []pageRoute) *Server {
 	index, err := fs.ReadFile(files, path.Join(root, "index.html"))
 	if err != nil {
 		index = []byte(fallbackIndex)
 	}
 
-	return &Server{files: files, root: root, index: index}
-}
-
-// RegisterRoutes registers only the documented management UI paths.
-func (s *Server) RegisterRoutes(engine *gin.Engine) {
-	for _, route := range pageRoutes {
-		engine.GET(route, s.serveIndex)
+	return &Server{
+		files: files,
+		root:  root,
+		index: index,
+		pages: append([]pageRoute(nil), pages...),
 	}
-	engine.GET("/favicon.ico", s.serveFavicon)
-	engine.GET("/theme-bootstrap.js", s.serveThemeBootstrap)
-	engine.GET("/assets/*filepath", s.serveAsset)
-}
-
-// RegisterFallback returns the SPA not-found page only for browser navigation.
-func (s *Server) RegisterFallback(engine *gin.Engine) {
-	engine.NoRoute(func(c *gin.Context) {
-		if shouldServeIndexFallback(c.Request) {
-			s.serveIndexWithStatus(c, http.StatusNotFound)
-			return
-		}
-		c.Status(http.StatusNotFound)
-	})
-}
-
-func shouldServeIndexFallback(request *http.Request) bool {
-	if request.Method != http.MethodGet || !acceptsHTML(request.Header.Get("Accept")) {
-		return false
-	}
-	for _, prefix := range backendPathPrefixes {
-		if request.URL.Path == prefix || strings.HasPrefix(request.URL.Path, prefix+"/") {
-			return false
-		}
-	}
-	return true
 }
 
 func acceptsHTML(value string) bool {
@@ -115,6 +87,10 @@ func acceptsHTML(value string) bool {
 
 func (s *Server) serveIndex(c *gin.Context) {
 	s.serveIndexWithStatus(c, http.StatusOK)
+}
+
+func (s *Server) serveNotFoundIndex(c *gin.Context) {
+	s.serveIndexWithStatus(c, http.StatusNotFound)
 }
 
 func (s *Server) serveIndexWithStatus(c *gin.Context, status int) {

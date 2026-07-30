@@ -1,8 +1,7 @@
-import type { RouteLocationRaw } from 'vue-router'
-
 import type { GroupSummary } from '@/api/control/types'
 import type { HealthProblemKeyDto, RuntimeHealthDto } from '@/app/resources/health'
 import type { UsageReportDto } from '@/app/resources/usage'
+import { groupDetailLocation, monitorLocation } from '@/app/route-locations'
 
 export type HomeQueryResult<T> =
   | { status: 'loading' }
@@ -169,38 +168,24 @@ export function presentHome(input: HomePresenterInput): HomePresentation {
   }
 }
 
-export function problemKeysLocation(groupId: number): RouteLocationRaw {
-  return {
-    name: 'group-detail',
-    params: { id: groupId },
-    query: { tab: 'keys', key_state: 'problem' },
-  }
+export function problemKeysLocation(groupId: number) {
+  return groupDetailLocation(groupId, { tab: 'keys', key_state: 'problem' })
 }
 
-export function failureLogsLocation(report: UsageReportDto): RouteLocationRaw {
-  return {
-    name: 'monitor',
-    query: {
-      tab: 'logs',
-      status: 'error',
-      from: report.from,
-      to: report.to,
-    },
-  }
+export function failureLogsLocation(report: UsageReportDto) {
+  return monitorLocation({
+    tab: 'logs',
+    status: 'error',
+    from: report.from,
+    to: report.to,
+  })
 }
 
-export function usageBreakdownLocation(
-  range: '24h' | '30d',
-  groupId: number,
-  model: string,
-): RouteLocationRaw {
-  return {
-    name: 'monitor',
-    query: {
-      tab: 'usage',
-      range,
-      group_id: groupId,
-      model,
-    },
-  }
+export function usageBreakdownLocation(range: '24h' | '30d', groupId: number, model: string) {
+  return monitorLocation({
+    tab: 'usage',
+    range,
+    group_id: groupId,
+    model,
+  })
 }

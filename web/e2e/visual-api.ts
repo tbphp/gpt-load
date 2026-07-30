@@ -97,6 +97,9 @@ const anomalyHealth = {
       consecutive_failure_count: 2,
       weight_manual: null,
       weight_auto: 35,
+      mask: 'rate****safe',
+      last_failure_category: 'rate_limited',
+      last_status_code: 429,
       recovery: {
         automatic: true,
         mode: 'cooldown_expiry',
@@ -115,6 +118,9 @@ const anomalyHealth = {
       consecutive_failure_count: 5,
       weight_manual: 50,
       weight_auto: 0,
+      mask: 'inva****lock',
+      last_failure_category: 'invalid_key',
+      last_status_code: 401,
       recovery: { automatic: true, mode: 'validation_probe', at: null },
     },
   ],
@@ -154,6 +160,7 @@ const usageReport = {
   ],
   breakdown: [{ ...aggregate, group_id: group.id, model: visualFixtureData.modelName }],
   breakdown_truncated: true,
+  breakdown_group_count: 1,
   collection_health: {
     scope: 'current_process',
     dropped_total: 2,
@@ -370,7 +377,17 @@ export async function installVisualApi(
       return
     }
     if (url.pathname === '/api/usage' && method === 'GET') {
-      await route.fulfill(scenario === 'home-empty-error' ? failure() : success(usageReport))
+      const breakdownOrder = url.searchParams.get('breakdown_order') ?? 'requests'
+      if (breakdownOrder !== 'requests' && breakdownOrder !== 'cost') {
+        state.unexpectedRequests.push(`${method} ${url.pathname}${url.search}`)
+        await route.fulfill(failure())
+        return
+      }
+      await route.fulfill(
+        scenario === 'home-empty-error'
+          ? failure()
+          : success({ ...usageReport, breakdown_order: breakdownOrder }),
+      )
       return
     }
     if (url.pathname === '/api/logs' && method === 'GET') {

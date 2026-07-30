@@ -3,6 +3,7 @@ import { nextTick, ref, toRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 
+import { loginLocation } from '@/app/route-locations'
 import AppButton from '@/components/ui/AppButton.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import SurfaceCard from '@/components/ui/SurfaceCard.vue'
@@ -50,7 +51,7 @@ async function retryValidation(): Promise<void> {
 function changeAuthKey(): void {
   recovery.clear()
   session.clear()
-  void router.replace({ name: 'login' })
+  void router.replace(loginLocation())
 }
 </script>
 

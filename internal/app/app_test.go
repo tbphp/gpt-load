@@ -19,6 +19,7 @@ import (
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/platform/encryption"
 	app_errors "gpt-load/internal/platform/errors"
+	"gpt-load/internal/platform/httproute"
 	"gpt-load/internal/platform/version"
 	"gpt-load/internal/state"
 	"gpt-load/internal/state/loader"
@@ -105,6 +106,13 @@ func mustNewEngine(t *testing.T) *gin.Engine {
 	engine, err := NewEngine()
 	if err != nil {
 		t.Fatalf("NewEngine() error = %v", err)
+	}
+	registry, err := httproute.NewRegistry(HTTPModule())
+	if err != nil {
+		t.Fatalf("NewRegistry(system) error = %v", err)
+	}
+	if err := registry.Bind(engine); err != nil {
+		t.Fatalf("Bind(system) error = %v", err)
 	}
 	return engine
 }
@@ -228,7 +236,7 @@ func TestNewEngineRecoversWithoutLoggingCredentials(t *testing.T) {
 	}
 }
 
-func TestNewEngineServesHealth(t *testing.T) {
+func TestSystemHTTPModuleServesHealth(t *testing.T) {
 	engine := mustNewEngine(t)
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/health", nil)

@@ -728,7 +728,7 @@ func newRequestLogHandlerTestRuntime(
 	handler.newRequestID = func() (string, error) { return fixedRequestID, nil }
 	handler.requestNow = newSteppingRequestClock()
 	engine := gin.New()
-	handler.RegisterRoutes(engine)
+	bindGatewayRoutesForTest(t, engine, handler)
 	return engine, handler, manager, registry
 }
 
@@ -827,7 +827,7 @@ func TestHandlerUsesFrozenRPMLimitAcrossSnapshotPublish(t *testing.T) {
 	)
 	handler.newRequestID = func() (string, error) { return fixedRequestID, nil }
 	engine := gin.New()
-	handler.RegisterRoutes(engine)
+	bindGatewayRoutesForTest(t, engine, handler)
 
 	for range 2 {
 		request := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
@@ -1626,6 +1626,12 @@ func TestHandlerRecordsDownstreamWriteFailureWithoutChangingResponse(t *testing.
 	request.Header.Set("Authorization", "Bearer gl-client")
 	ginContext.Request = request
 
+	prepareAndAuthenticateGatewayContextForTest(
+		t,
+		handler,
+		ginContext,
+		"data.openai.chat-completions",
+	)
 	handler.Handle(ginContext)
 
 	events := sink.snapshot()
@@ -1670,7 +1676,7 @@ func TestHandlerRecordsCanceledSuccessfulResponseWithoutHealthSideEffects(t *tes
 	}
 	handler.dialects[protocol.OpenAIChatCompletions] = selectedDialect
 	engine := gin.New()
-	handler.RegisterRoutes(engine)
+	bindGatewayRoutesForTest(t, engine, handler)
 
 	request := httptest.NewRequest(
 		http.MethodPost,
@@ -1807,6 +1813,12 @@ func TestHandlerPrioritizesClientCancellationOverDownstreamWriteFailure(t *testi
 			request.Header.Set("Authorization", "Bearer gl-client")
 			ginContext.Request = request
 
+			prepareAndAuthenticateGatewayContextForTest(
+				t,
+				handler,
+				ginContext,
+				"data.openai.chat-completions",
+			)
 			handler.Handle(ginContext)
 
 			events := sink.snapshot()

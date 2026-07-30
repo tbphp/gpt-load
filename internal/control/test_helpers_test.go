@@ -15,8 +15,10 @@ import (
 	"gorm.io/gorm/logger"
 
 	"gpt-load/internal/dialect"
+	"gpt-load/internal/gateway"
 	"gpt-load/internal/health"
 	"gpt-load/internal/platform/encryption"
+	"gpt-load/internal/platform/httproute"
 	"gpt-load/internal/platform/i18n"
 	"gpt-load/internal/requestlog"
 	"gpt-load/internal/state"
@@ -28,6 +30,29 @@ var (
 	controlI18nErr          error
 	testIdempotencySequence atomic.Uint64
 )
+
+// RegisterRoutes keeps package tests concise while production registration
+// remains exclusively owned by the shared HTTP route registry.
+func (s *Server) RegisterRoutes(engine *gin.Engine) {
+	registry, err := httproute.NewRegistry(s.HTTPModule())
+	if err != nil {
+		panic(err)
+	}
+	if err := registry.Bind(engine); err != nil {
+		panic(err)
+	}
+}
+
+func registerGatewayRoutes(t *testing.T, engine *gin.Engine, handler *gateway.Handler) {
+	t.Helper()
+	registry, err := httproute.NewRegistry(handler.HTTPModule())
+	if err != nil {
+		t.Fatalf("NewRegistry(gateway) error = %v", err)
+	}
+	if err := registry.Bind(engine); err != nil {
+		t.Fatalf("Bind(gateway) error = %v", err)
+	}
+}
 
 func setRequiredTestIdempotencyHeader(request *http.Request) {
 	sequence := testIdempotencySequence.Add(1)

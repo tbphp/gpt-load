@@ -1,5 +1,6 @@
 import type { Router } from 'vue-router'
 
+import { loginLocation } from '@/app/route-locations'
 import type { AuthSession } from '@/features/auth/auth-session'
 import type { ImportRecoveryService } from '@/features/import/import-recovery'
 import type { UnsavedChangesController } from '@/app/unsaved-changes'
@@ -20,10 +21,7 @@ export async function handleGlobalUnauthorized(
   deps.unsavedChanges.bypassNext()
   deps.session.clear()
   try {
-    await deps.router.replace({
-      name: 'login',
-      query: { redirect: deps.redirect },
-    })
+    await deps.router.replace(loginLocation(deps.redirect))
   } finally {
     deps.unsavedChanges.consumeBypass()
   }

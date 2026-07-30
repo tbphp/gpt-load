@@ -16,6 +16,7 @@ type reason struct {
 var (
 	reasonInvalidAccessKey       = reason{Status: http.StatusUnauthorized, Code: "invalid_access_key", Message: "Invalid access key."}
 	reasonEndpointNotFound       = reason{Status: http.StatusNotFound, Code: "protocol_endpoint_not_found", Message: "Protocol endpoint not found."}
+	reasonMethodNotAllowed       = reason{Status: http.StatusMethodNotAllowed, Code: "method_not_allowed", Message: "Method not allowed."}
 	reasonInvalidProtocolRequest = reason{Status: http.StatusBadRequest, Code: "invalid_protocol_request", Message: "Invalid protocol request."}
 	reasonModelRequiredByFilter  = reason{Status: http.StatusBadRequest, Code: "model_required_by_filter", Message: "A model is required by the access key filter."}
 	reasonNoCandidate            = reason{Status: http.StatusServiceUnavailable, Code: "no_available_candidate", Message: "No available upstream candidate."}

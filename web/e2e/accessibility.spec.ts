@@ -224,21 +224,20 @@ test('skip link, tab order, visible focus, route announcement, status, copy, and
     expect(box!.height).toBeGreaterThanOrEqual(44)
   }
 
-  const badge = page.locator('.status-badge').first()
-  await expect(badge).not.toHaveText('')
-  await expect(badge.locator('svg')).toHaveAttribute('aria-hidden', 'true')
+  const homeStatus = page.locator('[data-test="home-lede"]')
+  await expect(homeStatus).toHaveClass(/home-lede--normal/)
+  await expect(homeStatus.locator('svg').first()).toHaveAttribute('aria-hidden', 'true')
 
-  const connectionToggle = page.locator('[data-test="connection-toggle"]')
-  if ((await connectionToggle.getAttribute('aria-expanded')) !== 'true') {
-    await connectionToggle.click()
-  }
-  const copy = page.getByRole('button', { name: 'Copy Base URL' })
+  const navigation = page.getByRole('navigation', { name: 'Primary navigation' })
+  await navigation.getByRole('link', { name: 'Settings' }).click()
+  await expect(page.getByRole('heading', { level: 1, name: 'Settings' })).toBeFocused()
+  const copy = page.locator('[data-test="copy-data-dir"]')
+  await expect(copy).toBeVisible()
   await copy.click()
   await expect(page.locator('.copy-control__feedback[role="status"]')).toHaveText(
     browserName === 'chromium' ? 'Copied' : /^(Copied|Copy failed)$/,
   )
 
-  const navigation = page.getByRole('navigation', { name: 'Primary navigation' })
   await navigation.getByRole('link', { name: 'Monitor' }).click()
   await expect(page).toHaveURL('/monitor?tab=health')
   const monitorHeading = page.getByRole('heading', { level: 1, name: 'Monitor' })

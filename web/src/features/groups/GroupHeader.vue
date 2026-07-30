@@ -3,6 +3,7 @@ import { ArrowLeft, Upload } from '@lucide/vue'
 import { useI18n } from 'vue-i18n'
 
 import type { GroupDetailDto } from '@/app/resources/groups'
+import { homeLocation, importLocation } from '@/app/route-locations'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 
 import { normalizeUpstreamHost } from './upstream-host'
@@ -13,7 +14,7 @@ const { t } = useI18n()
 
 <template>
   <header class="group-header">
-    <RouterLink class="group-header__back" to="/">
+    <RouterLink class="group-header__back" :to="homeLocation()">
       <ArrowLeft :size="16" aria-hidden="true" />{{ t('shell.backHome') }}
     </RouterLink>
     <div class="group-header__main">
@@ -32,7 +33,7 @@ const { t } = useI18n()
       <RouterLink
         class="button-link group-header__import"
         data-test="group-import-link"
-        :to="`/import?mode=existing&group_id=${group.id}`"
+        :to="importLocation({ mode: 'existing', group_id: group.id })"
       >
         <Upload :size="16" aria-hidden="true" />{{ t('group.importKeys') }}
       </RouterLink>

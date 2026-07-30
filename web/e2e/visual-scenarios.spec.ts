@@ -24,17 +24,15 @@ async function prepareScenario(
   item: VisualScenarioCase,
 ) {
   if (item.scenario === 'home-normal') {
-    await expect(page.locator('[data-test="home-health-total"]')).toBeVisible()
-    await expect(page.locator('[data-test="home-usage-requests"]')).toBeVisible()
+    await expect(page.locator('[data-test="home-lede"]')).toHaveClass(/home-lede--normal/)
+    await expect(page.locator('[data-test="home-success-rate"]')).toBeVisible()
     await expect(page.getByText(visualFixtureData.groupName, { exact: true })).toBeVisible()
     return
   }
 
   if (item.scenario === 'home-anomaly') {
-    await expect(page.locator('[data-test="home-health-cooldown"]')).toHaveAttribute(
-      'data-state',
-      'anomaly',
-    )
+    await expect(page.locator('[data-test="home-problem-groups"]')).toBeVisible()
+    await expect(page.locator('[data-problem-kind="cooldown"]')).toBeVisible()
     const desktopSettings = page.locator('.desktop-nav a[href="/settings"]')
     if (await desktopSettings.isVisible()) {
       await desktopSettings.click()
@@ -44,21 +42,21 @@ async function prepareScenario(
     }
     await expect(page).toHaveURL('/settings')
     await page.locator('a.brand').click()
-    await expect(page.locator('[data-test="home-operational-overview"]')).toBeVisible()
+    await expect(page.locator('[data-test="home-lede"]')).toHaveClass(/home-lede--neutral/)
+    await expect(page.locator('[data-test="home-health-usage-independence"]')).toBeVisible()
     await expect(page.getByText(/stale|旧数据/).first()).toBeVisible()
-    const [card, badge] = await Promise.all([
-      page.locator('.service-card').boundingBox(),
-      page.locator('.service-card .status-badge').boundingBox(),
+    const [card, statusBadge] = await Promise.all([
+      page.locator('.home-problem-group').boundingBox(),
+      page.locator('[data-problem-key-status]').first().boundingBox(),
     ])
     expect(card).not.toBeNull()
-    expect(badge).not.toBeNull()
-    expect(badge!.x + badge!.width).toBeLessThanOrEqual(card!.x + card!.width)
+    expect(statusBadge).not.toBeNull()
+    expect(statusBadge!.x + statusBadge!.width).toBeLessThanOrEqual(card!.x + card!.width)
     return
   }
 
   if (item.scenario === 'home-empty-error') {
-    await expect(page.locator('[data-test="home-usage-error"]')).toBeVisible()
-    await expect(page.locator('[data-test="home-groups"]')).toBeVisible()
+    await expect(page.locator('[data-test="home-zero-groups"]')).toBeVisible()
     return
   }
 

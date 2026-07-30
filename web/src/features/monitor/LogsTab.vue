@@ -15,6 +15,7 @@ import {
 } from '@/app/resources/request-logs'
 import { RequestCancelledError } from '@/api/errors'
 import { controlQueryKeys } from '@/app/query-keys'
+import { monitorLocation } from '@/app/route-locations'
 import { useUnsavedChanges } from '@/app/unsaved-changes'
 import AppButton from '@/components/ui/AppButton.vue'
 import DataTable from '@/components/ui/DataTable.vue'
@@ -174,10 +175,7 @@ async function applyFilters(): Promise<void> {
   filterErrors.value = errors
   if (Object.keys(errors).length > 0) return
   await unsavedChanges.runWithoutPrompt(() =>
-    router.push({
-      name: 'monitor',
-      query: serializeAppliedLogFilters(applyLogFilterDraft(draft.value)),
-    }),
+    router.push(monitorLocation(serializeAppliedLogFilters(applyLogFilterDraft(draft.value)))),
   )
 }
 
@@ -194,7 +192,7 @@ async function setDetailOpen(requestID: string, open: boolean): Promise<void> {
   const query = serializeAppliedLogFilters(appliedFilters.value)
   if (open) query.selected_request_id = requestID
   await unsavedChanges.runWithoutPrompt(() =>
-    open ? router.push({ name: 'monitor', query }) : router.replace({ name: 'monitor', query }),
+    open ? router.push(monitorLocation(query)) : router.replace(monitorLocation(query)),
   )
   if (open) return
   window.clearTimeout(detailFocusTimer)

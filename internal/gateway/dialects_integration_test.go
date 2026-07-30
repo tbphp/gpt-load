@@ -115,7 +115,7 @@ func newDialectGatewayEngine(
 	)
 	handler.newRandom = func() *rand.Rand { return rand.New(zeroSource{}) }
 	engine := gin.New()
-	handler.RegisterRoutes(engine)
+	bindGatewayRoutesForTest(t, engine, handler)
 	return engine, registry
 }
 
@@ -178,6 +178,13 @@ func TestResponsesNamespaceRoutesOrdinaryMethodsAndRejectsDangerousMethodsLocall
 			name:   "delete",
 			method: http.MethodDelete,
 			target: "/v1/responses/resp_123",
+			status: http.StatusOK,
+		},
+		{
+			name:   "replace extension",
+			method: http.MethodPut,
+			target: "/v1/responses/vendor-extension",
+			body:   `{"enabled":true}`,
 			status: http.StatusOK,
 		},
 		{

@@ -4,6 +4,7 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import type { HealthProblemKeyDto } from '@/app/resources/health'
+import { groupDetailLocation } from '@/app/route-locations'
 import ProblemKeyRow from '@/components/health/ProblemKeyRow.vue'
 
 interface ProblemSection {
@@ -65,7 +66,7 @@ function failureCategoryLabel(category: HealthProblemKeyDto['last_failure_catego
           :data-key-id="key.key_id"
         >
           <div class="problem-key__summary">
-            <RouterLink class="group-link" :to="`/groups/${key.group_id}?tab=keys`">
+            <RouterLink class="group-link" :to="groupDetailLocation(key.group_id, { tab: 'keys' })">
               {{ key.group_name }} · #{{ key.group_id }}
             </RouterLink>
             <span

@@ -12,6 +12,7 @@ import {
   type GroupKeyImportResult,
 } from '@/app/resources/groups'
 import { applyInvalidationPlan, mutationInvalidationPlans } from '@/app/resources/invalidation'
+import { importLocation } from '@/app/route-locations'
 import AppButton from '@/components/ui/AppButton.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import SurfaceCard from '@/components/ui/SurfaceCard.vue'
@@ -101,7 +102,7 @@ function selectGroup(event: Event): void {
   result.value = null
   const query: Record<string, string> = { mode: 'existing' }
   if (id !== null) query.group_id = String(id)
-  void router.push({ name: 'import', query })
+  void router.push(importLocation(query))
 }
 
 async function showReview(): Promise<void> {

@@ -13,6 +13,7 @@ import {
   type UpstreamKeyEffectiveStatus,
 } from '@/app/resources/upstream-keys'
 import { applyInvalidationPlan, mutationInvalidationPlans } from '@/app/resources/invalidation'
+import { groupDetailLocation } from '@/app/route-locations'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppDialog from '@/components/ui/AppDialog.vue'
 import DataTable from '@/components/ui/DataTable.vue'
@@ -107,11 +108,7 @@ function formatCooldown(value: string | null): string {
 }
 
 function clearProblemFilter(): void {
-  void router.push({
-    name: 'group-detail',
-    params: { id: route.params.id },
-    query: { tab: 'keys' },
-  })
+  void router.push(groupDetailLocation(String(route.params.id), { tab: 'keys' }))
 }
 
 async function runUpdate(

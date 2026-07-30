@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
 import { lazySurface } from '@/app/async-surface'
+import { monitorLocation } from '@/app/route-locations'
 import AppTabs, { type AppTabItem } from '@/components/ui/AppTabs.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
 
@@ -32,7 +33,7 @@ watch(
   (query) => {
     const normalized = canonicalQuery.value
     if (!sameMonitorQuery(query, normalized)) {
-      void router.replace({ name: 'monitor', query: normalized })
+      void router.replace(monitorLocation(normalized))
     }
   },
   { immediate: true },
@@ -41,7 +42,7 @@ watch(
 function selectTab(value: string): void {
   const tab = normalizeMonitorTab(value)
   if (tab === activeTab.value) return
-  void router.push({ name: 'monitor', query: { tab } })
+  void router.push(monitorLocation({ tab }))
 }
 </script>
 

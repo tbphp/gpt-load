@@ -15,6 +15,7 @@ import type { GroupProtocol } from '@/api/control/types'
 import { ApiError, RequestCancelledError } from '@/api/errors'
 import { controlQueryKeys } from '@/app/query-keys'
 import { applyInvalidationPlan, mutationInvalidationPlans } from '@/app/resources/invalidation'
+import { groupDetailLocation } from '@/app/route-locations'
 import { useUnsavedChanges } from '@/app/unsaved-changes'
 import HeaderRulesEditor from '@/components/config/HeaderRulesEditor.vue'
 import AppButton from '@/components/ui/AppButton.vue'
@@ -267,7 +268,7 @@ onBeforeUnmount(() => {
       <RouterLink
         data-test="group-rediscovery-action"
         class="group-settings__inline-action"
-        :to="{ name: 'group-detail', params: { id: groupId }, query: { tab: 'models' } }"
+        :to="groupDetailLocation(groupId, { tab: 'models' })"
       >
         {{ t('group.settings.rediscoverAction') }}
       </RouterLink>

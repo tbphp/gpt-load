@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 
+import { homeLocation } from '@/app/route-locations'
 import PageHeader from '@/components/ui/PageHeader.vue'
 
 const { t } = useI18n()
@@ -13,7 +14,9 @@ const { t } = useI18n()
       :title="t('notFound.title')"
       :description="t('notFound.description')"
     />
-    <RouterLink class="button-link" to="/">{{ t('notFound.backHome') }}</RouterLink>
+    <RouterLink class="button-link" :to="homeLocation()">
+      {{ t('notFound.backHome') }}
+    </RouterLink>
   </section>
 </template>
 

@@ -1,5 +1,7 @@
 import { createMemoryHistory } from 'vue-router'
 
+import pageRouteManifest from '../../../internal/webui/page_routes.json'
+
 import { createAppRouter, safeRedirect, type RouterAuth } from './router'
 
 function createAuth(hasCredential: boolean): RouterAuth {
@@ -9,6 +11,21 @@ function createAuth(hasCredential: boolean): RouterAuth {
 }
 
 describe('application routes', () => {
+  it('matches every non-fallback route name and path to the shared JSON manifest', () => {
+    const router = createAppRouter(createAuth(true), createMemoryHistory())
+    const actual = Object.fromEntries(
+      router
+        .getRoutes()
+        .filter((route) => route.name !== 'not-found')
+        .map((route) => [route.name, route.path]),
+    )
+    const expected = Object.fromEntries(
+      pageRouteManifest.routes.map((route) => [route.name, route.path]),
+    )
+
+    expect(actual).toEqual(expected)
+  })
+
   it.each([
     '/',
     '/login',
@@ -82,6 +99,23 @@ describe('application routes', () => {
     expect(resolved.meta.requiresAuth).toBe(true)
   })
 
+  it.each(['/SETTINGS', '/settings/'])(
+    'uses strict case-sensitive matching for non-canonical page path %s',
+    (path) => {
+      const router = createAppRouter(createAuth(true), createMemoryHistory())
+
+      expect(router.resolve(path).name).toBe('not-found')
+    },
+  )
+
+  it('redirects an encoded path separator to the not-found route', async () => {
+    const router = createAppRouter(createAuth(true), createMemoryHistory())
+
+    await router.push('/groups/a%2Fb')
+
+    expect(router.currentRoute.value.name).toBe('not-found')
+  })
+
   it('marks every non-login route as protected', () => {
     const router = createAppRouter(createAuth(true), createMemoryHistory())
 
@@ -132,6 +166,9 @@ describe('application routes', () => {
     '/groups/%5Cevil',
     '/groups/%5cevil',
     '/groups/%',
+    '/groups/a%2Fb',
+    '/SETTINGS',
+    '/settings/',
     '/login',
   ])('rejects unsafe redirect %s', (redirect) => {
     const router = createAppRouter(createAuth(true), createMemoryHistory())

@@ -204,7 +204,7 @@ func TestGatewaySecurityEventFormatterSecretMatrix(t *testing.T) {
 			logger.SetFormatter(formatter)
 			handler.logger = logger
 			engine := gin.New()
-			handler.RegisterRoutes(engine)
+			bindGatewayRoutesForTest(t, engine, handler)
 			serveGatewaySecretMatrixRequests(
 				t,
 				engine,

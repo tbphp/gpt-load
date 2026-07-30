@@ -9,6 +9,7 @@ import { useApiClient } from '@/api/client-context'
 import { groupListQueryOptions } from '@/app/resources/groups'
 import { healthQueryOptions, type RuntimeHealthDto } from '@/app/resources/health'
 import { usageQueryOptions, type UsageFilters, type UsageReportDto } from '@/app/resources/usage'
+import { importLocation } from '@/app/route-locations'
 import { useVisibleRefetch } from '@/app/use-visible-refetch'
 import TrendChart from '@/components/charts/TrendChart.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
@@ -185,7 +186,9 @@ function setRange(value: string): void {
     >
       <template #icon><Layers3 :size="34" /></template>
       <template #actions>
-        <RouterLink class="button-link" to="/import">{{ t('home.importKeys') }}</RouterLink>
+        <RouterLink class="button-link" :to="importLocation()">
+          {{ t('home.importKeys') }}
+        </RouterLink>
       </template>
     </EmptyState>
 

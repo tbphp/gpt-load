@@ -18,6 +18,7 @@ import (
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/platform/encryption"
 	"gpt-load/internal/platform/httpclient"
+	"gpt-load/internal/platform/httproute"
 	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/ratelimit"
@@ -115,6 +116,7 @@ func BuildContainer() (*dig.Container, error) {
 		func(service *control.Service) app.StartupBootstrap { return service },
 		func(service *control.Service) app.StartupRecovery { return service },
 		control.NewServer,
+		newHTTPRegistry,
 		func(db *gorm.DB, manager *state.Manager, registry *state.KeyRegistry) app.RuntimeStateLoader {
 			return stateloader.New(db, manager, registry)
 		},
@@ -128,18 +130,26 @@ func BuildContainer() (*dig.Container, error) {
 	}
 	if err := dependencyContainer.Invoke(func(
 		engine *gin.Engine,
-		gatewayHandler *gateway.Handler,
-		controlServer *control.Server,
-		webUIServer *webui.Server,
-	) {
-		gatewayHandler.RegisterRoutes(engine)
-		controlServer.RegisterRoutes(engine)
-		webUIServer.RegisterRoutes(engine)
-		webUIServer.RegisterFallback(engine)
+		registry *httproute.Registry,
+	) error {
+		return registry.Bind(engine)
 	}); err != nil {
 		return nil, fmt.Errorf("register HTTP routes: %w", err)
 	}
 	return dependencyContainer, nil
+}
+
+func newHTTPRegistry(
+	gatewayHandler *gateway.Handler,
+	controlServer *control.Server,
+	webUIServer *webui.Server,
+) (*httproute.Registry, error) {
+	return httproute.NewRegistry(
+		app.HTTPModule(),
+		controlServer.HTTPModule(),
+		gatewayHandler.HTTPModule(),
+		webUIServer.HTTPModule(),
+	)
 }
 
 type priceRuntimeProvider struct {

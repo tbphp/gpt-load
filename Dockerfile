@@ -7,6 +7,7 @@ RUN corepack enable \
 COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml ./web/
 RUN pnpm --dir web install --frozen-lockfile
 
+COPY internal/webui/page_routes.json ./internal/webui/page_routes.json
 COPY web ./web
 RUN pnpm --dir web run build
 

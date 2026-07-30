@@ -1129,7 +1129,7 @@ func TestHandlerModelEndpointHasNoDataPlaneSideEffects(t *testing.T) {
 	)
 	handler.registry = panicRuntimeRegistry{}
 	engine := gin.New()
-	handler.RegisterRoutes(engine)
+	bindGatewayRoutesForTest(t, engine, handler)
 
 	request := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
 	request.Header.Set("Authorization", "Bearer gl-client")
@@ -1203,7 +1203,7 @@ func newModelListHandlerEngineWithLimit(
 	)
 	handler.modelListLimit = limit
 	engine := gin.New()
-	handler.RegisterRoutes(engine)
+	bindGatewayRoutesForTest(t, engine, handler)
 	return engine
 }
 
@@ -2130,7 +2130,7 @@ func TestHandlerAppliesExactCooldownDeadline(t *testing.T) {
 			handler.registry = recording
 			handler.now = func() time.Time { return attemptNow }
 			engine := gin.New()
-			handler.RegisterRoutes(engine)
+			bindGatewayRoutesForTest(t, engine, handler)
 
 			request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions",
 				bytes.NewBufferString(`{"model":"gpt-4o"}`))
@@ -2396,7 +2396,7 @@ func TestHandlerReturnsModelRequiredByFilterForProtocolOnlyRequest(t *testing.T)
 		dialect.NewOpenAIResponses(http.DefaultClient),
 	)
 	engine := gin.New()
-	handler.RegisterRoutes(engine)
+	bindGatewayRoutesForTest(t, engine, handler)
 
 	request := httptest.NewRequest(
 		http.MethodGet,
@@ -2664,7 +2664,7 @@ func TestHandlerSkipsCandidateChangedAfterCollection(t *testing.T) {
 			handler.registry = runtimeRegistry
 			handler.newRandom = func() *rand.Rand { return rand.New(rand.NewSource(1)) }
 			engine := gin.New()
-			handler.RegisterRoutes(engine)
+			bindGatewayRoutesForTest(t, engine, handler)
 
 			request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewBufferString(`{"model":"gpt-4o"}`))
 			request.Header.Set("Authorization", "Bearer gl-client")
@@ -2743,7 +2743,7 @@ func TestHandlerFreezesKeyIdentityBeforeReadingBody(t *testing.T) {
 			recordingEncryption := &recordingDecryptEncryption{Service: keyService}
 			handler.encryption = recordingEncryption
 			engine := gin.New()
-			handler.RegisterRoutes(engine)
+			bindGatewayRoutesForTest(t, engine, handler)
 			currentCiphertext, err := keyService.Encrypt(test.currentPlain)
 			if err != nil {
 				t.Fatalf("Encrypt(current key) error = %v", err)
@@ -2899,7 +2899,7 @@ func TestHandlerAllowsCapturedUnavailableIdentityAfterRecovery(t *testing.T) {
 			handler, _, registry := newHandlerForTest(t, forwarder)
 			handler.newRandom = func() *rand.Rand { return rand.New(zeroSource{}) }
 			engine := gin.New()
-			handler.RegisterRoutes(engine)
+			bindGatewayRoutesForTest(t, engine, handler)
 			keyService, err := encryption.NewService("handler-test-master-key")
 			if err != nil {
 				t.Fatalf("NewService() error = %v", err)
@@ -3021,7 +3021,7 @@ func newRealGatewayEngine(t *testing.T, upstreamURL string, upstreamKeys ...stri
 	)
 	handler.newRandom = func() *rand.Rand { return rand.New(rand.NewSource(1)) }
 	engine := gin.New()
-	handler.RegisterRoutes(engine)
+	bindGatewayRoutesForTest(t, engine, handler)
 	return engine
 }
 
@@ -3042,7 +3042,7 @@ func newHandlerTestRuntime(
 	t.Helper()
 	handler, manager, registry := newHandlerForTest(t, forwarder, upstreamKeys...)
 	engine := gin.New()
-	handler.RegisterRoutes(engine)
+	bindGatewayRoutesForTest(t, engine, handler)
 	return engine, manager, registry
 }
 
@@ -3055,7 +3055,7 @@ func newStatsHandlerTestRuntime(
 	stats := health.NewStatsStore()
 	handler, _, registry := newHandlerForTestWithStats(t, forwarder, stats, upstreamKeys...)
 	engine := gin.New()
-	handler.RegisterRoutes(engine)
+	bindGatewayRoutesForTest(t, engine, handler)
 	return engine, handler, registry, stats
 }
 

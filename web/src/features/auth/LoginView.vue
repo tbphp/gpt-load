@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
 import { ApiError, InvalidResponseError, NetworkError } from '@/api/errors'
+import { pageRouteNames } from '@/app/route-locations'
 import { safeRedirect } from '@/app/router'
 import AppButton from '@/components/ui/AppButton.vue'
 import FormField from '@/components/ui/FormField.vue'
@@ -54,7 +55,7 @@ async function submit(): Promise<void> {
     await session.login(candidate.value)
     const target = safeRedirect(route.query.redirect, router)
     recovery.sweep()
-    if (router.resolve(target).name !== 'import') recovery.clear()
+    if (router.resolve(target).name !== pageRouteNames.import) recovery.clear()
     await router.replace(target)
   } catch (error: unknown) {
     if (error instanceof ApiError && error.code === 'UNAUTHORIZED') {

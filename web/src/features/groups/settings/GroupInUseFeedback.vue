@@ -3,6 +3,7 @@ import { KeyRound, TriangleAlert } from '@lucide/vue'
 import { useI18n } from 'vue-i18n'
 
 import type { AccessKeyReferenceDto } from '@/app/resources/groups'
+import { accessKeysLocation } from '@/app/route-locations'
 
 defineProps<{ references: AccessKeyReferenceDto[] }>()
 const { t } = useI18n()
@@ -21,13 +22,13 @@ const { t } = useI18n()
           <code>#{{ reference.id }}</code>
         </li>
       </ul>
-      <a
+      <RouterLink
         data-test="group-in-use-access-keys"
         class="button-link button-link--secondary"
-        href="/access-keys"
+        :to="accessKeysLocation()"
       >
         {{ t('group.settings.delete.manageAccessKeys') }}
-      </a>
+      </RouterLink>
     </div>
   </div>
 </template>

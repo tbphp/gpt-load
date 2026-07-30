@@ -508,7 +508,7 @@ func TestWriteConfigMakesCreatedGroupAndFirstKeyAtomicallyVisibleToDataPlane(t *
 		nil,
 	)
 	engine := gin.New()
-	handler.RegisterRoutes(engine)
+	registerGatewayRoutes(t, engine, handler)
 	performRequest := func() *httptest.ResponseRecorder {
 		request := httptest.NewRequest(
 			http.MethodPost,

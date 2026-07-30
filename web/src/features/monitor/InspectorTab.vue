@@ -15,6 +15,7 @@ import {
 } from '@/app/resources/route-inspection'
 import type { AccessProtocol } from '@/api/control/types'
 import { RequestCancelledError } from '@/api/errors'
+import { monitorLocation } from '@/app/route-locations'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import SurfaceCard from '@/components/ui/SurfaceCard.vue'
@@ -201,10 +202,7 @@ async function inspect(): Promise<void> {
     access_key_id: String(request.access_key_id),
   }
   if (request.external_model) query.external_model = request.external_model
-  void router.replace({
-    name: 'monitor',
-    query,
-  })
+  void router.replace(monitorLocation(query))
 
   try {
     const result = await inspectRoute(client, request, currentController.signal)

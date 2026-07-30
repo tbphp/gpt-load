@@ -7,6 +7,7 @@ import { useRoute } from 'vue-router'
 import { useApiClient } from '@/api/client-context'
 import { lazySurface } from '@/app/async-surface'
 import { groupDetailQueryOptions } from '@/app/resources/groups'
+import { homeLocation } from '@/app/route-locations'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 
 import GroupHeader from './GroupHeader.vue'
@@ -35,7 +36,9 @@ const detailQuery = useQuery(groupDetailQueryOptions(client, groupId))
     >
       <h1>{{ t('group.invalidTitle') }}</h1>
       <p>{{ t('group.invalidDescription') }}</p>
-      <RouterLink class="button-link" to="/">{{ t('shell.backHome') }}</RouterLink>
+      <RouterLink class="button-link" :to="homeLocation()">
+        {{ t('shell.backHome') }}
+      </RouterLink>
     </div>
     <template v-else>
       <QueryFeedback

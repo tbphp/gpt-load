@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -36,7 +37,7 @@ func TestGatewaySecurityEventsUseIndependentCounters(t *testing.T) {
 	handler.dialects = dialect.NewSet()
 
 	engine := gin.New()
-	handler.RegisterRoutes(engine)
+	bindGatewayRoutesForTest(t, engine, handler)
 	serveGatewaySecurityRequest(
 		engine,
 		http.MethodGet,
@@ -139,7 +140,7 @@ func TestGatewaySecurityEventCountersAccumulateAcrossWindows(t *testing.T) {
 				test.prepare(handler)
 			}
 			engine := gin.New()
-			handler.RegisterRoutes(engine)
+			bindGatewayRoutesForTest(t, engine, handler)
 
 			test.serve(engine)
 			test.serve(engine)
@@ -169,7 +170,7 @@ func TestGatewayRouteNotFoundCoversRecognizedRouteWithoutDialect(t *testing.T) {
 	handler.logger = newGatewayJSONLogger(&logs)
 	handler.dialects = dialect.NewSet()
 	engine := gin.New()
-	handler.RegisterRoutes(engine)
+	bindGatewayRoutesForTest(t, engine, handler)
 
 	recorder := serveGatewaySecurityRequest(
 		engine,
@@ -201,7 +202,7 @@ func TestGatewayInvalidAccessKeyDoesNotEmitRouteEvent(t *testing.T) {
 	)
 	handler.logger = newGatewayJSONLogger(&logs)
 	engine := gin.New()
-	handler.RegisterRoutes(engine)
+	bindGatewayRoutesForTest(t, engine, handler)
 
 	recorder := serveGatewaySecurityRequest(
 		engine,
@@ -228,7 +229,7 @@ func TestGatewayUnknownRoutesBypassDataPlaneAuthentication(t *testing.T) {
 	)
 	handler.logger = newGatewayJSONLogger(&logs)
 	engine := gin.New()
-	handler.RegisterRoutes(engine)
+	bindGatewayRoutesForTest(t, engine, handler)
 
 	for _, authorization := range []string{"Bearer wrong", "Bearer gl-client"} {
 		recorder := serveGatewaySecurityRequest(
@@ -253,6 +254,127 @@ func TestGatewayUnknownRoutesBypassDataPlaneAuthentication(t *testing.T) {
 	assertGatewayEventCount(t, events, "data_plane_route_not_found", 0)
 }
 
+func TestGatewayRejectsInvalidGeminiRoutesBeforeAuthentication(t *testing.T) {
+	var logs bytes.Buffer
+	handler, _, _ := newHandlerForTest(
+		t,
+		&scriptedForwarder{},
+		"sk-upstream",
+	)
+	handler.logger = newGatewayJSONLogger(&logs)
+	engine := gin.New()
+	bindGatewayRoutesForTest(t, engine, handler)
+
+	recorder := serveGatewaySecurityRequest(
+		engine,
+		http.MethodPost,
+		"/v1beta/models/:generateContent",
+		"",
+		"192.0.2.17:1000",
+	)
+	if recorder.Code != http.StatusNotFound ||
+		!strings.Contains(
+			recorder.Body.String(),
+			`"code":"protocol_endpoint_not_found"`,
+		) {
+		t.Fatalf(
+			"response = %d %s, want pre-auth data-plane 404",
+			recorder.Code,
+			recorder.Body.String(),
+		)
+	}
+
+	events := decodeGatewayJSONLogs(t, logs.Bytes())
+	assertGatewayEventCount(t, events, "data_plane_auth_failed", 0)
+	assertGatewayEventCount(t, events, "data_plane_route_not_found", 0)
+}
+
+func TestGatewayPreservesResponsesAuthenticationBeforeLocalRejection(t *testing.T) {
+	var logs bytes.Buffer
+	handler, _, _ := newHandlerForTest(
+		t,
+		&scriptedForwarder{},
+		"sk-upstream",
+	)
+	handler.logger = newGatewayJSONLogger(&logs)
+	engine := gin.New()
+	bindGatewayRoutesForTest(t, engine, handler)
+
+	for _, test := range []struct {
+		name          string
+		method        string
+		target        string
+		authorization string
+		wantStatus    int
+		wantCode      string
+	}{
+		{
+			name: "unauthenticated options", method: http.MethodOptions,
+			target: "/v1/responses", wantStatus: http.StatusUnauthorized,
+			wantCode: "invalid_access_key",
+		},
+		{
+			name: "authenticated options", method: http.MethodOptions,
+			target: "/v1/responses", authorization: "Bearer gl-client",
+			wantStatus: http.StatusNotFound, wantCode: "protocol_endpoint_not_found",
+		},
+		{
+			name: "authenticated connect", method: http.MethodConnect,
+			target: "/v1/responses/resp_123", authorization: "Bearer gl-client",
+			wantStatus: http.StatusNotFound, wantCode: "protocol_endpoint_not_found",
+		},
+		{
+			name: "authenticated trace", method: http.MethodTrace,
+			target: "/v1/responses/resp_123", authorization: "Bearer gl-client",
+			wantStatus: http.StatusNotFound, wantCode: "protocol_endpoint_not_found",
+		},
+		{
+			name: "unauthenticated parent segment", method: http.MethodGet,
+			target: "/v1/responses/../models", wantStatus: http.StatusUnauthorized,
+			wantCode: "invalid_access_key",
+		},
+		{
+			name: "authenticated parent segment", method: http.MethodGet,
+			target: "/v1/responses/../models", authorization: "Bearer gl-client",
+			wantStatus: http.StatusNotFound, wantCode: "protocol_endpoint_not_found",
+		},
+		{
+			name: "unregistered propfind", method: "PROPFIND",
+			target: "/v1/responses/resp_123", wantStatus: http.StatusMethodNotAllowed,
+			wantCode: "method_not_allowed",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			recorder := serveGatewaySecurityRequest(
+				engine,
+				test.method,
+				test.target,
+				test.authorization,
+				"192.0.2.18:1000",
+			)
+			if recorder.Code != test.wantStatus ||
+				!strings.Contains(
+					recorder.Body.String(),
+					`"code":"`+test.wantCode+`"`,
+				) {
+				t.Fatalf(
+					"response = %d %s, want %d/%s",
+					recorder.Code,
+					recorder.Body.String(),
+					test.wantStatus,
+					test.wantCode,
+				)
+			}
+		})
+	}
+
+	events := decodeGatewayJSONLogs(t, logs.Bytes())
+	if got := gatewayEventsNamed(events, "data_plane_auth_failed"); len(got) == 0 {
+		t.Fatalf("data_plane_auth_failed events = %#v, want unauthenticated Responses requests logged", events)
+	}
+	assertGatewayEventCount(t, events, "data_plane_route_not_found", 0)
+}
+
 func TestGatewayMalformedPeerDoesNotChangeResponseOrLeakRawValue(t *testing.T) {
 	const rawPeer = "malformed:peer:raw-secret"
 	var logs bytes.Buffer
@@ -263,7 +385,7 @@ func TestGatewayMalformedPeerDoesNotChangeResponseOrLeakRawValue(t *testing.T) {
 	)
 	handler.logger = newGatewayJSONLogger(&logs)
 	engine := gin.New()
-	handler.RegisterRoutes(engine)
+	bindGatewayRoutesForTest(t, engine, handler)
 
 	recorder := serveGatewaySecurityRequest(
 		engine,
@@ -296,7 +418,7 @@ func TestGatewaySecurityEventsIgnoreForwardedPeerHeaders(t *testing.T) {
 	)
 	handler.logger = newGatewayJSONLogger(&logs)
 	engine := gin.New()
-	handler.RegisterRoutes(engine)
+	bindGatewayRoutesForTest(t, engine, handler)
 	request := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
 	request.RemoteAddr = "192.0.2.15:1000"
 	request.Header.Set("Authorization", "Bearer wrong")
@@ -339,7 +461,7 @@ func TestGatewaySecurityLoggerPanicDoesNotChangeResponses(t *testing.T) {
 	handler.logger.AddHook(gatewayPanicLogHook{})
 	handler.dialects = dialect.NewSet()
 	engine := gin.New()
-	handler.RegisterRoutes(engine)
+	bindGatewayRoutesForTest(t, engine, handler)
 
 	unauthorized := serveGatewaySecurityRequest(
 		engine,

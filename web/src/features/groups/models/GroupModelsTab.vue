@@ -13,6 +13,7 @@ import {
 import { ApiError, RequestCancelledError } from '@/api/errors'
 import { controlQueryKeys } from '@/app/query-keys'
 import { applyInvalidationPlan, mutationInvalidationPlans } from '@/app/resources/invalidation'
+import { groupDetailLocation, importLocation } from '@/app/route-locations'
 import { useUnsavedChanges } from '@/app/unsaved-changes'
 import ModelDraftEditor, {
   type ModelDraftEditorItem,
@@ -278,14 +279,14 @@ onBeforeUnmount(() => {
           <RouterLink
             data-test="models-keys-action"
             class="button-link"
-            :to="{ name: 'group-detail', params: { id: groupId }, query: { tab: 'keys' } }"
+            :to="groupDetailLocation(groupId, { tab: 'keys' })"
           >
             {{ t('group.modelEditor.noActiveKey.keysAction') }}
           </RouterLink>
           <RouterLink
             data-test="models-import-action"
             class="button-link button-link--secondary"
-            :to="`/import?mode=existing&group_id=${groupId}`"
+            :to="importLocation({ mode: 'existing', group_id: groupId })"
           >
             {{ t('group.modelEditor.noActiveKey.importAction') }}
           </RouterLink>

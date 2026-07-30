@@ -7,6 +7,7 @@ import { useRoute, useRouter } from 'vue-router'
 
 import { useApiClient } from '@/api/client-context'
 import { groupListQueryOptions } from '@/app/resources/groups'
+import { modelPricesLocation, monitorLocation } from '@/app/route-locations'
 import { usageQueryOptions, type UsageAggregateDto, type UsageFilters } from '@/app/resources/usage'
 import { useUnsavedChanges } from '@/app/unsaved-changes'
 import TrendChart from '@/components/charts/TrendChart.vue'
@@ -104,7 +105,7 @@ function resetFilters(): void {
 }
 
 async function navigate(filters: UsageFilters): Promise<void> {
-  await router.push({ name: 'monitor', query: usageMonitorQuery(filters) })
+  await router.push(monitorLocation(usageMonitorQuery(filters)))
 }
 </script>
 
@@ -261,7 +262,7 @@ async function navigate(filters: UsageFilters): Promise<void> {
             <RouterLink
               v-if="report.summary.unpriced_request_count > 0"
               data-test="usage-prices-link"
-              to="/settings/model-prices"
+              :to="modelPricesLocation()"
             >
               {{ t('monitor.usage.quality.openPrices') }}
             </RouterLink>

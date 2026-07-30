@@ -9,6 +9,7 @@ import {
   type HealthProblemKeyDto,
   type KeyCounts,
 } from '@/app/resources/health'
+import { groupDetailLocation } from '@/app/route-locations'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import SurfaceCard from '@/components/ui/SurfaceCard.vue'
@@ -314,7 +315,7 @@ function remainingTime(key: HealthProblemKeyDto): string {
             class="health-card group-health-card"
           >
             <header class="health-card__heading">
-              <RouterLink class="group-link" :to="`/groups/${group.id}`">
+              <RouterLink class="group-link" :to="groupDetailLocation(group.id)">
                 {{ group.name }} · #{{ group.id }}
               </RouterLink>
               <StatusBadge :tone="groupStatusTone(group.enabled, group.counts)">

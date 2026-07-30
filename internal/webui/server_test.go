@@ -10,6 +10,8 @@ import (
 	"testing/fstest"
 
 	"github.com/gin-gonic/gin"
+
+	"gpt-load/internal/platform/httproute"
 )
 
 func TestServerServesSameIndexForExplicitPageRoutes(t *testing.T) {
@@ -90,7 +92,6 @@ func TestServerFallbackReturnsNotFoundForUnknownRequests(t *testing.T) {
 		"dist/index.html": &fstest.MapFile{Data: []byte("<!doctype html><title>fallback</title>")},
 	}, "dist")
 	engine := testEngine(server)
-	server.RegisterFallback(engine)
 
 	browserPage := httptest.NewRecorder()
 	browserPageRequest := httptest.NewRequest(http.MethodGet, "/phase-2-unknown-route", nil)
@@ -330,6 +331,12 @@ func testEngine(server *Server) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
 	engine.RedirectTrailingSlash = false
-	server.RegisterRoutes(engine)
+	registry, err := httproute.NewRegistry(server.HTTPModule())
+	if err != nil {
+		panic(err)
+	}
+	if err := registry.Bind(engine); err != nil {
+		panic(err)
+	}
 	return engine
 }

@@ -4,6 +4,7 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import type { UsageAggregateDto, UsageReportDto } from '@/app/resources/usage'
+import { monitorLocation } from '@/app/route-locations'
 import DataTable from '@/components/ui/DataTable.vue'
 import { formatEstimatedUSD } from '@/features/usage/estimated-cost'
 
@@ -76,7 +77,7 @@ function groupName(groupID: number): string {
 
     <footer class="home-ranking__footer" data-test="home-ranking-footer">
       <span>{{ t('home.ranking.footer', { count: report.breakdown_group_count }) }}</span>
-      <RouterLink :to="{ name: 'monitor', query: { tab: 'usage', range: report.range } }">
+      <RouterLink :to="monitorLocation({ tab: 'usage', range: report.range })">
         {{ t('home.ranking.viewAll') }}
         <ArrowRight :size="16" aria-hidden="true" />
       </RouterLink>

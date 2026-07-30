@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, inject, nextTick, ref, watch } from 'vue'
+import { computed, inject, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 
@@ -13,11 +13,37 @@ const routeReady = computed(
   () => route.meta.requiresAuth !== true || session?.state.phase === 'validated',
 )
 let navigationSequence = 0
+let headingObserver: MutationObserver | undefined
+
+function stopHeadingObserver(): void {
+  headingObserver?.disconnect()
+  headingObserver = undefined
+}
+
+function headingText(heading: HTMLElement): string {
+  return heading.textContent?.trim() ?? ''
+}
+
+function focusElement(target: HTMLElement): void {
+  if (!target.hasAttribute('tabindex')) target.setAttribute('tabindex', '-1')
+  target.focus({ preventScroll: true })
+}
+
+function fallbackAnnouncement(): string {
+  const titleKey = typeof route.meta.titleKey === 'string' ? route.meta.titleKey : ''
+  return titleKey ? t(titleKey) : t('common.appName')
+}
+
+onBeforeUnmount(() => {
+  navigationSequence += 1
+  stopHeadingObserver()
+})
 
 watch(
   [() => route.name, () => route.path, routeReady],
   async ([, , ready]) => {
     const sequence = ++navigationSequence
+    stopHeadingObserver()
     announcement.value = ''
     if (!ready) return
     await nextTick()
@@ -26,17 +52,40 @@ watch(
     })
     if (sequence !== navigationSequence) return
 
-    const heading = document.querySelector<HTMLElement>('main h1')
     const main = document.querySelector<HTMLElement>('#main-content, main')
+    const heading = main?.querySelector<HTMLElement>('h1') ?? null
     const target = heading ?? main
-    if (target) {
-      if (!target.hasAttribute('tabindex')) target.setAttribute('tabindex', '-1')
-      target.focus({ preventScroll: true })
-    }
+    if (target) focusElement(target)
 
-    const headingText = heading?.textContent?.trim()
-    const titleKey = typeof route.meta.titleKey === 'string' ? route.meta.titleKey : ''
-    announcement.value = headingText || (titleKey ? t(titleKey) : t('common.appName'))
+    const initialHeadingText = heading === null ? '' : headingText(heading)
+    announcement.value = initialHeadingText || fallbackAnnouncement()
+    if (main === null || initialHeadingText !== '') return
+
+    headingObserver = new MutationObserver(() => {
+      if (sequence !== navigationSequence || !main.isConnected) {
+        stopHeadingObserver()
+        return
+      }
+      const asynchronousHeading = main.querySelector<HTMLElement>('h1')
+      if (asynchronousHeading === null) return
+      const text = headingText(asynchronousHeading)
+      if (text === '') return
+
+      if (
+        document.activeElement === main ||
+        document.activeElement === document.body ||
+        document.activeElement === null
+      ) {
+        focusElement(asynchronousHeading)
+      }
+      announcement.value = text
+      stopHeadingObserver()
+    })
+    headingObserver.observe(main, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    })
   },
   { flush: 'post', immediate: true },
 )
