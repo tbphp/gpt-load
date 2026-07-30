@@ -79,7 +79,7 @@ function updateValue(event: Event): void {
   grid-template-columns: minmax(220px, 1fr) minmax(150px, auto) minmax(110px, 150px);
   align-items: center;
   gap: var(--space-4);
-  border-top: 1px solid var(--color-border);
+  border-top: 1px solid var(--color-border-subtle);
   padding-top: var(--space-4);
 }
 .setting-override-field:first-child {
@@ -117,7 +117,7 @@ function updateValue(event: Event): void {
   min-height: 44px;
   border: 1px solid var(--color-border-control);
   border-radius: var(--radius-control);
-  background: var(--color-surface-secondary);
+  background: var(--color-surface-sunken);
   color: var(--color-text);
   padding: var(--space-2) var(--space-3);
   font: inherit;
@@ -126,7 +126,7 @@ function updateValue(event: Event): void {
 .setting-override-field__error {
   color: var(--color-danger) !important;
 }
-@media (max-width: 760px) {
+@media (max-width: 759px) {
   .setting-override-field {
     grid-template-columns: 1fr;
   }

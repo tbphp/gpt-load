@@ -37,7 +37,7 @@ const { t } = useI18n()
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   gap: var(--space-3);
-  border: 1px solid color-mix(in srgb, var(--color-warning) 38%, var(--color-border));
+  border: 1px solid color-mix(in srgb, var(--color-warning) 38%, var(--color-border-subtle));
   border-radius: var(--radius-control);
   background: var(--color-warning-bg);
   color: var(--color-warning);

@@ -87,28 +87,15 @@ describe('App', () => {
     expect(baseCss).toMatch(/\.surface-card\.login-card\s*\{[^}]*border-radius:\s*12px;/)
   })
 
-  it('uses the compact reference rhythm for login fields and shared navigation', () => {
+  it('uses the compact reference rhythm for login fields and shared controls', () => {
     expect(baseCss).toMatch(/body\s*\{[^}]*font-size:\s*var\(--text-md\);/)
-    expect(baseCss).toMatch(/\.topbar\s*\{[^}]*gap:\s*20px;[^}]*padding:\s*8px 20px;/)
-    expect(baseCss).toMatch(/\.nav\s*\{[^}]*gap:\s*20px;/)
-    expect(baseCss).toMatch(/\.nav-link\s*\{[^}]*padding-inline:\s*2px;/)
-    expect(baseCss).toMatch(/\.nav-link,\s*\.button-link\s*\{[^}]*min-height:\s*44px;/)
-    expect(baseCss).toMatch(/\.nav-link\s*\{[^}]*border-bottom:\s*2px solid transparent;/)
-    expect(baseCss).toMatch(
-      /\.brand-mark\s*\{[^}]*width:\s*9px;[^}]*height:\s*9px;[^}]*border-radius:\s*3px;/,
-    )
-    expect(baseCss).toMatch(
-      /\.nav-link\.router-link-active\s*\{[^}]*border-bottom-color:\s*var\(--color-primary\);/,
-    )
+    expect(baseCss).toMatch(/\.button-link\s*\{[^}]*min-height:\s*44px;/)
     expect(baseCss).toMatch(/\.eyebrow\s*\{[^}]*color:\s*var\(--color-text-muted\);/)
     expect(baseCss).toMatch(
       /\.form-field__label\s*\{[^}]*color:\s*var\(--color-text-muted\);[^}]*font-size:\s*12px;/,
     )
     expect(baseCss).toMatch(
-      /\.form-field input\s*\{[^}]*background:\s*var\(--color-surface-secondary\);[^}]*font-size:\s*13\.5px;/,
-    )
-    expect(baseCss).toMatch(
-      /@media \(max-width:\s*640px\)\s*\{[\s\S]*?\.nav\s*\{[^}]*display:\s*none;/,
+      /\.form-field input\s*\{[^}]*background:\s*var\(--color-surface-sunken\);[^}]*font-size:\s*13\.5px;/,
     )
     expect(baseCss).toMatch(
       /@media \(max-width:\s*640px\)\s*\{[\s\S]*?\.form-field input\s*\{[^}]*font-size:\s*16px;/,
@@ -117,16 +104,10 @@ describe('App', () => {
       /\.sr-only\s*\{[^}]*position:\s*absolute;[^}]*width:\s*1px;[^}]*height:\s*1px;/,
     )
     expect(baseCss).toMatch(
-      /@media \(max-width:\s*767px\)\s*\{[\s\S]*?\.topbar\s*\{[^}]*padding:\s*8px 20px;/,
-    )
-    expect(baseCss).toMatch(
-      /@media \(max-width:\s*767px\)\s*\{[\s\S]*?\.page-content\s*\{[^}]*width:\s*min\(100% - 40px, 1280px\);/,
-    )
-    expect(baseCss).toMatch(
       /\.inline-feedback\s*\{[^}]*border-radius:\s*var\(--radius-control\);[^}]*padding:\s*9px 10px;[^}]*font-size:\s*0\.875rem;/,
     )
     expect(baseCss).toMatch(
-      /\.inline-feedback--info\s*\{[^}]*background:\s*var\(--color-surface-secondary\);/,
+      /\.inline-feedback--info\s*\{[^}]*background:\s*var\(--color-surface-sunken\);/,
     )
     expect(baseCss).toMatch(
       /\.inline-feedback--warning\s*\{[^}]*background:\s*var\(--color-warning-bg\);/,
@@ -154,9 +135,10 @@ describe('App', () => {
       expect(wrapper.find('nav').exists()).toBe(true)
     })
 
-    expect(wrapper.get('h1').text()).toBe('运行概览')
+    expect(wrapper.get('[data-test="home-zero-groups"] h1').text()).toBe('尚未配置 Group')
     expect(wrapper.get('nav').attributes('aria-label')).toBe('主导航')
     expect(wrapper.find('main#main-content').exists()).toBe(true)
+    expect(wrapper.findAll('main')).toHaveLength(1)
   })
 
   it('does not validate the public login route', async () => {
@@ -191,6 +173,6 @@ describe('App', () => {
     await vi.waitFor(() => {
       expect(wrapper.find('nav').exists()).toBe(true)
     })
-    expect(wrapper.get('h1').text()).toBe('运行概览')
+    expect(wrapper.get('[data-test="home-zero-groups"] h1').text()).toBe('尚未配置 Group')
   })
 })

@@ -34,14 +34,19 @@ const presentation = computed(() => {
   return presentOperationalStatus(props.status)
 })
 const resolvedTone = computed(() => presentation.value.tone)
-const icon = computed(() => {
+const resolvedIcon = computed<StatusIcon>(() => {
   const statusIcon = presentation.value.icon as StatusIcon | undefined
-  if (statusIcon === 'progress') return LoaderCircle
-  if (statusIcon === 'check' || (!statusIcon && resolvedTone.value === 'success'))
-    return CircleCheck
-  if (statusIcon === 'alert' || (!statusIcon && resolvedTone.value === 'warning'))
-    return CircleAlert
-  if (statusIcon === 'off' || (!statusIcon && resolvedTone.value === 'danger')) return CircleOff
+  if (statusIcon) return statusIcon
+  if (resolvedTone.value === 'success') return 'check'
+  if (resolvedTone.value === 'warning') return 'alert'
+  if (resolvedTone.value === 'danger') return 'off'
+  return 'help'
+})
+const icon = computed(() => {
+  if (resolvedIcon.value === 'progress') return LoaderCircle
+  if (resolvedIcon.value === 'check') return CircleCheck
+  if (resolvedIcon.value === 'alert') return CircleAlert
+  if (resolvedIcon.value === 'off') return CircleOff
   return CircleHelp
 })
 </script>
@@ -52,7 +57,7 @@ const icon = computed(() => {
     :class="`status-badge--${resolvedTone}`"
     :data-status="status || undefined"
   >
-    <component :is="icon" :size="14" aria-hidden="true" />
+    <component :is="icon" :size="14" :data-status-icon="resolvedIcon" aria-hidden="true" />
     <slot />
   </span>
 </template>
@@ -73,6 +78,9 @@ const icon = computed(() => {
 .status-badge--success {
   background: var(--color-success-bg);
 }
+.status-badge--neutral {
+  background: var(--color-neutral-bg);
+}
 .status-badge--warning {
   background: var(--color-warning-bg);
 }
@@ -80,9 +88,13 @@ const icon = computed(() => {
   background: var(--color-danger-bg);
 }
 .status-badge--success,
+.status-badge--neutral,
 .status-badge--warning,
 .status-badge--danger {
   color: var(--color-text);
+}
+.status-badge--neutral svg {
+  color: var(--color-neutral);
 }
 .status-badge--success svg {
   color: var(--color-success);

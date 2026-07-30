@@ -354,7 +354,7 @@ onBeforeUnmount(() => {
   display: grid;
   grid-template-columns: auto 1fr;
   gap: var(--space-3);
-  border: 1px solid color-mix(in srgb, var(--color-warning) 38%, var(--color-border));
+  border: 1px solid color-mix(in srgb, var(--color-warning) 38%, var(--color-border-subtle));
   border-radius: var(--radius-card);
   background: var(--color-warning-bg);
   color: var(--color-warning);

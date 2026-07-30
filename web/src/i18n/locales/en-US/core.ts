@@ -75,6 +75,96 @@ export default {
     backHome: 'Back to Home',
   },
   home: {
+    healthLoading: 'Loading runtime health…',
+    healthUsageIndependence:
+      'Usage comes from an independent data source and is unaffected by the current health result.',
+    inventory: {
+      loading: 'Loading the Group inventory…',
+      error: 'Unable to load the Group inventory; this does not mean there are no Groups.',
+      stale: 'The Group inventory refresh failed; the latest cached data is shown.',
+    },
+    pipeline: {
+      warning:
+        'The request-log pipeline has data gaps: {dropped} dropped and {failures} write failures.',
+    },
+    metrics: {
+      successRate: 'Success rate · last {range}',
+      estimatedCost: 'Estimated cost · last {range}',
+      successDetail: '{requests} requests · {failures} failures',
+      knownPlusUnknown: '{cost} + unknown',
+      costDetail: '{tokens} tokens · {unpriced} unpriced',
+    },
+    range: {
+      label: 'Home statistics range',
+      last24Hours: '24h',
+      last30Days: '30d',
+    },
+    usageState: {
+      loading: 'Loading usage data…',
+      error: 'Unable to load usage data; health and the connection placeholder remain available.',
+      stale: 'Usage data may be stale because its background refresh failed.',
+    },
+    zeroUsage: {
+      title: 'No persisted requests in this range yet',
+      description:
+        'After the first request, success rate, trends, and cost ranking will appear here.',
+    },
+    trend: {
+      title: 'Request trend · last {range}',
+      description: 'The line shows request volume; red markers show failed requests.',
+      chartDescription: 'Request and failure counts grouped into time buckets.',
+      empty: 'There is no request trend to chart for this range.',
+      requests: 'Requests',
+      failures: 'Failures',
+      failureLink: '{count} failed requests',
+    },
+    lede: {
+      currentStatus: 'Current status',
+      normal: '{groups} Groups are running normally; {available}/{total} keys are available.',
+      problem:
+        '{groups} Groups are normal; {problems} Groups have key exceptions. {available}/{total} keys are available.',
+      unknownTitle: 'Unable to confirm service status',
+      unknownDescription:
+        'The current health request failed; this does not mean the service is offline. Retry for a current observation.',
+      staleNormal:
+        'The latest observation showed {groups} normal Groups and {available}/{total} available keys.',
+      staleProblem:
+        'The latest observation showed key exceptions in {problems} Groups and {available}/{total} available keys.',
+      staleDescription: 'The current health check failed, so this conclusion may be stale.',
+      observation: 'Health observation',
+      observedAt: 'Observed',
+      revision: 'rev.{revision}',
+    },
+    problems: {
+      title: 'Keys requiring attention',
+      description:
+        'Only currently cooling or blacklisted keys appear here; normal Groups are not listed.',
+      viewKeys: 'View keys',
+      cooldown: '{count} keys cooling down',
+      blacklisted: '{count} keys blacklisted',
+    },
+    ranking: {
+      title: 'Cost ranking · {range}',
+      description: 'The first five backend cost-ranked Group and upstream-model combinations.',
+      caption: 'Usage breakdown ordered by estimated cost',
+      scrollHint: 'Scroll horizontally to inspect every ranking column.',
+      group: 'Group',
+      model: 'Model',
+      requests: 'Requests',
+      tokens: 'Tokens',
+      cost: 'Cost',
+      knownPlusUnknown: '{cost} + unknown',
+      unknownGroup: 'Group #{id}',
+      empty: 'No cost breakdown is available for this range.',
+      footer: '{count} Groups',
+      viewAll: 'View all',
+    },
+    connectionPlaceholder: {
+      title: 'Connect to the gateway',
+      badge: 'Placeholder · design pending',
+      description:
+        'Connection information will be discussed and designed separately; no live configuration or interaction is connected here.',
+    },
     title: 'Operational overview',
     description:
       'Review real runtime health, Group serviceability, and client connection settings.',

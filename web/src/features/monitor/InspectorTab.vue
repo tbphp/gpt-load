@@ -547,9 +547,9 @@ onBeforeUnmount(() => {
 .inspector-input-changed,
 .inspector-complete-empty {
   margin: 0;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-control);
-  background: var(--color-surface-secondary);
+  background: var(--color-surface-sunken);
   color: var(--color-text-muted);
   padding: var(--space-3);
 }
@@ -585,7 +585,7 @@ onBeforeUnmount(() => {
 .inspector-key-facts > div {
   min-width: 0;
   border-radius: var(--radius-control);
-  background: var(--color-surface-secondary);
+  background: var(--color-surface-sunken);
   padding: var(--space-3);
 }
 
@@ -611,9 +611,9 @@ onBeforeUnmount(() => {
   display: grid;
   min-width: 0;
   gap: var(--space-4);
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-card);
-  background: var(--color-surface-secondary);
+  background: var(--color-surface-sunken);
   padding: var(--space-4);
 }
 
@@ -636,7 +636,7 @@ onBeforeUnmount(() => {
   display: grid;
   min-width: 0;
   gap: var(--space-3);
-  border-top: 1px solid var(--color-border);
+  border-top: 1px solid var(--color-border-subtle);
   padding-top: var(--space-3);
 }
 

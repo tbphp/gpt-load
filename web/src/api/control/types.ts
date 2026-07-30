@@ -1,5 +1,14 @@
 export type GroupProtocol = 'openai' | 'anthropic' | 'gemini'
 export type AccessProtocol = GroupProtocol | 'openai-response'
+export type FailureCategory =
+  | 'ok'
+  | 'rate_limited'
+  | 'model_unavailable'
+  | 'invalid_key'
+  | 'upstream_host_error'
+  | 'client_error'
+  | 'downstream_cancel'
+  | 'ambiguous'
 
 export interface GroupModelDto {
   id: string
@@ -49,6 +58,9 @@ export interface HealthProblemKeyDto {
   weight_manual: number | null
   weight_auto: number
   recovery: HealthRecoveryDto
+  mask: string
+  last_failure_category: Exclude<FailureCategory, 'ok'>
+  last_status_code: number | null
 }
 
 export interface RequestLogHealthDto {

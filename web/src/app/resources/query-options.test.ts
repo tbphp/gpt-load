@@ -55,14 +55,19 @@ describe('resource query options', () => {
   })
 
   it('owns polling and infinite-query transport policies', () => {
-    const health = healthQueryOptions(client, true)
-    expect(health.refetchInterval).toBe(10_000)
+    const health = healthQueryOptions(client, 15_000)
+    expect(health.refetchInterval).toBe(15_000)
     expect(health.refetchIntervalInBackground).toBe(false)
     expect(health.refetchOnWindowFocus).toBe(false)
 
-    const filters = ref({ range: '24h' as const })
-    const usage = usageQueryOptions(client, filters)
-    expect(toValue(usage.queryKey)).toEqual(controlQueryKeys.usage.report({ range: '24h' }))
+    const filters = ref({ range: '24h' as const, breakdown_order: 'cost' as const })
+    const usage = usageQueryOptions(client, filters, 60_000)
+    expect(toValue(usage.queryKey)).toEqual(
+      controlQueryKeys.usage.report({ range: '24h', breakdown_order: 'cost' }),
+    )
+    expect(usage.refetchInterval).toBe(60_000)
+    expect(usage.refetchIntervalInBackground).toBe(false)
+    expect(usage.refetchOnWindowFocus).toBe(false)
 
     const logs = requestLogInfiniteQueryOptions(
       client,

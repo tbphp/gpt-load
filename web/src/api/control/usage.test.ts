@@ -43,6 +43,8 @@ const report = {
   ],
   breakdown: [{ group_id: 7, model: 'gpt-5.6', ...aggregate }],
   breakdown_truncated: false,
+  breakdown_order: 'requests',
+  breakdown_group_count: 1,
   collection_health: collectionHealth,
 } as const
 

@@ -507,7 +507,7 @@ small {
   min-height: 44px;
   border: 1px solid var(--color-border-control);
   border-radius: var(--radius-control);
-  background: var(--color-surface-secondary);
+  background: var(--color-surface-sunken);
   color: var(--color-text);
   padding: var(--space-2) var(--space-3);
   font: inherit;
@@ -530,7 +530,7 @@ small {
   display: grid;
   grid-template-columns: minmax(190px, 1fr) auto minmax(145px, auto) minmax(96px, 140px);
   align-items: center;
-  border-top: 1px solid var(--color-border);
+  border-top: 1px solid var(--color-border-subtle);
   padding-top: var(--space-3);
 }
 .group-settings__runtime-row:first-child {
@@ -547,7 +547,7 @@ small {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   gap: var(--space-3);
-  border: 1px solid color-mix(in srgb, var(--color-danger) 38%, var(--color-border));
+  border: 1px solid color-mix(in srgb, var(--color-danger) 38%, var(--color-border-subtle));
   border-radius: var(--radius-control);
   background: var(--color-danger-bg);
   color: var(--color-danger);
@@ -562,7 +562,7 @@ small {
   font-weight: 700;
 }
 .group-settings__danger {
-  border-color: color-mix(in srgb, var(--color-danger) 38%, var(--color-border));
+  border-color: color-mix(in srgb, var(--color-danger) 38%, var(--color-border-subtle));
 }
 .group-settings__dialog-actions {
   flex-wrap: wrap;
@@ -573,7 +573,7 @@ small {
   border-color: var(--color-warning);
   color: var(--color-warning);
 }
-@media (max-width: 760px) {
+@media (max-width: 759px) {
   .group-settings__header {
     align-items: stretch;
     flex-direction: column;

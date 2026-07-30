@@ -76,7 +76,7 @@ function guardDismiss(event: Event): void {
   max-height: calc(100dvh - 32px);
   transform: translate(-50%, -50%);
   overflow: hidden;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-card);
   background: var(--color-surface);
   box-shadow: var(--shadow-overlay);

@@ -65,15 +65,25 @@ func (service *Service) QueryUsage(ctx context.Context, input UsageQuery) (Usage
 		if err != nil {
 			return err
 		}
-		breakdown, truncated, err := queryUsageBreakdown(usageStatScope(connection, input), limit)
+		groupCount, err := queryUsageBreakdownGroupCount(usageStatScope(connection, input))
+		if err != nil {
+			return err
+		}
+		breakdown, truncated, err := queryUsageBreakdown(
+			usageStatScope(connection, input),
+			limit,
+			input.BreakdownOrder,
+		)
 		if err != nil {
 			return err
 		}
 		report = UsageReport{
-			Summary:            summary,
-			Series:             series,
-			Breakdown:          breakdown,
-			BreakdownTruncated: truncated,
+			Summary:             summary,
+			Series:              series,
+			Breakdown:           breakdown,
+			BreakdownTruncated:  truncated,
+			BreakdownOrder:      input.BreakdownOrder,
+			BreakdownGroupCount: groupCount,
 		}
 		if err := connection.Exec("COMMIT").Error; err != nil {
 			return fmt.Errorf("commit usage read transaction: %w", err)
@@ -125,9 +135,17 @@ func validateUsageQuery(input UsageQuery) error {
 	}
 	switch input.Granularity {
 	case UsageGranularityHour, UsageGranularityDay:
-		return nil
 	default:
 		return fmt.Errorf("query usage: unsupported granularity %q", input.Granularity)
+	}
+	switch input.BreakdownOrder {
+	case UsageBreakdownOrderRequests, UsageBreakdownOrderCost:
+		return nil
+	default:
+		return fmt.Errorf(
+			"query usage: unsupported breakdown order %q",
+			input.BreakdownOrder,
+		)
 	}
 }
 
@@ -211,11 +229,41 @@ func queryUsageSeries(scope *gorm.DB, granularity UsageGranularity) ([]UsageSeri
 	return mergeUsageHoursToDays(source)
 }
 
-func queryUsageBreakdown(scope *gorm.DB, limit int) ([]UsageBreakdown, bool, error) {
+func queryUsageBreakdownGroupCount(scope *gorm.DB) (int64, error) {
+	var count int64
+	if err := scope.Distinct("group_id").Count(&count).Error; err != nil {
+		return 0, fmt.Errorf("query usage breakdown group count: %w", err)
+	}
+	if count < 0 {
+		return 0, fmt.Errorf("query usage breakdown group count: negative count")
+	}
+	return count, nil
+}
+
+func queryUsageBreakdown(
+	scope *gorm.DB,
+	limit int,
+	order UsageBreakdownOrder,
+) ([]UsageBreakdown, bool, error) {
 	var rows []usageBreakdownRow
-	if err := scope.Select("group_id, model, " + usageAggregateSelect).
-		Group("group_id, model").
-		Order("SUM(request_count) DESC").
+	query := scope.Select("group_id, model, " + usageAggregateSelect).
+		Group("group_id, model")
+	switch order {
+	case UsageBreakdownOrderRequests:
+		query = query.
+			Order("SUM(request_count) DESC").
+			Order("SUM(cost) DESC")
+	case UsageBreakdownOrderCost:
+		query = query.
+			Order("SUM(cost) DESC").
+			Order("SUM(request_count) DESC")
+	default:
+		return nil, false, fmt.Errorf(
+			"query usage breakdown: unsupported order %q",
+			order,
+		)
+	}
+	if err := query.
 		Order("group_id ASC").
 		Order("model ASC").
 		Limit(limit + 1).

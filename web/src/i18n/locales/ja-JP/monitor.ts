@@ -62,6 +62,9 @@ export default {
         recentSuccessCount: '直近の成功',
         recentFailureCount: '直近の失敗',
         consecutiveFailureCount: '連続失敗',
+        failureCategory: '失敗理由',
+        statusCode: 'HTTP ステータス',
+        statusUnavailable: 'HTTP ステータスなし',
         manualWeight: '手動ウェイト',
         autoWeight: '自動ウェイト',
         automatic: '自動',
@@ -71,8 +74,18 @@ export default {
         notAutomatic: '自動回復なし',
         cooldownExpiry: 'クールダウン期限',
         validationProbe: '検証プローブ',
+        recoversAt: '自動回復時刻',
         runtimeDecides: 'プローブ時刻はランタイムが決定します',
         unknown: '回復方法はランタイムが決定します',
+      },
+      failureCategories: {
+        rate_limited: 'レート制限',
+        model_unavailable: 'モデル利用不可',
+        invalid_key: '無効なキー',
+        upstream_host_error: 'アップストリームホストエラー',
+        client_error: 'クライアントリクエストエラー',
+        downstream_cancel: 'ダウンストリームでキャンセル',
+        ambiguous: '不明確な失敗',
       },
       requestLog: {
         title: 'リクエストログパイプライン',
@@ -192,7 +205,7 @@ export default {
       trend: {
         title: '永続化リクエストの推移',
         description: '疎な UTC バケットはそのまま表示し、欠落点を推測しません。',
-        accessibleDescription: '返された UTC バケットごとの永続化リクエスト数。',
+        accessibleDescription: '返された UTC バケットごとの永続化リクエスト数と失敗リクエスト数。',
         empty: 'この期間の永続化リクエストバケットは返されませんでした。',
       },
       series: {

@@ -76,6 +76,96 @@ export default {
     backHome: 'ホームへ戻る',
   },
   home: {
+    healthLoading: 'ランタイムヘルスを読み込み中…',
+    healthUsageIndependence:
+      '使用量は独立したデータソースから取得され、現在のヘルスチェック結果の影響を受けません。',
+    inventory: {
+      loading: 'Group 一覧を読み込み中…',
+      error: 'Group 一覧を読み込めません。Group が存在しないことを意味するものではありません。',
+      stale: 'Group 一覧の更新に失敗したため、直近のデータを表示しています。',
+    },
+    pipeline: {
+      warning:
+        'リクエストログのパイプラインに欠損があります：破棄 {dropped} 件、書き込み失敗 {failures} 件。',
+    },
+    metrics: {
+      successRate: '成功率 · 過去 {range}',
+      estimatedCost: '推定コスト · 過去 {range}',
+      successDetail: '{requests} リクエスト · {failures} 件失敗',
+      knownPlusUnknown: '{cost} + 不明',
+      costDetail: '{tokens} tokens · 価格未設定 {unpriced} 件',
+    },
+    range: {
+      label: 'ホーム統計の期間',
+      last24Hours: '24h',
+      last30Days: '30d',
+    },
+    usageState: {
+      loading: '使用量データを読み込み中…',
+      error: '使用量データを読み込めません。ヘルス状態と接続プレースホルダーは利用できます。',
+      stale: 'バックグラウンド更新に失敗したため、使用量データが古い可能性があります。',
+    },
+    zeroUsage: {
+      title: 'この期間には永続化済みリクエストがまだありません',
+      description: '最初のリクエスト送信後、成功率、トレンド、コスト順位がここに表示されます。',
+    },
+    trend: {
+      title: 'リクエスト量の推移 · 過去 {range}',
+      description: '折れ線はリクエスト量、赤いマーカーは失敗リクエストを示します。',
+      chartDescription: '時間バケットごとのリクエスト数と失敗数。',
+      empty: 'この期間に描画できるリクエスト推移はありません。',
+      requests: 'リクエスト',
+      failures: '失敗',
+      failureLink: '失敗リクエスト {count} 件',
+    },
+    lede: {
+      currentStatus: '現在の状態',
+      normal: '{groups} Group が正常稼働中で、{available}/{total} キーが利用可能です。',
+      problem:
+        '{groups} Group は正常で、{problems} Group にキー異常があります。{available}/{total} キーが利用可能です。',
+      unknownTitle: 'サービス状態を確認できません',
+      unknownDescription:
+        '現在のヘルスリクエストが失敗しました。サービス停止を意味するものではありません。再試行して最新の観測を取得してください。',
+      staleNormal:
+        '直近の観測では {groups} Group が正常で、{available}/{total} キーが利用可能でした。',
+      staleProblem:
+        '直近の観測では {problems} Group にキー異常があり、{available}/{total} キーが利用可能でした。',
+      staleDescription: '現在のヘルスチェックが失敗したため、この結論は古い可能性があります。',
+      observation: 'ヘルス観測情報',
+      observedAt: '観測',
+      revision: 'rev.{revision}',
+    },
+    problems: {
+      title: '確認が必要なキー',
+      description:
+        '現在クールダウン中またはブラックリストのキーのみ表示し、正常な Group は列挙しません。',
+      viewKeys: 'キーを表示',
+      cooldown: '{count} キーがクールダウン中',
+      blacklisted: '{count} キーがブラックリスト',
+    },
+    ranking: {
+      title: 'コスト順位 · {range}',
+      description:
+        'バックエンドのコスト順で上位 5 件の Group とアップストリームモデルを表示します。',
+      caption: '推定コスト順の使用量内訳',
+      scrollHint: '横にスクロールするとすべての順位列を確認できます。',
+      group: 'Group',
+      model: 'モデル',
+      requests: 'リクエスト',
+      tokens: 'トークン',
+      cost: 'コスト',
+      knownPlusUnknown: '{cost} + 不明',
+      unknownGroup: 'Group #{id}',
+      empty: 'この期間に表示できるコスト内訳はありません。',
+      footer: '{count} Group',
+      viewAll: 'すべて表示',
+    },
+    connectionPlaceholder: {
+      title: 'ゲートウェイへ接続',
+      badge: 'プレースホルダー · 設計待ち',
+      description:
+        '接続情報は後続で個別に検討・設計します。ここでは実際の設定や操作には接続しません。',
+    },
     title: '運用概要',
     description: '実際のランタイム状態、Group のサービス可否、クライアント接続設定を確認します。',
     operationalOverview: '運用概要',

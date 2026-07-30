@@ -67,7 +67,7 @@ watch(
   max-width: 100%;
   gap: var(--space-1);
   overflow-x: auto;
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border-subtle);
 }
 .app-tabs__trigger {
   min-height: 44px;
@@ -85,7 +85,7 @@ watch(
     border-color var(--duration-fast) ease;
 }
 .app-tabs__trigger[data-state='active'] {
-  border-bottom-color: var(--color-primary);
+  border-bottom-color: var(--color-action);
   color: var(--color-text);
 }
 @media (prefers-reduced-motion: reduce) {

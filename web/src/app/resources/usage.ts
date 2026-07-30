@@ -16,10 +16,17 @@ import {
   projectString,
 } from './projector'
 
+export type UsageBreakdownOrder = 'requests' | 'cost'
+
 export interface UsageFilters {
   range: '24h' | '30d'
+  breakdown_order?: UsageBreakdownOrder
   group_id?: number
   model?: string
+}
+
+type NormalizedUsageFilters = UsageFilters & {
+  breakdown_order: UsageBreakdownOrder
 }
 
 export interface UsageAggregateDto {
@@ -49,6 +56,8 @@ export interface UsageReportDto {
   series: Array<UsageAggregateDto & { bucket_start: string; bucket_end: string }>
   breakdown: Array<UsageAggregateDto & { group_id: number; model: string }>
   breakdown_truncated: boolean
+  breakdown_order: UsageBreakdownOrder
+  breakdown_group_count: number
   collection_health: {
     scope: 'current_process'
     dropped_total: number
@@ -82,6 +91,8 @@ const reportFields = [
   'series',
   'breakdown',
   'breakdown_truncated',
+  'breakdown_order',
+  'breakdown_group_count',
   'collection_health',
 ] as const
 const hourMs = 60 * 60 * 1000
@@ -282,12 +293,19 @@ export function projectUsageReport(value: unknown): UsageReportDto {
     series,
     breakdown,
     breakdown_truncated: projectBoolean(record.breakdown_truncated),
+    breakdown_order: projectEnum(record.breakdown_order, ['requests', 'cost'] as const),
+    breakdown_group_count: projectSafeInteger(record.breakdown_group_count, { minimum: 0 }),
     collection_health: projectCollectionHealth(record.collection_health),
   }
 }
 
-export function normalizeUsageFilters(filters: UsageFilters): UsageFilters {
-  const result: UsageFilters = { range: filters.range }
+export function normalizeUsageFilters(filters: UsageFilters): NormalizedUsageFilters {
+  const breakdownOrder = filters.breakdown_order ?? 'requests'
+  if (breakdownOrder !== 'requests' && breakdownOrder !== 'cost') invalidResponse()
+  const result: NormalizedUsageFilters = {
+    range: filters.range,
+    breakdown_order: breakdownOrder,
+  }
   if (filters.group_id !== undefined) result.group_id = filters.group_id
   if (filters.model !== undefined) result.model = filters.model
   return result
@@ -304,16 +322,32 @@ export async function getUsageReport(
 ): Promise<UsageReportDto> {
   const normalized = normalizeUsageFilters(filters)
   const params = new URLSearchParams([['range', normalized.range]])
+  if (filters.breakdown_order !== undefined) {
+    params.append('breakdown_order', normalized.breakdown_order)
+  }
   if (normalized.group_id !== undefined) params.append('group_id', String(normalized.group_id))
   if (normalized.model !== undefined) params.append('model', normalized.model)
-  return projectUsageReport(
+  const report = projectUsageReport(
     await client.request(`/api/usage?${params.toString()}`, { method: 'GET', signal }),
   )
+  if (report.breakdown_order !== normalized.breakdown_order) invalidResponse()
+  return report
 }
 
-export function usageQueryOptions(client: ApiClient, filters: MaybeRefOrGetter<UsageFilters>) {
+export function usageQueryOptions(
+  client: ApiClient,
+  filters: MaybeRefOrGetter<UsageFilters>,
+  intervalMs?: number,
+) {
   return queryOptions({
     queryKey: computed(() => usageQueryIdentity(toValue(filters))),
     queryFn: ({ signal }) => getUsageReport(client, toValue(filters), signal),
+    ...(intervalMs !== undefined
+      ? {
+          refetchInterval: intervalMs,
+          refetchIntervalInBackground: false,
+          refetchOnWindowFocus: false,
+        }
+      : {}),
   })
 }

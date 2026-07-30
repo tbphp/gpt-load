@@ -94,8 +94,8 @@ function setTheme(event: Event): void {
   align-items: center;
   justify-content: center;
   border-radius: var(--radius-control);
-  background: var(--color-primary-soft);
-  color: var(--color-primary);
+  background: var(--color-action-soft);
+  color: var(--color-action);
 }
 .appearance-section__grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -109,7 +109,7 @@ function setTheme(event: Event): void {
   min-height: 44px;
   border: 1px solid var(--color-border-control);
   border-radius: var(--radius-control);
-  background: var(--color-surface-secondary);
+  background: var(--color-surface-sunken);
   color: var(--color-text);
   padding: var(--space-2) var(--space-3);
   font: inherit;

@@ -61,7 +61,7 @@ onBeforeUnmount(() => {
 .data-table__container {
   max-width: 100%;
   overflow-x: auto;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-card);
   background: var(--color-surface);
   box-shadow: var(--shadow-card);
@@ -74,8 +74,8 @@ onBeforeUnmount(() => {
   font-size: 0.8125rem;
 }
 .data-table :deep(th) {
-  border-bottom: 1px solid var(--color-border);
-  background: var(--color-surface-secondary);
+  border-bottom: 1px solid var(--color-border-subtle);
+  background: var(--color-surface-sunken);
   color: var(--color-text-muted);
   padding: 9px 12px;
   font-size: 0.6875rem;
@@ -86,7 +86,7 @@ onBeforeUnmount(() => {
   white-space: nowrap;
 }
 .data-table :deep(td) {
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border-subtle);
   padding: 8px 12px;
   vertical-align: middle;
 }
@@ -104,5 +104,10 @@ onBeforeUnmount(() => {
 
 .data-table :deep([data-column-priority='high']) {
   position: relative;
+}
+@media (max-width: 759px) {
+  .data-table :deep([data-column-priority='low']) {
+    display: none;
+  }
 }
 </style>

@@ -98,14 +98,21 @@ describe('Monitor presentation boundaries', () => {
                   key_id: 9,
                   group_id: 7,
                   group_name: 'Primary',
-                  cooldown_until: null,
+                  cooldown_until: '2026-07-29T00:05:00Z',
                   failure_count: 1,
                   recent_success_count: 0,
                   recent_failure_count: 1,
                   consecutive_failure_count: 1,
                   weight_manual: null,
                   weight_auto: 1,
-                  recovery: { automatic: true, mode: 'cooldown_expiry', at: null },
+                  recovery: {
+                    automatic: true,
+                    mode: 'cooldown_expiry',
+                    at: '2026-07-29T00:05:00Z',
+                  },
+                  mask: 'safe****mask',
+                  last_failure_category: 'rate_limited',
+                  last_status_code: 429,
                 },
               ],
             },
@@ -115,6 +122,7 @@ describe('Monitor presentation boundaries', () => {
         },
       },
     })
+    expect(problems.get('[data-problem-key-mask]').text()).toBe('safe****mask')
     await problems.get('[data-test="problem-key-9"]').trigger('click')
     expect(problems.emitted('toggle')?.[0]).toEqual([9])
   })

@@ -33,9 +33,9 @@ defineEmits<{ retry: [] }>()
   min-height: 48px;
   align-items: center;
   gap: var(--space-2);
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-control);
-  background: var(--color-surface-secondary);
+  background: var(--color-surface-sunken);
   color: var(--color-text-muted);
   padding: var(--space-3);
 }

@@ -180,7 +180,7 @@ async function setDrawerOpen(open: boolean): Promise<void> {
   font-weight: 650;
 }
 .model-prices__back:hover {
-  color: var(--color-primary);
+  color: var(--color-action);
 }
 .model-prices__notice {
   display: flex;

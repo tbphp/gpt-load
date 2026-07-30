@@ -34,6 +34,11 @@ describe('control query keys', () => {
       } as Parameters<typeof controlQueryKeys.usage.report>[0] & {
         selected_request_id: string
       }),
-    ).toEqual(['control', 'usage', 'report', { range: '24h', model: 'gpt-5.6' }])
+    ).toEqual([
+      'control',
+      'usage',
+      'report',
+      { range: '24h', breakdown_order: 'requests', model: 'gpt-5.6' },
+    ])
   })
 })

@@ -135,7 +135,7 @@ function error(field: keyof UsageFilterErrors): string | undefined {
 .usage-filter-form {
   display: grid;
   gap: var(--space-4);
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-card);
   background: var(--color-surface);
   padding: var(--space-4);

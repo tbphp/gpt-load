@@ -70,7 +70,7 @@ function guardDismiss(event: Event): void {
   right: 0;
   width: min(92vw, 520px);
   height: 100dvh;
-  border-left: 1px solid var(--color-border);
+  border-left: 1px solid var(--color-border-subtle);
   background: var(--color-surface);
   box-shadow: var(--shadow-overlay);
   color: var(--color-text);
@@ -82,7 +82,7 @@ function guardDismiss(event: Event): void {
   min-height: 64px;
   align-items: center;
   justify-content: space-between;
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border-subtle);
   padding: var(--space-2) var(--space-4);
 }
 .app-drawer__title {

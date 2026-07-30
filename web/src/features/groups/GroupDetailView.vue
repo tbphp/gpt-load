@@ -89,7 +89,7 @@ const detailQuery = useQuery(groupDetailQueryOptions(client, groupId))
   display: grid;
   max-width: 640px;
   gap: var(--space-3);
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-card);
   background: var(--color-surface);
   box-shadow: var(--shadow-card);

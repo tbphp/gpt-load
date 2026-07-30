@@ -96,10 +96,10 @@ header p {
 }
 .manual-path {
   min-height: 44px;
-  border: 1px solid var(--color-primary);
+  border: 1px solid var(--color-action);
   border-radius: var(--radius-control);
-  background: var(--color-primary-soft);
-  color: var(--color-primary);
+  background: var(--color-action-soft);
+  color: var(--color-action);
   padding: var(--space-2) var(--space-4);
   font-weight: 650;
   cursor: pointer;

@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { ChevronDown } from '@lucide/vue'
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import type { HealthProblemKeyDto } from '@/app/resources/health'
-import StatusBadge from '@/components/ui/StatusBadge.vue'
+import ProblemKeyRow from '@/components/health/ProblemKeyRow.vue'
 
 interface ProblemSection {
   kind: string
@@ -18,12 +19,24 @@ defineProps<{
   remainingByKey: Record<number, string>
 }>()
 const emit = defineEmits<{ toggle: [keyID: number] }>()
-const { t } = useI18n()
+const { locale, t } = useI18n()
+const problemLabels = computed(() => ({
+  consecutiveFailures: t('monitor.health.details.consecutiveFailureCount'),
+  failureCategory: t('monitor.health.details.failureCategory'),
+  statusCode: t('monitor.health.details.statusCode'),
+  statusUnavailable: t('monitor.health.details.statusUnavailable'),
+  recoversAt: t('monitor.health.recovery.recoversAt'),
+  validationProbe: t('monitor.health.recovery.validationProbe'),
+}))
 
 function recoveryModeLabel(mode: string): string {
   if (mode === 'cooldown_expiry') return t('monitor.health.recovery.cooldownExpiry')
   if (mode === 'validation_probe') return t('monitor.health.recovery.validationProbe')
   return t('monitor.health.recovery.unknown')
+}
+
+function failureCategoryLabel(category: HealthProblemKeyDto['last_failure_category']): string {
+  return t(`monitor.health.failureCategories.${category}`)
 }
 </script>
 
@@ -51,32 +64,10 @@ function recoveryModeLabel(mode: string): string {
           class="problem-key"
           :data-key-id="key.key_id"
         >
-          <button
-            type="button"
-            class="problem-key__toggle"
-            :data-test="`problem-key-${key.key_id}`"
-            :aria-expanded="expandedKeyIds.has(key.key_id)"
-            :aria-controls="`problem-key-details-${key.key_id}`"
-            @click="emit('toggle', key.key_id)"
-          >
-            <span class="problem-key__identity">
-              {{ t('monitor.health.problems.keyId', { id: key.key_id }) }}
-            </span>
-            <ChevronDown
-              class="problem-key__chevron"
-              :class="{
-                'problem-key__chevron--expanded': expandedKeyIds.has(key.key_id),
-              }"
-              :size="18"
-              aria-hidden="true"
-            />
-          </button>
-
           <div class="problem-key__summary">
             <RouterLink class="group-link" :to="`/groups/${key.group_id}?tab=keys`">
               {{ key.group_name }} · #{{ key.group_id }}
             </RouterLink>
-            <StatusBadge :tone="section.tone">{{ section.label }}</StatusBadge>
             <span
               v-if="key.cooldown_until"
               class="problem-key__remaining"
@@ -84,7 +75,36 @@ function recoveryModeLabel(mode: string): string {
             >
               {{ t('monitor.health.problems.remaining', { time: remainingByKey[key.key_id] }) }}
             </span>
+            <button
+              type="button"
+              class="problem-key__toggle"
+              :data-test="`problem-key-${key.key_id}`"
+              :aria-expanded="expandedKeyIds.has(key.key_id)"
+              :aria-controls="`problem-key-details-${key.key_id}`"
+              @click="emit('toggle', key.key_id)"
+            >
+              <span class="problem-key__identity">
+                {{ t('monitor.health.problems.keyId', { id: key.key_id }) }}
+              </span>
+              <ChevronDown
+                class="problem-key__chevron"
+                :class="{
+                  'problem-key__chevron--expanded': expandedKeyIds.has(key.key_id),
+                }"
+                :size="18"
+                aria-hidden="true"
+              />
+            </button>
           </div>
+
+          <ProblemKeyRow
+            :problem-key="key"
+            :tone="section.tone"
+            :status-label="section.label"
+            :failure-category-label="failureCategoryLabel(key.last_failure_category)"
+            :labels="problemLabels"
+            :locale="locale"
+          />
 
           <div
             v-if="expandedKeyIds.has(key.key_id)"
@@ -163,9 +183,9 @@ function recoveryModeLabel(mode: string): string {
 }
 .health-empty {
   margin: 0;
-  border: 1px dashed var(--color-border);
+  border: 1px dashed var(--color-border-subtle);
   border-radius: var(--radius-control);
-  background: var(--color-surface-secondary);
+  background: var(--color-surface-sunken);
   color: var(--color-text-muted);
   padding: var(--space-4);
 }
@@ -176,20 +196,21 @@ function recoveryModeLabel(mode: string): string {
 .problem-key {
   min-width: 0;
   overflow: hidden;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-card);
   background: var(--color-surface);
 }
 .problem-key__toggle {
-  display: flex;
-  width: 100%;
+  display: inline-flex;
   min-height: 44px;
   align-items: center;
-  justify-content: space-between;
+  gap: var(--space-2);
+  margin-left: auto;
   border: 0;
+  border-radius: var(--radius-control);
   background: transparent;
   color: var(--color-text);
-  padding: var(--space-3) var(--space-4);
+  padding: var(--space-2);
   cursor: pointer;
 }
 .problem-key__identity,
@@ -213,7 +234,7 @@ function recoveryModeLabel(mode: string): string {
   flex-wrap: wrap;
   justify-content: flex-start;
   gap: var(--space-4);
-  border-top: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border-subtle);
   padding: var(--space-3) var(--space-4);
 }
 .group-link {
@@ -222,7 +243,7 @@ function recoveryModeLabel(mode: string): string {
   max-width: 100%;
   min-height: 44px;
   align-items: center;
-  color: var(--color-primary);
+  color: var(--color-action);
   font-weight: 700;
   overflow-wrap: anywhere;
   text-decoration: underline;
@@ -233,13 +254,13 @@ function recoveryModeLabel(mode: string): string {
   text-decoration-color: currentColor;
 }
 .problem-key__remaining {
-  margin-left: auto;
+  color: var(--color-text-faint);
 }
 .problem-key__details {
   display: grid;
   gap: var(--space-4);
-  border-top: 1px solid var(--color-border);
-  background: var(--color-surface-secondary);
+  border-top: 1px solid var(--color-border-subtle);
+  background: var(--color-surface-sunken);
   padding: var(--space-4);
 }
 .detail-grid {
@@ -268,7 +289,7 @@ function recoveryModeLabel(mode: string): string {
   background: var(--color-tag);
   padding: 6px 10px;
 }
-@media (max-width: 760px) {
+@media (max-width: 759px) {
   .problem-key__summary {
     align-items: flex-start;
     flex-direction: column;

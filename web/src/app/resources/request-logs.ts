@@ -1,7 +1,7 @@
 import { computed, toValue, type MaybeRefOrGetter } from 'vue'
 
 import type { ApiClient } from '@/api/client'
-import type { AccessProtocol } from '@/api/control/types'
+import type { AccessProtocol, FailureCategory } from '@/api/control/types'
 import { InvalidResponseError } from '@/api/errors'
 import { controlQueryKeys } from '@/app/query-keys'
 
@@ -19,15 +19,7 @@ import {
 
 export type RequestLogStatus = 'success' | 'error' | 'incomplete' | 'canceled'
 
-export type FailureCategory =
-  | 'ok'
-  | 'rate_limited'
-  | 'model_unavailable'
-  | 'invalid_key'
-  | 'upstream_host_error'
-  | 'client_error'
-  | 'downstream_cancel'
-  | 'ambiguous'
+export type { FailureCategory } from '@/api/control/types'
 
 export type RequestLogAction = 'terminate' | 'retry' | 'cooldown_key' | 'fail_key' | 'skip_group'
 export type RequestLogUsageState = 'complete' | 'partial' | 'missing' | 'not_applicable'

@@ -14,6 +14,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"gpt-load/internal/health"
 	"gpt-load/internal/platform/config"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/state"
@@ -234,7 +235,7 @@ func TestDeleteGroupAcceptsRegistryAlreadyAtTargetStateAndRetainsHistory(t *test
 		t.Fatal(err)
 	}
 	now := time.Date(2026, time.July, 24, 16, 0, 0, 0, time.UTC)
-	fixture.stats.Record(key.ID, false, now)
+	fixture.stats.RecordFailure(key.ID, health.FailureCategoryAmbiguous, 0, now)
 	beforeStats := fixture.stats.Snapshot(key.ID, now)
 	if err := fixture.db.Create(&models.RequestLog{
 		ID: "delete-history-log", CreatedAt: now, AccessKeyID: 1,

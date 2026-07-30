@@ -135,7 +135,7 @@ p {
   grid-template-columns: minmax(160px, 1fr) minmax(160px, 0.8fr);
   align-items: center;
   gap: var(--space-3);
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border-subtle);
   padding-bottom: var(--space-2);
 }
 .model-row--with-status {
@@ -156,7 +156,7 @@ code {
   min-height: 44px;
   border: 1px solid var(--color-border-control);
   border-radius: var(--radius-control);
-  background: var(--color-surface-secondary);
+  background: var(--color-surface-sunken);
   color: var(--color-text);
   padding: var(--space-2) var(--space-3);
 }
@@ -177,10 +177,10 @@ code {
   min-height: 44px;
   align-items: center;
   gap: var(--space-2);
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-control);
   background: transparent;
-  color: var(--color-primary);
+  color: var(--color-action);
   padding: var(--space-2) var(--space-3);
   font-weight: 650;
   cursor: pointer;
@@ -189,7 +189,7 @@ code {
   cursor: not-allowed;
   opacity: 0.55;
 }
-@media (max-width: 760px) {
+@media (max-width: 759px) {
   .model-row,
   .model-row--with-status,
   .manual-model {

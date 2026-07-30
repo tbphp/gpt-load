@@ -53,6 +53,9 @@ const health = {
       consecutive_failure_count: 1,
       weight_manual: null,
       weight_auto: 80,
+      mask: 'rate****safe',
+      last_failure_category: 'rate_limited',
+      last_status_code: 429,
       recovery: {
         automatic: true,
         mode: 'cooldown_expiry',
@@ -70,6 +73,23 @@ describe('Runtime Health resource', () => {
     expect(
       projectRuntimeHealth({ ...health, counts: zeroCounts, groups: [], cooldown_keys: [] }),
     ).toMatchObject({ counts: zeroCounts, groups: [], cooldown_keys: [] })
+    expect(
+      projectRuntimeHealth({
+        ...health,
+        cooldown_keys: [
+          {
+            ...health.cooldown_keys[0],
+            mask: '****',
+            last_failure_category: 'ambiguous',
+            last_status_code: null,
+          },
+        ],
+      }).cooldown_keys[0],
+    ).toMatchObject({
+      mask: '****',
+      last_failure_category: 'ambiguous',
+      last_status_code: null,
+    })
   })
 
   it.each([
@@ -88,6 +108,38 @@ describe('Runtime Health resource', () => {
     {
       ...health,
       request_log: { ...requestLog, queue_depth: Number.POSITIVE_INFINITY },
+    },
+    {
+      ...health,
+      cooldown_keys: [{ ...health.cooldown_keys[0], mask: 'rate***safe' }],
+    },
+    {
+      ...health,
+      cooldown_keys: [{ ...health.cooldown_keys[0], last_failure_category: 'ok' }],
+    },
+    {
+      ...health,
+      cooldown_keys: [{ ...health.cooldown_keys[0], last_status_code: 99 }],
+    },
+    {
+      ...health,
+      cooldown_keys: [{ ...health.cooldown_keys[0], last_status_code: 1_000 }],
+    },
+    {
+      ...health,
+      cooldown_keys: [{ ...health.cooldown_keys[0], mask: undefined }],
+    },
+    {
+      ...health,
+      cooldown_keys: [{ ...health.cooldown_keys[0], last_failure_category: undefined }],
+    },
+    {
+      ...health,
+      cooldown_keys: [{ ...health.cooldown_keys[0], last_status_code: undefined }],
+    },
+    {
+      ...health,
+      cooldown_keys: [{ ...health.cooldown_keys[0], provider_secret: 'plaintext' }],
     },
     { ...health, encryption_key: 'plaintext' },
   ])('rejects an unsafe health response %#j', (unsafe) => {

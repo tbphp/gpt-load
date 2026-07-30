@@ -2,6 +2,7 @@
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRoute, useRouter } from 'vue-router'
 
 import { useApiClient } from '@/api/client-context'
 import {
@@ -24,6 +25,8 @@ import { buildUpstreamKeyPatch } from './key-patch'
 const props = defineProps<{ groupId: number }>()
 const client = useApiClient()
 const queryClient = useQueryClient()
+const route = useRoute()
+const router = useRouter()
 const { locale, t } = useI18n()
 const weights = Array.from({ length: 100 }, (_, index) => index + 1)
 const weightDrafts = reactive(new Map<number, string>())
@@ -32,6 +35,14 @@ const deleteKeyId = ref<number | null>(null)
 const actionError = ref('')
 const controllers = new Set<AbortController>()
 const keysQuery = useQuery(upstreamKeyListQueryOptions(client, () => props.groupId))
+const problemFilterActive = computed(() => route.query.key_state === 'problem')
+const visibleKeys = computed(() => {
+  const keys = keysQuery.data.value ?? []
+  if (!problemFilterActive.value) return keys
+  return keys.filter(
+    (key) => key.effective_status === 'cooldown' || key.effective_status === 'blacklisted',
+  )
+})
 
 watch(
   () => keysQuery.data.value,
@@ -93,6 +104,14 @@ function formatCooldown(value: string | null): string {
     dateStyle: 'short',
     timeStyle: 'medium',
   }).format(new Date(value))
+}
+
+function clearProblemFilter(): void {
+  void router.push({
+    name: 'group-detail',
+    params: { id: route.params.id },
+    query: { tab: 'keys' },
+  })
 }
 
 async function runUpdate(
@@ -205,10 +224,31 @@ const effectiveLabels = computed(() => ({
         @retry="keysQuery.refetch()"
       />
       <p v-if="actionError" class="group-keys__action-error" role="alert">{{ actionError }}</p>
+      <div
+        v-if="problemFilterActive"
+        class="group-keys__filter"
+        data-test="problem-key-filter"
+        role="status"
+      >
+        <p>{{ t('group.keys.problemFilter') }}</p>
+        <AppButton
+          variant="ghost"
+          size="sm"
+          data-test="clear-problem-key-filter"
+          @click="clearProblemFilter"
+        >
+          {{ t('group.keys.clearProblemFilter') }}
+        </AppButton>
+      </div>
       <EmptyState
         v-if="keysQuery.data.value?.length === 0"
         :title="t('group.keys.emptyTitle')"
         :description="t('group.keys.emptyDescription')"
+      />
+      <EmptyState
+        v-else-if="visibleKeys.length === 0"
+        :title="t('group.keys.problemEmptyTitle')"
+        :description="t('group.keys.problemEmptyDescription')"
       />
       <DataTable v-else :caption="t('group.keys.caption')">
         <thead>
@@ -224,7 +264,7 @@ const effectiveLabels = computed(() => ({
           </tr>
         </thead>
         <tbody>
-          <tr v-for="key in keysQuery.data.value" :key="key.id" :data-test="`key-row-${key.id}`">
+          <tr v-for="key in visibleKeys" :key="key.id" :data-test="`key-row-${key.id}`">
             <td class="group-keys__mask">{{ key.mask }}</td>
             <td>
               <StatusBadge :tone="key.status === 'active' ? 'success' : 'neutral'">
@@ -331,6 +371,20 @@ const effectiveLabels = computed(() => ({
   margin: var(--space-1) 0 0;
   color: var(--color-text-muted);
 }
+.group-keys__filter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  border: 1px solid var(--color-warning);
+  border-radius: var(--radius-control);
+  background: var(--color-warning-bg);
+  padding: var(--space-2) var(--space-3);
+}
+.group-keys__filter p {
+  margin: 0;
+  color: var(--color-text-muted);
+}
 .group-keys__mask,
 .group-keys__number {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
@@ -342,7 +396,7 @@ const effectiveLabels = computed(() => ({
   min-height: 44px;
   border: 1px solid var(--color-border-control);
   border-radius: var(--radius-control);
-  background: var(--color-surface-secondary);
+  background: var(--color-surface-sunken);
   color: var(--color-text);
   padding: 7px 9px;
   font: inherit;

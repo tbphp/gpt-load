@@ -1,364 +1,413 @@
 <script setup lang="ts">
-import { useQuery } from '@tanstack/vue-query'
-import { CircleAlert, CircleCheck, CircleOff, Layers3 } from '@lucide/vue'
-import { computed } from 'vue'
+import { keepPreviousData, useQuery } from '@tanstack/vue-query'
+import { Activity, Layers3 } from '@lucide/vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import { accessKeyOptionsQueryOptions } from '@/app/resources/access-keys'
-import { groupListQueryOptions } from '@/app/resources/groups'
-import { healthQueryOptions } from '@/app/resources/health'
-import { NetworkError } from '@/api/errors'
+import type { GroupSummary } from '@/api/control/types'
 import { useApiClient } from '@/api/client-context'
-import AppDateTime from '@/components/ui/AppDateTime.vue'
+import { groupListQueryOptions } from '@/app/resources/groups'
+import { healthQueryOptions, type RuntimeHealthDto } from '@/app/resources/health'
+import { usageQueryOptions, type UsageFilters, type UsageReportDto } from '@/app/resources/usage'
+import { useVisibleRefetch } from '@/app/use-visible-refetch'
+import TrendChart from '@/components/charts/TrendChart.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
-import PageHeader from '@/components/ui/PageHeader.vue'
+import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
-import StatusBadge from '@/components/ui/StatusBadge.vue'
-import SurfaceCard from '@/components/ui/SurfaceCard.vue'
+import SegmentedControl from '@/components/ui/SegmentedControl.vue'
+import StatFigure from '@/components/ui/StatFigure.vue'
+import { formatEstimatedUSD } from '@/features/usage/estimated-cost'
 
-import ConnectionCard from './ConnectionCard.vue'
-import GroupCard from './GroupCard.vue'
-import UsageSummaryCard from './UsageSummaryCard.vue'
+import ConnectionPlaceholder from './ConnectionPlaceholder.vue'
+import HomeCostRanking from './HomeCostRanking.vue'
+import HomeLede from './HomeLede.vue'
+import HomeProblemGroups from './HomeProblemGroups.vue'
+import { failureLogsLocation, presentHome, type HomeQueryResult } from './home-presenter'
 
-const props = withDefaults(defineProps<{ origin?: string }>(), {
-  origin: () => window.location.origin,
-})
 const client = useApiClient()
 const { locale, t } = useI18n()
+const selectedRange = ref<'24h' | '30d'>('24h')
+const usageFilters = computed<UsageFilters>(() => ({
+  range: selectedRange.value,
+  breakdown_order: 'cost',
+}))
 
 const groupsQuery = useQuery(groupListQueryOptions(client))
-const healthQuery = useQuery(healthQueryOptions(client))
-const accessKeysQuery = useQuery(accessKeyOptionsQueryOptions(client))
+const healthQuery = useQuery(healthQueryOptions(client, 15_000))
+const usageQuery = useQuery({
+  ...usageQueryOptions(client, usageFilters, 60_000),
+  placeholderData: keepPreviousData,
+})
 
-const healthByGroup = computed(
-  () => new Map(healthQuery.data.value?.groups.map((group) => [group.id, group]) ?? []),
+useVisibleRefetch([
+  () => groupsQuery.refetch(),
+  () => healthQuery.refetch(),
+  () => usageQuery.refetch(),
+])
+
+function queryResult<T>(
+  pending: boolean,
+  failed: boolean,
+  data: T | undefined,
+  errorUpdatedAt: number,
+): HomeQueryResult<T> {
+  if (failed) {
+    const failedAt = new Date(errorUpdatedAt > 0 ? errorUpdatedAt : Date.now()).toISOString()
+    return data === undefined ? { status: 'error', failedAt } : { status: 'error', failedAt, data }
+  }
+  if (pending || data === undefined) return { status: 'loading' }
+  return { status: 'success', data }
+}
+
+const inventoryResult = computed(() =>
+  queryResult<GroupSummary[]>(
+    groupsQuery.isPending.value,
+    groupsQuery.isError.value,
+    groupsQuery.data.value,
+    groupsQuery.errorUpdatedAt.value,
+  ),
 )
-const modelIds = computed(() =>
-  (groupsQuery.data.value ?? []).flatMap((group) => group.models.map((model) => model.id)),
+const healthResult = computed(() =>
+  queryResult<RuntimeHealthDto>(
+    healthQuery.isPending.value,
+    healthQuery.isError.value,
+    healthQuery.data.value,
+    healthQuery.errorUpdatedAt.value,
+  ),
 )
-const healthErrorMessage = computed(() =>
-  healthQuery.error.value instanceof NetworkError
-    ? t('home.networkUnavailable')
-    : t('home.healthUnavailable'),
+const usageResult = computed(() =>
+  queryResult<UsageReportDto>(
+    usageQuery.isPending.value,
+    usageQuery.isError.value,
+    usageQuery.data.value,
+    usageQuery.errorUpdatedAt.value,
+  ),
 )
+const presentation = computed(() =>
+  presentHome({
+    inventory: inventoryResult.value,
+    health: healthResult.value,
+    usage: usageResult.value,
+  }),
+)
+
+const report = computed(() => {
+  const state = presentation.value.usage
+  if (state.kind === 'data' || state.kind === 'empty' || state.kind === 'stale') {
+    return state.report
+  }
+  return undefined
+})
+const observedDate = computed(() => {
+  const state = presentation.value.health
+  if (state.kind === 'normal' || state.kind === 'problem' || state.kind === 'stale') {
+    return state.health.observed_at.slice(0, 10)
+  }
+  return new Date().toISOString().slice(0, 10)
+})
+const groupNames = computed(
+  () => new Map((groupsQuery.data.value ?? []).map((group) => [group.id, group.name] as const)),
+)
+const rangeOptions = computed(() => [
+  { value: '24h', label: t('home.range.last24Hours') },
+  { value: '30d', label: t('home.range.last30Days') },
+])
+const successRate = computed(() => {
+  const value = presentation.value.successRate
+  if (value === null) return '—'
+  return new Intl.NumberFormat(locale.value, {
+    style: 'percent',
+    maximumFractionDigits: 1,
+  }).format(value / 100)
+})
+const successDetail = computed(() => {
+  if (report.value === undefined) return ''
+  return t('home.metrics.successDetail', {
+    requests: formatCount(report.value.summary.request_count),
+    failures: formatCount(report.value.summary.failure_count),
+  })
+})
+const estimatedCost = computed(() => {
+  if (report.value === undefined) return '—'
+  const cost = formatEstimatedUSD(report.value.summary.estimated_cost_usd, locale.value)
+  return report.value.summary.unpriced_request_count > 0
+    ? t('home.metrics.knownPlusUnknown', { cost })
+    : cost
+})
+const costDetail = computed(() => {
+  if (report.value === undefined) return ''
+  return t('home.metrics.costDetail', {
+    tokens: formatCount(report.value.summary.total_tokens),
+    unpriced: formatCount(report.value.summary.unpriced_request_count),
+  })
+})
+
+function formatCount(value: number): string {
+  return new Intl.NumberFormat(locale.value).format(value)
+}
+
+function setRange(value: string): void {
+  if (value === '24h' || value === '30d') selectedRange.value = value
+}
 </script>
 
 <template>
   <div class="home-page">
-    <PageHeader :title="t('home.title')" :description="t('home.description')" />
+    <QueryFeedback
+      v-if="presentation.inventory.kind === 'loading'"
+      data-test="home-inventory-loading"
+      state="loading"
+      :message="t('home.inventory.loading')"
+    />
+    <QueryFeedback
+      v-else-if="presentation.inventory.kind === 'error'"
+      data-test="home-inventory-error"
+      state="error"
+      :message="t('home.inventory.error')"
+      :retry-label="t('common.retry')"
+      @retry="groupsQuery.refetch()"
+    />
+    <QueryFeedback
+      v-else-if="presentation.inventory.kind === 'stale'"
+      data-test="home-inventory-stale"
+      state="stale"
+      :message="t('home.inventory.stale')"
+      :retry-label="t('common.retry')"
+      @retry="groupsQuery.refetch()"
+    />
 
-    <section
-      class="operational-overview"
-      data-test="home-operational-overview"
-      aria-labelledby="operational-overview-heading"
+    <EmptyState
+      v-if="presentation.zeroGroups"
+      data-test="home-zero-groups"
+      :title="t('home.noGroupsTitle')"
+      :description="t('home.noGroupsDescription')"
+      heading-as="h1"
     >
-      <header class="operational-overview__header">
-        <h2 id="operational-overview-heading">{{ t('home.operationalOverview') }}</h2>
-        <p>{{ t('home.operationalOverviewDescription') }}</p>
-      </header>
+      <template #icon><Layers3 :size="34" /></template>
+      <template #actions>
+        <RouterLink class="button-link" to="/import">{{ t('home.importKeys') }}</RouterLink>
+      </template>
+    </EmptyState>
 
-      <div class="home-overview">
-        <SurfaceCard class="service-card">
-          <div class="section-heading">
-            <div>
-              <p class="eyebrow">{{ t('home.service') }}</p>
-              <h3 id="service-heading">{{ t('home.service') }}</h3>
-            </div>
-            <span
-              v-if="healthQuery.isSuccess.value"
-              class="service-status service-status--normal"
-              data-test="home-service-status"
-            >
-              <CircleCheck :size="14" aria-hidden="true" />
-              {{ t('home.online') }}
-            </span>
-            <StatusBadge
-              v-else-if="healthQuery.isError.value && healthQuery.data.value"
-              tone="warning"
-            >
-              {{ t('home.healthStale') }}
-            </StatusBadge>
-            <StatusBadge v-else-if="healthQuery.isError.value" tone="warning">
-              {{ healthErrorMessage }}
-            </StatusBadge>
-          </div>
+    <template v-else>
+      <HomeLede
+        :state="presentation.health"
+        :observed-date="observedDate"
+        @retry="healthQuery.refetch()"
+      />
 
+      <InlineFeedback
+        v-if="presentation.health.kind === 'unknown' || presentation.health.kind === 'stale'"
+        data-test="home-health-usage-independence"
+        tone="info"
+      >
+        {{ t('home.healthUsageIndependence') }}
+      </InlineFeedback>
+
+      <ConnectionPlaceholder v-if="presentation.usage.kind === 'empty'" />
+
+      <InlineFeedback
+        v-if="presentation.pipelineWarning"
+        data-test="home-pipeline-warning"
+        tone="warning"
+      >
+        {{
+          t('home.pipeline.warning', {
+            dropped: formatCount(presentation.pipelineWarning.droppedTotal),
+            failures: formatCount(presentation.pipelineWarning.writeFailureTotal),
+          })
+        }}
+      </InlineFeedback>
+
+      <HomeProblemGroups
+        v-if="presentation.problemGroups.length > 0"
+        :groups="presentation.problemGroups"
+      />
+
+      <section class="home-usage" data-test="home-usage" aria-labelledby="home-usage-title">
+        <QueryFeedback
+          v-if="presentation.usage.kind === 'loading'"
+          data-test="home-usage-loading"
+          state="loading"
+          :message="t('home.usageState.loading')"
+        />
+        <QueryFeedback
+          v-else-if="presentation.usage.kind === 'error'"
+          data-test="home-usage-error"
+          state="error"
+          :message="t('home.usageState.error')"
+          :retry-label="t('common.retry')"
+          @retry="usageQuery.refetch()"
+        />
+        <template v-else>
           <QueryFeedback
-            v-if="healthQuery.isPending.value"
-            state="loading"
-            :message="t('auth.checking')"
-          />
-          <QueryFeedback
-            v-else-if="healthQuery.isError.value && !healthQuery.data.value"
-            state="error"
-            :message="healthErrorMessage"
+            v-if="presentation.usage.kind === 'stale'"
+            data-test="home-usage-stale"
+            state="stale"
+            :message="t('home.usageState.stale')"
             :retry-label="t('common.retry')"
-            @retry="healthQuery.refetch()"
+            @retry="usageQuery.refetch()"
           />
-          <template v-else-if="healthQuery.data.value">
-            <QueryFeedback
-              v-if="healthQuery.isError.value"
-              state="stale"
-              :message="t('home.healthStale')"
-              :retry-label="t('common.retry')"
-              @retry="healthQuery.refetch()"
-            />
-            <div class="health-meta">
-              <span>{{
-                t('home.revision', { revision: healthQuery.data.value.snapshot_revision })
-              }}</span>
-              <i18n-t keypath="home.observedAt" scope="global" tag="span">
-                <template #time>
-                  <AppDateTime :instant="healthQuery.data.value.observed_at" :locale="locale" />
-                </template>
-              </i18n-t>
+
+          <EmptyState
+            v-if="presentation.usage.kind === 'empty'"
+            data-test="home-zero-usage"
+            :title="t('home.zeroUsage.title')"
+            :description="t('home.zeroUsage.description')"
+          >
+            <template #icon><Activity :size="34" /></template>
+          </EmptyState>
+
+          <template v-else-if="report">
+            <div class="home-metrics">
+              <StatFigure
+                data-test="home-success-rate"
+                :label="t('home.metrics.successRate', { range: report.range })"
+                :value="successRate"
+                :detail="successDetail"
+              />
+              <StatFigure
+                data-test="home-estimated-cost"
+                :label="t('home.metrics.estimatedCost', { range: report.range })"
+                :value="estimatedCost"
+                :detail="costDetail"
+              />
+              <SegmentedControl
+                class="home-metrics__range"
+                :model-value="selectedRange"
+                :label="t('home.range.label')"
+                :options="rangeOptions"
+                @update:model-value="setRange"
+              />
             </div>
-            <div class="health-counts">
-              <span data-test="home-health-total" data-state="normal">{{
-                t('home.keyTotal', { count: healthQuery.data.value.counts.total })
-              }}</span>
-              <span data-test="home-health-available" data-state="normal">{{
-                t('home.keyAvailable', { count: healthQuery.data.value.counts.available })
-              }}</span>
-              <span
-                data-test="home-health-cooldown"
-                :data-state="healthQuery.data.value.counts.cooldown > 0 ? 'anomaly' : 'normal'"
-                :class="{
-                  'health-count--warning': healthQuery.data.value.counts.cooldown > 0,
-                }"
-              >
-                <CircleAlert
-                  v-if="healthQuery.data.value.counts.cooldown > 0"
-                  :size="14"
-                  aria-hidden="true"
-                />
-                {{ t('home.keyCooldown', { count: healthQuery.data.value.counts.cooldown }) }}
-              </span>
-              <span
-                data-test="home-health-blacklisted"
-                :data-state="healthQuery.data.value.counts.blacklisted > 0 ? 'anomaly' : 'normal'"
-                :class="{
-                  'health-count--danger': healthQuery.data.value.counts.blacklisted > 0,
-                }"
-              >
-                <CircleOff
-                  v-if="healthQuery.data.value.counts.blacklisted > 0"
-                  :size="14"
-                  aria-hidden="true"
-                />
-                {{ t('home.keyBlacklisted', { count: healthQuery.data.value.counts.blacklisted }) }}
-              </span>
-              <span
-                data-test="home-health-disabled"
-                :data-state="healthQuery.data.value.counts.disabled > 0 ? 'anomaly' : 'normal'"
-                :class="{
-                  'health-count--warning': healthQuery.data.value.counts.disabled > 0,
-                }"
-              >
-                <CircleOff
-                  v-if="healthQuery.data.value.counts.disabled > 0"
-                  :size="14"
-                  aria-hidden="true"
-                />
-                {{ t('home.keyDisabled', { count: healthQuery.data.value.counts.disabled }) }}
-              </span>
-            </div>
+
+            <section class="home-trend" aria-labelledby="home-usage-title">
+              <header class="home-section-heading home-trend__header">
+                <div>
+                  <h2 id="home-usage-title">
+                    {{ t('home.trend.title', { range: report.range }) }}
+                  </h2>
+                  <p>{{ t('home.trend.description') }}</p>
+                </div>
+                <RouterLink
+                  v-if="report.summary.failure_count > 0"
+                  class="home-trend__failure-link"
+                  :to="failureLogsLocation(report)"
+                >
+                  {{
+                    t('home.trend.failureLink', {
+                      count: formatCount(report.summary.failure_count),
+                    })
+                  }}
+                </RouterLink>
+              </header>
+              <TrendChart
+                :series="report.series"
+                :title="t('home.trend.title', { range: report.range })"
+                :description="t('home.trend.chartDescription')"
+                :empty-label="t('home.trend.empty')"
+                :request-label="t('home.trend.requests')"
+                :failure-label="t('home.trend.failures')"
+              />
+            </section>
+
+            <HomeCostRanking :report="report" :group-names="groupNames" />
           </template>
-        </SurfaceCard>
+        </template>
+      </section>
 
-        <UsageSummaryCard heading-as="h3" />
-      </div>
-    </section>
-
-    <section class="groups-section" data-test="home-groups" aria-labelledby="groups-heading">
-      <header class="groups-section__header">
-        <div>
-          <h2 id="groups-heading">{{ t('home.groups') }}</h2>
-          <p>{{ t('home.groupsDescription') }}</p>
-        </div>
-      </header>
-
-      <QueryFeedback
-        v-if="groupsQuery.isPending.value"
-        state="loading"
-        :message="t('home.groupsLoading')"
-      />
-      <QueryFeedback
-        v-else-if="groupsQuery.isError.value && !groupsQuery.data.value"
-        state="error"
-        :message="t('home.groupsError')"
-        :retry-label="t('common.retry')"
-        @retry="groupsQuery.refetch()"
-      />
-      <template v-else>
-        <QueryFeedback
-          v-if="groupsQuery.isError.value"
-          state="stale"
-          :message="t('home.groupsStale')"
-          :retry-label="t('common.retry')"
-          @retry="groupsQuery.refetch()"
-        />
-        <EmptyState
-          v-if="groupsQuery.data.value?.length === 0"
-          :title="t('home.noGroupsTitle')"
-          :description="t('home.noGroupsDescription')"
-        >
-          <template #icon><Layers3 :size="32" /></template>
-          <template #actions>
-            <RouterLink class="button-link" to="/import">{{ t('home.importKeys') }}</RouterLink>
-          </template>
-        </EmptyState>
-        <div v-else class="group-grid">
-          <GroupCard
-            v-for="group in groupsQuery.data.value"
-            :key="group.id"
-            :group="group"
-            :health="healthByGroup.get(group.id)"
-          />
-        </div>
-      </template>
-    </section>
-
-    <section
-      class="connection-section"
-      data-test="home-connection"
-      :aria-label="t('home.connection')"
-    >
-      <QueryFeedback
-        v-if="accessKeysQuery.isPending.value"
-        state="loading"
-        :message="t('auth.checking')"
-      />
-      <QueryFeedback
-        v-else-if="accessKeysQuery.isError.value && !accessKeysQuery.data.value"
-        state="error"
-        :message="t('home.accessKeysError')"
-        :retry-label="t('common.retry')"
-        @retry="accessKeysQuery.refetch()"
-      />
-      <template v-else>
-        <QueryFeedback
-          v-if="accessKeysQuery.isError.value"
-          state="stale"
-          :message="t('home.accessKeysStale')"
-          :retry-label="t('common.retry')"
-          @retry="accessKeysQuery.refetch()"
-        />
-        <ConnectionCard
-          :keys="accessKeysQuery.data.value ?? []"
-          :model-ids="modelIds"
-          :origin="props.origin"
-        />
-      </template>
-    </section>
+      <ConnectionPlaceholder v-if="presentation.usage.kind !== 'empty'" />
+    </template>
   </div>
 </template>
 
 <style scoped>
 .home-page {
   display: grid;
-  gap: var(--space-8);
+  min-width: 0;
+  gap: var(--space-7);
 }
-.operational-overview,
-.connection-section {
+.home-usage {
   display: grid;
-  gap: var(--space-4);
+  min-width: 0;
+  gap: var(--space-7);
+  border-top: 1px solid var(--color-border-strong);
+  padding-top: var(--space-6);
 }
-.operational-overview__header h2,
-.operational-overview__header p {
+.home-metrics {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  align-items: end;
+  gap: var(--space-6);
+  border-bottom: 1px solid var(--color-border-subtle);
+  padding-bottom: var(--space-6);
+}
+.home-metrics > :nth-child(2) {
+  border-left: 1px solid var(--color-border-subtle);
+  padding-left: var(--space-6);
+}
+.home-metrics__range {
+  justify-self: end;
+}
+.home-trend {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-5);
+}
+.home-section-heading h2,
+.home-section-heading p {
   margin: 0;
 }
-.operational-overview__header h2 {
-  font-size: 1.25rem;
+.home-section-heading h2 {
+  font-family: var(--font-serif);
+  font-size: 1.45rem;
+  font-weight: 500;
 }
-.operational-overview__header p {
+.home-section-heading p {
   margin-top: var(--space-1);
   color: var(--color-text-muted);
 }
-.home-overview {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(320px, 0.9fr);
-  gap: var(--space-5);
+.home-trend__header {
+  display: flex;
+  min-width: 0;
   align-items: start;
-}
-.service-card {
-  display: grid;
+  justify-content: space-between;
   gap: var(--space-5);
 }
-.service-card {
-  padding: var(--space-5);
-}
-.section-heading {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--space-3);
-}
-.section-heading h3,
-.groups-section h2 {
-  margin: 0;
-  font-size: 1.125rem;
-}
-.service-status {
-  display: inline-flex;
-  min-height: 28px;
-  align-items: center;
-  gap: var(--space-1);
-  border-radius: var(--radius-tag);
-  background: var(--color-surface-sunken);
-  color: var(--color-text-muted);
-  padding: var(--space-1) var(--space-2);
-  font-size: var(--text-sm);
-  font-weight: 650;
-}
-.health-meta,
-.health-counts {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2) var(--space-4);
-}
-.health-meta {
-  color: var(--color-text-muted);
-  font-size: 0.8125rem;
-}
-.health-counts span {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  border-radius: var(--radius-tag);
-  background: var(--color-surface-secondary);
-  padding: var(--space-2) var(--space-3);
-}
-.health-counts .health-count--warning {
-  background: var(--color-warning-bg);
-}
-.health-counts .health-count--warning svg {
-  color: var(--color-warning);
-}
-.health-counts .health-count--danger {
-  background: var(--color-danger-bg);
-}
-.health-counts .health-count--danger svg {
+.home-trend__failure-link {
   color: var(--color-danger);
+  font-weight: 650;
+  white-space: nowrap;
 }
-.groups-section {
-  display: grid;
-  gap: var(--space-4);
+@media (max-width: 1199px) {
+  .home-metrics {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .home-metrics__range {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
 }
-.groups-section__header p {
-  max-width: 68ch;
-  margin: var(--space-1) 0 0;
-  color: var(--color-text-muted);
-}
-.group-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--space-4);
-}
-@media (max-width: 900px) {
-  .home-overview,
-  .group-grid {
-    grid-template-columns: 1fr;
+@media (max-width: 759px) {
+  .home-page,
+  .home-usage {
+    gap: var(--space-5);
+  }
+  .home-metrics {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .home-metrics > :nth-child(2) {
+    border-top: 1px solid var(--color-border-subtle);
+    border-left: 0;
+    padding-top: var(--space-5);
+    padding-left: 0;
+  }
+  .home-trend__header {
+    flex-direction: column;
+  }
+  .home-trend__failure-link {
+    white-space: normal;
   }
 }
 </style>

@@ -66,17 +66,19 @@ type usageCollectionHealthResponse struct {
 }
 
 type usageResponse struct {
-	Range              string                        `json:"range"`
-	Granularity        requestlog.UsageGranularity   `json:"granularity"`
-	Timezone           string                        `json:"timezone"`
-	From               string                        `json:"from"`
-	To                 string                        `json:"to"`
-	ObservedAt         string                        `json:"observed_at"`
-	Summary            usageAggregateResponse        `json:"summary"`
-	Series             []usageSeriesResponse         `json:"series"`
-	Breakdown          []usageBreakdownResponse      `json:"breakdown"`
-	BreakdownTruncated bool                          `json:"breakdown_truncated"`
-	CollectionHealth   usageCollectionHealthResponse `json:"collection_health"`
+	Range               string                         `json:"range"`
+	Granularity         requestlog.UsageGranularity    `json:"granularity"`
+	Timezone            string                         `json:"timezone"`
+	From                string                         `json:"from"`
+	To                  string                         `json:"to"`
+	ObservedAt          string                         `json:"observed_at"`
+	Summary             usageAggregateResponse         `json:"summary"`
+	Series              []usageSeriesResponse          `json:"series"`
+	Breakdown           []usageBreakdownResponse       `json:"breakdown"`
+	BreakdownTruncated  bool                           `json:"breakdown_truncated"`
+	BreakdownOrder      requestlog.UsageBreakdownOrder `json:"breakdown_order"`
+	BreakdownGroupCount int64                          `json:"breakdown_group_count"`
+	CollectionHealth    usageCollectionHealthResponse  `json:"collection_health"`
 }
 
 func (service *Service) QueryUsage(
@@ -118,7 +120,12 @@ func parseUsageQuery(rawQuery string, observedAt time.Time) (requestlog.UsageQue
 	if err != nil {
 		return requestlog.UsageQuery{}, app_errors.ErrBadRequest
 	}
-	allowed := map[string]struct{}{"range": {}, "group_id": {}, "model": {}}
+	allowed := map[string]struct{}{
+		"range":           {},
+		"group_id":        {},
+		"model":           {},
+		"breakdown_order": {},
+	}
 	for key, value := range values {
 		if _, ok := allowed[key]; !ok || len(value) != 1 {
 			return requestlog.UsageQuery{}, app_errors.ErrBadRequest
@@ -126,7 +133,10 @@ func parseUsageQuery(rawQuery string, observedAt time.Time) (requestlog.UsageQue
 	}
 
 	observedAt = observedAt.UTC()
-	query := requestlog.UsageQuery{Limit: usageBreakdownMax}
+	query := requestlog.UsageQuery{
+		Limit:          usageBreakdownMax,
+		BreakdownOrder: requestlog.UsageBreakdownOrderRequests,
+	}
 	rangeValue := usageRange24Hours
 	if value, ok := singleQueryValue(values, "range"); ok {
 		rangeValue = value
@@ -157,6 +167,16 @@ func parseUsageQuery(rawQuery string, observedAt time.Time) (requestlog.UsageQue
 			return requestlog.UsageQuery{}, app_errors.ErrValidation
 		}
 		query.Model = value
+	}
+	if value, ok := singleQueryValue(values, "breakdown_order"); ok {
+		switch requestlog.UsageBreakdownOrder(value) {
+		case requestlog.UsageBreakdownOrderRequests:
+			query.BreakdownOrder = requestlog.UsageBreakdownOrderRequests
+		case requestlog.UsageBreakdownOrderCost:
+			query.BreakdownOrder = requestlog.UsageBreakdownOrderCost
+		default:
+			return requestlog.UsageQuery{}, app_errors.ErrValidation
+		}
 	}
 	return query, nil
 }
@@ -193,6 +213,17 @@ func (service *Service) mapUsageResponse(
 	if service.requestLogStats == nil {
 		return usageResponse{}, app_errors.ErrInternalServer
 	}
+	switch query.BreakdownOrder {
+	case requestlog.UsageBreakdownOrderRequests, requestlog.UsageBreakdownOrderCost:
+	default:
+		return usageResponse{}, fmt.Errorf("map usage response: invalid query breakdown order")
+	}
+	if report.BreakdownOrder != query.BreakdownOrder {
+		return usageResponse{}, fmt.Errorf("map usage response: breakdown order mismatch")
+	}
+	if report.BreakdownGroupCount < 0 || report.BreakdownGroupCount > maxSafeInteger {
+		return usageResponse{}, fmt.Errorf("map usage response: unsafe breakdown group count")
+	}
 	summary, err := mapUsageAggregate(report.Summary)
 	if err != nil {
 		return usageResponse{}, err
@@ -223,10 +254,12 @@ func (service *Service) mapUsageResponse(
 			WriteFailureTotal:  stats.WriteFailureTotal,
 			LastWriteFailureAt: optionalUTC(stats.LastWriteFailureAt),
 		},
-		Summary:            summary,
-		Series:             make([]usageSeriesResponse, 0, len(report.Series)),
-		Breakdown:          make([]usageBreakdownResponse, 0, len(report.Breakdown)),
-		BreakdownTruncated: report.BreakdownTruncated,
+		Summary:             summary,
+		Series:              make([]usageSeriesResponse, 0, len(report.Series)),
+		Breakdown:           make([]usageBreakdownResponse, 0, len(report.Breakdown)),
+		BreakdownTruncated:  report.BreakdownTruncated,
+		BreakdownOrder:      report.BreakdownOrder,
+		BreakdownGroupCount: report.BreakdownGroupCount,
 	}
 	for _, point := range report.Series {
 		aggregate, err := mapUsageAggregate(point.UsageAggregate)

@@ -12,9 +12,12 @@ const (
 )
 
 type KeyStats struct {
-	Success            uint64
-	Failure            uint64
-	ConsecutiveFailure uint64
+	Success             uint64
+	Failure             uint64
+	ConsecutiveFailure  uint64
+	ConsecutiveProblem  uint64
+	LastFailureCategory FailureCategory
+	LastStatusCode      int
 }
 
 type StatsStore struct {
@@ -30,15 +33,56 @@ type statsBucket struct {
 }
 
 type keyStatsWindow struct {
-	buckets            [statsBucketCount]statsBucket
-	consecutiveFailure uint64
+	buckets             [statsBucketCount]statsBucket
+	consecutiveFailure  uint64
+	consecutiveProblem  uint64
+	lastEventAt         time.Time
+	lastEventRecorded   bool
+	lastFailureCategory FailureCategory
+	lastStatusCode      int
 }
+
+type statsEvent uint8
+
+const (
+	statsEventSuccess statsEvent = iota
+	statsEventFailure
+	statsEventProblem
+)
 
 func NewStatsStore() *StatsStore {
 	return &StatsStore{windows: make(map[uint]*keyStatsWindow)}
 }
 
-func (store *StatsStore) Record(keyID uint, ok bool, at time.Time) {
+func (store *StatsStore) RecordSuccess(keyID uint, at time.Time) {
+	store.record(keyID, statsEventSuccess, FailureCategoryOK, 0, at)
+}
+
+func (store *StatsStore) RecordFailure(
+	keyID uint,
+	category FailureCategory,
+	statusCode int,
+	at time.Time,
+) {
+	store.record(keyID, statsEventFailure, category, statusCode, at)
+}
+
+func (store *StatsStore) RecordProblem(
+	keyID uint,
+	category FailureCategory,
+	statusCode int,
+	at time.Time,
+) {
+	store.record(keyID, statsEventProblem, category, statusCode, at)
+}
+
+func (store *StatsStore) record(
+	keyID uint,
+	event statsEvent,
+	category FailureCategory,
+	statusCode int,
+	at time.Time,
+) {
 	if keyID == 0 {
 		return
 	}
@@ -55,21 +99,39 @@ func (store *StatsStore) Record(keyID uint, ok bool, at time.Time) {
 		store.windows[keyID] = window
 	}
 
-	bucket := &window.buckets[slot]
-	if !bucket.valid || minute > bucket.minute {
-		*bucket = statsBucket{minute: minute, valid: true}
-	} else if minute < bucket.minute {
-		return
+	if event != statsEventProblem {
+		bucket := &window.buckets[slot]
+		if !bucket.valid || minute > bucket.minute {
+			*bucket = statsBucket{minute: minute, valid: true}
+		} else if minute < bucket.minute {
+			return
+		}
+
+		if event == statsEventSuccess {
+			bucket.success++
+		} else {
+			bucket.failure++
+		}
 	}
 
-	if ok {
-		bucket.success++
+	if window.lastEventRecorded && at.Before(window.lastEventAt) {
+		return
+	}
+	window.lastEventAt = at
+	window.lastEventRecorded = true
+	if event == statsEventSuccess {
 		window.consecutiveFailure = 0
+		window.consecutiveProblem = 0
+		window.lastFailureCategory = FailureCategoryAmbiguous
+		window.lastStatusCode = 0
 		return
 	}
-
-	bucket.failure++
-	window.consecutiveFailure++
+	if event == statsEventFailure {
+		window.consecutiveFailure++
+	}
+	window.consecutiveProblem++
+	window.lastFailureCategory = category
+	window.lastStatusCode = statusCode
 }
 
 func (store *StatsStore) Reset(keyID uint) {
@@ -96,7 +158,12 @@ func (store *StatsStore) Snapshot(keyID uint, now time.Time) KeyStats {
 		return KeyStats{}
 	}
 
-	stats := KeyStats{ConsecutiveFailure: window.consecutiveFailure}
+	stats := KeyStats{
+		ConsecutiveFailure:  window.consecutiveFailure,
+		ConsecutiveProblem:  window.consecutiveProblem,
+		LastFailureCategory: window.lastFailureCategory,
+		LastStatusCode:      window.lastStatusCode,
+	}
 	firstMinute := currentMinute - (statsBucketCount - 1)
 	for _, bucket := range window.buckets {
 		if !bucket.valid || bucket.minute < firstMinute || bucket.minute > currentMinute {

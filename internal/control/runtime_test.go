@@ -386,7 +386,7 @@ func TestRuntimeResetsExpiredStatsToDefaultWeight(t *testing.T) {
 	base := time.Date(2026, time.July, 22, 12, 0, 0, 0, time.UTC)
 	stats := health.NewStatsStore()
 	for sample := 0; sample < 10; sample++ {
-		stats.Record(1, true, base)
+		stats.RecordSuccess(1, base)
 	}
 	registry := newFakeAutoWeightRegistry(1)
 	clock := &fakeRuntimeClock{now: base}
@@ -423,7 +423,7 @@ func TestRuntimeContinuesWhenKeyDisappears(t *testing.T) {
 	stopRuntime(t, cancel, done)
 }
 
-func TestRuntimeUpdatesRegistryWeightSeenByCandidateCollection(t *testing.T) {
+func TestRuntimeCooldownProblemDoesNotAffectAutoWeightSeenByCandidateCollection(t *testing.T) {
 	base := time.Date(2026, time.July, 22, 12, 0, 0, 0, time.UTC)
 	registry := state.NewKeyRegistry()
 	if err := registry.Replace([]state.KeyEntry{{
@@ -433,8 +433,9 @@ func TestRuntimeUpdatesRegistryWeightSeenByCandidateCollection(t *testing.T) {
 	}
 	stats := health.NewStatsStore()
 	for sample := 0; sample < 10; sample++ {
-		stats.Record(1, true, base)
+		stats.RecordSuccess(1, base)
 	}
+	stats.RecordProblem(1, health.FailureCategoryRateLimited, 429, base)
 
 	runtime := &Runtime{
 		registry: registry, stats: stats, mutations: health.NewMutationCoordinator(),
@@ -451,7 +452,7 @@ func TestRuntimeCoordinatesStatsSnapshotAndAutoWeightWrite(t *testing.T) {
 	registry := newFakeAutoWeightRegistry(1)
 	stats := health.NewStatsStore()
 	for range 10 {
-		stats.Record(1, true, now)
+		stats.RecordSuccess(1, now)
 	}
 	coordinator := &barrierRuntimeMutationCoordinator{
 		entered:      make(chan struct{}),
@@ -472,7 +473,7 @@ func TestRuntimeCoordinatesStatsSnapshotAndAutoWeightWrite(t *testing.T) {
 		t.Fatalf("auto-weight write before coordinator callback = %#v", write)
 	default:
 	}
-	stats.Record(1, false, now)
+	stats.RecordFailure(1, health.FailureCategoryAmbiguous, 0, now)
 	close(coordinator.releaseEntry)
 	awaitSignal(t, coordinator.callbackDone)
 
@@ -492,7 +493,7 @@ func TestRuntimeCoordinatesAutoWeightWithValidationRecovery(t *testing.T) {
 	base := time.Date(2026, time.July, 22, 12, 0, 0, 0, time.UTC)
 	stats := health.NewStatsStore()
 	for range 10 {
-		stats.Record(1, true, base)
+		stats.RecordSuccess(1, base)
 	}
 	registry := newInterleavingRegistry()
 	probePassed := make(chan struct{})

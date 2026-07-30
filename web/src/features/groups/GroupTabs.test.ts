@@ -18,6 +18,39 @@ async function mountTabs(path: string) {
 }
 
 describe('GroupTabs', () => {
+  it('preserves the problem filter only on the Keys tab', async () => {
+    const { router, wrapper } = await mountTabs('/groups/7?tab=keys&key_state=problem')
+
+    expect(router.currentRoute.value.fullPath).toBe('/groups/7?tab=keys&key_state=problem')
+    await wrapper.get('[data-test="group-tab-models"]').trigger('mousedown', {
+      button: 0,
+      ctrlKey: false,
+    })
+    await flushPromises()
+    expect(router.currentRoute.value.fullPath).toBe('/groups/7?tab=models')
+
+    await wrapper.get('[data-test="group-tab-keys"]').trigger('mousedown', {
+      button: 0,
+      ctrlKey: false,
+    })
+    await flushPromises()
+    expect(router.currentRoute.value.fullPath).toBe('/groups/7?tab=keys')
+  })
+
+  it('does not add history when the active tab is selected again', async () => {
+    const { router, wrapper } = await mountTabs('/groups/7?tab=keys&key_state=problem')
+    const push = vi.spyOn(router, 'push')
+
+    await wrapper.get('[data-test="group-tab-keys"]').trigger('mousedown', {
+      button: 0,
+      ctrlKey: false,
+    })
+    await flushPromises()
+
+    expect(push).not.toHaveBeenCalled()
+    expect(router.currentRoute.value.fullPath).toBe('/groups/7?tab=keys&key_state=problem')
+  })
+
   it('normalizes unknown tabs and uses query history for click, back, and forward state', async () => {
     const { router, wrapper } = await mountTabs('/groups/7?tab=unknown&unsafe=discarded')
 

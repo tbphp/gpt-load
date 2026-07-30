@@ -2,276 +2,464 @@ import { QueryClient } from '@tanstack/vue-query'
 import { flushPromises } from '@vue/test-utils'
 
 import { ApiError } from '@/api/errors'
-import type { UsageReportDto } from '@/app/resources/usage'
-import { controlQueryKeys } from '@/app/query-keys'
-import type { AccessKeyOptionDto, GroupSummary } from '@/api/control/types'
+import type { GroupSummary } from '@/api/control/types'
 import type { RuntimeHealthDto } from '@/app/resources/health'
+import type { UsageAggregateDto, UsageReportDto } from '@/app/resources/usage'
+import { controlQueryKeys } from '@/app/query-keys'
 import { FakeApi } from '@/test/fake-api'
 import { mountApp } from '@/test/mount-app'
 
 import HomeView from './HomeView.vue'
 
+const usage24Path = '/api/usage?range=24h&breakdown_order=cost' as const
+const usage30Path = '/api/usage?range=30d&breakdown_order=cost' as const
+
 const groupFixture: GroupSummary = {
-  id: 1,
-  name: 'Example',
-  upstream_url: 'https://api.example.com/v1',
+  id: 7,
+  name: 'Primary',
+  upstream_url: 'https://api.example.test',
   protocols: ['openai'],
-  models: [{ id: 'gpt-real', alias: '' }],
+  models: [{ id: 'gpt-4o', alias: '' }],
   enabled: true,
-  key_count: 2,
+  key_count: 3,
 }
-const accessKeyFixture: AccessKeyOptionDto = {
-  id: 1,
-  name: 'Default',
-  status: 'active',
+
+const requestLog: RuntimeHealthDto['request_log'] = {
+  enqueued_total: 20,
+  persisted_total: 20,
+  dropped_not_running_total: 0,
+  dropped_queue_full_total: 0,
+  dropped_stopping_total: 0,
+  dropped_persist_failed_total: 0,
+  dropped_shutdown_total: 0,
+  dropped_total: 0,
+  write_failure_total: 0,
+  retention_delete_failure_total: 0,
+  queue_depth: 0,
+  queue_capacity: 128,
+  last_write_failure_at: null,
+  last_retention_failure_at: null,
 }
-const healthFixture: RuntimeHealthDto = {
-  observed_at: '2026-07-25T10:00:00Z',
-  snapshot_revision: 8,
-  stats_window_seconds: 300,
-  counts: { total: 2, available: 1, cooldown: 1, blacklisted: 0, disabled: 0 },
-  groups: [
-    {
-      id: 1,
-      name: 'Example',
-      enabled: true,
-      counts: { total: 2, available: 1, cooldown: 1, blacklisted: 0, disabled: 0 },
+
+function health(overrides: Partial<RuntimeHealthDto> = {}): RuntimeHealthDto {
+  return {
+    observed_at: '2026-07-29T06:32:07Z',
+    snapshot_revision: 28,
+    stats_window_seconds: 300,
+    counts: { total: 3, available: 3, cooldown: 0, blacklisted: 0, disabled: 0 },
+    groups: [
+      {
+        id: 7,
+        name: 'Primary',
+        enabled: true,
+        counts: { total: 3, available: 3, cooldown: 0, blacklisted: 0, disabled: 0 },
+      },
+    ],
+    cooldown_keys: [],
+    blacklisted_keys: [],
+    request_log: requestLog,
+    ...overrides,
+  }
+}
+
+const aggregate: UsageAggregateDto = {
+  request_count: 20,
+  success_count: 18,
+  failure_count: 2,
+  uncached_input_tokens: 1_000,
+  cache_read_tokens: 200,
+  cache_write_5m_tokens: 0,
+  cache_write_1h_tokens: 0,
+  output_tokens: 400,
+  total_tokens: 1_600,
+  estimated_cost_usd: 2.5,
+  usage_missing_count: 0,
+  partial_count: 0,
+  unpriced_request_count: 0,
+}
+
+const zeroAggregate: UsageAggregateDto = {
+  request_count: 0,
+  success_count: 0,
+  failure_count: 0,
+  uncached_input_tokens: 0,
+  cache_read_tokens: 0,
+  cache_write_5m_tokens: 0,
+  cache_write_1h_tokens: 0,
+  output_tokens: 0,
+  total_tokens: 0,
+  estimated_cost_usd: 0,
+  usage_missing_count: 0,
+  partial_count: 0,
+  unpriced_request_count: 0,
+}
+
+function usage(
+  range: '24h' | '30d' = '24h',
+  overrides: Partial<UsageReportDto> = {},
+): UsageReportDto {
+  const hourly = range === '24h'
+  return {
+    range,
+    granularity: hourly ? 'hour' : 'day',
+    timezone: 'UTC',
+    from: hourly ? '2026-07-28T07:00:00Z' : '2026-06-29T00:00:00Z',
+    to: hourly ? '2026-07-29T07:00:00Z' : '2026-07-29T00:00:00Z',
+    observed_at: hourly ? '2026-07-29T06:32:00Z' : '2026-07-28T23:00:00Z',
+    summary: aggregate,
+    series: [
+      {
+        ...aggregate,
+        bucket_start: hourly ? '2026-07-29T05:00:00Z' : '2026-07-28T00:00:00Z',
+        bucket_end: hourly ? '2026-07-29T06:00:00Z' : '2026-07-29T00:00:00Z',
+      },
+    ],
+    breakdown: [
+      {
+        ...aggregate,
+        group_id: 7,
+        model: 'gpt-4o',
+      },
+    ],
+    breakdown_truncated: false,
+    breakdown_order: 'cost',
+    breakdown_group_count: 1,
+    collection_health: {
+      scope: 'current_process',
+      dropped_total: 0,
+      write_failure_total: 0,
+      last_write_failure_at: null,
     },
-  ],
-  cooldown_keys: [],
-  blacklisted_keys: [],
-  request_log: {
-    enqueued_total: 0,
-    persisted_total: 0,
-    dropped_not_running_total: 0,
-    dropped_queue_full_total: 0,
-    dropped_stopping_total: 0,
-    dropped_persist_failed_total: 0,
-    dropped_shutdown_total: 0,
-    dropped_total: 0,
-    write_failure_total: 0,
-    retention_delete_failure_total: 0,
-    queue_depth: 0,
-    queue_capacity: 0,
-    last_write_failure_at: null,
-    last_retention_failure_at: null,
-  },
+    ...overrides,
+  }
 }
 
-const usageFixture: UsageReportDto = {
-  observed_at: '2026-07-25T10:00:01Z',
-  range: '24h',
-  granularity: 'hour',
-  timezone: 'UTC',
-  from: '2026-07-24T11:00:00Z',
-  to: '2026-07-25T11:00:00Z',
-  summary: {
-    request_count: 4,
-    success_count: 3,
-    failure_count: 1,
-    uncached_input_tokens: 10,
-    cache_read_tokens: 2,
-    cache_write_5m_tokens: 0,
-    cache_write_1h_tokens: 0,
-    output_tokens: 5,
-    total_tokens: 17,
-    estimated_cost_usd: 0.0025,
-    usage_missing_count: 0,
-    partial_count: 0,
-    unpriced_request_count: 0,
-  },
-  series: [],
-  breakdown: [],
-  breakdown_truncated: false,
-  collection_health: {
-    scope: 'current_process',
-    dropped_total: healthFixture.request_log.dropped_total,
-    write_failure_total: healthFixture.request_log.write_failure_total,
-    last_write_failure_at: healthFixture.request_log.last_write_failure_at,
-  },
+function problemHealth(): RuntimeHealthDto {
+  return health({
+    counts: { total: 3, available: 1, cooldown: 1, blacklisted: 1, disabled: 0 },
+    groups: [
+      {
+        id: 7,
+        name: 'Primary',
+        enabled: true,
+        counts: { total: 3, available: 1, cooldown: 1, blacklisted: 1, disabled: 0 },
+      },
+    ],
+    cooldown_keys: [
+      {
+        key_id: 11,
+        group_id: 7,
+        group_name: 'Primary',
+        cooldown_until: '2026-07-29T06:36:00Z',
+        failure_count: 5,
+        recent_success_count: 0,
+        recent_failure_count: 5,
+        consecutive_failure_count: 5,
+        weight_manual: null,
+        weight_auto: 40,
+        recovery: {
+          automatic: true,
+          mode: 'cooldown_expiry',
+          at: '2026-07-29T06:36:00Z',
+        },
+        mask: 'rate****safe',
+        last_failure_category: 'rate_limited',
+        last_status_code: 429,
+      },
+    ],
+    blacklisted_keys: [
+      {
+        key_id: 12,
+        group_id: 7,
+        group_name: 'Primary',
+        failure_count: 12,
+        recent_success_count: 0,
+        recent_failure_count: 8,
+        consecutive_failure_count: 12,
+        weight_manual: null,
+        weight_auto: 0,
+        recovery: { automatic: true, mode: 'validation_probe', at: null },
+        mask: 'inva****lock',
+        last_failure_category: 'invalid_key',
+        last_status_code: 401,
+      },
+    ],
+  })
 }
 
-async function mountHome(api: FakeApi, origin?: string, queryClient?: QueryClient) {
-  api.when('/api/usage?range=24h').resolve(usageFixture)
+function configureNormal(api: FakeApi, usageReport = usage()): void {
+  api.when('/api/groups').resolve([groupFixture])
+  api.when('/api/health').resolve(health())
+  api.when(usage24Path).resolve(usageReport)
+}
+
+async function mountHome(api: FakeApi, queryClient?: QueryClient) {
   const mounted = await mountApp(HomeView, {
     api,
     queryClient: queryClient ?? new QueryClient({ defaultOptions: { queries: { retry: false } } }),
-    mounting: origin ? { props: { origin } } : undefined,
   })
   await flushPromises()
-  return mounted.wrapper
+  return mounted
 }
 
-describe('HomeView', () => {
-  it('keeps the semantic task order Operational Overview, Groups, then Connection Setup', async () => {
+function appearsBefore(first: Element, second: Element): boolean {
+  return Boolean(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING)
+}
+
+describe('HomeView Ledger states', () => {
+  it('renders the normal Ledger order and a completely static connection placeholder', async () => {
     const api = new FakeApi()
-    api.when('/api/groups').resolve([groupFixture])
-    api.when('/api/health').resolve(healthFixture)
-    api.when('/api/access-keys/options').resolve([accessKeyFixture])
+    configureNormal(api)
+    const { wrapper } = await mountHome(api)
+    const ranking = wrapper.get('[data-test="home-cost-ranking"]')
+    const connection = wrapper.get('[data-test="home-connection-placeholder"]')
 
-    const wrapper = await mountHome(api)
-    const sections = wrapper.findAll(
-      '[data-test="home-operational-overview"], [data-test="home-groups"], [data-test="home-connection"]',
-    )
-
-    expect(sections.map((section) => section.attributes('data-test'))).toEqual([
-      'home-operational-overview',
-      'home-groups',
-      'home-connection',
+    expect(wrapper.get('[data-test="home-lede"]').classes()).toContain('home-lede--normal')
+    expect(wrapper.get('[data-test="home-success-rate"]').text()).toContain('90')
+    expect(wrapper.find('[data-test="trend-request-path"]').exists()).toBe(true)
+    expect(appearsBefore(ranking.element, connection.element)).toBe(true)
+    expect(wrapper.find('[data-group-id]').exists()).toBe(false)
+    expect(
+      connection
+        .find('button, a, input, select, textarea, code, [role="button"], [aria-expanded]')
+        .exists(),
+    ).toBe(false)
+    expect(connection.text()).toContain('占位 · 待专门设计')
+    expect(connection.text()).not.toMatch(/Base URL|curl|复制/)
+    expect(api.requests.map(({ path }) => path)).toEqual([
+      '/api/groups',
+      '/api/health',
+      usage24Path,
     ])
-    expect(sections[0]?.find('[data-test="home-usage-requests"]').exists()).toBe(true)
+    expect(api.requests.some(({ path }) => path.includes('access-keys'))).toBe(false)
   })
 
-  it('keeps Groups visible when Health fails', async () => {
+  it('renders warning problem Groups with safe masks and canonical deep links', async () => {
+    const api = new FakeApi()
+    api.when('/api/groups').resolve([groupFixture])
+    api.when('/api/health').resolve(problemHealth())
+    api.when(usage24Path).resolve(usage())
+    const { wrapper } = await mountHome(api)
+
+    expect(wrapper.get('[data-test="home-lede"]').classes()).toContain('home-lede--warning')
+    expect(wrapper.get('[data-test="home-problem-groups"]').text()).toContain('rate****safe')
+    expect(wrapper.get('[data-test="home-problem-groups"]').text()).toContain('inva****lock')
+    expect(wrapper.get('[data-test="home-problem-link"]').attributes('href')).toBe(
+      '/groups/7?tab=keys&key_state=problem',
+    )
+  })
+
+  it('keeps usage visible when health is unknown without cached data', async () => {
+    const api = new FakeApi()
+    api.when('/api/groups').resolve([groupFixture])
+    api.when('/api/health').reject(new ApiError(500, 'INTERNAL_SERVER_ERROR', 'health-canary'))
+    api.when(usage24Path).resolve(usage())
+    const { wrapper } = await mountHome(api)
+
+    expect(wrapper.get('h1').text()).toContain('无法确认服务状态')
+    expect(wrapper.find('[data-test="home-health-retry"]').exists()).toBe(true)
+    expect(wrapper.get('[data-test="home-health-usage-independence"]').text()).toContain(
+      '用量数据来自独立数据源',
+    )
+    expect(wrapper.get('[data-test="home-success-rate"]').text()).toContain('90')
+    expect(wrapper.text()).not.toContain('health-canary')
+  })
+
+  it('retains cached health as stale while leaving current usage independent', async () => {
     const api = new FakeApi()
     api.when('/api/groups').resolve([groupFixture])
     api.when('/api/health').reject(new ApiError(500, 'INTERNAL_SERVER_ERROR', 'failed'))
-    api.when('/api/access-keys/options').resolve([])
-
-    const wrapper = await mountHome(api)
-
-    expect(wrapper.get('[data-group-id="1"]').text()).toContain('Example')
-    expect(wrapper.get('[data-group-id="1"]').text()).toContain('状态未知')
-    expect(wrapper.text()).toContain('健康状态暂不可用')
-    expect(wrapper.text()).not.toContain('离线')
-  })
-
-  it('keeps Health and connection sections when Groups fails', async () => {
-    const api = new FakeApi()
-    api.when('/api/groups').reject(new ApiError(500, 'INTERNAL_SERVER_ERROR', 'failed'))
-    api.when('/api/health').resolve(healthFixture)
-    api.when('/api/access-keys/options').resolve([accessKeyFixture])
-
-    const wrapper = await mountHome(api)
-
-    expect(wrapper.text()).toContain('在线')
-    expect(wrapper.text()).toContain('Base URL')
-    expect(wrapper.text()).toContain('无法加载 Group')
-  })
-
-  it('keeps overview and Groups mounted when the Usage summary fails independently', async () => {
-    const api = new FakeApi()
-    api.when('/api/groups').resolve([groupFixture])
-    api.when('/api/health').resolve(healthFixture)
-    api.when('/api/access-keys/options').resolve([accessKeyFixture])
-    api
-      .when('/api/usage?range=24h')
-      .reject(new ApiError(500, 'INTERNAL_SERVER_ERROR', 'usage-secret-canary'))
-
-    const wrapper = await mountHome(api)
-
-    expect(wrapper.text()).toContain('在线')
-    expect(wrapper.text()).toContain('Base URL')
-    expect(wrapper.get('[data-group-id="1"]').text()).toContain('Example')
-    expect(wrapper.get('[data-test="home-usage-error"]').text()).toContain(
-      '无法加载最近 24 小时用量摘要',
-    )
-    expect(wrapper.text()).not.toContain('usage-secret-canary')
-  })
-
-  it('retains stale Health data when a background refresh fails', async () => {
-    const api = new FakeApi()
-    api.when('/api/groups').resolve([groupFixture])
-    api.when('/api/health').reject(new ApiError(500, 'INTERNAL_SERVER_ERROR', 'failed'))
-    api.when('/api/access-keys/options').resolve([])
+    api.when(usage24Path).resolve(usage())
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-    queryClient.setQueryData(controlQueryKeys.health(), healthFixture)
+    queryClient.setQueryData(controlQueryKeys.health(), health())
+    const { wrapper } = await mountHome(api, queryClient)
 
-    const wrapper = await mountHome(api, undefined, queryClient)
-
-    expect(wrapper.text()).toContain('健康数据可能已过期')
-    expect(wrapper.text()).toContain('快照修订 8')
-    expect(wrapper.get('[data-group-id="1"]').text()).toContain('可服务')
+    expect(wrapper.get('[data-test="home-lede"]').classes()).toContain('home-lede--neutral')
+    expect(wrapper.get('h1').text()).toContain('最近一次观测')
+    expect(wrapper.text()).toContain('当前健康检查失败')
+    expect(wrapper.find('[data-test="home-success-rate"]').exists()).toBe(true)
   })
 
-  it('retains masked stale AccessKey data when a background refresh fails', async () => {
-    const api = new FakeApi()
-    api.when('/api/groups').resolve([groupFixture])
-    api.when('/api/health').resolve(healthFixture)
-    api
-      .when('/api/access-keys/options')
-      .reject(new ApiError(500, 'INTERNAL_SERVER_ERROR', 'failed'))
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-    queryClient.setQueryData(controlQueryKeys.accessKeys.options(), [accessKeyFixture])
-
-    const wrapper = await mountHome(api, undefined, queryClient)
-
-    expect(wrapper.text()).toContain('AccessKey 数据可能已过期')
-    expect(wrapper.text()).toContain('Default')
-    expect(wrapper.html()).not.toContain('ACCESS_KEY_CANARY')
-  })
-
-  it('retains stale Group data when a background refresh fails', async () => {
-    const api = new FakeApi()
-    api.when('/api/groups').reject(new ApiError(500, 'INTERNAL_SERVER_ERROR', 'failed'))
-    api.when('/api/health').resolve(healthFixture)
-    api.when('/api/access-keys/options').resolve([])
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-    queryClient.setQueryData(controlQueryKeys.groups.list(), [groupFixture])
-
-    const wrapper = await mountHome(api, undefined, queryClient)
-
-    expect(wrapper.get('[data-group-id="1"]').text()).toContain('Example')
-    expect(wrapper.text()).toContain('Group 数据可能已过期')
-  })
-
-  it('warns for loopback origins without blocking copy', async () => {
+  it('renders one full-page first-run state only after Groups are confirmed empty', async () => {
     const api = new FakeApi()
     api.when('/api/groups').resolve([])
-    api.when('/api/health').resolve(healthFixture)
-    api.when('/api/access-keys/options').resolve([])
+    api.when('/api/health').resolve(health({ groups: [] }))
+    api.when(usage24Path).resolve(usage())
+    const { wrapper } = await mountHome(api)
 
-    const wrapper = await mountHome(api, 'http://127.0.0.1:3001/')
-
-    expect(wrapper.get('[role="note"]').text()).toContain('仅当前机器')
-    expect(wrapper.get('[aria-label="复制 Base URL"]').attributes()).not.toHaveProperty('disabled')
+    expect(wrapper.get('[data-test="home-zero-groups"]').text()).toContain('尚未配置 Group')
+    expect(wrapper.get('[data-test="home-zero-groups"] h1').text()).toBe('尚未配置 Group')
+    expect(wrapper.find('[data-test="home-zero-groups"] [href="/import"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="home-lede"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="home-connection-placeholder"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="home-cost-ranking"]').exists()).toBe(false)
   })
 
-  it('renders real health and usage counts without fabricated health metrics or a chart', async () => {
+  it('promotes the static connection placeholder directly after the lede for zero usage', async () => {
+    const api = new FakeApi()
+    configureNormal(
+      api,
+      usage('24h', {
+        summary: zeroAggregate,
+        series: [],
+        breakdown: [],
+        breakdown_group_count: 0,
+      }),
+    )
+    const { wrapper } = await mountHome(api)
+    const lede = wrapper.get('[data-test="home-lede"]')
+    const connection = wrapper.get('[data-test="home-connection-placeholder"]')
+    const empty = wrapper.get('[data-test="home-zero-usage"]')
+
+    expect(appearsBefore(lede.element, connection.element)).toBe(true)
+    expect(appearsBefore(connection.element, empty.element)).toBe(true)
+    expect(wrapper.find('[data-test="home-success-rate"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="home-cost-ranking"]').exists()).toBe(false)
+    expect(wrapper.findAll('[data-test="home-connection-placeholder"]')).toHaveLength(1)
+  })
+
+  it('lets inventory, health and usage loading regions resolve independently', async () => {
+    const api = new FakeApi()
+    const groupsRoute = api.when('/api/groups')
+    const healthRoute = api.when('/api/health')
+    const usageRoute = api.when(usage24Path)
+    const mounted = await mountApp(HomeView, {
+      api,
+      queryClient: new QueryClient({ defaultOptions: { queries: { retry: false } } }),
+    })
+    await flushPromises()
+
+    expect(mounted.wrapper.find('[data-test="home-inventory-loading"]').exists()).toBe(true)
+    expect(mounted.wrapper.get('[data-test="home-lede"]').text()).toContain('正在加载运行健康状态')
+    expect(mounted.wrapper.find('[data-test="home-usage-loading"]').exists()).toBe(true)
+
+    groupsRoute.resolve([groupFixture])
+    await flushPromises()
+    expect(mounted.wrapper.find('[data-test="home-inventory-loading"]').exists()).toBe(false)
+    expect(mounted.wrapper.find('[data-test="home-usage-loading"]').exists()).toBe(true)
+
+    healthRoute.resolve(health())
+    await flushPromises()
+    expect(mounted.wrapper.get('[data-test="home-lede"]').find('h1').exists()).toBe(true)
+    expect(mounted.wrapper.find('[data-test="home-usage-loading"]').exists()).toBe(true)
+
+    usageRoute.resolve(usage())
+    await flushPromises()
+    expect(mounted.wrapper.find('[data-test="home-success-rate"]').exists()).toBe(true)
+    mounted.wrapper.unmount()
+  })
+
+  it('shows only dropped/write failures as the Home data-quality warning', async () => {
     const api = new FakeApi()
     api.when('/api/groups').resolve([groupFixture])
-    api.when('/api/health').resolve(healthFixture)
-    api
-      .when('/api/access-keys/options')
-      .resolve([{ ...accessKeyFixture, key: 'ACCESS_KEY_CANARY' }])
+    api.when('/api/health').resolve(
+      health({
+        request_log: {
+          ...requestLog,
+          dropped_total: 3,
+          write_failure_total: 2,
+          retention_delete_failure_total: 9,
+        },
+      }),
+    )
+    api.when(usage24Path).resolve(usage())
+    const { wrapper } = await mountHome(api)
 
-    const wrapper = await mountHome(api)
-
-    expect(wrapper.get('[data-test="home-service-status"]').classes()).toContain(
-      'service-status--normal',
-    )
-    expect(wrapper.get('[data-test="home-health-available"]').attributes('data-state')).toBe(
-      'normal',
-    )
-    expect(wrapper.get('[data-test="home-health-cooldown"]').attributes('data-state')).toBe(
-      'anomaly',
-    )
-    expect(wrapper.get('[data-test="home-health-cooldown"]').find('svg').exists()).toBe(true)
-    expect(wrapper.get('[data-test="home-health-blacklisted"]').attributes('data-state')).toBe(
-      'normal',
-    )
-    expect(wrapper.get('[data-test="home-health-disabled"]').attributes('data-state')).toBe(
-      'normal',
-    )
-    expect(wrapper.text()).toContain('可用 1')
-    expect(wrapper.text()).toContain('冷却 1')
-    expect(wrapper.text()).toContain('修订 8')
-    expect(wrapper.text()).toContain('最近 24 小时')
-    expect(wrapper.text()).not.toMatch(/健康率|吞吐|趋势/)
-    expect(wrapper.find('[data-test="usage-sparkline"]').exists()).toBe(false)
-    expect(wrapper.html()).not.toContain('ACCESS_KEY_CANARY')
+    const warning = wrapper.get('[data-test="home-pipeline-warning"]')
+    expect(warning.text()).toContain('丢弃 3')
+    expect(warning.text()).toContain('写入失败 2')
+    expect(warning.text()).not.toContain('9')
   })
 
-  it('shows first-run actions and a model placeholder without invented configuration', async () => {
+  it('requests explicit cost order for 24h and changes canonical identity for 30d', async () => {
     const api = new FakeApi()
-    api.when('/api/groups').resolve([])
-    api.when('/api/health').resolve({ ...healthFixture, groups: [] })
-    api.when('/api/access-keys/options').resolve([])
+    configureNormal(api)
+    api.when(usage30Path).resolve(usage('30d'))
+    const { wrapper } = await mountHome(api)
 
-    const wrapper = await mountHome(api)
+    const range30d = wrapper.get('[data-segment-value="30d"]')
+    await range30d.trigger('mousedown', { button: 0, ctrlKey: false })
+    await range30d.trigger('click')
+    await flushPromises()
 
-    expect(wrapper.get('[href="/import"]').text()).toContain('导入上游密钥')
-    expect(wrapper.get('[href="/access-keys"]').text()).toContain('创建 AccessKey')
-    expect(wrapper.text()).toContain('<MODEL_ID>')
+    expect(api.requests.some(({ path }) => path === usage24Path)).toBe(true)
+    expect(api.requests.some(({ path }) => path === usage30Path)).toBe(true)
+    expect(wrapper.get('[data-segment-value="30d"]').attributes('aria-selected')).toBe('true')
+  })
+
+  it('refetches each Home resource only when visibility returns', async () => {
+    const originalHidden = Object.getOwnPropertyDescriptor(document, 'hidden')
+    let hidden = false
+    Object.defineProperty(document, 'hidden', {
+      configurable: true,
+      get: () => hidden,
+    })
+    const api = new FakeApi()
+    configureNormal(api)
+    const { wrapper } = await mountHome(api)
+    expect(api.requests).toHaveLength(3)
+
+    hidden = true
+    document.dispatchEvent(new Event('visibilitychange'))
+    await flushPromises()
+    expect(api.requests).toHaveLength(3)
+
+    hidden = false
+    document.dispatchEvent(new Event('visibilitychange'))
+    await flushPromises()
+    expect(api.requests).toHaveLength(6)
+
+    wrapper.unmount()
+    if (originalHidden) Object.defineProperty(document, 'hidden', originalHidden)
+  })
+
+  it('does not turn an inventory error into zero Groups or hide healthy usage', async () => {
+    const api = new FakeApi()
+    api.when('/api/groups').reject(new ApiError(500, 'INTERNAL_SERVER_ERROR', 'group-canary'))
+    api.when('/api/health').resolve(health())
+    api.when(usage24Path).resolve(usage())
+    const { wrapper } = await mountHome(api)
+
+    expect(wrapper.get('[data-test="home-inventory-error"]').text()).toContain(
+      '无法加载 Group 清单',
+    )
+    expect(wrapper.find('[data-test="home-zero-groups"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="home-success-rate"]').exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('group-canary')
+  })
+
+  it('keeps health and the placeholder when usage fails, and shows cached usage as stale', async () => {
+    const api = new FakeApi()
+    api.when('/api/groups').resolve([groupFixture])
+    api.when('/api/health').resolve(health())
+    api.when(usage24Path).reject(new ApiError(500, 'INTERNAL_SERVER_ERROR', 'usage-canary'))
+    const emptyClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const failed = await mountHome(api, emptyClient)
+
+    expect(failed.wrapper.get('[data-test="home-usage-error"]').text()).toContain(
+      '无法加载用量数据',
+    )
+    expect(failed.wrapper.find('[data-test="home-lede"]').exists()).toBe(true)
+    expect(failed.wrapper.find('[data-test="home-connection-placeholder"]').exists()).toBe(true)
+    expect(failed.wrapper.text()).not.toContain('usage-canary')
+    failed.wrapper.unmount()
+
+    const staleApi = new FakeApi()
+    staleApi.when('/api/groups').resolve([groupFixture])
+    staleApi.when('/api/health').resolve(health())
+    staleApi
+      .when(usage24Path)
+      .reject(new ApiError(500, 'INTERNAL_SERVER_ERROR', 'usage-stale-canary'))
+    const staleClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    staleClient.setQueryData(
+      controlQueryKeys.usage.report({ range: '24h', breakdown_order: 'cost' }),
+      usage(),
+    )
+    const stale = await mountHome(staleApi, staleClient)
+
+    expect(stale.wrapper.get('[data-test="home-usage-stale"]').text()).toContain(
+      '用量数据可能已过期',
+    )
+    expect(stale.wrapper.find('[data-test="home-success-rate"]').exists()).toBe(true)
   })
 })
