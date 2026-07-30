@@ -28,8 +28,8 @@ withDefaults(
 <style scoped>
 .icon-button {
   display: inline-flex;
-  width: 44px;
-  height: 44px;
+  width: var(--control-md);
+  height: var(--control-md);
   align-items: center;
   justify-content: center;
   border: 1px solid var(--color-border-control);
@@ -38,18 +38,21 @@ withDefaults(
   color: var(--color-text-muted);
   cursor: pointer;
   transition:
-    color var(--duration-fast) ease,
-    background-color var(--duration-fast) ease;
+    color var(--duration-fast) var(--easing-standard),
+    border-color var(--duration-fast) var(--easing-standard),
+    background-color var(--duration-fast) var(--easing-standard),
+    opacity var(--duration-fast) var(--easing-standard);
 }
 
 .icon-button:hover:not(:disabled) {
+  border-color: var(--color-text-faint);
   background: var(--color-surface-sunken);
   color: var(--color-text);
 }
 
 .icon-button:disabled {
   cursor: not-allowed;
-  opacity: 0.6;
+  opacity: 0.55;
 }
 
 .icon-button--danger {

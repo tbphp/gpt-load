@@ -19,11 +19,18 @@ interface SelectOption {
 
 defineOptions({ inheritAttrs: false })
 
-defineProps<{
-  modelValue?: string
-  label: string
-  options: SelectOption[]
-}>()
+const props = withDefaults(
+  defineProps<{
+    modelValue?: string
+    label: string
+    options: SelectOption[]
+    disabled?: boolean
+  }>(),
+  {
+    modelValue: undefined,
+    disabled: false,
+  },
+)
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
 const attrs = useAttrs()
 </script>
@@ -31,9 +38,15 @@ const attrs = useAttrs()
 <template>
   <SelectRoot
     :model-value="modelValue"
+    :disabled="props.disabled"
     @update:model-value="(value) => typeof value === 'string' && emit('update:modelValue', value)"
   >
-    <SelectTrigger v-bind="attrs" class="app-select__trigger" :aria-label="label">
+    <SelectTrigger
+      v-bind="attrs"
+      class="app-select__trigger"
+      :aria-label="label"
+      :disabled="props.disabled"
+    >
       <SelectValue class="app-select__value" />
       <ChevronDown class="app-select__chevron" :size="16" aria-hidden="true" />
     </SelectTrigger>
@@ -60,7 +73,7 @@ const attrs = useAttrs()
 .app-select__trigger {
   display: inline-flex;
   min-width: 126px;
-  min-height: 44px;
+  min-height: var(--control-md);
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
@@ -71,6 +84,18 @@ const attrs = useAttrs()
   padding: 8px 10px;
   font: inherit;
   cursor: pointer;
+  transition:
+    color var(--duration-fast) var(--easing-standard),
+    border-color var(--duration-fast) var(--easing-standard),
+    background-color var(--duration-fast) var(--easing-standard),
+    opacity var(--duration-fast) var(--easing-standard);
+}
+.app-select__trigger:hover:not([data-disabled]) {
+  border-color: var(--color-text-faint);
+}
+.app-select__trigger[data-disabled] {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 .app-select__value {
   min-width: 0;
@@ -86,7 +111,7 @@ const attrs = useAttrs()
   max-width: var(--reka-select-content-available-width);
   max-height: min(320px, var(--reka-select-content-available-height));
   overflow-y: auto;
-  border: 1px solid var(--color-border-subtle);
+  border: 1px solid var(--color-border-control);
   border-radius: var(--radius-control);
   background: var(--color-surface);
   padding: var(--space-1);
@@ -109,6 +134,10 @@ const attrs = useAttrs()
 }
 .app-select__item[data-highlighted] {
   background: var(--color-surface-sunken);
+}
+.app-select__item[data-disabled] {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 .app-select__indicator {
   position: absolute;

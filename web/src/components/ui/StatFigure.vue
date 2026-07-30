@@ -25,21 +25,20 @@ defineProps<{
   color: var(--color-text-faint);
   font-size: var(--text-sm);
   font-weight: 400;
-  letter-spacing: 0.025em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 .stat-figure__value {
   color: var(--color-text);
   font-family: var(--font-serif);
-  font-size: clamp(2.25rem, 4vw, 3rem);
+  font-size: var(--stat-value);
   font-weight: 400;
-  letter-spacing: -0.035em;
+  letter-spacing: -0.02em;
   line-height: 1;
 }
 .stat-figure__detail {
   color: var(--color-text-faint);
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
+  font-size: var(--text-meta);
   font-weight: 400;
 }
 </style>

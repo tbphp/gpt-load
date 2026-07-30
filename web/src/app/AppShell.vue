@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Activity, House, KeyRound, LogOut, Menu, Settings, Upload } from '@lucide/vue'
+import { Activity, House, KeyRound, Menu, Settings } from '@lucide/vue'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { isNavigationFailure, RouterLink, useRoute, useRouter } from 'vue-router'
@@ -116,18 +116,18 @@ watch(
 
       <div class="shell-actions">
         <RouterLink class="button-link import-action" :to="importLocation()">
-          <Upload :size="16" aria-hidden="true" />{{ t('shell.import') }}
+          <KeyRound :size="15" aria-hidden="true" />
+          <span class="import-action__label">{{ t('shell.import') }}</span>
         </RouterLink>
         <PreferencesControl
           compact
+          show-sign-out
           :locale="currentLocale"
           :theme="theme.theme.value"
           @update:locale="setLocale"
           @update:theme="theme.setTheme"
+          @sign-out="logout"
         />
-        <IconButton class="logout-action" :label="t('shell.signOut')" @click="logout">
-          <LogOut :size="18" aria-hidden="true" />
-        </IconButton>
 
         <AppDrawer
           v-model:open="drawerOpen"
@@ -158,24 +158,18 @@ watch(
               :to="importLocation()"
               @click="drawerOpen = false"
             >
-              <Upload :size="18" aria-hidden="true" />{{ t('shell.import') }}
+              <KeyRound :size="18" aria-hidden="true" />{{ t('shell.import') }}
             </RouterLink>
           </nav>
           <div class="mobile-preferences">
             <PreferencesControl
+              show-sign-out
               :locale="currentLocale"
               :theme="theme.theme.value"
               @update:locale="setLocale"
               @update:theme="theme.setTheme"
+              @sign-out="logout"
             />
-            <button
-              class="mobile-sign-out"
-              type="button"
-              :aria-label="t('shell.signOut')"
-              @click="logout"
-            >
-              <LogOut :size="18" aria-hidden="true" />{{ t('shell.signOut') }}
-            </button>
           </div>
         </AppDrawer>
       </div>
@@ -191,53 +185,38 @@ watch(
 .app-shell {
   min-height: 100vh;
 }
-.skip-link {
-  position: fixed;
-  z-index: var(--z-skip-link);
-  top: var(--space-2);
-  left: var(--space-2);
-  transform: translateY(-160%);
-  border-radius: var(--radius-control);
-  background: var(--color-action);
-  color: var(--color-text-inverse);
-  padding: var(--space-2) var(--space-3);
-}
-.skip-link:focus {
-  transform: translateY(0);
-}
 .app-topbar {
   position: sticky;
   z-index: var(--z-sticky);
   top: 0;
   display: flex;
-  min-height: 64px;
+  height: var(--topbar-height);
   align-items: center;
-  gap: 40px;
+  gap: 28px;
   border-bottom: 1px solid var(--color-border-subtle);
   background: var(--color-surface);
-  padding: 0 var(--space-8);
+  padding: 0 var(--topbar-padding-inline);
 }
 .brand {
   display: inline-flex;
   min-height: 44px;
   align-items: center;
-  gap: var(--space-3);
+  gap: 9px;
   font-family: var(--font-serif);
-  font-size: 1.25rem;
-  font-weight: 500;
-  letter-spacing: -0.02em;
+  font-size: var(--title-section);
+  font-weight: 400;
+  letter-spacing: -0.01em;
 }
 .brand-mark {
-  width: 8px;
-  height: 24px;
-  flex: 0 0 8px;
-  border-radius: 1px;
+  width: 7px;
+  height: 18px;
+  flex: 0 0 7px;
   background: var(--color-action);
 }
 .desktop-nav {
   display: flex;
   align-items: center;
-  gap: var(--space-7);
+  gap: var(--space-5);
 }
 .desktop-nav :deep(svg) {
   display: none;
@@ -247,10 +226,10 @@ watch(
   min-height: 44px;
   align-items: center;
   gap: var(--space-2);
-  border-bottom: 2px solid transparent;
+  border-bottom: 1.5px solid transparent;
   color: var(--color-text-muted);
   padding: var(--space-2) 2px;
-  font-size: 0.9375rem;
+  font-size: 13px;
   font-weight: 400;
   transition:
     color var(--duration-fast) var(--easing-standard),
@@ -263,8 +242,8 @@ watch(
 }
 .nav-link.router-link-active,
 .nav-link--active {
-  border-bottom-color: var(--color-action);
-  font-weight: 600;
+  border-bottom-color: var(--color-text);
+  font-weight: 560;
 }
 .shell-actions {
   display: flex;
@@ -276,20 +255,18 @@ watch(
   gap: var(--space-2);
 }
 .import-action {
-  min-height: 34px;
-  border: 0;
-  background: transparent;
-  color: var(--color-action);
-  padding: var(--space-1) var(--space-2);
-  font-size: var(--text-md);
-  font-weight: 500;
+  min-height: var(--control-compact);
+  gap: 6px;
+  border: 1px solid var(--color-action);
+  background: var(--color-action);
+  color: var(--color-action-ink);
+  padding: 0 9px;
+  font-size: var(--text-meta);
+  font-weight: 560;
 }
 .shell-actions :deep(.icon-button) {
-  width: 36px;
-  height: 36px;
-  border: 0;
-  border-radius: 50%;
-  background: transparent;
+  width: var(--control-compact);
+  height: var(--control-compact);
 }
 .shell-actions :deep(.icon-button:hover:not(:disabled)) {
   background: var(--color-surface-sunken);
@@ -306,8 +283,7 @@ watch(
   display: grid;
   gap: var(--space-1);
 }
-.mobile-nav__link,
-.mobile-sign-out {
+.mobile-nav__link {
   display: flex;
   min-height: 48px;
   align-items: center;
@@ -328,7 +304,11 @@ watch(
 .mobile-nav__link--primary {
   margin-top: var(--space-3);
   background: var(--color-action);
-  color: var(--color-text-inverse);
+  color: var(--color-action-ink);
+}
+.mobile-nav__link--primary.router-link-active {
+  background: var(--color-action);
+  color: var(--color-action-ink);
 }
 .mobile-preferences {
   display: grid;
@@ -337,10 +317,19 @@ watch(
   border-top: 1px solid var(--color-border-subtle);
   padding-top: var(--space-5);
 }
-@media (max-width: 1199px) {
+@media (max-width: 860px) {
+  .app-topbar {
+    padding-inline: var(--space-4);
+  }
   .desktop-nav,
-  .import-action,
-  .logout-action {
+  .shell-actions :deep(.preferences-control--compact) {
+    display: none;
+  }
+  .import-action {
+    width: var(--control-compact);
+    padding: 0;
+  }
+  .import-action__label {
     display: none;
   }
   .mobile-menu-trigger {
@@ -348,9 +337,6 @@ watch(
   }
 }
 @media (max-width: 767px) {
-  .app-topbar {
-    padding-inline: var(--space-5);
-  }
   .app-content {
     width: min(calc(100% - 32px), var(--content-max));
     padding-top: var(--space-5);

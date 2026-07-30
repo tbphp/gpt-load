@@ -4,6 +4,7 @@ import { RouterView } from 'vue-router'
 import AppShell from '@/app/AppShell.vue'
 import AuthGate from '@/app/AuthGate.vue'
 import RouteAnnouncer from '@/app/RouteAnnouncer.vue'
+import PublicShell from '@/components/layout/PublicShell.vue'
 </script>
 
 <template>
@@ -14,6 +15,8 @@ import RouteAnnouncer from '@/app/RouteAnnouncer.vue'
         <component :is="Component" />
       </AppShell>
     </AuthGate>
-    <component :is="Component" v-else />
+    <PublicShell v-else>
+      <component :is="Component" />
+    </PublicShell>
   </RouterView>
 </template>

@@ -28,7 +28,11 @@ async function bootstrap(): Promise<void> {
       return undefined
     }
   }
-  const appI18n = await createAppI18n(getBrowserStorage('localStorage'), navigator.language)
+  const appI18n = await createAppI18n(
+    getBrowserStorage('localStorage'),
+    navigator.languages,
+    navigator.language,
+  )
   const importRecovery = createImportRecoveryService({
     storage: getBrowserStorage('sessionStorage'),
     now: Date.now,

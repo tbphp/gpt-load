@@ -74,7 +74,7 @@ function handleSegmentKeydown(event: KeyboardEvent): void {
 }
 .segmented-control__list {
   display: inline-grid;
-  grid-auto-columns: minmax(56px, 1fr);
+  grid-auto-columns: minmax(48px, 1fr);
   grid-auto-flow: column;
   overflow: hidden;
   border: 1px solid var(--color-border-strong);
@@ -82,25 +82,31 @@ function handleSegmentKeydown(event: KeyboardEvent): void {
   background: var(--color-surface);
 }
 .segmented-control__trigger {
-  min-height: var(--control-sm);
+  min-height: var(--control-compact);
   border: 0;
   border-right: 1px solid var(--color-border-strong);
   background: transparent;
   color: var(--color-text-muted);
-  padding: var(--space-2) var(--space-3);
+  padding: 6px 12px;
   font: inherit;
-  font-weight: 650;
+  font-size: var(--text-sm);
+  font-weight: 400;
   cursor: pointer;
+  transition:
+    color var(--duration-fast) var(--easing-standard),
+    background-color var(--duration-fast) var(--easing-standard),
+    opacity var(--duration-fast) var(--easing-standard);
 }
 .segmented-control__trigger:last-child {
   border-right: 0;
 }
 .segmented-control__trigger[data-state='active'] {
   background: var(--color-text);
-  color: var(--color-text-inverse);
+  color: var(--color-surface);
+  font-weight: 560;
 }
 .segmented-control__trigger:disabled {
-  color: var(--color-disabled);
   cursor: not-allowed;
+  opacity: 0.55;
 }
 </style>
