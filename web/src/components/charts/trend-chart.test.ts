@@ -26,6 +26,10 @@ describe('buildTrendGeometry', () => {
 
     expect(geometry.requestPath).toBe('M 0 60 L 100 60')
     expect(geometry.requestAreaPath).toBe('M 0 60 L 0 60 L 100 60 L 100 60 Z')
+    expect(geometry.requests).toEqual([
+      { x: 0, y: 60, value: 0 },
+      { x: 100, y: 60, value: 0 },
+    ])
     expect(geometry.failures).toEqual([
       { x: 0, height: 0, value: 0 },
       { x: 100, height: 0, value: 0 },
@@ -37,6 +41,7 @@ describe('buildTrendGeometry', () => {
     const geometry = buildTrendGeometry([datum('2026-07-29T00:00:00.000Z', 8, 2)], 120, 80, 24)
 
     expect(geometry.requestPath).toBe('M 60 0')
+    expect(geometry.requests).toEqual([{ x: 60, y: 0, value: 8 }])
     expect(geometry.failures).toEqual([{ x: 60, height: 24, value: 2 }])
   })
 

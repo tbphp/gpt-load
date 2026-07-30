@@ -1,11 +1,18 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, useId } from 'vue'
 
-defineProps<{
-  caption: string
-  dense?: boolean
-  scrollHint?: string
-}>()
+withDefaults(
+  defineProps<{
+    caption: string
+    dense?: boolean
+    scrollHint?: string
+    appearance?: 'card' | 'editorial'
+  }>(),
+  {
+    appearance: 'card',
+    scrollHint: undefined,
+  },
+)
 
 const container = ref<HTMLElement | null>(null)
 const table = ref<HTMLTableElement | null>(null)
@@ -40,7 +47,10 @@ onBeforeUnmount(() => {
     ref="container"
     data-table-scroll
     class="data-table__container"
-    :class="{ 'data-table__container--dense': dense }"
+    :class="{
+      'data-table__container--dense': dense,
+      'data-table__container--editorial': appearance === 'editorial',
+    }"
     :tabindex="overflowing ? 0 : undefined"
     :aria-label="overflowing ? caption : undefined"
     :aria-describedby="overflowing && scrollHint ? scrollHintId : undefined"
@@ -66,6 +76,12 @@ onBeforeUnmount(() => {
   background: var(--color-surface);
   box-shadow: var(--shadow-card);
   overscroll-behavior-inline: contain;
+}
+.data-table__container--editorial {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 .data-table {
   width: max-content;
@@ -93,13 +109,29 @@ onBeforeUnmount(() => {
 .data-table :deep(tbody tr:last-child td) {
   border-bottom: 0;
 }
-.data-table :deep(th:first-child),
-.data-table :deep(td:first-child) {
+.data-table__container--editorial .data-table :deep(th) {
+  background: transparent;
+  color: var(--color-text-faint);
+  padding-block: var(--space-2);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: none;
+}
+.data-table__container--editorial .data-table :deep(td) {
+  padding-block: var(--space-3);
+}
+.data-table :deep(:is(th, td):first-child) {
   padding-left: var(--space-4);
 }
-.data-table :deep(th:last-child),
-.data-table :deep(td:last-child) {
+.data-table :deep(:is(th, td):last-child) {
   padding-right: var(--space-4);
+}
+.data-table__container--editorial .data-table :deep(:is(th, td):first-child) {
+  padding-left: 0;
+}
+.data-table__container--editorial .data-table :deep(:is(th, td):last-child) {
+  padding-right: 0;
 }
 
 .data-table :deep([data-column-priority='high']) {

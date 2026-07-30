@@ -3,7 +3,6 @@ import { CircleCheck, CircleHelp, RefreshCw, TriangleAlert } from '@lucide/vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import AppDateTime from '@/components/ui/AppDateTime.vue'
 import SkeletonBlock from '@/components/ui/SkeletonBlock.vue'
 
 import type { HomeHealthState } from './home-presenter'
@@ -41,22 +40,41 @@ const tone = computed<'normal' | 'warning' | 'neutral'>(() => {
   if (props.state.kind === 'problem') return 'warning'
   return 'neutral'
 })
+const titleParameters = computed(() => ({
+  groups: normalGroupCount.value,
+  problems: problemGroupCount.value,
+  available: health.value?.counts.available ?? 0,
+  total: health.value?.counts.total ?? 0,
+}))
+const problemTitle = computed(() => {
+  if (props.state.kind !== 'problem') return undefined
+  return {
+    normal: t('home.lede.problemNormal', titleParameters.value),
+    emphasis: t('home.lede.problemEmphasis', titleParameters.value),
+    availability: t('home.lede.problemAvailability', titleParameters.value),
+  }
+})
 const title = computed(() => {
   const report = health.value
   if (props.state.kind === 'unknown' || props.state.kind === 'loading' || report === undefined) {
     return t('home.lede.unknownTitle')
   }
-  const parameters = {
-    groups: normalGroupCount.value,
-    problems: problemGroupCount.value,
-    available: report.counts.available,
-    total: report.counts.total,
-  }
+  const parameters = titleParameters.value
   if (props.state.kind === 'normal') return t('home.lede.normal', parameters)
-  if (props.state.kind === 'problem') return t('home.lede.problem', parameters)
+  if (props.state.kind === 'problem') return ''
   return problemGroupCount.value > 0
     ? t('home.lede.staleProblem', parameters)
     : t('home.lede.staleNormal', parameters)
+})
+const observedTime = computed(() => {
+  const report = health.value
+  if (report === undefined) return ''
+  return new Intl.DateTimeFormat(locale.value, {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  }).format(new Date(report.observed_at))
 })
 </script>
 
@@ -79,7 +97,14 @@ const title = computed(() => {
           {{ t('home.lede.currentStatus') }} ·
           <time :datetime="observedDate">{{ observedDate }}</time>
         </p>
-        <h1>{{ title }}</h1>
+        <h1 v-if="problemTitle">
+          {{ problemTitle.normal
+          }}<span class="home-lede__problem-emphasis" data-test="home-lede-problem-emphasis">{{
+            problemTitle.emphasis
+          }}</span
+          >{{ problemTitle.availability }}
+        </h1>
+        <h1 v-else>{{ title }}</h1>
         <p v-if="state.kind === 'unknown'" class="home-lede__description">
           {{ t('home.lede.unknownDescription') }}
         </p>
@@ -91,7 +116,9 @@ const title = computed(() => {
       <aside v-if="health" class="home-lede__stamp" :aria-label="t('home.lede.observation')">
         <span>
           {{ t('home.lede.observedAt') }}
-          <AppDateTime :instant="health.observed_at" :locale="locale" />
+          <time data-test="home-observed-time" :datetime="health.observed_at">
+            {{ observedTime }}
+          </time>
         </span>
         <span>{{ t('home.lede.revision', { revision: health.snapshot_revision }) }}</span>
       </aside>
@@ -117,7 +144,7 @@ const title = computed(() => {
   align-items: end;
   gap: var(--space-6);
   border-bottom: 1px solid var(--color-border-strong);
-  padding: var(--space-5) 0 var(--space-6);
+  padding: var(--space-2) 0 var(--space-7);
 }
 .home-lede__content {
   min-width: 0;
@@ -132,28 +159,37 @@ const title = computed(() => {
   font-size: var(--text-sm);
   letter-spacing: 0.05em;
 }
+.home-lede__eyebrow svg {
+  border-radius: 50%;
+}
 .home-lede--normal .home-lede__eyebrow svg {
+  background: var(--color-success-bg);
   color: var(--color-success);
+  box-shadow: 0 0 0 3px var(--color-success-bg);
 }
 .home-lede--warning .home-lede__eyebrow svg {
+  background: var(--color-warning-bg);
   color: var(--color-warning);
+  box-shadow: 0 0 0 3px var(--color-warning-bg);
 }
 .home-lede--neutral .home-lede__eyebrow svg {
+  background: var(--color-neutral-bg);
   color: var(--color-neutral);
+  box-shadow: 0 0 0 3px var(--color-neutral-bg);
 }
 .home-lede h1 {
   max-width: 34ch;
   font-family: var(--font-serif);
-  font-size: clamp(2rem, 4vw, 3.35rem);
+  font-size: clamp(2rem, 2.5vw, 2.25rem);
   font-weight: 500;
   letter-spacing: -0.035em;
   line-height: 1.14;
 }
-.home-lede--warning h1 {
-  text-decoration-color: var(--color-warning);
-  text-decoration-line: underline;
-  text-decoration-thickness: 0.08em;
-  text-underline-offset: 0.12em;
+.home-lede__problem-emphasis {
+  color: var(--color-warning);
+}
+.home-lede--neutral h1 {
+  color: var(--color-text-muted);
 }
 .home-lede__description {
   max-width: 68ch;

@@ -3,26 +3,83 @@ import { computed, useId } from 'vue'
 
 import { buildTrendGeometry, type TrendDatum } from './trend-chart'
 
-const props = defineProps<{
-  series: readonly TrendDatum[]
-  title: string
-  description: string
-  emptyLabel: string
-  requestLabel: string
-  failureLabel: string
-}>()
+const props = withDefaults(
+  defineProps<{
+    series: readonly TrendDatum[]
+    title: string
+    description: string
+    emptyLabel: string
+    requestLabel: string
+    failureLabel: string
+    locale?: string
+    nowLabel?: string
+    rateSuffix?: string
+    failureStripLabel?: string
+  }>(),
+  {
+    locale: 'en-US',
+    nowLabel: 'Now',
+    rateSuffix: '',
+    failureStripLabel: '',
+  },
+)
 
 const width = 1000
-const requestHeight = 220
-const chartGap = 28
-const failureHeight = 40
-const viewHeight = requestHeight + chartGap + failureHeight
+const requestHeight = 180
+const failureHeight = 28
 const titleID = `trend-chart-title-${useId()}`
 const descriptionID = `trend-chart-description-${useId()}`
 const geometry = computed(() =>
   buildTrendGeometry(props.series, width, requestHeight, failureHeight),
 )
 const lastBucket = computed(() => props.series.at(-1))
+const lastPoint = computed(() => geometry.value.requests.at(-1))
+const timeAxis = computed(() => {
+  const first = props.series[0]
+  const last = props.series.at(-1)
+  if (first === undefined || last === undefined) return null
+  const start = Date.parse(first.bucket_start)
+  const end = Date.parse(last.bucket_end)
+  const middle = start + (end - start) / 2
+  const dateStyle = end - start >= 3 * 24 * 60 * 60 * 1000
+  const formatter = new Intl.DateTimeFormat(
+    props.locale,
+    dateStyle
+      ? { month: 'short', day: 'numeric', timeZone: 'UTC' }
+      : {
+          hour: '2-digit',
+          minute: '2-digit',
+          hourCycle: 'h23',
+          timeZone: 'UTC',
+        },
+  )
+  return {
+    start: formatter.format(start),
+    startInstant: first.bucket_start,
+    middle: formatter.format(middle),
+    middleInstant: new Date(middle).toISOString(),
+  }
+})
+const effectiveRateSuffix = computed(() => {
+  if (props.rateSuffix.length > 0) return props.rateSuffix
+  const last = lastBucket.value
+  if (last === undefined) return ''
+  const bucketDuration = Date.parse(last.bucket_end) - Date.parse(last.bucket_start)
+  return bucketDuration >= 12 * 60 * 60 * 1000 ? '/d' : '/h'
+})
+const lastRate = computed(() => {
+  const last = lastBucket.value
+  if (last === undefined) return ''
+  return `${new Intl.NumberFormat(props.locale).format(last.request_count)}${effectiveRateSuffix.value}`
+})
+const lastValueStyle = computed(() => {
+  const point = lastPoint.value
+  if (point === undefined) return undefined
+  return {
+    left: `${Math.max(8, Math.min(98, (point.x / width) * 100))}%`,
+    top: `${Math.max(12, Math.min(96, (point.y / requestHeight) * 100))}%`,
+  }
+})
 const failureBars = computed(() => {
   const count = Math.max(props.series.length, 1)
   const barWidth = Math.max(3, Math.min(10, width / count / 3))
@@ -32,14 +89,8 @@ const failureBars = computed(() => {
       ...failure,
       width: barWidth,
       x: Math.max(0, Math.min(width - barWidth, failure.x - barWidth / 2)),
-      y: requestHeight + chartGap + failureHeight - failure.height,
+      y: failureHeight - failure.height,
     }))
-})
-const singleMarker = computed(() => {
-  if (props.series.length !== 1) return null
-  const match = /^M ([\d.]+) ([\d.]+)$/.exec(geometry.value.requestPath)
-  if (match === null) return null
-  return { x: Number(match[1]), y: Number(match[2]) }
 })
 </script>
 
@@ -53,47 +104,75 @@ const singleMarker = computed(() => {
     {{ emptyLabel }}
   </p>
   <figure v-else class="trend-chart">
-    <svg
-      class="trend-chart__graphic"
-      role="img"
-      :aria-labelledby="`${titleID} ${descriptionID}`"
-      :viewBox="`0 0 ${width} ${viewHeight}`"
-      preserveAspectRatio="none"
-    >
-      <title :id="titleID">{{ title }}</title>
-      <desc :id="descriptionID">{{ description }}</desc>
-      <g class="trend-chart__grid" aria-hidden="true">
-        <line
-          v-for="lineY in [0, requestHeight / 2, requestHeight]"
-          :key="lineY"
-          x1="0"
-          :y1="lineY"
-          :x2="width"
-          :y2="lineY"
+    <div class="trend-chart__request-frame">
+      <svg
+        class="trend-chart__request-graphic"
+        role="img"
+        :aria-labelledby="`${titleID} ${descriptionID}`"
+        :viewBox="`0 0 ${width} ${requestHeight}`"
+        preserveAspectRatio="none"
+      >
+        <title :id="titleID">{{ title }}</title>
+        <desc :id="descriptionID">{{ description }}</desc>
+        <g class="trend-chart__grid" aria-hidden="true">
+          <line
+            v-for="lineY in [0, requestHeight / 2, requestHeight]"
+            :key="lineY"
+            x1="0"
+            :y1="lineY"
+            :x2="width"
+            :y2="lineY"
+          />
+        </g>
+        <path
+          class="trend-chart__area"
+          data-test="trend-request-area"
+          :d="geometry.requestAreaPath"
+          aria-hidden="true"
         />
-      </g>
-      <path
-        class="trend-chart__area"
-        data-test="trend-request-area"
-        :d="geometry.requestAreaPath"
+        <path
+          class="trend-chart__line"
+          data-test="trend-request-path"
+          :d="geometry.requestPath"
+          aria-hidden="true"
+        />
+        <circle
+          v-if="lastPoint"
+          class="trend-chart__marker"
+          data-test="trend-request-marker"
+          :cx="lastPoint.x"
+          :cy="lastPoint.y"
+          r="5"
+          aria-hidden="true"
+        />
+      </svg>
+      <span
+        v-if="lastBucket"
+        class="trend-chart__last-value"
+        data-test="trend-last-value"
+        :style="lastValueStyle"
+        :aria-label="`${requestLabel} ${lastRate}`"
+      >
+        {{ lastRate }}
+      </span>
+    </div>
+
+    <figcaption v-if="timeAxis" class="trend-chart__axis" data-test="trend-time-axis">
+      <time :datetime="timeAxis.startInstant">{{ timeAxis.start }}</time>
+      <time :datetime="timeAxis.middleInstant">{{ timeAxis.middle }}</time>
+      <span>{{ nowLabel }}</span>
+    </figcaption>
+
+    <div class="trend-chart__failure-strip">
+      <span class="trend-chart__failure-label" data-test="trend-failure-label">
+        {{ failureStripLabel || failureLabel }}
+      </span>
+      <svg
+        class="trend-chart__failure-graphic"
+        :viewBox="`0 0 ${width} ${failureHeight}`"
+        preserveAspectRatio="none"
         aria-hidden="true"
-      />
-      <path
-        class="trend-chart__line"
-        data-test="trend-request-path"
-        :d="geometry.requestPath"
-        aria-hidden="true"
-      />
-      <circle
-        v-if="singleMarker"
-        class="trend-chart__marker"
-        data-test="trend-request-marker"
-        :cx="singleMarker.x"
-        :cy="singleMarker.y"
-        r="5"
-        aria-hidden="true"
-      />
-      <g class="trend-chart__failures" aria-hidden="true">
+      >
         <rect
           v-for="(bar, index) in failureBars"
           :key="`${bar.x}:${index}`"
@@ -104,17 +183,8 @@ const singleMarker = computed(() => {
           :height="bar.height"
           rx="1"
         />
-      </g>
-    </svg>
-    <figcaption v-if="lastBucket" class="trend-chart__caption" data-test="trend-last-bucket">
-      <time :datetime="lastBucket.bucket_end">{{ lastBucket.bucket_end }}</time>
-      <span
-        >{{ requestLabel }} <strong>{{ lastBucket.request_count }}</strong></span
-      >
-      <span class="trend-chart__failure-caption">
-        {{ failureLabel }} <strong>{{ lastBucket.failure_count }}</strong>
-      </span>
-    </figcaption>
+      </svg>
+    </div>
   </figure>
 </template>
 
@@ -122,14 +192,19 @@ const singleMarker = computed(() => {
 .trend-chart {
   display: grid;
   min-width: 0;
-  gap: var(--space-3);
   margin: 0;
+  padding-bottom: var(--space-2);
 }
-.trend-chart__graphic {
+.trend-chart__request-frame {
+  position: relative;
+}
+.trend-chart__request-graphic,
+.trend-chart__failure-graphic {
   display: block;
   width: 100%;
-  min-height: 220px;
-  max-height: 320px;
+}
+.trend-chart__request-graphic {
+  height: 185px;
 }
 .trend-chart__grid line {
   stroke: var(--color-border-subtle);
@@ -137,7 +212,7 @@ const singleMarker = computed(() => {
   vector-effect: non-scaling-stroke;
 }
 .trend-chart__area {
-  fill: var(--color-action-soft);
+  fill: color-mix(in srgb, var(--color-action) 12%, var(--color-canvas));
 }
 .trend-chart__line {
   fill: none;
@@ -153,41 +228,58 @@ const singleMarker = computed(() => {
   stroke-width: 2;
   vector-effect: non-scaling-stroke;
 }
-.trend-chart__failures rect {
-  fill: var(--color-danger);
+.trend-chart__last-value {
+  position: absolute;
+  transform: translate(-100%, calc(-100% - var(--space-2)));
+  background: var(--color-canvas);
+  color: var(--color-text);
+  padding: 0 var(--space-1);
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
 }
-.trend-chart__caption {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: var(--space-3);
-  color: var(--color-text-faint);
+.trend-chart__axis {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: var(--space-4);
+}
+.trend-chart__axis > :nth-child(2) {
+  text-align: center;
+}
+.trend-chart__axis > :last-child {
+  text-align: right;
+}
+.trend-chart__failure-strip {
+  position: relative;
+  height: 36px;
+  margin-top: var(--space-1);
+}
+.trend-chart__failure-label {
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  left: 0;
+  background: var(--color-canvas);
+  padding-right: var(--space-3);
+}
+.trend-chart__last-value,
+.trend-chart__axis,
+.trend-chart__failure-label {
   font-family: var(--font-mono);
   font-size: var(--text-sm);
 }
-.trend-chart__caption time {
-  margin-right: auto;
-  overflow-wrap: anywhere;
+.trend-chart__axis,
+.trend-chart__failure-label {
+  color: var(--color-text-faint);
 }
-.trend-chart__caption strong {
-  color: var(--color-text);
+.trend-chart__failure-graphic {
+  height: 28px;
 }
-.trend-chart__failure-caption {
-  color: var(--color-danger);
+.trend-chart__failure-graphic rect {
+  fill: var(--color-danger);
 }
 .trend-chart__empty {
   margin: 0;
   color: var(--color-text-muted);
-}
-@media (max-width: 640px) {
-  .trend-chart__graphic {
-    min-height: 180px;
-  }
-  .trend-chart__caption {
-    align-items: flex-start;
-    flex-direction: column;
-  }
 }
 </style>

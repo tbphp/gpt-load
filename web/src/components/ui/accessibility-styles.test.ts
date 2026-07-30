@@ -23,6 +23,9 @@ describe('shared accessibility styles', () => {
     expect(baseStyles).toMatch(
       /:focus-visible\s*\{[\s\S]*outline: 2px solid var\(--color-focus\);[\s\S]*outline-offset: 2px;/,
     )
+    expect(baseStyles).toMatch(
+      /#main-content\[tabindex=['"]-1['"]\]:focus-visible,[\s\S]*main h1\[tabindex=['"]-1['"]\]:focus-visible\s*\{[\s\S]*outline: none;[\s\S]*box-shadow: none;/,
+    )
     expect(appDialog).toMatch(/max-height: calc\(100dvh - 32px\)/)
     expect(appDialog).toMatch(/\.app-dialog__body\s*\{[\s\S]*overflow-y: auto/)
   })

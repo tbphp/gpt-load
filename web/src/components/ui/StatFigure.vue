@@ -31,7 +31,7 @@ defineProps<{
 .stat-figure__value {
   color: var(--color-text);
   font-family: var(--font-serif);
-  font-size: clamp(2.25rem, 5vw, 3.5rem);
+  font-size: clamp(2.25rem, 4vw, 3rem);
   font-weight: 500;
   letter-spacing: -0.035em;
   line-height: 1;

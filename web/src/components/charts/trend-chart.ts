@@ -8,6 +8,7 @@ export interface TrendDatum {
 export interface TrendGeometry {
   requestPath: string
   requestAreaPath: string
+  requests: Array<{ x: number; y: number; value: number }>
   failures: Array<{ x: number; height: number; value: number }>
 }
 
@@ -16,6 +17,7 @@ interface TrendPoint {
   end: number
   x: number
   y: number
+  value: number
 }
 
 function round(value: number): number {
@@ -65,7 +67,7 @@ export function buildTrendGeometry(
   assertDimension(requestHeight)
   assertDimension(failureHeight)
   if (series.length === 0) {
-    return { requestPath: '', requestAreaPath: '', failures: [] }
+    return { requestPath: '', requestAreaPath: '', requests: [], failures: [] }
   }
 
   const parsed = series.map(parseDatum)
@@ -92,6 +94,7 @@ export function buildTrendGeometry(
           ? requestHeight
           : requestHeight - (datum.request_count / maximumRequests) * requestHeight,
       ),
+      value: datum.request_count,
     }
   })
 
@@ -117,5 +120,10 @@ export function buildTrendGeometry(
     value: datum.failure_count,
   }))
 
-  return { requestPath, requestAreaPath, failures }
+  return {
+    requestPath,
+    requestAreaPath,
+    requests: points.map(({ x, y, value }) => ({ x, y, value })),
+    failures,
+  }
 }

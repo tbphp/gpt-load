@@ -116,16 +116,24 @@ export default {
       empty: 'この期間に描画できるリクエスト推移はありません。',
       requests: 'リクエスト',
       failures: '失敗',
-      failureLink: '失敗リクエスト {count} 件',
+      now: '現在',
+      perHour: '/h',
+      perDay: '/d',
+      failureStripHourly: '失敗リクエスト · 1時間ごとの件数',
+      failureStripDaily: '失敗リクエスト · 1日ごとの件数',
+      failureLink: '失敗リクエスト',
     },
     lede: {
       currentStatus: '現在の状態',
       normal: '{groups} Group が正常稼働中で、{available}/{total} キーが利用可能です。',
       problem:
         '{groups} Group は正常で、{problems} Group にキー異常があります。{available}/{total} キーが利用可能です。',
+      problemNormal: '{groups} Group が正常稼働中で、',
+      problemEmphasis: '{problems} Group にキー異常：',
+      problemAvailability: '{available}/{total} キーが利用可能です。',
       unknownTitle: 'サービス状態を確認できません',
       unknownDescription:
-        '現在のヘルスリクエストが失敗しました。サービス停止を意味するものではありません。再試行して最新の観測を取得してください。',
+        'ネットワークリクエストの失敗によりヘルスチェックを一時的に利用できず、最新のサービス状態を取得できません。',
       staleNormal:
         '直近の観測では {groups} Group が正常で、{available}/{total} キーが利用可能でした。',
       staleProblem:
@@ -133,7 +141,7 @@ export default {
       staleDescription: '現在のヘルスチェックが失敗したため、この結論は古い可能性があります。',
       observation: 'ヘルス観測情報',
       observedAt: '観測',
-      revision: 'rev.{revision}',
+      revision: '設定バージョン rev.{revision}',
     },
     problems: {
       title: '確認が必要なキー',
@@ -142,6 +150,17 @@ export default {
       viewKeys: 'キーを表示',
       cooldown: '{count} キーがクールダウン中',
       blacklisted: '{count} キーがブラックリスト',
+      failureUnit: '回',
+      automaticRecovery: '自動回復',
+      probeRecovery: 'プローブで回復',
+      consecutiveFailures: '連続失敗',
+      failureCategory: '失敗分類',
+      statusCode: 'ステータスコード',
+      statusUnavailable: '不明',
+      recoversAt: '回復時刻',
+      validationProbe: '検証プローブ',
+      cooldownStatus: 'クールダウン中',
+      blacklistedStatus: 'ブラックリスト',
     },
     ranking: {
       title: 'コスト順位 · {range}',

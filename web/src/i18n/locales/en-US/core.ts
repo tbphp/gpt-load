@@ -116,16 +116,24 @@ export default {
       empty: 'There is no request trend to chart for this range.',
       requests: 'Requests',
       failures: 'Failures',
-      failureLink: '{count} failed requests',
+      now: 'Now',
+      perHour: '/h',
+      perDay: '/d',
+      failureStripHourly: 'Failed requests · hourly count',
+      failureStripDaily: 'Failed requests · daily count',
+      failureLink: 'Failed requests',
     },
     lede: {
       currentStatus: 'Current status',
       normal: '{groups} Groups are running normally; {available}/{total} keys are available.',
       problem:
         '{groups} Groups are normal; {problems} Groups have key exceptions. {available}/{total} keys are available.',
+      problemNormal: '{groups} Groups are running normally; ',
+      problemEmphasis: '{problems} Groups have key exceptions: ',
+      problemAvailability: '{available}/{total} keys are available.',
       unknownTitle: 'Unable to confirm service status',
       unknownDescription:
-        'The current health request failed; this does not mean the service is offline. Retry for a current observation.',
+        'The health check is temporarily unavailable because its network request failed. The latest service state cannot currently be observed.',
       staleNormal:
         'The latest observation showed {groups} normal Groups and {available}/{total} available keys.',
       staleProblem:
@@ -133,7 +141,7 @@ export default {
       staleDescription: 'The current health check failed, so this conclusion may be stale.',
       observation: 'Health observation',
       observedAt: 'Observed',
-      revision: 'rev.{revision}',
+      revision: 'Configuration rev.{revision}',
     },
     problems: {
       title: 'Keys requiring attention',
@@ -142,6 +150,17 @@ export default {
       viewKeys: 'View keys',
       cooldown: '{count} keys cooling down',
       blacklisted: '{count} keys blacklisted',
+      failureUnit: 'times',
+      automaticRecovery: 'automatic recovery',
+      probeRecovery: 'probe recovery',
+      consecutiveFailures: 'Consecutive failures',
+      failureCategory: 'Failure category',
+      statusCode: 'Status code',
+      statusUnavailable: 'Unknown',
+      recoversAt: 'Recovery time',
+      validationProbe: 'Validation probe',
+      cooldownStatus: 'Cooling down',
+      blacklistedStatus: 'Blacklisted',
     },
     ranking: {
       title: 'Cost ranking · {range}',

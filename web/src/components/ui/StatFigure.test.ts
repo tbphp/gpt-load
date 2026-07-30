@@ -1,6 +1,7 @@
 import { mount } from '@vue/test-utils'
 
 import StatFigure from './StatFigure.vue'
+import statFigureSource from './StatFigure.vue?raw'
 
 describe('StatFigure', () => {
   it('renders one label, primary value and optional detail without imposing a heading level', () => {
@@ -25,5 +26,12 @@ describe('StatFigure', () => {
 
     expect(wrapper.get('[data-stat-value]').text()).toBe('14')
     expect(wrapper.find('[data-stat-detail]').exists()).toBe(false)
+  })
+
+  it('caps the Ledger primary value at 48px', () => {
+    expect(statFigureSource).toMatch(
+      /\.stat-figure__value\s*\{[\s\S]*font-size: clamp\(2\.25rem, 4vw, 3rem\);/,
+    )
+    expect(statFigureSource).not.toContain('3.5rem')
   })
 })

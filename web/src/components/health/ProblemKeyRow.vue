@@ -11,16 +11,25 @@ export interface ProblemKeyRowLabels {
   statusUnavailable: string
   recoversAt: string
   validationProbe: string
+  failureUnit?: string
+  automaticRecovery?: string
+  probeRecovery?: string
 }
 
-const props = defineProps<{
-  problemKey: HealthProblemKeyDto
-  tone: 'warning' | 'danger'
-  statusLabel: string
-  failureCategoryLabel: string
-  labels: ProblemKeyRowLabels
-  locale: string
-}>()
+const props = withDefaults(
+  defineProps<{
+    problemKey: HealthProblemKeyDto
+    tone: 'warning' | 'danger'
+    statusLabel: string
+    failureCategoryLabel: string
+    labels: ProblemKeyRowLabels
+    locale: string
+    appearance?: 'detail' | 'compact'
+  }>(),
+  {
+    appearance: 'detail',
+  },
+)
 
 const recoveryTime = computed(() => {
   const value = props.problemKey.recovery.at
@@ -30,42 +39,77 @@ const recoveryTime = computed(() => {
     timeStyle: 'short',
   }).format(new Date(value))
 })
+const recoveryClock = computed(() => {
+  const value = props.problemKey.recovery.at
+  if (value === null) return null
+  return new Intl.DateTimeFormat(props.locale, {
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).format(new Date(value))
+})
+const compactFailureSummary = computed(() => {
+  const unit = props.labels.failureUnit ? ` ${props.labels.failureUnit}` : ''
+  const status = props.problemKey.last_status_code ?? props.labels.statusUnavailable
+  return `${props.labels.consecutiveFailures} ${props.problemKey.consecutive_failure_count}${unit} · ${status}`
+})
 </script>
 
 <template>
-  <div class="problem-key-row" :class="`problem-key-row--${tone}`">
-    <div class="problem-key-row__identity">
-      <code data-problem-key-mask>{{ problemKey.mask }}</code>
-      <StatusBadge :tone="tone" data-problem-key-status>
-        {{ statusLabel }}
-      </StatusBadge>
-    </div>
+  <div
+    class="problem-key-row"
+    :class="[`problem-key-row--${tone}`, `problem-key-row--${appearance}`]"
+    :aria-label="appearance === 'compact' ? `${statusLabel}: ${problemKey.mask}` : undefined"
+  >
+    <template v-if="appearance === 'compact'">
+      <code class="problem-key-row__compact-mask" data-problem-key-mask>
+        {{ problemKey.mask }}
+      </code>
+      <span class="problem-key-row__compact-summary" data-problem-key-summary>
+        {{ compactFailureSummary }}
+      </span>
+      <span class="problem-key-row__compact-recovery" data-problem-key-recovery>
+        <time v-if="problemKey.recovery.at && recoveryClock" :datetime="problemKey.recovery.at">
+          {{ recoveryClock }} {{ labels.automaticRecovery ?? labels.recoversAt }}
+        </time>
+        <template v-else>{{ labels.probeRecovery ?? labels.validationProbe }}</template>
+      </span>
+    </template>
 
-    <dl class="problem-key-row__facts">
-      <div>
-        <dt>{{ labels.consecutiveFailures }}</dt>
-        <dd data-problem-key-failures>{{ problemKey.consecutive_failure_count }}</dd>
+    <template v-else>
+      <div class="problem-key-row__identity">
+        <code data-problem-key-mask>{{ problemKey.mask }}</code>
+        <StatusBadge :tone="tone" data-problem-key-status>
+          {{ statusLabel }}
+        </StatusBadge>
       </div>
-      <div>
-        <dt>{{ labels.failureCategory }}</dt>
-        <dd data-problem-key-category>{{ failureCategoryLabel }}</dd>
-      </div>
-      <div>
-        <dt>{{ labels.statusCode }}</dt>
-        <dd data-problem-key-http-status>
-          {{ problemKey.last_status_code ?? labels.statusUnavailable }}
-        </dd>
-      </div>
-      <div>
-        <dt>{{ labels.recoversAt }}</dt>
-        <dd data-problem-key-recovery>
-          <time v-if="problemKey.recovery.at && recoveryTime" :datetime="problemKey.recovery.at">
-            {{ recoveryTime }}
-          </time>
-          <template v-else>{{ labels.validationProbe }}</template>
-        </dd>
-      </div>
-    </dl>
+
+      <dl class="problem-key-row__facts">
+        <div>
+          <dt>{{ labels.consecutiveFailures }}</dt>
+          <dd data-problem-key-failures>{{ problemKey.consecutive_failure_count }}</dd>
+        </div>
+        <div>
+          <dt>{{ labels.failureCategory }}</dt>
+          <dd data-problem-key-category>{{ failureCategoryLabel }}</dd>
+        </div>
+        <div>
+          <dt>{{ labels.statusCode }}</dt>
+          <dd data-problem-key-http-status>
+            {{ problemKey.last_status_code ?? labels.statusUnavailable }}
+          </dd>
+        </div>
+        <div>
+          <dt>{{ labels.recoversAt }}</dt>
+          <dd data-problem-key-recovery>
+            <time v-if="problemKey.recovery.at && recoveryTime" :datetime="problemKey.recovery.at">
+              {{ recoveryTime }}
+            </time>
+            <template v-else>{{ labels.validationProbe }}</template>
+          </dd>
+        </div>
+      </dl>
+    </template>
   </div>
 </template>
 
@@ -121,7 +165,7 @@ const recoveryTime = computed(() => {
   overflow-wrap: anywhere;
 }
 @media (max-width: 900px) {
-  .problem-key-row {
+  .problem-key-row:not(.problem-key-row--compact) {
     grid-template-columns: minmax(0, 1fr);
   }
   .problem-key-row__facts {

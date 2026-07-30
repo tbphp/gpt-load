@@ -35,6 +35,7 @@ const report: UsageReportDto = {
     ...aggregate,
     group_id: index + 1,
     model: index === 0 ? 'model / needs encoding' : `model-${index + 1}`,
+    total_tokens: index === 0 ? 2_100_000 : aggregate.total_tokens,
     estimated_cost_usd: 6 - index,
   })),
   breakdown_truncated: false,
@@ -49,7 +50,7 @@ const report: UsageReportDto = {
 }
 
 describe('HomeCostRanking', () => {
-  it('renders the backend-order Top 5, responsive token column and distinct Group footer', async () => {
+  it('renders the backend-order Top 5 in the flat editorial table', async () => {
     const { wrapper } = await mountApp(HomeCostRanking, {
       api: { request: vi.fn() },
       queryClient: new QueryClient(),
@@ -70,14 +71,37 @@ describe('HomeCostRanking', () => {
       'model-4',
       'model-5',
     ])
-    expect(wrapper.get('th[data-column-priority="low"]').text()).toContain('Token')
+    expect(wrapper.get('[data-table-scroll]').classes()).toContain(
+      'data-table__container--editorial',
+    )
+    expect(wrapper.get('thead').text()).toContain('分组')
+    expect(wrapper.get('th[data-column-priority="low"]').text()).toBe('TOKENS')
     expect(wrapper.findAll('td[data-column-priority="low"]')).toHaveLength(5)
-    expect(wrapper.get('[data-test="home-ranking-footer"]').text()).toContain('共 14 个 Group')
+    expect(rows.map((row) => row.get('td[data-column-priority="low"]').text())).toEqual([
+      '2.1M',
+      '160',
+      '160',
+      '160',
+      '160',
+    ])
+    expect(rows[0]?.get('td:first-child a').text()).toBe('Primary')
+    expect(rows[0]?.find('[data-ranking-model] a').exists()).toBe(false)
+    expect(wrapper.get('[data-test="home-ranking-footer"]').text()).toContain('共 14 组')
+    expect(wrapper.find('.home-ranking__header p').exists()).toBe(false)
   })
 
   it('delegates URL encoding to RouterLink and never resorts the projected rows', () => {
     expect(homeCostRankingSource).not.toMatch(/encodeURIComponent|\.sort\(/)
     expect(homeCostRankingSource).toContain('usageBreakdownLocation')
     expect(homeCostRankingSource).toContain('DataTable')
+    expect(homeCostRankingSource).toMatch(
+      /\.home-ranking__header h2\s*\{[\s\S]*line-height: var\(--line-compact\);/,
+    )
+    expect(homeCostRankingSource).toMatch(
+      /@media \(min-width: 760px\)\s*\{[\s\S]*table-layout: fixed;/,
+    )
+    expect(homeCostRankingSource).toMatch(
+      /th:nth-child\(1\)[\s\S]*width: 28%;[\s\S]*th:nth-child\(2\)[\s\S]*width: 34%;/,
+    )
   })
 })

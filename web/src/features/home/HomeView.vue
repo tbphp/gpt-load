@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { keepPreviousData, useQuery } from '@tanstack/vue-query'
-import { Activity, Layers3 } from '@lucide/vue'
+import { Activity, CircleHelp, Layers3, TriangleAlert } from '@lucide/vue'
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
@@ -22,6 +22,7 @@ import ConnectionPlaceholder from './ConnectionPlaceholder.vue'
 import HomeCostRanking from './HomeCostRanking.vue'
 import HomeLede from './HomeLede.vue'
 import HomeProblemGroups from './HomeProblemGroups.vue'
+import { formatCompactMetric } from './home-format'
 import { failureLogsLocation, presentHome, type HomeQueryResult } from './home-presenter'
 
 const client = useApiClient()
@@ -129,15 +130,12 @@ const successDetail = computed(() => {
 })
 const estimatedCost = computed(() => {
   if (report.value === undefined) return '—'
-  const cost = formatEstimatedUSD(report.value.summary.estimated_cost_usd, locale.value)
-  return report.value.summary.unpriced_request_count > 0
-    ? t('home.metrics.knownPlusUnknown', { cost })
-    : cost
+  return formatEstimatedUSD(report.value.summary.estimated_cost_usd, locale.value)
 })
 const costDetail = computed(() => {
   if (report.value === undefined) return ''
   return t('home.metrics.costDetail', {
-    tokens: formatCount(report.value.summary.total_tokens),
+    tokens: formatCompactMetric(report.value.summary.total_tokens, locale.value),
     unpriced: formatCount(report.value.summary.unpriced_request_count),
   })
 })
@@ -196,14 +194,6 @@ function setRange(value: string): void {
         @retry="healthQuery.refetch()"
       />
 
-      <InlineFeedback
-        v-if="presentation.health.kind === 'unknown' || presentation.health.kind === 'stale'"
-        data-test="home-health-usage-independence"
-        tone="info"
-      >
-        {{ t('home.healthUsageIndependence') }}
-      </InlineFeedback>
-
       <ConnectionPlaceholder v-if="presentation.usage.kind === 'empty'" />
 
       <InlineFeedback
@@ -224,7 +214,14 @@ function setRange(value: string): void {
         :groups="presentation.problemGroups"
       />
 
-      <section class="home-usage" data-test="home-usage" aria-labelledby="home-usage-title">
+      <section
+        class="home-usage"
+        :class="{
+          'home-usage--after-problems': presentation.problemGroups.length > 0,
+        }"
+        data-test="home-usage"
+        aria-labelledby="home-usage-title"
+      >
         <QueryFeedback
           v-if="presentation.usage.kind === 'loading'"
           data-test="home-usage-loading"
@@ -281,24 +278,28 @@ function setRange(value: string): void {
               />
             </div>
 
+            <p
+              v-if="presentation.health.kind === 'unknown' || presentation.health.kind === 'stale'"
+              class="home-health-note"
+              data-test="home-health-usage-independence"
+              role="status"
+            >
+              <CircleHelp :size="16" aria-hidden="true" />
+              {{ t('home.healthUsageIndependence') }}
+            </p>
+
             <section class="home-trend" aria-labelledby="home-usage-title">
               <header class="home-section-heading home-trend__header">
-                <div>
-                  <h2 id="home-usage-title">
-                    {{ t('home.trend.title', { range: report.range }) }}
-                  </h2>
-                  <p>{{ t('home.trend.description') }}</p>
-                </div>
+                <h2 id="home-usage-title">
+                  {{ t('home.trend.title', { range: report.range }) }}
+                </h2>
                 <RouterLink
                   v-if="report.summary.failure_count > 0"
                   class="home-trend__failure-link"
                   :to="failureLogsLocation(report)"
                 >
-                  {{
-                    t('home.trend.failureLink', {
-                      count: formatCount(report.summary.failure_count),
-                    })
-                  }}
+                  <TriangleAlert :size="16" aria-hidden="true" />
+                  {{ t('home.trend.failureLink') }}
                 </RouterLink>
               </header>
               <TrendChart
@@ -308,6 +309,16 @@ function setRange(value: string): void {
                 :empty-label="t('home.trend.empty')"
                 :request-label="t('home.trend.requests')"
                 :failure-label="t('home.trend.failures')"
+                :locale="locale"
+                :now-label="t('home.trend.now')"
+                :rate-suffix="
+                  report.granularity === 'hour' ? t('home.trend.perHour') : t('home.trend.perDay')
+                "
+                :failure-strip-label="
+                  report.granularity === 'hour'
+                    ? t('home.trend.failureStripHourly')
+                    : t('home.trend.failureStripDaily')
+                "
               />
             </section>
 
@@ -331,6 +342,8 @@ function setRange(value: string): void {
   display: grid;
   min-width: 0;
   gap: var(--space-7);
+}
+.home-usage--after-problems {
   border-top: 1px solid var(--color-border-strong);
   padding-top: var(--space-6);
 }
@@ -341,7 +354,7 @@ function setRange(value: string): void {
   align-items: end;
   gap: var(--space-6);
   border-bottom: 1px solid var(--color-border-subtle);
-  padding-bottom: var(--space-6);
+  padding-bottom: calc(var(--space-10) + var(--space-2));
 }
 .home-metrics > :nth-child(2) {
   border-left: 1px solid var(--color-border-subtle);
@@ -353,7 +366,7 @@ function setRange(value: string): void {
 .home-trend {
   display: grid;
   min-width: 0;
-  gap: var(--space-5);
+  gap: var(--space-6);
 }
 .home-section-heading h2,
 .home-section-heading p {
@@ -363,6 +376,7 @@ function setRange(value: string): void {
   font-family: var(--font-serif);
   font-size: 1.45rem;
   font-weight: 500;
+  line-height: var(--line-compact);
 }
 .home-section-heading p {
   margin-top: var(--space-1);
@@ -376,9 +390,23 @@ function setRange(value: string): void {
   gap: var(--space-5);
 }
 .home-trend__failure-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
   color: var(--color-danger);
   font-weight: 650;
   white-space: nowrap;
+}
+.home-health-note {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  color: var(--color-text-faint);
+  font-size: var(--text-sm);
+}
+.home-health-note svg {
+  flex: 0 0 auto;
 }
 @media (max-width: 1199px) {
   .home-metrics {
