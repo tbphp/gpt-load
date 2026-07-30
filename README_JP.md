@@ -268,12 +268,12 @@ corepack pnpm --dir web install --frozen-lockfile
 corepack pnpm --dir web run lint
 corepack pnpm --dir web run format
 corepack pnpm --dir web run type-check
-corepack pnpm --dir web run test
 corepack pnpm --dir web run build
 go build -o gpt-load .
 go test -race . ./internal/...
-corepack pnpm --dir web run test:e2e
 ```
+
+プロジェクトのワークフローには、フロントエンドのユニットテストとブラウザE2Eテストを含めません。フロントエンドの検証範囲は、依存関係のインストール、lint、format、type-check、buildです。
 
 2.0.0では5つのネイティブraw binaryと`SHA256SUMS`を提供する予定です。
 

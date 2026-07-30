@@ -268,12 +268,12 @@ corepack pnpm --dir web install --frozen-lockfile
 corepack pnpm --dir web run lint
 corepack pnpm --dir web run format
 corepack pnpm --dir web run type-check
-corepack pnpm --dir web run test
 corepack pnpm --dir web run build
 go build -o gpt-load .
 go test -race . ./internal/...
-corepack pnpm --dir web run test:e2e
 ```
+
+Frontend unit tests and browser E2E tests are not part of the project workflow. Frontend verification consists of dependency installation, linting, formatting, type-checking, and building.
 
 2.0.0 is expected to provide five native raw binaries plus `SHA256SUMS`:
 

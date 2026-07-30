@@ -345,7 +345,7 @@ async function navigate(filters: UsageFilters): Promise<void> {
               </tr>
             </thead>
             <tbody>
-              <tr v-for="(bucket, index) in report.series" :key="bucket.bucket_start">
+              <tr v-for="bucket in report.series" :key="bucket.bucket_start">
                 <td>
                   <time :datetime="bucket.bucket_start">{{ bucket.bucket_start }}</time>
                   <span>–</span>
@@ -400,7 +400,7 @@ async function navigate(filters: UsageFilters): Promise<void> {
               </tr>
             </thead>
             <tbody>
-              <tr v-for="(row, index) in report.breakdown" :key="`${row.group_id}:${row.model}`">
+              <tr v-for="row in report.breakdown" :key="`${row.group_id}:${row.model}`">
                 <td>
                   {{ groupLabel(row.group_id) }}
                 </td>

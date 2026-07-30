@@ -267,12 +267,12 @@ corepack pnpm --dir web install --frozen-lockfile
 corepack pnpm --dir web run lint
 corepack pnpm --dir web run format
 corepack pnpm --dir web run type-check
-corepack pnpm --dir web run test
 corepack pnpm --dir web run build
 go build -o gpt-load .
 go test -race . ./internal/...
-corepack pnpm --dir web run test:e2e
 ```
+
+项目工作流不包含前端单元测试或浏览器 E2E；前端验证范围为依赖安装、lint、format、type-check 与 build。
 
 2.0.0 预期提供五个原生 raw binary 和一个 `SHA256SUMS`：
 

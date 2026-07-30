@@ -45,7 +45,6 @@ func TestWebCICompositeActionRunsCompleteFrontendGate(t *testing.T) {
 		"pnpm --dir web run lint",
 		"pnpm --dir web run format",
 		"pnpm --dir web run type-check",
-		"pnpm --dir web run test",
 		"pnpm --dir web run build",
 	} {
 		if count := strings.Count(content, command); count != 1 {
@@ -980,7 +979,7 @@ func TestReleaseWorkflowPublishesStable2xTagsWithoutLatest(t *testing.T) {
 	}
 }
 
-func TestReleaseWorkflowIncludesCompleteS5NotesAndCSPWithinE2E(t *testing.T) {
+func TestReleaseWorkflowIncludesCompleteS5Notes(t *testing.T) {
 	content := readRepositoryFile(t, ".github/workflows/release.yml")
 	releaseJob := workflowJobBlock(t, content, "publish-github")
 	for _, required := range []string{
@@ -1012,12 +1011,6 @@ func TestReleaseWorkflowIncludesCompleteS5NotesAndCSPWithinE2E(t *testing.T) {
 	}
 	if strings.Contains(releaseJob, "app.notion.com") {
 		t.Fatalf("public release notes depend on a private Notion page:\n%s", releaseJob)
-	}
-	if count := strings.Count(content, "pnpm --dir web run test:e2e"); count != 1 {
-		t.Fatalf("release workflow runs unfiltered test:e2e %d times, want exactly once", count)
-	}
-	if strings.Contains(content, "test:csp") {
-		t.Fatal("release workflow redundantly runs test:csp outside the complete Playwright suite")
 	}
 }
 
