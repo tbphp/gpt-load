@@ -40,7 +40,7 @@ check: _web-deps ## Run source checks and build
 	$(PNPM) --dir $(WEB_DIR) run build
 	$(GO) build -o $(APP) .
 	$(GO) test -count=1 . ./internal/...
-	git diff --check
+	git --no-pager diff --check
 
 .PHONY: help
 help: ## Display available targets
