@@ -320,16 +320,6 @@ watch(
     display: inline-flex;
   }
 }
-@media (max-width: 640px) {
-  .app-topbar {
-    flex-wrap: wrap;
-  }
-  .shell-actions {
-    width: 100%;
-    justify-content: space-between;
-    margin-left: 0;
-  }
-}
 @media (max-width: 767px) {
   .app-topbar {
     padding-inline: var(--space-5);

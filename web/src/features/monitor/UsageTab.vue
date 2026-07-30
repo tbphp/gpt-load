@@ -349,6 +349,8 @@ async function navigate(filters: UsageFilters): Promise<void> {
               :empty-label="t('monitor.usage.trend.empty')"
               :request-label="t('monitor.usage.columns.requests')"
               :failure-label="t('monitor.usage.columns.failure')"
+              :range-start="report.from"
+              :range-end="report.to"
             />
           </SurfaceCard>
         </section>

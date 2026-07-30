@@ -94,6 +94,16 @@ describe('AppShell', () => {
     }
   })
 
+  it('keeps the compact topbar on one 64px row at the narrow breakpoint', () => {
+    expect(appShellSource).toMatch(
+      /\.app-topbar\s*\{[\s\S]*min-height: 64px;[\s\S]*align-items: center;/,
+    )
+    expect(appShellSource).not.toMatch(
+      /@media \(max-width: 640px\)\s*\{[\s\S]*?\.app-topbar\s*\{[\s\S]*?flex-wrap: wrap;/,
+    )
+    expect(appShellSource).not.toMatch(/\.shell-actions\s*\{[^}]*width: 100%;/)
+  })
+
   it('renders shared navigation, import action, skip link and main landmark', async () => {
     const { wrapper } = await mountShell()
 

@@ -309,6 +309,8 @@ function setRange(value: string): void {
                 :empty-label="t('home.trend.empty')"
                 :request-label="t('home.trend.requests')"
                 :failure-label="t('home.trend.failures')"
+                :range-start="report.from"
+                :range-end="report.to"
                 :locale="locale"
                 :now-label="t('home.trend.now')"
                 :rate-suffix="

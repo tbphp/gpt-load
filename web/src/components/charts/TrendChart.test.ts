@@ -31,6 +31,8 @@ function mountChart(input = series) {
       nowLabel: 'Now',
       rateSuffix: '/h',
       failureStripLabel: 'Failed requests · hourly count',
+      rangeStart: '2026-07-29T00:00:00.000Z',
+      rangeEnd: '2026-07-30T00:00:00.000Z',
     },
   })
 }
@@ -57,7 +59,7 @@ describe('TrendChart', () => {
     const ticks = wrapper.get('[data-test="trend-time-axis"]')
 
     expect(ticks.text()).toContain('00:00')
-    expect(ticks.text()).toContain('01:00')
+    expect(ticks.text()).toContain('12:00')
     expect(ticks.text()).toContain('Now')
     expect(wrapper.get('[data-test="trend-last-value"]').text()).toBe('12/h')
     expect(wrapper.get('[data-test="trend-failure-label"]').text()).toBe(
@@ -82,6 +84,10 @@ describe('TrendChart', () => {
     expect(trendChartSource).toMatch(/\.trend-chart__axis\s*\{[\s\S]*margin-top: var\(--space-4\);/)
     expect(trendChartSource).toContain(
       'color-mix(in srgb, var(--color-action) 12%, var(--color-canvas))',
+    )
+    expect(trendChartSource).toMatch(/\.trend-chart__failure-strip\s*\{[\s\S]*display: grid;/)
+    expect(trendChartSource).not.toMatch(
+      /\.trend-chart__failure-label\s*\{[\s\S]*position: absolute;/,
     )
   })
 })

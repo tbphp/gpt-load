@@ -11,6 +11,8 @@ const props = withDefaults(
     emptyLabel: string
     requestLabel: string
     failureLabel: string
+    rangeStart: string
+    rangeEnd: string
     locale?: string
     nowLabel?: string
     rateSuffix?: string
@@ -30,16 +32,22 @@ const failureHeight = 28
 const titleID = `trend-chart-title-${useId()}`
 const descriptionID = `trend-chart-description-${useId()}`
 const geometry = computed(() =>
-  buildTrendGeometry(props.series, width, requestHeight, failureHeight),
+  buildTrendGeometry(
+    props.series,
+    width,
+    requestHeight,
+    failureHeight,
+    props.rangeStart,
+    props.rangeEnd,
+  ),
 )
 const lastBucket = computed(() => props.series.at(-1))
-const lastPoint = computed(() => geometry.value.requests.at(-1))
+const lastPoint = computed(() => geometry.value.requestMarkers.at(-1))
 const timeAxis = computed(() => {
-  const first = props.series[0]
-  const last = props.series.at(-1)
-  if (first === undefined || last === undefined) return null
-  const start = Date.parse(first.bucket_start)
-  const end = Date.parse(last.bucket_end)
+  if (props.series.length === 0) return null
+  const start = Date.parse(props.rangeStart)
+  const end = Date.parse(props.rangeEnd)
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return null
   const middle = start + (end - start) / 2
   const dateStyle = end - start >= 3 * 24 * 60 * 60 * 1000
   const formatter = new Intl.DateTimeFormat(
@@ -55,7 +63,7 @@ const timeAxis = computed(() => {
   )
   return {
     start: formatter.format(start),
-    startInstant: first.bucket_start,
+    startInstant: props.rangeStart,
     middle: formatter.format(middle),
     middleInstant: new Date(middle).toISOString(),
   }
@@ -137,11 +145,12 @@ const failureBars = computed(() => {
           aria-hidden="true"
         />
         <circle
-          v-if="lastPoint"
+          v-for="(marker, index) in geometry.requestMarkers"
+          :key="`${marker.x}:${marker.y}:${index}`"
           class="trend-chart__marker"
           data-test="trend-request-marker"
-          :cx="lastPoint.x"
-          :cy="lastPoint.y"
+          :cx="marker.x"
+          :cy="marker.y"
           r="5"
           aria-hidden="true"
         />
@@ -250,17 +259,12 @@ const failureBars = computed(() => {
   text-align: right;
 }
 .trend-chart__failure-strip {
-  position: relative;
-  height: 36px;
+  display: grid;
+  gap: calc(var(--space-1) / 2);
   margin-top: var(--space-1);
 }
 .trend-chart__failure-label {
-  position: absolute;
-  z-index: 1;
-  top: 0;
-  left: 0;
-  background: var(--color-canvas);
-  padding-right: var(--space-3);
+  justify-self: start;
 }
 .trend-chart__last-value,
 .trend-chart__axis,

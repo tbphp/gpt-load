@@ -8,7 +8,7 @@ export interface TrendDatum {
 export interface TrendGeometry {
   requestPath: string
   requestAreaPath: string
-  requests: Array<{ x: number; y: number; value: number }>
+  requestMarkers: Array<{ x: number; y: number; value: number }>
   failures: Array<{ x: number; height: number; value: number }>
 }
 
@@ -62,24 +62,47 @@ export function buildTrendGeometry(
   width: number,
   requestHeight: number,
   failureHeight: number,
+  rangeStart: string,
+  rangeEnd: string,
 ): TrendGeometry {
   assertDimension(width)
   assertDimension(requestHeight)
   assertDimension(failureHeight)
   if (series.length === 0) {
-    return { requestPath: '', requestAreaPath: '', requests: [], failures: [] }
+    return {
+      requestPath: '',
+      requestAreaPath: '',
+      requestMarkers: [],
+      failures: [],
+    }
   }
 
   const parsed = series.map(parseDatum)
+  const domainStart = Date.parse(rangeStart)
+  const domainEnd = Date.parse(rangeEnd)
+  const bucketDuration = parsed[0]!.end - parsed[0]!.start
+  const pointDomainEnd = domainEnd - bucketDuration
+  if (
+    !Number.isFinite(domainStart) ||
+    !Number.isFinite(domainEnd) ||
+    domainEnd <= domainStart ||
+    pointDomainEnd < domainStart ||
+    parsed.some(
+      (datum) =>
+        datum.start < domainStart ||
+        datum.end > domainEnd ||
+        datum.end - datum.start !== bucketDuration,
+    )
+  ) {
+    throw new RangeError('Trend chart range is invalid')
+  }
   for (let index = 1; index < parsed.length; index += 1) {
     if (parsed[index]!.start < parsed[index - 1]!.end) {
       throw new RangeError('Trend chart buckets must be ordered and non-overlapping')
     }
   }
 
-  const domainStart = parsed[0]!.start
-  const domainEnd = parsed.at(-1)!.start
-  const domainDuration = domainEnd - domainStart
+  const domainDuration = pointDomainEnd - domainStart
   const maximumRequests = Math.max(0, ...series.map((datum) => datum.request_count))
   const maximumFailures = Math.max(0, ...series.map((datum) => datum.failure_count))
   const points = series.map<TrendPoint>((datum, index) => {
@@ -112,6 +135,9 @@ export function buildTrendGeometry(
       return `M ${first.x} ${requestHeight} ${line} L ${last.x} ${requestHeight} Z`
     })
     .join(' ')
+  const requestMarkers = requestSegments.flatMap((segment, index) =>
+    segment.length === 1 || index === requestSegments.length - 1 ? [segment.at(-1)!] : [],
+  )
   const failures = series.map((datum, index) => ({
     x: points[index]!.x,
     height: round(
@@ -123,7 +149,7 @@ export function buildTrendGeometry(
   return {
     requestPath,
     requestAreaPath,
-    requests: points.map(({ x, y, value }) => ({ x, y, value })),
+    requestMarkers: requestMarkers.map(({ x, y, value }) => ({ x, y, value })),
     failures,
   }
 }
