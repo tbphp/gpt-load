@@ -3,7 +3,6 @@ package control
 import (
 	"context"
 	"errors"
-	"math"
 	"strings"
 	"sync"
 	"testing"
@@ -26,16 +25,16 @@ func TestPriceRuntimePublishesImmutableTablesAtomically(t *testing.T) {
 	oldTable := mustCompilePriceTable(t, pricing.Rule{
 		Pattern: "atomic-model",
 		Prices: pricing.Prices{
-			UncachedInput: pricing.Price{Value: 1, Set: true},
-			Output:        pricing.Price{Value: 2, Set: true},
+			UncachedInput: pricing.Price{NanoUSDPerMillion: 1, Set: true},
+			Output:        pricing.Price{NanoUSDPerMillion: 2, Set: true},
 		},
 		Source: pricing.SourceUser,
 	})
 	newTable := mustCompilePriceTable(t, pricing.Rule{
 		Pattern: "atomic-model",
 		Prices: pricing.Prices{
-			UncachedInput: pricing.Price{Value: 10, Set: true},
-			Output:        pricing.Price{Value: 20, Set: true},
+			UncachedInput: pricing.Price{NanoUSDPerMillion: 10, Set: true},
+			Output:        pricing.Price{NanoUSDPerMillion: 20, Set: true},
 		},
 		Source: pricing.SourceUser,
 	})
@@ -63,8 +62,8 @@ func TestPriceRuntimePublishesImmutableTablesAtomically(t *testing.T) {
 					errs <- "published table did not match"
 					return
 				}
-				input := rule.Prices.UncachedInput.Value
-				output := rule.Prices.Output.Value
+				input := rule.Prices.UncachedInput.NanoUSDPerMillion
+				output := rule.Prices.Output.NanoUSDPerMillion
 				if (input != 1 || output != 2) && (input != 10 || output != 20) {
 					errs <- "reader observed a partial table"
 					return
@@ -103,7 +102,9 @@ func TestUpsertModelPricePublishesCompleteUserOverride(t *testing.T) {
 	fixture := newServiceFixture(t)
 	mustEnsureInitialPrices(t, fixture)
 
-	input, cacheRead, cacheWrite5M, cacheWrite1H, output := 9.1, 9.2, 9.3, 9.4, 9.5
+	input, cacheRead, cacheWrite5M, cacheWrite1H, output := pricing.NanoUSD(9_100_000_000),
+		pricing.NanoUSD(9_200_000_000), pricing.NanoUSD(9_300_000_000),
+		pricing.NanoUSD(9_400_000_000), pricing.NanoUSD(9_500_000_000)
 	err := fixture.service.UpsertModelPrice(context.Background(), ModelPriceInput{
 		Pattern:       "gpt-*",
 		UncachedInput: &input,
@@ -122,11 +123,11 @@ func TestUpsertModelPricePublishesCompleteUserOverride(t *testing.T) {
 		t.Fatal("published PriceTable missed gpt-4o")
 	}
 	wantPrices := pricing.Prices{
-		UncachedInput: pricing.Price{Value: input, Set: true},
-		CacheRead:     pricing.Price{Value: cacheRead, Set: true},
-		CacheWrite5M:  pricing.Price{Value: cacheWrite5M, Set: true},
-		CacheWrite1H:  pricing.Price{Value: cacheWrite1H, Set: true},
-		Output:        pricing.Price{Value: output, Set: true},
+		UncachedInput: pricing.Price{NanoUSDPerMillion: input, Set: true},
+		CacheRead:     pricing.Price{NanoUSDPerMillion: cacheRead, Set: true},
+		CacheWrite5M:  pricing.Price{NanoUSDPerMillion: cacheWrite5M, Set: true},
+		CacheWrite1H:  pricing.Price{NanoUSDPerMillion: cacheWrite1H, Set: true},
+		Output:        pricing.Price{NanoUSDPerMillion: output, Set: true},
 	}
 	if rule.Source != pricing.SourceUser || rule.Pattern != "gpt-*" ||
 		rule.Prices != wantPrices {
@@ -146,7 +147,7 @@ func TestUpsertModelPriceWritesNullAndExplicitZero(t *testing.T) {
 	fixture := newServiceFixture(t)
 	mustEnsureInitialPrices(t, fixture)
 
-	first := 1.0
+	first := pricing.NanoUSD(1_000_000_000)
 	if err := fixture.service.UpsertModelPrice(context.Background(), ModelPriceInput{
 		Pattern:       "round-trip-model",
 		UncachedInput: &first,
@@ -158,8 +159,8 @@ func TestUpsertModelPriceWritesNullAndExplicitZero(t *testing.T) {
 		t.Fatalf("first UpsertModelPrice() error = %v", err)
 	}
 
-	zero := 0.0
-	output := 2.0
+	zero := pricing.NanoUSD(0)
+	output := pricing.NanoUSD(2_000_000_000)
 	if err := fixture.service.UpsertModelPrice(context.Background(), ModelPriceInput{
 		Pattern:       "round-trip-model",
 		UncachedInput: nil,
@@ -175,53 +176,44 @@ func TestUpsertModelPriceWritesNullAndExplicitZero(t *testing.T) {
 	if err := fixture.db.Where("pattern = ?", "round-trip-model").Take(&row).Error; err != nil {
 		t.Fatalf("query round-trip ModelPrice: %v", err)
 	}
-	if row.InputPrice != nil || row.CacheWrite5MPrice != nil {
-		t.Fatalf("nullable columns = input:%v cache_write_5m:%v, want nil", row.InputPrice, row.CacheWrite5MPrice)
+	if row.InputPriceNanoUSDPerMillionTokens != nil ||
+		row.CacheWrite5MPriceNanoUSDPerMillionTokens != nil {
+		t.Fatalf(
+			"nullable columns = input:%v cache_write_5m:%v, want nil",
+			row.InputPriceNanoUSDPerMillionTokens,
+			row.CacheWrite5MPriceNanoUSDPerMillionTokens,
+		)
 	}
-	if row.CacheReadPrice == nil || *row.CacheReadPrice != 0 ||
-		row.CacheWrite1HPrice == nil || *row.CacheWrite1HPrice != 0 ||
-		row.OutputPrice == nil || *row.OutputPrice != output {
+	if row.CacheReadPriceNanoUSDPerMillionTokens == nil ||
+		*row.CacheReadPriceNanoUSDPerMillionTokens != 0 ||
+		row.CacheWrite1HPriceNanoUSDPerMillionTokens == nil ||
+		*row.CacheWrite1HPriceNanoUSDPerMillionTokens != 0 ||
+		row.OutputPriceNanoUSDPerMillionTokens == nil ||
+		*row.OutputPriceNanoUSDPerMillionTokens != int64(output) {
 		t.Fatalf("explicit numeric columns = %+v", row)
 	}
 
 	rule, ok := fixture.priceRuntime.Load().Match("round-trip-model")
 	if !ok || rule.Prices.UncachedInput.Set || rule.Prices.CacheWrite5M.Set ||
-		!rule.Prices.CacheRead.Set || rule.Prices.CacheRead.Value != 0 ||
-		!rule.Prices.CacheWrite1H.Set || rule.Prices.CacheWrite1H.Value != 0 {
+		!rule.Prices.CacheRead.Set || rule.Prices.CacheRead.NanoUSDPerMillion != 0 ||
+		!rule.Prices.CacheWrite1H.Set || rule.Prices.CacheWrite1H.NanoUSDPerMillion != 0 {
 		t.Fatalf("published nullable/zero prices = %+v, matched=%v", rule.Prices, ok)
 	}
 }
 
 func TestUpsertModelPriceRejectsInvalidInputBeforePersistence(t *testing.T) {
-	one := 1.0
-	nan := math.NaN()
-	positiveInfinity := math.Inf(1)
-	negativeInfinity := math.Inf(-1)
-	negative := -1.0
+	one := pricing.NanoUSD(1_000_000_000)
+	negative := pricing.NanoUSD(-1)
 	tests := []struct {
 		name  string
 		input ModelPriceInput
 	}{
 		{
-			name: "NaN with another valid price",
+			name: "negative input with another valid price",
 			input: ModelPriceInput{
-				Pattern:   "private-invalid-pattern",
-				CacheRead: &nan,
-				Output:    &one,
-			},
-		},
-		{
-			name: "positive infinity",
-			input: ModelPriceInput{
-				Pattern: "private-invalid-pattern",
-				Output:  &positiveInfinity,
-			},
-		},
-		{
-			name: "negative infinity",
-			input: ModelPriceInput{
-				Pattern: "private-invalid-pattern",
-				Output:  &negativeInfinity,
+				Pattern:       "private-invalid-pattern",
+				UncachedInput: &negative,
+				Output:        &one,
 			},
 		},
 		{
@@ -264,7 +256,7 @@ func TestUpsertModelPriceFailureRollsBackAndKeepsRuntime(t *testing.T) {
 		mustEnsureInitialPrices(t, fixture)
 		beforeTable := fixture.priceRuntime.Load()
 
-		value := 1.0
+		value := pricing.NanoUSD(1_000_000_000)
 		err := fixture.service.UpsertModelPrice(context.Background(), ModelPriceInput{
 			Pattern: "invalid?pattern", UncachedInput: &value,
 		})
@@ -291,7 +283,7 @@ func TestUpsertModelPriceFailureRollsBackAndKeepsRuntime(t *testing.T) {
 			t.Fatalf("create rejection trigger: %v", err)
 		}
 
-		value := 1.0
+		value := pricing.NanoUSD(1_000_000_000)
 		err := fixture.service.UpsertModelPrice(context.Background(), ModelPriceInput{
 			Pattern: "rejected-model", Output: &value,
 		})
@@ -310,7 +302,7 @@ func TestUpsertModelPriceFailureRollsBackAndKeepsRuntime(t *testing.T) {
 		beforeTable := fixture.priceRuntime.Load()
 		releaseReader := holdRollbackJournalReadLock(t, fixture.db, dsn)
 
-		value := 1.0
+		value := pricing.NanoUSD(1_000_000_000)
 		err := fixture.service.UpsertModelPrice(context.Background(), ModelPriceInput{
 			Pattern: "commit-failure-model", Output: &value,
 		})
@@ -329,7 +321,7 @@ func TestResetModelPriceRestoresBuiltinAndIsIdempotent(t *testing.T) {
 	fixture := newServiceFixture(t)
 	mustEnsureInitialPrices(t, fixture)
 
-	input, output := 99.0, 100.0
+	input, output := pricing.NanoUSD(99_000_000_000), pricing.NanoUSD(100_000_000_000)
 	if err := fixture.service.UpsertModelPrice(context.Background(), ModelPriceInput{
 		Pattern: "gpt-4o", UncachedInput: &input, Output: &output,
 	}); err != nil {
@@ -340,7 +332,7 @@ func TestResetModelPriceRestoresBuiltinAndIsIdempotent(t *testing.T) {
 	if err := fixture.service.ResetModelPrice(context.Background(), "gpt-4o"); err != nil {
 		t.Fatalf("ResetModelPrice() error = %v", err)
 	}
-	assertPublishedPrice(t, fixture.priceRuntime, "gpt-4o", pricing.SourceBuiltin, 2.5)
+	assertPublishedPrice(t, fixture.priceRuntime, "gpt-4o", pricing.SourceBuiltin, 2_500_000_000)
 	assertModelPriceCount(t, fixture, 0)
 
 	beforeTable := fixture.priceRuntime.Load()
@@ -350,7 +342,7 @@ func TestResetModelPriceRestoresBuiltinAndIsIdempotent(t *testing.T) {
 	if fixture.priceRuntime.Load() == nil || fixture.priceRuntime.Load() == beforeTable {
 		t.Fatal("idempotent reset did not publish the precompiled complete table")
 	}
-	assertPublishedPrice(t, fixture.priceRuntime, "gpt-4o", pricing.SourceBuiltin, 2.5)
+	assertPublishedPrice(t, fixture.priceRuntime, "gpt-4o", pricing.SourceBuiltin, 2_500_000_000)
 	assertModelPriceCount(t, fixture, 0)
 }
 
@@ -373,7 +365,7 @@ func TestModelPriceWritesDoNotPublishConfigSnapshot(t *testing.T) {
 	fixture := newServiceFixture(t)
 	mustEnsureInitialPrices(t, fixture)
 	beforeSnapshot := fixture.manager.Current()
-	value := 3.0
+	value := pricing.NanoUSD(3_000_000_000)
 
 	if err := fixture.service.UpsertModelPrice(context.Background(), ModelPriceInput{
 		Pattern: "snapshot-model", Output: &value,
@@ -394,7 +386,7 @@ func TestModelPriceWritesDoNotPublishConfigSnapshot(t *testing.T) {
 func TestModelPriceConcurrentReadersSeeCompleteTables(t *testing.T) {
 	fixture := newServiceFixture(t)
 	mustEnsureInitialPrices(t, fixture)
-	input, output := 40.0, 80.0
+	input, output := pricing.NanoUSD(40_000_000_000), pricing.NanoUSD(80_000_000_000)
 	override := ModelPriceInput{
 		Pattern: "gpt-4o", UncachedInput: &input, Output: &output,
 	}
@@ -422,9 +414,11 @@ func TestModelPriceConcurrentReadersSeeCompleteTables(t *testing.T) {
 				}
 				prices := rule.Prices
 				builtin := rule.Source == pricing.SourceBuiltin &&
-					prices.UncachedInput.Value == 2.5 && prices.Output.Value == 10
+					prices.UncachedInput.NanoUSDPerMillion == 2_500_000_000 &&
+					prices.Output.NanoUSDPerMillion == 10_000_000_000
 				user := rule.Source == pricing.SourceUser &&
-					prices.UncachedInput.Value == input && prices.Output.Value == output
+					prices.UncachedInput.NanoUSDPerMillion == input &&
+					prices.Output.NanoUSDPerMillion == output
 				if !builtin && !user {
 					errs <- "concurrent Match observed partial prices"
 					return

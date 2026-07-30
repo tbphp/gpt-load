@@ -106,7 +106,7 @@ func TestRuntimeHealthReturnsMutuallyExclusiveCurrentState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RuntimeHealth() error = %v", err)
 	}
-	if !got.ObservedAt.Equal(now) || got.SnapshotRevision != fixture.manager.Current().Revision ||
+	if got.ObservedAtMS != now.UnixMilli() || got.SnapshotRevision != fixture.manager.Current().Revision ||
 		got.StatsWindowSeconds != 300 {
 		t.Fatalf("observation metadata = %#v", got)
 	}
@@ -147,12 +147,13 @@ func TestRuntimeHealthReturnsMutuallyExclusiveCurrentState(t *testing.T) {
 		*got.BlacklistedKeys[0].LastStatusCode != 401 ||
 		got.BlacklistedKeys[0].ConsecutiveFailureCount != 1 ||
 		got.BlacklistedKeys[0].Recovery.Mode != "validation_probe" ||
-		got.BlacklistedKeys[0].Recovery.At != nil {
+		got.BlacklistedKeys[0].Recovery.AtMS != nil {
 		t.Fatalf("blacklisted details = %#v", got.BlacklistedKeys)
 	}
 	if got.RequestLog.DroppedTotal != 2 ||
-		got.RequestLog.LastWriteFailureAt == nil ||
-		got.RequestLog.LastRetentionFailureAt != nil {
+		got.RequestLog.LastWriteFailureAtMS == nil ||
+		*got.RequestLog.LastWriteFailureAtMS != now.Add(-time.Minute).UnixMilli() ||
+		got.RequestLog.LastRetentionFailureAtMS != nil {
 		t.Fatalf("request log stats = %#v", got.RequestLog)
 	}
 }
@@ -285,8 +286,8 @@ func TestRuntimeHealthJSONOmitsScoresCredentialsAndZeroTimes(t *testing.T) {
 		"retention_delete_failure_total": {},
 		"queue_depth":                    {},
 		"queue_capacity":                 {},
-		"last_write_failure_at":          {},
-		"last_retention_failure_at":      {},
+		"last_write_failure_at_ms":       {},
+		"last_retention_failure_at_ms":   {},
 	}
 	if !reflect.DeepEqual(requestLogFields, wantRequestLogFields) {
 		t.Fatalf("request_log fields = %#v, want %#v", requestLogFields, wantRequestLogFields)
@@ -422,7 +423,7 @@ func TestRuntimeHealthEndpointRequiresManagementAuthentication(t *testing.T) {
 	if err := json.Unmarshal(success.Body.Bytes(), &envelope); err != nil {
 		t.Fatalf("decode authenticated response: %v", err)
 	}
-	if envelope.Code != 0 || !envelope.Data.ObservedAt.Equal(healthNow()) ||
+	if envelope.Code != 0 || envelope.Data.ObservedAtMS != healthNow().UnixMilli() ||
 		envelope.Data.StatsWindowSeconds != 300 {
 		t.Fatalf("authenticated envelope = %#v", envelope)
 	}

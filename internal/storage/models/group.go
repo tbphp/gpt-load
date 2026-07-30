@@ -1,7 +1,5 @@
 package models
 
-import "time"
-
 // UpstreamKeyStatus is the durable operator-controlled state of a credential.
 // Runtime cooldown and failure state belongs to state.KeyRegistry.
 type UpstreamKeyStatus string
@@ -25,8 +23,8 @@ type Group struct {
 	Config          JSON          `gorm:"type:json"`
 	Enabled         bool          `gorm:"not null;default:true"`
 	UpstreamKeys    []UpstreamKey `gorm:"foreignKey:GroupID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE"`
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
+	CreatedAtMS     int64         `gorm:"column:created_at_ms;not null;autoCreateTime:milli"`
+	UpdatedAtMS     int64         `gorm:"column:updated_at_ms;not null;autoUpdateTime:milli"`
 }
 
 // UpstreamKey is an encrypted provider credential that belongs to one group.
@@ -37,9 +35,6 @@ type UpstreamKey struct {
 	KeyHash      string            `gorm:"type:varchar(128);not null;uniqueIndex:idx_upstream_keys_group_hash,priority:2"`
 	Status       UpstreamKeyStatus `gorm:"type:varchar(32);not null;default:'active';check:chk_upstream_key_status,status IN ('active','disabled')"`
 	WeightManual *int
-	RequestCount int64   `gorm:"not null;default:0"`
-	TokensTotal  int64   `gorm:"not null;default:0"`
-	CostTotal    float64 `gorm:"not null;default:0"`
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	CreatedAtMS  int64 `gorm:"column:created_at_ms;not null;autoCreateTime:milli"`
+	UpdatedAtMS  int64 `gorm:"column:updated_at_ms;not null;autoUpdateTime:milli"`
 }

@@ -35,8 +35,8 @@ func TestQueryUsageHourAggregatesFiltersAndLeavesSparseBucketsAbsent(t *testing.
 
 	groupID := uint(7)
 	report, err := service.QueryUsage(context.Background(), UsageQuery{
-		From:           start,
-		To:             start.Add(24 * time.Hour),
+		FromMS:         start.UnixMilli(),
+		ToMS:           start.Add(24 * time.Hour).UnixMilli(),
 		Granularity:    UsageGranularityHour,
 		GroupID:        &groupID,
 		Model:          "target",
@@ -50,7 +50,8 @@ func TestQueryUsageHourAggregatesFiltersAndLeavesSparseBucketsAbsent(t *testing.
 		report.Summary.FailureCount != 0 || report.Summary.UncachedInputTokens != 2920 ||
 		report.Summary.CacheReadTokens != 292 || report.Summary.CacheWrite5MTokens != 20 ||
 		report.Summary.CacheWrite1HTokens != 49 || report.Summary.OutputTokens != 584 ||
-		!sameUsageCost(report.Summary.Cost, 29.2) || report.Summary.UsageMissingCount != 12 ||
+		report.Summary.EstimatedCostNanoUSD != 29_200_000_000 ||
+		report.Summary.UsageMissingCount != 12 ||
 		report.Summary.PartialCount != 1 || report.Summary.UnpricedRequestCount != 12 {
 		t.Fatalf("summary = %#v", report.Summary)
 	}
@@ -58,11 +59,14 @@ func TestQueryUsageHourAggregatesFiltersAndLeavesSparseBucketsAbsent(t *testing.
 		t.Fatalf("series length = %d, want 23 actual hour buckets", len(report.Series))
 	}
 	for _, point := range report.Series {
-		if point.BucketStart.Equal(start.Add(7 * time.Hour)) {
+		if point.BucketStartMS == start.Add(7*time.Hour).UnixMilli() {
 			t.Fatalf("series synthesized missing hour: %#v", point)
 		}
-		if point.BucketEnd.Sub(point.BucketStart) != time.Hour {
-			t.Fatalf("hour point duration = %s, want 1h", point.BucketEnd.Sub(point.BucketStart))
+		if point.BucketEndMS-point.BucketStartMS != 3_600_000 {
+			t.Fatalf(
+				"hour point duration = %dms, want 3600000",
+				point.BucketEndMS-point.BucketStartMS,
+			)
 		}
 	}
 	if len(report.Breakdown) != 1 || report.Breakdown[0].GroupID != 7 ||
@@ -87,8 +91,8 @@ func TestQueryUsageMergesHourlyRowsIntoThirtyUTCDays(t *testing.T) {
 	createUsageStats(t, db, rows...)
 
 	report, err := service.QueryUsage(context.Background(), UsageQuery{
-		From:           start,
-		To:             start.AddDate(0, 0, 30),
+		FromMS:         start.UnixMilli(),
+		ToMS:           start.AddDate(0, 0, 30).UnixMilli(),
 		Granularity:    UsageGranularityDay,
 		Limit:          100,
 		BreakdownOrder: UsageBreakdownOrderRequests,
@@ -101,10 +105,12 @@ func TestQueryUsageMergesHourlyRowsIntoThirtyUTCDays(t *testing.T) {
 	}
 	for day, point := range report.Series {
 		wantStart := start.AddDate(0, 0, day)
-		if !point.BucketStart.Equal(wantStart) || !point.BucketEnd.Equal(wantStart.AddDate(0, 0, 1)) ||
+		if point.BucketStartMS != wantStart.UnixMilli() ||
+			point.BucketEndMS != wantStart.AddDate(0, 0, 1).UnixMilli() ||
 			point.RequestCount != 3 || point.SuccessCount != 3 || point.FailureCount != 0 ||
 			point.UncachedInputTokens != 30 || point.CacheReadTokens != 3 || point.OutputTokens != 6 ||
-			!sameUsageCost(point.Cost, 0.3) || point.UsageMissingCount != 1 || point.UnpricedRequestCount != 1 {
+			point.EstimatedCostNanoUSD != 300_000_000 ||
+			point.UsageMissingCount != 1 || point.UnpricedRequestCount != 1 {
 			t.Fatalf("day %d point = %#v", day, point)
 		}
 	}
@@ -121,8 +127,8 @@ func TestQueryUsageLimitsBreakdownToStableTopHundred(t *testing.T) {
 	createUsageStats(t, db, rows...)
 
 	report, err := service.QueryUsage(context.Background(), UsageQuery{
-		From:           start,
-		To:             start.Add(time.Hour),
+		FromMS:         start.UnixMilli(),
+		ToMS:           start.Add(time.Hour).UnixMilli(),
 		Granularity:    UsageGranularityHour,
 		Limit:          100,
 		BreakdownOrder: UsageBreakdownOrderRequests,
@@ -148,11 +154,11 @@ func TestQueryUsageOrdersBreakdownByRequestsAndCost(t *testing.T) {
 	service := newRequestLogTestService(db)
 	start := time.Date(2026, time.July, 2, 1, 0, 0, 0, time.UTC)
 	requestHeavy := usageStat(start, 1, "request-heavy", 20)
-	requestHeavy.Cost = 1
+	requestHeavy.EstimatedCostNanoUSD = 1_000_000_000
 	expensiveLowRequests := usageStat(start, 2, "expensive-low", 5)
-	expensiveLowRequests.Cost = 10
+	expensiveLowRequests.EstimatedCostNanoUSD = 10_000_000_000
 	expensiveHighRequests := usageStat(start, 3, "expensive-high", 7)
-	expensiveHighRequests.Cost = 10
+	expensiveHighRequests.EstimatedCostNanoUSD = 10_000_000_000
 	createUsageStats(t, db, requestHeavy, expensiveLowRequests, expensiveHighRequests)
 
 	tests := []struct {
@@ -174,8 +180,8 @@ func TestQueryUsageOrdersBreakdownByRequestsAndCost(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			report, err := service.QueryUsage(context.Background(), UsageQuery{
-				From:           start,
-				To:             start.Add(time.Hour),
+				FromMS:         start.UnixMilli(),
+				ToMS:           start.Add(time.Hour).UnixMilli(),
 				Granularity:    UsageGranularityHour,
 				Limit:          100,
 				BreakdownOrder: test.order,
@@ -236,8 +242,8 @@ func TestQueryUsageCountsDistinctBreakdownGroupsWithinFilters(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			report, err := service.QueryUsage(context.Background(), UsageQuery{
-				From:           start,
-				To:             start.Add(time.Hour),
+				FromMS:         start.UnixMilli(),
+				ToMS:           start.Add(time.Hour).UnixMilli(),
 				Granularity:    UsageGranularityHour,
 				GroupID:        test.groupID,
 				Model:          test.model,
@@ -264,8 +270,8 @@ func TestQueryUsageRejectsInvalidBreakdownOrder(t *testing.T) {
 	service := newRequestLogTestService(db)
 	start := time.Date(2026, time.July, 2, 3, 0, 0, 0, time.UTC)
 	_, err := service.QueryUsage(context.Background(), UsageQuery{
-		From:           start,
-		To:             start.Add(time.Hour),
+		FromMS:         start.UnixMilli(),
+		ToMS:           start.Add(time.Hour).UnixMilli(),
 		Granularity:    UsageGranularityHour,
 		Limit:          100,
 		BreakdownOrder: UsageBreakdownOrder("unknown"),
@@ -291,11 +297,11 @@ func TestQueryUsageUsesOneReadSnapshot(t *testing.T) {
 		}
 		inserted = true
 		if err := writerDB.Create(&models.UsageStat{
-			HourBucket:   start,
-			GroupID:      2,
-			Model:        "after-summary",
-			RequestCount: 1,
-			SuccessCount: 1,
+			BucketStartMS: start.UnixMilli(),
+			GroupID:       2,
+			Model:         "after-summary",
+			RequestCount:  1,
+			SuccessCount:  1,
 		}).Error; err != nil {
 			t.Errorf("insert concurrent UsageStat: %v", err)
 		}
@@ -309,8 +315,8 @@ func TestQueryUsageUsesOneReadSnapshot(t *testing.T) {
 	})
 
 	report, err := service.QueryUsage(context.Background(), UsageQuery{
-		From:           start,
-		To:             start.Add(time.Hour),
+		FromMS:         start.UnixMilli(),
+		ToMS:           start.Add(time.Hour).UnixMilli(),
 		Granularity:    UsageGranularityHour,
 		Limit:          100,
 		BreakdownOrder: UsageBreakdownOrderRequests,
@@ -351,8 +357,8 @@ func TestQueryUsageCancelsAfterBeginWithoutPoisoningDatabaseConnection(t *testin
 	}()
 
 	_, err := service.QueryUsage(ctx, UsageQuery{
-		From:           start,
-		To:             start.Add(time.Hour),
+		FromMS:         start.UnixMilli(),
+		ToMS:           start.Add(time.Hour).UnixMilli(),
 		Granularity:    UsageGranularityHour,
 		Limit:          100,
 		BreakdownOrder: UsageBreakdownOrderRequests,
@@ -366,11 +372,11 @@ func TestQueryUsageCancelsAfterBeginWithoutPoisoningDatabaseConnection(t *testin
 		t.Fatalf("query after cancellation = %d/%v, want 1/nil", count, err)
 	}
 	if err := db.Create(&models.UsageStat{
-		HourBucket:   start,
-		GroupID:      2,
-		Model:        "after-cancellation",
-		RequestCount: 1,
-		SuccessCount: 1,
+		BucketStartMS: start.UnixMilli(),
+		GroupID:       2,
+		Model:         "after-cancellation",
+		RequestCount:  1,
+		SuccessCount:  1,
 	}).Error; err != nil {
 		t.Fatalf("write after cancellation: %v", err)
 	}
@@ -387,19 +393,18 @@ func TestQueryUsageRejectsCorruptRowsOutsideTopBreakdown(t *testing.T) {
 	compensating := usageStat(start, 101, "compensating", 2)
 	compensating.SuccessCount = 2
 	compensating.FailureCount = 0
-	compensating.InputTokens = 1
-	compensating.Cost = 1
+	compensating.UncachedInputTokens = 1
+	compensating.EstimatedCostNanoUSD = 1_000_000_000
 	corrupt := usageStat(start, 102, "corrupt", 1)
 	corrupt.SuccessCount = 1
 	corrupt.FailureCount = 0
-	corrupt.InputTokens = -1
-	corrupt.Cost = -1
+	corrupt.UncachedInputTokens = -1
 	rows = append(rows, compensating, corrupt)
 	createUsageStats(t, db, rows...)
 
 	input := UsageQuery{
-		From:           start,
-		To:             start.Add(time.Hour),
+		FromMS:         start.UnixMilli(),
+		ToMS:           start.Add(time.Hour).UnixMilli(),
 		Granularity:    UsageGranularityHour,
 		Limit:          100,
 		BreakdownOrder: UsageBreakdownOrderRequests,
@@ -459,7 +464,7 @@ func TestQueryUsageRejectsCorruptAggregates(t *testing.T) {
 			name: "negative input tokens",
 			rows: []models.UsageStat{func() models.UsageStat {
 				row := usageStat(start, 1, "negative-input", 1)
-				row.InputTokens = -1
+				row.UncachedInputTokens = -1
 				return row
 			}()},
 		},
@@ -484,7 +489,7 @@ func TestQueryUsageRejectsCorruptAggregates(t *testing.T) {
 			name: "checked total token overflow",
 			rows: []models.UsageStat{func() models.UsageStat {
 				row := usageStat(start, 1, "token-overflow", 1)
-				row.InputTokens = math.MaxInt64
+				row.UncachedInputTokens = math.MaxInt64
 				row.OutputTokens = 1
 				return row
 			}()},
@@ -492,27 +497,31 @@ func TestQueryUsageRejectsCorruptAggregates(t *testing.T) {
 		{
 			name: "checked count overflow",
 			rows: []models.UsageStat{
-				usageStat(start, 1, "overflow-a", math.MaxInt64),
-				usageStat(start, 2, "overflow-b", 1),
+				{
+					BucketStartMS: start.UnixMilli(),
+					GroupID:       1,
+					Model:         "overflow-a",
+					RequestCount:  math.MaxInt64,
+					SuccessCount:  math.MaxInt64,
+				},
+				{
+					BucketStartMS: start.UnixMilli(),
+					GroupID:       2,
+					Model:         "overflow-b",
+					RequestCount:  1,
+					SuccessCount:  1,
+				},
 			},
 		},
 		{
-			name: "negative cost",
-			rows: []models.UsageStat{func() models.UsageStat {
-				row := usageStat(start, 1, "negative-cost", 1)
-				row.Cost = -0.1
-				return row
-			}()},
-		},
-		{
-			name: "non-finite summed cost",
+			name: "checked cost overflow",
 			rows: []models.UsageStat{func() models.UsageStat {
 				row := usageStat(start, 1, "huge-cost-a", 1)
-				row.Cost = math.MaxFloat64
+				row.EstimatedCostNanoUSD = math.MaxInt64
 				return row
 			}(), func() models.UsageStat {
 				row := usageStat(start, 2, "huge-cost-b", 1)
-				row.Cost = math.MaxFloat64
+				row.EstimatedCostNanoUSD = math.MaxInt64
 				return row
 			}()},
 		},
@@ -523,8 +532,8 @@ func TestQueryUsageRejectsCorruptAggregates(t *testing.T) {
 			db := openRequestLogQueryDB(t)
 			createUsageStats(t, db, test.rows...)
 			_, err := newRequestLogTestService(db).QueryUsage(context.Background(), UsageQuery{
-				From:           start,
-				To:             start.Add(time.Hour),
+				FromMS:         start.UnixMilli(),
+				ToMS:           start.Add(time.Hour).UnixMilli(),
 				Granularity:    UsageGranularityHour,
 				Limit:          100,
 				BreakdownOrder: UsageBreakdownOrderRequests,
@@ -538,17 +547,17 @@ func TestQueryUsageRejectsCorruptAggregates(t *testing.T) {
 
 func usageStat(hour time.Time, groupID uint, model string, requestCount int64) models.UsageStat {
 	return models.UsageStat{
-		HourBucket:           hour,
+		BucketStartMS:        hour.UTC().UnixMilli(),
 		GroupID:              groupID,
 		Model:                model,
 		RequestCount:         requestCount,
 		SuccessCount:         requestCount,
-		InputTokens:          requestCount * 10,
+		UncachedInputTokens:  requestCount * 10,
 		OutputTokens:         requestCount * 2,
 		CacheReadTokens:      requestCount,
 		CacheWrite5MTokens:   requestCount / 10,
 		CacheWrite1HTokens:   requestCount / 5,
-		Cost:                 float64(requestCount) / 10,
+		EstimatedCostNanoUSD: requestCount * 100_000_000,
 		UsageMissingCount:    requestCount % 2,
 		PartialCount:         0,
 		UnpricedRequestCount: requestCount % 2,
@@ -562,10 +571,6 @@ func createUsageStats(t *testing.T, db *gorm.DB, rows ...models.UsageStat) {
 			t.Fatalf("create UsageStat %#v: %v", row, err)
 		}
 	}
-}
-
-func sameUsageCost(got, want float64) bool {
-	return math.Abs(got-want) < 1e-12
 }
 
 func openUsageQueryWriterDB(t *testing.T, dsn string) (*gorm.DB, func()) {

@@ -36,9 +36,9 @@ type healthGroupResponse struct {
 }
 
 type healthRecoveryResponse struct {
-	Automatic bool       `json:"automatic"`
-	Mode      string     `json:"mode"`
-	At        *time.Time `json:"at"`
+	Automatic bool   `json:"automatic"`
+	Mode      string `json:"mode"`
+	AtMS      *int64 `json:"at_ms"`
 }
 
 type healthProblemKeyResponse struct {
@@ -48,7 +48,7 @@ type healthProblemKeyResponse struct {
 	Mask                    string                 `json:"mask"`
 	LastFailureCategory     string                 `json:"last_failure_category"`
 	LastStatusCode          *int                   `json:"last_status_code"`
-	CooldownUntil           *time.Time             `json:"cooldown_until,omitempty"`
+	CooldownUntilMS         *int64                 `json:"cooldown_until_ms"`
 	FailureCount            int                    `json:"failure_count"`
 	RecentSuccessCount      uint64                 `json:"recent_success_count"`
 	RecentFailureCount      uint64                 `json:"recent_failure_count"`
@@ -59,24 +59,24 @@ type healthProblemKeyResponse struct {
 }
 
 type requestLogHealthResponse struct {
-	EnqueuedTotal               uint64     `json:"enqueued_total"`
-	PersistedTotal              uint64     `json:"persisted_total"`
-	DroppedNotRunningTotal      uint64     `json:"dropped_not_running_total"`
-	DroppedQueueFullTotal       uint64     `json:"dropped_queue_full_total"`
-	DroppedStoppingTotal        uint64     `json:"dropped_stopping_total"`
-	DroppedPersistFailedTotal   uint64     `json:"dropped_persist_failed_total"`
-	DroppedShutdownTotal        uint64     `json:"dropped_shutdown_total"`
-	DroppedTotal                uint64     `json:"dropped_total"`
-	WriteFailureTotal           uint64     `json:"write_failure_total"`
-	RetentionDeleteFailureTotal uint64     `json:"retention_delete_failure_total"`
-	QueueDepth                  int        `json:"queue_depth"`
-	QueueCapacity               int        `json:"queue_capacity"`
-	LastWriteFailureAt          *time.Time `json:"last_write_failure_at"`
-	LastRetentionFailureAt      *time.Time `json:"last_retention_failure_at"`
+	EnqueuedTotal               uint64 `json:"enqueued_total"`
+	PersistedTotal              uint64 `json:"persisted_total"`
+	DroppedNotRunningTotal      uint64 `json:"dropped_not_running_total"`
+	DroppedQueueFullTotal       uint64 `json:"dropped_queue_full_total"`
+	DroppedStoppingTotal        uint64 `json:"dropped_stopping_total"`
+	DroppedPersistFailedTotal   uint64 `json:"dropped_persist_failed_total"`
+	DroppedShutdownTotal        uint64 `json:"dropped_shutdown_total"`
+	DroppedTotal                uint64 `json:"dropped_total"`
+	WriteFailureTotal           uint64 `json:"write_failure_total"`
+	RetentionDeleteFailureTotal uint64 `json:"retention_delete_failure_total"`
+	QueueDepth                  int    `json:"queue_depth"`
+	QueueCapacity               int    `json:"queue_capacity"`
+	LastWriteFailureAtMS        *int64 `json:"last_write_failure_at_ms"`
+	LastRetentionFailureAtMS    *int64 `json:"last_retention_failure_at_ms"`
 }
 
 type runtimeHealthResponse struct {
-	ObservedAt         time.Time                  `json:"observed_at"`
+	ObservedAtMS       int64                      `json:"observed_at_ms"`
 	Version            string                     `json:"version"`
 	UptimeSeconds      int64                      `json:"uptime_seconds"`
 	SnapshotRevision   uint64                     `json:"snapshot_revision"`
@@ -130,14 +130,6 @@ func addHealthCount(counts *healthCountsResponse, bucket healthBucket) {
 	case healthBucketDisabled:
 		counts.Disabled++
 	}
-}
-
-func optionalUTC(value time.Time) *time.Time {
-	if value.IsZero() {
-		return nil
-	}
-	value = value.UTC()
-	return &value
 }
 
 func cloneInt(value *int) *int {
@@ -205,8 +197,12 @@ func (service *Service) RuntimeHealth() (runtimeHealthResponse, error) {
 			app_errors.ErrInternalServer,
 		)
 	}
+	observedAtMS, err := safeEpochMilliseconds(observation.observedAt)
+	if err != nil {
+		return runtimeHealthResponse{}, fmt.Errorf("map runtime health observed_at_ms: %w", err)
+	}
 	result := runtimeHealthResponse{
-		ObservedAt:         observation.observedAt,
+		ObservedAtMS:       observedAtMS,
 		SnapshotRevision:   observation.snapshot.Revision,
 		StatsWindowSeconds: int64(health.StatsWindow / time.Second),
 		Groups:             []healthGroupResponse{},
@@ -261,11 +257,18 @@ func (service *Service) RuntimeHealth() (runtimeHealthResponse, error) {
 			WeightAuto:              key.WeightAuto,
 		}
 		if bucket == healthBucketCooldown {
-			detail.CooldownUntil = optionalUTC(key.CooldownUntil)
+			cooldownUntilMS, err := optionalSafeEpochMilliseconds(key.CooldownUntil)
+			if err != nil {
+				return runtimeHealthResponse{}, fmt.Errorf(
+					"map runtime health cooldown_until_ms: %w",
+					err,
+				)
+			}
+			detail.CooldownUntilMS = cooldownUntilMS
 			detail.Recovery = healthRecoveryResponse{
 				Automatic: true,
 				Mode:      "cooldown_expiry",
-				At:        optionalUTC(key.CooldownUntil),
+				AtMS:      cooldownUntilMS,
 			}
 			result.CooldownKeys = append(result.CooldownKeys, detail)
 		} else {
@@ -305,6 +308,14 @@ func mapRequestLogHealth(stats requestlog.Stats) (requestLogHealthResponse, erro
 		stats.QueueCapacity < 0 || uint64(stats.QueueCapacity) > uint64(maxSafeInteger) {
 		return requestLogHealthResponse{}, fmt.Errorf("map request log health: unsafe queue")
 	}
+	lastWriteFailureAtMS, err := optionalSafeEpochMilliseconds(stats.LastWriteFailureAt)
+	if err != nil {
+		return requestLogHealthResponse{}, fmt.Errorf("map last write failure timestamp: %w", err)
+	}
+	lastRetentionFailureAtMS, err := optionalSafeEpochMilliseconds(stats.LastRetentionFailureAt)
+	if err != nil {
+		return requestLogHealthResponse{}, fmt.Errorf("map last retention failure timestamp: %w", err)
+	}
 	return requestLogHealthResponse{
 		EnqueuedTotal:               stats.EnqueuedTotal,
 		PersistedTotal:              stats.PersistedTotal,
@@ -318,8 +329,8 @@ func mapRequestLogHealth(stats requestlog.Stats) (requestLogHealthResponse, erro
 		RetentionDeleteFailureTotal: stats.RetentionDeleteFailureTotal,
 		QueueDepth:                  stats.QueueDepth,
 		QueueCapacity:               stats.QueueCapacity,
-		LastWriteFailureAt:          optionalUTC(stats.LastWriteFailureAt),
-		LastRetentionFailureAt:      optionalUTC(stats.LastRetentionFailureAt),
+		LastWriteFailureAtMS:        lastWriteFailureAtMS,
+		LastRetentionFailureAtMS:    lastRetentionFailureAtMS,
 	}, nil
 }
 

@@ -134,6 +134,7 @@ func newServiceFixtureWithDSN(t *testing.T, dsn string) serviceFixture {
 			dialect.NewSet(),
 			nil,
 			nil,
+			nil,
 			stats,
 			requestLogStats,
 		),

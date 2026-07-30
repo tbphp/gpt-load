@@ -95,8 +95,8 @@ func TestGetSettingsFiltersAndSortsPublicRuntimeOverrides(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, row := range []models.SystemSetting{
-		{Key: "unknown_public_setting", Value: `"hidden"`, UpdatedAt: time.Now().UTC()},
-		{Key: models.InternalSystemSettingPrefix + "hidden", Value: `"marker"`, UpdatedAt: time.Now().UTC()},
+		{Key: "unknown_public_setting", Value: `"hidden"`, UpdatedAtMS: time.Now().UnixMilli()},
+		{Key: models.InternalSystemSettingPrefix + "hidden", Value: `"marker"`, UpdatedAtMS: time.Now().UnixMilli()},
 	} {
 		if err := fixture.db.Create(&row).Error; err != nil {
 			t.Fatal(err)
@@ -251,8 +251,8 @@ func TestUpdateSettingsCanonicalizesValuesAndReturnsEffectiveHeaderRules(t *test
 		t.Fatalf("persisted value = %q, want %q", row.Value, wantValue)
 	}
 	wantTime := time.Date(2026, time.July, 24, 4, 30, 0, 0, time.UTC)
-	if !row.UpdatedAt.Equal(wantTime) {
-		t.Fatalf("updated_at = %s, want %s", row.UpdatedAt, wantTime)
+	if row.UpdatedAtMS != wantTime.UnixMilli() {
+		t.Fatalf("updated_at_ms = %d, want %d", row.UpdatedAtMS, wantTime.UnixMilli())
 	}
 }
 

@@ -50,11 +50,11 @@ func processLogEntries(t *testing.T, output []byte) []map[string]any {
 
 func TestProjectProcessLogUsesSparseFieldsAndAggregatesCacheWrite(t *testing.T) {
 	table := compileRequestLogTestPriceTable(t, "actual-model", pricing.Prices{
-		UncachedInput: pricing.Price{Value: 1, Set: true},
-		CacheRead:     pricing.Price{Value: 2, Set: true},
-		CacheWrite5M:  pricing.Price{Value: 3, Set: true},
-		CacheWrite1H:  pricing.Price{Value: 4, Set: true},
-		Output:        pricing.Price{Value: 5, Set: true},
+		UncachedInput: pricing.Price{NanoUSDPerMillion: 1_000_000_000, Set: true},
+		CacheRead:     pricing.Price{NanoUSDPerMillion: 2_000_000_000, Set: true},
+		CacheWrite5M:  pricing.Price{NanoUSDPerMillion: 3_000_000_000, Set: true},
+		CacheWrite1H:  pricing.Price{NanoUSDPerMillion: 4_000_000_000, Set: true},
+		Output:        pricing.Price{NanoUSDPerMillion: 5_000_000_000, Set: true},
 	})
 	event := testEvent("00000000-0000-4000-8000-000000000501")
 	event.Protocol = protocol.OpenAICompletions
@@ -91,25 +91,25 @@ func TestProjectProcessLogUsesSparseFieldsAndAggregatesCacheWrite(t *testing.T) 
 		t.Fatalf("projection = %t/%s, want true/warning", ok, level)
 	}
 	want := logrus.Fields{
-		"event":                 "data_plane_request_completed",
-		"request_id":            event.RequestID,
-		"status":                "error",
-		"status_code":           http.StatusBadGateway,
-		"protocol":              string(protocol.OpenAICompletions),
-		"access_key_id":         uint(42),
-		"client_model":          "client-model",
-		"upstream_model":        "actual-model",
-		"group_id":              uint(9),
-		"key_id":                uint(10),
-		"duration_ms":           int64(25),
-		"attempt_count":         2,
-		"uncached_input_tokens": int64(1),
-		"cache_read_tokens":     int64(2),
-		"cache_write_tokens":    int64(7),
-		"output_tokens":         int64(5),
-		"estimated_cost_usd":    "5.5e-05",
-		"error_code":            "upstream_error",
-		"error_summary":         "provider failed",
+		"event":                   "data_plane_request_completed",
+		"request_id":              event.RequestID,
+		"status":                  "error",
+		"status_code":             http.StatusBadGateway,
+		"protocol":                string(protocol.OpenAICompletions),
+		"access_key_id":           uint(42),
+		"client_model":            "client-model",
+		"upstream_model":          "actual-model",
+		"group_id":                uint(9),
+		"key_id":                  uint(10),
+		"duration_ms":             int64(25),
+		"attempt_count":           2,
+		"uncached_input_tokens":   int64(1),
+		"cache_read_tokens":       int64(2),
+		"cache_write_tokens":      int64(7),
+		"output_tokens":           int64(5),
+		"estimated_cost_nano_usd": int64(55_000),
+		"error_code":              "upstream_error",
+		"error_summary":           "provider failed",
 	}
 	assertProcessFields(t, fields, want)
 }
@@ -346,10 +346,10 @@ func TestProjectProcessLogOmitsOverflowedCacheWriteAggregate(t *testing.T) {
 		if value, exists := fields["cost_state"]; exists {
 			t.Fatalf("cost_state = %#v, want omitted for priced usage", value)
 		}
-		if fields["estimated_cost_usd"] != "0" {
+		if fields["estimated_cost_nano_usd"] != int64(0) {
 			t.Fatalf(
-				"estimated_cost_usd = %#v, want 0",
-				fields["estimated_cost_usd"],
+				"estimated_cost_nano_usd = %#v, want 0",
+				fields["estimated_cost_nano_usd"],
 			)
 		}
 	})
@@ -375,8 +375,8 @@ func TestProjectProcessLogOmitsOverflowedCacheWriteAggregate(t *testing.T) {
 		if fields["cost_state"] != "unpriced" {
 			t.Fatalf("cost_state = %#v, want unpriced", fields["cost_state"])
 		}
-		if value, exists := fields["estimated_cost_usd"]; exists {
-			t.Fatalf("estimated_cost_usd = %#v, want omitted", value)
+		if value, exists := fields["estimated_cost_nano_usd"]; exists {
+			t.Fatalf("estimated_cost_nano_usd = %#v, want omitted", value)
 		}
 	})
 }
@@ -423,7 +423,7 @@ func TestProjectProcessLogUsesConditionalModelAttemptAndStateFields(t *testing.T
 
 func TestProjectProcessLogDoesNotRoundTinyCostToZero(t *testing.T) {
 	table := compileRequestLogTestPriceTable(t, "tiny", pricing.Prices{
-		Output: pricing.Price{Value: 0.001, Set: true},
+		Output: pricing.Price{NanoUSDPerMillion: 1_000_000, Set: true},
 	})
 	event := testEvent("tiny-cost")
 	event.UpstreamModel = "tiny"
@@ -436,9 +436,8 @@ func TestProjectProcessLogDoesNotRoundTinyCostToZero(t *testing.T) {
 	if !ok {
 		t.Fatal("projection skipped")
 	}
-	if fields["estimated_cost_usd"] == "" ||
-		fields["estimated_cost_usd"] == "0" {
-		t.Fatalf("tiny cost = %#v", fields["estimated_cost_usd"])
+	if fields["estimated_cost_nano_usd"] != int64(1) {
+		t.Fatalf("tiny cost = %#v, want 1 nano USD", fields["estimated_cost_nano_usd"])
 	}
 }
 
@@ -577,11 +576,11 @@ func TestProcessLogFormatterSecretMatrix(t *testing.T) {
 
 func TestProjectProcessLogMatchesDurableProjection(t *testing.T) {
 	table := compileRequestLogTestPriceTable(t, "consistent", pricing.Prices{
-		UncachedInput: pricing.Price{Value: 2, Set: true},
-		CacheRead:     pricing.Price{Value: 3, Set: true},
-		CacheWrite5M:  pricing.Price{Value: 4, Set: true},
-		CacheWrite1H:  pricing.Price{Value: 5, Set: true},
-		Output:        pricing.Price{Value: 6, Set: true},
+		UncachedInput: pricing.Price{NanoUSDPerMillion: 2_000_000_000, Set: true},
+		CacheRead:     pricing.Price{NanoUSDPerMillion: 3_000_000_000, Set: true},
+		CacheWrite5M:  pricing.Price{NanoUSDPerMillion: 4_000_000_000, Set: true},
+		CacheWrite1H:  pricing.Price{NanoUSDPerMillion: 5_000_000_000, Set: true},
+		Output:        pricing.Price{NanoUSDPerMillion: 6_000_000_000, Set: true},
 	})
 	event := testEvent("projection-consistency")
 	event.Protocol = protocol.Anthropic
@@ -608,16 +607,16 @@ func TestProjectProcessLogMatchesDurableProjection(t *testing.T) {
 		t.Fatal("projection skipped")
 	}
 	want := map[string]any{
-		"request_id":            row.ID,
-		"access_key_id":         row.AccessKeyID,
-		"client_model":          row.ClientModel,
-		"upstream_model":        row.UpstreamModel,
-		"duration_ms":           row.DurationMs,
-		"uncached_input_tokens": row.InputTokens,
-		"cache_read_tokens":     row.CacheReadTokens,
-		"cache_write_tokens":    int64(27),
-		"output_tokens":         row.OutputTokens,
-		"estimated_cost_usd":    "0.00027",
+		"request_id":              row.ID,
+		"access_key_id":           row.AccessKeyID,
+		"client_model":            row.ClientModel,
+		"upstream_model":          row.UpstreamModel,
+		"duration_ms":             row.DurationMs,
+		"uncached_input_tokens":   row.UncachedInputTokens,
+		"cache_read_tokens":       row.CacheReadTokens,
+		"cache_write_tokens":      int64(27),
+		"output_tokens":           row.OutputTokens,
+		"estimated_cost_nano_usd": row.EstimatedCostNanoUSD,
 	}
 	for field, wantValue := range want {
 		if got := fields[field]; !reflect.DeepEqual(got, wantValue) {

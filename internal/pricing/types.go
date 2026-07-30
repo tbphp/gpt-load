@@ -5,8 +5,8 @@ import "time"
 // Price is a USD price per one million tokens. Set distinguishes zero from an
 // unavailable price.
 type Price struct {
-	Value float64
-	Set   bool
+	NanoUSDPerMillion NanoUSD
+	Set               bool
 }
 
 // Prices is the provider-neutral price breakdown.
@@ -21,8 +21,8 @@ type Prices struct {
 // LongContextPolicy adjusts component prices after an input-token threshold.
 type LongContextPolicy struct {
 	InputThresholdTokens int64
-	InputMultiplier      float64
-	OutputMultiplier     float64
+	InputMultiplier      Multiplier
+	OutputMultiplier     Multiplier
 }
 
 // Source identifies where a pricing rule came from.
@@ -52,10 +52,10 @@ const (
 	CostStateNotApplicable CostState = "not_applicable"
 )
 
-// Quote is a calculated request cost in USD.
+// Quote is a calculated request cost in nano USD.
 type Quote struct {
-	State CostState
-	Cost  float64
+	State                CostState
+	EstimatedCostNanoUSD NanoUSD
 }
 
 // Table is an immutable compiled set of pricing rules.

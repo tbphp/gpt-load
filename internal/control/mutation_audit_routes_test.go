@@ -335,8 +335,11 @@ func TestSettingsMutationAudit(t *testing.T) {
 
 func TestModelPriceMutationAudit(t *testing.T) {
 	const upsertBody = `{"pattern":"audit-model","prices":{` +
-		`"uncached_input":1,"cache_read":null,` +
-		`"cache_write_5m":null,"cache_write_1h":null,"output":2}}`
+		`"input_price_usd_per_million_tokens":"1",` +
+		`"output_price_usd_per_million_tokens":"2",` +
+		`"cache_read_price_usd_per_million_tokens":null,` +
+		`"cache_write_5m_price_usd_per_million_tokens":null,` +
+		`"cache_write_1h_price_usd_per_million_tokens":null}}`
 
 	t.Run("upsert success", func(t *testing.T) {
 		fixture := newServiceFixture(t)
@@ -397,9 +400,11 @@ func TestModelPriceMutationAudit(t *testing.T) {
 				method: http.MethodPut,
 				path:   "/api/model-prices",
 				body: `{"pattern":"","prices":{` +
-					`"uncached_input":1,"cache_read":null,` +
-					`"cache_write_5m":null,` +
-					`"cache_write_1h":null,"output":2}}`,
+					`"input_price_usd_per_million_tokens":"1",` +
+					`"output_price_usd_per_million_tokens":"2",` +
+					`"cache_read_price_usd_per_million_tokens":null,` +
+					`"cache_write_5m_price_usd_per_million_tokens":null,` +
+					`"cache_write_1h_price_usd_per_million_tokens":null}}`,
 			},
 		)
 		assertMutationEvent(
@@ -1198,8 +1203,8 @@ func assertAccessKeyAuditLogExcludes(
 
 func seedAuditModelPrice(t *testing.T, fixture serviceFixture) {
 	t.Helper()
-	uncachedInput := 1.0
-	output := 2.0
+	uncachedInput := pricing.NanoUSD(1_000_000_000)
+	output := pricing.NanoUSD(2_000_000_000)
 	if err := fixture.service.UpsertModelPrice(
 		t.Context(),
 		ModelPriceInput{

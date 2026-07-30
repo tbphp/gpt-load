@@ -6,12 +6,12 @@ import (
 	"database/sql/driver"
 	"errors"
 	"fmt"
-	"math"
 	"sort"
 	"time"
 
 	"gorm.io/gorm"
 
+	"gpt-load/internal/platform/epochms"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/storage/models"
 	"gpt-load/internal/telemetry"
@@ -22,32 +22,33 @@ const requestLogTransactionCleanupTimeout = time.Second
 
 const absoluteUsageStatUpsert = `
 INSERT INTO usage_stats (
-	hour_bucket,
+	bucket_start_ms,
+	access_key_id,
 	group_id,
 	model,
 	request_count,
 	success_count,
 	failure_count,
-	input_tokens,
+	uncached_input_tokens,
 	output_tokens,
 	cache_read_tokens,
 	cache_write_5m_tokens,
 	cache_write_1h_tokens,
-	cost,
+	estimated_cost_nano_usd,
 	usage_missing_count,
 	partial_count,
 	unpriced_request_count
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-ON CONFLICT(hour_bucket, group_id, model) DO UPDATE SET
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(bucket_start_ms, access_key_id, group_id, model) DO UPDATE SET
 	request_count = excluded.request_count,
 	success_count = excluded.success_count,
 	failure_count = excluded.failure_count,
-	input_tokens = excluded.input_tokens,
+	uncached_input_tokens = excluded.uncached_input_tokens,
 	output_tokens = excluded.output_tokens,
 	cache_read_tokens = excluded.cache_read_tokens,
 	cache_write_5m_tokens = excluded.cache_write_5m_tokens,
 	cache_write_1h_tokens = excluded.cache_write_1h_tokens,
-	cost = excluded.cost,
+	estimated_cost_nano_usd = excluded.estimated_cost_nano_usd,
 	usage_missing_count = excluded.usage_missing_count,
 	partial_count = excluded.partial_count,
 	unpriced_request_count = excluded.unpriced_request_count
@@ -112,21 +113,22 @@ func (writer *gormBatchWriter) WriteBatch(ctx context.Context, rows []models.Req
 }
 
 type usageStatKey struct {
-	HourBucket time.Time
-	GroupID    uint
-	Model      string
+	BucketStartMS int64
+	AccessKeyID   uint
+	GroupID       uint
+	Model         string
 }
 
 type usageStatDelta struct {
 	RequestCount         int64
 	SuccessCount         int64
 	FailureCount         int64
-	InputTokens          int64
+	UncachedInputTokens  int64
 	OutputTokens         int64
 	CacheReadTokens      int64
 	CacheWrite5MTokens   int64
 	CacheWrite1HTokens   int64
-	Cost                 float64
+	EstimatedCostNanoUSD int64
 	UsageMissingCount    int64
 	PartialCount         int64
 	UnpricedRequestCount int64
@@ -187,7 +189,8 @@ func writeRequestLogBatch(tx *gorm.DB, rows []models.RequestLog) error {
 	absolute := make([]models.UsageStat, 0, len(keys))
 	for _, key := range keys {
 		stat := existingStats[key]
-		stat.HourBucket = key.HourBucket
+		stat.BucketStartMS = key.BucketStartMS
+		stat.AccessKeyID = key.AccessKeyID
 		stat.GroupID = key.GroupID
 		stat.Model = key.Model
 		total, err := checkedUsageStatTotal(stat, deltas[key])
@@ -200,18 +203,19 @@ func writeRequestLogBatch(tx *gorm.DB, rows []models.RequestLog) error {
 	for _, stat := range absolute {
 		if err := tx.Exec(
 			absoluteUsageStatUpsert,
-			stat.HourBucket,
+			stat.BucketStartMS,
+			stat.AccessKeyID,
 			stat.GroupID,
 			stat.Model,
 			stat.RequestCount,
 			stat.SuccessCount,
 			stat.FailureCount,
-			stat.InputTokens,
+			stat.UncachedInputTokens,
 			stat.OutputTokens,
 			stat.CacheReadTokens,
 			stat.CacheWrite5MTokens,
 			stat.CacheWrite1HTokens,
-			stat.Cost,
+			stat.EstimatedCostNanoUSD,
 			stat.UsageMissingCount,
 			stat.PartialCount,
 			stat.UnpricedRequestCount,
@@ -225,13 +229,18 @@ func writeRequestLogBatch(tx *gorm.DB, rows []models.RequestLog) error {
 func buildUsageStatDeltas(rows []models.RequestLog) (map[usageStatKey]usageStatDelta, error) {
 	deltas := make(map[usageStatKey]usageStatDelta)
 	for _, row := range rows {
-		if row.GroupID == 0 || row.UpstreamModel == "" {
-			continue
+		bucketStartMS, err := epochms.AlignDown(
+			row.CompletedAtMS,
+			epochms.MillisecondsPerHour,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("aggregate request log %q completion time: %w", row.ID, err)
 		}
 		key := usageStatKey{
-			HourBucket: row.CreatedAt.UTC().Truncate(time.Hour),
-			GroupID:    row.GroupID,
-			Model:      row.UpstreamModel,
+			BucketStartMS: bucketStartMS,
+			AccessKeyID:   row.AccessKeyID,
+			GroupID:       row.GroupID,
+			Model:         row.ClientModel,
 		}
 		delta := deltas[key]
 		if err := delta.addRow(row); err != nil {
@@ -246,12 +255,19 @@ func (delta *usageStatDelta) addRow(row models.RequestLog) error {
 	if err := checkedInt64Add(&delta.RequestCount, 1, "request_count"); err != nil {
 		return err
 	}
-	if row.Status == string(telemetry.RequestStatusSuccess) {
+	switch row.Status {
+	case string(telemetry.RequestStatusSuccess):
 		if err := checkedInt64Add(&delta.SuccessCount, 1, "success_count"); err != nil {
 			return err
 		}
-	} else if err := checkedInt64Add(&delta.FailureCount, 1, "failure_count"); err != nil {
-		return err
+	case string(telemetry.RequestStatusError),
+		string(telemetry.RequestStatusIncomplete),
+		string(telemetry.RequestStatusCanceled):
+		if err := checkedInt64Add(&delta.FailureCount, 1, "failure_count"); err != nil {
+			return err
+		}
+	default:
+		return fmt.Errorf("aggregate request log %q: invalid status %q", row.ID, row.Status)
 	}
 
 	switch row.UsageState {
@@ -263,15 +279,20 @@ func (delta *usageStatDelta) addRow(row models.RequestLog) error {
 		if err := checkedInt64Add(&delta.PartialCount, 1, "partial_count"); err != nil {
 			return err
 		}
+	case string(usage.StateComplete), string(usage.StateNotApplicable):
+	default:
+		return fmt.Errorf("aggregate request log %q: invalid usage state %q", row.ID, row.UsageState)
 	}
-	if row.CostState == string(pricing.CostStateUnpriced) {
+	if (row.UsageState == string(usage.StateComplete) ||
+		row.UsageState == string(usage.StatePartial)) &&
+		row.CostState == string(pricing.CostStateUnpriced) {
 		if err := checkedInt64Add(&delta.UnpricedRequestCount, 1, "unpriced_request_count"); err != nil {
 			return err
 		}
 	}
 
-	if row.UsageState != string(usage.StateComplete) ||
-		row.CostState != string(pricing.CostStatePriced) {
+	if row.UsageState != string(usage.StateComplete) &&
+		row.UsageState != string(usage.StatePartial) {
 		return nil
 	}
 	for _, field := range []struct {
@@ -279,7 +300,7 @@ func (delta *usageStatDelta) addRow(row models.RequestLog) error {
 		target *int64
 		value  int64
 	}{
-		{name: "input_tokens", target: &delta.InputTokens, value: row.InputTokens},
+		{name: "uncached_input_tokens", target: &delta.UncachedInputTokens, value: row.UncachedInputTokens},
 		{name: "output_tokens", target: &delta.OutputTokens, value: row.OutputTokens},
 		{name: "cache_read_tokens", target: &delta.CacheReadTokens, value: row.CacheReadTokens},
 		{name: "cache_write_5m_tokens", target: &delta.CacheWrite5MTokens, value: row.CacheWrite5MTokens},
@@ -289,11 +310,17 @@ func (delta *usageStatDelta) addRow(row models.RequestLog) error {
 			return err
 		}
 	}
-	cost, ok := checkedCostAdd(delta.Cost, row.Cost)
-	if !ok {
-		return fmt.Errorf("aggregate usage stat cost: checked addition failed")
+	if row.CostState != string(pricing.CostStatePriced) {
+		return nil
 	}
-	delta.Cost = cost
+	cost, ok := pricing.CheckedAddNanoUSD(
+		pricing.NanoUSD(delta.EstimatedCostNanoUSD),
+		pricing.NanoUSD(row.EstimatedCostNanoUSD),
+	)
+	if !ok {
+		return fmt.Errorf("aggregate usage stat estimated_cost_nano_usd: checked addition failed")
+	}
+	delta.EstimatedCostNanoUSD = int64(cost)
 	return nil
 }
 
@@ -306,27 +333,17 @@ func checkedInt64Add(target *int64, value int64, field string) error {
 	return nil
 }
 
-func checkedCostAdd(left, right float64) (float64, bool) {
-	if left < 0 || right < 0 ||
-		math.IsNaN(left) || math.IsNaN(right) ||
-		math.IsInf(left, 0) || math.IsInf(right, 0) {
-		return 0, false
-	}
-	total := left + right
-	if total < 0 || math.IsNaN(total) || math.IsInf(total, 0) {
-		return 0, false
-	}
-	return total, true
-}
-
 func sortedUsageStatKeys(deltas map[usageStatKey]usageStatDelta) []usageStatKey {
 	keys := make([]usageStatKey, 0, len(deltas))
 	for key := range deltas {
 		keys = append(keys, key)
 	}
 	sort.Slice(keys, func(left, right int) bool {
-		if !keys[left].HourBucket.Equal(keys[right].HourBucket) {
-			return keys[left].HourBucket.Before(keys[right].HourBucket)
+		if keys[left].BucketStartMS != keys[right].BucketStartMS {
+			return keys[left].BucketStartMS < keys[right].BucketStartMS
+		}
+		if keys[left].AccessKeyID != keys[right].AccessKeyID {
+			return keys[left].AccessKeyID < keys[right].AccessKeyID
 		}
 		if keys[left].GroupID != keys[right].GroupID {
 			return keys[left].GroupID < keys[right].GroupID
@@ -344,16 +361,18 @@ func queryExistingUsageStats(
 	for index, key := range keys {
 		if index == 0 {
 			query = query.Where(
-				"hour_bucket = ? AND group_id = ? AND model = ?",
-				key.HourBucket,
+				"bucket_start_ms = ? AND access_key_id = ? AND group_id = ? AND model = ?",
+				key.BucketStartMS,
+				key.AccessKeyID,
 				key.GroupID,
 				key.Model,
 			)
 			continue
 		}
 		query = query.Or(
-			"hour_bucket = ? AND group_id = ? AND model = ?",
-			key.HourBucket,
+			"bucket_start_ms = ? AND access_key_id = ? AND group_id = ? AND model = ?",
+			key.BucketStartMS,
+			key.AccessKeyID,
 			key.GroupID,
 			key.Model,
 		)
@@ -365,9 +384,10 @@ func queryExistingUsageStats(
 	existing := make(map[usageStatKey]models.UsageStat, len(rows))
 	for _, row := range rows {
 		key := usageStatKey{
-			HourBucket: row.HourBucket.UTC(),
-			GroupID:    row.GroupID,
-			Model:      row.Model,
+			BucketStartMS: row.BucketStartMS,
+			AccessKeyID:   row.AccessKeyID,
+			GroupID:       row.GroupID,
+			Model:         row.Model,
 		}
 		existing[key] = row
 	}
@@ -388,7 +408,7 @@ func checkedUsageStatTotal(
 		{name: "request_count", left: existing.RequestCount, right: delta.RequestCount, set: func(value int64) { total.RequestCount = value }},
 		{name: "success_count", left: existing.SuccessCount, right: delta.SuccessCount, set: func(value int64) { total.SuccessCount = value }},
 		{name: "failure_count", left: existing.FailureCount, right: delta.FailureCount, set: func(value int64) { total.FailureCount = value }},
-		{name: "input_tokens", left: existing.InputTokens, right: delta.InputTokens, set: func(value int64) { total.InputTokens = value }},
+		{name: "uncached_input_tokens", left: existing.UncachedInputTokens, right: delta.UncachedInputTokens, set: func(value int64) { total.UncachedInputTokens = value }},
 		{name: "output_tokens", left: existing.OutputTokens, right: delta.OutputTokens, set: func(value int64) { total.OutputTokens = value }},
 		{name: "cache_read_tokens", left: existing.CacheReadTokens, right: delta.CacheReadTokens, set: func(value int64) { total.CacheReadTokens = value }},
 		{name: "cache_write_5m_tokens", left: existing.CacheWrite5MTokens, right: delta.CacheWrite5MTokens, set: func(value int64) { total.CacheWrite5MTokens = value }},
@@ -406,13 +426,16 @@ func checkedUsageStatTotal(
 		}
 		field.set(value)
 	}
-	cost, ok := checkedCostAdd(existing.Cost, delta.Cost)
+	cost, ok := pricing.CheckedAddNanoUSD(
+		pricing.NanoUSD(existing.EstimatedCostNanoUSD),
+		pricing.NanoUSD(delta.EstimatedCostNanoUSD),
+	)
 	if !ok {
 		return models.UsageStat{}, fmt.Errorf(
-			"calculate absolute usage stat cost: checked addition failed",
+			"calculate absolute usage stat estimated_cost_nano_usd: checked addition failed",
 		)
 	}
-	total.Cost = cost
+	total.EstimatedCostNanoUSD = int64(cost)
 	return total, nil
 }
 

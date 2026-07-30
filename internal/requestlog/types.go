@@ -41,13 +41,13 @@ type Attempt struct {
 }
 
 type Cursor struct {
-	CompletedAt time.Time
-	RequestID   string
+	CompletedAtMS int64
+	RequestID     string
 }
 
 type ListQuery struct {
-	From        *time.Time
-	To          *time.Time
+	FromMS      *int64
+	ToMS        *int64
 	GroupID     *uint
 	ClientModel string
 	AccessKeyID *uint
@@ -64,28 +64,28 @@ type AccessKeyRef struct {
 }
 
 type Record struct {
-	RequestID           string
-	CompletedAt         time.Time
-	AccessKey           AccessKeyRef
-	Protocol            protocol.Protocol
-	ClientModel         string
-	UpstreamModel       string
-	Status              telemetry.RequestStatus
-	StatusCode          int
-	DurationMs          int64
-	ErrorCode           string
-	ErrorSummary        string
-	AffinityHit         bool
-	Attempts            []Attempt
-	GroupID             uint
-	UsageState          usage.State
-	CostState           pricing.CostState
-	UncachedInputTokens int64
-	CacheReadTokens     int64
-	CacheWrite5MTokens  int64
-	CacheWrite1HTokens  int64
-	OutputTokens        int64
-	EstimatedCostUSD    float64
+	RequestID            string
+	CompletedAtMS        int64
+	AccessKey            AccessKeyRef
+	Protocol             protocol.Protocol
+	ClientModel          string
+	UpstreamModel        string
+	Status               telemetry.RequestStatus
+	StatusCode           int
+	DurationMs           int64
+	ErrorCode            string
+	ErrorSummary         string
+	AffinityHit          bool
+	Attempts             []Attempt
+	GroupID              uint
+	UsageState           usage.State
+	CostState            pricing.CostState
+	UncachedInputTokens  int64
+	CacheReadTokens      int64
+	CacheWrite5MTokens   int64
+	CacheWrite1HTokens   int64
+	OutputTokens         int64
+	EstimatedCostNanoUSD int64
 }
 
 type Page struct {
@@ -108,8 +108,8 @@ const (
 )
 
 type UsageQuery struct {
-	From           time.Time
-	To             time.Time
+	FromMS         int64
+	ToMS           int64
 	Granularity    UsageGranularity
 	GroupID        *uint
 	Model          string
@@ -126,15 +126,15 @@ type UsageAggregate struct {
 	CacheWrite5MTokens   int64
 	CacheWrite1HTokens   int64
 	OutputTokens         int64
-	Cost                 float64
+	EstimatedCostNanoUSD int64
 	UsageMissingCount    int64
 	PartialCount         int64
 	UnpricedRequestCount int64
 }
 
 type UsageSeriesPoint struct {
-	BucketStart time.Time
-	BucketEnd   time.Time
+	BucketStartMS int64
+	BucketEndMS   int64
 	UsageAggregate
 }
 

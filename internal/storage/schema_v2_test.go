@@ -14,10 +14,10 @@ import (
 	"gpt-load/internal/storage/models"
 )
 
-func TestAutoMigrateCreatesSchemaV2SecurityTables(t *testing.T) {
+func TestAutoMigrateCreatesSchemaV3SecurityTables(t *testing.T) {
 	db := openMigratedDatabase(t)
-	if storage.CurrentSchemaVersion != 2 {
-		t.Fatalf("CurrentSchemaVersion = %d, want 2", storage.CurrentSchemaVersion)
+	if storage.CurrentSchemaVersion != 3 {
+		t.Fatalf("CurrentSchemaVersion = %d, want 3", storage.CurrentSchemaVersion)
 	}
 
 	type columnInfo struct {
@@ -91,10 +91,11 @@ func TestAutoMigrateUpgradesV1AccessKeyWithBackups(t *testing.T) {
 		t.Fatalf("Encrypt() error = %v", err)
 	}
 	if err := db.Exec(`INSERT INTO access_keys
-		(name,key_value,key_hash,status,filters,rpm_limit,daily_cost_limit,monthly_cost_limit)
-		VALUES (?,?,?,?,?,?,?,?)`,
+		(name,key_value,key_hash,status,filters,rpm_limit,daily_cost_limit,monthly_cost_limit,created_at,updated_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?)`,
 		"legacy", ciphertext, keyService.Hash(plaintext), "active",
 		`{"groups":[],"protocols":[],"models":[]}`, 0, 0, 0,
+		"2026-07-30T00:00:00Z", "2026-07-30T00:00:00Z",
 	).Error; err != nil {
 		t.Fatalf("insert legacy AccessKey: %v", err)
 	}
@@ -114,8 +115,8 @@ func TestAutoMigrateUpgradesV1AccessKeyWithBackups(t *testing.T) {
 	if err := db.Raw("SELECT version FROM schema_info").Scan(&version).Error; err != nil {
 		t.Fatalf("read schema version: %v", err)
 	}
-	if version != 2 {
-		t.Fatalf("schema version = %d, want 2", version)
+	if version != 3 {
+		t.Fatalf("schema version = %d, want 3", version)
 	}
 	assertSingleSecureBackup(t, dbPath+".schema-v1-backup-*")
 	assertSingleSecureBackup(t, keyPath+".schema-v1-backup-*")

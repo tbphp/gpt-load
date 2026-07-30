@@ -2,7 +2,6 @@ package requestlog
 
 import (
 	"fmt"
-	"math"
 
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/usage"
@@ -11,9 +10,9 @@ import (
 func ValidateUsageCostState(
 	usageState usage.State,
 	costState pricing.CostState,
-	cost float64,
+	estimatedCostNanoUSD int64,
 ) error {
-	if cost < 0 || math.IsNaN(cost) || math.IsInf(cost, 0) {
+	if estimatedCostNanoUSD < 0 {
 		return fmt.Errorf("invalid estimated cost")
 	}
 	validCombination := false
@@ -29,7 +28,7 @@ func ValidateUsageCostState(
 	if !validCombination {
 		return fmt.Errorf("invalid usage and cost state combination")
 	}
-	if costState != pricing.CostStatePriced && cost != 0 {
+	if costState != pricing.CostStatePriced && estimatedCostNanoUSD != 0 {
 		return fmt.Errorf("unpriced or not-applicable cost must be zero")
 	}
 	return nil

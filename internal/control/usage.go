@@ -2,18 +2,16 @@ package control
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"math"
 	"net/url"
 	"strconv"
 	"strings"
-	"time"
 	"unicode"
 	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
 
+	"gpt-load/internal/platform/epochms"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/platform/response"
 	"gpt-load/internal/requestlog"
@@ -23,7 +21,6 @@ const (
 	usageRange24Hours = "24h"
 	usageRange30Days  = "30d"
 	usageBreakdownMax = 100
-	maxSafeInteger    = int64(9007199254740991)
 )
 
 type UsageStatReader interface {
@@ -31,24 +28,24 @@ type UsageStatReader interface {
 }
 
 type usageAggregateResponse struct {
-	RequestCount         int64       `json:"request_count"`
-	SuccessCount         int64       `json:"success_count"`
-	FailureCount         int64       `json:"failure_count"`
-	UncachedInputTokens  int64       `json:"uncached_input_tokens"`
-	CacheReadTokens      int64       `json:"cache_read_tokens"`
-	CacheWrite5MTokens   int64       `json:"cache_write_5m_tokens"`
-	CacheWrite1HTokens   int64       `json:"cache_write_1h_tokens"`
-	OutputTokens         int64       `json:"output_tokens"`
-	TotalTokens          int64       `json:"total_tokens"`
-	EstimatedCostUSD     json.Number `json:"estimated_cost_usd"`
-	UsageMissingCount    int64       `json:"usage_missing_count"`
-	PartialCount         int64       `json:"partial_count"`
-	UnpricedRequestCount int64       `json:"unpriced_request_count"`
+	RequestCount         int64  `json:"request_count"`
+	SuccessCount         int64  `json:"success_count"`
+	FailureCount         int64  `json:"failure_count"`
+	UncachedInputTokens  int64  `json:"uncached_input_tokens"`
+	CacheReadTokens      int64  `json:"cache_read_tokens"`
+	CacheWrite5MTokens   int64  `json:"cache_write_5m_tokens"`
+	CacheWrite1HTokens   int64  `json:"cache_write_1h_tokens"`
+	OutputTokens         int64  `json:"output_tokens"`
+	TotalTokens          int64  `json:"total_tokens"`
+	EstimatedCostNanoUSD string `json:"estimated_cost_nano_usd"`
+	UsageMissingCount    int64  `json:"usage_missing_count"`
+	PartialCount         int64  `json:"partial_count"`
+	UnpricedRequestCount int64  `json:"unpriced_request_count"`
 }
 
 type usageSeriesResponse struct {
-	BucketStart string `json:"bucket_start"`
-	BucketEnd   string `json:"bucket_end"`
+	BucketStartMS int64 `json:"bucket_start_ms"`
+	BucketEndMS   int64 `json:"bucket_end_ms"`
 	usageAggregateResponse
 }
 
@@ -59,19 +56,18 @@ type usageBreakdownResponse struct {
 }
 
 type usageCollectionHealthResponse struct {
-	Scope              string     `json:"scope"`
-	DroppedTotal       uint64     `json:"dropped_total"`
-	WriteFailureTotal  uint64     `json:"write_failure_total"`
-	LastWriteFailureAt *time.Time `json:"last_write_failure_at"`
+	Scope                string `json:"scope"`
+	DroppedTotal         uint64 `json:"dropped_total"`
+	WriteFailureTotal    uint64 `json:"write_failure_total"`
+	LastWriteFailureAtMS *int64 `json:"last_write_failure_at_ms"`
 }
 
 type usageResponse struct {
 	Range               string                         `json:"range"`
 	Granularity         requestlog.UsageGranularity    `json:"granularity"`
-	Timezone            string                         `json:"timezone"`
-	From                string                         `json:"from"`
-	To                  string                         `json:"to"`
-	ObservedAt          string                         `json:"observed_at"`
+	FromMS              int64                          `json:"from_ms"`
+	ToMS                int64                          `json:"to_ms"`
+	ObservedAtMS        int64                          `json:"observed_at_ms"`
 	Summary             usageAggregateResponse         `json:"summary"`
 	Series              []usageSeriesResponse          `json:"series"`
 	Breakdown           []usageBreakdownResponse       `json:"breakdown"`
@@ -96,8 +92,12 @@ func (service *Service) QueryUsage(
 }
 
 func (server *Server) handleUsage(c *gin.Context) {
-	observedAt := server.service.now().UTC()
-	query, apiErr := parseUsageQuery(c.Request.URL.RawQuery, observedAt)
+	observedAtMS, err := safeEpochMilliseconds(server.service.now())
+	if err != nil {
+		writeServiceError(c, "usage", err)
+		return
+	}
+	query, apiErr := parseUsageQuery(c.Request.URL.RawQuery, observedAtMS)
 	if apiErr != nil {
 		writeServiceError(c, "usage", apiErr)
 		return
@@ -107,7 +107,7 @@ func (server *Server) handleUsage(c *gin.Context) {
 		writeServiceError(c, "usage", err)
 		return
 	}
-	result, err := server.service.mapUsageResponse(observedAt, query, report)
+	result, err := server.service.mapUsageResponse(observedAtMS, query, report)
 	if err != nil {
 		writeServiceError(c, "usage", err)
 		return
@@ -115,13 +115,15 @@ func (server *Server) handleUsage(c *gin.Context) {
 	response.SuccessI18n(c, "common.success", result)
 }
 
-func parseUsageQuery(rawQuery string, observedAt time.Time) (requestlog.UsageQuery, *app_errors.APIError) {
+func parseUsageQuery(rawQuery string, observedAtMS int64) (requestlog.UsageQuery, *app_errors.APIError) {
 	values, err := url.ParseQuery(rawQuery)
 	if err != nil {
 		return requestlog.UsageQuery{}, app_errors.ErrBadRequest
 	}
 	allowed := map[string]struct{}{
 		"range":           {},
+		"from_ms":         {},
+		"to_ms":           {},
 		"group_id":        {},
 		"model":           {},
 		"breakdown_order": {},
@@ -132,7 +134,9 @@ func parseUsageQuery(rawQuery string, observedAt time.Time) (requestlog.UsageQue
 		}
 	}
 
-	observedAt = observedAt.UTC()
+	if err := validateSafeMilliseconds(observedAtMS); err != nil {
+		return requestlog.UsageQuery{}, app_errors.ErrInternalServer
+	}
 	query := requestlog.UsageQuery{
 		Limit:          usageBreakdownMax,
 		BreakdownOrder: requestlog.UsageBreakdownOrderRequests,
@@ -141,19 +145,64 @@ func parseUsageQuery(rawQuery string, observedAt time.Time) (requestlog.UsageQue
 	if value, ok := singleQueryValue(values, "range"); ok {
 		rangeValue = value
 	}
-	switch rangeValue {
-	case usageRange24Hours:
-		currentHour := observedAt.Truncate(time.Hour)
-		query.From = currentHour.Add(-23 * time.Hour)
-		query.To = currentHour.Add(time.Hour)
-		query.Granularity = requestlog.UsageGranularityHour
-	case usageRange30Days:
-		currentDay := time.Date(observedAt.Year(), observedAt.Month(), observedAt.Day(), 0, 0, 0, 0, time.UTC)
-		query.From = currentDay.AddDate(0, 0, -29)
-		query.To = currentDay.AddDate(0, 0, 1)
-		query.Granularity = requestlog.UsageGranularityDay
-	default:
+	fromValue, hasFrom := singleQueryValue(values, "from_ms")
+	toValue, hasTo := singleQueryValue(values, "to_ms")
+	if hasFrom != hasTo {
 		return requestlog.UsageQuery{}, app_errors.ErrValidation
+	}
+	if hasFrom {
+		if _, hasRange := singleQueryValue(values, "range"); hasRange {
+			return requestlog.UsageQuery{}, app_errors.ErrValidation
+		}
+		fromMS, err := parseCanonicalSafeMilliseconds(fromValue)
+		if err != nil {
+			return requestlog.UsageQuery{}, app_errors.ErrBadRequest
+		}
+		toMS, err := parseCanonicalSafeMilliseconds(toValue)
+		if err != nil {
+			return requestlog.UsageQuery{}, app_errors.ErrBadRequest
+		}
+		if fromMS >= toMS {
+			return requestlog.UsageQuery{}, app_errors.ErrValidation
+		}
+		query.FromMS = fromMS
+		query.ToMS = toMS
+		if toMS-fromMS <= epochms.MillisecondsPerDay {
+			query.Granularity = requestlog.UsageGranularityHour
+		} else {
+			query.Granularity = requestlog.UsageGranularityDay
+		}
+		rangeValue = ""
+	}
+	if !hasFrom {
+		switch rangeValue {
+		case usageRange24Hours:
+			fromMS, toMS, err := epochms.WindowEndingAt(
+				observedAtMS,
+				epochms.MillisecondsPerHour,
+				24,
+			)
+			if err != nil {
+				return requestlog.UsageQuery{}, app_errors.ErrInternalServer
+			}
+			query.FromMS = fromMS
+			query.ToMS = toMS
+			query.Granularity = requestlog.UsageGranularityHour
+		case usageRange30Days:
+			fromMS, toMS, err := epochms.WindowEndingAt(
+				observedAtMS,
+				epochms.MillisecondsPerDay,
+				30,
+			)
+			if err != nil {
+				return requestlog.UsageQuery{}, app_errors.ErrInternalServer
+			}
+			query.FromMS = fromMS
+			query.ToMS = toMS
+			query.Granularity = requestlog.UsageGranularityDay
+		default:
+			return requestlog.UsageQuery{}, app_errors.ErrValidation
+		}
 	}
 	if value, ok := singleQueryValue(values, "group_id"); ok {
 		groupID, apiErr := parseUsageGroupID(value)
@@ -206,7 +255,7 @@ func parseUsageGroupID(value string) (uint, *app_errors.APIError) {
 }
 
 func (service *Service) mapUsageResponse(
-	observedAt time.Time,
+	observedAtMS int64,
 	query requestlog.UsageQuery,
 	report requestlog.UsageReport,
 ) (usageResponse, error) {
@@ -241,18 +290,30 @@ func (service *Service) mapUsageResponse(
 	default:
 		return usageResponse{}, fmt.Errorf("map usage response: invalid granularity")
 	}
+	lastWriteFailureAtMS, err := optionalSafeEpochMilliseconds(stats.LastWriteFailureAt)
+	if err != nil {
+		return usageResponse{}, fmt.Errorf("map usage collection health: %w", err)
+	}
+	if err := validateSafeMilliseconds(query.FromMS); err != nil {
+		return usageResponse{}, fmt.Errorf("map usage from_ms: %w", err)
+	}
+	if err := validateSafeMilliseconds(query.ToMS); err != nil {
+		return usageResponse{}, fmt.Errorf("map usage to_ms: %w", err)
+	}
+	if err := validateSafeMilliseconds(observedAtMS); err != nil {
+		return usageResponse{}, fmt.Errorf("map usage observed_at_ms: %w", err)
+	}
 	result := usageResponse{
-		Range:       rangeValue,
-		Granularity: query.Granularity,
-		Timezone:    "UTC",
-		From:        query.From.UTC().Format(time.RFC3339Nano),
-		To:          query.To.UTC().Format(time.RFC3339Nano),
-		ObservedAt:  observedAt.UTC().Format(time.RFC3339Nano),
+		Range:        rangeValue,
+		Granularity:  query.Granularity,
+		FromMS:       query.FromMS,
+		ToMS:         query.ToMS,
+		ObservedAtMS: observedAtMS,
 		CollectionHealth: usageCollectionHealthResponse{
-			Scope:              "current_process",
-			DroppedTotal:       stats.DroppedTotal,
-			WriteFailureTotal:  stats.WriteFailureTotal,
-			LastWriteFailureAt: optionalUTC(stats.LastWriteFailureAt),
+			Scope:                "current_process",
+			DroppedTotal:         stats.DroppedTotal,
+			WriteFailureTotal:    stats.WriteFailureTotal,
+			LastWriteFailureAtMS: lastWriteFailureAtMS,
 		},
 		Summary:             summary,
 		Series:              make([]usageSeriesResponse, 0, len(report.Series)),
@@ -262,13 +323,19 @@ func (service *Service) mapUsageResponse(
 		BreakdownGroupCount: report.BreakdownGroupCount,
 	}
 	for _, point := range report.Series {
+		if err := validateSafeMilliseconds(point.BucketStartMS); err != nil {
+			return usageResponse{}, fmt.Errorf("map usage bucket_start_ms: %w", err)
+		}
+		if err := validateSafeMilliseconds(point.BucketEndMS); err != nil {
+			return usageResponse{}, fmt.Errorf("map usage bucket_end_ms: %w", err)
+		}
 		aggregate, err := mapUsageAggregate(point.UsageAggregate)
 		if err != nil {
 			return usageResponse{}, err
 		}
 		result.Series = append(result.Series, usageSeriesResponse{
-			BucketStart:            point.BucketStart.UTC().Format(time.RFC3339Nano),
-			BucketEnd:              point.BucketEnd.UTC().Format(time.RFC3339Nano),
+			BucketStartMS:          point.BucketStartMS,
+			BucketEndMS:            point.BucketEndMS,
 			usageAggregateResponse: aggregate,
 		})
 	}
@@ -309,16 +376,16 @@ func mapUsageAggregate(source requestlog.UsageAggregate) (usageAggregateResponse
 	if err != nil {
 		return usageAggregateResponse{}, err
 	}
-	cost, err := mapEstimatedCostUSD(source.Cost)
-	if err != nil {
-		return usageAggregateResponse{}, err
+	if source.EstimatedCostNanoUSD < 0 {
+		return usageAggregateResponse{}, fmt.Errorf("map usage cost: negative value")
 	}
 	return usageAggregateResponse{
 		RequestCount: source.RequestCount, SuccessCount: source.SuccessCount, FailureCount: source.FailureCount,
 		UncachedInputTokens: source.UncachedInputTokens, CacheReadTokens: source.CacheReadTokens,
 		CacheWrite5MTokens: source.CacheWrite5MTokens, CacheWrite1HTokens: source.CacheWrite1HTokens,
-		OutputTokens: source.OutputTokens, TotalTokens: totalTokens, EstimatedCostUSD: cost,
-		UsageMissingCount: source.UsageMissingCount, PartialCount: source.PartialCount,
+		OutputTokens: source.OutputTokens, TotalTokens: totalTokens,
+		EstimatedCostNanoUSD: strconv.FormatInt(source.EstimatedCostNanoUSD, 10),
+		UsageMissingCount:    source.UsageMissingCount, PartialCount: source.PartialCount,
 		UnpricedRequestCount: source.UnpricedRequestCount,
 	}, nil
 }
@@ -332,14 +399,4 @@ func checkedUsageTokenTotal(tokens ...int64) (int64, error) {
 		total += value
 	}
 	return total, nil
-}
-
-func mapEstimatedCostUSD(value float64) (json.Number, error) {
-	if value < 0 || math.IsNaN(value) || math.IsInf(value, 0) {
-		return "", fmt.Errorf("map usage cost: invalid value")
-	}
-	if value == 0 {
-		value = 0
-	}
-	return json.Number(strconv.FormatFloat(value, 'g', 12, 64)), nil
 }

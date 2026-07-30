@@ -9,11 +9,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"time"
 
 	"gorm.io/gorm"
 
 	"gpt-load/internal/platform/canonicaljson"
+	"gpt-load/internal/platform/epochms"
 	app_errors "gpt-load/internal/platform/errors"
 	stateloader "gpt-load/internal/state/loader"
 	"gpt-load/internal/storage/models"
@@ -61,7 +61,7 @@ type operationExpiredData struct {
 	OperationID      string        `json:"operation_id"`
 	OperationKind    operationKind `json:"operation_kind"`
 	ResourceIdentity string        `json:"resource_identity"`
-	CompletedAt      time.Time     `json:"completed_at"`
+	CompletedAtMS    int64         `json:"completed_at_ms"`
 }
 
 func operationRequiredStages(kind operationKind) ([]operationStage, error) {
@@ -205,7 +205,10 @@ func (s *Service) executeIdempotentOperation(
 				app_errors.ErrInternalServer,
 			)
 		}
-		now := s.now().UTC()
+		nowMS, timeErr := epochms.FromTime(s.now())
+		if timeErr != nil {
+			return app_errors.ErrInternalServer
+		}
 		operation = models.ControlOperation{
 			OperationID:        operationID,
 			IdempotencyKey:     input.IdempotencyKey,
@@ -216,8 +219,8 @@ func (s *Service) executeIdempotentOperation(
 			CanonicalResult:    append([]byte(nil), mutationResult.CanonicalResult...),
 			RequiredStages:     models.JSON(encodedStages),
 			LastCompletedStage: string(operationStageDBCommitted),
-			CreatedAt:          now,
-			UpdatedAt:          now,
+			CreatedAtMS:        nowMS,
+			UpdatedAtMS:        nowMS,
 		}
 		if err := tx.Create(&operation).Error; err != nil {
 			return app_errors.ParseDBError(err)
@@ -248,8 +251,11 @@ func (s *Service) replayIdempotentOperationLocked(
 	if err := validateOperationComparator(operation, input); err != nil {
 		return idempotentOperationResult{}, err
 	}
-	if operation.CompactedAt != nil {
-		if operation.CompletedAt == nil {
+	if operation.CompactedAtMS != nil {
+		if operation.CompletedAtMS == nil {
+			return idempotentOperationResult{}, app_errors.ErrInternalServer
+		}
+		if err := validateSafeMilliseconds(*operation.CompletedAtMS); err != nil {
 			return idempotentOperationResult{}, app_errors.ErrInternalServer
 		}
 		return idempotentOperationResult{}, app_errors.NewAPIErrorWithData(
@@ -258,7 +264,7 @@ func (s *Service) replayIdempotentOperationLocked(
 				OperationID:      operation.OperationID,
 				OperationKind:    operationKind(operation.OperationKind),
 				ResourceIdentity: operation.ResourceIdentity,
-				CompletedAt:      operation.CompletedAt.UTC(),
+				CompletedAtMS:    *operation.CompletedAtMS,
 			},
 		)
 	}
@@ -268,7 +274,7 @@ func (s *Service) replayIdempotentOperationLocked(
 			return idempotentOperationResult{}, s.operationIncompleteError(*operation)
 		}
 	}
-	if operation.CompletedAt == nil || len(operation.CanonicalResult) == 0 {
+	if operation.CompletedAtMS == nil || len(operation.CanonicalResult) == 0 {
 		return idempotentOperationResult{}, app_errors.ErrInternalServer
 	}
 	return idempotentOperationResult{
@@ -392,14 +398,17 @@ func (s *Service) advanceOperationStageLocked(
 		}
 	}
 	previous := operation.LastCompletedStage
-	now := s.now().UTC()
+	nowMS, timeErr := epochms.FromTime(s.now())
+	if timeErr != nil {
+		return app_errors.ErrInternalServer
+	}
 	updates := map[string]any{
 		"last_completed_stage": string(stage),
 		"failed_stage":         "",
-		"updated_at":           now,
+		"updated_at_ms":        nowMS,
 	}
 	if stage == operationStageCompleted {
-		updates["completed_at"] = now
+		updates["completed_at_ms"] = nowMS
 	}
 	err := s.withControlTransaction(ctx, func(tx *gorm.DB) error {
 		result := tx.Model(&models.ControlOperation{}).
@@ -422,9 +431,9 @@ func (s *Service) advanceOperationStageLocked(
 	}
 	operation.LastCompletedStage = string(stage)
 	operation.FailedStage = ""
-	operation.UpdatedAt = now
+	operation.UpdatedAtMS = nowMS
 	if stage == operationStageCompleted {
-		operation.CompletedAt = &now
+		operation.CompletedAtMS = &nowMS
 	}
 	return nil
 }
@@ -434,18 +443,21 @@ func (s *Service) recordOperationFailureLocked(
 	operation *models.ControlOperation,
 	stage operationStage,
 ) error {
-	now := s.now().UTC()
+	nowMS, timeErr := epochms.FromTime(s.now())
+	if timeErr != nil {
+		return app_errors.ErrInternalServer
+	}
 	err := s.withControlTransaction(ctx, func(tx *gorm.DB) error {
 		return tx.Model(&models.ControlOperation{}).
 			Where("commit_sequence = ?", operation.CommitSequence).
 			Updates(map[string]any{
-				"failed_stage": string(stage),
-				"updated_at":   now,
+				"failed_stage":  string(stage),
+				"updated_at_ms": nowMS,
 			}).Error
 	})
 	if err == nil {
 		operation.FailedStage = string(stage)
-		operation.UpdatedAt = now
+		operation.UpdatedAtMS = nowMS
 	}
 	return err
 }

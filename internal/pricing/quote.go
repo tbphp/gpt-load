@@ -1,10 +1,6 @@
 package pricing
 
-import (
-	"math"
-
-	"gpt-load/internal/usage"
-)
+import "gpt-load/internal/usage"
 
 const tokensPerMillion = 1_000_000
 
@@ -29,8 +25,8 @@ func (table *Table) Quote(upstreamModel string, result usage.Result) Quote {
 	if !ok {
 		return Quote{State: CostStateUnpriced}
 	}
-	inputMultiplier := float64(1)
-	outputMultiplier := float64(1)
+	inputMultiplier := Multiplier{Numerator: 1, Denominator: 1}
+	outputMultiplier := Multiplier{Numerator: 1, Denominator: 1}
 	if policy := rule.LongContextPolicy; policy != nil &&
 		inputTokens > policy.InputThresholdTokens {
 		inputMultiplier = policy.InputMultiplier
@@ -40,7 +36,7 @@ func (table *Table) Quote(upstreamModel string, result usage.Result) Quote {
 	components := [...]struct {
 		tokens     int64
 		price      Price
-		multiplier float64
+		multiplier Multiplier
 	}{
 		{tokens: result.Tokens.UncachedInput, price: rule.Prices.UncachedInput, multiplier: inputMultiplier},
 		{tokens: result.Tokens.CacheRead, price: rule.Prices.CacheRead, multiplier: inputMultiplier},
@@ -50,7 +46,7 @@ func (table *Table) Quote(upstreamModel string, result usage.Result) Quote {
 	}
 
 	totalTokens := int64(0)
-	cost := float64(0)
+	cost := NanoUSD(0)
 	for _, component := range components {
 		if component.tokens < 0 {
 			return Quote{State: CostStateUnpriced}
@@ -66,20 +62,20 @@ func (table *Table) Quote(upstreamModel string, result usage.Result) Quote {
 		if !component.price.Set {
 			return Quote{State: CostStateUnpriced}
 		}
-		effectivePrice := component.price.Value * component.multiplier
-		if !isFinite(effectivePrice) {
+		componentCost, ok := QuoteComponent(
+			component.tokens,
+			component.price.NanoUSDPerMillion,
+			component.multiplier,
+		)
+		if !ok {
 			return Quote{State: CostStateUnpriced}
 		}
-		componentCost := effectivePrice * float64(component.tokens) / tokensPerMillion
-		if !isFinite(componentCost) {
-			return Quote{State: CostStateUnpriced}
-		}
-		cost += componentCost
-		if !isFinite(cost) {
+		cost, ok = CheckedAddNanoUSD(cost, componentCost)
+		if !ok {
 			return Quote{State: CostStateUnpriced}
 		}
 	}
-	return Quote{State: CostStatePriced, Cost: cost}
+	return Quote{State: CostStatePriced, EstimatedCostNanoUSD: cost}
 }
 
 func checkedInputTokens(tokens usage.Tokens) (int64, bool) {
@@ -116,8 +112,4 @@ func hasBlockingDiagnostic(diagnostics usage.Diagnostics) bool {
 		}
 	}
 	return false
-}
-
-func isFinite(value float64) bool {
-	return !math.IsNaN(value) && !math.IsInf(value, 0)
 }

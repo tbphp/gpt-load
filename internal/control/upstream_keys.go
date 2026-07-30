@@ -23,7 +23,7 @@ type UpstreamKeyResponse struct {
 	WeightManual    *int            `json:"weight_manual"`
 	WeightAuto      int             `json:"weight_auto"`
 	Blacklisted     bool            `json:"blacklisted"`
-	CooldownUntil   *time.Time      `json:"cooldown_until"`
+	CooldownUntilMS *int64          `json:"cooldown_until_ms"`
 	FailureCount    int             `json:"failure_count"`
 }
 
@@ -163,9 +163,12 @@ func (s *Service) mapGroupKeys(
 				app_errors.ErrInternalServer,
 			)
 		}
-		var cooldownUntil *time.Time
+		var cooldownUntilMS *int64
 		if view.CooldownUntil.After(observation.observedAt) {
-			cooldownUntil = optionalUTC(view.CooldownUntil)
+			cooldownUntilMS, err = optionalSafeEpochMilliseconds(view.CooldownUntil)
+			if err != nil {
+				return nil, fmt.Errorf("map upstream key cooldown_until_ms: %w", err)
+			}
 		}
 		result = append(result, UpstreamKeyResponse{
 			ID: row.ID, GroupID: row.GroupID,
@@ -176,11 +179,11 @@ func (s *Service) mapGroupKeys(
 				view,
 				observation.observedAt,
 			)),
-			WeightManual:  cloneInt(view.WeightManual),
-			WeightAuto:    view.WeightAuto,
-			Blacklisted:   view.Blacklisted,
-			CooldownUntil: cooldownUntil,
-			FailureCount:  view.FailureCount,
+			WeightManual:    cloneInt(view.WeightManual),
+			WeightAuto:      view.WeightAuto,
+			Blacklisted:     view.Blacklisted,
+			CooldownUntilMS: cooldownUntilMS,
+			FailureCount:    view.FailureCount,
 		})
 	}
 	return result, nil

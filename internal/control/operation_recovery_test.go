@@ -236,8 +236,8 @@ func TestDrainCommittedOperationsFailsClosedOnUnsupportedDigestVersion(t *testin
 		CanonicalResult:    []byte(`{"id":1}`),
 		RequiredStages:     models.JSON(stages),
 		LastCompletedStage: string(operationStageDBCommitted),
-		CreatedAt:          now,
-		UpdatedAt:          now,
+		CreatedAtMS:        now.UnixMilli(),
+		UpdatedAtMS:        now.UnixMilli(),
 	}
 	if err := fixture.db.Create(&row).Error; err != nil {
 		t.Fatalf("seed unsupported operation: %v", err)
@@ -314,7 +314,7 @@ func TestCompactCompletedOperationsKeepsPermanentComparatorTombstone(t *testing.
 	if err := fixture.db.First(&row).Error; err != nil {
 		t.Fatalf("read compacted operation: %v", err)
 	}
-	if row.CompactedAt == nil || len(row.CanonicalResult) != 0 ||
+	if row.CompactedAtMS == nil || len(row.CanonicalResult) != 0 ||
 		len(row.RequiredStages) != 0 || row.LastCompletedStage != "" ||
 		row.OperationID == "" || row.ResourceIdentity != "access-key:7" ||
 		len(row.RequestDigest) != 32 {

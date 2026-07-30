@@ -1,7 +1,5 @@
 package models
 
-import "time"
-
 // AccessKey is an encrypted client credential and its persisted access policy.
 type AccessKey struct {
 	ID               uint    `gorm:"primaryKey;autoIncrement"`
@@ -14,6 +12,6 @@ type AccessKey struct {
 	RPMLimit         int64   `gorm:"not null;default:0"`
 	DailyCostLimit   float64 `gorm:"not null;default:0"`
 	MonthlyCostLimit float64 `gorm:"not null;default:0"`
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
+	CreatedAtMS      int64   `gorm:"column:created_at_ms;not null;autoCreateTime:milli"`
+	UpdatedAtMS      int64   `gorm:"column:updated_at_ms;not null;autoUpdateTime:milli"`
 }

@@ -47,8 +47,13 @@ func TestMapEventPersistsCompletedAtZeroUsageAndJSONArray(t *testing.T) {
 	}
 
 	row := mapEvent(redact.New(), event, nil)
-	if row.ID != event.RequestID || !row.CreatedAt.Equal(completedAt.UTC()) || row.CreatedAt.Location() != time.UTC {
-		t.Fatalf("identity/completed_at = %q/%v, want %q/%v UTC", row.ID, row.CreatedAt, event.RequestID, completedAt.UTC())
+	if row.ID != event.RequestID || row.CompletedAtMS != 1_784_896_200_000 {
+		t.Fatalf(
+			"identity/completed_at_ms = %q/%d, want %q/1784896200000",
+			row.ID,
+			row.CompletedAtMS,
+			event.RequestID,
+		)
 	}
 	if row.AccessKeyID != 17 || row.Protocol != string(protocol.OpenAICompletions) || row.ClientModel != "client-model" ||
 		row.UpstreamModel != "upstream-model" || row.Status != "error" || row.StatusCode != 429 ||
@@ -59,8 +64,8 @@ func TestMapEventPersistsCompletedAtZeroUsageAndJSONArray(t *testing.T) {
 	if row.AffinityHit {
 		t.Fatal("AffinityHit = true, want false in M3")
 	}
-	if row.InputTokens != 0 || row.OutputTokens != 0 || row.CacheReadTokens != 0 ||
-		row.CacheWrite5MTokens != 0 || row.CacheWrite1HTokens != 0 || row.Cost != 0 {
+	if row.UncachedInputTokens != 0 || row.OutputTokens != 0 || row.CacheReadTokens != 0 ||
+		row.CacheWrite5MTokens != 0 || row.CacheWrite1HTokens != 0 || row.EstimatedCostNanoUSD != 0 {
 		t.Fatalf("usage fields are non-zero: %+v", row)
 	}
 
@@ -133,7 +138,7 @@ func TestMapEventBoundsModelsAtUTF8Boundary(t *testing.T) {
 	projectedPriceTable := compileRequestLogTestPriceTable(
 		t,
 		strings.Repeat("b", wantMaxModelBytes-len(truncatedMarker))+truncatedMarker,
-		pricing.Prices{Output: pricing.Price{Value: 1, Set: true}},
+		pricing.Prices{Output: pricing.Price{NanoUSDPerMillion: 1_000_000_000, Set: true}},
 	)
 	row := mapEvent(redact.New(), event, projectedPriceTable)
 
@@ -188,7 +193,7 @@ func TestMapEventBoundsModelsAtUTF8Boundary(t *testing.T) {
 	rawPriceTable := compileRequestLogTestPriceTable(
 		t,
 		rawInvalidModel,
-		pricing.Prices{Output: pricing.Price{Value: 2, Set: true}},
+		pricing.Prices{Output: pricing.Price{NanoUSDPerMillion: 2_000_000_000, Set: true}},
 	)
 	pricedEvent := telemetry.RequestEvent{
 		UpstreamModel: rawInvalidModel,
@@ -201,22 +206,23 @@ func TestMapEventBoundsModelsAtUTF8Boundary(t *testing.T) {
 	if pricedRow.UpstreamModel == rawInvalidModel || !utf8.ValidString(pricedRow.UpstreamModel) {
 		t.Fatalf("priced row upstream model was not projected safely: %q", pricedRow.UpstreamModel)
 	}
-	if pricedRow.CostState != string(pricing.CostStatePriced) || pricedRow.Cost != 2 {
+	if pricedRow.CostState != string(pricing.CostStatePriced) ||
+		pricedRow.EstimatedCostNanoUSD != 2_000_000_000 {
 		t.Fatalf(
-			"raw telemetry model quote = %q/%v, want priced/2",
+			"raw telemetry model quote = %q/%d, want priced/2000000000",
 			pricedRow.CostState,
-			pricedRow.Cost,
+			pricedRow.EstimatedCostNanoUSD,
 		)
 	}
 }
 
 func TestMapEventPersistsUsageAttributionAndQuote(t *testing.T) {
 	table := compileRequestLogTestPriceTable(t, "actual-upstream", pricing.Prices{
-		UncachedInput: pricing.Price{Value: 1, Set: true},
-		CacheRead:     pricing.Price{Value: 2, Set: true},
-		CacheWrite5M:  pricing.Price{Value: 3, Set: true},
-		CacheWrite1H:  pricing.Price{Value: 4, Set: true},
-		Output:        pricing.Price{Value: 5, Set: true},
+		UncachedInput: pricing.Price{NanoUSDPerMillion: 1_000_000_000, Set: true},
+		CacheRead:     pricing.Price{NanoUSDPerMillion: 2_000_000_000, Set: true},
+		CacheWrite5M:  pricing.Price{NanoUSDPerMillion: 3_000_000_000, Set: true},
+		CacheWrite1H:  pricing.Price{NanoUSDPerMillion: 4_000_000_000, Set: true},
+		Output:        pricing.Price{NanoUSDPerMillion: 5_000_000_000, Set: true},
 	})
 
 	t.Run("complete usage uses final attribution and all five token prices", func(t *testing.T) {
@@ -243,14 +249,20 @@ func TestMapEventPersistsUsageAttributionAndQuote(t *testing.T) {
 		if row.GroupID != 23 || row.UpstreamModel != "actual-upstream" {
 			t.Fatalf("attribution = group:%d model:%q, want group:23 model:actual-upstream", row.GroupID, row.UpstreamModel)
 		}
-		if row.InputTokens != 1_000_000 || row.CacheReadTokens != 2_000_000 ||
+		if row.UncachedInputTokens != 1_000_000 || row.CacheReadTokens != 2_000_000 ||
 			row.CacheWrite5MTokens != 3_000_000 || row.CacheWrite1HTokens != 4_000_000 ||
 			row.OutputTokens != 5_000_000 {
 			t.Fatalf("persisted tokens = %+v", row)
 		}
 		if row.UsageState != string(usage.StateComplete) ||
-			row.CostState != string(pricing.CostStatePriced) || row.Cost != 55 {
-			t.Fatalf("usage/cost = %q/%q/%v, want complete/priced/55", row.UsageState, row.CostState, row.Cost)
+			row.CostState != string(pricing.CostStatePriced) ||
+			row.EstimatedCostNanoUSD != 55_000_000_000 {
+			t.Fatalf(
+				"usage/cost = %q/%q/%d, want complete/priced/55000000000",
+				row.UsageState,
+				row.CostState,
+				row.EstimatedCostNanoUSD,
+			)
 		}
 	})
 
@@ -273,14 +285,20 @@ func TestMapEventPersistsUsageAttributionAndQuote(t *testing.T) {
 
 		row := mapEvent(redact.New(), event, table)
 
-		if row.InputTokens != 6 || row.CacheReadTokens != 7 ||
+		if row.UncachedInputTokens != 6 || row.CacheReadTokens != 7 ||
 			row.CacheWrite5MTokens != 8 || row.CacheWrite1HTokens != 9 ||
 			row.OutputTokens != 10 {
 			t.Fatalf("missing tokens were rewritten: %+v", row)
 		}
 		if row.UsageState != string(usage.StateMissing) ||
-			row.CostState != string(pricing.CostStateUnpriced) || row.Cost != 0 {
-			t.Fatalf("missing usage/cost = %q/%q/%v", row.UsageState, row.CostState, row.Cost)
+			row.CostState != string(pricing.CostStateUnpriced) ||
+			row.EstimatedCostNanoUSD != 0 {
+			t.Fatalf(
+				"missing usage/cost = %q/%q/%d",
+				row.UsageState,
+				row.CostState,
+				row.EstimatedCostNanoUSD,
+			)
 		}
 	})
 
@@ -303,12 +321,18 @@ func TestMapEventPersistsUsageAttributionAndQuote(t *testing.T) {
 		row := mapEvent(redact.New(), event, table)
 
 		if row.GroupID != 25 || row.UpstreamModel != "actual-upstream" ||
-			row.InputTokens != 11 || row.OutputTokens != 12 {
+			row.UncachedInputTokens != 11 || row.OutputTokens != 12 {
 			t.Fatalf("not-applicable attribution/tokens = %+v", row)
 		}
 		if row.UsageState != string(usage.StateNotApplicable) ||
-			row.CostState != string(pricing.CostStateNotApplicable) || row.Cost != 0 {
-			t.Fatalf("not-applicable usage/cost = %q/%q/%v", row.UsageState, row.CostState, row.Cost)
+			row.CostState != string(pricing.CostStateNotApplicable) ||
+			row.EstimatedCostNanoUSD != 0 {
+			t.Fatalf(
+				"not-applicable usage/cost = %q/%q/%d",
+				row.UsageState,
+				row.CostState,
+				row.EstimatedCostNanoUSD,
+			)
 		}
 	})
 }
@@ -340,7 +364,7 @@ func TestMapEventHandlesNilPriceTableFailOpen(t *testing.T) {
 			row := mapEvent(redact.New(), event, nil)
 
 			if row.UsageState != string(test.usage) || row.CostState != string(test.wantState) ||
-				row.Cost != 0 || row.InputTokens != 13 || row.CacheReadTokens != 14 ||
+				row.EstimatedCostNanoUSD != 0 || row.UncachedInputTokens != 13 || row.CacheReadTokens != 14 ||
 				row.CacheWrite5MTokens != 15 || row.CacheWrite1HTokens != 16 ||
 				row.OutputTokens != 17 {
 				t.Fatalf("nil-table mapping = %+v", row)

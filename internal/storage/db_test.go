@@ -514,7 +514,7 @@ func TestOpenConfiguresParameterizedSQLLogging(t *testing.T) {
 	}
 }
 
-func TestAutoMigrateCreatesNineTablesAndSchemaVersion(t *testing.T) {
+func TestAutoMigrateCreatesTenTablesAndSchemaVersion(t *testing.T) {
 	t.Parallel()
 
 	db := openMigratedDatabase(t)
@@ -528,6 +528,7 @@ func TestAutoMigrateCreatesNineTablesAndSchemaVersion(t *testing.T) {
 		"model_prices",
 		"system_settings",
 		"jobs",
+		"control_operations",
 		"schema_info",
 	}
 	for _, table := range wantTables {
@@ -556,7 +557,7 @@ func TestAutoMigrateCreatesNineTablesAndSchemaVersion(t *testing.T) {
 	}
 }
 
-func TestAutoMigrateCreatesRequestLogV1FieldsAndCompositeIndexes(t *testing.T) {
+func TestAutoMigrateCreatesRequestLogV3FieldsAndCompositeIndexes(t *testing.T) {
 	t.Parallel()
 
 	dsn := filepath.Join(t.TempDir(), "fresh-request-log-v1.db")
@@ -610,23 +611,23 @@ func TestAutoMigrateCreatesRequestLogV1FieldsAndCompositeIndexes(t *testing.T) {
 		name string
 		desc int
 	}{
-		"idx_request_logs_created_id": {
-			{name: "created_at", desc: 1},
+		"idx_request_logs_completed_id": {
+			{name: "completed_at_ms", desc: 1},
 			{name: "id", desc: 1},
 		},
-		"idx_request_logs_access_created_id": {
+		"idx_request_logs_access_completed_id": {
 			{name: "access_key_id"},
-			{name: "created_at", desc: 1},
+			{name: "completed_at_ms", desc: 1},
 			{name: "id", desc: 1},
 		},
-		"idx_request_logs_status_created_id": {
+		"idx_request_logs_status_completed_id": {
 			{name: "status"},
-			{name: "created_at", desc: 1},
+			{name: "completed_at_ms", desc: 1},
 			{name: "id", desc: 1},
 		},
-		"idx_request_logs_model_created_id": {
+		"idx_request_logs_model_completed_id": {
 			{name: "client_model"},
-			{name: "created_at", desc: 1},
+			{name: "completed_at_ms", desc: 1},
 			{name: "id", desc: 1},
 		},
 	}
@@ -664,8 +665,8 @@ func TestAutoMigrateCreatesRequestLogV1FieldsAndCompositeIndexes(t *testing.T) {
 		}
 	}
 
-	if storage.CurrentSchemaVersion != 2 {
-		t.Fatalf("CurrentSchemaVersion = %d, want 2", storage.CurrentSchemaVersion)
+	if storage.CurrentSchemaVersion != 3 {
+		t.Fatalf("CurrentSchemaVersion = %d, want 3", storage.CurrentSchemaVersion)
 	}
 }
 
@@ -680,7 +681,7 @@ type m4IndexInfo struct {
 	Unique int
 }
 
-func TestAutoMigrateCreatesM4UsagePricingColumnsAndConstraints(t *testing.T) {
+func TestAutoMigrateCreatesSchemaV3UsagePricingColumnsAndConstraints(t *testing.T) {
 	t.Parallel()
 
 	db := openMigratedDatabase(t)
@@ -748,14 +749,14 @@ func TestAutoMigrateCreatesM4UsagePricingColumnsAndConstraints(t *testing.T) {
 	if err := db.Raw("PRAGMA index_list('usage_stats')").Scan(&usageIndexes).Error; err != nil {
 		t.Fatalf("inspect usage_stats indexes: %v", err)
 	}
-	if !hasUniqueIndex(usageIndexes, "idx_usage_stats_hour_group_model") {
-		t.Error("usage_stats unique hour/group/model index is missing")
+	if !hasUniqueIndex(usageIndexes, "idx_usage_stats_bucket_access_group_model") {
+		t.Error("usage_stats unique bucket/access/group/model index is missing")
 	}
 	assertM4IndexKeyColumns(
 		t,
 		db,
-		"idx_usage_stats_hour_group_model",
-		[]string{"hour_bucket", "group_id", "model"},
+		"idx_usage_stats_bucket_access_group_model",
+		[]string{"bucket_start_ms", "access_key_id", "group_id", "model"},
 	)
 
 	var priceColumns []m4ColumnInfo
@@ -763,7 +764,11 @@ func TestAutoMigrateCreatesM4UsagePricingColumnsAndConstraints(t *testing.T) {
 		t.Fatalf("inspect model_prices columns: %v", err)
 	}
 	priceColumnNames := map[string]struct{}{
-		"input_price": {}, "output_price": {}, "cache_read_price": {}, "cache_write_5m_price": {}, "cache_write_1h_price": {},
+		"input_price_nano_usd_per_million_tokens":          {},
+		"output_price_nano_usd_per_million_tokens":         {},
+		"cache_read_price_nano_usd_per_million_tokens":     {},
+		"cache_write_5m_price_nano_usd_per_million_tokens": {},
+		"cache_write_1h_price_nano_usd_per_million_tokens": {},
 	}
 	for _, column := range priceColumns {
 		if _, ok := priceColumnNames[column.Name]; ok && column.NotNull != 0 {
@@ -805,8 +810,8 @@ func TestAutoMigrateCreatesM4UsagePricingColumnsAndConstraints(t *testing.T) {
 		t.Error("builtin ModelPrice Source was accepted")
 	}
 
-	if storage.CurrentSchemaVersion != 2 {
-		t.Errorf("CurrentSchemaVersion = %d, want 2", storage.CurrentSchemaVersion)
+	if storage.CurrentSchemaVersion != 3 {
+		t.Errorf("CurrentSchemaVersion = %d, want 3", storage.CurrentSchemaVersion)
 	}
 	if err := storage.AutoMigrate(db); err != nil {
 		t.Fatalf("second AutoMigrate() error = %v", err)
@@ -844,7 +849,7 @@ func assertM4IndexKeyColumns(
 	}
 }
 
-func TestAutoMigrateUpgradesCurrentModelPriceDDLWithoutRenamingColumns(t *testing.T) {
+func TestAutoMigrateUpgradesV1ModelPriceDDLToSchemaV3FixedPoint(t *testing.T) {
 	t.Parallel()
 
 	db, err := storage.Open(":memory:")
@@ -883,9 +888,14 @@ updated_at datetime
 	if err := db.Exec(`CREATE INDEX idx_model_prices_pattern ON model_prices(pattern)`).Error; err != nil {
 		t.Fatalf("create current model_prices Pattern index: %v", err)
 	}
-	if err := db.Exec(`INSERT INTO model_prices(pattern, input_price, output_price, cache_read_price, cache_write_5m_price, cache_write_1h_price, source) VALUES
-('nonzero', 1.25, 2.5, 3.75, 5, 6.25, 'user'),
-('zero', 0, 0, 0, 0, 0, 'user')`).Error; err != nil {
+	if err := db.Exec(`INSERT INTO model_prices(
+		pattern, input_price, output_price, cache_read_price,
+		cache_write_5m_price, cache_write_1h_price, source, created_at, updated_at
+	) VALUES
+	('nonzero', 1.25, 2.5, 3.75, 5, 6.25, 'user',
+		'2026-07-30T00:00:00Z', '2026-07-30T00:00:00Z'),
+	('zero', 0, 0, 0, 0, 0, 'user',
+		'2026-07-30T00:00:00Z', '2026-07-30T00:00:00Z')`).Error; err != nil {
 		t.Fatalf("insert current model_prices rows: %v", err)
 	}
 
@@ -910,31 +920,46 @@ func assertModelPriceUpgrade(t *testing.T, db *gorm.DB) {
 		t.Fatalf("inspect upgraded model_prices columns: %v", err)
 	}
 	for _, column := range columns {
-		if strings.Contains(column.Name, "uncached_input") {
-			t.Fatalf("model_prices has unexpected renamed price column %q", column.Name)
-		}
-		if column.Name == "input_price" || column.Name == "output_price" || column.Name == "cache_read_price" || column.Name == "cache_write_5m_price" || column.Name == "cache_write_1h_price" {
+		if strings.HasSuffix(column.Name, "_nano_usd_per_million_tokens") {
 			if column.NotNull != 0 {
 				t.Errorf("model_prices.%s notnull = %d, want nullable", column.Name, column.NotNull)
+			}
+		}
+		for _, legacy := range []string{
+			"input_price", "output_price", "cache_read_price",
+			"cache_write_5m_price", "cache_write_1h_price",
+		} {
+			if column.Name == legacy {
+				t.Fatalf("model_prices retains legacy float column %q", column.Name)
 			}
 		}
 	}
 	type row struct {
 		Pattern           string
-		InputPrice        float64 `gorm:"column:input_price"`
-		OutputPrice       float64 `gorm:"column:output_price"`
-		CacheReadPrice    float64 `gorm:"column:cache_read_price"`
-		CacheWrite5MPrice float64 `gorm:"column:cache_write_5m_price"`
-		CacheWrite1HPrice float64 `gorm:"column:cache_write_1h_price"`
+		InputPrice        int64 `gorm:"column:input_price_nano_usd_per_million_tokens"`
+		OutputPrice       int64 `gorm:"column:output_price_nano_usd_per_million_tokens"`
+		CacheReadPrice    int64 `gorm:"column:cache_read_price_nano_usd_per_million_tokens"`
+		CacheWrite5MPrice int64 `gorm:"column:cache_write_5m_price_nano_usd_per_million_tokens"`
+		CacheWrite1HPrice int64 `gorm:"column:cache_write_1h_price_nano_usd_per_million_tokens"`
 	}
 	var rows []row
-	if err := db.Raw("SELECT pattern, input_price, output_price, cache_read_price, cache_write_5m_price, cache_write_1h_price FROM model_prices ORDER BY pattern").Scan(&rows).Error; err != nil {
+	if err := db.Raw(`SELECT pattern,
+		input_price_nano_usd_per_million_tokens,
+		output_price_nano_usd_per_million_tokens,
+		cache_read_price_nano_usd_per_million_tokens,
+		cache_write_5m_price_nano_usd_per_million_tokens,
+		cache_write_1h_price_nano_usd_per_million_tokens
+		FROM model_prices ORDER BY pattern`).Scan(&rows).Error; err != nil {
 		t.Fatalf("read upgraded model_prices: %v", err)
 	}
 	if len(rows) != 2 {
 		t.Fatalf("upgraded model_prices rows = %d, want 2", len(rows))
 	}
-	if rows[0] != (row{Pattern: "nonzero", InputPrice: 1.25, OutputPrice: 2.5, CacheReadPrice: 3.75, CacheWrite5MPrice: 5, CacheWrite1HPrice: 6.25}) {
+	if rows[0] != (row{
+		Pattern: "nonzero", InputPrice: 1_250_000_000,
+		OutputPrice: 2_500_000_000, CacheReadPrice: 3_750_000_000,
+		CacheWrite5MPrice: 5_000_000_000, CacheWrite1HPrice: 6_250_000_000,
+	}) {
 		t.Errorf("nonzero upgraded row = %+v", rows[0])
 	}
 	if rows[1] != (row{Pattern: "zero"}) {
@@ -1095,12 +1120,13 @@ func TestAutoMigrateCreatesCriticalUniqueConstraints(t *testing.T) {
 		assertDuplicateRejected(t, db.Create(&first).Error, db.Create(&second).Error)
 	})
 
-	t.Run("usage hour group and model", func(t *testing.T) {
+	t.Run("usage bucket access group and model", func(t *testing.T) {
 		bucket := time.Date(2026, time.July, 15, 12, 0, 0, 0, time.UTC)
 		first := models.UsageStat{
-			HourBucket: bucket,
-			GroupID:    202,
-			Model:      "model-a",
+			BucketStartMS: bucket.UnixMilli(),
+			AccessKeyID:   101,
+			GroupID:       202,
+			Model:         "model-a",
 		}
 		second := first
 		second.ID = 0

@@ -2,7 +2,6 @@ package requestlog
 
 import (
 	"net/http"
-	"strconv"
 
 	"github.com/sirupsen/logrus"
 
@@ -59,8 +58,8 @@ func projectProcessLog(
 	if attemptCount := len(event.Attempts); attemptCount != 1 {
 		fields["attempt_count"] = attemptCount
 	}
-	if row.InputTokens > 0 {
-		fields["uncached_input_tokens"] = row.InputTokens
+	if row.UncachedInputTokens > 0 {
+		fields["uncached_input_tokens"] = row.UncachedInputTokens
 	}
 	if row.CacheReadTokens > 0 {
 		fields["cache_read_tokens"] = row.CacheReadTokens
@@ -86,12 +85,7 @@ func projectProcessLog(
 		fields["cost_state"] = row.CostState
 	}
 	if row.CostState == string(pricing.CostStatePriced) {
-		fields["estimated_cost_usd"] = strconv.FormatFloat(
-			row.Cost,
-			'g',
-			12,
-			64,
-		)
+		fields["estimated_cost_nano_usd"] = row.EstimatedCostNanoUSD
 	}
 	if event.Status != telemetry.RequestStatusSuccess {
 		if row.ErrorCode != "" {

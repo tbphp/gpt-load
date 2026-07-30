@@ -533,15 +533,16 @@ func TestUsageAnthropicServerToolDetailRemainsUnpriced(t *testing.T) {
 	table, err := pricing.Compile([]pricing.Rule{{
 		Pattern: "claude-test",
 		Prices: pricing.Prices{
-			UncachedInput: pricing.Price{Value: 1, Set: true},
-			Output:        pricing.Price{Value: 1, Set: true},
+			UncachedInput: pricing.Price{NanoUSDPerMillion: 1_000_000_000, Set: true},
+			Output:        pricing.Price{NanoUSDPerMillion: 1_000_000_000, Set: true},
 		},
 		Source: pricing.SourceUser,
 	}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if quote := table.Quote("claude-test", result); quote.State != pricing.CostStateUnpriced || quote.Cost != 0 {
+	if quote := table.Quote("claude-test", result); quote.State != pricing.CostStateUnpriced ||
+		quote.EstimatedCostNanoUSD != 0 {
 		t.Fatalf("Quote() = %+v, want unpriced zero", quote)
 	}
 }
@@ -550,8 +551,8 @@ func TestUsageAnthropicNonStreamServerToolDetailPricing(t *testing.T) {
 	table, err := pricing.Compile([]pricing.Rule{{
 		Pattern: "claude-test",
 		Prices: pricing.Prices{
-			UncachedInput: pricing.Price{Value: 1, Set: true},
-			Output:        pricing.Price{Value: 1, Set: true},
+			UncachedInput: pricing.Price{NanoUSDPerMillion: 1_000_000_000, Set: true},
+			Output:        pricing.Price{NanoUSDPerMillion: 1_000_000_000, Set: true},
 		},
 		Source: pricing.SourceUser,
 	}})

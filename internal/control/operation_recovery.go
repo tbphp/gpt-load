@@ -12,6 +12,7 @@ import (
 	"gorm.io/gorm"
 
 	"gpt-load/internal/platform/canonicaljson"
+	"gpt-load/internal/platform/epochms"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/platform/utils"
 	"gpt-load/internal/storage/models"
@@ -45,7 +46,7 @@ func (s *Service) recoverPendingOperationsLocked(
 	beforeCommitSequence uint64,
 ) (*models.ControlOperation, error) {
 	query := s.db.WithContext(ctx).
-		Where("completed_at IS NULL").
+		Where("completed_at_ms IS NULL").
 		Order("commit_sequence ASC")
 	if beforeCommitSequence != 0 {
 		query = query.Where("commit_sequence < ?", beforeCommitSequence)
@@ -108,19 +109,27 @@ func (s *Service) compactCompletedOperationsLocked(
 ) (int64, error) {
 	now = now.UTC()
 	cutoff := now.Add(-operationResultRetention)
+	nowMS, err := epochms.FromTime(now)
+	if err != nil {
+		return 0, app_errors.ErrInternalServer
+	}
+	cutoffMS, err := epochms.FromTime(cutoff)
+	if err != nil {
+		cutoffMS = 0
+	}
 	var rowsAffected int64
-	err := s.withControlTransaction(ctx, func(tx *gorm.DB) error {
+	err = s.withControlTransaction(ctx, func(tx *gorm.DB) error {
 		result := tx.Model(&models.ControlOperation{}).
-			Where("completed_at IS NOT NULL").
-			Where("completed_at <= ?", cutoff).
-			Where("compacted_at IS NULL").
+			Where("completed_at_ms IS NOT NULL").
+			Where("completed_at_ms <= ?", cutoffMS).
+			Where("compacted_at_ms IS NULL").
 			Updates(map[string]any{
 				"canonical_result":     gorm.Expr("NULL"),
 				"required_stages":      gorm.Expr("NULL"),
 				"last_completed_stage": "",
 				"failed_stage":         "",
-				"compacted_at":         now,
-				"updated_at":           now,
+				"compacted_at_ms":      nowMS,
+				"updated_at_ms":        nowMS,
 			})
 		if result.Error != nil {
 			return app_errors.ParseDBError(result.Error)
@@ -223,7 +232,7 @@ func validateRecoverableOperation(operation *models.ControlOperation) error {
 		operation.DigestVersion != 1 ||
 		len(operation.RequestDigest) != 32 ||
 		!operationKind(operation.OperationKind).valid() ||
-		operation.CompactedAt != nil {
+		operation.CompactedAtMS != nil {
 		return fmt.Errorf("invalid durable operation comparator: %w", app_errors.ErrInternalServer)
 	}
 	if err := validateIdempotencyKey(operation.OperationID); err != nil {

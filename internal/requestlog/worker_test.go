@@ -324,43 +324,44 @@ func TestServiceConcurrentStopHonorsOwnDeadlineWithoutDuplicateDrain(t *testing.
 	}
 }
 
-func TestBatchWriterInsertsOnlyNewRequestLogsAndAggregatesUsage(t *testing.T) {
+func TestWriteBatchInsertsOnlyNewRequestLogsAndAggregatesUsage(t *testing.T) {
 	db := openRequestLogQueryDB(t)
 	hour := time.Date(2026, time.July, 24, 12, 0, 0, 0, time.UTC)
 	existing := aggregationRow(aggregationRequestID(1), hour, 7, "aggregate-model")
-	existing.InputTokens = 99
+	existing.UncachedInputTokens = 99
 	if err := db.Create(&existing).Error; err != nil {
 		t.Fatalf("create existing RequestLog: %v", err)
 	}
 	baseline := models.UsageStat{
-		HourBucket:   hour,
-		GroupID:      7,
-		Model:        "aggregate-model",
-		RequestCount: 10,
-		SuccessCount: 10,
-		InputTokens:  100,
-		OutputTokens: 200,
-		Cost:         1,
+		BucketStartMS:        1_784_894_400_000,
+		AccessKeyID:          1,
+		GroupID:              7,
+		Model:                "aggregate-model",
+		RequestCount:         10,
+		SuccessCount:         10,
+		UncachedInputTokens:  100,
+		OutputTokens:         200,
+		EstimatedCostNanoUSD: 1_000_000_000,
 	}
 	if err := db.Create(&baseline).Error; err != nil {
 		t.Fatalf("create baseline UsageStat: %v", err)
 	}
 
 	first := aggregationRow(aggregationRequestID(2), hour.Add(time.Minute), 7, "aggregate-model")
-	first.InputTokens = 3
+	first.UncachedInputTokens = 3
 	first.OutputTokens = 5
-	first.Cost = 0.5
+	first.EstimatedCostNanoUSD = 500_000_000
 	duplicate := first
 	duplicate.GroupID = 999
 	duplicate.UpstreamModel = "duplicate-must-lose"
-	duplicate.InputTokens = 1_000
+	duplicate.UncachedInputTokens = 1_000
 	replay := existing
 	replay.GroupID = 999
 	replay.UpstreamModel = "existing-must-win"
 	second := aggregationRow(aggregationRequestID(3), hour.Add(2*time.Minute), 7, "aggregate-model")
-	second.InputTokens = 7
+	second.UncachedInputTokens = 7
 	second.OutputTokens = 11
-	second.Cost = 0.75
+	second.EstimatedCostNanoUSD = 750_000_000
 	rows := []models.RequestLog{first, duplicate, replay, second}
 
 	var requestLogQueries, usageStatQueries int
@@ -398,26 +399,33 @@ func TestBatchWriterInsertsOnlyNewRequestLogsAndAggregatesUsage(t *testing.T) {
 	if err := db.First(&persistedFirst, "id = ?", first.ID).Error; err != nil {
 		t.Fatalf("query first RequestLog: %v", err)
 	}
-	if persistedFirst.GroupID != 7 || persistedFirst.UpstreamModel != "aggregate-model" ||
-		persistedFirst.InputTokens != 3 {
+	if persistedFirst.GroupID != 7 || persistedFirst.UpstreamModel != "upstream-aggregate-model" ||
+		persistedFirst.UncachedInputTokens != 3 {
 		t.Fatalf("first-write-wins row = %+v", persistedFirst)
 	}
 	var persistedExisting models.RequestLog
 	if err := db.First(&persistedExisting, "id = ?", existing.ID).Error; err != nil {
 		t.Fatalf("query existing RequestLog: %v", err)
 	}
-	if persistedExisting.GroupID != 7 || persistedExisting.UpstreamModel != "aggregate-model" ||
-		persistedExisting.InputTokens != 99 {
+	if persistedExisting.GroupID != 7 || persistedExisting.UpstreamModel != "upstream-aggregate-model" ||
+		persistedExisting.UncachedInputTokens != 99 {
 		t.Fatalf("existing row was updated: %+v", persistedExisting)
 	}
 
 	var stat models.UsageStat
-	if err := db.Where("hour_bucket = ? AND group_id = ? AND model = ?", hour, 7, "aggregate-model").
+	if err := db.Where(
+		"bucket_start_ms = ? AND access_key_id = ? AND group_id = ? AND model = ?",
+		int64(1_784_894_400_000),
+		1,
+		7,
+		"aggregate-model",
+	).
 		Take(&stat).Error; err != nil {
 		t.Fatalf("query UsageStat: %v", err)
 	}
 	if stat.RequestCount != 12 || stat.SuccessCount != 12 || stat.FailureCount != 0 ||
-		stat.InputTokens != 110 || stat.OutputTokens != 216 || stat.Cost != 2.25 {
+		stat.UncachedInputTokens != 110 || stat.OutputTokens != 216 ||
+		stat.EstimatedCostNanoUSD != 2_250_000_000 {
 		t.Fatalf("UsageStat = %+v, want baseline plus only two new rows", stat)
 	}
 
@@ -433,49 +441,51 @@ func TestBatchWriterInsertsOnlyNewRequestLogsAndAggregatesUsage(t *testing.T) {
 	}
 }
 
-func TestBatchWriterAggregatesStatusQualityAndCompletePricedTotals(t *testing.T) {
+func TestWriteBatchAggregatesStatusQualityAndCompletePricedTotals(t *testing.T) {
 	db := openRequestLogQueryDB(t)
 	hour := time.Date(2026, time.July, 24, 13, 0, 0, 0, time.UTC)
 
 	complete := aggregationRow(aggregationRequestID(10), hour, 8, "quality-model")
-	complete.InputTokens = 1
+	complete.UncachedInputTokens = 1
 	complete.OutputTokens = 2
 	complete.CacheReadTokens = 3
 	complete.CacheWrite5MTokens = 4
 	complete.CacheWrite1HTokens = 5
-	complete.Cost = 1.25
+	complete.EstimatedCostNanoUSD = 1_250_000_000
 
 	completeUnpriced := aggregationRow(aggregationRequestID(15), hour, 8, "quality-model")
 	completeUnpriced.CostState = string(pricing.CostStateUnpriced)
-	completeUnpriced.InputTokens = 400
+	completeUnpriced.UncachedInputTokens = 400
 	completeUnpriced.OutputTokens = 500
-	completeUnpriced.Cost = 0
+	completeUnpriced.EstimatedCostNanoUSD = 0
 
 	missing := aggregationRow(aggregationRequestID(11), hour, 8, "quality-model")
 	missing.Status = string(telemetry.RequestStatusError)
 	missing.UsageState = string(usage.StateMissing)
 	missing.CostState = string(pricing.CostStateUnpriced)
-	missing.InputTokens = 100
-	missing.Cost = 0
+	missing.UncachedInputTokens = 100
+	missing.EstimatedCostNanoUSD = 0
 
 	partialPriced := aggregationRow(aggregationRequestID(12), hour, 8, "quality-model")
 	partialPriced.Status = string(telemetry.RequestStatusIncomplete)
 	partialPriced.UsageState = string(usage.StatePartial)
-	partialPriced.InputTokens = 200
+	partialPriced.UncachedInputTokens = 200
 	partialPriced.OutputTokens = 300
-	partialPriced.Cost = 2.5
+	partialPriced.EstimatedCostNanoUSD = 2_500_000_000
 
 	partialUnpriced := aggregationRow(aggregationRequestID(13), hour, 8, "quality-model")
 	partialUnpriced.Status = string(telemetry.RequestStatusCanceled)
 	partialUnpriced.UsageState = string(usage.StatePartial)
 	partialUnpriced.CostState = string(pricing.CostStateUnpriced)
-	partialUnpriced.Cost = 0
+	partialUnpriced.EstimatedCostNanoUSD = 0
 
-	unknown := aggregationRow(aggregationRequestID(14), hour, 8, "quality-model")
-	unknown.Status = "future_status"
-	unknown.UsageState = string(usage.StateNotApplicable)
-	unknown.CostState = string(pricing.CostStateNotApplicable)
-	unknown.Cost = 0
+	notApplicable := aggregationRow(aggregationRequestID(14), hour, 8, "quality-model")
+	notApplicable.Status = string(telemetry.RequestStatusError)
+	notApplicable.UsageState = string(usage.StateNotApplicable)
+	notApplicable.CostState = string(pricing.CostStateNotApplicable)
+	notApplicable.UncachedInputTokens = 700
+	notApplicable.OutputTokens = 800
+	notApplicable.EstimatedCostNanoUSD = 0
 
 	if err := (&gormBatchWriter{db: db}).WriteBatch(
 		context.Background(),
@@ -485,7 +495,7 @@ func TestBatchWriterAggregatesStatusQualityAndCompletePricedTotals(t *testing.T)
 			missing,
 			partialPriced,
 			partialUnpriced,
-			unknown,
+			notApplicable,
 		},
 	); err != nil {
 		t.Fatalf("WriteBatch() error = %v", err)
@@ -497,33 +507,33 @@ func TestBatchWriterAggregatesStatusQualityAndCompletePricedTotals(t *testing.T)
 	}
 	if stat.RequestCount != 6 || stat.SuccessCount != 2 || stat.FailureCount != 4 ||
 		stat.UsageMissingCount != 1 || stat.PartialCount != 2 ||
-		stat.UnpricedRequestCount != 3 {
+		stat.UnpricedRequestCount != 2 {
 		t.Fatalf("status/quality counts = %+v", stat)
 	}
-	if stat.InputTokens != 1 || stat.OutputTokens != 2 || stat.CacheReadTokens != 3 ||
+	if stat.UncachedInputTokens != 602 || stat.OutputTokens != 804 || stat.CacheReadTokens != 3 ||
 		stat.CacheWrite5MTokens != 4 || stat.CacheWrite1HTokens != 5 ||
-		stat.Cost != 1.25 {
-		t.Fatalf("complete+priced totals = %+v", stat)
+		stat.EstimatedCostNanoUSD != 3_750_000_000 {
+		t.Fatalf("complete/partial totals = %+v", stat)
 	}
 	var persistedPartial models.RequestLog
 	if err := db.First(&persistedPartial, "id = ?", partialPriced.ID).Error; err != nil {
 		t.Fatalf("query partial RequestLog: %v", err)
 	}
-	if persistedPartial.InputTokens != 200 || persistedPartial.OutputTokens != 300 ||
-		persistedPartial.Cost != 2.5 {
+	if persistedPartial.UncachedInputTokens != 200 || persistedPartial.OutputTokens != 300 ||
+		persistedPartial.EstimatedCostNanoUSD != 2_500_000_000 {
 		t.Fatalf("partial+priced RequestLog lost usage/cost: %+v", persistedPartial)
 	}
 	var persistedUnpriced models.RequestLog
 	if err := db.First(&persistedUnpriced, "id = ?", completeUnpriced.ID).Error; err != nil {
 		t.Fatalf("query complete+unpriced RequestLog: %v", err)
 	}
-	if persistedUnpriced.InputTokens != 400 || persistedUnpriced.OutputTokens != 500 ||
-		persistedUnpriced.Cost != 0 {
+	if persistedUnpriced.UncachedInputTokens != 400 || persistedUnpriced.OutputTokens != 500 ||
+		persistedUnpriced.EstimatedCostNanoUSD != 0 {
 		t.Fatalf("complete+unpriced RequestLog lost usage or gained cost: %+v", persistedUnpriced)
 	}
 }
 
-func TestBatchWriterSeparatesHourGroupAndUpstreamModel(t *testing.T) {
+func TestWriteBatchSeparatesHourAccessGroupAndClientModelWithoutSkippingZeroDimensions(t *testing.T) {
 	db := openRequestLogQueryDB(t)
 	location := time.FixedZone("utc-plus-eight", 8*60*60)
 	localHour := time.Date(2026, time.July, 24, 20, 0, 0, 0, location)
@@ -536,32 +546,54 @@ func TestBatchWriterSeparatesHourGroupAndUpstreamModel(t *testing.T) {
 		aggregationRow(aggregationRequestID(25), localHour.Add(4*time.Minute), 0, "model-a"),
 		aggregationRow(aggregationRequestID(26), localHour.Add(5*time.Minute), 9, ""),
 	}
+	differentAccess := aggregationRow(
+		aggregationRequestID(27),
+		localHour.Add(6*time.Minute),
+		9,
+		"model-a",
+	)
+	differentAccess.AccessKeyID = 2
+	rows = append(rows, differentAccess)
 	if err := (&gormBatchWriter{db: db}).WriteBatch(context.Background(), rows); err != nil {
 		t.Fatalf("WriteBatch() error = %v", err)
 	}
 
 	var stats []models.UsageStat
-	if err := db.Order("hour_bucket ASC").Order("group_id ASC").Order("model ASC").Find(&stats).Error; err != nil {
+	if err := db.Order("bucket_start_ms ASC").
+		Order("access_key_id ASC").
+		Order("group_id ASC").
+		Order("model ASC").
+		Find(&stats).Error; err != nil {
 		t.Fatalf("query UsageStats: %v", err)
 	}
-	if len(stats) != 4 {
-		t.Fatalf("UsageStat rows = %d, want four attributable buckets: %+v", len(stats), stats)
+	if len(stats) != 7 {
+		t.Fatalf("UsageStat rows = %d, want seven isolated buckets: %+v", len(stats), stats)
 	}
 	type bucket struct {
-		hour  time.Time
-		group uint
-		model string
-		count int64
+		bucketMS int64
+		access   uint
+		group    uint
+		model    string
+		count    int64
 	}
 	got := make([]bucket, 0, len(stats))
 	for _, stat := range stats {
-		got = append(got, bucket{stat.HourBucket.UTC(), stat.GroupID, stat.Model, stat.RequestCount})
+		got = append(got, bucket{
+			stat.BucketStartMS,
+			stat.AccessKeyID,
+			stat.GroupID,
+			stat.Model,
+			stat.RequestCount,
+		})
 	}
 	want := []bucket{
-		{time.Date(2026, time.July, 24, 12, 0, 0, 0, time.UTC), 9, "model-a", 2},
-		{time.Date(2026, time.July, 24, 12, 0, 0, 0, time.UTC), 9, "model-b", 1},
-		{time.Date(2026, time.July, 24, 12, 0, 0, 0, time.UTC), 10, "model-a", 1},
-		{time.Date(2026, time.July, 24, 13, 0, 0, 0, time.UTC), 9, "model-a", 1},
+		{1_784_894_400_000, 1, 0, "model-a", 1},
+		{1_784_894_400_000, 1, 9, "", 1},
+		{1_784_894_400_000, 1, 9, "model-a", 2},
+		{1_784_894_400_000, 1, 9, "model-b", 1},
+		{1_784_894_400_000, 1, 10, "model-a", 1},
+		{1_784_894_400_000, 2, 9, "model-a", 1},
+		{1_784_898_000_000, 1, 9, "model-a", 1},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("buckets = %#v, want %#v", got, want)
@@ -575,7 +607,7 @@ func TestBatchWriterSeparatesHourGroupAndUpstreamModel(t *testing.T) {
 	}
 }
 
-func TestBatchWriterRollsBackRequestLogsAndStatsOnFailure(t *testing.T) {
+func TestWriteBatchRollsBackRequestLogsAndStatsOnFailure(t *testing.T) {
 	newRow := func() models.RequestLog {
 		return aggregationRow(
 			aggregationRequestID(30),
@@ -637,13 +669,22 @@ func TestBatchWriterRollsBackRequestLogsAndStatsOnFailure(t *testing.T) {
 	t.Run("existing UsageStat scan conversion", func(t *testing.T) {
 		db := openRequestLogQueryDB(t)
 		row := newRow()
-		hour := row.CreatedAt.UTC().Truncate(time.Hour)
+		hourMS := row.CompletedAtMS - row.CompletedAtMS%3_600_000
 		const invalidRequestCount = "not-an-integer"
 		if err := db.Exec(`
 			INSERT INTO usage_stats (
-				hour_bucket, group_id, model, request_count, success_count, cost
-			) VALUES (?, ?, ?, ?, ?, ?)
-		`, hour, row.GroupID, row.UpstreamModel, invalidRequestCount, 7, 3.5).Error; err != nil {
+				bucket_start_ms, access_key_id, group_id, model,
+				request_count, success_count, estimated_cost_nano_usd
+			) VALUES (?, ?, ?, ?, ?, ?, ?)
+		`,
+			hourMS,
+			row.AccessKeyID,
+			row.GroupID,
+			row.ClientModel,
+			invalidRequestCount,
+			7,
+			3_500_000_000,
+		).Error; err != nil {
 			t.Fatalf("insert incompatible UsageStat: %v", err)
 		}
 
@@ -657,23 +698,25 @@ func TestBatchWriterRollsBackRequestLogsAndStatsOnFailure(t *testing.T) {
 		assertRequestLogAndUsageStatCounts(t, db, 0, 1)
 
 		var persisted struct {
-			RequestCount string  `gorm:"column:request_count"`
-			SuccessCount int64   `gorm:"column:success_count"`
-			Cost         float64 `gorm:"column:cost"`
+			RequestCount         string `gorm:"column:request_count"`
+			SuccessCount         int64  `gorm:"column:success_count"`
+			EstimatedCostNanoUSD int64  `gorm:"column:estimated_cost_nano_usd"`
 		}
 		if err := db.Raw(`
 			SELECT
 				CAST(request_count AS TEXT) AS request_count,
 				success_count,
-				cost
+				estimated_cost_nano_usd
 			FROM usage_stats
-			WHERE hour_bucket = ? AND group_id = ? AND model = ?
-		`, hour, row.GroupID, row.UpstreamModel).Scan(&persisted).Error; err != nil {
+			WHERE bucket_start_ms = ? AND access_key_id = ?
+				AND group_id = ? AND model = ?
+		`, hourMS, row.AccessKeyID, row.GroupID, row.ClientModel).
+			Scan(&persisted).Error; err != nil {
 			t.Fatalf("read incompatible UsageStat after rollback: %v", err)
 		}
 		if persisted.RequestCount != invalidRequestCount ||
 			persisted.SuccessCount != 7 ||
-			persisted.Cost != 3.5 {
+			persisted.EstimatedCostNanoUSD != 3_500_000_000 {
 			t.Fatalf("existing UsageStat changed after scan failure: %+v", persisted)
 		}
 	})
@@ -707,34 +750,34 @@ func TestBatchWriterRollsBackRequestLogsAndStatsOnFailure(t *testing.T) {
 	})
 }
 
-func TestBatchWriterRejectsIntegerAndCostOverflow(t *testing.T) {
+func TestWriteBatchRejectsIntegerAndCostOverflow(t *testing.T) {
 	hour := time.Date(2026, time.July, 24, 15, 0, 0, 0, time.UTC)
 
 	t.Run("batch token delta overflow", func(t *testing.T) {
 		db := openRequestLogQueryDB(t)
 		first := aggregationRow(aggregationRequestID(40), hour, 12, "overflow-model")
-		first.InputTokens = math.MaxInt64
+		first.UncachedInputTokens = math.MaxInt64
 		second := aggregationRow(aggregationRequestID(41), hour, 12, "overflow-model")
-		second.InputTokens = 1
+		second.UncachedInputTokens = 1
 		assertBatchWriterRejectsRowsWithoutChanges(t, db, nil, []models.RequestLog{first, second})
 	})
 
 	t.Run("batch cost overflow", func(t *testing.T) {
 		db := openRequestLogQueryDB(t)
 		first := aggregationRow(aggregationRequestID(42), hour, 12, "overflow-model")
-		first.Cost = math.MaxFloat64
+		first.EstimatedCostNanoUSD = math.MaxInt64
 		second := aggregationRow(aggregationRequestID(43), hour, 12, "overflow-model")
-		second.Cost = math.MaxFloat64
 		assertBatchWriterRejectsRowsWithoutChanges(t, db, nil, []models.RequestLog{first, second})
 	})
 
 	t.Run("existing count overflow", func(t *testing.T) {
 		db := openRequestLogQueryDB(t)
 		existing := models.UsageStat{
-			HourBucket:   hour,
-			GroupID:      12,
-			Model:        "overflow-model",
-			RequestCount: math.MaxInt64,
+			BucketStartMS: 1_784_905_200_000,
+			AccessKeyID:   1,
+			GroupID:       12,
+			Model:         "overflow-model",
+			RequestCount:  math.MaxInt64,
 		}
 		row := aggregationRow(aggregationRequestID(44), hour, 12, "overflow-model")
 		assertBatchWriterRejectsRowsWithoutChanges(t, db, &existing, []models.RequestLog{row})
@@ -743,10 +786,11 @@ func TestBatchWriterRejectsIntegerAndCostOverflow(t *testing.T) {
 	t.Run("existing token overflow", func(t *testing.T) {
 		db := openRequestLogQueryDB(t)
 		existing := models.UsageStat{
-			HourBucket:  hour,
-			GroupID:     12,
-			Model:       "overflow-model",
-			InputTokens: math.MaxInt64,
+			BucketStartMS:       1_784_905_200_000,
+			AccessKeyID:         1,
+			GroupID:             12,
+			Model:               "overflow-model",
+			UncachedInputTokens: math.MaxInt64,
 		}
 		row := aggregationRow(aggregationRequestID(45), hour, 12, "overflow-model")
 		assertBatchWriterRejectsRowsWithoutChanges(t, db, &existing, []models.RequestLog{row})
@@ -755,23 +799,24 @@ func TestBatchWriterRejectsIntegerAndCostOverflow(t *testing.T) {
 	t.Run("existing cost overflow", func(t *testing.T) {
 		db := openRequestLogQueryDB(t)
 		existing := models.UsageStat{
-			HourBucket: hour,
-			GroupID:    12,
-			Model:      "overflow-model",
-			Cost:       math.MaxFloat64,
+			BucketStartMS:        1_784_905_200_000,
+			AccessKeyID:          1,
+			GroupID:              12,
+			Model:                "overflow-model",
+			EstimatedCostNanoUSD: math.MaxInt64,
 		}
 		row := aggregationRow(aggregationRequestID(46), hour, 12, "overflow-model")
-		row.Cost = math.MaxFloat64
 		assertBatchWriterRejectsRowsWithoutChanges(t, db, &existing, []models.RequestLog{row})
 	})
 
 	t.Run("negative existing integer", func(t *testing.T) {
 		db := openRequestLogQueryDB(t)
 		existing := models.UsageStat{
-			HourBucket:   hour,
-			GroupID:      12,
-			Model:        "overflow-model",
-			FailureCount: -1,
+			BucketStartMS: 1_784_905_200_000,
+			AccessKeyID:   1,
+			GroupID:       12,
+			Model:         "overflow-model",
+			FailureCount:  -1,
 		}
 		row := aggregationRow(aggregationRequestID(47), hour, 12, "overflow-model")
 		assertBatchWriterRejectsRowsWithoutChanges(t, db, &existing, []models.RequestLog{row})
@@ -780,12 +825,12 @@ func TestBatchWriterRejectsIntegerAndCostOverflow(t *testing.T) {
 	t.Run("negative row cost", func(t *testing.T) {
 		db := openRequestLogQueryDB(t)
 		row := aggregationRow(aggregationRequestID(48), hour, 12, "overflow-model")
-		row.Cost = -1
+		row.EstimatedCostNanoUSD = -1
 		assertBatchWriterRejectsRowsWithoutChanges(t, db, nil, []models.RequestLog{row})
 	})
 }
 
-func TestBatchWriterRollsBackEarlierBucketWhenLaterUpsertFails(t *testing.T) {
+func TestWriteBatchRollsBackEarlierBucketWhenLaterUpsertFails(t *testing.T) {
 	db := openRequestLogQueryDB(t)
 	hour := time.Date(2026, time.July, 24, 16, 0, 0, 0, time.UTC)
 	if err := db.Exec(`
@@ -797,7 +842,8 @@ func TestBatchWriterRollsBackEarlierBucketWhenLaterUpsertFails(t *testing.T) {
 		    WHEN COALESCE((
 		      SELECT request_count
 		      FROM usage_stats
-		      WHERE hour_bucket = NEW.hour_bucket
+		      WHERE bucket_start_ms = NEW.bucket_start_ms
+		        AND access_key_id = NEW.access_key_id
 		        AND group_id = NEW.group_id
 		        AND model = 'model-a'
 		    ), 0) != 1

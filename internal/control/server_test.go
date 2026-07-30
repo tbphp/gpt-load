@@ -28,6 +28,46 @@ import (
 	"gpt-load/internal/storage/models"
 )
 
+func TestServerHomeRoutesUseExactManagementContracts(t *testing.T) {
+	fixture := newServiceFixture(t)
+	module := NewServer(
+		&config.Config{AuthKey: "test-auth-key"},
+		fixture.service,
+	).HTTPModule()
+	type routeContract struct {
+		method string
+		path   string
+	}
+	want := map[string]routeContract{
+		"control.home": {
+			method: http.MethodGet,
+			path:   "/home",
+		},
+		"control.home.statistics": {
+			method: http.MethodGet,
+			path:   "/home/statistics",
+		},
+	}
+	seen := make(map[string]int, len(want))
+	for _, route := range module.Routes {
+		contract, exists := want[route.Name]
+		if !exists {
+			continue
+		}
+		seen[route.Name]++
+		if len(route.Methods) != 1 ||
+			route.Methods[0] != contract.method ||
+			route.Path != contract.path {
+			t.Fatalf("route %q = %#v, want %#v", route.Name, route, contract)
+		}
+	}
+	for name := range want {
+		if seen[name] != 1 {
+			t.Fatalf("route %q occurrences = %d, want 1", name, seen[name])
+		}
+	}
+}
+
 func TestSystemInfoHTTPContract(t *testing.T) {
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
@@ -210,9 +250,13 @@ func TestControlMutationRejectsDuplicateJSONWithoutSideEffects(t *testing.T) {
 			name:   "model price",
 			method: http.MethodPut,
 			path:   "/api/model-prices",
-			body: `{"pattern":"duplicate-model","prices":{"uncached_input":1,` +
-				`"cache_read":2,"cache_read":3,"cache_write_5m":4,` +
-				`"cache_write_1h":5,"output":6}}`,
+			body: `{"pattern":"duplicate-model","prices":{` +
+				`"input_price_usd_per_million_tokens":"1",` +
+				`"output_price_usd_per_million_tokens":"6",` +
+				`"cache_read_price_usd_per_million_tokens":"2",` +
+				`"cache_read_price_usd_per_million_tokens":"3",` +
+				`"cache_write_5m_price_usd_per_million_tokens":"4",` +
+				`"cache_write_1h_price_usd_per_million_tokens":"5"}}`,
 		},
 		{
 			name:   "route inspector",
@@ -2084,8 +2128,8 @@ func TestSettingsHTTPFiltersPrivateRowsAndDoesNotLogValues(t *testing.T) {
 		t.Fatalf("update response = %d %s", update.Code, update.Body.String())
 	}
 	for _, row := range []models.SystemSetting{
-		{Key: defaultAccessKeyMarker, Value: `"bootstrap-marker-distinctive"`, UpdatedAt: time.Now().UTC()},
-		{Key: unknownKey, Value: `"unknown-value"`, UpdatedAt: time.Now().UTC()},
+		{Key: defaultAccessKeyMarker, Value: `"bootstrap-marker-distinctive"`, UpdatedAtMS: time.Now().UnixMilli()},
+		{Key: unknownKey, Value: `"unknown-value"`, UpdatedAtMS: time.Now().UnixMilli()},
 	} {
 		if err := fixture.db.Create(&row).Error; err != nil {
 			t.Fatal(err)
@@ -2127,6 +2171,7 @@ func TestSettingsHTTPFiltersPrivateRowsAndDoesNotLogValues(t *testing.T) {
 		fixture.service.dialects,
 		fixture.service.requestLogs,
 		fixture.service.usageStats,
+		fixture.service.homeStatistics,
 		fixture.stats,
 		fixture.requestLogStats,
 	)

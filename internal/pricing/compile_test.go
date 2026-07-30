@@ -1,7 +1,6 @@
 package pricing
 
 import (
-	"math"
 	"strings"
 	"sync"
 	"testing"
@@ -107,7 +106,7 @@ func TestCompileMatchBareUserCatchAllShadowsBuiltins(t *testing.T) {
 	for _, model := range []string{"gpt-4o", "claude-opus", "unknown-model"} {
 		rule, ok := table.Match(model)
 		if !ok || rule.Pattern != "*" || rule.Source != SourceUser ||
-			rule.Prices.Output.Value != 99 {
+			rule.Prices.Output.NanoUSDPerMillion != 99 {
 			t.Errorf("Match(%q) = %+v, %t; want global user override", model, rule, ok)
 		}
 	}
@@ -132,11 +131,8 @@ func TestCompileRejectsInvalidRules(t *testing.T) {
 		{name: "multiple stars", rule: replacePattern(validBuiltin, "gpt-**")},
 		{name: "invalid source", rule: Rule{Pattern: "gpt-4o", Prices: priced(1), Source: Source("remote")}},
 		{name: "all prices unset", rule: Rule{Pattern: "gpt-4o", Source: SourceUser}},
-		{name: "negative price", rule: Rule{Pattern: "gpt-4o", Prices: Prices{Output: Price{Value: -1, Set: true}}, Source: SourceUser}},
-		{name: "negative unset price", rule: Rule{Pattern: "gpt-4o", Prices: Prices{UncachedInput: Price{Value: -1}, Output: Price{Value: 1, Set: true}}, Source: SourceUser}},
-		{name: "nan price", rule: Rule{Pattern: "gpt-4o", Prices: Prices{Output: Price{Value: math.NaN(), Set: true}}, Source: SourceUser}},
-		{name: "positive infinity price", rule: Rule{Pattern: "gpt-4o", Prices: Prices{Output: Price{Value: math.Inf(1), Set: true}}, Source: SourceUser}},
-		{name: "negative infinity price", rule: Rule{Pattern: "gpt-4o", Prices: Prices{Output: Price{Value: math.Inf(-1), Set: true}}, Source: SourceUser}},
+		{name: "negative price", rule: Rule{Pattern: "gpt-4o", Prices: Prices{Output: fixedPrice(-1)}, Source: SourceUser}},
+		{name: "negative unset price", rule: Rule{Pattern: "gpt-4o", Prices: Prices{UncachedInput: Price{NanoUSDPerMillion: -1}, Output: fixedPrice(1)}, Source: SourceUser}},
 		{name: "builtin missing URL", rule: Rule{Pattern: "gpt-4o", Prices: priced(1), Source: SourceBuiltin, UpdatedAt: updatedAt}},
 		{name: "builtin missing update time", rule: Rule{Pattern: "gpt-4o", Prices: priced(1), Source: SourceBuiltin, SourceURL: "https://builtin.example/pricing"}},
 		{name: "user source URL", rule: Rule{Pattern: "gpt-4o", Prices: priced(1), Source: SourceUser, SourceURL: "https://user.example/pricing"}},
@@ -165,8 +161,8 @@ func TestCompileRejectsUserAndPrefixLongContextPolicies(t *testing.T) {
 	validPolicy := func() *LongContextPolicy {
 		return &LongContextPolicy{
 			InputThresholdTokens: 272_000,
-			InputMultiplier:      2,
-			OutputMultiplier:     1.5,
+			InputMultiplier:      Multiplier{Numerator: 2, Denominator: 1},
+			OutputMultiplier:     Multiplier{Numerator: 3, Denominator: 2},
 		}
 	}
 	validBuiltin := func(pattern string) Rule {
@@ -225,31 +221,31 @@ func TestCompileRejectsUserAndPrefixLongContextPolicies(t *testing.T) {
 			name: "zero input multiplier",
 			rule: func() Rule {
 				rule := validBuiltin("gpt-5.6")
-				rule.LongContextPolicy.InputMultiplier = 0
+				rule.LongContextPolicy.InputMultiplier = Multiplier{}
 				return rule
 			}(),
 		},
 		{
-			name: "negative output multiplier",
+			name: "negative output multiplier numerator",
 			rule: func() Rule {
 				rule := validBuiltin("gpt-5.6")
-				rule.LongContextPolicy.OutputMultiplier = -1
+				rule.LongContextPolicy.OutputMultiplier = Multiplier{Numerator: -1, Denominator: 1}
 				return rule
 			}(),
 		},
 		{
-			name: "nan input multiplier",
+			name: "negative input multiplier denominator",
 			rule: func() Rule {
 				rule := validBuiltin("gpt-5.6")
-				rule.LongContextPolicy.InputMultiplier = math.NaN()
+				rule.LongContextPolicy.InputMultiplier = Multiplier{Numerator: 1, Denominator: -1}
 				return rule
 			}(),
 		},
 		{
-			name: "infinite output multiplier",
+			name: "zero output multiplier denominator",
 			rule: func() Rule {
 				rule := validBuiltin("gpt-5.6")
-				rule.LongContextPolicy.OutputMultiplier = math.Inf(1)
+				rule.LongContextPolicy.OutputMultiplier = Multiplier{Numerator: 1}
 				return rule
 			}(),
 		},
@@ -268,8 +264,8 @@ func TestCompileCopiesLongContextPolicy(t *testing.T) {
 
 	policy := &LongContextPolicy{
 		InputThresholdTokens: 272_000,
-		InputMultiplier:      2,
-		OutputMultiplier:     1.5,
+		InputMultiplier:      Multiplier{Numerator: 2, Denominator: 1},
+		OutputMultiplier:     Multiplier{Numerator: 3, Denominator: 2},
 	}
 	rules := []Rule{{
 		Pattern:           "gpt-5.6",
@@ -285,26 +281,26 @@ func TestCompileCopiesLongContextPolicy(t *testing.T) {
 	}
 
 	policy.InputThresholdTokens = 1
-	policy.InputMultiplier = 99
+	policy.InputMultiplier = Multiplier{Numerator: 99, Denominator: 1}
 	first, ok := table.Match("gpt-5.6")
 	if !ok || first.LongContextPolicy == nil {
 		t.Fatalf("first Match() = %+v, %t; want policy", first, ok)
 	}
 	if first.LongContextPolicy.InputThresholdTokens != 272_000 ||
-		first.LongContextPolicy.InputMultiplier != 2 ||
-		first.LongContextPolicy.OutputMultiplier != 1.5 {
+		first.LongContextPolicy.InputMultiplier != (Multiplier{Numerator: 2, Denominator: 1}) ||
+		first.LongContextPolicy.OutputMultiplier != (Multiplier{Numerator: 3, Denominator: 2}) {
 		t.Fatalf("first Match() policy = %+v, want original values", first.LongContextPolicy)
 	}
 	if first.LongContextPolicy == policy {
 		t.Fatal("Compile() retained the caller's policy pointer")
 	}
 
-	first.LongContextPolicy.OutputMultiplier = 99
+	first.LongContextPolicy.OutputMultiplier = Multiplier{Numerator: 99, Denominator: 1}
 	second, ok := table.Match("gpt-5.6")
 	if !ok || second.LongContextPolicy == nil {
 		t.Fatalf("second Match() = %+v, %t; want policy", second, ok)
 	}
-	if second.LongContextPolicy.OutputMultiplier != 1.5 {
+	if second.LongContextPolicy.OutputMultiplier != (Multiplier{Numerator: 3, Denominator: 2}) {
 		t.Fatalf("second Match() policy = %+v, want immutable copy", second.LongContextPolicy)
 	}
 	if second.LongContextPolicy == first.LongContextPolicy {
@@ -321,16 +317,16 @@ func TestCompileCopiesInputAndReturnsRuleValues(t *testing.T) {
 		t.Fatalf("Compile() error = %v", err)
 	}
 	rules[0].Pattern = "other-*"
-	rules[0].Prices.Output.Value = 99
+	rules[0].Prices.Output.NanoUSDPerMillion = 99
 
 	first, ok := table.Match("gpt-4o")
-	if !ok || first.Pattern != "gpt-*" || first.Prices.Output.Value != 1 {
+	if !ok || first.Pattern != "gpt-*" || first.Prices.Output.NanoUSDPerMillion != 1 {
 		t.Fatalf("first Match() = %+v, %t; want unmodified gpt-* rule", first, ok)
 	}
 	first.Pattern = "other-*"
-	first.Prices.Output.Value = 99
+	first.Prices.Output.NanoUSDPerMillion = 99
 	second, ok := table.Match("gpt-4o")
-	if !ok || second.Pattern != "gpt-*" || second.Prices.Output.Value != 1 {
+	if !ok || second.Pattern != "gpt-*" || second.Prices.Output.NanoUSDPerMillion != 1 {
 		t.Fatalf("second Match() = %+v, %t; want unmodified gpt-* rule", second, ok)
 	}
 }
@@ -356,12 +352,12 @@ func TestTableMatchIsConcurrentAndImmutable(t *testing.T) {
 			defer waitGroup.Done()
 			for range matchesPerGoroutine {
 				rule, ok := table.Match("gpt-4o")
-				if !ok || rule.Pattern != "gpt-*" || rule.Prices.Output.Value != 1 {
+				if !ok || rule.Pattern != "gpt-*" || rule.Prices.Output.NanoUSDPerMillion != 1 {
 					errors <- "concurrent Match returned an unexpected rule"
 					return
 				}
 				rule.Pattern = "mutated"
-				rule.Prices.Output.Value = 99
+				rule.Prices.Output.NanoUSDPerMillion = 99
 			}
 		}()
 	}
@@ -372,13 +368,13 @@ func TestTableMatchIsConcurrentAndImmutable(t *testing.T) {
 	}
 
 	rule, ok := table.Match("gpt-4o")
-	if !ok || rule.Pattern != "gpt-*" || rule.Prices.Output.Value != 1 {
+	if !ok || rule.Pattern != "gpt-*" || rule.Prices.Output.NanoUSDPerMillion != 1 {
 		t.Fatalf("final Match() = %+v, %t; want unmodified gpt-* rule", rule, ok)
 	}
 }
 
-func priced(value float64) Prices {
-	return Prices{Output: Price{Value: value, Set: true}}
+func priced(value NanoUSD) Prices {
+	return Prices{Output: fixedPrice(value)}
 }
 
 func replacePattern(rule Rule, pattern string) Rule {

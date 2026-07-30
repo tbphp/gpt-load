@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"math"
 	"reflect"
 	"testing"
 	"time"
@@ -21,27 +20,26 @@ import (
 )
 
 func TestDecodeRequestLogRowsPreservesUsageCostAttribution(t *testing.T) {
-	completedAt := time.Date(2026, time.July, 27, 1, 2, 3, 4, time.FixedZone("UTC+8", 8*60*60))
 	rows := []models.RequestLog{{
-		ID:                 "00000000-0000-4000-8000-000000000601",
-		CreatedAt:          completedAt,
-		AccessKeyID:        61,
-		GroupID:            17,
-		Protocol:           string(protocol.OpenAICompletions),
-		ClientModel:        "client-model",
-		UpstreamModel:      "upstream-model",
-		Status:             string(telemetry.RequestStatusSuccess),
-		StatusCode:         200,
-		DurationMs:         25,
-		InputTokens:        11,
-		CacheReadTokens:    12,
-		CacheWrite5MTokens: 13,
-		CacheWrite1HTokens: 14,
-		OutputTokens:       15,
-		Cost:               0.1234567890123,
-		UsageState:         string(usage.StateComplete),
-		CostState:          string(pricing.CostStatePriced),
-		Attempts:           models.JSON(`[]`),
+		ID:                   "00000000-0000-4000-8000-000000000601",
+		CompletedAtMS:        1_785_085_323_000,
+		AccessKeyID:          61,
+		GroupID:              17,
+		Protocol:             string(protocol.OpenAICompletions),
+		ClientModel:          "client-model",
+		UpstreamModel:        "upstream-model",
+		Status:               string(telemetry.RequestStatusSuccess),
+		StatusCode:           200,
+		DurationMs:           25,
+		UncachedInputTokens:  11,
+		CacheReadTokens:      12,
+		CacheWrite5MTokens:   13,
+		CacheWrite1HTokens:   14,
+		OutputTokens:         15,
+		EstimatedCostNanoUSD: 123_456_789,
+		UsageState:           string(usage.StateComplete),
+		CostState:            string(pricing.CostStatePriced),
+		Attempts:             models.JSON(`[]`),
 	}}
 
 	records, err := decodeRequestLogRows(rows)
@@ -56,20 +54,20 @@ func TestDecodeRequestLogRowsPreservesUsageCostAttribution(t *testing.T) {
 		got.CostState != pricing.CostStatePriced || got.UncachedInputTokens != 11 ||
 		got.CacheReadTokens != 12 || got.CacheWrite5MTokens != 13 ||
 		got.CacheWrite1HTokens != 14 || got.OutputTokens != 15 ||
-		got.EstimatedCostUSD != 0.1234567890123 ||
-		got.CompletedAt.Format(time.RFC3339Nano) != "2026-07-26T17:02:03.000000004Z" {
+		got.EstimatedCostNanoUSD != 123_456_789 ||
+		got.CompletedAtMS != 1_785_085_323_000 {
 		t.Fatalf("decoded usage/cost record = %#v", got)
 	}
 }
 
 func TestDecodeRequestLogRowsIgnoresHistoricalKeyMask(t *testing.T) {
 	rows := []models.RequestLog{{
-		ID:         "00000000-0000-4000-8000-000000000605",
-		CreatedAt:  time.Date(2026, time.July, 27, 0, 0, 0, 0, time.UTC),
-		Protocol:   string(protocol.OpenAICompletions),
-		Status:     string(telemetry.RequestStatusSuccess),
-		UsageState: string(usage.StateNotApplicable),
-		CostState:  string(pricing.CostStateNotApplicable),
+		ID:            "00000000-0000-4000-8000-000000000605",
+		CompletedAtMS: 1_785_110_400_000,
+		Protocol:      string(protocol.OpenAICompletions),
+		Status:        string(telemetry.RequestStatusSuccess),
+		UsageState:    string(usage.StateNotApplicable),
+		CostState:     string(pricing.CostStateNotApplicable),
 		Attempts: models.JSON(
 			`[{"sequence":1,"group_id":7,"group_name":"Primary","key_id":11,"key_mask":"prov****safe","upstream_model":"model","status_code":200,"duration_ms":10,"failure_category":"ok","action":"terminate","will_retry":false,"error_code":"","error_summary":"","committed":true}]`,
 		),
@@ -95,13 +93,13 @@ func TestDecodeRequestLogRowsIgnoresHistoricalKeyMask(t *testing.T) {
 
 func TestDecodeRequestLogRowsRejectsInvalidUsageCostValues(t *testing.T) {
 	base := models.RequestLog{
-		ID:         "00000000-0000-4000-8000-000000000602",
-		CreatedAt:  time.Date(2026, time.July, 27, 0, 0, 0, 0, time.UTC),
-		Protocol:   string(protocol.OpenAICompletions),
-		Status:     string(telemetry.RequestStatusSuccess),
-		UsageState: string(usage.StateComplete),
-		CostState:  string(pricing.CostStatePriced),
-		Attempts:   models.JSON(`[]`),
+		ID:            "00000000-0000-4000-8000-000000000602",
+		CompletedAtMS: 1_785_110_400_000,
+		Protocol:      string(protocol.OpenAICompletions),
+		Status:        string(telemetry.RequestStatusSuccess),
+		UsageState:    string(usage.StateComplete),
+		CostState:     string(pricing.CostStatePriced),
+		Attempts:      models.JSON(`[]`),
 	}
 	tests := []struct {
 		name   string
@@ -109,10 +107,8 @@ func TestDecodeRequestLogRowsRejectsInvalidUsageCostValues(t *testing.T) {
 	}{
 		{name: "usage state", mutate: func(row *models.RequestLog) { row.UsageState = "invalid" }},
 		{name: "cost state", mutate: func(row *models.RequestLog) { row.CostState = "invalid" }},
-		{name: "negative token", mutate: func(row *models.RequestLog) { row.InputTokens = -1 }},
-		{name: "negative cost", mutate: func(row *models.RequestLog) { row.Cost = -0.01 }},
-		{name: "infinite cost", mutate: func(row *models.RequestLog) { row.Cost = math.Inf(1) }},
-		{name: "not a number cost", mutate: func(row *models.RequestLog) { row.Cost = math.NaN() }},
+		{name: "negative token", mutate: func(row *models.RequestLog) { row.UncachedInputTokens = -1 }},
+		{name: "negative cost", mutate: func(row *models.RequestLog) { row.EstimatedCostNanoUSD = -1 }},
 		{
 			name: "missing usage cannot be priced",
 			mutate: func(row *models.RequestLog) {
@@ -137,7 +133,7 @@ func TestDecodeRequestLogRowsRejectsInvalidUsageCostValues(t *testing.T) {
 			name: "unpriced cost must be zero",
 			mutate: func(row *models.RequestLog) {
 				row.CostState = string(pricing.CostStateUnpriced)
-				row.Cost = 0.01
+				row.EstimatedCostNanoUSD = 1
 			},
 		},
 		{
@@ -145,7 +141,7 @@ func TestDecodeRequestLogRowsRejectsInvalidUsageCostValues(t *testing.T) {
 			mutate: func(row *models.RequestLog) {
 				row.UsageState = string(usage.StateNotApplicable)
 				row.CostState = string(pricing.CostStateNotApplicable)
-				row.Cost = 0.01
+				row.EstimatedCostNanoUSD = 1
 			},
 		},
 	}
@@ -165,11 +161,11 @@ func TestDecodeRequestLogRowsAcceptsApprovedUsageCostMatrix(t *testing.T) {
 		name       string
 		usageState usage.State
 		costState  pricing.CostState
-		cost       float64
+		cost       int64
 	}{
-		{name: "complete priced", usageState: usage.StateComplete, costState: pricing.CostStatePriced, cost: 0.01},
+		{name: "complete priced", usageState: usage.StateComplete, costState: pricing.CostStatePriced, cost: 10_000_000},
 		{name: "complete unpriced", usageState: usage.StateComplete, costState: pricing.CostStateUnpriced},
-		{name: "partial priced", usageState: usage.StatePartial, costState: pricing.CostStatePriced, cost: 0.01},
+		{name: "partial priced", usageState: usage.StatePartial, costState: pricing.CostStatePriced, cost: 10_000_000},
 		{name: "partial unpriced", usageState: usage.StatePartial, costState: pricing.CostStateUnpriced},
 		{name: "missing unpriced", usageState: usage.StateMissing, costState: pricing.CostStateUnpriced},
 		{
@@ -181,21 +177,22 @@ func TestDecodeRequestLogRowsAcceptsApprovedUsageCostMatrix(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			row := models.RequestLog{
-				ID:         "00000000-0000-4000-8000-000000000604",
-				CreatedAt:  time.Date(2026, time.July, 27, 0, 0, 0, 0, time.UTC),
-				Protocol:   string(protocol.OpenAICompletions),
-				Status:     string(telemetry.RequestStatusSuccess),
-				UsageState: string(test.usageState),
-				CostState:  string(test.costState),
-				Cost:       test.cost,
-				Attempts:   models.JSON(`[]`),
+				ID:                   "00000000-0000-4000-8000-000000000604",
+				CompletedAtMS:        1_785_110_400_000,
+				Protocol:             string(protocol.OpenAICompletions),
+				Status:               string(telemetry.RequestStatusSuccess),
+				UsageState:           string(test.usageState),
+				CostState:            string(test.costState),
+				EstimatedCostNanoUSD: test.cost,
+				Attempts:             models.JSON(`[]`),
 			}
 			records, err := decodeRequestLogRows([]models.RequestLog{row})
 			if err != nil {
 				t.Fatalf("decodeRequestLogRows() error = %v", err)
 			}
 			if len(records) != 1 || records[0].UsageState != test.usageState ||
-				records[0].CostState != test.costState || records[0].EstimatedCostUSD != test.cost {
+				records[0].CostState != test.costState ||
+				records[0].EstimatedCostNanoUSD != test.cost {
 				t.Fatalf("records = %#v", records)
 			}
 		})
@@ -206,7 +203,7 @@ func TestServiceListUsesStableKeysetCursor(t *testing.T) {
 	db := openRequestLogQueryDB(t)
 	service := newRequestLogTestService(db)
 	completedAt := time.Date(2026, time.July, 24, 12, 0, 0, 123, time.UTC)
-	older := completedAt.Add(-time.Nanosecond)
+	older := completedAt.Add(-time.Millisecond)
 	for _, row := range []models.RequestLog{
 		requestLogQueryRow("00000000-0000-4000-8000-000000000100", older, 41, "older", nil),
 		requestLogQueryRow("00000000-0000-4000-8000-000000000101", completedAt, 41, "same-time", nil),
@@ -227,7 +224,7 @@ func TestServiceListUsesStableKeysetCursor(t *testing.T) {
 		t.Fatalf("first page IDs = %v, want %v", got, want)
 	}
 	if first.NextCursor == nil ||
-		!first.NextCursor.CompletedAt.Equal(completedAt) ||
+		first.NextCursor.CompletedAtMS != 1_784_894_400_000 ||
 		first.NextCursor.RequestID != "00000000-0000-4000-8000-000000000102" {
 		t.Fatalf("first NextCursor = %#v", first.NextCursor)
 	}
@@ -245,7 +242,7 @@ func TestServiceListUsesStableKeysetCursor(t *testing.T) {
 	}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("second page IDs = %v, want %v", got, want)
 	}
-	if second.Items[0].CompletedAt.Equal(second.Items[1].CompletedAt) {
+	if second.Items[0].CompletedAtMS == second.Items[1].CompletedAtMS {
 		t.Fatalf("second page did not advance from tied timestamp: %+v", second.Items)
 	}
 	if second.NextCursor != nil {
@@ -280,7 +277,7 @@ func TestServiceListAppliesAllFiltersAndGroupJSON(t *testing.T) {
 
 	beforeFrom := requestLogQueryRow(
 		"00000000-0000-4000-8000-000000000203",
-		from.Add(-time.Nanosecond),
+		from.Add(-time.Millisecond),
 		71,
 		"client-model",
 		integerAttempts,
@@ -353,9 +350,11 @@ func TestServiceListAppliesAllFiltersAndGroupJSON(t *testing.T) {
 
 	groupID := uint(12)
 	accessKeyID := uint(71)
+	fromMS := from.UnixMilli()
+	toMS := to.UnixMilli()
 	page, err := service.List(context.Background(), ListQuery{
-		From:        &from,
-		To:          &to,
+		FromMS:      &fromMS,
+		ToMS:        &toMS,
 		GroupID:     &groupID,
 		ClientModel: "client-model",
 		AccessKeyID: &accessKeyID,
@@ -568,7 +567,7 @@ func requestLogQueryRow(
 	}
 	return models.RequestLog{
 		ID:            id,
-		CreatedAt:     completedAt,
+		CompletedAtMS: completedAt.UTC().UnixMilli(),
 		AccessKeyID:   accessKeyID,
 		Protocol:      string(protocol.OpenAICompletions),
 		ClientModel:   clientModel,
@@ -576,6 +575,8 @@ func requestLogQueryRow(
 		Status:        string(telemetry.RequestStatusSuccess),
 		StatusCode:    200,
 		DurationMs:    25,
+		UsageState:    string(usage.StateNotApplicable),
+		CostState:     string(pricing.CostStateNotApplicable),
 		Attempts:      models.JSON(encodedAttempts),
 	}
 }

@@ -22,14 +22,14 @@ func (service *Service) List(ctx context.Context, input ListQuery) (Page, error)
 
 	query := service.db.WithContext(ctx).
 		Model(&models.RequestLog{}).
-		Order("created_at DESC").
+		Order("completed_at_ms DESC").
 		Order("id DESC").
 		Limit(limit + 1)
-	if input.From != nil {
-		query = query.Where("created_at >= ?", input.From.UTC())
+	if input.FromMS != nil {
+		query = query.Where("completed_at_ms >= ?", *input.FromMS)
 	}
-	if input.To != nil {
-		query = query.Where("created_at < ?", input.To.UTC())
+	if input.ToMS != nil {
+		query = query.Where("completed_at_ms < ?", *input.ToMS)
 	}
 	if input.GroupID != nil {
 		query = query.Where(`
@@ -55,9 +55,9 @@ func (service *Service) List(ctx context.Context, input ListQuery) (Page, error)
 	}
 	if input.Cursor != nil {
 		query = query.Where(
-			"created_at < ? OR (created_at = ? AND id < ?)",
-			input.Cursor.CompletedAt.UTC(),
-			input.Cursor.CompletedAt.UTC(),
+			"completed_at_ms < ? OR (completed_at_ms = ? AND id < ?)",
+			input.Cursor.CompletedAtMS,
+			input.Cursor.CompletedAtMS,
 			input.Cursor.RequestID,
 		)
 	}
@@ -83,8 +83,8 @@ func (service *Service) List(ctx context.Context, input ListQuery) (Page, error)
 	if hasNext {
 		last := records[len(records)-1]
 		page.NextCursor = &Cursor{
-			CompletedAt: last.CompletedAt,
-			RequestID:   last.RequestID,
+			CompletedAtMS: last.CompletedAtMS,
+			RequestID:     last.RequestID,
 		}
 	}
 	return page, nil
@@ -106,28 +106,28 @@ func decodeRequestLogRows(rows []models.RequestLog) ([]Record, error) {
 			return nil, err
 		}
 		records = append(records, Record{
-			RequestID:           row.ID,
-			CompletedAt:         row.CreatedAt.UTC(),
-			AccessKey:           AccessKeyRef{ID: row.AccessKeyID, Deleted: true},
-			Protocol:            protocol.Protocol(row.Protocol),
-			ClientModel:         row.ClientModel,
-			UpstreamModel:       row.UpstreamModel,
-			Status:              telemetry.RequestStatus(row.Status),
-			StatusCode:          row.StatusCode,
-			DurationMs:          row.DurationMs,
-			ErrorCode:           row.ErrorCode,
-			ErrorSummary:        row.ErrorSummary,
-			AffinityHit:         row.AffinityHit,
-			Attempts:            attempts,
-			GroupID:             row.GroupID,
-			UsageState:          usage.State(row.UsageState),
-			CostState:           pricing.CostState(row.CostState),
-			UncachedInputTokens: row.InputTokens,
-			CacheReadTokens:     row.CacheReadTokens,
-			CacheWrite5MTokens:  row.CacheWrite5MTokens,
-			CacheWrite1HTokens:  row.CacheWrite1HTokens,
-			OutputTokens:        row.OutputTokens,
-			EstimatedCostUSD:    row.Cost,
+			RequestID:            row.ID,
+			CompletedAtMS:        row.CompletedAtMS,
+			AccessKey:            AccessKeyRef{ID: row.AccessKeyID, Deleted: true},
+			Protocol:             protocol.Protocol(row.Protocol),
+			ClientModel:          row.ClientModel,
+			UpstreamModel:        row.UpstreamModel,
+			Status:               telemetry.RequestStatus(row.Status),
+			StatusCode:           row.StatusCode,
+			DurationMs:           row.DurationMs,
+			ErrorCode:            row.ErrorCode,
+			ErrorSummary:         row.ErrorSummary,
+			AffinityHit:          row.AffinityHit,
+			Attempts:             attempts,
+			GroupID:              row.GroupID,
+			UsageState:           usage.State(row.UsageState),
+			CostState:            pricing.CostState(row.CostState),
+			UncachedInputTokens:  row.UncachedInputTokens,
+			CacheReadTokens:      row.CacheReadTokens,
+			CacheWrite5MTokens:   row.CacheWrite5MTokens,
+			CacheWrite1HTokens:   row.CacheWrite1HTokens,
+			OutputTokens:         row.OutputTokens,
+			EstimatedCostNanoUSD: row.EstimatedCostNanoUSD,
 		})
 	}
 	return records, nil
@@ -137,12 +137,12 @@ func validateRequestLogUsageCost(row models.RequestLog) error {
 	if err := ValidateUsageCostState(
 		usage.State(row.UsageState),
 		pricing.CostState(row.CostState),
-		row.Cost,
+		row.EstimatedCostNanoUSD,
 	); err != nil {
 		return fmt.Errorf("decode request log usage/cost: %w", err)
 	}
 	for _, value := range []int64{
-		row.InputTokens,
+		row.UncachedInputTokens,
 		row.CacheReadTokens,
 		row.CacheWrite5MTokens,
 		row.CacheWrite1HTokens,

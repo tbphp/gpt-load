@@ -159,7 +159,7 @@ func TestExecuteIdempotentOperationCommitsResultAndReplaysWithoutMutation(t *tes
 	}
 	if row.CommitSequence == 0 || row.ResourceIdentity != "access-key:7" ||
 		row.LastCompletedStage != string(operationStageCompleted) ||
-		row.CompletedAt == nil || row.CompactedAt != nil {
+		row.CompletedAtMS == nil || row.CompactedAtMS != nil {
 		t.Fatalf("operation row = %#v", row)
 	}
 	var stages []operationStage

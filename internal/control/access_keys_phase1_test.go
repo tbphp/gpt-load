@@ -175,7 +175,7 @@ func TestRevealAccessKeyIsTheExplicitMetadataDecryptPath(t *testing.T) {
 		t.Fatalf("RevealAccessKey() error = %v", err)
 	}
 	if revealed.ID != created.ID || revealed.Key != created.Key ||
-		revealed.RevealedAt.IsZero() {
+		revealed.RevealedAtMS <= 0 {
 		t.Fatalf("RevealAccessKey() = %#v", revealed)
 	}
 	if spy.decryptCalls != 1 {

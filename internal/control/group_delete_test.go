@@ -238,14 +238,15 @@ func TestDeleteGroupAcceptsRegistryAlreadyAtTargetStateAndRetainsHistory(t *test
 	fixture.stats.RecordFailure(key.ID, health.FailureCategoryAmbiguous, 0, now)
 	beforeStats := fixture.stats.Snapshot(key.ID, now)
 	if err := fixture.db.Create(&models.RequestLog{
-		ID: "delete-history-log", CreatedAt: now, AccessKeyID: 1,
+		ID: "delete-history-log", CompletedAtMS: now.UnixMilli(), AccessKeyID: 1,
 		Protocol: "openai-completions", ClientModel: "model", UpstreamModel: "model",
 		Status: "success", StatusCode: http.StatusOK,
 	}).Error; err != nil {
 		t.Fatal(err)
 	}
 	if err := fixture.db.Create(&models.UsageStat{
-		HourBucket: now, GroupID: groupID, Model: "model", RequestCount: 1,
+		BucketStartMS: now.UnixMilli(), AccessKeyID: 1,
+		GroupID: groupID, Model: "model", RequestCount: 1,
 	}).Error; err != nil {
 		t.Fatal(err)
 	}
