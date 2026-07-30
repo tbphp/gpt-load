@@ -10,7 +10,7 @@ import (
 func TestNewSetIndexesDialectsByProtocol(t *testing.T) {
 	openAI := NewOpenAI(http.DefaultClient)
 	got := NewSet(openAI)
-	if len(got) != 1 || got[protocol.OpenAIChatCompletions] != openAI {
+	if len(got) != 1 || got[protocol.OpenAICompletions] != openAI {
 		t.Fatalf("NewSet(OpenAI) = %#v, want OpenAI indexed", got)
 	}
 }

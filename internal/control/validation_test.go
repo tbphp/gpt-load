@@ -28,7 +28,7 @@ func TestValidationWorkerUsesExplicitModelAndCanonicalRepresentativeProtocol(t *
 			1: validationGroup(
 				[]protocol.Protocol{
 					protocol.OpenAIResponses,
-					protocol.OpenAIChatCompletions,
+					protocol.OpenAICompletions,
 				},
 				" explicit-model ",
 				nil,
@@ -41,7 +41,7 @@ func TestValidationWorkerUsesExplicitModelAndCanonicalRepresentativeProtocol(t *
 	worker.Validate(context.Background())
 
 	if got, want := probes.calls(), []validationProbeCall{{
-		protocol: protocol.OpenAIChatCompletions,
+		protocol: protocol.OpenAICompletions,
 		model:    "explicit-model",
 		apiKey:   "plain-key-7",
 	}}; !sameValidationProbeCalls(got, want) {
@@ -53,7 +53,7 @@ func TestValidationWorkerFallsBackToFirstRealModelID(t *testing.T) {
 	probes := &validationProbeRecorder{}
 	worker := newValidationWorkerForTest(
 		validationSnapshot(map[uint]state.GroupView{
-			1: validationGroup([]protocol.Protocol{protocol.OpenAIChatCompletions}, " \t", []state.ModelConfig{{ID: "  real-model  ", Alias: "external-model"}}),
+			1: validationGroup([]protocol.Protocol{protocol.OpenAICompletions}, " \t", []state.ModelConfig{{ID: "  real-model  ", Alias: "external-model"}}),
 		}),
 		[]state.KeyRef{{ID: 7, GroupID: 1, EncryptedValue: "key-7"}},
 		probes,
@@ -61,7 +61,7 @@ func TestValidationWorkerFallsBackToFirstRealModelID(t *testing.T) {
 
 	worker.Validate(context.Background())
 
-	if got, want := probes.calls(), []validationProbeCall{{protocol: protocol.OpenAIChatCompletions, model: "real-model", apiKey: "plain-key-7"}}; !sameValidationProbeCalls(got, want) {
+	if got, want := probes.calls(), []validationProbeCall{{protocol: protocol.OpenAICompletions, model: "real-model", apiKey: "plain-key-7"}}; !sameValidationProbeCalls(got, want) {
 		t.Fatalf("Probe calls = %#v, want %#v", got, want)
 	}
 }
@@ -98,7 +98,7 @@ func TestValidationSignatureUsesCanonicalLengthPrefixedEncoding(t *testing.T) {
 	group := state.GroupView{
 		ID:              42,
 		UpstreamURL:     "https://upstream.example.com/v1",
-		Protocols:       []protocol.Protocol{protocol.OpenAIChatCompletions},
+		Protocols:       []protocol.Protocol{protocol.OpenAICompletions},
 		ValidationModel: " model-a ",
 		HeaderRules: state.HeaderRules{
 			Set: map[string]string{
@@ -113,10 +113,10 @@ func TestValidationSignatureUsesCanonicalLengthPrefixedEncoding(t *testing.T) {
 	if !ok {
 		t.Fatal("buildGroupValidationTarget() ok = false, want true")
 	}
-	if target.protocol != protocol.OpenAIChatCompletions || target.model != "model-a" {
+	if target.protocol != protocol.OpenAICompletions || target.model != "model-a" {
 		t.Fatalf("target protocol/model = %q/%q, want openai/model-a", target.protocol, target.model)
 	}
-	const want = "818ce5cc7bbead79d23f5f0d03cdaef243ac2fbe5bf303068eb78f4d2abb894c"
+	const want = "7ece2253053165e5b6ee50d11ab75e86feffca6162a52f08361d6ee2010e0760"
 	if got := fmt.Sprintf("%x", target.signature); got != want {
 		t.Fatalf("validation signature = %s, want canonical digest %s", got, want)
 	}
@@ -212,7 +212,7 @@ func TestValidationWorkerSkipsMissingGroupProtocolModelAndDialect(t *testing.T) 
 	probes := &validationProbeRecorder{}
 	snapshot := validationSnapshot(map[uint]state.GroupView{
 		1: validationGroup(nil, "", nil),
-		2: validationGroup([]protocol.Protocol{protocol.OpenAIChatCompletions}, " \t", nil),
+		2: validationGroup([]protocol.Protocol{protocol.OpenAICompletions}, " \t", nil),
 		3: validationGroup([]protocol.Protocol{protocol.Gemini}, "model", nil),
 	})
 	worker := newValidationWorkerForTest(snapshot, []state.KeyRef{
@@ -235,7 +235,7 @@ func TestValidationWorkerSkipsMissingGroupProtocolModelAndDialect(t *testing.T) 
 func TestValidationWorkerKeepsKeyBlacklistedOnDecryptOrProbeFailure(t *testing.T) {
 	probes := &validationProbeRecorder{errByKey: map[string]error{"plain-key-2": errors.New("probe failed")}}
 	worker := newValidationWorkerForTest(
-		validationSnapshot(map[uint]state.GroupView{1: validationGroup([]protocol.Protocol{protocol.OpenAIChatCompletions}, "model", nil)}),
+		validationSnapshot(map[uint]state.GroupView{1: validationGroup([]protocol.Protocol{protocol.OpenAICompletions}, "model", nil)}),
 		[]state.KeyRef{
 			{ID: 1, GroupID: 1, EncryptedValue: "decrypt-fails"},
 			{ID: 2, GroupID: 1, EncryptedValue: "key-2"},
@@ -246,7 +246,7 @@ func TestValidationWorkerKeepsKeyBlacklistedOnDecryptOrProbeFailure(t *testing.T
 
 	worker.Validate(context.Background())
 
-	if got, want := probes.calls(), []validationProbeCall{{protocol: protocol.OpenAIChatCompletions, model: "model", apiKey: "plain-key-2"}}; !sameValidationProbeCalls(got, want) {
+	if got, want := probes.calls(), []validationProbeCall{{protocol: protocol.OpenAICompletions, model: "model", apiKey: "plain-key-2"}}; !sameValidationProbeCalls(got, want) {
 		t.Fatalf("Probe calls = %#v, want %#v", got, want)
 	}
 	if got := worker.registry.(*validationRegistryRecorder).events(); len(got) != 0 {
@@ -257,7 +257,7 @@ func TestValidationWorkerKeepsKeyBlacklistedOnDecryptOrProbeFailure(t *testing.T
 func TestValidationWorkerCoordinatesConditionalRecoveryAndStatsReset(t *testing.T) {
 	probes := &validationProbeRecorder{}
 	worker := newValidationWorkerForTest(
-		validationSnapshot(map[uint]state.GroupView{1: validationGroup([]protocol.Protocol{protocol.OpenAIChatCompletions}, "model", nil)}),
+		validationSnapshot(map[uint]state.GroupView{1: validationGroup([]protocol.Protocol{protocol.OpenAICompletions}, "model", nil)}),
 		[]state.KeyRef{{ID: 7, GroupID: 1, EncryptedValue: "key-7"}},
 		probes,
 	)
@@ -300,7 +300,7 @@ func TestValidationWorkerCoordinatesConditionalRecoveryAndStatsReset(t *testing.
 func TestValidationWorkerRecoverIfMatchFailsDoesNotResetStats(t *testing.T) {
 	probes := &validationProbeRecorder{}
 	worker := newValidationWorkerForTest(
-		validationSnapshot(map[uint]state.GroupView{1: validationGroup([]protocol.Protocol{protocol.OpenAIChatCompletions}, "model", nil)}),
+		validationSnapshot(map[uint]state.GroupView{1: validationGroup([]protocol.Protocol{protocol.OpenAICompletions}, "model", nil)}),
 		[]state.KeyRef{{ID: 7, GroupID: 1, EncryptedValue: "key-7"}},
 		probes,
 	)
@@ -334,8 +334,8 @@ func TestValidationWorkerFailureGenerationChangesDuringProbeRejectsRecovery(t *t
 		stats:     stats,
 		mutations: health.NewMutationCoordinator(),
 		decryptor: validationDecryptor{},
-		dialects: dialect.Set{protocol.OpenAIChatCompletions: &validationTestDialect{
-			protocol: protocol.OpenAIChatCompletions,
+		dialects: dialect.Set{protocol.OpenAICompletions: &validationTestDialect{
+			protocol: protocol.OpenAICompletions,
 			probes: &validationProbeRecorder{probe: func(context.Context, protocol.Protocol, string, string) error {
 				close(probeStarted)
 				<-releaseProbe
@@ -410,8 +410,8 @@ func TestValidationSignatureChangesDuringProbeRejectRecovery(t *testing.T) {
 			)
 			current := cloneValidationGroup(captured)
 			test.mutate(&current)
-			worker.validationWorker.dialects[protocol.OpenAIChatCompletions] = &validationTestDialect{
-				protocol: protocol.OpenAIChatCompletions,
+			worker.validationWorker.dialects[protocol.OpenAICompletions] = &validationTestDialect{
+				protocol: protocol.OpenAICompletions,
 				probes: &validationProbeRecorder{probe: func(context.Context, protocol.Protocol, string, string) error {
 					worker.snapshots.(*validationSnapshotRecorder).setSnapshot(
 						validationSnapshot(map[uint]state.GroupView{1: current}),
@@ -439,8 +439,8 @@ func TestValidationWorkerUnrelatedSnapshotRevisionAllowsRecovery(t *testing.T) {
 		[]state.KeyRef{{ID: 7, GroupID: 1, EncryptedValue: "key-7"}},
 		&validationProbeRecorder{},
 	)
-	worker.validationWorker.dialects[protocol.OpenAIChatCompletions] = &validationTestDialect{
-		protocol: protocol.OpenAIChatCompletions,
+	worker.validationWorker.dialects[protocol.OpenAICompletions] = &validationTestDialect{
+		protocol: protocol.OpenAICompletions,
 		probes: &validationProbeRecorder{probe: func(context.Context, protocol.Protocol, string, string) error {
 			worker.snapshots.(*validationSnapshotRecorder).setSnapshot(&state.ConfigSnapshot{
 				Revision: 2,
@@ -476,8 +476,8 @@ func TestValidationSignatureRemovedOrDisabledGroupRejectsRecovery(t *testing.T) 
 				[]state.KeyRef{{ID: 7, GroupID: 1, EncryptedValue: "key-7"}},
 				&validationProbeRecorder{},
 			)
-			worker.validationWorker.dialects[protocol.OpenAIChatCompletions] = &validationTestDialect{
-				protocol: protocol.OpenAIChatCompletions,
+			worker.validationWorker.dialects[protocol.OpenAICompletions] = &validationTestDialect{
+				protocol: protocol.OpenAICompletions,
 				probes: &validationProbeRecorder{probe: func(context.Context, protocol.Protocol, string, string) error {
 					// Disabled Groups are omitted from ConfigSnapshot.Groups, as are removed Groups.
 					worker.snapshots.(*validationSnapshotRecorder).setSnapshot(validationSnapshot(nil))
@@ -590,8 +590,8 @@ func TestValidationWorkerPublicationBoundaryBlocksPublishThroughRecoverAndReset(
 		stats:     blockingStats,
 		mutations: health.NewMutationCoordinator(),
 		decryptor: validationDecryptor{},
-		dialects: dialect.Set{protocol.OpenAIChatCompletions: &validationTestDialect{
-			protocol: protocol.OpenAIChatCompletions,
+		dialects: dialect.Set{protocol.OpenAICompletions: &validationTestDialect{
+			protocol: protocol.OpenAICompletions,
 			probes:   probes,
 		}},
 	}
@@ -676,8 +676,8 @@ func TestValidationSignatureMismatchLogDoesNotLeakSensitiveInputs(t *testing.T) 
 		[]state.KeyRef{{ID: 7, GroupID: 1, EncryptedValue: "cipher-secret"}},
 		&validationProbeRecorder{},
 	)
-	worker.validationWorker.dialects[protocol.OpenAIChatCompletions] = &validationTestDialect{
-		protocol: protocol.OpenAIChatCompletions,
+	worker.validationWorker.dialects[protocol.OpenAICompletions] = &validationTestDialect{
+		protocol: protocol.OpenAICompletions,
 		probes: &validationProbeRecorder{probe: func(context.Context, protocol.Protocol, string, string) error {
 			worker.snapshots.(*validationSnapshotRecorder).setSnapshot(
 				validationSnapshot(map[uint]state.GroupView{1: currentGroup}),
@@ -734,7 +734,7 @@ func (coordinator *barrierValidationMutationCoordinator) Do(_ uint, fn func()) {
 
 func TestValidationWorkerConditionalRecoveryFailureCompletesCoordinatorInterval(t *testing.T) {
 	worker := newValidationWorkerForTest(
-		validationSnapshot(map[uint]state.GroupView{1: validationGroup([]protocol.Protocol{protocol.OpenAIChatCompletions}, "model", nil)}),
+		validationSnapshot(map[uint]state.GroupView{1: validationGroup([]protocol.Protocol{protocol.OpenAICompletions}, "model", nil)}),
 		[]state.KeyRef{{ID: 7, GroupID: 1, EncryptedValue: "key-7"}},
 		&validationProbeRecorder{},
 	)
@@ -859,7 +859,7 @@ func TestValidationWorkerFailureLogUsesSafeStructuredFields(t *testing.T) {
 	worker := newValidationWorkerForTest(
 		validationSnapshot(map[uint]state.GroupView{1: {
 			UpstreamURL:     "https://sensitive.example.com/path",
-			Protocols:       []protocol.Protocol{protocol.OpenAIChatCompletions},
+			Protocols:       []protocol.Protocol{protocol.OpenAICompletions},
 			ValidationModel: "model",
 		}}),
 		[]state.KeyRef{{ID: 7, GroupID: 1, EncryptedValue: "cipher-secret"}},
@@ -896,7 +896,7 @@ func TestValidationWorkerLimitsGlobalConcurrencyToEight(t *testing.T) {
 		},
 	}
 	worker := newValidationWorkerForTest(
-		validationSnapshot(map[uint]state.GroupView{1: validationGroup([]protocol.Protocol{protocol.OpenAIChatCompletions}, "model", nil)}),
+		validationSnapshot(map[uint]state.GroupView{1: validationGroup([]protocol.Protocol{protocol.OpenAICompletions}, "model", nil)}),
 		validationRefs(9),
 		probes,
 	)
@@ -935,7 +935,7 @@ func TestValidationWorkerCancellationStopsDispatchAndInFlightProbes(t *testing.T
 		},
 	}
 	worker := newValidationWorkerForTest(
-		validationSnapshot(map[uint]state.GroupView{1: validationGroup([]protocol.Protocol{protocol.OpenAIChatCompletions}, "model", nil)}),
+		validationSnapshot(map[uint]state.GroupView{1: validationGroup([]protocol.Protocol{protocol.OpenAICompletions}, "model", nil)}),
 		validationRefs(9),
 		probes,
 	)
@@ -964,7 +964,7 @@ func TestValidationWorkerCancellationStopsDispatchAndInFlightProbes(t *testing.T
 func TestValidationWorkerDoesNotProbeQueuedJobAfterCancellation(t *testing.T) {
 	probes := &validationProbeRecorder{}
 	worker := newValidationWorkerForTest(
-		validationSnapshot(map[uint]state.GroupView{1: validationGroup([]protocol.Protocol{protocol.OpenAIChatCompletions}, "model", nil)}),
+		validationSnapshot(map[uint]state.GroupView{1: validationGroup([]protocol.Protocol{protocol.OpenAICompletions}, "model", nil)}),
 		nil,
 		probes,
 	)
@@ -1216,7 +1216,7 @@ func newValidationWorkerForTest(snapshot *state.ConfigSnapshot, refs []state.Key
 	registry := &validationRegistryRecorder{refs: refs, recoveryOK: true, recorder: recorder}
 	dialects := dialect.Set{}
 	for _, p := range []protocol.Protocol{
-		protocol.OpenAIChatCompletions,
+		protocol.OpenAICompletions,
 		protocol.OpenAIResponses,
 		protocol.Anthropic,
 	} {
@@ -1238,13 +1238,13 @@ func newValidationWorkerForTest(snapshot *state.ConfigSnapshot, refs []state.Key
 func newRealRegistryValidationWorker(registry *state.KeyRegistry, probes *validationProbeRecorder) *validationWorker {
 	return &validationWorker{
 		snapshots: &validationSnapshotRecorder{snapshot: validationSnapshot(map[uint]state.GroupView{
-			1: validationGroup([]protocol.Protocol{protocol.OpenAIChatCompletions}, "model", nil),
+			1: validationGroup([]protocol.Protocol{protocol.OpenAICompletions}, "model", nil),
 		})},
 		registry:  registry,
 		stats:     health.NewStatsStore(),
 		mutations: health.NewMutationCoordinator(),
 		decryptor: validationDecryptor{},
-		dialects:  dialect.Set{protocol.OpenAIChatCompletions: &validationTestDialect{protocol: protocol.OpenAIChatCompletions, probes: probes}},
+		dialects:  dialect.Set{protocol.OpenAICompletions: &validationTestDialect{protocol: protocol.OpenAICompletions, probes: probes}},
 	}
 }
 
@@ -1265,7 +1265,7 @@ func validationSignatureGroup() state.GroupView {
 	return state.GroupView{
 		ID:              1,
 		UpstreamURL:     "https://upstream.example.com",
-		Protocols:       []protocol.Protocol{protocol.OpenAIChatCompletions},
+		Protocols:       []protocol.Protocol{protocol.OpenAICompletions},
 		ValidationModel: "model-a",
 		Models:          []state.ModelConfig{{ID: "model-a"}},
 		HeaderRules: state.HeaderRules{
@@ -1296,7 +1296,7 @@ func validationManagerCompileInput(upstreamURL string) state.CompileInput {
 		Name:            "group",
 		UpstreamURL:     upstreamURL,
 		ValidationModel: "model-a",
-		Protocols:       []protocol.Protocol{protocol.OpenAIChatCompletions},
+		Protocols:       []protocol.Protocol{protocol.OpenAICompletions},
 		Models:          []state.ModelConfig{{ID: "model-a"}},
 		Enabled:         true,
 	}}}

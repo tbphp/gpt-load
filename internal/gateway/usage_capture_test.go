@@ -446,7 +446,7 @@ func TestUsageCaptureWarningsAreCountedThrottledAndRedacted(t *testing.T) {
 	now := time.Unix(100, 0)
 	boundary.now = func() time.Time { return now }
 	for range 3 {
-		boundary.recordFailure("stream_observe", protocol.OpenAIChatCompletions)
+		boundary.recordFailure("stream_observe", protocol.OpenAICompletions)
 	}
 	now = now.Add(time.Minute)
 	boundary.recordFailure("stream_finalize", protocol.Anthropic)
@@ -493,7 +493,7 @@ func TestNewUsageCaptureBoundaryUsesStandardLoggerConfiguration(t *testing.T) {
 	if boundary.logger != standard {
 		t.Fatal("usage capture boundary does not use the standard logger")
 	}
-	boundary.recordFailure("stream_observe", protocol.OpenAIChatCompletions)
+	boundary.recordFailure("stream_observe", protocol.OpenAICompletions)
 	if hook.calls != 1 ||
 		!bytes.Contains(logs.Bytes(), []byte(`"msg":"[DATA] Usage capture failure"`)) ||
 		!bytes.Contains(logs.Bytes(), []byte(`"plane":"data"`)) ||
@@ -503,7 +503,7 @@ func TestNewUsageCaptureBoundaryUsesStandardLoggerConfiguration(t *testing.T) {
 
 	loggedBytes := logs.Len()
 	standard.SetLevel(logrus.ErrorLevel)
-	newUsageCaptureBoundary().recordFailure("stream_finalize", protocol.OpenAIChatCompletions)
+	newUsageCaptureBoundary().recordFailure("stream_finalize", protocol.OpenAICompletions)
 	if logs.Len() != loggedBytes || hook.calls != 1 {
 		t.Fatalf("LOG_LEVEL was not respected: output=%q hooks=%d", logs.String(), hook.calls)
 	}

@@ -56,16 +56,16 @@ func TestDiscoverModelsNormalizesDraftAndMergesHeaderRules(t *testing.T) {
 		}
 	}
 	fixture.service.dialects = dialect.NewSet(
-		newRecorder(protocol.OpenAIChatCompletions),
+		newRecorder(protocol.OpenAICompletions),
 		newRecorder(protocol.Anthropic),
 	)
 	result, err := fixture.service.DiscoverModels(context.Background(), ModelDiscoveryRequest{
 		UpstreamURL: " HTTPS://API.Example.COM/v1/?fixed=1 ",
 		Protocols: []protocol.Protocol{
-			protocol.OpenAIChatCompletions,
-			protocol.OpenAIChatCompletions,
+			protocol.OpenAICompletions,
+			protocol.OpenAICompletions,
 			protocol.Anthropic,
-			protocol.OpenAIChatCompletions,
+			protocol.OpenAICompletions,
 		},
 		Keys: " key-a \nkey-a\n\n key-b \nkey-b",
 		Config: config.Settings{"header_rules": map[string]any{
@@ -83,8 +83,8 @@ func TestDiscoverModelsNormalizesDraftAndMergesHeaderRules(t *testing.T) {
 		t.Fatalf("models = %#v, want upstream order", result.Models)
 	}
 	wantCalls := []string{
-		"openai-chat-completions:key-a",
-		"openai-chat-completions:key-b",
+		"openai-completions:key-a",
+		"openai-completions:key-b",
 		"anthropic:key-a",
 	}
 	if !reflect.DeepEqual(calls, wantCalls) {
@@ -96,7 +96,7 @@ func TestDiscoverModelsRejectsInvalidDraftBeforeHTTP(t *testing.T) {
 	fixture := newServiceFixture(t)
 	var calls atomic.Int64
 	fixture.service.dialects = dialect.NewSet(&recordingDiscoveryDialect{
-		value: protocol.OpenAIChatCompletions,
+		value: protocol.OpenAICompletions,
 		listFn: func(context.Context, string, string, state.HeaderRules) ([]string, error) {
 			calls.Add(1)
 			return nil, nil
@@ -104,7 +104,7 @@ func TestDiscoverModelsRejectsInvalidDraftBeforeHTTP(t *testing.T) {
 	})
 	valid := ModelDiscoveryRequest{
 		UpstreamURL: "https://api.example.com",
-		Protocols:   []protocol.Protocol{protocol.OpenAIChatCompletions},
+		Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
 		Keys:        "key-a",
 		Config:      config.Settings{},
 	}
@@ -182,7 +182,7 @@ func TestDiscoverModelsDoesNotReadOrMutateRuntimeState(t *testing.T) {
 	fixture := newServiceFixture(t)
 	created, err := fixture.service.CreateGroup(context.Background(), GroupCreateRequest{
 		UpstreamURL: "https://state.example.com",
-		Protocols:   []protocol.Protocol{protocol.OpenAIChatCompletions},
+		Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
 		Keys:        "sk-state",
 		Models: optionalGroupModels{
 			Set: true, Values: []GroupModel{{ID: "gpt-4o"}},
@@ -235,14 +235,14 @@ func TestDiscoverModelsDoesNotReadOrMutateRuntimeState(t *testing.T) {
 	fixture.service.manager = nil
 	fixture.service.registry = nil
 	fixture.service.dialects = dialect.NewSet(&recordingDiscoveryDialect{
-		value: protocol.OpenAIChatCompletions,
+		value: protocol.OpenAICompletions,
 		listFn: func(context.Context, string, string, state.HeaderRules) ([]string, error) {
 			return []string{"remote-only"}, nil
 		},
 	})
 	result, err := fixture.service.DiscoverModels(context.Background(), ModelDiscoveryRequest{
 		UpstreamURL: "https://discover.example.com",
-		Protocols:   []protocol.Protocol{protocol.OpenAIChatCompletions},
+		Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
 		Keys:        "sk-discovery",
 		Config:      config.Settings{},
 	})
@@ -265,7 +265,7 @@ func TestDiscoverModelsDoesNotReadOrMutateRuntimeState(t *testing.T) {
 	if afterRows := discoveryRowCounts(t, fixture.db); afterRows != beforeRows {
 		t.Fatalf("row counts = %#v, want %#v", afterRows, beforeRows)
 	}
-	if _, exists := fixture.manager.Current().Candidates[protocol.OpenAIChatCompletions]["remote-only"]; exists {
+	if _, exists := fixture.manager.Current().Candidates[protocol.OpenAICompletions]["remote-only"]; exists {
 		t.Fatal("discovered model leaked into ConfigSnapshot")
 	}
 	if created.GroupID == 0 {
@@ -276,7 +276,7 @@ func TestDiscoverModelsDoesNotReadOrMutateRuntimeState(t *testing.T) {
 func TestDiscoverModelsDoesNotAcquireWriteMu(t *testing.T) {
 	fixture := newServiceFixture(t)
 	fixture.service.dialects = dialect.NewSet(&recordingDiscoveryDialect{
-		value: protocol.OpenAIChatCompletions,
+		value: protocol.OpenAICompletions,
 		listFn: func(context.Context, string, string, state.HeaderRules) ([]string, error) {
 			return []string{"gpt-4o"}, nil
 		},
@@ -290,7 +290,7 @@ func TestDiscoverModelsDoesNotAcquireWriteMu(t *testing.T) {
 	go func() {
 		_, err := fixture.service.DiscoverModels(ctx, ModelDiscoveryRequest{
 			UpstreamURL: "https://discover.example.com",
-			Protocols:   []protocol.Protocol{protocol.OpenAIChatCompletions},
+			Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
 			Keys:        "sk-discovery",
 			Config:      config.Settings{},
 		})
@@ -347,7 +347,7 @@ func TestDiscoverModelsDoesNotBlockMutation(t *testing.T) {
 	go func() {
 		_, err := fixture.service.CreateGroup(context.Background(), GroupCreateRequest{
 			UpstreamURL: "https://mutation.example.com",
-			Protocols:   []protocol.Protocol{protocol.OpenAIChatCompletions},
+			Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
 			Keys:        "sk-mutation",
 			Models: optionalGroupModels{
 				Set: true, Values: []GroupModel{{ID: "gpt-4o"}},

@@ -238,7 +238,7 @@ export default {
       boundary:
         '現在のランタイムのみを参照します。読み取り専用で、アップストリームへリクエストを送信せず、Token も消費しません。',
       protocols: {
-        'openai-chat-completions': 'OpenAI Chat Completions',
+        'openai-completions': 'OpenAI Completions',
         'openai-responses': 'OpenAI Responses',
         anthropic: 'Anthropic',
         gemini: 'Gemini',

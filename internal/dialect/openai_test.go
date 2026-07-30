@@ -39,8 +39,8 @@ func TestParsedRequestCarriesForwardingInputs(t *testing.T) {
 func TestOpenAIProtocol(t *testing.T) {
 	dialect := NewOpenAI(http.DefaultClient)
 
-	if got := dialect.Protocol(); got != protocol.OpenAIChatCompletions {
-		t.Fatalf("OpenAI.Protocol() = %q, want %q", got, protocol.OpenAIChatCompletions)
+	if got := dialect.Protocol(); got != protocol.OpenAICompletions {
+		t.Fatalf("OpenAI.Protocol() = %q, want %q", got, protocol.OpenAICompletions)
 	}
 }
 

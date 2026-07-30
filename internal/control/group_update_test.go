@@ -100,7 +100,7 @@ func TestOptionalFieldResetsReuseStateBeforeDecoding(t *testing.T) {
 
 		protocols := optionalField[[]protocol.Protocol]{
 			Set:   true,
-			Value: []protocol.Protocol{protocol.OpenAIChatCompletions, protocol.Anthropic},
+			Value: []protocol.Protocol{protocol.OpenAICompletions, protocol.Anthropic},
 		}
 		if err := json.Unmarshal([]byte(`["gemini"]`), &protocols); err != nil {
 			t.Fatal(err)
@@ -252,7 +252,7 @@ func TestUpdateGroupURLChangePreservesModelsKeysAndRegistryWithoutDiscovery(t *t
 	fixture := newServiceFixture(t)
 	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
 		UpstreamURL: "https://update-preserve.example.com/v1",
-		Protocols:   []protocol.Protocol{protocol.OpenAIChatCompletions},
+		Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
 		Models: optionalGroupModels{
 			Set:    true,
 			Values: []GroupModel{{ID: "configured-model", Alias: "primary"}},
@@ -263,7 +263,7 @@ func TestUpdateGroupURLChangePreservesModelsKeysAndRegistryWithoutDiscovery(t *t
 		t.Fatal(err)
 	}
 	fixture.service.dialects = dialect.NewSet(&recordingDiscoveryDialect{
-		value: protocol.OpenAIChatCompletions,
+		value: protocol.OpenAICompletions,
 		listFn: func(context.Context, string, string, state.HeaderRules) ([]string, error) {
 			t.Fatal("UpdateGroup must not discover models")
 			return nil, nil

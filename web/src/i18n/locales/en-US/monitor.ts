@@ -236,7 +236,7 @@ export default {
       boundary:
         'Current runtime only. Read-only. No upstream request is sent. No tokens are consumed.',
       protocols: {
-        'openai-chat-completions': 'OpenAI Chat Completions',
+        'openai-completions': 'OpenAI Completions',
         'openai-responses': 'OpenAI Responses',
         anthropic: 'Anthropic',
         gemini: 'Gemini',

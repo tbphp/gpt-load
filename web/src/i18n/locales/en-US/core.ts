@@ -14,7 +14,7 @@ export default {
     asyncLoadFailed: 'Unable to load this section. Reload the page and try again.',
     unsavedChanges: 'Discard unsaved changes? Choose Cancel to continue editing.',
     protocols: {
-      'openai-chat-completions': 'OpenAI Chat Completions',
+      'openai-completions': 'OpenAI Completions',
       'openai-responses': 'OpenAI Responses',
       anthropic: 'Anthropic',
       gemini: 'Gemini',

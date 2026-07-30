@@ -115,7 +115,7 @@ func TestRequestLogEndpointReturnsOpaqueCursorAndSafeDTO(t *testing.T) {
 					AccessKey: requestlog.AccessKeyRef{
 						ID: 41, Name: &currentName,
 					},
-					Protocol:      protocol.OpenAIChatCompletions,
+					Protocol:      protocol.OpenAICompletions,
 					ClientModel:   "client-model",
 					UpstreamModel: "upstream-model",
 					Status:        telemetry.RequestStatusSuccess,
@@ -250,7 +250,7 @@ func TestRequestLogEndpointProjectsUsageCostAndNullGroupZero(t *testing.T) {
 		{
 			RequestID:           "00000000-0000-4000-8000-000000000603",
 			CompletedAt:         time.Date(2026, time.July, 27, 0, 0, 0, 0, time.UTC),
-			Protocol:            protocol.OpenAIChatCompletions,
+			Protocol:            protocol.OpenAICompletions,
 			Status:              telemetry.RequestStatusSuccess,
 			GroupID:             0,
 			UsageState:          usage.StateComplete,

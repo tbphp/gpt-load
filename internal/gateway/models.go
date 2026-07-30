@@ -126,9 +126,9 @@ func collectVisibleModelIDs(
 }
 
 func modelListProtocols(value protocol.Protocol) []protocol.Protocol {
-	if value == protocol.OpenAIChatCompletions {
+	if value == protocol.OpenAICompletions {
 		return []protocol.Protocol{
-			protocol.OpenAIChatCompletions,
+			protocol.OpenAICompletions,
 			protocol.OpenAIResponses,
 		}
 	}

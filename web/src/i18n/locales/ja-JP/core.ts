@@ -14,7 +14,7 @@ export default {
     asyncLoadFailed: 'このセクションを読み込めません。ページを再読み込みしてください。',
     unsavedChanges: '未保存の変更を破棄しますか？編集を続けるにはキャンセルしてください。',
     protocols: {
-      'openai-chat-completions': 'OpenAI Chat Completions',
+      'openai-completions': 'OpenAI Completions',
       'openai-responses': 'OpenAI Responses',
       anthropic: 'Anthropic',
       gemini: 'Gemini',

@@ -128,7 +128,7 @@ func TestNewRequestRecorderInitializesUsageNotApplicable(t *testing.T) {
 		"req-usage-initial",
 		time.Unix(100, 0),
 		9,
-		protocol.OpenAIChatCompletions,
+		protocol.OpenAICompletions,
 		func() time.Time { return time.Unix(101, 0) },
 	)
 
@@ -213,7 +213,7 @@ func TestRequestRecorderBindsUsageToRecordedAttempt(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			sink := &recordingRequestLogSink{}
-			recorder := newRequestRecorder(sink, "req-usage-bind", time.Unix(100, 0), 9, protocol.OpenAIChatCompletions, func() time.Time { return time.Unix(101, 0) })
+			recorder := newRequestRecorder(sink, "req-usage-bind", time.Unix(100, 0), 9, protocol.OpenAICompletions, func() time.Time { return time.Unix(101, 0) })
 			recorder.appendAttempt(scheduler.Selection{GroupID: 11, Group: state.GroupView{Name: "first"}, KeyID: 21}, UpstreamResult{}, telemetry.FailureCategoryOK, telemetry.ActionTerminate, "", "", time.Unix(100, 0), time.Unix(100, 0))
 			second := recorder.appendAttempt(scheduler.Selection{GroupID: 12, Group: state.GroupView{Name: "second"}, KeyID: 22}, UpstreamResult{StatusCode: http.StatusOK}, telemetry.FailureCategoryOK, telemetry.ActionTerminate, "", "", time.Unix(100, 0), time.Unix(100, 0))
 
@@ -233,7 +233,7 @@ func TestRequestRecorderBindsUsageToRecordedAttempt(t *testing.T) {
 
 func TestRequestRecorderNon2xxKeepsAttributionButNotApplicable(t *testing.T) {
 	sink := &recordingRequestLogSink{}
-	recorder := newRequestRecorder(sink, "req-usage-429", time.Unix(100, 0), 9, protocol.OpenAIChatCompletions, func() time.Time { return time.Unix(101, 0) })
+	recorder := newRequestRecorder(sink, "req-usage-429", time.Unix(100, 0), 9, protocol.OpenAICompletions, func() time.Time { return time.Unix(101, 0) })
 	index := recorder.appendAttempt(scheduler.Selection{GroupID: 12, Group: state.GroupView{Name: "second"}, KeyID: 22}, UpstreamResult{StatusCode: http.StatusTooManyRequests}, telemetry.FailureCategoryRateLimited, telemetry.ActionRetry, "", "", time.Unix(100, 0), time.Unix(100, 0))
 	recorder.completeResponse(UpstreamResult{StatusCode: http.StatusTooManyRequests, Usage: usage.Result{State: usage.StateComplete, Tokens: usage.Tokens{Output: 30}}}, health.Result{Category: health.FailureCategoryRateLimited}, "provider", index)
 	recorder.emit()
@@ -248,7 +248,7 @@ func TestRequestRecorderInvalidAttemptIndexDoesNotForgeUsageAttribution(t *testi
 	for _, index := range []int{-1, 1} {
 		t.Run(fmt.Sprintf("index_%d", index), func(t *testing.T) {
 			sink := &recordingRequestLogSink{}
-			recorder := newRequestRecorder(sink, "req-usage-invalid", time.Unix(100, 0), 9, protocol.OpenAIChatCompletions, func() time.Time { return time.Unix(101, 0) })
+			recorder := newRequestRecorder(sink, "req-usage-invalid", time.Unix(100, 0), 9, protocol.OpenAICompletions, func() time.Time { return time.Unix(101, 0) })
 			recorder.appendAttempt(scheduler.Selection{GroupID: 12, Group: state.GroupView{Name: "second"}, KeyID: 22}, UpstreamResult{}, telemetry.FailureCategoryOK, telemetry.ActionTerminate, "", "", time.Unix(100, 0), time.Unix(100, 0))
 			recorder.bindUsage(index, usage.Result{State: usage.StateComplete, Tokens: usage.Tokens{Output: 30}}, true)
 			recorder.emit()
@@ -262,7 +262,7 @@ func TestRequestRecorderInvalidAttemptIndexDoesNotForgeUsageAttribution(t *testi
 
 func TestRequestRecorderDownstreamFailureKeepsBoundUsage(t *testing.T) {
 	sink := &recordingRequestLogSink{}
-	recorder := newRequestRecorder(sink, "req-usage-write", time.Unix(100, 0), 9, protocol.OpenAIChatCompletions, func() time.Time { return time.Unix(101, 0) })
+	recorder := newRequestRecorder(sink, "req-usage-write", time.Unix(100, 0), 9, protocol.OpenAICompletions, func() time.Time { return time.Unix(101, 0) })
 	index := recorder.appendAttempt(scheduler.Selection{GroupID: 12, Group: state.GroupView{Name: "second"}, KeyID: 22}, UpstreamResult{StatusCode: http.StatusOK}, telemetry.FailureCategoryOK, telemetry.ActionTerminate, "", "", time.Unix(100, 0), time.Unix(100, 0))
 	result := usage.Result{State: usage.StateComplete, Tokens: usage.Tokens{UncachedInput: 80, CacheRead: 20, Output: 30}}
 	recorder.completeResponse(UpstreamResult{StatusCode: http.StatusOK, Usage: result}, health.Result{}, "provider", index)
@@ -588,7 +588,7 @@ func TestRequestRecorderBoundsModelsAtUTF8Boundary(t *testing.T) {
 		requestID,
 		startedAt,
 		1,
-		protocol.OpenAIChatCompletions,
+		protocol.OpenAICompletions,
 		func() time.Time { return startedAt.Add(time.Second) },
 	)
 	recorder.setClientModel(clientModel)
@@ -796,7 +796,7 @@ func TestHandlerUsesFrozenRPMLimitAcrossSnapshotPublish(t *testing.T) {
 		if _, err := manager.Publish(state.CompileInput{
 			Groups: []state.GroupConfig{{
 				ID: 1, Name: "openai", UpstreamURL: "https://unused.example.com",
-				Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions},
+				Protocols: []protocol.Protocol{protocol.OpenAICompletions},
 				Models:    []state.ModelConfig{{ID: "gpt-4o"}}, Enabled: true,
 			}},
 			AccessKeys: []state.AccessKeyConfig{{
@@ -1094,7 +1094,7 @@ func TestHandlerPrioritizesClientCancellationOverLocalInferenceErrors(t *testing
 			runtimeRegistry := &recordingRuntimeRegistry{KeyRegistry: registry}
 			handler.registry = runtimeRegistry
 			healthDialect := &countingHealthDialect{
-				Dialect: handler.dialects[protocol.OpenAIChatCompletions],
+				Dialect: handler.dialects[protocol.OpenAICompletions],
 			}
 			extractDialect := &cancelingExtractDialect{
 				Dialect: healthDialect,
@@ -1103,7 +1103,7 @@ func TestHandlerPrioritizesClientCancellationOverLocalInferenceErrors(t *testing
 			if test.cancelOnExtract {
 				extractDialect.cancel = cancel
 			}
-			handler.dialects[protocol.OpenAIChatCompletions] = extractDialect
+			handler.dialects[protocol.OpenAICompletions] = extractDialect
 			handler.now = func() time.Time {
 				t.Fatal("canceled local failure entered health timing")
 				return time.Time{}
@@ -1429,9 +1429,9 @@ func TestHandlerRecordsCommittedStreamTerminalMatrix(t *testing.T) {
 			now := time.Date(2026, time.July, 24, 13, 0, 0, 0, time.UTC)
 			handler.now = func() time.Time { return now }
 			selectedDialect := &countingHealthDialect{
-				Dialect: handler.dialects[protocol.OpenAIChatCompletions],
+				Dialect: handler.dialects[protocol.OpenAICompletions],
 			}
-			handler.dialects[protocol.OpenAIChatCompletions] = selectedDialect
+			handler.dialects[protocol.OpenAICompletions] = selectedDialect
 
 			request := httptest.NewRequest(
 				http.MethodPost,
@@ -1559,9 +1559,9 @@ func TestHandlerStreamTelemetryDoesNotChangeHealthOrRetrySideEffects(t *testing.
 			runtimeRegistry := &recordingRuntimeRegistry{KeyRegistry: registry}
 			handler.registry = runtimeRegistry
 			selectedDialect := &countingHealthDialect{
-				Dialect: handler.dialects[protocol.OpenAIChatCompletions],
+				Dialect: handler.dialects[protocol.OpenAICompletions],
 			}
-			handler.dialects[protocol.OpenAIChatCompletions] = selectedDialect
+			handler.dialects[protocol.OpenAICompletions] = selectedDialect
 			now := time.Date(2026, time.July, 24, 14, 0, 0, 0, time.UTC)
 			handler.now = func() time.Time { return now }
 
@@ -1630,7 +1630,7 @@ func TestHandlerRecordsDownstreamWriteFailureWithoutChangingResponse(t *testing.
 		t,
 		handler,
 		ginContext,
-		"data.openai.chat-completions",
+		"data.openai.completions",
 	)
 	handler.Handle(ginContext)
 
@@ -1672,9 +1672,9 @@ func TestHandlerRecordsCanceledSuccessfulResponseWithoutHealthSideEffects(t *tes
 	handler.newRequestID = func() (string, error) { return fixedRequestID, nil }
 	handler.requestNow = newSteppingRequestClock()
 	selectedDialect := &countingHealthDialect{
-		Dialect: handler.dialects[protocol.OpenAIChatCompletions],
+		Dialect: handler.dialects[protocol.OpenAICompletions],
 	}
-	handler.dialects[protocol.OpenAIChatCompletions] = selectedDialect
+	handler.dialects[protocol.OpenAICompletions] = selectedDialect
 	engine := gin.New()
 	bindGatewayRoutesForTest(t, engine, handler)
 
@@ -1817,7 +1817,7 @@ func TestHandlerPrioritizesClientCancellationOverDownstreamWriteFailure(t *testi
 				t,
 				handler,
 				ginContext,
-				"data.openai.chat-completions",
+				"data.openai.completions",
 			)
 			handler.Handle(ginContext)
 
@@ -2002,7 +2002,7 @@ func TestRequestRecorderRedactsHeaderRuleLiteralsFromNonStreamingAndSSESummaries
 				"req-header-rule-summary-"+test.name,
 				time.Unix(100, 0),
 				9,
-				protocol.OpenAIChatCompletions,
+				protocol.OpenAICompletions,
 				func() time.Time { return time.Unix(102, 0) },
 			)
 			attempt := test.record(recorder, test.result)
@@ -2053,7 +2053,7 @@ func TestRequestRecorderPreservesFixedTerminalSummariesWithShortHeaderRuleLitera
 		"req-fixed-terminal-summary",
 		time.Unix(100, 0),
 		9,
-		protocol.OpenAIChatCompletions,
+		protocol.OpenAICompletions,
 		func() time.Time { return time.Unix(102, 0) },
 	)
 	result := UpstreamResult{
@@ -2107,7 +2107,7 @@ func TestRequestRecorderPreservesProviderErrorFixedSummaryWithOrdinaryHeaderRule
 		"req-provider-fixed-summary",
 		time.Unix(100, 0),
 		9,
-		protocol.OpenAIChatCompletions,
+		protocol.OpenAICompletions,
 		func() time.Time { return time.Unix(102, 0) },
 	)
 	result := UpstreamResult{

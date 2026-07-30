@@ -14,7 +14,7 @@ export default {
     asyncLoadFailed: '无法加载此区域，请刷新页面后重试。',
     unsavedChanges: '要放弃未保存的修改吗？选择“取消”可继续编辑。',
     protocols: {
-      'openai-chat-completions': 'OpenAI Chat Completions',
+      'openai-completions': 'OpenAI Completions',
       'openai-responses': 'OpenAI Responses',
       anthropic: 'Anthropic',
       gemini: 'Gemini',

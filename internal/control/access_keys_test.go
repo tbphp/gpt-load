@@ -102,7 +102,7 @@ func TestAccessKeyFiltersNormalizeAndAcceptExistingDisabledGroups(t *testing.T) 
 		Name: "filtered",
 		Filters: &AccessKeyFilters{
 			Groups:    []uint{enabled.ID, disabled.ID, enabled.ID},
-			Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions, protocol.Anthropic, protocol.OpenAIChatCompletions},
+			Protocols: []protocol.Protocol{protocol.OpenAICompletions, protocol.Anthropic, protocol.OpenAICompletions},
 			Models:    []string{" gpt-4o ", "gpt-4o", "claude"},
 		},
 	})
@@ -112,7 +112,7 @@ func TestAccessKeyFiltersNormalizeAndAcceptExistingDisabledGroups(t *testing.T) 
 	if len(result.Filters.Groups) != 2 || result.Filters.Groups[0] != enabled.ID || result.Filters.Groups[1] != disabled.ID {
 		t.Fatalf("normalized groups = %#v", result.Filters.Groups)
 	}
-	if len(result.Filters.Protocols) != 2 || result.Filters.Protocols[0] != protocol.OpenAIChatCompletions || result.Filters.Protocols[1] != protocol.Anthropic {
+	if len(result.Filters.Protocols) != 2 || result.Filters.Protocols[0] != protocol.OpenAICompletions || result.Filters.Protocols[1] != protocol.Anthropic {
 		t.Fatalf("normalized protocols = %#v", result.Filters.Protocols)
 	}
 	if len(result.Filters.Models) != 2 || result.Filters.Models[0] != "gpt-4o" || result.Filters.Models[1] != "claude" {
@@ -150,7 +150,7 @@ func TestAccessKeyCreateAcceptsAllEnabledProtocolsInCanonicalOrder(t *testing.T)
 				protocol.Gemini,
 				protocol.OpenAIResponses,
 				protocol.Anthropic,
-				protocol.OpenAIChatCompletions,
+				protocol.OpenAICompletions,
 				protocol.OpenAIResponses,
 			},
 		},
@@ -179,6 +179,7 @@ func TestAccessKeyFiltersRejectInvalidCurrentInputWithoutPublishing(t *testing.T
 		{name: "missing group", request: AccessKeyCreateRequest{Name: "client", Filters: &AccessKeyFilters{Groups: []uint{999}}}},
 		{name: "legacy openai protocol", request: AccessKeyCreateRequest{Name: "client", Filters: &AccessKeyFilters{Protocols: []protocol.Protocol{"openai"}}}},
 		{name: "legacy response protocol", request: AccessKeyCreateRequest{Name: "client", Filters: &AccessKeyFilters{Protocols: []protocol.Protocol{"openai-response"}}}},
+		{name: "replaced completions protocol", request: AccessKeyCreateRequest{Name: "client", Filters: &AccessKeyFilters{Protocols: []protocol.Protocol{"openai-chat-completions"}}}},
 		{name: "unknown protocol", request: AccessKeyCreateRequest{Name: "client", Filters: &AccessKeyFilters{Protocols: []protocol.Protocol{"unknown"}}}},
 		{name: "blank model", request: AccessKeyCreateRequest{Name: "client", Filters: &AccessKeyFilters{Models: []string{" "}}}},
 	}
@@ -269,7 +270,7 @@ func TestUpdateAccessKeyPreservesCredentialAcrossPointerPatches(t *testing.T) {
 	created, err := fixture.service.CreateAccessKey(context.Background(), AccessKeyCreateRequest{
 		Name: "before",
 		Filters: &AccessKeyFilters{
-			Groups: []uint{group.ID}, Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions}, Models: []string{"gpt-4o"},
+			Groups: []uint{group.ID}, Protocols: []protocol.Protocol{protocol.OpenAICompletions}, Models: []string{"gpt-4o"},
 		},
 	})
 	if err != nil {

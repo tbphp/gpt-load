@@ -76,12 +76,12 @@ func TestExecuteModelDiscoveryUsesProtocolOuterKeyInnerFallback(t *testing.T) {
 		}
 	}
 	service := &Service{
-		dialects:              dialect.NewSet(newRecorder(protocol.OpenAIChatCompletions), newRecorder(protocol.Anthropic)),
+		dialects:              dialect.NewSet(newRecorder(protocol.OpenAICompletions), newRecorder(protocol.Anthropic)),
 		modelDiscoveryTimeout: time.Second,
 	}
 	result, err := service.executeModelDiscovery(context.Background(), discoveryTarget{
 		baseURL:     "https://api.example.com/v1",
-		protocols:   []protocol.Protocol{protocol.OpenAIChatCompletions, protocol.Anthropic},
+		protocols:   []protocol.Protocol{protocol.OpenAICompletions, protocol.Anthropic},
 		keys:        []string{"key-a", "key-b"},
 		headerRules: state.HeaderRules{Set: map[string]string{"X-Test": "draft"}},
 	})
@@ -92,8 +92,8 @@ func TestExecuteModelDiscoveryUsesProtocolOuterKeyInnerFallback(t *testing.T) {
 		t.Fatalf("models = %#v, want non-nil empty success", result.Models)
 	}
 	wantCalls := []string{
-		"openai-chat-completions:key-a",
-		"openai-chat-completions:key-b",
+		"openai-completions:key-a",
+		"openai-completions:key-b",
 		"anthropic:key-a",
 	}
 	if !reflect.DeepEqual(calls, wantCalls) {
@@ -122,7 +122,7 @@ func TestExecuteModelDiscoveryUsesCanonicalOpenAIRepresentativeFirst(t *testing.
 	service := &Service{
 		dialects: dialect.NewSet(
 			newRecorder(protocol.OpenAIResponses),
-			newRecorder(protocol.OpenAIChatCompletions),
+			newRecorder(protocol.OpenAICompletions),
 		),
 		modelDiscoveryTimeout: time.Second,
 	}
@@ -132,7 +132,7 @@ func TestExecuteModelDiscoveryUsesCanonicalOpenAIRepresentativeFirst(t *testing.
 			baseURL: "https://api.example.com",
 			protocols: []protocol.Protocol{
 				protocol.OpenAIResponses,
-				protocol.OpenAIChatCompletions,
+				protocol.OpenAICompletions,
 			},
 			keys: []string{"key-a"},
 		},
@@ -144,7 +144,7 @@ func TestExecuteModelDiscoveryUsesCanonicalOpenAIRepresentativeFirst(t *testing.
 		t.Fatalf("models = %#v", result.Models)
 	}
 	if !reflect.DeepEqual(calls, []protocol.Protocol{
-		protocol.OpenAIChatCompletions,
+		protocol.OpenAICompletions,
 	}) {
 		t.Fatalf("ListModels protocols = %#v, want Chat only", calls)
 	}
@@ -153,7 +153,7 @@ func TestExecuteModelDiscoveryUsesCanonicalOpenAIRepresentativeFirst(t *testing.
 func TestExecuteModelDiscoveryRejectsMissingDialectBeforeHTTP(t *testing.T) {
 	calls := 0
 	openAI := &recordingDiscoveryDialect{
-		value: protocol.OpenAIChatCompletions,
+		value: protocol.OpenAICompletions,
 		listFn: func(context.Context, string, string, state.HeaderRules) ([]string, error) {
 			calls++
 			return nil, nil
@@ -165,7 +165,7 @@ func TestExecuteModelDiscoveryRejectsMissingDialectBeforeHTTP(t *testing.T) {
 	}
 	target := discoveryTarget{
 		baseURL:   "https://api.example.com",
-		protocols: []protocol.Protocol{protocol.OpenAIChatCompletions, protocol.Anthropic},
+		protocols: []protocol.Protocol{protocol.OpenAICompletions, protocol.Anthropic},
 		keys:      []string{"secret-key"},
 	}
 	_, err := service.executeModelDiscovery(context.Background(), target)
@@ -176,16 +176,16 @@ func TestExecuteModelDiscoveryRejectsMissingDialectBeforeHTTP(t *testing.T) {
 		t.Fatalf("ListModels calls = %d, want preflight rejection", calls)
 	}
 
-	service.dialects = dialect.Set{protocol.OpenAIChatCompletions: openAI, protocol.Anthropic: nil}
+	service.dialects = dialect.Set{protocol.OpenAICompletions: openAI, protocol.Anthropic: nil}
 	_, err = service.executeModelDiscovery(context.Background(), target)
 	if err == nil || errors.Is(err, app_errors.ErrBadGateway) || calls != 0 {
 		t.Fatalf("nil Dialect result = error %v, calls %d", err, calls)
 	}
 
 	for name, invalid := range map[string]discoveryTarget{
-		"base URL":  {protocols: []protocol.Protocol{protocol.OpenAIChatCompletions}, keys: []string{"key"}},
+		"base URL":  {protocols: []protocol.Protocol{protocol.OpenAICompletions}, keys: []string{"key"}},
 		"protocols": {baseURL: "https://api.example.com", keys: []string{"key"}},
-		"keys":      {baseURL: "https://api.example.com", protocols: []protocol.Protocol{protocol.OpenAIChatCompletions}},
+		"keys":      {baseURL: "https://api.example.com", protocols: []protocol.Protocol{protocol.OpenAICompletions}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := service.executeModelDiscovery(context.Background(), invalid); err == nil {
@@ -215,12 +215,12 @@ func TestExecuteModelDiscoverySharesOneTotalTimeout(t *testing.T) {
 		}
 	}
 	service := &Service{
-		dialects:              dialect.NewSet(newRecorder(protocol.OpenAIChatCompletions), newRecorder(protocol.Anthropic)),
+		dialects:              dialect.NewSet(newRecorder(protocol.OpenAICompletions), newRecorder(protocol.Anthropic)),
 		modelDiscoveryTimeout: 200 * time.Millisecond,
 	}
 	_, err := service.executeModelDiscovery(context.Background(), discoveryTarget{
 		baseURL:   "https://api.example.com",
-		protocols: []protocol.Protocol{protocol.OpenAIChatCompletions, protocol.Anthropic},
+		protocols: []protocol.Protocol{protocol.OpenAICompletions, protocol.Anthropic},
 		keys:      []string{"key-a", "key-b"},
 	})
 	if !errors.Is(err, app_errors.ErrBadGateway) {
@@ -239,7 +239,7 @@ func TestExecuteModelDiscoverySharesOneTotalTimeout(t *testing.T) {
 func TestExecuteModelDiscoveryRejectsSuccessAfterInternalTimeout(t *testing.T) {
 	service := &Service{
 		dialects: dialect.NewSet(&recordingDiscoveryDialect{
-			value: protocol.OpenAIChatCompletions,
+			value: protocol.OpenAICompletions,
 			listFn: func(ctx context.Context, _, _ string, _ state.HeaderRules) ([]string, error) {
 				<-ctx.Done()
 				return []string{"late-model"}, nil
@@ -249,7 +249,7 @@ func TestExecuteModelDiscoveryRejectsSuccessAfterInternalTimeout(t *testing.T) {
 	}
 	result, err := service.executeModelDiscovery(context.Background(), discoveryTarget{
 		baseURL:   "https://api.example.com",
-		protocols: []protocol.Protocol{protocol.OpenAIChatCompletions},
+		protocols: []protocol.Protocol{protocol.OpenAICompletions},
 		keys:      []string{"key-a"},
 	})
 	if !errors.Is(err, app_errors.ErrBadGateway) {
@@ -265,7 +265,7 @@ func TestExecuteModelDiscoveryReturnsParentCancellation(t *testing.T) {
 	calls := 0
 	service := &Service{
 		dialects: dialect.NewSet(&recordingDiscoveryDialect{
-			value: protocol.OpenAIChatCompletions,
+			value: protocol.OpenAICompletions,
 			listFn: func(discoveryCtx context.Context, _, _ string, _ state.HeaderRules) ([]string, error) {
 				calls++
 				cancel()
@@ -277,7 +277,7 @@ func TestExecuteModelDiscoveryReturnsParentCancellation(t *testing.T) {
 	}
 	_, err := service.executeModelDiscovery(ctx, discoveryTarget{
 		baseURL:   "https://api.example.com",
-		protocols: []protocol.Protocol{protocol.OpenAIChatCompletions},
+		protocols: []protocol.Protocol{protocol.OpenAICompletions},
 		keys:      []string{"key-a", "key-b"},
 	})
 	if err != context.Canceled {
@@ -309,12 +309,12 @@ func TestExecuteModelDiscoverySanitizesAllCombinationFailures(t *testing.T) {
 		}
 	}
 	service := &Service{
-		dialects:              dialect.NewSet(newRecorder(protocol.OpenAIChatCompletions), newRecorder(protocol.Anthropic)),
+		dialects:              dialect.NewSet(newRecorder(protocol.OpenAICompletions), newRecorder(protocol.Anthropic)),
 		modelDiscoveryTimeout: time.Second,
 	}
 	result, err := service.executeModelDiscovery(context.Background(), discoveryTarget{
 		baseURL:   baseURLSecret,
-		protocols: []protocol.Protocol{protocol.OpenAIChatCompletions, protocol.Anthropic},
+		protocols: []protocol.Protocol{protocol.OpenAICompletions, protocol.Anthropic},
 		keys:      keys,
 	})
 	if !errors.Is(err, app_errors.ErrBadGateway) {

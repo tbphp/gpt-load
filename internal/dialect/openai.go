@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	openAIChatCompletionsPath = "/v1/chat/completions"
-	openAIModelsPath          = "/v1/models"
+	openAICompletionsPath = "/v1/chat/completions"
+	openAIModelsPath      = "/v1/models"
 )
 
 var openAIFailureMarkers = failureMarkers{
@@ -35,7 +35,7 @@ func NewOpenAI(client *http.Client) *OpenAI {
 }
 
 func (d *OpenAI) Protocol() protocol.Protocol {
-	return protocol.OpenAIChatCompletions
+	return protocol.OpenAICompletions
 }
 
 func (d *OpenAI) InjectCredential(headers http.Header, apiKey string) {
@@ -120,7 +120,7 @@ func (d *OpenAI) Probe(
 	if err := validateProbeModel(validationModel); err != nil {
 		return err
 	}
-	return executeProbe(ctx, d.client, d, baseURL, apiKey, rules, openAIChatCompletionsPath, struct {
+	return executeProbe(ctx, d.client, d, baseURL, apiKey, rules, openAICompletionsPath, struct {
 		Model     string         `json:"model"`
 		Messages  []probeMessage `json:"messages"`
 		MaxTokens int            `json:"max_tokens"`

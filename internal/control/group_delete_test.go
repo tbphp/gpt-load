@@ -45,7 +45,7 @@ func TestDeleteGroupRejectsActiveAndDisabledExplicitAccessKeyReferences(t *testi
 			Name: "Unrestricted", KeyValue: "cipher-client-three", KeyHash: "client-hash-three",
 			KeySuffix: "0003",
 			Status:    string(state.AccessKeyStatusActive),
-			Filters:   models.JSON(`{"groups":[],"protocols":["openai-chat-completions"],"models":["gpt-4o"]}`),
+			Filters:   models.JSON(`{"groups":[],"protocols":["openai-completions"],"models":["gpt-4o"]}`),
 		},
 	} {
 		row := row
@@ -239,7 +239,7 @@ func TestDeleteGroupAcceptsRegistryAlreadyAtTargetStateAndRetainsHistory(t *test
 	beforeStats := fixture.stats.Snapshot(key.ID, now)
 	if err := fixture.db.Create(&models.RequestLog{
 		ID: "delete-history-log", CreatedAt: now, AccessKeyID: 1,
-		Protocol: "openai-chat-completions", ClientModel: "model", UpstreamModel: "model",
+		Protocol: "openai-completions", ClientModel: "model", UpstreamModel: "model",
 		Status: "success", StatusCode: http.StatusOK,
 	}).Error; err != nil {
 		t.Fatal(err)

@@ -43,20 +43,20 @@ func TestRuntimeHealthReturnsMutuallyExclusiveCurrentState(t *testing.T) {
 	if _, err := fixture.manager.Publish(state.CompileInput{
 		Groups: []state.GroupConfig{
 			{
-				ID: 1, Name: "active", Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions},
+				ID: 1, Name: "active", Protocols: []protocol.Protocol{protocol.OpenAICompletions},
 				Models: []state.ModelConfig{{ID: "model"}}, Enabled: true,
 			},
 			{
-				ID: 2, Name: "disabled", Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions},
+				ID: 2, Name: "disabled", Protocols: []protocol.Protocol{protocol.OpenAICompletions},
 				Models: []state.ModelConfig{{ID: "model"}}, Enabled: false,
 			},
 			{
-				ID: 3, Name: "zero-weight", Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions},
+				ID: 3, Name: "zero-weight", Protocols: []protocol.Protocol{protocol.OpenAICompletions},
 				Models:       []state.ModelConfig{{ID: "model"}},
 				WeightManual: &zero, Enabled: true,
 			},
 			{
-				ID: 4, Name: "empty", Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions},
+				ID: 4, Name: "empty", Protocols: []protocol.Protocol{protocol.OpenAICompletions},
 				Models: []state.ModelConfig{{ID: "model"}}, Enabled: true,
 			},
 		},
@@ -164,11 +164,11 @@ func TestRuntimeHealthSortsProblemKeysByGroupAndKey(t *testing.T) {
 	if _, err := fixture.manager.Publish(state.CompileInput{
 		Groups: []state.GroupConfig{
 			{
-				ID: 2, Name: "two", Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions},
+				ID: 2, Name: "two", Protocols: []protocol.Protocol{protocol.OpenAICompletions},
 				Models: []state.ModelConfig{{ID: "model"}}, Enabled: true,
 			},
 			{
-				ID: 1, Name: "one", Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions},
+				ID: 1, Name: "one", Protocols: []protocol.Protocol{protocol.OpenAICompletions},
 				Models: []state.ModelConfig{{ID: "model"}}, Enabled: true,
 			},
 		},
@@ -233,7 +233,7 @@ func TestRuntimeHealthJSONOmitsScoresCredentialsAndZeroTimes(t *testing.T) {
 	plaintext := "provider-secret-credential-tail"
 	ciphertext := encryptHealthKey(t, fixture, plaintext)
 	if _, err := fixture.manager.Publish(state.CompileInput{Groups: []state.GroupConfig{{
-		ID: 1, Name: "safe", Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions},
+		ID: 1, Name: "safe", Protocols: []protocol.Protocol{protocol.OpenAICompletions},
 		Models: []state.ModelConfig{{ID: "model"}}, Enabled: true,
 	}}}); err != nil {
 		t.Fatalf("Publish() error = %v", err)
@@ -314,7 +314,7 @@ func TestRuntimeHealthFailsClosedWhenProblemKeyCannotBeDecrypted(t *testing.T) {
 	fixture := newServiceFixture(t)
 	fixture.service.now = healthNow
 	if _, err := fixture.manager.Publish(state.CompileInput{Groups: []state.GroupConfig{{
-		ID: 1, Name: "safe", Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions},
+		ID: 1, Name: "safe", Protocols: []protocol.Protocol{protocol.OpenAICompletions},
 		Models: []state.ModelConfig{{ID: "model"}}, Enabled: true,
 	}}}); err != nil {
 		t.Fatalf("Publish() error = %v", err)

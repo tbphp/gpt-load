@@ -17,7 +17,7 @@ func TestLoaderMapsSchedulingWeights(t *testing.T) {
 	groupWeight := 25
 	group := models.Group{
 		Name: "weighted", UpstreamURL: "https://weighted.example.com",
-		Protocols: models.JSON(`["openai-chat-completions"]`), Models: models.JSON(`[{"id":"gpt-weighted"}]`),
+		Protocols: models.JSON(`["openai-completions"]`), Models: models.JSON(`[{"id":"gpt-weighted"}]`),
 		Config: models.JSON(`{}`), Enabled: true, WeightManual: &groupWeight,
 	}
 	mustCreate(t, db, &group)
@@ -52,7 +52,7 @@ func TestLoaderMapsSchedulingWeights(t *testing.T) {
 			t.Errorf("key %d WeightAuto = %d, want %d", candidate.ID, candidate.WeightAuto, state.DefaultWeight)
 		}
 	}
-	if got := manager.Current().Candidates[protocol.OpenAIChatCompletions]["gpt-weighted"]; len(got) != 1 {
+	if got := manager.Current().Candidates[protocol.OpenAICompletions]["gpt-weighted"]; len(got) != 1 {
 		t.Fatalf("route candidates = %#v, want one group", got)
 	}
 }
@@ -63,7 +63,7 @@ func TestLoaderPreservesManualWeightBoundaries(t *testing.T) {
 			db := openMigratedDatabase(t)
 			group := models.Group{
 				Name: "boundary", UpstreamURL: "https://boundary.example.com",
-				Protocols: models.JSON(`["openai-chat-completions"]`), Models: models.JSON(`[{"id":"gpt-boundary"}]`),
+				Protocols: models.JSON(`["openai-completions"]`), Models: models.JSON(`[{"id":"gpt-boundary"}]`),
 				Config: models.JSON(`{}`), Enabled: true, WeightManual: &weight,
 			}
 			mustCreate(t, db, &group)

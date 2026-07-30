@@ -46,7 +46,7 @@ GPT-Load 是一个用 Go 构建的自托管 AI API Key 聚合与原生协议网�
 ## 2.0 能力
 
 - **双平面**：数据面保留服务商原生路径；管理 API 统一位于 `/api`，管理 UI 内嵌在同一个 Go 二进制中。
-- **四种可选原生协议**：OpenAI Chat Completions、OpenAI Responses、Anthropic Messages 与 Gemini 请求分别按对应协议转发；Group 可以任意多选，不做协议互转。
+- **四种可选原生协议**：OpenAI Completions、OpenAI Responses、Anthropic Messages 与 Gemini 请求分别按对应协议转发；Group 可以任意多选，不做协议互转。
 - **密钥与流量管理**：Group、加密上游 Key、AccessKey、模型发现、筛选与限流、调度、健康状态、cooldown、blacklist 和自动权重。
 - **控制与可观测性**：运行设置、路由检查、健康视图、RequestLog，以及中文、英文、日文管理 UI。
 - **用量与估算成本**：对四种协议中会返回生成 usage 的接口进行采集，提供 24 小时/30 天汇总、明细质量状态、内置价格和用户价格覆盖。
@@ -58,7 +58,7 @@ M3 控制面 UI 与 M4 用量/定价范围已经进入本地候选，但正式�
 - 只保证**单应用实例**正确性，不支持多实例协调。
 - 只支持 **SQLite**；不支持 PostgreSQL、MySQL 或其他数据库。
 - Group 由 AccessKey 和运行时配置选择，不出现在数据面 URL 中。
-- 协议配置采用 clean break：只允许 `openai-chat-completions`、`openai-responses`、`anthropic`、`gemini`。旧值 `openai` 与 `openai-response` 均无效，不提供兼容。
+- 协议配置采用 clean break：只允许 `openai-completions`、`openai-responses`、`anthropic`、`gemini`。旧值 `openai`、`openai-response` 与 `openai-chat-completions` 均无效，不提供兼容。
 - 数据库中只要保留一个旧协议值，整个 `ConfigSnapshot` 就会编译失败，进而阻止启动或配置发布；错误会包含 Group 或 AccessKey ID 及非法值。启动前需要重建发布前 2.0 数据，不提供协议值原地迁移。
 - OpenAI Responses 资源路由暂时没有 Key 亲和。使用 `previous_response_id` 或 `conversation` 的有状态多轮，以及后续 retrieve/delete/cancel/input-items 请求，只有在单上游 Key 或上游跨 Key 共享资源存储时才可靠；否则可能由被选中的上游返回资源不存在。
 - 上游密钥必须静态加密，不允许明文回退；2.0.0 不支持主密钥轮换，`migrate-keys` 仍是明确失败的延后命令。
@@ -119,7 +119,7 @@ curl --fail http://localhost:3001/health
 
 | 服务商 | 方法与路径 | 行为 |
 |---|---|---|
-| OpenAI | `POST /v1/chat/completions` | OpenAI Chat Completions 原生请求 |
+| OpenAI | `POST /v1/chat/completions` | OpenAI Completions 原生请求 |
 | OpenAI | `/v1/responses` 与 `/v1/responses/...` | OpenAI Responses 原生命名空间；普通 HTTP method 直接转发 |
 | OpenAI / Anthropic | `GET /v1/models` | 默认返回 OpenAI 格式；携带 `anthropic-version` 时返回 Anthropic 格式 |
 | Anthropic | `POST /v1/messages` | Anthropic Messages 原生请求 |
@@ -133,7 +133,7 @@ GPT-Load 不把一种方言转换为另一种方言。Group 由 AccessKey 与运
 
 | 配置值 | 展示名 |
 |---|---|
-| `openai-chat-completions` | OpenAI Chat Completions |
+| `openai-completions` | OpenAI Completions |
 | `openai-responses` | OpenAI Responses |
 | `anthropic` | Anthropic |
 | `gemini` | Gemini |
@@ -147,9 +147,9 @@ Responses 路由按命名空间边界匹配，不维护资源接口白名单。A
 > [!WARNING]
 > 2.0.0 尚未实现 Responses 亲和。携带 `previous_response_id` 或 `conversation` 的有状态多轮，以及对既有 response ID 的资源操作，可能命中不同 Group/Key 并收到上游 404。在亲和完成前，请使用单 Key、`store: false` 的无状态 item replay，或使用跨 Key 共享资源存储的上游。
 
-Responses create 与 compact 请求参与 usage 抽取；retrieve、delete、cancel、input-items、input-token-count 及未知扩展子路径在 RequestLog 中记录为 usage `not_applicable`。`InjectUsageOptions` 继续按能力接口生效：Responses dialect 不支持 Chat Completions 的 `stream_options.include_usage`，因此该 Group 设置对 Responses 会被忽略。仅选择 Responses 的 Group 会用 `input: "ping"`、`max_output_tokens: 16`、`store: false` 进行探测；同时选择两种 OpenAI 协议时，以 Chat Completions 作为 Group/Key 的代表性探测。健康状态不细分到协议级别。
+Responses create 与 compact 请求参与 usage 抽取；retrieve、delete、cancel、input-items、input-token-count 及未知扩展子路径在 RequestLog 中记录为 usage `not_applicable`。`InjectUsageOptions` 继续按能力接口生效：Responses dialect 不支持 OpenAI Completions 的 `stream_options.include_usage`，因此该 Group 设置对 Responses 会被忽略。仅选择 Responses 的 Group 会用 `input: "ping"`、`max_output_tokens: 16`、`store: false` 进行探测；同时选择两种 OpenAI 协议时，以 OpenAI Completions 作为 Group/Key 的代表性探测。健康状态不细分到协议级别。
 
-Chat Completions 示例：
+OpenAI Completions 示例：
 
 ```console
 curl http://127.0.0.1:3001/v1/chat/completions \

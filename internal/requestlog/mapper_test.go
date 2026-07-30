@@ -21,7 +21,7 @@ func TestMapEventPersistsCompletedAtZeroUsageAndJSONArray(t *testing.T) {
 		RequestID:     "00000000-0000-4000-8000-000000000101",
 		CompletedAt:   completedAt,
 		AccessKeyID:   17,
-		Protocol:      protocol.OpenAIChatCompletions,
+		Protocol:      protocol.OpenAICompletions,
 		ClientModel:   "client-model",
 		UpstreamModel: "upstream-model",
 		Status:        telemetry.RequestStatusError,
@@ -50,7 +50,7 @@ func TestMapEventPersistsCompletedAtZeroUsageAndJSONArray(t *testing.T) {
 	if row.ID != event.RequestID || !row.CreatedAt.Equal(completedAt.UTC()) || row.CreatedAt.Location() != time.UTC {
 		t.Fatalf("identity/completed_at = %q/%v, want %q/%v UTC", row.ID, row.CreatedAt, event.RequestID, completedAt.UTC())
 	}
-	if row.AccessKeyID != 17 || row.Protocol != string(protocol.OpenAIChatCompletions) || row.ClientModel != "client-model" ||
+	if row.AccessKeyID != 17 || row.Protocol != string(protocol.OpenAICompletions) || row.ClientModel != "client-model" ||
 		row.UpstreamModel != "upstream-model" || row.Status != "error" || row.StatusCode != 429 ||
 		row.DurationMs != 845 || row.ErrorCode != "upstream_rate_limited" ||
 		row.ErrorSummary != "Rate limit exceeded." {

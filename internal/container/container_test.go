@@ -198,7 +198,7 @@ func TestBuildContainerResolvesAllDialects(t *testing.T) {
 				_ = sqlDB.Close()
 			}
 		})
-		if values[protocol.OpenAIChatCompletions] != openAI ||
+		if values[protocol.OpenAICompletions] != openAI ||
 			values[protocol.OpenAIResponses] != openAIResponses ||
 			values[protocol.Anthropic] != anthropic ||
 			values[protocol.Gemini] != gemini || len(values) != 4 {
@@ -779,7 +779,7 @@ func TestContainerHealthEndpointReadsSharedStatsStore(t *testing.T) {
 			}
 		})
 		if _, publishErr := manager.Publish(state.CompileInput{Groups: []state.GroupConfig{{
-			ID: 1, Name: "shared", Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions},
+			ID: 1, Name: "shared", Protocols: []protocol.Protocol{protocol.OpenAICompletions},
 			Models: []state.ModelConfig{{ID: "model"}}, Enabled: true,
 		}}}); publishErr != nil {
 			t.Fatalf("Publish() error = %v", publishErr)

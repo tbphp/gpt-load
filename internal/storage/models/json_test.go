@@ -28,7 +28,7 @@ func TestJSONScanAcceptsDatabaseRepresentations(t *testing.T) {
 		input any
 		want  JSON
 	}{
-		{name: "bytes", input: []byte(`["openai-chat-completions"]`), want: JSON(`["openai-chat-completions"]`)},
+		{name: "bytes", input: []byte(`["openai-completions"]`), want: JSON(`["openai-completions"]`)},
 		{name: "string", input: `{"model":"gpt"}`, want: JSON(`{"model":"gpt"}`)},
 		{name: "null", input: nil, want: nil},
 	}
@@ -85,7 +85,7 @@ func TestJSONValueValidatesBeforePersistence(t *testing.T) {
 		wantErr bool
 	}{
 		{name: "object", value: JSON(`{"enabled":true}`), want: `{"enabled":true}`},
-		{name: "array", value: JSON(`["openai-chat-completions"]`), want: `["openai-chat-completions"]`},
+		{name: "array", value: JSON(`["openai-completions"]`), want: `["openai-completions"]`},
 		{name: "null database value", value: nil, want: nil},
 		{name: "empty database value", value: JSON{}, want: nil},
 		{name: "invalid", value: JSON(`{"broken":`), wantErr: true},

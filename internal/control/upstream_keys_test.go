@@ -2160,7 +2160,7 @@ func TestUpdateAndDeleteGroupKeyNeverCallDiscovery(t *testing.T) {
 		models.UpstreamKeyStatusActive, nil,
 	)
 	fixture.service.dialects = dialect.NewSet(&recordingDiscoveryDialect{
-		value: protocol.OpenAIChatCompletions,
+		value: protocol.OpenAICompletions,
 		listFn: func(context.Context, string, string, state.HeaderRules) ([]string, error) {
 			t.Fatal("Key mutation must not call model discovery or upstream")
 			return nil, nil
@@ -2240,7 +2240,7 @@ func TestUpdateAndDeleteGroupKeyChangeSchedulerEligibility(t *testing.T) {
 	snapshot, err := state.Compile(state.CompileInput{
 		Groups: []state.GroupConfig{{
 			ID: group.ID, Name: group.Name, UpstreamURL: group.UpstreamURL,
-			Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions},
+			Protocols: []protocol.Protocol{protocol.OpenAICompletions},
 			Models:    []state.ModelConfig{{ID: "gpt-4o"}},
 			Enabled:   true,
 		}},
@@ -2252,7 +2252,7 @@ func TestUpdateAndDeleteGroupKeyChangeSchedulerEligibility(t *testing.T) {
 		snapshot,
 		fixture.registry,
 		scheduler.Query{
-			Protocol: protocol.OpenAIChatCompletions, ExternalModel: stringPointer("gpt-4o"),
+			Protocol: protocol.OpenAICompletions, ExternalModel: stringPointer("gpt-4o"),
 		},
 		rand.New(rand.NewSource(1)),
 	)

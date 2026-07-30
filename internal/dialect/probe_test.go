@@ -16,8 +16,8 @@ import (
 
 func TestOpenAIProbeSendsMinimalAuthenticatedRequest(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if request.Method != http.MethodPost || request.URL.Path != openAIChatCompletionsPath {
-			t.Errorf("request = %s %s, want POST %s", request.Method, request.URL.Path, openAIChatCompletionsPath)
+		if request.Method != http.MethodPost || request.URL.Path != openAICompletionsPath {
+			t.Errorf("request = %s %s, want POST %s", request.Method, request.URL.Path, openAICompletionsPath)
 		}
 		if got := request.Header.Get("Authorization"); got != "Bearer secret" {
 			t.Errorf("Authorization = %q, want bearer credential", got)
@@ -147,7 +147,7 @@ func TestProbeAcceptsOnly2xxAndRedactsTransportDetails(t *testing.T) {
 		err := NewOpenAI(client).Probe(context.Background(), "https://api.example.com", secret, state.HeaderRules{}, "gpt-test")
 		if err == nil || !strings.Contains(
 			err.Error(),
-			"request openai-chat-completions probe failed",
+			"request openai-completions probe failed",
 		) {
 			t.Fatalf("Probe() error = %v, want redacted transport failure", err)
 		}
@@ -162,7 +162,7 @@ func TestProbeAcceptsOnly2xxAndRedactsTransportDetails(t *testing.T) {
 		err := NewOpenAI(nil).Probe(context.Background(), "https://api.example.com", "secret", state.HeaderRules{}, "gpt-test")
 		if err == nil || !strings.Contains(
 			err.Error(),
-			"request openai-chat-completions probe failed",
+			"request openai-completions probe failed",
 		) || strings.Contains(err.Error(), "secret") {
 			t.Fatalf("Probe() error = %v, want redacted nil-client failure", err)
 		}

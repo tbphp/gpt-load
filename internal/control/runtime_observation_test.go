@@ -223,7 +223,7 @@ func TestRuntimeHealthReleasesReadLockBeforeDecryptingProblemKeys(t *testing.T) 
 	now := healthNow()
 	fixture.service.now = func() time.Time { return now }
 	if _, err := fixture.manager.Publish(state.CompileInput{Groups: []state.GroupConfig{{
-		ID: 1, Name: "health-lock", Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions},
+		ID: 1, Name: "health-lock", Protocols: []protocol.Protocol{protocol.OpenAICompletions},
 		Models: []state.ModelConfig{{ID: "model"}}, Enabled: true,
 	}}}); err != nil {
 		t.Fatalf("Publish() error = %v", err)

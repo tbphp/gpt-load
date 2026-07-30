@@ -8,13 +8,13 @@ import (
 )
 
 const (
-	openAIChatCompletionsPath = "/v1/chat/completions"
-	anthropicMessagesPath     = "/v1/messages"
-	geminiModelsPath          = "/v1beta/models"
-	geminiGenerationPattern   = geminiModelsPath + "/:model_action"
-	modelsPath                = "/v1/models"
-	openAIResponsesPath       = "/v1/responses"
-	responsesResourcePattern  = openAIResponsesPath + "/*resource_path"
+	openAICompletionsPath    = "/v1/chat/completions"
+	anthropicMessagesPath    = "/v1/messages"
+	geminiModelsPath         = "/v1beta/models"
+	geminiGenerationPattern  = geminiModelsPath + "/:model_action"
+	modelsPath               = "/v1/models"
+	openAIResponsesPath      = "/v1/responses"
+	responsesResourcePattern = openAIResponsesPath + "/*resource_path"
 )
 
 type endpointKind uint8
@@ -41,10 +41,10 @@ type dataPlaneEndpoint struct {
 func dataPlaneEndpointCatalog() []dataPlaneEndpoint {
 	return []dataPlaneEndpoint{
 		{
-			name:    "data.openai.chat-completions",
+			name:    "data.openai.completions",
 			methods: []string{http.MethodPost},
-			path:    openAIChatCompletionsPath,
-			resolve: staticRoute(protocol.OpenAIChatCompletions, endpointForward),
+			path:    openAICompletionsPath,
+			resolve: staticRoute(protocol.OpenAICompletions, endpointForward),
 		},
 		{
 			name:    "data.anthropic.messages",
@@ -113,7 +113,7 @@ func resolveModelListRoute(request *http.Request) route {
 		strings.TrimSpace(request.Header.Get("anthropic-version")) != "" {
 		return route{Protocol: protocol.Anthropic, Kind: endpointModels}
 	}
-	return route{Protocol: protocol.OpenAIChatCompletions, Kind: endpointModels}
+	return route{Protocol: protocol.OpenAICompletions, Kind: endpointModels}
 }
 
 func validateGeminiGenerationRequest(request *http.Request) bool {

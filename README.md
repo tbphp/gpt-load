@@ -46,7 +46,7 @@ For the maintained 1.4.x release documentation, visit the [official documentatio
 ## 2.0 capabilities
 
 - **Two planes:** provider-native paths on the data plane; management APIs under `/api`, with the admin UI embedded in the same Go binary.
-- **Four selectable native protocols:** OpenAI Chat Completions, OpenAI Responses, Anthropic Messages, and Gemini requests are forwarded in their respective protocols. A Group may enable any combination. GPT-Load does not translate between protocols.
+- **Four selectable native protocols:** OpenAI Completions, OpenAI Responses, Anthropic Messages, and Gemini requests are forwarded in their respective protocols. A Group may enable any combination. GPT-Load does not translate between protocols.
 - **Key and traffic management:** Groups, encrypted upstream keys, AccessKeys, model discovery, filtering and rate limits, scheduling, health state, cooldown, blacklist, and automatic weights.
 - **Control and observability:** runtime settings, route inspection, health views, RequestLog, and a Chinese, English, and Japanese admin UI.
 - **Usage and estimated cost:** usage extraction for the four protocols where the endpoint returns generation usage, 24-hour/30-day reports, per-request quality states, built-in prices, and user price overrides.
@@ -58,7 +58,7 @@ The M3 control-plane UI and M4 usage/pricing scope are present in the local cand
 - Correctness is guaranteed for a **single application instance** only; multi-instance coordination is not supported.
 - **SQLite only**; PostgreSQL, MySQL, and other databases are not supported.
 - The AccessKey and runtime configuration select the Group. A Group never appears in the data-plane URL.
-- Protocol configuration is a clean break: use `openai-chat-completions`, `openai-responses`, `anthropic`, or `gemini`. The old `openai` and `openai-response` values are invalid and have no compatibility path.
+- Protocol configuration is a clean break: use `openai-completions`, `openai-responses`, `anthropic`, or `gemini`. The old `openai`, `openai-response`, and `openai-chat-completions` values are invalid and have no compatibility path.
 - A stored old protocol value causes the complete `ConfigSnapshot` compilation, and therefore startup/publication, to fail. The error identifies the Group or AccessKey and invalid value. Rebuild the pre-release 2.0 data before starting; there is no in-place protocol-value migration.
 - OpenAI Responses resource routing has no Key affinity. Stateful turns using `previous_response_id` or `conversation`, and later retrieve/delete/cancel/input-item calls, are reliable only with one upstream Key or an upstream that shares resource storage across Keys. Otherwise the selected upstream may return a resource-not-found error.
 - Upstream keys must be encrypted at rest with no plaintext fallback. 2.0.0 has no master-key rotation; `migrate-keys` remains an explicitly failing deferred command.
@@ -120,7 +120,7 @@ Data-plane requests use an AccessKey. Provider-compatible credentials are accept
 
 | Provider | Method and path | Behavior |
 |---|---|---|
-| OpenAI | `POST /v1/chat/completions` | Native OpenAI Chat Completions request |
+| OpenAI | `POST /v1/chat/completions` | Native OpenAI Completions request |
 | OpenAI | `/v1/responses` and `/v1/responses/...` | Native OpenAI Responses namespace; ordinary HTTP methods are forwarded |
 | OpenAI / Anthropic | `GET /v1/models` | OpenAI shape by default; Anthropic shape when `anthropic-version` is present |
 | Anthropic | `POST /v1/messages` | Native Anthropic Messages request |
@@ -134,7 +134,7 @@ The canonical protocol configuration values and display names are:
 
 | Configuration value | Display name |
 |---|---|
-| `openai-chat-completions` | OpenAI Chat Completions |
+| `openai-completions` | OpenAI Completions |
 | `openai-responses` | OpenAI Responses |
 | `anthropic` | Anthropic |
 | `gemini` | Gemini |
@@ -148,9 +148,9 @@ A Group that enables Responses may keep an empty model list and still serve mode
 > [!WARNING]
 > 2.0.0 does not implement Responses affinity. Stateful multi-turn requests using `previous_response_id` or `conversation`, and resource operations on an earlier response ID, may reach a different Group/Key and receive an upstream 404. Use a single Key, stateless item replay with `store: false`, or an upstream with shared resource storage until affinity is implemented.
 
-Responses create and compact requests participate in usage extraction. Retrieve, delete, cancel, input-items, input-token-count, and unknown extension subpaths are recorded with usage `not_applicable`. `InjectUsageOptions` remains capability-based: the Responses dialect does not support Chat Completions' `stream_options.include_usage`, so that Group setting is ignored for Responses. A Responses-only Group probe sends `input: "ping"`, `max_output_tokens: 16`, and `store: false`; when both OpenAI protocols are selected, Chat Completions is the representative Group/Key probe. Health is not tracked per protocol.
+Responses create and compact requests participate in usage extraction. Retrieve, delete, cancel, input-items, input-token-count, and unknown extension subpaths are recorded with usage `not_applicable`. `InjectUsageOptions` remains capability-based: the Responses dialect does not support OpenAI Completions' `stream_options.include_usage`, so that Group setting is ignored for Responses. A Responses-only Group probe sends `input: "ping"`, `max_output_tokens: 16`, and `store: false`; when both OpenAI protocols are selected, OpenAI Completions is the representative Group/Key probe. Health is not tracked per protocol.
 
-Chat Completions example:
+OpenAI Completions example:
 
 ```console
 curl http://127.0.0.1:3001/v1/chat/completions \

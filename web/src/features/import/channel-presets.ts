@@ -12,7 +12,7 @@ export const channelPresets: ChannelPreset[] = [
     id: 'openai',
     labelKey: 'import.presets.openai',
     upstream_url: 'https://api.openai.com',
-    protocols: ['openai-chat-completions', 'openai-responses'],
+    protocols: ['openai-completions', 'openai-responses'],
   },
   {
     id: 'anthropic',

@@ -228,7 +228,7 @@ export default {
       description: '按当前运行时快照解释指定请求的候选 Group 与 Key。',
       boundary: '仅查看当前运行时。只读；不会发送上游请求，也不会消耗 Token。',
       protocols: {
-        'openai-chat-completions': 'OpenAI Chat Completions',
+        'openai-completions': 'OpenAI Completions',
         'openai-responses': 'OpenAI Responses',
         anthropic: 'Anthropic',
         gemini: 'Gemini',

@@ -930,7 +930,7 @@ func TestHandlerEnforcesModelUTF8ByteLimitBeforeAttempt(t *testing.T) {
 			if _, err := manager.Publish(state.CompileInput{
 				Groups: []state.GroupConfig{{
 					ID: 1, Name: "openai", UpstreamURL: "http://upstream.invalid",
-					Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions},
+					Protocols: []protocol.Protocol{protocol.OpenAICompletions},
 					Models: []state.ModelConfig{{
 						ID:    "gpt-4o",
 						Alias: test.model,
@@ -1062,7 +1062,7 @@ func TestHandlerServesLocalModelEndpoints(t *testing.T) {
 func TestHandlerModelEndpointsApplyFiltersAndKeepEmptyShape(t *testing.T) {
 	t.Run("joint filters", func(t *testing.T) {
 		engine := newModelListHandlerEngine(t, state.FilterSet{
-			Protocols: map[protocol.Protocol]struct{}{protocol.OpenAIChatCompletions: {}},
+			Protocols: map[protocol.Protocol]struct{}{protocol.OpenAICompletions: {}},
 			Models:    map[string]struct{}{"alpha": {}},
 			Groups:    map[uint]struct{}{1: {}},
 		})
@@ -1112,7 +1112,7 @@ func TestHandlerModelEndpointHasNoDataPlaneSideEffects(t *testing.T) {
 	if _, err := manager.Publish(state.CompileInput{
 		Groups: []state.GroupConfig{{
 			ID: 1, Name: "openai", UpstreamURL: "https://unused.example.com",
-			Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions},
+			Protocols: []protocol.Protocol{protocol.OpenAICompletions},
 			Models:    []state.ModelConfig{{ID: "alpha"}}, Enabled: true,
 		}},
 		AccessKeys: []state.AccessKeyConfig{{
@@ -1180,12 +1180,12 @@ func newModelListHandlerEngineWithLimit(
 		Groups: []state.GroupConfig{
 			{
 				ID: 1, Name: "multi", UpstreamURL: "https://multi.example.com",
-				Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions, protocol.Anthropic, protocol.Gemini},
+				Protocols: []protocol.Protocol{protocol.OpenAICompletions, protocol.Anthropic, protocol.Gemini},
 				Models:    []state.ModelConfig{{ID: "zeta"}, {ID: "alpha"}}, Enabled: true,
 			},
 			{
 				ID: 2, Name: "openai", UpstreamURL: "https://openai.example.com",
-				Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions, protocol.Anthropic},
+				Protocols: []protocol.Protocol{protocol.OpenAICompletions, protocol.Anthropic},
 				Models:    []state.ModelConfig{{ID: "beta"}}, Enabled: true,
 			},
 		},
@@ -2527,7 +2527,7 @@ func TestHandlerDoesNotExposeAliasedUpstreamModelWhenRetryBudgetIsExhausted(t *t
 	}))
 	defer upstream.Close()
 
-	engine, _ := newDialectGatewayEngine(t, protocol.OpenAIChatCompletions, externalModel,
+	engine, _ := newDialectGatewayEngine(t, protocol.OpenAICompletions, externalModel,
 		dialect.NewSet(dialect.NewOpenAI(http.DefaultClient)),
 		dialectGatewayGroup{id: 1, name: "openai-1", upstreamURL: upstream.URL,
 			apiKeys: []string{"sk-one"},
@@ -2577,7 +2577,7 @@ func TestHandlerKeepsFrozenSnapshotAndInjectUsageSettingAcrossRetry(t *testing.T
 		if _, err := manager.Publish(state.CompileInput{
 			Groups: []state.GroupConfig{{
 				ID: 1, Name: "openai", UpstreamURL: "http://upstream.invalid", Enabled: true,
-				Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions}, Models: []state.ModelConfig{{ID: "gpt-4o"}},
+				Protocols: []protocol.Protocol{protocol.OpenAICompletions}, Models: []state.ModelConfig{{ID: "gpt-4o"}},
 				Settings: config.Settings{state.SettingInjectUsageOptions: false},
 			}},
 			AccessKeys: []state.AccessKeyConfig{{
@@ -2981,7 +2981,7 @@ func newRealGatewayEngine(t *testing.T, upstreamURL string, upstreamKeys ...stri
 	if _, err := manager.Publish(state.CompileInput{
 		Groups: []state.GroupConfig{{
 			ID: 1, Name: "openai", UpstreamURL: upstreamURL,
-			Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions},
+			Protocols: []protocol.Protocol{protocol.OpenAICompletions},
 			Models:    []state.ModelConfig{{ID: "gpt-4o"}}, Enabled: true,
 		}},
 		AccessKeys: []state.AccessKeyConfig{{
@@ -3083,7 +3083,7 @@ func newHandlerForTestWithStats(
 	if _, err := manager.Publish(state.CompileInput{
 		Groups: []state.GroupConfig{{
 			ID: 1, Name: "openai", UpstreamURL: "http://upstream.invalid",
-			Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions},
+			Protocols: []protocol.Protocol{protocol.OpenAICompletions},
 			Models:    []state.ModelConfig{{ID: "gpt-4o"}}, Enabled: true,
 		}},
 		AccessKeys: []state.AccessKeyConfig{{

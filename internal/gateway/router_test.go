@@ -27,7 +27,7 @@ func TestDataPlaneEndpointCatalogDeclaresCompleteHTTPRoutes(t *testing.T) {
 		path    string
 	}{
 		{
-			name:    "data.openai.chat-completions",
+			name:    "data.openai.completions",
 			methods: []string{http.MethodPost},
 			path:    "/v1/chat/completions",
 		},
@@ -119,9 +119,9 @@ func TestDataPlaneEndpointCatalogResolvesProtocolAndKind(t *testing.T) {
 		validPath bool
 	}{
 		{
-			name: "OpenAI chat", endpoint: "data.openai.chat-completions",
+			name: "OpenAI chat", endpoint: "data.openai.completions",
 			method: http.MethodPost, path: "/v1/chat/completions",
-			want:      route{Protocol: protocol.OpenAIChatCompletions, Kind: endpointForward},
+			want:      route{Protocol: protocol.OpenAICompletions, Kind: endpointForward},
 			validPath: true,
 		},
 		{
@@ -151,7 +151,7 @@ func TestDataPlaneEndpointCatalogResolvesProtocolAndKind(t *testing.T) {
 		{
 			name: "OpenAI models", endpoint: "data.models",
 			method: http.MethodGet, path: "/v1/models",
-			want:      route{Protocol: protocol.OpenAIChatCompletions, Kind: endpointModels},
+			want:      route{Protocol: protocol.OpenAICompletions, Kind: endpointModels},
 			validPath: true,
 		},
 		{

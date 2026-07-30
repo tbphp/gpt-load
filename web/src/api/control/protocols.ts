@@ -1,7 +1,7 @@
 export const protocolCatalog = [
   {
-    value: 'openai-chat-completions',
-    labelKey: 'common.protocols.openai-chat-completions',
+    value: 'openai-completions',
+    labelKey: 'common.protocols.openai-completions',
     supportsProtocolOnlyRouting: false,
   },
   {

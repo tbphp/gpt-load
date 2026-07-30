@@ -445,7 +445,7 @@ func TestGatewayRewritesEachAttemptFromOriginal(t *testing.T) {
 	second := fakeupstream.New(fakeupstream.Step{Status: http.StatusOK, Fixture: "success.json"})
 	defer second.Close()
 
-	engine, _ := newDialectGatewayEngine(t, protocol.OpenAIChatCompletions, "public",
+	engine, _ := newDialectGatewayEngine(t, protocol.OpenAICompletions, "public",
 		dialect.NewSet(dialect.NewOpenAI(http.DefaultClient)),
 		dialectGatewayGroup{
 			id: 1, name: "first", upstreamURL: first.URL, apiKeys: []string{"sk-first"},
@@ -496,7 +496,7 @@ func TestHandlerHostFailureSkipsGroupForCurrentRequestOnly(t *testing.T) {
 	)
 	defer backup.Close()
 
-	engine, _ := newDialectGatewayEngine(t, protocol.OpenAIChatCompletions, "gpt-4o",
+	engine, _ := newDialectGatewayEngine(t, protocol.OpenAICompletions, "gpt-4o",
 		dialect.NewSet(dialect.NewOpenAI(http.DefaultClient)),
 		dialectGatewayGroup{id: 1, name: "primary", upstreamURL: primary.URL,
 			apiKeys: []string{"sk-primary-one", "sk-primary-two"}},
@@ -529,7 +529,7 @@ func TestHandlerReturnsLastHostErrorWhenSkippedGroupHasNoBackup(t *testing.T) {
 	)
 	defer upstream.Close()
 
-	engine, _ := newDialectGatewayEngine(t, protocol.OpenAIChatCompletions, "gpt-4o",
+	engine, _ := newDialectGatewayEngine(t, protocol.OpenAICompletions, "gpt-4o",
 		dialect.NewSet(dialect.NewOpenAI(http.DefaultClient)),
 		dialectGatewayGroup{id: 1, name: "only", upstreamURL: upstream.URL,
 			apiKeys: []string{"sk-one", "sk-two"}},
@@ -558,7 +558,7 @@ func TestForwarderRewritesAliasedNonStreamingResponses(t *testing.T) {
 		responseField    string
 	}{
 		{
-			name: "OpenAI", value: protocol.OpenAIChatCompletions,
+			name: "OpenAI", value: protocol.OpenAICompletions,
 			dialects: dialect.NewSet(dialect.NewOpenAI(http.DefaultClient)),
 			path:     "/v1/chat/completions", requestBody: `{"model":"public-model"}`,
 			upstreamResponse: `{"id":"chatcmpl-1","model":"provider-response"}`,
@@ -660,7 +660,7 @@ func TestTransparentModelRoutePreservesWire(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	engine, _ := newDialectGatewayEngine(t, protocol.OpenAIChatCompletions, "same-model",
+	engine, _ := newDialectGatewayEngine(t, protocol.OpenAICompletions, "same-model",
 		dialect.NewSet(dialect.NewOpenAI(http.DefaultClient)),
 		dialectGatewayGroup{
 			id: 1, name: "transparent", upstreamURL: upstream.URL, apiKeys: []string{"provider-key"},
@@ -694,7 +694,7 @@ func TestGatewayRewritesAliasedStreams(t *testing.T) {
 		unchanged   string
 	}{
 		{
-			name: "OpenAI", value: protocol.OpenAIChatCompletions,
+			name: "OpenAI", value: protocol.OpenAICompletions,
 			dialects: dialect.NewSet(dialect.NewOpenAI(http.DefaultClient)),
 			path:     "/v1/chat/completions", requestBody: `{"model":"public-model","stream":true}`,
 			streamBody: "data: {\"id\":\"1\",\"model\":\"provider-model\",\"choices\":[]}\n\ndata: [DONE]\n\n",

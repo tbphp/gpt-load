@@ -241,7 +241,7 @@ group_response="$(
       process.stdout.write(JSON.stringify({
         name:"Task13 Release Smoke Group",
         upstream_url:process.argv[1],
-        protocols:["openai-chat-completions"],
+        protocols:["openai-completions"],
         models:[{id:"task13-release-model",alias:""}],
         config:{},
         keys:process.argv[2],

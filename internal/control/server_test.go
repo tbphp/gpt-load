@@ -192,7 +192,7 @@ func TestControlMutationRejectsDuplicateJSONWithoutSideEffects(t *testing.T) {
 			path:   "/api/groups",
 			body: `{"name":"first","name":"second",` +
 				`"upstream_url":"https://duplicate.example.com/v1",` +
-				`"protocols":["openai-chat-completions"],"keys":"sk-duplicate"}`,
+				`"protocols":["openai-completions"],"keys":"sk-duplicate"}`,
 		},
 		{
 			name:   "access key",
@@ -218,7 +218,7 @@ func TestControlMutationRejectsDuplicateJSONWithoutSideEffects(t *testing.T) {
 			name:   "route inspector",
 			method: http.MethodPost,
 			path:   "/api/route/inspect",
-			body: `{"protocol":"openai-chat-completions","protocol":"openai-chat-completions",` +
+			body: `{"protocol":"openai-completions","protocol":"openai-completions",` +
 				`"external_model":"gpt-4o","access_key_id":1}`,
 		},
 	} {
@@ -419,7 +419,7 @@ func TestControlJSONBodyLimitAppliesToEveryJSONEndpoint(t *testing.T) {
 			name: "create group", method: http.MethodPost,
 			path: func(uint, uint, uint) string { return "/api/groups" },
 			jsonPrefix: `{"name":"body-limit-group","upstream_url":"https://body-limit-create.example.com/v1",` +
-				`"protocols":["openai-chat-completions"],"keys":"sk-body-limit-create","config":{}}`,
+				`"protocols":["openai-completions"],"keys":"sk-body-limit-create","config":{}}`,
 		},
 		{
 			name: "import group keys", method: http.MethodPost,
@@ -460,7 +460,7 @@ func TestControlJSONBodyLimitAppliesToEveryJSONEndpoint(t *testing.T) {
 			name: "discover draft models", method: http.MethodPost,
 			path: func(uint, uint, uint) string { return "/api/models/discover" },
 			jsonPrefix: `{"upstream_url":"https://body-limit-discover.example.com/v1",` +
-				`"protocols":["openai-chat-completions"],"keys":"sk-body-limit-discover","config":{}}`,
+				`"protocols":["openai-completions"],"keys":"sk-body-limit-discover","config":{}}`,
 		},
 		{
 			name: "create access key", method: http.MethodPost,
@@ -477,7 +477,7 @@ func TestControlJSONBodyLimitAppliesToEveryJSONEndpoint(t *testing.T) {
 		{
 			name: "route inspector", method: http.MethodPost,
 			path:       func(uint, uint, uint) string { return "/api/route/inspect" },
-			jsonPrefix: `{"protocol":"openai-chat-completions","external_model":"gpt-4o","access_key_id":1}`,
+			jsonPrefix: `{"protocol":"openai-completions","external_model":"gpt-4o","access_key_id":1}`,
 		},
 		{
 			name: "update settings", method: http.MethodPut,
@@ -496,7 +496,7 @@ func TestControlJSONBodyLimitAppliesToEveryJSONEndpoint(t *testing.T) {
 			}
 			discoveryCalls := 0
 			fixture.service.dialects = dialect.NewSet(&recordingDiscoveryDialect{
-				value: protocol.OpenAIChatCompletions,
+				value: protocol.OpenAICompletions,
 				listFn: func(context.Context, string, string, state.HeaderRules) ([]string, error) {
 					discoveryCalls++
 					return []string{"body-limit-model"}, nil
@@ -607,7 +607,7 @@ func TestControlJSONBodyLimitLocalizes413(t *testing.T) {
 	} {
 		t.Run(test.language, func(t *testing.T) {
 			const prefix = `{"name":"localized-limit","upstream_url":"https://localized-limit.example.com/v1",` +
-				`"protocols":["openai-chat-completions"],"keys":"sk-localized-limit","config":{}}`
+				`"protocols":["openai-completions"],"keys":"sk-localized-limit","config":{}}`
 			request := httptest.NewRequest(http.MethodPost, "/api/groups", oversizedControlJSONBody(prefix))
 			request.ContentLength = -1
 			request.Header.Set("Authorization", "Bearer test-auth-key")
@@ -731,7 +731,7 @@ func TestCreateGroupEndpointReturnsSuccessAndConflictEnvelopes(t *testing.T) {
 	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
 
 	request := httptest.NewRequest(http.MethodPost, "/api/groups", strings.NewReader(
-		`{"name":"primary","upstream_url":"https://api.example.com/v1/","protocols":["openai-chat-completions"],"models":[{"id":"gpt-4o"}],"config":{},"keys":"sk-first"}`,
+		`{"name":"primary","upstream_url":"https://api.example.com/v1/","protocols":["openai-completions"],"models":[{"id":"gpt-4o"}],"config":{},"keys":"sk-first"}`,
 	))
 	request.Header.Set("Authorization", "Bearer test-auth-key")
 	request.Header.Set("Content-Type", "application/json")
@@ -923,7 +923,7 @@ func TestManagementWritesRejectUnknownFieldsAndMultipleJSONValues(t *testing.T) 
 
 		recorder := httptest.NewRecorder()
 		request := httptest.NewRequest(http.MethodPost, "/api/groups", strings.NewReader(
-			`{"upstream_url":"https://api.example.com","protocols":["openai-chat-completions"],"keys":"sk-test","unexpected":true}`,
+			`{"upstream_url":"https://api.example.com","protocols":["openai-completions"],"keys":"sk-test","unexpected":true}`,
 		))
 		request.Header.Set("Authorization", "Bearer test-auth-key")
 		request.Header.Set("Content-Type", "application/json")
@@ -1110,7 +1110,7 @@ func TestUpdateGroupEndpointURLConflictsSuccessI18nAndAuth(t *testing.T) {
 	second, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
 		Name:        stringPointer("other-group"),
 		UpstreamURL: "https://conflict.example.com/v1",
-		Protocols:   []protocol.Protocol{protocol.OpenAIChatCompletions},
+		Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
 		Keys:        "sk-update-second",
 	})
 	if err != nil {
@@ -1212,7 +1212,7 @@ func TestUpdateGroupModelsEndpointRejectsStrictInvalidBodiesWithoutMutation(t *t
 	fixture := newServiceFixture(t)
 	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
 		UpstreamURL: "https://model-save-http-invalid.example.com/v1",
-		Protocols:   []protocol.Protocol{protocol.OpenAIChatCompletions},
+		Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
 		Models: optionalGroupModels{
 			Set:    true,
 			Values: []GroupModel{{ID: "provider-old", Alias: "old-public"}},
@@ -1280,7 +1280,7 @@ func TestUpdateGroupModelsEndpointIDsAuthNotFoundAndSuccessDTO(t *testing.T) {
 	fixture := newServiceFixture(t)
 	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
 		UpstreamURL: "https://model-save-http.example.com/v1",
-		Protocols:   []protocol.Protocol{protocol.OpenAIChatCompletions},
+		Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
 		Models: optionalGroupModels{
 			Set:    true,
 			Values: []GroupModel{{ID: "provider-old", Alias: "old-public"}},
@@ -1500,7 +1500,7 @@ func TestServerDraftModelDiscoveryContract(t *testing.T) {
 
 	t.Run("success preserves order", func(t *testing.T) {
 		_, engine := newServer(&recordingDiscoveryDialect{
-			value: protocol.OpenAIChatCompletions,
+			value: protocol.OpenAICompletions,
 			listFn: func(
 				context.Context,
 				string,
@@ -1511,7 +1511,7 @@ func TestServerDraftModelDiscoveryContract(t *testing.T) {
 			},
 		})
 		recorder := serveDiscoveryRequest(t, engine, authKey,
-			`{"upstream_url":"https://api.example.com","protocols":["openai-chat-completions"],`+
+			`{"upstream_url":"https://api.example.com","protocols":["openai-completions"],`+
 				`"keys":"sk-upstream","config":{}}`,
 		)
 		if recorder.Code != http.StatusOK {
@@ -1536,7 +1536,7 @@ func TestServerDraftModelDiscoveryContract(t *testing.T) {
 
 	t.Run("empty list remains an array", func(t *testing.T) {
 		_, engine := newServer(&recordingDiscoveryDialect{
-			value: protocol.OpenAIChatCompletions,
+			value: protocol.OpenAICompletions,
 			listFn: func(
 				context.Context,
 				string,
@@ -1547,7 +1547,7 @@ func TestServerDraftModelDiscoveryContract(t *testing.T) {
 			},
 		})
 		recorder := serveDiscoveryRequest(t, engine, authKey,
-			`{"upstream_url":"https://api.example.com","protocols":["openai-chat-completions"],`+
+			`{"upstream_url":"https://api.example.com","protocols":["openai-completions"],`+
 				`"keys":"sk-upstream","config":{}}`,
 		)
 		if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), `"models":[]`) {
@@ -1557,7 +1557,7 @@ func TestServerDraftModelDiscoveryContract(t *testing.T) {
 
 	t.Run("authentication is inherited", func(t *testing.T) {
 		_, engine := newServer(&recordingDiscoveryDialect{
-			value: protocol.OpenAIChatCompletions,
+			value: protocol.OpenAICompletions,
 			listFn: func(context.Context, string, string, state.HeaderRules) ([]string, error) {
 				t.Fatal("ListModels called without valid management authentication")
 				return nil, nil
@@ -1565,7 +1565,7 @@ func TestServerDraftModelDiscoveryContract(t *testing.T) {
 		})
 		for _, token := range []string{"", "wrong-key"} {
 			recorder := serveDiscoveryRequest(t, engine, token,
-				`{"upstream_url":"https://api.example.com","protocols":["openai-chat-completions"],`+
+				`{"upstream_url":"https://api.example.com","protocols":["openai-completions"],`+
 					`"keys":"sk-upstream","config":{}}`,
 			)
 			if recorder.Code != http.StatusUnauthorized || !strings.Contains(recorder.Body.String(), `"code":"UNAUTHORIZED"`) {
@@ -1576,16 +1576,16 @@ func TestServerDraftModelDiscoveryContract(t *testing.T) {
 
 	t.Run("strict JSON", func(t *testing.T) {
 		_, engine := newServer(&recordingDiscoveryDialect{
-			value: protocol.OpenAIChatCompletions,
+			value: protocol.OpenAICompletions,
 			listFn: func(context.Context, string, string, state.HeaderRules) ([]string, error) {
 				t.Fatal("ListModels called for invalid JSON")
 				return nil, nil
 			},
 		})
 		for _, payload := range []string{
-			`{"upstream_url":"https://api.example.com","protocols":["openai-chat-completions"],"keys":"sk-upstream","config":{},"unknown":true}`,
-			`{"upstream_url":"https://api.example.com","protocols":["openai-chat-completions"],"keys":"sk-upstream","config":{}}{}`,
-			`{"upstream_url":"https://api.example.com","protocol":"openai-chat-completions","key":"sk-upstream"}`,
+			`{"upstream_url":"https://api.example.com","protocols":["openai-completions"],"keys":"sk-upstream","config":{},"unknown":true}`,
+			`{"upstream_url":"https://api.example.com","protocols":["openai-completions"],"keys":"sk-upstream","config":{}}{}`,
+			`{"upstream_url":"https://api.example.com","protocol":"openai-completions","key":"sk-upstream"}`,
 		} {
 			recorder := serveDiscoveryRequest(t, engine, authKey, payload)
 			if recorder.Code != http.StatusBadRequest || !strings.Contains(recorder.Body.String(), `"code":"INVALID_JSON"`) {
@@ -1601,8 +1601,8 @@ func TestServerDraftModelDiscoveryContract(t *testing.T) {
 			status  int
 			code    string
 		}{
-			{payload: `{"upstream_url":"/relative","protocols":["openai-chat-completions"],"keys":"secret-key","config":{}}`, status: http.StatusBadRequest, code: "VALIDATION_FAILED"},
-			{payload: `{"upstream_url":"https://api.example.com?token=query-secret","protocols":["openai-chat-completions"],"keys":"secret-key","config":{}}`, status: http.StatusInternalServerError, code: "INTERNAL_SERVER_ERROR"},
+			{payload: `{"upstream_url":"/relative","protocols":["openai-completions"],"keys":"secret-key","config":{}}`, status: http.StatusBadRequest, code: "VALIDATION_FAILED"},
+			{payload: `{"upstream_url":"https://api.example.com?token=query-secret","protocols":["openai-completions"],"keys":"secret-key","config":{}}`, status: http.StatusInternalServerError, code: "INTERNAL_SERVER_ERROR"},
 		} {
 			recorder := serveDiscoveryRequest(t, engine, authKey, test.payload)
 			if recorder.Code != test.status || !strings.Contains(recorder.Body.String(), `"code":"`+test.code+`"`) {
@@ -1618,7 +1618,7 @@ func TestServerDraftModelDiscoveryContract(t *testing.T) {
 
 	t.Run("upstream failures map to localized bad gateway", func(t *testing.T) {
 		service, engine := newServer(&recordingDiscoveryDialect{
-			value: protocol.OpenAIChatCompletions,
+			value: protocol.OpenAICompletions,
 			listFn: func(context.Context, string, string, state.HeaderRules) ([]string, error) {
 				return nil, fmt.Errorf("raw upstream failure with secret-body")
 			},
@@ -1633,7 +1633,7 @@ func TestServerDraftModelDiscoveryContract(t *testing.T) {
 		} {
 			recorder := serveDiscoveryRequestWithLanguage(t, engine, authKey,
 				`{"upstream_url":"https://api.example.com?token=query-secret",`+
-					`"protocols":["openai-chat-completions"],"keys":"secret-key","config":{}}`,
+					`"protocols":["openai-completions"],"keys":"secret-key","config":{}}`,
 				test.language,
 			)
 			if recorder.Code != http.StatusBadGateway ||
@@ -1651,7 +1651,7 @@ func TestServerDraftModelDiscoveryContract(t *testing.T) {
 
 	t.Run("timeout maps to bad gateway", func(t *testing.T) {
 		service, engine := newServer(&recordingDiscoveryDialect{
-			value: protocol.OpenAIChatCompletions,
+			value: protocol.OpenAICompletions,
 			listFn: func(ctx context.Context, _ string, _ string, _ state.HeaderRules) ([]string, error) {
 				<-ctx.Done()
 				return nil, ctx.Err()
@@ -1659,7 +1659,7 @@ func TestServerDraftModelDiscoveryContract(t *testing.T) {
 		})
 		service.modelDiscoveryTimeout = 20 * time.Millisecond
 		recorder := serveDiscoveryRequest(t, engine, authKey,
-			`{"upstream_url":"https://api.example.com","protocols":["openai-chat-completions"],`+
+			`{"upstream_url":"https://api.example.com","protocols":["openai-completions"],`+
 				`"keys":"sk-upstream","config":{}}`,
 		)
 		if recorder.Code != http.StatusBadGateway || !strings.Contains(recorder.Body.String(), `"code":"BAD_GATEWAY"`) {
@@ -1679,7 +1679,7 @@ func TestServerDraftModelDiscoveryContract(t *testing.T) {
 		engine := gin.New()
 		NewServer(&config.Config{AuthKey: authKey}, fixture.service).RegisterRoutes(engine)
 		recorder := serveDiscoveryRequest(t, engine, authKey,
-			`{"upstream_url":"`+upstream.URL+`","protocols":["openai-chat-completions"],`+
+			`{"upstream_url":"`+upstream.URL+`","protocols":["openai-completions"],`+
 				`"keys":"sk-upstream","config":{}}`,
 		)
 		if recorder.Code != http.StatusBadGateway || !strings.Contains(recorder.Body.String(), `"code":"BAD_GATEWAY"`) {
@@ -1746,7 +1746,7 @@ func TestServerGroupModelDiscoveryBodyContract(t *testing.T) {
 		fixture := newServiceFixture(t)
 		created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
 			UpstreamURL: "https://persisted-server.example.com/v1",
-			Protocols:   []protocol.Protocol{protocol.OpenAIChatCompletions},
+			Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
 			Keys:        "persisted-server-key",
 		})
 		if err != nil {
@@ -1760,7 +1760,7 @@ func TestServerGroupModelDiscoveryBodyContract(t *testing.T) {
 			}
 		}
 		fixture.service.dialects = dialect.NewSet(&recordingDiscoveryDialect{
-			value: protocol.OpenAIChatCompletions,
+			value: protocol.OpenAICompletions,
 			listFn: func(context.Context, string, string, state.HeaderRules) ([]string, error) {
 				return []string{"z-model", "a-model"}, nil
 			},
