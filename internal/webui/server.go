@@ -68,18 +68,19 @@ func (s *Server) RegisterRoutes(engine *gin.Engine) {
 	for _, route := range pageRoutes {
 		engine.GET(route, s.serveIndex)
 	}
+	engine.GET("/favicon.ico", s.serveFavicon)
 	engine.GET("/theme-bootstrap.js", s.serveThemeBootstrap)
 	engine.GET("/assets/*filepath", s.serveAsset)
 }
 
-// RegisterFallback serves the SPA for browser navigation without consuming backend namespaces.
-func (s *Server) RegisterFallback(engine *gin.Engine, fallback gin.HandlerFunc) {
+// RegisterFallback returns the SPA not-found page only for browser navigation.
+func (s *Server) RegisterFallback(engine *gin.Engine) {
 	engine.NoRoute(func(c *gin.Context) {
 		if shouldServeIndexFallback(c.Request) {
-			s.serveIndex(c)
+			s.serveIndexWithStatus(c, http.StatusNotFound)
 			return
 		}
-		fallback(c)
+		c.Status(http.StatusNotFound)
 	})
 }
 
@@ -113,11 +114,15 @@ func acceptsHTML(value string) bool {
 }
 
 func (s *Server) serveIndex(c *gin.Context) {
+	s.serveIndexWithStatus(c, http.StatusOK)
+}
+
+func (s *Server) serveIndexWithStatus(c *gin.Context, status int) {
 	c.Header("Cache-Control", "no-cache")
 	c.Header("Content-Security-Policy", indexCSP)
 	c.Header("X-Content-Type-Options", "nosniff")
 	c.Header("X-Frame-Options", "DENY")
-	c.Data(http.StatusOK, "text/html; charset=utf-8", s.index)
+	c.Data(status, "text/html; charset=utf-8", s.index)
 }
 
 func (s *Server) serveThemeBootstrap(c *gin.Context) {
@@ -130,6 +135,18 @@ func (s *Server) serveThemeBootstrap(c *gin.Context) {
 	c.Header("Cache-Control", "no-cache")
 	c.Header("X-Content-Type-Options", "nosniff")
 	c.Data(http.StatusOK, "text/javascript; charset=utf-8", content)
+}
+
+func (s *Server) serveFavicon(c *gin.Context) {
+	content, err := fs.ReadFile(s.files, path.Join(s.root, "favicon.ico"))
+	if err != nil {
+		c.Status(http.StatusNotFound)
+		return
+	}
+
+	c.Header("Cache-Control", "no-cache")
+	c.Header("X-Content-Type-Options", "nosniff")
+	c.Data(http.StatusOK, "image/vnd.microsoft.icon", content)
 }
 
 func (s *Server) serveAsset(c *gin.Context) {

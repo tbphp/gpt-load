@@ -3,6 +3,7 @@ package utils
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"sync"
 	"testing"
 	"time"
@@ -93,6 +94,149 @@ func TestLogBestEffortWritesStructuredEntry(t *testing.T) {
 	}
 }
 
+func TestLogPlaneBestEffortAddsCanonicalPlaneAndPrefix(t *testing.T) {
+	tests := []struct {
+		name        string
+		plane       LogPlane
+		message     string
+		wantPlane   string
+		wantMessage string
+	}{
+		{
+			name:        "data",
+			plane:       LogPlaneData,
+			message:     "Request completed",
+			wantPlane:   "data",
+			wantMessage: "[DATA] Request completed",
+		},
+		{
+			name:        "control",
+			plane:       LogPlaneControl,
+			message:     "Mutation completed",
+			wantPlane:   "control",
+			wantMessage: "[CONTROL] Mutation completed",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var output bytes.Buffer
+			logger := logrus.New()
+			logger.SetOutput(&output)
+			logger.SetFormatter(
+				&logrus.JSONFormatter{DisableTimestamp: true},
+			)
+			fields := logrus.Fields{
+				"event": "probe",
+				"plane": "caller-value",
+			}
+
+			LogPlaneBestEffort(
+				logger,
+				logrus.InfoLevel,
+				test.plane,
+				fields,
+				test.message,
+			)
+
+			var entry map[string]any
+			if err := json.Unmarshal(output.Bytes(), &entry); err != nil {
+				t.Fatalf("decode log entry: %v", err)
+			}
+			if entry["event"] != "probe" ||
+				entry["plane"] != test.wantPlane ||
+				entry["msg"] != test.wantMessage {
+				t.Fatalf("entry = %#v", entry)
+			}
+			if fields["plane"] != "caller-value" || len(fields) != 2 {
+				t.Fatalf("caller fields mutated: %#v", fields)
+			}
+		})
+	}
+}
+
+func TestLogPlaneBestEffortDropsUnknownPlane(t *testing.T) {
+	var output bytes.Buffer
+	logger := logrus.New()
+	logger.SetOutput(&output)
+	logger.SetFormatter(&logrus.JSONFormatter{DisableTimestamp: true})
+
+	LogPlaneBestEffort(
+		logger,
+		logrus.WarnLevel,
+		LogPlane("unknown"),
+		logrus.Fields{"event": "must-not-log"},
+		"Unknown",
+	)
+
+	if output.Len() != 0 {
+		t.Fatalf("unknown plane output = %q, want empty", output.String())
+	}
+}
+
+func TestLogPlaneBestEffortAvoidsProjectionWhenLoggingIsDisabled(t *testing.T) {
+	disabledLogger := logrus.New()
+	disabledLogger.SetLevel(logrus.WarnLevel)
+	fields := logrus.Fields{
+		"event": "probe",
+		"plane": "caller-value",
+	}
+	tests := []struct {
+		name   string
+		logger *logrus.Logger
+	}{
+		{name: "nil logger"},
+		{name: "disabled level", logger: disabledLogger},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			allocations := testing.AllocsPerRun(1000, func() {
+				LogPlaneBestEffort(
+					test.logger,
+					logrus.InfoLevel,
+					LogPlaneData,
+					fields,
+					"Request completed",
+				)
+			})
+			if allocations != 0 {
+				t.Fatalf(
+					"disabled LogPlaneBestEffort allocations = %v, want 0",
+					allocations,
+				)
+			}
+		})
+	}
+}
+
+func TestLogPlaneBestEffortConcurrentReuseDoesNotMutateFields(t *testing.T) {
+	logger := logrus.New()
+	logger.SetOutput(io.Discard)
+	fields := logrus.Fields{
+		"event": "probe",
+		"plane": "caller-value",
+	}
+
+	var workers sync.WaitGroup
+	for range 64 {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			LogPlaneBestEffort(
+				logger,
+				logrus.InfoLevel,
+				LogPlaneData,
+				fields,
+				"Request completed",
+			)
+		}()
+	}
+	workers.Wait()
+
+	if fields["plane"] != "caller-value" || len(fields) != 2 {
+		t.Fatalf("caller fields mutated: %#v", fields)
+	}
+}
+
 type panicLogHook struct{}
 
 func (panicLogHook) Levels() []logrus.Level {
@@ -110,6 +254,19 @@ func TestLogBestEffortRecoversLoggerHookPanic(t *testing.T) {
 	LogBestEffort(
 		logger,
 		logrus.WarnLevel,
+		logrus.Fields{"event": "probe"},
+		"Probe",
+	)
+}
+
+func TestLogPlaneBestEffortRecoversLoggerHookPanic(t *testing.T) {
+	logger := logrus.New()
+	logger.AddHook(panicLogHook{})
+
+	LogPlaneBestEffort(
+		logger,
+		logrus.WarnLevel,
+		LogPlaneControl,
 		logrus.Fields{"event": "probe"},
 		"Probe",
 	)

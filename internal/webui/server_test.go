@@ -1,6 +1,7 @@
 package webui
 
 import (
+	"bytes"
 	"mime"
 	"net/http"
 	"net/http/httptest"
@@ -84,23 +85,21 @@ func TestServerServesModelPricesDeepLinkWithoutCatchingUnknownSettingsPaths(t *t
 	}
 }
 
-func TestServerFallbackServesOnlyUnknownBrowserPageNavigation(t *testing.T) {
+func TestServerFallbackReturnsNotFoundForUnknownRequests(t *testing.T) {
 	server := newServer(fstest.MapFS{
 		"dist/index.html": &fstest.MapFile{Data: []byte("<!doctype html><title>fallback</title>")},
 	}, "dist")
 	engine := testEngine(server)
-	server.RegisterFallback(engine, func(c *gin.Context) {
-		c.String(http.StatusTeapot, "backend fallback")
-	})
+	server.RegisterFallback(engine)
 
 	browserPage := httptest.NewRecorder()
 	browserPageRequest := httptest.NewRequest(http.MethodGet, "/phase-2-unknown-route", nil)
 	browserPageRequest.Header.Set("Accept", "text/html,application/xhtml+xml;q=0.9")
 	engine.ServeHTTP(browserPage, browserPageRequest)
-	if browserPage.Code != http.StatusOK ||
+	if browserPage.Code != http.StatusNotFound ||
 		!strings.Contains(browserPage.Body.String(), "<title>fallback</title>") {
 		t.Fatalf(
-			"unknown browser page = %d %q, want SPA index",
+			"unknown browser page = %d %q, want 404 SPA index",
 			browserPage.Code,
 			browserPage.Body.String(),
 		)
@@ -124,6 +123,11 @@ func TestServerFallbackServesOnlyUnknownBrowserPageNavigation(t *testing.T) {
 		{name: "OpenAI namespace", method: http.MethodGet, target: "/v1/unknown", accept: "text/html"},
 		{name: "Gemini namespace", method: http.MethodGet, target: "/v1beta/unknown", accept: "text/html"},
 		{name: "health namespace", method: http.MethodGet, target: "/health/unknown", accept: "text/html"},
+		{
+			name:   "Chrome DevTools workspace probe",
+			method: http.MethodGet,
+			target: "/.well-known/appspecific/com.chrome.devtools.json",
+		},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			recorder := httptest.NewRecorder()
@@ -132,9 +136,9 @@ func TestServerFallbackServesOnlyUnknownBrowserPageNavigation(t *testing.T) {
 				request.Header.Set("Accept", testCase.accept)
 			}
 			engine.ServeHTTP(recorder, request)
-			if recorder.Code != http.StatusTeapot || recorder.Body.String() != "backend fallback" {
+			if recorder.Code != http.StatusNotFound {
 				t.Fatalf(
-					"%s %s = %d %q, want backend fallback",
+					"%s %s = %d %q, want 404",
 					testCase.method,
 					testCase.target,
 					recorder.Code,
@@ -237,6 +241,36 @@ func TestServerServesThemeBootstrapAsExplicitRootAsset(t *testing.T) {
 	}
 	if !strings.Contains(recorder.Body.String(), "dataset.theme") {
 		t.Fatalf("theme bootstrap body = %q", recorder.Body.String())
+	}
+}
+
+func TestServerServesFaviconAsExplicitRootAsset(t *testing.T) {
+	want := []byte{0x00, 0x00, 0x01, 0x00}
+	server := newServer(fstest.MapFS{
+		"dist/index.html":  &fstest.MapFile{Data: []byte("<!doctype html>")},
+		"dist/favicon.ico": &fstest.MapFile{Data: want},
+	}, "dist")
+	recorder := httptest.NewRecorder()
+
+	testEngine(server).ServeHTTP(
+		recorder,
+		httptest.NewRequest(http.MethodGet, "/favicon.ico", nil),
+	)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("favicon status = %d, want 200", recorder.Code)
+	}
+	if got := recorder.Header().Get("Content-Type"); got != "image/vnd.microsoft.icon" {
+		t.Fatalf("favicon Content-Type = %q, want image/vnd.microsoft.icon", got)
+	}
+	if got := recorder.Header().Get("Cache-Control"); got != "no-cache" {
+		t.Fatalf("favicon Cache-Control = %q, want no-cache", got)
+	}
+	if got := recorder.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+		t.Fatalf("favicon X-Content-Type-Options = %q, want nosniff", got)
+	}
+	if !bytes.Equal(recorder.Body.Bytes(), want) {
+		t.Fatalf("favicon body = %v, want %v", recorder.Body.Bytes(), want)
 	}
 }
 

@@ -866,11 +866,11 @@ func TestBuildContainerRegistersWebUIControlAndGatewayRoutes(t *testing.T) {
 		unknownPageRequest := httptest.NewRequest(http.MethodGet, "/phase-2-unknown-route", nil)
 		unknownPageRequest.Header.Set("Accept", "text/html,application/xhtml+xml")
 		engine.ServeHTTP(unknownPageRecorder, unknownPageRequest)
-		if unknownPageRecorder.Code != http.StatusOK ||
+		if unknownPageRecorder.Code != http.StatusNotFound ||
 			!strings.HasPrefix(unknownPageRecorder.Header().Get("Content-Type"), "text/html") ||
 			unknownPageRecorder.Body.String() != indexBody {
 			t.Fatalf(
-				"unknown browser page response = %d %s, want shared embedded HTML",
+				"unknown browser page response = %d %s, want shared embedded HTML with 404",
 				unknownPageRecorder.Code,
 				unknownPageRecorder.Body.String(),
 			)
@@ -944,21 +944,31 @@ func TestBuildContainerRegistersWebUIControlAndGatewayRoutes(t *testing.T) {
 			unknownRequest.RemoteAddr = untrustedPeer
 			unknownRequest.Header.Set("Accept", "text/html,application/xhtml+xml")
 			engine.ServeHTTP(unknownRecorder, unknownRequest)
-			var unknownEnvelope struct {
-				Code string `json:"code"`
-			}
-			if err := json.Unmarshal(unknownRecorder.Body.Bytes(), &unknownEnvelope); err != nil {
-				t.Fatalf("decode unknown /api attempt %d response: %v", attempt, err)
-			}
-			if unknownRecorder.Code != http.StatusUnauthorized ||
-				unknownEnvelope.Code != "invalid_access_key" {
+			if unknownRecorder.Code != http.StatusNotFound {
 				t.Fatalf(
-					"unknown /api attempt %d response = %d %s, want gateway NoRoute invalid_access_key 401",
+					"unknown /api attempt %d response = %d %s, want 404",
 					attempt,
 					unknownRecorder.Code,
 					unknownRecorder.Body.String(),
 				)
 			}
+		}
+
+		devToolsRecorder := httptest.NewRecorder()
+		engine.ServeHTTP(
+			devToolsRecorder,
+			httptest.NewRequest(
+				http.MethodGet,
+				"/.well-known/appspecific/com.chrome.devtools.json",
+				nil,
+			),
+		)
+		if devToolsRecorder.Code != http.StatusNotFound {
+			t.Fatalf(
+				"Chrome DevTools workspace probe response = %d %s, want 404",
+				devToolsRecorder.Code,
+				devToolsRecorder.Body.String(),
+			)
 		}
 	})
 	if err != nil {
@@ -1019,22 +1029,16 @@ func TestBuildContainerDoesNotRedirectTrailingSlashGatewayRoute(t *testing.T) {
 		}
 
 		tests := []struct {
-			name       string
-			target     string
-			wantStatus int
-			wantCode   string
+			name   string
+			target string
 		}{
 			{
-				name:       "missing credential",
-				target:     "/v1/chat/completions/",
-				wantStatus: http.StatusUnauthorized,
-				wantCode:   "invalid_access_key",
+				name:   "missing credential",
+				target: "/v1/chat/completions/",
 			},
 			{
-				name:       "valid query credential",
-				target:     "/v1/chat/completions/?key=gl-client",
-				wantStatus: http.StatusNotFound,
-				wantCode:   "protocol_endpoint_not_found",
+				name:   "valid query credential",
+				target: "/v1/chat/completions/?key=gl-client",
 			},
 		}
 		for _, tt := range tests {
@@ -1042,18 +1046,12 @@ func TestBuildContainerDoesNotRedirectTrailingSlashGatewayRoute(t *testing.T) {
 				recorder := httptest.NewRecorder()
 				request := httptest.NewRequest(http.MethodPost, tt.target, nil)
 				engine.ServeHTTP(recorder, request)
-				if recorder.Code != tt.wantStatus {
-					t.Fatalf("gateway status = %d, want %d; location=%q body=%s",
-						recorder.Code, tt.wantStatus, recorder.Header().Get("Location"), recorder.Body.String())
+				if recorder.Code != http.StatusNotFound {
+					t.Fatalf("gateway status = %d, want 404; location=%q body=%s",
+						recorder.Code, recorder.Header().Get("Location"), recorder.Body.String())
 				}
 				if location := recorder.Header().Get("Location"); location != "" {
 					t.Fatalf("Location = %q, want empty", location)
-				}
-				var body struct {
-					Code string `json:"code"`
-				}
-				if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil || body.Code != tt.wantCode {
-					t.Fatalf("gateway body = %s, error=%v, want code %q", recorder.Body.String(), err, tt.wantCode)
 				}
 			})
 		}

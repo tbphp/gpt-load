@@ -44,7 +44,8 @@ func TestServiceEmitLogsAcceptedCompletionExactlyOnce(t *testing.T) {
 	entries := processLogEntries(t, output.Bytes())
 	if len(entries) != 1 ||
 		entries[0]["request_id"] != "accepted" ||
-		entries[0]["msg"] != "Data plane request completed" {
+		entries[0]["msg"] != "[DATA] Request completed" ||
+		entries[0]["plane"] != "data" {
 		t.Fatalf("completion entries = %#v, want accepted event", entries)
 	}
 	if err := service.Stop(context.Background()); err != nil {
@@ -443,7 +444,8 @@ func TestServiceWarningsExcludeEventContentAndThrottle(t *testing.T) {
 		if err := json.Unmarshal(line, &entry); err != nil {
 			t.Fatalf("decode logger output: %v", err)
 		}
-		if entry["msg"] == "Request log event loss" {
+		if entry["msg"] == "[DATA] Request log event loss" &&
+			entry["plane"] == "data" {
 			warnings = append(warnings, entry)
 		}
 	}

@@ -8,6 +8,13 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+type LogPlane string
+
+const (
+	LogPlaneData    LogPlane = "data"
+	LogPlaneControl LogPlane = "control"
+)
+
 type RateLimitedEventCounter struct {
 	total  atomic.Uint64
 	mu     sync.Mutex
@@ -53,4 +60,33 @@ func LogBestEffort(
 		_ = recover()
 	}()
 	logger.WithFields(fields).Log(level, message)
+}
+
+func LogPlaneBestEffort(
+	logger *logrus.Logger,
+	level logrus.Level,
+	plane LogPlane,
+	fields logrus.Fields,
+	message string,
+) {
+	if logger == nil || !logger.IsLevelEnabled(level) {
+		return
+	}
+
+	var prefix string
+	switch plane {
+	case LogPlaneData:
+		prefix = "[DATA] "
+	case LogPlaneControl:
+		prefix = "[CONTROL] "
+	default:
+		return
+	}
+
+	projected := make(logrus.Fields, len(fields)+1)
+	for name, value := range fields {
+		projected[name] = value
+	}
+	projected["plane"] = string(plane)
+	LogBestEffort(logger, level, projected, prefix+message)
 }

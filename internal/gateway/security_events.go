@@ -24,15 +24,16 @@ func (handler *Handler) logDataPlaneAuthFailed(request *http.Request) {
 	if !shouldLog {
 		return
 	}
-	utils.LogBestEffort(
+	utils.LogPlaneBestEffort(
 		handler.logger,
 		logrus.WarnLevel,
+		utils.LogPlaneData,
 		logrus.Fields{
 			"event":   "data_plane_auth_failed",
 			"peer_ip": requestPeerIP(request),
 			"total":   total,
 		},
-		"Data plane authentication failed",
+		"Authentication failed",
 	)
 }
 
@@ -44,15 +45,16 @@ func (handler *Handler) logDataPlaneRouteNotFound(
 	if !shouldLog {
 		return
 	}
-	utils.LogBestEffort(
+	utils.LogPlaneBestEffort(
 		handler.logger,
 		logrus.WarnLevel,
+		utils.LogPlaneData,
 		logrus.Fields{
 			"event":         "data_plane_route_not_found",
 			"peer_ip":       requestPeerIP(request),
 			"access_key_id": accessKeyID,
 			"total":         total,
 		},
-		"Data plane route not found",
+		"Route not found",
 	)
 }

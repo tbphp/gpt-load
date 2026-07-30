@@ -106,14 +106,16 @@ func TestAuthenticateEventsCountLockedRequestsWithoutRepeatingTransition(
 	authEvent := controlEventsNamed(events, "control_plane_auth_failed")[0]
 	if authEvent["peer_ip"] != "192.0.2.60" ||
 		authEvent["level"] != "warning" ||
-		authEvent["msg"] != "Control plane authentication failed" {
+		authEvent["plane"] != "control" ||
+		authEvent["msg"] != "[CONTROL] Authentication failed" {
 		t.Fatalf("auth event = %#v", authEvent)
 	}
 	lockEvent := controlEventsNamed(events, "control_plane_auth_locked")[0]
 	if lockEvent["peer_ip"] != "192.0.2.60" ||
 		lockEvent["retry_after_seconds"] != float64(authLockDuration/time.Second) ||
 		lockEvent["level"] != "warning" ||
-		lockEvent["msg"] != "Control plane peer locked out" {
+		lockEvent["plane"] != "control" ||
+		lockEvent["msg"] != "[CONTROL] Peer locked out" {
 		t.Fatalf("lock event = %#v", lockEvent)
 	}
 	assertControlLogExcludes(

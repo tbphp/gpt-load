@@ -33,20 +33,21 @@ func TestGatewaySecurityEventsUseIndependentCounters(t *testing.T) {
 		time.Minute,
 		func() time.Time { return now },
 	)
+	handler.dialects = dialect.NewSet()
 
 	engine := gin.New()
 	handler.RegisterRoutes(engine)
 	serveGatewaySecurityRequest(
 		engine,
 		http.MethodGet,
-		"/unknown?key=raw-query-canary",
+		"/v1/models?key=raw-query-canary",
 		"Bearer wrong",
 		"192.0.2.10:1000",
 	)
 	serveGatewaySecurityRequest(
 		engine,
-		http.MethodGet,
-		"/unknown?key=raw-query-canary",
+		http.MethodPost,
+		"/v1/chat/completions",
 		"Bearer gl-client",
 		"192.0.2.10:1000",
 	)
@@ -58,7 +59,8 @@ func TestGatewaySecurityEventsUseIndependentCounters(t *testing.T) {
 	if authEvent["peer_ip"] != "192.0.2.10" ||
 		authEvent["total"] != float64(1) ||
 		authEvent["level"] != "warning" ||
-		authEvent["msg"] != "Data plane authentication failed" {
+		authEvent["plane"] != "data" ||
+		authEvent["msg"] != "[DATA] Authentication failed" {
 		t.Fatalf("auth event = %#v", authEvent)
 	}
 	routeEvent := gatewayEventsNamed(events, "data_plane_route_not_found")[0]
@@ -66,13 +68,14 @@ func TestGatewaySecurityEventsUseIndependentCounters(t *testing.T) {
 		routeEvent["access_key_id"] != float64(1) ||
 		routeEvent["total"] != float64(1) ||
 		routeEvent["level"] != "warning" ||
-		routeEvent["msg"] != "Data plane route not found" {
+		routeEvent["plane"] != "data" ||
+		routeEvent["msg"] != "[DATA] Route not found" {
 		t.Fatalf("route event = %#v", routeEvent)
 	}
 	assertGatewayLogExcludes(
 		t,
 		logs.String(),
-		"/unknown",
+		"/v1/models",
 		"raw-query-canary",
 	)
 }
@@ -81,6 +84,7 @@ func TestGatewaySecurityEventCountersAccumulateAcrossWindows(t *testing.T) {
 	tests := []struct {
 		name      string
 		eventName string
+		prepare   func(*Handler)
 		serve     func(http.Handler)
 	}{
 		{
@@ -90,7 +94,7 @@ func TestGatewaySecurityEventCountersAccumulateAcrossWindows(t *testing.T) {
 				serveGatewaySecurityRequest(
 					engine,
 					http.MethodGet,
-					"/unknown",
+					"/v1/models",
 					"Bearer wrong",
 					"192.0.2.11:1000",
 				)
@@ -99,11 +103,14 @@ func TestGatewaySecurityEventCountersAccumulateAcrossWindows(t *testing.T) {
 		{
 			name:      "route",
 			eventName: "data_plane_route_not_found",
+			prepare: func(handler *Handler) {
+				handler.dialects = dialect.NewSet()
+			},
 			serve: func(engine http.Handler) {
 				serveGatewaySecurityRequest(
 					engine,
-					http.MethodGet,
-					"/unknown",
+					http.MethodPost,
+					"/v1/chat/completions",
 					"Bearer gl-client",
 					"192.0.2.11:1000",
 				)
@@ -128,6 +135,9 @@ func TestGatewaySecurityEventCountersAccumulateAcrossWindows(t *testing.T) {
 				time.Minute,
 				func() time.Time { return now },
 			)
+			if test.prepare != nil {
+				test.prepare(handler)
+			}
 			engine := gin.New()
 			handler.RegisterRoutes(engine)
 
@@ -149,58 +159,36 @@ func TestGatewaySecurityEventCountersAccumulateAcrossWindows(t *testing.T) {
 	}
 }
 
-func TestGatewayRouteNotFoundCoversBothAuthenticatedExits(t *testing.T) {
-	tests := []struct {
-		name    string
-		target  string
-		prepare func(*Handler)
-	}{
-		{
-			name:    "unrecognized route",
-			target:  "/unrecognized",
-			prepare: func(*Handler) {},
-		},
-		{
-			name:   "recognized route without dialect",
-			target: "/v1/chat/completions",
-			prepare: func(handler *Handler) {
-				handler.dialects = dialect.NewSet()
-			},
-		},
+func TestGatewayRouteNotFoundCoversRecognizedRouteWithoutDialect(t *testing.T) {
+	var logs bytes.Buffer
+	handler, _, _ := newHandlerForTest(
+		t,
+		&scriptedForwarder{},
+		"sk-upstream",
+	)
+	handler.logger = newGatewayJSONLogger(&logs)
+	handler.dialects = dialect.NewSet()
+	engine := gin.New()
+	handler.RegisterRoutes(engine)
+
+	recorder := serveGatewaySecurityRequest(
+		engine,
+		http.MethodPost,
+		"/v1/chat/completions",
+		"Bearer gl-client",
+		"192.0.2.12:1000",
+	)
+
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("response = %d %s, want 404", recorder.Code, recorder.Body.String())
 	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			var logs bytes.Buffer
-			handler, _, _ := newHandlerForTest(
-				t,
-				&scriptedForwarder{},
-				"sk-upstream",
-			)
-			handler.logger = newGatewayJSONLogger(&logs)
-			test.prepare(handler)
-			engine := gin.New()
-			handler.RegisterRoutes(engine)
-
-			recorder := serveGatewaySecurityRequest(
-				engine,
-				http.MethodPost,
-				test.target,
-				"Bearer gl-client",
-				"192.0.2.12:1000",
-			)
-
-			if recorder.Code != http.StatusNotFound {
-				t.Fatalf("response = %d %s, want 404", recorder.Code, recorder.Body.String())
-			}
-			events := gatewayEventsNamed(
-				decodeGatewayJSONLogs(t, logs.Bytes()),
-				"data_plane_route_not_found",
-			)
-			if len(events) != 1 ||
-				events[0]["access_key_id"] != float64(1) {
-				t.Fatalf("route events = %#v, want one access_key_id=1", events)
-			}
-		})
+	events := gatewayEventsNamed(
+		decodeGatewayJSONLogs(t, logs.Bytes()),
+		"data_plane_route_not_found",
+	)
+	if len(events) != 1 ||
+		events[0]["access_key_id"] != float64(1) {
+		t.Fatalf("route events = %#v, want one access_key_id=1", events)
 	}
 }
 
@@ -218,7 +206,7 @@ func TestGatewayInvalidAccessKeyDoesNotEmitRouteEvent(t *testing.T) {
 	recorder := serveGatewaySecurityRequest(
 		engine,
 		http.MethodGet,
-		"/unrecognized",
+		"/v1/models",
 		"Bearer wrong",
 		"192.0.2.13:1000",
 	)
@@ -228,6 +216,40 @@ func TestGatewayInvalidAccessKeyDoesNotEmitRouteEvent(t *testing.T) {
 	}
 	events := decodeGatewayJSONLogs(t, logs.Bytes())
 	assertGatewayEventCount(t, events, "data_plane_auth_failed", 1)
+	assertGatewayEventCount(t, events, "data_plane_route_not_found", 0)
+}
+
+func TestGatewayUnknownRoutesBypassDataPlaneAuthentication(t *testing.T) {
+	var logs bytes.Buffer
+	handler, _, _ := newHandlerForTest(
+		t,
+		&scriptedForwarder{},
+		"sk-upstream",
+	)
+	handler.logger = newGatewayJSONLogger(&logs)
+	engine := gin.New()
+	handler.RegisterRoutes(engine)
+
+	for _, authorization := range []string{"Bearer wrong", "Bearer gl-client"} {
+		recorder := serveGatewaySecurityRequest(
+			engine,
+			http.MethodGet,
+			"/unrecognized",
+			authorization,
+			"192.0.2.16:1000",
+		)
+		if recorder.Code != http.StatusNotFound {
+			t.Fatalf(
+				"authorization %q response = %d %s, want 404",
+				authorization,
+				recorder.Code,
+				recorder.Body.String(),
+			)
+		}
+	}
+
+	events := decodeGatewayJSONLogs(t, logs.Bytes())
+	assertGatewayEventCount(t, events, "data_plane_auth_failed", 0)
 	assertGatewayEventCount(t, events, "data_plane_route_not_found", 0)
 }
 
@@ -246,7 +268,7 @@ func TestGatewayMalformedPeerDoesNotChangeResponseOrLeakRawValue(t *testing.T) {
 	recorder := serveGatewaySecurityRequest(
 		engine,
 		http.MethodGet,
-		"/unrecognized",
+		"/v1/models",
 		"Bearer wrong",
 		rawPeer,
 	)
@@ -275,7 +297,7 @@ func TestGatewaySecurityEventsIgnoreForwardedPeerHeaders(t *testing.T) {
 	handler.logger = newGatewayJSONLogger(&logs)
 	engine := gin.New()
 	handler.RegisterRoutes(engine)
-	request := httptest.NewRequest(http.MethodGet, "/unrecognized", nil)
+	request := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
 	request.RemoteAddr = "192.0.2.15:1000"
 	request.Header.Set("Authorization", "Bearer wrong")
 	request.Header.Set("X-Forwarded-For", forwardedSecret)
@@ -315,13 +337,14 @@ func TestGatewaySecurityLoggerPanicDoesNotChangeResponses(t *testing.T) {
 	)
 	handler.logger = logrus.New()
 	handler.logger.AddHook(gatewayPanicLogHook{})
+	handler.dialects = dialect.NewSet()
 	engine := gin.New()
 	handler.RegisterRoutes(engine)
 
 	unauthorized := serveGatewaySecurityRequest(
 		engine,
 		http.MethodGet,
-		"/unrecognized",
+		"/v1/models",
 		"Bearer wrong",
 		"192.0.2.14:1000",
 	)
@@ -335,8 +358,8 @@ func TestGatewaySecurityLoggerPanicDoesNotChangeResponses(t *testing.T) {
 
 	notFound := serveGatewaySecurityRequest(
 		engine,
-		http.MethodGet,
-		"/unrecognized",
+		http.MethodPost,
+		"/v1/chat/completions",
 		"Bearer gl-client",
 		"192.0.2.14:1000",
 	)

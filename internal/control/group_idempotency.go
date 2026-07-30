@@ -14,6 +14,7 @@ import (
 	"gpt-load/internal/platform/canonicaljson"
 	"gpt-load/internal/platform/config"
 	app_errors "gpt-load/internal/platform/errors"
+	"gpt-load/internal/platform/utils"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 	stateloader "gpt-load/internal/state/loader"
@@ -84,8 +85,13 @@ func (s *Service) CreateGroupIdempotent(
 		return GroupCreateResult{}, app_errors.ErrInternalServer
 	}
 	if isLiteralPrivateHost(normalized.hostname) {
-		logrus.WithField("host", normalized.hostname).
-			Warn("Creating upstream group with a private or local host")
+		utils.LogPlaneBestEffort(
+			logrus.StandardLogger(),
+			logrus.WarnLevel,
+			utils.LogPlaneControl,
+			logrus.Fields{"host": normalized.hostname},
+			"Creating upstream group with a private or local host",
+		)
 	}
 
 	operationResult, err := s.executeIdempotentOperation(ctx, idempotentOperationInput{

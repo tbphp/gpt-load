@@ -12,6 +12,7 @@ import (
 
 	"gpt-load/internal/platform/config"
 	app_errors "gpt-load/internal/platform/errors"
+	"gpt-load/internal/platform/utils"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 	stateloader "gpt-load/internal/state/loader"
@@ -245,8 +246,13 @@ func (s *Service) UpdateGroup(
 		)
 	}
 	if changedHostname != "" && isLiteralPrivateHost(changedHostname) {
-		logrus.WithField("host", changedHostname).
-			Warn("Updating upstream group to a private or local host")
+		utils.LogPlaneBestEffort(
+			logrus.StandardLogger(),
+			logrus.WarnLevel,
+			utils.LogPlaneControl,
+			logrus.Fields{"host": changedHostname},
+			"Updating upstream group to a private or local host",
+		)
 	}
 	return result, nil
 }

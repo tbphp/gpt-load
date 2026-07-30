@@ -784,5 +784,11 @@ func logServiceError(operation string, err error, code string) {
 			fields["key_id"] = operationErr.keyID
 		}
 	}
-	logrus.WithFields(fields).Error("Control operation failed")
+	utils.LogPlaneBestEffort(
+		logrus.StandardLogger(),
+		logrus.ErrorLevel,
+		utils.LogPlaneControl,
+		fields,
+		"Operation failed",
+	)
 }

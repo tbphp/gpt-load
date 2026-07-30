@@ -319,9 +319,10 @@ func (service *Service) warn(failureType string, failedBatchSize int) {
 	service.warningMu.Unlock()
 
 	stats := service.Stats()
-	utils.LogBestEffort(
+	utils.LogPlaneBestEffort(
 		service.logger,
 		logrus.WarnLevel,
+		utils.LogPlaneData,
 		logrus.Fields{
 			"failure_type":        failureType,
 			"batch_size":          failedBatchSize,

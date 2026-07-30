@@ -157,9 +157,10 @@ func (s *Server) logControlMutation(
 	if outcome == "succeeded" {
 		level = logrus.InfoLevel
 	}
-	utils.LogBestEffort(
+	utils.LogPlaneBestEffort(
 		s.logger,
 		level,
+		utils.LogPlaneControl,
 		logrus.Fields{
 			"event":            "control_plane_mutation",
 			"peer_ip":          peer,
@@ -170,7 +171,7 @@ func (s *Server) logControlMutation(
 			"status_code":      statusCode,
 			"error_code":       errorCode,
 		},
-		"Control plane mutation completed",
+		"Mutation completed",
 	)
 }
 

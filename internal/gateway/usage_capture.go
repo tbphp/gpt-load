@@ -93,11 +93,17 @@ func (boundary *usageCaptureBoundary) recordFailure(phase string, value protocol
 	}
 	boundary.lastWarning = now
 	boundary.warningMu.Unlock()
-	boundary.logger.WithFields(logrus.Fields{
-		"phase":    phase,
-		"protocol": value,
-		"total":    total,
-	}).Warn("Usage capture failure")
+	utils.LogPlaneBestEffort(
+		boundary.logger,
+		logrus.WarnLevel,
+		utils.LogPlaneData,
+		logrus.Fields{
+			"phase":    phase,
+			"protocol": value,
+			"total":    total,
+		},
+		"Usage capture failure",
+	)
 }
 
 func safeNewUsageStreamExtractor(

@@ -88,6 +88,8 @@ func TestLogServiceErrorUsesOnlyFixedOperationContext(t *testing.T) {
 	logServiceError("list_group_keys", err, app_errors.ErrInternalServer.Code)
 	logText := logs.String()
 	for _, required := range []string{
+		`"msg":"[CONTROL] Operation failed"`,
+		`"plane":"control"`,
 		`"operation":"list_group_keys"`,
 		`"stage":"validate_db_registry_pair"`,
 		`"mismatch_kind":"weight_manual"`,

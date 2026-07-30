@@ -3,11 +3,14 @@ package gateway
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
 	"testing"
+
+	"github.com/sirupsen/logrus"
 
 	"gpt-load/internal/dialect"
 	platformhttp "gpt-load/internal/platform/httpclient"
@@ -76,6 +79,15 @@ func TestHandlerRequestIDGenerationFailurePreservesDataPlaneAndSkipsEmit(t *test
 	handler.newRequestID = func() (string, error) {
 		return "", errors.New("entropy unavailable")
 	}
+	var logs bytes.Buffer
+	logger := logrus.StandardLogger()
+	previousOutput, previousFormatter := logger.Out, logger.Formatter
+	logrus.SetOutput(&logs)
+	logrus.SetFormatter(&logrus.JSONFormatter{DisableTimestamp: true})
+	t.Cleanup(func() {
+		logrus.SetOutput(previousOutput)
+		logrus.SetFormatter(previousFormatter)
+	})
 
 	request := httptest.NewRequest(
 		http.MethodPost,
@@ -100,6 +112,14 @@ func TestHandlerRequestIDGenerationFailurePreservesDataPlaneAndSkipsEmit(t *test
 	}
 	if events := sink.snapshot(); len(events) != 0 {
 		t.Fatalf("events = %#v, want no emit without request ID", events)
+	}
+	var entry map[string]any
+	if err := json.Unmarshal(logs.Bytes(), &entry); err != nil {
+		t.Fatalf("decode request ID warning: %v", err)
+	}
+	if entry["plane"] != "data" ||
+		entry["msg"] != "[DATA] Request telemetry disabled" {
+		t.Fatalf("request ID warning = %#v", entry)
 	}
 }
 

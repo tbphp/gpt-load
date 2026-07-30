@@ -1,8 +1,8 @@
 package requestlog
 
 import (
+	"net/http"
 	"strconv"
-	"time"
 
 	"github.com/sirupsen/logrus"
 
@@ -10,6 +10,7 @@ import (
 	"gpt-load/internal/platform/utils"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/telemetry"
+	"gpt-load/internal/usage"
 )
 
 const maxProcessSummaryBytes = 200
@@ -24,29 +25,7 @@ func projectProcessLog(
 	}
 
 	row := mapEvent(redactor, event, prices)
-	groupID, keyID, groupName := attributedAttempt(event)
-	groupName = redactIdentityValue(redactor, groupName)
-	retryCount := 0
-	for _, attempt := range event.Attempts {
-		if attempt.WillRetry {
-			retryCount++
-		}
-	}
-
-	estimatedCost := ""
-	if row.CostState == string(pricing.CostStatePriced) {
-		estimatedCost = strconv.FormatFloat(row.Cost, 'g', 12, 64)
-	}
-	errorCode := ""
-	errorSummary := ""
-	if event.Status != telemetry.RequestStatusSuccess {
-		errorCode = row.ErrorCode
-		errorSummary = sanitizeSummaryLimit(
-			redactor,
-			event.ErrorSummary,
-			maxProcessSummaryBytes,
-		)
-	}
+	groupID, keyID := attributedAttempt(event)
 
 	level := logrus.WarnLevel
 	if event.Status == telemetry.RequestStatusSuccess ||
@@ -54,45 +33,91 @@ func projectProcessLog(
 		level = logrus.InfoLevel
 	}
 
-	return level, logrus.Fields{
-		"event":                 "data_plane_request_completed",
-		"request_id":            row.ID,
-		"completed_at":          row.CreatedAt.UTC().Format(time.RFC3339Nano),
-		"status":                row.Status,
-		"status_code":           row.StatusCode,
-		"protocol":              row.Protocol,
-		"access_key_id":         row.AccessKeyID,
-		"client_model":          row.ClientModel,
-		"upstream_model":        row.UpstreamModel,
-		"group_id":              groupID,
-		"key_id":                keyID,
-		"group_name":            groupName,
-		"duration_ms":           row.DurationMs,
-		"attempt_count":         len(event.Attempts),
-		"retry_count":           retryCount,
-		"affinity_hit":          row.AffinityHit,
-		"uncached_input_tokens": row.InputTokens,
-		"cache_read_tokens":     row.CacheReadTokens,
-		"cache_write_5m_tokens": row.CacheWrite5MTokens,
-		"cache_write_1h_tokens": row.CacheWrite1HTokens,
-		"output_tokens":         row.OutputTokens,
-		"usage_state":           row.UsageState,
-		"cost_state":            row.CostState,
-		"estimated_cost_usd":    estimatedCost,
-		"error_code":            errorCode,
-		"error_summary":         errorSummary,
-	}, true
+	fields := logrus.Fields{
+		"event":         "data_plane_request_completed",
+		"request_id":    row.ID,
+		"status":        row.Status,
+		"protocol":      row.Protocol,
+		"access_key_id": row.AccessKeyID,
+		"duration_ms":   row.DurationMs,
+	}
+	if row.StatusCode != http.StatusOK {
+		fields["status_code"] = row.StatusCode
+	}
+	if row.ClientModel != "" {
+		fields["client_model"] = row.ClientModel
+	}
+	if row.UpstreamModel != "" && row.UpstreamModel != row.ClientModel {
+		fields["upstream_model"] = row.UpstreamModel
+	}
+	if groupID > 0 {
+		fields["group_id"] = groupID
+	}
+	if keyID > 0 {
+		fields["key_id"] = keyID
+	}
+	if attemptCount := len(event.Attempts); attemptCount != 1 {
+		fields["attempt_count"] = attemptCount
+	}
+	if row.InputTokens > 0 {
+		fields["uncached_input_tokens"] = row.InputTokens
+	}
+	if row.CacheReadTokens > 0 {
+		fields["cache_read_tokens"] = row.CacheReadTokens
+	}
+	cacheWriteTokens, cacheWriteOK := usage.CheckedAdd(
+		row.CacheWrite5MTokens,
+		row.CacheWrite1HTokens,
+	)
+	if cacheWriteOK && cacheWriteTokens > 0 {
+		fields["cache_write_tokens"] = cacheWriteTokens
+	}
+	if row.OutputTokens > 0 {
+		fields["output_tokens"] = row.OutputTokens
+	}
+	if row.UsageState != "" &&
+		row.UsageState != string(usage.StateComplete) &&
+		row.UsageState != string(usage.StateNotApplicable) {
+		fields["usage_state"] = row.UsageState
+	}
+	if row.CostState != "" &&
+		row.CostState != string(pricing.CostStatePriced) &&
+		row.CostState != string(pricing.CostStateNotApplicable) {
+		fields["cost_state"] = row.CostState
+	}
+	if row.CostState == string(pricing.CostStatePriced) {
+		fields["estimated_cost_usd"] = strconv.FormatFloat(
+			row.Cost,
+			'g',
+			12,
+			64,
+		)
+	}
+	if event.Status != telemetry.RequestStatusSuccess {
+		if row.ErrorCode != "" {
+			fields["error_code"] = row.ErrorCode
+		}
+		if summary := sanitizeSummaryLimit(
+			redactor,
+			event.ErrorSummary,
+			maxProcessSummaryBytes,
+		); summary != "" {
+			fields["error_summary"] = summary
+		}
+	}
+
+	return level, fields, true
 }
 
-func attributedAttempt(event telemetry.RequestEvent) (uint, uint, string) {
+func attributedAttempt(event telemetry.RequestEvent) (uint, uint) {
 	for _, attempt := range event.Attempts {
 		if attempt.Sequence == event.Usage.AttemptSequence &&
 			attempt.GroupID == event.Usage.GroupID &&
 			attempt.KeyID == event.Usage.KeyID {
-			return attempt.GroupID, attempt.KeyID, attempt.GroupName
+			return attempt.GroupID, attempt.KeyID
 		}
 	}
-	return 0, 0, ""
+	return 0, 0
 }
 
 func (service *Service) logCompletedRequest(
@@ -106,10 +131,11 @@ func (service *Service) logCompletedRequest(
 	if !ok {
 		return
 	}
-	utils.LogBestEffort(
+	utils.LogPlaneBestEffort(
 		service.logger,
 		level,
+		utils.LogPlaneData,
 		fields,
-		"Data plane request completed",
+		"Request completed",
 	)
 }

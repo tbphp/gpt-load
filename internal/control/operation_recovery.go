@@ -13,6 +13,7 @@ import (
 
 	"gpt-load/internal/platform/canonicaljson"
 	app_errors "gpt-load/internal/platform/errors"
+	"gpt-load/internal/platform/utils"
 	"gpt-load/internal/storage/models"
 )
 
@@ -156,8 +157,15 @@ func (s *Service) RunOperationRecovery(ctx context.Context) {
 
 	drain := func() {
 		if err := s.DrainCommittedOperations(ctx); err != nil {
-			logrus.WithField("retry_after_ms", backoff.Milliseconds()).
-				Warn("Control operation recovery remains pending")
+			utils.LogPlaneBestEffort(
+				logrus.StandardLogger(),
+				logrus.WarnLevel,
+				utils.LogPlaneControl,
+				logrus.Fields{
+					"retry_after_ms": backoff.Milliseconds(),
+				},
+				"Operation recovery remains pending",
+			)
 			stopRetry()
 			retryTimer = time.NewTimer(backoff)
 			retry = retryTimer.C
@@ -181,7 +189,13 @@ func (s *Service) RunOperationRecovery(ctx context.Context) {
 		case now := <-compactionTicker.C:
 			if _, err := s.CompactCompletedOperations(ctx, now); err != nil &&
 				ctx.Err() == nil {
-				logrus.Warn("Control operation result compaction failed")
+				utils.LogPlaneBestEffort(
+					logrus.StandardLogger(),
+					logrus.WarnLevel,
+					utils.LogPlaneControl,
+					nil,
+					"Operation result compaction failed",
+				)
 			}
 		}
 	}

@@ -165,10 +165,19 @@ func (handler *Handler) recordSuccess(keyID uint, at time.Time) {
 
 func (handler *Handler) RegisterRoutes(engine *gin.Engine) {
 	engine.POST("/v1/chat/completions", handler.Handle)
-	engine.NoRoute(handler.Handle)
+	engine.POST("/v1/messages", handler.Handle)
+	engine.POST("/v1beta/models/:model_action", handler.Handle)
+	engine.GET("/v1beta/models", handler.Handle)
+	engine.GET("/v1/models", handler.Handle)
 }
 
 func (handler *Handler) Handle(ginContext *gin.Context) {
+	selectedRoute, ok := determineRoute(ginContext.Request.Method, ginContext.Request.URL.Path, ginContext.Request.Header)
+	if !ok {
+		_ = handler.writeReason(ginContext, reasonEndpointNotFound)
+		return
+	}
+
 	requestStarted := handler.requestNow()
 	snapshot := handler.manager.Current()
 	initializeDebugHeaders(ginContext.Writer.Header())
@@ -178,19 +187,16 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 		_ = handler.writeReason(ginContext, reasonInvalidAccessKey)
 		return
 	}
-	selectedRoute, ok := determineRoute(ginContext.Request.Method, ginContext.Request.URL.Path, ginContext.Request.Header)
-	if !ok {
-		handler.logDataPlaneRouteNotFound(
-			ginContext.Request,
-			accessKey.ID,
-		)
-		_ = handler.writeReason(ginContext, reasonEndpointNotFound)
-		return
-	}
 
 	requestID, err := handler.newRequestID()
 	if err != nil {
-		logrus.WithError(err).Warn("gateway request ID generation failed; request telemetry disabled")
+		utils.LogPlaneBestEffort(
+			logrus.StandardLogger(),
+			logrus.WarnLevel,
+			utils.LogPlaneData,
+			logrus.Fields{"error": err},
+			"Request telemetry disabled",
+		)
 		requestID = ""
 	} else {
 		ginContext.Writer.Header().Set(requestIDHeader, requestID)

@@ -5,11 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 	"unicode/utf8"
 
 	"github.com/sirupsen/logrus"
@@ -48,7 +48,7 @@ func processLogEntries(t *testing.T, output []byte) []map[string]any {
 	return entries
 }
 
-func TestProjectProcessLogUsesFixedFieldsAndUsageAttribution(t *testing.T) {
+func TestProjectProcessLogUsesSparseFieldsAndAggregatesCacheWrite(t *testing.T) {
 	table := compileRequestLogTestPriceTable(t, "actual-model", pricing.Prices{
 		UncachedInput: pricing.Price{Value: 1, Set: true},
 		CacheRead:     pricing.Price{Value: 2, Set: true},
@@ -93,7 +93,6 @@ func TestProjectProcessLogUsesFixedFieldsAndUsageAttribution(t *testing.T) {
 	want := logrus.Fields{
 		"event":                 "data_plane_request_completed",
 		"request_id":            event.RequestID,
-		"completed_at":          event.CompletedAt.UTC().Format(time.RFC3339Nano),
 		"status":                "error",
 		"status_code":           http.StatusBadGateway,
 		"protocol":              "openai",
@@ -102,18 +101,12 @@ func TestProjectProcessLogUsesFixedFieldsAndUsageAttribution(t *testing.T) {
 		"upstream_model":        "actual-model",
 		"group_id":              uint(9),
 		"key_id":                uint(10),
-		"group_name":            "billed",
 		"duration_ms":           int64(25),
 		"attempt_count":         2,
-		"retry_count":           1,
-		"affinity_hit":          false,
 		"uncached_input_tokens": int64(1),
 		"cache_read_tokens":     int64(2),
-		"cache_write_5m_tokens": int64(3),
-		"cache_write_1h_tokens": int64(4),
+		"cache_write_tokens":    int64(7),
 		"output_tokens":         int64(5),
-		"usage_state":           "complete",
-		"cost_state":            "priced",
 		"estimated_cost_usd":    "5.5e-05",
 		"error_code":            "upstream_error",
 		"error_summary":         "provider failed",
@@ -121,7 +114,7 @@ func TestProjectProcessLogUsesFixedFieldsAndUsageAttribution(t *testing.T) {
 	assertProcessFields(t, fields, want)
 }
 
-func TestProjectProcessLogUsesStatusLevelAndStableFieldSet(t *testing.T) {
+func TestProjectProcessLogUsesStatusLevelAndConditionalDiagnostics(t *testing.T) {
 	tests := []struct {
 		name        string
 		status      telemetry.RequestStatus
@@ -160,15 +153,80 @@ func TestProjectProcessLogUsesStatusLevelAndStableFieldSet(t *testing.T) {
 			if !ok || level != test.wantLevel {
 				t.Fatalf("projection = %t/%s, want true/%s", ok, level, test.wantLevel)
 			}
-			if got := fields["error_code"]; got != test.wantCode {
-				t.Fatalf("error_code = %#v, want %q", got, test.wantCode)
+			if test.wantCode == "" {
+				if _, exists := fields["error_code"]; exists {
+					t.Fatalf("success error_code = %#v, want omitted", fields["error_code"])
+				}
+				if _, exists := fields["error_summary"]; exists {
+					t.Fatalf(
+						"success error_summary = %#v, want omitted",
+						fields["error_summary"],
+					)
+				}
+			} else {
+				if got := fields["error_code"]; got != test.wantCode {
+					t.Fatalf("error_code = %#v, want %q", got, test.wantCode)
+				}
+				if got := fields["error_summary"]; got != test.wantSummary {
+					t.Fatalf("error_summary = %#v, want %q", got, test.wantSummary)
+				}
 			}
-			if got := fields["error_summary"]; got != test.wantSummary {
-				t.Fatalf("error_summary = %#v, want %q", got, test.wantSummary)
-			}
-			assertProcessFieldSet(t, fields)
 		})
 	}
+}
+
+func TestProjectProcessLogOmitsDefaultAndZeroValueFields(t *testing.T) {
+	event := testEvent("sparse-defaults")
+	event.Protocol = protocol.Anthropic
+	event.UpstreamModel = event.ClientModel
+
+	level, fields, ok := projectProcessLog(redact.New(), event, nil)
+	if !ok || level != logrus.InfoLevel {
+		t.Fatalf("projection = %t/%s, want true/info", ok, level)
+	}
+	want := logrus.Fields{
+		"event":         "data_plane_request_completed",
+		"request_id":    event.RequestID,
+		"status":        "success",
+		"protocol":      "anthropic",
+		"access_key_id": uint(42),
+		"client_model":  "client-model",
+		"duration_ms":   int64(25),
+	}
+	assertProcessFields(t, fields, want)
+}
+
+func TestProjectProcessLogPreservesNoCandidateDiagnosticsAndOmitsNoise(t *testing.T) {
+	event := testEvent("no-candidate")
+	event.Protocol = protocol.OpenAI
+	event.UpstreamModel = ""
+	event.Status = telemetry.RequestStatusError
+	event.StatusCode = http.StatusServiceUnavailable
+	event.ErrorCode = "no_available_candidate"
+	event.ErrorSummary = "No available upstream candidate."
+	event.Attempts = nil
+	event.Usage = telemetry.UsageObservation{
+		Result: usage.Result{State: usage.StateNotApplicable},
+	}
+
+	level, fields, ok := projectProcessLog(redact.New(), event, nil)
+	if !ok || level != logrus.WarnLevel {
+		t.Fatalf("projection = %t/%s, want true/warning", ok, level)
+	}
+	want := logrus.Fields{
+		"event":         "data_plane_request_completed",
+		"request_id":    event.RequestID,
+		"status":        "error",
+		"status_code":   http.StatusServiceUnavailable,
+		"protocol":      "openai",
+		"access_key_id": uint(42),
+		"client_model":  "client-model",
+		"duration_ms":   int64(25),
+		"attempt_count": 0,
+		"error_code":    "no_available_candidate",
+		"error_summary": "No available upstream candidate.",
+	}
+	assertProcessFields(t, fields, want)
 }
 
 func TestProjectProcessLogSkipsEmptyRequestID(t *testing.T) {
@@ -190,15 +248,177 @@ func TestProjectProcessLogDoesNotGuessMissingUsageAttribution(t *testing.T) {
 	if !ok || level != logrus.InfoLevel {
 		t.Fatalf("projection = %t/%s, want true/info", ok, level)
 	}
-	if fields["group_id"] != uint(0) || fields["key_id"] != uint(0) ||
-		fields["group_name"] != "" {
-		t.Fatalf(
-			"attribution = %#v/%#v/%#v, want zero values",
-			fields["group_id"],
-			fields["key_id"],
-			fields["group_name"],
-		)
+	for _, name := range []string{"group_id", "key_id", "group_name"} {
+		if value, exists := fields[name]; exists {
+			t.Fatalf("%s = %#v, want omitted", name, value)
+		}
 	}
+}
+
+func TestProjectProcessLogAggregatesCacheWriteBuckets(t *testing.T) {
+	tests := []struct {
+		name       string
+		write5M    int64
+		write1H    int64
+		want       int64
+		wantExists bool
+	}{
+		{name: "none"},
+		{name: "five minute", write5M: 3, want: 3, wantExists: true},
+		{name: "one hour", write1H: 4, want: 4, wantExists: true},
+		{
+			name:       "both",
+			write5M:    3,
+			write1H:    4,
+			want:       7,
+			wantExists: true,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			event := testEvent("cache-write-" + test.name)
+			event.Usage.Result = usage.Result{
+				State: usage.StateComplete,
+				Tokens: usage.Tokens{
+					CacheWrite5M: test.write5M,
+					CacheWrite1H: test.write1H,
+				},
+			}
+
+			_, fields, ok := projectProcessLog(redact.New(), event, nil)
+			if !ok {
+				t.Fatal("projection skipped")
+			}
+			got, exists := fields["cache_write_tokens"]
+			if exists != test.wantExists {
+				t.Fatalf(
+					"cache_write_tokens exists = %t, want %t: %#v",
+					exists,
+					test.wantExists,
+					fields,
+				)
+			}
+			if test.wantExists && got != test.want {
+				t.Fatalf("cache_write_tokens = %#v, want %d", got, test.want)
+			}
+			for _, legacy := range []string{
+				"cache_write_5m_tokens",
+				"cache_write_1h_tokens",
+			} {
+				if value, exists := fields[legacy]; exists {
+					t.Fatalf("%s = %#v, want omitted", legacy, value)
+				}
+			}
+		})
+	}
+}
+
+func TestProjectProcessLogOmitsOverflowedCacheWriteAggregate(t *testing.T) {
+	table := compileRequestLogTestPriceTable(t, "overflow-model", pricing.Prices{
+		UncachedInput: pricing.Price{Set: true},
+		CacheRead:     pricing.Price{Set: true},
+		CacheWrite5M:  pricing.Price{Set: true},
+		CacheWrite1H:  pricing.Price{Set: true},
+		Output:        pricing.Price{Set: true},
+	})
+
+	t.Run("adjacent safe total remains priced", func(t *testing.T) {
+		event := testEvent("cache-write-safe-boundary")
+		event.UpstreamModel = "overflow-model"
+		event.Usage.Result = usage.Result{
+			State: usage.StateComplete,
+			Tokens: usage.Tokens{
+				CacheWrite5M: math.MaxInt64,
+			},
+		}
+
+		_, fields, ok := projectProcessLog(redact.New(), event, table)
+		if !ok {
+			t.Fatal("projection skipped")
+		}
+		if fields["cache_write_tokens"] != int64(math.MaxInt64) {
+			t.Fatalf(
+				"cache_write_tokens = %#v, want %d",
+				fields["cache_write_tokens"],
+				int64(math.MaxInt64),
+			)
+		}
+		if value, exists := fields["cost_state"]; exists {
+			t.Fatalf("cost_state = %#v, want omitted for priced usage", value)
+		}
+		if fields["estimated_cost_usd"] != "0" {
+			t.Fatalf(
+				"estimated_cost_usd = %#v, want 0",
+				fields["estimated_cost_usd"],
+			)
+		}
+	})
+
+	t.Run("overflow omits aggregate and becomes unpriced", func(t *testing.T) {
+		event := testEvent("cache-write-overflow")
+		event.UpstreamModel = "overflow-model"
+		event.Usage.Result = usage.Result{
+			State: usage.StateComplete,
+			Tokens: usage.Tokens{
+				CacheWrite5M: math.MaxInt64,
+				CacheWrite1H: 1,
+			},
+		}
+
+		_, fields, ok := projectProcessLog(redact.New(), event, table)
+		if !ok {
+			t.Fatal("projection skipped")
+		}
+		if value, exists := fields["cache_write_tokens"]; exists {
+			t.Fatalf("cache_write_tokens = %#v, want omitted", value)
+		}
+		if fields["cost_state"] != "unpriced" {
+			t.Fatalf("cost_state = %#v, want unpriced", fields["cost_state"])
+		}
+		if value, exists := fields["estimated_cost_usd"]; exists {
+			t.Fatalf("estimated_cost_usd = %#v, want omitted", value)
+		}
+	})
+}
+
+func TestProjectProcessLogUsesConditionalModelAttemptAndStateFields(t *testing.T) {
+	t.Run("same model and normal attempt are omitted", func(t *testing.T) {
+		event := testEvent("normal-model-attempt")
+		event.UpstreamModel = event.ClientModel
+		event.Usage.Result.State = usage.StateNotApplicable
+
+		_, fields, ok := projectProcessLog(redact.New(), event, nil)
+		if !ok {
+			t.Fatal("projection skipped")
+		}
+		for _, name := range []string{
+			"upstream_model",
+			"attempt_count",
+			"usage_state",
+			"cost_state",
+		} {
+			if value, exists := fields[name]; exists {
+				t.Fatalf("%s = %#v, want omitted", name, value)
+			}
+		}
+	})
+
+	t.Run("zero attempts and abnormal states remain visible", func(t *testing.T) {
+		event := testEvent("abnormal-state")
+		event.Attempts = nil
+		event.Usage.Result.State = usage.StatePartial
+
+		_, fields, ok := projectProcessLog(redact.New(), event, nil)
+		if !ok {
+			t.Fatal("projection skipped")
+		}
+		if fields["upstream_model"] != "upstream-model" ||
+			fields["attempt_count"] != 0 ||
+			fields["usage_state"] != "partial" ||
+			fields["cost_state"] != "unpriced" {
+			t.Fatalf("conditional fields = %#v", fields)
+		}
+	})
 }
 
 func TestProjectProcessLogDoesNotRoundTinyCostToZero(t *testing.T) {
@@ -307,11 +527,12 @@ func TestProcessLogFormatterSecretMatrix(t *testing.T) {
 			logger.SetOutput(&output)
 			logger.SetFormatter(formatter)
 			logger.AddHook(redact.NewHook(redactor))
-			utils.LogBestEffort(
+			utils.LogPlaneBestEffort(
 				logger,
 				level,
+				utils.LogPlaneData,
 				fields,
-				"Data plane request completed",
+				"Request completed",
 			)
 			logText := output.String()
 			for _, forbidden := range []string{
@@ -329,12 +550,17 @@ func TestProcessLogFormatterSecretMatrix(t *testing.T) {
 					)
 				}
 			}
+			planeMarker := "plane=data"
+			if name == "json" {
+				planeMarker = `"plane":"data"`
+			}
 			for _, allowed := range []string{
 				"data_plane_request_completed",
+				planeMarker,
+				"[DATA] Request completed",
 				event.RequestID,
 				"safe-client",
 				"safe-upstream",
-				"safe-group",
 			} {
 				if !strings.Contains(logText, allowed) {
 					t.Fatalf(
@@ -383,18 +609,14 @@ func TestProjectProcessLogMatchesDurableProjection(t *testing.T) {
 	}
 	want := map[string]any{
 		"request_id":            row.ID,
-		"completed_at":          row.CreatedAt.UTC().Format(time.RFC3339Nano),
 		"access_key_id":         row.AccessKeyID,
 		"client_model":          row.ClientModel,
 		"upstream_model":        row.UpstreamModel,
 		"duration_ms":           row.DurationMs,
 		"uncached_input_tokens": row.InputTokens,
 		"cache_read_tokens":     row.CacheReadTokens,
-		"cache_write_5m_tokens": row.CacheWrite5MTokens,
-		"cache_write_1h_tokens": row.CacheWrite1HTokens,
+		"cache_write_tokens":    int64(27),
 		"output_tokens":         row.OutputTokens,
-		"usage_state":           row.UsageState,
-		"cost_state":            row.CostState,
 		"estimated_cost_usd":    "0.00027",
 	}
 	for field, wantValue := range want {
@@ -446,14 +668,16 @@ func TestProcessAndDurableProjectionsRedactSensitiveIdentityFieldsConsistently(
 		t.Fatal("process projection skipped")
 	}
 	if fields["client_model"] != row.ClientModel ||
-		fields["upstream_model"] != row.UpstreamModel ||
-		fields["group_name"] != attempts[0].GroupName {
+		fields["upstream_model"] != row.UpstreamModel {
 		t.Fatalf(
 			"process/durable identity projection mismatch: fields=%#v row=%+v attempts=%+v",
 			fields,
 			row,
 			attempts,
 		)
+	}
+	if value, exists := fields["group_name"]; exists {
+		t.Fatalf("group_name = %#v, want omitted", value)
 	}
 }
 
@@ -465,45 +689,5 @@ func assertProcessFields(
 	t.Helper()
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("fields = %#v, want %#v", got, want)
-	}
-}
-
-func assertProcessFieldSet(t *testing.T, fields logrus.Fields) {
-	t.Helper()
-	names := []string{
-		"event",
-		"request_id",
-		"completed_at",
-		"status",
-		"status_code",
-		"protocol",
-		"access_key_id",
-		"client_model",
-		"upstream_model",
-		"group_id",
-		"key_id",
-		"group_name",
-		"duration_ms",
-		"attempt_count",
-		"retry_count",
-		"affinity_hit",
-		"uncached_input_tokens",
-		"cache_read_tokens",
-		"cache_write_5m_tokens",
-		"cache_write_1h_tokens",
-		"output_tokens",
-		"usage_state",
-		"cost_state",
-		"estimated_cost_usd",
-		"error_code",
-		"error_summary",
-	}
-	if len(fields) != len(names) {
-		t.Fatalf("field count = %d, want %d: %#v", len(fields), len(names), fields)
-	}
-	for _, name := range names {
-		if _, ok := fields[name]; !ok {
-			t.Errorf("missing field %q", name)
-		}
 	}
 }

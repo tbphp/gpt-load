@@ -15,6 +15,7 @@ import (
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/health"
 	"gpt-load/internal/platform/encryption"
+	"gpt-load/internal/platform/utils"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 )
@@ -314,10 +315,16 @@ func normalizeValidationHeaderName(name string) string {
 }
 
 func logValidationFailure(ref state.KeyRef, protocol, stage string) {
-	logrus.WithFields(logrus.Fields{
-		"key_id":   ref.ID,
-		"group_id": ref.GroupID,
-		"protocol": protocol,
-		"stage":    stage,
-	}).Warn("validation failed")
+	utils.LogPlaneBestEffort(
+		logrus.StandardLogger(),
+		logrus.WarnLevel,
+		utils.LogPlaneControl,
+		logrus.Fields{
+			"key_id":   ref.ID,
+			"group_id": ref.GroupID,
+			"protocol": protocol,
+			"stage":    stage,
+		},
+		"Validation failed",
+	)
 }

@@ -724,7 +724,6 @@ func TestHandlerInitializesDebugHeadersBeforeValidation(t *testing.T) {
 		body      string
 	}{
 		{name: "invalid auth", path: "/v1/chat/completions", accessKey: "wrong", body: `{"model":"gpt-4o"}`},
-		{name: "unknown endpoint", path: "/unknown", accessKey: "gl-client", body: `{}`},
 		{name: "invalid model", path: "/v1/chat/completions", accessKey: "gl-client", body: `{}`},
 	}
 
@@ -740,6 +739,49 @@ func TestHandlerInitializesDebugHeadersBeforeValidation(t *testing.T) {
 			assertDebugHeaders(t, recorder.Header(), "", "0")
 			if len(forwarder.inputs)+len(forwarder.streamInputs) != 0 {
 				t.Fatal("validation failure reached upstream forwarder")
+			}
+		})
+	}
+}
+
+func TestHandlerRegistersEveryEnabledDataPlaneRoute(t *testing.T) {
+	engine, _, _ := newHandlerTestRuntime(t, &scriptedForwarder{}, "sk-one")
+
+	for _, testCase := range []struct {
+		name   string
+		method string
+		target string
+	}{
+		{name: "OpenAI chat", method: http.MethodPost, target: "/v1/chat/completions"},
+		{name: "Anthropic messages", method: http.MethodPost, target: "/v1/messages"},
+		{
+			name:   "Gemini generate",
+			method: http.MethodPost,
+			target: "/v1beta/models/gemini-2.5-pro:generateContent",
+		},
+		{
+			name:   "Gemini stream",
+			method: http.MethodPost,
+			target: "/v1beta/models/gemini-2.5-pro:streamGenerateContent",
+		},
+		{name: "Gemini models", method: http.MethodGet, target: "/v1beta/models"},
+		{name: "OpenAI or Anthropic models", method: http.MethodGet, target: "/v1/models"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(testCase.method, testCase.target, nil)
+			request.Header.Set("Authorization", "Bearer wrong")
+
+			engine.ServeHTTP(recorder, request)
+
+			if recorder.Code != http.StatusUnauthorized {
+				t.Fatalf(
+					"%s %s = %d %s, want 401",
+					testCase.method,
+					testCase.target,
+					recorder.Code,
+					recorder.Body.String(),
+				)
 			}
 		})
 	}
@@ -2208,7 +2250,7 @@ func TestHandlerReturnsStableTerminalReasons(t *testing.T) {
 		wantAttempts int
 	}{
 		{name: "invalid access key", path: "/v1/chat/completions", accessKey: "wrong", body: `{"model":"gpt-4o"}`, wantStatus: http.StatusUnauthorized, wantCode: "invalid_access_key"},
-		{name: "unknown endpoint after auth", path: "/unknown", accessKey: "gl-client", body: `{}`, wantStatus: http.StatusNotFound, wantCode: "protocol_endpoint_not_found"},
+		{name: "malformed registered endpoint", path: "/v1beta/models/missing-action", accessKey: "gl-client", body: `{}`, wantStatus: http.StatusNotFound, wantCode: "protocol_endpoint_not_found"},
 		{name: "cannot extract model", path: "/v1/chat/completions", accessKey: "gl-client", body: `{}`, wantStatus: http.StatusBadRequest, wantCode: "cannot_extract_model"},
 		{name: "no candidate", path: "/v1/chat/completions", accessKey: "gl-client", body: `{"model":"gpt-4o"}`, wantStatus: http.StatusServiceUnavailable, wantCode: "no_available_candidate"},
 		{

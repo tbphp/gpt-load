@@ -273,8 +273,7 @@ func serveGatewaySecretMatrixRequests(
 	geminiQuerySecret string,
 	requestBodySecret string,
 ) {
-	target := "/raw-" + requestBodySecret +
-		"?key=" + geminiQuerySecret
+	target := "/v1/chat/completions?key=" + geminiQuerySecret
 	invalid := httptest.NewRequest(
 		http.MethodPost,
 		target,
@@ -293,7 +292,7 @@ func serveGatewaySecretMatrixRequests(
 
 	valid := httptest.NewRequest(
 		http.MethodPost,
-		target,
+		"/v1/messages?key="+geminiQuerySecret,
 		strings.NewReader(
 			`{"secret":"`+requestBodySecret+`"}`,
 		),

@@ -94,15 +94,16 @@ func (s *Server) logControlAuthFailed(peer string) {
 	if !shouldLog {
 		return
 	}
-	utils.LogBestEffort(
+	utils.LogPlaneBestEffort(
 		s.logger,
 		logrus.WarnLevel,
+		utils.LogPlaneControl,
 		logrus.Fields{
 			"event":   "control_plane_auth_failed",
 			"peer_ip": peer,
 			"total":   total,
 		},
-		"Control plane authentication failed",
+		"Authentication failed",
 	)
 }
 
@@ -110,15 +111,16 @@ func (s *Server) logControlPeerLocked(
 	peer string,
 	retryAfter time.Duration,
 ) {
-	utils.LogBestEffort(
+	utils.LogPlaneBestEffort(
 		s.logger,
 		logrus.WarnLevel,
+		utils.LogPlaneControl,
 		logrus.Fields{
 			"event":               "control_plane_auth_locked",
 			"peer_ip":             peer,
 			"retry_after_seconds": retryAfterSeconds(retryAfter),
 		},
-		"Control plane peer locked out",
+		"Peer locked out",
 	)
 }
 

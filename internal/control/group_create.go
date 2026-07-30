@@ -12,6 +12,7 @@ import (
 
 	"gpt-load/internal/platform/config"
 	app_errors "gpt-load/internal/platform/errors"
+	"gpt-load/internal/platform/utils"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 	"gpt-load/internal/storage/models"
@@ -61,8 +62,13 @@ func (s *Service) CreateGroup(ctx context.Context, request GroupCreateRequest) (
 		return GroupCreateResult{}, err
 	}
 	if isLiteralPrivateHost(normalized.hostname) {
-		logrus.WithField("host", normalized.hostname).
-			Warn("Creating upstream group with a private or local host")
+		utils.LogPlaneBestEffort(
+			logrus.StandardLogger(),
+			logrus.WarnLevel,
+			utils.LogPlaneControl,
+			logrus.Fields{"host": normalized.hostname},
+			"Creating upstream group with a private or local host",
+		)
 	}
 
 	result := GroupCreateResult{
