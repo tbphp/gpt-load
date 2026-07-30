@@ -19,6 +19,7 @@ import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import SurfaceCard from '@/components/ui/SurfaceCard.vue'
+import { formatLocalInstant } from '@/lib/format'
 
 import AppearanceSection from './AppearanceSection.vue'
 import LogsMaintenanceSection from './LogsMaintenanceSection.vue'
@@ -89,12 +90,7 @@ const invalidKeys = computed<RuntimeSettingKey[]>(() => {
   })
 })
 const savedAtLabel = computed(() =>
-  savedAt.value
-    ? new Intl.DateTimeFormat(locale.value, {
-        dateStyle: 'medium',
-        timeStyle: 'short',
-      }).format(savedAt.value)
-    : '',
+  savedAt.value ? formatLocalInstant(savedAt.value.getTime(), locale.value) : '',
 )
 
 useUnsavedChanges(dirty, { blocked: operationLocked })

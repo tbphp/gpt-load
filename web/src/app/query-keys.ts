@@ -4,8 +4,8 @@ import type { UsageFilters } from '@/app/resources/usage'
 function normalizeLogFilters(filters: RequestLogFilters): RequestLogFilters {
   const result: RequestLogFilters = {}
   for (const field of [
-    'from',
-    'to',
+    'from_ms',
+    'to_ms',
     'group_id',
     'model',
     'access_key_id',

@@ -7,8 +7,9 @@ import {
   assertNoSecretLikeFields,
   projectArray,
   projectBoolean,
+  projectEpochMilliseconds,
   projectEnum,
-  projectISOInstant,
+  projectNullableEpochMilliseconds,
   projectRecord,
   projectSafeInteger,
   projectString,
@@ -44,7 +45,7 @@ export interface RouteInspectKeyDto {
   weight_manual: number | null
   weight_auto: number
   effective_weight: number
-  cooldown_until: string | null
+  cooldown_until_ms: number | null
 }
 
 export interface RouteInspectGroupDto {
@@ -59,7 +60,7 @@ export interface RouteInspectGroupDto {
 }
 
 export interface RouteInspectResponseDto {
-  observed_at: string
+  observed_at_ms: number
   snapshot_revision: number
   protocol: AccessProtocol
   external_model: string | null
@@ -123,7 +124,7 @@ function projectRouteKey(value: unknown): RouteInspectKeyDto {
     'weight_manual',
     'weight_auto',
     'effective_weight',
-    'cooldown_until',
+    'cooldown_until_ms',
   ])
   return {
     key_id: projectSafeInteger(record.key_id, { minimum: 1 }),
@@ -132,8 +133,7 @@ function projectRouteKey(value: unknown): RouteInspectKeyDto {
     weight_manual: projectNullableWeight(record.weight_manual),
     weight_auto: projectSafeInteger(record.weight_auto, { minimum: 0, maximum: 100 }),
     effective_weight: projectSafeInteger(record.effective_weight, { minimum: 0 }),
-    cooldown_until:
-      record.cooldown_until === null ? null : projectISOInstant(record.cooldown_until),
+    cooldown_until_ms: projectNullableEpochMilliseconds(record.cooldown_until_ms),
   }
 }
 
@@ -174,7 +174,7 @@ function projectAccessKey(value: unknown): RouteInspectResponseDto['access_key']
 export function projectRouteInspection(value: unknown): RouteInspectResponseDto {
   const record = projectRecord(value)
   assertNoSecretLikeFields(record, [
-    'observed_at',
+    'observed_at_ms',
     'snapshot_revision',
     'protocol',
     'external_model',
@@ -184,7 +184,7 @@ export function projectRouteInspection(value: unknown): RouteInspectResponseDto 
     'groups',
   ])
   return {
-    observed_at: projectISOInstant(record.observed_at),
+    observed_at_ms: projectEpochMilliseconds(record.observed_at_ms),
     snapshot_revision: projectSafeInteger(record.snapshot_revision, { minimum: 1 }),
     protocol: projectEnum(record.protocol, enabledDataProtocols),
     external_model: projectNullableNonBlankString(record.external_model),

@@ -10,7 +10,7 @@ import {
   projectArray,
   projectBoolean,
   projectEnum,
-  projectISOInstant,
+  projectNullableEpochMilliseconds,
   projectRecord,
   projectSafeInteger,
   projectString,
@@ -28,7 +28,7 @@ export interface UpstreamKeyDto {
   weight_manual: number | null
   weight_auto: number
   blacklisted: boolean
-  cooldown_until: string | null
+  cooldown_until_ms: number | null
   failure_count: number
 }
 
@@ -46,7 +46,7 @@ const upstreamKeyFields = [
   'weight_manual',
   'weight_auto',
   'blacklisted',
-  'cooldown_until',
+  'cooldown_until_ms',
   'failure_count',
 ] as const
 const upstreamKeyStatuses = ['active', 'disabled'] as const
@@ -74,8 +74,7 @@ export function projectUpstreamKey(value: unknown): UpstreamKeyDto {
         : projectSafeInteger(record.weight_manual, { minimum: 0, maximum: 100 }),
     weight_auto: projectSafeInteger(record.weight_auto, { minimum: 0, maximum: 100 }),
     blacklisted: projectBoolean(record.blacklisted),
-    cooldown_until:
-      record.cooldown_until === null ? null : projectISOInstant(record.cooldown_until),
+    cooldown_until_ms: projectNullableEpochMilliseconds(record.cooldown_until_ms),
     failure_count: projectSafeInteger(record.failure_count, { minimum: 0 }),
   }
 }

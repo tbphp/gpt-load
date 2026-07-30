@@ -4,6 +4,7 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import SkeletonBlock from '@/components/ui/SkeletonBlock.vue'
+import { formatLocalTime } from '@/lib/format'
 
 import type { HomeHealthState } from './home-presenter'
 
@@ -68,12 +69,13 @@ const title = computed(() => {
 const observedTime = computed(() => {
   const report = health.value
   if (report === undefined) return ''
-  return new Intl.DateTimeFormat(locale.value, {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hourCycle: 'h23',
-  }).format(new Date(report.observed_at))
+  return formatLocalTime(report.observed_at_ms, locale.value)
+})
+const observedDateTime = computed(() => {
+  const report = health.value
+  if (report === undefined) return undefined
+  const date = new Date(report.observed_at_ms)
+  return Number.isNaN(date.getTime()) ? undefined : date.toISOString()
 })
 const uptime = computed(() => {
   const seconds = health.value?.uptime_seconds
@@ -121,7 +123,7 @@ const uptime = computed(() => {
       <aside v-if="health" class="home-lede__stamp" :aria-label="t('home.lede.observation')">
         <span>
           <span>{{ t('home.lede.updatedAt') }}</span>
-          <time :datetime="health.observed_at">
+          <time :datetime="observedDateTime">
             {{ observedTime }}
           </time>
         </span>

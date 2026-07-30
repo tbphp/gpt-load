@@ -18,11 +18,13 @@ import { controlQueryKeys } from '@/app/query-keys'
 import { monitorLocation } from '@/app/route-locations'
 import { useUnsavedChanges } from '@/app/unsaved-changes'
 import AppButton from '@/components/ui/AppButton.vue'
+import AppDateTime from '@/components/ui/AppDateTime.vue'
 import DataTable from '@/components/ui/DataTable.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
+import { formatLocalInstant } from '@/lib/format'
 
 import {
   applyLogFilterDraft,
@@ -156,13 +158,6 @@ function accessKeyLabel(log: RequestLogItemDto): string {
   return `#${log.access_key.id}`
 }
 
-function formatLocalInstant(value: Date): string {
-  return new Intl.DateTimeFormat(locale.value, {
-    dateStyle: 'medium',
-    timeStyle: 'medium',
-  }).format(value)
-}
-
 function loadMore(): void {
   if (refreshPending.value || !logsQuery.hasNextPage.value || logsQuery.isFetchingNextPage.value) {
     return
@@ -285,7 +280,7 @@ onBeforeUnmount(() => {
       <span v-if="lastSuccessfulRefreshAt">
         <strong>{{ t('monitor.logs.filters.lastRefreshed') }}</strong>
         <time :datetime="lastSuccessfulRefreshAt.toISOString()">
-          {{ formatLocalInstant(lastSuccessfulRefreshAt) }}
+          {{ formatLocalInstant(lastSuccessfulRefreshAt.getTime(), locale) }}
         </time>
       </span>
     </section>
@@ -340,7 +335,7 @@ onBeforeUnmount(() => {
       <tbody>
         <tr v-for="log in logs" :key="log.request_id">
           <td>
-            <time :datetime="log.completed_at">{{ log.completed_at }}</time>
+            <AppDateTime :instant="log.completed_at_ms" :locale="locale" />
           </td>
           <td>
             <code>{{ log.request_id }}</code>

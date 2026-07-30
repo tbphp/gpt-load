@@ -6,6 +6,7 @@ import { useI18n } from 'vue-i18n'
 import type { HealthProblemKeyDto } from '@/app/resources/health'
 import { groupDetailLocation } from '@/app/route-locations'
 import ProblemKeyRow from '@/components/health/ProblemKeyRow.vue'
+import AppDateTime from '@/components/ui/AppDateTime.vue'
 
 interface ProblemSection {
   kind: string
@@ -64,7 +65,7 @@ function failureCategoryLabel(category: HealthProblemKeyDto['last_failure_catego
             <RouterLink class="group-link" :to="groupDetailLocation(key.group_id, { tab: 'keys' })">
               {{ key.group_name }} · #{{ key.group_id }}
             </RouterLink>
-            <span v-if="key.cooldown_until" class="problem-key__remaining">
+            <span v-if="key.cooldown_until_ms !== null" class="problem-key__remaining">
               {{ t('monitor.health.problems.remaining', { time: remainingByKey[key.key_id] }) }}
             </span>
             <button
@@ -135,9 +136,11 @@ function failureCategoryLabel(category: HealthProblemKeyDto['last_failure_catego
                   : t('monitor.health.recovery.notAutomatic')
               }}</span>
               <span>{{ recoveryModeLabel(key.recovery.mode) }}</span>
-              <time v-if="key.recovery.at" :datetime="key.recovery.at">
-                {{ key.recovery.at }}
-              </time>
+              <AppDateTime
+                v-if="key.recovery.at_ms !== null"
+                :instant="key.recovery.at_ms"
+                :locale="locale"
+              />
               <span v-else-if="key.recovery.mode === 'validation_probe'">
                 {{ t('monitor.health.recovery.runtimeDecides') }}
               </span>

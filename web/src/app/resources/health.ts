@@ -16,8 +16,9 @@ import {
   assertNoSecretLikeFields,
   projectArray,
   projectBoolean,
+  projectEpochMilliseconds,
   projectEnum,
-  projectISOInstant,
+  projectNullableEpochMilliseconds,
   projectRecord,
   projectSafeInteger,
   projectString,
@@ -34,7 +35,7 @@ export type {
 
 const countFields = ['total', 'available', 'cooldown', 'blacklisted', 'disabled'] as const
 const healthFields = [
-  'observed_at',
+  'observed_at_ms',
   'version',
   'uptime_seconds',
   'snapshot_revision',
@@ -49,7 +50,7 @@ const problemKeyFields = [
   'key_id',
   'group_id',
   'group_name',
-  'cooldown_until',
+  'cooldown_until_ms',
   'failure_count',
   'recent_success_count',
   'recent_failure_count',
@@ -74,9 +75,10 @@ const requestLogFields = [
   'retention_delete_failure_total',
   'queue_depth',
   'queue_capacity',
-  'last_write_failure_at',
-  'last_retention_failure_at',
+  'last_write_failure_at_ms',
+  'last_retention_failure_at_ms',
 ] as const
+const requestLogCounterFields = requestLogFields.slice(0, 12)
 const recoveryModes = ['cooldown_expiry', 'validation_probe'] as const
 const problemFailureCategories = [
   'rate_limited',
@@ -97,10 +99,6 @@ function projectNonBlankString(value: unknown): string {
   const result = projectString(value)
   if (result.trim().length === 0) invalidResponse()
   return result
-}
-
-function projectNullableInstant(value: unknown): string | null {
-  return value === null ? null : projectISOInstant(value)
 }
 
 function projectHealthKeyMask(value: unknown): string {
@@ -138,11 +136,11 @@ function projectHealthGroup(value: unknown): HealthGroupDto {
 
 function projectRecovery(value: unknown): HealthRecoveryDto {
   const record = projectRecord(value)
-  assertNoSecretLikeFields(record, ['automatic', 'mode', 'at'])
+  assertNoSecretLikeFields(record, ['automatic', 'mode', 'at_ms'])
   return {
     automatic: projectBoolean(record.automatic),
     mode: projectEnum(record.mode, recoveryModes),
-    at: projectNullableInstant(record.at),
+    at_ms: projectNullableEpochMilliseconds(record.at_ms),
   }
 }
 
@@ -150,17 +148,16 @@ function projectProblemKey(value: unknown): HealthProblemKeyDto {
   const record = projectRecord(value)
   assertNoSecretLikeFields(record, problemKeyFields)
   const recovery = projectRecovery(record.recovery)
-  const cooldownUntil =
-    record.cooldown_until === undefined ? undefined : projectISOInstant(record.cooldown_until)
+  const cooldownUntilMS = projectNullableEpochMilliseconds(record.cooldown_until_ms)
 
   if (!recovery.automatic) invalidResponse()
-  if (
-    recovery.mode === 'cooldown_expiry' &&
-    (cooldownUntil === undefined || recovery.at !== cooldownUntil)
-  ) {
+  if (recovery.mode === 'cooldown_expiry' && recovery.at_ms !== cooldownUntilMS) {
     invalidResponse()
   }
-  if (recovery.mode === 'validation_probe' && (cooldownUntil != null || recovery.at !== null)) {
+  if (
+    recovery.mode === 'validation_probe' &&
+    (cooldownUntilMS !== null || recovery.at_ms !== null)
+  ) {
     invalidResponse()
   }
 
@@ -168,7 +165,7 @@ function projectProblemKey(value: unknown): HealthProblemKeyDto {
     key_id: projectSafeInteger(record.key_id, { minimum: 1 }),
     group_id: projectSafeInteger(record.group_id, { minimum: 1 }),
     group_name: projectNonBlankString(record.group_name),
-    ...(cooldownUntil === undefined ? {} : { cooldown_until: cooldownUntil }),
+    cooldown_until_ms: cooldownUntilMS,
     failure_count: projectSafeInteger(record.failure_count, { minimum: 0 }),
     recent_success_count: projectSafeInteger(record.recent_success_count, { minimum: 0 }),
     recent_failure_count: projectSafeInteger(record.recent_failure_count, { minimum: 0 }),
@@ -193,20 +190,29 @@ function projectProblemKey(value: unknown): HealthProblemKeyDto {
 function projectRequestLogHealth(value: unknown): RequestLogHealthDto {
   const record = projectRecord(value)
   assertNoSecretLikeFields(record, requestLogFields)
-  const result = {} as Record<(typeof requestLogFields)[number], number | string | null>
-  for (const field of requestLogFields.slice(0, 12)) {
-    result[field] = projectSafeInteger(record[field], { minimum: 0 })
+  const counters = Object.fromEntries(
+    requestLogCounterFields.map((field) => [
+      field,
+      projectSafeInteger(record[field], { minimum: 0 }),
+    ]),
+  ) as Pick<
+    RequestLogHealthDto,
+    Exclude<keyof RequestLogHealthDto, 'last_write_failure_at_ms' | 'last_retention_failure_at_ms'>
+  >
+  return {
+    ...counters,
+    last_write_failure_at_ms: projectNullableEpochMilliseconds(record.last_write_failure_at_ms),
+    last_retention_failure_at_ms: projectNullableEpochMilliseconds(
+      record.last_retention_failure_at_ms,
+    ),
   }
-  result.last_write_failure_at = projectNullableInstant(record.last_write_failure_at)
-  result.last_retention_failure_at = projectNullableInstant(record.last_retention_failure_at)
-  return result as unknown as RequestLogHealthDto
 }
 
 export function projectRuntimeHealth(value: unknown): RuntimeHealthDto {
   const record = projectRecord(value)
   assertNoSecretLikeFields(record, healthFields)
   return {
-    observed_at: projectISOInstant(record.observed_at),
+    observed_at_ms: projectEpochMilliseconds(record.observed_at_ms),
     version: projectNonBlankString(record.version),
     uptime_seconds: projectSafeInteger(record.uptime_seconds, { minimum: 0 }),
     snapshot_revision: projectSafeInteger(record.snapshot_revision, { minimum: 1 }),

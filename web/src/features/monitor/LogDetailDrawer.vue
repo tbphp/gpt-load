@@ -9,11 +9,12 @@ import type {
   RequestLogStatus,
 } from '@/app/resources/request-logs'
 import { modelPricesLocation, monitorLocation } from '@/app/route-locations'
+import AppDateTime from '@/components/ui/AppDateTime.vue'
 import AppDrawer from '@/components/ui/AppDrawer.vue'
 import CopyButton from '@/components/ui/CopyButton.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
-import { formatEstimatedUSD } from '@/features/usage/estimated-cost'
+import { formatEstimatedCost } from '@/lib/format'
 
 const props = defineProps<{
   open: boolean
@@ -151,7 +152,7 @@ function tokenValue(log: RequestLogItemDto, value: number): string {
 function estimatedCost(log: RequestLogItemDto): string {
   if (log.cost_state === 'not_applicable') return t('monitor.logs.drawer.usage.notApplicable')
   if (log.cost_state === 'unpriced') return t('monitor.logs.drawer.usage.unknown')
-  return formatEstimatedUSD(log.estimated_cost_usd, locale.value)
+  return formatEstimatedCost(log.estimated_cost_nano_usd, locale.value)
 }
 </script>
 
@@ -184,7 +185,7 @@ function estimatedCost(log: RequestLogItemDto): string {
           <div>
             <dt>{{ t('monitor.logs.drawer.completedAt') }}</dt>
             <dd>
-              <time :datetime="log.completed_at">{{ log.completed_at }}</time>
+              <AppDateTime :instant="log.completed_at_ms" :locale="locale" />
             </dd>
           </div>
           <div>

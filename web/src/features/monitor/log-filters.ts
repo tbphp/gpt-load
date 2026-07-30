@@ -28,8 +28,8 @@ const emptyDraft = (): LogFilterDraft => ({
   request_id: '',
 })
 
-function toLocalDateTime(value: string | undefined): string {
-  if (!value) return ''
+function toLocalDateTime(value: number | undefined): string {
+  if (value === undefined || !Number.isSafeInteger(value) || value < 0) return ''
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return ''
   const pad = (part: number) => String(part).padStart(2, '0')
@@ -49,8 +49,8 @@ function toLocalDateTime(value: string | undefined): string {
 export function createLogFilterDraft(filters: RequestLogFilters = {}): LogFilterDraft {
   return {
     ...emptyDraft(),
-    from: toLocalDateTime(filters.from),
-    to: toLocalDateTime(filters.to),
+    from: toLocalDateTime(filters.from_ms),
+    to: toLocalDateTime(filters.to_ms),
     group_id: filters.group_id === undefined ? '' : String(filters.group_id),
     model: filters.model ?? '',
     access_key_id: filters.access_key_id === undefined ? '' : String(filters.access_key_id),
@@ -61,8 +61,8 @@ export function createLogFilterDraft(filters: RequestLogFilters = {}): LogFilter
 
 export function applyLogFilterDraft(draft: LogFilterDraft): RequestLogFilters {
   const filters: RequestLogFilters = {}
-  if (draft.from) filters.from = new Date(draft.from).toISOString()
-  if (draft.to) filters.to = new Date(draft.to).toISOString()
+  if (draft.from) filters.from_ms = new Date(draft.from).getTime()
+  if (draft.to) filters.to_ms = new Date(draft.to).getTime()
   if (draft.group_id) filters.group_id = Number(draft.group_id)
   if (draft.model) filters.model = draft.model
   if (draft.access_key_id) filters.access_key_id = Number(draft.access_key_id)
@@ -73,8 +73,10 @@ export function applyLogFilterDraft(draft: LogFilterDraft): RequestLogFilters {
 
 export function parseAppliedLogFilters(query: Record<string, unknown>): RequestLogFilters {
   const filters: RequestLogFilters = {}
-  if (typeof query.from === 'string') filters.from = query.from
-  if (typeof query.to === 'string') filters.to = query.to
+  const fromMS = parseEpochMilliseconds(query.from_ms)
+  const toMS = parseEpochMilliseconds(query.to_ms)
+  if (fromMS !== undefined) filters.from_ms = fromMS
+  if (toMS !== undefined) filters.to_ms = toMS
   if (typeof query.group_id === 'string') filters.group_id = Number(query.group_id)
   if (typeof query.model === 'string') filters.model = query.model
   if (typeof query.access_key_id === 'string') filters.access_key_id = Number(query.access_key_id)
@@ -85,8 +87,8 @@ export function parseAppliedLogFilters(query: Record<string, unknown>): RequestL
 
 export function serializeAppliedLogFilters(filters: RequestLogFilters): LocationQueryRaw {
   const query: LocationQueryRaw = { tab: 'logs' }
-  if (filters.from !== undefined) query.from = filters.from
-  if (filters.to !== undefined) query.to = filters.to
+  if (filters.from_ms !== undefined) query.from_ms = String(filters.from_ms)
+  if (filters.to_ms !== undefined) query.to_ms = String(filters.to_ms)
   if (filters.group_id !== undefined) query.group_id = String(filters.group_id)
   if (filters.model !== undefined) query.model = filters.model
   if (filters.access_key_id !== undefined) query.access_key_id = String(filters.access_key_id)
@@ -99,6 +101,12 @@ function isPositiveID(value: string): boolean {
   if (!/^\d+$/.test(value)) return false
   const parsed = Number(value)
   return Number.isSafeInteger(parsed) && parsed > 0
+}
+
+function parseEpochMilliseconds(value: unknown): number | undefined {
+  if (typeof value !== 'string' || !/^(?:0|[1-9]\d*)$/.test(value)) return undefined
+  const parsed = Number(value)
+  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : undefined
 }
 
 function parseLocalDateTime(value: string): Date | undefined {

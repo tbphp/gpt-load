@@ -1,6 +1,6 @@
 export interface TrendDatum {
-  bucket_start: string
-  bucket_end: string
+  bucket_start_ms: number
+  bucket_end_ms: number
   request_count: number
   failure_count: number
 }
@@ -32,11 +32,12 @@ function assertDimension(value: number): void {
 }
 
 function parseDatum(datum: TrendDatum): { start: number; end: number } {
-  const start = Date.parse(datum.bucket_start)
-  const end = Date.parse(datum.bucket_end)
+  const start = datum.bucket_start_ms
+  const end = datum.bucket_end_ms
   if (
-    !Number.isFinite(start) ||
-    !Number.isFinite(end) ||
+    !Number.isSafeInteger(start) ||
+    start < 0 ||
+    !Number.isSafeInteger(end) ||
     end <= start ||
     !Number.isSafeInteger(datum.request_count) ||
     datum.request_count < 0 ||
@@ -63,8 +64,8 @@ export function buildTrendGeometry(
   width: number,
   requestHeight: number,
   failureHeight: number,
-  rangeStart: string,
-  rangeEnd: string,
+  rangeStart: number,
+  rangeEnd: number,
 ): TrendGeometry {
   assertDimension(width)
   assertDimension(requestHeight)
@@ -80,13 +81,14 @@ export function buildTrendGeometry(
   }
 
   const parsed = series.map(parseDatum)
-  const domainStart = Date.parse(rangeStart)
-  const domainEnd = Date.parse(rangeEnd)
+  const domainStart = rangeStart
+  const domainEnd = rangeEnd
   const bucketDuration = parsed[0]!.end - parsed[0]!.start
   const pointDomainEnd = domainEnd - bucketDuration
   if (
-    !Number.isFinite(domainStart) ||
-    !Number.isFinite(domainEnd) ||
+    !Number.isSafeInteger(domainStart) ||
+    domainStart < 0 ||
+    !Number.isSafeInteger(domainEnd) ||
     domainEnd <= domainStart ||
     pointDomainEnd < domainStart ||
     parsed.some(

@@ -31,18 +31,22 @@ export interface ModelPriceFormErrors {
   fields: Partial<Record<ModelPriceField, 'invalid_price'>>
 }
 
-function formatPrice(value: number | null): string {
-  return value === null ? '' : String(value)
+const maximumInt64 = 9_223_372_036_854_775_807n
+const nanoUSDPerUSD = 1_000_000_000n
+const canonicalPrice = /^(?:0|[1-9]\d*)(?:\.\d{0,8}[1-9])?$/
+
+function formatPrice(value: string | null): string {
+  return value ?? ''
 }
 
 export function createModelPriceDraft(rule?: ModelPriceRuleDto | null): ModelPriceDraft {
   return {
     pattern: rule?.pattern ?? '',
-    uncached_input: formatPrice(rule?.prices.uncached_input ?? null),
-    cache_read: formatPrice(rule?.prices.cache_read ?? null),
-    cache_write_5m: formatPrice(rule?.prices.cache_write_5m ?? null),
-    cache_write_1h: formatPrice(rule?.prices.cache_write_1h ?? null),
-    output: formatPrice(rule?.prices.output ?? null),
+    uncached_input: formatPrice(rule?.prices.input_price_usd_per_million_tokens ?? null),
+    cache_read: formatPrice(rule?.prices.cache_read_price_usd_per_million_tokens ?? null),
+    cache_write_5m: formatPrice(rule?.prices.cache_write_5m_price_usd_per_million_tokens ?? null),
+    cache_write_1h: formatPrice(rule?.prices.cache_write_1h_price_usd_per_million_tokens ?? null),
+    output: formatPrice(rule?.prices.output_price_usd_per_million_tokens ?? null),
   }
 }
 
@@ -57,11 +61,12 @@ function patternError(pattern: string): ModelPriceFormErrors['pattern'] {
   return undefined
 }
 
-function parsePrice(raw: string): number | null | undefined {
+function parsePrice(raw: string): string | null | undefined {
   if (raw === '') return null
-  if (!/^(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(raw)) return undefined
-  const value = Number(raw)
-  return Number.isFinite(value) && value >= 0 ? value : undefined
+  if (!canonicalPrice.test(raw)) return undefined
+  const [whole = '', fraction = ''] = raw.split('.')
+  const nanoUSD = BigInt(whole) * nanoUSDPerUSD + BigInt(fraction.padEnd(9, '0') || '0')
+  return nanoUSD <= maximumInt64 ? raw : undefined
 }
 
 export function validateModelPriceDraft(draft: ModelPriceDraft): ModelPriceFormErrors {
@@ -88,11 +93,11 @@ export function buildModelPriceRequest(draft: ModelPriceDraft): {
   return {
     pattern: draft.pattern,
     prices: {
-      uncached_input: parsePrice(draft.uncached_input) ?? null,
-      cache_read: parsePrice(draft.cache_read) ?? null,
-      cache_write_5m: parsePrice(draft.cache_write_5m) ?? null,
-      cache_write_1h: parsePrice(draft.cache_write_1h) ?? null,
-      output: parsePrice(draft.output) ?? null,
+      input_price_usd_per_million_tokens: parsePrice(draft.uncached_input) ?? null,
+      output_price_usd_per_million_tokens: parsePrice(draft.output) ?? null,
+      cache_read_price_usd_per_million_tokens: parsePrice(draft.cache_read) ?? null,
+      cache_write_5m_price_usd_per_million_tokens: parsePrice(draft.cache_write_5m) ?? null,
+      cache_write_1h_price_usd_per_million_tokens: parsePrice(draft.cache_write_1h) ?? null,
     },
   }
 }

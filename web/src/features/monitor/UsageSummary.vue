@@ -4,10 +4,10 @@ import { useI18n } from 'vue-i18n'
 
 import type { UsageAggregateDto } from '@/app/resources/usage'
 import SurfaceCard from '@/components/ui/SurfaceCard.vue'
-import { formatEstimatedUSD } from '@/features/usage/estimated-cost'
+import { formatEstimatedCost, formatLocalInstant } from '@/lib/format'
 
 const props = defineProps<{
-  observedAt: string
+  observedAtMs: number
   summary: UsageAggregateDto
 }>()
 const { locale, t } = useI18n()
@@ -16,8 +16,8 @@ function formatCount(value: number): string {
   return new Intl.NumberFormat(locale.value).format(value)
 }
 
-function formatEstimatedCost(): string {
-  const cost = formatEstimatedUSD(props.summary.estimated_cost_usd, locale.value)
+function formattedEstimatedCost(): string {
+  const cost = formatEstimatedCost(props.summary.estimated_cost_nano_usd, locale.value)
   return props.summary.unpriced_request_count > 0
     ? t('monitor.usage.cost.knownPlusUnknown', { cost })
     : cost
@@ -29,7 +29,13 @@ function formatEstimatedCost(): string {
     <div class="usage-heading">
       <div>
         <h2 id="usage-kpi-title">{{ t('monitor.usage.kpi.title') }}</h2>
-        <p>{{ t('monitor.usage.kpi.description', { time: observedAt }) }}</p>
+        <p>
+          {{
+            t('monitor.usage.kpi.description', {
+              time: formatLocalInstant(observedAtMs, locale),
+            })
+          }}
+        </p>
       </div>
     </div>
     <div class="usage-kpi-grid">
@@ -58,7 +64,7 @@ function formatEstimatedCost(): string {
       <SurfaceCard class="usage-kpi">
         <CircleDollarSign :size="20" aria-hidden="true" />
         <span>{{ t('monitor.usage.kpi.estimatedCost') }}</span>
-        <strong>{{ formatEstimatedCost() }}</strong>
+        <strong>{{ formattedEstimatedCost() }}</strong>
       </SurfaceCard>
     </div>
     <dl class="usage-token-definition" :aria-label="t('monitor.usage.tokens.title')">

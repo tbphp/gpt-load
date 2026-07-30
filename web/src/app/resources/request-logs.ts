@@ -10,9 +10,9 @@ import {
   assertNoSecretLikeFields,
   projectArray,
   projectBoolean,
+  projectEpochMilliseconds,
   projectEnum,
-  projectFiniteNumber,
-  projectISOInstant,
+  projectNonNegativeInt64String,
   projectRecord,
   projectSafeInteger,
   projectString,
@@ -27,8 +27,8 @@ export type RequestLogUsageState = 'complete' | 'partial' | 'missing' | 'not_app
 export type RequestLogCostState = 'priced' | 'unpriced' | 'not_applicable'
 
 export interface RequestLogFilters {
-  from?: string
-  to?: string
+  from_ms?: number
+  to_ms?: number
   group_id?: number
   model?: string
   access_key_id?: number
@@ -54,7 +54,7 @@ export interface RequestLogAttemptDto {
 
 export interface RequestLogItemDto {
   request_id: string
-  completed_at: string
+  completed_at_ms: number
   access_key: {
     id: number
     name: string | null
@@ -78,7 +78,7 @@ export interface RequestLogItemDto {
   cache_write_5m_tokens: number
   cache_write_1h_tokens: number
   output_tokens: number
-  estimated_cost_usd: number
+  estimated_cost_nano_usd: string
 }
 
 export interface RequestLogPageDto {
@@ -118,7 +118,7 @@ const attemptFields = [
 ] as const
 const itemFields = [
   'request_id',
-  'completed_at',
+  'completed_at_ms',
   'access_key',
   'protocol',
   'client_model',
@@ -138,7 +138,7 @@ const itemFields = [
   'cache_write_5m_tokens',
   'cache_write_1h_tokens',
   'output_tokens',
-  'estimated_cost_usd',
+  'estimated_cost_nano_usd',
 ] as const
 
 function invalidResponse(): never {
@@ -212,13 +212,13 @@ function projectUsageCost(record: Record<string, unknown>) {
     cache_write_1h_tokens: projectSafeInteger(record.cache_write_1h_tokens, { minimum: 0 }),
     output_tokens: projectSafeInteger(record.output_tokens, { minimum: 0 }),
   }
-  const estimatedCost = projectFiniteNumber(record.estimated_cost_usd, { minimum: 0 })
-  if (costState !== 'priced' && estimatedCost !== 0) invalidResponse()
+  const estimatedCostNanoUSD = projectNonNegativeInt64String(record.estimated_cost_nano_usd)
+  if (costState !== 'priced' && estimatedCostNanoUSD !== '0') invalidResponse()
   return {
     usage_state: usageState,
     cost_state: costState,
     ...tokens,
-    estimated_cost_usd: estimatedCost,
+    estimated_cost_nano_usd: estimatedCostNanoUSD,
   }
 }
 
@@ -227,7 +227,7 @@ export function projectRequestLogItem(value: unknown): RequestLogItemDto {
   assertNoSecretLikeFields(record, itemFields)
   return {
     request_id: projectRequestID(record.request_id),
-    completed_at: projectISOInstant(record.completed_at),
+    completed_at_ms: projectEpochMilliseconds(record.completed_at_ms),
     access_key: projectAccessKey(record.access_key),
     protocol: projectEnum(record.protocol, enabledDataProtocols),
     client_model: projectNullableModel(record.client_model),
@@ -257,8 +257,8 @@ export function projectRequestLogPage(value: unknown): RequestLogPageDto {
 export function normalizeRequestLogFilters(filters: RequestLogFilters): RequestLogFilters {
   const result: RequestLogFilters = {}
   for (const field of [
-    'from',
-    'to',
+    'from_ms',
+    'to_ms',
     'group_id',
     'model',
     'access_key_id',
@@ -286,8 +286,8 @@ export async function listRequestLogs(
   const normalized = normalizeRequestLogFilters(filters)
   const params = new URLSearchParams()
   const values: Array<[string, string | number | undefined]> = [
-    ['from', normalized.from],
-    ['to', normalized.to],
+    ['from_ms', normalized.from_ms],
+    ['to_ms', normalized.to_ms],
     ['group_id', normalized.group_id],
     ['model', normalized.model],
     ['access_key_id', normalized.access_key_id],

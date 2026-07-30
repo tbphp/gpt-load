@@ -6,7 +6,7 @@ import { currentTimeZone } from '@/lib/time'
 
 const props = withDefaults(
   defineProps<{
-    instant: number | string
+    instant: number
     locale: string
     timeZone?: string
   }>(),
@@ -16,11 +16,8 @@ const props = withDefaults(
 )
 
 const instantMs = computed(() => {
-  if (typeof props.instant === 'number') {
-    return Number.isSafeInteger(props.instant) ? props.instant : null
-  }
-  const value = Date.parse(props.instant)
-  return Number.isNaN(value) ? null : value
+  if (!Number.isSafeInteger(props.instant) || props.instant < 0) return null
+  return Number.isNaN(new Date(props.instant).getTime()) ? null : props.instant
 })
 
 const absolute = computed(() => {

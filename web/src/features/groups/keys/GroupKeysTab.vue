@@ -20,6 +20,7 @@ import DataTable from '@/components/ui/DataTable.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
+import { formatLocalInstant } from '@/lib/format'
 
 import { buildUpstreamKeyPatch } from './key-patch'
 
@@ -99,12 +100,8 @@ function statusTone(
   return 'neutral'
 }
 
-function formatCooldown(value: string | null): string {
-  if (!value) return t('group.keys.none')
-  return new Intl.DateTimeFormat(locale.value, {
-    dateStyle: 'short',
-    timeStyle: 'medium',
-  }).format(new Date(value))
+function formatCooldown(value: number | null): string {
+  return value === null ? t('group.keys.none') : formatLocalInstant(value, locale.value)
 }
 
 function clearProblemFilter(): void {
@@ -278,7 +275,7 @@ const effectiveLabels = computed(() => ({
               </select>
             </td>
             <td class="group-keys__number">{{ key.weight_auto }}</td>
-            <td class="group-keys__number">{{ formatCooldown(key.cooldown_until) }}</td>
+            <td class="group-keys__number">{{ formatCooldown(key.cooldown_until_ms) }}</td>
             <td class="group-keys__number">{{ key.failure_count }}</td>
             <td>
               <div class="group-keys__actions">

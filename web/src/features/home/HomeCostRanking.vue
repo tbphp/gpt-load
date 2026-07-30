@@ -6,7 +6,7 @@ import { useI18n } from 'vue-i18n'
 import type { UsageAggregateDto, UsageReportDto } from '@/app/resources/usage'
 import { monitorLocation } from '@/app/route-locations'
 import DataTable from '@/components/ui/DataTable.vue'
-import { formatEstimatedUSD } from '@/features/usage/estimated-cost'
+import { formatEstimatedCost } from '@/lib/format'
 
 import { formatCompactMetric } from './home-format'
 import { usageBreakdownLocation } from './home-presenter'
@@ -23,7 +23,7 @@ function formatCount(value: number): string {
 }
 
 function formatCost(row: UsageAggregateDto): string {
-  const cost = formatEstimatedUSD(row.estimated_cost_usd, locale.value)
+  const cost = formatEstimatedCost(row.estimated_cost_nano_usd, locale.value)
   return row.unpriced_request_count > 0 ? t('home.ranking.knownPlusUnknown', { cost }) : cost
 }
 

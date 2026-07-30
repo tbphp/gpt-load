@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, ref, useId } from 'vue'
 
+import { formatLocalInstant } from '@/lib/format'
+
 import { buildTrendGeometry, type TrendDatum } from './trend-chart'
 
 const props = withDefaults(
@@ -11,8 +13,8 @@ const props = withDefaults(
     emptyLabel: string
     requestLabel: string
     failureLabel: string
-    rangeStart: string
-    rangeEnd: string
+    rangeStart: number
+    rangeEnd: number
     locale?: string
     nowLabel?: string
     failureStripLabel?: string
@@ -32,10 +34,10 @@ const descriptionID = `trend-chart-description-${useId()}`
 const activePointIndex = ref<number | null>(null)
 const chartSeries = computed<TrendDatum[]>(() => {
   if (props.series.length === 0) return []
-  const rangeStart = Date.parse(props.rangeStart)
-  const rangeEnd = Date.parse(props.rangeEnd)
-  const firstStart = Date.parse(props.series[0]!.bucket_start)
-  const firstEnd = Date.parse(props.series[0]!.bucket_end)
+  const rangeStart = props.rangeStart
+  const rangeEnd = props.rangeEnd
+  const firstStart = props.series[0]!.bucket_start_ms
+  const firstEnd = props.series[0]!.bucket_end_ms
   const bucketDuration = firstEnd - firstStart
   if (
     !Number.isFinite(rangeStart) ||
@@ -45,13 +47,13 @@ const chartSeries = computed<TrendDatum[]>(() => {
   ) {
     return [...props.series]
   }
-  const buckets = new Map(props.series.map((datum) => [Date.parse(datum.bucket_start), datum]))
+  const buckets = new Map(props.series.map((datum) => [datum.bucket_start_ms, datum]))
   const result: TrendDatum[] = []
   for (let start = rangeStart; start < rangeEnd; start += bucketDuration) {
     result.push(
       buckets.get(start) ?? {
-        bucket_start: new Date(start).toISOString(),
-        bucket_end: new Date(start + bucketDuration).toISOString(),
+        bucket_start_ms: start,
+        bucket_end_ms: start + bucketDuration,
         request_count: 0,
         failure_count: 0,
       },
@@ -72,29 +74,16 @@ const geometry = computed(() =>
 const lastPoint = computed(() => geometry.value.requestPoints.at(-1))
 const timeAxis = computed(() => {
   if (props.series.length === 0) return null
-  const start = Date.parse(props.rangeStart)
-  const end = Date.parse(props.rangeEnd)
-  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return null
+  const start = props.rangeStart
+  const end = props.rangeEnd
+  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || end <= start) return null
   const middle = start + (end - start) / 2
   const hourly = end - start <= 25 * 60 * 60 * 1000
-  if (hourly) {
-    return {
-      start: '00:00',
-      startInstant: props.rangeStart,
-      middle: '12:00',
-      middleInstant: new Date(middle).toISOString(),
-    }
-  }
-  const formatter = new Intl.DateTimeFormat(props.locale, {
-    month: 'short',
-    day: 'numeric',
-    timeZone: 'UTC',
-  })
   return {
-    start: formatter.format(start),
-    startInstant: props.rangeStart,
-    middle: formatter.format(middle),
-    middleInstant: new Date(middle).toISOString(),
+    start: formatAxisTime(start, hourly),
+    startInstant: toDateTimeAttribute(start),
+    middle: formatAxisTime(middle, hourly),
+    middleInstant: toDateTimeAttribute(middle),
   }
 })
 const failureBars = computed(() => {
@@ -134,16 +123,42 @@ const tooltipAlignment = computed(() => {
 })
 
 function formatBucketTime(datum: TrendDatum): string {
-  const options: Intl.DateTimeFormatOptions =
-    Date.parse(props.rangeEnd) - Date.parse(props.rangeStart) > 25 * 60 * 60 * 1000
-      ? { month: 'short', day: 'numeric', timeZone: 'UTC' }
-      : {
+  return formatAxisTime(
+    datum.bucket_start_ms,
+    props.rangeEnd - props.rangeStart <= 25 * 60 * 60 * 1000,
+  )
+}
+
+function formatAxisTime(value: number, hourly: boolean): string {
+  return formatLocalInstant(
+    value,
+    props.locale,
+    hourly
+      ? {
+          year: undefined,
+          month: undefined,
+          day: undefined,
           hour: '2-digit',
           minute: '2-digit',
+          second: undefined,
           hourCycle: 'h23',
-          timeZone: 'UTC',
+          timeZoneName: undefined,
         }
-  return new Intl.DateTimeFormat(props.locale, options).format(new Date(datum.bucket_start))
+      : {
+          year: undefined,
+          month: 'short',
+          day: 'numeric',
+          hour: undefined,
+          minute: undefined,
+          second: undefined,
+          timeZoneName: undefined,
+        },
+  )
+}
+
+function toDateTimeAttribute(value: number): string | undefined {
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? undefined : date.toISOString()
 }
 
 function pointLabel(datum: TrendDatum | undefined): string {
@@ -211,7 +226,7 @@ function pointLabel(datum: TrendDatum | undefined): string {
         :style="tooltipStyle"
         role="tooltip"
       >
-        <time :datetime="activePoint.datum.bucket_start">{{
+        <time :datetime="toDateTimeAttribute(activePoint.datum.bucket_start_ms)">{{
           formatBucketTime(activePoint.datum)
         }}</time>
         <span>{{ requestLabel }} {{ activePoint.datum.request_count }}</span>

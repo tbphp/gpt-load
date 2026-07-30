@@ -176,8 +176,8 @@ export function failureLogsLocation(report: UsageReportDto) {
   return monitorLocation({
     tab: 'logs',
     status: 'error',
-    from: report.from,
-    to: report.to,
+    from_ms: report.from_ms,
+    to_ms: report.to_ms,
   })
 }
 

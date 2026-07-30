@@ -3,6 +3,7 @@ import { computed } from 'vue'
 
 import type { HealthProblemKeyDto } from '@/app/resources/health'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
+import { formatLocalInstant } from '@/lib/format'
 
 export interface ProblemKeyRowLabels {
   consecutiveFailures: string
@@ -32,21 +33,23 @@ const props = withDefaults(
 )
 
 const recoveryTime = computed(() => {
-  const value = props.problemKey.recovery.at
+  const value = props.problemKey.recovery.at_ms
   if (value === null) return null
-  return new Intl.DateTimeFormat(props.locale, {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(new Date(value))
+  return formatLocalInstant(value, props.locale)
 })
 const recoveryClock = computed(() => {
-  const value = props.problemKey.recovery.at
+  const value = props.problemKey.recovery.at_ms
   if (value === null) return null
-  return new Intl.DateTimeFormat(props.locale, {
+  return formatLocalInstant(value, props.locale, {
+    year: undefined,
+    month: undefined,
+    day: undefined,
     hour: '2-digit',
     minute: '2-digit',
+    second: undefined,
+    timeZoneName: undefined,
     hourCycle: 'h23',
-  }).format(new Date(value))
+  })
 })
 const compactFailureSummary = computed(() => {
   const unit = props.labels.failureUnit ? ` ${props.labels.failureUnit}` : ''
@@ -69,7 +72,7 @@ const compactFailureSummary = computed(() => {
         {{ compactFailureSummary }}
       </span>
       <span class="problem-key-row__compact-recovery">
-        <time v-if="problemKey.recovery.at && recoveryClock" :datetime="problemKey.recovery.at">
+        <time v-if="problemKey.recovery.at_ms !== null && recoveryClock">
           {{ recoveryClock }} {{ labels.automaticRecovery ?? labels.recoversAt }}
         </time>
         <template v-else>{{ labels.probeRecovery ?? labels.validationProbe }}</template>
@@ -102,7 +105,7 @@ const compactFailureSummary = computed(() => {
         <div>
           <dt>{{ labels.recoversAt }}</dt>
           <dd>
-            <time v-if="problemKey.recovery.at && recoveryTime" :datetime="problemKey.recovery.at">
+            <time v-if="problemKey.recovery.at_ms !== null && recoveryTime">
               {{ recoveryTime }}
             </time>
             <template v-else>{{ labels.validationProbe }}</template>

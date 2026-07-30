@@ -17,7 +17,7 @@ import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import SegmentedControl from '@/components/ui/SegmentedControl.vue'
 import StatFigure from '@/components/ui/StatFigure.vue'
-import { formatEstimatedUSD } from '@/features/usage/estimated-cost'
+import { formatEstimatedCost } from '@/lib/format'
 
 import ConnectionPlaceholder from './ConnectionPlaceholder.vue'
 import HomeCostRanking from './HomeCostRanking.vue'
@@ -124,7 +124,7 @@ const successDetail = computed(() => {
 })
 const estimatedCost = computed(() => {
   if (report.value === undefined) return '—'
-  return formatEstimatedUSD(report.value.summary.estimated_cost_usd, locale.value)
+  return formatEstimatedCost(report.value.summary.estimated_cost_nano_usd, locale.value)
 })
 const costDetail = computed(() => {
   if (report.value === undefined) return ''
@@ -289,8 +289,8 @@ function setRange(value: string): void {
                 :empty-label="t('home.trend.empty')"
                 :request-label="t('home.trend.requests')"
                 :failure-label="t('home.trend.failures')"
-                :range-start="report.from"
-                :range-end="report.to"
+                :range-start="report.from_ms"
+                :range-end="report.to_ms"
                 :locale="locale"
                 :now-label="t('home.trend.now')"
                 :failure-strip-label="
