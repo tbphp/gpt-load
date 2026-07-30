@@ -46,44 +46,90 @@ export interface ApiClientWithResponse extends ApiClient {
 
 type Envelope = SuccessEnvelope<unknown> | ErrorEnvelope
 
-const apiPathBase = 'https://gpt-load.invalid'
-
-function isSafeApiPath(path: unknown): path is ApiPath {
-  if (typeof path !== 'string' || !path.startsWith('/api/')) {
-    return false
+function hasControlCharacter(value: string): boolean {
+  for (const character of value) {
+    const codePoint = character.codePointAt(0)
+    if (codePoint !== undefined && (codePoint <= 0x1f || codePoint === 0x7f)) {
+      return true
+    }
   }
 
-  try {
-    decodeURIComponent(path)
-  } catch {
-    return false
-  }
+  return false
+}
 
-  const rawPathname = path.split(/[?#]/, 1)[0]
-  if (!rawPathname) {
-    return false
-  }
-
-  for (const segment of rawPathname.split('/')) {
-    let decodedSegment: string
-    try {
-      decodedSegment = decodeURIComponent(segment)
-    } catch {
-      return false
+function hasEncodedControlCharacter(value: string): boolean {
+  let encodedValue = value
+  for (let depth = 0; depth <= value.length; depth += 1) {
+    if (/%(?:0[0-9a-f]|1[0-9a-f]|7f)/i.test(encodedValue)) {
+      return true
     }
 
+    const decodedPercents = encodedValue.replace(/%25/gi, '%')
+    if (decodedPercents === encodedValue) {
+      return false
+    }
+    encodedValue = decodedPercents
+  }
+
+  return true
+}
+
+function isSafeApiPathSegment(segment: string): boolean {
+  let decodedSegment = segment
+  for (let depth = 0; depth <= segment.length; depth += 1) {
     if (
+      decodedSegment.length === 0 ||
       decodedSegment === '.' ||
       decodedSegment === '..' ||
       decodedSegment.includes('/') ||
-      decodedSegment.includes('\\')
+      decodedSegment.includes('\\') ||
+      decodedSegment.includes('?') ||
+      decodedSegment.includes('#') ||
+      hasControlCharacter(decodedSegment)
     ) {
+      return false
+    }
+
+    if (!decodedSegment.includes('%')) {
+      return true
+    }
+
+    try {
+      decodedSegment = decodeURIComponent(decodedSegment)
+    } catch {
       return false
     }
   }
 
-  const target = new URL(path, apiPathBase)
-  return target.origin === apiPathBase && target.pathname.startsWith('/api/')
+  return false
+}
+
+function isSafeApiPath(path: unknown): path is ApiPath {
+  if (
+    typeof path !== 'string' ||
+    !path.startsWith('/api/') ||
+    path.startsWith('//') ||
+    path.includes('\\') ||
+    path.includes('#') ||
+    hasControlCharacter(path)
+  ) {
+    return false
+  }
+
+  const queryStart = path.indexOf('?')
+  const pathname = queryStart === -1 ? path : path.slice(0, queryStart)
+  const query = queryStart === -1 ? '' : path.slice(queryStart + 1)
+  try {
+    decodeURIComponent(query)
+  } catch {
+    return false
+  }
+  if (hasEncodedControlCharacter(query)) {
+    return false
+  }
+
+  const segments = pathname.slice('/api/'.length).split('/')
+  return segments.every(isSafeApiPathSegment)
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
