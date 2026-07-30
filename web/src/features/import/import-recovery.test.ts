@@ -11,7 +11,7 @@ const draft: ImportDraft = {
   preset_id: 'custom',
   name: 'Canary',
   upstream_url: 'https://api.example.com',
-  protocols: ['openai'],
+  protocols: ['openai-chat-completions'],
   keys: 'UPSTREAM_KEY_CANARY_91e7',
   header_rules: { set: { 'X-Secret': 'HEADER_CANARY_57aa' }, remove: ['X-Debug'] },
   models: [{ id: 'gpt-4o', alias: '', selected: true }],
@@ -119,21 +119,45 @@ describe('import recovery', () => {
     }
   })
 
-  it('removes recovered new-Group drafts containing AccessKey-only protocols', () => {
+  it('restores Responses-only OpenAI provider drafts', () => {
     const storage = memoryStorage()
+    const responsesDraft = {
+      ...draft,
+      preset_id: 'openai' as const,
+      protocols: ['openai-responses' as const],
+    }
     storage.setItem(
       importRecoveryStorageKey,
       JSON.stringify({
         version: 1,
         expires_at: 910_000,
-        draft: { ...draft, protocols: ['openai-response'] },
+        draft: responsesDraft,
       }),
     )
     const { service } = createHarness(storage)
 
-    expect(service.consume()).toBeNull()
+    expect(service.consume()).toEqual(responsesDraft)
     expect(storage.getItem(importRecoveryStorageKey)).toBeNull()
   })
+
+  it.each(['openai', 'openai-response'])(
+    'removes recovered new-Group drafts containing legacy protocol %s',
+    (protocol) => {
+      const storage = memoryStorage()
+      storage.setItem(
+        importRecoveryStorageKey,
+        JSON.stringify({
+          version: 1,
+          expires_at: 910_000,
+          draft: { ...draft, protocols: [protocol] },
+        }),
+      )
+      const { service } = createHarness(storage)
+
+      expect(service.consume()).toBeNull()
+      expect(storage.getItem(importRecoveryStorageKey)).toBeNull()
+    },
+  )
 
   it('consumes in get, remove, confirm-absent, then parse order and leaves no secret in storage', () => {
     const events: string[] = []

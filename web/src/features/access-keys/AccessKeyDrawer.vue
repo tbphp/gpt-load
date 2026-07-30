@@ -101,7 +101,7 @@ const closeBlocked = computed(() => pending.value)
 const resultSecret = computed(() =>
   result.value ? ephemeralSecret.read(`access-key:${result.value.id}`) : null,
 )
-const protocolOptions = computed(() => accessKeyProtocolOptions(base.value?.filters.protocols))
+const protocolOptions = computed(() => accessKeyProtocolOptions())
 const modelOptions = computed(() =>
   buildAccessKeyModelOptions(props.groups, draft.value.filters.models),
 )

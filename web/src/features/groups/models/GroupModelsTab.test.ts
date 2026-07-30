@@ -14,7 +14,7 @@ const detail: GroupDetailDto = {
   id: 7,
   name: 'Primary',
   upstream_url: 'https://api.example.com/v1',
-  protocols: ['openai'],
+  protocols: ['openai-chat-completions'],
   models: [
     { id: 'old', alias: 'public' },
     { id: 'legacy', alias: 'legacy-public' },

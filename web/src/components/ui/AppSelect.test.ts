@@ -31,8 +31,8 @@ describe('AppSelect', () => {
       props: {
         id: 'protocol',
         label: 'Protocol',
-        modelValue: 'openai',
-        options: [{ value: 'openai', label: 'OpenAI' }],
+        modelValue: 'openai-chat-completions',
+        options: [{ value: 'openai-chat-completions', label: 'OpenAI' }],
         'aria-describedby': 'protocol-help protocol-error',
         'aria-invalid': 'true',
       },

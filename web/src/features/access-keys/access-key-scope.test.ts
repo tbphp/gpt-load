@@ -9,7 +9,7 @@ import {
 const all: AccessKeyFiltersDto = { groups: [], protocols: [], models: [] }
 const restricted: AccessKeyFiltersDto = {
   groups: [7, 99],
-  protocols: ['openai', 'openai-response'],
+  protocols: ['openai-chat-completions', 'openai-responses'],
   models: ['gpt-4.1'],
 }
 
@@ -34,7 +34,7 @@ describe('AccessKey scope contract', () => {
       }),
     ).toEqual({
       groups: [],
-      protocols: ['openai', 'openai-response'],
+      protocols: ['openai-chat-completions', 'openai-responses'],
       models: [],
     })
     expect(
@@ -47,7 +47,7 @@ describe('AccessKey scope contract', () => {
     ).toBe(false)
   })
 
-  it('retains/removes dangling Groups and reserved protocols but cannot add them', () => {
+  it('retains dangling Groups only from the base and accepts every canonical protocol', () => {
     const base = restricted
     expect(
       validateAccessKeyScope({
@@ -60,15 +60,27 @@ describe('AccessKey scope contract', () => {
     expect(
       validateAccessKeyScope({
         base,
-        filters: { ...restricted, groups: [7], protocols: ['openai'] },
+        filters: { ...restricted, groups: [7], protocols: ['openai-chat-completions'] },
         modes: createAccessKeyScopeModes(restricted),
         groupCatalog: { state: 'ready', ids: [7] },
       }),
     ).toBe(true)
     expect(
       validateAccessKeyScope({
-        base: { groups: [7], protocols: ['openai'], models: [] },
-        filters: { groups: [7, 99], protocols: ['openai', 'openai-response'], models: [] },
+        base: { groups: [7], protocols: ['openai-chat-completions'], models: [] },
+        filters: {
+          groups: [7],
+          protocols: ['openai-chat-completions', 'openai-responses'],
+          models: [],
+        },
+        modes: { groups: 'restricted', protocols: 'restricted', models: 'all' },
+        groupCatalog: { state: 'ready', ids: [7] },
+      }),
+    ).toBe(true)
+    expect(
+      validateAccessKeyScope({
+        base: { groups: [7], protocols: ['openai-chat-completions'], models: [] },
+        filters: { groups: [7, 99], protocols: ['openai-chat-completions'], models: [] },
         modes: { groups: 'restricted', protocols: 'restricted', models: 'all' },
         groupCatalog: { state: 'ready', ids: [7] },
       }),
@@ -99,7 +111,7 @@ describe('AccessKey scope contract', () => {
     expect(
       validateAccessKeyScope({
         base: restricted,
-        filters: { groups: [7], protocols: ['openai'], models: ['gpt-4.1'] },
+        filters: { groups: [7], protocols: ['openai-chat-completions'], models: ['gpt-4.1'] },
         modes,
         groupCatalog: { state: 'stale', ids: [7] },
       }),
@@ -127,7 +139,7 @@ describe('AccessKey scope contract', () => {
       validateAccessKeyScope({
         base: {
           groups: [7],
-          protocols: ['openai'],
+          protocols: ['openai-chat-completions'],
           models: ['legacy-model'],
         },
         filters: {

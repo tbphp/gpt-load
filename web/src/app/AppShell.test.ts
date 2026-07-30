@@ -173,7 +173,7 @@ describe('AppShell', () => {
       preset_id: 'custom',
       name: 'Delayed',
       upstream_url: 'https://api.example.com',
-      protocols: ['openai'],
+      protocols: ['openai-chat-completions'],
       keys: 'LATE_401_KEY_CANARY',
       header_rules: { set: { 'X-Canary': 'LATE_401_HEADER_CANARY' }, remove: [] },
       models: [],

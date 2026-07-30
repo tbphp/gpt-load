@@ -32,9 +32,10 @@ func TestCreateGroupNormalizesAndPublishesOnce(t *testing.T) {
 		Name:        &name,
 		UpstreamURL: " HTTPS://API.Example.COM/v1/ ",
 		Protocols: []protocol.Protocol{
-			protocol.OpenAI,
-			protocol.OpenAI,
+			protocol.OpenAIResponses,
 			protocol.Anthropic,
+			protocol.OpenAIChatCompletions,
+			protocol.OpenAIResponses,
 		},
 		Models: optionalGroupModels{
 			Set: true,
@@ -71,7 +72,12 @@ func TestCreateGroupNormalizesAndPublishesOnce(t *testing.T) {
 	if err := json.Unmarshal(group.Protocols, &storedProtocols); err != nil {
 		t.Fatalf("decode stored protocols: %v", err)
 	}
-	if !reflect.DeepEqual(storedProtocols, []protocol.Protocol{protocol.OpenAI, protocol.Anthropic}) {
+	wantProtocols := []protocol.Protocol{
+		protocol.OpenAIChatCompletions,
+		protocol.OpenAIResponses,
+		protocol.Anthropic,
+	}
+	if !reflect.DeepEqual(storedProtocols, wantProtocols) {
 		t.Fatalf("stored protocols = %#v", storedProtocols)
 	}
 	if storedModels := loadCreatedGroupModels(t, fixture, result.GroupID); !reflect.DeepEqual(storedModels, wantModels) {
@@ -85,7 +91,7 @@ func TestCreateGroupNormalizesAndPublishesOnce(t *testing.T) {
 	view, ok := snapshot.Groups[result.GroupID]
 	if !ok || view.UpstreamURL != group.UpstreamURL ||
 		view.InjectUsageOptions ||
-		!reflect.DeepEqual(view.Protocols, []protocol.Protocol{protocol.OpenAI, protocol.Anthropic}) {
+		!reflect.DeepEqual(view.Protocols, wantProtocols) {
 		t.Fatalf("snapshot group = %#v, exists=%t", view, ok)
 	}
 	detail, err := fixture.service.GetGroup(t.Context(), result.GroupID)
@@ -108,7 +114,7 @@ func TestCreateGroupRejectsDuplicateExternalModelWithoutMutation(t *testing.T) {
 
 	_, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
 		UpstreamURL: "https://duplicate-external-model.example.com/v1",
-		Protocols:   []protocol.Protocol{protocol.OpenAI},
+		Protocols:   []protocol.Protocol{protocol.OpenAIChatCompletions},
 		Models: optionalGroupModels{
 			Set: true,
 			Values: []GroupModel{
@@ -141,7 +147,7 @@ func TestCreateGroupReturnsUpstreamURLConflictWithoutMutation(t *testing.T) {
 	fixture := newServiceFixture(t)
 	first, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
 		UpstreamURL: "https://api.example.com/v1",
-		Protocols:   []protocol.Protocol{protocol.OpenAI},
+		Protocols:   []protocol.Protocol{protocol.OpenAIChatCompletions},
 		Keys:        "sk-first",
 	})
 	if err != nil {
@@ -203,7 +209,7 @@ func TestCreateGroupAllowsConfirmedDuplicateURLAsIndependentGroup(t *testing.T) 
 	fixture := newServiceFixture(t)
 	first, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
 		UpstreamURL: "https://same.example.com/v1/",
-		Protocols:   []protocol.Protocol{protocol.OpenAI},
+		Protocols:   []protocol.Protocol{protocol.OpenAIChatCompletions},
 		Models: optionalGroupModels{
 			Set: true, Values: []GroupModel{{ID: "gpt-4o"}},
 		},
@@ -237,7 +243,7 @@ func TestCreateGroupAllowsConfirmedDuplicateURLAsIndependentGroup(t *testing.T) 
 		groups[1].UpstreamURL != groups[0].UpstreamURL {
 		t.Fatalf("stored groups = %#v", groups)
 	}
-	assertStoredGroupProtocols(t, groups[0], []protocol.Protocol{protocol.OpenAI})
+	assertStoredGroupProtocols(t, groups[0], []protocol.Protocol{protocol.OpenAIChatCompletions})
 	assertStoredGroupProtocols(t, groups[1], []protocol.Protocol{protocol.Anthropic})
 	if !reflect.DeepEqual(loadCreatedGroupModels(t, fixture, first.GroupID), []GroupModel{{ID: "gpt-4o"}}) ||
 		!reflect.DeepEqual(loadCreatedGroupModels(t, fixture, second.GroupID), []GroupModel{{ID: "claude-sonnet"}}) {
@@ -249,7 +255,7 @@ func TestCreateGroupRejectsInvalidConfigWithoutMutation(t *testing.T) {
 	fixture := newServiceFixture(t)
 	seed, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
 		UpstreamURL: "https://existing-config.example.com",
-		Protocols:   []protocol.Protocol{protocol.OpenAI},
+		Protocols:   []protocol.Protocol{protocol.OpenAIChatCompletions},
 		Keys:        "sk-existing-config",
 	})
 	if err != nil {
@@ -267,7 +273,7 @@ func TestCreateGroupRejectsInvalidConfigWithoutMutation(t *testing.T) {
 
 	_, err = fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
 		UpstreamURL: "https://invalid-config.example.com",
-		Protocols:   []protocol.Protocol{protocol.OpenAI},
+		Protocols:   []protocol.Protocol{protocol.OpenAIChatCompletions},
 		Config:      config.Settings{"unknown_setting": true},
 		Keys:        "sk-must-not-persist",
 	})
@@ -298,7 +304,7 @@ func TestCreateGroupPersistsEncryptedKeysAndDoesNotDiscoverModels(t *testing.T) 
 	fixture := newServiceFixture(t)
 	discoveryCalls := 0
 	fixture.service.dialects = dialect.NewSet(&recordingDiscoveryDialect{
-		value: protocol.OpenAI,
+		value: protocol.OpenAIChatCompletions,
 		listFn: func(_ context.Context, _, _ string, _ state.HeaderRules) ([]string, error) {
 			discoveryCalls++
 			return []string{"upstream-only"}, nil
@@ -307,7 +313,7 @@ func TestCreateGroupPersistsEncryptedKeysAndDoesNotDiscoverModels(t *testing.T) 
 
 	result, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
 		UpstreamURL: "https://secure.example.com/v1/",
-		Protocols:   []protocol.Protocol{protocol.OpenAI},
+		Protocols:   []protocol.Protocol{protocol.OpenAIChatCompletions},
 		Models: optionalGroupModels{
 			Set: true, Values: []GroupModel{{ID: "user-configured"}},
 		},
@@ -389,7 +395,7 @@ func TestCreateGroupPrivateHostLogContainsOnlyHostname(t *testing.T) {
 
 	result, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
 		UpstreamURL: rawURL,
-		Protocols:   []protocol.Protocol{protocol.OpenAI},
+		Protocols:   []protocol.Protocol{protocol.OpenAIChatCompletions},
 		Keys:        plaintext,
 	})
 	if err != nil {
@@ -428,7 +434,7 @@ func TestCreateGroupRejectsNameCollisionWithoutMutation(t *testing.T) {
 	first, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
 		Name:        &name,
 		UpstreamURL: "https://first.example.com",
-		Protocols:   []protocol.Protocol{protocol.OpenAI},
+		Protocols:   []protocol.Protocol{protocol.OpenAIChatCompletions},
 		Keys:        "sk-first",
 	})
 	if err != nil {
@@ -467,27 +473,27 @@ func TestCreateGroupModelsPresenceRejectsNull(t *testing.T) {
 	}{
 		{
 			name: "omitted",
-			body: `{"upstream_url":"https://example.com","protocols":["openai"],"keys":"sk-a"}`,
+			body: `{"upstream_url":"https://example.com","protocols":["openai-chat-completions"],"keys":"sk-a"}`,
 		},
 		{
 			name:    "empty",
-			body:    `{"upstream_url":"https://example.com","protocols":["openai"],"keys":"sk-a","models":[]}`,
+			body:    `{"upstream_url":"https://example.com","protocols":["openai-chat-completions"],"keys":"sk-a","models":[]}`,
 			wantSet: true,
 		},
 		{
 			name:      "values",
-			body:      `{"upstream_url":"https://example.com","protocols":["openai"],"keys":"sk-a","models":[{"id":" gpt-4o ","alias":" primary "}]}`,
+			body:      `{"upstream_url":"https://example.com","protocols":["openai-chat-completions"],"keys":"sk-a","models":[{"id":" gpt-4o ","alias":" primary "}]}`,
 			wantSet:   true,
 			wantCount: 1,
 		},
 		{
 			name:      "null",
-			body:      `{"upstream_url":"https://example.com","protocols":["openai"],"keys":"sk-a","models":null}`,
+			body:      `{"upstream_url":"https://example.com","protocols":["openai-chat-completions"],"keys":"sk-a","models":null}`,
 			wantError: true,
 		},
 		{
 			name:      "unknown model field",
-			body:      `{"upstream_url":"https://example.com","protocols":["openai"],"keys":"sk-a","models":[{"id":"gpt-4o","extra":true}]}`,
+			body:      `{"upstream_url":"https://example.com","protocols":["openai-chat-completions"],"keys":"sk-a","models":[{"id":"gpt-4o","extra":true}]}`,
 			wantError: true,
 		},
 	}
@@ -523,7 +529,7 @@ func TestCreateGroupOmittedModelsReturnsEmptyArray(t *testing.T) {
 	fixture := newServiceFixture(t)
 	result, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
 		UpstreamURL: "https://empty-models.example.com",
-		Protocols:   []protocol.Protocol{protocol.OpenAI},
+		Protocols:   []protocol.Protocol{protocol.OpenAIChatCompletions},
 		Keys:        "sk-empty-models",
 	})
 	if err != nil {
@@ -550,20 +556,19 @@ func TestCreateGroupRejectsInvalidNormalizedInputs(t *testing.T) {
 		name    string
 		request GroupCreateRequest
 	}{
-		{name: "relative URL", request: GroupCreateRequest{UpstreamURL: "/v1", Protocols: []protocol.Protocol{protocol.OpenAI}, Keys: "sk"}},
-		{name: "FTP URL", request: GroupCreateRequest{UpstreamURL: "ftp://example.com", Protocols: []protocol.Protocol{protocol.OpenAI}, Keys: "sk"}},
-		{name: "userinfo URL", request: GroupCreateRequest{UpstreamURL: "https://user:pass@example.com", Protocols: []protocol.Protocol{protocol.OpenAI}, Keys: "sk"}},
-		{name: "fragment URL", request: GroupCreateRequest{UpstreamURL: "https://example.com/#secret", Protocols: []protocol.Protocol{protocol.OpenAI}, Keys: "sk"}},
-		{name: "missing host URL", request: GroupCreateRequest{UpstreamURL: "https:///v1", Protocols: []protocol.Protocol{protocol.OpenAI}, Keys: "sk"}},
+		{name: "relative URL", request: GroupCreateRequest{UpstreamURL: "/v1", Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions}, Keys: "sk"}},
+		{name: "FTP URL", request: GroupCreateRequest{UpstreamURL: "ftp://example.com", Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions}, Keys: "sk"}},
+		{name: "userinfo URL", request: GroupCreateRequest{UpstreamURL: "https://user:pass@example.com", Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions}, Keys: "sk"}},
+		{name: "fragment URL", request: GroupCreateRequest{UpstreamURL: "https://example.com/#secret", Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions}, Keys: "sk"}},
+		{name: "missing host URL", request: GroupCreateRequest{UpstreamURL: "https:///v1", Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions}, Keys: "sk"}},
 		{name: "empty protocols", request: GroupCreateRequest{UpstreamURL: "https://example.com", Keys: "sk"}},
 		{name: "unknown protocol", request: GroupCreateRequest{UpstreamURL: "https://example.com", Protocols: []protocol.Protocol{"unknown"}, Keys: "sk"}},
-		{name: "response protocol", request: GroupCreateRequest{UpstreamURL: "https://example.com", Protocols: []protocol.Protocol{protocol.OpenAIResponse}, Keys: "sk"}},
-		{name: "empty keys", request: GroupCreateRequest{UpstreamURL: "https://example.com", Protocols: []protocol.Protocol{protocol.OpenAI}, Keys: " \n\t"}},
-		{name: "too many keys", request: GroupCreateRequest{UpstreamURL: "https://example.com", Protocols: []protocol.Protocol{protocol.OpenAI}, Keys: groupCreateLines(1001)}},
-		{name: "blank name", request: GroupCreateRequest{Name: &blank, UpstreamURL: "https://example.com", Protocols: []protocol.Protocol{protocol.OpenAI}, Keys: "sk"}},
-		{name: "long name", request: GroupCreateRequest{Name: &tooLong, UpstreamURL: "https://example.com", Protocols: []protocol.Protocol{protocol.OpenAI}, Keys: "sk"}},
-		{name: "control name", request: GroupCreateRequest{Name: &controlName, UpstreamURL: "https://example.com", Protocols: []protocol.Protocol{protocol.OpenAI}, Keys: "sk"}},
-		{name: "blank model", request: GroupCreateRequest{UpstreamURL: "https://example.com", Protocols: []protocol.Protocol{protocol.OpenAI}, Models: optionalGroupModels{Set: true, Values: []GroupModel{{ID: "   "}}}, Keys: "sk"}},
+		{name: "empty keys", request: GroupCreateRequest{UpstreamURL: "https://example.com", Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions}, Keys: " \n\t"}},
+		{name: "too many keys", request: GroupCreateRequest{UpstreamURL: "https://example.com", Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions}, Keys: groupCreateLines(1001)}},
+		{name: "blank name", request: GroupCreateRequest{Name: &blank, UpstreamURL: "https://example.com", Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions}, Keys: "sk"}},
+		{name: "long name", request: GroupCreateRequest{Name: &tooLong, UpstreamURL: "https://example.com", Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions}, Keys: "sk"}},
+		{name: "control name", request: GroupCreateRequest{Name: &controlName, UpstreamURL: "https://example.com", Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions}, Keys: "sk"}},
+		{name: "blank model", request: GroupCreateRequest{UpstreamURL: "https://example.com", Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions}, Models: optionalGroupModels{Set: true, Values: []GroupModel{{ID: "   "}}}, Keys: "sk"}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -636,7 +641,7 @@ func TestCreateGroupAllowsExactlyOneThousandNonEmptyKeyLines(t *testing.T) {
 	fixture := newServiceFixture(t)
 	result, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
 		UpstreamURL: "https://thousand.example.com",
-		Protocols:   []protocol.Protocol{protocol.OpenAI},
+		Protocols:   []protocol.Protocol{protocol.OpenAIChatCompletions},
 		Keys:        groupCreateLines(1000),
 	})
 	if err != nil {
@@ -651,7 +656,7 @@ func TestCreateGroupRollsBackWhenKeyEncryptionFails(t *testing.T) {
 	fixture := newServiceFixture(t)
 	seed, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
 		UpstreamURL: "https://existing-rollback.example.com",
-		Protocols:   []protocol.Protocol{protocol.OpenAI},
+		Protocols:   []protocol.Protocol{protocol.OpenAIChatCompletions},
 		Keys:        "sk-existing-rollback",
 	})
 	if err != nil {
@@ -670,7 +675,7 @@ func TestCreateGroupRollsBackWhenKeyEncryptionFails(t *testing.T) {
 
 	_, err = fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
 		UpstreamURL: "https://rollback.example.com",
-		Protocols:   []protocol.Protocol{protocol.OpenAI},
+		Protocols:   []protocol.Protocol{protocol.OpenAIChatCompletions},
 		Models: optionalGroupModels{
 			Set: true, Values: []GroupModel{{ID: "must-not-persist"}},
 		},

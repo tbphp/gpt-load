@@ -14,7 +14,7 @@ const item = {
   request_id: requestID,
   completed_at: '2026-07-29T01:02:03Z',
   access_key: { id: 4, name: 'Client', deleted: false },
-  protocol: 'openai',
+  protocol: 'openai-chat-completions',
   client_model: 'gpt-client',
   upstream_model: 'gpt-upstream',
   status: 'success',
@@ -57,12 +57,23 @@ describe('RequestLog resource', () => {
       items: [item],
       next_cursor: 'opaque-cursor',
     })
+    const responsesItem = {
+      ...item,
+      protocol: 'openai-responses',
+      client_model: null,
+      upstream_model: null,
+      attempts: [{ ...item.attempts[0], upstream_model: null }],
+    }
+    expect(projectRequestLogPage({ items: [responsesItem], next_cursor: null })).toEqual({
+      items: [responsesItem],
+      next_cursor: null,
+    })
   })
 
   it.each([
     { ...item, request_id: 'not-a-uuid' },
     { ...item, completed_at: 'tomorrow' },
-    { ...item, protocol: 'openai-response' },
+    { ...item, protocol: 'openai' },
     { ...item, status: 'unknown' },
     { ...item, duration_ms: Number.POSITIVE_INFINITY },
     { ...item, access_key: { ...item.access_key, key: 'plaintext' } },

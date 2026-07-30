@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 
+import { enabledDataProtocols } from '@/api/control/protocols'
 import type { GroupProtocol } from '@/api/control/types'
+import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import SurfaceCard from '@/components/ui/SurfaceCard.vue'
 
 defineProps<{
@@ -25,7 +27,7 @@ const emit = defineEmits<{
   'update:enabled': [value: boolean]
 }>()
 const { t } = useI18n()
-const protocolOptions: GroupProtocol[] = ['openai', 'anthropic', 'gemini']
+const protocolOptions: readonly GroupProtocol[] = enabledDataProtocols
 const weights = Array.from({ length: 100 }, (_, index) => index + 1)
 </script>
 
@@ -142,6 +144,19 @@ const weights = Array.from({ length: 100 }, (_, index) => index + 1)
         role="alert"
       >
         {{ protocolsError }}
+      </small>
+      <InlineFeedback
+        v-if="protocols.includes('openai-responses')"
+        data-test="group-responses-affinity-warning"
+        tone="warning"
+      >
+        {{ t('group.settings.base.responsesAffinityWarning') }}
+      </InlineFeedback>
+      <small
+        v-if="protocols.includes('openai-responses')"
+        data-test="group-responses-usage-options-help"
+      >
+        {{ t('group.settings.base.responsesUsageOptionsHelp') }}
       </small>
     </fieldset>
     <label class="group-settings__enabled">

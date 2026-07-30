@@ -40,13 +40,22 @@ func TestExtractJSONRequestFieldsStrictDecisionContract(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			body := []byte(test.body)
 			before := bytes.Clone(body)
-			model, stream, err := extractJSONRequestFields(body)
+			metadata, err := inspectJSONRequestFields(body, true)
+			model := ""
+			if metadata.Model != nil {
+				model = *metadata.Model
+			}
 			if test.wantErr {
 				if err == nil {
-					t.Fatalf("extractJSONRequestFields() = %q, %t, nil", model, stream)
+					t.Fatalf("inspectJSONRequestFields() = %#v, nil", metadata)
 				}
-			} else if err != nil || model != test.wantModel || stream != test.wantStream {
-				t.Fatalf("extractJSONRequestFields() = %q, %t, %v", model, stream, err)
+			} else if err != nil || model != test.wantModel ||
+				metadata.Stream != test.wantStream {
+				t.Fatalf(
+					"inspectJSONRequestFields() = %#v, %v",
+					metadata,
+					err,
+				)
 			}
 			if !bytes.Equal(body, before) {
 				t.Fatal("parser mutated wire body")

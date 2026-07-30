@@ -15,7 +15,7 @@ const groupFixture: GroupSummary = {
   id: 1,
   name: 'Example',
   upstream_url: 'https://api.example.com/v1',
-  protocols: ['openai'],
+  protocols: ['openai-chat-completions'],
   models: [{ id: 'gpt-real', alias: '' }],
   enabled: true,
   key_count: 2,

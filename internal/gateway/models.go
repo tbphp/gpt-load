@@ -73,7 +73,6 @@ func collectVisibleModelIDs(
 	value protocol.Protocol,
 	limit int64,
 ) ([]string, error) {
-	result := make([]string, 0)
 	emptyBody, err := marshalModelList(value, nil)
 	if err != nil {
 		return nil, err
@@ -83,38 +82,57 @@ func collectVisibleModelIDs(
 		return nil, errModelListTooLarge
 	}
 	if snapshot == nil {
-		return result, nil
+		return []string{}, nil
 	}
-	if len(accessKey.Filters.Protocols) > 0 {
-		if _, ok := accessKey.Filters.Protocols[value]; !ok {
-			return result, nil
-		}
-	}
-	for modelID, targets := range snapshot.Candidates[value] {
-		if len(accessKey.Filters.Models) > 0 {
-			if _, ok := accessKey.Filters.Models[modelID]; !ok {
+	visible := make(map[string]struct{})
+	for _, selectedProtocol := range modelListProtocols(value) {
+		if len(accessKey.Filters.Protocols) > 0 {
+			if _, ok := accessKey.Filters.Protocols[selectedProtocol]; !ok {
 				continue
 			}
 		}
-		if !anyVisibleTarget(targets, accessKey.Filters.Groups) {
-			continue
+		for modelID, targets := range snapshot.Candidates[selectedProtocol] {
+			if len(accessKey.Filters.Models) > 0 {
+				if _, ok := accessKey.Filters.Models[modelID]; !ok {
+					continue
+				}
+			}
+			if !anyVisibleTarget(targets, accessKey.Filters.Groups) {
+				continue
+			}
+			visible[modelID] = struct{}{}
 		}
+	}
+	result := make([]string, 0, len(visible))
+	for modelID := range visible {
+		result = append(result, modelID)
+	}
+	sort.Strings(result)
+	for index, modelID := range result {
 		item, err := marshalModelListItem(value, modelID)
 		if err != nil {
 			return nil, err
 		}
 		required := int64(len(item))
-		if len(result) > 0 {
+		if index > 0 {
 			required++
 		}
 		if required > limit-encodedLowerBound {
 			return nil, errModelListTooLarge
 		}
 		encodedLowerBound += required
-		result = append(result, modelID)
 	}
-	sort.Strings(result)
 	return result, nil
+}
+
+func modelListProtocols(value protocol.Protocol) []protocol.Protocol {
+	if value == protocol.OpenAIChatCompletions {
+		return []protocol.Protocol{
+			protocol.OpenAIChatCompletions,
+			protocol.OpenAIResponses,
+		}
+	}
+	return []protocol.Protocol{value}
 }
 
 func anyVisibleTarget(targets []state.RouteTarget, groups map[uint]struct{}) bool {

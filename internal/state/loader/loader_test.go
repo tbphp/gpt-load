@@ -32,7 +32,7 @@ func TestLoadSystemSettingsDecodesPersistedValues(t *testing.T) {
 	}
 	mustCreate(t, db, &models.Group{
 		Name: "unrelated", UpstreamURL: "https://unrelated.example.com",
-		Protocols: models.JSON(`["openai"]`), Models: models.JSON(`[]`),
+		Protocols: models.JSON(`["openai-chat-completions"]`), Models: models.JSON(`[]`),
 		Config: models.JSON(`{}`), Enabled: true,
 	})
 
@@ -271,7 +271,7 @@ func TestBuildCompileInputReadsUncommittedTransactionState(t *testing.T) {
 
 	group := models.Group{
 		Name: "pending", UpstreamURL: "https://pending.example",
-		Protocols: models.JSON(`["openai"]`),
+		Protocols: models.JSON(`["openai-chat-completions"]`),
 		Models:    models.JSON(`[{"id":"gpt-pending"}]`), Config: models.JSON(`{}`), Enabled: true,
 	}
 	mustCreate(t, tx, &group)
@@ -293,14 +293,14 @@ func TestBuildCompileInputReadsUncommittedTransactionState(t *testing.T) {
 func TestBuildCompileInputReturnsIndependentData(t *testing.T) {
 	db := openMigratedDatabase(t)
 	mustCreate(t, db, &models.SystemSetting{Key: "connect_timeout", Value: "20"})
-	group := createRuntimeGroup(t, db, "owned", protocol.OpenAI, "gpt-owned")
+	group := createRuntimeGroup(t, db, "owned", protocol.OpenAIChatCompletions, "gpt-owned")
 	if err := db.Model(&group).Update("config", models.JSON(`{"request_timeout":30}`)).Error; err != nil {
 		t.Fatalf("update group config: %v", err)
 	}
 	mustCreate(t, db, &models.AccessKey{
 		Name: "owned", KeyValue: "cipher", KeyHash: "owned-hash", Status: "active",
 		KeySuffix: "0001",
-		Filters:   models.JSON(fmt.Sprintf(`{"groups":[%d],"protocols":["openai"],"models":["gpt-owned"]}`, group.ID)),
+		Filters:   models.JSON(fmt.Sprintf(`{"groups":[%d],"protocols":["openai-chat-completions"],"models":["gpt-owned"]}`, group.ID)),
 	})
 
 	first, err := loader.BuildCompileInput(context.Background(), db)
@@ -320,7 +320,7 @@ func TestBuildCompileInputReturnsIndependentData(t *testing.T) {
 	if got := fmt.Sprint(second.SystemSettings["connect_timeout"]); got != "20" {
 		t.Fatalf("connect_timeout = %q, want 20", got)
 	}
-	if second.Groups[0].Protocols[0] != protocol.OpenAI {
+	if second.Groups[0].Protocols[0] != protocol.OpenAIChatCompletions {
 		t.Fatalf("protocol = %q, want openai", second.Groups[0].Protocols[0])
 	}
 	if got := fmt.Sprint(second.Groups[0].Settings["request_timeout"]); got != "30" {
@@ -336,7 +336,7 @@ func TestBuildCompileInputReturnsIndependentData(t *testing.T) {
 
 func TestBuildCompileInputDoesNotQueryUpstreamKeys(t *testing.T) {
 	db := openMigratedDatabase(t)
-	group := createRuntimeGroup(t, db, "query-boundary", protocol.OpenAI, "gpt-query")
+	group := createRuntimeGroup(t, db, "query-boundary", protocol.OpenAIChatCompletions, "gpt-query")
 	mustCreate(t, db, &models.AccessKey{
 		Name: "query-boundary", KeyValue: "cipher", KeyHash: "query-boundary-hash",
 		KeySuffix: "0002", Status: "active", Filters: models.JSON(`{}`),
@@ -378,7 +378,7 @@ func TestLoaderMapsSystemAndGroupRows(t *testing.T) {
 	enabled := models.Group{
 		Name:        "enabled",
 		UpstreamURL: "https://enabled.example.com/v1",
-		Protocols:   models.JSON(`["openai"]`),
+		Protocols:   models.JSON(`["openai-chat-completions"]`),
 		Models: models.JSON(`[
 			{"id":"gpt-4o","alias":"Primary"},
 			{"id":"gpt-4o","alias":"Secondary"},
@@ -394,7 +394,7 @@ func TestLoaderMapsSystemAndGroupRows(t *testing.T) {
 	disabled := models.Group{
 		Name:        "disabled",
 		UpstreamURL: "https://disabled.example.com/v1",
-		Protocols:   models.JSON(`["openai"]`),
+		Protocols:   models.JSON(`["openai-chat-completions"]`),
 		Models:      models.JSON(`[{"id":"hidden","alias":"Hidden"}]`),
 		Config:      models.JSON(`{}`),
 		Enabled:     true,
@@ -456,7 +456,7 @@ func TestLoaderMapsSystemAndGroupRows(t *testing.T) {
 		t.Errorf("group header remove rules = %#v, want group override", view.HeaderRules.Remove)
 	}
 
-	openAICandidates := snapshot.Candidates[protocol.OpenAI]
+	openAICandidates := snapshot.Candidates[protocol.OpenAIChatCompletions]
 	if len(openAICandidates) != 3 {
 		t.Fatalf("OpenAI candidates = %#v, want three external model names", openAICandidates)
 	}
@@ -472,7 +472,7 @@ func TestLoaderMapsSystemAndGroupRows(t *testing.T) {
 	if _, ok := openAICandidates["hidden"]; ok {
 		t.Fatal("disabled group model hidden is present in candidates")
 	}
-	if got := snapshot.RouteCatalog[protocol.OpenAI]["Hidden"]; len(got) != 1 ||
+	if got := snapshot.RouteCatalog[protocol.OpenAIChatCompletions]["Hidden"]; len(got) != 1 ||
 		got[0].GroupID != disabled.ID || got[0].UpstreamModelID != "hidden" {
 		t.Fatalf("disabled RouteCatalog entry = %#v", got)
 	}
@@ -494,7 +494,7 @@ func TestLoaderMapsValidationModelIntoRuntimeSnapshot(t *testing.T) {
 			group := models.Group{
 				Name:            "validation-" + test.name,
 				UpstreamURL:     "https://validation.example.com/v1",
-				Protocols:       models.JSON(`["openai"]`),
+				Protocols:       models.JSON(`["openai-chat-completions"]`),
 				Models:          models.JSON(`[{"id":"real-model","alias":"public-model"}]`),
 				ValidationModel: test.validationModel,
 				Config:          models.JSON(`{}`),
@@ -512,7 +512,7 @@ func TestLoaderMapsValidationModelIntoRuntimeSnapshot(t *testing.T) {
 			if got := snapshot.Groups[group.ID].ValidationModel; got != test.want {
 				t.Fatalf("ValidationModel = %q, want %q", got, test.want)
 			}
-			if got := snapshot.Candidates[protocol.OpenAI]["public-model"][0].UpstreamModelID; got != "real-model" {
+			if got := snapshot.Candidates[protocol.OpenAIChatCompletions]["public-model"][0].UpstreamModelID; got != "real-model" {
 				t.Fatalf("candidate upstream model = %q, want real-model", got)
 			}
 		})
@@ -528,11 +528,11 @@ func TestLoaderRejectsInvalidGroupRowsWithoutPublishing(t *testing.T) {
 		wantError string
 	}{
 		{name: "protocols object", protocols: models.JSON(`{}`), models: models.JSON(`[]`), config: models.JSON(`{}`), wantError: "protocols"},
-		{name: "models object", protocols: models.JSON(`["openai"]`), models: models.JSON(`{}`), config: models.JSON(`{}`), wantError: "models"},
-		{name: "config array", protocols: models.JSON(`["openai"]`), models: models.JSON(`[]`), config: models.JSON(`[]`), wantError: "config"},
-		{name: "unknown group setting", protocols: models.JSON(`["openai"]`), models: models.JSON(`[{"id":"gpt-4o"}]`), config: models.JSON(`{"unknown":true}`), wantError: "unknown group setting"},
-		{name: "duplicate protocol", protocols: models.JSON(`["openai","openai"]`), models: models.JSON(`[{"id":"gpt-4o"}]`), config: models.JSON(`{}`), wantError: "duplicate protocol"},
-		{name: "blank model id", protocols: models.JSON(`["openai"]`), models: models.JSON(`[{"id":"  "}]`), config: models.JSON(`{}`), wantError: "model id is required"},
+		{name: "models object", protocols: models.JSON(`["openai-chat-completions"]`), models: models.JSON(`{}`), config: models.JSON(`{}`), wantError: "models"},
+		{name: "config array", protocols: models.JSON(`["openai-chat-completions"]`), models: models.JSON(`[]`), config: models.JSON(`[]`), wantError: "config"},
+		{name: "unknown group setting", protocols: models.JSON(`["openai-chat-completions"]`), models: models.JSON(`[{"id":"gpt-4o"}]`), config: models.JSON(`{"unknown":true}`), wantError: "unknown group setting"},
+		{name: "duplicate protocol", protocols: models.JSON(`["openai-chat-completions","openai-chat-completions"]`), models: models.JSON(`[{"id":"gpt-4o"}]`), config: models.JSON(`{}`), wantError: "duplicate protocol"},
+		{name: "blank model id", protocols: models.JSON(`["openai-chat-completions"]`), models: models.JSON(`[{"id":"  "}]`), config: models.JSON(`{}`), wantError: "model id is required"},
 	}
 
 	for _, test := range tests {
@@ -566,7 +566,7 @@ func TestLoaderRejectsInvalidGroupRowsWithoutPublishing(t *testing.T) {
 
 func TestLoaderMapsAccessAndUpstreamKeys(t *testing.T) {
 	db := openMigratedDatabase(t)
-	firstGroup := createRuntimeGroup(t, db, "first", protocol.OpenAI, "gpt-4o")
+	firstGroup := createRuntimeGroup(t, db, "first", protocol.OpenAIChatCompletions, "gpt-4o")
 	if err := db.Model(&firstGroup).Update("models", models.JSON(`[{"id":"gpt-4o","alias":"Primary"}]`)).Error; err != nil {
 		t.Fatalf("set group model alias: %v", err)
 	}
@@ -576,7 +576,7 @@ func TestLoaderMapsAccessAndUpstreamKeys(t *testing.T) {
 		Name: "active access", KeyValue: "access-cipher-active", KeyHash: "active-hash",
 		KeySuffix: "0003", Status: "active",
 		Filters: models.JSON(fmt.Sprintf(
-			`{"groups":[%d,9999],"protocols":["openai"],"models":["Primary"]}`,
+			`{"groups":[%d,9999],"protocols":["openai-chat-completions"],"models":["Primary"]}`,
 			firstGroup.ID,
 		)),
 	}
@@ -635,7 +635,7 @@ func TestLoaderMapsAccessAndUpstreamKeys(t *testing.T) {
 	if _, ok := access.Filters.Groups[9999]; !ok {
 		t.Errorf("access filters groups = %#v, want dangling group 9999 retained", access.Filters.Groups)
 	}
-	if _, ok := access.Filters.Protocols[protocol.OpenAI]; !ok {
+	if _, ok := access.Filters.Protocols[protocol.OpenAIChatCompletions]; !ok {
 		t.Errorf("access filters protocols = %#v, want OpenAI", access.Filters.Protocols)
 	}
 	if _, ok := access.Filters.Models["Primary"]; !ok {
@@ -675,7 +675,7 @@ func TestLoaderMapsAccessAndUpstreamKeys(t *testing.T) {
 
 func TestBuildGroupKeyEntriesReadsOnlyRequestedGroupInStableOrder(t *testing.T) {
 	db := openMigratedDatabase(t)
-	firstGroup := createRuntimeGroup(t, db, "first-entries", protocol.OpenAI, "gpt-4o")
+	firstGroup := createRuntimeGroup(t, db, "first-entries", protocol.OpenAIChatCompletions, "gpt-4o")
 	secondGroup := createRuntimeGroup(t, db, "second-entries", protocol.Anthropic, "claude")
 	weight := 9
 	keys := []models.UpstreamKey{
@@ -788,7 +788,7 @@ func TestLoaderRejectsInvalidCredentialRowsWithoutPublishing(t *testing.T) {
 				mustCreate(t, db, &models.AccessKey{
 					Name: "invalid", KeyValue: "access-cipher", KeyHash: "unknown-filter-field-hash",
 					KeySuffix: "0009", Status: "active",
-					Filters: models.JSON(`{"protcols":["openai"]}`),
+					Filters: models.JSON(`{"protcols":["openai-chat-completions"]}`),
 				})
 			},
 			wantError: "unknown field",
@@ -808,7 +808,7 @@ func TestLoaderRejectsInvalidCredentialRowsWithoutPublishing(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			db := openMigratedDatabase(t)
-			group := createRuntimeGroup(t, db, "valid", protocol.OpenAI, "gpt-4o")
+			group := createRuntimeGroup(t, db, "valid", protocol.OpenAIChatCompletions, "gpt-4o")
 			test.insert(t, db, group)
 			manager := state.NewManager()
 			registry := state.NewKeyRegistry()

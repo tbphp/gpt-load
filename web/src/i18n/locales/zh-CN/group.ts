@@ -59,6 +59,10 @@ export default {
         auto: '自动',
         protocols: '协议',
         protocolsError: '请至少选择一个协议。',
+        responsesAffinityWarning:
+          'Responses 暂无资源亲和。有状态多轮与资源操作仅在命中同一上游 Key 或上游共享存储时可靠，否则会直接返回上游错误。',
+        responsesUsageOptionsHelp:
+          'InjectUsageOptions 按协议能力生效；Responses 会忽略 stream_options 注入。',
         enabled: '启用 Group',
       },
       runtime: {

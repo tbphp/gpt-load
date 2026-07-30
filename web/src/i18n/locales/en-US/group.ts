@@ -64,6 +64,10 @@ export default {
         auto: 'Auto',
         protocols: 'Protocols',
         protocolsError: 'Select at least one protocol.',
+        responsesAffinityWarning:
+          'Responses has no resource affinity yet. Stateful multi-turn and resource operations are reliable only when they reach the same upstream key or shared upstream storage; otherwise the upstream error is returned.',
+        responsesUsageOptionsHelp:
+          'InjectUsageOptions is capability-based. Responses ignores stream_options injection.',
         enabled: 'Group enabled',
       },
       runtime: {

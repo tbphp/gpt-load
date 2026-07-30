@@ -56,7 +56,8 @@ export default {
       status: 'Status',
       groups: 'Group filters',
       protocols: 'Protocol filters',
-      reservedProtocolHint: 'Currently disabled; retained only for this historical AccessKey.',
+      responsesAffinityHint:
+        'Filtering permits Responses traffic but does not guarantee that related requests reach the same upstream key.',
       models: 'Model filters',
       scopeMode: 'Scope',
       scopeAll: 'All',

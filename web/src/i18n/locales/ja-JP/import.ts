@@ -47,6 +47,8 @@ export default {
       title: 'アップストリームに接続',
       description:
         'プリセットまたは互換アップストリームを入力します。プリセットは URL とプロトコルだけを設定します。',
+      responsesAffinityWarning:
+        'Responses にはまだリソースアフィニティがありません。状態を持つ複数ターンやリソース操作は、同じアップストリーム Key または共有ストレージに到達した場合のみ確実で、それ以外はアップストリームエラーをそのまま返します。',
       preset: 'チャンネルプリセット',
       name: 'Group 名（任意）',
       url: 'アップストリーム URL',
@@ -86,6 +88,9 @@ export default {
       manualId: '手動モデル ID',
       add: 'モデルを追加',
       manualPath: 'モデル ID を手動入力',
+      none: 'モデル未設定',
+      resourceOnlyNotice:
+        'モデルが選択されていません。この Group がルーティングできるのは model を含まない Responses リソース API だけです。model を含む要求には使用できません。',
     },
     discover: 'モデルを検出',
     discoveryFailed:

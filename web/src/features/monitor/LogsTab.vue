@@ -364,9 +364,9 @@ onBeforeUnmount(() => {
               <span>{{ t('monitor.logs.drawer.protocol') }}</span>
               <code>{{ t(`common.protocols.${log.protocol}`) }}</code>
               <span>{{ t('monitor.logs.drawer.clientModel') }}</span>
-              <code>{{ log.client_model }}</code>
+              <code>{{ log.client_model ?? t('monitor.logs.drawer.modelNotSpecified') }}</code>
               <span>{{ t('monitor.logs.drawer.upstreamModel') }}</span>
-              <code>{{ log.upstream_model }}</code>
+              <code>{{ log.upstream_model ?? t('monitor.logs.drawer.modelNotSpecified') }}</code>
             </div>
           </td>
           <td>{{ accessKeyLabel(log) }}</td>

@@ -1,3 +1,4 @@
+import { supportsProtocolOnlyRouting, type ProtocolValue } from '@/api/control/protocols'
 import type { AccessKeyOptionDto, GroupSummary } from '@/api/control/types'
 import type { KeyCounts } from '@/app/resources/health'
 
@@ -12,7 +13,7 @@ export function buildChatCompletionsSnippet(origin: string, model: string): stri
   return `curl "${origin}/v1/chat/completions" \\\n  -H "Authorization: Bearer $GPT_LOAD_API_KEY" \\\n  -H "Content-Type: application/json" \\\n  -d ${payload}`
 }
 
-export type NativeProtocol = 'openai' | 'anthropic' | 'gemini'
+export type NativeProtocol = ProtocolValue
 
 export interface ConnectionSnippetInput {
   origin: string
@@ -32,11 +33,23 @@ function normalizedOrigin(origin: string): string {
 
 export function buildConnectionSnippet(input: ConnectionSnippetInput): ConnectionSnippet {
   const origin = normalizedOrigin(input.origin)
-  if (input.protocol === 'openai') {
+  if (input.protocol === 'openai-chat-completions') {
     const path = '/v1/chat/completions'
     return {
       path,
       command: buildChatCompletionsSnippet(origin, input.model),
+      language: 'bash',
+    }
+  }
+
+  if (input.protocol === 'openai-responses') {
+    const path = '/v1/responses'
+    const payload = quotePosixShellArgument(
+      JSON.stringify({ model: input.model, input: 'Hello', store: false }),
+    )
+    return {
+      path,
+      command: `curl "${origin}${path}" \\\n  -H "Authorization: Bearer $GPT_LOAD_API_KEY" \\\n  -H "Content-Type: application/json" \\\n  -d ${payload}`,
       language: 'bash',
     }
   }
@@ -70,7 +83,12 @@ export function buildConnectionSnippet(input: ConnectionSnippetInput): Connectio
 }
 
 export function isGroupServiceable(group: GroupSummary, counts?: KeyCounts): boolean | undefined {
-  if (!group.enabled || group.models.length === 0) return false
+  if (
+    !group.enabled ||
+    (group.models.length === 0 && !supportsProtocolOnlyRouting(group.protocols))
+  ) {
+    return false
+  }
   if (!counts) return undefined
   return counts.available > 0
 }

@@ -32,7 +32,7 @@ function inspectionFixture(
   return {
     observed_at: '2026-07-25T10:00:00Z',
     snapshot_revision: 42,
-    protocol: 'openai',
+    protocol: 'openai-chat-completions',
     external_model: 'gpt-client',
     access_key: {
       id: 12,
@@ -119,12 +119,16 @@ function inspectionRequests(api: InspectorApi) {
 }
 
 describe('InspectorTab', () => {
-  it('offers exactly the three protocols enabled on the data plane', async () => {
+  it('offers the four canonical data-plane protocols', async () => {
     const api = new InspectorApi()
     const { wrapper } = await mountInspector(api)
 
     expect(wrapper.findAllComponents(AppSelect)[0]?.props('options')).toEqual([
-      { value: 'openai', label: 'OpenAI' },
+      {
+        value: 'openai-chat-completions',
+        label: 'OpenAI Chat Completions',
+      },
+      { value: 'openai-responses', label: 'OpenAI Responses' },
       { value: 'anthropic', label: 'Anthropic' },
       { value: 'gemini', label: 'Gemini' },
     ])
@@ -163,11 +167,9 @@ describe('InspectorTab', () => {
 
   it.each([
     ['missing protocol', '', 'gpt-client', '12'],
-    ['missing model', 'openai', '', '12'],
-    ['whitespace-wrapped model', 'openai', ' gpt-client ', '12'],
+    ['whitespace-wrapped model', 'openai-chat-completions', ' gpt-client ', '12'],
     ['invalid protocol', 'legacy', 'gpt-client', '12'],
-    ['reserved protocol', 'openai-response', 'gpt-client', '12'],
-    ['missing AccessKey', 'openai', 'gpt-client', ''],
+    ['missing AccessKey', 'openai-chat-completions', 'gpt-client', ''],
   ])('rejects %s locally without sending a request', async (_name, protocol, model, keyID) => {
     const api = new InspectorApi()
     const { router, wrapper } = await mountInspector(api)
@@ -181,6 +183,42 @@ describe('InspectorTab', () => {
     expect(inspectionRequests(api)).toEqual([])
     expect(router.currentRoute.value.fullPath).toBe('/monitor?tab=inspector')
     expect(wrapper.find('[data-test="inspector-validation-error"]').exists()).toBe(true)
+  })
+
+  it('submits Responses inspection without a model and omits it from the URL', async () => {
+    const api = new InspectorApi([
+      inspectionFixture({
+        protocol: 'openai-responses',
+        external_model: null,
+      }),
+    ])
+    const { router, wrapper } = await mountInspector(
+      api,
+      '/monitor?tab=inspector&protocol=openai-responses&access_key_id=12',
+    )
+
+    await wrapper.get('[data-test="inspector-form"]').trigger('submit')
+    await flushPromises()
+
+    expect(inspectionRequests(api)).toEqual([
+      {
+        path: '/api/route/inspect',
+        options: {
+          method: 'POST',
+          json: {
+            protocol: 'openai-responses',
+            access_key_id: 12,
+          },
+          signal: expect.any(AbortSignal),
+        },
+      },
+    ])
+    expect(router.currentRoute.value.query).toEqual({
+      tab: 'inspector',
+      protocol: 'openai-responses',
+      access_key_id: '12',
+    })
+    expect(wrapper.get('[data-test="inspector-result"]').text()).toContain('Not specified')
   })
 
   it('posts the exact strict body only on explicit valid submit and allowlists the URL', async () => {
@@ -233,7 +271,7 @@ describe('InspectorTab', () => {
     const api = new InspectorApi()
     const { wrapper } = await mountInspector(
       api,
-      '/monitor?tab=inspector&protocol=openai&external_model=gpt-client&access_key_id=99',
+      '/monitor?tab=inspector&protocol=openai-chat-completions&external_model=gpt-client&access_key_id=99',
     )
 
     expect(wrapper.get('[data-test="inspector-access-key-missing"]').text()).toContain(
@@ -260,7 +298,7 @@ describe('InspectorTab', () => {
     const api = new InspectorApi([first.promise, second.promise])
     const { router, wrapper } = await mountInspector(
       api,
-      '/monitor?tab=inspector&protocol=openai&external_model=first-model&access_key_id=12',
+      '/monitor?tab=inspector&protocol=openai-chat-completions&external_model=first-model&access_key_id=12',
     )
 
     const submit = wrapper.get('[data-test="inspector-submit"]')
@@ -324,7 +362,7 @@ describe('InspectorTab', () => {
     const api = new InspectorApi([inspectionFixture(), late.promise])
     const { router, wrapper } = await mountInspector(
       api,
-      '/monitor?tab=inspector&protocol=openai&external_model=first-model&access_key_id=12',
+      '/monitor?tab=inspector&protocol=openai-chat-completions&external_model=first-model&access_key_id=12',
     )
 
     await wrapper.get('[data-test="inspector-submit"]').trigger('click')
@@ -392,7 +430,7 @@ describe('InspectorTab', () => {
     const api = new InspectorApi([response.promise])
     const { router, wrapper } = await mountInspector(
       api,
-      '/monitor?tab=inspector&protocol=openai&external_model=first-model&access_key_id=12',
+      '/monitor?tab=inspector&protocol=openai-chat-completions&external_model=first-model&access_key_id=12',
     )
 
     await wrapper.get('[data-test="inspector-model"]').setValue('submitted-model')
@@ -430,7 +468,7 @@ describe('InspectorTab', () => {
     const api = new InspectorApi([rejected.promise])
     const { router, wrapper } = await mountInspector(
       api,
-      '/monitor?tab=inspector&protocol=openai&external_model=first-model&access_key_id=12',
+      '/monitor?tab=inspector&protocol=openai-chat-completions&external_model=first-model&access_key_id=12',
     )
 
     await wrapper.get('[data-test="inspector-submit"]').trigger('click')
@@ -461,7 +499,7 @@ describe('InspectorTab', () => {
     const api = new InspectorApi([pending.promise])
     const { wrapper } = await mountInspector(
       api,
-      '/monitor?tab=inspector&protocol=openai&external_model=gpt-client&access_key_id=12',
+      '/monitor?tab=inspector&protocol=openai-chat-completions&external_model=gpt-client&access_key_id=12',
     )
 
     await wrapper.get('[data-test="inspector-form"]').trigger('submit')
@@ -481,7 +519,7 @@ describe('InspectorTab', () => {
     const api = new InspectorApi()
     const { router, wrapper } = await mountInspector(
       api,
-      '/monitor?tab=inspector&protocol=openai&external_model=gpt-client&access_key_id=12',
+      '/monitor?tab=inspector&protocol=openai-chat-completions&external_model=gpt-client&access_key_id=12',
     )
 
     await wrapper.get('[data-test="inspector-form"]').trigger('submit')
@@ -536,7 +574,7 @@ describe('InspectorTab', () => {
     ])
     const { wrapper } = await mountInspector(
       api,
-      '/monitor?tab=inspector&protocol=openai&external_model=gpt-client&access_key_id=12',
+      '/monitor?tab=inspector&protocol=openai-chat-completions&external_model=gpt-client&access_key_id=12',
     )
 
     await wrapper.get('[data-test="inspector-form"]').trigger('submit')
@@ -581,7 +619,7 @@ describe('InspectorTab', () => {
     ])
     const { wrapper } = await mountInspector(
       api,
-      '/monitor?tab=inspector&protocol=openai&external_model=missing-model&access_key_id=12',
+      '/monitor?tab=inspector&protocol=openai-chat-completions&external_model=missing-model&access_key_id=12',
     )
 
     await wrapper.get('[data-test="inspector-form"]').trigger('submit')
@@ -600,11 +638,12 @@ describe('InspectorTab', () => {
     )
   })
 
-  it('maps all 14 stable reason codes', async () => {
+  it('maps all 15 stable reason codes', async () => {
     const reasons: Array<[RouteInspectReasonCode, string]> = [
       ['access_key_disabled', 'AccessKey is disabled'],
       ['protocol_filtered', 'AccessKey filters exclude this protocol'],
       ['model_filtered', 'AccessKey filters exclude this model'],
+      ['model_required_by_filter', 'A model is required by the AccessKey model filter'],
       ['no_route_target', 'No route target matches this model and protocol'],
       ['group_disabled', 'Group is disabled'],
       ['group_filtered', 'AccessKey filters exclude this Group'],
@@ -637,7 +676,7 @@ describe('InspectorTab', () => {
     ])
     const { wrapper } = await mountInspector(
       api,
-      '/monitor?tab=inspector&protocol=openai&external_model=gpt-client&access_key_id=12',
+      '/monitor?tab=inspector&protocol=openai-chat-completions&external_model=gpt-client&access_key_id=12',
     )
 
     await wrapper.get('[data-test="inspector-form"]').trigger('submit')
@@ -650,7 +689,7 @@ describe('InspectorTab', () => {
     const api = new InspectorApi()
     const { queryClient, wrapper } = await mountInspector(
       api,
-      '/monitor?tab=inspector&protocol=openai&external_model=gpt-client&access_key_id=12',
+      '/monitor?tab=inspector&protocol=openai-chat-completions&external_model=gpt-client&access_key_id=12',
     )
 
     await wrapper.get('[data-test="inspector-form"]').trigger('submit')
@@ -678,7 +717,7 @@ describe('InspectorTab', () => {
     const api = new InspectorApi([rejected.promise])
     const { wrapper } = await mountInspector(
       api,
-      '/monitor?tab=inspector&protocol=openai&external_model=gpt-client&access_key_id=12',
+      '/monitor?tab=inspector&protocol=openai-chat-completions&external_model=gpt-client&access_key_id=12',
     )
 
     await wrapper.get('[data-test="inspector-form"]').trigger('submit')
@@ -697,7 +736,7 @@ describe('InspectorTab', () => {
     const api = new InspectorApi([inspectionFixture(), retry.promise])
     const { wrapper } = await mountInspector(
       api,
-      '/monitor?tab=inspector&protocol=openai&external_model=gpt-client&access_key_id=12',
+      '/monitor?tab=inspector&protocol=openai-chat-completions&external_model=gpt-client&access_key_id=12',
     )
 
     await wrapper.get('[data-test="inspector-submit"]').trigger('click')

@@ -1,5 +1,7 @@
-export type GroupProtocol = 'openai' | 'anthropic' | 'gemini'
-export type AccessProtocol = GroupProtocol | 'openai-response'
+import type { ProtocolValue } from './protocols'
+
+export type GroupProtocol = ProtocolValue
+export type AccessProtocol = ProtocolValue
 
 export interface GroupModelDto {
   id: string

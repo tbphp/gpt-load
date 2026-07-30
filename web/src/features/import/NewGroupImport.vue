@@ -16,6 +16,7 @@ import {
   type UpstreamUrlConflictData,
 } from '@/app/resources/groups'
 import type { GroupProtocol } from '@/api/control/types'
+import { supportsProtocolOnlyRouting } from '@/api/control/protocols'
 import { ApiError, RequestCancelledError } from '@/api/errors'
 import { applyInvalidationPlan, mutationInvalidationPlans } from '@/app/resources/invalidation'
 
@@ -117,7 +118,7 @@ const dirty = computed(
       draft.keys !== '' ||
       draft.step !== 1 ||
       draft.upstream_url !== channelPresets[0]!.upstream_url ||
-      draft.protocols.join(',') !== 'openai' ||
+      draft.protocols.join(',') !== channelPresets[0]!.protocols.join(',') ||
       Object.keys(draft.header_rules.set).length > 0 ||
       draft.header_rules.remove.length > 0),
 )
@@ -131,7 +132,12 @@ const canDiscover = computed(
     !keyAnalysis.value.tooManyKeys &&
     headerRulesValid.value,
 )
-const canReview = computed(() => !pending.value && toGroupModels(draft.models).length > 0)
+const resourceOnly = computed(
+  () => toGroupModels(draft.models).length === 0 && supportsProtocolOnlyRouting(draft.protocols),
+)
+const canReview = computed(
+  () => !pending.value && (toGroupModels(draft.models).length > 0 || resourceOnly.value),
+)
 useUnsavedChanges(dirty)
 const unregisterRecovery = recovery.register(() => (completed.value ? null : snapshotDraft()))
 
@@ -272,7 +278,9 @@ async function finishSuccess(groupID: number): Promise<void> {
 }
 
 async function submitCreate(confirmSameURL = false): Promise<void> {
-  if (pending.value || toGroupModels(draft.models).length === 0) return
+  if (pending.value || (toGroupModels(draft.models).length === 0 && !resourceOnly.value)) {
+    return
+  }
   if (confirmSameURL) createOperation.reset()
   if (!importOperationOwner.beginCreate(buildCreateBody(confirmSameURL))) return
   if (!confirmSameURL) conflict.value = null
@@ -416,6 +424,7 @@ onBeforeUnmount(() => {
       :error-key="errorKey"
       :models="draft.models"
       :can-review="canReview"
+      :resource-only="resourceOnly"
       @manual="showManualPath"
       @update:models="draft.models = $event"
       @back="moveToStep(1)"
@@ -430,6 +439,7 @@ onBeforeUnmount(() => {
       :protocols="draft.protocols"
       :key-count="keyAnalysis.nonEmptyCount"
       :models="draft.models"
+      :resource-only="resourceOnly"
       :error-key="errorKey"
       :conflict="conflict"
       :pending="pending"

@@ -18,7 +18,7 @@ import (
 	"gpt-load/internal/state"
 )
 
-func TestAnthropicExtractModel(t *testing.T) {
+func TestAnthropicInspectRequest(t *testing.T) {
 	value := NewAnthropic(http.DefaultClient)
 	tests := []struct {
 		name       string
@@ -37,18 +37,19 @@ func TestAnthropicExtractModel(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			model, stream, err := value.ExtractModel(test.request)
+			metadata, err := value.InspectRequest(test.request)
 			if test.wantErr {
 				if err == nil {
-					t.Fatalf("ExtractModel() = (%q, %t, nil), want error", model, stream)
+					t.Fatalf("InspectRequest() = (%#v, nil), want error", metadata)
 				}
 				return
 			}
 			if err != nil {
-				t.Fatalf("ExtractModel() error = %v", err)
+				t.Fatalf("InspectRequest() error = %v", err)
 			}
-			if model != test.wantModel || stream != test.wantStream {
-				t.Fatalf("ExtractModel() = (%q, %t), want (%q, %t)", model, stream, test.wantModel, test.wantStream)
+			if metadata.Model == nil || *metadata.Model != test.wantModel ||
+				metadata.Stream != test.wantStream || !metadata.ObserveUsage {
+				t.Fatalf("InspectRequest() = %#v, want model=%q stream=%t observe=true", metadata, test.wantModel, test.wantStream)
 			}
 		})
 	}

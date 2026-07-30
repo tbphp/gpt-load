@@ -238,7 +238,7 @@ func aggregationRow(
 		CreatedAt:     completedAt,
 		AccessKeyID:   1,
 		GroupID:       groupID,
-		Protocol:      string(protocol.OpenAI),
+		Protocol:      string(protocol.OpenAIChatCompletions),
 		ClientModel:   "client-model",
 		UpstreamModel: model,
 		Status:        string(telemetry.RequestStatusSuccess),

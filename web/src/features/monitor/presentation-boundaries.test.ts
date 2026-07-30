@@ -71,7 +71,7 @@ describe('Monitor presentation boundaries', () => {
           protocol: '',
           model: '',
           accessKeyId: '',
-          protocolOptions: [{ value: 'openai', label: 'OpenAI' }],
+          protocolOptions: [{ value: 'openai-chat-completions', label: 'OpenAI' }],
           accessKeyOptions: [],
           errors: {},
           optionsPending: false,

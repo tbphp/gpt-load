@@ -41,7 +41,7 @@ function logFixture(overrides: Partial<RequestLogItemDto> = {}): RequestLogItemD
     request_id: requestID,
     completed_at: '2026-07-25T10:00:01Z',
     access_key: { id: 12, name: 'client', deleted: false },
-    protocol: 'openai',
+    protocol: 'openai-chat-completions',
     client_model: 'gpt-client',
     upstream_model: 'gpt-upstream',
     status: 'error',
@@ -129,7 +129,7 @@ describe('LogDetailDrawer', () => {
 
     const inspectorLink = bodyElement<HTMLAnchorElement>('[data-test="log-inspector-link"]')
     expect(inspectorLink.getAttribute('href')).toBe(
-      '/monitor?tab=inspector&protocol=openai&external_model=gpt-client&access_key_id=12',
+      '/monitor?tab=inspector&protocol=openai-chat-completions&external_model=gpt-client&access_key_id=12',
     )
     expect(inspectorLink.textContent?.trim()).toBe(
       'Inspect with current state (not a historical replay)',
@@ -141,7 +141,6 @@ describe('LogDetailDrawer', () => {
 
   it.each([
     ['protocol', { protocol: '' as RequestLogItemDto['protocol'] }],
-    ['client model', { client_model: '' }],
     ['access key ID', { access_key: { id: 0, name: 'client', deleted: false } }],
   ] satisfies ReadonlyArray<[string, Partial<RequestLogItemDto>]>)(
     'does not render the Inspector deep link when the %s is unavailable',
@@ -151,6 +150,25 @@ describe('LogDetailDrawer', () => {
       expect(document.body.querySelector('[data-test="log-inspector-link"]')).toBeNull()
     },
   )
+
+  it('renders protocol-only Responses models as unspecified and links to model-less Inspector', async () => {
+    await mountDrawer(
+      logFixture({
+        protocol: 'openai-responses',
+        client_model: null,
+        upstream_model: null,
+        attempts: [attempt(1, { upstream_model: null })],
+        usage_state: 'not_applicable',
+        cost_state: 'not_applicable',
+        estimated_cost_usd: 0,
+      }),
+    )
+
+    expect(document.body.textContent).toContain('Not specified')
+    expect(
+      bodyElement<HTMLAnchorElement>('[data-test="log-inspector-link"]').getAttribute('href'),
+    ).toBe('/monitor?tab=inspector&protocol=openai-responses&access_key_id=12')
+  })
 
   it('maps all failure categories and actions with one safe unknown fallback', async () => {
     const categories: FailureCategory[] = [

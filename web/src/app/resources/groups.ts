@@ -2,6 +2,7 @@ import { queryOptions } from '@tanstack/vue-query'
 import { computed, toValue, type MaybeRefOrGetter } from 'vue'
 
 import type { ApiClient } from '@/api/client'
+import { enabledDataProtocols } from '@/api/control/protocols'
 import type { GroupModelDto, GroupProtocol, GroupSummary } from '@/api/control/types'
 import { InvalidResponseError } from '@/api/errors'
 import { controlQueryKeys } from '@/app/query-keys'
@@ -17,7 +18,6 @@ import {
   projectString,
 } from './projector'
 
-const groupProtocols = ['openai', 'anthropic', 'gemini'] as const
 const groupSummaryFields = [
   'id',
   'name',
@@ -211,7 +211,9 @@ export function projectGroupSummary(value: unknown): GroupSummary {
     id: projectSafeInteger(record.id, { minimum: 1 }),
     name: projectNonBlankString(record.name),
     upstream_url: projectHTTPURL(record.upstream_url),
-    protocols: projectArray(record.protocols, (protocol) => projectEnum(protocol, groupProtocols)),
+    protocols: projectArray(record.protocols, (protocol) =>
+      projectEnum(protocol, enabledDataProtocols),
+    ),
     models: projectArray(record.models, projectGroupModel),
     enabled: projectBoolean(record.enabled),
     key_count: projectSafeInteger(record.key_count, { minimum: 0 }),

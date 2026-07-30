@@ -30,8 +30,9 @@ func (s *Service) executeModelDiscovery(
 		return ModelDiscoveryResult{}, app_errors.ErrValidation
 	}
 
-	selectedDialects := make([]dialect.Dialect, len(target.protocols))
-	for index, value := range target.protocols {
+	orderedProtocols := canonicalProtocolOrder(target.protocols)
+	selectedDialects := make([]dialect.Dialect, len(orderedProtocols))
+	for index, value := range orderedProtocols {
 		selected, ok := s.dialects[value]
 		if !ok || selected == nil {
 			return ModelDiscoveryResult{}, fmt.Errorf(
@@ -76,4 +77,29 @@ func (s *Service) executeModelDiscovery(
 		"discover upstream models: %w",
 		app_errors.ErrBadGateway,
 	)
+}
+
+func canonicalProtocolOrder(
+	values []protocol.Protocol,
+) []protocol.Protocol {
+	present := make(map[protocol.Protocol]struct{}, len(values))
+	for _, value := range values {
+		present[value] = struct{}{}
+	}
+	result := make([]protocol.Protocol, 0, len(present))
+	for _, value := range protocol.DataPlaneProtocols() {
+		if _, exists := present[value]; !exists {
+			continue
+		}
+		result = append(result, value)
+		delete(present, value)
+	}
+	for _, value := range values {
+		if _, exists := present[value]; !exists {
+			continue
+		}
+		result = append(result, value)
+		delete(present, value)
+	}
+	return result
 }

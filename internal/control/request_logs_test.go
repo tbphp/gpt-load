@@ -115,7 +115,7 @@ func TestRequestLogEndpointReturnsOpaqueCursorAndSafeDTO(t *testing.T) {
 					AccessKey: requestlog.AccessKeyRef{
 						ID: 41, Name: &currentName,
 					},
-					Protocol:      protocol.OpenAI,
+					Protocol:      protocol.OpenAIChatCompletions,
 					ClientModel:   "client-model",
 					UpstreamModel: "upstream-model",
 					Status:        telemetry.RequestStatusSuccess,
@@ -250,7 +250,7 @@ func TestRequestLogEndpointProjectsUsageCostAndNullGroupZero(t *testing.T) {
 		{
 			RequestID:           "00000000-0000-4000-8000-000000000603",
 			CompletedAt:         time.Date(2026, time.July, 27, 0, 0, 0, 0, time.UTC),
-			Protocol:            protocol.OpenAI,
+			Protocol:            protocol.OpenAIChatCompletions,
 			Status:              telemetry.RequestStatusSuccess,
 			GroupID:             0,
 			UsageState:          usage.StateComplete,
@@ -295,6 +295,43 @@ func TestRequestLogEndpointProjectsUsageCostAndNullGroupZero(t *testing.T) {
 		item.CacheWrite5MTokens != 3 || item.CacheWrite1HTokens != 4 ||
 		item.OutputTokens != 5 || item.EstimatedCostUSD.String() != "0.123456789012" {
 		t.Fatalf("usage/cost projection = %#v", item)
+	}
+}
+
+func TestRequestLogResponseUsesNullModelsForProtocolOnlyResponsesResources(t *testing.T) {
+	result, err := mapRequestLogListResponse(requestlog.Page{
+		Items: []requestlog.Record{{
+			RequestID:   "00000000-0000-4000-8000-000000000503",
+			Protocol:    protocol.OpenAIResponses,
+			ClientModel: "",
+			Status:      telemetry.RequestStatusSuccess,
+			UsageState:  usage.StateNotApplicable,
+			CostState:   pricing.CostStateNotApplicable,
+			Attempts: []requestlog.Attempt{{
+				Sequence:        1,
+				GroupID:         12,
+				GroupName:       "Primary",
+				KeyID:           11,
+				UpstreamModel:   "",
+				StatusCode:      http.StatusOK,
+				FailureCategory: telemetry.FailureCategoryOK,
+				Action:          telemetry.ActionTerminate,
+				Committed:       true,
+			}},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("mapRequestLogListResponse() error = %v", err)
+	}
+	raw, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("marshal response: %v", err)
+	}
+	body := string(raw)
+	for _, field := range []string{`"client_model":null`, `"upstream_model":null`} {
+		if !strings.Contains(body, field) {
+			t.Fatalf("response = %s, want %s", body, field)
+		}
 	}
 }
 

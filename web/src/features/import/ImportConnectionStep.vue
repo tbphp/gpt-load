@@ -3,10 +3,12 @@ import { Search } from '@lucide/vue'
 import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
+import { protocolCatalog } from '@/api/control/protocols'
 import type { GroupProtocol } from '@/api/control/types'
 import type { HeaderRulesDto } from '@/app/resources/groups'
 import HeaderRulesEditor from '@/components/config/HeaderRulesEditor.vue'
 import AppButton from '@/components/ui/AppButton.vue'
+import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import SurfaceCard from '@/components/ui/SurfaceCard.vue'
 
 import { channelPresets, type ChannelPreset } from './channel-presets'
@@ -34,7 +36,7 @@ const emit = defineEmits<{
 }>()
 const { t } = useI18n()
 const heading = ref<HTMLHeadingElement>()
-const protocolOptions: GroupProtocol[] = ['openai', 'anthropic', 'gemini']
+const protocolOptions = protocolCatalog
 
 function focusHeading(): void {
   heading.value?.focus()
@@ -89,15 +91,24 @@ defineExpose({ focusHeading })
     </div>
     <fieldset>
       <legend>{{ t('import.connection.protocols') }}</legend>
-      <label v-for="protocol in protocolOptions" :key="protocol" class="protocol-option">
+      <label v-for="protocol in protocolOptions" :key="protocol.value" class="protocol-option">
         <input
-          :data-test="`protocol-${protocol}`"
+          :data-test="`protocol-${protocol.value}`"
           type="checkbox"
-          :checked="protocols.includes(protocol)"
-          @change="emit('toggleProtocol', protocol, ($event.target as HTMLInputElement).checked)"
-        />{{ protocol }}
+          :checked="protocols.includes(protocol.value)"
+          @change="
+            emit('toggleProtocol', protocol.value, ($event.target as HTMLInputElement).checked)
+          "
+        />{{ t(protocol.labelKey) }}
       </label>
     </fieldset>
+    <InlineFeedback
+      v-if="protocols.includes('openai-responses')"
+      data-test="import-responses-affinity-warning"
+      tone="warning"
+    >
+      {{ t('import.connection.responsesAffinityWarning') }}
+    </InlineFeedback>
     <KeyTextarea
       :model-value="keys"
       :disabled="pending"

@@ -18,30 +18,29 @@ describe('monitor route normalization', () => {
     expect(
       normalizeMonitorQuery({
         tab: 'inspector',
-        protocol: 'openai',
+        protocol: 'openai-chat-completions',
         external_model: 'gpt-real',
         access_key_id: '12',
         cursor: 'drop-me',
       }),
     ).toEqual({
       tab: 'inspector',
-      protocol: 'openai',
+      protocol: 'openai-chat-completions',
       external_model: 'gpt-real',
       access_key_id: '12',
     })
   })
 
-  it('drops a reserved Inspector protocol deep link while preserving independent valid inputs', () => {
+  it('retains a Responses Inspector deep link without requiring a model', () => {
     expect(
       normalizeMonitorQuery({
         tab: 'inspector',
-        protocol: 'openai-response',
-        external_model: 'gpt-real',
+        protocol: 'openai-responses',
         access_key_id: '12',
       }),
     ).toEqual({
       tab: 'inspector',
-      external_model: 'gpt-real',
+      protocol: 'openai-responses',
       access_key_id: '12',
     })
   })

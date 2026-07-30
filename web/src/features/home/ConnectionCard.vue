@@ -3,11 +3,13 @@ import { ChevronDown, ChevronUp, KeyRound, Terminal, TriangleAlert } from '@luci
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
+import { protocolCatalog } from '@/api/control/protocols'
 import type { AccessKeyOptionDto } from '@/api/control/types'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppSelect from '@/components/ui/AppSelect.vue'
 import CodeBlock from '@/components/ui/CodeBlock.vue'
 import CopyButton from '@/components/ui/CopyButton.vue'
+import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import SurfaceCard from '@/components/ui/SurfaceCard.vue'
 
 import {
@@ -32,7 +34,7 @@ const props = withDefaults(
 const { t } = useI18n()
 const modelPlaceholder = '<MODEL_ID>'
 const selectedId = ref<number>()
-const selectedProtocol = ref<NativeProtocol>('openai')
+const selectedProtocol = ref<NativeProtocol>('openai-chat-completions')
 const selectedModel = ref('')
 const preference = createConnectionPreference(resolveConnectionPreferenceStorage())
 const expanded = ref(preference.initialExpanded)
@@ -49,11 +51,9 @@ const selectedKey = computed(() => props.keys.find((key) => key.id === selectedI
 const keyOptions = computed(() =>
   props.keys.map((key) => ({ value: String(key.id), label: key.name })),
 )
-const protocolOptions = computed(() => [
-  { value: 'openai', label: t('common.protocols.openai') },
-  { value: 'anthropic', label: t('common.protocols.anthropic') },
-  { value: 'gemini', label: t('common.protocols.gemini') },
-])
+const protocolOptions = computed(() =>
+  protocolCatalog.map(({ value, labelKey }) => ({ value, label: t(labelKey) })),
+)
 const hostname = computed(() => {
   try {
     return new URL(props.origin).hostname
@@ -169,6 +169,13 @@ function setExpanded(next: boolean): void {
       <div class="connection-card__field">
         <span class="connection-card__label">{{ t('home.snippet') }}</span>
         <p class="connection-card__environment-note">{{ t('home.environmentKeyHint') }}</p>
+        <InlineFeedback
+          v-if="selectedProtocol === 'openai-responses'"
+          data-test="connection-responses-affinity-warning"
+          tone="warning"
+        >
+          {{ t('home.responsesAffinityWarning') }}
+        </InlineFeedback>
         <CodeBlock
           data-test="connection-snippet"
           :code="snippet.command"

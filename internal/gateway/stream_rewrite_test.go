@@ -7,7 +7,24 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"gpt-load/internal/dialect"
 )
+
+func newSSERewriteStream(
+	body io.ReadCloser,
+	rewrite func([]byte, bool) ([]byte, error),
+) io.ReadCloser {
+	if rewrite == nil {
+		return newSSEEventRewriteStream(body, nil)
+	}
+	return newSSEEventRewriteStream(
+		body,
+		func(event dialect.StreamEvent, providerError bool) ([]byte, error) {
+			return rewrite(event.Payload, providerError)
+		},
+	)
+}
 
 func TestSSERewriteStreamUsesCompleteBoundedEvents(t *testing.T) {
 	t.Run("one byte reads expose only a complete payload", func(t *testing.T) {

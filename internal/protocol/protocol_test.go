@@ -9,10 +9,12 @@ func TestProtocolKnownAndDataPlaneEnabled(t *testing.T) {
 		known   bool
 		enabled bool
 	}{
-		{value: OpenAI, known: true, enabled: true},
+		{value: OpenAIChatCompletions, known: true, enabled: true},
+		{value: OpenAIResponses, known: true, enabled: true},
 		{value: Anthropic, known: true, enabled: true},
 		{value: Gemini, known: true, enabled: true},
-		{value: OpenAIResponse, known: true, enabled: false},
+		{value: Protocol("openai"), known: false, enabled: false},
+		{value: Protocol("openai-response"), known: false, enabled: false},
 		{value: Protocol("unknown"), known: false, enabled: false},
 		{value: "", known: false, enabled: false},
 	}
@@ -28,5 +30,31 @@ func TestProtocolKnownAndDataPlaneEnabled(t *testing.T) {
 				tt.enabled,
 			)
 		}
+	}
+}
+
+func TestDataPlaneProtocolsReturnsCanonicalOrderAndIndependentCopies(t *testing.T) {
+	t.Parallel()
+
+	first := DataPlaneProtocols()
+	want := []Protocol{
+		OpenAIChatCompletions,
+		OpenAIResponses,
+		Anthropic,
+		Gemini,
+	}
+	if len(first) != len(want) {
+		t.Fatalf("DataPlaneProtocols() = %#v, want %#v", first, want)
+	}
+	for index := range want {
+		if first[index] != want[index] {
+			t.Fatalf("DataPlaneProtocols()[%d] = %q, want %q", index, first[index], want[index])
+		}
+	}
+
+	first[0] = Gemini
+	second := DataPlaneProtocols()
+	if second[0] != OpenAIChatCompletions {
+		t.Fatalf("DataPlaneProtocols() shared mutable storage: %#v", second)
 	}
 }

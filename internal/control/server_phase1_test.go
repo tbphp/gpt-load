@@ -35,7 +35,7 @@ func TestCreateAndImportEndpointsRequireCanonicalIdempotencyKeyBeforeMutation(t 
 		{
 			name: "Group create",
 			path: "/api/groups",
-			body: `{"upstream_url":"https://header.example.com","protocols":["openai"],"keys":"K"}`,
+			body: `{"upstream_url":"https://header.example.com","protocols":["openai-chat-completions"],"keys":"K"}`,
 		},
 		{
 			name: "Group key import",

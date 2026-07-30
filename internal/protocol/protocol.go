@@ -4,15 +4,15 @@ package protocol
 type Protocol string
 
 const (
-	OpenAI         Protocol = "openai"
-	Anthropic      Protocol = "anthropic"
-	Gemini         Protocol = "gemini"
-	OpenAIResponse Protocol = "openai-response"
+	OpenAIChatCompletions Protocol = "openai-chat-completions"
+	OpenAIResponses       Protocol = "openai-responses"
+	Anthropic             Protocol = "anthropic"
+	Gemini                Protocol = "gemini"
 )
 
 func (p Protocol) Valid() bool {
 	switch p {
-	case OpenAI, Anthropic, Gemini, OpenAIResponse:
+	case OpenAIChatCompletions, OpenAIResponses, Anthropic, Gemini:
 		return true
 	default:
 		return false
@@ -21,9 +21,18 @@ func (p Protocol) Valid() bool {
 
 func (p Protocol) DataPlaneEnabled() bool {
 	switch p {
-	case OpenAI, Anthropic, Gemini:
+	case OpenAIChatCompletions, OpenAIResponses, Anthropic, Gemini:
 		return true
 	default:
 		return false
+	}
+}
+
+func DataPlaneProtocols() []Protocol {
+	return []Protocol{
+		OpenAIChatCompletions,
+		OpenAIResponses,
+		Anthropic,
+		Gemini,
 	}
 }

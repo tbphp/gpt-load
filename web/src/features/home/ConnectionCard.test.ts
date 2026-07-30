@@ -45,6 +45,22 @@ describe('ConnectionCard', () => {
       .findAllComponents(AppSelect)
       .find((select) => select.props('label') === 'Protocol')
     if (!protocolSelect) throw new Error('missing protocol select')
+    expect(protocolSelect.props('options')).toEqual([
+      { value: 'openai-chat-completions', label: 'OpenAI Chat Completions' },
+      { value: 'openai-responses', label: 'OpenAI Responses' },
+      { value: 'anthropic', label: 'Anthropic' },
+      { value: 'gemini', label: 'Gemini' },
+    ])
+    protocolSelect.vm.$emit('update:modelValue', 'openai-responses')
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.get('[data-test="connection-snippet"] code').text()).toContain('/v1/responses')
+    expect(wrapper.get('[data-test="connection-snippet"] code').text()).toContain('"input":"Hello"')
+    expect(wrapper.get('[data-test="connection-snippet"] code').text()).toContain('"store":false')
+    expect(wrapper.get('[data-test="connection-responses-affinity-warning"]').text()).toContain(
+      'same upstream key',
+    )
+
     protocolSelect.vm.$emit('update:modelValue', 'anthropic')
     await wrapper.vm.$nextTick()
 

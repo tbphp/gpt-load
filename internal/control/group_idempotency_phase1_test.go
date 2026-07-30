@@ -19,7 +19,7 @@ func TestCreateGroupIdempotentReplaysOriginalCountsAndPreservesKeyMultiplicity(t
 	request := GroupCreateRequest{
 		Name:        stringPointer("idempotent-group"),
 		UpstreamURL: "https://idempotent.example.com/v1/",
-		Protocols:   []protocol.Protocol{protocol.OpenAI},
+		Protocols:   []protocol.Protocol{protocol.OpenAIChatCompletions},
 		Keys:        " K \r\nK\n",
 	}
 	const key = "218f47a2-9c35-4d6e-8b1a-1234567890ab"
@@ -60,7 +60,7 @@ func TestCreateGroupIdempotentCanonicalizesEquivalentWholeNumberSettings(t *test
 	request := GroupCreateRequest{
 		Name:        stringPointer("canonical-settings"),
 		UpstreamURL: "https://canonical-settings.example.com",
-		Protocols:   []protocol.Protocol{protocol.OpenAI},
+		Protocols:   []protocol.Protocol{protocol.OpenAIChatCompletions},
 		Config:      config.Settings{"connect_timeout": json.Number("2e1")},
 		Keys:        "key-one",
 	}

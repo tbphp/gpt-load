@@ -94,6 +94,7 @@ function error(field: InspectorField): string | undefined {
       <FormField
         id="inspector-model"
         :label="t('monitor.inspector.form.model')"
+        :description="t('monitor.inspector.form.modelOptional')"
         :error="error('externalModel')"
       >
         <template #default="{ describedBy }">

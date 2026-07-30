@@ -17,7 +17,7 @@ const groups = [
     id: 7,
     name: 'Primary',
     upstream_url: 'https://api.example.com',
-    protocols: ['openai' as const],
+    protocols: ['openai-chat-completions' as const],
     models: [{ id: 'gpt-4o', alias: '' }],
     enabled: true,
     key_count: 2,

@@ -7,7 +7,7 @@ const group = {
   id: 7,
   name: 'Primary',
   upstream_url: 'https://api.example.com/v1',
-  protocols: ['openai', 'anthropic'],
+  protocols: ['openai-chat-completions', 'openai-responses', 'anthropic'],
   models: [{ id: 'gpt-4o', alias: '' }],
   enabled: true,
   key_count: 2,
@@ -82,7 +82,7 @@ describe('Group resource', () => {
     const request = vi.fn().mockResolvedValue(response) as ApiClient['request']
     const body = {
       upstream_url: 'https://api.example.com',
-      protocols: ['openai'] as const,
+      protocols: ['openai-chat-completions'] as const,
       models: response.models,
       config: {},
       keys: 'raw-key',

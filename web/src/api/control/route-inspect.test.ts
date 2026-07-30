@@ -8,7 +8,7 @@ describe('Route inspect control API', () => {
     const request = vi.fn().mockResolvedValue({
       observed_at: '2026-07-29T01:02:03Z',
       snapshot_revision: 1,
-      protocol: 'openai',
+      protocol: 'openai-chat-completions',
       external_model: 'gpt-real',
       access_key: { id: 12, name: 'Client', status: 'active' },
       routable: false,
@@ -16,13 +16,17 @@ describe('Route inspect control API', () => {
       groups: [],
     }) as ApiClient['request']
     const client: ApiClient = { request }
-    const body = { protocol: 'openai' as const, external_model: 'gpt-real', access_key_id: 12 }
+    const body = {
+      protocol: 'openai-chat-completions' as const,
+      external_model: 'gpt-real',
+      access_key_id: 12,
+    }
 
     await inspectRoute(client, body, signal)
 
     expect(request).toHaveBeenCalledWith('/api/route/inspect', {
       method: 'POST',
-      json: { protocol: 'openai', external_model: 'gpt-real', access_key_id: 12 },
+      json: { protocol: 'openai-chat-completions', external_model: 'gpt-real', access_key_id: 12 },
       signal,
     })
   })

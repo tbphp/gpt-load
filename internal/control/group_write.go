@@ -127,20 +127,21 @@ func normalizeUpstreamBaseURL(raw string) (normalized, hostname string, err erro
 }
 
 func normalizeGroupProtocols(values []protocol.Protocol) ([]protocol.Protocol, error) {
-	result := make([]protocol.Protocol, 0, len(values))
 	seen := make(map[protocol.Protocol]struct{}, len(values))
 	for _, value := range values {
-		if !value.Valid() || value == protocol.OpenAIResponse {
+		if !value.DataPlaneEnabled() {
 			return nil, app_errors.ErrValidation
 		}
-		if _, duplicate := seen[value]; duplicate {
-			continue
-		}
 		seen[value] = struct{}{}
-		result = append(result, value)
 	}
-	if len(result) == 0 {
+	if len(seen) == 0 {
 		return nil, app_errors.ErrValidation
+	}
+	result := make([]protocol.Protocol, 0, len(seen))
+	for _, value := range protocol.DataPlaneProtocols() {
+		if _, exists := seen[value]; exists {
+			result = append(result, value)
+		}
 	}
 	return result, nil
 }

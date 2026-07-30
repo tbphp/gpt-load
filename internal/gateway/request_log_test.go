@@ -98,8 +98,8 @@ func (forwarder *usageObservingStreamRetryForwarder) ForwardStream(
 	if index >= len(payloads) {
 		return UpstreamResult{Err: errors.New("stream script exhausted")}
 	}
-	capture := newUsageCaptureBoundary().newStream(input.Dialect)
-	capture.observe(payloads[index])
+	capture := newUsageCaptureBoundary().newStreamForRequest(input.Dialect, true)
+	capture.observeEvent(dialect.StreamEvent{Payload: payloads[index]})
 	result := capture.finalize()
 	forwarder.observed = append(forwarder.observed, result)
 	if index == 0 {
@@ -128,7 +128,7 @@ func TestNewRequestRecorderInitializesUsageNotApplicable(t *testing.T) {
 		"req-usage-initial",
 		time.Unix(100, 0),
 		9,
-		protocol.OpenAI,
+		protocol.OpenAIChatCompletions,
 		func() time.Time { return time.Unix(101, 0) },
 	)
 
@@ -147,6 +147,60 @@ func TestNewRequestRecorderInitializesUsageNotApplicable(t *testing.T) {
 	}
 }
 
+func TestHandlerRecordsProtocolOnlyResponsesResourceWithoutFabricatingModels(t *testing.T) {
+	forwarder := &scriptedForwarder{results: []UpstreamResult{{
+		StatusCode:     http.StatusOK,
+		Header:         make(http.Header),
+		Body:           []byte(`{"id":"resp_123","object":"response"}`),
+		RequestWritten: true,
+	}}}
+	sink := &recordingRequestLogSink{}
+	engine, handler, manager, _ := newRequestLogHandlerTestRuntime(
+		t,
+		forwarder,
+		&recordingAccessKeyRPMLimiter{},
+		sink,
+		"sk-first",
+	)
+	if _, err := manager.Publish(state.CompileInput{
+		Groups: []state.GroupConfig{{
+			ID:          1,
+			Name:        "responses",
+			UpstreamURL: "http://upstream.invalid",
+			Protocols:   []protocol.Protocol{protocol.OpenAIResponses},
+			Enabled:     true,
+		}},
+		AccessKeys: []state.AccessKeyConfig{{
+			ID:      1,
+			Name:    "client",
+			KeyHash: handler.encryption.Hash("gl-client"),
+			Status:  state.AccessKeyStatusActive,
+		}},
+	}); err != nil {
+		t.Fatalf("Publish() error = %v", err)
+	}
+	handler.dialects = dialect.NewSet(dialect.NewOpenAIResponses(http.DefaultClient))
+
+	request := httptest.NewRequest(http.MethodGet, "/v1/responses/resp_123", nil)
+	request.Header.Set("Authorization", "Bearer gl-client")
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, request)
+
+	events := sink.snapshot()
+	if response.Code != http.StatusOK || len(events) != 1 {
+		t.Fatalf("response/events = %d/%#v", response.Code, events)
+	}
+	event := events[0]
+	if event.Protocol != protocol.OpenAIResponses ||
+		event.ClientModel != "" ||
+		event.UpstreamModel != "" ||
+		len(event.Attempts) != 1 ||
+		event.Attempts[0].UpstreamModel != "" ||
+		event.Usage.Result.State != usage.StateNotApplicable {
+		t.Fatalf("event = %#v", event)
+	}
+}
+
 func TestRequestRecorderBindsUsageToRecordedAttempt(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -159,7 +213,7 @@ func TestRequestRecorderBindsUsageToRecordedAttempt(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			sink := &recordingRequestLogSink{}
-			recorder := newRequestRecorder(sink, "req-usage-bind", time.Unix(100, 0), 9, protocol.OpenAI, func() time.Time { return time.Unix(101, 0) })
+			recorder := newRequestRecorder(sink, "req-usage-bind", time.Unix(100, 0), 9, protocol.OpenAIChatCompletions, func() time.Time { return time.Unix(101, 0) })
 			recorder.appendAttempt(scheduler.Selection{GroupID: 11, Group: state.GroupView{Name: "first"}, KeyID: 21}, UpstreamResult{}, telemetry.FailureCategoryOK, telemetry.ActionTerminate, "", "", time.Unix(100, 0), time.Unix(100, 0))
 			second := recorder.appendAttempt(scheduler.Selection{GroupID: 12, Group: state.GroupView{Name: "second"}, KeyID: 22}, UpstreamResult{StatusCode: http.StatusOK}, telemetry.FailureCategoryOK, telemetry.ActionTerminate, "", "", time.Unix(100, 0), time.Unix(100, 0))
 
@@ -179,7 +233,7 @@ func TestRequestRecorderBindsUsageToRecordedAttempt(t *testing.T) {
 
 func TestRequestRecorderNon2xxKeepsAttributionButNotApplicable(t *testing.T) {
 	sink := &recordingRequestLogSink{}
-	recorder := newRequestRecorder(sink, "req-usage-429", time.Unix(100, 0), 9, protocol.OpenAI, func() time.Time { return time.Unix(101, 0) })
+	recorder := newRequestRecorder(sink, "req-usage-429", time.Unix(100, 0), 9, protocol.OpenAIChatCompletions, func() time.Time { return time.Unix(101, 0) })
 	index := recorder.appendAttempt(scheduler.Selection{GroupID: 12, Group: state.GroupView{Name: "second"}, KeyID: 22}, UpstreamResult{StatusCode: http.StatusTooManyRequests}, telemetry.FailureCategoryRateLimited, telemetry.ActionRetry, "", "", time.Unix(100, 0), time.Unix(100, 0))
 	recorder.completeResponse(UpstreamResult{StatusCode: http.StatusTooManyRequests, Usage: usage.Result{State: usage.StateComplete, Tokens: usage.Tokens{Output: 30}}}, health.Result{Category: health.FailureCategoryRateLimited}, "provider", index)
 	recorder.emit()
@@ -194,7 +248,7 @@ func TestRequestRecorderInvalidAttemptIndexDoesNotForgeUsageAttribution(t *testi
 	for _, index := range []int{-1, 1} {
 		t.Run(fmt.Sprintf("index_%d", index), func(t *testing.T) {
 			sink := &recordingRequestLogSink{}
-			recorder := newRequestRecorder(sink, "req-usage-invalid", time.Unix(100, 0), 9, protocol.OpenAI, func() time.Time { return time.Unix(101, 0) })
+			recorder := newRequestRecorder(sink, "req-usage-invalid", time.Unix(100, 0), 9, protocol.OpenAIChatCompletions, func() time.Time { return time.Unix(101, 0) })
 			recorder.appendAttempt(scheduler.Selection{GroupID: 12, Group: state.GroupView{Name: "second"}, KeyID: 22}, UpstreamResult{}, telemetry.FailureCategoryOK, telemetry.ActionTerminate, "", "", time.Unix(100, 0), time.Unix(100, 0))
 			recorder.bindUsage(index, usage.Result{State: usage.StateComplete, Tokens: usage.Tokens{Output: 30}}, true)
 			recorder.emit()
@@ -208,7 +262,7 @@ func TestRequestRecorderInvalidAttemptIndexDoesNotForgeUsageAttribution(t *testi
 
 func TestRequestRecorderDownstreamFailureKeepsBoundUsage(t *testing.T) {
 	sink := &recordingRequestLogSink{}
-	recorder := newRequestRecorder(sink, "req-usage-write", time.Unix(100, 0), 9, protocol.OpenAI, func() time.Time { return time.Unix(101, 0) })
+	recorder := newRequestRecorder(sink, "req-usage-write", time.Unix(100, 0), 9, protocol.OpenAIChatCompletions, func() time.Time { return time.Unix(101, 0) })
 	index := recorder.appendAttempt(scheduler.Selection{GroupID: 12, Group: state.GroupView{Name: "second"}, KeyID: 22}, UpstreamResult{StatusCode: http.StatusOK}, telemetry.FailureCategoryOK, telemetry.ActionTerminate, "", "", time.Unix(100, 0), time.Unix(100, 0))
 	result := usage.Result{State: usage.StateComplete, Tokens: usage.Tokens{UncachedInput: 80, CacheRead: 20, Output: 30}}
 	recorder.completeResponse(UpstreamResult{StatusCode: http.StatusOK, Usage: result}, health.Result{}, "provider", index)
@@ -289,7 +343,13 @@ func TestHandlerFirstProviderErrorRequestLogContract(t *testing.T) {
 			),
 			ErrorSummary:   fixedErrorSummary("upstream_sse_error"),
 			RequestWritten: true,
-			Usage:          usage.Result{State: usage.StateMissing},
+			Usage: usage.Result{
+				State: usage.StateComplete,
+				Tokens: usage.Tokens{
+					UncachedInput: 25,
+					Output:        2,
+				},
+			},
 		}),
 	}}
 	engine, handler, _, _ := newRequestLogHandlerTestRuntime(
@@ -319,7 +379,16 @@ func TestHandlerFirstProviderErrorRequestLogContract(t *testing.T) {
 		event.StatusCode != http.StatusBadGateway ||
 		event.ErrorCode != reasonUpstreamProtocol.Code ||
 		event.ErrorSummary != reasonUpstreamProtocol.Message ||
-		event.Usage.Result.State != usage.StateMissing ||
+		event.Usage.Result != (usage.Result{
+			State: usage.StateComplete,
+			Tokens: usage.Tokens{
+				UncachedInput: 25,
+				Output:        2,
+			},
+		}) ||
+		event.Usage.GroupID != 1 ||
+		event.Usage.KeyID != 1 ||
+		event.Usage.AttemptSequence != 1 ||
 		len(event.Attempts) != 1 {
 		t.Fatalf("response/event = %d/%#v", response.Code, event)
 	}
@@ -519,7 +588,7 @@ func TestRequestRecorderBoundsModelsAtUTF8Boundary(t *testing.T) {
 		requestID,
 		startedAt,
 		1,
-		protocol.OpenAI,
+		protocol.OpenAIChatCompletions,
 		func() time.Time { return startedAt.Add(time.Second) },
 	)
 	recorder.setClientModel(clientModel)
@@ -608,15 +677,15 @@ type cancelingExtractDialect struct {
 	extractCalls int
 }
 
-func (value *cancelingExtractDialect) ExtractModel(
+func (value *cancelingExtractDialect) InspectRequest(
 	request *dialect.ParsedRequest,
-) (string, bool, error) {
+) (dialect.RequestMetadata, error) {
 	value.extractCalls++
 	if value.cancel != nil {
 		value.cancel()
-		return "", false, value.err
+		return dialect.RequestMetadata{}, value.err
 	}
-	return value.Dialect.ExtractModel(request)
+	return value.Dialect.InspectRequest(request)
 }
 
 type cancelingHeaderDeadlineWriter struct {
@@ -727,7 +796,7 @@ func TestHandlerUsesFrozenRPMLimitAcrossSnapshotPublish(t *testing.T) {
 		if _, err := manager.Publish(state.CompileInput{
 			Groups: []state.GroupConfig{{
 				ID: 1, Name: "openai", UpstreamURL: "https://unused.example.com",
-				Protocols: []protocol.Protocol{protocol.OpenAI},
+				Protocols: []protocol.Protocol{protocol.OpenAIChatCompletions},
 				Models:    []state.ModelConfig{{ID: "gpt-4o"}}, Enabled: true,
 			}},
 			AccessKeys: []state.AccessKeyConfig{{
@@ -945,11 +1014,11 @@ func TestHandlerRecordsLocalInferenceFailuresWithoutAttempts(t *testing.T) {
 	}{
 		{
 			name: "body read error", body: failingReadCloser{},
-			wantStatus: http.StatusBadRequest, wantCode: "cannot_extract_model",
+			wantStatus: http.StatusBadRequest, wantCode: "invalid_protocol_request",
 		},
 		{
 			name: "model extraction error", body: io.NopCloser(strings.NewReader(`{}`)),
-			wantStatus: http.StatusBadRequest, wantCode: "cannot_extract_model",
+			wantStatus: http.StatusBadRequest, wantCode: "invalid_protocol_request",
 		},
 		{
 			name: "no candidate", body: io.NopCloser(strings.NewReader(`{"model":"gpt-4o"}`)),
@@ -1025,7 +1094,7 @@ func TestHandlerPrioritizesClientCancellationOverLocalInferenceErrors(t *testing
 			runtimeRegistry := &recordingRuntimeRegistry{KeyRegistry: registry}
 			handler.registry = runtimeRegistry
 			healthDialect := &countingHealthDialect{
-				Dialect: handler.dialects[protocol.OpenAI],
+				Dialect: handler.dialects[protocol.OpenAIChatCompletions],
 			}
 			extractDialect := &cancelingExtractDialect{
 				Dialect: healthDialect,
@@ -1034,7 +1103,7 @@ func TestHandlerPrioritizesClientCancellationOverLocalInferenceErrors(t *testing
 			if test.cancelOnExtract {
 				extractDialect.cancel = cancel
 			}
-			handler.dialects[protocol.OpenAI] = extractDialect
+			handler.dialects[protocol.OpenAIChatCompletions] = extractDialect
 			handler.now = func() time.Time {
 				t.Fatal("canceled local failure entered health timing")
 				return time.Time{}
@@ -1054,7 +1123,7 @@ func TestHandlerPrioritizesClientCancellationOverLocalInferenceErrors(t *testing
 				t.Fatalf("limiter calls = %#v, want one admitted request", calls)
 			}
 			if response.Code == http.StatusBadRequest ||
-				strings.Contains(response.Body.String(), "cannot_extract_model") {
+				strings.Contains(response.Body.String(), "invalid_protocol_request") {
 				t.Fatalf(
 					"response = %d %q, canceled local failure must not write 400",
 					response.Code,
@@ -1360,9 +1429,9 @@ func TestHandlerRecordsCommittedStreamTerminalMatrix(t *testing.T) {
 			now := time.Date(2026, time.July, 24, 13, 0, 0, 0, time.UTC)
 			handler.now = func() time.Time { return now }
 			selectedDialect := &countingHealthDialect{
-				Dialect: handler.dialects[protocol.OpenAI],
+				Dialect: handler.dialects[protocol.OpenAIChatCompletions],
 			}
-			handler.dialects[protocol.OpenAI] = selectedDialect
+			handler.dialects[protocol.OpenAIChatCompletions] = selectedDialect
 
 			request := httptest.NewRequest(
 				http.MethodPost,
@@ -1490,9 +1559,9 @@ func TestHandlerStreamTelemetryDoesNotChangeHealthOrRetrySideEffects(t *testing.
 			runtimeRegistry := &recordingRuntimeRegistry{KeyRegistry: registry}
 			handler.registry = runtimeRegistry
 			selectedDialect := &countingHealthDialect{
-				Dialect: handler.dialects[protocol.OpenAI],
+				Dialect: handler.dialects[protocol.OpenAIChatCompletions],
 			}
-			handler.dialects[protocol.OpenAI] = selectedDialect
+			handler.dialects[protocol.OpenAIChatCompletions] = selectedDialect
 			now := time.Date(2026, time.July, 24, 14, 0, 0, 0, time.UTC)
 			handler.now = func() time.Time { return now }
 
@@ -1597,9 +1666,9 @@ func TestHandlerRecordsCanceledSuccessfulResponseWithoutHealthSideEffects(t *tes
 	handler.newRequestID = func() (string, error) { return fixedRequestID, nil }
 	handler.requestNow = newSteppingRequestClock()
 	selectedDialect := &countingHealthDialect{
-		Dialect: handler.dialects[protocol.OpenAI],
+		Dialect: handler.dialects[protocol.OpenAIChatCompletions],
 	}
-	handler.dialects[protocol.OpenAI] = selectedDialect
+	handler.dialects[protocol.OpenAIChatCompletions] = selectedDialect
 	engine := gin.New()
 	handler.RegisterRoutes(engine)
 
@@ -1921,7 +1990,7 @@ func TestRequestRecorderRedactsHeaderRuleLiteralsFromNonStreamingAndSSESummaries
 				"req-header-rule-summary-"+test.name,
 				time.Unix(100, 0),
 				9,
-				protocol.OpenAI,
+				protocol.OpenAIChatCompletions,
 				func() time.Time { return time.Unix(102, 0) },
 			)
 			attempt := test.record(recorder, test.result)
@@ -1972,7 +2041,7 @@ func TestRequestRecorderPreservesFixedTerminalSummariesWithShortHeaderRuleLitera
 		"req-fixed-terminal-summary",
 		time.Unix(100, 0),
 		9,
-		protocol.OpenAI,
+		protocol.OpenAIChatCompletions,
 		func() time.Time { return time.Unix(102, 0) },
 	)
 	result := UpstreamResult{
@@ -2026,7 +2095,7 @@ func TestRequestRecorderPreservesProviderErrorFixedSummaryWithOrdinaryHeaderRule
 		"req-provider-fixed-summary",
 		time.Unix(100, 0),
 		9,
-		protocol.OpenAI,
+		protocol.OpenAIChatCompletions,
 		func() time.Time { return time.Unix(102, 0) },
 	)
 	result := UpstreamResult{

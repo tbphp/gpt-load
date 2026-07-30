@@ -53,7 +53,7 @@ type requestLogAttemptResponse struct {
 	GroupID         uint                      `json:"group_id"`
 	GroupName       string                    `json:"group_name"`
 	KeyID           uint                      `json:"key_id"`
-	UpstreamModel   string                    `json:"upstream_model"`
+	UpstreamModel   *string                   `json:"upstream_model"`
 	StatusCode      int                       `json:"status_code"`
 	DurationMs      int64                     `json:"duration_ms"`
 	FailureCategory telemetry.FailureCategory `json:"failure_category"`
@@ -69,8 +69,8 @@ type requestLogItemResponse struct {
 	CompletedAt         string                      `json:"completed_at"`
 	AccessKey           requestLogAccessKeyResponse `json:"access_key"`
 	Protocol            string                      `json:"protocol"`
-	ClientModel         string                      `json:"client_model"`
-	UpstreamModel       string                      `json:"upstream_model"`
+	ClientModel         *string                     `json:"client_model"`
+	UpstreamModel       *string                     `json:"upstream_model"`
 	Status              telemetry.RequestStatus     `json:"status"`
 	StatusCode          int                         `json:"status_code"`
 	DurationMs          int64                       `json:"duration_ms"`
@@ -358,7 +358,7 @@ func mapRequestLogListResponse(page requestlog.Page) (requestLogListResponse, er
 				GroupID:         attempt.GroupID,
 				GroupName:       attempt.GroupName,
 				KeyID:           attempt.KeyID,
-				UpstreamModel:   attempt.UpstreamModel,
+				UpstreamModel:   nullableRequestLogModel(attempt.UpstreamModel),
 				StatusCode:      attempt.StatusCode,
 				DurationMs:      attempt.DurationMs,
 				FailureCategory: attempt.FailureCategory,
@@ -378,8 +378,8 @@ func mapRequestLogListResponse(page requestlog.Page) (requestLogListResponse, er
 				Deleted: record.AccessKey.Deleted,
 			},
 			Protocol:            string(record.Protocol),
-			ClientModel:         record.ClientModel,
-			UpstreamModel:       record.UpstreamModel,
+			ClientModel:         nullableRequestLogModel(record.ClientModel),
+			UpstreamModel:       nullableRequestLogModel(record.UpstreamModel),
 			Status:              record.Status,
 			StatusCode:          record.StatusCode,
 			DurationMs:          record.DurationMs,
@@ -406,6 +406,13 @@ func mapRequestLogListResponse(page requestlog.Page) (requestLogListResponse, er
 		result.NextCursor = &encoded
 	}
 	return result, nil
+}
+
+func nullableRequestLogModel(value string) *string {
+	if value == "" {
+		return nil
+	}
+	return &value
 }
 
 type requestLogUsageCostResponse struct {

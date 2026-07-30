@@ -9,7 +9,7 @@ const accessKey: AccessKeyDto = {
   status: 'active',
   filters: {
     groups: [7, 999],
-    protocols: ['openai', 'anthropic'],
+    protocols: ['openai-chat-completions', 'anthropic'],
     models: ['gpt-real', 'claude-real'],
   },
   rpm_limit: 1200,
@@ -21,7 +21,7 @@ const groups: GroupSummary[] = [
     id: 7,
     name: 'Primary',
     upstream_url: 'https://api.example.com',
-    protocols: ['openai'],
+    protocols: ['openai-chat-completions'],
     models: [],
     enabled: true,
     key_count: 1,
@@ -43,7 +43,7 @@ describe('AccessKey presenter', () => {
           unlimited: 'Unlimited',
         },
         protocolLabel: (protocol) => {
-          if (protocol === 'openai') return 'OpenAI'
+          if (protocol === 'openai-chat-completions') return 'OpenAI'
           if (protocol === 'anthropic') return 'Anthropic'
           return protocol
         },

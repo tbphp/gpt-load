@@ -57,7 +57,7 @@ func TestProjectProcessLogUsesSparseFieldsAndAggregatesCacheWrite(t *testing.T) 
 		Output:        pricing.Price{Value: 5, Set: true},
 	})
 	event := testEvent("00000000-0000-4000-8000-000000000501")
-	event.Protocol = protocol.OpenAI
+	event.Protocol = protocol.OpenAIChatCompletions
 	event.UpstreamModel = "actual-model"
 	event.Status = telemetry.RequestStatusError
 	event.StatusCode = http.StatusBadGateway
@@ -95,7 +95,7 @@ func TestProjectProcessLogUsesSparseFieldsAndAggregatesCacheWrite(t *testing.T) 
 		"request_id":            event.RequestID,
 		"status":                "error",
 		"status_code":           http.StatusBadGateway,
-		"protocol":              "openai",
+		"protocol":              string(protocol.OpenAIChatCompletions),
 		"access_key_id":         uint(42),
 		"client_model":          "client-model",
 		"upstream_model":        "actual-model",
@@ -198,7 +198,7 @@ func TestProjectProcessLogOmitsDefaultAndZeroValueFields(t *testing.T) {
 
 func TestProjectProcessLogPreservesNoCandidateDiagnosticsAndOmitsNoise(t *testing.T) {
 	event := testEvent("no-candidate")
-	event.Protocol = protocol.OpenAI
+	event.Protocol = protocol.OpenAIChatCompletions
 	event.UpstreamModel = ""
 	event.Status = telemetry.RequestStatusError
 	event.StatusCode = http.StatusServiceUnavailable
@@ -218,7 +218,7 @@ func TestProjectProcessLogPreservesNoCandidateDiagnosticsAndOmitsNoise(t *testin
 		"request_id":    event.RequestID,
 		"status":        "error",
 		"status_code":   http.StatusServiceUnavailable,
-		"protocol":      "openai",
+		"protocol":      string(protocol.OpenAIChatCompletions),
 		"access_key_id": uint(42),
 		"client_model":  "client-model",
 		"duration_ms":   int64(25),

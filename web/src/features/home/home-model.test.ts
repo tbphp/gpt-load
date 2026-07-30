@@ -15,7 +15,7 @@ const group: GroupSummary = {
   id: 1,
   name: 'Example',
   upstream_url: 'https://api.example.com/v1',
-  protocols: ['openai'],
+  protocols: ['openai-chat-completions'],
   models: [{ id: 'gpt-real', alias: '' }],
   enabled: true,
   key_count: 1,
@@ -48,10 +48,13 @@ describe('Home model', () => {
     expect(isGroupServiceable(group)).toBeUndefined()
   })
 
-  it('requires enabled group, a real model, and an available key', () => {
+  it('requires an enabled Group, a routable capability, and an available key', () => {
     expect(isGroupServiceable(group, counts)).toBe(true)
     expect(isGroupServiceable({ ...group, enabled: false }, counts)).toBe(false)
     expect(isGroupServiceable({ ...group, models: [] }, counts)).toBe(false)
+    expect(
+      isGroupServiceable({ ...group, protocols: ['openai-responses'], models: [] }, counts),
+    ).toBe(true)
     expect(isGroupServiceable(group, { ...counts, available: 0 })).toBe(false)
   })
 
@@ -99,7 +102,18 @@ describe('Home model', () => {
   })
 
   it.each([
-    ['openai', '/v1/chat/completions', 'Authorization: Bearer $GPT_LOAD_API_KEY', undefined],
+    [
+      'openai-chat-completions',
+      '/v1/chat/completions',
+      'Authorization: Bearer $GPT_LOAD_API_KEY',
+      undefined,
+    ],
+    [
+      'openai-responses',
+      '/v1/responses',
+      'Authorization: Bearer $GPT_LOAD_API_KEY',
+      '"input":"Hello"',
+    ],
     ['anthropic', '/v1/messages', 'x-api-key: $GPT_LOAD_API_KEY', 'anthropic-version:'],
     [
       'gemini',
@@ -121,6 +135,7 @@ describe('Home model', () => {
       expect(snippet.command).toContain(`https://gateway.example.com${path}`)
       expect(snippet.command).toContain(authentication)
       if (extraHeader) expect(snippet.command).toContain(extraHeader)
+      if (protocol === 'openai-responses') expect(snippet.command).toContain('"store":false')
       expect(snippet.command).not.toContain('ACCESS_KEY_CANARY')
     },
   )

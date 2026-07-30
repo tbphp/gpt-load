@@ -6,7 +6,7 @@ import { useRoute, useRouter } from 'vue-router'
 
 import { useApiClient } from '@/api/client-context'
 import { accessKeyOptionsQueryOptions } from '@/app/resources/access-keys'
-import { enabledDataProtocols } from '@/api/control/protocols'
+import { enabledDataProtocols, protocolCatalog } from '@/api/control/protocols'
 import {
   inspectRoute,
   type RouteInspectReasonCode,
@@ -28,6 +28,7 @@ const knownReasons = new Set<RouteInspectReasonCode>([
   'access_key_disabled',
   'protocol_filtered',
   'model_filtered',
+  'model_required_by_filter',
   'no_route_target',
   'group_disabled',
   'group_filtered',
@@ -60,9 +61,9 @@ let controller: AbortController | undefined
 
 const accessKeyOptionsQuery = useQuery(accessKeyOptionsQueryOptions(client))
 const protocolOptions = computed(() =>
-  enabledDataProtocols.map((protocol) => ({
-    value: protocol,
-    label: t(`monitor.inspector.protocols.${protocol}`),
+  protocolCatalog.map(({ value, labelKey }) => ({
+    value,
+    label: t(labelKey),
   })),
 )
 const missingAccessKeyOption = computed(
@@ -98,7 +99,7 @@ const inputChanged = computed(() => {
   if (!previous) return false
   return (
     draftProtocol.value !== previous.protocol ||
-    draftModel.value !== previous.external_model ||
+    draftModel.value !== (previous.external_model ?? '') ||
     draftAccessKeyID.value !== String(previous.access_key_id)
   )
 })
@@ -154,9 +155,8 @@ function validatedRequest(): RouteInspectRequest | undefined {
     errors.protocol = 'monitor.inspector.errors.protocol'
   }
   if (
-    draftModel.value === '' ||
-    draftModel.value.trim() !== draftModel.value ||
-    /[\u0000-\u001f\u007f]/.test(draftModel.value)
+    draftModel.value !== '' &&
+    (draftModel.value.trim() !== draftModel.value || /[\u0000-\u001f\u007f]/.test(draftModel.value))
   ) {
     errors.externalModel = 'monitor.inspector.errors.model'
   }
@@ -173,11 +173,12 @@ function validatedRequest(): RouteInspectRequest | undefined {
   fieldErrors.value = errors
   if (Object.keys(errors).length > 0) return undefined
 
-  return {
+  const request: RouteInspectRequest = {
     protocol: draftProtocol.value as AccessProtocol,
-    external_model: draftModel.value,
     access_key_id: accessKeyID,
   }
+  if (draftModel.value !== '') request.external_model = draftModel.value
+  return request
 }
 
 function setDraftProtocol(value: string): void {
@@ -194,14 +195,15 @@ async function inspect(): Promise<void> {
   controller = currentController
   pending.value = true
   failed.value = false
+  const query: Record<string, string> = {
+    tab: 'inspector',
+    protocol: request.protocol,
+    access_key_id: String(request.access_key_id),
+  }
+  if (request.external_model) query.external_model = request.external_model
   void router.replace({
     name: 'monitor',
-    query: {
-      tab: 'inspector',
-      protocol: request.protocol,
-      external_model: request.external_model,
-      access_key_id: String(request.access_key_id),
-    },
+    query,
   })
 
   try {
@@ -242,6 +244,10 @@ function reasonLabel(reason: string | null): string {
 
 function nullableWeight(value: number | null): number | string {
   return value ?? t('monitor.inspector.weights.null')
+}
+
+function modelLabel(value: string | null): string {
+  return value ?? t('monitor.inspector.result.modelNotSpecified')
 }
 
 function accessKeyStatusTone(status: 'active' | 'disabled'): 'success' | 'neutral' {
@@ -354,7 +360,7 @@ onBeforeUnmount(() => {
         </div>
         <div>
           <dt>{{ t('monitor.inspector.result.externalModel') }}</dt>
-          <dd>{{ observation.external_model }}</dd>
+          <dd>{{ modelLabel(observation.external_model) }}</dd>
         </div>
         <div>
           <dt>{{ t('monitor.inspector.result.accessKey') }}</dt>
@@ -403,7 +409,7 @@ onBeforeUnmount(() => {
             <header class="inspector-group__heading">
               <div>
                 <h4>{{ group.group_name }} · #{{ group.group_id }}</h4>
-                <code>{{ group.upstream_model }}</code>
+                <code>{{ modelLabel(group.upstream_model) }}</code>
               </div>
               <div class="inspector-statuses">
                 <StatusBadge :tone="group.included ? 'success' : 'neutral'">

@@ -35,18 +35,19 @@ type requestOutcome struct {
 }
 
 type requestRecorder struct {
-	sink        telemetry.RequestLogSink
-	requestID   string
-	startedAt   time.Time
-	accessKeyID uint
-	protocol    protocol.Protocol
-	clientModel string
-	attempts    []telemetry.Attempt
-	outcome     requestOutcome
-	usage       telemetry.UsageObservation
-	now         func() time.Time
-	redactor    *redact.Redactor
-	emitted     bool
+	sink            telemetry.RequestLogSink
+	requestID       string
+	startedAt       time.Time
+	accessKeyID     uint
+	protocol        protocol.Protocol
+	clientModel     string
+	usageApplicable bool
+	attempts        []telemetry.Attempt
+	outcome         requestOutcome
+	usage           telemetry.UsageObservation
+	now             func() time.Time
+	redactor        *redact.Redactor
+	emitted         bool
 
 	pendingRetry int
 }
@@ -62,9 +63,10 @@ func newRequestRecorder(
 	return &requestRecorder{
 		sink: sink, requestID: requestID, startedAt: startedAt,
 		accessKeyID: accessKeyID, protocol: value, now: now,
-		pendingRetry: -1,
-		redactor:     redact.New(),
-		usage:        telemetry.UsageObservation{Result: usage.Result{State: usage.StateNotApplicable}},
+		pendingRetry:    -1,
+		redactor:        redact.New(),
+		usageApplicable: true,
+		usage:           telemetry.UsageObservation{Result: usage.Result{State: usage.StateNotApplicable}},
 	}
 }
 
@@ -100,6 +102,12 @@ func (recorder *requestRecorder) emit() {
 func (recorder *requestRecorder) setClientModel(model string) {
 	if recorder != nil {
 		recorder.clientModel = model
+	}
+}
+
+func (recorder *requestRecorder) setUsageApplicable(applicable bool) {
+	if recorder != nil {
+		recorder.usageApplicable = applicable
 	}
 }
 
@@ -202,7 +210,7 @@ func (recorder *requestRecorder) appendAttempt(
 		GroupID:         selection.GroupID,
 		GroupName:       selection.Group.Name,
 		KeyID:           selection.KeyID,
-		UpstreamModel:   selection.UpstreamModelID,
+		UpstreamModel:   optionalModelValue(selection.UpstreamModelID),
 		StatusCode:      result.StatusCode,
 		DurationMs:      duration.Milliseconds(),
 		FailureCategory: category,
@@ -303,6 +311,7 @@ func (recorder *requestRecorder) completeResponse(
 }
 
 func (recorder *requestRecorder) completeProviderError(
+	result UpstreamResult,
 	upstreamModel string,
 	attemptIndex int,
 ) {
@@ -318,7 +327,7 @@ func (recorder *requestRecorder) completeProviderError(
 	}
 	recorder.bindUsage(
 		attemptIndex,
-		usage.Result{State: usage.StateMissing},
+		result.Usage,
 		true,
 	)
 }
@@ -335,7 +344,7 @@ func (recorder *requestRecorder) bindUsage(
 	if attempt.GroupID == 0 || attempt.KeyID == 0 || attempt.Sequence < 1 {
 		return
 	}
-	if !applicable {
+	if !applicable || !recorder.usageApplicable {
 		result = usage.Result{State: usage.StateNotApplicable}
 	} else if !validCapturedUsage(result) {
 		result = usage.Result{State: usage.StateMissing}

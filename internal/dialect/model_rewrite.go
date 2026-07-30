@@ -10,6 +10,7 @@ import (
 
 var (
 	_ ModelRewriter = (*OpenAI)(nil)
+	_ ModelRewriter = (*OpenAIResponses)(nil)
 	_ ModelRewriter = (*Anthropic)(nil)
 	_ ModelRewriter = (*Gemini)(nil)
 )
@@ -33,6 +34,58 @@ func (d *OpenAI) RewriteResponseModel(body []byte, model string) ([]byte, error)
 		return nil, err
 	}
 	return rewriteOptionalJSONField(body, "model", model)
+}
+
+func (d *OpenAIResponses) RewriteRequestModel(
+	req *ParsedRequest,
+	model string,
+) (*ParsedRequest, error) {
+	return rewriteJSONRequestModel(req, model, string(d.Protocol()))
+}
+
+func (d *OpenAIResponses) RewriteResponseModel(
+	body []byte,
+	model string,
+) ([]byte, error) {
+	if err := validateModelRewriteTarget(model, false); err != nil {
+		return nil, err
+	}
+	object, err := decodeJSONObject(body)
+	if err != nil {
+		return nil, err
+	}
+	changed := false
+	if _, exists := object["model"]; exists {
+		encodedModel, err := json.Marshal(model)
+		if err != nil {
+			return nil, fmt.Errorf("encode rewritten model: %w", err)
+		}
+		object["model"] = encodedModel
+		changed = true
+	}
+	rawResponse, exists := object["response"]
+	if exists && !bytes.Equal(bytes.TrimSpace(rawResponse), []byte("null")) {
+		response, err := decodeJSONObject(rawResponse)
+		if err != nil {
+			return nil, fmt.Errorf("decode Responses event response: %w", err)
+		}
+		if _, exists := response["model"]; exists {
+			rewritten, err := marshalRewrittenField(response, "model", model)
+			if err != nil {
+				return nil, err
+			}
+			object["response"] = rewritten
+			changed = true
+		}
+	}
+	if !changed {
+		return bytes.Clone(body), nil
+	}
+	encoded, err := json.Marshal(object)
+	if err != nil {
+		return nil, fmt.Errorf("encode rewritten Responses object: %w", err)
+	}
+	return encoded, nil
 }
 
 func (d *Anthropic) RewriteRequestModel(req *ParsedRequest, model string) (*ParsedRequest, error) {

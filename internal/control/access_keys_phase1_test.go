@@ -230,14 +230,14 @@ func TestAccessKeyFilterUpdateCanPreserveOrRemoveButNotAddDanglingScope(t *testi
 		KeyHash:   "historical-scope-hash",
 		KeySuffix: "cafe",
 		Status:    string(state.AccessKeyStatusActive),
-		Filters:   models.JSON(`{"groups":[999],"protocols":["openai-response"],"models":[]}`),
+		Filters:   models.JSON(`{"groups":[999],"protocols":["openai-responses"],"models":[]}`),
 	}
 	if err := fixture.db.Create(&row).Error; err != nil {
 		t.Fatalf("create historical scope: %v", err)
 	}
 
 	preserved := AccessKeyFilters{
-		Groups: []uint{999}, Protocols: []protocol.Protocol{protocol.OpenAIResponse},
+		Groups: []uint{999}, Protocols: []protocol.Protocol{protocol.OpenAIResponses},
 	}
 	if _, err := fixture.service.UpdateAccessKey(
 		t.Context(),

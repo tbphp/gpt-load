@@ -19,7 +19,7 @@ const createBody: CreateAccessKeyRequest = {
 
 const updateBody: UpdateAccessKeyRequest = {
   status: 'disabled',
-  filters: { groups: [7], protocols: ['openai-response'], models: ['gpt-4.1'] },
+  filters: { groups: [7], protocols: ['openai-responses'], models: ['gpt-4.1'] },
 }
 
 describe('AccessKey control API', () => {

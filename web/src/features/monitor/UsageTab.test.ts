@@ -68,7 +68,7 @@ function group(id: number, name: string): GroupSummary {
     name,
     enabled: true,
     upstream_url: 'https://example.test',
-    protocols: ['openai'],
+    protocols: ['openai-chat-completions'],
     key_count: 1,
     models: [{ id: 'gpt-upstream', alias: '' }],
   }

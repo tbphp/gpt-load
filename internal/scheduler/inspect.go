@@ -15,20 +15,21 @@ var ErrInconsistentSnapshot = errors.New("inconsistent scheduler snapshot")
 type ReasonCode string
 
 const (
-	ReasonAccessKeyDisabled ReasonCode = "access_key_disabled"
-	ReasonProtocolFiltered  ReasonCode = "protocol_filtered"
-	ReasonModelFiltered     ReasonCode = "model_filtered"
-	ReasonNoRouteTarget     ReasonCode = "no_route_target"
-	ReasonGroupDisabled     ReasonCode = "group_disabled"
-	ReasonGroupFiltered     ReasonCode = "group_filtered"
-	ReasonNoAvailableGroup  ReasonCode = "no_available_group"
-	ReasonNoKeys            ReasonCode = "no_keys"
-	ReasonGroupWeightZero   ReasonCode = "group_weight_zero"
-	ReasonKeyDisabled       ReasonCode = "key_disabled"
-	ReasonKeyBlacklisted    ReasonCode = "key_blacklisted"
-	ReasonKeyCooldown       ReasonCode = "key_cooldown"
-	ReasonKeyWeightZero     ReasonCode = "key_weight_zero"
-	ReasonNoAvailableKey    ReasonCode = "no_available_key"
+	ReasonAccessKeyDisabled     ReasonCode = "access_key_disabled"
+	ReasonProtocolFiltered      ReasonCode = "protocol_filtered"
+	ReasonModelFiltered         ReasonCode = "model_filtered"
+	ReasonModelRequiredByFilter ReasonCode = "model_required_by_filter"
+	ReasonNoRouteTarget         ReasonCode = "no_route_target"
+	ReasonGroupDisabled         ReasonCode = "group_disabled"
+	ReasonGroupFiltered         ReasonCode = "group_filtered"
+	ReasonNoAvailableGroup      ReasonCode = "no_available_group"
+	ReasonNoKeys                ReasonCode = "no_keys"
+	ReasonGroupWeightZero       ReasonCode = "group_weight_zero"
+	ReasonKeyDisabled           ReasonCode = "key_disabled"
+	ReasonKeyBlacklisted        ReasonCode = "key_blacklisted"
+	ReasonKeyCooldown           ReasonCode = "key_cooldown"
+	ReasonKeyWeightZero         ReasonCode = "key_weight_zero"
+	ReasonNoAvailableKey        ReasonCode = "no_available_key"
 )
 
 type Inspection struct {
@@ -40,7 +41,7 @@ type Inspection struct {
 type GroupInspection struct {
 	GroupID         uint
 	GroupName       string
-	UpstreamModelID string
+	UpstreamModelID *string
 	WeightManual    *int
 	Included        bool
 	Routable        bool
@@ -59,10 +60,15 @@ type KeyInspection struct {
 }
 
 type targetDecision struct {
-	target   state.RouteTarget
+	target   evaluationTarget
 	group    state.GroupCatalogView
 	included bool
 	reason   ReasonCode
+}
+
+type evaluationTarget struct {
+	GroupID         uint
+	UpstreamModelID *string
 }
 
 func cloneWeight(weight *int) *int {
@@ -75,7 +81,8 @@ func cloneWeight(weight *int) *int {
 
 func evaluateTargets(
 	snapshot *state.ConfigSnapshot,
-	index map[protocol.Protocol]map[string][]state.RouteTarget,
+	modelIndex map[protocol.Protocol]map[string][]state.RouteTarget,
+	protocolIndex map[protocol.Protocol][]uint,
 	query Query,
 ) ([]targetDecision, ReasonCode, error) {
 	if snapshot == nil {
@@ -87,11 +94,14 @@ func evaluateTargets(
 		}
 	}
 	if len(query.AccessKey.Filters.Models) > 0 {
-		if _, allowed := query.AccessKey.Filters.Models[query.ExternalModel]; !allowed {
+		if query.ExternalModel == nil {
+			return []targetDecision{}, ReasonModelRequiredByFilter, nil
+		}
+		if _, allowed := query.AccessKey.Filters.Models[*query.ExternalModel]; !allowed {
 			return []targetDecision{}, ReasonModelFiltered, nil
 		}
 	}
-	routes := index[query.Protocol][query.ExternalModel]
+	routes := evaluationTargets(modelIndex, protocolIndex, query)
 	if len(routes) == 0 {
 		return []targetDecision{}, ReasonNoRouteTarget, nil
 	}
@@ -138,6 +148,39 @@ func evaluateTargets(
 		}
 	}
 	return decisions, reason, nil
+}
+
+func evaluationTargets(
+	modelIndex map[protocol.Protocol]map[string][]state.RouteTarget,
+	protocolIndex map[protocol.Protocol][]uint,
+	query Query,
+) []evaluationTarget {
+	if query.ExternalModel == nil {
+		groupIDs := protocolIndex[query.Protocol]
+		result := make([]evaluationTarget, 0, len(groupIDs))
+		for _, groupID := range groupIDs {
+			result = append(result, evaluationTarget{GroupID: groupID})
+		}
+		return result
+	}
+	routes := modelIndex[query.Protocol][*query.ExternalModel]
+	result := make([]evaluationTarget, 0, len(routes))
+	for _, route := range routes {
+		upstreamModelID := route.UpstreamModelID
+		result = append(result, evaluationTarget{
+			GroupID:         route.GroupID,
+			UpstreamModelID: &upstreamModelID,
+		})
+	}
+	return result
+}
+
+func accessKeyAllowsGroup(accessKey state.AccessKeyView, groupID uint) bool {
+	if len(accessKey.Filters.Groups) == 0 {
+		return true
+	}
+	_, allowed := accessKey.Filters.Groups[groupID]
+	return allowed
 }
 
 func normalizedAutoWeight(weight int) int {
@@ -238,6 +281,7 @@ func Inspect(
 	decisions, staticReason, err := evaluateTargets(
 		snapshot,
 		snapshot.RouteCatalog,
+		snapshot.ProtocolRouteCatalog,
 		query,
 	)
 	if err != nil {
@@ -246,7 +290,7 @@ func Inspect(
 	for _, decision := range decisions {
 		groupResult := GroupInspection{
 			GroupID: decision.group.ID, GroupName: decision.group.Name,
-			UpstreamModelID: decision.target.UpstreamModelID,
+			UpstreamModelID: cloneString(decision.target.UpstreamModelID),
 			WeightManual:    cloneWeight(decision.group.WeightManual),
 			Included:        decision.included, Reason: decision.reason,
 			Keys: []KeyInspection{},

@@ -5,6 +5,7 @@ import type {
   GroupUpdateRequest,
   HeaderRulesDto,
 } from '@/app/resources/groups'
+import { enabledDataProtocols } from '@/api/control/protocols'
 import type { GroupProtocol } from '@/api/control/types'
 
 export type GroupTimeoutKey =
@@ -20,7 +21,7 @@ export interface GroupSettingsDraft {
   config: GroupRuntimeConfigDto
 }
 
-const protocolOrder: GroupProtocol[] = ['openai', 'anthropic', 'gemini']
+const protocolOrder: readonly GroupProtocol[] = enabledDataProtocols
 
 function cloneHeaderRules(value: HeaderRulesDto): HeaderRulesDto {
   return { set: { ...value.set }, remove: [...value.remove] }
