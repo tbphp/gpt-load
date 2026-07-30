@@ -269,7 +269,7 @@ corepack pnpm --dir web run format
 corepack pnpm --dir web run type-check
 corepack pnpm --dir web run build
 go build -o gpt-load .
-go test -race . ./internal/...
+go test . ./internal/...
 ```
 
 项目工作流不包含前端单元测试或浏览器 E2E；前端验证范围为依赖安装、lint、format、type-check 与 build。

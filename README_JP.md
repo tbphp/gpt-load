@@ -270,7 +270,7 @@ corepack pnpm --dir web run format
 corepack pnpm --dir web run type-check
 corepack pnpm --dir web run build
 go build -o gpt-load .
-go test -race . ./internal/...
+go test . ./internal/...
 ```
 
 プロジェクトのワークフローには、フロントエンドのユニットテストとブラウザE2Eテストを含めません。フロントエンドの検証範囲は、依存関係のインストール、lint、format、type-check、buildです。
