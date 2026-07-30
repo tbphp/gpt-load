@@ -101,6 +101,10 @@ function localeFamily(value: string): AppLocale | undefined {
   return undefined
 }
 
+function resolveLocaleCandidate(value: string): AppLocale | undefined {
+  return isSupportedLocale(value) ? value : localeFamily(value)
+}
+
 function initialLocale(
   storage: Storage | undefined,
   browserLanguages: readonly string[],
@@ -114,15 +118,12 @@ function initialLocale(
   }
   if (isSupportedLocale(savedLocale)) return savedLocale
 
-  const candidates = [...browserLanguages, browserLanguage].filter(
-    (candidate, index, values) => candidate !== '' && values.indexOf(candidate) === index,
-  )
-  const exact = candidates.find((candidate): candidate is AppLocale =>
-    supportedLocales.includes(candidate as AppLocale),
-  )
-  return (
-    exact ?? candidates.map(localeFamily).find((candidate) => candidate !== undefined) ?? 'en-US'
-  )
+  for (const candidate of browserLanguages) {
+    const resolved = resolveLocaleCandidate(candidate)
+    if (resolved) return resolved
+  }
+
+  return resolveLocaleCandidate(browserLanguage) ?? 'en-US'
 }
 
 function persistLocale(storage: Storage | undefined, locale: AppLocale): void {
@@ -142,6 +143,7 @@ function createController(
   const plugin = createI18nPlugin(locale, messages)
   const pending = new Map<string, Promise<void>>()
   let activeNamespaces: readonly MessageNamespace[] = []
+  let requestedLocale = locale
 
   async function ensure(
     targetLocale: AppLocale,
@@ -180,13 +182,15 @@ function createController(
       return plugin.global.locale.value as AppLocale
     },
     async setLocale(nextLocale) {
+      requestedLocale = nextLocale
+      persistLocale(storage, nextLocale)
       await Promise.all([
         ensureWithFallback(nextLocale, 'core'),
         ...activeNamespaces.map((namespace) => ensureWithFallback(nextLocale, namespace)),
       ])
+      if (requestedLocale !== nextLocale) return
       plugin.global.locale.value = nextLocale
       document.documentElement.lang = nextLocale
-      persistLocale(storage, nextLocale)
     },
     async loadNamespaces(requested) {
       activeNamespaces = [...new Set(requested)]

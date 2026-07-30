@@ -115,7 +115,11 @@ watch(
       </nav>
 
       <div class="shell-actions">
-        <RouterLink class="button-link import-action" :to="importLocation()">
+        <RouterLink
+          class="button-link import-action"
+          :to="importLocation()"
+          :aria-label="t('shell.import')"
+        >
           <KeyRound :size="15" aria-hidden="true" />
           <span class="import-action__label">{{ t('shell.import') }}</span>
         </RouterLink>
@@ -275,9 +279,7 @@ watch(
   display: none;
 }
 .app-content {
-  width: min(calc(100% - (2 * var(--page-gutter))), var(--content-max));
-  margin: 0 auto;
-  padding: var(--space-10) 0 var(--space-10);
+  min-height: calc(100vh - var(--topbar-height));
 }
 .mobile-nav {
   display: grid;
@@ -334,12 +336,6 @@ watch(
   }
   .mobile-menu-trigger {
     display: inline-flex;
-  }
-}
-@media (max-width: 767px) {
-  .app-content {
-    width: min(calc(100% - 32px), var(--content-max));
-    padding-top: var(--space-5);
   }
 }
 </style>

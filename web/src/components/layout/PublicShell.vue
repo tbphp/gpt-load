@@ -51,9 +51,9 @@ watch(
         @update:theme="theme.setTheme"
       />
     </header>
-    <main id="main-content" class="public-content" tabindex="-1">
+    <div id="main-content" class="public-content" tabindex="-1">
       <slot />
-    </main>
+    </div>
   </div>
 </template>
 
