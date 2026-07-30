@@ -35,7 +35,7 @@ func TestAlignDownUsesUnixEpochBoundaries(t *testing.T) {
 		value, width int64
 		want         int64
 	}{
-		{name: "hour", value: 1_785_370_150_987, width: MillisecondsPerHour, want: 1_785_369_600_000},
+		{name: "hour", value: 1_785_373_750_987, width: MillisecondsPerHour, want: 1_785_373_200_000},
 		{name: "day", value: 1_785_370_150_987, width: MillisecondsPerDay, want: 1_785_369_600_000},
 	}
 
@@ -79,5 +79,33 @@ func TestWindowEndingAtIncludesCurrentBucket(t *testing.T) {
 	}
 	if from != 3_600_000 || to != 14_400_000 {
 		t.Fatalf("WindowEndingAt() = [%d, %d), want [3600000, 14400000)", from, to)
+	}
+}
+
+func TestWindowEndingAtRejectsInvalidCount(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		count int
+	}{
+		{name: "zero", count: 0},
+		{name: "negative", count: -1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if _, _, err := WindowEndingAt(0, MillisecondsPerHour, test.count); err == nil {
+				t.Fatalf("WindowEndingAt() accepted count %d", test.count)
+			}
+		})
+	}
+}
+
+func TestWindowEndingAtRejectsWindowWidthOverflow(t *testing.T) {
+	if _, _, err := WindowEndingAt(0, math.MaxInt64, 2); err == nil {
+		t.Fatal("WindowEndingAt() accepted a window width that overflows int64")
+	}
+}
+
+func TestWindowEndingAtRejectsWindowBeforeUnixEpoch(t *testing.T) {
+	if _, _, err := WindowEndingAt(1, MillisecondsPerHour, 2); err == nil {
+		t.Fatal("WindowEndingAt() accepted a window beginning before the Unix epoch")
 	}
 }

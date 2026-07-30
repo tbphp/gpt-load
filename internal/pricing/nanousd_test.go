@@ -65,6 +65,8 @@ func TestQuoteComponentUsesIntegerHalfUpRounding(t *testing.T) {
 		multiplier Multiplier
 		want       NanoUSD
 	}{
+		{name: "large intermediate product remains representable after division", tokens: math.MaxInt64, price: 1_000_000, multiplier: Multiplier{Numerator: 1, Denominator: 1}, want: NanoUSD(math.MaxInt64)},
+		{name: "below half rounds down", tokens: 499_999, price: 1, multiplier: Multiplier{Numerator: 1, Denominator: 1}, want: 0},
 		{name: "half rounds up", tokens: 500_000, price: 1, multiplier: Multiplier{Numerator: 1, Denominator: 1}, want: 1},
 		{name: "exact two times multiplier", tokens: 1_000_000, price: 7, multiplier: Multiplier{Numerator: 2, Denominator: 1}, want: 14},
 		{name: "exact three halves multiplier", tokens: 1_000_000, price: 7, multiplier: Multiplier{Numerator: 3, Denominator: 2}, want: 11},
