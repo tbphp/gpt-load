@@ -68,17 +68,17 @@ function isSafeApiQuery(query: string): boolean {
   }
 
   let encodedQuery = query
-  for (let encodingDepth = 1; encodingDepth <= maxPercentEncodingDepth; encodingDepth += 1) {
+  for (let encodingDepth = 0; encodingDepth <= maxPercentEncodingDepth; encodingDepth += 1) {
     if (/%(?:0[0-9a-f]|1[0-9a-f]|7f)/i.test(encodedQuery)) {
       return false
+    }
+    if (encodingDepth === maxPercentEncodingDepth) {
+      return true
     }
 
     const expandedQuery = encodedQuery.replace(/%25/gi, '%')
     if (expandedQuery === encodedQuery) {
       return true
-    }
-    if (encodingDepth === maxPercentEncodingDepth) {
-      return false
     }
     encodedQuery = expandedQuery
   }
