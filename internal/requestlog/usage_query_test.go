@@ -400,7 +400,7 @@ func TestQueryUsageRejectsCorruptRowsOutsideTopBreakdown(t *testing.T) {
 	corrupt.FailureCount = 0
 	corrupt.UncachedInputTokens = -1
 	rows = append(rows, compensating, corrupt)
-	createUsageStats(t, db, rows...)
+	createCorruptUsageStats(t, db, rows...)
 
 	input := UsageQuery{
 		FromMS:         start.UnixMilli(),
@@ -530,7 +530,7 @@ func TestQueryUsageRejectsCorruptAggregates(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			db := openRequestLogQueryDB(t)
-			createUsageStats(t, db, test.rows...)
+			createCorruptUsageStats(t, db, test.rows...)
 			_, err := newRequestLogTestService(db).QueryUsage(context.Background(), UsageQuery{
 				FromMS:         start.UnixMilli(),
 				ToMS:           start.Add(time.Hour).UnixMilli(),
@@ -570,6 +570,21 @@ func createUsageStats(t *testing.T, db *gorm.DB, rows ...models.UsageStat) {
 		if err := db.Create(&row).Error; err != nil {
 			t.Fatalf("create UsageStat %#v: %v", row, err)
 		}
+	}
+}
+
+func createCorruptUsageStats(t *testing.T, db *gorm.DB, rows ...models.UsageStat) {
+	t.Helper()
+	if err := db.Exec(`PRAGMA ignore_check_constraints = ON`).Error; err != nil {
+		t.Fatalf("disable SQLite CHECK constraints: %v", err)
+	}
+	for _, row := range rows {
+		if err := db.Create(&row).Error; err != nil {
+			t.Fatalf("create corrupt UsageStat %#v: %v", row, err)
+		}
+	}
+	if err := db.Exec(`PRAGMA ignore_check_constraints = OFF`).Error; err != nil {
+		t.Fatalf("restore SQLite CHECK constraints: %v", err)
 	}
 }
 

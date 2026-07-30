@@ -3,6 +3,7 @@ package storage_test
 import (
 	"math"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -68,6 +69,30 @@ func TestAutoMigrateCreatesSchemaV3IntegerStorage(t *testing.T) {
 		'', '', false, 0, 0, 0, 0, 0, -1, 'complete', 'priced', '[]'
 	)`).Error; err == nil {
 		t.Fatal("negative request log nano USD cost was accepted")
+	}
+
+	accessColumns := schemaV3Columns(t, db, "access_keys")
+	assertSchemaV3IntegerColumn(t, accessColumns, "daily_cost_limit_nano_usd", false)
+	assertSchemaV3IntegerColumn(t, accessColumns, "monthly_cost_limit_nano_usd", false)
+	if err := db.Exec(`INSERT INTO access_keys (
+		id, name, key_value, key_hash, key_suffix, status, rpm_limit,
+		daily_cost_limit_nano_usd, monthly_cost_limit_nano_usd,
+		created_at_ms, updated_at_ms
+	) VALUES (
+		991, 'negative-limit', 'cipher', 'negative-limit-hash', '7f2a', 'active',
+		0, -1, 0, 1, 1
+	)`).Error; err == nil {
+		t.Fatal("negative access-key nano USD limit was accepted")
+	}
+	if err := db.Exec(`INSERT INTO access_keys (
+		id, name, key_value, key_hash, key_suffix, status, rpm_limit,
+		daily_cost_limit_nano_usd, monthly_cost_limit_nano_usd,
+		created_at_ms, updated_at_ms
+	) VALUES (
+		992, 'negative-monthly-limit', 'cipher', 'negative-monthly-limit-hash',
+		'7f2b', 'active', 0, 0, -1, 1, 1
+	)`).Error; err == nil {
+		t.Fatal("negative access-key monthly nano USD limit was accepted")
 	}
 
 	priceColumns := schemaV3Columns(t, db, "model_prices")
@@ -137,6 +162,159 @@ func TestAutoMigrateCreatesSchemaV3IntegerStorage(t *testing.T) {
 	}
 }
 
+func TestSchemaV3FreshAndMigratedSchemasEnforceEquivalentConstraints(t *testing.T) {
+	factories := []struct {
+		name string
+		open func(*testing.T) *gorm.DB
+	}{
+		{
+			name: "fresh",
+			open: func(t *testing.T) *gorm.DB {
+				db := openSchemaV3TestDatabase(t)
+				if err := storage.AutoMigrate(db); err != nil {
+					t.Fatalf("AutoMigrate(fresh) error = %v", err)
+				}
+				return db
+			},
+		},
+		{
+			name: "migrated",
+			open: func(t *testing.T) *gorm.DB {
+				db := openSchemaV3TestDatabase(t)
+				createSchemaV2Fixture(t, db)
+				if err := storage.AutoMigrate(db); err != nil {
+					t.Fatalf("AutoMigrate(v2) error = %v", err)
+				}
+				return db
+			},
+		},
+	}
+	invalidStatements := []struct {
+		name      string
+		statement string
+		args      []any
+	}{
+		{
+			name: "negative absolute time",
+			statement: `INSERT INTO groups (
+				id, name, upstream_url, protocols, models, convert_enabled,
+				enabled, created_at_ms, updated_at_ms
+			) VALUES (901, 'negative-time', 'https://invalid.example', '[]', '[]',
+				false, true, -1, 1)`,
+		},
+		{
+			name:      "negative duration",
+			statement: schemaV3InvalidRequestInsert,
+			args:      []any{"negative-duration", -1, 0},
+		},
+		{
+			name:      "negative token",
+			statement: schemaV3InvalidRequestInsert,
+			args:      []any{"negative-token", 0, -1},
+		},
+		{
+			name: "negative aggregate counter",
+			statement: `INSERT INTO usage_stats (
+				bucket_start_ms, access_key_id, group_id, model,
+				request_count, success_count, failure_count
+			) VALUES (3600000, 0, 0, '', -1, 0, 0)`,
+		},
+		{
+			name: "aggregate outcome mismatch",
+			statement: `INSERT INTO usage_stats (
+				bucket_start_ms, access_key_id, group_id, model,
+				request_count, success_count, failure_count
+			) VALUES (7200000, 0, 0, '', 1, 0, 0)`,
+		},
+		{
+			name:      "invalid request usage cost combination",
+			statement: schemaV3InvalidUsageCostInsert,
+			args:      []any{"missing-priced"},
+		},
+	}
+
+	for _, factory := range factories {
+		t.Run(factory.name, func(t *testing.T) {
+			db := factory.open(t)
+			assertSchemaV3IndexColumns(t, db,
+				"idx_request_logs_completed_id",
+				[]string{"completed_at_ms", "id"},
+			)
+			assertSchemaV3IndexColumns(t, db,
+				"idx_usage_stats_bucket_access_group_model",
+				[]string{"bucket_start_ms", "access_key_id", "group_id", "model"},
+			)
+			for _, invalid := range invalidStatements {
+				t.Run(invalid.name, func(t *testing.T) {
+					if err := db.Exec(invalid.statement, invalid.args...).Error; err == nil {
+						t.Fatalf("%s schema accepted %s", factory.name, invalid.name)
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestAutoMigrateSchemaV3RejectsMissingConstraintsAndCriticalIndexes(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*testing.T, *gorm.DB)
+	}{
+		{
+			name: "critical index",
+			mutate: func(t *testing.T, db *gorm.DB) {
+				mustExecSchemaV3(t, db, `DROP INDEX idx_request_logs_completed_id`)
+			},
+		},
+		{
+			name: "table constraints",
+			mutate: func(t *testing.T, db *gorm.DB) {
+				mustExecSchemaV3(t, db, `ALTER TABLE usage_stats RENAME TO usage_stats_checked`)
+				mustExecSchemaV3(t, db,
+					`CREATE TABLE usage_stats AS SELECT * FROM usage_stats_checked WHERE 0`)
+				mustExecSchemaV3(t, db, `DROP TABLE usage_stats_checked`)
+				mustExecSchemaV3(t, db, `CREATE UNIQUE INDEX
+					idx_usage_stats_bucket_access_group_model
+					ON usage_stats(bucket_start_ms, access_key_id, group_id, model)`)
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			db := openSchemaV3TestDatabase(t)
+			if err := storage.AutoMigrate(db); err != nil {
+				t.Fatalf("AutoMigrate(fresh) error = %v", err)
+			}
+			test.mutate(t, db)
+			if err := storage.AutoMigrate(db); err == nil {
+				t.Fatal("AutoMigrate(corrupt v3) error = nil, want strict validation failure")
+			}
+		})
+	}
+}
+
+const schemaV3InvalidRequestInsert = `INSERT INTO request_logs (
+	id, completed_at_ms, access_key_id, group_id, protocol, client_model,
+	upstream_model, status, status_code, duration_ms, error_code, error_summary,
+	affinity_hit, uncached_input_tokens, output_tokens, cache_read_tokens,
+	cache_write_5m_tokens, cache_write_1h_tokens, estimated_cost_nano_usd,
+	usage_state, cost_state, attempts
+) VALUES (
+	?, 1, 0, 0, 'openai-completions', '', '', 'success', 200, ?,
+	'', '', false, ?, 0, 0, 0, 0, 0, 'complete', 'priced', '[]'
+)`
+
+const schemaV3InvalidUsageCostInsert = `INSERT INTO request_logs (
+	id, completed_at_ms, access_key_id, group_id, protocol, client_model,
+	upstream_model, status, status_code, duration_ms, error_code, error_summary,
+	affinity_hit, uncached_input_tokens, output_tokens, cache_read_tokens,
+	cache_write_5m_tokens, cache_write_1h_tokens, estimated_cost_nano_usd,
+	usage_state, cost_state, attempts
+) VALUES (
+	?, 1, 0, 0, 'openai-completions', '', '', 'success', 200, 0,
+	'', '', false, 0, 0, 0, 0, 0, 0, 'missing', 'priced', '[]'
+)`
+
 func TestAutoMigrateSchemaV3MigratesV2RowsAndBackfillsUsage(t *testing.T) {
 	db := openSchemaV3TestDatabase(t)
 	createSchemaV2Fixture(t, db)
@@ -162,7 +340,7 @@ func TestAutoMigrateSchemaV3MigratesV2RowsAndBackfillsUsage(t *testing.T) {
 		daily_cost_limit, monthly_cost_limit, created_at, updated_at
 	) VALUES (13, 'legacy-access', 'cipher-access', 'hash-access', '7f2a', 'active',
 		'{"groups":[7],"protocols":["anthropic"],"models":["client-model"]}',
-		17, 18.25, 19.5, ?, ?)`, createdAt, updatedAt)
+		17, 18.0000000005, 19.5, ?, ?)`, createdAt, updatedAt)
 	mustExecSchemaV3(t, db, `INSERT INTO model_prices (
 		id, pattern, input_price, output_price, cache_read_price,
 		cache_write_5m_price, cache_write_1h_price, source, created_at, updated_at
@@ -242,21 +420,26 @@ func TestAutoMigrateSchemaV3MigratesV2RowsAndBackfillsUsage(t *testing.T) {
 	}
 
 	type migratedCredential struct {
-		KeyValue    string
-		KeyHash     string
-		KeySuffix   string
-		Filters     string
-		CreatedAtMS int64 `gorm:"column:created_at_ms"`
-		UpdatedAtMS int64 `gorm:"column:updated_at_ms"`
+		KeyValue                string
+		KeyHash                 string
+		KeySuffix               string
+		Filters                 string
+		DailyCostLimitNanoUSD   int64 `gorm:"column:daily_cost_limit_nano_usd"`
+		MonthlyCostLimitNanoUSD int64 `gorm:"column:monthly_cost_limit_nano_usd"`
+		CreatedAtMS             int64 `gorm:"column:created_at_ms"`
+		UpdatedAtMS             int64 `gorm:"column:updated_at_ms"`
 	}
 	var access migratedCredential
 	if err := db.Raw(`SELECT key_value, key_hash, key_suffix, filters,
+		daily_cost_limit_nano_usd, monthly_cost_limit_nano_usd,
 		created_at_ms, updated_at_ms FROM access_keys WHERE id = 13`).Scan(&access).Error; err != nil {
 		t.Fatalf("read migrated access key: %v", err)
 	}
 	if access.KeyValue != "cipher-access" || access.KeyHash != "hash-access" ||
 		access.KeySuffix != "7f2a" ||
 		access.Filters != `{"groups":[7],"protocols":["anthropic"],"models":["client-model"]}` ||
+		access.DailyCostLimitNanoUSD != 18_000_000_001 ||
+		access.MonthlyCostLimitNanoUSD != 19_500_000_000 ||
 		access.CreatedAtMS != createdAt.UnixMilli() || access.UpdatedAtMS != updatedAt.UnixMilli() {
 		t.Errorf("migrated access key = %+v", access)
 	}
@@ -440,6 +623,37 @@ func TestAutoMigrateSchemaV3RejectsInvalidV2RowsAndRollsBack(t *testing.T) {
 			},
 		},
 		{
+			name: "negative access key daily limit", table: "access_keys", identity: "36",
+			insertRow: func(t *testing.T, db *gorm.DB) {
+				insertLegacyAccessKeyLimits(t, db, 36, -0.1, 0)
+			},
+		},
+		{
+			name: "NaN access key daily limit text", table: "access_keys", identity: "37",
+			insertRow: func(t *testing.T, db *gorm.DB) {
+				mustExecSchemaV3(t, db, `INSERT INTO access_keys (
+					id, name, key_value, key_hash, key_suffix, status, rpm_limit,
+					daily_cost_limit, monthly_cost_limit, created_at, updated_at
+				) VALUES (
+					37, 'nan-limit', 'cipher', 'nan-limit-hash', '7f2a', 'active',
+					0, 'NaN', 0, '2026-07-30T00:00:00Z', '2026-07-30T00:00:00Z'
+				)`)
+			},
+		},
+		{
+			name: "infinite access key monthly limit", table: "access_keys", identity: "38",
+			insertRow: func(t *testing.T, db *gorm.DB) {
+				insertLegacyAccessKeyLimits(t, db, 38, 0, math.Inf(1))
+			},
+		},
+		{
+			name:  "access key daily limit overflows int64 nano USD",
+			table: "access_keys", identity: "39",
+			insertRow: func(t *testing.T, db *gorm.DB) {
+				insertLegacyAccessKeyLimits(t, db, 39, 10_000_000_000, 0)
+			},
+		},
+		{
 			name: "negative request cost", table: "request_logs", identity: "negative-cost",
 			insertRow: func(t *testing.T, db *gorm.DB) {
 				insertLegacyRequestLog(t, db, "negative-cost",
@@ -455,6 +669,36 @@ func TestAutoMigrateSchemaV3RejectsInvalidV2RowsAndRollsBack(t *testing.T) {
 					time.Date(2026, 7, 30, 0, 0, 0, 0, time.UTC),
 					0, 0, "", "", "success", 0, 0, 0, 0, 0,
 					10_000_000_000, "complete", "priced")
+			},
+		},
+		{
+			name:  "missing usage cannot be priced",
+			table: "request_logs", identity: "missing-priced",
+			insertRow: func(t *testing.T, db *gorm.DB) {
+				insertLegacyRequestLog(t, db, "missing-priced",
+					time.Date(2026, 7, 30, 0, 0, 0, 0, time.UTC),
+					0, 0, "", "", "success", 0, 0, 0, 0, 0,
+					0, "missing", "priced")
+			},
+		},
+		{
+			name:  "unpriced request cost must be zero",
+			table: "request_logs", identity: "unpriced-nonzero",
+			insertRow: func(t *testing.T, db *gorm.DB) {
+				insertLegacyRequestLog(t, db, "unpriced-nonzero",
+					time.Date(2026, 7, 30, 0, 0, 0, 0, time.UTC),
+					0, 0, "", "", "success", 0, 0, 0, 0, 0,
+					0.000000001, "complete", "unpriced")
+			},
+		},
+		{
+			name:  "not applicable request cost must be zero",
+			table: "request_logs", identity: "not-applicable-nonzero",
+			insertRow: func(t *testing.T, db *gorm.DB) {
+				insertLegacyRequestLog(t, db, "not-applicable-nonzero",
+					time.Date(2026, 7, 30, 0, 0, 0, 0, time.UTC),
+					0, 0, "", "", "success", 0, 0, 0, 0, 0,
+					0.000000001, "not_applicable", "not_applicable")
 			},
 		},
 	}
@@ -742,6 +986,27 @@ func insertLegacyRequestLog(
 		id, completedAt, accessKeyID, groupID, clientModel, upstreamModel, status,
 		inputTokens, outputTokens, cacheReadTokens, cacheWrite5MTokens,
 		cacheWrite1HTokens, cost, usageState, costState,
+	)
+}
+
+func insertLegacyAccessKeyLimits(
+	t *testing.T,
+	db *gorm.DB,
+	id uint,
+	dailyCostLimit float64,
+	monthlyCostLimit float64,
+) {
+	t.Helper()
+	mustExecSchemaV3(t, db, `INSERT INTO access_keys (
+		id, name, key_value, key_hash, key_suffix, status, rpm_limit,
+		daily_cost_limit, monthly_cost_limit, created_at, updated_at
+	) VALUES (?, ?, 'cipher', ?, '7f2a', 'active', 0, ?, ?,
+		'2026-07-30T00:00:00Z', '2026-07-30T00:00:00Z')`,
+		id,
+		"invalid-limit",
+		"invalid-limit-hash-"+strconv.FormatUint(uint64(id), 10),
+		dailyCostLimit,
+		monthlyCostLimit,
 	)
 }
 

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -15,6 +16,7 @@ import (
 
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/requestlog"
+	"gpt-load/internal/storage/models"
 )
 
 func TestUsageAPIRouteUsesManagementAuthentication(t *testing.T) {
@@ -318,6 +320,10 @@ func TestUsageAPIRejectsStrictInvalidQueriesWithoutCallingReader(t *testing.T) {
 		{query: "range=24h&from_ms=1&to_ms=2", code: "VALIDATION_FAILED"},
 		{query: "range=1h", code: "VALIDATION_FAILED"},
 		{query: "group_id=0", code: "VALIDATION_FAILED"},
+		{query: "group_id=01", code: "BAD_REQUEST"},
+		{query: "group_id=%2B1", code: "BAD_REQUEST"},
+		{query: "group_id=%201", code: "BAD_REQUEST"},
+		{query: "group_id=1&group_id=2", code: "BAD_REQUEST"},
 		{query: "group_id=9007199254740992", code: "VALIDATION_FAILED"},
 		{query: "group_id=-1", code: "BAD_REQUEST"},
 		{query: "model=", code: "VALIDATION_FAILED"},
@@ -433,16 +439,66 @@ func TestUsageAPIRejectsUnsafeProcessStatsWithoutLeakingCause(t *testing.T) {
 	}
 }
 
-func TestUsageAPIRejectsUnattributedBreakdownWithoutLeakingCause(t *testing.T) {
-	reader := &recordingUsageStatReader{report: requestlog.UsageReport{
-		Breakdown: []requestlog.UsageBreakdown{{GroupID: 0, Model: "unattributed"}},
-	}}
-	engine, _ := newUsageTestEngine(t, time.Date(2026, time.July, 27, 0, 0, 0, 0, time.UTC), reader)
+func TestUsageAPIReturnsUnattributedAggregateFromSQLite(t *testing.T) {
+	initControlI18n(t)
+	now := time.Date(2026, time.July, 27, 12, 0, 0, 0, time.UTC)
+	fixture := newServiceFixture(t)
+	if err := fixture.db.Create(&models.UsageStat{
+		BucketStartMS: now.Add(-time.Hour).UnixMilli(),
+		AccessKeyID:   0,
+		GroupID:       0,
+		Model:         "",
+		RequestCount:  1,
+		SuccessCount:  1,
+	}).Error; err != nil {
+		t.Fatalf("create unattributed UsageStat: %v", err)
+	}
+	fixture.service.now = func() time.Time { return now }
+	fixture.service.usageStats = requestlog.NewService(fixture.db, nil, nil, nil)
+	engine := gin.New()
+	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
+
 	recorder := performUsageRequest(engine, "test-auth-key", "")
-	if recorder.Code != http.StatusInternalServerError ||
-		!strings.Contains(recorder.Body.String(), "INTERNAL_SERVER_ERROR") ||
-		strings.Contains(strings.ToLower(recorder.Body.String()), "group") {
-		t.Fatalf("response = %d %s", recorder.Code, recorder.Body.String())
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("response = %d %s, want 200", recorder.Code, recorder.Body.String())
+	}
+	var envelope struct {
+		Data struct {
+			Breakdown []struct {
+				GroupID      uint   `json:"group_id"`
+				Model        string `json:"model"`
+				RequestCount int64  `json:"request_count"`
+			} `json:"breakdown"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(envelope.Data.Breakdown) != 1 ||
+		envelope.Data.Breakdown[0].GroupID != 0 ||
+		envelope.Data.Breakdown[0].Model != "" ||
+		envelope.Data.Breakdown[0].RequestCount != 1 {
+		t.Fatalf("unattributed breakdown = %#v", envelope.Data.Breakdown)
+	}
+}
+
+func TestUsageAPIAcceptsMaximumSafeCanonicalGroupID(t *testing.T) {
+	if strconv.IntSize != 64 {
+		t.Skip("maximum JavaScript safe integer does not fit uint on this architecture")
+	}
+	reader := &recordingUsageStatReader{}
+	engine, _ := newUsageTestEngine(
+		t,
+		time.Date(2026, time.July, 27, 0, 0, 0, 0, time.UTC),
+		reader,
+	)
+	recorder := performUsageRequest(engine, "test-auth-key", "group_id=9007199254740991")
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("response = %d %s, want 200", recorder.Code, recorder.Body.String())
+	}
+	if len(reader.queries) != 1 || reader.queries[0].GroupID == nil ||
+		uint64(*reader.queries[0].GroupID) != uint64(maxSafeInteger) {
+		t.Fatalf("QueryUsage calls = %#v", reader.queries)
 	}
 }
 

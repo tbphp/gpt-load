@@ -54,7 +54,8 @@ func (service *Service) Sweep(ctx context.Context, now time.Time) {
 		return
 	}
 
-	if !service.deleteExpiredRequestLogs(ctx, requestLogCutoffMS, now) {
+	service.deleteExpiredRequestLogs(ctx, requestLogCutoffMS, now)
+	if ctx.Err() != nil {
 		return
 	}
 	service.deleteExpiredUsageStats(ctx, usageStatCutoffMS, now)

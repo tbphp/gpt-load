@@ -5,6 +5,7 @@ import (
 	"math"
 	"math/big"
 	"strconv"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -14,6 +15,7 @@ import (
 	"gpt-load/internal/storage/models"
 	"gpt-load/internal/telemetry"
 	"gpt-load/internal/usage"
+	"gpt-load/internal/usagecost"
 )
 
 const schemaV2Version uint = 2
@@ -183,10 +185,20 @@ func migrateSchemaV2ToV3(db *gorm.DB) error {
 	if result.RowsAffected != 1 {
 		return fmt.Errorf("update schema_info to version 3: version changed concurrently")
 	}
-	return nil
+	if err := replaceSchemaV3InfoTable(db); err != nil {
+		return err
+	}
+	return validateSchemaV3(db)
 }
 
 func createSchemaV3MigrationTables(db *gorm.DB) error {
+	return createSchemaV3Tables(db, "__v3")
+}
+
+func createSchemaV3Tables(db *gorm.DB, suffix string) error {
+	if suffix != "" && suffix != "__v3" {
+		return fmt.Errorf("create schema v3 tables: unsupported suffix %q", suffix)
+	}
 	statements := []string{
 		`CREATE TABLE groups__v3 (
 			id integer PRIMARY KEY AUTOINCREMENT,
@@ -225,14 +237,18 @@ func createSchemaV3MigrationTables(db *gorm.DB) error {
 			status varchar(32) NOT NULL DEFAULT 'active',
 			filters json,
 			rpm_limit integer NOT NULL DEFAULT 0,
-			daily_cost_limit real NOT NULL DEFAULT 0,
-			monthly_cost_limit real NOT NULL DEFAULT 0,
+			daily_cost_limit_nano_usd integer NOT NULL DEFAULT 0,
+			monthly_cost_limit_nano_usd integer NOT NULL DEFAULT 0,
 			created_at_ms integer NOT NULL CHECK (created_at_ms >= 0),
 			updated_at_ms integer NOT NULL CHECK (updated_at_ms >= 0),
 			CONSTRAINT chk_access_key_suffix
 				CHECK (key_suffix GLOB '[0-9a-f][0-9a-f][0-9a-f][0-9a-f]'),
 			CONSTRAINT chk_access_key_status
-				CHECK (status IN ('active','disabled'))
+				CHECK (status IN ('active','disabled')),
+			CONSTRAINT chk_access_key_daily_cost_limit_nano
+				CHECK (daily_cost_limit_nano_usd >= 0),
+			CONSTRAINT chk_access_key_monthly_cost_limit_nano
+				CHECK (monthly_cost_limit_nano_usd >= 0)
 		)`,
 		`CREATE TABLE model_prices__v3 (
 			id integer PRIMARY KEY AUTOINCREMENT,
@@ -298,7 +314,16 @@ func createSchemaV3MigrationTables(db *gorm.DB) error {
 			CONSTRAINT chk_request_log_usage_state
 				CHECK (usage_state IN ('complete','partial','missing','not_applicable')),
 			CONSTRAINT chk_request_log_cost_state
-				CHECK (cost_state IN ('priced','unpriced','not_applicable'))
+				CHECK (cost_state IN ('priced','unpriced','not_applicable')),
+			CONSTRAINT chk_request_log_usage_cost_state CHECK (
+				(usage_state IN ('complete','partial')
+					AND cost_state IN ('priced','unpriced')) OR
+				(usage_state = 'missing' AND cost_state = 'unpriced') OR
+				(usage_state = 'not_applicable' AND cost_state = 'not_applicable')
+			),
+			CONSTRAINT chk_request_log_nonpriced_cost_zero CHECK (
+				cost_state = 'priced' OR estimated_cost_nano_usd = 0
+			)
 		)`,
 		`CREATE TABLE usage_stats__v3 (
 			id integer PRIMARY KEY AUTOINCREMENT,
@@ -369,8 +394,9 @@ func createSchemaV3MigrationTables(db *gorm.DB) error {
 		)`,
 	}
 	for _, statement := range statements {
+		statement = strings.ReplaceAll(statement, "__v3", suffix)
 		if err := db.Exec(statement).Error; err != nil {
-			return fmt.Errorf("create schema v3 migration table: %w", err)
+			return fmt.Errorf("create schema v3 table: %w", err)
 		}
 	}
 	return nil
@@ -447,12 +473,31 @@ func copyAccessKeysToSchemaV3(db *gorm.DB) error {
 			if err != nil {
 				return err
 			}
+			dailyCostLimitNanoUSD, err := legacyUSDToNano(
+				"access_keys",
+				row.ID,
+				"daily_cost_limit",
+				row.DailyCostLimit,
+			)
+			if err != nil {
+				return err
+			}
+			monthlyCostLimitNanoUSD, err := legacyUSDToNano(
+				"access_keys",
+				row.ID,
+				"monthly_cost_limit",
+				row.MonthlyCostLimit,
+			)
+			if err != nil {
+				return err
+			}
 			if err := db.Exec(`INSERT INTO access_keys__v3 (
 				id, name, key_value, key_hash, key_suffix, status, filters, rpm_limit,
-				daily_cost_limit, monthly_cost_limit, created_at_ms, updated_at_ms
+				daily_cost_limit_nano_usd, monthly_cost_limit_nano_usd,
+				created_at_ms, updated_at_ms
 			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 				row.ID, row.Name, row.KeyValue, row.KeyHash, row.KeySuffix, row.Status,
-				row.Filters, row.RPMLimit, row.DailyCostLimit, row.MonthlyCostLimit,
+				row.Filters, row.RPMLimit, dailyCostLimitNanoUSD, monthlyCostLimitNanoUSD,
 				createdAtMS, updatedAtMS,
 			).Error; err != nil {
 				return schemaV3RowError("access_keys", row.ID, err)
@@ -541,6 +586,17 @@ func copyRequestLogsToSchemaV3(db *gorm.DB) error {
 			)
 			if err != nil {
 				return err
+			}
+			if err := usagecost.Validate(
+				usage.State(row.UsageState),
+				pricing.CostState(row.CostState),
+				cost,
+			); err != nil {
+				return schemaV3RowError(
+					"request_logs",
+					row.ID,
+					fmt.Errorf("validate usage/cost state: %w", err),
+				)
 			}
 			if err := db.Exec(`INSERT INTO request_logs__v3 (
 				id, completed_at_ms, access_key_id, group_id, protocol, client_model,
@@ -763,7 +819,16 @@ func replaceSchemaV2Tables(db *gorm.DB) error {
 }
 
 func createSchemaV3Indexes(db *gorm.DB) error {
-	statements := []string{
+	for _, statement := range schemaV3IndexStatements() {
+		if err := db.Exec(statement).Error; err != nil {
+			return fmt.Errorf("create schema v3 index: %w", err)
+		}
+	}
+	return nil
+}
+
+func schemaV3IndexStatements() []string {
+	return []string{
 		`CREATE UNIQUE INDEX idx_groups_name ON groups(name)`,
 		`CREATE UNIQUE INDEX idx_upstream_keys_group_hash
 			ON upstream_keys(group_id, key_hash)`,
@@ -789,12 +854,6 @@ func createSchemaV3Indexes(db *gorm.DB) error {
 		`CREATE INDEX idx_control_operations_completed_at_ms
 			ON control_operations(completed_at_ms)`,
 	}
-	for _, statement := range statements {
-		if err := db.Exec(statement).Error; err != nil {
-			return fmt.Errorf("create schema v3 index: %w", err)
-		}
-	}
-	return nil
 }
 
 func validateSchemaV3ForeignKeys(db *gorm.DB) error {
@@ -946,21 +1005,6 @@ func validateLegacyRequestLog(row legacyRequestLogV2) error {
 		string(telemetry.RequestStatusCanceled):
 	default:
 		return fmt.Errorf("invalid request status %q", row.Status)
-	}
-	switch row.UsageState {
-	case string(usage.StateComplete),
-		string(usage.StatePartial),
-		string(usage.StateMissing),
-		string(usage.StateNotApplicable):
-	default:
-		return fmt.Errorf("invalid usage state %q", row.UsageState)
-	}
-	switch row.CostState {
-	case string(pricing.CostStatePriced),
-		string(pricing.CostStateUnpriced),
-		string(pricing.CostStateNotApplicable):
-	default:
-		return fmt.Errorf("invalid cost state %q", row.CostState)
 	}
 	if row.DurationMs < 0 {
 		return fmt.Errorf("negative duration_ms")

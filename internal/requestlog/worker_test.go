@@ -671,6 +671,9 @@ func TestWriteBatchRollsBackRequestLogsAndStatsOnFailure(t *testing.T) {
 		row := newRow()
 		hourMS := row.CompletedAtMS - row.CompletedAtMS%3_600_000
 		const invalidRequestCount = "not-an-integer"
+		if err := db.Exec(`PRAGMA ignore_check_constraints = ON`).Error; err != nil {
+			t.Fatalf("disable SQLite CHECK constraints: %v", err)
+		}
 		if err := db.Exec(`
 			INSERT INTO usage_stats (
 				bucket_start_ms, access_key_id, group_id, model,
@@ -686,6 +689,9 @@ func TestWriteBatchRollsBackRequestLogsAndStatsOnFailure(t *testing.T) {
 			3_500_000_000,
 		).Error; err != nil {
 			t.Fatalf("insert incompatible UsageStat: %v", err)
+		}
+		if err := db.Exec(`PRAGMA ignore_check_constraints = OFF`).Error; err != nil {
+			t.Fatalf("restore SQLite CHECK constraints: %v", err)
 		}
 
 		err := (&gormBatchWriter{db: db}).WriteBatch(
@@ -942,9 +948,7 @@ func assertBatchWriterRejectsRowsWithoutChanges(
 ) {
 	t.Helper()
 	if existing != nil {
-		if err := db.Create(existing).Error; err != nil {
-			t.Fatalf("create existing UsageStat: %v", err)
-		}
+		createCorruptUsageStats(t, db, *existing)
 	}
 	var before []models.UsageStat
 	if err := db.Order("id ASC").Find(&before).Error; err != nil {

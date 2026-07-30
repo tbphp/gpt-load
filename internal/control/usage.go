@@ -2,6 +2,7 @@ package control
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"strconv"
@@ -244,11 +245,14 @@ func validUsageModel(value string) bool {
 }
 
 func parseUsageGroupID(value string) (uint, *app_errors.APIError) {
-	parsed, err := strconv.ParseUint(value, 10, 64)
+	parsed, err := parseCanonicalSafeUint(value)
 	if err != nil {
+		if errors.Is(err, errUnsafeCanonicalUint) {
+			return 0, app_errors.ErrValidation
+		}
 		return 0, app_errors.ErrBadRequest
 	}
-	if parsed == 0 || parsed > uint64(maxSafeInteger) || uint64(uint(parsed)) != parsed {
+	if parsed == 0 || uint64(uint(parsed)) != parsed {
 		return 0, app_errors.ErrValidation
 	}
 	return uint(parsed), nil
@@ -340,8 +344,8 @@ func (service *Service) mapUsageResponse(
 		})
 	}
 	for _, row := range report.Breakdown {
-		if row.GroupID == 0 || uint64(row.GroupID) > uint64(maxSafeInteger) || row.Model == "" {
-			return usageResponse{}, fmt.Errorf("map usage breakdown: invalid group or model")
+		if uint64(row.GroupID) > uint64(maxSafeInteger) {
+			return usageResponse{}, fmt.Errorf("map usage breakdown: unsafe group")
 		}
 		aggregate, err := mapUsageAggregate(row.UsageAggregate)
 		if err != nil {

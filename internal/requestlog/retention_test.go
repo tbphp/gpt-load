@@ -139,6 +139,49 @@ func TestRetentionSweepUsesFixedThirtyFiveDayIntegerUsageBoundary(t *testing.T) 
 	}
 }
 
+func TestRetentionSweepCleansUsageStatsWhenRequestLogDeleteFails(t *testing.T) {
+	db := openRequestLogQueryDB(t)
+	service := newRequestLogTestService(db)
+	now := time.Date(2026, time.July, 24, 12, 0, 0, 0, time.UTC)
+	service.now = func() time.Time { return now }
+	discardRetentionWarnings(service)
+	createRetentionRow(t, db, 1, now.Add(-8*24*time.Hour))
+	if err := db.Create(&models.UsageStat{
+		BucketStartMS: now.Add(-36 * 24 * time.Hour).UnixMilli(),
+		AccessKeyID:   1,
+		GroupID:       1,
+		Model:         "expired",
+		RequestCount:  1,
+		SuccessCount:  1,
+	}).Error; err != nil {
+		t.Fatalf("create expired UsageStat: %v", err)
+	}
+	if err := db.Exec(`CREATE TRIGGER fail_request_log_retention_delete
+		BEFORE DELETE ON request_logs
+		BEGIN
+			SELECT RAISE(FAIL, 'forced request log retention delete failure');
+		END`).Error; err != nil {
+		t.Fatalf("create request log delete trigger: %v", err)
+	}
+
+	service.Sweep(context.Background(), now)
+
+	assertRetentionRows(t, db, 1)
+	var usageCount int64
+	if err := db.Model(&models.UsageStat{}).Count(&usageCount).Error; err != nil {
+		t.Fatalf("count remaining UsageStats: %v", err)
+	}
+	stats := service.Stats()
+	if usageCount != 0 || stats.RetentionDeleteFailureTotal != 1 ||
+		!stats.LastRetentionFailureAt.Equal(now) {
+		t.Fatalf(
+			"remaining usage/Stats = %d/%#v, want 0 and one request-log failure",
+			usageCount,
+			stats,
+		)
+	}
+}
+
 func TestRetentionSweepStopsOnContextAndDeleteFailure(t *testing.T) {
 	now := time.Date(2026, time.July, 24, 12, 0, 0, 0, time.UTC)
 

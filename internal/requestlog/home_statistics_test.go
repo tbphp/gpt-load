@@ -278,7 +278,7 @@ func TestQueryHomeStatisticsRejectsUnsafeOrCorruptAggregates(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			db := openRequestLogQueryDB(t)
-			createUsageStats(t, db, test.rows...)
+			createCorruptUsageStats(t, db, test.rows...)
 			if _, err := newRequestLogTestService(db).QueryHomeStatistics(
 				context.Background(),
 				HomeStatisticsQuery{

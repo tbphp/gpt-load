@@ -231,43 +231,19 @@ func migrateCurrentSchema(db *gorm.DB) error {
 				len(currentTables),
 			)
 		}
-		for table, column := range map[string]string{
-			"groups":             "created_at_ms",
-			"upstream_keys":      "created_at_ms",
-			"access_keys":        "created_at_ms",
-			"request_logs":       "completed_at_ms",
-			"usage_stats":        "bucket_start_ms",
-			"model_prices":       "input_price_nano_usd_per_million_tokens",
-			"system_settings":    "updated_at_ms",
-			"jobs":               "created_at_ms",
-			"control_operations": "created_at_ms",
-		} {
-			if !db.Migrator().HasColumn(table, column) {
-				return fmt.Errorf(
-					"validate SQLite schema version 3: %s.%s is missing",
-					table,
-					column,
-				)
-			}
-		}
-		return nil
+		return validateSchemaV3(db)
 	}
 
-	if err := db.AutoMigrate(
-		&models.Group{},
-		&models.UpstreamKey{},
-		&models.AccessKey{},
-		&models.RequestLog{},
-		&models.UsageStat{},
-		&models.ModelPrice{},
-		&models.SystemSetting{},
-		&models.Job{},
-		&models.ControlOperation{},
-		&schemaInfo{},
-	); err != nil {
-		return fmt.Errorf("auto-migrate SQLite schema: %w", err)
+	if err := createSchemaV3Tables(db, ""); err != nil {
+		return err
 	}
-	return nil
+	if err := createSchemaV3InfoTable(db, "schema_info"); err != nil {
+		return err
+	}
+	if err := createSchemaV3Indexes(db); err != nil {
+		return err
+	}
+	return validateSchemaV3(db)
 }
 
 func readSchemaVersion(db *gorm.DB) (uint, error) {

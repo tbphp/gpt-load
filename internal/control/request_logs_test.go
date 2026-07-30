@@ -41,7 +41,18 @@ func TestRequestLogEndpointRejectsUnknownDuplicateAndMalformedQueries(t *testing
 		{name: "time negative", query: "from_ms=-1"},
 		{name: "time unsafe", query: "from_ms=9007199254740992"},
 		{name: "group", query: "group_id=-1"},
+		{name: "group leading zero", query: "group_id=01"},
+		{name: "group plus", query: "group_id=%2B1"},
+		{name: "group whitespace", query: "group_id=%201"},
+		{name: "group duplicate", query: "group_id=1&group_id=2"},
 		{name: "access key", query: "access_key_id=1.5"},
+		{name: "access key leading zero", query: "access_key_id=01"},
+		{name: "access key plus", query: "access_key_id=%2B1"},
+		{name: "access key whitespace", query: "access_key_id=%201"},
+		{name: "access key duplicate", query: "access_key_id=1&access_key_id=2"},
+		{name: "limit leading zero", query: "limit=01"},
+		{name: "limit plus", query: "limit=%2B1"},
+		{name: "limit whitespace", query: "limit=%201"},
 		{name: "request UUID uppercase", query: "request_id=00000000-0000-4000-8000-00000000ABCD"},
 		{name: "request UUID version", query: "request_id=00000000-0000-3000-8000-000000000001"},
 		{name: "cursor base64", query: "cursor=%25%25%25"},
@@ -83,7 +94,9 @@ func TestRequestLogEndpointRejectsInvalidDomainValues(t *testing.T) {
 		{name: "limit zero", query: "limit=0"},
 		{name: "limit above maximum", query: "limit=201"},
 		{name: "group zero", query: "group_id=0"},
+		{name: "group unsafe", query: "group_id=9007199254740992"},
 		{name: "access key zero", query: "access_key_id=0"},
+		{name: "access key unsafe", query: "access_key_id=9007199254740992"},
 		{name: "empty model", query: "model="},
 		{name: "equal range", query: "from_ms=" + equalTime + "&to_ms=" + equalTime},
 		{name: "reversed range", query: "from_ms=1784898000000&to_ms=1784894400000"},
@@ -100,6 +113,29 @@ func TestRequestLogEndpointRejectsInvalidDomainValues(t *testing.T) {
 				t.Fatalf("Reader calls = %d, want zero", len(reader.queries))
 			}
 		})
+	}
+}
+
+func TestRequestLogEndpointAcceptsCanonicalNumericBoundaries(t *testing.T) {
+	if strconv.IntSize != 64 {
+		t.Skip("maximum JavaScript safe integer does not fit uint on this architecture")
+	}
+	reader := &recordingRequestLogReader{}
+	engine := newRequestLogTestEngine(t, reader)
+	recorder := performRequestLogRequest(
+		engine,
+		"test-auth-key",
+		"group_id=9007199254740991&access_key_id=9007199254740991&limit=200",
+	)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("response = %d %s, want 200", recorder.Code, recorder.Body.String())
+	}
+	if len(reader.queries) != 1 || reader.queries[0].GroupID == nil ||
+		reader.queries[0].AccessKeyID == nil ||
+		uint64(*reader.queries[0].GroupID) != uint64(maxSafeInteger) ||
+		uint64(*reader.queries[0].AccessKeyID) != uint64(maxSafeInteger) ||
+		reader.queries[0].Limit != maxRequestLogLimit {
+		t.Fatalf("List() queries = %#v", reader.queries)
 	}
 }
 

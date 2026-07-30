@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -198,14 +199,17 @@ func parseRequestLogQuery(rawQuery string) (requestlog.ListQuery, *app_errors.AP
 		query.RequestID = value
 	}
 	if value, ok := singleQueryValue(values, "limit"); ok {
-		parsed, err := strconv.Atoi(value)
+		parsed, err := parseCanonicalSafeUint(value)
 		if err != nil {
+			if errors.Is(err, errUnsafeCanonicalUint) {
+				return requestlog.ListQuery{}, app_errors.ErrValidation
+			}
 			return requestlog.ListQuery{}, app_errors.ErrBadRequest
 		}
 		if parsed < 1 || parsed > maxRequestLogLimit {
 			return requestlog.ListQuery{}, app_errors.ErrValidation
 		}
-		query.Limit = parsed
+		query.Limit = int(parsed)
 	}
 	if value, ok := singleQueryValue(values, "cursor"); ok {
 		cursor, err := decodeRequestLogCursor(value)
@@ -226,11 +230,14 @@ func singleQueryValue(values url.Values, key string) (string, bool) {
 }
 
 func parseRequestLogID(value string) (uint, *app_errors.APIError) {
-	parsed, err := strconv.ParseUint(value, 10, strconv.IntSize)
+	parsed, err := parseCanonicalSafeUint(value)
 	if err != nil {
+		if errors.Is(err, errUnsafeCanonicalUint) {
+			return 0, app_errors.ErrValidation
+		}
 		return 0, app_errors.ErrBadRequest
 	}
-	if parsed == 0 {
+	if parsed == 0 || uint64(uint(parsed)) != parsed {
 		return 0, app_errors.ErrValidation
 	}
 	return uint(parsed), nil

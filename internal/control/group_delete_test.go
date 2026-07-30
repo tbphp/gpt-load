@@ -246,7 +246,7 @@ func TestDeleteGroupAcceptsRegistryAlreadyAtTargetStateAndRetainsHistory(t *test
 	}
 	if err := fixture.db.Create(&models.UsageStat{
 		BucketStartMS: now.UnixMilli(), AccessKeyID: 1,
-		GroupID: groupID, Model: "model", RequestCount: 1,
+		GroupID: groupID, Model: "model", RequestCount: 1, SuccessCount: 1,
 	}).Error; err != nil {
 		t.Fatal(err)
 	}
