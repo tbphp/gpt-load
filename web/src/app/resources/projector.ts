@@ -9,8 +9,10 @@ interface StringOptions {
   allowEmpty?: boolean
 }
 
-const isoInstant =
-  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,9})?(?:Z|[+-](\d{2}):(\d{2}))$/
+const maximumInt64 = 9_223_372_036_854_775_807n
+const nanoUSDPerUSD = 1_000_000_000n
+const canonicalNonNegativeInteger = /^(?:0|[1-9]\d*)$/u
+const canonicalNonNegativeDecimal = /^(?:0|[1-9]\d*)(?:\.\d{0,8}[1-9])?$/u
 const secretLikeField =
   /(?:^|_)(?:authorization|credential|credentials|key|keys|mask|masked|password|plaintext|secret|token|tokens)(?:_|$)/i
 
@@ -50,6 +52,35 @@ export function projectSafeInteger(value: unknown, bounds: NumberBounds = {}): n
   return value
 }
 
+export function projectEpochMilliseconds(value: unknown): number {
+  return projectSafeInteger(value, { minimum: 0 })
+}
+
+export function projectNullableEpochMilliseconds(value: unknown): number | null {
+  return value === null ? null : projectEpochMilliseconds(value)
+}
+
+export function projectNonNegativeInt64String(value: unknown): string {
+  if (
+    typeof value !== 'string' ||
+    !canonicalNonNegativeInteger.test(value) ||
+    BigInt(value) > maximumInt64
+  ) {
+    invalidResponse()
+  }
+  return value
+}
+
+export function projectNullableDecimalString(value: unknown): string | null {
+  if (value === null) return null
+  if (typeof value !== 'string' || !canonicalNonNegativeDecimal.test(value)) invalidResponse()
+
+  const [whole = '', fraction = ''] = value.split('.')
+  const nanoUSD = BigInt(whole) * nanoUSDPerUSD + BigInt(fraction.padEnd(9, '0') || '0')
+  if (nanoUSD > maximumInt64) invalidResponse()
+  return value
+}
+
 export function projectFiniteNumber(value: unknown, bounds: NumberBounds = {}): number {
   if (
     typeof value !== 'number' ||
@@ -70,42 +101,6 @@ export function projectEnum<const T extends readonly string[]>(
   return value as T[number]
 }
 
-export function projectISOInstant(value: unknown): string {
-  if (typeof value !== 'string') invalidResponse()
-  const match = isoInstant.exec(value)
-  if (match === null) invalidResponse()
-  const [year, month, day, hour, minute, second] = match.slice(1, 7).map(Number)
-  const [offsetHour, offsetMinute] = match.slice(7, 9).map(Number)
-  const daysInMonth = [
-    31,
-    year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0) ? 29 : 28,
-    31,
-    30,
-    31,
-    30,
-    31,
-    31,
-    30,
-    31,
-    30,
-    31,
-  ]
-  if (
-    month < 1 ||
-    month > 12 ||
-    day < 1 ||
-    day > daysInMonth[month - 1] ||
-    hour > 23 ||
-    minute > 59 ||
-    second > 59 ||
-    (match[7] !== undefined && (offsetHour > 23 || offsetMinute > 59)) ||
-    !Number.isFinite(Date.parse(value))
-  ) {
-    invalidResponse()
-  }
-  return value
-}
-
 export function projectHTTPURL(value: unknown): string {
   if (typeof value !== 'string' || value.length === 0 || value !== value.trim()) invalidResponse()
   let parsed: URL
@@ -124,6 +119,8 @@ export function assertNoSecretLikeFields(
 ): void {
   const allowed = new Set(allowedFields)
   for (const field of Object.keys(record)) {
-    if (!allowed.has(field) && secretLikeField.test(field)) invalidResponse()
+    if (allowed.has(field)) continue
+    if (secretLikeField.test(field)) invalidResponse()
+    invalidResponse()
   }
 }

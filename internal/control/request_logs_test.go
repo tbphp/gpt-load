@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"math"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -26,7 +25,7 @@ import (
 
 func TestRequestLogEndpointRejectsUnknownDuplicateAndMalformedQueries(t *testing.T) {
 	validCursor := encodeTestCursorPayload(
-		`{"v":1,"completed_at":"2026-07-24T12:00:00Z","request_id":"00000000-0000-4000-8000-000000000001"}`,
+		`{"v":2,"completed_at_ms":1784894400000,"request_id":"00000000-0000-4000-8000-000000000001"}`,
 	)
 	tests := []struct {
 		name  string
@@ -35,25 +34,41 @@ func TestRequestLogEndpointRejectsUnknownDuplicateAndMalformedQueries(t *testing
 		{name: "unknown", query: "unknown=value"},
 		{name: "duplicate", query: "limit=1&limit=2"},
 		{name: "number", query: "limit=not-a-number"},
-		{name: "time", query: "from=not-a-time"},
+		{name: "old time query", query: "from=1784894400000"},
+		{name: "time", query: "from_ms=not-a-time"},
+		{name: "time leading zero", query: "from_ms=01784894400000"},
+		{name: "time plus", query: "from_ms=%2B1784894400000"},
+		{name: "time negative", query: "from_ms=-1"},
+		{name: "time unsafe", query: "from_ms=9007199254740992"},
 		{name: "group", query: "group_id=-1"},
+		{name: "group leading zero", query: "group_id=01"},
+		{name: "group plus", query: "group_id=%2B1"},
+		{name: "group whitespace", query: "group_id=%201"},
+		{name: "group duplicate", query: "group_id=1&group_id=2"},
 		{name: "access key", query: "access_key_id=1.5"},
+		{name: "access key leading zero", query: "access_key_id=01"},
+		{name: "access key plus", query: "access_key_id=%2B1"},
+		{name: "access key whitespace", query: "access_key_id=%201"},
+		{name: "access key duplicate", query: "access_key_id=1&access_key_id=2"},
+		{name: "limit leading zero", query: "limit=01"},
+		{name: "limit plus", query: "limit=%2B1"},
+		{name: "limit whitespace", query: "limit=%201"},
 		{name: "request UUID uppercase", query: "request_id=00000000-0000-4000-8000-00000000ABCD"},
 		{name: "request UUID version", query: "request_id=00000000-0000-3000-8000-000000000001"},
 		{name: "cursor base64", query: "cursor=%25%25%25"},
 		{name: "cursor percent encoded newline", query: "cursor=" + validCursor + "%0A"},
 		{name: "cursor JSON", query: "cursor=" + encodeTestCursorPayload(`{"v":1`)},
 		{name: "cursor unknown field", query: "cursor=" + encodeTestCursorPayload(
-			`{"v":1,"completed_at":"2026-07-24T12:00:00Z","request_id":"00000000-0000-4000-8000-000000000001","extra":true}`,
+			`{"v":2,"completed_at_ms":1784894400000,"request_id":"00000000-0000-4000-8000-000000000001","extra":true}`,
 		)},
-		{name: "cursor version", query: "cursor=" + encodeTestCursorPayload(
-			`{"v":2,"completed_at":"2026-07-24T12:00:00Z","request_id":"00000000-0000-4000-8000-000000000001"}`,
+		{name: "cursor old version", query: "cursor=" + encodeTestCursorPayload(
+			`{"v":1,"completed_at":"2026-07-24T12:00:00Z","request_id":"00000000-0000-4000-8000-000000000001"}`,
 		)},
-		{name: "cursor non UTC time", query: "cursor=" + encodeTestCursorPayload(
-			`{"v":1,"completed_at":"2026-07-24T20:00:00+08:00","request_id":"00000000-0000-4000-8000-000000000001"}`,
+		{name: "cursor unsafe timestamp", query: "cursor=" + encodeTestCursorPayload(
+			`{"v":2,"completed_at_ms":9007199254740992,"request_id":"00000000-0000-4000-8000-000000000001"}`,
 		)},
 		{name: "cursor UUID", query: "cursor=" + encodeTestCursorPayload(
-			`{"v":1,"completed_at":"2026-07-24T12:00:00Z","request_id":"00000000-0000-3000-8000-000000000001"}`,
+			`{"v":2,"completed_at_ms":1784894400000,"request_id":"00000000-0000-3000-8000-000000000001"}`,
 		)},
 	}
 
@@ -71,7 +86,7 @@ func TestRequestLogEndpointRejectsUnknownDuplicateAndMalformedQueries(t *testing
 }
 
 func TestRequestLogEndpointRejectsInvalidDomainValues(t *testing.T) {
-	equalTime := url.QueryEscape("2026-07-24T12:00:00Z")
+	equalTime := "1784894400000"
 	tests := []struct {
 		name  string
 		query string
@@ -79,10 +94,12 @@ func TestRequestLogEndpointRejectsInvalidDomainValues(t *testing.T) {
 		{name: "limit zero", query: "limit=0"},
 		{name: "limit above maximum", query: "limit=201"},
 		{name: "group zero", query: "group_id=0"},
+		{name: "group unsafe", query: "group_id=9007199254740992"},
 		{name: "access key zero", query: "access_key_id=0"},
+		{name: "access key unsafe", query: "access_key_id=9007199254740992"},
 		{name: "empty model", query: "model="},
-		{name: "equal range", query: "from=" + equalTime + "&to=" + equalTime},
-		{name: "reversed range", query: "from=2026-07-24T13%3A00%3A00Z&to=2026-07-24T12%3A00%3A00Z"},
+		{name: "equal range", query: "from_ms=" + equalTime + "&to_ms=" + equalTime},
+		{name: "reversed range", query: "from_ms=1784898000000&to_ms=1784894400000"},
 		{name: "unknown status", query: "status=unknown"},
 	}
 
@@ -99,19 +116,43 @@ func TestRequestLogEndpointRejectsInvalidDomainValues(t *testing.T) {
 	}
 }
 
+func TestRequestLogEndpointAcceptsCanonicalNumericBoundaries(t *testing.T) {
+	if strconv.IntSize != 64 {
+		t.Skip("maximum JavaScript safe integer does not fit uint on this architecture")
+	}
+	reader := &recordingRequestLogReader{}
+	engine := newRequestLogTestEngine(t, reader)
+	recorder := performRequestLogRequest(
+		engine,
+		"test-auth-key",
+		"group_id=9007199254740991&access_key_id=9007199254740991&limit=200",
+	)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("response = %d %s, want 200", recorder.Code, recorder.Body.String())
+	}
+	if len(reader.queries) != 1 || reader.queries[0].GroupID == nil ||
+		reader.queries[0].AccessKeyID == nil ||
+		uint64(*reader.queries[0].GroupID) != uint64(maxSafeInteger) ||
+		uint64(*reader.queries[0].AccessKeyID) != uint64(maxSafeInteger) ||
+		reader.queries[0].Limit != maxRequestLogLimit {
+		t.Fatalf("List() queries = %#v", reader.queries)
+	}
+}
+
 func TestRequestLogEndpointReturnsOpaqueCursorAndSafeDTO(t *testing.T) {
 	completedAt := time.Date(2026, time.July, 24, 12, 0, 0, 123456789, time.UTC)
+	completedAtMS := completedAt.UnixMilli()
 	nextCursor := &requestlog.Cursor{
-		CompletedAt: completedAt,
-		RequestID:   "00000000-0000-4000-8000-000000000502",
+		CompletedAtMS: completedAtMS,
+		RequestID:     "00000000-0000-4000-8000-000000000502",
 	}
 	currentName := "Renamed Access Key"
 	reader := &recordingRequestLogReader{
 		pages: []requestlog.Page{
 			{
 				Items: []requestlog.Record{{
-					RequestID:   "00000000-0000-4000-8000-000000000501",
-					CompletedAt: completedAt,
+					RequestID:     "00000000-0000-4000-8000-000000000501",
+					CompletedAtMS: completedAtMS,
 					AccessKey: requestlog.AccessKeyRef{
 						ID: 41, Name: &currentName,
 					},
@@ -145,8 +186,8 @@ func TestRequestLogEndpointReturnsOpaqueCursorAndSafeDTO(t *testing.T) {
 	engine := newRequestLogTestEngine(t, reader)
 
 	query := strings.Join([]string{
-		"from=2026-07-24T19%3A00%3A00%2B08%3A00",
-		"to=2026-07-24T21%3A00%3A00%2B08%3A00",
+		"from_ms=1784890800000",
+		"to_ms=1784898000000",
 		"group_id=12",
 		"model=client-model",
 		"access_key_id=41",
@@ -161,9 +202,9 @@ func TestRequestLogEndpointReturnsOpaqueCursorAndSafeDTO(t *testing.T) {
 		t.Fatalf("Reader calls = %d, want one", len(reader.queries))
 	}
 	gotQuery := reader.queries[0]
-	if gotQuery.Limit != 50 || gotQuery.From == nil || gotQuery.To == nil ||
-		gotQuery.From.Format(time.RFC3339Nano) != "2026-07-24T11:00:00Z" ||
-		gotQuery.To.Format(time.RFC3339Nano) != "2026-07-24T13:00:00Z" ||
+	if gotQuery.Limit != 50 || gotQuery.FromMS == nil || gotQuery.ToMS == nil ||
+		*gotQuery.FromMS != 1784890800000 ||
+		*gotQuery.ToMS != 1784898000000 ||
 		gotQuery.GroupID == nil || *gotQuery.GroupID != 12 ||
 		gotQuery.AccessKeyID == nil || *gotQuery.AccessKeyID != 41 ||
 		gotQuery.ClientModel != "client-model" ||
@@ -211,8 +252,8 @@ func TestRequestLogEndpointReturnsOpaqueCursorAndSafeDTO(t *testing.T) {
 	if err := json.Unmarshal(decodedCursor, &payload); err != nil {
 		t.Fatalf("next_cursor JSON: %v", err)
 	}
-	if len(payload) != 3 || payload["v"] != float64(1) ||
-		payload["completed_at"] != "2026-07-24T12:00:00.123456789Z" ||
+	if len(payload) != 3 || payload["v"] != float64(2) ||
+		payload["completed_at_ms"] != float64(completedAtMS) ||
 		payload["request_id"] != nextCursor.RequestID {
 		t.Fatalf("next_cursor payload = %#v", payload)
 	}
@@ -226,7 +267,7 @@ func TestRequestLogEndpointReturnsOpaqueCursorAndSafeDTO(t *testing.T) {
 		t.Fatalf("second response = %d %s", second.Code, second.Body.String())
 	}
 	if len(reader.queries) != 2 || reader.queries[1].Cursor == nil ||
-		!reader.queries[1].Cursor.CompletedAt.Equal(completedAt) ||
+		reader.queries[1].Cursor.CompletedAtMS != completedAtMS ||
 		reader.queries[1].Cursor.RequestID != nextCursor.RequestID {
 		t.Fatalf("decoded cursor query = %#v", reader.queries)
 	}
@@ -248,20 +289,20 @@ func TestRequestLogEndpointReturnsOpaqueCursorAndSafeDTO(t *testing.T) {
 func TestRequestLogEndpointProjectsUsageCostAndNullGroupZero(t *testing.T) {
 	reader := &recordingRequestLogReader{pages: []requestlog.Page{{Items: []requestlog.Record{
 		{
-			RequestID:           "00000000-0000-4000-8000-000000000603",
-			CompletedAt:         time.Date(2026, time.July, 27, 0, 0, 0, 0, time.UTC),
-			Protocol:            protocol.OpenAICompletions,
-			Status:              telemetry.RequestStatusSuccess,
-			GroupID:             0,
-			UsageState:          usage.StateComplete,
-			CostState:           pricing.CostStatePriced,
-			UncachedInputTokens: 1,
-			CacheReadTokens:     2,
-			CacheWrite5MTokens:  3,
-			CacheWrite1HTokens:  4,
-			OutputTokens:        5,
-			EstimatedCostUSD:    0.1234567890123,
-			Attempts:            []requestlog.Attempt{},
+			RequestID:            "00000000-0000-4000-8000-000000000603",
+			CompletedAtMS:        time.Date(2026, time.July, 27, 0, 0, 0, 0, time.UTC).UnixMilli(),
+			Protocol:             protocol.OpenAICompletions,
+			Status:               telemetry.RequestStatusSuccess,
+			GroupID:              0,
+			UsageState:           usage.StateComplete,
+			CostState:            pricing.CostStatePriced,
+			UncachedInputTokens:  1,
+			CacheReadTokens:      2,
+			CacheWrite5MTokens:   3,
+			CacheWrite1HTokens:   4,
+			OutputTokens:         5,
+			EstimatedCostNanoUSD: 123_456_789_012,
+			Attempts:             []requestlog.Attempt{},
 		},
 	}}}}
 	recorder := performRequestLogRequest(newRequestLogTestEngine(t, reader), "test-auth-key", "")
@@ -271,15 +312,15 @@ func TestRequestLogEndpointProjectsUsageCostAndNullGroupZero(t *testing.T) {
 	var envelope struct {
 		Data struct {
 			Items []struct {
-				GroupID             *uint       `json:"group_id"`
-				UsageState          string      `json:"usage_state"`
-				CostState           string      `json:"cost_state"`
-				UncachedInputTokens int64       `json:"uncached_input_tokens"`
-				CacheReadTokens     int64       `json:"cache_read_tokens"`
-				CacheWrite5MTokens  int64       `json:"cache_write_5m_tokens"`
-				CacheWrite1HTokens  int64       `json:"cache_write_1h_tokens"`
-				OutputTokens        int64       `json:"output_tokens"`
-				EstimatedCostUSD    json.Number `json:"estimated_cost_usd"`
+				GroupID              *uint  `json:"group_id"`
+				UsageState           string `json:"usage_state"`
+				CostState            string `json:"cost_state"`
+				UncachedInputTokens  int64  `json:"uncached_input_tokens"`
+				CacheReadTokens      int64  `json:"cache_read_tokens"`
+				CacheWrite5MTokens   int64  `json:"cache_write_5m_tokens"`
+				CacheWrite1HTokens   int64  `json:"cache_write_1h_tokens"`
+				OutputTokens         int64  `json:"output_tokens"`
+				EstimatedCostNanoUSD string `json:"estimated_cost_nano_usd"`
 			} `json:"items"`
 		} `json:"data"`
 	}
@@ -293,7 +334,7 @@ func TestRequestLogEndpointProjectsUsageCostAndNullGroupZero(t *testing.T) {
 	if item.GroupID != nil || item.UsageState != "complete" || item.CostState != "priced" ||
 		item.UncachedInputTokens != 1 || item.CacheReadTokens != 2 ||
 		item.CacheWrite5MTokens != 3 || item.CacheWrite1HTokens != 4 ||
-		item.OutputTokens != 5 || item.EstimatedCostUSD.String() != "0.123456789012" {
+		item.OutputTokens != 5 || item.EstimatedCostNanoUSD != "123456789012" {
 		t.Fatalf("usage/cost projection = %#v", item)
 	}
 }
@@ -347,8 +388,7 @@ func TestRequestLogUsageCostProjectionRejectsUnsafeValues(t *testing.T) {
 		{name: "cost state", mutate: func(record *requestlog.Record) { record.CostState = "invalid" }},
 		{name: "negative token", mutate: func(record *requestlog.Record) { record.OutputTokens = -1 }},
 		{name: "unsafe token", mutate: func(record *requestlog.Record) { record.OutputTokens = maxSafeInteger + 1 }},
-		{name: "negative cost", mutate: func(record *requestlog.Record) { record.EstimatedCostUSD = -0.1 }},
-		{name: "infinite cost", mutate: func(record *requestlog.Record) { record.EstimatedCostUSD = math.Inf(1) }},
+		{name: "negative cost", mutate: func(record *requestlog.Record) { record.EstimatedCostNanoUSD = -1 }},
 		{
 			name: "missing usage cannot be priced",
 			mutate: func(record *requestlog.Record) {
@@ -366,7 +406,7 @@ func TestRequestLogUsageCostProjectionRejectsUnsafeValues(t *testing.T) {
 			name: "unpriced cost must be zero",
 			mutate: func(record *requestlog.Record) {
 				record.CostState = pricing.CostStateUnpriced
-				record.EstimatedCostUSD = 0.1
+				record.EstimatedCostNanoUSD = 1
 			},
 		},
 	}
@@ -428,7 +468,7 @@ func TestRequestLogEndpointFailsClosedOnCorruptReaderUsageCost(t *testing.T) {
 			name: "unpriced nonzero cost",
 			mutate: func(record *requestlog.Record) {
 				record.CostState = pricing.CostStateUnpriced
-				record.EstimatedCostUSD = 0.01
+				record.EstimatedCostNanoUSD = 1
 			},
 		},
 	}
@@ -447,11 +487,11 @@ func TestRequestLogEndpointFailsClosedOnCorruptReaderUsageCost(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			record := requestlog.Record{
-				RequestID:   "00000000-0000-4000-8000-000000000605",
-				CompletedAt: time.Date(2026, time.July, 27, 0, 0, 0, 0, time.UTC),
-				UsageState:  usage.StateComplete,
-				CostState:   pricing.CostStatePriced,
-				Attempts:    []requestlog.Attempt{},
+				RequestID:     "00000000-0000-4000-8000-000000000605",
+				CompletedAtMS: time.Date(2026, time.July, 27, 0, 0, 0, 0, time.UTC).UnixMilli(),
+				UsageState:    usage.StateComplete,
+				CostState:     pricing.CostStatePriced,
+				Attempts:      []requestlog.Attempt{},
 			}
 			test.mutate(&record)
 			reader := &recordingRequestLogReader{
@@ -550,7 +590,7 @@ func encodeTestCursorPayload(payload string) string {
 }
 
 func Example_requestLogOpaqueCursor() {
-	payload := `{"v":1,"completed_at":"2026-07-24T12:00:00Z","request_id":"00000000-0000-4000-8000-000000000001"}`
+	payload := `{"v":2,"completed_at_ms":1784894400000,"request_id":"00000000-0000-4000-8000-000000000001"}`
 	fmt.Println(encodeTestCursorPayload(payload))
-	// Output: eyJ2IjoxLCJjb21wbGV0ZWRfYXQiOiIyMDI2LTA3LTI0VDEyOjAwOjAwWiIsInJlcXVlc3RfaWQiOiIwMDAwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDEifQ
+	// Output: eyJ2IjoyLCJjb21wbGV0ZWRfYXRfbXMiOjE3ODQ4OTQ0MDAwMDAsInJlcXVlc3RfaWQiOiIwMDAwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDEifQ
 }

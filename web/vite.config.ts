@@ -10,6 +10,8 @@ export const pageRouteManifestPath = fileURLToPath(
 )
 export const devServerFileSystemAllow = [webRootPath, pageRouteManifestPath]
 
+const proxyTarget = process.env.VITE_DEV_PROXY_TARGET || 'http://127.0.0.1:3001'
+
 export default defineConfig({
   root: webRootPath,
   plugins: [vue(), tailwindcss()],
@@ -22,12 +24,12 @@ export default defineConfig({
     fs: {
       allow: devServerFileSystemAllow,
     },
-    proxy: {
-      '/api': {
-        target: 'http://127.0.0.1:3001',
-        changeOrigin: true,
-      },
-    },
+    proxy: Object.fromEntries(
+      ['/api', '/health', '/v1', '/v1beta'].map((path) => [
+        path,
+        { target: proxyTarget, changeOrigin: true },
+      ]),
+    ),
   },
   build: {
     outDir: '../internal/webui/dist',

@@ -48,7 +48,7 @@ func TestAccessKeyMetadataListAndUpdateNeverDecryptCiphertext(t *testing.T) {
 		t.Fatalf("ListAccessKeys() error = %v", err)
 	}
 	if len(list) != 1 || list[0].ID != created.ID ||
-		list[0].MaskedKey != "sk-gl-••••••••0000" {
+		list[0].MaskedKey != "sk-gl-****0000" {
 		t.Fatalf("ListAccessKeys() = %#v", list)
 	}
 	encoded, err := json.Marshal(list)
@@ -175,7 +175,7 @@ func TestRevealAccessKeyIsTheExplicitMetadataDecryptPath(t *testing.T) {
 		t.Fatalf("RevealAccessKey() error = %v", err)
 	}
 	if revealed.ID != created.ID || revealed.Key != created.Key ||
-		revealed.RevealedAt.IsZero() {
+		revealed.RevealedAtMS <= 0 {
 		t.Fatalf("RevealAccessKey() = %#v", revealed)
 	}
 	if spy.decryptCalls != 1 {

@@ -2,7 +2,6 @@ package pricing
 
 import (
 	"fmt"
-	"math"
 	"sort"
 	"strings"
 	"unicode"
@@ -66,8 +65,8 @@ func validateRule(rule Rule) error {
 		rule.Prices.CacheWrite1H,
 		rule.Prices.Output,
 	} {
-		if math.IsNaN(price.Value) || math.IsInf(price.Value, 0) || price.Value < 0 {
-			return fmt.Errorf("pricing price must be finite and non-negative")
+		if price.NanoUSDPerMillion < 0 {
+			return fmt.Errorf("pricing price must be non-negative")
 		}
 		priceSet = priceSet || price.Set
 	}
@@ -87,9 +86,9 @@ func validateRule(rule Rule) error {
 		if policy.InputThresholdTokens <= 0 {
 			return fmt.Errorf("long-context input threshold must be positive")
 		}
-		if !isFinite(policy.InputMultiplier) || policy.InputMultiplier <= 0 ||
-			!isFinite(policy.OutputMultiplier) || policy.OutputMultiplier <= 0 {
-			return fmt.Errorf("long-context multipliers must be finite and positive")
+		if policy.InputMultiplier.Numerator <= 0 || policy.InputMultiplier.Denominator <= 0 ||
+			policy.OutputMultiplier.Numerator <= 0 || policy.OutputMultiplier.Denominator <= 0 {
+			return fmt.Errorf("long-context multipliers must be positive ratios")
 		}
 	}
 	return nil

@@ -25,7 +25,7 @@ import (
 )
 
 // CurrentSchemaVersion identifies the SQLite schema supported by this binary.
-const CurrentSchemaVersion uint = 2
+const CurrentSchemaVersion uint = 3
 
 const sqliteBusyTimeoutMS = 5000
 
@@ -159,8 +159,10 @@ func autoMigrate(
 		return err
 	}
 	switch version {
-	case CurrentSchemaVersion:
+	case 3:
 		return db.Transaction(migrateCurrentSchema)
+	case 2:
+		return db.Transaction(migrateSchemaV2ToV3)
 	case 1:
 		var accessKeyCount int64
 		if db.Migrator().HasTable(&models.AccessKey{}) {
@@ -180,19 +182,19 @@ func autoMigrate(
 			if err := migrateAccessKeysV1ToV2(tx, encryptionService); err != nil {
 				return err
 			}
-			if err := migrateCurrentSchema(tx); err != nil {
+			if err := ensureSchemaV2TablesForV1(tx); err != nil {
 				return err
 			}
 			result := tx.Model(&schemaInfo{}).
 				Where("version = ?", uint(1)).
-				Update("version", CurrentSchemaVersion)
+				Update("version", schemaV2Version)
 			if result.Error != nil {
-				return fmt.Errorf("update schema_info: %w", result.Error)
+				return fmt.Errorf("advance schema_info to version 2: %w", result.Error)
 			}
 			if result.RowsAffected != 1 {
-				return fmt.Errorf("update schema_info: version changed concurrently")
+				return fmt.Errorf("advance schema_info to version 2: version changed concurrently")
 			}
-			return nil
+			return migrateSchemaV2ToV3(tx)
 		})
 	default:
 		return fmt.Errorf(
@@ -204,7 +206,7 @@ func autoMigrate(
 }
 
 func migrateCurrentSchema(db *gorm.DB) error {
-	if err := db.AutoMigrate(
+	currentTables := []any{
 		&models.Group{},
 		&models.UpstreamKey{},
 		&models.AccessKey{},
@@ -214,73 +216,34 @@ func migrateCurrentSchema(db *gorm.DB) error {
 		&models.SystemSetting{},
 		&models.Job{},
 		&models.ControlOperation{},
-		&schemaInfo{},
-	); err != nil {
-		return fmt.Errorf("auto-migrate SQLite schema: %w", err)
 	}
-	if err := rebuildModelPricesIfNeeded(db); err != nil {
-		return err
-	}
-	return nil
-}
-
-func rebuildModelPricesIfNeeded(db *gorm.DB) error {
-	if !db.Migrator().HasTable(&models.ModelPrice{}) {
-		return nil
-	}
-
-	type columnInfo struct {
-		Name    string
-		NotNull int `gorm:"column:notnull"`
-	}
-	var columns []columnInfo
-	if err := db.Raw("PRAGMA table_info('model_prices')").Scan(&columns).Error; err != nil {
-		return fmt.Errorf("inspect model_prices columns: %w", err)
-	}
-	for _, column := range columns {
-		switch column.Name {
-		case "input_price", "output_price", "cache_read_price", "cache_write_5m_price", "cache_write_1h_price":
-			if column.NotNull != 0 {
-				return rebuildModelPrices(db)
-			}
+	existingTables := 0
+	for _, table := range currentTables {
+		if db.Migrator().HasTable(table) {
+			existingTables++
 		}
 	}
-	return nil
-}
+	if existingTables != 0 {
+		if existingTables != len(currentTables) {
+			return fmt.Errorf(
+				"validate SQLite schema version 3: found %d of %d required tables",
+				existingTables,
+				len(currentTables),
+			)
+		}
+		return validateSchemaV3(db)
+	}
 
-func rebuildModelPrices(db *gorm.DB) error {
-	if err := db.Exec(`CREATE TABLE model_prices__m4_rebuild (
-	id integer PRIMARY KEY AUTOINCREMENT,
-	pattern varchar(255) NOT NULL,
-	input_price real,
-	output_price real,
-	cache_read_price real,
-	cache_write_5m_price real,
-	cache_write_1h_price real,
-	source varchar(32) NOT NULL,
-	created_at datetime,
-	updated_at datetime,
-	CONSTRAINT chk_model_price_source CHECK (source = 'user')
-)`).Error; err != nil {
-		return fmt.Errorf("create rebuilt model_prices table: %w", err)
+	if err := createSchemaV3Tables(db, ""); err != nil {
+		return err
 	}
-	if err := db.Exec(`INSERT INTO model_prices__m4_rebuild (
-	id, pattern, input_price, output_price, cache_read_price, cache_write_5m_price, cache_write_1h_price, source, created_at, updated_at
-)
-SELECT id, pattern, input_price, output_price, cache_read_price, cache_write_5m_price, cache_write_1h_price, source, created_at, updated_at
-FROM model_prices`).Error; err != nil {
-		return fmt.Errorf("copy model_prices into rebuilt table: %w", err)
+	if err := createSchemaV3InfoTable(db, "schema_info"); err != nil {
+		return err
 	}
-	if err := db.Exec("DROP TABLE model_prices").Error; err != nil {
-		return fmt.Errorf("drop previous model_prices table: %w", err)
+	if err := createSchemaV3Indexes(db); err != nil {
+		return err
 	}
-	if err := db.Exec("ALTER TABLE model_prices__m4_rebuild RENAME TO model_prices").Error; err != nil {
-		return fmt.Errorf("rename rebuilt model_prices table: %w", err)
-	}
-	if err := db.Exec("CREATE UNIQUE INDEX idx_model_prices_pattern ON model_prices(pattern)").Error; err != nil {
-		return fmt.Errorf("create rebuilt model_prices Pattern index: %w", err)
-	}
-	return nil
+	return validateSchemaV3(db)
 }
 
 func readSchemaVersion(db *gorm.DB) (uint, error) {

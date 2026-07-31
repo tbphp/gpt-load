@@ -29,6 +29,15 @@ function focusElement(target: HTMLElement): void {
   target.focus({ preventScroll: true })
 }
 
+function canMoveFocusToMain(main: HTMLElement): boolean {
+  const activeElement = document.activeElement
+  return activeElement === main || activeElement === document.body || activeElement === null
+}
+
+function focusElementWithinMain(target: HTMLElement, main: HTMLElement): void {
+  if (canMoveFocusToMain(main)) focusElement(target)
+}
+
 function fallbackAnnouncement(): string {
   const titleKey = typeof route.meta.titleKey === 'string' ? route.meta.titleKey : ''
   return titleKey ? t(titleKey) : t('common.appName')
@@ -55,7 +64,7 @@ watch(
     const main = document.querySelector<HTMLElement>('#main-content, main')
     const heading = main?.querySelector<HTMLElement>('h1') ?? null
     const target = heading ?? main
-    if (target) focusElement(target)
+    if (target && main) focusElementWithinMain(target, main)
 
     const initialHeadingText = heading === null ? '' : headingText(heading)
     announcement.value = initialHeadingText || fallbackAnnouncement()
@@ -71,13 +80,7 @@ watch(
       const text = headingText(asynchronousHeading)
       if (text === '') return
 
-      if (
-        document.activeElement === main ||
-        document.activeElement === document.body ||
-        document.activeElement === null
-      ) {
-        focusElement(asynchronousHeading)
-      }
+      focusElementWithinMain(asynchronousHeading, main)
       announcement.value = text
       stopHeadingObserver()
     })

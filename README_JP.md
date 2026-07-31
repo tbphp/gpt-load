@@ -264,13 +264,7 @@ make build
 ローカルの完全な品質ゲート：
 
 ```console
-corepack pnpm --dir web install --frozen-lockfile
-corepack pnpm --dir web run lint
-corepack pnpm --dir web run format
-corepack pnpm --dir web run type-check
-corepack pnpm --dir web run build
-go build -o gpt-load .
-go test . ./internal/...
+make check
 ```
 
 プロジェクトのワークフローには、フロントエンドのユニットテストとブラウザE2Eテストを含めません。フロントエンドの検証範囲は、依存関係のインストール、lint、format、type-check、buildです。

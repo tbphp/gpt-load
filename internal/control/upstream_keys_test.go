@@ -137,8 +137,8 @@ func TestListGroupKeysReturnsMaskedStableRuntimeView(t *testing.T) {
 	if got[0].Mask != "sk-a****wxyz" ||
 		got[0].EffectiveStatus != "cooldown" ||
 		got[0].WeightAuto != 42 ||
-		got[0].CooldownUntil == nil ||
-		!got[0].CooldownUntil.Equal(now.Add(time.Minute)) ||
+		got[0].CooldownUntilMS == nil ||
+		*got[0].CooldownUntilMS != now.Add(time.Minute).UnixMilli() ||
 		got[0].FailureCount != 1 {
 		t.Fatalf("long response = %#v", got[0])
 	}
@@ -146,7 +146,7 @@ func TestListGroupKeysReturnsMaskedStableRuntimeView(t *testing.T) {
 		got[1].Status != state.KeyStatusDisabled ||
 		got[1].EffectiveStatus != "disabled" ||
 		!got[1].Blacklisted ||
-		got[1].CooldownUntil != nil ||
+		got[1].CooldownUntilMS != nil ||
 		got[1].FailureCount != 3 {
 		t.Fatalf("short response = %#v", got[1])
 	}
@@ -184,7 +184,7 @@ func TestListGroupKeysEffectiveStatusPriorityAndCooldownEquality(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got[0].EffectiveStatus != "available" || got[0].CooldownUntil != nil {
+	if got[0].EffectiveStatus != "available" || got[0].CooldownUntilMS != nil {
 		t.Fatalf("cooldown equality = %#v", got[0])
 	}
 
@@ -200,7 +200,7 @@ func TestListGroupKeysEffectiveStatusPriorityAndCooldownEquality(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got[0].EffectiveStatus != "disabled" || !got[0].Blacklisted ||
-		got[0].CooldownUntil == nil {
+		got[0].CooldownUntilMS == nil {
 		t.Fatalf("disabled priority/raw state = %#v", got[0])
 	}
 }
@@ -1086,7 +1086,7 @@ func TestUpdateGroupKeyHTTPSuccessThreeStateFields(t *testing.T) {
 				!equalOptionalWeight(envelope.Data.WeightManual, test.wantWeight) ||
 				envelope.Data.WeightAuto != state.DefaultWeight ||
 				envelope.Data.Blacklisted ||
-				envelope.Data.CooldownUntil != nil ||
+				envelope.Data.CooldownUntilMS != nil ||
 				envelope.Data.FailureCount != 0 {
 				t.Fatalf("PUT success envelope = %#v", envelope)
 			}
@@ -1665,7 +1665,7 @@ func TestUpdateGroupKeyChangesConfigAndPreservesAutomaticRuntime(t *testing.T) {
 	if got.Status != state.KeyStatusDisabled ||
 		got.WeightManual == nil || *got.WeightManual != 0 ||
 		got.WeightAuto != 41 || !got.Blacklisted ||
-		got.FailureCount != 3 || got.CooldownUntil == nil {
+		got.FailureCount != 3 || got.CooldownUntilMS == nil {
 		t.Fatalf("updated response = %#v", got)
 	}
 	if fixture.manager.Current() != beforeSnapshot {
@@ -1688,7 +1688,7 @@ func TestUpdateGroupKeyChangesConfigAndPreservesAutomaticRuntime(t *testing.T) {
 	}
 	if got.WeightManual != nil || got.WeightAuto != 41 ||
 		!got.Blacklisted || got.FailureCount != 3 ||
-		got.CooldownUntil == nil {
+		got.CooldownUntilMS == nil {
 		t.Fatalf("re-enabled response = %#v", got)
 	}
 	var persisted models.UpstreamKey

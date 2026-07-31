@@ -478,10 +478,10 @@ func TestServiceWarningsExcludeEventContentAndThrottle(t *testing.T) {
 
 func TestEmitFreezesPriceTableBeforeWorkerFlush(t *testing.T) {
 	tableA := compileRequestLogTestPriceTable(t, "snapshot-model", pricing.Prices{
-		Output: pricing.Price{Value: 1, Set: true},
+		Output: pricing.Price{NanoUSDPerMillion: 1_000_000_000, Set: true},
 	})
 	tableB := compileRequestLogTestPriceTable(t, "snapshot-model", pricing.Prices{
-		Output: pricing.Price{Value: 2, Set: true},
+		Output: pricing.Price{NanoUSDPerMillion: 2_000_000_000, Set: true},
 	})
 	provider := &publishingPriceTableProvider{}
 	provider.Publish(tableA)
@@ -513,7 +513,7 @@ func TestEmitFreezesPriceTableBeforeWorkerFlush(t *testing.T) {
 	entries := processLogEntries(t, output.Bytes())
 	if len(entries) != 1 ||
 		entries[0]["request_id"] != "snapshot-a" ||
-		entries[0]["estimated_cost_usd"] != "1" {
+		entries[0]["estimated_cost_nano_usd"] != float64(1_000_000_000) {
 		t.Fatalf("snapshot-a completion entries = %#v", entries)
 	}
 
@@ -528,9 +528,11 @@ func TestEmitFreezesPriceTableBeforeWorkerFlush(t *testing.T) {
 	timer.Fire()
 
 	rows := receiveValue(t, writes)
-	if len(rows) != 2 || rows[0].ID != "snapshot-a" || rows[0].Cost != 1 ||
-		rows[1].ID != "snapshot-b" || rows[1].Cost != 2 {
-		t.Fatalf("snapshot-priced rows = %+v, want A/1 then B/2", rows)
+	if len(rows) != 2 || rows[0].ID != "snapshot-a" ||
+		rows[0].EstimatedCostNanoUSD != 1_000_000_000 ||
+		rows[1].ID != "snapshot-b" ||
+		rows[1].EstimatedCostNanoUSD != 2_000_000_000 {
+		t.Fatalf("snapshot-priced rows = %+v, want A/1000000000 then B/2000000000", rows)
 	}
 	if got := provider.loads.Load(); got != 3 {
 		t.Fatalf("PriceTableProvider.Load calls = %d, want Start once plus one per Emit", got)

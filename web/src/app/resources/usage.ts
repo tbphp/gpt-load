@@ -9,8 +9,10 @@ import {
   assertNoSecretLikeFields,
   projectArray,
   projectBoolean,
+  projectEpochMilliseconds,
   projectEnum,
-  projectFiniteNumber,
+  projectNonNegativeInt64String,
+  projectNullableEpochMilliseconds,
   projectRecord,
   projectSafeInteger,
   projectString,
@@ -39,7 +41,7 @@ export interface UsageAggregateDto {
   cache_write_1h_tokens: number
   output_tokens: number
   total_tokens: number
-  estimated_cost_usd: number
+  estimated_cost_nano_usd: string
   usage_missing_count: number
   partial_count: number
   unpriced_request_count: number
@@ -48,12 +50,11 @@ export interface UsageAggregateDto {
 export interface UsageReportDto {
   range: '24h' | '30d'
   granularity: 'hour' | 'day'
-  timezone: 'UTC'
-  from: string
-  to: string
-  observed_at: string
+  from_ms: number
+  to_ms: number
+  observed_at_ms: number
   summary: UsageAggregateDto
-  series: Array<UsageAggregateDto & { bucket_start: string; bucket_end: string }>
+  series: Array<UsageAggregateDto & { bucket_start_ms: number; bucket_end_ms: number }>
   breakdown: Array<UsageAggregateDto & { group_id: number; model: string }>
   breakdown_truncated: boolean
   breakdown_order: UsageBreakdownOrder
@@ -62,7 +63,7 @@ export interface UsageReportDto {
     scope: 'current_process'
     dropped_total: number
     write_failure_total: number
-    last_write_failure_at: string | null
+    last_write_failure_at_ms: number | null
   }
 }
 
@@ -80,13 +81,13 @@ const aggregateKeys = [
   'partial_count',
   'unpriced_request_count',
 ] as const
+const aggregateFields = [...aggregateKeys, 'estimated_cost_nano_usd'] as const
 const reportFields = [
   'range',
   'granularity',
-  'timezone',
-  'from',
-  'to',
-  'observed_at',
+  'from_ms',
+  'to_ms',
+  'observed_at_ms',
   'summary',
   'series',
   'breakdown',
@@ -102,66 +103,13 @@ function invalidResponse(): never {
   throw new InvalidResponseError()
 }
 
-function isRFC3339Timestamp(value: unknown): value is string {
-  if (typeof value !== 'string') return false
-  const match =
-    /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|[+-](\d{2}):(\d{2}))$/.exec(
-      value,
-    )
-  if (match === null) return false
-  const [year, month, day, hour, minute, second] = match.slice(1, 7).map(Number)
-  const [offsetHour, offsetMinute] = match.slice(7, 9).map(Number)
-  if (
-    month < 1 ||
-    month > 12 ||
-    hour > 23 ||
-    minute > 59 ||
-    second > 59 ||
-    (match[7] !== undefined && (offsetHour > 23 || offsetMinute > 59))
-  ) {
-    return false
-  }
-  const daysInMonth = [
-    31,
-    year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0) ? 29 : 28,
-    31,
-    30,
-    31,
-    30,
-    31,
-    31,
-    30,
-    31,
-    30,
-    31,
-  ]
-  return day >= 1 && day <= daysInMonth[month - 1]
-}
-
-function timestamp(value: unknown): string {
-  if (!isRFC3339Timestamp(value)) invalidResponse()
-  return value
-}
-
-function timestampMs(value: string): number {
-  const result = Date.parse(value)
-  if (!Number.isFinite(result)) invalidResponse()
-  return result
-}
-
 function isUTCAligned(timestampValue: number, granularity: 'hour' | 'day'): boolean {
-  const date = new Date(timestampValue)
-  return (
-    date.getUTCMinutes() === 0 &&
-    date.getUTCSeconds() === 0 &&
-    date.getUTCMilliseconds() === 0 &&
-    (granularity === 'hour' || date.getUTCHours() === 0)
-  )
+  return timestampValue % (granularity === 'hour' ? hourMs : dayMs) === 0
 }
 
 export function projectUsageAggregate(value: unknown): UsageAggregateDto {
   const record = projectRecord(value)
-  assertNoSecretLikeFields(record, [...aggregateKeys, 'estimated_cost_usd'])
+  assertNoSecretLikeFields(record, aggregateFields)
   const result: UsageAggregateDto = {
     request_count: projectSafeInteger(record.request_count, { minimum: 0 }),
     success_count: projectSafeInteger(record.success_count, { minimum: 0 }),
@@ -172,7 +120,7 @@ export function projectUsageAggregate(value: unknown): UsageAggregateDto {
     cache_write_1h_tokens: projectSafeInteger(record.cache_write_1h_tokens, { minimum: 0 }),
     output_tokens: projectSafeInteger(record.output_tokens, { minimum: 0 }),
     total_tokens: projectSafeInteger(record.total_tokens, { minimum: 0 }),
-    estimated_cost_usd: projectFiniteNumber(record.estimated_cost_usd, { minimum: 0 }),
+    estimated_cost_nano_usd: projectNonNegativeInt64String(record.estimated_cost_nano_usd),
     usage_missing_count: projectSafeInteger(record.usage_missing_count, { minimum: 0 }),
     partial_count: projectSafeInteger(record.partial_count, { minimum: 0 }),
     unpriced_request_count: projectSafeInteger(record.unpriced_request_count, { minimum: 0 }),
@@ -200,14 +148,13 @@ function projectCollectionHealth(value: unknown): UsageReportDto['collection_hea
     'scope',
     'dropped_total',
     'write_failure_total',
-    'last_write_failure_at',
+    'last_write_failure_at_ms',
   ])
   return {
     scope: projectEnum(record.scope, ['current_process'] as const),
     dropped_total: projectSafeInteger(record.dropped_total, { minimum: 0 }),
     write_failure_total: projectSafeInteger(record.write_failure_total, { minimum: 0 }),
-    last_write_failure_at:
-      record.last_write_failure_at === null ? null : timestamp(record.last_write_failure_at),
+    last_write_failure_at_ms: projectNullableEpochMilliseconds(record.last_write_failure_at_ms),
   }
 }
 
@@ -216,79 +163,78 @@ export function projectUsageReport(value: unknown): UsageReportDto {
   assertNoSecretLikeFields(record, reportFields)
   const range = projectEnum(record.range, ['24h', '30d'] as const)
   const granularity = projectEnum(record.granularity, ['hour', 'day'] as const)
-  if (
-    projectEnum(record.timezone, ['UTC'] as const) !== 'UTC' ||
-    (range === '24h' && granularity !== 'hour') ||
-    (range === '30d' && granularity !== 'day')
-  ) {
+  if ((range === '24h' && granularity !== 'hour') || (range === '30d' && granularity !== 'day')) {
     invalidResponse()
   }
-  const observedAt = timestamp(record.observed_at)
-  const rangeFrom = timestamp(record.from)
-  const rangeTo = timestamp(record.to)
-  const observedAtMs = timestampMs(observedAt)
-  const rangeFromMs = timestampMs(rangeFrom)
-  const rangeToMs = timestampMs(rangeTo)
+  const observedAtMS = projectEpochMilliseconds(record.observed_at_ms)
+  const rangeFromMS = projectEpochMilliseconds(record.from_ms)
+  const rangeToMS = projectEpochMilliseconds(record.to_ms)
   const bucketDurationMs = granularity === 'hour' ? hourMs : dayMs
   const bucketCount = range === '24h' ? 24 : 30
   if (
-    !isUTCAligned(rangeFromMs, granularity) ||
-    !isUTCAligned(rangeToMs, granularity) ||
-    rangeToMs - rangeFromMs !== bucketDurationMs * bucketCount ||
-    observedAtMs < rangeToMs - bucketDurationMs ||
-    observedAtMs >= rangeToMs
+    !isUTCAligned(rangeFromMS, granularity) ||
+    !isUTCAligned(rangeToMS, granularity) ||
+    rangeToMS - rangeFromMS !== bucketDurationMs * bucketCount ||
+    observedAtMS < rangeToMS - bucketDurationMs ||
+    observedAtMS >= rangeToMS
   ) {
     invalidResponse()
   }
 
-  let previousBucketEnd = rangeFromMs
+  let previousBucketEndMS = rangeFromMS
   const series = projectArray(record.series, (value) => {
     const item = projectRecord(value)
     assertNoSecretLikeFields(item, [
       ...aggregateKeys,
-      'estimated_cost_usd',
-      'bucket_start',
-      'bucket_end',
+      'estimated_cost_nano_usd',
+      'bucket_start_ms',
+      'bucket_end_ms',
     ])
-    const bucketStart = timestamp(item.bucket_start)
-    const bucketEnd = timestamp(item.bucket_end)
-    const start = timestampMs(bucketStart)
-    const end = timestampMs(bucketEnd)
+    const bucketStartMS = projectEpochMilliseconds(item.bucket_start_ms)
+    const bucketEndMS = projectEpochMilliseconds(item.bucket_end_ms)
     if (
-      !isUTCAligned(start, granularity) ||
-      !isUTCAligned(end, granularity) ||
-      end - start !== bucketDurationMs ||
-      start < rangeFromMs ||
-      end > rangeToMs ||
-      start < previousBucketEnd
+      !isUTCAligned(bucketStartMS, granularity) ||
+      !isUTCAligned(bucketEndMS, granularity) ||
+      bucketEndMS - bucketStartMS !== bucketDurationMs ||
+      bucketStartMS < rangeFromMS ||
+      bucketEndMS > rangeToMS ||
+      bucketStartMS < previousBucketEndMS
     ) {
       invalidResponse()
     }
-    previousBucketEnd = end
+    previousBucketEndMS = bucketEndMS
     return {
-      ...projectUsageAggregate(item),
-      bucket_start: bucketStart,
-      bucket_end: bucketEnd,
+      ...projectUsageAggregate(
+        Object.fromEntries(aggregateFields.map((field) => [field, item[field]])),
+      ),
+      bucket_start_ms: bucketStartMS,
+      bucket_end_ms: bucketEndMS,
     }
   })
   const breakdown = projectArray(record.breakdown, (value) => {
     const item = projectRecord(value)
-    assertNoSecretLikeFields(item, [...aggregateKeys, 'estimated_cost_usd', 'group_id', 'model'])
-    const model = projectString(item.model)
-    if (model.trim().length === 0 || model !== model.trim()) invalidResponse()
+    assertNoSecretLikeFields(item, [
+      ...aggregateKeys,
+      'estimated_cost_nano_usd',
+      'group_id',
+      'model',
+    ])
+    const model = projectString(item.model, { allowEmpty: true })
+    if (model !== model.trim()) invalidResponse()
     return {
-      ...projectUsageAggregate(item),
-      group_id: projectSafeInteger(item.group_id, { minimum: 1 }),
+      ...projectUsageAggregate(
+        Object.fromEntries(aggregateFields.map((field) => [field, item[field]])),
+      ),
+      group_id: projectSafeInteger(item.group_id, { minimum: 0 }),
       model,
     }
   })
   return {
     range,
     granularity,
-    timezone: 'UTC',
-    from: rangeFrom,
-    to: rangeTo,
-    observed_at: observedAt,
+    from_ms: rangeFromMS,
+    to_ms: rangeToMS,
+    observed_at_ms: observedAtMS,
     summary: projectUsageAggregate(record.summary),
     series,
     breakdown,

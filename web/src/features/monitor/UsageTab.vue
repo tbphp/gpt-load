@@ -11,13 +11,14 @@ import { modelPricesLocation, monitorLocation } from '@/app/route-locations'
 import { usageQueryOptions, type UsageAggregateDto, type UsageFilters } from '@/app/resources/usage'
 import { useUnsavedChanges } from '@/app/unsaved-changes'
 import TrendChart from '@/components/charts/TrendChart.vue'
+import AppDateTime from '@/components/ui/AppDateTime.vue'
 import DataTable from '@/components/ui/DataTable.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import SurfaceCard from '@/components/ui/SurfaceCard.vue'
-import { formatEstimatedUSD } from '@/features/usage/estimated-cost'
+import { formatEstimatedCost } from '@/lib/format'
 
 import {
   applyUsageFilterDraft,
@@ -53,7 +54,7 @@ const draftDirty = computed(() => {
   )
 })
 const lastRefreshedAt = computed(() =>
-  usageQuery.dataUpdatedAt.value > 0 ? new Date(usageQuery.dataUpdatedAt.value) : null,
+  usageQuery.dataUpdatedAt.value > 0 ? usageQuery.dataUpdatedAt.value : null,
 )
 const unsavedChanges = useUnsavedChanges(draftDirty)
 
@@ -73,19 +74,25 @@ function formatCount(value: number): string {
   return new Intl.NumberFormat(locale.value).format(value)
 }
 
-function formatEstimatedCost(aggregate: UsageAggregateDto): string {
+function formatAggregateEstimatedCost(aggregate: UsageAggregateDto): string {
+  const cost = formatEstimatedCost(aggregate.estimated_cost_nano_usd, locale.value)
   if (aggregate.unpriced_request_count > 0) {
     return t('monitor.usage.cost.knownPlusUnknown', {
-      cost: formatEstimatedUSD(aggregate.estimated_cost_usd, locale.value),
+      cost,
     })
   }
-  return formatEstimatedUSD(aggregate.estimated_cost_usd, locale.value)
+  return cost
 }
 
 function groupLabel(groupID: number): string {
+  if (groupID === 0) return t('monitor.usage.breakdown.unattributedGroup')
   const known = groupsQuery.data.value?.find((group) => group.id === groupID)
   if (known) return `${known.name} · #${groupID}`
   return t('monitor.usage.filters.deletedOrUnknown', { id: groupID })
+}
+
+function modelLabel(model: string): string {
+  return model === '' ? t('monitor.usage.breakdown.unknownModel') : model
 }
 
 function updateDraftField(field: keyof UsageFilterDraft, value: string): void {
@@ -183,15 +190,11 @@ async function navigate(filters: UsageFilters): Promise<void> {
       <section class="usage-freshness">
         <p>
           <strong>{{ t('monitor.usage.filters.observedAt') }}</strong>
-          <time :datetime="report.observed_at">
-            {{ report.observed_at }}
-          </time>
+          <AppDateTime :instant="report.observed_at_ms" :locale="locale" />
         </p>
         <p v-if="lastRefreshedAt">
           <strong>{{ t('monitor.usage.filters.refreshedAt') }}</strong>
-          <time :datetime="lastRefreshedAt.toISOString()">
-            {{ lastRefreshedAt.toISOString() }}
-          </time>
+          <AppDateTime :instant="lastRefreshedAt" :locale="locale" />
         </p>
       </section>
 
@@ -201,7 +204,7 @@ async function navigate(filters: UsageFilters): Promise<void> {
         :description="t('monitor.usage.empty.description')"
       />
       <template v-else>
-        <UsageSummary :observed-at="report.observed_at" :summary="report.summary" />
+        <UsageSummary :observed-at-ms="report.observed_at_ms" :summary="report.summary" />
 
         <section class="usage-section" aria-labelledby="usage-quality-title">
           <div class="usage-heading">
@@ -276,12 +279,11 @@ async function navigate(filters: UsageFilters): Promise<void> {
           <SurfaceCard>
             <span>{{ t('monitor.usage.process.lastWriteFailure') }}</span>
             <strong>
-              <time
-                v-if="report.collection_health.last_write_failure_at"
-                :datetime="report.collection_health.last_write_failure_at"
-              >
-                {{ report.collection_health.last_write_failure_at }}
-              </time>
+              <AppDateTime
+                v-if="report.collection_health.last_write_failure_at_ms !== null"
+                :instant="report.collection_health.last_write_failure_at_ms"
+                :locale="locale"
+              />
               <template v-else>{{ t('monitor.usage.process.never') }}</template>
             </strong>
           </SurfaceCard>
@@ -319,8 +321,8 @@ async function navigate(filters: UsageFilters): Promise<void> {
               :empty-label="t('monitor.usage.trend.empty')"
               :request-label="t('monitor.usage.columns.requests')"
               :failure-label="t('monitor.usage.columns.failure')"
-              :range-start="report.from"
-              :range-end="report.to"
+              :range-start="report.from_ms"
+              :range-end="report.to_ms"
             />
           </SurfaceCard>
         </section>
@@ -345,18 +347,18 @@ async function navigate(filters: UsageFilters): Promise<void> {
               </tr>
             </thead>
             <tbody>
-              <tr v-for="bucket in report.series" :key="bucket.bucket_start">
+              <tr v-for="bucket in report.series" :key="bucket.bucket_start_ms">
                 <td>
-                  <time :datetime="bucket.bucket_start">{{ bucket.bucket_start }}</time>
+                  <AppDateTime :instant="bucket.bucket_start_ms" :locale="locale" />
                   <span>–</span>
-                  <time :datetime="bucket.bucket_end">{{ bucket.bucket_end }}</time>
+                  <AppDateTime :instant="bucket.bucket_end_ms" :locale="locale" />
                 </td>
                 <td>{{ formatCount(bucket.request_count) }}</td>
                 <td>{{ formatCount(bucket.success_count) }}</td>
                 <td>{{ formatCount(bucket.failure_count) }}</td>
                 <td>{{ formatCount(bucket.total_tokens) }}</td>
                 <td>
-                  {{ formatEstimatedCost(bucket) }}
+                  {{ formatAggregateEstimatedCost(bucket) }}
                 </td>
                 <td>
                   {{
@@ -405,7 +407,7 @@ async function navigate(filters: UsageFilters): Promise<void> {
                   {{ groupLabel(row.group_id) }}
                 </td>
                 <td>
-                  <code>{{ row.model }}</code>
+                  <code>{{ modelLabel(row.model) }}</code>
                 </td>
                 <td>{{ formatCount(row.request_count) }}</td>
                 <td>{{ formatCount(row.uncached_input_tokens) }}</td>
@@ -415,7 +417,7 @@ async function navigate(filters: UsageFilters): Promise<void> {
                 <td>{{ formatCount(row.output_tokens) }}</td>
                 <td>{{ formatCount(row.total_tokens) }}</td>
                 <td>
-                  {{ formatEstimatedCost(row) }}
+                  {{ formatAggregateEstimatedCost(row) }}
                 </td>
                 <td>
                   {{

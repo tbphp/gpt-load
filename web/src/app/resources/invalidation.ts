@@ -20,6 +20,7 @@ const keyResourcePlan = (groupID: number) =>
     controlQueryKeys.groups.detail(groupID),
     controlQueryKeys.groups.list(),
     controlQueryKeys.health(),
+    controlQueryKeys.home.base(),
   ])
 
 export const mutationInvalidationPlans = {
@@ -27,14 +28,23 @@ export const mutationInvalidationPlans = {
     update: () => plan([], [controlQueryKeys.groups.details()]),
   },
   group: {
-    create: plan([controlQueryKeys.groups.list(), controlQueryKeys.health()]),
+    create: plan([
+      controlQueryKeys.groups.list(),
+      controlQueryKeys.health(),
+      controlQueryKeys.home.base(),
+    ]),
     update: (healthAffected: boolean) =>
       plan([
         controlQueryKeys.groups.list(),
         ...(healthAffected ? [controlQueryKeys.health()] : []),
+        controlQueryKeys.home.base(),
       ]),
-    delete: plan([controlQueryKeys.groups.list(), controlQueryKeys.health()]),
-    replaceModels: () => plan([controlQueryKeys.groups.list()]),
+    delete: plan([
+      controlQueryKeys.groups.list(),
+      controlQueryKeys.health(),
+      controlQueryKeys.home.base(),
+    ]),
+    replaceModels: () => plan([controlQueryKeys.groups.list(), controlQueryKeys.home.base()]),
     importKeys: keyResourcePlan,
   },
   upstreamKey: {
@@ -42,10 +52,23 @@ export const mutationInvalidationPlans = {
     delete: keyResourcePlan,
   },
   accessKey: {
-    create: plan([controlQueryKeys.accessKeys.list(), controlQueryKeys.accessKeys.options()]),
-    update: plan([controlQueryKeys.accessKeys.list(), controlQueryKeys.accessKeys.options()]),
-    delete: plan([controlQueryKeys.accessKeys.list(), controlQueryKeys.accessKeys.options()]),
+    create: plan([
+      controlQueryKeys.accessKeys.list(),
+      controlQueryKeys.accessKeys.options(),
+      controlQueryKeys.home.base(),
+    ]),
+    update: plan([
+      controlQueryKeys.accessKeys.list(),
+      controlQueryKeys.accessKeys.options(),
+      controlQueryKeys.home.base(),
+    ]),
+    delete: plan([
+      controlQueryKeys.accessKeys.list(),
+      controlQueryKeys.accessKeys.options(),
+      controlQueryKeys.home.base(),
+    ]),
     reconcile: plan([controlQueryKeys.accessKeys.options()]),
+    reconcileConfirmed: plan([controlQueryKeys.home.base()]),
     reveal: plan(),
   },
   modelPrice: {

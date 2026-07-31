@@ -402,8 +402,8 @@ async function save(): Promise<void> {
         status: saved.status,
         filters: saved.filters,
         rpm_limit: saved.rpm_limit,
-        created_at: saved.created_at,
-        updated_at: saved.updated_at,
+        created_at_ms: saved.created_at_ms,
+        updated_at_ms: saved.updated_at_ms,
       }
       result.value = metadata
       createPayload.value = null
@@ -504,6 +504,11 @@ async function reconcileEdit(): Promise<void> {
       editOperationRetained.value = false
       emit('update:editOperation', null)
       mutationState.value = 'idle'
+      await applyInvalidationPlan(
+        queryClient,
+        mutationInvalidationPlans.accessKey.reconcileConfirmed,
+        () => controller === activeController && props.open,
+      )
       return
     }
     if (

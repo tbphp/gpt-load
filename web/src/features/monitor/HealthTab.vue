@@ -10,14 +10,16 @@ import {
   type KeyCounts,
 } from '@/app/resources/health'
 import { groupDetailLocation } from '@/app/route-locations'
+import AppDateTime from '@/components/ui/AppDateTime.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import SurfaceCard from '@/components/ui/SurfaceCard.vue'
+import { formatLocalInstant } from '@/lib/format'
 
 import HealthProblemCollection from './HealthProblemCollection.vue'
 
 const client = useApiClient()
-const { t } = useI18n()
+const { locale, t } = useI18n()
 
 const healthQuery = useQuery(healthQueryOptions(client, 10_000))
 
@@ -195,14 +197,11 @@ function toggleExpanded(keyId: number): void {
 }
 
 function remainingTime(key: HealthProblemKeyDto): string {
-  const observedAt = healthQuery.data.value?.observed_at
-  if (!key.cooldown_until || !observedAt) return ''
-  const expiryMs = Date.parse(key.cooldown_until)
-  const observedMs = Date.parse(observedAt)
-  if (!Number.isFinite(expiryMs) || !Number.isFinite(observedMs)) return ''
+  const observedAtMS = healthQuery.data.value?.observed_at_ms
+  if (key.cooldown_until_ms === null || observedAtMS === undefined) return ''
   const remainingSeconds = Math.max(
     0,
-    Math.ceil((expiryMs - (observedMs + elapsedMs.value)) / 1_000),
+    Math.ceil((key.cooldown_until_ms - (observedAtMS + elapsedMs.value)) / 1_000),
   )
   const minutes = Math.floor(remainingSeconds / 60)
   const seconds = String(remainingSeconds % 60).padStart(2, '0')
@@ -253,7 +252,7 @@ function remainingTime(key: HealthProblemKeyDto): string {
           }}</span>
           <span>{{
             t('monitor.health.summary.observedAt', {
-              time: healthQuery.data.value.observed_at,
+              time: formatLocalInstant(healthQuery.data.value.observed_at_ms, locale),
             })
           }}</span>
         </div>
@@ -354,24 +353,22 @@ function remainingTime(key: HealthProblemKeyDto): string {
           <div>
             <dt>{{ t('monitor.health.requestLog.lastWriteFailureAt') }}</dt>
             <dd>
-              <time
-                v-if="healthQuery.data.value.request_log.last_write_failure_at"
-                :datetime="healthQuery.data.value.request_log.last_write_failure_at"
-              >
-                {{ healthQuery.data.value.request_log.last_write_failure_at }}
-              </time>
+              <AppDateTime
+                v-if="healthQuery.data.value.request_log.last_write_failure_at_ms !== null"
+                :instant="healthQuery.data.value.request_log.last_write_failure_at_ms"
+                :locale="locale"
+              />
               <span v-else>{{ t('monitor.health.none') }}</span>
             </dd>
           </div>
           <div>
             <dt>{{ t('monitor.health.requestLog.lastRetentionFailureAt') }}</dt>
             <dd>
-              <time
-                v-if="healthQuery.data.value.request_log.last_retention_failure_at"
-                :datetime="healthQuery.data.value.request_log.last_retention_failure_at"
-              >
-                {{ healthQuery.data.value.request_log.last_retention_failure_at }}
-              </time>
+              <AppDateTime
+                v-if="healthQuery.data.value.request_log.last_retention_failure_at_ms !== null"
+                :instant="healthQuery.data.value.request_log.last_retention_failure_at_ms"
+                :locale="locale"
+              />
               <span v-else>{{ t('monitor.health.none') }}</span>
             </dd>
           </div>

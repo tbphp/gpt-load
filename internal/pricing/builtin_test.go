@@ -14,41 +14,41 @@ func TestBuiltinRulesMatchGoldenTable(t *testing.T) {
 	const anthropicURL = "https://platform.claude.com/docs/en/about-claude/pricing"
 	const geminiURL = "https://ai.google.dev/gemini-api/docs/pricing"
 	want := []Rule{
-		{Pattern: "gpt-5.6", Prices: builtinPrices(5, 0.5, unsetPrice(), unsetPrice(), 30), Source: SourceBuiltin, SourceURL: openAIURL, UpdatedAt: updatedAt, LongContextPolicy: testLongContextPolicy()},
-		{Pattern: "gpt-5.6-sol", Prices: builtinPrices(5, 0.5, unsetPrice(), unsetPrice(), 30), Source: SourceBuiltin, SourceURL: openAIURL, UpdatedAt: updatedAt, LongContextPolicy: testLongContextPolicy()},
-		{Pattern: "gpt-5.6-terra", Prices: builtinPrices(2.5, 0.25, unsetPrice(), unsetPrice(), 15), Source: SourceBuiltin, SourceURL: openAIURL, UpdatedAt: updatedAt, LongContextPolicy: testLongContextPolicy()},
-		{Pattern: "gpt-5.6-luna", Prices: builtinPrices(1, 0.1, unsetPrice(), unsetPrice(), 6), Source: SourceBuiltin, SourceURL: openAIURL, UpdatedAt: updatedAt, LongContextPolicy: testLongContextPolicy()},
-		{Pattern: "gpt-5.5", Prices: builtinPrices(5, 0.5, unsetPrice(), unsetPrice(), 30), Source: SourceBuiltin, SourceURL: openAIURL, UpdatedAt: updatedAt, LongContextPolicy: testLongContextPolicy()},
-		{Pattern: "gpt-5.5-pro", Prices: builtinPrices(30, unsetPrice(), unsetPrice(), unsetPrice(), 180), Source: SourceBuiltin, SourceURL: openAIURL, UpdatedAt: updatedAt},
-		{Pattern: "gpt-5.4", Prices: builtinPrices(2.5, 0.25, unsetPrice(), unsetPrice(), 15), Source: SourceBuiltin, SourceURL: openAIURL, UpdatedAt: updatedAt, LongContextPolicy: testLongContextPolicy()},
-		{Pattern: "gpt-5.4-mini", Prices: builtinPrices(0.75, 0.075, unsetPrice(), unsetPrice(), 4.5), Source: SourceBuiltin, SourceURL: openAIURL, UpdatedAt: updatedAt},
-		{Pattern: "gpt-5.4-nano", Prices: builtinPrices(0.2, 0.02, unsetPrice(), unsetPrice(), 1.25), Source: SourceBuiltin, SourceURL: openAIURL, UpdatedAt: updatedAt},
-		{Pattern: "gpt-5.4-pro", Prices: builtinPrices(30, unsetPrice(), unsetPrice(), unsetPrice(), 180), Source: SourceBuiltin, SourceURL: openAIURL, UpdatedAt: updatedAt, LongContextPolicy: testLongContextPolicy()},
-		{Pattern: "gpt-4.1", Prices: builtinPrices(2, 0.5, unsetPrice(), unsetPrice(), 8), Source: SourceBuiltin, SourceURL: openAIURL, UpdatedAt: updatedAt},
-		{Pattern: "gpt-4.1-mini", Prices: builtinPrices(0.4, 0.1, unsetPrice(), unsetPrice(), 1.6), Source: SourceBuiltin, SourceURL: openAIURL, UpdatedAt: updatedAt},
-		{Pattern: "gpt-4.1-nano", Prices: builtinPrices(0.1, 0.025, unsetPrice(), unsetPrice(), 0.4), Source: SourceBuiltin, SourceURL: openAIURL, UpdatedAt: updatedAt},
-		{Pattern: "gpt-4o", Prices: builtinPrices(2.5, 1.25, unsetPrice(), unsetPrice(), 10), Source: SourceBuiltin, SourceURL: openAIURL, UpdatedAt: updatedAt},
-		{Pattern: "gpt-4o-mini", Prices: builtinPrices(0.15, 0.075, unsetPrice(), unsetPrice(), 0.6), Source: SourceBuiltin, SourceURL: openAIURL, UpdatedAt: updatedAt},
-		{Pattern: "claude-fable-5", Prices: builtinPrices(10, 1, 12.5, 20, 50), Source: SourceBuiltin, SourceURL: anthropicURL, UpdatedAt: updatedAt},
-		{Pattern: "claude-opus-5", Prices: builtinPrices(5, 0.5, 6.25, 10, 25), Source: SourceBuiltin, SourceURL: anthropicURL, UpdatedAt: updatedAt},
-		{Pattern: "claude-opus-4-8", Prices: builtinPrices(5, 0.5, 6.25, 10, 25), Source: SourceBuiltin, SourceURL: anthropicURL, UpdatedAt: updatedAt},
-		{Pattern: "claude-opus-4-7", Prices: builtinPrices(5, 0.5, 6.25, 10, 25), Source: SourceBuiltin, SourceURL: anthropicURL, UpdatedAt: updatedAt},
-		{Pattern: "claude-opus-4-6", Prices: builtinPrices(5, 0.5, 6.25, 10, 25), Source: SourceBuiltin, SourceURL: anthropicURL, UpdatedAt: updatedAt},
-		{Pattern: "claude-opus-4-5", Prices: builtinPrices(5, 0.5, 6.25, 10, 25), Source: SourceBuiltin, SourceURL: anthropicURL, UpdatedAt: updatedAt},
-		{Pattern: "claude-opus-4-5-20251101", Prices: builtinPrices(5, 0.5, 6.25, 10, 25), Source: SourceBuiltin, SourceURL: anthropicURL, UpdatedAt: updatedAt},
-		{Pattern: "claude-sonnet-5", Prices: builtinPrices(2, 0.2, 2.5, 4, 10), Source: SourceBuiltin, SourceURL: anthropicURL, UpdatedAt: updatedAt},
-		{Pattern: "claude-sonnet-4-6", Prices: builtinPrices(3, 0.3, 3.75, 6, 15), Source: SourceBuiltin, SourceURL: anthropicURL, UpdatedAt: updatedAt},
-		{Pattern: "claude-sonnet-4-5", Prices: builtinPrices(3, 0.3, 3.75, 6, 15), Source: SourceBuiltin, SourceURL: anthropicURL, UpdatedAt: updatedAt},
-		{Pattern: "claude-sonnet-4-5-20250929", Prices: builtinPrices(3, 0.3, 3.75, 6, 15), Source: SourceBuiltin, SourceURL: anthropicURL, UpdatedAt: updatedAt},
-		{Pattern: "claude-haiku-4-5", Prices: builtinPrices(1, 0.1, 1.25, 2, 5), Source: SourceBuiltin, SourceURL: anthropicURL, UpdatedAt: updatedAt},
-		{Pattern: "claude-haiku-4-5-20251001", Prices: builtinPrices(1, 0.1, 1.25, 2, 5), Source: SourceBuiltin, SourceURL: anthropicURL, UpdatedAt: updatedAt},
-		{Pattern: "gemini-3.6-flash", Prices: builtinPrices(1.5, 0.15, unsetPrice(), unsetPrice(), 7.5), Source: SourceBuiltin, SourceURL: geminiURL, UpdatedAt: updatedAt},
-		{Pattern: "gemini-3.5-flash", Prices: builtinPrices(1.5, 0.15, unsetPrice(), unsetPrice(), 9), Source: SourceBuiltin, SourceURL: geminiURL, UpdatedAt: updatedAt},
-		{Pattern: "gemini-3.5-flash-lite", Prices: builtinPrices(0.3, 0.03, unsetPrice(), unsetPrice(), 2.5), Source: SourceBuiltin, SourceURL: geminiURL, UpdatedAt: updatedAt},
-		{Pattern: "gemini-3.1-flash-lite", Prices: builtinPrices(0.25, 0.025, unsetPrice(), unsetPrice(), 1.5), Source: SourceBuiltin, SourceURL: geminiURL, UpdatedAt: updatedAt},
-		{Pattern: "gemini-2.5-pro", Prices: builtinPrices(1.25, 0.125, unsetPrice(), unsetPrice(), 10), Source: SourceBuiltin, SourceURL: geminiURL, UpdatedAt: updatedAt},
-		{Pattern: "gemini-2.5-flash", Prices: builtinPrices(0.3, 0.03, unsetPrice(), unsetPrice(), 2.5), Source: SourceBuiltin, SourceURL: geminiURL, UpdatedAt: updatedAt},
-		{Pattern: "gemini-2.5-flash-lite", Prices: builtinPrices(0.1, 0.01, unsetPrice(), unsetPrice(), 0.4), Source: SourceBuiltin, SourceURL: geminiURL, UpdatedAt: updatedAt},
+		{Pattern: "gpt-5.6", Prices: builtinPrices(nano(5_000_000_000), nano(500_000_000), unsetPrice(), unsetPrice(), nano(30_000_000_000)), Source: SourceBuiltin, SourceURL: openAIURL, UpdatedAt: updatedAt, LongContextPolicy: testLongContextPolicy()},
+		{Pattern: "gpt-5.6-sol", Prices: builtinPrices(nano(5_000_000_000), nano(500_000_000), unsetPrice(), unsetPrice(), nano(30_000_000_000)), Source: SourceBuiltin, SourceURL: openAIURL, UpdatedAt: updatedAt, LongContextPolicy: testLongContextPolicy()},
+		{Pattern: "gpt-5.6-terra", Prices: builtinPrices(nano(2_500_000_000), nano(250_000_000), unsetPrice(), unsetPrice(), nano(15_000_000_000)), Source: SourceBuiltin, SourceURL: openAIURL, UpdatedAt: updatedAt, LongContextPolicy: testLongContextPolicy()},
+		{Pattern: "gpt-5.6-luna", Prices: builtinPrices(nano(1_000_000_000), nano(100_000_000), unsetPrice(), unsetPrice(), nano(6_000_000_000)), Source: SourceBuiltin, SourceURL: openAIURL, UpdatedAt: updatedAt, LongContextPolicy: testLongContextPolicy()},
+		{Pattern: "gpt-5.5", Prices: builtinPrices(nano(5_000_000_000), nano(500_000_000), unsetPrice(), unsetPrice(), nano(30_000_000_000)), Source: SourceBuiltin, SourceURL: openAIURL, UpdatedAt: updatedAt, LongContextPolicy: testLongContextPolicy()},
+		{Pattern: "gpt-5.5-pro", Prices: builtinPrices(nano(30_000_000_000), unsetPrice(), unsetPrice(), unsetPrice(), nano(180_000_000_000)), Source: SourceBuiltin, SourceURL: openAIURL, UpdatedAt: updatedAt},
+		{Pattern: "gpt-5.4", Prices: builtinPrices(nano(2_500_000_000), nano(250_000_000), unsetPrice(), unsetPrice(), nano(15_000_000_000)), Source: SourceBuiltin, SourceURL: openAIURL, UpdatedAt: updatedAt, LongContextPolicy: testLongContextPolicy()},
+		{Pattern: "gpt-5.4-mini", Prices: builtinPrices(nano(750_000_000), nano(75_000_000), unsetPrice(), unsetPrice(), nano(4_500_000_000)), Source: SourceBuiltin, SourceURL: openAIURL, UpdatedAt: updatedAt},
+		{Pattern: "gpt-5.4-nano", Prices: builtinPrices(nano(200_000_000), nano(20_000_000), unsetPrice(), unsetPrice(), nano(1_250_000_000)), Source: SourceBuiltin, SourceURL: openAIURL, UpdatedAt: updatedAt},
+		{Pattern: "gpt-5.4-pro", Prices: builtinPrices(nano(30_000_000_000), unsetPrice(), unsetPrice(), unsetPrice(), nano(180_000_000_000)), Source: SourceBuiltin, SourceURL: openAIURL, UpdatedAt: updatedAt, LongContextPolicy: testLongContextPolicy()},
+		{Pattern: "gpt-4.1", Prices: builtinPrices(nano(2_000_000_000), nano(500_000_000), unsetPrice(), unsetPrice(), nano(8_000_000_000)), Source: SourceBuiltin, SourceURL: openAIURL, UpdatedAt: updatedAt},
+		{Pattern: "gpt-4.1-mini", Prices: builtinPrices(nano(400_000_000), nano(100_000_000), unsetPrice(), unsetPrice(), nano(1_600_000_000)), Source: SourceBuiltin, SourceURL: openAIURL, UpdatedAt: updatedAt},
+		{Pattern: "gpt-4.1-nano", Prices: builtinPrices(nano(100_000_000), nano(25_000_000), unsetPrice(), unsetPrice(), nano(400_000_000)), Source: SourceBuiltin, SourceURL: openAIURL, UpdatedAt: updatedAt},
+		{Pattern: "gpt-4o", Prices: builtinPrices(nano(2_500_000_000), nano(1_250_000_000), unsetPrice(), unsetPrice(), nano(10_000_000_000)), Source: SourceBuiltin, SourceURL: openAIURL, UpdatedAt: updatedAt},
+		{Pattern: "gpt-4o-mini", Prices: builtinPrices(nano(150_000_000), nano(75_000_000), unsetPrice(), unsetPrice(), nano(600_000_000)), Source: SourceBuiltin, SourceURL: openAIURL, UpdatedAt: updatedAt},
+		{Pattern: "claude-fable-5", Prices: builtinPrices(nano(10_000_000_000), nano(1_000_000_000), nano(12_500_000_000), nano(20_000_000_000), nano(50_000_000_000)), Source: SourceBuiltin, SourceURL: anthropicURL, UpdatedAt: updatedAt},
+		{Pattern: "claude-opus-5", Prices: builtinPrices(nano(5_000_000_000), nano(500_000_000), nano(6_250_000_000), nano(10_000_000_000), nano(25_000_000_000)), Source: SourceBuiltin, SourceURL: anthropicURL, UpdatedAt: updatedAt},
+		{Pattern: "claude-opus-4-8", Prices: builtinPrices(nano(5_000_000_000), nano(500_000_000), nano(6_250_000_000), nano(10_000_000_000), nano(25_000_000_000)), Source: SourceBuiltin, SourceURL: anthropicURL, UpdatedAt: updatedAt},
+		{Pattern: "claude-opus-4-7", Prices: builtinPrices(nano(5_000_000_000), nano(500_000_000), nano(6_250_000_000), nano(10_000_000_000), nano(25_000_000_000)), Source: SourceBuiltin, SourceURL: anthropicURL, UpdatedAt: updatedAt},
+		{Pattern: "claude-opus-4-6", Prices: builtinPrices(nano(5_000_000_000), nano(500_000_000), nano(6_250_000_000), nano(10_000_000_000), nano(25_000_000_000)), Source: SourceBuiltin, SourceURL: anthropicURL, UpdatedAt: updatedAt},
+		{Pattern: "claude-opus-4-5", Prices: builtinPrices(nano(5_000_000_000), nano(500_000_000), nano(6_250_000_000), nano(10_000_000_000), nano(25_000_000_000)), Source: SourceBuiltin, SourceURL: anthropicURL, UpdatedAt: updatedAt},
+		{Pattern: "claude-opus-4-5-20251101", Prices: builtinPrices(nano(5_000_000_000), nano(500_000_000), nano(6_250_000_000), nano(10_000_000_000), nano(25_000_000_000)), Source: SourceBuiltin, SourceURL: anthropicURL, UpdatedAt: updatedAt},
+		{Pattern: "claude-sonnet-5", Prices: builtinPrices(nano(2_000_000_000), nano(200_000_000), nano(2_500_000_000), nano(4_000_000_000), nano(10_000_000_000)), Source: SourceBuiltin, SourceURL: anthropicURL, UpdatedAt: updatedAt},
+		{Pattern: "claude-sonnet-4-6", Prices: builtinPrices(nano(3_000_000_000), nano(300_000_000), nano(3_750_000_000), nano(6_000_000_000), nano(15_000_000_000)), Source: SourceBuiltin, SourceURL: anthropicURL, UpdatedAt: updatedAt},
+		{Pattern: "claude-sonnet-4-5", Prices: builtinPrices(nano(3_000_000_000), nano(300_000_000), nano(3_750_000_000), nano(6_000_000_000), nano(15_000_000_000)), Source: SourceBuiltin, SourceURL: anthropicURL, UpdatedAt: updatedAt},
+		{Pattern: "claude-sonnet-4-5-20250929", Prices: builtinPrices(nano(3_000_000_000), nano(300_000_000), nano(3_750_000_000), nano(6_000_000_000), nano(15_000_000_000)), Source: SourceBuiltin, SourceURL: anthropicURL, UpdatedAt: updatedAt},
+		{Pattern: "claude-haiku-4-5", Prices: builtinPrices(nano(1_000_000_000), nano(100_000_000), nano(1_250_000_000), nano(2_000_000_000), nano(5_000_000_000)), Source: SourceBuiltin, SourceURL: anthropicURL, UpdatedAt: updatedAt},
+		{Pattern: "claude-haiku-4-5-20251001", Prices: builtinPrices(nano(1_000_000_000), nano(100_000_000), nano(1_250_000_000), nano(2_000_000_000), nano(5_000_000_000)), Source: SourceBuiltin, SourceURL: anthropicURL, UpdatedAt: updatedAt},
+		{Pattern: "gemini-3.6-flash", Prices: builtinPrices(nano(1_500_000_000), nano(150_000_000), unsetPrice(), unsetPrice(), nano(7_500_000_000)), Source: SourceBuiltin, SourceURL: geminiURL, UpdatedAt: updatedAt},
+		{Pattern: "gemini-3.5-flash", Prices: builtinPrices(nano(1_500_000_000), nano(150_000_000), unsetPrice(), unsetPrice(), nano(9_000_000_000)), Source: SourceBuiltin, SourceURL: geminiURL, UpdatedAt: updatedAt},
+		{Pattern: "gemini-3.5-flash-lite", Prices: builtinPrices(nano(300_000_000), nano(30_000_000), unsetPrice(), unsetPrice(), nano(2_500_000_000)), Source: SourceBuiltin, SourceURL: geminiURL, UpdatedAt: updatedAt},
+		{Pattern: "gemini-3.1-flash-lite", Prices: builtinPrices(nano(250_000_000), nano(25_000_000), unsetPrice(), unsetPrice(), nano(1_500_000_000)), Source: SourceBuiltin, SourceURL: geminiURL, UpdatedAt: updatedAt},
+		{Pattern: "gemini-2.5-pro", Prices: builtinPrices(nano(1_250_000_000), nano(125_000_000), unsetPrice(), unsetPrice(), nano(10_000_000_000)), Source: SourceBuiltin, SourceURL: geminiURL, UpdatedAt: updatedAt},
+		{Pattern: "gemini-2.5-flash", Prices: builtinPrices(nano(300_000_000), nano(30_000_000), unsetPrice(), unsetPrice(), nano(2_500_000_000)), Source: SourceBuiltin, SourceURL: geminiURL, UpdatedAt: updatedAt},
+		{Pattern: "gemini-2.5-flash-lite", Prices: builtinPrices(nano(100_000_000), nano(10_000_000), unsetPrice(), unsetPrice(), nano(400_000_000)), Source: SourceBuiltin, SourceURL: geminiURL, UpdatedAt: updatedAt},
 	}
 
 	got := BuiltinRules()
@@ -65,11 +65,11 @@ func TestBuiltinRulesMatchGoldenTable(t *testing.T) {
 	}
 	got[0].Pattern = "mutated"
 	if got[0].LongContextPolicy != nil {
-		got[0].LongContextPolicy.InputMultiplier = 99
+		got[0].LongContextPolicy.InputMultiplier = Multiplier{Numerator: 99, Denominator: 1}
 	}
 	again := BuiltinRules()
 	if again[0].Pattern != "gpt-5.6" || again[0].LongContextPolicy == nil ||
-		again[0].LongContextPolicy.InputMultiplier != 2 {
+		again[0].LongContextPolicy.InputMultiplier != (Multiplier{Numerator: 2, Denominator: 1}) {
 		t.Fatalf("BuiltinRules() returned mutable backing data: %+v", again[0])
 	}
 }
@@ -103,13 +103,13 @@ func TestBuiltinRulesDoNotMatchUnsupportedModelFamilies(t *testing.T) {
 	}
 }
 
-func builtinPrices(uncachedInput, cacheRead, cacheWrite5M, cacheWrite1H, output any) Prices {
+func builtinPrices(uncachedInput, cacheRead, cacheWrite5M, cacheWrite1H, output Price) Prices {
 	return Prices{
-		UncachedInput: builtinPrice(uncachedInput),
-		CacheRead:     builtinPrice(cacheRead),
-		CacheWrite5M:  builtinPrice(cacheWrite5M),
-		CacheWrite1H:  builtinPrice(cacheWrite1H),
-		Output:        builtinPrice(output),
+		UncachedInput: uncachedInput,
+		CacheRead:     cacheRead,
+		CacheWrite5M:  cacheWrite5M,
+		CacheWrite1H:  cacheWrite1H,
+		Output:        output,
 	}
 }
 
@@ -117,15 +117,6 @@ func unsetPrice() Price {
 	return Price{}
 }
 
-func builtinPrice(value any) Price {
-	switch value := value.(type) {
-	case float64:
-		return Price{Value: value, Set: true}
-	case int:
-		return Price{Value: float64(value), Set: true}
-	case Price:
-		return value
-	default:
-		panic("unsupported builtin test price")
-	}
+func nano(value NanoUSD) Price {
+	return fixedPrice(value)
 }

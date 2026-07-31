@@ -46,44 +46,101 @@ export interface ApiClientWithResponse extends ApiClient {
 
 type Envelope = SuccessEnvelope<unknown> | ErrorEnvelope
 
-const apiPathBase = 'https://gpt-load.invalid'
+const maxApiPathLength = 8192
+const maxPercentEncodingDepth = 2
 
-function isSafeApiPath(path: unknown): path is ApiPath {
-  if (typeof path !== 'string' || !path.startsWith('/api/')) {
-    return false
+function hasControlCharacter(value: string): boolean {
+  for (const character of value) {
+    const codePoint = character.codePointAt(0)
+    if (codePoint !== undefined && (codePoint <= 0x1f || codePoint === 0x7f)) {
+      return true
+    }
   }
 
+  return false
+}
+
+function isSafeApiQuery(query: string): boolean {
   try {
-    decodeURIComponent(path)
+    decodeURIComponent(query)
   } catch {
     return false
   }
 
-  const rawPathname = path.split(/[?#]/, 1)[0]
-  if (!rawPathname) {
-    return false
-  }
-
-  for (const segment of rawPathname.split('/')) {
-    let decodedSegment: string
-    try {
-      decodedSegment = decodeURIComponent(segment)
-    } catch {
+  let encodedQuery = query
+  for (let encodingDepth = 0; encodingDepth <= maxPercentEncodingDepth; encodingDepth += 1) {
+    if (/%(?:0[0-9a-f]|1[0-9a-f]|7f)/i.test(encodedQuery)) {
       return false
     }
+    if (encodingDepth === maxPercentEncodingDepth) {
+      return true
+    }
 
+    const expandedQuery = encodedQuery.replace(/%25/gi, '%')
+    if (expandedQuery === encodedQuery) {
+      return true
+    }
+    encodedQuery = expandedQuery
+  }
+
+  return false
+}
+
+function isSafeApiPathSegment(segment: string): boolean {
+  let decodedSegment = segment
+  for (let encodingDepth = 0; encodingDepth <= maxPercentEncodingDepth; encodingDepth += 1) {
     if (
+      decodedSegment.length === 0 ||
       decodedSegment === '.' ||
       decodedSegment === '..' ||
       decodedSegment.includes('/') ||
-      decodedSegment.includes('\\')
+      decodedSegment.includes('\\') ||
+      decodedSegment.includes('?') ||
+      decodedSegment.includes('#') ||
+      hasControlCharacter(decodedSegment)
     ) {
+      return false
+    }
+
+    if (!decodedSegment.includes('%')) {
+      return true
+    }
+    if (encodingDepth === maxPercentEncodingDepth) {
+      return false
+    }
+
+    try {
+      decodedSegment = decodeURIComponent(decodedSegment)
+    } catch {
       return false
     }
   }
 
-  const target = new URL(path, apiPathBase)
-  return target.origin === apiPathBase && target.pathname.startsWith('/api/')
+  return false
+}
+
+function isSafeApiPath(path: unknown): path is ApiPath {
+  if (
+    typeof path !== 'string' ||
+    path.length > maxApiPathLength ||
+    !path.startsWith('/api/') ||
+    path.startsWith('//') ||
+    path.includes('\\') ||
+    path.includes('#') ||
+    hasControlCharacter(path)
+  ) {
+    return false
+  }
+
+  const queryStart = path.indexOf('?')
+  const pathname = queryStart === -1 ? path : path.slice(0, queryStart)
+  const query = queryStart === -1 ? '' : path.slice(queryStart + 1)
+  if (!isSafeApiQuery(query)) {
+    return false
+  }
+
+  const segments = pathname.slice('/api/'.length).split('/')
+  return segments.every(isSafeApiPathSegment)
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

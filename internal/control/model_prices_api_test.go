@@ -22,8 +22,8 @@ func TestModelPriceAPIListsStableBuiltinAndUserRules(t *testing.T) {
 	fixture.service.now = func() time.Time {
 		return time.Date(2026, time.July, 27, 12, 30, 0, 0, time.UTC)
 	}
-	zero := 0.0
-	output := 7.5
+	zero := pricing.NanoUSD(0)
+	output := pricing.NanoUSD(7_500_000_000)
 	if err := fixture.service.UpsertModelPrice(t.Context(), ModelPriceInput{
 		Pattern: "z-user", UncachedInput: &zero, Output: &output,
 	}); err != nil {
@@ -83,19 +83,24 @@ func TestModelPriceAPIListsStableBuiltinAndUserRules(t *testing.T) {
 	}
 	if builtin == nil || builtin.Source != string(pricing.SourceBuiltin) || builtin.SourceURL == nil ||
 		*builtin.SourceURL != "https://developers.openai.com/api/docs/pricing" ||
-		builtin.UpdatedAt.Format(time.RFC3339) != "2026-07-26T00:00:00Z" {
+		builtin.UpdatedAtMS != time.Date(2026, time.July, 26, 0, 0, 0, 0, time.UTC).UnixMilli() {
 		t.Fatalf("builtin response = %#v", builtin)
 	}
-	if len(builtin.Prices) != 5 || builtin.Prices["cache_write_5m"] != nil || builtin.Prices["cache_write_1h"] != nil {
+	if len(builtin.Prices) != 5 ||
+		builtin.Prices["cache_write_5m_price_usd_per_million_tokens"] != nil ||
+		builtin.Prices["cache_write_1h_price_usd_per_million_tokens"] != nil {
 		t.Fatalf("builtin prices = %#v, want five values including null cache writes", builtin.Prices)
 	}
 	if userA == nil || userA.Source != string(pricing.SourceUser) || userA.SourceURL != nil ||
-		userA.UpdatedAt.Format(time.RFC3339) != "2026-07-27T12:30:00Z" {
+		userA.UpdatedAtMS != time.Date(2026, time.July, 27, 12, 30, 0, 0, time.UTC).UnixMilli() {
 		t.Fatalf("a-user response = %#v", userA)
 	}
-	if userZ == nil || len(userZ.Prices) != 5 || userZ.Prices["uncached_input"] == nil ||
-		*userZ.Prices["uncached_input"] != 0 || userZ.Prices["cache_read"] != nil ||
-		userZ.Prices["output"] == nil || *userZ.Prices["output"] != 7.5 {
+	if userZ == nil || len(userZ.Prices) != 5 ||
+		userZ.Prices["input_price_usd_per_million_tokens"] == nil ||
+		*userZ.Prices["input_price_usd_per_million_tokens"] != "0" ||
+		userZ.Prices["cache_read_price_usd_per_million_tokens"] != nil ||
+		userZ.Prices["output_price_usd_per_million_tokens"] == nil ||
+		*userZ.Prices["output_price_usd_per_million_tokens"] != "7.5" {
 		t.Fatalf("z-user prices = %#v", userZ)
 	}
 }
@@ -103,7 +108,7 @@ func TestModelPriceAPIListsStableBuiltinAndUserRules(t *testing.T) {
 func TestModelPriceAPIListsReadOnlyPricingPolicy(t *testing.T) {
 	fixture := newServiceFixture(t)
 	mustEnsureInitialPrices(t, fixture)
-	output := 7.5
+	output := pricing.NanoUSD(7_500_000_000)
 	if err := fixture.service.UpsertModelPrice(t.Context(), ModelPriceInput{
 		Pattern: "user-model", Output: &output,
 	}); err != nil {
@@ -178,33 +183,39 @@ func TestModelPriceAPIPutStrictlyReplacesFivePrices(t *testing.T) {
 	mustEnsureInitialPrices(t, fixture)
 	engine := newModelPriceTestEngine(t, fixture)
 
-	valid := `{"pattern":"replace-model","prices":{"uncached_input":1,"cache_read":2,"cache_write_5m":3,"cache_write_1h":4,"output":5}}`
+	valid := `{"pattern":"replace-model","prices":{"input_price_usd_per_million_tokens":"1","output_price_usd_per_million_tokens":"5","cache_read_price_usd_per_million_tokens":"2","cache_write_5m_price_usd_per_million_tokens":"3","cache_write_1h_price_usd_per_million_tokens":"4"}}`
 	first := serveModelPriceRequest(engine, http.MethodPut, "/api/model-prices", valid, true)
 	if first.Code != http.StatusOK {
 		t.Fatalf("first PUT = %d %s", first.Code, first.Body.String())
 	}
-	replacement := `{"pattern":"replace-model","prices":{"uncached_input":null,"cache_read":0,"cache_write_5m":null,"cache_write_1h":null,"output":9}}`
+	replacement := `{"pattern":"replace-model","prices":{"input_price_usd_per_million_tokens":null,"output_price_usd_per_million_tokens":"9","cache_read_price_usd_per_million_tokens":"0","cache_write_5m_price_usd_per_million_tokens":null,"cache_write_1h_price_usd_per_million_tokens":null}}`
 	second := serveModelPriceRequest(engine, http.MethodPut, "/api/model-prices", replacement, true)
 	if second.Code != http.StatusOK {
 		t.Fatalf("replacement PUT = %d %s", second.Code, second.Body.String())
 	}
-	var row struct {
-		InputPrice, CacheReadPrice, CacheWrite5MPrice, CacheWrite1HPrice, OutputPrice *float64
-	}
-	if err := fixture.db.Table("model_prices").Where("pattern = ?", "replace-model").Take(&row).Error; err != nil {
+	var row models.ModelPrice
+	if err := fixture.db.Where("pattern = ?", "replace-model").Take(&row).Error; err != nil {
 		t.Fatalf("read replacement row: %v", err)
 	}
-	if row.InputPrice != nil || row.CacheReadPrice == nil || *row.CacheReadPrice != 0 ||
-		row.CacheWrite5MPrice != nil || row.CacheWrite1HPrice != nil || row.OutputPrice == nil || *row.OutputPrice != 9 {
+	if row.InputPriceNanoUSDPerMillionTokens != nil ||
+		row.CacheReadPriceNanoUSDPerMillionTokens == nil ||
+		*row.CacheReadPriceNanoUSDPerMillionTokens != 0 ||
+		row.CacheWrite5MPriceNanoUSDPerMillionTokens != nil ||
+		row.CacheWrite1HPriceNanoUSDPerMillionTokens != nil ||
+		row.OutputPriceNanoUSDPerMillionTokens == nil ||
+		*row.OutputPriceNanoUSDPerMillionTokens != 9_000_000_000 {
 		t.Fatalf("replacement row = %#v", row)
 	}
 
 	for _, body := range []string{
-		`{"pattern":"strict-model","prices":{"uncached_input":1,"cache_read":2,"cache_write_5m":3,"cache_write_1h":4,"output":5},"unknown":true}`,
-		`{"pattern":"strict-model","prices":{"uncached_input":1,"cache_read":2,"cache_write_5m":3,"cache_write_1h":4,"output":5},"pricing_policy":null}`,
-		`{"pattern":"strict-model","pattern":"other","prices":{"uncached_input":1,"cache_read":2,"cache_write_5m":3,"cache_write_1h":4,"output":5}}`,
-		`{"pattern":"strict-model","prices":{"uncached_input":1,"cache_read":2,"cache_read":3,"cache_write_5m":3,"cache_write_1h":4,"output":5}}`,
-		`{"pattern":"strict-model","prices":{"uncached_input":1,"cache_read":2,"cache_write_5m":3,"cache_write_1h":4}}`,
+		strings.TrimSuffix(valid, "}") + `,"unknown":true}`,
+		strings.TrimSuffix(valid, "}") + `,"pricing_policy":null}`,
+		strings.Replace(valid, `"pattern":"replace-model"`, `"pattern":"strict-model","pattern":"other"`, 1),
+		strings.Replace(valid, `"cache_read_price_usd_per_million_tokens":"2"`, `"cache_read_price_usd_per_million_tokens":"2","cache_read_price_usd_per_million_tokens":"3"`, 1),
+		strings.Replace(valid, `,"cache_write_1h_price_usd_per_million_tokens":"4"`, "", 1),
+		strings.Replace(valid, `"1"`, "1", 1),
+		strings.Replace(valid, `"1"`, `"1e0"`, 1),
+		strings.Replace(valid, `"1"`, `" 1"`, 1),
 		valid + ` {}`,
 	} {
 		recorder := serveModelPriceRequest(engine, http.MethodPut, "/api/model-prices", body, true)
@@ -215,7 +226,7 @@ func TestModelPriceAPIPutStrictlyReplacesFivePrices(t *testing.T) {
 func TestModelPriceAPIDeleteValidatesSinglePatternAndIsIdempotent(t *testing.T) {
 	fixture := newServiceFixture(t)
 	mustEnsureInitialPrices(t, fixture)
-	value := 99.0
+	value := pricing.NanoUSD(99_000_000_000)
 	if err := fixture.service.UpsertModelPrice(t.Context(), ModelPriceInput{Pattern: "gpt-4o", Output: &value}); err != nil {
 		t.Fatalf("seed override: %v", err)
 	}
@@ -239,7 +250,8 @@ func TestModelPriceAPIDeleteValidatesSinglePatternAndIsIdempotent(t *testing.T) 
 		}
 	}
 	rule, ok := fixture.priceRuntime.Load().Match("gpt-4o")
-	if !ok || rule.Source != pricing.SourceBuiltin || rule.Prices.Output.Value != 10 {
+	if !ok || rule.Source != pricing.SourceBuiltin ||
+		rule.Prices.Output.NanoUSDPerMillion != 10_000_000_000 {
 		t.Fatalf("runtime after idempotent DELETE = %#v, %t", rule, ok)
 	}
 }
@@ -259,9 +271,11 @@ func TestModelPriceAPIRequiresAuthAndGetWaitsForPriceWrite(t *testing.T) {
 			fixture.service.writeMu.Unlock()
 		}
 	}()
-	value := 88.0
+	value := int64(88_000_000_000)
 	if err := fixture.db.Create(&models.ModelPrice{
-		Pattern: "locked-write-model", OutputPrice: &value, Source: string(pricing.SourceUser),
+		Pattern:                            "locked-write-model",
+		OutputPriceNanoUSDPerMillionTokens: &value,
+		Source:                             string(pricing.SourceUser),
 	}).Error; err != nil {
 		t.Fatalf("persist locked write row: %v", err)
 	}
@@ -335,11 +349,11 @@ func assertModelPriceAPIError(t *testing.T, recorder *httptest.ResponseRecorder,
 }
 
 type modelPriceListTestResponse struct {
-	Pattern   string              `json:"pattern"`
-	Source    string              `json:"source"`
-	Prices    map[string]*float64 `json:"prices"`
-	SourceURL *string             `json:"source_url"`
-	UpdatedAt time.Time           `json:"updated_at"`
+	Pattern     string             `json:"pattern"`
+	Source      string             `json:"source"`
+	Prices      map[string]*string `json:"prices"`
+	SourceURL   *string            `json:"source_url"`
+	UpdatedAtMS int64              `json:"updated_at_ms"`
 }
 
 func assertModelPriceResponseSorted(t *testing.T, rules []modelPriceListTestResponse) {

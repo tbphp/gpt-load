@@ -4,10 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"math"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -16,6 +16,7 @@ import (
 
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/requestlog"
+	"gpt-load/internal/storage/models"
 )
 
 func TestUsageAPIRouteUsesManagementAuthentication(t *testing.T) {
@@ -66,19 +67,20 @@ func TestParseUsageQueryUsesFixedUTCAlignedWindows(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			query, apiErr := parseUsageQuery(test.rawQuery, test.observedAt)
+			query, apiErr := parseUsageQuery(test.rawQuery, test.observedAt.UnixMilli())
 			if apiErr != nil {
 				t.Fatalf("parseUsageQuery() error = %v", apiErr)
 			}
-			if !query.From.Equal(test.wantFrom) || !query.To.Equal(test.wantTo) ||
+			if query.FromMS != test.wantFrom.UnixMilli() ||
+				query.ToMS != test.wantTo.UnixMilli() ||
 				query.Granularity != test.granularity {
 				t.Fatalf(
-					"parseUsageQuery() window = %s to %s (%s), want %s to %s (%s)",
-					query.From.Format(time.RFC3339Nano),
-					query.To.Format(time.RFC3339Nano),
+					"parseUsageQuery() window = %d to %d (%s), want %d to %d (%s)",
+					query.FromMS,
+					query.ToMS,
 					query.Granularity,
-					test.wantFrom.Format(time.RFC3339Nano),
-					test.wantTo.Format(time.RFC3339Nano),
+					test.wantFrom.UnixMilli(),
+					test.wantTo.UnixMilli(),
 					test.granularity,
 				)
 			}
@@ -106,8 +108,8 @@ func TestUsageAPIDefaultsToFixedUTCAligned24HoursAndReturnsZeroArrays(t *testing
 	}
 	query := reader.queries[0]
 	if query.Granularity != requestlog.UsageGranularityHour ||
-		query.From.Format(time.RFC3339Nano) != "2026-07-26T05:00:00Z" ||
-		query.To.Format(time.RFC3339Nano) != "2026-07-27T05:00:00Z" ||
+		query.FromMS != time.Date(2026, time.July, 26, 5, 0, 0, 0, time.UTC).UnixMilli() ||
+		query.ToMS != time.Date(2026, time.July, 27, 5, 0, 0, 0, time.UTC).UnixMilli() ||
 		query.GroupID != nil || query.Model != "" || query.Limit != 100 ||
 		query.BreakdownOrder != requestlog.UsageBreakdownOrderRequests {
 		t.Fatalf("default UsageQuery = %#v", query)
@@ -115,21 +117,20 @@ func TestUsageAPIDefaultsToFixedUTCAligned24HoursAndReturnsZeroArrays(t *testing
 	var envelope struct {
 		Code int `json:"code"`
 		Data struct {
-			Range       string                         `json:"range"`
-			Granularity requestlog.UsageGranularity    `json:"granularity"`
-			Timezone    string                         `json:"timezone"`
-			From        string                         `json:"from"`
-			To          string                         `json:"to"`
-			ObservedAt  string                         `json:"observed_at"`
-			Series      []json.RawMessage              `json:"series"`
-			Breakdown   []json.RawMessage              `json:"breakdown"`
-			Order       requestlog.UsageBreakdownOrder `json:"breakdown_order"`
-			GroupCount  int64                          `json:"breakdown_group_count"`
-			Health      struct {
-				Scope              string     `json:"scope"`
-				DroppedTotal       uint64     `json:"dropped_total"`
-				WriteFailureTotal  uint64     `json:"write_failure_total"`
-				LastWriteFailureAt *time.Time `json:"last_write_failure_at"`
+			Range        string                         `json:"range"`
+			Granularity  requestlog.UsageGranularity    `json:"granularity"`
+			FromMS       int64                          `json:"from_ms"`
+			ToMS         int64                          `json:"to_ms"`
+			ObservedAtMS int64                          `json:"observed_at_ms"`
+			Series       []json.RawMessage              `json:"series"`
+			Breakdown    []json.RawMessage              `json:"breakdown"`
+			Order        requestlog.UsageBreakdownOrder `json:"breakdown_order"`
+			GroupCount   int64                          `json:"breakdown_group_count"`
+			Health       struct {
+				Scope                string `json:"scope"`
+				DroppedTotal         uint64 `json:"dropped_total"`
+				WriteFailureTotal    uint64 `json:"write_failure_total"`
+				LastWriteFailureAtMS *int64 `json:"last_write_failure_at_ms"`
 			} `json:"collection_health"`
 		} `json:"data"`
 	}
@@ -138,10 +139,9 @@ func TestUsageAPIDefaultsToFixedUTCAligned24HoursAndReturnsZeroArrays(t *testing
 	}
 	if envelope.Code != 0 || envelope.Data.Range != "24h" ||
 		envelope.Data.Granularity != requestlog.UsageGranularityHour ||
-		envelope.Data.Timezone != "UTC" ||
-		envelope.Data.From != "2026-07-26T05:00:00Z" ||
-		envelope.Data.To != "2026-07-27T05:00:00Z" ||
-		envelope.Data.ObservedAt != "2026-07-27T04:34:56.000000789Z" ||
+		envelope.Data.FromMS != time.Date(2026, time.July, 26, 5, 0, 0, 0, time.UTC).UnixMilli() ||
+		envelope.Data.ToMS != time.Date(2026, time.July, 27, 5, 0, 0, 0, time.UTC).UnixMilli() ||
+		envelope.Data.ObservedAtMS != now.UnixMilli() ||
 		envelope.Data.Series == nil || len(envelope.Data.Series) != 0 ||
 		envelope.Data.Breakdown == nil || len(envelope.Data.Breakdown) != 0 ||
 		envelope.Data.Order != requestlog.UsageBreakdownOrderRequests ||
@@ -149,8 +149,8 @@ func TestUsageAPIDefaultsToFixedUTCAligned24HoursAndReturnsZeroArrays(t *testing
 		envelope.Data.Health.Scope != "current_process" ||
 		envelope.Data.Health.DroppedTotal != 2 ||
 		envelope.Data.Health.WriteFailureTotal != 1 ||
-		envelope.Data.Health.LastWriteFailureAt == nil ||
-		envelope.Data.Health.LastWriteFailureAt.Format(time.RFC3339Nano) != "2026-07-27T03:00:00Z" {
+		envelope.Data.Health.LastWriteFailureAtMS == nil ||
+		*envelope.Data.Health.LastWriteFailureAtMS != time.Date(2026, time.July, 27, 3, 0, 0, 0, time.UTC).UnixMilli() {
 		t.Fatalf("default usage envelope = %#v", envelope)
 	}
 	var rawEnvelope struct {
@@ -159,7 +159,10 @@ func TestUsageAPIDefaultsToFixedUTCAligned24HoursAndReturnsZeroArrays(t *testing
 	if err := json.Unmarshal(recorder.Body.Bytes(), &rawEnvelope); err != nil {
 		t.Fatalf("decode raw response: %v", err)
 	}
-	for _, forbidden := range []string{"filters", "request_log"} {
+	for _, forbidden := range []string{
+		"filters", "request_log", "timezone", "from", "to", "observed_at",
+		"estimated_cost" + "_usd",
+	} {
 		if _, exists := rawEnvelope.Data[forbidden]; exists {
 			t.Fatalf("usage response exposes forbidden %q field: %s", forbidden, recorder.Body.String())
 		}
@@ -169,17 +172,21 @@ func TestUsageAPIDefaultsToFixedUTCAligned24HoursAndReturnsZeroArrays(t *testing
 func TestUsageAPISelectsThirtyUTCDaysAndAppliesFilters(t *testing.T) {
 	now := time.Date(2026, time.July, 27, 12, 0, 0, 0, time.UTC)
 	reader := &recordingUsageStatReader{report: requestlog.UsageReport{
-		Summary: requestlog.UsageAggregate{RequestCount: 1, UncachedInputTokens: 2, OutputTokens: 3, Cost: math.Copysign(0, -1)},
+		Summary: requestlog.UsageAggregate{RequestCount: 1, UncachedInputTokens: 2, OutputTokens: 3},
 		Series: []requestlog.UsageSeriesPoint{{
-			BucketStart: time.Date(2026, time.June, 28, 0, 0, 0, 0, time.UTC),
-			BucketEnd:   time.Date(2026, time.June, 29, 0, 0, 0, 0, time.UTC),
+			BucketStartMS: time.Date(2026, time.June, 28, 0, 0, 0, 0, time.UTC).UnixMilli(),
+			BucketEndMS:   time.Date(2026, time.June, 29, 0, 0, 0, 0, time.UTC).UnixMilli(),
 			UsageAggregate: requestlog.UsageAggregate{
-				RequestCount: 1, UncachedInputTokens: 2, OutputTokens: 3, Cost: 1.1234567890123,
+				RequestCount: 1, UncachedInputTokens: 2, OutputTokens: 3,
+				EstimatedCostNanoUSD: 1_123_456_789_012,
 			},
 		}},
 		Breakdown: []requestlog.UsageBreakdown{{
 			GroupID: 9, Model: "upstream-model",
-			UsageAggregate: requestlog.UsageAggregate{RequestCount: 1, UncachedInputTokens: 2, OutputTokens: 3, Cost: 0.25},
+			UsageAggregate: requestlog.UsageAggregate{
+				RequestCount: 1, UncachedInputTokens: 2, OutputTokens: 3,
+				EstimatedCostNanoUSD: 250_000_000,
+			},
 		}},
 		BreakdownOrder:      requestlog.UsageBreakdownOrderCost,
 		BreakdownGroupCount: 1,
@@ -198,8 +205,8 @@ func TestUsageAPISelectsThirtyUTCDaysAndAppliesFilters(t *testing.T) {
 	}
 	query := reader.queries[0]
 	if query.Granularity != requestlog.UsageGranularityDay ||
-		query.From.Format(time.RFC3339Nano) != "2026-06-28T00:00:00Z" ||
-		query.To.Format(time.RFC3339Nano) != "2026-07-28T00:00:00Z" ||
+		query.FromMS != time.Date(2026, time.June, 28, 0, 0, 0, 0, time.UTC).UnixMilli() ||
+		query.ToMS != time.Date(2026, time.July, 28, 0, 0, 0, 0, time.UTC).UnixMilli() ||
 		query.GroupID == nil || *query.GroupID != 9 ||
 		query.Model != "upstream-model" || query.Limit != 100 ||
 		query.BreakdownOrder != requestlog.UsageBreakdownOrderCost {
@@ -209,24 +216,23 @@ func TestUsageAPISelectsThirtyUTCDaysAndAppliesFilters(t *testing.T) {
 		Data struct {
 			Range       string                         `json:"range"`
 			Granularity requestlog.UsageGranularity    `json:"granularity"`
-			Timezone    string                         `json:"timezone"`
-			From        string                         `json:"from"`
-			To          string                         `json:"to"`
+			FromMS      int64                          `json:"from_ms"`
+			ToMS        int64                          `json:"to_ms"`
 			Order       requestlog.UsageBreakdownOrder `json:"breakdown_order"`
 			GroupCount  int64                          `json:"breakdown_group_count"`
 			Summary     struct {
-				TotalTokens      int64       `json:"total_tokens"`
-				EstimatedCostUSD json.Number `json:"estimated_cost_usd"`
+				TotalTokens          int64  `json:"total_tokens"`
+				EstimatedCostNanoUSD string `json:"estimated_cost_nano_usd"`
 			} `json:"summary"`
 			Series []struct {
-				BucketStart      string      `json:"bucket_start"`
-				TotalTokens      int64       `json:"total_tokens"`
-				EstimatedCostUSD json.Number `json:"estimated_cost_usd"`
+				BucketStartMS        int64  `json:"bucket_start_ms"`
+				TotalTokens          int64  `json:"total_tokens"`
+				EstimatedCostNanoUSD string `json:"estimated_cost_nano_usd"`
 			} `json:"series"`
 			Breakdown []struct {
-				GroupID uint        `json:"group_id"`
-				Model   string      `json:"model"`
-				Cost    json.Number `json:"estimated_cost_usd"`
+				GroupID              uint   `json:"group_id"`
+				Model                string `json:"model"`
+				EstimatedCostNanoUSD string `json:"estimated_cost_nano_usd"`
 			} `json:"breakdown"`
 		} `json:"data"`
 	}
@@ -235,17 +241,19 @@ func TestUsageAPISelectsThirtyUTCDaysAndAppliesFilters(t *testing.T) {
 	}
 	if envelope.Data.Range != "30d" ||
 		envelope.Data.Granularity != requestlog.UsageGranularityDay ||
-		envelope.Data.Timezone != "UTC" ||
-		envelope.Data.From != "2026-06-28T00:00:00Z" ||
-		envelope.Data.To != "2026-07-28T00:00:00Z" ||
+		envelope.Data.FromMS != time.Date(2026, time.June, 28, 0, 0, 0, 0, time.UTC).UnixMilli() ||
+		envelope.Data.ToMS != time.Date(2026, time.July, 28, 0, 0, 0, 0, time.UTC).UnixMilli() ||
 		envelope.Data.Order != requestlog.UsageBreakdownOrderCost ||
 		envelope.Data.GroupCount != 1 ||
 		envelope.Data.Summary.TotalTokens != 5 ||
-		envelope.Data.Summary.EstimatedCostUSD.String() != "0" ||
-		len(envelope.Data.Series) != 1 || envelope.Data.Series[0].BucketStart != "2026-06-28T00:00:00Z" ||
-		envelope.Data.Series[0].TotalTokens != 5 || envelope.Data.Series[0].EstimatedCostUSD.String() != "1.12345678901" ||
+		envelope.Data.Summary.EstimatedCostNanoUSD != "0" ||
+		len(envelope.Data.Series) != 1 ||
+		envelope.Data.Series[0].BucketStartMS != time.Date(2026, time.June, 28, 0, 0, 0, 0, time.UTC).UnixMilli() ||
+		envelope.Data.Series[0].TotalTokens != 5 ||
+		envelope.Data.Series[0].EstimatedCostNanoUSD != "1123456789012" ||
 		len(envelope.Data.Breakdown) != 1 || envelope.Data.Breakdown[0].GroupID != 9 ||
-		envelope.Data.Breakdown[0].Model != "upstream-model" || envelope.Data.Breakdown[0].Cost.String() != "0.25" {
+		envelope.Data.Breakdown[0].Model != "upstream-model" ||
+		envelope.Data.Breakdown[0].EstimatedCostNanoUSD != "250000000" {
 		t.Fatalf("usage response = %#v", envelope.Data)
 	}
 }
@@ -304,8 +312,18 @@ func TestUsageAPIRejectsStrictInvalidQueriesWithoutCallingReader(t *testing.T) {
 	}{
 		{query: "unknown=1", code: "BAD_REQUEST"},
 		{query: "range=24h&range=30d", code: "BAD_REQUEST"},
+		{query: "from=1&to=2", code: "BAD_REQUEST"},
+		{query: "from_ms=1", code: "VALIDATION_FAILED"},
+		{query: "from_ms=01&to_ms=2", code: "BAD_REQUEST"},
+		{query: "from_ms=-1&to_ms=2", code: "BAD_REQUEST"},
+		{query: "from_ms=1&to_ms=1", code: "VALIDATION_FAILED"},
+		{query: "range=24h&from_ms=1&to_ms=2", code: "VALIDATION_FAILED"},
 		{query: "range=1h", code: "VALIDATION_FAILED"},
 		{query: "group_id=0", code: "VALIDATION_FAILED"},
+		{query: "group_id=01", code: "BAD_REQUEST"},
+		{query: "group_id=%2B1", code: "BAD_REQUEST"},
+		{query: "group_id=%201", code: "BAD_REQUEST"},
+		{query: "group_id=1&group_id=2", code: "BAD_REQUEST"},
 		{query: "group_id=9007199254740992", code: "VALIDATION_FAILED"},
 		{query: "group_id=-1", code: "BAD_REQUEST"},
 		{query: "model=", code: "VALIDATION_FAILED"},
@@ -330,8 +348,8 @@ func TestUsageAPIRejectsStrictInvalidQueriesWithoutCallingReader(t *testing.T) {
 func TestMapUsageRejectsUnsafeOrMismatchedBreakdownMetadata(t *testing.T) {
 	fixture := newServiceFixture(t)
 	query := requestlog.UsageQuery{
-		From:           time.Date(2026, time.July, 27, 0, 0, 0, 0, time.UTC),
-		To:             time.Date(2026, time.July, 28, 0, 0, 0, 0, time.UTC),
+		FromMS:         time.Date(2026, time.July, 27, 0, 0, 0, 0, time.UTC).UnixMilli(),
+		ToMS:           time.Date(2026, time.July, 28, 0, 0, 0, 0, time.UTC).UnixMilli(),
 		Granularity:    requestlog.UsageGranularityHour,
 		Limit:          100,
 		BreakdownOrder: requestlog.UsageBreakdownOrderRequests,
@@ -364,7 +382,7 @@ func TestMapUsageRejectsUnsafeOrMismatchedBreakdownMetadata(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			if _, err := fixture.service.mapUsageResponse(
-				query.To,
+				query.ToMS,
 				query,
 				test.report,
 			); err == nil {
@@ -421,16 +439,66 @@ func TestUsageAPIRejectsUnsafeProcessStatsWithoutLeakingCause(t *testing.T) {
 	}
 }
 
-func TestUsageAPIRejectsUnattributedBreakdownWithoutLeakingCause(t *testing.T) {
-	reader := &recordingUsageStatReader{report: requestlog.UsageReport{
-		Breakdown: []requestlog.UsageBreakdown{{GroupID: 0, Model: "unattributed"}},
-	}}
-	engine, _ := newUsageTestEngine(t, time.Date(2026, time.July, 27, 0, 0, 0, 0, time.UTC), reader)
+func TestUsageAPIReturnsUnattributedAggregateFromSQLite(t *testing.T) {
+	initControlI18n(t)
+	now := time.Date(2026, time.July, 27, 12, 0, 0, 0, time.UTC)
+	fixture := newServiceFixture(t)
+	if err := fixture.db.Create(&models.UsageStat{
+		BucketStartMS: now.Add(-time.Hour).UnixMilli(),
+		AccessKeyID:   0,
+		GroupID:       0,
+		Model:         "",
+		RequestCount:  1,
+		SuccessCount:  1,
+	}).Error; err != nil {
+		t.Fatalf("create unattributed UsageStat: %v", err)
+	}
+	fixture.service.now = func() time.Time { return now }
+	fixture.service.usageStats = requestlog.NewService(fixture.db, nil, nil, nil)
+	engine := gin.New()
+	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
+
 	recorder := performUsageRequest(engine, "test-auth-key", "")
-	if recorder.Code != http.StatusInternalServerError ||
-		!strings.Contains(recorder.Body.String(), "INTERNAL_SERVER_ERROR") ||
-		strings.Contains(strings.ToLower(recorder.Body.String()), "group") {
-		t.Fatalf("response = %d %s", recorder.Code, recorder.Body.String())
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("response = %d %s, want 200", recorder.Code, recorder.Body.String())
+	}
+	var envelope struct {
+		Data struct {
+			Breakdown []struct {
+				GroupID      uint   `json:"group_id"`
+				Model        string `json:"model"`
+				RequestCount int64  `json:"request_count"`
+			} `json:"breakdown"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(envelope.Data.Breakdown) != 1 ||
+		envelope.Data.Breakdown[0].GroupID != 0 ||
+		envelope.Data.Breakdown[0].Model != "" ||
+		envelope.Data.Breakdown[0].RequestCount != 1 {
+		t.Fatalf("unattributed breakdown = %#v", envelope.Data.Breakdown)
+	}
+}
+
+func TestUsageAPIAcceptsMaximumSafeCanonicalGroupID(t *testing.T) {
+	if strconv.IntSize != 64 {
+		t.Skip("maximum JavaScript safe integer does not fit uint on this architecture")
+	}
+	reader := &recordingUsageStatReader{}
+	engine, _ := newUsageTestEngine(
+		t,
+		time.Date(2026, time.July, 27, 0, 0, 0, 0, time.UTC),
+		reader,
+	)
+	recorder := performUsageRequest(engine, "test-auth-key", "group_id=9007199254740991")
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("response = %d %s, want 200", recorder.Code, recorder.Body.String())
+	}
+	if len(reader.queries) != 1 || reader.queries[0].GroupID == nil ||
+		uint64(*reader.queries[0].GroupID) != uint64(maxSafeInteger) {
+		t.Fatalf("QueryUsage calls = %#v", reader.queries)
 	}
 }
 

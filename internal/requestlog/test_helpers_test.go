@@ -234,22 +234,22 @@ func aggregationRow(
 	model string,
 ) models.RequestLog {
 	return models.RequestLog{
-		ID:            id,
-		CreatedAt:     completedAt,
-		AccessKeyID:   1,
-		GroupID:       groupID,
-		Protocol:      string(protocol.OpenAICompletions),
-		ClientModel:   "client-model",
-		UpstreamModel: model,
-		Status:        string(telemetry.RequestStatusSuccess),
-		StatusCode:    200,
-		DurationMs:    10,
-		InputTokens:   1,
-		OutputTokens:  2,
-		Cost:          0.25,
-		UsageState:    string(usage.StateComplete),
-		CostState:     string(pricing.CostStatePriced),
-		Attempts:      models.JSON(`[]`),
+		ID:                   id,
+		CompletedAtMS:        completedAt.UTC().UnixMilli(),
+		AccessKeyID:          1,
+		GroupID:              groupID,
+		Protocol:             string(protocol.OpenAICompletions),
+		ClientModel:          model,
+		UpstreamModel:        "upstream-" + model,
+		Status:               string(telemetry.RequestStatusSuccess),
+		StatusCode:           200,
+		DurationMs:           10,
+		UncachedInputTokens:  1,
+		OutputTokens:         2,
+		EstimatedCostNanoUSD: 250_000_000,
+		UsageState:           string(usage.StateComplete),
+		CostState:            string(pricing.CostStatePriced),
+		Attempts:             models.JSON(`[]`),
 	}
 }
 
@@ -285,4 +285,18 @@ func testEvent(id string) telemetry.RequestEvent {
 			},
 		},
 	}
+}
+
+func mustMapEvent(
+	t testing.TB,
+	redactor *redact.Redactor,
+	event telemetry.RequestEvent,
+	prices *pricing.Table,
+) models.RequestLog {
+	t.Helper()
+	row, err := mapEvent(redactor, event, prices)
+	if err != nil {
+		t.Fatalf("mapEvent() error = %v", err)
+	}
+	return row
 }

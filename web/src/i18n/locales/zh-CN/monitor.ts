@@ -209,6 +209,8 @@ export default {
         description: '后端排序的聚合使用最终 Group 与上游模型。',
         caption: '按最终 Group 与上游模型统计的用量明细',
         truncated: '仅显示后端排名前 100 的明细行。',
+        unattributedGroup: '未归属 Group',
+        unknownModel: '未知模型',
       },
       columns: {
         window: 'UTC 时间窗',

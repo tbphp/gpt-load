@@ -25,7 +25,7 @@ function pageRoute(
 const routes: RouteRecordRaw[] = [
   pageRoute(pageRouteNames.home, {
     component: lazyView(() => import('@/features/home/HomeView.vue')),
-    meta: { titleKey: 'home.title', requiresAuth: true, primaryNav: 'home' },
+    meta: { titleKey: 'home.ledger.title', requiresAuth: true, primaryNav: 'home' },
   }),
   pageRoute(pageRouteNames.login, {
     component: lazyView(() => import('@/features/auth/LoginView.vue')),
@@ -38,11 +38,20 @@ const routes: RouteRecordRaw[] = [
       messageNamespaces: ['import'],
     },
   }),
+  pageRoute(pageRouteNames.groups, {
+    component: lazyView(() => import('@/features/groups/GroupsView.vue')),
+    meta: {
+      titleKey: 'groups.title',
+      requiresAuth: true,
+      primaryNav: 'groups',
+    },
+  }),
   pageRoute(pageRouteNames.groupDetail, {
     component: lazyView(() => import('@/features/groups/GroupDetailView.vue')),
     meta: {
       titleKey: 'shell.groupDetail',
       requiresAuth: true,
+      primaryNav: 'groups',
       messageNamespaces: ['group', 'import'],
     },
   }),

@@ -11,12 +11,13 @@ import type {
 import { knownAccessProtocols } from '@/api/control/protocols'
 import { InvalidResponseError } from '@/api/errors'
 import { controlQueryKeys } from '@/app/query-keys'
+import { isCanonicalMaskedAccessKey } from '@/lib/access-key-mask'
 
 import {
   assertNoSecretLikeFields,
   projectArray,
+  projectEpochMilliseconds,
   projectEnum,
-  projectISOInstant,
   projectRecord,
   projectSafeInteger,
   projectString,
@@ -51,11 +52,10 @@ const metadataFields = [
   'status',
   'filters',
   'rpm_limit',
-  'created_at',
-  'updated_at',
+  'created_at_ms',
+  'updated_at_ms',
 ] as const
 const optionFields = ['id', 'name', 'status'] as const
-const canonicalMaskedAccessKey = /^sk-gl-••••••••[0-9a-f]{4}$/
 
 function invalidResponse(): never {
   throw new InvalidResponseError()
@@ -89,7 +89,7 @@ export function projectAccessKeyMetadata(value: unknown): AccessKeyDto {
   const record = projectRecord(value)
   assertNoSecretLikeFields(record, metadataFields)
   const maskedKey = projectString(record.masked_key)
-  if (!canonicalMaskedAccessKey.test(maskedKey)) invalidResponse()
+  if (!isCanonicalMaskedAccessKey(maskedKey)) invalidResponse()
   return {
     id: projectSafeInteger(record.id, { minimum: 1 }),
     name: projectNonBlankTrimmedString(record.name),
@@ -97,8 +97,8 @@ export function projectAccessKeyMetadata(value: unknown): AccessKeyDto {
     status: projectEnum(record.status, ['active', 'disabled'] as const),
     filters: projectFilters(record.filters),
     rpm_limit: projectSafeInteger(record.rpm_limit, { minimum: 0 }),
-    created_at: projectISOInstant(record.created_at),
-    updated_at: projectISOInstant(record.updated_at),
+    created_at_ms: projectEpochMilliseconds(record.created_at_ms),
+    updated_at_ms: projectEpochMilliseconds(record.updated_at_ms),
   }
 }
 
@@ -184,12 +184,12 @@ export async function revealAccessKey(
       signal,
     }),
   )
-  assertNoSecretLikeFields(record, ['id', 'key', 'revealed_at'])
+  assertNoSecretLikeFields(record, ['id', 'key', 'revealed_at_ms'])
   if (projectSafeInteger(record.id, { minimum: 1 }) !== id) invalidResponse()
   return {
     id,
     key: projectString(record.key),
-    revealed_at: projectISOInstant(record.revealed_at),
+    revealed_at_ms: projectEpochMilliseconds(record.revealed_at_ms),
   }
 }
 

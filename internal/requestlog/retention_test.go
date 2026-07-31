@@ -19,7 +19,7 @@ import (
 	"gpt-load/internal/usage"
 )
 
-func TestServiceSweepUsesSnapshotRetentionPolicy(t *testing.T) {
+func TestRetentionSweepUsesSnapshotRetentionPolicy(t *testing.T) {
 	now := time.Date(2026, time.July, 24, 12, 0, 0, 0, time.UTC)
 	tests := []struct {
 		name   string
@@ -61,7 +61,7 @@ func TestServiceSweepUsesSnapshotRetentionPolicy(t *testing.T) {
 	}
 }
 
-func TestServiceSweepDeletesStrictlyOlderRowsInBatches(t *testing.T) {
+func TestRetentionSweepDeletesStrictlyOlderRowsInBatches(t *testing.T) {
 	db := openRequestLogQueryDB(t)
 	service := newRequestLogTestService(db)
 	now := time.Date(2026, time.July, 24, 12, 0, 0, 0, time.UTC)
@@ -99,7 +99,90 @@ func TestServiceSweepDeletesStrictlyOlderRowsInBatches(t *testing.T) {
 	}
 }
 
-func TestServiceSweepStopsOnContextAndDeleteFailure(t *testing.T) {
+func TestRetentionSweepUsesFixedThirtyFiveDayIntegerUsageBoundary(t *testing.T) {
+	db := openRequestLogQueryDB(t)
+	service := NewService(
+		db,
+		redact.New(),
+		staticRetentionPolicy{days: 1},
+		newStaticPriceTableProvider(),
+	)
+	now := time.Date(2026, time.July, 24, 12, 34, 56, 789_000_000, time.UTC)
+	const usageCutoffMS int64 = 1_781_870_400_000
+	for index, bucketStartMS := range []int64{
+		usageCutoffMS - 3_600_000,
+		usageCutoffMS,
+		usageCutoffMS + 3_600_000,
+	} {
+		if err := db.Create(&models.UsageStat{
+			BucketStartMS: bucketStartMS,
+			AccessKeyID:   uint(index),
+			GroupID:       17,
+			Model:         "retention-model",
+			RequestCount:  1,
+			SuccessCount:  1,
+		}).Error; err != nil {
+			t.Fatalf("create UsageStat at %d: %v", bucketStartMS, err)
+		}
+	}
+
+	service.Sweep(context.Background(), now)
+
+	var remaining []models.UsageStat
+	if err := db.Order("bucket_start_ms ASC").Find(&remaining).Error; err != nil {
+		t.Fatalf("query remaining UsageStats: %v", err)
+	}
+	if len(remaining) != 2 ||
+		remaining[0].BucketStartMS != usageCutoffMS ||
+		remaining[1].BucketStartMS != usageCutoffMS+3_600_000 {
+		t.Fatalf("remaining UsageStats = %+v, want cutoff and newer integer buckets", remaining)
+	}
+}
+
+func TestRetentionSweepCleansUsageStatsWhenRequestLogDeleteFails(t *testing.T) {
+	db := openRequestLogQueryDB(t)
+	service := newRequestLogTestService(db)
+	now := time.Date(2026, time.July, 24, 12, 0, 0, 0, time.UTC)
+	service.now = func() time.Time { return now }
+	discardRetentionWarnings(service)
+	createRetentionRow(t, db, 1, now.Add(-8*24*time.Hour))
+	if err := db.Create(&models.UsageStat{
+		BucketStartMS: now.Add(-36 * 24 * time.Hour).UnixMilli(),
+		AccessKeyID:   1,
+		GroupID:       1,
+		Model:         "expired",
+		RequestCount:  1,
+		SuccessCount:  1,
+	}).Error; err != nil {
+		t.Fatalf("create expired UsageStat: %v", err)
+	}
+	if err := db.Exec(`CREATE TRIGGER fail_request_log_retention_delete
+		BEFORE DELETE ON request_logs
+		BEGIN
+			SELECT RAISE(FAIL, 'forced request log retention delete failure');
+		END`).Error; err != nil {
+		t.Fatalf("create request log delete trigger: %v", err)
+	}
+
+	service.Sweep(context.Background(), now)
+
+	assertRetentionRows(t, db, 1)
+	var usageCount int64
+	if err := db.Model(&models.UsageStat{}).Count(&usageCount).Error; err != nil {
+		t.Fatalf("count remaining UsageStats: %v", err)
+	}
+	stats := service.Stats()
+	if usageCount != 0 || stats.RetentionDeleteFailureTotal != 1 ||
+		!stats.LastRetentionFailureAt.Equal(now) {
+		t.Fatalf(
+			"remaining usage/Stats = %d/%#v, want 0 and one request-log failure",
+			usageCount,
+			stats,
+		)
+	}
+}
+
+func TestRetentionSweepStopsOnContextAndDeleteFailure(t *testing.T) {
 	now := time.Date(2026, time.July, 24, 12, 0, 0, 0, time.UTC)
 
 	t.Run("empty result is successful completion", func(t *testing.T) {
@@ -221,6 +304,66 @@ func TestServiceSweepStopsOnContextAndDeleteFailure(t *testing.T) {
 		if stats.RetentionDeleteFailureTotal != 1 ||
 			!stats.LastRetentionFailureAt.Equal(now) {
 			t.Fatalf("Stats() = %#v, want one delete failure", stats)
+		}
+	})
+
+	t.Run("usage stat selection failure is tracked", func(t *testing.T) {
+		db := openRequestLogQueryDB(t)
+		service := newRequestLogTestService(db)
+		service.now = func() time.Time { return now }
+		discardRetentionWarnings(service)
+		const callbackName = "test:retention_usage_stat_query_failure"
+		if err := db.Callback().Query().Before("gorm:query").Register(callbackName, func(tx *gorm.DB) {
+			if tx.Statement.Table == "usage_stats" {
+				tx.AddError(errors.New("forced usage stat retention query failure"))
+			}
+		}); err != nil {
+			t.Fatalf("register query callback: %v", err)
+		}
+
+		service.Sweep(context.Background(), now)
+
+		stats := service.Stats()
+		if stats.RetentionDeleteFailureTotal != 1 ||
+			!stats.LastRetentionFailureAt.Equal(now) {
+			t.Fatalf("Stats() = %#v, want one usage stat selection failure", stats)
+		}
+	})
+
+	t.Run("usage stat delete failure is tracked", func(t *testing.T) {
+		db := openRequestLogQueryDB(t)
+		service := newRequestLogTestService(db)
+		service.now = func() time.Time { return now }
+		discardRetentionWarnings(service)
+		if err := db.Create(&models.UsageStat{
+			BucketStartMS: now.Add(-36 * 24 * time.Hour).UnixMilli(),
+			AccessKeyID:   1,
+			GroupID:       1,
+			Model:         "expired",
+			RequestCount:  1,
+			SuccessCount:  1,
+		}).Error; err != nil {
+			t.Fatalf("create expired UsageStat: %v", err)
+		}
+		const callbackName = "test:retention_usage_stat_delete_failure"
+		if err := db.Callback().Delete().Before("gorm:delete").Register(callbackName, func(tx *gorm.DB) {
+			if tx.Statement.Table == "usage_stats" {
+				tx.AddError(errors.New("forced usage stat retention delete failure"))
+			}
+		}); err != nil {
+			t.Fatalf("register delete callback: %v", err)
+		}
+
+		service.Sweep(context.Background(), now)
+
+		var remaining int64
+		if err := db.Model(&models.UsageStat{}).Count(&remaining).Error; err != nil {
+			t.Fatalf("count remaining UsageStats: %v", err)
+		}
+		stats := service.Stats()
+		if remaining != 1 || stats.RetentionDeleteFailureTotal != 1 ||
+			!stats.LastRetentionFailureAt.Equal(now) {
+			t.Fatalf("remaining/Stats = %d/%#v, want 1 and one delete failure", remaining, stats)
 		}
 	})
 }

@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"strings"
-	"time"
 
 	"gorm.io/gorm"
 
@@ -57,14 +56,14 @@ type AccessKeyUpdateRequest struct {
 }
 
 type AccessKeyMetadata struct {
-	ID        uint                  `json:"id"`
-	Name      string                `json:"name"`
-	MaskedKey string                `json:"masked_key"`
-	Status    state.AccessKeyStatus `json:"status"`
-	Filters   AccessKeyFilters      `json:"filters"`
-	RPMLimit  int64                 `json:"rpm_limit"`
-	CreatedAt time.Time             `json:"created_at"`
-	UpdatedAt time.Time             `json:"updated_at"`
+	ID          uint                  `json:"id"`
+	Name        string                `json:"name"`
+	MaskedKey   string                `json:"masked_key"`
+	Status      state.AccessKeyStatus `json:"status"`
+	Filters     AccessKeyFilters      `json:"filters"`
+	RPMLimit    int64                 `json:"rpm_limit"`
+	CreatedAtMS int64                 `json:"created_at_ms"`
+	UpdatedAtMS int64                 `json:"updated_at_ms"`
 }
 
 type AccessKeyCreateResult struct {
@@ -80,20 +79,20 @@ type AccessKeyOption struct {
 }
 
 type AccessKeyRevealResult struct {
-	ID         uint      `json:"id"`
-	Key        string    `json:"key"`
-	RevealedAt time.Time `json:"revealed_at"`
+	ID           uint   `json:"id"`
+	Key          string `json:"key"`
+	RevealedAtMS int64  `json:"revealed_at_ms"`
 }
 
 type accessKeyMetadataRow struct {
-	ID        uint
-	Name      string
-	KeySuffix string
-	Status    string
-	Filters   models.JSON
-	RPMLimit  int64
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID          uint
+	Name        string
+	KeySuffix   string
+	Status      string
+	Filters     models.JSON
+	RPMLimit    int64
+	CreatedAtMS int64
+	UpdatedAtMS int64
 }
 
 const accessKeyPrefix = "sk-gl-"
@@ -159,7 +158,7 @@ func (s *Service) CreateAccessKey(
 		metadata, err := mapAccessKeyMetadataRow(accessKeyMetadataRow{
 			ID: row.ID, Name: row.Name, KeySuffix: row.KeySuffix,
 			Status: row.Status, Filters: row.Filters, RPMLimit: row.RPMLimit,
-			CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
+			CreatedAtMS: row.CreatedAtMS, UpdatedAtMS: row.UpdatedAtMS,
 		})
 		if err != nil {
 			return err
@@ -182,7 +181,7 @@ func (s *Service) ListAccessKeys(ctx context.Context) ([]AccessKeyMetadata, erro
 		Model(&models.AccessKey{}).
 		Select(
 			"id", "name", "key_suffix", "status", "filters", "rpm_limit",
-			"created_at", "updated_at",
+			"created_at_ms", "updated_at_ms",
 		).
 		Order("id ASC").
 		Scan(&rows).Error; err != nil {
@@ -246,7 +245,7 @@ func (s *Service) UpdateAccessKey(
 		if err := tx.Model(&models.AccessKey{}).
 			Select(
 				"id", "name", "key_suffix", "status", "filters", "rpm_limit",
-				"created_at", "updated_at",
+				"created_at_ms", "updated_at_ms",
 			).
 			Where("id = ?", id).
 			Take(&row).Error; err != nil {
@@ -302,7 +301,7 @@ func (s *Service) UpdateAccessKey(
 		if err := tx.Model(&models.AccessKey{}).
 			Select(
 				"id", "name", "key_suffix", "status", "filters", "rpm_limit",
-				"created_at", "updated_at",
+				"created_at_ms", "updated_at_ms",
 			).
 			Where("id = ?", row.ID).
 			Take(&row).Error; err != nil {
@@ -365,14 +364,32 @@ func (s *Service) RevealAccessKey(
 			app_errors.ErrInternalServer,
 		)
 	}
+	revealedAtMS, err := safeEpochMilliseconds(s.now())
+	if err != nil {
+		return AccessKeyRevealResult{}, app_errors.ErrInternalServer
+	}
 	return AccessKeyRevealResult{
-		ID:         row.ID,
-		Key:        plaintext,
-		RevealedAt: s.now().UTC(),
+		ID:           row.ID,
+		Key:          plaintext,
+		RevealedAtMS: revealedAtMS,
 	}, nil
 }
 
 func mapAccessKeyMetadataRow(row accessKeyMetadataRow) (AccessKeyMetadata, error) {
+	if err := validateSafeMilliseconds(row.CreatedAtMS); err != nil {
+		return AccessKeyMetadata{}, fmt.Errorf(
+			"access key %d has invalid created_at_ms: %w",
+			row.ID,
+			app_errors.ErrInternalServer,
+		)
+	}
+	if err := validateSafeMilliseconds(row.UpdatedAtMS); err != nil {
+		return AccessKeyMetadata{}, fmt.Errorf(
+			"access key %d has invalid updated_at_ms: %w",
+			row.ID,
+			app_errors.ErrInternalServer,
+		)
+	}
 	status := state.AccessKeyStatus(row.Status)
 	if status != state.AccessKeyStatusActive && status != state.AccessKeyStatusDisabled {
 		return AccessKeyMetadata{}, fmt.Errorf(
@@ -398,10 +415,14 @@ func mapAccessKeyMetadataRow(row accessKeyMetadataRow) (AccessKeyMetadata, error
 	}
 	return AccessKeyMetadata{
 		ID: row.ID, Name: row.Name,
-		MaskedKey: accessKeyPrefix + "••••••••" + row.KeySuffix,
+		MaskedKey: maskedAccessKey(row.KeySuffix),
 		Status:    status, Filters: filters, RPMLimit: row.RPMLimit,
-		CreatedAt: row.CreatedAt.UTC(), UpdatedAt: row.UpdatedAt.UTC(),
+		CreatedAtMS: row.CreatedAtMS, UpdatedAtMS: row.UpdatedAtMS,
 	}, nil
+}
+
+func maskedAccessKey(suffix string) string {
+	return accessKeyPrefix + "****" + suffix
 }
 
 func validAccessKeySuffix(value string) bool {

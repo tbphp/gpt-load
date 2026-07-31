@@ -216,6 +216,7 @@ func TestSettingsETagIgnoresOtherResourcesAndSurvivesRuntimeReload(t *testing.T)
 		fixture.service.dialects,
 		fixture.service.requestLogs,
 		fixture.service.usageStats,
+		fixture.service.homeStatistics,
 		fixture.stats,
 		fixture.requestLogStats,
 	)

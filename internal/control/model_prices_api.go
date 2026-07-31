@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
-	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -15,11 +14,19 @@ import (
 )
 
 type modelPriceValuesResponse struct {
-	UncachedInput *float64 `json:"uncached_input"`
-	CacheRead     *float64 `json:"cache_read"`
-	CacheWrite5M  *float64 `json:"cache_write_5m"`
-	CacheWrite1H  *float64 `json:"cache_write_1h"`
-	Output        *float64 `json:"output"`
+	InputPrice        *string `json:"input_price_usd_per_million_tokens"`
+	OutputPrice       *string `json:"output_price_usd_per_million_tokens"`
+	CacheReadPrice    *string `json:"cache_read_price_usd_per_million_tokens"`
+	CacheWrite5MPrice *string `json:"cache_write_5m_price_usd_per_million_tokens"`
+	CacheWrite1HPrice *string `json:"cache_write_1h_price_usd_per_million_tokens"`
+}
+
+type modelPriceValuesInput struct {
+	UncachedInput *pricing.NanoUSD
+	CacheRead     *pricing.NanoUSD
+	CacheWrite5M  *pricing.NanoUSD
+	CacheWrite1H  *pricing.NanoUSD
+	Output        *pricing.NanoUSD
 }
 
 type modelPricePolicyResponse struct {
@@ -33,7 +40,7 @@ type modelPriceRuleResponse struct {
 	Source        pricing.Source            `json:"source"`
 	Prices        modelPriceValuesResponse  `json:"prices"`
 	SourceURL     *string                   `json:"source_url"`
-	UpdatedAt     time.Time                 `json:"updated_at"`
+	UpdatedAtMS   int64                     `json:"updated_at_ms"`
 	PricingPolicy *modelPricePolicyResponse `json:"pricing_policy"`
 }
 
@@ -82,48 +89,59 @@ func (request *modelPriceUpsertRequest) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func decodeModelPriceValues(data json.RawMessage) (modelPriceValuesResponse, error) {
+func decodeModelPriceValues(data json.RawMessage) (modelPriceValuesInput, error) {
 	trimmed := bytes.TrimSpace(data)
 	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) || trimmed[0] != '{' {
-		return modelPriceValuesResponse{}, fmt.Errorf("model price prices must be an object")
+		return modelPriceValuesInput{}, fmt.Errorf("model price prices must be an object")
 	}
 	var object map[string]json.RawMessage
 	if err := json.Unmarshal(trimmed, &object); err != nil {
-		return modelPriceValuesResponse{}, err
+		return modelPriceValuesInput{}, err
 	}
 	if len(object) != 5 {
-		return modelPriceValuesResponse{}, fmt.Errorf("model price prices must contain five values")
+		return modelPriceValuesInput{}, fmt.Errorf("model price prices must contain five values")
 	}
 	keys := []string{
-		"uncached_input", "cache_read", "cache_write_5m", "cache_write_1h", "output",
+		"input_price_usd_per_million_tokens",
+		"output_price_usd_per_million_tokens",
+		"cache_read_price_usd_per_million_tokens",
+		"cache_write_5m_price_usd_per_million_tokens",
+		"cache_write_1h_price_usd_per_million_tokens",
 	}
-	values := make([]*float64, len(keys))
+	values := make([]*pricing.NanoUSD, len(keys))
 	for index, key := range keys {
 		raw, exists := object[key]
 		if !exists {
-			return modelPriceValuesResponse{}, fmt.Errorf("model price prices must contain %s", key)
+			return modelPriceValuesInput{}, fmt.Errorf("model price prices must contain %s", key)
 		}
 		value, err := decodeNullableModelPrice(raw)
 		if err != nil {
-			return modelPriceValuesResponse{}, fmt.Errorf("decode model price %s: %w", key, err)
+			return modelPriceValuesInput{}, fmt.Errorf("decode model price %s: %w", key, err)
 		}
 		values[index] = value
 	}
-	return modelPriceValuesResponse{
-		UncachedInput: values[0], CacheRead: values[1], CacheWrite5M: values[2],
-		CacheWrite1H: values[3], Output: values[4],
+	return modelPriceValuesInput{
+		UncachedInput: values[0],
+		Output:        values[1],
+		CacheRead:     values[2],
+		CacheWrite5M:  values[3],
+		CacheWrite1H:  values[4],
 	}, nil
 }
 
-func decodeNullableModelPrice(raw json.RawMessage) (*float64, error) {
+func decodeNullableModelPrice(raw json.RawMessage) (*pricing.NanoUSD, error) {
 	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
 		return nil, nil
 	}
-	var value float64
+	var value string
 	if err := json.Unmarshal(raw, &value); err != nil {
 		return nil, err
 	}
-	return &value, nil
+	parsed, err := pricing.ParseUSD(value)
+	if err != nil {
+		return nil, err
+	}
+	return &parsed, nil
 }
 
 func (s *Server) handleListModelPrices(c *gin.Context) {
@@ -183,15 +201,19 @@ func parseModelPricePattern(rawQuery string) (string, *app_errors.APIError) {
 	return patternValues[0], nil
 }
 
-func newModelPriceRuleResponse(rule pricing.Rule) modelPriceRuleResponse {
+func newModelPriceRuleResponse(rule pricing.Rule) (modelPriceRuleResponse, error) {
+	updatedAtMS, err := safeEpochMilliseconds(rule.UpdatedAt)
+	if err != nil {
+		return modelPriceRuleResponse{}, app_errors.ErrInternalServer
+	}
 	result := modelPriceRuleResponse{
-		Pattern: rule.Pattern, Source: rule.Source, UpdatedAt: rule.UpdatedAt,
+		Pattern: rule.Pattern, Source: rule.Source, UpdatedAtMS: updatedAtMS,
 		Prices: modelPriceValuesResponse{
-			UncachedInput: modelPriceValuePointer(rule.Prices.UncachedInput),
-			CacheRead:     modelPriceValuePointer(rule.Prices.CacheRead),
-			CacheWrite5M:  modelPriceValuePointer(rule.Prices.CacheWrite5M),
-			CacheWrite1H:  modelPriceValuePointer(rule.Prices.CacheWrite1H),
-			Output:        modelPriceValuePointer(rule.Prices.Output),
+			InputPrice:        modelPriceValuePointer(rule.Prices.UncachedInput),
+			OutputPrice:       modelPriceValuePointer(rule.Prices.Output),
+			CacheReadPrice:    modelPriceValuePointer(rule.Prices.CacheRead),
+			CacheWrite5MPrice: modelPriceValuePointer(rule.Prices.CacheWrite5M),
+			CacheWrite1HPrice: modelPriceValuePointer(rule.Prices.CacheWrite1H),
 		},
 	}
 	if rule.SourceURL != "" {
@@ -201,17 +223,21 @@ func newModelPriceRuleResponse(rule pricing.Rule) modelPriceRuleResponse {
 	if rule.LongContextPolicy != nil {
 		result.PricingPolicy = &modelPricePolicyResponse{
 			InputThresholdTokens: rule.LongContextPolicy.InputThresholdTokens,
-			InputMultiplier:      rule.LongContextPolicy.InputMultiplier,
-			OutputMultiplier:     rule.LongContextPolicy.OutputMultiplier,
+			InputMultiplier:      modelPriceMultiplier(rule.LongContextPolicy.InputMultiplier),
+			OutputMultiplier:     modelPriceMultiplier(rule.LongContextPolicy.OutputMultiplier),
 		}
 	}
-	return result
+	return result, nil
 }
 
-func modelPriceValuePointer(price pricing.Price) *float64 {
+func modelPriceValuePointer(price pricing.Price) *string {
 	if !price.Set {
 		return nil
 	}
-	value := price.Value
+	value := pricing.FormatUSD(price.NanoUSDPerMillion)
 	return &value
+}
+
+func modelPriceMultiplier(value pricing.Multiplier) float64 {
+	return float64(value.Numerator) / float64(value.Denominator)
 }

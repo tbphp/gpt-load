@@ -7,10 +7,11 @@ import { controlQueryKeys } from '@/app/query-keys'
 import {
   assertNoSecretLikeFields,
   projectArray,
+  projectEpochMilliseconds,
   projectEnum,
   projectFiniteNumber,
   projectHTTPURL,
-  projectISOInstant,
+  projectNullableDecimalString,
   projectRecord,
   projectSafeInteger,
   projectString,
@@ -19,11 +20,11 @@ import {
 export type ModelPriceSource = 'builtin' | 'user'
 
 export interface ModelPriceValues {
-  uncached_input: number | null
-  cache_read: number | null
-  cache_write_5m: number | null
-  cache_write_1h: number | null
-  output: number | null
+  input_price_usd_per_million_tokens: string | null
+  output_price_usd_per_million_tokens: string | null
+  cache_read_price_usd_per_million_tokens: string | null
+  cache_write_5m_price_usd_per_million_tokens: string | null
+  cache_write_1h_price_usd_per_million_tokens: string | null
 }
 
 export interface ModelPricePolicyDto {
@@ -37,7 +38,7 @@ export interface ModelPriceRuleDto {
   source: ModelPriceSource
   prices: ModelPriceValues
   source_url: string | null
-  updated_at: string
+  updated_at_ms: number
   pricing_policy: ModelPricePolicyDto | null
 }
 
@@ -48,18 +49,18 @@ export interface ModelPriceReportDto {
 }
 
 const priceFields = [
-  'uncached_input',
-  'cache_read',
-  'cache_write_5m',
-  'cache_write_1h',
-  'output',
+  'input_price_usd_per_million_tokens',
+  'output_price_usd_per_million_tokens',
+  'cache_read_price_usd_per_million_tokens',
+  'cache_write_5m_price_usd_per_million_tokens',
+  'cache_write_1h_price_usd_per_million_tokens',
 ] as const
 const ruleFields = [
   'pattern',
   'source',
   'prices',
   'source_url',
-  'updated_at',
+  'updated_at_ms',
   'pricing_policy',
 ] as const
 const policyFields = ['input_threshold_tokens', 'input_multiplier', 'output_multiplier'] as const
@@ -68,19 +69,25 @@ function invalidResponse(): never {
   throw new InvalidResponseError()
 }
 
-function projectPrice(value: unknown): number | null {
-  return value === null ? null : projectFiniteNumber(value, { minimum: 0 })
-}
-
 function projectPrices(value: unknown): ModelPriceValues {
   const record = projectRecord(value)
   assertNoSecretLikeFields(record, priceFields)
   return {
-    uncached_input: projectPrice(record.uncached_input),
-    cache_read: projectPrice(record.cache_read),
-    cache_write_5m: projectPrice(record.cache_write_5m),
-    cache_write_1h: projectPrice(record.cache_write_1h),
-    output: projectPrice(record.output),
+    input_price_usd_per_million_tokens: projectNullableDecimalString(
+      record.input_price_usd_per_million_tokens,
+    ),
+    output_price_usd_per_million_tokens: projectNullableDecimalString(
+      record.output_price_usd_per_million_tokens,
+    ),
+    cache_read_price_usd_per_million_tokens: projectNullableDecimalString(
+      record.cache_read_price_usd_per_million_tokens,
+    ),
+    cache_write_5m_price_usd_per_million_tokens: projectNullableDecimalString(
+      record.cache_write_5m_price_usd_per_million_tokens,
+    ),
+    cache_write_1h_price_usd_per_million_tokens: projectNullableDecimalString(
+      record.cache_write_1h_price_usd_per_million_tokens,
+    ),
   }
 }
 
@@ -122,7 +129,7 @@ function projectRule(value: unknown): ModelPriceRuleDto {
     source,
     prices: projectPrices(record.prices),
     source_url: sourceURL,
-    updated_at: projectISOInstant(record.updated_at),
+    updated_at_ms: projectEpochMilliseconds(record.updated_at_ms),
     pricing_policy: projectPricingPolicy(record.pricing_policy, source),
   }
 }

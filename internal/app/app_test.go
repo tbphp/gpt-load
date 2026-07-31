@@ -370,10 +370,11 @@ func TestAppStartUsesEncryptionForSchemaV1UpgradeBeforeRuntimeLoad(t *testing.T)
 		t.Fatalf("Encrypt() error = %v", err)
 	}
 	if err := db.Exec(`INSERT INTO access_keys
-		(name,key_value,key_hash,status,filters,rpm_limit,daily_cost_limit,monthly_cost_limit)
-		VALUES (?,?,?,?,?,?,?,?)`,
+		(name,key_value,key_hash,status,filters,rpm_limit,daily_cost_limit,monthly_cost_limit,created_at,updated_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?)`,
 		"legacy", ciphertext, keyService.Hash(plaintext), "active",
 		`{"groups":[],"protocols":[],"models":[]}`, 0, 0, 0,
+		"2026-07-30T00:00:00Z", "2026-07-30T00:00:00Z",
 	).Error; err != nil {
 		t.Fatalf("insert legacy AccessKey: %v", err)
 	}

@@ -87,6 +87,27 @@ func TestServerServesModelPricesDeepLinkWithoutCatchingUnknownSettingsPaths(t *t
 	}
 }
 
+func TestServerServesGroupsCollectionWithoutCatchingUnknownNestedPaths(t *testing.T) {
+	engine := testEngine(newServer(fstest.MapFS{
+		"dist/index.html": &fstest.MapFile{Data: []byte("<!doctype html><title>groups</title>")},
+	}, "dist"))
+
+	groups := httptest.NewRecorder()
+	engine.ServeHTTP(groups, httptest.NewRequest(http.MethodGet, "/groups", nil))
+	if groups.Code != http.StatusOK || !strings.Contains(groups.Body.String(), "<title>groups</title>") {
+		t.Fatalf("GET /groups = %d %q, want embedded index", groups.Code, groups.Body.String())
+	}
+
+	unknown := httptest.NewRecorder()
+	engine.ServeHTTP(
+		unknown,
+		httptest.NewRequest(http.MethodGet, "/groups/unknown/path", nil),
+	)
+	if unknown.Code != http.StatusNotFound {
+		t.Fatalf("GET unknown nested groups path = %d, want 404", unknown.Code)
+	}
+}
+
 func TestServerFallbackReturnsNotFoundForUnknownRequests(t *testing.T) {
 	server := newServer(fstest.MapFS{
 		"dist/index.html": &fstest.MapFile{Data: []byte("<!doctype html><title>fallback</title>")},

@@ -8,6 +8,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
+	"gpt-load/internal/platform/epochms"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/storage/models"
@@ -15,11 +16,11 @@ import (
 
 type ModelPriceInput struct {
 	Pattern       string
-	UncachedInput *float64
-	CacheRead     *float64
-	CacheWrite5M  *float64
-	CacheWrite1H  *float64
-	Output        *float64
+	UncachedInput *pricing.NanoUSD
+	CacheRead     *pricing.NanoUSD
+	CacheWrite5M  *pricing.NanoUSD
+	CacheWrite1H  *pricing.NanoUSD
+	Output        *pricing.NanoUSD
 }
 
 func (s *Service) UpsertModelPrice(ctx context.Context, input ModelPriceInput) error {
@@ -27,27 +28,30 @@ func (s *Service) UpsertModelPrice(ctx context.Context, input ModelPriceInput) e
 		return app_errors.ErrValidation
 	}
 	return s.writePriceTable(ctx, func(tx *gorm.DB) error {
-		now := s.now()
-		row := models.ModelPrice{
-			Pattern:           input.Pattern,
-			InputPrice:        input.UncachedInput,
-			OutputPrice:       input.Output,
-			CacheReadPrice:    input.CacheRead,
-			CacheWrite5MPrice: input.CacheWrite5M,
-			CacheWrite1HPrice: input.CacheWrite1H,
-			Source:            string(pricing.SourceUser),
-			UpdatedAt:         now,
+		nowMS, err := safeEpochMilliseconds(s.now())
+		if err != nil {
+			return app_errors.ErrInternalServer
 		}
-		err := tx.Clauses(clause.OnConflict{
+		row := models.ModelPrice{
+			Pattern:                                  input.Pattern,
+			InputPriceNanoUSDPerMillionTokens:        nanoUSDStoragePointer(input.UncachedInput),
+			OutputPriceNanoUSDPerMillionTokens:       nanoUSDStoragePointer(input.Output),
+			CacheReadPriceNanoUSDPerMillionTokens:    nanoUSDStoragePointer(input.CacheRead),
+			CacheWrite5MPriceNanoUSDPerMillionTokens: nanoUSDStoragePointer(input.CacheWrite5M),
+			CacheWrite1HPriceNanoUSDPerMillionTokens: nanoUSDStoragePointer(input.CacheWrite1H),
+			Source:                                   string(pricing.SourceUser),
+			UpdatedAtMS:                              nowMS,
+		}
+		err = tx.Clauses(clause.OnConflict{
 			Columns: []clause.Column{{Name: "pattern"}},
 			DoUpdates: clause.Assignments(map[string]any{
-				"input_price":          input.UncachedInput,
-				"output_price":         input.Output,
-				"cache_read_price":     input.CacheRead,
-				"cache_write_5m_price": input.CacheWrite5M,
-				"cache_write_1h_price": input.CacheWrite1H,
-				"source":               string(pricing.SourceUser),
-				"updated_at":           now,
+				"input_price_nano_usd_per_million_tokens":          nanoUSDStoragePointer(input.UncachedInput),
+				"output_price_nano_usd_per_million_tokens":         nanoUSDStoragePointer(input.Output),
+				"cache_read_price_nano_usd_per_million_tokens":     nanoUSDStoragePointer(input.CacheRead),
+				"cache_write_5m_price_nano_usd_per_million_tokens": nanoUSDStoragePointer(input.CacheWrite5M),
+				"cache_write_1h_price_nano_usd_per_million_tokens": nanoUSDStoragePointer(input.CacheWrite1H),
+				"source":        string(pricing.SourceUser),
+				"updated_at_ms": nowMS,
 			}),
 		}).Create(&row).Error
 		if err != nil {
@@ -88,13 +92,25 @@ func (s *Service) ListModelPrices(ctx context.Context) (modelPriceListResponse, 
 		Overrides: make([]modelPriceRuleResponse, 0, len(rows)),
 	}
 	for _, rule := range builtinRules {
-		result.Builtin = append(result.Builtin, newModelPriceRuleResponse(rule))
+		response, err := newModelPriceRuleResponse(rule)
+		if err != nil {
+			return modelPriceListResponse{}, err
+		}
+		result.Builtin = append(result.Builtin, response)
 	}
 	for _, row := range rows {
 		if row.Source != string(pricing.SourceUser) {
 			return modelPriceListResponse{}, app_errors.ErrInternalServer
 		}
-		result.Overrides = append(result.Overrides, newModelPriceRuleResponse(modelPriceRule(row)))
+		rule, err := modelPriceRule(row)
+		if err != nil {
+			return modelPriceListResponse{}, err
+		}
+		response, err := newModelPriceRuleResponse(rule)
+		if err != nil {
+			return modelPriceListResponse{}, err
+		}
+		result.Overrides = append(result.Overrides, response)
 	}
 	return result, nil
 }
@@ -139,7 +155,11 @@ func loadPriceTable(ctx context.Context, tx *gorm.DB) (*pricing.Table, error) {
 				app_errors.ErrInternalServer,
 			)
 		}
-		rules = append(rules, modelPriceRule(row))
+		rule, err := modelPriceRule(row)
+		if err != nil {
+			return nil, err
+		}
+		rules = append(rules, rule)
 	}
 	table, err := pricing.Compile(rules)
 	if err != nil {
@@ -162,25 +182,50 @@ func modelPriceInputRule(input ModelPriceInput) pricing.Rule {
 	}
 }
 
-func modelPriceRule(row models.ModelPrice) pricing.Rule {
+func modelPriceRule(row models.ModelPrice) (pricing.Rule, error) {
+	updatedAt, err := epochms.ToTime(row.UpdatedAtMS)
+	if err != nil {
+		return pricing.Rule{}, fmt.Errorf(
+			"validate persisted model price time: %w",
+			app_errors.ErrInternalServer,
+		)
+	}
 	return pricing.Rule{
 		Pattern: row.Pattern,
 		Prices: pricing.Prices{
-			UncachedInput: priceFromPointer(row.InputPrice),
-			CacheRead:     priceFromPointer(row.CacheReadPrice),
-			CacheWrite5M:  priceFromPointer(row.CacheWrite5MPrice),
-			CacheWrite1H:  priceFromPointer(row.CacheWrite1HPrice),
-			Output:        priceFromPointer(row.OutputPrice),
+			UncachedInput: priceFromStoragePointer(row.InputPriceNanoUSDPerMillionTokens),
+			CacheRead:     priceFromStoragePointer(row.CacheReadPriceNanoUSDPerMillionTokens),
+			CacheWrite5M:  priceFromStoragePointer(row.CacheWrite5MPriceNanoUSDPerMillionTokens),
+			CacheWrite1H:  priceFromStoragePointer(row.CacheWrite1HPriceNanoUSDPerMillionTokens),
+			Output:        priceFromStoragePointer(row.OutputPriceNanoUSDPerMillionTokens),
 		},
 		Source:    pricing.SourceUser,
 		SourceURL: "",
-		UpdatedAt: row.UpdatedAt,
-	}
+		UpdatedAt: updatedAt,
+	}, nil
 }
 
-func priceFromPointer(value *float64) pricing.Price {
+func priceFromPointer(value *pricing.NanoUSD) pricing.Price {
 	if value == nil {
 		return pricing.Price{}
 	}
-	return pricing.Price{Value: *value, Set: true}
+	return pricing.Price{NanoUSDPerMillion: *value, Set: true}
+}
+
+func priceFromStoragePointer(value *int64) pricing.Price {
+	if value == nil {
+		return pricing.Price{}
+	}
+	return pricing.Price{
+		NanoUSDPerMillion: pricing.NanoUSD(*value),
+		Set:               true,
+	}
+}
+
+func nanoUSDStoragePointer(value *pricing.NanoUSD) *int64 {
+	if value == nil {
+		return nil
+	}
+	result := int64(*value)
+	return &result
 }

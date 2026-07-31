@@ -204,9 +204,7 @@ function projectRuntimeConfig(
   return result as GroupRuntimeConfigDto | GroupEffectiveConfigDto
 }
 
-export function projectGroupSummary(value: unknown): GroupSummary {
-  const record = projectRecord(value)
-  assertNoSecretLikeFields(record, groupSummaryFields)
+function projectGroupSummaryFields(record: Record<string, unknown>): GroupSummary {
   return {
     id: projectSafeInteger(record.id, { minimum: 1 }),
     name: projectNonBlankString(record.name),
@@ -218,6 +216,12 @@ export function projectGroupSummary(value: unknown): GroupSummary {
     enabled: projectBoolean(record.enabled),
     key_count: projectSafeInteger(record.key_count, { minimum: 0 }),
   }
+}
+
+export function projectGroupSummary(value: unknown): GroupSummary {
+  const record = projectRecord(value)
+  assertNoSecretLikeFields(record, groupSummaryFields)
+  return projectGroupSummaryFields(record)
 }
 
 export function projectGroupList(value: unknown): GroupSummary[] {
@@ -234,7 +238,7 @@ export function projectGroupDetail(value: unknown): GroupDetailDto {
       ? null
       : projectSafeInteger(record.weight_manual, { minimum: 0, maximum: 100 })
   return {
-    ...projectGroupSummary(record),
+    ...projectGroupSummaryFields(record),
     validation_model: validationModel,
     weight_manual: weightManual,
     config: projectRuntimeConfig(record.config, false),

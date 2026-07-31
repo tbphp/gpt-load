@@ -16,9 +16,11 @@ import {
 import type { AccessProtocol } from '@/api/control/types'
 import { RequestCancelledError } from '@/api/errors'
 import { monitorLocation } from '@/app/route-locations'
+import AppDateTime from '@/components/ui/AppDateTime.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import SurfaceCard from '@/components/ui/SurfaceCard.vue'
+import { formatISOInstant, formatLocalInstant } from '@/lib/format'
 
 import InspectorForm from './InspectorForm.vue'
 
@@ -46,7 +48,7 @@ const knownReasons = new Set<RouteInspectReasonCode>([
 const client = useApiClient()
 const route = useRoute()
 const router = useRouter()
-const { t } = useI18n()
+const { locale, t } = useI18n()
 const draftProtocol = ref(readProtocol(route.query.protocol))
 const draftModel = ref(readText(route.query.external_model))
 const draftAccessKeyID = ref(readPositiveID(route.query.access_key_id))
@@ -57,6 +59,9 @@ const resultStale = ref(false)
 const submitted = ref<RouteInspectRequest>()
 const observation = ref<RouteInspectResponseDto>()
 const resultSummary = ref<HTMLHeadingElement | null>(null)
+const observationDateTime = computed(() =>
+  observation.value === undefined ? undefined : formatISOInstant(observation.value.observed_at_ms),
+)
 let owner = 0
 let controller: AbortController | undefined
 
@@ -321,8 +326,10 @@ onBeforeUnmount(() => {
       </header>
 
       <div class="inspector-meta">
-        <time :datetime="observation.observed_at">{{
-          t('monitor.inspector.result.observedAt', { time: observation.observed_at })
+        <time :datetime="observationDateTime">{{
+          t('monitor.inspector.result.observedAt', {
+            time: formatLocalInstant(observation.observed_at_ms, locale),
+          })
         }}</time>
         <span>{{
           t('monitor.inspector.result.revision', {
@@ -451,9 +458,11 @@ onBeforeUnmount(() => {
                   <div>
                     <dt>{{ t('monitor.inspector.keys.cooldownUntil') }}</dt>
                     <dd>
-                      <time v-if="key.cooldown_until" :datetime="key.cooldown_until">
-                        {{ key.cooldown_until }}
-                      </time>
+                      <AppDateTime
+                        v-if="key.cooldown_until_ms !== null"
+                        :instant="key.cooldown_until_ms"
+                        :locale="locale"
+                      />
                       <span v-else>{{ t('monitor.inspector.keys.none') }}</span>
                     </dd>
                   </div>

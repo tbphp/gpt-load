@@ -8,8 +8,8 @@ export interface AccessKeyPresentation {
   scopeRows: ReadonlyArray<{ label: string; value: string }>
   scopeSummary: string
   rpm: string
-  createdAt: string
-  updatedAt: string
+  createdAt: number
+  updatedAt: number
 }
 
 export interface AccessKeyPresenterLabels {
@@ -63,7 +63,7 @@ export function presentAccessKey(
       accessKey.rpm_limit === 0
         ? options.labels.unlimited
         : new Intl.NumberFormat(options.locale).format(accessKey.rpm_limit),
-    createdAt: accessKey.created_at,
-    updatedAt: accessKey.updated_at,
+    createdAt: accessKey.created_at_ms,
+    updatedAt: accessKey.updated_at_ms,
   }
 }

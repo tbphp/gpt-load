@@ -216,6 +216,8 @@ export default {
         description: 'Backend-ranked aggregates use the final Group and upstream model.',
         caption: 'Usage breakdown by final Group and upstream model',
         truncated: 'Only the backend top 100 breakdown rows are shown.',
+        unattributedGroup: 'Unattributed Group',
+        unknownModel: 'Unknown model',
       },
       columns: {
         window: 'UTC window',

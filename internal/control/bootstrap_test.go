@@ -35,7 +35,7 @@ func TestEnsureInitialStatePublishesBuiltinPricesWithAndWithoutMarker(t *testing
 			t.Fatalf("EnsureInitialState() error = %v", err)
 		}
 
-		assertPublishedPrice(t, fixture.priceRuntime, "gpt-4o", pricing.SourceBuiltin, 2.5)
+		assertPublishedPrice(t, fixture.priceRuntime, "gpt-4o", pricing.SourceBuiltin, 2_500_000_000)
 		if got := fixture.manager.Current().Revision; got != beforeRevision {
 			t.Fatalf("ConfigSnapshot revision = %d, want unchanged %d", got, beforeRevision)
 		}
@@ -44,15 +44,18 @@ func TestEnsureInitialStatePublishesBuiltinPricesWithAndWithoutMarker(t *testing
 
 	t.Run("existing marker and user row", func(t *testing.T) {
 		fixture := newServiceFixture(t)
-		zero := 0.0
-		output := 12.0
+		zero := int64(0)
+		output := int64(12_000_000_000)
 		if err := fixture.db.Create(&models.SystemSetting{
 			Key: bootstrapMarkerForTest, Value: "true",
 		}).Error; err != nil {
 			t.Fatalf("create marker: %v", err)
 		}
 		if err := fixture.db.Create(&models.ModelPrice{
-			Pattern: "gpt-*", InputPrice: &zero, OutputPrice: &output, Source: "user",
+			Pattern:                            "gpt-*",
+			InputPriceNanoUSDPerMillionTokens:  &zero,
+			OutputPriceNanoUSDPerMillionTokens: &output,
+			Source:                             "user",
 		}).Error; err != nil {
 			t.Fatalf("create user ModelPrice: %v", err)
 		}
@@ -84,7 +87,7 @@ func TestEnsureInitialStatePublishesBuiltinPricesWithAndWithoutMarker(t *testing
 			t.Fatalf("second EnsureInitialState() error = %v", err)
 		}
 
-		assertPublishedPrice(t, second.priceRuntime, "gpt-4o", pricing.SourceBuiltin, 2.5)
+		assertPublishedPrice(t, second.priceRuntime, "gpt-4o", pricing.SourceBuiltin, 2_500_000_000)
 		if got := second.manager.Current().Revision; got != beforeRevision {
 			t.Fatalf("ConfigSnapshot revision = %d, want unchanged %d", got, beforeRevision)
 		}
@@ -93,9 +96,11 @@ func TestEnsureInitialStatePublishesBuiltinPricesWithAndWithoutMarker(t *testing
 
 func TestEnsureInitialStateRejectsInvalidPersistedModelPrice(t *testing.T) {
 	fixture := newServiceFixture(t)
-	negative := -1.0
+	value := int64(1_000_000_000)
 	if err := fixture.db.Create(&models.ModelPrice{
-		Pattern: "invalid-price", InputPrice: &negative, Source: "user",
+		Pattern:                           "invalid?pattern",
+		InputPriceNanoUSDPerMillionTokens: &value,
+		Source:                            "user",
 	}).Error; err != nil {
 		t.Fatalf("create invalid persisted ModelPrice: %v", err)
 	}
@@ -128,9 +133,21 @@ func TestEnsureInitialStateRejectsNonUserPersistedModelPrice(t *testing.T) {
 		}
 	})
 	if err := fixture.db.Exec(`
-		INSERT INTO model_prices (pattern, output_price, source)
-		VALUES (?, ?, ?)
-	`, privatePattern, 73456.125, privateSource).Error; err != nil {
+			INSERT INTO model_prices (
+				pattern,
+				output_price_nano_usd_per_million_tokens,
+				source,
+				created_at_ms,
+				updated_at_ms
+			)
+			VALUES (?, ?, ?, ?, ?)
+		`,
+		privatePattern,
+		int64(73_456_125_000_000),
+		privateSource,
+		time.Now().UnixMilli(),
+		time.Now().UnixMilli(),
+	).Error; err != nil {
 		t.Fatalf("insert invalid persisted ModelPrice source: %v", err)
 	}
 	if err := fixture.db.Exec("PRAGMA ignore_check_constraints = OFF").Error; err != nil {
@@ -141,7 +158,7 @@ func TestEnsureInitialStateRejectsNonUserPersistedModelPrice(t *testing.T) {
 	if !errors.Is(err, app_errors.ErrInternalServer) {
 		t.Fatalf("EnsureInitialState() error = %v, want internal error", err)
 	}
-	for _, privateValue := range []string{privatePattern, privateSource, "73456.125"} {
+	for _, privateValue := range []string{privatePattern, privateSource, "73456125000000"} {
 		if strings.Contains(err.Error(), privateValue) {
 			t.Fatalf("EnsureInitialState() error leaked persisted value %q: %v", privateValue, err)
 		}
@@ -428,7 +445,7 @@ func assertPublishedPrice(
 	runtime *PriceRuntime,
 	model string,
 	wantSource pricing.Source,
-	wantInput float64,
+	wantInput pricing.NanoUSD,
 ) {
 	t.Helper()
 	table := runtime.Load()
@@ -440,7 +457,7 @@ func assertPublishedPrice(
 		t.Fatalf("PriceTable.Match(%q) missed", model)
 	}
 	if rule.Source != wantSource || !rule.Prices.UncachedInput.Set ||
-		rule.Prices.UncachedInput.Value != wantInput {
+		rule.Prices.UncachedInput.NanoUSDPerMillion != wantInput {
 		t.Fatalf("PriceTable.Match(%q) = %+v", model, rule)
 	}
 }

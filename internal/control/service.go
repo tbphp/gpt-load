@@ -31,11 +31,13 @@ type Service struct {
 	db                          *gorm.DB
 	manager                     *state.Manager
 	registry                    *state.KeyRegistry
+	registrySnapshot            func() []state.KeyRuntimeView
 	priceRuntime                *PriceRuntime
 	encryption                  encryption.Service
 	dialects                    dialect.Set
 	requestLogs                 RequestLogReader
 	usageStats                  UsageStatReader
+	homeStatistics              HomeStatisticsReader
 	stats                       *health.StatsStore
 	requestLogStats             RequestLogStatsReader
 	modelDiscoveryTimeout       time.Duration
@@ -62,6 +64,7 @@ func NewService(
 	dialects dialect.Set,
 	requestLogs RequestLogReader,
 	usageStats UsageStatReader,
+	homeStatistics HomeStatisticsReader,
 	stats *health.StatsStore,
 	requestLogStats RequestLogStatsReader,
 ) *Service {
@@ -69,8 +72,8 @@ func NewService(
 		db: db, manager: manager, registry: registry,
 		priceRuntime: priceRuntime,
 		encryption:   encryptionService, dialects: dialects, requestLogs: requestLogs,
-		usageStats: usageStats,
-		stats:      stats, requestLogStats: requestLogStats,
+		usageStats: usageStats, homeStatistics: homeStatistics,
+		stats: stats, requestLogStats: requestLogStats,
 		modelDiscoveryTimeout: defaultModelDiscoveryTimeout,
 		random:                rand.Reader,
 		operationRandom:       rand.Reader,
@@ -79,6 +82,7 @@ func NewService(
 	}
 	service.publishSnapshot = manager.Publish
 	service.reconcileRegistryGroup = registry.ReconcileGroup
+	service.registrySnapshot = registry.Snapshot
 	return service
 }
 

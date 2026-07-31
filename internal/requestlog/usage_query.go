@@ -6,11 +6,12 @@ import (
 	"database/sql/driver"
 	"errors"
 	"fmt"
-	"math"
 	"time"
 
 	"gorm.io/gorm"
 
+	"gpt-load/internal/platform/epochms"
+	"gpt-load/internal/pricing"
 	"gpt-load/internal/storage/models"
 	"gpt-load/internal/usage"
 )
@@ -33,8 +34,6 @@ func (service *Service) QueryUsage(ctx context.Context, input UsageQuery) (Usage
 		return UsageReport{}, err
 	}
 
-	input.From = input.From.UTC()
-	input.To = input.To.UTC()
 	limit := input.Limit
 	if limit <= 0 || limit > maxUsageBreakdownLimit {
 		limit = defaultUsageBreakdownLimit
@@ -127,10 +126,11 @@ func discardUsageReadConnection(connection *sql.Conn) error {
 }
 
 func validateUsageQuery(input UsageQuery) error {
-	if input.From.IsZero() || input.To.IsZero() || !input.From.Before(input.To) {
+	if input.FromMS < 0 || input.ToMS <= input.FromMS {
 		return fmt.Errorf("query usage: invalid time range")
 	}
-	if input.To.Sub(input.From) > maxUsageSeriesHours*time.Hour {
+	if input.ToMS-input.FromMS >
+		int64(maxUsageSeriesHours)*epochms.MillisecondsPerHour {
 		return fmt.Errorf("query usage: time range exceeds %d hours", maxUsageSeriesHours)
 	}
 	switch input.Granularity {
@@ -151,7 +151,7 @@ func validateUsageQuery(input UsageQuery) error {
 
 func usageStatScope(db *gorm.DB, input UsageQuery) *gorm.DB {
 	scope := db.Session(&gorm.Session{NewDB: true}).Model(&models.UsageStat{}).
-		Where("hour_bucket >= ? AND hour_bucket < ?", input.From, input.To)
+		Where("bucket_start_ms >= ? AND bucket_start_ms < ?", input.FromMS, input.ToMS)
 	if input.GroupID != nil {
 		scope = scope.Where("group_id = ?", *input.GroupID)
 	}
@@ -165,6 +165,10 @@ func validateUsageStatIntegrity(scope *gorm.DB) error {
 	var integrity usageStatIntegrity
 	if err := scope.Select(`
 		COALESCE(MAX(CASE
+			WHEN bucket_start_ms < 0
+				OR bucket_start_ms % 3600000 != 0
+			THEN 1 ELSE 0 END), 0) AS invalid_bucket,
+		COALESCE(MAX(CASE
 			WHEN request_count < 0 OR success_count < 0 OR failure_count < 0
 				OR usage_missing_count < 0 OR partial_count < 0 OR unpriced_request_count < 0
 				OR CASE
@@ -174,16 +178,17 @@ func validateUsageStatIntegrity(scope *gorm.DB) error {
 				END = 1
 			THEN 1 ELSE 0 END), 0) AS invalid_count,
 		COALESCE(MAX(CASE
-			WHEN input_tokens < 0 OR output_tokens < 0 OR cache_read_tokens < 0
+			WHEN uncached_input_tokens < 0 OR output_tokens < 0 OR cache_read_tokens < 0
 				OR cache_write_5m_tokens < 0 OR cache_write_1h_tokens < 0
 			THEN 1 ELSE 0 END), 0) AS invalid_token,
 		COALESCE(MAX(CASE
-			WHEN cost < 0 OR cost != cost OR cost > ?
+			WHEN estimated_cost_nano_usd < 0
 			THEN 1 ELSE 0 END), 0) AS invalid_cost
-	`, math.MaxFloat64).Find(&integrity).Error; err != nil {
+	`).Find(&integrity).Error; err != nil {
 		return fmt.Errorf("check usage stat integrity: %w", err)
 	}
-	if integrity.InvalidCount != 0 || integrity.InvalidToken != 0 || integrity.InvalidCost != 0 {
+	if integrity.InvalidBucket != 0 || integrity.InvalidCount != 0 ||
+		integrity.InvalidToken != 0 || integrity.InvalidCost != 0 {
 		return fmt.Errorf("check usage stat integrity: corrupt row")
 	}
 	return nil
@@ -202,9 +207,9 @@ func queryUsageSummary(scope *gorm.DB) (UsageAggregate, error) {
 
 func queryUsageSeries(scope *gorm.DB, granularity UsageGranularity) ([]UsageSeriesPoint, error) {
 	var source []usageHourPoint
-	if err := scope.Select("hour_bucket, " + usageAggregateSelect).
-		Group("hour_bucket").
-		Order("hour_bucket ASC").
+	if err := scope.Select("bucket_start_ms, " + usageAggregateSelect).
+		Group("bucket_start_ms").
+		Order("bucket_start_ms ASC").
 		Find(&source).Error; err != nil {
 		return nil, fmt.Errorf("query usage source series: %w", err)
 	}
@@ -217,10 +222,9 @@ func queryUsageSeries(scope *gorm.DB, granularity UsageGranularity) ([]UsageSeri
 	if granularity == UsageGranularityHour {
 		series := make([]UsageSeriesPoint, 0, len(source))
 		for _, point := range source {
-			start := point.HourBucket.UTC()
 			series = append(series, UsageSeriesPoint{
-				BucketStart:    start,
-				BucketEnd:      start.Add(time.Hour),
+				BucketStartMS:  point.BucketStartMS,
+				BucketEndMS:    point.BucketStartMS + epochms.MillisecondsPerHour,
 				UsageAggregate: point.UsageAggregate,
 			})
 		}
@@ -252,10 +256,10 @@ func queryUsageBreakdown(
 	case UsageBreakdownOrderRequests:
 		query = query.
 			Order("SUM(request_count) DESC").
-			Order("SUM(cost) DESC")
+			Order("SUM(estimated_cost_nano_usd) DESC")
 	case UsageBreakdownOrderCost:
 		query = query.
-			Order("SUM(cost) DESC").
+			Order("SUM(estimated_cost_nano_usd) DESC").
 			Order("SUM(request_count) DESC")
 	default:
 		return nil, false, fmt.Errorf(
@@ -290,21 +294,28 @@ func queryUsageBreakdown(
 }
 
 func mergeUsageHoursToDays(source []usageHourPoint) ([]UsageSeriesPoint, error) {
-	// queryUsageSeries orders source by hour_bucket ASC; adjacent-only daily folding depends on it.
+	// queryUsageSeries orders source by bucket_start_ms ASC; adjacent-only
+	// daily folding depends on it.
 	series := make([]UsageSeriesPoint, 0, len(source))
 	for _, point := range source {
-		dayStart := point.HourBucket.UTC().Truncate(24 * time.Hour)
-		if len(series) == 0 || !series[len(series)-1].BucketStart.Equal(dayStart) {
+		dayStartMS, err := epochms.AlignDown(
+			point.BucketStartMS,
+			epochms.MillisecondsPerDay,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("align usage day: %w", err)
+		}
+		if len(series) == 0 || series[len(series)-1].BucketStartMS != dayStartMS {
 			series = append(series, UsageSeriesPoint{
-				BucketStart:    dayStart,
-				BucketEnd:      dayStart.AddDate(0, 0, 1),
+				BucketStartMS:  dayStartMS,
+				BucketEndMS:    dayStartMS + epochms.MillisecondsPerDay,
 				UsageAggregate: point.UsageAggregate,
 			})
 			continue
 		}
 		merged, err := addUsageAggregates(series[len(series)-1].UsageAggregate, point.UsageAggregate)
 		if err != nil {
-			return nil, fmt.Errorf("merge usage day %s: %w", dayStart.Format(time.RFC3339), err)
+			return nil, fmt.Errorf("merge usage day %d: %w", dayStartMS, err)
 		}
 		series[len(series)-1].UsageAggregate = merged
 	}
@@ -337,7 +348,14 @@ func addUsageAggregates(left, right UsageAggregate) (UsageAggregate, error) {
 		}
 		*field.target = value
 	}
-	result.Cost = left.Cost + right.Cost
+	cost, ok := pricing.CheckedAddNanoUSD(
+		pricing.NanoUSD(left.EstimatedCostNanoUSD),
+		pricing.NanoUSD(right.EstimatedCostNanoUSD),
+	)
+	if !ok {
+		return UsageAggregate{}, fmt.Errorf("estimated cost nano USD overflow or negative")
+	}
+	result.EstimatedCostNanoUSD = int64(cost)
 	if err := validateUsageAggregate(result); err != nil {
 		return UsageAggregate{}, err
 	}
@@ -384,7 +402,7 @@ func validateUsageAggregate(aggregate UsageAggregate) error {
 			return fmt.Errorf("total tokens overflow")
 		}
 	}
-	if aggregate.Cost < 0 || math.IsNaN(aggregate.Cost) || math.IsInf(aggregate.Cost, 0) {
+	if aggregate.EstimatedCostNanoUSD < 0 {
 		return fmt.Errorf("invalid cost")
 	}
 	return nil
@@ -395,25 +413,26 @@ const usageAggregateSelect = "" +
 	"COALESCE(SUM(request_count), 0) AS request_count, " +
 	"COALESCE(SUM(success_count), 0) AS success_count, " +
 	"COALESCE(SUM(failure_count), 0) AS failure_count, " +
-	"COALESCE(SUM(input_tokens), 0) AS uncached_input_tokens, " +
+	"COALESCE(SUM(uncached_input_tokens), 0) AS uncached_input_tokens, " +
 	"COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens, " +
 	"COALESCE(SUM(cache_write_5m_tokens), 0) AS cache_write5_m_tokens, " +
 	"COALESCE(SUM(cache_write_1h_tokens), 0) AS cache_write1_h_tokens, " +
 	"COALESCE(SUM(output_tokens), 0) AS output_tokens, " +
-	"COALESCE(SUM(cost), 0) AS cost, " +
+	"COALESCE(SUM(estimated_cost_nano_usd), 0) AS estimated_cost_nano_usd, " +
 	"COALESCE(SUM(usage_missing_count), 0) AS usage_missing_count, " +
 	"COALESCE(SUM(partial_count), 0) AS partial_count, " +
 	"COALESCE(SUM(unpriced_request_count), 0) AS unpriced_request_count"
 
 type usageHourPoint struct {
-	HourBucket time.Time
+	BucketStartMS int64
 	UsageAggregate
 }
 
 type usageStatIntegrity struct {
-	InvalidCount int64
-	InvalidToken int64
-	InvalidCost  int64
+	InvalidBucket int64
+	InvalidCount  int64
+	InvalidToken  int64
+	InvalidCost   int64
 }
 
 type usageBreakdownRow struct {

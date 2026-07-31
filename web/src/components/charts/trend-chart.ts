@@ -1,160 +1,187 @@
 export interface TrendDatum {
-  bucket_start: string
-  bucket_end: string
+  bucket_start_ms: number
+  bucket_end_ms: number
   request_count: number
   failure_count: number
+}
+
+export interface TrendPoint {
+  x: number
+  y: number
+}
+
+export interface TrendFailureBar {
+  x: number
+  y: number
+  width: number
+  height: number
+  value: number
 }
 
 export interface TrendGeometry {
   requestPath: string
   requestAreaPath: string
-  requestPoints: Array<{ x: number; y: number; value: number }>
-  requestMarkers: Array<{ x: number; y: number; value: number }>
-  failures: Array<{ x: number; height: number; value: number }>
+  requestPoints: TrendPoint[]
+  failureBars: TrendFailureBar[]
+  plotTop: number
+  baseline: number
 }
 
-interface TrendPoint {
+interface ParsedDatum {
   start: number
   end: number
-  x: number
-  y: number
-  value: number
+  requestCount: number
+  failureCount: number
 }
 
 function round(value: number): number {
   return Math.round(value * 100) / 100
 }
 
-function assertDimension(value: number): void {
-  if (!Number.isFinite(value) || value <= 0) {
-    throw new RangeError('Trend chart dimensions must be finite positive numbers')
-  }
+function validDimension(value: number): boolean {
+  return Number.isFinite(value) && value > 0
 }
 
-function parseDatum(datum: TrendDatum): { start: number; end: number } {
-  const start = Date.parse(datum.bucket_start)
-  const end = Date.parse(datum.bucket_end)
+function parseDatum(datum: TrendDatum): ParsedDatum | undefined {
+  const {
+    bucket_start_ms: start,
+    bucket_end_ms: end,
+    request_count: requestCount,
+    failure_count: failureCount,
+  } = datum
   if (
-    !Number.isFinite(start) ||
-    !Number.isFinite(end) ||
+    !Number.isSafeInteger(start) ||
+    start < 0 ||
+    !Number.isSafeInteger(end) ||
     end <= start ||
-    !Number.isSafeInteger(datum.request_count) ||
-    datum.request_count < 0 ||
-    !Number.isSafeInteger(datum.failure_count) ||
-    datum.failure_count < 0 ||
-    datum.failure_count > datum.request_count
+    !Number.isSafeInteger(requestCount) ||
+    requestCount < 0 ||
+    !Number.isSafeInteger(failureCount) ||
+    failureCount < 0 ||
+    failureCount > requestCount
   ) {
-    throw new RangeError('Trend chart data is invalid')
+    return undefined
   }
-  return { start, end }
+  return { start, end, requestCount, failureCount }
 }
 
-function segments(points: readonly TrendPoint[]): TrendPoint[][] {
-  return points.reduce<TrendPoint[][]>((result, point, index) => {
-    const previous = points[index - 1]
-    if (previous === undefined || point.start !== previous.end) result.push([point])
-    else result.at(-1)?.push(point)
-    return result
-  }, [])
+export function isTrendSeriesUsable(
+  series: readonly TrendDatum[],
+  rangeStart: number,
+  rangeEnd: number,
+): boolean {
+  if (
+    !Number.isSafeInteger(rangeStart) ||
+    rangeStart < 0 ||
+    !Number.isSafeInteger(rangeEnd) ||
+    rangeEnd <= rangeStart
+  ) {
+    return false
+  }
+
+  let previousEnd = rangeStart
+  for (const datum of series) {
+    const parsed = parseDatum(datum)
+    if (
+      !parsed ||
+      parsed.start < rangeStart ||
+      parsed.end > rangeEnd ||
+      parsed.start < previousEnd
+    ) {
+      return false
+    }
+    previousEnd = parsed.end
+  }
+  return true
+}
+
+function appendSegmentPath(points: readonly TrendPoint[]): string {
+  return points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`).join(' ')
+}
+
+function appendAreaPath(points: readonly TrendPoint[], baseline: number): string {
+  const first = points[0]
+  const last = points.at(-1)
+  if (!first || !last) return ''
+  return `M ${first.x} ${baseline} ${appendSegmentPath(points).replace(/^M /u, 'L ')} L ${last.x} ${baseline} Z`
 }
 
 export function buildTrendGeometry(
   series: readonly TrendDatum[],
   width: number,
-  requestHeight: number,
-  failureHeight: number,
-  rangeStart: string,
-  rangeEnd: string,
+  chartHeight: number,
+  maximumFailureHeight: number,
+  rangeStart: number,
+  rangeEnd: number,
 ): TrendGeometry {
-  assertDimension(width)
-  assertDimension(requestHeight)
-  assertDimension(failureHeight)
-  if (series.length === 0) {
-    return {
-      requestPath: '',
-      requestAreaPath: '',
-      requestPoints: [],
-      requestMarkers: [],
-      failures: [],
-    }
+  const empty: TrendGeometry = {
+    requestPath: '',
+    requestAreaPath: '',
+    requestPoints: [],
+    failureBars: [],
+    plotTop: 0,
+    baseline: 0,
   }
-
-  const parsed = series.map(parseDatum)
-  const domainStart = Date.parse(rangeStart)
-  const domainEnd = Date.parse(rangeEnd)
-  const bucketDuration = parsed[0]!.end - parsed[0]!.start
-  const pointDomainEnd = domainEnd - bucketDuration
   if (
-    !Number.isFinite(domainStart) ||
-    !Number.isFinite(domainEnd) ||
-    domainEnd <= domainStart ||
-    pointDomainEnd < domainStart ||
-    parsed.some(
-      (datum) =>
-        datum.start < domainStart ||
-        datum.end > domainEnd ||
-        datum.end - datum.start !== bucketDuration,
-    )
+    !validDimension(width) ||
+    !validDimension(chartHeight) ||
+    !validDimension(maximumFailureHeight) ||
+    series.length === 0 ||
+    !isTrendSeriesUsable(series, rangeStart, rangeEnd)
   ) {
-    throw new RangeError('Trend chart range is invalid')
-  }
-  for (let index = 1; index < parsed.length; index += 1) {
-    if (parsed[index]!.start < parsed[index - 1]!.end) {
-      throw new RangeError('Trend chart buckets must be ordered and non-overlapping')
-    }
+    return empty
   }
 
-  const domainDuration = pointDomainEnd - domainStart
-  const maximumRequests = Math.max(0, ...series.map((datum) => datum.request_count))
-  const maximumFailures = Math.max(0, ...series.map((datum) => datum.failure_count))
-  const requestTopInset = Math.min(14, requestHeight * 0.08)
-  const points = series.map<TrendPoint>((datum, index) => {
-    const timing = parsed[index]!
+  const parsed = series.map(parseDatum) as ParsedDatum[]
+  const rangeDuration = rangeEnd - rangeStart
+  const maximumRequests = Math.max(...parsed.map((datum) => datum.requestCount))
+  const maximumFailures = Math.max(...parsed.map((datum) => datum.failureCount))
+  const plotTop = Math.min(14, chartHeight * 0.1)
+  const plotBottomInset = Math.min(8, chartHeight * 0.1)
+  const baseline = chartHeight - plotBottomInset
+  const failureHeight = Math.min(maximumFailureHeight, baseline - plotTop)
+  const points = parsed.map<TrendPoint>((datum) => {
+    const midpoint = datum.start + (datum.end - datum.start) / 2
     return {
-      ...timing,
-      x: round(
-        domainDuration === 0 ? width / 2 : ((timing.start - domainStart) / domainDuration) * width,
-      ),
+      x: round(((midpoint - rangeStart) / rangeDuration) * width),
       y: round(
         maximumRequests === 0
-          ? requestHeight
-          : requestTopInset +
-              (1 - datum.request_count / maximumRequests) * (requestHeight - requestTopInset),
+          ? baseline
+          : plotTop + (1 - datum.requestCount / maximumRequests) * (baseline - plotTop),
       ),
-      value: datum.request_count,
     }
   })
 
-  const requestSegments = segments(points)
-  const requestPath = requestSegments
-    .map((segment) =>
-      segment.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`).join(' '),
-    )
-    .join(' ')
-  const requestAreaPath = requestSegments
-    .map((segment) => {
-      const first = segment[0]!
-      const last = segment.at(-1)!
-      const line = segment.map((point) => `L ${point.x} ${point.y}`).join(' ')
-      return `M ${first.x} ${requestHeight} ${line} L ${last.x} ${requestHeight} Z`
-    })
-    .join(' ')
-  const requestMarkers = requestSegments.flatMap((segment, index) =>
-    segment.length === 1 || index === requestSegments.length - 1 ? [segment.at(-1)!] : [],
-  )
-  const failures = series.map((datum, index) => ({
-    x: points[index]!.x,
-    height: round(
-      maximumFailures === 0 ? 0 : (datum.failure_count / maximumFailures) * failureHeight,
-    ),
-    value: datum.failure_count,
-  }))
+  const segments: TrendPoint[][] = []
+  for (let index = 0; index < points.length; index += 1) {
+    const point = points[index]!
+    const previous = parsed[index - 1]
+    const current = parsed[index]!
+    if (!previous || current.start !== previous.end) segments.push([point])
+    else segments.at(-1)?.push(point)
+  }
 
   return {
-    requestPath,
-    requestAreaPath,
-    requestPoints: points.map(({ x, y, value }) => ({ x, y, value })),
-    requestMarkers: requestMarkers.map(({ x, y, value }) => ({ x, y, value })),
-    failures,
+    requestPath: segments.map(appendSegmentPath).join(' '),
+    requestAreaPath: segments.map((segment) => appendAreaPath(segment, baseline)).join(' '),
+    requestPoints: points,
+    failureBars: parsed.map((datum, index) => {
+      const height =
+        maximumFailures === 0 || datum.failureCount === 0
+          ? 0
+          : round(Math.max(3, (datum.failureCount / maximumFailures) * failureHeight))
+      const rawWidth = ((datum.end - datum.start) / rangeDuration) * width
+      const barWidth = Math.min(rawWidth, width, Math.max(3, Math.min(6, rawWidth * 0.26)))
+      const point = points[index]!
+      return {
+        x: round(Math.max(0, Math.min(width - barWidth, point.x - barWidth / 2))),
+        y: round(baseline - height),
+        width: round(barWidth),
+        height,
+        value: datum.failureCount,
+      }
+    }),
+    plotTop,
+    baseline,
   }
 }

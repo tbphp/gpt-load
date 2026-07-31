@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -333,7 +334,7 @@ func TestRouteInspectEndpointReturnsCurrentSafeExplanation(t *testing.T) {
 		`{"protocol":"openai-completions","external_model":"public-model","access_key_id":10}`,
 	)
 	got := decodeRouteInspectSuccess(t, recorder)
-	if !got.ObservedAt.Equal(now) ||
+	if got.ObservedAtMS != now.UnixMilli() ||
 		got.SnapshotRevision != fixture.manager.Current().Revision ||
 		got.Protocol != protocol.OpenAICompletions ||
 		routeModelValue(got.ExternalModel) != "public-model" ||
@@ -360,14 +361,14 @@ func TestRouteInspectEndpointReturnsCurrentSafeExplanation(t *testing.T) {
 	if !available.Available || available.ReasonCode != nil ||
 		available.WeightManual == nil || *available.WeightManual != 25 ||
 		available.WeightAuto != 90 || available.EffectiveWeight != 50*25 ||
-		available.CooldownUntil != nil {
+		available.CooldownUntilMS != nil {
 		t.Fatalf("available key = %#v", available)
 	}
 	cooldown := primary.Keys[1]
 	if cooldown.Available || cooldown.WeightManual != nil ||
 		cooldown.WeightAuto != 40 || cooldown.EffectiveWeight != 0 ||
-		cooldown.CooldownUntil == nil ||
-		!cooldown.CooldownUntil.Equal(now.Add(time.Minute).UTC()) {
+		cooldown.CooldownUntilMS == nil ||
+		*cooldown.CooldownUntilMS != now.Add(time.Minute).UnixMilli() {
 		t.Fatalf("cooldown key = %#v", cooldown)
 	}
 	assertRouteReason(t, cooldown.ReasonCode, scheduler.ReasonKeyCooldown)
@@ -381,12 +382,12 @@ func TestRouteInspectEndpointReturnsCurrentSafeExplanation(t *testing.T) {
 		backup.Keys[0].WeightManual != nil ||
 		backup.Keys[0].WeightAuto != 30 ||
 		backup.Keys[0].EffectiveWeight != 20*30 ||
-		backup.Keys[0].CooldownUntil != nil {
+		backup.Keys[0].CooldownUntilMS != nil {
 		t.Fatalf("backup group = %#v", backup)
 	}
 	body := recorder.Body.String()
 	if strings.Count(body, `"reason_code":null`) != 5 ||
-		strings.Count(body, `"cooldown_until":null`) != 2 {
+		strings.Count(body, `"cooldown_until_ms":null`) != 2 {
 		t.Fatalf("success response must preserve explicit nulls: %s", body)
 	}
 	lower := strings.ToLower(body)
@@ -473,7 +474,7 @@ func TestRouteInspectEndpointReturnsFilterExplanations(t *testing.T) {
 				`{"protocol":"openai-completions","external_model":"public-model","access_key_id":10}`,
 			)
 			got := decodeRouteInspectSuccess(t, recorder)
-			if !got.ObservedAt.Equal(now) ||
+			if got.ObservedAtMS != now.UnixMilli() ||
 				got.SnapshotRevision != fixture.manager.Current().Revision ||
 				got.Routable {
 				t.Fatalf("filter response = %#v", got)
@@ -533,7 +534,7 @@ func TestRouteInspectEndpointReturnsNoRouteTargetExplanation(t *testing.T) {
 		`{"protocol":"openai-completions","external_model":"missing-model","access_key_id":10}`,
 	)
 	got := decodeRouteInspectSuccess(t, recorder)
-	if !got.ObservedAt.Equal(now) ||
+	if got.ObservedAtMS != now.UnixMilli() ||
 		got.SnapshotRevision != fixture.manager.Current().Revision ||
 		got.Routable || got.Groups == nil || len(got.Groups) != 0 {
 		t.Fatalf("no-target response = %#v", got)
@@ -598,7 +599,7 @@ func TestRouteInspectEndpointReturnsNoAvailableKeyExplanation(t *testing.T) {
 		`{"protocol":"openai-completions","external_model":"public-model","access_key_id":10}`,
 	)
 	got := decodeRouteInspectSuccess(t, recorder)
-	if !got.ObservedAt.Equal(now) ||
+	if got.ObservedAtMS != now.UnixMilli() ||
 		got.SnapshotRevision != fixture.manager.Current().Revision ||
 		got.Routable {
 		t.Fatalf("unavailable response = %#v", got)
@@ -639,25 +640,22 @@ func TestRouteInspectEndpointReturnsNoAvailableKeyExplanation(t *testing.T) {
 			t.Fatalf("key %d manual weight = %v, want %d", index, key.WeightManual, *wantManual[index])
 		}
 		if index == 3 {
-			if key.CooldownUntil == nil ||
-				!key.CooldownUntil.Equal(cooldownAt.UTC()) {
-				t.Fatalf("cooldown = %v, want %v", key.CooldownUntil, cooldownAt.UTC())
+			if key.CooldownUntilMS == nil ||
+				*key.CooldownUntilMS != cooldownAt.UnixMilli() {
+				t.Fatalf("cooldown = %v, want %v", key.CooldownUntilMS, cooldownAt.UnixMilli())
 			}
-			if key.CooldownUntil.Location() != time.UTC {
-				t.Fatalf("cooldown location = %v, want UTC", key.CooldownUntil.Location())
-			}
-		} else if key.CooldownUntil != nil {
-			t.Fatalf("key %d cooldown = %v, want nil", index, key.CooldownUntil)
+		} else if key.CooldownUntilMS != nil {
+			t.Fatalf("key %d cooldown = %v, want nil", index, key.CooldownUntilMS)
 		}
 	}
-	if strings.Count(recorder.Body.String(), `"cooldown_until":null`) != 3 {
+	if strings.Count(recorder.Body.String(), `"cooldown_until_ms":null`) != 3 {
 		t.Fatalf("non-cooldown keys must encode null cooldown: %s", recorder.Body.String())
 	}
-	wantCooldownJSON := `"cooldown_until":"` +
-		cooldownAt.UTC().Format(time.RFC3339) + `"`
+	wantCooldownJSON := `"cooldown_until_ms":` +
+		strconv.FormatInt(cooldownAt.UnixMilli(), 10)
 	if !strings.Contains(recorder.Body.String(), wantCooldownJSON) {
 		t.Fatalf(
-			"cooldown must encode as UTC: got %s, want %s",
+			"cooldown must encode as milliseconds: got %s, want %s",
 			recorder.Body.String(),
 			wantCooldownJSON,
 		)

@@ -8,13 +8,13 @@ export interface ThemeController {
   dispose(): void
 }
 
-export interface ThemeControllerDependencies {
+interface ThemeControllerDependencies {
   documentElement: HTMLElement
   storage?: Storage
   matchMedia(query: string): MediaQueryList
 }
 
-export type BrowserThemeWindow = Pick<Window, 'localStorage'> & Partial<Pick<Window, 'matchMedia'>>
+type BrowserThemeWindow = Pick<Window, 'localStorage'> & Partial<Pick<Window, 'matchMedia'>>
 
 const themeStorageKey = 'gpt-load.theme'
 
@@ -22,7 +22,7 @@ function isTheme(value: unknown): value is AppTheme {
   return value === 'system' || value === 'light' || value === 'dark'
 }
 
-export function createThemeController(deps: ThemeControllerDependencies): ThemeController {
+function createThemeController(deps: ThemeControllerDependencies): ThemeController {
   let initial: AppTheme = 'system'
   try {
     const stored = deps.storage?.getItem(themeStorageKey)

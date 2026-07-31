@@ -13,6 +13,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
+	"gpt-load/internal/platform/epochms"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/state"
 	stateloader "gpt-load/internal/state/loader"
@@ -220,13 +221,17 @@ func (s *Service) applySettingUpdates(
 			}
 			continue
 		}
+		updatedAtMS, err := epochms.FromTime(s.now())
+		if err != nil {
+			return app_errors.ErrInternalServer
+		}
 		if err := tx.Clauses(clause.OnConflict{
 			Columns:   []clause.Column{{Name: "key"}},
-			DoUpdates: clause.AssignmentColumns([]string{"value", "updated_at"}),
+			DoUpdates: clause.AssignmentColumns([]string{"value", "updated_at_ms"}),
 		}).Create(&models.SystemSetting{
-			Key:       update.key,
-			Value:     *update.value,
-			UpdatedAt: s.now().UTC(),
+			Key:         update.key,
+			Value:       *update.value,
+			UpdatedAtMS: updatedAtMS,
 		}).Error; err != nil {
 			return app_errors.ParseDBError(err)
 		}

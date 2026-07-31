@@ -45,14 +45,14 @@ export interface HealthGroupDto {
 export interface HealthRecoveryDto {
   automatic: boolean
   mode: string
-  at: string | null
+  at_ms: number | null
 }
 
 export interface HealthProblemKeyDto {
   key_id: number
   group_id: number
   group_name: string
-  cooldown_until?: string
+  cooldown_until_ms: number | null
   failure_count: number
   recent_success_count: number
   recent_failure_count: number
@@ -78,12 +78,12 @@ export interface RequestLogHealthDto {
   retention_delete_failure_total: number
   queue_depth: number
   queue_capacity: number
-  last_write_failure_at: string | null
-  last_retention_failure_at: string | null
+  last_write_failure_at_ms: number | null
+  last_retention_failure_at_ms: number | null
 }
 
 export interface RuntimeHealthDto {
-  observed_at: string
+  observed_at_ms: number
   version: string
   uptime_seconds: number
   snapshot_revision: number
@@ -108,8 +108,8 @@ export interface AccessKeyDto {
   status: 'active' | 'disabled'
   filters: AccessKeyFiltersDto
   rpm_limit: number
-  created_at: string
-  updated_at: string
+  created_at_ms: number
+  updated_at_ms: number
 }
 
 export interface AccessKeyOptionDto {
@@ -126,5 +126,5 @@ export interface AccessKeyCreateResultDto extends AccessKeyDto {
 export interface AccessKeyRevealDto {
   id: number
   key: string
-  revealed_at: string
+  revealed_at_ms: number
 }

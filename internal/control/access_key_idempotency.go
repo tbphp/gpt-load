@@ -77,7 +77,7 @@ func (s *Service) CreateAccessKeyIdempotent(
 			metadata, err := mapAccessKeyMetadataRow(accessKeyMetadataRow{
 				ID: row.ID, Name: row.Name, KeySuffix: row.KeySuffix,
 				Status: row.Status, Filters: row.Filters, RPMLimit: row.RPMLimit,
-				CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
+				CreatedAtMS: row.CreatedAtMS, UpdatedAtMS: row.UpdatedAtMS,
 			})
 			if err != nil {
 				return idempotentMutationResult{}, err

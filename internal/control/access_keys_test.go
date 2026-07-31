@@ -225,9 +225,9 @@ func TestListAccessKeysReturnsMaskedMetadataInIDOrderWithoutDecrypting(t *testin
 	}
 	if len(listed) != 2 ||
 		listed[0].ID != first.ID ||
-		listed[0].MaskedKey != "sk-gl-••••••••0e0f" ||
+		listed[0].MaskedKey != "sk-gl-****0e0f" ||
 		listed[1].ID != second.ID ||
-		listed[1].MaskedKey != "sk-gl-••••••••1e1f" {
+		listed[1].MaskedKey != "sk-gl-****1e1f" {
 		t.Fatalf("ListAccessKeys() = %#v", listed)
 	}
 

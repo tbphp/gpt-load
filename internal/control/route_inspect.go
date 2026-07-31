@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -34,7 +33,7 @@ type routeInspectKeyResponse struct {
 	WeightManual    *int                  `json:"weight_manual"`
 	WeightAuto      int                   `json:"weight_auto"`
 	EffectiveWeight int64                 `json:"effective_weight"`
-	CooldownUntil   *time.Time            `json:"cooldown_until"`
+	CooldownUntilMS *int64                `json:"cooldown_until_ms"`
 }
 
 type routeInspectGroupResponse struct {
@@ -49,7 +48,7 @@ type routeInspectGroupResponse struct {
 }
 
 type routeInspectResponse struct {
-	ObservedAt       time.Time                     `json:"observed_at"`
+	ObservedAtMS     int64                         `json:"observed_at_ms"`
 	SnapshotRevision uint64                        `json:"snapshot_revision"`
 	Protocol         protocol.Protocol             `json:"protocol"`
 	ExternalModel    *string                       `json:"external_model"`
@@ -118,7 +117,7 @@ func (service *Service) InspectRoute(
 		request,
 		accessKey,
 		explanation,
-	), nil
+	)
 }
 
 func mapRouteInspectResponse(
@@ -126,9 +125,13 @@ func mapRouteInspectResponse(
 	request routeInspectRequest,
 	accessKey state.AccessKeyView,
 	explanation scheduler.Inspection,
-) routeInspectResponse {
+) (routeInspectResponse, error) {
+	observedAtMS, err := safeEpochMilliseconds(observation.observedAt)
+	if err != nil {
+		return routeInspectResponse{}, fmt.Errorf("map route inspection observed_at_ms: %w", err)
+	}
 	result := routeInspectResponse{
-		ObservedAt:       observation.observedAt,
+		ObservedAtMS:     observedAtMS,
 		SnapshotRevision: observation.snapshot.Revision,
 		Protocol:         request.Protocol,
 		ExternalModel:    cloneRouteModel(request.ExternalModel),
@@ -151,6 +154,13 @@ func mapRouteInspectResponse(
 			Keys:          []routeInspectKeyResponse{},
 		}
 		for _, key := range group.Keys {
+			cooldownUntilMS, err := optionalSafeEpochMilliseconds(key.CooldownUntil)
+			if err != nil {
+				return routeInspectResponse{}, fmt.Errorf(
+					"map route inspection cooldown_until_ms: %w",
+					err,
+				)
+			}
 			groupResponse.Keys = append(groupResponse.Keys, routeInspectKeyResponse{
 				KeyID:           key.KeyID,
 				Available:       key.Available,
@@ -158,12 +168,12 @@ func mapRouteInspectResponse(
 				WeightManual:    cloneInt(key.WeightManual),
 				WeightAuto:      key.WeightAuto,
 				EffectiveWeight: key.EffectiveWeight,
-				CooldownUntil:   optionalUTC(key.CooldownUntil),
+				CooldownUntilMS: cooldownUntilMS,
 			})
 		}
 		result.Groups = append(result.Groups, groupResponse)
 	}
-	return result
+	return result, nil
 }
 
 func cloneRouteModel(value *string) *string {

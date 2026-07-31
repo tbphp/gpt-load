@@ -1,11 +1,12 @@
 import type { RequestLogFilters } from '@/app/resources/request-logs'
+import type { HomeRange } from '@/app/resources/home'
 import type { UsageFilters } from '@/app/resources/usage'
 
 function normalizeLogFilters(filters: RequestLogFilters): RequestLogFilters {
   const result: RequestLogFilters = {}
   for (const field of [
-    'from',
-    'to',
+    'from_ms',
+    'to_ms',
     'group_id',
     'model',
     'access_key_id',
@@ -48,6 +49,12 @@ export const controlQueryKeys = {
     all: ['control', 'usage'] as const,
     report: (filters: UsageFilters) =>
       ['control', 'usage', 'report', normalizeUsageFilters(filters)] as const,
+  },
+  home: {
+    all: ['control', 'home'] as const,
+    base: () => ['control', 'home', 'base'] as const,
+    statisticsAll: () => ['control', 'home', 'statistics'] as const,
+    statistics: (range: HomeRange) => ['control', 'home', 'statistics', range] as const,
   },
   accessKeys: {
     all: ['control', 'access-keys'] as const,

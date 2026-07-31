@@ -218,6 +218,8 @@ export default {
         description: 'バックエンド順位の集計は最終 Group とアップストリームモデルを使用します。',
         caption: '最終 Group とアップストリームモデル別の使用量内訳',
         truncated: 'バックエンド上位 100 件の内訳のみ表示しています。',
+        unattributedGroup: '未帰属 Group',
+        unknownModel: '不明なモデル',
       },
       columns: {
         window: 'UTC 時間枠',

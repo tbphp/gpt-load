@@ -19,8 +19,6 @@ export const requestLogStatuses = [
   'canceled',
 ] as const satisfies readonly RequestLogStatus[]
 const requestIDPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
-const rfc3339Pattern =
-  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/
 
 export function normalizeMonitorTab(raw: unknown): MonitorTab {
   return raw === 'logs' || raw === 'inspector' || raw === 'usage' || raw === 'health'
@@ -78,12 +76,12 @@ function normalizeInspectorQuery(
 
 function normalizeLogsQuery(query: Record<string, unknown>, tab: MonitorTab): LocationQueryRaw {
   const normalized: LocationQueryRaw = { tab }
-  const from = scalarRFC3339(query.from)
-  const to = scalarRFC3339(query.to)
+  const fromMS = scalarEpochMilliseconds(query.from_ms)
+  const toMS = scalarEpochMilliseconds(query.to_ms)
 
-  if (from === undefined || to === undefined || Date.parse(from) < Date.parse(to)) {
-    if (from !== undefined) normalized.from = from
-    if (to !== undefined) normalized.to = to
+  if (fromMS === undefined || toMS === undefined || fromMS < toMS) {
+    if (fromMS !== undefined) normalized.from_ms = fromMS
+    if (toMS !== undefined) normalized.to_ms = toMS
   }
 
   const groupID = scalarPositiveID(query.group_id)
@@ -125,14 +123,8 @@ function scalarUUIDv4(raw: unknown): string | undefined {
   return typeof raw === 'string' && requestIDPattern.test(raw) ? raw : undefined
 }
 
-function scalarRFC3339(raw: unknown): string | undefined {
-  if (typeof raw !== 'string') return undefined
-  const match = raw.match(rfc3339Pattern)
-  if (!match) return undefined
-
-  const [, year, month, day, hour, minute, second] = match.map(Number)
-  if (month < 1 || month > 12 || hour > 23 || minute > 59 || second > 59) return undefined
-  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate()
-  if (day < 1 || day > lastDay || Number.isNaN(Date.parse(raw))) return undefined
-  return raw
+function scalarEpochMilliseconds(raw: unknown): string | undefined {
+  if (typeof raw !== 'string' || !/^(?:0|[1-9]\d*)$/.test(raw)) return undefined
+  const value = Number(raw)
+  return Number.isSafeInteger(value) && value >= 0 ? String(value) : undefined
 }
