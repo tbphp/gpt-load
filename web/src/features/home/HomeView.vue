@@ -1,429 +1,173 @@
 <script setup lang="ts">
-import { keepPreviousData, useQuery } from '@tanstack/vue-query'
-import { Activity, CircleHelp, Layers3, TriangleAlert } from '@lucide/vue'
-import { computed, ref } from 'vue'
+import { useQuery } from '@tanstack/vue-query'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import type { GroupSummary } from '@/api/control/types'
 import { useApiClient } from '@/api/client-context'
-import { groupListQueryOptions } from '@/app/resources/groups'
-import { healthQueryOptions, type RuntimeHealthDto } from '@/app/resources/health'
-import { usageQueryOptions, type UsageFilters, type UsageReportDto } from '@/app/resources/usage'
-import { importLocation } from '@/app/route-locations'
-import { useVisibleRefetch } from '@/app/use-visible-refetch'
+import { homeBaseQueryOptions } from '@/app/resources/home'
 import TrendChart from '@/components/charts/TrendChart.vue'
-import EmptyState from '@/components/ui/EmptyState.vue'
-import InlineFeedback from '@/components/ui/InlineFeedback.vue'
+import LedgerSheet from '@/components/layout/LedgerSheet.vue'
+import PageFrame from '@/components/layout/PageFrame.vue'
+import PageSection from '@/components/layout/PageSection.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
-import SegmentedControl from '@/components/ui/SegmentedControl.vue'
-import StatFigure from '@/components/ui/StatFigure.vue'
-import { formatEstimatedCost, formatTokens } from '@/lib/format'
+import SkeletonBlock from '@/components/ui/SkeletonBlock.vue'
 
-import ConnectionPlaceholder from './ConnectionPlaceholder.vue'
-import HomeCostRanking from './HomeCostRanking.vue'
-import HomeLede from './HomeLede.vue'
-import HomeProblemGroups from './HomeProblemGroups.vue'
-import { failureLogsLocation, presentHome, type HomeQueryResult } from './home-presenter'
+import ConsumptionRanking from './ConsumptionRanking.vue'
+import GatewayConnection from './GatewayConnection.vue'
+import HomeSummary from './HomeSummary.vue'
+import HomeWelcome from './HomeWelcome.vue'
+import { useHomeStatisticsPresenter } from './home-presenter'
 
 const client = useApiClient()
 const { locale, t } = useI18n()
-const selectedRange = ref<'24h' | '30d'>('24h')
-const usageFilters = computed<UsageFilters>(() => ({
-  range: selectedRange.value,
-  breakdown_order: 'cost',
-}))
+const baseQuery = useQuery(homeBaseQueryOptions(client))
+const statistics = useHomeStatisticsPresenter(client)
+const serverClockOffsetMS = ref(0)
+const nowMS = ref(Date.now())
 
-const groupsQuery = useQuery(groupListQueryOptions(client))
-const healthQuery = useQuery(healthQueryOptions(client, 15_000))
-const usageQuery = useQuery({
-  ...usageQueryOptions(client, usageFilters, 60_000),
-  placeholderData: keepPreviousData,
-})
-
-useVisibleRefetch([
-  () => groupsQuery.refetch(),
-  () => healthQuery.refetch(),
-  () => usageQuery.refetch(),
-])
-
-function queryResult<T>(
-  pending: boolean,
-  failed: boolean,
-  data: T | undefined,
-  errorUpdatedAt: number,
-): HomeQueryResult<T> {
-  if (failed) {
-    const failedAt = new Date(errorUpdatedAt > 0 ? errorUpdatedAt : Date.now()).toISOString()
-    return data === undefined ? { status: 'error', failedAt } : { status: 'error', failedAt, data }
-  }
-  if (pending || data === undefined) return { status: 'loading' }
-  return { status: 'success', data }
-}
-
-const inventoryResult = computed(() =>
-  queryResult<GroupSummary[]>(
-    groupsQuery.isPending.value,
-    groupsQuery.isError.value,
-    groupsQuery.data.value,
-    groupsQuery.errorUpdatedAt.value,
-  ),
-)
-const healthResult = computed(() =>
-  queryResult<RuntimeHealthDto>(
-    healthQuery.isPending.value,
-    healthQuery.isError.value,
-    healthQuery.data.value,
-    healthQuery.errorUpdatedAt.value,
-  ),
-)
-const usageResult = computed(() =>
-  queryResult<UsageReportDto>(
-    usageQuery.isPending.value,
-    usageQuery.isError.value,
-    usageQuery.data.value,
-    usageQuery.errorUpdatedAt.value,
-  ),
-)
-const presentation = computed(() =>
-  presentHome({
-    inventory: inventoryResult.value,
-    health: healthResult.value,
-    usage: usageResult.value,
-  }),
+watch(
+  () => baseQuery.data.value,
+  (base) => {
+    if (base) serverClockOffsetMS.value = base.server_now_ms - Date.now()
+  },
+  { immediate: true },
 )
 
-const report = computed(() => {
-  const state = presentation.value.usage
-  if (state.kind === 'data' || state.kind === 'empty' || state.kind === 'stale') {
-    return state.report
-  }
-  return undefined
+const uptimeNowMS = computed(() => nowMS.value + serverClockOffsetMS.value)
+const snapshot = computed(() => {
+  const state = statistics.state.value
+  return state.kind === 'initial' || state.kind === 'switching' ? null : state.snapshot
 })
-const groupNames = computed(
-  () => new Map((groupsQuery.data.value ?? []).map((group) => [group.id, group.name] as const)),
-)
-const rangeOptions = computed(() => [
-  { value: '24h', label: t('home.range.last24Hours') },
-  { value: '30d', label: t('home.range.last30Days') },
-])
-const successRate = computed(() => {
-  const value = presentation.value.successRate
-  if (value === null) return '—'
-  return new Intl.NumberFormat(locale.value, {
-    style: 'percent',
-    maximumFractionDigits: 1,
-  }).format(value / 100)
+const statisticsLoading = computed(() => {
+  const kind = statistics.state.value.kind
+  return kind === 'initial' || kind === 'switching'
 })
-const successDetail = computed(() => {
-  if (report.value === undefined) return ''
-  return t('home.metrics.successDetail', {
-    requests: formatCount(report.value.summary.request_count),
-    failures: formatCount(report.value.summary.failure_count),
-  })
-})
-const estimatedCost = computed(() => {
-  if (report.value === undefined) return '—'
-  return formatEstimatedCost(report.value.summary.estimated_cost_nano_usd, locale.value)
-})
-const costDetail = computed(() => {
-  if (report.value === undefined) return ''
-  const tokens = formatTokens(report.value.summary.total_tokens, locale.value)
-  if (report.value.summary.unpriced_request_count === 0) {
-    return t('home.metrics.costTokens', { tokens })
-  }
-  return t('home.metrics.costDetail', {
-    tokens,
-    unpriced: formatCount(report.value.summary.unpriced_request_count),
-  })
+const isEmpty = computed(() => {
+  const inventory = baseQuery.data.value?.inventory
+  return (
+    inventory !== undefined && inventory.group_count === 0 && inventory.upstream_key_count === 0
+  )
 })
 
-function formatCount(value: number): string {
-  return new Intl.NumberFormat(locale.value).format(value)
-}
+const uptimeTimer = window.setInterval(() => {
+  nowMS.value = Date.now()
+}, 60_000)
 
-function setRange(value: string): void {
-  if (value === '24h' || value === '30d') selectedRange.value = value
-}
+onBeforeUnmount(() => window.clearInterval(uptimeTimer))
 </script>
 
 <template>
-  <div class="home-page">
-    <QueryFeedback
-      v-if="presentation.inventory.kind === 'loading'"
-      state="loading"
-      :message="t('home.inventory.loading')"
-    />
-    <QueryFeedback
-      v-else-if="presentation.inventory.kind === 'error'"
-      state="error"
-      :message="t('home.inventory.error')"
-      :retry-label="t('common.retry')"
-      @retry="groupsQuery.refetch()"
-    />
-    <QueryFeedback
-      v-else-if="presentation.inventory.kind === 'stale'"
-      state="stale"
-      :message="t('home.inventory.stale')"
-      :retry-label="t('common.retry')"
-      @retry="groupsQuery.refetch()"
-    />
-
-    <EmptyState
-      v-if="presentation.zeroGroups"
-      :title="t('home.noGroupsTitle')"
-      :description="t('home.noGroupsDescription')"
-      heading-as="h1"
-    >
-      <template #icon><Layers3 :size="34" /></template>
-      <template #actions>
-        <RouterLink class="button-link" :to="importLocation()">
-          {{ t('home.importKeys') }}
-        </RouterLink>
-      </template>
-    </EmptyState>
-
-    <template v-else>
-      <HomeLede :state="presentation.health" @retry="healthQuery.refetch()" />
-
-      <ConnectionPlaceholder v-if="presentation.usage.kind === 'empty'" />
-
-      <InlineFeedback v-if="presentation.pipelineWarning" tone="warning">
-        {{
-          t('home.pipeline.warning', {
-            dropped: formatCount(presentation.pipelineWarning.droppedTotal),
-            failures: formatCount(presentation.pipelineWarning.writeFailureTotal),
-          })
-        }}
-      </InlineFeedback>
-
-      <HomeProblemGroups
-        v-if="presentation.problemGroups.length > 0"
-        :groups="presentation.problemGroups"
-      />
+  <PageFrame aria-labelledby="home-title">
+    <LedgerSheet>
+      <div
+        v-if="baseQuery.isPending.value"
+        class="home-view__loading"
+        :aria-label="t('home.ledger.loading')"
+      >
+        <SkeletonBlock height="2rem" />
+        <SkeletonBlock height="7.5rem" />
+        <SkeletonBlock height="12rem" />
+      </div>
 
       <section
-        class="home-usage"
-        :class="{
-          'home-usage--after-problems': presentation.problemGroups.length > 0,
-        }"
-        aria-labelledby="home-usage-title"
+        v-else-if="baseQuery.isError.value"
+        class="home-view__error"
+        aria-labelledby="home-title"
       >
+        <h1 id="home-title" class="home-view__title">{{ t('home.ledger.title') }}</h1>
         <QueryFeedback
-          v-if="presentation.usage.kind === 'loading'"
-          state="loading"
-          :message="t('home.usageState.loading')"
-        />
-        <QueryFeedback
-          v-else-if="presentation.usage.kind === 'error'"
           state="error"
-          :message="t('home.usageState.error')"
+          :message="t('home.ledger.baseError')"
           :retry-label="t('common.retry')"
-          @retry="usageQuery.refetch()"
+          @retry="baseQuery.refetch()"
         />
-        <template v-else>
-          <QueryFeedback
-            v-if="presentation.usage.kind === 'stale'"
-            state="stale"
-            :message="t('home.usageState.stale')"
-            :retry-label="t('common.retry')"
-            @retry="usageQuery.refetch()"
-          />
-
-          <EmptyState
-            v-if="presentation.usage.kind === 'empty'"
-            :title="t('home.zeroUsage.title')"
-            :description="t('home.zeroUsage.description')"
-          >
-            <template #icon><Activity :size="34" /></template>
-          </EmptyState>
-
-          <template v-else-if="report">
-            <div class="home-metrics">
-              <StatFigure
-                :label="t('home.metrics.successRate', { range: report.range })"
-                :value="successRate"
-                :detail="successDetail"
-              />
-              <StatFigure
-                :label="t('home.metrics.estimatedCost', { range: report.range })"
-                :value="estimatedCost"
-                :detail="costDetail"
-              />
-              <SegmentedControl
-                class="home-metrics__range"
-                :model-value="selectedRange"
-                :label="t('home.range.label')"
-                :options="rangeOptions"
-                @update:model-value="setRange"
-              />
-            </div>
-
-            <p
-              v-if="presentation.health.kind === 'unknown' || presentation.health.kind === 'stale'"
-              class="home-health-note"
-              role="status"
-            >
-              <CircleHelp :size="16" aria-hidden="true" />
-              {{ t('home.healthUsageIndependence') }}
-            </p>
-
-            <section class="home-trend" aria-labelledby="home-usage-title">
-              <header class="home-section-heading home-trend__header">
-                <h2 id="home-usage-title">
-                  {{ t('home.trend.title', { range: report.range }) }}
-                </h2>
-                <RouterLink
-                  v-if="report.summary.failure_count > 0"
-                  class="home-trend__failure-link"
-                  :to="failureLogsLocation(report)"
-                >
-                  <TriangleAlert :size="16" aria-hidden="true" />
-                  {{ t('home.trend.failureLink') }}
-                </RouterLink>
-              </header>
-              <TrendChart
-                :series="report.series"
-                :title="t('home.trend.title', { range: report.range })"
-                :description="t('home.trend.chartDescription')"
-                :empty-label="t('home.trend.empty')"
-                :request-label="t('home.trend.requests')"
-                :failure-label="t('home.trend.failures')"
-                :range-start="report.from_ms"
-                :range-end="report.to_ms"
-                :locale="locale"
-                :now-label="t('home.trend.now')"
-                :failure-strip-label="
-                  report.granularity === 'hour'
-                    ? t('home.trend.failureStripHourly')
-                    : t('home.trend.failureStripDaily')
-                "
-              />
-            </section>
-
-            <HomeCostRanking :report="report" :group-names="groupNames" />
-          </template>
-        </template>
       </section>
 
-      <ConnectionPlaceholder v-if="presentation.usage.kind !== 'empty'" />
-    </template>
-  </div>
+      <HomeWelcome v-else-if="isEmpty" />
+
+      <template v-else-if="baseQuery.data.value">
+        <HomeSummary
+          :base="baseQuery.data.value"
+          :statistics-state="statistics.state.value"
+          :selected-range="statistics.selectedRange.value"
+          :target-range="statistics.targetRange.value"
+          :observed-at-ms="statistics.lastSuccessfulObservedAtMS.value"
+          :uptime-now-ms="uptimeNowMS"
+          @select-range="statistics.selectRange"
+        />
+
+        <div v-if="statistics.state.value.kind === 'stale'" class="home-view__statistics-feedback">
+          <QueryFeedback
+            state="stale"
+            :message="t('home.ledger.statisticsError')"
+            :retry-label="t('common.retry')"
+            @retry="statistics.retry()"
+          />
+        </div>
+
+        <PageSection
+          v-if="snapshot"
+          :title="t('home.ledger.trendTitle', { range: snapshot.range })"
+        >
+          <TrendChart
+            :series="snapshot.series"
+            :title="t('home.ledger.trendTitle', { range: snapshot.range })"
+            :description="t('home.ledger.trendDescription')"
+            :empty-label="t('home.ledger.trendEmpty')"
+            :request-label="t('home.ledger.requestsLabel')"
+            :failure-label="t('home.ledger.failuresLabel')"
+            :range-start="snapshot.from_ms"
+            :range-end="snapshot.to_ms"
+            :locale="locale"
+          />
+        </PageSection>
+        <PageSection
+          v-else-if="statisticsLoading"
+          :title="t('home.ledger.statisticsLoading')"
+          class="home-view__statistics-section"
+        >
+          <SkeletonBlock height="12rem" :aria-label="t('home.ledger.statisticsLoading')" />
+        </PageSection>
+
+        <ConsumptionRanking v-if="snapshot" :rankings="snapshot.rankings" :range="snapshot.range" />
+        <PageSection
+          v-else-if="statisticsLoading"
+          :title="t('home.ledger.statisticsLoading')"
+          class="home-view__statistics-section"
+        >
+          <SkeletonBlock height="12rem" :aria-label="t('home.ledger.statisticsLoading')" />
+        </PageSection>
+
+        <GatewayConnection :access-keys="baseQuery.data.value.access_keys" />
+      </template>
+    </LedgerSheet>
+  </PageFrame>
 </template>
 
 <style scoped>
-.home-page {
+.home-view__loading,
+.home-view__error {
   display: grid;
-  min-width: 0;
-  gap: var(--space-7);
-}
-.home-usage {
-  display: grid;
-  min-width: 0;
-  gap: var(--space-7);
-}
-.home-usage--after-problems {
-  border-top: 1px solid var(--color-border-strong);
-  padding-top: var(--space-6);
-}
-.home-metrics {
-  display: grid;
-  min-width: 0;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
-  align-items: end;
-  gap: var(--space-6);
-  border-bottom: 1px solid var(--color-border-subtle);
-  padding-bottom: calc(var(--space-10) + var(--space-2));
-}
-.home-metrics > :nth-child(2) {
-  border-left: 1px solid var(--color-border-subtle);
-  padding-left: var(--space-6);
-}
-.home-metrics__range {
-  justify-self: end;
-}
-.home-metrics__range :deep(.segmented-control__list) {
-  grid-auto-columns: 48px;
-  border-radius: 6px;
-}
-.home-metrics__range :deep(.segmented-control__trigger) {
-  min-height: 32px;
-  padding: 4px 10px;
-  font-size: var(--text-sm);
-  font-weight: 600;
-}
-.home-trend {
-  display: grid;
-  min-width: 0;
-  gap: var(--space-6);
-}
-.home-section-heading h2,
-.home-section-heading p {
-  margin: 0;
-}
-.home-section-heading h2 {
-  font-family: var(--font-serif);
-  font-size: 1.25rem;
-  font-weight: 500;
-  line-height: var(--line-compact);
-}
-.home-section-heading p {
-  margin-top: var(--space-1);
-  color: var(--color-text-muted);
-}
-.home-trend__header {
-  display: flex;
-  min-width: 0;
-  align-items: start;
-  justify-content: space-between;
   gap: var(--space-5);
+  min-height: 420px;
 }
-.home-trend__failure-link {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  color: var(--color-danger);
-  font-weight: 650;
-  white-space: nowrap;
+
+.home-view__loading {
+  align-content: start;
 }
-.home-health-note {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
+
+.home-view__title {
   margin: 0;
-  color: var(--color-text-faint);
-  font-size: var(--text-sm);
+  font-family: var(--font-serif);
+  font-size: var(--title-panel);
+  font-weight: 500;
 }
-.home-health-note svg {
-  flex: 0 0 auto;
+
+.home-view__statistics-feedback {
+  padding-top: var(--space-4);
 }
-@media (max-width: 1199px) {
-  .home-metrics {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  }
-  .home-metrics__range {
-    grid-column: 1 / -1;
-    justify-self: start;
-  }
-}
-@media (max-width: 759px) {
-  .home-page,
-  .home-usage {
-    gap: var(--space-5);
-  }
-  .home-metrics {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .home-metrics > :nth-child(2) {
-    border-top: 1px solid var(--color-border-subtle);
-    border-left: 0;
-    padding-top: var(--space-5);
-    padding-left: 0;
-  }
-  .home-trend__header {
-    flex-direction: column;
-  }
-  .home-trend__failure-link {
-    white-space: normal;
-  }
+
+.home-view__statistics-section :deep(.page-section__content) {
+  min-height: 12rem;
 }
 </style>

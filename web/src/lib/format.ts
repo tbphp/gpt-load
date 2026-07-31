@@ -48,6 +48,29 @@ export function formatLocalTime(ms: number, locale: string): string {
   })
 }
 
+export function formatLocalTimeRange(startMs: number, endMs: number, locale: string): string {
+  const start = validDate(startMs)
+  const end = validDate(endMs)
+  if (!start || !end || end.getTime() <= start.getTime()) return '—'
+
+  const options: Intl.DateTimeFormatOptions = {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: currentTimeZone(),
+    timeZoneName: 'short',
+    hourCycle: 'h23',
+  }
+  try {
+    const formatter = new Intl.DateTimeFormat(locale, options)
+    return formatter.formatRange(start, end)
+  } catch {
+    return `${formatLocalInstant(startMs, locale, options)} – ${formatLocalInstant(endMs, locale, options)}`
+  }
+}
+
 export function formatDuration(startedAtMs: number, nowMs: number, locale: string): string {
   if (!Number.isSafeInteger(startedAtMs) || !Number.isSafeInteger(nowMs)) {
     return '—'
