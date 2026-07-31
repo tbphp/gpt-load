@@ -4,9 +4,9 @@ import CopyButton from './CopyButton.vue'
 defineProps<{
   code: string
   language: string
-  copyLabel: string
-  copySuccessLabel: string
-  copyFailureLabel: string
+  copyLabel?: string
+  copySuccessLabel?: string
+  copyFailureLabel?: string
 }>()
 </script>
 
@@ -14,12 +14,15 @@ defineProps<{
   <div class="code-block">
     <div class="code-block__toolbar">
       <span data-code-language>{{ language }}</span>
-      <CopyButton
-        :value="code"
-        :label="copyLabel"
-        :success-label="copySuccessLabel"
-        :failure-label="copyFailureLabel"
-      />
+      <slot name="action">
+        <CopyButton
+          v-if="copyLabel && copySuccessLabel && copyFailureLabel"
+          :value="code"
+          :label="copyLabel"
+          :success-label="copySuccessLabel"
+          :failure-label="copyFailureLabel"
+        />
+      </slot>
     </div>
     <pre><code>{{ code }}</code></pre>
   </div>

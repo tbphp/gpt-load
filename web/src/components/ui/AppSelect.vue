@@ -25,10 +25,12 @@ const props = withDefaults(
     label: string
     options: SelectOption[]
     disabled?: boolean
+    variant?: 'default' | 'embedded'
   }>(),
   {
     modelValue: undefined,
     disabled: false,
+    variant: 'default',
   },
 )
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
@@ -44,6 +46,7 @@ const attrs = useAttrs()
     <SelectTrigger
       v-bind="attrs"
       class="app-select__trigger"
+      :class="`app-select__trigger--${props.variant}`"
       :aria-label="label"
       :disabled="props.disabled"
     >
@@ -97,10 +100,22 @@ const attrs = useAttrs()
   cursor: not-allowed;
   opacity: 0.55;
 }
+.app-select__trigger--embedded {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  border-radius: 0;
+}
 .app-select__value {
   min-width: 0;
   overflow-wrap: anywhere;
   white-space: normal;
+}
+.app-select__trigger--embedded .app-select__value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  overflow-wrap: normal;
+  white-space: nowrap;
 }
 .app-select__chevron {
   flex-shrink: 0;
@@ -144,5 +159,11 @@ const attrs = useAttrs()
   left: 10px;
   display: inline-flex;
   color: var(--color-action);
+}
+
+@media (pointer: coarse) {
+  .app-select__trigger {
+    min-height: var(--touch-target);
+  }
 }
 </style>

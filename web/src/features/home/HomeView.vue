@@ -42,6 +42,11 @@ const statisticsLoading = computed(() => {
   const kind = statistics.state.value.kind
   return kind === 'initial' || kind === 'switching'
 })
+const statisticsFeedbackMessage = computed(() =>
+  statistics.lastSuccessfulObservedAtMS.value === null
+    ? t('home.ledger.statisticsInitialError')
+    : t('home.ledger.statisticsError'),
+)
 const isEmpty = computed(() => {
   const inventory = baseQuery.data.value?.inventory
   return (
@@ -58,7 +63,7 @@ onBeforeUnmount(() => window.clearInterval(uptimeTimer))
 
 <template>
   <PageFrame aria-labelledby="home-title">
-    <LedgerSheet>
+    <LedgerSheet :class="{ 'home-view__sheet--welcome': isEmpty }">
       <div
         v-if="baseQuery.isPending.value"
         class="home-view__loading"
@@ -99,44 +104,52 @@ onBeforeUnmount(() => window.clearInterval(uptimeTimer))
         <div v-if="statistics.state.value.kind === 'stale'" class="home-view__statistics-feedback">
           <QueryFeedback
             state="stale"
-            :message="t('home.ledger.statisticsError')"
+            :message="statisticsFeedbackMessage"
             :retry-label="t('common.retry')"
             @retry="statistics.retry()"
           />
         </div>
 
-        <PageSection
-          v-if="snapshot"
-          :title="t('home.ledger.trendTitle', { range: snapshot.range })"
-        >
-          <TrendChart
-            :series="snapshot.series"
+        <section class="home-view__statistics-region home-view__statistics-region--trend">
+          <PageSection
+            v-if="snapshot"
             :title="t('home.ledger.trendTitle', { range: snapshot.range })"
-            :description="t('home.ledger.trendDescription')"
-            :empty-label="t('home.ledger.trendEmpty')"
-            :request-label="t('home.ledger.requestsLabel')"
-            :failure-label="t('home.ledger.failuresLabel')"
-            :range-start="snapshot.from_ms"
-            :range-end="snapshot.to_ms"
-            :locale="locale"
-          />
-        </PageSection>
-        <PageSection
-          v-else-if="statisticsLoading"
-          :title="t('home.ledger.statisticsLoading')"
-          class="home-view__statistics-section"
-        >
-          <SkeletonBlock height="12rem" :aria-label="t('home.ledger.statisticsLoading')" />
-        </PageSection>
+          >
+            <TrendChart
+              :series="snapshot.series"
+              :title="t('home.ledger.trendTitle', { range: snapshot.range })"
+              :description="t('home.ledger.trendDescription')"
+              :empty-label="t('home.ledger.trendEmpty')"
+              :request-label="t('home.ledger.requestsLabel')"
+              :failure-label="t('home.ledger.failuresLabel')"
+              :range-start="snapshot.from_ms"
+              :range-end="snapshot.to_ms"
+              :locale="locale"
+            />
+          </PageSection>
+          <PageSection
+            v-else-if="statisticsLoading"
+            :title="t('home.ledger.statisticsLoading')"
+            class="home-view__statistics-section"
+          >
+            <SkeletonBlock height="12rem" :aria-label="t('home.ledger.statisticsLoading')" />
+          </PageSection>
+        </section>
 
-        <ConsumptionRanking v-if="snapshot" :rankings="snapshot.rankings" :range="snapshot.range" />
-        <PageSection
-          v-else-if="statisticsLoading"
-          :title="t('home.ledger.statisticsLoading')"
-          class="home-view__statistics-section"
-        >
-          <SkeletonBlock height="12rem" :aria-label="t('home.ledger.statisticsLoading')" />
-        </PageSection>
+        <section class="home-view__statistics-region home-view__statistics-region--ranking">
+          <ConsumptionRanking
+            v-if="snapshot"
+            :rankings="snapshot.rankings"
+            :range="snapshot.range"
+          />
+          <PageSection
+            v-else-if="statisticsLoading"
+            :title="t('home.ledger.statisticsLoading')"
+            class="home-view__statistics-section"
+          >
+            <SkeletonBlock height="17rem" :aria-label="t('home.ledger.statisticsLoading')" />
+          </PageSection>
+        </section>
 
         <GatewayConnection :access-keys="baseQuery.data.value.access_keys" />
       </template>
@@ -154,6 +167,7 @@ onBeforeUnmount(() => window.clearInterval(uptimeTimer))
 
 .home-view__loading {
   align-content: start;
+  min-height: 860px;
 }
 
 .home-view__title {
@@ -169,5 +183,28 @@ onBeforeUnmount(() => window.clearInterval(uptimeTimer))
 
 .home-view__statistics-section :deep(.page-section__content) {
   min-height: 12rem;
+}
+
+.home-view__statistics-region {
+  min-height: 17rem;
+}
+
+.home-view__statistics-region--trend {
+  min-height: 16rem;
+}
+
+.home-view__statistics-region--ranking {
+  min-height: 21rem;
+}
+
+.home-view__sheet--welcome {
+  min-height: 560px;
+}
+
+@media (max-width: 860px) {
+  .home-view__loading,
+  .home-view__sheet--welcome {
+    min-height: 0;
+  }
 }
 </style>

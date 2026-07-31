@@ -24,7 +24,7 @@ export function clientConfiguration(
     case 'cherry-studio':
       return JSON.stringify(
         {
-          apiHost: `${origin}/v1`,
+          apiHost: origin,
           apiKey: key,
         },
         null,

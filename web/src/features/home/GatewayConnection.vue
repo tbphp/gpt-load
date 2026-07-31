@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { Check, Copy, ExternalLink, KeyRound } from '@lucide/vue'
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { ExternalLink, KeyRound } from '@lucide/vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
 
@@ -11,6 +11,10 @@ import { revealAccessKey } from '@/app/resources/access-keys'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppDialog from '@/components/ui/AppDialog.vue'
 import AppSelect from '@/components/ui/AppSelect.vue'
+import CodeBlock from '@/components/ui/CodeBlock.vue'
+import CopyAction from '@/components/ui/CopyAction.vue'
+import InlineFeedback from '@/components/ui/InlineFeedback.vue'
+import SegmentedControl, { type SegmentedControlOption } from '@/components/ui/SegmentedControl.vue'
 
 import { clientConfiguration, gatewayClients, type GatewayClientID } from './gateway-clients'
 
@@ -18,18 +22,33 @@ const props = defineProps<{
   accessKeys: HomeBaseDto['access_keys']
 }>()
 
+type ActionTarget = 'key' | 'configuration' | 'nextchat'
+type FeedbackKind = 'success' | 'failure' | 'popup-blocked'
+
+interface OperationIdentity {
+  operationID: number
+  accessKeyID: number
+  clientID: GatewayClientID
+}
+
+interface ActionFeedback extends OperationIdentity {
+  target: ActionTarget
+  kind: FeedbackKind
+}
+
+const gatewayClientPanelID = 'gateway-client-panel'
+const gatewayClientTabPrefix = 'gateway-client-tab'
 const client = useApiClient()
 const { t } = useI18n()
 const selectedKeyID = ref<number | null>(props.accessKeys[0]?.id ?? null)
 const activeClient = ref<GatewayClientID>('nextchat')
-type ActionTarget = 'key' | 'configuration' | 'nextchat'
-type FeedbackKind = 'success' | 'failure' | 'popup-blocked'
-const feedback = ref<{ target: ActionTarget; kind: FeedbackKind } | null>(null)
+const feedback = ref<ActionFeedback | null>(null)
 const actionBusy = ref(false)
 const nextChatConfirmationOpen = ref(false)
-const clientTabs = ref<HTMLElement | null>(null)
 let resetTimer: number | undefined
 let actionController: AbortController | undefined
+let operationSequence = 0
+let activeOperationID = 0
 let unmounted = false
 
 const origin = window.location.origin
@@ -37,7 +56,17 @@ const selectedKey = computed(
   () => props.accessKeys.find((accessKey) => accessKey.id === selectedKeyID.value) ?? null,
 )
 const selectOptions = computed(() =>
-  props.accessKeys.map((accessKey) => ({ value: String(accessKey.id), label: accessKey.name })),
+  props.accessKeys.map((accessKey) => ({
+    value: String(accessKey.id),
+    label: `${accessKey.name} · ${accessKey.masked_key}`,
+  })),
+)
+const clientOptions = computed<SegmentedControlOption[]>(() =>
+  gatewayClients.map((gatewayClient) => ({
+    value: gatewayClient.id,
+    label: selectedClientLabel(gatewayClient.id),
+    disabled: actionBusy.value,
+  })),
 )
 const currentClient = computed(
   () =>
@@ -52,9 +81,22 @@ const maskedSnippet = computed(() => {
   if (!key || activeClient.value === 'more') return ''
   return clientConfiguration(activeClient.value, origin, key.masked_key)
 })
-
-const feedbackMessage = computed(() => {
+const visibleFeedback = computed(() => {
   const current = feedback.value
+  if (
+    !current ||
+    current.accessKeyID !== selectedKeyID.value ||
+    current.clientID !== activeClient.value
+  ) {
+    return null
+  }
+  return current
+})
+const feedbackTone = computed(() =>
+  visibleFeedback.value?.kind === 'success' ? 'success' : 'danger',
+)
+const feedbackMessage = computed(() => {
+  const current = visibleFeedback.value
   if (!current) return ''
   if (current.target === 'key') {
     return t(
@@ -74,61 +116,134 @@ const feedbackMessage = computed(() => {
   if (current.kind === 'popup-blocked') return t('home.ledger.connection.popupBlocked')
   return t('home.ledger.connection.nextChatFailed')
 })
-
-function setFeedback(target: ActionTarget, kind: FeedbackKind): void {
-  if (unmounted) return
-  feedback.value = { target, kind }
-  window.clearTimeout(resetTimer)
-  resetTimer = window.setTimeout(() => {
-    if (!unmounted) feedback.value = null
-  }, 2_000)
-}
+const configurationCopyState = computed(() =>
+  visibleFeedback.value?.target === 'configuration' && visibleFeedback.value.kind === 'success'
+    ? 'success'
+    : 'idle',
+)
+const keyCopyState = computed(() =>
+  visibleFeedback.value?.target === 'key' && visibleFeedback.value.kind === 'success'
+    ? 'success'
+    : 'idle',
+)
 
 function selectedClientLabel(clientID: GatewayClientID): string {
   return t(`home.ledger.connection.clients.${clientID}`)
 }
 
-function abortActiveAction(): void {
+function identityMatches(identity: OperationIdentity): boolean {
+  return (
+    !unmounted &&
+    activeOperationID === identity.operationID &&
+    selectedKeyID.value === identity.accessKeyID &&
+    activeClient.value === identity.clientID
+  )
+}
+
+function operationIsCurrent(identity: OperationIdentity, controller: AbortController): boolean {
+  return identityMatches(identity) && actionController === controller && !controller.signal.aborted
+}
+
+function setFeedback(identity: OperationIdentity, target: ActionTarget, kind: FeedbackKind): void {
+  if (!identityMatches(identity)) return
+  feedback.value = { ...identity, target, kind }
+  window.clearTimeout(resetTimer)
+  resetTimer = window.setTimeout(() => {
+    if (feedback.value?.operationID === identity.operationID) feedback.value = null
+  }, 2_000)
+}
+
+function setImmediateFeedback(target: ActionTarget, kind: FeedbackKind): void {
+  const accessKey = selectedKey.value
+  if (!accessKey || unmounted) return
+  const identity = {
+    operationID: ++operationSequence,
+    accessKeyID: accessKey.id,
+    clientID: activeClient.value,
+  }
+  activeOperationID = identity.operationID
+  setFeedback(identity, target, kind)
+}
+
+function invalidateSensitiveAction(): void {
+  activeOperationID = ++operationSequence
   actionController?.abort()
   actionController = undefined
   actionBusy.value = false
+  feedback.value = null
+  window.clearTimeout(resetTimer)
 }
 
 watch(
   () => props.accessKeys.map((accessKey) => accessKey.id),
   (ids) => {
     if (selectedKeyID.value !== null && ids.includes(selectedKeyID.value)) return
-    abortActiveAction()
+    invalidateSensitiveAction()
+    nextChatConfirmationOpen.value = false
     selectedKeyID.value = ids[0] ?? null
   },
   { immediate: true },
 )
 
-watch(selectedKeyID, abortActiveAction)
+watch(selectedKeyID, (value, previous) => {
+  if (value === previous) return
+  invalidateSensitiveAction()
+  nextChatConfirmationOpen.value = false
+})
+
+watch(activeClient, (value, previous) => {
+  if (value === previous) return
+  invalidateSensitiveAction()
+  nextChatConfirmationOpen.value = false
+})
+
+function selectKey(value: string): void {
+  if (actionBusy.value) return
+  const id = Number(value)
+  if (Number.isSafeInteger(id) && props.accessKeys.some((accessKey) => accessKey.id === id)) {
+    selectedKeyID.value = id
+  }
+}
+
+function selectClient(value: string): void {
+  if (actionBusy.value) return
+  const gatewayClient = gatewayClients.find((candidate) => candidate.id === value)
+  if (gatewayClient) activeClient.value = gatewayClient.id
+}
 
 async function withRevealedKey(
   target: ActionTarget,
-  operation: (key: string) => Promise<void> | void,
+  clientID: GatewayClientID,
+  operation: (key: string, isCurrent: () => boolean) => Promise<void> | void,
 ): Promise<boolean> {
   const accessKey = selectedKey.value
-  if (!accessKey || actionBusy.value || unmounted) return false
+  if (!accessKey || actionBusy.value || unmounted || activeClient.value !== clientID) {
+    return false
+  }
 
-  const accessKeyID = accessKey.id
+  const identity = {
+    operationID: ++operationSequence,
+    accessKeyID: accessKey.id,
+    clientID,
+  }
   const controller = new AbortController()
+  activeOperationID = identity.operationID
   actionController = controller
-  let secret: string | undefined
   actionBusy.value = true
+  feedback.value = null
+  window.clearTimeout(resetTimer)
+
+  let secret: string | undefined
+  const isCurrent = () => operationIsCurrent(identity, controller)
   try {
-    secret = (await revealAccessKey(client, accessKeyID, controller.signal)).key
-    if (controller.signal.aborted || selectedKey.value?.id !== accessKeyID) return false
-    await operation(secret)
-    if (controller.signal.aborted || selectedKey.value?.id !== accessKeyID) return false
-    setFeedback(target, 'success')
+    secret = (await revealAccessKey(client, identity.accessKeyID, controller.signal)).key
+    if (!isCurrent()) return false
+    await operation(secret, isCurrent)
+    if (!isCurrent()) return false
+    setFeedback(identity, target, 'success')
     return true
   } catch {
-    if (!controller.signal.aborted && selectedKey.value?.id === accessKeyID) {
-      setFeedback(target, 'failure')
-    }
+    if (isCurrent()) setFeedback(identity, target, 'failure')
     return false
   } finally {
     secret = undefined
@@ -140,16 +255,23 @@ async function withRevealedKey(
 }
 
 async function copyAccessKey(): Promise<void> {
-  await withRevealedKey('key', async (key) => navigator.clipboard.writeText(key))
+  const clientID = activeClient.value
+  await withRevealedKey('key', clientID, async (key, isCurrent) => {
+    if (!isCurrent()) return
+    await navigator.clipboard.writeText(key)
+  })
 }
 
 async function copyClientConfiguration(): Promise<void> {
   const clientID = activeClient.value
   if (clientID === 'more' || !selectedKeySupportsClient.value) return
-  await withRevealedKey('configuration', async (key) => {
+
+  await withRevealedKey('configuration', clientID, async (key, isCurrent) => {
+    if (!isCurrent()) return
     let configuration: string | undefined
     try {
       configuration = clientConfiguration(clientID, origin, key)
+      if (!isCurrent()) return
       await navigator.clipboard.writeText(configuration)
     } finally {
       configuration = undefined
@@ -158,57 +280,39 @@ async function copyClientConfiguration(): Promise<void> {
 }
 
 async function openNextChat(): Promise<void> {
-  if (!selectedKeySupportsClient.value || actionBusy.value) return
+  const clientID = activeClient.value
+  if (clientID !== 'nextchat' || !selectedKeySupportsClient.value || actionBusy.value) return
+
   const popup = window.open('about:blank', '_blank')
   if (!popup) {
-    setFeedback('nextchat', 'popup-blocked')
+    setImmediateFeedback('nextchat', 'popup-blocked')
     return
   }
   try {
     popup.opener = null
   } catch {
     popup.close()
-    setFeedback('nextchat', 'failure')
+    setImmediateFeedback('nextchat', 'failure')
     return
   }
   nextChatConfirmationOpen.value = false
 
   let target: string | undefined
-  const opened = await withRevealedKey('nextchat', (key) => {
+  const opened = await withRevealedKey('nextchat', clientID, (key, isCurrent) => {
+    if (!isCurrent()) return
     target = `https://app.nextchat.club/#/?settings=${encodeURIComponent(
       JSON.stringify({ key, url: origin }),
     )}`
+    if (!isCurrent()) return
     popup.location.replace(target)
   })
   target = undefined
   if (!opened) popup.close()
 }
 
-function handleClientTabKeydown(event: KeyboardEvent): void {
-  if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
-  const tabs = [...(clientTabs.value?.querySelectorAll<HTMLButtonElement>('[role="tab"]') ?? [])]
-  const current = event.currentTarget
-  if (!(current instanceof HTMLButtonElement)) return
-  const currentIndex = tabs.indexOf(current)
-  if (currentIndex < 0) return
-
-  let nextIndex = currentIndex
-  if (event.key === 'Home') nextIndex = 0
-  if (event.key === 'End') nextIndex = tabs.length - 1
-  if (event.key === 'ArrowLeft') nextIndex = (currentIndex - 1 + tabs.length) % tabs.length
-  if (event.key === 'ArrowRight') nextIndex = (currentIndex + 1) % tabs.length
-  const next = tabs[nextIndex]
-  const nextID = next?.dataset.clientId as GatewayClientID | undefined
-  if (!next || !nextID || nextID === activeClient.value) return
-  event.preventDefault()
-  activeClient.value = nextID
-  void nextTick(() => next.focus())
-}
-
 onBeforeUnmount(() => {
   unmounted = true
-  abortActiveAction()
-  window.clearTimeout(resetTimer)
+  invalidateSensitiveAction()
 })
 </script>
 
@@ -221,7 +325,7 @@ onBeforeUnmount(() => {
 
     <div v-if="!selectedKey" class="gateway-connection__empty">
       <p>{{ t('home.ledger.connection.noAccessKey') }}</p>
-      <RouterLink class="gateway-connection__create" :to="accessKeysLocation()">
+      <RouterLink class="button-link" :to="accessKeysLocation()">
         {{ t('home.ledger.connection.createAccessKey') }}
       </RouterLink>
     </div>
@@ -229,134 +333,122 @@ onBeforeUnmount(() => {
     <template v-else>
       <div class="gateway-connection__toolbar">
         <div class="gateway-connection__key">
-          <span class="gateway-connection__label">{{ t('home.ledger.connection.accessKey') }}</span>
-          <AppSelect
-            :model-value="String(selectedKey.id)"
-            :label="t('home.ledger.connection.accessKey')"
-            :options="selectOptions"
-            @update:model-value="selectedKeyID = Number($event)"
-          />
-          <div class="gateway-connection__masked">
-            <code>{{ selectedKey.masked_key }}</code>
-            <button
-              type="button"
+          <label class="gateway-connection__label" for="gateway-access-key">
+            {{ t('home.ledger.connection.accessKey') }}
+          </label>
+          <div class="gateway-connection__key-control">
+            <AppSelect
+              id="gateway-access-key"
+              variant="embedded"
+              :model-value="String(selectedKey.id)"
+              :label="t('home.ledger.connection.accessKey')"
+              :options="selectOptions"
               :disabled="actionBusy"
-              :aria-label="t('home.ledger.connection.copyAccessKey')"
-              @click="copyAccessKey"
-            >
-              <Check
-                v-if="feedback?.target === 'key' && feedback.kind === 'success'"
-                :size="16"
-                aria-hidden="true"
-              />
-              <Copy v-else :size="16" aria-hidden="true" />
-            </button>
+              @update:model-value="selectKey"
+            />
+            <CopyAction
+              variant="embedded"
+              :label="t('home.ledger.connection.copyAccessKey')"
+              :disabled="actionBusy"
+              :busy="actionBusy"
+              :state="keyCopyState"
+              @copy="copyAccessKey"
+            />
           </div>
         </div>
 
         <div class="gateway-connection__clients">
-          <span class="gateway-connection__label">{{
-            t('home.ledger.connection.clients.label')
-          }}</span>
-          <div
-            ref="clientTabs"
-            class="gateway-connection__tabs"
-            role="tablist"
-            :aria-label="t('home.ledger.connection.clients.label')"
-          >
-            <button
-              v-for="gatewayClient in gatewayClients"
-              :id="`gateway-client-tab-${gatewayClient.id}`"
-              :key="gatewayClient.id"
-              type="button"
-              role="tab"
-              :aria-selected="activeClient === gatewayClient.id"
-              :aria-controls="`gateway-client-panel-${gatewayClient.id}`"
-              :tabindex="activeClient === gatewayClient.id ? 0 : -1"
-              :data-client-id="gatewayClient.id"
-              :class="{ 'gateway-connection__tab--active': activeClient === gatewayClient.id }"
-              @click="activeClient = gatewayClient.id"
-              @keydown="handleClientTabKeydown"
-            >
-              {{ selectedClientLabel(gatewayClient.id) }}
-            </button>
-          </div>
+          <SegmentedControl
+            :model-value="activeClient"
+            :label="t('home.ledger.connection.clients.label')"
+            :options="clientOptions"
+            :controls-id="gatewayClientPanelID"
+            :id-prefix="gatewayClientTabPrefix"
+            scrollable
+            @update:model-value="selectClient"
+          />
         </div>
       </div>
 
       <div
-        :id="`gateway-client-panel-${activeClient}`"
+        :id="gatewayClientPanelID"
         class="gateway-connection__panel"
         role="tabpanel"
-        :aria-labelledby="`gateway-client-tab-${activeClient}`"
+        :aria-labelledby="`${gatewayClientTabPrefix}-${activeClient}`"
       >
-        <template v-if="activeClient === 'more'">
-          <p>{{ t('home.ledger.connection.moreDescription') }}</p>
-        </template>
-        <template v-else>
-          <p v-if="!selectedKeySupportsClient" class="gateway-connection__warning" role="status">
-            {{
-              t('home.ledger.connection.protocolUnavailable', {
-                client: selectedClientLabel(activeClient),
-                protocol: t(
-                  `home.ledger.connection.requiredProtocols.${currentClient.requiredProtocol}`,
-                ),
-              })
-            }}
-          </p>
-          <div class="gateway-connection__snippet">
-            <pre><code>{{ maskedSnippet }}</code></pre>
-            <div class="gateway-connection__actions">
-              <AppButton
-                variant="secondary"
-                :disabled="!selectedKeySupportsClient || actionBusy"
-                :busy="actionBusy"
-                @click="copyClientConfiguration"
-              >
-                <Check
-                  v-if="feedback?.target === 'configuration' && feedback.kind === 'success'"
-                  :size="16"
-                  aria-hidden="true"
+        <header class="gateway-connection__panel-header">
+          <strong>{{ selectedClientLabel(activeClient) }}</strong>
+          <AppButton
+            v-if="activeClient === 'nextchat'"
+            size="sm"
+            :disabled="!selectedKeySupportsClient || actionBusy"
+            :busy="actionBusy"
+            @click="nextChatConfirmationOpen = true"
+          >
+            <ExternalLink :size="16" aria-hidden="true" />
+            {{ t('home.ledger.connection.openNextChat') }}
+          </AppButton>
+        </header>
+
+        <div class="gateway-connection__panel-body">
+          <template v-if="activeClient === 'more'">
+            <p class="gateway-connection__more">
+              {{ t('home.ledger.connection.moreDescription') }}
+            </p>
+          </template>
+          <template v-else>
+            <InlineFeedback v-if="!selectedKeySupportsClient" tone="warning">
+              {{
+                t('home.ledger.connection.protocolUnavailable', {
+                  client: selectedClientLabel(activeClient),
+                  protocol: t(
+                    `home.ledger.connection.requiredProtocols.${currentClient.requiredProtocol}`,
+                  ),
+                })
+              }}
+            </InlineFeedback>
+
+            <CodeBlock :code="maskedSnippet" :language="selectedClientLabel(activeClient)">
+              <template #action>
+                <CopyAction
+                  :label="t('home.ledger.connection.copyConfiguration')"
+                  :disabled="!selectedKeySupportsClient || actionBusy"
+                  :busy="actionBusy"
+                  :state="configurationCopyState"
+                  @copy="copyClientConfiguration"
                 />
-                <Copy v-else :size="16" aria-hidden="true" />
-                {{ t('home.ledger.connection.copyConfiguration') }}
-              </AppButton>
-              <AppButton
-                v-if="activeClient === 'nextchat'"
-                :disabled="!selectedKeySupportsClient || actionBusy"
-                :busy="actionBusy"
-                @click="nextChatConfirmationOpen = true"
-              >
-                <ExternalLink :size="16" aria-hidden="true" />
-                {{ t('home.ledger.connection.openNextChat') }}
-              </AppButton>
-            </div>
-          </div>
-          <p v-if="activeClient === 'nextchat'" class="gateway-connection__hint">
-            {{ t('home.ledger.connection.disableFastLink') }}
-          </p>
-        </template>
+              </template>
+            </CodeBlock>
+
+            <InlineFeedback v-if="activeClient === 'nextchat'" tone="info">
+              {{ t('home.ledger.connection.disableFastLink') }}
+            </InlineFeedback>
+          </template>
+        </div>
       </div>
     </template>
 
-    <p
-      v-if="feedback"
+    <InlineFeedback
+      v-if="visibleFeedback"
       class="gateway-connection__feedback"
-      role="status"
-      aria-live="polite"
-      aria-atomic="true"
+      :tone="feedbackTone"
     >
       {{ feedbackMessage }}
-    </p>
+    </InlineFeedback>
 
     <AppDialog
       v-model:open="nextChatConfirmationOpen"
       :title="t('home.ledger.connection.nextChatConfirmTitle')"
       :description="t('home.ledger.connection.nextChatConfirmDescription')"
       :close-label="t('common.close')"
+      :dismissible="!actionBusy"
     >
       <div class="gateway-connection__dialog-actions">
-        <AppButton variant="secondary" @click="nextChatConfirmationOpen = false">
+        <AppButton
+          variant="secondary"
+          :disabled="actionBusy"
+          @click="nextChatConfirmationOpen = false"
+        >
           {{ t('common.cancel') }}
         </AppButton>
         <AppButton :busy="actionBusy" @click="openNextChat">
@@ -371,145 +463,102 @@ onBeforeUnmount(() => {
 .gateway-connection {
   padding-top: var(--space-6);
 }
+
 .gateway-connection__heading {
   display: flex;
   align-items: center;
   gap: var(--space-2);
 }
+
 .gateway-connection__heading h2 {
   margin: 0;
   font-family: var(--font-serif);
-  font-size: var(--text-lg);
+  font-size: var(--title-section);
   font-weight: 500;
 }
+
 .gateway-connection__heading svg {
   color: var(--color-text-faint);
 }
+
 .gateway-connection__toolbar {
   display: grid;
   grid-template-columns: minmax(220px, 300px) minmax(0, 1fr);
+  align-items: end;
   gap: var(--space-5);
   margin-top: var(--space-5);
 }
-.gateway-connection__key,
-.gateway-connection__clients {
+
+.gateway-connection__key {
   display: grid;
-  align-content: start;
-  gap: var(--space-2);
+  min-width: 0;
+  gap: 6px;
 }
+
 .gateway-connection__label {
   color: var(--color-text-faint);
   font-size: var(--text-sm);
 }
-.gateway-connection__masked {
+
+.gateway-connection__key-control {
   display: flex;
+  min-width: 0;
   min-height: var(--control-md);
+  overflow: hidden;
+  border: 1px solid var(--color-border-control);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+}
+
+.gateway-connection__key-control :deep(.app-select__trigger) {
+  flex: 1;
+}
+
+.gateway-connection__clients {
+  display: flex;
+  min-width: 0;
+  justify-content: flex-end;
+}
+
+.gateway-connection__panel {
+  margin-top: 14px;
+  overflow: hidden;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sheet);
+  background: var(--color-surface);
+}
+
+.gateway-connection__panel-header {
+  display: flex;
+  min-height: var(--touch-target);
   align-items: center;
   justify-content: space-between;
-  gap: var(--space-2);
-  border: 1px solid var(--color-border-control);
-  border-radius: var(--radius-control);
-  background: var(--color-surface);
-  padding-left: var(--space-3);
-}
-.gateway-connection__masked code,
-.gateway-connection__snippet code {
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-}
-.gateway-connection__masked button {
-  display: inline-flex;
-  width: var(--touch-target);
-  height: var(--touch-target);
-  align-items: center;
-  justify-content: center;
-  align-self: stretch;
-  border: 0;
-  border-left: 1px solid var(--color-border-control);
-  border-radius: 0 var(--radius-control) var(--radius-control) 0;
-  background: transparent;
-  color: var(--color-text-muted);
-  cursor: pointer;
-}
-.gateway-connection__masked button:hover:not(:disabled) {
+  gap: var(--space-3);
+  border-bottom: 1px solid var(--color-border-subtle);
   background: var(--color-surface-sunken);
-  color: var(--color-action);
+  padding: 10px 14px;
 }
-.gateway-connection__masked button:disabled {
-  cursor: not-allowed;
-  opacity: 0.55;
+
+.gateway-connection__panel-header strong {
+  font-size: var(--text-body);
+  font-weight: 600;
 }
-.gateway-connection__tabs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-}
-.gateway-connection__tabs button {
-  min-height: var(--control-sm);
-  border: 1px solid var(--color-border-control);
-  border-radius: var(--radius-control);
-  background: var(--color-surface);
-  color: var(--color-text-muted);
-  padding: 5px 10px;
-  font: inherit;
-  font-size: var(--text-sm);
-  cursor: pointer;
-}
-.gateway-connection__tabs button:hover,
-.gateway-connection__tabs button:focus-visible {
-  border-color: var(--color-text-faint);
-  color: var(--color-text);
-}
-.gateway-connection__tab--active {
-  border-color: var(--color-text) !important;
-  background: var(--color-text) !important;
-  color: var(--color-surface) !important;
-}
-.gateway-connection__panel {
-  margin-top: var(--space-4);
-  border-top: 1px solid var(--color-border-subtle);
-  padding-top: var(--space-4);
-}
-.gateway-connection__panel > p {
-  margin: 0;
-  color: var(--color-text-muted);
-}
-.gateway-connection__snippet {
+
+.gateway-connection__panel-body {
   display: grid;
   gap: var(--space-3);
+  padding: 14px;
 }
-.gateway-connection__snippet pre {
-  max-width: 100%;
+
+.gateway-connection__more {
   margin: 0;
-  overflow: auto;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-control);
-  background: var(--color-code-bg);
-  color: var(--color-code);
-  padding: var(--space-4);
-  white-space: pre-wrap;
-}
-.gateway-connection__actions {
-  display: flex;
-  gap: var(--space-2);
-}
-.gateway-connection__warning,
-.gateway-connection__hint {
-  margin: 0 0 var(--space-3) !important;
-  font-size: var(--text-sm);
-}
-.gateway-connection__warning {
-  color: var(--color-warning);
-}
-.gateway-connection__hint {
-  margin-top: var(--space-3) !important;
-  color: var(--color-text-faint);
-}
-.gateway-connection__feedback {
-  margin: var(--space-3) 0 0;
   color: var(--color-text-muted);
-  font-size: var(--text-sm);
 }
+
+.gateway-connection__feedback {
+  margin-top: var(--space-3);
+}
+
 .gateway-connection__empty {
   display: flex;
   flex-wrap: wrap;
@@ -517,22 +566,26 @@ onBeforeUnmount(() => {
   gap: var(--space-3);
   margin-top: var(--space-4);
 }
+
 .gateway-connection__empty p {
   margin: 0;
   color: var(--color-text-muted);
 }
-.gateway-connection__create {
-  color: var(--color-action);
-  font-weight: 600;
-}
+
 .gateway-connection__dialog-actions {
   display: flex;
   justify-content: flex-end;
   gap: var(--space-2);
 }
-@media (max-width: 760px) {
+
+@media (max-width: 860px) {
   .gateway-connection__toolbar {
     grid-template-columns: 1fr;
+    gap: 14px;
+  }
+
+  .gateway-connection__clients {
+    justify-content: flex-start;
   }
 }
 </style>

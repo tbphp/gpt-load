@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, useId, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, useId, watch } from 'vue'
 
 import { formatISOInstant, formatInteger, formatLocalTimeRange } from '@/lib/format'
 
@@ -21,12 +21,13 @@ const props = withDefaults(
 )
 
 const width = 1000
-const requestHeight = 176
-const failureHeight = 24
+const chartHeight = 158
+const maximumFailureHeight = 46
 const descriptionID = `trend-chart-description-${useId()}`
 const chartElement = ref<HTMLElement>()
 const activePointIndex = ref<number | null>(null)
-const keyboardAnnouncement = ref('')
+const selectionAnnouncement = ref('')
+let announcementGeneration = 0
 const chartSeries = computed(() =>
   isTrendSeriesUsable(props.series, props.rangeStart, props.rangeEnd) ? props.series : [],
 )
@@ -43,8 +44,8 @@ const geometry = computed(() =>
   buildTrendGeometry(
     chartSeries.value,
     width,
-    requestHeight,
-    failureHeight,
+    chartHeight,
+    maximumFailureHeight,
     props.rangeStart,
     props.rangeEnd,
   ),
@@ -61,7 +62,7 @@ const tooltipStyle = computed(() => {
   if (!point) return undefined
   return {
     left: `${(point.x / width) * 100}%`,
-    top: `${(point.y / requestHeight) * 100}%`,
+    top: `${(point.y / chartHeight) * 100}%`,
   }
 })
 const tooltipAlignment = computed(() => {
@@ -74,7 +75,7 @@ const tooltipAlignment = computed(() => {
 
 watch(seriesKey, () => {
   activePointIndex.value = null
-  keyboardAnnouncement.value = ''
+  clearAnnouncement()
 })
 
 function formatBucketRange(datum: TrendDatum): string {
@@ -91,9 +92,24 @@ function pointAnnouncement(index: number): string {
   return `${formatBucketRange(datum)} · ${props.requestLabel} ${tooltipValue(datum.request_count)} · ${props.failureLabel} ${tooltipValue(datum.failure_count)}`
 }
 
+function clearAnnouncement(): void {
+  announcementGeneration += 1
+  selectionAnnouncement.value = ''
+}
+
+function announcePoint(index: number): void {
+  const message = pointAnnouncement(index)
+  const generation = ++announcementGeneration
+  selectionAnnouncement.value = ''
+  void nextTick(() => {
+    if (generation === announcementGeneration) selectionAnnouncement.value = message
+  })
+}
+
 function selectPoint(index: number | null, announce = false): void {
   activePointIndex.value = index
-  keyboardAnnouncement.value = index === null || !announce ? '' : pointAnnouncement(index)
+  if (index === null) clearAnnouncement()
+  else if (announce) announcePoint(index)
 }
 
 function nearestPointIndex(event: PointerEvent | MouseEvent): number | null {
@@ -110,12 +126,17 @@ function nearestPointIndex(event: PointerEvent | MouseEvent): number | null {
   )
 }
 
-function selectNearest(event: PointerEvent | MouseEvent): void {
-  selectPoint(nearestPointIndex(event))
+function selectNearest(event: PointerEvent | MouseEvent, announce = false): void {
+  const index = nearestPointIndex(event)
+  selectPoint(index, announce && index !== null)
 }
 
 function onPointerMove(event: PointerEvent): void {
   if (event.pointerType !== 'touch') selectNearest(event)
+}
+
+function onCommitSelection(event: MouseEvent): void {
+  selectNearest(event, true)
 }
 
 function onPointerLeave(event: PointerEvent): void {
@@ -167,7 +188,7 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', closeOnExterna
     role="group"
     :aria-label="title"
     :aria-describedby="descriptionID"
-    @click="selectNearest"
+    @click="onCommitSelection"
     @focusout="closeOnFocusLeave"
     @keydown="onKeydown"
     @pointerleave="onPointerLeave"
@@ -175,21 +196,25 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', closeOnExterna
   >
     <span :id="descriptionID" class="trend-chart__visually-hidden">{{ description }}</span>
     <span class="trend-chart__visually-hidden" aria-live="polite" aria-atomic="true">
-      {{ keyboardAnnouncement }}
+      {{ selectionAnnouncement }}
     </span>
     <div class="trend-chart__plot-stack">
       <Transition name="trend-chart__data" appear>
         <div :key="seriesKey" class="trend-chart__data-layer">
           <div class="trend-chart__request-frame">
             <svg
-              class="trend-chart__request-graphic"
-              :viewBox="`0 0 ${width} ${requestHeight}`"
+              class="trend-chart__graphic"
+              :viewBox="`0 0 ${width} ${chartHeight}`"
               preserveAspectRatio="none"
               aria-hidden="true"
             >
               <g class="trend-chart__grid">
                 <line
-                  v-for="lineY in [0, requestHeight / 2, requestHeight]"
+                  v-for="lineY in [
+                    geometry.plotTop,
+                    (geometry.plotTop + geometry.baseline) / 2,
+                    geometry.baseline,
+                  ]"
                   :key="lineY"
                   x1="0"
                   :y1="lineY"
@@ -198,15 +223,26 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', closeOnExterna
                 />
               </g>
               <path class="trend-chart__area" :d="geometry.requestAreaPath" />
+              <g class="trend-chart__failure-bars">
+                <rect
+                  v-for="(bar, index) in geometry.failureBars.filter((bar) => bar.value > 0)"
+                  :key="`${bar.x}:${index}`"
+                  :x="bar.x"
+                  :y="bar.y"
+                  :width="bar.width"
+                  :height="bar.height"
+                  rx="1.5"
+                />
+              </g>
               <path class="trend-chart__line" :d="geometry.requestPath" />
               <Transition name="trend-chart__active">
                 <g v-if="activePoint" class="trend-chart__active-markers">
                   <line
                     class="trend-chart__guide"
                     :x1="activePoint.point.x"
-                    y1="0"
+                    :y1="geometry.plotTop"
                     :x2="activePoint.point.x"
-                    :y2="requestHeight"
+                    :y2="geometry.baseline"
                   />
                   <circle
                     class="trend-chart__dot"
@@ -233,22 +269,6 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', closeOnExterna
               </div>
             </Transition>
           </div>
-          <svg
-            class="trend-chart__failure-graphic"
-            :viewBox="`0 0 ${width} ${failureHeight}`"
-            preserveAspectRatio="none"
-            aria-hidden="true"
-          >
-            <rect
-              v-for="(bar, index) in geometry.failureBars.filter((bar) => bar.value > 0)"
-              :key="`${bar.x}:${index}`"
-              :x="bar.x"
-              :y="bar.y"
-              :width="bar.width"
-              :height="bar.height"
-              rx="1"
-            />
-          </svg>
         </div>
       </Transition>
     </div>
@@ -285,36 +305,29 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', closeOnExterna
 
 .trend-chart__plot-stack {
   position: relative;
-  height: calc(176px + var(--space-1) + 24px);
+  height: 158px;
 }
 
 .trend-chart__data-layer {
-  display: grid;
+  height: 158px;
 }
 
-.trend-chart__request-graphic,
-.trend-chart__failure-graphic {
+.trend-chart__graphic {
   display: block;
   width: 100%;
-}
-
-.trend-chart__request-graphic {
-  height: 176px;
-}
-
-.trend-chart__failure-graphic {
-  height: 24px;
-  margin-top: var(--space-1);
+  height: 158px;
 }
 
 .trend-chart__grid line {
   stroke: var(--color-border-subtle);
   stroke-width: 1;
+  stroke-dasharray: 3 4;
   vector-effect: non-scaling-stroke;
 }
 
 .trend-chart__area {
-  fill: color-mix(in srgb, var(--color-action) 12%, transparent);
+  fill: var(--color-action);
+  opacity: 0.1;
 }
 
 .trend-chart__line {
@@ -322,7 +335,7 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', closeOnExterna
   stroke: var(--color-action);
   stroke-linecap: round;
   stroke-linejoin: round;
-  stroke-width: 2.5;
+  stroke-width: 2;
   vector-effect: non-scaling-stroke;
 }
 
@@ -339,8 +352,9 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', closeOnExterna
   vector-effect: non-scaling-stroke;
 }
 
-.trend-chart__failure-graphic rect {
+.trend-chart__failure-bars rect {
   fill: var(--color-danger);
+  opacity: 0.78;
 }
 
 .trend-chart__tooltip {
@@ -405,7 +419,7 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', closeOnExterna
 
   .trend-chart__area,
   .trend-chart__line,
-  .trend-chart__failure-graphic rect {
+  .trend-chart__failure-bars rect {
     transition: fill var(--duration-data) var(--easing-data);
   }
 }

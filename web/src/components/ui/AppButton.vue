@@ -110,4 +110,10 @@ withDefaults(
 .app-button[aria-busy='true'] {
   cursor: wait;
 }
+
+@media (pointer: coarse) {
+  .app-button {
+    min-height: var(--touch-target);
+  }
+}
 </style>

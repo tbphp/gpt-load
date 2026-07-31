@@ -11,12 +11,16 @@ defineProps<{
   modelValue: string
   label: string
   options: SegmentedControlOption[]
+  controlsId?: string
+  idPrefix?: string
+  scrollable?: boolean
 }>()
 
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
 
 function handleSegmentKeydown(event: KeyboardEvent): void {
   if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+  event.preventDefault()
 
   const current = event.currentTarget
   if (!(current instanceof HTMLButtonElement)) return
@@ -38,7 +42,6 @@ function handleSegmentKeydown(event: KeyboardEvent): void {
   const next = triggers[nextIndex]
   const value = next?.dataset.segmentValue
   if (!next || !value || next === current) return
-  event.preventDefault()
   next.focus()
   emit('update:modelValue', value)
 }
@@ -52,13 +55,19 @@ function handleSegmentKeydown(event: KeyboardEvent): void {
     activation-mode="manual"
     @update:model-value="(value) => typeof value === 'string' && emit('update:modelValue', value)"
   >
-    <TabsList class="segmented-control__list" :aria-label="label">
+    <TabsList
+      class="segmented-control__list"
+      :class="{ 'segmented-control__list--scrollable': scrollable }"
+      :aria-label="label"
+    >
       <TabsTrigger
         v-for="option in options"
+        :id="idPrefix ? `${idPrefix}-${option.value}` : undefined"
         :key="option.value"
         class="segmented-control__trigger"
         :value="option.value"
         :disabled="option.disabled"
+        :aria-controls="controlsId"
         :data-segment-value="option.value"
         @keydown="handleSegmentKeydown"
       >
@@ -70,6 +79,7 @@ function handleSegmentKeydown(event: KeyboardEvent): void {
 
 <style scoped>
 .segmented-control {
+  max-width: 100%;
   display: inline-flex;
 }
 .segmented-control__list {
@@ -80,6 +90,11 @@ function handleSegmentKeydown(event: KeyboardEvent): void {
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-control);
   background: var(--color-surface);
+}
+.segmented-control__list--scrollable {
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
 }
 .segmented-control__trigger {
   min-height: var(--control-compact);
@@ -108,5 +123,11 @@ function handleSegmentKeydown(event: KeyboardEvent): void {
 .segmented-control__trigger:disabled {
   cursor: not-allowed;
   opacity: 0.55;
+}
+
+@media (pointer: coarse) {
+  .segmented-control__trigger {
+    min-height: var(--touch-target);
+  }
 }
 </style>

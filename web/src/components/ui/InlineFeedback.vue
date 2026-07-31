@@ -13,6 +13,7 @@ const props = withDefaults(
 const role = computed(() =>
   props.tone === 'info' || props.tone === 'success' ? 'status' : 'alert',
 )
+const live = computed(() => (role.value === 'status' ? 'polite' : 'assertive'))
 const glyph = computed(() => {
   if (props.tone === 'success') return '✓'
   if (props.tone === 'danger' || props.tone === 'warning') return '▲'
@@ -21,7 +22,13 @@ const glyph = computed(() => {
 </script>
 
 <template>
-  <div class="inline-feedback" :class="`inline-feedback--${tone}`" :role="role">
+  <div
+    class="inline-feedback"
+    :class="`inline-feedback--${tone}`"
+    :role="role"
+    :aria-live="live"
+    aria-atomic="true"
+  >
     <span class="inline-feedback__glyph" aria-hidden="true">{{ glyph }}</span>
     <span><slot /></span>
   </div>

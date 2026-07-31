@@ -23,6 +23,8 @@ export interface TrendGeometry {
   requestAreaPath: string
   requestPoints: TrendPoint[]
   failureBars: TrendFailureBar[]
+  plotTop: number
+  baseline: number
 }
 
 interface ParsedDatum {
@@ -97,18 +99,18 @@ function appendSegmentPath(points: readonly TrendPoint[]): string {
   return points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`).join(' ')
 }
 
-function appendAreaPath(points: readonly TrendPoint[], requestHeight: number): string {
+function appendAreaPath(points: readonly TrendPoint[], baseline: number): string {
   const first = points[0]
   const last = points.at(-1)
   if (!first || !last) return ''
-  return `M ${first.x} ${requestHeight} ${appendSegmentPath(points).replace(/^M /u, 'L ')} L ${last.x} ${requestHeight} Z`
+  return `M ${first.x} ${baseline} ${appendSegmentPath(points).replace(/^M /u, 'L ')} L ${last.x} ${baseline} Z`
 }
 
 export function buildTrendGeometry(
   series: readonly TrendDatum[],
   width: number,
-  requestHeight: number,
-  failureHeight: number,
+  chartHeight: number,
+  maximumFailureHeight: number,
   rangeStart: number,
   rangeEnd: number,
 ): TrendGeometry {
@@ -117,11 +119,13 @@ export function buildTrendGeometry(
     requestAreaPath: '',
     requestPoints: [],
     failureBars: [],
+    plotTop: 0,
+    baseline: 0,
   }
   if (
     !validDimension(width) ||
-    !validDimension(requestHeight) ||
-    !validDimension(failureHeight) ||
+    !validDimension(chartHeight) ||
+    !validDimension(maximumFailureHeight) ||
     series.length === 0 ||
     !isTrendSeriesUsable(series, rangeStart, rangeEnd)
   ) {
@@ -132,16 +136,18 @@ export function buildTrendGeometry(
   const rangeDuration = rangeEnd - rangeStart
   const maximumRequests = Math.max(...parsed.map((datum) => datum.requestCount))
   const maximumFailures = Math.max(...parsed.map((datum) => datum.failureCount))
-  const requestTopInset = Math.min(14, requestHeight * 0.08)
+  const plotTop = Math.min(14, chartHeight * 0.1)
+  const plotBottomInset = Math.min(8, chartHeight * 0.1)
+  const baseline = chartHeight - plotBottomInset
+  const failureHeight = Math.min(maximumFailureHeight, baseline - plotTop)
   const points = parsed.map<TrendPoint>((datum) => {
     const midpoint = datum.start + (datum.end - datum.start) / 2
     return {
       x: round(((midpoint - rangeStart) / rangeDuration) * width),
       y: round(
         maximumRequests === 0
-          ? requestHeight
-          : requestTopInset +
-              (1 - datum.requestCount / maximumRequests) * (requestHeight - requestTopInset),
+          ? baseline
+          : plotTop + (1 - datum.requestCount / maximumRequests) * (baseline - plotTop),
       ),
     }
   })
@@ -157,21 +163,25 @@ export function buildTrendGeometry(
 
   return {
     requestPath: segments.map(appendSegmentPath).join(' '),
-    requestAreaPath: segments.map((segment) => appendAreaPath(segment, requestHeight)).join(' '),
+    requestAreaPath: segments.map((segment) => appendAreaPath(segment, baseline)).join(' '),
     requestPoints: points,
     failureBars: parsed.map((datum, index) => {
       const height =
-        maximumFailures === 0 ? 0 : round((datum.failureCount / maximumFailures) * failureHeight)
+        maximumFailures === 0 || datum.failureCount === 0
+          ? 0
+          : round(Math.max(3, (datum.failureCount / maximumFailures) * failureHeight))
       const rawWidth = ((datum.end - datum.start) / rangeDuration) * width
-      const barWidth = Math.max(2, Math.min(rawWidth * 0.68, width))
+      const barWidth = Math.min(rawWidth, width, Math.max(3, Math.min(6, rawWidth * 0.26)))
       const point = points[index]!
       return {
         x: round(Math.max(0, Math.min(width - barWidth, point.x - barWidth / 2))),
-        y: round(failureHeight - height),
+        y: round(baseline - height),
         width: round(barWidth),
         height,
         value: datum.failureCount,
       }
     }),
+    plotTop,
+    baseline,
   }
 }

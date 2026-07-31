@@ -3,7 +3,6 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import type { HomeBaseDto, HomeRange } from '@/app/resources/home'
-import PageSection from '@/components/layout/PageSection.vue'
 import SegmentedControl from '@/components/ui/SegmentedControl.vue'
 import SkeletonBlock from '@/components/ui/SkeletonBlock.vue'
 import StatFigure from '@/components/ui/StatFigure.vue'
@@ -117,26 +116,22 @@ function selectRange(value: string): void {
     </dl>
   </header>
 
-  <PageSection class="home-summary__figures" :divided="true">
-    <template #actions>
-      <SegmentedControl
-        class="home-summary__range"
-        :model-value="selectedRange"
-        :label="t('home.range.label')"
-        :options="rangeOptions"
-        @update:model-value="selectRange"
+  <section class="home-summary__figures">
+    <template v-if="isSwitching || !snapshot">
+      <SkeletonBlock
+        class="home-summary__figure"
+        height="5.5rem"
+        :aria-label="t('home.ledger.statisticsLoading')"
+      />
+      <SkeletonBlock
+        class="home-summary__figure home-summary__figure--secondary"
+        height="5.5rem"
+        :aria-label="t('home.ledger.statisticsLoading')"
       />
     </template>
-    <div
-      v-if="isSwitching || !snapshot"
-      class="home-summary__skeletons"
-      :aria-label="t('home.ledger.statisticsLoading')"
-    >
-      <SkeletonBlock height="5.5rem" />
-      <SkeletonBlock height="5.5rem" />
-    </div>
-    <div v-else class="home-summary__stats">
+    <template v-else>
       <StatFigure
+        class="home-summary__figure"
         :label="t('home.ledger.successRate')"
         :value="
           formatPercent(snapshot.summary.success_count, snapshot.summary.request_count, locale)
@@ -144,12 +139,20 @@ function selectRange(value: string): void {
         :detail="successDetail"
       />
       <StatFigure
+        class="home-summary__figure home-summary__figure--secondary"
         :label="t('home.ledger.estimatedCost')"
         :value="formatEstimatedCost(snapshot.summary.estimated_cost_nano_usd, locale)"
         :detail="costDetail"
       />
-    </div>
-  </PageSection>
+    </template>
+    <SegmentedControl
+      class="home-summary__range"
+      :model-value="selectedRange"
+      :label="t('home.range.label')"
+      :options="rangeOptions"
+      @update:model-value="selectRange"
+    />
+  </section>
 </template>
 
 <style scoped>
@@ -163,6 +166,7 @@ function selectRange(value: string): void {
 }
 
 .home-summary__facts {
+  max-width: none;
   margin: 0;
   color: var(--color-text-muted);
   font-family: var(--font-serif);
@@ -211,26 +215,23 @@ function selectRange(value: string): void {
 }
 
 .home-summary__figures {
-  position: relative;
-}
-.home-summary__figures :deep(.page-section__header) {
-  justify-content: flex-end;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
+  align-items: start;
+  gap: var(--space-7);
+  border-bottom: 1px solid var(--color-border-subtle);
+  padding: var(--space-6) 0;
 }
 .home-summary__range {
   flex: none;
+  grid-column: 3;
 }
-.home-summary__stats,
-.home-summary__skeletons {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+.home-summary__figure {
   min-height: 5.5rem;
 }
-.home-summary__stats > :nth-child(2) {
+.home-summary__figure--secondary {
   border-left: 1px solid var(--color-border-subtle);
   padding-left: var(--space-7);
-}
-.home-summary__skeletons {
-  gap: var(--space-7);
 }
 
 @media (max-width: 860px) {
@@ -244,10 +245,19 @@ function selectRange(value: string): void {
   .home-summary__stamp div {
     justify-content: start;
   }
-  .home-summary__figures :deep(.page-section__content) {
-    width: 100%;
+  .home-summary__figures {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-4);
   }
-  .home-summary__stats > :nth-child(2) {
+  .home-summary__range {
+    grid-column: 1 / -1;
+    grid-row: 1;
+    justify-self: end;
+  }
+  .home-summary__figure {
+    grid-row: 2;
+  }
+  .home-summary__figure--secondary {
     padding-left: var(--space-4);
   }
 }
