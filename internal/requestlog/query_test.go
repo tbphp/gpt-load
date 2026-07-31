@@ -407,7 +407,7 @@ func TestServiceListGroupFilterUsesAnyAttemptWhileAttributionUsesFinalGroup(t *t
 			State: usage.StateNotApplicable,
 		},
 	}
-	row := mapEvent(redact.New(), event, (*pricing.Table)(nil))
+	row := mustMapEvent(t, redact.New(), event, (*pricing.Table)(nil))
 	if row.GroupID != 13 {
 		t.Fatalf("top-level GroupID = %d, want final attribution 13", row.GroupID)
 	}

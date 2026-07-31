@@ -116,6 +116,45 @@ func TestServiceDropsFailedBatchAndContinues(t *testing.T) {
 	}
 }
 
+func TestServiceDropsInvalidProjectionWithoutDiscardingValidRows(t *testing.T) {
+	timers := newManualTimerFactory()
+	writes := make(chan []models.RequestLog, 1)
+	service := newService(
+		batchWriterFunc(func(_ context.Context, rows []models.RequestLog) error {
+			writes <- append([]models.RequestLog(nil), rows...)
+			return nil
+		}),
+		redact.New(),
+		timers.New,
+		newStaticPriceTableProvider(),
+	)
+	if err := service.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+
+	invalid := testEvent("invalid-completion")
+	invalid.CompletedAt = time.Unix(-1, 0)
+	service.Emit(invalid)
+	service.Emit(testEvent("valid-completion"))
+	receiveValue(t, timers.created).Fire()
+
+	rows := receiveValue(t, writes)
+	if len(rows) != 1 || rows[0].ID != "valid-completion" {
+		t.Fatalf("persisted rows = %+v, want only valid-completion", rows)
+	}
+	if err := service.Stop(context.Background()); err != nil {
+		t.Fatalf("Stop() error = %v", err)
+	}
+	stats := service.Stats()
+	if stats.WriteFailureTotal != 1 ||
+		stats.DroppedPersistFailedTotal != 1 ||
+		stats.PersistedTotal != 1 ||
+		stats.DroppedTotal != 1 ||
+		stats.LastWriteFailureAt.IsZero() {
+		t.Fatalf("stats after projection failure = %+v", stats)
+	}
+}
+
 func TestServiceStopDrainsAndIsIdempotent(t *testing.T) {
 	writes := make(chan []models.RequestLog, 2)
 	service := newService(

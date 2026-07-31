@@ -34,7 +34,7 @@ func TestMapEventV3PersistsMillisecondLedgerAndQuotesUpstreamModel(t *testing.T)
 		},
 	}
 
-	row := mapEvent(redact.New(), event, prices)
+	row := mustMapEvent(t, redact.New(), event, prices)
 
 	if row.CompletedAtMS != 1_784_896_496_789 {
 		t.Fatalf("CompletedAtMS = %d, want 1784896496789", row.CompletedAtMS)

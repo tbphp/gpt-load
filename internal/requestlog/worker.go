@@ -547,21 +547,37 @@ func (service *Service) drain(ctx context.Context, batch []queuedEvent) {
 }
 
 func (service *Service) writeBatch(ctx context.Context, events []queuedEvent) {
-	rows := make([]models.RequestLog, len(events))
-	for index, event := range events {
-		rows[index] = mapEvent(service.redactor, event.Event, event.Prices)
+	rows := make([]models.RequestLog, 0, len(events))
+	projectionFailures := 0
+	for _, event := range events {
+		row, err := mapEvent(service.redactor, event.Event, event.Prices)
+		if err != nil {
+			projectionFailures++
+			continue
+		}
+		rows = append(rows, row)
+	}
+	if projectionFailures > 0 {
+		service.recordPersistFailure("projection_failure", projectionFailures)
+	}
+	if len(rows) == 0 {
+		return
 	}
 
 	if err := service.writer.WriteBatch(ctx, rows); err != nil {
-		service.writeFailureTotal.Add(1)
-		service.droppedPersistFailedTotal.Add(uint64(len(events)))
-		service.statsMu.Lock()
-		service.lastWriteFailureAt = service.now().UTC()
-		service.statsMu.Unlock()
-		service.warn("write_failure", len(events))
+		service.recordPersistFailure("write_failure", len(rows))
 		return
 	}
-	service.persistedTotal.Add(uint64(len(events)))
+	service.persistedTotal.Add(uint64(len(rows)))
+}
+
+func (service *Service) recordPersistFailure(reason string, count int) {
+	service.writeFailureTotal.Add(1)
+	service.droppedPersistFailedTotal.Add(uint64(count))
+	service.statsMu.Lock()
+	service.lastWriteFailureAt = service.now().UTC()
+	service.statsMu.Unlock()
+	service.warn(reason, count)
 }
 
 func (service *Service) dropUnattempted(batch []queuedEvent) {

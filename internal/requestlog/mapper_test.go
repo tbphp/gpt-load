@@ -46,7 +46,7 @@ func TestMapEventPersistsCompletedAtZeroUsageAndJSONArray(t *testing.T) {
 		}},
 	}
 
-	row := mapEvent(redact.New(), event, nil)
+	row := mustMapEvent(t, redact.New(), event, nil)
 	if row.ID != event.RequestID || row.CompletedAtMS != 1_784_896_200_000 {
 		t.Fatalf(
 			"identity/completed_at_ms = %q/%d, want %q/1784896200000",
@@ -78,9 +78,21 @@ func TestMapEventPersistsCompletedAtZeroUsageAndJSONArray(t *testing.T) {
 		t.Fatalf("attempts = %+v", attempts)
 	}
 
-	zeroAttempts := mapEvent(redact.New(), telemetry.RequestEvent{}, nil)
+	zeroEvent := telemetry.RequestEvent{
+		CompletedAt: time.Date(1970, time.January, 1, 0, 0, 0, 0, time.UTC),
+	}
+	zeroAttempts := mustMapEvent(t, redact.New(), zeroEvent, nil)
 	if string(zeroAttempts.Attempts) != "[]" {
 		t.Fatalf("zero attempts JSON = %q, want []", zeroAttempts.Attempts)
+	}
+}
+
+func TestMapEventRejectsPreEpochCompletion(t *testing.T) {
+	event := testEvent("pre-epoch-completion")
+	event.CompletedAt = time.Unix(-1, 0)
+
+	if _, err := mapEvent(redact.New(), event, nil); err == nil {
+		t.Fatal("mapEvent() error = nil, want pre-epoch completion rejection")
 	}
 }
 
@@ -94,7 +106,8 @@ func TestMapEventDefensivelyRedactsAndBoundsSummaries(t *testing.T) {
 		}},
 	}
 
-	row := mapEvent(redact.New(), event, nil)
+	event.CompletedAt = time.Date(2026, time.July, 24, 12, 0, 0, 0, time.UTC)
+	row := mustMapEvent(t, redact.New(), event, nil)
 	if len(row.ErrorSummary) > maxSummaryBytes || !utf8.ValidString(row.ErrorSummary) {
 		t.Fatalf("request summary bytes/UTF-8 = %d/%t", len(row.ErrorSummary), utf8.ValidString(row.ErrorSummary))
 	}
@@ -140,7 +153,8 @@ func TestMapEventBoundsModelsAtUTF8Boundary(t *testing.T) {
 		strings.Repeat("b", wantMaxModelBytes-len(truncatedMarker))+truncatedMarker,
 		pricing.Prices{Output: pricing.Price{NanoUSDPerMillion: 1_000_000_000, Set: true}},
 	)
-	row := mapEvent(redact.New(), event, projectedPriceTable)
+	event.CompletedAt = time.Date(2026, time.July, 24, 12, 0, 0, 0, time.UTC)
+	row := mustMapEvent(t, redact.New(), event, projectedPriceTable)
 
 	assertProjectedModel := func(name, projected, original string, wantTruncated bool) {
 		t.Helper()
@@ -202,7 +216,8 @@ func TestMapEventBoundsModelsAtUTF8Boundary(t *testing.T) {
 			Tokens: usage.Tokens{Output: 1_000_000},
 		}},
 	}
-	pricedRow := mapEvent(redact.New(), pricedEvent, rawPriceTable)
+	pricedEvent.CompletedAt = time.Date(2026, time.July, 24, 12, 0, 0, 0, time.UTC)
+	pricedRow := mustMapEvent(t, redact.New(), pricedEvent, rawPriceTable)
 	if pricedRow.UpstreamModel == rawInvalidModel || !utf8.ValidString(pricedRow.UpstreamModel) {
 		t.Fatalf("priced row upstream model was not projected safely: %q", pricedRow.UpstreamModel)
 	}
@@ -244,7 +259,7 @@ func TestMapEventPersistsUsageAttributionAndQuote(t *testing.T) {
 			},
 		}
 
-		row := mapEvent(redact.New(), event, table)
+		row := mustMapEvent(t, redact.New(), event, table)
 
 		if row.GroupID != 23 || row.UpstreamModel != "actual-upstream" {
 			t.Fatalf("attribution = group:%d model:%q, want group:23 model:actual-upstream", row.GroupID, row.UpstreamModel)
@@ -283,7 +298,7 @@ func TestMapEventPersistsUsageAttributionAndQuote(t *testing.T) {
 			},
 		}
 
-		row := mapEvent(redact.New(), event, table)
+		row := mustMapEvent(t, redact.New(), event, table)
 
 		if row.UncachedInputTokens != 6 || row.CacheReadTokens != 7 ||
 			row.CacheWrite5MTokens != 8 || row.CacheWrite1HTokens != 9 ||
@@ -318,7 +333,7 @@ func TestMapEventPersistsUsageAttributionAndQuote(t *testing.T) {
 			},
 		}
 
-		row := mapEvent(redact.New(), event, table)
+		row := mustMapEvent(t, redact.New(), event, table)
 
 		if row.GroupID != 25 || row.UpstreamModel != "actual-upstream" ||
 			row.UncachedInputTokens != 11 || row.OutputTokens != 12 {
@@ -361,7 +376,7 @@ func TestMapEventHandlesNilPriceTableFailOpen(t *testing.T) {
 				},
 			}
 
-			row := mapEvent(redact.New(), event, nil)
+			row := mustMapEvent(t, redact.New(), event, nil)
 
 			if row.UsageState != string(test.usage) || row.CostState != string(test.wantState) ||
 				row.EstimatedCostNanoUSD != 0 || row.UncachedInputTokens != 13 || row.CacheReadTokens != 14 ||

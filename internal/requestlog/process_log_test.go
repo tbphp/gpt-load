@@ -600,7 +600,7 @@ func TestProjectProcessLogMatchesDurableProjection(t *testing.T) {
 		},
 	}
 	redactor := redact.New()
-	row := mapEvent(redactor, event, table)
+	row := mustMapEvent(t, redactor, event, table)
 
 	_, fields, ok := projectProcessLog(redactor, event, table)
 	if !ok {
@@ -644,7 +644,7 @@ func TestProcessAndDurableProjectionsRedactSensitiveIdentityFieldsConsistently(
 	}
 
 	redactor := redact.New()
-	row := mapEvent(redactor, event, nil)
+	row := mustMapEvent(t, redactor, event, nil)
 	var attempts []Attempt
 	if err := json.Unmarshal(row.Attempts, &attempts); err != nil {
 		t.Fatalf("unmarshal durable attempts: %v", err)

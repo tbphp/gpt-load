@@ -286,3 +286,17 @@ func testEvent(id string) telemetry.RequestEvent {
 		},
 	}
 }
+
+func mustMapEvent(
+	t testing.TB,
+	redactor *redact.Redactor,
+	event telemetry.RequestEvent,
+	prices *pricing.Table,
+) models.RequestLog {
+	t.Helper()
+	row, err := mapEvent(redactor, event, prices)
+	if err != nil {
+		t.Fatalf("mapEvent() error = %v", err)
+	}
+	return row
+}

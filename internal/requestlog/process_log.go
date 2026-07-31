@@ -23,7 +23,10 @@ func projectProcessLog(
 		return logrus.InfoLevel, nil, false
 	}
 
-	row := mapEvent(redactor, event, prices)
+	row, err := mapEvent(redactor, event, prices)
+	if err != nil {
+		return logrus.InfoLevel, nil, false
+	}
 	groupID, keyID := attributedAttempt(event)
 
 	level := logrus.WarnLevel

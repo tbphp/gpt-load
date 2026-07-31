@@ -71,6 +71,19 @@ const costDetail = computed(() => {
         unpriced: formatInteger(summary.unpriced_request_count, locale.value),
       })
 })
+const costDetailExact = computed(() => {
+  const summary = snapshot.value?.summary
+  if (!summary) return ''
+  const tokens = t('home.ledger.tokens', {
+    count: formatInteger(summary.total_tokens, locale.value),
+  })
+  return summary.unpriced_request_count === 0
+    ? tokens
+    : t('home.ledger.tokensWithUnpriced', {
+        tokens,
+        unpriced: formatInteger(summary.unpriced_request_count, locale.value),
+      })
+})
 function selectRange(value: string): void {
   if (value === '24h' || value === '30d') emit('selectRange', value)
 }
@@ -132,7 +145,7 @@ function selectRange(value: string): void {
     <template v-else>
       <StatFigure
         class="home-summary__figure"
-        :label="t('home.ledger.successRate')"
+        :label="t('home.ledger.successRate', { range: snapshot.range })"
         :value="
           formatPercent(snapshot.summary.success_count, snapshot.summary.request_count, locale)
         "
@@ -140,9 +153,11 @@ function selectRange(value: string): void {
       />
       <StatFigure
         class="home-summary__figure home-summary__figure--secondary"
-        :label="t('home.ledger.estimatedCost')"
+        :label="t('home.ledger.estimatedCost', { range: snapshot.range })"
         :value="formatEstimatedCost(snapshot.summary.estimated_cost_nano_usd, locale)"
         :detail="costDetail"
+        :detail-title="costDetailExact"
+        :detail-aria-label="costDetailExact"
       />
     </template>
     <SegmentedControl

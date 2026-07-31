@@ -3,6 +3,8 @@ defineProps<{
   label: string
   value: string | number
   detail?: string
+  detailTitle?: string
+  detailAriaLabel?: string
 }>()
 </script>
 
@@ -10,7 +12,14 @@ defineProps<{
   <div class="stat-figure">
     <span class="stat-figure__label">{{ label }}</span>
     <strong class="stat-figure__value">{{ value }}</strong>
-    <span v-if="detail" class="stat-figure__detail">{{ detail }}</span>
+    <span
+      v-if="detail"
+      class="stat-figure__detail"
+      :title="detailTitle"
+      :aria-label="detailAriaLabel"
+    >
+      {{ detail }}
+    </span>
   </div>
 </template>
 

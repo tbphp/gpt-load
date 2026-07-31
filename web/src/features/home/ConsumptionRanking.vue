@@ -38,6 +38,16 @@ function referenceName(reference: HomeStatisticsRef, kind: 'group' | 'accessKey'
 function modelName(model: string): string {
   return model || t('home.ledger.ranking.unknownModel')
 }
+
+function tokenCellAttributes(totalTokens: number): { title: string; 'aria-label': string } {
+  const exactTokenCount = t('home.ledger.tokens', {
+    count: formatInteger(totalTokens, locale.value),
+  })
+  return {
+    title: exactTokenCount,
+    'aria-label': exactTokenCount,
+  }
+}
 </script>
 
 <template>
@@ -108,6 +118,7 @@ function modelName(model: string): string {
             <td
               class="consumption-ranking__number consumption-ranking__mono"
               data-column-priority="low"
+              v-bind="tokenCellAttributes(row.total_tokens)"
             >
               {{ formatTokens(row.total_tokens, locale) }}
             </td>
@@ -125,6 +136,7 @@ function modelName(model: string): string {
             <td
               class="consumption-ranking__number consumption-ranking__mono"
               data-column-priority="low"
+              v-bind="tokenCellAttributes(row.total_tokens)"
             >
               {{ formatTokens(row.total_tokens, locale) }}
             </td>
@@ -142,6 +154,7 @@ function modelName(model: string): string {
             <td
               class="consumption-ranking__number consumption-ranking__mono"
               data-column-priority="low"
+              v-bind="tokenCellAttributes(row.total_tokens)"
             >
               {{ formatTokens(row.total_tokens, locale) }}
             </td>

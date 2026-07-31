@@ -2,9 +2,11 @@ package requestlog
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"unicode/utf8"
 
+	"gpt-load/internal/platform/epochms"
 	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/storage/models"
@@ -22,7 +24,12 @@ func mapEvent(
 	redactor *redact.Redactor,
 	event telemetry.RequestEvent,
 	prices *pricing.Table,
-) models.RequestLog {
+) (models.RequestLog, error) {
+	completedAtMS, err := epochms.FromTime(event.CompletedAt)
+	if err != nil {
+		return models.RequestLog{}, fmt.Errorf("map request event completion time: %w", err)
+	}
+
 	attempts := make([]Attempt, 0, len(event.Attempts))
 	for _, attempt := range event.Attempts {
 		attempts = append(attempts, Attempt{
@@ -56,7 +63,7 @@ func mapEvent(
 
 	return models.RequestLog{
 		ID:                   event.RequestID,
-		CompletedAtMS:        event.CompletedAt.UTC().UnixMilli(),
+		CompletedAtMS:        completedAtMS,
 		AccessKeyID:          event.AccessKeyID,
 		GroupID:              event.Usage.GroupID,
 		Protocol:             string(event.Protocol),
@@ -77,7 +84,7 @@ func mapEvent(
 		UsageState:           string(result.State),
 		CostState:            string(quote.State),
 		Attempts:             models.JSON(encodedAttempts),
-	}
+	}, nil
 }
 
 func redactIdentityValue(redactor *redact.Redactor, value string) string {
