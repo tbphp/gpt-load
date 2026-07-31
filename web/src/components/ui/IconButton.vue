@@ -5,16 +5,23 @@ withDefaults(
     disabled?: boolean
     busy?: boolean
     pressed?: boolean
-    variant?: 'default' | 'danger'
+    variant?: 'default' | 'ghost' | 'danger'
+    size?: 'md' | 'compact'
   }>(),
-  { disabled: false, busy: false, pressed: undefined, variant: 'default' },
+  {
+    disabled: false,
+    busy: false,
+    pressed: undefined,
+    variant: 'default',
+    size: 'md',
+  },
 )
 </script>
 
 <template>
   <button
     class="icon-button"
-    :class="`icon-button--${variant}`"
+    :class="[`icon-button--${variant}`, `icon-button--${size}`]"
     type="button"
     :aria-label="label"
     :aria-pressed="pressed"
@@ -50,6 +57,23 @@ withDefaults(
   color: var(--color-text);
 }
 
+.icon-button--compact {
+  width: var(--control-compact);
+  height: var(--control-compact);
+}
+
+.icon-button--ghost {
+  border-color: transparent;
+  background: transparent;
+  color: var(--color-text-faint);
+}
+
+.icon-button--ghost:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--color-surface-sunken);
+  color: var(--color-text);
+}
+
 .icon-button:disabled {
   cursor: not-allowed;
   opacity: 0.55;
@@ -62,5 +86,12 @@ withDefaults(
 
 .icon-button[aria-busy='true'] {
   cursor: wait;
+}
+
+@media (pointer: coarse) {
+  .icon-button {
+    width: var(--touch-target);
+    height: var(--touch-target);
+  }
 }
 </style>

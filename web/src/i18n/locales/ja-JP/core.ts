@@ -21,25 +21,40 @@ export default {
     },
   },
   auth: {
-    loginTitle: '管理画面にログイン',
-    loginDescription:
-      'コントロールプレーンにアクセスするための管理用 AUTH_KEY を入力してください。',
+    eyebrow: 'GPT-Load 2.0',
+    headline: 'モデルゲートウェイを明快に、思いどおりに管理。',
+    lead: 'セルフホスト型の AI API キー集約・ネイティブプロトコルゲートウェイです。ログインするとアップストリームキー、ルーティング、使用量を管理できます。',
+    capabilities: {
+      1: {
+        title: 'アップストリームキーを一元管理',
+        description: 'Group、モデル、利用可能状況をまとめて管理します。',
+      },
+      2: {
+        title: 'ネイティブプロトコルを維持',
+        description: 'OpenAI、Anthropic、Gemini のパスを明確に保ちます。',
+      },
+      3: {
+        title: '使用量と推定コストを確認',
+        description: 'リクエスト、トークン、費用をまとめて表示します。',
+      },
+    },
+    loginTitle: '管理コンソールにログイン',
+    loginDescription: 'この GPT-Load インスタンスの管理キーを入力してください。',
     keyLabel: 'AUTH_KEY',
-    keyPlaceholder: 'AUTH_KEY を入力',
+    keyPlaceholder: '管理キーを入力',
+    reveal: '管理キーを表示',
+    conceal: '管理キーを隠す',
     submit: 'ログイン',
     submitting: '確認中…',
     required: 'AUTH_KEY を入力してください',
     invalidFormat: 'AUTH_KEY に空白文字は使用できません',
-    invalid: 'AUTH_KEY が無効です',
+    invalid: '管理キーが無効です。確認して再試行してください。',
     locked: '認証試行回数が多すぎます。{seconds} 秒後に再試行してください。',
     network: '管理 API に接続できません。サービスを確認して再試行してください。',
     invalidResponse: '管理 API から認識できない応答が返されました。',
     checking: '現在のセッションを確認しています…',
-    whereTitle: 'AUTH_KEY はどこにありますか？',
-    whereBody:
-      'AUTH_KEY 環境変数を設定できます。空の場合、サービスは DATA_DIR/auth.key を生成します。ログに表示されるのはファイルパスだけで、完全なキーは表示されません。',
-    dockerHint:
-      "Docker Compose では次を実行します：docker compose exec gpt-load sh -c 'cat /app/data/auth.key'",
+    sessionNote: '管理キーは、このブラウザーセッションの sessionStorage にのみ保存されます。',
+    instance: '現在のインスタンス · {origin}',
   },
   shell: {
     skip: 'メインコンテンツへ移動',
