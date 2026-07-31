@@ -264,13 +264,7 @@ make build
 Full local quality gates:
 
 ```console
-corepack pnpm --dir web install --frozen-lockfile
-corepack pnpm --dir web run lint
-corepack pnpm --dir web run format
-corepack pnpm --dir web run type-check
-corepack pnpm --dir web run build
-go build -o gpt-load .
-go test -race . ./internal/...
+make check
 ```
 
 Frontend unit tests and browser E2E tests are not part of the project workflow. Frontend verification consists of dependency installation, linting, formatting, type-checking, and building.

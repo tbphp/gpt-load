@@ -263,13 +263,7 @@ make build
 完整的本地质量门禁：
 
 ```console
-corepack pnpm --dir web install --frozen-lockfile
-corepack pnpm --dir web run lint
-corepack pnpm --dir web run format
-corepack pnpm --dir web run type-check
-corepack pnpm --dir web run build
-go build -o gpt-load .
-go test -race . ./internal/...
+make check
 ```
 
 项目工作流不包含前端单元测试或浏览器 E2E；前端验证范围为依赖安装、lint、format、type-check 与 build。
