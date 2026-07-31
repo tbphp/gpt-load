@@ -47,11 +47,10 @@ type homeStatisticsRefResponse struct {
 }
 
 type homeModelRankingResponse struct {
-	Model                string                    `json:"model"`
-	Group                homeStatisticsRefResponse `json:"group"`
-	RequestCount         int64                     `json:"request_count"`
-	TotalTokens          int64                     `json:"total_tokens"`
-	EstimatedCostNanoUSD string                    `json:"estimated_cost_nano_usd"`
+	Model                string `json:"model"`
+	RequestCount         int64  `json:"request_count"`
+	TotalTokens          int64  `json:"total_tokens"`
+	EstimatedCostNanoUSD string `json:"estimated_cost_nano_usd"`
 }
 
 type homeGroupRankingResponse struct {
@@ -269,14 +268,10 @@ func mapHomeStatisticsResponse(
 		if err != nil {
 			return homeStatisticsResponse{}, err
 		}
-		group, err := mapHomeStatisticsRef(row.Group)
-		if err != nil {
-			return homeStatisticsResponse{}, err
-		}
 		result.Rankings.Models = append(
 			result.Rankings.Models,
 			homeModelRankingResponse{
-				Model: row.Model, Group: group,
+				Model:                row.Model,
 				RequestCount:         aggregate.RequestCount,
 				TotalTokens:          aggregate.TotalTokens,
 				EstimatedCostNanoUSD: aggregate.EstimatedCostNanoUSD,

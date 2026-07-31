@@ -36,7 +36,6 @@ type HomeStatisticsRef struct {
 }
 
 type HomeModelRanking struct {
-	Group HomeStatisticsRef
 	Model string
 	UsageAggregate
 }
@@ -152,7 +151,7 @@ func (service *Service) QueryHomeStatistics(
 		if err != nil {
 			return err
 		}
-		groupRefs, err := loadHomeGroupRefs(connection, modelRows, groupRows)
+		groupRefs, err := loadHomeGroupRefs(connection, groupRows)
 		if err != nil {
 			return err
 		}
@@ -168,7 +167,7 @@ func (service *Service) QueryHomeStatistics(
 			width,
 			sparseSeries,
 		)
-		report.TopModels = mapHomeModelRankings(modelRows, groupRefs)
+		report.TopModels = mapHomeModelRankings(modelRows)
 		report.TopGroups = mapHomeGroupRankings(groupRows, groupRefs)
 		report.TopAccessKeys = mapHomeAccessKeyRankings(accessRows, accessRefs)
 
@@ -222,8 +221,7 @@ func denseHomeStatisticsSeries(
 }
 
 type homeModelRankingRow struct {
-	GroupID uint
-	Model   string
+	Model string
 	UsageAggregate
 }
 
@@ -240,11 +238,10 @@ type homeAccessKeyRankingRow struct {
 func queryHomeModelRankings(scope *gorm.DB) ([]homeModelRankingRow, error) {
 	var rows []homeModelRankingRow
 	if err := scope.
-		Select("group_id, model, " + usageAggregateSelect).
-		Group("group_id, model").
+		Select("model, " + usageAggregateSelect).
+		Group("model").
 		Order("SUM(estimated_cost_nano_usd) DESC").
 		Order("SUM(request_count) DESC").
-		Order("group_id ASC").
 		Order("model ASC").
 		Limit(homeStatisticsRankingLimit).
 		Find(&rows).Error; err != nil {
@@ -327,13 +324,9 @@ func validateHomeStatisticsAggregate(value UsageAggregate) error {
 
 func loadHomeGroupRefs(
 	tx *gorm.DB,
-	modelRows []homeModelRankingRow,
 	groupRows []homeGroupRankingRow,
 ) (map[uint]HomeStatisticsRef, error) {
-	ids := make(map[uint]struct{}, len(modelRows)+len(groupRows))
-	for _, row := range modelRows {
-		ids[row.GroupID] = struct{}{}
-	}
+	ids := make(map[uint]struct{}, len(groupRows))
 	for _, row := range groupRows {
 		ids[row.GroupID] = struct{}{}
 	}
@@ -394,12 +387,10 @@ func loadHomeRefs[T any](
 
 func mapHomeModelRankings(
 	rows []homeModelRankingRow,
-	refs map[uint]HomeStatisticsRef,
 ) []HomeModelRanking {
 	result := make([]HomeModelRanking, 0, len(rows))
 	for _, row := range rows {
 		result = append(result, HomeModelRanking{
-			Group:          refs[row.GroupID],
 			Model:          row.Model,
 			UsageAggregate: row.UsageAggregate,
 		})

@@ -81,7 +81,6 @@ function tokenCellAttributes(totalTokens: number): { title: string; 'aria-label'
       <thead>
         <tr v-if="dimension === 'models'">
           <th scope="col">{{ t('home.ledger.ranking.columns.model') }}</th>
-          <th scope="col">{{ t('home.ledger.ranking.columns.group') }}</th>
           <th scope="col" class="consumption-ranking__number">
             {{ t('home.ledger.ranking.columns.requests') }}
           </th>
@@ -114,7 +113,7 @@ function tokenCellAttributes(totalTokens: number): { title: string; 'aria-label'
       <tbody>
         <template v-if="loading">
           <tr v-for="row in 5" :key="`loading-${row}`">
-            <td v-for="column in dimension === 'models' ? 5 : 4" :key="column">
+            <td v-for="column in 4" :key="column">
               <SkeletonBlock
                 height="0.72rem"
                 :width="column === 1 ? '72%' : column === 2 ? '58%' : '44%'"
@@ -123,14 +122,13 @@ function tokenCellAttributes(totalTokens: number): { title: string; 'aria-label'
           </tr>
         </template>
         <tr v-else-if="rows.length === 0">
-          <td class="consumption-ranking__empty" :colspan="dimension === 'models' ? 5 : 4">
+          <td class="consumption-ranking__empty" colspan="4">
             {{ t('home.ledger.ranking.empty') }}
           </td>
         </tr>
         <template v-else-if="dimension === 'models'">
-          <tr v-for="row in rankings.models.slice(0, 5)" :key="`${row.group.id}:${row.model}`">
+          <tr v-for="row in rankings.models.slice(0, 5)" :key="row.model">
             <td class="consumption-ranking__model">{{ modelName(row.model) }}</td>
-            <td>{{ referenceName(row.group, 'group') }}</td>
             <td class="consumption-ranking__number consumption-ranking__mono">
               {{ formatInteger(row.request_count, locale) }}
             </td>
@@ -227,5 +225,4 @@ function tokenCellAttributes(totalTokens: number): { title: string; 'aria-label'
   font-size: var(--text-sm);
   padding-block: var(--space-3) !important;
 }
-
 </style>

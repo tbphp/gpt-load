@@ -162,7 +162,6 @@ func TestParseHomeStatisticsQueryIsStrictAndDefaultsTo24Hours(t *testing.T) {
 
 func TestHomeStatisticsHTTPDefaultsToDense24HoursAndMapsExactWire(t *testing.T) {
 	now := time.Date(2026, time.July, 30, 12, 34, 56, 789, time.UTC)
-	currentGroupName := "current-group"
 	currentAccessKeyName := "current-access"
 	reader := &recordingHomeStatisticsReader{
 		fn: func(query requestlog.HomeStatisticsQuery) requestlog.HomeStatisticsReport {
@@ -181,9 +180,6 @@ func TestHomeStatisticsHTTPDefaultsToDense24HoursAndMapsExactWire(t *testing.T) 
 				FailureCount: 1,
 			}
 			report.TopModels = []requestlog.HomeModelRanking{{
-				Group: requestlog.HomeStatisticsRef{
-					ID: 7, Name: &currentGroupName,
-				},
 				Model: "sonnet-4.5",
 				UsageAggregate: requestlog.UsageAggregate{
 					RequestCount: 3, SuccessCount: 3, UncachedInputTokens: 20,
@@ -256,12 +252,7 @@ func TestHomeStatisticsHTTPDefaultsToDense24HoursAndMapsExactWire(t *testing.T) 
 			} `json:"series"`
 			Rankings struct {
 				Models []struct {
-					Model string `json:"model"`
-					Group struct {
-						ID      uint    `json:"id"`
-						Name    *string `json:"name"`
-						Deleted bool    `json:"deleted"`
-					} `json:"group"`
+					Model                string `json:"model"`
 					RequestCount         int64  `json:"request_count"`
 					TotalTokens          int64  `json:"total_tokens"`
 					EstimatedCostNanoUSD string `json:"estimated_cost_nano_usd"`
@@ -307,8 +298,6 @@ func TestHomeStatisticsHTTPDefaultsToDense24HoursAndMapsExactWire(t *testing.T) 
 		envelope.Data.Series[0].FailureCount != 1 ||
 		len(envelope.Data.Rankings.Models) != 1 ||
 		envelope.Data.Rankings.Models[0].Model != "sonnet-4.5" ||
-		envelope.Data.Rankings.Models[0].Group.Name == nil ||
-		*envelope.Data.Rankings.Models[0].Group.Name != currentGroupName ||
 		envelope.Data.Rankings.Models[0].EstimatedCostNanoUSD != "18400000000" ||
 		len(envelope.Data.Rankings.Groups) != 1 ||
 		envelope.Data.Rankings.Groups[0].Group.ID != 9 ||
@@ -329,6 +318,33 @@ func TestHomeStatisticsHTTPDefaultsToDense24HoursAndMapsExactWire(t *testing.T) 
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &rawEnvelope); err != nil {
 		t.Fatalf("decode raw home statistics response: %v", err)
+	}
+	var rankingWire struct {
+		Data struct {
+			Rankings struct {
+				Models []map[string]json.RawMessage `json:"models"`
+			} `json:"rankings"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &rankingWire); err != nil {
+		t.Fatalf("decode raw model ranking: %v", err)
+	}
+	if len(rankingWire.Data.Rankings.Models) != 1 {
+		t.Fatalf("model ranking wire = %s", recorder.Body.String())
+	}
+	modelRanking := rankingWire.Data.Rankings.Models[0]
+	for _, key := range []string{
+		"model",
+		"request_count",
+		"total_tokens",
+		"estimated_cost_nano_usd",
+	} {
+		if _, exists := modelRanking[key]; !exists {
+			t.Fatalf("model ranking missing %q: %s", key, recorder.Body.String())
+		}
+	}
+	if len(modelRanking) != 4 {
+		t.Fatalf("model ranking exposes non-model dimension: %s", recorder.Body.String())
 	}
 	for _, forbidden := range []string{"health", "timezone", "link"} {
 		if _, exists := rawEnvelope.Data[forbidden]; exists {

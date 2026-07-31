@@ -116,30 +116,22 @@ func TestQueryHomeStatisticsBuildsTopFiveRankingsAndDeletedRefs(t *testing.T) {
 		)
 	}
 	wantModels := []struct {
-		groupID uint
-		model   string
+		model        string
+		requestCount int64
+		cost         int64
 	}{
-		{groupA.ID, "a-model"},
-		{groupA.ID, "z-model"},
-		{groupB.ID, "a-model"},
-		{999, "deleted-model"},
-		{0, ""},
+		{"a-model", 10, 1_000},
+		{"z-model", 5, 500},
+		{"deleted-model", 100, 400},
+		{"", 20, 300},
+		{"low-model", 1, 200},
 	}
 	for index, want := range wantModels {
 		got := report.TopModels[index]
-		if got.Group.ID != want.groupID || got.Model != want.model {
-			t.Fatalf("TopModels[%d] = %#v, want group/model %d/%q", index, got, want.groupID, want.model)
-		}
-	}
-	if report.TopModels[0].Group.Name == nil ||
-		*report.TopModels[0].Group.Name != "Group A" ||
-		report.TopModels[0].Group.Deleted {
-		t.Fatalf("current group ref = %#v", report.TopModels[0].Group)
-	}
-	for _, index := range []int{3, 4} {
-		if !report.TopModels[index].Group.Deleted ||
-			report.TopModels[index].Group.Name != nil {
-			t.Fatalf("deleted/zero group ref = %#v", report.TopModels[index].Group)
+		if got.Model != want.model ||
+			got.RequestCount != want.requestCount ||
+			got.EstimatedCostNanoUSD != want.cost {
+			t.Fatalf("TopModels[%d] = %#v, want %#v", index, got, want)
 		}
 	}
 	if report.TopGroups[0].Group.ID != groupA.ID ||

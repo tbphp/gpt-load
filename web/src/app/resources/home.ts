@@ -67,7 +67,6 @@ export interface HomeStatisticsRef {
 
 export interface HomeModelRanking {
   model: string
-  group: HomeStatisticsRef
   request_count: number
   total_tokens: number
   estimated_cost_nano_usd: string
@@ -147,7 +146,7 @@ const trendPointFields = [
 const rankingsFields = ['models', 'groups', 'access_keys'] as const
 const statisticsRefFields = ['id', 'name', 'deleted'] as const
 const rankingMetricFields = ['request_count', 'total_tokens', 'estimated_cost_nano_usd'] as const
-const modelRankingFields = ['model', 'group', ...rankingMetricFields] as const
+const modelRankingFields = ['model', ...rankingMetricFields] as const
 const groupRankingFields = ['group', ...rankingMetricFields] as const
 const accessKeyRankingFields = ['access_key', ...rankingMetricFields] as const
 const hourMilliseconds = 3_600_000
@@ -273,7 +272,6 @@ function projectModelRanking(value: unknown): HomeModelRanking {
   if (model !== model.trim()) invalidResponse()
   return {
     model,
-    group: projectStatisticsRef(record.group),
     ...projectRankingMetrics(record),
   }
 }
@@ -437,11 +435,8 @@ export function projectHomeStatistics(
   }
   assertRankingOrder(
     rankings.models,
-    (left, right) =>
-      left.group.id === right.group.id
-        ? compareUTF8(left.model, right.model)
-        : left.group.id - right.group.id,
-    (row) => JSON.stringify([row.group.id, row.model]),
+    (left, right) => compareUTF8(left.model, right.model),
+    (row) => row.model,
     summary,
   )
   assertRankingOrder(
