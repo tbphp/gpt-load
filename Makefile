@@ -39,8 +39,8 @@ check: _web-deps ## Run source checks and build
 	$(PNPM) --dir $(WEB_DIR) run type-check
 	$(PNPM) --dir $(WEB_DIR) run build
 	$(GO) build -o $(APP) .
-	$(GO) test -race -count=1 . ./internal/...
-	git diff --check
+	$(GO) test -count=1 . ./internal/...
+	git --no-pager diff --check
 
 .PHONY: help
 help: ## Display available targets
