@@ -7,6 +7,7 @@ withDefaults(
   defineProps<{
     align?: 'start' | 'center' | 'end'
     side?: 'top' | 'right' | 'bottom' | 'left'
+    contentClass?: string
   }>(),
   {
     align: 'end',
@@ -24,6 +25,7 @@ withDefaults(
       <PopoverPortal>
         <PopoverContent
           class="app-popover__content"
+          :class="contentClass"
           :align="align"
           :side="side"
           :side-offset="8"
@@ -62,7 +64,7 @@ withDefaults(
 @keyframes app-popover-in {
   from {
     opacity: 0;
-    transform: translateY(-4px);
+    transform: translateY(-4px) scale(0.98);
   }
 }
 

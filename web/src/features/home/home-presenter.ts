@@ -225,7 +225,9 @@ export function useHomeStatisticsPresenter(
     state,
     selectedRange: computed(() => {
       const current = state.value
-      return current.kind === 'initial' ? current.requestedRange : current.selectedRange
+      if (current.kind === 'initial') return current.requestedRange
+      if (current.kind === 'switching') return current.targetRange
+      return current.selectedRange
     }),
     targetRange: computed(() =>
       state.value.kind === 'switching' ? state.value.targetRange : null,

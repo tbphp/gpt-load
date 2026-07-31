@@ -1,12 +1,10 @@
 <script setup lang="ts">
-import { Moon, Sun } from '@lucide/vue'
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute } from 'vue-router'
 
 import { homeLocation } from '@/app/route-locations'
-import AppSelect from '@/components/ui/AppSelect.vue'
-import IconButton from '@/components/ui/IconButton.vue'
+import PreferencesControl from '@/features/preferences/PreferencesControl.vue'
 import { useTheme } from '@/features/preferences/theme'
 import { supportedLocales, type AppLocale } from '@/i18n'
 import { useAppI18n } from '@/i18n/context'
@@ -16,43 +14,12 @@ const theme = useTheme()
 const route = useRoute()
 const { locale, t } = useI18n()
 const currentLocale = computed(() => locale.value as AppLocale)
-const systemDark = ref(false)
-let colorScheme: MediaQueryList | undefined
-const languageOptions = computed(() => [
-  { value: 'zh-CN', label: t('shell.localeZh') },
-  { value: 'en-US', label: t('shell.localeEn') },
-  { value: 'ja-JP', label: t('shell.localeJa') },
-])
-const darkTheme = computed(
-  () => theme.theme.value === 'dark' || (theme.theme.value === 'system' && systemDark.value),
-)
-const themeActionLabel = computed(() =>
-  darkTheme.value ? t('shell.useLightTheme') : t('shell.useDarkTheme'),
-)
 
 function setLocale(value: string): void {
   if (supportedLocales.includes(value as AppLocale)) {
     void appI18n.setLocale(value as AppLocale)
   }
 }
-
-function toggleTheme(): void {
-  theme.setTheme(darkTheme.value ? 'light' : 'dark')
-}
-
-function syncSystemTheme(event: MediaQueryListEvent | MediaQueryList): void {
-  systemDark.value = event.matches
-}
-
-onMounted(() => {
-  colorScheme = window.matchMedia('(prefers-color-scheme: dark)')
-  syncSystemTheme(colorScheme)
-  colorScheme.addEventListener('change', syncSystemTheme)
-})
-
-onBeforeUnmount(() => {
-  colorScheme?.removeEventListener('change', syncSystemTheme)
-})
 
 watch(
   [() => route.meta.titleKey, locale],
@@ -77,24 +44,13 @@ watch(
         <span>{{ t('common.appName') }}</span>
       </RouterLink>
 
-      <div class="public-tools">
-        <AppSelect
-          class="public-language"
-          :model-value="currentLocale"
-          :label="t('shell.language')"
-          :options="languageOptions"
-          @update:model-value="setLocale"
-        />
-        <IconButton
-          class="public-theme-action"
-          :label="themeActionLabel"
-          size="compact"
-          @click="toggleTheme"
-        >
-          <Sun v-if="darkTheme" :size="15" aria-hidden="true" />
-          <Moon v-else :size="15" aria-hidden="true" />
-        </IconButton>
-      </div>
+      <PreferencesControl
+        compact
+        :locale="currentLocale"
+        :theme="theme.theme.value"
+        @update:locale="setLocale"
+        @update:theme="theme.setTheme"
+      />
     </header>
     <div id="main-content" class="public-content" tabindex="-1">
       <slot />
@@ -120,7 +76,6 @@ watch(
 
 .public-brand {
   display: inline-flex;
-  min-height: var(--touch-target);
   align-items: center;
   gap: 9px;
   font-family: var(--font-serif);
@@ -137,23 +92,6 @@ watch(
   background: var(--color-action);
 }
 
-.public-tools {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.public-tools :deep(.public-language.app-select__trigger) {
-  width: auto;
-  min-width: 126px;
-  min-height: var(--control-compact);
-  height: var(--control-compact);
-  padding: 0 var(--space-2);
-  color: var(--color-text-muted);
-  font-size: var(--text-sm);
-}
-
 .public-content {
   min-height: calc(100vh - var(--topbar-height));
 }
@@ -164,10 +102,4 @@ watch(
   }
 }
 
-@media (pointer: coarse) {
-  .public-tools :deep(.public-language.app-select__trigger) {
-    min-height: var(--touch-target);
-    height: var(--touch-target);
-  }
-}
 </style>

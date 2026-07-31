@@ -4,7 +4,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { useApiClient } from '@/api/client-context'
-import { homeBaseQueryOptions } from '@/app/resources/home'
+import { homeBaseQueryOptions, type HomeRange } from '@/app/resources/home'
 import TrendChart from '@/components/charts/TrendChart.vue'
 import LedgerSheet from '@/components/layout/LedgerSheet.vue'
 import PageFrame from '@/components/layout/PageFrame.vue'
@@ -36,16 +36,14 @@ watch(
 const uptimeNowMS = computed(() => nowMS.value + serverClockOffsetMS.value)
 const snapshot = computed(() => {
   const state = statistics.state.value
-  return state.kind === 'initial' || state.kind === 'switching' ? null : state.snapshot
+  return state.kind === 'initial' ? null : state.snapshot
 })
 const statisticsLoading = computed(() => {
-  const kind = statistics.state.value.kind
-  return kind === 'initial' || kind === 'switching'
+  return statistics.state.value.kind === 'initial'
 })
-const statisticsFeedbackMessage = computed(() =>
-  statistics.lastSuccessfulObservedAtMS.value === null
-    ? t('home.ledger.statisticsInitialError')
-    : t('home.ledger.statisticsError'),
+const statisticsSwitching = computed(() => statistics.state.value.kind === 'switching')
+const displayedRange = computed(
+  () => statistics.targetRange.value ?? snapshot.value?.range ?? statistics.selectedRange.value,
 )
 const isEmpty = computed(() => {
   const inventory = baseQuery.data.value?.inventory
@@ -53,6 +51,9 @@ const isEmpty = computed(() => {
     inventory !== undefined && inventory.group_count === 0 && inventory.upstream_key_count === 0
   )
 })
+function rangeLabel(range: HomeRange): string {
+  return t(range === '24h' ? 'home.range.display24Hours' : 'home.range.display30Days')
+}
 
 const uptimeTimer = window.setInterval(() => {
   nowMS.value = Date.now()
@@ -63,7 +64,10 @@ onBeforeUnmount(() => window.clearInterval(uptimeTimer))
 
 <template>
   <PageFrame aria-labelledby="home-title">
-    <LedgerSheet :class="{ 'home-view__sheet--welcome': isEmpty }">
+    <LedgerSheet
+      class="home-view__sheet"
+      :class="{ 'home-view__sheet--welcome': isEmpty }"
+    >
       <div
         v-if="baseQuery.isPending.value"
         class="home-view__loading"
@@ -95,29 +99,27 @@ onBeforeUnmount(() => window.clearInterval(uptimeTimer))
           :base="baseQuery.data.value"
           :statistics-state="statistics.state.value"
           :selected-range="statistics.selectedRange.value"
-          :target-range="statistics.targetRange.value"
           :observed-at-ms="statistics.lastSuccessfulObservedAtMS.value"
           :uptime-now-ms="uptimeNowMS"
+          :loading="statisticsSwitching"
           @select-range="statistics.selectRange"
         />
-
-        <div v-if="statistics.state.value.kind === 'stale'" class="home-view__statistics-feedback">
-          <QueryFeedback
-            state="stale"
-            :message="statisticsFeedbackMessage"
-            :retry-label="t('common.retry')"
-            @retry="statistics.retry()"
-          />
-        </div>
 
         <section class="home-view__statistics-region home-view__statistics-region--trend">
           <PageSection
             v-if="snapshot"
-            :title="t('home.ledger.trendTitle', { range: snapshot.range })"
+            :title="t('home.ledger.trendTitle', { range: rangeLabel(displayedRange) })"
           >
+            <SkeletonBlock
+              v-if="statisticsSwitching"
+              class="home-view__trend-skeleton"
+              height="auto"
+              :aria-label="t('home.ledger.statisticsLoading')"
+            />
             <TrendChart
+              v-else
               :series="snapshot.series"
-              :title="t('home.ledger.trendTitle', { range: snapshot.range })"
+              :title="t('home.ledger.trendTitle', { range: rangeLabel(snapshot.range) })"
               :description="t('home.ledger.trendDescription')"
               :empty-label="t('home.ledger.trendEmpty')"
               :request-label="t('home.ledger.requestsLabel')"
@@ -140,7 +142,8 @@ onBeforeUnmount(() => window.clearInterval(uptimeTimer))
           <ConsumptionRanking
             v-if="snapshot"
             :rankings="snapshot.rankings"
-            :range="snapshot.range"
+            :range="rangeLabel(displayedRange)"
+            :loading="statisticsSwitching"
           />
           <PageSection
             v-else-if="statisticsLoading"
@@ -177,24 +180,16 @@ onBeforeUnmount(() => window.clearInterval(uptimeTimer))
   font-weight: 500;
 }
 
-.home-view__statistics-feedback {
-  padding-top: var(--space-4);
-}
-
 .home-view__statistics-section :deep(.page-section__content) {
   min-height: 12rem;
 }
 
-.home-view__statistics-region {
-  min-height: 17rem;
+.home-view__statistics-region--trend :deep(.page-section__header) {
+  margin-bottom: 10px;
 }
 
-.home-view__statistics-region--trend {
-  min-height: 16rem;
-}
-
-.home-view__statistics-region--ranking {
-  min-height: 21rem;
+.home-view__trend-skeleton {
+  aspect-ratio: var(--chart-aspect-ratio);
 }
 
 .home-view__sheet--welcome {
@@ -205,6 +200,10 @@ onBeforeUnmount(() => window.clearInterval(uptimeTimer))
   .home-view__loading,
   .home-view__sheet--welcome {
     min-height: 0;
+  }
+
+  .home-view__sheet {
+    border-radius: 9px;
   }
 }
 </style>

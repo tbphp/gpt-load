@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowRight, KeyRound, ShieldCheck } from '@lucide/vue'
+import { ArrowRight, CircleCheck, KeyRound } from '@lucide/vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 
@@ -14,7 +14,12 @@ const router = useRouter()
   <section class="home-welcome" aria-labelledby="home-title">
     <header class="home-welcome__header">
       <h1 id="home-title">{{ t('home.ledger.welcomeTitle') }}</h1>
-      <AppButton type="button" @click="router.push(importLocation())">
+      <AppButton
+        class="home-welcome__action"
+        type="button"
+        size="cta"
+        @click="router.push(importLocation())"
+      >
         <KeyRound :size="16" aria-hidden="true" />
         {{ t('home.ledger.importKeys') }}
       </AppButton>
@@ -37,7 +42,7 @@ const router = useRouter()
         </li>
       </ol>
       <p class="home-welcome__note">
-        <ShieldCheck :size="15" aria-hidden="true" />
+        <CircleCheck :size="15" aria-hidden="true" />
         {{ t('home.ledger.welcomeSecurityNote') }}
       </p>
     </section>
@@ -53,7 +58,7 @@ const router = useRouter()
   grid-template-columns: minmax(0, 1fr) auto;
   min-height: 72px;
   align-items: center;
-  gap: var(--space-8);
+  gap: 36px;
   border-bottom: 1px solid var(--color-border-control);
   padding-bottom: var(--space-5);
 }
@@ -63,15 +68,22 @@ const router = useRouter()
   font-family: var(--font-serif);
   font-size: var(--title-lede);
   font-weight: 500;
+  letter-spacing: -0.015em;
   line-height: var(--line-compact);
 }
+
+.home-welcome__action {
+  white-space: nowrap;
+}
+
 .home-welcome__guide {
-  padding-top: var(--space-7);
+  padding-top: 28px;
 }
 .home-welcome__description {
   max-width: 45rem;
-  margin: 0 0 var(--space-6);
+  margin: 0 0 24px;
   color: var(--color-text-muted);
+  font-size: 14px;
   line-height: var(--line-relaxed);
 }
 .home-welcome__guide-header {
@@ -79,7 +91,7 @@ const router = useRouter()
   align-items: baseline;
   justify-content: space-between;
   gap: var(--space-4);
-  margin-bottom: var(--space-3);
+  margin-bottom: 10px;
 }
 .home-welcome__guide-header h2 {
   margin: 0;
@@ -90,7 +102,7 @@ const router = useRouter()
 .home-welcome__guide-header span {
   color: var(--color-text-faint);
   font-family: var(--font-mono);
-  font-size: var(--text-meta);
+  font-size: 11px;
 }
 .home-welcome__steps {
   display: grid;
@@ -102,15 +114,15 @@ const router = useRouter()
 .home-welcome__steps li {
   display: grid;
   grid-template-columns: 46px minmax(0, 1fr) auto;
-  gap: var(--space-3);
+  gap: 14px;
   align-items: center;
   border-bottom: 1px solid var(--color-border-subtle);
-  padding: var(--space-4) var(--space-1);
+  padding: 17px 4px;
 }
 .home-welcome__step-number {
   color: var(--color-text-faint);
   font-family: var(--font-mono);
-  font-size: var(--text-meta);
+  font-size: 11px;
 }
 .home-welcome__steps h3,
 .home-welcome__steps p {
@@ -121,10 +133,10 @@ const router = useRouter()
   font-weight: 600;
 }
 .home-welcome__steps p {
-  margin-top: var(--space-1);
-  color: var(--color-text-muted);
-  font-size: var(--text-sm);
-  line-height: var(--line-relaxed);
+  margin-top: 3px;
+  color: var(--color-text-faint);
+  font-size: var(--text-meta);
+  line-height: 1.6;
 }
 .home-welcome__steps svg {
   color: var(--color-text-faint);
@@ -133,14 +145,14 @@ const router = useRouter()
   display: flex;
   align-items: flex-start;
   gap: var(--space-2);
-  margin: var(--space-5) 0 0;
+  margin: 18px 0 0;
   border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-control);
+  border-radius: 8px;
   background: var(--color-surface-sunken);
   color: var(--color-text-muted);
-  padding: var(--space-3);
-  font-size: var(--text-meta);
-  line-height: var(--line-relaxed);
+  padding: 11px 13px;
+  font-size: var(--text-sm);
+  line-height: 1.6;
 }
 .home-welcome__note svg {
   flex: none;
@@ -151,12 +163,17 @@ const router = useRouter()
   .home-welcome__header {
     grid-template-columns: 1fr;
     align-items: start;
-    gap: var(--space-4);
   }
+  .home-welcome__action {
+    justify-self: start;
+  }
+}
+
+@media (max-width: 560px) {
   .home-welcome__guide-header {
     align-items: start;
     flex-direction: column;
-    gap: var(--space-1);
+    gap: 3px;
   }
   .home-welcome__steps li {
     grid-template-columns: 34px minmax(0, 1fr);

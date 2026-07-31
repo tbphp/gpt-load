@@ -28,7 +28,7 @@ defineProps<{
   display: grid;
   min-width: 0;
   align-content: start;
-  gap: var(--space-2);
+  gap: 6px;
 }
 .stat-figure__label {
   color: var(--color-text-faint);

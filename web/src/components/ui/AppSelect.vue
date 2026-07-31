@@ -26,11 +26,13 @@ const props = withDefaults(
     options: SelectOption[]
     disabled?: boolean
     variant?: 'default' | 'embedded'
+    size?: 'md' | 'compact'
   }>(),
   {
     modelValue: undefined,
     disabled: false,
     variant: 'default',
+    size: 'md',
   },
 )
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
@@ -46,7 +48,10 @@ const attrs = useAttrs()
     <SelectTrigger
       v-bind="attrs"
       class="app-select__trigger"
-      :class="`app-select__trigger--${props.variant}`"
+      :class="[
+        `app-select__trigger--${props.variant}`,
+        `app-select__trigger--${props.size}`,
+      ]"
       :aria-label="label"
       :disabled="props.disabled"
     >
@@ -103,8 +108,26 @@ const attrs = useAttrs()
 .app-select__trigger--embedded {
   width: 100%;
   min-width: 0;
+  min-height: 0;
+  flex: 1;
   border: 0;
   border-radius: 0;
+  padding: 7px 10px;
+  font-size: var(--text-sm);
+}
+.app-select__trigger--compact {
+  width: auto;
+  min-width: 0;
+  min-height: var(--control-compact);
+  height: var(--control-compact);
+  padding: 0 var(--space-2);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+.app-select__trigger--compact .app-select__chevron,
+.app-select__trigger--embedded .app-select__chevron {
+  width: 14px;
+  height: 14px;
 }
 .app-select__value {
   min-width: 0;
@@ -161,9 +184,4 @@ const attrs = useAttrs()
   color: var(--color-action);
 }
 
-@media (pointer: coarse) {
-  .app-select__trigger {
-    min-height: var(--touch-target);
-  }
-}
 </style>

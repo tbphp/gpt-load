@@ -5,8 +5,8 @@ withDefaults(
     disabled?: boolean
     busy?: boolean
     pressed?: boolean
-    variant?: 'default' | 'ghost' | 'danger'
-    size?: 'md' | 'compact'
+    variant?: 'default' | 'surface' | 'ghost' | 'danger'
+    size?: 'md' | 'compact' | 'xs'
   }>(),
   {
     disabled: false,
@@ -57,9 +57,24 @@ withDefaults(
   color: var(--color-text);
 }
 
+.icon-button[aria-pressed='true'] {
+  border-color: var(--color-text-faint);
+  background: var(--color-surface-sunken);
+  color: var(--color-text);
+}
+
 .icon-button--compact {
   width: var(--control-compact);
   height: var(--control-compact);
+}
+
+.icon-button--xs {
+  width: 28px;
+  height: 28px;
+}
+
+.icon-button--surface:hover:not(:disabled):not([aria-pressed='true']) {
+  background: var(--color-surface);
 }
 
 .icon-button--ghost {
@@ -88,10 +103,4 @@ withDefaults(
   cursor: wait;
 }
 
-@media (pointer: coarse) {
-  .icon-button {
-    width: var(--touch-target);
-    height: var(--touch-target);
-  }
-}
 </style>

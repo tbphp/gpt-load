@@ -142,8 +142,13 @@ watch(
           :close-label="t('shell.closeNavigation')"
         >
           <template #trigger>
-            <IconButton class="mobile-menu-trigger" :label="t('shell.openNavigation')">
-              <Menu :size="20" aria-hidden="true" />
+            <IconButton
+              class="mobile-menu-trigger"
+              :label="t('shell.openNavigation')"
+              variant="surface"
+              size="compact"
+            >
+              <Menu :size="15" aria-hidden="true" />
             </IconButton>
           </template>
           <nav class="mobile-nav" :aria-label="t('shell.primaryNavigation')">
@@ -205,13 +210,13 @@ watch(
 }
 .brand {
   display: inline-flex;
-  min-height: 44px;
   align-items: center;
   gap: 9px;
   font-family: var(--font-serif);
   font-size: var(--title-section);
   font-weight: 400;
   letter-spacing: -0.01em;
+  white-space: nowrap;
 }
 .brand-mark {
   width: 7px;
@@ -229,12 +234,11 @@ watch(
 }
 .nav-link {
   display: inline-flex;
-  min-height: 44px;
   align-items: center;
   gap: var(--space-2);
   border-bottom: 1.5px solid transparent;
   color: var(--color-text-muted);
-  padding: var(--space-2) 2px;
+  padding: 3px 0;
   font-size: 13px;
   font-weight: 400;
   transition:
@@ -261,6 +265,7 @@ watch(
   gap: var(--space-2);
 }
 .import-action {
+  height: var(--control-compact);
   min-height: var(--control-compact);
   gap: 6px;
   border: 1px solid var(--color-action);
@@ -270,12 +275,8 @@ watch(
   font-size: var(--text-meta);
   font-weight: 560;
 }
-.shell-actions :deep(.icon-button) {
-  width: var(--control-compact);
-  height: var(--control-compact);
-}
-.shell-actions :deep(.icon-button:hover:not(:disabled)) {
-  background: var(--color-surface-sunken);
+.import-action__label {
+  letter-spacing: 0.01em;
 }
 .mobile-menu-trigger {
   display: none;

@@ -1,17 +1,23 @@
 <script setup lang="ts">
 import CopyButton from './CopyButton.vue'
 
-defineProps<{
-  code: string
-  language: string
-  copyLabel?: string
-  copySuccessLabel?: string
-  copyFailureLabel?: string
-}>()
+withDefaults(
+  defineProps<{
+    code: string
+    language: string
+    copyLabel?: string
+    copySuccessLabel?: string
+    copyFailureLabel?: string
+    appearance?: 'default' | 'snippet'
+  }>(),
+  {
+    appearance: 'default',
+  },
+)
 </script>
 
 <template>
-  <div class="code-block">
+  <div class="code-block" :class="`code-block--${appearance}`">
     <div class="code-block__toolbar">
       <span data-code-language>{{ language }}</span>
       <slot name="action">
@@ -62,5 +68,51 @@ defineProps<{
   font-family: var(--font-mono);
   font-size: var(--text-sm);
   overflow-wrap: anywhere;
+}
+
+.code-block--snippet {
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.code-block--snippet .code-block__toolbar {
+  min-height: 0;
+  margin-bottom: 6px;
+  border: 0;
+  padding: 0;
+  color: var(--color-text-faint);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+}
+
+.code-block--snippet .code-block__toolbar :deep(.copy-action) {
+  width: 28px;
+  min-width: 28px;
+  height: 24px;
+  border: 0;
+  background: transparent;
+}
+
+.code-block--snippet .code-block__toolbar :deep(.copy-action svg) {
+  width: 14px;
+  height: 14px;
+}
+
+.code-block--snippet pre {
+  margin: 0;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 8px;
+  background: var(--color-surface-sunken);
+  padding: 11px 13px;
+  line-height: 1.7;
+  white-space: pre;
+}
+
+.code-block--snippet code {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  overflow-wrap: normal;
 }
 </style>

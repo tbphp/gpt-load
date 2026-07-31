@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, useId, watch } from 'vue'
 
-import { formatISOInstant, formatInteger, formatLocalTimeRange } from '@/lib/format'
+import { formatISOInstant, formatInteger, formatLocalInstant } from '@/lib/format'
 
 import { buildTrendGeometry, isTrendSeriesUsable, type TrendDatum } from './trend-chart'
 
@@ -60,9 +60,15 @@ const activePoint = computed(() => {
 const tooltipStyle = computed(() => {
   const point = activePoint.value?.point
   if (!point) return undefined
+  const left =
+    point.x < width * 0.16
+      ? '2px'
+      : point.x > width * 0.84
+        ? 'calc(100% - 2px)'
+        : `${(point.x / width) * 100}%`
   return {
-    left: `${(point.x / width) * 100}%`,
-    top: `${(point.y / chartHeight) * 100}%`,
+    left,
+    top: `max(72px, calc(${(point.y / chartHeight) * 100}% - 12px))`,
   }
 })
 const tooltipAlignment = computed(() => {
@@ -78,8 +84,8 @@ watch(seriesKey, () => {
   clearAnnouncement()
 })
 
-function formatBucketRange(datum: TrendDatum): string {
-  return formatLocalTimeRange(datum.bucket_start_ms, datum.bucket_end_ms, props.locale)
+function formatBucketTime(datum: TrendDatum): string {
+  return formatLocalInstant(datum.bucket_start_ms, props.locale)
 }
 
 function tooltipValue(value: number): string {
@@ -89,7 +95,7 @@ function tooltipValue(value: number): string {
 function pointAnnouncement(index: number): string {
   const datum = chartSeries.value[index]
   if (!datum) return ''
-  return `${formatBucketRange(datum)} · ${props.requestLabel} ${tooltipValue(datum.request_count)} · ${props.failureLabel} ${tooltipValue(datum.failure_count)}`
+  return `${formatBucketTime(datum)} · ${props.requestLabel} ${tooltipValue(datum.request_count)} · ${props.failureLabel} ${tooltipValue(datum.failure_count)}`
 }
 
 function clearAnnouncement(): void {
@@ -177,11 +183,7 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', closeOnExterna
 </script>
 
 <template>
-  <p v-if="chartSeries.length === 0" class="trend-chart__empty" role="status">
-    {{ emptyLabel }}
-  </p>
   <figure
-    v-else
     ref="chartElement"
     class="trend-chart"
     tabindex="0"
@@ -194,7 +196,9 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', closeOnExterna
     @pointerleave="onPointerLeave"
     @pointermove="onPointerMove"
   >
-    <span :id="descriptionID" class="trend-chart__visually-hidden">{{ description }}</span>
+    <span :id="descriptionID" class="trend-chart__visually-hidden">
+      {{ chartSeries.length === 0 ? emptyLabel : description }}
+    </span>
     <span class="trend-chart__visually-hidden" aria-live="polite" aria-atomic="true">
       {{ selectionAnnouncement }}
     </span>
@@ -205,7 +209,6 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', closeOnExterna
             <svg
               class="trend-chart__graphic"
               :viewBox="`0 0 ${width} ${chartHeight}`"
-              preserveAspectRatio="none"
               aria-hidden="true"
             >
               <g class="trend-chart__grid">
@@ -261,11 +264,30 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', closeOnExterna
                 :style="tooltipStyle"
                 role="tooltip"
               >
-                <time :datetime="formatISOInstant(activePoint.datum.bucket_start_ms)">
-                  {{ formatBucketRange(activePoint.datum) }}
+                <time
+                  class="trend-chart__tooltip-time"
+                  :datetime="formatISOInstant(activePoint.datum.bucket_start_ms)"
+                >
+                  {{ formatBucketTime(activePoint.datum) }}
                 </time>
-                <span>{{ requestLabel }} {{ tooltipValue(activePoint.datum.request_count) }}</span>
-                <span>{{ failureLabel }} {{ tooltipValue(activePoint.datum.failure_count) }}</span>
+                <span class="trend-chart__tooltip-row">
+                  <span class="trend-chart__tooltip-key">
+                    <i class="trend-chart__tooltip-swatch trend-chart__tooltip-swatch--request"></i>
+                    {{ requestLabel }}
+                  </span>
+                  <strong class="trend-chart__tooltip-value">
+                    {{ tooltipValue(activePoint.datum.request_count) }}
+                  </strong>
+                </span>
+                <span class="trend-chart__tooltip-row">
+                  <span class="trend-chart__tooltip-key">
+                    <i class="trend-chart__tooltip-swatch trend-chart__tooltip-swatch--failure"></i>
+                    {{ failureLabel }}
+                  </span>
+                  <strong class="trend-chart__tooltip-value">
+                    {{ tooltipValue(activePoint.datum.failure_count) }}
+                  </strong>
+                </span>
               </div>
             </Transition>
           </div>
@@ -301,28 +323,28 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', closeOnExterna
 
 .trend-chart__request-frame {
   position: relative;
+  height: 100%;
 }
 
 .trend-chart__plot-stack {
   position: relative;
-  height: 158px;
+  aspect-ratio: var(--chart-aspect-ratio);
 }
 
 .trend-chart__data-layer {
-  height: 158px;
+  height: 100%;
 }
 
 .trend-chart__graphic {
   display: block;
   width: 100%;
-  height: 158px;
+  height: auto;
 }
 
 .trend-chart__grid line {
   stroke: var(--color-border-subtle);
   stroke-width: 1;
-  stroke-dasharray: 3 4;
-  vector-effect: non-scaling-stroke;
+  stroke-dasharray: var(--chart-grid-dash);
 }
 
 .trend-chart__area {
@@ -335,21 +357,17 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', closeOnExterna
   stroke: var(--color-action);
   stroke-linecap: round;
   stroke-linejoin: round;
-  stroke-width: 2;
-  vector-effect: non-scaling-stroke;
+  stroke-width: var(--chart-line-width);
 }
 
 .trend-chart__guide {
   stroke: var(--color-border-strong);
-  stroke-dasharray: 3 3;
-  vector-effect: non-scaling-stroke;
 }
 
 .trend-chart__dot {
   fill: var(--color-action);
   stroke: var(--color-surface-raised);
-  stroke-width: 2;
-  vector-effect: non-scaling-stroke;
+  stroke-width: 2.5;
 }
 
 .trend-chart__failure-bars rect {
@@ -360,38 +378,73 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', closeOnExterna
 .trend-chart__tooltip {
   position: absolute;
   z-index: 2;
-  display: grid;
-  min-width: 148px;
-  gap: 2px;
-  transform: translate(-50%, calc(-100% - 12px));
+  min-width: 134px;
+  transform: translate(-50%, -100%);
   border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-control);
+  border-radius: 8px;
   background: var(--color-surface-raised);
-  box-shadow: var(--shadow-card);
-  color: var(--color-text-muted);
-  padding: var(--space-2) var(--space-3);
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  line-height: 1.45;
+  box-shadow: var(--shadow-chart-tooltip);
+  padding: 8px 11px;
   pointer-events: none;
   white-space: nowrap;
 }
 
-.trend-chart__tooltip time {
+.trend-chart__tooltip-time {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--color-text-faint);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.trend-chart__tooltip-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+  font-size: 12px;
+}
+
+.trend-chart__tooltip-row + .trend-chart__tooltip-row {
+  margin-top: 2px;
+}
+
+.trend-chart__tooltip-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-text-muted);
+}
+
+.trend-chart__tooltip-swatch {
+  display: block;
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 2px;
+}
+
+.trend-chart__tooltip-swatch--request {
+  background: var(--color-action);
+}
+
+.trend-chart__tooltip-swatch--failure {
+  background: var(--color-danger);
+}
+
+.trend-chart__tooltip-value {
   color: var(--color-text);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
 }
 
 .trend-chart__tooltip--start {
-  transform: translate(0, calc(-100% - 12px));
+  transform: translate(0, -100%);
 }
 
 .trend-chart__tooltip--end {
-  transform: translate(-100%, calc(-100% - 12px));
-}
-
-.trend-chart__empty {
-  margin: 0;
-  color: var(--color-text-muted);
+  transform: translate(-100%, -100%);
 }
 
 @media (prefers-reduced-motion: no-preference) {

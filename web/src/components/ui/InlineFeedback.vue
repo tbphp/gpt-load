@@ -4,9 +4,11 @@ import { computed } from 'vue'
 const props = withDefaults(
   defineProps<{
     tone?: 'info' | 'success' | 'warning' | 'danger'
+    appearance?: 'default' | 'hint' | 'auth' | 'toast'
   }>(),
   {
     tone: 'info',
+    appearance: 'default',
   },
 )
 
@@ -24,7 +26,7 @@ const glyph = computed(() => {
 <template>
   <div
     class="inline-feedback"
-    :class="`inline-feedback--${tone}`"
+    :class="[`inline-feedback--${tone}`, `inline-feedback--${appearance}`]"
     :role="role"
     :aria-live="live"
     aria-atomic="true"
@@ -78,5 +80,61 @@ const glyph = computed(() => {
   border-color: var(--color-danger);
   background: var(--color-danger-bg);
   color: var(--color-danger);
+}
+
+.inline-feedback--hint {
+  gap: 6px;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  font-size: var(--text-sm);
+}
+
+.inline-feedback--hint .inline-feedback__glyph {
+  width: 14px;
+  height: 14px;
+}
+
+.inline-feedback--hint.inline-feedback--info {
+  color: var(--color-action);
+}
+
+.inline-feedback--auth {
+  gap: 0;
+  border-color: color-mix(
+    in srgb,
+    var(--color-danger) 34%,
+    var(--color-border-subtle)
+  );
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+  padding: 8px 10px;
+  font-size: var(--text-label-xs);
+  line-height: 1.55;
+}
+
+.inline-feedback--auth .inline-feedback__glyph {
+  display: none;
+}
+
+.inline-feedback--toast {
+  position: fixed;
+  z-index: var(--z-drawer);
+  bottom: 26px;
+  left: 50%;
+  width: max-content;
+  max-width: calc(100vw - 32px);
+  transform: translateX(-50%);
+  border: 0;
+  border-radius: 8px;
+  background: var(--color-text);
+  color: var(--color-surface);
+  padding: 8px 14px;
+  box-shadow: var(--shadow-overlay);
+  font-size: 12.5px;
+}
+
+.inline-feedback--toast .inline-feedback__glyph {
+  display: none;
 }
 </style>

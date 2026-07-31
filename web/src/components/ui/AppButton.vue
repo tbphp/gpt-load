@@ -4,8 +4,8 @@ withDefaults(
     type?: 'button' | 'submit' | 'reset'
     disabled?: boolean
     busy?: boolean
-    variant?: 'primary' | 'secondary' | 'ghost' | 'danger'
-    size?: 'sm' | 'md' | 'lg'
+    variant?: 'primary' | 'secondary' | 'ghost' | 'danger' | 'link'
+    size?: 'inline' | 'compact' | 'sm' | 'md' | 'cta' | 'lg'
   }>(),
   {
     type: 'button',
@@ -55,6 +55,25 @@ withDefaults(
   font-size: var(--text-sm);
 }
 
+.app-button--compact {
+  min-height: var(--control-compact);
+  padding-inline: 12px;
+  font-size: var(--text-meta);
+  font-weight: 560;
+}
+
+.app-button--cta {
+  min-height: var(--control-md);
+  gap: var(--space-2);
+  padding-inline: 15px;
+}
+
+.app-button--inline {
+  min-height: 0;
+  padding: 0;
+  font-size: inherit;
+}
+
 .app-button--lg {
   min-height: var(--control-lg);
   padding-inline: 18px;
@@ -83,6 +102,15 @@ withDefaults(
   color: var(--color-action-ink);
 }
 
+.app-button--link {
+  border: 0;
+  background: transparent;
+  color: var(--color-action);
+  font-weight: inherit;
+  line-height: inherit;
+  vertical-align: baseline;
+}
+
 .app-button--primary:hover:not(:disabled) {
   border-color: var(--color-action-hover);
   background: var(--color-action-hover);
@@ -102,6 +130,10 @@ withDefaults(
   opacity: 0.88;
 }
 
+.app-button--link:hover:not(:disabled) {
+  color: var(--color-action-hover);
+  text-decoration: underline;
+}
 .app-button:disabled {
   cursor: not-allowed;
   opacity: 0.55;
@@ -111,9 +143,4 @@ withDefaults(
   cursor: wait;
 }
 
-@media (pointer: coarse) {
-  .app-button {
-    min-height: var(--touch-target);
-  }
-}
 </style>

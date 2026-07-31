@@ -12,6 +12,11 @@ export function formatLocalInstant(
 ): string {
   const date = validDate(ms)
   if (!date) return '—'
+  const timeZone = options.timeZone ?? currentTimeZone()
+  const hasCustomShape = Object.keys(options).some((key) => key !== 'timeZone')
+  if (!hasCustomShape) {
+    return formatZonedDateTime(date, timeZone, false)
+  }
   try {
     return new Intl.DateTimeFormat(locale, {
       year: 'numeric',
@@ -20,7 +25,7 @@ export function formatLocalInstant(
       hour: '2-digit',
       minute: '2-digit',
       second: '2-digit',
-      timeZone: currentTimeZone(),
+      timeZone,
       timeZoneName: 'short',
       hourCycle: 'h23',
       ...options,
@@ -35,43 +40,25 @@ export function formatISOInstant(ms: number): string | undefined {
   return validDate(ms)?.toISOString()
 }
 
-export function formatLocalTime(ms: number, locale: string): string {
-  return formatLocalInstant(ms, locale, {
-    year: undefined,
-    month: undefined,
-    day: undefined,
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    timeZoneName: undefined,
-    hourCycle: 'h23',
-  })
+export function formatLocalTime(ms: number, _locale: string): string {
+  const date = validDate(ms)
+  if (!date) return '—'
+  return formatZonedDateTime(date, currentTimeZone(), true).slice(11)
 }
 
-export function formatLocalTimeRange(startMs: number, endMs: number, locale: string): string {
+export function formatLocalTimeRange(startMs: number, endMs: number, _locale: string): string {
   const start = validDate(startMs)
   const end = validDate(endMs)
   if (!start || !end || end.getTime() <= start.getTime()) return '—'
-
-  const options: Intl.DateTimeFormatOptions = {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    timeZone: currentTimeZone(),
-    timeZoneName: 'short',
-    hourCycle: 'h23',
-  }
-  try {
-    const formatter = new Intl.DateTimeFormat(locale, options)
-    return formatter.formatRange(start, end)
-  } catch {
-    return `${formatLocalInstant(startMs, locale, options)} – ${formatLocalInstant(endMs, locale, options)}`
-  }
+  const timeZone = currentTimeZone()
+  return `${formatZonedDateTime(start, timeZone, false)} – ${formatZonedDateTime(
+    end,
+    timeZone,
+    false,
+  )}`
 }
 
-export function formatDuration(startedAtMs: number, nowMs: number, locale: string): string {
+export function formatDuration(startedAtMs: number, nowMs: number, _locale: string): string {
   if (!Number.isSafeInteger(startedAtMs) || !Number.isSafeInteger(nowMs)) {
     return '—'
   }
@@ -82,12 +69,12 @@ export function formatDuration(startedAtMs: number, nowMs: number, locale: strin
   const minutes = elapsedMinutes % 60
 
   if (days > 0) {
-    return [formatUnit(days, 'day', locale), formatUnit(hours, 'hour', locale)].join(' ')
+    return `${days}d ${String(hours).padStart(2, '0')}h`
   }
   if (hours > 0) {
-    return [formatUnit(hours, 'hour', locale), formatUnit(minutes, 'minute', locale)].join(' ')
+    return `${hours}h ${String(minutes).padStart(2, '0')}m`
   }
-  return formatUnit(minutes, 'minute', locale)
+  return `${minutes}m`
 }
 
 export function formatInteger(value: number, locale: string): string {
@@ -151,13 +138,39 @@ function validDate(ms: number): Date | null {
   return Number.isNaN(date.getTime()) ? null : date
 }
 
-function formatUnit(value: number, unit: 'day' | 'hour' | 'minute', locale: string): string {
-  return new Intl.NumberFormat(locale, {
-    style: 'unit',
-    unit,
-    unitDisplay: 'narrow',
-    maximumFractionDigits: 0,
-  }).format(value)
+function formatZonedDateTime(date: Date, timeZone: string, includeSeconds: boolean): string {
+  try {
+    const parts = new Intl.DateTimeFormat('en-CA-u-nu-latn', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: includeSeconds ? '2-digit' : undefined,
+      timeZone,
+      hourCycle: 'h23',
+    }).formatToParts(date)
+    const values = new Map(parts.map((part) => [part.type, part.value]))
+    const year = values.get('year')
+    const month = values.get('month')
+    const day = values.get('day')
+    const hour = values.get('hour')
+    const minute = values.get('minute')
+    const second = values.get('second')
+    if (!year || !month || !day || !hour || !minute || (includeSeconds && !second)) {
+      return fallbackDateTime(date, includeSeconds)
+    }
+    return `${year}-${month}-${day} ${hour}:${minute}${includeSeconds ? `:${second}` : ''}`
+  } catch {
+    return fallbackDateTime(date, includeSeconds)
+  }
+}
+
+function fallbackDateTime(date: Date, includeSeconds: boolean): string {
+  return date
+    .toISOString()
+    .replace('T', ' ')
+    .slice(0, includeSeconds ? 19 : 16)
 }
 
 function roundNanoUSD(value: bigint, scale: number): bigint {

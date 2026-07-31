@@ -22,24 +22,24 @@ export default {
   },
   auth: {
     eyebrow: 'GPT-Load 2.0',
-    headline: 'モデルゲートウェイを明快に、思いどおりに管理。',
-    lead: 'セルフホスト型の AI API キー集約・ネイティブプロトコルゲートウェイです。ログインするとアップストリームキー、ルーティング、使用量を管理できます。',
+    headline: 'モデルゲートウェイを明快に、思いどおりに管理',
+    lead: 'セルフホスト型の AI API キー集約・ネイティブプロトコルゲートウェイです。ログインするとアップストリームキー、ルーティング、使用量を管理できます',
     capabilities: {
       1: {
         title: 'アップストリームキーを一元管理',
-        description: 'Group、モデル、利用可能状況をまとめて管理します。',
+        description: 'Group、モデル、利用可能状況をまとめて管理します',
       },
       2: {
         title: 'ネイティブプロトコルを維持',
-        description: 'OpenAI、Anthropic、Gemini のパスを明確に保ちます。',
+        description: 'OpenAI、Anthropic、Gemini のパスを明確に保ちます',
       },
       3: {
         title: '使用量と推定コストを確認',
-        description: 'リクエスト、トークン、費用をまとめて表示します。',
+        description: 'リクエスト、トークン、費用をまとめて表示します',
       },
     },
     loginTitle: '管理コンソールにログイン',
-    loginDescription: 'この GPT-Load インスタンスの管理キーを入力してください。',
+    loginDescription: 'この GPT-Load インスタンスの管理キーを入力してください',
     keyLabel: 'AUTH_KEY',
     keyPlaceholder: '管理キーを入力',
     reveal: '管理キーを表示',
@@ -53,7 +53,24 @@ export default {
     network: '管理 API に接続できません。サービスを確認して再試行してください。',
     invalidResponse: '管理 API から認識できない応答が返されました。',
     checking: '現在のセッションを確認しています…',
-    sessionNote: '管理キーは、このブラウザーセッションの sessionStorage にのみ保存されます。',
+    sessionNotePrefix: '管理キーは、このブラウザーセッションの ',
+    sessionNoteSuffix: ' にのみ保存されます',
+    help: {
+      title: 'AUTH_KEY はどこにありますか？',
+      environmentTitle: '環境変数を優先',
+      environmentDescription:
+        'インスタンス起動時に {key} を設定した場合は、デプロイ環境で保護された値を使用してください',
+      fileTitle: '管理キーのファイル',
+      fileDescription:
+        '環境変数がない場合、インスタンスは {path} を読み込むか生成します。コンテナの既定値は {containerPath} です',
+      dockerTitle: 'Docker インスタンス',
+      dockerDescription:
+        '管理された端末で {command} を実行してからキーのファイルを確認してください。出力をログ、チケット、チャットに貼り付けないでください',
+    },
+    recoveryPrefix:
+      'サービスが無効な応答を返す場合は、インスタンスのアドレスと状態を確認してから',
+    recoveryAction: 'セッションを再確認',
+    recoverySuffix: 'するか、別の管理キーを使用してください',
     instance: '現在のインスタンス · {origin}',
   },
   shell: {
@@ -73,6 +90,9 @@ export default {
     localeZh: '简体中文',
     localeEn: 'English',
     localeJa: '日本語',
+    localeZhShort: '中文',
+    localeEnShort: 'EN',
+    localeJaShort: '日本語',
     themeSystem: 'システム設定を使用',
     themeLight: 'ライト',
     themeDark: 'ダーク',
@@ -120,8 +140,8 @@ export default {
       statisticsInitialError: '統計を取得できないため、ゼロ値のプレースホルダーを表示しています。',
       statisticsLoading: '統計を読み込み中…',
       trendTitle: 'リクエスト量の推移 · 過去 {range}',
-      trendDescription: '時間バケットごとのリクエスト数と失敗数。',
-      trendEmpty: 'この期間に描画できるリクエスト推移はありません。',
+      trendDescription: '時間バケットごとのリクエスト数と失敗数',
+      trendEmpty: 'この期間に描画できるリクエスト推移はありません',
       requestsLabel: 'リクエスト',
       failuresLabel: '失敗',
       factGroups: '個の Group',
@@ -137,26 +157,26 @@ export default {
       tokens: '{count} tokens',
       tokensWithUnpriced: '{tokens} · 価格未設定 {unpriced} 件',
       welcomeTitle: 'GPT-Load へようこそ',
-      importKeys: 'キーをインポート',
+      importKeys: 'アップストリームキーをインポート',
       welcomeDescription:
-        '最初のアップストリームキーをインポートすると、Group を作成してネイティブ API リクエストを転送できます。',
+        '最初のアップストリームキーをインポートすると、Group を作成してネイティブ API リクエストを転送できます',
       welcomeGuideTitle: '初回接続を 3 ステップで完了',
       welcomeEstimatedTime: '所要 1～2 分',
       welcomeStep1Title: 'アップストリームサービスを選択',
       welcomeStep1Description:
-        'OpenAI、Anthropic、Gemini、および互換プロトコルのサービスに対応します。',
+        'OpenAI、Anthropic、Gemini、および互換プロトコルのサービスに対応します',
       welcomeStep2Title: 'Group とモデルを設定',
       welcomeStep2Description:
-        '用途が同じキーに対して、アップストリームアドレス、プロトコル、利用可能なモデルを設定します。',
+        '用途が同じキーに対して、アップストリームアドレス、プロトコル、利用可能なモデルを設定します',
       welcomeStep3Title: 'キーを 1 つ以上インポート',
       welcomeStep3Description:
-        'アップストリームキーを貼り付けてインポートを確認すると、可用性管理がすぐに始まります。',
+        'アップストリームキーを貼り付けてインポートを確認すると、可用性管理がすぐに始まります',
       welcomeSecurityNote:
-        'アップストリームキーは暗号化して保存され、インポート完了前に意味のない空グラフは表示しません。',
+        'アップストリームキーは暗号化して保存され、インポート完了前に意味のない空グラフは表示しません',
       ranking: {
-        title: '消費ランキング · {range}',
+        title: '消費ランキング · 直近 {range}',
         caption: '消費ランキング上位',
-        scrollHint: '横にスクロールするとすべての順位列を確認できます。',
+        scrollHint: '横にスクロールするとすべての順位列を確認できます',
         tabs: {
           label: 'ランキングの軸',
           models: 'モデル',
@@ -174,10 +194,11 @@ export default {
         deletedGroup: '削除済み Group #{id}',
         deletedAccessKey: '削除済みアクセスキー #{id}',
         unknownModel: '不明なモデル',
-        empty: 'この期間に表示できるランキングデータはありません。',
+        empty: 'この期間に表示できるランキングデータはありません',
       },
       connection: {
         title: 'ゲートウェイへ接続',
+        configuration: '設定',
         accessKey: 'アクセスキー',
         copyAccessKey: 'アクセスキーをコピー',
         copyConfiguration: '設定をコピー',
@@ -187,19 +208,19 @@ export default {
         keyCopyFailed: 'アクセスキーをコピーできません。',
         configurationCopied: '設定をコピーしました。',
         configurationCopyFailed: '設定をコピーできません。',
-        noAccessKey: 'クライアント接続の前にアクセスキーを作成してください。',
+        noAccessKey: 'クライアント接続の前にアクセスキーを作成してください',
         createAccessKey: 'アクセスキーを作成',
-        openNextChat: 'NextChat を開く',
+        openNextChat: 'ワンクリックでインポート',
         nextChatOpened: 'NextChat を開きました',
         nextChatFailed: 'NextChat を開けません。',
         popupBlocked: 'ブラウザーが NextChat のウィンドウをブロックしました。',
         nextChatConfirmTitle: 'NextChat を開く',
         nextChatConfirmDescription:
-          'このブラウザーからゲートウェイアドレスとアクセスキーが NextChat に送信されます。',
+          'このブラウザーからゲートウェイアドレスとアクセスキーが NextChat に送信されます',
         disableFastLink:
-          '既知の制限：disableFastLink が有効な場合、NextChat はこの設定を黙って無視します。',
+          '既知の制限：disableFastLink が有効な場合、NextChat はこの設定を黙って無視します',
         protocolUnavailable:
-          'このアクセスキーでは {client} に必要な {protocol} が有効ではありません。',
+          'このアクセスキーでは {client} に必要な {protocol} が有効ではありません',
         requiredProtocols: {
           'openai-completions': 'OpenAI Completions',
           anthropic: 'Anthropic',
@@ -212,14 +233,22 @@ export default {
           curl: 'curl',
           more: 'その他',
         },
+        clientKinds: {
+          desktopWeb: 'デスクトップ / Web',
+          desktop: 'デスクトップ',
+          commandLine: 'コマンドライン',
+          general: '汎用',
+        },
         moreDescription:
-          'その他のクライアントプリセットは順次追加予定です。現在は curl の例を利用できます。',
+          'その他のクライアントプリセットは順次追加予定です。現在は curl の例を利用できます',
       },
     },
     range: {
       label: 'ホーム統計の期間',
       last24Hours: '24h',
       last30Days: '30d',
+      display24Hours: '24時間',
+      display30Days: '30日',
     },
   },
 } as const

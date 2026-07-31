@@ -7,9 +7,11 @@ withDefaults(
     dense?: boolean
     scrollHint?: string
     appearance?: 'card' | 'editorial'
+    columnCollapse?: 'standard' | 'narrow'
   }>(),
   {
     appearance: 'card',
+    columnCollapse: 'standard',
     scrollHint: undefined,
   },
 )
@@ -50,6 +52,7 @@ onBeforeUnmount(() => {
     :class="{
       'data-table__container--dense': dense,
       'data-table__container--editorial': appearance === 'editorial',
+      'data-table__container--collapse-narrow': columnCollapse === 'narrow',
     }"
     :tabindex="overflowing ? 0 : undefined"
     :aria-label="overflowing ? caption : undefined"
@@ -112,14 +115,26 @@ onBeforeUnmount(() => {
 .data-table__container--editorial .data-table :deep(th) {
   background: transparent;
   color: var(--color-text-faint);
-  padding-block: var(--space-2);
-  font-size: var(--text-xs);
+  padding: 0 12px 8px 0;
+  font-size: var(--text-label-xs);
   font-weight: 500;
-  letter-spacing: 0.04em;
-  text-transform: none;
+  letter-spacing: 0.07em;
+  line-height: 1.3;
+  text-transform: uppercase;
+  white-space: nowrap;
 }
 .data-table__container--editorial .data-table :deep(td) {
-  padding-block: var(--space-3);
+  padding: 10px 12px 10px 0;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+.data-table__container--editorial .data-table {
+  width: 100%;
+  min-width: var(--table-editorial-min-width);
+  font-size: 12.5px;
+}
+.data-table__container--editorial .data-table :deep(tbody tr:hover td) {
+  background: var(--color-surface-sunken);
 }
 .data-table :deep(:is(th, td):first-child) {
   padding-left: var(--space-4);
@@ -140,6 +155,14 @@ onBeforeUnmount(() => {
 @media (max-width: 759px) {
   .data-table :deep([data-column-priority='low']) {
     display: none;
+  }
+}
+
+@media (min-width: 701px) and (max-width: 759px) {
+  .data-table__container--collapse-narrow
+    .data-table
+    :deep([data-column-priority='low']) {
+    display: table-cell;
   }
 }
 </style>

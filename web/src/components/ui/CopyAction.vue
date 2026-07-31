@@ -62,10 +62,17 @@ defineEmits<{ copy: [] }>()
 }
 
 .copy-action--embedded {
+  width: 34px;
+  min-width: 34px;
   height: auto;
   align-self: stretch;
   border-width: 0 0 0 1px;
   border-radius: 0;
+}
+
+.copy-action--embedded :deep(svg) {
+  width: 14px;
+  height: 14px;
 }
 
 .copy-action:disabled {
@@ -81,15 +88,4 @@ defineEmits<{ copy: [] }>()
   color: var(--color-success);
 }
 
-@media (pointer: coarse) {
-  .copy-action {
-    width: var(--touch-target);
-    min-width: var(--touch-target);
-    height: var(--touch-target);
-  }
-
-  .copy-action--embedded {
-    height: auto;
-  }
-}
 </style>

@@ -10,6 +10,7 @@ import { safeRedirect } from '@/app/router'
 import LedgerSheet from '@/components/layout/LedgerSheet.vue'
 import PageFrame from '@/components/layout/PageFrame.vue'
 import AppButton from '@/components/ui/AppButton.vue'
+import DisclosurePanel from '@/components/ui/DisclosurePanel.vue'
 import FormField from '@/components/ui/FormField.vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
@@ -72,6 +73,14 @@ function handleInput(): void {
   if (feedback.value !== 'locked') {
     feedback.value = undefined
   }
+}
+
+async function retryFromHelp(): Promise<void> {
+  if (candidate.value === '') {
+    await focusInput()
+    return
+  }
+  await submit()
 }
 
 async function submit(): Promise<void> {
@@ -171,7 +180,7 @@ async function submit(): Promise<void> {
                   :pressed="visible"
                   :disabled="controlsDisabled"
                   variant="ghost"
-                  size="compact"
+                  size="xs"
                   @click="visible = !visible"
                 >
                   <EyeOff v-if="visible" :size="15" aria-hidden="true" />
@@ -180,8 +189,12 @@ async function submit(): Promise<void> {
               </div>
             </FormField>
 
-            <div id="auth-feedback" class="ledger-login__feedback">
-              <InlineFeedback v-if="feedbackMessage" :tone="feedbackTone">
+            <div
+              v-if="feedbackMessage"
+              id="auth-feedback"
+              class="ledger-login__feedback"
+            >
+              <InlineFeedback :tone="feedbackTone" appearance="auth">
                 {{ feedbackMessage }}
               </InlineFeedback>
             </div>
@@ -196,9 +209,51 @@ async function submit(): Promise<void> {
             </AppButton>
 
             <p id="auth-session-note" class="ledger-login__session-note">
-              {{ t('auth.sessionNote') }}
+              {{ t('auth.sessionNotePrefix') }}<code>sessionStorage</code>{{ t(
+                'auth.sessionNoteSuffix',
+              ) }}
             </p>
           </form>
+
+          <DisclosurePanel
+            class="ledger-login__auth-help"
+            :summary="t('auth.help.title')"
+          >
+            <div class="ledger-login__auth-sources">
+              <div class="ledger-login__auth-source">
+                <strong>{{ t('auth.help.environmentTitle') }}</strong>
+                <i18n-t keypath="auth.help.environmentDescription" tag="p">
+                  <template #key><code>AUTH_KEY</code></template>
+                </i18n-t>
+              </div>
+              <div class="ledger-login__auth-source">
+                <strong>{{ t('auth.help.fileTitle') }}</strong>
+                <i18n-t keypath="auth.help.fileDescription" tag="p">
+                  <template #path><code>${DATA_DIR}/auth.key</code></template>
+                  <template #containerPath><code>/app/data/auth.key</code></template>
+                </i18n-t>
+              </div>
+              <div class="ledger-login__auth-source">
+                <strong>{{ t('auth.help.dockerTitle') }}</strong>
+                <i18n-t keypath="auth.help.dockerDescription" tag="p">
+                  <template #command><code>docker exec -it gpt-load sh</code></template>
+                </i18n-t>
+              </div>
+            </div>
+          </DisclosurePanel>
+
+          <p class="ledger-login__recovery">
+            {{ t('auth.recoveryPrefix') }}
+            <AppButton
+              variant="link"
+              size="inline"
+              :disabled="controlsDisabled"
+              @click="retryFromHelp"
+            >
+              {{ t('auth.recoveryAction') }}
+            </AppButton>
+            {{ t('auth.recoverySuffix') }}
+          </p>
 
           <p class="ledger-login__instance">
             <span aria-hidden="true"></span>
@@ -220,7 +275,8 @@ async function submit(): Promise<void> {
 .ledger-login__intro {
   display: flex;
   min-width: 0;
-  align-items: center;
+  flex-direction: column;
+  justify-content: center;
   border-right: 1px solid var(--color-border-subtle);
   padding: 50px 56px 44px;
 }
@@ -285,13 +341,14 @@ async function submit(): Promise<void> {
   margin: 2px 0 0;
   color: var(--color-text-faint);
   font-size: var(--text-sm);
-  line-height: var(--line-normal);
+  line-height: normal;
 }
 
 .ledger-login__auth {
   display: flex;
   min-width: 0;
-  align-items: center;
+  flex-direction: column;
+  justify-content: center;
   background: var(--color-surface-sunken);
   padding: 44px 42px;
 }
@@ -307,7 +364,6 @@ async function submit(): Promise<void> {
   font-size: var(--title-panel);
   font-weight: 500;
   letter-spacing: -0.015em;
-  line-height: var(--line-compact);
 }
 
 .ledger-login__description {
@@ -333,7 +389,7 @@ async function submit(): Promise<void> {
   font-size: 12.5px;
 }
 
-.ledger-login__input-wrap :deep(.ledger-login__reveal.icon-button) {
+.ledger-login__reveal {
   position: absolute;
   top: 50%;
   right: 7px;
@@ -341,11 +397,7 @@ async function submit(): Promise<void> {
 }
 
 .ledger-login__feedback {
-  min-height: 72px;
-}
-
-.ledger-login__feedback :deep(.inline-feedback) {
-  font-size: var(--text-label-xs);
+  min-width: 0;
 }
 
 .ledger-login__submit {
@@ -357,6 +409,56 @@ async function submit(): Promise<void> {
   color: var(--color-text-faint);
   font-size: 11px;
   line-height: 1.6;
+}
+
+.ledger-login__session-note code {
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+}
+
+.ledger-login__auth-help {
+  margin-top: 17px;
+}
+
+.ledger-login__auth-sources {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.ledger-login__auth-source {
+  border-left: 2px solid var(--color-border-control);
+  padding-left: 9px;
+}
+
+.ledger-login__auth-source strong {
+  display: block;
+  color: var(--color-text-muted);
+  font-size: var(--text-label-xs);
+}
+
+.ledger-login__auth-source p {
+  margin: 2px 0 0;
+  color: var(--color-text-faint);
+  font-size: 10px;
+  line-height: 1.55;
+}
+
+.ledger-login__auth-source code {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+  white-space: nowrap;
+}
+
+.ledger-login__recovery {
+  margin: var(--space-3) 0 0;
+  color: var(--color-text-faint);
+  font-size: 10px;
+  line-height: 1.55;
 }
 
 .ledger-login__instance {
@@ -415,11 +517,9 @@ async function submit(): Promise<void> {
   .ledger-login__headline {
     font-size: var(--title-lede);
   }
-}
 
-@media (pointer: coarse) {
-  .ledger-login__input-wrap input {
-    padding-right: 50px;
+  .ledger-login__capability p {
+    line-height: var(--line-normal);
   }
 }
 </style>

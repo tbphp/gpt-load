@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ExternalLink, KeyRound } from '@lucide/vue'
+import { Layers3, Zap } from '@lucide/vue'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
@@ -129,6 +129,14 @@ const keyCopyState = computed(() =>
 
 function selectedClientLabel(clientID: GatewayClientID): string {
   return t(`home.ledger.connection.clients.${clientID}`)
+}
+
+function selectedClientKind(clientID: GatewayClientID): string {
+  if (clientID === 'nextchat') return t('home.ledger.connection.clientKinds.desktopWeb')
+  if (clientID === 'cherry-studio') return t('home.ledger.connection.clientKinds.desktop')
+  if (clientID === 'claude-code') return t('home.ledger.connection.clientKinds.commandLine')
+  if (clientID === 'curl') return t('home.ledger.connection.clientKinds.general')
+  return ''
 }
 
 function identityMatches(identity: OperationIdentity): boolean {
@@ -319,7 +327,7 @@ onBeforeUnmount(() => {
 <template>
   <section class="gateway-connection" aria-labelledby="gateway-connection-title">
     <div class="gateway-connection__heading">
-      <KeyRound :size="16" aria-hidden="true" />
+      <Layers3 :size="15" aria-hidden="true" />
       <h2 id="gateway-connection-title">{{ t('home.ledger.connection.title') }}</h2>
     </div>
 
@@ -364,6 +372,7 @@ onBeforeUnmount(() => {
             :options="clientOptions"
             :controls-id="gatewayClientPanelID"
             :id-prefix="gatewayClientTabPrefix"
+            appearance="pills"
             scrollable
             @update:model-value="selectClient"
           />
@@ -377,15 +386,20 @@ onBeforeUnmount(() => {
         :aria-labelledby="`${gatewayClientTabPrefix}-${activeClient}`"
       >
         <header class="gateway-connection__panel-header">
-          <strong>{{ selectedClientLabel(activeClient) }}</strong>
+          <strong>
+            {{ selectedClientLabel(activeClient) }}
+            <span v-if="selectedClientKind(activeClient)">
+              {{ selectedClientKind(activeClient) }}
+            </span>
+          </strong>
           <AppButton
             v-if="activeClient === 'nextchat'"
-            size="sm"
+            size="compact"
             :disabled="!selectedKeySupportsClient || actionBusy"
             :busy="actionBusy"
             @click="nextChatConfirmationOpen = true"
           >
-            <ExternalLink :size="16" aria-hidden="true" />
+            <Zap :size="14" aria-hidden="true" />
             {{ t('home.ledger.connection.openNextChat') }}
           </AppButton>
         </header>
@@ -397,7 +411,11 @@ onBeforeUnmount(() => {
             </p>
           </template>
           <template v-else>
-            <InlineFeedback v-if="!selectedKeySupportsClient" tone="warning">
+            <InlineFeedback
+              v-if="!selectedKeySupportsClient"
+              tone="warning"
+              appearance="hint"
+            >
               {{
                 t('home.ledger.connection.protocolUnavailable', {
                   client: selectedClientLabel(activeClient),
@@ -408,7 +426,11 @@ onBeforeUnmount(() => {
               }}
             </InlineFeedback>
 
-            <CodeBlock :code="maskedSnippet" :language="selectedClientLabel(activeClient)">
+            <CodeBlock
+              :code="maskedSnippet"
+              :language="t('home.ledger.connection.configuration')"
+              appearance="snippet"
+            >
               <template #action>
                 <CopyAction
                   :label="t('home.ledger.connection.copyConfiguration')"
@@ -420,7 +442,11 @@ onBeforeUnmount(() => {
               </template>
             </CodeBlock>
 
-            <InlineFeedback v-if="activeClient === 'nextchat'" tone="info">
+            <InlineFeedback
+              v-if="activeClient === 'nextchat'"
+              tone="info"
+              appearance="hint"
+            >
               {{ t('home.ledger.connection.disableFastLink') }}
             </InlineFeedback>
           </template>
@@ -432,6 +458,7 @@ onBeforeUnmount(() => {
       v-if="visibleFeedback"
       class="gateway-connection__feedback"
       :tone="feedbackTone"
+      appearance="toast"
     >
       {{ feedbackMessage }}
     </InlineFeedback>
@@ -461,13 +488,14 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .gateway-connection {
-  padding-top: var(--space-6);
+  padding-top: 22px;
 }
 
 .gateway-connection__heading {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: 10px;
+  margin-bottom: 4px;
 }
 
 .gateway-connection__heading h2 {
@@ -485,8 +513,8 @@ onBeforeUnmount(() => {
   display: grid;
   grid-template-columns: minmax(220px, 300px) minmax(0, 1fr);
   align-items: end;
-  gap: var(--space-5);
-  margin-top: var(--space-5);
+  gap: 20px;
+  margin-top: 18px;
 }
 
 .gateway-connection__key {
@@ -503,15 +531,10 @@ onBeforeUnmount(() => {
 .gateway-connection__key-control {
   display: flex;
   min-width: 0;
-  min-height: var(--control-md);
   overflow: hidden;
   border: 1px solid var(--color-border-control);
   border-radius: var(--radius-control);
   background: var(--color-surface);
-}
-
-.gateway-connection__key-control :deep(.app-select__trigger) {
-  flex: 1;
 }
 
 .gateway-connection__clients {
@@ -530,33 +553,49 @@ onBeforeUnmount(() => {
 
 .gateway-connection__panel-header {
   display: flex;
-  min-height: var(--touch-target);
+  min-height: var(--surface-header-min-height);
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
+  flex-wrap: wrap;
   border-bottom: 1px solid var(--color-border-subtle);
   background: var(--color-surface-sunken);
-  padding: 10px 14px;
+  padding: 12px 14px;
 }
 
 .gateway-connection__panel-header strong {
+  display: inline-flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 8px;
   font-size: var(--text-body);
   font-weight: 600;
 }
 
+.gateway-connection__panel-header strong span {
+  color: var(--color-text-faint);
+  font-size: var(--text-sm);
+  font-weight: 400;
+}
+
 .gateway-connection__panel-body {
   display: grid;
-  gap: var(--space-3);
+  gap: 10px;
   padding: 14px;
 }
 
 .gateway-connection__more {
-  margin: 0;
-  color: var(--color-text-muted);
+  margin: 4px;
+  border: 1px dashed var(--color-border-control);
+  border-radius: 8px;
+  color: var(--color-text-faint);
+  padding: 26px 18px;
+  font-size: 12.5px;
+  text-align: center;
 }
 
 .gateway-connection__feedback {
-  margin-top: var(--space-3);
+  margin: 0;
 }
 
 .gateway-connection__empty {

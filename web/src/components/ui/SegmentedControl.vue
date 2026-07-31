@@ -7,14 +7,20 @@ export interface SegmentedControlOption {
   disabled?: boolean
 }
 
-defineProps<{
-  modelValue: string
-  label: string
-  options: SegmentedControlOption[]
-  controlsId?: string
-  idPrefix?: string
-  scrollable?: boolean
-}>()
+withDefaults(
+  defineProps<{
+    modelValue: string
+    label: string
+    options: SegmentedControlOption[]
+    controlsId?: string
+    idPrefix?: string
+    scrollable?: boolean
+    appearance?: 'joined' | 'pills'
+  }>(),
+  {
+    appearance: 'joined',
+  },
+)
 
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
 
@@ -57,7 +63,10 @@ function handleSegmentKeydown(event: KeyboardEvent): void {
   >
     <TabsList
       class="segmented-control__list"
-      :class="{ 'segmented-control__list--scrollable': scrollable }"
+      :class="[
+        `segmented-control__list--${appearance}`,
+        { 'segmented-control__list--scrollable': scrollable },
+      ]"
       :aria-label="label"
     >
       <TabsTrigger
@@ -83,9 +92,7 @@ function handleSegmentKeydown(event: KeyboardEvent): void {
   display: inline-flex;
 }
 .segmented-control__list {
-  display: inline-grid;
-  grid-auto-columns: minmax(48px, 1fr);
-  grid-auto-flow: column;
+  display: inline-flex;
   overflow: hidden;
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-control);
@@ -96,8 +103,15 @@ function handleSegmentKeydown(event: KeyboardEvent): void {
   overflow-x: auto;
   overscroll-behavior-inline: contain;
 }
+.segmented-control__list--pills {
+  gap: 6px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
 .segmented-control__trigger {
-  min-height: var(--control-compact);
+  flex: none;
+  min-height: 0;
   border: 0;
   border-right: 1px solid var(--color-border-strong);
   background: transparent;
@@ -115,19 +129,30 @@ function handleSegmentKeydown(event: KeyboardEvent): void {
 .segmented-control__trigger:last-child {
   border-right: 0;
 }
+.segmented-control__list--pills .segmented-control__trigger {
+  border: 1px solid var(--color-border-control);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  padding: 6px 12px;
+  font-size: 12.5px;
+}
+.segmented-control__list--pills
+  .segmented-control__trigger:hover:not(:disabled):not([data-state='active']) {
+  border-color: var(--color-text-faint);
+  color: var(--color-text);
+}
 .segmented-control__trigger[data-state='active'] {
   background: var(--color-text);
   color: var(--color-surface);
   font-weight: 560;
+}
+.segmented-control__list--pills .segmented-control__trigger[data-state='active'] {
+  border-color: var(--color-text);
 }
 .segmented-control__trigger:disabled {
   cursor: not-allowed;
   opacity: 0.55;
 }
 
-@media (pointer: coarse) {
-  .segmented-control__trigger {
-    min-height: var(--touch-target);
-  }
-}
 </style>

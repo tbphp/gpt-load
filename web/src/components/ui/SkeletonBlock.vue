@@ -2,10 +2,12 @@
 withDefaults(
   defineProps<{
     height?: string
+    width?: string
     rounded?: boolean
   }>(),
   {
     height: '1rem',
+    width: '100%',
     rounded: true,
   },
 )
@@ -15,7 +17,7 @@ withDefaults(
   <span
     class="skeleton-block"
     :class="{ 'skeleton-block--rounded': rounded }"
-    :style="{ '--skeleton-height': height }"
+    :style="{ '--skeleton-height': height, '--skeleton-width': width }"
     aria-hidden="true"
   />
 </template>
@@ -23,7 +25,8 @@ withDefaults(
 <style scoped>
 .skeleton-block {
   display: block;
-  width: 100%;
+  width: var(--skeleton-width);
+  max-width: 100%;
   height: var(--skeleton-height);
   background: linear-gradient(
     90deg,
@@ -32,7 +35,7 @@ withDefaults(
     var(--color-surface-sunken)
   );
   background-size: 200% 100%;
-  animation: skeleton-shift 1.4s var(--easing-standard) infinite;
+  animation: skeleton-shift var(--duration-skeleton) var(--easing-standard) infinite;
 }
 
 .skeleton-block--rounded {

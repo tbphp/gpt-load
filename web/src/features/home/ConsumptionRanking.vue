@@ -5,14 +5,21 @@ import { useI18n } from 'vue-i18n'
 import type { HomeRankings, HomeStatisticsRef } from '@/app/resources/home'
 import DataTable from '@/components/ui/DataTable.vue'
 import SegmentedControl from '@/components/ui/SegmentedControl.vue'
+import SkeletonBlock from '@/components/ui/SkeletonBlock.vue'
 import { formatEstimatedCost, formatInteger, formatTokens } from '@/lib/format'
 
 type RankingDimension = 'models' | 'groups' | 'accessKeys'
 
-const props = defineProps<{
-  rankings: HomeRankings
-  range: string
-}>()
+const props = withDefaults(
+  defineProps<{
+    rankings: HomeRankings
+    range: string
+    loading?: boolean
+  }>(),
+  {
+    loading: false,
+  },
+)
 
 const { locale, t } = useI18n()
 const dimension = ref<RankingDimension>('models')
@@ -65,7 +72,9 @@ function tokenCellAttributes(totalTokens: number): { title: string; 'aria-label'
 
     <DataTable
       appearance="editorial"
+      column-collapse="narrow"
       dense
+      :aria-busy="loading ? 'true' : undefined"
       :caption="t('home.ledger.ranking.caption')"
       :scroll-hint="t('home.ledger.ranking.scrollHint')"
     >
@@ -103,14 +112,24 @@ function tokenCellAttributes(totalTokens: number): { title: string; 'aria-label'
         </tr>
       </thead>
       <tbody>
-        <tr v-if="rows.length === 0">
+        <template v-if="loading">
+          <tr v-for="row in 5" :key="`loading-${row}`">
+            <td v-for="column in dimension === 'models' ? 5 : 4" :key="column">
+              <SkeletonBlock
+                height="0.72rem"
+                :width="column === 1 ? '72%' : column === 2 ? '58%' : '44%'"
+              />
+            </td>
+          </tr>
+        </template>
+        <tr v-else-if="rows.length === 0">
           <td class="consumption-ranking__empty" :colspan="dimension === 'models' ? 5 : 4">
             {{ t('home.ledger.ranking.empty') }}
           </td>
         </tr>
         <template v-else-if="dimension === 'models'">
           <tr v-for="row in rankings.models.slice(0, 5)" :key="`${row.group.id}:${row.model}`">
-            <td class="consumption-ranking__mono">{{ modelName(row.model) }}</td>
+            <td class="consumption-ranking__model">{{ modelName(row.model) }}</td>
             <td>{{ referenceName(row.group, 'group') }}</td>
             <td class="consumption-ranking__number consumption-ranking__mono">
               {{ formatInteger(row.request_count, locale) }}
@@ -129,7 +148,9 @@ function tokenCellAttributes(totalTokens: number): { title: string; 'aria-label'
         </template>
         <template v-else-if="dimension === 'groups'">
           <tr v-for="row in rankings.groups.slice(0, 5)" :key="row.group.id">
-            <td>{{ referenceName(row.group, 'group') }}</td>
+            <td>
+              {{ referenceName(row.group, 'group') }}
+            </td>
             <td class="consumption-ranking__number consumption-ranking__mono">
               {{ formatInteger(row.request_count, locale) }}
             </td>
@@ -147,7 +168,9 @@ function tokenCellAttributes(totalTokens: number): { title: string; 'aria-label'
         </template>
         <template v-else>
           <tr v-for="row in rankings.access_keys.slice(0, 5)" :key="row.access_key.id">
-            <td>{{ referenceName(row.access_key, 'accessKey') }}</td>
+            <td>
+              {{ referenceName(row.access_key, 'accessKey') }}
+            </td>
             <td class="consumption-ranking__number consumption-ranking__mono">
               {{ formatInteger(row.request_count, locale) }}
             </td>
@@ -171,15 +194,15 @@ function tokenCellAttributes(totalTokens: number): { title: string; 'aria-label'
 <style scoped>
 .consumption-ranking {
   border-bottom: 1px solid var(--color-border-subtle);
-  padding: var(--space-6) 0 var(--space-5);
+  padding: 22px 0 20px;
 }
 .consumption-ranking__header {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
   justify-content: space-between;
-  gap: var(--space-3);
-  margin-bottom: var(--space-3);
+  gap: 14px;
+  margin-bottom: 12px;
 }
 .consumption-ranking__header h2 {
   margin: 0;
@@ -194,9 +217,15 @@ function tokenCellAttributes(totalTokens: number): { title: string; 'aria-label'
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
 }
+.consumption-ranking__model {
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
 .consumption-ranking__empty {
   color: var(--color-text-faint);
   font-size: var(--text-sm);
   padding-block: var(--space-3) !important;
 }
+
 </style>

@@ -79,16 +79,24 @@
   --touch-target: 44px;
   --section-gap: 24px;
   --collection-row-height: 48px;
+  --surface-header-min-height: 55px;
+  --table-editorial-min-width: 560px;
+  --chart-aspect-ratio: 1000 / 158;
+  --chart-line-width: 2;
+  --chart-grid-dash: 3 4;
 
   --shadow-sheet: 0 1px 2px rgba(28, 26, 20, 0.05), 0 12px 32px rgba(28, 26, 20, 0.06);
   --shadow-card: 0 1px 2px rgba(28, 26, 20, 0.05);
   --shadow-overlay: 0 2px 8px rgba(0, 0, 0, 0.08), 0 14px 30px rgba(0, 0, 0, 0.09);
+  --shadow-chart-tooltip:
+    0 2px 6px rgba(0, 0, 0, 0.07), 0 10px 24px rgba(0, 0, 0, 0.08);
   --focus-ring: 0 0 0 3px color-mix(in srgb, var(--color-focus) 16%, transparent);
 
   --duration-instant: 120ms;
   --duration-fast: 140ms;
   --duration-normal: 180ms;
   --duration-data: 220ms;
+  --duration-skeleton: 1.4s;
   --easing-standard: ease;
   --easing-data: ease-out;
 
@@ -142,6 +150,8 @@
   --shadow-sheet: 0 1px 2px rgba(0, 0, 0, 0.45), 0 12px 32px rgba(0, 0, 0, 0.3);
   --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.45);
   --shadow-overlay: 0 2px 8px rgba(0, 0, 0, 0.5), 0 14px 30px rgba(0, 0, 0, 0.4);
+  --shadow-chart-tooltip:
+    0 2px 6px rgba(0, 0, 0, 0.45), 0 10px 24px rgba(0, 0, 0, 0.35);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -178,6 +188,8 @@
     --shadow-sheet: 0 1px 2px rgba(0, 0, 0, 0.45), 0 12px 32px rgba(0, 0, 0, 0.3);
     --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.45);
     --shadow-overlay: 0 2px 8px rgba(0, 0, 0, 0.5), 0 14px 30px rgba(0, 0, 0, 0.4);
+    --shadow-chart-tooltip:
+      0 2px 6px rgba(0, 0, 0, 0.45), 0 10px 24px rgba(0, 0, 0, 0.35);
   }
 }
 

@@ -52,7 +52,6 @@ withDefaults(
   font-family: var(--font-serif);
   font-size: var(--title-section);
   font-weight: 500;
-  line-height: var(--line-compact);
 }
 
 .page-section__content {

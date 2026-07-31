@@ -18,14 +18,19 @@ import {
 
 import type { HomeStatisticsState } from './home-presenter'
 
-const props = defineProps<{
-  base: HomeBaseDto
-  statisticsState: HomeStatisticsState
-  selectedRange: HomeRange
-  targetRange: HomeRange | null
-  observedAtMs: number | null
-  uptimeNowMs: number
-}>()
+const props = withDefaults(
+  defineProps<{
+    base: HomeBaseDto
+    statisticsState: HomeStatisticsState
+    selectedRange: HomeRange
+    observedAtMs: number | null
+    uptimeNowMs: number
+    loading?: boolean
+  }>(),
+  {
+    loading: false,
+  },
+)
 
 const emit = defineEmits<{ selectRange: [range: HomeRange] }>()
 const { locale, t } = useI18n()
@@ -34,10 +39,9 @@ const snapshot = computed(() => {
   const state = props.statisticsState
   return state.kind === 'initial' ? null : state.snapshot
 })
-const isSwitching = computed(() => props.statisticsState.kind === 'switching')
 const rangeOptions = computed(() => [
-  { value: '24h', label: t('home.range.last24Hours'), disabled: props.targetRange === '24h' },
-  { value: '30d', label: t('home.range.last30Days'), disabled: props.targetRange === '30d' },
+  { value: '24h', label: t('home.range.last24Hours') },
+  { value: '30d', label: t('home.range.last30Days') },
 ])
 const updated = computed(() =>
   props.observedAtMs === null ? '—' : formatLocalTime(props.observedAtMs, locale.value),
@@ -84,6 +88,9 @@ const costDetailExact = computed(() => {
         unpriced: formatInteger(summary.unpriced_request_count, locale.value),
       })
 })
+function rangeLabel(range: HomeRange): string {
+  return t(range === '24h' ? 'home.range.display24Hours' : 'home.range.display30Days')
+}
 function selectRange(value: string): void {
   if (value === '24h' || value === '30d') emit('selectRange', value)
 }
@@ -129,23 +136,25 @@ function selectRange(value: string): void {
     </dl>
   </header>
 
-  <section class="home-summary__figures">
-    <template v-if="isSwitching || !snapshot">
-      <SkeletonBlock
-        class="home-summary__figure"
-        height="5.5rem"
-        :aria-label="t('home.ledger.statisticsLoading')"
-      />
-      <SkeletonBlock
-        class="home-summary__figure home-summary__figure--secondary"
-        height="5.5rem"
-        :aria-label="t('home.ledger.statisticsLoading')"
-      />
+  <section class="home-summary__figures" :aria-busy="loading ? 'true' : undefined">
+    <template v-if="loading || !snapshot">
+      <div class="home-summary__figure home-summary__figure--loading">
+        <SkeletonBlock width="48%" height="0.72rem" />
+        <SkeletonBlock width="62%" height="2.25rem" />
+        <SkeletonBlock width="54%" height="0.75rem" />
+      </div>
+      <div
+        class="home-summary__figure home-summary__figure--secondary home-summary__figure--loading"
+      >
+        <SkeletonBlock width="52%" height="0.72rem" />
+        <SkeletonBlock width="68%" height="2.25rem" />
+        <SkeletonBlock width="58%" height="0.75rem" />
+      </div>
     </template>
     <template v-else>
       <StatFigure
         class="home-summary__figure"
-        :label="t('home.ledger.successRate', { range: snapshot.range })"
+        :label="t('home.ledger.successRate', { range: rangeLabel(snapshot.range) })"
         :value="
           formatPercent(snapshot.summary.success_count, snapshot.summary.request_count, locale)
         "
@@ -153,7 +162,7 @@ function selectRange(value: string): void {
       />
       <StatFigure
         class="home-summary__figure home-summary__figure--secondary"
-        :label="t('home.ledger.estimatedCost', { range: snapshot.range })"
+        :label="t('home.ledger.estimatedCost', { range: rangeLabel(snapshot.range) })"
         :value="formatEstimatedCost(snapshot.summary.estimated_cost_nano_usd, locale)"
         :detail="costDetail"
         :detail-title="costDetailExact"
@@ -173,11 +182,12 @@ function selectRange(value: string): void {
 <style scoped>
 .home-summary__header {
   display: flex;
-  align-items: start;
+  align-items: center;
   justify-content: space-between;
-  gap: var(--space-5);
+  gap: 22px;
+  flex-wrap: wrap;
   border-bottom: 1px solid var(--color-border-control);
-  padding-bottom: var(--space-5);
+  padding-bottom: 20px;
 }
 
 .home-summary__facts {
@@ -188,10 +198,11 @@ function selectRange(value: string): void {
   font-size: var(--title-lede);
   font-weight: 500;
   line-height: var(--line-compact);
+  letter-spacing: -0.015em;
 }
 
 .home-summary__fact {
-  white-space: nowrap;
+  color: var(--color-text-muted);
 }
 
 .home-summary__fact strong {
@@ -207,11 +218,11 @@ function selectRange(value: string): void {
 
 .home-summary__stamp {
   display: grid;
-  gap: var(--space-1);
+  gap: 5px;
   margin: 0;
   color: var(--color-text-faint);
   font-family: var(--font-mono);
-  font-size: var(--text-meta);
+  font-size: var(--text-sm);
   text-align: right;
   white-space: nowrap;
 }
@@ -219,7 +230,7 @@ function selectRange(value: string): void {
 .home-summary__stamp div {
   display: flex;
   justify-content: end;
-  gap: var(--space-2);
+  gap: 1ch;
 }
 .home-summary__stamp dt,
 .home-summary__stamp dd {
@@ -227,32 +238,41 @@ function selectRange(value: string): void {
 }
 .home-summary__stamp dd {
   color: var(--color-text-muted);
+  font-weight: 500;
 }
 
 .home-summary__figures {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
   align-items: start;
-  gap: var(--space-7);
   border-bottom: 1px solid var(--color-border-subtle);
-  padding: var(--space-6) 0;
+  padding: 22px 0 24px;
 }
 .home-summary__range {
   flex: none;
   grid-column: 3;
 }
 .home-summary__figure {
-  min-height: 5.5rem;
+  border-left: 1px solid var(--color-border-subtle);
+  padding: 0 28px;
+}
+.home-summary__figure:first-child {
+  border-left: 0;
+  padding-left: 0;
 }
 .home-summary__figure--secondary {
   border-left: 1px solid var(--color-border-subtle);
-  padding-left: var(--space-7);
+}
+.home-summary__figure--loading {
+  display: grid;
+  min-height: 5.5rem;
+  align-content: start;
+  gap: 6px;
 }
 
 @media (max-width: 860px) {
   .home-summary__header {
     align-items: start;
-    flex-direction: column;
   }
   .home-summary__stamp {
     text-align: left;
@@ -262,18 +282,21 @@ function selectRange(value: string): void {
   }
   .home-summary__figures {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: var(--space-4);
   }
   .home-summary__range {
     grid-column: 1 / -1;
     grid-row: 1;
     justify-self: end;
+    width: max-content;
+    max-width: 100%;
+    margin-bottom: 14px;
   }
   .home-summary__figure {
     grid-row: 2;
+    padding: 0 18px;
   }
-  .home-summary__figure--secondary {
-    padding-left: var(--space-4);
+  .home-summary__figure:first-child {
+    padding-left: 0;
   }
 }
 </style>

@@ -114,13 +114,16 @@ export function buildTrendGeometry(
   rangeStart: number,
   rangeEnd: number,
 ): TrendGeometry {
+  const plotTop = validDimension(chartHeight) ? Math.min(14, chartHeight * 0.1) : 0
+  const plotBottomInset = validDimension(chartHeight) ? Math.min(8, chartHeight * 0.1) : 0
+  const baseline = validDimension(chartHeight) ? chartHeight - plotBottomInset : 0
   const empty: TrendGeometry = {
     requestPath: '',
     requestAreaPath: '',
     requestPoints: [],
     failureBars: [],
-    plotTop: 0,
-    baseline: 0,
+    plotTop,
+    baseline,
   }
   if (
     !validDimension(width) ||
@@ -134,16 +137,18 @@ export function buildTrendGeometry(
 
   const parsed = series.map(parseDatum) as ParsedDatum[]
   const rangeDuration = rangeEnd - rangeStart
-  const maximumRequests = Math.max(...parsed.map((datum) => datum.requestCount))
+  const maximumRequests = Math.max(...parsed.map((datum) => datum.requestCount)) * 1.08
   const maximumFailures = Math.max(...parsed.map((datum) => datum.failureCount))
-  const plotTop = Math.min(14, chartHeight * 0.1)
-  const plotBottomInset = Math.min(8, chartHeight * 0.1)
-  const baseline = chartHeight - plotBottomInset
   const failureHeight = Math.min(maximumFailureHeight, baseline - plotTop)
+  const first = parsed[0]!
+  const last = parsed.at(-1)!
+  const firstMidpoint = first.start + (first.end - first.start) / 2
+  const lastMidpoint = last.start + (last.end - last.start) / 2
+  const pointDuration = lastMidpoint - firstMidpoint
   const points = parsed.map<TrendPoint>((datum) => {
     const midpoint = datum.start + (datum.end - datum.start) / 2
     return {
-      x: round(((midpoint - rangeStart) / rangeDuration) * width),
+      x: round(pointDuration === 0 ? 0 : ((midpoint - firstMidpoint) / pointDuration) * width),
       y: round(
         maximumRequests === 0
           ? baseline
@@ -174,7 +179,7 @@ export function buildTrendGeometry(
       const barWidth = Math.min(rawWidth, width, Math.max(3, Math.min(6, rawWidth * 0.26)))
       const point = points[index]!
       return {
-        x: round(Math.max(0, Math.min(width - barWidth, point.x - barWidth / 2))),
+        x: round(point.x - barWidth / 2),
         y: round(baseline - height),
         width: round(barWidth),
         height,
