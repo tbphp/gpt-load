@@ -8,20 +8,22 @@ import { useRoute, useRouter } from 'vue-router'
 import { useApiClient } from '@/api/client-context'
 import type {
   GroupKeyCollectionFilters,
+  GroupKeyCollectionDto,
   GroupKeyItemDto,
+  GroupKeySummaryDto,
   GroupKeyStatus,
+  GroupSummaryDto,
 } from '@/api/control/types'
 import {
   batchGroupKeys,
   cacheGroupKeyBatch,
   cacheGroupKeyItem,
-  deleteGroupKey,
   groupKeyCollectionQueryOptions,
-  invalidateGroupKeyCollections,
   restoreGroupKey,
   updateGroupKey,
 } from '@/app/resources/upstream-keys'
 import { groupDetailLocation } from '@/app/route-locations'
+import { controlQueryKeys } from '@/app/query-keys'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppDialog from '@/components/ui/AppDialog.vue'
 import DataTable from '@/components/ui/DataTable.vue'
@@ -66,6 +68,14 @@ const allVisibleSelected = computed(() => {
 const batchBusy = computed(() =>
   [...pendingOperations.value].some((key) => key.startsWith('batch:')),
 )
+const singleBusy = computed(() =>
+  [...pendingOperations.value].some((key) => !key.startsWith('batch:')),
+)
+const dialogBusy = computed(() => {
+  const target = deleteTarget.value
+  if (target === undefined) return false
+  return target.ids.length === 1 ? pending(target.ids[0]) : batchBusy.value
+})
 
 watch(
   () => route.query,
@@ -158,14 +168,57 @@ function operation(id: number, action: string): string {
 function pending(id: number): boolean {
   return [...pendingOperations.value].some((value) => value.startsWith(`${id}:`))
 }
+function rowBusy(id: number): boolean {
+  return batchBusy.value || pending(id)
+}
 function setPending(id: number | 'batch', action: string, value: boolean): void {
   const next = new Set(pendingOperations.value)
   const key = id === 'batch' ? `batch:${action}` : operation(id, action)
   value ? next.add(key) : next.delete(key)
   pendingOperations.value = next
 }
-async function refetchCurrent(): Promise<void> {
-  await keysQuery.refetch()
+function cachedCurrentSummary(): GroupKeySummaryDto | undefined {
+  return queryClient.getQueryData<GroupKeyCollectionDto>(
+    controlQueryKeys.groups.keys(props.groupId, filters.value),
+  )?.summary
+}
+
+function synchronizeGroupSummary(summary: GroupKeySummaryDto | undefined): void {
+  const queryKey = controlQueryKeys.groups.summary(props.groupId)
+  if (summary === undefined) {
+    void queryClient.invalidateQueries({ queryKey, exact: true, refetchType: 'none' })
+    return
+  }
+  queryClient.setQueryData<GroupSummaryDto>(queryKey, (group) => {
+    if (group === undefined) return group
+    return {
+      ...group,
+      key_count: summary.total,
+      service_status:
+        group.service_status === 'disabled'
+          ? 'disabled'
+          : summary.available > 0
+            ? 'available'
+            : 'unavailable',
+    }
+  })
+}
+
+function synchronizeUpdatedItem(result: GroupKeyItemDto): void {
+  void cacheGroupKeyItem(queryClient, props.groupId, result).catch(() => {
+    synchronizeGroupSummary(undefined)
+  })
+  synchronizeGroupSummary(cachedCurrentSummary())
+}
+
+function synchronizeBatch(
+  action: 'enable' | 'disable' | 'delete',
+  result: Awaited<ReturnType<typeof batchGroupKeys>>,
+): void {
+  void cacheGroupKeyBatch(queryClient, props.groupId, action, result).catch(() => {
+    synchronizeGroupSummary(undefined)
+  })
+  synchronizeGroupSummary(result.summary)
 }
 
 async function mutateItem(
@@ -173,7 +226,7 @@ async function mutateItem(
   action: 'weight' | 'toggle' | 'restore',
   value?: string,
 ): Promise<void> {
-  if (pending(item.id)) return
+  if (batchBusy.value || pending(item.id)) return
   feedback.value = ''
   setPending(item.id, action, true)
   try {
@@ -188,8 +241,7 @@ async function mutateItem(
               ? { weight_manual: value === 'auto' ? null : Number(value) }
               : { status: item.configured_status === 'active' ? 'disabled' : 'active' },
           )
-    await cacheGroupKeyItem(queryClient, props.groupId, result)
-    await refetchCurrent()
+    synchronizeUpdatedItem(result)
   } catch {
     feedback.value = t(
       action === 'restore' ? 'group.keys.restoreFailed' : 'group.keys.updateFailed',
@@ -201,18 +253,20 @@ async function mutateItem(
 
 async function confirmDelete(): Promise<void> {
   const target = deleteTarget.value
-  if (!target || batchBusy.value) return
+  if (!target || dialogBusy.value || batchBusy.value) return
   feedback.value = ''
   if (target.ids.length === 1) {
     const id = target.ids[0]
     setPending(id, 'delete', true)
     try {
-      await deleteGroupKey(client, props.groupId, id)
-      await invalidateGroupKeyCollections(queryClient, props.groupId)
+      const result = await batchGroupKeys(client, props.groupId, {
+        action: 'delete',
+        key_ids: [id],
+      })
+      synchronizeBatch('delete', result)
       deleteTarget.value = undefined
       selectedIds.value.delete(id)
       selectedIds.value = new Set(selectedIds.value)
-      await refetchCurrent()
     } catch {
       feedback.value = t('group.keys.deleteFailed')
     } finally {
@@ -220,24 +274,24 @@ async function confirmDelete(): Promise<void> {
     }
     return
   }
-  await runBatch('delete', target.ids)
-  deleteTarget.value = undefined
+  if (await runBatch('delete', target.ids)) deleteTarget.value = undefined
 }
 
 async function runBatch(
   action: 'enable' | 'disable' | 'delete',
   ids = [...selectedIds.value],
-): Promise<void> {
-  if (ids.length === 0 || batchBusy.value) return
+): Promise<boolean> {
+  if (ids.length === 0 || batchBusy.value || singleBusy.value) return false
   feedback.value = ''
   setPending('batch', action, true)
   try {
     const result = await batchGroupKeys(client, props.groupId, { action, key_ids: ids })
-    await cacheGroupKeyBatch(queryClient, props.groupId, action, result)
+    synchronizeBatch(action, result)
     selectedIds.value = new Set()
-    await refetchCurrent()
+    return true
   } catch {
     feedback.value = t('group.keys.batch.failed')
+    return false
   } finally {
     setPending('batch', action, false)
   }
@@ -343,6 +397,7 @@ onBeforeUnmount(() => {
                   <input
                     type="checkbox"
                     :checked="allVisibleSelected"
+                    :disabled="batchBusy"
                     :aria-label="t('group.keys.selectVisible')"
                     @change="setAllVisible(($event.target as HTMLInputElement).checked)"
                   />
@@ -360,7 +415,7 @@ onBeforeUnmount(() => {
                 :key="item.id"
                 :item="item"
                 :selected="selectedIds.has(item.id)"
-                :busy="pending(item.id)"
+                :busy="rowBusy(item.id)"
                 @update:selected="setSelected(item.id, $event)"
                 @weight="mutateItem($event.item, 'weight', $event.value)"
                 @toggle="mutateItem($event, 'toggle')"
@@ -375,7 +430,7 @@ onBeforeUnmount(() => {
             :key="item.id"
             :item="item"
             :selected="selectedIds.has(item.id)"
-            :busy="pending(item.id)"
+            :busy="rowBusy(item.id)"
             @update:selected="setSelected(item.id, $event)"
             @weight="mutateItem($event.item, 'weight', $event.value)"
             @toggle="mutateItem($event, 'toggle')"
@@ -396,7 +451,7 @@ onBeforeUnmount(() => {
         <GroupKeyBatchBar
           v-if="selectedCount > 0"
           :selected-count="selectedCount"
-          :pending="batchBusy"
+          :pending="batchBusy || singleBusy"
           @enable="runBatch('enable')"
           @disable="runBatch('disable')"
           @remove="deleteTarget = { ids: [...selectedIds] }"
@@ -417,13 +472,13 @@ onBeforeUnmount(() => {
           : t('group.keys.batch.deleteDescription', { count: n(deleteTarget?.ids.length ?? 0) })
       "
       :close-label="t('group.keys.closeDialog')"
-      :dismissible="!batchBusy"
+      :dismissible="!dialogBusy"
       @update:open="!$event && (deleteTarget = undefined)"
       ><div class="group-keys__dialog-actions">
-        <AppButton variant="secondary" :disabled="batchBusy" @click="deleteTarget = undefined">{{
+        <AppButton variant="secondary" :disabled="dialogBusy" @click="deleteTarget = undefined">{{
           t('group.keys.cancel')
         }}</AppButton
-        ><AppButton variant="danger" :busy="batchBusy" @click="confirmDelete">{{
+        ><AppButton variant="danger" :busy="dialogBusy" @click="confirmDelete">{{
           t('group.keys.confirmDelete')
         }}</AppButton>
       </div></AppDialog

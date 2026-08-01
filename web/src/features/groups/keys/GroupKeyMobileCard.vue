@@ -11,6 +11,8 @@ import MobileRecordCard from '@/components/ui/MobileRecordCard.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import { formatLocalInstant } from '@/lib/format'
 
+import { presentKeyFailureCategory } from './key-failure-presenter'
+
 const props = defineProps<{ item: GroupKeyItemDto; selected: boolean; busy: boolean }>()
 const emit = defineEmits<{
   'update:selected': [selected: boolean]
@@ -49,6 +51,13 @@ const recovery = computed(() =>
         time: formatLocalInstant(props.item.recovery.at_ms, locale.value),
       }),
 )
+const failure = computed(() =>
+  props.item.recent_failure_count === 0
+    ? t('group.keys.none')
+    : `${presentKeyFailureCategory(t, props.item.last_failure_category)}${
+        props.item.last_status_code === null ? '' : ` · ${props.item.last_status_code}`
+      }`,
+)
 </script>
 
 <template>
@@ -78,11 +87,7 @@ const recovery = computed(() =>
       <dd>{{ recent }}</dd>
       <dt>{{ t('group.keys.columns.failure') }}</dt>
       <dd>
-        {{
-          item.recent_failure_count === 0
-            ? t('group.keys.none')
-            : `${item.last_failure_category}${item.last_status_code === null ? '' : ` · ${item.last_status_code}`}`
-        }}
+        {{ failure }}
       </dd>
       <dt>{{ t('group.keys.columns.recovery') }}</dt>
       <dd>{{ recovery }}</dd>

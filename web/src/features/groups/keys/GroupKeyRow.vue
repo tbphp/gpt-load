@@ -11,6 +11,8 @@ import IconButton from '@/components/ui/IconButton.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import { formatLocalInstant } from '@/lib/format'
 
+import { presentKeyFailureCategory } from './key-failure-presenter'
+
 const props = defineProps<{ item: GroupKeyItemDto; selected: boolean; busy: boolean }>()
 const emit = defineEmits<{
   'update:selected': [selected: boolean]
@@ -50,6 +52,13 @@ const recoveryLabel = computed(() => {
     })
   return t(`group.keys.recovery.${props.item.recovery.mode}`)
 })
+const failureLabel = computed(() =>
+  props.item.recent_failure_count === 0
+    ? t('group.keys.none')
+    : `${presentKeyFailureCategory(t, props.item.last_failure_category)}${
+        props.item.last_status_code === null ? '' : ` · ${props.item.last_status_code}`
+      }`,
+)
 function updateWeight(event: Event): void {
   emit('weight', { item: props.item, value: (event.target as HTMLSelectElement).value })
 }
@@ -127,11 +136,7 @@ function updateWeight(event: Event): void {
           <div>
             <dt>{{ t('group.keys.detailsFailure') }}</dt>
             <dd>
-              {{
-                item.recent_failure_count === 0
-                  ? t('group.keys.none')
-                  : `${item.last_failure_category}${item.last_status_code === null ? '' : ` · ${item.last_status_code}`}`
-              }}
+              {{ failureLabel }}
             </dd>
           </div>
           <div>
