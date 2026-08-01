@@ -20,30 +20,49 @@ import (
 	"gpt-load/internal/storage/models"
 )
 
-func TestCaptureGroupCollectionRecordsStatus(t *testing.T) {
+func TestGroupCollectionStatusReflectsRouteCapabilityAndHealth(t *testing.T) {
 	fixture := newServiceFixture(t)
 	now := time.Date(2026, time.July, 31, 12, 0, 0, 0, time.FixedZone("test", 8*60*60))
 	fixture.service.now = func() time.Time { return now }
 
 	zero := 0
 	available := createGroupCollectionGroup(t, fixture, "available", true, nil)
+	zeroModelCompletions := createGroupCollectionGroup(t, fixture, "zero-model-completions", true, nil)
+	zeroModelResponses := createGroupCollectionGroup(t, fixture, "zero-model-responses", true, nil)
+	mixedZeroModels := createGroupCollectionGroup(t, fixture, "mixed-zero-models", true, nil)
+	responsesWithoutHealthyKey := createGroupCollectionGroup(t, fixture, "responses-without-healthy-key", true, nil)
 	zeroKeys := createGroupCollectionGroup(t, fixture, "zero-keys", true, nil)
 	cooldown := createGroupCollectionGroup(t, fixture, "cooldown", true, nil)
 	blacklisted := createGroupCollectionGroup(t, fixture, "blacklisted", true, nil)
 	disabled := createGroupCollectionGroup(t, fixture, "disabled", false, nil)
 	groupWeightZero := createGroupCollectionGroup(t, fixture, "group-weight-zero", true, &zero)
 	keyWeightZero := createGroupCollectionGroup(t, fixture, "key-weight-zero", true, nil)
+	setGroupCollectionRoute(t, fixture, zeroModelCompletions, `["openai-completions"]`, `[]`)
+	setGroupCollectionRoute(t, fixture, zeroModelResponses, `["openai-responses"]`, `[]`)
+	setGroupCollectionRoute(
+		t,
+		fixture,
+		mixedZeroModels,
+		`["openai-completions","openai-responses"]`,
+		`[]`,
+	)
+	setGroupCollectionRoute(t, fixture, responsesWithoutHealthyKey, `["openai-responses"]`, `[]`)
+	setGroupCollectionRoute(t, fixture, disabled, `["openai-responses"]`, `[]`)
+	setGroupCollectionRoute(t, fixture, groupWeightZero, `["openai-responses"]`, `[]`)
 
 	entries := []state.KeyEntry{
 		createGroupCollectionKey(t, fixture, available.ID, models.UpstreamKeyStatusActive, nil),
+		createGroupCollectionKey(t, fixture, zeroModelCompletions.ID, models.UpstreamKeyStatusActive, nil),
+		createGroupCollectionKey(t, fixture, zeroModelResponses.ID, models.UpstreamKeyStatusActive, nil),
+		createGroupCollectionKey(t, fixture, mixedZeroModels.ID, models.UpstreamKeyStatusActive, nil),
 		createGroupCollectionKey(t, fixture, cooldown.ID, models.UpstreamKeyStatusActive, nil),
 		createGroupCollectionKey(t, fixture, blacklisted.ID, models.UpstreamKeyStatusActive, nil),
 		createGroupCollectionKey(t, fixture, disabled.ID, models.UpstreamKeyStatusActive, nil),
 		createGroupCollectionKey(t, fixture, groupWeightZero.ID, models.UpstreamKeyStatusActive, nil),
 		createGroupCollectionKey(t, fixture, keyWeightZero.ID, models.UpstreamKeyStatusActive, &zero),
 	}
-	entries[1].CooldownUntil = now.Add(time.Minute)
-	entries[2].Blacklisted = true
+	entries[4].CooldownUntil = now.Add(time.Minute)
+	entries[5].Blacklisted = true
 	publishGroupCollectionRuntime(t, fixture, entries)
 
 	observedAtMS, records, err := fixture.service.captureGroupCollectionRecords(context.Background())
@@ -53,18 +72,22 @@ func TestCaptureGroupCollectionRecordsStatus(t *testing.T) {
 	if observedAtMS != now.UTC().UnixMilli() {
 		t.Fatalf("observedAtMS = %d, want %d", observedAtMS, now.UTC().UnixMilli())
 	}
-	if len(records) != 7 {
-		t.Fatalf("record count = %d, want 7", len(records))
+	if len(records) != 11 {
+		t.Fatalf("record count = %d, want 11", len(records))
 	}
 
 	want := map[uint]GroupCollectionStatus{
-		available.ID:       GroupCollectionStatusAvailable,
-		zeroKeys.ID:        GroupCollectionStatusUnavailable,
-		cooldown.ID:        GroupCollectionStatusUnavailable,
-		blacklisted.ID:     GroupCollectionStatusUnavailable,
-		disabled.ID:        GroupCollectionStatusDisabled,
-		groupWeightZero.ID: GroupCollectionStatusDisabled,
-		keyWeightZero.ID:   GroupCollectionStatusUnavailable,
+		available.ID:                  GroupCollectionStatusAvailable,
+		zeroModelCompletions.ID:       GroupCollectionStatusUnavailable,
+		zeroModelResponses.ID:         GroupCollectionStatusAvailable,
+		mixedZeroModels.ID:            GroupCollectionStatusAvailable,
+		responsesWithoutHealthyKey.ID: GroupCollectionStatusUnavailable,
+		zeroKeys.ID:                   GroupCollectionStatusUnavailable,
+		cooldown.ID:                   GroupCollectionStatusUnavailable,
+		blacklisted.ID:                GroupCollectionStatusUnavailable,
+		disabled.ID:                   GroupCollectionStatusDisabled,
+		groupWeightZero.ID:            GroupCollectionStatusDisabled,
+		keyWeightZero.ID:              GroupCollectionStatusUnavailable,
 	}
 	for _, record := range records {
 		if got := record.Status; got != want[record.ID] {
@@ -75,6 +98,13 @@ func TestCaptureGroupCollectionRecordsStatus(t *testing.T) {
 				Total: 1, Disabled: 1,
 			}); got != want {
 				t.Errorf("group weight zero key counts = %#v, want %#v", got, want)
+			}
+		}
+		if record.ID == zeroModelCompletions.ID {
+			if got, want := record.KeyCounts, (GroupCollectionKeyCounts{
+				Total: 1, Available: 1,
+			}); got != want {
+				t.Errorf("zero-model Completions key counts = %#v, want %#v", got, want)
 			}
 		}
 		assertGroupCollectionKeyCountInvariant(t, record)
@@ -611,6 +641,24 @@ func createGroupCollectionGroup(
 		group.Enabled = false
 	}
 	return group
+}
+
+func setGroupCollectionRoute(
+	t *testing.T,
+	fixture serviceFixture,
+	group *models.Group,
+	rawProtocols string,
+	rawModels string,
+) {
+	t.Helper()
+	group.Protocols = models.JSON(rawProtocols)
+	group.Models = models.JSON(rawModels)
+	if err := fixture.db.Model(group).Updates(map[string]any{
+		"protocols": group.Protocols,
+		"models":    group.Models,
+	}).Error; err != nil {
+		t.Fatalf("update group %q route: %v", group.Name, err)
+	}
 }
 
 func createGroupCollectionKey(

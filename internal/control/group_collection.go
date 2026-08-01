@@ -291,7 +291,12 @@ func mapGroupCollectionRecords(
 			bucket := classifyHealthKey(catalog, runtimeByID[persistedKey.ID], observedAt)
 			addGroupCollectionKeyCount(&record.KeyCounts, bucket)
 		}
-		record.Status = groupCollectionStatus(catalog, record.KeyCounts)
+		record.Status = groupCollectionStatus(
+			catalog,
+			record.KeyCounts,
+			record.Protocols,
+			record.ModelCount,
+		)
 		records = append(records, record)
 	}
 	return records, nil
@@ -374,12 +379,22 @@ func addGroupCollectionKeyCount(counts *GroupCollectionKeyCounts, bucket healthB
 func groupCollectionStatus(
 	group state.GroupCatalogView,
 	counts GroupCollectionKeyCounts,
+	protocols []protocol.Protocol,
+	modelCount int64,
 ) GroupCollectionStatus {
 	if !group.Enabled || (group.WeightManual != nil && *group.WeightManual == 0) {
 		return GroupCollectionStatusDisabled
 	}
-	if counts.Available > 0 {
+	if counts.Available == 0 {
+		return GroupCollectionStatusUnavailable
+	}
+	if modelCount > 0 {
 		return GroupCollectionStatusAvailable
+	}
+	for _, value := range protocols {
+		if value.SupportsModelOptionalRequests() {
+			return GroupCollectionStatusAvailable
+		}
 	}
 	return GroupCollectionStatusUnavailable
 }

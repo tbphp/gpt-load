@@ -352,6 +352,38 @@ func TestGroupCollectionHTTPReturnsExactCollectionAndOptionsContracts(t *testing
 	}
 }
 
+func TestGroupCollectionHTTPAllowsAvailableKeysInAnUnavailableStatus(t *testing.T) {
+	initControlI18n(t)
+	fixture := newServiceFixture(t)
+	group := createGroupCollectionGroup(t, fixture, "http-zero-model-completions", true, nil)
+	setGroupCollectionRoute(t, fixture, group, `["openai-completions"]`, `[]`)
+	publishGroupCollectionRuntime(t, fixture, []state.KeyEntry{
+		createGroupCollectionKey(t, fixture, group.ID, models.UpstreamKeyStatusActive, nil),
+	})
+
+	engine := gin.New()
+	NewServer(
+		&config.Config{AuthKey: authTestKey},
+		fixture.service,
+	).RegisterRoutes(engine)
+	recorder := performGroupCollectionRequest(
+		engine,
+		"/api/groups",
+		"Bearer "+authTestKey,
+	)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("collection response = %d %s, want 200", recorder.Code, recorder.Body.String())
+	}
+	data := decodeGroupCollectionSuccess(t, recorder)
+	if data.Summary != (GroupCollectionSummary{Total: 1, Unavailable: 1}) ||
+		len(data.Items) != 1 ||
+		data.Items[0].Status != GroupCollectionStatusUnavailable ||
+		data.Items[0].ModelCount != 0 ||
+		data.Items[0].KeyCounts != (GroupCollectionKeyCounts{Total: 1, Available: 1}) {
+		t.Fatalf("collection data = %#v, want unavailable route with available key bucket", data)
+	}
+}
+
 func TestGroupOptionsHTTPRejectsAnyQueryIncludingBareQuestionMark(t *testing.T) {
 	initControlI18n(t)
 	engine := gin.New()

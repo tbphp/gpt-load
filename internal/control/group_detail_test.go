@@ -20,8 +20,12 @@ func TestGetGroupSummaryUsesCollectionServiceStatusAndOnlyReturnsHeaderCounts(t 
 	available := createGroupCollectionGroup(t, fixture, "summary-available", true, nil)
 	unavailable := createGroupCollectionGroup(t, fixture, "summary-unavailable", true, nil)
 	disabled := createGroupCollectionGroup(t, fixture, "summary-disabled", false, nil)
+	setGroupCollectionRoute(t, fixture, available, `["openai-responses"]`, `[]`)
+	setGroupCollectionRoute(t, fixture, unavailable, `["openai-completions"]`, `[]`)
+	setGroupCollectionRoute(t, fixture, disabled, `["openai-responses"]`, `[]`)
 	publishGroupCollectionRuntime(t, fixture, []state.KeyEntry{
 		createGroupCollectionKey(t, fixture, available.ID, models.UpstreamKeyStatusActive, nil),
+		createGroupCollectionKey(t, fixture, unavailable.ID, models.UpstreamKeyStatusActive, nil),
 		createGroupCollectionKey(t, fixture, disabled.ID, models.UpstreamKeyStatusActive, nil),
 	})
 
@@ -32,7 +36,7 @@ func TestGetGroupSummaryUsesCollectionServiceStatusAndOnlyReturnsHeaderCounts(t 
 		wantKeys   int64
 	}{
 		{name: "available", groupID: available.ID, wantStatus: GroupCollectionStatusAvailable, wantKeys: 1},
-		{name: "unavailable", groupID: unavailable.ID, wantStatus: GroupCollectionStatusUnavailable, wantKeys: 0},
+		{name: "unavailable", groupID: unavailable.ID, wantStatus: GroupCollectionStatusUnavailable, wantKeys: 1},
 		{name: "disabled", groupID: disabled.ID, wantStatus: GroupCollectionStatusDisabled, wantKeys: 1},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -69,6 +73,23 @@ func TestGetGroupSummaryUsesCollectionServiceStatusAndOnlyReturnsHeaderCounts(t 
 				}
 			}
 		})
+	}
+}
+
+func TestGroupDetailStatusRequiresAHealthyKeyAndRouteCapability(t *testing.T) {
+	fixture := newServiceFixture(t)
+	group := createGroupCollectionGroup(t, fixture, "detail-zero-model-completions", true, nil)
+	setGroupCollectionRoute(t, fixture, group, `["openai-completions"]`, `[]`)
+	publishGroupCollectionRuntime(t, fixture, []state.KeyEntry{
+		createGroupCollectionKey(t, fixture, group.ID, models.UpstreamKeyStatusActive, nil),
+	})
+
+	got, err := fixture.service.GetGroupSummary(t.Context(), group.ID)
+	if err != nil {
+		t.Fatalf("GetGroupSummary() error = %v", err)
+	}
+	if got.ServiceStatus != GroupCollectionStatusUnavailable || got.KeyCount != 1 || got.ModelCount != 0 {
+		t.Fatalf("GetGroupSummary() = %#v, want unavailable with one key and zero models", got)
 	}
 }
 

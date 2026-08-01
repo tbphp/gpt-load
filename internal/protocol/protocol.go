@@ -28,6 +28,10 @@ func (p Protocol) DataPlaneEnabled() bool {
 	}
 }
 
+func (p Protocol) SupportsModelOptionalRequests() bool {
+	return p == OpenAIResponses
+}
+
 func DataPlaneProtocols() []Protocol {
 	return []Protocol{
 		OpenAICompletions,

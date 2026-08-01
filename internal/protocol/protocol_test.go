@@ -71,6 +71,34 @@ func TestProtocolKnownAndDataPlaneEnabled(t *testing.T) {
 	}
 }
 
+func TestProtocolModelOptionalRequestsAreLimitedToOpenAIResponses(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		protocol Protocol
+		want     bool
+	}{
+		{protocol: Protocol("openai-completions"), want: false},
+		{protocol: Protocol("openai-responses"), want: true},
+		{protocol: Protocol("anthropic"), want: false},
+		{protocol: Protocol("gemini"), want: false},
+	}
+	for _, test := range tests {
+		t.Run(string(test.protocol), func(t *testing.T) {
+			t.Parallel()
+
+			if got := test.protocol.SupportsModelOptionalRequests(); got != test.want {
+				t.Errorf(
+					"Protocol(%q).SupportsModelOptionalRequests() = %t, want %t",
+					test.protocol,
+					got,
+					test.want,
+				)
+			}
+		})
+	}
+}
+
 func TestDataPlaneProtocolsReturnsCanonicalOrderAndIndependentCopies(t *testing.T) {
 	t.Parallel()
 
