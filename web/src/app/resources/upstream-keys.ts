@@ -1,4 +1,4 @@
-import { queryOptions, type QueryClient } from '@tanstack/vue-query'
+import { queryOptions, type QueryClient, type QueryKey } from '@tanstack/vue-query'
 import { computed, toValue, type MaybeRefOrGetter } from 'vue'
 
 import type { ApiClient } from '@/api/client'
@@ -11,7 +11,6 @@ import type {
   GroupKeyRecoveryDto,
   GroupKeyStatus,
   GroupKeySummaryDto,
-  GroupKeyWeightMode,
 } from '@/api/control/types'
 import { InvalidResponseError } from '@/api/errors'
 import { controlQueryKeys, normalizeGroupKeyCollectionFilters } from '@/app/query-keys'
@@ -99,12 +98,6 @@ function invalidResponse(): never {
   throw new InvalidResponseError()
 }
 
-function projectNonBlankTrimmedString(value: unknown): string {
-  const result = projectString(value)
-  if (result !== result.trim()) invalidResponse()
-  return result
-}
-
 function projectMask(value: unknown): string {
   const mask = projectString(value)
   if (!canonicalMask.test(mask)) invalidResponse()
@@ -158,7 +151,7 @@ export function projectGroupKeyItem(value: unknown): GroupKeyItemDto {
   const recovery = projectRecovery(record.recovery)
   if (
     (configuredStatus === 'disabled') !== (effectiveStatus === 'disabled') ||
-    (weightMode === 'manual') !== (weight !== null) ||
+    (effectiveStatus === 'available') !== (weight !== null) ||
     (effectiveStatus === 'cooldown') !== (cooldownUntil !== null) ||
     (recovery.mode === 'cooldown') !== (effectiveStatus === 'cooldown')
   ) {
@@ -370,27 +363,112 @@ export async function deleteGroupKey(
   await client.request(`/api/groups/${groupId}/keys/${keyId}`, { method: 'DELETE', signal })
 }
 
-function replaceItem(
-  collection: GroupKeyCollectionDto,
-  item: GroupKeyItemDto,
-): GroupKeyCollectionDto {
-  const index = collection.items.findIndex(({ id }) => id === item.id)
-  if (index < 0) return collection
-  const items = [...collection.items]
-  items[index] = item
-  return { ...collection, items }
+function queryFilters(queryKey: QueryKey): GroupKeyCollectionFilters | undefined {
+  const filters = queryKey[5]
+  if (typeof filters !== 'object' || filters === null || Array.isArray(filters)) return undefined
+  const record = filters as Record<string, unknown>
+  if (
+    !Number.isSafeInteger(record.page) ||
+    (record.page_size !== 20 && record.page_size !== 50 && record.page_size !== 100) ||
+    (record.q !== undefined && typeof record.q !== 'string') ||
+    (record.status !== undefined && !effectiveStatuses.includes(record.status as GroupKeyStatus))
+  ) {
+    return undefined
+  }
+  return {
+    page: record.page as number,
+    page_size: record.page_size as 20 | 50 | 100,
+    ...(record.q === undefined ? {} : { q: record.q }),
+    ...(record.status === undefined ? {} : { status: record.status as GroupKeyStatus }),
+  }
 }
 
-/** Updates only already-materialized key pages; it never triggers a background request. */
-export function cacheGroupKeyItem(
+function matchesFilters(item: GroupKeyItemDto, filters: GroupKeyCollectionFilters): boolean {
+  if (filters.status !== undefined && item.effective_status !== filters.status) return false
+  return filters.q === undefined || item.mask.toLowerCase().includes(filters.q.toLowerCase())
+}
+
+function withSummaryDelta(
+  summary: GroupKeySummaryDto,
+  previous: GroupKeyItemDto,
+  next: GroupKeyItemDto | undefined,
+): GroupKeySummaryDto {
+  const result = { ...summary }
+  result[previous.effective_status]--
+  if (next !== undefined) result[next.effective_status]++
+  return result
+}
+
+function withRemovedItem(
+  collection: GroupKeyCollectionDto,
+  id: number,
+  summary: GroupKeySummaryDto,
+): GroupKeyCollectionDto {
+  const items = collection.items.filter((item) => item.id !== id)
+  const totalItems = collection.pagination.total_items - 1
+  return {
+    ...collection,
+    summary,
+    items,
+    pagination: {
+      ...collection.pagination,
+      total_items: totalItems,
+      total_pages: expectedPageCount(totalItems, collection.pagination.page_size),
+    },
+  }
+}
+
+async function invalidateExactKeyPage(queryClient: QueryClient, queryKey: QueryKey): Promise<void> {
+  await queryClient.invalidateQueries({ queryKey, exact: true, refetchType: 'none' })
+}
+
+/**
+ * Reconciles only a cached page containing the previous item. Pages whose
+ * membership or sort position cannot be known are explicitly marked stale.
+ */
+export async function cacheGroupKeyItem(
   queryClient: QueryClient,
   groupId: number,
   item: GroupKeyItemDto,
-): void {
-  queryClient.setQueriesData<GroupKeyCollectionDto>(
-    { queryKey: controlQueryKeys.groups.keysAll(groupId) },
-    (collection) => (collection === undefined ? collection : replaceItem(collection, item)),
-  )
+): Promise<void> {
+  const queries = queryClient
+    .getQueryCache()
+    .findAll({ queryKey: controlQueryKeys.groups.keysAll(groupId) })
+  const previous = queries
+    .map((query) => (query.state.data as GroupKeyCollectionDto | undefined)?.items)
+    .flatMap((items) => items ?? [])
+    .find(({ id }) => id === item.id)
+  for (const query of queries) {
+    const filters = queryFilters(query.queryKey)
+    const collection = query.state.data as GroupKeyCollectionDto | undefined
+    const current = collection?.items.find(({ id }) => id === item.id)
+    if (collection === undefined || previous === undefined) {
+      await invalidateExactKeyPage(queryClient, query.queryKey)
+      continue
+    }
+    const summary = withSummaryDelta(collection.summary, previous, item)
+    if (filters === undefined || current === undefined) {
+      queryClient.setQueryData<GroupKeyCollectionDto>(query.queryKey, { ...collection, summary })
+      await invalidateExactKeyPage(queryClient, query.queryKey)
+      continue
+    }
+    const nextMatches = matchesFilters(item, filters)
+    if (!nextMatches) {
+      queryClient.setQueryData(query.queryKey, withRemovedItem(collection, item.id, summary))
+      await invalidateExactKeyPage(queryClient, query.queryKey)
+      continue
+    }
+    if (current.effective_status !== item.effective_status) {
+      queryClient.setQueryData<GroupKeyCollectionDto>(query.queryKey, { ...collection, summary })
+      await invalidateExactKeyPage(queryClient, query.queryKey)
+      continue
+    }
+    queryClient.setQueryData<GroupKeyCollectionDto>(query.queryKey, {
+      ...collection,
+      summary,
+      items: collection.items.map((current) => (current.id === item.id ? item : current)),
+    })
+  }
 }
 
 /** Marks only this Group's key pages stale without scheduling an automatic request. */
@@ -405,34 +483,43 @@ export async function invalidateGroupKeyCollections(
 }
 
 /** A batch result carries the authoritative aggregate, so cached pages can be reconciled deterministically. */
-export function cacheGroupKeyBatch(
+export async function cacheGroupKeyBatch(
   queryClient: QueryClient,
   groupId: number,
   action: GroupKeyBatchRequest['action'],
   result: GroupKeyBatchResultDto,
-): void {
+): Promise<void> {
   const affected = new Set(result.affected_ids)
-  queryClient.setQueriesData<GroupKeyCollectionDto>(
-    { queryKey: controlQueryKeys.groups.keysAll(groupId) },
-    (collection) => {
-      if (collection === undefined) return collection
-      const items = collection.items
-        .filter((item) => action !== 'delete' || !affected.has(item.id))
-        .map((item) => {
-          if (!affected.has(item.id) || action === 'delete') return item
-          if (action === 'enable') return item
-          const next: GroupKeyItemDto = {
-            ...item,
-            configured_status: 'disabled',
-            effective_status: 'disabled',
-            cooldown_until_ms: null,
-            recovery: { mode: 'none' as const, automatic: false, at_ms: null },
-          }
-          return next
-        })
-      return { ...collection, items, summary: result.summary }
-    },
-  )
+  const queries = queryClient
+    .getQueryCache()
+    .findAll({ queryKey: controlQueryKeys.groups.keysAll(groupId) })
+  for (const query of queries) {
+    const collection = query.state.data as GroupKeyCollectionDto | undefined
+    if (collection === undefined) continue
+    if (action !== 'delete') {
+      queryClient.setQueryData<GroupKeyCollectionDto>(query.queryKey, {
+        ...collection,
+        summary: result.summary,
+      })
+      await invalidateExactKeyPage(queryClient, query.queryKey)
+      continue
+    }
+    const matchingItems = collection.items.filter((item) => affected.has(item.id))
+    if (matchingItems.length !== affected.size) {
+      queryClient.setQueryData<GroupKeyCollectionDto>(query.queryKey, {
+        ...collection,
+        summary: result.summary,
+      })
+      await invalidateExactKeyPage(queryClient, query.queryKey)
+      continue
+    }
+    let next = { ...collection, summary: result.summary }
+    for (const item of matchingItems) {
+      next = withRemovedItem(next, item.id, result.summary)
+    }
+    queryClient.setQueryData<GroupKeyCollectionDto>(query.queryKey, next)
+    await invalidateExactKeyPage(queryClient, query.queryKey)
+  }
 }
 
 /**

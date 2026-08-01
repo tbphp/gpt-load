@@ -1294,11 +1294,14 @@ func groupMutationAuditCases() []groupMutationAuditCase {
 		},
 		{
 			operation: "group_update_models",
-			success: groupAuditSeedRequest(
-				http.MethodPut,
-				"/models",
-				`{"models":[{"id":"gpt-4o-mini"}]}`,
-			),
+			success: func(t *testing.T, fixture serviceFixture) (mutationAuditRequest, string) {
+				mustEnsureInitialPrices(t, fixture)
+				return groupAuditSeedRequest(
+					http.MethodPut,
+					"/models",
+					`{"models":[{"id":"gpt-4o-mini"}]}`,
+				)(t, fixture)
+			},
 			rejected: func(
 				_ *testing.T,
 				_ serviceFixture,

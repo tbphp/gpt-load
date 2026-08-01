@@ -177,6 +177,7 @@ func TestUpdateGroupModelsRequiresNonNullModelsField(t *testing.T) {
 
 func TestUpdateGroupModelsReplacesAuthoritativeListAndPublishesOnce(t *testing.T) {
 	fixture := newServiceFixture(t)
+	mustEnsureInitialPrices(t, fixture)
 	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
 		UpstreamURL: "https://model-save.example.com/v1",
 		Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
@@ -232,28 +233,41 @@ func TestUpdateGroupModelsReplacesAuthoritativeListAndPublishesOnce(t *testing.T
 		{ID: "provider-b", Alias: "public-b"},
 		{ID: "provider-a", Alias: "public-a"},
 	}
-	if !reflect.DeepEqual(got.Models, wantModels) ||
-		got.ValidationModel == nil || *got.ValidationModel != validation ||
-		got.KeyCount != 2 {
-		t.Fatalf("detail = %#v", got)
+	want := GroupModelsResponse{
+		Items: []GroupModelResponse{
+			{ID: "provider-b", Alias: "public-b", AliasEnabled: true, ClientModel: "public-b", PricingStatus: "unpriced"},
+			{ID: "provider-a", Alias: "public-a", AliasEnabled: true, ClientModel: "public-a", PricingStatus: "unpriced"},
+		},
+		Total:    2,
+		Unpriced: 2,
 	}
-	streamIdle, ok := got.Config[state.SettingStreamIdleTimeout].(json.Number)
-	if len(got.Config) != 3 || !ok || streamIdle.String() != "45" ||
-		got.Config[state.SettingHeaderRules] == nil ||
-		got.Config[state.SettingInjectUsageOptions] != false {
-		t.Fatalf("preserved sparse config = %#v", got.Config)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("models response = %#v, want %#v", got, want)
 	}
-	if got.EffectiveConfig.ConnectTimeout != 15 ||
-		got.EffectiveConfig.FirstByteTimeout != 120 ||
-		got.EffectiveConfig.RequestTimeout != 701 ||
-		got.EffectiveConfig.StreamIdleTimeout != 45 ||
-		got.EffectiveConfig.InjectUsageOptions ||
-		len(got.EffectiveConfig.HeaderRules.Set) != 0 ||
-		!reflect.DeepEqual(got.EffectiveConfig.HeaderRules.Remove, []string{"X-Trace"}) {
-		t.Fatalf("post-write effective config = %#v", got.EffectiveConfig)
+	detail, err := fixture.service.GetGroup(t.Context(), created.GroupID)
+	if err != nil {
+		t.Fatalf("GetGroup() error = %v", err)
 	}
-	if got.EffectiveConfig.HeaderRules.Set == nil || got.EffectiveConfig.HeaderRules.Remove == nil {
-		t.Fatalf("effective header collections = %#v", got.EffectiveConfig.HeaderRules)
+	if detail.ValidationModel == nil || *detail.ValidationModel != validation || detail.KeyCount != 2 {
+		t.Fatalf("detail = %#v", detail)
+	}
+	streamIdle, ok := detail.Config[state.SettingStreamIdleTimeout].(json.Number)
+	if len(detail.Config) != 3 || !ok || streamIdle.String() != "45" ||
+		detail.Config[state.SettingHeaderRules] == nil ||
+		detail.Config[state.SettingInjectUsageOptions] != false {
+		t.Fatalf("preserved sparse config = %#v", detail.Config)
+	}
+	if detail.EffectiveConfig.ConnectTimeout != 15 ||
+		detail.EffectiveConfig.FirstByteTimeout != 120 ||
+		detail.EffectiveConfig.RequestTimeout != 701 ||
+		detail.EffectiveConfig.StreamIdleTimeout != 45 ||
+		detail.EffectiveConfig.InjectUsageOptions ||
+		len(detail.EffectiveConfig.HeaderRules.Set) != 0 ||
+		!reflect.DeepEqual(detail.EffectiveConfig.HeaderRules.Remove, []string{"X-Trace"}) {
+		t.Fatalf("post-write effective config = %#v", detail.EffectiveConfig)
+	}
+	if detail.EffectiveConfig.HeaderRules.Set == nil || detail.EffectiveConfig.HeaderRules.Remove == nil {
+		t.Fatalf("effective header collections = %#v", detail.EffectiveConfig.HeaderRules)
 	}
 	if stored := loadCreatedGroupModels(t, fixture, created.GroupID); !reflect.DeepEqual(stored, wantModels) {
 		t.Fatalf("stored models = %#v, want %#v", stored, wantModels)
@@ -273,11 +287,11 @@ func TestUpdateGroupModelsReplacesAuthoritativeListAndPublishesOnce(t *testing.T
 	}
 	snapshot := fixture.manager.Current()
 	view := snapshot.Groups[created.GroupID]
-	if got.EffectiveConfig.RequestTimeout != int64(view.Timeouts.Request/time.Second) ||
-		got.EffectiveConfig.StreamIdleTimeout != int64(view.Timeouts.StreamIdle/time.Second) ||
-		got.EffectiveConfig.InjectUsageOptions != view.InjectUsageOptions ||
-		!reflect.DeepEqual(got.EffectiveConfig.HeaderRules.Remove, view.HeaderRules.Remove) {
-		t.Fatalf("effective/snapshot = %#v/%#v", got.EffectiveConfig, view)
+	if detail.EffectiveConfig.RequestTimeout != int64(view.Timeouts.Request/time.Second) ||
+		detail.EffectiveConfig.StreamIdleTimeout != int64(view.Timeouts.StreamIdle/time.Second) ||
+		detail.EffectiveConfig.InjectUsageOptions != view.InjectUsageOptions ||
+		!reflect.DeepEqual(detail.EffectiveConfig.HeaderRules.Remove, view.HeaderRules.Remove) {
+		t.Fatalf("effective/snapshot = %#v/%#v", detail.EffectiveConfig, view)
 	}
 	targets := snapshot.Candidates[protocol.OpenAICompletions]
 	if len(targets) != 2 ||
@@ -298,6 +312,7 @@ func TestUpdateGroupModelsReplacesAuthoritativeListAndPublishesOnce(t *testing.T
 
 func TestUpdateGroupModelsAllowsEmptyList(t *testing.T) {
 	fixture := newServiceFixture(t)
+	mustEnsureInitialPrices(t, fixture)
 	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
 		UpstreamURL: "https://empty-models.example.com/v1",
 		Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
@@ -317,8 +332,9 @@ func TestUpdateGroupModelsAllowsEmptyList(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Models == nil || len(got.Models) != 0 {
-		t.Fatalf("models = %#v, want []", got.Models)
+	want := GroupModelsResponse{Items: []GroupModelResponse{}, Total: 0, Unpriced: 0}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("models response = %#v, want %#v", got, want)
 	}
 	if fixture.manager.Current().Revision != before+1 {
 		t.Fatalf("revision = %d, want %d", fixture.manager.Current().Revision, before+1)
@@ -332,6 +348,7 @@ func TestUpdateGroupModelsAllowsEmptyList(t *testing.T) {
 
 func TestUpdateGroupModelsNeverCallsDiscoveryOrChangesAccessKeyFilters(t *testing.T) {
 	fixture := newServiceFixture(t)
+	mustEnsureInitialPrices(t, fixture)
 	groupID := createGroupForKeyImport(t, fixture, "sk-no-discovery")
 	access, err := fixture.service.CreateAccessKey(t.Context(), AccessKeyCreateRequest{
 		Name: "filtered",

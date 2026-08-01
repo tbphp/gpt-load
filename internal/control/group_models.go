@@ -8,6 +8,7 @@ import (
 	"gorm.io/gorm"
 
 	app_errors "gpt-load/internal/platform/errors"
+	"gpt-load/internal/pricing"
 	"gpt-load/internal/storage/models"
 )
 
@@ -55,8 +56,12 @@ func (s *Service) GetGroupModels(ctx context.Context, groupID uint) (GroupModels
 		return GroupModelsResponse{}, fmt.Errorf("pricing runtime unavailable: %w", app_errors.ErrInternalServer)
 	}
 
-	result := GroupModelsResponse{Items: make([]GroupModelResponse, 0, len(detail.Models))}
-	for _, model := range detail.Models {
+	return mapGroupModelsResponse(detail.Models, table), nil
+}
+
+func mapGroupModelsResponse(models []GroupModel, table *pricing.Table) GroupModelsResponse {
+	result := GroupModelsResponse{Items: make([]GroupModelResponse, 0, len(models))}
+	for _, model := range models {
 		item := GroupModelResponse{
 			ID:            model.ID,
 			Alias:         model.Alias,
@@ -75,31 +80,30 @@ func (s *Service) GetGroupModels(ctx context.Context, groupID uint) (GroupModels
 		result.Items = append(result.Items, item)
 	}
 	result.Total = len(result.Items)
-	return result, nil
+	return result
 }
 
 func (s *Service) UpdateGroupModels(
 	ctx context.Context,
 	groupID uint,
 	request GroupModelsUpdateRequest,
-) (GroupDetailResponse, error) {
+) (GroupModelsResponse, error) {
 	if groupID == 0 {
-		return GroupDetailResponse{}, app_errors.ErrBadRequest
+		return GroupModelsResponse{}, app_errors.ErrBadRequest
 	}
 	if !request.Models.Set {
-		return GroupDetailResponse{}, app_errors.ErrValidation
+		return GroupModelsResponse{}, app_errors.ErrValidation
 	}
 	normalized, err := normalizeGroupModels(request.Models.Values)
 	if err != nil {
-		return GroupDetailResponse{}, err
+		return GroupModelsResponse{}, err
 	}
 	encoded, err := json.Marshal(normalized)
 	if err != nil {
-		return GroupDetailResponse{}, fmt.Errorf("encode group models: %w", err)
+		return GroupModelsResponse{}, fmt.Errorf("encode group models: %w", err)
 	}
 
-	var result GroupDetailResponse
-	snapshot, err := s.writeConfig(ctx, func(tx *gorm.DB) error {
+	_, err = s.writeConfig(ctx, func(tx *gorm.DB) error {
 		_, group, err := loadGroupDetail(tx, groupID)
 		if err != nil {
 			return err
@@ -117,16 +121,15 @@ func (s *Service) UpdateGroupModels(
 			Update("models", group.Models).Error; err != nil {
 			return app_errors.ParseDBError(err)
 		}
-		result, _, err = loadGroupDetail(tx, groupID)
-		return err
+		return nil
 	}, nil)
 	if err != nil {
-		return GroupDetailResponse{}, withControlOperationContext(err, groupID, 0)
+		return GroupModelsResponse{}, withControlOperationContext(err, groupID, 0)
 	}
-	result.EffectiveConfig, err = effectiveGroupConfig(snapshot.Settings, result.Config)
+	result, err := s.GetGroupModels(ctx, groupID)
 	if err != nil {
-		return GroupDetailResponse{}, fmt.Errorf(
-			"resolve group %d effective config after model update: %w",
+		return GroupModelsResponse{}, fmt.Errorf(
+			"load group %d models after update: %w",
 			groupID,
 			app_errors.ErrInternalServer,
 		)

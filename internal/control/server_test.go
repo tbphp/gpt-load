@@ -1415,6 +1415,7 @@ func TestGroupModelsHTTPClearsAliasWhenAliasEnabledIsMissing(t *testing.T) {
 func TestUpdateGroupModelsEndpointIDsAuthNotFoundAndSuccessDTO(t *testing.T) {
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
+	mustEnsureInitialPrices(t, fixture)
 	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
 		UpstreamURL: "https://model-save-http.example.com/v1",
 		Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
@@ -1499,13 +1500,19 @@ func TestUpdateGroupModelsEndpointIDsAuthNotFoundAndSuccessDTO(t *testing.T) {
 	if _, wrapped := fields["model_rediscovery_recommended"]; wrapped {
 		t.Fatalf("models save returned discovery diff metadata: %s", envelope.Data)
 	}
-	var detail GroupDetailResponse
-	if err := json.Unmarshal(envelope.Data, &detail); err != nil {
+	var result GroupModelsResponse
+	if err := json.Unmarshal(envelope.Data, &result); err != nil {
 		t.Fatal(err)
 	}
-	wantModels := []GroupModel{{ID: "provider-new", Alias: "new-public"}}
-	if detail.ID != created.GroupID || !reflect.DeepEqual(detail.Models, wantModels) || detail.KeyCount != 1 {
-		t.Fatalf("success detail = %#v", detail)
+	want := GroupModelsResponse{
+		Items: []GroupModelResponse{{
+			ID: "provider-new", Alias: "new-public", AliasEnabled: true, ClientModel: "new-public", PricingStatus: "unpriced",
+		}},
+		Total:    1,
+		Unpriced: 1,
+	}
+	if !reflect.DeepEqual(result, want) {
+		t.Fatalf("success models response = %#v, want %#v", result, want)
 	}
 }
 

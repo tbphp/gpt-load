@@ -9,7 +9,6 @@ import { useApiClient } from '@/api/client-context'
 import type {
   GroupCollectionFilters,
   GroupCollectionSort,
-  GroupCollectionStatus,
   GroupProtocol,
   KeyCounts,
 } from '@/api/control/types'
