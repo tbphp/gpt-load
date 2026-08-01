@@ -102,26 +102,3 @@ export function isProviderPresetID(value: unknown): value is ProviderPresetID {
 export function findProviderPreset(id: ProviderPresetID): RegisteredProviderPreset | undefined {
   return providerPresetRegistry.find((preset) => preset.id === id)
 }
-
-// Temporary compatibility for the legacy stepped components removed by Task 6.
-export interface ChannelPreset {
-  id: ProviderPresetID
-  labelKey: string
-  upstream_url: string
-  protocols: readonly GroupProtocol[]
-}
-
-export const channelPresets: readonly ChannelPreset[] = [
-  ...providerPresetRegistry.map((preset) => ({
-    id: preset.id,
-    labelKey: preset.nameKey,
-    upstream_url: preset.upstream_url,
-    protocols: preset.protocols,
-  })),
-  {
-    id: 'custom',
-    labelKey: 'import.presets.custom.name',
-    upstream_url: '',
-    protocols: [],
-  },
-]
