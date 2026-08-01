@@ -74,6 +74,14 @@ function cloneDraft(source: ImportDraft): ImportDraft {
   }
 }
 
+function upstreamURLConflict(cause: unknown): UpstreamUrlConflictData | null {
+  return cause instanceof ApiError &&
+    cause.code === 'UPSTREAM_URL_CONFLICT' &&
+    isUpstreamUrlConflictData(cause.data)
+    ? cause.data
+    : null
+}
+
 const defaultDraft = freshDraft()
 const operationDraft =
   createOperation.operation.value?.payload.draft ??
@@ -90,7 +98,9 @@ const discoveryLoading = ref(false)
 const discoveryDrawerOpen = ref(false)
 const errorKey = ref('')
 const submissionError = ref<HTMLElement>()
-const conflict = ref<UpstreamUrlConflictData | null>(null)
+const conflict = ref<UpstreamUrlConflictData | null>(
+  upstreamURLConflict(createOperation.lastError.value),
+)
 const serverModelConflicts = ref<ModelNameConflict[]>([])
 const completed = ref(false)
 if (createOperation.outcome.value?.kind === 'confirmed') createOperation.reset()
@@ -418,12 +428,9 @@ async function executeCreateOperation(): Promise<void> {
   }
   if (!componentActive || outcome.kind !== 'failed' || outcome.reason !== 'rejected') return
   const cause = createOperation.lastError.value
-  if (
-    cause instanceof ApiError &&
-    cause.code === 'UPSTREAM_URL_CONFLICT' &&
-    isUpstreamUrlConflictData(cause.data)
-  ) {
-    conflict.value = cause.data
+  const upstreamConflict = upstreamURLConflict(cause)
+  if (upstreamConflict) {
+    conflict.value = upstreamConflict
     return
   }
   if (cause instanceof ApiError && cause.code === 'MODEL_NAME_CONFLICT') {
