@@ -1417,7 +1417,7 @@ func groupCreateAuditBody(name string, upstreamURL string) string {
 		`{"name":%q,"upstream_url":%q,`+
 			`"protocols":["openai-completions"],`+
 			`"models":[{"id":"gpt-4o"}],`+
-			`"config":{},"keys":"sk-audit-upstream"}`,
+			`"keys":"sk-audit-upstream"}`,
 		name,
 		upstreamURL,
 	)

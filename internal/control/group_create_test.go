@@ -15,7 +15,6 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"gpt-load/internal/dialect"
-	"gpt-load/internal/platform/config"
 	"gpt-load/internal/platform/encryption"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/protocol"
@@ -25,6 +24,12 @@ import (
 
 func TestCreateGroupNormalizesAndPublishesOnce(t *testing.T) {
 	fixture := newServiceFixture(t)
+	if err := fixture.db.Create(&models.SystemSetting{
+		Key:   state.SettingInjectUsageOptions,
+		Value: "false",
+	}).Error; err != nil {
+		t.Fatalf("seed system setting: %v", err)
+	}
 	name := "  primary upstream  "
 	beforeRevision := fixture.manager.Current().Revision
 
@@ -41,11 +46,10 @@ func TestCreateGroupNormalizesAndPublishesOnce(t *testing.T) {
 			Set: true,
 			Values: []GroupModel{
 				{ID: " gpt-4o ", Alias: " primary ", AliasEnabled: true},
-				{ID: "claude-3-5", Alias: ""},
+				{ID: "claude-3-5", Alias: "must-be-ignored"},
 			},
 		},
-		Config: config.Settings{state.SettingInjectUsageOptions: false},
-		Keys:   " sk-a \n\n sk-a\nsk-b\n",
+		Keys: " sk-a \n\n sk-a\nsk-b\n",
 	})
 	if err != nil {
 		t.Fatalf("CreateGroup() error = %v", err)
@@ -55,8 +59,16 @@ func TestCreateGroupNormalizesAndPublishesOnce(t *testing.T) {
 		t.Fatalf("CreateGroup() result = %#v", result)
 	}
 	wantModels := []GroupModel{{ID: "gpt-4o", Alias: "primary"}, {ID: "claude-3-5", Alias: ""}}
-	if !reflect.DeepEqual(result.Models, wantModels) {
-		t.Fatalf("result models = %#v, want %#v", result.Models, wantModels)
+	encodedResult, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("encode create result: %v", err)
+	}
+	var resultFields map[string]json.RawMessage
+	if err := json.Unmarshal(encodedResult, &resultFields); err != nil {
+		t.Fatalf("decode create result fields: %v", err)
+	}
+	if len(resultFields) != 4 || resultFields["models"] != nil {
+		t.Fatalf("create result fields = %#v, want only group and key counts", resultFields)
 	}
 
 	var group models.Group
@@ -64,7 +76,7 @@ func TestCreateGroupNormalizesAndPublishesOnce(t *testing.T) {
 		t.Fatalf("query created group: %v", err)
 	}
 	if group.Name != "primary upstream" || group.UpstreamURL != "https://api.example.com/v1" ||
-		string(group.Config) != `{"inject_usage_options":false}` || !group.Enabled {
+		string(group.Config) != `{}` || !group.Enabled {
 		t.Fatalf("stored group = %#v", group)
 	}
 	var storedProtocols []protocol.Protocol
@@ -97,7 +109,7 @@ func TestCreateGroupNormalizesAndPublishesOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(settings.Overrides) != 1 || settings.Overrides[state.SettingInjectUsageOptions] != false ||
+	if len(settings.Overrides) != 0 ||
 		settings.Effective.InjectUsageOptions {
 		t.Fatalf("created group config/effective = %#v/%#v", settings.Overrides, settings.Effective)
 	}
@@ -141,6 +153,28 @@ func TestCreateGroupRejectsDuplicateExternalModelWithoutMutation(t *testing.T) {
 	if !reflect.DeepEqual(fixture.registry.Snapshot(), beforeRegistry) {
 		t.Fatal("invalid models changed Registry")
 	}
+
+	result, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
+		UpstreamURL: "https://case-sensitive-models.example.com/v1",
+		Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
+		Models: optionalGroupModels{
+			Set: true,
+			Values: []GroupModel{
+				{ID: "provider-a", Alias: "Public", AliasEnabled: true},
+				{ID: "provider-b", Alias: "public", AliasEnabled: true},
+			},
+		},
+		Keys: "sk-case-sensitive-models",
+	})
+	if err != nil {
+		t.Fatalf("CreateGroup(case-distinct client names) error = %v", err)
+	}
+	if stored := loadCreatedGroupModels(t, fixture, result.GroupID); !reflect.DeepEqual(stored, []GroupModel{
+		{ID: "provider-a", Alias: "Public"},
+		{ID: "provider-b", Alias: "public"},
+	}) {
+		t.Fatalf("case-distinct stored models = %#v", stored)
+	}
 }
 
 func TestCreateGroupReturnsUpstreamURLConflictWithoutMutation(t *testing.T) {
@@ -148,6 +182,7 @@ func TestCreateGroupReturnsUpstreamURLConflictWithoutMutation(t *testing.T) {
 	first, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
 		UpstreamURL: "https://api.example.com/v1",
 		Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
+		Models:      optionalGroupModels{Set: true, Values: []GroupModel{}},
 		Keys:        "sk-first",
 	})
 	if err != nil {
@@ -168,6 +203,7 @@ func TestCreateGroupReturnsUpstreamURLConflictWithoutMutation(t *testing.T) {
 	_, err = fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
 		UpstreamURL: " https://API.example.com/v1/ ",
 		Protocols:   []protocol.Protocol{protocol.Anthropic},
+		Models:      optionalGroupModels{Set: true, Values: []GroupModel{}},
 		Keys:        "sk-second",
 	})
 
@@ -249,54 +285,23 @@ func TestCreateGroupAllowsConfirmedDuplicateURLAsIndependentGroup(t *testing.T) 
 		!reflect.DeepEqual(loadCreatedGroupModels(t, fixture, second.GroupID), []GroupModel{{ID: "claude-sonnet"}}) {
 		t.Fatal("confirmed groups do not retain independent models")
 	}
-}
-
-func TestCreateGroupRejectsInvalidConfigWithoutMutation(t *testing.T) {
-	fixture := newServiceFixture(t)
-	seed, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
-		UpstreamURL: "https://existing-config.example.com",
-		Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
-		Keys:        "sk-existing-config",
-	})
-	if err != nil {
-		t.Fatalf("seed CreateGroup() error = %v", err)
-	}
-	var existingKey models.UpstreamKey
-	if err := fixture.db.Where("group_id = ?", seed.GroupID).First(&existingKey).Error; err != nil {
-		t.Fatalf("query seeded key: %v", err)
-	}
-	if count, ok := fixture.registry.IncrFailure(existingKey.ID); !ok || count != 1 {
-		t.Fatalf("first failure count = %d, %t", count, ok)
-	}
-	beforeRevision := fixture.manager.Current().Revision
-	beforeCandidates := fixture.registry.CollectCandidates([]uint{seed.GroupID}, nil, time.Time{})
 
 	_, err = fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
-		UpstreamURL: "https://invalid-config.example.com",
-		Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
-		Config:      config.Settings{"unknown_setting": true},
-		Keys:        "sk-must-not-persist",
+		UpstreamURL: "https://same.example.com/v1",
+		Protocols:   []protocol.Protocol{protocol.Gemini},
+		Models:      optionalGroupModels{Set: true, Values: []GroupModel{}},
+		Keys:        "sk-conflicting-third",
 	})
 	var apiErr *app_errors.APIError
-	if !errors.As(err, &apiErr) || apiErr.Code != app_errors.ErrValidation.Code {
-		t.Fatalf("CreateGroup() error = %#v, want validation error", err)
+	if !errors.As(err, &apiErr) || apiErr.Code != app_errors.ErrUpstreamURLConflict.Code {
+		t.Fatalf("third CreateGroup() error = %#v, want URL conflict", err)
 	}
-	assertGroupCount(t, fixture.db, 1)
-	if fixture.manager.Current().Revision != beforeRevision {
-		t.Fatal("invalid config published a snapshot")
-	}
-	if !reflect.DeepEqual(fixture.registry.CollectCandidates([]uint{seed.GroupID}, nil, time.Time{}), beforeCandidates) {
-		t.Fatal("invalid config changed Registry")
-	}
-	if count, ok := fixture.registry.IncrFailure(existingKey.ID); !ok || count != 2 {
-		t.Fatalf("second failure count = %d, %t, want 2", count, ok)
-	}
-	var keyCount int64
-	if err := fixture.db.Model(&models.UpstreamKey{}).Count(&keyCount).Error; err != nil {
-		t.Fatalf("count upstream keys: %v", err)
-	}
-	if keyCount != 1 {
-		t.Fatalf("upstream key count = %d, want 1", keyCount)
+	data, ok := apiErr.Data.(UpstreamURLConflictData)
+	if !ok || !reflect.DeepEqual(data.Groups, []ExistingGroupSummary{
+		{ID: first.GroupID, Name: first.GroupName},
+		{ID: second.GroupID, Name: second.GroupName},
+	}) {
+		t.Fatalf("multiple conflict groups = %#v", apiErr.Data)
 	}
 }
 
@@ -325,10 +330,6 @@ func TestCreateGroupPersistsEncryptedKeysAndDoesNotDiscoverModels(t *testing.T) 
 	if discoveryCalls != 0 {
 		t.Fatalf("Dialect.ListModels calls = %d, want 0", discoveryCalls)
 	}
-	if !reflect.DeepEqual(result.Models, []GroupModel{{ID: "user-configured"}}) {
-		t.Fatalf("result models = %#v", result.Models)
-	}
-
 	var rows []models.UpstreamKey
 	if err := fixture.db.Where("group_id = ?", result.GroupID).Order("id ASC").Find(&rows).Error; err != nil {
 		t.Fatalf("query upstream keys: %v", err)
@@ -366,9 +367,6 @@ func TestCreateGroupPreservesUserGeminiModelPrefix(t *testing.T) {
 		t.Fatalf("CreateGroup() error = %v", err)
 	}
 	want := []GroupModel{{ID: "models/foo", Alias: "user alias"}}
-	if !reflect.DeepEqual(result.Models, want) {
-		t.Fatalf("result models = %#v, want %#v", result.Models, want)
-	}
 	if stored := loadCreatedGroupModels(t, fixture, result.GroupID); !reflect.DeepEqual(stored, want) {
 		t.Fatalf("stored models = %#v, want %#v", stored, want)
 	}
@@ -396,6 +394,7 @@ func TestCreateGroupPrivateHostLogContainsOnlyHostname(t *testing.T) {
 	result, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
 		UpstreamURL: rawURL,
 		Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
+		Models:      optionalGroupModels{Set: true, Values: []GroupModel{}},
 		Keys:        plaintext,
 	})
 	if err != nil {
@@ -435,6 +434,7 @@ func TestCreateGroupRejectsNameCollisionWithoutMutation(t *testing.T) {
 		Name:        &name,
 		UpstreamURL: "https://first.example.com",
 		Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
+		Models:      optionalGroupModels{Set: true, Values: []GroupModel{}},
 		Keys:        "sk-first",
 	})
 	if err != nil {
@@ -447,6 +447,7 @@ func TestCreateGroupRejectsNameCollisionWithoutMutation(t *testing.T) {
 		Name:        &name,
 		UpstreamURL: "https://second.example.com",
 		Protocols:   []protocol.Protocol{protocol.Anthropic},
+		Models:      optionalGroupModels{Set: true, Values: []GroupModel{}},
 		Keys:        "sk-second",
 	})
 	var apiErr *app_errors.APIError
@@ -525,25 +526,46 @@ func TestCreateGroupModelsPresenceRejectsNull(t *testing.T) {
 	}
 }
 
-func TestCreateGroupOmittedModelsReturnsEmptyArray(t *testing.T) {
+func TestCreateGroupRequiresModelsAndAllowsEmptyArrayAtomically(t *testing.T) {
 	fixture := newServiceFixture(t)
-	result, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
+	beforeRevision := fixture.manager.Current().Revision
+	_, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
 		UpstreamURL: "https://empty-models.example.com",
 		Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
 		Keys:        "sk-empty-models",
 	})
+	if !errors.Is(err, app_errors.ErrValidation) {
+		t.Fatalf("CreateGroup(omitted models) error = %#v, want validation", err)
+	}
+	assertGroupCount(t, fixture.db, 0)
+	if fixture.manager.Current().Revision != beforeRevision {
+		t.Fatal("omitted models published a Snapshot")
+	}
+
+	result, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
+		UpstreamURL: "https://empty-models.example.com",
+		Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
+		Models:      optionalGroupModels{Set: true, Values: []GroupModel{}},
+		Keys:        "sk-empty-models",
+	})
 	if err != nil {
-		t.Fatalf("CreateGroup() error = %v", err)
+		t.Fatalf("CreateGroup(empty models) error = %v", err)
 	}
-	if result.Models == nil || len(result.Models) != 0 {
-		t.Fatalf("result models = %#v, want non-nil empty slice", result.Models)
+	if result.GroupID == 0 || result.KeysAdded != 1 || result.KeysDuplicated != 0 {
+		t.Fatalf("CreateGroup(empty models) result = %#v", result)
 	}
-	encoded, err := json.Marshal(result)
-	if err != nil {
-		t.Fatalf("json.Marshal(result) error = %v", err)
+	if stored := loadCreatedGroupModels(t, fixture, result.GroupID); len(stored) != 0 {
+		t.Fatalf("stored models = %#v, want empty", stored)
 	}
-	if !strings.Contains(string(encoded), `"models":[]`) {
-		t.Fatalf("result JSON = %s, want models array", encoded)
+	var group models.Group
+	if err := fixture.db.First(&group, result.GroupID).Error; err != nil {
+		t.Fatalf("query created Group: %v", err)
+	}
+	if string(group.Config) != `{}` {
+		t.Fatalf("stored config = %s, want empty override", group.Config)
+	}
+	if fixture.manager.Current().Revision != beforeRevision+1 {
+		t.Fatalf("snapshot revision = %d, want %d", fixture.manager.Current().Revision, beforeRevision+1)
 	}
 }
 
@@ -552,23 +574,24 @@ func TestCreateGroupRejectsInvalidNormalizedInputs(t *testing.T) {
 	blank := "   "
 	tooLong := strings.Repeat("名", 86)
 	controlName := "bad\nname"
+	emptyModels := optionalGroupModels{Set: true, Values: []GroupModel{}}
 	tests := []struct {
 		name    string
 		request GroupCreateRequest
 	}{
-		{name: "relative URL", request: GroupCreateRequest{UpstreamURL: "/v1", Protocols: []protocol.Protocol{protocol.OpenAICompletions}, Keys: "sk"}},
-		{name: "FTP URL", request: GroupCreateRequest{UpstreamURL: "ftp://example.com", Protocols: []protocol.Protocol{protocol.OpenAICompletions}, Keys: "sk"}},
-		{name: "userinfo URL", request: GroupCreateRequest{UpstreamURL: "https://user:pass@example.com", Protocols: []protocol.Protocol{protocol.OpenAICompletions}, Keys: "sk"}},
-		{name: "fragment URL", request: GroupCreateRequest{UpstreamURL: "https://example.com/#secret", Protocols: []protocol.Protocol{protocol.OpenAICompletions}, Keys: "sk"}},
-		{name: "missing host URL", request: GroupCreateRequest{UpstreamURL: "https:///v1", Protocols: []protocol.Protocol{protocol.OpenAICompletions}, Keys: "sk"}},
-		{name: "empty protocols", request: GroupCreateRequest{UpstreamURL: "https://example.com", Keys: "sk"}},
-		{name: "replaced completions protocol", request: GroupCreateRequest{UpstreamURL: "https://example.com", Protocols: []protocol.Protocol{"openai-chat-completions"}, Keys: "sk"}},
-		{name: "unknown protocol", request: GroupCreateRequest{UpstreamURL: "https://example.com", Protocols: []protocol.Protocol{"unknown"}, Keys: "sk"}},
-		{name: "empty keys", request: GroupCreateRequest{UpstreamURL: "https://example.com", Protocols: []protocol.Protocol{protocol.OpenAICompletions}, Keys: " \n\t"}},
-		{name: "too many keys", request: GroupCreateRequest{UpstreamURL: "https://example.com", Protocols: []protocol.Protocol{protocol.OpenAICompletions}, Keys: groupCreateLines(1001)}},
-		{name: "blank name", request: GroupCreateRequest{Name: &blank, UpstreamURL: "https://example.com", Protocols: []protocol.Protocol{protocol.OpenAICompletions}, Keys: "sk"}},
-		{name: "long name", request: GroupCreateRequest{Name: &tooLong, UpstreamURL: "https://example.com", Protocols: []protocol.Protocol{protocol.OpenAICompletions}, Keys: "sk"}},
-		{name: "control name", request: GroupCreateRequest{Name: &controlName, UpstreamURL: "https://example.com", Protocols: []protocol.Protocol{protocol.OpenAICompletions}, Keys: "sk"}},
+		{name: "relative URL", request: GroupCreateRequest{UpstreamURL: "/v1", Protocols: []protocol.Protocol{protocol.OpenAICompletions}, Models: emptyModels, Keys: "sk"}},
+		{name: "FTP URL", request: GroupCreateRequest{UpstreamURL: "ftp://example.com", Protocols: []protocol.Protocol{protocol.OpenAICompletions}, Models: emptyModels, Keys: "sk"}},
+		{name: "userinfo URL", request: GroupCreateRequest{UpstreamURL: "https://user:pass@example.com", Protocols: []protocol.Protocol{protocol.OpenAICompletions}, Models: emptyModels, Keys: "sk"}},
+		{name: "fragment URL", request: GroupCreateRequest{UpstreamURL: "https://example.com/#secret", Protocols: []protocol.Protocol{protocol.OpenAICompletions}, Models: emptyModels, Keys: "sk"}},
+		{name: "missing host URL", request: GroupCreateRequest{UpstreamURL: "https:///v1", Protocols: []protocol.Protocol{protocol.OpenAICompletions}, Models: emptyModels, Keys: "sk"}},
+		{name: "empty protocols", request: GroupCreateRequest{UpstreamURL: "https://example.com", Models: emptyModels, Keys: "sk"}},
+		{name: "replaced completions protocol", request: GroupCreateRequest{UpstreamURL: "https://example.com", Protocols: []protocol.Protocol{"openai-chat-completions"}, Models: emptyModels, Keys: "sk"}},
+		{name: "unknown protocol", request: GroupCreateRequest{UpstreamURL: "https://example.com", Protocols: []protocol.Protocol{"unknown"}, Models: emptyModels, Keys: "sk"}},
+		{name: "empty keys", request: GroupCreateRequest{UpstreamURL: "https://example.com", Protocols: []protocol.Protocol{protocol.OpenAICompletions}, Models: emptyModels, Keys: " \n\t"}},
+		{name: "too many keys", request: GroupCreateRequest{UpstreamURL: "https://example.com", Protocols: []protocol.Protocol{protocol.OpenAICompletions}, Models: emptyModels, Keys: groupCreateLines(1001)}},
+		{name: "blank name", request: GroupCreateRequest{Name: &blank, UpstreamURL: "https://example.com", Protocols: []protocol.Protocol{protocol.OpenAICompletions}, Models: emptyModels, Keys: "sk"}},
+		{name: "long name", request: GroupCreateRequest{Name: &tooLong, UpstreamURL: "https://example.com", Protocols: []protocol.Protocol{protocol.OpenAICompletions}, Models: emptyModels, Keys: "sk"}},
+		{name: "control name", request: GroupCreateRequest{Name: &controlName, UpstreamURL: "https://example.com", Protocols: []protocol.Protocol{protocol.OpenAICompletions}, Models: emptyModels, Keys: "sk"}},
 		{name: "blank model", request: GroupCreateRequest{UpstreamURL: "https://example.com", Protocols: []protocol.Protocol{protocol.OpenAICompletions}, Models: optionalGroupModels{Set: true, Values: []GroupModel{{ID: "   "}}}, Keys: "sk"}},
 	}
 	for _, test := range tests {
@@ -643,6 +666,7 @@ func TestCreateGroupAllowsExactlyOneThousandNonEmptyKeyLines(t *testing.T) {
 	result, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
 		UpstreamURL: "https://thousand.example.com",
 		Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
+		Models:      optionalGroupModels{Set: true, Values: []GroupModel{}},
 		Keys:        groupCreateLines(1000),
 	})
 	if err != nil {
@@ -658,6 +682,7 @@ func TestCreateGroupRollsBackWhenKeyEncryptionFails(t *testing.T) {
 	seed, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
 		UpstreamURL: "https://existing-rollback.example.com",
 		Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
+		Models:      optionalGroupModels{Set: true, Values: []GroupModel{}},
 		Keys:        "sk-existing-rollback",
 	})
 	if err != nil {

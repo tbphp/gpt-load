@@ -190,6 +190,7 @@ func TestSettingsETagIgnoresOtherResourcesAndSurvivesRuntimeReload(t *testing.T)
 		Name:        &groupName,
 		UpstreamURL: "https://example.com/v1",
 		Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
+		Models:      optionalGroupModels{Set: true, Values: []GroupModel{}},
 		Keys:        "sk-unrelated-etag-key",
 	}); err != nil {
 		t.Fatal(err)

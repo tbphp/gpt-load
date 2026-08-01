@@ -11,14 +11,13 @@ import (
 	"gorm.io/gorm"
 
 	"gpt-load/internal/dialect"
-	"gpt-load/internal/platform/config"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 	"gpt-load/internal/storage/models"
 )
 
-func TestDiscoverModelsNormalizesDraftAndMergesHeaderRules(t *testing.T) {
+func TestDiscoverModelsUsesSystemDefaultsAndNormalizesSuccessfulResult(t *testing.T) {
 	fixture := newServiceFixture(t)
 	if err := fixture.db.Create(&models.SystemSetting{
 		Key: "header_rules",
@@ -42,14 +41,17 @@ func TestDiscoverModelsNormalizesDraftAndMergesHeaderRules(t *testing.T) {
 					t.Fatalf("base URL = %q, want normalized draft URL", baseURL)
 				}
 				wantRules := state.HeaderRules{
-					Set:    map[string]string{"X-Draft": "draft", "X-Override": "draft"},
-					Remove: []string{"X-Draft-Remove"},
+					Set: map[string]string{
+						"X-System":   "system",
+						"X-Override": "system",
+					},
+					Remove: []string{"X-System-Remove"},
 				}
 				if !reflect.DeepEqual(rules, wantRules) {
-					t.Fatalf("HeaderRules = %#v, want top-level Group override %#v", rules, wantRules)
+					t.Fatalf("HeaderRules = %#v, want system defaults %#v", rules, wantRules)
 				}
 				if value == protocol.Anthropic && apiKey == "key-a" {
-					return []string{"claude-z", "claude-a"}, nil
+					return []string{" claude-z ", "claude-a", "claude-z", "", "claude-a"}, nil
 				}
 				return nil, errors.New("try next")
 			},
@@ -68,13 +70,6 @@ func TestDiscoverModelsNormalizesDraftAndMergesHeaderRules(t *testing.T) {
 			protocol.OpenAICompletions,
 		},
 		Keys: " key-a \nkey-a\n\n key-b \nkey-b",
-		Config: config.Settings{"header_rules": map[string]any{
-			"set": map[string]any{
-				"X-Draft":    "draft",
-				"X-Override": "draft",
-			},
-			"remove": []any{"X-Draft-Remove"},
-		}},
 	})
 	if err != nil {
 		t.Fatalf("DiscoverModels() error = %v", err)
@@ -106,7 +101,6 @@ func TestDiscoverModelsRejectsInvalidDraftBeforeHTTP(t *testing.T) {
 		UpstreamURL: "https://api.example.com",
 		Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
 		Keys:        "key-a",
-		Config:      config.Settings{},
 	}
 	tests := []struct {
 		name   string
@@ -119,12 +113,6 @@ func TestDiscoverModelsRejectsInvalidDraftBeforeHTTP(t *testing.T) {
 			value.Protocols = []protocol.Protocol{"unknown"}
 		}},
 		{name: "empty keys", mutate: func(value *ModelDiscoveryRequest) { value.Keys = " \n\t" }},
-		{name: "unknown config", mutate: func(value *ModelDiscoveryRequest) {
-			value.Config = config.Settings{"unknown": true}
-		}},
-		{name: "invalid HeaderRules", mutate: func(value *ModelDiscoveryRequest) {
-			value.Config = config.Settings{"header_rules": []any{"invalid"}}
-		}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -166,7 +154,6 @@ func TestDiscoverModelsSupportsResponsesOnly(t *testing.T) {
 			UpstreamURL: "https://api.example.com",
 			Protocols:   []protocol.Protocol{protocol.OpenAIResponses},
 			Keys:        "key-a",
-			Config:      config.Settings{},
 		},
 	)
 	if err != nil {
@@ -244,7 +231,6 @@ func TestDiscoverModelsDoesNotReadOrMutateRuntimeState(t *testing.T) {
 		UpstreamURL: "https://discover.example.com",
 		Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
 		Keys:        "sk-discovery",
-		Config:      config.Settings{},
 	})
 	if err != nil || !reflect.DeepEqual(result.Models, []string{"remote-only"}) {
 		t.Fatalf("DiscoverModels() = %#v, %v", result, err)
@@ -292,7 +278,6 @@ func TestDiscoverModelsDoesNotAcquireWriteMu(t *testing.T) {
 			UpstreamURL: "https://discover.example.com",
 			Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
 			Keys:        "sk-discovery",
-			Config:      config.Settings{},
 		})
 		done <- err
 	}()
@@ -333,7 +318,6 @@ func TestDiscoverModelsDoesNotBlockMutation(t *testing.T) {
 			UpstreamURL: "https://discover.example.com",
 			Protocols:   []protocol.Protocol{protocol.Anthropic},
 			Keys:        "sk-discovery",
-			Config:      config.Settings{},
 		})
 		discoveryDone <- err
 	}()

@@ -15,7 +15,6 @@ type ModelDiscoveryRequest struct {
 	UpstreamURL string              `json:"upstream_url"`
 	Protocols   []protocol.Protocol `json:"protocols"`
 	Keys        string              `json:"keys"`
-	Config      config.Settings     `json:"config"`
 }
 
 type ModelDiscoveryResult struct {
@@ -42,11 +41,6 @@ func (s *Service) DiscoverModels(
 	if err != nil {
 		return ModelDiscoveryResult{}, err
 	}
-	groupSettings, _, err := normalizeGroupSettings(request.Config)
-	if err != nil {
-		return ModelDiscoveryResult{}, err
-	}
-
 	systemSettings, err := stateloader.LoadSystemSettings(ctx, s.db)
 	if parentErr := ctx.Err(); parentErr != nil {
 		return ModelDiscoveryResult{}, parentErr
@@ -58,7 +52,7 @@ func (s *Service) DiscoverModels(
 		SystemSettings: systemSettings,
 		Groups: []state.GroupConfig{{
 			ID: 1, Name: "draft", UpstreamURL: baseURL,
-			Protocols: protocols, Settings: groupSettings, Enabled: true,
+			Protocols: protocols, Settings: config.Settings{}, Enabled: true,
 		}},
 	})
 	if err != nil {

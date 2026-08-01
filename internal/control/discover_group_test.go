@@ -422,6 +422,7 @@ func TestDiscoverGroupModelsDoesNotAcquireWriteMuOrBlockWrites(t *testing.T) {
 	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
 		UpstreamURL: "https://discovery-lock.example.com/v1",
 		Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
+		Models:      optionalGroupModels{Set: true, Values: []GroupModel{}},
 		Keys:        "key-1",
 	})
 	if err != nil {
@@ -482,6 +483,7 @@ func TestDiscoverGroupModelsDoesNotAcquireWriteMuOrBlockWrites(t *testing.T) {
 		_, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
 			UpstreamURL: "https://concurrent-group-write.example.com/v1",
 			Protocols:   []protocol.Protocol{protocol.Anthropic},
+			Models:      optionalGroupModels{Set: true, Values: []GroupModel{}},
 			Keys:        "concurrent-group-key",
 		})
 		groupWriteDone <- err

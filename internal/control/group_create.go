@@ -15,6 +15,7 @@ import (
 	"gpt-load/internal/platform/utils"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
+	stateloader "gpt-load/internal/state/loader"
 	"gpt-load/internal/storage/models"
 )
 
@@ -23,17 +24,15 @@ type GroupCreateRequest struct {
 	UpstreamURL            string              `json:"upstream_url"`
 	Protocols              []protocol.Protocol `json:"protocols"`
 	Models                 optionalGroupModels `json:"models"`
-	Config                 config.Settings     `json:"config"`
 	Keys                   string              `json:"keys"`
 	ConfirmSameUpstreamURL bool                `json:"confirm_same_upstream_url"`
 }
 
 type GroupCreateResult struct {
-	GroupID        uint         `json:"group_id"`
-	GroupName      string       `json:"group_name"`
-	KeysAdded      int          `json:"keys_added"`
-	KeysDuplicated int          `json:"keys_duplicated"`
-	Models         []GroupModel `json:"models"`
+	GroupID        uint   `json:"group_id"`
+	GroupName      string `json:"group_name"`
+	KeysAdded      int    `json:"keys_added"`
+	KeysDuplicated int    `json:"keys_duplicated"`
 }
 
 type ExistingGroupSummary struct {
@@ -57,7 +56,7 @@ type normalizedGroupCreate struct {
 }
 
 func (s *Service) CreateGroup(ctx context.Context, request GroupCreateRequest) (GroupCreateResult, error) {
-	normalized, err := s.normalizeGroupCreate(request)
+	normalized, err := s.normalizeGroupCreate(ctx, request)
 	if err != nil {
 		return GroupCreateResult{}, err
 	}
@@ -71,9 +70,7 @@ func (s *Service) CreateGroup(ctx context.Context, request GroupCreateRequest) (
 		)
 	}
 
-	result := GroupCreateResult{
-		Models: append(make([]GroupModel, 0, len(normalized.models)), normalized.models...),
-	}
+	result := GroupCreateResult{}
 	requestedEntries := make([]state.KeyEntry, 0, len(normalized.keys.candidates))
 	_, err = s.writeConfig(ctx, func(tx *gorm.DB) error {
 		if !normalized.confirmSameUpstreamURL {
@@ -133,7 +130,10 @@ func (s *Service) CreateGroup(ctx context.Context, request GroupCreateRequest) (
 	return result, nil
 }
 
-func (s *Service) normalizeGroupCreate(request GroupCreateRequest) (normalizedGroupCreate, error) {
+func (s *Service) normalizeGroupCreate(
+	ctx context.Context,
+	request GroupCreateRequest,
+) (normalizedGroupCreate, error) {
 	upstreamURL, hostname, err := normalizeUpstreamBaseURL(request.UpstreamURL)
 	if err != nil {
 		return normalizedGroupCreate{}, err
@@ -146,14 +146,10 @@ func (s *Service) normalizeGroupCreate(request GroupCreateRequest) (normalizedGr
 	if err != nil {
 		return normalizedGroupCreate{}, err
 	}
-	groupModels := make([]GroupModel, 0)
-	if request.Models.Set {
-		groupModels, err = normalizeGroupModels(request.Models.Values)
-		if err != nil {
-			return normalizedGroupCreate{}, err
-		}
+	if !request.Models.Set {
+		return normalizedGroupCreate{}, app_errors.ErrValidation
 	}
-	settings, encodedConfig, err := normalizeGroupSettings(request.Config)
+	groupModels, err := normalizeGroupModels(request.Models.Values)
 	if err != nil {
 		return normalizedGroupCreate{}, err
 	}
@@ -166,10 +162,19 @@ func (s *Service) normalizeGroupCreate(request GroupCreateRequest) (normalizedGr
 	for _, model := range groupModels {
 		runtimeModels = append(runtimeModels, state.ModelConfig{ID: model.ID, Alias: model.Alias})
 	}
-	_, err = state.Compile(state.CompileInput{Groups: []state.GroupConfig{{
-		ID: 1, Name: "candidate", UpstreamURL: upstreamURL,
-		Protocols: protocols, Models: runtimeModels, Settings: settings, Enabled: true,
-	}}})
+	systemSettings, err := stateloader.LoadSystemSettings(ctx, s.db)
+	if parentErr := ctx.Err(); parentErr != nil {
+		return normalizedGroupCreate{}, parentErr
+	}
+	if err != nil {
+		return normalizedGroupCreate{}, app_errors.ParseDBError(err)
+	}
+	_, err = state.Compile(state.CompileInput{
+		SystemSettings: systemSettings,
+		Groups: []state.GroupConfig{{
+			ID: 1, Name: "candidate", UpstreamURL: upstreamURL,
+			Protocols: protocols, Models: runtimeModels, Settings: config.Settings{}, Enabled: true,
+		}}})
 	if err != nil {
 		return normalizedGroupCreate{}, app_errors.ErrValidation
 	}
@@ -177,7 +182,7 @@ func (s *Service) normalizeGroupCreate(request GroupCreateRequest) (normalizedGr
 	return normalizedGroupCreate{
 		upstreamURL: upstreamURL, hostname: hostname, protocols: protocols,
 		explicitName: explicitName, models: groupModels,
-		encodedConfig: encodedConfig, keys: keys,
+		encodedConfig: models.JSON(`{}`), keys: keys,
 		confirmSameUpstreamURL: request.ConfirmSameUpstreamURL,
 	}, nil
 }

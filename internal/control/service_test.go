@@ -702,12 +702,12 @@ func TestConcurrentCreateGroupsPublishDatabaseTruth(t *testing.T) {
 	fixture := newServiceFixture(t)
 	before := fixture.manager.Current().Revision
 	requests := []GroupCreateRequest{
-		{UpstreamURL: "https://shared.example.com/v1", Protocols: []protocol.Protocol{protocol.OpenAICompletions}, Keys: "sk-shared-a", ConfirmSameUpstreamURL: true},
-		{UpstreamURL: "https://shared.example.com/v1", Protocols: []protocol.Protocol{protocol.Anthropic}, Keys: "sk-shared-b", ConfirmSameUpstreamURL: true},
-		{UpstreamURL: "https://one.example.com/v1", Protocols: []protocol.Protocol{protocol.OpenAICompletions}, Keys: "sk-one"},
-		{UpstreamURL: "https://two.example.com/v1", Protocols: []protocol.Protocol{protocol.Gemini}, Keys: "sk-two"},
-		{UpstreamURL: "https://three.example.com/v1", Protocols: []protocol.Protocol{protocol.OpenAICompletions}, Keys: "sk-three"},
-		{UpstreamURL: "https://four.example.com/v1", Protocols: []protocol.Protocol{protocol.Anthropic}, Keys: "sk-four"},
+		{UpstreamURL: "https://shared.example.com/v1", Protocols: []protocol.Protocol{protocol.OpenAICompletions}, Models: optionalGroupModels{Set: true, Values: []GroupModel{}}, Keys: "sk-shared-a", ConfirmSameUpstreamURL: true},
+		{UpstreamURL: "https://shared.example.com/v1", Protocols: []protocol.Protocol{protocol.Anthropic}, Models: optionalGroupModels{Set: true, Values: []GroupModel{}}, Keys: "sk-shared-b", ConfirmSameUpstreamURL: true},
+		{UpstreamURL: "https://one.example.com/v1", Protocols: []protocol.Protocol{protocol.OpenAICompletions}, Models: optionalGroupModels{Set: true, Values: []GroupModel{}}, Keys: "sk-one"},
+		{UpstreamURL: "https://two.example.com/v1", Protocols: []protocol.Protocol{protocol.Gemini}, Models: optionalGroupModels{Set: true, Values: []GroupModel{}}, Keys: "sk-two"},
+		{UpstreamURL: "https://three.example.com/v1", Protocols: []protocol.Protocol{protocol.OpenAICompletions}, Models: optionalGroupModels{Set: true, Values: []GroupModel{}}, Keys: "sk-three"},
+		{UpstreamURL: "https://four.example.com/v1", Protocols: []protocol.Protocol{protocol.Anthropic}, Models: optionalGroupModels{Set: true, Values: []GroupModel{}}, Keys: "sk-four"},
 	}
 
 	start := make(chan struct{})

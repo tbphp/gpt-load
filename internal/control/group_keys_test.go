@@ -287,6 +287,7 @@ func createGroupForKeyImport(t *testing.T, fixture serviceFixture, keys string) 
 	result, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
 		UpstreamURL: "https://key-import.example.com/v1",
 		Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
+		Models:      optionalGroupModels{Set: true, Values: []GroupModel{}},
 		Keys:        keys,
 	})
 	if err != nil {

@@ -165,13 +165,21 @@ func TestUpdateGroupSettingsRejectsProtocolChangeThatLeavesInjectUsageOptionsOnN
 	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
 		UpstreamURL: "https://settings-protocol-constraint.example.com/v1",
 		Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
-		Config: config.Settings{
-			state.SettingInjectUsageOptions: true,
-		},
-		Keys: "sk-settings-protocol-constraint",
+		Models:      optionalGroupModels{Set: true, Values: []GroupModel{}},
+		Keys:        "sk-settings-protocol-constraint",
 	})
 	if err != nil {
 		t.Fatalf("CreateGroup() error = %v", err)
+	}
+	if _, err := fixture.service.UpdateGroupSettings(t.Context(), created.GroupID, GroupSettingsUpdateRequest{
+		Overrides: optionalField[config.Settings]{
+			Set: true,
+			Value: config.Settings{
+				state.SettingInjectUsageOptions: true,
+			},
+		},
+	}); err != nil {
+		t.Fatalf("enable inject_usage_options override: %v", err)
 	}
 	var before models.Group
 	if err := fixture.db.First(&before, created.GroupID).Error; err != nil {

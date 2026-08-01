@@ -2,6 +2,7 @@ package control
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -12,9 +13,71 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"gpt-load/internal/dialect"
 	"gpt-load/internal/platform/config"
+	"gpt-load/internal/protocol"
+	"gpt-load/internal/state"
 	"gpt-load/internal/storage/models"
 )
+
+func TestControlRoutesRequireAuthenticationForGroupCreateAndModelDiscovery(t *testing.T) {
+	initControlI18n(t)
+	fixture := newServiceFixture(t)
+	fixture.service.dialects = dialect.NewSet(&recordingDiscoveryDialect{
+		value: protocol.OpenAICompletions,
+		listFn: func(context.Context, string, string, state.HeaderRules) ([]string, error) {
+			t.Fatal("ListModels called without valid management authentication")
+			return nil, nil
+		},
+	})
+	engine := gin.New()
+	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
+
+	for _, endpoint := range []struct {
+		name string
+		path string
+		body string
+	}{
+		{
+			name: "Group create",
+			path: "/api/groups",
+			body: `{"upstream_url":"https://auth.example.com","protocols":["openai-completions"],` +
+				`"models":[],"keys":"sk-auth-secret"}`,
+		},
+		{
+			name: "Model discovery",
+			path: "/api/models/discover",
+			body: `{"upstream_url":"https://auth.example.com","protocols":["openai-completions"],` +
+				`"keys":"sk-auth-secret"}`,
+		},
+	} {
+		t.Run(endpoint.name, func(t *testing.T) {
+			for _, authorization := range []string{"", "Bearer wrong-key"} {
+				before := countCreateImportRows(t, fixture)
+				request := httptest.NewRequest(http.MethodPost, endpoint.path, strings.NewReader(endpoint.body))
+				request.Header.Set("Content-Type", "application/json")
+				if authorization != "" {
+					request.Header.Set("Authorization", authorization)
+				}
+				if endpoint.path == "/api/groups" {
+					setRequiredTestIdempotencyHeader(request)
+				}
+				recorder := httptest.NewRecorder()
+				engine.ServeHTTP(recorder, request)
+				if recorder.Code != http.StatusUnauthorized ||
+					!strings.Contains(recorder.Body.String(), `"code":"UNAUTHORIZED"`) {
+					t.Fatalf("Authorization %q = %d %s, want 401", authorization, recorder.Code, recorder.Body.String())
+				}
+				if strings.Contains(recorder.Body.String(), "sk-auth-secret") {
+					t.Fatalf("response exposes plaintext key: %s", recorder.Body.String())
+				}
+				if after := countCreateImportRows(t, fixture); after != before {
+					t.Fatalf("rows changed from %#v to %#v", before, after)
+				}
+			}
+		})
+	}
+}
 
 func TestCreateAndImportEndpointsRequireCanonicalIdempotencyKeyBeforeMutation(t *testing.T) {
 	initControlI18n(t)

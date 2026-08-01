@@ -495,7 +495,7 @@ func TestControlJSONBodyLimitAppliesToEveryJSONEndpoint(t *testing.T) {
 			name: "create group", method: http.MethodPost,
 			path: func(uint, uint, uint) string { return "/api/groups" },
 			jsonPrefix: `{"name":"body-limit-group","upstream_url":"https://body-limit-create.example.com/v1",` +
-				`"protocols":["openai-completions"],"keys":"sk-body-limit-create","config":{}}`,
+				`"protocols":["openai-completions"],"models":[],"keys":"sk-body-limit-create"}`,
 		},
 		{
 			name: "import group keys", method: http.MethodPost,
@@ -536,7 +536,7 @@ func TestControlJSONBodyLimitAppliesToEveryJSONEndpoint(t *testing.T) {
 			name: "discover draft models", method: http.MethodPost,
 			path: func(uint, uint, uint) string { return "/api/models/discover" },
 			jsonPrefix: `{"upstream_url":"https://body-limit-discover.example.com/v1",` +
-				`"protocols":["openai-completions"],"keys":"sk-body-limit-discover","config":{}}`,
+				`"protocols":["openai-completions"],"keys":"sk-body-limit-discover"}`,
 		},
 		{
 			name: "create access key", method: http.MethodPost,
@@ -683,7 +683,7 @@ func TestControlJSONBodyLimitLocalizes413(t *testing.T) {
 	} {
 		t.Run(test.language, func(t *testing.T) {
 			const prefix = `{"name":"localized-limit","upstream_url":"https://localized-limit.example.com/v1",` +
-				`"protocols":["openai-completions"],"keys":"sk-localized-limit","config":{}}`
+				`"protocols":["openai-completions"],"models":[],"keys":"sk-localized-limit"}`
 			request := httptest.NewRequest(http.MethodPost, "/api/groups", oversizedControlJSONBody(prefix))
 			request.ContentLength = -1
 			request.Header.Set("Authorization", "Bearer test-auth-key")
@@ -800,14 +800,14 @@ func TestManagementAuthDoesNotLogSecretOrDigest(t *testing.T) {
 	}
 }
 
-func TestCreateGroupEndpointReturnsSuccessAndConflictEnvelopes(t *testing.T) {
+func TestGroupCreateHTTPReturnsNarrowSuccessAndConflictEnvelopes(t *testing.T) {
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	engine := gin.New()
 	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
 
 	request := httptest.NewRequest(http.MethodPost, "/api/groups", strings.NewReader(
-		`{"name":"primary","upstream_url":"https://api.example.com/v1/","protocols":["openai-completions"],"models":[{"id":"gpt-4o"}],"config":{},"keys":"sk-first"}`,
+		`{"name":"primary","upstream_url":"https://api.example.com/v1/","protocols":["openai-completions"],"models":[{"id":"gpt-4o","alias":"public-gpt","alias_enabled":true}],"keys":"sk-first"}`,
 	))
 	request.Header.Set("Authorization", "Bearer test-auth-key")
 	request.Header.Set("Content-Type", "application/json")
@@ -818,19 +818,36 @@ func TestCreateGroupEndpointReturnsSuccessAndConflictEnvelopes(t *testing.T) {
 		t.Fatalf("create status = %d, body=%s", recorder.Code, recorder.Body.String())
 	}
 	var success struct {
-		Code int               `json:"code"`
-		Data GroupCreateResult `json:"data"`
+		Code int                        `json:"code"`
+		Data map[string]json.RawMessage `json:"data"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &success); err != nil {
 		t.Fatalf("decode success response: %v", err)
 	}
-	if success.Code != 0 || success.Data.GroupID == 0 || success.Data.GroupName != "primary" ||
-		success.Data.KeysAdded != 1 {
+	if success.Code != 0 || len(success.Data) != 4 {
 		t.Fatalf("success response = %#v", success)
+	}
+	for _, field := range []string{"group_id", "group_name", "keys_added", "keys_duplicated"} {
+		if success.Data[field] == nil {
+			t.Fatalf("success data lacks %q: %#v", field, success.Data)
+		}
+	}
+	for _, forbidden := range []string{`"models"`, `"config"`, `"keys"`, "sk-first"} {
+		if strings.Contains(recorder.Body.String(), forbidden) {
+			t.Fatalf("success response exposes %q: %s", forbidden, recorder.Body.String())
+		}
+	}
+	var groupID uint
+	var groupName string
+	if err := json.Unmarshal(success.Data["group_id"], &groupID); err != nil || groupID == 0 {
+		t.Fatalf("decode group_id: %v, value=%s", err, success.Data["group_id"])
+	}
+	if err := json.Unmarshal(success.Data["group_name"], &groupName); err != nil || groupName != "primary" {
+		t.Fatalf("decode group_name: %v, value=%s", err, success.Data["group_name"])
 	}
 
 	request = httptest.NewRequest(http.MethodPost, "/api/groups", strings.NewReader(
-		`{"upstream_url":" HTTPS://API.example.com/v1 ","protocols":["anthropic"],"keys":"sk-second"}`,
+		`{"upstream_url":" HTTPS://API.example.com/v1 ","protocols":["anthropic"],"models":[],"keys":"sk-second"}`,
 	))
 	request.Header.Set("Authorization", "Bearer test-auth-key")
 	request.Header.Set("Content-Type", "application/json")
@@ -851,9 +868,73 @@ func TestCreateGroupEndpointReturnsSuccessAndConflictEnvelopes(t *testing.T) {
 		t.Fatalf("conflict response = %#v", conflict)
 	}
 	groups := conflict.Data["groups"]
-	if len(groups) != 1 || len(groups[0]) != 2 || groups[0]["id"] != float64(success.Data.GroupID) ||
-		groups[0]["name"] != success.Data.GroupName {
+	if len(groups) != 1 || len(groups[0]) != 2 || groups[0]["id"] != float64(groupID) ||
+		groups[0]["name"] != groupName {
 		t.Fatalf("conflict groups = %#v", groups)
+	}
+}
+
+func TestGroupCreateHTTPRejectsLegacyMissingAndMalformedContractsWithoutMutation(t *testing.T) {
+	initControlI18n(t)
+	tests := []struct {
+		name string
+		body string
+		code string
+	}{
+		{
+			name: "legacy config",
+			body: `{"upstream_url":"https://api.example.com","protocols":["openai-completions"],` +
+				`"models":[],"keys":"sk-secret","config":{}}`,
+			code: app_errors.ErrInvalidJSON.Code,
+		},
+		{
+			name: "omitted models",
+			body: `{"upstream_url":"https://api.example.com","protocols":["openai-completions"],` +
+				`"keys":"sk-secret"}`,
+			code: app_errors.ErrValidation.Code,
+		},
+		{
+			name: "null models",
+			body: `{"upstream_url":"https://api.example.com","protocols":["openai-completions"],` +
+				`"models":null,"keys":"sk-secret"}`,
+			code: app_errors.ErrValidation.Code,
+		},
+		{
+			name: "unknown model field",
+			body: `{"upstream_url":"https://api.example.com","protocols":["openai-completions"],` +
+				`"models":[{"id":"gpt-4o","unknown":true}],"keys":"sk-secret"}`,
+			code: app_errors.ErrInvalidJSON.Code,
+		},
+		{
+			name: "malformed JSON",
+			body: `{"upstream_url":"https://api.example.com","protocols":["openai-completions"],` +
+				`"models":[],"keys":"sk-secret"`,
+			code: app_errors.ErrInvalidJSON.Code,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newServiceFixture(t)
+			engine := gin.New()
+			NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
+			before := countCreateImportRows(t, fixture)
+			request := httptest.NewRequest(http.MethodPost, "/api/groups", strings.NewReader(test.body))
+			request.Header.Set("Authorization", "Bearer test-auth-key")
+			request.Header.Set("Content-Type", "application/json")
+			setRequiredTestIdempotencyHeader(request)
+			recorder := httptest.NewRecorder()
+			engine.ServeHTTP(recorder, request)
+			if recorder.Code != http.StatusBadRequest ||
+				!strings.Contains(recorder.Body.String(), `"code":"`+test.code+`"`) {
+				t.Fatalf("response = %d %s, want 400/%s", recorder.Code, recorder.Body.String(), test.code)
+			}
+			if strings.Contains(recorder.Body.String(), "sk-secret") {
+				t.Fatalf("response exposes plaintext key: %s", recorder.Body.String())
+			}
+			if after := countCreateImportRows(t, fixture); after != before {
+				t.Fatalf("rows changed from %#v to %#v", before, after)
+			}
+		})
 	}
 }
 
@@ -1187,6 +1268,7 @@ func TestUpdateGroupSettingsEndpointURLConflictsSuccessI18nAndAuth(t *testing.T)
 		Name:        stringPointer("other-group"),
 		UpstreamURL: "https://conflict.example.com/v1",
 		Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
+		Models:      optionalGroupModels{Set: true, Values: []GroupModel{}},
 		Keys:        "sk-update-second",
 	})
 	if err != nil {
@@ -1625,7 +1707,7 @@ func TestUpdateAccessKeyRoutesParseIDsAndPreservePointerSemantics(t *testing.T) 
 	}
 }
 
-func TestServerDraftModelDiscoveryContract(t *testing.T) {
+func TestModelDiscoveryHTTPContract(t *testing.T) {
 	initControlI18n(t)
 	const authKey = "test-auth-key"
 
@@ -1656,7 +1738,7 @@ func TestServerDraftModelDiscoveryContract(t *testing.T) {
 		})
 		recorder := serveDiscoveryRequest(t, engine, authKey,
 			`{"upstream_url":"https://api.example.com","protocols":["openai-completions"],`+
-				`"keys":"sk-upstream","config":{}}`,
+				`"keys":"sk-upstream"}`,
 		)
 		if recorder.Code != http.StatusOK {
 			t.Fatalf("status = %d, body=%s", recorder.Code, recorder.Body.String())
@@ -1692,7 +1774,7 @@ func TestServerDraftModelDiscoveryContract(t *testing.T) {
 		})
 		recorder := serveDiscoveryRequest(t, engine, authKey,
 			`{"upstream_url":"https://api.example.com","protocols":["openai-completions"],`+
-				`"keys":"sk-upstream","config":{}}`,
+				`"keys":"sk-upstream"}`,
 		)
 		if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), `"models":[]`) {
 			t.Fatalf("response = %d %s", recorder.Code, recorder.Body.String())
@@ -1710,7 +1792,7 @@ func TestServerDraftModelDiscoveryContract(t *testing.T) {
 		for _, token := range []string{"", "wrong-key"} {
 			recorder := serveDiscoveryRequest(t, engine, token,
 				`{"upstream_url":"https://api.example.com","protocols":["openai-completions"],`+
-					`"keys":"sk-upstream","config":{}}`,
+					`"keys":"sk-upstream"}`,
 			)
 			if recorder.Code != http.StatusUnauthorized || !strings.Contains(recorder.Body.String(), `"code":"UNAUTHORIZED"`) {
 				t.Fatalf("auth %q response = %d %s", token, recorder.Code, recorder.Body.String())
@@ -1727,8 +1809,10 @@ func TestServerDraftModelDiscoveryContract(t *testing.T) {
 			},
 		})
 		for _, payload := range []string{
-			`{"upstream_url":"https://api.example.com","protocols":["openai-completions"],"keys":"sk-upstream","config":{},"unknown":true}`,
-			`{"upstream_url":"https://api.example.com","protocols":["openai-completions"],"keys":"sk-upstream","config":{}}{}`,
+			`{"upstream_url":"https://api.example.com","protocols":["openai-completions"],"keys":"sk-upstream","config":{}}`,
+			`{"upstream_url":"https://api.example.com","protocols":["openai-completions"],"keys":"sk-upstream","unknown":true}`,
+			`{"upstream_url":"https://api.example.com","protocols":["openai-completions"],"keys":"sk-upstream"}{}`,
+			`{"upstream_url":"https://api.example.com","protocols":["openai-completions"],"keys":"sk-upstream"`,
 			`{"upstream_url":"https://api.example.com","protocol":"openai-completions","key":"sk-upstream"}`,
 		} {
 			recorder := serveDiscoveryRequest(t, engine, authKey, payload)
@@ -1745,8 +1829,8 @@ func TestServerDraftModelDiscoveryContract(t *testing.T) {
 			status  int
 			code    string
 		}{
-			{payload: `{"upstream_url":"/relative","protocols":["openai-completions"],"keys":"secret-key","config":{}}`, status: http.StatusBadRequest, code: "VALIDATION_FAILED"},
-			{payload: `{"upstream_url":"https://api.example.com?token=query-secret","protocols":["openai-completions"],"keys":"secret-key","config":{}}`, status: http.StatusInternalServerError, code: "INTERNAL_SERVER_ERROR"},
+			{payload: `{"upstream_url":"/relative","protocols":["openai-completions"],"keys":"secret-key"}`, status: http.StatusBadRequest, code: "VALIDATION_FAILED"},
+			{payload: `{"upstream_url":"https://api.example.com?token=query-secret","protocols":["openai-completions"],"keys":"secret-key"}`, status: http.StatusInternalServerError, code: "INTERNAL_SERVER_ERROR"},
 		} {
 			recorder := serveDiscoveryRequest(t, engine, authKey, test.payload)
 			if recorder.Code != test.status || !strings.Contains(recorder.Body.String(), `"code":"`+test.code+`"`) {
@@ -1777,7 +1861,7 @@ func TestServerDraftModelDiscoveryContract(t *testing.T) {
 		} {
 			recorder := serveDiscoveryRequestWithLanguage(t, engine, authKey,
 				`{"upstream_url":"https://api.example.com?token=query-secret",`+
-					`"protocols":["openai-completions"],"keys":"secret-key","config":{}}`,
+					`"protocols":["openai-completions"],"keys":"secret-key"}`,
 				test.language,
 			)
 			if recorder.Code != http.StatusBadGateway ||
@@ -1804,7 +1888,7 @@ func TestServerDraftModelDiscoveryContract(t *testing.T) {
 		service.modelDiscoveryTimeout = 20 * time.Millisecond
 		recorder := serveDiscoveryRequest(t, engine, authKey,
 			`{"upstream_url":"https://api.example.com","protocols":["openai-completions"],`+
-				`"keys":"sk-upstream","config":{}}`,
+				`"keys":"sk-upstream"}`,
 		)
 		if recorder.Code != http.StatusBadGateway || !strings.Contains(recorder.Body.String(), `"code":"BAD_GATEWAY"`) {
 			t.Fatalf("response = %d %s", recorder.Code, recorder.Body.String())
@@ -1824,7 +1908,7 @@ func TestServerDraftModelDiscoveryContract(t *testing.T) {
 		NewServer(&config.Config{AuthKey: authKey}, fixture.service).RegisterRoutes(engine)
 		recorder := serveDiscoveryRequest(t, engine, authKey,
 			`{"upstream_url":"`+upstream.URL+`","protocols":["openai-completions"],`+
-				`"keys":"sk-upstream","config":{}}`,
+				`"keys":"sk-upstream"}`,
 		)
 		if recorder.Code != http.StatusBadGateway || !strings.Contains(recorder.Body.String(), `"code":"BAD_GATEWAY"`) {
 			t.Fatalf("response = %d %s", recorder.Code, recorder.Body.String())
@@ -1860,7 +1944,7 @@ func TestServerDraftModelDiscoveryLogsOnlyMetadata(t *testing.T) {
 
 	recorder := serveDiscoveryRequest(t, engine, authSecret,
 		`{"upstream_url":"https://api.example.com?token=`+querySecret+`",`+
-			`"protocols":["anthropic"],"keys":"`+keySecret+`","config":{}}`,
+			`"protocols":["anthropic"],"keys":"`+keySecret+`"}`,
 	)
 	if recorder.Code != http.StatusBadGateway {
 		t.Fatalf("response = %d %s", recorder.Code, recorder.Body.String())
@@ -1891,6 +1975,7 @@ func TestServerGroupModelDiscoveryBodyContract(t *testing.T) {
 		created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
 			UpstreamURL: "https://persisted-server.example.com/v1",
 			Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
+			Models:      optionalGroupModels{Set: true, Values: []GroupModel{}},
 			Keys:        "persisted-server-key",
 		})
 		if err != nil {

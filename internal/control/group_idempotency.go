@@ -1,7 +1,6 @@
 package control
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -12,7 +11,6 @@ import (
 	"gorm.io/gorm"
 
 	"gpt-load/internal/platform/canonicaljson"
-	"gpt-load/internal/platform/config"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/platform/utils"
 	"gpt-load/internal/protocol"
@@ -26,7 +24,6 @@ type groupCreateDigestBody struct {
 	UpstreamURL            string              `json:"upstream_url"`
 	Protocols              []protocol.Protocol `json:"protocols"`
 	Models                 []GroupModel        `json:"models"`
-	Config                 config.Settings     `json:"config"`
 	Keys                   []string            `json:"keys"`
 	ConfirmSameUpstreamURL bool                `json:"confirm_same_upstream_url"`
 }
@@ -40,7 +37,7 @@ func (s *Service) CreateGroupIdempotent(
 	idempotencyKey string,
 	request GroupCreateRequest,
 ) (GroupCreateResult, error) {
-	normalized, err := s.normalizeGroupCreate(request)
+	normalized, err := s.normalizeGroupCreate(ctx, request)
 	if err != nil {
 		return GroupCreateResult{}, err
 	}
@@ -52,20 +49,11 @@ func (s *Service) CreateGroupIdempotent(
 	sort.Slice(protocols, func(left, right int) bool {
 		return string(protocols[left]) < string(protocols[right])
 	})
-	settings := make(config.Settings)
-	if len(normalized.encodedConfig) > 0 {
-		decoder := json.NewDecoder(bytes.NewReader(normalized.encodedConfig))
-		decoder.UseNumber()
-		if err := decoder.Decode(&settings); err != nil {
-			return GroupCreateResult{}, app_errors.ErrInternalServer
-		}
-	}
 	canonicalBody, err := canonicalIdempotencyBody(groupCreateDigestBody{
 		Name:                   normalized.explicitName,
 		UpstreamURL:            normalized.upstreamURL,
 		Protocols:              protocols,
 		Models:                 append([]GroupModel(nil), normalized.models...),
-		Config:                 settings,
 		Keys:                   keyLines,
 		ConfirmSameUpstreamURL: normalized.confirmSameUpstreamURL,
 	})
@@ -163,7 +151,6 @@ func (s *Service) CreateGroupIdempotent(
 			result := GroupCreateResult{
 				GroupID: group.ID, GroupName: group.Name,
 				KeysAdded: added, KeysDuplicated: duplicated,
-				Models: append(make([]GroupModel, 0, len(normalized.models)), normalized.models...),
 			}
 			canonicalResult, err := canonicaljson.Marshal(result)
 			if err != nil {

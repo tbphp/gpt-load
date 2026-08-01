@@ -7,7 +7,6 @@ import (
 	"reflect"
 	"testing"
 
-	"gpt-load/internal/platform/config"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/storage/models"
@@ -20,6 +19,7 @@ func TestCreateGroupIdempotentReplaysOriginalCountsAndPreservesKeyMultiplicity(t
 		Name:        stringPointer("idempotent-group"),
 		UpstreamURL: "https://idempotent.example.com/v1/",
 		Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
+		Models:      optionalGroupModels{Set: true, Values: []GroupModel{}},
 		Keys:        " K \r\nK\n",
 	}
 	const key = "218f47a2-9c35-4d6e-8b1a-1234567890ab"
@@ -55,14 +55,19 @@ func TestCreateGroupIdempotentReplaysOriginalCountsAndPreservesKeyMultiplicity(t
 	assertAPIErrorCode(t, err, app_errors.ErrIdempotencyKeyReused.Code)
 }
 
-func TestCreateGroupIdempotentCanonicalizesEquivalentWholeNumberSettings(t *testing.T) {
+func TestCreateGroupIdempotentCanonicalizesDisabledAliasesAndReplaysNarrowResult(t *testing.T) {
 	fixture := newServiceFixture(t)
 	request := GroupCreateRequest{
-		Name:        stringPointer("canonical-settings"),
-		UpstreamURL: "https://canonical-settings.example.com",
+		Name:        stringPointer("canonical-models"),
+		UpstreamURL: "https://canonical-models.example.com",
 		Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
-		Config:      config.Settings{"connect_timeout": json.Number("2e1")},
-		Keys:        "key-one",
+		Models: optionalGroupModels{
+			Set: true,
+			Values: []GroupModel{{
+				ID: "provider-model", Alias: "discarded-a", AliasEnabled: false,
+			}},
+		},
+		Keys: "key-one",
 	}
 	const key = "238f47a2-9c35-4d6e-8b1a-1234567890ab"
 
@@ -71,7 +76,12 @@ func TestCreateGroupIdempotentCanonicalizesEquivalentWholeNumberSettings(t *test
 		t.Fatalf("first CreateGroupIdempotent() error = %v", err)
 	}
 	equivalent := request
-	equivalent.Config = config.Settings{"connect_timeout": json.Number("20.0")}
+	equivalent.Models = optionalGroupModels{
+		Set: true,
+		Values: []GroupModel{{
+			ID: "provider-model", Alias: "discarded-b", AliasEnabled: false,
+		}},
+	}
 	replayed, err := fixture.service.CreateGroupIdempotent(t.Context(), key, equivalent)
 	if err != nil {
 		t.Fatalf("equivalent replay CreateGroupIdempotent() error = %v", err)
@@ -79,13 +89,27 @@ func TestCreateGroupIdempotentCanonicalizesEquivalentWholeNumberSettings(t *test
 	if !reflect.DeepEqual(replayed, first) {
 		t.Fatalf("equivalent replay = %#v, first = %#v", replayed, first)
 	}
+	encoded, err := json.Marshal(first)
+	if err != nil {
+		t.Fatalf("encode create result: %v", err)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &fields); err != nil {
+		t.Fatalf("decode create result fields: %v", err)
+	}
+	if len(fields) != 4 || fields["models"] != nil {
+		t.Fatalf("create result fields = %#v, want narrow result", fields)
+	}
 
 	var group models.Group
 	if err := fixture.db.First(&group, first.GroupID).Error; err != nil {
 		t.Fatalf("read created group: %v", err)
 	}
-	if got := string(group.Config); got != `{"connect_timeout":20}` {
-		t.Fatalf("stored config = %s, want canonical whole number", got)
+	if got := string(group.Config); got != `{}` {
+		t.Fatalf("stored config = %s, want empty override", got)
+	}
+	if stored := loadCreatedGroupModels(t, fixture, first.GroupID); !reflect.DeepEqual(stored, []GroupModel{{ID: "provider-model"}}) {
+		t.Fatalf("stored models = %#v, want disabled alias omitted", stored)
 	}
 }
 

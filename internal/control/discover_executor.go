@@ -66,7 +66,7 @@ func (s *Service) executeModelDiscovery(
 				)
 			}
 			if err == nil {
-				return ModelDiscoveryResult{Models: append([]string{}, models...)}, nil
+				return ModelDiscoveryResult{Models: normalizeDiscoveredModels(models)}, nil
 			}
 		}
 	}
@@ -77,6 +77,23 @@ func (s *Service) executeModelDiscovery(
 		"discover upstream models: %w",
 		app_errors.ErrBadGateway,
 	)
+}
+
+func normalizeDiscoveredModels(values []string) []string {
+	result := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		normalized := strings.TrimSpace(value)
+		if normalized == "" {
+			continue
+		}
+		if _, duplicate := seen[normalized]; duplicate {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		result = append(result, normalized)
+	}
+	return result
 }
 
 func canonicalProtocolOrder(
