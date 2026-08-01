@@ -146,8 +146,9 @@ func (handler *Handler) applyKeyAction(
 			if decision.UseFixed {
 				until = attemptNow.Add(fixedCooldown)
 			}
-			_ = handler.registry.SetCooldown(keyID, until)
-			handler.stats.RecordProblem(keyID, decision.Category, statusCode, attemptNow)
+			if handler.registry.SetCooldown(keyID, until) {
+				handler.stats.RecordProblem(keyID, decision.Category, statusCode, attemptNow)
+			}
 		}
 		if handler.mutations == nil {
 			mutate()
@@ -157,8 +158,12 @@ func (handler *Handler) applyKeyAction(
 	case health.ActionFailKey:
 		handler.mutations.Do(keyID, func() {
 			count, ok := handler.registry.IncrFailure(keyID)
-			if ok && count >= blacklistFailureThreshold {
-				_ = handler.registry.SetBlacklisted(keyID)
+			if !ok {
+				return
+			}
+			if count >= blacklistFailureThreshold &&
+				!handler.registry.SetBlacklisted(keyID) {
+				return
 			}
 			handler.stats.RecordFailure(keyID, decision.Category, statusCode, attemptNow)
 		})
@@ -167,8 +172,9 @@ func (handler *Handler) applyKeyAction(
 
 func (handler *Handler) recordSuccess(keyID uint, at time.Time) {
 	handler.mutations.Do(keyID, func() {
-		_ = handler.registry.ClearFailure(keyID)
-		handler.stats.RecordSuccess(keyID, at)
+		if handler.registry.ClearFailure(keyID) {
+			handler.stats.RecordSuccess(keyID, at)
+		}
 	})
 }
 

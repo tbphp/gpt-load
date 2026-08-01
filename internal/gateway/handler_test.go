@@ -327,6 +327,52 @@ func TestHandlerRecordsCooldownFailureContext(t *testing.T) {
 	}
 }
 
+func TestHandlerSkipsStatsWhenRegistryKeyWasDeletedBeforeCompletion(t *testing.T) {
+	now := time.Date(2026, time.August, 1, 14, 30, 0, 0, time.UTC)
+	for _, test := range []struct {
+		name   string
+		mutate func(*Handler)
+	}{
+		{
+			name: "cooldown",
+			mutate: func(handler *Handler) {
+				handler.applyKeyAction(1, health.Result{
+					Category: health.FailureCategoryRateLimited,
+					Action:   health.ActionCooldownKey,
+				}, http.StatusTooManyRequests, now)
+			},
+		},
+		{
+			name: "attributable failure",
+			mutate: func(handler *Handler) {
+				handler.applyKeyAction(1, health.Result{
+					Category: health.FailureCategoryInvalidKey,
+					Action:   health.ActionFailKey,
+				}, http.StatusUnauthorized, now)
+			},
+		},
+		{
+			name: "success",
+			mutate: func(handler *Handler) {
+				handler.recordSuccess(1, now)
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			stats := health.NewStatsStore()
+			handler := &Handler{
+				registry:  state.NewKeyRegistry(),
+				stats:     stats,
+				mutations: health.NewMutationCoordinator(),
+			}
+			test.mutate(handler)
+			if got := stats.Snapshot(1, now); got != (health.KeyStats{}) {
+				t.Fatalf("stats after deleted-key completion = %#v, want zero", got)
+			}
+		})
+	}
+}
+
 func TestHandlerCoordinatesAttributableFailureMutation(t *testing.T) {
 	now := time.Date(2026, time.July, 27, 12, 0, 0, 0, time.UTC)
 	registry := &recordingRuntimeRegistry{KeyRegistry: state.NewKeyRegistry()}

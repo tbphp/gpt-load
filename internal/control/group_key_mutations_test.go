@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sync"
 	"testing"
 	"time"
 
@@ -172,6 +173,96 @@ func TestRestoreGroupKeyAllowsFailureAfterRestorePoint(t *testing.T) {
 type postRestoreFailureCoordinator struct {
 	after func()
 	calls int
+}
+
+type recoverBeforeRestoreCoordinator struct {
+	registry  *state.KeyRegistry
+	stats     *health.StatsStore
+	ref       state.KeyRef
+	recovered bool
+}
+
+func (coordinator *recoverBeforeRestoreCoordinator) Do(_ uint, restore func()) {
+	coordinator.recovered = coordinator.registry.RecoverIfMatch(
+		coordinator.ref,
+		state.DefaultWeight,
+	)
+	if coordinator.recovered {
+		coordinator.stats.Reset(coordinator.ref.ID)
+	}
+	restore()
+}
+
+func TestRestoreGroupKeyRejectsWhenValidationRecoveryWinsCoordinator(t *testing.T) {
+	fixture := newServiceFixture(t)
+	now := time.Date(2026, time.August, 1, 12, 15, 0, 0, time.UTC)
+	fixture.service.now = func() time.Time { return now }
+	group := validControlGroup("restore-validation-wins")
+	if err := fixture.db.Create(group).Error; err != nil {
+		t.Fatal(err)
+	}
+	row := seedManagedUpstreamKey(t, fixture, group.ID, "provider-secret-validation-wins", models.UpstreamKeyStatusActive, nil)
+	if !fixture.registry.SetBlacklisted(row.ID) {
+		t.Fatal("seed blacklist")
+	}
+	refs := fixture.registry.BlacklistedKeys()
+	if len(refs) != 1 {
+		t.Fatalf("blacklisted refs = %#v, want one", refs)
+	}
+	coordinator := &recoverBeforeRestoreCoordinator{
+		registry: fixture.registry,
+		stats:    fixture.stats,
+		ref:      refs[0],
+	}
+	fixture.service.mutations = coordinator
+
+	_, err := fixture.service.RestoreGroupKey(t.Context(), group.ID, row.ID)
+	if !coordinator.recovered {
+		t.Fatal("validation recovery did not complete before restore callback")
+	}
+	if !errors.Is(err, app_errors.ErrInvalidKeyState) {
+		t.Fatalf("RestoreGroupKey() error = %#v, want INVALID_KEY_STATE", err)
+	}
+	view, exists := findRuntimeKey(fixture.registry.Snapshot(), row.ID)
+	if !exists || view.Blacklisted || view.FailureCount != 0 || view.WeightAuto != state.DefaultWeight {
+		t.Fatalf("validation-won Registry view = %#v, exists=%t", view, exists)
+	}
+}
+
+type beforeRestoreCoordinator struct {
+	before func()
+}
+
+func (coordinator *beforeRestoreCoordinator) Do(_ uint, restore func()) {
+	coordinator.before()
+	restore()
+}
+
+func TestRestoreGroupKeyEvaluatesCooldownAtCoordinatorLinearizationPoint(t *testing.T) {
+	fixture := newServiceFixture(t)
+	before := time.Date(2026, time.August, 1, 12, 20, 0, 0, time.UTC)
+	current := before
+	fixture.service.now = func() time.Time { return current }
+	group := validControlGroup("restore-expired-at-linearization")
+	if err := fixture.db.Create(group).Error; err != nil {
+		t.Fatal(err)
+	}
+	row := seedManagedUpstreamKey(t, fixture, group.ID, "provider-secret-expired-linearization", models.UpstreamKeyStatusActive, nil)
+	if !fixture.registry.SetCooldown(row.ID, before.Add(time.Second)) {
+		t.Fatal("seed cooldown")
+	}
+	fixture.service.mutations = &beforeRestoreCoordinator{before: func() {
+		current = before.Add(2 * time.Second)
+	}}
+
+	_, err := fixture.service.RestoreGroupKey(t.Context(), group.ID, row.ID)
+	if !errors.Is(err, app_errors.ErrInvalidKeyState) {
+		t.Fatalf("RestoreGroupKey() error = %#v, want INVALID_KEY_STATE", err)
+	}
+	view, exists := findRuntimeKey(fixture.registry.Snapshot(), row.ID)
+	if !exists || !view.CooldownUntil.Equal(before.Add(time.Second)) {
+		t.Fatalf("expired cooldown view = %#v, exists=%t", view, exists)
+	}
 }
 
 func (coordinator *postRestoreFailureCoordinator) Do(_ uint, mutate func()) {
@@ -431,6 +522,123 @@ func TestBatchGroupKeysDBAndRegistryFailuresAreAtomic(t *testing.T) {
 			t.Fatalf("DB rows after DB failure = %#v", rows)
 		}
 	})
+}
+
+type heldGroupKeyMutationCoordinator struct {
+	mu            sync.Mutex
+	manyAttempted chan struct{}
+	manyOnce      sync.Once
+}
+
+func (coordinator *heldGroupKeyMutationCoordinator) Do(_ uint, mutate func()) {
+	coordinator.mu.Lock()
+	defer coordinator.mu.Unlock()
+	mutate()
+}
+
+func (coordinator *heldGroupKeyMutationCoordinator) DoMany(_ []uint, mutate func()) {
+	coordinator.manyOnce.Do(func() { close(coordinator.manyAttempted) })
+	coordinator.mu.Lock()
+	defer coordinator.mu.Unlock()
+	mutate()
+}
+
+func TestBatchGroupKeysDeleteWaitsForInflightMutationThenResetsStats(t *testing.T) {
+	fixture := newServiceFixture(t)
+	now := time.Date(2026, time.August, 1, 14, 0, 0, 0, time.UTC)
+	fixture.service.now = func() time.Time { return now }
+	group := validControlGroup("batch-delete-inflight")
+	if err := fixture.db.Create(group).Error; err != nil {
+		t.Fatal(err)
+	}
+	row := seedManagedUpstreamKey(t, fixture, group.ID, "provider-secret-delete-inflight", models.UpstreamKeyStatusActive, nil)
+	coordinator := &heldGroupKeyMutationCoordinator{manyAttempted: make(chan struct{})}
+	fixture.service.mutations = coordinator
+	holderEntered := make(chan struct{})
+	releaseHolder := make(chan struct{})
+	holderDone := make(chan struct{})
+	go func() {
+		coordinator.Do(row.ID, func() {
+			if _, ok := fixture.registry.IncrFailure(row.ID); !ok {
+				t.Error("in-flight Registry failure did not start")
+			}
+			close(holderEntered)
+			<-releaseHolder
+			fixture.stats.RecordFailure(row.ID, health.FailureCategoryInvalidKey, http.StatusUnauthorized, now)
+		})
+		close(holderDone)
+	}()
+	<-holderEntered
+
+	type batchResult struct {
+		response GroupKeyBatchResponse
+		err      error
+	}
+	batchDone := make(chan batchResult, 1)
+	go func() {
+		response, err := fixture.service.BatchGroupKeys(t.Context(), group.ID, GroupKeyBatchRequest{
+			Action: GroupKeyBatchDelete,
+			KeyIDs: []uint{row.ID},
+		})
+		batchDone <- batchResult{response: response, err: err}
+	}()
+
+	select {
+	case <-coordinator.manyAttempted:
+		select {
+		case result := <-batchDone:
+			t.Fatalf("batch delete completed while mutation held key: %#v", result)
+		default:
+		}
+	case result := <-batchDone:
+		t.Fatalf("batch delete bypassed per-key coordinator: %#v", result)
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for batch delete to reach per-key coordinator")
+	}
+
+	close(releaseHolder)
+	<-holderDone
+	result := <-batchDone
+	if result.err != nil {
+		t.Fatalf("BatchGroupKeys() error = %v", result.err)
+	}
+	if len(result.response.AffectedIDs) != 1 || result.response.AffectedIDs[0] != row.ID {
+		t.Fatalf("batch response = %#v", result.response)
+	}
+	if _, exists := fixture.registry.EncryptedValue(row.ID); exists {
+		t.Fatal("deleted key remains in Registry")
+	}
+	if stats := fixture.stats.Snapshot(row.ID, now); stats != (health.KeyStats{}) {
+		t.Fatalf("deleted key stats = %#v, want zero", stats)
+	}
+}
+
+func TestBatchGroupKeysDeleteFailsClosedWithoutMultiKeyCoordinator(t *testing.T) {
+	fixture := newServiceFixture(t)
+	group := validControlGroup("batch-delete-no-multi-coordinator")
+	if err := fixture.db.Create(group).Error; err != nil {
+		t.Fatal(err)
+	}
+	row := seedManagedUpstreamKey(t, fixture, group.ID, "provider-secret-no-multi", models.UpstreamKeyStatusActive, nil)
+	fixture.service.mutations = &postRestoreFailureCoordinator{after: func() {}}
+
+	_, err := fixture.service.BatchGroupKeys(t.Context(), group.ID, GroupKeyBatchRequest{
+		Action: GroupKeyBatchDelete,
+		KeyIDs: []uint{row.ID},
+	})
+	if !errors.Is(err, app_errors.ErrInternalServer) {
+		t.Fatalf("BatchGroupKeys() error = %#v, want INTERNAL_SERVER_ERROR", err)
+	}
+	var count int64
+	if err := fixture.db.Model(&models.UpstreamKey{}).Where("id = ?", row.ID).Count(&count).Error; err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("persisted key count = %d, want 1", count)
+	}
+	if _, exists := fixture.registry.EncryptedValue(row.ID); !exists {
+		t.Fatal("Registry key removed without multi-key coordinator")
+	}
 }
 
 func TestBatchGroupKeysHTTPStrictJSONAndSecretFreeResponse(t *testing.T) {

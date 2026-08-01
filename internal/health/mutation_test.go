@@ -85,6 +85,46 @@ func TestMutationCoordinatorNilCallbackIsNoop(t *testing.T) {
 	}
 }
 
+func TestMutationCoordinatorDoManySerializesEveryOverlappingStripe(t *testing.T) {
+	coordinator := NewMutationCoordinator()
+	holderEntered := make(chan struct{})
+	releaseHolder := make(chan struct{})
+	go coordinator.Do(1, func() {
+		close(holderEntered)
+		<-releaseHolder
+	})
+	awaitMutationSignal(t, holderEntered)
+
+	manyEntered := make(chan struct{})
+	releaseMany := make(chan struct{})
+	manyDone := make(chan struct{})
+	go func() {
+		coordinator.DoMany([]uint{65, 2, 1}, func() {
+			close(manyEntered)
+			<-releaseMany
+		})
+		close(manyDone)
+	}()
+	select {
+	case <-manyEntered:
+		t.Fatal("DoMany entered while overlapping stripe was held")
+	default:
+	}
+	close(releaseHolder)
+	awaitMutationSignal(t, manyEntered)
+
+	overlapEntered := make(chan struct{})
+	go coordinator.Do(2, func() { close(overlapEntered) })
+	select {
+	case <-overlapEntered:
+		t.Fatal("overlapping key entered during DoMany callback")
+	default:
+	}
+	close(releaseMany)
+	awaitMutationSignal(t, manyDone)
+	awaitMutationSignal(t, overlapEntered)
+}
+
 func awaitMutationSignal(t *testing.T, signal <-chan struct{}) {
 	t.Helper()
 	select {

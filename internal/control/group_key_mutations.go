@@ -74,16 +74,24 @@ func (s *Service) RestoreGroupKey(
 		return GroupKeyItemResponse{}, dbRegistryMismatch(mismatchWeightManual, groupID, keyID)
 	}
 
-	observedAt := s.now().UTC()
-	bucket := classifyHealthKey(state.GroupCatalogView{
+	var observedAt time.Time
+	groupView := state.GroupCatalogView{
 		ID: group.ID, Name: group.Name, Enabled: group.Enabled,
 		WeightManual: cloneInt(group.WeightManual),
-	}, view, observedAt)
-	if bucket != healthBucketCooldown && bucket != healthBucketBlacklisted {
-		return GroupKeyItemResponse{}, app_errors.ErrInvalidKeyState
 	}
 	var restoreErr error
 	restore := func() {
+		observedAt = s.now().UTC()
+		current, exists := findRuntimeKey(s.registry.Snapshot(), keyID)
+		if !exists {
+			restoreErr = dbRegistryMismatch(mismatchMissingRegistry, groupID, keyID)
+			return
+		}
+		bucket := classifyHealthKey(groupView, current, observedAt)
+		if bucket != healthBucketCooldown && bucket != healthBucketBlacklisted {
+			restoreErr = app_errors.ErrInvalidKeyState
+			return
+		}
 		stats := s.stats.Snapshot(keyID, observedAt)
 		stats.ConsecutiveFailure = 0
 		stats.ConsecutiveProblem = 0
@@ -173,47 +181,74 @@ func (s *Service) BatchGroupKeys(
 		}
 	}
 
-	err = s.withControlTransaction(ctx, func(tx *gorm.DB) error {
-		query := tx.Where("group_id = ? AND id IN ?", groupID, keyIDs)
-		var result *gorm.DB
-		switch request.Action {
-		case GroupKeyBatchEnable:
-			result = query.Model(&models.UpstreamKey{}).Update("status", models.UpstreamKeyStatusActive)
-		case GroupKeyBatchDisable:
-			result = query.Model(&models.UpstreamKey{}).Update("status", models.UpstreamKeyStatusDisabled)
-		case GroupKeyBatchDelete:
-			result = query.Delete(&models.UpstreamKey{})
-		}
-		if result.Error != nil {
-			return app_errors.ParseDBError(result.Error)
-		}
-		if result.RowsAffected != int64(len(keyIDs)) {
-			return fmt.Errorf("batch group key rows affected = %d, want %d: %w", result.RowsAffected, len(keyIDs), app_errors.ErrDatabase)
-		}
-		return nil
-	})
-	if err != nil {
-		return GroupKeyBatchResponse{}, err
+	persist := func() error {
+		return s.withControlTransaction(ctx, func(tx *gorm.DB) error {
+			query := tx.Where("group_id = ? AND id IN ?", groupID, keyIDs)
+			var result *gorm.DB
+			switch request.Action {
+			case GroupKeyBatchEnable:
+				result = query.Model(&models.UpstreamKey{}).Update("status", models.UpstreamKeyStatusActive)
+			case GroupKeyBatchDisable:
+				result = query.Model(&models.UpstreamKey{}).Update("status", models.UpstreamKeyStatusDisabled)
+			case GroupKeyBatchDelete:
+				result = query.Delete(&models.UpstreamKey{})
+			}
+			if result.Error != nil {
+				return app_errors.ParseDBError(result.Error)
+			}
+			if result.RowsAffected != int64(len(keyIDs)) {
+				return fmt.Errorf("batch group key rows affected = %d, want %d: %w", result.RowsAffected, len(keyIDs), app_errors.ErrDatabase)
+			}
+			return nil
+		})
 	}
 
-	switch request.Action {
-	case GroupKeyBatchEnable:
-		err = s.registry.UpdateGroupKeyStatuses(groupID, keyIDs, state.KeyStatusActive)
-	case GroupKeyBatchDisable:
-		err = s.registry.UpdateGroupKeyStatuses(groupID, keyIDs, state.KeyStatusDisabled)
-	case GroupKeyBatchDelete:
-		err = s.registry.RemoveGroupKeys(groupID, keyIDs)
-	}
-	if err != nil {
-		return GroupKeyBatchResponse{}, withControlOperationContext(
-			newControlOperationError(stageApplyCommittedRegistryMutation),
-			groupID,
-			0,
-		)
-	}
 	if request.Action == GroupKeyBatchDelete {
-		for _, keyID := range keyIDs {
-			s.stats.Reset(keyID)
+		coordinator, ok := s.mutations.(interface {
+			DoMany([]uint, func())
+		})
+		if !ok {
+			return GroupKeyBatchResponse{}, fmt.Errorf(
+				"batch delete mutation coordinator unavailable: %w",
+				app_errors.ErrInternalServer,
+			)
+		}
+		remove := func() {
+			err = persist()
+			if err != nil {
+				return
+			}
+			err = s.registry.RemoveGroupKeys(groupID, keyIDs)
+			if err != nil {
+				err = withControlOperationContext(
+					newControlOperationError(stageApplyCommittedRegistryMutation),
+					groupID,
+					0,
+				)
+				return
+			}
+			for _, keyID := range keyIDs {
+				s.stats.Reset(keyID)
+			}
+		}
+		coordinator.DoMany(keyIDs, remove)
+		if err != nil {
+			return GroupKeyBatchResponse{}, err
+		}
+	} else {
+		if err = persist(); err != nil {
+			return GroupKeyBatchResponse{}, err
+		}
+		status := state.KeyStatusActive
+		if request.Action == GroupKeyBatchDisable {
+			status = state.KeyStatusDisabled
+		}
+		if err = s.registry.UpdateGroupKeyStatuses(groupID, keyIDs, status); err != nil {
+			return GroupKeyBatchResponse{}, withControlOperationContext(
+				newControlOperationError(stageApplyCommittedRegistryMutation),
+				groupID,
+				0,
+			)
 		}
 	}
 
