@@ -25,6 +25,7 @@ import ModelDiscoveryDrawer from '@/features/models/ModelDiscoveryDrawer.vue'
 import {
   createModelDraft,
   findModelNameConflicts,
+  modelDraftValidity,
   normalizedModels,
   sameModels,
   type ModelAliasEditorLabels,
@@ -58,14 +59,7 @@ const conflicts = computed(() =>
     ? serverConflicts.value
     : findModelNameConflicts(normalizedModels(draft.value)),
 )
-const emptyAliasIndexes = computed(
-  () =>
-    new Set(
-      draft.value.flatMap((item, index) =>
-        item.alias_enabled && !item.alias.trim() ? [index] : [],
-      ),
-    ),
-)
+const validity = computed(() => modelDraftValidity(draft.value, conflicts.value))
 const dirty = computed(() => !sameModels(saved.value, draft.value))
 const empty = computed(() => normalizedModels(draft.value).length === 0)
 const canSave = computed(
@@ -73,7 +67,7 @@ const canSave = computed(
     dirty.value &&
     pending.value === null &&
     conflicts.value.length === 0 &&
-    emptyAliasIndexes.value.size === 0,
+    validity.value.emptyAliasIndexes.size === 0,
 )
 const unpriced = computed(
   () => draft.value.filter((item) => item.pricing_status === 'unpriced').length,
@@ -95,7 +89,10 @@ const aliasEditorLabels = computed<ModelAliasEditorLabels>(() => ({
   manualId: t('group.modelEditor.manualId'),
   add: t('group.modelEditor.add'),
   empty: t('group.modelEditor.empty'),
+  noMatches: t('group.modelEditor.noMatches'),
   conflictSummary: t('group.modelEditor.conflictSummary'),
+  emptyAliasSummary: t('group.modelEditor.emptyAliasSummary'),
+  locateFirstInvalid: t('group.modelEditor.locateFirstInvalid'),
   nameConflict: (name) => t('group.modelEditor.nameConflict', { name }),
 }))
 const discoveryDrawerLabels = computed<ModelDiscoveryDrawerLabels>(() => ({

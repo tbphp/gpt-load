@@ -98,8 +98,11 @@ export default {
       manualId: 'モデル ID を追加',
       add: 'モデルを追加',
       empty: 'モデルはまだ追加されていません',
+      noMatches: '現在の検索条件に一致するモデルはありません',
       nameConflict: 'クライアント名「{name}」が重複しています',
       conflictSummary: '保存前に重複するクライアントモデル名を解消してください',
+      emptyAliasSummary: '有効な別名にクライアント名がないモデルを保存前に修正してください',
+      locateFirstInvalid: '検索をクリアして最初の問題に移動',
       pricingStatus: { priced: '価格設定済み', unpriced: '未価格設定' },
       drawer: {
         title: 'アップストリームモデルを取得',

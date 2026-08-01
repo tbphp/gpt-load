@@ -1,14 +1,15 @@
 <script setup lang="ts" generic="T extends ModelDraftValue">
-import { Plus, Search, Trash2, X } from '@lucide/vue'
-import { computed, ref, useId } from 'vue'
+import { Plus, Search, Trash2 } from '@lucide/vue'
+import { computed, nextTick, ref, useId } from 'vue'
 
 import LedgerRecordList from '@/components/collection/LedgerRecordList.vue'
 import AppButton from '@/components/ui/AppButton.vue'
+import AppTextInput from '@/components/ui/AppTextInput.vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 
 import {
-  indexesWithConflicts,
+  modelDraftValidity,
   type ModelAliasEditorLabels,
   type ModelDraftValue,
   type ModelNameConflict,
@@ -34,16 +35,17 @@ const props = withDefaults(
 const emit = defineEmits<{ 'update:modelValue': [value: T[]] }>()
 
 const instanceId = useId()
+const root = ref<HTMLElement>()
 const search = ref('')
 const manualID = ref('')
-const conflictIndexes = computed(() => indexesWithConflicts(props.conflicts))
-const emptyAliasIndexes = computed(
-  () =>
-    new Set(
-      props.modelValue.flatMap((item, index) =>
-        item.alias_enabled && !item.alias.trim() ? [index] : [],
-      ),
-    ),
+const validity = computed(() => modelDraftValidity(props.modelValue, props.conflicts))
+const validationSummary = computed(() =>
+  [
+    props.conflicts.length ? props.labels.conflictSummary : '',
+    validity.value.emptyAliasIndexes.size ? props.labels.emptyAliasSummary : '',
+  ]
+    .filter(Boolean)
+    .join(' · '),
 )
 const visibleRows = computed(() => {
   const query = search.value.trim().toLocaleLowerCase()
@@ -92,36 +94,41 @@ function conflictMessage(index: number): string {
   const conflict = props.conflicts.find((item) => item.indexes.includes(index))
   return conflict ? props.labels.nameConflict(conflict.client_model) : ''
 }
+
+async function focusFirstInvalid(): Promise<void> {
+  const index = Math.min(...validity.value.invalidIndexes)
+  if (!Number.isFinite(index)) return
+  search.value = ''
+  await nextTick()
+  const selector = props.modelValue[index]?.alias_enabled
+    ? `[data-alias-input-index="${index}"]`
+    : `[data-alias-toggle-index="${index}"]`
+  root.value?.querySelector<HTMLInputElement>(selector)?.focus()
+}
 </script>
 
 <template>
-  <div class="model-alias-editor">
-    <InlineFeedback v-if="conflicts.length" tone="danger">
-      {{ labels.conflictSummary }}
-    </InlineFeedback>
+  <div ref="root" class="model-alias-editor">
+    <div v-if="validity.invalidIndexes.size" class="model-alias-editor__validation">
+      <InlineFeedback tone="danger">{{ validationSummary }}</InlineFeedback>
+      <AppButton variant="link" size="inline" :disabled="disabled" @click="focusFirstInvalid">
+        {{ labels.locateFirstInvalid }}
+      </AppButton>
+    </div>
 
     <div v-if="searchable" class="model-alias-editor__toolbar">
-      <label class="model-alias-editor__search">
-        <span class="sr-only">{{ labels.search }}</span>
-        <Search :size="16" aria-hidden="true" />
-        <input
-          v-model="search"
-          type="search"
-          autocomplete="off"
-          :disabled="disabled"
-          :placeholder="labels.search"
-        />
-        <IconButton
-          v-if="search"
-          variant="ghost"
-          size="compact"
-          :disabled="disabled"
-          :label="labels.clearSearch"
-          @click="search = ''"
-        >
-          <X :size="15" aria-hidden="true" />
-        </IconButton>
-      </label>
+      <AppTextInput
+        v-model="search"
+        type="search"
+        appearance="sunken"
+        size="touch"
+        :label="labels.search"
+        :placeholder="labels.search"
+        :clear-label="labels.clearSearch"
+        :disabled="disabled"
+      >
+        <template #leading><Search :size="16" /></template>
+      </AppTextInput>
     </div>
 
     <LedgerRecordList
@@ -142,7 +149,7 @@ function conflictMessage(index: number): string {
         v-for="({ item, index }, visibleIndex) in visibleRows"
         :key="item.key"
         class="ledger-record-list__record model-alias-editor__record"
-        :class="{ 'model-alias-editor__record--conflict': conflictIndexes.has(index) }"
+        :class="{ 'model-alias-editor__record--invalid': validity.invalidIndexes.has(index) }"
         role="row"
         :aria-rowindex="visibleIndex + 2"
       >
@@ -157,9 +164,14 @@ function conflictMessage(index: number): string {
             <label class="model-alias-editor__alias-toggle">
               <span class="sr-only">{{ labels.aliasEnabledFor(item.id) }}</span>
               <input
+                :data-alias-toggle-index="index"
                 type="checkbox"
                 :checked="item.alias_enabled"
                 :disabled="disabled"
+                :aria-invalid="validity.invalidIndexes.has(index) || undefined"
+                :aria-describedby="
+                  validity.invalidIndexes.has(index) ? `${instanceId}-error-${index}` : undefined
+                "
                 @change="
                   updateRow(index, {
                     alias_enabled: ($event.target as HTMLInputElement).checked,
@@ -167,34 +179,30 @@ function conflictMessage(index: number): string {
                 "
               />
             </label>
-            <input
-              type="text"
-              autocomplete="off"
-              spellcheck="false"
-              :value="item.alias"
+            <AppTextInput
+              :model-value="item.alias"
+              appearance="sunken"
+              :label="labels.aliasFor(item.id)"
               :disabled="disabled || !item.alias_enabled"
               :placeholder="labels.aliasPlaceholder"
-              :aria-label="labels.aliasFor(item.id)"
-              :aria-invalid="
-                conflictIndexes.has(index) || emptyAliasIndexes.has(index) || undefined
+              :invalid="validity.invalidIndexes.has(index)"
+              :described-by="
+                validity.invalidIndexes.has(index) ? `${instanceId}-error-${index}` : undefined
               "
-              :aria-describedby="
-                conflictIndexes.has(index) || emptyAliasIndexes.has(index)
-                  ? `${instanceId}-error-${index}`
-                  : undefined
-              "
-              @input="updateRow(index, { alias: ($event.target as HTMLInputElement).value })"
+              :data-alias-input-index="index"
+              :spellcheck="false"
+              @update:model-value="updateRow(index, { alias: $event })"
             />
           </div>
           <small
-            v-if="conflictIndexes.has(index)"
+            v-if="validity.conflictIndexes.has(index)"
             :id="`${instanceId}-error-${index}`"
             class="model-alias-editor__error"
           >
             {{ conflictMessage(index) }}
           </small>
           <small
-            v-else-if="emptyAliasIndexes.has(index)"
+            v-else-if="validity.emptyAliasIndexes.has(index)"
             :id="`${instanceId}-error-${index}`"
             class="model-alias-editor__error"
           >
@@ -226,21 +234,25 @@ function conflictMessage(index: number): string {
         role="row"
         aria-rowindex="2"
       >
-        <span class="ledger-record-list__cell" role="cell">{{ labels.empty }}</span>
+        <span class="ledger-record-list__cell" role="cell">
+          {{ modelValue.length ? labels.noMatches : labels.empty }}
+        </span>
       </div>
     </LedgerRecordList>
 
     <form v-if="addable" class="model-alias-editor__add" @submit.prevent="addManual">
-      <label class="sr-only" :for="`${instanceId}-manual-id`">{{ labels.manualId }}</label>
-      <input
-        :id="`${instanceId}-manual-id`"
-        v-model="manualID"
-        type="text"
-        autocomplete="off"
-        spellcheck="false"
-        :disabled="disabled"
-        :placeholder="labels.manualId"
-      />
+      <div class="model-alias-editor__manual-input">
+        <AppTextInput
+          :id="`${instanceId}-manual-id`"
+          v-model="manualID"
+          appearance="sunken"
+          monospace
+          :label="labels.manualId"
+          :placeholder="labels.manualId"
+          :spellcheck="false"
+          :disabled="disabled"
+        />
+      </div>
       <AppButton
         type="submit"
         variant="secondary"
@@ -261,41 +273,15 @@ function conflictMessage(index: number): string {
 
 .model-alias-editor__toolbar {
   display: flex;
-  align-items: center;
-}
-
-.model-alias-editor__search {
-  display: flex;
   width: min(100%, 420px);
-  min-height: var(--touch-target);
   align-items: center;
-  gap: var(--space-2);
-  border: 1px solid var(--color-border-control);
-  border-radius: var(--radius-control);
-  background: var(--color-surface-sunken);
-  color: var(--color-text-muted);
-  padding-left: var(--space-3);
 }
 
-.model-alias-editor__search:focus-within {
-  border-color: var(--color-action);
-  box-shadow: var(--focus-ring);
-}
-
-.model-alias-editor__search > input {
-  width: 100%;
-  min-width: 0;
-  border: 0;
-  outline: 0;
-  background: transparent;
-  color: var(--color-text);
-  font: inherit;
-}
-
-.model-alias-editor__search :deep(.icon-button) {
-  width: var(--touch-target);
-  height: var(--touch-target);
-  flex: none;
+.model-alias-editor__validation {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
 }
 
 .model-alias-editor__grid {
@@ -303,7 +289,7 @@ function conflictMessage(index: number): string {
   --ledger-record-list-column-gap: 16px;
 }
 
-.model-alias-editor__record--conflict {
+.model-alias-editor__record--invalid {
   background: var(--color-danger-bg);
 }
 
@@ -340,26 +326,8 @@ function conflictMessage(index: number): string {
   cursor: not-allowed;
 }
 
-.model-alias-editor__alias-control > input,
-.model-alias-editor__add > input {
-  width: 100%;
-  min-height: var(--control-md);
-  border: 1px solid var(--color-border-control);
-  border-radius: var(--radius-control);
-  background: var(--color-surface-sunken);
-  color: var(--color-text);
-  padding: 0 var(--space-3);
-  font: inherit;
-}
-
-.model-alias-editor__alias-control > input[aria-invalid='true'] {
-  border-color: var(--color-danger);
-}
-
-.model-alias-editor__alias-control > input:disabled,
-.model-alias-editor__add > input:disabled {
-  cursor: not-allowed;
-  opacity: 0.55;
+.model-alias-editor__alias-control :deep(.app-text-input) {
+  flex: 1;
 }
 
 .model-alias-editor__error {
@@ -396,9 +364,9 @@ function conflictMessage(index: number): string {
   gap: var(--space-3);
 }
 
-.model-alias-editor__add > input {
+.model-alias-editor__manual-input {
+  width: 100%;
   max-width: 360px;
-  font-family: var(--font-mono);
 }
 
 @media (max-width: 860px) {
@@ -445,14 +413,14 @@ function conflictMessage(index: number): string {
 }
 
 @media (max-width: 640px) {
+  .model-alias-editor__validation,
   .model-alias-editor__add {
     align-items: stretch;
     flex-direction: column;
   }
 
-  .model-alias-editor__add > input {
+  .model-alias-editor__manual-input {
     max-width: none;
-    min-height: var(--touch-target);
   }
 
   .model-alias-editor__add :deep(.app-button) {

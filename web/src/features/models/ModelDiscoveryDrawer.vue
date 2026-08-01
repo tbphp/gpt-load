@@ -4,6 +4,7 @@ import { computed, ref, watch } from 'vue'
 
 import AppButton from '@/components/ui/AppButton.vue'
 import AppDrawer from '@/components/ui/AppDrawer.vue'
+import AppTextInput from '@/components/ui/AppTextInput.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import SegmentedControl from '@/components/ui/SegmentedControl.vue'
@@ -142,11 +143,16 @@ function confirm(): void {
       <template v-else>
         <p class="model-discovery-drawer__notice">{{ labels.notice }}</p>
         <div class="model-discovery-drawer__filters">
-          <label class="model-discovery-drawer__search">
-            <span class="sr-only">{{ labels.search }}</span>
-            <Search :size="16" aria-hidden="true" />
-            <input v-model="search" type="search" autocomplete="off" :placeholder="labels.search" />
-          </label>
+          <AppTextInput
+            v-model="search"
+            type="search"
+            appearance="sunken"
+            size="touch"
+            :label="labels.search"
+            :placeholder="labels.search"
+          >
+            <template #leading><Search :size="16" /></template>
+          </AppTextInput>
           <SegmentedControl
             :model-value="filter"
             :label="labels.filterLabel"
@@ -226,33 +232,6 @@ function confirm(): void {
   display: grid;
   gap: var(--space-3);
   margin-bottom: var(--space-3);
-}
-
-.model-discovery-drawer__search {
-  display: flex;
-  min-height: var(--touch-target);
-  align-items: center;
-  gap: var(--space-2);
-  border: 1px solid var(--color-border-control);
-  border-radius: var(--radius-control);
-  background: var(--color-surface-sunken);
-  color: var(--color-text-muted);
-  padding: 0 var(--space-3);
-}
-
-.model-discovery-drawer__search:focus-within {
-  border-color: var(--color-action);
-  box-shadow: var(--focus-ring);
-}
-
-.model-discovery-drawer__search input {
-  width: 100%;
-  min-width: 0;
-  border: 0;
-  outline: 0;
-  background: transparent;
-  color: var(--color-text);
-  font: inherit;
 }
 
 .model-discovery-drawer__candidate-list {

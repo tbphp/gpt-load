@@ -27,7 +27,10 @@ export interface ModelAliasEditorLabels {
   manualId: string
   add: string
   empty: string
+  noMatches: string
   conflictSummary: string
+  emptyAliasSummary: string
+  locateFirstInvalid: string
   nameConflict: (name: string) => string
 }
 
@@ -82,6 +85,29 @@ export function findModelNameConflicts(
 
 export function indexesWithConflicts(conflicts: readonly ModelNameConflict[]): Set<number> {
   return new Set(conflicts.flatMap((conflict) => conflict.indexes))
+}
+
+export function indexesWithEmptyAliases(models: readonly GroupModelUpdateDto[]): Set<number> {
+  return new Set(
+    models.flatMap((model, index) => (model.alias_enabled && !model.alias.trim() ? [index] : [])),
+  )
+}
+
+export function modelDraftValidity(
+  models: readonly GroupModelUpdateDto[],
+  conflicts: readonly ModelNameConflict[] = findModelNameConflicts(models),
+): {
+  conflictIndexes: Set<number>
+  emptyAliasIndexes: Set<number>
+  invalidIndexes: Set<number>
+} {
+  const conflictIndexes = indexesWithConflicts(conflicts)
+  const emptyAliasIndexes = indexesWithEmptyAliases(models)
+  return {
+    conflictIndexes,
+    emptyAliasIndexes,
+    invalidIndexes: new Set([...conflictIndexes, ...emptyAliasIndexes]),
+  }
 }
 
 export function createModelDraft<T extends GroupModelUpdateDto>(

@@ -96,8 +96,11 @@ export default {
       manualId: '添加模型 ID',
       add: '添加模型',
       empty: '尚未添加模型',
+      noMatches: '没有符合当前搜索条件的模型',
       nameConflict: '对外名称“{name}”重复',
       conflictSummary: '存在重复的对外模型名称，修正后才能保存',
+      emptyAliasSummary: '存在已启用但未填写对外别名的模型，修正后才能保存',
+      locateFirstInvalid: '清除搜索并定位首个问题',
       pricingStatus: { priced: '已定价', unpriced: '未定价' },
       drawer: {
         title: '获取上游模型列表',

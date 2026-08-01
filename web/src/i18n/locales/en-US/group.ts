@@ -97,8 +97,11 @@ export default {
       manualId: 'Add model ID',
       add: 'Add model',
       empty: 'No models have been added',
+      noMatches: 'No models match the current search',
       nameConflict: 'Client name “{name}” is duplicated',
       conflictSummary: 'Duplicate client model names must be resolved before saving',
+      emptyAliasSummary: 'Enabled aliases without a client name must be completed before saving',
+      locateFirstInvalid: 'Clear search and locate the first issue',
       pricingStatus: { priced: 'Priced', unpriced: 'Unpriced' },
       drawer: {
         title: 'Get upstream models',
