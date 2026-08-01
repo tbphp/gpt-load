@@ -16,6 +16,9 @@ import type {
 import { groupCollectionQueryOptions } from '@/app/resources/groups'
 import { groupDetailLocation, groupsLocation, importLocation } from '@/app/route-locations'
 import { useVisibleRefetch } from '@/app/use-visible-refetch'
+import CollectionFilterBar from '@/components/collection/CollectionFilterBar.vue'
+import CollectionStatusSummary from '@/components/collection/CollectionStatusSummary.vue'
+import LedgerRecordList from '@/components/collection/LedgerRecordList.vue'
 import LedgerSheet from '@/components/layout/LedgerSheet.vue'
 import PageFrame from '@/components/layout/PageFrame.vue'
 import AppButton from '@/components/ui/AppButton.vue'
@@ -29,7 +32,6 @@ import PaginationBar from '@/components/ui/PaginationBar.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import SkeletonBlock from '@/components/ui/SkeletonBlock.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
-import StatusSummaryFilter from '@/components/ui/StatusSummaryFilter.vue'
 
 import {
   constrainGroupCollectionSearchQuery,
@@ -76,6 +78,37 @@ const sortSelectOptions = computed(() =>
     label: t(`groups.collection.sort.${sort}`),
   })),
 )
+const statusSummaryItems = computed(() => {
+  const summary = data.value?.summary
+  if (!summary) return []
+
+  return [
+    {
+      value: undefined,
+      label: t('groups.collection.status.all'),
+      count: summary.total,
+      tone: 'neutral' as const,
+    },
+    {
+      value: 'available',
+      label: t('groups.collection.status.available'),
+      count: summary.available,
+      tone: 'success' as const,
+    },
+    {
+      value: 'unavailable',
+      label: t('groups.collection.status.unavailable'),
+      count: summary.unavailable,
+      tone: 'danger' as const,
+    },
+    {
+      value: 'disabled',
+      label: t('groups.collection.status.disabled'),
+      count: summary.disabled,
+      tone: 'neutral' as const,
+    },
+  ]
+})
 
 watch(
   () => route.query,
@@ -137,8 +170,8 @@ function clearSearch(): void {
   updateConditions({ q: undefined })
 }
 
-function setStatus(status: GroupCollectionStatus | undefined): void {
-  updateConditions({ status })
+function setStatus(status: string | undefined): void {
+  updateConditions({ status: status as GroupCollectionStatus | undefined })
 }
 
 function setProtocol(value: string): void {
@@ -208,18 +241,13 @@ onBeforeUnmount(() => {
       </div>
 
       <template v-else-if="data">
-        <StatusSummaryFilter
+        <CollectionStatusSummary
           v-if="data.summary.total > 0"
-          :summary="data.summary"
+          :total="data.summary.total"
+          :items="statusSummaryItems"
           :model-value="filters.status"
-          :labels="{
-            region: t('groups.collection.summary.region'),
-            current: t('groups.collection.summary.current'),
-            all: t('groups.collection.status.all'),
-            available: t('groups.collection.status.available'),
-            unavailable: t('groups.collection.status.unavailable'),
-            disabled: t('groups.collection.status.disabled'),
-          }"
+          :label="t('groups.collection.summary.region')"
+          :total-label="t('groups.collection.summary.current')"
           @update:model-value="setStatus"
         />
 
@@ -233,20 +261,19 @@ onBeforeUnmount(() => {
         />
 
         <template v-if="data.summary.total > 0">
-          <form
-            class="filters"
-            role="search"
-            :aria-label="t('groups.collection.filters.region')"
-            autocomplete="off"
-            @submit.prevent
+          <CollectionFilterBar
+            :label="t('groups.collection.filters.region')"
+            :show-result="hasChangedConditions"
           >
-            <label class="filter-field filter-field--search">
-              <span class="filter-label">{{ t('groups.collection.filters.searchLabel') }}</span>
-              <span class="search-control">
+            <label class="collection-filter-field collection-filter-field--search">
+              <span class="collection-filter-label">
+                {{ t('groups.collection.filters.searchLabel') }}
+              </span>
+              <span class="collection-filter-search-control">
                 <Search :size="15" aria-hidden="true" />
                 <input
                   v-model="searchDraft"
-                  class="control"
+                  class="collection-filter-control"
                   type="search"
                   :aria-label="t('groups.collection.filters.searchLabel')"
                   :placeholder="t('groups.collection.filters.searchPlaceholder')"
@@ -254,7 +281,7 @@ onBeforeUnmount(() => {
                 />
                 <IconButton
                   v-if="searchDraft"
-                  class="search-clear"
+                  class="collection-filter-search-clear"
                   size="xs"
                   variant="ghost"
                   :label="t('groups.collection.filters.clearSearch')"
@@ -265,8 +292,10 @@ onBeforeUnmount(() => {
               </span>
             </label>
 
-            <label class="filter-field filter-field--protocol">
-              <span class="filter-label">{{ t('groups.collection.filters.protocolLabel') }}</span>
+            <label class="collection-filter-field collection-filter-field--monospace">
+              <span class="collection-filter-label">
+                {{ t('groups.collection.filters.protocolLabel') }}
+              </span>
               <AppSelect
                 size="compact"
                 :label="t('groups.collection.filters.protocolLabel')"
@@ -276,8 +305,10 @@ onBeforeUnmount(() => {
               />
             </label>
 
-            <label class="filter-field">
-              <span class="filter-label">{{ t('groups.collection.filters.sortLabel') }}</span>
+            <label class="collection-filter-field">
+              <span class="collection-filter-label">
+                {{ t('groups.collection.filters.sortLabel') }}
+              </span>
               <AppSelect
                 size="compact"
                 :label="t('groups.collection.filters.sortLabel')"
@@ -286,21 +317,20 @@ onBeforeUnmount(() => {
                 @update:model-value="setSort"
               />
             </label>
-          </form>
-
-          <div v-if="hasChangedConditions" class="filter-result">
-            <span aria-live="polite">
-              {{
-                t('groups.collection.result', {
-                  shown: n(data.items.length),
-                  total: n(data.pagination.total_items),
-                })
-              }}
-            </span>
-            <AppButton variant="link" size="inline" @click="resetConditions">
-              {{ t('groups.collection.filters.reset') }}
-            </AppButton>
-          </div>
+            <template #result>
+              <span aria-live="polite">
+                {{
+                  t('groups.collection.result', {
+                    shown: n(data.items.length),
+                    total: n(data.pagination.total_items),
+                  })
+                }}
+              </span>
+              <AppButton variant="link" size="inline" @click="resetConditions">
+                {{ t('groups.collection.filters.reset') }}
+              </AppButton>
+            </template>
+          </CollectionFilterBar>
         </template>
 
         <EmptyState
@@ -333,29 +363,28 @@ onBeforeUnmount(() => {
         </EmptyState>
 
         <template v-else-if="data.items.length > 0">
-          <div
-            class="records"
-            role="table"
-            :aria-label="t('groups.collection.tableLabel')"
-            :aria-rowcount="data.pagination.total_items + 1"
+          <LedgerRecordList
+            :label="t('groups.collection.tableLabel')"
+            :row-count="data.pagination.total_items + 1"
+            grid-class="groups-record-grid"
           >
-            <div class="record-header" role="row" aria-rowindex="1">
+            <template #header>
               <span role="columnheader">{{ t('groups.collection.columns.group') }}</span>
               <span role="columnheader">{{ t('groups.collection.columns.status') }}</span>
               <span role="columnheader">{{ t('groups.collection.columns.upstream') }}</span>
               <span role="columnheader">{{ t('groups.collection.columns.models') }}</span>
               <span role="columnheader">{{ t('groups.collection.columns.keyHealth') }}</span>
               <span role="columnheader">{{ t('groups.collection.columns.actions') }}</span>
-            </div>
+            </template>
 
             <article
               v-for="(group, index) in data.items"
               :key="group.id"
-              class="group-record"
+              class="ledger-record-list__record group-record"
               role="row"
               :aria-rowindex="(data.pagination.page - 1) * data.pagination.page_size + index + 2"
             >
-              <div class="record-cell identity" role="cell">
+              <div class="ledger-record-list__cell identity" role="cell">
                 <RouterLink
                   class="group-name"
                   :to="groupDetailLocation(group.id)"
@@ -366,13 +395,13 @@ onBeforeUnmount(() => {
                 </RouterLink>
               </div>
 
-              <div class="record-cell group-status" role="cell">
+              <div class="ledger-record-list__cell group-status" role="cell">
                 <StatusBadge :status="group.status">
                   {{ t(`groups.collection.status.${group.status}`) }}
                 </StatusBadge>
               </div>
 
-              <div class="record-cell endpoint" role="cell">
+              <div class="ledger-record-list__cell endpoint" role="cell">
                 <CopyChip
                   :value="group.upstream_url"
                   :label="t('groups.collection.copyUrl', { url: group.upstream_url })"
@@ -386,12 +415,12 @@ onBeforeUnmount(() => {
                 </div>
               </div>
 
-              <div class="record-cell model-count" role="cell">
+              <div class="ledger-record-list__cell model-count" role="cell">
                 <span class="mobile-label">{{ t('groups.collection.columns.models') }}</span>
                 <strong>{{ n(group.model_count) }}</strong>
               </div>
 
-              <div class="record-cell key-health" role="cell">
+              <div class="ledger-record-list__cell key-health" role="cell">
                 <span class="mobile-label">{{ t('groups.collection.columns.keyHealth') }}</span>
                 <KeyHealthBar
                   :counts="group.key_counts"
@@ -399,7 +428,7 @@ onBeforeUnmount(() => {
                 />
               </div>
 
-              <div class="record-cell record-actions" role="cell">
+              <div class="ledger-record-list__cell record-actions" role="cell">
                 <RouterLink
                   v-slot="{ navigate }"
                   :to="importLocation({ mode: 'existing', group_id: group.id })"
@@ -430,7 +459,7 @@ onBeforeUnmount(() => {
                 </RouterLink>
               </div>
             </article>
-          </div>
+          </LedgerRecordList>
 
           <PaginationBar
             :page="data.pagination.page"
@@ -456,143 +485,12 @@ onBeforeUnmount(() => {
   margin-top: 14px;
 }
 
-.filters {
-  display: grid;
-  grid-template-columns: minmax(260px, 1fr) 204px 148px;
-  align-items: end;
-  gap: 10px;
-  padding: 22px 0 13px;
-}
-
-.filter-field {
-  display: grid;
-  min-width: 0;
-  gap: 5px;
-}
-
-.filter-label {
-  color: var(--color-text-faint);
-  font-size: var(--text-meta);
-}
-
-.search-control {
-  position: relative;
-  display: block;
-  min-width: 0;
-}
-
-.search-control > svg {
-  position: absolute;
-  top: 50%;
-  left: 11px;
-  transform: translateY(-50%);
-  color: var(--color-text-faint);
-  pointer-events: none;
-}
-
-.control {
-  width: 100%;
-  min-width: 0;
-  height: 32px;
-  border: 1px solid var(--color-border-control);
-  border-radius: var(--radius-control);
-  appearance: none;
-  background: var(--color-surface);
-  color: var(--color-text);
-  padding: 0 10px;
-  font: inherit;
-  font-size: var(--text-meta);
-}
-
-.control:hover {
-  border-color: var(--color-text-faint);
-}
-
-.control::placeholder {
-  color: var(--color-text-faint);
-}
-
-.search-control .control {
-  padding-right: 38px;
-  padding-left: 34px;
-}
-
-.search-clear {
-  position: absolute;
-  top: 2px;
-  right: 3px;
-}
-
-.filter-field :deep(.app-select__trigger) {
-  width: 100%;
-  height: 32px;
-}
-
-.filter-field--protocol :deep(.app-select__trigger) {
-  font-family: var(--font-mono);
-}
-
-.filter-result {
-  display: flex;
-  min-height: 32px;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  border-bottom: 1px solid var(--color-border-control);
-  color: var(--color-text-faint);
-  padding: 0 0 9px;
-  font-size: var(--text-sm);
-}
-
-.records {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 96px minmax(0, 1.55fr) 92px minmax(0, 1.25fr) 164px;
-  column-gap: 16px;
-  overflow: hidden;
-  border-bottom: 1px solid var(--color-border-control);
-}
-
-.record-header,
-.group-record {
-  display: grid;
-  grid-column: 1 / -1;
-  grid-template-columns: subgrid;
-  align-items: center;
-}
-
-.record-header {
-  min-height: 38px;
-  color: var(--color-text-faint);
-  font-size: var(--text-sm);
-  font-weight: 500;
-  letter-spacing: 0.04em;
-}
-
-.record-header > span,
-.group-record > .record-cell {
-  justify-self: stretch;
-  text-align: left;
-}
-
-.group-record {
-  position: relative;
-  min-height: 96px;
-  border-top: 1px solid var(--color-border-subtle);
-  padding: 14px 0;
-  transition: background-color var(--duration-fast) var(--easing-standard);
-}
-
-.group-record:first-of-type {
-  border-top-color: var(--color-border-control);
-}
-
-.group-record:hover {
-  background: var(--color-surface-sunken);
-}
-
-.record-cell,
 .identity {
   min-width: 0;
+}
+
+.groups-record-grid {
+  --ledger-record-list-grid: minmax(0, 1fr) 96px minmax(0, 1.55fr) 92px minmax(0, 1.25fr) 164px;
 }
 
 .group-name {
@@ -733,10 +631,14 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 1040px) {
-  .records,
+  .groups-record-grid {
+    --ledger-record-list-grid: minmax(0, 1fr) 84px minmax(0, 1.25fr) 76px minmax(0, 1.15fr) 72px;
+    --ledger-record-list-column-gap: 12px;
+  }
+
   .skeleton-row {
     grid-template-columns: minmax(0, 1fr) 84px minmax(0, 1.25fr) 76px minmax(0, 1.15fr) 72px;
-    column-gap: 12px;
+    gap: 12px;
   }
 
   .append-key {
@@ -751,60 +653,6 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 860px) {
-  .filters {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    padding-top: 17px;
-  }
-
-  .filter-field--search {
-    grid-column: 1 / -1;
-  }
-
-  .control,
-  .filter-field :deep(.app-select__trigger) {
-    height: var(--touch-target);
-  }
-
-  .search-clear {
-    top: 0;
-    right: 0;
-    width: var(--touch-target);
-    height: var(--touch-target);
-  }
-
-  .records {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 10px;
-    overflow: visible;
-    border: 0;
-    padding-top: 10px;
-  }
-
-  .record-header {
-    display: none;
-  }
-
-  .group-record {
-    display: grid;
-    grid-column: 1;
-    min-height: 0;
-    grid-template-columns: minmax(0, 0.48fr) minmax(0, 1.52fr);
-    align-items: start;
-    gap: 14px 16px;
-    border: 1px solid var(--color-border-subtle);
-    border-radius: var(--radius-control);
-    background: var(--color-surface);
-    padding: 16px;
-  }
-
-  .group-record:first-of-type {
-    border-top-color: var(--color-border-subtle);
-  }
-
-  .group-record:hover {
-    background: var(--color-surface);
-  }
-
   .identity {
     grid-column: 1 / -1;
     padding-right: 72px;
@@ -849,7 +697,6 @@ onBeforeUnmount(() => {
     padding: 0;
   }
 
-  .filter-result :deep(.app-button),
   .groups-ledger :deep(.empty-state .app-button),
   .groups-ledger :deep(.empty-state .button-link) {
     min-height: var(--touch-target);
@@ -872,35 +719,8 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 560px) {
-  .filters {
-    grid-template-columns: 1fr;
-  }
-
-  .filter-field--search {
-    grid-column: auto;
-  }
-
-  .control {
-    font-size: 16px;
-  }
-
-  .filter-field :deep(.app-select__trigger) {
-    font-size: 16px;
-  }
-
-  .search-clear {
-    font-size: 16px;
-  }
-
-  .filter-result {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: var(--space-1);
-  }
-
-  .group-record {
-    grid-template-columns: 76px minmax(0, 1fr);
-    padding: 14px 13px;
+  .groups-record-grid {
+    --ledger-record-list-card-grid: 76px minmax(0, 1fr);
   }
 
   .identity {
