@@ -224,6 +224,24 @@ func (s *Server) handleListGroupKeys(c *gin.Context) {
 	response.SuccessI18n(c, "common.success", result)
 }
 
+func (s *Server) handleRevealGroupKey(c *gin.Context) {
+	groupID, ok := groupID(c, "reveal_group_key")
+	if !ok {
+		return
+	}
+	keyID, ok := keyID(c, "reveal_group_key")
+	if !ok {
+		return
+	}
+	result, err := s.service.RevealGroupKey(c.Request.Context(), groupID, keyID)
+	if err != nil {
+		writeServiceError(c, "reveal_group_key", err)
+		return
+	}
+	setSecretResponseHeaders(c)
+	response.SuccessI18n(c, "common.success", result)
+}
+
 func (s *Server) handleUpdateGroupKey(c *gin.Context) {
 	groupID, ok := groupID(c, "update_group_key")
 	if !ok {

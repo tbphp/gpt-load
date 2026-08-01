@@ -18,8 +18,6 @@ import (
 func TestParseAccessKeyCollectionQueryAcceptsStrictContract(t *testing.T) {
 	active := state.AccessKeyStatusActive
 	disabled := state.AccessKeyStatusDisabled
-	unlimited := AccessKeyCollectionScopeUnlimited
-	restricted := AccessKeyCollectionScopeRestricted
 	q200 := strings.Repeat("猫", 200)
 
 	tests := []struct {
@@ -34,11 +32,9 @@ func TestParseAccessKeyCollectionQueryAcceptsStrictContract(t *testing.T) {
 		{name: "q accepts 200 Unicode code points", rawQuery: "q=" + q200, want: AccessKeyCollectionQuery{Query: q200, Page: 1, PageSize: 20}},
 		{name: "status active", rawQuery: "status=active", want: AccessKeyCollectionQuery{Status: &active, Page: 1, PageSize: 20}},
 		{name: "status disabled", rawQuery: "status=disabled", want: AccessKeyCollectionQuery{Status: &disabled, Page: 1, PageSize: 20}},
-		{name: "scope unlimited", rawQuery: "scope=unlimited", want: AccessKeyCollectionQuery{Scope: &unlimited, Page: 1, PageSize: 20}},
-		{name: "scope restricted", rawQuery: "scope=restricted", want: AccessKeyCollectionQuery{Scope: &restricted, Page: 1, PageSize: 20}},
 		{name: "page accepts maximum signed integer", rawQuery: "page=9223372036854775807", want: AccessKeyCollectionQuery{Page: 9223372036854775807, PageSize: 20}},
 		{name: "page size accepts maximum", rawQuery: "page_size=100", want: AccessKeyCollectionQuery{Page: 1, PageSize: 100}},
-		{name: "all filters combine", rawQuery: "q=+alpha+&status=active&scope=restricted&page=2&page_size=100", want: AccessKeyCollectionQuery{Query: "alpha", Status: &active, Scope: &restricted, Page: 2, PageSize: 100}},
+		{name: "all filters combine", rawQuery: "q=+alpha+&status=active&page=2&page_size=100", want: AccessKeyCollectionQuery{Query: "alpha", Status: &active, Page: 2, PageSize: 100}},
 	}
 
 	for _, test := range tests {
@@ -63,14 +59,11 @@ func TestParseAccessKeyCollectionQueryRejectsEveryInvalidForm(t *testing.T) {
 		{name: "unknown key", rawQuery: "unknown=1"},
 		{name: "q repeated", rawQuery: "q=one&q=two"},
 		{name: "status repeated", rawQuery: "status=active&status=disabled"},
-		{name: "scope repeated", rawQuery: "scope=unlimited&scope=restricted"},
 		{name: "page repeated", rawQuery: "page=1&page=2"},
 		{name: "page size repeated", rawQuery: "page_size=20&page_size=100"},
 		{name: "q exceeds 200 Unicode code points", rawQuery: "q=" + strings.Repeat("猫", 201)},
 		{name: "status empty", rawQuery: "status="},
 		{name: "status unknown", rawQuery: "status=unavailable"},
-		{name: "scope empty", rawQuery: "scope="},
-		{name: "scope unknown", rawQuery: "scope=all"},
 		{name: "page signed", rawQuery: "page=%2B1"},
 		{name: "page leading zero", rawQuery: "page=01"},
 		{name: "page empty", rawQuery: "page="},
@@ -128,7 +121,7 @@ func TestAccessKeyCollectionHTTPReturnsAuthenticatedCollectionEnvelope(t *testin
 
 	engine := gin.New()
 	NewServer(&config.Config{AuthKey: authTestKey}, fixture.service).RegisterRoutes(engine)
-	request := httptest.NewRequest(http.MethodGet, "/api/access-keys?status=active&scope=unlimited&page=1&page_size=100", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/access-keys?status=active&page=1&page_size=100", nil)
 	request.Header.Set("Authorization", "Bearer "+authTestKey)
 	request.Header.Set("Accept-Language", "en-US")
 	recorder := httptest.NewRecorder()
@@ -151,14 +144,77 @@ func TestAccessKeyCollectionHTTPReturnsAuthenticatedCollectionEnvelope(t *testin
 	}
 	if result.Summary != (AccessKeyCollectionSummary{Total: 2, Active: 1, Disabled: 1}) ||
 		result.Pagination != (AccessKeyCollectionPagination{Page: 1, PageSize: 100, TotalItems: 1, TotalPages: 1}) ||
-		len(result.Items) != 1 || result.Items[0].Name != "alpha" ||
-		result.Items[0].Scope != AccessKeyCollectionScopeUnlimited {
+		len(result.Items) != 1 || result.Items[0].Name != "alpha" {
 		t.Fatalf("collection result = %#v, want filtered summary/items/pagination", result)
 	}
 	for _, forbidden := range []string{alpha.Key, beta.Key, alphaRow.KeyValue, betaRow.KeyValue} {
 		if strings.Contains(recorder.Body.String(), forbidden) {
 			t.Fatalf("collection response exposed %q: %s", forbidden, recorder.Body.String())
 		}
+	}
+}
+
+func TestAccessKeyCollectionHTTPReturnsLatestRequestTimeAndOmitsCollectionScope(t *testing.T) {
+	initControlI18n(t)
+	fixture := newServiceFixture(t)
+	fixture.service.random = bytes.NewReader(append(make([]byte, 16), bytes.Repeat([]byte{1}, 16)...))
+	used, err := fixture.service.CreateAccessKey(t.Context(), AccessKeyCreateRequest{Name: "used"})
+	if err != nil {
+		t.Fatalf("create used access key: %v", err)
+	}
+	unused, err := fixture.service.CreateAccessKey(t.Context(), AccessKeyCreateRequest{Name: "unused"})
+	if err != nil {
+		t.Fatalf("create unused access key: %v", err)
+	}
+	if err := fixture.db.Create(&[]models.RequestLog{
+		{
+			ID: "00000000-0000-4000-8000-000000000001", CompletedAtMS: 1_700_000_000_100,
+			AccessKeyID: used.ID, Protocol: "openai-completions", ClientModel: "gpt-4.1",
+			UpstreamModel: "gpt-4.1", Status: "success", Attempts: models.JSON(`[]`),
+		},
+		{
+			ID: "00000000-0000-4000-8000-000000000002", CompletedAtMS: 1_700_000_000_900,
+			AccessKeyID: used.ID, Protocol: "anthropic", ClientModel: "claude-sonnet",
+			UpstreamModel: "claude-sonnet", Status: "failed", Attempts: models.JSON(`[]`),
+		},
+	}).Error; err != nil {
+		t.Fatalf("create request logs: %v", err)
+	}
+
+	engine := gin.New()
+	NewServer(&config.Config{AuthKey: authTestKey}, fixture.service).RegisterRoutes(engine)
+	request := httptest.NewRequest(http.MethodGet, "/api/access-keys?page=1&page_size=20", nil)
+	request.Header.Set("Authorization", "Bearer "+authTestKey)
+	request.Header.Set("Accept-Language", "en-US")
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("GET /api/access-keys = %d %s, want 200", recorder.Code, recorder.Body.String())
+	}
+
+	data := decodeAccessKeyCollectionSuccessData(t, recorder)
+	var result struct {
+		Items []map[string]json.RawMessage `json:"items"`
+	}
+	if err := json.Unmarshal(data, &result); err != nil {
+		t.Fatalf("decode collection items: %v", err)
+	}
+	items := make(map[uint]map[string]json.RawMessage, len(result.Items))
+	for _, item := range result.Items {
+		var id uint
+		if err := json.Unmarshal(item["id"], &id); err != nil {
+			t.Fatalf("decode collection item id: %v", err)
+		}
+		items[id] = item
+		if _, exists := item["scope"]; exists {
+			t.Fatalf("collection item %d still exposes derived scope: %s", id, item["scope"])
+		}
+	}
+	if got := string(items[used.ID]["last_request_at_ms"]); got != "1700000000900" {
+		t.Fatalf("used last_request_at_ms = %s, want latest request time", got)
+	}
+	if got := string(items[unused.ID]["last_request_at_ms"]); got != "null" {
+		t.Fatalf("unused last_request_at_ms = %s, want null", got)
 	}
 }
 
@@ -170,6 +226,7 @@ func TestAccessKeyCollectionHTTPRejectsInvalidQueryBeforeServiceAccess(t *testin
 
 	for _, target := range []string{
 		"/api/access-keys?unknown=1",
+		"/api/access-keys?scope=unlimited",
 		"/api/access-keys?page=01",
 		"/api/access-keys?",
 	} {
@@ -191,9 +248,6 @@ func assertAccessKeyCollectionQueryEqual(t *testing.T, got, want AccessKeyCollec
 	}
 	if (got.Status == nil) != (want.Status == nil) || got.Status != nil && *got.Status != *want.Status {
 		t.Fatalf("query status = %#v, want %#v", got.Status, want.Status)
-	}
-	if (got.Scope == nil) != (want.Scope == nil) || got.Scope != nil && *got.Scope != *want.Scope {
-		t.Fatalf("query scope = %#v, want %#v", got.Scope, want.Scope)
 	}
 }
 

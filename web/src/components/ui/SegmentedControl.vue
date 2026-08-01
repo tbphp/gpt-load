@@ -15,7 +15,7 @@ withDefaults(
     controlsId?: string
     idPrefix?: string
     scrollable?: boolean
-    appearance?: 'joined' | 'pills'
+    appearance?: 'joined' | 'pills' | 'drawer'
     size?: 'compact' | 'touch'
   }>(),
   {
@@ -114,6 +114,10 @@ function handleSegmentKeydown(event: KeyboardEvent): void {
   border-radius: 0;
   background: transparent;
 }
+.segmented-control__list--compact .segmented-control__trigger {
+  min-height: 36px;
+  padding: 5px 12px;
+}
 .segmented-control__trigger {
   flex: none;
   min-height: 0;
@@ -157,6 +161,30 @@ function handleSegmentKeydown(event: KeyboardEvent): void {
 }
 .segmented-control__list--pills .segmented-control__trigger[data-state='active'] {
   border-color: var(--color-text);
+}
+.segmented-control__list--drawer {
+  border-color: var(--color-border-control);
+  border-radius: 5px;
+}
+.segmented-control__list--drawer .segmented-control__trigger {
+  min-width: 52px;
+  min-height: 27px;
+  height: 27px;
+  border: 0;
+  border-radius: 5px;
+  padding: 0 8px;
+  color: var(--color-text-faint);
+  font-size: var(--text-label-xs);
+}
+.segmented-control__list--drawer
+  .segmented-control__trigger:hover:not(:disabled):not([data-state='active']) {
+  background: var(--color-surface-sunken);
+  color: var(--color-text);
+}
+.segmented-control__list--drawer .segmented-control__trigger[data-state='active'] {
+  background: var(--color-action-soft);
+  color: var(--color-action);
+  font-weight: 600;
 }
 .segmented-control__trigger:disabled {
   cursor: not-allowed;

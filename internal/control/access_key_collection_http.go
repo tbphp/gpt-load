@@ -52,7 +52,7 @@ func parseAccessKeyCollectionQuery(
 	}
 	for key, entries := range values {
 		switch key {
-		case "q", "status", "scope", "page", "page_size":
+		case "q", "status", "page", "page_size":
 		default:
 			return AccessKeyCollectionQuery{}, app_errors.ErrBadRequest
 		}
@@ -73,13 +73,6 @@ func parseAccessKeyCollectionQuery(
 			return AccessKeyCollectionQuery{}, app_errors.ErrBadRequest
 		}
 		query.Status = &status
-	}
-	if entries, exists := values["scope"]; exists {
-		scope, ok := parseAccessKeyCollectionScope(entries[0])
-		if !ok {
-			return AccessKeyCollectionQuery{}, app_errors.ErrBadRequest
-		}
-		query.Scope = &scope
 	}
 	if entries, exists := values["page"]; exists {
 		page, ok := parseAccessKeyCollectionPositiveInt(entries[0])
@@ -103,16 +96,6 @@ func parseAccessKeyCollectionStatus(value string) (state.AccessKeyStatus, bool) 
 	switch status {
 	case state.AccessKeyStatusActive, state.AccessKeyStatusDisabled:
 		return status, true
-	default:
-		return "", false
-	}
-}
-
-func parseAccessKeyCollectionScope(value string) (AccessKeyCollectionScope, bool) {
-	scope := AccessKeyCollectionScope(value)
-	switch scope {
-	case AccessKeyCollectionScopeUnlimited, AccessKeyCollectionScopeRestricted:
-		return scope, true
 	default:
 		return "", false
 	}

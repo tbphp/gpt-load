@@ -13,15 +13,14 @@ import (
 
 func TestQueryAccessKeyCollectionRecordsSummarizesBeforeFiltering(t *testing.T) {
 	active := state.AccessKeyStatusActive
-	restricted := AccessKeyCollectionScopeRestricted
 	records := []accessKeyCollectionRecord{
-		accessKeyCollectionQueryRecord(1, "Alpha", "0001", active, AccessKeyCollectionScopeUnlimited, 100),
-		accessKeyCollectionQueryRecord(2, "Bravo", "0002", state.AccessKeyStatusDisabled, restricted, 200),
-		accessKeyCollectionQueryRecord(3, "Charlie", "0003", active, restricted, 300),
+		accessKeyCollectionQueryRecord(1, "Alpha", "0001", active, 100),
+		accessKeyCollectionQueryRecord(2, "Bravo", "0002", state.AccessKeyStatusDisabled, 200),
+		accessKeyCollectionQueryRecord(3, "Charlie", "0003", active, 300),
 	}
 
 	result := queryAccessKeyCollectionRecords(records, AccessKeyCollectionQuery{
-		Query: "bravo", Status: &active, Scope: &restricted, Page: 1, PageSize: 20,
+		Query: "bravo", Status: &active, Page: 1, PageSize: 20,
 	})
 	if got, want := result.Summary, (AccessKeyCollectionSummary{
 		Total: 3, Active: 2, Disabled: 1,
@@ -35,8 +34,8 @@ func TestQueryAccessKeyCollectionRecordsSummarizesBeforeFiltering(t *testing.T) 
 
 func TestQueryAccessKeyCollectionRecordsFiltersCaseFoldedNameAndMaskedSuffix(t *testing.T) {
 	records := []accessKeyCollectionRecord{
-		accessKeyCollectionQueryRecord(1, "München", "cafe", state.AccessKeyStatusActive, AccessKeyCollectionScopeUnlimited, 100),
-		accessKeyCollectionQueryRecord(2, "Other", "beef", state.AccessKeyStatusActive, AccessKeyCollectionScopeRestricted, 200),
+		accessKeyCollectionQueryRecord(1, "München", "cafe", state.AccessKeyStatusActive, 100),
+		accessKeyCollectionQueryRecord(2, "Other", "beef", state.AccessKeyStatusActive, 200),
 	}
 
 	tests := []struct {
@@ -59,16 +58,14 @@ func TestQueryAccessKeyCollectionRecordsFiltersCaseFoldedNameAndMaskedSuffix(t *
 	}
 }
 
-func TestQueryAccessKeyCollectionRecordsFiltersStatusAndScope(t *testing.T) {
+func TestQueryAccessKeyCollectionRecordsFiltersStatus(t *testing.T) {
 	active := state.AccessKeyStatusActive
 	disabled := state.AccessKeyStatusDisabled
-	unlimited := AccessKeyCollectionScopeUnlimited
-	restricted := AccessKeyCollectionScopeRestricted
 	records := []accessKeyCollectionRecord{
-		accessKeyCollectionQueryRecord(1, "active unlimited", "0001", active, unlimited, 100),
-		accessKeyCollectionQueryRecord(2, "active restricted", "0002", active, restricted, 200),
-		accessKeyCollectionQueryRecord(3, "disabled unlimited", "0003", disabled, unlimited, 300),
-		accessKeyCollectionQueryRecord(4, "disabled restricted", "0004", disabled, restricted, 400),
+		accessKeyCollectionQueryRecord(1, "active one", "0001", active, 100),
+		accessKeyCollectionQueryRecord(2, "active two", "0002", active, 200),
+		accessKeyCollectionQueryRecord(3, "disabled one", "0003", disabled, 300),
+		accessKeyCollectionQueryRecord(4, "disabled two", "0004", disabled, 400),
 	}
 
 	tests := []struct {
@@ -78,8 +75,6 @@ func TestQueryAccessKeyCollectionRecordsFiltersStatusAndScope(t *testing.T) {
 	}{
 		{name: "active", query: AccessKeyCollectionQuery{Status: &active, Page: 1, PageSize: 20}, want: []uint{2, 1}},
 		{name: "disabled", query: AccessKeyCollectionQuery{Status: &disabled, Page: 1, PageSize: 20}, want: []uint{4, 3}},
-		{name: "unlimited", query: AccessKeyCollectionQuery{Scope: &unlimited, Page: 1, PageSize: 20}, want: []uint{3, 1}},
-		{name: "restricted", query: AccessKeyCollectionQuery{Scope: &restricted, Page: 1, PageSize: 20}, want: []uint{4, 2}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -93,10 +88,10 @@ func TestQueryAccessKeyCollectionRecordsFiltersStatusAndScope(t *testing.T) {
 
 func TestQueryAccessKeyCollectionRecordsSortsByUpdatedAtThenIDDescending(t *testing.T) {
 	records := []accessKeyCollectionRecord{
-		accessKeyCollectionQueryRecord(1, "one", "0001", state.AccessKeyStatusActive, AccessKeyCollectionScopeUnlimited, 100),
-		accessKeyCollectionQueryRecord(4, "four", "0004", state.AccessKeyStatusDisabled, AccessKeyCollectionScopeRestricted, 300),
-		accessKeyCollectionQueryRecord(3, "three", "0003", state.AccessKeyStatusActive, AccessKeyCollectionScopeUnlimited, 300),
-		accessKeyCollectionQueryRecord(2, "two", "0002", state.AccessKeyStatusDisabled, AccessKeyCollectionScopeRestricted, 200),
+		accessKeyCollectionQueryRecord(1, "one", "0001", state.AccessKeyStatusActive, 100),
+		accessKeyCollectionQueryRecord(4, "four", "0004", state.AccessKeyStatusDisabled, 300),
+		accessKeyCollectionQueryRecord(3, "three", "0003", state.AccessKeyStatusActive, 300),
+		accessKeyCollectionQueryRecord(2, "two", "0002", state.AccessKeyStatusDisabled, 200),
 	}
 
 	result := queryAccessKeyCollectionRecords(records, AccessKeyCollectionQuery{Page: 1, PageSize: 20})
@@ -107,9 +102,9 @@ func TestQueryAccessKeyCollectionRecordsSortsByUpdatedAtThenIDDescending(t *test
 
 func TestQueryAccessKeyCollectionRecordsPaginatesAndHandlesZeroRecords(t *testing.T) {
 	records := []accessKeyCollectionRecord{
-		accessKeyCollectionQueryRecord(1, "one", "0001", state.AccessKeyStatusActive, AccessKeyCollectionScopeUnlimited, 100),
-		accessKeyCollectionQueryRecord(2, "two", "0002", state.AccessKeyStatusActive, AccessKeyCollectionScopeUnlimited, 200),
-		accessKeyCollectionQueryRecord(3, "three", "0003", state.AccessKeyStatusActive, AccessKeyCollectionScopeUnlimited, 300),
+		accessKeyCollectionQueryRecord(1, "one", "0001", state.AccessKeyStatusActive, 100),
+		accessKeyCollectionQueryRecord(2, "two", "0002", state.AccessKeyStatusActive, 200),
+		accessKeyCollectionQueryRecord(3, "three", "0003", state.AccessKeyStatusActive, 300),
 	}
 
 	tests := []struct {
@@ -164,7 +159,7 @@ func TestListAccessKeyCollectionReadsMappedMetadataWithoutDecrypting(t *testing.
 		t.Fatalf("ListAccessKeyCollection() error = %v", err)
 	}
 	if got, want := result.Items, []AccessKeyCollectionItem{{
-		AccessKeyMetadata: created.AccessKeyMetadata, Scope: AccessKeyCollectionScopeUnlimited,
+		AccessKeyMetadata: created.AccessKeyMetadata,
 	}}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("items = %#v, want %#v", got, want)
 	}
@@ -196,12 +191,11 @@ func TestListAccessKeyCollectionRejectsCanceledContextAndInvalidMappedMetadata(t
 	}
 }
 
-func accessKeyCollectionQueryRecord(id uint, name, suffix string, status state.AccessKeyStatus, scope AccessKeyCollectionScope, updatedAtMS int64) accessKeyCollectionRecord {
+func accessKeyCollectionQueryRecord(id uint, name, suffix string, status state.AccessKeyStatus, updatedAtMS int64) accessKeyCollectionRecord {
 	return accessKeyCollectionRecord{AccessKeyCollectionItem: AccessKeyCollectionItem{
 		AccessKeyMetadata: AccessKeyMetadata{
 			ID: id, Name: name, MaskedKey: maskedAccessKey(suffix), Status: status, UpdatedAtMS: updatedAtMS,
 		},
-		Scope: scope,
 	}}
 }
 

@@ -735,6 +735,38 @@ export async function invalidateGroupSummary(
   })
 }
 
+/** Settings can change every Group representation; refresh active consumers and stale the rest. */
+export async function invalidateGroupSettingsDependents(
+  queryClient: QueryClient,
+  groupID: number,
+): Promise<void> {
+  await Promise.all([
+    queryClient.invalidateQueries({
+      queryKey: controlQueryKeys.groups.summary(groupID),
+      exact: true,
+      refetchType: 'active',
+    }),
+    queryClient.invalidateQueries({
+      queryKey: controlQueryKeys.groups.models(groupID),
+      exact: true,
+      refetchType: 'active',
+    }),
+    queryClient.invalidateQueries({
+      queryKey: controlQueryKeys.groups.keysAll(groupID),
+      refetchType: 'active',
+    }),
+    queryClient.invalidateQueries({
+      queryKey: controlQueryKeys.groups.collectionAll,
+      refetchType: 'active',
+    }),
+    queryClient.invalidateQueries({
+      queryKey: controlQueryKeys.groups.options(),
+      exact: true,
+      refetchType: 'active',
+    }),
+  ])
+}
+
 export function cacheGroupModels(
   queryClient: QueryClient,
   groupID: number,

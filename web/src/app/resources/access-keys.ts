@@ -24,6 +24,7 @@ import {
   projectArray,
   projectEpochMilliseconds,
   projectEnum,
+  projectNullableEpochMilliseconds,
   projectRecord,
   projectSafeInteger,
   projectString,
@@ -71,7 +72,7 @@ const optionFields = ['id', 'name', 'status'] as const
 const collectionFields = ['summary', 'items', 'pagination'] as const
 const collectionSummaryFields = ['total', 'active', 'disabled'] as const
 const collectionPaginationFields = ['page', 'page_size', 'total_items', 'total_pages'] as const
-const collectionItemFields = [...metadataFields, 'scope'] as const
+const collectionItemFields = [...metadataFields, 'last_request_at_ms'] as const
 
 function invalidResponse(): never {
   throw new InvalidResponseError()
@@ -158,15 +159,10 @@ function projectAccessKeyCollectionItem(value: unknown): AccessKeyCollectionItem
   const metadata = projectAccessKeyMetadata(
     Object.fromEntries(metadataFields.map((field) => [field, record[field]])),
   )
-  const scope = projectEnum(record.scope, ['unlimited', 'restricted'] as const)
-  const expectedScope =
-    metadata.filters.groups.length === 0 &&
-    metadata.filters.protocols.length === 0 &&
-    metadata.filters.models.length === 0
-      ? 'unlimited'
-      : 'restricted'
-  if (scope !== expectedScope) invalidResponse()
-  return { ...metadata, scope }
+  return {
+    ...metadata,
+    last_request_at_ms: projectNullableEpochMilliseconds(record.last_request_at_ms),
+  }
 }
 
 export function projectAccessKeyCollection(value: unknown): AccessKeyCollectionResponseDto {
@@ -209,7 +205,6 @@ export async function listAccessKeyCollection(
   })
   if (normalized.q !== undefined) params.set('q', normalized.q)
   if (normalized.status !== undefined) params.set('status', normalized.status)
-  if (normalized.scope !== undefined) params.set('scope', normalized.scope)
   const result = projectAccessKeyCollection(
     await client.request(`/api/access-keys?${params.toString()}`, { method: 'GET', signal }),
   )
@@ -322,7 +317,7 @@ export const accessKeyResources = {
     gcTime: 0,
     cleanup: 'authenticated-session',
     optimisticUpdates: false,
-    allowedFields: metadataFields,
+    allowedFields: collectionItemFields,
   },
   options: {
     queryKey: controlQueryKeys.accessKeys.options(),

@@ -80,6 +80,39 @@ export function formatDuration(startedAtMs: number, nowMs: number, locale: strin
   return `${minutes}m`
 }
 
+export function formatRelativeInstant(ms: number, nowMs: number, locale: string): string {
+  if (!Number.isSafeInteger(ms) || !Number.isSafeInteger(nowMs)) return '—'
+  const elapsedSeconds = Math.max(0, Math.floor((nowMs - ms) / 1_000))
+  let value: number
+  let unit: Intl.RelativeTimeFormatUnit
+
+  if (elapsedSeconds < 60) {
+    value = elapsedSeconds
+    unit = 'second'
+  } else if (elapsedSeconds < 3_600) {
+    value = Math.floor(elapsedSeconds / 60)
+    unit = 'minute'
+  } else if (elapsedSeconds < 86_400) {
+    value = Math.floor(elapsedSeconds / 3_600)
+    unit = 'hour'
+  } else if (elapsedSeconds < 2_592_000) {
+    value = Math.floor(elapsedSeconds / 86_400)
+    unit = 'day'
+  } else if (elapsedSeconds < 31_536_000) {
+    value = Math.floor(elapsedSeconds / 2_592_000)
+    unit = 'month'
+  } else {
+    value = Math.floor(elapsedSeconds / 31_536_000)
+    unit = 'year'
+  }
+
+  try {
+    return new Intl.RelativeTimeFormat(locale, { numeric: 'auto' }).format(-value, unit)
+  } catch {
+    return formatLocalInstant(ms, locale)
+  }
+}
+
 export function formatInteger(value: number, locale: string): string {
   if (!Number.isSafeInteger(value)) return '—'
   return new Intl.NumberFormat(locale, { maximumFractionDigits: 0 }).format(value)

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { KeyRound, Search, X } from '@lucide/vue'
+import { KeyRound, Plus, Search, X } from '@lucide/vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -19,6 +19,7 @@ import {
   cacheGroupKeyBatch,
   cacheGroupKeyItem,
   groupKeyCollectionQueryOptions,
+  revealGroupKey,
   restoreGroupKey,
   updateGroupKey,
 } from '@/app/resources/upstream-keys'
@@ -31,6 +32,7 @@ import AppButton from '@/components/ui/AppButton.vue'
 import AppConfirmDialog from '@/components/ui/AppConfirmDialog.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import IconButton from '@/components/ui/IconButton.vue'
+import PanelHeader from '@/components/ui/PanelHeader.vue'
 import PaginationBar from '@/components/ui/PaginationBar.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 
@@ -55,6 +57,7 @@ const selectedIds = ref(new Set<number>())
 const pendingOperations = ref(new Set<string>())
 const feedback = ref('')
 const deleteTarget = ref<{ ids: number[]; mask?: string } | undefined>()
+const copyControllers = new Set<AbortController>()
 let searchTimer: ReturnType<typeof setTimeout> | undefined
 
 const collection = computed(() => keysQuery.data.value)
@@ -143,6 +146,10 @@ watch(
   },
 )
 watch(
+  () => [props.groupId, filters.value.page, collection.value?.items.map(({ id }) => id).join(',')],
+  () => concealCopiedKeys(),
+)
+watch(
   () => ({
     totalPages: collection.value?.pagination.total_pages,
     page: filters.value.page,
@@ -219,6 +226,20 @@ function pending(id: number): boolean {
 }
 function rowBusy(id: number): boolean {
   return batchBusy.value || pending(id)
+}
+async function resolveCopyValue(id: number): Promise<string> {
+  const controller = new AbortController()
+  copyControllers.add(controller)
+  try {
+    const result = await revealGroupKey(client, props.groupId, id, controller.signal)
+    return result.key
+  } finally {
+    copyControllers.delete(controller)
+  }
+}
+function concealCopiedKeys(): void {
+  for (const controller of copyControllers) controller.abort()
+  copyControllers.clear()
 }
 function setPending(id: number | 'batch', action: string, value: boolean): void {
   const next = new Set(pendingOperations.value)
@@ -406,17 +427,29 @@ async function runBatch(
 
 onBeforeUnmount(() => {
   if (searchTimer !== undefined) clearTimeout(searchTimer)
+  concealCopiedKeys()
 })
 </script>
 
 <template>
-  <section class="group-keys" aria-labelledby="group-keys-heading">
-    <header class="group-keys__header">
-      <div>
-        <h2 id="group-keys-heading">{{ t('group.keys.title') }}</h2>
-        <p>{{ t('group.keys.description') }}</p>
-      </div>
-    </header>
+  <section
+    class="group-keys"
+    aria-labelledby="group-keys-heading"
+    :aria-busy="keysQuery.isFetching.value ? 'true' : undefined"
+  >
+    <PanelHeader heading-id="group-keys-heading" :title="t('group.keys.title')">
+      <template #actions>
+        <RouterLink
+          v-slot="{ navigate }"
+          :to="importLocation({ mode: 'existing', group_id: groupId })"
+          custom
+        >
+          <AppButton role="link" @click="navigate">
+            <Plus :size="16" aria-hidden="true" />{{ t('group.keys.add') }}
+          </AppButton>
+        </RouterLink>
+      </template>
+    </PanelHeader>
     <QueryFeedback
       v-if="keysQuery.isPending.value"
       state="loading"
@@ -445,6 +478,7 @@ onBeforeUnmount(() => {
         :model-value="filters.status"
         :label="t('group.keys.summary.region')"
         :total-label="t('group.keys.summary.current')"
+        appearance="detail"
         @update:model-value="setStatus"
       />
       <CollectionFilterBar
@@ -452,6 +486,7 @@ onBeforeUnmount(() => {
         single-column
         :label="t('group.keys.filters.region')"
         :show-result="hasChangedConditions"
+        appearance="detail"
       >
         <label class="collection-filter-field collection-filter-field--search">
           <span class="collection-filter-label">{{ t('group.keys.filters.search') }}</span>
@@ -500,10 +535,13 @@ onBeforeUnmount(() => {
         <template #icon><KeyRound :size="20" /></template>
         <template #actions>
           <RouterLink
-            class="button-link"
+            v-slot="{ navigate }"
             :to="importLocation({ mode: 'existing', group_id: groupId })"
+            custom
           >
-            <KeyRound :size="15" aria-hidden="true" />{{ t('group.importKeys') }}
+            <AppButton role="link" @click="navigate">
+              <Plus :size="15" aria-hidden="true" />{{ t('group.keys.add') }}
+            </AppButton>
           </RouterLink>
         </template>
       </EmptyState>
@@ -521,6 +559,14 @@ onBeforeUnmount(() => {
         </template>
       </EmptyState>
       <template v-else>
+        <GroupKeyBatchBar
+          v-if="selectedCount > 0"
+          :selected-count="selectedCount"
+          :pending="batchBusy || singleBusy"
+          @enable="runBatch('enable')"
+          @disable="runBatch('disable')"
+          @remove="deleteTarget = { ids: [...selectedIds] }"
+        />
         <LedgerRecordList
           :label="t('group.keys.caption')"
           :row-count="collection.pagination.total_items + 1"
@@ -554,6 +600,7 @@ onBeforeUnmount(() => {
             "
             :selected="selectedIds.has(item.id)"
             :busy="rowBusy(item.id)"
+            :resolve-copy-value="resolveCopyValue"
             @update:selected="setSelected(item.id, $event)"
             @weight="mutateItem($event.item, 'weight', $event.value)"
             @toggle="mutateItem($event, 'toggle')"
@@ -567,22 +614,15 @@ onBeforeUnmount(() => {
           :total-items="collection.pagination.total_items"
           :total-pages="collection.pagination.total_pages"
           show-page-size
+          appearance="detail"
           @previous="setPage(filters.page - 1)"
           @next="setPage(filters.page + 1)"
           @update:page-size="setPageSize"
         />
-        <GroupKeyBatchBar
-          v-if="selectedCount > 0"
-          :selected-count="selectedCount"
-          :pending="batchBusy || singleBusy"
-          @enable="runBatch('enable')"
-          @disable="runBatch('disable')"
-          @remove="deleteTarget = { ids: [...selectedIds] }"
-          @clear="selectedIds = new Set()"
-        />
       </template>
     </template>
     <AppConfirmDialog
+      appearance="ledger"
       :open="deleteTarget !== undefined"
       :title="
         deleteTarget?.ids.length === 1
@@ -608,16 +648,9 @@ onBeforeUnmount(() => {
 <style scoped>
 .group-keys {
   display: grid;
-  gap: var(--space-4);
-  padding-top: var(--space-4);
-}
-.group-keys__header h2,
-.group-keys__header p {
-  margin: 0;
-}
-.group-keys__header p {
-  margin-top: var(--space-1);
-  color: var(--color-text-muted);
+  min-width: 0;
+  gap: 0;
+  padding-top: var(--detail-panel-padding-top);
 }
 .group-keys__feedback {
   margin: 0;
@@ -628,8 +661,10 @@ onBeforeUnmount(() => {
   padding: var(--space-3);
 }
 .group-key-record-grid {
+  --ledger-record-list-record-min-height: 52px;
+  --ledger-record-list-record-padding: 8px 0;
   --ledger-record-list-grid: 48px minmax(150px, 0.95fr) 116px minmax(118px, 0.72fr)
-    minmax(150px, 0.95fr) minmax(250px, 1.55fr);
+    minmax(150px, 0.95fr) minmax(280px, 1.7fr);
   --ledger-record-list-column-gap: 12px;
 }
 .group-keys__select-all {
@@ -638,15 +673,20 @@ onBeforeUnmount(() => {
 }
 .group-keys__select-all label {
   display: grid;
-  width: var(--touch-target);
-  height: var(--touch-target);
+  width: 32px;
+  height: 32px;
   place-items: center;
   cursor: pointer;
+}
+.group-keys__select-all input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--color-action);
 }
 @media (max-width: 1120px) {
   .group-key-record-grid {
     --ledger-record-list-grid: 44px minmax(130px, 0.9fr) 108px minmax(108px, 0.7fr)
-      minmax(132px, 0.9fr) minmax(220px, 1.35fr);
+      minmax(132px, 0.9fr) minmax(250px, 1.45fr);
     --ledger-record-list-column-gap: 9px;
   }
 }
@@ -663,6 +703,15 @@ onBeforeUnmount(() => {
 @media (max-width: 860px) {
   .group-key-record-grid {
     --ledger-record-list-card-grid: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  }
+  .group-keys__select-all label {
+    width: var(--touch-target);
+    height: var(--touch-target);
+  }
+}
+@media (max-width: 800px) {
+  .group-keys {
+    padding-top: var(--detail-panel-padding-top-compact);
   }
 }
 </style>

@@ -16,6 +16,7 @@ const props = defineProps<{
   modelValue?: string
   label: string
   totalLabel: string
+  appearance?: 'default' | 'detail'
 }>()
 
 const emit = defineEmits<{
@@ -28,7 +29,11 @@ const barItems = computed(() =>
 </script>
 
 <template>
-  <section class="collection-status-summary" :aria-label="label">
+  <section
+    class="collection-status-summary"
+    :class="`collection-status-summary--${appearance ?? 'default'}`"
+    :aria-label="label"
+  >
     <div class="collection-status-summary__total">
       <div class="collection-status-summary__label">{{ totalLabel }}</div>
       <div class="collection-status-summary__number">{{ total }}</div>
@@ -77,6 +82,9 @@ const barItems = computed(() =>
   gap: var(--space-7);
   border-bottom: 1px solid var(--color-border-subtle);
   padding: 18px 0;
+}
+.collection-status-summary--detail {
+  padding-top: 0;
 }
 
 .collection-status-summary__label {

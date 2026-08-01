@@ -7,7 +7,7 @@
   --color-surface-sunken: #f5f4f1;
   --color-text: #15181b;
   --color-text-muted: #4e545b;
-  --color-text-faint: #746f67;
+  --color-text-faint: #787f87;
   --color-text-inverse: #ffffff;
   --color-border-subtle: #e6e5e0;
   --color-border-control: #cfcfc9;
@@ -17,7 +17,7 @@
   --color-action-soft: #e8eff4;
   --color-action-ink: #ffffff;
   --color-focus: #1c4f6e;
-  --color-overlay: rgba(11, 13, 16, 0.52);
+  --color-overlay: rgba(20, 22, 24, 0.34);
   --color-tag: #eceded;
   --color-code-bg: #f5f4f1;
   --color-code: #15181b;
@@ -48,6 +48,7 @@
   --text-sm: 11.5px;
   --text-meta: 12px;
   --text-body: 13.5px;
+  --text-button: 12.5px;
   --title-empty: 15px;
   --title-section: 16px;
   --title-panel: 22px;
@@ -96,6 +97,11 @@
   --section-gap: 24px;
   --collection-row-height: 48px;
   --surface-header-min-height: 55px;
+  --detail-tab-min-height: 50px;
+  --detail-tab-min-height-compact: 48px;
+  --detail-panel-padding-top: 23px;
+  --detail-panel-padding-top-compact: 19px;
+  --detail-panel-header-spacing: 18px;
   --table-editorial-min-width: 560px;
   --chart-aspect-ratio: 1000 / 158;
   --chart-line-width: 2;
@@ -106,7 +112,7 @@
   --shadow-overlay: 0 2px 8px rgba(0, 0, 0, 0.08), 0 14px 30px rgba(0, 0, 0, 0.09);
   --shadow-chart-tooltip: 0 2px 6px rgba(0, 0, 0, 0.07), 0 10px 24px rgba(0, 0, 0, 0.08);
   --shadow-feedback: 0 4px 12px rgba(28, 26, 20, 0.1);
-  --focus-ring: 0 0 0 3px color-mix(in srgb, var(--color-focus) 16%, transparent);
+  --focus-ring: 0 0 0 3px color-mix(in srgb, var(--color-focus) 15%, transparent);
 
   --duration-instant: 120ms;
   --duration-fast: 140ms;
@@ -143,7 +149,7 @@
   --color-surface-sunken: #12151a;
   --color-text: #e8eaec;
   --color-text-muted: #969ca3;
-  --color-text-faint: #938c80;
+  --color-text-faint: #6d747c;
   --color-text-inverse: #0c1a22;
   --color-border-subtle: #232830;
   --color-border-control: #333a43;
@@ -153,7 +159,7 @@
   --color-action-soft: #142633;
   --color-action-ink: #0c1a22;
   --color-focus: #6fb2d6;
-  --color-overlay: rgba(0, 0, 0, 0.65);
+  --color-overlay: rgba(0, 0, 0, 0.68);
   --color-tag: #1c1e21;
   --color-code-bg: #12151a;
   --color-code: #e8eaec;
@@ -181,7 +187,7 @@
     --color-surface-sunken: #12151a;
     --color-text: #e8eaec;
     --color-text-muted: #969ca3;
-    --color-text-faint: #938c80;
+    --color-text-faint: #6d747c;
     --color-text-inverse: #0c1a22;
     --color-border-subtle: #232830;
     --color-border-control: #333a43;
@@ -191,7 +197,7 @@
     --color-action-soft: #142633;
     --color-action-ink: #0c1a22;
     --color-focus: #6fb2d6;
-    --color-overlay: rgba(0, 0, 0, 0.65);
+    --color-overlay: rgba(0, 0, 0, 0.68);
     --color-tag: #1c1e21;
     --color-code-bg: #12151a;
     --color-code: #e8eaec;

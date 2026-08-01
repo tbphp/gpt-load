@@ -1,28 +1,34 @@
 <script setup lang="ts">
-import { ArrowRight } from '@lucide/vue'
+import { ArrowRight, Trash2 } from '@lucide/vue'
 import { computed, onBeforeUnmount, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { useApiClient } from '@/api/client-context'
 import { revealAccessKey } from '@/app/resources/access-keys'
-import type { AccessKeyDto, GroupOptionDto } from '@/api/control/types'
+import type { AccessKeyCollectionItemDto, GroupOptionDto } from '@/api/control/types'
 import LedgerRecordList from '@/components/collection/LedgerRecordList.vue'
-import AppDateTime from '@/components/ui/AppDateTime.vue'
+import AppButton from '@/components/ui/AppButton.vue'
+import AppRelativeTime from '@/components/ui/AppRelativeTime.vue'
 import CopyChip from '@/components/ui/CopyChip.vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 
+import AccessKeyDeleteDialog from './AccessKeyDeleteDialog.vue'
 import { presentAccessKey } from './access-key-presenter'
 
 const props = defineProps<{
-  accessKeys: AccessKeyDto[]
+  accessKeys: AccessKeyCollectionItemDto[]
   groups: GroupOptionDto[]
+  total: number
   filteredTotal: number
   page: number
   pageSize: number
+  busyIds: ReadonlySet<number>
 }>()
 const emit = defineEmits<{
-  open: [accessKey: AccessKeyDto, trigger: HTMLElement]
+  open: [accessKey: AccessKeyCollectionItemDto, trigger: HTMLElement]
+  toggle: [accessKey: AccessKeyCollectionItemDto]
+  deleted: [name: string]
 }>()
 const client = useApiClient()
 const { locale, t } = useI18n()
@@ -45,7 +51,7 @@ const presentations = computed(() =>
     }),
   ),
 )
-function source(id: number): AccessKeyDto {
+function source(id: number): AccessKeyCollectionItemDto {
   const accessKey = props.accessKeys.find((candidate) => candidate.id === id)
   if (!accessKey) throw new Error(`ACCESS_KEY_SOURCE_MISSING:${id}`)
   return accessKey
@@ -91,7 +97,7 @@ onBeforeUnmount(() => {
       <span role="columnheader">{{ t('accessKeys.columns.status') }}</span>
       <span role="columnheader">{{ t('accessKeys.columns.scope') }}</span>
       <span role="columnheader">{{ t('accessKeys.columns.rpm') }}</span>
-      <span role="columnheader">{{ t('accessKeys.columns.updated') }}</span>
+      <span role="columnheader">{{ t('accessKeys.columns.lastRequest') }}</span>
       <span role="columnheader">{{ t('accessKeys.columns.actions') }}</span>
     </template>
 
@@ -139,16 +145,52 @@ onBeforeUnmount(() => {
         {{ record.rpm }}
       </div>
 
-      <div class="ledger-record-list__cell access-key-updated" role="cell">
-        <span class="mobile-label">{{ t('accessKeys.columns.updated') }}</span>
-        <AppDateTime :instant="record.updatedAt" :locale="locale" />
+      <div class="ledger-record-list__cell access-key-last-request" role="cell">
+        <span class="mobile-label">{{ t('accessKeys.columns.lastRequest') }}</span>
+        <AppRelativeTime
+          :instant="record.lastRequestAt"
+          :locale="locale"
+          :empty-label="t('accessKeys.collection.neverRequested')"
+        />
       </div>
 
       <div class="ledger-record-list__cell record-actions" role="cell">
+        <AppButton
+          variant="secondary"
+          :tone="record.status === 'active' ? 'warning' : 'success'"
+          size="compact"
+          :busy="busyIds.has(record.id)"
+          @click="emit('toggle', source(record.id))"
+        >
+          {{
+            record.status === 'active'
+              ? t('accessKeys.actions.disable')
+              : t('accessKeys.actions.enable')
+          }}
+        </AppButton>
+        <AccessKeyDeleteDialog
+          :access-key="source(record.id)"
+          :total="total"
+          @deleted="emit('deleted', $event)"
+        >
+          <template #trigger="{ open }">
+            <IconButton
+              variant="ghost"
+              tone="danger"
+              size="compact"
+              :label="t('accessKeys.delete.open')"
+              :disabled="busyIds.has(record.id)"
+              @click="open"
+            >
+              <Trash2 :size="15" aria-hidden="true" />
+            </IconButton>
+          </template>
+        </AccessKeyDeleteDialog>
         <IconButton
           variant="ghost"
           size="compact"
           :label="t('accessKeys.collection.openDetailsFor', { name: record.name })"
+          :disabled="busyIds.has(record.id)"
           @click="emit('open', source(record.id), $event.currentTarget as HTMLElement)"
         >
           <ArrowRight :size="15" aria-hidden="true" />
@@ -161,7 +203,7 @@ onBeforeUnmount(() => {
 <style scoped>
 .access-keys-record-grid {
   --ledger-record-list-grid: minmax(132px, 1.08fr) minmax(184px, 1.3fr) 102px minmax(190px, 1.35fr)
-    92px minmax(132px, 0.95fr) 44px;
+    92px minmax(126px, 0.9fr) minmax(158px, 1.05fr);
   --ledger-record-list-column-gap: 14px;
 }
 
@@ -176,7 +218,7 @@ onBeforeUnmount(() => {
 .access-key-status,
 .access-key-scope,
 .access-key-rpm,
-.access-key-updated {
+.access-key-last-request {
   min-width: 0;
 }
 
@@ -211,7 +253,7 @@ onBeforeUnmount(() => {
 }
 
 .access-key-rpm,
-.access-key-updated {
+.access-key-last-request {
   color: var(--color-text-muted);
   font-family: var(--font-mono);
   font-size: var(--text-sm);
@@ -233,11 +275,11 @@ onBeforeUnmount(() => {
 @media (max-width: 1120px) {
   .access-keys-record-grid {
     --ledger-record-list-grid: minmax(110px, 1.05fr) minmax(156px, 1.2fr) 90px minmax(164px, 1.25fr)
-      78px minmax(96px, 0.8fr) 72px;
+      78px minmax(96px, 0.8fr) minmax(148px, 1fr);
     --ledger-record-list-column-gap: 10px;
   }
 
-  .access-key-updated :deep(.app-date-time) {
+  .access-key-last-request :deep(.app-relative-time) {
     line-height: var(--line-compact);
     overflow-wrap: anywhere;
     white-space: normal;
@@ -247,13 +289,13 @@ onBeforeUnmount(() => {
 @media (max-width: 1023px) and (min-width: 861px) {
   .access-keys-record-grid {
     --ledger-record-list-grid: minmax(110px, 1fr) minmax(156px, 1.2fr) 90px minmax(164px, 1.25fr)
-      72px;
+      minmax(144px, 1fr);
   }
 
   .access-keys-record-grid :deep(.ledger-record-list__header > :nth-child(5)),
   .access-keys-record-grid :deep(.ledger-record-list__header > :nth-child(6)),
   .access-key-rpm,
-  .access-key-updated {
+  .access-key-last-request {
     display: none;
   }
 }
@@ -261,7 +303,6 @@ onBeforeUnmount(() => {
 @media (max-width: 860px) {
   .access-key-name {
     grid-column: 1 / -1;
-    padding-right: 100px;
   }
 
   .access-key-secret-cell {
@@ -277,7 +318,7 @@ onBeforeUnmount(() => {
 
   .access-key-status,
   .access-key-rpm,
-  .access-key-updated {
+  .access-key-last-request {
     display: grid;
     align-content: start;
     gap: 5px;
@@ -289,18 +330,15 @@ onBeforeUnmount(() => {
   }
 
   .record-actions {
-    position: absolute;
-    top: 10px;
-    right: 10px;
+    grid-column: 1 / -1;
+    flex-wrap: wrap;
+    border-top: 1px solid var(--color-border-subtle);
+    padding-top: 11px;
   }
 
+  .record-actions :deep(.app-button),
   .record-actions :deep(.icon-button) {
-    width: var(--touch-target);
-    min-width: var(--touch-target);
-    height: var(--touch-target);
     min-height: var(--touch-target);
-    justify-content: center;
-    padding: 0;
   }
 
   .mobile-label {

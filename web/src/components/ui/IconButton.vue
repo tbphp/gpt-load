@@ -6,6 +6,7 @@ withDefaults(
     busy?: boolean
     pressed?: boolean
     variant?: 'default' | 'surface' | 'ghost' | 'danger'
+    tone?: 'neutral' | 'action' | 'success' | 'warning' | 'danger'
     size?: 'md' | 'compact' | 'xs'
   }>(),
   {
@@ -13,6 +14,7 @@ withDefaults(
     busy: false,
     pressed: undefined,
     variant: 'default',
+    tone: 'neutral',
     size: 'md',
   },
 )
@@ -21,7 +23,7 @@ withDefaults(
 <template>
   <button
     class="icon-button"
-    :class="[`icon-button--${variant}`, `icon-button--${size}`]"
+    :class="[`icon-button--${variant}`, `icon-button--${size}`, `icon-button--tone-${tone}`]"
     type="button"
     :aria-label="label"
     :aria-pressed="pressed"
@@ -83,10 +85,46 @@ withDefaults(
   color: var(--color-text-faint);
 }
 
+.icon-button--ghost.icon-button--tone-action {
+  color: var(--color-action);
+}
+
+.icon-button--ghost.icon-button--tone-success {
+  color: var(--color-success);
+}
+
+.icon-button--ghost.icon-button--tone-warning {
+  color: var(--color-warning);
+}
+
+.icon-button--ghost.icon-button--tone-danger {
+  color: var(--color-danger);
+}
+
 .icon-button--ghost:hover:not(:disabled) {
   border-color: transparent;
   background: var(--color-surface-sunken);
   color: var(--color-text);
+}
+
+.icon-button--ghost.icon-button--tone-action:hover:not(:disabled) {
+  background: var(--color-action-soft);
+  color: var(--color-action);
+}
+
+.icon-button--ghost.icon-button--tone-success:hover:not(:disabled) {
+  background: var(--color-success-bg);
+  color: var(--color-success);
+}
+
+.icon-button--ghost.icon-button--tone-warning:hover:not(:disabled) {
+  background: var(--color-warning-bg);
+  color: var(--color-warning);
+}
+
+.icon-button--ghost.icon-button--tone-danger:hover:not(:disabled) {
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
 }
 
 .icon-button:disabled {
@@ -96,6 +134,7 @@ withDefaults(
 
 .icon-button--danger {
   border-color: var(--color-danger);
+  background: var(--color-danger-bg);
   color: var(--color-danger);
 }
 

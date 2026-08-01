@@ -15,6 +15,7 @@ withDefaults(
     confirmDisabled?: boolean
     dismissible?: boolean
     preventCloseAutoFocus?: boolean
+    appearance?: 'default' | 'ledger'
   }>(),
   {
     tone: 'default',
@@ -22,6 +23,7 @@ withDefaults(
     confirmDisabled: false,
     dismissible: true,
     preventCloseAutoFocus: false,
+    appearance: 'default',
   },
 )
 const emit = defineEmits<{
@@ -38,6 +40,8 @@ const emit = defineEmits<{
     :close-label="closeLabel"
     :dismissible="dismissible && !pending"
     :prevent-close-auto-focus="preventCloseAutoFocus"
+    :appearance="appearance"
+    :tone="tone"
     @update:open="emit('update:open', $event)"
   >
     <template v-if="$slots.trigger" #trigger><slot name="trigger" /></template>
@@ -45,7 +49,7 @@ const emit = defineEmits<{
     <template #footer>
       <AppButton
         variant="secondary"
-        size="lg"
+        :size="appearance === 'ledger' ? 'md' : 'lg'"
         :disabled="pending || !dismissible"
         @click="emit('update:open', false)"
       >
@@ -53,7 +57,7 @@ const emit = defineEmits<{
       </AppButton>
       <AppButton
         :variant="tone === 'danger' ? 'danger' : 'primary'"
-        size="lg"
+        :size="appearance === 'ledger' ? 'md' : 'lg'"
         :busy="pending"
         :disabled="confirmDisabled"
         @click="emit('confirm')"

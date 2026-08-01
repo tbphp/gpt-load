@@ -53,10 +53,6 @@ defineExpose({ focus })
   font: inherit;
   font-weight: 400;
 }
-.app-typed-confirmation input:focus {
-  border-color: var(--color-action);
-  box-shadow: var(--focus-ring);
-}
 .app-typed-confirmation input:disabled {
   cursor: not-allowed;
   opacity: 0.6;

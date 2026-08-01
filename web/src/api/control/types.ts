@@ -140,6 +140,12 @@ export interface GroupKeyItemDto {
   recovery: GroupKeyRecoveryDto
 }
 
+export interface GroupKeyRevealDto {
+  id: number
+  key: string
+  revealed_at_ms: number
+}
+
 export interface GroupKeySummaryDto {
   total: number
   available: number
@@ -269,12 +275,10 @@ export interface AccessKeyDto {
 }
 
 export type AccessKeyCollectionStatus = AccessKeyDto['status']
-export type AccessKeyCollectionScope = 'unlimited' | 'restricted'
 
 export interface AccessKeyCollectionFilters {
   q?: string
   status?: AccessKeyCollectionStatus
-  scope?: AccessKeyCollectionScope
   page: number
   page_size: 20
 }
@@ -286,7 +290,7 @@ export interface AccessKeyCollectionSummaryDto {
 }
 
 export interface AccessKeyCollectionItemDto extends AccessKeyDto {
-  scope: AccessKeyCollectionScope
+  last_request_at_ms: number | null
 }
 
 export interface AccessKeyCollectionPaginationDto {

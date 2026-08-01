@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { useQueryClient } from '@tanstack/vue-query'
-import { Trash2 } from '@lucide/vue'
 import { computed, nextTick, onBeforeUnmount, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { isNavigationFailure, useRouter } from 'vue-router'
@@ -108,6 +107,7 @@ onBeforeUnmount(() => controller?.abort())
 
 <template>
   <AppConfirmDialog
+    appearance="ledger"
     :open="open"
     :title="t('group.settings.delete.title')"
     :description="t('group.settings.delete.description', { name: groupName })"
@@ -127,7 +127,7 @@ onBeforeUnmount(() => controller?.abort())
         :disabled="disabled"
         @click="setOpen(true)"
       >
-        <Trash2 :size="16" aria-hidden="true" />{{ t('group.settings.delete.open') }}
+        {{ t('group.settings.delete.open') }}
       </AppButton>
     </template>
 

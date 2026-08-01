@@ -61,9 +61,9 @@ defineProps<LedgerRecordListProps>()
 
 .ledger-record-list__record {
   position: relative;
-  min-height: 96px;
+  min-height: var(--ledger-record-list-record-min-height, 96px);
   border-top: 1px solid var(--color-border-subtle);
-  padding: 14px 0;
+  padding: var(--ledger-record-list-record-padding, 14px 0);
   transition: background-color var(--duration-fast) var(--easing-standard);
 }
 

@@ -82,11 +82,6 @@ const hasVisibleStatus = computed(
   border-radius: 4px;
 }
 
-.key-health-figure:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
-}
-
 .key-health-counts {
   display: flex;
   align-items: center;

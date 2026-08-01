@@ -304,11 +304,6 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', closeOnExterna
   min-width: 0;
   margin: 0;
   cursor: crosshair;
-  outline: none;
-}
-
-.trend-chart:focus-visible {
-  box-shadow: var(--focus-ring);
 }
 
 .trend-chart__visually-hidden {

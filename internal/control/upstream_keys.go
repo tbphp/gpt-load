@@ -19,6 +19,12 @@ type UpstreamKeyUpdateRequest struct {
 	WeightManual optionalField[int]             `json:"weight_manual"`
 }
 
+type GroupKeyRevealResult struct {
+	ID           uint   `json:"id"`
+	Key          string `json:"key"`
+	RevealedAtMS int64  `json:"revealed_at_ms"`
+}
+
 type groupKeysCapture struct {
 	group      models.Group
 	rows       []models.UpstreamKey
@@ -195,6 +201,64 @@ func findRuntimeKey(
 		}
 	}
 	return state.KeyRuntimeView{}, false
+}
+
+func (s *Service) RevealGroupKey(
+	ctx context.Context,
+	groupID uint,
+	keyID uint,
+) (GroupKeyRevealResult, error) {
+	if groupID == 0 || keyID == 0 {
+		return GroupKeyRevealResult{}, app_errors.ErrBadRequest
+	}
+	var group models.Group
+	if err := s.db.WithContext(ctx).
+		Select("id").
+		Where("id = ?", groupID).
+		Take(&group).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return GroupKeyRevealResult{}, groupNotFoundError()
+		}
+		return GroupKeyRevealResult{}, app_errors.ParseDBError(err)
+	}
+	var row struct {
+		ID       uint
+		KeyValue string
+	}
+	if err := s.db.WithContext(ctx).
+		Model(&models.UpstreamKey{}).
+		Select("id", "key_value").
+		Where("id = ? AND group_id = ?", keyID, groupID).
+		Take(&row).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return GroupKeyRevealResult{}, keyNotFoundError()
+		}
+		return GroupKeyRevealResult{}, app_errors.ParseDBError(err)
+	}
+	plaintext, err := s.encryption.Decrypt(row.KeyValue)
+	if err != nil {
+		return GroupKeyRevealResult{}, fmt.Errorf(
+			"reveal group key %d: %w",
+			row.ID,
+			app_errors.ErrInternalServer,
+		)
+	}
+	if _, err := maskGroupKeyCollection(plaintext); err != nil {
+		return GroupKeyRevealResult{}, fmt.Errorf(
+			"reveal group key %d: %w",
+			row.ID,
+			app_errors.ErrInternalServer,
+		)
+	}
+	revealedAtMS, err := safeEpochMilliseconds(s.now())
+	if err != nil {
+		return GroupKeyRevealResult{}, app_errors.ErrInternalServer
+	}
+	return GroupKeyRevealResult{
+		ID:           row.ID,
+		Key:          plaintext,
+		RevealedAtMS: revealedAtMS,
+	}, nil
 }
 
 func (s *Service) UpdateGroupKey(

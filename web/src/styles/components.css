@@ -61,6 +61,10 @@
   list-style: none;
 }
 
+.section-nav__caption {
+  display: none;
+}
+
 .section-nav__desktop a {
   display: flex;
   min-height: var(--touch-target);
@@ -114,6 +118,85 @@
   gap: var(--space-2);
 }
 
+.sticky-save-bar--ledger {
+  bottom: 12px;
+  display: flex;
+  min-height: 58px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin: 26px 0 -11px;
+  border: 1px solid var(--color-border-control);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--color-surface-raised) 94%, transparent);
+  box-shadow:
+    0 2px 8px light-dark(rgba(0, 0, 0, 0.08), rgba(0, 0, 0, 0.4)),
+    0 12px 28px light-dark(rgba(0, 0, 0, 0.08), rgba(0, 0, 0, 0.28));
+  padding: 9px 11px 9px 14px;
+  backdrop-filter: blur(10px);
+}
+
+.sticky-save-bar--ledger .sticky-save-bar__status {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 9px;
+}
+
+.sticky-save-bar--ledger .sticky-save-bar__status::before {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--color-neutral);
+  content: '';
+}
+
+.sticky-save-bar--ledger[data-status='dirty'] .sticky-save-bar__status::before {
+  background: var(--color-warning);
+}
+
+.sticky-save-bar--ledger[data-status='saving'] .sticky-save-bar__status::before {
+  background: var(--color-action);
+}
+
+.sticky-save-bar--ledger[data-status='saved'] .sticky-save-bar__status::before {
+  background: var(--color-success);
+}
+
+.sticky-save-bar--ledger[data-status='error'] .sticky-save-bar__status::before {
+  background: var(--color-danger);
+}
+
+.sticky-save-bar--ledger .sticky-save-bar__actions {
+  flex: none;
+  gap: 7px;
+}
+
+.sticky-save-bar--ledger .sticky-save-bar__status > div {
+  min-width: 0;
+}
+
+.sticky-save-bar--ledger .sticky-save-bar__status strong {
+  display: block;
+  overflow: hidden;
+  font-size: var(--text-meta);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sticky-save-bar--ledger .sticky-save-bar__status span {
+  display: block;
+  color: var(--color-text-faint);
+  font-size: var(--text-label-xs);
+}
+
+.sticky-save-bar--ledger .sticky-save-bar__error {
+  flex: 1;
+  font-size: var(--text-sm);
+}
+
 @media (min-width: 768px) {
   .section-nav {
     position: sticky;
@@ -137,5 +220,98 @@
 
   .sticky-save-bar__actions {
     justify-content: stretch;
+  }
+}
+
+@media (max-width: 800px) {
+  .sticky-save-bar--ledger {
+    bottom: 8px;
+    display: flex;
+    align-items: stretch;
+    flex-direction: column;
+    gap: 9px;
+  }
+
+  .sticky-save-bar--ledger .sticky-save-bar__actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .sticky-save-bar--ledger .sticky-save-bar__actions .app-button {
+    min-height: var(--touch-target);
+  }
+}
+
+.section-nav--ledger {
+  position: sticky;
+  top: 76px;
+  align-self: start;
+}
+
+.section-nav--ledger .section-nav__mobile {
+  display: none;
+}
+
+.section-nav--ledger .section-nav__caption {
+  display: block;
+  margin-bottom: 7px;
+  color: var(--color-text-faint);
+  font-size: var(--text-label-xs);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.section-nav--ledger .section-nav__desktop {
+  display: grid;
+  gap: 3px;
+  border-left: 0;
+}
+
+.section-nav--ledger .section-nav__desktop a {
+  min-height: 36px;
+  padding: 6px 8px 6px 11px;
+  font-size: var(--text-meta);
+}
+
+.section-nav--ledger .section-nav__desktop a:hover,
+.section-nav--ledger .section-nav__desktop a[aria-current='location'] {
+  background: var(--color-surface-sunken);
+}
+
+@media (max-width: 860px) {
+  .section-nav--ledger {
+    position: static;
+    max-width: 100%;
+  }
+
+  .section-nav--ledger .section-nav__caption {
+    display: none;
+  }
+
+  .section-nav--ledger .section-nav__desktop {
+    display: flex;
+    gap: 3px;
+    overflow-x: auto;
+    border-bottom: 1px solid var(--color-border-subtle);
+    padding-bottom: 7px;
+    scrollbar-width: none;
+  }
+
+  .section-nav--ledger .section-nav__desktop::-webkit-scrollbar {
+    display: none;
+  }
+
+  .section-nav--ledger .section-nav__desktop a {
+    min-width: max-content;
+    min-height: var(--touch-target);
+    border-bottom: 2px solid transparent;
+    border-left: 0;
+    padding: 7px 10px;
+  }
+
+  .section-nav--ledger .section-nav__desktop a:hover,
+  .section-nav--ledger .section-nav__desktop a[aria-current='location'] {
+    border-bottom-color: var(--color-action);
+    border-left-color: transparent;
   }
 }

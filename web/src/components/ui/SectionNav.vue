@@ -7,11 +7,16 @@ export interface SectionNavItem {
   disabled?: boolean
 }
 
-const props = defineProps<{
-  items: readonly SectionNavItem[]
-  modelValue: string
-  label: string
-}>()
+const props = withDefaults(
+  defineProps<{
+    items: readonly SectionNavItem[]
+    modelValue: string
+    label: string
+    caption?: string
+    appearance?: 'default' | 'ledger'
+  }>(),
+  { caption: undefined, appearance: 'default' },
+)
 
 const emit = defineEmits<{
   'update:modelValue': [id: string]
@@ -30,7 +35,7 @@ function select(id: string): void {
 </script>
 
 <template>
-  <nav class="section-nav" :aria-label="label">
+  <nav class="section-nav" :class="`section-nav--${appearance}`" :aria-label="label">
     <div class="section-nav__mobile">
       <button
         class="section-nav__toggle"
@@ -56,6 +61,7 @@ function select(id: string): void {
       </ul>
     </div>
 
+    <span v-if="caption" class="section-nav__caption">{{ caption }}</span>
     <ul class="section-nav__desktop">
       <li v-for="item in items" :key="item.id">
         <a

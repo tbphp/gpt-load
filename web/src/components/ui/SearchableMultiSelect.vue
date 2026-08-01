@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Plus, Search, X } from '@lucide/vue'
-import { computed, ref } from 'vue'
+import { computed, nextTick, onMounted, ref } from 'vue'
 
 export type SearchableMultiSelectValue = string | number
 
@@ -27,17 +27,30 @@ const props = withDefaults(
     modelValue: SearchableMultiSelectValue[]
     disabled?: boolean
     loading?: boolean
+    searchable?: boolean
+    alwaysOpen?: boolean
+    autoFocusSearch?: boolean
+    size?: 'default' | 'compact'
   }>(),
-  { disabled: false, loading: false },
+  {
+    disabled: false,
+    loading: false,
+    searchable: true,
+    alwaysOpen: false,
+    autoFocusSearch: false,
+    size: 'default',
+  },
 )
 const emit = defineEmits<{ 'update:modelValue': [values: SearchableMultiSelectValue[]] }>()
 
 const query = ref('')
 const pickerOpen = ref(false)
+const searchInput = ref<HTMLInputElement>()
 const selected = computed(() => new Set(props.modelValue))
 const normalizedQuery = computed(() => query.value.trim().toLocaleLowerCase())
+const pickerVisible = computed(() => props.alwaysOpen || pickerOpen.value)
 const filteredOptions = computed(() => {
-  if (!normalizedQuery.value) return props.options
+  if (!props.searchable || !normalizedQuery.value) return props.options
   return props.options.filter((option) =>
     `${option.label} ${option.description ?? ''}`
       .toLocaleLowerCase()
@@ -78,10 +91,30 @@ function clear(): void {
   if (props.disabled || props.loading) return
   emit('update:modelValue', [])
 }
+
+async function focusSearch(): Promise<void> {
+  if (!props.autoFocusSearch || !props.searchable || props.disabled || props.loading) return
+  await nextTick()
+  searchInput.value?.focus()
+}
+
+function togglePicker(): void {
+  if (props.alwaysOpen) return
+  pickerOpen.value = !pickerOpen.value
+  if (pickerOpen.value) void focusSearch()
+}
+
+onMounted(() => {
+  if (pickerVisible.value) void focusSearch()
+})
 </script>
 
 <template>
-  <section class="searchable-multi-select" :aria-labelledby="`${id}-label`">
+  <section
+    class="searchable-multi-select"
+    :class="`searchable-multi-select--${size}`"
+    :aria-labelledby="`${id}-label`"
+  >
     <span :id="`${id}-label`" class="sr-only">{{ label }}</span>
     <div class="searchable-multi-select__chips" :aria-label="selectedCountText">
       <span
@@ -103,18 +136,19 @@ function clear(): void {
         </button>
       </span>
       <button
+        v-if="!alwaysOpen"
         type="button"
         class="searchable-multi-select__add"
         :disabled="disabled || loading"
         :aria-expanded="pickerOpen"
         :aria-controls="`${id}-picker`"
-        @click="pickerOpen = !pickerOpen"
+        @click="togglePicker"
       >
         <Plus :size="14" aria-hidden="true" />{{ addLabel }}
       </button>
     </div>
 
-    <div v-if="pickerOpen" :id="`${id}-picker`" class="searchable-multi-select__picker">
+    <div v-if="pickerVisible" :id="`${id}-picker`" class="searchable-multi-select__picker">
       <div class="searchable-multi-select__head">
         <span class="searchable-multi-select__count" aria-live="polite">
           {{ selectedCountText }}
@@ -130,12 +164,19 @@ function clear(): void {
         </button>
       </div>
 
-      <label class="searchable-multi-select__search" :for="`${id}-search`">
+      <label
+        v-if="searchable"
+        class="searchable-multi-select__search"
+        :for="`${id}-search`"
+        data-input-shell
+      >
         <span class="sr-only">{{ searchLabel }}</span>
         <Search :size="15" aria-hidden="true" />
         <input
           :id="`${id}-search`"
+          ref="searchInput"
           v-model="query"
+          data-input-inner
           type="search"
           :placeholder="searchPlaceholder"
           :disabled="disabled || loading"
@@ -202,9 +243,10 @@ function clear(): void {
   padding: 0 var(--space-3);
   color: var(--color-text-muted);
 }
-.searchable-multi-select__search:focus-within {
-  border-color: var(--color-action);
-  box-shadow: var(--focus-ring);
+.searchable-multi-select--compact .searchable-multi-select__search {
+  min-height: var(--control-compact);
+  padding-inline: 10px;
+  font-size: var(--text-sm);
 }
 .searchable-multi-select__search input {
   width: 100%;

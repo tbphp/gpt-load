@@ -1,30 +1,50 @@
 <script setup lang="ts">
-import { useQuery } from '@tanstack/vue-query'
-import { computed } from 'vue'
+import { useQuery, useQueryClient } from '@tanstack/vue-query'
+import { computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'
 
 import { useApiClient } from '@/api/client-context'
-import { lazySurface } from '@/app/async-surface'
-import { groupSummaryQueryOptions } from '@/app/resources/groups'
+import {
+  groupModelsQueryOptions,
+  groupSettingsQueryOptions,
+  groupSummaryQueryOptions,
+} from '@/app/resources/groups'
+import { groupKeyCollectionQueryOptions } from '@/app/resources/upstream-keys'
 import { groupsLocation } from '@/app/route-locations'
 import LedgerSheet from '@/components/layout/LedgerSheet.vue'
 import PageFrame from '@/components/layout/PageFrame.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 
 import GroupHeader from './GroupHeader.vue'
+import GroupKeysTab from './keys/GroupKeysTab.vue'
+import GroupModelsTab from './models/GroupModelsTab.vue'
 import GroupTabs from './GroupTabs.vue'
-import { normalizeGroupTab, parsePositiveId } from './group-route'
+import GroupSettingsTab from './settings/GroupSettingsTab.vue'
+import { normalizeGroupTab, parseGroupKeyRouteQuery, parsePositiveId } from './group-route'
 
-const GroupKeysTab = lazySurface(() => import('./keys/GroupKeysTab.vue'))
-const GroupModelsTab = lazySurface(() => import('./models/GroupModelsTab.vue'))
-const GroupSettingsTab = lazySurface(() => import('./settings/GroupSettingsTab.vue'))
 const route = useRoute()
 const client = useApiClient()
+const queryClient = useQueryClient()
 const { t } = useI18n()
 const groupId = computed(() => parsePositiveId(route.params.id))
 const activeTab = computed(() => normalizeGroupTab(route.query.tab))
 const summaryQuery = useQuery(groupSummaryQueryOptions(client, groupId))
+
+watch(
+  groupId,
+  (id) => {
+    if (id === undefined) return
+    void Promise.allSettled([
+      queryClient.prefetchQuery(
+        groupKeyCollectionQueryOptions(client, id, parseGroupKeyRouteQuery(route.query)),
+      ),
+      queryClient.prefetchQuery(groupModelsQueryOptions(client, id)),
+      queryClient.prefetchQuery(groupSettingsQueryOptions(client, id)),
+    ])
+  },
+  { immediate: true },
+)
 </script>
 
 <template>
@@ -80,7 +100,14 @@ const summaryQuery = useQuery(groupSummaryQueryOptions(client, groupId))
 <style scoped>
 .group-detail-page {
   display: grid;
-  gap: var(--space-5);
+  min-height: 760px;
+  align-content: start;
+  gap: 0;
+}
+@media (max-width: 800px) {
+  .group-detail-page {
+    min-height: 0;
+  }
 }
 .group-detail-invalid {
   display: grid;

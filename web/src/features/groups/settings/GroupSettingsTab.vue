@@ -1,16 +1,17 @@
 <script setup lang="ts">
+import { ChevronDown } from '@lucide/vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import type { GroupSettingsDto } from '@/api/control/types'
+import type { GroupSettingsDto, HeaderRulesDto } from '@/api/control/types'
 
 import { ApiError, RequestCancelledError } from '@/api/errors'
 import { useApiClient } from '@/api/client-context'
 import {
   cacheGroupSettings,
   groupSettingsQueryOptions,
-  invalidateGroupSummary,
+  invalidateGroupSettingsDependents,
   updateGroupSettings,
 } from '@/app/resources/groups'
 import { useUnsavedChanges } from '@/app/unsaved-changes'
@@ -19,6 +20,7 @@ import RuntimeOverrideRow from '@/components/config/RuntimeOverrideRow.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppConfirmDialog from '@/components/ui/AppConfirmDialog.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
+import PanelHeader from '@/components/ui/PanelHeader.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import SectionNav from '@/components/ui/SectionNav.vue'
 import StickySaveBar from '@/components/ui/StickySaveBar.vue'
@@ -48,7 +50,10 @@ const confirmURL = ref(false)
 const headerRulesValid = ref(true)
 const headerRulesEditorRevision = ref(0)
 const section = ref('settings-general')
+const savedFeedback = ref(false)
 let controller: AbortController | undefined
+let sectionFrame = 0
+let savedFeedbackTimer: ReturnType<typeof setTimeout> | undefined
 const timeoutKeys: GroupTimeoutKey[] = [
   'connect_timeout',
   'first_byte_timeout',
@@ -83,6 +88,12 @@ const urlError = computed(() => {
 const protocolsError = computed(() =>
   draft.value?.protocols.length ? '' : t('group.settings.base.protocolsError'),
 )
+const weightValid = computed(() => {
+  const value = draft.value?.weight_manual
+  return (
+    value === null || (Number.isInteger(value) && value !== undefined && value >= 1 && value <= 100)
+  )
+})
 const timeoutValid = computed(() =>
   timeoutKeys.every((key) => {
     const value = draft.value?.overrides[key]
@@ -94,13 +105,23 @@ const valid = computed(
     !nameError.value &&
     !urlError.value &&
     !protocolsError.value &&
+    weightValid.value &&
     timeoutValid.value &&
     headerRulesValid.value,
 )
 const showInjectUsage = computed(
   () => draft.value?.protocols.includes('openai-completions') ?? false,
 )
+const displayedHeaderRules = computed<HeaderRulesDto>(
+  () =>
+    draft.value?.overrides.header_rules ??
+    saved.value?.effective.header_rules ?? { set: {}, remove: [] },
+)
 useUnsavedChanges(dirty, { blocked: mutationPending })
+
+watch(dirty, (isDirty) => {
+  if (isDirty) clearSavedFeedback()
+})
 
 function resetSavedDraft(settings: GroupSettingsDto): void {
   saved.value = settings
@@ -121,6 +142,29 @@ watch(
 function setSection(id: string): void {
   section.value = id
   document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
+function synchronizeSection(): void {
+  sectionFrame = 0
+  const elements = navItems.value
+    .map(({ id }) => document.getElementById(id))
+    .filter((element): element is HTMLElement => element !== null)
+  if (!elements.length) return
+
+  const threshold = 88
+  let current = elements[0]
+  for (const element of elements) {
+    if (element.getBoundingClientRect().top <= threshold) current = element
+    else break
+  }
+  const pageBottom = window.scrollY + window.innerHeight
+  if (pageBottom >= document.documentElement.scrollHeight - 2) current = elements.at(-1) ?? current
+  section.value = current.id
+}
+
+function scheduleSectionSynchronization(): void {
+  if (sectionFrame) return
+  sectionFrame = window.requestAnimationFrame(synchronizeSection)
 }
 
 function toggleProtocol(protocol: GroupSettingsDraft['protocols'][number], checked: boolean): void {
@@ -147,19 +191,15 @@ function setTimeoutValue(key: GroupTimeoutKey, event: Event): void {
   draft.value = { ...draft.value, overrides }
 }
 
-function setHeaderRules(enabled: boolean): void {
-  if (!draft.value || !saved.value) return
-  const overrides = { ...draft.value.overrides }
-  if (enabled)
-    overrides.header_rules = {
-      set: { ...saved.value.effective.header_rules.set },
-      remove: [...saved.value.effective.header_rules.remove],
-    }
-  else {
-    delete overrides.header_rules
-    headerRulesValid.value = true
+function updateHeaderRules(value: HeaderRulesDto): void {
+  if (!draft.value) return
+  draft.value = {
+    ...draft.value,
+    overrides: {
+      ...draft.value.overrides,
+      header_rules: { set: { ...value.set }, remove: [...value.remove] },
+    },
   }
-  draft.value = { ...draft.value, overrides }
 }
 
 function setInjectUsageOverride(enabled: boolean): void {
@@ -180,6 +220,7 @@ async function save(confirmUpstreamChange: boolean): Promise<void> {
   const active = new AbortController()
   controller = active
   pending.value = true
+  clearSavedFeedback()
   error.value = ''
   try {
     const body = {
@@ -191,7 +232,8 @@ async function save(confirmUpstreamChange: boolean): Promise<void> {
     resetSavedDraft(result)
     confirmURL.value = false
     cacheGroupSettings(queryClient, props.groupId, result)
-    await invalidateGroupSummary(queryClient, props.groupId)
+    await invalidateGroupSettingsDependents(queryClient, props.groupId)
+    showSavedFeedback()
   } catch (cause: unknown) {
     if (cause instanceof RequestCancelledError || controller !== active) return
     if (
@@ -212,7 +254,23 @@ async function save(confirmUpstreamChange: boolean): Promise<void> {
 function discard(): void {
   if (!saved.value || mutationPending.value) return
   error.value = ''
+  clearSavedFeedback()
   resetSavedDraft(saved.value)
+}
+
+function clearSavedFeedback(): void {
+  if (savedFeedbackTimer !== undefined) clearTimeout(savedFeedbackTimer)
+  savedFeedbackTimer = undefined
+  savedFeedback.value = false
+}
+
+function showSavedFeedback(): void {
+  clearSavedFeedback()
+  savedFeedback.value = true
+  savedFeedbackTimer = setTimeout(() => {
+    savedFeedback.value = false
+    savedFeedbackTimer = undefined
+  }, 1_600)
 }
 
 function onDeleted(): void {
@@ -222,20 +280,38 @@ function onDeleted(): void {
 }
 
 function headerSummary(): string {
-  const rules = draft.value?.overrides.header_rules ?? saved.value?.effective.header_rules
-  return rules
-    ? t('group.settings.runtime.headerSummary', {
-        set: Object.keys(rules.set).length,
-        remove: rules.remove.length,
-      })
-    : ''
+  return t('group.settings.runtime.headerSummary', {
+    set: Object.keys(displayedHeaderRules.value.set).length,
+    remove: displayedHeaderRules.value.remove.length,
+  })
 }
 
-onBeforeUnmount(() => controller?.abort())
+watch(
+  () => [saved.value, draft.value],
+  async () => {
+    await nextTick()
+    scheduleSectionSynchronization()
+  },
+)
+
+onMounted(() => {
+  window.addEventListener('scroll', scheduleSectionSynchronization, { passive: true })
+  window.addEventListener('resize', scheduleSectionSynchronization, { passive: true })
+  scheduleSectionSynchronization()
+})
+
+onBeforeUnmount(() => {
+  controller?.abort()
+  window.removeEventListener('scroll', scheduleSectionSynchronization)
+  window.removeEventListener('resize', scheduleSectionSynchronization)
+  if (sectionFrame) window.cancelAnimationFrame(sectionFrame)
+  if (savedFeedbackTimer !== undefined) clearTimeout(savedFeedbackTimer)
+})
 </script>
 
 <template>
   <section class="group-settings" aria-labelledby="group-settings-heading">
+    <PanelHeader heading-id="group-settings-heading" :title="t('group.settings.title')" />
     <QueryFeedback
       v-if="query.isPending.value && !query.data.value"
       state="loading"
@@ -249,18 +325,14 @@ onBeforeUnmount(() => controller?.abort())
       @retry="query.refetch()"
     />
     <template v-else-if="saved && draft">
-      <header class="group-settings__header">
-        <div>
-          <h2 id="group-settings-heading">{{ t('group.settings.title') }}</h2>
-          <p>{{ t('group.settings.description') }}</p>
-        </div>
-      </header>
       <InlineFeedback v-if="error" tone="danger">{{ error }}</InlineFeedback>
       <div class="group-settings__layout">
         <SectionNav
           v-model="section"
           :items="navItems"
           :label="t('group.settings.sectionNav')"
+          :caption="t('group.settings.sectionLabel')"
+          appearance="ledger"
           @update:model-value="setSection"
         />
         <div class="group-settings__content">
@@ -310,8 +382,10 @@ onBeforeUnmount(() => controller?.abort())
             <div class="group-settings__runtime">
               <div v-for="key in timeoutKeys" :key="key" class="group-settings__runtime-row">
                 <RuntimeOverrideRow
+                  appearance="ledger"
                   :label="t(`group.settings.runtime.${key}`)"
                   :detail="t('group.settings.runtime.effective', { value: saved.effective[key] })"
+                  :value-label="t('group.settings.runtime.currentValue')"
                   :source-label="
                     draft.overrides[key] === undefined
                       ? t('group.settings.runtime.inherited')
@@ -327,25 +401,30 @@ onBeforeUnmount(() => controller?.abort())
                   @toggle="setTimeoutOverride(key, draft.overrides[key] === undefined)"
                 >
                   <template v-if="draft.overrides[key] !== undefined" #value>
-                    <input
-                      type="number"
-                      min="1"
-                      :aria-label="
-                        t('group.settings.runtime.valueFor', {
-                          field: t(`group.settings.runtime.${key}`),
-                        })
-                      "
-                      :value="draft.overrides[key]"
-                      :disabled="mutationPending"
-                      @input="setTimeoutValue(key, $event)"
-                    />
+                    <label class="group-settings__runtime-input">
+                      <input
+                        type="number"
+                        min="1"
+                        :aria-label="
+                          t('group.settings.runtime.valueFor', {
+                            field: t(`group.settings.runtime.${key}`),
+                          })
+                        "
+                        :value="draft.overrides[key]"
+                        :disabled="mutationPending"
+                        @input="setTimeoutValue(key, $event)"
+                      />
+                      <span aria-hidden="true">{{ t('group.settings.runtime.seconds') }}</span>
+                    </label>
                   </template>
                 </RuntimeOverrideRow>
               </div>
               <div v-if="showInjectUsage" class="group-settings__runtime-row">
                 <RuntimeOverrideRow
+                  appearance="ledger"
                   :label="t('group.settings.runtime.inject_usage_options')"
                   :detail="t('group.settings.runtime.injectUsageHelp')"
+                  :value-label="t('group.settings.runtime.currentValue')"
                   :source-label="
                     draft.overrides.inject_usage_options === undefined
                       ? t('group.settings.runtime.inherited')
@@ -390,56 +469,62 @@ onBeforeUnmount(() => controller?.abort())
               <h3>{{ t('group.settings.sections.headers') }}</h3>
               <p>{{ t('group.settings.headers.description') }}</p>
             </header>
-            <RuntimeOverrideRow
-              :label="t('group.settings.sections.headers')"
-              :detail="headerSummary()"
-              :source-label="
-                draft.overrides.header_rules === undefined
-                  ? t('group.settings.runtime.inherited')
-                  : t('group.settings.runtime.override')
-              "
-              :action-label="
-                draft.overrides.header_rules === undefined
-                  ? t('group.settings.runtime.useOverride')
-                  : t('group.settings.runtime.useInherited')
-              "
-              :overridden="draft.overrides.header_rules !== undefined"
-              :disabled="mutationPending"
-              @toggle="setHeaderRules(draft.overrides.header_rules === undefined)"
-            />
-            <details v-if="draft.overrides.header_rules">
-              <summary>{{ t('group.settings.runtime.editHeaderRules') }}</summary>
+            <details class="group-settings__header-rules">
+              <summary>
+                <span>
+                  <strong>{{ headerSummary() }}</strong>
+                  <span>
+                    {{
+                      draft.overrides.header_rules === undefined
+                        ? t('group.settings.runtime.inherited')
+                        : t('group.settings.runtime.override')
+                    }}
+                  </span>
+                </span>
+                <ChevronDown :size="16" aria-hidden="true" />
+              </summary>
               <div class="group-settings__header-controls">
-                <InlineFeedback tone="warning">{{
-                  t('group.settings.runtime.headerReplacementWarning')
-                }}</InlineFeedback
-                ><HeaderRulesEditor
-                  v-if="draft.overrides.header_rules"
+                <HeaderRulesEditor
                   :key="headerRulesEditorRevision"
-                  :model-value="draft.overrides.header_rules"
+                  appearance="ledger"
+                  :model-value="displayedHeaderRules"
                   :disabled="mutationPending"
+                  :remove-label="t('group.settings.runtime.headerRemove')"
+                  :remove-hint="t('group.settings.runtime.headerRemoveHint')"
                   @update:valid="headerRulesValid = $event"
-                  @update:model-value="draft.overrides.header_rules = $event"
-                />
+                  @update:model-value="updateHeaderRules"
+                >
+                  <template #notice>
+                    {{ t('group.settings.runtime.headerStorageNoticeStart') }}
+                    <code>${API_KEY}</code>{{ t('group.settings.runtime.headerStorageNoticeEnd') }}
+                  </template>
+                </HeaderRulesEditor>
               </div>
             </details>
           </section>
           <section id="settings-danger" class="group-settings__section group-settings__danger">
             <header>
               <h3>{{ t('group.settings.sections.danger') }}</h3>
-              <p>{{ t('group.settings.delete.sectionDescription') }}</p>
+              <p>{{ t('group.settings.dangerDescription') }}</p>
             </header>
-            <GroupDeleteDialog
-              :group-id="groupId"
-              :group-name="saved.name"
-              :disabled="mutationPending || deleted"
-              @deleted="onDeleted"
-              @update:pending="deletePending = $event"
-            />
+            <div class="group-settings__danger-zone">
+              <div>
+                <strong>{{ t('group.settings.delete.open') }}</strong>
+                <p>{{ t('group.settings.delete.sectionDescription') }}</p>
+              </div>
+              <GroupDeleteDialog
+                :group-id="groupId"
+                :group-name="saved.name"
+                :disabled="mutationPending || deleted"
+                @deleted="onDeleted"
+                @update:pending="deletePending = $event"
+              />
+            </div>
           </section>
         </div>
       </div>
       <AppConfirmDialog
+        appearance="ledger"
         :open="confirmURL"
         :title="t('group.settings.urlConfirm.title')"
         :description="t('group.settings.urlConfirm.description')"
@@ -452,17 +537,40 @@ onBeforeUnmount(() => controller?.abort())
         @confirm="save(true)"
       />
       <StickySaveBar
+        appearance="ledger"
+        always-visible
         :dirty="dirty"
         :pending="mutationPending"
-        :status="error ? 'error' : 'idle'"
+        :status="error ? 'error' : savedFeedback ? 'saved' : 'idle'"
         :error="error"
         ><template #status
-          ><span>{{
-            dirty ? t('group.settings.unsaved') : t('group.settings.saved')
-          }}</span></template
+          ><div>
+            <strong>
+              {{
+                pending
+                  ? t('group.settings.saving')
+                  : savedFeedback
+                    ? t('group.settings.savedFeedback')
+                    : dirty
+                      ? t('group.settings.unsaved')
+                      : t('group.settings.saved')
+              }}
+            </strong>
+            <span>
+              {{
+                pending
+                  ? t('group.settings.savingNote')
+                  : savedFeedback
+                    ? t('group.settings.savedFeedbackNote')
+                    : dirty
+                      ? t('group.settings.dirtyNote')
+                      : t('group.settings.saveNote')
+              }}
+            </span>
+          </div></template
         ><template #discard="{ disabled }"
           ><AppButton
-            variant="secondary"
+            variant="ghost"
             :disabled="disabled || !dirty || deletePending"
             @click="discard"
             >{{ t('common.discard') }}</AppButton
@@ -482,39 +590,53 @@ onBeforeUnmount(() => controller?.abort())
 <style scoped>
 .group-settings {
   display: grid;
-  gap: var(--space-4);
+  gap: 0;
+  min-width: 0;
+  padding-top: var(--detail-panel-padding-top);
 }
-.group-settings__header h2,
-.group-settings__header p {
-  margin: 0;
-}
-.group-settings__header p,
 .group-settings__section header p,
 small {
   color: var(--color-text-muted);
 }
 .group-settings__layout {
   display: grid;
-  grid-template-columns: 180px minmax(0, 1fr);
-  gap: var(--space-6);
+  grid-template-columns: 176px minmax(0, 1fr);
+  align-items: start;
+  gap: 34px;
 }
 .group-settings__content {
   display: grid;
-  gap: var(--space-6);
+  min-width: 0;
+  gap: var(--space-7);
 }
 .group-settings__section {
   display: grid;
-  gap: var(--space-4);
-  border-bottom: 1px solid var(--color-border-subtle);
-  padding-bottom: var(--space-6);
+  gap: 15px;
+  scroll-margin-top: 76px;
+  border-top: 1px solid var(--color-border-control);
+  padding-top: 17px;
+}
+.group-settings__section:first-child {
+  border-top: 0;
+  padding-top: 0;
 }
 .group-settings__section header h3,
 .group-settings__section header p {
   margin: 0;
 }
+.group-settings__section header h3 {
+  font-size: 14px;
+  font-weight: 650;
+}
+.group-settings__section header p {
+  max-width: 580px;
+  margin-top: 3px;
+  color: var(--color-text-faint);
+  font-size: var(--text-sm);
+}
 .group-settings__runtime {
   display: grid;
-  gap: var(--space-2);
+  border-top: 1px solid var(--color-border-subtle);
 }
 .group-settings__runtime-row {
   min-width: 0;
@@ -524,10 +646,23 @@ small {
   min-height: var(--control-md);
   border: 1px solid var(--color-border-control);
   border-radius: var(--radius-control);
-  background: var(--color-surface-sunken);
+  background: var(--color-surface);
   color: var(--color-text);
   padding: 0 var(--space-2);
   font: var(--text-sm) var(--font-mono);
+}
+.group-settings__runtime-input {
+  display: flex;
+  width: min(100%, 190px);
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+}
+.group-settings__runtime-input > span {
+  color: var(--color-text-faint);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  white-space: nowrap;
 }
 .group-settings__boolean-value {
   display: flex;
@@ -536,17 +671,83 @@ small {
   gap: var(--space-2);
   white-space: nowrap;
 }
+.group-settings__header-rules {
+  overflow: hidden;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-control);
+}
+.group-settings__header-rules > summary {
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  background: var(--color-surface-sunken);
+  padding: 9px 12px;
+  cursor: pointer;
+  list-style: none;
+}
+.group-settings__header-rules > summary::-webkit-details-marker {
+  display: none;
+}
+.group-settings__header-rules > summary > span {
+  display: grid;
+  gap: 1px;
+}
+.group-settings__header-rules > summary strong {
+  font-size: var(--text-meta);
+}
+.group-settings__header-rules > summary span span {
+  color: var(--color-text-faint);
+  font-size: 11px;
+}
+.group-settings__header-rules > summary > svg {
+  flex: none;
+}
 .group-settings__header-controls {
   display: grid;
-  gap: var(--space-3);
-  margin-top: var(--space-3);
+  gap: 11px;
+  border-top: 1px solid var(--color-border-subtle);
+  padding: 12px;
 }
-.group-settings__danger {
-  border-color: var(--color-danger);
+.group-settings__danger-zone {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  border: 1px solid color-mix(in srgb, var(--color-danger) 42%, var(--color-border-subtle));
+  border-radius: var(--radius-control);
+  padding: 13px 14px;
 }
-@media (max-width: 759px) {
+.group-settings__danger-zone strong {
+  display: block;
+  font-size: 12.5px;
+}
+.group-settings__danger-zone p {
+  margin: 3px 0 0;
+  color: var(--color-text-faint);
+  font-size: 11px;
+}
+@media (max-width: 860px) {
+  .group-settings {
+    padding-top: var(--detail-panel-padding-top-compact);
+  }
   .group-settings__layout {
     grid-template-columns: 1fr;
+    gap: var(--space-5);
+  }
+}
+@media (max-width: 800px) {
+  .group-settings__runtime-row input[type='number'] {
+    min-height: var(--touch-target);
+    font-size: 16px;
+  }
+  .group-settings__runtime-input {
+    width: min(100%, 220px);
+  }
+  .group-settings__danger-zone {
+    align-items: stretch;
+    flex-direction: column;
   }
 }
 </style>
