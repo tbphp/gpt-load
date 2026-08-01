@@ -1,13 +1,13 @@
 <script setup lang="ts" generic="T extends ModelDraftValue">
-import { Plus, Search, X } from '@lucide/vue'
+import { Plus, X } from '@lucide/vue'
 import { computed, nextTick, ref, useId } from 'vue'
 
 import LedgerRecordList from '@/components/collection/LedgerRecordList.vue'
 import AppButton from '@/components/ui/AppButton.vue'
+import AppSearchInput from '@/components/ui/AppSearchInput.vue'
 import AppTextInput from '@/components/ui/AppTextInput.vue'
 import CompactFieldError from '@/components/ui/CompactFieldError.vue'
 import IconButton from '@/components/ui/IconButton.vue'
-import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 
 import {
   modelDraftValidity,
@@ -39,15 +39,6 @@ const instanceId = useId()
 const root = ref<HTMLElement>()
 const search = ref('')
 const validity = computed(() => modelDraftValidity(props.modelValue, props.conflicts))
-const validationSummary = computed(() =>
-  [
-    props.conflicts.length ? props.labels.conflictSummary : '',
-    validity.value.emptyIDIndexes.size ? props.labels.manualIdRequired : '',
-    validity.value.emptyAliasIndexes.size ? props.labels.emptyAliasSummary : '',
-  ]
-    .filter(Boolean)
-    .join(' · '),
-)
 const visibleRows = computed(() => {
   const query = search.value.trim().toLocaleLowerCase()
   return props.modelValue.flatMap((item, index) =>
@@ -123,41 +114,32 @@ async function focusFirstInvalid(): Promise<void> {
   if (!Number.isFinite(index)) return
   search.value = ''
   await nextTick()
-  const selector = validity.value.emptyIDIndexes.has(index)
-    ? `[data-model-id-index="${index}"]`
-    : props.modelValue[index]?.alias_enabled
-      ? `[data-alias-input-index="${index}"]`
-      : `[data-alias-toggle-index="${index}"]`
+  const item = props.modelValue[index]
+  const selector =
+    validity.value.emptyIDIndexes.has(index) ||
+    (validity.value.conflictIndexes.has(index) && item?.editable_id && !item.alias_enabled)
+      ? `[data-model-id-index="${index}"]`
+      : item?.alias_enabled
+        ? `[data-alias-input-index="${index}"]`
+        : `[data-alias-toggle-index="${index}"]`
   root.value?.querySelector<HTMLInputElement>(selector)?.focus()
 }
 
-defineExpose({ addManual })
+defineExpose({ addManual, focusFirstInvalid })
 </script>
 
 <template>
   <div ref="root" class="model-alias-editor">
-    <div v-if="validity.invalidIndexes.size" class="model-alias-editor__validation">
-      <InlineFeedback tone="danger">{{ validationSummary }}</InlineFeedback>
-      <AppButton variant="link" size="inline" :disabled="disabled" @click="focusFirstInvalid">
-        {{ labels.locateFirstInvalid }}
-      </AppButton>
-    </div>
-
     <div v-if="searchable" class="model-alias-editor__toolbar">
       <label class="model-alias-editor__search">
         <span>{{ labels.searchLabel }}</span>
-        <AppTextInput
+        <AppSearchInput
           v-model="search"
-          type="search"
-          appearance="surface"
-          size="compact"
           :label="labels.search"
           :placeholder="labels.search"
           :clear-label="labels.clearSearch"
           :disabled="disabled"
-        >
-          <template #leading><Search :size="15" /></template>
-        </AppTextInput>
+        />
       </label>
       <span class="model-alias-editor__count" aria-live="polite">
         {{ labels.count(modelValue.length) }}
@@ -303,14 +285,6 @@ defineExpose({ addManual })
 <style scoped>
 .model-alias-editor {
   min-width: 0;
-}
-
-.model-alias-editor__validation {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  margin-bottom: var(--space-3);
 }
 
 .model-alias-editor__toolbar {
@@ -526,7 +500,6 @@ defineExpose({ addManual })
 }
 
 @media (max-width: 640px) {
-  .model-alias-editor__validation,
   .model-alias-editor__toolbar {
     align-items: stretch;
     flex-direction: column;

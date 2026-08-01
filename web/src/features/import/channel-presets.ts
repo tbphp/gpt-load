@@ -61,7 +61,7 @@ export const providerPresetRegistry = [
     mark: 'OR',
     nameKey: 'import.presets.openrouter.name',
     descriptionKey: 'import.presets.openrouter.description',
-    upstream_url: 'https://openrouter.ai/api/v1',
+    upstream_url: 'https://openrouter.ai/api',
     protocols: ['openai-completions'],
   },
   {
@@ -71,7 +71,7 @@ export const providerPresetRegistry = [
     mark: 'SF',
     nameKey: 'import.presets.siliconflow.name',
     descriptionKey: 'import.presets.siliconflow.description',
-    upstream_url: 'https://api.siliconflow.cn/v1',
+    upstream_url: 'https://api.siliconflow.cn',
     protocols: ['openai-completions'],
   },
   {
@@ -81,7 +81,7 @@ export const providerPresetRegistry = [
     mark: 'MO',
     nameKey: 'import.presets.moonshot.name',
     descriptionKey: 'import.presets.moonshot.description',
-    upstream_url: 'https://api.moonshot.cn/v1',
+    upstream_url: 'https://api.moonshot.ai',
     protocols: ['openai-completions'],
   },
 ] as const satisfies readonly ProviderPreset[]

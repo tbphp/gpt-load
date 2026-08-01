@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { Plus, Search, X } from '@lucide/vue'
+import { Plus, X } from '@lucide/vue'
 import { computed, nextTick, onMounted, ref } from 'vue'
+
+import AppSearchInput from './AppSearchInput.vue'
 
 export type SearchableMultiSelectValue = string | number
 
@@ -17,6 +19,7 @@ const props = withDefaults(
     label: string
     searchLabel: string
     searchPlaceholder: string
+    clearSearchLabel: string
     emptyLabel: string
     loadingLabel: string
     selectedLabel: string
@@ -45,7 +48,7 @@ const emit = defineEmits<{ 'update:modelValue': [values: SearchableMultiSelectVa
 
 const query = ref('')
 const pickerOpen = ref(false)
-const searchInput = ref<HTMLInputElement>()
+const searchInput = ref<{ focus: () => void }>()
 const selected = computed(() => new Set(props.modelValue))
 const normalizedQuery = computed(() => query.value.trim().toLocaleLowerCase())
 const pickerVisible = computed(() => props.alwaysOpen || pickerOpen.value)
@@ -164,24 +167,16 @@ onMounted(() => {
         </button>
       </div>
 
-      <label
+      <AppSearchInput
         v-if="searchable"
-        class="searchable-multi-select__search"
-        :for="`${id}-search`"
-        data-input-shell
-      >
-        <span class="sr-only">{{ searchLabel }}</span>
-        <Search :size="15" aria-hidden="true" />
-        <input
-          :id="`${id}-search`"
-          ref="searchInput"
-          v-model="query"
-          data-input-inner
-          type="search"
-          :placeholder="searchPlaceholder"
-          :disabled="disabled || loading"
-        />
-      </label>
+        :id="`${id}-search`"
+        ref="searchInput"
+        v-model="query"
+        :label="searchLabel"
+        :placeholder="searchPlaceholder"
+        :clear-label="clearSearchLabel"
+        :disabled="disabled || loading"
+      />
 
       <p v-if="loading" class="searchable-multi-select__feedback" role="status">
         {{ loadingLabel }}
@@ -219,7 +214,6 @@ onMounted(() => {
 }
 .searchable-multi-select__head,
 .searchable-multi-select__chips,
-.searchable-multi-select__search,
 .searchable-multi-select__option {
   display: flex;
   align-items: center;
@@ -233,29 +227,6 @@ onMounted(() => {
 .searchable-multi-select__option small {
   color: var(--color-text-muted);
   font-size: var(--text-label-xs);
-}
-.searchable-multi-select__search {
-  min-height: var(--control-md);
-  gap: var(--space-2);
-  border: 1px solid var(--color-border-control);
-  border-radius: var(--radius-control);
-  background: var(--color-surface-sunken);
-  padding: 0 var(--space-3);
-  color: var(--color-text-muted);
-}
-.searchable-multi-select--compact .searchable-multi-select__search {
-  min-height: var(--control-compact);
-  padding-inline: 10px;
-  font-size: var(--text-sm);
-}
-.searchable-multi-select__search input {
-  width: 100%;
-  min-width: 0;
-  border: 0;
-  outline: 0;
-  background: transparent;
-  color: var(--color-text);
-  font: inherit;
 }
 .searchable-multi-select__chips {
   flex-wrap: wrap;

@@ -1,10 +1,9 @@
 <script setup lang="ts">
-import { Search } from '@lucide/vue'
 import { computed, ref, watch } from 'vue'
 
 import AppButton from '@/components/ui/AppButton.vue'
 import AppDrawer from '@/components/ui/AppDrawer.vue'
-import AppTextInput from '@/components/ui/AppTextInput.vue'
+import AppSearchInput from '@/components/ui/AppSearchInput.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import SegmentedControl from '@/components/ui/SegmentedControl.vue'
@@ -130,17 +129,13 @@ function confirm(): void {
     @update:open="emit('update:open', $event)"
   >
     <template #filters>
-      <AppTextInput
+      <AppSearchInput
         v-model="search"
         class="model-discovery-drawer__search"
-        type="search"
-        appearance="surface"
-        size="compact"
         :label="labels.search"
         :placeholder="labels.search"
-      >
-        <template #leading><Search :size="15" /></template>
-      </AppTextInput>
+        :clear-label="labels.clearSearch"
+      />
       <SegmentedControl
         :model-value="filter"
         :label="labels.filterLabel"

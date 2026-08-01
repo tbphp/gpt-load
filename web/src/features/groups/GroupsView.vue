@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowRight, KeyRound, Layers3, Plus, Search, TriangleAlert, X } from '@lucide/vue'
+import { ArrowRight, KeyRound, Layers3, Plus, Search, TriangleAlert } from '@lucide/vue'
 import { useQuery } from '@tanstack/vue-query'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -22,6 +22,7 @@ import LedgerRecordList from '@/components/collection/LedgerRecordList.vue'
 import LedgerSheet from '@/components/layout/LedgerSheet.vue'
 import PageFrame from '@/components/layout/PageFrame.vue'
 import AppButton from '@/components/ui/AppButton.vue'
+import AppSearchInput from '@/components/ui/AppSearchInput.vue'
 import AppSelect from '@/components/ui/AppSelect.vue'
 import CopyChip from '@/components/ui/CopyChip.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
@@ -278,27 +279,14 @@ onBeforeUnmount(() => {
               <span class="collection-filter-label">
                 {{ t('groups.collection.filters.searchLabel') }}
               </span>
-              <span class="collection-filter-search-control">
-                <Search :size="15" aria-hidden="true" />
-                <input
-                  v-model="searchDraft"
-                  class="collection-filter-control"
-                  type="search"
-                  :aria-label="t('groups.collection.filters.searchLabel')"
-                  :placeholder="t('groups.collection.filters.searchPlaceholder')"
-                  @input="scheduleSearch"
-                />
-                <IconButton
-                  v-if="searchDraft"
-                  class="collection-filter-search-clear"
-                  size="xs"
-                  variant="ghost"
-                  :label="t('groups.collection.filters.clearSearch')"
-                  @click="clearSearch"
-                >
-                  <X :size="14" aria-hidden="true" />
-                </IconButton>
-              </span>
+              <AppSearchInput
+                v-model="searchDraft"
+                :label="t('groups.collection.filters.searchLabel')"
+                :placeholder="t('groups.collection.filters.searchPlaceholder')"
+                :clear-label="t('groups.collection.filters.clearSearch')"
+                @update:model-value="scheduleSearch"
+                @clear="clearSearch"
+              />
             </label>
 
             <label class="collection-filter-field collection-filter-field--monospace">

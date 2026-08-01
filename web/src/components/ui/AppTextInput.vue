@@ -11,7 +11,6 @@ const props = withDefaults(
     modelValue: string
     label: string
     id?: string
-    type?: 'text' | 'search'
     placeholder?: string
     disabled?: boolean
     invalid?: boolean
@@ -25,7 +24,6 @@ const props = withDefaults(
   }>(),
   {
     id: undefined,
-    type: 'text',
     placeholder: undefined,
     disabled: false,
     invalid: false,
@@ -75,7 +73,7 @@ defineExpose({ focus })
       ref="input"
       v-bind="attrs"
       :value="modelValue"
-      :type="type"
+      type="text"
       :placeholder="placeholder"
       :disabled="disabled"
       :aria-invalid="invalid || undefined"

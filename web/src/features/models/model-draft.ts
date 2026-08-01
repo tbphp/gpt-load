@@ -33,9 +33,6 @@ export interface ModelAliasEditorLabels {
   count: (count: number) => string
   empty: string
   noMatches: string
-  conflictSummary: string
-  emptyAliasSummary: string
-  locateFirstInvalid: string
   nameConflict: (name: string) => string
 }
 
@@ -46,6 +43,7 @@ export interface ModelDiscoveryDrawerLabels {
   loading: string
   notice: string
   search: string
+  clearSearch: string
   filterLabel: string
   filterUnadded: string
   filterAll: string
@@ -59,6 +57,27 @@ export interface ModelDiscoveryDrawerLabels {
   retry: string
   cancel: string
   confirm: string
+}
+
+export function readModelNameConflicts(value: unknown): ModelNameConflict[] {
+  if (typeof value !== 'object' || value === null || !('conflicts' in value)) return []
+  const conflicts = (value as { conflicts?: unknown }).conflicts
+  if (!Array.isArray(conflicts)) return []
+
+  return conflicts.flatMap((item) => {
+    if (
+      typeof item !== 'object' ||
+      item === null ||
+      typeof (item as { client_model?: unknown }).client_model !== 'string' ||
+      !Array.isArray((item as { indexes?: unknown }).indexes) ||
+      !(item as { indexes: unknown[] }).indexes.every(
+        (index) => typeof index === 'number' && Number.isSafeInteger(index) && index >= 0,
+      )
+    ) {
+      return []
+    }
+    return [item as ModelNameConflict]
+  })
 }
 
 export function normalizeModel(model: GroupModelUpdateDto): GroupModelUpdateDto | undefined {

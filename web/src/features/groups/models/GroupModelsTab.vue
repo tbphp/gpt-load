@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
-import { Info, Plus, RefreshCw } from '@lucide/vue'
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { Plus, RefreshCw } from '@lucide/vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { ApiError, RequestCancelledError } from '@/api/errors'
@@ -16,15 +16,16 @@ import { invalidateGroupSummary } from '@/app/resources/groups'
 import { useUnsavedChanges } from '@/app/unsaved-changes'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppConfirmDialog from '@/components/ui/AppConfirmDialog.vue'
-import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import PanelHeader from '@/components/ui/PanelHeader.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import StickySaveBar from '@/components/ui/StickySaveBar.vue'
 import ModelAliasEditor from '@/features/models/ModelAliasEditor.vue'
+import ModelDiscoveryNotice from '@/features/models/ModelDiscoveryNotice.vue'
 import ModelDiscoveryDrawer from '@/features/models/ModelDiscoveryDrawer.vue'
-import type {
-  ModelAliasEditorLabels,
-  ModelDiscoveryDrawerLabels,
+import {
+  readModelNameConflicts,
+  type ModelAliasEditorLabels,
+  type ModelDiscoveryDrawerLabels,
 } from '@/features/models/model-draft'
 
 import {
@@ -44,10 +45,14 @@ const query = useQuery(groupModelsQueryOptions(client, () => props.groupId))
 const saved = ref<ModelDraftItem[]>([])
 const draft = ref<ModelDraftItem[]>([])
 const pending = ref<'discover' | 'save' | null>(null)
-const error = ref('')
+const discoveryError = ref('')
+const saveError = ref('')
 const serverConflicts = ref<ModelNameConflict[]>([])
 const drawerOpen = ref(false)
-const modelEditor = ref<{ addManual: () => Promise<void> }>()
+const modelEditor = ref<{
+  addManual: () => Promise<void>
+  focusFirstInvalid: () => Promise<void>
+}>()
 const emptyConfirmOpen = ref(false)
 const candidates = ref<string[]>([])
 const savedFeedback = ref(false)
@@ -79,9 +84,16 @@ const invalidRowCount = computed(
       ...emptyIDIndexes.value,
     ]).size,
 )
-const saveBarError = computed(() =>
-  conflicts.value.length ? t('group.modelEditor.conflictSummary') : error.value,
+const validationSummary = computed(() =>
+  [
+    conflicts.value.length ? t('group.modelEditor.conflictSummary') : '',
+    emptyIDIndexes.value.size ? t('group.modelEditor.manualIdRequired') : '',
+    emptyAliasIndexes.value.size ? t('group.modelEditor.emptyAliasSummary') : '',
+  ]
+    .filter(Boolean)
+    .join(' · '),
 )
+const saveBarError = computed(() => validationSummary.value || saveError.value)
 const dirty = computed(
   () =>
     !sameModels(saved.value, draft.value) ||
@@ -127,9 +139,6 @@ const aliasEditorLabels = computed<ModelAliasEditorLabels>(() => ({
       : t('group.modelEditor.total', { count }),
   empty: t('group.modelEditor.empty'),
   noMatches: t('group.modelEditor.noMatches'),
-  conflictSummary: t('group.modelEditor.conflictSummary'),
-  emptyAliasSummary: t('group.modelEditor.emptyAliasSummary'),
-  locateFirstInvalid: t('group.modelEditor.locateFirstInvalid'),
   nameConflict: (name) => t('group.modelEditor.nameConflict', { name }),
 }))
 const discoveryDrawerLabels = computed<ModelDiscoveryDrawerLabels>(() => ({
@@ -139,6 +148,7 @@ const discoveryDrawerLabels = computed<ModelDiscoveryDrawerLabels>(() => ({
   loading: t('group.modelEditor.drawer.loading'),
   notice: t('group.modelEditor.discoveryNotice'),
   search: t('group.modelEditor.drawer.search'),
+  clearSearch: t('group.modelEditor.clearSearch'),
   filterLabel: t('group.modelEditor.drawer.filterLabel'),
   filterUnadded: t('group.modelEditor.drawer.filterAvailable'),
   filterAll: t('group.modelEditor.drawer.filterAll'),
@@ -167,12 +177,14 @@ watch(
     saved.value = next
     draft.value = next.map((item) => ({ ...item }))
     serverConflicts.value = []
+    saveError.value = ''
   },
   { immediate: true },
 )
 
 function updateModels(models: ModelDraftItem[]): void {
   serverConflicts.value = []
+  saveError.value = ''
   const previousByKey = new Map(draft.value.map((item) => [item.key, item] as const))
   draft.value = models.map((item) => {
     const previous = previousByKey.get(item.key)
@@ -207,7 +219,7 @@ function requestDiscovery(): void {
   if (pending.value) return
   drawerOpen.value = true
   candidates.value = []
-  error.value = ''
+  discoveryError.value = ''
   void runDiscovery()
 }
 
@@ -222,7 +234,7 @@ async function runDiscovery(): Promise<void> {
     candidates.value = [...new Set(result.models.map((id) => id.trim()).filter(Boolean))]
   } catch (cause: unknown) {
     if (cause instanceof RequestCancelledError || controller !== active) return
-    error.value =
+    discoveryError.value =
       cause instanceof ApiError && cause.code === 'NO_ACTIVE_UPSTREAM_KEY'
         ? t('group.modelEditor.noActiveKey.title')
         : t('group.modelEditor.discoveryFailed')
@@ -247,6 +259,8 @@ function confirmCandidates(selectedCandidates: string[]): void {
       key: nextKey++,
     }))
   draft.value = [...draft.value, ...additions]
+  serverConflicts.value = []
+  saveError.value = ''
   drawerOpen.value = false
 }
 
@@ -265,7 +279,8 @@ async function save(): Promise<void> {
   controller = active
   pending.value = 'save'
   clearSavedFeedback()
-  error.value = ''
+  saveError.value = ''
+  let shouldFocusInvalid = false
   try {
     const result = await replaceGroupModelsResource(
       client,
@@ -279,29 +294,39 @@ async function save(): Promise<void> {
     const next = createModelDraft(result.items).map((item) => ({ ...item, key: nextKey++ }))
     saved.value = next
     draft.value = next.map((item) => ({ ...item }))
+    serverConflicts.value = []
     emptyConfirmOpen.value = false
     cacheGroupModels(queryClient, props.groupId, result)
     await invalidateGroupSummary(queryClient, props.groupId)
     showSavedFeedback()
   } catch (cause: unknown) {
     if (cause instanceof RequestCancelledError || controller !== active) return
-    if (cause instanceof ApiError && cause.code === 'MODEL_NAME_CONFLICT') {
-      const data = cause.data as { conflicts?: ModelNameConflict[] }
-      if (Array.isArray(data.conflicts)) serverConflicts.value = data.conflicts
+    const nextConflicts =
+      cause instanceof ApiError && cause.code === 'MODEL_NAME_CONFLICT'
+        ? readModelNameConflicts(cause.data)
+        : []
+    if (nextConflicts.length) {
+      serverConflicts.value = nextConflicts
+      shouldFocusInvalid = true
+    } else {
+      saveError.value = t('group.modelEditor.saveFailed')
     }
-    error.value = t('group.modelEditor.saveFailed')
   } finally {
     if (controller === active) {
       controller = undefined
       pending.value = null
     }
   }
+  if (shouldFocusInvalid) {
+    await nextTick()
+    await modelEditor.value?.focusFirstInvalid()
+  }
 }
 
 function discard(): void {
   clearSavedFeedback()
   serverConflicts.value = []
-  error.value = ''
+  saveError.value = ''
   draft.value = saved.value.map((item) => ({ ...item }))
 }
 
@@ -356,7 +381,6 @@ onBeforeUnmount(() => {
       @retry="query.refetch()"
     />
     <template v-else-if="query.data.value">
-      <InlineFeedback v-if="error" tone="danger">{{ error }}</InlineFeedback>
       <ModelAliasEditor
         ref="modelEditor"
         :model-value="draft"
@@ -372,17 +396,14 @@ onBeforeUnmount(() => {
           </span>
         </template>
       </ModelAliasEditor>
-      <div class="group-models__note">
-        <Info :size="16" aria-hidden="true" />
-        <span>{{ t('group.modelEditor.discoveryNotice') }}</span>
-      </div>
+      <ModelDiscoveryNotice :message="t('group.modelEditor.discoveryNotice')" />
 
       <ModelDiscoveryDrawer
         :open="drawerOpen"
         :candidates="candidates"
         :current-ids="currentModelIDs"
         :loading="pending === 'discover'"
-        :error="error"
+        :error="discoveryError"
         :labels="discoveryDrawerLabels"
         :dismissible="pending !== 'discover'"
         @update:open="drawerOpen = $event"
@@ -412,6 +433,8 @@ onBeforeUnmount(() => {
         :pending="pending === 'save'"
         :status="saveBarError ? 'error' : savedFeedback ? 'saved' : 'idle'"
         :error="saveBarError"
+        :error-action-label="invalidRowCount ? t('group.modelEditor.locateFirstInvalid') : ''"
+        @error-action="modelEditor?.focusFirstInvalid()"
         ><template #status
           ><div>
             <strong>
@@ -483,22 +506,6 @@ onBeforeUnmount(() => {
   border-radius: 50%;
   background: currentColor;
   content: '';
-}
-
-.group-models__note {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  margin-top: 18px;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: 8px;
-  background: var(--color-surface-sunken);
-  color: var(--color-text-muted);
-  padding: 10px 12px;
-  font-size: var(--text-sm);
-}
-.group-models__note > svg {
-  flex: none;
 }
 
 @media (max-width: 800px) {

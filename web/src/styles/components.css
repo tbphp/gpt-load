@@ -128,7 +128,13 @@
   padding: 8px 10px;
   color: var(--color-danger);
   line-height: var(--line-normal);
-  pointer-events: none;
+  pointer-events: auto;
+}
+
+.sticky-save-bar__error .app-button {
+  flex: none;
+  color: inherit;
+  font-weight: 600;
 }
 
 .sticky-save-bar--error-floating .sticky-save-bar__error svg {

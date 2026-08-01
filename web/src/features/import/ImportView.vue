@@ -24,7 +24,7 @@ const operationOwner = useImportOperationOwner()
 const { t } = useI18n()
 const recoveredDraft = ref(recovery.consume())
 const rawMode = computed(() => route.query.mode)
-const hasFixedTargetIntent = computed(() =>
+const hasGroupContext = computed(() =>
   Object.prototype.hasOwnProperty.call(route.query, 'group_id'),
 )
 const operationMode = operationOwner.operationMode
@@ -32,8 +32,7 @@ const modeOptions = computed(() => [
   {
     value: 'new',
     label: t('import.mode.new'),
-    disabled:
-      hasFixedTargetIntent.value || (operationMode.value !== null && operationMode.value !== 'new'),
+    disabled: operationMode.value !== null && operationMode.value !== 'new',
   },
   {
     value: 'existing',
@@ -43,7 +42,7 @@ const modeOptions = computed(() => [
 ])
 const activeMode = computed<'new' | 'existing'>(() => {
   if (operationMode.value) return operationMode.value
-  if (hasFixedTargetIntent.value) return 'existing'
+  if (hasGroupContext.value) return 'existing'
   if (recoveredDraft.value) return recoveredDraft.value.mode
   return rawMode.value === 'existing' ? 'existing' : 'new'
 })
@@ -55,7 +54,7 @@ const recoveredExistingDraft = computed<ExistingGroupImportDraft | null>(() =>
 )
 
 if (!operationMode.value) {
-  if (hasFixedTargetIntent.value) {
+  if (hasGroupContext.value) {
     if (rawMode.value !== 'existing') {
       void router.replace(importLocation({ mode: 'existing', group_id: route.query.group_id }))
     }
@@ -79,7 +78,7 @@ watch(
       void router.replace(
         importLocation({
           mode,
-          ...(mode === 'existing' && hasFixedTargetIntent.value
+          ...(mode === 'existing' && hasGroupContext.value
             ? { group_id: route.query.group_id }
             : {}),
         }),
@@ -104,7 +103,7 @@ function updateMode(mode: string): void {
 <template>
   <PageFrame aria-labelledby="import-page-title">
     <LedgerSheet class="import-page">
-      <PageHeader id="import-page-title" :title="t('import.title')" appearance="ledger">
+      <PageHeader id="import-page-title" :title="t('import.title')">
         <template #actions>
           <SegmentedControl
             :model-value="activeMode"
@@ -124,7 +123,6 @@ function updateMode(mode: string): void {
 <style scoped>
 .import-page {
   min-height: calc(100vh - 143px);
-  line-height: var(--line-editorial);
 }
 
 @media (max-width: 680px) {

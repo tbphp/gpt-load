@@ -130,14 +130,15 @@ function toggleProtocol(
 }
 
 .import-connection > header h2 {
-  font-family: var(--font-serif);
   font-size: var(--title-section);
-  font-weight: 500;
+  font-weight: 650;
+  letter-spacing: -0.01em;
 }
 
 .import-connection__fields {
   display: grid;
-  grid-template-columns: minmax(220px, 0.72fr) minmax(340px, 1.28fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
   gap: 18px;
   margin-top: var(--space-3);
 }
@@ -228,11 +229,6 @@ function toggleProtocol(
   font-size: 11px;
   font-weight: 800;
   line-height: 1;
-}
-
-.import-connection__protocol-grid input:focus-visible {
-  outline: 2px solid var(--color-focus);
-  outline-offset: 2px;
 }
 
 .import-connection__protocol-grid strong,

@@ -62,54 +62,6 @@ withDefaults(
   font-size: var(--text-meta);
 }
 
-.collection-filter-search-control {
-  position: relative;
-  display: block;
-  min-width: 0;
-}
-
-.collection-filter-search-control > svg {
-  position: absolute;
-  top: 50%;
-  left: 11px;
-  transform: translateY(-50%);
-  color: var(--color-text-faint);
-  pointer-events: none;
-}
-
-.collection-filter-control {
-  width: 100%;
-  min-width: 0;
-  height: 32px;
-  border: 1px solid var(--color-border-control);
-  border-radius: var(--radius-control);
-  appearance: none;
-  background: var(--color-surface);
-  color: var(--color-text);
-  padding: 0 10px;
-  font: inherit;
-  font-size: var(--text-meta);
-}
-
-.collection-filter-control:hover {
-  border-color: var(--color-text-faint);
-}
-
-.collection-filter-control::placeholder {
-  color: var(--color-text-faint);
-}
-
-.collection-filter-search-control .collection-filter-control {
-  padding-right: 38px;
-  padding-left: 34px;
-}
-
-.collection-filter-search-clear {
-  position: absolute;
-  top: 2px;
-  right: 3px;
-}
-
 .collection-filter-field .app-select__trigger {
   width: 100%;
   height: 32px;
@@ -141,15 +93,7 @@ withDefaults(
     grid-column: 1 / -1;
   }
 
-  .collection-filter-control,
   .collection-filter-field .app-select__trigger {
-    height: var(--touch-target);
-  }
-
-  .collection-filter-search-clear {
-    top: 0;
-    right: 0;
-    width: var(--touch-target);
     height: var(--touch-target);
   }
 
@@ -167,9 +111,7 @@ withDefaults(
     grid-column: auto;
   }
 
-  .collection-filter-control,
-  .collection-filter-field .app-select__trigger,
-  .collection-filter-search-clear {
+  .collection-filter-field .app-select__trigger {
     font-size: 16px;
   }
 

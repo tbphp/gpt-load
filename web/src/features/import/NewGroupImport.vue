@@ -22,11 +22,14 @@ import { useUnsavedChanges } from '@/app/unsaved-changes'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppDialog from '@/components/ui/AppDialog.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
+import PanelHeader from '@/components/ui/PanelHeader.vue'
 import ModelAliasEditor from '@/features/models/ModelAliasEditor.vue'
+import ModelDiscoveryNotice from '@/features/models/ModelDiscoveryNotice.vue'
 import ModelDiscoveryDrawer from '@/features/models/ModelDiscoveryDrawer.vue'
 import {
   findModelNameConflicts,
   modelDraftValidity,
+  readModelNameConflicts,
   type ModelAliasEditorLabels,
   type ModelDiscoveryDrawerLabels,
   type ModelNameConflict,
@@ -96,7 +99,10 @@ const discoveryCandidates = ref<string[]>([])
 const discoveryErrorKey = ref('')
 const discoveryLoading = ref(false)
 const discoveryDrawerOpen = ref(false)
-const modelEditor = ref<{ addManual: () => Promise<void> }>()
+const modelEditor = ref<{
+  addManual: () => Promise<void>
+  focusFirstInvalid: () => Promise<void>
+}>()
 const errorKey = ref('')
 const submissionError = ref<HTMLElement>()
 const conflict = ref<UpstreamUrlConflictData | null>(
@@ -140,8 +146,6 @@ const operationResourceIdentity = computed(() => {
 const canRetryOperation = computed(() => activeMutation.value?.canRetry.value ?? false)
 let discoveryController: AbortController | undefined
 let discoveryRequestIdentity = 0
-const connectionRevision = ref(0)
-const lastDiscoveryRevision = ref<number | null>(null)
 let componentActive = true
 
 const keyAnalysis = computed(() => analyzeKeys(draft.keys))
@@ -170,11 +174,17 @@ const modelConflicts = computed(() =>
     : findModelNameConflicts(toGroupModels(draft.models)),
 )
 const modelValidity = computed(() => modelDraftValidity(draft.models, modelConflicts.value))
-const discoveryStale = computed(
-  () =>
-    lastDiscoveryRevision.value !== null &&
-    lastDiscoveryRevision.value !== connectionRevision.value &&
-    draft.models.some((model) => model.source === 'discovered'),
+const modelValidationSummary = computed(() =>
+  [
+    modelConflicts.value.length ? t('import.models.conflictSummary') : '',
+    modelValidity.value.emptyIDIndexes.size ? t('import.models.manualIdRequired') : '',
+    modelValidity.value.emptyAliasIndexes.size ? t('import.models.emptyAliasSummary') : '',
+  ]
+    .filter(Boolean)
+    .join(' · '),
+)
+const submissionErrorMessage = computed(
+  () => modelValidationSummary.value || (errorKey.value ? t(errorKey.value) : ''),
 )
 const canDiscover = computed(
   () =>
@@ -192,7 +202,6 @@ const canCreate = computed(
     !protocolsError.value &&
     keyAnalysis.value.nonEmptyCount > 0 &&
     !keyAnalysis.value.tooManyKeys &&
-    !discoveryStale.value &&
     modelValidity.value.invalidIndexes.size === 0,
 )
 const currentModelIDs = computed(() => draft.models.map(({ id }) => id.trim()).filter(Boolean))
@@ -228,9 +237,6 @@ const aliasEditorLabels = computed<ModelAliasEditorLabels>(() => ({
   count: (count) => t('import.models.count', { count }),
   empty: t('import.models.empty'),
   noMatches: t('import.models.noMatches'),
-  conflictSummary: t('import.models.conflictSummary'),
-  emptyAliasSummary: t('import.models.emptyAliasSummary'),
-  locateFirstInvalid: t('import.models.locateFirstInvalid'),
   nameConflict: (name) => t('import.models.nameConflict', { name }),
 }))
 const discoveryDrawerLabels = computed<ModelDiscoveryDrawerLabels>(() => ({
@@ -240,6 +246,7 @@ const discoveryDrawerLabels = computed<ModelDiscoveryDrawerLabels>(() => ({
   loading: t('import.models.drawer.loading'),
   notice: t('import.models.drawer.notice'),
   search: t('import.models.drawer.search'),
+  clearSearch: t('import.models.clearSearch'),
   filterLabel: t('import.models.drawer.filterLabel'),
   filterUnadded: t('import.models.drawer.filterUnadded'),
   filterAll: t('import.models.drawer.filterAll'),
@@ -281,9 +288,15 @@ function invalidateDiscovery(): void {
 }
 
 watch([() => draft.upstream_url, () => draft.keys, () => draft.protocols.join('\u0000')], () => {
-  connectionRevision.value += 1
   invalidateDiscovery()
 })
+
+watch(
+  () => JSON.stringify(snapshotDraft()),
+  () => {
+    errorKey.value = ''
+  },
+)
 
 function applyPreset(id: ImportDraft['preset_id']): void {
   if (payloadLocked.value) return
@@ -324,25 +337,22 @@ function requestDiscovery(): void {
   const controller = new AbortController()
   discoveryController = controller
   const identity = ++discoveryRequestIdentity
-  const revision = connectionRevision.value
   discoveryDrawerOpen.value = true
   discoveryCandidates.value = []
   discoveryErrorKey.value = ''
   discoveryLoading.value = true
-  void runDiscovery(request, controller, identity, revision)
+  void runDiscovery(request, controller, identity)
 }
 
 async function runDiscovery(
   request: { upstream_url: string; protocols: GroupProtocol[]; keys: string },
   controller: AbortController,
   identity: number,
-  revision: number,
 ): Promise<void> {
   try {
     const result = await discoverModels(api, request, controller.signal)
     if (discoveryRequestIdentity !== identity || discoveryController !== controller) return
     discoveryCandidates.value = [...new Set(result.models.map((id) => id.trim()).filter(Boolean))]
-    lastDiscoveryRevision.value = revision
   } catch (cause: unknown) {
     if (
       cause instanceof RequestCancelledError ||
@@ -381,26 +391,6 @@ function buildCreateBody(confirmSameURL: boolean): GroupCreateRequest {
     keys: draft.keys,
     confirm_same_upstream_url: confirmSameURL,
   }
-}
-
-function readServerModelConflicts(value: unknown): ModelNameConflict[] {
-  if (typeof value !== 'object' || value === null || !('conflicts' in value)) return []
-  const conflicts = (value as { conflicts?: unknown }).conflicts
-  if (!Array.isArray(conflicts)) return []
-  return conflicts.flatMap((item) => {
-    if (
-      typeof item !== 'object' ||
-      item === null ||
-      typeof (item as { client_model?: unknown }).client_model !== 'string' ||
-      !Array.isArray((item as { indexes?: unknown }).indexes) ||
-      !(item as { indexes: unknown[] }).indexes.every(
-        (index) => typeof index === 'number' && Number.isSafeInteger(index) && index >= 0,
-      )
-    ) {
-      return []
-    }
-    return [item as ModelNameConflict]
-  })
 }
 
 async function finishSuccess(groupID: number, kind: 'create' | 'append'): Promise<void> {
@@ -456,7 +446,14 @@ async function executeCreateOperation(): Promise<void> {
     return
   }
   if (cause instanceof ApiError && cause.code === 'MODEL_NAME_CONFLICT') {
-    serverModelConflicts.value = readServerModelConflicts(cause.data)
+    const conflicts = readModelNameConflicts(cause.data)
+    if (conflicts.length) {
+      serverModelConflicts.value = conflicts
+      createOperation.reset()
+      await nextTick()
+      submissionError.value?.focus()
+      return
+    }
   }
   createOperation.reset()
   await reportSubmissionError('import.createFailed')
@@ -586,73 +583,26 @@ onBeforeUnmount(() => {
 
     <KeyTextarea v-model="draft.keys" :disabled="payloadLocked" />
 
-    <section
-      class="new-group-import__models"
-      :class="{ 'new-group-import__models--stale': discoveryStale }"
-      aria-labelledby="import-models-heading"
-    >
-      <header class="new-group-import__models-header">
-        <div>
-          <h2 id="import-models-heading">{{ t('import.models.title') }}</h2>
-          <p>{{ t('import.models.description') }}</p>
-        </div>
-        <div class="new-group-import__model-actions">
+    <section class="new-group-import__models" aria-labelledby="import-models-heading">
+      <PanelHeader
+        heading-id="import-models-heading"
+        :title="t('import.models.title')"
+        :description="t('import.models.description')"
+      >
+        <template #actions>
           <AppButton
             variant="secondary"
-            size="sm"
             :busy="discoveryLoading"
             :disabled="!canDiscover"
             @click="requestDiscovery"
           >
             <RefreshCw :size="16" aria-hidden="true" />{{ t('import.discover') }}
           </AppButton>
-          <AppButton size="sm" :disabled="payloadLocked" @click="addManualModel">
+          <AppButton :disabled="payloadLocked" @click="addManualModel">
             <Plus :size="16" aria-hidden="true" />{{ t('import.models.add') }}
           </AppButton>
-        </div>
-      </header>
-
-      <div class="new-group-import__models-status" aria-live="polite">
-        <span
-          :class="{
-            'new-group-import__models-status-badge--warning': discoveryStale,
-            'new-group-import__models-status-badge--success':
-              !discoveryStale && lastDiscoveryRevision !== null,
-          }"
-        >
-          {{
-            t(
-              discoveryStale
-                ? 'import.models.discoveryStatus.stale'
-                : lastDiscoveryRevision !== null
-                  ? 'import.models.discoveryStatus.complete'
-                  : 'import.models.optional',
-            )
-          }}
-        </span>
-        <p>
-          {{
-            t(
-              discoveryStale
-                ? 'import.models.discoveryStatus.changed'
-                : lastDiscoveryRevision !== null
-                  ? 'import.models.discoveryStatus.completeDescription'
-                  : 'import.models.optionalDescription',
-              { count: draft.models.length },
-            )
-          }}
-        </p>
-      </div>
-
-      <InlineFeedback
-        v-if="discoveryStale"
-        class="new-group-import__stale"
-        tone="warning"
-        appearance="ledger"
-        glyph="i"
-      >
-        {{ t('import.models.discoveryStatus.staleNotice') }}
-      </InlineFeedback>
+        </template>
+      </PanelHeader>
 
       <ModelAliasEditor
         ref="modelEditor"
@@ -671,14 +621,7 @@ onBeforeUnmount(() => {
         </template>
       </ModelAliasEditor>
 
-      <InlineFeedback
-        class="new-group-import__model-note"
-        tone="neutral"
-        appearance="ledger-hint"
-        glyph="i"
-      >
-        {{ t('import.models.discoveryNotice') }}
-      </InlineFeedback>
+      <ModelDiscoveryNotice :message="t('import.models.discoveryNotice')" />
       <InlineFeedback
         class="new-group-import__model-hint"
         tone="info"
@@ -689,8 +632,25 @@ onBeforeUnmount(() => {
       </InlineFeedback>
     </section>
 
-    <div v-if="errorKey" ref="submissionError" class="new-group-import__error" tabindex="-1">
-      <InlineFeedback tone="danger">{{ t(errorKey) }}</InlineFeedback>
+    <div
+      v-if="submissionErrorMessage"
+      ref="submissionError"
+      class="new-group-import__error"
+      tabindex="-1"
+    >
+      <InlineFeedback tone="danger" appearance="ledger">
+        <span class="new-group-import__error-content">
+          <span>{{ submissionErrorMessage }}</span>
+          <AppButton
+            v-if="modelValidity.invalidIndexes.size"
+            variant="link"
+            size="inline"
+            @click="modelEditor?.focusFirstInvalid()"
+          >
+            {{ t('import.models.locateFirstInvalid') }}
+          </AppButton>
+        </span>
+      </InlineFeedback>
     </div>
 
     <footer class="new-group-import__actions">
@@ -768,98 +728,6 @@ onBeforeUnmount(() => {
   padding: 22px 0 var(--space-6);
 }
 
-.new-group-import__models-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--space-4);
-  padding-bottom: var(--space-3);
-}
-
-.new-group-import__model-actions {
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: 7px;
-}
-
-.new-group-import__models-header h2,
-.new-group-import__models-header p,
-.new-group-import__models-status p {
-  margin: 0;
-}
-
-.new-group-import__models-header h2 {
-  font-family: var(--font-serif);
-  font-size: var(--title-section);
-  font-weight: 500;
-}
-
-.new-group-import__models-header p {
-  margin-top: 3px;
-  color: var(--color-text-faint);
-  font-size: 10.8px;
-}
-
-.new-group-import__models-status {
-  display: flex;
-  min-height: 58px;
-  align-items: center;
-  gap: 9px;
-  border-bottom: 1px solid var(--color-border-control);
-  padding: var(--space-3) 0;
-  color: var(--color-text-faint);
-  font-size: 11px;
-}
-
-.new-group-import__models-status > span {
-  display: inline-flex;
-  min-height: 23px;
-  align-items: center;
-  gap: 6px;
-  flex: none;
-  border-radius: 999px;
-  background: var(--color-neutral-bg);
-  color: var(--color-neutral);
-  padding: 2px var(--space-2);
-  font-size: var(--text-label-xs);
-  font-weight: 590;
-  white-space: nowrap;
-}
-
-.new-group-import__models-status > span::before {
-  width: 6px;
-  height: 6px;
-  flex: none;
-  border-radius: 50%;
-  background: currentColor;
-  content: '';
-}
-
-.new-group-import__models-status-badge--success {
-  background: var(--color-success-bg);
-  color: var(--color-success);
-}
-
-.new-group-import__models-status-badge--warning {
-  background: var(--color-warning-bg);
-  color: var(--color-warning);
-}
-
-.new-group-import__stale {
-  margin: var(--space-3) 0;
-}
-
-.new-group-import__models--stale .new-group-import__models-status {
-  border-bottom-color: var(--color-warning);
-}
-
-.new-group-import__models--stale .new-group-import__model-editor,
-.new-group-import__models--stale .new-group-import__model-note {
-  opacity: 0.5;
-  pointer-events: none;
-}
-
 .new-group-import__source {
   display: inline-flex;
   align-items: center;
@@ -875,12 +743,6 @@ onBeforeUnmount(() => {
   border-radius: 50%;
   background: var(--color-success);
   content: '';
-}
-
-.new-group-import__model-note {
-  margin-top: 15px;
-  border-top: 1px solid var(--color-border-subtle);
-  padding: 14px 0 4px;
 }
 
 .new-group-import__model-hint {
@@ -936,7 +798,19 @@ onBeforeUnmount(() => {
 
 .new-group-import__error {
   margin-top: var(--space-5);
-  outline: none;
+}
+
+.new-group-import__error-content {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.new-group-import__error-content :deep(.app-button) {
+  flex: none;
+  color: inherit;
+  font-weight: 600;
 }
 
 .new-group-import__actions > div {

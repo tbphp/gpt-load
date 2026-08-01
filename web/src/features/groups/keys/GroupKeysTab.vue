@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { KeyRound, Plus, Search, X } from '@lucide/vue'
+import { KeyRound, Plus, Search } from '@lucide/vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -30,8 +30,8 @@ import CollectionStatusSummary from '@/components/collection/CollectionStatusSum
 import LedgerRecordList from '@/components/collection/LedgerRecordList.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppConfirmDialog from '@/components/ui/AppConfirmDialog.vue'
+import AppSearchInput from '@/components/ui/AppSearchInput.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
-import IconButton from '@/components/ui/IconButton.vue'
 import PanelHeader from '@/components/ui/PanelHeader.vue'
 import PaginationBar from '@/components/ui/PaginationBar.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
@@ -490,27 +490,14 @@ onBeforeUnmount(() => {
       >
         <label class="collection-filter-field collection-filter-field--search">
           <span class="collection-filter-label">{{ t('group.keys.filters.search') }}</span>
-          <span class="collection-filter-search-control">
-            <Search :size="15" aria-hidden="true" />
-            <input
-              v-model="searchDraft"
-              class="collection-filter-control"
-              type="search"
-              :aria-label="t('group.keys.filters.search')"
-              :placeholder="t('group.keys.filters.placeholder')"
-              @input="scheduleSearch"
-            />
-            <IconButton
-              v-if="searchDraft"
-              class="collection-filter-search-clear"
-              size="xs"
-              variant="ghost"
-              :label="t('group.keys.filters.clear')"
-              @click="clearSearch"
-            >
-              <X :size="14" aria-hidden="true" />
-            </IconButton>
-          </span>
+          <AppSearchInput
+            v-model="searchDraft"
+            :label="t('group.keys.filters.search')"
+            :placeholder="t('group.keys.filters.placeholder')"
+            :clear-label="t('group.keys.filters.clear')"
+            @update:model-value="scheduleSearch"
+            @clear="clearSearch"
+          />
         </label>
         <template #result>
           <span aria-live="polite">

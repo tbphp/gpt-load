@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { KeyRound, Plus, Search, TriangleAlert, X } from '@lucide/vue'
+import { KeyRound, Plus, Search, TriangleAlert } from '@lucide/vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -22,8 +22,8 @@ import CollectionStatusSummary from '@/components/collection/CollectionStatusSum
 import LedgerSheet from '@/components/layout/LedgerSheet.vue'
 import PageFrame from '@/components/layout/PageFrame.vue'
 import AppButton from '@/components/ui/AppButton.vue'
+import AppSearchInput from '@/components/ui/AppSearchInput.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
-import IconButton from '@/components/ui/IconButton.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import PaginationBar from '@/components/ui/PaginationBar.vue'
@@ -430,27 +430,14 @@ async function toggleStatus(accessKey: AccessKeyDto): Promise<void> {
                 <span class="collection-filter-label">
                   {{ t('accessKeys.collection.filters.searchLabel') }}
                 </span>
-                <span class="collection-filter-search-control">
-                  <Search :size="15" aria-hidden="true" />
-                  <input
-                    v-model="searchDraft"
-                    class="collection-filter-control"
-                    type="search"
-                    :aria-label="t('accessKeys.collection.filters.searchLabel')"
-                    :placeholder="t('accessKeys.collection.filters.searchPlaceholder')"
-                    @input="scheduleSearch"
-                  />
-                  <IconButton
-                    v-if="searchDraft"
-                    class="collection-filter-search-clear"
-                    size="xs"
-                    variant="ghost"
-                    :label="t('accessKeys.collection.filters.clearSearch')"
-                    @click="clearSearch"
-                  >
-                    <X :size="14" aria-hidden="true" />
-                  </IconButton>
-                </span>
+                <AppSearchInput
+                  v-model="searchDraft"
+                  :label="t('accessKeys.collection.filters.searchLabel')"
+                  :placeholder="t('accessKeys.collection.filters.searchPlaceholder')"
+                  :clear-label="t('accessKeys.collection.filters.clearSearch')"
+                  @update:model-value="scheduleSearch"
+                  @clear="clearSearch"
+                />
               </label>
 
               <template #result>

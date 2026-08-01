@@ -5,12 +5,8 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
 import { useApiClient } from '@/api/client-context'
-import { ApiError, InvalidResponseError } from '@/api/errors'
-import {
-  groupOptionsQueryOptions,
-  groupSummaryQueryOptions,
-  importGroupKeys,
-} from '@/app/resources/groups'
+import { InvalidResponseError } from '@/api/errors'
+import { groupOptionsQueryOptions, importGroupKeys } from '@/app/resources/groups'
 import { applyInvalidationPlan, mutationInvalidationPlans } from '@/app/resources/invalidation'
 import { groupDetailLocation, importLocation } from '@/app/route-locations'
 import { useUnsavedChanges } from '@/app/unsaved-changes'
@@ -73,33 +69,25 @@ function parsePositiveID(value: unknown): number | undefined {
   return Number.isSafeInteger(id) ? id : undefined
 }
 
-const hasFixedTargetIntent = computed(() =>
-  Object.prototype.hasOwnProperty.call(route.query, 'group_id'),
-)
 const routeGroupID = computed(() =>
-  hasFixedTargetIntent.value ? parsePositiveID(route.query.group_id) : undefined,
+  Object.prototype.hasOwnProperty.call(route.query, 'group_id')
+    ? parsePositiveID(route.query.group_id)
+    : undefined,
 )
 const operationGroupID = computed(() => operation.operation.value?.payload.groupID)
-const hasLockedTarget = computed(
-  () => hasFixedTargetIntent.value || operationGroupID.value !== undefined,
-)
 const targetGroupID = computed(() => operationGroupID.value ?? routeGroupID.value)
 const groupsQuery = useQuery(groupOptionsQueryOptions(api))
-const summaryQuery = useQuery(groupSummaryQueryOptions(api, targetGroupID))
-const fixedGroupMissing = computed(
-  () => summaryQuery.error.value instanceof ApiError && summaryQuery.error.value.status === 404,
-)
-const fixedGroup = computed(() => {
-  if (fixedGroupMissing.value) return null
-  const group = summaryQuery.data.value
-  return group && group.id === targetGroupID.value ? group : null
+const selectedGroup = computed(() => {
+  const id = targetGroupID.value
+  return id === undefined
+    ? null
+    : (groupsQuery.data.value?.find((group) => group.id === id) ?? null)
 })
-const canReturnToSelector = computed(
+const selectedGroupMissing = computed(
   () =>
-    operationGroupID.value === undefined &&
-    hasFixedTargetIntent.value &&
-    (routeGroupID.value === undefined ||
-      (!summaryQuery.isPending.value && fixedGroup.value === null)),
+    targetGroupID.value !== undefined &&
+    groupsQuery.data.value !== undefined &&
+    selectedGroup.value === null,
 )
 const selectorOptions = computed(() => [
   { value: selectorPlaceholder, label: t('import.existing.groupPlaceholder') },
@@ -108,32 +96,19 @@ const selectorOptions = computed(() => [
     label: t('import.existing.groupOption', { id: group.id, name: group.name }),
   })),
 ])
-const fixedSelectorOptions = computed(() =>
-  fixedGroup.value
-    ? [
-        {
-          value: String(fixedGroup.value.id),
-          label: t('import.existing.groupOption', {
-            id: fixedGroup.value.id,
-            name: fixedGroup.value.name,
-          }),
-        },
-      ]
-    : [],
-)
 const keyAnalysis = computed(() => analyzeKeys(keys.value))
 const canSubmit = computed(
   () =>
     !payloadLocked.value &&
     !pending.value &&
-    fixedGroup.value !== null &&
+    selectedGroup.value !== null &&
     keyAnalysis.value.nonEmptyCount > 0 &&
     !keyAnalysis.value.tooManyKeys,
 )
 const dirty = computed(() => !completed.value && keys.value !== '')
 const actionSummary = computed(() =>
-  fixedGroup.value
-    ? t('import.existing.actionSummary', { name: fixedGroup.value.name })
+  selectedGroup.value
+    ? t('import.existing.actionSummary', { name: selectedGroup.value.name })
     : t('import.existing.actionSelectTarget'),
 )
 
@@ -152,24 +127,21 @@ const unregisterRecovery = recovery.register(() =>
 
 async function selectGroup(value: string): Promise<void> {
   if (payloadLocked.value) return
-  if (value === selectorPlaceholder) return
+  errorKey.value = ''
+  if (value === selectorPlaceholder) {
+    await unsavedChanges.runWithoutPrompt(() => router.push(importLocation({ mode: 'existing' })))
+    return
+  }
   const id = parsePositiveID(value)
   if (id === undefined) return
-  errorKey.value = ''
   await unsavedChanges.runWithoutPrompt(() =>
     router.push(importLocation({ mode: 'existing', group_id: String(id) })),
   )
 }
 
-async function returnToSelector(): Promise<void> {
-  if (payloadLocked.value) return
-  errorKey.value = ''
-  await unsavedChanges.runWithoutPrompt(() => router.push(importLocation({ mode: 'existing' })))
-}
-
 async function submit(): Promise<void> {
   const groupID = targetGroupID.value
-  if (groupID === undefined || !fixedGroup.value || !canSubmit.value) return
+  if (groupID === undefined || !selectedGroup.value || !canSubmit.value) return
   if (
     !importOperationOwner.beginImportKeys({ groupID, keys: keys.value }, 'existing', {
       mode: 'existing',
@@ -254,91 +226,33 @@ onBeforeUnmount(() => {
           <span v-if="groupsQuery.data.value" class="existing-import__group-count">
             {{ t('import.existing.groupCount', { count: groupsQuery.data.value.length }) }}
           </span>
-          <AppButton
-            v-if="canReturnToSelector"
-            variant="secondary"
-            size="compact"
-            :disabled="payloadLocked"
-            @click="returnToSelector"
-          >
-            {{ t('import.existing.backToSelector') }}
-          </AppButton>
         </div>
       </header>
 
-      <template v-if="!hasLockedTarget">
-        <InlineFeedback v-if="groupsQuery.isPending.value" tone="info">
-          {{ t('import.existing.groupsLoading') }}
-        </InlineFeedback>
-        <div
-          v-else-if="groupsQuery.isError.value && !groupsQuery.data.value"
-          class="existing-import__query-error"
-        >
-          <InlineFeedback tone="danger">{{ t('import.existing.groupsFailed') }}</InlineFeedback>
-          <AppButton variant="secondary" size="compact" @click="groupsQuery.refetch()">
-            {{ t('common.retry') }}
-          </AppButton>
-        </div>
-        <template v-else>
-          <InlineFeedback v-if="groupsQuery.isError.value" tone="warning">
-            {{ t('import.existing.groupsStale') }}
-          </InlineFeedback>
-          <InlineFeedback v-if="groupsQuery.data.value?.length === 0" tone="info">
-            {{ t('import.existing.groupsEmpty') }}
-          </InlineFeedback>
-          <div v-else class="existing-import__target-body">
-            <FormField
-              id="existing-group-select"
-              :label="t('import.existing.groupLabel')"
-              required
-              :required-text="t('import.required')"
-              size="compact"
-            >
-              <template #default="field">
-                <AppSelect
-                  id="existing-group-select"
-                  :model-value="selectorPlaceholder"
-                  :label="t('import.existing.groupLabel')"
-                  :options="selectorOptions"
-                  size="sm"
-                  :disabled="payloadLocked"
-                  :aria-describedby="field.describedBy"
-                  @update:model-value="selectGroup"
-                />
-              </template>
-            </FormField>
-          </div>
-        </template>
-      </template>
-
-      <InlineFeedback v-else-if="targetGroupID === undefined" tone="danger">
-        {{ t('import.existing.invalidGroupID') }}
+      <InlineFeedback v-if="groupsQuery.isPending.value && !groupsQuery.data.value" tone="info">
+        {{ t('import.existing.groupsLoading') }}
       </InlineFeedback>
-      <InlineFeedback v-else-if="summaryQuery.isPending.value" tone="info">
-        {{ t('import.existing.targetLoading') }}
-      </InlineFeedback>
-      <div v-else-if="!fixedGroup" class="existing-import__query-error">
+      <div
+        v-else-if="groupsQuery.isError.value && !groupsQuery.data.value"
+        class="existing-import__query-error"
+      >
         <InlineFeedback tone="danger">
-          {{
-            t(
-              fixedGroupMissing
-                ? 'import.existing.groupNotFound'
-                : 'import.existing.groupLoadFailed',
-              { id: targetGroupID },
-            )
-          }}
+          {{ t('import.existing.groupsFailed') }}
         </InlineFeedback>
-        <AppButton variant="secondary" size="compact" @click="summaryQuery.refetch()">
+        <AppButton variant="secondary" size="compact" @click="groupsQuery.refetch()">
           {{ t('common.retry') }}
         </AppButton>
       </div>
       <template v-else>
-        <InlineFeedback v-if="summaryQuery.isError.value" tone="warning">
-          {{ t('import.existing.targetStale') }}
+        <InlineFeedback v-if="groupsQuery.isError.value" tone="warning">
+          {{ t('import.existing.groupsStale') }}
+        </InlineFeedback>
+        <InlineFeedback v-if="groupsQuery.data.value?.length === 0" tone="info">
+          {{ t('import.existing.groupsEmpty') }}
         </InlineFeedback>
         <div class="existing-import__target-body">
           <FormField
-            id="existing-group-fixed"
+            id="existing-group-select"
             :label="t('import.existing.groupLabel')"
             required
             :required-text="t('import.required')"
@@ -346,57 +260,58 @@ onBeforeUnmount(() => {
           >
             <template #default="field">
               <AppSelect
-                id="existing-group-fixed"
-                class="existing-import__fixed-select"
-                :model-value="String(fixedGroup.id)"
+                id="existing-group-select"
+                :model-value="selectedGroup ? String(selectedGroup.id) : selectorPlaceholder"
                 :label="t('import.existing.groupLabel')"
-                :options="fixedSelectorOptions"
+                :options="selectorOptions"
                 size="sm"
-                disabled
+                :disabled="payloadLocked || groupsQuery.data.value?.length === 0"
                 :aria-describedby="field.describedBy"
+                @update:model-value="selectGroup"
               />
             </template>
           </FormField>
-          <div class="existing-import__group-meta">
+          <div v-if="selectedGroup" class="existing-import__group-meta">
             <strong>
               {{
                 t('import.existing.groupMeta', {
-                  id: fixedGroup.id,
-                  models: fixedGroup.model_count,
+                  id: selectedGroup.id,
+                  models: selectedGroup.models.length,
                 })
               }}
             </strong>
             <span>{{ t('import.existing.groupUnchanged') }}</span>
           </div>
         </div>
+        <InlineFeedback v-if="selectedGroupMissing" tone="danger">
+          {{ t('import.existing.groupNotFound', { id: targetGroupID }) }}
+        </InlineFeedback>
       </template>
     </section>
 
-    <template v-if="!hasLockedTarget || fixedGroup">
-      <KeyTextarea
-        v-model="keys"
-        :disabled="payloadLocked"
-        :show-header-description="false"
-        :storage-description="t('import.existing.keyStorageNotice')"
-        :duplicate-label="t('import.existing.batchDuplicates')"
-        :show-upstream-notice="false"
-        :rows="8"
-      />
+    <KeyTextarea
+      v-model="keys"
+      :disabled="payloadLocked"
+      :show-header-description="false"
+      :storage-description="t('import.existing.keyStorageNotice')"
+      :duplicate-label="t('import.existing.batchDuplicates')"
+      :show-upstream-notice="false"
+      :rows="8"
+    />
 
-      <div v-if="errorKey" ref="submissionError" class="existing-import__error" tabindex="-1">
-        <InlineFeedback tone="danger">{{ t(errorKey) }}</InlineFeedback>
+    <div v-if="errorKey" ref="submissionError" class="existing-import__error" tabindex="-1">
+      <InlineFeedback tone="danger">{{ t(errorKey) }}</InlineFeedback>
+    </div>
+
+    <footer class="existing-import__actions">
+      <div aria-live="polite">
+        <strong>{{ actionSummary }}</strong>
+        <span>{{ t('import.existing.actionHelp') }}</span>
       </div>
-
-      <footer class="existing-import__actions">
-        <div aria-live="polite">
-          <strong>{{ actionSummary }}</strong>
-          <span>{{ t('import.existing.actionHelp') }}</span>
-        </div>
-        <AppButton size="sm" :busy="pending" :disabled="!canSubmit" @click="submit">
-          {{ t('import.existing.submit') }}
-        </AppButton>
-      </footer>
-    </template>
+      <AppButton size="sm" :busy="pending" :disabled="!canSubmit" @click="submit">
+        {{ t('import.existing.submit') }}
+      </AppButton>
+    </footer>
   </div>
 </template>
 
@@ -438,9 +353,9 @@ onBeforeUnmount(() => {
 }
 
 .existing-import__section-header h2 {
-  font-family: var(--font-serif);
   font-size: var(--title-section);
-  font-weight: 500;
+  font-weight: 650;
+  letter-spacing: -0.01em;
 }
 
 .existing-import__section-actions {
@@ -483,11 +398,6 @@ onBeforeUnmount(() => {
   width: 100%;
 }
 
-.existing-import__target-body :deep(.existing-import__fixed-select[data-disabled]) {
-  cursor: default;
-  opacity: 1;
-}
-
 .existing-import__query-error {
   display: flex;
   align-items: center;
@@ -514,7 +424,6 @@ onBeforeUnmount(() => {
 
 .existing-import__error {
   margin-top: var(--space-5);
-  outline: none;
 }
 
 .existing-import__actions {

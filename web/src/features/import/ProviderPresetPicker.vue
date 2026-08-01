@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { Check, Search } from '@lucide/vue'
+import { Check } from '@lucide/vue'
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import AppButton from '@/components/ui/AppButton.vue'
-import AppTextInput from '@/components/ui/AppTextInput.vue'
+import AppSearchInput from '@/components/ui/AppSearchInput.vue'
 
 import {
   catalogProviderPresets,
@@ -137,18 +137,13 @@ function presetSelected(preset: ProviderPreset): boolean {
 
     <div v-if="catalogOpen" id="provider-preset-catalog" class="preset-picker__catalog">
       <div class="preset-picker__catalog-toolbar">
-        <AppTextInput
+        <AppSearchInput
           v-model="search"
-          type="search"
-          appearance="surface"
-          size="compact"
           :label="t('import.presets.search')"
           :placeholder="t('import.presets.search')"
           :clear-label="t('import.presets.clearSearch')"
           :disabled="disabled"
-        >
-          <template #leading><Search :size="15" /></template>
-        </AppTextInput>
+        />
         <AppButton variant="ghost" size="compact" :disabled="disabled" @click="catalogOpen = false">
           {{ t('import.presets.collapse') }}
         </AppButton>
@@ -214,9 +209,9 @@ function presetSelected(preset: ProviderPreset): boolean {
 }
 
 .preset-picker__header h2 {
-  font-family: var(--font-serif);
   font-size: var(--title-section);
-  font-weight: 500;
+  font-weight: 650;
+  letter-spacing: -0.01em;
 }
 
 .preset-picker__header p {

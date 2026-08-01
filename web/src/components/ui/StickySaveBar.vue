@@ -2,12 +2,15 @@
 import { TriangleAlert } from '@lucide/vue'
 import { computed } from 'vue'
 
+import AppButton from './AppButton.vue'
+
 const props = withDefaults(
   defineProps<{
     dirty: boolean
     pending: boolean
     status?: 'idle' | 'saved' | 'error' | 'indeterminate'
     error?: string
+    errorActionLabel?: string
     errorPlacement?: 'inline' | 'floating'
     appearance?: 'default' | 'ledger'
     alwaysVisible?: boolean
@@ -15,11 +18,13 @@ const props = withDefaults(
   {
     status: 'idle',
     error: '',
+    errorActionLabel: '',
     errorPlacement: 'inline',
     appearance: 'default',
     alwaysVisible: false,
   },
 )
+const emit = defineEmits<{ errorAction: [] }>()
 
 const visible = computed(
   () =>
@@ -48,6 +53,9 @@ const visualState = computed(() => {
     <p v-if="error" class="sticky-save-bar__error" role="alert">
       <TriangleAlert v-if="errorPlacement === 'floating'" :size="16" aria-hidden="true" />
       <span>{{ error }}</span>
+      <AppButton v-if="errorActionLabel" variant="link" size="inline" @click="emit('errorAction')">
+        {{ errorActionLabel }}
+      </AppButton>
     </p>
     <div class="sticky-save-bar__actions">
       <slot name="discard" :disabled="pending" />

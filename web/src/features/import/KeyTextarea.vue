@@ -123,9 +123,9 @@ const counters = computed(() => [
 }
 
 .key-entry > header h2 {
-  font-family: var(--font-serif);
   font-size: var(--title-section);
-  font-weight: 500;
+  font-weight: 650;
+  letter-spacing: -0.01em;
 }
 
 .key-entry > header p {
