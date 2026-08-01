@@ -117,9 +117,13 @@ export default {
     backHome: 'ホームへ戻る',
   },
   notFound: {
-    title: 'ページが見つかりません',
-    description: '指定された管理ページは存在しないか、現在利用できません。',
+    eyebrow: 'ナビゲーションエラー',
+    title: 'このページは存在しません',
+    description:
+      'アドレスが変更されたか、まだ公開されていない管理ページを開いた可能性があります。現在のログインセッションは有効で、設定は変更されていません。',
+    requestedPath: 'リクエストパス',
     backHome: 'ホームへ戻る',
+    backPrevious: '前のページへ戻る',
   },
   home: {
     ledger: {

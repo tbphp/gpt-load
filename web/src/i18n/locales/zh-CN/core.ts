@@ -115,9 +115,13 @@ export default {
     backHome: '返回首页',
   },
   notFound: {
-    title: '页面不存在',
-    description: '请求的管理页面不存在或已不可用。',
+    eyebrow: 'Navigation Error',
+    title: '这个页面不存在',
+    description:
+      '地址可能已经更改，或者你打开了一个尚未发布的管理页面。当前登录会话仍然有效，没有配置被修改。',
+    requestedPath: '请求路径',
     backHome: '返回首页',
+    backPrevious: '返回上一页',
   },
   home: {
     ledger: {
