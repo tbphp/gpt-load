@@ -196,6 +196,7 @@ export default {
       stale: '上游密钥数据可能已过期；后台刷新失败。',
       updateFailed: '无法更新上游密钥。',
       deleteFailed: '无法删除上游密钥。',
+      reconcileFailed: '操作已成功，本地数据同步失败，请手动刷新',
       emptyTitle: '尚无上游密钥',
       emptyDescription: '向此 Group 导入密钥后即可开始路由请求。',
       emptyFilterTitle: '没有符合条件的密钥',

@@ -204,6 +204,8 @@ export default {
       stale: 'バックグラウンド更新に失敗したため、キーデータが古い可能性があります。',
       updateFailed: 'アップストリームキーを更新できません。',
       deleteFailed: 'アップストリームキーを削除できません。',
+      reconcileFailed:
+        '操作は成功しましたがローカルデータの同期に失敗しました 手動で更新してください',
       emptyTitle: 'アップストリームキーがありません',
       emptyDescription: 'この Group にキーをインポートすると、リクエストをルーティングできます。',
       emptyFilterTitle: '条件に一致するキーがありません',

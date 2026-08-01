@@ -203,6 +203,8 @@ export default {
       stale: 'Upstream key data may be stale because the background refresh failed.',
       updateFailed: 'Unable to update the upstream key.',
       deleteFailed: 'Unable to delete the upstream key.',
+      reconcileFailed:
+        'The operation succeeded but local data synchronization failed, refresh manually',
       emptyTitle: 'No upstream keys',
       emptyDescription: 'Import keys into this Group to begin routing requests.',
       emptyFilterTitle: 'No keys match these filters',

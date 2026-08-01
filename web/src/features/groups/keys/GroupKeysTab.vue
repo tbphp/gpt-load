@@ -204,21 +204,51 @@ function synchronizeGroupSummary(summary: GroupKeySummaryDto | undefined): void 
   })
 }
 
-function synchronizeUpdatedItem(result: GroupKeyItemDto): void {
-  void cacheGroupKeyItem(queryClient, props.groupId, result).catch(() => {
-    synchronizeGroupSummary(undefined)
-  })
-  synchronizeGroupSummary(cachedCurrentSummary())
+async function invalidateReconciliationQueries(): Promise<void> {
+  try {
+    await Promise.all([
+      queryClient.invalidateQueries({
+        queryKey: controlQueryKeys.groups.keys(props.groupId, filters.value),
+        exact: true,
+        refetchType: 'none',
+      }),
+      queryClient.invalidateQueries({
+        queryKey: controlQueryKeys.groups.summary(props.groupId),
+        exact: true,
+        refetchType: 'none',
+      }),
+    ])
+  } catch {
+    // The reconciliation warning remains actionable even if query invalidation is unavailable.
+  }
 }
 
-function synchronizeBatch(
+async function reconcileItem(result: GroupKeyItemDto): Promise<void> {
+  try {
+    await cacheGroupKeyItem(queryClient, props.groupId, result)
+    const summary = cachedCurrentSummary()
+    if (summary === undefined) {
+      await invalidateReconciliationQueries()
+      return
+    }
+    synchronizeGroupSummary(summary)
+  } catch {
+    feedback.value = t('group.keys.reconcileFailed')
+    await invalidateReconciliationQueries()
+  }
+}
+
+async function reconcileBatch(
   action: 'enable' | 'disable' | 'delete',
   result: Awaited<ReturnType<typeof batchGroupKeys>>,
-): void {
-  void cacheGroupKeyBatch(queryClient, props.groupId, action, result).catch(() => {
-    synchronizeGroupSummary(undefined)
-  })
-  synchronizeGroupSummary(result.summary)
+): Promise<void> {
+  try {
+    await cacheGroupKeyBatch(queryClient, props.groupId, action, result)
+    synchronizeGroupSummary(result.summary)
+  } catch {
+    feedback.value = t('group.keys.reconcileFailed')
+    await invalidateReconciliationQueries()
+  }
 }
 
 async function mutateItem(
@@ -229,8 +259,9 @@ async function mutateItem(
   if (batchBusy.value || pending(item.id)) return
   feedback.value = ''
   setPending(item.id, action, true)
+  let result: GroupKeyItemDto
   try {
-    const result =
+    result =
       action === 'restore'
         ? await restoreGroupKey(client, props.groupId, item.id)
         : await updateGroupKey(
@@ -241,11 +272,15 @@ async function mutateItem(
               ? { weight_manual: value === 'auto' ? null : Number(value) }
               : { status: item.configured_status === 'active' ? 'disabled' : 'active' },
           )
-    synchronizeUpdatedItem(result)
   } catch {
     feedback.value = t(
       action === 'restore' ? 'group.keys.restoreFailed' : 'group.keys.updateFailed',
     )
+    setPending(item.id, action, false)
+    return
+  }
+  try {
+    await reconcileItem(result)
   } finally {
     setPending(item.id, action, false)
   }
@@ -258,17 +293,22 @@ async function confirmDelete(): Promise<void> {
   if (target.ids.length === 1) {
     const id = target.ids[0]
     setPending(id, 'delete', true)
+    let result: Awaited<ReturnType<typeof batchGroupKeys>>
     try {
-      const result = await batchGroupKeys(client, props.groupId, {
+      result = await batchGroupKeys(client, props.groupId, {
         action: 'delete',
         key_ids: [id],
       })
-      synchronizeBatch('delete', result)
+    } catch {
+      feedback.value = t('group.keys.deleteFailed')
+      setPending(id, 'delete', false)
+      return
+    }
+    try {
+      await reconcileBatch('delete', result)
       deleteTarget.value = undefined
       selectedIds.value.delete(id)
       selectedIds.value = new Set(selectedIds.value)
-    } catch {
-      feedback.value = t('group.keys.deleteFailed')
     } finally {
       setPending(id, 'delete', false)
     }
@@ -284,14 +324,18 @@ async function runBatch(
   if (ids.length === 0 || batchBusy.value || singleBusy.value) return false
   feedback.value = ''
   setPending('batch', action, true)
+  let result: Awaited<ReturnType<typeof batchGroupKeys>>
   try {
-    const result = await batchGroupKeys(client, props.groupId, { action, key_ids: ids })
-    synchronizeBatch(action, result)
-    selectedIds.value = new Set()
-    return true
+    result = await batchGroupKeys(client, props.groupId, { action, key_ids: ids })
   } catch {
     feedback.value = t('group.keys.batch.failed')
+    setPending('batch', action, false)
     return false
+  }
+  try {
+    await reconcileBatch(action, result)
+    selectedIds.value = new Set()
+    return true
   } finally {
     setPending('batch', action, false)
   }
