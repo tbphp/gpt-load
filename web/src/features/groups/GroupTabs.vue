@@ -8,13 +8,14 @@ import AppTabs, { type AppTabItem } from '@/components/ui/AppTabs.vue'
 
 import { normalizeGroupQuery, normalizeGroupTab, type GroupTab } from './group-route'
 
+const props = defineProps<{ keyCount: number; modelCount: number }>()
 const route = useRoute()
 const router = useRouter()
-const { t } = useI18n()
+const { n, t } = useI18n()
 const activeTab = computed(() => normalizeGroupTab(route.query.tab))
 const items = computed<AppTabItem[]>(() => [
-  { value: 'keys', label: t('group.tabs.keys') },
-  { value: 'models', label: t('group.tabs.models') },
+  { value: 'keys', label: t('group.tabs.keys', { count: n(props.keyCount) }) },
+  { value: 'models', label: t('group.tabs.models', { count: n(props.modelCount) }) },
   { value: 'settings', label: t('group.tabs.settings') },
 ])
 
@@ -22,11 +23,11 @@ watch(
   () => route.query,
   (query) => {
     const canonical = normalizeGroupQuery(query)
-    const canonicalKeys = Object.keys(canonical)
-    const isCanonical =
-      Object.keys(query).length === canonicalKeys.length &&
-      canonicalKeys.every((key) => query[key] === canonical[key])
-    if (!isCanonical) {
+    const keys = Object.keys(canonical)
+    if (
+      Object.keys(query).length !== keys.length ||
+      keys.some((key) => query[key] !== canonical[key])
+    ) {
       void router.replace(groupDetailLocation(String(route.params.id), canonical))
     }
   },
@@ -36,9 +37,7 @@ watch(
 function selectTab(value: string): void {
   const tab = normalizeGroupTab(value)
   if (tab === activeTab.value) return
-  void router.push(
-    groupDetailLocation(String(route.params.id), normalizeGroupQuery({ ...route.query, tab })),
-  )
+  void router.push(groupDetailLocation(String(route.params.id), { tab }))
 }
 </script>
 
@@ -48,7 +47,6 @@ function selectTab(value: string): void {
     :label="t('group.tabs.label')"
     :items="items"
     @update:model-value="selectTab($event as GroupTab)"
-  >
-    <slot />
-  </AppTabs>
+    ><slot
+  /></AppTabs>
 </template>
