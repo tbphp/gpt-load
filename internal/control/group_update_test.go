@@ -255,7 +255,7 @@ func TestUpdateGroupURLChangePreservesModelsKeysAndRegistryWithoutDiscovery(t *t
 		Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
 		Models: optionalGroupModels{
 			Set:    true,
-			Values: []GroupModel{{ID: "configured-model", Alias: "primary"}},
+			Values: []GroupModel{{ID: "configured-model", Alias: "primary", AliasEnabled: true}},
 		},
 		Keys: "sk-update-preserve-a\nsk-update-preserve-b",
 	})

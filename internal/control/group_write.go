@@ -24,15 +24,13 @@ type GroupModel struct {
 	ID           string `json:"id"`
 	Alias        string `json:"alias"`
 	AliasEnabled bool   `json:"-"`
-
-	aliasEnabledSet bool
 }
 
 func (model *GroupModel) UnmarshalJSON(data []byte) error {
 	var wire struct {
 		ID           string `json:"id"`
 		Alias        string `json:"alias"`
-		AliasEnabled *bool  `json:"alias_enabled"`
+		AliasEnabled bool   `json:"alias_enabled"`
 	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
@@ -48,8 +46,7 @@ func (model *GroupModel) UnmarshalJSON(data []byte) error {
 	}
 	model.ID = wire.ID
 	model.Alias = wire.Alias
-	model.AliasEnabled = wire.AliasEnabled != nil && *wire.AliasEnabled
-	model.aliasEnabledSet = wire.AliasEnabled != nil
+	model.AliasEnabled = wire.AliasEnabled
 	return nil
 }
 
@@ -192,9 +189,6 @@ func normalizeGroupModels(values []GroupModel) ([]GroupModel, error) {
 		}
 		alias := strings.TrimSpace(value.Alias)
 		aliasEnabled := value.AliasEnabled
-		if !value.aliasEnabledSet && alias != "" {
-			aliasEnabled = true
-		}
 		if aliasEnabled {
 			if alias == "" {
 				return nil, app_errors.ErrValidation

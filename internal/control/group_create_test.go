@@ -40,7 +40,7 @@ func TestCreateGroupNormalizesAndPublishesOnce(t *testing.T) {
 		Models: optionalGroupModels{
 			Set: true,
 			Values: []GroupModel{
-				{ID: " gpt-4o ", Alias: " primary "},
+				{ID: " gpt-4o ", Alias: " primary ", AliasEnabled: true},
 				{ID: "claude-3-5", Alias: ""},
 			},
 		},
@@ -117,8 +117,8 @@ func TestCreateGroupRejectsDuplicateExternalModelWithoutMutation(t *testing.T) {
 		Models: optionalGroupModels{
 			Set: true,
 			Values: []GroupModel{
-				{ID: "provider-a", Alias: "public"},
-				{ID: "provider-b", Alias: "public"},
+				{ID: "provider-a", Alias: "public", AliasEnabled: true},
+				{ID: "provider-b", Alias: "public", AliasEnabled: true},
 			},
 		},
 		Keys: "sk-duplicate-external-model",
@@ -358,7 +358,7 @@ func TestCreateGroupPreservesUserGeminiModelPrefix(t *testing.T) {
 		UpstreamURL: "https://generativelanguage.googleapis.com/v1beta",
 		Protocols:   []protocol.Protocol{protocol.Gemini},
 		Models: optionalGroupModels{
-			Set: true, Values: []GroupModel{{ID: " models/foo ", Alias: " user alias "}},
+			Set: true, Values: []GroupModel{{ID: " models/foo ", Alias: " user alias ", AliasEnabled: true}},
 		},
 		Keys: "gemini-secret",
 	})

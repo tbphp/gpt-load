@@ -1290,7 +1290,7 @@ func TestUpdateGroupModelsEndpointRejectsStrictInvalidBodiesWithoutMutation(t *t
 		Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
 		Models: optionalGroupModels{
 			Set:    true,
-			Values: []GroupModel{{ID: "provider-old", Alias: "old-public"}},
+			Values: []GroupModel{{ID: "provider-old", Alias: "old-public", AliasEnabled: true}},
 		},
 		Keys: "sk-model-save-http-invalid",
 	})
@@ -1381,6 +1381,37 @@ func TestGroupModelsHTTPReturnsStructuredConflictWithoutMutation(t *testing.T) {
 	}
 }
 
+func TestGroupModelsHTTPClearsAliasWhenAliasEnabledIsMissing(t *testing.T) {
+	initControlI18n(t)
+	fixture := newServiceFixture(t)
+	mustEnsureInitialPrices(t, fixture)
+	groupID := createGroupForKeyImport(t, fixture, "sk-model-alias-default")
+	engine := gin.New()
+	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
+
+	recorder := serveRawGroupModelsUpdateRequest(
+		t,
+		engine,
+		"test-auth-key",
+		"en-US",
+		strconv.FormatUint(uint64(groupID), 10),
+		`{"models":[{"id":"gpt-4o","alias":"legacy-name"}]}`,
+	)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("response = %d %s", recorder.Code, recorder.Body.String())
+	}
+	if got := loadCreatedGroupModels(t, fixture, groupID); !reflect.DeepEqual(got, []GroupModel{{ID: "gpt-4o"}}) {
+		t.Fatalf("persisted models = %#v, want alias cleared", got)
+	}
+	result, err := fixture.service.GetGroupModels(t.Context(), groupID)
+	if err != nil {
+		t.Fatalf("GetGroupModels() error = %v", err)
+	}
+	if len(result.Items) != 1 || result.Items[0].AliasEnabled || result.Items[0].ClientModel != "gpt-4o" {
+		t.Fatalf("models response = %#v, want disabled alias and upstream client model", result)
+	}
+}
+
 func TestUpdateGroupModelsEndpointIDsAuthNotFoundAndSuccessDTO(t *testing.T) {
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
@@ -1389,7 +1420,7 @@ func TestUpdateGroupModelsEndpointIDsAuthNotFoundAndSuccessDTO(t *testing.T) {
 		Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
 		Models: optionalGroupModels{
 			Set:    true,
-			Values: []GroupModel{{ID: "provider-old", Alias: "old-public"}},
+			Values: []GroupModel{{ID: "provider-old", Alias: "old-public", AliasEnabled: true}},
 		},
 		Keys: "sk-model-save-http",
 	})
@@ -1398,7 +1429,7 @@ func TestUpdateGroupModelsEndpointIDsAuthNotFoundAndSuccessDTO(t *testing.T) {
 	}
 	engine := gin.New()
 	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
-	body := `{"models":[{"id":"provider-new","alias":"new-public"}]}`
+	body := `{"models":[{"id":"provider-new","alias":"new-public","alias_enabled":true}]}`
 
 	for _, rawID := range []string{"0", "-1", "not-a-number", "18446744073709551616"} {
 		beforeRevision := fixture.manager.Current().Revision

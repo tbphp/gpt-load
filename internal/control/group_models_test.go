@@ -145,8 +145,8 @@ func TestNormalizeGroupModelsAppliesAliasSwitchAndReportsStableConflicts(t *test
 
 func TestNormalizeGroupModelsRejectsDuplicateExternalNames(t *testing.T) {
 	for _, values := range [][]GroupModel{
-		{{ID: "provider-a", Alias: "public"}, {ID: "provider-b", Alias: "public"}},
-		{{ID: "public"}, {ID: "provider-b", Alias: "public"}},
+		{{ID: "provider-a", Alias: "public", AliasEnabled: true}, {ID: "provider-b", Alias: "public", AliasEnabled: true}},
+		{{ID: "public"}, {ID: "provider-b", Alias: "public", AliasEnabled: true}},
 	} {
 		var apiErr *app_errors.APIError
 		if _, err := normalizeGroupModels(values); !errors.As(err, &apiErr) ||
@@ -182,7 +182,7 @@ func TestUpdateGroupModelsReplacesAuthoritativeListAndPublishesOnce(t *testing.T
 		Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
 		Models: optionalGroupModels{
 			Set:    true,
-			Values: []GroupModel{{ID: "provider-old", Alias: "old-public"}},
+			Values: []GroupModel{{ID: "provider-old", Alias: "old-public", AliasEnabled: true}},
 		},
 		Keys: "sk-model-save-a\nsk-model-save-b",
 	})
@@ -220,8 +220,8 @@ func TestUpdateGroupModelsReplacesAuthoritativeListAndPublishesOnce(t *testing.T
 		Models: optionalGroupModels{
 			Set: true,
 			Values: []GroupModel{
-				{ID: "provider-b", Alias: "public-b"},
-				{ID: "provider-a", Alias: "public-a"},
+				{ID: "provider-b", Alias: "public-b", AliasEnabled: true},
+				{ID: "provider-a", Alias: "public-a", AliasEnabled: true},
 			},
 		},
 	})
@@ -303,7 +303,7 @@ func TestUpdateGroupModelsAllowsEmptyList(t *testing.T) {
 		Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
 		Models: optionalGroupModels{
 			Set:    true,
-			Values: []GroupModel{{ID: "provider-old", Alias: "old-public"}},
+			Values: []GroupModel{{ID: "provider-old", Alias: "old-public", AliasEnabled: true}},
 		},
 		Keys: "sk-empty-models",
 	})
@@ -358,7 +358,7 @@ func TestUpdateGroupModelsNeverCallsDiscoveryOrChangesAccessKeyFilters(t *testin
 	_, err = fixture.service.UpdateGroupModels(t.Context(), groupID, GroupModelsUpdateRequest{
 		Models: optionalGroupModels{
 			Set:    true,
-			Values: []GroupModel{{ID: "provider-new", Alias: "new-public"}},
+			Values: []GroupModel{{ID: "provider-new", Alias: "new-public", AliasEnabled: true}},
 		},
 	})
 	if err != nil {
@@ -392,8 +392,8 @@ func TestUpdateGroupModelsFailuresDoNotPublish(t *testing.T) {
 			Models: optionalGroupModels{
 				Set: true,
 				Values: []GroupModel{
-					{ID: "provider-a", Alias: "public"},
-					{ID: "provider-b", Alias: "public"},
+					{ID: "provider-a", Alias: "public", AliasEnabled: true},
+					{ID: "provider-b", Alias: "public", AliasEnabled: true},
 				},
 			},
 		})
@@ -421,7 +421,7 @@ func TestUpdateGroupModelsFailuresDoNotPublish(t *testing.T) {
 		_, err := fixture.service.UpdateGroupModels(t.Context(), groupID, GroupModelsUpdateRequest{
 			Models: optionalGroupModels{
 				Set:    true,
-				Values: []GroupModel{{ID: "provider-new", Alias: "new-public"}},
+				Values: []GroupModel{{ID: "provider-new", Alias: "new-public", AliasEnabled: true}},
 			},
 		})
 		if err == nil {
@@ -437,7 +437,7 @@ func TestUpdateGroupModelsFailuresDoNotPublish(t *testing.T) {
 			Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
 			Models: optionalGroupModels{
 				Set:    true,
-				Values: []GroupModel{{ID: "provider-old", Alias: "old-public"}},
+				Values: []GroupModel{{ID: "provider-old", Alias: "old-public", AliasEnabled: true}},
 			},
 			Keys: "sk-commit-models",
 		})
@@ -452,7 +452,7 @@ func TestUpdateGroupModelsFailuresDoNotPublish(t *testing.T) {
 		_, err = fixture.service.UpdateGroupModels(t.Context(), created.GroupID, GroupModelsUpdateRequest{
 			Models: optionalGroupModels{
 				Set:    true,
-				Values: []GroupModel{{ID: "provider-new", Alias: "new-public"}},
+				Values: []GroupModel{{ID: "provider-new", Alias: "new-public", AliasEnabled: true}},
 			},
 		})
 		var apiErr *app_errors.APIError
