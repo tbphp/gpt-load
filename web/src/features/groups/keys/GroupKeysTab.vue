@@ -24,20 +24,18 @@ import {
 } from '@/app/resources/upstream-keys'
 import { groupDetailLocation } from '@/app/route-locations'
 import { controlQueryKeys } from '@/app/query-keys'
+import CollectionFilterBar from '@/components/collection/CollectionFilterBar.vue'
+import CollectionStatusSummary from '@/components/collection/CollectionStatusSummary.vue'
+import LedgerRecordList from '@/components/collection/LedgerRecordList.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppDialog from '@/components/ui/AppDialog.vue'
-import DataTable from '@/components/ui/DataTable.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import PaginationBar from '@/components/ui/PaginationBar.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
-import StatusSummaryFilter, {
-  type StatusSummaryFilterValue,
-} from '@/components/ui/StatusSummaryFilter.vue'
 
 import GroupKeyBatchBar from './GroupKeyBatchBar.vue'
-import GroupKeyMobileCard from './GroupKeyMobileCard.vue'
-import GroupKeyRow from './GroupKeyRow.vue'
+import GroupKeyRecord from './GroupKeyRecord.vue'
 import {
   constrainGroupKeySearch,
   parseGroupKeyRouteQuery,
@@ -75,6 +73,46 @@ const dialogBusy = computed(() => {
   const target = deleteTarget.value
   if (target === undefined) return false
   return target.ids.length === 1 ? pending(target.ids[0]) : batchBusy.value
+})
+const hasChangedConditions = computed(
+  () => filters.value.q !== undefined || filters.value.status !== undefined,
+)
+const statusSummaryItems = computed(() => {
+  const summary = collection.value?.summary
+  if (!summary) return []
+
+  return [
+    {
+      value: undefined,
+      label: t('group.keys.status.all'),
+      count: summary.total,
+      tone: 'neutral' as const,
+    },
+    {
+      value: 'available',
+      label: t('group.keys.effective.available'),
+      count: summary.available,
+      tone: 'success' as const,
+    },
+    {
+      value: 'cooldown',
+      label: t('group.keys.effective.cooldown'),
+      count: summary.cooldown,
+      tone: 'warning' as const,
+    },
+    {
+      value: 'blacklisted',
+      label: t('group.keys.effective.blacklisted'),
+      count: summary.blacklisted,
+      tone: 'danger' as const,
+    },
+    {
+      value: 'disabled',
+      label: t('group.keys.effective.disabled'),
+      count: summary.disabled,
+      tone: 'neutral' as const,
+    },
+  ]
 })
 
 watch(
@@ -142,7 +180,14 @@ function clearSearch(): void {
   setFilter({ q: undefined })
 }
 
-function setStatus(value: StatusSummaryFilterValue | undefined): void {
+function resetFilters(): void {
+  if (searchTimer !== undefined) clearTimeout(searchTimer)
+  searchTimer = undefined
+  searchDraft.value = ''
+  updateRoute({ page: 1, page_size: filters.value.page_size })
+}
+
+function setStatus(value: string | undefined): void {
   setFilter({ status: value as GroupKeyStatus | undefined })
 }
 
@@ -393,45 +438,59 @@ onBeforeUnmount(() => {
         @retry="keysQuery.refetch()"
       />
       <p v-if="feedback" class="group-keys__feedback" role="alert">{{ feedback }}</p>
-      <StatusSummaryFilter
+      <CollectionStatusSummary
         v-if="collection.summary.total > 0"
-        :summary="collection.summary"
+        :total="collection.summary.total"
+        :items="statusSummaryItems"
         :model-value="filters.status"
-        :labels="{
-          region: t('group.keys.summary.region'),
-          current: t('group.keys.summary.current'),
-          all: t('group.keys.status.all'),
-          available: t('group.keys.effective.available'),
-          unavailable: '',
-          cooldown: t('group.keys.effective.cooldown'),
-          blacklisted: t('group.keys.effective.blacklisted'),
-          disabled: t('group.keys.effective.disabled'),
-        }"
+        :label="t('group.keys.summary.region')"
+        :total-label="t('group.keys.summary.current')"
         @update:model-value="setStatus"
       />
-      <form
+      <CollectionFilterBar
         v-if="collection.summary.total > 0"
-        class="group-keys__filters"
-        role="search"
-        :aria-label="t('group.keys.filters.region')"
-        @submit.prevent
+        single-column
+        :label="t('group.keys.filters.region')"
+        :show-result="hasChangedConditions"
       >
-        <label
-          ><span>{{ t('group.keys.filters.search') }}</span
-          ><span class="group-keys__search"
-            ><Search :size="15" aria-hidden="true" /><input
+        <label class="collection-filter-field collection-filter-field--search">
+          <span class="collection-filter-label">{{ t('group.keys.filters.search') }}</span>
+          <span class="collection-filter-search-control">
+            <Search :size="15" aria-hidden="true" />
+            <input
               v-model="searchDraft"
+              class="collection-filter-control"
               type="search"
+              :aria-label="t('group.keys.filters.search')"
               :placeholder="t('group.keys.filters.placeholder')"
-              @input="scheduleSearch" /><IconButton
+              @input="scheduleSearch"
+            />
+            <IconButton
               v-if="searchDraft"
+              class="collection-filter-search-clear"
               size="xs"
               variant="ghost"
               :label="t('group.keys.filters.clear')"
               @click="clearSearch"
-              ><X :size="14" aria-hidden="true" /></IconButton></span
-        ></label>
-      </form>
+            >
+              <X :size="14" aria-hidden="true" />
+            </IconButton>
+          </span>
+        </label>
+        <template #result>
+          <span aria-live="polite">
+            {{
+              t('group.keys.filters.result', {
+                shown: n(collection.items.length),
+                total: n(collection.pagination.total_items),
+              })
+            }}
+          </span>
+          <AppButton variant="link" size="inline" @click="resetFilters">
+            {{ t('group.keys.filters.reset') }}
+          </AppButton>
+        </template>
+      </CollectionFilterBar>
       <EmptyState
         v-if="collection.summary.total === 0"
         :title="t('group.keys.emptyTitle')"
@@ -442,55 +501,43 @@ onBeforeUnmount(() => {
         :title="t('group.keys.emptyFilterTitle')"
         :description="t('group.keys.emptyFilterDescription')"
         ><template #actions
-          ><AppButton
-            variant="secondary"
-            size="compact"
-            @click="updateRoute({ page: 1, page_size: filters.page_size })"
-            >{{ t('group.keys.filters.reset') }}</AppButton
-          ></template
+          ><AppButton variant="secondary" size="compact" @click="resetFilters">{{
+            t('group.keys.filters.reset')
+          }}</AppButton></template
         ></EmptyState
       >
       <template v-else>
-        <div class="group-keys__desktop">
-          <DataTable :caption="t('group.keys.caption')" dense
-            ><thead>
-              <tr>
-                <th scope="col">
-                  <input
-                    type="checkbox"
-                    :checked="allVisibleSelected"
-                    :disabled="batchBusy"
-                    :aria-label="t('group.keys.selectVisible')"
-                    @change="setAllVisible(($event.target as HTMLInputElement).checked)"
-                  />
-                </th>
-                <th scope="col">{{ t('group.keys.columns.key') }}</th>
-                <th scope="col">{{ t('group.keys.columns.status') }}</th>
-                <th scope="col">{{ t('group.keys.columns.weight') }}</th>
-                <th scope="col">{{ t('group.keys.columns.recent') }}</th>
-                <th scope="col">{{ t('group.keys.columns.actions') }}</th>
-              </tr>
-            </thead>
-            <tbody>
-              <GroupKeyRow
-                v-for="item in collection.items"
-                :key="item.id"
-                :item="item"
-                :selected="selectedIds.has(item.id)"
-                :busy="rowBusy(item.id)"
-                @update:selected="setSelected(item.id, $event)"
-                @weight="mutateItem($event.item, 'weight', $event.value)"
-                @toggle="mutateItem($event, 'toggle')"
-                @restore="mutateItem($event, 'restore')"
-                @remove="deleteTarget = { ids: [$event.id], mask: $event.mask }"
-              /></tbody
-          ></DataTable>
-        </div>
-        <div class="group-keys__mobile">
-          <GroupKeyMobileCard
-            v-for="item in collection.items"
+        <LedgerRecordList
+          :label="t('group.keys.caption')"
+          :row-count="collection.pagination.total_items + 1"
+          grid-class="group-key-record-grid"
+        >
+          <template #header>
+            <span class="group-keys__select-all" role="columnheader">
+              <label>
+                <span class="sr-only">{{ t('group.keys.selectVisible') }}</span>
+                <input
+                  type="checkbox"
+                  :checked="allVisibleSelected"
+                  :disabled="batchBusy"
+                  @change="setAllVisible(($event.target as HTMLInputElement).checked)"
+                />
+              </label>
+            </span>
+            <span role="columnheader">{{ t('group.keys.columns.key') }}</span>
+            <span role="columnheader">{{ t('group.keys.columns.status') }}</span>
+            <span role="columnheader">{{ t('group.keys.columns.weight') }}</span>
+            <span role="columnheader">{{ t('group.keys.columns.recent') }}</span>
+            <span role="columnheader">{{ t('group.keys.columns.actions') }}</span>
+          </template>
+
+          <GroupKeyRecord
+            v-for="(item, index) in collection.items"
             :key="item.id"
             :item="item"
+            :row-index="
+              (collection.pagination.page - 1) * collection.pagination.page_size + index + 2
+            "
             :selected="selectedIds.has(item.id)"
             :busy="rowBusy(item.id)"
             @update:selected="setSelected(item.id, $event)"
@@ -499,7 +546,7 @@ onBeforeUnmount(() => {
             @restore="mutateItem($event, 'restore')"
             @remove="deleteTarget = { ids: [$event.id], mask: $event.mask }"
           />
-        </div>
+        </LedgerRecordList>
         <PaginationBar
           :page="collection.pagination.page"
           :page-size="collection.pagination.page_size"
@@ -570,58 +617,37 @@ onBeforeUnmount(() => {
   color: var(--color-text);
   padding: var(--space-3);
 }
-.group-keys__filters {
+.group-key-record-grid {
+  --ledger-record-list-grid: 48px minmax(150px, 0.95fr) 116px minmax(118px, 0.72fr)
+    minmax(150px, 0.95fr) minmax(250px, 1.55fr);
+  --ledger-record-list-column-gap: 12px;
+}
+.group-keys__select-all {
+  display: flex;
+  justify-content: center;
+}
+.group-keys__select-all label {
   display: grid;
-  max-width: 420px;
-}
-.group-keys__filters label {
-  display: grid;
-  gap: var(--space-1);
-  color: var(--color-text-faint);
-  font-size: var(--text-sm);
-}
-.group-keys__search {
-  position: relative;
-  display: block;
-}
-.group-keys__search > svg {
-  position: absolute;
-  top: 50%;
-  left: 10px;
-  transform: translateY(-50%);
-  color: var(--color-text-faint);
-  pointer-events: none;
-}
-.group-keys__search input {
-  width: 100%;
-  min-height: var(--control-md);
-  border: 1px solid var(--color-border-control);
-  border-radius: var(--radius-control);
-  background: var(--color-surface);
-  color: var(--color-text);
-  padding: 0 40px 0 32px;
-  font: inherit;
-}
-.group-keys__search :deep(.icon-button) {
-  position: absolute;
-  top: 2px;
-  right: 3px;
-}
-.group-keys__mobile {
-  display: none;
-  gap: var(--space-3);
+  width: var(--touch-target);
+  height: var(--touch-target);
+  place-items: center;
+  cursor: pointer;
 }
 .group-keys__dialog-actions {
   display: flex;
   justify-content: flex-end;
   gap: var(--space-2);
 }
-@media (max-width: 767px) {
-  .group-keys__desktop {
-    display: none;
+@media (max-width: 1120px) {
+  .group-key-record-grid {
+    --ledger-record-list-grid: 44px minmax(130px, 0.9fr) 108px minmax(108px, 0.7fr)
+      minmax(132px, 0.9fr) minmax(220px, 1.35fr);
+    --ledger-record-list-column-gap: 9px;
   }
-  .group-keys__mobile {
-    display: grid;
+}
+@media (max-width: 860px) {
+  .group-key-record-grid {
+    --ledger-record-list-card-grid: minmax(0, 0.8fr) minmax(0, 1.2fr);
   }
 }
 </style>

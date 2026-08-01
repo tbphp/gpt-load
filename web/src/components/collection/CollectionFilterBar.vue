@@ -3,9 +3,11 @@ withDefaults(
   defineProps<{
     label: string
     showResult?: boolean
+    singleColumn?: boolean
   }>(),
   {
     showResult: false,
+    singleColumn: false,
   },
 )
 </script>
@@ -13,6 +15,7 @@ withDefaults(
 <template>
   <form
     class="collection-filter-bar"
+    :class="{ 'collection-filter-bar--single': singleColumn }"
     role="search"
     :aria-label="label"
     autocomplete="off"
@@ -33,6 +36,10 @@ withDefaults(
   align-items: end;
   gap: 10px;
   padding: 22px 0 13px;
+}
+
+.collection-filter-bar.collection-filter-bar--single {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .collection-filter-field {

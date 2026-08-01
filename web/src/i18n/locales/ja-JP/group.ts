@@ -220,6 +220,7 @@ export default {
         placeholder: 'マスク',
         clear: '検索をクリア',
         reset: '条件をリセット',
+        result: 'キーを {shown} / {total} 件表示',
       },
       loading: 'アップストリームキーを読み込み中…',
       loadFailed: 'アップストリームキーを読み込めません。',

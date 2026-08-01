@@ -213,6 +213,7 @@ export default {
         placeholder: '掩码',
         clear: '清空搜索',
         reset: '重置条件',
+        result: '显示 {shown} / {total} 把密钥',
       },
       loading: '正在加载上游密钥…',
       loadFailed: '无法加载上游密钥。',

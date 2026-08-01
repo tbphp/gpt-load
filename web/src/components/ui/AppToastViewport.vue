@@ -10,12 +10,7 @@ const current = toast.current
 <template>
   <Teleport to="body">
     <Transition name="app-toast" mode="out-in">
-      <InlineFeedback
-        v-if="current"
-        :key="current.id"
-        :tone="current.tone"
-        appearance="toast"
-      >
+      <InlineFeedback v-if="current" :key="current.id" :tone="current.tone" appearance="toast">
         {{ current.message }}
       </InlineFeedback>
     </Transition>

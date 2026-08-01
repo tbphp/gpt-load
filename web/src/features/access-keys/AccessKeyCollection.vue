@@ -242,7 +242,6 @@ onBeforeUnmount(() => {
     overflow-wrap: anywhere;
     white-space: normal;
   }
-
 }
 
 @media (max-width: 860px) {

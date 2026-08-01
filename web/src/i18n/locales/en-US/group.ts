@@ -221,6 +221,7 @@ export default {
         placeholder: 'Mask',
         clear: 'Clear search',
         reset: 'Reset filters',
+        result: 'Showing {shown} / {total} keys',
       },
       loading: 'Loading upstream keys…',
       loadFailed: 'Unable to load upstream keys.',

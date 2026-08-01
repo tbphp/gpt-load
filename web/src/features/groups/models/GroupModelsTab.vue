@@ -14,10 +14,11 @@ import {
 } from '@/app/resources/groups'
 import { invalidateGroupSummary } from '@/app/resources/groups'
 import { useUnsavedChanges } from '@/app/unsaved-changes'
+import LedgerRecordList from '@/components/collection/LedgerRecordList.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppDialog from '@/components/ui/AppDialog.vue'
 import AppDrawer from '@/components/ui/AppDrawer.vue'
-import DataTable from '@/components/ui/DataTable.vue'
+import IconButton from '@/components/ui/IconButton.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import StickySaveBar from '@/components/ui/StickySaveBar.vue'
@@ -269,76 +270,92 @@ onBeforeUnmount(() => controller?.abort())
         <span>{{ t('group.modelEditor.total', { count: draft.length }) }}</span>
         <span v-if="unpriced">{{ t('group.modelEditor.unpriced', { count: unpriced }) }}</span>
       </div>
-      <DataTable :caption="t('group.modelEditor.tableLabel')">
-        <thead>
-          <tr>
-            <th>{{ t('group.modelEditor.id') }}</th>
-            <th>{{ t('group.modelEditor.alias') }}</th>
-            <th>{{ t('group.modelEditor.pricing') }}</th>
-            <th>
-              <span class="sr-only">{{ t('group.modelEditor.actions') }}</span>
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr
-            v-for="(item, index) in draft"
-            :key="item.key"
-            :class="{ 'group-models__row--conflict': conflictIndexes.has(index) }"
-          >
-            <td>
-              <code>{{ item.id }}</code>
-            </td>
-            <td>
-              <div class="group-models__alias">
-                <label
-                  ><span class="sr-only">{{
-                    t('group.modelEditor.aliasEnabledFor', { id: item.id })
-                  }}</span
-                  ><input
-                    type="checkbox"
-                    :checked="item.alias_enabled"
-                    :disabled="pending !== null"
-                    @change="
-                      updateRow(index, {
-                        alias_enabled: ($event.target as HTMLInputElement).checked,
-                      })
-                    "
-                /></label>
+      <LedgerRecordList
+        :label="t('group.modelEditor.tableLabel')"
+        :row-count="draft.length + 1"
+        grid-class="group-model-record-grid"
+      >
+        <template #header>
+          <span role="columnheader">{{ t('group.modelEditor.id') }}</span>
+          <span role="columnheader">{{ t('group.modelEditor.alias') }}</span>
+          <span role="columnheader">{{ t('group.modelEditor.pricing') }}</span>
+          <span role="columnheader">
+            <span class="sr-only">{{ t('group.modelEditor.actions') }}</span>
+          </span>
+        </template>
+
+        <article
+          v-for="(item, index) in draft"
+          :key="item.key"
+          class="ledger-record-list__record group-model-record"
+          :class="{ 'group-model-record--conflict': conflictIndexes.has(index) }"
+          role="row"
+          :aria-rowindex="index + 2"
+        >
+          <div class="ledger-record-list__cell group-model-record__id" role="cell">
+            <span class="group-model-record__mobile-label">{{ t('group.modelEditor.id') }}</span>
+            <code>{{ item.id }}</code>
+          </div>
+
+          <div class="ledger-record-list__cell group-model-record__alias-cell" role="cell">
+            <span class="group-model-record__mobile-label">{{ t('group.modelEditor.alias') }}</span>
+            <div class="group-models__alias">
+              <label class="group-models__alias-toggle">
+                <span class="sr-only">
+                  {{ t('group.modelEditor.aliasEnabledFor', { id: item.id }) }}
+                </span>
                 <input
-                  :value="item.alias"
-                  :disabled="pending !== null || !item.alias_enabled"
-                  :placeholder="t('group.modelEditor.aliasPlaceholder')"
-                  :aria-invalid="conflictIndexes.has(index) || undefined"
-                  @input="updateRow(index, { alias: ($event.target as HTMLInputElement).value })"
+                  type="checkbox"
+                  :checked="item.alias_enabled"
+                  :disabled="pending !== null"
+                  @change="
+                    updateRow(index, {
+                      alias_enabled: ($event.target as HTMLInputElement).checked,
+                    })
+                  "
                 />
-              </div>
-              <small v-if="conflictIndexes.has(index)" class="group-models__error">{{
-                conflictMessage(index)
-              }}</small>
-              <small v-else-if="emptyAliasIndexes.has(index)" class="group-models__error">{{
-                t('group.modelEditor.aliasRequired')
-              }}</small>
-            </td>
-            <td>
-              <span
-                :class="['group-models__pricing', `group-models__pricing--${item.pricing_status}`]"
-                >{{ t(`group.modelEditor.pricingStatus.${item.pricing_status}`) }}</span
-              >
-            </td>
-            <td>
-              <AppButton
-                variant="ghost"
-                size="compact"
-                :disabled="pending !== null"
-                :aria-label="t('group.modelEditor.removeFor', { id: item.id })"
-                @click="removeRow(index)"
-                ><Trash2 :size="16" aria-hidden="true"
-              /></AppButton>
-            </td>
-          </tr>
-        </tbody>
-      </DataTable>
+              </label>
+              <input
+                type="text"
+                :value="item.alias"
+                :disabled="pending !== null || !item.alias_enabled"
+                :placeholder="t('group.modelEditor.aliasPlaceholder')"
+                :aria-invalid="conflictIndexes.has(index) || undefined"
+                @input="updateRow(index, { alias: ($event.target as HTMLInputElement).value })"
+              />
+            </div>
+            <small v-if="conflictIndexes.has(index)" class="group-models__error">
+              {{ conflictMessage(index) }}
+            </small>
+            <small v-else-if="emptyAliasIndexes.has(index)" class="group-models__error">
+              {{ t('group.modelEditor.aliasRequired') }}
+            </small>
+          </div>
+
+          <div class="ledger-record-list__cell group-model-record__pricing-cell" role="cell">
+            <span class="group-model-record__mobile-label">{{
+              t('group.modelEditor.pricing')
+            }}</span>
+            <span
+              :class="['group-models__pricing', `group-models__pricing--${item.pricing_status}`]"
+            >
+              {{ t(`group.modelEditor.pricingStatus.${item.pricing_status}`) }}
+            </span>
+          </div>
+
+          <div class="ledger-record-list__cell group-model-record__actions" role="cell">
+            <IconButton
+              variant="ghost"
+              size="compact"
+              :disabled="pending !== null"
+              :label="t('group.modelEditor.removeFor', { id: item.id })"
+              @click="removeRow(index)"
+            >
+              <Trash2 :size="16" aria-hidden="true" />
+            </IconButton>
+          </div>
+        </article>
+      </LedgerRecordList>
       <div class="group-models__add">
         <input
           v-model="manualID"
@@ -455,16 +472,36 @@ onBeforeUnmount(() => controller?.abort())
   font-family: var(--font-mono);
   font-size: var(--text-sm);
 }
-.group-models :deep(.data-table) {
-  min-width: 620px;
+.group-model-record-grid {
+  --ledger-record-list-grid: minmax(180px, 1.05fr) minmax(280px, 1.6fr) 140px 48px;
+  --ledger-record-list-column-gap: 16px;
 }
-.group-models__row--conflict {
+.group-model-record--conflict {
   background: var(--color-danger-bg);
+}
+.group-model-record__id,
+.group-model-record__pricing-cell {
+  min-width: 0;
+}
+.group-model-record__id code {
+  overflow-wrap: anywhere;
+}
+.group-model-record__alias-cell {
+  display: grid;
+  gap: var(--space-1);
 }
 .group-models__alias {
   display: flex;
   align-items: center;
   gap: var(--space-2);
+}
+.group-models__alias-toggle {
+  display: grid;
+  width: var(--touch-target);
+  height: var(--touch-target);
+  flex: 0 0 var(--touch-target);
+  place-items: center;
+  cursor: pointer;
 }
 .group-models__alias input[type='text'],
 .group-models__add input {
@@ -486,6 +523,16 @@ onBeforeUnmount(() => controller?.abort())
 .group-models__pricing--unpriced {
   color: var(--color-warning);
 }
+.group-model-record__actions {
+  display: flex;
+  justify-content: flex-end;
+}
+.group-model-record__mobile-label {
+  display: none;
+  color: var(--color-text-faint);
+  font-size: var(--text-label-xs);
+  font-weight: 560;
+}
 .group-models__add {
   justify-content: flex-start;
 }
@@ -502,6 +549,40 @@ onBeforeUnmount(() => controller?.abort())
 .group-models__drawer-actions {
   margin-top: var(--space-4);
   justify-content: flex-end;
+}
+@media (max-width: 860px) {
+  .group-model-record-grid {
+    --ledger-record-list-card-grid: minmax(0, 0.7fr) minmax(0, 1.3fr);
+  }
+  .group-model-record {
+    padding-right: 58px;
+  }
+  .group-model-record__id,
+  .group-model-record__alias-cell {
+    grid-column: 1 / -1;
+  }
+  .group-model-record__id,
+  .group-model-record__alias-cell,
+  .group-model-record__pricing-cell {
+    display: grid;
+    align-content: start;
+    gap: 5px;
+  }
+  .group-model-record__alias-cell {
+    border-top: 1px solid var(--color-border-subtle);
+    padding-top: 11px;
+  }
+  .group-model-record__actions {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+  }
+  .group-model-record__actions :deep(.icon-button) {
+    min-height: var(--touch-target);
+  }
+  .group-model-record__mobile-label {
+    display: inline;
+  }
 }
 @media (max-width: 640px) {
   .group-models__header,

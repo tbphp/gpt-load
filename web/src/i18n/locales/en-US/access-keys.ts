@@ -92,7 +92,8 @@ export default {
         'Edit routing filters and the RPM limit. Plaintext is masked unless explicitly revealed.',
       close: 'Close AccessKey editor',
       basicInformation: 'Basic information',
-      basicInformationDescription: 'The name identifies the client and is not used for authentication.',
+      basicInformationDescription:
+        'The name identifies the client and is not used for authentication.',
       permissionScope: 'Permission scope',
       permissionScopeDescription: 'Values within a dimension use OR; all three dimensions use AND.',
       scopeLogic: 'Permission logic',
