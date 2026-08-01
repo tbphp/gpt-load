@@ -1,28 +1,32 @@
 <script setup lang="ts">
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
-import { Check, ChevronLeft } from '@lucide/vue'
+import { LockKeyhole } from '@lucide/vue'
 import { computed, nextTick, onBeforeUnmount, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
 import { useApiClient } from '@/api/client-context'
+import { ApiError, InvalidResponseError } from '@/api/errors'
 import {
   groupOptionsQueryOptions,
+  groupSummaryQueryOptions,
   importGroupKeys,
-  type GroupKeyImportResult,
 } from '@/app/resources/groups'
 import { applyInvalidationPlan, mutationInvalidationPlans } from '@/app/resources/invalidation'
-import { importLocation } from '@/app/route-locations'
+import { groupDetailLocation, importLocation } from '@/app/route-locations'
+import { useUnsavedChanges } from '@/app/unsaved-changes'
 import AppButton from '@/components/ui/AppButton.vue'
+import AppSelect from '@/components/ui/AppSelect.vue'
+import FormField from '@/components/ui/FormField.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
-import SurfaceCard from '@/components/ui/SurfaceCard.vue'
+import StatusBadge from '@/components/ui/StatusBadge.vue'
 
+import ImportOperationNotice from './ImportOperationNotice.vue'
 import { useImportOperationOwner } from './import-operation-owner'
 import { useImportRecovery } from './import-recovery'
 import { analyzeKeys } from './key-analysis'
 import KeyTextarea from './KeyTextarea.vue'
 import type { ExistingGroupImportDraft } from './model-draft'
-import { useUnsavedChanges } from '@/app/unsaved-changes'
 
 const props = defineProps<{ initialDraft?: ExistingGroupImportDraft | null }>()
 const api = useApiClient()
@@ -33,16 +37,14 @@ const router = useRouter()
 const { t } = useI18n()
 
 const keys = ref(props.initialDraft?.keys ?? '')
-const reviewing = ref(false)
 const completed = ref(false)
 const errorKey = ref('')
-const result = ref<GroupKeyImportResult | null>(null)
-const reviewHeading = ref<HTMLHeadingElement | null>(null)
-const resultHeading = ref<HTMLHeadingElement | null>(null)
+const submissionError = ref<HTMLElement>()
 const importOperationOwner = useImportOperationOwner()
 const operation = importOperationOwner.importKeys
 if (operation.outcome.value?.kind === 'confirmed') operation.reset()
 const pending = operation.pending
+const payloadLocked = computed(() => operation.operation.value !== null)
 const operationNoticeKey = computed(() => {
   const outcome = operation.outcome.value
   if (!outcome) return ''
@@ -60,114 +62,142 @@ const operationResourceIdentity = computed(() => {
     ? outcome.resource_identity
     : ''
 })
+const selectorPlaceholder = '__select_group__'
 let componentActive = true
 
-function parsePositiveID(value: unknown): number | null {
-  if (typeof value !== 'string' || !/^\d+$/.test(value)) return null
+function parsePositiveID(value: unknown): number | undefined {
+  if (typeof value !== 'string' || !/^[1-9]\d*$/u.test(value)) return undefined
   const id = Number(value)
-  return Number.isSafeInteger(id) && id > 0 ? id : null
+  return Number.isSafeInteger(id) ? id : undefined
 }
 
-const selectedID = computed(() => parsePositiveID(route.query.group_id))
-const groupsQuery = useQuery(groupOptionsQueryOptions(api))
-const selectedGroup = computed(
-  () => groupsQuery.data.value?.find((group) => group.id === selectedID.value) ?? null,
+const hasFixedTargetIntent = computed(() =>
+  Object.prototype.hasOwnProperty.call(route.query, 'group_id'),
 )
-const keyAnalysis = computed(() => analyzeKeys(keys.value))
-const canReview = computed(
+const routeGroupID = computed(() =>
+  hasFixedTargetIntent.value ? parsePositiveID(route.query.group_id) : undefined,
+)
+const operationGroupID = computed(() => operation.operation.value?.payload.groupID)
+const hasLockedTarget = computed(
+  () => hasFixedTargetIntent.value || operationGroupID.value !== undefined,
+)
+const targetGroupID = computed(() => operationGroupID.value ?? routeGroupID.value)
+const groupsQuery = useQuery(groupOptionsQueryOptions(api))
+const summaryQuery = useQuery(groupSummaryQueryOptions(api, targetGroupID))
+const fixedGroupMissing = computed(
+  () => summaryQuery.error.value instanceof ApiError && summaryQuery.error.value.status === 404,
+)
+const fixedGroup = computed(() => {
+  if (fixedGroupMissing.value) return null
+  const group = summaryQuery.data.value
+  return group && group.id === targetGroupID.value ? group : null
+})
+const canReturnToSelector = computed(
   () =>
+    operationGroupID.value === undefined &&
+    hasFixedTargetIntent.value &&
+    (routeGroupID.value === undefined ||
+      (!summaryQuery.isPending.value && fixedGroup.value === null)),
+)
+const selectorOptions = computed(() => [
+  { value: selectorPlaceholder, label: t('import.existing.groupPlaceholder') },
+  ...(groupsQuery.data.value ?? []).map((group) => ({
+    value: String(group.id),
+    label: t('import.existing.groupOption', { id: group.id, name: group.name }),
+  })),
+])
+const keyAnalysis = computed(() => analyzeKeys(keys.value))
+const canSubmit = computed(
+  () =>
+    !payloadLocked.value &&
     !pending.value &&
-    selectedGroup.value !== null &&
+    fixedGroup.value !== null &&
     keyAnalysis.value.nonEmptyCount > 0 &&
     !keyAnalysis.value.tooManyKeys,
 )
 const dirty = computed(() => !completed.value && keys.value !== '')
+const actionSummary = computed(() =>
+  fixedGroup.value
+    ? t('import.existing.actionSummary', { name: fixedGroup.value.name })
+    : t('import.existing.actionSelectTarget'),
+)
 
-useUnsavedChanges(dirty)
+const unsavedChanges = useUnsavedChanges(dirty, { blocked: pending })
 const unregisterRecovery = recovery.register(() =>
   completed.value
     ? null
     : {
         mode: 'existing',
-        group_id: selectedGroup.value?.id ?? null,
+        group_id: targetGroupID.value ?? null,
         keys: keys.value,
       },
 )
 
-function selectGroup(event: Event): void {
-  if (operation.operation.value) return
-  const id = parsePositiveID((event.target as HTMLSelectElement).value)
-  reviewing.value = false
+async function selectGroup(value: string): Promise<void> {
+  if (payloadLocked.value) return
+  if (value === selectorPlaceholder) return
+  const id = parsePositiveID(value)
+  if (id === undefined) return
   errorKey.value = ''
-  result.value = null
-  const query: Record<string, string> = { mode: 'existing' }
-  if (id !== null) query.group_id = String(id)
-  void router.push(importLocation(query))
+  await unsavedChanges.runWithoutPrompt(() =>
+    router.push(importLocation({ mode: 'existing', group_id: String(id) })),
+  )
 }
 
-async function showReview(): Promise<void> {
-  if (!canReview.value) return
+async function returnToSelector(): Promise<void> {
+  if (payloadLocked.value) return
   errorKey.value = ''
-  reviewing.value = true
-  await nextTick()
-  reviewHeading.value?.focus()
-}
-
-function returnToEdit(): void {
-  if (operationNoticeKey.value) return
-  operation.reset()
-  errorKey.value = ''
-  reviewing.value = false
+  await unsavedChanges.runWithoutPrompt(() => router.push(importLocation({ mode: 'existing' })))
 }
 
 async function submit(): Promise<void> {
-  const group = selectedGroup.value
-  if (
-    !group ||
-    pending.value ||
-    keyAnalysis.value.nonEmptyCount === 0 ||
-    keyAnalysis.value.tooManyKeys
-  ) {
-    return
-  }
-
-  if (!importOperationOwner.beginImportKeys({ groupID: group.id, keys: keys.value }, 'existing')) {
-    return
-  }
+  const groupID = targetGroupID.value
+  if (groupID === undefined || !fixedGroup.value || !canSubmit.value) return
+  if (!importOperationOwner.beginImportKeys({ groupID, keys: keys.value }, 'existing')) return
   await executeImportOperation()
 }
 
 async function executeImportOperation(): Promise<void> {
-  if (!operation.operation.value) return
+  const current = operation.operation.value
+  if (!current) return
   errorKey.value = ''
-  const outcome = await operation.execute((current, signal) =>
-    importGroupKeys(
+  const outcome = await operation.execute(async (stableOperation, signal) => {
+    const imported = await importGroupKeys(
       api,
-      current.payload.groupID,
-      { keys: current.payload.keys },
-      current.idempotencyKey,
+      stableOperation.payload.groupID,
+      { keys: stableOperation.payload.keys },
+      stableOperation.idempotencyKey,
       signal,
-    ),
-  )
+    )
+    if (imported.group_id !== stableOperation.payload.groupID) throw new InvalidResponseError()
+    return imported
+  })
   if (!outcome) return
   if (outcome.kind === 'confirmed') {
-    const imported = outcome.value
-    const targetID = imported.group_id
-    operation.reset()
-    if (!componentActive) return
-    await applyInvalidationPlan(queryClient, mutationInvalidationPlans.group.importKeys(targetID))
-    if (!componentActive) return
-    result.value = imported
+    const targetID = current.payload.groupID
     completed.value = true
     keys.value = ''
     recovery.clear()
-    await nextTick()
-    resultHeading.value?.focus()
+    operation.reset()
+    await applyInvalidationPlan(queryClient, mutationInvalidationPlans.group.importKeys(targetID))
+    if (!componentActive) return
+    await router.push(groupDetailLocation(targetID))
     return
   }
   if (!componentActive) return
-  if (outcome.kind === 'failed' && outcome.reason === 'rejected')
+  if (outcome.kind === 'failed' && outcome.reason === 'rejected') {
+    operation.reset()
     errorKey.value = 'import.existing.importFailed'
+    await nextTick()
+    submissionError.value?.focus()
+  }
+}
+
+async function abandonOperation(): Promise<void> {
+  if (pending.value || !payloadLocked.value) return
+  if (!(await unsavedChanges.confirmDiscard()) || pending.value) return
+  operation.reset()
+  errorKey.value = ''
 }
 
 onBeforeUnmount(() => {
@@ -178,228 +208,351 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="existing-import">
-    <section v-if="operationNoticeKey" class="operation-notice" aria-live="polite">
-      <InlineFeedback tone="warning">{{ t(operationNoticeKey) }}</InlineFeedback>
-      <code v-if="operationResourceIdentity">{{ operationResourceIdentity }}</code>
-      <AppButton
-        v-else
-        variant="secondary"
-        :disabled="!operation.canRetry.value"
-        :busy="pending"
-        @click="executeImportOperation"
-      >
-        {{ t('import.operation.checkResult') }}
-      </AppButton>
-    </section>
+    <ImportOperationNotice
+      :message-key="operationNoticeKey"
+      :resource-identity="operationResourceIdentity"
+      :can-retry="operation.canRetry.value"
+      :can-abandon="payloadLocked && !pending"
+      :pending="pending"
+      @retry="executeImportOperation"
+      @abandon="abandonOperation"
+    />
 
-    <SurfaceCard class="existing-card">
-      <header>
-        <h2>{{ t('import.existing.title') }}</h2>
-        <p>{{ t('import.existing.description') }}</p>
-      </header>
+    <InlineFeedback tone="info" appearance="hint">
+      {{ t('import.existing.description') }}
+    </InlineFeedback>
 
-      <InlineFeedback v-if="groupsQuery.isPending.value" tone="info">
-        {{ t('import.existing.groupsLoading') }}
-      </InlineFeedback>
-      <InlineFeedback
-        v-else-if="groupsQuery.isError.value && !groupsQuery.data.value"
-        tone="danger"
-      >
-        {{ t('import.existing.groupsFailed') }}
-      </InlineFeedback>
-
-      <template v-else-if="!result">
-        <label class="group-selector" for="existing-group-select">
-          <span>{{ t('import.existing.groupLabel') }}</span>
-          <select
-            id="existing-group-select"
-            :value="selectedGroup?.id ?? ''"
-            :disabled="pending || operation.operation.value !== null"
-            @change="selectGroup"
-          >
-            <option value="">{{ t('import.existing.groupPlaceholder') }}</option>
-            <option v-for="group in groupsQuery.data.value ?? []" :key="group.id" :value="group.id">
-              {{ group.name }}
-            </option>
-          </select>
-        </label>
-
-        <template v-if="!reviewing">
-          <KeyTextarea v-model="keys" :disabled="pending" />
-          <footer class="card-actions">
-            <AppButton :disabled="!canReview" @click="showReview">
-              {{ t('import.review') }}
-            </AppButton>
-          </footer>
-        </template>
-
-        <template v-else>
-          <section class="review" :aria-labelledby="'existing-review-title'">
-            <h3 id="existing-review-title" ref="reviewHeading" tabindex="-1">
-              {{ t('import.existing.reviewTitle') }}
-            </h3>
-            <p>{{ t('import.existing.reviewDescription') }}</p>
-            <dl>
-              <div>
-                <dt>{{ t('import.existing.groupLabel') }}</dt>
-                <dd>{{ selectedGroup?.name }}</dd>
-              </div>
-              <div>
-                <dt>{{ t('import.keys.label') }}</dt>
-                <dd>{{ t('import.keys.count', { count: keyAnalysis.nonEmptyCount }) }}</dd>
-              </div>
-            </dl>
-          </section>
-          <InlineFeedback v-if="errorKey" tone="danger">{{ t(errorKey) }}</InlineFeedback>
-          <footer class="card-actions split">
-            <AppButton
-              variant="secondary"
-              :disabled="pending || operationNoticeKey !== ''"
-              @click="returnToEdit"
-            >
-              <ChevronLeft :size="16" aria-hidden="true" />{{ t('import.back') }}
-            </AppButton>
-            <AppButton :busy="pending" @click="submit">
-              {{ t('import.existing.submit') }}
-            </AppButton>
-          </footer>
-        </template>
-      </template>
-
-      <section v-else class="result" role="status" aria-live="polite">
-        <Check :size="22" aria-hidden="true" />
+    <section class="existing-import__target" aria-labelledby="existing-target-heading">
+      <header class="existing-import__section-header">
         <div>
-          <h3 ref="resultHeading" tabindex="-1">
-            {{ t('import.existing.successTitle') }}
-          </h3>
+          <h2 id="existing-target-heading">{{ t('import.existing.title') }}</h2>
           <p>
             {{
-              t('import.existing.successSummary', {
-                added: result.keys_added,
-                duplicated: result.keys_duplicated,
-              })
+              t(
+                hasLockedTarget
+                  ? 'import.existing.fixedDescription'
+                  : 'import.existing.selectorDescription',
+              )
             }}
           </p>
         </div>
-      </section>
-    </SurfaceCard>
+        <AppButton
+          v-if="canReturnToSelector"
+          variant="secondary"
+          size="compact"
+          :disabled="payloadLocked"
+          @click="returnToSelector"
+        >
+          {{ t('import.existing.backToSelector') }}
+        </AppButton>
+      </header>
+
+      <template v-if="!hasLockedTarget">
+        <InlineFeedback v-if="groupsQuery.isPending.value" tone="info">
+          {{ t('import.existing.groupsLoading') }}
+        </InlineFeedback>
+        <div
+          v-else-if="groupsQuery.isError.value && !groupsQuery.data.value"
+          class="existing-import__query-error"
+        >
+          <InlineFeedback tone="danger">{{ t('import.existing.groupsFailed') }}</InlineFeedback>
+          <AppButton variant="secondary" size="compact" @click="groupsQuery.refetch()">
+            {{ t('common.retry') }}
+          </AppButton>
+        </div>
+        <template v-else>
+          <InlineFeedback v-if="groupsQuery.isError.value" tone="warning">
+            {{ t('import.existing.groupsStale') }}
+          </InlineFeedback>
+          <InlineFeedback v-if="groupsQuery.data.value?.length === 0" tone="info">
+            {{ t('import.existing.groupsEmpty') }}
+          </InlineFeedback>
+          <FormField
+            v-else
+            id="existing-group-select"
+            :label="t('import.existing.groupLabel')"
+            :description="t('import.existing.selectorHelp')"
+            required
+            :required-text="t('import.required')"
+          >
+            <template #default="field">
+              <AppSelect
+                id="existing-group-select"
+                :model-value="selectorPlaceholder"
+                :label="t('import.existing.groupLabel')"
+                :options="selectorOptions"
+                :disabled="payloadLocked"
+                :aria-describedby="field.describedBy"
+                @update:model-value="selectGroup"
+              />
+            </template>
+          </FormField>
+        </template>
+      </template>
+
+      <InlineFeedback v-else-if="targetGroupID === undefined" tone="danger">
+        {{ t('import.existing.invalidGroupID') }}
+      </InlineFeedback>
+      <InlineFeedback v-else-if="summaryQuery.isPending.value" tone="info">
+        {{ t('import.existing.targetLoading') }}
+      </InlineFeedback>
+      <div v-else-if="!fixedGroup" class="existing-import__query-error">
+        <InlineFeedback tone="danger">
+          {{
+            t(
+              fixedGroupMissing
+                ? 'import.existing.groupNotFound'
+                : 'import.existing.groupLoadFailed',
+              { id: targetGroupID },
+            )
+          }}
+        </InlineFeedback>
+        <AppButton variant="secondary" size="compact" @click="summaryQuery.refetch()">
+          {{ t('common.retry') }}
+        </AppButton>
+      </div>
+      <template v-else>
+        <InlineFeedback v-if="summaryQuery.isError.value" tone="warning">
+          {{ t('import.existing.targetStale') }}
+        </InlineFeedback>
+        <div class="existing-import__locked-heading">
+          <LockKeyhole :size="18" aria-hidden="true" />
+          <strong>#{{ fixedGroup.id }} · {{ fixedGroup.name }}</strong>
+          <span>{{ t('import.existing.targetLocked') }}</span>
+        </div>
+        <dl class="existing-import__summary">
+          <div>
+            <dt>{{ t('import.existing.status') }}</dt>
+            <dd>
+              <StatusBadge :status="fixedGroup.service_status">
+                {{ t(`groups.collection.status.${fixedGroup.service_status}`) }}
+              </StatusBadge>
+            </dd>
+          </div>
+          <div>
+            <dt>{{ t('import.existing.upstream') }}</dt>
+            <dd>
+              <code>{{ fixedGroup.upstream_url }}</code>
+            </dd>
+          </div>
+          <div>
+            <dt>{{ t('import.existing.protocols') }}</dt>
+            <dd class="existing-import__protocols">
+              <code v-for="protocol in fixedGroup.protocols" :key="protocol">{{ protocol }}</code>
+            </dd>
+          </div>
+          <div>
+            <dt>{{ t('import.existing.modelsAndKeys') }}</dt>
+            <dd>
+              {{
+                t('import.existing.modelsAndKeysSummary', {
+                  models: fixedGroup.model_count,
+                  keys: fixedGroup.key_count,
+                })
+              }}
+            </dd>
+          </div>
+        </dl>
+      </template>
+    </section>
+
+    <template v-if="!hasLockedTarget || fixedGroup">
+      <KeyTextarea v-model="keys" :disabled="payloadLocked" />
+
+      <div v-if="errorKey" ref="submissionError" class="existing-import__error" tabindex="-1">
+        <InlineFeedback tone="danger">{{ t(errorKey) }}</InlineFeedback>
+      </div>
+
+      <footer class="existing-import__actions">
+        <div aria-live="polite">
+          <strong>{{ actionSummary }}</strong>
+          <span>{{ t('import.existing.actionHelp') }}</span>
+        </div>
+        <AppButton :busy="pending" :disabled="!canSubmit" @click="submit">
+          {{ t('import.existing.submit') }}
+        </AppButton>
+      </footer>
+    </template>
   </div>
 </template>
 
 <style scoped>
 .existing-import {
+  min-width: 0;
+}
+
+.existing-import :deep(.operation-notice) {
+  margin-top: var(--space-5);
+}
+
+.existing-import > .inline-feedback {
+  margin-top: var(--space-5);
+}
+
+.existing-import__target {
   display: grid;
   gap: var(--space-4);
-  width: 100%;
-  max-width: 760px;
-  margin: 0 auto;
+  min-width: 0;
+  border-bottom: 1px solid var(--color-border-subtle);
+  padding: var(--space-5) 0 var(--space-6);
 }
-.operation-notice {
+
+.existing-import__section-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.existing-import__section-header h2,
+.existing-import__section-header p {
+  margin: 0;
+}
+
+.existing-import__section-header h2 {
+  font-family: var(--font-serif);
+  font-size: var(--title-section);
+  font-weight: 500;
+}
+
+.existing-import__section-header p {
+  margin-top: var(--space-1);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.existing-import__target :deep(.form-field) {
+  max-width: 620px;
+}
+
+.existing-import__target :deep(.app-select__trigger) {
+  width: 100%;
+}
+
+.existing-import__query-error {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
-  border: 1px solid var(--color-warning);
-  border-radius: var(--radius-card);
-  background: var(--color-warning-bg);
-  padding: var(--space-3) var(--space-4);
 }
-.operation-notice code {
-  overflow-wrap: anywhere;
+
+.existing-import__query-error > .inline-feedback {
+  flex: 1;
 }
-.existing-card {
-  display: grid;
-  gap: var(--space-5);
-  padding: var(--space-6);
-}
-header h2,
-header p,
-.review h3,
-.review p,
-.result h3,
-.result p {
-  margin: 0;
-}
-header h2,
-.review h3,
-.result h3 {
-  font-size: 1.2rem;
-}
-header p,
-.review p {
-  margin-top: var(--space-1);
-  color: var(--color-text-muted);
-}
-.group-selector {
-  display: grid;
-  gap: var(--space-1);
-  color: var(--color-text-muted);
-  font-size: 0.75rem;
-  font-weight: 650;
-}
-.group-selector select {
-  width: 100%;
-  min-height: 44px;
-  border: 1px solid var(--color-border-control);
-  border-radius: var(--radius-control);
-  background: var(--color-surface-sunken);
-  color: var(--color-text);
-  padding: var(--space-2) var(--space-3);
-}
-.card-actions {
+
+.existing-import__locked-heading {
   display: flex;
-  justify-content: flex-end;
-}
-.card-actions.split {
-  justify-content: space-between;
-}
-.card-actions :deep(.app-button) {
+  min-width: 0;
+  align-items: center;
   gap: var(--space-2);
+  color: var(--color-text);
 }
-.review {
-  display: grid;
-  gap: var(--space-3);
-}
-.review dl {
-  display: grid;
-  margin: 0;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-card);
-}
-.review dl div {
-  display: grid;
-  grid-template-columns: minmax(140px, 0.5fr) 1fr;
-  gap: var(--space-4);
-  padding: var(--space-3) var(--space-4);
-  border-bottom: 1px solid var(--color-border-subtle);
-}
-.review dl div:last-child {
-  border-bottom: 0;
-}
-.review dt {
-  color: var(--color-text-muted);
-}
-.review dd {
-  margin: 0;
+
+.existing-import__locked-heading strong {
+  min-width: 0;
   overflow-wrap: anywhere;
 }
-.result {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-3);
-  border: 1px solid color-mix(in srgb, var(--color-success) 35%, var(--color-border-subtle));
-  border-radius: var(--radius-card);
-  background: var(--color-success-bg);
-  color: var(--color-success);
-  padding: var(--space-4);
+
+.existing-import__locked-heading > span {
+  flex: none;
+  border-radius: var(--radius-tag);
+  background: var(--color-neutral-bg);
+  color: var(--color-neutral);
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--text-label-xs);
+  font-weight: 600;
 }
-@media (max-width: 560px) {
-  .existing-card {
-    padding: var(--space-4);
+
+.existing-import__summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
+  border-top: 1px solid var(--color-border-subtle);
+  border-left: 1px solid var(--color-border-subtle);
+}
+
+.existing-import__summary > div {
+  min-width: 0;
+  border-right: 1px solid var(--color-border-subtle);
+  border-bottom: 1px solid var(--color-border-subtle);
+  padding: var(--space-3);
+}
+
+.existing-import__summary dt {
+  color: var(--color-text-faint);
+  font-size: var(--text-label-xs);
+}
+
+.existing-import__summary dd {
+  margin: var(--space-1) 0 0;
+  overflow-wrap: anywhere;
+}
+
+.existing-import__summary code {
+  font-family: var(--font-mono);
+}
+
+.existing-import__protocols {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.existing-import__protocols code {
+  border-radius: var(--radius-tag);
+  background: var(--color-surface-sunken);
+  padding: var(--space-1) var(--space-2);
+  color: var(--color-text-muted);
+  font-size: var(--text-label-xs);
+}
+
+.existing-import__error {
+  margin-top: var(--space-5);
+  outline: none;
+}
+
+.existing-import__actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-4) 0 0;
+}
+
+.existing-import__actions > div {
+  min-width: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.existing-import__actions strong,
+.existing-import__actions span {
+  display: block;
+}
+
+.existing-import__actions strong {
+  color: var(--color-text);
+  font-weight: 560;
+}
+
+.existing-import__actions span {
+  margin-top: var(--space-1);
+}
+
+@media (max-width: 640px) {
+  .existing-import__section-header,
+  .existing-import__query-error,
+  .existing-import__actions {
+    align-items: stretch;
+    flex-direction: column;
   }
-  .review dl div {
+
+  .existing-import__summary {
     grid-template-columns: 1fr;
-    gap: var(--space-1);
+  }
+
+  .existing-import__actions :deep(.app-button) {
+    min-height: var(--touch-target);
   }
 }
 </style>

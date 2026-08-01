@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { useQueryClient } from '@tanstack/vue-query'
-import { ArrowRight, CloudDownload, PenLine, RefreshCw, TriangleAlert } from '@lucide/vue'
+import { ArrowRight, CloudDownload, PenLine, RefreshCw } from '@lucide/vue'
 import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 
 import { useApiClient } from '@/api/client-context'
 import type { GroupProtocol } from '@/api/control/types'
-import { ApiError, RequestCancelledError } from '@/api/errors'
+import { ApiError, InvalidResponseError, RequestCancelledError } from '@/api/errors'
 import { groupDetailLocation } from '@/app/route-locations'
 import {
   createGroup,
@@ -20,6 +20,7 @@ import {
 import { applyInvalidationPlan, mutationInvalidationPlans } from '@/app/resources/invalidation'
 import { useUnsavedChanges } from '@/app/unsaved-changes'
 import AppButton from '@/components/ui/AppButton.vue'
+import AppDialog from '@/components/ui/AppDialog.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import ModelAliasEditor from '@/features/models/ModelAliasEditor.vue'
 import ModelDiscoveryDrawer from '@/features/models/ModelDiscoveryDrawer.vue'
@@ -427,9 +428,9 @@ async function executeCreateOperation(): Promise<void> {
 async function submitSeparateGroup(): Promise<void> {
   const current = createOperation.operation.value
   if (!current || !conflict.value || mutationPending.value) return
+  const displayedConflict = conflict.value
   const payload = structuredClone(current.payload)
   createOperation.reset()
-  conflict.value = null
   if (
     !importOperationOwner.beginCreate({
       ...payload,
@@ -439,30 +440,34 @@ async function submitSeparateGroup(): Promise<void> {
     return
   }
   await executeCreateOperation()
+  if (conflict.value === displayedConflict) conflict.value = null
 }
 
 async function appendToGroup(groupID: number): Promise<void> {
   const current = createOperation.operation.value
   if (!current || !conflict.value || mutationPending.value) return
+  const displayedConflict = conflict.value
   const keys = current.payload.keys
   createOperation.reset()
-  conflict.value = null
   if (!importOperationOwner.beginImportKeys({ groupID, keys }, 'new')) return
   await executeAppendOperation()
+  if (conflict.value === displayedConflict) conflict.value = null
 }
 
 async function executeAppendOperation(): Promise<void> {
   if (!appendOperation.operation.value) return
   errorKey.value = ''
-  const outcome = await appendOperation.execute((operation, signal) =>
-    importGroupKeys(
+  const outcome = await appendOperation.execute(async (operation, signal) => {
+    const imported = await importGroupKeys(
       api,
       operation.payload.groupID,
       { keys: operation.payload.keys },
       operation.idempotencyKey,
       signal,
-    ),
-  )
+    )
+    if (imported.group_id !== operation.payload.groupID) throw new InvalidResponseError()
+    return imported
+  })
   if (!outcome) return
   if (outcome.kind === 'confirmed') {
     const targetID = outcome.value.group_id
@@ -490,10 +495,15 @@ async function abandonOperation(): Promise<void> {
 }
 
 function returnToEdit(): void {
+  if (mutationPending.value) return
   createOperation.reset()
   appendOperation.reset()
   conflict.value = null
   errorKey.value = ''
+}
+
+function updateConflictDialog(open: boolean): void {
+  if (!open && conflict.value !== null) returnToEdit()
 }
 
 onBeforeUnmount(() => {
@@ -578,36 +588,6 @@ onBeforeUnmount(() => {
       </InlineFeedback>
     </section>
 
-    <section v-if="conflict" class="new-group-import__conflict" aria-live="polite">
-      <header>
-        <TriangleAlert :size="18" aria-hidden="true" />
-        <div>
-          <h2>{{ t('import.conflict.title') }}</h2>
-          <p>{{ t('import.conflict.description') }}</p>
-        </div>
-      </header>
-      <div class="new-group-import__conflict-groups">
-        <div v-for="group in conflict.groups" :key="group.id">
-          <strong>#{{ group.id }} · {{ group.name }}</strong>
-          <AppButton
-            variant="secondary"
-            :disabled="mutationPending"
-            @click="appendToGroup(group.id)"
-          >
-            {{ t('import.conflict.append') }}
-          </AppButton>
-        </div>
-      </div>
-      <footer>
-        <AppButton :disabled="mutationPending" @click="submitSeparateGroup">
-          {{ t('import.conflict.separate') }}
-        </AppButton>
-        <AppButton variant="ghost" :disabled="mutationPending" @click="returnToEdit">
-          {{ t('import.conflict.edit') }}
-        </AppButton>
-      </footer>
-    </section>
-
     <div v-if="errorKey" ref="submissionError" class="new-group-import__error" tabindex="-1">
       <InlineFeedback tone="danger">{{ t(errorKey) }}</InlineFeedback>
     </div>
@@ -634,6 +614,41 @@ onBeforeUnmount(() => {
       @retry="requestDiscovery"
       @confirm="confirmCandidates"
     />
+
+    <AppDialog
+      :open="conflict !== null"
+      :title="t('import.conflict.title')"
+      :description="t('import.conflict.description')"
+      :close-label="t('import.conflict.close')"
+      :dismissible="!mutationPending"
+      @update:open="updateConflictDialog"
+    >
+      <template #body>
+        <div v-if="conflict" class="new-group-import__conflict-groups">
+          <div v-for="group in conflict.groups" :key="group.id">
+            <div>
+              <strong>#{{ group.id }} · {{ group.name }}</strong>
+              <span>{{ t('import.conflict.appendHelp') }}</span>
+            </div>
+            <AppButton
+              variant="secondary"
+              :disabled="mutationPending"
+              @click="appendToGroup(group.id)"
+            >
+              {{ t('import.conflict.append') }}
+            </AppButton>
+          </div>
+        </div>
+      </template>
+      <template #footer>
+        <AppButton variant="ghost" :disabled="mutationPending" @click="returnToEdit">
+          {{ t('import.conflict.edit') }}
+        </AppButton>
+        <AppButton :busy="mutationPending" :disabled="mutationPending" @click="submitSeparateGroup">
+          {{ t('import.conflict.separate') }}
+        </AppButton>
+      </template>
+    </AppDialog>
   </div>
 </template>
 
@@ -709,18 +724,6 @@ onBeforeUnmount(() => {
   color: var(--color-success);
 }
 
-.new-group-import__conflict {
-  display: grid;
-  gap: var(--space-3);
-  margin-top: var(--space-5);
-  border: 1px solid var(--color-warning);
-  border-radius: var(--radius-control);
-  background: var(--color-warning-bg);
-  padding: var(--space-4);
-}
-
-.new-group-import__conflict > header,
-.new-group-import__conflict > footer,
 .new-group-import__conflict-groups > div {
   display: flex;
   align-items: center;
@@ -728,40 +731,33 @@ onBeforeUnmount(() => {
   gap: var(--space-3);
 }
 
-.new-group-import__conflict > header {
-  align-items: flex-start;
-  justify-content: flex-start;
-  color: var(--color-warning);
-}
-
-.new-group-import__conflict h2,
-.new-group-import__conflict p {
-  margin: 0;
-}
-
-.new-group-import__conflict h2 {
-  font-size: var(--text-body);
-}
-
-.new-group-import__conflict p {
-  margin-top: var(--space-1);
-  color: var(--color-text-muted);
-  font-size: var(--text-sm);
-}
-
 .new-group-import__conflict-groups {
   display: grid;
-  gap: var(--space-2);
+  gap: var(--space-3);
 }
 
-.new-group-import__conflict-groups > div {
+.new-group-import__conflict-groups > div + div {
   border-top: 1px solid var(--color-border-subtle);
-  padding-top: var(--space-2);
+  padding-top: var(--space-3);
 }
 
-.new-group-import__conflict > footer {
-  justify-content: flex-start;
-  flex-wrap: wrap;
+.new-group-import__conflict-groups > div > div {
+  min-width: 0;
+}
+
+.new-group-import__conflict-groups strong,
+.new-group-import__conflict-groups span {
+  display: block;
+}
+
+.new-group-import__conflict-groups strong {
+  overflow-wrap: anywhere;
+}
+
+.new-group-import__conflict-groups span {
+  margin-top: var(--space-1);
+  color: var(--color-text-faint);
+  font-size: var(--text-label-xs);
 }
 
 .new-group-import__actions {

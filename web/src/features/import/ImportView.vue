@@ -24,12 +24,16 @@ const operationOwner = useImportOperationOwner()
 const { t } = useI18n()
 const recoveredDraft = ref(recovery.consume())
 const rawMode = computed(() => route.query.mode)
+const hasFixedTargetIntent = computed(() =>
+  Object.prototype.hasOwnProperty.call(route.query, 'group_id'),
+)
 const operationMode = operationOwner.operationMode
 const modeOptions = computed(() => [
   {
     value: 'new',
     label: t('import.mode.new'),
-    disabled: operationMode.value !== null && operationMode.value !== 'new',
+    disabled:
+      hasFixedTargetIntent.value || (operationMode.value !== null && operationMode.value !== 'new'),
   },
   {
     value: 'existing',
@@ -39,6 +43,7 @@ const modeOptions = computed(() => [
 ])
 const activeMode = computed<'new' | 'existing'>(() => {
   if (operationMode.value) return operationMode.value
+  if (hasFixedTargetIntent.value) return 'existing'
   if (recoveredDraft.value) return recoveredDraft.value.mode
   return rawMode.value === 'existing' ? 'existing' : 'new'
 })
@@ -50,7 +55,11 @@ const recoveredExistingDraft = computed<ExistingGroupImportDraft | null>(() =>
 )
 
 if (!operationMode.value) {
-  if (recoveredDraft.value?.mode === 'existing') {
+  if (hasFixedTargetIntent.value) {
+    if (rawMode.value !== 'existing') {
+      void router.replace(importLocation({ mode: 'existing', group_id: route.query.group_id }))
+    }
+  } else if (recoveredDraft.value?.mode === 'existing') {
     const query: Record<string, string> = { mode: 'existing' }
     if (recoveredDraft.value.group_id !== null) {
       query.group_id = String(recoveredDraft.value.group_id)
@@ -71,7 +80,14 @@ watch(
   operationMode,
   (mode) => {
     if (mode && rawMode.value !== mode) {
-      void router.replace(importLocation({ mode }))
+      void router.replace(
+        importLocation({
+          mode,
+          ...(mode === 'existing' && hasFixedTargetIntent.value
+            ? { group_id: route.query.group_id }
+            : {}),
+        }),
+      )
     }
   },
   { immediate: true },
