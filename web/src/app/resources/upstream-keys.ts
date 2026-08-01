@@ -422,6 +422,34 @@ async function invalidateExactKeyPage(queryClient: QueryClient, queryKey: QueryK
   await queryClient.invalidateQueries({ queryKey, exact: true, refetchType: 'none' })
 }
 
+interface MaterializedKeyPage {
+  queryKey: QueryKey
+  collection: GroupKeyCollectionDto
+  filters: GroupKeyCollectionFilters
+}
+
+function keyFilterSetID(filters: GroupKeyCollectionFilters): string {
+  return JSON.stringify({
+    q: filters.q ?? null,
+    status: filters.status ?? null,
+    page_size: filters.page_size,
+  })
+}
+
+function totalItemsAfterBatchDelete(
+  pages: MaterializedKeyPage[],
+  knownDeletedIDs: Set<number>,
+  summary: GroupKeySummaryDto,
+): number {
+  const { q, status } = pages[0].filters
+  if (q === undefined) return status === undefined ? summary.total : summary[status]
+  return Math.max(
+    0,
+    Math.max(...pages.map(({ collection }) => collection.pagination.total_items)) -
+      knownDeletedIDs.size,
+  )
+}
+
 /**
  * Reconciles only a cached page containing the previous item. Pages whose
  * membership or sort position cannot be known are explicitly marked stale.
@@ -493,32 +521,53 @@ export async function cacheGroupKeyBatch(
   const queries = queryClient
     .getQueryCache()
     .findAll({ queryKey: controlQueryKeys.groups.keysAll(groupId) })
-  for (const query of queries) {
+  const pages = queries.flatMap((query): MaterializedKeyPage[] => {
     const collection = query.state.data as GroupKeyCollectionDto | undefined
-    if (collection === undefined) continue
-    if (action !== 'delete') {
-      queryClient.setQueryData<GroupKeyCollectionDto>(query.queryKey, {
+    const filters = queryFilters(query.queryKey)
+    return collection === undefined || filters === undefined
+      ? []
+      : [{ queryKey: query.queryKey, collection, filters }]
+  })
+  if (action !== 'delete') {
+    for (const { queryKey, collection } of pages) {
+      queryClient.setQueryData<GroupKeyCollectionDto>(queryKey, {
         ...collection,
         summary: result.summary,
       })
-      await invalidateExactKeyPage(queryClient, query.queryKey)
-      continue
+      await invalidateExactKeyPage(queryClient, queryKey)
     }
-    const matchingItems = collection.items.filter((item) => affected.has(item.id))
-    if (matchingItems.length !== affected.size) {
-      queryClient.setQueryData<GroupKeyCollectionDto>(query.queryKey, {
+    return
+  }
+
+  const pageSets = new Map<string, MaterializedKeyPage[]>()
+  for (const page of pages) {
+    const id = keyFilterSetID(page.filters)
+    const set = pageSets.get(id)
+    if (set === undefined) pageSets.set(id, [page])
+    else set.push(page)
+  }
+  for (const pageSet of pageSets.values()) {
+    const knownDeletedIDs = new Set(
+      pageSet
+        .flatMap(({ collection }) => collection.items)
+        .filter(({ id }) => affected.has(id))
+        .map(({ id }) => id),
+    )
+    const totalItems = totalItemsAfterBatchDelete(pageSet, knownDeletedIDs, result.summary)
+    const totalPages = expectedPageCount(totalItems, pageSet[0].filters.page_size)
+    for (const { queryKey, collection } of pageSet) {
+      queryClient.setQueryData<GroupKeyCollectionDto>(queryKey, {
         ...collection,
         summary: result.summary,
+        items: collection.items.filter(({ id }) => !affected.has(id)),
+        pagination: {
+          ...collection.pagination,
+          total_items: totalItems,
+          total_pages: totalPages,
+        },
       })
-      await invalidateExactKeyPage(queryClient, query.queryKey)
-      continue
+      await invalidateExactKeyPage(queryClient, queryKey)
     }
-    let next = { ...collection, summary: result.summary }
-    for (const item of matchingItems) {
-      next = withRemovedItem(next, item.id, result.summary)
-    }
-    queryClient.setQueryData<GroupKeyCollectionDto>(query.queryKey, next)
-    await invalidateExactKeyPage(queryClient, query.queryKey)
   }
 }
 
