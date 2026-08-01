@@ -207,7 +207,15 @@ func (s *Service) BatchGroupKeys(
 		if err = validateBatchRegistryRows(groupID, keyIDs, rowByID, linearizedViews); err != nil {
 			return
 		}
-		beforeEntries := s.registry.SnapshotGroupEntries(groupID)
+		beforeEntries, snapshotErr := s.registry.SnapshotGroupKeyEntriesExact(groupID, keyIDs)
+		if snapshotErr != nil {
+			err = fmt.Errorf(
+				"snapshot batch Registry entries: %v: %w",
+				snapshotErr,
+				app_errors.ErrInternalServer,
+			)
+			return
+		}
 		if s.applyBatchRegistryMutation == nil {
 			err = fmt.Errorf("batch Registry mutation unavailable: %w", app_errors.ErrInternalServer)
 			return
@@ -299,7 +307,13 @@ func compensateBatchRegistry(
 	before []state.KeyEntry,
 	cause error,
 ) error {
-	if _, err := s.reconcileRegistryGroup(groupID, before); err != nil {
+	if s.restoreBatchRegistryEntries == nil {
+		return errors.Join(
+			cause,
+			fmt.Errorf("compensate batch Registry mutation: %w", app_errors.ErrInternalServer),
+		)
+	}
+	if err := s.restoreBatchRegistryEntries(groupID, before); err != nil {
 		return errors.Join(
 			cause,
 			fmt.Errorf("compensate batch Registry mutation: %w", err),

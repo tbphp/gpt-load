@@ -137,18 +137,58 @@ func (r *KeyRegistry) ApplyImport(groupID uint, entries []KeyEntry) error {
 	return nil
 }
 
-// SnapshotGroupEntries returns an exact, detached snapshot for compensation
-// while a caller holds the mutation coordinator for the selected keys.
-func (r *KeyRegistry) SnapshotGroupEntries(groupID uint) []KeyEntry {
+// SnapshotGroupKeyEntriesExact returns detached selected entries without
+// applying the configuration replacement resets used by cloneKeyEntry.
+func (r *KeyRegistry) SnapshotGroupKeyEntriesExact(
+	groupID uint,
+	keyIDs []uint,
+) ([]KeyEntry, error) {
 	r.mu.RLock()
-	bucket := r.buckets[groupID]
-	entries := make([]KeyEntry, 0, len(bucket))
-	for _, entry := range bucket {
-		entries = append(entries, cloneKeyEntry(*entry))
+	defer r.mu.RUnlock()
+	if err := r.validateGroupKeyIDsLocked(groupID, keyIDs); err != nil {
+		return nil, err
 	}
-	r.mu.RUnlock()
-	sort.Slice(entries, func(left, right int) bool { return entries[left].ID < entries[right].ID })
-	return entries
+	entries := make([]KeyEntry, 0, len(keyIDs))
+	for _, keyID := range keyIDs {
+		entries = append(entries, detachKeyEntryExact(*r.buckets[groupID][keyID]))
+	}
+	return entries, nil
+}
+
+// RestoreGroupKeyEntriesExact atomically restores only selected entries,
+// including their runtime failure generation. Unselected entries are untouched.
+func (r *KeyRegistry) RestoreGroupKeyEntriesExact(groupID uint, entries []KeyEntry) error {
+	if groupID == 0 {
+		return fmt.Errorf("group id is required")
+	}
+	if len(entries) == 0 {
+		return fmt.Errorf("key entries are required")
+	}
+	if err := ValidateKeyEntries(entries); err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if entry.GroupID != groupID {
+			return fmt.Errorf("key %d belongs to group %d, want %d", entry.ID, entry.GroupID, groupID)
+		}
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, entry := range entries {
+		if existingGroupID, exists := r.keyGroups[entry.ID]; exists && existingGroupID != groupID {
+			return fmt.Errorf("key %d already belongs to group %d", entry.ID, existingGroupID)
+		}
+	}
+	if r.buckets[groupID] == nil {
+		r.buckets[groupID] = make(map[uint]*KeyEntry)
+	}
+	for _, entry := range entries {
+		detached := detachKeyEntryExact(entry)
+		r.buckets[groupID][entry.ID] = &detached
+		r.keyGroups[entry.ID] = groupID
+	}
+	return nil
 }
 
 // MatchesGroup compares the persisted configuration-owned fields for one
@@ -674,5 +714,10 @@ func cloneKeyEntry(entry KeyEntry) KeyEntry {
 	if entry.WeightAuto == 0 {
 		entry.WeightAuto = DefaultWeight
 	}
+	return entry
+}
+
+func detachKeyEntryExact(entry KeyEntry) KeyEntry {
+	entry.WeightManual = cloneWeight(entry.WeightManual)
 	return entry
 }

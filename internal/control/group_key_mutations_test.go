@@ -579,6 +579,135 @@ func TestBatchGroupKeysRegistryApplyFailureRestoresDBAndRegistry(t *testing.T) {
 	}
 }
 
+func TestBatchGroupKeysCompensationRestoresSelectedRuntimeGenerationExactly(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		action     GroupKeyBatchAction
+		failApply  bool
+		triggerSQL string
+	}{
+		{
+			name: "disable apply failure", action: GroupKeyBatchDisable, failApply: true,
+		},
+		{
+			name: "delete apply failure", action: GroupKeyBatchDelete, failApply: true,
+		},
+		{
+			name:       "disable DB failure",
+			action:     GroupKeyBatchDisable,
+			triggerSQL: `CREATE TRIGGER reject_exact_status BEFORE UPDATE OF status ON upstream_keys BEGIN SELECT RAISE(ABORT, 'blocked'); END`,
+		},
+		{
+			name:       "delete DB failure",
+			action:     GroupKeyBatchDelete,
+			triggerSQL: `CREATE TRIGGER reject_exact_delete BEFORE DELETE ON upstream_keys BEGIN SELECT RAISE(ABORT, 'blocked'); END`,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newServiceFixture(t)
+			now := time.Date(2026, time.August, 1, 15, 0, 0, 0, time.UTC)
+			group := validControlGroup("batch-exact-compensation-" + test.name)
+			if err := fixture.db.Create(group).Error; err != nil {
+				t.Fatal(err)
+			}
+			first := seedManagedUpstreamKey(
+				t, fixture, group.ID, "provider-secret-exact-first", models.UpstreamKeyStatusActive, nil,
+			)
+			second := seedManagedUpstreamKey(
+				t, fixture, group.ID, "provider-secret-exact-second", models.UpstreamKeyStatusActive, nil,
+			)
+			unselected := seedManagedUpstreamKey(
+				t, fixture, group.ID, "provider-secret-exact-unselected", models.UpstreamKeyStatusActive, nil,
+			)
+			for _, keyID := range []uint{first.ID, second.ID} {
+				if !fixture.registry.SetCooldown(keyID, now.Add(time.Hour)) ||
+					!fixture.registry.SetAutoWeight(keyID, 37) {
+					t.Fatalf("seed selected runtime key %d", keyID)
+				}
+				if _, ok := fixture.registry.IncrFailure(keyID); !ok {
+					t.Fatalf("seed selected failure key %d", keyID)
+				}
+				if !fixture.registry.SetBlacklisted(keyID) {
+					t.Fatalf("seed selected blacklist key %d", keyID)
+				}
+			}
+			beforeViews := map[uint]state.KeyRuntimeView{}
+			beforeGenerations := map[uint]uint64{}
+			for _, keyID := range []uint{first.ID, second.ID} {
+				view, exists := findRuntimeKey(fixture.registry.Snapshot(), keyID)
+				if !exists {
+					t.Fatalf("selected key %d missing before batch", keyID)
+				}
+				beforeViews[keyID] = view
+				beforeGenerations[keyID] = blacklistedGeneration(t, fixture.registry, keyID)
+				if beforeGenerations[keyID] == 0 {
+					t.Fatalf("selected key %d generation = 0 before batch", keyID)
+				}
+			}
+
+			if test.failApply {
+				apply := fixture.service.applyBatchRegistryMutation
+				fixture.service.applyBatchRegistryMutation = func(
+					groupID uint,
+					keyIDs []uint,
+					action GroupKeyBatchAction,
+				) error {
+					if err := apply(groupID, keyIDs, action); err != nil {
+						return err
+					}
+					if _, ok := fixture.registry.IncrFailure(unselected.ID); !ok ||
+						!fixture.registry.SetBlacklisted(unselected.ID) {
+						t.Fatal("mutate unselected runtime key during apply")
+					}
+					return errors.New("injected batch Registry apply failure")
+				}
+			} else if err := fixture.db.Exec(test.triggerSQL).Error; err != nil {
+				t.Fatal(err)
+			}
+
+			_, err := fixture.service.BatchGroupKeys(t.Context(), group.ID, GroupKeyBatchRequest{
+				Action: test.action,
+				KeyIDs: []uint{first.ID, second.ID},
+			})
+			if test.failApply {
+				if !errors.Is(err, app_errors.ErrInternalServer) {
+					t.Fatalf("BatchGroupKeys() error = %#v, want INTERNAL_SERVER_ERROR", err)
+				}
+			} else if !errors.Is(err, app_errors.ErrDatabase) {
+				t.Fatalf("BatchGroupKeys() error = %#v, want DATABASE_ERROR", err)
+			}
+
+			for _, keyID := range []uint{first.ID, second.ID} {
+				afterView, exists := findRuntimeKey(fixture.registry.Snapshot(), keyID)
+				if !exists || !reflect.DeepEqual(afterView, beforeViews[keyID]) {
+					t.Fatalf("selected key %d after compensation = %#v, %t; want %#v", keyID, afterView, exists, beforeViews[keyID])
+				}
+				if generation := blacklistedGeneration(t, fixture.registry, keyID); generation != beforeGenerations[keyID] {
+					t.Fatalf("selected key %d generation = %d, want %d", keyID, generation, beforeGenerations[keyID])
+				}
+			}
+			if test.failApply {
+				unselectedView, exists := findRuntimeKey(fixture.registry.Snapshot(), unselected.ID)
+				if !exists || !unselectedView.Blacklisted || unselectedView.FailureCount != 1 ||
+					blacklistedGeneration(t, fixture.registry, unselected.ID) == 0 {
+					t.Fatalf("unselected runtime update was overwritten: %#v, exists=%t", unselectedView, exists)
+				}
+			}
+		})
+	}
+}
+
+func blacklistedGeneration(t *testing.T, registry *state.KeyRegistry, keyID uint) uint64 {
+	t.Helper()
+	for _, ref := range registry.BlacklistedKeys() {
+		if ref.ID == keyID {
+			return ref.FailureGeneration
+		}
+	}
+	t.Fatalf("blacklisted key %d not found", keyID)
+	return 0
+}
+
 type heldGroupKeyMutationCoordinator struct {
 	mu            sync.Mutex
 	manyAttempted chan struct{}

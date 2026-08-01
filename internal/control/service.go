@@ -48,6 +48,7 @@ type Service struct {
 	publishSnapshot             func(state.CompileInput) (*state.ConfigSnapshot, error)
 	reconcileRegistryGroup      func(uint, []state.KeyEntry) (bool, error)
 	applyBatchRegistryMutation  func(uint, []uint, GroupKeyBatchAction) error
+	restoreBatchRegistryEntries func(uint, []state.KeyEntry) error
 	beforeAdvanceOperationStage func(
 		context.Context,
 		*models.ControlOperation,
@@ -86,6 +87,7 @@ func NewService(
 	service.publishSnapshot = manager.Publish
 	service.reconcileRegistryGroup = registry.ReconcileGroup
 	service.applyBatchRegistryMutation = service.applyGroupKeyBatchRegistryMutation
+	service.restoreBatchRegistryEntries = registry.RestoreGroupKeyEntriesExact
 	service.registrySnapshot = registry.Snapshot
 	return service
 }
