@@ -195,6 +195,7 @@ onBeforeUnmount(() => {
         <EmptyState
           :title="t('groups.collection.errorTitle')"
           :description="t('groups.collection.errorDescription')"
+          variant="ledger"
         >
           <template #icon><TriangleAlert :size="20" /></template>
           <template #actions>
@@ -305,6 +306,7 @@ onBeforeUnmount(() => {
           v-if="data.summary.total === 0"
           :title="t('groups.collection.emptyTitle')"
           :description="t('groups.collection.emptyDescription')"
+          variant="ledger"
         >
           <template #icon><Layers3 :size="20" /></template>
           <template #actions>
@@ -319,6 +321,7 @@ onBeforeUnmount(() => {
           v-else-if="data.pagination.total_items === 0 && hasFilterCriteria"
           :title="t('groups.collection.noResultsTitle')"
           :description="t('groups.collection.noResultsDescription')"
+          variant="ledger"
         >
           <template #icon><Search :size="20" /></template>
           <template #actions>
@@ -454,7 +457,7 @@ onBeforeUnmount(() => {
 
 .filters {
   display: grid;
-  grid-template-columns: minmax(260px, 1fr) 164px 132px;
+  grid-template-columns: minmax(260px, 1fr) 204px 148px;
   align-items: end;
   gap: 10px;
   padding: 22px 0 13px;
@@ -542,7 +545,7 @@ onBeforeUnmount(() => {
 
 .records {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 96px minmax(0, 1.55fr) 92px minmax(0, 1.25fr) 120px;
+  grid-template-columns: minmax(0, 1fr) 96px minmax(0, 1.55fr) 92px minmax(0, 1.25fr) 164px;
   column-gap: 16px;
   overflow: hidden;
   border-bottom: 1px solid var(--color-border-control);
@@ -698,7 +701,7 @@ onBeforeUnmount(() => {
 .skeleton-row {
   display: grid;
   min-height: 96px;
-  grid-template-columns: minmax(0, 1fr) 96px minmax(0, 1.55fr) 92px minmax(0, 1.25fr) 120px;
+  grid-template-columns: minmax(0, 1fr) 96px minmax(0, 1.55fr) 92px minmax(0, 1.25fr) 164px;
   align-items: center;
   gap: 16px;
   border-top: 1px solid var(--color-border-subtle);
@@ -724,8 +727,7 @@ onBeforeUnmount(() => {
   width: 52%;
 }
 
-.collection-error,
-.groups-ledger > :deep(.empty-state) {
+.collection-error {
   margin-top: var(--space-5);
 }
 

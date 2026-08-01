@@ -44,6 +44,7 @@ const routes: RouteRecordRaw[] = [
       titleKey: 'groups.title',
       requiresAuth: true,
       primaryNav: 'groups',
+      messageNamespaces: ['group'],
     },
   }),
   pageRoute(pageRouteNames.groupDetail, {

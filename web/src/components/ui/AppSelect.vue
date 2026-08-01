@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Check, ChevronDown } from '@lucide/vue'
-import { useAttrs } from 'vue'
+import { computed, useAttrs } from 'vue'
 import {
   SelectContent,
   SelectItem,
@@ -37,6 +37,9 @@ const props = withDefaults(
 )
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
 const attrs = useAttrs()
+const selectedLabel = computed(
+  () => props.options.find((option) => option.value === props.modelValue)?.label ?? '',
+)
 </script>
 
 <template>
@@ -52,7 +55,7 @@ const attrs = useAttrs()
       :aria-label="label"
       :disabled="props.disabled"
     >
-      <SelectValue class="app-select__value" />
+      <SelectValue class="app-select__value">{{ selectedLabel }}</SelectValue>
       <ChevronDown class="app-select__chevron" :size="16" aria-hidden="true" />
     </SelectTrigger>
     <SelectPortal>
@@ -128,10 +131,6 @@ const attrs = useAttrs()
 }
 .app-select__value {
   min-width: 0;
-  overflow-wrap: anywhere;
-  white-space: normal;
-}
-.app-select__trigger--embedded .app-select__value {
   overflow: hidden;
   text-overflow: ellipsis;
   overflow-wrap: normal;

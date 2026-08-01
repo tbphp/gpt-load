@@ -218,27 +218,34 @@ function selectRange(value: string): void {
 
 .home-summary__stamp {
   display: grid;
-  gap: 5px;
+  grid-template-columns: max-content max-content;
+  gap: 5px 1ch;
   margin: 0;
   color: var(--color-text-faint);
   font-family: var(--font-mono);
   font-size: var(--text-sm);
-  text-align: right;
+  line-height: var(--line-compact);
   white-space: nowrap;
 }
 
 .home-summary__stamp div {
-  display: flex;
-  justify-content: end;
-  gap: 1ch;
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+  align-items: baseline;
 }
 .home-summary__stamp dt,
 .home-summary__stamp dd {
   margin: 0;
 }
+.home-summary__stamp dt {
+  text-align: right;
+}
 .home-summary__stamp dd {
   color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
   font-weight: 500;
+  text-align: left;
 }
 
 .home-summary__figures {
@@ -275,9 +282,6 @@ function selectRange(value: string): void {
     align-items: start;
   }
   .home-summary__stamp {
-    text-align: left;
-  }
-  .home-summary__stamp div {
     justify-content: start;
   }
   .home-summary__figures {

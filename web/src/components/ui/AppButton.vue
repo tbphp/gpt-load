@@ -41,6 +41,7 @@ withDefaults(
   padding: 0 14px;
   font: inherit;
   font-weight: 600;
+  white-space: nowrap;
   cursor: pointer;
   transition:
     background-color var(--duration-fast) var(--easing-standard),
