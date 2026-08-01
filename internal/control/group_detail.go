@@ -36,6 +36,44 @@ type GroupDetailResponse struct {
 	KeyCount        int64                        `json:"key_count"`
 }
 
+// GroupSummaryResponse contains the group fields required by the detail page header.
+// It deliberately excludes models and configuration that are loaded through focused
+// resources.
+type GroupSummaryResponse struct {
+	ID            uint                  `json:"id"`
+	Name          string                `json:"name"`
+	ServiceStatus GroupCollectionStatus `json:"service_status"`
+	UpstreamURL   string                `json:"upstream_url"`
+	Protocols     []protocol.Protocol   `json:"protocols"`
+	KeyCount      int64                 `json:"key_count"`
+	ModelCount    int                   `json:"model_count"`
+}
+
+func (s *Service) GetGroupSummary(ctx context.Context, groupID uint) (GroupSummaryResponse, error) {
+	if groupID == 0 {
+		return GroupSummaryResponse{}, app_errors.ErrBadRequest
+	}
+	_, records, err := s.captureGroupCollectionRecords(ctx)
+	if err != nil {
+		return GroupSummaryResponse{}, err
+	}
+	for _, record := range records {
+		if record.ID != groupID {
+			continue
+		}
+		return GroupSummaryResponse{
+			ID:            record.ID,
+			Name:          record.Name,
+			ServiceStatus: record.Status,
+			UpstreamURL:   record.UpstreamURL,
+			Protocols:     append([]protocol.Protocol(nil), record.Protocols...),
+			KeyCount:      record.KeyCounts.Total,
+			ModelCount:    int(record.ModelCount),
+		}, nil
+	}
+	return GroupSummaryResponse{}, app_errors.ErrResourceNotFound
+}
+
 func (s *Service) GetGroup(ctx context.Context, groupID uint) (GroupDetailResponse, error) {
 	if groupID == 0 {
 		return GroupDetailResponse{}, app_errors.ErrBadRequest

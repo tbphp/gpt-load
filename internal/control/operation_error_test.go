@@ -48,6 +48,10 @@ func TestServiceErrorMessageIDUsesTypedResourceNotFound(t *testing.T) {
 			err: groupNotFoundError(), want: "group.not_found",
 		},
 		{
+			name: "update Group settings missing Group", operation: "update_group_settings",
+			err: groupNotFoundError(), want: "group.not_found",
+		},
+		{
 			name: "update Group key missing Key", operation: "update_group_key",
 			err: keyNotFoundError(), want: "key.not_found",
 		},
@@ -65,6 +69,16 @@ func TestServiceErrorMessageIDUsesTypedResourceNotFound(t *testing.T) {
 				t.Fatalf("serviceErrorMessageID() = %q, want %q", got, test.want)
 			}
 		})
+	}
+}
+
+func TestServiceErrorMessageIDUsesGroupNameExistsForGroupSettingsUpdate(t *testing.T) {
+	if got := serviceErrorMessageID(
+		"update_group_settings",
+		app_errors.ErrDuplicateResource,
+		app_errors.ErrDuplicateResource,
+	); got != "group.name_exists" {
+		t.Fatalf("serviceErrorMessageID() = %q, want group.name_exists", got)
 	}
 }
 

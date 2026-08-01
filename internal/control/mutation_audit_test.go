@@ -428,6 +428,7 @@ func TestMutationAuditExcludesReadAndDiscoveryRoutes(t *testing.T) {
 	}{
 		{method: http.MethodGet, path: "/api/health", auth: true},
 		{method: http.MethodGet, path: "/api/groups", auth: true},
+		{method: http.MethodGet, path: "/api/groups/1/settings", auth: true},
 		{
 			method: http.MethodPost, path: "/api/route/inspect",
 			body: `{}`, auth: true,

@@ -185,17 +185,17 @@ func TestGroupMutationAuditExcludesInternalCalls(t *testing.T) {
 	)
 	server.logger = newControlJSONLogger(&logs)
 
-	_, err := fixture.service.UpdateGroup(
+	_, err := fixture.service.UpdateGroupSettings(
 		t.Context(),
 		groupID,
-		GroupUpdateRequest{
+		GroupSettingsUpdateRequest{
 			Name: optionalField[string]{
 				Set: true, Value: "direct-update",
 			},
 		},
 	)
 	if err != nil {
-		t.Fatalf("direct UpdateGroup(): %v", err)
+		t.Fatalf("direct UpdateGroupSettings(): %v", err)
 	}
 	recoveryContext, cancelRecovery := context.WithCancel(t.Context())
 	cancelRecovery()
@@ -1268,21 +1268,29 @@ func groupMutationAuditCases() []groupMutationAuditCase {
 			},
 		},
 		{
-			operation: "group_update",
-			success:   groupAuditSeedRequest(http.MethodPut, "", `{"name":"audit-renamed"}`),
+			operation: "group_settings_update",
+			success: groupAuditSeedRequest(
+				http.MethodPut,
+				"/settings",
+				`{"name":"audit-renamed"}`,
+			),
 			rejected: func(
 				_ *testing.T,
 				_ serviceFixture,
 			) (mutationAuditRequest, string, string) {
 				return mutationAuditRequest{
 						method: http.MethodPut,
-						path:   "/api/groups/not-a-number",
+						path:   "/api/groups/not-a-number/settings",
 						body:   `{"name":"x"}`,
 					},
 					"group:unknown",
 					app_errors.ErrBadRequest.Code
 			},
-			database: groupAuditSeedRequest(http.MethodPut, "", `{"name":"audit-renamed"}`),
+			database: groupAuditSeedRequest(
+				http.MethodPut,
+				"/settings",
+				`{"name":"audit-renamed"}`,
+			),
 		},
 		{
 			operation: "group_update_models",

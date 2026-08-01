@@ -98,9 +98,22 @@ func (s *Server) handleGetGroup(c *gin.Context) {
 	if !ok {
 		return
 	}
-	result, err := s.service.GetGroup(c.Request.Context(), id)
+	result, err := s.service.GetGroupSummary(c.Request.Context(), id)
 	if err != nil {
 		writeServiceError(c, "get_group", err)
+		return
+	}
+	response.SuccessI18n(c, "common.success", result)
+}
+
+func (s *Server) handleGetGroupSettings(c *gin.Context) {
+	id, ok := groupID(c, "get_group_settings")
+	if !ok {
+		return
+	}
+	result, err := s.service.GetGroupSettings(c.Request.Context(), id)
+	if err != nil {
+		writeServiceError(c, "get_group_settings", err)
 		return
 	}
 	response.SuccessI18n(c, "common.success", result)
@@ -132,19 +145,19 @@ func (s *Server) handleCreateGroup(c *gin.Context) {
 	response.SuccessI18n(c, "common.success", result)
 }
 
-func (s *Server) handleUpdateGroup(c *gin.Context) {
-	id, ok := groupID(c, "update_group")
+func (s *Server) handleUpdateGroupSettings(c *gin.Context) {
+	id, ok := groupID(c, "update_group_settings")
 	if !ok {
 		return
 	}
-	var request GroupUpdateRequest
+	var request GroupSettingsUpdateRequest
 	if err := bindStrictJSON(c, &request); err != nil {
-		writeServiceError(c, "update_group", mapControlJSONError(err))
+		writeServiceError(c, "update_group_settings", mapControlJSONError(err))
 		return
 	}
-	result, err := s.service.UpdateGroup(c.Request.Context(), id, request)
+	result, err := s.service.UpdateGroupSettings(c.Request.Context(), id, request)
 	if err != nil {
-		writeServiceError(c, "update_group", err)
+		writeServiceError(c, "update_group_settings", err)
 		return
 	}
 	response.SuccessI18n(c, "common.success", result)
@@ -586,7 +599,8 @@ func serviceErrorMessageID(
 			return "key.not_found"
 		}
 		switch operation {
-		case "list_groups", "get_group", "update_group", "delete_group",
+		case "list_groups", "get_group", "get_group_settings", "update_group",
+			"update_group_settings", "delete_group",
 			"update_group_models", "import_group_keys",
 			"discover_group_models", "list_group_keys":
 			return "group.not_found"
@@ -596,11 +610,13 @@ func serviceErrorMessageID(
 	case app_errors.ErrNoActiveUpstreamKey.Code:
 		return "group.no_active_upstream_key"
 	case app_errors.ErrDuplicateResource.Code:
-		if operation == "create_group" || operation == "update_group" {
+		if operation == "create_group" || operation == "update_group" ||
+			operation == "update_group_settings" {
 			return "group.name_exists"
 		}
 		return "bad_request"
-	case app_errors.ErrUpstreamURLChangeConfirmationRequired.Code:
+	case app_errors.ErrUpstreamURLChangeConfirmationRequired.Code,
+		errGroupSettingsUpstreamChangeConfirmationRequired.Code:
 		return "group.upstream_url_change_confirmation_required"
 	case app_errors.ErrGroupInUse.Code:
 		return "group.in_use"

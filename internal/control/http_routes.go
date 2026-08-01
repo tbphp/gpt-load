@@ -109,6 +109,12 @@ func (s *Server) HTTPModule() httproute.Module {
 			),
 			controlRoute("control.groups.get", http.MethodGet, "/groups/:group_id", s.handleGetGroup),
 			controlRoute(
+				"control.groups.settings.get",
+				http.MethodGet,
+				"/groups/:group_id/settings",
+				s.handleGetGroupSettings,
+			),
+			controlRoute(
 				"control.groups.create",
 				http.MethodPost,
 				"/groups",
@@ -120,15 +126,15 @@ func (s *Server) HTTPModule() httproute.Module {
 				s.handleCreateGroup,
 			),
 			controlRoute(
-				"control.groups.update",
+				"control.groups.settings.update",
 				http.MethodPut,
-				"/groups/:group_id",
+				"/groups/:group_id/settings",
 				s.auditMutation(newMutationDescriptor(
-					"group_update",
+					"group_settings_update",
 					"group",
 					groupMutationLocator,
 				)),
-				s.handleUpdateGroup,
+				s.handleUpdateGroupSettings,
 			),
 			controlRoute(
 				"control.groups.models.update",

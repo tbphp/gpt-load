@@ -91,6 +91,7 @@ func TestGroupCollectionHTTPRoutesDeclareStaticOptionsBeforeDynamicDetail(t *tes
 		{name: "control.groups.list", path: "/groups"},
 		{name: "control.groups.options", path: "/groups/options"},
 		{name: "control.groups.get", path: "/groups/:group_id"},
+		{name: "control.groups.settings.get", path: "/groups/:group_id/settings"},
 		{name: "control.group-keys.list", path: "/groups/:group_id/keys"},
 	}
 	if !reflect.DeepEqual(got, want) {
@@ -503,9 +504,9 @@ func TestControlJSONBodyLimitAppliesToEveryJSONEndpoint(t *testing.T) {
 			jsonPrefix: `{"keys":"sk-body-limit-import"}`,
 		},
 		{
-			name: "update group", method: http.MethodPut,
+			name: "update group settings", method: http.MethodPut,
 			path: func(groupID, _, _ uint) string {
-				return fmt.Sprintf("/api/groups/%d", groupID)
+				return fmt.Sprintf("/api/groups/%d/settings", groupID)
 			},
 			jsonPrefix: `{"name":"body-limit-updated-group"}`,
 		},
@@ -1077,7 +1078,7 @@ func TestManagementWritesRejectUnknownFieldsAndMultipleJSONValues(t *testing.T) 
 	})
 }
 
-func TestUpdateGroupEndpointRejectsStrictInvalidBodies(t *testing.T) {
+func TestUpdateGroupSettingsEndpointRejectsStrictInvalidBodies(t *testing.T) {
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	groupID := createGroupForKeyImport(t, fixture, "sk-update-http")
@@ -1090,20 +1091,20 @@ func TestUpdateGroupEndpointRejectsStrictInvalidBodies(t *testing.T) {
 		code string
 	}{
 		{name: "empty object", body: `{}`, code: app_errors.ErrBadRequest.Code},
-		{name: "confirmation only", body: `{"confirm_upstream_url_change":true}`, code: app_errors.ErrBadRequest.Code},
+		{name: "confirmation only", body: `{"confirm_upstream_change":true}`, code: app_errors.ErrBadRequest.Code},
 		{name: "unknown field", body: `{"name":"changed","unknown":true}`, code: app_errors.ErrInvalidJSON.Code},
 		{name: "multiple JSON values", body: `{"name":"changed"} {"enabled":false}`, code: app_errors.ErrInvalidJSON.Code},
 		{name: "null name", body: `{"name":null}`, code: app_errors.ErrValidation.Code},
 		{name: "negative weight", body: `{"weight_manual":-1}`, code: app_errors.ErrValidation.Code},
 		{name: "empty protocols", body: `{"protocols":[]}`, code: app_errors.ErrValidation.Code},
-		{name: "invalid config", body: `{"config":{"first_byte_timeout":-1}}`, code: app_errors.ErrValidation.Code},
+		{name: "invalid overrides", body: `{"overrides":{"first_byte_timeout":-1}}`, code: app_errors.ErrValidation.Code},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			before := fixture.manager.Current().Revision
 			recorder := httptest.NewRecorder()
 			request := httptest.NewRequest(
 				http.MethodPut,
-				"/api/groups/"+strconv.FormatUint(uint64(groupID), 10),
+				"/api/groups/"+strconv.FormatUint(uint64(groupID), 10)+"/settings",
 				strings.NewReader(test.body),
 			)
 			request.Header.Set("Authorization", "Bearer test-auth-key")
@@ -1126,7 +1127,7 @@ func TestUpdateGroupEndpointRejectsStrictInvalidBodies(t *testing.T) {
 	}
 }
 
-func TestUpdateGroupEndpointRejectsTopLevelNullWithoutMutation(t *testing.T) {
+func TestUpdateGroupSettingsEndpointRejectsTopLevelNullWithoutMutation(t *testing.T) {
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	groupID := createGroupForKeyImport(t, fixture, "sk-update-null")
@@ -1147,7 +1148,7 @@ func TestUpdateGroupEndpointRejectsTopLevelNullWithoutMutation(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(
 		http.MethodPut,
-		"/api/groups/"+strconv.FormatUint(uint64(groupID), 10),
+		"/api/groups/"+strconv.FormatUint(uint64(groupID), 10)+"/settings",
 		strings.NewReader(`null`),
 	)
 	request.Header.Set("Authorization", "Bearer test-auth-key")
@@ -1177,7 +1178,7 @@ func TestUpdateGroupEndpointRejectsTopLevelNullWithoutMutation(t *testing.T) {
 	}
 }
 
-func TestUpdateGroupEndpointURLConflictsSuccessI18nAndAuth(t *testing.T) {
+func TestUpdateGroupSettingsEndpointURLConflictsSuccessI18nAndAuth(t *testing.T) {
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	firstID := createGroupForKeyImport(t, fixture, "sk-update-first")
@@ -1192,7 +1193,7 @@ func TestUpdateGroupEndpointURLConflictsSuccessI18nAndAuth(t *testing.T) {
 	}
 	engine := gin.New()
 	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
-	path := "/api/groups/" + strconv.FormatUint(uint64(firstID), 10)
+	path := "/api/groups/" + strconv.FormatUint(uint64(firstID), 10) + "/settings"
 
 	request := httptest.NewRequest(http.MethodPut, path, strings.NewReader(
 		`{"upstream_url":"https://unique.example.com/v1"}`,
@@ -1202,10 +1203,10 @@ func TestUpdateGroupEndpointURLConflictsSuccessI18nAndAuth(t *testing.T) {
 	request.Header.Set("Accept-Language", "ja-JP")
 	recorder := httptest.NewRecorder()
 	engine.ServeHTTP(recorder, request)
-	assertUpdateGroupErrorResponse(t, recorder, http.StatusConflict, app_errors.ErrUpstreamURLChangeConfirmationRequired.Code, "アップストリームURLの変更には明示的な確認が必要です")
+	assertUpdateGroupErrorResponse(t, recorder, http.StatusConflict, errGroupSettingsUpstreamChangeConfirmationRequired.Code, "アップストリームURLの変更には明示的な確認が必要です")
 
 	request = httptest.NewRequest(http.MethodPut, path, strings.NewReader(
-		`{"upstream_url":"https://conflict.example.com/v1/","confirm_upstream_url_change":true}`,
+		`{"upstream_url":"https://conflict.example.com/v1/","confirm_upstream_change":true}`,
 	))
 	request.Header.Set("Authorization", "Bearer test-auth-key")
 	request.Header.Set("Content-Type", "application/json")
@@ -1223,7 +1224,7 @@ func TestUpdateGroupEndpointURLConflictsSuccessI18nAndAuth(t *testing.T) {
 	assertUpdateGroupErrorResponse(t, recorder, http.StatusConflict, app_errors.ErrDuplicateResource.Code, "分组名称已存在")
 
 	request = httptest.NewRequest(http.MethodPut, path, strings.NewReader(
-		`{"upstream_url":" HTTPS://UNIQUE.example.com/v1/ ","confirm_upstream_url_change":true,"enabled":false}`,
+		`{"upstream_url":" HTTPS://UNIQUE.example.com/v1/ ","confirm_upstream_change":true,"enabled":false}`,
 	))
 	request.Header.Set("Authorization", "Bearer test-auth-key")
 	request.Header.Set("Content-Type", "application/json")
@@ -1234,16 +1235,15 @@ func TestUpdateGroupEndpointURLConflictsSuccessI18nAndAuth(t *testing.T) {
 		t.Fatalf("success response = %d %s", recorder.Code, recorder.Body.String())
 	}
 	var success struct {
-		Code    int               `json:"code"`
-		Message string            `json:"message"`
-		Data    GroupUpdateResult `json:"data"`
+		Code    int                   `json:"code"`
+		Message string                `json:"message"`
+		Data    GroupSettingsResponse `json:"data"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &success); err != nil {
 		t.Fatal(err)
 	}
-	if success.Code != 0 || success.Message != "成功" ||
-		!success.Data.ModelRediscoveryRecommended || success.Data.Group.Enabled ||
-		success.Data.Group.UpstreamURL != "https://unique.example.com/v1" {
+	if success.Code != 0 || success.Message != "成功" || success.Data.Enabled ||
+		success.Data.UpstreamURL != "https://unique.example.com/v1" {
 		t.Fatalf("success envelope = %#v", success)
 	}
 
@@ -1257,7 +1257,7 @@ func TestUpdateGroupEndpointURLConflictsSuccessI18nAndAuth(t *testing.T) {
 	}
 }
 
-func TestUpdateGroupEndpointRejectsOversizedJSON(t *testing.T) {
+func TestUpdateGroupSettingsEndpointRejectsOversizedJSON(t *testing.T) {
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	groupID := createGroupForKeyImport(t, fixture, "sk-update-limit")
@@ -1268,7 +1268,7 @@ func TestUpdateGroupEndpointRejectsOversizedJSON(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(
 		http.MethodPut,
-		"/api/groups/"+strconv.FormatUint(uint64(groupID), 10),
+		"/api/groups/"+strconv.FormatUint(uint64(groupID), 10)+"/settings",
 		oversizedControlJSONBody(`{"name":"changed"}`),
 	)
 	request.Header.Set("Authorization", "Bearer test-auth-key")

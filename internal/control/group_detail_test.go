@@ -75,6 +75,63 @@ func TestGetGroupReturnsCompletePersistedConfiguration(t *testing.T) {
 	}
 }
 
+func TestGetGroupSummaryUsesCollectionServiceStatusAndOnlyReturnsHeaderCounts(t *testing.T) {
+	fixture := newServiceFixture(t)
+	available := createGroupCollectionGroup(t, fixture, "summary-available", true, nil)
+	unavailable := createGroupCollectionGroup(t, fixture, "summary-unavailable", true, nil)
+	disabled := createGroupCollectionGroup(t, fixture, "summary-disabled", false, nil)
+	publishGroupCollectionRuntime(t, fixture, []state.KeyEntry{
+		createGroupCollectionKey(t, fixture, available.ID, models.UpstreamKeyStatusActive, nil),
+		createGroupCollectionKey(t, fixture, disabled.ID, models.UpstreamKeyStatusActive, nil),
+	})
+
+	for _, test := range []struct {
+		name       string
+		groupID    uint
+		wantStatus GroupCollectionStatus
+		wantKeys   int64
+	}{
+		{name: "available", groupID: available.ID, wantStatus: GroupCollectionStatusAvailable, wantKeys: 1},
+		{name: "unavailable", groupID: unavailable.ID, wantStatus: GroupCollectionStatusUnavailable, wantKeys: 0},
+		{name: "disabled", groupID: disabled.ID, wantStatus: GroupCollectionStatusDisabled, wantKeys: 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := fixture.service.GetGroupSummary(t.Context(), test.groupID)
+			if err != nil {
+				t.Fatalf("GetGroupSummary() error = %v", err)
+			}
+			if got.ID != test.groupID || got.ServiceStatus != test.wantStatus || got.KeyCount != test.wantKeys {
+				t.Fatalf("GetGroupSummary() = %#v", got)
+			}
+
+			encoded, err := json.Marshal(got)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var fields map[string]json.RawMessage
+			if err := json.Unmarshal(encoded, &fields); err != nil {
+				t.Fatal(err)
+			}
+			wantFields := map[string]struct{}{
+				"id": {}, "name": {}, "service_status": {}, "upstream_url": {},
+				"protocols": {}, "key_count": {}, "model_count": {},
+			}
+			for name := range fields {
+				if _, exists := wantFields[name]; !exists {
+					t.Fatalf("summary exposes unexpected field %q: %s", name, encoded)
+				}
+			}
+			for _, forbidden := range []string{
+				"models", "config", "effective_config", "enabled", "weight_manual", "validation_model",
+			} {
+				if containsJSONToken(encoded, forbidden) {
+					t.Fatalf("summary exposes %q: %s", forbidden, encoded)
+				}
+			}
+		})
+	}
+}
+
 func TestGetGroupReturnsSparseAndEffectiveConfig(t *testing.T) {
 	fixture := newServiceFixture(t)
 	if err := fixture.db.Create(&models.SystemSetting{
@@ -238,6 +295,9 @@ func TestGetGroupHTTPContractAndAuthentication(t *testing.T) {
 	if err := fixture.db.Create(group).Error; err != nil {
 		t.Fatal(err)
 	}
+	if _, err := fixture.manager.Publish(mustBuildCompileInput(t, fixture.db)); err != nil {
+		t.Fatal(err)
+	}
 	engine := gin.New()
 	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
 
@@ -270,6 +330,18 @@ func TestGetGroupHTTPContractAndAuthentication(t *testing.T) {
 			}
 			if envelope["code"] != test.wantCode {
 				t.Fatalf("code = %#v, want %#v", envelope["code"], test.wantCode)
+			}
+			if test.name == "success" {
+				data, ok := envelope["data"].(map[string]any)
+				if !ok {
+					t.Fatalf("summary data = %#v", envelope["data"])
+				}
+				forbidden := []string{"models", "config", "effective_config", "enabled", "weight_manual", "validation_model"}
+				for _, name := range forbidden {
+					if _, exists := data[name]; exists {
+						t.Fatalf("summary HTTP response exposes %q: %#v", name, data)
+					}
+				}
 			}
 		})
 	}
