@@ -40,6 +40,8 @@ const query = useQuery(groupSettingsQueryOptions(client, () => props.groupId))
 const saved = ref<GroupSettingsDto>()
 const draft = ref<GroupSettingsDraft>()
 const pending = ref(false)
+const deletePending = ref(false)
+const deleted = ref(false)
 const error = ref('')
 const confirmURL = ref(false)
 const headerRulesValid = ref(true)
@@ -61,7 +63,8 @@ const navItems = computed(() => [
 const patch = computed(() =>
   saved.value && draft.value ? buildGroupSettingsPatch(saved.value, draft.value) : {},
 )
-const dirty = computed(() => Object.keys(patch.value).length > 0)
+const dirty = computed(() => !deleted.value && Object.keys(patch.value).length > 0)
+const mutationPending = computed(() => pending.value || deletePending.value)
 const nameError = computed(() =>
   draft.value?.name.trim() ? '' : t('group.settings.base.nameError'),
 )
@@ -95,14 +98,15 @@ const valid = computed(
 const showInjectUsage = computed(
   () => draft.value?.protocols.includes('openai-completions') ?? false,
 )
-useUnsavedChanges(dirty, { blocked: pending })
+useUnsavedChanges(dirty, { blocked: mutationPending })
 
 watch(
   () => query.data.value,
   (settings) => {
-    if (!settings || dirty.value || pending.value) return
+    if (!settings || dirty.value || mutationPending.value || deleted.value) return
     saved.value = settings
     draft.value = createGroupSettingsDraft(settings)
+    headerRulesValid.value = settings.overrides.header_rules === undefined
   },
   { immediate: true },
 )
@@ -144,7 +148,10 @@ function setHeaderRules(enabled: boolean): void {
       set: { ...saved.value.effective.header_rules.set },
       remove: [...saved.value.effective.header_rules.remove],
     }
-  else delete overrides.header_rules
+  else {
+    delete overrides.header_rules
+    headerRulesValid.value = true
+  }
   draft.value = { ...draft.value, overrides }
 }
 
@@ -157,12 +164,12 @@ function setInjectUsageOverride(enabled: boolean): void {
 }
 
 function requestSave(): void {
-  if (!dirty.value || !valid.value || pending.value) return
+  if (!dirty.value || !valid.value || mutationPending.value) return
   void save(false)
 }
 
 async function save(confirmUpstreamChange: boolean): Promise<void> {
-  if (!saved.value || !draft.value || pending.value || !valid.value) return
+  if (!saved.value || !draft.value || mutationPending.value || !valid.value) return
   const active = new AbortController()
   controller = active
   pending.value = true
@@ -197,9 +204,16 @@ async function save(confirmUpstreamChange: boolean): Promise<void> {
 }
 
 function discard(): void {
-  if (!saved.value) return
+  if (!saved.value || mutationPending.value) return
   error.value = ''
   draft.value = createGroupSettingsDraft(saved.value)
+  if (saved.value.overrides.header_rules === undefined) headerRulesValid.value = true
+}
+
+function onDeleted(): void {
+  deleted.value = true
+  confirmURL.value = false
+  error.value = ''
 }
 
 function headerSummary(): string {
@@ -253,7 +267,7 @@ onBeforeUnmount(() => controller?.abort())
             :weight-manual="draft.weight_manual"
             :protocols="draft.protocols"
             :enabled="draft.enabled"
-            :pending="pending"
+            :pending="mutationPending"
             :name-error="nameError"
             :upstream-url-error="urlError"
             :protocols-error="protocolsError"
@@ -272,7 +286,7 @@ onBeforeUnmount(() => controller?.abort())
             :weight-manual="draft.weight_manual"
             :protocols="draft.protocols"
             :enabled="draft.enabled"
-            :pending="pending"
+            :pending="mutationPending"
             :name-error="nameError"
             :upstream-url-error="urlError"
             :protocols-error="protocolsError"
@@ -300,7 +314,7 @@ onBeforeUnmount(() => controller?.abort())
                   ><input
                     type="checkbox"
                     :checked="draft.overrides[key] !== undefined"
-                    :disabled="pending"
+                    :disabled="mutationPending"
                     @change="setTimeoutOverride(key, ($event.target as HTMLInputElement).checked)"
                   />{{
                     draft.overrides[key] === undefined
@@ -312,7 +326,7 @@ onBeforeUnmount(() => controller?.abort())
                   type="number"
                   min="1"
                   :value="draft.overrides[key]"
-                  :disabled="pending"
+                  :disabled="mutationPending"
                   @input="setTimeoutValue(key, $event)"
                 />
               </div>
@@ -325,7 +339,7 @@ onBeforeUnmount(() => controller?.abort())
                   ><input
                     type="checkbox"
                     :checked="draft.overrides.inject_usage_options !== undefined"
-                    :disabled="pending"
+                    :disabled="mutationPending"
                     @change="setInjectUsageOverride(($event.target as HTMLInputElement).checked)"
                   />{{
                     draft.overrides.inject_usage_options === undefined
@@ -336,7 +350,7 @@ onBeforeUnmount(() => controller?.abort())
                   v-if="draft.overrides.inject_usage_options !== undefined"
                   type="checkbox"
                   :checked="draft.overrides.inject_usage_options"
-                  :disabled="pending"
+                  :disabled="mutationPending"
                   @change="
                     draft.overrides.inject_usage_options = (
                       $event.target as HTMLInputElement
@@ -358,7 +372,7 @@ onBeforeUnmount(() => controller?.abort())
                   ><input
                     type="checkbox"
                     :checked="draft.overrides.header_rules !== undefined"
-                    :disabled="pending"
+                    :disabled="mutationPending"
                     @change="setHeaderRules(($event.target as HTMLInputElement).checked)"
                   />{{
                     draft.overrides.header_rules === undefined
@@ -371,7 +385,7 @@ onBeforeUnmount(() => controller?.abort())
                 ><HeaderRulesEditor
                   v-if="draft.overrides.header_rules"
                   :model-value="draft.overrides.header_rules"
-                  :disabled="pending"
+                  :disabled="mutationPending"
                   @update:valid="headerRulesValid = $event"
                   @update:model-value="draft.overrides.header_rules = $event"
                 />
@@ -383,7 +397,13 @@ onBeforeUnmount(() => controller?.abort())
               <h3>{{ t('group.settings.sections.danger') }}</h3>
               <p>{{ t('group.settings.delete.sectionDescription') }}</p>
             </header>
-            <GroupDeleteDialog :group-id="groupId" :group-name="saved.name" />
+            <GroupDeleteDialog
+              :group-id="groupId"
+              :group-name="saved.name"
+              :disabled="mutationPending || deleted"
+              @deleted="onDeleted"
+              @update:pending="deletePending = $event"
+            />
           </section>
         </div>
       </div>
@@ -392,20 +412,20 @@ onBeforeUnmount(() => controller?.abort())
         :title="t('group.settings.urlConfirm.title')"
         :description="t('group.settings.urlConfirm.description')"
         :close-label="t('group.settings.urlConfirm.close')"
-        :dismissible="!pending"
+        :dismissible="!mutationPending"
         @update:open="confirmURL = $event"
         ><div class="group-settings__actions">
           <AppButton variant="secondary" @click="confirmURL = false">{{
             t('common.cancel')
           }}</AppButton
-          ><AppButton :busy="pending" @click="save(true)">{{
+          ><AppButton :busy="pending" :disabled="deletePending" @click="save(true)">{{
             t('group.settings.urlConfirm.confirm')
           }}</AppButton>
         </div></AppDialog
       >
       <StickySaveBar
         :dirty="dirty"
-        :pending="pending"
+        :pending="mutationPending"
         :status="error ? 'error' : 'idle'"
         :error="error"
         ><template #status
@@ -413,13 +433,18 @@ onBeforeUnmount(() => controller?.abort())
             dirty ? t('group.settings.unsaved') : t('group.settings.saved')
           }}</span></template
         ><template #discard="{ disabled }"
-          ><AppButton variant="secondary" :disabled="disabled || !dirty" @click="discard">{{
-            t('common.discard')
-          }}</AppButton></template
+          ><AppButton
+            variant="secondary"
+            :disabled="disabled || !dirty || deletePending"
+            @click="discard"
+            >{{ t('common.discard') }}</AppButton
+          ></template
         ><template #save="{ disabled }"
-          ><AppButton :disabled="disabled || !dirty || !valid" @click="requestSave">{{
-            t('group.settings.save')
-          }}</AppButton></template
+          ><AppButton
+            :disabled="disabled || !dirty || !valid || deletePending"
+            @click="requestSave"
+            >{{ t('group.settings.save') }}</AppButton
+          ></template
         ></StickySaveBar
       >
     </template>

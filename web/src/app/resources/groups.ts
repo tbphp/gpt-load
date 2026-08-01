@@ -896,6 +896,16 @@ export function cacheGroupModels(
   )
 }
 
+/** Remove every cache entry whose identity is the deleted Group, including filtered key pages. */
+export function clearGroupResourceCaches(queryClient: QueryClient, groupID: number): void {
+  queryClient.removeQueries({ queryKey: controlQueryKeys.groups.summary(groupID), exact: true })
+  queryClient.removeQueries({ queryKey: controlQueryKeys.groups.models(groupID), exact: true })
+  queryClient.removeQueries({ queryKey: controlQueryKeys.groups.settings(groupID), exact: true })
+  queryClient.removeQueries({ queryKey: controlQueryKeys.groups.keysAll(groupID), exact: false })
+  queryClient.removeQueries({ queryKey: controlQueryKeys.groups.detail(groupID), exact: true })
+  queryClient.removeQueries({ queryKey: controlQueryKeys.groups.legacyKeys(groupID), exact: true })
+}
+
 export async function createGroup(
   client: ApiClient,
   body: GroupCreateRequest,

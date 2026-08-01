@@ -3,12 +3,16 @@ import { useQueryClient } from '@tanstack/vue-query'
 import { Trash2 } from '@lucide/vue'
 import { computed, nextTick, onBeforeUnmount, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useRouter } from 'vue-router'
+import { isNavigationFailure, useRouter } from 'vue-router'
 
 import { useApiClient } from '@/api/client-context'
-import { deleteGroup, isGroupInUseData, type AccessKeyReferenceDto } from '@/app/resources/groups'
+import {
+  clearGroupResourceCaches,
+  deleteGroup,
+  isGroupInUseData,
+  type AccessKeyReferenceDto,
+} from '@/app/resources/groups'
 import { ApiError, RequestCancelledError } from '@/api/errors'
-import { controlQueryKeys } from '@/app/query-keys'
 import { applyInvalidationPlan, mutationInvalidationPlans } from '@/app/resources/invalidation'
 import { groupsLocation } from '@/app/route-locations'
 import AppButton from '@/components/ui/AppButton.vue'
@@ -17,7 +21,16 @@ import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 
 import GroupInUseFeedback from './GroupInUseFeedback.vue'
 
-const props = defineProps<{ groupId: number; groupName: string }>()
+const props = withDefaults(
+  defineProps<{ groupId: number; groupName: string; disabled?: boolean }>(),
+  {
+    disabled: false,
+  },
+)
+const emit = defineEmits<{
+  deleted: []
+  'update:pending': [value: boolean]
+}>()
 const client = useApiClient()
 const queryClient = useQueryClient()
 const router = useRouter()
@@ -39,7 +52,8 @@ async function focusNameInput(): Promise<void> {
 }
 
 function setOpen(value: boolean): void {
-  if (pending.value && !value) return
+  if ((pending.value || props.disabled) && !value) return
+  if (props.disabled && value) return
   open.value = value
   if (value) {
     genericError.value = false
@@ -51,36 +65,25 @@ function setOpen(value: boolean): void {
 }
 
 async function confirmDelete(): Promise<void> {
-  if (!confirmed.value || pending.value) return
+  if (!confirmed.value || pending.value || props.disabled) return
   pending.value = true
+  emit('update:pending', true)
   genericError.value = false
   references.value = []
   controller = new AbortController()
   const activeController = controller
   try {
     await deleteGroup(client, props.groupId, activeController.signal)
-    queryClient.removeQueries({
-      queryKey: controlQueryKeys.groups.detail(props.groupId),
-      exact: true,
-    })
-    queryClient.removeQueries({
-      queryKey: controlQueryKeys.groups.keysAll(props.groupId),
-      exact: true,
-    })
-    queryClient.removeQueries({
-      queryKey: controlQueryKeys.groups.settings(props.groupId),
-      exact: true,
-    })
-    queryClient.removeQueries({
-      queryKey: controlQueryKeys.groups.models(props.groupId),
-      exact: true,
-    })
-    queryClient.removeQueries({
-      queryKey: controlQueryKeys.groups.summary(props.groupId),
-      exact: true,
-    })
+    emit('deleted')
+    clearGroupResourceCaches(queryClient, props.groupId)
     await applyInvalidationPlan(queryClient, mutationInvalidationPlans.group.delete)
-    await router.replace(groupsLocation())
+    try {
+      const failure = await router.replace(groupsLocation())
+      if (isNavigationFailure(failure))
+        window.location.assign(router.resolve(groupsLocation()).href)
+    } catch {
+      window.location.assign(router.resolve(groupsLocation()).href)
+    }
   } catch (error: unknown) {
     if (error instanceof RequestCancelledError) return
     if (
@@ -95,6 +98,7 @@ async function confirmDelete(): Promise<void> {
   } finally {
     if (controller === activeController) controller = undefined
     pending.value = false
+    emit('update:pending', false)
   }
 }
 
@@ -111,7 +115,12 @@ onBeforeUnmount(() => controller?.abort())
     @update:open="setOpen"
   >
     <template #trigger>
-      <AppButton class="group-delete__open" variant="secondary" @click="setOpen(true)">
+      <AppButton
+        class="group-delete__open"
+        variant="secondary"
+        :disabled="disabled"
+        @click="setOpen(true)"
+      >
         <Trash2 :size="16" aria-hidden="true" />{{ t('group.settings.delete.open') }}
       </AppButton>
     </template>
@@ -141,7 +150,7 @@ onBeforeUnmount(() => controller?.abort())
           class="group-delete__confirm"
           variant="secondary"
           :busy="pending"
-          :disabled="!confirmed"
+          :disabled="!confirmed || disabled"
           @click="confirmDelete"
         >
           {{ t('group.settings.delete.confirm') }}
