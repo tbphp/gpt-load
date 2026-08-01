@@ -63,6 +63,116 @@ func TestKeyRegistryReplaceAndEncryptedValue(t *testing.T) {
 	}
 }
 
+func TestKeyRegistryRestoreRuntimeState(t *testing.T) {
+	registry := NewKeyRegistry()
+	now := time.Date(2026, time.August, 1, 10, 0, 0, 0, time.UTC)
+	mustReplaceKeyEntries(t, registry, []KeyEntry{{
+		ID: 1, GroupID: 10, Status: KeyStatusActive,
+		CooldownUntil: now.Add(time.Hour), Blacklisted: true,
+		FailureCount: 3, EncryptedValue: "cipher-one",
+	}})
+
+	if ok := registry.RestoreRuntimeState(1, 37); !ok {
+		t.Fatal("RestoreRuntimeState() = false, want true")
+	}
+	got := registryEntry(t, registry, 1)
+	if !got.CooldownUntil.IsZero() || got.Blacklisted || got.FailureCount != 0 || got.WeightAuto != 37 {
+		t.Fatalf("restored entry = %#v", got)
+	}
+	if got.FailureGeneration != 1 {
+		t.Fatalf("FailureGeneration = %d, want 1", got.FailureGeneration)
+	}
+
+	before := registryEntry(t, registry, 1)
+	for _, test := range []struct {
+		keyID  uint
+		weight int
+	}{
+		{keyID: 0, weight: 37},
+		{keyID: 99, weight: 37},
+		{keyID: 1, weight: 0},
+		{keyID: 1, weight: MaxWeight + 1},
+	} {
+		if registry.RestoreRuntimeState(test.keyID, test.weight) {
+			t.Fatalf("RestoreRuntimeState(%d, %d) = true, want false", test.keyID, test.weight)
+		}
+	}
+	if after := registryEntry(t, registry, 1); !reflect.DeepEqual(after, before) {
+		t.Fatalf("entry after invalid restores = %#v, want %#v", after, before)
+	}
+}
+
+func TestKeyRegistryBatchMutationsAreAllOrNothing(t *testing.T) {
+	newRegistry := func(t *testing.T) *KeyRegistry {
+		t.Helper()
+		registry := NewKeyRegistry()
+		mustReplaceKeyEntries(t, registry, []KeyEntry{
+			{ID: 1, GroupID: 10, Status: KeyStatusActive, EncryptedValue: "cipher-one"},
+			{ID: 2, GroupID: 10, Status: KeyStatusDisabled, EncryptedValue: "cipher-two"},
+			{ID: 3, GroupID: 20, Status: KeyStatusActive, EncryptedValue: "cipher-three"},
+		})
+		return registry
+	}
+
+	t.Run("update statuses", func(t *testing.T) {
+		registry := newRegistry(t)
+		if err := registry.UpdateGroupKeyStatuses(10, []uint{1, 2}, KeyStatusDisabled); err != nil {
+			t.Fatalf("UpdateGroupKeyStatuses() error = %v", err)
+		}
+		if got := registryEntry(t, registry, 1).Status; got != KeyStatusDisabled {
+			t.Fatalf("key 1 status = %q, want disabled", got)
+		}
+		if got := registryEntry(t, registry, 2).Status; got != KeyStatusDisabled {
+			t.Fatalf("key 2 status = %q, want disabled", got)
+		}
+	})
+
+	for _, test := range []struct {
+		name string
+		ids  []uint
+	}{
+		{name: "missing", ids: []uint{1, 99}},
+		{name: "cross group", ids: []uint{1, 3}},
+		{name: "duplicate", ids: []uint{1, 1}},
+		{name: "empty", ids: nil},
+	} {
+		t.Run("update rejects "+test.name, func(t *testing.T) {
+			registry := newRegistry(t)
+			before := registry.Snapshot()
+			if err := registry.UpdateGroupKeyStatuses(10, test.ids, KeyStatusDisabled); err == nil {
+				t.Fatal("UpdateGroupKeyStatuses() error = nil, want error")
+			}
+			if after := registry.Snapshot(); !reflect.DeepEqual(after, before) {
+				t.Fatalf("registry after rejected update = %#v, want %#v", after, before)
+			}
+		})
+		t.Run("remove rejects "+test.name, func(t *testing.T) {
+			registry := newRegistry(t)
+			before := registry.Snapshot()
+			if err := registry.RemoveGroupKeys(10, test.ids); err == nil {
+				t.Fatal("RemoveGroupKeys() error = nil, want error")
+			}
+			if after := registry.Snapshot(); !reflect.DeepEqual(after, before) {
+				t.Fatalf("registry after rejected remove = %#v, want %#v", after, before)
+			}
+		})
+	}
+
+	registry := newRegistry(t)
+	if err := registry.RemoveGroupKeys(10, []uint{2, 1}); err != nil {
+		t.Fatalf("RemoveGroupKeys() error = %v", err)
+	}
+	if _, ok := registry.EncryptedValue(1); ok {
+		t.Fatal("key 1 remains after batch removal")
+	}
+	if _, ok := registry.EncryptedValue(2); ok {
+		t.Fatal("key 2 remains after batch removal")
+	}
+	if got, ok := registry.EncryptedValue(3); !ok || got != "cipher-three" {
+		t.Fatalf("other-group key = %q/%t", got, ok)
+	}
+}
+
 func TestKeyRegistryActiveEncryptedValueRequiresExpectedGroupAndActiveStatus(t *testing.T) {
 	registry := NewKeyRegistry()
 	mustReplaceKeyEntries(t, registry, []KeyEntry{

@@ -69,6 +69,7 @@ type serviceFixture struct {
 	priceRuntime    *PriceRuntime
 	encryption      encryption.Service
 	stats           *health.StatsStore
+	mutations       *health.MutationCoordinator
 	requestLogStats *staticRequestLogStatsReader
 	service         *Service
 }
@@ -120,11 +121,12 @@ func newServiceFixtureWithDSN(t *testing.T, dsn string) serviceFixture {
 		t.Fatalf("manager.Publish(empty) error = %v", err)
 	}
 	stats := health.NewStatsStore()
+	mutations := health.NewMutationCoordinator()
 	requestLogStats := &staticRequestLogStatsReader{}
 	priceRuntime := NewPriceRuntime()
 	return serviceFixture{
 		db: db, manager: manager, registry: registry, encryption: keyService,
-		priceRuntime: priceRuntime, stats: stats, requestLogStats: requestLogStats,
+		priceRuntime: priceRuntime, stats: stats, mutations: mutations, requestLogStats: requestLogStats,
 		service: NewService(
 			db,
 			manager,
@@ -136,6 +138,7 @@ func newServiceFixtureWithDSN(t *testing.T, dsn string) serviceFixture {
 			nil,
 			nil,
 			stats,
+			mutations,
 			requestLogStats,
 		),
 	}

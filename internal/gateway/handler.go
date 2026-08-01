@@ -141,12 +141,19 @@ func (handler *Handler) applyKeyAction(
 ) {
 	switch decision.Action {
 	case health.ActionCooldownKey:
-		until := decision.CooldownUntil
-		if decision.UseFixed {
-			until = attemptNow.Add(fixedCooldown)
+		mutate := func() {
+			until := decision.CooldownUntil
+			if decision.UseFixed {
+				until = attemptNow.Add(fixedCooldown)
+			}
+			_ = handler.registry.SetCooldown(keyID, until)
+			handler.stats.RecordProblem(keyID, decision.Category, statusCode, attemptNow)
 		}
-		_ = handler.registry.SetCooldown(keyID, until)
-		handler.stats.RecordProblem(keyID, decision.Category, statusCode, attemptNow)
+		if handler.mutations == nil {
+			mutate()
+		} else {
+			handler.mutations.Do(keyID, mutate)
+		}
 	case health.ActionFailKey:
 		handler.mutations.Do(keyID, func() {
 			count, ok := handler.registry.IncrFailure(keyID)

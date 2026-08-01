@@ -144,6 +144,22 @@ func (store *StatsStore) Reset(keyID uint) {
 	store.mu.Unlock()
 }
 
+func (store *StatsStore) ClearProblemState(keyID uint) {
+	if keyID == 0 {
+		return
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	window := store.windows[keyID]
+	if window == nil {
+		return
+	}
+	window.consecutiveFailure = 0
+	window.consecutiveProblem = 0
+	window.lastFailureCategory = FailureCategoryAmbiguous
+	window.lastStatusCode = 0
+}
+
 func (store *StatsStore) Snapshot(keyID uint, now time.Time) KeyStats {
 	if keyID == 0 {
 		return KeyStats{}

@@ -271,6 +271,45 @@ func (s *Server) handleDeleteGroupKey(c *gin.Context) {
 	response.SuccessI18n(c, "common.success", nil)
 }
 
+func (s *Server) handleRestoreGroupKey(c *gin.Context) {
+	groupID, ok := groupID(c, "restore_group_key")
+	if !ok {
+		return
+	}
+	keyID, ok := keyID(c, "restore_group_key")
+	if !ok {
+		return
+	}
+	if err := bindOptionalEmptyJSONObject(c); err != nil {
+		writeServiceError(c, "restore_group_key", mapControlJSONError(err))
+		return
+	}
+	result, err := s.service.RestoreGroupKey(c.Request.Context(), groupID, keyID)
+	if err != nil {
+		writeServiceError(c, "restore_group_key", err)
+		return
+	}
+	response.SuccessI18n(c, "common.success", result)
+}
+
+func (s *Server) handleBatchGroupKeys(c *gin.Context) {
+	groupID, ok := groupID(c, "batch_group_keys")
+	if !ok {
+		return
+	}
+	var request GroupKeyBatchRequest
+	if err := bindStrictJSON(c, &request); err != nil {
+		writeServiceError(c, "batch_group_keys", mapControlJSONError(err))
+		return
+	}
+	result, err := s.service.BatchGroupKeys(c.Request.Context(), groupID, request)
+	if err != nil {
+		writeServiceError(c, "batch_group_keys", err)
+		return
+	}
+	response.SuccessI18n(c, "common.success", result)
+}
+
 func (s *Server) handleImportGroupKeys(c *gin.Context) {
 	id, ok := groupID(c, "import_group_keys")
 	if !ok {

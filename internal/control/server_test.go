@@ -2266,6 +2266,7 @@ func TestSettingsHTTPFiltersPrivateRowsAndDoesNotLogValues(t *testing.T) {
 		fixture.service.usageStats,
 		fixture.service.homeStatistics,
 		fixture.stats,
+		fixture.mutations,
 		fixture.requestLogStats,
 	)
 	brokenEngine := gin.New()

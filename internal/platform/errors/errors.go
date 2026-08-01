@@ -30,6 +30,7 @@ var (
 	ErrDuplicateResource                     = &APIError{HTTPStatus: http.StatusConflict, Code: "DUPLICATE_RESOURCE", Message: "Resource already exists"}
 	ErrResourceNotFound                      = &APIError{HTTPStatus: http.StatusNotFound, Code: "NOT_FOUND", Message: "Resource not found"}
 	ErrGroupInUse                            = &APIError{HTTPStatus: http.StatusConflict, Code: "GROUP_IN_USE", Message: "Group is referenced by access keys"}
+	ErrInvalidKeyState                       = &APIError{HTTPStatus: http.StatusConflict, Code: "INVALID_KEY_STATE", Message: "Key cannot be restored from its current state"}
 	ErrInternalServer                        = &APIError{HTTPStatus: http.StatusInternalServerError, Code: "INTERNAL_SERVER_ERROR", Message: "An unexpected error occurred"}
 	ErrDatabase                              = &APIError{HTTPStatus: http.StatusInternalServerError, Code: "DATABASE_ERROR", Message: "Database operation failed"}
 	ErrUnauthorized                          = &APIError{HTTPStatus: http.StatusUnauthorized, Code: "UNAUTHORIZED", Message: "Authentication failed"}

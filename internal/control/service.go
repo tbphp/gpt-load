@@ -39,6 +39,7 @@ type Service struct {
 	usageStats                  UsageStatReader
 	homeStatistics              HomeStatisticsReader
 	stats                       *health.StatsStore
+	mutations                   keyMutationCoordinator
 	requestLogStats             RequestLogStatsReader
 	modelDiscoveryTimeout       time.Duration
 	random                      io.Reader
@@ -66,6 +67,7 @@ func NewService(
 	usageStats UsageStatReader,
 	homeStatistics HomeStatisticsReader,
 	stats *health.StatsStore,
+	mutations *health.MutationCoordinator,
 	requestLogStats RequestLogStatsReader,
 ) *Service {
 	service := &Service{
@@ -73,7 +75,7 @@ func NewService(
 		priceRuntime: priceRuntime,
 		encryption:   encryptionService, dialects: dialects, requestLogs: requestLogs,
 		usageStats: usageStats, homeStatistics: homeStatistics,
-		stats: stats, requestLogStats: requestLogStats,
+		stats: stats, mutations: mutations, requestLogStats: requestLogStats,
 		modelDiscoveryTimeout: defaultModelDiscoveryTimeout,
 		random:                rand.Reader,
 		operationRandom:       rand.Reader,

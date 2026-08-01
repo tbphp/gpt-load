@@ -193,6 +193,27 @@ func TestStatsStoreResetClearsWindowAndStreak(t *testing.T) {
 	}
 }
 
+func TestStatsStoreClearProblemStatePreservesRollingBuckets(t *testing.T) {
+	store := NewStatsStore()
+	base := statsBase()
+	store.RecordSuccess(7, base.Add(-2*time.Minute))
+	store.RecordFailure(7, FailureCategoryRateLimited, 429, base.Add(-time.Minute))
+	store.RecordFailure(7, FailureCategoryInvalidKey, 401, base)
+
+	store.ClearProblemState(7)
+
+	got := store.Snapshot(7, base)
+	want := KeyStats{Success: 1, Failure: 2}
+	if got != want {
+		t.Fatalf("Snapshot() after ClearProblemState = %#v, want %#v", got, want)
+	}
+	store.ClearProblemState(0)
+	store.ClearProblemState(99)
+	if got := store.Snapshot(7, base); got != want {
+		t.Fatalf("Snapshot() after no-op clears = %#v, want %#v", got, want)
+	}
+}
+
 func TestStatsStoreResetUnknownAndZeroKeyIsNoop(t *testing.T) {
 	store := NewStatsStore()
 	base := statsBase()

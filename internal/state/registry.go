@@ -257,6 +257,71 @@ func (r *KeyRegistry) RemoveKey(keyID uint) bool {
 	return true
 }
 
+func (r *KeyRegistry) UpdateGroupKeyStatuses(
+	groupID uint,
+	keyIDs []uint,
+	status KeyStatus,
+) error {
+	if status != KeyStatusActive && status != KeyStatusDisabled {
+		return fmt.Errorf("invalid key status %q", status)
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if err := r.validateGroupKeyIDsLocked(groupID, keyIDs); err != nil {
+		return err
+	}
+	for _, keyID := range keyIDs {
+		r.buckets[groupID][keyID].Status = status
+	}
+	return nil
+}
+
+func (r *KeyRegistry) RemoveGroupKeys(groupID uint, keyIDs []uint) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if err := r.validateGroupKeyIDsLocked(groupID, keyIDs); err != nil {
+		return err
+	}
+	for _, keyID := range keyIDs {
+		delete(r.buckets[groupID], keyID)
+		delete(r.keyGroups, keyID)
+	}
+	if len(r.buckets[groupID]) == 0 {
+		delete(r.buckets, groupID)
+	}
+	return nil
+}
+
+func (r *KeyRegistry) validateGroupKeyIDsLocked(groupID uint, keyIDs []uint) error {
+	if groupID == 0 {
+		return fmt.Errorf("group id is required")
+	}
+	if len(keyIDs) == 0 {
+		return fmt.Errorf("key ids are required")
+	}
+	seen := make(map[uint]struct{}, len(keyIDs))
+	for _, keyID := range keyIDs {
+		if keyID == 0 {
+			return fmt.Errorf("key id is required")
+		}
+		if _, duplicate := seen[keyID]; duplicate {
+			return fmt.Errorf("duplicate key id %d", keyID)
+		}
+		seen[keyID] = struct{}{}
+		actualGroupID, exists := r.keyGroups[keyID]
+		if !exists {
+			return fmt.Errorf("key %d not found", keyID)
+		}
+		if actualGroupID != groupID {
+			return fmt.Errorf("key %d belongs to group %d, want %d", keyID, actualGroupID, groupID)
+		}
+		if r.buckets[groupID][keyID] == nil {
+			return fmt.Errorf("key %d not found in group %d", keyID, groupID)
+		}
+	}
+	return nil
+}
+
 func (r *KeyRegistry) RemoveGroup(groupID uint) bool {
 	if groupID == 0 {
 		return false
@@ -459,6 +524,24 @@ func (r *KeyRegistry) SetAutoWeight(keyID uint, weight int) bool {
 		return false
 	}
 	entry.WeightAuto = weight
+	return true
+}
+
+func (r *KeyRegistry) RestoreRuntimeState(keyID uint, weight int) bool {
+	if weight < 1 || weight > MaxWeight {
+		return false
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	entry, ok := r.entryLocked(keyID)
+	if !ok {
+		return false
+	}
+	entry.WeightAuto = weight
+	entry.CooldownUntil = time.Time{}
+	entry.Blacklisted = false
+	entry.FailureCount = 0
+	entry.FailureGeneration++
 	return true
 }
 

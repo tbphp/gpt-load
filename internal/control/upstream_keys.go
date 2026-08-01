@@ -8,6 +8,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"gpt-load/internal/health"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/platform/utils"
 	"gpt-load/internal/state"
@@ -205,6 +206,32 @@ func (s *Service) listGroupKeyResponses(
 		return nil, err
 	}
 	return s.mapGroupKeys(observation)
+}
+
+func (s *Service) mapGroupKeyItem(
+	row models.UpstreamKey,
+	view state.KeyRuntimeView,
+	group models.Group,
+	stats health.KeyStats,
+	observedAt time.Time,
+) (GroupKeyItemResponse, error) {
+	plaintext, err := s.encryption.Decrypt(row.KeyValue)
+	if err != nil {
+		return GroupKeyItemResponse{}, fmt.Errorf(
+			"decrypt group key %d: %w",
+			row.ID,
+			app_errors.ErrInternalServer,
+		)
+	}
+	mask, err := maskGroupKeyCollection(plaintext)
+	if err != nil {
+		return GroupKeyItemResponse{}, err
+	}
+	bucket := classifyHealthKey(state.GroupCatalogView{
+		ID: group.ID, Name: group.Name, Enabled: group.Enabled,
+		WeightManual: cloneInt(group.WeightManual),
+	}, view, observedAt)
+	return mapGroupKeyCollectionItem(mask, row.ID, view, bucket, stats, observedAt)
 }
 
 func normalizeUpstreamKeyUpdate(

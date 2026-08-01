@@ -182,6 +182,28 @@ func (s *Server) HTTPModule() httproute.Module {
 				s.handleUpdateGroupKey,
 			),
 			controlRoute(
+				"control.group-keys.restore",
+				http.MethodPost,
+				"/groups/:group_id/keys/:key_id/restore",
+				s.auditMutation(newMutationDescriptor(
+					"group_key_restore",
+					"group_key",
+					groupKeyMutationLocator,
+				)),
+				s.handleRestoreGroupKey,
+			),
+			controlRoute(
+				"control.group-keys.batch",
+				http.MethodPost,
+				"/groups/:group_id/keys/batch",
+				s.auditMutation(newMutationDescriptor(
+					"group_keys_batch",
+					"group_key",
+					groupKeysMutationLocator,
+				)),
+				s.handleBatchGroupKeys,
+			),
+			controlRoute(
 				"control.group-keys.delete",
 				http.MethodDelete,
 				"/groups/:group_id/keys/:key_id",

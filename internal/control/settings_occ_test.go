@@ -218,6 +218,7 @@ func TestSettingsETagIgnoresOtherResourcesAndSurvivesRuntimeReload(t *testing.T)
 		fixture.service.usageStats,
 		fixture.service.homeStatistics,
 		fixture.stats,
+		fixture.mutations,
 		fixture.requestLogStats,
 	)
 	reloadedEngine := gin.New()

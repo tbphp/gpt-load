@@ -124,11 +124,54 @@ type recordingRuntimeRegistry struct {
 }
 
 type gatewayMutationObservation struct {
+	cooldownCalls    int
 	clearCalls       int
 	incrFailureCalls int
 	lastFailureCount int
 	blacklistCalls   int
 	stats            health.KeyStats
+}
+
+func TestHandlerCoordinatesCooldownMutation(t *testing.T) {
+	now := time.Date(2026, time.August, 1, 12, 0, 0, 0, time.UTC)
+	registry := &recordingRuntimeRegistry{KeyRegistry: state.NewKeyRegistry()}
+	if err := registry.Replace([]state.KeyEntry{{
+		ID: 1, GroupID: 1, Status: state.KeyStatusActive, EncryptedValue: "cipher",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	stats := health.NewStatsStore()
+	coordinator := newBarrierGatewayMutationCoordinator(func() gatewayMutationObservation {
+		return gatewayMutationObservation{
+			cooldownCalls: registry.cooldownCalls,
+			stats:         stats.Snapshot(1, now),
+		}
+	})
+	handler := &Handler{registry: registry, stats: stats, mutations: coordinator}
+	done := make(chan struct{})
+	go func() {
+		handler.applyKeyAction(1, health.Result{
+			Category: health.FailureCategoryRateLimited,
+			Action:   health.ActionCooldownKey,
+		}, http.StatusTooManyRequests, now)
+		close(done)
+	}()
+
+	receiveTestSignal(t, coordinator.entered, "cooldown coordinator entry")
+	if registry.cooldownCalls != 0 || stats.Snapshot(1, now) != (health.KeyStats{}) {
+		t.Fatal("cooldown bundle changed state before coordinator callback")
+	}
+	close(coordinator.releaseEntry)
+	observed := receiveTestSignal(t, coordinator.observed, "cooldown mutation observation")
+	if observed.cooldownCalls != 1 || observed.stats != (health.KeyStats{
+		ConsecutiveProblem:  1,
+		LastFailureCategory: health.FailureCategoryRateLimited,
+		LastStatusCode:      http.StatusTooManyRequests,
+	}) {
+		t.Fatalf("coordinator callback observation = %#v", observed)
+	}
+	close(coordinator.releaseExit)
+	receiveTestSignal(t, done, "cooldown mutation completion")
 }
 
 type barrierGatewayMutationCoordinator struct {
