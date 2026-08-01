@@ -211,7 +211,16 @@ onBeforeUnmount(() => {
 <template>
   <PageFrame aria-labelledby="groups-title">
     <LedgerSheet class="groups-ledger" :aria-busy="collectionBusy ? 'true' : undefined">
-      <PageHeader id="groups-title" :title="t('groups.title')" />
+      <PageHeader id="groups-title" :title="t('groups.title')">
+        <template #actions>
+          <RouterLink v-slot="{ navigate }" :to="importLocation()" custom>
+            <AppButton role="link" @click="navigate">
+              <KeyRound :size="16" aria-hidden="true" />
+              {{ t('groups.collection.importKeys') }}
+            </AppButton>
+          </RouterLink>
+        </template>
+      </PageHeader>
 
       <section
         v-if="groupsQuery.isPending.value"

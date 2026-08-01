@@ -18,6 +18,7 @@ import LedgerRecordList from '@/components/collection/LedgerRecordList.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppConfirmDialog from '@/components/ui/AppConfirmDialog.vue'
 import AppDrawer from '@/components/ui/AppDrawer.vue'
+import CompactFieldError from '@/components/ui/CompactFieldError.vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import PanelHeader from '@/components/ui/PanelHeader.vue'
@@ -73,6 +74,13 @@ const emptyAliasIndexes = computed(
 )
 const emptyIDIndexes = computed(
   () => new Set(draft.value.flatMap((item, index) => (!item.id.trim() ? [index] : []))),
+)
+const invalidRowCount = computed(
+  () =>
+    new Set([...conflictIndexes.value, ...emptyAliasIndexes.value, ...emptyIDIndexes.value]).size,
+)
+const saveBarError = computed(() =>
+  conflicts.value.length ? t('group.modelEditor.conflictSummary') : error.value,
 )
 const dirty = computed(
   () =>
@@ -161,6 +169,14 @@ function updateRow(index: number, patch: Partial<ModelDraftItem>): void {
         }
       : { ...item },
   )
+}
+
+async function setAliasEnabled(index: number, key: number, enabled: boolean): Promise<void> {
+  updateRow(index, { alias_enabled: enabled })
+  if (!enabled) return
+
+  await nextTick()
+  document.getElementById(`group-model-alias-${key}`)?.focus()
 }
 
 function pricingStatusForID(id: string): ModelDraftItem['pricing_status'] {
@@ -329,6 +345,18 @@ function conflictMessage(index: number): string {
   return conflict ? t('group.modelEditor.nameConflict', { name: conflict.client_model }) : ''
 }
 
+function modelIDError(item: ModelDraftItem, index: number): string {
+  if (emptyIDIndexes.value.has(index)) return t('group.modelEditor.manualIdRequired')
+  if (!item.alias_enabled && conflictIndexes.value.has(index)) return conflictMessage(index)
+  return ''
+}
+
+function modelAliasError(item: ModelDraftItem, index: number): string {
+  if (!item.alias_enabled) return ''
+  if (emptyAliasIndexes.value.has(index)) return t('group.modelEditor.aliasRequired')
+  return conflictIndexes.value.has(index) ? conflictMessage(index) : ''
+}
+
 onBeforeUnmount(() => {
   controller?.abort()
   if (savedFeedbackTimer !== undefined) clearTimeout(savedFeedbackTimer)
@@ -365,11 +393,6 @@ onBeforeUnmount(() => {
       @retry="query.refetch()"
     />
     <template v-else-if="query.data.value">
-      <InlineFeedback v-if="error" tone="danger">{{ error }}</InlineFeedback>
-      <InlineFeedback v-if="conflicts.length" tone="danger">{{
-        t('group.modelEditor.conflictSummary')
-      }}</InlineFeedback>
-
       <div class="group-models__toolbar">
         <label class="group-models__search">
           <span>{{ t('group.modelEditor.searchLabel') }}</span>
@@ -424,28 +447,38 @@ onBeforeUnmount(() => {
         >
           <div class="ledger-record-list__cell group-model-record__id" role="cell">
             <span class="group-model-record__mobile-label">{{ t('group.modelEditor.id') }}</span>
-            <input
-              v-if="item.editable_id"
-              :data-model-key="item.key"
-              class="group-model-record__id-input"
-              type="text"
-              :value="item.id"
-              :placeholder="t('group.modelEditor.manualId')"
-              :aria-label="t('group.modelEditor.id')"
-              :aria-invalid="emptyIDIndexes.has(index) || conflictIndexes.has(index) || undefined"
-              :disabled="pending !== null"
-              @input="updateRow(index, { id: ($event.target as HTMLInputElement).value })"
-            />
-            <code v-else>{{ item.id }}</code>
-            <small v-if="emptyIDIndexes.has(index)" class="group-models__error">
-              {{ t('group.modelEditor.manualIdRequired') }}
-            </small>
+            <CompactFieldError
+              :id="`group-model-id-${item.key}`"
+              class="group-model-record__id-field"
+              :error="modelIDError(item, index)"
+            >
+              <template #default="{ invalid, describedBy }">
+                <input
+                  v-if="item.editable_id"
+                  :id="`group-model-id-${item.key}`"
+                  :data-model-key="item.key"
+                  class="group-model-record__id-input"
+                  type="text"
+                  :value="item.id"
+                  :placeholder="t('group.modelEditor.manualId')"
+                  :aria-label="t('group.modelEditor.id')"
+                  :aria-invalid="invalid || undefined"
+                  :aria-describedby="describedBy"
+                  :disabled="pending !== null"
+                  @input="updateRow(index, { id: ($event.target as HTMLInputElement).value })"
+                />
+                <code v-else :aria-describedby="describedBy">{{ item.id }}</code>
+              </template>
+            </CompactFieldError>
           </div>
 
           <div class="ledger-record-list__cell group-model-record__alias-cell" role="cell">
             <span class="group-model-record__mobile-label">{{ t('group.modelEditor.alias') }}</span>
             <div class="group-models__alias">
-              <label class="group-models__alias-toggle">
+              <label
+                class="group-models__alias-toggle"
+                :class="{ 'group-models__alias-toggle--disabled': pending !== null }"
+              >
                 <span class="sr-only">
                   {{ t('group.modelEditor.aliasEnabledFor', { id: item.id }) }}
                 </span>
@@ -454,29 +487,31 @@ onBeforeUnmount(() => {
                   :checked="item.alias_enabled"
                   :disabled="pending !== null"
                   @change="
-                    updateRow(index, {
-                      alias_enabled: ($event.target as HTMLInputElement).checked,
-                    })
+                    setAliasEnabled(index, item.key, ($event.target as HTMLInputElement).checked)
                   "
                 />
-                <span class="group-models__alias-track" aria-hidden="true"></span>
               </label>
-              <input
+              <CompactFieldError
                 v-if="item.alias_enabled"
-                type="text"
-                :value="item.alias"
-                :disabled="pending !== null"
-                :placeholder="t('group.modelEditor.aliasPlaceholder')"
-                :aria-invalid="conflictIndexes.has(index) || undefined"
-                @input="updateRow(index, { alias: ($event.target as HTMLInputElement).value })"
-              />
+                :id="`group-model-alias-${item.key}`"
+                class="group-models__alias-field"
+                :error="modelAliasError(item, index)"
+              >
+                <template #default="{ invalid, describedBy }">
+                  <input
+                    :id="`group-model-alias-${item.key}`"
+                    type="text"
+                    :value="item.alias"
+                    :disabled="pending !== null"
+                    :placeholder="t('group.modelEditor.aliasPlaceholder')"
+                    :aria-label="t('group.modelEditor.alias')"
+                    :aria-invalid="invalid || undefined"
+                    :aria-describedby="describedBy"
+                    @input="updateRow(index, { alias: ($event.target as HTMLInputElement).value })"
+                  />
+                </template>
+              </CompactFieldError>
             </div>
-            <small v-if="conflictIndexes.has(index)" class="group-models__error">
-              {{ conflictMessage(index) }}
-            </small>
-            <small v-else-if="emptyAliasIndexes.has(index)" class="group-models__error">
-              {{ t('group.modelEditor.aliasRequired') }}
-            </small>
           </div>
 
           <div class="ledger-record-list__cell group-model-record__pricing-cell" role="cell">
@@ -634,11 +669,12 @@ onBeforeUnmount(() => {
 
       <StickySaveBar
         appearance="ledger"
+        error-placement="floating"
         always-visible
         :dirty="dirty"
         :pending="pending === 'save'"
-        :status="error ? 'error' : savedFeedback ? 'saved' : 'idle'"
-        :error="error"
+        :status="saveBarError ? 'error' : savedFeedback ? 'saved' : 'idle'"
+        :error="saveBarError"
         ><template #status
           ><div>
             <strong>
@@ -659,7 +695,9 @@ onBeforeUnmount(() => {
                   : savedFeedback
                     ? t('group.modelEditor.savedFeedbackNote')
                     : dirty
-                      ? t(canSave ? 'group.modelEditor.dirtyNote' : 'group.modelEditor.invalidNote')
+                      ? invalidRowCount > 0
+                        ? t('group.modelEditor.invalidNote', { count: invalidRowCount })
+                        : t('group.modelEditor.dirtyNote')
                       : t('group.modelEditor.saveNote')
               }}
             </span>
@@ -764,8 +802,19 @@ onBeforeUnmount(() => {
   gap: 5px;
 }
 .group-model-record__id code {
+  display: block;
+  padding-inline-end: 38px;
   overflow-wrap: anywhere;
   font-size: var(--text-sm);
+}
+.group-model-record__id-field {
+  display: flex;
+  min-height: 34px;
+  align-items: center;
+  max-width: 300px;
+}
+.group-model-record__id-field code {
+  width: 100%;
 }
 .group-model-record__id-input {
   width: 100%;
@@ -787,51 +836,32 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: var(--space-2);
 }
+.group-models__alias-field {
+  width: 100%;
+  max-width: 300px;
+  min-width: 0;
+  flex: 1;
+}
 .group-models__alias-toggle {
-  position: relative;
-  display: inline-flex;
-  width: 36px;
-  height: 20px;
-  flex: 0 0 36px;
+  display: grid;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  place-items: center;
   cursor: pointer;
 }
 .group-models__alias-toggle input {
-  position: absolute;
-  opacity: 0;
-  pointer-events: none;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--color-action);
+  cursor: pointer;
 }
-.group-models__alias-track {
-  width: 100%;
-  border: 1px solid var(--color-border-control);
-  border-radius: 999px;
-  background: var(--color-surface-sunken);
-  transition:
-    background-color var(--duration-fast) var(--easing-standard),
-    border-color var(--duration-fast) var(--easing-standard);
-}
-.group-models__alias-track::after {
-  position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: var(--color-text-faint);
-  content: '';
-  transition:
-    background-color var(--duration-fast) var(--easing-standard),
-    transform var(--duration-fast) var(--easing-standard);
-}
-.group-models__alias-toggle input:checked + .group-models__alias-track {
-  border-color: var(--color-action);
-  background: var(--color-action);
-}
-.group-models__alias-toggle input:checked + .group-models__alias-track::after {
-  transform: translateX(16px);
-  background: var(--color-action-ink);
-}
-.group-models__alias-toggle input:disabled + .group-models__alias-track {
+.group-models__alias-toggle--disabled,
+.group-models__alias-toggle input:disabled {
   cursor: not-allowed;
+}
+.group-models__alias-toggle input:disabled {
   opacity: 0.55;
 }
 .group-models__alias input[type='text'] {
@@ -845,11 +875,6 @@ onBeforeUnmount(() => {
   padding: 5px 10px;
   font: inherit;
   font-size: var(--text-meta);
-}
-.group-models__error {
-  color: var(--color-danger);
-  font-size: var(--text-label-xs);
-  line-height: 1.45;
 }
 .group-models__pricing--priced {
   color: var(--color-success);
@@ -1041,23 +1066,17 @@ onBeforeUnmount(() => {
     min-height: var(--touch-target);
     font-size: 16px;
   }
+  .group-model-record__id-field,
+  .group-models__alias-field {
+    max-width: none;
+  }
+  .group-model-record__id-field {
+    min-height: var(--touch-target);
+  }
   .group-models__alias-toggle {
     width: var(--touch-target);
     height: var(--touch-target);
     flex-basis: var(--touch-target);
-    align-items: center;
-    justify-content: center;
-  }
-  .group-models__alias-track {
-    width: 36px;
-    height: 20px;
-  }
-  .group-models__alias-track::after {
-    top: 15px;
-    left: 7px;
-  }
-  .group-models__alias-toggle input:checked + .group-models__alias-track::after {
-    transform: translateX(16px);
   }
 }
 @media (max-width: 800px) {
@@ -1092,12 +1111,6 @@ onBeforeUnmount(() => {
 @media (max-width: 800px) {
   .group-models {
     padding-top: var(--detail-panel-padding-top-compact);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .group-models__alias-track,
-  .group-models__alias-track::after {
-    transition: none;
   }
 }
 </style>

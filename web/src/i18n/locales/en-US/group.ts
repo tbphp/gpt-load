@@ -84,7 +84,7 @@ export default {
       savedFeedback: 'Saved successfully',
       saveNote: 'Discovery results never write to the current list automatically',
       dirtyNote: 'Saving replaces the current model configuration',
-      invalidNote: 'Resolve client model name errors first',
+      invalidNote: '{count} model rows need attention',
       savingNote: 'Keep this page open',
       savedFeedbackNote: 'This page now matches the server state',
       searchLabel: 'Search',

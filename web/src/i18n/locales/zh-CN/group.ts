@@ -83,7 +83,7 @@ export default {
       savedFeedback: '保存成功',
       saveNote: '发现结果不会自动写入当前列表',
       dirtyNote: '保存后替换当前模型配置',
-      invalidNote: '请先解决客户端模型名错误',
+      invalidNote: '有 {count} 项模型配置需要修正',
       savingNote: '请保持此页面开启',
       savedFeedbackNote: '当前页面已与服务端状态一致',
       searchLabel: '搜索',
