@@ -246,12 +246,11 @@ func (s *Service) UpdateGroupSettings(
 			updates["weight_manual"] = normalized.weightManual
 		}
 		if normalized.overridesSet {
-			if _, injectUsageOptionsSet := normalized.overrides[state.SettingInjectUsageOptions]; injectUsageOptionsSet &&
-				!groupSupportsOpenAICompletions(group.Protocols) {
-				return app_errors.ErrValidation
-			}
 			group.Config = normalized.encodedOverrides
 			updates["config"] = group.Config
+		}
+		if err := validateGroupInjectUsageOptionsConstraint(group); err != nil {
+			return err
 		}
 		if err := validateGroupRowCandidate(ctx, tx, group); err != nil {
 			return app_errors.ErrValidation
@@ -278,6 +277,20 @@ func (s *Service) UpdateGroupSettings(
 		)
 	}
 	return result, nil
+}
+
+func validateGroupInjectUsageOptionsConstraint(group models.Group) error {
+	settings := make(config.Settings)
+	if len(group.Config) > 0 {
+		if err := decodeGroupDiscoveryJSON(group.Config, &settings); err != nil {
+			return app_errors.ErrValidation
+		}
+	}
+	if _, injectUsageOptionsSet := settings[state.SettingInjectUsageOptions]; injectUsageOptionsSet &&
+		!groupSupportsOpenAICompletions(group.Protocols) {
+		return app_errors.ErrValidation
+	}
+	return nil
 }
 
 func groupSupportsOpenAICompletions(raw models.JSON) bool {

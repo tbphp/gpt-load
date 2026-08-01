@@ -160,6 +160,45 @@ func TestUpdateGroupSettingsValidatesWeightInjectUsageAndUpstreamConfirmation(t 
 	}
 }
 
+func TestUpdateGroupSettingsRejectsProtocolChangeThatLeavesInjectUsageOptionsOnNonOpenAIGroup(t *testing.T) {
+	fixture := newServiceFixture(t)
+	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
+		UpstreamURL: "https://settings-protocol-constraint.example.com/v1",
+		Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
+		Config: config.Settings{
+			state.SettingInjectUsageOptions: true,
+		},
+		Keys: "sk-settings-protocol-constraint",
+	})
+	if err != nil {
+		t.Fatalf("CreateGroup() error = %v", err)
+	}
+	var before models.Group
+	if err := fixture.db.First(&before, created.GroupID).Error; err != nil {
+		t.Fatal(err)
+	}
+	beforeRevision := fixture.manager.Current().Revision
+
+	_, err = fixture.service.UpdateGroupSettings(t.Context(), created.GroupID, GroupSettingsUpdateRequest{
+		Protocols: optionalField[[]protocol.Protocol]{
+			Set: true, Value: []protocol.Protocol{protocol.Anthropic},
+		},
+	})
+	if !errors.Is(err, app_errors.ErrValidation) {
+		t.Fatalf("UpdateGroupSettings() error = %v, want validation", err)
+	}
+	var after models.Group
+	if err := fixture.db.First(&after, created.GroupID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(after, before) {
+		t.Fatalf("protocol constraint changed persisted group: got=%#v want=%#v", after, before)
+	}
+	if got := fixture.manager.Current().Revision; got != beforeRevision {
+		t.Fatalf("protocol constraint published revision %d, want %d", got, beforeRevision)
+	}
+}
+
 func TestGroupSettingsHTTPRejectsStrictJSONAndUnauthorizedWithoutMutation(t *testing.T) {
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
