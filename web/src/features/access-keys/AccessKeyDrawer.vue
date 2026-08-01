@@ -20,7 +20,11 @@ import { useUnsavedChanges } from '@/app/unsaved-changes'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppDrawer from '@/components/ui/AppDrawer.vue'
 
-import { accessKeyProtocolOptions, buildAccessKeyModelOptions } from './access-key-options'
+import {
+  accessKeyProtocolOptions,
+  buildAccessKeyModelOptions,
+  buildAccessKeyProtocolCandidates,
+} from './access-key-options'
 import type { PendingAccessKeyCreateOperation } from './access-key-create-operation'
 import type { PendingAccessKeyEditOperation } from './access-key-edit-operation'
 import AccessKeyFormFields from './AccessKeyFormFields.vue'
@@ -101,8 +105,32 @@ const resultSecret = computed(() =>
   result.value ? ephemeralSecret.read(`access-key:${result.value.id}`) : null,
 )
 const protocolOptions = computed(() => accessKeyProtocolOptions())
+const selectedGroupIDs = computed(() =>
+  draft.value.scopeModes.groups === 'restricted' ? draft.value.filters.groups : [],
+)
+const supportedProtocolOptions = computed(() =>
+  buildAccessKeyProtocolCandidates(props.groups, selectedGroupIDs.value),
+)
 const modelOptions = computed(() =>
-  buildAccessKeyModelOptions(props.groups, draft.value.filters.models),
+  buildAccessKeyModelOptions(props.groups, draft.value.filters.models, selectedGroupIDs.value),
+)
+const catalogModelOptions = computed(() =>
+  buildAccessKeyModelOptions(props.groups, [], selectedGroupIDs.value),
+)
+const groupProtocolMismatch = computed(
+  () =>
+    props.groupCatalogState !== 'loading' &&
+    props.groupCatalogState !== 'error' &&
+    draft.value.scopeModes.groups === 'restricted' &&
+    draft.value.scopeModes.protocols === 'restricted' &&
+    !draft.value.filters.protocols.some((protocol) =>
+      supportedProtocolOptions.value.includes(protocol),
+    ),
+)
+const modelMismatch = computed(
+  () =>
+    draft.value.scopeModes.models === 'restricted' &&
+    draft.value.filters.models.some((model) => !catalogModelOptions.value.includes(model)),
 )
 const dirty = computed(() => isAccessKeyDraftDirty(draft.value, base.value))
 const unsavedDirty = computed(
@@ -124,7 +152,11 @@ const scopeValid = computed(() =>
     groupCatalog: groupCatalog.value,
   }),
 )
-const valid = computed(() => isAccessKeyDraftValid(draft.value, base.value, groupCatalog.value))
+const valid = computed(
+  () =>
+    isAccessKeyDraftValid(draft.value, base.value, groupCatalog.value) &&
+    !groupProtocolMismatch.value,
+)
 const mutationFeedbackKey = computed(() => {
   if (mutationState.value === 'idle') return ''
   if (editReconciliation.value) {
@@ -137,6 +169,7 @@ const mutationFeedbackKey = computed(() => {
     : 'accessKeys.drawer.saveIndeterminate'
 })
 const scopeFeedbackKey = computed(() => {
+  if (groupProtocolMismatch.value) return 'accessKeys.drawer.groupProtocolMismatch'
   if (scopeValid.value) return ''
   const effective = materializeAccessKeyFilters(draft.value.filters, draft.value.scopeModes)
   if (
@@ -156,18 +189,27 @@ const scopeFeedbackKey = computed(() => {
   return 'accessKeys.drawer.scopeIncomplete'
 })
 const groupOptions = computed(() => {
+  const baseGroupIDs = new Set(base.value?.filters.groups ?? [])
   const options = props.groups.map((group) => ({
     id: group.id,
-    label: group.name,
-    dangling: false,
+    label: `${group.name} · #${group.id}`,
+    description: group.enabled
+      ? t('accessKeys.drawer.groupEnabled')
+      : t('accessKeys.drawer.groupDisabled'),
+    disabled: props.groupCatalogState === 'stale' && !baseGroupIDs.has(group.id),
   }))
   const known = new Set(options.map(({ id }) => id))
-  for (const id of base.value?.filters.groups ?? []) {
+  for (const id of draft.value.filters.groups) {
     if (!known.has(id)) {
-      options.push({ id, label: t('accessKeys.drawer.unknownGroup', { id }), dangling: true })
+      options.push({
+        id,
+        label: t('accessKeys.drawer.unknownGroup', { id }),
+        description: t('accessKeys.drawer.groupDangling'),
+        disabled: false,
+      })
     }
   }
-  return options
+  return options.map(({ id, ...option }) => ({ value: id, ...option }))
 })
 const unsavedChanges = useUnsavedChanges(unsavedDirty, { blocked: closeBlocked })
 
@@ -257,18 +299,28 @@ watch(
   { immediate: true },
 )
 
-function toggleGroup(groupId: number, checked: boolean): void {
-  if (!canChangeScopeValue('groups', groupId, checked)) return
-  draft.value.filters.groups = checked
-    ? [...new Set([...draft.value.filters.groups, groupId])]
-    : draft.value.filters.groups.filter((id) => id !== groupId)
+function setGroups(groupIDs: number[]): void {
+  const current = new Set(draft.value.filters.groups)
+  const next = new Set(groupIDs)
+  for (const groupID of next) {
+    if (!current.has(groupID) && !canChangeScopeValue('groups', groupID, true)) return
+  }
+  for (const groupID of current) {
+    if (!next.has(groupID) && !canChangeScopeValue('groups', groupID, false)) return
+  }
+  draft.value.filters.groups = [...next]
 }
 
-function toggleProtocol(protocol: AccessProtocol, checked: boolean): void {
-  if (!canChangeScopeValue('protocols', protocol, checked)) return
-  draft.value.filters.protocols = checked
-    ? [...new Set([...draft.value.filters.protocols, protocol])]
-    : draft.value.filters.protocols.filter((value) => value !== protocol)
+function setProtocols(protocols: AccessProtocol[]): void {
+  const current = new Set(draft.value.filters.protocols)
+  const next = new Set(protocols)
+  for (const protocol of next) {
+    if (!current.has(protocol) && !canChangeScopeValue('protocols', protocol, true)) return
+  }
+  for (const protocol of current) {
+    if (!next.has(protocol) && !canChangeScopeValue('protocols', protocol, false)) return
+  }
+  draft.value.filters.protocols = [...next]
 }
 
 function addModel(): void {
@@ -284,9 +336,16 @@ function addModel(): void {
   modelInput.value = ''
 }
 
-function removeModel(model: string): void {
-  if (!canChangeScopeValue('models', model, false)) return
-  draft.value.filters.models = draft.value.filters.models.filter((value) => value !== model)
+function setModels(models: string[]): void {
+  const current = new Set(draft.value.filters.models)
+  const next = new Set(models.map((model) => model.trim()).filter(Boolean))
+  for (const model of next) {
+    if (!current.has(model) && !canChangeScopeValue('models', model, true)) return
+  }
+  for (const model of current) {
+    if (!next.has(model) && !canChangeScopeValue('models', model, false)) return
+  }
+  draft.value.filters.models = [...next]
 }
 
 function canChangeScopeValue(
@@ -677,14 +736,15 @@ onBeforeUnmount(clearLocalState)
           :group-options="groupOptions"
           :group-catalog-state="groupCatalogState"
           :protocol-options="protocolOptions"
+          :supported-protocols="supportedProtocolOptions"
           :model-options="modelOptions"
-          :base-group-ids="base?.filters.groups ?? []"
           :disabled="formLocked"
+          :model-mismatch="modelMismatch"
           @set-scope-mode="setScopeMode"
-          @toggle-group="toggleGroup"
-          @toggle-protocol="toggleProtocol"
+          @update:groups="setGroups"
+          @update:protocols="setProtocols"
+          @update:models="setModels"
           @add-model="addModel"
-          @remove-model="removeModel"
         />
       </template>
 
