@@ -266,7 +266,7 @@ func TestListAccessKeyCollectionReturnsMaskedMetadataWithoutDecrypting(t *testin
 	}
 }
 
-func TestListAccessKeysReturnsCompleteArrayBeyondCollectionDefaultPageSize(t *testing.T) {
+func TestListAccessKeyCollectionPaginatesBeyondDefaultPageSize(t *testing.T) {
 	fixture := newServiceFixture(t)
 	rows := make([]models.AccessKey, 21)
 	for index := range rows {
@@ -283,17 +283,20 @@ func TestListAccessKeysReturnsCompleteArrayBeyondCollectionDefaultPageSize(t *te
 		t.Fatalf("create access keys: %v", err)
 	}
 
-	listed, err := fixture.service.ListAccessKeys(t.Context())
+	listed, err := fixture.service.ListAccessKeyCollection(
+		t.Context(),
+		AccessKeyCollectionQuery{Page: 2, PageSize: 20},
+	)
 	if err != nil {
-		t.Fatalf("ListAccessKeys() error = %v", err)
+		t.Fatalf("ListAccessKeyCollection() error = %v", err)
 	}
-	if len(listed) != len(rows) {
-		t.Fatalf("ListAccessKeys() count = %d, want %d", len(listed), len(rows))
+	if listed.Pagination != (AccessKeyCollectionPagination{
+		Page: 2, PageSize: 20, TotalItems: 21, TotalPages: 2,
+	}) {
+		t.Fatalf("pagination = %#v, want second page of 21 items", listed.Pagination)
 	}
-	for index := range rows {
-		if listed[index].ID != rows[index].ID {
-			t.Fatalf("ListAccessKeys()[%d].ID = %d, want %d", index, listed[index].ID, rows[index].ID)
-		}
+	if len(listed.Items) != 1 || listed.Items[0].ID != rows[0].ID {
+		t.Fatalf("items = %#v, want final item only", listed.Items)
 	}
 }
 
@@ -753,15 +756,17 @@ func TestAccessKeyEndpointsDistinguishRPMLimit(t *testing.T) {
 			t.Fatalf("GET = %d %s", recorder.Code, recorder.Body.String())
 		}
 		var envelope struct {
-			Data []map[string]json.RawMessage `json:"data"`
+			Data struct {
+				Items []map[string]json.RawMessage `json:"items"`
+			} `json:"data"`
 		}
 		if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err != nil {
 			t.Fatalf("decode list response: %v", err)
 		}
-		if len(envelope.Data) != 2 {
-			t.Fatalf("list = %#v, want two items", envelope.Data)
+		if len(envelope.Data.Items) != 2 {
+			t.Fatalf("list = %#v, want two items", envelope.Data.Items)
 		}
-		for _, item := range envelope.Data {
+		for _, item := range envelope.Data.Items {
 			if item["rpm_limit"] == nil || item["daily_cost_limit"] != nil || item["monthly_cost_limit"] != nil {
 				t.Fatalf("list item fields = %#v", item)
 			}

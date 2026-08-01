@@ -175,18 +175,6 @@ func (s *Service) CreateAccessKey(
 	return result, nil
 }
 
-func (s *Service) ListAccessKeys(ctx context.Context) ([]AccessKeyMetadata, error) {
-	records, err := s.captureAccessKeyCollectionRecords(ctx)
-	if err != nil {
-		return nil, err
-	}
-	result := make([]AccessKeyMetadata, len(records))
-	for index := range records {
-		result[index] = records[index].AccessKeyMetadata
-	}
-	return result, nil
-}
-
 func (s *Service) UpdateAccessKey(
 	ctx context.Context,
 	id uint,
