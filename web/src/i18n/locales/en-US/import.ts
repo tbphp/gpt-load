@@ -57,13 +57,13 @@ export default {
     },
     operation: {
       reconciling:
-        'The resource was committed and runtime recovery is still in progress. Check the result with the same operation.',
+        'The resource was committed and runtime recovery is still in progress; check the result with the same operation',
       indeterminate:
-        'This operation could not be confirmed. Do not start another operation; use the action below to check the result.',
+        'This operation could not be confirmed; do not start another operation, use the action below to check the result',
       waiting:
-        'An earlier committed operation is still recovering. Retry this same operation after the wait.',
+        'An earlier committed operation is still recovering; retry this same operation after the wait',
       expired:
-        'The detailed result has expired. Verify only the resource identity manually and do not resubmit.',
+        'The detailed result has expired; verify only the resource identity manually and do not resubmit',
       checkResult: 'Check result',
       abandon: 'Abandon operation',
     },
@@ -130,8 +130,8 @@ export default {
         duplicates: 'Duplicates',
         accessKeys: 'Possible AccessKeys',
       },
-      accessKeyWarning: '{count} lines look like GPT-Load AccessKeys; verify before continuing.',
-      tooMany: 'At most 1,000 non-empty keys can be submitted.',
+      accessKeyWarning: '{count} lines look like GPT-Load AccessKeys; verify before continuing',
+      tooMany: 'At most 1,000 non-empty keys can be submitted',
       upstreamKeyNotice:
         'These are provider upstream keys; create client credentials on the Access Keys page',
     },
@@ -188,12 +188,12 @@ export default {
     },
     discover: 'Discover models',
     discoveryFailed:
-      'Discovery failed. Your draft is intact; you can retry or enter models manually.',
+      'Discovery failed; your draft is intact and you can retry or enter models manually',
     create: 'Create Group',
     summary: '{keys} keys · {protocols} protocols · {models} models',
     actionHelp: 'Create the Group and import keys atomically; models may be empty',
-    createFailed: 'Unable to create the Group.',
-    appendFailed: 'Unable to import keys into the selected Group.',
+    createFailed: 'Unable to create the Group',
+    appendFailed: 'Unable to import keys into the selected Group',
     conflict: {
       title: 'This upstream URL already exists',
       description: 'Add keys to an existing Group or confirm creation of a separate Group',

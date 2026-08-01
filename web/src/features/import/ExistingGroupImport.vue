@@ -35,13 +35,17 @@ const recovery = useImportRecovery()
 const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
-
-const keys = ref(props.initialDraft?.keys ?? '')
 const completed = ref(false)
 const errorKey = ref('')
 const submissionError = ref<HTMLElement>()
 const importOperationOwner = useImportOperationOwner()
 const operation = importOperationOwner.importKeys
+const stableInitialDraft = operation.operation.value?.payload.draft
+const keys = ref(
+  stableInitialDraft?.mode === 'existing'
+    ? stableInitialDraft.keys
+    : (props.initialDraft?.keys ?? ''),
+)
 if (operation.outcome.value?.kind === 'confirmed') operation.reset()
 const pending = operation.pending
 const payloadLocked = computed(() => operation.operation.value !== null)
@@ -126,11 +130,13 @@ const unsavedChanges = useUnsavedChanges(dirty, { blocked: pending })
 const unregisterRecovery = recovery.register(() =>
   completed.value
     ? null
-    : {
-        mode: 'existing',
-        group_id: targetGroupID.value ?? null,
-        keys: keys.value,
-      },
+    : operation.operation.value?.payload.draft.mode === 'existing'
+      ? operation.operation.value.payload.draft
+      : {
+          mode: 'existing',
+          group_id: targetGroupID.value ?? null,
+          keys: keys.value,
+        },
 )
 
 async function selectGroup(value: string): Promise<void> {
@@ -153,7 +159,15 @@ async function returnToSelector(): Promise<void> {
 async function submit(): Promise<void> {
   const groupID = targetGroupID.value
   if (groupID === undefined || !fixedGroup.value || !canSubmit.value) return
-  if (!importOperationOwner.beginImportKeys({ groupID, keys: keys.value }, 'existing')) return
+  if (
+    !importOperationOwner.beginImportKeys({ groupID, keys: keys.value }, 'existing', {
+      mode: 'existing',
+      group_id: groupID,
+      keys: keys.value,
+    })
+  ) {
+    return
+  }
   await executeImportOperation()
 }
 

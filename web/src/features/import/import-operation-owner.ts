@@ -8,13 +8,25 @@ import type {
 import { registerEphemeralStateCleaner } from '@/app/ephemeral-state'
 
 import { useStableImportOperation } from './import-operation'
+import type { ImportRecoveryDraft, ImportDraft } from './model-draft'
+
+export interface CreateGroupImportOperationPayload {
+  request: GroupCreateRequest
+  draft: ImportDraft
+}
+
+export interface ImportKeysOperationPayload {
+  groupID: number
+  keys: string
+  draft: ImportRecoveryDraft
+}
 
 export function createImportOperationOwner() {
-  const createGroup = useStableImportOperation<GroupCreateRequest, GroupCreateResult>()
-  const importKeys = useStableImportOperation<
-    { groupID: number; keys: string },
-    GroupKeyImportResult
+  const createGroup = useStableImportOperation<
+    CreateGroupImportOperationPayload,
+    GroupCreateResult
   >()
+  const importKeys = useStableImportOperation<ImportKeysOperationPayload, GroupKeyImportResult>()
   const operationMode = ref<'new' | 'existing' | null>(null)
 
   const stopOperationWatch = watch(
@@ -25,17 +37,21 @@ export function createImportOperationOwner() {
     { flush: 'sync' },
   )
 
-  function beginCreate(payload: GroupCreateRequest) {
+  function beginCreate(request: GroupCreateRequest, draft: ImportDraft) {
     if (importKeys.operation.value) return null
-    const operation = createGroup.begin(payload)
+    const operation = createGroup.begin({ request, draft })
     operationMode.value = 'new'
     return operation
   }
 
-  function beginImportKeys(payload: { groupID: number; keys: string }, mode: 'new' | 'existing') {
+  function beginImportKeys(
+    payload: { groupID: number; keys: string },
+    mode: 'new' | 'existing',
+    draft: ImportRecoveryDraft,
+  ) {
     if (createGroup.operation.value) return null
     if (importKeys.operation.value && operationMode.value !== mode) return null
-    const operation = importKeys.begin(payload)
+    const operation = importKeys.begin({ ...payload, draft })
     operationMode.value = mode
     return operation
   }

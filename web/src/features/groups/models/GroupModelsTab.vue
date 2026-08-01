@@ -179,10 +179,9 @@ async function runDiscovery(): Promise<void> {
 }
 
 function confirmCandidates(selectedCandidates: string[]): void {
-  const present = new Set(draft.value.map((item) => item.id.trim()))
   const additions = selectedCandidates
     .map((id) => id.trim())
-    .filter((id) => id && !present.has(id))
+    .filter(Boolean)
     .map((id) => ({
       id,
       alias: '',

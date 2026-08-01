@@ -483,9 +483,14 @@ func TestCreateGroupModelsPresenceRejectsNull(t *testing.T) {
 		},
 		{
 			name:      "values",
-			body:      `{"upstream_url":"https://example.com","protocols":["openai-completions"],"keys":"sk-a","models":[{"id":" gpt-4o ","alias":" primary "}]}`,
+			body:      `{"upstream_url":"https://example.com","protocols":["openai-completions"],"keys":"sk-a","models":[{"id":" gpt-4o ","alias":" primary ","alias_enabled":true}]}`,
 			wantSet:   true,
 			wantCount: 1,
+		},
+		{
+			name:      "missing alias enabled",
+			body:      `{"upstream_url":"https://example.com","protocols":["openai-completions"],"keys":"sk-a","models":[{"id":"gpt-4o","alias":"primary"}]}`,
+			wantError: true,
 		},
 		{
 			name:      "null",

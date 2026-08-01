@@ -45,7 +45,7 @@ export function loginLocation(redirect?: string): RouteLocationRaw {
 }
 
 export function importLocation(query?: LocationQueryRaw): RouteLocationRaw {
-  return namedLocation(pageRouteNames.import, query)
+  return namedLocation(pageRouteNames.import, query ?? { mode: 'new' })
 }
 
 export function groupsLocation(query?: LocationQueryRaw): RouteLocationRaw {

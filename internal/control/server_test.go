@@ -1463,13 +1463,15 @@ func TestGroupModelsHTTPReturnsStructuredConflictWithoutMutation(t *testing.T) {
 	}
 }
 
-func TestGroupModelsHTTPClearsAliasWhenAliasEnabledIsMissing(t *testing.T) {
+func TestGroupModelsHTTPRejectsMissingAliasEnabledWithoutMutation(t *testing.T) {
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	mustEnsureInitialPrices(t, fixture)
 	groupID := createGroupForKeyImport(t, fixture, "sk-model-alias-default")
 	engine := gin.New()
 	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
+	beforeRevision := fixture.manager.Current().Revision
+	beforeModels := loadCreatedGroupModels(t, fixture, groupID)
 
 	recorder := serveRawGroupModelsUpdateRequest(
 		t,
@@ -1479,18 +1481,15 @@ func TestGroupModelsHTTPClearsAliasWhenAliasEnabledIsMissing(t *testing.T) {
 		strconv.FormatUint(uint64(groupID), 10),
 		`{"models":[{"id":"gpt-4o","alias":"legacy-name"}]}`,
 	)
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("response = %d %s", recorder.Code, recorder.Body.String())
+	if recorder.Code != http.StatusBadRequest ||
+		!strings.Contains(recorder.Body.String(), `"code":"VALIDATION_FAILED"`) {
+		t.Fatalf("response = %d %s, want 400 VALIDATION_FAILED", recorder.Code, recorder.Body.String())
 	}
-	if got := loadCreatedGroupModels(t, fixture, groupID); !reflect.DeepEqual(got, []GroupModel{{ID: "gpt-4o"}}) {
-		t.Fatalf("persisted models = %#v, want alias cleared", got)
+	if fixture.manager.Current().Revision != beforeRevision {
+		t.Fatal("missing alias_enabled published a Snapshot")
 	}
-	result, err := fixture.service.GetGroupModels(t.Context(), groupID)
-	if err != nil {
-		t.Fatalf("GetGroupModels() error = %v", err)
-	}
-	if len(result.Items) != 1 || result.Items[0].AliasEnabled || result.Items[0].ClientModel != "gpt-4o" {
-		t.Fatalf("models response = %#v, want disabled alias and upstream client model", result)
+	if got := loadCreatedGroupModels(t, fixture, groupID); !reflect.DeepEqual(got, beforeModels) {
+		t.Fatalf("missing alias_enabled changed persistence: got=%#v want=%#v", got, beforeModels)
 	}
 }
 

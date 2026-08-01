@@ -65,6 +65,12 @@ type optionalGroupModels struct {
 	Values []GroupModel
 }
 
+type groupModelRequestWire struct {
+	ID           string `json:"id"`
+	Alias        string `json:"alias"`
+	AliasEnabled *bool  `json:"alias_enabled"`
+}
+
 type optionalField[T any] struct {
 	Set   bool
 	Null  bool
@@ -109,8 +115,8 @@ func (value *optionalGroupModels) UnmarshalJSON(data []byte) error {
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
-	var decoded []GroupModel
-	if err := decoder.Decode(&decoded); err != nil {
+	var encodedModels []json.RawMessage
+	if err := decoder.Decode(&encodedModels); err != nil {
 		return fmt.Errorf("decode models: %w", err)
 	}
 	var trailing json.RawMessage
@@ -119,6 +125,24 @@ func (value *optionalGroupModels) UnmarshalJSON(data []byte) error {
 			return fmt.Errorf("decode models: trailing JSON value")
 		}
 		return fmt.Errorf("decode models trailing value: %w", err)
+	}
+
+	decoded := make([]GroupModel, 0, len(encodedModels))
+	for _, encoded := range encodedModels {
+		modelDecoder := json.NewDecoder(bytes.NewReader(encoded))
+		modelDecoder.DisallowUnknownFields()
+		var wire groupModelRequestWire
+		if err := modelDecoder.Decode(&wire); err != nil {
+			return fmt.Errorf("decode group model: %w", err)
+		}
+		if wire.AliasEnabled == nil {
+			return app_errors.ErrValidation
+		}
+		decoded = append(decoded, GroupModel{
+			ID:           wire.ID,
+			Alias:        wire.Alias,
+			AliasEnabled: *wire.AliasEnabled,
+		})
 	}
 
 	value.Set = true

@@ -303,7 +303,6 @@ export function projectGroupModels(value: unknown): GroupModelsDto {
   if (
     items.length !== total ||
     unpriced > total ||
-    new Set(items.map(({ id }) => id)).size !== items.length ||
     new Set(items.map(({ client_model }) => client_model)).size !== items.length ||
     items.filter(({ pricing_status }) => pricing_status === 'unpriced').length !== unpriced
   ) {

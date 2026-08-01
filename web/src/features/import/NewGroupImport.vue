@@ -49,6 +49,9 @@ const queryClient = useQueryClient()
 const recovery = useImportRecovery()
 const router = useRouter()
 const { t } = useI18n()
+const importOperationOwner = useImportOperationOwner()
+const createOperation = importOperationOwner.createGroup
+const appendOperation = importOperationOwner.importKeys
 
 function freshDraft(): ImportDraft {
   const preset = findProviderPreset('openai')!
@@ -72,7 +75,14 @@ function cloneDraft(source: ImportDraft): ImportDraft {
 }
 
 const defaultDraft = freshDraft()
-const draft = reactive<ImportDraft>(cloneDraft(props.initialDraft ?? defaultDraft))
+const operationDraft =
+  createOperation.operation.value?.payload.draft ??
+  (appendOperation.operation.value?.payload.draft.mode === 'new'
+    ? appendOperation.operation.value.payload.draft
+    : null)
+const draft = reactive<ImportDraft>(
+  cloneDraft(operationDraft ?? props.initialDraft ?? defaultDraft),
+)
 let nextModelKey = Math.max(0, ...draft.models.map(({ key }) => key)) + 1
 const discoveryCandidates = ref<string[]>([])
 const discoveryErrorKey = ref('')
@@ -83,9 +93,6 @@ const submissionError = ref<HTMLElement>()
 const conflict = ref<UpstreamUrlConflictData | null>(null)
 const serverModelConflicts = ref<ModelNameConflict[]>([])
 const completed = ref(false)
-const importOperationOwner = useImportOperationOwner()
-const createOperation = importOperationOwner.createGroup
-const appendOperation = importOperationOwner.importKeys
 if (createOperation.outcome.value?.kind === 'confirmed') createOperation.reset()
 if (appendOperation.outcome.value?.kind === 'confirmed') appendOperation.reset()
 const mutationPending = computed(
@@ -225,7 +232,12 @@ const discoveryDrawerLabels = computed<ModelDiscoveryDrawerLabels>(() => ({
 }))
 
 const unsavedChanges = useUnsavedChanges(dirty, { blocked: mutationPending })
-const unregisterRecovery = recovery.register(() => (completed.value ? null : snapshotDraft()))
+const unregisterRecovery = recovery.register(() => {
+  if (completed.value) return null
+  const stableDraft =
+    createOperation.operation.value?.payload.draft ?? appendOperation.operation.value?.payload.draft
+  return stableDraft?.mode === 'new' ? cloneDraft(stableDraft) : snapshotDraft()
+})
 
 function snapshotDraft(): ImportDraft {
   return cloneDraft(draft)
@@ -321,11 +333,7 @@ async function runDiscovery(
 }
 
 function confirmCandidates(selectedCandidates: string[]): void {
-  const present = new Set(draft.models.map(({ id }) => id.trim()))
-  const additions = createDiscoveredModelDraft(
-    selectedCandidates.filter((id) => !present.has(id.trim())),
-    () => nextModelKey++,
-  )
+  const additions = createDiscoveredModelDraft(selectedCandidates, () => nextModelKey++)
   serverModelConflicts.value = []
   draft.models = [...draft.models, ...additions]
   discoveryDrawerOpen.value = false
@@ -392,7 +400,7 @@ async function submitCreate(): Promise<void> {
   conflict.value = null
   errorKey.value = ''
   serverModelConflicts.value = []
-  if (!importOperationOwner.beginCreate(buildCreateBody(false))) return
+  if (!importOperationOwner.beginCreate(buildCreateBody(false), snapshotDraft())) return
   await executeCreateOperation()
 }
 
@@ -400,7 +408,7 @@ async function executeCreateOperation(): Promise<void> {
   if (!createOperation.operation.value) return
   errorKey.value = ''
   const outcome = await createOperation.execute((operation, signal) =>
-    createGroup(api, operation.payload, operation.idempotencyKey, signal),
+    createGroup(api, operation.payload.request, operation.idempotencyKey, signal),
   )
   if (!outcome) return
   if (outcome.kind === 'confirmed') {
@@ -432,10 +440,13 @@ async function submitSeparateGroup(): Promise<void> {
   const payload = structuredClone(current.payload)
   createOperation.reset()
   if (
-    !importOperationOwner.beginCreate({
-      ...payload,
-      confirm_same_upstream_url: true,
-    })
+    !importOperationOwner.beginCreate(
+      {
+        ...payload.request,
+        confirm_same_upstream_url: true,
+      },
+      payload.draft,
+    )
   ) {
     return
   }
@@ -447,9 +458,10 @@ async function appendToGroup(groupID: number): Promise<void> {
   const current = createOperation.operation.value
   if (!current || !conflict.value || mutationPending.value) return
   const displayedConflict = conflict.value
-  const keys = current.payload.keys
+  const keys = current.payload.request.keys
+  const stableDraft = current.payload.draft
   createOperation.reset()
-  if (!importOperationOwner.beginImportKeys({ groupID, keys }, 'new')) return
+  if (!importOperationOwner.beginImportKeys({ groupID, keys }, 'new', stableDraft)) return
   await executeAppendOperation()
   if (conflict.value === displayedConflict) conflict.value = null
 }

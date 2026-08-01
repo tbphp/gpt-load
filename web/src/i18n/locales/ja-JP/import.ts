@@ -8,7 +8,7 @@ export default {
       search: 'プロバイダーを検索',
       clearSearch: 'プロバイダー検索をクリア',
       collapse: '閉じる',
-      noMatches: '一致するプロバイダーはありません。カスタム接続は利用できます',
+      noMatches: '一致するプロバイダーはありません — カスタム接続は利用できます',
       categories: {
         native: 'ネイティブプロバイダー',
         'openai-compatible': 'OpenAI 互換',
@@ -57,12 +57,12 @@ export default {
     },
     operation: {
       reconciling:
-        'リソースはコミット済みで、ランタイムの復旧が続いています。同じ操作で結果を確認してください。',
+        'リソースはコミット済みで、ランタイムの復旧が続いています — 同じ操作で結果を確認してください',
       indeterminate:
-        'この操作の結果を確認できません。新しい操作を開始せず、下の操作から結果を確認してください。',
-      waiting: '先行するコミット済み操作を復旧中です。待機後に同じ操作を再試行してください。',
+        'この操作の結果を確認できません — 新しい操作を開始せず、下の操作から結果を確認してください',
+      waiting: '先行するコミット済み操作を復旧中です — 待機後に同じ操作を再試行してください',
       expired:
-        '詳細結果の保持期間が終了しました。リソース識別子だけを手動確認し、再送信しないでください。',
+        '詳細結果の保持期間が終了しました — リソース識別子だけを手動確認し、再送信しないでください',
       checkResult: '結果を確認',
       abandon: 'この操作を放棄',
     },
@@ -118,11 +118,11 @@ export default {
     },
     keys: {
       title: 'アップストリームキー',
-      description: '1 行に 1 つ、最大 1,000 件。重複は二重に追加されません',
+      description: '1 行に 1 つ、最大 1,000 件 — 重複は二重に追加されません',
       label: 'アップストリームキー',
       placeholder: '1 行に 1 つのキー',
       storageNotice:
-        '平文は URL、ログ、通知に入りません。ログイン中断時は現在のセッションに最大 15 分だけ保持されます',
+        '平文は URL、ログ、通知に入りません — ログイン中断時は現在のセッションに最大 15 分だけ保持されます',
       analysisLabel: 'キーの事前確認',
       counters: {
         nonEmpty: '空でない行',
@@ -130,14 +130,14 @@ export default {
         duplicates: '重複',
         accessKeys: 'AccessKey の可能性',
       },
-      accessKeyWarning: '{count} 行が GPT-Load AccessKey のようです。続行前に確認してください。',
-      tooMany: '空でないキーは最大 1,000 件です。',
+      accessKeyWarning: '{count} 行が GPT-Load AccessKey のようです — 続行前に確認してください',
+      tooMany: '空でないキーは最大 1,000 件です',
       upstreamKeyNotice:
-        'ここにはプロバイダーのアップストリームキーを入力します。クライアント認証情報はアクセスキーページで作成してください',
+        'ここにはプロバイダーのアップストリームキーを入力します — クライアント認証情報はアクセスキーページで作成してください',
     },
     models: {
       title: 'モデルとエイリアス',
-      description: 'モデルは常に任意です。有効なエイリアスが公開モデル名になります',
+      description: 'モデルは常に任意です — 有効なエイリアスが公開モデル名になります',
       optional: 'モデルは任意',
       optionalDescription: 'そのまま作成するか、上流モデルを取得、または手動追加できます',
       tableLabel: '公開予定モデル',
@@ -151,7 +151,7 @@ export default {
       aliasPlaceholder: '公開モデル名を入力',
       aliasRequired: 'エイリアスを有効にした場合は公開モデル名が必要です',
       removeFor: 'モデル {id} を削除',
-      empty: 'モデルは未追加です。このまま Group を作成できます',
+      empty: 'モデルは未追加です — このまま Group を作成できます',
       noMatches: '一致するモデルはありません',
       conflictSummary: '公開モデル名に完全一致の重複があります',
       emptyAliasSummary: '有効化されたエイリアスに公開モデル名がありません',
@@ -187,13 +187,12 @@ export default {
       },
     },
     discover: 'モデルを検出',
-    discoveryFailed:
-      'モデル検出に失敗しました。下書きは保持されています。再試行または手動入力できます。',
+    discoveryFailed: 'モデル検出に失敗しました — 下書きは保持され、再試行または手動入力できます',
     create: 'Group を作成',
     summary: 'キー {keys} 件 · プロトコル {protocols} 件 · モデル {models} 件',
-    actionHelp: 'Group 作成とキー追加を一括実行します。モデルは空でも構いません',
-    createFailed: 'Group を作成できません。',
-    appendFailed: '選択した Group にキーをインポートできません。',
+    actionHelp: 'Group 作成とキー追加を一括実行します — モデルは空でも構いません',
+    createFailed: 'Group を作成できません',
+    appendFailed: '選択した Group にキーをインポートできません',
     conflict: {
       title: 'このアップストリーム URL は既に存在します',
       description: '既存 Group にキーを追加するか、別の Group の作成を確認してください',

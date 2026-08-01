@@ -83,9 +83,7 @@ function removeRow(index: number): void {
 
 function addManual(): void {
   const id = manualID.value.trim()
-  if (!id || !props.createRow || props.modelValue.some((item) => item.id.trim() === id)) {
-    return
-  }
+  if (!id || !props.createRow) return
   emit('update:modelValue', [...props.modelValue.map((item) => ({ ...item })), props.createRow(id)])
   manualID.value = ''
 }
