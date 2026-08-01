@@ -43,15 +43,18 @@ func TestAccessKeyMetadataListAndUpdateNeverDecryptCiphertext(t *testing.T) {
 		t.Fatalf("corrupt ciphertext: %v", err)
 	}
 
-	list, err := fixture.service.ListAccessKeys(t.Context())
+	collection, err := fixture.service.ListAccessKeyCollection(
+		t.Context(),
+		AccessKeyCollectionQuery{Page: 1, PageSize: 20},
+	)
 	if err != nil {
-		t.Fatalf("ListAccessKeys() error = %v", err)
+		t.Fatalf("ListAccessKeyCollection() error = %v", err)
 	}
-	if len(list) != 1 || list[0].ID != created.ID ||
-		list[0].MaskedKey != "sk-gl-****0000" {
-		t.Fatalf("ListAccessKeys() = %#v", list)
+	if len(collection.Items) != 1 || collection.Items[0].ID != created.ID ||
+		collection.Items[0].MaskedKey != "sk-gl-****0000" {
+		t.Fatalf("ListAccessKeyCollection() = %#v", collection)
 	}
-	encoded, err := json.Marshal(list)
+	encoded, err := json.Marshal(collection)
 	if err != nil {
 		t.Fatalf("marshal metadata: %v", err)
 	}
@@ -68,7 +71,7 @@ func TestAccessKeyMetadataListAndUpdateNeverDecryptCiphertext(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UpdateAccessKey() error = %v", err)
 	}
-	if updated.Name != "renamed" || updated.MaskedKey != list[0].MaskedKey {
+	if updated.Name != "renamed" || updated.MaskedKey != collection.Items[0].MaskedKey {
 		t.Fatalf("UpdateAccessKey() = %#v", updated)
 	}
 	if spy.decryptCalls != 0 {
@@ -146,8 +149,11 @@ func TestAccessKeyMetadataFailsClosedForInvalidPersistedSuffix(t *testing.T) {
 		t.Fatalf("restore check constraints: %v", err)
 	}
 
-	if list, err := fixture.service.ListAccessKeys(t.Context()); err == nil || list != nil {
-		t.Fatalf("ListAccessKeys() = %#v, %v, want fail closed", list, err)
+	if collection, err := fixture.service.ListAccessKeyCollection(
+		t.Context(),
+		AccessKeyCollectionQuery{Page: 1, PageSize: 20},
+	); err == nil || collection.Items != nil {
+		t.Fatalf("ListAccessKeyCollection() = %#v, %v, want fail closed", collection, err)
 	}
 	if _, err := fixture.service.UpdateAccessKey(
 		t.Context(),

@@ -202,7 +202,7 @@ func TestAccessKeyFiltersRejectInvalidCurrentInputWithoutPublishing(t *testing.T
 	}
 }
 
-func TestListAccessKeysReturnsMaskedMetadataInIDOrderWithoutDecrypting(t *testing.T) {
+func TestListAccessKeyCollectionReturnsMaskedMetadataWithoutDecrypting(t *testing.T) {
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	randomBytes := make([]byte, 32)
@@ -219,26 +219,32 @@ func TestListAccessKeysReturnsMaskedMetadataInIDOrderWithoutDecrypting(t *testin
 		t.Fatalf("create second: %v", err)
 	}
 
-	listed, err := fixture.service.ListAccessKeys(context.Background())
+	listed, err := fixture.service.ListAccessKeyCollection(
+		context.Background(),
+		AccessKeyCollectionQuery{Page: 1, PageSize: 20},
+	)
 	if err != nil {
-		t.Fatalf("ListAccessKeys() error = %v", err)
+		t.Fatalf("ListAccessKeyCollection() error = %v", err)
 	}
-	if len(listed) != 2 ||
-		listed[0].ID != first.ID ||
-		listed[0].MaskedKey != "sk-gl-****0e0f" ||
-		listed[1].ID != second.ID ||
-		listed[1].MaskedKey != "sk-gl-****1e1f" {
-		t.Fatalf("ListAccessKeys() = %#v", listed)
+	if len(listed.Items) != 2 ||
+		listed.Items[0].ID != second.ID ||
+		listed.Items[0].MaskedKey != "sk-gl-****1e1f" ||
+		listed.Items[1].ID != first.ID ||
+		listed.Items[1].MaskedKey != "sk-gl-****0e0f" {
+		t.Fatalf("ListAccessKeyCollection() = %#v", listed)
 	}
 
 	const corruptCiphertext = "known-corrupt-ciphertext"
 	if err := fixture.db.Model(&models.AccessKey{}).Where("id = ?", second.ID).UpdateColumn("key_value", corruptCiphertext).Error; err != nil {
 		t.Fatalf("corrupt second ciphertext: %v", err)
 	}
-	if afterCorruption, err := fixture.service.ListAccessKeys(context.Background()); err != nil ||
+	if afterCorruption, err := fixture.service.ListAccessKeyCollection(
+		context.Background(),
+		AccessKeyCollectionQuery{Page: 1, PageSize: 20},
+	); err != nil ||
 		!reflect.DeepEqual(afterCorruption, listed) {
 		t.Fatalf(
-			"ListAccessKeys() after ciphertext corruption = %#v, %v, want unchanged metadata",
+			"ListAccessKeyCollection() after ciphertext corruption = %#v, %v, want unchanged metadata",
 			afterCorruption,
 			err,
 		)

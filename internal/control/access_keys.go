@@ -176,25 +176,13 @@ func (s *Service) CreateAccessKey(
 }
 
 func (s *Service) ListAccessKeys(ctx context.Context) ([]AccessKeyMetadata, error) {
-	var rows []accessKeyMetadataRow
-	if err := s.db.WithContext(ctx).
-		Model(&models.AccessKey{}).
-		Select(
-			"id", "name", "key_suffix", "status", "filters", "rpm_limit",
-			"created_at_ms", "updated_at_ms",
-		).
-		Order("id ASC").
-		Scan(&rows).Error; err != nil {
-		return nil, app_errors.ParseDBError(err)
+	collection, err := s.ListAccessKeyCollection(ctx, AccessKeyCollectionQuery{})
+	if err != nil {
+		return nil, err
 	}
-
-	result := make([]AccessKeyMetadata, 0, len(rows))
-	for _, row := range rows {
-		metadata, err := mapAccessKeyMetadataRow(row)
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, metadata)
+	result := make([]AccessKeyMetadata, len(collection.Items))
+	for index := range collection.Items {
+		result[index] = collection.Items[index].AccessKeyMetadata
 	}
 	return result, nil
 }
