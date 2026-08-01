@@ -283,7 +283,7 @@ function clear(): void {
   border-radius: var(--radius-control);
 }
 .searchable-multi-select__option {
-  min-height: 38px;
+  min-height: var(--touch-target);
   gap: var(--space-2);
   padding: 0 var(--space-3);
 }

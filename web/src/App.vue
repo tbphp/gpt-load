@@ -6,11 +6,13 @@ import AuthGate from '@/app/AuthGate.vue'
 import RouteAnnouncer from '@/app/RouteAnnouncer.vue'
 import PublicShell from '@/components/layout/PublicShell.vue'
 import AppToastViewport from '@/components/ui/AppToastViewport.vue'
+import UnsavedChangesDialog from '@/components/ui/UnsavedChangesDialog.vue'
 </script>
 
 <template>
   <RouteAnnouncer />
   <AppToastViewport />
+  <UnsavedChangesDialog />
   <RouterView v-slot="{ Component, route }">
     <AuthGate v-if="route.meta.requiresAuth">
       <AppShell>

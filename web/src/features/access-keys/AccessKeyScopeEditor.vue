@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 
 import type { AccessKeyFiltersDto, AccessProtocol } from '@/api/control/types'
 import AppButton from '@/components/ui/AppButton.vue'
+import SegmentedControl, { type SegmentedControlOption } from '@/components/ui/SegmentedControl.vue'
 import SearchableMultiSelect, {
   type SearchableMultiSelectOption,
   type SearchableMultiSelectValue,
@@ -54,6 +55,14 @@ function modeDisabled(dimension: AccessKeyScopeDimension): boolean {
   return dimension === 'groups' ? props.groupCatalogState !== 'ready' : catalogUnavailable()
 }
 
+function modeOptions(dimension: AccessKeyScopeDimension): SegmentedControlOption[] {
+  const disabled = modeDisabled(dimension)
+  return [
+    { value: 'all', label: t('accessKeys.drawer.scopeAll'), disabled },
+    { value: 'restricted', label: t('accessKeys.drawer.scopeRestricted'), disabled },
+  ]
+}
+
 function updateGroups(values: SearchableMultiSelectValue[]): void {
   emit(
     'update:groups',
@@ -85,24 +94,13 @@ function toggleProtocol(protocol: AccessProtocol, event: Event): void {
         <strong>{{ t('accessKeys.drawer.groups') }}</strong>
         <small>{{ t('accessKeys.drawer.groupsDescription') }}</small>
       </div>
-      <div class="scope-segmented" role="group" :aria-label="t('accessKeys.drawer.groups')">
-        <button
-          type="button"
-          :class="{ 'scope-segmented__active': modes.groups === 'all' }"
-          :disabled="modeDisabled('groups')"
-          @click="requestScopeMode('groups', 'all')"
-        >
-          {{ t('accessKeys.drawer.scopeAll') }}
-        </button>
-        <button
-          type="button"
-          :class="{ 'scope-segmented__active': modes.groups === 'restricted' }"
-          :disabled="modeDisabled('groups')"
-          @click="requestScopeMode('groups', 'restricted')"
-        >
-          {{ t('accessKeys.drawer.scopeRestricted') }}
-        </button>
-      </div>
+      <SegmentedControl
+        :model-value="modes.groups"
+        :label="t('accessKeys.drawer.groups')"
+        :options="modeOptions('groups')"
+        size="touch"
+        @update:model-value="requestScopeMode('groups', $event as AccessKeyScopeMode)"
+      />
     </div>
     <div class="scope-editor__body">
       <div v-if="modes.groups === 'all'" class="permission-note">
@@ -136,24 +134,13 @@ function toggleProtocol(protocol: AccessProtocol, event: Event): void {
         <strong>{{ t('accessKeys.drawer.protocols') }}</strong>
         <small>{{ t('accessKeys.drawer.protocolsDescription') }}</small>
       </div>
-      <div class="scope-segmented" role="group" :aria-label="t('accessKeys.drawer.protocols')">
-        <button
-          type="button"
-          :class="{ 'scope-segmented__active': modes.protocols === 'all' }"
-          :disabled="modeDisabled('protocols')"
-          @click="requestScopeMode('protocols', 'all')"
-        >
-          {{ t('accessKeys.drawer.scopeAll') }}
-        </button>
-        <button
-          type="button"
-          :class="{ 'scope-segmented__active': modes.protocols === 'restricted' }"
-          :disabled="modeDisabled('protocols')"
-          @click="requestScopeMode('protocols', 'restricted')"
-        >
-          {{ t('accessKeys.drawer.scopeRestricted') }}
-        </button>
-      </div>
+      <SegmentedControl
+        :model-value="modes.protocols"
+        :label="t('accessKeys.drawer.protocols')"
+        :options="modeOptions('protocols')"
+        size="touch"
+        @update:model-value="requestScopeMode('protocols', $event as AccessKeyScopeMode)"
+      />
     </div>
     <div class="scope-editor__body">
       <div v-if="modes.protocols === 'all'" class="permission-note">
@@ -182,24 +169,13 @@ function toggleProtocol(protocol: AccessProtocol, event: Event): void {
         <strong>{{ t('accessKeys.drawer.models') }}</strong>
         <small>{{ t('accessKeys.drawer.modelsScopeDescription') }}</small>
       </div>
-      <div class="scope-segmented" role="group" :aria-label="t('accessKeys.drawer.models')">
-        <button
-          type="button"
-          :class="{ 'scope-segmented__active': modes.models === 'all' }"
-          :disabled="modeDisabled('models')"
-          @click="requestScopeMode('models', 'all')"
-        >
-          {{ t('accessKeys.drawer.scopeAll') }}
-        </button>
-        <button
-          type="button"
-          :class="{ 'scope-segmented__active': modes.models === 'restricted' }"
-          :disabled="modeDisabled('models')"
-          @click="requestScopeMode('models', 'restricted')"
-        >
-          {{ t('accessKeys.drawer.scopeRestricted') }}
-        </button>
-      </div>
+      <SegmentedControl
+        :model-value="modes.models"
+        :label="t('accessKeys.drawer.models')"
+        :options="modeOptions('models')"
+        size="touch"
+        @update:model-value="requestScopeMode('models', $event as AccessKeyScopeMode)"
+      />
     </div>
     <div class="scope-editor__body">
       <div v-if="modes.models === 'all'" class="permission-note">
@@ -283,40 +259,6 @@ function toggleProtocol(protocol: AccessProtocol, event: Event): void {
 .scope-editor__body {
   padding: 10px;
 }
-.scope-segmented {
-  display: inline-flex;
-  flex: none;
-  overflow: hidden;
-  border: 1px solid var(--color-border-control);
-  border-radius: var(--radius-tag);
-}
-.scope-segmented button {
-  min-width: 52px;
-  height: 27px;
-  border: 0;
-  border-right: 1px solid var(--color-border-control);
-  background: var(--color-surface);
-  color: var(--color-text-muted);
-  padding: 0 8px;
-  font-size: var(--text-label-xs);
-  cursor: pointer;
-}
-.scope-segmented button:last-child {
-  border-right: 0;
-}
-.scope-segmented button:hover:not(:disabled) {
-  background: var(--color-surface-sunken);
-  color: var(--color-text);
-}
-.scope-segmented__active {
-  background: var(--color-text) !important;
-  color: var(--color-surface) !important;
-  font-weight: 650;
-}
-.scope-segmented button:disabled {
-  cursor: not-allowed;
-  opacity: 0.55;
-}
 .permission-note {
   display: flex;
   align-items: center;
@@ -337,7 +279,7 @@ function toggleProtocol(protocol: AccessProtocol, event: Event): void {
 }
 .access-key-drawer__check {
   display: flex;
-  min-height: 38px;
+  min-height: var(--touch-target);
   align-items: center;
   gap: var(--space-2);
   border-radius: var(--radius-tag);
@@ -362,12 +304,10 @@ function toggleProtocol(protocol: AccessProtocol, event: Event): void {
   font-size: var(--text-label-xs);
 }
 .access-key-drawer__model-risk {
-  color: var(--color-warning);
-}
-.access-key-drawer__model-risk {
   border: 1px solid var(--color-warning);
   border-radius: var(--radius-control);
   background: var(--color-warning-bg);
+  color: var(--color-warning);
   margin: 8px 0 0;
   padding: var(--space-2) var(--space-3);
   font-size: var(--text-label-xs);

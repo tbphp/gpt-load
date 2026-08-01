@@ -129,8 +129,10 @@
   --z-sticky: 20;
   --z-overlay: 40;
   --z-drawer: 50;
-  --z-popover: 60;
-  --z-skip-link: 70;
+  --z-dialog-overlay: 60;
+  --z-dialog: 70;
+  --z-popover: 80;
+  --z-skip-link: 90;
 }
 
 :root[data-theme='dark'] {

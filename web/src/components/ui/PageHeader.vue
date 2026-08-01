@@ -25,9 +25,9 @@ defineProps<{
 
 .page-header h1 {
   max-width: none;
-  font-family: var(--font-serif);
-  font-size: var(--title-lede);
-  font-weight: 500;
+  font-family: var(--font-sans);
+  font-size: 24px;
+  font-weight: 700;
   letter-spacing: -0.02em;
   line-height: var(--line-compact);
 }
@@ -41,7 +41,7 @@ defineProps<{
 
 @media (max-width: 560px) {
   .page-header h1 {
-    font-size: 24px;
+    font-size: 22px;
   }
 }
 </style>

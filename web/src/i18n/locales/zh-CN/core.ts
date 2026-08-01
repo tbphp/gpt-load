@@ -19,7 +19,12 @@ export default {
     close: '关闭',
     asyncLoading: '正在加载此区域…',
     asyncLoadFailed: '无法加载此区域，请刷新页面后重试。',
-    unsavedChanges: '要放弃未保存的修改吗？选择“取消”可继续编辑。',
+    unsavedChangesDialog: {
+      title: '放弃未保存的修改？',
+      description: '当前页面的修改尚未保存。离开后，这些修改将无法恢复。',
+      cancel: '继续编辑',
+      confirm: '放弃修改',
+    },
     protocols: {
       'openai-completions': 'OpenAI Completions',
       'openai-responses': 'OpenAI Responses',

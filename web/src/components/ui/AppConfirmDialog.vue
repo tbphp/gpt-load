@@ -45,15 +45,15 @@ const emit = defineEmits<{
     <template #footer>
       <AppButton
         variant="secondary"
-        size="compact"
-        :disabled="pending"
+        size="lg"
+        :disabled="pending || !dismissible"
         @click="emit('update:open', false)"
       >
         {{ cancelLabel }}
       </AppButton>
       <AppButton
         :variant="tone === 'danger' ? 'danger' : 'primary'"
-        size="compact"
+        size="lg"
         :busy="pending"
         :disabled="confirmDisabled"
         @click="emit('confirm')"

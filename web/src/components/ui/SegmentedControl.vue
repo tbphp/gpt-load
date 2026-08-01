@@ -16,11 +16,13 @@ withDefaults(
     idPrefix?: string
     scrollable?: boolean
     appearance?: 'joined' | 'pills'
+    size?: 'compact' | 'touch'
   }>(),
   {
     controlsId: undefined,
     idPrefix: undefined,
     appearance: 'joined',
+    size: 'compact',
   },
 )
 
@@ -67,6 +69,7 @@ function handleSegmentKeydown(event: KeyboardEvent): void {
       class="segmented-control__list"
       :class="[
         `segmented-control__list--${appearance}`,
+        `segmented-control__list--${size}`,
         { 'segmented-control__list--scrollable': scrollable },
       ]"
       :aria-label="label"
@@ -127,6 +130,9 @@ function handleSegmentKeydown(event: KeyboardEvent): void {
     color var(--duration-fast) var(--easing-standard),
     background-color var(--duration-fast) var(--easing-standard),
     opacity var(--duration-fast) var(--easing-standard);
+}
+.segmented-control__list--touch .segmented-control__trigger {
+  min-height: var(--touch-target);
 }
 .segmented-control__trigger:last-child {
   border-right: 0;

@@ -62,13 +62,13 @@ function guardDismiss(event: Event): void {
 <style>
 .app-dialog__overlay {
   position: fixed;
-  z-index: var(--z-overlay);
+  z-index: var(--z-dialog-overlay);
   inset: 0;
   background: var(--color-overlay);
 }
 .app-dialog__content {
   position: fixed;
-  z-index: var(--z-drawer);
+  z-index: var(--z-dialog);
   top: 50%;
   left: 50%;
   display: grid;
@@ -99,9 +99,9 @@ function guardDismiss(event: Event): void {
 }
 .app-dialog__close {
   display: inline-flex;
-  width: 36px;
-  height: 36px;
-  flex: 0 0 36px;
+  width: var(--touch-target);
+  height: var(--touch-target);
+  flex: 0 0 var(--touch-target);
   align-items: center;
   justify-content: center;
   border: 0;

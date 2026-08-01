@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
-import { Plus, RefreshCw, Trash2 } from '@lucide/vue'
+import { Plus, RefreshCw, Search, Trash2 } from '@lucide/vue'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
@@ -21,6 +21,7 @@ import AppDrawer from '@/components/ui/AppDrawer.vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
+import SegmentedControl from '@/components/ui/SegmentedControl.vue'
 import StickySaveBar from '@/components/ui/StickySaveBar.vue'
 
 import {
@@ -47,6 +48,8 @@ const drawerOpen = ref(false)
 const emptyConfirmOpen = ref(false)
 const candidates = ref<string[]>([])
 const selectedCandidates = ref<string[]>([])
+const drawerFilter = ref<'available' | 'all'>('available')
+const drawerSearch = ref('')
 const manualID = ref('')
 let nextKey = 1
 let controller: AbortController | undefined
@@ -77,6 +80,21 @@ const canSave = computed(
 const unpriced = computed(
   () => draft.value.filter((item) => item.pricing_status === 'unpriced').length,
 )
+const currentModelIDs = computed(() => new Set(draft.value.map((item) => item.id.trim())))
+const availableCandidates = computed(() =>
+  candidates.value.filter((candidate) => !currentModelIDs.value.has(candidate)),
+)
+const visibleCandidates = computed(() => {
+  const query = drawerSearch.value.trim().toLocaleLowerCase()
+  const source = drawerFilter.value === 'available' ? availableCandidates.value : candidates.value
+  return query
+    ? source.filter((candidate) => candidate.toLocaleLowerCase().includes(query))
+    : source
+})
+const drawerFilterOptions = computed(() => [
+  { value: 'available', label: t('group.modelEditor.drawer.filterAvailable') },
+  { value: 'all', label: t('group.modelEditor.drawer.filterAll') },
+])
 useUnsavedChanges(dirty, { blocked: computed(() => pending.value !== null) })
 
 watch(
@@ -125,6 +143,8 @@ function requestDiscovery(): void {
   drawerOpen.value = true
   candidates.value = []
   selectedCandidates.value = []
+  drawerFilter.value = 'available'
+  drawerSearch.value = ''
   error.value = ''
   void runDiscovery()
 }
@@ -138,9 +158,7 @@ async function runDiscovery(): Promise<void> {
     const result = await discoverGroupModels(client, props.groupId, active.signal)
     if (controller !== active) return
     candidates.value = [...new Set(result.models.map((id) => id.trim()).filter(Boolean))]
-    selectedCandidates.value = candidates.value.filter(
-      (candidate) => !draft.value.some((item) => item.id.trim() === candidate),
-    )
+    selectedCandidates.value = []
   } catch (cause: unknown) {
     if (cause instanceof RequestCancelledError || controller !== active) return
     error.value =
@@ -384,23 +402,69 @@ onBeforeUnmount(() => controller?.abort())
           :message="t('group.modelEditor.drawer.loading')"
         />
         <InlineFeedback v-else-if="error" tone="danger">{{ error }}</InlineFeedback>
-        <template v-else
-          ><p>{{ t('group.modelEditor.drawer.notice') }}</p>
-          <label v-for="candidate in candidates" :key="candidate" class="group-models__candidate"
-            ><input v-model="selectedCandidates" type="checkbox" :value="candidate" />
-            <code>{{ candidate }}</code></label
-          ><InlineFeedback v-if="!candidates.length" tone="warning">{{
-            t('group.modelEditor.drawer.empty')
-          }}</InlineFeedback>
-          <div class="group-models__drawer-actions">
-            <AppButton variant="secondary" @click="drawerOpen = false">{{
-              t('common.cancel')
-            }}</AppButton
-            ><AppButton :disabled="!selectedCandidates.length" @click="confirmCandidates">{{
-              t('group.modelEditor.drawer.confirm')
-            }}</AppButton>
-          </div></template
-        >
+        <template v-else>
+          <p class="group-models__drawer-notice">{{ t('group.modelEditor.drawer.notice') }}</p>
+          <div class="group-models__drawer-filters">
+            <label class="group-models__drawer-search">
+              <span class="sr-only">{{ t('group.modelEditor.drawer.search') }}</span>
+              <Search :size="16" aria-hidden="true" />
+              <input
+                v-model="drawerSearch"
+                type="search"
+                :placeholder="t('group.modelEditor.drawer.search')"
+              />
+            </label>
+            <SegmentedControl
+              v-model="drawerFilter"
+              :label="t('group.modelEditor.drawer.filterLabel')"
+              :options="drawerFilterOptions"
+              size="touch"
+            />
+          </div>
+          <div class="group-models__candidate-list">
+            <label
+              v-for="candidate in visibleCandidates"
+              :key="candidate"
+              class="group-models__candidate"
+              :class="{ 'group-models__candidate--added': currentModelIDs.has(candidate) }"
+            >
+              <input
+                v-model="selectedCandidates"
+                type="checkbox"
+                :value="candidate"
+                :disabled="currentModelIDs.has(candidate)"
+              />
+              <code>{{ candidate }}</code>
+              <span v-if="currentModelIDs.has(candidate)">{{
+                t('group.modelEditor.drawer.alreadyAdded')
+              }}</span>
+            </label>
+            <InlineFeedback v-if="!visibleCandidates.length" tone="warning">{{
+              candidates.length
+                ? t('group.modelEditor.drawer.noMatches')
+                : t('group.modelEditor.drawer.empty')
+            }}</InlineFeedback>
+          </div>
+        </template>
+        <template #footer>
+          <div class="group-models__drawer-footer">
+            <span>{{
+              t('group.modelEditor.drawer.selected', { count: selectedCandidates.length })
+            }}</span>
+            <div class="group-models__drawer-actions">
+              <AppButton
+                variant="secondary"
+                :disabled="pending === 'discover'"
+                @click="drawerOpen = false"
+                >{{ t('common.cancel') }}</AppButton
+              ><AppButton
+                :disabled="pending === 'discover' || !selectedCandidates.length"
+                @click="confirmCandidates"
+                >{{ t('group.modelEditor.drawer.confirm') }}</AppButton
+              >
+            </div>
+          </div>
+        </template>
       </AppDrawer>
 
       <AppConfirmDialog
@@ -542,9 +606,80 @@ onBeforeUnmount(() => controller?.abort())
   align-items: center;
   gap: var(--space-2);
 }
+.group-models__drawer-notice {
+  margin: 0 0 var(--space-3);
+  color: var(--color-text-muted);
+}
+.group-models__drawer-filters {
+  display: grid;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+.group-models__drawer-search {
+  display: flex;
+  min-height: var(--touch-target);
+  align-items: center;
+  gap: var(--space-2);
+  border: 1px solid var(--color-border-control);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-sunken);
+  padding: 0 var(--space-3);
+  color: var(--color-text-muted);
+}
+.group-models__drawer-search:focus-within {
+  border-color: var(--color-action);
+  box-shadow: var(--focus-ring);
+}
+.group-models__drawer-search input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+}
+.group-models__candidate-list {
+  display: grid;
+  max-height: 420px;
+  overflow-y: auto;
+  border-block: 1px solid var(--color-border-subtle);
+}
+.group-models__candidate + .group-models__candidate {
+  border-top: 1px solid var(--color-border-subtle);
+}
+.group-models__candidate code {
+  min-width: 0;
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+.group-models__candidate > span {
+  color: var(--color-text-faint);
+  font-size: var(--text-label-xs);
+}
+.group-models__candidate--added {
+  color: var(--color-text-muted);
+}
+.group-models__drawer-footer {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
 .group-models__drawer-actions {
-  margin-top: var(--space-4);
   justify-content: flex-end;
+}
+@media (max-width: 520px) {
+  .group-models__drawer-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .group-models__drawer-actions :deep(.app-button) {
+    flex: 1;
+  }
 }
 @media (max-width: 860px) {
   .group-model-record-grid {

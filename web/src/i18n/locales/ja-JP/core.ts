@@ -19,7 +19,12 @@ export default {
     close: '閉じる',
     asyncLoading: 'このセクションを読み込んでいます…',
     asyncLoadFailed: 'このセクションを読み込めません。ページを再読み込みしてください。',
-    unsavedChanges: '未保存の変更を破棄しますか？編集を続けるにはキャンセルしてください。',
+    unsavedChangesDialog: {
+      title: '未保存の変更を破棄しますか？',
+      description: 'このページの変更は保存されていません。移動すると復元できません。',
+      cancel: '編集を続ける',
+      confirm: '変更を破棄',
+    },
     protocols: {
       'openai-completions': 'OpenAI Completions',
       'openai-responses': 'OpenAI Responses',

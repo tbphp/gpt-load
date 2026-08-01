@@ -88,8 +88,8 @@ async function resetForOpen(): Promise<void> {
   patternInput.value?.focus()
 }
 
-function setOpen(open: boolean): void {
-  if (!open && !unsavedChanges.confirmDiscard()) return
+async function setOpen(open: boolean): Promise<void> {
+  if (!open && !(await unsavedChanges.confirmDiscard())) return
   if (!open) {
     clearRequest()
     failed.value = false

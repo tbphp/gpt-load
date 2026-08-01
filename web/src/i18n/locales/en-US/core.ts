@@ -19,7 +19,13 @@ export default {
     close: 'Close',
     asyncLoading: 'Loading this section…',
     asyncLoadFailed: 'Unable to load this section. Reload the page and try again.',
-    unsavedChanges: 'Discard unsaved changes? Choose Cancel to continue editing.',
+    unsavedChangesDialog: {
+      title: 'Discard unsaved changes?',
+      description:
+        'Changes on this page have not been saved and cannot be recovered after leaving.',
+      cancel: 'Continue editing',
+      confirm: 'Discard changes',
+    },
     protocols: {
       'openai-completions': 'OpenAI Completions',
       'openai-responses': 'OpenAI Responses',

@@ -22,7 +22,6 @@ const { t } = useI18n()
         <StatusBadge :status="group.service_status">
           {{ t(`groups.collection.status.${group.service_status}`) }}
         </StatusBadge>
-        <span class="group-header__id">#{{ group.id }}</span>
       </div>
       <RouterLink
         class="button-link group-header__import"
@@ -81,11 +80,6 @@ const { t } = useI18n()
   max-width: none;
   margin: 0;
   font-size: clamp(1.65rem, 3vw, 2.2rem);
-}
-.group-header__id {
-  color: var(--color-text-faint);
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
 }
 .group-header__import {
   flex: 0 0 auto;

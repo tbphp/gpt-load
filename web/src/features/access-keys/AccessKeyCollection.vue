@@ -244,6 +244,20 @@ onBeforeUnmount(() => {
   }
 }
 
+@media (max-width: 1023px) and (min-width: 861px) {
+  .access-keys-record-grid {
+    --ledger-record-list-grid: minmax(110px, 1fr) minmax(156px, 1.2fr) 90px minmax(164px, 1.25fr)
+      72px;
+  }
+
+  .access-keys-record-grid :deep(.ledger-record-list__header > :nth-child(5)),
+  .access-keys-record-grid :deep(.ledger-record-list__header > :nth-child(6)),
+  .access-key-rpm,
+  .access-key-updated {
+    display: none;
+  }
+}
+
 @media (max-width: 860px) {
   .access-key-name {
     grid-column: 1 / -1;

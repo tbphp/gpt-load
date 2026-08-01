@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Search, X } from '@lucide/vue'
+import { KeyRound, Search, X } from '@lucide/vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -22,7 +22,7 @@ import {
   restoreGroupKey,
   updateGroupKey,
 } from '@/app/resources/upstream-keys'
-import { groupDetailLocation } from '@/app/route-locations'
+import { groupDetailLocation, importLocation } from '@/app/route-locations'
 import { controlQueryKeys } from '@/app/query-keys'
 import CollectionFilterBar from '@/components/collection/CollectionFilterBar.vue'
 import CollectionStatusSummary from '@/components/collection/CollectionStatusSummary.vue'
@@ -495,17 +495,31 @@ onBeforeUnmount(() => {
         v-if="collection.summary.total === 0"
         :title="t('group.keys.emptyTitle')"
         :description="t('group.keys.emptyDescription')"
-      />
+        variant="ledger"
+      >
+        <template #icon><KeyRound :size="20" /></template>
+        <template #actions>
+          <RouterLink
+            class="button-link"
+            :to="importLocation({ mode: 'existing', group_id: groupId })"
+          >
+            <KeyRound :size="15" aria-hidden="true" />{{ t('group.importKeys') }}
+          </RouterLink>
+        </template>
+      </EmptyState>
       <EmptyState
         v-else-if="collection.pagination.total_items === 0"
         :title="t('group.keys.emptyFilterTitle')"
         :description="t('group.keys.emptyFilterDescription')"
-        ><template #actions
-          ><AppButton variant="secondary" size="compact" @click="resetFilters">{{
-            t('group.keys.filters.reset')
-          }}</AppButton></template
-        ></EmptyState
+        variant="ledger"
       >
+        <template #icon><Search :size="20" /></template>
+        <template #actions>
+          <AppButton variant="secondary" size="compact" @click="resetFilters">
+            {{ t('group.keys.filters.reset') }}
+          </AppButton>
+        </template>
+      </EmptyState>
       <template v-else>
         <LedgerRecordList
           :label="t('group.keys.caption')"
@@ -634,6 +648,16 @@ onBeforeUnmount(() => {
     --ledger-record-list-grid: 44px minmax(130px, 0.9fr) 108px minmax(108px, 0.7fr)
       minmax(132px, 0.9fr) minmax(220px, 1.35fr);
     --ledger-record-list-column-gap: 9px;
+  }
+}
+@media (max-width: 1023px) and (min-width: 861px) {
+  .group-key-record-grid {
+    --ledger-record-list-grid: 44px minmax(130px, 0.9fr) 108px minmax(108px, 0.7fr)
+      minmax(220px, 1.35fr);
+  }
+  .group-key-record-grid :deep(.ledger-record-list__header > :nth-child(5)),
+  .group-key-record-grid :deep(.group-key-record__recent) {
+    display: none;
   }
 }
 @media (max-width: 860px) {

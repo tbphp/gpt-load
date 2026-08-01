@@ -1,10 +1,12 @@
-import { inject, onBeforeUnmount, onMounted, type InjectionKey, type Ref } from 'vue'
-import { useI18n } from 'vue-i18n'
+import { inject, onBeforeUnmount, onMounted, ref, type InjectionKey, type Ref } from 'vue'
 import { onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
 
 export interface UnsavedChangesController {
+  readonly dialogOpen: Readonly<Ref<boolean>>
   bypassNext(): void
   consumeBypass(): boolean
+  requestConfirmation(): Promise<boolean>
+  resolveConfirmation(confirmed: boolean): void
 }
 
 export interface UnsavedChangesOptions {
@@ -12,20 +14,39 @@ export interface UnsavedChangesOptions {
 }
 
 export interface UnsavedChangesGuard {
-  confirmDiscard(): boolean
+  confirmDiscard(): Promise<boolean>
   runWithoutPrompt<T>(navigate: () => Promise<T>): Promise<T>
 }
 
 export function createUnsavedChangesController(): UnsavedChangesController {
   let bypass = false
+  let resolvePending: ((confirmed: boolean) => void) | undefined
+  const dialogOpen = ref(false)
   return {
+    dialogOpen,
     bypassNext() {
+      resolvePending?.(false)
+      resolvePending = undefined
+      dialogOpen.value = false
       bypass = true
     },
     consumeBypass() {
       const result = bypass
       bypass = false
       return result
+    },
+    requestConfirmation() {
+      if (resolvePending) return Promise.resolve(false)
+      dialogOpen.value = true
+      return new Promise<boolean>((resolve) => {
+        resolvePending = resolve
+      })
+    },
+    resolveConfirmation(confirmed) {
+      const resolve = resolvePending
+      resolvePending = undefined
+      dialogOpen.value = false
+      resolve?.(confirmed)
     },
   }
 }
@@ -37,7 +58,6 @@ export function useUnsavedChanges(
   options: UnsavedChangesOptions = {},
 ): UnsavedChangesGuard {
   const controller = useUnsavedChangesController()
-  const { t } = useI18n()
 
   const beforeUnload = (event: BeforeUnloadEvent | Event) => {
     if (!dirty.value && !options.blocked?.value) return
@@ -48,14 +68,14 @@ export function useUnsavedChanges(
   onMounted(() => window.addEventListener('beforeunload', beforeUnload))
   onBeforeUnmount(() => window.removeEventListener('beforeunload', beforeUnload))
 
-  function confirmDiscard(): boolean {
+  async function confirmDiscard(): Promise<boolean> {
     if (options.blocked?.value) return false
-    return !dirty.value || window.confirm(t('common.unsavedChanges'))
+    return !dirty.value || controller.requestConfirmation()
   }
 
-  const confirmNavigation = () => {
+  const confirmNavigation = async () => {
     if (controller.consumeBypass()) return true
-    return confirmDiscard()
+    return await confirmDiscard()
   }
 
   onBeforeRouteLeave(confirmNavigation)

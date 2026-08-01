@@ -36,7 +36,7 @@ function guardDismiss(event: Event): void {
 
 <template>
   <DialogRoot :open="open" @update:open="setOpen">
-    <DialogTrigger as-child><slot name="trigger" /></DialogTrigger>
+    <DialogTrigger v-if="$slots.trigger" as-child><slot name="trigger" /></DialogTrigger>
     <DialogPortal>
       <DialogOverlay class="app-drawer__overlay" />
       <DialogContent

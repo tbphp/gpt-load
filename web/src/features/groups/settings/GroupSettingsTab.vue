@@ -15,6 +15,7 @@ import {
 } from '@/app/resources/groups'
 import { useUnsavedChanges } from '@/app/unsaved-changes'
 import HeaderRulesEditor from '@/components/config/HeaderRulesEditor.vue'
+import RuntimeOverrideRow from '@/components/config/RuntimeOverrideRow.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppConfirmDialog from '@/components/ui/AppConfirmDialog.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
@@ -308,69 +309,79 @@ onBeforeUnmount(() => controller?.abort())
             </header>
             <div class="group-settings__runtime">
               <div v-for="key in timeoutKeys" :key="key" class="group-settings__runtime-row">
-                <div>
-                  <strong>{{ t(`group.settings.runtime.${key}`) }}</strong
-                  ><small>{{
-                    t('group.settings.runtime.effective', { value: saved.effective[key] })
-                  }}</small>
-                </div>
-                <label
-                  ><input
-                    type="checkbox"
-                    :checked="draft.overrides[key] !== undefined"
-                    :disabled="mutationPending"
-                    @change="setTimeoutOverride(key, ($event.target as HTMLInputElement).checked)"
-                  />{{
+                <RuntimeOverrideRow
+                  :label="t(`group.settings.runtime.${key}`)"
+                  :detail="t('group.settings.runtime.effective', { value: saved.effective[key] })"
+                  :source-label="
                     draft.overrides[key] === undefined
                       ? t('group.settings.runtime.inherited')
                       : t('group.settings.runtime.override')
-                  }}</label
-                ><input
-                  v-if="draft.overrides[key] !== undefined"
-                  type="number"
-                  min="1"
-                  :aria-label="
-                    t('group.settings.runtime.valueFor', {
-                      field: t(`group.settings.runtime.${key}`),
-                    })
                   "
-                  :value="draft.overrides[key]"
+                  :action-label="
+                    draft.overrides[key] === undefined
+                      ? t('group.settings.runtime.useOverride')
+                      : t('group.settings.runtime.useInherited')
+                  "
+                  :overridden="draft.overrides[key] !== undefined"
                   :disabled="mutationPending"
-                  @input="setTimeoutValue(key, $event)"
-                />
+                  @toggle="setTimeoutOverride(key, draft.overrides[key] === undefined)"
+                >
+                  <template v-if="draft.overrides[key] !== undefined" #value>
+                    <input
+                      type="number"
+                      min="1"
+                      :aria-label="
+                        t('group.settings.runtime.valueFor', {
+                          field: t(`group.settings.runtime.${key}`),
+                        })
+                      "
+                      :value="draft.overrides[key]"
+                      :disabled="mutationPending"
+                      @input="setTimeoutValue(key, $event)"
+                    />
+                  </template>
+                </RuntimeOverrideRow>
               </div>
               <div v-if="showInjectUsage" class="group-settings__runtime-row">
-                <div>
-                  <strong>{{ t('group.settings.runtime.inject_usage_options') }}</strong
-                  ><small>{{ t('group.settings.runtime.injectUsageHelp') }}</small>
-                </div>
-                <label
-                  ><input
-                    type="checkbox"
-                    :checked="draft.overrides.inject_usage_options !== undefined"
-                    :disabled="mutationPending"
-                    @change="setInjectUsageOverride(($event.target as HTMLInputElement).checked)"
-                  />{{
+                <RuntimeOverrideRow
+                  :label="t('group.settings.runtime.inject_usage_options')"
+                  :detail="t('group.settings.runtime.injectUsageHelp')"
+                  :source-label="
                     draft.overrides.inject_usage_options === undefined
                       ? t('group.settings.runtime.inherited')
                       : t('group.settings.runtime.override')
-                  }}</label
-                ><input
-                  v-if="draft.overrides.inject_usage_options !== undefined"
-                  type="checkbox"
-                  :aria-label="
-                    t('group.settings.runtime.valueFor', {
-                      field: t('group.settings.runtime.inject_usage_options'),
-                    })
                   "
-                  :checked="draft.overrides.inject_usage_options"
+                  :action-label="
+                    draft.overrides.inject_usage_options === undefined
+                      ? t('group.settings.runtime.useOverride')
+                      : t('group.settings.runtime.useInherited')
+                  "
+                  :overridden="draft.overrides.inject_usage_options !== undefined"
                   :disabled="mutationPending"
-                  @change="
-                    draft.overrides.inject_usage_options = (
-                      $event.target as HTMLInputElement
-                    ).checked
+                  @toggle="
+                    setInjectUsageOverride(draft.overrides.inject_usage_options === undefined)
                   "
-                />
+                >
+                  <template v-if="draft.overrides.inject_usage_options !== undefined" #value>
+                    <label class="group-settings__boolean-value">
+                      <input
+                        type="checkbox"
+                        :checked="draft.overrides.inject_usage_options"
+                        :disabled="mutationPending"
+                        @change="
+                          draft.overrides.inject_usage_options = (
+                            $event.target as HTMLInputElement
+                          ).checked
+                        "
+                      />
+                      {{
+                        draft.overrides.inject_usage_options
+                          ? t('group.settings.runtime.enabledValue')
+                          : t('group.settings.runtime.disabledValue')
+                      }}
+                    </label>
+                  </template>
+                </RuntimeOverrideRow>
               </div>
             </div>
           </section>
@@ -379,21 +390,27 @@ onBeforeUnmount(() => controller?.abort())
               <h3>{{ t('group.settings.sections.headers') }}</h3>
               <p>{{ t('group.settings.headers.description') }}</p>
             </header>
-            <details>
-              <summary>{{ headerSummary() }}</summary>
+            <RuntimeOverrideRow
+              :label="t('group.settings.sections.headers')"
+              :detail="headerSummary()"
+              :source-label="
+                draft.overrides.header_rules === undefined
+                  ? t('group.settings.runtime.inherited')
+                  : t('group.settings.runtime.override')
+              "
+              :action-label="
+                draft.overrides.header_rules === undefined
+                  ? t('group.settings.runtime.useOverride')
+                  : t('group.settings.runtime.useInherited')
+              "
+              :overridden="draft.overrides.header_rules !== undefined"
+              :disabled="mutationPending"
+              @toggle="setHeaderRules(draft.overrides.header_rules === undefined)"
+            />
+            <details v-if="draft.overrides.header_rules">
+              <summary>{{ t('group.settings.runtime.editHeaderRules') }}</summary>
               <div class="group-settings__header-controls">
-                <label
-                  ><input
-                    type="checkbox"
-                    :checked="draft.overrides.header_rules !== undefined"
-                    :disabled="mutationPending"
-                    @change="setHeaderRules(($event.target as HTMLInputElement).checked)"
-                  />{{
-                    draft.overrides.header_rules === undefined
-                      ? t('group.settings.runtime.inherited')
-                      : t('group.settings.runtime.override')
-                  }}</label
-                ><InlineFeedback tone="warning">{{
+                <InlineFeedback tone="warning">{{
                   t('group.settings.runtime.headerReplacementWarning')
                 }}</InlineFeedback
                 ><HeaderRulesEditor
@@ -500,19 +517,10 @@ small {
   gap: var(--space-2);
 }
 .group-settings__runtime-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto 120px;
-  align-items: center;
-  gap: var(--space-3);
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-control);
-  padding: var(--space-3);
-}
-.group-settings__runtime-row div {
-  display: grid;
-  gap: var(--space-1);
+  min-width: 0;
 }
 .group-settings__runtime-row input[type='number'] {
+  width: 100%;
   min-height: var(--control-md);
   border: 1px solid var(--color-border-control);
   border-radius: var(--radius-control);
@@ -520,6 +528,13 @@ small {
   color: var(--color-text);
   padding: 0 var(--space-2);
   font: var(--text-sm) var(--font-mono);
+}
+.group-settings__boolean-value {
+  display: flex;
+  min-height: var(--touch-target);
+  align-items: center;
+  gap: var(--space-2);
+  white-space: nowrap;
 }
 .group-settings__header-controls {
   display: grid;
@@ -531,9 +546,6 @@ small {
 }
 @media (max-width: 759px) {
   .group-settings__layout {
-    grid-template-columns: 1fr;
-  }
-  .group-settings__runtime-row {
     grid-template-columns: 1fr;
   }
 }

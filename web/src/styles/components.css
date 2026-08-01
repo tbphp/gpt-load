@@ -115,6 +115,12 @@
 }
 
 @media (min-width: 768px) {
+  .section-nav {
+    position: sticky;
+    top: calc(var(--topbar-height) + var(--space-4));
+    align-self: start;
+  }
+
   .section-nav__mobile {
     display: none;
   }

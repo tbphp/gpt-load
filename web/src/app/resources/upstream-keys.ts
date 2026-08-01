@@ -150,7 +150,8 @@ export function projectGroupKeyItem(value: unknown): GroupKeyItemDto {
   const cooldownUntil = projectNullableEpochMilliseconds(record.cooldown_until_ms)
   const recovery = projectRecovery(record.recovery)
   if (
-    (configuredStatus === 'disabled') !== (effectiveStatus === 'disabled') ||
+    // 分组停用或手动权重为 0 时，active 密钥的运行时状态也会是 disabled。
+    (configuredStatus === 'disabled' && effectiveStatus !== 'disabled') ||
     (effectiveStatus === 'available') !== (weight !== null) ||
     (effectiveStatus === 'cooldown') !== (cooldownUntil !== null) ||
     (recovery.mode === 'cooldown') !== (effectiveStatus === 'cooldown')
