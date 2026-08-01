@@ -6,7 +6,7 @@ import { useRoute } from 'vue-router'
 
 import { useApiClient } from '@/api/client-context'
 import { lazySurface } from '@/app/async-surface'
-import { groupDetailQueryOptions, groupSummaryQueryOptions } from '@/app/resources/groups'
+import { groupSummaryQueryOptions } from '@/app/resources/groups'
 import { groupsLocation } from '@/app/route-locations'
 import LedgerSheet from '@/components/layout/LedgerSheet.vue'
 import PageFrame from '@/components/layout/PageFrame.vue'
@@ -25,12 +25,6 @@ const { t } = useI18n()
 const groupId = computed(() => parsePositiveId(route.params.id))
 const activeTab = computed(() => normalizeGroupTab(route.query.tab))
 const summaryQuery = useQuery(groupSummaryQueryOptions(client, groupId))
-const legacyDetailQuery = useQuery(
-  groupDetailQueryOptions(
-    client,
-    computed(() => (activeTab.value === 'keys' ? undefined : groupId.value)),
-  ),
-)
 </script>
 
 <template>
@@ -70,29 +64,11 @@ const legacyDetailQuery = useQuery(
             :model-count="summaryQuery.data.value.model_count"
           >
             <GroupKeysTab v-if="activeTab === 'keys'" :key="groupId" :group-id="groupId" />
-            <QueryFeedback
-              v-else-if="legacyDetailQuery.isPending.value"
-              state="loading"
-              :message="t('group.loading')"
-            />
-            <QueryFeedback
-              v-else-if="legacyDetailQuery.isError.value && !legacyDetailQuery.data.value"
-              state="error"
-              :message="t('group.loadFailed')"
-              :retry-label="t('common.retry')"
-              @retry="legacyDetailQuery.refetch()"
-            />
-            <GroupModelsTab
-              v-else-if="activeTab === 'models' && legacyDetailQuery.data.value"
-              :key="groupId"
-              :group-id="groupId"
-              :group="legacyDetailQuery.data.value"
-            />
+            <GroupModelsTab v-else-if="activeTab === 'models'" :key="groupId" :group-id="groupId" />
             <GroupSettingsTab
-              v-else-if="activeTab === 'settings' && legacyDetailQuery.data.value"
+              v-else-if="activeTab === 'settings'"
               :key="groupId"
               :group-id="groupId"
-              :group="legacyDetailQuery.data.value"
             />
           </GroupTabs>
         </template>

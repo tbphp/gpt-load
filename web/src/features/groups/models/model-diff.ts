@@ -1,87 +1,67 @@
-import type { GroupModelDto } from '@/api/control/types'
+import type { GroupModelItemDto } from '@/api/control/types'
+import type { GroupModelUpdateDto } from '@/app/resources/groups'
 
-export type ModelDiffOrigin = 'persisted' | 'discovered' | 'manual'
-
-export interface ModelDiffItem extends GroupModelDto {
-  origin: ModelDiffOrigin
-  rediscovered: boolean
-  selected: boolean
+export interface ModelDraftItem extends GroupModelUpdateDto {
+  key: number
+  pricing_status: 'priced' | 'unpriced'
 }
 
-function normalizeModel(model: GroupModelDto): GroupModelDto | undefined {
+export interface ModelNameConflict {
+  client_model: string
+  indexes: number[]
+}
+
+export function normalizeModel(model: GroupModelUpdateDto): GroupModelUpdateDto | undefined {
   const id = model.id.trim()
   if (!id) return undefined
-  return { id, alias: model.alias.trim() }
+  const alias = model.alias_enabled ? model.alias.trim() : ''
+  return { id, alias, alias_enabled: model.alias_enabled }
 }
 
-function pairKey(model: GroupModelDto): string {
-  return JSON.stringify([model.id, model.alias])
+export function clientModel(model: GroupModelUpdateDto): string {
+  const normalized = normalizeModel(model)
+  return normalized === undefined ? '' : normalized.alias_enabled ? normalized.alias : normalized.id
 }
 
-export function buildModelDiff(saved: GroupModelDto[], discoveredIDs: string[]): ModelDiffItem[] {
-  const discovered = new Set<string>()
-  for (const rawID of discoveredIDs) {
-    const id = rawID.trim()
-    if (id) discovered.add(id)
+/** Client names are intentionally exact and case sensitive, matching the API contract. */
+export function findModelNameConflicts(
+  models: readonly GroupModelUpdateDto[],
+): ModelNameConflict[] {
+  const byClientModel = new Map<string, number[]>()
+  for (const [index, model] of models.entries()) {
+    const name = clientModel(model)
+    if (!name) continue
+    byClientModel.set(name, [...(byClientModel.get(name) ?? []), index])
   }
-
-  const result: ModelDiffItem[] = []
-  const savedIDs = new Set<string>()
-  for (const value of saved) {
-    const model = normalizeModel(value)
-    if (!model) continue
-    savedIDs.add(model.id)
-    result.push({
-      ...model,
-      origin: 'persisted',
-      rediscovered: discovered.has(model.id),
-      selected: true,
-    })
-  }
-  for (const id of discovered) {
-    if (savedIDs.has(id)) continue
-    result.push({ id, alias: '', origin: 'discovered', rediscovered: true, selected: true })
-  }
-  return result
+  return [...byClientModel.entries()]
+    .filter(([, indexes]) => indexes.length > 1)
+    .map(([client_model, indexes]) => ({ client_model, indexes }))
 }
 
-export function normalizeSelectedModels(draft: readonly ModelDiffItem[]): GroupModelDto[] {
-  const result: GroupModelDto[] = []
-  const seen = new Set<string>()
-  for (const value of draft) {
-    if (!value.selected) continue
-    const model = normalizeModel(value)
-    if (!model) continue
-    const key = pairKey(model)
-    if (seen.has(key)) continue
-    seen.add(key)
-    result.push(model)
-  }
-  return result
+export function indexesWithConflicts(conflicts: readonly ModelNameConflict[]): Set<number> {
+  return new Set(conflicts.flatMap((conflict) => conflict.indexes))
 }
 
-export function sameNormalizedModels(
-  saved: readonly GroupModelDto[],
-  draft: readonly ModelDiffItem[],
-): boolean {
-  const normalizedSaved = saved.flatMap((model) => {
-    const normalized = normalizeModel(model)
-    return normalized ? [normalized] : []
+export function createModelDraft(items: readonly GroupModelItemDto[]): ModelDraftItem[] {
+  return items.map((item, index) => ({
+    id: item.id,
+    alias: item.alias,
+    alias_enabled: item.alias_enabled,
+    pricing_status: item.pricing_status,
+    key: index,
+  }))
+}
+
+export function normalizedModels(draft: readonly ModelDraftItem[]): GroupModelUpdateDto[] {
+  return draft.flatMap((item) => {
+    const normalized = normalizeModel(item)
+    return normalized === undefined ? [] : [normalized]
   })
-  const normalizedDraft = normalizeSelectedModels(draft)
-  if (normalizedSaved.length !== normalizedDraft.length) return false
-  return normalizedSaved.every(
-    (model, index) => pairKey(model) === pairKey(normalizedDraft[index]!),
-  )
 }
 
-export function hasModelRemovals(
-  saved: readonly GroupModelDto[],
-  draft: readonly ModelDiffItem[],
+export function sameModels(
+  left: readonly ModelDraftItem[],
+  right: readonly ModelDraftItem[],
 ): boolean {
-  const selected = new Set(normalizeSelectedModels(draft).map(pairKey))
-  return saved.some((value) => {
-    const model = normalizeModel(value)
-    return model !== undefined && !selected.has(pairKey(model))
-  })
+  return JSON.stringify(normalizedModels(left)) === JSON.stringify(normalizedModels(right))
 }

@@ -15,6 +15,7 @@ export default {
     reveal: 'Reveal key',
     conceal: 'Conceal key',
     cancel: 'Cancel',
+    discard: 'Discard',
     close: 'Close',
     asyncLoading: 'Loading this section…',
     asyncLoadFailed: 'Unable to load this section. Reload the page and try again.',

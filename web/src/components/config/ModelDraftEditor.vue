@@ -7,6 +7,7 @@ export interface ModelDraftEditorItem {
   id: string
   alias: string
   selected: boolean
+  alias_enabled?: boolean
 }
 
 const props = defineProps<{ modelValue: ModelDraftEditorItem[]; disabled?: boolean }>()
@@ -24,6 +25,13 @@ function update(index: number, patch: Partial<ModelDraftEditorItem>): void {
   )
 }
 
+function setAliasEnabled(index: number, enabled: boolean): void {
+  update(index, {
+    alias_enabled: enabled,
+    alias: enabled ? (props.modelValue[index]?.alias ?? '') : '',
+  })
+}
+
 function addManual(): void {
   const id = manualID.value.trim()
   const alias = manualAlias.value.trim()
@@ -34,7 +42,10 @@ function addManual(): void {
       ? props.modelValue.map((model, index) =>
           index === exactIndex ? { ...model, selected: true } : { ...model },
         )
-      : [...props.modelValue.map((model) => ({ ...model })), { id, alias, selected: true }]
+      : [
+          ...props.modelValue.map((model) => ({ ...model })),
+          { id, alias, selected: true, alias_enabled: alias !== '' },
+        ]
   emit('update:modelValue', next)
   manualID.value = ''
   manualAlias.value = ''
@@ -64,11 +75,18 @@ function addManual(): void {
           <code>{{ model.id }}</code>
         </label>
         <label>
+          <input
+            v-if="model.alias_enabled !== undefined"
+            type="checkbox"
+            :checked="model.alias_enabled"
+            :disabled="props.disabled"
+            @change="setAliasEnabled(index, ($event.target as HTMLInputElement).checked)"
+          />
           <span class="sr-only">{{ t('import.models.aliasFor', { id: model.id }) }}</span>
           <input
             :value="model.alias"
             :placeholder="t('import.models.alias')"
-            :disabled="props.disabled"
+            :disabled="props.disabled || model.alias_enabled === false"
             @input="update(index, { alias: ($event.target as HTMLInputElement).value })"
           />
         </label>

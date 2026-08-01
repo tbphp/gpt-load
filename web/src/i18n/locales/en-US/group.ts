@@ -78,6 +78,36 @@ export default {
         'Discovery produces candidates only. Review aliases and the complete selected list before saving.',
       rediscover: 'Rediscover',
       save: 'Save changes',
+      loading: 'Loading models',
+      loadFailed: 'Unable to load models',
+      discover: 'Get upstream models',
+      saved: 'Model configuration saved',
+      unsaved: 'Model configuration has unsaved changes',
+      total: '{count} models',
+      unpriced: '{count} unpriced',
+      tableLabel: 'Current Group models',
+      id: 'Model ID',
+      alias: 'Client alias',
+      pricing: 'Pricing',
+      actions: 'Actions',
+      aliasEnabledFor: 'Enable alias for {id}',
+      aliasPlaceholder: 'Enter model alias',
+      aliasRequired: 'An enabled alias requires a client alias',
+      removeFor: 'Remove model {id}',
+      manualId: 'Add model ID',
+      add: 'Add model',
+      nameConflict: 'Client name “{name}” is duplicated',
+      conflictSummary: 'Duplicate client model names must be resolved before saving',
+      pricingStatus: { priced: 'Priced', unpriced: 'Unpriced' },
+      drawer: {
+        title: 'Get upstream models',
+        description: 'Select models to append to this draft',
+        close: 'Close model discovery',
+        loading: 'Reading models from upstream',
+        notice: 'Discovery results do not automatically change the model list',
+        empty: 'The upstream returned no models to add',
+        confirm: 'Append selected models',
+      },
       badGateway:
         'Discovery failed upstream. Your draft is unchanged; retry or continue with manual model IDs and aliases.',
       discoveryFailed:
@@ -111,6 +141,26 @@ export default {
       title: 'Group settings',
       description: 'Edit Group identity, routing fields, and sparse runtime overrides.',
       save: 'Save settings',
+      loading: 'Loading Group settings',
+      loadFailed: 'Unable to load Group settings',
+      saved: 'Settings saved',
+      unsaved: 'Settings have unsaved changes',
+      sectionNav: 'Settings sections',
+      sections: {
+        general: 'General',
+        routing: 'Routing capabilities',
+        runtime: 'Runtime overrides',
+        headers: 'HeaderRules',
+        danger: 'Danger zone',
+      },
+      routing: {
+        description: 'Protocols and manual weight decide which requests this Group can serve',
+        weightHelp: 'Auto is decided by runtime scheduling; manual ranges from 1 to 100',
+      },
+      headers: {
+        description:
+          'Rules are collapsed by default; editing replaces the complete HeaderRules object',
+      },
       saveFailed: 'Unable to update the Group settings.',
       rediscoveryRecommended:
         'The upstream URL changed. Review and rediscover models for this Group.',
@@ -133,6 +183,7 @@ export default {
         responsesUsageOptionsHelp:
           'InjectUsageOptions is capability-based. Responses ignores stream_options injection.',
         enabled: 'Group enabled',
+        enabledHelp: 'When disabled, new requests no longer select this Group',
       },
       runtime: {
         title: 'Runtime overrides',
@@ -151,6 +202,8 @@ export default {
         headerSummary: 'Effective: {set} Set and {remove} Remove rules',
         headerReplacementWarning:
           'This Group override replaces the complete global HeaderRules object; future global changes will not merge into it.',
+        inject_usage_options: 'Inject usage options',
+        injectUsageHelp: 'This override is available only for OpenAI Completions',
       },
       urlConflict: {
         title: 'This upstream URL is already in use',

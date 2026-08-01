@@ -15,6 +15,7 @@ export default {
     reveal: '显示密钥',
     conceal: '隐藏密钥',
     cancel: '取消',
+    discard: '放弃修改',
     close: '关闭',
     asyncLoading: '正在加载此区域…',
     asyncLoadFailed: '无法加载此区域，请刷新页面后重试。',

@@ -189,8 +189,14 @@ export interface ModelDiscoveryResult {
   models: string[]
 }
 
+export interface GroupModelUpdateDto {
+  id: string
+  alias: string
+  alias_enabled: boolean
+}
+
 export interface GroupModelsReplaceRequest {
-  models: GroupModelDto[]
+  models: GroupModelUpdateDto[]
 }
 
 export interface GroupCreateRequest {

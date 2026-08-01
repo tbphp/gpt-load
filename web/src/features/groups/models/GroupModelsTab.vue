@@ -1,378 +1,546 @@
 <script setup lang="ts">
-import { useQueryClient } from '@tanstack/vue-query'
-import { RefreshCw, Save, TriangleAlert } from '@lucide/vue'
+import { useQuery, useQueryClient } from '@tanstack/vue-query'
+import { Plus, RefreshCw, Trash2 } from '@lucide/vue'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
+import { ApiError, RequestCancelledError } from '@/api/errors'
 import { useApiClient } from '@/api/client-context'
 import {
+  cacheGroupModels,
   discoverGroupModels,
-  replaceGroupModels,
-  type GroupDetailDto,
+  groupModelsQueryOptions,
+  replaceGroupModelsResource,
 } from '@/app/resources/groups'
-import { ApiError, RequestCancelledError } from '@/api/errors'
-import { controlQueryKeys } from '@/app/query-keys'
-import { applyInvalidationPlan, mutationInvalidationPlans } from '@/app/resources/invalidation'
-import { groupDetailLocation, importLocation } from '@/app/route-locations'
+import { invalidateGroupSummary } from '@/app/resources/groups'
 import { useUnsavedChanges } from '@/app/unsaved-changes'
-import ModelDraftEditor, {
-  type ModelDraftEditorItem,
-} from '@/components/config/ModelDraftEditor.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppDialog from '@/components/ui/AppDialog.vue'
+import AppDrawer from '@/components/ui/AppDrawer.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
-import StatusBadge from '@/components/ui/StatusBadge.vue'
+import QueryFeedback from '@/components/ui/QueryFeedback.vue'
+import StickySaveBar from '@/components/ui/StickySaveBar.vue'
 
 import {
-  buildModelDiff,
-  hasModelRemovals,
-  normalizeSelectedModels,
-  sameNormalizedModels,
-  type ModelDiffItem,
+  createModelDraft,
+  findModelNameConflicts,
+  indexesWithConflicts,
+  normalizedModels,
+  sameModels,
+  type ModelDraftItem,
+  type ModelNameConflict,
 } from './model-diff'
 
-const props = defineProps<{ groupId: number; group: GroupDetailDto }>()
+const props = defineProps<{ groupId: number }>()
 const client = useApiClient()
 const queryClient = useQueryClient()
 const { t } = useI18n()
-const savedModels = ref(props.group.models.map((model) => ({ ...model })))
-const draft = ref<ModelDiffItem[]>(buildModelDiff(savedModels.value, []))
-const discoveryRan = ref(false)
-const pendingAction = ref<'discover' | 'save' | null>(null)
-const discoveryError = ref<'none' | 'no-active-key' | 'bad-gateway' | 'generic'>('none')
-const saveError = ref(false)
+const query = useQuery(groupModelsQueryOptions(client, () => props.groupId))
+const saved = ref<ModelDraftItem[]>([])
+const draft = ref<ModelDraftItem[]>([])
+const pending = ref<'discover' | 'save' | null>(null)
+const error = ref('')
+const serverConflicts = ref<ModelNameConflict[]>([])
+const drawerOpen = ref(false)
 const emptyConfirmOpen = ref(false)
-let activeController: AbortController | undefined
+const candidates = ref<string[]>([])
+const selectedCandidates = ref<string[]>([])
+const manualID = ref('')
+let nextKey = 1
+let controller: AbortController | undefined
 
-const normalizedModels = computed(() => normalizeSelectedModels(draft.value))
-const emptySelection = computed(() => normalizedModels.value.length === 0)
-const changed = computed(() => !sameNormalizedModels(savedModels.value, draft.value))
-const removals = computed(() => hasModelRemovals(savedModels.value, draft.value))
-const pending = computed(() => pendingAction.value !== null)
-useUnsavedChanges(changed, { blocked: pending })
+const conflicts = computed(() =>
+  serverConflicts.value.length
+    ? serverConflicts.value
+    : findModelNameConflicts(normalizedModels(draft.value)),
+)
+const conflictIndexes = computed(() => indexesWithConflicts(conflicts.value))
+const emptyAliasIndexes = computed(
+  () =>
+    new Set(
+      draft.value.flatMap((item, index) =>
+        item.alias_enabled && !item.alias.trim() ? [index] : [],
+      ),
+    ),
+)
+const dirty = computed(() => !sameModels(saved.value, draft.value))
+const empty = computed(() => normalizedModels(draft.value).length === 0)
+const canSave = computed(
+  () =>
+    dirty.value &&
+    pending.value === null &&
+    conflicts.value.length === 0 &&
+    emptyAliasIndexes.value.size === 0,
+)
+const unpriced = computed(
+  () => draft.value.filter((item) => item.pricing_status === 'unpriced').length,
+)
+useUnsavedChanges(dirty, { blocked: computed(() => pending.value !== null) })
 
 watch(
-  () => props.group.models,
+  () => query.data.value,
   (models) => {
-    if (pending.value || changed.value || discoveryRan.value) return
-    savedModels.value = models.map((model) => ({ ...model }))
-    draft.value = buildModelDiff(savedModels.value, [])
+    if (!models || dirty.value || pending.value) return
+    const next = createModelDraft(models.items).map((item) => ({ ...item, key: nextKey++ }))
+    saved.value = next
+    draft.value = next.map((item) => ({ ...item }))
+    serverConflicts.value = []
   },
-  { deep: true },
+  { immediate: true },
 )
 
-function startAction(action: 'discover' | 'save'): AbortController {
-  activeController?.abort()
-  activeController = new AbortController()
-  pendingAction.value = action
-  return activeController
+function updateRow(index: number, patch: Partial<ModelDraftItem>): void {
+  serverConflicts.value = []
+  draft.value = draft.value.map((item, current) =>
+    current === index
+      ? {
+          ...item,
+          ...patch,
+          alias: patch.alias_enabled === false ? '' : (patch.alias ?? item.alias),
+        }
+      : { ...item },
+  )
 }
 
-function finishAction(controller: AbortController): void {
-  if (activeController !== controller) return
-  activeController = undefined
-  pendingAction.value = null
+function removeRow(index: number): void {
+  serverConflicts.value = []
+  draft.value = draft.value.filter((_, current) => current !== index)
 }
 
-function updateDraft(value: ModelDraftEditorItem[]): void {
-  draft.value = value.map((model, index) => {
-    const existing = draft.value[index]
-    return {
-      id: model.id,
-      alias: model.alias,
-      selected: model.selected,
-      origin: existing?.origin ?? 'manual',
-      rediscovered: existing?.rediscovered ?? false,
-    }
-  })
+function addManual(): void {
+  const id = manualID.value.trim()
+  if (!id || draft.value.some((item) => item.id.trim() === id)) return
+  serverConflicts.value = []
+  draft.value = [
+    ...draft.value,
+    { id, alias: '', alias_enabled: false, pricing_status: 'unpriced', key: nextKey++ },
+  ]
+  manualID.value = ''
 }
 
-function statusLabel(index: number): string {
-  const model = draft.value[index]
-  if (!model) return ''
-  if (model.origin === 'manual') return t('group.modelEditor.status.manual')
-  if (model.origin === 'discovered') return t('group.modelEditor.status.discovered')
-  if (!discoveryRan.value) return t('group.modelEditor.status.saved')
-  return model.rediscovered
-    ? t('group.modelEditor.status.rediscovered')
-    : t('group.modelEditor.status.notRediscovered')
-}
-
-function statusTone(index: number): 'success' | 'warning' | 'neutral' {
-  const model = draft.value[index]
-  if (model?.origin === 'discovered' || (discoveryRan.value && model?.rediscovered)) {
-    return 'success'
-  }
-  if (discoveryRan.value && model?.origin === 'persisted' && !model.rediscovered) {
-    return 'warning'
-  }
-  return 'neutral'
+function requestDiscovery(): void {
+  if (pending.value) return
+  drawerOpen.value = true
+  candidates.value = []
+  selectedCandidates.value = []
+  error.value = ''
+  void runDiscovery()
 }
 
 async function runDiscovery(): Promise<void> {
-  if (pending.value) return
-  discoveryError.value = 'none'
-  saveError.value = false
-  const controller = startAction('discover')
+  controller?.abort()
+  const active = new AbortController()
+  controller = active
+  pending.value = 'discover'
   try {
-    const result = await discoverGroupModels(client, props.groupId, controller.signal)
-    if (activeController !== controller) return
-    const discoveredIDs = new Set(result.models.map((id) => id.trim()).filter(Boolean))
-    const representedIDs = new Set(draft.value.map((model) => model.id.trim()))
-    draft.value = [
-      ...draft.value.map((model) => ({
-        ...model,
-        rediscovered:
-          model.origin === 'persisted' ? discoveredIDs.has(model.id.trim()) : model.rediscovered,
-      })),
-      ...Array.from(discoveredIDs)
-        .filter((id) => !representedIDs.has(id))
-        .map<ModelDiffItem>((id) => ({
-          id,
-          alias: '',
-          selected: true,
-          origin: 'discovered',
-          rediscovered: true,
-        })),
-    ]
-    discoveryRan.value = true
-  } catch (error: unknown) {
-    if (activeController !== controller || error instanceof RequestCancelledError) return
-    if (error instanceof ApiError && error.code === 'NO_ACTIVE_UPSTREAM_KEY') {
-      discoveryError.value = 'no-active-key'
-    } else if (error instanceof ApiError && error.code === 'BAD_GATEWAY') {
-      discoveryError.value = 'bad-gateway'
-    } else {
-      discoveryError.value = 'generic'
-    }
+    const result = await discoverGroupModels(client, props.groupId, active.signal)
+    if (controller !== active) return
+    candidates.value = [...new Set(result.models.map((id) => id.trim()).filter(Boolean))]
+    selectedCandidates.value = candidates.value.filter(
+      (candidate) => !draft.value.some((item) => item.id.trim() === candidate),
+    )
+  } catch (cause: unknown) {
+    if (cause instanceof RequestCancelledError || controller !== active) return
+    error.value =
+      cause instanceof ApiError && cause.code === 'NO_ACTIVE_UPSTREAM_KEY'
+        ? t('group.modelEditor.noActiveKey.title')
+        : t('group.modelEditor.discoveryFailed')
   } finally {
-    finishAction(controller)
+    if (controller === active) {
+      controller = undefined
+      pending.value = null
+    }
   }
+}
+
+function confirmCandidates(): void {
+  const present = new Set(draft.value.map((item) => item.id.trim()))
+  const additions = selectedCandidates.value
+    .map((id) => id.trim())
+    .filter((id) => id && !present.has(id))
+    .map((id) => ({
+      id,
+      alias: '',
+      alias_enabled: false,
+      pricing_status: 'unpriced' as const,
+      key: nextKey++,
+    }))
+  draft.value = [...draft.value, ...additions]
+  drawerOpen.value = false
 }
 
 function requestSave(): void {
-  if (pending.value || !changed.value) return
-  saveError.value = false
-  if (emptySelection.value) {
+  if (!canSave.value) return
+  if (empty.value) {
     emptyConfirmOpen.value = true
     return
   }
-  void runReplace()
+  void save()
 }
 
-function setEmptyConfirmOpen(open: boolean): void {
-  if (!open && pending.value) return
-  emptyConfirmOpen.value = open
-}
-
-function confirmEmptyReplace(): void {
-  void runReplace()
-}
-
-async function runReplace(): Promise<void> {
-  if (pending.value || !changed.value) return
-  const models = normalizeSelectedModels(draft.value)
-  const controller = startAction('save')
-  saveError.value = false
+async function save(): Promise<void> {
+  if (!canSave.value) return
+  const active = new AbortController()
+  controller = active
+  pending.value = 'save'
+  error.value = ''
   try {
-    const result = await replaceGroupModels(client, props.groupId, { models }, controller.signal)
-    if (activeController !== controller) return
-    await queryClient.cancelQueries({
-      queryKey: controlQueryKeys.groups.detail(props.groupId),
-      exact: true,
-    })
-    if (activeController !== controller) return
-    savedModels.value = result.models.map((model) => ({ ...model }))
-    draft.value = buildModelDiff(savedModels.value, [])
-    discoveryRan.value = false
-    discoveryError.value = 'none'
+    const result = await replaceGroupModelsResource(
+      client,
+      props.groupId,
+      {
+        models: normalizedModels(draft.value),
+      },
+      active.signal,
+    )
+    if (controller !== active) return
+    const next = createModelDraft(result.items).map((item) => ({ ...item, key: nextKey++ }))
+    saved.value = next
+    draft.value = next.map((item) => ({ ...item }))
     emptyConfirmOpen.value = false
-    queryClient.setQueryData(controlQueryKeys.groups.detail(props.groupId), result)
-    await applyInvalidationPlan(queryClient, mutationInvalidationPlans.group.replaceModels())
-  } catch (error: unknown) {
-    if (activeController === controller && !(error instanceof RequestCancelledError))
-      saveError.value = true
+    cacheGroupModels(queryClient, props.groupId, result)
+    await invalidateGroupSummary(queryClient, props.groupId)
+  } catch (cause: unknown) {
+    if (cause instanceof RequestCancelledError || controller !== active) return
+    if (cause instanceof ApiError && cause.code === 'MODEL_NAME_CONFLICT') {
+      const data = cause.data as { conflicts?: ModelNameConflict[] }
+      if (Array.isArray(data.conflicts)) serverConflicts.value = data.conflicts
+    }
+    error.value = t('group.modelEditor.saveFailed')
   } finally {
-    finishAction(controller)
+    if (controller === active) {
+      controller = undefined
+      pending.value = null
+    }
   }
 }
 
-onBeforeUnmount(() => {
-  activeController?.abort()
-  activeController = undefined
-})
+function discard(): void {
+  serverConflicts.value = []
+  error.value = ''
+  draft.value = saved.value.map((item) => ({ ...item }))
+}
+
+function conflictMessage(index: number): string {
+  const conflict = conflicts.value.find((item) => item.indexes.includes(index))
+  return conflict ? t('group.modelEditor.nameConflict', { name: conflict.client_model }) : ''
+}
+
+onBeforeUnmount(() => controller?.abort())
 </script>
 
 <template>
   <section class="group-models" aria-labelledby="group-models-heading">
-    <header class="group-models__header">
-      <div>
-        <h2 id="group-models-heading">{{ t('group.modelEditor.title') }}</h2>
-        <p>{{ t('group.modelEditor.description') }}</p>
-      </div>
-      <div class="group-models__actions">
+    <QueryFeedback
+      v-if="query.isPending.value && !query.data.value"
+      state="loading"
+      :message="t('group.modelEditor.loading')"
+    />
+    <QueryFeedback
+      v-else-if="query.isError.value && !query.data.value"
+      state="error"
+      :message="t('group.modelEditor.loadFailed')"
+      :retry-label="t('common.retry')"
+      @retry="query.refetch()"
+    />
+    <template v-else-if="query.data.value">
+      <header class="group-models__header">
+        <div>
+          <h2 id="group-models-heading">{{ t('group.modelEditor.title') }}</h2>
+          <p>{{ t('group.modelEditor.description') }}</p>
+        </div>
         <AppButton
           variant="secondary"
-          :busy="pendingAction === 'discover'"
-          :disabled="pending"
-          @click="runDiscovery"
+          :busy="pending === 'discover'"
+          :disabled="pending !== null"
+          @click="requestDiscovery"
         >
-          <RefreshCw :size="16" aria-hidden="true" />{{ t('group.modelEditor.rediscover') }}
+          <RefreshCw :size="16" aria-hidden="true" />{{ t('group.modelEditor.discover') }}
         </AppButton>
-        <AppDialog
-          v-if="emptySelection"
-          :open="emptyConfirmOpen"
-          :title="t('group.modelEditor.emptyConfirm.title')"
-          :description="t('group.modelEditor.emptyConfirm.description')"
-          :close-label="t('group.modelEditor.emptyConfirm.close')"
-          :dismissible="!pending"
-          @update:open="setEmptyConfirmOpen"
-        >
-          <template #trigger>
-            <AppButton
-              :busy="pendingAction === 'save'"
-              :disabled="pending || !changed"
-              @click="requestSave"
-            >
-              <Save :size="16" aria-hidden="true" />{{ t('group.modelEditor.save') }}
-            </AppButton>
-          </template>
-          <InlineFeedback v-if="saveError" tone="danger">
-            {{ t('group.modelEditor.saveFailed') }}
-          </InlineFeedback>
-          <div class="group-models__dialog-actions">
-            <AppButton variant="secondary" :disabled="pending" @click="setEmptyConfirmOpen(false)">
-              {{ t('group.modelEditor.emptyConfirm.cancel') }}
-            </AppButton>
-            <AppButton
-              class="group-models__confirm-empty"
-              variant="secondary"
-              :busy="pending"
-              :disabled="pending"
-              @click="confirmEmptyReplace"
-            >
-              {{ t('group.modelEditor.emptyConfirm.confirm') }}
-            </AppButton>
-          </div>
-        </AppDialog>
-        <AppButton
-          v-else
-          :busy="pendingAction === 'save'"
-          :disabled="pending || !changed"
-          @click="requestSave"
-        >
-          <Save :size="16" aria-hidden="true" />{{ t('group.modelEditor.save') }}
-        </AppButton>
-      </div>
-    </header>
+      </header>
 
-    <div v-if="discoveryError === 'no-active-key'" class="group-models__no-key" role="alert">
-      <TriangleAlert :size="18" aria-hidden="true" />
-      <div>
-        <strong>{{ t('group.modelEditor.noActiveKey.title') }}</strong>
-        <p>{{ t('group.modelEditor.noActiveKey.description') }}</p>
-        <div class="group-models__guidance-actions">
-          <RouterLink class="button-link" :to="groupDetailLocation(groupId, { tab: 'keys' })">
-            {{ t('group.modelEditor.noActiveKey.keysAction') }}
-          </RouterLink>
-          <RouterLink
-            class="button-link button-link--secondary"
-            :to="importLocation({ mode: 'existing', group_id: groupId })"
-          >
-            {{ t('group.modelEditor.noActiveKey.importAction') }}
-          </RouterLink>
-        </div>
-      </div>
-    </div>
-    <InlineFeedback v-else-if="discoveryError === 'bad-gateway'" tone="warning">
-      {{ t('group.modelEditor.badGateway') }}
-    </InlineFeedback>
-    <InlineFeedback v-else-if="discoveryError === 'generic'" tone="warning">
-      {{ t('group.modelEditor.discoveryFailed') }}
-    </InlineFeedback>
-    <InlineFeedback v-if="saveError && !emptyConfirmOpen" tone="danger">
-      {{ t('group.modelEditor.saveFailed') }}
-    </InlineFeedback>
-    <InlineFeedback v-if="removals" tone="warning">
-      {{ t('group.modelEditor.removalWarning') }}
-    </InlineFeedback>
+      <InlineFeedback v-if="error" tone="danger">{{ error }}</InlineFeedback>
+      <InlineFeedback v-if="conflicts.length" tone="danger">{{
+        t('group.modelEditor.conflictSummary')
+      }}</InlineFeedback>
 
-    <ModelDraftEditor :model-value="draft" :disabled="pending" @update:model-value="updateDraft">
-      <template #status="{ index }">
-        <StatusBadge :tone="statusTone(index)">
-          {{ statusLabel(index) }}
-        </StatusBadge>
-      </template>
-    </ModelDraftEditor>
+      <div class="group-models__summary" aria-live="polite">
+        <span>{{ t('group.modelEditor.total', { count: draft.length }) }}</span>
+        <span v-if="unpriced">{{ t('group.modelEditor.unpriced', { count: unpriced }) }}</span>
+      </div>
+      <div class="group-models__table-wrap">
+        <table class="group-models__table">
+          <caption class="sr-only">
+            {{
+              t('group.modelEditor.tableLabel')
+            }}
+          </caption>
+          <thead>
+            <tr>
+              <th>{{ t('group.modelEditor.id') }}</th>
+              <th>{{ t('group.modelEditor.alias') }}</th>
+              <th>{{ t('group.modelEditor.pricing') }}</th>
+              <th>
+                <span class="sr-only">{{ t('group.modelEditor.actions') }}</span>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              v-for="(item, index) in draft"
+              :key="item.key"
+              :class="{ 'group-models__row--conflict': conflictIndexes.has(index) }"
+            >
+              <td>
+                <code>{{ item.id }}</code>
+              </td>
+              <td>
+                <div class="group-models__alias">
+                  <label
+                    ><span class="sr-only">{{
+                      t('group.modelEditor.aliasEnabledFor', { id: item.id })
+                    }}</span
+                    ><input
+                      type="checkbox"
+                      :checked="item.alias_enabled"
+                      :disabled="pending !== null"
+                      @change="
+                        updateRow(index, {
+                          alias_enabled: ($event.target as HTMLInputElement).checked,
+                        })
+                      "
+                  /></label>
+                  <input
+                    :value="item.alias"
+                    :disabled="pending !== null || !item.alias_enabled"
+                    :placeholder="t('group.modelEditor.aliasPlaceholder')"
+                    :aria-invalid="conflictIndexes.has(index) || undefined"
+                    @input="updateRow(index, { alias: ($event.target as HTMLInputElement).value })"
+                  />
+                </div>
+                <small v-if="conflictIndexes.has(index)" class="group-models__error">{{
+                  conflictMessage(index)
+                }}</small>
+                <small v-else-if="emptyAliasIndexes.has(index)" class="group-models__error">{{
+                  t('group.modelEditor.aliasRequired')
+                }}</small>
+              </td>
+              <td>
+                <span
+                  :class="[
+                    'group-models__pricing',
+                    `group-models__pricing--${item.pricing_status}`,
+                  ]"
+                  >{{ t(`group.modelEditor.pricingStatus.${item.pricing_status}`) }}</span
+                >
+              </td>
+              <td>
+                <AppButton
+                  variant="ghost"
+                  size="compact"
+                  :disabled="pending !== null"
+                  :aria-label="t('group.modelEditor.removeFor', { id: item.id })"
+                  @click="removeRow(index)"
+                  ><Trash2 :size="16" aria-hidden="true"
+                /></AppButton>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="group-models__add">
+        <input
+          v-model="manualID"
+          :disabled="pending !== null"
+          :placeholder="t('group.modelEditor.manualId')"
+          @keydown.enter.prevent="addManual"
+        /><AppButton
+          variant="secondary"
+          :disabled="pending !== null || !manualID.trim()"
+          @click="addManual"
+          ><Plus :size="16" aria-hidden="true" />{{ t('group.modelEditor.add') }}</AppButton
+        >
+      </div>
+
+      <AppDrawer
+        :open="drawerOpen"
+        :title="t('group.modelEditor.drawer.title')"
+        :description="t('group.modelEditor.drawer.description')"
+        :close-label="t('group.modelEditor.drawer.close')"
+        :dismissible="pending !== 'discover'"
+        @update:open="drawerOpen = $event"
+      >
+        <QueryFeedback
+          v-if="pending === 'discover'"
+          state="loading"
+          :message="t('group.modelEditor.drawer.loading')"
+        />
+        <InlineFeedback v-else-if="error" tone="danger">{{ error }}</InlineFeedback>
+        <template v-else
+          ><p>{{ t('group.modelEditor.drawer.notice') }}</p>
+          <label v-for="candidate in candidates" :key="candidate" class="group-models__candidate"
+            ><input v-model="selectedCandidates" type="checkbox" :value="candidate" />
+            <code>{{ candidate }}</code></label
+          ><InlineFeedback v-if="!candidates.length" tone="warning">{{
+            t('group.modelEditor.drawer.empty')
+          }}</InlineFeedback>
+          <div class="group-models__drawer-actions">
+            <AppButton variant="secondary" @click="drawerOpen = false">{{
+              t('common.cancel')
+            }}</AppButton
+            ><AppButton :disabled="!selectedCandidates.length" @click="confirmCandidates">{{
+              t('group.modelEditor.drawer.confirm')
+            }}</AppButton>
+          </div></template
+        >
+      </AppDrawer>
+
+      <AppDialog
+        :open="emptyConfirmOpen"
+        :title="t('group.modelEditor.emptyConfirm.title')"
+        :description="t('group.modelEditor.emptyConfirm.description')"
+        :close-label="t('group.modelEditor.emptyConfirm.close')"
+        :dismissible="pending === null"
+        @update:open="emptyConfirmOpen = $event"
+        ><div class="group-models__drawer-actions">
+          <AppButton variant="secondary" @click="emptyConfirmOpen = false">{{
+            t('common.cancel')
+          }}</AppButton
+          ><AppButton variant="danger" :busy="pending === 'save'" @click="save">{{
+            t('group.modelEditor.emptyConfirm.confirm')
+          }}</AppButton>
+        </div></AppDialog
+      >
+
+      <StickySaveBar
+        :dirty="dirty"
+        :pending="pending === 'save'"
+        :status="error ? 'error' : 'idle'"
+        :error="error"
+        ><template #status
+          ><span>{{
+            dirty ? t('group.modelEditor.unsaved') : t('group.modelEditor.saved')
+          }}</span></template
+        ><template #discard="{ disabled }"
+          ><AppButton variant="secondary" :disabled="disabled || !dirty" @click="discard">{{
+            t('common.discard')
+          }}</AppButton></template
+        ><template #save="{ disabled }"
+          ><AppButton :disabled="disabled || !canSave" @click="requestSave">{{
+            t('group.modelEditor.save')
+          }}</AppButton></template
+        ></StickySaveBar
+      >
+    </template>
   </section>
 </template>
 
 <style scoped>
 .group-models {
   display: grid;
+  gap: var(--space-4);
   min-width: 0;
-  gap: var(--space-4);
 }
-.group-models__header {
+.group-models__header,
+.group-models__add,
+.group-models__drawer-actions {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: var(--space-4);
+  gap: var(--space-3);
 }
 .group-models__header h2,
-.group-models__header p,
-.group-models__no-key p {
+.group-models__header p {
   margin: 0;
 }
-.group-models__header h2 {
-  font-size: 1.125rem;
-}
 .group-models__header p,
-.group-models__no-key p {
-  margin-top: var(--space-1);
+.group-models__drawer-actions + p {
   color: var(--color-text-muted);
 }
-.group-models__actions,
-.group-models__guidance-actions,
-.group-models__dialog-actions {
+.group-models__summary {
   display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-}
-.group-models__actions :deep(.app-button) {
-  gap: var(--space-2);
-}
-.group-models__no-key {
-  display: grid;
-  grid-template-columns: auto 1fr;
   gap: var(--space-3);
-  border: 1px solid color-mix(in srgb, var(--color-warning) 38%, var(--color-border-subtle));
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+.group-models__table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-card);
-  background: var(--color-warning-bg);
-  color: var(--color-warning);
-  padding: var(--space-4);
 }
-.group-models__guidance-actions {
-  margin-top: var(--space-3);
+.group-models__table {
+  width: 100%;
+  min-width: 620px;
+  border-collapse: collapse;
 }
-.group-models__guidance-actions .button-link {
-  min-height: 44px;
+.group-models__table th,
+.group-models__table td {
+  border-bottom: 1px solid var(--color-border-subtle);
+  padding: var(--space-3);
+  text-align: left;
 }
-.group-models__dialog-actions {
-  justify-content: flex-end;
+.group-models__table th {
+  color: var(--color-text-muted);
+  font-size: var(--text-meta);
+  font-weight: 650;
 }
-.group-models__confirm-empty {
-  border-color: var(--color-danger);
+.group-models__table tr:last-child td {
+  border-bottom: 0;
+}
+.group-models__row--conflict {
+  background: var(--color-danger-bg);
+}
+.group-models__alias {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.group-models__alias input[type='text'],
+.group-models__add input {
+  width: 100%;
+  min-height: var(--control-md);
+  border: 1px solid var(--color-border-control);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-sunken);
+  color: var(--color-text);
+  padding: 0 var(--space-3);
+  font: inherit;
+}
+.group-models__error {
   color: var(--color-danger);
 }
+.group-models__pricing--priced {
+  color: var(--color-success);
+}
+.group-models__pricing--unpriced {
+  color: var(--color-warning);
+}
+.group-models__add {
+  justify-content: flex-start;
+}
+.group-models__add input {
+  max-width: 360px;
+  font-family: var(--font-mono);
+}
+.group-models__candidate {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  gap: var(--space-2);
+}
+.group-models__drawer-actions {
+  margin-top: var(--space-4);
+  justify-content: flex-end;
+}
 @media (max-width: 640px) {
-  .group-models__header {
+  .group-models__header,
+  .group-models__add {
     align-items: stretch;
     flex-direction: column;
   }
-  .group-models__actions :deep(.app-button),
-  .group-models__actions :deep(.app-dialog__trigger) {
-    width: 100%;
+  .group-models__add input {
+    max-width: none;
   }
 }
 </style>

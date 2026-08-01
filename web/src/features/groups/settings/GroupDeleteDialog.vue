@@ -10,7 +10,7 @@ import { deleteGroup, isGroupInUseData, type AccessKeyReferenceDto } from '@/app
 import { ApiError, RequestCancelledError } from '@/api/errors'
 import { controlQueryKeys } from '@/app/query-keys'
 import { applyInvalidationPlan, mutationInvalidationPlans } from '@/app/resources/invalidation'
-import { homeLocation } from '@/app/route-locations'
+import { groupsLocation } from '@/app/route-locations'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppDialog from '@/components/ui/AppDialog.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
@@ -67,8 +67,20 @@ async function confirmDelete(): Promise<void> {
       queryKey: controlQueryKeys.groups.keysAll(props.groupId),
       exact: true,
     })
+    queryClient.removeQueries({
+      queryKey: controlQueryKeys.groups.settings(props.groupId),
+      exact: true,
+    })
+    queryClient.removeQueries({
+      queryKey: controlQueryKeys.groups.models(props.groupId),
+      exact: true,
+    })
+    queryClient.removeQueries({
+      queryKey: controlQueryKeys.groups.summary(props.groupId),
+      exact: true,
+    })
     await applyInvalidationPlan(queryClient, mutationInvalidationPlans.group.delete)
-    await router.replace(homeLocation())
+    await router.replace(groupsLocation())
   } catch (error: unknown) {
     if (error instanceof RequestCancelledError) return
     if (

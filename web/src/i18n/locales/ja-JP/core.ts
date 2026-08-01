@@ -15,6 +15,7 @@ export default {
     reveal: 'キーを表示',
     conceal: 'キーを隠す',
     cancel: 'キャンセル',
+    discard: '変更を破棄',
     close: '閉じる',
     asyncLoading: 'このセクションを読み込んでいます…',
     asyncLoadFailed: 'このセクションを読み込めません。ページを再読み込みしてください。',
