@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
-import { LockKeyhole } from '@lucide/vue'
 import { computed, nextTick, onBeforeUnmount, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
@@ -19,7 +18,6 @@ import AppButton from '@/components/ui/AppButton.vue'
 import AppSelect from '@/components/ui/AppSelect.vue'
 import FormField from '@/components/ui/FormField.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
-import StatusBadge from '@/components/ui/StatusBadge.vue'
 
 import ImportOperationNotice from './ImportOperationNotice.vue'
 import { useImportOperationOwner } from './import-operation-owner'
@@ -110,6 +108,19 @@ const selectorOptions = computed(() => [
     label: t('import.existing.groupOption', { id: group.id, name: group.name }),
   })),
 ])
+const fixedSelectorOptions = computed(() =>
+  fixedGroup.value
+    ? [
+        {
+          value: String(fixedGroup.value.id),
+          label: t('import.existing.groupOption', {
+            id: fixedGroup.value.id,
+            name: fixedGroup.value.name,
+          }),
+        },
+      ]
+    : [],
+)
 const keyAnalysis = computed(() => analyzeKeys(keys.value))
 const canSubmit = computed(
   () =>
@@ -232,33 +243,27 @@ onBeforeUnmount(() => {
       @abandon="abandonOperation"
     />
 
-    <InlineFeedback tone="info" appearance="hint">
+    <InlineFeedback tone="neutral" appearance="ledger-hint" glyph="i">
       {{ t('import.existing.description') }}
     </InlineFeedback>
 
     <section class="existing-import__target" aria-labelledby="existing-target-heading">
       <header class="existing-import__section-header">
-        <div>
-          <h2 id="existing-target-heading">{{ t('import.existing.title') }}</h2>
-          <p>
-            {{
-              t(
-                hasLockedTarget
-                  ? 'import.existing.fixedDescription'
-                  : 'import.existing.selectorDescription',
-              )
-            }}
-          </p>
+        <h2 id="existing-target-heading">{{ t('import.existing.title') }}</h2>
+        <div class="existing-import__section-actions">
+          <span v-if="groupsQuery.data.value" class="existing-import__group-count">
+            {{ t('import.existing.groupCount', { count: groupsQuery.data.value.length }) }}
+          </span>
+          <AppButton
+            v-if="canReturnToSelector"
+            variant="secondary"
+            size="compact"
+            :disabled="payloadLocked"
+            @click="returnToSelector"
+          >
+            {{ t('import.existing.backToSelector') }}
+          </AppButton>
         </div>
-        <AppButton
-          v-if="canReturnToSelector"
-          variant="secondary"
-          size="compact"
-          :disabled="payloadLocked"
-          @click="returnToSelector"
-        >
-          {{ t('import.existing.backToSelector') }}
-        </AppButton>
       </header>
 
       <template v-if="!hasLockedTarget">
@@ -281,26 +286,28 @@ onBeforeUnmount(() => {
           <InlineFeedback v-if="groupsQuery.data.value?.length === 0" tone="info">
             {{ t('import.existing.groupsEmpty') }}
           </InlineFeedback>
-          <FormField
-            v-else
-            id="existing-group-select"
-            :label="t('import.existing.groupLabel')"
-            :description="t('import.existing.selectorHelp')"
-            required
-            :required-text="t('import.required')"
-          >
-            <template #default="field">
-              <AppSelect
-                id="existing-group-select"
-                :model-value="selectorPlaceholder"
-                :label="t('import.existing.groupLabel')"
-                :options="selectorOptions"
-                :disabled="payloadLocked"
-                :aria-describedby="field.describedBy"
-                @update:model-value="selectGroup"
-              />
-            </template>
-          </FormField>
+          <div v-else class="existing-import__target-body">
+            <FormField
+              id="existing-group-select"
+              :label="t('import.existing.groupLabel')"
+              required
+              :required-text="t('import.required')"
+              size="compact"
+            >
+              <template #default="field">
+                <AppSelect
+                  id="existing-group-select"
+                  :model-value="selectorPlaceholder"
+                  :label="t('import.existing.groupLabel')"
+                  :options="selectorOptions"
+                  size="sm"
+                  :disabled="payloadLocked"
+                  :aria-describedby="field.describedBy"
+                  @update:model-value="selectGroup"
+                />
+              </template>
+            </FormField>
+          </div>
         </template>
       </template>
 
@@ -329,49 +336,52 @@ onBeforeUnmount(() => {
         <InlineFeedback v-if="summaryQuery.isError.value" tone="warning">
           {{ t('import.existing.targetStale') }}
         </InlineFeedback>
-        <div class="existing-import__locked-heading">
-          <LockKeyhole :size="18" aria-hidden="true" />
-          <strong>#{{ fixedGroup.id }} · {{ fixedGroup.name }}</strong>
-          <span>{{ t('import.existing.targetLocked') }}</span>
-        </div>
-        <dl class="existing-import__summary">
-          <div>
-            <dt>{{ t('import.existing.status') }}</dt>
-            <dd>
-              <StatusBadge :status="fixedGroup.service_status">
-                {{ t(`groups.collection.status.${fixedGroup.service_status}`) }}
-              </StatusBadge>
-            </dd>
-          </div>
-          <div>
-            <dt>{{ t('import.existing.upstream') }}</dt>
-            <dd>
-              <code>{{ fixedGroup.upstream_url }}</code>
-            </dd>
-          </div>
-          <div>
-            <dt>{{ t('import.existing.protocols') }}</dt>
-            <dd class="existing-import__protocols">
-              <code v-for="protocol in fixedGroup.protocols" :key="protocol">{{ protocol }}</code>
-            </dd>
-          </div>
-          <div>
-            <dt>{{ t('import.existing.modelsAndKeys') }}</dt>
-            <dd>
+        <div class="existing-import__target-body">
+          <FormField
+            id="existing-group-fixed"
+            :label="t('import.existing.groupLabel')"
+            required
+            :required-text="t('import.required')"
+            size="compact"
+          >
+            <template #default="field">
+              <AppSelect
+                id="existing-group-fixed"
+                class="existing-import__fixed-select"
+                :model-value="String(fixedGroup.id)"
+                :label="t('import.existing.groupLabel')"
+                :options="fixedSelectorOptions"
+                size="sm"
+                disabled
+                :aria-describedby="field.describedBy"
+              />
+            </template>
+          </FormField>
+          <div class="existing-import__group-meta">
+            <strong>
               {{
-                t('import.existing.modelsAndKeysSummary', {
+                t('import.existing.groupMeta', {
+                  id: fixedGroup.id,
                   models: fixedGroup.model_count,
-                  keys: fixedGroup.key_count,
                 })
               }}
-            </dd>
+            </strong>
+            <span>{{ t('import.existing.groupUnchanged') }}</span>
           </div>
-        </dl>
+        </div>
       </template>
     </section>
 
     <template v-if="!hasLockedTarget || fixedGroup">
-      <KeyTextarea v-model="keys" :disabled="payloadLocked" />
+      <KeyTextarea
+        v-model="keys"
+        :disabled="payloadLocked"
+        :show-header-description="false"
+        :storage-description="t('import.existing.keyStorageNotice')"
+        :duplicate-label="t('import.existing.batchDuplicates')"
+        :show-upstream-notice="false"
+        :rows="8"
+      />
 
       <div v-if="errorKey" ref="submissionError" class="existing-import__error" tabindex="-1">
         <InlineFeedback tone="danger">{{ t(errorKey) }}</InlineFeedback>
@@ -382,7 +392,7 @@ onBeforeUnmount(() => {
           <strong>{{ actionSummary }}</strong>
           <span>{{ t('import.existing.actionHelp') }}</span>
         </div>
-        <AppButton :busy="pending" :disabled="!canSubmit" @click="submit">
+        <AppButton size="sm" :busy="pending" :disabled="!canSubmit" @click="submit">
           {{ t('import.existing.submit') }}
         </AppButton>
       </footer>
@@ -400,15 +410,20 @@ onBeforeUnmount(() => {
 }
 
 .existing-import > .inline-feedback {
-  margin-top: var(--space-5);
+  margin-top: 22px;
+  border-bottom: 1px solid var(--color-border-subtle);
+  color: var(--color-text-muted);
+  padding-bottom: 18px;
+  font-size: 11px;
+  line-height: 1.55;
 }
 
 .existing-import__target {
   display: grid;
-  gap: var(--space-4);
+  gap: var(--space-3);
   min-width: 0;
   border-bottom: 1px solid var(--color-border-subtle);
-  padding: var(--space-5) 0 var(--space-6);
+  padding: 22px 0 var(--space-6);
 }
 
 .existing-import__section-header {
@@ -418,8 +433,7 @@ onBeforeUnmount(() => {
   gap: var(--space-4);
 }
 
-.existing-import__section-header h2,
-.existing-import__section-header p {
+.existing-import__section-header h2 {
   margin: 0;
 }
 
@@ -429,18 +443,49 @@ onBeforeUnmount(() => {
   font-weight: 500;
 }
 
-.existing-import__section-header p {
-  margin-top: var(--space-1);
-  color: var(--color-text-muted);
-  font-size: var(--text-sm);
+.existing-import__section-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
 }
 
-.existing-import__target :deep(.form-field) {
-  max-width: 620px;
+.existing-import__group-count {
+  display: inline-flex;
+  min-height: 23px;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  background: var(--color-neutral-bg);
+  color: var(--color-neutral);
+  padding: 2px var(--space-2);
+  font-size: var(--text-label-xs);
+  font-weight: 590;
+  white-space: nowrap;
 }
 
-.existing-import__target :deep(.app-select__trigger) {
+.existing-import__group-count::before {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 50%;
+  background: currentColor;
+  content: '';
+}
+
+.existing-import__target-body {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.66fr) minmax(300px, 1fr);
+  align-items: end;
+  gap: 18px;
+}
+
+.existing-import__target-body :deep(.app-select__trigger) {
   width: 100%;
+}
+
+.existing-import__target-body :deep(.existing-import__fixed-select[data-disabled]) {
+  cursor: default;
+  opacity: 1;
 }
 
 .existing-import__query-error {
@@ -454,70 +499,17 @@ onBeforeUnmount(() => {
   flex: 1;
 }
 
-.existing-import__locked-heading {
+.existing-import__group-meta {
   display: flex;
+  min-height: var(--control-xs);
   min-width: 0;
   align-items: center;
-  gap: var(--space-2);
-  color: var(--color-text);
-}
-
-.existing-import__locked-heading strong {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
-.existing-import__locked-heading > span {
-  flex: none;
-  border-radius: var(--radius-tag);
-  background: var(--color-neutral-bg);
-  color: var(--color-neutral);
-  padding: var(--space-1) var(--space-2);
-  font-size: var(--text-label-xs);
-  font-weight: 600;
-}
-
-.existing-import__summary {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  margin: 0;
-  border-top: 1px solid var(--color-border-subtle);
+  justify-content: flex-start;
+  gap: var(--space-4);
   border-left: 1px solid var(--color-border-subtle);
-}
-
-.existing-import__summary > div {
-  min-width: 0;
-  border-right: 1px solid var(--color-border-subtle);
-  border-bottom: 1px solid var(--color-border-subtle);
-  padding: var(--space-3);
-}
-
-.existing-import__summary dt {
   color: var(--color-text-faint);
-  font-size: var(--text-label-xs);
-}
-
-.existing-import__summary dd {
-  margin: var(--space-1) 0 0;
-  overflow-wrap: anywhere;
-}
-
-.existing-import__summary code {
-  font-family: var(--font-mono);
-}
-
-.existing-import__protocols {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-1);
-}
-
-.existing-import__protocols code {
-  border-radius: var(--radius-tag);
-  background: var(--color-surface-sunken);
-  padding: var(--space-1) var(--space-2);
-  color: var(--color-text-muted);
-  font-size: var(--text-label-xs);
+  padding-left: 18px;
+  font-size: 10.8px;
 }
 
 .existing-import__error {
@@ -530,13 +522,14 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   gap: var(--space-4);
+  min-height: 64px;
   padding: var(--space-4) 0 0;
 }
 
 .existing-import__actions > div {
   min-width: 0;
-  color: var(--color-text-muted);
-  font-size: var(--text-sm);
+  color: var(--color-text-faint);
+  font-size: var(--text-label-xs);
 }
 
 .existing-import__actions strong,
@@ -545,28 +538,41 @@ onBeforeUnmount(() => {
 }
 
 .existing-import__actions strong {
-  color: var(--color-text);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
   font-weight: 560;
 }
 
 .existing-import__actions span {
-  margin-top: var(--space-1);
+  margin-top: 2px;
 }
 
-@media (max-width: 640px) {
-  .existing-import__section-header,
-  .existing-import__query-error,
+@media (max-width: 860px) {
   .existing-import__actions {
     align-items: stretch;
     flex-direction: column;
   }
 
-  .existing-import__summary {
+  .existing-import__target-body {
     grid-template-columns: 1fr;
+  }
+
+  .existing-import__group-meta {
+    border-left: 0;
+    padding-left: 0;
   }
 
   .existing-import__actions :deep(.app-button) {
     min-height: var(--touch-target);
+  }
+}
+
+@media (max-width: 640px) {
+  .existing-import__section-header,
+  .existing-import__section-actions,
+  .existing-import__query-error {
+    align-items: stretch;
+    flex-direction: column;
   }
 }
 </style>

@@ -16,7 +16,7 @@ withDefaults(
     idPrefix?: string
     scrollable?: boolean
     appearance?: 'joined' | 'pills' | 'drawer'
-    size?: 'compact' | 'touch'
+    size?: 'sm' | 'compact' | 'touch'
   }>(),
   {
     controlsId: undefined,
@@ -118,6 +118,12 @@ function handleSegmentKeydown(event: KeyboardEvent): void {
   min-height: 36px;
   padding: 5px 12px;
 }
+.segmented-control__list--sm .segmented-control__trigger {
+  min-width: 78px;
+  min-height: var(--control-sm);
+  padding: 5px 12px;
+  font-size: var(--text-meta);
+}
 .segmented-control__trigger {
   flex: none;
   min-height: 0;
@@ -159,22 +165,27 @@ function handleSegmentKeydown(event: KeyboardEvent): void {
   color: var(--color-surface);
   font-weight: 560;
 }
+.segmented-control__list--sm .segmented-control__trigger[data-state='active'] {
+  font-weight: 650;
+}
 .segmented-control__list--pills .segmented-control__trigger[data-state='active'] {
   border-color: var(--color-text);
 }
 .segmented-control__list--drawer {
+  min-height: var(--control-xs);
   border-color: var(--color-border-control);
-  border-radius: 5px;
+  border-radius: var(--radius-control);
+  padding: 2px;
 }
 .segmented-control__list--drawer .segmented-control__trigger {
-  min-width: 52px;
-  min-height: 27px;
-  height: 27px;
+  min-width: 48px;
+  min-height: 26px;
+  height: 26px;
   border: 0;
   border-radius: 5px;
-  padding: 0 8px;
+  padding: 0 9px;
   color: var(--color-text-faint);
-  font-size: var(--text-label-xs);
+  font-size: var(--text-sm);
 }
 .segmented-control__list--drawer
   .segmented-control__trigger:hover:not(:disabled):not([data-state='active']) {

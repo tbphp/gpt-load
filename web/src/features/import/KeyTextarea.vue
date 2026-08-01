@@ -7,7 +7,25 @@ import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 
 import { analyzeKeys } from './key-analysis'
 
-const props = defineProps<{ modelValue: string; disabled?: boolean }>()
+const props = withDefaults(
+  defineProps<{
+    modelValue: string
+    disabled?: boolean
+    showHeaderDescription?: boolean
+    storageDescription?: string
+    duplicateLabel?: string
+    showUpstreamNotice?: boolean
+    rows?: number
+  }>(),
+  {
+    disabled: false,
+    showHeaderDescription: true,
+    storageDescription: undefined,
+    duplicateLabel: undefined,
+    showUpstreamNotice: true,
+    rows: 6,
+  },
+)
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
 const { t } = useI18n()
 const analysis = computed(() => analyzeKeys(props.modelValue))
@@ -18,7 +36,10 @@ const error = computed(() => {
 const counters = computed(() => [
   { value: analysis.value.nonEmptyCount, label: t('import.keys.counters.nonEmpty') },
   { value: analysis.value.emptyLineCount, label: t('import.keys.counters.empty') },
-  { value: analysis.value.duplicateCount, label: t('import.keys.counters.duplicates') },
+  {
+    value: analysis.value.duplicateCount,
+    label: props.duplicateLabel ?? t('import.keys.counters.duplicates'),
+  },
   { value: analysis.value.likelyAccessKeyCount, label: t('import.keys.counters.accessKeys') },
 ])
 </script>
@@ -27,20 +48,22 @@ const counters = computed(() => [
   <section class="key-entry" aria-labelledby="upstream-keys-heading">
     <header>
       <h2 id="upstream-keys-heading">{{ t('import.keys.title') }}</h2>
-      <p>{{ t('import.keys.description') }}</p>
+      <p v-if="showHeaderDescription">{{ t('import.keys.description') }}</p>
     </header>
 
     <FormField
       id="upstream-keys"
       :label="t('import.keys.label')"
-      :description="t('import.keys.storageNotice')"
+      :description="storageDescription ?? t('import.keys.storageNotice')"
       :error="error"
       required
       :required-text="t('import.required')"
+      size="compact"
     >
       <template #default="field">
         <textarea
           id="upstream-keys"
+          :rows="rows"
           :value="modelValue"
           :disabled="disabled"
           :aria-invalid="field.invalid || undefined"
@@ -65,10 +88,21 @@ const counters = computed(() => [
       </div>
     </div>
 
-    <InlineFeedback v-if="analysis.likelyAccessKeyCount" tone="warning" appearance="hint">
+    <InlineFeedback
+      v-if="analysis.likelyAccessKeyCount"
+      class="key-entry__warning"
+      tone="warning"
+      appearance="hint"
+    >
       {{ t('import.keys.accessKeyWarning', { count: analysis.likelyAccessKeyCount }) }}
     </InlineFeedback>
-    <InlineFeedback tone="info" appearance="hint">
+    <InlineFeedback
+      v-if="showUpstreamNotice"
+      class="key-entry__note"
+      tone="neutral"
+      appearance="ledger-hint"
+      glyph="i"
+    >
       {{ t('import.keys.upstreamKeyNotice') }}
     </InlineFeedback>
   </section>
@@ -77,10 +111,10 @@ const counters = computed(() => [
 <style scoped>
 .key-entry {
   display: grid;
-  gap: var(--space-4);
+  gap: 0;
   min-width: 0;
   border-bottom: 1px solid var(--color-border-subtle);
-  padding: var(--space-5) 0 var(--space-6);
+  padding: 22px 0 var(--space-6);
 }
 
 .key-entry > header h2,
@@ -95,30 +129,39 @@ const counters = computed(() => [
 }
 
 .key-entry > header p {
-  margin-top: var(--space-1);
-  color: var(--color-text-muted);
+  margin-top: 3px;
+  color: var(--color-text-faint);
   font-size: var(--text-sm);
 }
 
+.key-entry > header {
+  margin-bottom: var(--space-3);
+}
+
 .key-entry :deep(textarea) {
-  min-height: calc(var(--space-6) * 6);
-  background: var(--color-surface-sunken);
+  min-height: 124px;
+  background: var(--color-surface);
+  padding: 9px 10px;
   font-family: var(--font-mono);
-  line-height: var(--line-normal);
+  font-size: var(--text-meta);
+  line-height: 1.65;
 }
 
 .key-entry__counters {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   overflow: hidden;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-control);
+  margin-top: 18px;
+  border-block: 1px solid var(--color-border-subtle);
+  border-radius: 0;
   gap: 0;
 }
 
 .key-entry__counters > div {
-  background: var(--color-surface-sunken);
-  padding: var(--space-2) var(--space-3);
+  min-height: 56px;
+  background: transparent;
+  padding: 9px 10px;
+  line-height: 1.55;
 }
 
 .key-entry__counters > div + div {
@@ -132,25 +175,32 @@ const counters = computed(() => [
 
 .key-entry__counters strong {
   font-family: var(--font-mono);
-  font-size: var(--text-body);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.key-entry__warning {
+  margin-top: 18px;
+  font-size: 11px;
+}
+
+.key-entry__note {
+  margin-top: 18px;
+  font-size: 10.8px;
 }
 
 .key-entry__counters span {
-  margin-top: var(--space-1);
   color: var(--color-text-faint);
-  font-size: var(--text-label-xs);
+  font-size: 9.5px;
 }
 
-@media (max-width: 560px) {
+@media (max-width: 520px) {
   .key-entry__counters {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: 1fr;
   }
 
-  .key-entry__counters > div:nth-child(odd) {
+  .key-entry__counters > div + div {
     border-left: 0;
-  }
-
-  .key-entry__counters > div:nth-child(n + 3) {
     border-top: 1px solid var(--color-border-subtle);
   }
 }

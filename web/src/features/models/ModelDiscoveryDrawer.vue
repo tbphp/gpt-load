@@ -58,8 +58,8 @@ const allVisibleSelected = computed(
     selectableVisibleCandidates.value.every((candidate) => selected.value.has(candidate)),
 )
 const filterOptions = computed(() => [
-  { value: 'unadded', label: props.labels.filterUnadded },
   { value: 'all', label: props.labels.filterAll },
+  { value: 'unadded', label: props.labels.filterUnadded },
 ])
 
 watch(
@@ -120,6 +120,7 @@ function confirm(): void {
 
 <template>
   <AppDrawer
+    appearance="ledger"
     :open="open"
     :title="labels.title"
     :description="labels.description"
@@ -128,6 +129,26 @@ function confirm(): void {
     show-description
     @update:open="emit('update:open', $event)"
   >
+    <template #filters>
+      <AppTextInput
+        v-model="search"
+        class="model-discovery-drawer__search"
+        type="search"
+        appearance="surface"
+        size="compact"
+        :label="labels.search"
+        :placeholder="labels.search"
+      >
+        <template #leading><Search :size="15" /></template>
+      </AppTextInput>
+      <SegmentedControl
+        :model-value="filter"
+        :label="labels.filterLabel"
+        :options="filterOptions"
+        appearance="drawer"
+        @update:model-value="setFilter"
+      />
+    </template>
     <div class="model-discovery-drawer" :aria-busy="loading ? 'true' : undefined">
       <div v-if="loading" class="model-discovery-drawer__state">
         <QueryFeedback state="loading" :message="labels.loading" />
@@ -141,27 +162,6 @@ function confirm(): void {
         />
       </div>
       <template v-else>
-        <p class="model-discovery-drawer__notice">{{ labels.notice }}</p>
-        <div class="model-discovery-drawer__filters">
-          <AppTextInput
-            v-model="search"
-            type="search"
-            appearance="sunken"
-            size="touch"
-            :label="labels.search"
-            :placeholder="labels.search"
-          >
-            <template #leading><Search :size="16" /></template>
-          </AppTextInput>
-          <SegmentedControl
-            :model-value="filter"
-            :label="labels.filterLabel"
-            :options="filterOptions"
-            size="touch"
-            @update:model-value="setFilter"
-          />
-        </div>
-
         <fieldset class="model-discovery-drawer__candidate-list">
           <legend class="sr-only">{{ labels.filterLabel }}</legend>
           <label
@@ -200,10 +200,15 @@ function confirm(): void {
           <span aria-live="polite">{{ labels.selected(selectedCandidates.length) }}</span>
         </div>
         <div class="model-discovery-drawer__actions">
-          <AppButton variant="secondary" :disabled="loading" @click="emit('update:open', false)">
+          <AppButton
+            variant="secondary"
+            size="sm"
+            :disabled="loading"
+            @click="emit('update:open', false)"
+          >
             {{ labels.cancel }}
           </AppButton>
-          <AppButton :disabled="loading || !selectedCandidates.length" @click="confirm">
+          <AppButton size="sm" :disabled="loading || !selectedCandidates.length" @click="confirm">
             {{ labels.confirm }}
           </AppButton>
         </div>
@@ -214,7 +219,13 @@ function confirm(): void {
 
 <style scoped>
 .model-discovery-drawer {
-  min-height: 320px;
+  min-height: 100%;
+}
+
+.model-discovery-drawer__search {
+  width: auto;
+  min-width: 0;
+  flex: 1;
 }
 
 .model-discovery-drawer__state {
@@ -223,43 +234,34 @@ function confirm(): void {
   align-items: start;
 }
 
-.model-discovery-drawer__notice {
-  margin: 0 0 var(--space-3);
-  color: var(--color-text-muted);
-}
-
-.model-discovery-drawer__filters {
-  display: grid;
-  gap: var(--space-3);
-  margin-bottom: var(--space-3);
-}
-
 .model-discovery-drawer__candidate-list {
   display: grid;
-  max-height: 420px;
   margin: 0;
-  overflow-y: auto;
   border: 0;
-  border-block: 1px solid var(--color-border-subtle);
   padding: 0;
 }
 
 .model-discovery-drawer__candidate {
   display: grid;
-  min-height: var(--touch-target);
+  min-height: 0;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: var(--space-2);
+  gap: 10px;
+  border-bottom: 1px solid var(--color-border-subtle);
+  padding: var(--space-3) 1px;
   cursor: pointer;
 }
 
-.model-discovery-drawer__candidate + .model-discovery-drawer__candidate {
-  border-top: 1px solid var(--color-border-subtle);
+.model-discovery-drawer__candidate input {
+  accent-color: var(--color-action);
 }
 
 .model-discovery-drawer__candidate code {
   min-width: 0;
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  font-size: var(--text-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .model-discovery-drawer__candidate > span {
@@ -290,14 +292,13 @@ function confirm(): void {
 }
 
 .model-discovery-drawer__selection :deep(.app-button) {
-  min-height: var(--touch-target);
+  min-height: 0;
+  padding: 4px 0;
+  font-size: var(--text-sm);
+  font-weight: 600;
 }
 
 @media (max-width: 520px) {
-  .model-discovery-drawer__filters {
-    align-items: stretch;
-  }
-
   .model-discovery-drawer__footer {
     align-items: stretch;
     flex-direction: column;

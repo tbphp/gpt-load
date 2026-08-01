@@ -18,7 +18,7 @@ const props = withDefaults(
     describedBy?: string
     clearLabel?: string
     appearance?: 'surface' | 'sunken'
-    size?: 'md' | 'lg' | 'touch'
+    size?: 'compact' | 'sm' | 'md' | 'lg' | 'touch'
     autocomplete?: string
     spellcheck?: boolean
     monospace?: boolean
@@ -127,6 +127,16 @@ defineExpose({ focus })
   min-height: var(--control-md);
 }
 
+.app-text-input--compact {
+  min-height: var(--control-xs);
+  font-size: var(--text-meta);
+}
+
+.app-text-input--sm {
+  min-height: var(--control-sm);
+  font-size: var(--text-meta);
+}
+
 .app-text-input--lg {
   min-height: var(--control-lg);
 }
@@ -169,6 +179,11 @@ defineExpose({ focus })
   font-family: var(--font-mono);
 }
 
+.app-text-input input::placeholder {
+  color: var(--color-text-faint);
+  opacity: 1;
+}
+
 .app-text-input__leading {
   display: inline-flex;
   flex: none;
@@ -178,5 +193,25 @@ defineExpose({ focus })
   width: var(--touch-target);
   height: var(--touch-target);
   flex: none;
+}
+
+.app-text-input--compact :deep(.icon-button) {
+  width: var(--control-compact);
+  height: var(--control-compact);
+}
+
+@media (max-width: 860px) {
+  .app-text-input--compact {
+    min-height: var(--touch-target);
+  }
+
+  .app-text-input--sm {
+    min-height: var(--touch-target);
+  }
+
+  .app-text-input--compact :deep(.icon-button) {
+    width: var(--touch-target);
+    height: var(--touch-target);
+  }
 }
 </style>

@@ -2,6 +2,7 @@ export default {
   import: {
     title: 'アップストリームキーをインポート',
     required: '必須',
+    optional: '任意',
     presets: {
       title: 'プロバイダープリセット',
       description: '一般的なプロバイダーを選ぶか、互換サービスをカタログから検索します',
@@ -42,7 +43,7 @@ export default {
         description: 'サードパーティモデル · OpenAI 互換',
       },
       more: {
-        name: 'その他のプリセット（{count}）',
+        name: 'その他のプリセット',
         description: 'サードパーティを検索するか、カスタム接続を使用します',
       },
       custom: {
@@ -67,7 +68,7 @@ export default {
       abandon: 'この操作を放棄',
     },
     existing: {
-      title: '既存 Group にインポート',
+      title: '対象 Group',
       description: 'モデル、プロトコル、設定を変更せず、アップストリームキーのみを追加します',
       selectorDescription: '追加先の Group を選択してからアップストリームキーを追加します',
       fixedDescription: 'この入口では追加先が固定され、アップストリームキーのみを追加します',
@@ -75,9 +76,12 @@ export default {
       groupsFailed: 'Group を読み込めません',
       groupsStale: 'Group の更新に失敗したため、キャッシュ結果を表示しています',
       groupsEmpty: '選択できる Group がありません',
-      groupLabel: 'インポート先 Group',
+      groupLabel: 'Group',
       groupPlaceholder: 'Group を選択',
       groupOption: '#{id} · {name}',
+      groupCount: 'Group {count} 件',
+      groupMeta: '#{id} · 公開モデル {models} 件',
+      groupUnchanged: 'その他の設定は変更しません',
       selectorHelp: '選択後は追加先を固定し、Group の概要を表示します',
       backToSelector: 'Group 選択に戻る',
       invalidGroupID: 'リンク内の Group ID が無効です',
@@ -94,14 +98,16 @@ export default {
       actionSummary: '{name} にキーを追加',
       actionSelectTarget: '先に追加先 Group を選択してください',
       actionHelp: 'モデル、プロトコル、設定を変更せず、アップストリームキーのみを追加します',
-      submit: 'キーをインポート',
+      keyStorageNotice: '送信後、サーバーが実際の追加数と既存の重複数を返します',
+      batchDuplicates: 'このバッチ内の重複',
+      submit: 'キーを追加',
       importFailed: '選択した Group にキーをインポートできません',
     },
     connection: {
       title: '接続情報',
       description:
         'プリセットが更新するのは URL とプロトコルだけで、名前、キー、モデルは保持されます',
-      name: 'Group 名（任意）',
+      name: 'Group 名',
       namePlaceholder: '空欄の場合はアップストリーム URL から生成します',
       url: 'アップストリームのベース URL',
       urlDescription: '末尾のスラッシュを正規化し、保存時に URL の競合を確認します',
@@ -119,7 +125,7 @@ export default {
     keys: {
       title: 'アップストリームキー',
       description: '1 行に 1 つ、最大 1,000 件 — 重複は二重に追加されません',
-      label: 'アップストリームキー',
+      label: 'キー内容',
       placeholder: '1 行に 1 つのキー',
       storageNotice:
         '平文は URL、ログ、通知に入りません — ログイン中断時は現在のセッションに最大 15 分だけ保持されます',
@@ -146,6 +152,7 @@ export default {
       source: '追加元',
       actions: '操作',
       search: 'モデルまたはエイリアスを検索',
+      searchLabel: '検索',
       clearSearch: 'モデル検索をクリア',
       aliasEnabledFor: '{id} のエイリアスを有効化',
       aliasPlaceholder: '公開モデル名を入力',
@@ -163,12 +170,25 @@ export default {
       },
       discoveryNotice:
         'モデル取得は追加候補だけを提示し、現在のモデルの上書きや削除、キーの保存は行いません',
+      discoveryReadOnlyNotice:
+        'モデル取得は候補一覧を読むだけで、Group の作成、キーの保存、推論リクエストは行いません',
       aliasFor: '{id} のエイリアス',
       manualId: '手動モデル ID',
+      manualIdRequired: 'モデル ID は必須です',
       add: 'モデルを追加',
+      addInline: 'モデルを 1 件追加',
+      count: 'モデル {count} 件',
+      discoveryStatus: {
+        complete: '取得完了',
+        completeDescription: 'モデルを {count} 件追加しました',
+        stale: '再取得が必要',
+        changed: '接続設定が変更されました',
+        staleNotice:
+          '現在のモデル一覧は保持されていますが、再取得が完了するまで Group を作成できません',
+      },
       drawer: {
         title: '上流モデルを取得',
-        description: 'クリック時点の接続スナップショットで候補を取得します',
+        description: '選択したモデルだけを追加し、現在の一覧は上書きしません',
         close: 'モデル一覧を閉じる',
         loading: '上流モデルを取得中…',
         notice: 'チェックしたモデルだけを追加し、現在の一覧は上書きしません',
@@ -186,10 +206,11 @@ export default {
         confirm: '現在の一覧に追加',
       },
     },
-    discover: 'モデルを検出',
+    discover: '上流モデルを取得',
     discoveryFailed: 'モデル検出に失敗しました — 下書きは保持され、再試行または手動入力できます',
     create: 'Group を作成',
     summary: 'キー {keys} 件 · プロトコル {protocols} 件 · モデル {models} 件',
+    summaryOptional: 'キー {keys} 件 · プロトコル {protocols} 件 · モデルは任意',
     actionHelp: 'Group 作成とキー追加を一括実行します — モデルは空でも構いません',
     createFailed: 'Group を作成できません',
     appendFailed: '選択した Group にキーをインポートできません',

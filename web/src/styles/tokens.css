@@ -62,6 +62,7 @@
   --text-display: var(--title-login);
   --line-compact: 1.25;
   --line-normal: 1.5;
+  --line-editorial: 1.55;
   --line-relaxed: 1.7;
 
   --topbar-height: 54px;
@@ -86,6 +87,7 @@
   --radius-control: 7px;
   --radius-tag: 6px;
   --control-compact: 30px;
+  --control-xs: 32px;
   --control-sm: 34px;
   --control-md: 38px;
   --control-lg: 42px;

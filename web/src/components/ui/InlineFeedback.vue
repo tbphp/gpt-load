@@ -3,20 +3,25 @@ import { computed } from 'vue'
 
 const props = withDefaults(
   defineProps<{
-    tone?: 'info' | 'success' | 'warning' | 'danger'
-    appearance?: 'default' | 'hint' | 'auth' | 'toast'
+    tone?: 'neutral' | 'info' | 'success' | 'warning' | 'danger'
+    appearance?: 'default' | 'hint' | 'ledger' | 'ledger-hint' | 'auth' | 'toast'
+    glyph?: string
   }>(),
   {
     tone: 'info',
     appearance: 'default',
+    glyph: undefined,
   },
 )
 
 const role = computed(() =>
-  props.tone === 'info' || props.tone === 'success' ? 'status' : 'alert',
+  props.tone === 'neutral' || props.tone === 'info' || props.tone === 'success'
+    ? 'status'
+    : 'alert',
 )
 const live = computed(() => (role.value === 'status' ? 'polite' : 'assertive'))
 const glyph = computed(() => {
+  if (props.glyph !== undefined) return props.glyph
   if (props.tone === 'success') return '✓'
   if (props.tone === 'danger' || props.tone === 'warning') return '▲'
   return 'i'
@@ -64,6 +69,12 @@ const glyph = computed(() => {
   color: var(--color-text-muted);
 }
 
+.inline-feedback--neutral {
+  border-color: var(--color-border-subtle);
+  background: var(--color-surface-sunken);
+  color: var(--color-text-muted);
+}
+
 .inline-feedback--success {
   border-color: var(--color-success);
   background: var(--color-success-bg);
@@ -97,6 +108,52 @@ const glyph = computed(() => {
 
 .inline-feedback--hint.inline-feedback--info {
   color: var(--color-action);
+}
+
+.inline-feedback--hint.inline-feedback--neutral {
+  color: var(--color-text-muted);
+}
+
+.inline-feedback--ledger {
+  border-radius: 6px;
+  padding: 9px 11px;
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.inline-feedback--ledger .inline-feedback__glyph,
+.inline-feedback--ledger-hint .inline-feedback__glyph {
+  width: 17px;
+  height: 17px;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  font-family: var(--font-serif);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.inline-feedback--ledger.inline-feedback--info {
+  border-color: color-mix(in srgb, var(--color-action) 33%, var(--color-border-subtle));
+  background: var(--color-action-soft);
+  color: var(--color-action);
+}
+
+.inline-feedback--ledger.inline-feedback--warning {
+  border-color: color-mix(in srgb, var(--color-warning) 36%, var(--color-border-subtle));
+}
+
+.inline-feedback--ledger.inline-feedback--danger {
+  border-color: color-mix(in srgb, var(--color-danger) 32%, var(--color-border-subtle));
+}
+
+.inline-feedback--ledger-hint {
+  gap: var(--space-2);
+  border: 0;
+  background: transparent;
+  color: var(--color-text-faint);
+  padding: 0;
+  font-size: 10.8px;
+  line-height: 1.6;
 }
 
 .inline-feedback--auth {

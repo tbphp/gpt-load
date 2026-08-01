@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Check, ChevronRight, Plus, Search } from '@lucide/vue'
+import { Check, Search } from '@lucide/vue'
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
@@ -29,14 +29,14 @@ const catalogSelected = computed(
   () => props.modelValue === 'custom' || selectedCatalogPreset.value !== undefined,
 )
 const catalogCardMark = computed(() =>
-  props.modelValue === 'custom' ? '···' : (selectedCatalogPreset.value?.mark ?? '+'),
+  props.modelValue === 'custom' ? '···' : (selectedCatalogPreset.value?.mark ?? '＋'),
 )
 const catalogCardName = computed(() =>
   props.modelValue === 'custom'
     ? t('import.presets.custom.name')
     : selectedCatalogPreset.value
       ? t(selectedCatalogPreset.value.nameKey)
-      : t('import.presets.more.name', { count: catalogProviderPresets.length }),
+      : t('import.presets.more.name'),
 )
 const catalogCardDescription = computed(() =>
   props.modelValue === 'custom'
@@ -102,7 +102,7 @@ function presetSelected(preset: ProviderPreset): boolean {
       >
         <span class="preset-picker__mark">{{ preset.mark }}</span>
         <strong>{{ t(preset.nameKey) }}</strong>
-        <span>{{ t(preset.descriptionKey) }}</span>
+        <span class="preset-picker__description">{{ t(preset.descriptionKey) }}</span>
         <Check
           v-if="presetSelected(preset)"
           class="preset-picker__selected-icon"
@@ -122,7 +122,10 @@ function presetSelected(preset: ProviderPreset): boolean {
       >
         <span class="preset-picker__mark">{{ catalogCardMark }}</span>
         <strong>{{ catalogCardName }}</strong>
-        <span>{{ catalogCardDescription }}</span>
+        <span class="preset-picker__description">{{ catalogCardDescription }}</span>
+        <span v-if="!catalogSelected" class="preset-picker__count">
+          {{ catalogProviderPresets.length }}
+        </span>
         <Check
           v-if="catalogSelected"
           class="preset-picker__selected-icon"
@@ -137,16 +140,16 @@ function presetSelected(preset: ProviderPreset): boolean {
         <AppTextInput
           v-model="search"
           type="search"
-          appearance="sunken"
-          size="touch"
+          appearance="surface"
+          size="compact"
           :label="t('import.presets.search')"
           :placeholder="t('import.presets.search')"
           :clear-label="t('import.presets.clearSearch')"
           :disabled="disabled"
         >
-          <template #leading><Search :size="16" /></template>
+          <template #leading><Search :size="15" /></template>
         </AppTextInput>
-        <AppButton variant="secondary" :disabled="disabled" @click="catalogOpen = false">
+        <AppButton variant="ghost" size="compact" :disabled="disabled" @click="catalogOpen = false">
           {{ t('import.presets.collapse') }}
         </AppButton>
       </div>
@@ -167,7 +170,7 @@ function presetSelected(preset: ProviderPreset): boolean {
               <strong>{{ t(preset.nameKey) }}</strong>
               <small>{{ t(preset.descriptionKey) }}</small>
             </span>
-            <ChevronRight :size="16" aria-hidden="true" />
+            <span aria-hidden="true">→</span>
           </button>
         </div>
       </div>
@@ -182,12 +185,12 @@ function presetSelected(preset: ProviderPreset): boolean {
         :disabled="disabled"
         @click="choose('custom')"
       >
-        <span class="preset-picker__mark"><Plus :size="15" aria-hidden="true" /></span>
+        <span class="preset-picker__mark">···</span>
         <span>
           <strong>{{ t('import.presets.custom.name') }}</strong>
           <small>{{ t('import.presets.custom.description') }}</small>
         </span>
-        <ChevronRight :size="16" aria-hidden="true" />
+        <span aria-hidden="true">→</span>
       </button>
     </div>
   </section>
@@ -197,7 +200,7 @@ function presetSelected(preset: ProviderPreset): boolean {
 .preset-picker {
   min-width: 0;
   border-bottom: 1px solid var(--color-border-subtle);
-  padding: var(--space-5) 0 var(--space-6);
+  padding: 22px 0 var(--space-6);
 }
 
 .preset-picker__header {
@@ -218,7 +221,7 @@ function presetSelected(preset: ProviderPreset): boolean {
 
 .preset-picker__header p {
   margin-top: var(--space-1);
-  color: var(--color-text-muted);
+  color: var(--color-text-faint);
   font-size: var(--text-sm);
 }
 
@@ -231,7 +234,7 @@ function presetSelected(preset: ProviderPreset): boolean {
 .preset-picker__choice {
   position: relative;
   display: grid;
-  min-height: calc(var(--space-8) * 3);
+  min-height: 88px;
   align-content: start;
   border: 1px solid var(--color-border-control);
   border-radius: var(--radius-control);
@@ -255,18 +258,19 @@ function presetSelected(preset: ProviderPreset): boolean {
 
 .preset-picker__choice--selected {
   border-color: var(--color-action);
-  box-shadow: inset var(--space-1) 0 0 var(--color-action);
+  box-shadow: inset 3px 0 0 var(--color-action);
 }
 
 .preset-picker__choice > strong {
-  margin-top: var(--space-2);
-  font-size: var(--text-meta);
+  margin-top: 7px;
+  font-size: 12.5px;
+  font-weight: 600;
 }
 
-.preset-picker__choice > span:not(.preset-picker__mark) {
-  margin-top: var(--space-1);
-  color: var(--color-text-muted);
-  font-size: var(--text-label-xs);
+.preset-picker__description {
+  margin-top: 3px;
+  color: var(--color-text-faint);
+  font-size: 10.8px;
   line-height: var(--line-normal);
 }
 
@@ -279,8 +283,8 @@ function presetSelected(preset: ProviderPreset): boolean {
 
 .preset-picker__mark {
   display: grid;
-  width: var(--space-7);
-  height: var(--space-7);
+  width: 25px;
+  height: 25px;
   place-items: center;
   border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-tag);
@@ -291,34 +295,45 @@ function presetSelected(preset: ProviderPreset): boolean {
   font-weight: 700;
 }
 
+.preset-picker__count {
+  position: absolute;
+  top: 11px;
+  right: 12px;
+  margin: 0;
+  color: var(--color-text-faint);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
 .preset-picker__selected-icon {
   position: absolute;
-  top: var(--space-3);
-  right: var(--space-3);
+  top: 10px;
+  right: 10px;
   color: var(--color-action);
 }
 
 .preset-picker__catalog {
-  margin-top: var(--space-4);
+  margin-top: 14px;
   border-top: 1px solid var(--color-border-subtle);
-  padding-top: var(--space-4);
+  padding-top: 14px;
 }
 
 .preset-picker__catalog-toolbar {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: var(--space-3);
+  gap: 10px;
 }
 
 .preset-picker__group {
-  margin-top: var(--space-4);
+  margin-top: 14px;
 }
 
 .preset-picker__group h3 {
-  margin-bottom: var(--space-2);
+  margin-bottom: 7px;
   color: var(--color-text-faint);
   font-size: var(--text-label-xs);
   font-weight: 560;
+  letter-spacing: 0.04em;
 }
 
 .preset-picker__options {
@@ -332,14 +347,14 @@ function presetSelected(preset: ProviderPreset): boolean {
   display: grid;
   min-width: 0;
   min-height: var(--touch-target);
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
   align-items: center;
-  gap: var(--space-3);
+  gap: 10px;
   border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-control);
   background: var(--color-surface);
   color: var(--color-text-muted);
-  padding: var(--space-2) var(--space-3);
+  padding: 9px 10px;
   text-align: left;
   cursor: pointer;
 }
@@ -355,41 +370,56 @@ function presetSelected(preset: ProviderPreset): boolean {
 .preset-picker__custom strong {
   color: var(--color-text);
   font-size: var(--text-sm);
+  font-weight: 600;
 }
 
 .preset-picker__option small,
 .preset-picker__custom small {
-  margin-top: var(--space-1);
+  margin-top: 1px;
   overflow: hidden;
   color: var(--color-text-faint);
-  font-size: var(--text-label-xs);
+  font-size: 10px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .preset-picker__custom {
   width: 100%;
-  margin-top: var(--space-2);
+  margin-top: 8px;
   border-style: dashed;
 }
 
+.preset-picker__option .preset-picker__mark,
+.preset-picker__custom .preset-picker__mark {
+  width: 26px;
+  height: 26px;
+}
+
 .preset-picker__empty {
-  margin: var(--space-3) 0 0;
-  color: var(--color-text-muted);
-  font-size: var(--text-sm);
+  margin: 10px 0 0;
+  color: var(--color-text-faint);
+  font-size: 11px;
 }
 
 @media (max-width: 860px) {
-  .preset-picker__featured,
-  .preset-picker__options {
+  .preset-picker__featured {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
-@media (max-width: 560px) {
-  .preset-picker__featured,
+@media (max-width: 680px) {
   .preset-picker__options,
   .preset-picker__catalog-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .preset-picker__catalog-toolbar :deep(.app-button) {
+    justify-self: start;
+  }
+}
+
+@media (max-width: 520px) {
+  .preset-picker__featured {
     grid-template-columns: 1fr;
   }
 }

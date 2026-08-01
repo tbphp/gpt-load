@@ -41,11 +41,15 @@ function toggleProtocol(
   <section class="import-connection" aria-labelledby="import-connection-heading">
     <header>
       <h2 id="import-connection-heading">{{ t('import.connection.title') }}</h2>
-      <p>{{ t('import.connection.description') }}</p>
     </header>
 
     <div class="import-connection__fields">
-      <FormField id="import-group-name" :label="t('import.connection.name')">
+      <FormField
+        id="import-group-name"
+        :label="t('import.connection.name')"
+        :label-suffix="t('import.optional')"
+        size="compact"
+      >
         <template #default="field">
           <input
             id="import-group-name"
@@ -66,6 +70,7 @@ function toggleProtocol(
         :error="urlError"
         required
         :required-text="t('import.required')"
+        size="compact"
       >
         <template #default="field">
           <input
@@ -117,11 +122,10 @@ function toggleProtocol(
 .import-connection {
   min-width: 0;
   border-bottom: 1px solid var(--color-border-subtle);
-  padding: var(--space-5) 0 var(--space-6);
+  padding: 22px 0 var(--space-6);
 }
 
-.import-connection > header h2,
-.import-connection > header p {
+.import-connection > header h2 {
   margin: 0;
 }
 
@@ -131,17 +135,11 @@ function toggleProtocol(
   font-weight: 500;
 }
 
-.import-connection > header p {
-  margin-top: var(--space-1);
-  color: var(--color-text-muted);
-  font-size: var(--text-sm);
-}
-
 .import-connection__fields {
   display: grid;
-  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
-  gap: var(--space-4);
-  margin-top: var(--space-4);
+  grid-template-columns: minmax(220px, 0.72fr) minmax(340px, 1.28fr);
+  gap: 18px;
+  margin-top: var(--space-3);
 }
 
 .import-connection__url {
@@ -151,12 +149,17 @@ function toggleProtocol(
 .import-connection__protocols {
   display: grid;
   gap: var(--space-2);
-  margin: var(--space-5) 0 0;
+  margin: 18px 0 0;
   border: 0;
   padding: 0;
 }
 
 .import-connection__protocols legend {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
   color: var(--color-text-muted);
   font-size: var(--text-sm);
   font-weight: 560;
@@ -169,19 +172,19 @@ function toggleProtocol(
 
 .import-connection__protocol-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: var(--space-2);
 }
 
 .import-connection__protocol-grid label {
   display: flex;
-  min-height: var(--touch-target);
+  min-height: 58px;
   align-items: flex-start;
-  gap: var(--space-2);
+  gap: 9px;
   border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-control);
   background: var(--color-surface);
-  padding: var(--space-2) var(--space-3);
+  padding: 9px 10px;
   cursor: pointer;
   transition:
     border-color var(--duration-fast) var(--easing-standard),
@@ -194,22 +197,42 @@ function toggleProtocol(
   background: var(--color-surface-sunken);
 }
 
-.import-connection__protocol-grid label:has(input:checked) {
-  border-color: var(--color-action);
-  background: var(--color-action-soft);
-}
-
 .import-connection__protocol-grid label:has(input:disabled) {
   cursor: not-allowed;
   opacity: 0.55;
 }
 
 .import-connection__protocol-grid input {
-  width: var(--space-4);
-  height: var(--space-4);
+  position: relative;
+  display: grid;
+  width: 18px;
+  height: 18px;
   flex: none;
-  margin-top: var(--space-1);
-  accent-color: var(--color-action);
+  place-items: center;
+  margin: 0;
+  border: 1px solid var(--color-border-control);
+  border-radius: 4px;
+  appearance: none;
+  background: var(--color-surface);
+  cursor: inherit;
+}
+
+.import-connection__protocol-grid input:checked {
+  border-color: var(--color-action);
+  background: var(--color-action);
+}
+
+.import-connection__protocol-grid input:checked::after {
+  color: var(--color-action-ink);
+  content: '✓';
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.import-connection__protocol-grid input:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
 }
 
 .import-connection__protocol-grid strong,
@@ -219,18 +242,27 @@ function toggleProtocol(
 
 .import-connection__protocol-grid strong {
   font-family: var(--font-mono);
-  font-size: var(--text-sm);
+  font-size: var(--text-label-xs);
 }
 
 .import-connection__protocol-grid small {
-  margin-top: var(--space-1);
+  margin-top: 2px;
   color: var(--color-text-faint);
-  font-size: var(--text-label-xs);
-  line-height: var(--line-normal);
+  font-size: 9.8px;
+  line-height: 1.55;
 }
 
-@media (max-width: 680px) {
-  .import-connection__fields,
+@media (max-width: 860px) {
+  .import-connection__fields {
+    grid-template-columns: 1fr;
+  }
+
+  .import-connection__protocol-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 520px) {
   .import-connection__protocol-grid {
     grid-template-columns: 1fr;
   }

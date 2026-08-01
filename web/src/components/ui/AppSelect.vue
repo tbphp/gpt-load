@@ -26,7 +26,7 @@ const props = withDefaults(
     options: SelectOption[]
     disabled?: boolean
     variant?: 'default' | 'embedded'
-    size?: 'md' | 'compact'
+    size?: 'sm' | 'md' | 'compact'
   }>(),
   {
     modelValue: undefined,
@@ -124,6 +124,13 @@ const selectedLabel = computed(
   color: var(--color-text-muted);
   font-size: var(--text-sm);
 }
+.app-select__trigger--sm {
+  min-width: 0;
+  min-height: var(--control-xs);
+  height: var(--control-xs);
+  padding: 0 10px;
+  font-size: var(--text-meta);
+}
 .app-select__trigger--compact .app-select__chevron,
 .app-select__trigger--embedded .app-select__chevron {
   width: 14px;
@@ -178,5 +185,12 @@ const selectedLabel = computed(
   left: 10px;
   display: inline-flex;
   color: var(--color-action);
+}
+
+@media (max-width: 860px) {
+  .app-select__trigger--sm {
+    min-height: var(--touch-target);
+    height: var(--touch-target);
+  }
 }
 </style>

@@ -104,13 +104,13 @@ function updateMode(mode: string): void {
 <template>
   <PageFrame aria-labelledby="import-page-title">
     <LedgerSheet class="import-page">
-      <PageHeader id="import-page-title" :title="t('import.title')">
+      <PageHeader id="import-page-title" :title="t('import.title')" appearance="ledger">
         <template #actions>
           <SegmentedControl
             :model-value="activeMode"
             :label="t('import.mode.label')"
             :options="modeOptions"
-            size="touch"
+            size="sm"
             @update:model-value="updateMode"
           />
         </template>
@@ -123,10 +123,11 @@ function updateMode(mode: string): void {
 
 <style scoped>
 .import-page {
-  min-height: calc(100vh - var(--topbar-height) - var(--stage-padding-top));
+  min-height: calc(100vh - 143px);
+  line-height: var(--line-editorial);
 }
 
-@media (max-width: 560px) {
+@media (max-width: 680px) {
   .import-page :deep(.page-header) {
     align-items: stretch;
     flex-direction: column;

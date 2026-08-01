@@ -4,6 +4,7 @@ export type ModelDraftKey = string | number
 
 export interface ModelDraftValue extends GroupModelUpdateDto {
   key: ModelDraftKey
+  editable_id?: boolean
 }
 
 export interface ModelNameConflict {
@@ -18,6 +19,7 @@ export interface ModelAliasEditorLabels {
   thirdColumn: string
   actions: string
   search: string
+  searchLabel: string
   clearSearch: string
   aliasEnabledFor: (id: string) => string
   aliasFor: (id: string) => string
@@ -25,7 +27,10 @@ export interface ModelAliasEditorLabels {
   aliasRequired: string
   removeFor: (id: string) => string
   manualId: string
+  manualIdRequired: string
   add: string
+  addInline: string
+  count: (count: number) => string
   empty: string
   noMatches: string
   conflictSummary: string
@@ -93,20 +98,27 @@ export function indexesWithEmptyAliases(models: readonly GroupModelUpdateDto[]):
   )
 }
 
+export function indexesWithEmptyIDs(models: readonly GroupModelUpdateDto[]): Set<number> {
+  return new Set(models.flatMap((model, index) => (!model.id.trim() ? [index] : [])))
+}
+
 export function modelDraftValidity(
   models: readonly GroupModelUpdateDto[],
   conflicts: readonly ModelNameConflict[] = findModelNameConflicts(models),
 ): {
   conflictIndexes: Set<number>
+  emptyIDIndexes: Set<number>
   emptyAliasIndexes: Set<number>
   invalidIndexes: Set<number>
 } {
   const conflictIndexes = indexesWithConflicts(conflicts)
+  const emptyIDIndexes = indexesWithEmptyIDs(models)
   const emptyAliasIndexes = indexesWithEmptyAliases(models)
   return {
     conflictIndexes,
+    emptyIDIndexes,
     emptyAliasIndexes,
-    invalidIndexes: new Set([...conflictIndexes, ...emptyAliasIndexes]),
+    invalidIndexes: new Set([...conflictIndexes, ...emptyIDIndexes, ...emptyAliasIndexes]),
   }
 }
 

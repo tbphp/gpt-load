@@ -2,6 +2,7 @@ export default {
   import: {
     title: 'Import upstream keys',
     required: 'required',
+    optional: 'optional',
     presets: {
       title: 'Provider presets',
       description: 'Choose a common provider or search the catalog for compatible services',
@@ -42,7 +43,7 @@ export default {
         description: 'Third-party models · OpenAI compatible',
       },
       more: {
-        name: 'More presets ({count})',
+        name: 'More presets',
         description: 'Search third-party providers or use a custom connection',
       },
       custom: {
@@ -68,7 +69,7 @@ export default {
       abandon: 'Abandon operation',
     },
     existing: {
-      title: 'Import into an existing Group',
+      title: 'Target Group',
       description: 'Add upstream keys only without changing models, protocols, or settings',
       selectorDescription: 'Choose a destination Group before adding upstream keys',
       fixedDescription: 'This entry point locks the destination and only adds upstream keys',
@@ -76,9 +77,12 @@ export default {
       groupsFailed: 'Unable to load Groups',
       groupsStale: 'Group refresh failed; showing cached results',
       groupsEmpty: 'No Groups are available to select',
-      groupLabel: 'Destination Group',
+      groupLabel: 'Group',
       groupPlaceholder: 'Select a Group',
       groupOption: '#{id} · {name}',
+      groupCount: '{count} Groups',
+      groupMeta: '#{id} · {models} published models',
+      groupUnchanged: 'Other configuration remains unchanged',
       selectorHelp: 'Selecting a Group locks the destination and shows its summary',
       backToSelector: 'Return to Group selection',
       invalidGroupID: 'The Group ID in this link is invalid',
@@ -95,13 +99,16 @@ export default {
       actionSummary: 'Add keys to {name}',
       actionSelectTarget: 'Select a destination Group first',
       actionHelp: 'Only adds upstream keys without changing models, protocols, or settings',
-      submit: 'Import keys',
+      keyStorageNotice:
+        'The server reports the actual number of added and already-existing keys after submission',
+      batchDuplicates: 'Batch duplicates',
+      submit: 'Add keys',
       importFailed: 'Unable to import keys into the selected Group',
     },
     connection: {
       title: 'Connection details',
       description: 'Presets only update the URL and protocols, never the name, keys, or models',
-      name: 'Group name (optional)',
+      name: 'Group name',
       namePlaceholder: 'Leave blank to generate it from the upstream URL',
       url: 'Upstream base URL',
       urlDescription: 'Trailing slashes are normalized and URL conflicts are checked on save',
@@ -119,7 +126,7 @@ export default {
     keys: {
       title: 'Upstream keys',
       description: 'One per line, up to 1,000; duplicates are not imported twice',
-      label: 'Upstream keys',
+      label: 'Key content',
       placeholder: 'One key per line',
       storageNotice:
         'Plaintext is never put in URLs, logs, or notifications; a login interruption keeps it in this session for at most 15 minutes',
@@ -146,6 +153,7 @@ export default {
       source: 'Source',
       actions: 'Actions',
       search: 'Search models or aliases',
+      searchLabel: 'Search',
       clearSearch: 'Clear model search',
       aliasEnabledFor: 'Enable an alias for {id}',
       aliasPlaceholder: 'Enter a public model name',
@@ -163,12 +171,25 @@ export default {
       },
       discoveryNotice:
         'Discovery only suggests additions; it does not overwrite models, remove models, or save keys',
+      discoveryReadOnlyNotice:
+        'Discovery only reads candidates; it never creates a Group, saves keys, or sends inference requests',
       aliasFor: 'Alias for {id}',
       manualId: 'Manual model ID',
+      manualIdRequired: 'Model ID is required',
       add: 'Add model',
+      addInline: 'Add a model',
+      count: '{count} models',
+      discoveryStatus: {
+        complete: 'Discovery complete',
+        completeDescription: '{count} models added',
+        stale: 'Refresh required',
+        changed: 'Connection details changed',
+        staleNotice:
+          'The current model list is preserved, but the Group cannot be created until discovery runs again',
+      },
       drawer: {
         title: 'Get upstream models',
-        description: 'Read candidates using the connection snapshot taken when you clicked',
+        description: 'Only checked models are added; the current list is never overwritten',
         close: 'Close model list',
         loading: 'Getting upstream models…',
         notice: 'Only checked models are added; the current list is not overwritten',
@@ -186,11 +207,12 @@ export default {
         confirm: 'Add to current list',
       },
     },
-    discover: 'Discover models',
+    discover: 'Get upstream models',
     discoveryFailed:
       'Discovery failed; your draft is intact and you can retry or enter models manually',
     create: 'Create Group',
     summary: '{keys} keys · {protocols} protocols · {models} models',
+    summaryOptional: '{keys} keys · {protocols} protocols · models optional',
     actionHelp: 'Create the Group and import keys atomically; models may be empty',
     createFailed: 'Unable to create the Group',
     appendFailed: 'Unable to import keys into the selected Group',

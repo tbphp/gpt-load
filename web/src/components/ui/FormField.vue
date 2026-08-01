@@ -1,15 +1,27 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 
-const props = defineProps<{
-  id: string
-  label: string
-  description?: string
-  error?: string
-  required?: boolean
-  requiredText?: string
-  disabledReason?: string
-}>()
+const props = withDefaults(
+  defineProps<{
+    id: string
+    label: string
+    description?: string
+    error?: string
+    required?: boolean
+    requiredText?: string
+    disabledReason?: string
+    labelSuffix?: string
+    size?: 'default' | 'compact'
+  }>(),
+  {
+    description: undefined,
+    error: undefined,
+    requiredText: undefined,
+    disabledReason: undefined,
+    labelSuffix: undefined,
+    size: 'default',
+  },
+)
 
 const descriptionId = computed(() => (props.description ? `${props.id}-description` : undefined))
 const errorId = computed(() => (props.error ? `${props.id}-error` : undefined))
@@ -24,9 +36,10 @@ const describedBy = computed(
 </script>
 
 <template>
-  <div class="form-field">
+  <div class="form-field" :class="`form-field--${size}`">
     <label class="form-field__label" :for="id">
       {{ label }}
+      <span v-if="labelSuffix" class="form-field__label-suffix">{{ labelSuffix }}</span>
       <template v-if="required">
         <span aria-hidden="true">*</span>
         <span v-if="requiredText" class="sr-only">{{ requiredText }}</span>
@@ -64,6 +77,10 @@ const describedBy = computed(
 }
 
 .form-field__label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
   color: var(--color-text-muted);
   font-size: var(--text-sm);
   font-weight: 560;
@@ -71,6 +88,11 @@ const describedBy = computed(
 
 .form-field__label > span[aria-hidden='true'] {
   color: var(--color-danger);
+}
+
+.form-field__label-suffix {
+  color: var(--color-text-faint);
+  font-weight: 400;
 }
 
 .form-field :deep(input),
@@ -100,6 +122,28 @@ const describedBy = computed(
   font-family: var(--font-mono);
 }
 
+.form-field :deep(input::placeholder),
+.form-field :deep(textarea::placeholder) {
+  color: var(--color-text-faint);
+  opacity: 1;
+}
+
+.form-field--compact :deep(input) {
+  min-height: var(--control-xs);
+  padding-inline: 10px;
+  font-size: var(--text-meta);
+}
+
+.form-field--compact {
+  gap: 5px;
+}
+
+.form-field--compact .form-field__description,
+.form-field--compact .form-field__error {
+  font-size: var(--text-label-xs);
+  line-height: 1.55;
+}
+
 .form-field :deep(input:disabled),
 .form-field :deep(textarea:disabled) {
   cursor: not-allowed;
@@ -111,6 +155,12 @@ const describedBy = computed(
   margin: 0;
   font-size: var(--text-sm);
   line-height: var(--line-normal);
+}
+
+@media (max-width: 860px) {
+  .form-field--compact :deep(input) {
+    min-height: var(--touch-target);
+  }
 }
 
 .form-field__description {
