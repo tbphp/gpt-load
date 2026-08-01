@@ -83,6 +83,17 @@ onBeforeUnmount(() => controller?.abort())
       <InlineFeedback v-if="total === 1" tone="warning">
         {{ t('accessKeys.delete.lastWarning') }}
       </InlineFeedback>
+      <dl class="access-key-delete__details">
+        <dt>{{ t('accessKeys.delete.name') }}</dt>
+        <dd>{{ accessKey.name }}</dd>
+        <dt>{{ t('accessKeys.delete.key') }}</dt>
+        <dd>
+          <code>{{ accessKey.masked_key }}</code>
+        </dd>
+      </dl>
+      <InlineFeedback tone="warning">
+        {{ t('accessKeys.delete.impact') }}
+      </InlineFeedback>
       <label class="access-key-delete__label" for="access-key-delete-name">{{
         t('accessKeys.delete.typeName', { name: accessKey.name })
       }}</label>
@@ -136,6 +147,28 @@ onBeforeUnmount(() => controller?.abort())
 .access-key-delete__label {
   margin-bottom: calc(var(--space-3) * -1);
   font-weight: 650;
+}
+.access-key-delete__details {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--space-2) var(--space-3);
+  margin: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-sunken);
+}
+.access-key-delete__details dt {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+.access-key-delete__details dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.access-key-delete__details code {
+  color: var(--color-code);
 }
 input {
   width: 100%;

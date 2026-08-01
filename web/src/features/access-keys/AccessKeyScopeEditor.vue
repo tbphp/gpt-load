@@ -23,7 +23,7 @@ const props = defineProps<{
   groupCatalogState: GroupCatalogState
   protocolOptions: readonly AccessProtocol[]
   supportedProtocols: readonly AccessProtocol[]
-  modelOptions: string[]
+  modelOptions: SearchableMultiSelectOption[]
   modelInput: string
   disabled: boolean
   modelMismatch: boolean
@@ -171,7 +171,7 @@ function protocolUnsupported(protocol: AccessProtocol): boolean {
       :selected-label="t('accessKeys.drawer.selectedCount', { count: '{count}' })"
       :clear-label="t('accessKeys.drawer.clearSelected')"
       :remove-label="(label) => t('accessKeys.drawer.removeSelection', { label })"
-      :options="modelOptions.map((model) => ({ value: model, label: model }))"
+      :options="modelOptions"
       :model-value="filters.models"
       :disabled="optionDisabled('models')"
       :loading="groupCatalogState === 'loading'"

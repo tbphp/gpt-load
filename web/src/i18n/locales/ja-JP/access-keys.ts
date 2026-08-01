@@ -118,6 +118,7 @@ export default {
       groupProtocolMismatch: '選択した Group とプロトコルにルーティング可能な重複がありません。',
       modelRouteRisk:
         '選択したモデルは現在の Group カタログにないため、リクエストのルーティングに失敗する可能性があります。',
+      modelCustomUnavailable: 'カスタムまたは現在利用不可',
       emptyMeansAll: '未選択はすべてを意味します。',
       modelsDescription: '既知のモデルを選ぶか、有効なモデル文字列を入力できます。',
       modelPlaceholder: 'モデル ID またはエイリアスを入力',
@@ -151,6 +152,9 @@ export default {
       close: 'AccessKey の削除確認を閉じる',
       lastWarning:
         'これは最後の AccessKey です。削除すると、データプレーンクライアントに発行済み資格情報がなくなります。',
+      name: '名前',
+      key: 'AccessKey',
+      impact: '削除後、この AccessKey を使用するデータプレーン要求は直ちに認証に失敗します。',
       typeName: '確認のため {name} と入力',
       confirm: 'AccessKey を削除',
       failed: 'AccessKey を削除できません。',

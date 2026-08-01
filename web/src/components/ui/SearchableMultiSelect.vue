@@ -45,7 +45,11 @@ const filteredOptions = computed(() => {
 const selectedOptions = computed(() =>
   props.modelValue.map((value) => {
     const option = props.options.find((candidate) => candidate.value === value)
-    return { value, label: option?.label ?? String(value) }
+    return {
+      value,
+      label: option?.label ?? String(value),
+      description: option?.description,
+    }
   }),
 )
 const selectedCountText = computed(() =>
@@ -105,7 +109,10 @@ function clear(): void {
         :key="String(option.value)"
         class="searchable-multi-select__chip"
       >
-        <span>{{ option.label }}</span>
+        <span class="searchable-multi-select__chip-content">
+          <span>{{ option.label }}</span>
+          <small v-if="option.description">{{ option.description }}</small>
+        </span>
         <button
           type="button"
           :aria-label="removeLabel(option.label)"
@@ -211,6 +218,14 @@ function clear(): void {
   background: var(--color-tag);
   padding-left: var(--space-2);
   font-size: var(--text-sm);
+}
+.searchable-multi-select__chip-content {
+  display: grid;
+  gap: var(--space-1);
+}
+.searchable-multi-select__chip-content small {
+  color: var(--color-text-muted);
+  font-size: var(--text-label-xs);
 }
 .searchable-multi-select__chip button,
 .searchable-multi-select__clear {

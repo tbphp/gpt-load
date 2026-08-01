@@ -117,6 +117,7 @@ export default {
       groupProtocolMismatch: 'The selected Groups and protocols have no routable overlap.',
       modelRouteRisk:
         'A selected model is not in the current Group catalog, so requests may fail to route.',
+      modelCustomUnavailable: 'Custom or currently unavailable',
       emptyMeansAll: 'No selection means all.',
       modelsDescription: 'Choose known models or enter any valid model string.',
       modelPlaceholder: 'Enter a model ID or alias',
@@ -151,6 +152,10 @@ export default {
       close: 'Close AccessKey deletion confirmation',
       lastWarning:
         'This is the last AccessKey. Deleting it leaves data-plane clients without an issued credential.',
+      name: 'Name',
+      key: 'AccessKey',
+      impact:
+        'After deletion, data-plane requests using this AccessKey will immediately fail authentication.',
       typeName: 'Type {name} to confirm',
       confirm: 'Delete AccessKey',
       failed: 'Unable to delete the AccessKey.',

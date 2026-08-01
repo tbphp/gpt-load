@@ -19,6 +19,7 @@ import { applyInvalidationPlan, mutationInvalidationPlans } from '@/app/resource
 import { useUnsavedChanges } from '@/app/unsaved-changes'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppDrawer from '@/components/ui/AppDrawer.vue'
+import type { SearchableMultiSelectOption } from '@/components/ui/SearchableMultiSelect.vue'
 
 import {
   accessKeyProtocolOptions,
@@ -84,6 +85,7 @@ const editReconciliation = ref<PendingAccessKeyEditOperation | null>(null)
 const editNotApplied = ref(false)
 const revealPending = ref(false)
 const revealFailed = ref(false)
+const resultRevealed = ref(false)
 const modelInput = ref('')
 let controller: AbortController | undefined
 let revealController: AbortController | undefined
@@ -104,6 +106,7 @@ const closeBlocked = computed(() => pending.value)
 const resultSecret = computed(() =>
   result.value ? ephemeralSecret.read(`access-key:${result.value.id}`) : null,
 )
+const visibleResultSecret = computed(() => (resultRevealed.value ? resultSecret.value : null))
 const protocolOptions = computed(() => accessKeyProtocolOptions())
 const selectedGroupIDs = computed(() =>
   draft.value.scopeModes.groups === 'restricted' ? draft.value.filters.groups : [],
@@ -111,12 +114,21 @@ const selectedGroupIDs = computed(() =>
 const supportedProtocolOptions = computed(() =>
   buildAccessKeyProtocolCandidates(props.groups, selectedGroupIDs.value),
 )
-const modelOptions = computed(() =>
-  buildAccessKeyModelOptions(props.groups, draft.value.filters.models, selectedGroupIDs.value),
-)
 const catalogModelOptions = computed(() =>
   buildAccessKeyModelOptions(props.groups, [], selectedGroupIDs.value),
 )
+const modelOptions = computed<SearchableMultiSelectOption[]>(() => {
+  const catalog = new Set(catalogModelOptions.value)
+  return buildAccessKeyModelOptions(
+    props.groups,
+    draft.value.filters.models,
+    selectedGroupIDs.value,
+  ).map((model) => ({
+    value: model,
+    label: model,
+    description: catalog.has(model) ? undefined : t('accessKeys.drawer.modelCustomUnavailable'),
+  }))
+})
 const groupProtocolMismatch = computed(
   () =>
     props.groupCatalogState !== 'loading' &&
@@ -241,6 +253,7 @@ function clearLocalState(): void {
   pending.value = false
   revealPending.value = false
   revealFailed.value = false
+  resultRevealed.value = false
   failed.value = false
   mutationState.value = 'idle'
   editReconciliation.value = null
@@ -274,6 +287,7 @@ async function resetForOpen(): Promise<void> {
   createOperationRetained.value = carriedCreateOperation !== null
   editOperationRetained.value = carriedEditOperation !== null
   ephemeralSecret.clear()
+  resultRevealed.value = false
   failed.value = false
   mutationState.value = carriedCreateOperation?.state ?? carriedEditOperation?.state ?? 'idle'
   editReconciliation.value = carriedEditOperation
@@ -411,6 +425,7 @@ async function save(): Promise<void> {
   editNotApplied.value = false
   mutationState.value = 'idle'
   result.value = null
+  resultRevealed.value = false
   ephemeralSecret.clear()
   const expectedSecretEpoch = ephemeralSecret.epoch.value
   controller?.abort()
@@ -662,7 +677,7 @@ async function revealResultSecret(): Promise<void> {
   const current = result.value
   if (!current || revealPending.value) return
   if (resultSecret.value) {
-    ephemeralSecret.clear()
+    resultRevealed.value = true
     return
   }
   revealController?.abort()
@@ -680,6 +695,7 @@ async function revealResultSecret(): Promise<void> {
       ephemeralSecret.epoch.value === expectedEpoch
     ) {
       ephemeralSecret.expose(`access-key:${current.id}`, revealed.key)
+      resultRevealed.value = true
     }
   } catch (error: unknown) {
     if (revealController === controller && !(error instanceof RequestCancelledError)) {
@@ -691,6 +707,11 @@ async function revealResultSecret(): Promise<void> {
       revealPending.value = false
     }
   }
+}
+
+function concealResultSecret(): void {
+  resultRevealed.value = false
+  ephemeralSecret.clear()
 }
 
 onBeforeUnmount(clearLocalState)
@@ -751,10 +772,10 @@ onBeforeUnmount(clearLocalState)
       <AccessKeyResultPanel
         v-if="result"
         :result="result"
-        :secret="resultSecret"
+        :secret="visibleResultSecret"
         :reveal-pending="revealPending"
         @reveal="revealResultSecret"
-        @clear="ephemeralSecret.clear"
+        @clear="concealResultSecret"
       />
 
       <div class="access-key-drawer__actions">
