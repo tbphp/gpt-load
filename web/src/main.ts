@@ -8,6 +8,7 @@ import { apiClientKey } from './api/client-context'
 import type { AuthSessionPayload } from './api/types'
 import { createAppQueryClient } from './app/query'
 import { createAppRouter } from './app/router'
+import { createToastController, toastKey } from './app/toast'
 import { handleGlobalUnauthorized } from './app/unauthorized'
 import { clearEphemeralState } from './app/ephemeral-state'
 import { authSessionKey, createAuthSession, type AuthSession } from './features/auth/auth-session'
@@ -41,6 +42,10 @@ async function bootstrap(): Promise<void> {
     clearTimer: window.clearTimeout.bind(window),
   })
   const unsavedChanges = createUnsavedChangesController()
+  const toast = createToastController({
+    setTimer: window.setTimeout.bind(window),
+    clearTimer: window.clearTimeout.bind(window),
+  })
   importRecovery.sweep()
   const themeController = createBrowserThemeController(
     window,
@@ -52,6 +57,7 @@ async function bootstrap(): Promise<void> {
     () => {
       themeController.dispose()
       importRecovery.dispose()
+      toast.dispose()
       clearEphemeralState()
     },
     { once: true },
@@ -98,6 +104,7 @@ async function bootstrap(): Promise<void> {
     .provide(authSessionKey, authSession)
     .provide(importRecoveryKey, importRecovery)
     .provide(unsavedChangesKey, unsavedChanges)
+    .provide(toastKey, toast)
     .provide(apiClientKey, apiClient)
     .provide(appI18nKey, appI18n)
     .provide(themeControllerKey, themeController)

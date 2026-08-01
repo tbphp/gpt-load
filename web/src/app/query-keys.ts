@@ -1,7 +1,11 @@
 import type { RequestLogFilters } from '@/app/resources/request-logs'
 import type { HomeRange } from '@/app/resources/home'
 import type { UsageFilters } from '@/app/resources/usage'
-import type { GroupCollectionFilters, GroupKeyCollectionFilters } from '@/api/control/types'
+import type {
+  AccessKeyCollectionFilters,
+  GroupCollectionFilters,
+  GroupKeyCollectionFilters,
+} from '@/api/control/types'
 
 export function normalizeGroupCollectionFilters(
   filters: GroupCollectionFilters,
@@ -28,6 +32,20 @@ export function normalizeGroupKeyCollectionFilters(
   const query = filters.q?.trim()
   if (query) normalized.q = query
   if (filters.status !== undefined) normalized.status = filters.status
+  return normalized
+}
+
+export function normalizeAccessKeyCollectionFilters(
+  filters: AccessKeyCollectionFilters,
+): AccessKeyCollectionFilters {
+  const normalized: AccessKeyCollectionFilters = {
+    page: filters.page,
+    page_size: 20,
+  }
+  const query = filters.q?.trim()
+  if (query) normalized.q = query
+  if (filters.status !== undefined) normalized.status = filters.status
+  if (filters.scope !== undefined) normalized.scope = filters.scope
   return normalized
 }
 
@@ -102,7 +120,14 @@ export const controlQueryKeys = {
   },
   accessKeys: {
     all: ['control', 'access-keys'] as const,
-    list: () => ['control', 'access-keys', 'list'] as const,
+    collectionAll: ['control', 'access-keys', 'collection'] as const,
+    collection: (filters: AccessKeyCollectionFilters) =>
+      [
+        'control',
+        'access-keys',
+        'collection',
+        normalizeAccessKeyCollectionFilters(filters),
+      ] as const,
     options: () => ['control', 'access-keys', 'options'] as const,
   },
   settingsAll: ['control', 'settings'] as const,

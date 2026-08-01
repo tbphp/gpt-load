@@ -202,7 +202,7 @@ func TestAccessKeyFiltersRejectInvalidCurrentInputWithoutPublishing(t *testing.T
 	}
 }
 
-func TestListAccessKeysReturnsMaskedMetadataInIDOrderWithoutDecrypting(t *testing.T) {
+func TestListAccessKeyCollectionReturnsMaskedMetadataWithoutDecrypting(t *testing.T) {
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	randomBytes := make([]byte, 32)
@@ -219,26 +219,32 @@ func TestListAccessKeysReturnsMaskedMetadataInIDOrderWithoutDecrypting(t *testin
 		t.Fatalf("create second: %v", err)
 	}
 
-	listed, err := fixture.service.ListAccessKeys(context.Background())
+	listed, err := fixture.service.ListAccessKeyCollection(
+		context.Background(),
+		AccessKeyCollectionQuery{Page: 1, PageSize: 20},
+	)
 	if err != nil {
-		t.Fatalf("ListAccessKeys() error = %v", err)
+		t.Fatalf("ListAccessKeyCollection() error = %v", err)
 	}
-	if len(listed) != 2 ||
-		listed[0].ID != first.ID ||
-		listed[0].MaskedKey != "sk-gl-****0e0f" ||
-		listed[1].ID != second.ID ||
-		listed[1].MaskedKey != "sk-gl-****1e1f" {
-		t.Fatalf("ListAccessKeys() = %#v", listed)
+	if len(listed.Items) != 2 ||
+		listed.Items[0].ID != second.ID ||
+		listed.Items[0].MaskedKey != "sk-gl-****1e1f" ||
+		listed.Items[1].ID != first.ID ||
+		listed.Items[1].MaskedKey != "sk-gl-****0e0f" {
+		t.Fatalf("ListAccessKeyCollection() = %#v", listed)
 	}
 
 	const corruptCiphertext = "known-corrupt-ciphertext"
 	if err := fixture.db.Model(&models.AccessKey{}).Where("id = ?", second.ID).UpdateColumn("key_value", corruptCiphertext).Error; err != nil {
 		t.Fatalf("corrupt second ciphertext: %v", err)
 	}
-	if afterCorruption, err := fixture.service.ListAccessKeys(context.Background()); err != nil ||
+	if afterCorruption, err := fixture.service.ListAccessKeyCollection(
+		context.Background(),
+		AccessKeyCollectionQuery{Page: 1, PageSize: 20},
+	); err != nil ||
 		!reflect.DeepEqual(afterCorruption, listed) {
 		t.Fatalf(
-			"ListAccessKeys() after ciphertext corruption = %#v, %v, want unchanged metadata",
+			"ListAccessKeyCollection() after ciphertext corruption = %#v, %v, want unchanged metadata",
 			afterCorruption,
 			err,
 		)
@@ -257,6 +263,40 @@ func TestListAccessKeysReturnsMaskedMetadataInIDOrderWithoutDecrypting(t *testin
 		if strings.Contains(recorder.Body.String(), forbidden) {
 			t.Fatalf("fail-closed response exposes %q: %s", forbidden, recorder.Body.String())
 		}
+	}
+}
+
+func TestListAccessKeyCollectionPaginatesBeyondDefaultPageSize(t *testing.T) {
+	fixture := newServiceFixture(t)
+	rows := make([]models.AccessKey, 21)
+	for index := range rows {
+		rows[index] = models.AccessKey{
+			Name:      fmt.Sprintf("legacy-%02d", index),
+			KeyValue:  "ciphertext",
+			KeyHash:   fmt.Sprintf("legacy-key-hash-%02d", index),
+			KeySuffix: fmt.Sprintf("%04x", index),
+			Status:    string(state.AccessKeyStatusActive),
+			Filters:   models.JSON(`{}`),
+		}
+	}
+	if err := fixture.db.Create(&rows).Error; err != nil {
+		t.Fatalf("create access keys: %v", err)
+	}
+
+	listed, err := fixture.service.ListAccessKeyCollection(
+		t.Context(),
+		AccessKeyCollectionQuery{Page: 2, PageSize: 20},
+	)
+	if err != nil {
+		t.Fatalf("ListAccessKeyCollection() error = %v", err)
+	}
+	if listed.Pagination != (AccessKeyCollectionPagination{
+		Page: 2, PageSize: 20, TotalItems: 21, TotalPages: 2,
+	}) {
+		t.Fatalf("pagination = %#v, want second page of 21 items", listed.Pagination)
+	}
+	if len(listed.Items) != 1 || listed.Items[0].ID != rows[0].ID {
+		t.Fatalf("items = %#v, want final item only", listed.Items)
 	}
 }
 
@@ -716,15 +756,17 @@ func TestAccessKeyEndpointsDistinguishRPMLimit(t *testing.T) {
 			t.Fatalf("GET = %d %s", recorder.Code, recorder.Body.String())
 		}
 		var envelope struct {
-			Data []map[string]json.RawMessage `json:"data"`
+			Data struct {
+				Items []map[string]json.RawMessage `json:"items"`
+			} `json:"data"`
 		}
 		if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err != nil {
 			t.Fatalf("decode list response: %v", err)
 		}
-		if len(envelope.Data) != 2 {
-			t.Fatalf("list = %#v, want two items", envelope.Data)
+		if len(envelope.Data.Items) != 2 {
+			t.Fatalf("list = %#v, want two items", envelope.Data.Items)
 		}
-		for _, item := range envelope.Data {
+		for _, item := range envelope.Data.Items {
 			if item["rpm_limit"] == nil || item["daily_cost_limit"] != nil || item["monthly_cost_limit"] != nil {
 				t.Fatalf("list item fields = %#v", item)
 			}

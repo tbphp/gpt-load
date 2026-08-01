@@ -40,23 +40,26 @@ export const mutationInvalidationPlans = {
     importKeys: importedKeyResourcePlan,
   },
   accessKey: {
-    create: plan([
-      controlQueryKeys.accessKeys.list(),
-      controlQueryKeys.accessKeys.options(),
-      controlQueryKeys.home.base(),
-    ]),
-    update: plan([
-      controlQueryKeys.accessKeys.list(),
-      controlQueryKeys.accessKeys.options(),
-      controlQueryKeys.home.base(),
-    ]),
-    delete: plan([
-      controlQueryKeys.accessKeys.list(),
-      controlQueryKeys.accessKeys.options(),
-      controlQueryKeys.home.base(),
-    ]),
-    reconcile: plan([controlQueryKeys.accessKeys.options()]),
-    reconcileConfirmed: plan([controlQueryKeys.home.base()]),
+    create: plan(
+      [controlQueryKeys.accessKeys.options(), controlQueryKeys.home.base()],
+      [controlQueryKeys.accessKeys.collectionAll],
+    ),
+    update: plan(
+      [controlQueryKeys.accessKeys.options(), controlQueryKeys.home.base()],
+      [controlQueryKeys.accessKeys.collectionAll],
+    ),
+    delete: plan(
+      [controlQueryKeys.accessKeys.options(), controlQueryKeys.home.base()],
+      [controlQueryKeys.accessKeys.collectionAll],
+    ),
+    reconcile: plan(
+      [controlQueryKeys.accessKeys.options()],
+      [controlQueryKeys.accessKeys.collectionAll],
+    ),
+    reconcileConfirmed: plan(
+      [controlQueryKeys.home.base()],
+      [controlQueryKeys.accessKeys.collectionAll],
+    ),
     reveal: plan(),
   },
   modelPrice: {

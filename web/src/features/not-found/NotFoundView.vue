@@ -9,11 +9,7 @@ const { t } = useI18n()
 
 <template>
   <section class="not-found" aria-labelledby="not-found-title">
-    <PageHeader
-      id="not-found-title"
-      :title="t('notFound.title')"
-      :description="t('notFound.description')"
-    />
+    <PageHeader id="not-found-title" :title="t('notFound.title')" />
     <RouterLink class="button-link" :to="homeLocation()">
       {{ t('notFound.backHome') }}
     </RouterLink>

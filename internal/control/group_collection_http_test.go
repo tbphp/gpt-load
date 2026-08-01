@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -255,6 +256,7 @@ func TestGroupCollectionHTTPReturnsExactCollectionAndOptionsContracts(t *testing
 		10,
 		"alpha",
 		true,
+		`["openai-completions","gemini"]`,
 		`[{"id":"private-alpha","alias":"public-alpha"},{"id":"second-alpha","alias":""}]`,
 	)
 	createGroupOptionGroup(
@@ -263,6 +265,7 @@ func TestGroupCollectionHTTPReturnsExactCollectionAndOptionsContracts(t *testing
 		20,
 		"zulu",
 		false,
+		`["anthropic"]`,
 		`[{"id":"private-zulu","alias":"public-zulu"}]`,
 	)
 	entry := createGroupCollectionKey(
@@ -307,7 +310,10 @@ func TestGroupCollectionHTTPReturnsExactCollectionAndOptionsContracts(t *testing
 	if item.ID != 10 || item.Name != "alpha" ||
 		item.Status != GroupCollectionStatusAvailable ||
 		item.UpstreamURL != "https://alpha.example/v1" ||
-		len(item.Protocols) != 1 || item.Protocols[0] != protocol.OpenAICompletions ||
+		!reflect.DeepEqual(item.Protocols, []protocol.Protocol{
+			protocol.OpenAICompletions,
+			protocol.Gemini,
+		}) ||
 		item.ModelCount != 2 ||
 		item.KeyCounts != (GroupCollectionKeyCounts{Total: 1, Available: 1}) {
 		t.Fatalf("collection item = %#v, want exact public fields", item)
@@ -324,17 +330,21 @@ func TestGroupCollectionHTTPReturnsExactCollectionAndOptionsContracts(t *testing
 	optionData := decodeGroupOptionsSuccess(t, options)
 	if len(optionData) != 2 ||
 		optionData[0].ID != 10 || optionData[0].Name != "alpha" ||
+		!optionData[0].Enabled ||
+		!reflect.DeepEqual(optionData[0].Protocols, []protocol.Protocol{protocol.OpenAICompletions, protocol.Gemini}) ||
 		len(optionData[0].Models) != 2 ||
 		optionData[0].Models[0] != "public-alpha" ||
 		optionData[0].Models[1] != "second-alpha" ||
 		optionData[1].ID != 20 || optionData[1].Name != "zulu" ||
+		optionData[1].Enabled ||
+		!reflect.DeepEqual(optionData[1].Protocols, []protocol.Protocol{protocol.Anthropic}) ||
 		len(optionData[1].Models) != 1 || optionData[1].Models[0] != "public-zulu" {
 		t.Fatalf("options data = %#v, want exact ID-ordered directory", optionData)
 	}
 
-	combined := strings.ToLower(collection.Body.String() + options.Body.String())
+	combined := strings.ToLower(options.Body.String())
 	for _, forbidden := range []string{
-		"key_value", "key_hash", "cipher", "hash", "secret",
+		"upstream_url", "key_value", "key_hash", "keyvalue", "keyhash", "cipher", "hash", "secret",
 	} {
 		if strings.Contains(combined, forbidden) {
 			t.Fatalf("group HTTP responses exposed %q: %s", forbidden, combined)
@@ -465,6 +475,20 @@ func decodeGroupOptionsSuccess(
 ) []GroupOption {
 	t.Helper()
 	data := decodeGroupCollectionSuccessData(t, recorder)
+	var rawOptions []map[string]json.RawMessage
+	if err := json.Unmarshal(data, &rawOptions); err != nil {
+		t.Fatalf("decode raw options data: %v", err)
+	}
+	for _, rawOption := range rawOptions {
+		if len(rawOption) != 5 {
+			t.Fatalf("option fields = %#v, want exactly id/name/enabled/protocols/models", rawOption)
+		}
+		for _, field := range []string{"id", "name", "enabled", "protocols", "models"} {
+			if _, ok := rawOption[field]; !ok {
+				t.Fatalf("option fields = %#v, missing %q", rawOption, field)
+			}
+		}
+	}
 	var result []GroupOption
 	if err := json.Unmarshal(data, &result); err != nil {
 		t.Fatalf("decode options data: %v", err)

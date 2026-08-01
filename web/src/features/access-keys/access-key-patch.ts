@@ -46,7 +46,7 @@ export function createAccessKeyDraftFromCreateInput(input: CreateAccessKeyReques
   const filters = normalizeAccessKeyFilters(input.filters)
   return {
     name: input.name,
-    status: 'active',
+    status: input.status,
     filters,
     scopeModes: createAccessKeyScopeModes(filters),
     rpm_limit: input.rpm_limit,
@@ -77,6 +77,7 @@ export function isAccessKeyDraftValid(
 export function buildCreateAccessKeyInput(draft: AccessKeyDraft): CreateAccessKeyRequest {
   return {
     name: draft.name.trim(),
+    status: draft.status,
     filters: normalizeAccessKeyFilters(
       materializeAccessKeyFilters(draft.filters, draft.scopeModes),
     ),

@@ -18,8 +18,9 @@ const props = withDefaults(
     description: string
     closeLabel: string
     dismissible?: boolean
+    showDescription?: boolean
   }>(),
-  { dismissible: true },
+  { dismissible: true, showDescription: false },
 )
 const emit = defineEmits<{ 'update:open': [open: boolean] }>()
 
@@ -44,13 +45,18 @@ function guardDismiss(event: Event): void {
         @interact-outside="guardDismiss"
       >
         <header class="app-drawer__header">
-          <DialogTitle class="app-drawer__title">{{ title }}</DialogTitle>
-          <DialogDescription class="sr-only">{{ description }}</DialogDescription>
+          <div class="app-drawer__heading">
+            <DialogTitle class="app-drawer__title">{{ title }}</DialogTitle>
+            <DialogDescription :class="showDescription ? 'app-drawer__description' : 'sr-only'">
+              {{ description }}
+            </DialogDescription>
+          </div>
           <DialogClose class="app-drawer__close" :aria-label="closeLabel" :disabled="!dismissible">
             <X :size="20" aria-hidden="true" />
           </DialogClose>
         </header>
         <div class="app-drawer__body"><slot /></div>
+        <footer v-if="$slots.footer" class="app-drawer__footer"><slot name="footer" /></footer>
       </DialogContent>
     </DialogPortal>
   </DialogRoot>
@@ -62,6 +68,15 @@ function guardDismiss(event: Event): void {
   z-index: var(--z-overlay);
   inset: 0;
   background: var(--color-overlay);
+  opacity: 0;
+}
+.app-drawer__overlay[data-state='open'] {
+  opacity: 1;
+  animation: app-drawer-overlay-in var(--duration-normal) var(--easing-standard);
+}
+.app-drawer__overlay[data-state='closed'] {
+  opacity: 0;
+  animation: app-drawer-overlay-out var(--duration-normal) var(--easing-standard);
 }
 .app-drawer__content {
   position: fixed;
@@ -76,6 +91,15 @@ function guardDismiss(event: Event): void {
   color: var(--color-text);
   display: flex;
   flex-direction: column;
+  transform: translateX(100%);
+}
+.app-drawer__content[data-state='open'] {
+  transform: translateX(0);
+  animation: app-drawer-content-in var(--duration-normal) var(--easing-standard);
+}
+.app-drawer__content[data-state='closed'] {
+  transform: translateX(100%);
+  animation: app-drawer-content-out var(--duration-normal) var(--easing-standard);
 }
 .app-drawer__header {
   display: flex;
@@ -83,11 +107,19 @@ function guardDismiss(event: Event): void {
   align-items: center;
   justify-content: space-between;
   border-bottom: 1px solid var(--color-border-subtle);
-  padding: var(--space-2) var(--space-4);
+  padding: 12px 18px;
+}
+.app-drawer__heading {
+  min-width: 0;
 }
 .app-drawer__title {
   font-size: 1rem;
   font-weight: 700;
+}
+.app-drawer__description {
+  margin: 2px 0 0;
+  color: var(--color-text-faint);
+  font-size: var(--text-label-xs);
 }
 .app-drawer__close {
   display: inline-flex;
@@ -107,13 +139,45 @@ function guardDismiss(event: Event): void {
 }
 .app-drawer__body {
   overflow-y: auto;
-  padding: var(--space-4);
+  padding: 18px;
   flex: 1;
   min-height: 0;
+}
+.app-drawer__footer {
+  display: flex;
+  min-height: 62px;
+  flex: none;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  border-top: 1px solid var(--color-border-subtle);
+  padding: 10px 18px;
+}
+@keyframes app-drawer-overlay-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes app-drawer-overlay-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+@keyframes app-drawer-content-in {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+@keyframes app-drawer-content-out {
+  from { transform: translateX(0); }
+  to { transform: translateX(100%); }
 }
 @media (max-width: 480px) {
   .app-drawer__content {
     width: 100vw;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-drawer__overlay,
+  .app-drawer__content {
+    animation: none !important;
   }
 }
 </style>

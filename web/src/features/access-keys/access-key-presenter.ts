@@ -62,7 +62,7 @@ export function presentAccessKey(
     rpm:
       accessKey.rpm_limit === 0
         ? options.labels.unlimited
-        : new Intl.NumberFormat(options.locale).format(accessKey.rpm_limit),
+        : `${new Intl.NumberFormat(options.locale).format(accessKey.rpm_limit)} RPM`,
     createdAt: accessKey.created_at_ms,
     updatedAt: accessKey.updated_at_ms,
   }

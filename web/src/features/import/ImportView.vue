@@ -72,7 +72,7 @@ function selectMode(mode: 'new' | 'existing'): void {
 
 <template>
   <div class="import-page">
-    <PageHeader :title="t('import.title')" :description="t('import.description')" />
+    <PageHeader :title="t('import.title')" />
     <div class="mode-selector" :aria-label="t('import.mode.label')" role="group">
       <button
         type="button"

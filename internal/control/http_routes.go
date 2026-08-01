@@ -275,7 +275,7 @@ func (s *Server) HTTPModule() httproute.Module {
 				"control.access-keys.list",
 				http.MethodGet,
 				"/access-keys",
-				s.handleListAccessKeys,
+				s.handleListAccessKeyCollection,
 			),
 			controlRoute(
 				"control.access-keys.update",

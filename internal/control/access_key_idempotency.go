@@ -16,9 +16,10 @@ import (
 )
 
 type accessKeyCreateDigestBody struct {
-	Name     string           `json:"name"`
-	Filters  AccessKeyFilters `json:"filters"`
-	RPMLimit int64            `json:"rpm_limit"`
+	Name     string                 `json:"name"`
+	Status   *state.AccessKeyStatus `json:"status,omitempty"`
+	Filters  AccessKeyFilters       `json:"filters"`
+	RPMLimit int64                  `json:"rpm_limit"`
 }
 
 func (s *Service) CreateAccessKeyIdempotent(
@@ -38,9 +39,20 @@ func (s *Service) CreateAccessKeyIdempotent(
 	if err != nil {
 		return AccessKeyCreateResult{}, err
 	}
+	status := state.AccessKeyStatusActive
+	if request.Status != nil {
+		status = *request.Status
+	}
+	if status != state.AccessKeyStatusActive && status != state.AccessKeyStatusDisabled {
+		return AccessKeyCreateResult{}, app_errors.ErrValidation
+	}
+	var digestStatus *state.AccessKeyStatus
+	if status != state.AccessKeyStatusActive {
+		digestStatus = &status
+	}
 	digestFilters := canonicalAccessKeyFilterSet(filters)
 	canonicalBody, err := canonicalIdempotencyBody(accessKeyCreateDigestBody{
-		Name: name, Filters: digestFilters, RPMLimit: rpmLimit,
+		Name: name, Status: digestStatus, Filters: digestFilters, RPMLimit: rpmLimit,
 	})
 	if err != nil {
 		return AccessKeyCreateResult{}, app_errors.ErrInternalServer
@@ -71,6 +83,7 @@ func (s *Service) CreateAccessKeyIdempotent(
 			if err != nil {
 				return idempotentMutationResult{}, err
 			}
+			row.Status = string(status)
 			if err := tx.Create(&row).Error; err != nil {
 				return idempotentMutationResult{}, app_errors.ParseDBError(err)
 			}

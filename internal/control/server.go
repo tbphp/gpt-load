@@ -418,15 +418,6 @@ func (s *Server) handleRevealAccessKey(c *gin.Context) {
 	response.SuccessI18n(c, "common.success", result)
 }
 
-func (s *Server) handleListAccessKeys(c *gin.Context) {
-	result, err := s.service.ListAccessKeys(c.Request.Context())
-	if err != nil {
-		writeServiceError(c, "list_access_keys", err)
-		return
-	}
-	response.SuccessI18n(c, "common.success", result)
-}
-
 func (s *Server) handleUpdateAccessKey(c *gin.Context) {
 	id, ok := accessKeyID(c)
 	if !ok {

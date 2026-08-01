@@ -43,9 +43,10 @@ func (value *OptionalRPMLimit) UnmarshalJSON(data []byte) error {
 }
 
 type AccessKeyCreateRequest struct {
-	Name     string            `json:"name"`
-	Filters  *AccessKeyFilters `json:"filters"`
-	RPMLimit OptionalRPMLimit  `json:"rpm_limit"`
+	Name     string                 `json:"name"`
+	Status   *state.AccessKeyStatus `json:"status"`
+	Filters  *AccessKeyFilters      `json:"filters"`
+	RPMLimit OptionalRPMLimit       `json:"rpm_limit"`
 }
 
 type AccessKeyUpdateRequest struct {
@@ -142,6 +143,13 @@ func (s *Service) CreateAccessKey(
 	if err != nil {
 		return AccessKeyCreateResult{}, err
 	}
+	status := state.AccessKeyStatusActive
+	if request.Status != nil {
+		status = *request.Status
+	}
+	if status != state.AccessKeyStatusActive && status != state.AccessKeyStatusDisabled {
+		return AccessKeyCreateResult{}, app_errors.ErrValidation
+	}
 
 	var result AccessKeyCreateResult
 	_, err = s.writeConfig(ctx, func(tx *gorm.DB) error {
@@ -152,6 +160,7 @@ func (s *Service) CreateAccessKey(
 		if err != nil {
 			return err
 		}
+		row.Status = string(status)
 		if err := tx.Create(&row).Error; err != nil {
 			return app_errors.ParseDBError(err)
 		}
@@ -171,30 +180,6 @@ func (s *Service) CreateAccessKey(
 	}, nil)
 	if err != nil {
 		return AccessKeyCreateResult{}, err
-	}
-	return result, nil
-}
-
-func (s *Service) ListAccessKeys(ctx context.Context) ([]AccessKeyMetadata, error) {
-	var rows []accessKeyMetadataRow
-	if err := s.db.WithContext(ctx).
-		Model(&models.AccessKey{}).
-		Select(
-			"id", "name", "key_suffix", "status", "filters", "rpm_limit",
-			"created_at_ms", "updated_at_ms",
-		).
-		Order("id ASC").
-		Scan(&rows).Error; err != nil {
-		return nil, app_errors.ParseDBError(err)
-	}
-
-	result := make([]AccessKeyMetadata, 0, len(rows))
-	for _, row := range rows {
-		metadata, err := mapAccessKeyMetadataRow(row)
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, metadata)
 	}
 	return result, nil
 }
