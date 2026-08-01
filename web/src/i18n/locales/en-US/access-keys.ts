@@ -24,6 +24,38 @@ export default {
     filterGroups: 'Groups',
     filterProtocols: 'Protocols',
     filterModels: 'Models',
+    collection: {
+      loading: 'Loading AccessKeys',
+      errorTitle: 'AccessKeys are unavailable',
+      errorDescription: 'Check the connection or service status, then try again.',
+      summary: {
+        region: 'AccessKey status overview',
+        current: 'Current AccessKeys',
+      },
+      status: {
+        all: 'All',
+        active: 'Active',
+        disabled: 'Disabled',
+      },
+      scope: {
+        unlimited: 'Unlimited',
+        restricted: 'Restricted',
+      },
+      filters: {
+        region: 'Filter AccessKeys',
+        searchLabel: 'Search',
+        searchPlaceholder: 'Name or final 4 key characters',
+        clearSearch: 'Clear search',
+        scopeLabel: 'Scope',
+        allScopes: 'All scopes',
+        reset: 'Reset filters',
+      },
+      result: 'Showing {shown} / {total} AccessKeys',
+      noResultsTitle: 'No matching AccessKeys',
+      noResultsDescription: 'Try a different search, status, or scope filter.',
+      tableLabel: 'AccessKey list',
+      editFor: 'Edit AccessKey “{name}”',
+    },
     operation: {
       indeterminate:
         'The AccessKey create outcome is unknown. Reconcile it before starting another create.',
@@ -43,7 +75,9 @@ export default {
       key: 'AccessKey',
       status: 'Status',
       filters: 'Filters',
+      scope: 'Scope',
       rpm: 'RPM limit',
+      updated: 'Updated',
       actions: 'Actions',
     },
     drawer: {

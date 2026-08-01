@@ -153,6 +153,40 @@ export interface AccessKeyDto {
   updated_at_ms: number
 }
 
+export type AccessKeyCollectionStatus = AccessKeyDto['status']
+export type AccessKeyCollectionScope = 'unlimited' | 'restricted'
+
+export interface AccessKeyCollectionFilters {
+  q?: string
+  status?: AccessKeyCollectionStatus
+  scope?: AccessKeyCollectionScope
+  page: number
+  page_size: 20
+}
+
+export interface AccessKeyCollectionSummaryDto {
+  total: number
+  active: number
+  disabled: number
+}
+
+export interface AccessKeyCollectionItemDto extends AccessKeyDto {
+  scope: AccessKeyCollectionScope
+}
+
+export interface AccessKeyCollectionPaginationDto {
+  page: number
+  page_size: 20
+  total_items: number
+  total_pages: number
+}
+
+export interface AccessKeyCollectionResponseDto {
+  summary: AccessKeyCollectionSummaryDto
+  items: AccessKeyCollectionItemDto[]
+  pagination: AccessKeyCollectionPaginationDto
+}
+
 export interface AccessKeyOptionDto {
   id: number
   name: string

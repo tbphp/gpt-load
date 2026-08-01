@@ -24,6 +24,38 @@ export default {
     filterGroups: 'Group',
     filterProtocols: 'プロトコル',
     filterModels: 'モデル',
+    collection: {
+      loading: 'AccessKey を読み込み中',
+      errorTitle: 'AccessKey を読み込めません',
+      errorDescription: '接続またはサービスの状態を確認してから再試行してください。',
+      summary: {
+        region: 'AccessKey の状態概要',
+        current: '現在の AccessKey',
+      },
+      status: {
+        all: 'すべて',
+        active: '有効',
+        disabled: '無効',
+      },
+      scope: {
+        unlimited: '無制限',
+        restricted: '制限付き',
+      },
+      filters: {
+        region: 'AccessKey を絞り込む',
+        searchLabel: '検索',
+        searchPlaceholder: '名前またはキー末尾 4 文字',
+        clearSearch: '検索をクリア',
+        scopeLabel: '範囲',
+        allScopes: 'すべての範囲',
+        reset: '条件をリセット',
+      },
+      result: '{shown} / {total} 件の AccessKey を表示',
+      noResultsTitle: '一致する AccessKey がありません',
+      noResultsDescription: '検索、状態、または範囲フィルターを調整してください。',
+      tableLabel: 'AccessKey リスト',
+      editFor: 'AccessKey「{name}」を編集',
+    },
     operation: {
       indeterminate:
         'AccessKey の作成結果は不明です。新しい作成を始める前に、この操作の結果を確認してください。',
@@ -43,7 +75,9 @@ export default {
       key: 'AccessKey',
       status: '状態',
       filters: 'フィルター',
+      scope: '範囲',
       rpm: 'RPM 上限',
+      updated: '更新日時',
       actions: '操作',
     },
     drawer: {

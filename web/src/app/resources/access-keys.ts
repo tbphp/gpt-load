@@ -1,8 +1,14 @@
-import { queryOptions } from '@tanstack/vue-query'
+import { keepPreviousData, queryOptions } from '@tanstack/vue-query'
+import { computed, toValue, type MaybeRefOrGetter } from 'vue'
 
 import type { ApiClient } from '@/api/client'
 import type {
   AccessKeyCreateResultDto,
+  AccessKeyCollectionFilters,
+  AccessKeyCollectionItemDto,
+  AccessKeyCollectionPaginationDto,
+  AccessKeyCollectionResponseDto,
+  AccessKeyCollectionSummaryDto,
   AccessKeyDto,
   AccessKeyFiltersDto,
   AccessKeyOptionDto,
@@ -10,7 +16,7 @@ import type {
 } from '@/api/control/types'
 import { knownAccessProtocols } from '@/api/control/protocols'
 import { InvalidResponseError } from '@/api/errors'
-import { controlQueryKeys } from '@/app/query-keys'
+import { controlQueryKeys, normalizeAccessKeyCollectionFilters } from '@/app/query-keys'
 import { isCanonicalMaskedAccessKey } from '@/lib/access-key-mask'
 
 import {
@@ -25,6 +31,11 @@ import {
 
 export type {
   AccessKeyCreateResultDto,
+  AccessKeyCollectionFilters,
+  AccessKeyCollectionItemDto,
+  AccessKeyCollectionPaginationDto,
+  AccessKeyCollectionResponseDto,
+  AccessKeyCollectionSummaryDto,
   AccessKeyDto,
   AccessKeyFiltersDto,
   AccessKeyOptionDto,
@@ -56,6 +67,10 @@ const metadataFields = [
   'updated_at_ms',
 ] as const
 const optionFields = ['id', 'name', 'status'] as const
+const collectionFields = ['summary', 'items', 'pagination'] as const
+const collectionSummaryFields = ['total', 'active', 'disabled'] as const
+const collectionPaginationFields = ['page', 'page_size', 'total_items', 'total_pages'] as const
+const collectionItemFields = [...metadataFields, 'scope'] as const
 
 function invalidResponse(): never {
   throw new InvalidResponseError()
@@ -102,6 +117,75 @@ export function projectAccessKeyMetadata(value: unknown): AccessKeyDto {
   }
 }
 
+function projectAccessKeyCollectionSummary(value: unknown): AccessKeyCollectionSummaryDto {
+  const record = projectRecord(value)
+  assertNoSecretLikeFields(record, collectionSummaryFields)
+  const result = {
+    total: projectSafeInteger(record.total, { minimum: 0 }),
+    active: projectSafeInteger(record.active, { minimum: 0 }),
+    disabled: projectSafeInteger(record.disabled, { minimum: 0 }),
+  }
+  if (result.total !== result.active + result.disabled) invalidResponse()
+  return result
+}
+
+function projectAccessKeyCollectionPagination(value: unknown): AccessKeyCollectionPaginationDto {
+  const record = projectRecord(value)
+  assertNoSecretLikeFields(record, collectionPaginationFields)
+  return {
+    page: projectSafeInteger(record.page, { minimum: 1 }),
+    page_size: projectSafeInteger(record.page_size, { minimum: 20, maximum: 20 }) as 20,
+    total_items: projectSafeInteger(record.total_items, { minimum: 0 }),
+    total_pages: projectSafeInteger(record.total_pages, { minimum: 0 }),
+  }
+}
+
+function expectedCollectionTotalPages(totalItems: number, pageSize: number): number {
+  return totalItems === 0 ? 0 : Math.ceil(totalItems / pageSize)
+}
+
+function expectedCollectionPageItems(pagination: AccessKeyCollectionPaginationDto): number {
+  if (pagination.total_items === 0 || pagination.page > pagination.total_pages) return 0
+  if (pagination.page < pagination.total_pages) return pagination.page_size
+  const finalPageItems = pagination.total_items % pagination.page_size
+  return finalPageItems === 0 ? pagination.page_size : finalPageItems
+}
+
+function projectAccessKeyCollectionItem(value: unknown): AccessKeyCollectionItemDto {
+  const record = projectRecord(value)
+  assertNoSecretLikeFields(record, collectionItemFields)
+  const metadata = projectAccessKeyMetadata(
+    Object.fromEntries(metadataFields.map((field) => [field, record[field]])),
+  )
+  const scope = projectEnum(record.scope, ['unlimited', 'restricted'] as const)
+  const expectedScope =
+    metadata.filters.groups.length === 0 &&
+    metadata.filters.protocols.length === 0 &&
+    metadata.filters.models.length === 0
+      ? 'unlimited'
+      : 'restricted'
+  if (scope !== expectedScope) invalidResponse()
+  return { ...metadata, scope }
+}
+
+export function projectAccessKeyCollection(value: unknown): AccessKeyCollectionResponseDto {
+  const record = projectRecord(value)
+  assertNoSecretLikeFields(record, collectionFields)
+  const summary = projectAccessKeyCollectionSummary(record.summary)
+  const items = projectArray(record.items, projectAccessKeyCollectionItem)
+  const pagination = projectAccessKeyCollectionPagination(record.pagination)
+  if (
+    pagination.total_items > summary.total ||
+    pagination.total_pages !==
+      expectedCollectionTotalPages(pagination.total_items, pagination.page_size) ||
+    items.length !== expectedCollectionPageItems(pagination) ||
+    new Set(items.map(({ id }) => id)).size !== items.length
+  ) {
+    invalidResponse()
+  }
+  return { summary, items, pagination }
+}
+
 export function projectAccessKeyOption(value: unknown): AccessKeyOptionDto {
   const record = projectRecord(value)
   assertNoSecretLikeFields(record, optionFields)
@@ -112,14 +196,24 @@ export function projectAccessKeyOption(value: unknown): AccessKeyOptionDto {
   }
 }
 
-export async function listAccessKeys(
+export async function listAccessKeyCollection(
   client: ApiClient,
+  filters: AccessKeyCollectionFilters,
   signal?: AbortSignal,
-): Promise<AccessKeyDto[]> {
-  return projectArray(
-    await client.request('/api/access-keys', { method: 'GET', signal }),
-    projectAccessKeyMetadata,
+): Promise<AccessKeyCollectionResponseDto> {
+  const normalized = normalizeAccessKeyCollectionFilters(filters)
+  const params = new URLSearchParams({
+    page: String(normalized.page),
+    page_size: String(normalized.page_size),
+  })
+  if (normalized.q !== undefined) params.set('q', normalized.q)
+  if (normalized.status !== undefined) params.set('status', normalized.status)
+  if (normalized.scope !== undefined) params.set('scope', normalized.scope)
+  const result = projectAccessKeyCollection(
+    await client.request(`/api/access-keys?${params.toString()}`, { method: 'GET', signal }),
   )
+  if (result.pagination.page !== normalized.page) invalidResponse()
+  return result
 }
 
 export async function listAccessKeyOptions(
@@ -132,11 +226,16 @@ export async function listAccessKeyOptions(
   )
 }
 
-export function accessKeyListQueryOptions(client: ApiClient) {
+export function accessKeyCollectionQueryOptions(
+  client: ApiClient,
+  filters: MaybeRefOrGetter<AccessKeyCollectionFilters>,
+) {
   return queryOptions({
-    queryKey: controlQueryKeys.accessKeys.list(),
-    queryFn: ({ signal }) => listAccessKeys(client, signal),
-    gcTime: 0,
+    queryKey: computed(() => controlQueryKeys.accessKeys.collection(toValue(filters))),
+    queryFn: ({ queryKey, signal }) => listAccessKeyCollection(client, queryKey[3], signal),
+    placeholderData: keepPreviousData,
+    refetchInterval: 10_000,
+    refetchIntervalInBackground: false,
   })
 }
 
@@ -217,8 +316,8 @@ export function deleteAccessKey(
 }
 
 export const accessKeyResources = {
-  list: {
-    queryKey: controlQueryKeys.accessKeys.list(),
+  collection: {
+    queryKey: controlQueryKeys.accessKeys.collectionAll,
     gcTime: 0,
     cleanup: 'authenticated-session',
     optimisticUpdates: false,

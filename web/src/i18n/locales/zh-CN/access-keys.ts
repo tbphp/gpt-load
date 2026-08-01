@@ -24,6 +24,38 @@ export default {
     filterGroups: 'Group',
     filterProtocols: '协议',
     filterModels: '模型',
+    collection: {
+      loading: '正在加载 AccessKey',
+      errorTitle: '暂时无法加载 AccessKey',
+      errorDescription: '请检查网络连接或服务状态后重试',
+      summary: {
+        region: 'AccessKey 状态概览',
+        current: '当前 AccessKey',
+      },
+      status: {
+        all: '全部',
+        active: '已启用',
+        disabled: '已停用',
+      },
+      scope: {
+        unlimited: '不限范围',
+        restricted: '受限范围',
+      },
+      filters: {
+        region: '筛选 AccessKey',
+        searchLabel: '搜索',
+        searchPlaceholder: '名称或密钥末 4 位',
+        clearSearch: '清空搜索',
+        scopeLabel: '范围',
+        allScopes: '全部范围',
+        reset: '重置条件',
+      },
+      result: '显示 {shown} / {total} 个 AccessKey',
+      noResultsTitle: '没有符合条件的 AccessKey',
+      noResultsDescription: '调整搜索内容、状态或范围筛选后再试',
+      tableLabel: 'AccessKey 列表',
+      editFor: '编辑 AccessKey“{name}”',
+    },
     operation: {
       indeterminate: 'AccessKey 创建结果未知；开始新的创建前，请先核对本次操作。',
       reconciling: 'AccessKey 已提交，运行时仍在恢复。',
@@ -41,7 +73,9 @@ export default {
       key: 'AccessKey',
       status: '状态',
       filters: '过滤条件',
+      scope: '范围',
       rpm: 'RPM 限制',
+      updated: '更新时间',
       actions: '操作',
     },
     drawer: {

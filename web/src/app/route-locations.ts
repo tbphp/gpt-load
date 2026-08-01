@@ -61,8 +61,8 @@ export function groupDetailLocation(
     : { name: pageRouteNames.groupDetail, params: { id }, query }
 }
 
-export function accessKeysLocation(): RouteLocationRaw {
-  return namedLocation(pageRouteNames.accessKeys)
+export function accessKeysLocation(query?: LocationQueryRaw): RouteLocationRaw {
+  return namedLocation(pageRouteNames.accessKeys, query)
 }
 
 export function monitorLocation(query?: LocationQueryRaw): RouteLocationRaw {

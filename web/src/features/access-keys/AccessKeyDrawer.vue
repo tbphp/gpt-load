@@ -7,7 +7,7 @@ import { useQueryClient } from '@tanstack/vue-query'
 import { useApiClient } from '@/api/client-context'
 import {
   createAccessKey,
-  listAccessKeys,
+  listAccessKeyCollection,
   revealAccessKey,
   updateAccessKey,
   type CreateAccessKeyRequest,
@@ -15,7 +15,6 @@ import {
 import type { AccessKeyDto, AccessProtocol, GroupOptionDto } from '@/api/control/types'
 import { RequestCancelledError } from '@/api/errors'
 import { classifyMutationOutcome } from '@/app/mutation-outcome'
-import { accessKeyResources } from '@/app/resources/access-keys'
 import { applyInvalidationPlan, mutationInvalidationPlans } from '@/app/resources/invalidation'
 import { useUnsavedChanges } from '@/app/unsaved-changes'
 import AppButton from '@/components/ui/AppButton.vue'
@@ -482,13 +481,16 @@ async function reconcileEdit(): Promise<void> {
   controller = new AbortController()
   const activeController = controller
   try {
-    const accessKeys = await listAccessKeys(client, activeController.signal)
+    const collection = await listAccessKeyCollection(
+      client,
+      { q: attempt.base.name, page: 1, page_size: 20 },
+      activeController.signal,
+    )
     if (controller !== activeController || editReconciliation.value !== attempt || !props.open) {
       return
     }
-    queryClient.setQueryData(accessKeyResources.list.queryKey, accessKeys)
     void applyInvalidationPlan(queryClient, mutationInvalidationPlans.accessKey.reconcile)
-    const latest = accessKeys.find((accessKey) => accessKey.id === attempt.base.id)
+    const latest = collection.items.find((accessKey) => accessKey.id === attempt.base.id)
     if (!latest) {
       editReconciliation.value = null
       editOperationRetained.value = false
