@@ -22,6 +22,7 @@ import (
 	"gpt-load/internal/platform/i18n"
 	"gpt-load/internal/requestlog"
 	"gpt-load/internal/state"
+	stateloader "gpt-load/internal/state/loader"
 	"gpt-load/internal/storage"
 )
 
@@ -77,6 +78,15 @@ type serviceFixture struct {
 type staticRequestLogStatsReader struct {
 	value requestlog.Stats
 	fn    func() requestlog.Stats
+}
+
+func mustBuildCompileInput(t *testing.T, db *gorm.DB) state.CompileInput {
+	t.Helper()
+	input, err := stateloader.BuildCompileInput(t.Context(), db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return input
 }
 
 func (reader *staticRequestLogStatsReader) Stats() requestlog.Stats {

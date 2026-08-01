@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, useId } from 'vue'
 
 export interface SectionNavItem {
   id: string
@@ -18,6 +18,7 @@ const emit = defineEmits<{
 }>()
 
 const expanded = ref(false)
+const optionsId = `${useId()}-options`
 const current = computed(
   () => props.items.find((item) => item.id === props.modelValue) ?? props.items[0],
 )
@@ -35,13 +36,13 @@ function select(id: string): void {
         class="section-nav__toggle"
         type="button"
         :aria-expanded="expanded"
-        aria-controls="section-nav-options"
+        :aria-controls="optionsId"
         @click="expanded = !expanded"
       >
         <span>{{ current?.label }}</span>
         <span aria-hidden="true">⌄</span>
       </button>
-      <ul v-if="expanded" id="section-nav-options" class="section-nav__options">
+      <ul v-if="expanded" :id="optionsId" class="section-nav__options">
         <li v-for="item in items" :key="item.id">
           <button
             type="button"

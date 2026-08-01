@@ -65,8 +65,6 @@ export default {
     loading: 'Group 詳細を読み込み中…',
     loadFailed: 'Group 詳細を読み込めません。',
     stale: 'バックグラウンド更新に失敗したため、Group 詳細が古い可能性があります。',
-    enabled: '有効',
-    disabled: '無効',
     backToGroups: 'グループ一覧に戻る',
     importKeys: 'アップストリームキーをインポート',
     copyUpstreamUrl: 'アップストリームアドレス {url} をコピー',
@@ -77,7 +75,6 @@ export default {
       title: 'モデルとエイリアス',
       description:
         '検出は候補のみを生成します。保存前にエイリアスと選択済みモデルの完全な一覧を確認してください。',
-      rediscover: '再検出',
       save: '変更を保存',
       loading: 'モデルを読み込み中',
       loadFailed: 'モデルを読み込めません',
@@ -109,26 +106,11 @@ export default {
         empty: '追加できるモデルが返されませんでした',
         confirm: '選択モデルを追加',
       },
-      badGateway:
-        'アップストリームでの検出に失敗しました。下書きは保持されています。再試行するか、モデル ID とエイリアスを手動で追加してください。',
       discoveryFailed:
         'モデル検出に失敗しました。下書きは保持されています。再試行するか、モデル ID とエイリアスを手動で追加してください。',
       saveFailed: 'Group のモデル一覧を置き換えられません。',
-      removalWarning:
-        'モデルを削除しても AccessKey に保存済みのモデルフィルターは更新されません。影響する AccessKey を別途確認してください。',
-      status: {
-        saved: '保存済み',
-        rediscovered: '再検出済み',
-        notRediscovered: '再検出されず',
-        discovered: '新規検出',
-        manual: '手動追加',
-      },
       noActiveKey: {
         title: '検出に使用できる有効なアップストリームキーがありません。',
-        description:
-          'キーのタブでキーを有効化するか、この既存 Group にキーをインポートしてください。',
-        keysAction: 'キーのタブを開く',
-        importAction: 'キーをインポート',
       },
       emptyConfirm: {
         title: 'すべてのモデルを削除しますか？',
@@ -163,11 +145,7 @@ export default {
         description: 'ルールは既定で折りたたまれ、編集すると HeaderRules 全体を置き換えます',
       },
       saveFailed: 'Group 設定を更新できませんでした。',
-      rediscoveryRecommended:
-        'アップストリーム URL が変更されました。モデルを確認して再検出してください。',
-      rediscoverAction: 'モデルとエイリアスを開く',
       base: {
-        title: 'Group 構成',
         description: '基本項目は正規化された部分更新として保存されます。',
         name: '名前',
         nameError: 'Group 名を入力してください。',
@@ -193,22 +171,15 @@ export default {
         first_byte_timeout: '最初のバイトのタイムアウト',
         request_timeout: 'リクエストタイムアウト',
         stream_idle_timeout: 'ストリームアイドルタイムアウト',
-        header_rules: 'HeaderRules',
         effective: '有効値: {value} 秒',
         override: '上書き',
         inherited: '継承',
-        useOverride: 'Group 上書きを使用',
         valueFor: '{field} の上書き値',
-        timeoutError: '正の安全な整数を入力してください。',
         headerSummary: '有効値: Set {set} 件、Remove {remove} 件',
         headerReplacementWarning:
           'この Group 上書きはグローバル HeaderRules 全体を置き換えます。今後のグローバル変更はマージされません。',
         inject_usage_options: '使用量オプションを注入',
         injectUsageHelp: 'この上書きは OpenAI Completions でのみ利用できます',
-      },
-      urlConflict: {
-        title: 'このアップストリーム URL は使用中です',
-        description: '別の URL を選択してください。確認でこの競合を回避することはできません。',
       },
       urlConfirm: {
         title: 'アップストリーム URL を変更しますか？',
@@ -218,7 +189,6 @@ export default {
         confirm: 'アップストリーム URL を変更',
       },
       delete: {
-        sectionTitle: '危険な操作',
         sectionDescription:
           'Group を削除するとすべてのアップストリームキーも削除され、元に戻せません。',
         open: 'Group を削除',
@@ -262,11 +232,6 @@ export default {
       emptyDescription: 'この Group にキーをインポートすると、リクエストをルーティングできます。',
       emptyFilterTitle: '条件に一致するキーがありません',
       emptyFilterDescription: '検索またはステータス条件を変更して再試行してください',
-      problemFilter: 'クールダウン中またはブラックリスト登録済みの問題キーのみを表示しています。',
-      clearProblemFilter: 'フィルターを解除',
-      problemEmptyTitle: '現在、問題のあるキーはありません',
-      problemEmptyDescription:
-        'この Group にはクールダウン中またはブラックリスト登録済みのキーがありません。',
       caption: 'この Group のアップストリームキー',
       auto: '自動',
       none: '—',
@@ -305,13 +270,12 @@ export default {
       },
       enable: '有効化',
       disable: '無効化',
-      saveWeight: 'ウェイトを保存',
       delete: '削除',
       cancel: 'キャンセル',
       confirmDelete: 'キーを削除',
       closeDialog: '削除確認を閉じる',
       deleteTitle: 'アップストリームキーを削除しますか？',
-      deleteDescription: '{mask} をこの Group から削除します。この操作は元に戻せません。',
+      deleteDescription: '{mask} をこの Group から削除します。この操作は元に戻せません',
       columns: {
         key: 'キー',
         status: 'ステータス',
@@ -319,18 +283,10 @@ export default {
         recent: '直近 5 分',
         failure: '最近の失敗',
         recovery: '回復',
-        configured: '設定状態',
-        effective: '有効状態',
-        manualWeight: '手動ウェイト',
-        autoWeight: '自動ウェイト',
-        cooldown: 'クールダウン期限',
-        failures: '失敗',
         actions: '操作',
       },
       status: {
         all: 'すべて',
-        active: '有効',
-        disabled: '無効',
       },
       effective: {
         available: '利用可能',

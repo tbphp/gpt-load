@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
-	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -18,13 +17,11 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
-	"gorm.io/gorm"
 
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/platform/config"
 	"gpt-load/internal/platform/encryption"
 	app_errors "gpt-load/internal/platform/errors"
-	"gpt-load/internal/platform/utils"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/scheduler"
 	"gpt-load/internal/state"
@@ -59,331 +56,6 @@ func seedManagedUpstreamKey(
 		t.Fatal(err)
 	}
 	return row
-}
-
-func TestListGroupKeysReturnsMaskedStableRuntimeView(t *testing.T) {
-	fixture := newServiceFixture(t)
-	now := time.Date(2026, time.July, 24, 12, 0, 0, 0, time.UTC)
-	fixture.service.now = func() time.Time { return now }
-	group := validControlGroup("key-list")
-	if err := fixture.db.Create(group).Error; err != nil {
-		t.Fatal(err)
-	}
-	longKey := seedManagedUpstreamKey(
-		t, fixture, group.ID, "sk-abcd-very-long-wxyz",
-		models.UpstreamKeyStatusActive, nil,
-	)
-	zero := 0
-	shortKey := seedManagedUpstreamKey(
-		t, fixture, group.ID, "short",
-		models.UpstreamKeyStatusDisabled, &zero,
-	)
-	if err := fixture.db.Exec(
-		"PRAGMA reverse_unordered_selects = ON",
-	).Error; err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		if err := fixture.db.Exec(
-			"PRAGMA reverse_unordered_selects = OFF",
-		).Error; err != nil {
-			t.Errorf("disable reverse_unordered_selects: %v", err)
-		}
-	})
-	var reverseEnabled int
-	if err := fixture.db.Raw(
-		"PRAGMA reverse_unordered_selects",
-	).Scan(&reverseEnabled).Error; err != nil {
-		t.Fatal(err)
-	}
-	var unordered []models.UpstreamKey
-	if err := fixture.db.Where("group_id = ?", group.ID).
-		Find(&unordered).Error; err != nil {
-		t.Fatal(err)
-	}
-	if reverseEnabled != 1 ||
-		len(unordered) != 2 ||
-		unordered[0].ID != shortKey.ID ||
-		unordered[1].ID != longKey.ID {
-		t.Fatalf(
-			"reverse unordered control = enabled:%d rows:%#v",
-			reverseEnabled,
-			unordered,
-		)
-	}
-	if !fixture.registry.SetAutoWeight(longKey.ID, 42) ||
-		!fixture.registry.SetCooldown(longKey.ID, now.Add(time.Minute)) {
-		t.Fatal("set long key runtime")
-	}
-	if _, ok := fixture.registry.IncrFailure(longKey.ID); !ok {
-		t.Fatal("increment failure")
-	}
-	if !fixture.registry.SetBlacklisted(shortKey.ID) {
-		t.Fatal("blacklist short key")
-	}
-	for range 3 {
-		if _, ok := fixture.registry.IncrFailure(shortKey.ID); !ok {
-			t.Fatal("increment short failure")
-		}
-	}
-
-	got, err := fixture.service.listGroupKeyResponses(t.Context(), group.ID)
-	if err != nil {
-		t.Fatalf("ListGroupKeys() error = %v", err)
-	}
-	if len(got) != 2 || got[0].ID != longKey.ID || got[1].ID != shortKey.ID {
-		t.Fatalf("stable order = %#v", got)
-	}
-	if got[0].Mask != "sk-a****wxyz" ||
-		got[0].EffectiveStatus != "cooldown" ||
-		got[0].WeightAuto != 42 ||
-		got[0].CooldownUntilMS == nil ||
-		*got[0].CooldownUntilMS != now.Add(time.Minute).UnixMilli() ||
-		got[0].FailureCount != 1 {
-		t.Fatalf("long response = %#v", got[0])
-	}
-	if got[1].Mask != "****" ||
-		got[1].Status != state.KeyStatusDisabled ||
-		got[1].EffectiveStatus != "disabled" ||
-		!got[1].Blacklisted ||
-		got[1].CooldownUntilMS != nil ||
-		got[1].FailureCount != 3 {
-		t.Fatalf("short response = %#v", got[1])
-	}
-	encoded, err := json.Marshal(got)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, forbidden := range []string{
-		"sk-abcd-very-long-wxyz", "short", longKey.KeyValue,
-		longKey.KeyHash, "key_value", "key_hash", "encrypted_value",
-		"upstream_url", "header_rules", "request_log", "tokens", "cost",
-	} {
-		if bytes.Contains(encoded, []byte(forbidden)) {
-			t.Fatalf("response exposes %q: %s", forbidden, encoded)
-		}
-	}
-}
-
-func TestListGroupKeysEffectiveStatusPriorityAndCooldownEquality(t *testing.T) {
-	fixture := newServiceFixture(t)
-	now := time.Date(2026, time.July, 24, 12, 0, 0, 0, time.UTC)
-	fixture.service.now = func() time.Time { return now }
-	group := validControlGroup("key-priority")
-	if err := fixture.db.Create(group).Error; err != nil {
-		t.Fatal(err)
-	}
-	row := seedManagedUpstreamKey(
-		t, fixture, group.ID, "sk-priority",
-		models.UpstreamKeyStatusActive, nil,
-	)
-	if !fixture.registry.SetCooldown(row.ID, now) {
-		t.Fatal("set equality cooldown")
-	}
-	got, err := fixture.service.listGroupKeyResponses(t.Context(), group.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got[0].EffectiveStatus != "available" || got[0].CooldownUntilMS != nil {
-		t.Fatalf("cooldown equality = %#v", got[0])
-	}
-
-	if !fixture.registry.SetCooldown(row.ID, now.Add(time.Minute)) ||
-		!fixture.registry.SetBlacklisted(row.ID) {
-		t.Fatal("set automatic state")
-	}
-	if err := fixture.db.Model(group).Update("enabled", false).Error; err != nil {
-		t.Fatal(err)
-	}
-	got, err = fixture.service.listGroupKeyResponses(t.Context(), group.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got[0].EffectiveStatus != "disabled" || !got[0].Blacklisted ||
-		got[0].CooldownUntilMS == nil {
-		t.Fatalf("disabled priority/raw state = %#v", got[0])
-	}
-}
-
-func TestListGroupKeysFailsLoudlyForEveryDBRegistryMismatch(t *testing.T) {
-	for _, test := range []struct {
-		name     string
-		wantKind string
-		mutate   func(t *testing.T, fixture serviceFixture, groupID uint, row models.UpstreamKey)
-	}{
-		{
-			name: "missing Registry", wantKind: mismatchMissingRegistry,
-			mutate: func(t *testing.T, fixture serviceFixture, _ uint, row models.UpstreamKey) {
-				fixture.registry.RemoveKey(row.ID)
-			},
-		},
-		{
-			name: "extra Registry", wantKind: mismatchExtraRegistry,
-			mutate: func(t *testing.T, fixture serviceFixture, groupID uint, _ models.UpstreamKey) {
-				err := fixture.registry.ApplyImport(groupID, []state.KeyEntry{{
-					ID: 999, GroupID: groupID, Status: state.KeyStatusActive,
-					EncryptedValue: "cipher-extra",
-				}})
-				if err != nil {
-					t.Fatal(err)
-				}
-			},
-		},
-		{
-			name: "wrong Group", wantKind: mismatchGroupID,
-			mutate: func(t *testing.T, fixture serviceFixture, _ uint, row models.UpstreamKey) {
-				if err := fixture.registry.Replace([]state.KeyEntry{{
-					ID: row.ID, GroupID: row.GroupID + 100,
-					Status:         state.KeyStatus(row.Status),
-					EncryptedValue: row.KeyValue,
-				}}); err != nil {
-					t.Fatal(err)
-				}
-			},
-		},
-		{
-			name: "status", wantKind: mismatchStatus,
-			mutate: func(t *testing.T, fixture serviceFixture, _ uint, row models.UpstreamKey) {
-				if err := fixture.registry.SetKeyStatus(row.ID, state.KeyStatusDisabled); err != nil {
-					t.Fatal(err)
-				}
-			},
-		},
-		{
-			name: "manual weight", wantKind: mismatchWeightManual,
-			mutate: func(t *testing.T, fixture serviceFixture, _ uint, row models.UpstreamKey) {
-				weight := 77
-				if err := fixture.registry.UpdateKeyConfig(
-					row.ID,
-					state.KeyStatus(row.Status),
-					&weight,
-				); err != nil {
-					t.Fatal(err)
-				}
-			},
-		},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			fixture := newServiceFixture(t)
-			group := validControlGroup("mismatch-" + strings.ReplaceAll(test.name, " ", "-"))
-			if err := fixture.db.Create(group).Error; err != nil {
-				t.Fatal(err)
-			}
-			row := seedManagedUpstreamKey(
-				t, fixture, group.ID, "known-upstream-secret",
-				models.UpstreamKeyStatusActive, nil,
-			)
-			var beforeDB models.UpstreamKey
-			if err := fixture.db.First(&beforeDB, row.ID).Error; err != nil {
-				t.Fatal(err)
-			}
-			test.mutate(t, fixture, group.ID, row)
-			beforeRegistry := fixture.registry.Snapshot()
-
-			_, err := fixture.service.listGroupKeyResponses(t.Context(), group.ID)
-			var operationErr *controlOperationError
-			if !errors.As(err, &operationErr) ||
-				operationErr.stage != stageValidateDBRegistryPair ||
-				operationErr.mismatchKind != test.wantKind ||
-				operationErr.groupID != group.ID {
-				t.Fatalf("error = %#v", err)
-			}
-			var afterDB models.UpstreamKey
-			if err := fixture.db.First(&afterDB, row.ID).Error; err != nil {
-				t.Fatal(err)
-			}
-			if !reflect.DeepEqual(afterDB, beforeDB) {
-				t.Fatalf("GET changed DB row:\ngot=%#v\nwant=%#v", afterDB, beforeDB)
-			}
-			if got := fixture.registry.Snapshot(); !reflect.DeepEqual(got, beforeRegistry) {
-				t.Fatalf("GET changed Registry:\ngot=%#v\nwant=%#v", got, beforeRegistry)
-			}
-		})
-	}
-}
-
-func TestListGroupKeysMismatchLogStage(t *testing.T) {
-	initControlI18n(t)
-	const (
-		authKey      = "known-list-auth-secret"
-		plaintext    = "known-list-upstream-secret"
-		querySecret  = "known-list-query-secret"
-		headerSecret = "known-list-header-secret"
-	)
-	fixture := newServiceFixture(t)
-	group := validControlGroup("list-mismatch-log")
-	group.UpstreamURL = "https://list-mismatch.example.com/v1?token=" + querySecret
-	group.Config = models.JSON(`{"header_rules":{"set":{"X-Secret":"` + headerSecret + `"}}}`)
-	if err := fixture.db.Create(group).Error; err != nil {
-		t.Fatal(err)
-	}
-	row := seedManagedUpstreamKey(
-		t, fixture, group.ID, plaintext,
-		models.UpstreamKeyStatusActive, nil,
-	)
-	accessKey, err := fixture.service.CreateAccessKey(
-		t.Context(),
-		AccessKeyCreateRequest{Name: "list-mismatch-access-key"},
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	accessKeyRow := loadAccessKeyRow(t, fixture.db, accessKey.ID)
-	fixture.registry.RemoveKey(row.ID)
-
-	engine := gin.New()
-	NewServer(&config.Config{AuthKey: authKey}, fixture.service).RegisterRoutes(engine)
-	var logs bytes.Buffer
-	logger := logrus.StandardLogger()
-	previousOutput, previousFormatter := logger.Out, logger.Formatter
-	logrus.SetOutput(&logs)
-	logrus.SetFormatter(&logrus.JSONFormatter{DisableTimestamp: true})
-	t.Cleanup(func() {
-		logrus.SetOutput(previousOutput)
-		logrus.SetFormatter(previousFormatter)
-	})
-
-	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(
-		http.MethodGet,
-		"/api/groups/"+strconv.FormatUint(uint64(group.ID), 10)+"/keys",
-		nil,
-	)
-	request.Header.Set("Authorization", "Bearer "+authKey)
-	engine.ServeHTTP(recorder, request)
-
-	if recorder.Code != http.StatusInternalServerError {
-		t.Fatalf("response = %d %s, want 500", recorder.Code, recorder.Body.String())
-	}
-	logText := logs.String()
-	for _, required := range []string{
-		`"operation":"list_group_keys"`,
-		`"stage":"validate_db_registry_pair"`,
-		`"mismatch_kind":"missing_registry"`,
-		`"group_id":` + strconv.FormatUint(uint64(group.ID), 10),
-		`"key_id":` + strconv.FormatUint(uint64(row.ID), 10),
-	} {
-		if !strings.Contains(logText, required) {
-			t.Fatalf("logs missing %q: %s", required, logText)
-		}
-	}
-	for _, forbidden := range []string{
-		authKey, accessKey.Key, accessKeyRow.KeyValue, accessKeyRow.KeyHash,
-		plaintext, row.KeyValue, row.KeyHash,
-		group.UpstreamURL, querySecret, headerSecret, string(group.Config),
-	} {
-		if strings.Contains(logText, forbidden) ||
-			strings.Contains(recorder.Body.String(), forbidden) {
-			t.Fatalf("response/log exposes %q: response=%s logs=%s",
-				forbidden, recorder.Body.String(), logText)
-		}
-	}
-	if strings.Contains(
-		logText,
-		`"stage":"apply_committed_registry_mutation"`,
-	) {
-		t.Fatalf("list mismatch log used post-commit stage: %s", logText)
-	}
 }
 
 func TestUpdateGroupKeyCommittedRegistryFailureLogStage(t *testing.T) {
@@ -801,131 +473,6 @@ func TestGroupKeyHTTPRejectsInvalidPathIDsWithoutMutation(t *testing.T) {
 	}
 }
 
-func TestListGroupKeysHTTPContract(t *testing.T) {
-	initControlI18n(t)
-	const (
-		plaintext   = "sk-list-http-plaintext"
-		querySecret = "list-http-query-secret"
-		headerValue = "list-http-header-secret"
-	)
-	fixture := newServiceFixture(t)
-	group := validControlGroup("key-list-http")
-	group.UpstreamURL += "?token=" + querySecret
-	group.Config = models.JSON(
-		`{"header_rules":{"set":{"X-Secret":"` + headerValue + `"}}}`,
-	)
-	if err := fixture.db.Create(group).Error; err != nil {
-		t.Fatal(err)
-	}
-	row := seedManagedUpstreamKey(
-		t, fixture, group.ID, plaintext,
-		models.UpstreamKeyStatusActive, nil,
-	)
-	emptyGroup := validControlGroup("key-list-empty")
-	if err := fixture.db.Create(emptyGroup).Error; err != nil {
-		t.Fatal(err)
-	}
-	engine := gin.New()
-	NewServer(
-		&config.Config{AuthKey: groupKeyHTTPAuth},
-		fixture.service,
-	).RegisterRoutes(engine)
-
-	path := fmt.Sprintf("/api/groups/%d/keys", group.ID)
-	recorder := serveGroupKeyHTTPRequest(
-		t, engine, http.MethodGet, path, "", groupKeyHTTPAuth, "en-US",
-	)
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("GET list response = %d %s", recorder.Code, recorder.Body.String())
-	}
-	var success struct {
-		Code int                        `json:"code"`
-		Data GroupKeyCollectionResponse `json:"data"`
-	}
-	if err := json.Unmarshal(recorder.Body.Bytes(), &success); err != nil {
-		t.Fatal(err)
-	}
-	if success.Code != 0 || success.Data.StatsWindowSeconds != 300 ||
-		success.Data.Summary != (GroupKeySummaryResponse{Total: 1, Available: 1}) ||
-		success.Data.Pagination != (GroupKeyPaginationResponse{Page: 1, PageSize: 50, TotalItems: 1, TotalPages: 1}) ||
-		len(success.Data.Items) != 1 || success.Data.Items[0].ID != row.ID ||
-		success.Data.Items[0].Mask != "sk-gl-****text" ||
-		success.Data.Items[0].ConfiguredStatus != "active" ||
-		success.Data.Items[0].EffectiveStatus != "available" {
-		t.Fatalf("list success envelope = %#v", success)
-	}
-	assertGroupKeyHTTPDoesNotExpose(
-		t,
-		recorder.Body.String(),
-		plaintext,
-		row.KeyValue,
-		row.KeyHash,
-		group.UpstreamURL,
-		querySecret,
-		headerValue,
-		string(group.Config),
-		"key_value",
-		"key_hash",
-	)
-
-	empty := serveGroupKeyHTTPRequest(
-		t,
-		engine,
-		http.MethodGet,
-		fmt.Sprintf("/api/groups/%d/keys", emptyGroup.ID),
-		"",
-		groupKeyHTTPAuth,
-		"en-US",
-	)
-	var emptyEnvelope struct {
-		Code int                        `json:"code"`
-		Data GroupKeyCollectionResponse `json:"data"`
-	}
-	if empty.Code != http.StatusOK || json.Unmarshal(empty.Body.Bytes(), &emptyEnvelope) != nil ||
-		emptyEnvelope.Code != 0 || emptyEnvelope.Data.Summary != (GroupKeySummaryResponse{}) ||
-		emptyEnvelope.Data.Pagination != (GroupKeyPaginationResponse{Page: 1, PageSize: 50}) ||
-		emptyEnvelope.Data.Items == nil || len(emptyEnvelope.Data.Items) != 0 {
-		t.Fatalf("empty list response = %d %s, want collection object with empty items", empty.Code, empty.Body.String())
-	}
-
-	missing := serveGroupKeyHTTPRequest(
-		t,
-		engine,
-		http.MethodGet,
-		"/api/groups/999999/keys",
-		"",
-		groupKeyHTTPAuth,
-		"en-US",
-	)
-	if missing.Code != http.StatusNotFound {
-		t.Fatalf("missing Group response = %d %s", missing.Code, missing.Body.String())
-	}
-	var failure struct {
-		Code    string          `json:"code"`
-		Message string          `json:"message"`
-		Data    json.RawMessage `json:"data"`
-	}
-	if err := json.Unmarshal(missing.Body.Bytes(), &failure); err != nil {
-		t.Fatal(err)
-	}
-	if failure.Code != app_errors.ErrResourceNotFound.Code ||
-		failure.Message != "Group not found" ||
-		len(failure.Data) != 0 {
-		t.Fatalf("missing Group envelope = %#v", failure)
-	}
-	assertGroupKeyHTTPDoesNotExpose(
-		t,
-		missing.Body.String(),
-		plaintext,
-		row.KeyValue,
-		row.KeyHash,
-		group.UpstreamURL,
-		querySecret,
-		headerValue,
-		string(group.Config),
-	)
-}
-
 func TestUpdateGroupKeyHTTPStrictJSONValidation(t *testing.T) {
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
@@ -1014,107 +561,6 @@ func TestUpdateGroupKeyHTTPStrictJSONValidation(t *testing.T) {
 				row.KeyHash,
 				group.UpstreamURL,
 				string(group.Config),
-			)
-		})
-	}
-}
-
-func TestUpdateGroupKeyHTTPSuccessThreeStateFields(t *testing.T) {
-	initControlI18n(t)
-	for _, test := range []struct {
-		name          string
-		body          string
-		initialWeight *int
-		wantStatus    state.KeyStatus
-		wantWeight    *int
-	}{
-		{
-			name: "status disabled", body: `{"status":"disabled"}`,
-			wantStatus: state.KeyStatusDisabled,
-		},
-		{
-			name: "weight null", body: `{"weight_manual":null}`,
-			initialWeight: keyTestIntPointer(55),
-			wantStatus:    state.KeyStatusActive,
-		},
-		{
-			name: "weight zero", body: `{"weight_manual":0}`,
-			wantStatus: state.KeyStatusActive, wantWeight: keyTestIntPointer(0),
-		},
-		{
-			name: "weight one", body: `{"weight_manual":1}`,
-			wantStatus: state.KeyStatusActive, wantWeight: keyTestIntPointer(1),
-		},
-		{
-			name: "weight max", body: `{"weight_manual":100}`,
-			wantStatus: state.KeyStatusActive, wantWeight: keyTestIntPointer(100),
-		},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			fixture := newServiceFixture(t)
-			group := validControlGroup("key-update-http-" + strings.ReplaceAll(test.name, " ", "-"))
-			if err := fixture.db.Create(group).Error; err != nil {
-				t.Fatal(err)
-			}
-			plaintext := "sk-update-http-" + test.name
-			row := seedManagedUpstreamKey(
-				t, fixture, group.ID, plaintext,
-				models.UpstreamKeyStatusActive, test.initialWeight,
-			)
-			beforeSnapshot := fixture.manager.Current()
-			engine := gin.New()
-			NewServer(
-				&config.Config{AuthKey: groupKeyHTTPAuth},
-				fixture.service,
-			).RegisterRoutes(engine)
-			recorder := serveGroupKeyHTTPRequest(
-				t,
-				engine,
-				http.MethodPut,
-				fmt.Sprintf("/api/groups/%d/keys/%d", group.ID, row.ID),
-				test.body,
-				groupKeyHTTPAuth,
-				"en-US",
-			)
-			if recorder.Code != http.StatusOK {
-				t.Fatalf("PUT success response = %d %s", recorder.Code, recorder.Body.String())
-			}
-			var envelope struct {
-				Code int                 `json:"code"`
-				Data UpstreamKeyResponse `json:"data"`
-			}
-			if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err != nil {
-				t.Fatal(err)
-			}
-			if envelope.Code != 0 ||
-				envelope.Data.ID != row.ID ||
-				envelope.Data.GroupID != group.ID ||
-				envelope.Data.Mask != utils.MaskAPIKey(plaintext) ||
-				envelope.Data.Status != test.wantStatus ||
-				!equalOptionalWeight(envelope.Data.WeightManual, test.wantWeight) ||
-				envelope.Data.WeightAuto != state.DefaultWeight ||
-				envelope.Data.Blacklisted ||
-				envelope.Data.CooldownUntilMS != nil ||
-				envelope.Data.FailureCount != 0 {
-				t.Fatalf("PUT success envelope = %#v", envelope)
-			}
-			if fixture.manager.Current() != beforeSnapshot {
-				t.Fatal("HTTP update published Snapshot")
-			}
-			if test.wantWeight == nil &&
-				!strings.Contains(recorder.Body.String(), `"weight_manual":null`) {
-				t.Fatalf("nullable weight missing: %s", recorder.Body.String())
-			}
-			assertGroupKeyHTTPDoesNotExpose(
-				t,
-				recorder.Body.String(),
-				plaintext,
-				row.KeyValue,
-				row.KeyHash,
-				group.UpstreamURL,
-				string(group.Config),
-				"key_value",
-				"key_hash",
 			)
 		})
 	}
@@ -1294,123 +740,6 @@ func TestDeleteGroupKeyHTTPSuccessAllowsLastKey(t *testing.T) {
 	)
 }
 
-func TestListGroupKeysWaitsForCommittedRegistryConvergence(t *testing.T) {
-	fixture := newServiceFixture(t)
-	group := validControlGroup("key-capture-barrier")
-	if err := fixture.db.Create(group).Error; err != nil {
-		t.Fatal(err)
-	}
-	row := seedManagedUpstreamKey(
-		t, fixture, group.ID, "sk-capture",
-		models.UpstreamKeyStatusActive, nil,
-	)
-	committed := make(chan struct{})
-	releaseRegistry := make(chan struct{})
-	defer func() {
-		select {
-		case <-releaseRegistry:
-		default:
-			close(releaseRegistry)
-		}
-	}()
-	writeDone := make(chan error, 1)
-	go func() {
-		writeDone <- fixture.service.writeKeyConfig(
-			t.Context(),
-			group.ID,
-			row.ID,
-			func(tx *gorm.DB) error {
-				return tx.Model(&models.UpstreamKey{}).
-					Where("id = ?", row.ID).
-					Update("status", models.UpstreamKeyStatusDisabled).Error
-			},
-			func() error {
-				close(committed)
-				<-releaseRegistry
-				return fixture.registry.UpdateKeyConfig(
-					row.ID,
-					state.KeyStatusDisabled,
-					nil,
-				)
-			},
-		)
-	}()
-	<-committed
-	if fixture.service.writeMu.TryRLock() {
-		fixture.service.writeMu.RUnlock()
-		t.Fatal("writeMu RLock acquired inside DB commit -> Registry convergence window")
-	}
-
-	listDone := make(chan error, 1)
-	readerEntered := make(chan struct{})
-	go listGroupKeysDuringCommittedConvergence(
-		fixture.service,
-		t.Context(),
-		group.ID,
-		readerEntered,
-		listDone,
-	)
-	<-readerEntered
-	waitForListGroupKeysReaderBlockedOnWriteMu(t, listDone)
-	close(releaseRegistry)
-	if err := <-writeDone; err != nil {
-		t.Fatal(err)
-	}
-	if err := <-listDone; err != nil {
-		t.Fatalf("ListGroupKeys() error = %v", err)
-	}
-}
-
-func listGroupKeysDuringCommittedConvergence(
-	service *Service,
-	ctx context.Context,
-	groupID uint,
-	entered chan<- struct{},
-	done chan<- error,
-) {
-	close(entered)
-	_, err := service.listGroupKeyResponses(ctx, groupID)
-	done <- err
-}
-
-func waitForListGroupKeysReaderBlockedOnWriteMu(
-	t *testing.T,
-	listDone <-chan error,
-) {
-	t.Helper()
-	timeout := time.NewTimer(2 * time.Second)
-	defer timeout.Stop()
-	stack := make([]byte, 1<<20)
-	for {
-		select {
-		case err := <-listDone:
-			t.Fatalf(
-				"ListGroupKeys completed before writer release: %v",
-				err,
-			)
-		case <-timeout.C:
-			t.Fatal("ListGroupKeys reader never blocked on writeMu.RLock")
-		default:
-		}
-
-		length := runtime.Stack(stack, true)
-		for _, goroutine := range bytes.Split(
-			stack[:length],
-			[]byte("\n\n"),
-		) {
-			if bytes.Contains(
-				goroutine,
-				[]byte("listGroupKeysDuringCommittedConvergence"),
-			) &&
-				bytes.Contains(goroutine, []byte("sync.(*RWMutex).RLock")) &&
-				bytes.Contains(goroutine, []byte("captureGroupKeys")) {
-				return
-			}
-		}
-		runtime.Gosched()
-	}
-}
-
 func TestCaptureGroupKeysSeparatesLockedCaptureFromValidation(t *testing.T) {
 	fixture := newServiceFixture(t)
 	group := validControlGroup("key-short-capture")
@@ -1449,139 +778,6 @@ func TestCaptureGroupKeysSeparatesLockedCaptureFromValidation(t *testing.T) {
 	}
 }
 
-type selectiveDecryptFailureService struct {
-	encryption.Service
-	failCiphertext string
-	secretCause    string
-}
-
-func (service selectiveDecryptFailureService) Decrypt(
-	ciphertext string,
-) (string, error) {
-	if ciphertext == service.failCiphertext {
-		return "", errors.New(service.secretCause)
-	}
-	return service.Service.Decrypt(ciphertext)
-}
-
-func TestListGroupKeysDecryptFailureIsAtomicAndSecretFree(t *testing.T) {
-	initControlI18n(t)
-	const (
-		authKey         = "known-decrypt-auth-secret"
-		firstPlaintext  = "sk-first-decrypt-plaintext"
-		secondPlaintext = "sk-second-decrypt-plaintext"
-		secretCause     = "known-decrypt-provider-cause"
-	)
-	fixture := newServiceFixture(t)
-	group := validControlGroup("key-decrypt-failure")
-	if err := fixture.db.Create(group).Error; err != nil {
-		t.Fatal(err)
-	}
-	first := seedManagedUpstreamKey(
-		t, fixture, group.ID, firstPlaintext,
-		models.UpstreamKeyStatusActive, nil,
-	)
-	second := seedManagedUpstreamKey(
-		t, fixture, group.ID, secondPlaintext,
-		models.UpstreamKeyStatusActive, nil,
-	)
-	fixture.service.encryption = selectiveDecryptFailureService{
-		Service:        fixture.encryption,
-		failCiphertext: second.KeyValue,
-		secretCause:    secretCause,
-	}
-
-	result, err := fixture.service.listGroupKeyResponses(t.Context(), group.ID)
-	if result != nil {
-		t.Fatalf("ListGroupKeys() result = %#v, want nil", result)
-	}
-	if !errors.Is(err, app_errors.ErrInternalServer) {
-		t.Fatalf("ListGroupKeys() error = %v, want internal error", err)
-	}
-	for _, forbidden := range []string{
-		firstPlaintext,
-		secondPlaintext,
-		first.KeyValue,
-		second.KeyValue,
-		first.KeyHash,
-		second.KeyHash,
-		utils.MaskAPIKey(firstPlaintext),
-		utils.MaskAPIKey(secondPlaintext),
-		secretCause,
-	} {
-		if strings.Contains(err.Error(), forbidden) {
-			t.Fatalf("Service error exposes %q: %v", forbidden, err)
-		}
-	}
-
-	engine := gin.New()
-	NewServer(&config.Config{AuthKey: authKey}, fixture.service).RegisterRoutes(engine)
-	var logs bytes.Buffer
-	logger := logrus.StandardLogger()
-	previousOutput, previousFormatter := logger.Out, logger.Formatter
-	logrus.SetOutput(&logs)
-	logrus.SetFormatter(&logrus.JSONFormatter{DisableTimestamp: true})
-	t.Cleanup(func() {
-		logrus.SetOutput(previousOutput)
-		logrus.SetFormatter(previousFormatter)
-	})
-
-	recorder := serveGroupKeyHTTPRequest(
-		t,
-		engine,
-		http.MethodGet,
-		fmt.Sprintf("/api/groups/%d/keys", group.ID),
-		"",
-		authKey,
-		"en-US",
-	)
-	if recorder.Code != http.StatusInternalServerError {
-		t.Fatalf("HTTP response = %d %s, want 500", recorder.Code, recorder.Body.String())
-	}
-	var envelope struct {
-		Code string          `json:"code"`
-		Data json.RawMessage `json:"data"`
-	}
-	if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err != nil {
-		t.Fatal(err)
-	}
-	if envelope.Code != app_errors.ErrInternalServer.Code ||
-		len(envelope.Data) != 0 {
-		t.Fatalf("HTTP envelope = %#v, want no partial data", envelope)
-	}
-	logText := logs.String()
-	for _, required := range []string{
-		`"operation":"list_group_keys"`,
-		`"error_code":"` + app_errors.ErrInternalServer.Code + `"`,
-	} {
-		if !strings.Contains(logText, required) {
-			t.Fatalf("logs missing %q: %s", required, logText)
-		}
-	}
-	for _, forbidden := range []string{
-		authKey,
-		firstPlaintext,
-		secondPlaintext,
-		first.KeyValue,
-		second.KeyValue,
-		first.KeyHash,
-		second.KeyHash,
-		utils.MaskAPIKey(firstPlaintext),
-		utils.MaskAPIKey(secondPlaintext),
-		secretCause,
-	} {
-		if strings.Contains(recorder.Body.String(), forbidden) ||
-			strings.Contains(logText, forbidden) {
-			t.Fatalf(
-				"response/log exposes %q: response=%s logs=%s",
-				forbidden,
-				recorder.Body.String(),
-				logText,
-			)
-		}
-	}
-}
-
 type blockingDecryptService struct {
 	encryption.Service
 	started chan<- struct{}
@@ -1592,44 +788,6 @@ func (service blockingDecryptService) Decrypt(ciphertext string) (string, error)
 	close(service.started)
 	<-service.release
 	return service.Service.Decrypt(ciphertext)
-}
-
-func TestListGroupKeysReleasesWriteLockBeforeDecrypt(t *testing.T) {
-	fixture := newServiceFixture(t)
-	group := validControlGroup("key-decrypt-lock")
-	if err := fixture.db.Create(group).Error; err != nil {
-		t.Fatal(err)
-	}
-	seedManagedUpstreamKey(
-		t,
-		fixture,
-		group.ID,
-		"sk-blocked-decrypt",
-		models.UpstreamKeyStatusActive,
-		nil,
-	)
-	started := make(chan struct{})
-	release := make(chan struct{})
-	fixture.service.encryption = blockingDecryptService{
-		Service: fixture.encryption,
-		started: started,
-		release: release,
-	}
-
-	listDone := make(chan error, 1)
-	go func() {
-		_, err := fixture.service.listGroupKeyResponses(t.Context(), group.ID)
-		listDone <- err
-	}()
-	<-started
-	if !fixture.service.writeMu.TryLock() {
-		t.Fatal("writeMu remained read-locked during credential decryption")
-	}
-	fixture.service.writeMu.Unlock()
-	close(release)
-	if err := <-listDone; err != nil {
-		t.Fatalf("ListGroupKeys() error = %v", err)
-	}
 }
 
 func TestUpdateGroupKeyChangesConfigAndPreservesAutomaticRuntime(t *testing.T) {
@@ -1655,7 +813,7 @@ func TestUpdateGroupKeyChangesConfigAndPreservesAutomaticRuntime(t *testing.T) {
 		}
 	}
 	beforeSnapshot := fixture.manager.Current()
-	weight := 0
+	weight := 25
 	got, err := fixture.service.UpdateGroupKey(
 		t.Context(),
 		group.ID,
@@ -1670,11 +828,15 @@ func TestUpdateGroupKeyChangesConfigAndPreservesAutomaticRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Status != state.KeyStatusDisabled ||
-		got.WeightManual == nil || *got.WeightManual != 0 ||
-		got.WeightAuto != 41 || !got.Blacklisted ||
-		got.FailureCount != 3 || got.CooldownUntilMS == nil {
+	if got.ConfiguredStatus != string(state.KeyStatusDisabled) ||
+		got.EffectiveStatus != string(healthBucketDisabled) ||
+		got.Weight != nil || got.Recovery.Mode != "manual" {
 		t.Fatalf("updated response = %#v", got)
+	}
+	view, exists := findRuntimeKey(fixture.registry.Snapshot(), row.ID)
+	if !exists || view.WeightManual == nil || *view.WeightManual != weight ||
+		view.WeightAuto != 41 || !view.Blacklisted || view.FailureCount != 3 {
+		t.Fatalf("preserved runtime = %#v, exists=%t", view, exists)
 	}
 	if fixture.manager.Current() != beforeSnapshot {
 		t.Fatal("UpdateGroupKey published Snapshot")
@@ -1694,10 +856,15 @@ func TestUpdateGroupKeyChangesConfigAndPreservesAutomaticRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.WeightManual != nil || got.WeightAuto != 41 ||
-		!got.Blacklisted || got.FailureCount != 3 ||
-		got.CooldownUntilMS == nil {
+	if got.ConfiguredStatus != string(state.KeyStatusActive) ||
+		got.EffectiveStatus != string(healthBucketBlacklisted) ||
+		got.Weight != nil || got.Recovery.Mode != "probe" {
 		t.Fatalf("re-enabled response = %#v", got)
+	}
+	view, exists = findRuntimeKey(fixture.registry.Snapshot(), row.ID)
+	if !exists || view.WeightManual != nil || view.WeightAuto != 41 ||
+		!view.Blacklisted || view.FailureCount != 3 {
+		t.Fatalf("re-enabled runtime = %#v, exists=%t", view, exists)
 	}
 	var persisted models.UpstreamKey
 	if err := fixture.db.First(&persisted, row.ID).Error; err != nil {
@@ -1735,10 +902,15 @@ func TestUpdateGroupKeyRepairsMissingRegistryEntryFromCommittedRow(t *testing.T)
 	if err != nil {
 		t.Fatalf("UpdateGroupKey() error = %v", err)
 	}
-	if got.Status != state.KeyStatusDisabled ||
-		got.WeightManual == nil || *got.WeightManual != 25 ||
-		got.WeightAuto != state.DefaultWeight {
+	if got.ConfiguredStatus != string(state.KeyStatusDisabled) ||
+		got.EffectiveStatus != string(healthBucketDisabled) ||
+		got.Weight != nil || got.Recovery.Mode != "manual" {
 		t.Fatalf("repaired response = %#v", got)
+	}
+	view, exists := findRuntimeKey(fixture.registry.Snapshot(), row.ID)
+	if !exists || view.WeightManual == nil || *view.WeightManual != 25 ||
+		view.WeightAuto != state.DefaultWeight {
+		t.Fatalf("repaired runtime = %#v, exists=%t", view, exists)
 	}
 	value, exists := fixture.registry.EncryptedValue(row.ID)
 	if !exists || value != row.KeyValue {
@@ -1822,12 +994,9 @@ func TestUpdateGroupKeyConvergesStatusAndManualWeightMismatches(t *testing.T) {
 			if err != nil {
 				t.Fatalf("UpdateGroupKey() error = %v", err)
 			}
-			if got.Status != state.KeyStatusActive ||
-				got.WeightManual == nil ||
-				*got.WeightManual != persistedWeight ||
-				got.WeightAuto != 41 ||
-				!got.Blacklisted ||
-				got.FailureCount != 1 {
+			if got.ConfiguredStatus != string(state.KeyStatusActive) ||
+				got.EffectiveStatus != string(healthBucketBlacklisted) ||
+				got.Weight != nil || got.Recovery.Mode != "probe" {
 				t.Fatalf("converged response = %#v", got)
 			}
 			view, exists := findRuntimeKey(
@@ -1879,7 +1048,7 @@ func TestUpdateGroupKeyLeavesExtraRegistryEntryFailLoud(t *testing.T) {
 			},
 		},
 	)
-	if got != (UpstreamKeyResponse{}) {
+	if got != (GroupKeyItemResponse{}) {
 		t.Fatalf("UpdateGroupKey() response = %#v, want zero", got)
 	}
 	var operationErr *controlOperationError
@@ -1984,6 +1153,13 @@ func TestUpdateGroupKeyValidatesThreeStateFieldsWithoutMutation(t *testing.T) {
 			want: app_errors.ErrValidation,
 		},
 		{
+			name: "zero weight",
+			request: UpstreamKeyUpdateRequest{
+				WeightManual: optionalField[int]{Set: true, Value: 0},
+			},
+			want: app_errors.ErrValidation,
+		},
+		{
 			name: "negative weight",
 			request: UpstreamKeyUpdateRequest{
 				WeightManual: optionalField[int]{Set: true, Value: -1},
@@ -2031,7 +1207,6 @@ func TestUpdateGroupKeyAcceptsManualWeightBoundariesAndNull(t *testing.T) {
 		want    *int
 		initial *int
 	}{
-		{name: "zero", field: optionalField[int]{Set: true, Value: 0}, want: keyTestIntPointer(0)},
 		{name: "one", field: optionalField[int]{Set: true, Value: 1}, want: keyTestIntPointer(1)},
 		{name: "max", field: optionalField[int]{Set: true, Value: 100}, want: keyTestIntPointer(100)},
 		{
@@ -2058,8 +1233,12 @@ func TestUpdateGroupKeyAcceptsManualWeightBoundariesAndNull(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !equalOptionalWeight(got.WeightManual, test.want) {
-				t.Fatalf("WeightManual = %v, want %v", got.WeightManual, test.want)
+			if test.want == nil {
+				if got.WeightMode != "auto" || got.Weight == nil || *got.Weight != state.DefaultWeight {
+					t.Fatalf("automatic weight response = %#v", got)
+				}
+			} else if got.WeightMode != "manual" || got.Weight == nil || *got.Weight != *test.want {
+				t.Fatalf("manual weight response = %#v, want %d", got, *test.want)
 			}
 		})
 	}
@@ -2201,8 +1380,8 @@ func TestUpdateAndDeleteGroupKeyChangeSchedulerEligibility(t *testing.T) {
 		t, fixture, group.ID, "sk-candidate-disabled",
 		models.UpstreamKeyStatusActive, nil,
 	)
-	zero := seedManagedUpstreamKey(
-		t, fixture, group.ID, "sk-candidate-zero",
+	remaining := seedManagedUpstreamKey(
+		t, fixture, group.ID, "sk-candidate-remaining",
 		models.UpstreamKeyStatusActive, nil,
 	)
 	deleted := seedManagedUpstreamKey(
@@ -2226,24 +1405,14 @@ func TestUpdateAndDeleteGroupKeyChangeSchedulerEligibility(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fixture.service.UpdateGroupKey(
-		t.Context(),
-		group.ID,
-		zero.ID,
-		UpstreamKeyUpdateRequest{
-			WeightManual: optionalField[int]{Set: true, Value: 0},
-		},
-	); err != nil {
-		t.Fatal(err)
-	}
 	if err := fixture.service.DeleteGroupKey(t.Context(), group.ID, deleted.ID); err != nil {
 		t.Fatal(err)
 	}
 	rawPool := fixture.registry.CollectCandidates(
 		[]uint{group.ID}, nil, time.Time{},
 	)
-	if len(rawPool) != 1 || rawPool[0].ID != zero.ID {
-		t.Fatalf("raw candidates = %#v, want only zero-weight key %d", rawPool, zero.ID)
+	if len(rawPool) != 1 || rawPool[0].ID != remaining.ID {
+		t.Fatalf("raw candidates = %#v, want only remaining key %d", rawPool, remaining.ID)
 	}
 	snapshot, err := state.Compile(state.CompileInput{
 		Groups: []state.GroupConfig{{
@@ -2264,7 +1433,7 @@ func TestUpdateAndDeleteGroupKeyChangeSchedulerEligibility(t *testing.T) {
 		},
 		rand.New(rand.NewSource(1)),
 	)
-	if selection, err := iterator.Next(); !errors.Is(err, scheduler.ErrExhausted) {
-		t.Fatalf("Next() = (%#v, %v), want exhausted", selection, err)
+	if selection, err := iterator.Next(); err != nil || selection.KeyID != remaining.ID {
+		t.Fatalf("Next() = (%#v, %v), want remaining key %d", selection, err, remaining.ID)
 	}
 }

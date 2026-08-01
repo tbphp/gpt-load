@@ -34,19 +34,6 @@ import {
   projectString,
 } from './projector'
 
-const groupDetailFields = [
-  'id',
-  'name',
-  'upstream_url',
-  'protocols',
-  'models',
-  'enabled',
-  'key_count',
-  'validation_model',
-  'weight_manual',
-  'config',
-  'effective_config',
-] as const
 const groupSummaryFields = [
   'id',
   'name',
@@ -121,20 +108,6 @@ export interface GroupEffectiveConfigDto {
   inject_usage_options: boolean
 }
 
-export interface GroupDetailDto {
-  id: number
-  name: string
-  upstream_url: string
-  protocols: GroupProtocol[]
-  models: GroupModelDto[]
-  enabled: boolean
-  key_count: number
-  validation_model: string | null
-  weight_manual: number | null
-  config: GroupRuntimeConfigDto
-  effective_config: GroupEffectiveConfigDto
-}
-
 export type {
   GroupModelItemDto,
   GroupModelsDto,
@@ -152,22 +125,6 @@ export type GroupSettingsUpdateRequest = Partial<{
   overrides: GroupRuntimeConfigDto
   confirm_upstream_change: true
 }>
-
-export interface GroupUpdateRequest {
-  name?: string
-  enabled?: boolean
-  upstream_url?: string
-  protocols?: GroupProtocol[]
-  validation_model?: string | null
-  weight_manual?: number | null
-  config?: GroupRuntimeConfigDto
-  confirm_upstream_url_change?: true
-}
-
-export interface GroupUpdateResult {
-  group: GroupDetailDto
-  model_rediscovery_recommended: boolean
-}
 
 export interface AccessKeyReferenceDto {
   id: number
@@ -288,32 +245,6 @@ function projectRuntimeConfig(
     result.inject_usage_options = projectBoolean(record.inject_usage_options)
   }
   return result as GroupRuntimeConfigDto | GroupEffectiveConfigDto
-}
-
-export function projectGroupDetail(value: unknown): GroupDetailDto {
-  const record = projectRecord(value)
-  assertNoSecretLikeFields(record, groupDetailFields)
-  const validationModel =
-    record.validation_model === null ? null : projectNonBlankString(record.validation_model)
-  const weightManual =
-    record.weight_manual === null
-      ? null
-      : projectSafeInteger(record.weight_manual, { minimum: 0, maximum: 100 })
-  return {
-    id: projectSafeInteger(record.id, { minimum: 1 }),
-    name: projectNonBlankString(record.name),
-    upstream_url: projectHTTPURL(record.upstream_url),
-    protocols: projectArray(record.protocols, (protocol) =>
-      projectEnum(protocol, enabledDataProtocols),
-    ),
-    models: projectArray(record.models, projectGroupModel),
-    enabled: projectBoolean(record.enabled),
-    key_count: projectSafeInteger(record.key_count, { minimum: 0 }),
-    validation_model: validationModel,
-    weight_manual: weightManual,
-    config: projectRuntimeConfig(record.config, false),
-    effective_config: projectRuntimeConfig(record.effective_config, true),
-  }
 }
 
 export function projectGroupSummary(value: unknown): GroupSummaryDto {
@@ -519,15 +450,6 @@ export function projectGroupOptions(value: unknown): GroupOptionDto[] {
   return options
 }
 
-function projectGroupUpdateResult(value: unknown): GroupUpdateResult {
-  const record = projectRecord(value)
-  assertNoSecretLikeFields(record, ['group', 'model_rediscovery_recommended'])
-  return {
-    group: projectGroupDetail(record.group),
-    model_rediscovery_recommended: projectBoolean(record.model_rediscovery_recommended),
-  }
-}
-
 function projectDiscoveryResult(value: unknown): ModelDiscoveryResult {
   const record = projectRecord(value)
   assertNoSecretLikeFields(record, ['models'])
@@ -618,16 +540,6 @@ export async function listGroupOptions(
   return projectGroupOptions(await client.request('/api/groups/options', { method: 'GET', signal }))
 }
 
-export async function getGroup(
-  client: ApiClient,
-  groupID: number,
-  signal?: AbortSignal,
-): Promise<GroupDetailDto> {
-  return projectGroupDetail(
-    await client.request(`/api/groups/${groupID}`, { method: 'GET', signal }),
-  )
-}
-
 export async function getGroupSummary(
   client: ApiClient,
   groupID: number,
@@ -681,28 +593,6 @@ export function groupOptionsQueryOptions(client: ApiClient) {
     ...manualGroupQueryOptions,
     queryKey: controlQueryKeys.groups.options(),
     queryFn: ({ signal }) => listGroupOptions(client, signal),
-  })
-}
-
-export function groupDetailQueryOptions(
-  client: ApiClient,
-  groupID: MaybeRefOrGetter<number | undefined>,
-) {
-  return queryOptions({
-    ...manualGroupQueryOptions,
-    queryKey: computed(() => {
-      const id = toValue(groupID)
-      return id === undefined
-        ? controlQueryKeys.groups.details()
-        : controlQueryKeys.groups.detail(id)
-    }),
-    queryFn: ({ signal }) => {
-      const id = toValue(groupID)
-      if (id === undefined) throw new InvalidResponseError()
-      return getGroup(client, id, signal)
-    },
-    enabled: computed(() => toValue(groupID) !== undefined),
-    gcTime: 0,
   })
 }
 
@@ -769,21 +659,6 @@ export function groupModelsQueryOptions(
   })
 }
 
-export async function updateGroup(
-  client: ApiClient,
-  groupID: number,
-  body: GroupUpdateRequest,
-  signal?: AbortSignal,
-): Promise<GroupUpdateResult> {
-  return projectGroupUpdateResult(
-    await client.request(`/api/groups/${groupID}`, {
-      method: 'PUT',
-      json: body,
-      signal,
-    }),
-  )
-}
-
 export async function updateGroupSettings(
   client: ApiClient,
   groupID: number,
@@ -829,21 +704,6 @@ export async function discoverGroupModels(
   return projectDiscoveryResult(
     await client.request(`/api/groups/${groupID}/models/discover`, {
       method: 'POST',
-      signal,
-    }),
-  )
-}
-
-export async function replaceGroupModels(
-  client: ApiClient,
-  groupID: number,
-  body: GroupModelsReplaceRequest,
-  signal?: AbortSignal,
-): Promise<GroupDetailDto> {
-  return projectGroupDetail(
-    await client.request(`/api/groups/${groupID}/models`, {
-      method: 'PUT',
-      json: body,
       signal,
     }),
   )
@@ -902,8 +762,6 @@ export function clearGroupResourceCaches(queryClient: QueryClient, groupID: numb
   queryClient.removeQueries({ queryKey: controlQueryKeys.groups.models(groupID), exact: true })
   queryClient.removeQueries({ queryKey: controlQueryKeys.groups.settings(groupID), exact: true })
   queryClient.removeQueries({ queryKey: controlQueryKeys.groups.keysAll(groupID), exact: false })
-  queryClient.removeQueries({ queryKey: controlQueryKeys.groups.detail(groupID), exact: true })
-  queryClient.removeQueries({ queryKey: controlQueryKeys.groups.legacyKeys(groupID), exact: true })
 }
 
 export async function createGroup(

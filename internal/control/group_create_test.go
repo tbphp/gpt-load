@@ -93,13 +93,13 @@ func TestCreateGroupNormalizesAndPublishesOnce(t *testing.T) {
 		!reflect.DeepEqual(view.Protocols, wantProtocols) {
 		t.Fatalf("snapshot group = %#v, exists=%t", view, ok)
 	}
-	detail, err := fixture.service.GetGroup(t.Context(), result.GroupID)
+	settings, err := fixture.service.GetGroupSettings(t.Context(), result.GroupID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(detail.Config) != 1 || detail.Config[state.SettingInjectUsageOptions] != false ||
-		detail.EffectiveConfig.InjectUsageOptions {
-		t.Fatalf("created group config/effective = %#v/%#v", detail.Config, detail.EffectiveConfig)
+	if len(settings.Overrides) != 1 || settings.Overrides[state.SettingInjectUsageOptions] != false ||
+		settings.Effective.InjectUsageOptions {
+		t.Fatalf("created group config/effective = %#v/%#v", settings.Overrides, settings.Effective)
 	}
 	if candidates := fixture.registry.CollectCandidates([]uint{result.GroupID}, nil, time.Time{}); len(candidates) != 2 {
 		t.Fatalf("Registry candidates = %#v, want two", candidates)

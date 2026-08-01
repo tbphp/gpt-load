@@ -1495,7 +1495,7 @@ func TestUpdateGroupModelsEndpointIDsAuthNotFoundAndSuccessDTO(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, wrapped := fields["group"]; wrapped {
-		t.Fatalf("models save returned GroupUpdateResult wrapper: %s", envelope.Data)
+		t.Fatalf("models save returned legacy detail wrapper: %s", envelope.Data)
 	}
 	if _, wrapped := fields["model_rediscovery_recommended"]; wrapped {
 		t.Fatalf("models save returned discovery diff metadata: %s", envelope.Data)

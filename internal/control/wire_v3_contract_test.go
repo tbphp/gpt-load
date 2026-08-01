@@ -58,7 +58,7 @@ func TestHealthMillisWireUsesNullableEpochMilliseconds(t *testing.T) {
 	)
 }
 
-func TestInspectAndUpstreamMillisWireUseEpochMilliseconds(t *testing.T) {
+func TestInspectMillisWireUsesEpochMilliseconds(t *testing.T) {
 	cooldownUntilMS := int64(1_784_894_460_000)
 	assertManagementWireObject(
 		t,
@@ -71,11 +71,6 @@ func TestInspectAndUpstreamMillisWireUseEpochMilliseconds(t *testing.T) {
 			}},
 		},
 		[]string{"observed_at_ms", "groups"},
-	)
-	assertManagementWireObject(
-		t,
-		UpstreamKeyResponse{CooldownUntilMS: &cooldownUntilMS},
-		[]string{"cooldown_until_ms"},
 	)
 }
 

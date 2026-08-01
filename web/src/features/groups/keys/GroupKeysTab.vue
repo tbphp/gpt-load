@@ -154,12 +154,16 @@ function setPageSize(pageSize: 20 | 50 | 100): void {
 }
 function setSelected(id: number, checked: boolean): void {
   const next = new Set(selectedIds.value)
-  checked ? next.add(id) : next.delete(id)
+  if (checked) next.add(id)
+  else next.delete(id)
   selectedIds.value = next
 }
 function setAllVisible(checked: boolean): void {
   const next = new Set(selectedIds.value)
-  for (const { id } of collection.value?.items ?? []) checked ? next.add(id) : next.delete(id)
+  for (const { id } of collection.value?.items ?? []) {
+    if (checked) next.add(id)
+    else next.delete(id)
+  }
   selectedIds.value = next
 }
 function operation(id: number, action: string): string {
@@ -174,7 +178,8 @@ function rowBusy(id: number): boolean {
 function setPending(id: number | 'batch', action: string, value: boolean): void {
   const next = new Set(pendingOperations.value)
   const key = id === 'batch' ? `batch:${action}` : operation(id, action)
-  value ? next.add(key) : next.delete(key)
+  if (value) next.add(key)
+  else next.delete(key)
   pendingOperations.value = next
 }
 function cachedCurrentSummary(): GroupKeySummaryDto | undefined {

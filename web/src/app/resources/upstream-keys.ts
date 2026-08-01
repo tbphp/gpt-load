@@ -194,6 +194,13 @@ function expectedPageCount(totalItems: number, pageSize: number): number {
   return totalItems === 0 ? 0 : Math.ceil(totalItems / pageSize)
 }
 
+function expectedPageItems(pagination: GroupKeyCollectionDto['pagination']): number {
+  if (pagination.total_items === 0 || pagination.page > pagination.total_pages) return 0
+  if (pagination.page < pagination.total_pages) return pagination.page_size
+  const finalPageItems = pagination.total_items % pagination.page_size
+  return finalPageItems === 0 ? pagination.page_size : finalPageItems
+}
+
 export function projectGroupKeyCollection(value: unknown): GroupKeyCollectionDto {
   const record = projectRecord(value)
   assertNoSecretLikeFields(record, groupKeyCollectionFields)
@@ -203,7 +210,7 @@ export function projectGroupKeyCollection(value: unknown): GroupKeyCollectionDto
   if (
     pagination.total_items > summary.total ||
     pagination.total_pages !== expectedPageCount(pagination.total_items, pagination.page_size) ||
-    (pagination.total_items === 0 ? items.length !== 0 : items.length > pagination.page_size) ||
+    items.length !== expectedPageItems(pagination) ||
     new Set(items.map(({ id }) => id)).size !== items.length
   ) {
     invalidResponse()
@@ -569,55 +576,4 @@ export async function cacheGroupKeyBatch(
       await invalidateExactKeyPage(queryClient, queryKey)
     }
   }
-}
-
-/**
- * Compatibility-only shape for the unported legacy detail tabs. The new API is
- * still read through the collection contract; this projection must not be used
- * by the Ledger detail implementation.
- */
-export interface UpstreamKeyDto {
-  id: number
-  group_id: number
-  mask: string
-  status: UpstreamKeyStatus
-  effective_status: UpstreamKeyEffectiveStatus
-  weight_manual: number | null
-  weight_auto: number
-  blacklisted: boolean
-  cooldown_until_ms: number | null
-  failure_count: number
-}
-
-export async function listGroupKeys(
-  client: ApiClient,
-  groupId: number,
-  signal?: AbortSignal,
-): Promise<UpstreamKeyDto[]> {
-  const collection = await getGroupKeyCollection(
-    client,
-    groupId,
-    { page: 1, page_size: 100 },
-    signal,
-  )
-  return collection.items.map((item) => ({
-    id: item.id,
-    group_id: groupId,
-    mask: item.mask,
-    status: item.configured_status,
-    effective_status: item.effective_status,
-    weight_manual: item.weight_mode === 'manual' ? item.weight : null,
-    weight_auto: item.weight_mode === 'auto' ? (item.weight ?? 0) : 0,
-    blacklisted: item.effective_status === 'blacklisted',
-    cooldown_until_ms: item.cooldown_until_ms,
-    failure_count: item.consecutive_failure_count,
-  }))
-}
-
-export function upstreamKeyListQueryOptions(client: ApiClient, groupID: MaybeRefOrGetter<number>) {
-  return queryOptions({
-    ...manualGroupQueryOptions,
-    queryKey: computed(() => controlQueryKeys.groups.legacyKeys(toValue(groupID))),
-    queryFn: ({ signal }) => listGroupKeys(client, toValue(groupID), signal),
-  })
 }

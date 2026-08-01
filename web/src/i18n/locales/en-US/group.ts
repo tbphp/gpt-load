@@ -64,8 +64,6 @@ export default {
     loading: 'Loading Group details…',
     loadFailed: 'Unable to load Group details.',
     stale: 'Group details may be stale because the background refresh failed.',
-    enabled: 'Enabled',
-    disabled: 'Disabled',
     backToGroups: 'Back to Groups',
     importKeys: 'Import upstream keys',
     copyUpstreamUrl: 'Copy upstream address {url}',
@@ -76,7 +74,6 @@ export default {
       title: 'Models and aliases',
       description:
         'Discovery produces candidates only. Review aliases and the complete selected list before saving.',
-      rediscover: 'Rediscover',
       save: 'Save changes',
       loading: 'Loading models',
       loadFailed: 'Unable to load models',
@@ -108,25 +105,11 @@ export default {
         empty: 'The upstream returned no models to add',
         confirm: 'Append selected models',
       },
-      badGateway:
-        'Discovery failed upstream. Your draft is unchanged; retry or continue with manual model IDs and aliases.',
       discoveryFailed:
         'Discovery failed. Your draft is unchanged; retry or continue with manual model IDs and aliases.',
       saveFailed: 'Unable to replace the Group model list.',
-      removalWarning:
-        'Removing models does not update model filters already saved on AccessKeys. Review affected AccessKeys separately.',
-      status: {
-        saved: 'Saved',
-        rediscovered: 'Rediscovered',
-        notRediscovered: 'Not rediscovered',
-        discovered: 'Newly discovered',
-        manual: 'Manual',
-      },
       noActiveKey: {
         title: 'No active upstream key is available for discovery.',
-        description: 'Enable a key in the Keys tab or import keys into this existing Group.',
-        keysAction: 'Open Keys tab',
-        importAction: 'Import keys',
       },
       emptyConfirm: {
         title: 'Remove every model?',
@@ -162,11 +145,7 @@ export default {
           'Rules are collapsed by default; editing replaces the complete HeaderRules object',
       },
       saveFailed: 'Unable to update the Group settings.',
-      rediscoveryRecommended:
-        'The upstream URL changed. Review and rediscover models for this Group.',
-      rediscoverAction: 'Open Models and aliases',
       base: {
-        title: 'Group configuration',
         description: 'Base fields are saved as a normalized partial update.',
         name: 'Name',
         nameError: 'Enter a Group name.',
@@ -192,22 +171,15 @@ export default {
         first_byte_timeout: 'First-byte timeout',
         request_timeout: 'Request timeout',
         stream_idle_timeout: 'Stream-idle timeout',
-        header_rules: 'Header rules',
         effective: 'Effective: {value} seconds',
         override: 'Override',
         inherited: 'Inherited',
-        useOverride: 'Use Group override',
         valueFor: 'Override value for {field}',
-        timeoutError: 'Enter a positive safe integer.',
         headerSummary: 'Effective: {set} Set and {remove} Remove rules',
         headerReplacementWarning:
           'This Group override replaces the complete global HeaderRules object; future global changes will not merge into it.',
         inject_usage_options: 'Inject usage options',
         injectUsageHelp: 'This override is available only for OpenAI Completions',
-      },
-      urlConflict: {
-        title: 'This upstream URL is already in use',
-        description: 'Choose a different URL. Confirmation cannot override this conflict.',
       },
       urlConfirm: {
         title: 'Change the upstream URL?',
@@ -218,7 +190,6 @@ export default {
         confirm: 'Change upstream URL',
       },
       delete: {
-        sectionTitle: 'Danger zone',
         sectionDescription:
           'Deleting a Group also deletes all of its upstream keys and cannot be undone.',
         open: 'Delete Group',
@@ -262,10 +233,6 @@ export default {
       emptyDescription: 'Import keys into this Group to begin routing requests.',
       emptyFilterTitle: 'No keys match these filters',
       emptyFilterDescription: 'Adjust the search or status filter and try again',
-      problemFilter: 'Showing only problem keys that are cooling down or blacklisted.',
-      clearProblemFilter: 'Clear filter',
-      problemEmptyTitle: 'No problem keys right now',
-      problemEmptyDescription: 'No key in this Group is currently cooling down or blacklisted.',
       caption: 'Upstream keys for this Group',
       auto: 'Auto',
       none: '—',
@@ -304,13 +271,12 @@ export default {
       },
       enable: 'Enable',
       disable: 'Disable',
-      saveWeight: 'Save weight',
       delete: 'Delete',
       cancel: 'Cancel',
       confirmDelete: 'Delete key',
       closeDialog: 'Close delete confirmation',
       deleteTitle: 'Delete upstream key?',
-      deleteDescription: 'Delete {mask} from this Group. This action cannot be undone.',
+      deleteDescription: 'Delete {mask} from this Group. This action cannot be undone',
       columns: {
         key: 'Key',
         status: 'Status',
@@ -318,18 +284,10 @@ export default {
         recent: 'Last 5 minutes',
         failure: 'Latest failure',
         recovery: 'Recovery',
-        configured: 'Configured status',
-        effective: 'Effective status',
-        manualWeight: 'Manual weight',
-        autoWeight: 'Automatic weight',
-        cooldown: 'Cooldown until',
-        failures: 'Failures',
         actions: 'Actions',
       },
       status: {
         all: 'All',
-        active: 'Active',
-        disabled: 'Disabled',
       },
       effective: {
         available: 'Available',

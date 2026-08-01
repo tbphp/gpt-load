@@ -3,7 +3,7 @@ import type { GroupProtocol } from '@/api/control/types'
 import { enabledDataProtocols } from '@/api/control/protocols'
 import { useI18n } from 'vue-i18n'
 
-const props = defineProps<{
+defineProps<{
   section: 'general' | 'routing'
   name: string
   upstreamUrl: string

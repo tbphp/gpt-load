@@ -93,14 +93,14 @@ func (s *Server) handleUpdateSettings(c *gin.Context) {
 	writeSettingsRepresentation(c, result)
 }
 
-func (s *Server) handleGetGroup(c *gin.Context) {
-	id, ok := groupID(c, "get_group")
+func (s *Server) handleGetGroupSummary(c *gin.Context) {
+	id, ok := groupID(c, "get_group_summary")
 	if !ok {
 		return
 	}
 	result, err := s.service.GetGroupSummary(c.Request.Context(), id)
 	if err != nil {
-		writeServiceError(c, "get_group", err)
+		writeServiceError(c, "get_group_summary", err)
 		return
 	}
 	response.SuccessI18n(c, "common.success", result)
@@ -656,7 +656,7 @@ func serviceErrorMessageID(
 			return "key.not_found"
 		}
 		switch operation {
-		case "list_groups", "get_group", "get_group_settings", "get_group_models", "update_group",
+		case "list_groups", "get_group_summary", "get_group_settings", "get_group_models",
 			"update_group_settings", "delete_group",
 			"update_group_models", "import_group_keys",
 			"discover_group_models", "list_group_keys":
@@ -667,8 +667,7 @@ func serviceErrorMessageID(
 	case app_errors.ErrNoActiveUpstreamKey.Code:
 		return "group.no_active_upstream_key"
 	case app_errors.ErrDuplicateResource.Code:
-		if operation == "create_group" || operation == "update_group" ||
-			operation == "update_group_settings" {
+		if operation == "create_group" || operation == "update_group_settings" {
 			return "group.name_exists"
 		}
 		return "bad_request"

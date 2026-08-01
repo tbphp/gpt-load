@@ -107,7 +107,7 @@ func (s *Server) HTTPModule() httproute.Module {
 				"/groups/options",
 				s.handleListGroupOptions,
 			),
-			controlRoute("control.groups.get", http.MethodGet, "/groups/:group_id", s.handleGetGroup),
+			controlRoute("control.groups.get", http.MethodGet, "/groups/:group_id", s.handleGetGroupSummary),
 			controlRoute(
 				"control.groups.settings.get",
 				http.MethodGet,
@@ -135,6 +135,12 @@ func (s *Server) HTTPModule() httproute.Module {
 					groupMutationLocator,
 				)),
 				s.handleUpdateGroupSettings,
+			),
+			controlRoute(
+				"control.groups.retired-update",
+				http.MethodPut,
+				"/groups/:group_id",
+				controlRouteNotFound,
 			),
 			controlRoute(
 				"control.groups.models.get",

@@ -191,7 +191,7 @@ func TestUpdateGroupModelsReplacesAuthoritativeListAndPublishesOnce(t *testing.T
 		t.Fatal(err)
 	}
 	validation := "validation-model-must-stay"
-	if _, err := fixture.service.UpdateGroup(t.Context(), created.GroupID, GroupUpdateRequest{
+	if _, err := fixture.service.UpdateGroupSettings(t.Context(), created.GroupID, GroupSettingsUpdateRequest{
 		ValidationModel: optionalField[string]{Set: true, Value: validation},
 	}); err != nil {
 		t.Fatal(err)
@@ -244,30 +244,34 @@ func TestUpdateGroupModelsReplacesAuthoritativeListAndPublishesOnce(t *testing.T
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("models response = %#v, want %#v", got, want)
 	}
-	detail, err := fixture.service.GetGroup(t.Context(), created.GroupID)
+	settings, err := fixture.service.GetGroupSettings(t.Context(), created.GroupID)
 	if err != nil {
-		t.Fatalf("GetGroup() error = %v", err)
+		t.Fatalf("GetGroupSettings() error = %v", err)
 	}
-	if detail.ValidationModel == nil || *detail.ValidationModel != validation || detail.KeyCount != 2 {
-		t.Fatalf("detail = %#v", detail)
+	summary, err := fixture.service.GetGroupSummary(t.Context(), created.GroupID)
+	if err != nil {
+		t.Fatalf("GetGroupSummary() error = %v", err)
 	}
-	streamIdle, ok := detail.Config[state.SettingStreamIdleTimeout].(json.Number)
-	if len(detail.Config) != 3 || !ok || streamIdle.String() != "45" ||
-		detail.Config[state.SettingHeaderRules] == nil ||
-		detail.Config[state.SettingInjectUsageOptions] != false {
-		t.Fatalf("preserved sparse config = %#v", detail.Config)
+	if settings.ValidationModel == nil || *settings.ValidationModel != validation || summary.KeyCount != 2 {
+		t.Fatalf("settings/summary = %#v/%#v", settings, summary)
 	}
-	if detail.EffectiveConfig.ConnectTimeout != 15 ||
-		detail.EffectiveConfig.FirstByteTimeout != 120 ||
-		detail.EffectiveConfig.RequestTimeout != 701 ||
-		detail.EffectiveConfig.StreamIdleTimeout != 45 ||
-		detail.EffectiveConfig.InjectUsageOptions ||
-		len(detail.EffectiveConfig.HeaderRules.Set) != 0 ||
-		!reflect.DeepEqual(detail.EffectiveConfig.HeaderRules.Remove, []string{"X-Trace"}) {
-		t.Fatalf("post-write effective config = %#v", detail.EffectiveConfig)
+	streamIdle, ok := settings.Overrides[state.SettingStreamIdleTimeout].(json.Number)
+	if len(settings.Overrides) != 3 || !ok || streamIdle.String() != "45" ||
+		settings.Overrides[state.SettingHeaderRules] == nil ||
+		settings.Overrides[state.SettingInjectUsageOptions] != false {
+		t.Fatalf("preserved sparse config = %#v", settings.Overrides)
 	}
-	if detail.EffectiveConfig.HeaderRules.Set == nil || detail.EffectiveConfig.HeaderRules.Remove == nil {
-		t.Fatalf("effective header collections = %#v", detail.EffectiveConfig.HeaderRules)
+	if settings.Effective.ConnectTimeout != 15 ||
+		settings.Effective.FirstByteTimeout != 120 ||
+		settings.Effective.RequestTimeout != 701 ||
+		settings.Effective.StreamIdleTimeout != 45 ||
+		settings.Effective.InjectUsageOptions ||
+		len(settings.Effective.HeaderRules.Set) != 0 ||
+		!reflect.DeepEqual(settings.Effective.HeaderRules.Remove, []string{"X-Trace"}) {
+		t.Fatalf("post-write effective config = %#v", settings.Effective)
+	}
+	if settings.Effective.HeaderRules.Set == nil || settings.Effective.HeaderRules.Remove == nil {
+		t.Fatalf("effective header collections = %#v", settings.Effective.HeaderRules)
 	}
 	if stored := loadCreatedGroupModels(t, fixture, created.GroupID); !reflect.DeepEqual(stored, wantModels) {
 		t.Fatalf("stored models = %#v, want %#v", stored, wantModels)
@@ -287,11 +291,11 @@ func TestUpdateGroupModelsReplacesAuthoritativeListAndPublishesOnce(t *testing.T
 	}
 	snapshot := fixture.manager.Current()
 	view := snapshot.Groups[created.GroupID]
-	if detail.EffectiveConfig.RequestTimeout != int64(view.Timeouts.Request/time.Second) ||
-		detail.EffectiveConfig.StreamIdleTimeout != int64(view.Timeouts.StreamIdle/time.Second) ||
-		detail.EffectiveConfig.InjectUsageOptions != view.InjectUsageOptions ||
-		!reflect.DeepEqual(detail.EffectiveConfig.HeaderRules.Remove, view.HeaderRules.Remove) {
-		t.Fatalf("effective/snapshot = %#v/%#v", detail.EffectiveConfig, view)
+	if settings.Effective.RequestTimeout != int64(view.Timeouts.Request/time.Second) ||
+		settings.Effective.StreamIdleTimeout != int64(view.Timeouts.StreamIdle/time.Second) ||
+		settings.Effective.InjectUsageOptions != view.InjectUsageOptions ||
+		!reflect.DeepEqual(settings.Effective.HeaderRules.Remove, view.HeaderRules.Remove) {
+		t.Fatalf("effective/snapshot = %#v/%#v", settings.Effective, view)
 	}
 	targets := snapshot.Candidates[protocol.OpenAICompletions]
 	if len(targets) != 2 ||

@@ -59,24 +59,62 @@ type normalizedGroupSettingsUpdate struct {
 }
 
 func (s *Service) GetGroupSettings(ctx context.Context, groupID uint) (GroupSettingsResponse, error) {
-	detail, err := s.GetGroup(ctx, groupID)
+	if groupID == 0 {
+		return GroupSettingsResponse{}, app_errors.ErrBadRequest
+	}
+
+	s.writeMu.RLock()
+	defer s.writeMu.RUnlock()
+
+	group, err := loadGroupRow(s.db.WithContext(ctx), groupID)
 	if err != nil {
 		return GroupSettingsResponse{}, err
 	}
-	return groupSettingsResponse(detail), nil
+	snapshot := s.manager.Current()
+	if snapshot == nil {
+		return GroupSettingsResponse{}, fmt.Errorf(
+			"runtime snapshot unavailable: %w",
+			app_errors.ErrInternalServer,
+		)
+	}
+	return groupSettingsResponse(group, snapshot.Settings)
 }
 
-func groupSettingsResponse(detail GroupDetailResponse) GroupSettingsResponse {
-	return GroupSettingsResponse{
-		Name:            detail.Name,
-		UpstreamURL:     detail.UpstreamURL,
-		Protocols:       append([]protocol.Protocol(nil), detail.Protocols...),
-		ValidationModel: cloneString(detail.ValidationModel),
-		Enabled:         detail.Enabled,
-		WeightManual:    cloneInt(detail.WeightManual),
-		Overrides:       cloneGroupSettings(detail.Config),
-		Effective:       detail.EffectiveConfig,
+func groupSettingsResponse(
+	group models.Group,
+	system state.RuntimeSettings,
+) (GroupSettingsResponse, error) {
+	protocols := make([]protocol.Protocol, 0)
+	if err := decodeGroupDiscoveryJSON(group.Protocols, &protocols); err != nil {
+		return GroupSettingsResponse{}, fmt.Errorf("decode group %d protocols: %w", group.ID, err)
 	}
+	overrides := make(config.Settings)
+	if len(group.Config) > 0 {
+		if err := decodeGroupDiscoveryJSON(group.Config, &overrides); err != nil {
+			return GroupSettingsResponse{}, fmt.Errorf("decode group %d config: %w", group.ID, err)
+		}
+	}
+	if overrides == nil {
+		overrides = make(config.Settings)
+	}
+	effective, err := effectiveGroupConfig(system, overrides)
+	if err != nil {
+		return GroupSettingsResponse{}, fmt.Errorf(
+			"resolve group %d effective config: %w",
+			group.ID,
+			app_errors.ErrInternalServer,
+		)
+	}
+	return GroupSettingsResponse{
+		Name:            group.Name,
+		UpstreamURL:     group.UpstreamURL,
+		Protocols:       protocols,
+		ValidationModel: cloneString(group.ValidationModel),
+		Enabled:         group.Enabled,
+		WeightManual:    cloneInt(group.WeightManual),
+		Overrides:       overrides,
+		Effective:       effective,
+	}, nil
 }
 
 func cloneString(value *string) *string {
@@ -85,14 +123,6 @@ func cloneString(value *string) *string {
 	}
 	cloned := *value
 	return &cloned
-}
-
-func cloneGroupSettings(settings config.Settings) config.Settings {
-	cloned := make(config.Settings, len(settings))
-	for key, value := range settings {
-		cloned[key] = value
-	}
-	return cloned
 }
 
 func normalizeGroupSettingsUpdate(
@@ -187,9 +217,9 @@ func (s *Service) UpdateGroupSettings(
 		return GroupSettingsResponse{}, err
 	}
 
-	var result GroupSettingsResponse
+	var committed models.Group
 	snapshot, err := s.writeConfig(ctx, func(tx *gorm.DB) error {
-		_, group, err := loadGroupDetail(tx, groupID)
+		group, err := loadGroupRow(tx, groupID)
 		if err != nil {
 			return err
 		}
@@ -258,23 +288,15 @@ func (s *Service) UpdateGroupSettings(
 		if err := tx.Model(&models.Group{}).Where("id = ?", groupID).Updates(updates).Error; err != nil {
 			return app_errors.ParseDBError(err)
 		}
-		detail, _, err := loadGroupDetail(tx, groupID)
-		if err != nil {
-			return err
-		}
-		result = groupSettingsResponse(detail)
+		committed = group
 		return nil
 	}, nil)
 	if err != nil {
 		return GroupSettingsResponse{}, withControlOperationContext(err, groupID, 0)
 	}
-	result.Effective, err = effectiveGroupConfig(snapshot.Settings, result.Overrides)
+	result, err := groupSettingsResponse(committed, snapshot.Settings)
 	if err != nil {
-		return GroupSettingsResponse{}, fmt.Errorf(
-			"resolve updated group %d effective config: %w",
-			groupID,
-			app_errors.ErrInternalServer,
-		)
+		return GroupSettingsResponse{}, err
 	}
 	return result, nil
 }

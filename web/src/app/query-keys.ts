@@ -82,12 +82,6 @@ export const controlQueryKeys = {
         'collection',
         normalizeGroupKeyCollectionFilters(filters),
       ] as const,
-    // Temporary compile bridge for the pre-ledger detail surface. These keys do
-    // not represent a supported wire contract and will be removed with that UI.
-    details: () => ['control', 'groups', 'legacy-detail'] as const,
-    detail: (id: number) => ['control', 'groups', 'legacy-detail', id] as const,
-    keyLists: () => ['control', 'groups', 'legacy-keys'] as const,
-    legacyKeys: (id: number) => ['control', 'groups', 'legacy-keys', id] as const,
   },
   health: () => ['control', 'health'] as const,
   logs: {

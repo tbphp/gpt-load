@@ -14,44 +14,30 @@ function plan(
   return { exact, prefixes }
 }
 
-const keyResourcePlan = (groupID: number) =>
+const importedKeyResourcePlan = (groupID: number) =>
   plan(
+    [controlQueryKeys.groups.summary(groupID), controlQueryKeys.health()],
     [
       controlQueryKeys.groups.keysAll(groupID),
-      controlQueryKeys.groups.detail(groupID),
-      controlQueryKeys.health(),
+      controlQueryKeys.groups.collectionAll,
+      controlQueryKeys.home.all,
     ],
-    [controlQueryKeys.groups.collectionAll, controlQueryKeys.home.all],
   )
 
 export const mutationInvalidationPlans = {
   settings: {
-    update: () => plan([], [controlQueryKeys.groups.details()]),
+    update: () => plan([], [controlQueryKeys.groups.settingsAll()]),
   },
   group: {
     create: plan(
       [controlQueryKeys.groups.options(), controlQueryKeys.health()],
       [controlQueryKeys.groups.collectionAll, controlQueryKeys.home.all],
     ),
-    update: (healthAffected: boolean) =>
-      plan(
-        [controlQueryKeys.groups.options(), ...(healthAffected ? [controlQueryKeys.health()] : [])],
-        [controlQueryKeys.groups.collectionAll, controlQueryKeys.home.all],
-      ),
     delete: plan(
       [controlQueryKeys.groups.options(), controlQueryKeys.health()],
       [controlQueryKeys.groups.collectionAll, controlQueryKeys.home.all],
     ),
-    replaceModels: () =>
-      plan(
-        [controlQueryKeys.groups.options()],
-        [controlQueryKeys.groups.collectionAll, controlQueryKeys.home.all],
-      ),
-    importKeys: keyResourcePlan,
-  },
-  upstreamKey: {
-    update: keyResourcePlan,
-    delete: keyResourcePlan,
+    importKeys: importedKeyResourcePlan,
   },
   accessKey: {
     create: plan([

@@ -47,16 +47,20 @@ func (s *Service) GetGroupModels(ctx context.Context, groupID uint) (GroupModels
 	s.writeMu.RLock()
 	defer s.writeMu.RUnlock()
 
-	detail, _, err := loadGroupDetail(s.db.WithContext(ctx), groupID)
+	group, err := loadGroupRow(s.db.WithContext(ctx), groupID)
 	if err != nil {
 		return GroupModelsResponse{}, err
+	}
+	groupModels := make([]GroupModel, 0)
+	if err := decodeGroupDiscoveryJSON(group.Models, &groupModels); err != nil {
+		return GroupModelsResponse{}, fmt.Errorf("decode group %d models: %w", group.ID, err)
 	}
 	table := s.priceRuntime.Load()
 	if table == nil {
 		return GroupModelsResponse{}, fmt.Errorf("pricing runtime unavailable: %w", app_errors.ErrInternalServer)
 	}
 
-	return mapGroupModelsResponse(detail.Models, table), nil
+	return mapGroupModelsResponse(groupModels, table), nil
 }
 
 func mapGroupModelsResponse(models []GroupModel, table *pricing.Table) GroupModelsResponse {
@@ -104,7 +108,7 @@ func (s *Service) UpdateGroupModels(
 	}
 
 	_, err = s.writeConfig(ctx, func(tx *gorm.DB) error {
-		_, group, err := loadGroupDetail(tx, groupID)
+		group, err := loadGroupRow(tx, groupID)
 		if err != nil {
 			return err
 		}

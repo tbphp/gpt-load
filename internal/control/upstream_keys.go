@@ -10,23 +10,9 @@ import (
 
 	"gpt-load/internal/health"
 	app_errors "gpt-load/internal/platform/errors"
-	"gpt-load/internal/platform/utils"
 	"gpt-load/internal/state"
 	"gpt-load/internal/storage/models"
 )
-
-type UpstreamKeyResponse struct {
-	ID              uint            `json:"id"`
-	GroupID         uint            `json:"group_id"`
-	Mask            string          `json:"mask"`
-	Status          state.KeyStatus `json:"status"`
-	EffectiveStatus string          `json:"effective_status"`
-	WeightManual    *int            `json:"weight_manual"`
-	WeightAuto      int             `json:"weight_auto"`
-	Blacklisted     bool            `json:"blacklisted"`
-	CooldownUntilMS *int64          `json:"cooldown_until_ms"`
-	FailureCount    int             `json:"failure_count"`
-}
 
 type UpstreamKeyUpdateRequest struct {
 	Status       optionalField[state.KeyStatus] `json:"status"`
@@ -144,70 +130,6 @@ func validateGroupKeysCapture(
 	}, nil
 }
 
-func (s *Service) mapGroupKeys(
-	observation groupKeysObservation,
-) ([]UpstreamKeyResponse, error) {
-	group := state.GroupCatalogView{
-		ID:           observation.group.ID,
-		Name:         observation.group.Name,
-		Enabled:      observation.group.Enabled,
-		WeightManual: cloneInt(observation.group.WeightManual),
-	}
-	result := make([]UpstreamKeyResponse, 0, len(observation.rows))
-	for _, row := range observation.rows {
-		view := observation.runtime[row.ID]
-		plaintext, err := s.encryption.Decrypt(row.KeyValue)
-		if err != nil {
-			return nil, fmt.Errorf(
-				"decrypt upstream key %d: %w",
-				row.ID,
-				app_errors.ErrInternalServer,
-			)
-		}
-		var cooldownUntilMS *int64
-		if view.CooldownUntil.After(observation.observedAt) {
-			cooldownUntilMS, err = optionalSafeEpochMilliseconds(view.CooldownUntil)
-			if err != nil {
-				return nil, fmt.Errorf("map upstream key cooldown_until_ms: %w", err)
-			}
-		}
-		result = append(result, UpstreamKeyResponse{
-			ID: row.ID, GroupID: row.GroupID,
-			Mask:   utils.MaskAPIKey(plaintext),
-			Status: view.Status,
-			EffectiveStatus: string(classifyHealthKey(
-				group,
-				view,
-				observation.observedAt,
-			)),
-			WeightManual:    cloneInt(view.WeightManual),
-			WeightAuto:      view.WeightAuto,
-			Blacklisted:     view.Blacklisted,
-			CooldownUntilMS: cooldownUntilMS,
-			FailureCount:    view.FailureCount,
-		})
-	}
-	return result, nil
-}
-
-func (s *Service) listGroupKeyResponses(
-	ctx context.Context,
-	groupID uint,
-) ([]UpstreamKeyResponse, error) {
-	if groupID == 0 {
-		return nil, app_errors.ErrBadRequest
-	}
-	capture, err := s.captureGroupKeys(ctx, groupID)
-	if err != nil {
-		return nil, err
-	}
-	observation, err := validateGroupKeysCapture(capture)
-	if err != nil {
-		return nil, err
-	}
-	return s.mapGroupKeys(observation)
-}
-
 func (s *Service) mapGroupKeyItem(
 	row models.UpstreamKey,
 	view state.KeyRuntimeView,
@@ -252,7 +174,7 @@ func normalizeUpstreamKeyUpdate(
 	if request.WeightManual.Set {
 		weightSet = true
 		if !request.WeightManual.Null {
-			if request.WeightManual.Value < 0 ||
+			if request.WeightManual.Value < 1 ||
 				request.WeightManual.Value > state.MaxWeight {
 				return nil, nil, false, app_errors.ErrValidation
 			}
@@ -280,13 +202,13 @@ func (s *Service) UpdateGroupKey(
 	groupID uint,
 	keyID uint,
 	request UpstreamKeyUpdateRequest,
-) (UpstreamKeyResponse, error) {
+) (GroupKeyItemResponse, error) {
 	if groupID == 0 || keyID == 0 {
-		return UpstreamKeyResponse{}, app_errors.ErrBadRequest
+		return GroupKeyItemResponse{}, app_errors.ErrBadRequest
 	}
 	status, weight, weightSet, err := normalizeUpstreamKeyUpdate(request)
 	if err != nil {
-		return UpstreamKeyResponse{}, err
+		return GroupKeyItemResponse{}, err
 	}
 
 	var committed models.UpstreamKey
@@ -349,19 +271,29 @@ func (s *Service) UpdateGroupKey(
 		},
 	)
 	if err != nil {
-		return UpstreamKeyResponse{}, err
+		return GroupKeyItemResponse{}, err
 	}
 
-	responses, err := s.listGroupKeyResponses(ctx, groupID)
+	capture, err := s.captureGroupKeys(ctx, groupID)
 	if err != nil {
-		return UpstreamKeyResponse{}, err
+		return GroupKeyItemResponse{}, err
 	}
-	for _, response := range responses {
-		if response.ID == keyID {
-			return response, nil
+	observation, err := validateGroupKeysCapture(capture)
+	if err != nil {
+		return GroupKeyItemResponse{}, err
+	}
+	for _, row := range observation.rows {
+		if row.ID == keyID {
+			return s.mapGroupKeyItem(
+				row,
+				observation.runtime[keyID],
+				observation.group,
+				s.stats.Snapshot(keyID, observation.observedAt),
+				observation.observedAt,
+			)
 		}
 	}
-	return UpstreamKeyResponse{}, keyNotFoundError()
+	return GroupKeyItemResponse{}, keyNotFoundError()
 }
 
 func (s *Service) DeleteGroupKey(

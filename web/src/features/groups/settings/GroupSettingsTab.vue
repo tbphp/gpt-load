@@ -329,6 +329,11 @@ onBeforeUnmount(() => controller?.abort())
                   v-if="draft.overrides[key] !== undefined"
                   type="number"
                   min="1"
+                  :aria-label="
+                    t('group.settings.runtime.valueFor', {
+                      field: t(`group.settings.runtime.${key}`),
+                    })
+                  "
                   :value="draft.overrides[key]"
                   :disabled="mutationPending"
                   @input="setTimeoutValue(key, $event)"
@@ -353,6 +358,11 @@ onBeforeUnmount(() => controller?.abort())
                 ><input
                   v-if="draft.overrides.inject_usage_options !== undefined"
                   type="checkbox"
+                  :aria-label="
+                    t('group.settings.runtime.valueFor', {
+                      field: t('group.settings.runtime.inject_usage_options'),
+                    })
+                  "
                   :checked="draft.overrides.inject_usage_options"
                   :disabled="mutationPending"
                   @change="
@@ -387,8 +397,8 @@ onBeforeUnmount(() => controller?.abort())
                   t('group.settings.runtime.headerReplacementWarning')
                 }}</InlineFeedback
                 ><HeaderRulesEditor
-                  :key="headerRulesEditorRevision"
                   v-if="draft.overrides.header_rules"
+                  :key="headerRulesEditorRevision"
                   :model-value="draft.overrides.header_rules"
                   :disabled="mutationPending"
                   @update:valid="headerRulesValid = $event"
