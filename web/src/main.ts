@@ -18,6 +18,7 @@ import { createAppI18n } from './i18n'
 import { appI18nKey } from './i18n/context'
 import './styles/tokens.css'
 import './styles/base.css'
+import './styles/components.css'
 
 async function bootstrap(): Promise<void> {
   const queryClient = createAppQueryClient()

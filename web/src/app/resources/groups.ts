@@ -1,4 +1,4 @@
-import { keepPreviousData, queryOptions } from '@tanstack/vue-query'
+import { keepPreviousData, queryOptions, type QueryClient } from '@tanstack/vue-query'
 import { computed, toValue, type MaybeRefOrGetter } from 'vue'
 
 import type { ApiClient } from '@/api/client'
@@ -11,8 +11,12 @@ import type {
   GroupCollectionStatus,
   GroupCollectionSummaryDto,
   GroupModelDto,
+  GroupModelItemDto,
+  GroupModelsDto,
   GroupOptionDto,
   GroupProtocol,
+  GroupSettingsDto,
+  GroupSummaryDto,
   KeyCounts,
 } from '@/api/control/types'
 import { InvalidResponseError } from '@/api/errors'
@@ -42,6 +46,33 @@ const groupDetailFields = [
   'weight_manual',
   'config',
   'effective_config',
+] as const
+const groupSummaryFields = [
+  'id',
+  'name',
+  'service_status',
+  'upstream_url',
+  'protocols',
+  'key_count',
+  'model_count',
+] as const
+const groupSettingsFields = [
+  'name',
+  'upstream_url',
+  'protocols',
+  'validation_model',
+  'enabled',
+  'weight_manual',
+  'overrides',
+  'effective',
+] as const
+const groupModelsFields = ['items', 'total', 'unpriced'] as const
+const groupModelItemFields = [
+  'id',
+  'alias',
+  'alias_enabled',
+  'client_model',
+  'pricing_status',
 ] as const
 const groupCollectionFields = ['observed_at_ms', 'summary', 'items', 'pagination'] as const
 const groupCollectionSummaryFields = ['total', 'available', 'unavailable', 'disabled'] as const
@@ -103,6 +134,24 @@ export interface GroupDetailDto {
   config: GroupRuntimeConfigDto
   effective_config: GroupEffectiveConfigDto
 }
+
+export type {
+  GroupModelItemDto,
+  GroupModelsDto,
+  GroupSettingsDto,
+  GroupSummaryDto,
+} from '@/api/control/types'
+
+export type GroupSettingsUpdateRequest = Partial<{
+  name: string
+  upstream_url: string
+  protocols: GroupProtocol[]
+  validation_model: string | null
+  enabled: boolean
+  weight_manual: number | null
+  overrides: GroupRuntimeConfigDto
+  confirm_upstream_change: true
+}>
 
 export interface GroupUpdateRequest {
   name?: string
@@ -259,6 +308,84 @@ export function projectGroupDetail(value: unknown): GroupDetailDto {
     config: projectRuntimeConfig(record.config, false),
     effective_config: projectRuntimeConfig(record.effective_config, true),
   }
+}
+
+export function projectGroupSummary(value: unknown): GroupSummaryDto {
+  const record = projectRecord(value)
+  assertNoSecretLikeFields(record, groupSummaryFields)
+  const protocols = projectArray(record.protocols, (protocol) =>
+    projectEnum(protocol, enabledDataProtocols),
+  )
+  if (new Set(protocols).size !== protocols.length) throw new InvalidResponseError()
+  return {
+    id: projectSafeInteger(record.id, { minimum: 1 }),
+    name: projectNonBlankString(record.name),
+    service_status: projectEnum(record.service_status, groupCollectionStatuses),
+    upstream_url: projectHTTPURL(record.upstream_url),
+    protocols,
+    key_count: projectSafeInteger(record.key_count, { minimum: 0 }),
+    model_count: projectSafeInteger(record.model_count, { minimum: 0 }),
+  }
+}
+
+export function projectGroupSettings(value: unknown): GroupSettingsDto {
+  const record = projectRecord(value)
+  assertNoSecretLikeFields(record, groupSettingsFields)
+  const protocols = projectArray(record.protocols, (protocol) =>
+    projectEnum(protocol, enabledDataProtocols),
+  )
+  if (new Set(protocols).size !== protocols.length) throw new InvalidResponseError()
+  return {
+    name: projectNonBlankString(record.name),
+    upstream_url: projectHTTPURL(record.upstream_url),
+    protocols,
+    validation_model:
+      record.validation_model === null ? null : projectNonBlankString(record.validation_model),
+    enabled: projectBoolean(record.enabled),
+    weight_manual:
+      record.weight_manual === null
+        ? null
+        : projectSafeInteger(record.weight_manual, { minimum: 1, maximum: 100 }),
+    overrides: projectRuntimeConfig(record.overrides, false),
+    effective: projectRuntimeConfig(record.effective, true),
+  }
+}
+
+function projectGroupModelItem(value: unknown): GroupModelItemDto {
+  const record = projectRecord(value)
+  assertNoSecretLikeFields(record, groupModelItemFields)
+  const alias = projectString(record.alias, { allowEmpty: true })
+  const aliasEnabled = projectBoolean(record.alias_enabled)
+  const id = projectNonBlankString(record.id)
+  const clientModel = projectNonBlankString(record.client_model)
+  if ((alias !== '') !== aliasEnabled || clientModel !== (aliasEnabled ? alias : id)) {
+    throw new InvalidResponseError()
+  }
+  return {
+    id,
+    alias,
+    alias_enabled: aliasEnabled,
+    client_model: clientModel,
+    pricing_status: projectEnum(record.pricing_status, ['priced', 'unpriced'] as const),
+  }
+}
+
+export function projectGroupModels(value: unknown): GroupModelsDto {
+  const record = projectRecord(value)
+  assertNoSecretLikeFields(record, groupModelsFields)
+  const items = projectArray(record.items, projectGroupModelItem)
+  const total = projectSafeInteger(record.total, { minimum: 0 })
+  const unpriced = projectSafeInteger(record.unpriced, { minimum: 0 })
+  if (
+    items.length !== total ||
+    unpriced > total ||
+    new Set(items.map(({ id }) => id)).size !== items.length ||
+    new Set(items.map(({ client_model }) => client_model)).size !== items.length ||
+    items.filter(({ pricing_status }) => pricing_status === 'unpriced').length !== unpriced
+  ) {
+    throw new InvalidResponseError()
+  }
+  return { items, total, unpriced }
 }
 
 function projectKeyCounts(value: unknown): KeyCounts {
@@ -495,21 +622,57 @@ export async function getGroup(
   )
 }
 
+export async function getGroupSummary(
+  client: ApiClient,
+  groupID: number,
+  signal?: AbortSignal,
+): Promise<GroupSummaryDto> {
+  return projectGroupSummary(
+    await client.request(`/api/groups/${groupID}`, { method: 'GET', signal }),
+  )
+}
+
+export async function getGroupSettings(
+  client: ApiClient,
+  groupID: number,
+  signal?: AbortSignal,
+): Promise<GroupSettingsDto> {
+  return projectGroupSettings(
+    await client.request(`/api/groups/${groupID}/settings`, { method: 'GET', signal }),
+  )
+}
+
+export async function getGroupModels(
+  client: ApiClient,
+  groupID: number,
+  signal?: AbortSignal,
+): Promise<GroupModelsDto> {
+  return projectGroupModels(
+    await client.request(`/api/groups/${groupID}/models`, { method: 'GET', signal }),
+  )
+}
+
+const manualGroupQueryOptions = {
+  staleTime: Number.POSITIVE_INFINITY,
+  refetchOnWindowFocus: false,
+  refetchOnReconnect: false,
+} as const
+
 export function groupCollectionQueryOptions(
   client: ApiClient,
   filters: MaybeRefOrGetter<GroupCollectionFilters>,
 ) {
   return queryOptions({
+    ...manualGroupQueryOptions,
     queryKey: computed(() => controlQueryKeys.groups.collection(toValue(filters))),
     queryFn: ({ queryKey, signal }) => listGroupCollection(client, queryKey[3], signal),
     placeholderData: keepPreviousData,
-    refetchInterval: 10_000,
-    refetchIntervalInBackground: false,
   })
 }
 
 export function groupOptionsQueryOptions(client: ApiClient) {
   return queryOptions({
+    ...manualGroupQueryOptions,
     queryKey: controlQueryKeys.groups.options(),
     queryFn: ({ signal }) => listGroupOptions(client, signal),
   })
@@ -520,6 +683,7 @@ export function groupDetailQueryOptions(
   groupID: MaybeRefOrGetter<number | undefined>,
 ) {
   return queryOptions({
+    ...manualGroupQueryOptions,
     queryKey: computed(() => {
       const id = toValue(groupID)
       return id === undefined
@@ -536,6 +700,69 @@ export function groupDetailQueryOptions(
   })
 }
 
+export function groupSummaryQueryOptions(
+  client: ApiClient,
+  groupID: MaybeRefOrGetter<number | undefined>,
+) {
+  return queryOptions({
+    ...manualGroupQueryOptions,
+    queryKey: computed(() => {
+      const id = toValue(groupID)
+      return id === undefined
+        ? controlQueryKeys.groups.summaries()
+        : controlQueryKeys.groups.summary(id)
+    }),
+    queryFn: ({ signal }) => {
+      const id = toValue(groupID)
+      if (id === undefined) throw new InvalidResponseError()
+      return getGroupSummary(client, id, signal)
+    },
+    enabled: computed(() => toValue(groupID) !== undefined),
+  })
+}
+
+export function groupSettingsQueryOptions(
+  client: ApiClient,
+  groupID: MaybeRefOrGetter<number | undefined>,
+) {
+  return queryOptions({
+    ...manualGroupQueryOptions,
+    queryKey: computed(() => {
+      const id = toValue(groupID)
+      return id === undefined
+        ? controlQueryKeys.groups.settingsAll()
+        : controlQueryKeys.groups.settings(id)
+    }),
+    queryFn: ({ signal }) => {
+      const id = toValue(groupID)
+      if (id === undefined) throw new InvalidResponseError()
+      return getGroupSettings(client, id, signal)
+    },
+    enabled: computed(() => toValue(groupID) !== undefined),
+  })
+}
+
+export function groupModelsQueryOptions(
+  client: ApiClient,
+  groupID: MaybeRefOrGetter<number | undefined>,
+) {
+  return queryOptions({
+    ...manualGroupQueryOptions,
+    queryKey: computed(() => {
+      const id = toValue(groupID)
+      return id === undefined
+        ? controlQueryKeys.groups.modelsAll()
+        : controlQueryKeys.groups.models(id)
+    }),
+    queryFn: ({ signal }) => {
+      const id = toValue(groupID)
+      if (id === undefined) throw new InvalidResponseError()
+      return getGroupModels(client, id, signal)
+    },
+    enabled: computed(() => toValue(groupID) !== undefined),
+  })
+}
+
 export async function updateGroup(
   client: ApiClient,
   groupID: number,
@@ -544,6 +771,21 @@ export async function updateGroup(
 ): Promise<GroupUpdateResult> {
   return projectGroupUpdateResult(
     await client.request(`/api/groups/${groupID}`, {
+      method: 'PUT',
+      json: body,
+      signal,
+    }),
+  )
+}
+
+export async function updateGroupSettings(
+  client: ApiClient,
+  groupID: number,
+  body: GroupSettingsUpdateRequest,
+  signal?: AbortSignal,
+): Promise<GroupSettingsDto> {
+  return projectGroupSettings(
+    await client.request(`/api/groups/${groupID}/settings`, {
       method: 'PUT',
       json: body,
       signal,
@@ -598,6 +840,53 @@ export async function replaceGroupModels(
       json: body,
       signal,
     }),
+  )
+}
+
+export async function replaceGroupModelsResource(
+  client: ApiClient,
+  groupID: number,
+  body: GroupModelsReplaceRequest,
+  signal?: AbortSignal,
+): Promise<GroupModelsDto> {
+  return projectGroupModels(
+    await client.request(`/api/groups/${groupID}/models`, {
+      method: 'PUT',
+      json: body,
+      signal,
+    }),
+  )
+}
+
+/** Cache writes are exact and never cause a background refetch. */
+export function cacheGroupSettings(
+  queryClient: QueryClient,
+  groupID: number,
+  settings: GroupSettingsDto,
+): void {
+  queryClient.setQueryData(controlQueryKeys.groups.settings(groupID), settings)
+}
+
+/** A settings mutation can change summary status; leave only that resource stale for manual refresh. */
+export async function invalidateGroupSummary(
+  queryClient: QueryClient,
+  groupID: number,
+): Promise<void> {
+  await queryClient.invalidateQueries({
+    queryKey: controlQueryKeys.groups.summary(groupID),
+    exact: true,
+    refetchType: 'none',
+  })
+}
+
+export function cacheGroupModels(
+  queryClient: QueryClient,
+  groupID: number,
+  models: GroupModelsDto,
+): void {
+  queryClient.setQueryData(controlQueryKeys.groups.models(groupID), models)
+  queryClient.setQueryData<GroupSummaryDto>(controlQueryKeys.groups.summary(groupID), (summary) =>
+    summary === undefined ? summary : { ...summary, model_count: models.total },
   )
 }
 

@@ -9,11 +9,14 @@ const props = defineProps<{
   pageSize: number
   totalItems: number
   totalPages: number
+  pageSizes?: readonly (20 | 50 | 100)[]
+  showPageSize?: boolean
 }>()
 
-defineEmits<{
+const emit = defineEmits<{
   previous: []
   next: []
+  'update:pageSize': [pageSize: 20 | 50 | 100]
 }>()
 
 const { t } = useI18n()
@@ -25,6 +28,12 @@ const from = computed(() => (hasCurrentPage.value ? (props.page - 1) * props.pag
 const to = computed(() =>
   hasCurrentPage.value ? Math.min(props.page * props.pageSize, props.totalItems) : 0,
 )
+const pageSizes = computed(() => props.pageSizes ?? ([20, 50, 100] as const))
+
+function updatePageSize(event: Event): void {
+  const value = Number((event.target as HTMLSelectElement).value)
+  if (value === 20 || value === 50 || value === 100) emit('update:pageSize', value)
+}
 </script>
 
 <template>
@@ -33,6 +42,12 @@ const to = computed(() =>
       {{ t('common.pagination.range', { from, to, total: totalItems }) }}
     </span>
     <span class="pagination-bar__actions">
+      <label v-if="showPageSize" class="pagination-bar__page-size">
+        <span class="sr-only">{{ t('common.pagination.label') }}</span>
+        <select :value="pageSize" @change="updatePageSize">
+          <option v-for="size in pageSizes" :key="size" :value="size">{{ size }}</option>
+        </select>
+      </label>
       <AppButton
         variant="secondary"
         size="compact"
@@ -80,6 +95,15 @@ const to = computed(() =>
   color: var(--color-text-muted);
   font-family: var(--font-mono);
   text-align: center;
+}
+
+.pagination-bar__page-size select {
+  min-height: var(--touch-target);
+  border: 1px solid var(--color-border-control);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  color: var(--color-text);
+  padding-inline: var(--space-2);
 }
 
 @media (max-width: 860px) {

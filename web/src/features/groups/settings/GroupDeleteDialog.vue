@@ -64,7 +64,7 @@ async function confirmDelete(): Promise<void> {
       exact: true,
     })
     queryClient.removeQueries({
-      queryKey: controlQueryKeys.groups.keys(props.groupId),
+      queryKey: controlQueryKeys.groups.keysAll(props.groupId),
       exact: true,
     })
     await applyInvalidationPlan(queryClient, mutationInvalidationPlans.group.delete)

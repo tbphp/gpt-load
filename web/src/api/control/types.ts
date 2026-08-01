@@ -60,6 +60,126 @@ export interface GroupCollectionResponseDto {
   pagination: GroupCollectionPaginationDto
 }
 
+export interface GroupSummaryDto {
+  id: number
+  name: string
+  service_status: GroupCollectionStatus
+  upstream_url: string
+  protocols: GroupProtocol[]
+  key_count: number
+  model_count: number
+}
+
+export interface HeaderRulesDto {
+  set: Record<string, string>
+  remove: string[]
+}
+
+export interface GroupRuntimeConfigDto {
+  connect_timeout?: number
+  first_byte_timeout?: number
+  request_timeout?: number
+  stream_idle_timeout?: number
+  header_rules?: HeaderRulesDto
+  inject_usage_options?: boolean
+}
+
+export interface GroupEffectiveConfigDto {
+  connect_timeout: number
+  first_byte_timeout: number
+  request_timeout: number
+  stream_idle_timeout: number
+  header_rules: HeaderRulesDto
+  inject_usage_options: boolean
+}
+
+export interface GroupSettingsDto {
+  name: string
+  upstream_url: string
+  protocols: GroupProtocol[]
+  validation_model: string | null
+  enabled: boolean
+  weight_manual: number | null
+  overrides: GroupRuntimeConfigDto
+  effective: GroupEffectiveConfigDto
+}
+
+export interface GroupModelItemDto {
+  id: string
+  alias: string
+  alias_enabled: boolean
+  client_model: string
+  pricing_status: 'priced' | 'unpriced'
+}
+
+export interface GroupModelsDto {
+  items: GroupModelItemDto[]
+  total: number
+  unpriced: number
+}
+
+export type GroupKeyStatus = 'available' | 'cooldown' | 'blacklisted' | 'disabled'
+export type GroupKeyConfiguredStatus = 'active' | 'disabled'
+export type GroupKeyWeightMode = 'auto' | 'manual'
+export type GroupKeyRecoveryMode = 'none' | 'cooldown' | 'probe' | 'manual'
+
+export interface GroupKeyRecoveryDto {
+  mode: GroupKeyRecoveryMode
+  automatic: boolean
+  at_ms: number | null
+}
+
+export interface GroupKeyItemDto {
+  id: number
+  mask: string
+  configured_status: GroupKeyConfiguredStatus
+  effective_status: GroupKeyStatus
+  weight_mode: GroupKeyWeightMode
+  weight: number | null
+  recent_success_count: number
+  recent_failure_count: number
+  consecutive_failure_count: number
+  last_failure_category: FailureCategory
+  last_status_code: number | null
+  cooldown_until_ms: number | null
+  recovery: GroupKeyRecoveryDto
+}
+
+export interface GroupKeySummaryDto {
+  total: number
+  available: number
+  cooldown: number
+  blacklisted: number
+  disabled: number
+}
+
+export interface GroupKeyPaginationDto {
+  page: number
+  page_size: 20 | 50 | 100
+  total_items: number
+  total_pages: number
+}
+
+export interface GroupKeyCollectionDto {
+  observed_at_ms: number
+  stats_window_seconds: number
+  summary: GroupKeySummaryDto
+  items: GroupKeyItemDto[]
+  pagination: GroupKeyPaginationDto
+}
+
+export interface GroupKeyCollectionFilters {
+  q?: string
+  status?: GroupKeyStatus
+  page: number
+  page_size: 20 | 50 | 100
+}
+
+export interface GroupKeyBatchResultDto {
+  affected_ids: number[]
+  summary: GroupKeySummaryDto
+}
+
 export interface GroupOptionDto {
   id: number
   name: string

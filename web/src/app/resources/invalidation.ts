@@ -17,7 +17,7 @@ function plan(
 const keyResourcePlan = (groupID: number) =>
   plan(
     [
-      controlQueryKeys.groups.keys(groupID),
+      controlQueryKeys.groups.keysAll(groupID),
       controlQueryKeys.groups.detail(groupID),
       controlQueryKeys.health(),
     ],

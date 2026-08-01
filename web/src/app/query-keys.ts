@@ -1,7 +1,7 @@
 import type { RequestLogFilters } from '@/app/resources/request-logs'
 import type { HomeRange } from '@/app/resources/home'
 import type { UsageFilters } from '@/app/resources/usage'
-import type { GroupCollectionFilters } from '@/api/control/types'
+import type { GroupCollectionFilters, GroupKeyCollectionFilters } from '@/api/control/types'
 
 export function normalizeGroupCollectionFilters(
   filters: GroupCollectionFilters,
@@ -15,6 +15,19 @@ export function normalizeGroupCollectionFilters(
   if (query) normalized.q = query
   if (filters.status !== undefined) normalized.status = filters.status
   if (filters.protocol !== undefined) normalized.protocol = filters.protocol
+  return normalized
+}
+
+export function normalizeGroupKeyCollectionFilters(
+  filters: GroupKeyCollectionFilters,
+): GroupKeyCollectionFilters {
+  const normalized: GroupKeyCollectionFilters = {
+    page: filters.page,
+    page_size: filters.page_size,
+  }
+  const query = filters.q?.trim()
+  if (query) normalized.q = query
+  if (filters.status !== undefined) normalized.status = filters.status
   return normalized
 }
 
@@ -53,10 +66,28 @@ export const controlQueryKeys = {
     collection: (filters: GroupCollectionFilters) =>
       ['control', 'groups', 'collection', normalizeGroupCollectionFilters(filters)] as const,
     options: () => ['control', 'groups', 'options'] as const,
-    details: () => ['control', 'groups', 'detail'] as const,
-    detail: (id: number) => ['control', 'groups', 'detail', id] as const,
-    keyLists: () => ['control', 'groups', 'keys'] as const,
-    keys: (id: number) => ['control', 'groups', 'keys', id] as const,
+    summaries: () => ['control', 'groups', 'summary'] as const,
+    summary: (id: number) => ['control', 'groups', 'summary', id] as const,
+    settingsAll: () => ['control', 'groups', 'settings'] as const,
+    settings: (id: number) => ['control', 'groups', 'settings', id] as const,
+    modelsAll: () => ['control', 'groups', 'models'] as const,
+    models: (id: number) => ['control', 'groups', 'models', id] as const,
+    keysAll: (id: number) => ['control', 'groups', 'keys', id] as const,
+    keys: (id: number, filters: GroupKeyCollectionFilters) =>
+      [
+        'control',
+        'groups',
+        'keys',
+        id,
+        'collection',
+        normalizeGroupKeyCollectionFilters(filters),
+      ] as const,
+    // Temporary compile bridge for the pre-ledger detail surface. These keys do
+    // not represent a supported wire contract and will be removed with that UI.
+    details: () => ['control', 'groups', 'legacy-detail'] as const,
+    detail: (id: number) => ['control', 'groups', 'legacy-detail', id] as const,
+    keyLists: () => ['control', 'groups', 'legacy-keys'] as const,
+    legacyKeys: (id: number) => ['control', 'groups', 'legacy-keys', id] as const,
   },
   health: () => ['control', 'health'] as const,
   logs: {

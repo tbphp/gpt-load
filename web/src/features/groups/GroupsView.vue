@@ -13,9 +13,9 @@ import type {
   GroupProtocol,
   KeyCounts,
 } from '@/api/control/types'
+import type { StatusSummaryFilterValue } from '@/components/ui/StatusSummaryFilter.vue'
 import { groupCollectionQueryOptions } from '@/app/resources/groups'
 import { groupDetailLocation, groupsLocation, importLocation } from '@/app/route-locations'
-import { useVisibleRefetch } from '@/app/use-visible-refetch'
 import LedgerSheet from '@/components/layout/LedgerSheet.vue'
 import PageFrame from '@/components/layout/PageFrame.vue'
 import AppButton from '@/components/ui/AppButton.vue'
@@ -108,8 +108,6 @@ watch(
   },
 )
 
-useVisibleRefetch([groupsQuery.refetch])
-
 function routeWithFilters(next: GroupCollectionFilters, replace = false): void {
   const location = groupsLocation(serializeGroupCollectionRouteQuery(next))
   void (replace ? router.replace(location) : router.push(location))
@@ -137,7 +135,8 @@ function clearSearch(): void {
   updateConditions({ q: undefined })
 }
 
-function setStatus(status: GroupCollectionStatus | undefined): void {
+function setStatus(status: StatusSummaryFilterValue | undefined): void {
+  if (status === 'cooldown' || status === 'blacklisted') return
   updateConditions({ status })
 }
 

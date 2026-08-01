@@ -1,81 +1,226 @@
-import { queryOptions } from '@tanstack/vue-query'
+import { queryOptions, type QueryClient } from '@tanstack/vue-query'
 import { computed, toValue, type MaybeRefOrGetter } from 'vue'
 
 import type { ApiClient } from '@/api/client'
+import type {
+  GroupKeyBatchResultDto,
+  GroupKeyCollectionDto,
+  GroupKeyCollectionFilters,
+  GroupKeyConfiguredStatus,
+  GroupKeyItemDto,
+  GroupKeyRecoveryDto,
+  GroupKeyStatus,
+  GroupKeySummaryDto,
+  GroupKeyWeightMode,
+} from '@/api/control/types'
 import { InvalidResponseError } from '@/api/errors'
-import { controlQueryKeys } from '@/app/query-keys'
+import { controlQueryKeys, normalizeGroupKeyCollectionFilters } from '@/app/query-keys'
 
 import {
   assertNoSecretLikeFields,
   projectArray,
   projectBoolean,
   projectEnum,
+  projectEpochMilliseconds,
   projectNullableEpochMilliseconds,
   projectRecord,
   projectSafeInteger,
   projectString,
 } from './projector'
 
-export type UpstreamKeyStatus = 'active' | 'disabled'
-export type UpstreamKeyEffectiveStatus = 'available' | 'cooldown' | 'blacklisted' | 'disabled'
+export type {
+  GroupKeyBatchResultDto,
+  GroupKeyCollectionDto,
+  GroupKeyCollectionFilters,
+  GroupKeyConfiguredStatus,
+  GroupKeyItemDto,
+  GroupKeyRecoveryDto,
+  GroupKeyStatus,
+  GroupKeySummaryDto,
+  GroupKeyWeightMode,
+} from '@/api/control/types'
 
-export interface UpstreamKeyDto {
-  id: number
-  group_id: number
-  mask: string
-  status: UpstreamKeyStatus
-  effective_status: UpstreamKeyEffectiveStatus
-  weight_manual: number | null
-  weight_auto: number
-  blacklisted: boolean
-  cooldown_until_ms: number | null
-  failure_count: number
-}
+export type UpstreamKeyStatus = GroupKeyConfiguredStatus
+export type UpstreamKeyEffectiveStatus = GroupKeyStatus
 
 export interface UpstreamKeyPatch {
   status?: UpstreamKeyStatus
   weight_manual?: number | null
 }
 
-const upstreamKeyFields = [
-  'id',
-  'group_id',
-  'mask',
-  'status',
-  'effective_status',
-  'weight_manual',
-  'weight_auto',
-  'blacklisted',
-  'cooldown_until_ms',
-  'failure_count',
+export interface GroupKeyBatchRequest {
+  action: 'enable' | 'disable' | 'delete'
+  key_ids: number[]
+}
+
+const groupKeyCollectionFields = [
+  'observed_at_ms',
+  'stats_window_seconds',
+  'summary',
+  'items',
+  'pagination',
 ] as const
-const upstreamKeyStatuses = ['active', 'disabled'] as const
+const groupKeySummaryFields = ['total', 'available', 'cooldown', 'blacklisted', 'disabled'] as const
+const groupKeyItemFields = [
+  'id',
+  'mask',
+  'configured_status',
+  'effective_status',
+  'weight_mode',
+  'weight',
+  'recent_success_count',
+  'recent_failure_count',
+  'consecutive_failure_count',
+  'last_failure_category',
+  'last_status_code',
+  'cooldown_until_ms',
+  'recovery',
+] as const
+const groupKeyRecoveryFields = ['mode', 'automatic', 'at_ms'] as const
+const groupKeyPaginationFields = ['page', 'page_size', 'total_items', 'total_pages'] as const
+const groupKeyBatchFields = ['affected_ids', 'summary'] as const
+const configuredStatuses = ['active', 'disabled'] as const
 const effectiveStatuses = ['available', 'cooldown', 'blacklisted', 'disabled'] as const
+const weightModes = ['auto', 'manual'] as const
+const recoveryModes = ['none', 'cooldown', 'probe', 'manual'] as const
+const failureCategories = [
+  'ok',
+  'rate_limited',
+  'model_unavailable',
+  'invalid_key',
+  'upstream_host_error',
+  'client_error',
+  'downstream_cancel',
+  'ambiguous',
+] as const
 const canonicalMask = /^(?:\*{4}|.{4}\*{4}.{4})$/u
+
+function invalidResponse(): never {
+  throw new InvalidResponseError()
+}
+
+function projectNonBlankTrimmedString(value: unknown): string {
+  const result = projectString(value)
+  if (result !== result.trim()) invalidResponse()
+  return result
+}
 
 function projectMask(value: unknown): string {
   const mask = projectString(value)
-  if (!canonicalMask.test(mask)) throw new InvalidResponseError()
+  if (!canonicalMask.test(mask)) invalidResponse()
   return mask
 }
 
-export function projectUpstreamKey(value: unknown): UpstreamKeyDto {
+export function projectGroupKeySummary(value: unknown): GroupKeySummaryDto {
   const record = projectRecord(value)
-  assertNoSecretLikeFields(record, upstreamKeyFields)
+  assertNoSecretLikeFields(record, groupKeySummaryFields)
+  const result = {
+    total: projectSafeInteger(record.total, { minimum: 0 }),
+    available: projectSafeInteger(record.available, { minimum: 0 }),
+    cooldown: projectSafeInteger(record.cooldown, { minimum: 0 }),
+    blacklisted: projectSafeInteger(record.blacklisted, { minimum: 0 }),
+    disabled: projectSafeInteger(record.disabled, { minimum: 0 }),
+  }
+  if (result.total !== result.available + result.cooldown + result.blacklisted + result.disabled) {
+    invalidResponse()
+  }
+  return result
+}
+
+function projectRecovery(value: unknown): GroupKeyRecoveryDto {
+  const record = projectRecord(value)
+  assertNoSecretLikeFields(record, groupKeyRecoveryFields)
+  const result = {
+    mode: projectEnum(record.mode, recoveryModes),
+    automatic: projectBoolean(record.automatic),
+    at_ms: projectNullableEpochMilliseconds(record.at_ms),
+  }
+  if (
+    (result.mode === 'cooldown' && (!result.automatic || result.at_ms === null)) ||
+    (result.mode === 'probe' && !result.automatic) ||
+    (result.mode === 'manual' && result.automatic) ||
+    (result.mode === 'none' && (result.automatic || result.at_ms !== null))
+  ) {
+    invalidResponse()
+  }
+  return result
+}
+
+export function projectGroupKeyItem(value: unknown): GroupKeyItemDto {
+  const record = projectRecord(value)
+  assertNoSecretLikeFields(record, groupKeyItemFields)
+  const configuredStatus = projectEnum(record.configured_status, configuredStatuses)
+  const effectiveStatus = projectEnum(record.effective_status, effectiveStatuses)
+  const weightMode = projectEnum(record.weight_mode, weightModes)
+  const weight =
+    record.weight === null ? null : projectSafeInteger(record.weight, { minimum: 1, maximum: 100 })
+  const cooldownUntil = projectNullableEpochMilliseconds(record.cooldown_until_ms)
+  const recovery = projectRecovery(record.recovery)
+  if (
+    (configuredStatus === 'disabled') !== (effectiveStatus === 'disabled') ||
+    (weightMode === 'manual') !== (weight !== null) ||
+    (effectiveStatus === 'cooldown') !== (cooldownUntil !== null) ||
+    (recovery.mode === 'cooldown') !== (effectiveStatus === 'cooldown')
+  ) {
+    invalidResponse()
+  }
   return {
     id: projectSafeInteger(record.id, { minimum: 1 }),
-    group_id: projectSafeInteger(record.group_id, { minimum: 1 }),
     mask: projectMask(record.mask),
-    status: projectEnum(record.status, upstreamKeyStatuses),
-    effective_status: projectEnum(record.effective_status, effectiveStatuses),
-    weight_manual:
-      record.weight_manual === null
+    configured_status: configuredStatus,
+    effective_status: effectiveStatus,
+    weight_mode: weightMode,
+    weight,
+    recent_success_count: projectSafeInteger(record.recent_success_count, { minimum: 0 }),
+    recent_failure_count: projectSafeInteger(record.recent_failure_count, { minimum: 0 }),
+    consecutive_failure_count: projectSafeInteger(record.consecutive_failure_count, { minimum: 0 }),
+    last_failure_category: projectEnum(record.last_failure_category, failureCategories),
+    last_status_code:
+      record.last_status_code === null
         ? null
-        : projectSafeInteger(record.weight_manual, { minimum: 0, maximum: 100 }),
-    weight_auto: projectSafeInteger(record.weight_auto, { minimum: 0, maximum: 100 }),
-    blacklisted: projectBoolean(record.blacklisted),
-    cooldown_until_ms: projectNullableEpochMilliseconds(record.cooldown_until_ms),
-    failure_count: projectSafeInteger(record.failure_count, { minimum: 0 }),
+        : projectSafeInteger(record.last_status_code, { minimum: 100, maximum: 599 }),
+    cooldown_until_ms: cooldownUntil,
+    recovery,
+  }
+}
+
+function projectPagination(value: unknown): GroupKeyCollectionDto['pagination'] {
+  const record = projectRecord(value)
+  assertNoSecretLikeFields(record, groupKeyPaginationFields)
+  const pageSize = projectSafeInteger(record.page_size, { minimum: 20, maximum: 100 })
+  if (pageSize !== 20 && pageSize !== 50 && pageSize !== 100) invalidResponse()
+  return {
+    page: projectSafeInteger(record.page, { minimum: 1 }),
+    page_size: pageSize,
+    total_items: projectSafeInteger(record.total_items, { minimum: 0 }),
+    total_pages: projectSafeInteger(record.total_pages, { minimum: 0 }),
+  }
+}
+
+function expectedPageCount(totalItems: number, pageSize: number): number {
+  return totalItems === 0 ? 0 : Math.ceil(totalItems / pageSize)
+}
+
+export function projectGroupKeyCollection(value: unknown): GroupKeyCollectionDto {
+  const record = projectRecord(value)
+  assertNoSecretLikeFields(record, groupKeyCollectionFields)
+  const items = projectArray(record.items, projectGroupKeyItem)
+  const summary = projectGroupKeySummary(record.summary)
+  const pagination = projectPagination(record.pagination)
+  if (
+    pagination.total_items > summary.total ||
+    pagination.total_pages !== expectedPageCount(pagination.total_items, pagination.page_size) ||
+    (pagination.total_items === 0 ? items.length !== 0 : items.length > pagination.page_size) ||
+    new Set(items.map(({ id }) => id)).size !== items.length
+  ) {
+    invalidResponse()
+  }
+  return {
+    observed_at_ms: projectEpochMilliseconds(record.observed_at_ms),
+    stats_window_seconds: projectSafeInteger(record.stats_window_seconds, { minimum: 1 }),
+    summary,
+    items,
+    pagination,
   }
 }
 
@@ -84,13 +229,9 @@ function normalizePatch(patch: UpstreamKeyPatch): UpstreamKeyPatch {
   if (keys.length === 0 || keys.some((key) => key !== 'status' && key !== 'weight_manual')) {
     throw new Error('INVALID_UPSTREAM_KEY_PATCH')
   }
-
   const body: UpstreamKeyPatch = {}
   if (Object.prototype.hasOwnProperty.call(patch, 'status')) {
-    if (patch.status !== 'active' && patch.status !== 'disabled') {
-      throw new Error('INVALID_UPSTREAM_KEY_STATUS')
-    }
-    body.status = patch.status
+    body.status = projectEnum(patch.status, configuredStatuses)
   }
   if (Object.prototype.hasOwnProperty.call(patch, 'weight_manual')) {
     const weight = patch.weight_manual
@@ -105,24 +246,55 @@ function normalizePatch(patch: UpstreamKeyPatch): UpstreamKeyPatch {
   return body
 }
 
-export async function listGroupKeys(
-  client: ApiClient,
+function groupKeyCollectionURL(
   groupId: number,
-  signal?: AbortSignal,
-): Promise<UpstreamKeyDto[]> {
-  return projectArray(
-    await client.request(`/api/groups/${groupId}/keys`, {
-      method: 'GET',
-      signal,
-    }),
-    projectUpstreamKey,
-  )
+  filters: GroupKeyCollectionFilters,
+): `/api/${string}` {
+  const normalized = normalizeGroupKeyCollectionFilters(filters)
+  const params = new URLSearchParams({
+    page: String(normalized.page),
+    page_size: String(normalized.page_size),
+  })
+  if (normalized.q !== undefined) params.set('q', normalized.q)
+  if (normalized.status !== undefined) params.set('status', normalized.status)
+  return `/api/groups/${groupId}/keys?${params.toString()}`
 }
 
-export function upstreamKeyListQueryOptions(client: ApiClient, groupID: MaybeRefOrGetter<number>) {
+export async function getGroupKeyCollection(
+  client: ApiClient,
+  groupId: number,
+  filters: GroupKeyCollectionFilters,
+  signal?: AbortSignal,
+): Promise<GroupKeyCollectionDto> {
+  const normalized = normalizeGroupKeyCollectionFilters(filters)
+  const result = projectGroupKeyCollection(
+    await client.request(groupKeyCollectionURL(groupId, normalized), { method: 'GET', signal }),
+  )
+  if (
+    result.pagination.page !== normalized.page ||
+    result.pagination.page_size !== normalized.page_size
+  ) {
+    invalidResponse()
+  }
+  return result
+}
+
+const manualGroupQueryOptions = {
+  staleTime: Number.POSITIVE_INFINITY,
+  refetchOnWindowFocus: false,
+  refetchOnReconnect: false,
+} as const
+
+export function groupKeyCollectionQueryOptions(
+  client: ApiClient,
+  groupID: MaybeRefOrGetter<number>,
+  filters: MaybeRefOrGetter<GroupKeyCollectionFilters>,
+) {
   return queryOptions({
-    queryKey: computed(() => controlQueryKeys.groups.keys(toValue(groupID))),
-    queryFn: ({ signal }) => listGroupKeys(client, toValue(groupID), signal),
+    ...manualGroupQueryOptions,
+    queryKey: computed(() => controlQueryKeys.groups.keys(toValue(groupID), toValue(filters))),
+    queryFn: ({ queryKey, signal }) =>
+      getGroupKeyCollection(client, queryKey[3], queryKey[5], signal),
   })
 }
 
@@ -132,15 +304,61 @@ export async function updateGroupKey(
   keyId: number,
   patch: UpstreamKeyPatch,
   signal?: AbortSignal,
-): Promise<UpstreamKeyDto> {
-  const body = normalizePatch(patch)
-  return projectUpstreamKey(
+): Promise<GroupKeyItemDto> {
+  return projectGroupKeyItem(
     await client.request(`/api/groups/${groupId}/keys/${keyId}`, {
       method: 'PUT',
+      json: normalizePatch(patch),
+      signal,
+    }),
+  )
+}
+
+export async function restoreGroupKey(
+  client: ApiClient,
+  groupId: number,
+  keyId: number,
+  signal?: AbortSignal,
+): Promise<GroupKeyItemDto> {
+  return projectGroupKeyItem(
+    await client.request(`/api/groups/${groupId}/keys/${keyId}/restore`, {
+      method: 'POST',
+      json: {},
+      signal,
+    }),
+  )
+}
+
+export async function batchGroupKeys(
+  client: ApiClient,
+  groupId: number,
+  body: GroupKeyBatchRequest,
+  signal?: AbortSignal,
+): Promise<GroupKeyBatchResultDto> {
+  const ids = body.key_ids
+  if (
+    !['enable', 'disable', 'delete'].includes(body.action) ||
+    ids.length < 1 ||
+    ids.length > 100 ||
+    ids.some((id) => !Number.isSafeInteger(id) || id < 1) ||
+    new Set(ids).size !== ids.length
+  ) {
+    throw new Error('INVALID_GROUP_KEY_BATCH')
+  }
+  const record = projectRecord(
+    await client.request(`/api/groups/${groupId}/keys/batch`, {
+      method: 'POST',
       json: body,
       signal,
     }),
   )
+  assertNoSecretLikeFields(record, groupKeyBatchFields)
+  const affectedIDs = projectArray(record.affected_ids, (id) =>
+    projectSafeInteger(id, { minimum: 1 }),
+  )
+  if (new Set(affectedIDs).size !== affectedIDs.length || affectedIDs.length !== ids.length)
+    invalidResponse()
+  return { affected_ids: affectedIDs, summary: projectGroupKeySummary(record.summary) }
 }
 
 export async function deleteGroupKey(
@@ -149,8 +367,121 @@ export async function deleteGroupKey(
   keyId: number,
   signal?: AbortSignal,
 ): Promise<void> {
-  await client.request(`/api/groups/${groupId}/keys/${keyId}`, {
-    method: 'DELETE',
+  await client.request(`/api/groups/${groupId}/keys/${keyId}`, { method: 'DELETE', signal })
+}
+
+function replaceItem(
+  collection: GroupKeyCollectionDto,
+  item: GroupKeyItemDto,
+): GroupKeyCollectionDto {
+  const index = collection.items.findIndex(({ id }) => id === item.id)
+  if (index < 0) return collection
+  const items = [...collection.items]
+  items[index] = item
+  return { ...collection, items }
+}
+
+/** Updates only already-materialized key pages; it never triggers a background request. */
+export function cacheGroupKeyItem(
+  queryClient: QueryClient,
+  groupId: number,
+  item: GroupKeyItemDto,
+): void {
+  queryClient.setQueriesData<GroupKeyCollectionDto>(
+    { queryKey: controlQueryKeys.groups.keysAll(groupId) },
+    (collection) => (collection === undefined ? collection : replaceItem(collection, item)),
+  )
+}
+
+/** Marks only this Group's key pages stale without scheduling an automatic request. */
+export async function invalidateGroupKeyCollections(
+  queryClient: QueryClient,
+  groupId: number,
+): Promise<void> {
+  await queryClient.invalidateQueries({
+    queryKey: controlQueryKeys.groups.keysAll(groupId),
+    refetchType: 'none',
+  })
+}
+
+/** A batch result carries the authoritative aggregate, so cached pages can be reconciled deterministically. */
+export function cacheGroupKeyBatch(
+  queryClient: QueryClient,
+  groupId: number,
+  action: GroupKeyBatchRequest['action'],
+  result: GroupKeyBatchResultDto,
+): void {
+  const affected = new Set(result.affected_ids)
+  queryClient.setQueriesData<GroupKeyCollectionDto>(
+    { queryKey: controlQueryKeys.groups.keysAll(groupId) },
+    (collection) => {
+      if (collection === undefined) return collection
+      const items = collection.items
+        .filter((item) => action !== 'delete' || !affected.has(item.id))
+        .map((item) => {
+          if (!affected.has(item.id) || action === 'delete') return item
+          if (action === 'enable') return item
+          const next: GroupKeyItemDto = {
+            ...item,
+            configured_status: 'disabled',
+            effective_status: 'disabled',
+            cooldown_until_ms: null,
+            recovery: { mode: 'none' as const, automatic: false, at_ms: null },
+          }
+          return next
+        })
+      return { ...collection, items, summary: result.summary }
+    },
+  )
+}
+
+/**
+ * Compatibility-only shape for the unported legacy detail tabs. The new API is
+ * still read through the collection contract; this projection must not be used
+ * by the Ledger detail implementation.
+ */
+export interface UpstreamKeyDto {
+  id: number
+  group_id: number
+  mask: string
+  status: UpstreamKeyStatus
+  effective_status: UpstreamKeyEffectiveStatus
+  weight_manual: number | null
+  weight_auto: number
+  blacklisted: boolean
+  cooldown_until_ms: number | null
+  failure_count: number
+}
+
+export async function listGroupKeys(
+  client: ApiClient,
+  groupId: number,
+  signal?: AbortSignal,
+): Promise<UpstreamKeyDto[]> {
+  const collection = await getGroupKeyCollection(
+    client,
+    groupId,
+    { page: 1, page_size: 100 },
     signal,
+  )
+  return collection.items.map((item) => ({
+    id: item.id,
+    group_id: groupId,
+    mask: item.mask,
+    status: item.configured_status,
+    effective_status: item.effective_status,
+    weight_manual: item.weight_mode === 'manual' ? item.weight : null,
+    weight_auto: item.weight_mode === 'auto' ? (item.weight ?? 0) : 0,
+    blacklisted: item.effective_status === 'blacklisted',
+    cooldown_until_ms: item.cooldown_until_ms,
+    failure_count: item.consecutive_failure_count,
+  }))
+}
+
+export function upstreamKeyListQueryOptions(client: ApiClient, groupID: MaybeRefOrGetter<number>) {
+  return queryOptions({
+    ...manualGroupQueryOptions,
+    queryKey: computed(() => controlQueryKeys.groups.legacyKeys(toValue(groupID))),
+    queryFn: ({ signal }) => listGroupKeys(client, toValue(groupID), signal),
   })
 }
