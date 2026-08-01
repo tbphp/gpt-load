@@ -45,7 +45,10 @@ const barItems = computed(() =>
         ></span>
       </div>
 
-      <div class="collection-status-summary__filters">
+      <div
+        class="collection-status-summary__filters"
+        :style="{ '--collection-status-summary-columns': Math.max(items.length, 1) }"
+      >
         <button
           v-for="item in items"
           :key="item.value ?? 'all'"
@@ -135,7 +138,7 @@ const barItems = computed(() =>
 
 .collection-status-summary__filters {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(var(--collection-status-summary-columns), minmax(0, 1fr));
   margin-top: var(--space-3);
   border-top: 1px solid var(--color-border-subtle);
   border-bottom: 1px solid var(--color-border-subtle);
@@ -232,6 +235,10 @@ const barItems = computed(() =>
 
   .collection-status-summary__filter:nth-child(n + 3) {
     border-top: 1px solid var(--color-border-subtle);
+  }
+
+  .collection-status-summary__filter:last-child:nth-child(odd) {
+    grid-column: 1 / -1;
   }
 }
 </style>

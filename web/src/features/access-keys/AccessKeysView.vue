@@ -143,10 +143,12 @@ watch(
     () => accessKeysQuery.isPlaceholderData.value,
   ],
   ([totalPages, page, isPlaceholderData]) => {
-    if (!isPlaceholderData && totalPages !== undefined && totalPages > 0 && page > totalPages) {
+    if (isPlaceholderData || totalPages === undefined) return
+    const lastValidPage = Math.max(1, totalPages)
+    if (page > lastValidPage) {
       void router.replace(
         accessKeysLocation(
-          serializeAccessKeyCollectionRouteQuery({ ...filters.value, page: totalPages }),
+          serializeAccessKeyCollectionRouteQuery({ ...filters.value, page: lastValidPage }),
         ),
       )
     }

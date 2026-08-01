@@ -74,8 +74,14 @@ onBeforeUnmount(() => controller?.abort())
     @update:open="setOpen"
   >
     <template #trigger>
-      <button type="button" class="access-key-delete__trigger" @click="setOpen(true)">
-        <Trash2 :size="16" aria-hidden="true" />{{ t('accessKeys.delete.open') }}
+      <button
+        type="button"
+        class="access-key-delete__trigger"
+        :aria-label="t('accessKeys.delete.open')"
+        @click="setOpen(true)"
+      >
+        <Trash2 :size="16" aria-hidden="true" />
+        <span class="access-key-delete__trigger-label">{{ t('accessKeys.delete.open') }}</span>
       </button>
     </template>
 

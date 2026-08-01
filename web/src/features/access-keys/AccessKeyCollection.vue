@@ -288,12 +288,14 @@ onBeforeUnmount(() => {
 @media (max-width: 1120px) {
   .access-keys-record-grid {
     --ledger-record-list-grid: minmax(110px, 1.05fr) minmax(156px, 1.2fr) 90px minmax(164px, 1.25fr)
-      78px 44px 72px;
+      78px minmax(96px, 0.8fr) 72px;
     --ledger-record-list-column-gap: 10px;
   }
 
   .access-key-updated :deep(.app-date-time) {
-    display: none;
+    line-height: var(--line-compact);
+    overflow-wrap: anywhere;
+    white-space: normal;
   }
 
   .edit-label {
@@ -304,7 +306,7 @@ onBeforeUnmount(() => {
 @media (max-width: 860px) {
   .access-key-name {
     grid-column: 1 / -1;
-    padding-right: 88px;
+    padding-right: 100px;
   }
 
   .access-key-secret-cell {
@@ -343,7 +345,12 @@ onBeforeUnmount(() => {
     min-width: var(--touch-target);
     height: var(--touch-target);
     min-height: var(--touch-target);
+    justify-content: center;
     padding: 0;
+  }
+
+  .record-actions :deep(.access-key-delete__trigger-label) {
+    display: none;
   }
 
   .edit-label {
