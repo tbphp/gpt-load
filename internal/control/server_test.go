@@ -92,6 +92,7 @@ func TestGroupCollectionHTTPRoutesDeclareStaticOptionsBeforeDynamicDetail(t *tes
 		{name: "control.groups.options", path: "/groups/options"},
 		{name: "control.groups.get", path: "/groups/:group_id"},
 		{name: "control.groups.settings.get", path: "/groups/:group_id/settings"},
+		{name: "control.groups.models.get", path: "/groups/:group_id/models"},
 		{name: "control.group-keys.list", path: "/groups/:group_id/keys"},
 	}
 	if !reflect.DeepEqual(got, want) {
@@ -1310,12 +1311,6 @@ func TestUpdateGroupModelsEndpointRejectsStrictInvalidBodiesWithoutMutation(t *t
 		{name: "unknown top-level field", body: `{"models":[],"unknown":true}`, code: app_errors.ErrInvalidJSON.Code},
 		{name: "unknown nested field", body: `{"models":[{"id":"provider","unknown":true}]}`, code: app_errors.ErrInvalidJSON.Code},
 		{name: "blank upstream model ID", body: `{"models":[{"id":" "}]}`, code: app_errors.ErrValidation.Code},
-		{
-			name: "duplicate external model",
-			body: `{"models":[{"id":"provider-a","alias":"public"},` +
-				`{"id":"provider-b","alias":"public"}]}`,
-			code: app_errors.ErrValidation.Code,
-		},
 		{name: "multiple JSON values", body: `{"models":[]} {"models":[]}`, code: app_errors.ErrInvalidJSON.Code},
 		{name: "top-level null", body: `null`, code: app_errors.ErrInvalidJSON.Code},
 	} {
@@ -1346,6 +1341,43 @@ func TestUpdateGroupModelsEndpointRejectsStrictInvalidBodiesWithoutMutation(t *t
 				t.Fatalf("invalid models save changed persistence: got=%#v want=%#v", got, beforeModels)
 			}
 		})
+	}
+}
+
+func TestGroupModelsHTTPReturnsStructuredConflictWithoutMutation(t *testing.T) {
+	initControlI18n(t)
+	fixture := newServiceFixture(t)
+	groupID := createGroupForKeyImport(t, fixture, "sk-model-conflict-http")
+	engine := gin.New()
+	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
+	beforeRevision := fixture.manager.Current().Revision
+	beforeModels := loadCreatedGroupModels(t, fixture, groupID)
+
+	recorder := serveRawGroupModelsUpdateRequest(
+		t,
+		engine,
+		"test-auth-key",
+		"en-US",
+		strconv.FormatUint(uint64(groupID), 10),
+		`{"models":[{"id":"a","alias":"discarded","alias_enabled":false},{"id":"b","alias":"a","alias_enabled":true}]}`,
+	)
+	var envelope struct {
+		Code string                `json:"code"`
+		Data ModelNameConflictData `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	wantConflicts := []ModelNameConflict{{ClientModel: "a", Indexes: []int{0, 1}}}
+	if recorder.Code != http.StatusConflict || envelope.Code != app_errors.ErrModelNameConflict.Code ||
+		!reflect.DeepEqual(envelope.Data.Conflicts, wantConflicts) {
+		t.Fatalf("response = %d %#v, want 409 %#v", recorder.Code, envelope, wantConflicts)
+	}
+	if fixture.manager.Current().Revision != beforeRevision {
+		t.Fatal("model conflict published a Snapshot")
+	}
+	if got := loadCreatedGroupModels(t, fixture, groupID); !reflect.DeepEqual(got, beforeModels) {
+		t.Fatalf("model conflict changed persistence: got=%#v want=%#v", got, beforeModels)
 	}
 }
 

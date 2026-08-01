@@ -15,26 +15,144 @@ import (
 	"gpt-load/internal/storage/models"
 )
 
+func TestGetGroupModelsReturnsClientNamesAndPricingStatus(t *testing.T) {
+	fixture := newServiceFixture(t)
+	mustEnsureInitialPrices(t, fixture)
+	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
+		UpstreamURL: "https://model-read.example.com/v1",
+		Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
+		Models: optionalGroupModels{Set: true, Values: []GroupModel{
+			{ID: "gpt-4o", Alias: "default", AliasEnabled: true},
+			{ID: "missing-price", Alias: ""},
+		}},
+		Keys: "sk-model-read",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := fixture.service.GetGroupModels(t.Context(), created.GroupID)
+	if err != nil {
+		t.Fatalf("GetGroupModels() error = %v", err)
+	}
+	want := GroupModelsResponse{
+		Items: []GroupModelResponse{
+			{ID: "gpt-4o", Alias: "default", AliasEnabled: true, ClientModel: "default", PricingStatus: "priced"},
+			{ID: "missing-price", Alias: "", AliasEnabled: false, ClientModel: "missing-price", PricingStatus: "unpriced"},
+		},
+		Total:    2,
+		Unpriced: 1,
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("GetGroupModels() = %#v, want %#v", got, want)
+	}
+}
+
+func TestNormalizeGroupModelsAppliesAliasSwitchAndReportsStableConflicts(t *testing.T) {
+	tests := []struct {
+		name          string
+		values        []GroupModel
+		want          []GroupModel
+		wantConflicts []ModelNameConflict
+		wantError     error
+	}{
+		{
+			name: "disabled alias uses upstream ID and conflicts with enabled alias",
+			values: []GroupModel{
+				{ID: "a", Alias: ""},
+				{ID: "b", Alias: "a", AliasEnabled: true},
+			},
+			wantConflicts: []ModelNameConflict{{ClientModel: "a", Indexes: []int{0, 1}}},
+			wantError:     app_errors.ErrModelNameConflict,
+		},
+		{
+			name: "enabled aliases conflict",
+			values: []GroupModel{
+				{ID: "a", Alias: "x", AliasEnabled: true},
+				{ID: "b", Alias: "x", AliasEnabled: true},
+			},
+			wantConflicts: []ModelNameConflict{{ClientModel: "x", Indexes: []int{0, 1}}},
+			wantError:     app_errors.ErrModelNameConflict,
+		},
+		{
+			name: "model names remain case sensitive",
+			values: []GroupModel{
+				{ID: "a", Alias: "X", AliasEnabled: true},
+				{ID: "b", Alias: "x", AliasEnabled: true},
+			},
+			want: []GroupModel{
+				{ID: "a", Alias: "X"},
+				{ID: "b", Alias: "x"},
+			},
+		},
+		{
+			name: "trimmed IDs and aliases conflict",
+			values: []GroupModel{
+				{ID: " a ", Alias: ""},
+				{ID: "b", Alias: " a ", AliasEnabled: true},
+			},
+			wantConflicts: []ModelNameConflict{{ClientModel: "a", Indexes: []int{0, 1}}},
+			wantError:     app_errors.ErrModelNameConflict,
+		},
+		{
+			name:      "enabled alias cannot be blank after trimming",
+			values:    []GroupModel{{ID: "a", Alias: " ", AliasEnabled: true}},
+			wantError: app_errors.ErrValidation,
+		},
+		{
+			name: "multiple conflicts use first occurrence order",
+			values: []GroupModel{
+				{ID: "a"},
+				{ID: "b", Alias: "a", AliasEnabled: true},
+				{ID: "c"},
+				{ID: "d", Alias: "c", AliasEnabled: true},
+			},
+			wantConflicts: []ModelNameConflict{
+				{ClientModel: "a", Indexes: []int{0, 1}},
+				{ClientModel: "c", Indexes: []int{2, 3}},
+			},
+			wantError: app_errors.ErrModelNameConflict,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := normalizeGroupModels(test.values)
+			if test.wantError == nil {
+				if err != nil {
+					t.Fatalf("normalizeGroupModels() error = %v", err)
+				}
+				if !reflect.DeepEqual(got, test.want) {
+					t.Fatalf("normalizeGroupModels() = %#v, want %#v", got, test.want)
+				}
+				return
+			}
+
+			var apiErr *app_errors.APIError
+			if !errors.As(err, &apiErr) || apiErr.Code != test.wantError.(*app_errors.APIError).Code {
+				t.Fatalf("normalizeGroupModels() error = %#v, want %q", err, test.wantError)
+			}
+			if test.wantConflicts == nil {
+				return
+			}
+			data, ok := apiErr.Data.(ModelNameConflictData)
+			if !ok || !reflect.DeepEqual(data.Conflicts, test.wantConflicts) {
+				t.Fatalf("conflict data = %#v, want %#v", apiErr.Data, test.wantConflicts)
+			}
+		})
+	}
+}
+
 func TestNormalizeGroupModelsRejectsDuplicateExternalNames(t *testing.T) {
 	for _, values := range [][]GroupModel{
 		{{ID: "provider-a", Alias: "public"}, {ID: "provider-b", Alias: "public"}},
 		{{ID: "public"}, {ID: "provider-b", Alias: "public"}},
 	} {
-		if _, err := normalizeGroupModels(values); !errors.Is(err, app_errors.ErrValidation) {
-			t.Fatalf("normalizeGroupModels(%#v) error = %v", values, err)
+		var apiErr *app_errors.APIError
+		if _, err := normalizeGroupModels(values); !errors.As(err, &apiErr) ||
+			apiErr.Code != app_errors.ErrModelNameConflict.Code {
+			t.Fatalf("normalizeGroupModels(%#v) error = %#v", values, err)
 		}
-	}
-	got, err := normalizeGroupModels([]GroupModel{
-		{ID: "provider", Alias: "a"},
-		{ID: "provider", Alias: "b"},
-		{ID: " provider ", Alias: " a "},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := []GroupModel{{ID: "provider", Alias: "a"}, {ID: "provider", Alias: "b"}}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("normalized = %#v, want %#v", got, want)
 	}
 }
 
@@ -104,7 +222,6 @@ func TestUpdateGroupModelsReplacesAuthoritativeListAndPublishesOnce(t *testing.T
 			Values: []GroupModel{
 				{ID: "provider-b", Alias: "public-b"},
 				{ID: "provider-a", Alias: "public-a"},
-				{ID: " provider-a ", Alias: " public-a "},
 			},
 		},
 	})
@@ -280,8 +397,9 @@ func TestUpdateGroupModelsFailuresDoNotPublish(t *testing.T) {
 				},
 			},
 		})
-		if !errors.Is(err, app_errors.ErrValidation) {
-			t.Fatalf("UpdateGroupModels() error = %v, want ErrValidation", err)
+		var apiErr *app_errors.APIError
+		if !errors.As(err, &apiErr) || apiErr.Code != app_errors.ErrModelNameConflict.Code {
+			t.Fatalf("UpdateGroupModels() error = %#v, want MODEL_NAME_CONFLICT", err)
 		}
 		assertModelsUpdateStateUnchanged(t, fixture, groupID, beforeRevision, beforeRegistry, beforeModels)
 	})

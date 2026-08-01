@@ -23,6 +23,7 @@ var MessagesEnUS = map[string]string{
 	"group.name_exists":                               "Group name already exists",
 	"group.in_use":                                    "The group is still referenced by access keys",
 	"group.upstream_url_conflict":                     "An existing group already uses this upstream URL",
+	"group.model_name_conflict":                       "Client model names must be unique within the group",
 	"group.upstream_url_change_confirmation_required": "Changing the upstream URL requires explicit confirmation",
 	"group.no_active_upstream_key":                    "No active upstream key is available for this group",
 	"key.not_found":                                   "Key not found",

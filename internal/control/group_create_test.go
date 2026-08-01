@@ -41,7 +41,6 @@ func TestCreateGroupNormalizesAndPublishesOnce(t *testing.T) {
 			Set: true,
 			Values: []GroupModel{
 				{ID: " gpt-4o ", Alias: " primary "},
-				{ID: "gpt-4o", Alias: "primary"},
 				{ID: "claude-3-5", Alias: ""},
 			},
 		},
@@ -124,8 +123,9 @@ func TestCreateGroupRejectsDuplicateExternalModelWithoutMutation(t *testing.T) {
 		},
 		Keys: "sk-duplicate-external-model",
 	})
-	if !errors.Is(err, app_errors.ErrValidation) {
-		t.Fatalf("CreateGroup() error = %v, want ErrValidation", err)
+	var apiErr *app_errors.APIError
+	if !errors.As(err, &apiErr) || apiErr.Code != app_errors.ErrModelNameConflict.Code {
+		t.Fatalf("CreateGroup() error = %#v, want MODEL_NAME_CONFLICT", err)
 	}
 	assertGroupCount(t, fixture.db, 0)
 	var keyCount int64

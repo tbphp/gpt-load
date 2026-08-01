@@ -35,6 +35,7 @@ var (
 	ErrUnauthorized                          = &APIError{HTTPStatus: http.StatusUnauthorized, Code: "UNAUTHORIZED", Message: "Authentication failed"}
 	ErrAuthLocked                            = &APIError{HTTPStatus: http.StatusTooManyRequests, Code: "AUTH_LOCKED", Message: "Authentication is temporarily locked"}
 	ErrUpstreamURLConflict                   = &APIError{HTTPStatus: http.StatusConflict, Code: "UPSTREAM_URL_CONFLICT", Message: "Upstream URL conflicts with an existing group"}
+	ErrModelNameConflict                     = &APIError{HTTPStatus: http.StatusConflict, Code: "MODEL_NAME_CONFLICT", Message: "Client model names conflict within the group"}
 	ErrUpstreamURLChangeConfirmationRequired = &APIError{HTTPStatus: http.StatusConflict, Code: "UPSTREAM_URL_CHANGE_CONFIRMATION_REQUIRED", Message: "Upstream URL change requires explicit confirmation"}
 	ErrNoActiveUpstreamKey                   = &APIError{HTTPStatus: http.StatusConflict, Code: "NO_ACTIVE_UPSTREAM_KEY", Message: "No active upstream key available for this group"}
 	ErrBadGateway                            = &APIError{HTTPStatus: http.StatusBadGateway, Code: "BAD_GATEWAY", Message: "Upstream service error"}

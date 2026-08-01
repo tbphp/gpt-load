@@ -23,6 +23,7 @@ var MessagesZhCN = map[string]string{
 	"group.name_exists":                               "分组名称已存在",
 	"group.in_use":                                    "分组仍被访问密钥引用",
 	"group.upstream_url_conflict":                     "已有分组使用该上游地址",
+	"group.model_name_conflict":                       "分组内客户端模型名称必须唯一",
 	"group.upstream_url_change_confirmation_required": "修改上游地址需要明确确认",
 	"group.no_active_upstream_key":                    "该分组没有可用的活跃上游密钥",
 	"key.not_found":                                   "密钥不存在",

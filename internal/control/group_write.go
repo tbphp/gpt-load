@@ -21,8 +21,36 @@ import (
 const maxUpstreamKeyLines = 1000
 
 type GroupModel struct {
-	ID    string `json:"id"`
-	Alias string `json:"alias"`
+	ID           string `json:"id"`
+	Alias        string `json:"alias"`
+	AliasEnabled bool   `json:"-"`
+
+	aliasEnabledSet bool
+}
+
+func (model *GroupModel) UnmarshalJSON(data []byte) error {
+	var wire struct {
+		ID           string `json:"id"`
+		Alias        string `json:"alias"`
+		AliasEnabled *bool  `json:"alias_enabled"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&wire); err != nil {
+		return fmt.Errorf("decode group model: %w", err)
+	}
+	var trailing json.RawMessage
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return fmt.Errorf("decode group model: trailing JSON value")
+		}
+		return fmt.Errorf("decode group model trailing value: %w", err)
+	}
+	model.ID = wire.ID
+	model.Alias = wire.Alias
+	model.AliasEnabled = wire.AliasEnabled != nil && *wire.AliasEnabled
+	model.aliasEnabledSet = wire.AliasEnabled != nil
+	return nil
 }
 
 type upstreamKeyCandidate struct {
@@ -152,36 +180,53 @@ func normalizeGroupProtocols(values []protocol.Protocol) ([]protocol.Protocol, e
 }
 
 func normalizeGroupModels(values []GroupModel) ([]GroupModel, error) {
-	type pair struct {
-		id    string
-		alias string
-	}
-
 	result := make([]GroupModel, 0, len(values))
-	seenPairs := make(map[pair]struct{}, len(values))
-	seenExternal := make(map[string]struct{}, len(values))
-	for _, value := range values {
+	indexesByClientModel := make(map[string][]int, len(values))
+	clientModelOrder := make([]string, 0, len(values))
+	for index, value := range values {
 		normalized := GroupModel{
-			ID:    strings.TrimSpace(value.ID),
-			Alias: strings.TrimSpace(value.Alias),
+			ID: strings.TrimSpace(value.ID),
 		}
 		if normalized.ID == "" {
 			return nil, app_errors.ErrValidation
 		}
-		identity := pair{id: normalized.ID, alias: normalized.Alias}
-		if _, duplicate := seenPairs[identity]; duplicate {
+		alias := strings.TrimSpace(value.Alias)
+		aliasEnabled := value.AliasEnabled
+		if !value.aliasEnabledSet && alias != "" {
+			aliasEnabled = true
+		}
+		if aliasEnabled {
+			if alias == "" {
+				return nil, app_errors.ErrValidation
+			}
+			normalized.Alias = alias
+		}
+		clientModel := normalized.ID
+		if normalized.Alias != "" {
+			clientModel = normalized.Alias
+		}
+		if _, exists := indexesByClientModel[clientModel]; !exists {
+			clientModelOrder = append(clientModelOrder, clientModel)
+		}
+		indexesByClientModel[clientModel] = append(indexesByClientModel[clientModel], index)
+		result = append(result, normalized)
+	}
+	conflicts := make([]ModelNameConflict, 0)
+	for _, clientModel := range clientModelOrder {
+		indexes := indexesByClientModel[clientModel]
+		if len(indexes) < 2 {
 			continue
 		}
-		external := normalized.Alias
-		if external == "" {
-			external = normalized.ID
-		}
-		if _, duplicate := seenExternal[external]; duplicate {
-			return nil, app_errors.ErrValidation
-		}
-		seenPairs[identity] = struct{}{}
-		seenExternal[external] = struct{}{}
-		result = append(result, normalized)
+		conflicts = append(conflicts, ModelNameConflict{
+			ClientModel: clientModel,
+			Indexes:     append([]int(nil), indexes...),
+		})
+	}
+	if len(conflicts) > 0 {
+		return nil, app_errors.NewAPIErrorWithData(
+			app_errors.ErrModelNameConflict,
+			ModelNameConflictData{Conflicts: conflicts},
+		)
 	}
 	return result, nil
 }

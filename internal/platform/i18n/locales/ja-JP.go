@@ -23,6 +23,7 @@ var MessagesJaJP = map[string]string{
 	"group.name_exists":                               "グループ名が既に存在します",
 	"group.in_use":                                    "グループはアクセスキーから参照されています",
 	"group.upstream_url_conflict":                     "このアップストリームURLは既存のグループで使用されています",
+	"group.model_name_conflict":                       "グループ内のクライアントモデル名は一意である必要があります",
 	"group.upstream_url_change_confirmation_required": "アップストリームURLの変更には明示的な確認が必要です",
 	"group.no_active_upstream_key":                    "このグループには利用可能な有効なアップストリームキーがありません",
 	"key.not_found":                                   "キーが存在しません",
