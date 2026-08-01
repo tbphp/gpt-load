@@ -68,6 +68,7 @@ export default {
       waiting: '更早的已提交操作仍在恢复；等待后可使用同一操作重试。',
       expired: '结果明细已过保留期。请仅按资源标识人工核对，勿重复提交。',
       checkResult: '检查结果',
+      abandon: '放弃此操作',
     },
     existing: {
       title: '导入到已有 Group',

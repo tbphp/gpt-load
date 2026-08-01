@@ -71,6 +71,7 @@ export default {
       expired:
         '詳細結果の保持期間が終了しました。リソース識別子だけを手動確認し、再送信しないでください。',
       checkResult: '結果を確認',
+      abandon: 'この操作を放棄',
     },
     existing: {
       title: '既存 Group にインポート',

@@ -223,7 +223,7 @@ const discoveryDrawerLabels = computed<ModelDiscoveryDrawerLabels>(() => ({
   confirm: t('import.models.drawer.confirm'),
 }))
 
-useUnsavedChanges(dirty, { blocked: payloadLocked })
+const unsavedChanges = useUnsavedChanges(dirty, { blocked: mutationPending })
 const unregisterRecovery = recovery.register(() => (completed.value ? null : snapshotDraft()))
 
 function snapshotDraft(): ImportDraft {
@@ -363,7 +363,12 @@ function readServerModelConflicts(value: unknown): ModelNameConflict[] {
 }
 
 async function finishSuccess(groupID: number, kind: 'create' | 'append'): Promise<void> {
-  if (!componentActive) return
+  completed.value = true
+  draft.keys = ''
+  recovery.clear()
+  if (kind === 'create') createOperation.reset()
+  else appendOperation.reset()
+
   await applyInvalidationPlan(
     queryClient,
     kind === 'create'
@@ -371,9 +376,6 @@ async function finishSuccess(groupID: number, kind: 'create' | 'append'): Promis
       : mutationInvalidationPlans.group.importKeys(groupID),
   )
   if (!componentActive) return
-  completed.value = true
-  draft.keys = ''
-  recovery.clear()
   await router.push(groupDetailLocation(groupID))
 }
 
@@ -402,7 +404,6 @@ async function executeCreateOperation(): Promise<void> {
   if (!outcome) return
   if (outcome.kind === 'confirmed') {
     const targetID = outcome.value.group_id
-    createOperation.reset()
     await finishSuccess(targetID, 'create')
     return
   }
@@ -465,7 +466,6 @@ async function executeAppendOperation(): Promise<void> {
   if (!outcome) return
   if (outcome.kind === 'confirmed') {
     const targetID = outcome.value.group_id
-    appendOperation.reset()
     await finishSuccess(targetID, 'append')
     return
   }
@@ -477,6 +477,16 @@ async function executeAppendOperation(): Promise<void> {
 async function retryOperation(): Promise<void> {
   if (appendOperation.operation.value) await executeAppendOperation()
   else if (createOperation.operation.value) await executeCreateOperation()
+}
+
+async function abandonOperation(): Promise<void> {
+  if (mutationPending.value || !payloadLocked.value) return
+  if (!(await unsavedChanges.confirmDiscard()) || mutationPending.value) return
+  createOperation.reset()
+  appendOperation.reset()
+  conflict.value = null
+  serverModelConflicts.value = []
+  errorKey.value = ''
 }
 
 function returnToEdit(): void {
@@ -499,8 +509,10 @@ onBeforeUnmount(() => {
       :message-key="operationNoticeKey"
       :resource-identity="operationResourceIdentity"
       :can-retry="canRetryOperation"
+      :can-abandon="payloadLocked && !mutationPending"
       :pending="mutationPending"
       @retry="retryOperation"
+      @abandon="abandonOperation"
     />
 
     <ProviderPresetPicker

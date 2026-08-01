@@ -8,9 +8,10 @@ defineProps<{
   messageKey: string
   resourceIdentity: string
   canRetry: boolean
+  canAbandon: boolean
   pending: boolean
 }>()
-const emit = defineEmits<{ retry: [] }>()
+const emit = defineEmits<{ retry: []; abandon: [] }>()
 const { t } = useI18n()
 </script>
 
@@ -18,15 +19,20 @@ const { t } = useI18n()
   <section v-if="messageKey" class="operation-notice" aria-live="polite">
     <InlineFeedback tone="warning">{{ t(messageKey) }}</InlineFeedback>
     <code v-if="resourceIdentity">{{ resourceIdentity }}</code>
-    <AppButton
-      v-else
-      variant="secondary"
-      :disabled="!canRetry"
-      :busy="pending"
-      @click="emit('retry')"
-    >
-      {{ t('import.operation.checkResult') }}
-    </AppButton>
+    <div class="operation-notice__actions">
+      <AppButton
+        v-if="!resourceIdentity"
+        variant="secondary"
+        :disabled="!canRetry"
+        :busy="pending"
+        @click="emit('retry')"
+      >
+        {{ t('import.operation.checkResult') }}
+      </AppButton>
+      <AppButton variant="ghost" :disabled="!canAbandon || pending" @click="emit('abandon')">
+        {{ t('import.operation.abandon') }}
+      </AppButton>
+    </div>
   </section>
 </template>
 
@@ -43,5 +49,23 @@ const { t } = useI18n()
 }
 .operation-notice code {
   overflow-wrap: anywhere;
+}
+
+.operation-notice__actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+@media (max-width: 640px) {
+  .operation-notice {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .operation-notice__actions :deep(.app-button) {
+    flex: 1;
+  }
 }
 </style>

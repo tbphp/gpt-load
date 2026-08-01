@@ -72,6 +72,7 @@ export default {
       expired:
         'The detailed result has expired. Verify only the resource identity manually and do not resubmit.',
       checkResult: 'Check result',
+      abandon: 'Abandon operation',
     },
     existing: {
       title: 'Import into an existing Group',
