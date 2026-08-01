@@ -102,5 +102,4 @@ withDefaults(
 .icon-button[aria-busy='true'] {
   cursor: wait;
 }
-
 </style>

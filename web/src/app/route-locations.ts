@@ -48,8 +48,8 @@ export function importLocation(query?: LocationQueryRaw): RouteLocationRaw {
   return namedLocation(pageRouteNames.import, query)
 }
 
-export function groupsLocation(): RouteLocationRaw {
-  return namedLocation(pageRouteNames.groups)
+export function groupsLocation(query?: LocationQueryRaw): RouteLocationRaw {
+  return namedLocation(pageRouteNames.groups, query)
 }
 
 export function groupDetailLocation(

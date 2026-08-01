@@ -7,7 +7,7 @@ import { useI18n } from 'vue-i18n'
 import { useApiClient } from '@/api/client-context'
 import { lazySurface } from '@/app/async-surface'
 import { accessKeyListQueryOptions, accessKeyResources } from '@/app/resources/access-keys'
-import { groupListQueryOptions } from '@/app/resources/groups'
+import { groupOptionsQueryOptions } from '@/app/resources/groups'
 import type { AccessKeyDto } from '@/api/control/types'
 import { applyInvalidationPlan, mutationInvalidationPlans } from '@/app/resources/invalidation'
 import AppButton from '@/components/ui/AppButton.vue'
@@ -36,7 +36,7 @@ let restoreFocus: HTMLElement | null = null
 let mounted = true
 
 const accessKeysQuery = useQuery(accessKeyListQueryOptions(client))
-const groupsQuery = useQuery(groupListQueryOptions(client))
+const groupsQuery = useQuery(groupOptionsQueryOptions(client))
 onBeforeUnmount(() => {
   mounted = false
   queryClient.removeQueries({ queryKey: accessKeyResources.list.queryKey, exact: true })

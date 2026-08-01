@@ -15,36 +15,38 @@ function plan(
 }
 
 const keyResourcePlan = (groupID: number) =>
-  plan([
-    controlQueryKeys.groups.keys(groupID),
-    controlQueryKeys.groups.detail(groupID),
-    controlQueryKeys.groups.list(),
-    controlQueryKeys.health(),
-    controlQueryKeys.home.base(),
-  ])
+  plan(
+    [
+      controlQueryKeys.groups.keys(groupID),
+      controlQueryKeys.groups.detail(groupID),
+      controlQueryKeys.health(),
+    ],
+    [controlQueryKeys.groups.collectionAll, controlQueryKeys.home.all],
+  )
 
 export const mutationInvalidationPlans = {
   settings: {
     update: () => plan([], [controlQueryKeys.groups.details()]),
   },
   group: {
-    create: plan([
-      controlQueryKeys.groups.list(),
-      controlQueryKeys.health(),
-      controlQueryKeys.home.base(),
-    ]),
+    create: plan(
+      [controlQueryKeys.groups.options(), controlQueryKeys.health()],
+      [controlQueryKeys.groups.collectionAll, controlQueryKeys.home.all],
+    ),
     update: (healthAffected: boolean) =>
-      plan([
-        controlQueryKeys.groups.list(),
-        ...(healthAffected ? [controlQueryKeys.health()] : []),
-        controlQueryKeys.home.base(),
-      ]),
-    delete: plan([
-      controlQueryKeys.groups.list(),
-      controlQueryKeys.health(),
-      controlQueryKeys.home.base(),
-    ]),
-    replaceModels: () => plan([controlQueryKeys.groups.list(), controlQueryKeys.home.base()]),
+      plan(
+        [controlQueryKeys.groups.options(), ...(healthAffected ? [controlQueryKeys.health()] : [])],
+        [controlQueryKeys.groups.collectionAll, controlQueryKeys.home.all],
+      ),
+    delete: plan(
+      [controlQueryKeys.groups.options(), controlQueryKeys.health()],
+      [controlQueryKeys.groups.collectionAll, controlQueryKeys.home.all],
+    ),
+    replaceModels: () =>
+      plan(
+        [controlQueryKeys.groups.options()],
+        [controlQueryKeys.groups.collectionAll, controlQueryKeys.home.all],
+      ),
     importKeys: keyResourcePlan,
   },
   upstreamKey: {

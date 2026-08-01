@@ -5,7 +5,7 @@ import { useI18n } from 'vue-i18n'
 
 import { useApiClient } from '@/api/client-context'
 import { revealAccessKey } from '@/app/resources/access-keys'
-import type { AccessKeyDto, GroupSummary } from '@/api/control/types'
+import type { AccessKeyDto, GroupOptionDto } from '@/api/control/types'
 import { RequestCancelledError } from '@/api/errors'
 import AppDateTime from '@/components/ui/AppDateTime.vue'
 import MobileRecordCard from '@/components/ui/MobileRecordCard.vue'
@@ -17,7 +17,7 @@ import AccessKeySecret from './AccessKeySecret.vue'
 import AccessKeyTable from './AccessKeyTable.vue'
 import { useEphemeralSecret } from './use-ephemeral-secret'
 
-const props = defineProps<{ accessKeys: AccessKeyDto[]; groups: GroupSummary[] }>()
+const props = defineProps<{ accessKeys: AccessKeyDto[]; groups: GroupOptionDto[] }>()
 const emit = defineEmits<{
   edit: [accessKey: AccessKeyDto, trigger: HTMLElement]
   deleted: [name: string]

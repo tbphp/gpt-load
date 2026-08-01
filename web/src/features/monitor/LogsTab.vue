@@ -6,7 +6,7 @@ import { useRoute, useRouter } from 'vue-router'
 
 import { useApiClient } from '@/api/client-context'
 import { accessKeyOptionsQueryOptions } from '@/app/resources/access-keys'
-import { groupListQueryOptions } from '@/app/resources/groups'
+import { groupOptionsQueryOptions } from '@/app/resources/groups'
 import {
   listRequestLogs,
   requestLogInfiniteQueryOptions,
@@ -53,7 +53,7 @@ const refreshFailed = ref(false)
 let refreshOwner = 0
 let refreshController: AbortController | undefined
 let detailFocusTimer: number | undefined
-const groupsQuery = useQuery(groupListQueryOptions(client))
+const groupsQuery = useQuery(groupOptionsQueryOptions(client))
 const accessKeyOptionsQuery = useQuery(accessKeyOptionsQueryOptions(client))
 const logsQuery = useInfiniteQuery(requestLogInfiniteQueryOptions(client, appliedFilters))
 const logs = computed(() => {

@@ -16,10 +16,10 @@ defineEmits<{ retry: [] }>()
   <div
     class="query-feedback"
     :class="`query-feedback--${state}`"
-    :role="state === 'loading' || state === 'indeterminate' ? 'status' : 'alert'"
+    :role="state === 'error' ? 'alert' : 'status'"
   >
     <LoaderCircle v-if="state === 'loading'" class="query-feedback__spin" :size="18" />
-    <TriangleAlert v-else :size="18" />
+    <TriangleAlert v-else :size="state === 'stale' ? 14 : 18" />
     <span>{{ message }}</span>
     <button v-if="state !== 'loading'" type="button" @click="$emit('retry')">
       <RefreshCw :size="15" aria-hidden="true" />{{ retryLabel }}
@@ -44,6 +44,14 @@ defineEmits<{ retry: [] }>()
   background: var(--color-danger-bg);
   color: var(--color-danger);
 }
+.query-feedback--stale {
+  min-height: 0;
+  border-color: color-mix(in srgb, var(--color-warning) 32%, var(--color-border-subtle));
+  background: var(--color-warning-bg);
+  color: var(--color-warning);
+  padding: 9px 11px;
+  font-size: var(--text-sm);
+}
 .query-feedback--indeterminate {
   border-color: var(--color-border-control);
   background: var(--color-action-soft);
@@ -62,12 +70,21 @@ defineEmits<{ retry: [] }>()
   font-weight: 650;
   cursor: pointer;
 }
+.query-feedback--stale button {
+  min-height: var(--control-compact);
+}
 .query-feedback__spin {
   animation: query-spin 1s linear infinite;
 }
 @media (prefers-reduced-motion: reduce) {
   .query-feedback__spin {
     animation: none;
+  }
+}
+
+@media (max-width: 860px) {
+  .query-feedback--stale button {
+    min-height: var(--touch-target);
   }
 }
 

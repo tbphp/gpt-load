@@ -55,6 +55,11 @@ function updateTheme(event: Event): void {
   const input = event.target as HTMLInputElement
   if (input.checked) emit('update:theme', input.value as AppTheme)
 }
+
+function signOut(): void {
+  open.value = false
+  emit('sign-out')
+}
 </script>
 
 <template>
@@ -66,6 +71,7 @@ function updateTheme(event: Event): void {
   >
     <template #trigger>
       <IconButton
+        class="preferences-trigger"
         :label="t('shell.preferences')"
         :pressed="open"
         variant="surface"
@@ -77,7 +83,7 @@ function updateTheme(event: Event): void {
     <div class="preferences-panel">
       <div class="preferences-panel__group">
         <span class="preferences-panel__label">{{ t('shell.theme') }}</span>
-        <div class="preferences-panel__segments">
+        <div class="preferences-panel__segments" role="group" :aria-label="t('shell.theme')">
           <label v-for="option in themeOptions" :key="option.value">
             <input
               type="radio"
@@ -93,7 +99,7 @@ function updateTheme(event: Event): void {
       </div>
       <div class="preferences-panel__group">
         <span class="preferences-panel__label">{{ t('shell.language') }}</span>
-        <div class="preferences-panel__segments">
+        <div class="preferences-panel__segments" role="group" :aria-label="t('shell.language')">
           <label v-for="option in localeOptions" :key="option.value">
             <input
               type="radio"
@@ -107,12 +113,7 @@ function updateTheme(event: Event): void {
         </div>
       </div>
       <div v-if="showSignOut" class="preferences-panel__divider"></div>
-      <button
-        v-if="showSignOut"
-        class="preferences-panel__action"
-        type="button"
-        @click="emit('sign-out')"
-      >
+      <button v-if="showSignOut" class="preferences-panel__action" type="button" @click="signOut">
         <LogOut :size="15" aria-hidden="true" />
         {{ t('shell.signOut') }}
       </button>
@@ -124,7 +125,7 @@ function updateTheme(event: Event): void {
       <span class="preferences-panel__label">
         <Languages :size="15" aria-hidden="true" />{{ t('shell.language') }}
       </span>
-      <div class="preferences-panel__segments">
+      <div class="preferences-panel__segments" role="group" :aria-label="t('shell.language')">
         <label v-for="option in localeOptions" :key="option.value">
           <input
             type="radio"
@@ -141,7 +142,7 @@ function updateTheme(event: Event): void {
       <span class="preferences-panel__label">
         <Monitor :size="15" aria-hidden="true" />{{ t('shell.theme') }}
       </span>
-      <div class="preferences-panel__segments">
+      <div class="preferences-panel__segments" role="group" :aria-label="t('shell.theme')">
         <label v-for="option in themeOptions" :key="option.value">
           <input
             type="radio"
@@ -156,12 +157,7 @@ function updateTheme(event: Event): void {
       </div>
     </div>
     <div v-if="showSignOut" class="preferences-panel__divider"></div>
-    <button
-      v-if="showSignOut"
-      class="preferences-panel__action"
-      type="button"
-      @click="emit('sign-out')"
-    >
+    <button v-if="showSignOut" class="preferences-panel__action" type="button" @click="signOut">
       <LogOut :size="15" aria-hidden="true" />
       {{ t('shell.signOut') }}
     </button>
@@ -269,25 +265,27 @@ function updateTheme(event: Event): void {
   background: var(--color-surface-sunken);
 }
 
-.mobile-preferences .preferences-panel__segments {
-  grid-template-columns: 1fr;
-}
-
-.mobile-preferences .preferences-panel label {
-  min-height: var(--touch-target);
-  border-top: 1px solid var(--color-border-control);
-  border-left: 0;
-}
-
-.mobile-preferences .preferences-panel label:first-of-type {
-  border-top: 0;
-}
-
 .app-popover__content.app-popover__content--preferences {
   width: auto;
   min-width: 216px;
   border-color: var(--color-border-control);
   border-radius: 10px;
   padding: 10px;
+}
+
+@media (max-width: 860px) {
+  .preferences-trigger {
+    width: var(--touch-target);
+    height: var(--touch-target);
+  }
+
+  .app-popover__content.app-popover__content--preferences {
+    min-width: 244px;
+  }
+
+  .preferences-panel label,
+  .preferences-panel__action {
+    min-height: var(--touch-target);
+  }
 }
 </style>

@@ -68,6 +68,36 @@ func TestServerHomeRoutesUseExactManagementContracts(t *testing.T) {
 	}
 }
 
+func TestGroupCollectionHTTPRoutesDeclareStaticOptionsBeforeDynamicDetail(t *testing.T) {
+	fixture := newServiceFixture(t)
+	module := NewServer(
+		&config.Config{AuthKey: authTestKey},
+		fixture.service,
+	).HTTPModule()
+
+	type routeContract struct {
+		name string
+		path string
+	}
+	var got []routeContract
+	for _, route := range module.Routes {
+		if len(route.Methods) != 1 || route.Methods[0] != http.MethodGet ||
+			!strings.HasPrefix(route.Path, "/groups") {
+			continue
+		}
+		got = append(got, routeContract{name: route.Name, path: route.Path})
+	}
+	want := []routeContract{
+		{name: "control.groups.list", path: "/groups"},
+		{name: "control.groups.options", path: "/groups/options"},
+		{name: "control.groups.get", path: "/groups/:group_id"},
+		{name: "control.group-keys.list", path: "/groups/:group_id/keys"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("GET group routes = %#v, want %#v", got, want)
+	}
+}
+
 func TestSystemInfoHTTPContract(t *testing.T) {
 	initControlI18n(t)
 	fixture := newServiceFixture(t)

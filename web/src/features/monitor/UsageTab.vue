@@ -6,7 +6,7 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
 import { useApiClient } from '@/api/client-context'
-import { groupListQueryOptions } from '@/app/resources/groups'
+import { groupOptionsQueryOptions } from '@/app/resources/groups'
 import { modelPricesLocation, monitorLocation } from '@/app/route-locations'
 import { usageQueryOptions, type UsageAggregateDto, type UsageFilters } from '@/app/resources/usage'
 import { useUnsavedChanges } from '@/app/unsaved-changes'
@@ -41,7 +41,7 @@ const appliedFilters = computed(() => parseAppliedUsageFilters(route.query))
 const draft = ref<UsageFilterDraft>(createUsageFilterDraft(appliedFilters.value))
 const filterErrors = ref<UsageFilterErrors>({})
 
-const groupsQuery = useQuery(groupListQueryOptions(client))
+const groupsQuery = useQuery(groupOptionsQueryOptions(client))
 const usageQuery = useQuery(usageQueryOptions(client, appliedFilters))
 const report = computed(() => usageQuery.data.value)
 const hasData = computed(() => (report.value?.summary.request_count ?? 0) > 0)

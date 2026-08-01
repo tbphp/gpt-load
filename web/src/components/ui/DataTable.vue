@@ -159,9 +159,7 @@ onBeforeUnmount(() => {
 }
 
 @media (min-width: 701px) and (max-width: 759px) {
-  .data-table__container--collapse-narrow
-    .data-table
-    :deep([data-column-priority='low']) {
+  .data-table__container--collapse-narrow .data-table :deep([data-column-priority='low']) {
     display: table-cell;
   }
 }

@@ -20,6 +20,11 @@ import (
 
 const maxUpstreamKeyLines = 1000
 
+type GroupModel struct {
+	ID    string `json:"id"`
+	Alias string `json:"alias"`
+}
+
 type upstreamKeyCandidate struct {
 	plaintext string
 	hash      string

@@ -64,10 +64,7 @@ onBeforeUnmount(() => window.clearInterval(uptimeTimer))
 
 <template>
   <PageFrame aria-labelledby="home-title">
-    <LedgerSheet
-      class="home-view__sheet"
-      :class="{ 'home-view__sheet--welcome': isEmpty }"
-    >
+    <LedgerSheet class="home-view__sheet" :class="{ 'home-view__sheet--welcome': isEmpty }">
       <div
         v-if="baseQuery.isPending.value"
         class="home-view__loading"

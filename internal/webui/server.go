@@ -114,7 +114,7 @@ func (s *Server) serveThemeBootstrap(c *gin.Context) {
 }
 
 func (s *Server) serveFavicon(c *gin.Context) {
-	content, err := fs.ReadFile(s.files, path.Join(s.root, "favicon.ico"))
+	content, err := fs.ReadFile(s.files, path.Join(s.root, "favicon.svg"))
 	if err != nil {
 		c.Status(http.StatusNotFound)
 		return
@@ -122,7 +122,7 @@ func (s *Server) serveFavicon(c *gin.Context) {
 
 	c.Header("Cache-Control", "no-cache")
 	c.Header("X-Content-Type-Options", "nosniff")
-	c.Data(http.StatusOK, "image/vnd.microsoft.icon", content)
+	c.Data(http.StatusOK, "image/svg+xml", content)
 }
 
 func (s *Server) serveAsset(c *gin.Context) {

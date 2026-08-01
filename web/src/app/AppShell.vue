@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { Activity, House, KeyRound, Layers3, Menu, Settings } from '@lucide/vue'
-import { computed, ref, watch } from 'vue'
+import { KeyRound } from '@lucide/vue'
+import { computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { isNavigationFailure, RouterLink, useRoute, useRouter } from 'vue-router'
 
@@ -15,8 +15,7 @@ import {
   settingsLocation,
 } from '@/app/route-locations'
 import { useUnsavedChangesController } from '@/app/unsaved-changes'
-import AppDrawer from '@/components/ui/AppDrawer.vue'
-import IconButton from '@/components/ui/IconButton.vue'
+import BrandMark from '@/components/brand/BrandMark.vue'
 import { useAuthSession } from '@/features/auth/auth-session'
 import { useImportRecovery } from '@/features/import/import-recovery'
 import PreferencesControl from '@/features/preferences/PreferencesControl.vue'
@@ -32,19 +31,17 @@ const theme = useTheme()
 const route = useRoute()
 const router = useRouter()
 const { locale, t } = useI18n()
-const drawerOpen = ref(false)
 
 const navigation = computed(() => [
-  { key: 'home', to: homeLocation(), label: t('shell.home'), icon: House },
-  { key: 'groups', to: groupsLocation(), label: t('shell.groups'), icon: Layers3 },
+  { key: 'home', to: homeLocation(), label: t('shell.home') },
+  { key: 'groups', to: groupsLocation(), label: t('shell.groups') },
   {
     key: 'access-keys',
     to: accessKeysLocation(),
     label: t('shell.accessKeys'),
-    icon: KeyRound,
   },
-  { key: 'monitor', to: monitorLocation(), label: t('shell.monitor'), icon: Activity },
-  { key: 'settings', to: settingsLocation(), label: t('shell.settings'), icon: Settings },
+  { key: 'monitor', to: monitorLocation(), label: t('shell.monitor') },
+  { key: 'settings', to: settingsLocation(), label: t('shell.settings') },
 ])
 const currentLocale = computed(() => locale.value as AppLocale)
 
@@ -59,7 +56,6 @@ function setLocale(value: string): void {
 }
 
 async function logout(): Promise<void> {
-  drawerOpen.value = false
   const bypassDirtyImport = route.name === pageRouteNames.import
   if (bypassDirtyImport) {
     recovery.clear()
@@ -98,7 +94,7 @@ watch(
         :to="homeLocation()"
         :aria-label="`${t('common.appName')} · ${t('shell.home')}`"
       >
-        <span class="brand-mark" aria-hidden="true"></span>
+        <BrandMark :size="24" />
         <span>{{ t('common.appName') }}</span>
       </RouterLink>
 
@@ -111,7 +107,6 @@ watch(
           :to="item.to"
           :aria-current="isPrimaryActive(item.key) ? 'page' : undefined"
         >
-          <component :is="item.icon" :size="16" aria-hidden="true" />
           {{ item.label }}
         </RouterLink>
       </nav>
@@ -134,55 +129,6 @@ watch(
           @update:theme="theme.setTheme"
           @sign-out="logout"
         />
-
-        <AppDrawer
-          v-model:open="drawerOpen"
-          :title="t('shell.navigationTitle')"
-          :description="t('shell.primaryNavigation')"
-          :close-label="t('shell.closeNavigation')"
-        >
-          <template #trigger>
-            <IconButton
-              class="mobile-menu-trigger"
-              :label="t('shell.openNavigation')"
-              variant="surface"
-              size="compact"
-            >
-              <Menu :size="15" aria-hidden="true" />
-            </IconButton>
-          </template>
-          <nav class="mobile-nav" :aria-label="t('shell.primaryNavigation')">
-            <RouterLink
-              v-for="item in navigation"
-              :key="item.key"
-              class="mobile-nav__link"
-              :class="{ 'mobile-nav__link--active': isPrimaryActive(item.key) }"
-              :to="item.to"
-              :aria-current="isPrimaryActive(item.key) ? 'page' : undefined"
-              @click="drawerOpen = false"
-            >
-              <component :is="item.icon" :size="18" aria-hidden="true" />
-              {{ item.label }}
-            </RouterLink>
-            <RouterLink
-              class="mobile-nav__link mobile-nav__link--primary"
-              :to="importLocation()"
-              @click="drawerOpen = false"
-            >
-              <KeyRound :size="18" aria-hidden="true" />{{ t('shell.import') }}
-            </RouterLink>
-          </nav>
-          <div class="mobile-preferences">
-            <PreferencesControl
-              show-sign-out
-              :locale="currentLocale"
-              :theme="theme.theme.value"
-              @update:locale="setLocale"
-              @update:theme="theme.setTheme"
-              @sign-out="logout"
-            />
-          </div>
-        </AppDrawer>
       </div>
     </header>
 
@@ -218,19 +164,10 @@ watch(
   letter-spacing: -0.01em;
   white-space: nowrap;
 }
-.brand-mark {
-  width: 7px;
-  height: 18px;
-  flex: 0 0 7px;
-  background: var(--color-action);
-}
 .desktop-nav {
   display: flex;
   align-items: center;
   gap: var(--space-5);
-}
-.desktop-nav :deep(svg) {
-  display: none;
 }
 .nav-link {
   display: inline-flex;
@@ -278,67 +215,27 @@ watch(
 .import-action__label {
   letter-spacing: 0.01em;
 }
-.mobile-menu-trigger {
-  display: none;
-}
 .app-content {
   min-height: calc(100vh - var(--topbar-height));
-}
-.mobile-nav {
-  display: grid;
-  gap: var(--space-1);
-}
-.mobile-nav__link {
-  display: flex;
-  min-height: 48px;
-  align-items: center;
-  gap: var(--space-3);
-  border: 0;
-  border-radius: var(--radius-control);
-  background: transparent;
-  color: var(--color-text-muted);
-  padding: var(--space-2) var(--space-3);
-  font: inherit;
-  cursor: pointer;
-}
-.mobile-nav__link.router-link-active,
-.mobile-nav__link--active {
-  background: var(--color-action-soft);
-  color: var(--color-action);
-}
-.mobile-nav__link--primary {
-  margin-top: var(--space-3);
-  background: var(--color-action);
-  color: var(--color-action-ink);
-}
-.mobile-nav__link--primary.router-link-active {
-  background: var(--color-action);
-  color: var(--color-action-ink);
-}
-.mobile-preferences {
-  display: grid;
-  gap: var(--space-4);
-  margin-top: var(--space-8);
-  border-top: 1px solid var(--color-border-subtle);
-  padding-top: var(--space-5);
 }
 @media (max-width: 860px) {
   .app-topbar {
     padding-inline: var(--space-4);
   }
-  .desktop-nav,
-  .shell-actions :deep(.preferences-control--compact) {
+  .desktop-nav {
     display: none;
   }
   .import-action {
-    width: var(--control-compact);
+    width: var(--touch-target);
+    min-height: var(--touch-target);
     padding: 0;
   }
   .import-action__label {
     display: none;
   }
-  .mobile-menu-trigger {
-    display: inline-flex;
+  .shell-actions :deep(.preferences-trigger) {
+    width: var(--touch-target);
+    height: var(--touch-target);
   }
 }
 </style>

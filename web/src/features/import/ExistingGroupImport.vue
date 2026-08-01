@@ -7,7 +7,7 @@ import { useRoute, useRouter } from 'vue-router'
 
 import { useApiClient } from '@/api/client-context'
 import {
-  groupListQueryOptions,
+  groupOptionsQueryOptions,
   importGroupKeys,
   type GroupKeyImportResult,
 } from '@/app/resources/groups'
@@ -69,7 +69,7 @@ function parsePositiveID(value: unknown): number | null {
 }
 
 const selectedID = computed(() => parsePositiveID(route.query.group_id))
-const groupsQuery = useQuery(groupListQueryOptions(api))
+const groupsQuery = useQuery(groupOptionsQueryOptions(api))
 const selectedGroup = computed(
   () => groupsQuery.data.value?.find((group) => group.id === selectedID.value) ?? null,
 )

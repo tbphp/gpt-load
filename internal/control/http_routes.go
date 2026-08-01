@@ -95,7 +95,18 @@ func (s *Server) HTTPModule() httproute.Module {
 				s.handleResetModelPrice,
 			),
 			controlRoute("control.system.info", http.MethodGet, "/system/info", s.handleSystemInfo),
-			controlRoute("control.groups.list", http.MethodGet, "/groups", s.handleListGroups),
+			controlRoute(
+				"control.groups.list",
+				http.MethodGet,
+				"/groups",
+				s.handleListGroupCollection,
+			),
+			controlRoute(
+				"control.groups.options",
+				http.MethodGet,
+				"/groups/options",
+				s.handleListGroupOptions,
+			),
 			controlRoute("control.groups.get", http.MethodGet, "/groups/:group_id", s.handleGetGroup),
 			controlRoute(
 				"control.groups.create",

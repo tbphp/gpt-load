@@ -1,4 +1,4 @@
-import type { AccessKeyDto, AccessProtocol, GroupSummary } from '@/api/control/types'
+import type { AccessKeyDto, AccessProtocol, GroupOptionDto } from '@/api/control/types'
 
 export interface AccessKeyPresentation {
   id: number
@@ -30,7 +30,7 @@ export interface AccessKeyPresenterOptions {
 
 export function presentAccessKey(
   accessKey: AccessKeyDto,
-  groups: readonly GroupSummary[],
+  groups: readonly GroupOptionDto[],
   options: AccessKeyPresenterOptions,
 ): AccessKeyPresentation {
   const groupNames = new Map(groups.map((group) => [group.id, group.name]))

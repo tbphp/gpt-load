@@ -18,6 +18,8 @@ withDefaults(
     appearance?: 'joined' | 'pills'
   }>(),
   {
+    controlsId: undefined,
+    idPrefix: undefined,
     appearance: 'joined',
   },
 )
@@ -154,5 +156,4 @@ function handleSegmentKeydown(event: KeyboardEvent): void {
   cursor: not-allowed;
   opacity: 0.55;
 }
-
 </style>

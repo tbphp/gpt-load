@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute } from 'vue-router'
 
 import { homeLocation } from '@/app/route-locations'
+import BrandMark from '@/components/brand/BrandMark.vue'
 import PreferencesControl from '@/features/preferences/PreferencesControl.vue'
 import { useTheme } from '@/features/preferences/theme'
 import { supportedLocales, type AppLocale } from '@/i18n'
@@ -40,7 +41,7 @@ watch(
         :to="homeLocation()"
         :aria-label="`${t('common.appName')} · ${t('shell.home')}`"
       >
-        <span class="public-brand__mark" aria-hidden="true"></span>
+        <BrandMark :size="24" />
         <span>{{ t('common.appName') }}</span>
       </RouterLink>
 
@@ -85,13 +86,6 @@ watch(
   white-space: nowrap;
 }
 
-.public-brand__mark {
-  width: 7px;
-  height: 18px;
-  flex: none;
-  background: var(--color-action);
-}
-
 .public-content {
   min-height: calc(100vh - var(--topbar-height));
 }
@@ -101,5 +95,4 @@ watch(
     padding-inline: var(--space-4);
   }
 }
-
 </style>

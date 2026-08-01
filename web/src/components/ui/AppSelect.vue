@@ -48,10 +48,7 @@ const attrs = useAttrs()
     <SelectTrigger
       v-bind="attrs"
       class="app-select__trigger"
-      :class="[
-        `app-select__trigger--${props.variant}`,
-        `app-select__trigger--${props.size}`,
-      ]"
+      :class="[`app-select__trigger--${props.variant}`, `app-select__trigger--${props.size}`]"
       :aria-label="label"
       :disabled="props.disabled"
     >
@@ -183,5 +180,4 @@ const attrs = useAttrs()
   display: inline-flex;
   color: var(--color-action);
 }
-
 </style>

@@ -411,11 +411,7 @@ onBeforeUnmount(() => {
             </p>
           </template>
           <template v-else>
-            <InlineFeedback
-              v-if="!selectedKeySupportsClient"
-              tone="warning"
-              appearance="hint"
-            >
+            <InlineFeedback v-if="!selectedKeySupportsClient" tone="warning" appearance="hint">
               {{
                 t('home.ledger.connection.protocolUnavailable', {
                   client: selectedClientLabel(activeClient),
@@ -442,11 +438,7 @@ onBeforeUnmount(() => {
               </template>
             </CodeBlock>
 
-            <InlineFeedback
-              v-if="activeClient === 'nextchat'"
-              tone="info"
-              appearance="hint"
-            >
+            <InlineFeedback v-if="activeClient === 'nextchat'" tone="info" appearance="hint">
               {{ t('home.ledger.connection.disableFastLink') }}
             </InlineFeedback>
           </template>

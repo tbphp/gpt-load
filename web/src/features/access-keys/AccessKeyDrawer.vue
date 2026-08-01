@@ -12,7 +12,7 @@ import {
   updateAccessKey,
   type CreateAccessKeyRequest,
 } from '@/app/resources/access-keys'
-import type { AccessKeyDto, AccessProtocol, GroupSummary } from '@/api/control/types'
+import type { AccessKeyDto, AccessProtocol, GroupOptionDto } from '@/api/control/types'
 import { RequestCancelledError } from '@/api/errors'
 import { classifyMutationOutcome } from '@/app/mutation-outcome'
 import { accessKeyResources } from '@/app/resources/access-keys'
@@ -51,7 +51,7 @@ const props = withDefaults(
   defineProps<{
     open: boolean
     accessKey: AccessKeyDto | null
-    groups: GroupSummary[]
+    groups: GroupOptionDto[]
     groupCatalogState?: GroupCatalogState
     createOperation?: PendingAccessKeyCreateOperation | null
     editOperation?: PendingAccessKeyEditOperation | null

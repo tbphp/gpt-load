@@ -7,7 +7,7 @@
   --color-surface-sunken: #f5f4f1;
   --color-text: #15181b;
   --color-text-muted: #4e545b;
-  --color-text-faint: #787f87;
+  --color-text-faint: #746f67;
   --color-text-inverse: #ffffff;
   --color-border-subtle: #e6e5e0;
   --color-border-control: #cfcfc9;
@@ -29,6 +29,17 @@
   --color-danger-bg: #fbebe9;
   --color-neutral: #5a5f66;
   --color-neutral-bg: #eceded;
+  --color-interactive-hover: color-mix(in srgb, var(--color-surface-sunken) 58%, transparent);
+  --color-feedback-success-border: color-mix(
+    in srgb,
+    var(--color-success) 34%,
+    var(--color-border-subtle)
+  );
+  --color-feedback-danger-border: color-mix(
+    in srgb,
+    var(--color-danger) 34%,
+    var(--color-border-subtle)
+  );
 
   --font-sans: system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-serif: ui-serif, 'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif;
@@ -77,6 +88,10 @@
   --control-md: 38px;
   --control-lg: 42px;
   --touch-target: 44px;
+  --status-overview-total-width: 180px;
+  --status-bar-height: 7px;
+  --health-bar-height: 4px;
+  --pagination-min-height: 48px;
   --section-gap: 24px;
   --collection-row-height: 48px;
   --surface-header-min-height: 55px;
@@ -88,8 +103,8 @@
   --shadow-sheet: 0 1px 2px rgba(28, 26, 20, 0.05), 0 12px 32px rgba(28, 26, 20, 0.06);
   --shadow-card: 0 1px 2px rgba(28, 26, 20, 0.05);
   --shadow-overlay: 0 2px 8px rgba(0, 0, 0, 0.08), 0 14px 30px rgba(0, 0, 0, 0.09);
-  --shadow-chart-tooltip:
-    0 2px 6px rgba(0, 0, 0, 0.07), 0 10px 24px rgba(0, 0, 0, 0.08);
+  --shadow-chart-tooltip: 0 2px 6px rgba(0, 0, 0, 0.07), 0 10px 24px rgba(0, 0, 0, 0.08);
+  --shadow-feedback: 0 4px 12px rgba(28, 26, 20, 0.1);
   --focus-ring: 0 0 0 3px color-mix(in srgb, var(--color-focus) 16%, transparent);
 
   --duration-instant: 120ms;
@@ -125,7 +140,7 @@
   --color-surface-sunken: #12151a;
   --color-text: #e8eaec;
   --color-text-muted: #969ca3;
-  --color-text-faint: #6d747c;
+  --color-text-faint: #938c80;
   --color-text-inverse: #0c1a22;
   --color-border-subtle: #232830;
   --color-border-control: #333a43;
@@ -150,8 +165,8 @@
   --shadow-sheet: 0 1px 2px rgba(0, 0, 0, 0.45), 0 12px 32px rgba(0, 0, 0, 0.3);
   --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.45);
   --shadow-overlay: 0 2px 8px rgba(0, 0, 0, 0.5), 0 14px 30px rgba(0, 0, 0, 0.4);
-  --shadow-chart-tooltip:
-    0 2px 6px rgba(0, 0, 0, 0.45), 0 10px 24px rgba(0, 0, 0, 0.35);
+  --shadow-chart-tooltip: 0 2px 6px rgba(0, 0, 0, 0.45), 0 10px 24px rgba(0, 0, 0, 0.35);
+  --shadow-feedback: 0 4px 12px rgba(0, 0, 0, 0.34);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -163,7 +178,7 @@
     --color-surface-sunken: #12151a;
     --color-text: #e8eaec;
     --color-text-muted: #969ca3;
-    --color-text-faint: #6d747c;
+    --color-text-faint: #938c80;
     --color-text-inverse: #0c1a22;
     --color-border-subtle: #232830;
     --color-border-control: #333a43;
@@ -188,8 +203,8 @@
     --shadow-sheet: 0 1px 2px rgba(0, 0, 0, 0.45), 0 12px 32px rgba(0, 0, 0, 0.3);
     --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.45);
     --shadow-overlay: 0 2px 8px rgba(0, 0, 0, 0.5), 0 14px 30px rgba(0, 0, 0, 0.4);
-    --shadow-chart-tooltip:
-      0 2px 6px rgba(0, 0, 0, 0.45), 0 10px 24px rgba(0, 0, 0, 0.35);
+    --shadow-chart-tooltip: 0 2px 6px rgba(0, 0, 0, 0.45), 0 10px 24px rgba(0, 0, 0, 0.35);
+    --shadow-feedback: 0 4px 12px rgba(0, 0, 0, 0.34);
   }
 }
 

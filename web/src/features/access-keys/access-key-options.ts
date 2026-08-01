@@ -1,4 +1,4 @@
-import type { AccessProtocol, GroupSummary } from '@/api/control/types'
+import type { AccessProtocol, GroupOptionDto } from '@/api/control/types'
 import { enabledDataProtocols } from '@/api/control/protocols'
 
 export function accessKeyProtocolOptions(): AccessProtocol[] {
@@ -6,14 +6,12 @@ export function accessKeyProtocolOptions(): AccessProtocol[] {
 }
 
 export function buildAccessKeyModelOptions(
-  groups: GroupSummary[],
+  groups: GroupOptionDto[],
   preserved: string[] = [],
 ): string[] {
   const values: string[] = []
   for (const group of groups) {
-    for (const model of group.models) {
-      values.push(model.id, model.alias)
-    }
+    values.push(...group.models)
   }
   values.push(...preserved)
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))]

@@ -28,7 +28,11 @@ defineProps<{
 
 .page-header h1 {
   max-width: none;
-  font-size: clamp(1.65rem, 4vw, 2.25rem);
+  font-family: var(--font-serif);
+  font-size: var(--title-lede);
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  line-height: var(--line-compact);
 }
 
 .page-header__description {
@@ -39,13 +43,21 @@ defineProps<{
 
 .page-header__actions {
   display: flex;
+  align-items: center;
   flex-wrap: wrap;
   gap: var(--space-2);
 }
 
-@media (max-width: 640px) {
+@media (max-width: 680px) {
   .page-header {
     flex-direction: column;
+    gap: 15px;
+  }
+}
+
+@media (max-width: 560px) {
+  .page-header h1 {
+    font-size: 24px;
   }
 }
 </style>

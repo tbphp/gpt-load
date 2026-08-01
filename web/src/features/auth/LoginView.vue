@@ -189,11 +189,7 @@ async function submit(): Promise<void> {
               </div>
             </FormField>
 
-            <div
-              v-if="feedbackMessage"
-              id="auth-feedback"
-              class="ledger-login__feedback"
-            >
+            <div v-if="feedbackMessage" id="auth-feedback" class="ledger-login__feedback">
               <InlineFeedback :tone="feedbackTone" appearance="auth">
                 {{ feedbackMessage }}
               </InlineFeedback>
@@ -209,16 +205,12 @@ async function submit(): Promise<void> {
             </AppButton>
 
             <p id="auth-session-note" class="ledger-login__session-note">
-              {{ t('auth.sessionNotePrefix') }}<code>sessionStorage</code>{{ t(
-                'auth.sessionNoteSuffix',
-              ) }}
+              {{ t('auth.sessionNotePrefix') }}<code>sessionStorage</code
+              >{{ t('auth.sessionNoteSuffix') }}
             </p>
           </form>
 
-          <DisclosurePanel
-            class="ledger-login__auth-help"
-            :summary="t('auth.help.title')"
-          >
+          <DisclosurePanel class="ledger-login__auth-help" :summary="t('auth.help.title')">
             <div class="ledger-login__auth-sources">
               <div class="ledger-login__auth-source">
                 <strong>{{ t('auth.help.environmentTitle') }}</strong>

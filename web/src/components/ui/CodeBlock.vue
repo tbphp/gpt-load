@@ -11,6 +11,9 @@ withDefaults(
     appearance?: 'default' | 'snippet'
   }>(),
   {
+    copyLabel: undefined,
+    copySuccessLabel: undefined,
+    copyFailureLabel: undefined,
     appearance: 'default',
   },
 )

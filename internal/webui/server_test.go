@@ -267,23 +267,23 @@ func TestServerServesThemeBootstrapAsExplicitRootAsset(t *testing.T) {
 }
 
 func TestServerServesFaviconAsExplicitRootAsset(t *testing.T) {
-	want := []byte{0x00, 0x00, 0x01, 0x00}
+	want := []byte(`<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0h1v1z"/></svg>`)
 	server := newServer(fstest.MapFS{
 		"dist/index.html":  &fstest.MapFile{Data: []byte("<!doctype html>")},
-		"dist/favicon.ico": &fstest.MapFile{Data: want},
+		"dist/favicon.svg": &fstest.MapFile{Data: want},
 	}, "dist")
 	recorder := httptest.NewRecorder()
 
 	testEngine(server).ServeHTTP(
 		recorder,
-		httptest.NewRequest(http.MethodGet, "/favicon.ico", nil),
+		httptest.NewRequest(http.MethodGet, "/favicon.svg", nil),
 	)
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("favicon status = %d, want 200", recorder.Code)
 	}
-	if got := recorder.Header().Get("Content-Type"); got != "image/vnd.microsoft.icon" {
-		t.Fatalf("favicon Content-Type = %q, want image/vnd.microsoft.icon", got)
+	if got := recorder.Header().Get("Content-Type"); got != "image/svg+xml" {
+		t.Fatalf("favicon Content-Type = %q, want image/svg+xml", got)
 	}
 	if got := recorder.Header().Get("Cache-Control"); got != "no-cache" {
 		t.Fatalf("favicon Cache-Control = %q, want no-cache", got)
@@ -292,7 +292,28 @@ func TestServerServesFaviconAsExplicitRootAsset(t *testing.T) {
 		t.Fatalf("favicon X-Content-Type-Options = %q, want nosniff", got)
 	}
 	if !bytes.Equal(recorder.Body.Bytes(), want) {
-		t.Fatalf("favicon body = %v, want %v", recorder.Body.Bytes(), want)
+		t.Fatalf("favicon body = %q, want %q", recorder.Body.Bytes(), want)
+	}
+}
+
+func TestServerDoesNotServeLegacyFaviconAlias(t *testing.T) {
+	legacy := []byte{0x00, 0x00, 0x01, 0x00}
+	server := newServer(fstest.MapFS{
+		"dist/index.html":  &fstest.MapFile{Data: []byte("<!doctype html>")},
+		"dist/favicon.ico": &fstest.MapFile{Data: legacy},
+	}, "dist")
+	recorder := httptest.NewRecorder()
+
+	testEngine(server).ServeHTTP(
+		recorder,
+		httptest.NewRequest(http.MethodGet, "/favicon.ico", nil),
+	)
+
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("legacy favicon status = %d, want 404", recorder.Code)
+	}
+	if bytes.Equal(recorder.Body.Bytes(), legacy) {
+		t.Fatalf("legacy favicon body = %v, want no ICO alias", recorder.Body.Bytes())
 	}
 }
 

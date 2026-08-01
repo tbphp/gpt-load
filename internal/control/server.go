@@ -93,15 +93,6 @@ func (s *Server) handleUpdateSettings(c *gin.Context) {
 	writeSettingsRepresentation(c, result)
 }
 
-func (s *Server) handleListGroups(c *gin.Context) {
-	groups, err := s.service.ListGroups(c.Request.Context())
-	if err != nil {
-		writeServiceError(c, "list_groups", err)
-		return
-	}
-	response.SuccessI18n(c, "common.success", groups)
-}
-
 func (s *Server) handleGetGroup(c *gin.Context) {
 	id, ok := groupID(c, "get_group")
 	if !ok {

@@ -12,6 +12,7 @@ withDefaults(
   {
     align: 'end',
     side: 'bottom',
+    contentClass: undefined,
   },
 )
 </script>

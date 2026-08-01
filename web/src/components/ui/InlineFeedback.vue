@@ -101,11 +101,7 @@ const glyph = computed(() => {
 
 .inline-feedback--auth {
   gap: 0;
-  border-color: color-mix(
-    in srgb,
-    var(--color-danger) 34%,
-    var(--color-border-subtle)
-  );
+  border-color: color-mix(in srgb, var(--color-danger) 34%, var(--color-border-subtle));
   background: var(--color-danger-bg);
   color: var(--color-danger);
   padding: 8px 10px;

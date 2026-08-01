@@ -142,5 +142,4 @@ withDefaults(
 .app-button[aria-busy='true'] {
   cursor: wait;
 }
-
 </style>

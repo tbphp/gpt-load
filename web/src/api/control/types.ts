@@ -17,14 +17,53 @@ export interface GroupModelDto {
   alias: string
 }
 
-export interface GroupSummary {
+export type GroupCollectionStatus = 'available' | 'unavailable' | 'disabled'
+export type GroupCollectionSort = 'status' | 'name' | 'keys' | 'created'
+
+export interface GroupCollectionFilters {
+  q?: string
+  status?: GroupCollectionStatus
+  protocol?: GroupProtocol
+  sort: GroupCollectionSort
+  page: number
+  page_size: 20
+}
+
+export interface GroupCollectionSummaryDto {
+  total: number
+  available: number
+  unavailable: number
+  disabled: number
+}
+
+export interface GroupCollectionItemDto {
   id: number
   name: string
+  status: GroupCollectionStatus
   upstream_url: string
   protocols: GroupProtocol[]
-  models: GroupModelDto[]
-  enabled: boolean
-  key_count: number
+  model_count: number
+  key_counts: KeyCounts
+}
+
+export interface GroupCollectionPaginationDto {
+  page: number
+  page_size: 20
+  total_items: number
+  total_pages: number
+}
+
+export interface GroupCollectionResponseDto {
+  observed_at_ms: number
+  summary: GroupCollectionSummaryDto
+  items: GroupCollectionItemDto[]
+  pagination: GroupCollectionPaginationDto
+}
+
+export interface GroupOptionDto {
+  id: number
+  name: string
+  models: string[]
 }
 
 export interface KeyCounts {

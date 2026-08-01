@@ -1,6 +1,22 @@
 import type { RequestLogFilters } from '@/app/resources/request-logs'
 import type { HomeRange } from '@/app/resources/home'
 import type { UsageFilters } from '@/app/resources/usage'
+import type { GroupCollectionFilters } from '@/api/control/types'
+
+export function normalizeGroupCollectionFilters(
+  filters: GroupCollectionFilters,
+): GroupCollectionFilters {
+  const normalized: GroupCollectionFilters = {
+    sort: filters.sort,
+    page: filters.page,
+    page_size: 20,
+  }
+  const query = filters.q?.trim()
+  if (query) normalized.q = query
+  if (filters.status !== undefined) normalized.status = filters.status
+  if (filters.protocol !== undefined) normalized.protocol = filters.protocol
+  return normalized
+}
 
 function normalizeLogFilters(filters: RequestLogFilters): RequestLogFilters {
   const result: RequestLogFilters = {}
@@ -33,7 +49,10 @@ export const controlQueryKeys = {
   all: ['control'] as const,
   groups: {
     all: ['control', 'groups'] as const,
-    list: () => ['control', 'groups', 'list'] as const,
+    collectionAll: ['control', 'groups', 'collection'] as const,
+    collection: (filters: GroupCollectionFilters) =>
+      ['control', 'groups', 'collection', normalizeGroupCollectionFilters(filters)] as const,
+    options: () => ['control', 'groups', 'options'] as const,
     details: () => ['control', 'groups', 'detail'] as const,
     detail: (id: number) => ['control', 'groups', 'detail', id] as const,
     keyLists: () => ['control', 'groups', 'keys'] as const,

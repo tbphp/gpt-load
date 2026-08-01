@@ -60,6 +60,14 @@ func TestBuildContainerExposesUnifiedRouteCatalog(t *testing.T) {
 			Path:       "/api/access-keys/:id/reveal",
 		},
 		{
+			ModuleName: "control",
+			RouteName:  "control.groups.options",
+			Owner:      httproute.OwnerControl,
+			Auth:       httproute.AuthControl,
+			Methods:    []string{http.MethodGet},
+			Path:       "/api/groups/options",
+		},
+		{
 			ModuleName: "data",
 			RouteName:  "data.openai.responses.resource",
 			Owner:      httproute.OwnerData,
@@ -91,10 +99,40 @@ func TestBuildContainerExposesUnifiedRouteCatalog(t *testing.T) {
 			Owner:      httproute.OwnerWeb,
 			Auth:       httproute.AuthNone,
 			Methods:    []string{http.MethodGet},
-			Path:       "/favicon.ico",
+			Path:       "/favicon.svg",
 		},
 	} {
 		assertRouteInfo(t, routes, expected)
+	}
+}
+
+func TestHTTPRouteGroupOptionsOwnsStaticPathBeforeGroupID(t *testing.T) {
+	engine := newRouteContractEngine(t)
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/groups/options", nil)
+	request.Header.Set("Authorization", "Bearer test-auth-key")
+	request.Header.Set("Accept-Language", "en-US")
+
+	engine.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusInternalServerError {
+		t.Fatalf(
+			"GET /api/groups/options = %d %s, want static handler database error",
+			recorder.Code,
+			recorder.Body.String(),
+		)
+	}
+	var envelope struct {
+		Code string `json:"code"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode options envelope: %v", err)
+	}
+	if envelope.Code != "DATABASE_ERROR" {
+		t.Fatalf(
+			"options envelope = %s, want static handler DATABASE_ERROR",
+			recorder.Body.String(),
+		)
 	}
 }
 
@@ -344,7 +382,7 @@ func TestHTTPNamespacesDoNotFallThroughToSPA(t *testing.T) {
 		},
 		{name: "system", target: "/health/unknown"},
 		{name: "assets", target: "/assets/missing.js"},
-		{name: "favicon", target: "/favicon.ico/unknown"},
+		{name: "favicon", target: "/favicon.svg/unknown"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			recorder := httptest.NewRecorder()

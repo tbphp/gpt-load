@@ -405,6 +405,44 @@ func TestAuthSessionEndpointRequiresAuthentication(t *testing.T) {
 	}
 }
 
+func TestGroupCollectionEndpointsRequireBearerAuthentication(t *testing.T) {
+	initControlI18n(t)
+	engine := gin.New()
+	NewServer(&config.Config{AuthKey: authTestKey}, nil).RegisterRoutes(engine)
+
+	peerIndex := 60
+	for _, target := range []string{"/api/groups", "/api/groups/options"} {
+		for _, authorization := range []string{"", "Bearer wrong-key"} {
+			peerIndex++
+			recorder := serveAuthRequest(
+				engine,
+				target,
+				"192.0.2."+strconv.Itoa(peerIndex)+":1234",
+				authorization,
+				nil,
+			)
+			if recorder.Code != http.StatusUnauthorized {
+				t.Fatalf(
+					"GET %s auth %q = %d %s, want 401",
+					target,
+					authorization,
+					recorder.Code,
+					recorder.Body.String(),
+				)
+			}
+			var envelope struct {
+				Code string `json:"code"`
+			}
+			if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err != nil {
+				t.Fatalf("decode auth envelope: %v", err)
+			}
+			if envelope.Code != "UNAUTHORIZED" {
+				t.Fatalf("GET %s auth code = %q, want UNAUTHORIZED", target, envelope.Code)
+			}
+		}
+	}
+}
+
 func TestAuthSessionEndpointUsesLimiter(t *testing.T) {
 	initControlI18n(t)
 	engine := gin.New()

@@ -2,7 +2,7 @@
 import { ListFilter } from '@lucide/vue'
 import { useI18n } from 'vue-i18n'
 
-import type { AccessKeyOptionDto, GroupSummary } from '@/api/control/types'
+import type { AccessKeyOptionDto, GroupOptionDto } from '@/api/control/types'
 import AppButton from '@/components/ui/AppButton.vue'
 import FormField from '@/components/ui/FormField.vue'
 
@@ -11,7 +11,7 @@ import type { LogFilterDraft, LogFilterErrors } from './log-filters'
 const props = defineProps<{
   draft: LogFilterDraft
   errors: LogFilterErrors
-  groups: GroupSummary[]
+  groups: GroupOptionDto[]
   accessKeys: AccessKeyOptionDto[]
   groupsFailed: boolean
   accessKeysFailed: boolean

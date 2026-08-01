@@ -1,16 +1,28 @@
-import { queryOptions } from '@tanstack/vue-query'
+import { keepPreviousData, queryOptions } from '@tanstack/vue-query'
 import { computed, toValue, type MaybeRefOrGetter } from 'vue'
 
 import type { ApiClient } from '@/api/client'
 import { enabledDataProtocols } from '@/api/control/protocols'
-import type { GroupModelDto, GroupProtocol, GroupSummary } from '@/api/control/types'
+import type {
+  GroupCollectionFilters,
+  GroupCollectionItemDto,
+  GroupCollectionPaginationDto,
+  GroupCollectionResponseDto,
+  GroupCollectionStatus,
+  GroupCollectionSummaryDto,
+  GroupModelDto,
+  GroupOptionDto,
+  GroupProtocol,
+  KeyCounts,
+} from '@/api/control/types'
 import { InvalidResponseError } from '@/api/errors'
-import { controlQueryKeys } from '@/app/query-keys'
+import { controlQueryKeys, normalizeGroupCollectionFilters } from '@/app/query-keys'
 
 import {
   assertNoSecretLikeFields,
   projectArray,
   projectBoolean,
+  projectEpochMilliseconds,
   projectEnum,
   projectHTTPURL,
   projectRecord,
@@ -18,7 +30,7 @@ import {
   projectString,
 } from './projector'
 
-const groupSummaryFields = [
+const groupDetailFields = [
   'id',
   'name',
   'upstream_url',
@@ -26,14 +38,26 @@ const groupSummaryFields = [
   'models',
   'enabled',
   'key_count',
-] as const
-const groupDetailFields = [
-  ...groupSummaryFields,
   'validation_model',
   'weight_manual',
   'config',
   'effective_config',
 ] as const
+const groupCollectionFields = ['observed_at_ms', 'summary', 'items', 'pagination'] as const
+const groupCollectionSummaryFields = ['total', 'available', 'unavailable', 'disabled'] as const
+const groupCollectionItemFields = [
+  'id',
+  'name',
+  'status',
+  'upstream_url',
+  'protocols',
+  'model_count',
+  'key_counts',
+] as const
+const groupCollectionPaginationFields = ['page', 'page_size', 'total_items', 'total_pages'] as const
+const groupOptionFields = ['id', 'name', 'models'] as const
+const keyCountFields = ['total', 'available', 'cooldown', 'blacklisted', 'disabled'] as const
+const groupCollectionStatuses = ['available', 'unavailable', 'disabled'] as const
 const runtimeSettingFields = [
   'connect_timeout',
   'first_byte_timeout',
@@ -66,7 +90,14 @@ export interface GroupEffectiveConfigDto {
   inject_usage_options: boolean
 }
 
-export interface GroupDetailDto extends GroupSummary {
+export interface GroupDetailDto {
+  id: number
+  name: string
+  upstream_url: string
+  protocols: GroupProtocol[]
+  models: GroupModelDto[]
+  enabled: boolean
+  key_count: number
   validation_model: string | null
   weight_manual: number | null
   config: GroupRuntimeConfigDto
@@ -204,30 +235,6 @@ function projectRuntimeConfig(
   return result as GroupRuntimeConfigDto | GroupEffectiveConfigDto
 }
 
-function projectGroupSummaryFields(record: Record<string, unknown>): GroupSummary {
-  return {
-    id: projectSafeInteger(record.id, { minimum: 1 }),
-    name: projectNonBlankString(record.name),
-    upstream_url: projectHTTPURL(record.upstream_url),
-    protocols: projectArray(record.protocols, (protocol) =>
-      projectEnum(protocol, enabledDataProtocols),
-    ),
-    models: projectArray(record.models, projectGroupModel),
-    enabled: projectBoolean(record.enabled),
-    key_count: projectSafeInteger(record.key_count, { minimum: 0 }),
-  }
-}
-
-export function projectGroupSummary(value: unknown): GroupSummary {
-  const record = projectRecord(value)
-  assertNoSecretLikeFields(record, groupSummaryFields)
-  return projectGroupSummaryFields(record)
-}
-
-export function projectGroupList(value: unknown): GroupSummary[] {
-  return projectArray(value, projectGroupSummary)
-}
-
 export function projectGroupDetail(value: unknown): GroupDetailDto {
   const record = projectRecord(value)
   assertNoSecretLikeFields(record, groupDetailFields)
@@ -238,12 +245,145 @@ export function projectGroupDetail(value: unknown): GroupDetailDto {
       ? null
       : projectSafeInteger(record.weight_manual, { minimum: 0, maximum: 100 })
   return {
-    ...projectGroupSummaryFields(record),
+    id: projectSafeInteger(record.id, { minimum: 1 }),
+    name: projectNonBlankString(record.name),
+    upstream_url: projectHTTPURL(record.upstream_url),
+    protocols: projectArray(record.protocols, (protocol) =>
+      projectEnum(protocol, enabledDataProtocols),
+    ),
+    models: projectArray(record.models, projectGroupModel),
+    enabled: projectBoolean(record.enabled),
+    key_count: projectSafeInteger(record.key_count, { minimum: 0 }),
     validation_model: validationModel,
     weight_manual: weightManual,
     config: projectRuntimeConfig(record.config, false),
     effective_config: projectRuntimeConfig(record.effective_config, true),
   }
+}
+
+function projectKeyCounts(value: unknown): KeyCounts {
+  const record = projectRecord(value)
+  assertNoSecretLikeFields(record, keyCountFields)
+  const result = {
+    total: projectSafeInteger(record.total, { minimum: 0 }),
+    available: projectSafeInteger(record.available, { minimum: 0 }),
+    cooldown: projectSafeInteger(record.cooldown, { minimum: 0 }),
+    blacklisted: projectSafeInteger(record.blacklisted, { minimum: 0 }),
+    disabled: projectSafeInteger(record.disabled, { minimum: 0 }),
+  }
+  if (result.total !== result.available + result.cooldown + result.blacklisted + result.disabled) {
+    throw new InvalidResponseError()
+  }
+  return result
+}
+
+function projectGroupCollectionSummary(value: unknown): GroupCollectionSummaryDto {
+  const record = projectRecord(value)
+  assertNoSecretLikeFields(record, groupCollectionSummaryFields)
+  const result = {
+    total: projectSafeInteger(record.total, { minimum: 0 }),
+    available: projectSafeInteger(record.available, { minimum: 0 }),
+    unavailable: projectSafeInteger(record.unavailable, { minimum: 0 }),
+    disabled: projectSafeInteger(record.disabled, { minimum: 0 }),
+  }
+  if (result.total !== result.available + result.unavailable + result.disabled) {
+    throw new InvalidResponseError()
+  }
+  return result
+}
+
+function projectGroupCollectionItem(value: unknown): GroupCollectionItemDto {
+  const record = projectRecord(value)
+  assertNoSecretLikeFields(record, groupCollectionItemFields)
+  const protocols = projectArray(record.protocols, (protocol) =>
+    projectEnum(protocol, enabledDataProtocols),
+  )
+  if (new Set(protocols).size !== protocols.length) throw new InvalidResponseError()
+  const status = projectEnum(record.status, groupCollectionStatuses) as GroupCollectionStatus
+  const keyCounts = projectKeyCounts(record.key_counts)
+  if (
+    (status === 'available' && keyCounts.available === 0) ||
+    (status === 'unavailable' && keyCounts.available !== 0) ||
+    (status === 'disabled' && keyCounts.disabled !== keyCounts.total)
+  ) {
+    throw new InvalidResponseError()
+  }
+  return {
+    id: projectSafeInteger(record.id, { minimum: 1 }),
+    name: projectNonBlankString(record.name),
+    status,
+    upstream_url: projectHTTPURL(record.upstream_url),
+    protocols,
+    model_count: projectSafeInteger(record.model_count, { minimum: 0 }),
+    key_counts: keyCounts,
+  }
+}
+
+function projectGroupCollectionPagination(value: unknown): GroupCollectionPaginationDto {
+  const record = projectRecord(value)
+  assertNoSecretLikeFields(record, groupCollectionPaginationFields)
+  return {
+    page: projectSafeInteger(record.page, { minimum: 1 }),
+    page_size: projectSafeInteger(record.page_size, { minimum: 20, maximum: 20 }) as 20,
+    total_items: projectSafeInteger(record.total_items, { minimum: 0 }),
+    total_pages: projectSafeInteger(record.total_pages, { minimum: 0 }),
+  }
+}
+
+function expectedGroupCollectionTotalPages(totalItems: number, pageSize: number): number {
+  if (totalItems === 0) return 0
+  const completePages = Math.floor(totalItems / pageSize)
+  return completePages + (totalItems % pageSize === 0 ? 0 : 1)
+}
+
+function expectedGroupCollectionPageItems(pagination: GroupCollectionPaginationDto): number {
+  if (pagination.total_items === 0 || pagination.page > pagination.total_pages) return 0
+  if (pagination.page < pagination.total_pages) return pagination.page_size
+  const finalPageItems = pagination.total_items % pagination.page_size
+  return finalPageItems === 0 ? pagination.page_size : finalPageItems
+}
+
+export function projectGroupCollection(value: unknown): GroupCollectionResponseDto {
+  const record = projectRecord(value)
+  assertNoSecretLikeFields(record, groupCollectionFields)
+  const items = projectArray(record.items, projectGroupCollectionItem)
+  const summary = projectGroupCollectionSummary(record.summary)
+  const pagination = projectGroupCollectionPagination(record.pagination)
+  if (
+    pagination.total_items > summary.total ||
+    pagination.total_pages !==
+      expectedGroupCollectionTotalPages(pagination.total_items, pagination.page_size) ||
+    items.length !== expectedGroupCollectionPageItems(pagination) ||
+    new Set(items.map(({ id }) => id)).size !== items.length
+  ) {
+    throw new InvalidResponseError()
+  }
+  return {
+    observed_at_ms: projectEpochMilliseconds(record.observed_at_ms),
+    summary,
+    items,
+    pagination,
+  }
+}
+
+function projectGroupOption(value: unknown): GroupOptionDto {
+  const record = projectRecord(value)
+  assertNoSecretLikeFields(record, groupOptionFields)
+  const models = projectArray(record.models, projectNonBlankString)
+  if (new Set(models).size !== models.length) throw new InvalidResponseError()
+  return {
+    id: projectSafeInteger(record.id, { minimum: 1 }),
+    name: projectNonBlankString(record.name),
+    models,
+  }
+}
+
+export function projectGroupOptions(value: unknown): GroupOptionDto[] {
+  const options = projectArray(value, projectGroupOption)
+  if (new Set(options.map(({ id }) => id)).size !== options.length) {
+    throw new InvalidResponseError()
+  }
+  return options
 }
 
 function projectGroupUpdateResult(value: unknown): GroupUpdateResult {
@@ -318,8 +458,31 @@ export function isGroupInUseData(value: unknown): value is GroupInUseData {
   }
 }
 
-export async function listGroups(client: ApiClient, signal?: AbortSignal): Promise<GroupSummary[]> {
-  return projectGroupList(await client.request('/api/groups', { method: 'GET', signal }))
+export async function listGroupCollection(
+  client: ApiClient,
+  filters: GroupCollectionFilters,
+  signal?: AbortSignal,
+): Promise<GroupCollectionResponseDto> {
+  const normalized = normalizeGroupCollectionFilters(filters)
+  const params = new URLSearchParams()
+  params.set('sort', normalized.sort)
+  params.set('page', String(normalized.page))
+  params.set('page_size', String(normalized.page_size))
+  if (normalized.q !== undefined) params.set('q', normalized.q)
+  if (normalized.status !== undefined) params.set('status', normalized.status)
+  if (normalized.protocol !== undefined) params.set('protocol', normalized.protocol)
+  const result = projectGroupCollection(
+    await client.request(`/api/groups?${params.toString()}`, { method: 'GET', signal }),
+  )
+  if (result.pagination.page !== normalized.page) throw new InvalidResponseError()
+  return result
+}
+
+export async function listGroupOptions(
+  client: ApiClient,
+  signal?: AbortSignal,
+): Promise<GroupOptionDto[]> {
+  return projectGroupOptions(await client.request('/api/groups/options', { method: 'GET', signal }))
 }
 
 export async function getGroup(
@@ -332,10 +495,23 @@ export async function getGroup(
   )
 }
 
-export function groupListQueryOptions(client: ApiClient) {
+export function groupCollectionQueryOptions(
+  client: ApiClient,
+  filters: MaybeRefOrGetter<GroupCollectionFilters>,
+) {
   return queryOptions({
-    queryKey: controlQueryKeys.groups.list(),
-    queryFn: ({ signal }) => listGroups(client, signal),
+    queryKey: computed(() => controlQueryKeys.groups.collection(toValue(filters))),
+    queryFn: ({ queryKey, signal }) => listGroupCollection(client, queryKey[3], signal),
+    placeholderData: keepPreviousData,
+    refetchInterval: 10_000,
+    refetchIntervalInBackground: false,
+  })
+}
+
+export function groupOptionsQueryOptions(client: ApiClient) {
+  return queryOptions({
+    queryKey: controlQueryKeys.groups.options(),
+    queryFn: ({ signal }) => listGroupOptions(client, signal),
   })
 }
 

@@ -40,13 +40,15 @@ export function formatISOInstant(ms: number): string | undefined {
   return validDate(ms)?.toISOString()
 }
 
-export function formatLocalTime(ms: number, _locale: string): string {
+export function formatLocalTime(ms: number, locale: string): string {
+  void locale
   const date = validDate(ms)
   if (!date) return '—'
   return formatZonedDateTime(date, currentTimeZone(), true).slice(11)
 }
 
-export function formatLocalTimeRange(startMs: number, endMs: number, _locale: string): string {
+export function formatLocalTimeRange(startMs: number, endMs: number, locale: string): string {
+  void locale
   const start = validDate(startMs)
   const end = validDate(endMs)
   if (!start || !end || end.getTime() <= start.getTime()) return '—'
@@ -58,7 +60,8 @@ export function formatLocalTimeRange(startMs: number, endMs: number, _locale: st
   )}`
 }
 
-export function formatDuration(startedAtMs: number, nowMs: number, _locale: string): string {
+export function formatDuration(startedAtMs: number, nowMs: number, locale: string): string {
+  void locale
   if (!Number.isSafeInteger(startedAtMs) || !Number.isSafeInteger(nowMs)) {
     return '—'
   }

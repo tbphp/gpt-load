@@ -2,7 +2,7 @@
 import { RefreshCw } from '@lucide/vue'
 import { useI18n } from 'vue-i18n'
 
-import type { GroupSummary } from '@/api/control/types'
+import type { GroupOptionDto } from '@/api/control/types'
 import AppButton from '@/components/ui/AppButton.vue'
 import FormField from '@/components/ui/FormField.vue'
 
@@ -11,7 +11,7 @@ import type { UsageFilterDraft, UsageFilterErrors } from './usage-filters'
 const props = defineProps<{
   draft: UsageFilterDraft
   errors: UsageFilterErrors
-  groups: GroupSummary[]
+  groups: GroupOptionDto[]
   groupsFailed: boolean
   fetching: boolean
 }>()

@@ -87,5 +87,4 @@ defineEmits<{ copy: [] }>()
 .copy-action--success {
   color: var(--color-success);
 }
-
 </style>
