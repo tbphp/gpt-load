@@ -85,7 +85,7 @@ export default {
       savedFeedback: '保存しました',
       saveNote: '検出結果が現在の一覧へ自動反映されることはありません',
       dirtyNote: '保存すると現在のモデル設定を置き換えます',
-      invalidNote: 'クライアントモデル名のエラーを先に解決してください',
+      invalidNote: '{count} 件のモデル設定を修正してください',
       savingNote: 'このページを開いたままにしてください',
       savedFeedbackNote: '現在のページはサーバー状態と一致しています',
       searchLabel: '検索',

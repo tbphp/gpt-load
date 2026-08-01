@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { TriangleAlert } from '@lucide/vue'
 import { computed } from 'vue'
 
 const props = withDefaults(
@@ -7,10 +8,17 @@ const props = withDefaults(
     pending: boolean
     status?: 'idle' | 'saved' | 'error' | 'indeterminate'
     error?: string
+    errorPlacement?: 'inline' | 'floating'
     appearance?: 'default' | 'ledger'
     alwaysVisible?: boolean
   }>(),
-  { status: 'idle', error: '', appearance: 'default', alwaysVisible: false },
+  {
+    status: 'idle',
+    error: '',
+    errorPlacement: 'inline',
+    appearance: 'default',
+    alwaysVisible: false,
+  },
 )
 
 const visible = computed(
@@ -30,14 +38,17 @@ const visualState = computed(() => {
   <footer
     v-if="visible"
     class="sticky-save-bar"
-    :class="`sticky-save-bar--${appearance}`"
+    :class="[`sticky-save-bar--${appearance}`, `sticky-save-bar--error-${errorPlacement}`]"
     :data-status="visualState"
     :aria-busy="pending || undefined"
   >
     <div class="sticky-save-bar__status" aria-live="polite">
       <slot name="status" :dirty="dirty" :pending="pending" :status="status" :error="error" />
     </div>
-    <p v-if="error" class="sticky-save-bar__error" role="alert">{{ error }}</p>
+    <p v-if="error" class="sticky-save-bar__error" role="alert">
+      <TriangleAlert v-if="errorPlacement === 'floating'" :size="16" aria-hidden="true" />
+      <span>{{ error }}</span>
+    </p>
     <div class="sticky-save-bar__actions">
       <slot name="discard" :disabled="pending" />
       <slot name="save" :disabled="pending" />
