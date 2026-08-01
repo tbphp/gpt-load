@@ -43,6 +43,10 @@ function setOpen(value: boolean): void {
   if (value) void focusNameInput()
 }
 
+function openDialog(): void {
+  setOpen(true)
+}
+
 async function confirmDelete(): Promise<void> {
   if (!confirmed.value || pending.value) return
   pending.value = true
@@ -80,10 +84,12 @@ onBeforeUnmount(() => controller?.abort())
     @confirm="confirmDelete"
   >
     <template #trigger>
-      <AppButton variant="danger" size="compact" @click="setOpen(true)">
-        <Trash2 :size="16" aria-hidden="true" />
-        {{ t('accessKeys.delete.open') }}
-      </AppButton>
+      <slot name="trigger" :open="openDialog">
+        <AppButton variant="danger" size="compact" @click="openDialog">
+          <Trash2 :size="16" aria-hidden="true" />
+          {{ t('accessKeys.delete.open') }}
+        </AppButton>
+      </slot>
     </template>
 
     <div class="access-key-delete__body">

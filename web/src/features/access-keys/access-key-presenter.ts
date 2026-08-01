@@ -1,4 +1,9 @@
-import type { AccessKeyDto, AccessProtocol, GroupOptionDto } from '@/api/control/types'
+import type {
+  AccessKeyCollectionItemDto,
+  AccessKeyDto,
+  AccessProtocol,
+  GroupOptionDto,
+} from '@/api/control/types'
 
 export interface AccessKeyPresentation {
   id: number
@@ -10,6 +15,7 @@ export interface AccessKeyPresentation {
   rpm: string
   createdAt: number
   updatedAt: number
+  lastRequestAt: number | null
 }
 
 export interface AccessKeyPresenterLabels {
@@ -29,7 +35,7 @@ export interface AccessKeyPresenterOptions {
 }
 
 export function presentAccessKey(
-  accessKey: AccessKeyDto,
+  accessKey: AccessKeyCollectionItemDto,
   groups: readonly GroupOptionDto[],
   options: AccessKeyPresenterOptions,
 ): AccessKeyPresentation {
@@ -65,5 +71,6 @@ export function presentAccessKey(
         : `${new Intl.NumberFormat(options.locale).format(accessKey.rpm_limit)} RPM`,
     createdAt: accessKey.created_at_ms,
     updatedAt: accessKey.updated_at_ms,
+    lastRequestAt: accessKey.last_request_at_ms,
   }
 }

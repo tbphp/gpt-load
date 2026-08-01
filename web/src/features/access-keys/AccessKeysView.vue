@@ -6,7 +6,12 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
 import { useApiClient } from '@/api/client-context'
-import { accessKeyCollectionQueryOptions, accessKeyResources } from '@/app/resources/access-keys'
+import {
+  accessKeyCollectionQueryOptions,
+  accessKeyResources,
+  updateAccessKey,
+} from '@/app/resources/access-keys'
+import { RequestCancelledError } from '@/api/errors'
 import { groupOptionsQueryOptions } from '@/app/resources/groups'
 import { applyInvalidationPlan, mutationInvalidationPlans } from '@/app/resources/invalidation'
 import { accessKeysLocation } from '@/app/route-locations'
@@ -17,7 +22,6 @@ import CollectionStatusSummary from '@/components/collection/CollectionStatusSum
 import LedgerSheet from '@/components/layout/LedgerSheet.vue'
 import PageFrame from '@/components/layout/PageFrame.vue'
 import AppButton from '@/components/ui/AppButton.vue'
-import AppSelect from '@/components/ui/AppSelect.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
@@ -26,7 +30,6 @@ import PaginationBar from '@/components/ui/PaginationBar.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import type {
   AccessKeyCollectionFilters,
-  AccessKeyCollectionScope,
   AccessKeyCollectionStatus,
   AccessKeyDto,
 } from '@/api/control/types'
@@ -57,15 +60,14 @@ const editOperation = ref<PendingAccessKeyEditOperation | null>(null)
 const viewRoot = ref<HTMLElement | null>(null)
 const collection = ref<InstanceType<typeof AccessKeyCollection> | null>(null)
 const deletionAnnouncement = ref('')
+const pendingStatusIDs = ref(new Set<number>())
+const statusControllers = new Map<number, AbortController>()
 const accessKeysQuery = useQuery(accessKeyCollectionQueryOptions(client, filters))
 const groupsQuery = useQuery(groupOptionsQueryOptions(client))
 const data = computed(() => accessKeysQuery.data.value)
 const collectionBusy = computed(() => data.value !== undefined && accessKeysQuery.isFetching.value)
 const hasFilterCriteria = computed(
-  () =>
-    filters.value.q !== undefined ||
-    filters.value.status !== undefined ||
-    filters.value.scope !== undefined,
+  () => filters.value.q !== undefined || filters.value.status !== undefined,
 )
 const statusSummaryItems = computed(() => {
   const summary = data.value?.summary
@@ -91,11 +93,6 @@ const statusSummaryItems = computed(() => {
     },
   ]
 })
-const scopeSelectOptions = computed(() => [
-  { value: 'all', label: t('accessKeys.collection.filters.allScopes') },
-  { value: 'unlimited', label: t('accessKeys.collection.scope.unlimited') },
-  { value: 'restricted', label: t('accessKeys.collection.scope.restricted') },
-])
 const groupCatalogState = computed(() => {
   if (groupsQuery.isError.value) return groupsQuery.data.value ? 'stale' : 'error'
   if (groupsQuery.isPending.value) return 'loading'
@@ -160,6 +157,8 @@ useVisibleRefetch([accessKeysQuery.refetch])
 onBeforeUnmount(() => {
   mounted = false
   if (searchTimer !== undefined) clearTimeout(searchTimer)
+  for (const controller of statusControllers.values()) controller.abort()
+  statusControllers.clear()
   queryClient.removeQueries({ queryKey: accessKeyResources.collection.queryKey })
 })
 
@@ -169,9 +168,7 @@ function routeWithFilters(next: AccessKeyCollectionFilters, replace = false): vo
   void (replace ? router.replace(location) : router.push(location))
 }
 
-function updateConditions(
-  patch: Partial<Pick<AccessKeyCollectionFilters, 'q' | 'status' | 'scope'>>,
-): void {
+function updateConditions(patch: Partial<Pick<AccessKeyCollectionFilters, 'q' | 'status'>>): void {
   routeWithFilters({
     ...filters.value,
     q: constrainAccessKeyCollectionSearchQuery(searchDraft.value),
@@ -197,10 +194,6 @@ function clearSearch(): void {
 
 function setStatus(status: string | undefined): void {
   updateConditions({ status: status as AccessKeyCollectionStatus | undefined })
-}
-
-function setScope(scope: string): void {
-  updateConditions({ scope: scope === 'all' ? undefined : (scope as AccessKeyCollectionScope) })
 }
 
 function resetConditions(): void {
@@ -283,6 +276,48 @@ async function handleDeleted(name: string): Promise<void> {
   toast.show({ message: t('accessKeys.toast.deleted', { name }) })
   const target = viewRoot.value?.querySelector('button.access-key-create')
   if (target instanceof HTMLButtonElement && target.isConnected) target.focus()
+}
+
+function setStatusPending(id: number, pending: boolean): void {
+  const next = new Set(pendingStatusIDs.value)
+  if (pending) next.add(id)
+  else next.delete(id)
+  pendingStatusIDs.value = next
+}
+
+async function toggleStatus(accessKey: AccessKeyDto): Promise<void> {
+  if (statusControllers.has(accessKey.id)) return
+  const status = accessKey.status === 'active' ? 'disabled' : 'active'
+  const controller = new AbortController()
+  statusControllers.set(accessKey.id, controller)
+  setStatusPending(accessKey.id, true)
+  try {
+    try {
+      await updateAccessKey(client, accessKey.id, { status }, controller.signal)
+    } catch (error: unknown) {
+      if (!(error instanceof RequestCancelledError) && mounted) {
+        toast.show({ message: t('accessKeys.actions.updateFailed'), tone: 'danger' })
+      }
+      return
+    }
+    if (!mounted) return
+    try {
+      await applyInvalidationPlan(queryClient, mutationInvalidationPlans.accessKey.update)
+    } catch {
+      void queryClient.invalidateQueries({ queryKey: accessKeyResources.collection.queryKey })
+    }
+    if (!mounted) return
+    toast.show({
+      message: t(status === 'active' ? 'accessKeys.toast.enabled' : 'accessKeys.toast.disabled', {
+        name: accessKey.name,
+      }),
+    })
+  } finally {
+    if (statusControllers.get(accessKey.id) === controller) {
+      statusControllers.delete(accessKey.id)
+      setStatusPending(accessKey.id, false)
+    }
+  }
 }
 </script>
 
@@ -389,6 +424,7 @@ async function handleDeleted(name: string): Promise<void> {
             <CollectionFilterBar
               :label="t('accessKeys.collection.filters.region')"
               :show-result="hasFilterCriteria"
+              single-column
             >
               <label class="collection-filter-field collection-filter-field--search">
                 <span class="collection-filter-label">
@@ -415,19 +451,6 @@ async function handleDeleted(name: string): Promise<void> {
                     <X :size="14" aria-hidden="true" />
                   </IconButton>
                 </span>
-              </label>
-
-              <label class="collection-filter-field">
-                <span class="collection-filter-label">
-                  {{ t('accessKeys.collection.filters.scopeLabel') }}
-                </span>
-                <AppSelect
-                  size="compact"
-                  :label="t('accessKeys.collection.filters.scopeLabel')"
-                  :model-value="filters.scope ?? 'all'"
-                  :options="scopeSelectOptions"
-                  @update:model-value="setScope"
-                />
               </label>
 
               <template #result>
@@ -479,10 +502,14 @@ async function handleDeleted(name: string): Promise<void> {
               ref="collection"
               :access-keys="data.items"
               :groups="groupsQuery.data.value ?? []"
+              :total="data.summary.total"
               :filtered-total="data.pagination.total_items"
               :page="data.pagination.page"
               :page-size="data.pagination.page_size"
+              :busy-ids="pendingStatusIDs"
               @open="openKey"
+              @toggle="toggleStatus"
+              @deleted="handleDeleted"
             />
             <PaginationBar
               :page="data.pagination.page"

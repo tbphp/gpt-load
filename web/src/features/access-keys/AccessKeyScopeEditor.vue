@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Plus } from '@lucide/vue'
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import type { AccessKeyFiltersDto, AccessProtocol } from '@/api/control/types'
@@ -37,6 +38,12 @@ const emit = defineEmits<{
   addModel: []
 }>()
 const { t } = useI18n()
+const protocolMultiSelectOptions = computed<SearchableMultiSelectOption[]>(() =>
+  props.protocolOptions.map((protocol) => ({
+    value: protocol,
+    label: t(`common.protocols.${protocol}`),
+  })),
+)
 
 function catalogUnavailable(): boolean {
   return props.groupCatalogState === 'loading' || props.groupCatalogState === 'error'
@@ -77,12 +84,15 @@ function updateModels(values: SearchableMultiSelectValue[]): void {
   )
 }
 
-function toggleProtocol(protocol: AccessProtocol, event: Event): void {
-  const checked = (event.target as HTMLInputElement).checked
-  const next = checked
-    ? [...new Set([...props.filters.protocols, protocol])]
-    : props.filters.protocols.filter((value) => value !== protocol)
-  emit('update:protocols', next)
+function updateProtocols(values: SearchableMultiSelectValue[]): void {
+  const allowed = new Set<AccessProtocol>(props.protocolOptions)
+  emit(
+    'update:protocols',
+    values.filter(
+      (value): value is AccessProtocol =>
+        typeof value === 'string' && allowed.has(value as AccessProtocol),
+    ),
+  )
 }
 </script>
 
@@ -98,7 +108,8 @@ function toggleProtocol(protocol: AccessProtocol, event: Event): void {
         :model-value="modes.groups"
         :label="t('accessKeys.drawer.groups')"
         :options="modeOptions('groups')"
-        size="touch"
+        appearance="drawer"
+        size="compact"
         @update:model-value="requestScopeMode('groups', $event as AccessKeyScopeMode)"
       />
     </div>
@@ -122,6 +133,9 @@ function toggleProtocol(protocol: AccessProtocol, event: Event): void {
         :model-value="filters.groups"
         :disabled="disabled || catalogUnavailable()"
         :loading="groupCatalogState === 'loading'"
+        always-open
+        auto-focus-search
+        size="compact"
         @update:model-value="updateGroups"
       />
     </div>
@@ -138,7 +152,8 @@ function toggleProtocol(protocol: AccessProtocol, event: Event): void {
         :model-value="modes.protocols"
         :label="t('accessKeys.drawer.protocols')"
         :options="modeOptions('protocols')"
-        size="touch"
+        appearance="drawer"
+        size="compact"
         @update:model-value="requestScopeMode('protocols', $event as AccessKeyScopeMode)"
       />
     </div>
@@ -146,19 +161,26 @@ function toggleProtocol(protocol: AccessProtocol, event: Event): void {
       <div v-if="modes.protocols === 'all'" class="permission-note">
         <i aria-hidden="true" />{{ t('accessKeys.drawer.allProtocolsAllowed') }}
       </div>
-      <div v-else class="protocol-options">
-        <label v-for="protocol in protocolOptions" :key="protocol" class="access-key-drawer__check">
-          <input
-            type="checkbox"
-            :checked="filters.protocols.includes(protocol)"
-            :disabled="optionDisabled('protocols')"
-            @change="toggleProtocol(protocol, $event)"
-          />
-          <span class="access-key-drawer__check-content">
-            <span>{{ t(`common.protocols.${protocol}`) }}</span>
-          </span>
-        </label>
-      </div>
+      <SearchableMultiSelect
+        v-else
+        id="access-key-protocols"
+        :label="t('accessKeys.drawer.protocolSelectorLabel')"
+        :search-label="t('accessKeys.drawer.protocols')"
+        search-placeholder=""
+        :empty-label="t('accessKeys.drawer.noProtocolOptions')"
+        :loading-label="t('accessKeys.drawer.groupOptionsLoading')"
+        :selected-label="t('accessKeys.drawer.selectedCount', { count: '{count}' })"
+        :add-label="t('accessKeys.drawer.addProtocol')"
+        :clear-label="t('accessKeys.drawer.clearSelected')"
+        :remove-label="(label) => t('accessKeys.drawer.removeSelection', { label })"
+        :options="protocolMultiSelectOptions"
+        :model-value="filters.protocols"
+        :disabled="optionDisabled('protocols')"
+        :searchable="false"
+        always-open
+        size="compact"
+        @update:model-value="updateProtocols"
+      />
     </div>
   </fieldset>
 
@@ -173,7 +195,8 @@ function toggleProtocol(protocol: AccessProtocol, event: Event): void {
         :model-value="modes.models"
         :label="t('accessKeys.drawer.models')"
         :options="modeOptions('models')"
-        size="touch"
+        appearance="drawer"
+        size="compact"
         @update:model-value="requestScopeMode('models', $event as AccessKeyScopeMode)"
       />
     </div>
@@ -197,6 +220,9 @@ function toggleProtocol(protocol: AccessProtocol, event: Event): void {
           :model-value="filters.models"
           :disabled="optionDisabled('models')"
           :loading="groupCatalogState === 'loading'"
+          always-open
+          auto-focus-search
+          size="compact"
           @update:model-value="updateModels"
         />
         <div class="access-key-drawer__model-entry">
@@ -272,36 +298,6 @@ function toggleProtocol(protocol: AccessProtocol, event: Event): void {
   flex: none;
   border-radius: 50%;
   background: var(--color-action);
-}
-.protocol-options {
-  display: grid;
-  gap: 6px;
-}
-.access-key-drawer__check {
-  display: flex;
-  min-height: var(--touch-target);
-  align-items: center;
-  gap: var(--space-2);
-  border-radius: var(--radius-tag);
-  padding: 4px 7px;
-}
-.access-key-drawer__check:hover {
-  background: var(--color-surface-sunken);
-}
-.access-key-drawer__check input {
-  width: 15px;
-  height: 15px;
-  flex: none;
-}
-.access-key-drawer__check-content {
-  display: grid;
-  gap: 2px;
-  font-size: var(--text-sm);
-}
-.access-key-drawer__check-content small {
-  margin: 0;
-  color: var(--color-text-faint);
-  font-size: var(--text-label-xs);
 }
 .access-key-drawer__model-risk {
   border: 1px solid var(--color-warning);

@@ -43,7 +43,10 @@ function updatePageSize(event: Event): void {
     :class="`pagination-bar--${appearance ?? 'default'}`"
     :aria-label="t('common.pagination.label')"
   >
-    <span class="pagination-bar__range" aria-live="polite">
+    <span class="pagination-bar__range" aria-hidden="true">
+      {{ t('common.pagination.total', { total: totalItems }) }}
+    </span>
+    <span class="sr-only" aria-live="polite">
       {{ t('common.pagination.range', { from, to, total: totalItems }) }}
     </span>
     <span

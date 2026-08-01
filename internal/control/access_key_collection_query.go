@@ -16,7 +16,6 @@ const (
 type AccessKeyCollectionQuery struct {
 	Query    string
 	Status   *state.AccessKeyStatus
-	Scope    *AccessKeyCollectionScope
 	Page     int64
 	PageSize int64
 }
@@ -77,9 +76,6 @@ func matchesAccessKeyCollectionQuery(
 	query AccessKeyCollectionQuery,
 ) bool {
 	if query.Status != nil && record.Status != *query.Status {
-		return false
-	}
-	if query.Scope != nil && record.Scope != *query.Scope {
 		return false
 	}
 	return query.Query == "" ||

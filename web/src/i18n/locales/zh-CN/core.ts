@@ -8,6 +8,7 @@ export default {
     copyFailed: '复制失败',
     pagination: {
       label: '分页',
+      total: '共 {total} 条',
       range: '显示 {from}–{to} 条 · 共 {total} 条',
       pageSize: '{size} / 页',
       pageSizeLabel: '每页条数',

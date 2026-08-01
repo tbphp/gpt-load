@@ -163,19 +163,18 @@ function handleSegmentKeydown(event: KeyboardEvent): void {
   border-color: var(--color-text);
 }
 .segmented-control__list--drawer {
-  min-height: 32px;
   border-color: var(--color-border-control);
-  border-radius: var(--radius-control);
-  padding: 2px;
+  border-radius: 5px;
 }
 .segmented-control__list--drawer .segmented-control__trigger {
-  min-width: 48px;
-  min-height: 26px;
+  min-width: 52px;
+  min-height: 27px;
+  height: 27px;
   border: 0;
   border-radius: 5px;
-  padding: 0 9px;
+  padding: 0 8px;
   color: var(--color-text-faint);
-  font-size: var(--text-sm);
+  font-size: var(--text-label-xs);
 }
 .segmented-control__list--drawer
   .segmented-control__trigger:hover:not(:disabled):not([data-state='active']) {

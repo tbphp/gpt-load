@@ -8,6 +8,7 @@ export default {
     copyFailed: 'Copy failed',
     pagination: {
       label: 'Pagination',
+      total: 'Total: {total}',
       range: 'Showing {from}–{to} of {total}',
       pageSize: '{size} / page',
       pageSizeLabel: 'Items per page',
