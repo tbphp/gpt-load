@@ -60,7 +60,6 @@ async function setDrawerOpen(open: boolean): Promise<void> {
     <PageHeader
       id="model-prices-title"
       :title="t('modelPrices.title')"
-      :description="t('modelPrices.description')"
     >
       <template #actions>
         <AppButton @click="addOverride">

@@ -476,11 +476,6 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.groups-ledger :deep(.page-header) {
-  border-bottom: 1px solid var(--color-border-control);
-  padding-bottom: var(--space-5);
-}
-
 .stale-banner {
   margin-top: 14px;
 }

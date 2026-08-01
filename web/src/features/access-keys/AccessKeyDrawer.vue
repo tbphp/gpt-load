@@ -8,7 +8,6 @@ import { useApiClient } from '@/api/client-context'
 import {
   createAccessKey,
   listAccessKeyCollection,
-  revealAccessKey,
   updateAccessKey,
   type CreateAccessKeyRequest,
 } from '@/app/resources/access-keys'
@@ -28,9 +27,9 @@ import {
 } from './access-key-options'
 import type { PendingAccessKeyCreateOperation } from './access-key-create-operation'
 import type { PendingAccessKeyEditOperation } from './access-key-edit-operation'
+import AccessKeyDeleteDialog from './AccessKeyDeleteDialog.vue'
 import AccessKeyFormFields from './AccessKeyFormFields.vue'
 import AccessKeyOperationFeedback from './AccessKeyOperationFeedback.vue'
-import AccessKeyResultPanel from './AccessKeyResultPanel.vue'
 import AccessKeyScopeEditor from './AccessKeyScopeEditor.vue'
 import {
   materializeAccessKeyFilters,
@@ -49,13 +48,13 @@ import {
   isAccessKeyDraftValid,
   type AccessKeyDraft,
 } from './access-key-patch'
-import { useEphemeralSecret } from './use-ephemeral-secret'
 
 const props = withDefaults(
   defineProps<{
     open: boolean
     accessKey: AccessKeyDto | null
     groups: GroupOptionDto[]
+    total: number
     groupCatalogState?: GroupCatalogState
     createOperation?: PendingAccessKeyCreateOperation | null
     editOperation?: PendingAccessKeyEditOperation | null
@@ -66,6 +65,8 @@ const emit = defineEmits<{
   'update:open': [open: boolean]
   'update:createOperation': [operation: PendingAccessKeyCreateOperation | null]
   'update:editOperation': [operation: PendingAccessKeyEditOperation | null]
+  saved: [kind: 'created' | 'updated', name: string]
+  deleted: [name: string]
 }>()
 const client = useApiClient()
 const queryClient = useQueryClient()
@@ -73,7 +74,6 @@ const { t } = useI18n()
 const formFields = ref<InstanceType<typeof AccessKeyFormFields>>()
 const base = ref<AccessKeyDto | null>(null)
 const draft = ref<AccessKeyDraft>(createAccessKeyDraft())
-const result = ref<AccessKeyDto | null>(null)
 const operationID = ref('')
 const createPayload = ref<CreateAccessKeyRequest | null>(null)
 const createOperationRetained = ref(false)
@@ -83,16 +83,10 @@ const failed = ref(false)
 const mutationState = ref<'idle' | 'indeterminate' | 'reconciling'>('idle')
 const editReconciliation = ref<PendingAccessKeyEditOperation | null>(null)
 const editNotApplied = ref(false)
-const revealPending = ref(false)
-const revealFailed = ref(false)
-const resultRevealed = ref(false)
 const modelInput = ref('')
 let controller: AbortController | undefined
-let revealController: AbortController | undefined
-const ephemeralSecret = useEphemeralSecret()
 
 const editing = computed(() => base.value !== null)
-const createCompleted = computed(() => !editing.value && result.value !== null)
 const createOperationActive = computed(
   () =>
     !editing.value &&
@@ -103,10 +97,6 @@ const formLocked = computed(
   () => pending.value || createOperationActive.value || editReconciliation.value !== null,
 )
 const closeBlocked = computed(() => pending.value)
-const resultSecret = computed(() =>
-  result.value ? ephemeralSecret.read(`access-key:${result.value.id}`) : null,
-)
-const visibleResultSecret = computed(() => (resultRevealed.value ? resultSecret.value : null))
 const protocolOptions = computed(() => accessKeyProtocolOptions())
 const selectedGroupIDs = computed(() =>
   draft.value.scopeModes.groups === 'restricted' ? draft.value.filters.groups : [],
@@ -148,7 +138,6 @@ const dirty = computed(() => isAccessKeyDraftDirty(draft.value, base.value))
 const unsavedDirty = computed(
   () =>
     dirty.value &&
-    !createCompleted.value &&
     !(createOperationActive.value && createOperationRetained.value) &&
     !(editReconciliation.value && editOperationRetained.value),
 )
@@ -204,10 +193,7 @@ const groupOptions = computed(() => {
   const baseGroupIDs = new Set(base.value?.filters.groups ?? [])
   const options = props.groups.map((group) => ({
     id: group.id,
-    label: `${group.name} · #${group.id}`,
-    description: group.enabled
-      ? t('accessKeys.drawer.groupEnabled')
-      : t('accessKeys.drawer.groupDisabled'),
+    label: group.name,
     disabled: props.groupCatalogState === 'stale' && !baseGroupIDs.has(group.id),
   }))
   const known = new Set(options.map(({ id }) => id))
@@ -215,8 +201,7 @@ const groupOptions = computed(() => {
     if (!known.has(id)) {
       options.push({
         id,
-        label: t('accessKeys.drawer.unknownGroup', { id }),
-        description: t('accessKeys.drawer.groupDangling'),
+        label: t('accessKeys.drawer.unknownGroup'),
         disabled: false,
       })
     }
@@ -228,6 +213,7 @@ const unsavedChanges = useUnsavedChanges(unsavedDirty, { blocked: closeBlocked }
 function cloneCreatePayload(payload: CreateAccessKeyRequest): CreateAccessKeyRequest {
   return {
     name: payload.name,
+    status: payload.status,
     filters: {
       groups: [...payload.filters.groups],
       protocols: [...payload.filters.protocols],
@@ -239,21 +225,14 @@ function cloneCreatePayload(payload: CreateAccessKeyRequest): CreateAccessKeyReq
 
 function clearLocalState(): void {
   controller?.abort()
-  revealController?.abort()
   controller = undefined
-  revealController = undefined
-  ephemeralSecret.clear()
   base.value = null
   draft.value = createAccessKeyDraft()
-  result.value = null
   operationID.value = ''
   createPayload.value = null
   createOperationRetained.value = false
   editOperationRetained.value = false
   pending.value = false
-  revealPending.value = false
-  revealFailed.value = false
-  resultRevealed.value = false
   failed.value = false
   mutationState.value = 'idle'
   editReconciliation.value = null
@@ -277,7 +256,6 @@ async function resetForOpen(): Promise<void> {
           filters: carriedEditOperation.patch.filters ?? carriedEditOperation.base.filters,
         })
       : createAccessKeyDraft(props.accessKey)
-  result.value = null
   operationID.value = props.accessKey
     ? ''
     : (carriedCreateOperation?.idempotencyKey ?? crypto.randomUUID())
@@ -286,8 +264,6 @@ async function resetForOpen(): Promise<void> {
     : null
   createOperationRetained.value = carriedCreateOperation !== null
   editOperationRetained.value = carriedEditOperation !== null
-  ephemeralSecret.clear()
-  resultRevealed.value = false
   failed.value = false
   mutationState.value = carriedCreateOperation?.state ?? carriedEditOperation?.state ?? 'idle'
   editReconciliation.value = carriedEditOperation
@@ -302,6 +278,10 @@ function setOpen(open: boolean): void {
   if (!open && !unsavedChanges.confirmDiscard()) return
   if (!open) clearLocalState()
   emit('update:open', open)
+}
+
+function handleDeleted(name: string): void {
+  emit('deleted', name)
 }
 
 watch(
@@ -379,7 +359,6 @@ function canChangeScopeValue(
 }
 
 function setScopeMode(dimension: AccessKeyScopeDimension, nextMode: AccessKeyScopeMode): void {
-  const currentMode = draft.value.scopeModes[dimension]
   const catalogBlocksChange =
     dimension === 'groups'
       ? props.groupCatalogState !== 'ready'
@@ -391,18 +370,11 @@ function setScopeMode(dimension: AccessKeyScopeDimension, nextMode: AccessKeySco
   ) {
     return
   }
-  if (
-    currentMode === 'restricted' &&
-    nextMode === 'all' &&
-    !window.confirm(t('accessKeys.drawer.expandScopeConfirmation'))
-  ) {
-    return
-  }
   draft.value.scopeModes[dimension] = nextMode
 }
 
 async function save(): Promise<void> {
-  if (createCompleted.value || pending.value) {
+  if (pending.value) {
     return
   }
   if (editReconciliation.value) {
@@ -424,14 +396,11 @@ async function save(): Promise<void> {
   failed.value = false
   editNotApplied.value = false
   mutationState.value = 'idle'
-  result.value = null
-  resultRevealed.value = false
-  ephemeralSecret.clear()
-  const expectedSecretEpoch = ephemeralSecret.epoch.value
   controller?.abort()
   controller = new AbortController()
   const activeController = controller
   const activeOperationID = operationID.value
+  let savedName = ''
   try {
     if (currentBase) {
       const saved = await updateAccessKey(
@@ -449,7 +418,7 @@ async function save(): Promise<void> {
       }
       base.value = saved
       draft.value = createAccessKeyDraft(saved)
-      result.value = null
+      savedName = saved.name
       editReconciliation.value = null
       editOperationRetained.value = false
       emit('update:editOperation', null)
@@ -467,29 +436,16 @@ async function save(): Promise<void> {
       ) {
         return
       }
-      const key = saved.key
-      const metadata: AccessKeyDto = {
-        id: saved.id,
-        name: saved.name,
-        masked_key: saved.masked_key,
-        status: saved.status,
-        filters: saved.filters,
-        rpm_limit: saved.rpm_limit,
-        created_at_ms: saved.created_at_ms,
-        updated_at_ms: saved.updated_at_ms,
-      }
-      result.value = metadata
+      savedName = saved.name
       createPayload.value = null
       createOperationRetained.value = false
       emit('update:createOperation', null)
-      if (key && ephemeralSecret.epoch.value === expectedSecretEpoch) {
-        ephemeralSecret.expose(`access-key:${metadata.id}`, key)
-      }
     }
     await applyInvalidationPlan(
       queryClient,
       mutationInvalidationPlans.accessKey[currentBase ? 'update' : 'create'],
     )
+    emit('saved', currentBase ? 'updated' : 'created', savedName)
   } catch (error: unknown) {
     if (controller !== activeController || !props.open || operationID.value !== activeOperationID) {
       return
@@ -587,6 +543,7 @@ async function reconcileEdit(): Promise<void> {
         mutationInvalidationPlans.accessKey.reconcileConfirmed,
         () => controller === activeController && props.open,
       )
+      if (controller === activeController && props.open) emit('saved', 'updated', latest.name)
       return
     }
     if (
@@ -673,47 +630,6 @@ async function findAccessKeyForReconciliation(
   return records.get(id)
 }
 
-async function revealResultSecret(): Promise<void> {
-  const current = result.value
-  if (!current || revealPending.value) return
-  if (resultSecret.value) {
-    resultRevealed.value = true
-    return
-  }
-  revealController?.abort()
-  const controller = new AbortController()
-  revealController = controller
-  const expectedEpoch = ephemeralSecret.epoch.value
-  revealPending.value = true
-  revealFailed.value = false
-  try {
-    const revealed = await revealAccessKey(client, current.id, controller.signal)
-    if (
-      revealController === controller &&
-      result.value?.id === current.id &&
-      props.open &&
-      ephemeralSecret.epoch.value === expectedEpoch
-    ) {
-      ephemeralSecret.expose(`access-key:${current.id}`, revealed.key)
-      resultRevealed.value = true
-    }
-  } catch (error: unknown) {
-    if (revealController === controller && !(error instanceof RequestCancelledError)) {
-      revealFailed.value = true
-    }
-  } finally {
-    if (revealController === controller) {
-      revealController = undefined
-      revealPending.value = false
-    }
-  }
-}
-
-function concealResultSecret(): void {
-  resultRevealed.value = false
-  ephemeralSecret.clear()
-}
-
 onBeforeUnmount(clearLocalState)
 </script>
 
@@ -721,101 +637,187 @@ onBeforeUnmount(clearLocalState)
   <AppDrawer
     :open="open"
     :title="editing ? t('accessKeys.drawer.editTitle') : t('accessKeys.drawer.createTitle')"
-    :description="t('accessKeys.drawer.description')"
+    :description="
+      t(editing ? 'accessKeys.drawer.editDescription' : 'accessKeys.drawer.createDescription')
+    "
     :close-label="t('accessKeys.drawer.close')"
     :dismissible="!closeBlocked"
+    show-description
     @update:open="setOpen"
   >
     <template #trigger><slot name="trigger" /></template>
 
-    <form class="access-key-drawer" @submit.prevent="save">
+    <form id="access-key-drawer-form" class="access-key-drawer" @submit.prevent="save">
       <AccessKeyOperationFeedback
         :failed="failed"
         :edit-not-applied="editNotApplied"
-        :reveal-failed="revealFailed"
         :mutation-feedback-key="mutationFeedbackKey"
         :scope-feedback-key="scopeFeedbackKey"
         :show-scope-feedback="!createOperationActive"
       />
 
-      <template v-if="!createCompleted">
+      <section class="drawer-section">
+        <h3>{{ t('accessKeys.drawer.basicInformation') }}</h3>
+        <p>{{ t('accessKeys.drawer.basicInformationDescription') }}</p>
         <AccessKeyFormFields
           ref="formFields"
           :name="draft.name"
           :status="draft.status"
           :rpm-limit="draft.rpm_limit"
-          :editing="editing"
           :disabled="formLocked"
           @update:name="draft.name = $event"
           @update:status="draft.status = $event"
           @update:rpm-limit="draft.rpm_limit = $event"
         />
-        <AccessKeyScopeEditor
-          v-model:model-input="modelInput"
-          :modes="draft.scopeModes"
-          :filters="draft.filters"
-          :group-options="groupOptions"
-          :group-catalog-state="groupCatalogState"
-          :protocol-options="protocolOptions"
-          :supported-protocols="supportedProtocolOptions"
-          :model-options="modelOptions"
-          :disabled="formLocked"
-          :model-mismatch="modelMismatch"
-          @set-scope-mode="setScopeMode"
-          @update:groups="setGroups"
-          @update:protocols="setProtocols"
-          @update:models="setModels"
-          @add-model="addModel"
-        />
-      </template>
+      </section>
 
-      <AccessKeyResultPanel
-        v-if="result"
-        :result="result"
-        :secret="visibleResultSecret"
-        :reveal-pending="revealPending"
-        @reveal="revealResultSecret"
-        @clear="concealResultSecret"
-      />
-
-      <div class="access-key-drawer__actions">
-        <AppButton variant="secondary" :disabled="closeBlocked" @click="setOpen(false)">
-          {{ t(createCompleted ? 'common.close' : 'common.cancel') }}
-        </AppButton>
-        <AppButton
-          v-if="!createCompleted"
-          type="submit"
-          :busy="pending"
-          :disabled="!editReconciliation && !createOperationActive && (!valid || !dirty)"
-        >
-          <Save :size="16" aria-hidden="true" />{{
-            t(
-              editReconciliation || createOperationActive
-                ? 'accessKeys.drawer.checkResult'
-                : 'accessKeys.drawer.save',
-            )
-          }}
-        </AppButton>
-      </div>
+      <section class="drawer-section">
+        <h3>{{ t('accessKeys.drawer.permissionScope') }}</h3>
+        <p>{{ t('accessKeys.drawer.permissionScopeDescription') }}</p>
+        <div class="access-key-scope-logic" :aria-label="t('accessKeys.drawer.scopeLogic')">
+          <span>{{ t('accessKeys.drawer.scopeLogicGroups') }}</span>
+          <b>AND</b>
+          <span>{{ t('accessKeys.drawer.scopeLogicProtocols') }}</span>
+          <b>AND</b>
+          <span>{{ t('accessKeys.drawer.scopeLogicModels') }}</span>
+        </div>
+        <div class="access-key-scope-editors">
+          <AccessKeyScopeEditor
+            v-model:model-input="modelInput"
+            :modes="draft.scopeModes"
+            :filters="draft.filters"
+            :group-options="groupOptions"
+            :group-catalog-state="groupCatalogState"
+            :protocol-options="protocolOptions"
+            :model-options="modelOptions"
+            :disabled="formLocked"
+            :model-mismatch="modelMismatch"
+            @set-scope-mode="setScopeMode"
+            @update:groups="setGroups"
+            @update:protocols="setProtocols"
+            @update:models="setModels"
+            @add-model="addModel"
+          />
+        </div>
+        <div class="access-key-scope-warning">
+          <span aria-hidden="true">!</span>
+          <p>{{ t('accessKeys.drawer.scopeExpansionWarning') }}</p>
+        </div>
+      </section>
     </form>
+
+    <template #footer>
+      <div v-if="editing && base" class="access-key-drawer__delete">
+        <AccessKeyDeleteDialog
+          :access-key="base"
+          :total="total"
+          @deleted="handleDeleted"
+        />
+      </div>
+      <AppButton variant="secondary" :disabled="closeBlocked" @click="setOpen(false)">
+        {{ t('common.cancel') }}
+      </AppButton>
+      <AppButton
+        type="submit"
+        form="access-key-drawer-form"
+        :busy="pending"
+        :disabled="!editReconciliation && !createOperationActive && (!valid || !dirty)"
+      >
+        <Save :size="16" aria-hidden="true" />{{
+          t(
+            editReconciliation || createOperationActive
+              ? 'accessKeys.drawer.checkResult'
+              : editing
+                ? 'accessKeys.drawer.saveChanges'
+                : 'accessKeys.drawer.createKey',
+          )
+        }}
+      </AppButton>
+    </template>
   </AppDrawer>
 </template>
 
 <style scoped>
 .access-key-drawer {
-  display: grid;
-  gap: var(--space-5);
-  font-size: 1rem;
+  display: block;
+  font-size: var(--text-body);
 }
-.access-key-drawer__actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2);
+.access-key-drawer__delete {
+  margin-right: auto;
 }
-.access-key-drawer__actions {
-  justify-content: flex-end;
+.drawer-section + .drawer-section {
+  margin-top: 22px;
   border-top: 1px solid var(--color-border-subtle);
-  padding-top: var(--space-4);
+  padding-top: 20px;
+}
+.drawer-section h3 {
+  margin: 0 0 4px;
+  font-size: var(--text-meta);
+}
+.drawer-section > p {
+  margin: 0 0 12px;
+  color: var(--color-text-faint);
+  font-size: var(--text-label-xs);
+}
+.access-key-scope-logic {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr auto 1fr;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-sunken);
+  padding: 9px;
+  text-align: center;
+}
+.access-key-scope-logic span {
+  border-radius: var(--radius-tag);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  padding: 6px;
+  font-size: var(--text-label-xs);
+}
+.access-key-scope-logic b {
+  color: var(--color-text-faint);
+  font-family: var(--font-mono);
+  font-size: 9px;
+}
+.access-key-scope-editors {
+  margin-top: 12px;
+}
+.access-key-scope-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 12px;
+  border: 1px solid var(--color-warning);
+  border-radius: var(--radius-control);
+  background: var(--color-warning-bg);
+  color: var(--color-warning);
+  padding: 10px 12px;
+  font-size: var(--text-sm);
+}
+.access-key-scope-warning > span {
+  display: grid;
+  width: 17px;
+  height: 17px;
+  flex: none;
+  place-items: center;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  font-family: var(--font-serif);
+  font-size: var(--text-label-xs);
+  font-weight: 700;
+}
+.access-key-scope-warning p {
+  margin: 0;
+}
+@media (max-width: 480px) {
+  .access-key-scope-logic {
+    grid-template-columns: 1fr;
+  }
+  .access-key-scope-logic b::after {
+    content: ' · ';
+  }
 }
 </style>

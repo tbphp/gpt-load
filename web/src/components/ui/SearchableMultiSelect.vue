@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Search, X } from '@lucide/vue'
+import { Plus, Search, X } from '@lucide/vue'
 import { computed, ref } from 'vue'
 
 export type SearchableMultiSelectValue = string | number
@@ -20,6 +20,7 @@ const props = withDefaults(
     emptyLabel: string
     loadingLabel: string
     selectedLabel: string
+    addLabel: string
     clearLabel: string
     removeLabel: (label: string) => string
     options: SearchableMultiSelectOption[]
@@ -32,6 +33,7 @@ const props = withDefaults(
 const emit = defineEmits<{ 'update:modelValue': [values: SearchableMultiSelectValue[]] }>()
 
 const query = ref('')
+const pickerOpen = ref(false)
 const selected = computed(() => new Set(props.modelValue))
 const normalizedQuery = computed(() => query.value.trim().toLocaleLowerCase())
 const filteredOptions = computed(() => {
@@ -80,30 +82,8 @@ function clear(): void {
 
 <template>
   <section class="searchable-multi-select" :aria-labelledby="`${id}-label`">
-    <div class="searchable-multi-select__head">
-      <span :id="`${id}-label`" class="searchable-multi-select__label">{{ label }}</span>
-      <span class="searchable-multi-select__count" aria-live="polite">
-        {{ selectedCountText }}
-      </span>
-    </div>
-
-    <label class="searchable-multi-select__search" :for="`${id}-search`">
-      <span class="sr-only">{{ searchLabel }}</span>
-      <Search :size="16" aria-hidden="true" />
-      <input
-        :id="`${id}-search`"
-        v-model="query"
-        type="search"
-        :placeholder="searchPlaceholder"
-        :disabled="disabled || loading"
-      />
-    </label>
-
-    <div
-      v-if="modelValue.length"
-      class="searchable-multi-select__chips"
-      :aria-label="selectedCountText"
-    >
+    <span :id="`${id}-label`" class="sr-only">{{ label }}</span>
+    <div class="searchable-multi-select__chips" :aria-label="selectedCountText">
       <span
         v-for="option in selectedOptions"
         :key="String(option.value)"
@@ -124,36 +104,69 @@ function clear(): void {
       </span>
       <button
         type="button"
-        class="searchable-multi-select__clear"
+        class="searchable-multi-select__add"
         :disabled="disabled || loading"
-        @click="clear"
+        :aria-expanded="pickerOpen"
+        :aria-controls="`${id}-picker`"
+        @click="pickerOpen = !pickerOpen"
       >
-        {{ clearLabel }}
+        <Plus :size="14" aria-hidden="true" />{{ addLabel }}
       </button>
     </div>
 
-    <p v-if="loading" class="searchable-multi-select__feedback" role="status">{{ loadingLabel }}</p>
-    <p v-else-if="filteredOptions.length === 0" class="searchable-multi-select__feedback">
-      {{ emptyLabel }}
-    </p>
-    <div v-else class="searchable-multi-select__options" role="group" :aria-label="label">
-      <label
-        v-for="option in filteredOptions"
-        :key="String(option.value)"
-        class="searchable-multi-select__option"
-        :class="{ 'searchable-multi-select__option--disabled': option.disabled }"
-      >
-        <input
-          type="checkbox"
-          :checked="selected.has(option.value)"
-          :disabled="disabled || loading || Boolean(option.disabled)"
-          @change="toggle(option.value, ($event.target as HTMLInputElement).checked)"
-        />
-        <span class="searchable-multi-select__option-content">
-          <span>{{ option.label }}</span>
-          <small v-if="option.description">{{ option.description }}</small>
+    <div v-if="pickerOpen" :id="`${id}-picker`" class="searchable-multi-select__picker">
+      <div class="searchable-multi-select__head">
+        <span class="searchable-multi-select__count" aria-live="polite">
+          {{ selectedCountText }}
         </span>
+        <button
+          v-if="modelValue.length"
+          type="button"
+          class="searchable-multi-select__clear"
+          :disabled="disabled || loading"
+          @click="clear"
+        >
+          {{ clearLabel }}
+        </button>
+      </div>
+
+      <label class="searchable-multi-select__search" :for="`${id}-search`">
+        <span class="sr-only">{{ searchLabel }}</span>
+        <Search :size="15" aria-hidden="true" />
+        <input
+          :id="`${id}-search`"
+          v-model="query"
+          type="search"
+          :placeholder="searchPlaceholder"
+          :disabled="disabled || loading"
+        />
       </label>
+
+      <p v-if="loading" class="searchable-multi-select__feedback" role="status">
+        {{ loadingLabel }}
+      </p>
+      <p v-else-if="filteredOptions.length === 0" class="searchable-multi-select__feedback">
+        {{ emptyLabel }}
+      </p>
+      <div v-else class="searchable-multi-select__options" role="group" :aria-label="label">
+        <label
+          v-for="option in filteredOptions"
+          :key="String(option.value)"
+          class="searchable-multi-select__option"
+          :class="{ 'searchable-multi-select__option--disabled': option.disabled }"
+        >
+          <input
+            type="checkbox"
+            :checked="selected.has(option.value)"
+            :disabled="disabled || loading || Boolean(option.disabled)"
+            @change="toggle(option.value, ($event.target as HTMLInputElement).checked)"
+          />
+          <span class="searchable-multi-select__option-content">
+            <span>{{ option.label }}</span>
+            <small v-if="option.description">{{ option.description }}</small>
+          </span>
+        </label>
+      </div>
     </div>
   </section>
 </template>
@@ -161,7 +174,7 @@ function clear(): void {
 <style scoped>
 .searchable-multi-select {
   display: grid;
-  gap: var(--space-2);
+  gap: 8px;
 }
 .searchable-multi-select__head,
 .searchable-multi-select__chips,
@@ -174,17 +187,14 @@ function clear(): void {
   justify-content: space-between;
   gap: var(--space-2);
 }
-.searchable-multi-select__label {
-  font-weight: 700;
-}
 .searchable-multi-select__count,
 .searchable-multi-select__feedback,
 .searchable-multi-select__option small {
   color: var(--color-text-muted);
-  font-size: var(--text-sm);
+  font-size: var(--text-label-xs);
 }
 .searchable-multi-select__search {
-  min-height: var(--touch-target);
+  min-height: var(--control-md);
   gap: var(--space-2);
   border: 1px solid var(--color-border-control);
   border-radius: var(--radius-control);
@@ -207,17 +217,18 @@ function clear(): void {
 }
 .searchable-multi-select__chips {
   flex-wrap: wrap;
-  gap: var(--space-2);
+  gap: 6px;
 }
 .searchable-multi-select__chip {
   display: inline-flex;
-  min-height: var(--touch-target);
+  min-height: 28px;
   align-items: center;
   gap: var(--space-1);
   border-radius: var(--radius-tag);
-  background: var(--color-tag);
-  padding-left: var(--space-2);
-  font-size: var(--text-sm);
+  background: var(--color-action-soft);
+  color: var(--color-action);
+  padding-left: 9px;
+  font-size: var(--text-label-xs);
 }
 .searchable-multi-select__chip-content {
   display: grid;
@@ -228,9 +239,8 @@ function clear(): void {
   font-size: var(--text-label-xs);
 }
 .searchable-multi-select__chip button,
-.searchable-multi-select__clear {
-  min-width: var(--touch-target);
-  min-height: var(--touch-target);
+.searchable-multi-select__clear,
+.searchable-multi-select__add {
   border: 0;
   background: transparent;
   color: var(--color-text-muted);
@@ -239,12 +249,31 @@ function clear(): void {
 }
 .searchable-multi-select__chip button {
   display: inline-flex;
+  width: 28px;
+  height: 28px;
   align-items: center;
   justify-content: center;
 }
 .searchable-multi-select__clear {
   color: var(--color-action);
   text-decoration: underline;
+}
+.searchable-multi-select__add {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-tag);
+  color: var(--color-text-muted);
+  padding: 0 9px;
+  font-size: var(--text-label-xs);
+}
+.searchable-multi-select__picker {
+  display: grid;
+  gap: 8px;
+  border-top: 1px solid var(--color-border-subtle);
+  padding-top: 9px;
 }
 .searchable-multi-select__options {
   display: grid;
@@ -254,7 +283,7 @@ function clear(): void {
   border-radius: var(--radius-control);
 }
 .searchable-multi-select__option {
-  min-height: var(--touch-target);
+  min-height: 38px;
   gap: var(--space-2);
   padding: 0 var(--space-3);
 }
@@ -262,8 +291,8 @@ function clear(): void {
   border-top: 1px solid var(--color-border-subtle);
 }
 .searchable-multi-select__option input {
-  width: 20px;
-  height: 20px;
+  width: 15px;
+  height: 15px;
   flex: none;
 }
 .searchable-multi-select__option-content {
@@ -277,7 +306,7 @@ function clear(): void {
 }
 .searchable-multi-select__feedback {
   margin: 0;
-  min-height: var(--touch-target);
+  min-height: 38px;
   display: flex;
   align-items: center;
   padding: 0 var(--space-3);

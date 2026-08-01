@@ -22,7 +22,6 @@ const props = defineProps<{
   groupOptions: SearchableMultiSelectOption[]
   groupCatalogState: GroupCatalogState
   protocolOptions: readonly AccessProtocol[]
-  supportedProtocols: readonly AccessProtocol[]
   modelOptions: SearchableMultiSelectOption[]
   modelInput: string
   disabled: boolean
@@ -46,10 +45,16 @@ function optionDisabled(dimension: 'protocols' | 'models'): boolean {
   return props.disabled || props.modes[dimension] !== 'restricted' || catalogUnavailable()
 }
 
-function requestScopeMode(dimension: AccessKeyScopeDimension, event: Event): void {
-  const target = event.target as HTMLSelectElement
-  emit('setScopeMode', dimension, target.value as AccessKeyScopeMode)
-  target.value = props.modes[dimension]
+function requestScopeMode(
+  dimension: AccessKeyScopeDimension,
+  mode: AccessKeyScopeMode,
+): void {
+  emit('setScopeMode', dimension, mode)
+}
+
+function modeDisabled(dimension: AccessKeyScopeDimension): boolean {
+  if (props.disabled) return true
+  return dimension === 'groups' ? props.groupCatalogState !== 'ready' : catalogUnavailable()
 }
 
 function updateGroups(values: SearchableMultiSelectValue[]): void {
@@ -74,181 +79,296 @@ function toggleProtocol(protocol: AccessProtocol, event: Event): void {
   emit('update:protocols', next)
 }
 
-function protocolUnsupported(protocol: AccessProtocol): boolean {
-  return (
-    props.modes.groups === 'restricted' &&
-    props.filters.groups.length > 0 &&
-    !props.supportedProtocols.includes(protocol)
-  )
-}
 </script>
 
 <template>
-  <fieldset>
-    <legend>{{ t('accessKeys.drawer.groups') }}</legend>
-    <label class="access-key-drawer__field">
-      <span>{{ t('accessKeys.drawer.scopeMode') }}</span>
-      <select
-        :value="modes.groups"
-        :disabled="disabled || groupCatalogState !== 'ready'"
-        @change="requestScopeMode('groups', $event)"
-      >
-        <option value="all">{{ t('accessKeys.drawer.scopeAll') }}</option>
-        <option value="restricted">{{ t('accessKeys.drawer.scopeRestricted') }}</option>
-      </select>
-    </label>
-    <SearchableMultiSelect
-      id="access-key-groups"
-      :label="t('accessKeys.drawer.groupSelectorLabel')"
-      :search-label="t('accessKeys.drawer.searchGroups')"
-      :search-placeholder="t('accessKeys.drawer.searchGroupsPlaceholder')"
-      :empty-label="t('accessKeys.drawer.noGroupOptions')"
-      :loading-label="t('accessKeys.drawer.groupOptionsLoading')"
-      :selected-label="t('accessKeys.drawer.selectedCount', { count: '{count}' })"
-      :clear-label="t('accessKeys.drawer.clearSelected')"
-      :remove-label="(label) => t('accessKeys.drawer.removeSelection', { label })"
-      :options="groupOptions"
-      :model-value="filters.groups"
-      :disabled="disabled || modes.groups !== 'restricted' || catalogUnavailable()"
-      :loading="groupCatalogState === 'loading'"
-      @update:model-value="updateGroups"
-    />
-  </fieldset>
-
-  <fieldset>
-    <legend>{{ t('accessKeys.drawer.protocols') }}</legend>
-    <label class="access-key-drawer__field">
-      <span>{{ t('accessKeys.drawer.scopeMode') }}</span>
-      <select
-        :value="modes.protocols"
-        :disabled="disabled || catalogUnavailable()"
-        @change="requestScopeMode('protocols', $event)"
-      >
-        <option value="all">{{ t('accessKeys.drawer.scopeAll') }}</option>
-        <option value="restricted">{{ t('accessKeys.drawer.scopeRestricted') }}</option>
-      </select>
-    </label>
-    <label v-for="protocol in protocolOptions" :key="protocol" class="access-key-drawer__check">
-      <input
-        type="checkbox"
-        :checked="filters.protocols.includes(protocol)"
-        :disabled="optionDisabled('protocols')"
-        @change="toggleProtocol(protocol, $event)"
-      />
-      <span class="access-key-drawer__check-content">
-        <span>{{ t(`common.protocols.${protocol}`) }}</span>
-        <small v-if="protocolUnsupported(protocol)" class="access-key-drawer__unsupported">{{
-          t('accessKeys.drawer.protocolUnsupported')
-        }}</small>
-        <small v-else-if="protocol === 'openai-responses'">{{
-          t('accessKeys.drawer.responsesAffinityHint')
-        }}</small>
-      </span>
-    </label>
-  </fieldset>
-
-  <fieldset>
-    <legend>{{ t('accessKeys.drawer.models') }}</legend>
-    <label class="access-key-drawer__field">
-      <span>{{ t('accessKeys.drawer.scopeMode') }}</span>
-      <select
-        :value="modes.models"
-        :disabled="disabled || catalogUnavailable()"
-        @change="requestScopeMode('models', $event)"
-      >
-        <option value="all">{{ t('accessKeys.drawer.scopeAll') }}</option>
-        <option value="restricted">{{ t('accessKeys.drawer.scopeRestricted') }}</option>
-      </select>
-    </label>
-    <p>{{ t('accessKeys.drawer.modelsDescription') }}</p>
-    <SearchableMultiSelect
-      id="access-key-models"
-      :label="t('accessKeys.drawer.modelSelectorLabel')"
-      :search-label="t('accessKeys.drawer.searchModels')"
-      :search-placeholder="t('accessKeys.drawer.searchModelsPlaceholder')"
-      :empty-label="t('accessKeys.drawer.noModelOptions')"
-      :loading-label="t('accessKeys.drawer.groupOptionsLoading')"
-      :selected-label="t('accessKeys.drawer.selectedCount', { count: '{count}' })"
-      :clear-label="t('accessKeys.drawer.clearSelected')"
-      :remove-label="(label) => t('accessKeys.drawer.removeSelection', { label })"
-      :options="modelOptions"
-      :model-value="filters.models"
-      :disabled="optionDisabled('models')"
-      :loading="groupCatalogState === 'loading'"
-      @update:model-value="updateModels"
-    />
-    <div class="access-key-drawer__model-entry">
-      <input
-        :value="modelInput"
-        type="text"
-        autocomplete="off"
-        :placeholder="t('accessKeys.drawer.modelPlaceholder')"
-        :disabled="optionDisabled('models')"
-        @input="emit('update:modelInput', ($event.target as HTMLInputElement).value)"
-        @keydown.enter.prevent="emit('addModel')"
-      />
-      <AppButton
-        variant="secondary"
-        :disabled="optionDisabled('models') || !modelInput.trim()"
-        @click="emit('addModel')"
-      >
-        <Plus :size="16" aria-hidden="true" />{{ t('accessKeys.drawer.addModel') }}
-      </AppButton>
+  <fieldset class="scope-editor">
+    <legend class="sr-only">{{ t('accessKeys.drawer.groups') }}</legend>
+    <div class="scope-editor__head">
+      <div>
+        <strong>{{ t('accessKeys.drawer.groups') }}</strong>
+        <small>{{ t('accessKeys.drawer.groupsDescription') }}</small>
+      </div>
+      <div class="scope-segmented" role="group" :aria-label="t('accessKeys.drawer.groups')">
+        <button
+          type="button"
+          :class="{ 'scope-segmented__active': modes.groups === 'all' }"
+          :disabled="modeDisabled('groups')"
+          @click="requestScopeMode('groups', 'all')"
+        >
+          {{ t('accessKeys.drawer.scopeAll') }}
+        </button>
+        <button
+          type="button"
+          :class="{ 'scope-segmented__active': modes.groups === 'restricted' }"
+          :disabled="modeDisabled('groups')"
+          @click="requestScopeMode('groups', 'restricted')"
+        >
+          {{ t('accessKeys.drawer.scopeRestricted') }}
+        </button>
+      </div>
     </div>
-    <p v-if="modelMismatch" class="access-key-drawer__model-risk" role="status">
-      {{ t('accessKeys.drawer.modelRouteRisk') }}
-    </p>
+    <div class="scope-editor__body">
+      <div v-if="modes.groups === 'all'" class="permission-note">
+        <i aria-hidden="true" />{{ t('accessKeys.drawer.allGroupsAllowed') }}
+      </div>
+      <SearchableMultiSelect
+        v-else
+        id="access-key-groups"
+        :label="t('accessKeys.drawer.groupSelectorLabel')"
+        :search-label="t('accessKeys.drawer.searchGroups')"
+        :search-placeholder="t('accessKeys.drawer.searchGroupsPlaceholder')"
+        :empty-label="t('accessKeys.drawer.noGroupOptions')"
+        :loading-label="t('accessKeys.drawer.groupOptionsLoading')"
+        :selected-label="t('accessKeys.drawer.selectedCount', { count: '{count}' })"
+        :add-label="t('accessKeys.drawer.addGroup')"
+        :clear-label="t('accessKeys.drawer.clearSelected')"
+        :remove-label="(label) => t('accessKeys.drawer.removeSelection', { label })"
+        :options="groupOptions"
+        :model-value="filters.groups"
+        :disabled="disabled || catalogUnavailable()"
+        :loading="groupCatalogState === 'loading'"
+        @update:model-value="updateGroups"
+      />
+    </div>
+  </fieldset>
+
+  <fieldset class="scope-editor">
+    <legend class="sr-only">{{ t('accessKeys.drawer.protocols') }}</legend>
+    <div class="scope-editor__head">
+      <div>
+        <strong>{{ t('accessKeys.drawer.protocols') }}</strong>
+        <small>{{ t('accessKeys.drawer.protocolsDescription') }}</small>
+      </div>
+      <div class="scope-segmented" role="group" :aria-label="t('accessKeys.drawer.protocols')">
+        <button
+          type="button"
+          :class="{ 'scope-segmented__active': modes.protocols === 'all' }"
+          :disabled="modeDisabled('protocols')"
+          @click="requestScopeMode('protocols', 'all')"
+        >
+          {{ t('accessKeys.drawer.scopeAll') }}
+        </button>
+        <button
+          type="button"
+          :class="{ 'scope-segmented__active': modes.protocols === 'restricted' }"
+          :disabled="modeDisabled('protocols')"
+          @click="requestScopeMode('protocols', 'restricted')"
+        >
+          {{ t('accessKeys.drawer.scopeRestricted') }}
+        </button>
+      </div>
+    </div>
+    <div class="scope-editor__body">
+      <div v-if="modes.protocols === 'all'" class="permission-note">
+        <i aria-hidden="true" />{{ t('accessKeys.drawer.allProtocolsAllowed') }}
+      </div>
+      <div v-else class="protocol-options">
+        <label
+          v-for="protocol in protocolOptions"
+          :key="protocol"
+          class="access-key-drawer__check"
+        >
+          <input
+            type="checkbox"
+            :checked="filters.protocols.includes(protocol)"
+            :disabled="optionDisabled('protocols')"
+            @change="toggleProtocol(protocol, $event)"
+          />
+          <span class="access-key-drawer__check-content">
+            <span>{{ t(`common.protocols.${protocol}`) }}</span>
+          </span>
+        </label>
+      </div>
+    </div>
+  </fieldset>
+
+  <fieldset class="scope-editor">
+    <legend class="sr-only">{{ t('accessKeys.drawer.models') }}</legend>
+    <div class="scope-editor__head">
+      <div>
+        <strong>{{ t('accessKeys.drawer.models') }}</strong>
+        <small>{{ t('accessKeys.drawer.modelsScopeDescription') }}</small>
+      </div>
+      <div class="scope-segmented" role="group" :aria-label="t('accessKeys.drawer.models')">
+        <button
+          type="button"
+          :class="{ 'scope-segmented__active': modes.models === 'all' }"
+          :disabled="modeDisabled('models')"
+          @click="requestScopeMode('models', 'all')"
+        >
+          {{ t('accessKeys.drawer.scopeAll') }}
+        </button>
+        <button
+          type="button"
+          :class="{ 'scope-segmented__active': modes.models === 'restricted' }"
+          :disabled="modeDisabled('models')"
+          @click="requestScopeMode('models', 'restricted')"
+        >
+          {{ t('accessKeys.drawer.scopeRestricted') }}
+        </button>
+      </div>
+    </div>
+    <div class="scope-editor__body">
+      <div v-if="modes.models === 'all'" class="permission-note">
+        <i aria-hidden="true" />{{ t('accessKeys.drawer.allModelsAllowed') }}
+      </div>
+      <template v-else>
+        <SearchableMultiSelect
+          id="access-key-models"
+          :label="t('accessKeys.drawer.modelSelectorLabel')"
+          :search-label="t('accessKeys.drawer.searchModels')"
+          :search-placeholder="t('accessKeys.drawer.searchModelsPlaceholder')"
+          :empty-label="t('accessKeys.drawer.noModelOptions')"
+          :loading-label="t('accessKeys.drawer.groupOptionsLoading')"
+          :selected-label="t('accessKeys.drawer.selectedCount', { count: '{count}' })"
+          :add-label="t('accessKeys.drawer.addModel')"
+          :clear-label="t('accessKeys.drawer.clearSelected')"
+          :remove-label="(label) => t('accessKeys.drawer.removeSelection', { label })"
+          :options="modelOptions"
+          :model-value="filters.models"
+          :disabled="optionDisabled('models')"
+          :loading="groupCatalogState === 'loading'"
+          @update:model-value="updateModels"
+        />
+        <div class="access-key-drawer__model-entry">
+          <input
+            :value="modelInput"
+            type="text"
+            autocomplete="off"
+            :placeholder="t('accessKeys.drawer.modelPlaceholder')"
+            :disabled="optionDisabled('models')"
+            @input="emit('update:modelInput', ($event.target as HTMLInputElement).value)"
+            @keydown.enter.prevent="emit('addModel')"
+          />
+          <AppButton
+            variant="secondary"
+            size="compact"
+            :disabled="optionDisabled('models') || !modelInput.trim()"
+            @click="emit('addModel')"
+          >
+            <Plus :size="14" aria-hidden="true" />{{ t('accessKeys.drawer.addModel') }}
+          </AppButton>
+        </div>
+        <p v-if="modelMismatch" class="access-key-drawer__model-risk" role="status">
+          {{ t('accessKeys.drawer.modelRouteRisk') }}
+        </p>
+      </template>
+    </div>
   </fieldset>
 </template>
 
 <style scoped>
-fieldset,
-.access-key-drawer__field {
-  display: grid;
-  gap: var(--space-2);
-}
-fieldset {
+.scope-editor {
   min-width: 0;
   margin: 0;
   border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-control);
-  padding: var(--space-3);
+  padding: 0;
 }
-.access-key-drawer__field > span,
-legend {
-  font-weight: 700;
+.scope-editor + .scope-editor {
+  margin-top: 10px;
 }
-fieldset p,
-small {
-  margin: 0;
-  color: var(--color-text-muted);
+.scope-editor__head {
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--color-border-subtle);
+  padding: 8px 10px;
 }
-input,
-select {
-  width: 100%;
-  min-height: var(--touch-target);
+.scope-editor__head strong {
+  display: block;
+  font-size: var(--text-sm);
+}
+.scope-editor__head small {
+  display: block;
+  margin-top: 1px;
+  color: var(--color-text-faint);
+  font-size: var(--text-label-xs);
+}
+.scope-editor__body {
+  padding: 10px;
+}
+.scope-segmented {
+  display: inline-flex;
+  flex: none;
+  overflow: hidden;
   border: 1px solid var(--color-border-control);
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-tag);
+}
+.scope-segmented button {
+  min-width: 52px;
+  height: 27px;
+  border: 0;
+  border-right: 1px solid var(--color-border-control);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  padding: 0 8px;
+  font-size: var(--text-label-xs);
+  cursor: pointer;
+}
+.scope-segmented button:last-child {
+  border-right: 0;
+}
+.scope-segmented button:hover:not(:disabled) {
   background: var(--color-surface-sunken);
   color: var(--color-text);
-  padding: var(--space-2) var(--space-3);
-  font: inherit;
+}
+.scope-segmented__active {
+  background: var(--color-text) !important;
+  color: var(--color-surface) !important;
+  font-weight: 650;
+}
+.scope-segmented button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.permission-note {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--color-text-faint);
+  font-size: var(--text-label-xs);
+}
+.permission-note i {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--color-action);
+}
+.protocol-options {
+  display: grid;
+  gap: 6px;
 }
 .access-key-drawer__check {
   display: flex;
-  min-height: var(--touch-target);
+  min-height: 38px;
   align-items: center;
   gap: var(--space-2);
+  border-radius: var(--radius-tag);
+  padding: 4px 7px;
+}
+.access-key-drawer__check:hover {
+  background: var(--color-surface-sunken);
 }
 .access-key-drawer__check input {
-  width: 20px;
-  min-height: 20px;
+  width: 15px;
+  height: 15px;
+  flex: none;
 }
 .access-key-drawer__check-content {
   display: grid;
-  gap: var(--space-1);
+  gap: 2px;
+  font-size: var(--text-sm);
 }
-.access-key-drawer__unsupported,
+.access-key-drawer__check-content small {
+  margin: 0;
+  color: var(--color-text-faint);
+  font-size: var(--text-label-xs);
+}
 .access-key-drawer__model-risk {
   color: var(--color-warning);
 }
@@ -256,15 +376,26 @@ select {
   border: 1px solid var(--color-warning);
   border-radius: var(--radius-control);
   background: var(--color-warning-bg);
+  margin: 8px 0 0;
   padding: var(--space-2) var(--space-3);
+  font-size: var(--text-label-xs);
 }
 .access-key-drawer__model-entry {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
+  margin-top: 8px;
 }
 .access-key-drawer__model-entry input {
+  min-width: 0;
+  height: var(--control-compact);
   flex: 1 1 220px;
+  border: 1px solid var(--color-border-control);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-sunken);
+  color: var(--color-text);
+  padding: 0 10px;
+  font-size: var(--text-sm);
 }
 </style>

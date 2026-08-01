@@ -6,11 +6,11 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
 import { useApiClient } from '@/api/client-context'
-import { lazySurface } from '@/app/async-surface'
 import { accessKeyCollectionQueryOptions, accessKeyResources } from '@/app/resources/access-keys'
 import { groupOptionsQueryOptions } from '@/app/resources/groups'
 import { applyInvalidationPlan, mutationInvalidationPlans } from '@/app/resources/invalidation'
 import { accessKeysLocation } from '@/app/route-locations'
+import { useToast } from '@/app/toast'
 import { useVisibleRefetch } from '@/app/use-visible-refetch'
 import CollectionFilterBar from '@/components/collection/CollectionFilterBar.vue'
 import CollectionStatusSummary from '@/components/collection/CollectionStatusSummary.vue'
@@ -32,6 +32,7 @@ import type {
 } from '@/api/control/types'
 
 import AccessKeyCollection from './AccessKeyCollection.vue'
+import AccessKeyDrawer from './AccessKeyDrawer.vue'
 import type { PendingAccessKeyCreateOperation } from './access-key-create-operation'
 import {
   constrainAccessKeyCollectionSearchQuery,
@@ -41,12 +42,11 @@ import {
 } from './access-key-collection-route'
 import type { PendingAccessKeyEditOperation } from './access-key-edit-operation'
 
-const AccessKeyDrawer = lazySurface(() => import('./AccessKeyDrawer.vue'))
-
 const client = useApiClient()
 const route = useRoute()
 const router = useRouter()
 const queryClient = useQueryClient()
+const toast = useToast()
 const { n, t } = useI18n()
 const filters = computed(() => parseAccessKeyCollectionRouteQuery(route.query))
 const searchDraft = ref(filters.value.q ?? '')
@@ -220,7 +220,7 @@ function createKey(): void {
   drawerOpen.value = true
 }
 
-function editKey(accessKey: AccessKeyDto, trigger: HTMLElement): void {
+function openKey(accessKey: AccessKeyDto, trigger: HTMLElement): void {
   if (editOperation.value && editOperation.value.base.id !== accessKey.id) {
     checkEditOperation()
     return
@@ -266,13 +266,21 @@ async function setDrawerOpen(open: boolean): Promise<void> {
   }
 }
 
-async function focusCreateAfterDelete(name: string): Promise<void> {
+async function handleSaved(kind: 'created' | 'updated', name: string): Promise<void> {
+  await setDrawerOpen(false)
+  toast.show({ message: t(`accessKeys.toast.${kind}`, { name }) })
+}
+
+async function handleDeleted(name: string): Promise<void> {
   deletionAnnouncement.value = ''
+  restoreFocus = null
+  await setDrawerOpen(false)
   await nextTick()
   await applyInvalidationPlan(queryClient, mutationInvalidationPlans.accessKey.delete)
   await nextTick()
   if (!mounted) return
   deletionAnnouncement.value = t('accessKeys.delete.deletedAnnouncement', { name })
+  toast.show({ message: t('accessKeys.toast.deleted', { name }) })
   const target = viewRoot.value?.querySelector('button.access-key-create')
   if (target instanceof HTMLButtonElement && target.isConnected) target.focus()
 }
@@ -282,11 +290,7 @@ async function focusCreateAfterDelete(name: string): Promise<void> {
   <section ref="viewRoot" aria-labelledby="access-keys-title">
     <PageFrame>
       <LedgerSheet class="access-keys-ledger" :aria-busy="collectionBusy ? 'true' : undefined">
-        <PageHeader
-          id="access-keys-title"
-          :title="t('accessKeys.title')"
-          :description="t('accessKeys.description')"
-        >
+        <PageHeader id="access-keys-title" :title="t('accessKeys.title')">
           <template #actions>
             <AppButton class="access-key-create" @click="createKey">
               <Plus :size="16" aria-hidden="true" />{{ t('accessKeys.create') }}
@@ -299,12 +303,15 @@ async function focusCreateAfterDelete(name: string): Promise<void> {
           :open="drawerOpen"
           :access-key="selected"
           :groups="groupsQuery.data.value ?? []"
+          :total="data?.summary.total ?? 0"
           :group-catalog-state="groupCatalogState"
           :create-operation="createOperation"
           :edit-operation="selected?.id === editOperation?.base.id ? editOperation : null"
           @update:create-operation="setCreateOperation"
           @update:edit-operation="setEditOperation"
           @update:open="setDrawerOpen"
+          @saved="handleSaved"
+          @deleted="handleDeleted"
         />
 
         <section v-if="createOperation" class="access-keys__operation" aria-live="polite">
@@ -472,12 +479,10 @@ async function focusCreateAfterDelete(name: string): Promise<void> {
               ref="collection"
               :access-keys="data.items"
               :groups="groupsQuery.data.value ?? []"
-              :total="data.summary.total"
               :filtered-total="data.pagination.total_items"
               :page="data.pagination.page"
               :page-size="data.pagination.page_size"
-              @edit="editKey"
-              @deleted="focusCreateAfterDelete"
+              @open="openKey"
             />
             <PaginationBar
               :page="data.pagination.page"
@@ -495,11 +500,6 @@ async function focusCreateAfterDelete(name: string): Promise<void> {
 </template>
 
 <style scoped>
-.access-keys-ledger :deep(.page-header) {
-  border-bottom: 1px solid var(--color-border-control);
-  padding-bottom: var(--space-5);
-}
-
 .access-keys__operation {
   display: flex;
   align-items: center;

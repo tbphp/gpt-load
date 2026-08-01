@@ -115,7 +115,7 @@ const glyph = computed(() => {
 
 .inline-feedback--toast {
   position: fixed;
-  z-index: var(--z-drawer);
+  z-index: var(--z-popover);
   bottom: 26px;
   left: 50%;
   width: max-content;

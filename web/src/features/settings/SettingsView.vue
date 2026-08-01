@@ -118,11 +118,7 @@ onBeforeUnmount(() => {
 
 <template>
   <section class="settings" aria-labelledby="settings-title">
-    <PageHeader
-      id="settings-title"
-      :title="t('settings.title')"
-      :description="t('settings.description')"
-    />
+    <PageHeader id="settings-title" :title="t('settings.title')" />
 
     <AppearanceSection />
 

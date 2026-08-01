@@ -43,9 +43,10 @@ func (value *OptionalRPMLimit) UnmarshalJSON(data []byte) error {
 }
 
 type AccessKeyCreateRequest struct {
-	Name     string            `json:"name"`
-	Filters  *AccessKeyFilters `json:"filters"`
-	RPMLimit OptionalRPMLimit  `json:"rpm_limit"`
+	Name     string                 `json:"name"`
+	Status   *state.AccessKeyStatus `json:"status"`
+	Filters  *AccessKeyFilters      `json:"filters"`
+	RPMLimit OptionalRPMLimit       `json:"rpm_limit"`
 }
 
 type AccessKeyUpdateRequest struct {
@@ -142,6 +143,13 @@ func (s *Service) CreateAccessKey(
 	if err != nil {
 		return AccessKeyCreateResult{}, err
 	}
+	status := state.AccessKeyStatusActive
+	if request.Status != nil {
+		status = *request.Status
+	}
+	if status != state.AccessKeyStatusActive && status != state.AccessKeyStatusDisabled {
+		return AccessKeyCreateResult{}, app_errors.ErrValidation
+	}
 
 	var result AccessKeyCreateResult
 	_, err = s.writeConfig(ctx, func(tx *gorm.DB) error {
@@ -152,6 +160,7 @@ func (s *Service) CreateAccessKey(
 		if err != nil {
 			return err
 		}
+		row.Status = string(status)
 		if err := tx.Create(&row).Error; err != nil {
 			return app_errors.ParseDBError(err)
 		}

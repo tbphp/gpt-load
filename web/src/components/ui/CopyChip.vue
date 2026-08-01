@@ -7,6 +7,7 @@ const props = defineProps<{
   label: string
   successLabel: string
   failureLabel: string
+  resolveValue?: () => string | Promise<string>
 }>()
 
 type CopyState = 'idle' | 'success' | 'failure'
@@ -25,7 +26,8 @@ function scheduleReset(): void {
 async function copyValue(): Promise<void> {
   try {
     if (!navigator.clipboard?.writeText) throw new Error('clipboard unavailable')
-    await navigator.clipboard.writeText(props.value)
+    const value = props.resolveValue ? await props.resolveValue() : props.value
+    await navigator.clipboard.writeText(value)
     state.value = 'success'
   } catch {
     state.value = 'failure'

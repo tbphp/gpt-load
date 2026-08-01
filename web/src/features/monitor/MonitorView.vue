@@ -48,11 +48,7 @@ function selectTab(value: string): void {
 
 <template>
   <div class="monitor-page">
-    <PageHeader
-      :eyebrow="t('monitor.currentState')"
-      :title="t('monitor.title')"
-      :description="t('monitor.description')"
-    />
+    <PageHeader :title="t('monitor.title')" />
     <AppTabs
       :model-value="activeTab"
       :label="t('monitor.tabs.label')"

@@ -74,15 +74,10 @@ onBeforeUnmount(() => controller?.abort())
     @update:open="setOpen"
   >
     <template #trigger>
-      <button
-        type="button"
-        class="access-key-delete__trigger"
-        :aria-label="t('accessKeys.delete.open')"
-        @click="setOpen(true)"
-      >
+      <AppButton variant="danger" size="compact" @click="setOpen(true)">
         <Trash2 :size="16" aria-hidden="true" />
-        <span class="access-key-delete__trigger-label">{{ t('accessKeys.delete.open') }}</span>
-      </button>
+        {{ t('accessKeys.delete.open') }}
+      </AppButton>
     </template>
 
     <div class="access-key-delete__body">
@@ -134,18 +129,6 @@ onBeforeUnmount(() => controller?.abort())
 </template>
 
 <style scoped>
-.access-key-delete__trigger {
-  display: inline-flex;
-  min-height: 44px;
-  align-items: center;
-  gap: var(--space-1);
-  border: 0;
-  background: transparent;
-  color: var(--color-danger);
-  font: inherit;
-  font-weight: 650;
-  cursor: pointer;
-}
 .access-key-delete__body {
   display: grid;
   gap: var(--space-4);

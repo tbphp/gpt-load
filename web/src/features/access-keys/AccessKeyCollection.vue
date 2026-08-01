@@ -1,41 +1,32 @@
 <script setup lang="ts">
-import { Pencil } from '@lucide/vue'
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { ArrowRight } from '@lucide/vue'
+import { computed, onBeforeUnmount, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { useApiClient } from '@/api/client-context'
 import { revealAccessKey } from '@/app/resources/access-keys'
 import type { AccessKeyDto, GroupOptionDto } from '@/api/control/types'
-import { RequestCancelledError } from '@/api/errors'
 import LedgerRecordList from '@/components/collection/LedgerRecordList.vue'
 import AppDateTime from '@/components/ui/AppDateTime.vue'
-import AppButton from '@/components/ui/AppButton.vue'
+import CopyChip from '@/components/ui/CopyChip.vue'
+import IconButton from '@/components/ui/IconButton.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 
-import AccessKeyDeleteDialog from './AccessKeyDeleteDialog.vue'
 import { presentAccessKey } from './access-key-presenter'
-import AccessKeySecret from './AccessKeySecret.vue'
-import { useEphemeralSecret } from './use-ephemeral-secret'
 
 const props = defineProps<{
   accessKeys: AccessKeyDto[]
   groups: GroupOptionDto[]
-  total: number
   filteredTotal: number
   page: number
   pageSize: number
 }>()
 const emit = defineEmits<{
-  edit: [accessKey: AccessKeyDto, trigger: HTMLElement]
-  deleted: [name: string]
+  open: [accessKey: AccessKeyDto, trigger: HTMLElement]
 }>()
 const client = useApiClient()
 const { locale, t } = useI18n()
-const secret = useEphemeralSecret()
-const revealPending = ref<number>()
-const revealFailed = ref<number>()
-let revealController: AbortController | undefined
-let mounted = true
+const copyControllers = new Set<AbortController>()
 
 const presentations = computed(() =>
   props.accessKeys.map((accessKey) =>
@@ -54,64 +45,26 @@ const presentations = computed(() =>
     }),
   ),
 )
-const revealedId = computed(() => {
-  const owner = secret.owner.value
-  if (!owner?.startsWith('access-key:')) return undefined
-  const id = Number(owner.slice('access-key:'.length))
-  return Number.isSafeInteger(id) ? id : undefined
-})
-const revealedValue = computed(() =>
-  revealedId.value === undefined
-    ? undefined
-    : (secret.read(secretOwner(revealedId.value)) ?? undefined),
-)
-
-function secretOwner(id: number): string {
-  return `access-key:${id}`
-}
-
 function source(id: number): AccessKeyDto {
   const accessKey = props.accessKeys.find((candidate) => candidate.id === id)
   if (!accessKey) throw new Error(`ACCESS_KEY_SOURCE_MISSING:${id}`)
   return accessKey
 }
 
-async function toggleReveal(id: number): Promise<void> {
-  if (revealedId.value === id && revealedValue.value) {
-    conceal()
-    return
-  }
-  revealController?.abort()
-  secret.clear()
-  const expectedEpoch = secret.epoch.value
+async function resolveCopyValue(id: number): Promise<string> {
   const controller = new AbortController()
-  revealController = controller
-  revealPending.value = id
-  revealFailed.value = undefined
+  copyControllers.add(controller)
   try {
     const result = await revealAccessKey(client, id, controller.signal)
-    if (mounted && revealController === controller && secret.epoch.value === expectedEpoch) {
-      secret.expose(secretOwner(id), result.key)
-    }
-  } catch (error: unknown) {
-    if (mounted && revealController === controller && !(error instanceof RequestCancelledError)) {
-      revealFailed.value = id
-    }
+    return result.key
   } finally {
-    if (revealController === controller) {
-      revealController = undefined
-      revealPending.value = undefined
-    }
+    copyControllers.delete(controller)
   }
 }
 
 function conceal(): void {
-  const controller = revealController
-  revealController = undefined
-  controller?.abort()
-  revealPending.value = undefined
-  revealFailed.value = undefined
-  secret.clear()
+  for (const controller of copyControllers) controller.abort()
+  copyControllers.clear()
 }
 
 defineExpose({ conceal })
@@ -122,7 +75,6 @@ watch(
 )
 
 onBeforeUnmount(() => {
-  mounted = false
   conceal()
 })
 </script>
@@ -156,13 +108,12 @@ onBeforeUnmount(() => {
 
       <div class="ledger-record-list__cell access-key-secret-cell" role="cell">
         <span class="mobile-label">{{ t('accessKeys.columns.key') }}</span>
-        <AccessKeySecret
-          :id="record.id"
-          :masked-key="record.maskedKey"
-          :revealed-value="revealedId === record.id ? revealedValue : undefined"
-          :pending="revealPending === record.id"
-          :failed="revealFailed === record.id"
-          @toggle="toggleReveal"
+        <CopyChip
+          :value="record.maskedKey"
+          :label="t('accessKeys.copy')"
+          :success-label="t('common.copied')"
+          :failure-label="t('common.copyFailed')"
+          :resolve-value="() => resolveCopyValue(record.id)"
         />
       </div>
 
@@ -194,20 +145,14 @@ onBeforeUnmount(() => {
       </div>
 
       <div class="ledger-record-list__cell record-actions" role="cell">
-        <AppButton
-          variant="secondary"
+        <IconButton
+          variant="ghost"
           size="compact"
-          :aria-label="t('accessKeys.collection.editFor', { name: record.name })"
-          @click="emit('edit', source(record.id), $event.currentTarget as HTMLElement)"
+          :label="t('accessKeys.collection.openDetailsFor', { name: record.name })"
+          @click="emit('open', source(record.id), $event.currentTarget as HTMLElement)"
         >
-          <Pencil :size="15" aria-hidden="true" />
-          <span class="edit-label">{{ t('accessKeys.edit') }}</span>
-        </AppButton>
-        <AccessKeyDeleteDialog
-          :access-key="source(record.id)"
-          :total="total"
-          @deleted="emit('deleted', $event)"
-        />
+          <ArrowRight :size="15" aria-hidden="true" />
+        </IconButton>
       </div>
     </article>
   </LedgerRecordList>
@@ -216,7 +161,7 @@ onBeforeUnmount(() => {
 <style scoped>
 .access-keys-record-grid {
   --ledger-record-list-grid: minmax(132px, 1.08fr) minmax(184px, 1.3fr) 102px minmax(190px, 1.35fr)
-    92px minmax(132px, 0.95fr) 150px;
+    92px minmax(132px, 0.95fr) 44px;
   --ledger-record-list-column-gap: 14px;
 }
 
@@ -259,7 +204,7 @@ onBeforeUnmount(() => {
   min-width: 0;
   margin: 0;
   color: var(--color-text-muted);
-  font-size: var(--text-sm);
+  font-size: var(--text-label-xs);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -298,9 +243,6 @@ onBeforeUnmount(() => {
     white-space: normal;
   }
 
-  .edit-label {
-    display: none;
-  }
 }
 
 @media (max-width: 860px) {
@@ -339,22 +281,13 @@ onBeforeUnmount(() => {
     right: 10px;
   }
 
-  .record-actions :deep(.app-button),
-  .record-actions :deep(.access-key-delete__trigger) {
+  .record-actions :deep(.icon-button) {
     width: var(--touch-target);
     min-width: var(--touch-target);
     height: var(--touch-target);
     min-height: var(--touch-target);
     justify-content: center;
     padding: 0;
-  }
-
-  .record-actions :deep(.access-key-delete__trigger-label) {
-    display: none;
-  }
-
-  .edit-label {
-    display: none;
   }
 
   .mobile-label {

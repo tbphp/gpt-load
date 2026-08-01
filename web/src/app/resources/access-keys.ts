@@ -45,6 +45,7 @@ export type {
 
 export interface CreateAccessKeyRequest {
   name: string
+  status: AccessKeyDto['status']
   filters: AccessKeyFiltersDto
   rpm_limit: number
 }
