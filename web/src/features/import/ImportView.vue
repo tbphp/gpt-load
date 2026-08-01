@@ -67,11 +67,7 @@ if (!operationMode.value) {
     void router.replace(importLocation(query))
   } else if (recoveredDraft.value?.mode === 'new') {
     void router.replace(importLocation({ mode: 'new' }))
-  } else if (
-    rawMode.value !== undefined &&
-    rawMode.value !== 'new' &&
-    rawMode.value !== 'existing'
-  ) {
+  } else if (rawMode.value !== 'new' && rawMode.value !== 'existing') {
     void router.replace(importLocation({ mode: 'new' }))
   }
 }
