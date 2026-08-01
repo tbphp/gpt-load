@@ -5,7 +5,10 @@ import { useRoute, useRouter } from 'vue-router'
 
 import { lazySurface } from '@/app/async-surface'
 import { importLocation } from '@/app/route-locations'
+import LedgerSheet from '@/components/layout/LedgerSheet.vue'
+import PageFrame from '@/components/layout/PageFrame.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
+import SegmentedControl from '@/components/ui/SegmentedControl.vue'
 
 import { useImportOperationOwner } from './import-operation-owner'
 import { useImportRecovery } from './import-recovery'
@@ -22,6 +25,18 @@ const { t } = useI18n()
 const recoveredDraft = ref(recovery.consume())
 const rawMode = computed(() => route.query.mode)
 const operationMode = operationOwner.operationMode
+const modeOptions = computed(() => [
+  {
+    value: 'new',
+    label: t('import.mode.new'),
+    disabled: operationMode.value !== null && operationMode.value !== 'new',
+  },
+  {
+    value: 'existing',
+    label: t('import.mode.existing'),
+    disabled: operationMode.value !== null && operationMode.value !== 'existing',
+  },
+])
 const activeMode = computed<'new' | 'existing'>(() => {
   if (operationMode.value) return operationMode.value
   if (recoveredDraft.value) return recoveredDraft.value.mode
@@ -68,79 +83,51 @@ function selectMode(mode: 'new' | 'existing'): void {
   recoveredDraft.value = null
   void router.push(importLocation({ mode }))
 }
+
+function updateMode(mode: string): void {
+  if (mode === 'new' || mode === 'existing') selectMode(mode)
+}
 </script>
 
 <template>
-  <div class="import-page">
-    <PageHeader :title="t('import.title')" />
-    <div class="mode-selector" :aria-label="t('import.mode.label')" role="group">
-      <button
-        type="button"
-        :aria-pressed="activeMode === 'new'"
-        :disabled="operationMode !== null"
-        @click="selectMode('new')"
-      >
-        {{ t('import.mode.new') }}
-      </button>
-      <button
-        type="button"
-        :aria-pressed="activeMode === 'existing'"
-        :disabled="operationMode !== null"
-        @click="selectMode('existing')"
-      >
-        {{ t('import.mode.existing') }}
-      </button>
-    </div>
-    <NewGroupImport v-if="activeMode === 'new'" :initial-draft="recoveredNewDraft" />
-    <ExistingGroupImport v-else :initial-draft="recoveredExistingDraft" />
-  </div>
+  <PageFrame aria-labelledby="import-page-title">
+    <LedgerSheet class="import-page">
+      <PageHeader id="import-page-title" :title="t('import.title')">
+        <template #actions>
+          <SegmentedControl
+            :model-value="activeMode"
+            :label="t('import.mode.label')"
+            :options="modeOptions"
+            size="touch"
+            @update:model-value="updateMode"
+          />
+        </template>
+      </PageHeader>
+      <NewGroupImport v-if="activeMode === 'new'" :initial-draft="recoveredNewDraft" />
+      <ExistingGroupImport v-else :initial-draft="recoveredExistingDraft" />
+    </LedgerSheet>
+  </PageFrame>
 </template>
 
 <style scoped>
 .import-page {
-  display: grid;
-  gap: var(--space-6);
+  min-height: calc(100vh - var(--topbar-height) - var(--stage-padding-top));
 }
-.mode-selector {
-  display: inline-flex;
-  width: fit-content;
-  max-width: 100%;
-  gap: var(--space-1);
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-control);
-  background: var(--color-surface-sunken);
-  padding: var(--space-1);
-}
-.mode-selector button {
-  min-height: 44px;
-  border: 0;
-  border-radius: calc(var(--radius-control) - 2px);
-  background: transparent;
-  color: var(--color-text-muted);
-  padding: var(--space-2) var(--space-4);
-  font: inherit;
-  font-weight: 650;
-  cursor: pointer;
-  transition:
-    background-color 180ms ease,
-    color 180ms ease;
-}
-.mode-selector button[aria-pressed='true'] {
-  background: var(--color-surface);
-  color: var(--color-action);
-  box-shadow: var(--shadow-card);
-}
-@media (max-width: 480px) {
-  .mode-selector {
+
+@media (max-width: 560px) {
+  .import-page :deep(.page-header) {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .import-page :deep(.page-header__actions),
+  .import-page :deep(.segmented-control),
+  .import-page :deep(.segmented-control__list) {
     width: 100%;
   }
-  .mode-selector button {
+
+  .import-page :deep(.segmented-control__trigger) {
     flex: 1;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .mode-selector button {
-    transition: none;
   }
 }
 </style>

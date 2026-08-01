@@ -1,37 +1,46 @@
 <script setup lang="ts">
 import { useQueryClient } from '@tanstack/vue-query'
-import { Check } from '@lucide/vue'
+import { ArrowRight, CloudDownload, PenLine, RefreshCw, TriangleAlert } from '@lucide/vue'
 import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 
 import { useApiClient } from '@/api/client-context'
+import type { GroupProtocol } from '@/api/control/types'
+import { ApiError, RequestCancelledError } from '@/api/errors'
+import { groupDetailLocation } from '@/app/route-locations'
 import {
   createGroup,
   discoverModels,
   importGroupKeys,
   isUpstreamUrlConflictData,
   type GroupCreateRequest,
-  type GroupRuntimeConfigDto,
   type UpstreamUrlConflictData,
 } from '@/app/resources/groups'
-import type { GroupProtocol } from '@/api/control/types'
-import { supportsProtocolOnlyRouting } from '@/api/control/protocols'
-import { ApiError, RequestCancelledError } from '@/api/errors'
 import { applyInvalidationPlan, mutationInvalidationPlans } from '@/app/resources/invalidation'
-import { groupDetailLocation } from '@/app/route-locations'
+import { useUnsavedChanges } from '@/app/unsaved-changes'
+import AppButton from '@/components/ui/AppButton.vue'
+import InlineFeedback from '@/components/ui/InlineFeedback.vue'
+import ModelAliasEditor from '@/features/models/ModelAliasEditor.vue'
+import ModelDiscoveryDrawer from '@/features/models/ModelDiscoveryDrawer.vue'
+import {
+  findModelNameConflicts,
+  modelDraftValidity,
+  type ModelAliasEditorLabels,
+  type ModelDiscoveryDrawerLabels,
+  type ModelNameConflict,
+} from '@/features/models/model-draft'
 
-import { channelPresets, type ChannelPreset } from './channel-presets'
-import ImportConnectionStep from './ImportConnectionStep.vue'
-import ImportModelsStep from './ImportModelsStep.vue'
+import { findProviderPreset } from './channel-presets'
+import ImportConnectionSection from './ImportConnectionSection.vue'
 import ImportOperationNotice from './ImportOperationNotice.vue'
-import ImportReviewStep from './ImportReviewStep.vue'
 import { useImportOperationOwner } from './import-operation-owner'
 import { useImportRecovery } from './import-recovery'
 import { analyzeKeys } from './key-analysis'
-import type { ImportDraft } from './model-draft'
-import { createModelDraft, toGroupModels } from './model-draft'
-import { useUnsavedChanges } from '@/app/unsaved-changes'
+import KeyTextarea from './KeyTextarea.vue'
+import type { ImportDraft, ModelDraftItem } from './model-draft'
+import { createDiscoveredModelDraft, toGroupModels } from './model-draft'
+import ProviderPresetPicker from './ProviderPresetPicker.vue'
 
 const props = defineProps<{ initialDraft?: ImportDraft | null }>()
 const api = useApiClient()
@@ -41,46 +50,48 @@ const router = useRouter()
 const { t } = useI18n()
 
 function freshDraft(): ImportDraft {
+  const preset = findProviderPreset('openai')!
   return {
     mode: 'new',
-    step: 1,
-    preset_id: 'openai',
+    preset_id: preset.id,
     name: '',
-    upstream_url: channelPresets[0]!.upstream_url,
-    protocols: [...channelPresets[0]!.protocols],
+    upstream_url: preset.upstream_url,
+    protocols: [...preset.protocols],
     keys: '',
-    header_rules: { set: {}, remove: [] },
     models: [],
   }
 }
 
-const source = props.initialDraft ?? freshDraft()
-const draft = reactive<ImportDraft>({
-  ...source,
-  protocols: [...source.protocols],
-  header_rules: { set: { ...source.header_rules.set }, remove: [...source.header_rules.remove] },
-  models: source.models.map((model) => ({ ...model })),
-})
-const discoveryPending = ref(false)
-const discoveryReady = ref(draft.step > 1 && draft.models.length > 0)
-const discoveryFailed = ref(false)
-const manualMode = ref(
-  draft.models.length > 0 ||
-    (props.initialDraft?.step === 2 && props.initialDraft.models.length === 0),
-)
+function cloneDraft(source: ImportDraft): ImportDraft {
+  return {
+    ...source,
+    protocols: [...source.protocols],
+    models: source.models.map((model) => ({ ...model })),
+  }
+}
+
+const defaultDraft = freshDraft()
+const draft = reactive<ImportDraft>(cloneDraft(props.initialDraft ?? defaultDraft))
+let nextModelKey = Math.max(0, ...draft.models.map(({ key }) => key)) + 1
+const discoveryCandidates = ref<string[]>([])
+const discoveryErrorKey = ref('')
+const discoveryLoading = ref(false)
+const discoveryDrawerOpen = ref(false)
 const errorKey = ref('')
+const submissionError = ref<HTMLElement>()
 const conflict = ref<UpstreamUrlConflictData | null>(null)
+const serverModelConflicts = ref<ModelNameConflict[]>([])
 const completed = ref(false)
-const connectionStep = ref<InstanceType<typeof ImportConnectionStep>>()
-const modelsStep = ref<InstanceType<typeof ImportModelsStep>>()
-const reviewStep = ref<InstanceType<typeof ImportReviewStep>>()
 const importOperationOwner = useImportOperationOwner()
 const createOperation = importOperationOwner.createGroup
 const appendOperation = importOperationOwner.importKeys
 if (createOperation.outcome.value?.kind === 'confirmed') createOperation.reset()
 if (appendOperation.outcome.value?.kind === 'confirmed') appendOperation.reset()
-const pending = computed(
-  () => discoveryPending.value || createOperation.pending.value || appendOperation.pending.value,
+const mutationPending = computed(
+  () => createOperation.pending.value || appendOperation.pending.value,
+)
+const payloadLocked = computed(
+  () => createOperation.operation.value !== null || appendOperation.operation.value !== null,
 )
 const activeMutation = computed(() =>
   appendOperation.operation.value
@@ -109,168 +120,256 @@ const operationResourceIdentity = computed(() => {
 })
 const canRetryOperation = computed(() => activeMutation.value?.canRetry.value ?? false)
 let discoveryController: AbortController | undefined
+let discoveryRequestIdentity = 0
 let componentActive = true
 
 const keyAnalysis = computed(() => analyzeKeys(draft.keys))
-const dirty = computed(
-  () =>
-    !completed.value &&
-    (draft.name !== '' ||
-      draft.keys !== '' ||
-      draft.step !== 1 ||
-      draft.upstream_url !== channelPresets[0]!.upstream_url ||
-      draft.protocols.join(',') !== channelPresets[0]!.protocols.join(',') ||
-      Object.keys(draft.header_rules.set).length > 0 ||
-      draft.header_rules.remove.length > 0),
+const urlError = computed(() => {
+  const value = draft.upstream_url.trim()
+  if (!value) return t('import.connection.urlError')
+  try {
+    const parsed = new URL(value)
+    return (parsed.protocol === 'http:' || parsed.protocol === 'https:') &&
+      parsed.hostname !== '' &&
+      !parsed.username &&
+      !parsed.password &&
+      !parsed.hash
+      ? ''
+      : t('import.connection.urlError')
+  } catch {
+    return t('import.connection.urlError')
+  }
+})
+const protocolsError = computed(() =>
+  draft.protocols.length ? '' : t('import.connection.protocolsError'),
 )
-const headerRulesValid = ref(true)
+const modelConflicts = computed(() =>
+  serverModelConflicts.value.length
+    ? serverModelConflicts.value
+    : findModelNameConflicts(toGroupModels(draft.models)),
+)
+const modelValidity = computed(() => modelDraftValidity(draft.models, modelConflicts.value))
 const canDiscover = computed(
   () =>
-    !pending.value &&
-    draft.upstream_url.trim() !== '' &&
-    draft.protocols.length > 0 &&
+    !payloadLocked.value &&
+    !urlError.value &&
+    !protocolsError.value &&
+    keyAnalysis.value.nonEmptyCount > 0 &&
+    !keyAnalysis.value.tooManyKeys,
+)
+const canCreate = computed(
+  () =>
+    !payloadLocked.value &&
+    !mutationPending.value &&
+    !urlError.value &&
+    !protocolsError.value &&
     keyAnalysis.value.nonEmptyCount > 0 &&
     !keyAnalysis.value.tooManyKeys &&
-    headerRulesValid.value,
+    modelValidity.value.invalidIndexes.size === 0,
 )
-const resourceOnly = computed(
-  () => toGroupModels(draft.models).length === 0 && supportsProtocolOnlyRouting(draft.protocols),
+const currentModelIDs = computed(() => draft.models.map(({ id }) => id.trim()).filter(Boolean))
+const dirty = computed(
+  () => !completed.value && JSON.stringify(snapshotDraft()) !== JSON.stringify(defaultDraft),
 )
-const canReview = computed(
-  () => !pending.value && (toGroupModels(draft.models).length > 0 || resourceOnly.value),
+const summary = computed(() =>
+  t('import.summary', {
+    keys: keyAnalysis.value.nonEmptyCount,
+    protocols: draft.protocols.length,
+    models: draft.models.length,
+  }),
 )
-useUnsavedChanges(dirty)
+const discoveryError = computed(() => (discoveryErrorKey.value ? t(discoveryErrorKey.value) : ''))
+const aliasEditorLabels = computed<ModelAliasEditorLabels>(() => ({
+  tableLabel: t('import.models.tableLabel'),
+  id: t('import.models.id'),
+  alias: t('import.models.alias'),
+  thirdColumn: t('import.models.source'),
+  actions: t('import.models.actions'),
+  search: t('import.models.search'),
+  clearSearch: t('import.models.clearSearch'),
+  aliasEnabledFor: (id) => t('import.models.aliasEnabledFor', { id }),
+  aliasFor: (id) => t('import.models.aliasFor', { id }),
+  aliasPlaceholder: t('import.models.aliasPlaceholder'),
+  aliasRequired: t('import.models.aliasRequired'),
+  removeFor: (id) => t('import.models.removeFor', { id }),
+  manualId: t('import.models.manualId'),
+  add: t('import.models.add'),
+  empty: t('import.models.empty'),
+  noMatches: t('import.models.noMatches'),
+  conflictSummary: t('import.models.conflictSummary'),
+  emptyAliasSummary: t('import.models.emptyAliasSummary'),
+  locateFirstInvalid: t('import.models.locateFirstInvalid'),
+  nameConflict: (name) => t('import.models.nameConflict', { name }),
+}))
+const discoveryDrawerLabels = computed<ModelDiscoveryDrawerLabels>(() => ({
+  title: t('import.models.drawer.title'),
+  description: t('import.models.drawer.description'),
+  close: t('import.models.drawer.close'),
+  loading: t('import.models.drawer.loading'),
+  notice: t('import.models.drawer.notice'),
+  search: t('import.models.drawer.search'),
+  filterLabel: t('import.models.drawer.filterLabel'),
+  filterUnadded: t('import.models.drawer.filterUnadded'),
+  filterAll: t('import.models.drawer.filterAll'),
+  alreadyAdded: t('import.models.drawer.alreadyAdded'),
+  unadded: t('import.models.drawer.unadded'),
+  noMatches: t('import.models.drawer.noMatches'),
+  empty: t('import.models.drawer.empty'),
+  selected: (count) => t('import.models.drawer.selected', { count }),
+  selectAll: t('import.models.drawer.selectAll'),
+  deselectAll: t('import.models.drawer.deselectAll'),
+  retry: t('common.retry'),
+  cancel: t('common.cancel'),
+  confirm: t('import.models.drawer.confirm'),
+}))
+
+useUnsavedChanges(dirty, { blocked: payloadLocked })
 const unregisterRecovery = recovery.register(() => (completed.value ? null : snapshotDraft()))
 
 function snapshotDraft(): ImportDraft {
-  return {
-    ...draft,
-    protocols: [...draft.protocols],
-    header_rules: { set: { ...draft.header_rules.set }, remove: [...draft.header_rules.remove] },
-    models: draft.models.map((model) => ({ ...model })),
-  }
+  return cloneDraft(draft)
 }
 
-function buildDraftConfig(): GroupRuntimeConfigDto {
-  const headerRules = snapshotDraft().header_rules
-  return Object.keys(headerRules.set).length > 0 || headerRules.remove.length > 0
-    ? { header_rules: headerRules }
-    : {}
-}
-
-function startAction(): AbortController {
+function cancelDiscovery(): void {
+  discoveryRequestIdentity += 1
   discoveryController?.abort()
-  discoveryController = new AbortController()
-  discoveryPending.value = true
-  errorKey.value = ''
-  return discoveryController
-}
-
-function finishAction(controller: AbortController): void {
-  if (discoveryController === controller) {
-    discoveryController = undefined
-    discoveryPending.value = false
-  }
+  discoveryController = undefined
+  discoveryLoading.value = false
 }
 
 function invalidateDiscovery(): void {
-  if (discoveryController) {
-    discoveryController.abort()
-    discoveryController = undefined
-    discoveryPending.value = false
-  }
-  if (!discoveryReady.value && !discoveryFailed.value) return
-  discoveryReady.value = false
-  discoveryFailed.value = false
-  manualMode.value = false
-  draft.models = []
-  if (draft.step > 1) draft.step = 1
-}
-
-async function moveToStep(step: ImportDraft['step']): Promise<void> {
-  draft.step = step
-  await nextTick()
-  const surface =
-    step === 1 ? connectionStep.value : step === 2 ? modelsStep.value : reviewStep.value
-  surface?.focusHeading()
+  cancelDiscovery()
+  discoveryCandidates.value = []
+  discoveryErrorKey.value = ''
 }
 
 watch(
-  [
-    () => draft.upstream_url,
-    () => draft.keys,
-    () => draft.protocols.join('\u0000'),
-    () => JSON.stringify(draft.header_rules),
-  ],
+  [() => draft.upstream_url, () => draft.keys, () => draft.protocols.join('\u0000')],
   invalidateDiscovery,
 )
 
-function applyPreset(id: ChannelPreset['id']): void {
-  const preset = channelPresets.find((item) => item.id === id)!
+function applyPreset(id: ImportDraft['preset_id']): void {
+  if (payloadLocked.value) return
   draft.preset_id = id
-  draft.upstream_url = preset.upstream_url
-  draft.protocols = [...preset.protocols]
+  const preset = findProviderPreset(id)
+  draft.upstream_url = preset?.upstream_url ?? ''
+  draft.protocols = preset ? [...preset.protocols] : []
 }
 
-function toggleProtocol(protocol: GroupProtocol, checked: boolean): void {
-  draft.protocols = checked
-    ? [...new Set([...draft.protocols, protocol])]
-    : draft.protocols.filter((item) => item !== protocol)
+function setProtocols(protocols: GroupProtocol[]): void {
+  draft.protocols = protocols
 }
 
-async function runDiscovery(): Promise<void> {
-  if (!canDiscover.value) return
-  const controller = startAction()
-  conflict.value = null
-  try {
-    const result = await discoverModels(
-      api,
-      {
-        upstream_url: draft.upstream_url,
-        protocols: [...draft.protocols],
-        keys: draft.keys,
-        config: buildDraftConfig(),
-      },
-      controller.signal,
-    )
-    if (discoveryController !== controller) return
-    draft.models = createModelDraft(result.models)
-    discoveryReady.value = true
-    discoveryFailed.value = false
-    manualMode.value = true
-    await moveToStep(2)
-  } catch (error: unknown) {
-    if (discoveryController !== controller || error instanceof RequestCancelledError) return
-    discoveryFailed.value = true
-    manualMode.value = false
-    await moveToStep(2)
-    errorKey.value = 'import.discoveryFailed'
-  } finally {
-    finishAction(controller)
+function createManualRow(id: string): ModelDraftItem {
+  return {
+    id,
+    alias: '',
+    alias_enabled: false,
+    source: 'manual',
+    key: nextModelKey++,
   }
 }
 
-function showManualPath(): void {
-  manualMode.value = true
-  errorKey.value = ''
+function updateModels(models: ModelDraftItem[]): void {
+  serverModelConflicts.value = []
+  draft.models = models
+}
+
+function requestDiscovery(): void {
+  if (!canDiscover.value) return
+  const request = {
+    upstream_url: draft.upstream_url.trim(),
+    protocols: [...draft.protocols],
+    keys: draft.keys,
+  }
+  cancelDiscovery()
+  const controller = new AbortController()
+  discoveryController = controller
+  const identity = ++discoveryRequestIdentity
+  discoveryDrawerOpen.value = true
+  discoveryCandidates.value = []
+  discoveryErrorKey.value = ''
+  discoveryLoading.value = true
+  void runDiscovery(request, controller, identity)
+}
+
+async function runDiscovery(
+  request: { upstream_url: string; protocols: GroupProtocol[]; keys: string },
+  controller: AbortController,
+  identity: number,
+): Promise<void> {
+  try {
+    const result = await discoverModels(api, request, controller.signal)
+    if (discoveryRequestIdentity !== identity || discoveryController !== controller) return
+    discoveryCandidates.value = [...new Set(result.models.map((id) => id.trim()).filter(Boolean))]
+  } catch (cause: unknown) {
+    if (
+      cause instanceof RequestCancelledError ||
+      discoveryRequestIdentity !== identity ||
+      discoveryController !== controller
+    ) {
+      return
+    }
+    discoveryErrorKey.value = 'import.discoveryFailed'
+  } finally {
+    if (discoveryRequestIdentity === identity && discoveryController === controller) {
+      discoveryController = undefined
+      discoveryLoading.value = false
+    }
+  }
+}
+
+function confirmCandidates(selectedCandidates: string[]): void {
+  const present = new Set(draft.models.map(({ id }) => id.trim()))
+  const additions = createDiscoveredModelDraft(
+    selectedCandidates.filter((id) => !present.has(id.trim())),
+    () => nextModelKey++,
+  )
+  serverModelConflicts.value = []
+  draft.models = [...draft.models, ...additions]
+  discoveryDrawerOpen.value = false
 }
 
 function buildCreateBody(confirmSameURL: boolean): GroupCreateRequest {
   const name = draft.name.trim()
   return {
     ...(name ? { name } : {}),
-    upstream_url: draft.upstream_url,
+    upstream_url: draft.upstream_url.trim(),
     protocols: [...draft.protocols],
     models: toGroupModels(draft.models),
-    config: buildDraftConfig(),
     keys: draft.keys,
     confirm_same_upstream_url: confirmSameURL,
   }
 }
 
-async function finishSuccess(groupID: number): Promise<void> {
+function readServerModelConflicts(value: unknown): ModelNameConflict[] {
+  if (typeof value !== 'object' || value === null || !('conflicts' in value)) return []
+  const conflicts = (value as { conflicts?: unknown }).conflicts
+  if (!Array.isArray(conflicts)) return []
+  return conflicts.flatMap((item) => {
+    if (
+      typeof item !== 'object' ||
+      item === null ||
+      typeof (item as { client_model?: unknown }).client_model !== 'string' ||
+      !Array.isArray((item as { indexes?: unknown }).indexes) ||
+      !(item as { indexes: unknown[] }).indexes.every(
+        (index) => typeof index === 'number' && Number.isSafeInteger(index) && index >= 0,
+      )
+    ) {
+      return []
+    }
+    return [item as ModelNameConflict]
+  })
+}
+
+async function finishSuccess(groupID: number, kind: 'create' | 'append'): Promise<void> {
   if (!componentActive) return
-  await applyInvalidationPlan(queryClient, mutationInvalidationPlans.group.create)
+  await applyInvalidationPlan(
+    queryClient,
+    kind === 'create'
+      ? mutationInvalidationPlans.group.create
+      : mutationInvalidationPlans.group.importKeys(groupID),
+  )
   if (!componentActive) return
   completed.value = true
   draft.keys = ''
@@ -278,13 +377,24 @@ async function finishSuccess(groupID: number): Promise<void> {
   await router.push(groupDetailLocation(groupID))
 }
 
-async function submitCreate(confirmSameURL = false): Promise<void> {
-  if (pending.value || (toGroupModels(draft.models).length === 0 && !resourceOnly.value)) {
-    return
-  }
-  if (confirmSameURL) createOperation.reset()
-  if (!importOperationOwner.beginCreate(buildCreateBody(confirmSameURL))) return
-  if (!confirmSameURL) conflict.value = null
+async function reportSubmissionError(key: string): Promise<void> {
+  errorKey.value = key
+  await nextTick()
+  submissionError.value?.focus()
+}
+
+async function submitCreate(): Promise<void> {
+  if (!canCreate.value) return
+  cancelDiscovery()
+  conflict.value = null
+  errorKey.value = ''
+  serverModelConflicts.value = []
+  if (!importOperationOwner.beginCreate(buildCreateBody(false))) return
+  await executeCreateOperation()
+}
+
+async function executeCreateOperation(): Promise<void> {
+  if (!createOperation.operation.value) return
   errorKey.value = ''
   const outcome = await createOperation.execute((operation, signal) =>
     createGroup(api, operation.payload, operation.idempotencyKey, signal),
@@ -293,30 +403,55 @@ async function submitCreate(confirmSameURL = false): Promise<void> {
   if (outcome.kind === 'confirmed') {
     const targetID = outcome.value.group_id
     createOperation.reset()
-    if (!componentActive) return
-    await finishSuccess(targetID)
+    await finishSuccess(targetID, 'create')
     return
   }
-  if (!componentActive) return
-  if (outcome.kind === 'failed' && outcome.reason === 'rejected') {
-    const error = createOperation.lastError.value
-    createOperation.reset()
-    if (
-      error instanceof ApiError &&
-      error.code === 'UPSTREAM_URL_CONFLICT' &&
-      isUpstreamUrlConflictData(error.data)
-    ) {
-      conflict.value = error.data
-      return
-    }
-    errorKey.value = 'import.createFailed'
+  if (!componentActive || outcome.kind !== 'failed' || outcome.reason !== 'rejected') return
+  const cause = createOperation.lastError.value
+  if (
+    cause instanceof ApiError &&
+    cause.code === 'UPSTREAM_URL_CONFLICT' &&
+    isUpstreamUrlConflictData(cause.data)
+  ) {
+    conflict.value = cause.data
+    return
   }
+  if (cause instanceof ApiError && cause.code === 'MODEL_NAME_CONFLICT') {
+    serverModelConflicts.value = readServerModelConflicts(cause.data)
+  }
+  createOperation.reset()
+  await reportSubmissionError('import.createFailed')
+}
+
+async function submitSeparateGroup(): Promise<void> {
+  const current = createOperation.operation.value
+  if (!current || !conflict.value || mutationPending.value) return
+  const payload = structuredClone(current.payload)
+  createOperation.reset()
+  conflict.value = null
+  if (
+    !importOperationOwner.beginCreate({
+      ...payload,
+      confirm_same_upstream_url: true,
+    })
+  ) {
+    return
+  }
+  await executeCreateOperation()
 }
 
 async function appendToGroup(groupID: number): Promise<void> {
-  if (pending.value) return
+  const current = createOperation.operation.value
+  if (!current || !conflict.value || mutationPending.value) return
+  const keys = current.payload.keys
   createOperation.reset()
-  if (!importOperationOwner.beginImportKeys({ groupID, keys: draft.keys }, 'new')) return
+  conflict.value = null
+  if (!importOperationOwner.beginImportKeys({ groupID, keys }, 'new')) return
+  await executeAppendOperation()
+}
+
+async function executeAppendOperation(): Promise<void> {
+  if (!appendOperation.operation.value) return
   errorKey.value = ''
   const outcome = await appendOperation.execute((operation, signal) =>
     importGroupKeys(
@@ -331,184 +466,336 @@ async function appendToGroup(groupID: number): Promise<void> {
   if (outcome.kind === 'confirmed') {
     const targetID = outcome.value.group_id
     appendOperation.reset()
-    if (!componentActive) return
-    await applyInvalidationPlan(queryClient, mutationInvalidationPlans.group.importKeys(targetID))
-    if (!componentActive) return
-    completed.value = true
-    draft.keys = ''
-    recovery.clear()
-    await router.push(groupDetailLocation(targetID))
+    await finishSuccess(targetID, 'append')
     return
   }
-  if (!componentActive) return
-  if (outcome.kind === 'failed' && outcome.reason === 'rejected') {
-    appendOperation.reset()
-    errorKey.value = 'import.appendFailed'
-  }
+  if (!componentActive || outcome.kind !== 'failed' || outcome.reason !== 'rejected') return
+  appendOperation.reset()
+  await reportSubmissionError('import.appendFailed')
 }
 
 async function retryOperation(): Promise<void> {
-  if (appendOperation.operation.value) {
-    const groupID = appendOperation.operation.value.payload.groupID
-    await appendToGroup(groupID)
-    return
-  }
-  if (createOperation.operation.value) await submitCreate()
+  if (appendOperation.operation.value) await executeAppendOperation()
+  else if (createOperation.operation.value) await executeCreateOperation()
 }
 
-async function returnToEdit(): Promise<void> {
+function returnToEdit(): void {
   createOperation.reset()
   appendOperation.reset()
   conflict.value = null
-  await moveToStep(1)
+  errorKey.value = ''
 }
 
 onBeforeUnmount(() => {
   componentActive = false
-  discoveryController?.abort()
-  discoveryController = undefined
+  cancelDiscovery()
   unregisterRecovery()
 })
 </script>
 
 <template>
-  <div class="import-workflow">
+  <div class="new-group-import">
     <ImportOperationNotice
       :message-key="operationNoticeKey"
       :resource-identity="operationResourceIdentity"
       :can-retry="canRetryOperation"
-      :pending="pending"
+      :pending="mutationPending"
       @retry="retryOperation"
     />
 
-    <ol class="stepper" :aria-label="t('import.progress')">
-      <li
-        v-for="number in [1, 2, 3]"
-        :key="number"
-        :class="{ active: draft.step === number, done: draft.step > number }"
-      >
-        <span
-          ><Check v-if="draft.step > number" :size="14" aria-hidden="true" /><template v-else>{{
-            number
-          }}</template></span
-        >
-        {{ t(`import.steps.${number}`) }}
-      </li>
-    </ol>
+    <ProviderPresetPicker
+      :model-value="draft.preset_id"
+      :disabled="payloadLocked"
+      @update:model-value="applyPreset"
+    />
 
-    <ImportConnectionStep
-      v-if="draft.step === 1"
-      ref="connectionStep"
-      :preset-id="draft.preset_id"
+    <ImportConnectionSection
       :name="draft.name"
       :upstream-url="draft.upstream_url"
       :protocols="draft.protocols"
-      :keys="draft.keys"
-      :header-rules="draft.header_rules"
-      :pending="pending"
-      :can-discover="canDiscover"
-      @apply-preset="applyPreset"
+      :url-error="urlError"
+      :protocols-error="protocolsError"
+      :disabled="payloadLocked"
       @update:name="draft.name = $event"
       @update:upstream-url="draft.upstream_url = $event"
-      @toggle-protocol="toggleProtocol"
-      @update:keys="draft.keys = $event"
-      @update:header-rules="draft.header_rules = $event"
-      @header-rules-valid="headerRulesValid = $event"
-      @discover="runDiscovery"
+      @update:protocols="setProtocols"
     />
 
-    <ImportModelsStep
-      v-else-if="draft.step === 2"
-      ref="modelsStep"
-      :discovery-failed="discoveryFailed"
-      :manual-mode="manualMode"
-      :error-key="errorKey"
-      :models="draft.models"
-      :can-review="canReview"
-      :resource-only="resourceOnly"
-      @manual="showManualPath"
-      @update:models="draft.models = $event"
-      @back="moveToStep(1)"
-      @review="moveToStep(3)"
-    />
+    <KeyTextarea v-model="draft.keys" :disabled="payloadLocked" />
 
-    <ImportReviewStep
-      v-else
-      ref="reviewStep"
-      :name="draft.name"
-      :upstream-url="draft.upstream_url"
-      :protocols="draft.protocols"
-      :key-count="keyAnalysis.nonEmptyCount"
-      :models="draft.models"
-      :resource-only="resourceOnly"
-      :error-key="errorKey"
-      :conflict="conflict"
-      :pending="pending"
-      :operation-notice-active="operationNoticeKey !== ''"
-      @append="appendToGroup"
-      @separate="submitCreate(true)"
-      @edit="returnToEdit"
-      @back="moveToStep(2)"
-      @create="submitCreate(false)"
+    <section class="new-group-import__models" aria-labelledby="import-models-heading">
+      <header class="new-group-import__models-header">
+        <div>
+          <h2 id="import-models-heading">{{ t('import.models.title') }}</h2>
+          <p>{{ t('import.models.description') }}</p>
+        </div>
+        <AppButton
+          variant="secondary"
+          :busy="discoveryLoading"
+          :disabled="!canDiscover"
+          @click="requestDiscovery"
+        >
+          <RefreshCw :size="16" aria-hidden="true" />{{ t('import.discover') }}
+        </AppButton>
+      </header>
+
+      <div class="new-group-import__models-status" aria-live="polite">
+        <span>{{ t('import.models.optional') }}</span>
+        <p>{{ t('import.models.optionalDescription') }}</p>
+      </div>
+
+      <ModelAliasEditor
+        :model-value="draft.models"
+        :conflicts="modelConflicts"
+        :labels="aliasEditorLabels"
+        :create-row="createManualRow"
+        :disabled="payloadLocked"
+        @update:model-value="updateModels"
+      >
+        <template #third-column="{ item }">
+          <span :class="['new-group-import__source', `new-group-import__source--${item.source}`]">
+            <PenLine v-if="item.source === 'manual'" :size="14" aria-hidden="true" />
+            <CloudDownload v-else :size="14" aria-hidden="true" />
+            {{ t(`import.models.sources.${item.source}`) }}
+          </span>
+        </template>
+      </ModelAliasEditor>
+
+      <InlineFeedback tone="info" appearance="hint">
+        {{ t('import.models.discoveryNotice') }}
+      </InlineFeedback>
+    </section>
+
+    <section v-if="conflict" class="new-group-import__conflict" aria-live="polite">
+      <header>
+        <TriangleAlert :size="18" aria-hidden="true" />
+        <div>
+          <h2>{{ t('import.conflict.title') }}</h2>
+          <p>{{ t('import.conflict.description') }}</p>
+        </div>
+      </header>
+      <div class="new-group-import__conflict-groups">
+        <div v-for="group in conflict.groups" :key="group.id">
+          <strong>#{{ group.id }} · {{ group.name }}</strong>
+          <AppButton
+            variant="secondary"
+            :disabled="mutationPending"
+            @click="appendToGroup(group.id)"
+          >
+            {{ t('import.conflict.append') }}
+          </AppButton>
+        </div>
+      </div>
+      <footer>
+        <AppButton :disabled="mutationPending" @click="submitSeparateGroup">
+          {{ t('import.conflict.separate') }}
+        </AppButton>
+        <AppButton variant="ghost" :disabled="mutationPending" @click="returnToEdit">
+          {{ t('import.conflict.edit') }}
+        </AppButton>
+      </footer>
+    </section>
+
+    <div v-if="errorKey" ref="submissionError" class="new-group-import__error" tabindex="-1">
+      <InlineFeedback tone="danger">{{ t(errorKey) }}</InlineFeedback>
+    </div>
+
+    <footer class="new-group-import__actions">
+      <div aria-live="polite">
+        <strong>{{ summary }}</strong>
+        <span>{{ t('import.actionHelp') }}</span>
+      </div>
+      <AppButton :busy="mutationPending" :disabled="!canCreate" @click="submitCreate">
+        {{ t('import.create') }}<ArrowRight :size="16" aria-hidden="true" />
+      </AppButton>
+    </footer>
+
+    <ModelDiscoveryDrawer
+      :open="discoveryDrawerOpen"
+      :candidates="discoveryCandidates"
+      :current-ids="currentModelIDs"
+      :loading="discoveryLoading"
+      :error="discoveryError"
+      :labels="discoveryDrawerLabels"
+      :dismissible="!discoveryLoading"
+      @update:open="discoveryDrawerOpen = $event"
+      @retry="requestDiscovery"
+      @confirm="confirmCandidates"
     />
   </div>
 </template>
 
 <style scoped>
-.import-workflow {
+.new-group-import {
+  min-width: 0;
+}
+
+.new-group-import :deep(.operation-notice) {
+  margin-top: var(--space-5);
+}
+
+.new-group-import__models {
   display: grid;
-  gap: var(--space-5);
-  max-width: 920px;
-  margin: 0 auto;
+  gap: var(--space-3);
+  min-width: 0;
+  border-bottom: 1px solid var(--color-border-subtle);
+  padding: var(--space-5) 0 var(--space-6);
 }
-.stepper {
+
+.new-group-import__models-header {
   display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.new-group-import__models-header h2,
+.new-group-import__models-header p,
+.new-group-import__models-status p {
   margin: 0;
-  padding: 0;
-  list-style: none;
 }
-.stepper li {
+
+.new-group-import__models-header h2 {
+  font-family: var(--font-serif);
+  font-size: var(--title-section);
+  font-weight: 500;
+}
+
+.new-group-import__models-header p {
+  margin-top: var(--space-1);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.new-group-import__models-status {
   display: flex;
-  flex: 1;
   align-items: center;
   gap: var(--space-2);
   color: var(--color-text-muted);
-  font-size: 0.8125rem;
+  font-size: var(--text-sm);
 }
-.stepper li:not(:last-child)::after {
-  content: '';
-  flex: 1;
-  height: 1px;
-  background: var(--color-border-subtle);
-  margin-inline: var(--space-3);
-}
-.stepper li > span {
-  display: grid;
-  width: 26px;
-  height: 26px;
+
+.new-group-import__models-status > span {
   flex: none;
-  place-items: center;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: 50%;
-  font-family: ui-monospace, monospace;
+  border-radius: var(--radius-tag);
+  background: var(--color-neutral-bg);
+  color: var(--color-neutral);
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--text-label-xs);
+  font-weight: 600;
 }
-.stepper li.active {
-  color: var(--color-text);
-  font-weight: 650;
+
+.new-group-import__source {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
 }
-.stepper li.active > span {
-  border-color: var(--color-action);
-  background: var(--color-action);
-  color: var(--color-text-inverse);
-}
-.stepper li.done > span {
-  border-color: transparent;
-  background: var(--color-success-bg);
+
+.new-group-import__source--discovered {
   color: var(--color-success);
 }
+
+.new-group-import__conflict {
+  display: grid;
+  gap: var(--space-3);
+  margin-top: var(--space-5);
+  border: 1px solid var(--color-warning);
+  border-radius: var(--radius-control);
+  background: var(--color-warning-bg);
+  padding: var(--space-4);
+}
+
+.new-group-import__conflict > header,
+.new-group-import__conflict > footer,
+.new-group-import__conflict-groups > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.new-group-import__conflict > header {
+  align-items: flex-start;
+  justify-content: flex-start;
+  color: var(--color-warning);
+}
+
+.new-group-import__conflict h2,
+.new-group-import__conflict p {
+  margin: 0;
+}
+
+.new-group-import__conflict h2 {
+  font-size: var(--text-body);
+}
+
+.new-group-import__conflict p {
+  margin-top: var(--space-1);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.new-group-import__conflict-groups {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.new-group-import__conflict-groups > div {
+  border-top: 1px solid var(--color-border-subtle);
+  padding-top: var(--space-2);
+}
+
+.new-group-import__conflict > footer {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+}
+
+.new-group-import__actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-4) 0 0;
+}
+
+.new-group-import__error {
+  margin-top: var(--space-5);
+  outline: none;
+}
+
+.new-group-import__actions > div {
+  min-width: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.new-group-import__actions strong,
+.new-group-import__actions span {
+  display: block;
+}
+
+.new-group-import__actions strong {
+  color: var(--color-text);
+  font-weight: 560;
+}
+
+.new-group-import__actions span {
+  margin-top: var(--space-1);
+}
+
 @media (max-width: 640px) {
-  .stepper li {
-    font-size: 0;
+  .new-group-import__models-header,
+  .new-group-import__actions,
+  .new-group-import__conflict-groups > div {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .new-group-import__models-header :deep(.app-button),
+  .new-group-import__actions :deep(.app-button) {
+    min-height: var(--touch-target);
   }
 }
 </style>

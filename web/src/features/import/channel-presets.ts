@@ -1,34 +1,126 @@
 import type { GroupProtocol } from '@/api/control/types'
 
-export interface ChannelPreset {
-  id: 'openai' | 'anthropic' | 'gemini' | 'custom'
-  labelKey: string
+export type ProviderPresetCategory = 'native' | 'openai-compatible'
+
+export interface ProviderPreset {
+  id: string
+  category: ProviderPresetCategory
+  featured: boolean
+  mark: string
+  nameKey: string
+  descriptionKey: string
   upstream_url: string
-  protocols: GroupProtocol[]
+  protocols: readonly GroupProtocol[]
 }
 
-export const channelPresets: ChannelPreset[] = [
+export const providerPresetRegistry = [
   {
     id: 'openai',
-    labelKey: 'import.presets.openai',
+    category: 'native',
+    featured: true,
+    mark: 'OA',
+    nameKey: 'import.presets.openai.name',
+    descriptionKey: 'import.presets.openai.description',
     upstream_url: 'https://api.openai.com',
     protocols: ['openai-completions', 'openai-responses'],
   },
   {
     id: 'anthropic',
-    labelKey: 'import.presets.anthropic',
+    category: 'native',
+    featured: true,
+    mark: 'AN',
+    nameKey: 'import.presets.anthropic.name',
+    descriptionKey: 'import.presets.anthropic.description',
     upstream_url: 'https://api.anthropic.com',
     protocols: ['anthropic'],
   },
   {
     id: 'gemini',
-    labelKey: 'import.presets.gemini',
+    category: 'native',
+    featured: true,
+    mark: 'GE',
+    nameKey: 'import.presets.gemini.name',
+    descriptionKey: 'import.presets.gemini.description',
     upstream_url: 'https://generativelanguage.googleapis.com',
     protocols: ['gemini'],
   },
   {
+    id: 'deepseek',
+    category: 'openai-compatible',
+    featured: false,
+    mark: 'DS',
+    nameKey: 'import.presets.deepseek.name',
+    descriptionKey: 'import.presets.deepseek.description',
+    upstream_url: 'https://api.deepseek.com',
+    protocols: ['openai-completions'],
+  },
+  {
+    id: 'openrouter',
+    category: 'openai-compatible',
+    featured: false,
+    mark: 'OR',
+    nameKey: 'import.presets.openrouter.name',
+    descriptionKey: 'import.presets.openrouter.description',
+    upstream_url: 'https://openrouter.ai/api/v1',
+    protocols: ['openai-completions'],
+  },
+  {
+    id: 'siliconflow',
+    category: 'openai-compatible',
+    featured: false,
+    mark: 'SF',
+    nameKey: 'import.presets.siliconflow.name',
+    descriptionKey: 'import.presets.siliconflow.description',
+    upstream_url: 'https://api.siliconflow.cn/v1',
+    protocols: ['openai-completions'],
+  },
+  {
+    id: 'moonshot',
+    category: 'openai-compatible',
+    featured: false,
+    mark: 'MO',
+    nameKey: 'import.presets.moonshot.name',
+    descriptionKey: 'import.presets.moonshot.description',
+    upstream_url: 'https://api.moonshot.cn/v1',
+    protocols: ['openai-completions'],
+  },
+] as const satisfies readonly ProviderPreset[]
+
+export type RegisteredProviderPreset = (typeof providerPresetRegistry)[number]
+export type ProviderPresetID = RegisteredProviderPreset['id'] | 'custom'
+
+export const featuredProviderPresets = providerPresetRegistry.filter(({ featured }) => featured)
+export const catalogProviderPresets = providerPresetRegistry.filter(({ featured }) => !featured)
+
+export function isProviderPresetID(value: unknown): value is ProviderPresetID {
+  return (
+    value === 'custom' ||
+    (typeof value === 'string' && providerPresetRegistry.some(({ id }) => id === value))
+  )
+}
+
+export function findProviderPreset(id: ProviderPresetID): RegisteredProviderPreset | undefined {
+  return providerPresetRegistry.find((preset) => preset.id === id)
+}
+
+// Temporary compatibility for the legacy stepped components removed by Task 6.
+export interface ChannelPreset {
+  id: ProviderPresetID
+  labelKey: string
+  upstream_url: string
+  protocols: readonly GroupProtocol[]
+}
+
+export const channelPresets: readonly ChannelPreset[] = [
+  ...providerPresetRegistry.map((preset) => ({
+    id: preset.id,
+    labelKey: preset.nameKey,
+    upstream_url: preset.upstream_url,
+    protocols: preset.protocols,
+  })),
+  {
     id: 'custom',
-    labelKey: 'import.presets.custom',
+    labelKey: 'import.presets.custom.name',
     upstream_url: '',
     protocols: [],
   },

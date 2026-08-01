@@ -12,11 +12,6 @@ export type FailureCategory =
   | 'downstream_cancel'
   | 'ambiguous'
 
-export interface GroupModelDto {
-  id: string
-  alias: string
-}
-
 export type GroupCollectionStatus = 'available' | 'unavailable' | 'disabled'
 export type GroupCollectionSort = 'status' | 'name' | 'keys' | 'created'
 

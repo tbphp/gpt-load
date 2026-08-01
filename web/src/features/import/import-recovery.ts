@@ -3,8 +3,8 @@ import { inject, type InjectionKey } from 'vue'
 import { isDataProtocol } from '@/api/control/protocols'
 import type { GroupProtocol } from '@/api/control/types'
 
-import type { ChannelPreset } from './channel-presets'
-import type { HeaderRules, ImportRecoveryDraft, ModelDraftItem } from './model-draft'
+import { isProviderPresetID } from './channel-presets'
+import type { ImportRecoveryDraft, ModelDraftItem } from './model-draft'
 
 export const importRecoveryStorageKey = 'gpt-load.import-reauth-draft'
 export const importRecoveryTtlMs = 15 * 60 * 1_000
@@ -26,7 +26,7 @@ export interface ImportRecoveryService {
 }
 
 interface ImportRecoveryRecord {
-  version: 1
+  version: 2
   expires_at: number
   draft: ImportRecoveryDraft
 }
@@ -39,45 +39,61 @@ function isProtocol(value: unknown): value is GroupProtocol {
   return isDataProtocol(value)
 }
 
-function isPreset(value: unknown): value is ChannelPreset['id'] {
-  return ['openai', 'anthropic', 'gemini', 'custom'].includes(String(value))
-}
-
-function isHeaderRules(value: unknown): value is HeaderRules {
-  if (!isRecord(value) || !isRecord(value.set) || !Array.isArray(value.remove)) return false
-  return (
-    Object.values(value.set).every((item) => typeof item === 'string') &&
-    value.remove.every((item) => typeof item === 'string')
-  )
+function hasOnlyFields(value: Record<string, unknown>, fields: readonly string[]): boolean {
+  const allowed = new Set(fields)
+  return Object.keys(value).every((field) => allowed.has(field))
 }
 
 function isModel(value: unknown): value is ModelDraftItem {
   return (
     isRecord(value) &&
+    hasOnlyFields(value, ['id', 'alias', 'alias_enabled', 'source', 'key']) &&
     typeof value.id === 'string' &&
+    value.id.trim() !== '' &&
     typeof value.alias === 'string' &&
-    typeof value.selected === 'boolean'
+    typeof value.alias_enabled === 'boolean' &&
+    (value.source === 'manual' || value.source === 'discovered') &&
+    typeof value.key === 'number' &&
+    Number.isSafeInteger(value.key) &&
+    value.key > 0
   )
 }
 
 function isNewImportDraft(value: Record<string, unknown>): boolean {
-  return (
+  if (!(
+    hasOnlyFields(value, [
+      'mode',
+      'preset_id',
+      'name',
+      'upstream_url',
+      'protocols',
+      'keys',
+      'models',
+    ]) &&
     value.mode === 'new' &&
-    (value.step === 1 || value.step === 2 || value.step === 3) &&
-    isPreset(value.preset_id) &&
+    isProviderPresetID(value.preset_id) &&
     typeof value.name === 'string' &&
     typeof value.upstream_url === 'string' &&
     Array.isArray(value.protocols) &&
     value.protocols.every(isProtocol) &&
     typeof value.keys === 'string' &&
-    isHeaderRules(value.header_rules) &&
     Array.isArray(value.models) &&
     value.models.every(isModel)
+  )) {
+    return false
+  }
+  const models = value.models as ModelDraftItem[]
+  const protocols = value.protocols as GroupProtocol[]
+  return (
+    new Set(protocols).size === protocols.length &&
+    new Set(models.map(({ key }) => key)).size === models.length &&
+    new Set(models.map(({ id }) => id.trim())).size === models.length
   )
 }
 
 function isExistingImportDraft(value: Record<string, unknown>): boolean {
   return (
+    hasOnlyFields(value, ['mode', 'group_id', 'keys']) &&
     value.mode === 'existing' &&
     (value.group_id === null ||
       (typeof value.group_id === 'number' &&
@@ -96,7 +112,8 @@ function parseRecoveryRecord(raw: string): ImportRecoveryRecord | null {
     const value: unknown = JSON.parse(raw)
     if (
       !isRecord(value) ||
-      value.version !== 1 ||
+      !hasOnlyFields(value, ['version', 'expires_at', 'draft']) ||
+      value.version !== 2 ||
       typeof value.expires_at !== 'number' ||
       !Number.isFinite(value.expires_at) ||
       !isImportDraft(value.draft)
@@ -174,7 +191,7 @@ export function createImportRecoveryService(
     if (!deps.storage) return 'storage-unavailable'
 
     const record: ImportRecoveryRecord = {
-      version: 1,
+      version: 2,
       expires_at: deps.now() + importRecoveryTtlMs,
       draft,
     }

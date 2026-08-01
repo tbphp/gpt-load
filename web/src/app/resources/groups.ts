@@ -10,7 +10,6 @@ import type {
   GroupCollectionResponseDto,
   GroupCollectionStatus,
   GroupCollectionSummaryDto,
-  GroupModelDto,
   GroupModelItemDto,
   GroupModelsDto,
   GroupOptionDto,
@@ -139,7 +138,6 @@ export interface ModelDiscoveryRequest {
   upstream_url: string
   protocols: readonly GroupProtocol[]
   keys: string
-  config: GroupRuntimeConfigDto
 }
 
 export interface ModelDiscoveryResult {
@@ -160,8 +158,7 @@ export interface GroupCreateRequest {
   name?: string
   upstream_url: string
   protocols: readonly GroupProtocol[]
-  models: GroupModelDto[]
-  config: GroupRuntimeConfigDto
+  models: GroupModelUpdateDto[]
   keys: string
   confirm_same_upstream_url: boolean
 }
@@ -171,7 +168,6 @@ export interface GroupCreateResult {
   group_name: string
   keys_added: number
   keys_duplicated: number
-  models: GroupModelDto[]
 }
 
 export interface GroupKeyImportRequest {
@@ -192,15 +188,6 @@ function projectNonBlankString(value: unknown): string {
   const result = projectString(value)
   if (result.trim().length === 0) throw new InvalidResponseError()
   return result
-}
-
-function projectGroupModel(value: unknown): GroupModelDto {
-  const record = projectRecord(value)
-  assertNoSecretLikeFields(record, ['id', 'alias'])
-  return {
-    id: projectNonBlankString(record.id),
-    alias: projectString(record.alias, { allowEmpty: true }),
-  }
 }
 
 function projectHeaderRules(value: unknown): HeaderRulesDto {
@@ -365,9 +352,12 @@ function projectGroupCollectionItem(value: unknown): GroupCollectionItemDto {
   if (new Set(protocols).size !== protocols.length) throw new InvalidResponseError()
   const status = projectEnum(record.status, groupCollectionStatuses) as GroupCollectionStatus
   const keyCounts = projectKeyCounts(record.key_counts)
+  const modelCount = projectSafeInteger(record.model_count, { minimum: 0 })
+  const hasRoutableRequest = modelCount > 0 || protocols.includes('openai-responses')
+  const routeAvailable = keyCounts.available > 0 && hasRoutableRequest
   if (
-    (status === 'available' && keyCounts.available === 0) ||
-    (status === 'unavailable' && keyCounts.available !== 0) ||
+    (status === 'available' && !routeAvailable) ||
+    (status === 'unavailable' && routeAvailable) ||
     (status === 'disabled' && keyCounts.disabled !== keyCounts.total)
   ) {
     throw new InvalidResponseError()
@@ -378,7 +368,7 @@ function projectGroupCollectionItem(value: unknown): GroupCollectionItemDto {
     status,
     upstream_url: projectHTTPURL(record.upstream_url),
     protocols,
-    model_count: projectSafeInteger(record.model_count, { minimum: 0 }),
+    model_count: modelCount,
     key_counts: keyCounts,
   }
 }
@@ -466,19 +456,12 @@ function projectDiscoveryResult(value: unknown): ModelDiscoveryResult {
 
 function projectGroupCreateResult(value: unknown): GroupCreateResult {
   const record = projectRecord(value)
-  assertNoSecretLikeFields(record, [
-    'group_id',
-    'group_name',
-    'keys_added',
-    'keys_duplicated',
-    'models',
-  ])
+  assertNoSecretLikeFields(record, ['group_id', 'group_name', 'keys_added', 'keys_duplicated'])
   return {
     group_id: projectSafeInteger(record.group_id, { minimum: 1 }),
     group_name: projectNonBlankString(record.group_name),
     keys_added: projectSafeInteger(record.keys_added, { minimum: 0 }),
     keys_duplicated: projectSafeInteger(record.keys_duplicated, { minimum: 0 }),
-    models: projectArray(record.models, projectGroupModel),
   }
 }
 

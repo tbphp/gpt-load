@@ -1,27 +1,27 @@
-import type { GroupModelDto, GroupProtocol } from '@/api/control/types'
+import type { GroupProtocol } from '@/api/control/types'
+import type { GroupModelUpdateDto, HeaderRulesDto } from '@/app/resources/groups'
+import { normalizedModels, type ModelDraftValue } from '@/features/models/model-draft'
 
-import type { ChannelPreset } from './channel-presets'
+import type { ProviderPresetID } from './channel-presets'
 
-export interface HeaderRules {
-  set: Record<string, string>
-  remove: string[]
-}
+// HeaderRulesEditor still consumes this historical alias until the legacy import files are
+// removed in Task 6. It is not part of the new import draft.
+export type HeaderRules = HeaderRulesDto
 
-export interface ModelDraftItem {
-  id: string
-  alias: string
-  selected: boolean
+export type ImportModelSource = 'manual' | 'discovered'
+
+export interface ModelDraftItem extends ModelDraftValue {
+  source: ImportModelSource
+  key: number
 }
 
 export interface ImportDraft {
   mode: 'new'
-  step: 1 | 2 | 3
-  preset_id: ChannelPreset['id']
+  preset_id: ProviderPresetID
   name: string
   upstream_url: string
   protocols: GroupProtocol[]
   keys: string
-  header_rules: HeaderRules
   models: ModelDraftItem[]
 }
 
@@ -33,37 +33,27 @@ export interface ExistingGroupImportDraft {
 
 export type ImportRecoveryDraft = ImportDraft | ExistingGroupImportDraft
 
-export function createModelDraft(ids: string[]): ModelDraftItem[] {
-  const seen = new Set<string>()
-  const result: ModelDraftItem[] = []
-  for (const value of ids) {
-    const id = value.trim()
-    if (!id || seen.has(id)) continue
-    seen.add(id)
-    result.push({ id, alias: '', selected: true })
-  }
-  return result
-}
-
-export function setManualModel(
-  draft: ModelDraftItem[],
-  rawID: string,
-  rawAlias: string,
+export function createDiscoveredModelDraft(
+  ids: readonly string[],
+  nextKey: () => number,
 ): ModelDraftItem[] {
-  const id = rawID.trim()
-  const alias = rawAlias.trim()
-  if (!id) return draft
-  const existing = draft.find((model) => model.id === id)
-  if (existing) {
-    return draft.map((model) =>
-      model.id === id ? { ...model, alias, selected: true } : { ...model },
-    )
-  }
-  return [...draft.map((model) => ({ ...model })), { id, alias, selected: true }]
+  const seen = new Set<string>()
+  return ids.flatMap((value) => {
+    const id = value.trim()
+    if (!id || seen.has(id)) return []
+    seen.add(id)
+    return [
+      {
+        id,
+        alias: '',
+        alias_enabled: false,
+        source: 'discovered' as const,
+        key: nextKey(),
+      },
+    ]
+  })
 }
 
-export function toGroupModels(draft: ModelDraftItem[]): GroupModelDto[] {
-  return draft
-    .filter((model) => model.selected && model.id.trim() !== '')
-    .map((model) => ({ id: model.id.trim(), alias: model.alias.trim() }))
+export function toGroupModels(draft: readonly ModelDraftItem[]): GroupModelUpdateDto[] {
+  return normalizedModels(draft)
 }

@@ -8,7 +8,10 @@ export interface KeyAnalysis {
 }
 
 export function analyzeKeys(raw: string): KeyAnalysis {
-  const lines = raw.split('\n').map((line) => line.trim())
+  const lines = raw
+    .replace(/\r/g, '')
+    .split('\n')
+    .map((line) => line.trim())
   const nonEmpty = lines.filter(Boolean)
   const seen = new Set<string>()
   let duplicateCount = 0
@@ -21,9 +24,9 @@ export function analyzeKeys(raw: string): KeyAnalysis {
   return {
     raw,
     nonEmptyCount: nonEmpty.length,
-    emptyLineCount: lines.length - nonEmpty.length,
+    emptyLineCount: raw ? lines.length - nonEmpty.length : 0,
     duplicateCount,
-    likelyAccessKeyCount: nonEmpty.filter((line) => line.startsWith('sk-gl-')).length,
+    likelyAccessKeyCount: nonEmpty.filter((line) => /^sk-gl-/i.test(line)).length,
     tooManyKeys: nonEmpty.length > 1_000,
   }
 }

@@ -3,24 +3,24 @@ import { ChevronLeft, ChevronRight } from '@lucide/vue'
 import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import ModelDraftEditor from '@/components/config/ModelDraftEditor.vue'
+import ModelDraftEditor, {
+  type ModelDraftEditorItem,
+} from '@/components/config/ModelDraftEditor.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import SurfaceCard from '@/components/ui/SurfaceCard.vue'
-
-import type { ImportDraft } from './model-draft'
 
 defineProps<{
   discoveryFailed: boolean
   manualMode: boolean
   errorKey: string
-  models: ImportDraft['models']
+  models: ModelDraftEditorItem[]
   canReview: boolean
   resourceOnly: boolean
 }>()
 const emit = defineEmits<{
   manual: []
-  'update:models': [models: ImportDraft['models']]
+  'update:models': [models: ModelDraftEditorItem[]]
   back: []
   review: []
 }>()
