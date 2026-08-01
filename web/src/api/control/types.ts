@@ -63,6 +63,8 @@ export interface GroupCollectionResponseDto {
 export interface GroupOptionDto {
   id: number
   name: string
+  enabled: boolean
+  protocols: GroupProtocol[]
   models: string[]
 }
 

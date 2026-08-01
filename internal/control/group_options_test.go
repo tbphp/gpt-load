@@ -9,15 +9,18 @@ import (
 	"testing"
 
 	app_errors "gpt-load/internal/platform/errors"
+	"gpt-load/internal/protocol"
 	"gpt-load/internal/storage/models"
 )
 
 func TestListGroupOptionsReturnsAllGroupsByIDWithExternalModels(t *testing.T) {
 	fixture := newServiceFixture(t)
 	createGroupOptionGroup(t, fixture, 20, "later enabled", true,
+		`["openai-completions","gemini"]`,
 		`[{"id":" upstream-first ","alias":" public-first "},{"id":" upstream-second ","alias":"   "}]`,
 	)
 	createGroupOptionGroup(t, fixture, 10, "earlier disabled", false,
+		`["anthropic"]`,
 		`[{"id":" upstream-third ","alias":""},{"id":" upstream-fourth ","alias":" public-fourth "}]`,
 	)
 	if err := fixture.db.Create(&models.UpstreamKey{
@@ -32,8 +35,16 @@ func TestListGroupOptionsReturnsAllGroupsByIDWithExternalModels(t *testing.T) {
 		t.Fatalf("ListGroupOptions() error = %v", err)
 	}
 	want := []GroupOption{
-		{ID: 10, Name: "earlier disabled", Models: []string{"upstream-third", "public-fourth"}},
-		{ID: 20, Name: "later enabled", Models: []string{"public-first", "upstream-second"}},
+		{
+			ID: 10, Name: "earlier disabled", Enabled: false,
+			Protocols: []protocol.Protocol{protocol.Anthropic},
+			Models:    []string{"upstream-third", "public-fourth"},
+		},
+		{
+			ID: 20, Name: "later enabled", Enabled: true,
+			Protocols: []protocol.Protocol{protocol.OpenAICompletions, protocol.Gemini},
+			Models:    []string{"public-first", "upstream-second"},
+		},
 	}
 	if !reflect.DeepEqual(options, want) {
 		t.Fatalf("ListGroupOptions() = %#v, want %#v", options, want)
@@ -44,13 +55,13 @@ func TestListGroupOptionsReturnsAllGroupsByIDWithExternalModels(t *testing.T) {
 		t.Fatalf("json.Marshal(options) error = %v", err)
 	}
 	for _, forbiddenField := range []string{
-		"upstream_url", "enabled", "protocols", "key_value", "key_hash",
+		"upstream_url", "key_value", "key_hash", "keyvalue", "keyhash",
 	} {
 		if containsJSONToken(encoded, forbiddenField) {
 			t.Fatalf("options JSON exposes field %q: %s", forbiddenField, encoded)
 		}
 	}
-	for _, forbiddenValue := range []string{"ciphertext-secret", "hash-secret", "secret"} {
+	for _, forbiddenValue := range []string{"ciphertext-secret", "hash-secret", "plaintext-secret", "secret"} {
 		if strings.Contains(string(encoded), forbiddenValue) {
 			t.Fatalf("options JSON exposes %q: %s", forbiddenValue, encoded)
 		}
@@ -60,13 +71,29 @@ func TestListGroupOptionsReturnsAllGroupsByIDWithExternalModels(t *testing.T) {
 func TestListGroupOptionsFailsClosedForInvalidDataDatabaseAndCancellation(t *testing.T) {
 	t.Run("invalid models JSON", func(t *testing.T) {
 		fixture := newServiceFixture(t)
-		createGroupOptionGroup(t, fixture, 1, "invalid", true, `{"not":"an array"}`)
+		createGroupOptionGroup(t, fixture, 1, "invalid", true, `["openai-completions"]`, `{"not":"an array"}`)
 
 		options, err := fixture.service.ListGroupOptions(t.Context())
 		if options != nil || !errors.Is(err, app_errors.ErrInternalServer) {
 			t.Fatalf("ListGroupOptions() = %#v, %v; want nil, ErrInternalServer", options, err)
 		}
 	})
+
+	for name, rawProtocols := range map[string]string{
+		"invalid protocols JSON": `{"not":"an array"}`,
+		"invalid protocol":       `["openai"]`,
+		"duplicate protocol":     `["anthropic","anthropic"]`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			fixture := newServiceFixture(t)
+			createGroupOptionGroup(t, fixture, 1, "invalid", true, rawProtocols, `[]`)
+
+			options, err := fixture.service.ListGroupOptions(t.Context())
+			if options != nil || !errors.Is(err, app_errors.ErrInternalServer) {
+				t.Fatalf("ListGroupOptions() = %#v, %v; want nil, ErrInternalServer", options, err)
+			}
+		})
+	}
 
 	t.Run("database error", func(t *testing.T) {
 		fixture := newServiceFixture(t)
@@ -102,11 +129,13 @@ func createGroupOptionGroup(
 	id uint,
 	name string,
 	enabled bool,
+	rawProtocols string,
 	rawModels string,
 ) {
 	t.Helper()
 	group := validControlGroup(name)
 	group.ID = id
+	group.Protocols = models.JSON(rawProtocols)
 	group.Models = models.JSON(rawModels)
 	group.UpstreamURL = "https://" + strings.ReplaceAll(name, " ", "-") + ".example/v1"
 	if err := fixture.db.Create(group).Error; err != nil {

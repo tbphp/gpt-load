@@ -55,7 +55,7 @@ const groupCollectionItemFields = [
   'key_counts',
 ] as const
 const groupCollectionPaginationFields = ['page', 'page_size', 'total_items', 'total_pages'] as const
-const groupOptionFields = ['id', 'name', 'models'] as const
+const groupOptionFields = ['id', 'name', 'enabled', 'protocols', 'models'] as const
 const keyCountFields = ['total', 'available', 'cooldown', 'blacklisted', 'disabled'] as const
 const groupCollectionStatuses = ['available', 'unavailable', 'disabled'] as const
 const runtimeSettingFields = [
@@ -369,11 +369,19 @@ export function projectGroupCollection(value: unknown): GroupCollectionResponseD
 function projectGroupOption(value: unknown): GroupOptionDto {
   const record = projectRecord(value)
   assertNoSecretLikeFields(record, groupOptionFields)
+  const protocols = projectArray(record.protocols, (protocol) =>
+    projectEnum(protocol, enabledDataProtocols),
+  )
+  if (protocols.length === 0 || new Set(protocols).size !== protocols.length) {
+    throw new InvalidResponseError()
+  }
   const models = projectArray(record.models, projectNonBlankString)
   if (new Set(models).size !== models.length) throw new InvalidResponseError()
   return {
     id: projectSafeInteger(record.id, { minimum: 1 }),
     name: projectNonBlankString(record.name),
+    enabled: projectBoolean(record.enabled),
+    protocols,
     models,
   }
 }

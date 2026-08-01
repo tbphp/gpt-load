@@ -9,19 +9,24 @@ import (
 	"gorm.io/gorm"
 
 	app_errors "gpt-load/internal/platform/errors"
+	"gpt-load/internal/protocol"
 	"gpt-load/internal/storage/models"
 )
 
 type GroupOption struct {
-	ID     uint     `json:"id"`
-	Name   string   `json:"name"`
-	Models []string `json:"models"`
+	ID        uint                `json:"id"`
+	Name      string              `json:"name"`
+	Enabled   bool                `json:"enabled"`
+	Protocols []protocol.Protocol `json:"protocols"`
+	Models    []string            `json:"models"`
 }
 
 type groupOptionRow struct {
-	ID     uint
-	Name   string
-	Models models.JSON
+	ID        uint
+	Name      string
+	Enabled   bool
+	Protocols models.JSON
+	Models    models.JSON
 }
 
 func (s *Service) ListGroupOptions(ctx context.Context) ([]GroupOption, error) {
@@ -58,7 +63,7 @@ func (s *Service) readGroupOptionRows(ctx context.Context) ([]groupOptionRow, er
 	var rows []groupOptionRow
 	err := s.withReadSnapshot(ctx, func(tx *gorm.DB) error {
 		return tx.Model(&models.Group{}).
-			Select("id", "name", "models").
+			Select("id", "name", "enabled", "protocols", "models").
 			Order("id ASC").
 			Find(&rows).Error
 	})
@@ -66,6 +71,7 @@ func (s *Service) readGroupOptionRows(ctx context.Context) ([]groupOptionRow, er
 		return nil, err
 	}
 	for index := range rows {
+		rows[index].Protocols = append(models.JSON(nil), rows[index].Protocols...)
 		rows[index].Models = append(models.JSON(nil), rows[index].Models...)
 	}
 	return rows, nil
@@ -74,6 +80,17 @@ func (s *Service) readGroupOptionRows(ctx context.Context) ([]groupOptionRow, er
 func mapGroupOptions(rows []groupOptionRow) ([]GroupOption, error) {
 	options := make([]GroupOption, 0, len(rows))
 	for _, row := range rows {
+		var protocols []protocol.Protocol
+		if err := json.Unmarshal(row.Protocols, &protocols); err != nil {
+			return nil, groupCollectionDataError(
+				"decode group %d protocols: %v", row.ID, err,
+			)
+		}
+		if err := validateGroupCollectionProtocols(protocols); err != nil {
+			return nil, groupCollectionDataError(
+				"validate group %d protocols: %v", row.ID, err,
+			)
+		}
 		var models []GroupModel
 		if err := json.Unmarshal(row.Models, &models); err != nil {
 			return nil, groupCollectionDataError(
@@ -86,7 +103,11 @@ func mapGroupOptions(rows []groupOptionRow) ([]GroupOption, error) {
 			)
 		}
 		option := GroupOption{
-			ID: row.ID, Name: row.Name, Models: make([]string, 0, len(models)),
+			ID:        row.ID,
+			Name:      row.Name,
+			Enabled:   row.Enabled,
+			Protocols: append([]protocol.Protocol(nil), protocols...),
+			Models:    make([]string, 0, len(models)),
 		}
 		for _, model := range models {
 			alias := strings.TrimSpace(model.Alias)
