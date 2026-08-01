@@ -189,7 +189,7 @@ func (s *Service) mapGroupKeys(
 	return result, nil
 }
 
-func (s *Service) ListGroupKeys(
+func (s *Service) listGroupKeyResponses(
 	ctx context.Context,
 	groupID uint,
 ) ([]UpstreamKeyResponse, error) {
@@ -325,7 +325,7 @@ func (s *Service) UpdateGroupKey(
 		return UpstreamKeyResponse{}, err
 	}
 
-	responses, err := s.ListGroupKeys(ctx, groupID)
+	responses, err := s.listGroupKeyResponses(ctx, groupID)
 	if err != nil {
 		return UpstreamKeyResponse{}, err
 	}

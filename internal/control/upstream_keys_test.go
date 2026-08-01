@@ -127,7 +127,7 @@ func TestListGroupKeysReturnsMaskedStableRuntimeView(t *testing.T) {
 		}
 	}
 
-	got, err := fixture.service.ListGroupKeys(t.Context(), group.ID)
+	got, err := fixture.service.listGroupKeyResponses(t.Context(), group.ID)
 	if err != nil {
 		t.Fatalf("ListGroupKeys() error = %v", err)
 	}
@@ -180,7 +180,7 @@ func TestListGroupKeysEffectiveStatusPriorityAndCooldownEquality(t *testing.T) {
 	if !fixture.registry.SetCooldown(row.ID, now) {
 		t.Fatal("set equality cooldown")
 	}
-	got, err := fixture.service.ListGroupKeys(t.Context(), group.ID)
+	got, err := fixture.service.listGroupKeyResponses(t.Context(), group.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,7 +195,7 @@ func TestListGroupKeysEffectiveStatusPriorityAndCooldownEquality(t *testing.T) {
 	if err := fixture.db.Model(group).Update("enabled", false).Error; err != nil {
 		t.Fatal(err)
 	}
-	got, err = fixture.service.ListGroupKeys(t.Context(), group.ID)
+	got, err = fixture.service.listGroupKeyResponses(t.Context(), group.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -280,7 +280,7 @@ func TestListGroupKeysFailsLoudlyForEveryDBRegistryMismatch(t *testing.T) {
 			test.mutate(t, fixture, group.ID, row)
 			beforeRegistry := fixture.registry.Snapshot()
 
-			_, err := fixture.service.ListGroupKeys(t.Context(), group.ID)
+			_, err := fixture.service.listGroupKeyResponses(t.Context(), group.ID)
 			var operationErr *controlOperationError
 			if !errors.As(err, &operationErr) ||
 				operationErr.stage != stageValidateDBRegistryPair ||
@@ -839,16 +839,19 @@ func TestListGroupKeysHTTPContract(t *testing.T) {
 		t.Fatalf("GET list response = %d %s", recorder.Code, recorder.Body.String())
 	}
 	var success struct {
-		Code int                   `json:"code"`
-		Data []UpstreamKeyResponse `json:"data"`
+		Code int                        `json:"code"`
+		Data GroupKeyCollectionResponse `json:"data"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &success); err != nil {
 		t.Fatal(err)
 	}
-	if success.Code != 0 || len(success.Data) != 1 ||
-		success.Data[0].ID != row.ID ||
-		success.Data[0].GroupID != group.ID ||
-		success.Data[0].Mask != utils.MaskAPIKey(plaintext) {
+	if success.Code != 0 || success.Data.StatsWindowSeconds != 300 ||
+		success.Data.Summary != (GroupKeySummaryResponse{Total: 1, Available: 1}) ||
+		success.Data.Pagination != (GroupKeyPaginationResponse{Page: 1, PageSize: 50, TotalItems: 1, TotalPages: 1}) ||
+		len(success.Data.Items) != 1 || success.Data.Items[0].ID != row.ID ||
+		success.Data.Items[0].Mask != "sk-gl-****text" ||
+		success.Data.Items[0].ConfiguredStatus != "active" ||
+		success.Data.Items[0].EffectiveStatus != "available" {
 		t.Fatalf("list success envelope = %#v", success)
 	}
 	assertGroupKeyHTTPDoesNotExpose(
@@ -874,10 +877,15 @@ func TestListGroupKeysHTTPContract(t *testing.T) {
 		groupKeyHTTPAuth,
 		"en-US",
 	)
-	if empty.Code != http.StatusOK ||
-		!strings.Contains(empty.Body.String(), `"data":[]`) ||
-		strings.Contains(empty.Body.String(), `"data":null`) {
-		t.Fatalf("empty list response = %d %s, want []", empty.Code, empty.Body.String())
+	var emptyEnvelope struct {
+		Code int                        `json:"code"`
+		Data GroupKeyCollectionResponse `json:"data"`
+	}
+	if empty.Code != http.StatusOK || json.Unmarshal(empty.Body.Bytes(), &emptyEnvelope) != nil ||
+		emptyEnvelope.Code != 0 || emptyEnvelope.Data.Summary != (GroupKeySummaryResponse{}) ||
+		emptyEnvelope.Data.Pagination != (GroupKeyPaginationResponse{Page: 1, PageSize: 50}) ||
+		emptyEnvelope.Data.Items == nil || len(emptyEnvelope.Data.Items) != 0 {
+		t.Fatalf("empty list response = %d %s, want collection object with empty items", empty.Code, empty.Body.String())
 	}
 
 	missing := serveGroupKeyHTTPRequest(
@@ -1361,7 +1369,7 @@ func listGroupKeysDuringCommittedConvergence(
 	done chan<- error,
 ) {
 	close(entered)
-	_, err := service.ListGroupKeys(ctx, groupID)
+	_, err := service.listGroupKeyResponses(ctx, groupID)
 	done <- err
 }
 
@@ -1483,7 +1491,7 @@ func TestListGroupKeysDecryptFailureIsAtomicAndSecretFree(t *testing.T) {
 		secretCause:    secretCause,
 	}
 
-	result, err := fixture.service.ListGroupKeys(t.Context(), group.ID)
+	result, err := fixture.service.listGroupKeyResponses(t.Context(), group.ID)
 	if result != nil {
 		t.Fatalf("ListGroupKeys() result = %#v, want nil", result)
 	}
@@ -1610,7 +1618,7 @@ func TestListGroupKeysReleasesWriteLockBeforeDecrypt(t *testing.T) {
 
 	listDone := make(chan error, 1)
 	go func() {
-		_, err := fixture.service.ListGroupKeys(t.Context(), group.ID)
+		_, err := fixture.service.listGroupKeyResponses(t.Context(), group.ID)
 		listDone <- err
 	}()
 	<-started

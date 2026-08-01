@@ -211,7 +211,12 @@ func (s *Server) handleListGroupKeys(c *gin.Context) {
 	if !ok {
 		return
 	}
-	result, err := s.service.ListGroupKeys(c.Request.Context(), id)
+	query, apiErr := parseGroupKeyCollectionQuery(c.Request.URL.RawQuery)
+	if apiErr != nil {
+		writeServiceError(c, "list_group_keys", apiErr)
+		return
+	}
+	result, err := s.service.ListGroupKeys(c.Request.Context(), id, query)
 	if err != nil {
 		writeServiceError(c, "list_group_keys", err)
 		return
