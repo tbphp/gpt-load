@@ -336,6 +336,9 @@ func groupKeyCollectionTotalPages(totalItems, pageSize int) int {
 }
 
 func groupKeyCollectionPage(records []groupKeyCollectionRecord, page, pageSize int) []GroupKeyItemResponse {
+	if page-1 > len(records)/pageSize {
+		return []GroupKeyItemResponse{}
+	}
 	offset := (page - 1) * pageSize
 	if offset < 0 || offset >= len(records) {
 		return []GroupKeyItemResponse{}

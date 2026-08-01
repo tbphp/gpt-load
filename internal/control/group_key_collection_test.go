@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"reflect"
+	"strconv"
 	"testing"
 	"time"
 
@@ -228,5 +229,29 @@ func TestListGroupKeysCollectionFailsAtomicallyWhenMaskingCannotDecrypt(t *testi
 	}
 	if first.ID == 0 {
 		t.Fatal("first key was not persisted")
+	}
+}
+
+func TestListGroupKeysCollectionReturnsEmptyItemsForOverflowingOffset(t *testing.T) {
+	fixture := newServiceFixture(t)
+	group := validControlGroup("key-collection-overflow")
+	if err := fixture.db.Create(group).Error; err != nil {
+		t.Fatal(err)
+	}
+	seedManagedUpstreamKey(t, fixture, group.ID, "provider-secret-overflow", models.UpstreamKeyStatusActive, nil)
+
+	overflowPage := 1 + (1 << (strconv.IntSize - 2))
+	query, apiErr := parseGroupKeyCollectionQuery(fmt.Sprintf("page=%d&page_size=20", overflowPage))
+	if apiErr != nil {
+		t.Fatalf("parseGroupKeyCollectionQuery() error = %v", apiErr)
+	}
+	response, err := fixture.service.ListGroupKeys(t.Context(), group.ID, query)
+	if err != nil {
+		t.Fatalf("ListGroupKeys() error = %v", err)
+	}
+	if response.Pagination != (GroupKeyPaginationResponse{
+		Page: overflowPage, PageSize: 20, TotalItems: 1, TotalPages: 1,
+	}) || response.Items == nil || len(response.Items) != 0 {
+		t.Fatalf("overflow page response = %#v, want empty out-of-range page", response)
 	}
 }
