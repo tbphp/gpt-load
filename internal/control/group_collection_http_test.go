@@ -310,7 +310,10 @@ func TestGroupCollectionHTTPReturnsExactCollectionAndOptionsContracts(t *testing
 	if item.ID != 10 || item.Name != "alpha" ||
 		item.Status != GroupCollectionStatusAvailable ||
 		item.UpstreamURL != "https://alpha.example/v1" ||
-		len(item.Protocols) != 1 || item.Protocols[0] != protocol.OpenAICompletions ||
+		!reflect.DeepEqual(item.Protocols, []protocol.Protocol{
+			protocol.OpenAICompletions,
+			protocol.Gemini,
+		}) ||
 		item.ModelCount != 2 ||
 		item.KeyCounts != (GroupCollectionKeyCounts{Total: 1, Available: 1}) {
 		t.Fatalf("collection item = %#v, want exact public fields", item)

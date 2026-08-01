@@ -350,7 +350,7 @@ access_list="$(api_get "/api/access-keys")"
 printf '%s' "${access_list}" | node -e '
   const fs=require("fs");
   const value=JSON.parse(fs.readFileSync(0,"utf8"));
-  if(!value.data.some(item=>item.name==="Task13 Release Smoke Access")) process.exit(1);
+  if(!value.data.items.some(item=>item.name==="Task13 Release Smoke Access")) process.exit(1);
 '
 unset access_list
 node -e '
