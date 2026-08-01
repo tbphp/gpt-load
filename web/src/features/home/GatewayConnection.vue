@@ -9,7 +9,7 @@ import type { HomeBaseDto } from '@/app/resources/home'
 import { accessKeysLocation } from '@/app/route-locations'
 import { revealAccessKey } from '@/app/resources/access-keys'
 import AppButton from '@/components/ui/AppButton.vue'
-import AppDialog from '@/components/ui/AppDialog.vue'
+import AppConfirmDialog from '@/components/ui/AppConfirmDialog.vue'
 import AppSelect from '@/components/ui/AppSelect.vue'
 import CodeBlock from '@/components/ui/CodeBlock.vue'
 import CopyAction from '@/components/ui/CopyAction.vue'
@@ -455,26 +455,16 @@ onBeforeUnmount(() => {
       {{ feedbackMessage }}
     </InlineFeedback>
 
-    <AppDialog
+    <AppConfirmDialog
       v-model:open="nextChatConfirmationOpen"
       :title="t('home.ledger.connection.nextChatConfirmTitle')"
       :description="t('home.ledger.connection.nextChatConfirmDescription')"
       :close-label="t('common.close')"
-      :dismissible="!actionBusy"
-    >
-      <div class="gateway-connection__dialog-actions">
-        <AppButton
-          variant="secondary"
-          :disabled="actionBusy"
-          @click="nextChatConfirmationOpen = false"
-        >
-          {{ t('common.cancel') }}
-        </AppButton>
-        <AppButton :busy="actionBusy" @click="openNextChat">
-          {{ t('home.ledger.connection.openNextChat') }}
-        </AppButton>
-      </div>
-    </AppDialog>
+      :cancel-label="t('common.cancel')"
+      :confirm-label="t('home.ledger.connection.openNextChat')"
+      :pending="actionBusy"
+      @confirm="openNextChat"
+    />
   </section>
 </template>
 
@@ -601,12 +591,6 @@ onBeforeUnmount(() => {
 .gateway-connection__empty p {
   margin: 0;
   color: var(--color-text-muted);
-}
-
-.gateway-connection__dialog-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--space-2);
 }
 
 @media (max-width: 860px) {

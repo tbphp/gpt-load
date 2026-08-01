@@ -8,7 +8,8 @@ import { deleteAccessKey } from '@/app/resources/access-keys'
 import type { AccessKeyDto } from '@/api/control/types'
 import { RequestCancelledError } from '@/api/errors'
 import AppButton from '@/components/ui/AppButton.vue'
-import AppDialog from '@/components/ui/AppDialog.vue'
+import AppConfirmDialog from '@/components/ui/AppConfirmDialog.vue'
+import AppTypedConfirmation from '@/components/ui/AppTypedConfirmation.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 
 const props = defineProps<{ accessKey: AccessKeyDto; total: number }>()
@@ -17,7 +18,7 @@ const client = useApiClient()
 const { t } = useI18n()
 const open = ref(false)
 const typedName = ref('')
-const nameInput = ref<HTMLInputElement>()
+const nameInput = ref<InstanceType<typeof AppTypedConfirmation>>()
 const pending = ref(false)
 const failed = ref(false)
 let controller: AbortController | undefined
@@ -65,13 +66,18 @@ onBeforeUnmount(() => controller?.abort())
 </script>
 
 <template>
-  <AppDialog
+  <AppConfirmDialog
     :open="open"
     :title="t('accessKeys.delete.title')"
     :description="t('accessKeys.delete.description', { name: accessKey.name })"
     :close-label="t('accessKeys.delete.close')"
-    :dismissible="!pending"
+    :cancel-label="t('common.cancel')"
+    :confirm-label="t('accessKeys.delete.confirm')"
+    tone="danger"
+    :pending="pending"
+    :confirm-disabled="!confirmed"
     @update:open="setOpen"
+    @confirm="confirmDelete"
   >
     <template #trigger>
       <AppButton variant="danger" size="compact" @click="setOpen(true)">
@@ -81,98 +87,53 @@ onBeforeUnmount(() => controller?.abort())
     </template>
 
     <div class="access-key-delete__body">
-      <InlineFeedback v-if="total === 1" tone="warning">
+      <div class="access-key-delete__summary">
+        <strong>{{ accessKey.name }}</strong>
+        <code>{{ accessKey.masked_key }}</code>
+      </div>
+      <InlineFeedback v-if="total === 1" tone="warning" appearance="hint">
         {{ t('accessKeys.delete.lastWarning') }}
       </InlineFeedback>
-      <dl class="access-key-delete__details">
-        <dt>{{ t('accessKeys.delete.name') }}</dt>
-        <dd>{{ accessKey.name }}</dd>
-        <dt>{{ t('accessKeys.delete.key') }}</dt>
-        <dd>
-          <code>{{ accessKey.masked_key }}</code>
-        </dd>
-      </dl>
-      <InlineFeedback tone="warning">
+      <InlineFeedback tone="warning" appearance="hint">
         {{ t('accessKeys.delete.impact') }}
       </InlineFeedback>
-      <label class="access-key-delete__label" for="access-key-delete-name">{{
-        t('accessKeys.delete.typeName', { name: accessKey.name })
-      }}</label>
-      <input
+      <AppTypedConfirmation
         id="access-key-delete-name"
         ref="nameInput"
         v-model="typedName"
-        type="text"
-        autocomplete="off"
-        spellcheck="false"
+        :label="t('accessKeys.delete.typeName', { name: accessKey.name })"
         :disabled="pending"
       />
       <InlineFeedback v-if="failed" tone="danger">{{
         t('accessKeys.delete.failed')
       }}</InlineFeedback>
-      <div class="access-key-delete__actions">
-        <AppButton variant="secondary" :disabled="pending" @click="setOpen(false)">
-          {{ t('common.cancel') }}
-        </AppButton>
-        <AppButton
-          class="access-key-delete__confirm"
-          variant="danger"
-          :busy="pending"
-          :disabled="!confirmed"
-          @click="confirmDelete"
-        >
-          {{ t('accessKeys.delete.confirm') }}
-        </AppButton>
-      </div>
     </div>
-  </AppDialog>
+  </AppConfirmDialog>
 </template>
 
 <style scoped>
 .access-key-delete__body {
   display: grid;
-  gap: var(--space-4);
+  gap: 12px;
 }
-.access-key-delete__label {
-  margin-bottom: calc(var(--space-3) * -1);
-  font-weight: 650;
-}
-.access-key-delete__details {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: var(--space-2) var(--space-3);
-  margin: 0;
-  padding: var(--space-3);
+.access-key-delete__summary {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
   border: 1px solid var(--color-border-subtle);
   border-radius: var(--radius-control);
   background: var(--color-surface-sunken);
+  padding: 9px 10px;
 }
-.access-key-delete__details dt {
-  color: var(--color-text-muted);
+.access-key-delete__summary strong {
   font-size: var(--text-sm);
 }
-.access-key-delete__details dd {
+.access-key-delete__summary code {
   min-width: 0;
-  margin: 0;
-  overflow-wrap: anywhere;
-}
-.access-key-delete__details code {
   color: var(--color-code);
-}
-input {
-  width: 100%;
-  min-height: var(--touch-target);
-  border: 1px solid var(--color-border-control);
-  border-radius: var(--radius-control);
-  background: var(--color-surface-sunken);
-  color: var(--color-text);
-  padding: var(--space-2) var(--space-3);
-  font: inherit;
-}
-.access-key-delete__actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: var(--space-2);
+  font-size: var(--text-label-xs);
+  overflow-wrap: anywhere;
 }
 </style>

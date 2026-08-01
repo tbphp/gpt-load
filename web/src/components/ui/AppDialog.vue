@@ -52,7 +52,8 @@ function guardDismiss(event: Event): void {
           </DialogClose>
         </header>
         <DialogDescription class="app-dialog__description">{{ description }}</DialogDescription>
-        <div class="app-dialog__body"><slot /></div>
+        <div v-if="$slots.body" class="app-dialog__body"><slot name="body" /></div>
+        <footer v-if="$slots.footer" class="app-dialog__footer"><slot name="footer" /></footer>
       </DialogContent>
     </DialogPortal>
   </DialogRoot>
@@ -71,7 +72,7 @@ function guardDismiss(event: Event): void {
   top: 50%;
   left: 50%;
   display: grid;
-  width: min(calc(100vw - 32px), 460px);
+  width: min(calc(100vw - 32px), 420px);
   max-height: calc(100vh - 32px);
   max-height: calc(100dvh - 32px);
   transform: translate(-50%, -50%);
@@ -81,23 +82,26 @@ function guardDismiss(event: Event): void {
   background: var(--color-surface);
   box-shadow: var(--shadow-overlay);
   color: var(--color-text);
-  padding: var(--space-5);
+  padding: 0;
 }
 .app-dialog__header {
   display: flex;
-  align-items: flex-start;
+  min-height: 58px;
+  align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
+  border-bottom: 1px solid var(--color-border-subtle);
+  padding: 10px 16px 10px 18px;
 }
 .app-dialog__title {
-  font-size: 1.0625rem;
+  font-size: var(--text-meta);
   font-weight: 700;
 }
 .app-dialog__close {
   display: inline-flex;
-  width: 44px;
-  height: 44px;
-  flex: 0 0 44px;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
   align-items: center;
   justify-content: center;
   border: 0;
@@ -111,13 +115,25 @@ function guardDismiss(event: Event): void {
   opacity: 0.55;
 }
 .app-dialog__description {
-  margin: var(--space-2) 0 0;
-  color: var(--color-text-muted);
+  margin: 0;
+  padding: 12px 18px 0;
+  color: var(--color-text-faint);
+  font-size: var(--text-sm);
+  line-height: var(--line-normal);
 }
 .app-dialog__body {
   min-height: 0;
-  margin-top: var(--space-5);
   overflow-y: auto;
   overscroll-behavior: contain;
+  padding: 14px 18px 16px;
+}
+.app-dialog__footer {
+  display: flex;
+  min-height: 58px;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  border-top: 1px solid var(--color-border-subtle);
+  padding: 10px 18px;
 }
 </style>

@@ -16,7 +16,7 @@ import {
 import { useUnsavedChanges } from '@/app/unsaved-changes'
 import HeaderRulesEditor from '@/components/config/HeaderRulesEditor.vue'
 import AppButton from '@/components/ui/AppButton.vue'
-import AppDialog from '@/components/ui/AppDialog.vue'
+import AppConfirmDialog from '@/components/ui/AppConfirmDialog.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import SectionNav from '@/components/ui/SectionNav.vue'
@@ -422,22 +422,18 @@ onBeforeUnmount(() => controller?.abort())
           </section>
         </div>
       </div>
-      <AppDialog
+      <AppConfirmDialog
         :open="confirmURL"
         :title="t('group.settings.urlConfirm.title')"
         :description="t('group.settings.urlConfirm.description')"
         :close-label="t('group.settings.urlConfirm.close')"
-        :dismissible="!mutationPending"
+        :cancel-label="t('group.settings.urlConfirm.cancel')"
+        :confirm-label="t('group.settings.urlConfirm.confirm')"
+        :pending="mutationPending"
+        :confirm-disabled="deletePending"
         @update:open="confirmURL = $event"
-        ><div class="group-settings__actions">
-          <AppButton variant="secondary" @click="confirmURL = false">{{
-            t('common.cancel')
-          }}</AppButton
-          ><AppButton :busy="pending" :disabled="deletePending" @click="save(true)">{{
-            t('group.settings.urlConfirm.confirm')
-          }}</AppButton>
-        </div></AppDialog
-      >
+        @confirm="save(true)"
+      />
       <StickySaveBar
         :dirty="dirty"
         :pending="mutationPending"
@@ -529,11 +525,6 @@ small {
   display: grid;
   gap: var(--space-3);
   margin-top: var(--space-3);
-}
-.group-settings__actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--space-2);
 }
 .group-settings__danger {
   border-color: var(--color-danger);

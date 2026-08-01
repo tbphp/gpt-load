@@ -16,7 +16,7 @@ import { invalidateGroupSummary } from '@/app/resources/groups'
 import { useUnsavedChanges } from '@/app/unsaved-changes'
 import LedgerRecordList from '@/components/collection/LedgerRecordList.vue'
 import AppButton from '@/components/ui/AppButton.vue'
-import AppDialog from '@/components/ui/AppDialog.vue'
+import AppConfirmDialog from '@/components/ui/AppConfirmDialog.vue'
 import AppDrawer from '@/components/ui/AppDrawer.vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
@@ -403,22 +403,18 @@ onBeforeUnmount(() => controller?.abort())
         >
       </AppDrawer>
 
-      <AppDialog
+      <AppConfirmDialog
         :open="emptyConfirmOpen"
         :title="t('group.modelEditor.emptyConfirm.title')"
         :description="t('group.modelEditor.emptyConfirm.description')"
         :close-label="t('group.modelEditor.emptyConfirm.close')"
-        :dismissible="pending === null"
+        :cancel-label="t('group.modelEditor.emptyConfirm.cancel')"
+        :confirm-label="t('group.modelEditor.emptyConfirm.confirm')"
+        tone="danger"
+        :pending="pending === 'save'"
         @update:open="emptyConfirmOpen = $event"
-        ><div class="group-models__drawer-actions">
-          <AppButton variant="secondary" @click="emptyConfirmOpen = false">{{
-            t('common.cancel')
-          }}</AppButton
-          ><AppButton variant="danger" :busy="pending === 'save'" @click="save">{{
-            t('group.modelEditor.emptyConfirm.confirm')
-          }}</AppButton>
-        </div></AppDialog
-      >
+        @confirm="save"
+      />
 
       <StickySaveBar
         :dirty="dirty"

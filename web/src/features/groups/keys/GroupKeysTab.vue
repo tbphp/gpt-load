@@ -28,7 +28,7 @@ import CollectionFilterBar from '@/components/collection/CollectionFilterBar.vue
 import CollectionStatusSummary from '@/components/collection/CollectionStatusSummary.vue'
 import LedgerRecordList from '@/components/collection/LedgerRecordList.vue'
 import AppButton from '@/components/ui/AppButton.vue'
-import AppDialog from '@/components/ui/AppDialog.vue'
+import AppConfirmDialog from '@/components/ui/AppConfirmDialog.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import IconButton from '@/components/ui/IconButton.vue'
 import PaginationBar from '@/components/ui/PaginationBar.vue'
@@ -568,7 +568,7 @@ onBeforeUnmount(() => {
         />
       </template>
     </template>
-    <AppDialog
+    <AppConfirmDialog
       :open="deleteTarget !== undefined"
       :title="
         deleteTarget?.ids.length === 1
@@ -581,17 +581,13 @@ onBeforeUnmount(() => {
           : t('group.keys.batch.deleteDescription', { count: n(deleteTarget?.ids.length ?? 0) })
       "
       :close-label="t('group.keys.closeDialog')"
-      :dismissible="!dialogBusy"
+      :cancel-label="t('group.keys.cancel')"
+      :confirm-label="t('group.keys.confirmDelete')"
+      tone="danger"
+      :pending="dialogBusy"
       @update:open="!$event && (deleteTarget = undefined)"
-      ><div class="group-keys__dialog-actions">
-        <AppButton variant="secondary" :disabled="dialogBusy" @click="deleteTarget = undefined">{{
-          t('group.keys.cancel')
-        }}</AppButton
-        ><AppButton variant="danger" :busy="dialogBusy" @click="confirmDelete">{{
-          t('group.keys.confirmDelete')
-        }}</AppButton>
-      </div></AppDialog
-    >
+      @confirm="confirmDelete"
+    />
   </section>
 </template>
 
@@ -632,11 +628,6 @@ onBeforeUnmount(() => {
   height: var(--touch-target);
   place-items: center;
   cursor: pointer;
-}
-.group-keys__dialog-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--space-2);
 }
 @media (max-width: 1120px) {
   .group-key-record-grid {
