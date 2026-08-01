@@ -405,13 +405,17 @@ func TestAuthSessionEndpointRequiresAuthentication(t *testing.T) {
 	}
 }
 
-func TestGroupCollectionEndpointsRequireBearerAuthentication(t *testing.T) {
+func TestCollectionEndpointsRequireBearerAuthentication(t *testing.T) {
 	initControlI18n(t)
 	engine := gin.New()
 	NewServer(&config.Config{AuthKey: authTestKey}, nil).RegisterRoutes(engine)
 
 	peerIndex := 60
-	for _, target := range []string{"/api/groups", "/api/groups/options"} {
+	for _, target := range []string{
+		"/api/groups",
+		"/api/groups/options",
+		"/api/access-keys",
+	} {
 		for _, authorization := range []string{"", "Bearer wrong-key"} {
 			peerIndex++
 			recorder := serveAuthRequest(
