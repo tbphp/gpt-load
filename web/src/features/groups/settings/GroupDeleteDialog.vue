@@ -12,7 +12,8 @@ import { controlQueryKeys } from '@/app/query-keys'
 import { applyInvalidationPlan, mutationInvalidationPlans } from '@/app/resources/invalidation'
 import { homeLocation } from '@/app/route-locations'
 import AppButton from '@/components/ui/AppButton.vue'
-import AppDialog from '@/components/ui/AppDialog.vue'
+import AppConfirmDialog from '@/components/ui/AppConfirmDialog.vue'
+import AppTypedConfirmation from '@/components/ui/AppTypedConfirmation.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 
 import GroupInUseFeedback from './GroupInUseFeedback.vue'
@@ -24,7 +25,7 @@ const router = useRouter()
 const { t } = useI18n()
 const open = ref(false)
 const typedName = ref('')
-const nameInput = ref<HTMLInputElement>()
+const nameInput = ref<InstanceType<typeof AppTypedConfirmation>>()
 const pending = ref(false)
 const genericError = ref(false)
 const references = ref<AccessKeyReferenceDto[]>([])
@@ -90,13 +91,18 @@ onBeforeUnmount(() => controller?.abort())
 </script>
 
 <template>
-  <AppDialog
+  <AppConfirmDialog
     :open="open"
     :title="t('group.settings.delete.title')"
     :description="t('group.settings.delete.description', { name: groupName })"
     :close-label="t('group.settings.delete.close')"
-    :dismissible="!pending"
+    :cancel-label="t('group.settings.delete.cancel')"
+    :confirm-label="t('group.settings.delete.confirm')"
+    tone="danger"
+    :pending="pending"
+    :confirm-disabled="!confirmed"
     @update:open="setOpen"
+    @confirm="confirmDelete"
   >
     <template #trigger>
       <AppButton class="group-delete__open" variant="secondary" @click="setOpen(true)">
@@ -105,43 +111,23 @@ onBeforeUnmount(() => controller?.abort())
     </template>
 
     <div class="group-delete__body">
-      <label for="group-delete-name">{{
-        t('group.settings.delete.typeName', { name: groupName })
-      }}</label>
-      <input
+      <AppTypedConfirmation
         id="group-delete-name"
         ref="nameInput"
         v-model="typedName"
-        type="text"
-        autocomplete="off"
-        spellcheck="false"
+        :label="t('group.settings.delete.typeName', { name: groupName })"
         :disabled="pending"
       />
       <GroupInUseFeedback v-if="references.length" :references="references" />
       <InlineFeedback v-else-if="genericError" tone="danger">
         {{ t('group.settings.delete.failed') }}
       </InlineFeedback>
-      <div class="group-delete__actions">
-        <AppButton variant="secondary" :disabled="pending" @click="setOpen(false)">
-          {{ t('group.settings.delete.cancel') }}
-        </AppButton>
-        <AppButton
-          class="group-delete__confirm"
-          variant="secondary"
-          :busy="pending"
-          :disabled="!confirmed"
-          @click="confirmDelete"
-        >
-          {{ t('group.settings.delete.confirm') }}
-        </AppButton>
-      </div>
     </div>
-  </AppDialog>
+  </AppConfirmDialog>
 </template>
 
 <style scoped>
-.group-delete__open,
-.group-delete__confirm {
+.group-delete__open {
   border-color: var(--color-danger);
   color: var(--color-danger);
 }
@@ -152,24 +138,5 @@ onBeforeUnmount(() => controller?.abort())
 .group-delete__body {
   display: grid;
   gap: var(--space-3);
-}
-label {
-  font-weight: 650;
-}
-input {
-  width: 100%;
-  min-height: 44px;
-  border: 1px solid var(--color-border-control);
-  border-radius: var(--radius-control);
-  background: var(--color-surface-sunken);
-  color: var(--color-text);
-  padding: var(--space-2) var(--space-3);
-  font: inherit;
-}
-.group-delete__actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: var(--space-2);
 }
 </style>

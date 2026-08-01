@@ -708,11 +708,7 @@ onBeforeUnmount(clearLocalState)
 
     <template #footer>
       <div v-if="editing && base" class="access-key-drawer__delete">
-        <AccessKeyDeleteDialog
-          :access-key="base"
-          :total="total"
-          @deleted="handleDeleted"
-        />
+        <AccessKeyDeleteDialog :access-key="base" :total="total" @deleted="handleDeleted" />
       </div>
       <AppButton variant="secondary" :disabled="closeBlocked" @click="setOpen(false)">
         {{ t('common.cancel') }}

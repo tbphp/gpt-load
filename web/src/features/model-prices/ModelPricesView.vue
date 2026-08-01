@@ -57,10 +57,7 @@ async function setDrawerOpen(open: boolean): Promise<void> {
       <ArrowLeft :size="16" aria-hidden="true" />{{ t('modelPrices.back') }}
     </RouterLink>
 
-    <PageHeader
-      id="model-prices-title"
-      :title="t('modelPrices.title')"
-    >
+    <PageHeader id="model-prices-title" :title="t('modelPrices.title')">
       <template #actions>
         <AppButton @click="addOverride">
           <Plus :size="16" aria-hidden="true" />{{ t('modelPrices.add') }}

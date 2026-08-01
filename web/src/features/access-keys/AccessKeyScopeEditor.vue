@@ -45,10 +45,7 @@ function optionDisabled(dimension: 'protocols' | 'models'): boolean {
   return props.disabled || props.modes[dimension] !== 'restricted' || catalogUnavailable()
 }
 
-function requestScopeMode(
-  dimension: AccessKeyScopeDimension,
-  mode: AccessKeyScopeMode,
-): void {
+function requestScopeMode(dimension: AccessKeyScopeDimension, mode: AccessKeyScopeMode): void {
   emit('setScopeMode', dimension, mode)
 }
 
@@ -78,7 +75,6 @@ function toggleProtocol(protocol: AccessProtocol, event: Event): void {
     : props.filters.protocols.filter((value) => value !== protocol)
   emit('update:protocols', next)
 }
-
 </script>
 
 <template>
@@ -164,11 +160,7 @@ function toggleProtocol(protocol: AccessProtocol, event: Event): void {
         <i aria-hidden="true" />{{ t('accessKeys.drawer.allProtocolsAllowed') }}
       </div>
       <div v-else class="protocol-options">
-        <label
-          v-for="protocol in protocolOptions"
-          :key="protocol"
-          class="access-key-drawer__check"
-        >
+        <label v-for="protocol in protocolOptions" :key="protocol" class="access-key-drawer__check">
           <input
             type="checkbox"
             :checked="filters.protocols.includes(protocol)"

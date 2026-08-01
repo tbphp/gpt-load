@@ -8,8 +8,7 @@ import { useApiClient } from '@/api/client-context'
 import { resetModelPrice, type ModelPriceRuleDto } from '@/app/resources/model-prices'
 import { applyInvalidationPlan, mutationInvalidationPlans } from '@/app/resources/invalidation'
 import { RequestCancelledError } from '@/api/errors'
-import AppButton from '@/components/ui/AppButton.vue'
-import AppDialog from '@/components/ui/AppDialog.vue'
+import AppConfirmDialog from '@/components/ui/AppConfirmDialog.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 
 const props = defineProps<{ rule: ModelPriceRuleDto }>()
@@ -71,13 +70,17 @@ onBeforeUnmount(clearRequest)
 </script>
 
 <template>
-  <AppDialog
+  <AppConfirmDialog
     :open="open"
     :title="t('modelPrices.reset.title')"
     :description="t('modelPrices.reset.description', { pattern: rule.pattern })"
     :close-label="t('modelPrices.reset.close')"
-    :dismissible="!pending"
+    :cancel-label="t('common.cancel')"
+    :confirm-label="t('modelPrices.reset.confirm')"
+    tone="danger"
+    :pending="pending"
     @update:open="setOpen"
+    @confirm="confirmReset"
   >
     <template #trigger>
       <button type="button" class="model-price-reset__trigger" @click="setOpen(true)">
@@ -90,21 +93,8 @@ onBeforeUnmount(clearRequest)
       <InlineFeedback v-if="failed" tone="danger">
         {{ t('modelPrices.reset.failed') }}
       </InlineFeedback>
-      <div class="model-price-reset__actions">
-        <AppButton variant="secondary" :disabled="pending" @click="setOpen(false)">
-          {{ t('common.cancel') }}
-        </AppButton>
-        <AppButton
-          class="model-price-reset__confirm"
-          variant="secondary"
-          :busy="pending"
-          @click="confirmReset"
-        >
-          {{ t('modelPrices.reset.confirm') }}
-        </AppButton>
-      </div>
     </div>
-  </AppDialog>
+  </AppConfirmDialog>
 </template>
 
 <style scoped>
@@ -123,15 +113,5 @@ onBeforeUnmount(clearRequest)
 .model-price-reset__body {
   display: grid;
   gap: var(--space-4);
-}
-.model-price-reset__actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: var(--space-2);
-}
-.model-price-reset__confirm {
-  border-color: var(--color-danger);
-  color: var(--color-danger);
 }
 </style>

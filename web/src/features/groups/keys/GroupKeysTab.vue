@@ -15,7 +15,7 @@ import {
 import { applyInvalidationPlan, mutationInvalidationPlans } from '@/app/resources/invalidation'
 import { groupDetailLocation } from '@/app/route-locations'
 import AppButton from '@/components/ui/AppButton.vue'
-import AppDialog from '@/components/ui/AppDialog.vue'
+import AppConfirmDialog from '@/components/ui/AppConfirmDialog.vue'
 import DataTable from '@/components/ui/DataTable.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
@@ -290,13 +290,17 @@ const effectiveLabels = computed(() => ({
                 >
                   {{ t('group.keys.saveWeight') }}
                 </AppButton>
-                <AppDialog
+                <AppConfirmDialog
                   :open="deleteKeyId === key.id"
                   :title="t('group.keys.deleteTitle')"
                   :description="t('group.keys.deleteDescription', { mask: key.mask })"
                   :close-label="t('group.keys.closeDialog')"
-                  :dismissible="!pending(key.id)"
+                  :cancel-label="t('group.keys.cancel')"
+                  :confirm-label="t('group.keys.confirmDelete')"
+                  tone="danger"
+                  :pending="pending(key.id)"
                   @update:open="setDeleteDialog($event, key.id)"
+                  @confirm="confirmDelete(key)"
                 >
                   <template #trigger>
                     <AppButton
@@ -308,25 +312,7 @@ const effectiveLabels = computed(() => ({
                       {{ t('group.keys.delete') }}
                     </AppButton>
                   </template>
-                  <div class="group-keys__dialog-actions">
-                    <AppButton
-                      variant="secondary"
-                      :disabled="pending(key.id)"
-                      @click="setDeleteDialog(false, key.id)"
-                    >
-                      {{ t('group.keys.cancel') }}
-                    </AppButton>
-                    <AppButton
-                      class="group-keys__confirm-delete"
-                      variant="secondary"
-                      :busy="pending(key.id)"
-                      :disabled="pending(key.id)"
-                      @click="confirmDelete(key)"
-                    >
-                      {{ t('group.keys.confirmDelete') }}
-                    </AppButton>
-                  </div>
-                </AppDialog>
+                </AppConfirmDialog>
               </div>
             </td>
           </tr>
@@ -381,8 +367,7 @@ const effectiveLabels = computed(() => ({
   font: inherit;
   cursor: pointer;
 }
-.group-keys__actions,
-.group-keys__dialog-actions {
+.group-keys__actions {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
@@ -392,15 +377,8 @@ const effectiveLabels = computed(() => ({
   font-size: 0.8125rem;
 }
 .group-keys__delete :deep(button),
-.group-keys__delete,
-.group-keys__confirm-delete {
+.group-keys__delete {
   color: var(--color-danger);
-}
-.group-keys__confirm-delete {
-  border-color: var(--color-danger);
-}
-.group-keys__dialog-actions {
-  justify-content: flex-end;
 }
 .group-keys__action-error {
   margin: 0;

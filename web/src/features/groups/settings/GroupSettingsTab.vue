@@ -19,7 +19,7 @@ import { groupDetailLocation } from '@/app/route-locations'
 import { useUnsavedChanges } from '@/app/unsaved-changes'
 import HeaderRulesEditor from '@/components/config/HeaderRulesEditor.vue'
 import AppButton from '@/components/ui/AppButton.vue'
-import AppDialog from '@/components/ui/AppDialog.vue'
+import AppConfirmDialog from '@/components/ui/AppConfirmDialog.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 import SurfaceCard from '@/components/ui/SurfaceCard.vue'
@@ -394,29 +394,18 @@ onBeforeUnmount(() => {
       <GroupDeleteDialog :group-id="groupId" :group-name="savedGroup.name" />
     </SurfaceCard>
 
-    <AppDialog
+    <AppConfirmDialog
       :open="urlConfirmOpen"
       :title="t('group.settings.urlConfirm.title')"
       :description="t('group.settings.urlConfirm.description')"
       :close-label="t('group.settings.urlConfirm.close')"
-      :dismissible="!pending"
+      :cancel-label="t('group.settings.urlConfirm.cancel')"
+      :confirm-label="t('group.settings.urlConfirm.confirm')"
+      :pending="pending"
       prevent-close-auto-focus
       @update:open="setURLConfirmOpen"
-    >
-      <div class="group-settings__dialog-actions">
-        <AppButton variant="secondary" :disabled="pending" @click="setURLConfirmOpen(false)">
-          {{ t('group.settings.urlConfirm.cancel') }}
-        </AppButton>
-        <AppButton
-          class="group-settings__confirm-url"
-          variant="secondary"
-          :busy="pending"
-          @click="runSave(true)"
-        >
-          {{ t('group.settings.urlConfirm.confirm') }}
-        </AppButton>
-      </div>
-    </AppDialog>
+      @confirm="runSave(true)"
+    />
   </section>
 </template>
 
@@ -428,8 +417,7 @@ onBeforeUnmount(() => {
 }
 .group-settings__header,
 .group-settings__section-heading,
-.group-settings__runtime-row,
-.group-settings__dialog-actions {
+.group-settings__runtime-row {
   display: flex;
 }
 .group-settings__header,
@@ -537,15 +525,6 @@ small {
 }
 .group-settings__danger {
   border-color: color-mix(in srgb, var(--color-danger) 38%, var(--color-border-subtle));
-}
-.group-settings__dialog-actions {
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: var(--space-2);
-}
-.group-settings__confirm-url {
-  border-color: var(--color-warning);
-  color: var(--color-warning);
 }
 @media (max-width: 759px) {
   .group-settings__header {

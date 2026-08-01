@@ -19,7 +19,7 @@ import ModelDraftEditor, {
   type ModelDraftEditorItem,
 } from '@/components/config/ModelDraftEditor.vue'
 import AppButton from '@/components/ui/AppButton.vue'
-import AppDialog from '@/components/ui/AppDialog.vue'
+import AppConfirmDialog from '@/components/ui/AppConfirmDialog.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 
@@ -219,14 +219,18 @@ onBeforeUnmount(() => {
         >
           <RefreshCw :size="16" aria-hidden="true" />{{ t('group.modelEditor.rediscover') }}
         </AppButton>
-        <AppDialog
+        <AppConfirmDialog
           v-if="emptySelection"
           :open="emptyConfirmOpen"
           :title="t('group.modelEditor.emptyConfirm.title')"
           :description="t('group.modelEditor.emptyConfirm.description')"
           :close-label="t('group.modelEditor.emptyConfirm.close')"
-          :dismissible="!pending"
+          :cancel-label="t('group.modelEditor.emptyConfirm.cancel')"
+          :confirm-label="t('group.modelEditor.emptyConfirm.confirm')"
+          tone="danger"
+          :pending="pending"
           @update:open="setEmptyConfirmOpen"
+          @confirm="confirmEmptyReplace"
         >
           <template #trigger>
             <AppButton
@@ -240,21 +244,7 @@ onBeforeUnmount(() => {
           <InlineFeedback v-if="saveError" tone="danger">
             {{ t('group.modelEditor.saveFailed') }}
           </InlineFeedback>
-          <div class="group-models__dialog-actions">
-            <AppButton variant="secondary" :disabled="pending" @click="setEmptyConfirmOpen(false)">
-              {{ t('group.modelEditor.emptyConfirm.cancel') }}
-            </AppButton>
-            <AppButton
-              class="group-models__confirm-empty"
-              variant="secondary"
-              :busy="pending"
-              :disabled="pending"
-              @click="confirmEmptyReplace"
-            >
-              {{ t('group.modelEditor.emptyConfirm.confirm') }}
-            </AppButton>
-          </div>
-        </AppDialog>
+        </AppConfirmDialog>
         <AppButton
           v-else
           :busy="pendingAction === 'save'"
@@ -333,8 +323,7 @@ onBeforeUnmount(() => {
   color: var(--color-text-muted);
 }
 .group-models__actions,
-.group-models__guidance-actions,
-.group-models__dialog-actions {
+.group-models__guidance-actions {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
@@ -357,13 +346,6 @@ onBeforeUnmount(() => {
 }
 .group-models__guidance-actions .button-link {
   min-height: 44px;
-}
-.group-models__dialog-actions {
-  justify-content: flex-end;
-}
-.group-models__confirm-empty {
-  border-color: var(--color-danger);
-  color: var(--color-danger);
 }
 @media (max-width: 640px) {
   .group-models__header {
