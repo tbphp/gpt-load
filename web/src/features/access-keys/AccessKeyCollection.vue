@@ -21,6 +21,7 @@ const props = defineProps<{
   accessKeys: AccessKeyDto[]
   groups: GroupOptionDto[]
   total: number
+  filteredTotal: number
   page: number
   pageSize: number
 }>()
@@ -129,7 +130,7 @@ onBeforeUnmount(() => {
 <template>
   <LedgerRecordList
     :label="t('accessKeys.collection.tableLabel')"
-    :row-count="total + 1"
+    :row-count="filteredTotal + 1"
     grid-class="access-keys-record-grid"
   >
     <template #header>

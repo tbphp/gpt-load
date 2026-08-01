@@ -481,16 +481,18 @@ async function reconcileEdit(): Promise<void> {
   controller = new AbortController()
   const activeController = controller
   try {
-    const collection = await listAccessKeyCollection(
-      client,
-      { q: attempt.base.name, page: 1, page_size: 20 },
-      activeController.signal,
+    const latest = await findAccessKeyForReconciliation(attempt.base.id, activeController.signal)
+    if (controller !== activeController || editReconciliation.value !== attempt || !props.open) {
+      return
+    }
+    await applyInvalidationPlan(
+      queryClient,
+      mutationInvalidationPlans.accessKey.reconcile,
+      () => controller === activeController && editReconciliation.value === attempt && props.open,
     )
     if (controller !== activeController || editReconciliation.value !== attempt || !props.open) {
       return
     }
-    void applyInvalidationPlan(queryClient, mutationInvalidationPlans.accessKey.reconcile)
-    const latest = collection.items.find((accessKey) => accessKey.id === attempt.base.id)
     if (!latest) {
       editReconciliation.value = null
       editOperationRetained.value = false
@@ -553,6 +555,48 @@ async function reconcileEdit(): Promise<void> {
       pending.value = false
     }
   }
+}
+
+async function findAccessKeyForReconciliation(
+  id: number,
+  signal: AbortSignal,
+): Promise<AccessKeyDto | undefined> {
+  const firstPage = await listAccessKeyCollection(client, { page: 1, page_size: 20 }, signal)
+  const expectedSummary = firstPage.summary
+  const expectedPagination = firstPage.pagination
+  const records = new Map<number, AccessKeyDto>()
+
+  function capturePage(page: typeof firstPage): void {
+    if (
+      page.summary.total !== expectedSummary.total ||
+      page.summary.active !== expectedSummary.active ||
+      page.summary.disabled !== expectedSummary.disabled ||
+      page.pagination.total_items !== expectedPagination.total_items ||
+      page.pagination.total_pages !== expectedPagination.total_pages ||
+      page.pagination.page_size !== expectedPagination.page_size
+    ) {
+      throw new Error('ACCESS_KEY_COLLECTION_CHANGED_DURING_RECONCILIATION')
+    }
+    for (const accessKey of page.items) {
+      if (records.has(accessKey.id)) {
+        throw new Error('ACCESS_KEY_COLLECTION_CHANGED_DURING_RECONCILIATION')
+      }
+      records.set(accessKey.id, accessKey)
+    }
+  }
+
+  capturePage(firstPage)
+  for (let page = 2; page <= expectedPagination.total_pages; page += 1) {
+    const result = await listAccessKeyCollection(client, { page, page_size: 20 }, signal)
+    if (result.pagination.page !== page) {
+      throw new Error('ACCESS_KEY_COLLECTION_CHANGED_DURING_RECONCILIATION')
+    }
+    capturePage(result)
+  }
+  if (records.size !== expectedPagination.total_items) {
+    throw new Error('ACCESS_KEY_COLLECTION_CHANGED_DURING_RECONCILIATION')
+  }
+  return records.get(id)
 }
 
 async function revealResultSecret(): Promise<void> {

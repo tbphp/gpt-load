@@ -134,6 +134,8 @@ watch(
   { deep: true, immediate: true },
 )
 
+watch(filters, () => collection.value?.conceal())
+
 watch(
   [
     () => data.value?.pagination.total_pages,
@@ -160,6 +162,7 @@ onBeforeUnmount(() => {
 })
 
 function routeWithFilters(next: AccessKeyCollectionFilters, replace = false): void {
+  collection.value?.conceal()
   const location = accessKeysLocation(serializeAccessKeyCollectionRouteQuery(next))
   void (replace ? router.replace(location) : router.push(location))
 }
@@ -468,6 +471,7 @@ async function focusCreateAfterDelete(name: string): Promise<void> {
               :access-keys="data.items"
               :groups="groupsQuery.data.value ?? []"
               :total="data.summary.total"
+              :filtered-total="data.pagination.total_items"
               :page="data.pagination.page"
               :page-size="data.pagination.page_size"
               @edit="editKey"

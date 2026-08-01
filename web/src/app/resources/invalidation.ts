@@ -66,8 +66,14 @@ export const mutationInvalidationPlans = {
       [controlQueryKeys.accessKeys.options(), controlQueryKeys.home.base()],
       [controlQueryKeys.accessKeys.collectionAll],
     ),
-    reconcile: plan([controlQueryKeys.accessKeys.options()]),
-    reconcileConfirmed: plan([controlQueryKeys.home.base()]),
+    reconcile: plan(
+      [controlQueryKeys.accessKeys.options()],
+      [controlQueryKeys.accessKeys.collectionAll],
+    ),
+    reconcileConfirmed: plan(
+      [controlQueryKeys.home.base()],
+      [controlQueryKeys.accessKeys.collectionAll],
+    ),
     reveal: plan(),
   },
   modelPrice: {
