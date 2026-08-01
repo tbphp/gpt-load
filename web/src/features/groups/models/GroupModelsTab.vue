@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
-import { Plus, RefreshCw, Search, Trash2 } from '@lucide/vue'
+import { RefreshCw } from '@lucide/vue'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
@@ -14,43 +14,42 @@ import {
 } from '@/app/resources/groups'
 import { invalidateGroupSummary } from '@/app/resources/groups'
 import { useUnsavedChanges } from '@/app/unsaved-changes'
-import LedgerRecordList from '@/components/collection/LedgerRecordList.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppConfirmDialog from '@/components/ui/AppConfirmDialog.vue'
-import AppDrawer from '@/components/ui/AppDrawer.vue'
-import IconButton from '@/components/ui/IconButton.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
-import SegmentedControl from '@/components/ui/SegmentedControl.vue'
 import StickySaveBar from '@/components/ui/StickySaveBar.vue'
+import ModelAliasEditor from '@/features/models/ModelAliasEditor.vue'
+import ModelDiscoveryDrawer from '@/features/models/ModelDiscoveryDrawer.vue'
 
 import {
   createModelDraft,
   findModelNameConflicts,
-  indexesWithConflicts,
   normalizedModels,
   sameModels,
-  type ModelDraftItem,
+  type ModelAliasEditorLabels,
+  type ModelDiscoveryDrawerLabels,
+  type ModelDraftValue,
   type ModelNameConflict,
-} from './model-diff'
+} from '@/features/models/model-draft'
+
+interface GroupModelDraftItem extends ModelDraftValue {
+  pricing_status: 'priced' | 'unpriced'
+}
 
 const props = defineProps<{ groupId: number }>()
 const client = useApiClient()
 const queryClient = useQueryClient()
 const { t } = useI18n()
 const query = useQuery(groupModelsQueryOptions(client, () => props.groupId))
-const saved = ref<ModelDraftItem[]>([])
-const draft = ref<ModelDraftItem[]>([])
+const saved = ref<GroupModelDraftItem[]>([])
+const draft = ref<GroupModelDraftItem[]>([])
 const pending = ref<'discover' | 'save' | null>(null)
 const error = ref('')
 const serverConflicts = ref<ModelNameConflict[]>([])
 const drawerOpen = ref(false)
 const emptyConfirmOpen = ref(false)
 const candidates = ref<string[]>([])
-const selectedCandidates = ref<string[]>([])
-const drawerFilter = ref<'available' | 'all'>('available')
-const drawerSearch = ref('')
-const manualID = ref('')
 let nextKey = 1
 let controller: AbortController | undefined
 
@@ -59,7 +58,6 @@ const conflicts = computed(() =>
     ? serverConflicts.value
     : findModelNameConflicts(normalizedModels(draft.value)),
 )
-const conflictIndexes = computed(() => indexesWithConflicts(conflicts.value))
 const emptyAliasIndexes = computed(
   () =>
     new Set(
@@ -80,28 +78,54 @@ const canSave = computed(
 const unpriced = computed(
   () => draft.value.filter((item) => item.pricing_status === 'unpriced').length,
 )
-const currentModelIDs = computed(() => new Set(draft.value.map((item) => item.id.trim())))
-const availableCandidates = computed(() =>
-  candidates.value.filter((candidate) => !currentModelIDs.value.has(candidate)),
-)
-const visibleCandidates = computed(() => {
-  const query = drawerSearch.value.trim().toLocaleLowerCase()
-  const source = drawerFilter.value === 'available' ? availableCandidates.value : candidates.value
-  return query
-    ? source.filter((candidate) => candidate.toLocaleLowerCase().includes(query))
-    : source
-})
-const drawerFilterOptions = computed(() => [
-  { value: 'available', label: t('group.modelEditor.drawer.filterAvailable') },
-  { value: 'all', label: t('group.modelEditor.drawer.filterAll') },
-])
+const currentModelIDs = computed(() => draft.value.map((item) => item.id.trim()))
+const aliasEditorLabels = computed<ModelAliasEditorLabels>(() => ({
+  tableLabel: t('group.modelEditor.tableLabel'),
+  id: t('group.modelEditor.id'),
+  alias: t('group.modelEditor.alias'),
+  thirdColumn: t('group.modelEditor.pricing'),
+  actions: t('group.modelEditor.actions'),
+  search: t('group.modelEditor.search'),
+  clearSearch: t('group.modelEditor.clearSearch'),
+  aliasEnabledFor: (id) => t('group.modelEditor.aliasEnabledFor', { id }),
+  aliasFor: (id) => t('group.modelEditor.aliasFor', { id }),
+  aliasPlaceholder: t('group.modelEditor.aliasPlaceholder'),
+  aliasRequired: t('group.modelEditor.aliasRequired'),
+  removeFor: (id) => t('group.modelEditor.removeFor', { id }),
+  manualId: t('group.modelEditor.manualId'),
+  add: t('group.modelEditor.add'),
+  empty: t('group.modelEditor.empty'),
+  conflictSummary: t('group.modelEditor.conflictSummary'),
+  nameConflict: (name) => t('group.modelEditor.nameConflict', { name }),
+}))
+const discoveryDrawerLabels = computed<ModelDiscoveryDrawerLabels>(() => ({
+  title: t('group.modelEditor.drawer.title'),
+  description: t('group.modelEditor.drawer.description'),
+  close: t('group.modelEditor.drawer.close'),
+  loading: t('group.modelEditor.drawer.loading'),
+  notice: t('group.modelEditor.drawer.notice'),
+  search: t('group.modelEditor.drawer.search'),
+  filterLabel: t('group.modelEditor.drawer.filterLabel'),
+  filterUnadded: t('group.modelEditor.drawer.filterAvailable'),
+  filterAll: t('group.modelEditor.drawer.filterAll'),
+  alreadyAdded: t('group.modelEditor.drawer.alreadyAdded'),
+  unadded: t('group.modelEditor.drawer.unadded'),
+  noMatches: t('group.modelEditor.drawer.noMatches'),
+  empty: t('group.modelEditor.drawer.empty'),
+  selected: (count) => t('group.modelEditor.drawer.selected', { count }),
+  selectAll: t('group.modelEditor.drawer.selectAll'),
+  deselectAll: t('group.modelEditor.drawer.deselectAll'),
+  retry: t('common.retry'),
+  cancel: t('common.cancel'),
+  confirm: t('group.modelEditor.drawer.confirm'),
+}))
 useUnsavedChanges(dirty, { blocked: computed(() => pending.value !== null) })
 
 watch(
   () => query.data.value,
   (models) => {
     if (!models || dirty.value || pending.value) return
-    const next = createModelDraft(models.items).map((item) => ({ ...item, key: nextKey++ }))
+    const next = createModelDraft(models.items, () => nextKey++)
     saved.value = next
     draft.value = next.map((item) => ({ ...item }))
     serverConflicts.value = []
@@ -109,42 +133,25 @@ watch(
   { immediate: true },
 )
 
-function updateRow(index: number, patch: Partial<ModelDraftItem>): void {
+function updateDraft(value: GroupModelDraftItem[]): void {
   serverConflicts.value = []
-  draft.value = draft.value.map((item, current) =>
-    current === index
-      ? {
-          ...item,
-          ...patch,
-          alias: patch.alias_enabled === false ? '' : (patch.alias ?? item.alias),
-        }
-      : { ...item },
-  )
+  draft.value = value
 }
 
-function removeRow(index: number): void {
-  serverConflicts.value = []
-  draft.value = draft.value.filter((_, current) => current !== index)
-}
-
-function addManual(): void {
-  const id = manualID.value.trim()
-  if (!id || draft.value.some((item) => item.id.trim() === id)) return
-  serverConflicts.value = []
-  draft.value = [
-    ...draft.value,
-    { id, alias: '', alias_enabled: false, pricing_status: 'unpriced', key: nextKey++ },
-  ]
-  manualID.value = ''
+function createManualRow(id: string): GroupModelDraftItem {
+  return {
+    id,
+    alias: '',
+    alias_enabled: false,
+    pricing_status: 'unpriced',
+    key: nextKey++,
+  }
 }
 
 function requestDiscovery(): void {
   if (pending.value) return
   drawerOpen.value = true
   candidates.value = []
-  selectedCandidates.value = []
-  drawerFilter.value = 'available'
-  drawerSearch.value = ''
   error.value = ''
   void runDiscovery()
 }
@@ -154,11 +161,12 @@ async function runDiscovery(): Promise<void> {
   const active = new AbortController()
   controller = active
   pending.value = 'discover'
+  candidates.value = []
+  error.value = ''
   try {
     const result = await discoverGroupModels(client, props.groupId, active.signal)
     if (controller !== active) return
     candidates.value = [...new Set(result.models.map((id) => id.trim()).filter(Boolean))]
-    selectedCandidates.value = []
   } catch (cause: unknown) {
     if (cause instanceof RequestCancelledError || controller !== active) return
     error.value =
@@ -173,9 +181,9 @@ async function runDiscovery(): Promise<void> {
   }
 }
 
-function confirmCandidates(): void {
+function confirmCandidates(selectedCandidates: string[]): void {
   const present = new Set(draft.value.map((item) => item.id.trim()))
-  const additions = selectedCandidates.value
+  const additions = selectedCandidates
     .map((id) => id.trim())
     .filter((id) => id && !present.has(id))
     .map((id) => ({
@@ -214,7 +222,7 @@ async function save(): Promise<void> {
       active.signal,
     )
     if (controller !== active) return
-    const next = createModelDraft(result.items).map((item) => ({ ...item, key: nextKey++ }))
+    const next = createModelDraft(result.items, () => nextKey++)
     saved.value = next
     draft.value = next.map((item) => ({ ...item }))
     emptyConfirmOpen.value = false
@@ -239,11 +247,6 @@ function discard(): void {
   serverConflicts.value = []
   error.value = ''
   draft.value = saved.value.map((item) => ({ ...item }))
-}
-
-function conflictMessage(index: number): string {
-  const conflict = conflicts.value.find((item) => item.indexes.includes(index))
-  return conflict ? t('group.modelEditor.nameConflict', { name: conflict.client_model }) : ''
 }
 
 onBeforeUnmount(() => controller?.abort())
@@ -280,192 +283,38 @@ onBeforeUnmount(() => controller?.abort())
       </header>
 
       <InlineFeedback v-if="error" tone="danger">{{ error }}</InlineFeedback>
-      <InlineFeedback v-if="conflicts.length" tone="danger">{{
-        t('group.modelEditor.conflictSummary')
-      }}</InlineFeedback>
 
       <div class="group-models__summary" aria-live="polite">
         <span>{{ t('group.modelEditor.total', { count: draft.length }) }}</span>
         <span v-if="unpriced">{{ t('group.modelEditor.unpriced', { count: unpriced }) }}</span>
       </div>
-      <LedgerRecordList
-        :label="t('group.modelEditor.tableLabel')"
-        :row-count="draft.length + 1"
-        grid-class="group-model-record-grid"
+      <ModelAliasEditor
+        :model-value="draft"
+        :conflicts="conflicts"
+        :labels="aliasEditorLabels"
+        :create-row="createManualRow"
+        :disabled="pending !== null"
+        @update:model-value="updateDraft"
       >
-        <template #header>
-          <span role="columnheader">{{ t('group.modelEditor.id') }}</span>
-          <span role="columnheader">{{ t('group.modelEditor.alias') }}</span>
-          <span role="columnheader">{{ t('group.modelEditor.pricing') }}</span>
-          <span role="columnheader">
-            <span class="sr-only">{{ t('group.modelEditor.actions') }}</span>
+        <template #third-column="{ item }">
+          <span :class="['group-models__pricing', `group-models__pricing--${item.pricing_status}`]">
+            {{ t(`group.modelEditor.pricingStatus.${item.pricing_status}`) }}
           </span>
         </template>
+      </ModelAliasEditor>
 
-        <article
-          v-for="(item, index) in draft"
-          :key="item.key"
-          class="ledger-record-list__record group-model-record"
-          :class="{ 'group-model-record--conflict': conflictIndexes.has(index) }"
-          role="row"
-          :aria-rowindex="index + 2"
-        >
-          <div class="ledger-record-list__cell group-model-record__id" role="cell">
-            <span class="group-model-record__mobile-label">{{ t('group.modelEditor.id') }}</span>
-            <code>{{ item.id }}</code>
-          </div>
-
-          <div class="ledger-record-list__cell group-model-record__alias-cell" role="cell">
-            <span class="group-model-record__mobile-label">{{ t('group.modelEditor.alias') }}</span>
-            <div class="group-models__alias">
-              <label class="group-models__alias-toggle">
-                <span class="sr-only">
-                  {{ t('group.modelEditor.aliasEnabledFor', { id: item.id }) }}
-                </span>
-                <input
-                  type="checkbox"
-                  :checked="item.alias_enabled"
-                  :disabled="pending !== null"
-                  @change="
-                    updateRow(index, {
-                      alias_enabled: ($event.target as HTMLInputElement).checked,
-                    })
-                  "
-                />
-              </label>
-              <input
-                type="text"
-                :value="item.alias"
-                :disabled="pending !== null || !item.alias_enabled"
-                :placeholder="t('group.modelEditor.aliasPlaceholder')"
-                :aria-invalid="conflictIndexes.has(index) || undefined"
-                @input="updateRow(index, { alias: ($event.target as HTMLInputElement).value })"
-              />
-            </div>
-            <small v-if="conflictIndexes.has(index)" class="group-models__error">
-              {{ conflictMessage(index) }}
-            </small>
-            <small v-else-if="emptyAliasIndexes.has(index)" class="group-models__error">
-              {{ t('group.modelEditor.aliasRequired') }}
-            </small>
-          </div>
-
-          <div class="ledger-record-list__cell group-model-record__pricing-cell" role="cell">
-            <span class="group-model-record__mobile-label">{{
-              t('group.modelEditor.pricing')
-            }}</span>
-            <span
-              :class="['group-models__pricing', `group-models__pricing--${item.pricing_status}`]"
-            >
-              {{ t(`group.modelEditor.pricingStatus.${item.pricing_status}`) }}
-            </span>
-          </div>
-
-          <div class="ledger-record-list__cell group-model-record__actions" role="cell">
-            <IconButton
-              variant="ghost"
-              size="compact"
-              :disabled="pending !== null"
-              :label="t('group.modelEditor.removeFor', { id: item.id })"
-              @click="removeRow(index)"
-            >
-              <Trash2 :size="16" aria-hidden="true" />
-            </IconButton>
-          </div>
-        </article>
-      </LedgerRecordList>
-      <div class="group-models__add">
-        <input
-          v-model="manualID"
-          :disabled="pending !== null"
-          :placeholder="t('group.modelEditor.manualId')"
-          @keydown.enter.prevent="addManual"
-        /><AppButton
-          variant="secondary"
-          :disabled="pending !== null || !manualID.trim()"
-          @click="addManual"
-          ><Plus :size="16" aria-hidden="true" />{{ t('group.modelEditor.add') }}</AppButton
-        >
-      </div>
-
-      <AppDrawer
+      <ModelDiscoveryDrawer
         :open="drawerOpen"
-        :title="t('group.modelEditor.drawer.title')"
-        :description="t('group.modelEditor.drawer.description')"
-        :close-label="t('group.modelEditor.drawer.close')"
+        :candidates="candidates"
+        :current-ids="currentModelIDs"
+        :loading="pending === 'discover'"
+        :error="error"
+        :labels="discoveryDrawerLabels"
         :dismissible="pending !== 'discover'"
         @update:open="drawerOpen = $event"
-      >
-        <QueryFeedback
-          v-if="pending === 'discover'"
-          state="loading"
-          :message="t('group.modelEditor.drawer.loading')"
-        />
-        <InlineFeedback v-else-if="error" tone="danger">{{ error }}</InlineFeedback>
-        <template v-else>
-          <p class="group-models__drawer-notice">{{ t('group.modelEditor.drawer.notice') }}</p>
-          <div class="group-models__drawer-filters">
-            <label class="group-models__drawer-search">
-              <span class="sr-only">{{ t('group.modelEditor.drawer.search') }}</span>
-              <Search :size="16" aria-hidden="true" />
-              <input
-                v-model="drawerSearch"
-                type="search"
-                :placeholder="t('group.modelEditor.drawer.search')"
-              />
-            </label>
-            <SegmentedControl
-              v-model="drawerFilter"
-              :label="t('group.modelEditor.drawer.filterLabel')"
-              :options="drawerFilterOptions"
-              size="touch"
-            />
-          </div>
-          <div class="group-models__candidate-list">
-            <label
-              v-for="candidate in visibleCandidates"
-              :key="candidate"
-              class="group-models__candidate"
-              :class="{ 'group-models__candidate--added': currentModelIDs.has(candidate) }"
-            >
-              <input
-                v-model="selectedCandidates"
-                type="checkbox"
-                :value="candidate"
-                :disabled="currentModelIDs.has(candidate)"
-              />
-              <code>{{ candidate }}</code>
-              <span v-if="currentModelIDs.has(candidate)">{{
-                t('group.modelEditor.drawer.alreadyAdded')
-              }}</span>
-            </label>
-            <InlineFeedback v-if="!visibleCandidates.length" tone="warning">{{
-              candidates.length
-                ? t('group.modelEditor.drawer.noMatches')
-                : t('group.modelEditor.drawer.empty')
-            }}</InlineFeedback>
-          </div>
-        </template>
-        <template #footer>
-          <div class="group-models__drawer-footer">
-            <span>{{
-              t('group.modelEditor.drawer.selected', { count: selectedCandidates.length })
-            }}</span>
-            <div class="group-models__drawer-actions">
-              <AppButton
-                variant="secondary"
-                :disabled="pending === 'discover'"
-                @click="drawerOpen = false"
-                >{{ t('common.cancel') }}</AppButton
-              ><AppButton
-                :disabled="pending === 'discover' || !selectedCandidates.length"
-                @click="confirmCandidates"
-                >{{ t('group.modelEditor.drawer.confirm') }}</AppButton
-              >
-            </div>
-          </div>
-        </template>
-      </AppDrawer>
+        @retry="runDiscovery"
+        @confirm="confirmCandidates"
+      />
 
       <AppConfirmDialog
         :open="emptyConfirmOpen"
@@ -509,9 +358,7 @@ onBeforeUnmount(() => controller?.abort())
   gap: var(--space-4);
   min-width: 0;
 }
-.group-models__header,
-.group-models__add,
-.group-models__drawer-actions {
+.group-models__header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -521,8 +368,7 @@ onBeforeUnmount(() => controller?.abort())
 .group-models__header p {
   margin: 0;
 }
-.group-models__header p,
-.group-models__drawer-actions + p {
+.group-models__header p {
   color: var(--color-text-muted);
 }
 .group-models__summary {
@@ -532,197 +378,16 @@ onBeforeUnmount(() => controller?.abort())
   font-family: var(--font-mono);
   font-size: var(--text-sm);
 }
-.group-model-record-grid {
-  --ledger-record-list-grid: minmax(180px, 1.05fr) minmax(280px, 1.6fr) 140px 48px;
-  --ledger-record-list-column-gap: 16px;
-}
-.group-model-record--conflict {
-  background: var(--color-danger-bg);
-}
-.group-model-record__id,
-.group-model-record__pricing-cell {
-  min-width: 0;
-}
-.group-model-record__id code {
-  overflow-wrap: anywhere;
-}
-.group-model-record__alias-cell {
-  display: grid;
-  gap: var(--space-1);
-}
-.group-models__alias {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-.group-models__alias-toggle {
-  display: grid;
-  width: var(--touch-target);
-  height: var(--touch-target);
-  flex: 0 0 var(--touch-target);
-  place-items: center;
-  cursor: pointer;
-}
-.group-models__alias input[type='text'],
-.group-models__add input {
-  width: 100%;
-  min-height: var(--control-md);
-  border: 1px solid var(--color-border-control);
-  border-radius: var(--radius-control);
-  background: var(--color-surface-sunken);
-  color: var(--color-text);
-  padding: 0 var(--space-3);
-  font: inherit;
-}
-.group-models__error {
-  color: var(--color-danger);
-}
 .group-models__pricing--priced {
   color: var(--color-success);
 }
 .group-models__pricing--unpriced {
   color: var(--color-warning);
 }
-.group-model-record__actions {
-  display: flex;
-  justify-content: flex-end;
-}
-.group-model-record__mobile-label {
-  display: none;
-  color: var(--color-text-faint);
-  font-size: var(--text-label-xs);
-  font-weight: 560;
-}
-.group-models__add {
-  justify-content: flex-start;
-}
-.group-models__add input {
-  max-width: 360px;
-  font-family: var(--font-mono);
-}
-.group-models__candidate {
-  display: flex;
-  min-height: 44px;
-  align-items: center;
-  gap: var(--space-2);
-}
-.group-models__drawer-notice {
-  margin: 0 0 var(--space-3);
-  color: var(--color-text-muted);
-}
-.group-models__drawer-filters {
-  display: grid;
-  gap: var(--space-3);
-  margin-bottom: var(--space-3);
-}
-.group-models__drawer-search {
-  display: flex;
-  min-height: var(--touch-target);
-  align-items: center;
-  gap: var(--space-2);
-  border: 1px solid var(--color-border-control);
-  border-radius: var(--radius-control);
-  background: var(--color-surface-sunken);
-  padding: 0 var(--space-3);
-  color: var(--color-text-muted);
-}
-.group-models__drawer-search:focus-within {
-  border-color: var(--color-action);
-  box-shadow: var(--focus-ring);
-}
-.group-models__drawer-search input {
-  width: 100%;
-  min-width: 0;
-  border: 0;
-  outline: 0;
-  background: transparent;
-  color: var(--color-text);
-  font: inherit;
-}
-.group-models__candidate-list {
-  display: grid;
-  max-height: 420px;
-  overflow-y: auto;
-  border-block: 1px solid var(--color-border-subtle);
-}
-.group-models__candidate + .group-models__candidate {
-  border-top: 1px solid var(--color-border-subtle);
-}
-.group-models__candidate code {
-  min-width: 0;
-  flex: 1;
-  overflow-wrap: anywhere;
-}
-.group-models__candidate > span {
-  color: var(--color-text-faint);
-  font-size: var(--text-label-xs);
-}
-.group-models__candidate--added {
-  color: var(--color-text-muted);
-}
-.group-models__drawer-footer {
-  display: flex;
-  width: 100%;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  color: var(--color-text-muted);
-  font-size: var(--text-sm);
-}
-.group-models__drawer-actions {
-  justify-content: flex-end;
-}
-@media (max-width: 520px) {
-  .group-models__drawer-footer {
-    align-items: stretch;
-    flex-direction: column;
-  }
-  .group-models__drawer-actions :deep(.app-button) {
-    flex: 1;
-  }
-}
-@media (max-width: 860px) {
-  .group-model-record-grid {
-    --ledger-record-list-card-grid: minmax(0, 0.7fr) minmax(0, 1.3fr);
-  }
-  .group-model-record {
-    padding-right: 58px;
-  }
-  .group-model-record__id,
-  .group-model-record__alias-cell {
-    grid-column: 1 / -1;
-  }
-  .group-model-record__id,
-  .group-model-record__alias-cell,
-  .group-model-record__pricing-cell {
-    display: grid;
-    align-content: start;
-    gap: 5px;
-  }
-  .group-model-record__alias-cell {
-    border-top: 1px solid var(--color-border-subtle);
-    padding-top: 11px;
-  }
-  .group-model-record__actions {
-    position: absolute;
-    top: 4px;
-    right: 4px;
-  }
-  .group-model-record__actions :deep(.icon-button) {
-    min-height: var(--touch-target);
-  }
-  .group-model-record__mobile-label {
-    display: inline;
-  }
-}
 @media (max-width: 640px) {
-  .group-models__header,
-  .group-models__add {
+  .group-models__header {
     align-items: stretch;
     flex-direction: column;
-  }
-  .group-models__add input {
-    max-width: none;
   }
 }
 </style>
