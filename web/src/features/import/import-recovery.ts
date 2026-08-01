@@ -86,8 +86,7 @@ function isNewImportDraft(value: Record<string, unknown>): boolean {
   const protocols = value.protocols as GroupProtocol[]
   return (
     new Set(protocols).size === protocols.length &&
-    new Set(models.map(({ key }) => key)).size === models.length &&
-    new Set(models.map(({ id }) => id.trim())).size === models.length
+    new Set(models.map(({ key }) => key)).size === models.length
   )
 }
 
