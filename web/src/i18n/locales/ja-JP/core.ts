@@ -31,6 +31,21 @@ export default {
       anthropic: 'Anthropic',
       gemini: 'Gemini',
     },
+    headerRules: {
+      title: 'HeaderRules',
+      description: 'アップストリーム要求ヘッダーを設定または削除します。',
+      storageNotice:
+        'パスワード表示のマスクは覗き見による漏えいを減らすだけで、保存時の暗号化ではありません。通常の HeaderRules リテラルは SQLite とバックアップに平文で保存されます。Provider 認証情報ヘッダーには {template} テンプレートを使用してください。',
+      add: 'ルールを追加',
+      action: '操作',
+      set: '設定',
+      remove: '削除',
+      name: 'ヘッダー名',
+      value: 'ヘッダー値',
+      removeHint: 'このヘッダーを削除します。',
+      delete: 'ルールを削除',
+      duplicate: 'ヘッダー名は大文字小文字を区別せず、重複できません。',
+    },
   },
   auth: {
     eyebrow: 'GPT-Load 2.0',

@@ -31,6 +31,21 @@ export default {
       anthropic: 'Anthropic',
       gemini: 'Gemini',
     },
+    headerRules: {
+      title: 'HeaderRules',
+      description: '设置或移除上游请求 Header。',
+      storageNotice:
+        '密码遮挡仅减少旁观泄露，并不代表静态加密。普通 HeaderRules 字面值会以明文写入 SQLite 和备份。Provider 凭据 Header 必须使用 {template} 模板。',
+      add: '添加规则',
+      action: '操作',
+      set: '设置',
+      remove: '移除',
+      name: 'Header 名称',
+      value: 'Header 值',
+      removeHint: '该 Header 将被移除。',
+      delete: '删除规则',
+      duplicate: 'Header 名称不区分大小写，不能重复。',
+    },
   },
   auth: {
     eyebrow: 'GPT-Load 2.0',

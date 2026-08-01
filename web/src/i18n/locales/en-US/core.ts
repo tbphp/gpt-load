@@ -32,6 +32,21 @@ export default {
       anthropic: 'Anthropic',
       gemini: 'Gemini',
     },
+    headerRules: {
+      title: 'Header rules',
+      description: 'Set or remove upstream request headers.',
+      storageNotice:
+        'Password masking only reduces shoulder-surfing exposure; it is not encryption at rest. Ordinary HeaderRules literals are stored in plaintext in SQLite and backups. Provider credential headers must use the {template} template.',
+      add: 'Add rule',
+      action: 'Action',
+      set: 'Set',
+      remove: 'Remove',
+      name: 'Header name',
+      value: 'Header value',
+      removeHint: 'This header will be removed.',
+      delete: 'Delete rule',
+      duplicate: 'duplicate header names are not allowed (case-insensitive).',
+    },
   },
   auth: {
     eyebrow: 'GPT-Load 2.0',

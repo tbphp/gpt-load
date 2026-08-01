@@ -3,7 +3,7 @@ import { Eye, EyeOff, Plus, Trash2 } from '@lucide/vue'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import type { HeaderRules } from '@/features/import/model-draft'
+import type { HeaderRulesDto } from '@/app/resources/groups'
 
 interface RuleRow {
   key: number
@@ -13,9 +13,9 @@ interface RuleRow {
   revealed: boolean
 }
 
-const props = defineProps<{ modelValue: HeaderRules; disabled?: boolean }>()
+const props = defineProps<{ modelValue: HeaderRulesDto; disabled?: boolean }>()
 const emit = defineEmits<{
-  'update:modelValue': [value: HeaderRules]
+  'update:modelValue': [value: HeaderRulesDto]
   'update:valid': [value: boolean]
 }>()
 const { t } = useI18n()
@@ -33,7 +33,7 @@ function compareHeaderNames(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0
 }
 
-function normalizeRules(value: HeaderRules): HeaderRules {
+function normalizeRules(value: HeaderRulesDto): HeaderRulesDto {
   const set = Object.fromEntries(
     Object.entries(value.set)
       .map(([name, headerValue]) => [name.trim(), headerValue] as const)
@@ -46,7 +46,7 @@ function normalizeRules(value: HeaderRules): HeaderRules {
   return { set, remove }
 }
 
-function createRows(value: HeaderRules): RuleRow[] {
+function createRows(value: HeaderRulesDto): RuleRow[] {
   return [
     ...Object.entries(value.set).map(([name, headerValue]) => ({
       key: nextKey++,
@@ -65,8 +65,8 @@ function createRows(value: HeaderRules): RuleRow[] {
   ]
 }
 
-function rulesFromRows(): HeaderRules {
-  const rules: HeaderRules = { set: {}, remove: [] }
+function rulesFromRows(): HeaderRulesDto {
+  const rules: HeaderRulesDto = { set: {}, remove: [] }
   for (const row of rows.value) {
     const name = row.name.trim()
     if (!name) continue
@@ -76,7 +76,7 @@ function rulesFromRows(): HeaderRules {
   return rules
 }
 
-function sameRules(left: HeaderRules, right: HeaderRules): boolean {
+function sameRules(left: HeaderRulesDto, right: HeaderRulesDto): boolean {
   return JSON.stringify(normalizeRules(left)) === JSON.stringify(normalizeRules(right))
 }
 
@@ -137,24 +137,24 @@ function setValue(row: RuleRow, event: Event): void {
 </script>
 
 <template>
-  <section class="header-rules" :aria-label="t('import.headerRules.title')">
+  <section class="header-rules" :aria-label="t('common.headerRules.title')">
     <div class="header-rules__heading">
       <div>
-        <h3>{{ t('import.headerRules.title') }}</h3>
-        <p>{{ t('import.headerRules.description') }}</p>
+        <h3>{{ t('common.headerRules.title') }}</h3>
+        <p>{{ t('common.headerRules.description') }}</p>
         <p>
-          {{ t('import.headerRules.storageNotice', { template: '${API_KEY}' }) }}
+          {{ t('common.headerRules.storageNotice', { template: '${API_KEY}' }) }}
         </p>
       </div>
       <button class="header-rules__add" type="button" :disabled="props.disabled" @click="addRow">
-        <Plus :size="16" aria-hidden="true" />{{ t('import.headerRules.add') }}
+        <Plus :size="16" aria-hidden="true" />{{ t('common.headerRules.add') }}
       </button>
     </div>
 
     <div v-if="rows.length" class="header-rules__rows">
       <div v-for="row in rows" :key="row.key" class="header-rule">
         <label class="sr-only" :for="`header-action-${row.key}`">{{
-          t('import.headerRules.action')
+          t('common.headerRules.action')
         }}</label>
         <select
           :id="`header-action-${row.key}`"
@@ -162,16 +162,16 @@ function setValue(row: RuleRow, event: Event): void {
           :disabled="props.disabled"
           @change="setAction(row, $event)"
         >
-          <option value="set">{{ t('import.headerRules.set') }}</option>
-          <option value="remove">{{ t('import.headerRules.remove') }}</option>
+          <option value="set">{{ t('common.headerRules.set') }}</option>
+          <option value="remove">{{ t('common.headerRules.remove') }}</option>
         </select>
         <label class="sr-only" :for="`header-name-${row.key}`">{{
-          t('import.headerRules.name')
+          t('common.headerRules.name')
         }}</label>
         <input
           :id="`header-name-${row.key}`"
           :value="row.name"
-          :placeholder="t('import.headerRules.name')"
+          :placeholder="t('common.headerRules.name')"
           autocomplete="off"
           spellcheck="false"
           :disabled="props.disabled"
@@ -179,13 +179,13 @@ function setValue(row: RuleRow, event: Event): void {
         />
         <div v-if="row.action === 'set'" class="header-rule__secret">
           <label class="sr-only" :for="`header-value-${row.key}`">{{
-            t('import.headerRules.value')
+            t('common.headerRules.value')
           }}</label>
           <input
             :id="`header-value-${row.key}`"
             :type="row.revealed ? 'text' : 'password'"
             :value="row.value"
-            :placeholder="t('import.headerRules.value')"
+            :placeholder="t('common.headerRules.value')"
             autocomplete="off"
             spellcheck="false"
             :disabled="props.disabled"
@@ -204,13 +204,13 @@ function setValue(row: RuleRow, event: Event): void {
           </button>
         </div>
         <span v-else class="header-rule__remove-hint">{{
-          t('import.headerRules.removeHint')
+          t('common.headerRules.removeHint')
         }}</span>
         <button
           class="header-rule__icon"
           type="button"
           :style="touchTargetStyle"
-          :aria-label="t('import.headerRules.delete')"
+          :aria-label="t('common.headerRules.delete')"
           :disabled="props.disabled"
           @click="removeRow(row.key)"
         >
@@ -219,7 +219,7 @@ function setValue(row: RuleRow, event: Event): void {
       </div>
     </div>
     <p v-if="duplicateNames.size" class="header-rules__error" role="alert">
-      {{ t('import.headerRules.duplicate') }}
+      {{ t('common.headerRules.duplicate') }}
     </p>
   </section>
 </template>

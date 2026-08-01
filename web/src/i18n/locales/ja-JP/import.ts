@@ -1,14 +1,7 @@
 export default {
   import: {
     title: 'アップストリームキーをインポート',
-    description: 'Group を作成するか、既存 Group にアップストリームキーのみを追加します。',
     required: '必須',
-    progress: 'インポートの進行状況',
-    steps: {
-      '1': '接続',
-      '2': 'モデル',
-      '3': '確認',
-    },
     presets: {
       title: 'プロバイダープリセット',
       description: '一般的なプロバイダーを選ぶか、互換サービスをカタログから検索します',
@@ -101,20 +94,13 @@ export default {
       actionSummary: '{name} にキーを追加',
       actionSelectTarget: '先に追加先 Group を選択してください',
       actionHelp: 'モデル、プロトコル、設定を変更せず、アップストリームキーのみを追加します',
-      reviewTitle: 'キーのインポートを確認',
-      reviewDescription: 'インポート先とキー件数を確認します。キーの値は表示されません。',
       submit: 'キーをインポート',
       importFailed: '選択した Group にキーをインポートできません',
-      successTitle: 'キーをインポートしました',
-      successSummary: '{added} 件を追加、{duplicated} 件は既に存在しました。',
     },
     connection: {
       title: '接続情報',
       description:
         'プリセットが更新するのは URL とプロトコルだけで、名前、キー、モデルは保持されます',
-      responsesAffinityWarning:
-        'Responses にはまだリソースアフィニティがありません。状態を持つ複数ターンやリソース操作は、同じアップストリーム Key または共有ストレージに到達した場合のみ確実で、それ以外はアップストリームエラーをそのまま返します。',
-      preset: 'チャンネルプリセット',
       name: 'Group 名（任意）',
       namePlaceholder: '空欄の場合はアップストリーム URL から生成します',
       url: 'アップストリームのベース URL',
@@ -129,7 +115,6 @@ export default {
         anthropic: 'ネイティブ Messages プロトコル',
         gemini: 'ネイティブ Gemini プロトコル',
       },
-      advanced: '高度な HeaderRules',
     },
     keys: {
       title: 'アップストリームキー',
@@ -145,28 +130,10 @@ export default {
         duplicates: '重複',
         accessKeys: 'AccessKey の可能性',
       },
-      count: '空でないキー {count} 件',
-      empty: '空行 {count} 件',
-      duplicates: '重複行 {count} 件',
       accessKeyWarning: '{count} 行が GPT-Load AccessKey のようです。続行前に確認してください。',
       tooMany: '空でないキーは最大 1,000 件です。',
       upstreamKeyNotice:
         'ここにはプロバイダーのアップストリームキーを入力します。クライアント認証情報はアクセスキーページで作成してください',
-    },
-    headerRules: {
-      title: 'HeaderRules',
-      description: 'アップストリーム要求ヘッダーを設定または削除します。',
-      storageNotice:
-        'パスワード表示のマスクは覗き見による漏えいを減らすだけで、保存時の暗号化ではありません。通常の HeaderRules リテラルは SQLite とバックアップに平文で保存されます。Provider 認証情報ヘッダーには {template} テンプレートを使用してください。',
-      add: 'ルールを追加',
-      action: '操作',
-      set: '設定',
-      remove: '削除',
-      name: 'ヘッダー名',
-      value: 'ヘッダー値',
-      removeHint: 'このヘッダーを削除します。',
-      delete: 'ルールを削除',
-      duplicate: 'ヘッダー名は大文字小文字を区別せず、重複できません。',
     },
     models: {
       title: 'モデルとエイリアス',
@@ -196,14 +163,9 @@ export default {
       },
       discoveryNotice:
         'モデル取得は追加候補だけを提示し、現在のモデルの上書きや削除、キーの保存は行いません',
-      stepDescription: '検出は読み取り専用です。候補を確認するか、モデルを手動入力してください。',
       aliasFor: '{id} のエイリアス',
       manualId: '手動モデル ID',
       add: 'モデルを追加',
-      manualPath: 'モデル ID を手動入力',
-      none: 'モデル未設定',
-      resourceOnlyNotice:
-        'モデルが選択されていません。この Group がルーティングできるのは model を含まない Responses リソース API だけです。model を含む要求には使用できません。',
       drawer: {
         title: '上流モデルを取得',
         description: 'クリック時点の接続スナップショットで候補を取得します',
@@ -227,11 +189,6 @@ export default {
     discover: 'モデルを検出',
     discoveryFailed:
       'モデル検出に失敗しました。下書きは保持されています。再試行または手動入力できます。',
-    back: '戻る',
-    review: '確認',
-    reviewTitle: '確認して作成',
-    reviewDescription: '接続とモデルを確認します。キーの値は表示されません。',
-    automaticName: 'サーバーが生成',
     create: 'Group を作成',
     summary: 'キー {keys} 件 · プロトコル {protocols} 件 · モデル {models} 件',
     actionHelp: 'Group 作成とキー追加を一括実行します。モデルは空でも構いません',

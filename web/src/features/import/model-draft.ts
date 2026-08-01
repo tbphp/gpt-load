@@ -1,12 +1,8 @@
 import type { GroupProtocol } from '@/api/control/types'
-import type { GroupModelUpdateDto, HeaderRulesDto } from '@/app/resources/groups'
+import type { GroupModelUpdateDto } from '@/app/resources/groups'
 import { normalizedModels, type ModelDraftValue } from '@/features/models/model-draft'
 
 import type { ProviderPresetID } from './channel-presets'
-
-// HeaderRulesEditor still consumes this historical alias until the legacy import files are
-// removed in Task 6. It is not part of the new import draft.
-export type HeaderRules = HeaderRulesDto
 
 export type ImportModelSource = 'manual' | 'discovered'
 
