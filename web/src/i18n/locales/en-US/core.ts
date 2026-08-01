@@ -134,9 +134,13 @@ export default {
     backHome: 'Back to Home',
   },
   notFound: {
-    title: 'Page not found',
-    description: 'The requested management page does not exist or is no longer available.',
+    eyebrow: 'Navigation Error',
+    title: 'This page does not exist',
+    description:
+      'The address may have changed, or you opened a management page that has not been released yet. Your current session remains valid, and no configuration was changed.',
+    requestedPath: 'Requested path',
     backHome: 'Back to Home',
+    backPrevious: 'Go back',
   },
   home: {
     ledger: {
