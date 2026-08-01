@@ -11,6 +11,7 @@ import (
 
 	"gpt-load/internal/health"
 	app_errors "gpt-load/internal/platform/errors"
+	"gpt-load/internal/platform/utils"
 	"gpt-load/internal/state"
 )
 
@@ -226,10 +227,11 @@ func (s *Service) mapGroupKeyCollection(
 }
 
 func maskGroupKeyCollection(plaintext string) (string, error) {
-	if len(plaintext) < 4 {
-		return "", fmt.Errorf("credential shorter than safe suffix: %w", app_errors.ErrInternalServer)
+	mask := utils.MaskAPIKey(plaintext)
+	if mask == "" {
+		return "", fmt.Errorf("credential is empty: %w", app_errors.ErrInternalServer)
 	}
-	return "sk-gl-****" + plaintext[len(plaintext)-4:], nil
+	return mask, nil
 }
 
 func mapGroupKeyCollectionItem(

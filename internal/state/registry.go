@@ -137,6 +137,20 @@ func (r *KeyRegistry) ApplyImport(groupID uint, entries []KeyEntry) error {
 	return nil
 }
 
+// SnapshotGroupEntries returns an exact, detached snapshot for compensation
+// while a caller holds the mutation coordinator for the selected keys.
+func (r *KeyRegistry) SnapshotGroupEntries(groupID uint) []KeyEntry {
+	r.mu.RLock()
+	bucket := r.buckets[groupID]
+	entries := make([]KeyEntry, 0, len(bucket))
+	for _, entry := range bucket {
+		entries = append(entries, cloneKeyEntry(*entry))
+	}
+	r.mu.RUnlock()
+	sort.Slice(entries, func(left, right int) bool { return entries[left].ID < entries[right].ID })
+	return entries
+}
+
 // MatchesGroup compares the persisted configuration-owned fields for one
 // group. Runtime health state is intentionally excluded.
 func (r *KeyRegistry) MatchesGroup(groupID uint, entries []KeyEntry) bool {

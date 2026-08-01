@@ -17,6 +17,7 @@ import { useUnsavedChanges } from '@/app/unsaved-changes'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppDialog from '@/components/ui/AppDialog.vue'
 import AppDrawer from '@/components/ui/AppDrawer.vue'
+import DataTable from '@/components/ui/DataTable.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import StickySaveBar from '@/components/ui/StickySaveBar.vue'
@@ -268,86 +269,76 @@ onBeforeUnmount(() => controller?.abort())
         <span>{{ t('group.modelEditor.total', { count: draft.length }) }}</span>
         <span v-if="unpriced">{{ t('group.modelEditor.unpriced', { count: unpriced }) }}</span>
       </div>
-      <div class="group-models__table-wrap">
-        <table class="group-models__table">
-          <caption class="sr-only">
-            {{
-              t('group.modelEditor.tableLabel')
-            }}
-          </caption>
-          <thead>
-            <tr>
-              <th>{{ t('group.modelEditor.id') }}</th>
-              <th>{{ t('group.modelEditor.alias') }}</th>
-              <th>{{ t('group.modelEditor.pricing') }}</th>
-              <th>
-                <span class="sr-only">{{ t('group.modelEditor.actions') }}</span>
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr
-              v-for="(item, index) in draft"
-              :key="item.key"
-              :class="{ 'group-models__row--conflict': conflictIndexes.has(index) }"
-            >
-              <td>
-                <code>{{ item.id }}</code>
-              </td>
-              <td>
-                <div class="group-models__alias">
-                  <label
-                    ><span class="sr-only">{{
-                      t('group.modelEditor.aliasEnabledFor', { id: item.id })
-                    }}</span
-                    ><input
-                      type="checkbox"
-                      :checked="item.alias_enabled"
-                      :disabled="pending !== null"
-                      @change="
-                        updateRow(index, {
-                          alias_enabled: ($event.target as HTMLInputElement).checked,
-                        })
-                      "
-                  /></label>
-                  <input
-                    :value="item.alias"
-                    :disabled="pending !== null || !item.alias_enabled"
-                    :placeholder="t('group.modelEditor.aliasPlaceholder')"
-                    :aria-invalid="conflictIndexes.has(index) || undefined"
-                    @input="updateRow(index, { alias: ($event.target as HTMLInputElement).value })"
-                  />
-                </div>
-                <small v-if="conflictIndexes.has(index)" class="group-models__error">{{
-                  conflictMessage(index)
-                }}</small>
-                <small v-else-if="emptyAliasIndexes.has(index)" class="group-models__error">{{
-                  t('group.modelEditor.aliasRequired')
-                }}</small>
-              </td>
-              <td>
-                <span
-                  :class="[
-                    'group-models__pricing',
-                    `group-models__pricing--${item.pricing_status}`,
-                  ]"
-                  >{{ t(`group.modelEditor.pricingStatus.${item.pricing_status}`) }}</span
-                >
-              </td>
-              <td>
-                <AppButton
-                  variant="ghost"
-                  size="compact"
-                  :disabled="pending !== null"
-                  :aria-label="t('group.modelEditor.removeFor', { id: item.id })"
-                  @click="removeRow(index)"
-                  ><Trash2 :size="16" aria-hidden="true"
-                /></AppButton>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <DataTable :caption="t('group.modelEditor.tableLabel')">
+        <thead>
+          <tr>
+            <th>{{ t('group.modelEditor.id') }}</th>
+            <th>{{ t('group.modelEditor.alias') }}</th>
+            <th>{{ t('group.modelEditor.pricing') }}</th>
+            <th>
+              <span class="sr-only">{{ t('group.modelEditor.actions') }}</span>
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr
+            v-for="(item, index) in draft"
+            :key="item.key"
+            :class="{ 'group-models__row--conflict': conflictIndexes.has(index) }"
+          >
+            <td>
+              <code>{{ item.id }}</code>
+            </td>
+            <td>
+              <div class="group-models__alias">
+                <label
+                  ><span class="sr-only">{{
+                    t('group.modelEditor.aliasEnabledFor', { id: item.id })
+                  }}</span
+                  ><input
+                    type="checkbox"
+                    :checked="item.alias_enabled"
+                    :disabled="pending !== null"
+                    @change="
+                      updateRow(index, {
+                        alias_enabled: ($event.target as HTMLInputElement).checked,
+                      })
+                    "
+                /></label>
+                <input
+                  :value="item.alias"
+                  :disabled="pending !== null || !item.alias_enabled"
+                  :placeholder="t('group.modelEditor.aliasPlaceholder')"
+                  :aria-invalid="conflictIndexes.has(index) || undefined"
+                  @input="updateRow(index, { alias: ($event.target as HTMLInputElement).value })"
+                />
+              </div>
+              <small v-if="conflictIndexes.has(index)" class="group-models__error">{{
+                conflictMessage(index)
+              }}</small>
+              <small v-else-if="emptyAliasIndexes.has(index)" class="group-models__error">{{
+                t('group.modelEditor.aliasRequired')
+              }}</small>
+            </td>
+            <td>
+              <span
+                :class="['group-models__pricing', `group-models__pricing--${item.pricing_status}`]"
+                >{{ t(`group.modelEditor.pricingStatus.${item.pricing_status}`) }}</span
+              >
+            </td>
+            <td>
+              <AppButton
+                variant="ghost"
+                size="compact"
+                :disabled="pending !== null"
+                :aria-label="t('group.modelEditor.removeFor', { id: item.id })"
+                @click="removeRow(index)"
+                ><Trash2 :size="16" aria-hidden="true"
+              /></AppButton>
+            </td>
+          </tr>
+        </tbody>
+      </DataTable>
       <div class="group-models__add">
         <input
           v-model="manualID"
@@ -464,29 +455,8 @@ onBeforeUnmount(() => controller?.abort())
   font-family: var(--font-mono);
   font-size: var(--text-sm);
 }
-.group-models__table-wrap {
-  overflow-x: auto;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--radius-card);
-}
-.group-models__table {
-  width: 100%;
+.group-models :deep(.data-table) {
   min-width: 620px;
-  border-collapse: collapse;
-}
-.group-models__table th,
-.group-models__table td {
-  border-bottom: 1px solid var(--color-border-subtle);
-  padding: var(--space-3);
-  text-align: left;
-}
-.group-models__table th {
-  color: var(--color-text-muted);
-  font-size: var(--text-meta);
-  font-weight: 650;
-}
-.group-models__table tr:last-child td {
-  border-bottom: 0;
 }
 .group-models__row--conflict {
   background: var(--color-danger-bg);

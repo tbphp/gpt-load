@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -65,7 +66,7 @@ func TestRestoreGroupKeyClearsProblemStateAndReturnsItem(t *testing.T) {
 			if err != nil {
 				t.Fatalf("RestoreGroupKey() error = %v", err)
 			}
-			if got.ID != row.ID || got.Mask != "sk-gl-****tore" || got.ConfiguredStatus != "active" ||
+			if got.ID != row.ID || got.Mask != "prov****tore" || got.ConfiguredStatus != "active" ||
 				got.EffectiveStatus != "available" || got.WeightMode != "auto" || got.Weight == nil || *got.Weight != 64 ||
 				got.RecentSuccessCount != 8 || got.RecentFailureCount != 4 || got.ConsecutiveFailureCount != 0 ||
 				got.LastFailureCategory != "ambiguous" || got.LastStatusCode != nil || got.CooldownUntilMS != nil ||
@@ -522,6 +523,60 @@ func TestBatchGroupKeysDBAndRegistryFailuresAreAtomic(t *testing.T) {
 			t.Fatalf("DB rows after DB failure = %#v", rows)
 		}
 	})
+}
+
+func TestBatchGroupKeysRegistryApplyFailureRestoresDBAndRegistry(t *testing.T) {
+	for _, action := range []GroupKeyBatchAction{
+		GroupKeyBatchDisable,
+		GroupKeyBatchDelete,
+	} {
+		t.Run(string(action), func(t *testing.T) {
+			fixture := newServiceFixture(t)
+			group := validControlGroup("batch-apply-failure-" + string(action))
+			if err := fixture.db.Create(group).Error; err != nil {
+				t.Fatal(err)
+			}
+			first := seedManagedUpstreamKey(
+				t, fixture, group.ID, "provider-secret-apply-first", models.UpstreamKeyStatusActive, nil,
+			)
+			second := seedManagedUpstreamKey(
+				t, fixture, group.ID, "provider-secret-apply-second", models.UpstreamKeyStatusActive, nil,
+			)
+			before := fixture.registry.Snapshot()
+			apply := fixture.service.applyBatchRegistryMutation
+			fixture.service.applyBatchRegistryMutation = func(
+				groupID uint,
+				keyIDs []uint,
+				action GroupKeyBatchAction,
+			) error {
+				if !fixture.registry.RemoveKey(second.ID) {
+					t.Fatal("remove Registry key before batch apply")
+				}
+				return apply(groupID, keyIDs, action)
+			}
+
+			_, err := fixture.service.BatchGroupKeys(t.Context(), group.ID, GroupKeyBatchRequest{
+				Action: action,
+				KeyIDs: []uint{first.ID, second.ID},
+			})
+			if !errors.Is(err, app_errors.ErrInternalServer) {
+				t.Fatalf("BatchGroupKeys() error = %#v, want INTERNAL_SERVER_ERROR", err)
+			}
+
+			var rows []models.UpstreamKey
+			if err := fixture.db.Where("group_id = ?", group.ID).Order("id ASC").Find(&rows).Error; err != nil {
+				t.Fatal(err)
+			}
+			if len(rows) != 2 || rows[0].Status != models.UpstreamKeyStatusActive ||
+				rows[1].Status != models.UpstreamKeyStatusActive {
+				t.Fatalf("DB rows after Registry apply failure = %#v, want old state", rows)
+			}
+			after := fixture.registry.Snapshot()
+			if !reflect.DeepEqual(after, before) {
+				t.Fatalf("Registry after apply failure = %#v, want %#v", after, before)
+			}
+		})
+	}
 }
 
 type heldGroupKeyMutationCoordinator struct {

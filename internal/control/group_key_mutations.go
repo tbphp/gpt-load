@@ -164,21 +164,8 @@ func (s *Service) BatchGroupKeys(
 	for _, view := range s.registry.Snapshot() {
 		viewByID[view.ID] = view
 	}
-	for _, keyID := range keyIDs {
-		row := rowByID[keyID]
-		view, exists := viewByID[keyID]
-		if !exists {
-			return GroupKeyBatchResponse{}, dbRegistryMismatch(mismatchMissingRegistry, groupID, keyID)
-		}
-		if view.GroupID != groupID {
-			return GroupKeyBatchResponse{}, dbRegistryMismatch(mismatchGroupID, groupID, keyID)
-		}
-		if view.Status != state.KeyStatus(row.Status) {
-			return GroupKeyBatchResponse{}, dbRegistryMismatch(mismatchStatus, groupID, keyID)
-		}
-		if !equalOptionalWeight(view.WeightManual, row.WeightManual) {
-			return GroupKeyBatchResponse{}, dbRegistryMismatch(mismatchWeightManual, groupID, keyID)
-		}
+	if err := validateBatchRegistryRows(groupID, keyIDs, rowByID, viewByID); err != nil {
+		return GroupKeyBatchResponse{}, err
 	}
 
 	persist := func() error {
@@ -203,59 +190,122 @@ func (s *Service) BatchGroupKeys(
 		})
 	}
 
-	if request.Action == GroupKeyBatchDelete {
-		coordinator, ok := s.mutations.(interface {
-			DoMany([]uint, func())
-		})
-		if !ok {
-			return GroupKeyBatchResponse{}, fmt.Errorf(
-				"batch delete mutation coordinator unavailable: %w",
-				app_errors.ErrInternalServer,
-			)
+	coordinator, ok := s.mutations.(interface {
+		DoMany([]uint, func())
+	})
+	if !ok {
+		return GroupKeyBatchResponse{}, fmt.Errorf(
+			"batch mutation coordinator unavailable: %w",
+			app_errors.ErrInternalServer,
+		)
+	}
+	apply := func() {
+		linearizedViews := make(map[uint]state.KeyRuntimeView)
+		for _, view := range s.registry.Snapshot() {
+			linearizedViews[view.ID] = view
 		}
-		remove := func() {
-			err = persist()
-			if err != nil {
-				return
-			}
-			err = s.registry.RemoveGroupKeys(groupID, keyIDs)
-			if err != nil {
-				err = withControlOperationContext(
-					newControlOperationError(stageApplyCommittedRegistryMutation),
-					groupID,
-					0,
-				)
-				return
-			}
+		if err = validateBatchRegistryRows(groupID, keyIDs, rowByID, linearizedViews); err != nil {
+			return
+		}
+		beforeEntries := s.registry.SnapshotGroupEntries(groupID)
+		if s.applyBatchRegistryMutation == nil {
+			err = fmt.Errorf("batch Registry mutation unavailable: %w", app_errors.ErrInternalServer)
+			return
+		}
+		applyErr := s.applyBatchRegistryMutation(groupID, keyIDs, request.Action)
+		if applyErr != nil {
+			err = compensateBatchRegistry(
+				s,
+				groupID,
+				beforeEntries,
+				fmt.Errorf(
+					"apply batch Registry mutation: %v: %w",
+					applyErr,
+					withControlOperationContext(
+						newControlOperationError(stageApplyCommittedRegistryMutation),
+						groupID,
+						0,
+					),
+				),
+			)
+			return
+		}
+		if err = persist(); err != nil {
+			err = compensateBatchRegistry(s, groupID, beforeEntries, err)
+			return
+		}
+		if request.Action == GroupKeyBatchDelete {
 			for _, keyID := range keyIDs {
 				s.stats.Reset(keyID)
 			}
 		}
-		coordinator.DoMany(keyIDs, remove)
-		if err != nil {
-			return GroupKeyBatchResponse{}, err
-		}
-	} else {
-		if err = persist(); err != nil {
-			return GroupKeyBatchResponse{}, err
-		}
-		status := state.KeyStatusActive
-		if request.Action == GroupKeyBatchDisable {
-			status = state.KeyStatusDisabled
-		}
-		if err = s.registry.UpdateGroupKeyStatuses(groupID, keyIDs, status); err != nil {
-			return GroupKeyBatchResponse{}, withControlOperationContext(
-				newControlOperationError(stageApplyCommittedRegistryMutation),
-				groupID,
-				0,
-			)
-		}
+	}
+	coordinator.DoMany(keyIDs, apply)
+	if err != nil {
+		return GroupKeyBatchResponse{}, err
 	}
 
 	return GroupKeyBatchResponse{
 		AffectedIDs: keyIDs,
 		Summary:     summarizeGroupRuntimeKeys(group, s.registry.Snapshot(), s.now().UTC()),
 	}, nil
+}
+
+func validateBatchRegistryRows(
+	groupID uint,
+	keyIDs []uint,
+	rows map[uint]models.UpstreamKey,
+	views map[uint]state.KeyRuntimeView,
+) error {
+	for _, keyID := range keyIDs {
+		row := rows[keyID]
+		view, exists := views[keyID]
+		if !exists {
+			return dbRegistryMismatch(mismatchMissingRegistry, groupID, keyID)
+		}
+		if view.GroupID != groupID {
+			return dbRegistryMismatch(mismatchGroupID, groupID, keyID)
+		}
+		if view.Status != state.KeyStatus(row.Status) {
+			return dbRegistryMismatch(mismatchStatus, groupID, keyID)
+		}
+		if !equalOptionalWeight(view.WeightManual, row.WeightManual) {
+			return dbRegistryMismatch(mismatchWeightManual, groupID, keyID)
+		}
+	}
+	return nil
+}
+
+func (s *Service) applyGroupKeyBatchRegistryMutation(
+	groupID uint,
+	keyIDs []uint,
+	action GroupKeyBatchAction,
+) error {
+	switch action {
+	case GroupKeyBatchEnable:
+		return s.registry.UpdateGroupKeyStatuses(groupID, keyIDs, state.KeyStatusActive)
+	case GroupKeyBatchDisable:
+		return s.registry.UpdateGroupKeyStatuses(groupID, keyIDs, state.KeyStatusDisabled)
+	case GroupKeyBatchDelete:
+		return s.registry.RemoveGroupKeys(groupID, keyIDs)
+	default:
+		return fmt.Errorf("unsupported batch Registry action %q", action)
+	}
+}
+
+func compensateBatchRegistry(
+	s *Service,
+	groupID uint,
+	before []state.KeyEntry,
+	cause error,
+) error {
+	if _, err := s.reconcileRegistryGroup(groupID, before); err != nil {
+		return errors.Join(
+			cause,
+			fmt.Errorf("compensate batch Registry mutation: %w", err),
+		)
+	}
+	return cause
 }
 
 func normalizeGroupKeyBatchRequest(request GroupKeyBatchRequest) ([]uint, error) {

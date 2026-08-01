@@ -137,7 +137,7 @@ func TestListGroupKeysCollection(t *testing.T) {
 	}
 
 	blacklisted := response.Items[0]
-	if blacklisted.Mask != "sk-gl-****0001" || blacklisted.ConfiguredStatus != "active" ||
+	if blacklisted.Mask != "prov****0001" || blacklisted.ConfiguredStatus != "active" ||
 		blacklisted.EffectiveStatus != "blacklisted" || blacklisted.Weight != nil ||
 		blacklisted.RecentSuccessCount != 1 || blacklisted.RecentFailureCount != 2 ||
 		blacklisted.ConsecutiveFailureCount != 2 || blacklisted.LastFailureCategory != "invalid_key" ||
@@ -180,7 +180,7 @@ func TestListGroupKeysCollection(t *testing.T) {
 	}
 
 	matched, err := fixture.service.ListGroupKeys(t.Context(), group.ID, GroupKeyCollectionQuery{
-		Query: "SK-GL-****0006", Page: 1, PageSize: 20,
+		Query: "PROV****0006", Page: 1, PageSize: 20,
 	})
 	if err != nil {
 		t.Fatalf("ListGroupKeys(q) error = %v", err)
@@ -204,6 +204,49 @@ func TestListGroupKeysCollection(t *testing.T) {
 	for _, forbidden := range []string{"provider-secret-", "key_value", "key_hash", "ciphertext", blacklistedOne.KeyValue, blacklistedOne.KeyHash} {
 		if bytes.Contains(encoded, []byte(forbidden)) {
 			t.Fatalf("collection response exposes %q: %s", forbidden, encoded)
+		}
+	}
+}
+
+func TestListGroupKeysCollectionMasksImportedShortKeysWithoutLeakingPlaintext(t *testing.T) {
+	fixture := newServiceFixture(t)
+	group := validControlGroup("key-collection-short-mask")
+	if err := fixture.db.Create(group).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, plaintext := range []string{"x", "xy", "xyz"} {
+		if _, err := fixture.service.ImportGroupKeys(
+			t.Context(),
+			group.ID,
+			GroupKeyImportRequest{Keys: plaintext},
+		); err != nil {
+			t.Fatalf("ImportGroupKeys(%q) error = %v", plaintext, err)
+		}
+	}
+
+	response, err := fixture.service.ListGroupKeys(
+		t.Context(),
+		group.ID,
+		GroupKeyCollectionQuery{Page: 1, PageSize: 20},
+	)
+	if err != nil {
+		t.Fatalf("ListGroupKeys() error = %v", err)
+	}
+	if len(response.Items) != 3 {
+		t.Fatalf("ListGroupKeys() items = %d, want 3", len(response.Items))
+	}
+	for _, item := range response.Items {
+		if item.Mask != "****" {
+			t.Fatalf("key %d mask = %q, want full mask", item.ID, item.Mask)
+		}
+	}
+	encoded, err := json.Marshal(response)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, plaintext := range []string{"x", "xy", "xyz"} {
+		if bytes.Contains(encoded, []byte(`"mask":"`+plaintext+`"`)) {
+			t.Fatalf("collection response exposes plaintext %q: %s", plaintext, encoded)
 		}
 	}
 }

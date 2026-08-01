@@ -171,7 +171,7 @@ export function projectGroupKeyItem(value: unknown): GroupKeyItemDto {
     last_status_code:
       record.last_status_code === null
         ? null
-        : projectSafeInteger(record.last_status_code, { minimum: 100, maximum: 599 }),
+        : projectSafeInteger(record.last_status_code, { minimum: 100, maximum: 999 }),
     cooldown_until_ms: cooldownUntil,
     recovery,
   }

@@ -228,9 +228,21 @@ async function invalidateReconciliationQueries(): Promise<void> {
   }
 }
 
-async function reconcileItem(result: GroupKeyItemDto): Promise<void> {
+async function refetchActiveKeyPage(): Promise<void> {
+  await queryClient.refetchQueries(
+    {
+      queryKey: controlQueryKeys.groups.keys(props.groupId, filters.value),
+      exact: true,
+      type: 'active',
+    },
+    { throwOnError: true },
+  )
+}
+
+async function reconcileItem(result: GroupKeyItemDto, refetchActive: boolean): Promise<void> {
   try {
     await cacheGroupKeyItem(queryClient, props.groupId, result)
+    if (refetchActive) await refetchActiveKeyPage()
     const summary = cachedCurrentSummary()
     if (summary === undefined) {
       await invalidateReconciliationQueries()
@@ -249,6 +261,7 @@ async function reconcileBatch(
 ): Promise<void> {
   try {
     await cacheGroupKeyBatch(queryClient, props.groupId, action, result)
+    if (action !== 'delete') await refetchActiveKeyPage()
     synchronizeGroupSummary(result.summary)
   } catch {
     feedback.value = t('group.keys.reconcileFailed')
@@ -285,7 +298,7 @@ async function mutateItem(
     return
   }
   try {
-    await reconcileItem(result)
+    await reconcileItem(result, action !== 'weight')
   } finally {
     setPending(item.id, action, false)
   }
