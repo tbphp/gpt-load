@@ -145,6 +145,12 @@ export interface GroupKeyItemDto {
   recovery: GroupKeyRecoveryDto
 }
 
+export interface GroupKeyRevealDto {
+  id: number
+  key: string
+  revealed_at_ms: number
+}
+
 export interface GroupKeySummaryDto {
   total: number
   available: number

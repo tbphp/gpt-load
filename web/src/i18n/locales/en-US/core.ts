@@ -9,6 +9,8 @@ export default {
     pagination: {
       label: 'Pagination',
       range: 'Showing {from}–{to} of {total}',
+      pageSize: '{size} / page',
+      pageSizeLabel: 'Items per page',
       previous: 'Previous',
       next: 'Next',
     },

@@ -9,6 +9,8 @@ export default {
     pagination: {
       label: 'ページ送り',
       range: '{from}～{to} 件を表示 · 全 {total} 件',
+      pageSize: '{size} / ページ',
+      pageSizeLabel: '1 ページあたりの件数',
       previous: '前へ',
       next: '次へ',
     },

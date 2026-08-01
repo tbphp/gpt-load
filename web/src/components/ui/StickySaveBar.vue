@@ -7,20 +7,31 @@ const props = withDefaults(
     pending: boolean
     status?: 'idle' | 'saved' | 'error' | 'indeterminate'
     error?: string
+    appearance?: 'default' | 'ledger'
+    alwaysVisible?: boolean
   }>(),
-  { status: 'idle', error: '' },
+  { status: 'idle', error: '', appearance: 'default', alwaysVisible: false },
 )
 
 const visible = computed(
-  () => props.dirty || props.pending || props.status !== 'idle' || props.error,
+  () =>
+    props.alwaysVisible || props.dirty || props.pending || props.status !== 'idle' || props.error,
 )
+const visualState = computed(() => {
+  if (props.pending) return 'saving'
+  if (props.error || props.status === 'error') return 'error'
+  if (props.dirty) return 'dirty'
+  if (props.status === 'saved') return 'saved'
+  return props.status === 'indeterminate' ? 'indeterminate' : 'idle'
+})
 </script>
 
 <template>
   <footer
     v-if="visible"
     class="sticky-save-bar"
-    :data-status="status"
+    :class="`sticky-save-bar--${appearance}`"
+    :data-status="visualState"
     :aria-busy="pending || undefined"
   >
     <div class="sticky-save-bar__status" aria-live="polite">

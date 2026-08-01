@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Eye, EyeOff, Plus, Trash2 } from '@lucide/vue'
+import { Eye, EyeOff, Info, Plus, Trash2, X } from '@lucide/vue'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
@@ -13,13 +13,26 @@ interface RuleRow {
   revealed: boolean
 }
 
-const props = defineProps<{ modelValue: HeaderRules; disabled?: boolean }>()
+const props = withDefaults(
+  defineProps<{
+    modelValue: HeaderRules
+    disabled?: boolean
+    appearance?: 'default' | 'ledger'
+    removeLabel?: string
+    removeHint?: string
+  }>(),
+  {
+    disabled: false,
+    appearance: 'default',
+    removeLabel: undefined,
+    removeHint: undefined,
+  },
+)
 const emit = defineEmits<{
   'update:modelValue': [value: HeaderRules]
   'update:valid': [value: boolean]
 }>()
 const { t } = useI18n()
-const touchTargetStyle = { minWidth: '44px', minHeight: '44px' }
 let nextKey = 1
 const rows = ref<RuleRow[]>(createRows(normalizeRules(props.modelValue)))
 
@@ -120,7 +133,11 @@ function removeRow(key: number): void {
 }
 
 function setAction(row: RuleRow, event: Event): void {
-  row.action = (event.target as HTMLSelectElement).value as RuleRow['action']
+  setActionValue(row, (event.target as HTMLSelectElement).value as RuleRow['action'])
+}
+
+function setActionValue(row: RuleRow, action: RuleRow['action']): void {
+  row.action = action
   if (row.action === 'remove') row.value = ''
   publish()
 }
@@ -137,8 +154,12 @@ function setValue(row: RuleRow, event: Event): void {
 </script>
 
 <template>
-  <section class="header-rules" :aria-label="t('import.headerRules.title')">
-    <div class="header-rules__heading">
+  <section
+    class="header-rules"
+    :class="`header-rules--${appearance}`"
+    :aria-label="t('import.headerRules.title')"
+  >
+    <div v-if="appearance === 'default'" class="header-rules__heading">
       <div>
         <h3>{{ t('import.headerRules.title') }}</h3>
         <p>{{ t('import.headerRules.description') }}</p>
@@ -150,77 +171,156 @@ function setValue(row: RuleRow, event: Event): void {
         <Plus :size="16" aria-hidden="true" />{{ t('import.headerRules.add') }}
       </button>
     </div>
+    <div v-else class="header-rules__notice">
+      <Info :size="16" aria-hidden="true" />
+      <span>
+        <slot name="notice">{{
+          t('import.headerRules.storageNotice', { template: '${API_KEY}' })
+        }}</slot>
+      </span>
+    </div>
 
     <div v-if="rows.length" class="header-rules__rows">
       <div v-for="row in rows" :key="row.key" class="header-rule">
-        <label class="sr-only" :for="`header-action-${row.key}`">{{
-          t('import.headerRules.action')
-        }}</label>
-        <select
-          :id="`header-action-${row.key}`"
-          :value="row.action"
-          :disabled="props.disabled"
-          @change="setAction(row, $event)"
-        >
-          <option value="set">{{ t('import.headerRules.set') }}</option>
-          <option value="remove">{{ t('import.headerRules.remove') }}</option>
-        </select>
-        <label class="sr-only" :for="`header-name-${row.key}`">{{
-          t('import.headerRules.name')
-        }}</label>
-        <input
-          :id="`header-name-${row.key}`"
-          :value="row.name"
-          :placeholder="t('import.headerRules.name')"
-          autocomplete="off"
-          spellcheck="false"
-          :disabled="props.disabled"
-          @input="setName(row, $event)"
-        />
-        <div v-if="row.action === 'set'" class="header-rule__secret">
-          <label class="sr-only" :for="`header-value-${row.key}`">{{
-            t('import.headerRules.value')
+        <template v-if="appearance === 'ledger'">
+          <label class="sr-only" :for="`header-name-${row.key}`">{{
+            t('import.headerRules.name')
           }}</label>
           <input
-            :id="`header-value-${row.key}`"
-            :type="row.revealed ? 'text' : 'password'"
-            :value="row.value"
-            :placeholder="t('import.headerRules.value')"
+            :id="`header-name-${row.key}`"
+            class="header-rule__name"
+            :value="row.name"
+            :placeholder="t('import.headerRules.name')"
             autocomplete="off"
             spellcheck="false"
             :disabled="props.disabled"
-            @input="setValue(row, $event)"
+            @input="setName(row, $event)"
           />
+          <div class="header-rule__mode" role="group" :aria-label="t('import.headerRules.action')">
+            <button
+              type="button"
+              :aria-pressed="row.action === 'set'"
+              :disabled="props.disabled"
+              @click="setActionValue(row, 'set')"
+            >
+              {{ t('import.headerRules.set') }}
+            </button>
+            <button
+              type="button"
+              data-mode="remove"
+              :aria-pressed="row.action === 'remove'"
+              :disabled="props.disabled"
+              @click="setActionValue(row, 'remove')"
+            >
+              {{ removeLabel ?? t('import.headerRules.remove') }}
+            </button>
+          </div>
+          <template v-if="row.action === 'set'">
+            <label class="sr-only" :for="`header-value-${row.key}`">{{
+              t('import.headerRules.value')
+            }}</label>
+            <input
+              :id="`header-value-${row.key}`"
+              class="header-rule__value"
+              type="text"
+              :value="row.value"
+              :placeholder="t('import.headerRules.value')"
+              autocomplete="off"
+              spellcheck="false"
+              :disabled="props.disabled"
+              @input="setValue(row, $event)"
+            />
+          </template>
+          <span v-else class="header-rule__remove-hint">{{
+            removeHint ?? t('import.headerRules.removeHint')
+          }}</span>
           <button
             class="header-rule__icon"
             type="button"
-            :style="touchTargetStyle"
-            :aria-label="row.revealed ? t('common.conceal') : t('common.reveal')"
+            :aria-label="t('import.headerRules.delete')"
             :disabled="props.disabled"
-            @click="row.revealed = !row.revealed"
+            @click="removeRow(row.key)"
           >
-            <EyeOff v-if="row.revealed" :size="16" aria-hidden="true" />
-            <Eye v-else :size="16" aria-hidden="true" />
+            <X :size="16" aria-hidden="true" />
           </button>
-        </div>
-        <span v-else class="header-rule__remove-hint">{{
-          t('import.headerRules.removeHint')
-        }}</span>
-        <button
-          class="header-rule__icon"
-          type="button"
-          :style="touchTargetStyle"
-          :aria-label="t('import.headerRules.delete')"
-          :disabled="props.disabled"
-          @click="removeRow(row.key)"
-        >
-          <Trash2 :size="16" aria-hidden="true" />
-        </button>
+        </template>
+        <template v-else>
+          <label class="sr-only" :for="`header-action-${row.key}`">{{
+            t('import.headerRules.action')
+          }}</label>
+          <select
+            :id="`header-action-${row.key}`"
+            :value="row.action"
+            :disabled="props.disabled"
+            @change="setAction(row, $event)"
+          >
+            <option value="set">{{ t('import.headerRules.set') }}</option>
+            <option value="remove">{{ t('import.headerRules.remove') }}</option>
+          </select>
+          <label class="sr-only" :for="`header-name-${row.key}`">{{
+            t('import.headerRules.name')
+          }}</label>
+          <input
+            :id="`header-name-${row.key}`"
+            :value="row.name"
+            :placeholder="t('import.headerRules.name')"
+            autocomplete="off"
+            spellcheck="false"
+            :disabled="props.disabled"
+            @input="setName(row, $event)"
+          />
+          <div v-if="row.action === 'set'" class="header-rule__secret">
+            <label class="sr-only" :for="`header-value-${row.key}`">{{
+              t('import.headerRules.value')
+            }}</label>
+            <input
+              :id="`header-value-${row.key}`"
+              :type="row.revealed ? 'text' : 'password'"
+              :value="row.value"
+              :placeholder="t('import.headerRules.value')"
+              autocomplete="off"
+              spellcheck="false"
+              :disabled="props.disabled"
+              @input="setValue(row, $event)"
+            />
+            <button
+              class="header-rule__icon"
+              type="button"
+              :aria-label="row.revealed ? t('common.conceal') : t('common.reveal')"
+              :disabled="props.disabled"
+              @click="row.revealed = !row.revealed"
+            >
+              <EyeOff v-if="row.revealed" :size="16" aria-hidden="true" />
+              <Eye v-else :size="16" aria-hidden="true" />
+            </button>
+          </div>
+          <span v-else class="header-rule__remove-hint">{{
+            t('import.headerRules.removeHint')
+          }}</span>
+          <button
+            class="header-rule__icon"
+            type="button"
+            :aria-label="t('import.headerRules.delete')"
+            :disabled="props.disabled"
+            @click="removeRow(row.key)"
+          >
+            <Trash2 :size="16" aria-hidden="true" />
+          </button>
+        </template>
       </div>
     </div>
     <p v-if="duplicateNames.size" class="header-rules__error" role="alert">
       {{ t('import.headerRules.duplicate') }}
     </p>
+    <button
+      v-if="appearance === 'ledger'"
+      class="header-rules__add"
+      type="button"
+      :disabled="props.disabled"
+      @click="addRow"
+    >
+      <Plus :size="16" aria-hidden="true" />{{ t('import.headerRules.add') }}
+    </button>
   </section>
 </template>
 
@@ -248,6 +348,24 @@ h3 {
 .header-rule__remove-hint {
   color: var(--color-text-muted);
   font-size: 0.75rem;
+}
+.header-rules__notice {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  border: 1px solid color-mix(in srgb, var(--color-warning) 34%, var(--color-border-subtle));
+  border-radius: var(--radius-control);
+  background: var(--color-warning-bg);
+  color: var(--color-warning);
+  padding: 10px 12px;
+  font-size: var(--text-sm);
+}
+.header-rules__notice :deep(code) {
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  font-family: var(--font-mono);
+  font-size: inherit;
 }
 .header-rules__add,
 .header-rule__icon {
@@ -304,7 +422,113 @@ h3 {
   color: var(--color-danger);
   font-size: 0.8125rem;
 }
-@media (max-width: 759px) {
+.header-rules--ledger {
+  gap: 11px;
+  border-top: 0;
+  padding-top: 0;
+}
+.header-rules--ledger .header-rules__rows {
+  gap: var(--space-2);
+}
+.header-rules--ledger .header-rule {
+  grid-template-columns: minmax(120px, 0.8fr) auto minmax(0, 1.2fr) 32px;
+}
+.header-rules--ledger .header-rule__mode {
+  grid-column: 2;
+  grid-row: 1;
+}
+.header-rules--ledger .header-rule__name {
+  grid-column: 1;
+  grid-row: 1;
+}
+.header-rules--ledger .header-rule__value,
+.header-rules--ledger .header-rule__remove-hint {
+  grid-column: 3;
+  grid-row: 1;
+}
+.header-rules--ledger .header-rule > .header-rule__icon {
+  grid-column: 4;
+  grid-row: 1;
+}
+.header-rules--ledger .header-rule__name,
+.header-rules--ledger .header-rule__value,
+.header-rules--ledger .header-rule__remove-hint {
+  min-height: 36px;
+  background: var(--color-surface);
+  padding: 6px 9px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.header-rules--ledger .header-rule__mode {
+  display: inline-flex;
+  overflow: hidden;
+  border: 1px solid var(--color-border-control);
+  border-radius: var(--radius-control);
+}
+.header-rules--ledger .header-rule__mode button {
+  min-width: 52px;
+  min-height: 34px;
+  border: 0;
+  border-left: 1px solid var(--color-border-control);
+  background: var(--color-surface);
+  color: var(--color-text-faint);
+  padding: 5px 8px;
+  font: inherit;
+  font-size: var(--text-label-xs);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.header-rules--ledger .header-rule__mode button:first-child {
+  border-left: 0;
+}
+.header-rules--ledger .header-rule__mode button[aria-pressed='true'] {
+  background: var(--color-text);
+  color: var(--color-surface);
+  font-weight: 560;
+}
+.header-rules--ledger .header-rule__mode button[data-mode='remove'][aria-pressed='true'] {
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+}
+.header-rules--ledger .header-rule__remove-hint {
+  display: flex;
+  align-items: center;
+  border: 1px dashed color-mix(in srgb, var(--color-warning) 46%, var(--color-border-subtle));
+  border-radius: var(--radius-control);
+  background: var(--color-warning-bg);
+  color: var(--color-warning);
+  line-height: 1.4;
+}
+.header-rules--ledger .header-rule > .header-rule__icon {
+  min-width: 32px;
+  min-height: 32px;
+}
+.header-rules--ledger .header-rules__add {
+  width: fit-content;
+  min-width: 0;
+  min-height: var(--control-md);
+  justify-content: flex-start;
+  border: 0;
+  margin-top: 2px;
+  padding: 5px 1px;
+}
+@media (max-width: 800px) {
+  .header-rules--ledger .header-rule__name,
+  .header-rules--ledger .header-rule__value,
+  .header-rules--ledger .header-rule__remove-hint {
+    min-height: var(--touch-target);
+    font-size: 16px;
+  }
+  .header-rules--ledger .header-rule__mode button,
+  .header-rules--ledger .header-rule > .header-rule__icon,
+  .header-rules--ledger .header-rules__add {
+    min-height: var(--touch-target);
+  }
+  .header-rules--ledger .header-rule > .header-rule__icon {
+    min-width: var(--touch-target);
+  }
+}
+@media (max-width: 520px) {
   .header-rule {
     grid-template-columns: 1fr 44px;
   }
@@ -312,6 +536,20 @@ h3 {
     grid-column: 1;
   }
   .header-rule > .header-rule__icon {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .header-rules--ledger .header-rule {
+    grid-template-columns: minmax(0, 1fr) 32px;
+  }
+  .header-rules--ledger .header-rule__name,
+  .header-rules--ledger .header-rule__mode,
+  .header-rules--ledger .header-rule__value,
+  .header-rules--ledger .header-rule__remove-hint {
+    grid-column: 1;
+    grid-row: auto;
+  }
+  .header-rules--ledger .header-rule > .header-rule__icon {
     grid-column: 2;
     grid-row: 1;
   }

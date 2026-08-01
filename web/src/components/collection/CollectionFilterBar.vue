@@ -4,10 +4,12 @@ withDefaults(
     label: string
     showResult?: boolean
     singleColumn?: boolean
+    appearance?: 'default' | 'detail'
   }>(),
   {
     showResult: false,
     singleColumn: false,
+    appearance: 'default',
   },
 )
 </script>
@@ -15,7 +17,10 @@ withDefaults(
 <template>
   <form
     class="collection-filter-bar"
-    :class="{ 'collection-filter-bar--single': singleColumn }"
+    :class="[
+      `collection-filter-bar--${appearance}`,
+      { 'collection-filter-bar--single': singleColumn },
+    ]"
     role="search"
     :aria-label="label"
     autocomplete="off"
@@ -40,6 +45,10 @@ withDefaults(
 
 .collection-filter-bar.collection-filter-bar--single {
   grid-template-columns: minmax(0, 1fr);
+}
+
+.collection-filter-bar.collection-filter-bar--detail {
+  padding-top: 13px;
 }
 
 .collection-filter-field {

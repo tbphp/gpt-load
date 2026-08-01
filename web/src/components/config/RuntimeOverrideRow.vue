@@ -1,31 +1,54 @@
 <script setup lang="ts">
 import AppButton from '@/components/ui/AppButton.vue'
 
-defineProps<{
-  label: string
-  detail: string
-  sourceLabel: string
-  actionLabel: string
-  overridden: boolean
-  disabled?: boolean
-}>()
+withDefaults(
+  defineProps<{
+    label: string
+    detail: string
+    sourceLabel: string
+    actionLabel: string
+    overridden: boolean
+    disabled?: boolean
+    appearance?: 'default' | 'ledger'
+    valueLabel?: string
+  }>(),
+  { disabled: false, appearance: 'default', valueLabel: undefined },
+)
 
 const emit = defineEmits<{ toggle: [] }>()
 </script>
 
 <template>
-  <div class="runtime-override-row">
-    <div class="runtime-override-row__identity">
-      <strong>{{ label }}</strong>
-      <small>{{ detail }}</small>
-    </div>
-    <span class="runtime-override-row__source" :data-overridden="overridden || undefined">
-      {{ sourceLabel }}
-    </span>
-    <div v-if="$slots.value" class="runtime-override-row__value"><slot name="value" /></div>
-    <AppButton variant="secondary" size="lg" :disabled="disabled" @click="emit('toggle')">
-      {{ actionLabel }}
-    </AppButton>
+  <div class="runtime-override-row" :class="`runtime-override-row--${appearance}`">
+    <template v-if="appearance === 'ledger'">
+      <div class="runtime-override-row__identity">
+        <strong>{{ label }}</strong>
+        <small>{{ sourceLabel }}</small>
+      </div>
+      <div class="runtime-override-row__value">
+        <slot v-if="$slots.value" name="value" />
+        <template v-else>
+          <strong>{{ detail }}</strong>
+          <small v-if="valueLabel">{{ valueLabel }}</small>
+        </template>
+      </div>
+      <AppButton variant="secondary" size="compact" :disabled="disabled" @click="emit('toggle')">
+        {{ actionLabel }}
+      </AppButton>
+    </template>
+    <template v-else>
+      <div class="runtime-override-row__identity">
+        <strong>{{ label }}</strong>
+        <small>{{ detail }}</small>
+      </div>
+      <span class="runtime-override-row__source" :data-overridden="overridden || undefined">
+        {{ sourceLabel }}
+      </span>
+      <div v-if="$slots.value" class="runtime-override-row__value"><slot name="value" /></div>
+      <AppButton variant="secondary" size="lg" :disabled="disabled" @click="emit('toggle')">
+        {{ actionLabel }}
+      </AppButton>
+    </template>
   </div>
 </template>
 
@@ -63,7 +86,38 @@ const emit = defineEmits<{ toggle: [] }>()
 .runtime-override-row__value {
   min-width: 112px;
 }
-@media (max-width: 680px) {
+.runtime-override-row--ledger {
+  grid-template-columns: minmax(160px, 1fr) minmax(140px, 0.8fr) auto;
+  gap: var(--space-4);
+  border: 0;
+  border-bottom: 1px solid var(--color-border-subtle);
+  border-radius: 0;
+  padding: 11px 2px;
+}
+.runtime-override-row--ledger .runtime-override-row__identity strong {
+  font-size: var(--text-meta);
+}
+.runtime-override-row--ledger .runtime-override-row__identity small,
+.runtime-override-row--ledger .runtime-override-row__value small {
+  color: var(--color-text-faint);
+  font-size: var(--text-label-xs);
+}
+.runtime-override-row--ledger .runtime-override-row__value {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-1);
+}
+.runtime-override-row--ledger .runtime-override-row__value > strong {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: 520;
+}
+.runtime-override-row--ledger :deep(.app-button) {
+  min-height: 34px;
+  padding-inline: 9px;
+  font-size: 11px;
+}
+@media (max-width: 800px) {
   .runtime-override-row {
     grid-template-columns: minmax(0, 1fr) auto;
   }
@@ -72,6 +126,24 @@ const emit = defineEmits<{ toggle: [] }>()
   }
   .runtime-override-row__value {
     min-width: 0;
+  }
+  .runtime-override-row--ledger {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .runtime-override-row--ledger .runtime-override-row__identity {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .runtime-override-row--ledger .runtime-override-row__value {
+    grid-column: 1;
+    grid-row: 2;
+  }
+  .runtime-override-row--ledger > :deep(.app-button) {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+  }
+  .runtime-override-row--ledger :deep(.app-button) {
+    min-height: var(--touch-target);
   }
 }
 </style>

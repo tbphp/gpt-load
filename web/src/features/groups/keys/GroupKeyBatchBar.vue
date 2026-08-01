@@ -1,58 +1,91 @@
 <script setup lang="ts">
-import { Ban, Check, Trash2, X } from '@lucide/vue'
 import { useI18n } from 'vue-i18n'
 
 import AppButton from '@/components/ui/AppButton.vue'
 
 defineProps<{ selectedCount: number; pending?: boolean }>()
-const emit = defineEmits<{ enable: []; disable: []; remove: []; clear: [] }>()
+const emit = defineEmits<{ enable: []; disable: []; remove: [] }>()
 const { n, t } = useI18n()
 </script>
 
 <template>
   <div class="group-key-batch" role="status">
-    <strong>{{ t('group.keys.batch.selected', { count: n(selectedCount) }) }}</strong>
+    <div class="group-key-batch__copy">
+      <i18n-t keypath="group.keys.batch.selected">
+        <template #count
+          ><strong>{{ n(selectedCount) }}</strong></template
+        >
+      </i18n-t>
+    </div>
     <div class="group-key-batch__actions">
-      <AppButton variant="secondary" size="compact" :busy="pending" @click="emit('enable')"
-        ><Check :size="15" aria-hidden="true" />{{ t('group.keys.batch.enable') }}</AppButton
-      ><AppButton variant="secondary" size="compact" :busy="pending" @click="emit('disable')"
-        ><Ban :size="15" aria-hidden="true" />{{ t('group.keys.batch.disable') }}</AppButton
-      ><AppButton variant="danger" size="compact" :busy="pending" @click="emit('remove')"
-        ><Trash2 :size="15" aria-hidden="true" />{{ t('group.keys.batch.delete') }}</AppButton
-      ><AppButton variant="ghost" size="compact" :disabled="pending" @click="emit('clear')"
-        ><X :size="15" aria-hidden="true" />{{ t('group.keys.batch.clear') }}</AppButton
+      <AppButton
+        variant="secondary"
+        tone="success"
+        size="compact"
+        :busy="pending"
+        @click="emit('enable')"
       >
+        {{ t('group.keys.batch.enable') }}
+      </AppButton>
+      <AppButton
+        variant="secondary"
+        tone="warning"
+        size="compact"
+        :busy="pending"
+        @click="emit('disable')"
+      >
+        {{ t('group.keys.batch.disable') }}
+      </AppButton>
+      <AppButton
+        variant="secondary"
+        tone="danger"
+        size="compact"
+        :busy="pending"
+        @click="emit('remove')"
+      >
+        {{ t('group.keys.batch.delete') }}
+      </AppButton>
     </div>
   </div>
 </template>
 
 <style scoped>
 .group-key-batch {
-  position: sticky;
-  z-index: 1;
-  bottom: var(--space-3);
   display: flex;
+  min-height: var(--touch-target);
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
   border: 1px solid var(--color-border-control);
-  border-radius: var(--radius-card);
-  background: var(--color-surface-raised);
-  box-shadow: var(--shadow-card);
-  padding: var(--space-3);
+  margin-bottom: 10px;
+  border-radius: var(--radius-control);
+  background: var(--color-surface-sunken);
+  padding: 7px 10px 7px 13px;
+}
+.group-key-batch__copy {
+  color: var(--color-text-muted);
+  font-size: var(--text-meta);
+}
+.group-key-batch__copy strong {
+  color: var(--color-text);
+  font-family: var(--font-mono);
 }
 .group-key-batch__actions {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-2);
+  gap: 6px;
 }
-@media (max-width: 680px) {
+@media (max-width: 800px) {
   .group-key-batch {
     align-items: stretch;
     flex-direction: column;
   }
-  .group-key-batch__actions > * {
-    flex: 1 1 calc(50% - var(--space-2));
+  .group-key-batch__actions {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .group-key-batch__actions :deep(.app-button) {
+    min-height: var(--touch-target);
   }
 }
 </style>

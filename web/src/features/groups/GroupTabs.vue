@@ -14,8 +14,8 @@ const router = useRouter()
 const { n, t } = useI18n()
 const activeTab = computed(() => normalizeGroupTab(route.query.tab))
 const items = computed<AppTabItem[]>(() => [
-  { value: 'keys', label: t('group.tabs.keys', { count: n(props.keyCount) }) },
-  { value: 'models', label: t('group.tabs.models', { count: n(props.modelCount) }) },
+  { value: 'keys', label: t('group.tabs.keys'), count: n(props.keyCount) },
+  { value: 'models', label: t('group.tabs.models'), count: n(props.modelCount) },
   { value: 'settings', label: t('group.tabs.settings') },
 ])
 
@@ -46,6 +46,7 @@ function selectTab(value: string): void {
     :model-value="activeTab"
     :label="t('group.tabs.label')"
     :items="items"
+    appearance="detail"
     @update:model-value="selectTab($event as GroupTab)"
     ><slot
   /></AppTabs>

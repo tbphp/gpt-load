@@ -5,13 +5,18 @@ import { ref, watch } from 'vue'
 export interface AppTabItem {
   value: string
   label: string
+  count?: string | number
 }
 
-const props = defineProps<{
-  modelValue: string
-  label: string
-  items: AppTabItem[]
-}>()
+const props = withDefaults(
+  defineProps<{
+    modelValue: string
+    label: string
+    items: AppTabItem[]
+    appearance?: 'default' | 'detail'
+  }>(),
+  { appearance: 'default' },
+)
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
 const root = ref<HTMLElement>()
 
@@ -28,7 +33,7 @@ watch(
 </script>
 
 <template>
-  <div ref="root" class="app-tabs">
+  <div ref="root" class="app-tabs" :class="`app-tabs--${appearance}`">
     <TabsRoot
       class="app-tabs__root"
       :model-value="modelValue"
@@ -42,7 +47,8 @@ watch(
           :value="item.value"
           :data-tab-value="item.value"
         >
-          {{ item.label }}
+          <span>{{ item.label }}</span>
+          <span v-if="item.count !== undefined" class="app-tabs__count">{{ item.count }}</span>
         </TabsTrigger>
       </TabsList>
       <TabsContent class="app-tabs__content" :value="modelValue">
@@ -68,6 +74,10 @@ watch(
   border-bottom: 1px solid var(--color-border-subtle);
 }
 .app-tabs__trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
   min-height: 44px;
   flex: 0 0 auto;
   border: 0;
@@ -85,6 +95,39 @@ watch(
 .app-tabs__trigger[data-state='active'] {
   border-bottom-color: var(--color-action);
   color: var(--color-text);
+}
+.app-tabs__count {
+  color: var(--color-text-faint);
+  font-family: var(--font-mono);
+  font-size: var(--text-label-xs);
+  font-weight: 400;
+}
+.app-tabs--detail .app-tabs__root {
+  gap: 0;
+}
+.app-tabs--detail .app-tabs__list {
+  gap: var(--space-6);
+  border-top: 1px solid var(--color-border-control);
+}
+.app-tabs--detail .app-tabs__trigger {
+  min-width: var(--touch-target);
+  min-height: var(--detail-tab-min-height);
+  gap: 7px;
+  padding: 0 1px;
+  font-size: 13px;
+  font-weight: 400;
+}
+.app-tabs--detail .app-tabs__trigger[data-state='active'] {
+  font-weight: 620;
+}
+@media (max-width: 800px) {
+  .app-tabs--detail .app-tabs__list {
+    gap: 21px;
+  }
+
+  .app-tabs--detail .app-tabs__trigger {
+    min-height: var(--detail-tab-min-height-compact);
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   .app-tabs__trigger {

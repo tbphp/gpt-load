@@ -233,13 +233,6 @@ function signOut(): void {
   opacity: 0;
 }
 
-.preferences-panel label:has(input:focus-visible) {
-  z-index: 1;
-  outline: 2px solid var(--color-focus);
-  outline-offset: -2px;
-  box-shadow: var(--focus-ring);
-}
-
 .preferences-panel__divider {
   height: 1px;
   margin: 0 -10px;

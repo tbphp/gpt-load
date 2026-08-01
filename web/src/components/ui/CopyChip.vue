@@ -1,5 +1,12 @@
 <script setup lang="ts">
 import { Copy } from '@lucide/vue'
+import {
+  TooltipContent,
+  TooltipPortal,
+  TooltipProvider,
+  TooltipRoot,
+  TooltipTrigger,
+} from 'reka-ui'
 import { onBeforeUnmount, ref } from 'vue'
 
 const props = defineProps<{
@@ -42,25 +49,40 @@ onBeforeUnmount(() => {
 
 <template>
   <span class="copy-chip-wrap">
-    <button
-      class="copy-chip"
-      :data-state="state"
-      type="button"
-      :aria-label="label"
-      @click="copyValue"
-    >
-      <Copy :size="14" aria-hidden="true" />
-      <span>{{ value }}</span>
-    </button>
-    <span
-      v-if="state !== 'idle'"
-      class="copy-chip__feedback"
-      :class="`copy-chip__feedback--${state}`"
-      role="status"
-      aria-live="polite"
-    >
-      {{ state === 'success' ? successLabel : failureLabel }}
-    </span>
+    <TooltipProvider :delay-duration="0" :skip-delay-duration="0">
+      <TooltipRoot
+        :open="state !== 'idle'"
+        :disable-hoverable-content="true"
+        :disable-closing-trigger="true"
+      >
+        <TooltipTrigger as-child>
+          <button
+            class="copy-chip"
+            :data-state="state"
+            type="button"
+            :aria-label="label"
+            @click="copyValue"
+          >
+            <Copy :size="14" aria-hidden="true" />
+            <span>{{ value }}</span>
+          </button>
+        </TooltipTrigger>
+        <TooltipPortal>
+          <TooltipContent
+            class="copy-chip__feedback"
+            :class="`copy-chip__feedback--${state}`"
+            side="bottom"
+            align="start"
+            :side-offset="7"
+            :collision-padding="8"
+            role="status"
+            aria-live="polite"
+          >
+            {{ state === 'success' ? successLabel : failureLabel }}
+          </TooltipContent>
+        </TooltipPortal>
+      </TooltipRoot>
+    </TooltipProvider>
   </span>
 </template>
 
@@ -119,11 +141,16 @@ onBeforeUnmount(() => {
   color: var(--color-danger);
 }
 
+@media (max-width: 860px) {
+  .copy-chip {
+    min-height: var(--touch-target);
+  }
+}
+</style>
+
+<style>
 .copy-chip__feedback {
-  position: absolute;
   z-index: var(--z-popover);
-  top: calc(100% + 7px);
-  left: 0;
   border: 1px solid var(--color-feedback-success-border);
   border-radius: var(--radius-tag);
   background: var(--color-surface);
@@ -132,13 +159,18 @@ onBeforeUnmount(() => {
   padding: 5px 7px;
   font-size: var(--text-sm);
   pointer-events: none;
-  animation: copy-chip-feedback var(--duration-fast) var(--easing-standard);
+  transform-origin: var(--reka-tooltip-content-transform-origin);
   white-space: nowrap;
 }
 
 .copy-chip__feedback--failure {
   border-color: var(--color-feedback-danger-border);
   color: var(--color-danger);
+}
+
+.copy-chip__feedback[data-state='delayed-open'],
+.copy-chip__feedback[data-state='instant-open'] {
+  animation: copy-chip-feedback var(--duration-fast) var(--easing-standard);
 }
 
 @keyframes copy-chip-feedback {
@@ -148,14 +180,9 @@ onBeforeUnmount(() => {
   }
 }
 
-@media (max-width: 860px) {
-  .copy-chip {
-    min-height: var(--touch-target);
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .copy-chip__feedback {
+  .copy-chip__feedback[data-state='delayed-open'],
+  .copy-chip__feedback[data-state='instant-open'] {
     animation: none;
   }
 }

@@ -38,16 +38,17 @@ a {
 }
 
 :focus-visible {
-  border-radius: var(--radius-tag);
-  outline: 2px solid var(--color-focus);
-  outline-offset: 2px;
-  box-shadow: var(--focus-ring);
+  outline: 0;
+  box-shadow: none;
 }
 
-#main-content[tabindex='-1']:focus-visible,
-main h1[tabindex='-1']:focus-visible {
-  outline: none;
-  box-shadow: none;
+:is(input, select, textarea):not([type='checkbox']):not([type='radio']):not([type='button']):not(
+    [type='submit']
+  ):not([type='reset']):not([type='hidden']):not([data-input-inner]):focus,
+html [data-input-shell]:focus-within {
+  border-color: var(--color-focus);
+  outline: 0;
+  box-shadow: var(--focus-ring);
 }
 
 .sr-only {

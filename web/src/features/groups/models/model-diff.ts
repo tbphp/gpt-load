@@ -4,6 +4,7 @@ import type { GroupModelUpdateDto } from '@/app/resources/groups'
 export interface ModelDraftItem extends GroupModelUpdateDto {
   key: number
   pricing_status: 'priced' | 'unpriced'
+  editable_id?: boolean
 }
 
 export interface ModelNameConflict {

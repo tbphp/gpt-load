@@ -177,6 +177,17 @@ func (s *Server) HTTPModule() httproute.Module {
 				s.handleListGroupKeys,
 			),
 			controlRoute(
+				"control.group-keys.reveal",
+				http.MethodPost,
+				"/groups/:group_id/keys/:key_id/reveal",
+				s.auditMutation(newMutationDescriptor(
+					"group_key_reveal",
+					"group_key",
+					groupKeyMutationLocator,
+				)),
+				s.handleRevealGroupKey,
+			),
+			controlRoute(
 				"control.group-keys.update",
 				http.MethodPut,
 				"/groups/:group_id/keys/:key_id",

@@ -1,4 +1,9 @@
-import { queryOptions, type QueryClient, type QueryKey } from '@tanstack/vue-query'
+import {
+  keepPreviousData,
+  queryOptions,
+  type QueryClient,
+  type QueryKey,
+} from '@tanstack/vue-query'
 import { computed, toValue, type MaybeRefOrGetter } from 'vue'
 
 import type { ApiClient } from '@/api/client'
@@ -9,6 +14,7 @@ import type {
   GroupKeyConfiguredStatus,
   GroupKeyItemDto,
   GroupKeyRecoveryDto,
+  GroupKeyRevealDto,
   GroupKeyStatus,
   GroupKeySummaryDto,
 } from '@/api/control/types'
@@ -34,6 +40,7 @@ export type {
   GroupKeyConfiguredStatus,
   GroupKeyItemDto,
   GroupKeyRecoveryDto,
+  GroupKeyRevealDto,
   GroupKeyStatus,
   GroupKeySummaryDto,
   GroupKeyWeightMode,
@@ -296,6 +303,7 @@ export function groupKeyCollectionQueryOptions(
     queryKey: computed(() => controlQueryKeys.groups.keys(toValue(groupID), toValue(filters))),
     queryFn: ({ queryKey, signal }) =>
       getGroupKeyCollection(client, queryKey[3], queryKey[5], signal),
+    placeholderData: keepPreviousData,
   })
 }
 
@@ -313,6 +321,27 @@ export async function updateGroupKey(
       signal,
     }),
   )
+}
+
+export async function revealGroupKey(
+  client: ApiClient,
+  groupId: number,
+  keyId: number,
+  signal?: AbortSignal,
+): Promise<GroupKeyRevealDto> {
+  const record = projectRecord(
+    await client.request(`/api/groups/${groupId}/keys/${keyId}/reveal`, {
+      method: 'POST',
+      signal,
+    }),
+  )
+  assertNoSecretLikeFields(record, ['id', 'key', 'revealed_at_ms'])
+  if (projectSafeInteger(record.id, { minimum: 1 }) !== keyId) invalidResponse()
+  return {
+    id: keyId,
+    key: projectString(record.key),
+    revealed_at_ms: projectEpochMilliseconds(record.revealed_at_ms),
+  }
 }
 
 export async function restoreGroupKey(

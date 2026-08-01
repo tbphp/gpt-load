@@ -11,6 +11,7 @@ const props = defineProps<{
   totalPages: number
   pageSizes?: readonly (20 | 50 | 100)[]
   showPageSize?: boolean
+  appearance?: 'default' | 'detail'
 }>()
 
 const emit = defineEmits<{
@@ -37,15 +38,24 @@ function updatePageSize(event: Event): void {
 </script>
 
 <template>
-  <nav class="pagination-bar" :aria-label="t('common.pagination.label')">
+  <nav
+    class="pagination-bar"
+    :class="`pagination-bar--${appearance ?? 'default'}`"
+    :aria-label="t('common.pagination.label')"
+  >
     <span class="pagination-bar__range" aria-live="polite">
       {{ t('common.pagination.range', { from, to, total: totalItems }) }}
     </span>
-    <span class="pagination-bar__actions">
+    <span
+      class="pagination-bar__actions"
+      :class="{ 'pagination-bar__actions--with-page-size': showPageSize }"
+    >
       <label v-if="showPageSize" class="pagination-bar__page-size">
-        <span class="sr-only">{{ t('common.pagination.label') }}</span>
+        <span class="sr-only">{{ t('common.pagination.pageSizeLabel') }}</span>
         <select :value="pageSize" @change="updatePageSize">
-          <option v-for="size in pageSizes" :key="size" :value="size">{{ size }}</option>
+          <option v-for="size in pageSizes" :key="size" :value="size">
+            {{ t('common.pagination.pageSize', { size }) }}
+          </option>
         </select>
       </label>
       <AppButton
@@ -90,6 +100,11 @@ function updatePageSize(event: Event): void {
   gap: 6px;
 }
 
+.pagination-bar--detail {
+  border-top: 0;
+  padding-top: 13px;
+}
+
 .pagination-bar__page {
   min-width: 44px;
   color: var(--color-text-muted);
@@ -98,12 +113,13 @@ function updatePageSize(event: Event): void {
 }
 
 .pagination-bar__page-size select {
-  min-height: var(--touch-target);
+  min-height: 32px;
   border: 1px solid var(--color-border-control);
   border-radius: var(--radius-control);
   background: var(--color-surface);
   color: var(--color-text);
   padding-inline: var(--space-2);
+  font: inherit;
 }
 
 @media (max-width: 860px) {
@@ -122,6 +138,15 @@ function updatePageSize(event: Event): void {
   .pagination-bar__actions {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  }
+
+  .pagination-bar__actions--with-page-size {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto minmax(0, 1fr);
+  }
+
+  .pagination-bar__page-size select {
+    width: 100%;
+    min-height: var(--touch-target);
   }
 }
 </style>

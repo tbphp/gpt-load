@@ -15,10 +15,12 @@ const props = withDefaults(
   defineProps<{
     tone?: StatusTone
     status?: OperationalStatus | MutationStatus
+    size?: 'default' | 'compact'
   }>(),
   {
     tone: 'neutral',
     status: undefined,
+    size: 'default',
   },
 )
 const presentation = computed(() => {
@@ -52,8 +54,8 @@ const icon = computed(() => {
 </script>
 
 <template>
-  <span class="status-badge" :class="`status-badge--${resolvedTone}`">
-    <component :is="icon" :size="14" aria-hidden="true" />
+  <span class="status-badge" :class="[`status-badge--${resolvedTone}`, `status-badge--${size}`]">
+    <component :is="icon" :size="size === 'compact' ? 12 : 14" aria-hidden="true" />
     <slot />
   </span>
 </template>
@@ -82,6 +84,12 @@ const icon = computed(() => {
 }
 .status-badge--danger {
   background: var(--color-danger-bg);
+}
+.status-badge--compact {
+  min-height: 24px;
+  padding: 3px 8px;
+  font-size: var(--text-sm);
+  font-weight: 600;
 }
 .status-badge--success,
 .status-badge--neutral,

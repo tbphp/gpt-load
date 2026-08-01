@@ -100,14 +100,6 @@ const describedBy = computed(
   font-family: var(--font-mono);
 }
 
-.form-field :deep(input:focus-visible),
-.form-field :deep(textarea:focus-visible) {
-  border-color: var(--color-action);
-  border-radius: var(--radius-control);
-  outline: 0;
-  box-shadow: var(--focus-ring);
-}
-
 .form-field :deep(input:disabled),
 .form-field :deep(textarea:disabled) {
   cursor: not-allowed;

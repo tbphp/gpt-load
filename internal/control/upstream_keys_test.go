@@ -58,6 +58,130 @@ func seedManagedUpstreamKey(
 	return row
 }
 
+func TestRevealGroupKeyReturnsPlaintextOnlyForOwningGroup(t *testing.T) {
+	fixture := newServiceFixture(t)
+	group := validControlGroup("reveal-group-key")
+	if err := fixture.db.Create(group).Error; err != nil {
+		t.Fatal(err)
+	}
+	other := validControlGroup("reveal-group-key-other")
+	if err := fixture.db.Create(other).Error; err != nil {
+		t.Fatal(err)
+	}
+	const plaintext = "sk-reveal-group-key-secret"
+	row := seedManagedUpstreamKey(
+		t,
+		fixture,
+		group.ID,
+		plaintext,
+		models.UpstreamKeyStatusActive,
+		nil,
+	)
+	now := time.Date(2026, time.August, 1, 9, 30, 0, 0, time.UTC)
+	fixture.service.now = func() time.Time { return now }
+
+	revealed, err := fixture.service.RevealGroupKey(t.Context(), group.ID, row.ID)
+	if err != nil {
+		t.Fatalf("RevealGroupKey() error = %v", err)
+	}
+	if revealed.ID != row.ID || revealed.Key != plaintext ||
+		revealed.RevealedAtMS != now.UnixMilli() {
+		t.Fatalf("RevealGroupKey() = %#v", revealed)
+	}
+
+	if _, err := fixture.service.RevealGroupKey(t.Context(), other.ID, row.ID); !errors.Is(err, app_errors.ErrResourceNotFound) {
+		t.Fatalf("cross-Group RevealGroupKey() error = %v, want resource not found", err)
+	}
+}
+
+func TestGroupKeyRevealHTTPUsesSecretResponseContract(t *testing.T) {
+	initControlI18n(t)
+	fixture := newServiceFixture(t)
+	group := validControlGroup("reveal-group-key-http")
+	if err := fixture.db.Create(group).Error; err != nil {
+		t.Fatal(err)
+	}
+	other := validControlGroup("reveal-group-key-http-other")
+	if err := fixture.db.Create(other).Error; err != nil {
+		t.Fatal(err)
+	}
+	const plaintext = "sk-reveal-group-key-http-secret"
+	row := seedManagedUpstreamKey(
+		t,
+		fixture,
+		group.ID,
+		plaintext,
+		models.UpstreamKeyStatusActive,
+		nil,
+	)
+	engine := gin.New()
+	NewServer(
+		&config.Config{AuthKey: groupKeyHTTPAuth},
+		fixture.service,
+	).RegisterRoutes(engine)
+
+	list := serveGroupKeyHTTPRequest(
+		t,
+		engine,
+		http.MethodGet,
+		fmt.Sprintf("/api/groups/%d/keys", group.ID),
+		"",
+		groupKeyHTTPAuth,
+		"en-US",
+	)
+	if list.Code != http.StatusOK {
+		t.Fatalf("GET group keys = %d %s", list.Code, list.Body.String())
+	}
+	assertGroupKeyHTTPDoesNotExpose(
+		t,
+		list.Body.String(),
+		plaintext,
+		row.KeyValue,
+		row.KeyHash,
+	)
+
+	reveal := serveGroupKeyHTTPRequest(
+		t,
+		engine,
+		http.MethodPost,
+		fmt.Sprintf("/api/groups/%d/keys/%d/reveal", group.ID, row.ID),
+		"",
+		groupKeyHTTPAuth,
+		"en-US",
+	)
+	if reveal.Code != http.StatusOK ||
+		reveal.Header().Get("Cache-Control") != "no-store" ||
+		reveal.Header().Get("Pragma") != "no-cache" ||
+		!strings.Contains(reveal.Body.String(), plaintext) {
+		t.Fatalf(
+			"POST group key reveal = %d headers=%v body=%s",
+			reveal.Code,
+			reveal.Header(),
+			reveal.Body.String(),
+		)
+	}
+
+	crossGroup := serveGroupKeyHTTPRequest(
+		t,
+		engine,
+		http.MethodPost,
+		fmt.Sprintf("/api/groups/%d/keys/%d/reveal", other.ID, row.ID),
+		"",
+		groupKeyHTTPAuth,
+		"en-US",
+	)
+	if crossGroup.Code != http.StatusNotFound {
+		t.Fatalf("cross-Group reveal = %d %s", crossGroup.Code, crossGroup.Body.String())
+	}
+	assertGroupKeyHTTPDoesNotExpose(
+		t,
+		crossGroup.Body.String(),
+		plaintext,
+		row.KeyValue,
+		row.KeyHash,
+	)
+}
+
 func TestUpdateGroupKeyCommittedRegistryFailureLogStage(t *testing.T) {
 	initControlI18n(t)
 	const (
@@ -193,6 +317,7 @@ func TestGroupKeyRoutesAreRegistered(t *testing.T) {
 			name: "update", method: http.MethodPut,
 			suffix: "/keys/{key_id}", body: `{"status":"disabled"}`,
 		},
+		{name: "reveal", method: http.MethodPost, suffix: "/keys/{key_id}/reveal"},
 		{name: "delete", method: http.MethodDelete, suffix: "/keys/{key_id}"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -338,6 +463,7 @@ func TestGroupKeyHTTPRoutesRequireAuthentication(t *testing.T) {
 			name: "update", method: http.MethodPut,
 			suffix: "/keys/{key_id}", body: `{"status":"disabled"}`,
 		},
+		{name: "reveal", method: http.MethodPost, suffix: "/keys/{key_id}/reveal"},
 		{name: "delete", method: http.MethodDelete, suffix: "/keys/{key_id}"},
 	} {
 		for _, auth := range []struct {

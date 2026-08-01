@@ -130,12 +130,13 @@ function clear(): void {
         </button>
       </div>
 
-      <label class="searchable-multi-select__search" :for="`${id}-search`">
+      <label class="searchable-multi-select__search" :for="`${id}-search`" data-input-shell>
         <span class="sr-only">{{ searchLabel }}</span>
         <Search :size="15" aria-hidden="true" />
         <input
           :id="`${id}-search`"
           v-model="query"
+          data-input-inner
           type="search"
           :placeholder="searchPlaceholder"
           :disabled="disabled || loading"
@@ -201,10 +202,6 @@ function clear(): void {
   background: var(--color-surface-sunken);
   padding: 0 var(--space-3);
   color: var(--color-text-muted);
-}
-.searchable-multi-select__search:focus-within {
-  border-color: var(--color-action);
-  box-shadow: var(--focus-ring);
 }
 .searchable-multi-select__search input {
   width: 100%;
