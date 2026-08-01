@@ -176,13 +176,13 @@ func (s *Service) CreateAccessKey(
 }
 
 func (s *Service) ListAccessKeys(ctx context.Context) ([]AccessKeyMetadata, error) {
-	collection, err := s.ListAccessKeyCollection(ctx, AccessKeyCollectionQuery{})
+	records, err := s.captureAccessKeyCollectionRecords(ctx)
 	if err != nil {
 		return nil, err
 	}
-	result := make([]AccessKeyMetadata, len(collection.Items))
-	for index := range collection.Items {
-		result[index] = collection.Items[index].AccessKeyMetadata
+	result := make([]AccessKeyMetadata, len(records))
+	for index := range records {
+		result[index] = records[index].AccessKeyMetadata
 	}
 	return result, nil
 }

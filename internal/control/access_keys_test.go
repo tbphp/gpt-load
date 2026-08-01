@@ -266,6 +266,37 @@ func TestListAccessKeyCollectionReturnsMaskedMetadataWithoutDecrypting(t *testin
 	}
 }
 
+func TestListAccessKeysReturnsCompleteArrayBeyondCollectionDefaultPageSize(t *testing.T) {
+	fixture := newServiceFixture(t)
+	rows := make([]models.AccessKey, 21)
+	for index := range rows {
+		rows[index] = models.AccessKey{
+			Name:      fmt.Sprintf("legacy-%02d", index),
+			KeyValue:  "ciphertext",
+			KeyHash:   fmt.Sprintf("legacy-key-hash-%02d", index),
+			KeySuffix: fmt.Sprintf("%04x", index),
+			Status:    string(state.AccessKeyStatusActive),
+			Filters:   models.JSON(`{}`),
+		}
+	}
+	if err := fixture.db.Create(&rows).Error; err != nil {
+		t.Fatalf("create access keys: %v", err)
+	}
+
+	listed, err := fixture.service.ListAccessKeys(t.Context())
+	if err != nil {
+		t.Fatalf("ListAccessKeys() error = %v", err)
+	}
+	if len(listed) != len(rows) {
+		t.Fatalf("ListAccessKeys() count = %d, want %d", len(listed), len(rows))
+	}
+	for index := range rows {
+		if listed[index].ID != rows[index].ID {
+			t.Fatalf("ListAccessKeys()[%d].ID = %d, want %d", index, listed[index].ID, rows[index].ID)
+		}
+	}
+}
+
 func TestUpdateAccessKeyPreservesCredentialAcrossPointerPatches(t *testing.T) {
 	fixture := newServiceFixture(t)
 	group := validControlGroup("access-key-update")
