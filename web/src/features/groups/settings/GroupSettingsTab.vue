@@ -45,6 +45,7 @@ const deleted = ref(false)
 const error = ref('')
 const confirmURL = ref(false)
 const headerRulesValid = ref(true)
+const headerRulesEditorRevision = ref(0)
 const section = ref('settings-general')
 let controller: AbortController | undefined
 const timeoutKeys: GroupTimeoutKey[] = [
@@ -100,13 +101,18 @@ const showInjectUsage = computed(
 )
 useUnsavedChanges(dirty, { blocked: mutationPending })
 
+function resetSavedDraft(settings: GroupSettingsDto): void {
+  saved.value = settings
+  draft.value = createGroupSettingsDraft(settings)
+  headerRulesValid.value = true
+  headerRulesEditorRevision.value += 1
+}
+
 watch(
   () => query.data.value,
   (settings) => {
     if (!settings || dirty.value || mutationPending.value || deleted.value) return
-    saved.value = settings
-    draft.value = createGroupSettingsDraft(settings)
-    headerRulesValid.value = settings.overrides.header_rules === undefined
+    resetSavedDraft(settings)
   },
   { immediate: true },
 )
@@ -181,8 +187,7 @@ async function save(confirmUpstreamChange: boolean): Promise<void> {
     }
     const result = await updateGroupSettings(client, props.groupId, body, active.signal)
     if (controller !== active) return
-    saved.value = result
-    draft.value = createGroupSettingsDraft(result)
+    resetSavedDraft(result)
     confirmURL.value = false
     cacheGroupSettings(queryClient, props.groupId, result)
     await invalidateGroupSummary(queryClient, props.groupId)
@@ -206,8 +211,7 @@ async function save(confirmUpstreamChange: boolean): Promise<void> {
 function discard(): void {
   if (!saved.value || mutationPending.value) return
   error.value = ''
-  draft.value = createGroupSettingsDraft(saved.value)
-  if (saved.value.overrides.header_rules === undefined) headerRulesValid.value = true
+  resetSavedDraft(saved.value)
 }
 
 function onDeleted(): void {
@@ -383,6 +387,7 @@ onBeforeUnmount(() => controller?.abort())
                   t('group.settings.runtime.headerReplacementWarning')
                 }}</InlineFeedback
                 ><HeaderRulesEditor
+                  :key="headerRulesEditorRevision"
                   v-if="draft.overrides.header_rules"
                   :model-value="draft.overrides.header_rules"
                   :disabled="mutationPending"
