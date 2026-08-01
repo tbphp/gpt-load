@@ -162,6 +162,7 @@ function setPage(page: number): void {
 
 function keyHealthLabel(counts: KeyCounts): string {
   return t('groups.collection.keyHealthLabel', {
+    total: n(counts.total),
     available: n(counts.available),
     cooldown: n(counts.cooldown),
     blacklisted: n(counts.blacklisted),

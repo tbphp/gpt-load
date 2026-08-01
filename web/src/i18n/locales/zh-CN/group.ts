@@ -53,7 +53,7 @@ export default {
       copySuccess: '已复制',
       copyFailure: '复制失败',
       keyHealthLabel:
-        '可用 {available}，冷却中 {cooldown}，已拉黑 {blacklisted}，已停用 {disabled}',
+        '共 {total} 个密钥，正常 {available}，冷却中 {cooldown}，已拉黑 {blacklisted}，已停用 {disabled}',
       appendKey: '追加密钥',
       appendKeyFor: '向 {name} 追加密钥',
     },

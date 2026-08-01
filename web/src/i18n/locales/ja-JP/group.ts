@@ -54,7 +54,7 @@ export default {
       copySuccess: 'コピーしました',
       copyFailure: 'コピーできませんでした',
       keyHealthLabel:
-        '利用可能 {available}、クールダウン中 {cooldown}、ブラックリスト {blacklisted}、無効 {disabled}',
+        '合計 {total} キー、正常 {available}、クールダウン中 {cooldown}、ブラックリスト {blacklisted}、無効 {disabled}',
       appendKey: 'キーを追加',
       appendKeyFor: '{name} にキーを追加',
     },

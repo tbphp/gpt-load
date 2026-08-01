@@ -53,7 +53,7 @@ export default {
       copySuccess: 'Copied',
       copyFailure: 'Copy failed',
       keyHealthLabel:
-        '{available} available, {cooldown} cooling down, {blacklisted} blacklisted, {disabled} disabled',
+        '{total} keys total: {available} available, {cooldown} cooling down, {blacklisted} blacklisted, {disabled} disabled',
       appendKey: 'Add key',
       appendKeyFor: 'Add a key to {name}',
     },
