@@ -191,6 +191,7 @@ function conflictValue(conflict: SettingsMergeConflict, side: 'mine' | 'latest')
               : t('settings.runtime.override')
           "
           :overridden="hasOverride('inject_usage_options')"
+          :divided="false"
           :disabled="disabled"
           @toggle="toggleOverride('inject_usage_options')"
         >

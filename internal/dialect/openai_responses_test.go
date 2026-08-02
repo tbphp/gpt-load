@@ -291,7 +291,7 @@ func TestOpenAIResponsesProbeUsesMinimumValidRequest(t *testing.T) {
 
 	err := NewOpenAIResponses(upstream.Client()).Probe(
 		context.Background(),
-		upstream.URL,
+		upstream.URL+"/v1",
 		"sk-responses",
 		state.HeaderRules{},
 		"gpt-5",
@@ -326,7 +326,7 @@ func TestOpenAIResponsesUsesOpenAIURLAndCredentialRules(t *testing.T) {
 	}
 
 	got, err := selected.BuildUpstreamURL(
-		"https://api.example.com/compatible?api-version=2026-01-01",
+		"https://api.example.com/compatible/v1?api-version=2026-01-01",
 		&ParsedRequest{
 			Path:     "/v1/responses/resp_123/input_items",
 			RawQuery: "limit=20&after=item_1",

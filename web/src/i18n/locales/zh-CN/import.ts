@@ -94,6 +94,8 @@ export default {
       url: '上游基础地址',
       urlDescription: '保存时会规范化末尾斜杠并检查地址冲突',
       urlError: '请输入有效的 HTTP 或 HTTPS 上游地址',
+      urlPrefixMissing: 'Base URL 可能缺少协议前缀（如 /v1）。',
+      urlPrefixDuplicate: 'Base URL 中的协议前缀重复。',
       protocols: '协议能力',
       protocolsMultiple: '可多选',
       protocolsError: '请至少选择一种协议能力',

@@ -28,6 +28,7 @@ import (
 	platformheader "gpt-load/internal/platform/httpheader"
 	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/platform/utils"
+	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 	"gpt-load/internal/usage"
 )
@@ -2995,7 +2996,7 @@ func testForward(t *testing.T, upstreamURL, apiKey string, timeout time.Duration
 	return forwarder.Forward(context.Background(), ForwardInput{
 		Dialect: dialect.NewOpenAI(http.DefaultClient),
 		Group: state.GroupView{
-			ID: 1, UpstreamURL: upstreamURL,
+			ID: 1, UpstreamURL: testUpstreamBaseURL(upstreamURL, protocol.OpenAICompletions),
 			Timeouts: state.TimeoutConfig{Connect: timeout, FirstByte: timeout, Request: timeout},
 		},
 		APIKey: apiKey,
@@ -3011,7 +3012,7 @@ func streamForwardInput(upstreamURL string) ForwardInput {
 		Dialect:      dialect.NewOpenAI(http.DefaultClient),
 		ObserveUsage: true,
 		Group: state.GroupView{
-			ID: 1, Name: "openai", UpstreamURL: upstreamURL,
+			ID: 1, Name: "openai", UpstreamURL: testUpstreamBaseURL(upstreamURL, protocol.OpenAICompletions),
 			Timeouts: state.TimeoutConfig{
 				Connect: time.Second, FirstByte: time.Second,
 				Request: time.Second, StreamIdle: time.Second,

@@ -65,8 +65,8 @@ func TestOpenAIBuildUpstreamURL(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name: "root base",
-			base: "https://api.example.com",
+			name: "complete API prefix",
+			base: "https://api.example.com/v1",
 			request: &ParsedRequest{
 				Path:     "/v1/chat/completions",
 				RawQuery: "trace=true",
@@ -75,7 +75,7 @@ func TestOpenAIBuildUpstreamURL(t *testing.T) {
 		},
 		{
 			name: "base path prefix",
-			base: "https://api.example.com/compatible/",
+			base: "https://api.example.com/compatible/v1/",
 			request: &ParsedRequest{
 				Path: "/v1/chat/completions",
 			},
@@ -83,7 +83,7 @@ func TestOpenAIBuildUpstreamURL(t *testing.T) {
 		},
 		{
 			name: "base query is preserved",
-			base: "https://api.example.com?api-version=2024-10-01",
+			base: "https://api.example.com/v1?api-version=2024-10-01",
 			request: &ParsedRequest{
 				Path: "/v1/chat/completions",
 			},
@@ -91,7 +91,7 @@ func TestOpenAIBuildUpstreamURL(t *testing.T) {
 		},
 		{
 			name: "base and request queries are combined",
-			base: "https://api.example.com?api-version=2024-10-01",
+			base: "https://api.example.com/v1?api-version=2024-10-01",
 			request: &ParsedRequest{
 				Path:     "/v1/chat/completions",
 				RawQuery: "trace=true",
@@ -114,7 +114,7 @@ func TestOpenAIBuildUpstreamURL(t *testing.T) {
 		},
 		{
 			name: "relative base",
-			base: "api.example.com",
+			base: "api.example.com/v1",
 			request: &ParsedRequest{
 				Path: "/v1/chat/completions",
 			},
@@ -122,7 +122,7 @@ func TestOpenAIBuildUpstreamURL(t *testing.T) {
 		},
 		{
 			name: "unsupported base scheme",
-			base: "ftp://api.example.com",
+			base: "ftp://api.example.com/v1",
 			request: &ParsedRequest{
 				Path: "/v1/chat/completions",
 			},
@@ -294,7 +294,7 @@ func TestOpenAIListModelsUsesDefaultCredentialWithEmptyRules(t *testing.T) {
 	dialect := NewOpenAI(server.Client())
 	models, err := dialect.ListModels(
 		context.Background(),
-		server.URL,
+		server.URL+"/v1",
 		"sk-default-models",
 		state.HeaderRules{},
 	)
@@ -329,7 +329,7 @@ func TestOpenAIListModelsAppliesHeaderRuleOverrides(t *testing.T) {
 	dialect := NewOpenAI(server.Client())
 	_, err := dialect.ListModels(
 		context.Background(),
-		server.URL,
+		server.URL+"/v1",
 		"sk-custom-models",
 		state.HeaderRules{
 			Set: map[string]string{
@@ -425,7 +425,7 @@ func TestOpenAIListModelsHonorsContextTimeout(t *testing.T) {
 	dialect := NewOpenAI(server.Client())
 	_, err := dialect.ListModels(
 		ctx,
-		server.URL,
+		server.URL+"/v1",
 		"sk-timeout",
 		state.HeaderRules{},
 	)
@@ -445,7 +445,7 @@ func TestOpenAIListModelsRejectsNonSuccessWithoutLeakingKey(t *testing.T) {
 	dialect := NewOpenAI(server.Client())
 	_, err := dialect.ListModels(
 		context.Background(),
-		server.URL,
+		server.URL+"/v1",
 		apiKey,
 		state.HeaderRules{},
 	)

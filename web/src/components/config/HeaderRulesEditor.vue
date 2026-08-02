@@ -28,6 +28,8 @@ const props = withDefaults(
     removeLabel?: string
     removeHint?: string
     resetKey?: number
+    showNotice?: boolean
+    showAdd?: boolean
   }>(),
   {
     disabled: false,
@@ -35,6 +37,8 @@ const props = withDefaults(
     removeLabel: undefined,
     removeHint: undefined,
     resetKey: 0,
+    showNotice: true,
+    showAdd: true,
   },
 )
 const emit = defineEmits<{
@@ -217,11 +221,17 @@ function rowError(row: RuleRow, field: 'name' | 'value'): string | undefined {
           {{ t('common.headerRules.storageNotice', { template: '${API_KEY}' }) }}
         </p>
       </div>
-      <button class="header-rules__add" type="button" :disabled="props.disabled" @click="addRow">
+      <button
+        v-if="props.showAdd"
+        class="header-rules__add"
+        type="button"
+        :disabled="props.disabled"
+        @click="addRow"
+      >
         <Plus :size="16" aria-hidden="true" />{{ t('common.headerRules.add') }}
       </button>
     </div>
-    <div v-else class="header-rules__notice">
+    <div v-else-if="props.showNotice" class="header-rules__notice">
       <Info :size="16" aria-hidden="true" />
       <span>
         <slot name="notice">{{
@@ -400,7 +410,7 @@ function rowError(row: RuleRow, field: 'name' | 'value'): string | undefined {
       </div>
     </div>
     <button
-      v-if="appearance === 'ledger'"
+      v-if="appearance === 'ledger' && props.showAdd"
       class="header-rules__add"
       type="button"
       :disabled="props.disabled"

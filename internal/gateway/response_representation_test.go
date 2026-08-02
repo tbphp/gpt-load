@@ -18,6 +18,7 @@ import (
 	platformhttp "gpt-load/internal/platform/httpclient"
 	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/platform/utils"
+	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 	"gpt-load/internal/usage"
 )
@@ -84,7 +85,7 @@ func forwardSuccessRepresentation(
 		Dialect: dialect.NewOpenAI(http.DefaultClient),
 		Group: state.GroupView{
 			ID:          1,
-			UpstreamURL: upstream.URL,
+			UpstreamURL: testUpstreamBaseURL(upstream.URL, protocol.OpenAICompletions),
 			Timeouts: state.TimeoutConfig{
 				Connect:   time.Second,
 				FirstByte: time.Second,

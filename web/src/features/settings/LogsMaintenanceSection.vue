@@ -103,6 +103,7 @@ function conflictValue(side: 'mine' | 'latest'): string {
       "
       :action-label="owned ? t('settings.runtime.restoreDefault') : t('settings.runtime.override')"
       :overridden="owned"
+      :divided="false"
       :disabled="disabled"
       @toggle="setOwned(!owned)"
     >

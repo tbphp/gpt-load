@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n'
 
 import type { GroupProtocol } from '@/api/control/types'
 import { enabledDataProtocols } from '@/api/control/protocols'
+import UpstreamBaseURLHint from '@/components/config/UpstreamBaseURLHint.vue'
 import SegmentedControl from '@/components/ui/SegmentedControl.vue'
 
 const props = defineProps<{
@@ -84,6 +85,12 @@ function setWeightMode(value: string): void {
         />
         <small v-if="upstreamUrlError" role="alert">{{ upstreamUrlError }}</small>
         <small>{{ t('group.settings.base.urlWarning') }}</small>
+        <UpstreamBaseURLHint
+          :url="upstreamUrl"
+          :protocols="protocols"
+          :missing-message="t('group.settings.base.urlPrefixMissing')"
+          :duplicate-message="t('group.settings.base.urlPrefixDuplicate')"
+        />
       </label>
     </div>
     <label class="group-settings__switch-row">

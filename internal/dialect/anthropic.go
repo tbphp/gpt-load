@@ -13,9 +13,10 @@ import (
 )
 
 const (
-	anthropicMessagesPath   = "/v1/messages"
-	anthropicModelsPath     = "/v1/models"
-	anthropicDefaultVersion = "2023-06-01"
+	anthropicMessagesPath         = "/v1/messages"
+	anthropicMessagesResourcePath = "/messages"
+	anthropicModelsResourcePath   = "/models"
+	anthropicDefaultVersion       = "2023-06-01"
 )
 
 var anthropicFailureMarkers = failureMarkers{
@@ -62,7 +63,13 @@ func (d *Anthropic) CredentialHeaderNames() []string {
 }
 
 func (d *Anthropic) BuildUpstreamURL(base string, req *ParsedRequest) (string, error) {
-	return buildUpstreamURL(base, req)
+	if req == nil {
+		return "", fmt.Errorf("parsed request is required")
+	}
+	if req.Path != anthropicMessagesPath {
+		return "", fmt.Errorf("invalid Anthropic Messages request path")
+	}
+	return resolveUpstreamURL(base, anthropicMessagesResourcePath, req.RawQuery)
 }
 
 func (d *Anthropic) ListModels(
@@ -70,7 +77,7 @@ func (d *Anthropic) ListModels(
 	baseURL, apiKey string,
 	rules state.HeaderRules,
 ) ([]string, error) {
-	requestURL, err := buildUpstreamURL(baseURL, &ParsedRequest{Path: anthropicModelsPath})
+	requestURL, err := resolveUpstreamURL(baseURL, anthropicModelsResourcePath, "")
 	if err != nil {
 		return nil, fmt.Errorf("build Anthropic model-list URL: %w", err)
 	}
@@ -164,7 +171,11 @@ func (d *Anthropic) Probe(
 	if err := validateProbeModel(validationModel); err != nil {
 		return err
 	}
-	return executeProbe(ctx, d.client, d, baseURL, apiKey, rules, anthropicMessagesPath, struct {
+	requestURL, err := d.BuildUpstreamURL(baseURL, &ParsedRequest{Method: http.MethodPost, Path: anthropicMessagesPath})
+	if err != nil {
+		return fmt.Errorf("build %s probe URL failed", d.Protocol())
+	}
+	return executeProbe(ctx, d.client, d, requestURL, apiKey, rules, struct {
 		Model     string         `json:"model"`
 		Messages  []probeMessage `json:"messages"`
 		MaxTokens int            `json:"max_tokens"`

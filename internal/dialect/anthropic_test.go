@@ -117,12 +117,12 @@ func TestAnthropicBuildUpstreamURL(t *testing.T) {
 		want    string
 		wantErr bool
 	}{
-		{name: "root base", base: "https://api.example.com", request: &ParsedRequest{Path: "/v1/messages", RawQuery: "trace=true"}, want: "https://api.example.com/v1/messages?trace=true"},
-		{name: "base path and queries", base: "https://api.example.com/compatible/?tenant=one", request: &ParsedRequest{Path: "/v1/messages", RawQuery: "trace=true"}, want: "https://api.example.com/compatible/v1/messages?tenant=one&trace=true"},
+		{name: "complete API prefix", base: "https://api.example.com/v1", request: &ParsedRequest{Path: "/v1/messages", RawQuery: "trace=true"}, want: "https://api.example.com/v1/messages?trace=true"},
+		{name: "base path and queries", base: "https://api.example.com/compatible/v1/?tenant=one", request: &ParsedRequest{Path: "/v1/messages", RawQuery: "trace=true"}, want: "https://api.example.com/compatible/v1/messages?tenant=one&trace=true"},
 		{name: "nil request", base: "https://api.example.com", wantErr: true},
 		{name: "relative request path", base: "https://api.example.com", request: &ParsedRequest{Path: "v1/messages"}, wantErr: true},
-		{name: "relative base", base: "api.example.com", request: &ParsedRequest{Path: "/v1/messages"}, wantErr: true},
-		{name: "unsupported base", base: "ftp://api.example.com", request: &ParsedRequest{Path: "/v1/messages"}, wantErr: true},
+		{name: "relative base", base: "api.example.com/v1", request: &ParsedRequest{Path: "/v1/messages"}, wantErr: true},
+		{name: "unsupported base", base: "ftp://api.example.com/v1", request: &ParsedRequest{Path: "/v1/messages"}, wantErr: true},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -223,7 +223,7 @@ func TestAnthropicListModelsPaginatesAndPreservesInputs(t *testing.T) {
 
 	models, err := NewAnthropic(server.Client()).ListModels(
 		context.Background(),
-		server.URL+"/prefix?tenant=one&fixed=preserved&limit=1&limit=2&after_id=stale",
+		server.URL+"/prefix/v1?tenant=one&fixed=preserved&limit=1&limit=2&after_id=stale",
 		"upstream-secret",
 		state.HeaderRules{Set: map[string]string{"X-Discovery-Rule": "applied-rule"}},
 	)

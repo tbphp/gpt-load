@@ -6,7 +6,6 @@ import type { HeaderRulesDto } from '@/app/resources/groups'
 import type { RuntimeSettingKey, SettingsResource } from '@/app/resources/settings'
 import HeaderRulesEditor from '@/components/config/HeaderRulesEditor.vue'
 import AppButton from '@/components/ui/AppButton.vue'
-import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 
 import { createSettingsDraft, setSettingsOverride, type SettingsDraft } from './settings-patch'
 import type { SettingsMergeConflict } from './settings-response'
@@ -34,7 +33,9 @@ const pendingRestore = computed(
   () => !overridden.value && props.base.settings.overrides.includes(key),
 )
 const rules = computed(() =>
-  overridden.value ? props.draft.values.header_rules : props.base.settings.values.header_rules,
+  overridden.value || pendingRestore.value
+    ? props.draft.values.header_rules
+    : props.base.settings.values.header_rules,
 )
 const ruleCount = computed(() => Object.keys(rules.value.set).length + rules.value.remove.length)
 const conflict = computed(() => props.conflicts.find((item) => item.key === key))
@@ -94,17 +95,9 @@ watch(
         <p>{{ t('settings.headers.description') }}</p>
       </div>
       <div class="settings-headers__meta">
+        <span>{{ t('settings.headers.ruleCount', { count: ruleCount }) }}</span>
         <span>{{
-          pendingRestore
-            ? t('settings.headers.currentPublishedRuleCount', { count: ruleCount })
-            : t('settings.headers.ruleCount', { count: ruleCount })
-        }}</span>
-        <span>{{
-          overridden
-            ? t('settings.headers.overrideSource')
-            : pendingRestore
-              ? t('settings.headers.pendingRestoreSource')
-              : t('settings.headers.defaultSource')
+          overridden ? t('settings.headers.overrideSource') : t('settings.headers.defaultSource')
         }}</span>
         <AppButton variant="secondary" size="compact" :disabled="disabled" @click="toggleOverride">
           {{ overridden ? t('settings.headers.restoreDefault') : t('settings.headers.override') }}
@@ -126,27 +119,17 @@ watch(
       </div>
     </div>
 
-    <InlineFeedback v-if="pendingRestore" tone="info">
-      {{ t('settings.headers.resetPending') }}
-    </InlineFeedback>
-    <InlineFeedback v-else-if="!overridden" tone="info">{{
-      t('settings.headers.inherited')
-    }}</InlineFeedback>
-    <InlineFeedback tone="warning">{{ t('settings.headers.replacementWarning') }}</InlineFeedback>
-
     <HeaderRulesEditor
       appearance="ledger"
       :model-value="rules"
       :disabled="disabled || !overridden"
       :reset-key="editorResetKey"
+      :show-notice="false"
+      :show-add="overridden"
       @update:model-value="updateRules"
       @update:valid="emit('update:valid', $event)"
       @update:invalid-edits="emit('update:invalidEdits', $event)"
-    >
-      <template #notice>
-        {{ t('settings.headers.securityNotice', { template: '${API_KEY}' }) }}
-      </template>
-    </HeaderRulesEditor>
+    />
   </section>
 </template>
 

@@ -726,7 +726,7 @@ func usageForwardInput(upstreamURL string, selected dialect.Dialect) ForwardInpu
 		Dialect:      selected,
 		ObserveUsage: true,
 		Group: state.GroupView{
-			ID: 1, UpstreamURL: upstreamURL,
+			ID: 1, UpstreamURL: testUpstreamBaseURL(upstreamURL, selected.Protocol()),
 			Timeouts: state.TimeoutConfig{Connect: time.Second, FirstByte: time.Second, Request: time.Second},
 		},
 		APIKey: "sk-test",

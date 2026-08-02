@@ -187,6 +187,8 @@ export default {
         upstreamUrl: 'Upstream URL',
         upstreamUrlError: 'Enter an upstream URL.',
         urlWarning: 'A new URL requires hard confirmation; a URL used by another Group is blocked.',
+        urlPrefixMissing: 'The Base URL may be missing a protocol prefix, such as /v1.',
+        urlPrefixDuplicate: 'The protocol prefix is repeated in the Base URL.',
         validationModel: 'Validation model (optional)',
         weight: 'Manual Group weight',
         auto: 'Auto',

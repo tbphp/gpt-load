@@ -182,6 +182,8 @@ export default {
         upstreamUrl: '上游地址',
         upstreamUrlError: '请输入上游 URL。',
         urlWarning: '修改请求发送位置会在保存时要求二次确认，并建议重新发现模型。',
+        urlPrefixMissing: 'Base URL 可能缺少协议前缀（如 /v1）。',
+        urlPrefixDuplicate: 'Base URL 中的协议前缀重复。',
         validationModel: '验活模型（可选）',
         weight: '分组权重',
         auto: '自动',

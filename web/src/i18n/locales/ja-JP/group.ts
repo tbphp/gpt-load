@@ -187,6 +187,8 @@ export default {
         upstreamUrl: 'アップストリーム URL',
         upstreamUrlError: 'アップストリーム URL を入力してください。',
         urlWarning: '新しい URL は厳格な確認が必要です。他の Group が使用中の URL は拒否されます。',
+        urlPrefixMissing: 'Base URL に /v1 などのプロトコル接頭辞がない可能性があります。',
+        urlPrefixDuplicate: 'Base URL のプロトコル接頭辞が重複しています。',
         validationModel: '検証モデル（任意）',
         weight: 'Group 手動ウェイト',
         auto: '自動',

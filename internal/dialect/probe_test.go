@@ -28,7 +28,7 @@ func TestOpenAIProbeSendsMinimalAuthenticatedRequest(t *testing.T) {
 	defer server.Close()
 
 	if err := NewOpenAI(server.Client()).Probe(
-		context.Background(), server.URL, "secret", state.HeaderRules{}, "gpt-test",
+		context.Background(), server.URL+"/v1", "secret", state.HeaderRules{}, "gpt-test",
 	); err != nil {
 		t.Fatalf("Probe() error = %v", err)
 	}
@@ -51,7 +51,7 @@ func TestAnthropicProbeSendsMinimalAuthenticatedRequest(t *testing.T) {
 	defer server.Close()
 
 	if err := NewAnthropic(server.Client()).Probe(
-		context.Background(), server.URL, "secret", state.HeaderRules{}, "claude-test",
+		context.Background(), server.URL+"/v1", "secret", state.HeaderRules{}, "claude-test",
 	); err != nil {
 		t.Fatalf("Probe() error = %v", err)
 	}
@@ -74,7 +74,7 @@ func TestGeminiProbeSendsMinimalAuthenticatedRequest(t *testing.T) {
 	defer server.Close()
 
 	if err := NewGemini(server.Client()).Probe(
-		context.Background(), server.URL+"?tenant=one", "secret", state.HeaderRules{}, "gemini-test",
+		context.Background(), server.URL+"/v1beta?tenant=one", "secret", state.HeaderRules{}, "gemini-test",
 	); err != nil {
 		t.Fatalf("Probe() error = %v", err)
 	}

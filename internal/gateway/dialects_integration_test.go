@@ -38,6 +38,23 @@ type dialectGatewayGroup struct {
 	firstByte   time.Duration
 }
 
+func testUpstreamBaseURL(raw string, selected protocol.Protocol) string {
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return raw
+	}
+	prefix := "/v1"
+	if selected == protocol.Gemini {
+		prefix = "/v1beta"
+	}
+	path := strings.TrimRight(parsed.Path, "/")
+	if path != prefix && !strings.HasSuffix(path, prefix) {
+		parsed.Path = path + prefix
+		parsed.RawPath = ""
+	}
+	return parsed.String()
+}
+
 func newDialectGatewayEngine(
 	t *testing.T,
 	selectedProtocol protocol.Protocol,
@@ -61,7 +78,7 @@ func newDialectGatewayEngine(
 			models = []state.ModelConfig{{ID: model}}
 		}
 		configs = append(configs, state.GroupConfig{
-			ID: group.id, Name: group.name, UpstreamURL: group.upstreamURL,
+			ID: group.id, Name: group.name, UpstreamURL: testUpstreamBaseURL(group.upstreamURL, selectedProtocol),
 			Protocols: []protocol.Protocol{selectedProtocol},
 			Models:    models, Enabled: true,
 		})

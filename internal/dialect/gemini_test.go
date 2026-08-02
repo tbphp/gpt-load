@@ -61,7 +61,7 @@ func TestGeminiBuildUpstreamURL(t *testing.T) {
 	value := NewGemini(http.DefaultClient)
 
 	streamURL, err := value.BuildUpstreamURL(
-		"https://api.example.com/proxy/?alt=json&alt=proto&tenant=base",
+		"https://api.example.com/proxy/v1beta/?alt=json&alt=proto&tenant=base",
 		&ParsedRequest{
 			Path:     "/v1beta/models/gemini-2.5-pro:streamGenerateContent",
 			RawQuery: "alt=xml&trace=true",
@@ -77,7 +77,7 @@ func TestGeminiBuildUpstreamURL(t *testing.T) {
 	})
 
 	nonStreamURL, err := value.BuildUpstreamURL(
-		"https://api.example.com?alt=json&tenant=base",
+		"https://api.example.com/v1beta?alt=json&tenant=base",
 		&ParsedRequest{Path: "/v1beta/models/gemini-2.5-flash:generateContent", RawQuery: "alt=xml&trace=true"},
 	)
 	if err != nil {
@@ -236,7 +236,7 @@ func TestGeminiListModelsPaginatesPreservesInputsAndParsesNames(t *testing.T) {
 
 	models, err := NewGemini(server.Client()).ListModels(
 		context.Background(),
-		server.URL+"/prefix?tenant=one&fixed=preserved&pageSize=1&pageSize=2&pageToken=stale",
+		server.URL+"/prefix/v1beta?tenant=one&fixed=preserved&pageSize=1&pageSize=2&pageToken=stale",
 		"upstream-secret",
 		state.HeaderRules{Set: map[string]string{"X-Discovery-Rule": "applied-rule"}},
 	)

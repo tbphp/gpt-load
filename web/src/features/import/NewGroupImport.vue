@@ -25,6 +25,7 @@ import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import PanelHeader from '@/components/ui/PanelHeader.vue'
 import ModelAliasEditor from '@/features/models/ModelAliasEditor.vue'
 import ModelDiscoveryDrawer from '@/features/models/ModelDiscoveryDrawer.vue'
+import { isValidUpstreamBaseURL } from '@/lib/upstream-base-url'
 import {
   findModelNameConflicts,
   modelDraftValidity,
@@ -150,19 +151,8 @@ let componentActive = true
 const keyAnalysis = computed(() => analyzeKeys(draft.keys))
 const urlError = computed(() => {
   const value = draft.upstream_url.trim()
-  if (!value) return t('import.connection.urlError')
-  try {
-    const parsed = new URL(value)
-    return (parsed.protocol === 'http:' || parsed.protocol === 'https:') &&
-      parsed.hostname !== '' &&
-      !parsed.username &&
-      !parsed.password &&
-      !parsed.hash
-      ? ''
-      : t('import.connection.urlError')
-  } catch {
-    return t('import.connection.urlError')
-  }
+  if (!value || !isValidUpstreamBaseURL(value)) return t('import.connection.urlError')
+  return ''
 })
 const protocolsError = computed(() =>
   draft.protocols.length ? '' : t('import.connection.protocolsError'),

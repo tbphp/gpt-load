@@ -26,6 +26,7 @@ import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import SectionNav from '@/components/ui/SectionNav.vue'
 import StickySaveBar from '@/components/ui/StickySaveBar.vue'
 import { useSectionNavigation } from '@/composables/use-section-navigation'
+import { isValidUpstreamBaseURL } from '@/lib/upstream-base-url'
 
 import GroupDeleteDialog from './GroupDeleteDialog.vue'
 import GroupSettingsBaseForm from './GroupSettingsBaseForm.vue'
@@ -84,13 +85,8 @@ const nameError = computed(() =>
 )
 const urlError = computed(() => {
   const value = draft.value?.upstream_url.trim() ?? ''
-  if (!value) return t('group.settings.base.upstreamUrlError')
-  try {
-    new URL(value)
-    return ''
-  } catch {
-    return t('group.settings.base.upstreamUrlError')
-  }
+  if (!value || !isValidUpstreamBaseURL(value)) return t('group.settings.base.upstreamUrlError')
+  return ''
 })
 const protocolsError = computed(() =>
   draft.value?.protocols.length ? '' : t('group.settings.base.protocolsError'),

@@ -3,6 +3,7 @@ import { useI18n } from 'vue-i18n'
 
 import { protocolCatalog } from '@/api/control/protocols'
 import type { GroupProtocol } from '@/api/control/types'
+import UpstreamBaseURLHint from '@/components/config/UpstreamBaseURLHint.vue'
 import FormField from '@/components/ui/FormField.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 
@@ -85,6 +86,12 @@ function toggleProtocol(
             autocapitalize="none"
             spellcheck="false"
             @input="emit('update:upstreamUrl', ($event.target as HTMLInputElement).value)"
+          />
+          <UpstreamBaseURLHint
+            :url="upstreamUrl"
+            :protocols="protocols"
+            :missing-message="t('import.connection.urlPrefixMissing')"
+            :duplicate-message="t('import.connection.urlPrefixDuplicate')"
           />
         </template>
       </FormField>

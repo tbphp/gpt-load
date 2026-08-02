@@ -27,9 +27,8 @@ func executeProbe(
 	ctx context.Context,
 	client *http.Client,
 	dialect Dialect,
-	baseURL, apiKey string,
+	requestURL, apiKey string,
 	rules state.HeaderRules,
-	path string,
 	payload any,
 ) error {
 	if ctx == nil {
@@ -42,13 +41,6 @@ func executeProbe(
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("encode %s probe request failed", dialect.Protocol())
-	}
-	requestURL, err := dialect.BuildUpstreamURL(baseURL, &ParsedRequest{
-		Method: http.MethodPost,
-		Path:   path,
-	})
-	if err != nil {
-		return fmt.Errorf("build %s probe URL failed", dialect.Protocol())
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, requestURL, bytes.NewReader(body))
 	if err != nil {

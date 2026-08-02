@@ -15,8 +15,9 @@ import (
 )
 
 const (
-	openAIResponsesPath        = "/v1/responses"
-	openAIResponsesCompactPath = "/v1/responses/compact"
+	openAIResponsesPath         = "/v1/responses"
+	openAIResponsesCompactPath  = "/v1/responses/compact"
+	openAIResponsesResourceRoot = "/responses"
 )
 
 type OpenAIResponses struct {
@@ -87,7 +88,25 @@ func inspectResponsesStreamQuery(rawQuery string) (bool, bool, error) {
 }
 
 func (d *OpenAIResponses) BuildUpstreamURL(base string, req *ParsedRequest) (string, error) {
-	return buildUpstreamURL(base, req)
+	if req == nil {
+		return "", fmt.Errorf("parsed request is required")
+	}
+	resourcePath, err := openAIResponsesResourcePath(req.Path)
+	if err != nil {
+		return "", err
+	}
+	return resolveUpstreamURL(base, resourcePath, req.RawQuery)
+}
+
+func openAIResponsesResourcePath(path string) (string, error) {
+	switch {
+	case path == openAIResponsesPath:
+		return openAIResponsesResourceRoot, nil
+	case strings.HasPrefix(path, openAIResponsesPath+"/"):
+		return strings.TrimPrefix(path, "/v1"), nil
+	default:
+		return "", fmt.Errorf("invalid OpenAI Responses request path")
+	}
 }
 
 func (d *OpenAIResponses) InjectCredential(headers http.Header, apiKey string) {
@@ -115,14 +134,17 @@ func (d *OpenAIResponses) Probe(
 	if err := validateProbeModel(validationModel); err != nil {
 		return err
 	}
+	requestURL, err := d.BuildUpstreamURL(baseURL, &ParsedRequest{Method: http.MethodPost, Path: openAIResponsesPath})
+	if err != nil {
+		return fmt.Errorf("build %s probe URL failed", d.Protocol())
+	}
 	return executeProbe(
 		ctx,
 		d.openAI.client,
 		d,
-		baseURL,
+		requestURL,
 		apiKey,
 		rules,
-		openAIResponsesPath,
 		struct {
 			Model           string `json:"model"`
 			Input           string `json:"input"`

@@ -11,15 +11,19 @@ withDefaults(
     disabled?: boolean
     appearance?: 'default' | 'ledger'
     valueLabel?: string
+    divided?: boolean
   }>(),
-  { disabled: false, appearance: 'default', valueLabel: undefined },
+  { disabled: false, appearance: 'default', valueLabel: undefined, divided: true },
 )
 
 const emit = defineEmits<{ toggle: [] }>()
 </script>
 
 <template>
-  <div class="runtime-override-row" :class="`runtime-override-row--${appearance}`">
+  <div
+    class="runtime-override-row"
+    :class="[`runtime-override-row--${appearance}`, { 'runtime-override-row--divided': divided }]"
+  >
     <template v-if="appearance === 'ledger'">
       <div class="runtime-override-row__identity">
         <strong>{{ label }}</strong>
@@ -90,9 +94,11 @@ const emit = defineEmits<{ toggle: [] }>()
   grid-template-columns: minmax(160px, 1fr) minmax(140px, 0.8fr) auto;
   gap: var(--space-4);
   border: 0;
-  border-bottom: 1px solid var(--color-border-subtle);
   border-radius: 0;
   padding: 11px 2px;
+}
+.runtime-override-row--ledger.runtime-override-row--divided {
+  border-bottom: 1px solid var(--color-border-subtle);
 }
 .runtime-override-row--ledger .runtime-override-row__identity strong {
   font-size: var(--text-meta);

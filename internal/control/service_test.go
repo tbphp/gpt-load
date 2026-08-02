@@ -522,7 +522,7 @@ func TestWriteConfigMakesCreatedGroupAndFirstKeyAtomicallyVisibleToDataPlane(t *
 	}
 
 	group := validControlGroup("atomic-runtime-publication")
-	group.UpstreamURL = upstream.URL
+	group.UpstreamURL = upstream.URL + "/v1"
 	const providerKey = "sk-atomic-runtime-publication"
 	ciphertext, err := fixture.encryption.Encrypt(providerKey)
 	if err != nil {

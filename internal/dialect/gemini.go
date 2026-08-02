@@ -13,10 +13,10 @@ import (
 )
 
 const (
-	geminiGenerationPrefix = "/v1beta/models/"
-	geminiGenerateSuffix   = ":generateContent"
-	geminiStreamSuffix     = ":streamGenerateContent"
-	geminiModelsPath       = "/v1beta/models"
+	geminiGenerationPrefix   = "/v1beta/models/"
+	geminiGenerateSuffix     = ":generateContent"
+	geminiStreamSuffix       = ":streamGenerateContent"
+	geminiModelsResourcePath = "/models"
 )
 
 var geminiFailureMarkers = failureMarkers{
@@ -81,7 +81,8 @@ func (d *Gemini) BuildUpstreamURL(base string, req *ParsedRequest) (string, erro
 	if err != nil {
 		return "", err
 	}
-	upstream, err := buildUpstreamURL(base, req)
+	resourcePath := strings.TrimPrefix(req.Path, "/v1beta")
+	upstream, err := resolveUpstreamURL(base, resourcePath, req.RawQuery)
 	if err != nil {
 		return "", err
 	}
@@ -103,7 +104,7 @@ func (d *Gemini) ListModels(
 	baseURL, apiKey string,
 	rules state.HeaderRules,
 ) ([]string, error) {
-	requestURL, err := buildUpstreamURL(baseURL, &ParsedRequest{Path: geminiModelsPath})
+	requestURL, err := resolveUpstreamURL(baseURL, geminiModelsResourcePath, "")
 	if err != nil {
 		return nil, fmt.Errorf("build Gemini model-list URL: %w", err)
 	}
@@ -200,7 +201,14 @@ func (d *Gemini) Probe(
 	if err := validateProbeModel(validationModel); err != nil {
 		return err
 	}
-	return executeProbe(ctx, d.client, d, baseURL, apiKey, rules, geminiGenerationPrefix+validationModel+geminiGenerateSuffix, struct {
+	requestURL, err := d.BuildUpstreamURL(baseURL, &ParsedRequest{
+		Method: http.MethodPost,
+		Path:   geminiGenerationPrefix + validationModel + geminiGenerateSuffix,
+	})
+	if err != nil {
+		return fmt.Errorf("build %s probe URL failed", d.Protocol())
+	}
+	return executeProbe(ctx, d.client, d, requestURL, apiKey, rules, struct {
 		Contents []struct {
 			Role  string `json:"role"`
 			Parts []struct {

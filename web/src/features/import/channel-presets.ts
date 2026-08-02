@@ -21,7 +21,7 @@ export const providerPresetRegistry = [
     mark: 'OA',
     nameKey: 'import.presets.openai.name',
     descriptionKey: 'import.presets.openai.description',
-    upstream_url: 'https://api.openai.com',
+    upstream_url: 'https://api.openai.com/v1',
     protocols: ['openai-completions', 'openai-responses'],
   },
   {
@@ -31,7 +31,7 @@ export const providerPresetRegistry = [
     mark: 'AN',
     nameKey: 'import.presets.anthropic.name',
     descriptionKey: 'import.presets.anthropic.description',
-    upstream_url: 'https://api.anthropic.com',
+    upstream_url: 'https://api.anthropic.com/v1',
     protocols: ['anthropic'],
   },
   {
@@ -41,7 +41,7 @@ export const providerPresetRegistry = [
     mark: 'GE',
     nameKey: 'import.presets.gemini.name',
     descriptionKey: 'import.presets.gemini.description',
-    upstream_url: 'https://generativelanguage.googleapis.com',
+    upstream_url: 'https://generativelanguage.googleapis.com/v1beta',
     protocols: ['gemini'],
   },
   {
@@ -61,7 +61,7 @@ export const providerPresetRegistry = [
     mark: 'OR',
     nameKey: 'import.presets.openrouter.name',
     descriptionKey: 'import.presets.openrouter.description',
-    upstream_url: 'https://openrouter.ai/api',
+    upstream_url: 'https://openrouter.ai/api/v1',
     protocols: ['openai-completions'],
   },
   {
@@ -71,7 +71,7 @@ export const providerPresetRegistry = [
     mark: 'SF',
     nameKey: 'import.presets.siliconflow.name',
     descriptionKey: 'import.presets.siliconflow.description',
-    upstream_url: 'https://api.siliconflow.cn',
+    upstream_url: 'https://api.siliconflow.cn/v1',
     protocols: ['openai-completions'],
   },
   {
@@ -81,7 +81,7 @@ export const providerPresetRegistry = [
     mark: 'MO',
     nameKey: 'import.presets.moonshot.name',
     descriptionKey: 'import.presets.moonshot.description',
-    upstream_url: 'https://api.moonshot.ai',
+    upstream_url: 'https://api.moonshot.ai/v1',
     protocols: ['openai-completions'],
   },
 ] as const satisfies readonly ProviderPreset[]

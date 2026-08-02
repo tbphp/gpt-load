@@ -55,15 +55,14 @@ export function setSettingsOverride(
   }
   if (enabled) {
     next.overrides.add(key)
-    if (key === 'header_rules') {
-      next.values.header_rules = cloneHeaderRules(base.values.header_rules)
-    } else if (key === 'inject_usage_options') {
+    if (key === 'inject_usage_options') {
       next.values.inject_usage_options = base.values.inject_usage_options
-    } else {
+    } else if (key !== 'header_rules') {
       next.values[key] = base.values[key]
     }
   } else {
     next.overrides.delete(key)
+    if (key === 'header_rules') next.values.header_rules = { set: {}, remove: [] }
   }
   return next
 }

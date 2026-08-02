@@ -177,13 +177,13 @@ func TestHandlerRetryDoesNotLeakFaultyInjectorMutationToNextGroup(t *testing.T) 
 	if _, err := manager.Publish(state.CompileInput{
 		Groups: []state.GroupConfig{
 			{
-				ID: 1, Name: "injecting", UpstreamURL: upstream.URL, Enabled: true,
+				ID: 1, Name: "injecting", UpstreamURL: testUpstreamBaseURL(upstream.URL, protocol.OpenAICompletions), Enabled: true,
 				Protocols: []protocol.Protocol{protocol.OpenAICompletions},
 				Models:    []state.ModelConfig{{ID: "gpt-4o"}},
 				Settings:  config.Settings{state.SettingInjectUsageOptions: true},
 			},
 			{
-				ID: 2, Name: "plain", UpstreamURL: upstream.URL, Enabled: true,
+				ID: 2, Name: "plain", UpstreamURL: testUpstreamBaseURL(upstream.URL, protocol.OpenAICompletions), Enabled: true,
 				Protocols: []protocol.Protocol{protocol.OpenAICompletions},
 				Models:    []state.ModelConfig{{ID: "gpt-4o"}},
 				Settings:  config.Settings{state.SettingInjectUsageOptions: false},
@@ -966,7 +966,7 @@ func newStreamingGatewayEngine(t *testing.T, groups ...streamGatewayGroup) (*gin
 			modelID = "gpt-4o"
 		}
 		groupConfigs = append(groupConfigs, state.GroupConfig{
-			ID: group.id, Name: group.name, UpstreamURL: group.upstreamURL,
+			ID: group.id, Name: group.name, UpstreamURL: testUpstreamBaseURL(group.upstreamURL, protocol.OpenAICompletions),
 			Protocols: []protocol.Protocol{protocol.OpenAICompletions},
 			Models:    []state.ModelConfig{{ID: modelID, Alias: group.alias}}, Enabled: true,
 			Settings: streamGatewaySettings(group.injectUsageOptions),

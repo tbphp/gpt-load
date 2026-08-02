@@ -195,7 +195,7 @@ func TestGatewayAttemptDoesNotImplicitlyReplayBodyWithIdempotencyKey(t *testing.
 	)
 	if _, err := manager.Publish(state.CompileInput{
 		Groups: []state.GroupConfig{{
-			ID: 1, Name: "openai", UpstreamURL: upstream.URL(),
+			ID: 1, Name: "openai", UpstreamURL: testUpstreamBaseURL(upstream.URL(), protocol.OpenAICompletions),
 			Protocols: []protocol.Protocol{protocol.OpenAICompletions},
 			Models:    []state.ModelConfig{{ID: "gpt-4o"}}, Enabled: true,
 		}},

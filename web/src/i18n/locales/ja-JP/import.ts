@@ -98,6 +98,8 @@ export default {
       url: 'アップストリームのベース URL',
       urlDescription: '末尾のスラッシュを正規化し、保存時に URL の競合を確認します',
       urlError: '有効な HTTP または HTTPS のアップストリーム URL を入力してください',
+      urlPrefixMissing: 'Base URL に /v1 などのプロトコル接頭辞がない可能性があります。',
+      urlPrefixDuplicate: 'Base URL のプロトコル接頭辞が重複しています。',
       protocols: 'プロトコル機能',
       protocolsMultiple: '複数選択可',
       protocolsError: '少なくとも 1 つのプロトコル機能を選択してください',

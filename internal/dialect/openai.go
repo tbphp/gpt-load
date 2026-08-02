@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"net/url"
-	"strings"
 
 	"gpt-load/internal/health"
 	"gpt-load/internal/protocol"
@@ -13,8 +11,9 @@ import (
 )
 
 const (
-	openAICompletionsPath = "/v1/chat/completions"
-	openAIModelsPath      = "/v1/models"
+	openAICompletionsPath         = "/v1/chat/completions"
+	openAICompletionsResourcePath = "/chat/completions"
+	openAIModelsResourcePath      = "/models"
 )
 
 var openAIFailureMarkers = failureMarkers{
@@ -50,7 +49,13 @@ func (d *OpenAI) CredentialHeaderNames() []string {
 }
 
 func (d *OpenAI) BuildUpstreamURL(base string, req *ParsedRequest) (string, error) {
-	return buildUpstreamURL(base, req)
+	if req == nil {
+		return "", fmt.Errorf("parsed request is required")
+	}
+	if req.Path != openAICompletionsPath {
+		return "", fmt.Errorf("invalid OpenAI Completions request path")
+	}
+	return resolveUpstreamURL(base, openAICompletionsResourcePath, req.RawQuery)
 }
 
 func (d *OpenAI) ListModels(
@@ -58,7 +63,7 @@ func (d *OpenAI) ListModels(
 	baseURL, apiKey string,
 	rules state.HeaderRules,
 ) ([]string, error) {
-	requestURL, err := buildUpstreamURL(baseURL, &ParsedRequest{Path: openAIModelsPath})
+	requestURL, err := resolveUpstreamURL(baseURL, openAIModelsResourcePath, "")
 	if err != nil {
 		return nil, fmt.Errorf("build OpenAI model-list URL: %w", err)
 	}
@@ -120,7 +125,11 @@ func (d *OpenAI) Probe(
 	if err := validateProbeModel(validationModel); err != nil {
 		return err
 	}
-	return executeProbe(ctx, d.client, d, baseURL, apiKey, rules, openAICompletionsPath, struct {
+	requestURL, err := d.BuildUpstreamURL(baseURL, &ParsedRequest{Method: http.MethodPost, Path: openAICompletionsPath})
+	if err != nil {
+		return fmt.Errorf("build %s probe URL failed", d.Protocol())
+	}
+	return executeProbe(ctx, d.client, d, requestURL, apiKey, rules, struct {
 		Model     string         `json:"model"`
 		Messages  []probeMessage `json:"messages"`
 		MaxTokens int            `json:"max_tokens"`
@@ -150,33 +159,4 @@ func (d *OpenAI) ClassifyStatus(status int, body []byte) health.FailureCategory 
 
 func (d *OpenAI) ClassifyProviderError(body []byte) health.FailureCategory {
 	return classifyProviderErrorWithMarkers(body, openAIFailureMarkers)
-}
-
-func buildUpstreamURL(base string, req *ParsedRequest) (string, error) {
-	if req == nil {
-		return "", fmt.Errorf("parsed request is required")
-	}
-	if req.Path == "" || !strings.HasPrefix(req.Path, "/") {
-		return "", fmt.Errorf("request path must be absolute")
-	}
-
-	parsed, err := url.Parse(base)
-	if err != nil {
-		return "", fmt.Errorf("parse upstream base URL: %w", err)
-	}
-	if parsed.Host == "" ||
-		(!strings.EqualFold(parsed.Scheme, "http") &&
-			!strings.EqualFold(parsed.Scheme, "https")) {
-		return "", fmt.Errorf("upstream base URL must use http or https")
-	}
-
-	parsed.Path = strings.TrimRight(parsed.Path, "/") + req.Path
-	parsed.RawPath = ""
-	if parsed.RawQuery == "" {
-		parsed.RawQuery = req.RawQuery
-	} else if req.RawQuery != "" {
-		parsed.RawQuery += "&" + req.RawQuery
-	}
-	parsed.Fragment = ""
-	return parsed.String(), nil
 }

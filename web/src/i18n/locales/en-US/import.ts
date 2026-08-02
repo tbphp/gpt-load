@@ -99,6 +99,8 @@ export default {
       url: 'Upstream base URL',
       urlDescription: 'Trailing slashes are normalized and URL conflicts are checked on save',
       urlError: 'Enter a valid HTTP or HTTPS upstream URL',
+      urlPrefixMissing: 'The Base URL may be missing a protocol prefix, such as /v1.',
+      urlPrefixDuplicate: 'The protocol prefix is repeated in the Base URL.',
       protocols: 'Protocol capabilities',
       protocolsMultiple: 'multiple allowed',
       protocolsError: 'Select at least one protocol capability',
