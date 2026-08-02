@@ -34,7 +34,9 @@ const emit = defineEmits<{
 const client = useApiClient()
 const { locale, t } = useI18n()
 const copyControllers = useAbortControllerPool()
-const sources = computed(() => new Map(props.accessKeys.map((accessKey) => [accessKey.id, accessKey])))
+const sources = computed(
+  () => new Map(props.accessKeys.map((accessKey) => [accessKey.id, accessKey])),
+)
 
 const presentations = computed(() =>
   presentAccessKeyCollection(props.accessKeys, props.groups, {

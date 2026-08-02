@@ -197,7 +197,6 @@ function keyHealthLabel(counts: KeyCounts): string {
     disabled: n(counts.disabled),
   })
 }
-
 </script>
 
 <template>

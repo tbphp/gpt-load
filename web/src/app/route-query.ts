@@ -25,10 +25,7 @@ export function constrainCollectionSearch(value: string | undefined): string | u
   return Array.from(trimmed).slice(0, maxCollectionSearchCodePoints).join('')
 }
 
-export function isCanonicalRouteQuery(
-  query: LocationQuery,
-  canonical: LocationQueryRaw,
-): boolean {
+export function isCanonicalRouteQuery(query: LocationQuery, canonical: LocationQueryRaw): boolean {
   const actualKeys = Object.keys(query)
   const canonicalKeys = Object.keys(canonical)
   if (actualKeys.length !== canonicalKeys.length) return false

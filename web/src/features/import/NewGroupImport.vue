@@ -618,7 +618,6 @@ onBeforeUnmount(() => {
           </span>
         </template>
       </ModelAliasEditor>
-
     </section>
 
     <div

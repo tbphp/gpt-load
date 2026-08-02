@@ -413,7 +413,6 @@ async function runBatch(
     setPending('batch', action, false)
   }
 }
-
 </script>
 
 <template>

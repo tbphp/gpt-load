@@ -1,9 +1,6 @@
 import type { ApiClient } from '@/api/client'
 import type { AccessKeyDto } from '@/api/control/types'
-import {
-  listAccessKeyCollection,
-  type UpdateAccessKeyRequest,
-} from '@/app/resources/access-keys'
+import { listAccessKeyCollection, type UpdateAccessKeyRequest } from '@/app/resources/access-keys'
 
 export interface PendingAccessKeyEditOperation {
   base: AccessKeyDto
