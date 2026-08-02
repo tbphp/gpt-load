@@ -136,6 +136,8 @@ export default {
       units: {
         usd_per_million_tokens: '100 万 tokens あたりの米ドル',
       },
+      summary: '組み込み参照 {builtin} 件 · ユーザー上書き {overrides} 件 · {unit}',
+      latestOverrideAt: '最終更新: {time}。',
       historyNote: '価格変更は今後のリクエストの見積もりにのみ影響し、履歴は再計算しません。',
       manage: 'モデル価格を管理',
     },

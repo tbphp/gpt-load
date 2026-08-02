@@ -7,6 +7,7 @@ import { useApiClient } from '@/api/client-context'
 import { modelPriceQueryOptions } from '@/app/resources/model-prices'
 import { modelPricesLocation } from '@/app/route-locations'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
+import Surface from '@/components/ui/Surface.vue'
 import { formatLocalInstant } from '@/lib/format'
 
 const client = useApiClient()
@@ -46,36 +47,38 @@ const latestOverrideUpdatedAt = computed(() => {
         :retry-label="t('common.retry')"
         @retry="pricesQuery.refetch()"
       />
-      <dl class="settings-model-prices__summary">
-        <div>
-          <dt>{{ t('settings.modelPrices.builtinCount') }}</dt>
-          <dd>{{ pricesQuery.data.value.builtin.length }}</dd>
+      <Surface variant="sunken" :padded="false" class="price-entry">
+        <div class="price-entry__summary">
+          <strong>
+            {{
+              t('settings.modelPrices.summary', {
+                builtin: pricesQuery.data.value.builtin.length,
+                overrides: pricesQuery.data.value.overrides.length,
+                unit: t(`settings.modelPrices.units.${pricesQuery.data.value.price_unit}`),
+              })
+            }}
+          </strong>
+          <p>
+            <template v-if="latestOverrideUpdatedAt !== null">
+              {{
+                t('settings.modelPrices.latestOverrideAt', {
+                  time: formatLocalInstant(latestOverrideUpdatedAt, locale),
+                })
+              }}
+            </template>
+            {{ t('settings.modelPrices.historyNote') }}
+          </p>
         </div>
-        <div>
-          <dt>{{ t('settings.modelPrices.overrideCount') }}</dt>
-          <dd>{{ pricesQuery.data.value.overrides.length }}</dd>
-        </div>
-        <div>
-          <dt>{{ t('settings.modelPrices.priceUnit') }}</dt>
-          <dd>{{ t(`settings.modelPrices.units.${pricesQuery.data.value.price_unit}`) }}</dd>
-        </div>
-        <div v-if="latestOverrideUpdatedAt !== null">
-          <dt>{{ t('settings.modelPrices.latestOverride') }}</dt>
-          <dd>{{ formatLocalInstant(latestOverrideUpdatedAt, locale) }}</dd>
-        </div>
-      </dl>
-      <p class="settings-model-prices__note">{{ t('settings.modelPrices.historyNote') }}</p>
-      <RouterLink class="settings-model-prices__manage" :to="modelPricesLocation()">
-        {{ t('settings.modelPrices.manage') }}
-      </RouterLink>
+        <RouterLink class="button-link" :to="modelPricesLocation()">
+          {{ t('settings.modelPrices.manage') }}
+        </RouterLink>
+      </Surface>
     </template>
   </section>
 </template>
 
 <style scoped>
-.settings-section,
-.settings-model-prices__summary,
-.settings-model-prices__summary > div {
+.settings-section {
   display: grid;
 }
 
@@ -86,9 +89,7 @@ const latestOverrideUpdatedAt = computed(() => {
 
 .settings-section__heading h2,
 .settings-section__heading p,
-.settings-model-prices__summary,
-.settings-model-prices__summary dd,
-.settings-model-prices__note {
+.price-entry p {
   margin: 0;
 }
 
@@ -97,47 +98,41 @@ const latestOverrideUpdatedAt = computed(() => {
   font-weight: 650;
 }
 
-.settings-section__heading p,
-.settings-model-prices__note {
+.settings-section__heading p {
   margin-top: var(--space-1);
   color: var(--color-text-muted);
   font-size: var(--text-label-xs);
 }
 
-.settings-model-prices__summary {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--space-4);
+.settings-section > .price-entry {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-5);
+  border-radius: var(--radius-control);
+  padding: var(--space-3);
 }
 
-.settings-model-prices__summary > div {
-  gap: var(--space-1);
-  border-top: 1px solid var(--color-border-subtle);
-  padding-top: var(--space-3);
+.price-entry__summary {
+  min-width: 0;
 }
 
-.settings-model-prices__summary dt {
+.price-entry__summary strong {
+  display: block;
+  font-size: var(--text-label-xs);
+  font-weight: 650;
+}
+
+.price-entry__summary p {
+  margin-top: var(--space-1);
   color: var(--color-text-muted);
   font-size: var(--text-label-xs);
 }
 
-.settings-model-prices__summary dd {
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  font-weight: 560;
-}
-
-.settings-model-prices__manage {
-  width: fit-content;
-  color: var(--color-action);
-  font-size: var(--text-sm);
-  font-weight: 650;
-  text-decoration: underline;
-  text-underline-offset: 3px;
-}
-
-@media (max-width: 640px) {
-  .settings-model-prices__summary {
-    grid-template-columns: 1fr;
+@media (max-width: 760px) {
+  .settings-section > .price-entry {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }
 </style>

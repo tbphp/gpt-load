@@ -125,6 +125,8 @@ export default {
       units: {
         usd_per_million_tokens: '美元 / 百万 tokens',
       },
+      summary: '{builtin} 条内置参考 · {overrides} 条用户覆盖 · {unit}',
+      latestOverrideAt: '最后修改于 {time}。',
       historyNote: '价格变更只影响未来请求的估算，不会回算历史请求。',
       manage: '管理模型价格',
     },

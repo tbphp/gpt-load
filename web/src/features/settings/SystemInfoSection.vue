@@ -7,6 +7,7 @@ import { systemInfoQueryOptions, type SecretSource } from '@/app/resources/syste
 import CopyButton from '@/components/ui/CopyButton.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
+import Surface from '@/components/ui/Surface.vue'
 
 const client = useApiClient()
 const { t } = useI18n()
@@ -44,20 +45,18 @@ function sourceLabel(source: SecretSource): string {
         :retry-label="t('common.retry')"
         @retry="infoQuery.refetch()"
       />
-      <dl class="settings-system__grid">
-        <div>
+      <Surface variant="sunken" :padded="false" class="settings-system__panel">
+        <dl class="settings-system__definition">
           <dt>{{ t('settings.system.version') }}</dt>
           <dd class="settings-system__mono">{{ infoQuery.data.value.version }}</dd>
-        </div>
-        <div>
+
           <dt>{{ t('settings.system.deployment') }}</dt>
-          <dd class="settings-system__badges">
+          <dd class="settings-system__inline">
             <StatusBadge size="compact">{{ t('settings.system.single') }}</StatusBadge>
             <StatusBadge size="compact">{{ t('settings.system.sqlite') }}</StatusBadge>
             <StatusBadge size="compact">{{ t('settings.system.singleBinary') }}</StatusBadge>
           </dd>
-        </div>
-        <div>
+
           <dt>{{ t('settings.system.dataDir') }}</dt>
           <dd class="settings-system__path settings-system__mono">
             <span>{{ infoQuery.data.value.data_dir }}</span>
@@ -68,10 +67,9 @@ function sourceLabel(source: SecretSource): string {
               :failure-label="t('common.copyFailed')"
             />
           </dd>
-        </div>
-        <div>
+
           <dt>{{ t('settings.system.authKey') }}</dt>
-          <dd class="settings-system__source">
+          <dd class="settings-system__inline">
             <StatusBadge size="compact">{{
               sourceLabel(infoQuery.data.value.auth_key.source)
             }}</StatusBadge>
@@ -88,10 +86,9 @@ function sourceLabel(source: SecretSource): string {
               />
             </span>
           </dd>
-        </div>
-        <div>
+
           <dt>{{ t('settings.system.encryption') }}</dt>
-          <dd class="settings-system__source">
+          <dd class="settings-system__inline">
             <StatusBadge tone="success" size="compact">{{
               t('settings.system.enabled')
             }}</StatusBadge>
@@ -111,18 +108,15 @@ function sourceLabel(source: SecretSource): string {
               />
             </span>
           </dd>
-        </div>
-      </dl>
+        </dl>
+      </Surface>
       <p class="settings-system__security-note">{{ t('settings.system.securityNote') }}</p>
     </template>
   </section>
 </template>
 
 <style scoped>
-.settings-section,
-.settings-system__grid,
-.settings-system__grid > div,
-.settings-system__source {
+.settings-section {
   display: grid;
 }
 
@@ -133,8 +127,8 @@ function sourceLabel(source: SecretSource): string {
 
 .settings-section__heading h2,
 .settings-section__heading p,
-.settings-system__grid,
-.settings-system__grid dd,
+.settings-system__definition,
+.settings-system__definition dd,
 .settings-system__security-note {
   margin: 0;
 }
@@ -151,33 +145,46 @@ function sourceLabel(source: SecretSource): string {
   font-size: var(--text-label-xs);
 }
 
-.settings-system__grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--space-4);
+.settings-section > .settings-system__panel {
+  border-radius: var(--radius-control);
+  padding: var(--space-4);
 }
 
-.settings-system__grid > div {
+.settings-system__definition {
+  display: grid;
+  grid-template-columns: minmax(120px, 160px) minmax(0, 1fr);
+  align-items: center;
+  column-gap: var(--space-4);
+}
+
+.settings-system__definition dt,
+.settings-system__definition dd {
   min-width: 0;
-  gap: var(--space-2);
-  border-top: 1px solid var(--color-border-subtle);
-  padding-top: var(--space-3);
+  border-bottom: 1px solid var(--color-border-subtle);
+  padding: 10px 0;
 }
 
-.settings-system__grid dt {
+.settings-system__definition dt {
   color: var(--color-text-muted);
   font-size: var(--text-label-xs);
   font-weight: 650;
 }
 
-.settings-system__grid dd,
-.settings-system__source {
-  min-width: 0;
-  gap: var(--space-2);
+.settings-system__definition dd {
+  color: var(--color-text-muted);
+  font-size: var(--text-label-xs);
+  overflow-wrap: anywhere;
 }
 
-.settings-system__badges {
+.settings-system__definition dt:last-of-type,
+.settings-system__definition dd:last-of-type {
+  border-bottom: 0;
+}
+
+.settings-system__inline {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: var(--space-2);
 }
 
@@ -196,9 +203,9 @@ function sourceLabel(source: SecretSource): string {
   font-family: var(--font-mono);
 }
 
-@media (max-width: 640px) {
-  .settings-system__grid {
-    grid-template-columns: 1fr;
+@media (max-width: 760px) {
+  .settings-system__definition {
+    grid-template-columns: 115px minmax(0, 1fr);
   }
 }
 </style>

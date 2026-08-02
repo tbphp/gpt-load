@@ -137,6 +137,8 @@ export default {
       units: {
         usd_per_million_tokens: 'USD per one million tokens',
       },
+      summary: '{builtin} built-in references · {overrides} user overrides · {unit}',
+      latestOverrideAt: 'Last modified {time}.',
       historyNote:
         'Price changes affect estimates for future requests and do not recalculate history.',
       manage: 'Manage model prices',
