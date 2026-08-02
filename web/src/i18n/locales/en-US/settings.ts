@@ -98,12 +98,15 @@ export default {
       title: 'Global Header Rules',
       description: 'Base rules for every upstream request.',
       ruleCount: '{count} rules',
+      currentPublishedRuleCount: '{count} currently published rules',
       defaultSource: 'Built-in default',
       overrideSource: 'Explicit override',
+      pendingRestoreSource: 'Pending restore · currently published',
       override: 'Override',
       restoreDefault: 'Restore default',
       inherited: 'The effective built-in rules are shown. Enable an override to edit them.',
-      resetPending: 'Saving will restore the current version default.',
+      resetPending:
+        'The published explicit rules remain visible. Saving is required to restore the current version default.',
       replacementWarning:
         'A Group Header Rules override replaces the complete global object; individual rules are not merged.',
       securityNotice:

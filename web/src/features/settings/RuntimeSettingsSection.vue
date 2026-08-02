@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import type {
@@ -10,6 +9,8 @@ import type {
 import RuntimeOverrideRow from '@/components/config/RuntimeOverrideRow.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppSwitch from '@/components/ui/AppSwitch.vue'
+import AppTextInput from '@/components/ui/AppTextInput.vue'
+import CompactFieldError from '@/components/ui/CompactFieldError.vue'
 
 import {
   createSettingsDraft,
@@ -39,11 +40,6 @@ const timeoutKeys: TimeoutSettingKey[] = [
   'request_timeout',
   'stream_idle_timeout',
 ]
-const runtimeKeys: RuntimeSettingKey[] = [...timeoutKeys, 'inject_usage_options']
-const relevantConflicts = computed(() =>
-  props.conflicts.filter((conflict) => runtimeKeys.includes(conflict.key)),
-)
-
 function cloneDraft(): SettingsDraft {
   return createSettingsDraft({ values: props.draft.values, overrides: [...props.draft.overrides] })
 }
@@ -64,9 +60,9 @@ function toggleOverride(key: RuntimeSettingKey): void {
   publish(key, setSettingsOverride(props.base.settings, props.draft, key, !hasOverride(key)))
 }
 
-function setTimeoutValue(key: TimeoutSettingKey, event: Event): void {
+function setTimeoutValue(key: TimeoutSettingKey, value: string): void {
   const draft = cloneDraft()
-  draft.values[key] = Number((event.target as HTMLInputElement).value)
+  draft.values[key] = Number(value)
   publish(key, draft)
 }
 
@@ -80,6 +76,10 @@ function timeoutError(key: TimeoutSettingKey): string | undefined {
   return hasOverride(key) && !isValidTimeout(props.draft.values[key])
     ? t('settings.runtime.timeoutError')
     : undefined
+}
+
+function conflictFor(key: RuntimeSettingKey): SettingsMergeConflict | undefined {
+  return props.conflicts.find((conflict) => conflict.key === key)
 }
 
 function conflictValue(conflict: SettingsMergeConflict, side: 'mine' | 'latest'): string {
@@ -98,126 +98,166 @@ function conflictValue(conflict: SettingsMergeConflict, side: 'mine' | 'latest')
       <p>{{ t('settings.runtime.description') }}</p>
     </header>
 
-    <div v-if="relevantConflicts.length" class="settings-section__conflicts" role="alert">
-      <article v-for="conflict in relevantConflicts" :key="conflict.key">
-        <strong>{{ t(`settings.runtime.${conflict.key}`) }}</strong>
-        <span>{{ t('settings.conflict.mine') }}: {{ conflictValue(conflict, 'mine') }}</span>
-        <span>{{ t('settings.conflict.latest') }}: {{ conflictValue(conflict, 'latest') }}</span>
-        <div>
-          <AppButton variant="secondary" size="compact" @click="emit('chooseMine', conflict.key)">
-            {{ t('settings.conflict.useMine') }}
-          </AppButton>
-          <AppButton variant="ghost" size="compact" @click="emit('chooseLatest', conflict.key)">
-            {{ t('settings.conflict.useLatest') }}
-          </AppButton>
-        </div>
-      </article>
-    </div>
-
     <div class="settings-runtime__rows">
-      <RuntimeOverrideRow
-        v-for="key in timeoutKeys"
-        :key="key"
-        appearance="ledger"
-        :label="t(`settings.runtime.${key}`)"
-        :detail="
-          hasOverride(key)
-            ? t('settings.runtime.overrideValue')
-            : isPendingRestore(key)
-              ? t('settings.runtime.resetPending')
-              : t('settings.runtime.effectiveValue', { value: base.settings.values[key] })
-        "
-        :value-label="
-          hasOverride(key) || isPendingRestore(key)
-            ? undefined
-            : t('settings.runtime.currentEffective')
-        "
-        :source-label="
-          hasOverride(key)
-            ? t('settings.runtime.overrideSource')
-            : t('settings.runtime.defaultSource')
-        "
-        :action-label="
-          hasOverride(key) ? t('settings.runtime.restoreDefault') : t('settings.runtime.override')
-        "
-        :overridden="hasOverride(key)"
-        :disabled="disabled"
-        @toggle="toggleOverride(key)"
-      >
-        <template v-if="hasOverride(key)" #value>
-          <label class="settings-runtime__input">
-            <span class="sr-only">{{
-              t('settings.runtime.valueFor', { field: t(`settings.runtime.${key}`) })
-            }}</span>
-            <input
-              :id="`settings-value-${key}`"
-              type="number"
-              min="1"
-              max="9223372036"
-              step="1"
-              inputmode="numeric"
-              :value="draft.values[key]"
-              :disabled="disabled"
-              :aria-invalid="Boolean(timeoutError(key)) || undefined"
-              :aria-describedby="timeoutError(key) ? `settings-error-${key}` : undefined"
-              @input="setTimeoutValue(key, $event)"
-            />
-            <span aria-hidden="true">{{ t('settings.runtime.seconds') }}</span>
-          </label>
-          <small v-if="timeoutError(key)" :id="`settings-error-${key}`" role="alert">
-            {{ timeoutError(key) }}
-          </small>
-        </template>
-      </RuntimeOverrideRow>
+      <div v-for="key in timeoutKeys" :key="key" class="settings-runtime__entry">
+        <RuntimeOverrideRow
+          appearance="ledger"
+          :label="t(`settings.runtime.${key}`)"
+          :detail="
+            hasOverride(key)
+              ? t('settings.runtime.overrideValue')
+              : isPendingRestore(key)
+                ? t('settings.runtime.resetPending')
+                : t('settings.runtime.effectiveValue', { value: base.settings.values[key] })
+          "
+          :value-label="
+            hasOverride(key) || isPendingRestore(key)
+              ? undefined
+              : t('settings.runtime.currentEffective')
+          "
+          :source-label="
+            hasOverride(key)
+              ? t('settings.runtime.overrideSource')
+              : t('settings.runtime.defaultSource')
+          "
+          :action-label="
+            hasOverride(key) ? t('settings.runtime.restoreDefault') : t('settings.runtime.override')
+          "
+          :overridden="hasOverride(key)"
+          :disabled="disabled"
+          @toggle="toggleOverride(key)"
+        >
+          <template v-if="hasOverride(key)" #value>
+            <div class="settings-runtime__input">
+              <CompactFieldError :id="`settings-value-${key}`" :error="timeoutError(key)">
+                <template #default="{ invalid, describedBy }">
+                  <AppTextInput
+                    :id="`settings-value-${key}`"
+                    type="number"
+                    :model-value="String(draft.values[key])"
+                    :label="t('settings.runtime.valueFor', { field: t(`settings.runtime.${key}`) })"
+                    appearance="sunken"
+                    size="compact"
+                    monospace
+                    min="1"
+                    max="9223372036"
+                    step="1"
+                    inputmode="numeric"
+                    :disabled="disabled"
+                    :invalid="invalid"
+                    :described-by="describedBy"
+                    @update:model-value="setTimeoutValue(key, $event)"
+                  />
+                </template>
+              </CompactFieldError>
+              <span aria-hidden="true">{{ t('settings.runtime.seconds') }}</span>
+            </div>
+          </template>
+        </RuntimeOverrideRow>
+        <article v-if="conflictFor(key)" class="settings-runtime__conflict" role="alert">
+          <strong>{{ t(`settings.runtime.${key}`) }}</strong>
+          <span>
+            {{ t('settings.conflict.mine') }}:
+            {{ conflictValue(conflictFor(key)!, 'mine') }}
+          </span>
+          <span>
+            {{ t('settings.conflict.latest') }}:
+            {{ conflictValue(conflictFor(key)!, 'latest') }}
+          </span>
+          <div>
+            <AppButton variant="secondary" size="compact" @click="emit('chooseMine', key)">
+              {{ t('settings.conflict.useMine') }}
+            </AppButton>
+            <AppButton variant="ghost" size="compact" @click="emit('chooseLatest', key)">
+              {{ t('settings.conflict.useLatest') }}
+            </AppButton>
+          </div>
+        </article>
+      </div>
 
-      <RuntimeOverrideRow
-        appearance="ledger"
-        :label="t('settings.runtime.inject_usage_options')"
-        :detail="t('settings.runtime.injectUsageHelp')"
-        :value-label="
-          hasOverride('inject_usage_options') || isPendingRestore('inject_usage_options')
-            ? undefined
-            : t('settings.runtime.currentEffective')
-        "
-        :source-label="
-          hasOverride('inject_usage_options')
-            ? t('settings.runtime.overrideSource')
-            : t('settings.runtime.defaultSource')
-        "
-        :action-label="
-          hasOverride('inject_usage_options')
-            ? t('settings.runtime.restoreDefault')
-            : t('settings.runtime.override')
-        "
-        :overridden="hasOverride('inject_usage_options')"
-        :disabled="disabled"
-        @toggle="toggleOverride('inject_usage_options')"
-      >
-        <template #value>
-          <AppSwitch
-            v-if="hasOverride('inject_usage_options')"
-            :model-value="draft.values.inject_usage_options"
-            :disabled="disabled"
-            :label="
-              t('settings.runtime.valueFor', { field: t('settings.runtime.inject_usage_options') })
-            "
-            @update:model-value="setInjectUsage"
-          />
-          <template v-else>
-            <strong v-if="isPendingRestore('inject_usage_options')">{{
-              t('settings.runtime.resetPending')
-            }}</strong>
-            <template v-else>
-              <strong>{{
+      <div class="settings-runtime__entry">
+        <RuntimeOverrideRow
+          appearance="ledger"
+          :label="t('settings.runtime.inject_usage_options')"
+          :detail="t('settings.runtime.injectUsageHelp')"
+          :source-label="
+            hasOverride('inject_usage_options')
+              ? t('settings.runtime.overrideSource')
+              : t('settings.runtime.defaultSource')
+          "
+          :action-label="
+            hasOverride('inject_usage_options')
+              ? t('settings.runtime.restoreDefault')
+              : t('settings.runtime.override')
+          "
+          :overridden="hasOverride('inject_usage_options')"
+          :disabled="disabled"
+          @toggle="toggleOverride('inject_usage_options')"
+        >
+          <template #value>
+            <div class="settings-runtime__boolean">
+              <AppSwitch
+                v-if="hasOverride('inject_usage_options')"
+                :model-value="draft.values.inject_usage_options"
+                :disabled="disabled"
+                :label="
+                  t('settings.runtime.valueFor', {
+                    field: t('settings.runtime.inject_usage_options'),
+                  })
+                "
+                @update:model-value="setInjectUsage"
+              />
+              <strong v-else-if="isPendingRestore('inject_usage_options')">{{
+                t('settings.runtime.resetPending')
+              }}</strong>
+              <strong v-else>{{
                 base.settings.values.inject_usage_options
                   ? t('settings.runtime.enabled')
                   : t('settings.runtime.disabled')
               }}</strong>
-              <small>{{ t('settings.runtime.currentEffective') }}</small>
-            </template>
+              <small
+                v-if="
+                  !hasOverride('inject_usage_options') && !isPendingRestore('inject_usage_options')
+                "
+              >
+                {{ t('settings.runtime.currentEffective') }}
+              </small>
+              <small>{{ t('settings.runtime.injectUsageHelp') }}</small>
+            </div>
           </template>
-        </template>
-      </RuntimeOverrideRow>
+        </RuntimeOverrideRow>
+        <article
+          v-if="conflictFor('inject_usage_options')"
+          class="settings-runtime__conflict"
+          role="alert"
+        >
+          <strong>{{ t('settings.runtime.inject_usage_options') }}</strong>
+          <span>
+            {{ t('settings.conflict.mine') }}:
+            {{ conflictValue(conflictFor('inject_usage_options')!, 'mine') }}
+          </span>
+          <span>
+            {{ t('settings.conflict.latest') }}:
+            {{ conflictValue(conflictFor('inject_usage_options')!, 'latest') }}
+          </span>
+          <div>
+            <AppButton
+              variant="secondary"
+              size="compact"
+              @click="emit('chooseMine', 'inject_usage_options')"
+            >
+              {{ t('settings.conflict.useMine') }}
+            </AppButton>
+            <AppButton
+              variant="ghost"
+              size="compact"
+              @click="emit('chooseLatest', 'inject_usage_options')"
+            >
+              {{ t('settings.conflict.useLatest') }}
+            </AppButton>
+          </div>
+        </article>
+      </div>
     </div>
   </section>
 </template>
@@ -225,9 +265,10 @@ function conflictValue(conflict: SettingsMergeConflict, side: 'mine' | 'latest')
 <style scoped>
 .settings-section,
 .settings-section__heading,
-.settings-section__conflicts,
-.settings-section__conflicts article,
-.settings-runtime__rows {
+.settings-runtime__rows,
+.settings-runtime__entry,
+.settings-runtime__conflict,
+.settings-runtime__boolean {
   display: grid;
 }
 
@@ -252,11 +293,7 @@ function conflictValue(conflict: SettingsMergeConflict, side: 'mine' | 'latest')
   font-size: var(--text-label-xs);
 }
 
-.settings-section__conflicts {
-  gap: var(--space-2);
-}
-
-.settings-section__conflicts article {
+.settings-runtime__conflict {
   gap: var(--space-1);
   border: 1px solid var(--color-warning);
   border-radius: var(--radius-control);
@@ -264,7 +301,7 @@ function conflictValue(conflict: SettingsMergeConflict, side: 'mine' | 'latest')
   font-size: var(--text-label-xs);
 }
 
-.settings-section__conflicts article > div {
+.settings-runtime__conflict > div {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
@@ -278,24 +315,8 @@ function conflictValue(conflict: SettingsMergeConflict, side: 'mine' | 'latest')
   gap: var(--space-2);
 }
 
-.settings-runtime__input input {
-  width: 100%;
-  min-height: 32px;
-  border: 1px solid var(--color-border-control);
-  border-radius: var(--radius-control);
-  background: var(--color-surface-sunken);
-  color: var(--color-text);
-  padding: var(--space-1) var(--space-2);
-  font: inherit;
-  font-family: var(--font-mono);
-}
-
-.settings-runtime__input input:focus-visible {
-  outline: 2px solid var(--color-focus-ring);
-  outline-offset: 1px;
-}
-
-.settings-runtime__input input[aria-invalid='true'] {
-  border-color: var(--color-danger);
+.settings-runtime__boolean {
+  justify-items: start;
+  gap: var(--space-1);
 }
 </style>

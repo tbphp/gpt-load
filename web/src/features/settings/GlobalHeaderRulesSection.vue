@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import type { HeaderRulesDto } from '@/app/resources/groups'
@@ -28,7 +28,11 @@ const emit = defineEmits<{
 }>()
 const { t } = useI18n()
 const key = 'header_rules' as const
+const editorResetKey = ref(0)
 const overridden = computed(() => props.draft.overrides.has(key))
+const pendingRestore = computed(
+  () => !overridden.value && props.base.settings.overrides.includes(key),
+)
 const rules = computed(() =>
   overridden.value ? props.draft.values.header_rules : props.base.settings.values.header_rules,
 )
@@ -39,12 +43,24 @@ function cloneDraft(): SettingsDraft {
   return createSettingsDraft({ values: props.draft.values, overrides: [...props.draft.overrides] })
 }
 
-function toggleOverride(): void {
+function clearEditorState(): void {
+  emit('update:valid', true)
   emit('update:invalidEdits', false)
+}
+
+async function resetEditor(): Promise<void> {
+  clearEditorState()
+  await nextTick()
+  editorResetKey.value += 1
+}
+
+function toggleOverride(): void {
+  clearEditorState()
   emit('change', {
     key,
     draft: setSettingsOverride(props.base.settings, props.draft, key, !overridden.value),
   })
+  void resetEditor()
 }
 
 function updateRules(value: HeaderRulesDto): void {
@@ -61,6 +77,13 @@ function conflictSummary(side: 'mine' | 'latest'): string {
     count: Object.keys(value.set).length + value.remove.length,
   })
 }
+
+watch(
+  () => props.resetKey,
+  () => {
+    void resetEditor()
+  },
+)
 </script>
 
 <template>
@@ -71,9 +94,17 @@ function conflictSummary(side: 'mine' | 'latest'): string {
         <p>{{ t('settings.headers.description') }}</p>
       </div>
       <div class="settings-headers__meta">
-        <span>{{ t('settings.headers.ruleCount', { count: ruleCount }) }}</span>
         <span>{{
-          overridden ? t('settings.headers.overrideSource') : t('settings.headers.defaultSource')
+          pendingRestore
+            ? t('settings.headers.currentPublishedRuleCount', { count: ruleCount })
+            : t('settings.headers.ruleCount', { count: ruleCount })
+        }}</span>
+        <span>{{
+          overridden
+            ? t('settings.headers.overrideSource')
+            : pendingRestore
+              ? t('settings.headers.pendingRestoreSource')
+              : t('settings.headers.defaultSource')
         }}</span>
         <AppButton variant="secondary" size="compact" :disabled="disabled" @click="toggleOverride">
           {{ overridden ? t('settings.headers.restoreDefault') : t('settings.headers.override') }}
@@ -95,7 +126,7 @@ function conflictSummary(side: 'mine' | 'latest'): string {
       </div>
     </div>
 
-    <InlineFeedback v-if="!overridden && base.settings.overrides.includes(key)" tone="info">
+    <InlineFeedback v-if="pendingRestore" tone="info">
       {{ t('settings.headers.resetPending') }}
     </InlineFeedback>
     <InlineFeedback v-else-if="!overridden" tone="info">{{
@@ -110,7 +141,7 @@ function conflictSummary(side: 'mine' | 'latest'): string {
       appearance="ledger"
       :model-value="rules"
       :disabled="disabled || !overridden"
-      :reset-key="resetKey"
+      :reset-key="editorResetKey"
       @update:model-value="updateRules"
       @update:valid="emit('update:valid', $event)"
       @update:invalid-edits="emit('update:invalidEdits', $event)"

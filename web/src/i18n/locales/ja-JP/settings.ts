@@ -96,12 +96,15 @@ export default {
       title: 'グローバル Header Rules',
       description: 'すべてのアップストリーム要求の基本ルールです。',
       ruleCount: '{count} 件のルール',
+      currentPublishedRuleCount: '現在公開中のルール {count} 件',
       defaultSource: '組み込み既定値',
       overrideSource: '明示的な上書き',
+      pendingRestoreSource: '復元待ち・現在公開中',
       override: '上書き',
       restoreDefault: '既定値に戻す',
       inherited: '有効な組み込みルールを表示しています。編集するには上書きを有効にしてください。',
-      resetPending: '保存すると現在のバージョンの既定値に戻ります。',
+      resetPending:
+        '現在公開中の明示ルールを表示しています。保存後に現在のバージョンの既定値へ戻ります。',
       replacementWarning:
         'Group Header Rules の上書きはグローバルオブジェクト全体を置き換え、個別のルールをマージしません。',
       securityNotice:
