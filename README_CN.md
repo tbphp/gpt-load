@@ -138,7 +138,7 @@ GPT-Load 不把一种方言转换为另一种方言。Group 由 AccessKey 与运
 | `anthropic` | Anthropic |
 | `gemini` | Gemini |
 
-内置 OpenAI 供应商预设仍使用 `openai` 作为 preset ID，URL 仍是 `https://api.openai.com`，但默认同时勾选两种 OpenAI 协议。它们仍是普通、相互独立的多选项，用户可以只选任意一种或两种都选。
+内置 OpenAI 供应商预设仍使用 `openai` 作为 preset ID，URL 为 `https://api.openai.com/v1`，并默认同时勾选两种 OpenAI 协议。它们仍是普通、相互独立的多选项，用户可以只选任意一种或两种都选。
 
 Responses 路由按命名空间边界匹配，不维护资源接口白名单。AccessKey 认证完成后，`/v1/responses` 及其普通子路径都会进入同一套调度和转发管线；已解码的 `.` 或 `..` 路径段会在本地拒绝，避免路径规范化或重定向逃逸已授权命名空间。`OPTIONS`、`CONNECT`、`TRACE` 也在本地拒绝，其他 method（包括 `GET`、`POST`、`DELETE`、`HEAD`）直接转发。路径与 query 在 Go URL 规范化边界内保留：已解码的 `URL.Path` 会重新编码，`RawPath` 不保留。GPT-Load 不会根据资源 ID 跨 Key 查找；被选中上游的响应（包括资源不存在错误）会经过统一响应安全边界后返回。
 

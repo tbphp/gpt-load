@@ -139,7 +139,7 @@ The canonical protocol configuration values and display names are:
 | `anthropic` | Anthropic |
 | `gemini` | Gemini |
 
-The built-in OpenAI provider preset keeps the `openai` preset ID and `https://api.openai.com` URL, but enables both OpenAI protocols by default. They remain ordinary independent checkboxes: either one or both may be selected.
+The built-in OpenAI provider preset keeps the `openai` preset ID, uses `https://api.openai.com/v1` as its URL, and enables both OpenAI protocols by default. They remain ordinary independent checkboxes: either one or both may be selected.
 
 Responses routing uses the namespace boundary, not a per-resource allowlist. After AccessKey authentication, `/v1/responses` and its ordinary subpaths are sent through the same scheduler and forwarding pipeline. Decoded `.` or `..` path segments are rejected locally so normalization or redirects cannot escape the authorized namespace. `OPTIONS`, `CONNECT`, and `TRACE` are also rejected locally; other methods, including `GET`, `POST`, `DELETE`, and `HEAD`, are forwarded. Paths and queries are preserved within Go URL normalization: decoded `URL.Path` is re-encoded and `RawPath` is not retained. GPT-Load does not search other Keys for a resource ID; the selected upstream's response, including a resource-not-found error, is returned through the normal response-safety boundary.
 

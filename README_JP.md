@@ -139,7 +139,7 @@ GPT-Loadは方言間の変換を行いません。GroupはAccessKeyとランタ�
 | `anthropic` | Anthropic |
 | `gemini` | Gemini |
 
-組み込みOpenAIプロバイダープリセットは、preset IDとして`openai`を維持し、URLも`https://api.openai.com`のままですが、デフォルトで2つのOpenAIプロトコルを有効にします。両方とも通常の独立した選択肢で、どちらか一方または両方を選択できます。
+組み込みOpenAIプロバイダープリセットは、preset IDとして`openai`を維持し、URLに`https://api.openai.com/v1`を使用して、デフォルトで2つのOpenAIプロトコルを有効にします。両方とも通常の独立した選択肢で、どちらか一方または両方を選択できます。
 
 Responsesルーティングはリソースごとのallowlistではなく、名前空間境界で一致します。AccessKey認証後、`/v1/responses`と通常のサブパスは同じスケジューラーおよび転送パイプラインに入ります。デコード済みの`.`または`..`パスセグメントは、正規化やリダイレクトによる認可済み名前空間からの逸脱を防ぐためローカルで拒否します。`OPTIONS`、`CONNECT`、`TRACE`もローカルで拒否し、`GET`、`POST`、`DELETE`、`HEAD`を含むその他のmethodは転送します。パスとqueryはGo URL正規化の範囲内で保持され、デコード済み`URL.Path`は再エンコードされ、`RawPath`は保持されません。GPT-LoadはリソースIDを使って別のKeyを検索しません。選択された上流の応答（resource-not-foundを含む）は、共通の応答安全境界を通して返されます。
 
