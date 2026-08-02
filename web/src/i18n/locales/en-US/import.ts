@@ -153,10 +153,6 @@ export default {
         manual: 'Manual',
         discovered: 'Discovered',
       },
-      discoveryNotice:
-        'Discovery only suggests additions; it does not overwrite models, remove models, or save keys',
-      discoveryReadOnlyNotice:
-        'Discovery only reads candidates; it never creates a Group, saves keys, or sends inference requests',
       aliasFor: 'Alias for {id}',
       manualId: 'Manual model ID',
       manualIdRequired: 'Model ID is required',
@@ -168,7 +164,6 @@ export default {
         description: 'Only checked models are added; the current list is never overwritten',
         close: 'Close model list',
         loading: 'Getting upstream models…',
-        notice: 'Only checked models are added; the current list is not overwritten',
         search: 'Search upstream models',
         filterLabel: 'Model scope',
         filterUnadded: 'Unadded',
@@ -179,17 +174,14 @@ export default {
         empty: 'The upstream returned no available models',
         selected: '{count} selected',
         selectAll: 'Select all',
-        deselectAll: 'Deselect all',
+        deselectAll: 'Cancel',
         confirm: 'Add to current list',
       },
     },
     discover: 'Get upstream models',
-    discoveryFailed:
-      'Discovery failed; your draft is intact and you can retry or enter models manually',
     create: 'Create Group',
     summary: '{keys} keys · {protocols} protocols · {models} models',
     summaryOptional: '{keys} keys · {protocols} protocols · models optional',
-    actionHelp: 'Create the Group and import keys atomically; models may be empty',
     createFailed: 'Unable to create the Group',
     appendFailed: 'Unable to import keys into the selected Group',
     conflict: {

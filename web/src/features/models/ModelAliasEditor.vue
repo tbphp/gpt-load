@@ -181,7 +181,7 @@ defineExpose({ addManual, focusFirstInvalid })
                 :id="`${instanceId}-model-id-${index}`"
                 :model-value="item.id"
                 appearance="surface"
-                size="sm"
+                size="compact"
                 monospace
                 :label="labels.id"
                 :placeholder="labels.manualId"
@@ -224,7 +224,7 @@ defineExpose({ addManual, focusFirstInvalid })
                   :id="`${instanceId}-model-alias-${index}`"
                   :model-value="item.alias"
                   appearance="surface"
-                  size="sm"
+                  size="compact"
                   :label="labels.aliasFor(item.id)"
                   :disabled="disabled"
                   :placeholder="labels.aliasPlaceholder"
@@ -352,6 +352,7 @@ defineExpose({ addManual, focusFirstInvalid })
   min-height: var(--control-sm);
   max-width: 300px;
   align-items: center;
+  padding-left: 6px;
 }
 
 .model-alias-editor__id-field :deep(.app-text-input) {

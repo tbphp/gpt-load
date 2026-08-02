@@ -19,7 +19,7 @@ export interface GroupSettingsDraft {
   overrides: GroupRuntimeConfigDto
 }
 
-const timeoutKeys: GroupTimeoutKey[] = [
+export const groupTimeoutKeys: readonly GroupTimeoutKey[] = [
   'connect_timeout',
   'first_byte_timeout',
   'request_timeout',
@@ -32,7 +32,7 @@ function cloneHeaders(value: HeaderRulesDto): HeaderRulesDto {
 
 function cloneOverrides(value: GroupRuntimeConfigDto): GroupRuntimeConfigDto {
   const next: GroupRuntimeConfigDto = {}
-  for (const key of timeoutKeys) if (value[key] !== undefined) next[key] = value[key]
+  for (const key of groupTimeoutKeys) if (value[key] !== undefined) next[key] = value[key]
   if (value.header_rules) next.header_rules = cloneHeaders(value.header_rules)
   if (value.inject_usage_options !== undefined)
     next.inject_usage_options = value.inject_usage_options

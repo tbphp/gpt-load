@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { ArrowRight, Trash2 } from '@lucide/vue'
-import { computed, onBeforeUnmount, watch } from 'vue'
+import { computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { useApiClient } from '@/api/client-context'
-import { revealAccessKey } from '@/app/resources/access-keys'
 import type { AccessKeyCollectionItemDto, GroupOptionDto } from '@/api/control/types'
+import { revealAccessKey } from '@/app/resources/access-keys'
+import { useAbortControllerPool } from '@/app/use-abort-controller-pool'
 import LedgerRecordList from '@/components/collection/LedgerRecordList.vue'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppRelativeTime from '@/components/ui/AppRelativeTime.vue'
@@ -14,11 +15,11 @@ import IconButton from '@/components/ui/IconButton.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 
 import AccessKeyDeleteDialog from './AccessKeyDeleteDialog.vue'
-import { presentAccessKey } from './access-key-presenter'
+import { presentAccessKeyCollection } from './access-key-presenter'
 
 const props = defineProps<{
-  accessKeys: AccessKeyCollectionItemDto[]
-  groups: GroupOptionDto[]
+  accessKeys: readonly AccessKeyCollectionItemDto[]
+  groups: readonly GroupOptionDto[]
   total: number
   filteredTotal: number
   page: number
@@ -32,45 +33,42 @@ const emit = defineEmits<{
 }>()
 const client = useApiClient()
 const { locale, t } = useI18n()
-const copyControllers = new Set<AbortController>()
+const copyControllers = useAbortControllerPool()
+const sources = computed(() => new Map(props.accessKeys.map((accessKey) => [accessKey.id, accessKey])))
 
 const presentations = computed(() =>
-  props.accessKeys.map((accessKey) =>
-    presentAccessKey(accessKey, props.groups, {
-      locale: locale.value,
-      labels: {
-        groups: t('accessKeys.filterGroups'),
-        protocols: t('accessKeys.filterProtocols'),
-        models: t('accessKeys.filterModels'),
-        allGroups: t('accessKeys.allGroups'),
-        allProtocols: t('accessKeys.allProtocols'),
-        allModels: t('accessKeys.allModels'),
-        unlimited: t('accessKeys.unlimited'),
-      },
-      protocolLabel: (protocol) => t(`common.protocols.${protocol}`),
-    }),
-  ),
+  presentAccessKeyCollection(props.accessKeys, props.groups, {
+    locale: locale.value,
+    labels: {
+      groups: t('accessKeys.filterGroups'),
+      protocols: t('accessKeys.filterProtocols'),
+      models: t('accessKeys.filterModels'),
+      allGroups: t('accessKeys.allGroups'),
+      allProtocols: t('accessKeys.allProtocols'),
+      allModels: t('accessKeys.allModels'),
+      unlimited: t('accessKeys.unlimited'),
+    },
+    protocolLabel: (protocol) => t(`common.protocols.${protocol}`),
+  }),
 )
 function source(id: number): AccessKeyCollectionItemDto {
-  const accessKey = props.accessKeys.find((candidate) => candidate.id === id)
+  const accessKey = sources.value.get(id)
   if (!accessKey) throw new Error(`ACCESS_KEY_SOURCE_MISSING:${id}`)
   return accessKey
 }
 
 async function resolveCopyValue(id: number): Promise<string> {
-  const controller = new AbortController()
-  copyControllers.add(controller)
+  const controller = copyControllers.create()
   try {
     const result = await revealAccessKey(client, id, controller.signal)
     return result.key
   } finally {
-    copyControllers.delete(controller)
+    copyControllers.release(controller)
   }
 }
 
 function conceal(): void {
-  for (const controller of copyControllers) controller.abort()
-  copyControllers.clear()
+  copyControllers.abortAll()
 }
 
 defineExpose({ conceal })
@@ -79,10 +77,6 @@ watch(
   () => [props.page, props.accessKeys.map(({ id }) => id).join(',')],
   () => conceal(),
 )
-
-onBeforeUnmount(() => {
-  conceal()
-})
 </script>
 
 <template>

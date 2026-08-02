@@ -14,13 +14,13 @@ import {
 } from '@/app/resources/groups'
 import { invalidateGroupSummary } from '@/app/resources/groups'
 import { useUnsavedChanges } from '@/app/unsaved-changes'
+import { useTransientFlag } from '@/app/use-transient-flag'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppConfirmDialog from '@/components/ui/AppConfirmDialog.vue'
 import PanelHeader from '@/components/ui/PanelHeader.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import StickySaveBar from '@/components/ui/StickySaveBar.vue'
 import ModelAliasEditor from '@/features/models/ModelAliasEditor.vue'
-import ModelDiscoveryNotice from '@/features/models/ModelDiscoveryNotice.vue'
 import ModelDiscoveryDrawer from '@/features/models/ModelDiscoveryDrawer.vue'
 import {
   readModelNameConflicts,
@@ -55,10 +55,13 @@ const modelEditor = ref<{
 }>()
 const emptyConfirmOpen = ref(false)
 const candidates = ref<string[]>([])
-const savedFeedback = ref(false)
+const {
+  value: savedFeedback,
+  clear: clearSavedFeedback,
+  show: showSavedFeedback,
+} = useTransientFlag(1_600)
 let nextKey = 1
 let controller: AbortController | undefined
-let savedFeedbackTimer: ReturnType<typeof setTimeout> | undefined
 
 const conflicts = computed(() =>
   serverConflicts.value.length
@@ -146,7 +149,6 @@ const discoveryDrawerLabels = computed<ModelDiscoveryDrawerLabels>(() => ({
   description: t('group.modelEditor.drawer.description'),
   close: t('group.modelEditor.drawer.close'),
   loading: t('group.modelEditor.drawer.loading'),
-  notice: t('group.modelEditor.discoveryNotice'),
   search: t('group.modelEditor.drawer.search'),
   clearSearch: t('group.modelEditor.clearSearch'),
   filterLabel: t('group.modelEditor.drawer.filterLabel'),
@@ -158,7 +160,7 @@ const discoveryDrawerLabels = computed<ModelDiscoveryDrawerLabels>(() => ({
   empty: t('group.modelEditor.drawer.empty'),
   selected: (count) => t('group.modelEditor.drawer.selected', { count }),
   selectAll: t('group.modelEditor.drawer.selectAll'),
-  deselectAll: t('group.modelEditor.drawer.clearAll'),
+  deselectAll: t('group.modelEditor.drawer.deselectAll'),
   retry: t('common.retry'),
   cancel: t('common.cancel'),
   confirm: t('group.modelEditor.drawer.confirm'),
@@ -237,7 +239,7 @@ async function runDiscovery(): Promise<void> {
     discoveryError.value =
       cause instanceof ApiError && cause.code === 'NO_ACTIVE_UPSTREAM_KEY'
         ? t('group.modelEditor.noActiveKey.title')
-        : t('group.modelEditor.discoveryFailed')
+        : t('common.modelDiscoveryFailed')
   } finally {
     if (controller === active) {
       controller = undefined
@@ -330,24 +332,8 @@ function discard(): void {
   draft.value = saved.value.map((item) => ({ ...item }))
 }
 
-function clearSavedFeedback(): void {
-  if (savedFeedbackTimer !== undefined) clearTimeout(savedFeedbackTimer)
-  savedFeedbackTimer = undefined
-  savedFeedback.value = false
-}
-
-function showSavedFeedback(): void {
-  clearSavedFeedback()
-  savedFeedback.value = true
-  savedFeedbackTimer = setTimeout(() => {
-    savedFeedback.value = false
-    savedFeedbackTimer = undefined
-  }, 1_600)
-}
-
 onBeforeUnmount(() => {
   controller?.abort()
-  if (savedFeedbackTimer !== undefined) clearTimeout(savedFeedbackTimer)
 })
 </script>
 
@@ -396,8 +382,6 @@ onBeforeUnmount(() => {
           </span>
         </template>
       </ModelAliasEditor>
-      <ModelDiscoveryNotice :message="t('group.modelEditor.discoveryNotice')" />
-
       <ModelDiscoveryDrawer
         :open="drawerOpen"
         :candidates="candidates"
@@ -463,11 +447,11 @@ onBeforeUnmount(() => {
             </span>
           </div></template
         ><template #discard="{ disabled }"
-          ><AppButton variant="ghost" :disabled="disabled || !dirty" @click="discard">{{
+          ><AppButton variant="ghost" size="sm" :disabled="disabled || !dirty" @click="discard">{{
             t('common.discard')
           }}</AppButton></template
         ><template #save="{ disabled }"
-          ><AppButton :disabled="disabled || !canSave" @click="requestSave">{{
+          ><AppButton size="sm" :disabled="disabled || !canSave" @click="requestSave">{{
             t('group.modelEditor.save')
           }}</AppButton></template
         ></StickySaveBar

@@ -41,7 +41,6 @@ export interface ModelDiscoveryDrawerLabels {
   description: string
   close: string
   loading: string
-  notice: string
   search: string
   clearSearch: string
   filterLabel: string

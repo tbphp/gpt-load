@@ -11,10 +11,7 @@ export interface AccessKeyPresentation {
   maskedKey: string
   status: AccessKeyDto['status']
   scopeRows: ReadonlyArray<{ label: string; value: string }>
-  scopeSummary: string
   rpm: string
-  createdAt: number
-  updatedAt: number
   lastRequestAt: number | null
 }
 
@@ -34,12 +31,11 @@ export interface AccessKeyPresenterOptions {
   protocolLabel(protocol: AccessProtocol): string
 }
 
-export function presentAccessKey(
+function presentAccessKeyWithGroupNames(
   accessKey: AccessKeyCollectionItemDto,
-  groups: readonly GroupOptionDto[],
+  groupNames: ReadonlyMap<number, string>,
   options: AccessKeyPresenterOptions,
 ): AccessKeyPresentation {
-  const groupNames = new Map(groups.map((group) => [group.id, group.name]))
   const groupValue =
     accessKey.filters.groups.length === 0
       ? options.labels.allGroups
@@ -64,13 +60,21 @@ export function presentAccessKey(
     maskedKey: accessKey.masked_key,
     status: accessKey.status,
     scopeRows,
-    scopeSummary: scopeRows.map((row) => `${row.label}: ${row.value}`).join(' · '),
     rpm:
       accessKey.rpm_limit === 0
         ? options.labels.unlimited
         : `${new Intl.NumberFormat(options.locale).format(accessKey.rpm_limit)} RPM`,
-    createdAt: accessKey.created_at_ms,
-    updatedAt: accessKey.updated_at_ms,
     lastRequestAt: accessKey.last_request_at_ms,
   }
+}
+
+export function presentAccessKeyCollection(
+  accessKeys: readonly AccessKeyCollectionItemDto[],
+  groups: readonly GroupOptionDto[],
+  options: AccessKeyPresenterOptions,
+): AccessKeyPresentation[] {
+  const groupNames = new Map(groups.map((group) => [group.id, group.name]))
+  return accessKeys.map((accessKey) =>
+    presentAccessKeyWithGroupNames(accessKey, groupNames, options),
+  )
 }

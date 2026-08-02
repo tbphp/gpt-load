@@ -58,6 +58,7 @@ defineExpose({ focus })
 <template>
   <div
     class="app-text-input"
+    data-input-shell
     :class="[
       `app-text-input--${appearance}`,
       `app-text-input--${size}`,
@@ -71,6 +72,7 @@ defineExpose({ focus })
     <input
       :id="inputId"
       ref="input"
+      data-input-inner
       v-bind="attrs"
       :value="modelValue"
       type="text"
@@ -141,11 +143,6 @@ defineExpose({ focus })
 
 .app-text-input--touch {
   min-height: var(--touch-target);
-}
-
-.app-text-input:focus-within:not(.app-text-input--disabled) {
-  border-color: var(--color-action);
-  box-shadow: var(--focus-ring);
 }
 
 .app-text-input--invalid {

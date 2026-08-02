@@ -17,6 +17,7 @@ import {
 } from '@/lib/format'
 
 import type { HomeStatisticsState } from './home-presenter'
+import { homeRangeLabelKey } from './home-range'
 
 const props = withDefaults(
   defineProps<{
@@ -89,7 +90,7 @@ const costDetailExact = computed(() => {
       })
 })
 function rangeLabel(range: HomeRange): string {
-  return t(range === '24h' ? 'home.range.display24Hours' : 'home.range.display30Days')
+  return t(homeRangeLabelKey(range))
 }
 function selectRange(value: string): void {
   if (value === '24h' || value === '30d') emit('selectRange', value)
@@ -174,6 +175,7 @@ function selectRange(value: string): void {
       :model-value="selectedRange"
       :label="t('home.range.label')"
       :options="rangeOptions"
+      size="compact"
       @update:model-value="selectRange"
     />
   </section>

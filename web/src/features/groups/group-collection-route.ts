@@ -6,6 +6,13 @@ import type {
   GroupCollectionStatus,
   GroupProtocol,
 } from '@/api/control/types'
+import {
+  constrainCollectionSearch,
+  isCanonicalRouteQuery,
+  normalizeCollectionSearch,
+  parsePositiveRouteInteger,
+  scalarRouteQuery,
+} from '@/app/route-query'
 
 const defaultFilters: GroupCollectionFilters = {
   sort: 'status',
@@ -20,38 +27,22 @@ const protocols = new Set<GroupProtocol>([
   'gemini',
 ])
 const sorts = new Set<GroupCollectionSort>(['status', 'name', 'keys', 'created'])
-const maxSearchCodePoints = 200
-
-function scalar(queryValue: LocationQuery[string]): string | undefined {
-  return typeof queryValue === 'string' ? queryValue : undefined
-}
-
-function canonicalPositiveInteger(value: LocationQuery[string]): number | undefined {
-  const candidate = scalar(value)
-  if (candidate === undefined || !/^[1-9]\d*$/.test(candidate)) return undefined
-  const parsed = Number(candidate)
-  return Number.isSafeInteger(parsed) ? parsed : undefined
-}
 
 export function normalizeGroupCollectionSearchQuery(value: string | undefined): string | undefined {
-  const trimmed = value?.trim()
-  if (!trimmed) return undefined
-  return Array.from(trimmed).length <= maxSearchCodePoints ? trimmed : undefined
+  return normalizeCollectionSearch(value)
 }
 
 export function constrainGroupCollectionSearchQuery(value: string | undefined): string | undefined {
-  const trimmed = value?.trim()
-  if (!trimmed) return undefined
-  return Array.from(trimmed).slice(0, maxSearchCodePoints).join('')
+  return constrainCollectionSearch(value)
 }
 
 export function parseGroupCollectionRouteQuery(query: LocationQuery): GroupCollectionFilters {
   const filters: GroupCollectionFilters = { ...defaultFilters }
-  const q = normalizeGroupCollectionSearchQuery(scalar(query.q))
-  const status = scalar(query.status)
-  const protocol = scalar(query.protocol)
-  const sort = scalar(query.sort)
-  const page = canonicalPositiveInteger(query.page)
+  const q = normalizeGroupCollectionSearchQuery(scalarRouteQuery(query.q))
+  const status = scalarRouteQuery(query.status)
+  const protocol = scalarRouteQuery(query.protocol)
+  const sort = scalarRouteQuery(query.sort)
+  const page = parsePositiveRouteInteger(query.page)
 
   if (q) filters.q = q
   if (status !== undefined && statuses.has(status as GroupCollectionStatus)) {
@@ -85,9 +76,5 @@ export function isCanonicalGroupCollectionRouteQuery(
   query: LocationQuery,
   filters: GroupCollectionFilters,
 ): boolean {
-  const canonical = serializeGroupCollectionRouteQuery(filters)
-  const actualKeys = Object.keys(query)
-  const canonicalKeys = Object.keys(canonical)
-  if (actualKeys.length !== canonicalKeys.length) return false
-  return canonicalKeys.every((key) => query[key] === canonical[key])
+  return isCanonicalRouteQuery(query, serializeGroupCollectionRouteQuery(filters))
 }

@@ -1,11 +1,11 @@
 <script setup lang="ts">
+import { LoaderCircle, RefreshCw } from '@lucide/vue'
 import { computed, ref, watch } from 'vue'
 
 import AppButton from '@/components/ui/AppButton.vue'
 import AppDrawer from '@/components/ui/AppDrawer.vue'
 import AppSearchInput from '@/components/ui/AppSearchInput.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
-import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import SegmentedControl from '@/components/ui/SegmentedControl.vue'
 
 import type { ModelDiscoveryDrawerLabels } from './model-draft'
@@ -146,15 +146,22 @@ function confirm(): void {
     </template>
     <div class="model-discovery-drawer" :aria-busy="loading ? 'true' : undefined">
       <div v-if="loading" class="model-discovery-drawer__state">
-        <QueryFeedback state="loading" :message="labels.loading" />
+        <InlineFeedback>
+          <template #glyph>
+            <LoaderCircle class="model-discovery-drawer__loading-icon" :size="16" />
+          </template>
+          {{ labels.loading }}
+        </InlineFeedback>
       </div>
       <div v-else-if="error" class="model-discovery-drawer__state">
-        <QueryFeedback
-          state="error"
-          :message="error"
-          :retry-label="labels.retry"
-          @retry="emit('retry')"
-        />
+        <InlineFeedback tone="danger">
+          {{ error }}
+          <template #action>
+            <AppButton variant="link" size="inline" @click="emit('retry')">
+              <RefreshCw :size="15" aria-hidden="true" />{{ labels.retry }}
+            </AppButton>
+          </template>
+        </InlineFeedback>
       </div>
       <template v-else>
         <fieldset class="model-discovery-drawer__candidate-list">
@@ -174,7 +181,11 @@ function confirm(): void {
             <code>{{ candidate }}</code>
             <span>{{ currentIds.has(candidate) ? labels.alreadyAdded : labels.unadded }}</span>
           </label>
-          <InlineFeedback v-if="!visibleCandidates.length" tone="warning">
+          <InlineFeedback
+            v-if="!visibleCandidates.length"
+            class="model-discovery-drawer__empty-feedback"
+            tone="warning"
+          >
             {{ normalizedCandidates.length ? labels.noMatches : labels.empty }}
           </InlineFeedback>
         </fieldset>
@@ -185,8 +196,8 @@ function confirm(): void {
       <div class="model-discovery-drawer__footer">
         <div class="model-discovery-drawer__selection">
           <AppButton
-            variant="link"
-            size="inline"
+            variant="secondary"
+            size="compact"
             :disabled="loading || !selectableVisibleCandidates.length"
             @click="toggleVisibleCandidates"
           >
@@ -197,13 +208,17 @@ function confirm(): void {
         <div class="model-discovery-drawer__actions">
           <AppButton
             variant="secondary"
-            size="sm"
+            size="compact"
             :disabled="loading"
             @click="emit('update:open', false)"
           >
             {{ labels.cancel }}
           </AppButton>
-          <AppButton size="sm" :disabled="loading || !selectedCandidates.length" @click="confirm">
+          <AppButton
+            size="compact"
+            :disabled="loading || !selectedCandidates.length"
+            @click="confirm"
+          >
             {{ labels.confirm }}
           </AppButton>
         </div>
@@ -227,6 +242,19 @@ function confirm(): void {
   display: grid;
   min-height: 280px;
   align-items: start;
+}
+
+.model-discovery-drawer__state > .inline-feedback {
+  margin-top: var(--space-3);
+  align-items: center;
+}
+
+.model-discovery-drawer__state > .inline-feedback :deep(.inline-feedback__action) {
+  align-self: center;
+}
+
+.model-discovery-drawer__loading-icon {
+  animation: model-discovery-drawer-spin 1s linear infinite;
 }
 
 .model-discovery-drawer__candidate-list {
@@ -269,6 +297,10 @@ function confirm(): void {
   cursor: not-allowed;
 }
 
+.model-discovery-drawer__empty-feedback {
+  margin-top: var(--space-3);
+}
+
 .model-discovery-drawer__footer {
   display: flex;
   width: 100%;
@@ -286,13 +318,6 @@ function confirm(): void {
   gap: var(--space-2);
 }
 
-.model-discovery-drawer__selection :deep(.app-button) {
-  min-height: 0;
-  padding: 4px 0;
-  font-size: var(--text-sm);
-  font-weight: 600;
-}
-
 @media (max-width: 520px) {
   .model-discovery-drawer__footer {
     align-items: stretch;
@@ -305,7 +330,18 @@ function confirm(): void {
 
   .model-discovery-drawer__actions :deep(.app-button) {
     flex: 1;
-    min-height: var(--touch-target);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .model-discovery-drawer__loading-icon {
+    animation: none;
+  }
+}
+
+@keyframes model-discovery-drawer-spin {
+  to {
+    transform: rotate(360deg);
   }
 }
 </style>

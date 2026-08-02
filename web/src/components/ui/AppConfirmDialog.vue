@@ -49,7 +49,7 @@ const emit = defineEmits<{
     <template #footer>
       <AppButton
         variant="secondary"
-        :size="appearance === 'ledger' ? 'md' : 'lg'"
+        size="compact"
         :disabled="pending || !dismissible"
         @click="emit('update:open', false)"
       >
@@ -57,7 +57,7 @@ const emit = defineEmits<{
       </AppButton>
       <AppButton
         :variant="tone === 'danger' ? 'danger' : 'primary'"
-        :size="appearance === 'ledger' ? 'md' : 'lg'"
+        size="compact"
         :busy="pending"
         :disabled="confirmDisabled"
         @click="emit('confirm')"

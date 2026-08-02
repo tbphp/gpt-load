@@ -39,11 +39,11 @@ const errorId = computed(() => (invalid.value ? `${props.id}-error` : undefined)
   padding-inline-end: 38px;
 }
 
-.compact-field-error[data-invalid='true'] :deep(input) {
+.compact-field-error[data-invalid='true'] :deep([data-input-shell]) {
   border-color: var(--color-danger);
 }
 
-.compact-field-error[data-invalid='true'] :deep(input:focus) {
+.compact-field-error[data-invalid='true'] :deep([data-input-shell]:focus-within) {
   border-color: var(--color-danger);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-danger) 15%, transparent);
 }

@@ -16,6 +16,7 @@ import ConsumptionRanking from './ConsumptionRanking.vue'
 import GatewayConnection from './GatewayConnection.vue'
 import HomeSummary from './HomeSummary.vue'
 import HomeWelcome from './HomeWelcome.vue'
+import { homeRangeLabelKey } from './home-range'
 import { useHomeStatisticsPresenter } from './home-presenter'
 
 const client = useApiClient()
@@ -52,7 +53,7 @@ const isEmpty = computed(() => {
   )
 })
 function rangeLabel(range: HomeRange): string {
-  return t(range === '24h' ? 'home.range.display24Hours' : 'home.range.display30Days')
+  return t(homeRangeLabelKey(range))
 }
 
 const uptimeTimer = window.setInterval(() => {

@@ -67,6 +67,7 @@ function tokenCellAttributes(totalTokens: number): { title: string; 'aria-label'
         v-model="dimension"
         :label="t('home.ledger.ranking.tabs.label')"
         :options="options"
+        size="compact"
       />
     </div>
 

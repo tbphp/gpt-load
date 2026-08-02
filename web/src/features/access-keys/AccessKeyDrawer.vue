@@ -7,7 +7,6 @@ import { useQueryClient } from '@tanstack/vue-query'
 import { useApiClient } from '@/api/client-context'
 import {
   createAccessKey,
-  listAccessKeyCollection,
   updateAccessKey,
   type CreateAccessKeyRequest,
 } from '@/app/resources/access-keys'
@@ -25,8 +24,14 @@ import {
   buildAccessKeyModelOptions,
   buildAccessKeyProtocolCandidates,
 } from './access-key-options'
-import type { PendingAccessKeyCreateOperation } from './access-key-create-operation'
-import type { PendingAccessKeyEditOperation } from './access-key-edit-operation'
+import {
+  cloneAccessKeyCreatePayload,
+  type PendingAccessKeyCreateOperation,
+} from './access-key-create-operation'
+import {
+  findAccessKeyForReconciliation,
+  type PendingAccessKeyEditOperation,
+} from './access-key-edit-operation'
 import AccessKeyDeleteDialog from './AccessKeyDeleteDialog.vue'
 import AccessKeyFormFields from './AccessKeyFormFields.vue'
 import AccessKeyOperationFeedback from './AccessKeyOperationFeedback.vue'
@@ -210,19 +215,6 @@ const groupOptions = computed(() => {
 })
 const unsavedChanges = useUnsavedChanges(unsavedDirty, { blocked: closeBlocked })
 
-function cloneCreatePayload(payload: CreateAccessKeyRequest): CreateAccessKeyRequest {
-  return {
-    name: payload.name,
-    status: payload.status,
-    filters: {
-      groups: [...payload.filters.groups],
-      protocols: [...payload.filters.protocols],
-      models: [...payload.filters.models],
-    },
-    rpm_limit: payload.rpm_limit,
-  }
-}
-
 function clearLocalState(): void {
   controller?.abort()
   controller = undefined
@@ -260,7 +252,7 @@ async function resetForOpen(): Promise<void> {
     ? ''
     : (carriedCreateOperation?.idempotencyKey ?? crypto.randomUUID())
   createPayload.value = carriedCreateOperation
-    ? cloneCreatePayload(carriedCreateOperation.payload)
+    ? cloneAccessKeyCreatePayload(carriedCreateOperation.payload)
     : null
   createOperationRetained.value = carriedCreateOperation !== null
   editOperationRetained.value = carriedEditOperation !== null
@@ -390,7 +382,7 @@ async function save(): Promise<void> {
   if (updateBody && Object.keys(updateBody).length === 0) return
 
   if (activeCreatePayload && !createPayload.value) {
-    createPayload.value = cloneCreatePayload(activeCreatePayload)
+    createPayload.value = cloneAccessKeyCreatePayload(activeCreatePayload)
   }
   pending.value = true
   failed.value = false
@@ -469,7 +461,7 @@ async function save(): Promise<void> {
     ) {
       emit('update:createOperation', {
         idempotencyKey: activeOperationID,
-        payload: cloneCreatePayload(activeCreatePayload),
+        payload: cloneAccessKeyCreatePayload(activeCreatePayload),
         state: outcome.kind,
       })
       createOperationRetained.value = true
@@ -511,7 +503,11 @@ async function reconcileEdit(): Promise<void> {
   controller = new AbortController()
   const activeController = controller
   try {
-    const latest = await findAccessKeyForReconciliation(attempt.base.id, activeController.signal)
+    const latest = await findAccessKeyForReconciliation(
+      client,
+      attempt.base.id,
+      activeController.signal,
+    )
     if (controller !== activeController || editReconciliation.value !== attempt || !props.open) {
       return
     }
@@ -586,48 +582,6 @@ async function reconcileEdit(): Promise<void> {
       pending.value = false
     }
   }
-}
-
-async function findAccessKeyForReconciliation(
-  id: number,
-  signal: AbortSignal,
-): Promise<AccessKeyDto | undefined> {
-  const firstPage = await listAccessKeyCollection(client, { page: 1, page_size: 20 }, signal)
-  const expectedSummary = firstPage.summary
-  const expectedPagination = firstPage.pagination
-  const records = new Map<number, AccessKeyDto>()
-
-  function capturePage(page: typeof firstPage): void {
-    if (
-      page.summary.total !== expectedSummary.total ||
-      page.summary.active !== expectedSummary.active ||
-      page.summary.disabled !== expectedSummary.disabled ||
-      page.pagination.total_items !== expectedPagination.total_items ||
-      page.pagination.total_pages !== expectedPagination.total_pages ||
-      page.pagination.page_size !== expectedPagination.page_size
-    ) {
-      throw new Error('ACCESS_KEY_COLLECTION_CHANGED_DURING_RECONCILIATION')
-    }
-    for (const accessKey of page.items) {
-      if (records.has(accessKey.id)) {
-        throw new Error('ACCESS_KEY_COLLECTION_CHANGED_DURING_RECONCILIATION')
-      }
-      records.set(accessKey.id, accessKey)
-    }
-  }
-
-  capturePage(firstPage)
-  for (let page = 2; page <= expectedPagination.total_pages; page += 1) {
-    const result = await listAccessKeyCollection(client, { page, page_size: 20 }, signal)
-    if (result.pagination.page !== page) {
-      throw new Error('ACCESS_KEY_COLLECTION_CHANGED_DURING_RECONCILIATION')
-    }
-    capturePage(result)
-  }
-  if (records.size !== expectedPagination.total_items) {
-    throw new Error('ACCESS_KEY_COLLECTION_CHANGED_DURING_RECONCILIATION')
-  }
-  return records.get(id)
 }
 
 onBeforeUnmount(clearLocalState)

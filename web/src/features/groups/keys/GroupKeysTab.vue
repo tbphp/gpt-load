@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { KeyRound, Plus, Search } from '@lucide/vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -25,6 +25,8 @@ import {
 } from '@/app/resources/upstream-keys'
 import { groupDetailLocation, importLocation } from '@/app/route-locations'
 import { controlQueryKeys } from '@/app/query-keys'
+import { useAbortControllerPool } from '@/app/use-abort-controller-pool'
+import { useDebouncedAction } from '@/app/use-debounced-action'
 import CollectionFilterBar from '@/components/collection/CollectionFilterBar.vue'
 import CollectionStatusSummary from '@/components/collection/CollectionStatusSummary.vue'
 import LedgerRecordList from '@/components/collection/LedgerRecordList.vue'
@@ -40,6 +42,7 @@ import GroupKeyBatchBar from './GroupKeyBatchBar.vue'
 import GroupKeyRecord from './GroupKeyRecord.vue'
 import {
   constrainGroupKeySearch,
+  isCanonicalGroupKeyRouteQuery,
   parseGroupKeyRouteQuery,
   serializeGroupKeyRouteQuery,
 } from '../group-route'
@@ -57,8 +60,8 @@ const selectedIds = ref(new Set<number>())
 const pendingOperations = ref(new Set<string>())
 const feedback = ref('')
 const deleteTarget = ref<{ ids: number[]; mask?: string } | undefined>()
-const copyControllers = new Set<AbortController>()
-let searchTimer: ReturnType<typeof setTimeout> | undefined
+const copyControllers = useAbortControllerPool()
+const searchDebounce = useDebouncedAction(250)
 
 const collection = computed(() => keysQuery.data.value)
 const selectedCount = computed(() => selectedIds.value.size)
@@ -121,19 +124,11 @@ const statusSummaryItems = computed(() => {
 watch(
   () => route.query,
   (query) => {
-    if (searchTimer !== undefined) {
-      clearTimeout(searchTimer)
-      searchTimer = undefined
-    }
+    searchDebounce.cancel()
     const next = parseGroupKeyRouteQuery(query)
     searchDraft.value = next.q ?? ''
-    const canonical = serializeGroupKeyRouteQuery(next)
-    const keys = Object.keys(canonical)
-    if (
-      Object.keys(query).length !== keys.length ||
-      keys.some((key) => query[key] !== canonical[key])
-    ) {
-      void router.replace(groupDetailLocation(props.groupId, canonical))
+    if (!isCanonicalGroupKeyRouteQuery(query, next)) {
+      void router.replace(groupDetailLocation(props.groupId, serializeGroupKeyRouteQuery(next)))
     }
   },
   { deep: true, immediate: true },
@@ -173,23 +168,19 @@ function setFilter(
 }
 
 function scheduleSearch(): void {
-  if (searchTimer !== undefined) clearTimeout(searchTimer)
-  searchTimer = setTimeout(() => {
-    searchTimer = undefined
+  searchDebounce.schedule(() => {
     setFilter({ q: constrainGroupKeySearch(searchDraft.value) })
-  }, 250)
+  })
 }
 
 function clearSearch(): void {
-  if (searchTimer !== undefined) clearTimeout(searchTimer)
-  searchTimer = undefined
+  searchDebounce.cancel()
   searchDraft.value = ''
   setFilter({ q: undefined })
 }
 
 function resetFilters(): void {
-  if (searchTimer !== undefined) clearTimeout(searchTimer)
-  searchTimer = undefined
+  searchDebounce.cancel()
   searchDraft.value = ''
   updateRoute({ page: 1, page_size: filters.value.page_size })
 }
@@ -228,18 +219,16 @@ function rowBusy(id: number): boolean {
   return batchBusy.value || pending(id)
 }
 async function resolveCopyValue(id: number): Promise<string> {
-  const controller = new AbortController()
-  copyControllers.add(controller)
+  const controller = copyControllers.create()
   try {
     const result = await revealGroupKey(client, props.groupId, id, controller.signal)
     return result.key
   } finally {
-    copyControllers.delete(controller)
+    copyControllers.release(controller)
   }
 }
 function concealCopiedKeys(): void {
-  for (const controller of copyControllers) controller.abort()
-  copyControllers.clear()
+  copyControllers.abortAll()
 }
 function setPending(id: number | 'batch', action: string, value: boolean): void {
   const next = new Set(pendingOperations.value)
@@ -425,10 +414,6 @@ async function runBatch(
   }
 }
 
-onBeforeUnmount(() => {
-  if (searchTimer !== undefined) clearTimeout(searchTimer)
-  concealCopiedKeys()
-})
 </script>
 
 <template>

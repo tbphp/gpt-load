@@ -1,23 +1,18 @@
 import type { LocationQuery, LocationQueryRaw } from 'vue-router'
 
 import type { GroupKeyCollectionFilters, GroupKeyStatus } from '@/api/control/types'
+import {
+  constrainCollectionSearch,
+  isCanonicalRouteQuery,
+  normalizeCollectionSearch,
+  parsePositiveRouteInteger,
+  scalarRouteQuery,
+} from '@/app/route-query'
 
 export type GroupTab = 'keys' | 'models' | 'settings'
 
 const keyStatuses = new Set<GroupKeyStatus>(['available', 'cooldown', 'blacklisted', 'disabled'])
 const keyPageSizes = new Set<GroupKeyCollectionFilters['page_size']>([20, 50, 100])
-const maxSearchCodePoints = 200
-
-function scalar(value: LocationQuery[string]): string | undefined {
-  return typeof value === 'string' ? value : undefined
-}
-
-function positiveInteger(value: LocationQuery[string]): number | undefined {
-  const candidate = scalar(value)
-  if (candidate === undefined || !/^[1-9]\d*$/u.test(candidate)) return undefined
-  const parsed = Number(candidate)
-  return Number.isSafeInteger(parsed) ? parsed : undefined
-}
 
 export function parsePositiveId(raw: unknown): number | undefined {
   if (typeof raw !== 'string' || !/^\d+$/u.test(raw)) return undefined
@@ -30,27 +25,23 @@ export function normalizeGroupTab(raw: unknown): GroupTab {
 }
 
 export function normalizeGroupKeySearch(value: string | undefined): string | undefined {
-  const trimmed = value?.trim()
-  if (!trimmed) return undefined
-  return Array.from(trimmed).length <= maxSearchCodePoints ? trimmed : undefined
+  return normalizeCollectionSearch(value)
 }
 
 export function constrainGroupKeySearch(value: string | undefined): string | undefined {
-  const trimmed = value?.trim()
-  if (!trimmed) return undefined
-  return Array.from(trimmed).slice(0, maxSearchCodePoints).join('')
+  return constrainCollectionSearch(value)
 }
 
 export function parseGroupKeyRouteQuery(query: LocationQuery): GroupKeyCollectionFilters {
-  const status = scalar(query.key_status)
-  const pageSize = positiveInteger(query.page_size)
+  const status = scalarRouteQuery(query.key_status)
+  const pageSize = parsePositiveRouteInteger(query.page_size)
   const filters: GroupKeyCollectionFilters = {
-    page: positiveInteger(query.page) ?? 1,
+    page: parsePositiveRouteInteger(query.page) ?? 1,
     page_size: keyPageSizes.has(pageSize as GroupKeyCollectionFilters['page_size'])
       ? (pageSize as GroupKeyCollectionFilters['page_size'])
       : 20,
   }
-  const q = normalizeGroupKeySearch(scalar(query.q))
+  const q = normalizeGroupKeySearch(scalarRouteQuery(query.q))
   if (q !== undefined) filters.q = q
   if (status !== undefined && keyStatuses.has(status as GroupKeyStatus)) {
     filters.status = status as GroupKeyStatus
@@ -66,6 +57,13 @@ export function serializeGroupKeyRouteQuery(filters: GroupKeyCollectionFilters):
   if (filters.page !== 1) query.page = String(filters.page)
   if (filters.page_size !== 20) query.page_size = String(filters.page_size)
   return query
+}
+
+export function isCanonicalGroupKeyRouteQuery(
+  query: LocationQuery,
+  filters: GroupKeyCollectionFilters,
+): boolean {
+  return isCanonicalRouteQuery(query, serializeGroupKeyRouteQuery(filters))
 }
 
 export function normalizeGroupQuery(query: LocationQuery): LocationQueryRaw {

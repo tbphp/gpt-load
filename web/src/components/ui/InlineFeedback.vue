@@ -36,8 +36,11 @@ const glyph = computed(() => {
     :aria-live="live"
     aria-atomic="true"
   >
-    <span class="inline-feedback__glyph" aria-hidden="true">{{ glyph }}</span>
-    <span><slot /></span>
+    <span class="inline-feedback__glyph" aria-hidden="true">
+      <slot name="glyph">{{ glyph }}</slot>
+    </span>
+    <span class="inline-feedback__message"><slot /></span>
+    <span v-if="$slots.action" class="inline-feedback__action"><slot name="action" /></span>
   </div>
 </template>
 
@@ -61,6 +64,28 @@ const glyph = computed(() => {
   place-items: center;
   font-weight: 600;
   line-height: 1;
+}
+
+.inline-feedback__message {
+  min-width: 0;
+  flex: 1;
+}
+
+.inline-feedback__action {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  align-self: flex-start;
+}
+
+.inline-feedback__action :deep(.app-button) {
+  min-height: 0;
+  height: 18px;
+  padding-inline: 4px;
+  color: currentColor;
+  font-size: inherit;
+  font-weight: 650;
+  white-space: nowrap;
 }
 
 .inline-feedback--info {

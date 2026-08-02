@@ -124,6 +124,7 @@ onBeforeUnmount(() => controller?.abort())
       <AppButton
         class="group-delete__open"
         variant="secondary"
+        size="compact"
         :disabled="disabled"
         @click="setOpen(true)"
       >

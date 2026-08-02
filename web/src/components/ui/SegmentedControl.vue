@@ -115,8 +115,8 @@ function handleSegmentKeydown(event: KeyboardEvent): void {
   background: transparent;
 }
 .segmented-control__list--compact .segmented-control__trigger {
-  min-height: 36px;
-  padding: 5px 12px;
+  min-height: var(--control-compact);
+  padding: 4px 10px;
 }
 .segmented-control__list--sm .segmented-control__trigger {
   min-width: 78px;

@@ -57,8 +57,13 @@ defineEmits<{ retry: [] }>()
   background: var(--color-action-soft);
   color: var(--color-text);
 }
+.query-feedback > span {
+  min-width: 0;
+  flex: 1;
+}
 .query-feedback button {
   display: inline-flex;
+  flex: none;
   min-height: 44px;
   align-items: center;
   gap: var(--space-1);
@@ -68,6 +73,7 @@ defineEmits<{ retry: [] }>()
   color: currentColor;
   font: inherit;
   font-weight: 650;
+  white-space: nowrap;
   cursor: pointer;
 }
 .query-feedback--stale button {

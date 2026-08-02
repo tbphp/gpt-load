@@ -15,6 +15,7 @@ import {
   updateGroupSettings,
 } from '@/app/resources/groups'
 import { useUnsavedChanges } from '@/app/unsaved-changes'
+import { useTransientFlag } from '@/app/use-transient-flag'
 import HeaderRulesEditor from '@/components/config/HeaderRulesEditor.vue'
 import RuntimeOverrideRow from '@/components/config/RuntimeOverrideRow.vue'
 import AppButton from '@/components/ui/AppButton.vue'
@@ -30,6 +31,7 @@ import GroupSettingsBaseForm from './GroupSettingsBaseForm.vue'
 import {
   buildGroupSettingsPatch,
   createGroupSettingsDraft,
+  groupTimeoutKeys,
   setGroupConfigOverride,
   type GroupSettingsDraft,
   type GroupTimeoutKey,
@@ -50,16 +52,14 @@ const confirmURL = ref(false)
 const headerRulesValid = ref(true)
 const headerRulesEditorRevision = ref(0)
 const section = ref('settings-general')
-const savedFeedback = ref(false)
+const {
+  value: savedFeedback,
+  clear: clearSavedFeedback,
+  show: showSavedFeedback,
+} = useTransientFlag(1_600)
+const timeoutKeys = groupTimeoutKeys
 let controller: AbortController | undefined
 let sectionFrame = 0
-let savedFeedbackTimer: ReturnType<typeof setTimeout> | undefined
-const timeoutKeys: GroupTimeoutKey[] = [
-  'connect_timeout',
-  'first_byte_timeout',
-  'request_timeout',
-  'stream_idle_timeout',
-]
 const navItems = computed(() => [
   { id: 'settings-general', label: t('group.settings.sections.general') },
   { id: 'settings-routing', label: t('group.settings.sections.routing') },
@@ -258,21 +258,6 @@ function discard(): void {
   resetSavedDraft(saved.value)
 }
 
-function clearSavedFeedback(): void {
-  if (savedFeedbackTimer !== undefined) clearTimeout(savedFeedbackTimer)
-  savedFeedbackTimer = undefined
-  savedFeedback.value = false
-}
-
-function showSavedFeedback(): void {
-  clearSavedFeedback()
-  savedFeedback.value = true
-  savedFeedbackTimer = setTimeout(() => {
-    savedFeedback.value = false
-    savedFeedbackTimer = undefined
-  }, 1_600)
-}
-
 function onDeleted(): void {
   deleted.value = true
   confirmURL.value = false
@@ -305,7 +290,6 @@ onBeforeUnmount(() => {
   window.removeEventListener('scroll', scheduleSectionSynchronization)
   window.removeEventListener('resize', scheduleSectionSynchronization)
   if (sectionFrame) window.cancelAnimationFrame(sectionFrame)
-  if (savedFeedbackTimer !== undefined) clearTimeout(savedFeedbackTimer)
 })
 </script>
 
@@ -571,12 +555,14 @@ onBeforeUnmount(() => {
         ><template #discard="{ disabled }"
           ><AppButton
             variant="ghost"
+            size="sm"
             :disabled="disabled || !dirty || deletePending"
             @click="discard"
             >{{ t('common.discard') }}</AppButton
           ></template
         ><template #save="{ disabled }"
           ><AppButton
+            size="sm"
             :disabled="disabled || !dirty || !valid || deletePending"
             @click="requestSave"
             >{{ t('group.settings.save') }}</AppButton

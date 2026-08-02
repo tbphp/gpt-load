@@ -112,11 +112,6 @@ const emit = defineEmits<{ toggle: [] }>()
   font-size: var(--text-sm);
   font-weight: 520;
 }
-.runtime-override-row--ledger :deep(.app-button) {
-  min-height: 34px;
-  padding-inline: 9px;
-  font-size: 11px;
-}
 @media (max-width: 800px) {
   .runtime-override-row {
     grid-template-columns: minmax(0, 1fr) auto;

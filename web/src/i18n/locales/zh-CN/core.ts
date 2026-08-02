@@ -2,6 +2,7 @@ export default {
   common: {
     appName: 'GPT-Load',
     retry: '重试',
+    modelDiscoveryFailed: '模型发现失败，草稿未变',
     changeKey: '更换 AUTH_KEY',
     copy: '复制',
     copied: '已复制',

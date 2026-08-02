@@ -32,7 +32,6 @@ export interface HomeStatisticsPresenter {
   selectedRange: ComputedRef<HomeRange>
   targetRange: ComputedRef<HomeRange | null>
   lastSuccessfulObservedAtMS: Readonly<Ref<number | null>>
-  isFetching: Readonly<Ref<boolean>>
   selectRange(range: HomeRange): void
   retry(): Promise<void>
 }
@@ -233,7 +232,6 @@ export function useHomeStatisticsPresenter(
       state.value.kind === 'switching' ? state.value.targetRange : null,
     ),
     lastSuccessfulObservedAtMS,
-    isFetching: statisticsQuery.isFetching,
     selectRange,
     retry,
   }

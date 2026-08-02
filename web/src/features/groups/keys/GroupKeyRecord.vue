@@ -163,6 +163,7 @@ function saveWeight(): void {
                 v-model="draftWeightMode"
                 :label="t('group.keys.weightEditor.mode')"
                 :options="weightModeOptions"
+                size="compact"
               />
               <label class="sr-only" :for="weightInputId">
                 {{ t('group.keys.weightEditor.value') }}
@@ -425,7 +426,7 @@ function saveWeight(): void {
 
 .group-key-weight-editor__control > input {
   width: 90px;
-  min-height: 36px;
+  min-height: var(--control-compact);
   flex: 0 0 90px;
   border: 1px solid var(--color-border-control);
   border-radius: var(--radius-control);

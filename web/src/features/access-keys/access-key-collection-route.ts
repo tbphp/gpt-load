@@ -1,48 +1,39 @@
 import type { LocationQuery, LocationQueryRaw } from 'vue-router'
 
 import type { AccessKeyCollectionFilters, AccessKeyCollectionStatus } from '@/api/control/types'
+import {
+  constrainCollectionSearch,
+  isCanonicalRouteQuery,
+  normalizeCollectionSearch,
+  parsePositiveRouteInteger,
+  scalarRouteQuery,
+} from '@/app/route-query'
 
 const defaultFilters: AccessKeyCollectionFilters = {
   page: 1,
   page_size: 20,
 }
 const statuses = new Set<AccessKeyCollectionStatus>(['active', 'disabled'])
-const maxSearchCodePoints = 200
-
-function scalar(queryValue: LocationQuery[string]): string | undefined {
-  return typeof queryValue === 'string' ? queryValue : undefined
-}
-
-function canonicalPositiveInteger(value: LocationQuery[string]): number | undefined {
-  const candidate = scalar(value)
-  if (candidate === undefined || !/^[1-9]\d*$/.test(candidate)) return undefined
-  const parsed = Number(candidate)
-  return Number.isSafeInteger(parsed) ? parsed : undefined
-}
 
 export function normalizeAccessKeyCollectionSearchQuery(
   value: string | undefined,
 ): string | undefined {
-  const trimmed = value?.trim()
-  if (!trimmed) return undefined
-  return Array.from(trimmed).length <= maxSearchCodePoints ? trimmed : undefined
+  return normalizeCollectionSearch(value)
 }
 
 export function constrainAccessKeyCollectionSearchQuery(
   value: string | undefined,
 ): string | undefined {
-  const trimmed = value?.trim()
-  if (!trimmed) return undefined
-  return Array.from(trimmed).slice(0, maxSearchCodePoints).join('')
+  return constrainCollectionSearch(value)
 }
 
 export function parseAccessKeyCollectionRouteQuery(
   query: LocationQuery,
 ): AccessKeyCollectionFilters {
   const filters: AccessKeyCollectionFilters = { ...defaultFilters }
-  const q = normalizeAccessKeyCollectionSearchQuery(scalar(query.q))
-  const status = scalar(query.status)
-  const page = canonicalPositiveInteger(query.page)
+  const q = normalizeAccessKeyCollectionSearchQuery(scalarRouteQuery(query.q))
+  const status = scalarRouteQuery(query.status)
+  const page = parsePositiveRouteInteger(query.page)
 
   if (q) filters.q = q
   if (status !== undefined && statuses.has(status as AccessKeyCollectionStatus)) {
@@ -67,9 +58,5 @@ export function isCanonicalAccessKeyCollectionRouteQuery(
   query: LocationQuery,
   filters: AccessKeyCollectionFilters,
 ): boolean {
-  const canonical = serializeAccessKeyCollectionRouteQuery(filters)
-  const actualKeys = Object.keys(query)
-  const canonicalKeys = Object.keys(canonical)
-  if (actualKeys.length !== canonicalKeys.length) return false
-  return canonicalKeys.every((key) => query[key] === canonical[key])
+  return isCanonicalRouteQuery(query, serializeAccessKeyCollectionRouteQuery(filters))
 }

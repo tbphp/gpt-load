@@ -35,6 +35,7 @@ const routes: RouteRecordRaw[] = [
     meta: {
       titleKey: 'shell.import',
       requiresAuth: true,
+      primaryNav: 'groups',
       messageNamespaces: ['import'],
     },
   }),

@@ -112,8 +112,6 @@ export default {
       empty: 'モデルはまだ追加されていません',
       noMatches: '現在の検索条件に一致するモデルはありません',
       addInline: 'モデルを 1 件追加',
-      discoveryNotice:
-        'アップストリームモデルの取得は追加候補のみを提示し、現在のモデルの削除や設定済みエイリアスの上書きは行いません。',
       nameConflict: 'クライアント名「{name}」が重複しています',
       conflictSummary: '保存前に重複するクライアントモデル名を解消してください',
       emptyAliasSummary: '有効な別名にクライアント名がないモデルを保存前に修正してください',
@@ -124,7 +122,6 @@ export default {
         description: '選択したモデルのみを追加し、現在の設定は上書きしません。',
         close: 'モデル検出を閉じる',
         loading: 'アップストリームからモデルを取得中',
-        notice: '検出結果はモデル一覧を自動変更しません',
         search: 'アップストリームモデルを検索',
         filterLabel: 'モデル候補フィルター',
         filterAvailable: '未追加',
@@ -133,14 +130,11 @@ export default {
         unadded: '未追加',
         noMatches: '現在の条件に一致するモデルはありません',
         selected: '{count} 件を選択',
-        selectAll: '現在の結果をすべて選択',
-        deselectAll: '現在の結果の選択を解除',
-        clearAll: '選択を解除',
+        selectAll: 'すべて選択',
+        deselectAll: 'キャンセル',
         empty: '追加できるモデルが返されませんでした',
         confirm: '現在の一覧に追加',
       },
-      discoveryFailed:
-        'モデル検出に失敗しました。下書きは保持されています。再試行するか、モデル ID とエイリアスを手動で追加してください。',
       saveFailed: 'Group のモデル一覧を置き換えられません。',
       noActiveKey: {
         title: '検出に使用できる有効なアップストリームキーがありません。',

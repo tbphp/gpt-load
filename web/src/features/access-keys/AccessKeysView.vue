@@ -6,16 +6,22 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
 import { useApiClient } from '@/api/client-context'
+import type {
+  AccessKeyCollectionFilters,
+  AccessKeyCollectionStatus,
+  AccessKeyDto,
+} from '@/api/control/types'
+import { RequestCancelledError } from '@/api/errors'
 import {
   accessKeyCollectionQueryOptions,
   accessKeyResources,
   updateAccessKey,
 } from '@/app/resources/access-keys'
-import { RequestCancelledError } from '@/api/errors'
 import { groupOptionsQueryOptions } from '@/app/resources/groups'
 import { applyInvalidationPlan, mutationInvalidationPlans } from '@/app/resources/invalidation'
 import { accessKeysLocation } from '@/app/route-locations'
 import { useToast } from '@/app/toast'
+import { useDebouncedAction } from '@/app/use-debounced-action'
 import { useVisibleRefetch } from '@/app/use-visible-refetch'
 import CollectionFilterBar from '@/components/collection/CollectionFilterBar.vue'
 import CollectionStatusSummary from '@/components/collection/CollectionStatusSummary.vue'
@@ -28,11 +34,6 @@ import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import PaginationBar from '@/components/ui/PaginationBar.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
-import type {
-  AccessKeyCollectionFilters,
-  AccessKeyCollectionStatus,
-  AccessKeyDto,
-} from '@/api/control/types'
 
 import AccessKeyCollection from './AccessKeyCollection.vue'
 import AccessKeyDrawer from './AccessKeyDrawer.vue'
@@ -112,16 +113,13 @@ const editOperationName = computed(
   () => editOperation.value?.patch.name ?? editOperation.value?.base.name ?? '',
 )
 let restoreFocus: HTMLElement | null = null
-let searchTimer: ReturnType<typeof setTimeout> | undefined
+const searchDebounce = useDebouncedAction(300)
 let mounted = true
 
 watch(
   () => route.query,
   (query) => {
-    if (searchTimer !== undefined) {
-      clearTimeout(searchTimer)
-      searchTimer = undefined
-    }
+    searchDebounce.cancel()
     const parsed = parseAccessKeyCollectionRouteQuery(query)
     searchDraft.value = parsed.q ?? ''
     if (!isCanonicalAccessKeyCollectionRouteQuery(query, parsed)) {
@@ -156,7 +154,6 @@ useVisibleRefetch([accessKeysQuery.refetch])
 
 onBeforeUnmount(() => {
   mounted = false
-  if (searchTimer !== undefined) clearTimeout(searchTimer)
   for (const controller of statusControllers.values()) controller.abort()
   statusControllers.clear()
   queryClient.removeQueries({ queryKey: accessKeyResources.collection.queryKey })
@@ -178,16 +175,13 @@ function updateConditions(patch: Partial<Pick<AccessKeyCollectionFilters, 'q' | 
 }
 
 function scheduleSearch(): void {
-  if (searchTimer !== undefined) clearTimeout(searchTimer)
-  searchTimer = setTimeout(() => {
-    searchTimer = undefined
+  searchDebounce.schedule(() => {
     updateConditions({ q: constrainAccessKeyCollectionSearchQuery(searchDraft.value) })
-  }, 300)
+  })
 }
 
 function clearSearch(): void {
-  if (searchTimer !== undefined) clearTimeout(searchTimer)
-  searchTimer = undefined
+  searchDebounce.cancel()
   searchDraft.value = ''
   updateConditions({ q: undefined })
 }
@@ -197,8 +191,7 @@ function setStatus(status: string | undefined): void {
 }
 
 function resetConditions(): void {
-  if (searchTimer !== undefined) clearTimeout(searchTimer)
-  searchTimer = undefined
+  searchDebounce.cancel()
   searchDraft.value = ''
   routeWithFilters({ page: 1, page_size: 20 })
 }

@@ -24,7 +24,6 @@ import AppDialog from '@/components/ui/AppDialog.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import PanelHeader from '@/components/ui/PanelHeader.vue'
 import ModelAliasEditor from '@/features/models/ModelAliasEditor.vue'
-import ModelDiscoveryNotice from '@/features/models/ModelDiscoveryNotice.vue'
 import ModelDiscoveryDrawer from '@/features/models/ModelDiscoveryDrawer.vue'
 import {
   findModelNameConflicts,
@@ -244,7 +243,6 @@ const discoveryDrawerLabels = computed<ModelDiscoveryDrawerLabels>(() => ({
   description: t('import.models.drawer.description'),
   close: t('import.models.drawer.close'),
   loading: t('import.models.drawer.loading'),
-  notice: t('import.models.drawer.notice'),
   search: t('import.models.drawer.search'),
   clearSearch: t('import.models.clearSearch'),
   filterLabel: t('import.models.drawer.filterLabel'),
@@ -361,7 +359,7 @@ async function runDiscovery(
     ) {
       return
     }
-    discoveryErrorKey.value = 'import.discoveryFailed'
+    discoveryErrorKey.value = 'common.modelDiscoveryFailed'
   } finally {
     if (discoveryRequestIdentity === identity && discoveryController === controller) {
       discoveryController = undefined
@@ -621,15 +619,6 @@ onBeforeUnmount(() => {
         </template>
       </ModelAliasEditor>
 
-      <ModelDiscoveryNotice :message="t('import.models.discoveryNotice')" />
-      <InlineFeedback
-        class="new-group-import__model-hint"
-        tone="info"
-        appearance="ledger"
-        glyph="i"
-      >
-        {{ t('import.models.discoveryReadOnlyNotice') }}
-      </InlineFeedback>
     </section>
 
     <div
@@ -656,7 +645,6 @@ onBeforeUnmount(() => {
     <footer class="new-group-import__actions">
       <div aria-live="polite">
         <strong>{{ summary }}</strong>
-        <span>{{ t('import.actionHelp') }}</span>
       </div>
       <AppButton size="sm" :busy="mutationPending" :disabled="!canCreate" @click="submitCreate">
         {{ t('import.create') }}<ArrowRight :size="16" aria-hidden="true" />
@@ -745,12 +733,6 @@ onBeforeUnmount(() => {
   content: '';
 }
 
-.new-group-import__model-hint {
-  margin-top: 18px;
-  padding: 9px 11px;
-  font-size: 11px;
-}
-
 .new-group-import__conflict-groups > div {
   display: flex;
   align-items: center;
@@ -814,7 +796,10 @@ onBeforeUnmount(() => {
 }
 
 .new-group-import__actions > div {
+  display: flex;
   min-width: 0;
+  min-height: var(--control-sm);
+  align-items: center;
   color: var(--color-text-faint);
   font-size: var(--text-label-xs);
 }
@@ -828,10 +813,6 @@ onBeforeUnmount(() => {
   color: var(--color-text-muted);
   font-size: var(--text-sm);
   font-weight: 560;
-}
-
-.new-group-import__actions span {
-  margin-top: 2px;
 }
 
 @media (max-width: 860px) {

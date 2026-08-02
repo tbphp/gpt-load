@@ -133,6 +133,7 @@ function setWeightMode(value: string): void {
           :model-value="weightMode"
           :label="t('group.settings.base.weight')"
           :options="weightModes"
+          size="compact"
           @update:model-value="setWeightMode"
         />
         <input
@@ -395,8 +396,9 @@ fieldset {
   gap: 10px;
 }
 
-.group-settings__weight-editor > input {
+.group-settings__field .group-settings__weight-editor > input {
   width: 90px !important;
+  min-height: var(--control-compact);
   flex: 0 0 90px;
 }
 
@@ -416,6 +418,10 @@ fieldset {
   }
 
   .group-settings__weight-editor :deep(.segmented-control__trigger) {
+    min-height: var(--touch-target);
+  }
+
+  .group-settings__field .group-settings__weight-editor > input {
     min-height: var(--touch-target);
   }
 

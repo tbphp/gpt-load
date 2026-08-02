@@ -111,8 +111,6 @@ export default {
       empty: 'No models have been added',
       noMatches: 'No models match the current search',
       addInline: 'Add a model',
-      discoveryNotice:
-        'Upstream discovery only suggests additions. It never removes current models or overwrites configured aliases.',
       nameConflict: 'Client name “{name}” is duplicated',
       conflictSummary: 'Duplicate client model names must be resolved before saving',
       emptyAliasSummary: 'Enabled aliases without a client name must be completed before saving',
@@ -123,7 +121,6 @@ export default {
         description: 'Only checked models are appended; the current configuration is preserved.',
         close: 'Close model discovery',
         loading: 'Reading models from upstream',
-        notice: 'Discovery results do not automatically change the model list',
         search: 'Search upstream models',
         filterLabel: 'Model candidate filter',
         filterAvailable: 'Not added',
@@ -132,14 +129,11 @@ export default {
         unadded: 'Not added',
         noMatches: 'No models match the current filters',
         selected: '{count} selected',
-        selectAll: 'Select all results',
-        deselectAll: 'Clear result selection',
-        clearAll: 'Clear all',
+        selectAll: 'Select all',
+        deselectAll: 'Cancel',
         empty: 'The upstream returned no models to add',
         confirm: 'Add to current list',
       },
-      discoveryFailed:
-        'Discovery failed. Your draft is unchanged; retry or continue with manual model IDs and aliases.',
       saveFailed: 'Unable to replace the Group model list.',
       noActiveKey: {
         title: 'No active upstream key is available for discovery.',

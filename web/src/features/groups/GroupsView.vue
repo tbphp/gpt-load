@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ArrowRight, KeyRound, Layers3, Plus, Search, TriangleAlert } from '@lucide/vue'
 import { useQuery } from '@tanstack/vue-query'
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -15,6 +15,7 @@ import type {
 } from '@/api/control/types'
 import { groupCollectionQueryOptions } from '@/app/resources/groups'
 import { groupDetailLocation, groupsLocation, importLocation } from '@/app/route-locations'
+import { useDebouncedAction } from '@/app/use-debounced-action'
 import { useVisibleRefetch } from '@/app/use-visible-refetch'
 import CollectionFilterBar from '@/components/collection/CollectionFilterBar.vue'
 import CollectionStatusSummary from '@/components/collection/CollectionStatusSummary.vue'
@@ -56,7 +57,7 @@ const { n, t } = useI18n()
 const filters = computed(() => parseGroupCollectionRouteQuery(route.query))
 const searchDraft = ref(filters.value.q ?? '')
 const groupsQuery = useQuery(groupCollectionQueryOptions(client, filters))
-let searchTimer: ReturnType<typeof setTimeout> | undefined
+const searchDebounce = useDebouncedAction(250)
 
 const data = computed(() => groupsQuery.data.value)
 const hasFilterCriteria = computed(
@@ -114,10 +115,7 @@ const statusSummaryItems = computed(() => {
 watch(
   () => route.query,
   (query) => {
-    if (searchTimer !== undefined) {
-      clearTimeout(searchTimer)
-      searchTimer = undefined
-    }
+    searchDebounce.cancel()
     const parsed = parseGroupCollectionRouteQuery(query)
     searchDraft.value = parsed.q ?? ''
     if (!isCanonicalGroupCollectionRouteQuery(query, parsed)) {
@@ -157,16 +155,13 @@ function updateConditions(
 }
 
 function scheduleSearch(): void {
-  if (searchTimer !== undefined) clearTimeout(searchTimer)
-  searchTimer = setTimeout(() => {
-    searchTimer = undefined
+  searchDebounce.schedule(() => {
     updateConditions({ q: constrainGroupCollectionSearchQuery(searchDraft.value) })
-  }, 250)
+  })
 }
 
 function clearSearch(): void {
-  if (searchTimer !== undefined) clearTimeout(searchTimer)
-  searchTimer = undefined
+  searchDebounce.cancel()
   searchDraft.value = ''
   updateConditions({ q: undefined })
 }
@@ -184,8 +179,7 @@ function setSort(value: string): void {
 }
 
 function resetConditions(): void {
-  if (searchTimer !== undefined) clearTimeout(searchTimer)
-  searchTimer = undefined
+  searchDebounce.cancel()
   searchDraft.value = ''
   routeWithFilters({ sort: 'status', page: 1, page_size: 20 })
 }
@@ -204,9 +198,6 @@ function keyHealthLabel(counts: KeyCounts): string {
   })
 }
 
-onBeforeUnmount(() => {
-  if (searchTimer !== undefined) clearTimeout(searchTimer)
-})
 </script>
 
 <template>

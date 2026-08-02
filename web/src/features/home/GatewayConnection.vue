@@ -373,6 +373,7 @@ onBeforeUnmount(() => {
             :controls-id="gatewayClientPanelID"
             :id-prefix="gatewayClientTabPrefix"
             appearance="pills"
+            size="compact"
             scrollable
             @update:model-value="selectClient"
           />

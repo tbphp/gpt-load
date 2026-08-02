@@ -2,6 +2,7 @@ export default {
   common: {
     appName: 'GPT-Load',
     retry: '再試行',
+    modelDiscoveryFailed: 'モデル取得に失敗しました。下書きは未変更です',
     changeKey: 'AUTH_KEY を変更',
     copy: 'コピー',
     copied: 'コピーしました',
