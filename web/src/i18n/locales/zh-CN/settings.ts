@@ -14,6 +14,8 @@ export default {
       saving: '正在保存设置',
       savingNote: '正在发布全部运行设置…',
       reconciling: '正在核对保存结果',
+      indeterminate: '保存结果待核对',
+      indeterminateNote: '草稿已保留，请先核对服务端最新状态。',
       baseline: '当前已发布设置',
       baselineNote: '未检测到未保存的运行设置变更。',
     },
@@ -48,7 +50,6 @@ export default {
       latest: '最新',
       useMine: '采用我的',
       useLatest: '采用最新',
-      headerRulesSummary: 'Set {set} 条，Remove {remove} 条',
     },
     runtime: {
       title: '请求与转发',
@@ -97,7 +98,6 @@ export default {
       effectiveValue: '{value} 天',
       days: '天',
       retentionError: '请输入 1 到 365 之间的整数。',
-      saveFailed: '无法更新日志保留设置，输入内容已保留。',
     },
     modelPrices: {
       title: '模型价格',
@@ -105,10 +105,6 @@ export default {
       loading: '正在加载模型价格…',
       loadFailed: '无法加载模型价格。',
       stale: '后台刷新失败，模型价格可能已过期。',
-      builtinCount: '内置规则',
-      overrideCount: '覆盖规则',
-      priceUnit: '价格单位',
-      latestOverride: '最近覆盖更新时间',
       units: {
         usd_per_million_tokens: '美元 / 百万 tokens',
       },

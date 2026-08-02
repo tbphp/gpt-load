@@ -14,6 +14,8 @@ export default {
       saving: 'Saving settings',
       savingNote: 'Publishing all runtime settings…',
       reconciling: 'Checking the save result',
+      indeterminate: 'Save result needs confirmation',
+      indeterminateNote: 'The draft is retained; check the latest server state first.',
       baseline: 'Current published settings',
       baselineNote: 'No unsaved runtime-setting changes.',
     },
@@ -51,7 +53,6 @@ export default {
       latest: 'Latest',
       useMine: 'Use mine',
       useLatest: 'Use latest',
-      headerRulesSummary: '{set} Set and {remove} Remove rules',
     },
     runtime: {
       title: 'Request and forwarding',
@@ -105,7 +106,6 @@ export default {
       effectiveValue: '{value} days',
       days: 'days',
       retentionError: 'Enter a whole number between 1 and 365.',
-      saveFailed: 'Unable to update log retention. Your input is unchanged.',
     },
     modelPrices: {
       title: 'Model prices',
@@ -114,10 +114,6 @@ export default {
       loading: 'Loading model prices…',
       loadFailed: 'Unable to load model prices.',
       stale: 'Model prices may be stale because the background refresh failed.',
-      builtinCount: 'Built-in rules',
-      overrideCount: 'Override rules',
-      priceUnit: 'Price unit',
-      latestOverride: 'Latest override update',
       units: {
         usd_per_million_tokens: 'USD per one million tokens',
       },

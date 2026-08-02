@@ -14,6 +14,8 @@ export default {
       saving: '設定を保存中',
       savingNote: 'すべての実行設定を公開中です…',
       reconciling: '保存結果を確認中',
+      indeterminate: '保存結果の確認が必要です',
+      indeterminateNote: '下書きは保持されています。先にサーバーの最新状態を確認してください。',
       baseline: '現在公開中の設定',
       baselineNote: '未保存の実行設定の変更はありません。',
     },
@@ -51,7 +53,6 @@ export default {
       latest: '最新',
       useMine: '自分を採用',
       useLatest: '最新を採用',
-      headerRulesSummary: 'Set {set} 件、Remove {remove} 件',
     },
     runtime: {
       title: 'リクエストと転送',
@@ -106,7 +107,6 @@ export default {
       effectiveValue: '{value} 日',
       days: '日',
       retentionError: '1 から 365 までの整数を入力してください。',
-      saveFailed: 'ログ保持設定を更新できません。入力内容は保持されています。',
     },
     modelPrices: {
       title: 'モデル価格',
@@ -115,10 +115,6 @@ export default {
       loading: 'モデル価格を読み込み中…',
       loadFailed: 'モデル価格を読み込めません。',
       stale: 'バックグラウンド更新に失敗したため、モデル価格が古い可能性があります。',
-      builtinCount: '組み込みルール',
-      overrideCount: '上書きルール',
-      priceUnit: '価格単位',
-      latestOverride: '最新の上書き更新時刻',
       units: {
         usd_per_million_tokens: '100 万 tokens あたりの米ドル',
       },

@@ -125,10 +125,5 @@ export default {
       confirm: '上書きをリセット',
       failed: 'モデル価格上書きをリセットできません。',
     },
-    settingsEntry: {
-      title: 'モデル価格',
-      description: 'コスト推定に使う組み込み参考価格と明示的な上書きを管理します。',
-      open: 'モデル価格',
-    },
   },
 } as const

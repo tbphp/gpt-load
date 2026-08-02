@@ -112,10 +112,5 @@ export default {
       confirm: '重置覆盖',
       failed: '无法重置模型价格覆盖。',
     },
-    settingsEntry: {
-      title: '模型价格',
-      description: '管理用于成本估算的内置参考价格与显式覆盖。',
-      open: '模型价格',
-    },
   },
 } as const

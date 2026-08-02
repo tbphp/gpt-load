@@ -315,28 +315,32 @@ onBeforeUnmount(() => {
           <div>
             <strong>
               {{
-                pending
-                  ? t('settings.saveState.saving')
-                  : reconciling
-                    ? t('settings.saveState.reconciling')
-                    : dirty
-                      ? t('settings.dirtySummary', { count: changedKeys.length })
-                      : savedFeedback
-                        ? t('settings.saved')
-                        : t('settings.saveState.baseline')
+                reconciling
+                  ? t('settings.saveState.reconciling')
+                  : indeterminate
+                    ? t('settings.saveState.indeterminate')
+                    : pending
+                      ? t('settings.saveState.saving')
+                      : dirty
+                        ? t('settings.dirtySummary', { count: changedKeys.length })
+                        : savedFeedback
+                          ? t('settings.saved')
+                          : t('settings.saveState.baseline')
               }}
             </strong>
             <span>
               {{
-                pending
-                  ? t('settings.saveState.savingNote')
-                  : reconciling
-                    ? t('settings.outcome.reconciling')
-                    : dirty
-                      ? changedKeys.map(settingLabel).join(', ')
-                      : savedFeedback
-                        ? t('settings.savedAt', { time: savedAtLabel })
-                        : t('settings.saveState.baselineNote')
+                reconciling
+                  ? t('settings.outcome.reconciling')
+                  : indeterminate
+                    ? t('settings.saveState.indeterminateNote')
+                    : pending
+                      ? t('settings.saveState.savingNote')
+                      : dirty
+                        ? changedKeys.map(settingLabel).join(', ')
+                        : savedFeedback
+                          ? t('settings.savedAt', { time: savedAtLabel })
+                          : t('settings.saveState.baselineNote')
               }}
             </span>
           </div>

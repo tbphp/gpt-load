@@ -31,9 +31,9 @@ const visible = computed(
     props.alwaysVisible || props.dirty || props.pending || props.status !== 'idle' || props.error,
 )
 const visualState = computed(() => {
+  if (props.status === 'indeterminate') return 'indeterminate'
   if (props.pending) return 'saving'
   if (props.status === 'error') return 'error'
-  if (props.status === 'indeterminate') return 'indeterminate'
   if (props.error) return 'error'
   if (props.dirty) return 'dirty'
   if (props.status === 'saved') return 'saved'

@@ -123,10 +123,5 @@ export default {
       confirm: 'Reset override',
       failed: 'Unable to reset the model price override.',
     },
-    settingsEntry: {
-      title: 'Model prices',
-      description: 'Manage built-in references and explicit overrides used for estimated cost.',
-      open: 'Model prices',
-    },
   },
 } as const
