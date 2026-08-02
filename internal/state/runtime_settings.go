@@ -294,12 +294,12 @@ func parseHeaderRules(value any) (HeaderRules, error) {
 			return HeaderRules{}, fmt.Errorf("unknown header_rules field %q", key)
 		}
 	}
+	seen := make(map[string]struct{})
 	if rawSet, exists := object["set"]; exists {
 		set, ok := rawSet.(map[string]any)
 		if !ok {
 			return HeaderRules{}, fmt.Errorf("header_rules.set must be an object")
 		}
-		seen := make(map[string]struct{}, len(set))
 		for name, rawValue := range set {
 			if !validHTTPHeaderName(name) {
 				return HeaderRules{}, fmt.Errorf("header_rules.set contains invalid header name %q", name)
@@ -354,7 +354,16 @@ func parseHeaderRules(value any) (HeaderRules, error) {
 					name,
 				)
 			}
-			rules.Remove = append(rules.Remove, textproto.CanonicalMIMEHeaderKey(name))
+			canonicalName := textproto.CanonicalMIMEHeaderKey(name)
+			identity := strings.ToLower(name)
+			if _, duplicate := seen[identity]; duplicate {
+				return HeaderRules{}, fmt.Errorf(
+					"header_rules.remove contains duplicate header %q",
+					canonicalName,
+				)
+			}
+			seen[identity] = struct{}{}
+			rules.Remove = append(rules.Remove, canonicalName)
 		}
 	}
 	return rules, nil

@@ -87,6 +87,35 @@ func TestParseHeaderRulesRejectsUnsafeSetNames(t *testing.T) {
 	}
 }
 
+func TestValidateRuntimeSettingRejectsDuplicateHeaderRuleIdentities(t *testing.T) {
+	tests := []struct {
+		name  string
+		value map[string]any
+	}{
+		{
+			name: "duplicate remove names ignore ASCII case",
+			value: map[string]any{
+				"remove": []any{"X-Trace-ID", "x-trace-id"},
+			},
+		},
+		{
+			name: "set and remove names share one identity",
+			value: map[string]any{
+				"set":    map[string]any{"X-Trace-ID": "trace"},
+				"remove": []any{"x-trace-id"},
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if err := ValidateRuntimeSetting(SettingHeaderRules, test.value); err == nil {
+				t.Fatal("ValidateRuntimeSetting() accepted duplicate Header Rule identity")
+			}
+		})
+	}
+}
+
 func TestParseHeaderRulesRequiresAPIKeyTemplateForCredentials(t *testing.T) {
 	for _, name := range []string{
 		"Authorization",
