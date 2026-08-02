@@ -1,7 +1,6 @@
 export default {
   settings: {
     title: '设置',
-    description: '管理当前浏览器偏好、全局运行行为与安全的系统元数据。',
     loading: '正在加载运行设置…',
     loadFailed: '无法加载运行设置。',
     stale: '后台刷新失败，运行设置可能已过期。',
@@ -11,10 +10,23 @@ export default {
     saveFailed: '无法更新运行设置，输入内容已保留。',
     discard: '放弃更改',
     dirtySummary: '{count} 项运行设置尚未保存',
+    saveState: {
+      saving: '正在保存设置',
+      savingNote: '正在发布全部运行设置…',
+      reconciling: '正在核对保存结果',
+      baseline: '当前已发布设置',
+      baselineNote: '未检测到未保存的运行设置变更。',
+    },
+    discardConfirm: {
+      title: '放弃全部未保存修改？',
+      description: '所有未保存的设置编辑将恢复为当前已发布的基线。',
+      close: '关闭确认框',
+      cancel: '继续编辑',
+      confirm: '放弃修改',
+    },
     navigation: {
       label: '设置章节',
       caption: '章节',
-      request: '请求与转发',
       forwarding: '请求与转发',
       headers: '全局 Header Rules',
       logs: '日志与维护',
@@ -24,10 +36,6 @@ export default {
     validation: {
       title: '保存前请修正以下设置：',
     },
-    effectiveValue: '当前有效值：{value}',
-    override: '显式覆盖',
-    default: '代码默认值',
-    useOverride: '持久化显式覆盖',
     outcome: {
       reconciling: '保存结果尚不确定，正在核对服务端最新状态…',
       indeterminate: '无法确认保存结果；核对最新状态前请勿再次保存。',
@@ -41,27 +49,6 @@ export default {
       useMine: '采用我的',
       useLatest: '采用最新',
       headerRulesSummary: 'Set {set} 条，Remove {remove} 条',
-    },
-    appearance: {
-      title: '外观',
-      description: '选择界面语言和颜色主题。',
-      locale: '语言',
-      theme: '主题',
-      localOnly: '这些偏好仅应用于当前浏览器，不会发送到运行设置 API。',
-    },
-    request: {
-      title: '请求与转发',
-      description: '控制全局超时和上游请求头行为。',
-      connect_timeout: '连接超时',
-      first_byte_timeout: '首字节超时',
-      request_timeout: '请求超时',
-      stream_idle_timeout: '流空闲超时',
-      seconds: '单位为秒，请输入正整数。',
-      timeoutError: '请输入正的安全整数。',
-      headerRules: '高级 HeaderRules',
-      headerSummary: '当前有效规则：Set {set} 条，Remove {remove} 条。',
-      headerWarning: '全局规则影响所有未覆盖 HeaderRules 的 Group；Group 覆盖会完整替换全局对象。',
-      saveFailed: '无法更新请求与转发设置，输入内容已保留。',
     },
     runtime: {
       title: '请求与转发',

@@ -199,6 +199,10 @@
   background: var(--color-danger);
 }
 
+.sticky-save-bar--ledger[data-status='indeterminate'] .sticky-save-bar__status::before {
+  background: var(--color-warning);
+}
+
 .sticky-save-bar--ledger .sticky-save-bar__actions {
   flex: none;
   gap: 7px;

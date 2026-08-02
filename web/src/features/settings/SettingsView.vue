@@ -10,14 +10,17 @@ import {
   type RuntimeSettingKey,
 } from '@/app/resources/settings'
 import { controlQueryKeys } from '@/app/query-keys'
+import { useTransientFlag } from '@/app/use-transient-flag'
 import { useUnsavedChanges } from '@/app/unsaved-changes'
 import AppButton from '@/components/ui/AppButton.vue'
+import AppConfirmDialog from '@/components/ui/AppConfirmDialog.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import LedgerSheet from '@/components/layout/LedgerSheet.vue'
 import PageFrame from '@/components/layout/PageFrame.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import SectionNav from '@/components/ui/SectionNav.vue'
+import StickySaveBar from '@/components/ui/StickySaveBar.vue'
 import { useSectionNavigation } from '@/composables/use-section-navigation'
 import { formatLocalInstant } from '@/lib/format'
 
@@ -36,6 +39,12 @@ const settingsQuery = useQuery(settingsQueryOptions(client, locale))
 const resource = computed(() => settingsQuery.data.value ?? null)
 const headerRulesInvalidEdits = ref(false)
 const headerRulesEditorRevision = ref(0)
+const discardDialogOpen = ref(false)
+const {
+  value: savedFeedback,
+  clear: clearSavedFeedback,
+  show: showSavedFeedback,
+} = useTransientFlag(1_600)
 const {
   base,
   draft,
@@ -107,6 +116,11 @@ const invalidKeys = computed<RuntimeSettingKey[]>(() => {
 const savedAtLabel = computed(() =>
   savedAt.value ? formatLocalInstant(savedAt.value.getTime(), locale.value) : '',
 )
+const saveBarError = computed(() => {
+  if (pending.value || reconciling.value) return ''
+  if (failed.value) return t('settings.saveFailed')
+  return indeterminate.value ? t('settings.outcome.indeterminate') : ''
+})
 
 useUnsavedChanges(dirty, { blocked: operationLocked })
 
@@ -117,10 +131,28 @@ watch(
   },
 )
 
+watch(savedAt, (value, previous) => {
+  if (value && value !== previous) showSavedFeedback()
+})
+
+watch(dirty, (isDirty) => {
+  if (isDirty) clearSavedFeedback()
+})
+
 function discard(): void {
   discardDraft()
   headerRulesInvalidEdits.value = false
   headerRulesEditorRevision.value += 1
+}
+
+function requestDiscard(): void {
+  if (!dirty.value || operationLocked.value) return
+  discardDialogOpen.value = true
+}
+
+function confirmDiscard(): void {
+  discard()
+  discardDialogOpen.value = false
 }
 
 function settingLabel(key: RuntimeSettingKey): string {
@@ -201,20 +233,6 @@ onBeforeUnmount(() => {
                 </li>
               </ul>
             </section>
-            <InlineFeedback v-if="failed" tone="danger">{{
-              t('settings.saveFailed')
-            }}</InlineFeedback>
-            <InlineFeedback v-if="reconciling" tone="info">{{
-              t('settings.outcome.reconciling')
-            }}</InlineFeedback>
-            <div v-else-if="indeterminate" class="settings__outcome">
-              <InlineFeedback tone="warning">{{
-                t('settings.outcome.indeterminate')
-              }}</InlineFeedback>
-              <AppButton variant="secondary" size="compact" @click="checkResult">
-                {{ t('settings.outcome.checkResult') }}
-              </AppButton>
-            </div>
             <InlineFeedback v-if="concurrent" tone="warning">
               {{
                 conflicts.length ? t('settings.conflict.blocked') : t('settings.conflict.rebased')
@@ -258,28 +276,92 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <footer v-if="base && draft" class="settings__save" aria-live="polite">
-        <div>
-          <strong v-if="dirty">{{
-            t('settings.dirtySummary', { count: changedKeys.length })
-          }}</strong>
-          <span v-if="dirty">{{ changedKeys.map(settingLabel).join(', ') }}</span>
-          <time v-else-if="savedAt" :datetime="savedAt.toISOString()">{{
-            t('settings.savedAt', { time: savedAtLabel })
-          }}</time>
-        </div>
-        <div class="settings__save-actions">
-          <AppButton variant="secondary" :disabled="!dirty || operationLocked" @click="discard">{{
-            t('settings.discard')
-          }}</AppButton>
+      <AppConfirmDialog
+        appearance="ledger"
+        tone="danger"
+        :open="discardDialogOpen"
+        :title="t('settings.discardConfirm.title')"
+        :description="t('settings.discardConfirm.description')"
+        :close-label="t('settings.discardConfirm.close')"
+        :cancel-label="t('settings.discardConfirm.cancel')"
+        :confirm-label="t('settings.discardConfirm.confirm')"
+        @update:open="discardDialogOpen = $event"
+        @confirm="confirmDiscard"
+      >
+        <ul class="settings__discard-list">
+          <li v-for="key in changedKeys" :key="key">{{ settingLabel(key) }}</li>
+        </ul>
+      </AppConfirmDialog>
+      <StickySaveBar
+        v-if="base && draft"
+        appearance="ledger"
+        always-visible
+        :dirty="dirty"
+        :pending="pending"
+        :status="
+          failed
+            ? 'error'
+            : reconciling || indeterminate
+              ? 'indeterminate'
+              : savedFeedback
+                ? 'saved'
+                : 'idle'
+        "
+        :error="saveBarError"
+        :error-action-label="indeterminate ? t('settings.outcome.checkResult') : undefined"
+        @error-action="checkResult"
+      >
+        <template #status>
+          <div>
+            <strong>
+              {{
+                pending
+                  ? t('settings.saveState.saving')
+                  : reconciling
+                    ? t('settings.saveState.reconciling')
+                    : dirty
+                      ? t('settings.dirtySummary', { count: changedKeys.length })
+                      : savedFeedback
+                        ? t('settings.saved')
+                        : t('settings.saveState.baseline')
+              }}
+            </strong>
+            <span>
+              {{
+                pending
+                  ? t('settings.saveState.savingNote')
+                  : reconciling
+                    ? t('settings.outcome.reconciling')
+                    : dirty
+                      ? changedKeys.map(settingLabel).join(', ')
+                      : savedFeedback
+                        ? t('settings.savedAt', { time: savedAtLabel })
+                        : t('settings.saveState.baselineNote')
+              }}
+            </span>
+          </div>
+        </template>
+        <template #discard="{ disabled }">
           <AppButton
-            :busy="pending"
-            :disabled="!dirty || !valid || operationLocked"
-            @click="saveAll"
-            >{{ t('settings.save') }}</AppButton
+            variant="ghost"
+            size="sm"
+            :disabled="disabled || !dirty || operationLocked"
+            @click="requestDiscard"
           >
-        </div>
-      </footer>
+            {{ t('settings.discard') }}
+          </AppButton>
+        </template>
+        <template #save="{ disabled }">
+          <AppButton
+            size="sm"
+            :busy="pending"
+            :disabled="disabled || !dirty || !valid || operationLocked"
+            @click="saveAll"
+          >
+            {{ t('settings.save') }}
+          </AppButton>
+        </template>
+      </StickySaveBar>
     </LedgerSheet>
   </PageFrame>
 </template>
@@ -288,8 +370,7 @@ onBeforeUnmount(() => {
 .settings,
 .settings__layout,
 .settings__content,
-.settings__validation,
-.settings__outcome {
+.settings__validation {
   display: grid;
 }
 
@@ -339,48 +420,15 @@ onBeforeUnmount(() => {
   text-decoration: underline;
 }
 
-.settings__outcome {
-  justify-items: start;
-  gap: var(--space-2);
-}
-
-.settings__save,
-.settings__save > div,
-.settings__save-actions {
-  display: flex;
-  align-items: center;
-}
-
-.settings__save {
-  position: sticky;
-  bottom: var(--space-3);
-  min-height: 58px;
-  justify-content: space-between;
-  gap: var(--space-4);
-  margin-left: 210px;
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-control);
-  background: var(--color-surface);
-  box-shadow: var(--shadow-sheet);
-  padding: var(--space-3) var(--space-4);
-}
-
-.settings__save > div:first-child {
-  min-width: 0;
-  flex-direction: column;
-  align-items: flex-start;
+.settings__discard-list {
+  display: grid;
   gap: var(--space-1);
+  margin: 0;
+  padding-left: var(--space-5);
 }
 
-.settings__save span,
-.settings__save time {
-  color: var(--color-text-muted);
-  font-size: var(--text-label-xs);
-}
-
-.settings__save-actions {
-  flex: 0 0 auto;
-  gap: var(--space-2);
+.settings :deep(.sticky-save-bar--ledger) {
+  margin-left: 210px;
 }
 
 @media (max-width: 860px) {
@@ -388,23 +436,8 @@ onBeforeUnmount(() => {
     grid-template-columns: 1fr;
   }
 
-  .settings__save {
+  .settings :deep(.sticky-save-bar--ledger) {
     margin-left: 0;
-  }
-}
-
-@media (max-width: 560px) {
-  .settings__save {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .settings__save-actions {
-    justify-content: stretch;
-  }
-
-  .settings__save-actions :deep(.app-button) {
-    width: 100%;
   }
 }
 </style>

@@ -1,7 +1,6 @@
 export default {
   settings: {
     title: '設定',
-    description: '現在のブラウザー設定、グローバル実行動作、安全なシステムメタデータを管理します。',
     loading: '実行設定を読み込み中…',
     loadFailed: '実行設定を読み込めません。',
     stale: 'バックグラウンド更新に失敗したため、実行設定が古い可能性があります。',
@@ -11,10 +10,23 @@ export default {
     saveFailed: '実行設定を更新できません。入力内容は保持されています。',
     discard: '変更を破棄',
     dirtySummary: '未保存の実行設定が {count} 件あります',
+    saveState: {
+      saving: '設定を保存中',
+      savingNote: 'すべての実行設定を公開中です…',
+      reconciling: '保存結果を確認中',
+      baseline: '現在公開中の設定',
+      baselineNote: '未保存の実行設定の変更はありません。',
+    },
+    discardConfirm: {
+      title: '未保存の変更をすべて破棄しますか？',
+      description: '未保存の設定編集はすべて現在公開中のベースラインに戻ります。',
+      close: '破棄確認を閉じる',
+      cancel: '編集を続ける',
+      confirm: '変更を破棄',
+    },
     navigation: {
       label: '設定セクション',
       caption: 'セクション',
-      request: 'リクエストと転送',
       forwarding: 'リクエストと転送',
       headers: 'グローバル Header Rules',
       logs: 'ログとメンテナンス',
@@ -24,10 +36,6 @@ export default {
     validation: {
       title: '保存前に次の設定を修正してください:',
     },
-    effectiveValue: '現在の有効値: {value}',
-    override: '上書き',
-    default: 'コード既定値',
-    useOverride: '明示的な上書きを保存',
     outcome: {
       reconciling: '保存結果が不明なため、サーバーの最新状態を確認しています…',
       indeterminate:
@@ -44,28 +52,6 @@ export default {
       useMine: '自分を採用',
       useLatest: '最新を採用',
       headerRulesSummary: 'Set {set} 件、Remove {remove} 件',
-    },
-    appearance: {
-      title: '外観',
-      description: 'インターフェースの言語とカラーテーマを選択します。',
-      locale: '言語',
-      theme: 'テーマ',
-      localOnly: 'これらの設定は現在のブラウザーだけに適用され、実行設定 API には送信されません。',
-    },
-    request: {
-      title: 'リクエストと転送',
-      description: 'グローバルタイムアウトとアップストリームヘッダー動作を制御します。',
-      connect_timeout: '接続タイムアウト',
-      first_byte_timeout: '最初のバイトのタイムアウト',
-      request_timeout: 'リクエストタイムアウト',
-      stream_idle_timeout: 'ストリームアイドルタイムアウト',
-      seconds: '秒単位の正の整数を入力してください。',
-      timeoutError: '正の安全な整数を入力してください。',
-      headerRules: '高度な HeaderRules',
-      headerSummary: '有効なルールは Set {set} 件、Remove {remove} 件です。',
-      headerWarning:
-        'グローバルルールは HeaderRules を上書きしていないすべての Group に影響します。Group の上書きはグローバルオブジェクト全体を置き換えます。',
-      saveFailed: 'リクエストと転送の設定を更新できません。入力内容は保持されています。',
     },
     runtime: {
       title: 'リクエストと転送',

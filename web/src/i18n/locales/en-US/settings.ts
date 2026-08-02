@@ -1,8 +1,6 @@
 export default {
   settings: {
     title: 'Settings',
-    description:
-      'Manage browser-local preferences, global runtime behavior, and safe system metadata.',
     loading: 'Loading runtime settings…',
     loadFailed: 'Unable to load runtime settings.',
     stale: 'Runtime settings may be stale because the background refresh failed.',
@@ -12,10 +10,23 @@ export default {
     saveFailed: 'Unable to update runtime settings. Your input is unchanged.',
     discard: 'Discard',
     dirtySummary: '{count} unsaved runtime settings',
+    saveState: {
+      saving: 'Saving settings',
+      savingNote: 'Publishing all runtime settings…',
+      reconciling: 'Checking the save result',
+      baseline: 'Current published settings',
+      baselineNote: 'No unsaved runtime-setting changes.',
+    },
+    discardConfirm: {
+      title: 'Discard all unsaved changes?',
+      description: 'All unsaved Settings edits will return to the current published baseline.',
+      close: 'Close discard confirmation',
+      cancel: 'Continue editing',
+      confirm: 'Discard changes',
+    },
     navigation: {
       label: 'Settings sections',
       caption: 'Sections',
-      request: 'Request and forwarding',
       forwarding: 'Request and forwarding',
       headers: 'Global Header Rules',
       logs: 'Logs and maintenance',
@@ -25,10 +36,6 @@ export default {
     validation: {
       title: 'Fix these settings before saving:',
     },
-    effectiveValue: 'Effective value: {value}',
-    override: 'Override',
-    default: 'Code default',
-    useOverride: 'Persist an explicit override',
     outcome: {
       reconciling: 'The save result is unknown. Checking the latest server state…',
       indeterminate:
@@ -45,29 +52,6 @@ export default {
       useMine: 'Use mine',
       useLatest: 'Use latest',
       headerRulesSummary: '{set} Set and {remove} Remove rules',
-    },
-    appearance: {
-      title: 'Appearance',
-      description: 'Choose the interface language and color theme.',
-      locale: 'Language',
-      theme: 'Theme',
-      localOnly:
-        'These preferences apply only to the current browser and are not sent to runtime Settings.',
-    },
-    request: {
-      title: 'Request and forwarding',
-      description: 'Control global timeout and upstream header behavior.',
-      connect_timeout: 'Connect timeout',
-      first_byte_timeout: 'First-byte timeout',
-      request_timeout: 'Request timeout',
-      stream_idle_timeout: 'Stream idle timeout',
-      seconds: 'Seconds; use a positive whole number.',
-      timeoutError: 'Enter a positive safe integer.',
-      headerRules: 'Advanced HeaderRules',
-      headerSummary: '{set} Set and {remove} Remove rules are effective.',
-      headerWarning:
-        'Global rules affect every Group without a HeaderRules override. A Group override replaces the complete global object.',
-      saveFailed: 'Unable to update request and forwarding settings. Your input is unchanged.',
     },
     runtime: {
       title: 'Request and forwarding',

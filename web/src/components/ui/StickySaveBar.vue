@@ -32,10 +32,12 @@ const visible = computed(
 )
 const visualState = computed(() => {
   if (props.pending) return 'saving'
-  if (props.error || props.status === 'error') return 'error'
+  if (props.status === 'error') return 'error'
+  if (props.status === 'indeterminate') return 'indeterminate'
+  if (props.error) return 'error'
   if (props.dirty) return 'dirty'
   if (props.status === 'saved') return 'saved'
-  return props.status === 'indeterminate' ? 'indeterminate' : 'idle'
+  return 'idle'
 })
 </script>
 
