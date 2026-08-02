@@ -233,7 +233,7 @@ export function rebaseSettingsDraft(
 }
 
 export function isValidTimeout(value: number): boolean {
-  return Number.isSafeInteger(value) && value > 0
+  return Number.isSafeInteger(value) && value > 0 && value <= 9_223_372_036
 }
 
 export function isValidRetention(value: number): boolean {
@@ -242,13 +242,6 @@ export function isValidRetention(value: number): boolean {
 
 function asciiLower(value: string): string {
   return value.replace(/[A-Z]/g, (character) => String.fromCharCode(character.charCodeAt(0) + 32))
-}
-
-export function hasDuplicateHeaderNames(value: HeaderRulesDto): boolean {
-  const names = [...Object.keys(value.set), ...value.remove]
-    .map((name) => asciiLower(name.trim()))
-    .filter(Boolean)
-  return new Set(names).size !== names.length
 }
 
 export function validateSettingsSection(draft: SettingsDraft, section: SettingsSection): boolean {
@@ -264,8 +257,5 @@ export function validateSettingsSection(draft: SettingsDraft, section: SettingsS
     'request_timeout',
     'stream_idle_timeout',
   ]
-  return (
-    timeouts.every((key) => !draft.overrides.has(key) || isValidTimeout(draft.values[key])) &&
-    (!draft.overrides.has('header_rules') || !hasDuplicateHeaderNames(draft.values.header_rules))
-  )
+  return timeouts.every((key) => !draft.overrides.has(key) || isValidTimeout(draft.values[key]))
 }

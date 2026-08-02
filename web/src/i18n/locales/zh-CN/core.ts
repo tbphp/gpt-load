@@ -48,7 +48,14 @@ export default {
       value: 'Header 值',
       removeHint: '该 Header 将被移除。',
       delete: '删除规则',
-      duplicate: 'Header 名称不区分大小写，不能重复。',
+      errors: {
+        required: '请输入 Header 名称。',
+        invalid_name: 'Header 名称必须是有效的 HTTP token。',
+        duplicate_name: 'Header 名称不区分大小写，不能重复。',
+        forbidden_set_name: '不能设置此 Header 名称。',
+        credential_template_required: '凭据 Header 值必须包含 ${API_KEY}。',
+        invalid_value: 'Header 值不能包含控制字符。',
+      },
     },
   },
   auth: {

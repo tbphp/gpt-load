@@ -24,7 +24,7 @@ import { formatLocalInstant } from '@/lib/format'
 import AppearanceSection from './AppearanceSection.vue'
 import LogsMaintenanceSection from './LogsMaintenanceSection.vue'
 import RequestForwardingSection from './RequestForwardingSection.vue'
-import { hasDuplicateHeaderNames, isValidRetention, isValidTimeout } from './settings-patch'
+import { isValidRetention, isValidTimeout } from './settings-patch'
 import SystemInfoSection from './SystemInfoSection.vue'
 import { useSettingsController } from './use-settings-controller'
 
@@ -81,7 +81,7 @@ const invalidKeys = computed<RuntimeSettingKey[]>(() => {
       return !isValidTimeout(current.values[key as TimeoutSettingKey])
     }
     if (key === 'header_rules') {
-      return !headerRulesValid.value || hasDuplicateHeaderNames(current.values.header_rules)
+      return !headerRulesValid.value
     }
     if (key === 'request_log_retention_days') {
       return !isValidRetention(current.values.request_log_retention_days)

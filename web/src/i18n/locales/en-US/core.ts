@@ -49,7 +49,14 @@ export default {
       value: 'Header value',
       removeHint: 'This header will be removed.',
       delete: 'Delete rule',
-      duplicate: 'duplicate header names are not allowed (case-insensitive).',
+      errors: {
+        required: 'Enter a header name.',
+        invalid_name: 'Use a valid HTTP header token.',
+        duplicate_name: 'Duplicate header names are not allowed (case-insensitive).',
+        forbidden_set_name: 'This header cannot be set.',
+        credential_template_required: 'Credential header values must contain ${API_KEY}.',
+        invalid_value: 'Header values cannot contain control characters.',
+      },
     },
   },
   auth: {

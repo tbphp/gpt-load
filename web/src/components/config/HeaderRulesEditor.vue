@@ -4,10 +4,17 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import type { HeaderRulesDto } from '@/app/resources/groups'
+import CompactFieldError from '@/components/ui/CompactFieldError.vue'
+
+import {
+  validateHeaderRuleRows,
+  type HeaderRuleAction,
+  type HeaderRuleValidationError,
+} from './header-rules-validation'
 
 interface RuleRow {
   key: number
-  action: 'set' | 'remove'
+  action: HeaderRuleAction
   name: string
   value: string
   revealed: boolean
@@ -36,26 +43,15 @@ const { t } = useI18n()
 let nextKey = 1
 const rows = ref<RuleRow[]>(createRows(normalizeRules(props.modelValue)))
 
-function normalizeASCIIHeaderName(value: string): string {
-  return value
-    .trim()
-    .replace(/[A-Z]/g, (character) => String.fromCharCode(character.charCodeAt(0) + 32))
-}
-
 function compareHeaderNames(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0
 }
 
 function normalizeRules(value: HeaderRulesDto): HeaderRulesDto {
   const set = Object.fromEntries(
-    Object.entries(value.set)
-      .map(([name, headerValue]) => [name.trim(), headerValue] as const)
-      .filter(([name]) => name.length > 0)
-      .sort(([left], [right]) => compareHeaderNames(left, right)),
+    Object.entries(value.set).sort(([left], [right]) => compareHeaderNames(left, right)),
   )
-  const remove = [...new Set(value.remove.map((name) => name.trim()).filter(Boolean))].sort(
-    compareHeaderNames,
-  )
+  const remove = [...value.remove].sort(compareHeaderNames)
   return { set, remove }
 }
 
@@ -81,10 +77,8 @@ function createRows(value: HeaderRulesDto): RuleRow[] {
 function rulesFromRows(): HeaderRulesDto {
   const rules: HeaderRulesDto = { set: {}, remove: [] }
   for (const row of rows.value) {
-    const name = row.name.trim()
-    if (!name) continue
-    if (row.action === 'set') rules.set[name] = row.value
-    else rules.remove.push(name)
+    if (row.action === 'set') rules.set[row.name] = row.value
+    else rules.remove.push(row.name)
   }
   return rules
 }
@@ -93,17 +87,21 @@ function sameRules(left: HeaderRulesDto, right: HeaderRulesDto): boolean {
   return JSON.stringify(normalizeRules(left)) === JSON.stringify(normalizeRules(right))
 }
 
-const duplicateNames = computed(() => {
-  const counts = new Map<string, number>()
-  for (const row of rows.value) {
-    const normalized = normalizeASCIIHeaderName(row.name)
-    if (normalized) counts.set(normalized, (counts.get(normalized) ?? 0) + 1)
+const validationErrors = computed(() =>
+  validateHeaderRuleRows(
+    rows.value.map(({ key, action, name, value }) => ({ rowKey: key, action, name, value })),
+  ),
+)
+const validationErrorsByRow = computed(() => {
+  const errors = new Map<number, HeaderRuleValidationError>()
+  for (const error of validationErrors.value) {
+    if (!errors.has(error.rowKey)) errors.set(error.rowKey, error)
   }
-  return new Set([...counts].filter(([, count]) => count > 1).map(([name]) => name))
+  return errors
 })
 
 watch(
-  () => duplicateNames.value.size === 0,
+  () => validationErrors.value.length === 0,
   (valid) => emit('update:valid', valid),
   { immediate: true },
 )
@@ -151,6 +149,22 @@ function setValue(row: RuleRow, event: Event): void {
   row.value = (event.target as HTMLInputElement).value
   publish()
 }
+
+function rowError(row: RuleRow, field: 'name' | 'value'): string | undefined {
+  const error = validationErrorsByRow.value.get(row.key)
+  if (
+    !error ||
+    (field === 'value' &&
+      error.code !== 'credential_template_required' &&
+      error.code !== 'invalid_value')
+  ) {
+    return undefined
+  }
+  if (field === 'value') return t(`common.headerRules.errors.${error.code}`)
+  if (error.code === 'credential_template_required' || error.code === 'invalid_value')
+    return undefined
+  return t(`common.headerRules.errors.${error.code}`)
+}
 </script>
 
 <template>
@@ -183,19 +197,29 @@ function setValue(row: RuleRow, event: Event): void {
     <div v-if="rows.length" class="header-rules__rows">
       <div v-for="row in rows" :key="row.key" class="header-rule">
         <template v-if="appearance === 'ledger'">
-          <label class="sr-only" :for="`header-name-${row.key}`">{{
-            t('common.headerRules.name')
-          }}</label>
-          <input
+          <CompactFieldError
             :id="`header-name-${row.key}`"
-            class="header-rule__name"
-            :value="row.name"
-            :placeholder="t('common.headerRules.name')"
-            autocomplete="off"
-            spellcheck="false"
-            :disabled="props.disabled"
-            @input="setName(row, $event)"
-          />
+            class="header-rule__name-field"
+            :error="rowError(row, 'name')"
+          >
+            <template #default="{ invalid, describedBy }">
+              <label class="sr-only" :for="`header-name-${row.key}`">{{
+                t('common.headerRules.name')
+              }}</label>
+              <input
+                :id="`header-name-${row.key}`"
+                class="header-rule__name"
+                :value="row.name"
+                :placeholder="t('common.headerRules.name')"
+                autocomplete="off"
+                spellcheck="false"
+                :disabled="props.disabled"
+                :aria-invalid="invalid || undefined"
+                :aria-describedby="describedBy"
+                @input="setName(row, $event)"
+              />
+            </template>
+          </CompactFieldError>
           <div class="header-rule__mode" role="group" :aria-label="t('common.headerRules.action')">
             <button
               type="button"
@@ -215,22 +239,31 @@ function setValue(row: RuleRow, event: Event): void {
               {{ removeLabel ?? t('common.headerRules.remove') }}
             </button>
           </div>
-          <template v-if="row.action === 'set'">
-            <label class="sr-only" :for="`header-value-${row.key}`">{{
-              t('common.headerRules.value')
-            }}</label>
-            <input
-              :id="`header-value-${row.key}`"
-              class="header-rule__value"
-              type="text"
-              :value="row.value"
-              :placeholder="t('common.headerRules.value')"
-              autocomplete="off"
-              spellcheck="false"
-              :disabled="props.disabled"
-              @input="setValue(row, $event)"
-            />
-          </template>
+          <CompactFieldError
+            v-if="row.action === 'set'"
+            :id="`header-value-${row.key}`"
+            class="header-rule__value-field"
+            :error="rowError(row, 'value')"
+          >
+            <template #default="{ invalid, describedBy }">
+              <label class="sr-only" :for="`header-value-${row.key}`">{{
+                t('common.headerRules.value')
+              }}</label>
+              <input
+                :id="`header-value-${row.key}`"
+                class="header-rule__value"
+                type="text"
+                :value="row.value"
+                :placeholder="t('common.headerRules.value')"
+                autocomplete="off"
+                spellcheck="false"
+                :disabled="props.disabled"
+                :aria-invalid="invalid || undefined"
+                :aria-describedby="describedBy"
+                @input="setValue(row, $event)"
+              />
+            </template>
+          </CompactFieldError>
           <span v-else class="header-rule__remove-hint">{{
             removeHint ?? t('common.headerRules.removeHint')
           }}</span>
@@ -257,43 +290,64 @@ function setValue(row: RuleRow, event: Event): void {
             <option value="set">{{ t('common.headerRules.set') }}</option>
             <option value="remove">{{ t('common.headerRules.remove') }}</option>
           </select>
-          <label class="sr-only" :for="`header-name-${row.key}`">{{
-            t('common.headerRules.name')
-          }}</label>
-          <input
+          <CompactFieldError
             :id="`header-name-${row.key}`"
-            :value="row.name"
-            :placeholder="t('common.headerRules.name')"
-            autocomplete="off"
-            spellcheck="false"
-            :disabled="props.disabled"
-            @input="setName(row, $event)"
-          />
-          <div v-if="row.action === 'set'" class="header-rule__secret">
-            <label class="sr-only" :for="`header-value-${row.key}`">{{
-              t('common.headerRules.value')
-            }}</label>
-            <input
-              :id="`header-value-${row.key}`"
-              :type="row.revealed ? 'text' : 'password'"
-              :value="row.value"
-              :placeholder="t('common.headerRules.value')"
-              autocomplete="off"
-              spellcheck="false"
-              :disabled="props.disabled"
-              @input="setValue(row, $event)"
-            />
-            <button
-              class="header-rule__icon"
-              type="button"
-              :aria-label="row.revealed ? t('common.conceal') : t('common.reveal')"
-              :disabled="props.disabled"
-              @click="row.revealed = !row.revealed"
-            >
-              <EyeOff v-if="row.revealed" :size="16" aria-hidden="true" />
-              <Eye v-else :size="16" aria-hidden="true" />
-            </button>
-          </div>
+            class="header-rule__name-field"
+            :error="rowError(row, 'name')"
+          >
+            <template #default="{ invalid, describedBy }">
+              <label class="sr-only" :for="`header-name-${row.key}`">{{
+                t('common.headerRules.name')
+              }}</label>
+              <input
+                :id="`header-name-${row.key}`"
+                :value="row.name"
+                :placeholder="t('common.headerRules.name')"
+                autocomplete="off"
+                spellcheck="false"
+                :disabled="props.disabled"
+                :aria-invalid="invalid || undefined"
+                :aria-describedby="describedBy"
+                @input="setName(row, $event)"
+              />
+            </template>
+          </CompactFieldError>
+          <CompactFieldError
+            v-if="row.action === 'set'"
+            :id="`header-value-${row.key}`"
+            class="header-rule__value-field"
+            :error="rowError(row, 'value')"
+          >
+            <template #default="{ invalid, describedBy }">
+              <div class="header-rule__secret">
+                <label class="sr-only" :for="`header-value-${row.key}`">{{
+                  t('common.headerRules.value')
+                }}</label>
+                <input
+                  :id="`header-value-${row.key}`"
+                  :type="row.revealed ? 'text' : 'password'"
+                  :value="row.value"
+                  :placeholder="t('common.headerRules.value')"
+                  autocomplete="off"
+                  spellcheck="false"
+                  :disabled="props.disabled"
+                  :aria-invalid="invalid || undefined"
+                  :aria-describedby="describedBy"
+                  @input="setValue(row, $event)"
+                />
+                <button
+                  class="header-rule__icon"
+                  type="button"
+                  :aria-label="row.revealed ? t('common.conceal') : t('common.reveal')"
+                  :disabled="props.disabled"
+                  @click="row.revealed = !row.revealed"
+                >
+                  <EyeOff v-if="row.revealed" :size="16" aria-hidden="true" />
+                  <Eye v-else :size="16" aria-hidden="true" />
+                </button>
+              </div>
+            </template>
+          </CompactFieldError>
           <span v-else class="header-rule__remove-hint">{{
             t('common.headerRules.removeHint')
           }}</span>
@@ -309,9 +363,6 @@ function setValue(row: RuleRow, event: Event): void {
         </template>
       </div>
     </div>
-    <p v-if="duplicateNames.size" class="header-rules__error" role="alert">
-      {{ t('common.headerRules.duplicate') }}
-    </p>
     <button
       v-if="appearance === 'ledger'"
       class="header-rules__add"
@@ -405,6 +456,17 @@ h3 {
   color: var(--color-text);
   padding: var(--space-2) var(--space-3);
 }
+.header-rule__name-field,
+.header-rule__value-field {
+  min-width: 0;
+}
+.header-rules :deep(.compact-field-error input) {
+  padding-inline-end: var(--space-3);
+}
+.header-rules :deep(.compact-field-error[data-invalid='true'] input) {
+  border-color: var(--color-danger);
+  padding-inline-end: 38px;
+}
 .header-rule__secret {
   position: relative;
 }
@@ -412,15 +474,17 @@ h3 {
   padding-right: 48px;
   font-family: ui-monospace, monospace;
 }
+.header-rules--default :deep(.header-rule__value-field[data-invalid='true'] input) {
+  padding-inline-end: 76px;
+}
+.header-rules--default :deep(.header-rule__value-field .compact-field-error__indicator) {
+  right: 48px;
+}
 .header-rule__secret .header-rule__icon {
   position: absolute;
   top: 0;
   right: 0;
   border-color: transparent;
-}
-.header-rules__error {
-  color: var(--color-danger);
-  font-size: 0.8125rem;
 }
 .header-rules--ledger {
   gap: 11px;
@@ -435,6 +499,14 @@ h3 {
 }
 .header-rules--ledger .header-rule__mode {
   grid-column: 2;
+  grid-row: 1;
+}
+.header-rules--ledger .header-rule__name-field {
+  grid-column: 1;
+  grid-row: 1;
+}
+.header-rules--ledger .header-rule__value-field {
+  grid-column: 3;
   grid-row: 1;
 }
 .header-rules--ledger .header-rule__name {
@@ -458,6 +530,12 @@ h3 {
   padding: 6px 9px;
   font-family: var(--font-mono);
   font-size: 11px;
+}
+.header-rules--ledger :deep(.compact-field-error input) {
+  padding: 6px 9px;
+}
+.header-rules--ledger :deep(.compact-field-error[data-invalid='true'] input) {
+  padding-inline-end: 38px;
 }
 .header-rules--ledger .header-rule__mode {
   display: inline-flex;
@@ -543,7 +621,9 @@ h3 {
     grid-template-columns: minmax(0, 1fr) 32px;
   }
   .header-rules--ledger .header-rule__name,
+  .header-rules--ledger .header-rule__name-field,
   .header-rules--ledger .header-rule__mode,
+  .header-rules--ledger .header-rule__value-field,
   .header-rules--ledger .header-rule__value,
   .header-rules--ledger .header-rule__remove-hint {
     grid-column: 1;
