@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { useQuery } from '@tanstack/vue-query'
-import { Info, LockKeyhole } from '@lucide/vue'
 import { useI18n } from 'vue-i18n'
 
 import { useApiClient } from '@/api/client-context'
@@ -8,7 +7,6 @@ import { systemInfoQueryOptions, type SecretSource } from '@/app/resources/syste
 import CopyButton from '@/components/ui/CopyButton.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
-import SurfaceCard from '@/components/ui/SurfaceCard.vue'
 
 const client = useApiClient()
 const { t } = useI18n()
@@ -20,13 +18,10 @@ function sourceLabel(source: SecretSource): string {
 </script>
 
 <template>
-  <SurfaceCard class="settings-card system-info">
-    <header class="settings-card__heading">
-      <span class="settings-card__icon"><Info :size="18" aria-hidden="true" /></span>
-      <div>
-        <h2>{{ t('settings.system.title') }}</h2>
-        <p>{{ t('settings.system.description') }}</p>
-      </div>
+  <section id="settings-system" class="settings-section" tabindex="-1">
+    <header class="settings-section__heading">
+      <h2>{{ t('settings.system.title') }}</h2>
+      <p>{{ t('settings.system.description') }}</p>
     </header>
 
     <QueryFeedback
@@ -49,22 +44,22 @@ function sourceLabel(source: SecretSource): string {
         :retry-label="t('common.retry')"
         @retry="infoQuery.refetch()"
       />
-      <dl class="system-info__grid">
+      <dl class="settings-system__grid">
         <div>
           <dt>{{ t('settings.system.version') }}</dt>
-          <dd class="mono">{{ infoQuery.data.value.version }}</dd>
+          <dd class="settings-system__mono">{{ infoQuery.data.value.version }}</dd>
         </div>
         <div>
           <dt>{{ t('settings.system.deployment') }}</dt>
-          <dd class="system-info__badges">
-            <StatusBadge>{{ t('settings.system.single') }}</StatusBadge>
-            <StatusBadge>{{ t('settings.system.sqlite') }}</StatusBadge>
-            <StatusBadge>{{ t('settings.system.singleBinary') }}</StatusBadge>
+          <dd class="settings-system__badges">
+            <StatusBadge size="compact">{{ t('settings.system.single') }}</StatusBadge>
+            <StatusBadge size="compact">{{ t('settings.system.sqlite') }}</StatusBadge>
+            <StatusBadge size="compact">{{ t('settings.system.singleBinary') }}</StatusBadge>
           </dd>
         </div>
         <div>
           <dt>{{ t('settings.system.dataDir') }}</dt>
-          <dd class="system-info__path mono">
+          <dd class="settings-system__path settings-system__mono">
             <span>{{ infoQuery.data.value.data_dir }}</span>
             <CopyButton
               :value="infoQuery.data.value.data_dir"
@@ -76,9 +71,14 @@ function sourceLabel(source: SecretSource): string {
         </div>
         <div>
           <dt>{{ t('settings.system.authKey') }}</dt>
-          <dd>
-            <span>{{ sourceLabel(infoQuery.data.value.auth_key.source) }}</span>
-            <span v-if="infoQuery.data.value.auth_key.path" class="system-info__path mono">
+          <dd class="settings-system__source">
+            <StatusBadge size="compact">{{
+              sourceLabel(infoQuery.data.value.auth_key.source)
+            }}</StatusBadge>
+            <span
+              v-if="infoQuery.data.value.auth_key.path"
+              class="settings-system__path settings-system__mono"
+            >
               <span>{{ infoQuery.data.value.auth_key.path }}</span>
               <CopyButton
                 :value="infoQuery.data.value.auth_key.path"
@@ -91,12 +91,17 @@ function sourceLabel(source: SecretSource): string {
         </div>
         <div>
           <dt>{{ t('settings.system.encryption') }}</dt>
-          <dd>
-            <span class="system-info__enabled">
-              <LockKeyhole :size="16" aria-hidden="true" />{{ t('settings.system.enabled') }}
-            </span>
-            <span>{{ sourceLabel(infoQuery.data.value.encryption.source) }}</span>
-            <span v-if="infoQuery.data.value.encryption.path" class="system-info__path mono">
+          <dd class="settings-system__source">
+            <StatusBadge tone="success" size="compact">{{
+              t('settings.system.enabled')
+            }}</StatusBadge>
+            <StatusBadge size="compact">{{
+              sourceLabel(infoQuery.data.value.encryption.source)
+            }}</StatusBadge>
+            <span
+              v-if="infoQuery.data.value.encryption.path"
+              class="settings-system__path settings-system__mono"
+            >
               <span>{{ infoQuery.data.value.encryption.path }}</span>
               <CopyButton
                 :value="infoQuery.data.value.encryption.path"
@@ -108,97 +113,91 @@ function sourceLabel(source: SecretSource): string {
           </dd>
         </div>
       </dl>
-      <p class="system-info__security-note">{{ t('settings.system.securityNote') }}</p>
+      <p class="settings-system__security-note">{{ t('settings.system.securityNote') }}</p>
     </template>
-  </SurfaceCard>
+  </section>
 </template>
 
 <style scoped>
-.settings-card,
-.settings-card__heading,
-.system-info__grid,
-.system-info__grid > div,
-.system-info__grid dd {
+.settings-section,
+.settings-system__grid,
+.settings-system__grid > div,
+.settings-system__source {
   display: grid;
 }
-.settings-card {
+
+.settings-section {
   gap: var(--space-4);
+  scroll-margin-top: 76px;
 }
-.settings-card__heading {
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: var(--space-3);
-}
-.settings-card__heading h2,
-.settings-card__heading p,
-.system-info__grid,
-.system-info__grid dd,
-.system-info__security-note {
+
+.settings-section__heading h2,
+.settings-section__heading p,
+.settings-system__grid,
+.settings-system__grid dd,
+.settings-system__security-note {
   margin: 0;
 }
-.settings-card__heading h2 {
-  font-size: 1rem;
+
+.settings-section__heading h2 {
+  font-size: var(--text-sm);
+  font-weight: 650;
 }
-.settings-card__heading p,
-.system-info__security-note {
+
+.settings-section__heading p,
+.settings-system__security-note {
   margin-top: var(--space-1);
   color: var(--color-text-muted);
+  font-size: var(--text-label-xs);
 }
-.settings-card__icon {
-  display: inline-flex;
-  width: 36px;
-  height: 36px;
-  align-items: center;
-  justify-content: center;
-  border-radius: var(--radius-control);
-  background: var(--color-action-soft);
-  color: var(--color-action);
-}
-.system-info__grid {
+
+.settings-system__grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-4);
 }
-.system-info__grid > div {
+
+.settings-system__grid > div {
   min-width: 0;
   gap: var(--space-2);
   border-top: 1px solid var(--color-border-subtle);
   padding-top: var(--space-3);
 }
-.system-info__grid dt {
+
+.settings-system__grid dt {
   color: var(--color-text-muted);
-  font-size: 0.8125rem;
+  font-size: var(--text-label-xs);
   font-weight: 650;
 }
-.system-info__grid dd {
+
+.settings-system__grid dd,
+.settings-system__source {
   min-width: 0;
   gap: var(--space-2);
 }
-.system-info__badges {
-  display: flex !important;
+
+.settings-system__badges {
+  display: flex;
   flex-wrap: wrap;
+  gap: var(--space-2);
 }
-.system-info__path {
+
+.settings-system__path {
+  display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: var(--space-2);
 }
-.system-info__path > span:first-child {
+
+.settings-system__path > span:first-child {
   overflow-wrap: anywhere;
 }
-.system-info__enabled {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  color: var(--color-success);
-  font-weight: 650;
+
+.settings-system__mono {
+  font-family: var(--font-mono);
 }
-.mono {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-}
-.system-info__security-note {
-  font-size: 0.8125rem;
-}
+
 @media (max-width: 640px) {
-  .system-info__grid {
+  .settings-system__grid {
     grid-template-columns: 1fr;
   }
 }

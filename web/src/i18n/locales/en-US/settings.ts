@@ -115,11 +115,31 @@ export default {
     },
     logs: {
       title: 'Logs and maintenance',
-      description: 'Control automatic request-log retention.',
+      description:
+        'An hourly maintenance task cleans request logs by retention days; usage aggregation is retained independently for a fixed 35 days.',
       retention: 'Request-log retention days',
-      retentionDescription: 'Keep persisted request logs for 1 through 365 days.',
+      effectiveValue: '{value} days',
+      days: 'days',
       retentionError: 'Enter a whole number between 1 and 365.',
       saveFailed: 'Unable to update log retention. Your input is unchanged.',
+    },
+    modelPrices: {
+      title: 'Model prices',
+      description:
+        'Read-only built-in and explicit-override summary; price editing is outside the Settings draft.',
+      loading: 'Loading model prices…',
+      loadFailed: 'Unable to load model prices.',
+      stale: 'Model prices may be stale because the background refresh failed.',
+      builtinCount: 'Built-in rules',
+      overrideCount: 'Override rules',
+      priceUnit: 'Price unit',
+      latestOverride: 'Latest override update',
+      units: {
+        usd_per_million_tokens: 'USD per one million tokens',
+      },
+      historyNote:
+        'Price changes affect estimates for future requests and do not recalculate history.',
+      manage: 'Manage model prices',
     },
     system: {
       title: 'System information',

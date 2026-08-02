@@ -114,11 +114,30 @@ export default {
     },
     logs: {
       title: 'ログとメンテナンス',
-      description: 'リクエストログの自動保持期間を制御します。',
+      description:
+        'リクエストログは毎時のメンテナンスタスクが保持日数に従って削除します。usage 集計は独立して固定 35 日間保持されます。',
       retention: 'リクエストログ保持日数',
-      retentionDescription: '永続化されたリクエストログを 1〜365 日保持します。',
+      effectiveValue: '{value} 日',
+      days: '日',
       retentionError: '1 から 365 までの整数を入力してください。',
       saveFailed: 'ログ保持設定を更新できません。入力内容は保持されています。',
+    },
+    modelPrices: {
+      title: 'モデル価格',
+      description:
+        '組み込みルールと明示的な上書きを読み取り専用で要約します。価格編集は設定ドラフトに含まれません。',
+      loading: 'モデル価格を読み込み中…',
+      loadFailed: 'モデル価格を読み込めません。',
+      stale: 'バックグラウンド更新に失敗したため、モデル価格が古い可能性があります。',
+      builtinCount: '組み込みルール',
+      overrideCount: '上書きルール',
+      priceUnit: '価格単位',
+      latestOverride: '最新の上書き更新時刻',
+      units: {
+        usd_per_million_tokens: '100 万 tokens あたりの米ドル',
+      },
+      historyNote: '価格変更は今後のリクエストの見積もりにのみ影響し、履歴は再計算しません。',
+      manage: 'モデル価格を管理',
     },
     system: {
       title: 'システム情報',

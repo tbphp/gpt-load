@@ -1,14 +1,13 @@
 <script setup lang="ts">
-import { FileClock } from '@lucide/vue'
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import type { RuntimeSettingKey } from '@/app/resources/settings'
-import type { SettingsResource } from '@/app/resources/settings'
+import type { RuntimeSettingKey, SettingsResource } from '@/app/resources/settings'
+import RuntimeOverrideRow from '@/components/config/RuntimeOverrideRow.vue'
 import AppButton from '@/components/ui/AppButton.vue'
-import SurfaceCard from '@/components/ui/SurfaceCard.vue'
+import AppTextInput from '@/components/ui/AppTextInput.vue'
+import CompactFieldError from '@/components/ui/CompactFieldError.vue'
 
-import SettingOverrideField from './SettingOverrideField.vue'
 import {
   createSettingsDraft,
   isValidRetention,
@@ -31,13 +30,30 @@ const emit = defineEmits<{
   chooseLatest: [key: RuntimeSettingKey]
 }>()
 const { t } = useI18n()
+const retentionInput = ref('')
+const lastPublishedValue = ref<number | undefined>()
 const conflict = computed(() => props.conflicts.find((candidate) => candidate.key === settingKey))
 const owned = computed(() => props.draft.overrides.has(settingKey))
+const pendingRestore = computed(
+  () => !owned.value && props.base.settings.overrides.includes(settingKey),
+)
 const error = computed(() =>
   owned.value && !isValidRetention(props.draft.values.request_log_retention_days)
     ? t('settings.logs.retentionError')
     : undefined,
 )
+
+watch(
+  () => props.draft.values.request_log_retention_days,
+  (value) => {
+    if (!Object.is(value, lastPublishedValue.value)) retentionInput.value = String(value)
+  },
+  { immediate: true },
+)
+
+function cloneDraft(): SettingsDraft {
+  return createSettingsDraft({ values: props.draft.values, overrides: [...props.draft.overrides] })
+}
 
 function setOwned(enabled: boolean): void {
   emit('change', {
@@ -46,112 +62,146 @@ function setOwned(enabled: boolean): void {
   })
 }
 
-function setValue(value: number): void {
-  const draft = createSettingsDraft({
-    values: props.draft.values,
-    overrides: [...props.draft.overrides],
-  })
-  draft.values.request_log_retention_days = value
+function setValue(value: string): void {
+  retentionInput.value = value
+  const draft = cloneDraft()
+  const parsed = value.trim() === '' ? Number.NaN : Number(value)
+  draft.values.request_log_retention_days = parsed
+  lastPublishedValue.value = parsed
   emit('change', { key: settingKey, draft })
+}
+
+function conflictValue(side: 'mine' | 'latest'): string {
+  const value = conflict.value?.[side]
+  if (!value?.is_override) return t('settings.runtime.defaultSource')
+  return `${value.normalized_value} ${t('settings.logs.days')}`
 }
 </script>
 
 <template>
-  <SurfaceCard id="settings-logs-maintenance" class="settings-card logs-maintenance" tabindex="-1">
-    <header class="settings-card__heading">
-      <div class="settings-card__title">
-        <span class="settings-card__icon"><FileClock :size="18" aria-hidden="true" /></span>
-        <div>
-          <h2>{{ t('settings.logs.title') }}</h2>
-          <p>{{ t('settings.logs.description') }}</p>
-        </div>
-      </div>
+  <section id="settings-logs" class="settings-section" tabindex="-1">
+    <header class="settings-section__heading">
+      <h2>{{ t('settings.logs.title') }}</h2>
+      <p>{{ t('settings.logs.description') }}</p>
     </header>
 
-    <section v-if="conflict" class="settings-conflict">
+    <RuntimeOverrideRow
+      appearance="ledger"
+      :label="t('settings.logs.retention')"
+      :detail="
+        owned
+          ? t('settings.runtime.overrideValue')
+          : pendingRestore
+            ? t('settings.runtime.resetPending')
+            : t('settings.logs.effectiveValue', {
+                value: base.settings.values.request_log_retention_days,
+              })
+      "
+      :value-label="owned || pendingRestore ? undefined : t('settings.runtime.currentEffective')"
+      :source-label="
+        owned ? t('settings.runtime.overrideSource') : t('settings.runtime.defaultSource')
+      "
+      :action-label="owned ? t('settings.runtime.restoreDefault') : t('settings.runtime.override')"
+      :overridden="owned"
+      :disabled="disabled"
+      @toggle="setOwned(!owned)"
+    >
+      <template v-if="owned" #value>
+        <div class="settings-logs__input">
+          <CompactFieldError id="settings-value-request_log_retention_days" :error="error">
+            <template #default="{ invalid, describedBy }">
+              <AppTextInput
+                id="settings-value-request_log_retention_days"
+                type="number"
+                :model-value="retentionInput"
+                :label="t('settings.runtime.valueFor', { field: t('settings.logs.retention') })"
+                appearance="sunken"
+                size="compact"
+                monospace
+                min="1"
+                max="365"
+                step="1"
+                inputmode="numeric"
+                :disabled="disabled"
+                :invalid="invalid"
+                :described-by="describedBy"
+                @update:model-value="setValue"
+              />
+            </template>
+          </CompactFieldError>
+          <span aria-hidden="true">{{ t('settings.logs.days') }}</span>
+        </div>
+      </template>
+    </RuntimeOverrideRow>
+
+    <article v-if="conflict" class="settings-logs__conflict" role="alert">
       <strong>{{ t('settings.logs.retention') }}</strong>
-      <span>
-        {{ t('settings.conflict.mine') }}:
-        {{ conflict.mine.normalized_value }}
-      </span>
-      <span>
-        {{ t('settings.conflict.latest') }}:
-        {{ conflict.latest.normalized_value }}
-      </span>
+      <span>{{ t('settings.conflict.mine') }}: {{ conflictValue('mine') }}</span>
+      <span>{{ t('settings.conflict.latest') }}: {{ conflictValue('latest') }}</span>
       <div>
-        <AppButton variant="secondary" @click="emit('chooseMine', settingKey)">
+        <AppButton variant="secondary" size="compact" @click="emit('chooseMine', settingKey)">
           {{ t('settings.conflict.useMine') }}
         </AppButton>
-        <AppButton variant="ghost" @click="emit('chooseLatest', settingKey)">
+        <AppButton variant="ghost" size="compact" @click="emit('chooseLatest', settingKey)">
           {{ t('settings.conflict.useLatest') }}
         </AppButton>
       </div>
-    </section>
-
-    <SettingOverrideField
-      :setting-key="settingKey"
-      :label="t('settings.logs.retention')"
-      :description="t('settings.logs.retentionDescription')"
-      :effective-value="base.settings.values.request_log_retention_days"
-      :owned="owned"
-      :model-value="draft.values.request_log_retention_days"
-      :error="error"
-      :min="1"
-      :max="365"
-      :disabled="disabled"
-      @update:owned="setOwned"
-      @update:model-value="setValue"
-    />
-  </SurfaceCard>
+    </article>
+  </section>
 </template>
 
 <style scoped>
-.settings-card,
-.settings-card__title,
-.settings-card__heading {
+.settings-section,
+.settings-section__heading,
+.settings-logs__input,
+.settings-logs__conflict {
   display: grid;
 }
-.settings-card {
+
+.settings-section {
   gap: var(--space-4);
+  scroll-margin-top: 76px;
 }
-.settings-card__heading {
-  gap: var(--space-4);
-}
-.settings-card__title {
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: var(--space-3);
-}
-.settings-card__heading h2,
-.settings-card__heading p {
+
+.settings-section__heading h2,
+.settings-section__heading p {
   margin: 0;
 }
-.settings-card__heading h2 {
-  font-size: 1rem;
+
+.settings-section__heading h2 {
+  font-size: var(--text-sm);
+  font-weight: 650;
 }
-.settings-card__heading p {
+
+.settings-section__heading p {
   margin-top: var(--space-1);
   color: var(--color-text-muted);
+  font-size: var(--text-label-xs);
 }
-.settings-card__icon {
-  display: inline-flex;
-  width: 36px;
-  height: 36px;
+
+.settings-logs__input {
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: center;
-  border-radius: var(--radius-control);
-  background: var(--color-action-soft);
-  color: var(--color-action);
-}
-.settings-conflict {
-  display: grid;
   gap: var(--space-2);
+}
+
+.settings-logs__input > span {
+  color: var(--color-text-faint);
+  font-size: var(--text-label-xs);
+}
+
+.settings-logs__conflict {
+  gap: var(--space-1);
   border: 1px solid var(--color-warning);
   border-radius: var(--radius-control);
   padding: var(--space-3);
+  font-size: var(--text-label-xs);
 }
-.settings-conflict > div {
+
+.settings-logs__conflict > div {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
+  margin-top: var(--space-1);
 }
 </style>

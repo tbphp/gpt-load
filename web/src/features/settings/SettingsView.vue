@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
-import { BadgeDollarSign, ChevronRight } from '@lucide/vue'
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
@@ -11,7 +10,6 @@ import {
   type RuntimeSettingKey,
 } from '@/app/resources/settings'
 import { controlQueryKeys } from '@/app/query-keys'
-import { modelPricesLocation } from '@/app/route-locations'
 import { useUnsavedChanges } from '@/app/unsaved-changes'
 import AppButton from '@/components/ui/AppButton.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
@@ -20,12 +18,12 @@ import PageFrame from '@/components/layout/PageFrame.vue'
 import PageHeader from '@/components/ui/PageHeader.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import SectionNav from '@/components/ui/SectionNav.vue'
-import SurfaceCard from '@/components/ui/SurfaceCard.vue'
 import { useSectionNavigation } from '@/composables/use-section-navigation'
 import { formatLocalInstant } from '@/lib/format'
 
 import GlobalHeaderRulesSection from './GlobalHeaderRulesSection.vue'
 import LogsMaintenanceSection from './LogsMaintenanceSection.vue'
+import ModelPricesSettingsSection from './ModelPricesSettingsSection.vue'
 import RuntimeSettingsSection from './RuntimeSettingsSection.vue'
 import SystemInfoSection from './SystemInfoSection.vue'
 import { isValidRetention, isValidTimeout } from './settings-patch'
@@ -244,40 +242,19 @@ onBeforeUnmount(() => {
               @update:valid="headerRulesValid = $event"
               @update:invalid-edits="headerRulesInvalidEdits = $event"
             />
-            <section id="settings-logs" class="settings__section" tabindex="-1">
-              <LogsMaintenanceSection
-                :base="base"
-                :draft="draft"
-                :disabled="operationLocked"
-                :conflicts="conflicts"
-                @change="updateDraft"
-                @choose-mine="chooseMine"
-                @choose-latest="chooseLatest"
-              />
-            </section>
+            <LogsMaintenanceSection
+              :base="base"
+              :draft="draft"
+              :disabled="operationLocked"
+              :conflicts="conflicts"
+              @change="updateDraft"
+              @choose-mine="chooseMine"
+              @choose-latest="chooseLatest"
+            />
           </template>
 
-          <section id="settings-model-prices" class="settings__section" tabindex="-1">
-            <SurfaceCard class="settings-card model-prices-entry">
-              <div class="model-prices-entry__copy">
-                <span class="model-prices-entry__icon"
-                  ><BadgeDollarSign :size="18" aria-hidden="true"
-                /></span>
-                <div>
-                  <h2>{{ t('modelPrices.settingsEntry.title') }}</h2>
-                  <p>{{ t('modelPrices.settingsEntry.description') }}</p>
-                </div>
-              </div>
-              <RouterLink class="model-prices-entry__link" :to="modelPricesLocation()">
-                {{ t('modelPrices.settingsEntry.open')
-                }}<ChevronRight :size="16" aria-hidden="true" />
-              </RouterLink>
-            </SurfaceCard>
-          </section>
-
-          <section id="settings-system" class="settings__section" tabindex="-1">
-            <SystemInfoSection />
-          </section>
+          <ModelPricesSettingsSection />
+          <SystemInfoSection />
         </div>
       </div>
 
@@ -311,7 +288,6 @@ onBeforeUnmount(() => {
 .settings,
 .settings__layout,
 .settings__content,
-.settings__section,
 .settings__validation,
 .settings__outcome {
   display: grid;
@@ -332,8 +308,7 @@ onBeforeUnmount(() => {
   gap: 28px;
 }
 
-.settings__content > :deep(.settings-section),
-.settings__section {
+.settings__content > :deep(.settings-section) {
   border-top: 1px solid var(--color-border-subtle);
   padding-top: 17px;
   scroll-margin-top: 76px;
@@ -342,11 +317,6 @@ onBeforeUnmount(() => {
 .settings__content > :deep(.settings-section):first-child {
   border-top: 0;
   padding-top: 0;
-}
-
-.settings__section :deep(.settings-card) {
-  min-width: 0;
-  padding: 0;
 }
 
 .settings__validation {
@@ -376,10 +346,7 @@ onBeforeUnmount(() => {
 
 .settings__save,
 .settings__save > div,
-.settings__save-actions,
-.model-prices-entry,
-.model-prices-entry__copy,
-.model-prices-entry__link {
+.settings__save-actions {
   display: flex;
   align-items: center;
 }
@@ -416,55 +383,6 @@ onBeforeUnmount(() => {
   gap: var(--space-2);
 }
 
-.model-prices-entry {
-  justify-content: space-between;
-  gap: var(--space-4);
-}
-
-.model-prices-entry__copy {
-  min-width: 0;
-  gap: var(--space-3);
-}
-
-.model-prices-entry__icon {
-  display: inline-flex;
-  width: 36px;
-  height: 36px;
-  flex: 0 0 36px;
-  align-items: center;
-  justify-content: center;
-  border-radius: var(--radius-control);
-  background: var(--color-action-soft);
-  color: var(--color-action);
-}
-
-.model-prices-entry__copy h2,
-.model-prices-entry__copy p {
-  margin: 0;
-}
-
-.model-prices-entry__copy h2 {
-  font-size: var(--text-sm);
-}
-
-.model-prices-entry__copy p {
-  margin-top: var(--space-1);
-  color: var(--color-text-muted);
-  font-size: var(--text-label-xs);
-}
-
-.model-prices-entry__link {
-  min-height: 34px;
-  flex: 0 0 auto;
-  justify-content: center;
-  gap: var(--space-1);
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-control);
-  padding: var(--space-1) var(--space-3);
-  font-size: var(--text-label-xs);
-  font-weight: 650;
-}
-
 @media (max-width: 860px) {
   .settings__layout {
     grid-template-columns: 1fr;
@@ -476,8 +394,7 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 560px) {
-  .settings__save,
-  .model-prices-entry {
+  .settings__save {
     align-items: stretch;
     flex-direction: column;
   }
@@ -486,8 +403,7 @@ onBeforeUnmount(() => {
     justify-content: stretch;
   }
 
-  .settings__save-actions :deep(.app-button),
-  .model-prices-entry__link {
+  .settings__save-actions :deep(.app-button) {
     width: 100%;
   }
 }
