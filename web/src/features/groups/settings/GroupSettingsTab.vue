@@ -444,17 +444,13 @@ onBeforeUnmount(() => {
                   appearance="ledger"
                   :model-value="displayedHeaderRules"
                   :disabled="mutationPending"
+                  :show-notice="false"
                   :remove-label="t('group.settings.runtime.headerRemove')"
                   :remove-hint="t('group.settings.runtime.headerRemoveHint')"
                   @update:valid="headerRulesValid = $event"
                   @update:invalid-edits="headerRulesInvalidEdits = $event"
                   @update:model-value="updateHeaderRules"
-                >
-                  <template #notice>
-                    {{ t('group.settings.runtime.headerStorageNoticeStart') }}
-                    <code>${API_KEY}</code>{{ t('group.settings.runtime.headerStorageNoticeEnd') }}
-                  </template>
-                </HeaderRulesEditor>
+                />
               </div>
             </details>
           </section>

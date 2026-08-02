@@ -47,67 +47,69 @@ function sourceLabel(source: SecretSource): string {
       />
       <Surface variant="sunken" :padded="false" class="settings-system__panel">
         <dl class="settings-system__definition">
-          <dt>{{ t('settings.system.version') }}</dt>
-          <dd class="settings-system__mono">{{ infoQuery.data.value.version }}</dd>
+          <div class="settings-system__row">
+            <dt>{{ t('settings.system.version') }}</dt>
+            <dd class="settings-system__mono">{{ infoQuery.data.value.version }}</dd>
+          </div>
 
-          <dt>{{ t('settings.system.deployment') }}</dt>
-          <dd class="settings-system__inline">
-            <StatusBadge size="compact">{{ t('settings.system.single') }}</StatusBadge>
-            <StatusBadge size="compact">{{ t('settings.system.sqlite') }}</StatusBadge>
-            <StatusBadge size="compact">{{ t('settings.system.singleBinary') }}</StatusBadge>
-          </dd>
+          <div class="settings-system__row">
+            <dt>{{ t('settings.system.deployment') }}</dt>
+            <dd class="settings-system__inline">
+              <StatusBadge size="compact">{{ t('settings.system.single') }}</StatusBadge>
+              <StatusBadge size="compact">{{ t('settings.system.sqlite') }}</StatusBadge>
+              <StatusBadge size="compact">{{ t('settings.system.singleBinary') }}</StatusBadge>
+            </dd>
+          </div>
 
-          <dt>{{ t('settings.system.dataDir') }}</dt>
-          <dd class="settings-system__path settings-system__mono">
-            <span>{{ infoQuery.data.value.data_dir }}</span>
-            <CopyButton
-              :value="infoQuery.data.value.data_dir"
-              :label="t('settings.system.copyPath')"
-              :success-label="t('common.copied')"
-              :failure-label="t('common.copyFailed')"
-            />
-          </dd>
+          <div class="settings-system__row">
+            <dt>{{ t('settings.system.dataDir') }}</dt>
+            <dd class="settings-system__mono">{{ infoQuery.data.value.data_dir }}</dd>
+          </div>
 
-          <dt>{{ t('settings.system.authKey') }}</dt>
-          <dd class="settings-system__inline">
-            <StatusBadge size="compact">{{
-              sourceLabel(infoQuery.data.value.auth_key.source)
-            }}</StatusBadge>
-            <span
-              v-if="infoQuery.data.value.auth_key.path"
-              class="settings-system__path settings-system__mono"
-            >
-              <span>{{ infoQuery.data.value.auth_key.path }}</span>
-              <CopyButton
-                :value="infoQuery.data.value.auth_key.path"
-                :label="t('settings.system.copyPath')"
-                :success-label="t('common.copied')"
-                :failure-label="t('common.copyFailed')"
-              />
-            </span>
-          </dd>
+          <div class="settings-system__row">
+            <dt>{{ t('settings.system.authKey') }}</dt>
+            <dd class="settings-system__inline">
+              <StatusBadge size="compact">{{
+                sourceLabel(infoQuery.data.value.auth_key.source)
+              }}</StatusBadge>
+              <span
+                v-if="infoQuery.data.value.auth_key.path"
+                class="settings-system__path settings-system__mono"
+              >
+                <span>{{ infoQuery.data.value.auth_key.path }}</span>
+                <CopyButton
+                  :value="infoQuery.data.value.auth_key.path"
+                  :label="t('settings.system.copyPath')"
+                  :success-label="t('common.copied')"
+                  :failure-label="t('common.copyFailed')"
+                />
+              </span>
+            </dd>
+          </div>
 
-          <dt>{{ t('settings.system.encryption') }}</dt>
-          <dd class="settings-system__inline">
-            <StatusBadge tone="success" size="compact">{{
-              t('settings.system.enabled')
-            }}</StatusBadge>
-            <StatusBadge size="compact">{{
-              sourceLabel(infoQuery.data.value.encryption.source)
-            }}</StatusBadge>
-            <span
-              v-if="infoQuery.data.value.encryption.path"
-              class="settings-system__path settings-system__mono"
-            >
-              <span>{{ infoQuery.data.value.encryption.path }}</span>
-              <CopyButton
-                :value="infoQuery.data.value.encryption.path"
-                :label="t('settings.system.copyPath')"
-                :success-label="t('common.copied')"
-                :failure-label="t('common.copyFailed')"
-              />
-            </span>
-          </dd>
+          <div class="settings-system__row">
+            <dt>{{ t('settings.system.encryption') }}</dt>
+            <dd class="settings-system__inline">
+              <StatusBadge tone="success" size="compact">{{
+                t('settings.system.enabled')
+              }}</StatusBadge>
+              <StatusBadge size="compact">{{
+                sourceLabel(infoQuery.data.value.encryption.source)
+              }}</StatusBadge>
+              <span
+                v-if="infoQuery.data.value.encryption.path"
+                class="settings-system__path settings-system__mono"
+              >
+                <span>{{ infoQuery.data.value.encryption.path }}</span>
+                <CopyButton
+                  :value="infoQuery.data.value.encryption.path"
+                  :label="t('settings.system.copyPath')"
+                  :success-label="t('common.copied')"
+                  :failure-label="t('common.copyFailed')"
+                />
+              </span>
+            </dd>
+          </div>
         </dl>
       </Surface>
       <p class="settings-system__security-note">{{ t('settings.system.securityNote') }}</p>
@@ -152,8 +154,11 @@ function sourceLabel(source: SecretSource): string {
 
 .settings-system__definition {
   display: grid;
+}
+
+.settings-system__row {
+  display: grid;
   grid-template-columns: minmax(120px, 160px) minmax(0, 1fr);
-  align-items: center;
   column-gap: var(--space-4);
 }
 
@@ -165,19 +170,23 @@ function sourceLabel(source: SecretSource): string {
 }
 
 .settings-system__definition dt {
+  display: flex;
+  align-items: center;
   color: var(--color-text-muted);
   font-size: var(--text-label-xs);
   font-weight: 650;
 }
 
 .settings-system__definition dd {
+  display: flex;
+  align-items: center;
   color: var(--color-text-muted);
   font-size: var(--text-label-xs);
   overflow-wrap: anywhere;
 }
 
-.settings-system__definition dt:last-of-type,
-.settings-system__definition dd:last-of-type {
+.settings-system__row:last-child dt,
+.settings-system__row:last-child dd {
   border-bottom: 0;
 }
 
@@ -204,7 +213,7 @@ function sourceLabel(source: SecretSource): string {
 }
 
 @media (max-width: 760px) {
-  .settings-system__definition {
+  .settings-system__row {
     grid-template-columns: 115px minmax(0, 1fr);
   }
 }
