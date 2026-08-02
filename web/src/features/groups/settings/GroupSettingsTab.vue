@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ChevronDown } from '@lucide/vue'
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import type { GroupSettingsDto, HeaderRulesDto } from '@/api/control/types'
@@ -25,6 +25,7 @@ import PanelHeader from '@/components/ui/PanelHeader.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
 import SectionNav from '@/components/ui/SectionNav.vue'
 import StickySaveBar from '@/components/ui/StickySaveBar.vue'
+import { useSectionNavigation } from '@/composables/use-section-navigation'
 
 import GroupDeleteDialog from './GroupDeleteDialog.vue'
 import GroupSettingsBaseForm from './GroupSettingsBaseForm.vue'
@@ -51,7 +52,6 @@ const error = ref('')
 const confirmURL = ref(false)
 const headerRulesValid = ref(true)
 const headerRulesEditorRevision = ref(0)
-const section = ref('settings-general')
 const {
   value: savedFeedback,
   clear: clearSavedFeedback,
@@ -59,7 +59,6 @@ const {
 } = useTransientFlag(1_600)
 const timeoutKeys = groupTimeoutKeys
 let controller: AbortController | undefined
-let sectionFrame = 0
 const navItems = computed(() => [
   { id: 'settings-general', label: t('group.settings.sections.general') },
   { id: 'settings-routing', label: t('group.settings.sections.routing') },
@@ -67,6 +66,11 @@ const navItems = computed(() => [
   { id: 'settings-headers', label: t('group.settings.sections.headers') },
   { id: 'settings-danger', label: t('group.settings.sections.danger') },
 ])
+const { activeSection: section, selectSection: setSection } = useSectionNavigation({
+  ids: computed(() => navItems.value.map(({ id }) => id)),
+  initialId: 'settings-general',
+  topOffset: 88,
+})
 const patch = computed(() =>
   saved.value && draft.value ? buildGroupSettingsPatch(saved.value, draft.value) : {},
 )
@@ -138,34 +142,6 @@ watch(
   },
   { immediate: true },
 )
-
-function setSection(id: string): void {
-  section.value = id
-  document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-}
-
-function synchronizeSection(): void {
-  sectionFrame = 0
-  const elements = navItems.value
-    .map(({ id }) => document.getElementById(id))
-    .filter((element): element is HTMLElement => element !== null)
-  if (!elements.length) return
-
-  const threshold = 88
-  let current = elements[0]
-  for (const element of elements) {
-    if (element.getBoundingClientRect().top <= threshold) current = element
-    else break
-  }
-  const pageBottom = window.scrollY + window.innerHeight
-  if (pageBottom >= document.documentElement.scrollHeight - 2) current = elements.at(-1) ?? current
-  section.value = current.id
-}
-
-function scheduleSectionSynchronization(): void {
-  if (sectionFrame) return
-  sectionFrame = window.requestAnimationFrame(synchronizeSection)
-}
 
 function toggleProtocol(protocol: GroupSettingsDraft['protocols'][number], checked: boolean): void {
   if (!draft.value) return
@@ -271,25 +247,8 @@ function headerSummary(): string {
   })
 }
 
-watch(
-  () => [saved.value, draft.value],
-  async () => {
-    await nextTick()
-    scheduleSectionSynchronization()
-  },
-)
-
-onMounted(() => {
-  window.addEventListener('scroll', scheduleSectionSynchronization, { passive: true })
-  window.addEventListener('resize', scheduleSectionSynchronization, { passive: true })
-  scheduleSectionSynchronization()
-})
-
 onBeforeUnmount(() => {
   controller?.abort()
-  window.removeEventListener('scroll', scheduleSectionSynchronization)
-  window.removeEventListener('resize', scheduleSectionSynchronization)
-  if (sectionFrame) window.cancelAnimationFrame(sectionFrame)
 })
 </script>
 
