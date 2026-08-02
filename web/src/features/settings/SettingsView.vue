@@ -69,12 +69,15 @@ const timeoutKeys: TimeoutSettingKey[] = [
   'request_timeout',
   'stream_idle_timeout',
 ]
-const changedKeys = computed(
-  () =>
-    runtimeSettingKeys.filter((key) =>
-      Object.prototype.hasOwnProperty.call(patch.value, key),
-    ) as RuntimeSettingKey[],
-)
+const changedKeys = computed(() => {
+  const changed = runtimeSettingKeys.filter((key) =>
+    Object.prototype.hasOwnProperty.call(patch.value, key),
+  ) as RuntimeSettingKey[]
+  if (headerRulesInvalidEdits.value && !changed.includes('header_rules')) {
+    changed.push('header_rules')
+  }
+  return changed
+})
 const invalidKeys = computed<RuntimeSettingKey[]>(() => {
   const current = draft.value
   if (!current) return []

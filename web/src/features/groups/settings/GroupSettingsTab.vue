@@ -124,12 +124,6 @@ const displayedHeaderRules = computed<HeaderRulesDto>(
     draft.value?.overrides.header_rules ??
     saved.value?.effective.header_rules ?? { set: {}, remove: [] },
 )
-useUnsavedChanges(dirty, { blocked: mutationPending })
-
-watch(dirty, (isDirty) => {
-  if (isDirty) clearSavedFeedback()
-})
-
 function resetSavedDraft(settings: GroupSettingsDto): void {
   saved.value = settings
   draft.value = createGroupSettingsDraft(settings)
@@ -138,14 +132,31 @@ function resetSavedDraft(settings: GroupSettingsDto): void {
   headerRulesEditorRevision.value += 1
 }
 
+function consumeCurrentQuery(): void {
+  const latest = query.data.value
+  if (!latest || latest === saved.value || dirty.value || mutationPending.value || deleted.value)
+    return
+  resetSavedDraft(latest)
+}
+
+useUnsavedChanges(dirty, { blocked: mutationPending })
+
 watch(
   () => query.data.value,
-  (settings) => {
-    if (!settings || dirty.value || mutationPending.value || deleted.value) return
-    resetSavedDraft(settings)
+  () => {
+    consumeCurrentQuery()
   },
   { immediate: true },
 )
+
+watch(dirty, (isDirty) => {
+  if (isDirty) clearSavedFeedback()
+  else consumeCurrentQuery()
+})
+
+watch([mutationPending, deleted], () => {
+  consumeCurrentQuery()
+})
 
 function toggleProtocol(protocol: GroupSettingsDraft['protocols'][number], checked: boolean): void {
   if (!draft.value) return
@@ -236,6 +247,7 @@ function discard(): void {
   error.value = ''
   clearSavedFeedback()
   resetSavedDraft(saved.value)
+  consumeCurrentQuery()
 }
 
 function onDeleted(): void {
