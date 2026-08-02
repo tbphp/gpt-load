@@ -51,6 +51,7 @@ const deleted = ref(false)
 const error = ref('')
 const confirmURL = ref(false)
 const headerRulesValid = ref(true)
+const headerRulesInvalidEdits = ref(false)
 const headerRulesEditorRevision = ref(0)
 const {
   value: savedFeedback,
@@ -74,7 +75,9 @@ const { activeSection: section, selectSection: setSection } = useSectionNavigati
 const patch = computed(() =>
   saved.value && draft.value ? buildGroupSettingsPatch(saved.value, draft.value) : {},
 )
-const dirty = computed(() => !deleted.value && Object.keys(patch.value).length > 0)
+const dirty = computed(
+  () => !deleted.value && (Object.keys(patch.value).length > 0 || headerRulesInvalidEdits.value),
+)
 const mutationPending = computed(() => pending.value || deletePending.value)
 const nameError = computed(() =>
   draft.value?.name.trim() ? '' : t('group.settings.base.nameError'),
@@ -131,6 +134,7 @@ function resetSavedDraft(settings: GroupSettingsDto): void {
   saved.value = settings
   draft.value = createGroupSettingsDraft(settings)
   headerRulesValid.value = true
+  headerRulesInvalidEdits.value = false
   headerRulesEditorRevision.value += 1
 }
 
@@ -435,6 +439,7 @@ onBeforeUnmount(() => {
                   :remove-label="t('group.settings.runtime.headerRemove')"
                   :remove-hint="t('group.settings.runtime.headerRemoveHint')"
                   @update:valid="headerRulesValid = $event"
+                  @update:invalid-edits="headerRulesInvalidEdits = $event"
                   @update:model-value="updateHeaderRules"
                 >
                   <template #notice>

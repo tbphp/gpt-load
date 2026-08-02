@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { BadgeDollarSign, ChevronRight } from '@lucide/vue'
-import { computed, nextTick, onBeforeUnmount, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { useApiClient } from '@/api/client-context'
@@ -33,11 +33,13 @@ const queryClient = useQueryClient()
 const { locale, t } = useI18n()
 const settingsQuery = useQuery(settingsQueryOptions(client, locale))
 const resource = computed(() => settingsQuery.data.value ?? null)
+const headerRulesInvalidEdits = ref(false)
+const headerRulesEditorRevision = ref(0)
 const {
   base,
   draft,
   patch,
-  dirty,
+  dirty: controllerDirty,
   valid: controllerValid,
   pending,
   failed,
@@ -50,11 +52,12 @@ const {
   updateDraft,
   chooseMine,
   chooseLatest,
-  discard,
+  discard: discardDraft,
   saveAll,
   checkResult,
-} = useSettingsController(resource)
+} = useSettingsController(resource, { hasLocalEdits: headerRulesInvalidEdits })
 const headerRulesValid = ref(true)
+const dirty = computed(() => controllerDirty.value || headerRulesInvalidEdits.value)
 const valid = computed(
   () =>
     controllerValid.value &&
@@ -94,6 +97,19 @@ const savedAtLabel = computed(() =>
 )
 
 useUnsavedChanges(dirty, { blocked: operationLocked })
+
+watch(
+  () => draft.value?.overrides.has('header_rules'),
+  (hasOverride) => {
+    if (!hasOverride) headerRulesInvalidEdits.value = false
+  },
+)
+
+function discard(): void {
+  discardDraft()
+  headerRulesInvalidEdits.value = false
+  headerRulesEditorRevision.value += 1
+}
 
 function settingLabel(key: RuntimeSettingKey): string {
   if (key === 'request_log_retention_days') return t('settings.logs.retention')
@@ -207,10 +223,12 @@ onBeforeUnmount(() => {
         :draft="draft"
         :disabled="operationLocked"
         :conflicts="conflicts"
+        :header-rules-reset-key="headerRulesEditorRevision"
         @change="updateDraft"
         @choose-mine="chooseMine"
         @choose-latest="chooseLatest"
         @update:header-rules-valid="headerRulesValid = $event"
+        @update:header-rules-invalid-edits="headerRulesInvalidEdits = $event"
       />
       <LogsMaintenanceSection
         :base="base"

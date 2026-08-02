@@ -27,21 +27,25 @@ const props = withDefaults(
     appearance?: 'default' | 'ledger'
     removeLabel?: string
     removeHint?: string
+    resetKey?: number
   }>(),
   {
     disabled: false,
     appearance: 'default',
     removeLabel: undefined,
     removeHint: undefined,
+    resetKey: 0,
   },
 )
 const emit = defineEmits<{
   'update:modelValue': [value: HeaderRulesDto]
   'update:valid': [value: boolean]
+  'update:invalid-edits': [value: boolean]
 }>()
 const { t } = useI18n()
 let nextKey = 1
-const rows = ref<RuleRow[]>(createRows(normalizeRules(props.modelValue)))
+const publishedRules = ref(normalizeRules(props.modelValue))
+const rows = ref<RuleRow[]>(createRows(publishedRules.value))
 
 function compareHeaderNames(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0
@@ -87,6 +91,22 @@ function sameRules(left: HeaderRulesDto, right: HeaderRulesDto): boolean {
   return JSON.stringify(normalizeRules(left)) === JSON.stringify(normalizeRules(right))
 }
 
+function rowsMatchRules(rows: readonly RuleRow[], rules: HeaderRulesDto): boolean {
+  const expected = [
+    ...Object.entries(rules.set).map(([name, value]) => ({ action: 'set' as const, name, value })),
+    ...rules.remove.map((name) => ({ action: 'remove' as const, name, value: '' })),
+  ]
+  return (
+    rows.length === expected.length &&
+    rows.every(
+      (row, index) =>
+        row.action === expected[index].action &&
+        row.name === expected[index].name &&
+        row.value === expected[index].value,
+    )
+  )
+}
+
 const validationErrors = computed(() =>
   validateHeaderRuleRows(
     rows.value.map(({ key, action, name, value }) => ({ rowKey: key, action, name, value })),
@@ -99,6 +119,9 @@ const validationErrorsByRow = computed(() => {
   }
   return errors
 })
+const hasInvalidEdits = computed(
+  () => validationErrors.value.length > 0 && !rowsMatchRules(rows.value, publishedRules.value),
+)
 
 watch(
   () => validationErrors.value.length === 0,
@@ -106,18 +129,31 @@ watch(
   { immediate: true },
 )
 
+watch(hasInvalidEdits, (hasEdits) => emit('update:invalid-edits', hasEdits), { immediate: true })
+
 watch(
   () => props.modelValue,
   (value) => {
     const external = normalizeRules(value)
-    if (sameRules(rulesFromRows(), external)) return
+    if (sameRules(publishedRules.value, external)) return
+    publishedRules.value = external
     rows.value = createRows(external)
   },
   { deep: true },
 )
 
+watch(
+  () => props.resetKey,
+  () => {
+    rows.value = createRows(publishedRules.value)
+  },
+)
+
 function publish(): void {
-  emit('update:modelValue', rulesFromRows())
+  if (validationErrors.value.length > 0) return
+  const next = normalizeRules(rulesFromRows())
+  publishedRules.value = next
+  emit('update:modelValue', next)
 }
 
 function addRow(): void {
@@ -465,7 +501,10 @@ h3 {
 }
 .header-rules :deep(.compact-field-error[data-invalid='true'] input) {
   border-color: var(--color-danger);
-  padding-inline-end: 38px;
+  padding-inline-end: calc(
+    var(--compact-field-error-indicator-size) + var(--compact-field-error-indicator-right) +
+      var(--compact-field-error-input-gap)
+  );
 }
 .header-rule__secret {
   position: relative;
@@ -474,11 +513,15 @@ h3 {
   padding-right: 48px;
   font-family: ui-monospace, monospace;
 }
-.header-rules--default :deep(.header-rule__value-field[data-invalid='true'] input) {
-  padding-inline-end: 76px;
+.header-rules--default :deep(.header-rule__value-field[data-invalid='true']) {
+  --compact-field-error-indicator-right: 48px;
 }
-.header-rules--default :deep(.header-rule__value-field .compact-field-error__indicator) {
-  right: 48px;
+.header-rules--default
+  :deep(.header-rule__value-field[data-invalid='true'] .header-rule__secret input) {
+  padding-inline-end: calc(
+    var(--compact-field-error-indicator-size) + var(--compact-field-error-indicator-right) +
+      var(--compact-field-error-input-gap)
+  );
 }
 .header-rule__secret .header-rule__icon {
   position: absolute;
@@ -535,7 +578,10 @@ h3 {
   padding: 6px 9px;
 }
 .header-rules--ledger :deep(.compact-field-error[data-invalid='true'] input) {
-  padding-inline-end: 38px;
+  padding-inline-end: calc(
+    var(--compact-field-error-indicator-size) + var(--compact-field-error-indicator-right) +
+      var(--compact-field-error-input-gap)
+  );
 }
 .header-rules--ledger .header-rule__mode {
   display: inline-flex;

@@ -70,14 +70,9 @@ export function setSettingsOverride(
 
 function normalizeHeaderRules(value: HeaderRulesDto): HeaderRulesDto {
   const set = Object.fromEntries(
-    Object.entries(value.set)
-      .map(([name, headerValue]) => [name.trim(), headerValue] as const)
-      .filter(([name]) => name.length > 0)
-      .sort(([left], [right]) => left.localeCompare(right)),
+    Object.entries(value.set).sort(([left], [right]) => left.localeCompare(right)),
   )
-  const remove = [...new Set(value.remove.map((name) => name.trim()).filter(Boolean))].sort(
-    (a, b) => a.localeCompare(b),
-  )
+  const remove = [...value.remove].sort((a, b) => a.localeCompare(b))
   return { set, remove }
 }
 
@@ -93,13 +88,12 @@ function normalizedWireValue(
 function canonicalHeaderRulesIdentity(value: HeaderRulesDto): HeaderRulesDto {
   const set = Object.fromEntries(
     Object.entries(value.set)
-      .map(([name, headerValue]) => [asciiLower(name.trim()), headerValue] as const)
-      .filter(([name]) => name.length > 0)
+      .map(([name, headerValue]) => [asciiLower(name), headerValue] as const)
       .sort(([left], [right]) => left.localeCompare(right)),
   )
-  const remove = [
-    ...new Set(value.remove.map((name) => asciiLower(name.trim())).filter(Boolean)),
-  ].sort((left, right) => left.localeCompare(right))
+  const remove = value.remove
+    .map((name) => asciiLower(name))
+    .sort((left, right) => left.localeCompare(right))
   return { set, remove }
 }
 

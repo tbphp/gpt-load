@@ -29,6 +29,9 @@ const errorId = computed(() => (invalid.value ? `${props.id}-error` : undefined)
 
 <style scoped>
 .compact-field-error {
+  --compact-field-error-indicator-size: 28px;
+  --compact-field-error-indicator-right: 3px;
+  --compact-field-error-input-gap: 7px;
   position: relative;
   display: block;
   width: 100%;
@@ -36,7 +39,10 @@ const errorId = computed(() => (invalid.value ? `${props.id}-error` : undefined)
 }
 
 .compact-field-error :deep(input) {
-  padding-inline-end: 38px;
+  padding-inline-end: calc(
+    var(--compact-field-error-indicator-size) + var(--compact-field-error-indicator-right) +
+      var(--compact-field-error-input-gap)
+  );
 }
 
 .compact-field-error[data-invalid='true'] :deep([data-input-shell]) {
@@ -55,10 +61,10 @@ const errorId = computed(() => (invalid.value ? `${props.id}-error` : undefined)
 .compact-field-error__indicator {
   position: absolute;
   top: 50%;
-  right: 3px;
+  right: var(--compact-field-error-indicator-right);
   display: inline-flex;
-  width: 28px;
-  height: 28px;
+  width: var(--compact-field-error-indicator-size);
+  height: var(--compact-field-error-indicator-size);
   align-items: center;
   justify-content: center;
   transform: translateY(-50%);
@@ -83,14 +89,17 @@ const errorId = computed(() => (invalid.value ? `${props.id}-error` : undefined)
 }
 
 @media (max-width: 860px) {
-  .compact-field-error :deep(input) {
-    padding-inline-end: 48px;
+  .compact-field-error {
+    --compact-field-error-indicator-size: var(--touch-target);
+    --compact-field-error-indicator-right: 0px;
+    --compact-field-error-input-gap: 4px;
   }
 
-  .compact-field-error__indicator {
-    right: 0;
-    width: var(--touch-target);
-    height: var(--touch-target);
+  .compact-field-error :deep(input) {
+    padding-inline-end: calc(
+      var(--compact-field-error-indicator-size) + var(--compact-field-error-indicator-right) +
+        var(--compact-field-error-input-gap)
+    );
   }
 }
 </style>

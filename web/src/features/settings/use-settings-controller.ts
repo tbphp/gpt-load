@@ -59,6 +59,7 @@ export interface SettingsPageController {
 
 export interface SettingsControllerOptions {
   now?: () => Date
+  hasLocalEdits?: Readonly<Ref<boolean>>
 }
 
 interface UnknownSettingsOperation {
@@ -183,6 +184,10 @@ export function useSettingsController(
       void applyUnknownLatest(next)
       return
     }
+    if (options.hasLocalEdits?.value) {
+      concurrent.value = true
+      return
+    }
     if (dirty.value) {
       const merged = mergeSettingsConflict(base.value, draft.value, next, 'all')
       base.value = merged.resource
@@ -195,6 +200,11 @@ export function useSettingsController(
   }
 
   watch(resource, acceptExternalSettings)
+  if (options.hasLocalEdits) {
+    watch(options.hasLocalEdits, (hasLocalEdits) => {
+      if (!hasLocalEdits) acceptExternalSettings(resource.value)
+    })
+  }
 
   function updateDraft(change: SettingsDraftChange): void {
     if (operationLocked.value || !draft.value) return

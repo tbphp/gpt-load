@@ -27,12 +27,14 @@ const props = defineProps<{
   draft: SettingsDraft
   disabled: boolean
   conflicts: SettingsMergeConflict[]
+  headerRulesResetKey?: number
 }>()
 const emit = defineEmits<{
   change: [change: SettingsDraftChange]
   chooseMine: [key: RuntimeSettingKey]
   chooseLatest: [key: RuntimeSettingKey]
   'update:headerRulesValid': [valid: boolean]
+  'update:headerRulesInvalidEdits': [hasEdits: boolean]
 }>()
 const { t } = useI18n()
 const disclosureRequested = ref(
@@ -92,6 +94,7 @@ function timeoutError(key: TimeoutSettingKey): string | undefined {
 
 function setHeaderOverride(enabled: boolean): void {
   if (enabled) disclosureRequested.value = true
+  else emit('update:headerRulesInvalidEdits', false)
   publish(
     'header_rules',
     setSettingsOverride(props.base.settings, props.draft, 'header_rules', enabled),
@@ -219,8 +222,10 @@ function conflictLabel(key: RuntimeSettingKey): string {
           <HeaderRulesEditor
             :model-value="draft.values.header_rules"
             :disabled="disabled"
+            :reset-key="headerRulesResetKey"
             @update:model-value="setHeaderRules"
             @update:valid="emit('update:headerRulesValid', $event)"
+            @update:invalid-edits="emit('update:headerRulesInvalidEdits', $event)"
           />
         </div>
       </div>

@@ -42,12 +42,9 @@ function cloneOverrides(value: GroupRuntimeConfigDto): GroupRuntimeConfigDto {
 function normalizeHeaders(value: HeaderRulesDto): HeaderRulesDto {
   return {
     set: Object.fromEntries(
-      Object.entries(value.set)
-        .map(([name, headerValue]) => [name.trim(), headerValue] as const)
-        .filter(([name]) => name)
-        .sort(([left], [right]) => left.localeCompare(right)),
+      Object.entries(value.set).sort(([left], [right]) => left.localeCompare(right)),
     ),
-    remove: [...new Set(value.remove.map((name) => name.trim()).filter(Boolean))].sort(),
+    remove: [...value.remove].sort(),
   }
 }
 
