@@ -45,6 +45,8 @@ export default {
       checkResult: 'Check result',
     },
     conflict: {
+      deferred:
+        'An external Settings update was detected. Correct the invalid local Header edit before the latest server state is merged.',
       rebased:
         'Settings changed elsewhere. The latest values were merged with your non-conflicting edits; review and save again.',
       blocked:

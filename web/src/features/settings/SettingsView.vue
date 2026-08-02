@@ -121,6 +121,14 @@ const saveBarError = computed(() => {
   if (failed.value) return t('settings.saveFailed')
   return indeterminate.value ? t('settings.outcome.indeterminate') : ''
 })
+const deferredExternalUpdate = computed(
+  () =>
+    headerRulesInvalidEdits.value &&
+    concurrent.value &&
+    resource.value !== null &&
+    base.value !== null &&
+    resource.value.settings_etag !== base.value.settings_etag,
+)
 
 useUnsavedChanges(dirty, { blocked: operationLocked })
 
@@ -163,14 +171,27 @@ function settingLabel(key: RuntimeSettingKey): string {
 
 function settingTarget(key: RuntimeSettingKey): string {
   if (key === 'header_rules') return 'settings-headers'
-  if (key === 'request_log_retention_days') return 'settings-logs'
   return `settings-value-${key}`
 }
 
-async function focusTarget(id: string): Promise<void> {
-  selectSection(id === 'settings-headers' || id === 'settings-logs' ? id : 'settings-forwarding')
+async function focusTarget(key: RuntimeSettingKey): Promise<void> {
+  const id = settingTarget(key)
+  const section =
+    key === 'header_rules'
+      ? 'settings-headers'
+      : key === 'request_log_retention_days'
+        ? 'settings-logs'
+        : 'settings-forwarding'
+  selectSection(section)
   await nextTick()
-  document.getElementById(id)?.focus()
+  const target =
+    key === 'header_rules'
+      ? (document
+          .getElementById('settings-headers')
+          ?.querySelector<HTMLElement>('[aria-invalid="true"]') ??
+        document.getElementById('settings-headers'))
+      : document.getElementById(id)
+  target?.focus()
 }
 
 onBeforeUnmount(() => {
@@ -224,10 +245,7 @@ onBeforeUnmount(() => {
               <strong>{{ t('settings.validation.title') }}</strong>
               <ul>
                 <li v-for="key in invalidKeys" :key="key">
-                  <a
-                    :href="`#${settingTarget(key)}`"
-                    @click.prevent="focusTarget(settingTarget(key))"
-                  >
+                  <a :href="`#${settingTarget(key)}`" @click.prevent="focusTarget(key)">
                     {{ settingLabel(key) }}
                   </a>
                 </li>
@@ -235,7 +253,11 @@ onBeforeUnmount(() => {
             </section>
             <InlineFeedback v-if="concurrent" tone="warning">
               {{
-                conflicts.length ? t('settings.conflict.blocked') : t('settings.conflict.rebased')
+                deferredExternalUpdate
+                  ? t('settings.conflict.deferred')
+                  : conflicts.length
+                    ? t('settings.conflict.blocked')
+                    : t('settings.conflict.rebased')
               }}
             </InlineFeedback>
 

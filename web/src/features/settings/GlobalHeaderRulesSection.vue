@@ -133,9 +133,6 @@ watch(
       t('settings.headers.inherited')
     }}</InlineFeedback>
     <InlineFeedback tone="warning">{{ t('settings.headers.replacementWarning') }}</InlineFeedback>
-    <p class="settings-headers__security-note">
-      {{ t('settings.headers.securityNotice', { template: '${API_KEY}' }) }}
-    </p>
 
     <HeaderRulesEditor
       appearance="ledger"
@@ -145,7 +142,11 @@ watch(
       @update:model-value="updateRules"
       @update:valid="emit('update:valid', $event)"
       @update:invalid-edits="emit('update:invalidEdits', $event)"
-    />
+    >
+      <template #notice>
+        {{ t('settings.headers.securityNotice', { template: '${API_KEY}' }) }}
+      </template>
+    </HeaderRulesEditor>
   </section>
 </template>
 
@@ -169,8 +170,7 @@ watch(
 }
 
 .settings-section__heading h2,
-.settings-section__heading p,
-.settings-headers__security-note {
+.settings-section__heading p {
   margin: 0;
 }
 
@@ -179,8 +179,7 @@ watch(
   font-weight: 650;
 }
 
-.settings-section__heading p,
-.settings-headers__security-note {
+.settings-section__heading p {
   margin-top: var(--space-1);
   color: var(--color-text-muted);
   font-size: var(--text-label-xs);
