@@ -13,9 +13,14 @@ export default {
     discard: 'Discard',
     dirtySummary: '{count} unsaved runtime settings',
     navigation: {
-      label: 'Runtime settings sections',
+      label: 'Settings sections',
+      caption: 'Sections',
       request: 'Request and forwarding',
+      forwarding: 'Request and forwarding',
+      headers: 'Global Header Rules',
       logs: 'Logs and maintenance',
+      modelPrices: 'Model prices',
+      system: 'System information',
     },
     validation: {
       title: 'Fix these settings before saving:',
@@ -63,6 +68,47 @@ export default {
       headerWarning:
         'Global rules affect every Group without a HeaderRules override. A Group override replaces the complete global object.',
       saveFailed: 'Unable to update request and forwarding settings. Your input is unchanged.',
+    },
+    runtime: {
+      title: 'Request and forwarding',
+      description:
+        'Explicit values override built-in defaults. Restoring a default uses the current version; all timeouts are in seconds.',
+      connect_timeout: 'Connect timeout',
+      first_byte_timeout: 'First-byte timeout',
+      request_timeout: 'Total request timeout',
+      stream_idle_timeout: 'Stream idle timeout',
+      inject_usage_options: 'Inject usage options for streaming responses',
+      injectUsageHelp:
+        'Applies only to capable OpenAI Completions streaming requests so the final usage can be returned.',
+      seconds: 'seconds',
+      timeoutError: 'Enter a positive safe integer no greater than 9,223,372,036.',
+      valueFor: 'Value for {field}',
+      effectiveValue: '{value} seconds',
+      currentEffective: 'Current effective value',
+      overrideValue: 'Explicit override value',
+      defaultSource: 'Built-in default',
+      overrideSource: 'Explicit override',
+      override: 'Override',
+      restoreDefault: 'Restore default',
+      resetPending: 'Saving will restore the current version default',
+      enabled: 'Enabled',
+      disabled: 'Disabled',
+    },
+    headers: {
+      title: 'Global Header Rules',
+      description: 'Base rules for every upstream request.',
+      ruleCount: '{count} rules',
+      defaultSource: 'Built-in default',
+      overrideSource: 'Explicit override',
+      override: 'Override',
+      restoreDefault: 'Restore default',
+      inherited: 'The effective built-in rules are shown. Enable an override to edit them.',
+      resetPending: 'Saving will restore the current version default.',
+      replacementWarning:
+        'A Group Header Rules override replaces the complete global object; individual rules are not merged.',
+      securityNotice:
+        'Fixed Header values are ordinary configuration. Do not store long-lived credentials; credential Headers must use the literal {template} template.',
+      conflict: 'Global Header Rules changed concurrently. Choose the version to retain.',
     },
     logs: {
       title: 'Logs and maintenance',

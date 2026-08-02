@@ -12,9 +12,14 @@ export default {
     discard: '変更を破棄',
     dirtySummary: '未保存の実行設定が {count} 件あります',
     navigation: {
-      label: '実行設定セクション',
+      label: '設定セクション',
+      caption: 'セクション',
       request: 'リクエストと転送',
+      forwarding: 'リクエストと転送',
+      headers: 'グローバル Header Rules',
       logs: 'ログとメンテナンス',
+      modelPrices: 'モデル価格',
+      system: 'システム情報',
     },
     validation: {
       title: '保存前に次の設定を修正してください:',
@@ -61,6 +66,48 @@ export default {
       headerWarning:
         'グローバルルールは HeaderRules を上書きしていないすべての Group に影響します。Group の上書きはグローバルオブジェクト全体を置き換えます。',
       saveFailed: 'リクエストと転送の設定を更新できません。入力内容は保持されています。',
+    },
+    runtime: {
+      title: 'リクエストと転送',
+      description:
+        '明示値は組み込み既定値を上書きします。既定値の復元後は現在のバージョンが有効値を決めます。すべての時間単位は秒です。',
+      connect_timeout: '接続タイムアウト',
+      first_byte_timeout: '最初のバイトのタイムアウト',
+      request_timeout: 'リクエスト全体のタイムアウト',
+      stream_idle_timeout: 'ストリームアイドルタイムアウト',
+      inject_usage_options: 'ストリーミング応答へ usage オプションを注入',
+      injectUsageHelp:
+        '最終 usage を取得するため、この機能をサポートする OpenAI Completions のストリーミング要求でのみ有効です。',
+      seconds: '秒',
+      timeoutError: '9,223,372,036 以下の正の安全な整数を入力してください。',
+      valueFor: '{field} の値',
+      effectiveValue: '{value} 秒',
+      currentEffective: '現在の有効値',
+      overrideValue: '明示的な上書き値',
+      defaultSource: '組み込み既定値',
+      overrideSource: '明示的な上書き',
+      override: '上書き',
+      restoreDefault: '既定値に戻す',
+      resetPending: '保存すると現在のバージョンの既定値に戻ります',
+      enabled: '有効',
+      disabled: '無効',
+    },
+    headers: {
+      title: 'グローバル Header Rules',
+      description: 'すべてのアップストリーム要求の基本ルールです。',
+      ruleCount: '{count} 件のルール',
+      defaultSource: '組み込み既定値',
+      overrideSource: '明示的な上書き',
+      override: '上書き',
+      restoreDefault: '既定値に戻す',
+      inherited: '有効な組み込みルールを表示しています。編集するには上書きを有効にしてください。',
+      resetPending: '保存すると現在のバージョンの既定値に戻ります。',
+      replacementWarning:
+        'Group Header Rules の上書きはグローバルオブジェクト全体を置き換え、個別のルールをマージしません。',
+      securityNotice:
+        '固定 Header 値は通常の設定です。長期認証情報を保存しないでください。認証 Header はリテラルの {template} テンプレートを使用する必要があります。',
+      conflict:
+        'グローバル Header Rules が同時に変更されました。保持するバージョンを選択してください。',
     },
     logs: {
       title: 'ログとメンテナンス',
