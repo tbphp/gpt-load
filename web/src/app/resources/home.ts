@@ -46,10 +46,12 @@ export interface HomeStatisticsSummary {
   success_count: number
   failure_count: number
   total_tokens: number
+  cache_write_unknown_tokens: number
   estimated_cost_nano_usd: string
   usage_missing_count: number
   partial_count: number
   unpriced_request_count: number
+  pricing_partial_count: number
 }
 
 export interface HomeTrendPoint {
@@ -132,10 +134,12 @@ const summaryFields = [
   'success_count',
   'failure_count',
   'total_tokens',
+  'cache_write_unknown_tokens',
   'estimated_cost_nano_usd',
   'usage_missing_count',
   'partial_count',
   'unpriced_request_count',
+  'pricing_partial_count',
 ] as const
 const trendPointFields = [
   'bucket_start_ms',
@@ -225,12 +229,16 @@ function projectHomeStatisticsSummary(value: unknown): HomeStatisticsSummary {
     success_count: projectSafeInteger(record.success_count, { minimum: 0 }),
     failure_count: projectSafeInteger(record.failure_count, { minimum: 0 }),
     total_tokens: projectSafeInteger(record.total_tokens, { minimum: 0 }),
+    cache_write_unknown_tokens: projectSafeInteger(record.cache_write_unknown_tokens, {
+      minimum: 0,
+    }),
     estimated_cost_nano_usd: projectNonNegativeInt64String(record.estimated_cost_nano_usd),
     usage_missing_count: projectSafeInteger(record.usage_missing_count, { minimum: 0 }),
     partial_count: projectSafeInteger(record.partial_count, { minimum: 0 }),
     unpriced_request_count: projectSafeInteger(record.unpriced_request_count, {
       minimum: 0,
     }),
+    pricing_partial_count: projectSafeInteger(record.pricing_partial_count, { minimum: 0 }),
   }
   if (
     result.success_count > result.request_count ||
@@ -238,7 +246,8 @@ function projectHomeStatisticsSummary(value: unknown): HomeStatisticsSummary {
     result.success_count + result.failure_count !== result.request_count ||
     result.usage_missing_count > result.request_count ||
     result.partial_count > result.request_count ||
-    result.unpriced_request_count > result.request_count
+    result.unpriced_request_count > result.request_count ||
+    result.pricing_partial_count > result.request_count
   ) {
     invalidResponse()
   }
@@ -485,10 +494,12 @@ export function createEmptyHomeStatistics(
       success_count: 0,
       failure_count: 0,
       total_tokens: 0,
+      cache_write_unknown_tokens: 0,
       estimated_cost_nano_usd: '0',
       usage_missing_count: 0,
       partial_count: 0,
       unpriced_request_count: 0,
+      pricing_partial_count: 0,
     },
     series: Array.from({ length: contract.bucketCount }, (_, index) => {
       const bucketStartMS = fromMS + index * contract.bucketMilliseconds

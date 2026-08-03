@@ -75,11 +75,13 @@ func (s *Service) ListProviderSuggestions(
 }
 
 func mapProviderSuggestion(provider catalog.Provider, official bool) ProviderSuggestion {
+	protocols := make([]protocol.Protocol, len(provider.Protocols))
+	copy(protocols, provider.Protocols)
 	return ProviderSuggestion{
 		ProviderID: provider.ID,
 		Name:       provider.Name,
 		APIURL:     provider.APIURL,
-		Protocols:  append([]protocol.Protocol(nil), provider.Protocols...),
+		Protocols:  protocols,
 		Mark:       provider.Mark,
 		Official:   official,
 	}

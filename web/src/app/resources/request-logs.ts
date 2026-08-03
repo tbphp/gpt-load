@@ -25,6 +25,8 @@ export type { FailureCategory } from '@/api/control/types'
 export type RequestLogAction = 'terminate' | 'retry' | 'cooldown_key' | 'fail_key' | 'skip_group'
 export type RequestLogUsageState = 'complete' | 'partial' | 'missing' | 'not_applicable'
 export type RequestLogCostState = 'priced' | 'unpriced' | 'not_applicable'
+export type RequestLogPricingCompleteness =
+  'complete' | 'partial' | 'unavailable' | 'not_applicable'
 
 export interface RequestLogFilters {
   from_ms?: number
@@ -73,10 +75,12 @@ export interface RequestLogItemDto {
   group_id: number | null
   usage_state: RequestLogUsageState
   cost_state: RequestLogCostState
+  pricing_completeness: RequestLogPricingCompleteness
   uncached_input_tokens: number
   cache_read_tokens: number
   cache_write_5m_tokens: number
   cache_write_1h_tokens: number
+  cache_write_unknown_tokens: number
   output_tokens: number
   estimated_cost_nano_usd: string
 }
@@ -101,6 +105,7 @@ const failureCategories = [
 const actions = ['terminate', 'retry', 'cooldown_key', 'fail_key', 'skip_group'] as const
 const usageStates = ['complete', 'partial', 'missing', 'not_applicable'] as const
 const costStates = ['priced', 'unpriced', 'not_applicable'] as const
+const pricingCompletenessValues = ['complete', 'partial', 'unavailable', 'not_applicable'] as const
 const attemptFields = [
   'sequence',
   'group_id',
@@ -133,10 +138,12 @@ const itemFields = [
   'group_id',
   'usage_state',
   'cost_state',
+  'pricing_completeness',
   'uncached_input_tokens',
   'cache_read_tokens',
   'cache_write_5m_tokens',
   'cache_write_1h_tokens',
+  'cache_write_unknown_tokens',
   'output_tokens',
   'estimated_cost_nano_usd',
 ] as const
@@ -198,11 +205,18 @@ function projectAttempt(value: unknown): RequestLogAttemptDto {
 function projectUsageCost(record: Record<string, unknown>) {
   const usageState = projectEnum(record.usage_state, usageStates)
   const costState = projectEnum(record.cost_state, costStates)
+  const pricingCompleteness = projectEnum(record.pricing_completeness, pricingCompletenessValues)
   const validCombination =
     ((usageState === 'complete' || usageState === 'partial') &&
-      (costState === 'priced' || costState === 'unpriced')) ||
-    (usageState === 'missing' && costState === 'unpriced') ||
-    (usageState === 'not_applicable' && costState === 'not_applicable')
+      ((costState === 'priced' &&
+        (pricingCompleteness === 'complete' || pricingCompleteness === 'partial')) ||
+        (costState === 'unpriced' && pricingCompleteness === 'unavailable'))) ||
+    (usageState === 'missing' &&
+      costState === 'unpriced' &&
+      pricingCompleteness === 'unavailable') ||
+    (usageState === 'not_applicable' &&
+      costState === 'not_applicable' &&
+      pricingCompleteness === 'not_applicable')
   if (!validCombination) invalidResponse()
 
   const tokens = {
@@ -210,6 +224,9 @@ function projectUsageCost(record: Record<string, unknown>) {
     cache_read_tokens: projectSafeInteger(record.cache_read_tokens, { minimum: 0 }),
     cache_write_5m_tokens: projectSafeInteger(record.cache_write_5m_tokens, { minimum: 0 }),
     cache_write_1h_tokens: projectSafeInteger(record.cache_write_1h_tokens, { minimum: 0 }),
+    cache_write_unknown_tokens: projectSafeInteger(record.cache_write_unknown_tokens, {
+      minimum: 0,
+    }),
     output_tokens: projectSafeInteger(record.output_tokens, { minimum: 0 }),
   }
   const estimatedCostNanoUSD = projectNonNegativeInt64String(record.estimated_cost_nano_usd)
@@ -217,6 +234,7 @@ function projectUsageCost(record: Record<string, unknown>) {
   return {
     usage_state: usageState,
     cost_state: costState,
+    pricing_completeness: pricingCompleteness,
     ...tokens,
     estimated_cost_nano_usd: estimatedCostNanoUSD,
   }
@@ -289,7 +307,7 @@ export async function listRequestLogs(
     ['from_ms', normalized.from_ms],
     ['to_ms', normalized.to_ms],
     ['group_id', normalized.group_id],
-    ['model', normalized.model],
+    ['client_model', normalized.model],
     ['access_key_id', normalized.access_key_id],
     ['status', normalized.status],
     ['request_id', normalized.request_id],

@@ -74,6 +74,33 @@ func TestProviderSuggestionsUseOfficialFallbacksMergeCatalogAndStayBounded(t *te
 	}
 }
 
+func TestProviderSuggestionsEncodeUnknownProtocolsAsEmptyArray(t *testing.T) {
+	fixture := newServiceFixture(t)
+	fixture.catalogRuntime.Publish(&catalog.Snapshot{Providers: map[string]catalog.Provider{
+		"custom-provider": {
+			ID:     "custom-provider",
+			Name:   "Custom Provider",
+			APIURL: "https://custom.example/v1",
+			NPM:    "@vendor/unknown-sdk",
+			Models: map[string]catalog.Model{},
+		},
+	}})
+
+	got, err := fixture.service.ListProviderSuggestions(t.Context(), "custom")
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), `"protocols":null`) ||
+		!strings.Contains(string(encoded), `"provider_id":"custom-provider"`) ||
+		!strings.Contains(string(encoded), `"protocols":[]`) {
+		t.Fatalf("unknown provider protocols = %s, want an empty JSON array", encoded)
+	}
+}
+
 func TestProviderModelsAreStrictBoundedAndUsePersistedOrCatalogCandidatePricingStatus(t *testing.T) {
 	fixture := newServiceFixture(t)
 	providerModels := make(map[string]catalog.Model)

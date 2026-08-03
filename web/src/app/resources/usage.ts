@@ -39,12 +39,14 @@ export interface UsageAggregateDto {
   cache_read_tokens: number
   cache_write_5m_tokens: number
   cache_write_1h_tokens: number
+  cache_write_unknown_tokens: number
   output_tokens: number
   total_tokens: number
   estimated_cost_nano_usd: string
   usage_missing_count: number
   partial_count: number
   unpriced_request_count: number
+  pricing_partial_count: number
 }
 
 export interface UsageReportDto {
@@ -75,11 +77,13 @@ const aggregateKeys = [
   'cache_read_tokens',
   'cache_write_5m_tokens',
   'cache_write_1h_tokens',
+  'cache_write_unknown_tokens',
   'output_tokens',
   'total_tokens',
   'usage_missing_count',
   'partial_count',
   'unpriced_request_count',
+  'pricing_partial_count',
 ] as const
 const aggregateFields = [...aggregateKeys, 'estimated_cost_nano_usd'] as const
 const reportFields = [
@@ -118,12 +122,16 @@ export function projectUsageAggregate(value: unknown): UsageAggregateDto {
     cache_read_tokens: projectSafeInteger(record.cache_read_tokens, { minimum: 0 }),
     cache_write_5m_tokens: projectSafeInteger(record.cache_write_5m_tokens, { minimum: 0 }),
     cache_write_1h_tokens: projectSafeInteger(record.cache_write_1h_tokens, { minimum: 0 }),
+    cache_write_unknown_tokens: projectSafeInteger(record.cache_write_unknown_tokens, {
+      minimum: 0,
+    }),
     output_tokens: projectSafeInteger(record.output_tokens, { minimum: 0 }),
     total_tokens: projectSafeInteger(record.total_tokens, { minimum: 0 }),
     estimated_cost_nano_usd: projectNonNegativeInt64String(record.estimated_cost_nano_usd),
     usage_missing_count: projectSafeInteger(record.usage_missing_count, { minimum: 0 }),
     partial_count: projectSafeInteger(record.partial_count, { minimum: 0 }),
     unpriced_request_count: projectSafeInteger(record.unpriced_request_count, { minimum: 0 }),
+    pricing_partial_count: projectSafeInteger(record.pricing_partial_count, { minimum: 0 }),
   }
   if (
     result.success_count + result.failure_count !== result.request_count ||
@@ -132,10 +140,12 @@ export function projectUsageAggregate(value: unknown): UsageAggregateDto {
         result.cache_read_tokens +
         result.cache_write_5m_tokens +
         result.cache_write_1h_tokens +
+        result.cache_write_unknown_tokens +
         result.output_tokens ||
     result.usage_missing_count > result.request_count ||
     result.partial_count > result.request_count ||
-    result.unpriced_request_count > result.request_count
+    result.unpriced_request_count > result.request_count ||
+    result.pricing_partial_count > result.request_count
   ) {
     invalidResponse()
   }
@@ -272,7 +282,7 @@ export async function getUsageReport(
     params.append('breakdown_order', normalized.breakdown_order)
   }
   if (normalized.group_id !== undefined) params.append('group_id', String(normalized.group_id))
-  if (normalized.model !== undefined) params.append('model', normalized.model)
+  if (normalized.model !== undefined) params.append('upstream_model', normalized.model)
   const report = projectUsageReport(
     await client.request(`/api/usage?${params.toString()}`, { method: 'GET', signal }),
   )

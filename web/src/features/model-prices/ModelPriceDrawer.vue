@@ -251,9 +251,6 @@ onBeforeUnmount(clearRequest)
       <InlineFeedback v-if="row.has_context_tiers" appearance="ledger" tone="warning">
         {{ t('modelPrices.drawer.tierNote') }}
       </InlineFeedback>
-      <InlineFeedback v-if="row.partial" appearance="ledger" tone="neutral">
-        {{ t('modelPrices.drawer.partialNote') }}
-      </InlineFeedback>
     </form>
 
     <template #footer>

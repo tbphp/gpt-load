@@ -93,8 +93,7 @@ function edit(row: ModelPriceDto, trigger: HTMLElement): void {
             <span>{{ t(`modelPrices.fields.${slot.field}`) }}</span>
             <strong>{{ slot.value }}</strong>
           </div>
-          <p v-if="record.row.partial || record.row.has_context_tiers">
-            <span v-if="record.row.partial">{{ t('modelPrices.facts.partial') }}</span>
+          <p v-if="record.row.has_context_tiers">
             <span v-if="record.row.has_context_tiers">{{ t('modelPrices.facts.tiered') }}</span>
           </p>
         </div>

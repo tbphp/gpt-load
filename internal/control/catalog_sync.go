@@ -18,6 +18,7 @@ import (
 	"gpt-load/internal/catalog"
 	"gpt-load/internal/platform/config"
 	app_errors "gpt-load/internal/platform/errors"
+	"gpt-load/internal/platform/utils"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/storage/models"
 )
@@ -353,6 +354,14 @@ func (coordinator *CatalogSyncCoordinator) Sync(
 		status := CatalogSyncStatus{Trigger: trigger, Skipped: true}
 		coordinator.last = status
 		coordinator.mu.Unlock()
+		coordinator.logSyncLifecycle(
+			logrus.InfoLevel,
+			"skipped",
+			status,
+			0,
+			logrus.Fields{"skip_reason": "auto_sync_disabled"},
+			"Models.dev catalog synchronization skipped",
+		)
 		return status, nil
 	}
 	operationParent := context.WithoutCancel(ctx)
@@ -382,7 +391,36 @@ func (coordinator *CatalogSyncCoordinator) execute(
 	call *catalogSyncCall,
 	trigger CatalogSyncTrigger,
 ) {
+	startedAt := time.Now()
+	coordinator.logSyncLifecycle(
+		logrus.InfoLevel,
+		"started",
+		CatalogSyncStatus{Trigger: trigger},
+		0,
+		nil,
+		"Models.dev catalog synchronization started",
+	)
 	status, err := coordinator.executeSync(ctx, trigger)
+	duration := time.Since(startedAt)
+	if err != nil {
+		coordinator.logSyncLifecycle(
+			logrus.WarnLevel,
+			"failed",
+			status,
+			duration,
+			nil,
+			"Models.dev catalog synchronization failed",
+		)
+	} else {
+		coordinator.logSyncLifecycle(
+			logrus.InfoLevel,
+			"succeeded",
+			status,
+			duration,
+			nil,
+			"Models.dev catalog synchronization completed",
+		)
+	}
 	call.cancel()
 	coordinator.mu.Lock()
 	call.status = status
@@ -391,6 +429,46 @@ func (coordinator *CatalogSyncCoordinator) execute(
 	coordinator.inFlight = nil
 	close(call.done)
 	coordinator.mu.Unlock()
+}
+
+func (coordinator *CatalogSyncCoordinator) logSyncLifecycle(
+	level logrus.Level,
+	outcome string,
+	status CatalogSyncStatus,
+	duration time.Duration,
+	extra logrus.Fields,
+	message string,
+) {
+	fields := logrus.Fields{
+		"event":   "models_dev_catalog_sync",
+		"trigger": status.Trigger,
+		"outcome": outcome,
+	}
+	if duration > 0 {
+		fields["duration_ms"] = duration.Milliseconds()
+	}
+	if status.CheckedAtMS != 0 {
+		fields["checked_at_ms"] = status.CheckedAtMS
+	}
+	if status.SuccessfulFetchAtMS != 0 {
+		fields["successful_fetch_at_ms"] = status.SuccessfulFetchAtMS
+	}
+	if status.NotModified {
+		fields["not_modified"] = true
+	}
+	if status.ErrorCode != "" {
+		fields["error_code"] = status.ErrorCode
+	}
+	for name, value := range extra {
+		fields[name] = value
+	}
+	utils.LogPlaneBestEffort(
+		logrus.StandardLogger(),
+		level,
+		utils.LogPlaneControl,
+		fields,
+		message,
+	)
 }
 
 func (coordinator *CatalogSyncCoordinator) executeSync(

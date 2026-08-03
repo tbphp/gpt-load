@@ -8,10 +8,13 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/sirupsen/logrus"
 
 	"gpt-load/internal/catalog"
 	"gpt-load/internal/pricing"
@@ -25,6 +28,81 @@ func (function catalogSyncClientFunc) Sync(
 	metadata catalog.Metadata,
 ) (catalog.SyncResult, error) {
 	return function(ctx, metadata)
+}
+
+func TestCatalogSyncEmitsLifecycleLogsWithoutLeakingFailureDetails(t *testing.T) {
+	fixture := newServiceFixture(t)
+	var logs bytes.Buffer
+	standardLogger := logrus.StandardLogger()
+	previousOutput := standardLogger.Out
+	previousFormatter := standardLogger.Formatter
+	previousLevel := standardLogger.Level
+	logrus.SetOutput(&logs)
+	logrus.SetFormatter(&logrus.JSONFormatter{DisableTimestamp: true})
+	logrus.SetLevel(logrus.InfoLevel)
+	t.Cleanup(func() {
+		logrus.SetOutput(previousOutput)
+		logrus.SetFormatter(previousFormatter)
+		logrus.SetLevel(previousLevel)
+	})
+
+	success := newCatalogSyncCoordinator(
+		fixture.service,
+		catalogSyncClientFunc(func(context.Context, catalog.Metadata) (catalog.SyncResult, error) {
+			return catalogResultFixture(3000, "success", nil), nil
+		}),
+		"unused",
+		catalog.Metadata{},
+		false,
+	)
+	success.storeCache = func(string, catalog.SyncResult) error { return nil }
+	success.applySnapshot = func(context.Context, *catalog.Snapshot) error { return nil }
+	if _, err := success.Sync(t.Context(), CatalogSyncManual); err != nil {
+		t.Fatal(err)
+	}
+
+	disabled := false
+	fixture.service.modelsDevAutoSyncOverride = &disabled
+	if _, err := success.Sync(t.Context(), CatalogSyncPeriodic); err != nil {
+		t.Fatal(err)
+	}
+
+	const rawFailure = "secret upstream response body"
+	failure := newCatalogSyncCoordinator(
+		fixture.service,
+		catalogSyncClientFunc(func(context.Context, catalog.Metadata) (catalog.SyncResult, error) {
+			return catalog.SyncResult{}, errors.New(rawFailure)
+		}),
+		"unused",
+		catalog.Metadata{},
+		false,
+	)
+	if _, err := failure.Sync(t.Context(), CatalogSyncManual); err == nil {
+		t.Fatal("failed catalog sync error = nil")
+	}
+
+	if strings.Contains(logs.String(), rawFailure) {
+		t.Fatalf("catalog sync logs leaked upstream failure details: %s", logs.String())
+	}
+	events := controlEventsNamed(decodeControlJSONLogs(t, logs.Bytes()), "models_dev_catalog_sync")
+	if len(events) != 5 {
+		t.Fatalf("catalog sync lifecycle events = %d, want 5: %#v", len(events), events)
+	}
+	wantOutcomes := []string{"started", "succeeded", "skipped", "started", "failed"}
+	for index, want := range wantOutcomes {
+		if got := events[index]["outcome"]; got != want {
+			t.Fatalf("catalog sync event %d outcome = %#v, want %q", index, got, want)
+		}
+		if events[index]["plane"] != "control" {
+			t.Fatalf("catalog sync event %d plane = %#v", index, events[index]["plane"])
+		}
+	}
+	if events[2]["skip_reason"] != "auto_sync_disabled" {
+		t.Fatalf("catalog sync skipped event = %#v", events[2])
+	}
+	if events[4]["error_code"] != "catalog_sync_failed" {
+		t.Fatalf("catalog sync failed event = %#v", events[4])
+	}
 }
 
 func TestCatalogBootstrapLoadsLKGAndTreatsMissingOrCorruptAsEmpty(t *testing.T) {
