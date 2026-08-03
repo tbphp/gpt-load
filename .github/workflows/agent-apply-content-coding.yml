@@ -1,0 +1,53 @@
+name: Agent apply content coding implementation
+
+on:
+  push:
+    branches:
+      - agent/content-coding-boundary
+
+permissions:
+  contents: write
+
+jobs:
+  implement:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: agent/content-coding-boundary
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Apply implementation
+        run: python3 .github/scripts/agent_apply_content_coding.py
+
+      - name: Format implementation
+        run: |
+          gofmt -w \
+            internal/gateway/handler.go \
+            internal/gateway/forward.go \
+            internal/gateway/response_representation.go \
+            internal/gateway/content_coding.go \
+            internal/platform/contentcoding/contentcoding.go \
+            internal/platform/httpheader/policy.go \
+            internal/platform/httpheader/policy_test.go
+
+      - name: Run focused tests
+        run: go test -count=1 ./internal/platform/contentcoding ./internal/platform/httpheader ./internal/gateway
+
+      - name: Commit implementation
+        run: |
+          rm .github/scripts/agent_apply_content_coding.py
+          rm .github/workflows/agent-apply-content-coding.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "feat: normalize content coding boundaries"
+          git push origin HEAD:agent/content-coding-boundary
