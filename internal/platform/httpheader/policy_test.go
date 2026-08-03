@@ -40,8 +40,10 @@ func TestCredentialAndForbiddenHeaderPolicy(t *testing.T) {
 			{name: "Cookie2", want: true},
 			{name: "Proxy-Authorization", want: true},
 			{name: "pRoXy-Custom", want: true},
+			{name: "Accept-Encoding", want: true},
+			{name: "Content-Encoding", want: true},
+			{name: "Content-Length", want: true},
 			{name: "Authorization"},
-			{name: "Accept-Encoding"},
 			{name: "Proxy"},
 			{name: ""},
 			{name: " "},
@@ -50,8 +52,8 @@ func TestCredentialAndForbiddenHeaderPolicy(t *testing.T) {
 			if got := IsForbiddenRequestRuleSetName(test.name); got != test.want {
 				t.Errorf(
 					"IsForbiddenRequestRuleSetName(%q) = %t, want %t",
-					test.name,
 					got,
+					test.name,
 					test.want,
 				)
 			}
