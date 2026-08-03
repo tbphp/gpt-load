@@ -1,0 +1,42 @@
+name: Agent format content coding tests
+
+on:
+  push:
+    branches:
+      - agent/content-coding-boundary
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: agent/content-coding-boundary
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Format and push contract tests
+        run: |
+          gofmt -w \
+            internal/platform/contentcoding/contentcoding_test.go \
+            internal/gateway/content_coding_test.go \
+            internal/platform/httpheader/content_coding_test.go
+          rm .github/workflows/agent-format-content-coding.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            internal/platform/contentcoding/contentcoding_test.go \
+            internal/gateway/content_coding_test.go \
+            internal/platform/httpheader/content_coding_test.go \
+            .github/workflows/agent-format-content-coding.yml
+          git commit -m "test: format content coding contract"
+          git push origin HEAD:agent/content-coding-boundary
