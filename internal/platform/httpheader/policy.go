@@ -23,6 +23,9 @@ var forbiddenRequestRuleSetNames = map[string]struct{}{
 	"upgrade":           {},
 	"cookie":            {},
 	"cookie2":           {},
+	"accept-encoding":   {},
+	"content-encoding":  {},
+	"content-length":    {},
 }
 
 func IsCredentialName(name string) bool {
