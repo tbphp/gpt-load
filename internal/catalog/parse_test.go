@@ -97,6 +97,19 @@ func TestParseModelsDevUsesExactDecimalsAndCanonicalTiers(t *testing.T) {
 	}
 }
 
+func TestParseModelsDevNormalizesFloatingPointPriceArtifacts(t *testing.T) {
+	raw := `{"openai":{"id":"openai","name":"OpenAI","models":{"gpt-x":{"id":"gpt-x","name":"GPT X","cost":{"input":0.049999999999999996,"output":0.08333333333333334,"cache_read":0.09999999999999999}}}}}`
+
+	snapshot := mustParse(t, raw)
+	cost := snapshot.Providers["openai"].Models["gpt-x"].Cost
+	if cost == nil {
+		t.Fatal("gpt-x cost = nil")
+	}
+	assertPrice(t, "floating-point input", cost.Prices.Input, 50_000_000, true)
+	assertPrice(t, "floating-point output", cost.Prices.Output, 83_333_333, true)
+	assertPrice(t, "floating-point cache read", cost.Prices.CacheRead, 100_000_000, true)
+}
+
 func TestParseModelsDevRejectsInvalidIdentityPricesAndTiers(t *testing.T) {
 	validProvider := func(model string) string {
 		return `{"openai":{"id":"openai","name":"OpenAI","models":{"gpt-x":` + model + `}}}`

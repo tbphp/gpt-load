@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/big"
 	"strconv"
 	"strings"
 	"unicode"
@@ -281,10 +282,14 @@ func parsePrices(input, output, cacheRead, cacheWrite *json.Number) (pricing.Pri
 
 // parseJSONUSD expands JSON exponent notation with string arithmetic before
 // handing the plain fixed-point decimal to pricing.ParseUSD. No binary float is
-// created, so values must be exactly representable at nano-USD precision.
+// created. Long fixed-point values emitted by Models.dev are rounded to the
+// nearest nano-USD only when they remain above zero after normalization.
 func parseJSONUSD(value string) (pricing.NanoUSD, error) {
 	if strings.HasPrefix(value, "-") {
 		return 0, fmt.Errorf("USD price must be non-negative")
+	}
+	if normalized, ok := parseModelsDevFloatArtifact(value); ok {
+		return normalized, nil
 	}
 	mantissa, exponentText, hasExponent := strings.Cut(value, "e")
 	if !hasExponent {
@@ -335,6 +340,31 @@ func parseJSONUSD(value string) (pricing.NanoUSD, error) {
 		plain = digits[:decimalPosition] + "." + digits[decimalPosition:]
 	}
 	return pricing.ParseUSD(plain)
+}
+
+const modelsDevArtifactMinFractionDigits = 15
+
+func parseModelsDevFloatArtifact(value string) (pricing.NanoUSD, bool) {
+	_, fraction, hasFraction := strings.Cut(value, ".")
+	if !hasFraction || strings.ContainsAny(fraction, "eE") ||
+		len(fraction) < modelsDevArtifactMinFractionDigits {
+		return 0, false
+	}
+
+	exact, ok := new(big.Rat).SetString(value)
+	if !ok || exact.Sign() < 0 {
+		return 0, false
+	}
+	scaled := new(big.Rat).Mul(exact, big.NewRat(1_000_000_000, 1))
+	quotient, remainder := new(big.Int), new(big.Int)
+	quotient.QuoRem(scaled.Num(), scaled.Denom(), remainder)
+	if new(big.Int).Lsh(remainder, 1).Cmp(scaled.Denom()) >= 0 {
+		quotient.Add(quotient, big.NewInt(1))
+	}
+	if quotient.Sign() == 0 && exact.Sign() != 0 || !quotient.IsInt64() {
+		return 0, false
+	}
+	return pricing.NanoUSD(quotient.Int64()), true
 }
 
 func decodeUniqueObject(decoder *json.Decoder, kind string) (map[string]json.RawMessage, error) {
