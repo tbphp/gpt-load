@@ -1248,7 +1248,7 @@ func TestUpdateGroupSettingsEndpointRejectsTopLevelNullWithoutMutation(t *testin
 	}
 }
 
-func TestUpdateGroupSettingsEndpointURLConflictsSuccessI18nAndAuth(t *testing.T) {
+func TestUpdateGroupSettingsEndpointAllowsURLReuseAndPreservesI18nAndAuth(t *testing.T) {
 	initControlI18n(t)
 	fixture := newServiceFixture(t)
 	firstID := createGroupForKeyImport(t, fixture, "sk-update-first")
@@ -1274,16 +1274,30 @@ func TestUpdateGroupSettingsEndpointURLConflictsSuccessI18nAndAuth(t *testing.T)
 	request.Header.Set("Accept-Language", "ja-JP")
 	recorder := httptest.NewRecorder()
 	engine.ServeHTTP(recorder, request)
-	assertUpdateGroupErrorResponse(t, recorder, http.StatusConflict, errGroupSettingsUpstreamChangeConfirmationRequired.Code, "アップストリームURLの変更には明示的な確認が必要です")
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unconfirmed unique URL update = %d %s", recorder.Code, recorder.Body.String())
+	}
 
 	request = httptest.NewRequest(http.MethodPut, path, strings.NewReader(
-		`{"upstream_url":"https://conflict.example.com/v1/","confirm_upstream_change":true}`,
+		`{"upstream_url":"https://conflict.example.com/v1/"}`,
 	))
 	request.Header.Set("Authorization", "Bearer test-auth-key")
 	request.Header.Set("Content-Type", "application/json")
 	recorder = httptest.NewRecorder()
 	engine.ServeHTTP(recorder, request)
-	assertUpdateGroupErrorResponse(t, recorder, http.StatusConflict, app_errors.ErrUpstreamURLConflict.Code, "已有分组使用该上游地址")
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("duplicate URL update = %d %s", recorder.Code, recorder.Body.String())
+	}
+	var duplicateSuccess struct {
+		Code int                   `json:"code"`
+		Data GroupSettingsResponse `json:"data"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &duplicateSuccess); err != nil {
+		t.Fatal(err)
+	}
+	if duplicateSuccess.Code != 0 || duplicateSuccess.Data.UpstreamURL != "https://conflict.example.com/v1" {
+		t.Fatalf("duplicate URL success envelope = %#v", duplicateSuccess)
+	}
 
 	request = httptest.NewRequest(http.MethodPut, path, strings.NewReader(
 		`{"name":"other-group"}`,
@@ -1295,7 +1309,7 @@ func TestUpdateGroupSettingsEndpointURLConflictsSuccessI18nAndAuth(t *testing.T)
 	assertUpdateGroupErrorResponse(t, recorder, http.StatusConflict, app_errors.ErrDuplicateResource.Code, "分组名称已存在")
 
 	request = httptest.NewRequest(http.MethodPut, path, strings.NewReader(
-		`{"upstream_url":" HTTPS://UNIQUE.example.com/v1/ ","confirm_upstream_change":true,"enabled":false}`,
+		`{"upstream_url":" HTTPS://UNIQUE.example.com/v1/ ","enabled":false}`,
 	))
 	request.Header.Set("Authorization", "Bearer test-auth-key")
 	request.Header.Set("Content-Type", "application/json")

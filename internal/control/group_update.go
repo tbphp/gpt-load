@@ -75,19 +75,3 @@ func validateGroupRowCandidate(ctx context.Context, tx *gorm.DB, group models.Gr
 	})
 	return err
 }
-
-func findOtherGroupsByUpstreamURL(
-	tx *gorm.DB,
-	upstreamURL string,
-	excludedID uint,
-) ([]ExistingGroupSummary, error) {
-	groups := make([]ExistingGroupSummary, 0)
-	if err := tx.Model(&models.Group{}).
-		Select("id", "name").
-		Where("upstream_url = ? AND id <> ?", upstreamURL, excludedID).
-		Order("id ASC").
-		Scan(&groups).Error; err != nil {
-		return nil, app_errors.ParseDBError(err)
-	}
-	return groups, nil
-}

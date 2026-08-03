@@ -6,7 +6,7 @@ import { useI18n } from 'vue-i18n'
 
 import type { GroupSettingsDto, HeaderRulesDto } from '@/api/control/types'
 
-import { ApiError, RequestCancelledError } from '@/api/errors'
+import { RequestCancelledError } from '@/api/errors'
 import { useApiClient } from '@/api/client-context'
 import {
   cacheGroupSettings,
@@ -21,7 +21,6 @@ import { useTransientFlag } from '@/app/use-transient-flag'
 import HeaderRulesEditor from '@/components/config/HeaderRulesEditor.vue'
 import RuntimeOverrideRow from '@/components/config/RuntimeOverrideRow.vue'
 import AppButton from '@/components/ui/AppButton.vue'
-import AppConfirmDialog from '@/components/ui/AppConfirmDialog.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 import PanelHeader from '@/components/ui/PanelHeader.vue'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
@@ -56,7 +55,6 @@ const pending = ref(false)
 const deletePending = ref(false)
 const deleted = ref(false)
 const error = ref('')
-const confirmURL = ref(false)
 const headerRulesValid = ref(true)
 const headerRulesInvalidEdits = ref(false)
 const headerRulesEditorRevision = ref(0)
@@ -225,10 +223,10 @@ function setInjectUsageOverride(enabled: boolean): void {
 
 function requestSave(): void {
   if (!dirty.value || !valid.value || mutationPending.value) return
-  void save(false)
+  void save()
 }
 
-async function save(confirmUpstreamChange: boolean): Promise<void> {
+async function save(): Promise<void> {
   if (!saved.value || !draft.value || mutationPending.value || !valid.value) return
   const active = new AbortController()
   controller = active
@@ -236,26 +234,16 @@ async function save(confirmUpstreamChange: boolean): Promise<void> {
   clearSavedFeedback()
   error.value = ''
   try {
-    const body = {
-      ...patch.value,
-      ...(confirmUpstreamChange ? { confirm_upstream_change: true as const } : {}),
-    }
+    const body = patch.value
     const result = await updateGroupSettings(client, props.groupId, body, active.signal)
     if (controller !== active) return
     resetSavedDraft(result)
-    confirmURL.value = false
     cacheGroupSettings(queryClient, props.groupId, result)
     await invalidateGroupSettingsDependents(queryClient, props.groupId)
     showSavedFeedback()
   } catch (cause: unknown) {
     if (cause instanceof RequestCancelledError || controller !== active) return
-    if (
-      cause instanceof ApiError &&
-      cause.code === 'UPSTREAM_CHANGE_CONFIRMATION_REQUIRED' &&
-      !confirmUpstreamChange
-    )
-      confirmURL.value = true
-    else error.value = t('group.settings.saveFailed')
+    error.value = t('group.settings.saveFailed')
   } finally {
     if (controller === active) {
       controller = undefined
@@ -274,7 +262,6 @@ function discard(): void {
 
 function onDeleted(): void {
   deleted.value = true
-  confirmURL.value = false
   error.value = ''
 }
 
@@ -515,19 +502,6 @@ onBeforeUnmount(() => {
           </section>
         </div>
       </div>
-      <AppConfirmDialog
-        appearance="ledger"
-        :open="confirmURL"
-        :title="t('group.settings.urlConfirm.title')"
-        :description="t('group.settings.urlConfirm.description')"
-        :close-label="t('group.settings.urlConfirm.close')"
-        :cancel-label="t('group.settings.urlConfirm.cancel')"
-        :confirm-label="t('group.settings.urlConfirm.confirm')"
-        :pending="mutationPending"
-        :confirm-disabled="deletePending"
-        @update:open="confirmURL = $event"
-        @confirm="save(true)"
-      />
       <StickySaveBar
         appearance="ledger"
         always-visible

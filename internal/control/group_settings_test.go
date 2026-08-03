@@ -102,7 +102,47 @@ func TestUpdateGroupSettingsPublishesOnceAndReturnsNewSettings(t *testing.T) {
 	}
 }
 
-func TestUpdateGroupSettingsValidatesWeightInjectUsageAndUpstreamConfirmation(t *testing.T) {
+func TestUpdateGroupSettingsAllowsDuplicateUpstreamURLWithoutConfirmation(t *testing.T) {
+	fixture := newServiceFixture(t)
+	first, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
+		UpstreamURL: "https://settings-first.example.com/v1",
+		Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
+		Models:      optionalGroupModels{Set: true, Values: []GroupModel{}},
+		Keys:        "sk-settings-first",
+	})
+	if err != nil {
+		t.Fatalf("first CreateGroup() error = %v", err)
+	}
+	sharedURL := "https://settings-shared.example.com/v1"
+	_, err = fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
+		UpstreamURL: sharedURL,
+		Protocols:   []protocol.Protocol{protocol.Anthropic},
+		Models:      optionalGroupModels{Set: true, Values: []GroupModel{}},
+		Keys:        "sk-settings-second",
+	})
+	if err != nil {
+		t.Fatalf("second CreateGroup() error = %v", err)
+	}
+	beforeRevision := fixture.manager.Current().Revision
+
+	result, err := fixture.service.UpdateGroupSettings(t.Context(), first.GroupID, GroupSettingsUpdateRequest{
+		UpstreamURL: optionalField[string]{
+			Set:   true,
+			Value: " HTTPS://SETTINGS-SHARED.EXAMPLE.COM/v1/ ",
+		},
+	})
+	if err != nil {
+		t.Fatalf("UpdateGroupSettings() error = %v", err)
+	}
+	if result.UpstreamURL != sharedURL {
+		t.Fatalf("updated upstream URL = %q, want %q", result.UpstreamURL, sharedURL)
+	}
+	if got := fixture.manager.Current().Revision; got != beforeRevision+1 {
+		t.Fatalf("snapshot revision = %d, want %d", got, beforeRevision+1)
+	}
+}
+
+func TestUpdateGroupSettingsValidatesWeightAndInjectUsage(t *testing.T) {
 	fixture := newServiceFixture(t)
 	groupID := createGroupForKeyImport(t, fixture, "sk-settings-validation")
 	beforeRevision := fixture.manager.Current().Revision
@@ -136,12 +176,6 @@ func TestUpdateGroupSettingsValidatesWeightInjectUsageAndUpstreamConfirmation(t 
 			}
 		})
 	}
-	if _, err := fixture.service.UpdateGroupSettings(t.Context(), groupID, GroupSettingsUpdateRequest{
-		UpstreamURL: optionalField[string]{Set: true, Value: "https://confirm-required.example.com/v1"},
-	}); !errors.Is(err, errGroupSettingsUpstreamChangeConfirmationRequired) {
-		t.Fatalf("unconfirmed URL change error = %v", err)
-	}
-
 	anthropic := validControlGroup("settings-anthropic")
 	anthropic.Protocols = models.JSON(`["anthropic"]`)
 	if err := fixture.db.Create(anthropic).Error; err != nil {

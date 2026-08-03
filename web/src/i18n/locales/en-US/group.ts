@@ -237,14 +237,6 @@ export default {
         inject_usage_options: 'Inject usage options',
         injectUsageHelp: 'This override is available only for OpenAI Completions',
       },
-      urlConfirm: {
-        title: 'Change the upstream URL?',
-        description:
-          'This changes where requests are sent and may make the saved model list stale. Confirm to continue.',
-        close: 'Close URL change confirmation',
-        cancel: 'Cancel',
-        confirm: 'Change upstream URL',
-      },
       delete: {
         sectionDescription:
           'Deleting a Group also deletes all of its upstream keys and cannot be undone.',

@@ -238,13 +238,6 @@ export default {
         inject_usage_options: '使用量オプションを注入',
         injectUsageHelp: 'この上書きは OpenAI Completions でのみ利用できます',
       },
-      urlConfirm: {
-        title: 'アップストリーム URL を変更しますか？',
-        description: 'リクエストの送信先が変わり、保存済みモデルが古くなる可能性があります。',
-        close: 'URL 変更の確認を閉じる',
-        cancel: 'キャンセル',
-        confirm: 'アップストリーム URL を変更',
-      },
       delete: {
         sectionDescription:
           'Group を削除するとすべてのアップストリームキーも削除され、元に戻せません。',

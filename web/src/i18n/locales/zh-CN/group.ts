@@ -232,13 +232,6 @@ export default {
         inject_usage_options: '注入用量选项',
         injectUsageHelp: '仅 OpenAI Completions 支持此覆盖',
       },
-      urlConfirm: {
-        title: '更改上游 URL？',
-        description: '这会改变请求发送位置，并可能使已保存模型过期。确认后继续。',
-        close: '关闭 URL 更改确认',
-        cancel: '取消',
-        confirm: '更改上游 URL',
-      },
       delete: {
         sectionDescription: '删除 Group 会同时删除其全部上游密钥，且无法撤销。',
         open: '删除 Group',

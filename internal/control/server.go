@@ -690,8 +690,7 @@ func serviceErrorMessageID(
 			return "group.name_exists"
 		}
 		return "bad_request"
-	case app_errors.ErrUpstreamURLChangeConfirmationRequired.Code,
-		errGroupSettingsUpstreamChangeConfirmationRequired.Code:
+	case app_errors.ErrUpstreamURLChangeConfirmationRequired.Code:
 		return "group.upstream_url_change_confirmation_required"
 	case app_errors.ErrGroupInUse.Code:
 		return "group.in_use"

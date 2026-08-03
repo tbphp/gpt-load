@@ -131,7 +131,6 @@ export type GroupSettingsUpdateRequest = Partial<{
   enabled: boolean
   weight_manual: number | null
   overrides: GroupRuntimeConfigDto
-  confirm_upstream_change: true
 }>
 
 export interface AccessKeyReferenceDto {

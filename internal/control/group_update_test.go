@@ -77,8 +77,7 @@ func TestGroupCatalogSyncTriggerOnlyTracksProviderAndModelIDChanges(t *testing.T
 	assertNoCatalogGroupWake(t, coordinator)
 
 	if _, err := fixture.service.UpdateGroupSettings(t.Context(), created.GroupID, GroupSettingsUpdateRequest{
-		UpstreamURL:           optionalField[string]{Set: true, Value: "https://catalog-trigger-new-url.example.com/v1"},
-		ConfirmUpstreamChange: true,
+		UpstreamURL: optionalField[string]{Set: true, Value: "https://catalog-trigger-new-url.example.com/v1"},
 	}); err != nil {
 		t.Fatal(err)
 	}

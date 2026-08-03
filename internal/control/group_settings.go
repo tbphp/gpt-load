@@ -14,12 +14,6 @@ import (
 	"gpt-load/internal/storage/models"
 )
 
-var errGroupSettingsUpstreamChangeConfirmationRequired = &app_errors.APIError{
-	HTTPStatus: 409,
-	Code:       "UPSTREAM_CHANGE_CONFIRMATION_REQUIRED",
-	Message:    "Upstream URL change requires explicit confirmation",
-}
-
 type GroupSettingsResponse struct {
 	Name            string                       `json:"name"`
 	ProviderID      *string                      `json:"provider_id"`
@@ -33,33 +27,33 @@ type GroupSettingsResponse struct {
 }
 
 type GroupSettingsUpdateRequest struct {
-	Name                  optionalField[string]              `json:"name"`
-	ProviderID            optionalField[string]              `json:"provider_id"`
-	UpstreamURL           optionalField[string]              `json:"upstream_url"`
-	Protocols             optionalField[[]protocol.Protocol] `json:"protocols"`
-	ValidationModel       optionalField[string]              `json:"validation_model"`
-	Enabled               optionalField[bool]                `json:"enabled"`
-	WeightManual          optionalField[int]                 `json:"weight_manual"`
-	Overrides             optionalField[config.Settings]     `json:"overrides"`
-	ConfirmUpstreamChange bool                               `json:"confirm_upstream_change"`
+	Name            optionalField[string]              `json:"name"`
+	ProviderID      optionalField[string]              `json:"provider_id"`
+	UpstreamURL     optionalField[string]              `json:"upstream_url"`
+	Protocols       optionalField[[]protocol.Protocol] `json:"protocols"`
+	ValidationModel optionalField[string]              `json:"validation_model"`
+	Enabled         optionalField[bool]                `json:"enabled"`
+	WeightManual    optionalField[int]                 `json:"weight_manual"`
+	Overrides       optionalField[config.Settings]     `json:"overrides"`
+	// Deprecated: retained for compatibility; URL changes no longer require confirmation.
+	ConfirmUpstreamChange bool `json:"confirm_upstream_change"`
 }
 
 type normalizedGroupSettingsUpdate struct {
-	name                  *string
-	providerID            *string
-	providerIDSet         bool
-	upstreamURL           *string
-	protocols             []protocol.Protocol
-	protocolsSet          bool
-	validationModel       *string
-	validationModelSet    bool
-	enabled               *bool
-	weightManual          *int
-	weightManualSet       bool
-	encodedOverrides      models.JSON
-	overrides             config.Settings
-	overridesSet          bool
-	confirmUpstreamChange bool
+	name               *string
+	providerID         *string
+	providerIDSet      bool
+	upstreamURL        *string
+	protocols          []protocol.Protocol
+	protocolsSet       bool
+	validationModel    *string
+	validationModelSet bool
+	enabled            *bool
+	weightManual       *int
+	weightManualSet    bool
+	encodedOverrides   models.JSON
+	overrides          config.Settings
+	overridesSet       bool
 }
 
 func (s *Service) GetGroupSettings(ctx context.Context, groupID uint) (GroupSettingsResponse, error) {
@@ -150,7 +144,7 @@ func normalizeGroupSettingsUpdate(
 		return normalizedGroupSettingsUpdate{}, app_errors.ErrBadRequest
 	}
 
-	result := normalizedGroupSettingsUpdate{confirmUpstreamChange: request.ConfirmUpstreamChange}
+	result := normalizedGroupSettingsUpdate{}
 	if request.Name.Set {
 		value, err := normalizeGroupName(&request.Name.Value)
 		if err != nil {
@@ -268,19 +262,6 @@ func (s *Service) UpdateGroupSettings(
 				return fmt.Errorf("normalize persisted group URL: %w", app_errors.ErrInternalServer)
 			}
 			if currentURL != *normalized.upstreamURL {
-				conflicts, conflictErr := findOtherGroupsByUpstreamURL(tx, *normalized.upstreamURL, groupID)
-				if conflictErr != nil {
-					return conflictErr
-				}
-				if len(conflicts) > 0 {
-					return app_errors.NewAPIErrorWithData(
-						app_errors.ErrUpstreamURLConflict,
-						UpstreamURLConflictData{Groups: conflicts},
-					)
-				}
-				if !normalized.confirmUpstreamChange {
-					return errGroupSettingsUpstreamChangeConfirmationRequired
-				}
 				group.UpstreamURL = *normalized.upstreamURL
 				updates["upstream_url"] = group.UpstreamURL
 			}
