@@ -9,14 +9,7 @@ import (
 
 func TestApplyCredentialUsesDialectDefaultWithEmptyRules(t *testing.T) {
 	headers := make(http.Header)
-
-	ApplyCredential(
-		NewOpenAI(http.DefaultClient),
-		headers,
-		"sk-default",
-		state.HeaderRules{},
-	)
-
+	ApplyCredential(NewOpenAI(http.DefaultClient), headers, "sk-default", state.HeaderRules{})
 	if got := headers.Get("Authorization"); got != "Bearer sk-default" {
 		t.Fatalf("Authorization = %q, want default Bearer credential", got)
 	}
@@ -31,14 +24,7 @@ func TestApplyCredentialExpandsSetRulesAfterDefault(t *testing.T) {
 		},
 		Remove: []string{"X-Remove-Me"},
 	}
-
-	ApplyCredential(
-		NewOpenAI(http.DefaultClient),
-		headers,
-		"sk-custom",
-		rules,
-	)
-
+	ApplyCredential(NewOpenAI(http.DefaultClient), headers, "sk-custom", rules)
 	if got := headers.Get("Authorization"); got != "Token sk-custom" {
 		t.Fatalf("Authorization = %q, want custom override", got)
 	}
@@ -50,20 +36,22 @@ func TestApplyCredentialExpandsSetRulesAfterDefault(t *testing.T) {
 	}
 }
 
+func TestApplyCredentialCannotRemoveSystemOwnedContentCodingHeaders(t *testing.T) {
+	headers := http.Header{"Accept-Encoding": {"identity"}}
+	rules := state.HeaderRules{Remove: []string{"Accept-Encoding", "Content-Encoding", "Content-Length"}}
+	ApplyCredential(NewOpenAI(http.DefaultClient), headers, "sk-system", rules)
+	if got := headers.Get("Accept-Encoding"); got != "identity" {
+		t.Fatalf("Accept-Encoding = %q, want identity", got)
+	}
+}
+
 func TestApplyCredentialRemoveWinsOverSet(t *testing.T) {
 	headers := make(http.Header)
 	rules := state.HeaderRules{
 		Set:    map[string]string{"Authorization": "Token ${API_KEY}"},
 		Remove: []string{"Authorization"},
 	}
-
-	ApplyCredential(
-		NewOpenAI(http.DefaultClient),
-		headers,
-		"sk-removed",
-		rules,
-	)
-
+	ApplyCredential(NewOpenAI(http.DefaultClient), headers, "sk-removed", rules)
 	if got := headers.Get("Authorization"); got != "" {
 		t.Fatalf("Authorization = %q, want final remove to win", got)
 	}

@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 
+	"gpt-load/internal/platform/httpheader"
 	"gpt-load/internal/state"
 )
 
@@ -26,6 +27,9 @@ func ApplyCredential(
 		headers.Set(name, strings.ReplaceAll(value, "${API_KEY}", apiKey))
 	}
 	for _, name := range rules.Remove {
+		if httpheader.IsForbiddenRequestRuleSetName(name) {
+			continue
+		}
 		headers.Del(name)
 	}
 }

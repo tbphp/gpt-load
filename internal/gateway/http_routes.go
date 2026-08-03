@@ -34,7 +34,10 @@ func (handler *Handler) HTTPModule() httproute.Module {
 			Prepare: gin.HandlersChain{
 				handler.prepareDataPlaneRequest(selectedEndpoint),
 			},
-			Handlers: gin.HandlersChain{handler.Handle},
+			Handlers: gin.HandlersChain{
+				handler.normalizeDownstreamContentCoding(),
+				handler.Handle,
+			},
 		})
 	}
 
