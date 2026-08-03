@@ -25,11 +25,12 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Apply implementation
-        run: python3 .github/scripts/agent_apply_content_coding.py
-
-      - name: Format implementation
+      - name: Apply and test implementation
+        id: implementation
+        shell: bash
         run: |
+          set -o pipefail
+          python3 .github/scripts/agent_apply_content_coding.py
           gofmt -w \
             internal/gateway/handler.go \
             internal/gateway/forward.go \
@@ -38,11 +39,13 @@ jobs:
             internal/platform/contentcoding/contentcoding.go \
             internal/platform/httpheader/policy.go \
             internal/platform/httpheader/policy_test.go
+          set +e
+          go test -count=1 ./internal/platform/contentcoding ./internal/platform/httpheader ./internal/gateway 2>&1 | tee .agent-content-coding-test.log
+          status=${PIPESTATUS[0]}
+          set -e
+          echo "status=${status}" >> "$GITHUB_OUTPUT"
 
-      - name: Run focused tests
-        run: go test -count=1 ./internal/platform/contentcoding ./internal/platform/httpheader ./internal/gateway
-
-      - name: Commit implementation
+      - name: Commit implementation and test evidence
         run: |
           rm .github/scripts/agent_apply_content_coding.py
           rm .github/workflows/agent-apply-content-coding.yml
@@ -51,3 +54,7 @@ jobs:
           git add -A
           git commit -m "feat: normalize content coding boundaries"
           git push origin HEAD:agent/content-coding-boundary
+
+      - name: Report focused-test failure
+        if: steps.implementation.outputs.status != '0'
+        run: exit 1
