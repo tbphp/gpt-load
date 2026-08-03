@@ -5,6 +5,7 @@ import (
 	"testing"
 )
 
+// These public reason codes are part of the data-plane compatibility contract.
 func TestContentCodingReasonsRemainStable(t *testing.T) {
 	tests := []struct {
 		name   string
