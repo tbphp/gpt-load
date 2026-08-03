@@ -2,13 +2,13 @@ package models
 
 // RequestLog is the durable request-level audit and usage record.
 type RequestLog struct {
-	ID                      string `gorm:"type:varchar(36);primaryKey;not null;index:idx_request_logs_completed_id,priority:2,sort:desc;index:idx_request_logs_access_completed_id,priority:3,sort:desc;index:idx_request_logs_status_completed_id,priority:3,sort:desc;index:idx_request_logs_model_completed_id,priority:3,sort:desc"`
-	CompletedAtMS           int64  `gorm:"column:completed_at_ms;not null;index:idx_request_logs_completed_id,priority:1,sort:desc;index:idx_request_logs_access_completed_id,priority:2,sort:desc;index:idx_request_logs_status_completed_id,priority:2,sort:desc;index:idx_request_logs_model_completed_id,priority:2,sort:desc"`
+	ID                      string `gorm:"type:varchar(36);primaryKey;not null;index:idx_request_logs_completed_id,priority:2,sort:desc;index:idx_request_logs_access_completed_id,priority:3,sort:desc;index:idx_request_logs_status_completed_id,priority:3,sort:desc;index:idx_request_logs_model_completed_id,priority:3,sort:desc;index:idx_request_logs_upstream_model_completed_id,priority:3,sort:desc"`
+	CompletedAtMS           int64  `gorm:"column:completed_at_ms;not null;index:idx_request_logs_completed_id,priority:1,sort:desc;index:idx_request_logs_access_completed_id,priority:2,sort:desc;index:idx_request_logs_status_completed_id,priority:2,sort:desc;index:idx_request_logs_model_completed_id,priority:2,sort:desc;index:idx_request_logs_upstream_model_completed_id,priority:2,sort:desc"`
 	AccessKeyID             uint   `gorm:"not null;index:idx_request_logs_access_completed_id,priority:1"`
 	GroupID                 uint   `gorm:"not null;default:0"`
 	Protocol                string `gorm:"type:varchar(32);not null"`
 	ClientModel             string `gorm:"type:varchar(255);not null;index:idx_request_logs_model_completed_id,priority:1"`
-	UpstreamModel           string `gorm:"type:varchar(255);not null"`
+	UpstreamModel           string `gorm:"type:varchar(255);not null;index:idx_request_logs_upstream_model_completed_id,priority:1"`
 	Status                  string `gorm:"type:varchar(32);not null;index:idx_request_logs_status_completed_id,priority:1"`
 	StatusCode              int    `gorm:"not null"`
 	DurationMs              int64  `gorm:"not null"`

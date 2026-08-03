@@ -7,6 +7,7 @@ import (
 
 	"gpt-load/internal/catalog"
 	"gpt-load/internal/dialect"
+	"gpt-load/internal/pricing"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 	"gpt-load/internal/storage/models"
@@ -17,9 +18,12 @@ func TestDraftDiscoveryMergesLiveAndLocalCatalogByExactIDWithoutURLInference(t *
 	fixture.catalogRuntime.Publish(&catalog.Snapshot{Providers: map[string]catalog.Provider{
 		"openai": {
 			ID: "openai", Name: "OpenAI", Models: map[string]catalog.Model{
-				"shared":       {ID: "shared", Name: "Shared display"},
-				"catalog-only": {ID: "catalog-only", Name: "Catalog only"},
-				"SHARED":       {ID: "SHARED", Name: "Case distinct"},
+				"shared": {ID: "shared", Name: "Shared display"},
+				"catalog-only": {
+					ID: "catalog-only", Name: "Catalog only",
+					Cost: &catalog.ModelCost{Prices: pricing.Prices{Input: priceTestValue(1)}},
+				},
+				"SHARED": {ID: "SHARED", Name: "Case distinct"},
 			},
 		},
 	}})
@@ -50,7 +54,7 @@ func TestDraftDiscoveryMergesLiveAndLocalCatalogByExactIDWithoutURLInference(t *
 		{ID: "shared", Name: "Shared display", Sources: []string{"live", "catalog"}, PricingStatus: PricingStatusConfigured},
 		{ID: "live-only", Name: "live-only", Sources: []string{"live"}, PricingStatus: PricingStatusPending},
 		{ID: "SHARED", Name: "Case distinct", Sources: []string{"catalog"}, PricingStatus: PricingStatusPending},
-		{ID: "catalog-only", Name: "Catalog only", Sources: []string{"catalog"}, PricingStatus: PricingStatusPending},
+		{ID: "catalog-only", Name: "Catalog only", Sources: []string{"catalog"}, PricingStatus: PricingStatusConfigured},
 	}
 	if !reflect.DeepEqual(got.Models, want) {
 		t.Fatalf("merged candidates = %#v, want %#v", got.Models, want)
@@ -77,8 +81,11 @@ func TestSavedGroupDiscoveryUsesPersistedProviderAndSharedPricingStatus(t *testi
 	fixture.catalogRuntime.Publish(&catalog.Snapshot{Providers: map[string]catalog.Provider{
 		"openai": {
 			ID: "openai", Models: map[string]catalog.Model{
-				"shared":       {ID: "shared", Name: "Shared display"},
-				"catalog-only": {ID: "catalog-only", Name: "Catalog only"},
+				"shared": {ID: "shared", Name: "Shared display"},
+				"catalog-only": {
+					ID: "catalog-only", Name: "Catalog only",
+					Cost: &catalog.ModelCost{Prices: pricing.Prices{Input: priceTestValue(1)}},
+				},
 			},
 		},
 	}})
@@ -113,7 +120,7 @@ func TestSavedGroupDiscoveryUsesPersistedProviderAndSharedPricingStatus(t *testi
 	want := []ModelCandidate{
 		{ID: "shared", Name: "Shared display", Sources: []string{"live", "catalog"}, PricingStatus: PricingStatusConfigured},
 		{ID: "live-only", Name: "live-only", Sources: []string{"live"}, PricingStatus: PricingStatusPending},
-		{ID: "catalog-only", Name: "Catalog only", Sources: []string{"catalog"}, PricingStatus: PricingStatusPending},
+		{ID: "catalog-only", Name: "Catalog only", Sources: []string{"catalog"}, PricingStatus: PricingStatusConfigured},
 	}
 	if !reflect.DeepEqual(got.Models, want) {
 		t.Fatalf("saved group candidates = %#v, want %#v", got.Models, want)

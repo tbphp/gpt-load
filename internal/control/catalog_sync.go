@@ -36,6 +36,7 @@ const (
 	CatalogSyncStartup  CatalogSyncTrigger = "startup"
 	CatalogSyncPeriodic CatalogSyncTrigger = "periodic"
 	CatalogSyncGroup    CatalogSyncTrigger = "group_change"
+	CatalogSyncSettings CatalogSyncTrigger = "settings_change"
 	CatalogSyncManual   CatalogSyncTrigger = "manual"
 )
 
@@ -127,6 +128,7 @@ type CatalogSyncCoordinator struct {
 	newTimer      func(time.Duration) catalogSyncTimer
 	now           func() time.Time
 	groupWake     chan struct{}
+	immediateWake chan struct{}
 }
 
 var errCatalogSyncCoordinatorStopped = errors.New("catalog sync coordinator is shutting down")
@@ -148,8 +150,9 @@ func newCatalogSyncCoordinator(
 		newTimer: func(interval time.Duration) catalogSyncTimer {
 			return standardCatalogSyncTimer{timer: time.NewTimer(interval)}
 		},
-		now:       time.Now,
-		groupWake: make(chan struct{}, 1),
+		now:           time.Now,
+		groupWake:     make(chan struct{}, 1),
+		immediateWake: make(chan struct{}, 1),
 	}
 	if service != nil {
 		coordinator.applySnapshot = service.applyCatalogSnapshot
@@ -235,6 +238,8 @@ func (coordinator *CatalogSyncCoordinator) Run(ctx context.Context) {
 			stopTimer(debounce)
 			debounce = coordinator.newTimer(modelsDevGroupDebounce)
 			debounceC = debounce.C()
+		case <-coordinator.immediateWake:
+			launch(CatalogSyncSettings)
 		case <-debounceC:
 			debounce = nil
 			debounceC = nil
@@ -281,6 +286,17 @@ func (coordinator *CatalogSyncCoordinator) RequestGroupSync() {
 	}
 	select {
 	case coordinator.groupWake <- struct{}{}:
+	default:
+	}
+}
+
+func (coordinator *CatalogSyncCoordinator) RequestImmediateSync() {
+	if coordinator == nil || coordinator.service == nil ||
+		!coordinator.service.modelsDevAutoSyncEnabled() {
+		return
+	}
+	select {
+	case coordinator.immediateWake <- struct{}{}:
 	default:
 	}
 }
@@ -494,6 +510,9 @@ func (s *Service) applyCatalogSnapshot(ctx context.Context, snapshot *catalog.Sn
 	}
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
+	if err := s.enforceOperationRecoveryBarrierLocked(ctx, 0); err != nil {
+		return err
+	}
 
 	var table *pricing.Table
 	err := s.withControlTransaction(ctx, func(tx *gorm.DB) error {

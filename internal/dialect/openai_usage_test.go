@@ -18,6 +18,7 @@ func TestUsageOpenAICanonicalFixtures(t *testing.T) {
 	if result.State != usage.StateComplete || result.Tokens != want {
 		t.Fatalf("non-stream result = %#v", result)
 	}
+	requireUsageDiagnostics(t, result.Diagnostics, usage.DiagnosticUnsupportedBillableDetail)
 
 	stream := extractor.NewUsageStreamExtractor()
 	observeUsageJSONL(t, stream, readUsageFixture(t, "openai", "stream.jsonl"))
@@ -25,6 +26,7 @@ func TestUsageOpenAICanonicalFixtures(t *testing.T) {
 	if !ok || streamResult.State != usage.StateComplete || streamResult.Tokens != want {
 		t.Fatalf("stream result = %#v, %t", streamResult, ok)
 	}
+	requireUsageDiagnostics(t, streamResult.Diagnostics, usage.DiagnosticUnsupportedBillableDetail)
 	if _, ok := stream.Finalize(); ok {
 		t.Fatal("second Finalize() succeeded")
 	}
@@ -54,6 +56,18 @@ func TestUsageOpenAINonStreamOptionalFields(t *testing.T) {
 			name:        "positive cache write uses unknown bucket",
 			body:        `{"usage":{"prompt_tokens":100,"completion_tokens":30,"total_tokens":130,"prompt_tokens_details":{"cached_tokens":20,"cache_write_tokens":5}}}`,
 			want:        usage.Tokens{UncachedInput: 75, CacheRead: 20, CacheWriteUnknown: 5, Output: 30},
+			diagnostics: []usage.DiagnosticCode{usage.DiagnosticUnsupportedBillableDetail},
+		},
+		{
+			name:        "positive input and output audio are unsupported billable details",
+			body:        `{"usage":{"prompt_tokens":100,"completion_tokens":30,"total_tokens":130,"prompt_tokens_details":{"cached_tokens":20,"audio_tokens":10},"completion_tokens_details":{"audio_tokens":5}}}`,
+			want:        usage.Tokens{UncachedInput: 80, CacheRead: 20, Output: 30},
+			diagnostics: []usage.DiagnosticCode{usage.DiagnosticUnsupportedBillableDetail},
+		},
+		{
+			name:        "effective priority service tier is unsupported",
+			body:        `{"service_tier":"priority","usage":{"prompt_tokens":100,"completion_tokens":30,"total_tokens":130}}`,
+			want:        usage.Tokens{UncachedInput: 100, Output: 30},
 			diagnostics: []usage.DiagnosticCode{usage.DiagnosticUnsupportedBillableDetail},
 		},
 		{

@@ -7,6 +7,7 @@ import (
 	"gpt-load/internal/health"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
+	"gpt-load/internal/usage"
 )
 
 type ParsedRequest struct {
@@ -18,9 +19,10 @@ type ParsedRequest struct {
 }
 
 type RequestMetadata struct {
-	Model        *string
-	Stream       bool
-	ObserveUsage bool
+	Model            *string
+	Stream           bool
+	ObserveUsage     bool
+	UsageDiagnostics usage.Diagnostics
 }
 
 type Dialect interface {

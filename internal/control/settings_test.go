@@ -15,6 +15,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
+	"gpt-load/internal/catalog"
 	"gpt-load/internal/platform/config"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/state"
@@ -97,6 +98,91 @@ func TestUpdateSettingsInjectUsageOptionsBooleanAndNullReset(t *testing.T) {
 	})
 	if err != nil || !reset.Values.InjectUsageOptions || len(reset.Overrides) != 0 {
 		t.Fatalf("UpdateSettings(null) = %#v, %v", reset, err)
+	}
+}
+
+func TestUpdateSettingsEnablingModelsDevRequestsImmediateSyncOnce(t *testing.T) {
+	fixture := newServiceFixture(t)
+	if _, err := fixture.service.UpdateSettings(t.Context(), SettingsUpdateRequest{
+		Settings: map[string]json.RawMessage{
+			state.SettingModelsDevAutoSyncEnabled: json.RawMessage("false"),
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	coordinator := newCatalogSyncCoordinator(
+		fixture.service,
+		nil,
+		"unused",
+		catalog.Metadata{},
+		false,
+	)
+
+	if _, err := fixture.service.UpdateSettings(t.Context(), SettingsUpdateRequest{
+		Settings: map[string]json.RawMessage{
+			state.SettingModelsDevAutoSyncEnabled: json.RawMessage("true"),
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-coordinator.immediateWake:
+	default:
+		t.Fatal("false -> true did not request immediate catalog sync")
+	}
+
+	if _, err := fixture.service.UpdateSettings(t.Context(), SettingsUpdateRequest{
+		Settings: map[string]json.RawMessage{
+			state.SettingModelsDevAutoSyncEnabled: json.RawMessage("true"),
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-coordinator.immediateWake:
+		t.Fatal("true -> true requested another immediate catalog sync")
+	default:
+	}
+}
+
+func TestUpdateSettingsIfMatchEnablingModelsDevRequestsImmediateSync(t *testing.T) {
+	fixture := newServiceFixture(t)
+	if _, err := fixture.service.UpdateSettings(t.Context(), SettingsUpdateRequest{
+		Settings: map[string]json.RawMessage{
+			state.SettingModelsDevAutoSyncEnabled: json.RawMessage("false"),
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	current, err := fixture.service.GetSettings(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	representation, err := newSettingsWireRepresentation("settings", current.DTO())
+	if err != nil {
+		t.Fatal(err)
+	}
+	coordinator := newCatalogSyncCoordinator(
+		fixture.service,
+		nil,
+		"unused",
+		catalog.Metadata{},
+		false,
+	)
+	if _, err := fixture.service.UpdateSettingsIfMatch(
+		t.Context(),
+		SettingsUpdateRequest{Settings: map[string]json.RawMessage{
+			state.SettingModelsDevAutoSyncEnabled: json.RawMessage("true"),
+		}},
+		representation.ETag,
+		"settings",
+	); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-coordinator.immediateWake:
+	default:
+		t.Fatal("If-Match false -> true did not request immediate catalog sync")
 	}
 }
 

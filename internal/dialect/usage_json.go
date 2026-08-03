@@ -45,6 +45,21 @@ func usageFieldPresent(object map[string]json.RawMessage, field string) bool {
 	return exists && !bytes.Equal(bytes.TrimSpace(raw), []byte("null"))
 }
 
+func usageUnsupportedPositiveIntegerDetails(
+	object map[string]json.RawMessage,
+	fields ...string,
+) usage.Diagnostics {
+	diagnostics := usage.Diagnostics{}
+	for _, field := range fields {
+		value, fieldDiagnostics := usageInteger(object, field, false)
+		diagnostics.Merge(fieldDiagnostics)
+		if value != nil && *value > 0 {
+			diagnostics.Add(usage.DiagnosticUnsupportedBillableDetail)
+		}
+	}
+	return diagnostics
+}
+
 func usageNormalizedTotal(reported *int64, tokens usage.Tokens, diagnostics *usage.Diagnostics) {
 	if reported == nil {
 		return

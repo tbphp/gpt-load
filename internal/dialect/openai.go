@@ -150,6 +150,7 @@ func (d *OpenAI) InspectRequest(req *ParsedRequest) (RequestMetadata, error) {
 		return RequestMetadata{}, fmt.Errorf("decode %s request: %w", d.Protocol(), err)
 	}
 	metadata.ObserveUsage = true
+	metadata.UsageDiagnostics = openAIRequestPricingDiagnostics(req.Body)
 	return metadata, nil
 }
 

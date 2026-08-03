@@ -62,6 +62,9 @@ func (d *OpenAIResponses) InspectRequest(req *ParsedRequest) (RequestMetadata, e
 	}
 	metadata.ObserveUsage = req.Method == http.MethodPost &&
 		(req.Path == openAIResponsesPath || req.Path == openAIResponsesCompactPath)
+	if len(req.Body) > 0 {
+		metadata.UsageDiagnostics = openAIRequestPricingDiagnostics(req.Body)
+	}
 	return metadata, nil
 }
 

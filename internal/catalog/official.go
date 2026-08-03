@@ -15,6 +15,13 @@ var officialProviderIDs = map[string]struct{}{
 	"google":    {},
 }
 
+// IsOfficialProviderID reports whether providerID is one of the built-in
+// provider presets that remain selectable without a loaded catalog snapshot.
+func IsOfficialProviderID(providerID string) bool {
+	_, ok := officialProviderIDs[providerID]
+	return ok
+}
+
 // OfficialSuggestions returns the three local provider presets with safe
 // field-level name and API URL updates from the current catalog.
 func OfficialSuggestions(snapshot *Snapshot) []Provider {

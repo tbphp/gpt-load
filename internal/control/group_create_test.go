@@ -14,6 +14,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 
+	"gpt-load/internal/catalog"
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/platform/encryption"
 	app_errors "gpt-load/internal/platform/errors"
@@ -571,6 +572,38 @@ func TestCreateGroupRequiresModelsAndAllowsEmptyArrayAtomically(t *testing.T) {
 	}
 	if fixture.manager.Current().Revision != beforeRevision+1 {
 		t.Fatalf("snapshot revision = %d, want %d", fixture.manager.Current().Revision, beforeRevision+1)
+	}
+}
+
+func TestCreateGroupRequiresSelectableProviderID(t *testing.T) {
+	fixture := newServiceFixture(t)
+	providerID := "private-company"
+	request := GroupCreateRequest{
+		ProviderID:  &providerID,
+		UpstreamURL: "https://private-company.example/v1",
+		Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
+		Models:      optionalGroupModels{Set: true, Values: []GroupModel{}},
+		Keys:        "sk-private-company",
+	}
+
+	if _, err := fixture.service.CreateGroup(t.Context(), request); !errors.Is(err, app_errors.ErrValidation) {
+		t.Fatalf("CreateGroup(unknown provider) error = %v, want ErrValidation", err)
+	}
+	assertGroupCount(t, fixture.db, 0)
+
+	fixture.catalogRuntime.Publish(&catalog.Snapshot{Providers: map[string]catalog.Provider{
+		providerID: {ID: providerID},
+	}})
+	result, err := fixture.service.CreateGroup(t.Context(), request)
+	if err != nil {
+		t.Fatalf("CreateGroup(catalog provider) error = %v", err)
+	}
+	var stored models.Group
+	if err := fixture.db.First(&stored, result.GroupID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if stored.ProviderID == nil || *stored.ProviderID != providerID {
+		t.Fatalf("stored provider_id = %v, want %q", stored.ProviderID, providerID)
 	}
 }
 

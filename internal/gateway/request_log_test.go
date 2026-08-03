@@ -454,6 +454,48 @@ func TestRequestRecorderPreservesKnownCostWhenUsedOutputPriceIsUnavailable(t *te
 	}
 }
 
+func TestRequestRecorderMergesRequestPricingDiagnosticsIntoKnownCost(t *testing.T) {
+	table := mustGatewayPriceTable(t, 2_000_000_000, true)
+	recorder := newRequestRecorder(
+		&recordingRequestLogSink{}, "unsupported-mode", time.Unix(100, 0), 1,
+		protocol.OpenAICompletions, func() time.Time { return time.Unix(101, 0) },
+	)
+	diagnostics := usage.Diagnostics{}
+	diagnostics.Add(usage.DiagnosticUnsupportedBillableDetail)
+	recorder.setUsageDiagnostics(diagnostics)
+	model := "gpt-4o"
+	recorder.freezeNextAttemptPricing(frozenAttemptPricing{
+		groupID: 1, scopeKey: "group:1", upstreamModel: model, table: table, applicable: true,
+	})
+	index := recorder.appendAttempt(
+		scheduler.Selection{
+			GroupID: 1, Group: state.GroupView{Name: "group"}, KeyID: 2,
+			UpstreamModelID: &model,
+		},
+		UpstreamResult{StatusCode: http.StatusOK},
+		telemetry.FailureCategoryOK, telemetry.ActionTerminate, "", "",
+		time.Unix(100, 0), time.Unix(101, 0),
+	)
+	recorder.completeResponse(UpstreamResult{
+		StatusCode: http.StatusOK,
+		Usage: usage.Result{
+			State:  usage.StateComplete,
+			Tokens: usage.Tokens{UncachedInput: 1_000_000, Output: 1_000_000},
+		},
+	}, health.Result{}, model, index)
+
+	if !recorder.usage.Result.Diagnostics.Has(usage.DiagnosticUnsupportedBillableDetail) {
+		t.Fatalf("usage diagnostics = %#v, want unsupported billable detail", recorder.usage.Result.Diagnostics)
+	}
+	if got := recorder.usage.Pricing; got != (telemetry.PricingObservation{
+		PriceScopeKey: "group:1", UpstreamModel: model,
+		CostState: "priced", PricingCompleteness: "partial",
+		EstimatedCostNanoUSD: 4_000_000_000,
+	}) {
+		t.Fatalf("unsupported mode pricing = %#v", got)
+	}
+}
+
 func TestHandlerUsesSelectedProviderModelForPricingInsteadOfAliasOrBodyModel(t *testing.T) {
 	providerID := "openai"
 	model := "provider-model"
@@ -505,6 +547,45 @@ func TestHandlerUsesSelectedProviderModelForPricingInsteadOfAliasOrBodyModel(t *
 		EstimatedCostNanoUSD: 3_000_000_000,
 	}) {
 		t.Fatalf("events = %#v", events)
+	}
+}
+
+func TestHandlerMarksExplicitUnsupportedPricingModePartial(t *testing.T) {
+	table := mustGatewayPriceTable(t, 2_000_000_000, true)
+	forwarder := &scriptedForwarder{results: []UpstreamResult{{
+		StatusCode: http.StatusOK, Header: make(http.Header), RequestWritten: true,
+		Usage: usage.Result{
+			State: usage.StateComplete,
+			Tokens: usage.Tokens{
+				UncachedInput: 1_000_000,
+				Output:        1_000_000,
+			},
+		},
+	}}}
+	sink := &recordingRequestLogSink{}
+	engine, handler, _, _ := newRequestLogHandlerTestRuntime(
+		t, forwarder, &recordingAccessKeyRPMLimiter{}, sink, "sk-first",
+	)
+	handler.priceTables = &mutableGatewayPriceTableProvider{table: table}
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/v1/chat/completions",
+		strings.NewReader(`{"model":"gpt-4o","service_tier":"priority"}`),
+	)
+	request.Header.Set("Authorization", "Bearer gl-client")
+	engine.ServeHTTP(httptest.NewRecorder(), request)
+
+	events := sink.snapshot()
+	if len(events) != 1 {
+		t.Fatalf("events = %#v, want one", events)
+	}
+	if !events[0].Usage.Result.Diagnostics.Has(usage.DiagnosticUnsupportedBillableDetail) ||
+		events[0].Usage.Pricing != (telemetry.PricingObservation{
+			PriceScopeKey: "group:1", UpstreamModel: "gpt-4o",
+			CostState: "priced", PricingCompleteness: "partial",
+			EstimatedCostNanoUSD: 4_000_000_000,
+		}) {
+		t.Fatalf("unsupported mode event = %#v", events[0])
 	}
 }
 

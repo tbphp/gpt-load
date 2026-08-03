@@ -16,6 +16,7 @@ import (
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 	"gpt-load/internal/testutil/fakeupstream"
+	"gpt-load/internal/usage"
 )
 
 func TestParsedRequestCarriesForwardingInputs(t *testing.T) {
@@ -219,6 +220,38 @@ func TestOpenAIInspectRequest(t *testing.T) {
 				)
 			}
 		})
+	}
+}
+
+func TestOpenAIInspectRequestMarksUnsupportedPricingModes(t *testing.T) {
+	t.Parallel()
+	dialect := NewOpenAI(http.DefaultClient)
+	for _, body := range []string{
+		`{"model":"gpt-5","service_tier":"priority"}`,
+		`{"model":"gpt-5","service_tier":"flex"}`,
+		`{"model":"gpt-5","speed":"fast"}`,
+		`{"model":"gpt-5","reasoning":{"mode":"pro"}}`,
+	} {
+		metadata, err := dialect.InspectRequest(&ParsedRequest{Body: []byte(body)})
+		if err != nil {
+			t.Fatalf("InspectRequest(%s) error = %v", body, err)
+		}
+		if !metadata.UsageDiagnostics.Has(usage.DiagnosticUnsupportedBillableDetail) {
+			t.Fatalf("InspectRequest(%s) diagnostics = %#v, want unsupported billable detail", body, metadata.UsageDiagnostics)
+		}
+	}
+	for _, body := range []string{
+		`{"model":"gpt-5"}`,
+		`{"model":"gpt-5","service_tier":"auto"}`,
+		`{"model":"gpt-5","service_tier":"default"}`,
+	} {
+		metadata, err := dialect.InspectRequest(&ParsedRequest{Body: []byte(body)})
+		if err != nil {
+			t.Fatalf("InspectRequest(%s) error = %v", body, err)
+		}
+		if metadata.UsageDiagnostics.Has(usage.DiagnosticUnsupportedBillableDetail) {
+			t.Fatalf("InspectRequest(%s) unexpectedly marked unsupported", body)
+		}
 	}
 }
 

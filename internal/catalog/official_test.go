@@ -56,6 +56,19 @@ func TestOfficialSuggestionsReturnFallbacksForNilOrEmptySnapshot(t *testing.T) {
 	}
 }
 
+func TestIsOfficialProviderID(t *testing.T) {
+	for _, providerID := range []string{"openai", "anthropic", "google"} {
+		if !IsOfficialProviderID(providerID) {
+			t.Fatalf("IsOfficialProviderID(%q) = false, want true", providerID)
+		}
+	}
+	for _, providerID := range []string{"", "OpenAI", "private-company"} {
+		if IsOfficialProviderID(providerID) {
+			t.Fatalf("IsOfficialProviderID(%q) = true, want false", providerID)
+		}
+	}
+}
+
 func TestSearchProvidersExcludesOfficialSortsAndInfersConservatively(t *testing.T) {
 	snapshot := &Snapshot{Providers: map[string]Provider{
 		"openai":          {ID: "openai", Name: "OpenAI"},

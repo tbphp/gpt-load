@@ -629,6 +629,11 @@ func TestAutoMigrateCreatesRequestLogFieldsAndCompositeIndexes(t *testing.T) {
 			{name: "completed_at_ms", desc: 1},
 			{name: "id", desc: 1},
 		},
+		"idx_request_logs_upstream_model_completed_id": {
+			{name: "upstream_model"},
+			{name: "completed_at_ms", desc: 1},
+			{name: "id", desc: 1},
+		},
 	}
 	type indexedColumn struct {
 		Sequence int    `gorm:"column:seqno"`

@@ -156,6 +156,9 @@ func (s *Service) normalizeGroupCreate(
 	if err != nil {
 		return normalizedGroupCreate{}, app_errors.ErrValidation
 	}
+	if err := s.validateSelectableProviderID(providerID); err != nil {
+		return normalizedGroupCreate{}, err
+	}
 	if !request.Models.Set {
 		return normalizedGroupCreate{}, app_errors.ErrValidation
 	}

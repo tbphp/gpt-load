@@ -517,7 +517,54 @@ func TestProviderIDCanBeExplicitlyClearedWithoutURLInference(t *testing.T) {
 	}
 }
 
-func TestDeleteGroupRemovesCustomScopeAndRetainsProviderScope(t *testing.T) {
+func TestProviderChangeRequiresSelectableProviderButAllowsPersistedMissingProvider(t *testing.T) {
+	fixture := newServiceFixture(t)
+	legacyProviderID := "legacy-provider"
+	group := createPriceTestGroup(t, fixture.db, models.Group{
+		Name:        "legacy",
+		ProviderID:  &legacyProviderID,
+		UpstreamURL: "https://legacy.example/v1",
+		Protocols:   models.JSON(`["openai-completions"]`),
+		Models:      models.JSON(`[]`),
+		Config:      models.JSON(`{}`),
+		Enabled:     true,
+	})
+	if _, err := fixture.manager.Publish(mustBuildCompileInput(t, fixture.db)); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := fixture.service.UpdateGroupSettings(t.Context(), group.ID, GroupSettingsUpdateRequest{
+		Name: optionalField[string]{Set: true, Value: "legacy renamed"},
+	})
+	if err != nil {
+		t.Fatalf("UpdateGroupSettings(existing missing provider) error = %v", err)
+	}
+	if got.ProviderID == nil || *got.ProviderID != legacyProviderID {
+		t.Fatalf("persisted provider_id = %v, want %q", got.ProviderID, legacyProviderID)
+	}
+
+	unknownProviderID := "unknown-provider"
+	if _, err := fixture.service.UpdateGroupSettings(t.Context(), group.ID, GroupSettingsUpdateRequest{
+		ProviderID: optionalField[string]{Set: true, Value: unknownProviderID},
+	}); !errors.Is(err, app_errors.ErrValidation) {
+		t.Fatalf("UpdateGroupSettings(unknown provider) error = %v, want ErrValidation", err)
+	}
+
+	fixture.catalogRuntime.Publish(&catalog.Snapshot{Providers: map[string]catalog.Provider{
+		unknownProviderID: {ID: unknownProviderID},
+	}})
+	got, err = fixture.service.UpdateGroupSettings(t.Context(), group.ID, GroupSettingsUpdateRequest{
+		ProviderID: optionalField[string]{Set: true, Value: unknownProviderID},
+	})
+	if err != nil {
+		t.Fatalf("UpdateGroupSettings(catalog provider) error = %v", err)
+	}
+	if got.ProviderID == nil || *got.ProviderID != unknownProviderID {
+		t.Fatalf("updated provider_id = %v, want %q", got.ProviderID, unknownProviderID)
+	}
+}
+
+func TestDeleteGroupRemovesCustomScopeAndUnreferencedAutomaticProviderPrice(t *testing.T) {
 	fixture := newServiceFixture(t)
 	custom, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
 		UpstreamURL: "https://custom-delete.example/v1",
@@ -569,12 +616,64 @@ func TestDeleteGroupRemovesCustomScopeAndRetainsProviderScope(t *testing.T) {
 		Count(&providerRows).Error; err != nil {
 		t.Fatal(err)
 	}
-	if providerRows != 1 {
-		t.Fatalf("provider rows after delete = %d, want 1", providerRows)
+	if providerRows != 0 {
+		t.Fatalf("provider rows after delete = %d, want 0", providerRows)
 	}
 }
 
-func TestDeleteProviderGroupRemovesHistoricalCustomScopeAndRetainsProviderRows(t *testing.T) {
+func TestGroupMutationCleansUnreferencedAutomaticPricesWhileAutoSyncDisabled(t *testing.T) {
+	fixture := newServiceFixture(t)
+	disabled := false
+	fixture.service.modelsDevAutoSyncOverride = &disabled
+	providerID := "openai"
+	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
+		ProviderID:  &providerID,
+		UpstreamURL: "https://cleanup.example/v1",
+		Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
+		Models: optionalGroupModels{Set: true, Values: []GroupModel{
+			{ID: "automatic-model"},
+		}},
+		Keys: "sk-cleanup",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manualValue := int64(5)
+	if err := fixture.db.Create(&models.ModelPrice{
+		PriceScopeKey:                     "provider:openai",
+		ModelID:                           "manual-unreferenced",
+		InputPriceNanoUSDPerMillionTokens: &manualValue,
+		IsManual:                          true,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := fixture.service.UpdateGroupModels(t.Context(), created.GroupID, GroupModelsUpdateRequest{
+		Models: optionalGroupModels{Set: true, Values: []GroupModel{}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var automaticCount int64
+	if err := fixture.db.Model(&models.ModelPrice{}).
+		Where("price_scope_key = ? AND model_id = ?", "provider:openai", "automatic-model").
+		Count(&automaticCount).Error; err != nil {
+		t.Fatal(err)
+	}
+	if automaticCount != 0 {
+		t.Fatalf("unreferenced automatic rows = %d, want 0", automaticCount)
+	}
+	var manualCount int64
+	if err := fixture.db.Model(&models.ModelPrice{}).
+		Where("price_scope_key = ? AND model_id = ?", "provider:openai", "manual-unreferenced").
+		Count(&manualCount).Error; err != nil {
+		t.Fatal(err)
+	}
+	if manualCount != 1 {
+		t.Fatalf("unreferenced manual rows = %d, want 1", manualCount)
+	}
+}
+
+func TestDeleteProviderGroupRemovesHistoricalCustomScopeAndAutomaticProviderRows(t *testing.T) {
 	fixture := newServiceFixture(t)
 	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
 		UpstreamURL: "https://custom-then-provider.example/v1",
@@ -629,8 +728,8 @@ func TestDeleteProviderGroupRemovesHistoricalCustomScopeAndRetainsProviderRows(t
 		Count(&providerRows).Error; err != nil {
 		t.Fatal(err)
 	}
-	if providerRows != 3 {
-		t.Fatalf("provider rows after delete = %d, want 3 retained", providerRows)
+	if providerRows != 0 {
+		t.Fatalf("provider rows after delete = %d, want 0", providerRows)
 	}
 }
 
@@ -677,6 +776,35 @@ func TestEnsureInitialStateWithEmptyCatalogMaterializesPendingPrices(t *testing.
 	})
 	if !exists || priceTestPricesHaveValue(rule.Prices) {
 		t.Fatalf("startup pending rule = %#v, %t", rule, exists)
+	}
+}
+
+func TestEnsureInitialStateWithoutCatalogCleansUnreferencedAutomaticPrices(t *testing.T) {
+	fixture := newServiceFixture(t)
+	fixture.catalogRuntime = &catalog.Runtime{}
+	manualValue := int64(7)
+	for _, row := range []models.ModelPrice{
+		{PriceScopeKey: "provider:openai", ModelID: "automatic-orphan"},
+		{
+			PriceScopeKey: "provider:openai", ModelID: "manual-orphan",
+			InputPriceNanoUSDPerMillionTokens: &manualValue,
+			IsManual:                          true,
+		},
+	} {
+		if err := fixture.db.Create(&row).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := fixture.service.EnsureInitialState(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	var rows []models.ModelPrice
+	if err := fixture.db.Order("model_id").Find(&rows).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].ModelID != "manual-orphan" || !rows[0].IsManual {
+		t.Fatalf("startup price rows = %#v, want only manual orphan", rows)
 	}
 }
 

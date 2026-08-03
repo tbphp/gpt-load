@@ -16,6 +16,7 @@ import (
 
 	"gpt-load/internal/catalog"
 	"gpt-load/internal/platform/config"
+	"gpt-load/internal/pricing"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/storage/models"
 )
@@ -73,7 +74,7 @@ func TestProviderSuggestionsUseOfficialFallbacksMergeCatalogAndStayBounded(t *te
 	}
 }
 
-func TestProviderModelsAreStrictBoundedAndUsePersistedPricingStatus(t *testing.T) {
+func TestProviderModelsAreStrictBoundedAndUsePersistedOrCatalogCandidatePricingStatus(t *testing.T) {
 	fixture := newServiceFixture(t)
 	providerModels := make(map[string]catalog.Model)
 	for index := 0; index < providerModelResultLimit+5; index++ {
@@ -81,6 +82,10 @@ func TestProviderModelsAreStrictBoundedAndUsePersistedPricingStatus(t *testing.T
 		providerModels[id] = catalog.Model{ID: id, Name: "Model " + id}
 	}
 	providerModels["configured"] = catalog.Model{ID: "configured", Name: "Configured"}
+	providerModels["catalog-priced"] = catalog.Model{
+		ID: "catalog-priced", Name: "Catalog Priced",
+		Cost: &catalog.ModelCost{Prices: pricing.Prices{Input: priceTestValue(1)}},
+	}
 	providerModels["pending"] = catalog.Model{ID: "pending", Name: "Pending"}
 	fixture.catalogRuntime.Publish(&catalog.Snapshot{Providers: map[string]catalog.Provider{
 		"openai": {ID: "openai", Name: "OpenAI", Models: providerModels},
@@ -107,6 +112,13 @@ func TestProviderModelsAreStrictBoundedAndUsePersistedPricingStatus(t *testing.T
 	})
 	if err != nil || len(configured.Items) != 1 || configured.Items[0].PricingStatus != PricingStatusConfigured {
 		t.Fatalf("configured filter = %#v, %v", configured, err)
+	}
+	catalogConfigured, err := fixture.service.ListProviderModels(t.Context(), "openai", ProviderModelQuery{
+		Query: "catalog-priced", Status: PricingStatusConfigured,
+	})
+	if err != nil || len(catalogConfigured.Items) != 1 ||
+		catalogConfigured.Items[0].PricingStatus != PricingStatusConfigured {
+		t.Fatalf("catalog configured filter = %#v, %v", catalogConfigured, err)
 	}
 	pending, err := fixture.service.ListProviderModels(t.Context(), "openai", ProviderModelQuery{
 		Query: "pending", Status: PricingStatusPending,

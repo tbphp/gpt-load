@@ -44,22 +44,23 @@ type frozenAttemptPricing struct {
 }
 
 type requestRecorder struct {
-	sink            telemetry.RequestLogSink
-	requestID       string
-	startedAt       time.Time
-	accessKeyID     uint
-	protocol        protocol.Protocol
-	clientModel     string
-	usageApplicable bool
-	attempts        []telemetry.Attempt
-	attemptPricing  []frozenAttemptPricing
-	pendingPricing  frozenAttemptPricing
-	pricingPending  bool
-	outcome         requestOutcome
-	usage           telemetry.UsageObservation
-	now             func() time.Time
-	redactor        *redact.Redactor
-	emitted         bool
+	sink             telemetry.RequestLogSink
+	requestID        string
+	startedAt        time.Time
+	accessKeyID      uint
+	protocol         protocol.Protocol
+	clientModel      string
+	usageApplicable  bool
+	usageDiagnostics usage.Diagnostics
+	attempts         []telemetry.Attempt
+	attemptPricing   []frozenAttemptPricing
+	pendingPricing   frozenAttemptPricing
+	pricingPending   bool
+	outcome          requestOutcome
+	usage            telemetry.UsageObservation
+	now              func() time.Time
+	redactor         *redact.Redactor
+	emitted          bool
 
 	pendingRetry int
 }
@@ -134,6 +135,12 @@ func (recorder *requestRecorder) setClientModel(model string) {
 func (recorder *requestRecorder) setUsageApplicable(applicable bool) {
 	if recorder != nil {
 		recorder.usageApplicable = applicable
+	}
+}
+
+func (recorder *requestRecorder) setUsageDiagnostics(diagnostics usage.Diagnostics) {
+	if recorder != nil {
+		recorder.usageDiagnostics.Merge(diagnostics)
 	}
 }
 
@@ -381,6 +388,8 @@ func (recorder *requestRecorder) bindUsage(
 		result = usage.Result{State: usage.StateNotApplicable}
 	} else if !validCapturedUsage(result) {
 		result = usage.Result{State: usage.StateMissing}
+	} else {
+		result.Diagnostics.Merge(recorder.usageDiagnostics)
 	}
 	frozen := frozenAttemptPricing{}
 	if attemptIndex < len(recorder.attemptPricing) {

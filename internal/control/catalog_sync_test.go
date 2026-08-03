@@ -495,6 +495,47 @@ func TestCatalogSyncSchedulerDebouncesGroupChangeBursts(t *testing.T) {
 	}
 }
 
+func TestCatalogSyncSchedulerRunsImmediateSettingsTrigger(t *testing.T) {
+	fixture := newServiceFixture(t)
+	calls := make(chan struct{}, 2)
+	client := catalogSyncClientFunc(func(context.Context, catalog.Metadata) (catalog.SyncResult, error) {
+		calls <- struct{}{}
+		return catalog.SyncResult{
+			Metadata:    catalog.Metadata{CheckedAtMillis: 10, SuccessfulFetchAtMillis: 1},
+			NotModified: true,
+		}, nil
+	})
+	coordinator := newCatalogSyncCoordinator(fixture.service, client, "unused", catalog.Metadata{
+		CheckedAtMillis: 1, SuccessfulFetchAtMillis: 1,
+	}, true)
+	fixture.catalogRuntime.Publish(&catalog.Snapshot{Providers: map[string]catalog.Provider{}})
+	periodic := newFakeRuntimeTicker()
+	coordinator.newTicker = func(time.Duration) runtimeTicker { return periodic }
+
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan struct{})
+	go func() {
+		coordinator.Run(ctx)
+		close(done)
+	}()
+	awaitCatalogCall(t, calls)
+	waitForCatalogIdle(t, coordinator)
+
+	coordinator.RequestImmediateSync()
+	awaitCatalogCall(t, calls)
+	waitForCatalogIdle(t, coordinator)
+	if coordinator.last.Trigger != CatalogSyncSettings {
+		t.Fatalf("immediate trigger = %q, want %q", coordinator.last.Trigger, CatalogSyncSettings)
+	}
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("catalog scheduler did not stop")
+	}
+}
+
 func TestCatalogSyncSchedulerRetries304WithoutLKGAfterOneHour(t *testing.T) {
 	fixture := newServiceFixture(t)
 	calls := make(chan struct{}, 2)

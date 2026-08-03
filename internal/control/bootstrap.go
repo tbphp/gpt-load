@@ -66,10 +66,8 @@ func (s *Service) EnsureInitialState(ctx context.Context) error {
 		if err := reconcileReferencedPrices(tx, catalogSnapshot); err != nil {
 			return err
 		}
-		if catalogSnapshot != nil {
-			if err := cleanupUnreferencedAutomaticPrices(tx); err != nil {
-				return err
-			}
+		if err := cleanupUnreferencedAutomaticPrices(tx); err != nil {
+			return err
 		}
 		var err error
 		priceTable, err = loadPriceTable(ctx, tx)

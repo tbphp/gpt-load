@@ -6,10 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"strconv"
 	"testing"
 	"time"
 
+	"gpt-load/internal/catalog"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
@@ -176,6 +178,28 @@ func TestOperationBarrierBlocksNewMutationBehindOlderRecovery(t *testing.T) {
 	assertAPIErrorCode(t, err, app_errors.ErrControlRecoveryPending.Code)
 	if ordinaryMutations != 0 {
 		t.Fatalf("ordinary control mutation ran behind failed barrier %d times", ordinaryMutations)
+	}
+
+	beforeCatalog := fixture.catalogRuntime.Load()
+	err = fixture.service.applyCatalogSnapshot(t.Context(), &catalog.Snapshot{
+		Providers: map[string]catalog.Provider{},
+	})
+	assertAPIErrorCode(t, err, app_errors.ErrControlRecoveryPending.Code)
+	if afterCatalog := fixture.catalogRuntime.Load(); !reflect.DeepEqual(afterCatalog, beforeCatalog) {
+		t.Fatalf("catalog apply published behind recovery barrier: before=%#v after=%#v", beforeCatalog, afterCatalog)
+	}
+
+	fixture.service.reconcileRegistryGroup = func(uint, []state.KeyEntry) (bool, error) {
+		return true, nil
+	}
+	recoveredCatalog := &catalog.Snapshot{Providers: map[string]catalog.Provider{
+		"openai": {ID: "openai"},
+	}}
+	if err := fixture.service.applyCatalogSnapshot(t.Context(), recoveredCatalog); err != nil {
+		t.Fatalf("catalog apply after recovery error = %v", err)
+	}
+	if afterCatalog := fixture.catalogRuntime.Load(); !reflect.DeepEqual(afterCatalog, recoveredCatalog) {
+		t.Fatalf("catalog apply after recovery = %#v, want %#v", afterCatalog, recoveredCatalog)
 	}
 }
 

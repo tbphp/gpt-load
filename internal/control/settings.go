@@ -126,12 +126,19 @@ func (s *Service) UpdateSettings(
 		return SettingsResponse{}, app_errors.ErrValidation
 	}
 
-	_, err = s.writeConfig(ctx, func(tx *gorm.DB) error {
+	previousAutoSyncEnabled := false
+	snapshot, err := s.writeConfig(ctx, func(tx *gorm.DB) error {
+		previousAutoSyncEnabled = s.modelsDevAutoSyncEnabled()
 		return s.applySettingUpdates(tx, updates)
 	}, nil)
 	if err != nil {
 		return SettingsResponse{}, err
 	}
+	s.requestCatalogSyncOnEnable(
+		settingRequestContains(request, state.SettingModelsDevAutoSyncEnabled),
+		previousAutoSyncEnabled,
+		snapshot.Settings.ModelsDevAutoSyncEnabled,
+	)
 	return s.GetSettings(ctx)
 }
 
@@ -156,8 +163,10 @@ func (s *Service) UpdateSettingsIfMatch(
 	}
 
 	var (
-		input  state.CompileInput
-		result settingsWireRepresentation
+		input                   state.CompileInput
+		result                  settingsWireRepresentation
+		previousAutoSyncEnabled bool
+		updatedAutoSyncEnabled  bool
 	)
 	err = s.withControlTransaction(ctx, func(tx *gorm.DB) error {
 		currentInput, err := stateloader.BuildCompileInput(ctx, tx)
@@ -188,6 +197,7 @@ func (s *Service) UpdateSettingsIfMatch(
 				},
 			)
 		}
+		previousAutoSyncEnabled = currentSnapshot.Settings.ModelsDevAutoSyncEnabled
 
 		if err := s.applySettingUpdates(tx, updates); err != nil {
 			return err
@@ -200,6 +210,7 @@ func (s *Service) UpdateSettingsIfMatch(
 		if err != nil {
 			return err
 		}
+		updatedAutoSyncEnabled = compiled.Settings.ModelsDevAutoSyncEnabled
 		updatedSettings, err := s.getSettingsWithSnapshot(ctx, tx, compiled)
 		if err != nil {
 			return err
@@ -215,7 +226,18 @@ func (s *Service) UpdateSettingsIfMatch(
 			stagePublishCommittedSnapshot,
 		)
 	}
+	s.requestCatalogSyncOnEnable(
+		settingRequestContains(request, state.SettingModelsDevAutoSyncEnabled),
+		previousAutoSyncEnabled,
+		updatedAutoSyncEnabled,
+	)
 	return result, nil
+}
+
+func (s *Service) requestCatalogSyncOnEnable(requested, before, after bool) {
+	if requested && !before && after && s.catalogSync != nil {
+		s.catalogSync.RequestImmediateSync()
+	}
 }
 
 func (s *Service) applySettingUpdates(

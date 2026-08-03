@@ -334,6 +334,7 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 	}
 	recorder.setClientModel(model)
 	recorder.setUsageApplicable(metadata.ObserveUsage)
+	recorder.setUsageDiagnostics(metadata.UsageDiagnostics)
 
 	allowedKeyIDs := make(map[uint]struct{}, len(allowedKeyRefs))
 	for keyID := range allowedKeyRefs {

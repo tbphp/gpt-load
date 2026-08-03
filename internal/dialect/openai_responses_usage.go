@@ -135,6 +135,9 @@ func openAIResponsesUsagePatch(
 	if usageObject == nil {
 		return usage.Patch{Final: final, Diagnostics: diagnostics}, false
 	}
+	if openAIUnsupportedServiceTier(root) {
+		diagnostics.Add(usage.DiagnosticUnsupportedBillableDetail)
+	}
 
 	input, inputDiagnostics := usageInteger(
 		usageObject,
@@ -167,6 +170,20 @@ func openAIResponsesUsagePatch(
 			false,
 		)
 		diagnostics.Merge(detailDiagnostics)
+		diagnostics.Merge(usageUnsupportedPositiveIntegerDetails(details, "audio_tokens"))
+	} else {
+		diagnostics.Merge(detailDiagnostics)
+	}
+	if details, detailDiagnostics := usageOptionalObject(
+		usageObject,
+		"output_tokens_details",
+	); details != nil {
+		diagnostics.Merge(detailDiagnostics)
+		diagnostics.Merge(usageUnsupportedPositiveIntegerDetails(
+			details,
+			"reasoning_tokens",
+			"audio_tokens",
+		))
 	} else {
 		diagnostics.Merge(detailDiagnostics)
 	}

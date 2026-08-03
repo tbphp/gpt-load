@@ -12,6 +12,7 @@ import (
 	"gpt-load/internal/health"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
+	"gpt-load/internal/usage"
 )
 
 func TestOpenAIResponsesProtocolAndRequestMetadata(t *testing.T) {
@@ -231,6 +232,28 @@ func TestOpenAIResponsesProtocolAndRequestMetadata(t *testing.T) {
 				)
 			}
 		})
+	}
+}
+
+func TestOpenAIResponsesRequestMarksUnsupportedPricingModes(t *testing.T) {
+	t.Parallel()
+	selected := NewOpenAIResponses(http.DefaultClient)
+	for _, body := range []string{
+		`{"model":"gpt-5","service_tier":"priority"}`,
+		`{"model":"gpt-5","speed":"fast"}`,
+		`{"model":"gpt-5","reasoning":{"mode":"pro"}}`,
+	} {
+		metadata, err := selected.InspectRequest(&ParsedRequest{
+			Method: http.MethodPost,
+			Path:   "/v1/responses",
+			Body:   []byte(body),
+		})
+		if err != nil {
+			t.Fatalf("InspectRequest(%s) error = %v", body, err)
+		}
+		if !metadata.UsageDiagnostics.Has(usage.DiagnosticUnsupportedBillableDetail) {
+			t.Fatalf("InspectRequest(%s) diagnostics = %#v, want unsupported billable detail", body, metadata.UsageDiagnostics)
+		}
 	}
 }
 

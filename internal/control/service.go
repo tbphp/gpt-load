@@ -133,6 +133,9 @@ func (s *Service) writeGroupConfig(
 		if err := reconcileReferencedPrices(tx, catalogSnapshot); err != nil {
 			return err
 		}
+		if err := cleanupUnreferencedAutomaticPrices(tx); err != nil {
+			return err
+		}
 		input, err := stateloader.BuildCompileInput(ctx, tx)
 		if err != nil {
 			return err

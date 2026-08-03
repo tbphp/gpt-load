@@ -48,6 +48,24 @@ func TestOpenAIResponsesUsageNonStreaming(t *testing.T) {
 			state: usage.StateComplete,
 		},
 		{
+			name:  "reasoning and audio are unsupported billable details",
+			body:  `{"usage":{"input_tokens":100,"input_tokens_details":{"cached_tokens":20,"audio_tokens":10},"output_tokens":30,"output_tokens_details":{"reasoning_tokens":12,"audio_tokens":5},"total_tokens":130}}`,
+			want:  usage.Tokens{UncachedInput: 80, CacheRead: 20, Output: 30},
+			state: usage.StateComplete,
+			diagnostics: []usage.DiagnosticCode{
+				usage.DiagnosticUnsupportedBillableDetail,
+			},
+		},
+		{
+			name:  "effective priority service tier is unsupported",
+			body:  `{"service_tier":"priority","usage":{"input_tokens":100,"output_tokens":30,"total_tokens":130}}`,
+			want:  usage.Tokens{UncachedInput: 100, Output: 30},
+			state: usage.StateComplete,
+			diagnostics: []usage.DiagnosticCode{
+				usage.DiagnosticUnsupportedBillableDetail,
+			},
+		},
+		{
 			name:  "cached exceeds input",
 			body:  `{"usage":{"input_tokens":100,"input_tokens_details":{"cached_tokens":120},"output_tokens":30}}`,
 			want:  usage.Tokens{CacheRead: 120, Output: 30},

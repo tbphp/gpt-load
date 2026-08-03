@@ -80,6 +80,9 @@ func openAIUsagePatch(root map[string]json.RawMessage, final bool) (usage.Patch,
 	if usageObject == nil {
 		return usage.Patch{Diagnostics: diagnostics}, false
 	}
+	if openAIUnsupportedServiceTier(root) {
+		diagnostics.Add(usage.DiagnosticUnsupportedBillableDetail)
+	}
 
 	prompt, promptDiagnostics := usageInteger(usageObject, "prompt_tokens", true)
 	diagnostics.Merge(promptDiagnostics)
@@ -100,6 +103,17 @@ func openAIUsagePatch(root map[string]json.RawMessage, final bool) (usage.Patch,
 			cacheWriteUnknown = cacheWrite
 			diagnostics.Add(usage.DiagnosticUnsupportedBillableDetail)
 		}
+		diagnostics.Merge(usageUnsupportedPositiveIntegerDetails(details, "audio_tokens"))
+	} else {
+		diagnostics.Merge(detailDiagnostics)
+	}
+	if details, detailDiagnostics := usageOptionalObject(usageObject, "completion_tokens_details"); details != nil {
+		diagnostics.Merge(detailDiagnostics)
+		diagnostics.Merge(usageUnsupportedPositiveIntegerDetails(
+			details,
+			"reasoning_tokens",
+			"audio_tokens",
+		))
 	} else {
 		diagnostics.Merge(detailDiagnostics)
 	}

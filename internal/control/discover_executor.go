@@ -107,11 +107,16 @@ func (s *Service) mergeDiscoveredModels(
 	result := make([]ModelCandidate, 0, len(live)+len(providerModels))
 	seen := make(map[string]int, len(live)+len(providerModels))
 	for _, id := range live {
+		var catalogModel *catalog.Model
+		model, catalogMatch := providerModels[id]
+		if catalogMatch {
+			catalogModel = &model
+		}
 		candidate := ModelCandidate{
 			ID: id, Name: id, Sources: []string{"live"},
-			PricingStatus: resolvePricingStatus(rows[id]),
+			PricingStatus: resolveCandidatePricingStatus(rows[id], catalogModel),
 		}
-		if model, exists := providerModels[id]; exists {
+		if catalogMatch {
 			if name := strings.TrimSpace(model.Name); name != "" {
 				candidate.Name = name
 			}
@@ -131,7 +136,7 @@ func (s *Service) mergeDiscoveredModels(
 		}
 		catalogOnly = append(catalogOnly, ModelCandidate{
 			ID: id, Name: name, Sources: []string{"catalog"},
-			PricingStatus: resolvePricingStatus(rows[id]),
+			PricingStatus: resolveCandidatePricingStatus(rows[id], &model),
 		})
 	}
 	sort.Slice(catalogOnly, func(left, right int) bool {

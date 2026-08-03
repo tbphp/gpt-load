@@ -126,13 +126,14 @@ export default {
       },
     },
     reset: {
-      open: 'Restore automatic prices',
-      title: 'Restore automatic prices?',
-      description: 'Remove the manual prices for “{model}” and use catalog prices again',
-      close: 'Close automatic-price confirmation',
-      warning: 'The model returns to pending when the catalog has no matching price',
-      confirm: 'Restore automatic prices',
-      failed: 'Unable to restore automatic prices',
+      open: 'Reset prices',
+      title: 'Reset prices?',
+      description: 'Reset the manual price settings for “{model}”',
+      close: 'Close price reset confirmation',
+      warning:
+        'Automatic prices are restored when available; otherwise the model returns to pending',
+      confirm: 'Reset prices',
+      failed: 'Unable to reset prices',
     },
     delete: {
       open: 'Delete price entry',

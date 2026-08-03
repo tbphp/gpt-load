@@ -250,6 +250,9 @@ func (s *Service) UpdateGroupSettings(
 		}
 		if normalized.providerIDSet {
 			if !optionalStringsEqual(group.ProviderID, normalized.providerID) {
+				if err := s.validateSelectableProviderID(normalized.providerID); err != nil {
+					return err
+				}
 				var groupModels []GroupModel
 				if err := decodeGroupDiscoveryJSON(group.Models, &groupModels); err != nil {
 					return fmt.Errorf("decode group %d models: %w", groupID, app_errors.ErrInternalServer)

@@ -85,6 +85,18 @@ func mapProviderSuggestion(provider catalog.Provider, official bool) ProviderSug
 	}
 }
 
+func (s *Service) validateSelectableProviderID(providerID *string) error {
+	if providerID == nil || catalog.IsOfficialProviderID(*providerID) {
+		return nil
+	}
+	if s.catalogRuntime != nil {
+		if _, exists := s.catalogRuntime.LoadProvider(*providerID); exists {
+			return nil
+		}
+	}
+	return app_errors.ErrValidation
+}
+
 func (s *Service) ListProviderModels(
 	ctx context.Context,
 	providerID string,
@@ -120,7 +132,7 @@ func (s *Service) ListProviderModels(
 			continue
 		}
 		row := rows[model.ID]
-		status := resolvePricingStatus(row)
+		status := resolveCandidatePricingStatus(row, &model)
 		if query.Status != "" && query.Status != status {
 			continue
 		}

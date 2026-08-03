@@ -252,6 +252,8 @@ func schemaV4IndexStatements() []string {
 			ON request_logs(status, completed_at_ms DESC, id DESC)`,
 		`CREATE INDEX idx_request_logs_model_completed_id
 			ON request_logs(client_model, completed_at_ms DESC, id DESC)`,
+		`CREATE INDEX idx_request_logs_upstream_model_completed_id
+			ON request_logs(upstream_model, completed_at_ms DESC, id DESC)`,
 		`CREATE UNIQUE INDEX idx_usage_stats_bucket_access_group_model
 			ON usage_stats(bucket_start_ms, access_key_id, group_id, model)`,
 		`CREATE UNIQUE INDEX idx_model_prices_scope_model
