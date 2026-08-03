@@ -2,7 +2,7 @@ package httpheader
 
 import "testing"
 
-// This contract keeps representation metadata under gateway control.
+// Representation metadata stays under gateway control on every upstream request.
 func TestContentCodingHeadersAreReservedForUpstreamRequests(t *testing.T) {
 	for _, name := range []string{
 		"Accept-Encoding",
