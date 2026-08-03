@@ -17,8 +17,8 @@ import (
 	"github.com/klauspost/compress/zstd"
 
 	"gpt-load/internal/dialect"
-	platformhttp "gpt-load/internal/platform/httpclient"
 	"gpt-load/internal/platform/contentcoding"
+	platformhttp "gpt-load/internal/platform/httpclient"
 	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/state"
 )

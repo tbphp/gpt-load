@@ -83,7 +83,7 @@ func TestReadDecodedBodyRejectsMalformedEncodedData(t *testing.T) {
 			if _, err := ReadDecodedBody(strings.NewReader("not-valid-encoded-data"), []string{string(encoding)}, 1<<20, 1<<20); !errors.Is(err, ErrInvalidEncoding) {
 				t.Fatalf("ReadDecodedBody(%q) error = %v, want ErrInvalidEncoding", encoding, err)
 			}
-	})
+		})
 	}
 }
 
