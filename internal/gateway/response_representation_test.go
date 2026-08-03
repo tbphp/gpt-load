@@ -6,18 +6,18 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
-	"strings"
 	"testing"
 	"time"
 
 	"gpt-load/internal/dialect"
+	"gpt-load/internal/platform/contentcoding"
 	platformhttp "gpt-load/internal/platform/httpclient"
 	"gpt-load/internal/platform/redact"
-	"gpt-load/internal/platform/utils"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 	"gpt-load/internal/usage"
@@ -27,6 +27,347 @@ type successRepresentationEncoding struct {
 	name     string
 	encoding string
 	wire     []byte
+}
+
+func assertRepresentationValidatorsPreservedWithoutSignatures(t *testing.T, headers http.Header) {
+	t.Helper()
+	for name, want := range map[string]string{
+		"ETag":           `"wire-v1"`,
+		"Digest":         "sha-256=wire-digest",
+		"Content-MD5":    "d2lyZQ==",
+		"Content-Range":  "bytes 0-9/10",
+		"Content-Digest": "sha-256=:d2lyZQ==:",
+		"Repr-Digest":    "sha-256=:cmVwcg==:",
+	} {
+		if got := headers.Get(name); got != want {
+			t.Errorf("%s = %q, want preserved value %q", name, got, want)
+		}
+	}
+	if headers.Get("Signature") != "" || headers.Get("Signature-Input") != "" {
+		t.Errorf("stale signatures survived representation normalization: %#v", headers)
+	}
+}
+
+func TestPrepareSuccessRepresentationReturnsPlainIdentity(t *testing.T) {
+	plain := []byte(`{"id":"safe-response","usage":{"prompt_tokens":100,"completion_tokens":30}}`)
+	encodings := []contentcoding.Encoding{
+		contentcoding.Identity,
+		contentcoding.Gzip,
+		contentcoding.Brotli,
+		contentcoding.Deflate,
+		contentcoding.Zstd,
+	}
+	for _, encoding := range encodings {
+		t.Run(string(encoding), func(t *testing.T) {
+			result := forwardSuccessRepresentation(
+				t,
+				successRepresentationEncoding{
+					name:     string(encoding),
+					encoding: string(encoding),
+					wire:     encodeContentCodingForGatewayTest(t, encoding, plain),
+				},
+				"fake-provider-secret-plaintext-boundary",
+				nil,
+			)
+
+			if result.Err != nil || result.StatusCode != http.StatusOK {
+				t.Fatalf("Forward() result = %#v, want successful response", result)
+			}
+			if !bytes.Equal(result.Body, plain) {
+				t.Fatalf("downstream body = %x, want plaintext %x", result.Body, plain)
+			}
+			if values := headerFieldValues(result.Header, "Content-Encoding"); len(values) != 0 {
+				t.Fatalf("Content-Encoding values = %#v, want absent", values)
+			}
+			if got := result.Header.Get("Content-Length"); got != strconv.Itoa(len(plain)) {
+				t.Fatalf("Content-Length = %q, want %d", got, len(plain))
+			}
+		})
+	}
+}
+
+func TestPrepareSuccessRepresentationMetadataPolicy(t *testing.T) {
+	plain := []byte(`{"id":"safe-response"}`)
+
+	identity := forwardSuccessRepresentation(
+		t,
+		successRepresentationEncoding{
+			name:     "identity",
+			encoding: "identity",
+			wire:     bytes.Clone(plain),
+		},
+		"fake-provider-secret-metadata-identity",
+		nil,
+	)
+	if identity.Err != nil || !bytes.Equal(identity.Body, plain) {
+		t.Fatalf("identity Forward() result = %#v", identity)
+	}
+	assertRepresentationValidatorsPreservedWithoutSignatures(t, identity.Header)
+
+	gzipResult := forwardSuccessRepresentation(
+		t,
+		successRepresentationEncoding{
+			name:     "gzip",
+			encoding: "gzip",
+			wire:     encodeContentCodingForGatewayTest(t, contentcoding.Gzip, plain),
+		},
+		"fake-provider-secret-metadata-gzip",
+		nil,
+	)
+	if gzipResult.Err != nil || !bytes.Equal(gzipResult.Body, plain) {
+		t.Fatalf("gzip Forward() result = %#v", gzipResult)
+	}
+	assertRepresentationMetadata(t, gzipResult.Header, false)
+	if values := headerFieldValues(gzipResult.Header, "Content-Encoding"); len(values) != 0 {
+		t.Fatalf("Content-Encoding values = %#v, want absent", values)
+	}
+}
+
+func TestPrepareSuccessRepresentationRebuildsContentLengthAcrossHeaderCasings(t *testing.T) {
+	plain := []byte(`{"id":"safe-response"}`)
+	input := ForwardInput{
+		Dialect: dialect.NewOpenAI(http.DefaultClient),
+		Request: &dialect.ParsedRequest{Header: make(http.Header)},
+	}
+	headers := http.Header{
+		"Content-Encoding": {"identity"},
+		"Content-Length":   {"999"},
+		"content-length":   {"998"},
+	}
+
+	result, err := NewForwarder(
+		platformhttp.NewHTTPClientManager(),
+		redact.New(),
+	).prepareSuccessRepresentation(input, http.StatusOK, headers, plain, nil)
+	if err != nil {
+		t.Fatalf("prepareSuccessRepresentation() error = %v", err)
+	}
+	if values := headerFieldValues(result.headers, "Content-Length"); len(values) != 1 || values[0] != strconv.Itoa(len(plain)) {
+		t.Fatalf("Content-Length values = %#v, want exactly [%d]", values, len(plain))
+	}
+}
+
+func TestPrepareSuccessRepresentationDropsSignaturesAfterRepresentationHeaderNormalization(t *testing.T) {
+	plain := []byte(`{"id":"safe-response"}`)
+	headers := http.Header{
+		"Content-Encoding": {"identity"},
+		"Content-Length":   {strconv.Itoa(len(plain))},
+		"Signature":        {"sig1=:c2lnOg==:"},
+		"Signature-Input":  {`sig1=("content-encoding" "content-length");created=1`},
+	}
+	input := ForwardInput{
+		Dialect: dialect.NewOpenAI(http.DefaultClient),
+		Request: &dialect.ParsedRequest{Header: make(http.Header)},
+	}
+
+	result, err := NewForwarder(
+		platformhttp.NewHTTPClientManager(),
+		redact.New(),
+	).prepareSuccessRepresentation(input, http.StatusOK, headers, plain, nil)
+	if err != nil || result.changed || result.headers.Get("Signature") != "" || result.headers.Get("Signature-Input") != "" {
+		t.Fatalf("prepareSuccessRepresentation() = %#v, %v; want normalized representation without signatures", result, err)
+	}
+}
+
+func TestPrepareSuccessRepresentationRejectsPartialContentWithoutSafeContentRange(t *testing.T) {
+	plain := []byte(`{"id":"partial"}`)
+	input := ForwardInput{
+		Dialect:         dialect.NewOpenAI(http.DefaultClient),
+		ExternalModel:   "public-model",
+		UpstreamModelID: "provider-model",
+		Request:         &dialect.ParsedRequest{Header: make(http.Header)},
+	}
+	headers := http.Header{
+		"Content-Encoding": {"identity"},
+		"Content-Length":   {strconv.Itoa(len(plain))},
+		"Content-Range":    {"bytes provider-model/100"},
+	}
+
+	result, err := NewForwarder(
+		platformhttp.NewHTTPClientManager(),
+		redact.New(),
+	).prepareSuccessRepresentation(input, http.StatusPartialContent, headers, plain, nil)
+	if !errors.Is(err, ErrUpstreamProtocol) || result.headers != nil {
+		t.Fatalf("prepareSuccessRepresentation() = %#v, %v; want unsafe partial response rejection", result, err)
+	}
+}
+
+func TestPrepareSuccessRepresentationValidatesPartialContentRangeAgainstPlaintext(t *testing.T) {
+	plain := []byte("abc")
+	input := ForwardInput{
+		Dialect: dialect.NewOpenAI(http.DefaultClient),
+		Request: &dialect.ParsedRequest{Header: make(http.Header)},
+	}
+	tests := []struct {
+		name    string
+		headers http.Header
+		wantErr bool
+	}{
+		{
+			name: "matching decimal range",
+			headers: http.Header{
+				"Content-Length": {"3"},
+				"Content-Range":  {"bytes 10-12/100"},
+			},
+		},
+		{
+			name: "range length differs from plaintext",
+			headers: http.Header{
+				"Content-Length": {"3"},
+				"Content-Range":  {"bytes 10-13/100"},
+			},
+			wantErr: true,
+		},
+		{
+			name: "plus-prefixed range bound",
+			headers: http.Header{
+				"Content-Length": {"3"},
+				"Content-Range":  {"bytes +10-12/100"},
+			},
+			wantErr: true,
+		},
+		{
+			name: "plus-prefixed complete length",
+			headers: http.Header{
+				"Content-Length": {"3"},
+				"Content-Range":  {"bytes 10-12/+100"},
+			},
+			wantErr: true,
+		},
+		{
+			name: "case-colliding duplicate range",
+			headers: http.Header{
+				"Content-Length": {"3"},
+				"Content-Range":  {"bytes 10-12/100"},
+				"content-range":  {"bytes 10-12/100"},
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result, err := NewForwarder(
+				platformhttp.NewHTTPClientManager(),
+				redact.New(),
+			).prepareSuccessRepresentation(input, http.StatusPartialContent, test.headers, plain, nil)
+			if test.wantErr {
+				if !errors.Is(err, ErrUpstreamProtocol) || result.headers != nil {
+					t.Fatalf("prepareSuccessRepresentation() = %#v, %v; want protocol error", result, err)
+				}
+				return
+			}
+			if err != nil || !bytes.Equal(result.downstream, plain) ||
+				result.headers.Get("Content-Range") != "bytes 10-12/100" {
+				t.Fatalf("prepareSuccessRepresentation() = %#v, %v; want valid partial response", result, err)
+			}
+		})
+	}
+}
+
+func TestPrepareSuccessRepresentationRejectsChangedPartialContent(t *testing.T) {
+	const (
+		upstreamModel = "provider-model"
+		externalModel = "public-model"
+	)
+	plain := []byte(`{"model":"provider-model","id":"partial"}`)
+	forwardPartial := func(
+		t *testing.T,
+		encoding contentcoding.Encoding,
+		configure func(*ForwardInput),
+	) UpstreamResult {
+		t.Helper()
+		wire := encodeContentCodingForGatewayTest(t, encoding, plain)
+		upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+			writer.Header().Set("Content-Encoding", string(encoding))
+			writer.Header().Set("Content-Range", fmt.Sprintf("bytes 0-%d/100", len(plain)-1))
+			writer.WriteHeader(http.StatusPartialContent)
+			_, _ = writer.Write(wire)
+		}))
+		defer upstream.Close()
+
+		input := usageForwardInput(upstream.URL, dialect.NewOpenAI(http.DefaultClient))
+		input.Request.Body = []byte(`{"model":"public-model"}`)
+		if configure != nil {
+			configure(&input)
+		}
+		return NewForwarder(platformhttp.NewHTTPClientManager(), redact.New()).Forward(
+			context.Background(),
+			input,
+		)
+	}
+
+	t.Run("identity alias rewrite", func(t *testing.T) {
+		result := forwardPartial(t, contentcoding.Identity, func(input *ForwardInput) {
+			input.ExternalModel = externalModel
+			input.UpstreamModelID = upstreamModel
+		})
+		if !errors.Is(result.Err, ErrUpstreamProtocol) || result.StatusCode != 0 || len(result.Body) != 0 {
+			t.Fatalf("Forward() result = %#v, want changed 206 protocol error", result)
+		}
+	})
+
+	t.Run("compressed representation", func(t *testing.T) {
+		result := forwardPartial(t, contentcoding.Gzip, nil)
+		if !errors.Is(result.Err, ErrUpstreamProtocol) || result.StatusCode != 0 || len(result.Body) != 0 {
+			t.Fatalf("Forward() result = %#v, want decoded 206 protocol error", result)
+		}
+	})
+
+	t.Run("identity unchanged", func(t *testing.T) {
+		result := forwardPartial(t, contentcoding.Identity, nil)
+		if result.Err != nil || result.StatusCode != http.StatusPartialContent ||
+			!bytes.Equal(result.Body, plain) || result.Header.Get("Content-Range") != fmt.Sprintf("bytes 0-%d/100", len(plain)-1) ||
+			len(headerFieldValues(result.Header, "Content-Encoding")) != 0 {
+			t.Fatalf("Forward() result = %#v, want unchanged legal 206", result)
+		}
+	})
+}
+
+func TestPrepareSuccessRepresentationBoundsWireAndDecodedBodies(t *testing.T) {
+	forwarder := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New())
+	input := ForwardInput{
+		Dialect: dialect.NewOpenAI(http.DefaultClient),
+		Request: &dialect.ParsedRequest{Header: make(http.Header)},
+	}
+
+	caseCollidingHeaders := http.Header{
+		"Content-Encoding": {"identity"},
+		"content-encoding": {"gzip"},
+	}
+	result, err := forwarder.prepareSuccessRepresentation(
+		input,
+		http.StatusOK,
+		caseCollidingHeaders,
+		[]byte(`{"id":"safe-response"}`),
+		nil,
+	)
+	if !errors.Is(err, ErrUpstreamProtocol) || result.headers != nil {
+		t.Fatalf("case-colliding Content-Encoding result/error = %#v/%v, want protocol error", result, err)
+	}
+
+	overflow := gzipRepeatedByte(t, 'x', maxNonStreamingResponseBodyBytes+1)
+	result, err = forwarder.prepareSuccessRepresentation(
+		input,
+		http.StatusOK,
+		http.Header{"Content-Encoding": {"gzip"}},
+		overflow,
+		nil,
+	)
+	if !errors.Is(err, ErrUpstreamProtocol) || result.headers != nil {
+		t.Fatalf("decoded overflow result/error = %#v/%v, want protocol error", result, err)
+	}
+
+	result, err = forwarder.prepareSuccessRepresentation(
+		input,
+		http.StatusOK,
+		http.Header{"Content-Encoding": {"identity"}},
+		bytes.Repeat([]byte("w"), int(maxNonStreamingResponseBodyBytes)+1),
+		nil,
+	)
+	if !errors.Is(err, ErrUpstreamProtocol) || result.headers != nil {
+		t.Fatalf("wire overflow result/error = %#v/%v, want protocol error", result, err)
+	}
 }
 
 func gzipRepeatedByte(t *testing.T, value byte, count int64) []byte {
@@ -47,10 +388,11 @@ func successRepresentationEncodings(t *testing.T, plain []byte) []successReprese
 	encodings := []string{"", "identity", "gzip", "br", "deflate", "zstd"}
 	result := make([]successRepresentationEncoding, 0, len(encodings))
 	for _, encoding := range encodings {
-		wire, err := utils.CompressResponse(encoding, plain)
-		if err != nil {
-			t.Fatalf("CompressResponse(%q): %v", encoding, err)
+		fixtureEncoding := contentcoding.Identity
+		if encoding != "" {
+			fixtureEncoding = contentcoding.Encoding(encoding)
 		}
+		wire := encodeContentCodingForGatewayTest(t, fixtureEncoding, plain)
 		name := encoding
 		if name == "" {
 			name = "empty"
@@ -109,7 +451,7 @@ func forwardSuccessRepresentation(
 	)
 }
 
-func TestForwardSuccessRepresentationPreservesUnchangedWireAndMetadata(t *testing.T) {
+func TestForwardSuccessRepresentationReturnsPlaintextAndConditionalMetadata(t *testing.T) {
 	plain := []byte(`{"id":"safe-response","usage":{"prompt_tokens":100,"completion_tokens":30}}`)
 	for _, representation := range successRepresentationEncodings(t, plain) {
 		t.Run(representation.name, func(t *testing.T) {
@@ -123,21 +465,28 @@ func TestForwardSuccessRepresentationPreservesUnchangedWireAndMetadata(t *testin
 			if result.Err != nil || result.StatusCode != http.StatusOK || !result.RequestWritten {
 				t.Fatalf("Forward() result = %#v, want successful written response", result)
 			}
-			if !bytes.Equal(result.Body, representation.wire) {
-				t.Fatalf("wire changed without a plain-body change:\n got %x\nwant %x", result.Body, representation.wire)
+			if !bytes.Equal(result.Body, plain) {
+				t.Fatalf("downstream body = %x, want plaintext %x", result.Body, plain)
 			}
-			if result.Header.Get("Content-Encoding") != representation.encoding {
-				t.Fatalf("Content-Encoding = %q, want %q", result.Header.Get("Content-Encoding"), representation.encoding)
+			if values := headerFieldValues(result.Header, "Content-Encoding"); len(values) != 0 {
+				t.Fatalf("Content-Encoding values = %#v, want absent", values)
 			}
-			if result.Header.Get("Content-Length") != strconv.Itoa(len(representation.wire)) {
-				t.Fatalf("Content-Length = %q, want %d", result.Header.Get("Content-Length"), len(representation.wire))
+			if result.Header.Get("Content-Length") != strconv.Itoa(len(plain)) {
+				t.Fatalf("Content-Length = %q, want %d", result.Header.Get("Content-Length"), len(plain))
 			}
-			assertRepresentationMetadata(t, result.Header, true)
+			switch representation.encoding {
+			case "":
+				assertRepresentationMetadata(t, result.Header, true)
+			case "identity":
+				assertRepresentationValidatorsPreservedWithoutSignatures(t, result.Header)
+			default:
+				assertRepresentationMetadata(t, result.Header, false)
+			}
 		})
 	}
 }
 
-func TestPrepareSuccessRepresentationRejectsUnchangedCredentialMetadataCollision(t *testing.T) {
+func TestPrepareSuccessRepresentationSanitizesUnchangedCredentialMetadataCollision(t *testing.T) {
 	const credential = "fake-metadata-credential"
 	wire := []byte(`{"id":"safe-response"}`)
 	contentLength := strconv.Itoa(len(wire))
@@ -173,13 +522,25 @@ func TestPrepareSuccessRepresentationRejectsUnchangedCredentialMetadataCollision
 			result, err := NewForwarder(
 				platformhttp.NewHTTPClientManager(),
 				redact.New(),
-			).prepareSuccessRepresentation(input, headers, wire, []string{test.secret})
+			).prepareSuccessRepresentation(input, http.StatusOK, headers, wire, []string{test.secret})
 
-			if !errors.Is(err, ErrUpstreamProtocol) ||
-				result.wire != nil ||
-				result.headers != nil {
+			if test.name == "Content-Length" {
+				if !errors.Is(err, ErrUpstreamProtocol) ||
+					result.downstream != nil ||
+					result.headers != nil {
+					t.Fatalf(
+						"prepareSuccessRepresentation() = %#v, %v; want fail-closed regenerated length collision",
+						result,
+						err,
+					)
+				}
+				return
+			}
+			if err != nil || !bytes.Equal(result.downstream, wire) ||
+				len(headerFieldValues(result.headers, "Content-Encoding")) != 0 ||
+				result.headers.Get(test.name) != "" {
 				t.Fatalf(
-					"prepareSuccessRepresentation() = %#v, %v; want fail-closed protocol error",
+					"prepareSuccessRepresentation() = %#v, %v; want sanitized plaintext response",
 					result,
 					err,
 				)
@@ -200,11 +561,11 @@ func TestPrepareSuccessRepresentationRejectsUnchangedCredentialMetadataCollision
 	result, err := NewForwarder(
 		platformhttp.NewHTTPClientManager(),
 		redact.New(),
-	).prepareSuccessRepresentation(input, headers, wire, []string{credential})
+	).prepareSuccessRepresentation(input, http.StatusOK, headers, wire, []string{credential})
 	if err != nil ||
 		result.changed ||
-		!bytes.Equal(result.wire, wire) ||
-		result.headers.Get("Content-Encoding") != "identity" ||
+		!bytes.Equal(result.downstream, wire) ||
+		len(headerFieldValues(result.headers, "Content-Encoding")) != 0 ||
 		result.headers.Get("Content-Length") != contentLength {
 		t.Fatalf(
 			"non-collision representation = %#v, %v; want unchanged wire and framing",
@@ -212,16 +573,13 @@ func TestPrepareSuccessRepresentationRejectsUnchangedCredentialMetadataCollision
 			err,
 		)
 	}
-	assertRepresentationMetadata(t, result.headers, true)
+	assertRepresentationValidatorsPreservedWithoutSignatures(t, result.headers)
 }
 
 func TestPrepareSuccessRepresentationRebuildsChangedBodyDespiteStaleCredentialMetadata(t *testing.T) {
 	const credential = "fake-stale-metadata-credential"
 	plain := []byte(`{"echo":"fake-stale-metadata-credential"}`)
-	wire, err := utils.CompressResponse("gzip", plain)
-	if err != nil {
-		t.Fatalf("compress response fixture: %v", err)
-	}
+	wire := encodeContentCodingForGatewayTest(t, contentcoding.Gzip, plain)
 	headers := http.Header{
 		"Content-Encoding": {"gzip"},
 		"Content-Length":   {strconv.Itoa(len(wire))},
@@ -237,17 +595,17 @@ func TestPrepareSuccessRepresentationRebuildsChangedBodyDespiteStaleCredentialMe
 	result, err := NewForwarder(
 		platformhttp.NewHTTPClientManager(),
 		redact.New(),
-	).prepareSuccessRepresentation(input, headers, wire, []string{credential})
+	).prepareSuccessRepresentation(input, http.StatusOK, headers, wire, []string{credential})
 
 	if err != nil || !result.changed {
 		t.Fatalf("prepareSuccessRepresentation() = %#v, %v; want rebuilt response", result, err)
 	}
-	gotPlain, err := utils.DecompressResponse("gzip", result.wire)
-	if err != nil || string(gotPlain) != `{"echo":"[REDACTED]"}` {
-		t.Fatalf("rebuilt plain/error = %q/%v", gotPlain, err)
+	gotPlain := result.downstream
+	if string(gotPlain) != `{"echo":"[REDACTED]"}` {
+		t.Fatalf("rebuilt plain = %q", gotPlain)
 	}
-	if result.headers.Get("Content-Encoding") != "gzip" ||
-		result.headers.Get("Content-Length") != strconv.Itoa(len(result.wire)) {
+	if len(headerFieldValues(result.headers, "Content-Encoding")) != 0 ||
+		result.headers.Get("Content-Length") != strconv.Itoa(len(result.downstream)) {
 		t.Fatalf("rebuilt framing headers = %#v", result.headers)
 	}
 	assertRepresentationMetadata(t, result.headers, false)
@@ -280,12 +638,12 @@ func TestPrepareSuccessRepresentationRemovesAliasedModelFromUnchangedMetadata(t 
 	result, err := NewForwarder(
 		platformhttp.NewHTTPClientManager(),
 		redact.New(),
-	).prepareSuccessRepresentation(input, headers, wire, nil)
+	).prepareSuccessRepresentation(input, http.StatusOK, headers, wire, nil)
 
-	if err != nil || result.changed || !bytes.Equal(result.wire, wire) {
+	if err != nil || result.changed || !bytes.Equal(result.downstream, wire) {
 		t.Fatalf("prepareSuccessRepresentation() = %#v, %v; want unchanged wire", result, err)
 	}
-	if result.headers.Get("Content-Encoding") != "identity" ||
+	if len(headerFieldValues(result.headers, "Content-Encoding")) != 0 ||
 		result.headers.Get("Content-Length") != strconv.Itoa(len(wire)) ||
 		result.headers.Get("X-Safe") != "kept" {
 		t.Fatalf("unchanged safe headers = %#v", result.headers)
@@ -341,18 +699,15 @@ func TestForwardSuccessRepresentationRedactsAndRebuildsMetadata(t *testing.T) {
 				if result.Err != nil || result.StatusCode != http.StatusOK || !result.RequestWritten {
 					t.Fatalf("Forward() result = %#v, want successful rewritten response", result)
 				}
-				plain, err := utils.DecompressResponse(representation.encoding, result.Body)
-				if err != nil {
-					t.Fatalf("decompress downstream representation: %v", err)
-				}
+				plain := result.Body
 				if !bytes.Equal(plain, test.wantPlain) {
 					t.Fatalf("downstream plain = %q, want %q", plain, test.wantPlain)
 				}
 				if bytes.Contains(plain, []byte(apiKey)) {
 					t.Fatalf("downstream plain leaked credential: %q", plain)
 				}
-				if result.Header.Get("Content-Encoding") != representation.encoding {
-					t.Fatalf("Content-Encoding = %q, want %q", result.Header.Get("Content-Encoding"), representation.encoding)
+				if values := headerFieldValues(result.Header, "Content-Encoding"); len(values) != 0 {
+					t.Fatalf("Content-Encoding values = %#v, want absent", values)
 				}
 				if result.Header.Get("Content-Length") != strconv.Itoa(len(result.Body)) {
 					t.Fatalf("Content-Length = %q, want %d", result.Header.Get("Content-Length"), len(result.Body))
@@ -365,11 +720,6 @@ func TestForwardSuccessRepresentationRedactsAndRebuildsMetadata(t *testing.T) {
 
 func TestForwardSuccessRepresentationRejectsUnknownStackedMalformedAndPlainOverflow(t *testing.T) {
 	compressedOverflow := gzipRepeatedByte(t, 'a', maxNonStreamingResponseBodyBytes+1)
-	validGzip, err := utils.CompressResponse("gzip", []byte(`{"id":"safe-response"}`))
-	if err != nil {
-		t.Fatalf("compress credential collision fixture: %v", err)
-	}
-
 	tests := []struct {
 		name       string
 		apiKey     string
@@ -385,6 +735,10 @@ func TestForwardSuccessRepresentationRejectsUnknownStackedMalformedAndPlainOverf
 		{name: "malformed br", apiKey: "fake-provider-secret-br", encodings: []string{"br"}, wire: []byte{0xff, 0xff, 0xff}},
 		{name: "malformed deflate", apiKey: "fake-provider-secret-deflate", encodings: []string{"deflate"}, wire: []byte("not-a-deflate-stream")},
 		{name: "malformed zstd", apiKey: "fake-provider-secret-zstd", encodings: []string{"zstd"}, wire: []byte("not-a-zstd-stream")},
+		{name: "empty gzip", apiKey: "fake-provider-secret-empty-gzip", encodings: []string{"gzip"}},
+		{name: "empty br", apiKey: "fake-provider-secret-empty-br", encodings: []string{"br"}},
+		{name: "empty deflate", apiKey: "fake-provider-secret-empty-deflate", encodings: []string{"deflate"}},
+		{name: "empty zstd", apiKey: "fake-provider-secret-empty-zstd", encodings: []string{"zstd"}},
 		{
 			name:      "wire overflow",
 			apiKey:    "fake-provider-secret-wire-overflow",
@@ -398,12 +752,6 @@ func TestForwardSuccessRepresentationRejectsUnknownStackedMalformedAndPlainOverf
 			apiKey:    "fake-provider-secret-plain-overflow",
 			encodings: []string{"gzip"},
 			wire:      compressedOverflow,
-		},
-		{
-			name:      "Content-Encoding credential collision",
-			apiKey:    "gzip",
-			encodings: []string{"gzip"},
-			wire:      validGzip,
 		},
 		{
 			name:       "Content-Length credential collision",
@@ -445,6 +793,24 @@ func TestForwardSuccessRepresentationRejectsUnknownStackedMalformedAndPlainOverf
 				t.Fatalf("Forward() result = %#v, want fail-closed post-write protocol error", result)
 			}
 		})
+	}
+}
+
+func TestForwardSuccessRepresentationDropsContentEncodingCredentialCollision(t *testing.T) {
+	plain := []byte(`{"id":"safe-response"}`)
+	result := forwardSuccessRepresentation(
+		t,
+		successRepresentationEncoding{
+			name:     "gzip",
+			encoding: "gzip",
+			wire:     encodeContentCodingForGatewayTest(t, contentcoding.Gzip, plain),
+		},
+		"gzip",
+		nil,
+	)
+	if result.Err != nil || !bytes.Equal(result.Body, plain) ||
+		len(headerFieldValues(result.Header, "Content-Encoding")) != 0 {
+		t.Fatalf("Forward() result = %#v, want plaintext with coding header removed", result)
 	}
 }
 
@@ -627,10 +993,7 @@ func TestForwardSuccessRepresentationRejectsCredentialIntroducedByAliasRewrite(t
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			wire, err := utils.CompressResponse(test.encoding, []byte(providerBody))
-			if err != nil {
-				t.Fatalf("compress provider response: %v", err)
-			}
+			wire := encodeContentCodingForGatewayTest(t, contentcoding.Encoding(test.encoding), []byte(providerBody))
 			result := forwardSuccessRepresentation(
 				t,
 				successRepresentationEncoding{
@@ -676,10 +1039,7 @@ func TestForwardSuccessRepresentationExtractsUsageFromPlainBody(t *testing.T) {
 		`{"model":"provider-model","echo":"fake-provider-secret-usage",` +
 			`"usage":{"prompt_tokens":100,"completion_tokens":30,"prompt_tokens_details":{"cached_tokens":20}}}`,
 	)
-	wire, err := utils.CompressResponse("gzip", plain)
-	if err != nil {
-		t.Fatalf("compress usage fixture: %v", err)
-	}
+	wire := encodeContentCodingForGatewayTest(t, contentcoding.Gzip, plain)
 	var captured []byte
 	selected := usageExtractorDialect{
 		Dialect: dialect.NewOpenAI(http.DefaultClient),
@@ -726,10 +1086,7 @@ func TestForwardSuccessRepresentationExtractsUsageFromPlainBody(t *testing.T) {
 		bytes.Contains(captured, []byte(externalModel)) {
 		t.Fatalf("usage extractor body = %q, want safe provider plain before alias rewrite", captured)
 	}
-	downstreamPlain, err := utils.DecompressResponse("gzip", result.Body)
-	if err != nil {
-		t.Fatalf("decompress downstream response: %v", err)
-	}
+	downstreamPlain := result.Body
 	if bytes.Contains(downstreamPlain, []byte(apiKey)) ||
 		!bytes.Contains(downstreamPlain, []byte(redact.Placeholder)) ||
 		!bytes.Contains(downstreamPlain, []byte(externalModel)) ||
@@ -737,7 +1094,7 @@ func TestForwardSuccessRepresentationExtractsUsageFromPlainBody(t *testing.T) {
 		t.Fatalf("downstream plain = %q", downstreamPlain)
 	}
 	if result.Header.Get("Content-Length") != strconv.Itoa(len(result.Body)) ||
-		!strings.EqualFold(result.Header.Get("Content-Encoding"), "gzip") {
+		len(headerFieldValues(result.Header, "Content-Encoding")) != 0 {
 		t.Fatalf("downstream representation headers = %#v", result.Header)
 	}
 	assertRepresentationMetadata(t, result.Header, false)

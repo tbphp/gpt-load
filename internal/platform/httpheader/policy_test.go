@@ -41,7 +41,8 @@ func TestCredentialAndForbiddenHeaderPolicy(t *testing.T) {
 			{name: "Proxy-Authorization", want: true},
 			{name: "pRoXy-Custom", want: true},
 			{name: "Authorization"},
-			{name: "Accept-Encoding"},
+			{name: "Accept-Encoding", want: true},
+			{name: "Content-Encoding", want: true},
 			{name: "Proxy"},
 			{name: ""},
 			{name: " "},
@@ -57,4 +58,41 @@ func TestCredentialAndForbiddenHeaderPolicy(t *testing.T) {
 			}
 		}
 	})
+}
+
+func TestIsForbiddenRequestRuleName(t *testing.T) {
+	tests := []struct {
+		name string
+		want bool
+	}{
+		{name: "Connection", want: true},
+		{name: "proxy-connection", want: true},
+		{name: "KEEP-ALIVE", want: true},
+		{name: "te", want: true},
+		{name: "Trailer", want: true},
+		{name: "transfer-encoding", want: true},
+		{name: "Upgrade", want: true},
+		{name: "cookie", want: true},
+		{name: "Cookie2", want: true},
+		{name: "Proxy-Authorization", want: true},
+		{name: "pRoXy-Custom", want: true},
+		{name: "Accept-Encoding", want: true},
+		{name: "aCcEpT-eNcOdInG", want: true},
+		{name: "Content-Encoding", want: true},
+		{name: "cOnTeNt-EnCoDiNg", want: true},
+		{name: "Authorization"},
+		{name: "Accept"},
+		{name: "Content-Type"},
+		{name: "Proxy"},
+		{name: ""},
+		{name: " "},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := IsForbiddenRequestRuleName(test.name); got != test.want {
+				t.Fatalf("IsForbiddenRequestRuleName(%q) = %t, want %t", test.name, got, test.want)
+			}
+		})
+	}
 }

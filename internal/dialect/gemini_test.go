@@ -251,21 +251,19 @@ func TestGeminiListModelsPaginatesPreservesInputsAndParsesNames(t *testing.T) {
 	}
 }
 
-func TestGeminiListModelsForcesIdentity(t *testing.T) {
+func TestGeminiListModelsIdentityRepresentation(t *testing.T) {
 	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
-		if got := request.Header.Values("Accept-Encoding"); len(got) != 1 || got[0] != "identity" {
-			t.Fatalf("Accept-Encoding = %#v, want one identity", got)
-		}
+		assertOutboundRequestRepresentation(t, request, 0, map[string]string{
+			"X-Goog-Api-Key": "override-secret",
+			"X-Business":     "preserved",
+		})
 		return geminiTestResponse(http.StatusOK, `{"models":[]}`), nil
 	})}
 	models, err := NewGemini(client).ListModels(
 		context.Background(),
 		"https://api.example.com",
 		"secret",
-		state.HeaderRules{
-			Set:    map[string]string{"Accept-Encoding": "gzip"},
-			Remove: []string{"Accept-Encoding"},
-		},
+		legacyRepresentationHeaderRules(map[string]string{"X-Goog-Api-Key": "override-${API_KEY}"}),
 	)
 	if err != nil || models == nil {
 		t.Fatalf("ListModels() = %#v, %v", models, err)

@@ -318,7 +318,7 @@ func parseHeaderRules(value any) (HeaderRules, error) {
 				return HeaderRules{}, fmt.Errorf("header_rules.set contains invalid header name %q", name)
 			}
 			canonicalName := textproto.CanonicalMIMEHeaderKey(name)
-			if httpheader.IsForbiddenRequestRuleSetName(canonicalName) {
+			if httpheader.IsForbiddenRequestRuleName(canonicalName) {
 				return HeaderRules{}, fmt.Errorf(
 					"header_rules.set cannot set forbidden header %q",
 					canonicalName,
@@ -368,6 +368,12 @@ func parseHeaderRules(value any) (HeaderRules, error) {
 				)
 			}
 			canonicalName := textproto.CanonicalMIMEHeaderKey(name)
+			if httpheader.IsForbiddenRequestRuleName(canonicalName) {
+				return HeaderRules{}, fmt.Errorf(
+					"header_rules.remove cannot remove forbidden header %q",
+					canonicalName,
+				)
+			}
 			identity := strings.ToLower(name)
 			if _, duplicate := seen[identity]; duplicate {
 				return HeaderRules{}, fmt.Errorf(

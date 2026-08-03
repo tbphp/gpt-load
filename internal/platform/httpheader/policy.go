@@ -13,7 +13,7 @@ var credentialNames = map[string]struct{}{
 	"x-goog-api-key":      {},
 }
 
-var forbiddenRequestRuleSetNames = map[string]struct{}{
+var forbiddenRequestRuleNames = map[string]struct{}{
 	"connection":        {},
 	"proxy-connection":  {},
 	"keep-alive":        {},
@@ -23,6 +23,8 @@ var forbiddenRequestRuleSetNames = map[string]struct{}{
 	"upgrade":           {},
 	"cookie":            {},
 	"cookie2":           {},
+	"accept-encoding":   {},
+	"content-encoding":  {},
 }
 
 func IsCredentialName(name string) bool {
@@ -34,7 +36,7 @@ func IsCredentialName(name string) bool {
 	return exists
 }
 
-func IsForbiddenRequestRuleSetName(name string) bool {
+func IsForbiddenRequestRuleName(name string) bool {
 	normalized := normalizeName(name)
 	if normalized == "" {
 		return false
@@ -42,8 +44,12 @@ func IsForbiddenRequestRuleSetName(name string) bool {
 	if strings.HasPrefix(normalized, "proxy-") {
 		return true
 	}
-	_, exists := forbiddenRequestRuleSetNames[normalized]
+	_, exists := forbiddenRequestRuleNames[normalized]
 	return exists
+}
+
+func IsForbiddenRequestRuleSetName(name string) bool {
+	return IsForbiddenRequestRuleName(name)
 }
 
 func normalizeName(name string) string {

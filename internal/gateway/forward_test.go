@@ -24,10 +24,10 @@ import (
 
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/health"
+	"gpt-load/internal/platform/contentcoding"
 	platformhttp "gpt-load/internal/platform/httpclient"
 	platformheader "gpt-load/internal/platform/httpheader"
 	"gpt-load/internal/platform/redact"
-	"gpt-load/internal/platform/utils"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 	"gpt-load/internal/usage"
@@ -183,7 +183,9 @@ func TestForwardRequestRulesCannotRestoreReservedHeaders(t *testing.T) {
 				debugHeaderGroup:      "restored-group",
 				debugHeaderKey:        "restored-key",
 				debugHeaderAttempts:   "restored-attempts",
-			}},
+				"Accept-Encoding":     "gzip",
+				"Content-Encoding":    "br",
+			}, Remove: []string{"Accept-Encoding", "Content-Encoding"}},
 		},
 		APIKey: apiKey,
 		Request: &dialect.ParsedRequest{
@@ -194,6 +196,8 @@ func TestForwardRequestRulesCannotRestoreReservedHeaders(t *testing.T) {
 				"X-Client-Hop":     {"client-hop"},
 				"Cookie":           {"client=fake"},
 				"Proxy-Client-Hop": {"proxy-client"},
+				"accept-encoding":  {"zstd"},
+				"content-encoding": {"gzip"},
 			},
 			Body: []byte(`{"model":"gpt-test"}`),
 		},
@@ -212,6 +216,9 @@ func TestForwardRequestRulesCannotRestoreReservedHeaders(t *testing.T) {
 	if got := request.Header.Get("Authorization"); got != "Token "+apiKey {
 		t.Fatalf("Authorization = %q, want configured credential", got)
 	}
+	if values := headerFieldValues(request.Header, "Accept-Encoding"); !reflect.DeepEqual(values, []string{"identity"}) {
+		t.Fatalf("Accept-Encoding values = %#v, want [identity]", values)
+	}
 	for _, name := range []string{
 		"Connection",
 		"X-Rule-Hop",
@@ -225,9 +232,194 @@ func TestForwardRequestRulesCannotRestoreReservedHeaders(t *testing.T) {
 		debugHeaderGroup,
 		debugHeaderKey,
 		debugHeaderAttempts,
+		"Content-Encoding",
 	} {
-		if values := request.Header.Values(name); values != nil {
+		if values := headerFieldValues(request.Header, name); values != nil {
 			t.Errorf("upstream request Header %s survived: %#v", name, values)
+		}
+	}
+}
+
+func TestForwardAllRequestsUseIdentityRepresentation(t *testing.T) {
+	tests := []struct {
+		name      string
+		stream    bool
+		configure func(*ForwardInput)
+		assert    func(*testing.T, []byte)
+	}{
+		{
+			name: "normal request",
+			assert: func(t *testing.T, body []byte) {
+				t.Helper()
+				if string(body) != `{"model":"public-model","stream":true}` {
+					t.Fatalf("upstream body = %s, want unchanged plaintext", body)
+				}
+			},
+		},
+		{
+			name: "alias rewrite",
+			configure: func(input *ForwardInput) {
+				input.ExternalModel = "public-model"
+				input.UpstreamModelID = "provider-model"
+			},
+			assert: func(t *testing.T, body []byte) {
+				t.Helper()
+				var payload map[string]any
+				if err := json.Unmarshal(body, &payload); err != nil || payload["model"] != "provider-model" {
+					t.Fatalf("upstream alias body = %s, error = %v", body, err)
+				}
+			},
+		},
+		{
+			name:   "stream usage injection",
+			stream: true,
+			configure: func(input *ForwardInput) {
+				input.Group.InjectUsageOptions = true
+			},
+			assert: func(t *testing.T, body []byte) {
+				t.Helper()
+				var payload map[string]any
+				if err := json.Unmarshal(body, &payload); err != nil {
+					t.Fatalf("decode upstream stream body: %v", err)
+				}
+				options, ok := payload["stream_options"].(map[string]any)
+				if !ok || options["include_usage"] != true {
+					t.Fatalf("upstream stream body = %s, want include_usage", body)
+				}
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			input := streamForwardInput("https://api.example.test")
+			input.Request.Header = http.Header{
+				"Accept-Encoding":  {"gzip"},
+				"accept-encoding":  {"br"},
+				"Content-Encoding": {"gzip"},
+				"content-encoding": {"zstd"},
+				"Content-Type":     {"application/json"},
+				"Accept":           {"application/json"},
+				"Idempotency-Key":  {"request-1"},
+			}
+			input.Request.Body = []byte(`{"model":"public-model","stream":true}`)
+			if test.configure != nil {
+				test.configure(&input)
+			}
+
+			request, _, replay, err := NewForwarder(
+				platformhttp.NewHTTPClientManager(),
+				redact.New(),
+			).newUpstreamRequest(t.Context(), input, test.stream)
+			if err != nil {
+				t.Fatalf("newUpstreamRequest() error = %v", err)
+			}
+			t.Cleanup(func() {
+				_ = request.Body.Close()
+				replay.release()
+			})
+			body, err := io.ReadAll(request.Body)
+			if err != nil {
+				t.Fatalf("read upstream request body: %v", err)
+			}
+			test.assert(t, body)
+			if values := headerFieldValues(request.Header, "Accept-Encoding"); !reflect.DeepEqual(values, []string{"identity"}) {
+				t.Fatalf("Accept-Encoding values = %#v, want [identity]", values)
+			}
+			if values := headerFieldValues(request.Header, "Content-Encoding"); values != nil {
+				t.Fatalf("Content-Encoding values = %#v, want absent", values)
+			}
+			if request.ContentLength != int64(len(body)) {
+				t.Fatalf("ContentLength = %d, want %d", request.ContentLength, len(body))
+			}
+			for name, want := range map[string]string{
+				"Content-Type":    "application/json",
+				"Accept":          "application/json",
+				"Idempotency-Key": "request-1",
+				"Authorization":   "Bearer sk-upstream-secret",
+			} {
+				if got := request.Header.Get(name); got != want {
+					t.Errorf("%s = %q, want %q", name, got, want)
+				}
+			}
+		})
+	}
+}
+
+func TestForwardNormalizesFinalRequestMetadata(t *testing.T) {
+	input := streamForwardInput("https://api.example.test")
+	input.Request.Header = http.Header{
+		"Content-Type":     {"application/json"},
+		"Accept":           {"application/json"},
+		"Idempotency-Key":  {"request-1"},
+		"Content-Length":   {"999"},
+		"content-length":   {"998"},
+		"Content-Encoding": {"gzip"},
+		"content-encoding": {"br"},
+		"ETag":             {`"client"`},
+		"Digest":           {"sha-256=client"},
+		"Content-MD5":      {"client-md5"},
+		"Content-Range":    {"bytes 0-1/2"},
+		"Content-Digest":   {"sha-256=:Y2xpZW50:"},
+		"Repr-Digest":      {"sha-256=:cmVwcg==:"},
+		"Signature":        {"client-signature"},
+		"Signature-Input":  {"client-signature-input"},
+		"accept-encoding":  {"gzip"},
+		"Accept-Encoding":  {"br"},
+	}
+	input.Group.HeaderRules = state.HeaderRules{Set: map[string]string{
+		"Authorization":    "Token ${API_KEY}",
+		"Digest":           "sha-256=rule",
+		"Signature":        "rule-signature",
+		"Content-Encoding": "zstd",
+		"Accept-Encoding":  "deflate",
+	}}
+
+	request, _, replay, err := NewForwarder(
+		platformhttp.NewHTTPClientManager(),
+		redact.New(),
+	).newUpstreamRequest(t.Context(), input, false)
+	if err != nil {
+		t.Fatalf("newUpstreamRequest() error = %v", err)
+	}
+	t.Cleanup(func() {
+		_ = request.Body.Close()
+		replay.release()
+	})
+	body, err := io.ReadAll(request.Body)
+	if err != nil {
+		t.Fatalf("read upstream body: %v", err)
+	}
+	if request.ContentLength != int64(len(body)) {
+		t.Fatalf("ContentLength = %d, want %d", request.ContentLength, len(body))
+	}
+	for _, name := range []string{
+		"Content-Length",
+		"Content-Encoding",
+		"ETag",
+		"Digest",
+		"Content-MD5",
+		"Content-Range",
+		"Content-Digest",
+		"Repr-Digest",
+		"Signature",
+		"Signature-Input",
+	} {
+		if values := headerFieldValues(request.Header, name); values != nil {
+			t.Errorf("%s values = %#v, want removed", name, values)
+		}
+	}
+	if values := headerFieldValues(request.Header, "Accept-Encoding"); !reflect.DeepEqual(values, []string{"identity"}) {
+		t.Fatalf("Accept-Encoding values = %#v, want [identity]", values)
+	}
+	for name, want := range map[string]string{
+		"Content-Type":    "application/json",
+		"Accept":          "application/json",
+		"Idempotency-Key": "request-1",
+		"Authorization":   "Token sk-upstream-secret",
+	} {
+		if got := request.Header.Get(name); got != want {
+			t.Errorf("%s = %q, want %q", name, got, want)
 		}
 	}
 }
@@ -352,8 +544,9 @@ func TestForwarderBoundsDecompressedErrorBodies(t *testing.T) {
 					t.Fatalf("size %d result = %#v", size, result)
 				}
 				if size == 1<<20 {
-					if !bytes.Equal(result.Body, wire) || !bytes.Equal(result.ClassificationBody, plain) ||
-						result.Header.Get("Content-Encoding") != encoding {
+					if !bytes.Equal(result.Body, plain) || !bytes.Equal(result.ClassificationBody, plain) ||
+						len(headerFieldValues(result.Header, "Content-Encoding")) != 0 ||
+						result.Header.Get("Content-Length") != strconv.Itoa(len(plain)) {
 						t.Fatalf("exact limit result body lengths = %d/%d, headers=%#v", len(result.Body), len(result.ClassificationBody), result.Header)
 					}
 				} else if string(result.Body) != redact.Placeholder ||
@@ -367,29 +560,27 @@ func TestForwarderBoundsDecompressedErrorBodies(t *testing.T) {
 
 func TestForwarderFailsClosedWhenRedactionExpandsErrorBeyondBounds(t *testing.T) {
 	tests := []struct {
-		name     string
-		encoding string
-		plain    []byte
+		name            string
+		encoding        string
+		plain           []byte
+		wantPlaceholder bool
 	}{
 		{
-			name:  "identity wire exceeds limit after redaction",
+			name:  "identity redaction remains within decoded limit",
 			plain: bytes.Repeat([]byte("a"), int(maxErrorResponseBodyBytes)),
 		},
 		{
-			name:     "gzip classification body exceeds limit after redaction",
-			encoding: "gzip",
-			plain:    bytes.Repeat([]byte("a"), int(maxDecompressedErrorBodyBytes)),
+			name:            "gzip classification body exceeds limit after redaction",
+			encoding:        "gzip",
+			plain:           bytes.Repeat([]byte("a"), int(maxDecompressedErrorBodyBytes)),
+			wantPlaceholder: true,
 		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			wire := test.plain
 			if test.encoding != "" {
-				var err error
-				wire, err = utils.CompressResponse(test.encoding, test.plain)
-				if err != nil {
-					t.Fatal(err)
-				}
+				wire = encodeContentCodingForGatewayTest(t, contentcoding.Encoding(test.encoding), test.plain)
 			}
 			upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 				if test.encoding != "" {
@@ -402,8 +593,6 @@ func TestForwarderFailsClosedWhenRedactionExpandsErrorBeyondBounds(t *testing.T)
 
 			result := testForward(t, upstream.URL, "a", time.Second)
 			if result.Err != nil || result.StatusCode != http.StatusUnauthorized ||
-				string(result.Body) != redact.Placeholder ||
-				string(result.ClassificationBody) != redact.Placeholder ||
 				result.Header.Get("Content-Encoding") != "" {
 				t.Fatalf(
 					"result status=%d body=%d classification=%d encoding=%q err=%v",
@@ -411,21 +600,27 @@ func TestForwarderFailsClosedWhenRedactionExpandsErrorBeyondBounds(t *testing.T)
 					result.Header.Get("Content-Encoding"), result.Err,
 				)
 			}
+			if test.wantPlaceholder {
+				if string(result.Body) != redact.Placeholder || string(result.ClassificationBody) != redact.Placeholder {
+					t.Fatalf("overflow result = %#v", result)
+				}
+				return
+			}
+			if len(result.Body) != len(result.ClassificationBody) || int64(len(result.Body)) > maxDecompressedErrorBodyBytes || bytes.Contains(result.Body, []byte("a")) {
+				t.Fatalf("safe identity result = %#v", result)
+			}
 		})
 	}
 }
 
-func TestPrepareErrorBodyFailsClosedForOversizedUnchangedWire(t *testing.T) {
+func TestPrepareErrorRepresentationFailsClosedForOversizedWire(t *testing.T) {
 	plain := make([]byte, 100<<10)
 	const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_."
 	random := mathrand.New(mathrand.NewSource(1))
 	for index := range plain {
 		plain[index] = alphabet[random.Intn(len(alphabet))]
 	}
-	gzipWire, err := utils.CompressResponse("gzip", plain)
-	if err != nil {
-		t.Fatal(err)
-	}
+	gzipWire := encodeContentCodingForGatewayTest(t, contentcoding.Gzip, plain)
 	if len(gzipWire) <= int(maxErrorResponseBodyBytes) {
 		t.Fatalf("gzip fixture length = %d, want oversized wire", len(gzipWire))
 	}
@@ -450,12 +645,14 @@ func TestPrepareErrorBodyFailsClosedForOversizedUnchangedWire(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			headers := test.headers.Clone()
-			wire, classification := forwarder.prepareErrorBody(headers, test.wire, ForwardInput{})
-			if string(wire) != redact.Placeholder || string(classification) != redact.Placeholder ||
-				headers.Get("Content-Encoding") != "" {
+			prepared := forwarder.prepareErrorRepresentation(ForwardInput{}, headers, test.wire, nil)
+			if string(prepared.downstream) != redact.Placeholder ||
+				string(prepared.classification) != redact.Placeholder ||
+				len(headerFieldValues(prepared.headers, "Content-Encoding")) != 0 ||
+				!reflect.DeepEqual(headers, test.headers) {
 				t.Fatalf(
-					"safe body lengths=%d/%d encoding=%q",
-					len(wire), len(classification), headers.Get("Content-Encoding"),
+					"safe representation = %#v, source headers = %#v",
+					prepared, headers,
 				)
 			}
 		})
@@ -465,11 +662,7 @@ func TestPrepareErrorBodyFailsClosedForOversizedUnchangedWire(t *testing.T) {
 func compressResponseWithBoundedZstdWindow(t *testing.T, encoding string, plain []byte) []byte {
 	t.Helper()
 	if encoding != "zstd" {
-		wire, err := utils.CompressResponse(encoding, plain)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return wire
+		return encodeContentCodingForGatewayTest(t, contentcoding.Encoding(encoding), plain)
 	}
 	encoder, err := zstd.NewWriter(
 		nil,
@@ -825,48 +1018,18 @@ func TestSanitizeForwardResponseHeadersRemovesCaseSensitiveModelFromRawContentTy
 	}
 }
 
-func TestNonIdentityEncodingContainsKeyHandlesNonCanonicalFieldNames(t *testing.T) {
-	for _, test := range []struct {
-		name    string
-		headers http.Header
-	}{
-		{
-			name: "lowercase encoding triggers success protocol failure",
-			headers: http.Header{
-				"content-encoding": {"gzip"},
-			},
-		},
-		{
-			name: "duplicate casing aggregates error response encodings",
-			headers: http.Header{
-				"Content-Encoding": {"identity"},
-				"cOnTeNt-EnCoDiNg": {"gzip"},
-			},
-		},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			if !nonIdentityEncodingContainsKey(test.headers, "gzip") {
-				t.Fatalf("nonIdentityEncodingContainsKey(%#v, gzip) = false", test.headers)
-			}
-		})
-	}
-}
-
-func TestForwarderFailsClosedWhenShortKeyMatchesContentEncoding(t *testing.T) {
+func TestForwarderDoesNotTreatShortKeyAsContentCodingFailure(t *testing.T) {
 	tests := []struct {
-		name    string
-		status  int
-		wantErr bool
+		name     string
+		status   int
+		wantBody string
 	}{
-		{name: "success", status: http.StatusOK, wantErr: true},
-		{name: "error", status: http.StatusUnauthorized},
+		{name: "success coding header is terminated", status: http.StatusOK, wantBody: `{"error":"safe"}`},
+		{name: "error coding header is terminated", status: http.StatusUnauthorized, wantBody: `{"error":"safe"}`},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			wire, err := utils.CompressResponse("gzip", []byte(`{"error":"safe"}`))
-			if err != nil {
-				t.Fatal(err)
-			}
+			wire := encodeContentCodingForGatewayTest(t, contentcoding.Gzip, []byte(`{"error":"safe"}`))
 			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.Header().Set("Content-Encoding", "gzip")
 				w.WriteHeader(test.status)
@@ -874,40 +1037,30 @@ func TestForwarderFailsClosedWhenShortKeyMatchesContentEncoding(t *testing.T) {
 			}))
 			defer upstream.Close()
 			result := testForward(t, upstream.URL, "gzip", time.Second)
-			if test.wantErr {
-				if !errors.Is(result.Err, ErrUpstreamProtocol) || !result.RequestWritten {
-					t.Fatalf("result = %#v", result)
-				}
-				return
-			}
 			if result.Err != nil || result.StatusCode != test.status ||
-				string(result.Body) != redact.Placeholder || result.Header.Get("Content-Encoding") != "" {
+				string(result.Body) != test.wantBody ||
+				len(headerFieldValues(result.Header, "Content-Encoding")) != 0 {
 				t.Fatalf("result = %#v", result)
 			}
 		})
 	}
 }
 
-func TestShortKeyErrorCollisionRemovesAllContentEncodingCasings(t *testing.T) {
+func TestErrorRepresentationRejectsAllContentEncodingCasings(t *testing.T) {
 	headers := http.Header{
 		"Content-Encoding": {"identity"},
 		"cOnTeNt-EnCoDiNg": {"gzip"},
 	}
-	if !nonIdentityEncodingContainsKey(headers, "identity") {
-		t.Fatalf("nonIdentityEncodingContainsKey(%#v, identity) = false", headers)
+	prepared := (&Forwarder{redactor: redact.New()}).prepareErrorRepresentation(
+		ForwardInput{}, headers, []byte("opaque"), nil,
+	)
+	if string(prepared.downstream) != redact.Placeholder ||
+		string(prepared.classification) != redact.Placeholder {
+		t.Fatalf("prepared = %#v", prepared)
 	}
-
-	result := UpstreamResult{StatusCode: http.StatusUnauthorized, RequestWritten: true}
-	result.Body, result.ClassificationBody = failClosedErrorBody(headers)
-	result.Header = sanitizeUpstreamResponseHeaders(headers, "identity")
-
-	if result.StatusCode != http.StatusUnauthorized || string(result.Body) != redact.Placeholder ||
-		string(result.ClassificationBody) != redact.Placeholder {
-		t.Fatalf("result = %#v", result)
-	}
-	for actualName := range result.Header {
+	for actualName := range prepared.headers {
 		if strings.EqualFold(actualName, "Content-Encoding") {
-			t.Fatalf("Content-Encoding survived as %q: %#v", actualName, result.Header[actualName])
+			t.Fatalf("Content-Encoding survived as %q: %#v", actualName, prepared.headers[actualName])
 		}
 	}
 }
@@ -2208,6 +2361,116 @@ func TestForwardStreamReturnsSafeBoundedNonSuccessResponse(t *testing.T) {
 	}
 }
 
+func TestForwardStreamBuffersCodedNonSuccessRepresentation(t *testing.T) {
+	plain := []byte(`{"error":{"code":"rate_limited"}}`)
+	for _, encoding := range []contentcoding.Encoding{
+		contentcoding.Identity,
+		contentcoding.Gzip,
+		contentcoding.Brotli,
+		contentcoding.Deflate,
+		contentcoding.Zstd,
+	} {
+		t.Run(string(encoding), func(t *testing.T) {
+			wire := encodeContentCodingForGatewayTest(t, encoding, plain)
+			upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				writer.Header().Set("Content-Encoding", string(encoding))
+				writer.WriteHeader(http.StatusUnauthorized)
+				_, _ = writer.Write(wire)
+			}))
+			defer upstream.Close()
+
+			downstream := newRecordingResponseWriter()
+			result := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New()).ForwardStream(
+				context.Background(), streamForwardInput(upstream.URL), downstream,
+			)
+			if result.Err != nil || result.Committed || result.StatusCode != http.StatusUnauthorized ||
+				!bytes.Equal(result.Body, plain) || !bytes.Equal(result.ClassificationBody, plain) ||
+				len(headerFieldValues(result.Header, "Content-Encoding")) != 0 ||
+				result.Header.Get("Content-Length") != strconv.Itoa(len(plain)) {
+				t.Fatalf("ForwardStream() result = %#v, want buffered plaintext error", result)
+			}
+			if downstream.status != 0 || downstream.body.Len() != 0 {
+				t.Fatalf("ForwardStream() wrote non-success response before Handler verdict: %d/%q", downstream.status, downstream.body.String())
+			}
+		})
+	}
+
+	t.Run("multiple content-encoding values fail closed", func(t *testing.T) {
+		upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+			writer.Header().Add("Content-Encoding", "identity")
+			writer.Header().Add("Content-Encoding", "gzip")
+			writer.WriteHeader(http.StatusBadGateway)
+			_, _ = writer.Write([]byte("opaque"))
+		}))
+		defer upstream.Close()
+
+		result := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New()).ForwardStream(
+			context.Background(), streamForwardInput(upstream.URL), newRecordingResponseWriter(),
+		)
+		if result.Err != nil || result.Committed || result.StatusCode != http.StatusBadGateway ||
+			string(result.Body) != redact.Placeholder || string(result.ClassificationBody) != redact.Placeholder ||
+			len(headerFieldValues(result.Header, "Content-Encoding")) != 0 {
+			t.Fatalf("ForwardStream() result = %#v, want fail-closed buffered error", result)
+		}
+	})
+}
+
+func TestForwardStreamContentCodingBoundary(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		values    []string
+		wantError bool
+	}{
+		{name: "absent"},
+		{name: "empty", values: []string{""}},
+		{name: "identity", values: []string{"IDENTITY"}},
+		{name: "gzip", values: []string{"gzip"}, wantError: true},
+		{name: "brotli", values: []string{"br"}, wantError: true},
+		{name: "deflate", values: []string{"deflate"}, wantError: true},
+		{name: "zstd", values: []string{"zstd"}, wantError: true},
+		{name: "stacked", values: []string{"gzip, br"}, wantError: true},
+		{name: "unknown", values: []string{"compress"}, wantError: true},
+		{name: "multiple", values: []string{"identity", "gzip"}, wantError: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				for _, value := range test.values {
+					writer.Header().Add("Content-Encoding", value)
+				}
+				writer.Header().Set("Content-Type", "text/event-stream")
+				_, _ = writer.Write([]byte("data: first\n\n"))
+			}))
+			defer upstream.Close()
+
+			downstream := newRecordingResponseWriter()
+			result := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New()).ForwardStream(
+				context.Background(), streamForwardInput(upstream.URL), downstream,
+			)
+			if test.wantError {
+				if !errors.Is(result.Err, ErrUpstreamProtocol) || result.Committed ||
+					downstream.status != 0 || downstream.body.Len() != 0 {
+					t.Fatalf("ForwardStream() result/downstream = %#v/%d/%q", result, downstream.status, downstream.body.String())
+				}
+				return
+			}
+			if result.Err != nil || !result.Committed || downstream.status != http.StatusOK ||
+				downstream.body.String() != "data: first\n\n" {
+				t.Fatalf("ForwardStream() result/downstream = %#v/%d/%q", result, downstream.status, downstream.body.String())
+			}
+		})
+	}
+
+	t.Run("case-colliding header map is rejected", func(t *testing.T) {
+		err := validateStreamContentEncoding(http.Header{
+			"Content-Encoding": {"identity"},
+			"content-encoding": {"identity"},
+		})
+		if !errors.Is(err, ErrUpstreamProtocol) {
+			t.Fatalf("validateStreamContentEncoding() error = %v, want upstream protocol error", err)
+		}
+	})
+}
+
 func TestForwardStreamTimesOutBeforeCompleteFirstEvent(t *testing.T) {
 	upstreamCanceled := make(chan struct{})
 	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -2398,6 +2661,16 @@ func TestStreamingClientConfigHasNoTotalTimeout(t *testing.T) {
 	if config.RequestTimeout != 0 {
 		t.Fatalf("stream RequestTimeout = %s, want 0", config.RequestTimeout)
 	}
+	if !config.DisableCompression {
+		t.Fatal("stream DisableCompression = false; transport must not implicitly decode while request normalization explicitly negotiates identity")
+	}
+}
+
+func TestNonStreamingClientConfigDisablesImplicitCompression(t *testing.T) {
+	config := nonStreamingClientConfig(state.TimeoutConfig{})
+	if !config.DisableCompression {
+		t.Fatal("non-stream DisableCompression = false; transport must not implicitly decode while request normalization explicitly negotiates identity")
+	}
 }
 
 func TestGatewayClientConfigsDisableRedirects(t *testing.T) {
@@ -2503,11 +2776,7 @@ func TestForwarderIsolatesAliasedModelFromNonStreamingErrors(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			wire := plain
 			if encoding != "" {
-				var err error
-				wire, err = utils.CompressResponse(encoding, plain)
-				if err != nil {
-					t.Fatalf("compress fixture: %v", err)
-				}
+				wire = encodeContentCodingForGatewayTest(t, contentcoding.Encoding(encoding), plain)
 			}
 			upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 				writer.Header().Set("Content-Type", "application/json")
@@ -2539,13 +2808,6 @@ func TestForwarderIsolatesAliasedModelFromNonStreamingErrors(t *testing.T) {
 				t.Fatalf("ClassificationBody = %q", result.ClassificationBody)
 			}
 			downstreamBody := result.Body
-			if encoding != "" {
-				var err error
-				downstreamBody, err = utils.DecompressResponse(encoding, result.Body)
-				if err != nil {
-					t.Fatalf("decompress downstream body: %v", err)
-				}
-			}
 			if bytes.Contains(downstreamBody, []byte(upstreamModel)) ||
 				!bytes.Contains(downstreamBody, []byte(externalModel)) ||
 				bytes.Contains(downstreamBody, []byte(secret)) ||
@@ -2553,7 +2815,7 @@ func TestForwarderIsolatesAliasedModelFromNonStreamingErrors(t *testing.T) {
 				t.Fatalf("downstream body = %q", downstreamBody)
 			}
 			if result.Header.Get("Content-Type") != "application/json" ||
-				result.Header.Get("Content-Encoding") != encoding ||
+				result.Header.Get("Content-Encoding") != "" ||
 				result.Header.Get("Content-Length") != strconv.Itoa(len(result.Body)) {
 				t.Fatalf("representation headers = %#v", result.Header)
 			}
@@ -2573,11 +2835,7 @@ func TestForwarderRewritesEscapedAliasedModelInJSONErrors(t *testing.T) {
 		wire := plain
 		if encoding != "" {
 			name = encoding
-			var err error
-			wire, err = utils.CompressResponse(encoding, plain)
-			if err != nil {
-				t.Fatalf("compress fixture: %v", err)
-			}
+			wire = encodeContentCodingForGatewayTest(t, contentcoding.Encoding(encoding), plain)
 		}
 		t.Run(name, func(t *testing.T) {
 			upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
@@ -2603,13 +2861,6 @@ func TestForwarderRewritesEscapedAliasedModelInJSONErrors(t *testing.T) {
 				t.Fatalf("ClassificationBody = %q, want original safe JSON %q", result.ClassificationBody, plain)
 			}
 			downstreamBody := result.Body
-			if encoding != "" {
-				var err error
-				downstreamBody, err = utils.DecompressResponse(encoding, result.Body)
-				if err != nil {
-					t.Fatalf("decompress downstream body: %v", err)
-				}
-			}
 			if !json.Valid(downstreamBody) {
 				t.Fatalf("downstream body is invalid JSON: %q", downstreamBody)
 			}
@@ -2640,11 +2891,7 @@ func TestForwarderRedactsEscapedAPIKeyInJSONErrors(t *testing.T) {
 		wire := plain
 		if encoding != "" {
 			name = encoding
-			var err error
-			wire, err = utils.CompressResponse(encoding, plain)
-			if err != nil {
-				t.Fatalf("compress fixture: %v", err)
-			}
+			wire = encodeContentCodingForGatewayTest(t, contentcoding.Encoding(encoding), plain)
 		}
 		t.Run(name, func(t *testing.T) {
 			upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
@@ -2666,13 +2913,6 @@ func TestForwarderRedactsEscapedAPIKeyInJSONErrors(t *testing.T) {
 				t.Fatalf("Forward() result = %#v", result)
 			}
 			downstreamBody := result.Body
-			if encoding != "" {
-				var err error
-				downstreamBody, err = utils.DecompressResponse(encoding, result.Body)
-				if err != nil {
-					t.Fatalf("decompress downstream body: %v", err)
-				}
-			}
 			for _, body := range [][]byte{downstreamBody, result.ClassificationBody} {
 				var decoded map[string]any
 				if err := json.Unmarshal(body, &decoded); err != nil {
@@ -2686,27 +2926,27 @@ func TestForwarderRedactsEscapedAPIKeyInJSONErrors(t *testing.T) {
 	}
 }
 
-func TestPrepareErrorBodyFailsClosedWhenEscapedAPIKeyRewriteCollides(t *testing.T) {
+func TestPrepareErrorRepresentationFailsClosedWhenEscapedAPIKeyRewriteCollides(t *testing.T) {
 	const secret = "secret/key"
 	plain := []byte(`{"secret\/key":"leak","[REDACTED]":"safe"}`)
 	forwarder := &Forwarder{redactor: redact.New()}
 	headers := http.Header{"Content-Type": {"application/json"}}
-	wire, classification := forwarder.prepareErrorBody(headers, plain, ForwardInput{APIKey: secret})
+	prepared := forwarder.prepareErrorRepresentation(ForwardInput{APIKey: secret}, headers, plain, []string{secret})
 
-	if string(wire) != redact.Placeholder || string(classification) != redact.Placeholder {
-		t.Fatalf("collision result wire=%q classification=%q", wire, classification)
+	if string(prepared.downstream) != redact.Placeholder || string(prepared.classification) != redact.Placeholder {
+		t.Fatalf("collision result = %#v", prepared)
 	}
 }
 
-func TestPrepareErrorBodyFailsClosedBeforeRawAPIKeyCollisionRedaction(t *testing.T) {
+func TestPrepareErrorRepresentationFailsClosedBeforeRawAPIKeyCollisionRedaction(t *testing.T) {
 	const secret = "secret"
 	plain := []byte(`{"secret":"leak","[REDACTED]":"safe"}`)
 	forwarder := &Forwarder{redactor: redact.New()}
 	headers := http.Header{"Content-Type": {"application/json"}}
-	wire, classification := forwarder.prepareErrorBody(headers, plain, ForwardInput{APIKey: secret})
+	prepared := forwarder.prepareErrorRepresentation(ForwardInput{APIKey: secret}, headers, plain, []string{secret})
 
-	if string(wire) != redact.Placeholder || string(classification) != redact.Placeholder {
-		t.Fatalf("collision result wire=%q classification=%q", wire, classification)
+	if string(prepared.downstream) != redact.Placeholder || string(prepared.classification) != redact.Placeholder {
+		t.Fatalf("collision result = %#v", prepared)
 	}
 }
 
@@ -2714,25 +2954,25 @@ func TestForwarderFailsClosedWhenJSONKeyRewriteCollides(t *testing.T) {
 	plain := []byte(`{"provider-model":"first","public-model":"second"}`)
 	forwarder := &Forwarder{redactor: redact.New()}
 	headers := http.Header{"Content-Type": {"application/json"}}
-	wire, classification := forwarder.prepareErrorBody(headers, plain, ForwardInput{
+	prepared := forwarder.prepareErrorRepresentation(ForwardInput{
 		ExternalModel: "public-model", UpstreamModelID: "provider-model",
-	})
+	}, headers, plain, nil)
 
-	if string(wire) != redact.Placeholder || !bytes.Equal(classification, plain) {
-		t.Fatalf("collision result wire=%q classification=%q", wire, classification)
+	if string(prepared.downstream) != redact.Placeholder || string(prepared.classification) != redact.Placeholder {
+		t.Fatalf("collision result = %#v", prepared)
 	}
 }
 
-func TestPrepareErrorBodyFailsClosedWhenModelExpansionExceedsLimit(t *testing.T) {
+func TestPrepareErrorRepresentationFailsClosedWhenModelExpansionExceedsLimit(t *testing.T) {
 	plain := bytes.Repeat([]byte("x"), 64<<10)
 	forwarder := &Forwarder{redactor: redact.New()}
 	headers := make(http.Header)
-	wire, classification := forwarder.prepareErrorBody(headers, plain, ForwardInput{
+	prepared := forwarder.prepareErrorRepresentation(ForwardInput{
 		ExternalModel: strings.Repeat("a", 32), UpstreamModelID: "x",
-	})
+	}, headers, plain, nil)
 
-	if string(wire) != redact.Placeholder || !bytes.Equal(classification, plain) {
-		t.Fatalf("expansion result wire=%q classification length=%d", wire, len(classification))
+	if string(prepared.downstream) != redact.Placeholder || string(prepared.classification) != redact.Placeholder {
+		t.Fatalf("expansion result = %#v", prepared)
 	}
 }
 
@@ -2803,13 +3043,10 @@ func TestForwarderPreservesErrorModelWithoutAlias(t *testing.T) {
 	}
 }
 
-func TestForwarderRedactsCompressedErrorAndPreservesEncoding(t *testing.T) {
+func TestForwarderRedactsCompressedErrorAsPlaintext(t *testing.T) {
 	const secret = "custom-upstream-secret"
 	plain := []byte(`{"error":{"api_key":"` + secret + `","code":"invalid_api_key"}}`)
-	encoded, err := utils.CompressResponse("gzip", plain)
-	if err != nil {
-		t.Fatalf("compress fixture: %v", err)
-	}
+	encoded := encodeContentCodingForGatewayTest(t, contentcoding.Gzip, plain)
 	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 		writer.Header().Set("Content-Encoding", "gzip")
 		setRepresentationMetadata(writer.Header())
@@ -2822,14 +3059,10 @@ func TestForwarderRedactsCompressedErrorAndPreservesEncoding(t *testing.T) {
 	if result.Err != nil || result.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("Forward() result = %#v", result)
 	}
-	if result.Header.Get("Content-Encoding") != "gzip" {
-		t.Fatalf("Content-Encoding = %q, want gzip", result.Header.Get("Content-Encoding"))
+	if result.Header.Get("Content-Encoding") != "" {
+		t.Fatalf("Content-Encoding = %q, want absent", result.Header.Get("Content-Encoding"))
 	}
-	decoded, err := utils.DecompressResponse("gzip", result.Body)
-	if err != nil {
-		t.Fatalf("decode forwarded body: %v", err)
-	}
-	for _, body := range [][]byte{decoded, result.ClassificationBody} {
+	for _, body := range [][]byte{result.Body, result.ClassificationBody} {
 		if bytes.Contains(body, []byte(secret)) || !bytes.Contains(body, []byte(redact.Placeholder)) {
 			t.Fatalf("safe body = %q, want placeholder and no secret", body)
 		}
@@ -2840,12 +3073,121 @@ func TestForwarderRedactsCompressedErrorAndPreservesEncoding(t *testing.T) {
 	assertRepresentationMetadata(t, result.Header, false)
 }
 
-func TestForwarderPreservesUnchangedCompressedErrorWireBytes(t *testing.T) {
+func TestForwarderErrorRepresentationsArePlain(t *testing.T) {
 	plain := []byte(`{"error":{"code":"rate_limited"}}`)
-	encoded, err := utils.CompressResponse("gzip", plain)
-	if err != nil {
-		t.Fatalf("compress fixture: %v", err)
+	for _, encoding := range []contentcoding.Encoding{
+		contentcoding.Identity,
+		contentcoding.Gzip,
+		contentcoding.Brotli,
+		contentcoding.Deflate,
+		contentcoding.Zstd,
+	} {
+		t.Run(string(encoding), func(t *testing.T) {
+			wire := encodeContentCodingForGatewayTest(t, encoding, plain)
+			upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				if encoding != contentcoding.Identity {
+					writer.Header().Set("Content-Encoding", string(encoding))
+				}
+				writer.WriteHeader(http.StatusTooManyRequests)
+				_, _ = writer.Write(wire)
+			}))
+			defer upstream.Close()
+
+			result := testForward(t, upstream.URL, "safe-upstream-key", time.Second)
+			if result.Err != nil || result.StatusCode != http.StatusTooManyRequests ||
+				!bytes.Equal(result.Body, plain) || !bytes.Equal(result.ClassificationBody, plain) ||
+				len(headerFieldValues(result.Header, "Content-Encoding")) != 0 ||
+				result.Header.Get("Content-Length") != strconv.Itoa(len(plain)) {
+				t.Fatalf("Forward() result = %#v, want plaintext error representation", result)
+			}
+		})
 	}
+}
+
+func TestForwarderErrorRepresentationMetadataPolicy(t *testing.T) {
+	plain := []byte(`{"error":"safe"}`)
+	for _, test := range []struct {
+		name             string
+		encoding         contentcoding.Encoding
+		wantMetadataKept bool
+	}{
+		{name: "unchanged identity", encoding: contentcoding.Identity, wantMetadataKept: true},
+		{name: "decoded gzip", encoding: contentcoding.Gzip, wantMetadataKept: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			wire := encodeContentCodingForGatewayTest(t, test.encoding, plain)
+			upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				writer.Header().Set("Content-Encoding", string(test.encoding))
+				setRepresentationMetadata(writer.Header())
+				writer.WriteHeader(http.StatusBadGateway)
+				_, _ = writer.Write(wire)
+			}))
+			defer upstream.Close()
+
+			result := testForward(t, upstream.URL, "safe-upstream-key", time.Second)
+			if result.Err != nil || !bytes.Equal(result.Body, plain) {
+				t.Fatalf("Forward() result = %#v", result)
+			}
+			if test.wantMetadataKept {
+				for name, want := range map[string]string{
+					"ETag":           `"wire-v1"`,
+					"Digest":         "sha-256=wire-digest",
+					"Content-MD5":    "d2lyZQ==",
+					"Content-Range":  "bytes 0-9/10",
+					"Content-Digest": "sha-256=:d2lyZQ==:",
+					"Repr-Digest":    "sha-256=:cmVwcg==:",
+				} {
+					if got := result.Header.Get(name); got != want {
+						t.Fatalf("%s = %q, want %q", name, got, want)
+					}
+				}
+				if result.Header.Get("Signature") != "" || result.Header.Get("Signature-Input") != "" {
+					t.Fatalf("normalized identity representation retained stale signatures: %#v", result.Header)
+				}
+			} else {
+				assertRepresentationMetadata(t, result.Header, false)
+			}
+		})
+	}
+}
+
+func TestForwarderErrorContentCodingFailsClosed(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		coding string
+		body   []byte
+		apiKey string
+	}{
+		{name: "unknown", coding: "unknown", body: []byte("opaque")},
+		{name: "stacked", coding: "gzip, br", body: []byte("opaque")},
+		{name: "corrupt gzip", coding: "gzip", body: []byte("not-gzip")},
+		{name: "short key no special bypass", coding: "gzip", body: encodeContentCodingForGatewayTest(t, contentcoding.Gzip, []byte(`{"error":"safe"}`)), apiKey: "gzip"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				writer.Header().Set("Content-Encoding", test.coding)
+				writer.WriteHeader(http.StatusUnauthorized)
+				_, _ = writer.Write(test.body)
+			}))
+			defer upstream.Close()
+
+			result := testForward(t, upstream.URL, test.apiKey, time.Second)
+			want := []byte(redact.Placeholder)
+			if test.name == "short key no special bypass" {
+				want = []byte(`{"error":"safe"}`)
+			}
+			if result.Err != nil || result.StatusCode != http.StatusUnauthorized ||
+				!bytes.Equal(result.Body, want) || !bytes.Equal(result.ClassificationBody, want) ||
+				len(headerFieldValues(result.Header, "Content-Encoding")) != 0 {
+				t.Fatalf("Forward() result = %#v, want safe error representation", result)
+			}
+		})
+	}
+}
+
+func TestForwarderReturnsUnchangedCompressedErrorAsPlaintext(t *testing.T) {
+	plain := []byte(`{"error":{"code":"rate_limited"}}`)
+	encoded := encodeContentCodingForGatewayTest(t, contentcoding.Gzip, plain)
 	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 		writer.Header().Set("Content-Encoding", "gzip")
 		setRepresentationMetadata(writer.Header())
@@ -2858,17 +3200,17 @@ func TestForwarderPreservesUnchangedCompressedErrorWireBytes(t *testing.T) {
 	if result.Err != nil || result.StatusCode != http.StatusTooManyRequests {
 		t.Fatalf("Forward() result = %#v", result)
 	}
-	if !bytes.Equal(result.Body, encoded) {
-		t.Fatalf("wire body changed without redaction: got %x want %x", result.Body, encoded)
+	if !bytes.Equal(result.Body, plain) {
+		t.Fatalf("downstream body = %q, want %q", result.Body, plain)
 	}
 	if !bytes.Equal(result.ClassificationBody, plain) {
 		t.Fatalf("ClassificationBody = %q, want %q", result.ClassificationBody, plain)
 	}
-	if result.Header.Get("Content-Encoding") != "gzip" ||
-		result.Header.Get("Content-Length") != strconv.Itoa(len(encoded)) {
-		t.Fatalf("compressed response headers = %#v", result.Header)
+	if len(headerFieldValues(result.Header, "Content-Encoding")) != 0 ||
+		result.Header.Get("Content-Length") != strconv.Itoa(len(plain)) {
+		t.Fatalf("plaintext response headers = %#v", result.Header)
 	}
-	assertRepresentationMetadata(t, result.Header, true)
+	assertRepresentationMetadata(t, result.Header, false)
 }
 
 func TestForwarderFailsClosedForUndecodableError(t *testing.T) {
@@ -2966,6 +3308,173 @@ func TestForwarderFailsClosedForGzipEmptyBody(t *testing.T) {
 	}
 }
 
+func TestForwarderBodylessResponseSemantics(t *testing.T) {
+	tests := []struct {
+		name              string
+		method            string
+		status            int
+		contentEncoding   string
+		contentLength     string
+		wantErr           bool
+		wantContentLength string
+	}{
+		{
+			name:              "head preserves oversized representation length without reading it",
+			method:            http.MethodHead,
+			status:            http.StatusOK,
+			contentEncoding:   "identity",
+			contentLength:     strconv.FormatInt(maxNonStreamingResponseBodyBytes+1, 10),
+			wantContentLength: strconv.FormatInt(maxNonStreamingResponseBodyBytes+1, 10),
+		},
+		{
+			name:            "not modified is bodyless",
+			method:          http.MethodGet,
+			status:          http.StatusNotModified,
+			contentEncoding: "identity",
+			contentLength:   "321",
+		},
+		{
+			name:            "no content removes length",
+			method:          http.MethodGet,
+			status:          http.StatusNoContent,
+			contentEncoding: "identity",
+			contentLength:   "321",
+		},
+		{
+			name:              "reset content keeps zero length only",
+			method:            http.MethodGet,
+			status:            http.StatusResetContent,
+			contentEncoding:   "identity",
+			contentLength:     "0",
+			wantContentLength: "0",
+		},
+		{
+			name:            "bodyless response rejects compressed encoding",
+			method:          http.MethodHead,
+			status:          http.StatusOK,
+			contentEncoding: "gzip",
+			wantErr:         true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				if request.Method != test.method {
+					t.Errorf("request method = %s, want %s", request.Method, test.method)
+				}
+				if test.contentEncoding != "" {
+					writer.Header().Set("Content-Encoding", test.contentEncoding)
+				}
+				if test.contentLength != "" {
+					writer.Header().Set("Content-Length", test.contentLength)
+				}
+				writer.Header().Set("ETag", `"safe"`)
+				writer.WriteHeader(test.status)
+				_, _ = writer.Write([]byte("must not be read"))
+			}))
+			defer upstream.Close()
+
+			input := streamForwardInput(upstream.URL)
+			input.ObserveUsage = false
+			input.Request.Method = test.method
+			result := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New()).Forward(
+				context.Background(), input,
+			)
+
+			if test.wantErr {
+				if !errors.Is(result.Err, ErrUpstreamProtocol) || !result.RequestWritten {
+					t.Fatalf("Forward() result = %#v, want written upstream protocol error", result)
+				}
+				return
+			}
+			if result.Err != nil || result.StatusCode != test.status || !result.RequestWritten || len(result.Body) != 0 || len(result.ClassificationBody) != 0 {
+				t.Fatalf("Forward() result = %#v, want bodyless response", result)
+			}
+			if values := headerFieldValues(result.Header, "Content-Encoding"); len(values) != 0 {
+				t.Fatalf("Content-Encoding values = %#v, want absent", values)
+			}
+			if got := result.Header.Get("Content-Length"); got != test.wantContentLength {
+				t.Fatalf("Content-Length = %q, want %q", got, test.wantContentLength)
+			}
+			if result.Header.Get("ETag") != `"safe"` {
+				t.Fatalf("ETag = %q, want safe validator preserved", result.Header.Get("ETag"))
+			}
+		})
+	}
+}
+
+func TestForwarderBodylessResponseInvalidatesSignaturesAfterHeaderNormalization(t *testing.T) {
+	tests := []struct {
+		name             string
+		method           string
+		status           int
+		contentEncoding  string
+		contentLength    string
+		credentialHeader bool
+	}{
+		{
+			name:            "head removes identity coding",
+			method:          http.MethodHead,
+			status:          http.StatusOK,
+			contentEncoding: "identity",
+			contentLength:   "12",
+		},
+		{
+			name:            "not modified removes identity coding",
+			method:          http.MethodGet,
+			status:          http.StatusNotModified,
+			contentEncoding: "identity",
+			contentLength:   "12",
+		},
+		{
+			name:          "reset content removes nonzero length",
+			method:        http.MethodGet,
+			status:        http.StatusResetContent,
+			contentLength: "12",
+		},
+		{
+			name:             "head sanitizes credential header",
+			method:           http.MethodHead,
+			status:           http.StatusOK,
+			contentLength:    "12",
+			credentialHeader: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				if test.contentEncoding != "" {
+					writer.Header().Set("Content-Encoding", test.contentEncoding)
+				}
+				if test.contentLength != "" {
+					writer.Header().Set("Content-Length", test.contentLength)
+				}
+				writer.Header().Set("Signature", "sig")
+				writer.Header().Set("Signature-Input", `sig1=("content-encoding" "content-length")`)
+				if test.credentialHeader {
+					writer.Header().Set("Authorization", "Bearer upstream-secret")
+				}
+				writer.WriteHeader(test.status)
+			}))
+			defer upstream.Close()
+
+			input := streamForwardInput(upstream.URL)
+			input.ObserveUsage = false
+			input.Request.Method = test.method
+			result := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New()).Forward(
+				context.Background(), input,
+			)
+			if result.Err != nil || result.StatusCode != test.status || !result.RequestWritten ||
+				len(headerFieldValues(result.Header, "Signature")) != 0 ||
+				len(headerFieldValues(result.Header, "Signature-Input")) != 0 {
+				t.Fatalf("Forward() result = %#v, want bodyless result without stale signatures", result)
+			}
+		})
+	}
+}
+
 func TestForwarderMarksConnectionFailureAsNotWritten(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	url := upstream.URL
@@ -2988,6 +3497,109 @@ func TestForwarderMarksTimeoutAfterRequestWrite(t *testing.T) {
 	if result.Err == nil || !result.RequestWritten || !isTimeoutError(result.Err) {
 		t.Fatalf("post-write timeout result = %#v", result)
 	}
+}
+
+func TestForwarderDecodesContentEncodingListedAsConnectionToken(t *testing.T) {
+	plain := []byte(`{"id":"safe"}`)
+	clients := platformhttp.NewHTTPClientManager()
+	input := ForwardInput{
+		Dialect: dialect.NewOpenAI(http.DefaultClient),
+		Group: state.GroupView{
+			ID: 1, UpstreamURL: "https://api.example.test",
+			Timeouts: state.TimeoutConfig{Connect: time.Second, FirstByte: time.Second, Request: time.Second},
+		},
+		APIKey: "sk-upstream-secret",
+		Request: &dialect.ParsedRequest{
+			Method: http.MethodPost,
+			Path:   "/v1/chat/completions",
+			Header: make(http.Header),
+			Body:   []byte(`{"model":"gpt-4o"}`),
+		},
+	}
+	clients.GetClient(nonStreamingClientConfig(input.Group.Timeouts)).Transport = forwarderRoundTripper(func(request *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header: http.Header{
+				"Connection":       {"Content-Encoding"},
+				"Content-Encoding": {"gzip"},
+			},
+			Body:    io.NopCloser(bytes.NewReader(encodeContentCodingForGatewayTest(t, contentcoding.Gzip, plain))),
+			Request: request,
+		}, nil
+	})
+
+	result := NewForwarder(clients, redact.New()).Forward(context.Background(), input)
+	if result.Err != nil || !bytes.Equal(result.Body, plain) || len(headerFieldValues(result.Header, "Content-Encoding")) != 0 {
+		t.Fatalf("Forward() result = %#v, want plaintext response without Content-Encoding", result)
+	}
+}
+
+func TestForwarderBodylessResponseInvalidatesSignaturesAfterConnectionTokenCleanup(t *testing.T) {
+	clients := platformhttp.NewHTTPClientManager()
+	input := streamForwardInput("https://api.example.test")
+	input.ObserveUsage = false
+	input.Request.Method = http.MethodHead
+	clients.GetClient(nonStreamingClientConfig(input.Group.Timeouts)).Transport = forwarderRoundTripper(func(request *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header: http.Header{
+				"Connection":      {"X-Signed"},
+				"X-Signed":        {"upstream-only"},
+				"Content-Length":  {"12"},
+				"Signature":       {"sig"},
+				"Signature-Input": {`sig1=("x-signed" "content-length")`},
+			},
+			Body:    io.NopCloser(strings.NewReader("")),
+			Request: request,
+		}, nil
+	})
+
+	result := NewForwarder(clients, redact.New()).Forward(context.Background(), input)
+	if result.Err != nil || result.StatusCode != http.StatusOK || !result.RequestWritten {
+		t.Fatalf("Forward() result = %#v, want bodyless forwarded response", result)
+	}
+	if len(headerFieldValues(result.Header, "X-Signed")) != 0 ||
+		len(headerFieldValues(result.Header, "Signature")) != 0 ||
+		len(headerFieldValues(result.Header, "Signature-Input")) != 0 {
+		t.Fatalf("bodyless response retained hop-by-hop cleanup or stale signatures: %#v", result.Header)
+	}
+	if result.Header.Get("Content-Length") != "12" {
+		t.Fatalf("Content-Length = %q, want preserved bodyless representation length", result.Header.Get("Content-Length"))
+	}
+}
+
+func TestForwardStreamRejectsContentEncodingListedAsConnectionToken(t *testing.T) {
+	plain := []byte("data: first\n\n")
+	wire := encodeContentCodingForGatewayTest(t, contentcoding.Gzip, plain)
+	clients := platformhttp.NewHTTPClientManager()
+	input := streamForwardInput("https://api.example.test")
+	clients.GetClient(streamingClientConfig(input.Group.Timeouts)).Transport = forwarderRoundTripper(func(request *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header: http.Header{
+				"Connection":       {"Content-Encoding"},
+				"Content-Encoding": {"gzip"},
+			},
+			Body:          io.NopCloser(bytes.NewReader(wire)),
+			ContentLength: int64(len(wire)),
+			Request:       request,
+		}, nil
+	})
+
+	downstream := newRecordingResponseWriter()
+	result := NewForwarder(clients, redact.New()).ForwardStream(context.Background(), input, downstream)
+	if !errors.Is(result.Err, ErrUpstreamProtocol) || result.Committed || result.RetryableBeforeCommit {
+		t.Fatalf("ForwardStream() result = %#v, want terminal pre-commit protocol error", result)
+	}
+	if downstream.status != 0 || downstream.body.Len() != 0 || downstream.flushes != 0 {
+		t.Fatalf("downstream was touched before protocol rejection: %#v", downstream)
+	}
+}
+
+type forwarderRoundTripper func(*http.Request) (*http.Response, error)
+
+func (roundTrip forwarderRoundTripper) RoundTrip(request *http.Request) (*http.Response, error) {
+	return roundTrip(request)
 }
 
 func testForward(t *testing.T, upstreamURL, apiKey string, timeout time.Duration) UpstreamResult {
@@ -3146,18 +3758,16 @@ func TestForwardStreamInjectsUsageAfterModelAliasRewrite(t *testing.T) {
 	}
 }
 
-func TestForwardStreamInvalidatesRequestRepresentationMetadataOnlyWhenBodyChanges(t *testing.T) {
+func TestForwardStreamNormalizesFinalRequestMetadata(t *testing.T) {
 	type capturedRequest struct {
 		body          []byte
 		headers       http.Header
 		contentLength int64
 	}
 	tests := []struct {
-		name                  string
-		configure             func(*ForwardInput)
-		wantBodyChanged       bool
-		wantMetadataPreserved bool
-		wantReadded           map[string]string
+		name            string
+		configure       func(*ForwardInput)
+		wantBodyChanged bool
 	}{
 		{
 			name: "usage injection invalidates stale metadata",
@@ -3167,11 +3777,10 @@ func TestForwardStreamInvalidatesRequestRepresentationMetadataOnlyWhenBodyChange
 			wantBodyChanged: true,
 		},
 		{
-			name:                  "disabled injection preserves metadata",
-			wantMetadataPreserved: true,
+			name: "disabled injection still removes stale metadata",
 		},
 		{
-			name: "failed injection preserves metadata when body is unchanged",
+			name: "failed injection still removes stale metadata when body is unchanged",
 			configure: func(input *ForwardInput) {
 				input.Group.InjectUsageOptions = true
 				input.Dialect = streamUsageInjectorDialect{
@@ -3181,7 +3790,6 @@ func TestForwardStreamInvalidatesRequestRepresentationMetadataOnlyWhenBodyChange
 					},
 				}
 			},
-			wantMetadataPreserved: true,
 		},
 		{
 			name: "model alias rewrite invalidates stale metadata",
@@ -3193,7 +3801,7 @@ func TestForwardStreamInvalidatesRequestRepresentationMetadataOnlyWhenBodyChange
 			wantBodyChanged: true,
 		},
 		{
-			name: "group header rules can add fresh metadata",
+			name: "group header rules cannot restore stale metadata",
 			configure: func(input *ForwardInput) {
 				input.Group.InjectUsageOptions = true
 				input.Group.HeaderRules = state.HeaderRules{Set: map[string]string{
@@ -3202,10 +3810,6 @@ func TestForwardStreamInvalidatesRequestRepresentationMetadataOnlyWhenBodyChange
 				}}
 			},
 			wantBodyChanged: true,
-			wantReadded: map[string]string{
-				"Digest":    "sha-256=group-digest",
-				"Signature": "group-signature",
-			},
 		},
 	}
 
@@ -3247,20 +3851,7 @@ func TestForwardStreamInvalidatesRequestRepresentationMetadataOnlyWhenBodyChange
 				t.Fatalf("ContentLength = %d, want %d", got.contentLength, len(got.body))
 			}
 
-			if len(test.wantReadded) == 0 {
-				assertRepresentationMetadata(t, got.headers, test.wantMetadataPreserved)
-				return
-			}
-			for name, value := range test.wantReadded {
-				if got.headers.Get(name) != value {
-					t.Errorf("%s = %q, want fresh Group HeaderRules value %q", name, got.headers.Get(name), value)
-				}
-			}
-			withoutReadded := got.headers.Clone()
-			for name := range test.wantReadded {
-				withoutReadded.Del(name)
-			}
-			assertRepresentationMetadata(t, withoutReadded, false)
+			assertRepresentationMetadata(t, got.headers, false)
 		})
 	}
 }
@@ -3383,11 +3974,20 @@ func TestInvalidateRewrittenBodyHeadersRemovesRepresentationMetadata(t *testing.
 	headers := make(http.Header)
 	headers.Set("Content-Length", "123")
 	setRepresentationMetadata(headers)
+	for _, name := range []string{
+		"content-length", "eTAG", "dIGEST", "content-md5", "content-range",
+		"content-digest", "repr-digest", "signature", "signature-input",
+	} {
+		headers[name] = []string{"case-colliding-stale-value"}
+	}
 
 	invalidateRewrittenBodyHeaders(headers)
 
-	if headers.Get("Content-Length") != "" {
-		t.Fatalf("Content-Length = %q, want removed", headers.Get("Content-Length"))
+	for actualName := range headers {
+		if isRepresentationMetadataHeader(actualName) &&
+			!strings.EqualFold(actualName, "Content-Encoding") {
+			t.Fatalf("stale metadata survived as %q: %#v", actualName, headers[actualName])
+		}
 	}
 	assertRepresentationMetadata(t, headers, false)
 }

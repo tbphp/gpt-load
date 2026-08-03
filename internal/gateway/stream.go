@@ -225,7 +225,7 @@ func commitStream(writer *streamWriteController, status int, headers http.Header
 	if writer == nil || writer.writer == nil {
 		return fmt.Errorf("downstream response writer is required")
 	}
-	for name, values := range cloneEndToEndHeaders(headers) {
+	for name, values := range normalizeStreamResponseHeaders(headers) {
 		for _, value := range values {
 			writer.writer.Header().Add(name, value)
 		}
@@ -258,6 +258,14 @@ func commitStream(writer *streamWriteController, status int, headers http.Header
 		}
 	}
 	return nil
+}
+
+func normalizeStreamResponseHeaders(headers http.Header) http.Header {
+	normalized := cloneEndToEndHeaders(headers)
+	for _, name := range representationMetadataHeaderNames {
+		deleteHeaderField(normalized, name)
+	}
+	return normalized
 }
 
 type streamWatchdogController interface {

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 
+	platformheader "gpt-load/internal/platform/httpheader"
 	"gpt-load/internal/state"
 )
 
@@ -48,7 +49,7 @@ func executeProbe(
 	}
 	request.Header.Set("Content-Type", "application/json")
 	ApplyCredential(dialect, request.Header, apiKey, rules)
-	request.Header.Set("Accept-Encoding", "identity")
+	platformheader.NormalizeUpstreamRequestRepresentation(request, int64(len(body)))
 
 	response, err := client.Do(request)
 	if err != nil {

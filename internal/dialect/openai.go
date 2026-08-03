@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"gpt-load/internal/health"
+	platformheader "gpt-load/internal/platform/httpheader"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 )
@@ -78,7 +79,7 @@ func (d *OpenAI) ListModels(
 		return nil, fmt.Errorf("create OpenAI model-list request: %w", err)
 	}
 	ApplyCredential(d, req.Header, apiKey, rules)
-	req.Header.Set("Accept-Encoding", "identity")
+	platformheader.NormalizeUpstreamRequestRepresentation(req, 0)
 
 	resp, err := d.client.Do(req)
 	if err != nil {

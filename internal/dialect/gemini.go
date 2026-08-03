@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"gpt-load/internal/health"
+	platformheader "gpt-load/internal/platform/httpheader"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 )
@@ -171,7 +172,7 @@ func (d *Gemini) listModelsPage(
 		return geminiModelPage{}, fmt.Errorf("create Gemini model-list request: %w", err)
 	}
 	ApplyCredential(d, request.Header, apiKey, rules)
-	request.Header.Set("Accept-Encoding", "identity")
+	platformheader.NormalizeUpstreamRequestRepresentation(request, 0)
 
 	response, err := d.client.Do(request)
 	if err != nil {

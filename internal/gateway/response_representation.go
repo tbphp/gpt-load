@@ -6,23 +6,33 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 
 	"gpt-load/internal/dialect"
+	"gpt-load/internal/platform/contentcoding"
 	"gpt-load/internal/platform/redact"
-	"gpt-load/internal/platform/utils"
 )
 
 type preparedSuccessRepresentation struct {
-	headers http.Header
-	wire    []byte
-	plain   []byte
-	changed bool
+	headers     http.Header
+	downstream  []byte
+	inspectable []byte
+	changed     bool
+}
+
+type preparedErrorRepresentation struct {
+	headers        http.Header
+	downstream     []byte
+	classification []byte
+	changed        bool
 }
 
 func (forwarder *Forwarder) prepareSuccessRepresentation(
 	input ForwardInput,
+	status int,
 	headers http.Header,
 	wire []byte,
 	secrets []string,
@@ -31,11 +41,13 @@ func (forwarder *Forwarder) prepareSuccessRepresentation(
 		return preparedSuccessRepresentation{}, successRepresentationProtocolError("wire body exceeds limit")
 	}
 
-	encoding, ok := inspectableSuccessBodyEncoding(headers, wire)
-	if !ok {
+	encoding, err := contentcoding.ParseContentEncoding(
+		headerFieldValues(headers, "Content-Encoding"),
+	)
+	if err != nil {
 		return preparedSuccessRepresentation{}, successRepresentationProtocolError("unsupported or malformed Content-Encoding")
 	}
-	originalPlain, err := utils.DecompressResponseLimited(
+	originalPlain, err := contentcoding.DecodeLimited(
 		encoding,
 		wire,
 		maxNonStreamingResponseBodyBytes,
@@ -79,52 +91,224 @@ func (forwarder *Forwarder) prepareSuccessRepresentation(
 		}
 	}
 
-	changed := !bytes.Equal(originalPlain, downstreamPlain)
+	changed := encoding != contentcoding.Identity ||
+		!bytes.Equal(originalPlain, downstreamPlain)
+	if status == http.StatusPartialContent && changed {
+		return preparedSuccessRepresentation{}, successRepresentationProtocolError("changed partial response")
+	}
+
 	preparedHeaders := headers.Clone()
 	if preparedHeaders == nil {
 		preparedHeaders = make(http.Header)
 	}
-	preparedWire := bytes.Clone(wire)
+	representationHeadersChanged := len(headerFieldValues(preparedHeaders, "Content-Encoding")) > 0 ||
+		!hasSingleHeaderFieldValue(
+			preparedHeaders,
+			"Content-Length",
+			strconv.Itoa(len(downstreamPlain)),
+		)
+	deleteHeaderField(preparedHeaders, "Content-Encoding")
 	if changed {
-		preparedWire, err = utils.CompressResponse(encoding, downstreamPlain)
-		if err != nil {
-			return preparedSuccessRepresentation{}, successRepresentationProtocolError("recompress response body")
-		}
-		if int64(len(preparedWire)) > maxNonStreamingResponseBodyBytes {
-			return preparedSuccessRepresentation{}, successRepresentationProtocolError("recompressed response body exceeds limit")
-		}
-		updateRewrittenBodyHeaders(preparedHeaders, len(preparedWire))
+		invalidateRewrittenBodyHeaders(preparedHeaders)
+	}
+	beforeSanitize := preparedHeaders.Clone()
+	preparedHeaders = sanitizeForwardResponseHeaders(preparedHeaders, input, secrets...)
+	representationHeadersChanged = representationHeadersChanged ||
+		!reflect.DeepEqual(beforeSanitize, preparedHeaders)
+	deleteHeaderField(preparedHeaders, "Content-Encoding")
+	deleteHeaderField(preparedHeaders, "Content-Length")
+	preparedHeaders.Set("Content-Length", strconv.Itoa(len(downstreamPlain)))
+	if representationHeadersChanged {
+		deleteHeaderField(preparedHeaders, "Signature")
+		deleteHeaderField(preparedHeaders, "Signature-Input")
 	}
 	if representationMetadataContainsSecrets(preparedHeaders, secrets) {
 		return preparedSuccessRepresentation{}, successRepresentationProtocolError("credential collision in rebuilt representation metadata")
 	}
-	preparedHeaders = sanitizeForwardResponseHeaders(preparedHeaders, input, secrets...)
+	if status == http.StatusPartialContent && !hasSafeContentRange(preparedHeaders, len(downstreamPlain)) {
+		return preparedSuccessRepresentation{}, successRepresentationProtocolError("partial response lacks safe Content-Range")
+	}
 
 	return preparedSuccessRepresentation{
-		headers: preparedHeaders,
-		wire:    preparedWire,
-		plain:   inspectablePlain,
-		changed: changed,
+		headers:     preparedHeaders,
+		downstream:  bytes.Clone(downstreamPlain),
+		inspectable: inspectablePlain,
+		changed:     changed,
 	}, nil
 }
 
-func inspectableSuccessBodyEncoding(headers http.Header, wire []byte) (string, bool) {
-	values := headers.Values("Content-Encoding")
-	if len(values) > 1 {
-		return "", false
+func (forwarder *Forwarder) prepareErrorRepresentation(
+	input ForwardInput,
+	headers http.Header,
+	wire []byte,
+	secrets []string,
+) preparedErrorRepresentation {
+	if int64(len(wire)) > maxErrorResponseBodyBytes {
+		return forwarder.failClosedErrorRepresentation(input, headers, secrets)
 	}
-	encoding := ""
-	if len(values) == 1 {
-		encoding = strings.ToLower(strings.TrimSpace(values[0]))
+
+	encoding, err := contentcoding.ParseContentEncoding(
+		headerFieldValues(headers, "Content-Encoding"),
+	)
+	if err != nil {
+		return forwarder.failClosedErrorRepresentation(input, headers, secrets)
 	}
-	switch encoding {
-	case "", "identity":
-		return encoding, true
-	case "gzip", "br", "deflate", "zstd":
-		return encoding, len(wire) > 0
-	default:
-		return "", false
+	originalPlain, err := contentcoding.DecodeLimited(
+		encoding,
+		wire,
+		maxDecompressedErrorBodyBytes,
+	)
+	if err != nil {
+		return forwarder.failClosedErrorRepresentation(input, headers, secrets)
 	}
+
+	patternSafePlain := forwarder.redactor.Bytes(originalPlain)
+	if int64(len(patternSafePlain)) > maxDecompressedErrorBodyBytes {
+		return forwarder.failClosedErrorRepresentation(input, headers, secrets)
+	}
+	safePlain, residualCredential, ok := redactCredentialLiterals(
+		patternSafePlain,
+		secrets,
+		maxDecompressedErrorBodyBytes,
+	)
+	if !ok || residualCredential {
+		return forwarder.failClosedErrorRepresentation(input, headers, secrets)
+	}
+
+	classificationPlain := bytes.Clone(safePlain)
+	downstreamPlain := safePlain
+	if needsModelRewrite(input) {
+		downstreamPlain, ok = rewriteBoundedLiteral(
+			safePlain,
+			input.UpstreamModelID,
+			input.ExternalModel,
+			maxDecompressedErrorBodyBytes,
+		)
+		if !ok || credentialLiteralsRemain(downstreamPlain, secrets) {
+			return forwarder.failClosedErrorRepresentation(input, headers, secrets)
+		}
+	}
+
+	changed := encoding != contentcoding.Identity ||
+		!bytes.Equal(originalPlain, downstreamPlain)
+	preparedHeaders := headers.Clone()
+	if preparedHeaders == nil {
+		preparedHeaders = make(http.Header)
+	}
+	representationHeadersChanged := len(headerFieldValues(preparedHeaders, "Content-Encoding")) > 0 ||
+		!hasSingleHeaderFieldValue(
+			preparedHeaders,
+			"Content-Length",
+			strconv.Itoa(len(downstreamPlain)),
+		)
+	deleteHeaderField(preparedHeaders, "Content-Encoding")
+	if changed {
+		invalidateRewrittenBodyHeaders(preparedHeaders)
+	}
+	beforeSanitize := preparedHeaders.Clone()
+	preparedHeaders = sanitizeForwardResponseHeaders(preparedHeaders, input, secrets...)
+	representationHeadersChanged = representationHeadersChanged ||
+		!reflect.DeepEqual(beforeSanitize, preparedHeaders)
+	deleteHeaderField(preparedHeaders, "Content-Encoding")
+	deleteHeaderField(preparedHeaders, "Content-Length")
+	preparedHeaders.Set("Content-Length", strconv.Itoa(len(downstreamPlain)))
+	if representationHeadersChanged {
+		deleteHeaderField(preparedHeaders, "Signature")
+		deleteHeaderField(preparedHeaders, "Signature-Input")
+	}
+	if representationMetadataContainsSecrets(preparedHeaders, secrets) {
+		return forwarder.failClosedErrorRepresentation(input, headers, secrets)
+	}
+
+	return preparedErrorRepresentation{
+		headers:        preparedHeaders,
+		downstream:     bytes.Clone(downstreamPlain),
+		classification: classificationPlain,
+		changed:        changed,
+	}
+}
+
+func (forwarder *Forwarder) failClosedErrorRepresentation(
+	input ForwardInput,
+	headers http.Header,
+	secrets []string,
+) preparedErrorRepresentation {
+	preparedHeaders := headers.Clone()
+	if preparedHeaders == nil {
+		preparedHeaders = make(http.Header)
+	}
+	deleteHeaderField(preparedHeaders, "Content-Encoding")
+	invalidateRewrittenBodyHeaders(preparedHeaders)
+	preparedHeaders = sanitizeForwardResponseHeaders(preparedHeaders, input, secrets...)
+	deleteHeaderField(preparedHeaders, "Content-Encoding")
+	invalidateRewrittenBodyHeaders(preparedHeaders)
+	body := []byte(redact.Placeholder)
+	preparedHeaders.Set("Content-Type", "text/plain; charset=utf-8")
+	preparedHeaders.Set("Content-Length", strconv.Itoa(len(body)))
+	return preparedErrorRepresentation{
+		headers:        preparedHeaders,
+		downstream:     bytes.Clone(body),
+		classification: bytes.Clone(body),
+		changed:        true,
+	}
+}
+
+func hasSingleHeaderFieldValue(headers http.Header, name, want string) bool {
+	values := headerFieldValues(headers, name)
+	return len(values) == 1 && values[0] == want
+}
+
+func hasSafeContentRange(headers http.Header, bodyLength int) bool {
+	if bodyLength <= 0 {
+		return false
+	}
+	values := headerFieldValues(headers, "Content-Range")
+	if len(values) != 1 {
+		return false
+	}
+	parts := strings.Fields(values[0])
+	if len(parts) != 2 || !strings.EqualFold(parts[0], "bytes") {
+		return false
+	}
+	rangeParts := strings.Split(parts[1], "/")
+	if len(rangeParts) != 2 {
+		return false
+	}
+	bounds := strings.Split(rangeParts[0], "-")
+	if len(bounds) != 2 {
+		return false
+	}
+	if !isDecimalContentRangeNumber(bounds[0]) || !isDecimalContentRangeNumber(bounds[1]) {
+		return false
+	}
+	start, startErr := strconv.ParseInt(bounds[0], 10, 64)
+	end, endErr := strconv.ParseInt(bounds[1], 10, 64)
+	if startErr != nil || endErr != nil || start < 0 || end < start {
+		return false
+	}
+	if end-start != int64(bodyLength)-1 {
+		return false
+	}
+	if rangeParts[1] == "*" {
+		return true
+	}
+	if !isDecimalContentRangeNumber(rangeParts[1]) {
+		return false
+	}
+	total, totalErr := strconv.ParseInt(rangeParts[1], 10, 64)
+	return totalErr == nil && total > end
+}
+
+func isDecimalContentRangeNumber(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, character := range value {
+		if character < '0' || character > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func representationMetadataContainsSecrets(headers http.Header, secrets []string) bool {

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -304,6 +305,41 @@ func TestCommitStreamWritesHeadersPrefixAndFlushes(t *testing.T) {
 	}
 	if writer.header.Get("Connection") != "" || writer.header.Get("X-Upstream-Hop") != "" {
 		t.Fatalf("hop-by-hop headers reached downstream: %#v", writer.header)
+	}
+}
+
+func TestCommitStreamStripsRepresentationMetadata(t *testing.T) {
+	writer := newRecordingResponseWriter()
+	headers := http.Header{
+		"Content-Type":     {"text/event-stream"},
+		"X-Upstream":       {"kept"},
+		"content-encoding": {"identity"},
+		"CONTENT-LENGTH":   {"123"},
+		"eTAG":             {`"stale"`},
+		"dIgEsT":           {"sha-256=stale"},
+		"content-md5":      {"stale"},
+		"Content-Range":    {"bytes 0-1/2"},
+		"content-digest":   {"sha-256=:stale:"},
+		"Repr-Digest":      {"sha-256=:stale:"},
+		"signature":        {"sig"},
+		"SIGNATURE-INPUT":  {"sig1=(\"content-length\")"},
+	}
+	original := headers.Clone()
+	controller := newStreamWriteController(writer, time.Second)
+
+	if err := commitStream(controller, http.StatusOK, headers, []byte("data: first\n\n")); err != nil {
+		t.Fatalf("commitStream() error = %v", err)
+	}
+	if !reflect.DeepEqual(headers, original) {
+		t.Fatalf("commitStream() mutated source headers: got %#v, want %#v", headers, original)
+	}
+	for _, name := range representationMetadataHeaderNames {
+		if values := headerFieldValues(writer.header, name); len(values) != 0 {
+			t.Fatalf("committed %s values = %#v, want absent", name, values)
+		}
+	}
+	if writer.header.Get("Content-Type") != "text/event-stream" || writer.header.Get("X-Upstream") != "kept" {
+		t.Fatalf("safe headers = %#v", writer.header)
 	}
 }
 

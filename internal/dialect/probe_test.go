@@ -80,14 +80,14 @@ func TestGeminiProbeSendsMinimalAuthenticatedRequest(t *testing.T) {
 	}
 }
 
-func TestProbeAppliesHeaderRulesAndForcesIdentity(t *testing.T) {
+func TestProbeIdentityRepresentationPreservesRulesAndCredential(t *testing.T) {
 	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
-		if got := request.Header.Get("X-Probe"); got != "prefix-secret" {
-			t.Errorf("X-Probe = %q, want expanded rule", got)
-		}
-		if got := request.Header.Values("Accept-Encoding"); len(got) != 1 || got[0] != "identity" {
-			t.Errorf("Accept-Encoding = %#v, want one identity", got)
-		}
+		assertProbeRequestRepresentation(t, request, map[string]string{
+			"Authorization": "Token secret",
+			"Content-Type":  "application/json",
+			"X-Business":    "preserved",
+			"X-Probe":       "prefix-secret",
+		})
 		return &http.Response{
 			StatusCode: http.StatusNoContent,
 			Body:       io.NopCloser(strings.NewReader("ignored")),
@@ -95,12 +95,11 @@ func TestProbeAppliesHeaderRulesAndForcesIdentity(t *testing.T) {
 		}, nil
 	})}
 
-	err := NewOpenAI(client).Probe(context.Background(), "https://api.example.com", "secret", state.HeaderRules{
-		Set: map[string]string{
-			"X-Probe":         "prefix-${API_KEY}",
-			"Accept-Encoding": "gzip",
-		},
-	}, "gpt-test")
+	rules := legacyRepresentationHeaderRules(map[string]string{
+		"Authorization": "Token ${API_KEY}",
+		"X-Probe":       "prefix-${API_KEY}",
+	})
+	err := NewOpenAI(client).Probe(context.Background(), "https://api.example.com", "secret", rules, "gpt-test")
 	if err != nil {
 		t.Fatalf("Probe() error = %v", err)
 	}

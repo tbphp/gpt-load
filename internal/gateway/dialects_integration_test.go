@@ -20,6 +20,7 @@ import (
 
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/health"
+	"gpt-load/internal/platform/contentcoding"
 	"gpt-load/internal/platform/encryption"
 	platformhttp "gpt-load/internal/platform/httpclient"
 	"gpt-load/internal/platform/redact"
@@ -135,6 +136,98 @@ func newDialectGatewayEngine(
 	engine := gin.New()
 	bindGatewayRoutesForTest(t, engine, handler)
 	return engine, registry
+}
+
+func TestGatewayDecodesSupportedClientContentCodings(t *testing.T) {
+	routes := []struct {
+		name      string
+		protocol  protocol.Protocol
+		dialects  dialect.Set
+		path      string
+		plaintext []byte
+	}{
+		{
+			name: "OpenAI completions", protocol: protocol.OpenAICompletions,
+			dialects: dialect.NewSet(dialect.NewOpenAI(http.DefaultClient)),
+			path:     "/v1/chat/completions", plaintext: []byte(`{"model":"public-model","stream":false}`),
+		},
+		{
+			name: "Anthropic messages", protocol: protocol.Anthropic,
+			dialects: dialect.NewSet(dialect.NewAnthropic(http.DefaultClient)),
+			path:     "/v1/messages", plaintext: []byte(`{"model":"public-model","max_tokens":1,"messages":[]}`),
+		},
+		{
+			name: "Gemini generation", protocol: protocol.Gemini,
+			dialects: dialect.NewSet(dialect.NewGemini(http.DefaultClient)),
+			path:     "/v1beta/models/public-model:generateContent", plaintext: []byte(`{"contents":[{"role":"user","parts":[{"text":"ping"}]}]}`),
+		},
+		{
+			name: "Responses create", protocol: protocol.OpenAIResponses,
+			dialects: dialect.NewSet(dialect.NewOpenAIResponses(http.DefaultClient)),
+			path:     "/v1/responses", plaintext: []byte(`{"model":"public-model","input":"ping"}`),
+		},
+	}
+	encodings := []contentcoding.Encoding{
+		contentcoding.Identity,
+		contentcoding.Gzip,
+		contentcoding.Brotli,
+		contentcoding.Deflate,
+		contentcoding.Zstd,
+	}
+
+	for _, route := range routes {
+		t.Run(route.name, func(t *testing.T) {
+			for _, encoding := range encodings {
+				t.Run(string(encoding), func(t *testing.T) {
+					var receivedBody []byte
+					var receivedHeader http.Header
+					upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+						receivedHeader = request.Header.Clone()
+						var err error
+						receivedBody, err = io.ReadAll(request.Body)
+						if err != nil {
+							t.Errorf("ReadAll(upstream body) error = %v", err)
+						}
+						writer.Header().Set("Content-Type", "application/json")
+						_, _ = writer.Write([]byte(`{"ok":true}`))
+					}))
+					defer upstream.Close()
+
+					engine, _ := newDialectGatewayEngine(
+						t,
+						route.protocol,
+						"public-model",
+						route.dialects,
+						dialectGatewayGroup{
+							id: 1, name: route.name, upstreamURL: upstream.URL,
+							apiKeys: []string{"sk-provider"},
+						},
+					)
+					request := httptest.NewRequest(
+						http.MethodPost,
+						route.path,
+						bytes.NewReader(encodeContentCodingForGatewayTest(t, encoding, route.plaintext)),
+					)
+					request.Header.Set("Authorization", "Bearer gl-client")
+					if encoding != contentcoding.Identity {
+						request.Header.Set("Content-Encoding", string(encoding))
+					}
+					recorder := httptest.NewRecorder()
+					engine.ServeHTTP(recorder, request)
+
+					if recorder.Code != http.StatusOK {
+						t.Fatalf("response = %d headers=%v body=%s", recorder.Code, recorder.Header(), recorder.Body.String())
+					}
+					if !bytes.Equal(receivedBody, route.plaintext) {
+						t.Fatalf("upstream body = %s, want plaintext %s", receivedBody, route.plaintext)
+					}
+					if got := receivedHeader.Get("Content-Encoding"); got != "" {
+						t.Fatalf("upstream Content-Encoding = %q, want absent", got)
+					}
+				})
+			}
+		})
+	}
 }
 
 func TestResponsesNamespaceRoutesOrdinaryMethodsAndRejectsDangerousMethodsLocally(t *testing.T) {
@@ -694,8 +787,8 @@ func TestTransparentModelRoutePreservesWire(t *testing.T) {
 	if recorder.Code != http.StatusOK || !bytes.Equal(recorder.Body.Bytes(), rawResponse) {
 		t.Fatalf("transparent response = %d %q, want %q", recorder.Code, recorder.Body.Bytes(), rawResponse)
 	}
-	if receivedHeader.Get("Accept-Encoding") != "gzip" {
-		t.Fatalf("upstream Accept-Encoding = %q, want HeaderRule gzip", receivedHeader.Get("Accept-Encoding"))
+	if receivedHeader.Get("Accept-Encoding") != "identity" {
+		t.Fatalf("upstream Accept-Encoding = %q, want final identity normalization", receivedHeader.Get("Accept-Encoding"))
 	}
 	assertRepresentationMetadata(t, recorder.Header(), true)
 }

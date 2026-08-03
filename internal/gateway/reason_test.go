@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 
@@ -19,6 +20,9 @@ func TestWriteReasonUsesStableDataPlaneEnvelope(t *testing.T) {
 		reasonUpstreamTimeout,
 		reasonUpstreamProtocol,
 		reasonRequestTooLarge,
+		reasonUnsupportedContentEncoding,
+		reasonInvalidContentEncoding,
+		reasonNotAcceptable,
 		reasonModelListTooLarge,
 		reasonAccessKeyRateLimited,
 	}
@@ -47,6 +51,43 @@ func TestWriteReasonUsesStableDataPlaneEnvelope(t *testing.T) {
 				t.Fatalf("response = %#v, want code/message and no data", got)
 			}
 		})
+	}
+}
+
+func TestContentCodingReasonsUseStableContract(t *testing.T) {
+	tests := []struct {
+		got  reason
+		want reason
+	}{
+		{
+			got: reasonUnsupportedContentEncoding,
+			want: reason{
+				Status:  http.StatusUnsupportedMediaType,
+				Code:    "unsupported_content_encoding",
+				Message: "Unsupported Content-Encoding.",
+			},
+		},
+		{
+			got: reasonInvalidContentEncoding,
+			want: reason{
+				Status:  http.StatusBadRequest,
+				Code:    "invalid_content_encoding",
+				Message: "Invalid encoded request body.",
+			},
+		},
+		{
+			got: reasonNotAcceptable,
+			want: reason{
+				Status:  http.StatusNotAcceptable,
+				Code:    "not_acceptable",
+				Message: "The gateway can only return an identity-encoded response.",
+			},
+		},
+	}
+	for _, test := range tests {
+		if test.got != test.want {
+			t.Errorf("reason %q = %#v, want %#v", test.want.Code, test.got, test.want)
+		}
 	}
 }
 

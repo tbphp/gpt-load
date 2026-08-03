@@ -2,7 +2,6 @@ package gateway
 
 import (
 	"bytes"
-	"net/http"
 	"reflect"
 	"sync"
 	"sync/atomic"
@@ -287,32 +286,6 @@ func (capture *streamUsageCapture) finalize() usage.Result {
 	}
 	capture.result = result
 	return capture.result
-}
-
-func (boundary *usageCaptureBoundary) extractNonStreaming(
-	selected dialect.Dialect,
-	headers http.Header,
-	wire []byte,
-) usage.Result {
-	_, ok := selected.(dialect.UsageExtractor)
-	if !ok {
-		return missingUsage(false)
-	}
-	encoding, ok := inspectableErrorBodyEncoding(headers, wire)
-	if !ok {
-		boundary.recordFailure("decompress", selected.Protocol())
-		return missingUsage(false)
-	}
-	body, err := utils.DecompressResponseLimited(
-		encoding,
-		wire,
-		maxNonStreamingResponseBodyBytes,
-	)
-	if err != nil {
-		boundary.recordFailure("decompress", selected.Protocol())
-		return missingUsage(false)
-	}
-	return boundary.extractNonStreamingPlain(selected, body)
 }
 
 func (boundary *usageCaptureBoundary) extractNonStreamingPlain(

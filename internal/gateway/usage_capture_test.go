@@ -22,9 +22,9 @@ import (
 
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/health"
+	"gpt-load/internal/platform/contentcoding"
 	platformhttp "gpt-load/internal/platform/httpclient"
 	"gpt-load/internal/platform/redact"
-	"gpt-load/internal/platform/utils"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 	"gpt-load/internal/usage"
@@ -881,10 +881,10 @@ func TestUsageCaptureBoundaryExtractsValidNonStreamingResult(t *testing.T) {
 		Tokens: usage.Tokens{UncachedInput: 80, CacheRead: 20, Output: 30},
 	}
 	boundary := newUsageCaptureBoundary()
-	got := boundary.extractNonStreaming(usageExtractorDialect{
+	got := boundary.extractNonStreamingPlain(usageExtractorDialect{
 		Dialect: dialect.NewOpenAI(http.DefaultClient),
 		extract: func([]byte) (usage.Result, error) { return want, nil },
-	}, make(http.Header), []byte(`{"provider":"body"}`))
+	}, []byte(`{"provider":"body"}`))
 
 	if got != want || boundary.failureTotal.Load() != 0 {
 		t.Fatalf("result/failures = %#v/%d, want %#v/0", got, boundary.failureTotal.Load(), want)
@@ -896,7 +896,7 @@ func TestUsageCaptureBoundaryMissingCapabilityIsQuietMissing(t *testing.T) {
 	var logs bytes.Buffer
 	boundary.logger = logrus.New()
 	boundary.logger.SetOutput(&logs)
-	got := boundary.extractNonStreaming(dialectWithoutUsage{Dialect: dialect.NewOpenAI(http.DefaultClient)}, make(http.Header), []byte(`{}`))
+	got := boundary.extractNonStreamingPlain(dialectWithoutUsage{Dialect: dialect.NewOpenAI(http.DefaultClient)}, []byte(`{}`))
 
 	if got != (usage.Result{State: usage.StateMissing}) || boundary.failureTotal.Load() != 0 || logs.Len() != 0 {
 		t.Fatalf("result/failures/logs = %#v/%d/%q", got, boundary.failureTotal.Load(), logs.String())
@@ -917,7 +917,7 @@ func TestUsageCaptureBoundaryRecoversExtractErrorAndPanic(t *testing.T) {
 			var logs bytes.Buffer
 			boundary.logger = logrus.New()
 			boundary.logger.SetOutput(&logs)
-			got := boundary.extractNonStreaming(usageExtractorDialect{Dialect: dialect.NewOpenAI(http.DefaultClient), extract: test.extract}, make(http.Header), []byte(`{}`))
+			got := boundary.extractNonStreamingPlain(usageExtractorDialect{Dialect: dialect.NewOpenAI(http.DefaultClient), extract: test.extract}, []byte(`{}`))
 
 			if got.State != usage.StateMissing || !got.Diagnostics.Has(usage.DiagnosticInvalidPayload) || boundary.failureTotal.Load() != 1 || bytes.Contains(logs.Bytes(), []byte(canary)) {
 				t.Fatalf("result/failures/logs = %#v/%d/%q", got, boundary.failureTotal.Load(), logs.String())
@@ -937,7 +937,7 @@ func TestUsageCaptureBoundaryRejectsInvalidResults(t *testing.T) {
 		{State: usage.StateComplete, Tokens: usage.Tokens{UncachedInput: math.MaxInt64, Output: 1}},
 	} {
 		boundary := newUsageCaptureBoundary()
-		got := boundary.extractNonStreaming(usageExtractorDialect{Dialect: dialect.NewOpenAI(http.DefaultClient), extract: func([]byte) (usage.Result, error) { return result, nil }}, make(http.Header), []byte(`{}`))
+		got := boundary.extractNonStreamingPlain(usageExtractorDialect{Dialect: dialect.NewOpenAI(http.DefaultClient), extract: func([]byte) (usage.Result, error) { return result, nil }}, []byte(`{}`))
 		if got.State != usage.StateMissing || !got.Diagnostics.Has(usage.DiagnosticInvalidPayload) || boundary.failureTotal.Load() != 1 {
 			t.Fatalf("input/result/failures = %#v/%#v/%d", result, got, boundary.failureTotal.Load())
 		}
@@ -945,62 +945,8 @@ func TestUsageCaptureBoundaryRejectsInvalidResults(t *testing.T) {
 
 	boundary := newUsageCaptureBoundary()
 	zero := usage.Result{State: usage.StateComplete}
-	if got := boundary.extractNonStreaming(usageExtractorDialect{Dialect: dialect.NewOpenAI(http.DefaultClient), extract: func([]byte) (usage.Result, error) { return zero, nil }}, make(http.Header), []byte(`{}`)); got != zero || boundary.failureTotal.Load() != 0 {
+	if got := boundary.extractNonStreamingPlain(usageExtractorDialect{Dialect: dialect.NewOpenAI(http.DefaultClient), extract: func([]byte) (usage.Result, error) { return zero, nil }}, []byte(`{}`)); got != zero || boundary.failureTotal.Load() != 0 {
 		t.Fatalf("zero complete/failures = %#v/%d", got, boundary.failureTotal.Load())
-	}
-}
-
-func TestUsageCaptureBoundaryDecodesSupportedContentEncoding(t *testing.T) {
-	plain := []byte(`{"canonical":true}`)
-	want := usage.Result{State: usage.StateComplete, Tokens: usage.Tokens{UncachedInput: 80, CacheRead: 20, Output: 30}}
-	for _, encoding := range []string{"identity", "gzip", "br", "deflate", "zstd"} {
-		t.Run(encoding, func(t *testing.T) {
-			wire, err := utils.CompressResponse(encoding, plain)
-			if err != nil {
-				t.Fatalf("CompressResponse(%q): %v", encoding, err)
-			}
-			originalWire := bytes.Clone(wire)
-			boundary := newUsageCaptureBoundary()
-			got := boundary.extractNonStreaming(usageExtractorDialect{Dialect: dialect.NewOpenAI(http.DefaultClient), extract: func(body []byte) (usage.Result, error) {
-				if !bytes.Equal(body, plain) {
-					t.Fatalf("decoded body = %q, want %q", body, plain)
-				}
-				return want, nil
-			}}, http.Header{"Content-Encoding": {encoding}}, wire)
-			if got != want || boundary.failureTotal.Load() != 0 || !bytes.Equal(wire, originalWire) {
-				t.Fatalf("result/failures = %#v/%d", got, boundary.failureTotal.Load())
-			}
-		})
-	}
-}
-
-func TestUsageCaptureBoundaryUnsupportedEncodingIsMissing(t *testing.T) {
-	tooLargePlain := bytes.Repeat([]byte("x"), int(maxNonStreamingResponseBodyBytes)+1)
-	tooLargeWire, err := utils.CompressResponse("gzip", tooLargePlain)
-	if err != nil {
-		t.Fatalf("compress oversized fixture: %v", err)
-	}
-	for _, test := range []struct {
-		name    string
-		headers http.Header
-		wire    []byte
-	}{
-		{name: "multiple values", headers: http.Header{"Content-Encoding": {"identity", "gzip"}}, wire: []byte(`{}`)},
-		{name: "comma stacked", headers: http.Header{"Content-Encoding": {"gzip, br"}}, wire: []byte(`{}`)},
-		{name: "unknown", headers: http.Header{"Content-Encoding": {"unknown"}}, wire: []byte(`{}`)},
-		{name: "corrupt gzip", headers: http.Header{"Content-Encoding": {"gzip"}}, wire: []byte("not-gzip")},
-		{name: "decompressed over limit", headers: http.Header{"Content-Encoding": {"gzip"}}, wire: tooLargeWire},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			boundary := newUsageCaptureBoundary()
-			got := boundary.extractNonStreaming(usageExtractorDialect{Dialect: dialect.NewOpenAI(http.DefaultClient), extract: func([]byte) (usage.Result, error) {
-				t.Fatal("extractor called after decompression failure")
-				return usage.Result{}, nil
-			}}, test.headers, test.wire)
-			if got != (usage.Result{State: usage.StateMissing}) || boundary.failureTotal.Load() != 1 {
-				t.Fatalf("result/failures = %#v/%d", got, boundary.failureTotal.Load())
-			}
-		})
 	}
 }
 
@@ -1038,12 +984,9 @@ func TestForwardCapturesCanonicalNonStreamingUsage(t *testing.T) {
 	}
 }
 
-func TestForwardUsageCapturePreservesCompressedSuccessWire(t *testing.T) {
+func TestForwarderUsesPreparedPlainBodyForUsage(t *testing.T) {
 	plain := []byte(`{"usage":{"prompt_tokens":100,"completion_tokens":30,"prompt_tokens_details":{"cached_tokens":20}}}`)
-	wire, err := utils.CompressResponse("gzip", plain)
-	if err != nil {
-		t.Fatalf("compress fixture: %v", err)
-	}
+	wire := encodeContentCodingForGatewayTest(t, contentcoding.Gzip, plain)
 	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 		writer.Header().Set("Content-Encoding", "gzip")
 		writer.Header().Set("Content-Length", strconv.Itoa(len(wire)))
@@ -1059,7 +1002,10 @@ func TestForwardUsageCapturePreservesCompressedSuccessWire(t *testing.T) {
 	result := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New()).Forward(context.Background(), input)
 	baseline := forwardWithCaptureDisabled(input)
 	want := usage.Result{State: usage.StateComplete, Tokens: usage.Tokens{UncachedInput: 80, CacheRead: 20, Output: 30}}
-	if result.Usage != want || baseline.Usage != (usage.Result{State: usage.StateNotApplicable}) || !bytes.Equal(result.Body, wire) || result.Header.Get("Content-Length") != strconv.Itoa(len(wire)) {
+	if result.Usage != want || baseline.Usage != (usage.Result{State: usage.StateNotApplicable}) ||
+		!bytes.Equal(result.Body, plain) ||
+		result.Header.Get("Content-Length") != strconv.Itoa(len(plain)) ||
+		len(headerFieldValues(result.Header, "Content-Encoding")) != 0 {
 		t.Fatalf("result = %#v", result)
 	}
 	assertForwardWireContract(t, selected, result, baseline)

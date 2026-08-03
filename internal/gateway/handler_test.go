@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"math/rand"
 	"net/http"
 	"net/http/httptest"
@@ -22,11 +23,13 @@ import (
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/health"
 	"gpt-load/internal/platform/config"
+	"gpt-load/internal/platform/contentcoding"
 	"gpt-load/internal/platform/encryption"
 	platformhttp "gpt-load/internal/platform/httpclient"
 	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/platform/utils"
 	"gpt-load/internal/protocol"
+	"gpt-load/internal/ratelimit"
 	"gpt-load/internal/state"
 	"gpt-load/internal/testutil/fakeupstream"
 	"gpt-load/internal/usage"
@@ -121,6 +124,33 @@ type recordingRuntimeRegistry struct {
 	lastFailureCount int
 	blacklistCalls   int
 	clearCalls       int
+}
+
+type captureCountingRuntimeRegistry struct {
+	runtimeKeyRegistry
+	captureCalls int
+}
+
+type cancelingSuccessfulInspectDialect struct {
+	dialect.Dialect
+	cancel context.CancelFunc
+}
+
+func (value *cancelingSuccessfulInspectDialect) InspectRequest(
+	request *dialect.ParsedRequest,
+) (dialect.RequestMetadata, error) {
+	metadata, err := value.Dialect.InspectRequest(request)
+	if err == nil {
+		value.cancel()
+	}
+	return metadata, err
+}
+
+func (registry *captureCountingRuntimeRegistry) CaptureActiveKeyRefs(
+	groupIDs []uint,
+) []state.KeyRef {
+	registry.captureCalls++
+	return registry.runtimeKeyRegistry.CaptureActiveKeyRefs(groupIDs)
 }
 
 type gatewayMutationObservation struct {
@@ -1580,24 +1610,517 @@ func assertDebugHeaders(t *testing.T, headers http.Header, group, attempts strin
 	}
 }
 
-func TestReadRequestBodyHonorsLimit(t *testing.T) {
+func TestReadDecodedRequestBodyHonorsIndependentLimits(t *testing.T) {
 	t.Run("exact limit is accepted", func(t *testing.T) {
-		body, err := readRequestBody(strings.NewReader("1234"), 4)
+		request := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("1234"))
+		body, err := readDecodedRequestBody(request, contentcoding.Identity, 4, 4)
 		if err != nil || string(body) != "1234" {
-			t.Fatalf("readRequestBody() = %q, %v", body, err)
+			t.Fatalf("readDecodedRequestBody() = %q, %v", body, err)
 		}
 	})
 
 	t.Run("limit plus one is rejected without draining", func(t *testing.T) {
 		reader := &boundedCountingReader{remaining: 100}
-		body, err := readRequestBody(reader, 4)
+		request := httptest.NewRequest(http.MethodPost, "/", reader)
+		request.ContentLength = -1
+		body, err := readDecodedRequestBody(request, contentcoding.Identity, 4, 4)
 		if !errors.Is(err, errRequestTooLarge) || body != nil {
-			t.Fatalf("readRequestBody() = %q, %v, want request too large", body, err)
+			t.Fatalf("readDecodedRequestBody() = %q, %v, want request too large", body, err)
 		}
 		if reader.read != 5 {
 			t.Fatalf("reader consumed %d bytes, want limit+1 (5)", reader.read)
 		}
 	})
+
+	t.Run("positive ContentLength rejects before reading", func(t *testing.T) {
+		reader := &boundedCountingReader{remaining: 100}
+		request := httptest.NewRequest(http.MethodPost, "/", reader)
+		request.ContentLength = 5
+		body, err := readDecodedRequestBody(request, contentcoding.Identity, 4, 4)
+		if !errors.Is(err, errRequestTooLarge) || body != nil || reader.read != 0 {
+			t.Fatalf("readDecodedRequestBody() = %q, %v; read=%d, want early rejection", body, err, reader.read)
+		}
+	})
+
+	t.Run("decoded overflow maps to request too large", func(t *testing.T) {
+		encoded := encodeContentCodingForGatewayTest(t, contentcoding.Gzip, []byte("12345"))
+		request := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(encoded))
+		body, err := readDecodedRequestBody(request, contentcoding.Gzip, int64(len(encoded)), 4)
+		if !errors.Is(err, errRequestTooLarge) || body != nil {
+			t.Fatalf("readDecodedRequestBody() = %q, %v, want decoded overflow", body, err)
+		}
+	})
+
+	t.Run("MaxInt64 encoded limit does not overflow limit plus one", func(t *testing.T) {
+		request := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("1234"))
+		body, err := readDecodedRequestBody(
+			request,
+			contentcoding.Identity,
+			math.MaxInt64,
+			4,
+		)
+		if err != nil || string(body) != "1234" {
+			t.Fatalf("readDecodedRequestBody() = %q, %v, want 1234", body, err)
+		}
+	})
+
+	t.Run("negative decoded limit is explicitly rejected", func(t *testing.T) {
+		request := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("1234"))
+		body, err := readDecodedRequestBody(
+			request,
+			contentcoding.Identity,
+			4,
+			-1,
+		)
+		if body != nil || err == nil || !strings.Contains(err.Error(), "decoded request body limit") {
+			t.Fatalf("readDecodedRequestBody() = %q, %v, want explicit decoded-limit error", body, err)
+		}
+	})
+}
+
+func TestHandlerCapturesKeyIdentityOnlyAfterDecodedInspection(t *testing.T) {
+	tests := []struct {
+		name          string
+		body          []byte
+		encoding      string
+		contentLength int64
+		wantStatus    int
+		wantCapture   int
+	}{
+		{
+			name: "malformed coding", body: []byte("not-gzip"), encoding: "gzip",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "encoded limit", body: []byte(`{"model":"gpt-4o"}`),
+			contentLength: maxRequestBodyBytes + 1, wantStatus: http.StatusRequestEntityTooLarge,
+		},
+		{
+			name: "invalid JSON", body: []byte(`{"model":`),
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name: "valid decoded request", body: []byte(`{"model":"gpt-4o"}`),
+			wantStatus: http.StatusOK, wantCapture: 1,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			forwarder := &scriptedForwarder{results: []UpstreamResult{{
+				StatusCode: http.StatusOK, Header: make(http.Header),
+				Body: []byte(`{"ok":true}`), RequestWritten: true,
+			}}}
+			handler, _, registry := newHandlerForTest(t, forwarder, "sk-upstream")
+			counting := &captureCountingRuntimeRegistry{runtimeKeyRegistry: registry}
+			handler.registry = counting
+			engine := gin.New()
+			bindGatewayRoutesForTest(t, engine, handler)
+			request := httptest.NewRequest(
+				http.MethodPost,
+				"/v1/chat/completions",
+				bytes.NewReader(test.body),
+			)
+			request.Header.Set("Authorization", "Bearer gl-client")
+			if test.encoding != "" {
+				request.Header.Set("Content-Encoding", test.encoding)
+			}
+			if test.contentLength > 0 {
+				request.ContentLength = test.contentLength
+			}
+			recorder := httptest.NewRecorder()
+			engine.ServeHTTP(recorder, request)
+
+			if recorder.Code != test.wantStatus || counting.captureCalls != test.wantCapture {
+				t.Fatalf(
+					"response/capture calls = %d/%d, want %d/%d; body=%s",
+					recorder.Code,
+					counting.captureCalls,
+					test.wantStatus,
+					test.wantCapture,
+					recorder.Body.String(),
+				)
+			}
+		})
+	}
+
+	t.Run("canceled body read", func(t *testing.T) {
+		forwarder := &scriptedForwarder{}
+		handler, _, registry := newHandlerForTest(t, forwarder, "sk-upstream")
+		counting := &captureCountingRuntimeRegistry{runtimeKeyRegistry: registry}
+		handler.registry = counting
+		engine := gin.New()
+		bindGatewayRoutesForTest(t, engine, handler)
+		requestContext, cancel := context.WithCancel(context.Background())
+		body := newBlockingRequestBody(`{"model":"gpt-4o"}`, func() error {
+			cancel()
+			return context.Canceled
+		})
+		request := httptest.NewRequest(
+			http.MethodPost,
+			"/v1/chat/completions",
+			body,
+		).WithContext(requestContext)
+		request.Header.Set("Authorization", "Bearer gl-client")
+		recorder := httptest.NewRecorder()
+		done := make(chan struct{})
+		go func() {
+			engine.ServeHTTP(recorder, request)
+			close(done)
+		}()
+		receiveTestSignal(t, body.started, "post-inspection capture canceled read")
+		close(body.release)
+		receiveTestSignal(t, done, "post-inspection capture canceled completion")
+		if counting.captureCalls != 0 || len(forwarder.inputs)+len(forwarder.streamInputs) != 0 {
+			t.Fatalf(
+				"capture/forward calls = %d/%d, want 0/0",
+				counting.captureCalls,
+				len(forwarder.inputs)+len(forwarder.streamInputs),
+			)
+		}
+	})
+
+	t.Run("canceled after successful inspection", func(t *testing.T) {
+		forwarder := &scriptedForwarder{}
+		handler, _, registry := newHandlerForTest(t, forwarder, "sk-upstream")
+		counting := &captureCountingRuntimeRegistry{runtimeKeyRegistry: registry}
+		handler.registry = counting
+		requestContext, cancel := context.WithCancel(context.Background())
+		baseDialect := handler.dialects[protocol.OpenAICompletions]
+		handler.dialects = dialect.NewSet(&cancelingSuccessfulInspectDialect{
+			Dialect: baseDialect,
+			cancel:  cancel,
+		})
+		engine := gin.New()
+		bindGatewayRoutesForTest(t, engine, handler)
+		request := httptest.NewRequest(
+			http.MethodPost,
+			"/v1/chat/completions",
+			strings.NewReader(`{"model":"gpt-4o"}`),
+		).WithContext(requestContext)
+		request.Header.Set("Authorization", "Bearer gl-client")
+		recorder := httptest.NewRecorder()
+		engine.ServeHTTP(recorder, request)
+
+		if counting.captureCalls != 0 || len(forwarder.inputs)+len(forwarder.streamInputs) != 0 {
+			t.Fatalf(
+				"capture/forward calls = %d/%d, want 0/0 after inspection cancellation",
+				counting.captureCalls,
+				len(forwarder.inputs)+len(forwarder.streamInputs),
+			)
+		}
+		if recorder.Body.Len() != 0 {
+			t.Fatalf("canceled response body = %q, want empty", recorder.Body.String())
+		}
+	})
+}
+
+func TestHandlerContentCodingErrorContract(t *testing.T) {
+	tests := []struct {
+		name               string
+		contentEncodings   []string
+		collidingEncoding  string
+		body               []byte
+		contentLength      int64
+		wantStatus         int
+		wantCode           string
+		wantAcceptEncoding string
+	}{
+		{
+			name: "unknown coding", contentEncodings: []string{"snappy"},
+			body:       []byte(`{"model":"gpt-4o"}`),
+			wantStatus: http.StatusUnsupportedMediaType, wantCode: "unsupported_content_encoding",
+			wantAcceptEncoding: contentcoding.SupportedRequestEncodings,
+		},
+		{
+			name: "multiple case-colliding fields", contentEncodings: []string{"identity"},
+			collidingEncoding: "gzip", body: []byte(`{"model":"gpt-4o"}`),
+			wantStatus: http.StatusUnsupportedMediaType, wantCode: "unsupported_content_encoding",
+			wantAcceptEncoding: contentcoding.SupportedRequestEncodings,
+		},
+		{
+			name: "stacked coding", contentEncodings: []string{"gzip, br"},
+			body:       []byte(`{"model":"gpt-4o"}`),
+			wantStatus: http.StatusUnsupportedMediaType, wantCode: "unsupported_content_encoding",
+			wantAcceptEncoding: contentcoding.SupportedRequestEncodings,
+		},
+		{
+			name: "malformed known coding", contentEncodings: []string{"gzip"},
+			body:       []byte("not-gzip"),
+			wantStatus: http.StatusBadRequest, wantCode: "invalid_content_encoding",
+		},
+		{
+			name: "encoded length fast rejection", contentEncodings: []string{"identity"},
+			body: []byte(`{"model":"gpt-4o"}`), contentLength: maxRequestBodyBytes + 1,
+			wantStatus: http.StatusRequestEntityTooLarge, wantCode: "request_too_large",
+		},
+		{
+			name: "decoded length rejection", contentEncodings: []string{"gzip"},
+			body: encodeContentCodingForGatewayTest(
+				t,
+				contentcoding.Gzip,
+				bytes.Repeat([]byte("x"), int(maxRequestBodyBytes+1)),
+			),
+			wantStatus: http.StatusRequestEntityTooLarge, wantCode: "request_too_large",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			forwarder := &scriptedForwarder{}
+			engine, _, _ := newHandlerTestRuntime(t, forwarder, "sk-upstream")
+			request := httptest.NewRequest(
+				http.MethodPost,
+				"/v1/chat/completions",
+				bytes.NewReader(test.body),
+			)
+			request.Header.Set("Authorization", "Bearer gl-client")
+			request.Header.Del("Content-Encoding")
+			for _, value := range test.contentEncodings {
+				request.Header.Add("Content-Encoding", value)
+			}
+			if test.collidingEncoding != "" {
+				request.Header["content-encoding"] = []string{test.collidingEncoding}
+			}
+			if test.contentLength > 0 {
+				request.ContentLength = test.contentLength
+			}
+			recorder := httptest.NewRecorder()
+			engine.ServeHTTP(recorder, request)
+
+			assertGatewayReasonTest(t, recorder, test.wantStatus, test.wantCode)
+			if got := recorder.Header().Get("Accept-Encoding"); got != test.wantAcceptEncoding {
+				t.Fatalf("Accept-Encoding = %q, want %q", got, test.wantAcceptEncoding)
+			}
+			if len(forwarder.inputs)+len(forwarder.streamInputs) != 0 {
+				t.Fatal("invalid content coding reached upstream")
+			}
+		})
+	}
+}
+
+func TestHandlerContentCodingInspectionUsesDecodedBody(t *testing.T) {
+	plaintext := []byte(`{"model":"gpt-4o","stream":true}`)
+	for _, encoding := range []contentcoding.Encoding{
+		contentcoding.Identity,
+		contentcoding.Gzip,
+		contentcoding.Brotli,
+		contentcoding.Deflate,
+		contentcoding.Zstd,
+	} {
+		t.Run(string(encoding), func(t *testing.T) {
+			forwarder := &scriptedForwarder{streamResults: []UpstreamResult{{
+				StatusCode:     http.StatusOK,
+				Header:         http.Header{"Content-Type": {"text/event-stream"}},
+				Committed:      true,
+				RequestWritten: true,
+				Stream:         StreamObservation{EndReason: StreamEndCleanEOF},
+			}}}
+			engine, _, _ := newHandlerTestRuntime(t, forwarder, "sk-upstream")
+			request := httptest.NewRequest(
+				http.MethodPost,
+				"/v1/chat/completions",
+				bytes.NewReader(encodeContentCodingForGatewayTest(t, encoding, plaintext)),
+			)
+			request.Header.Set("Authorization", "Bearer gl-client")
+			if encoding != contentcoding.Identity {
+				request.Header.Set("Content-Encoding", string(encoding))
+			}
+			request.Header["content-length"] = []string{"stale-client-length"}
+			recorder := httptest.NewRecorder()
+			engine.ServeHTTP(recorder, request)
+
+			if recorder.Code != http.StatusOK || len(forwarder.streamInputs) != 1 {
+				t.Fatalf(
+					"response/stream calls = %d/%d body=%s, want decoded stream request",
+					recorder.Code,
+					len(forwarder.streamInputs),
+					recorder.Body.String(),
+				)
+			}
+			parsed := forwarder.streamInputs[0].Request
+			if !bytes.Equal(parsed.Body, plaintext) || forwarder.streamInputs[0].ExternalModel != "gpt-4o" {
+				t.Fatalf("parsed body/model = %s / %q", parsed.Body, forwarder.streamInputs[0].ExternalModel)
+			}
+			if values := headerFieldValues(parsed.Header, "Content-Encoding"); len(values) != 0 {
+				t.Fatalf("parsed Content-Encoding = %#v, want absent", values)
+			}
+			if values := headerFieldValues(parsed.Header, "Content-Length"); len(values) != 0 {
+				t.Fatalf("parsed Content-Length = %#v, want absent", values)
+			}
+		})
+	}
+}
+
+func TestHandlerContentCodingErrorPrecedence(t *testing.T) {
+	t.Run("invalid access key wins", func(t *testing.T) {
+		engine, _, _ := newHandlerTestRuntime(t, &scriptedForwarder{}, "sk-upstream")
+		request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader("invalid"))
+		request.Header.Set("Authorization", "Bearer wrong")
+		request.Header.Set("Content-Encoding", "unknown")
+		request.Header.Set("Accept-Encoding", "identity;q=0")
+		recorder := httptest.NewRecorder()
+		engine.ServeHTTP(recorder, request)
+		assertGatewayReasonTest(t, recorder, http.StatusUnauthorized, reasonInvalidAccessKey.Code)
+	})
+
+	for _, test := range []struct {
+		name       string
+		method     string
+		target     string
+		wantStatus int
+		wantCode   string
+	}{
+		{name: "route wins", method: http.MethodPost, target: "/v1/unknown", wantStatus: http.StatusNotFound, wantCode: reasonEndpointNotFound.Code},
+		{name: "method wins", method: http.MethodGet, target: "/v1/chat/completions", wantStatus: http.StatusMethodNotAllowed, wantCode: reasonMethodNotAllowed.Code},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			engine, _, _ := newHandlerTestRuntime(t, &scriptedForwarder{}, "sk-upstream")
+			request := httptest.NewRequest(test.method, test.target, strings.NewReader("invalid"))
+			request.Header.Set("Authorization", "Bearer gl-client")
+			request.Header.Set("Content-Encoding", "unknown")
+			request.Header.Set("Accept-Encoding", "identity;q=0")
+			recorder := httptest.NewRecorder()
+			engine.ServeHTTP(recorder, request)
+			assertGatewayReasonTest(t, recorder, test.wantStatus, test.wantCode)
+		})
+	}
+
+	t.Run("RPM wins", func(t *testing.T) {
+		limiter := &recordingAccessKeyRPMLimiter{decisions: []ratelimit.LimitDecision{{
+			Allowed: false, RetryAfter: time.Second,
+		}}}
+		engine, _, _, _ := newRequestLogHandlerTestRuntime(
+			t,
+			&scriptedForwarder{},
+			limiter,
+			&recordingRequestLogSink{},
+			"sk-upstream",
+		)
+		request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader("invalid"))
+		request.Header.Set("Authorization", "Bearer gl-client")
+		request.Header.Set("Content-Encoding", "unknown")
+		request.Header.Set("Accept-Encoding", "identity;q=0")
+		recorder := httptest.NewRecorder()
+		engine.ServeHTTP(recorder, request)
+		assertGatewayReasonTest(t, recorder, http.StatusTooManyRequests, reasonAccessKeyRateLimited.Code)
+	})
+
+	t.Run("415 wins over 406", func(t *testing.T) {
+		engine, _, _ := newHandlerTestRuntime(t, &scriptedForwarder{}, "sk-upstream")
+		request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader("invalid"))
+		request.Header.Set("Authorization", "Bearer gl-client")
+		request.Header.Set("Content-Encoding", "unknown")
+		request.Header.Set("Accept-Encoding", "identity;q=0")
+		recorder := httptest.NewRecorder()
+		engine.ServeHTTP(recorder, request)
+		assertGatewayReasonTest(t, recorder, http.StatusUnsupportedMediaType, "unsupported_content_encoding")
+	})
+
+	t.Run("406 wins over body and JSON", func(t *testing.T) {
+		engine, _, _ := newHandlerTestRuntime(t, &scriptedForwarder{}, "sk-upstream")
+		request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader("not-gzip"))
+		request.Header.Set("Authorization", "Bearer gl-client")
+		request.Header.Set("Content-Encoding", "gzip")
+		request.Header.Set("Accept-Encoding", "identity;q=0")
+		request.ContentLength = maxRequestBodyBytes + 1
+		recorder := httptest.NewRecorder()
+		engine.ServeHTTP(recorder, request)
+		assertGatewayReasonTest(t, recorder, http.StatusNotAcceptable, "not_acceptable")
+	})
+}
+
+func TestHandlerIdentityNegotiation(t *testing.T) {
+	t.Run("case-colliding explicit identity exclusion wins over wildcard", func(t *testing.T) {
+		engine, _, _ := newHandlerTestRuntime(t, &scriptedForwarder{}, "sk-upstream")
+		request := httptest.NewRequest(
+			http.MethodPost,
+			"/v1/chat/completions",
+			strings.NewReader(`{"model":"gpt-4o"}`),
+		)
+		request.Header.Set("Authorization", "Bearer gl-client")
+		request.Header["Accept-Encoding"] = []string{"*;q=1"}
+		request.Header["accept-encoding"] = []string{"identity;q=0"}
+		recorder := httptest.NewRecorder()
+		engine.ServeHTTP(recorder, request)
+		assertGatewayReasonTest(t, recorder, http.StatusNotAcceptable, "not_acceptable")
+	})
+
+	t.Run("model list negotiates without reading body", func(t *testing.T) {
+		engine := newModelListHandlerEngine(t, state.FilterSet{})
+		request := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+		request.Header.Set("Authorization", "Bearer gl-client")
+		request.Header.Set("Accept-Encoding", "identity;q=0")
+		request.Header.Set("Content-Encoding", "unknown")
+		request.Body = panicReadCloser{}
+		recorder := httptest.NewRecorder()
+		engine.ServeHTTP(recorder, request)
+		assertGatewayReasonTest(t, recorder, http.StatusNotAcceptable, "not_acceptable")
+	})
+
+	t.Run("model list accepts implicit identity without reading body", func(t *testing.T) {
+		engine := newModelListHandlerEngine(t, state.FilterSet{})
+		request := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+		request.Header.Set("Authorization", "Bearer gl-client")
+		request.Header.Set("Accept-Encoding", "gzip")
+		request.Header.Set("Content-Encoding", "unknown")
+		request.Body = panicReadCloser{}
+		recorder := httptest.NewRecorder()
+		engine.ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("response = %d %s, want 200", recorder.Code, recorder.Body.String())
+		}
+	})
+}
+
+func TestHandlerCancellationWinsOverContentCoding(t *testing.T) {
+	forwarder := &scriptedForwarder{}
+	engine, _, _ := newHandlerTestRuntime(t, forwarder, "sk-upstream")
+	requestContext, cancel := context.WithCancel(context.Background())
+	body := newBlockingRequestBody("not-gzip", func() error {
+		cancel()
+		return context.Canceled
+	})
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", body).WithContext(requestContext)
+	request.Header.Set("Authorization", "Bearer gl-client")
+	request.Header.Set("Content-Encoding", "gzip")
+	recorder := httptest.NewRecorder()
+	done := make(chan struct{})
+	go func() {
+		engine.ServeHTTP(recorder, request)
+		close(done)
+	}()
+	receiveTestSignal(t, body.started, "canceled body read")
+	close(body.release)
+	receiveTestSignal(t, done, "canceled request completion")
+
+	if recorder.Body.Len() != 0 || recorder.Code == http.StatusBadRequest || recorder.Code == http.StatusRequestEntityTooLarge {
+		t.Fatalf("canceled response = %d %q, want no coding reason", recorder.Code, recorder.Body.String())
+	}
+	if len(forwarder.inputs)+len(forwarder.streamInputs) != 0 {
+		t.Fatal("canceled request reached upstream")
+	}
+}
+
+func assertGatewayReasonTest(
+	t *testing.T,
+	recorder *httptest.ResponseRecorder,
+	wantStatus int,
+	wantCode string,
+) {
+	t.Helper()
+	if recorder.Code != wantStatus {
+		t.Fatalf("status = %d, want %d; body=%s", recorder.Code, wantStatus, recorder.Body.String())
+	}
+	var body struct {
+		Code string `json:"code"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode reason body: %v; body=%q", err, recorder.Body.String())
+	}
+	if body.Code != wantCode {
+		t.Fatalf("code = %q, want %q; body=%s", body.Code, wantCode, recorder.Body.String())
+	}
 }
 
 func TestHandlerRejectsOversizedRequestBody(t *testing.T) {
@@ -2776,7 +3299,7 @@ func TestHandlerSkipsCandidateChangedAfterCollection(t *testing.T) {
 	}
 }
 
-func TestHandlerFreezesKeyIdentityBeforeReadingBody(t *testing.T) {
+func TestHandlerFreezesKeyIdentityAfterInspectingBody(t *testing.T) {
 	tests := []struct {
 		name         string
 		seedPlain    string
@@ -2873,20 +3396,19 @@ func TestHandlerFreezesKeyIdentityBeforeReadingBody(t *testing.T) {
 				t.Fatalf("first Read identity mutation error = %v", body.firstReadErr)
 			}
 
-			if len(forwarder.inputs) != 0 {
+			if oldRecorder.Code != http.StatusOK || len(forwarder.inputs) != 1 {
 				t.Fatalf(
-					"blocked old request forwarded with API key %q, want no newly visible identity",
-					forwarder.inputs[0].APIKey,
+					"decoded request response/attempts = %d/%d, want 200/1; body=%s",
+					oldRecorder.Code,
+					len(forwarder.inputs),
+					oldRecorder.Body.String(),
 				)
 			}
-			if len(recordingEncryption.ciphertexts) != 0 {
-				t.Fatalf(
-					"blocked old request decrypted %d ciphertexts, want 0",
-					len(recordingEncryption.ciphertexts),
-				)
+			if got := forwarder.inputs[0].APIKey; got != test.currentPlain {
+				t.Fatalf("decoded request API key = %q, want %q", got, test.currentPlain)
 			}
-			if oldRecorder.Code != http.StatusServiceUnavailable {
-				t.Fatalf("blocked old request status = %d, want 503", oldRecorder.Code)
+			if len(recordingEncryption.ciphertexts) != 1 {
+				t.Fatalf("decoded request decrypt calls = %d, want 1", len(recordingEncryption.ciphertexts))
 			}
 
 			newRequest := httptest.NewRequest(
@@ -2898,20 +3420,20 @@ func TestHandlerFreezesKeyIdentityBeforeReadingBody(t *testing.T) {
 			newRecorder := httptest.NewRecorder()
 			engine.ServeHTTP(newRecorder, newRequest)
 
-			if newRecorder.Code != http.StatusOK || len(forwarder.inputs) != 1 {
+			if newRecorder.Code != http.StatusOK || len(forwarder.inputs) != 2 {
 				t.Fatalf(
-					"new request response/attempts = %d/%d, want 200/1; body=%s",
+					"new request response/attempts = %d/%d, want 200/2; body=%s",
 					newRecorder.Code,
 					len(forwarder.inputs),
 					newRecorder.Body.String(),
 				)
 			}
-			if got := forwarder.inputs[0].APIKey; got != test.currentPlain {
+			if got := forwarder.inputs[1].APIKey; got != test.currentPlain {
 				t.Fatalf("new request API key = %q, want %q", got, test.currentPlain)
 			}
-			if len(recordingEncryption.ciphertexts) != 1 {
+			if len(recordingEncryption.ciphertexts) != 2 {
 				t.Fatalf(
-					"new request decrypt calls = %d, want 1",
+					"new request decrypt calls = %d, want 2",
 					len(recordingEncryption.ciphertexts),
 				)
 			}

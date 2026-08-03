@@ -91,7 +91,7 @@ func TestResolveRuntimeSettingsRejectsPresentNullHeaderRules(t *testing.T) {
 	}
 }
 
-func TestParseHeaderRulesRejectsUnsafeSetNames(t *testing.T) {
+func TestParseHeaderRulesRejectsUnsafeNames(t *testing.T) {
 	names := []string{
 		"Connection",
 		"proxy-connection",
@@ -106,13 +106,45 @@ func TestParseHeaderRulesRejectsUnsafeSetNames(t *testing.T) {
 		"pRoXy-Custom",
 	}
 	for _, name := range names {
-		for _, value := range []string{"ordinary", "Bearer ${API_KEY}"} {
-			err := ValidateRuntimeSetting(SettingHeaderRules, map[string]any{
-				"set": map[string]any{name: value},
-			})
-			if err == nil {
-				t.Errorf("parseHeaderRules accepted unsafe set %q=%q", name, value)
+		for _, section := range []string{"set", "remove"} {
+			values := []string{"ordinary"}
+			if section == "set" {
+				values = append(values, "Bearer ${API_KEY}")
 			}
+			for _, value := range values {
+				setting := map[string]any{}
+				if section == "set" {
+					setting[section] = map[string]any{name: value}
+				} else {
+					setting[section] = []any{name}
+				}
+				if err := ValidateRuntimeSetting(SettingHeaderRules, setting); err == nil {
+					t.Errorf("parseHeaderRules accepted unsafe %s %q", section, name)
+				}
+			}
+		}
+	}
+}
+
+func TestParseHeaderRulesRejectsReservedContentCodingNames(t *testing.T) {
+	for _, section := range []string{"set", "remove"} {
+		for _, name := range []string{
+			"Accept-Encoding",
+			"aCcEpT-eNcOdInG",
+			"Content-Encoding",
+			"cOnTeNt-EnCoDiNg",
+		} {
+			t.Run(section+"/"+name, func(t *testing.T) {
+				value := map[string]any{}
+				if section == "set" {
+					value[section] = map[string]any{name: "gzip"}
+				} else {
+					value[section] = []any{name}
+				}
+				if err := ValidateRuntimeSetting(SettingHeaderRules, value); err == nil {
+					t.Fatalf("parseHeaderRules accepted header_rules.%s reserved name %q", section, name)
+				}
+			})
 		}
 	}
 }
@@ -171,7 +203,6 @@ func TestParseHeaderRulesRequiresAPIKeyTemplateForCredentials(t *testing.T) {
 	err := ValidateRuntimeSetting(SettingHeaderRules, map[string]any{
 		"remove": []any{
 			"Authorization",
-			"Proxy-Authorization",
 			"Api-Key",
 			"X-Api-Key",
 			"X-Goog-Api-Key",
@@ -183,8 +214,8 @@ func TestParseHeaderRulesRequiresAPIKeyTemplateForCredentials(t *testing.T) {
 
 	err = ValidateRuntimeSetting(SettingHeaderRules, map[string]any{
 		"set": map[string]any{
-			"Accept-Encoding": "gzip",
-			"X-Custom":        "ordinary",
+			"Accept":   "application/json",
+			"X-Custom": "ordinary",
 		},
 	})
 	if err != nil {

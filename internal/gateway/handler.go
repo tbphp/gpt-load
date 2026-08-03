@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"math/rand"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -15,6 +17,7 @@ import (
 
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/health"
+	"gpt-load/internal/platform/contentcoding"
 	"gpt-load/internal/platform/encryption"
 	"gpt-load/internal/platform/utils"
 	"gpt-load/internal/pricing"
@@ -270,6 +273,12 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 		return
 	}
 	if selectedRoute.Kind == endpointModels {
+		if !contentcoding.IdentityAcceptable(
+			headerFieldValues(ginContext.Request.Header, "Accept-Encoding"),
+		) {
+			handler.completeReason(ginContext, recorder, reasonNotAcceptable)
+			return
+		}
 		handler.writeVisibleModelList(ginContext, snapshot, accessKey, selectedRoute.Protocol)
 		return
 	}
@@ -283,19 +292,34 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 		handler.completeReason(ginContext, recorder, reasonEndpointNotFound)
 		return
 	}
-
-	candidateGroupIDs := scheduler.CandidateGroupIDs(
-		snapshot,
-		selectedRoute.Protocol,
-		accessKey,
+	encoding, err := contentcoding.ParseContentEncoding(
+		headerFieldValues(ginContext.Request.Header, "Content-Encoding"),
 	)
-	capturedRefs := handler.registry.CaptureActiveKeyRefs(candidateGroupIDs)
-	allowedKeyRefs := make(map[uint]state.KeyRef, len(capturedRefs))
-	for _, ref := range capturedRefs {
-		allowedKeyRefs[ref.ID] = ref
+	if err != nil {
+		ginContext.Writer.Header().Set(
+			"Accept-Encoding",
+			contentcoding.SupportedRequestEncodings,
+		)
+		handler.completeReason(
+			ginContext,
+			recorder,
+			reasonUnsupportedContentEncoding,
+		)
+		return
+	}
+	if !contentcoding.IdentityAcceptable(
+		headerFieldValues(ginContext.Request.Header, "Accept-Encoding"),
+	) {
+		handler.completeReason(ginContext, recorder, reasonNotAcceptable)
+		return
 	}
 
-	body, err := readRequestBody(ginContext.Request.Body, maxRequestBodyBytes)
+	body, err := readDecodedRequestBody(
+		ginContext.Request,
+		encoding,
+		maxRequestBodyBytes,
+		maxRequestBodyBytes,
+	)
 	if err != nil {
 		if ginContext.Request.Context().Err() != nil {
 			recorder.completeCanceled(0)
@@ -305,14 +329,21 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 			handler.completeReason(ginContext, recorder, reasonRequestTooLarge)
 			return
 		}
+		if errors.Is(err, contentcoding.ErrInvalidContentEncoding) {
+			handler.completeReason(ginContext, recorder, reasonInvalidContentEncoding)
+			return
+		}
 		handler.completeReason(ginContext, recorder, reasonInvalidProtocolRequest)
 		return
 	}
+	requestHeaders := ginContext.Request.Header.Clone()
+	deleteHeaderField(requestHeaders, "Content-Encoding")
+	deleteHeaderField(requestHeaders, "Content-Length")
 	parsed := &dialect.ParsedRequest{
 		Method:   ginContext.Request.Method,
 		Path:     ginContext.Request.URL.Path,
 		RawQuery: ginContext.Request.URL.RawQuery,
-		Header:   ginContext.Request.Header.Clone(),
+		Header:   requestHeaders,
 		Body:     body,
 	}
 	metadata, err := selectedDialect.InspectRequest(parsed)
@@ -331,6 +362,20 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 	if len(model) > maxDataPlaneModelBytes {
 		handler.completeReason(ginContext, recorder, reasonInvalidProtocolRequest)
 		return
+	}
+	if ginContext.Request.Context().Err() != nil {
+		recorder.completeCanceled(0)
+		return
+	}
+	candidateGroupIDs := scheduler.CandidateGroupIDs(
+		snapshot,
+		selectedRoute.Protocol,
+		accessKey,
+	)
+	capturedRefs := handler.registry.CaptureActiveKeyRefs(candidateGroupIDs)
+	allowedKeyRefs := make(map[uint]state.KeyRef, len(capturedRefs))
+	for _, ref := range capturedRefs {
+		allowedKeyRefs[ref.ID] = ref
 	}
 	recorder.setClientModel(model)
 	recorder.setUsageApplicable(metadata.ObserveUsage)
@@ -403,21 +448,50 @@ func (handler *Handler) completeWriteTerminal(
 	recorder.completeDownstreamWrite(selectedStatus)
 }
 
-func readRequestBody(reader io.Reader, limit int64) ([]byte, error) {
-	if reader == nil {
+func readDecodedRequestBody(
+	request *http.Request,
+	encoding contentcoding.Encoding,
+	encodedLimit int64,
+	decodedLimit int64,
+) ([]byte, error) {
+	if request == nil || request.Body == nil {
 		return nil, fmt.Errorf("request body is required")
 	}
-	if limit < 0 {
-		return nil, fmt.Errorf("request body limit must not be negative")
+	if encodedLimit < 0 {
+		return nil, fmt.Errorf("encoded request body limit must not be negative")
 	}
-	body, err := io.ReadAll(io.LimitReader(reader, limit+1))
+	if decodedLimit < 0 {
+		return nil, fmt.Errorf("decoded request body limit must not be negative")
+	}
+	if request.ContentLength > 0 && request.ContentLength > encodedLimit {
+		return nil, errRequestTooLarge
+	}
+	reader := io.Reader(request.Body)
+	if encodedLimit < math.MaxInt64 {
+		reader = io.LimitReader(request.Body, encodedLimit+1)
+	}
+	encoded, err := io.ReadAll(reader)
 	if err != nil {
 		return nil, fmt.Errorf("read request body: %w", err)
 	}
-	if int64(len(body)) > limit {
+	if int64(len(encoded)) > encodedLimit {
 		return nil, errRequestTooLarge
 	}
-	return body, nil
+	body, err := contentcoding.DecodeLimited(encoding, encoded, decodedLimit)
+	if errors.Is(err, contentcoding.ErrDecodedBodyTooLarge) {
+		return nil, errRequestTooLarge
+	}
+	return body, err
+}
+
+func headerFieldValues(headers http.Header, name string) []string {
+	var values []string
+	for actualName, fieldValues := range headers {
+		if strings.EqualFold(actualName, name) {
+			values = append(values, fieldValues...)
+		}
+	}
+	return values
 }
 
 func (handler *Handler) executeAttempts(
@@ -685,7 +759,12 @@ func (handler *Handler) writeBufferedResponse(
 		}
 	}()
 
-	for name, values := range cloneEndToEndHeaders(headers) {
+	method := ""
+	if ginContext.Request != nil {
+		method = ginContext.Request.Method
+	}
+	normalizedHeaders, writeBody := normalizeBufferedResponse(method, status, headers, body)
+	for name, values := range normalizedHeaders {
 		for _, value := range values {
 			ginContext.Writer.Header().Add(name, value)
 		}
@@ -694,7 +773,7 @@ func (handler *Handler) writeBufferedResponse(
 		return fmt.Errorf("write downstream response headers: %w", err)
 	}
 	ginContext.Writer.WriteHeaderNow()
-	if len(body) > 0 {
+	if writeBody && len(body) > 0 {
 		written, writeErr := controlled.write(body)
 		if writeErr != nil {
 			return fmt.Errorf("write downstream response: %w", writeErr)

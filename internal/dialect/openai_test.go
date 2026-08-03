@@ -384,11 +384,12 @@ func TestOpenAIListModelsAppliesHeaderRuleOverrides(t *testing.T) {
 	}
 }
 
-func TestOpenAIListModelsForcesIdentityAndCollectsUniqueModels(t *testing.T) {
+func TestOpenAIListModelsIdentityRepresentationAndCollectsUniqueModels(t *testing.T) {
 	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
-		if got := request.Header.Values("Accept-Encoding"); !reflect.DeepEqual(got, []string{"identity"}) {
-			t.Fatalf("Accept-Encoding = %#v, want one identity", got)
-		}
+		assertOutboundRequestRepresentation(t, request, 0, map[string]string{
+			"Authorization": "Token secret",
+			"X-Business":    "preserved",
+		})
 		return &http.Response{
 			StatusCode: http.StatusOK,
 			Header:     make(http.Header),
@@ -400,10 +401,7 @@ func TestOpenAIListModelsForcesIdentityAndCollectsUniqueModels(t *testing.T) {
 		context.Background(),
 		"https://api.example.com",
 		"secret",
-		state.HeaderRules{
-			Set:    map[string]string{"Accept-Encoding": "gzip"},
-			Remove: []string{"Accept-Encoding"},
-		},
+		legacyRepresentationHeaderRules(map[string]string{"Authorization": "Token ${API_KEY}"}),
 	)
 	if err != nil {
 		t.Fatalf("ListModels() error = %v", err)
