@@ -52,8 +52,8 @@ func TestCredentialAndForbiddenHeaderPolicy(t *testing.T) {
 			if got := IsForbiddenRequestRuleSetName(test.name); got != test.want {
 				t.Errorf(
 					"IsForbiddenRequestRuleSetName(%q) = %t, want %t",
-					got,
 					test.name,
+					got,
 					test.want,
 				)
 			}

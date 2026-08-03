@@ -329,7 +329,7 @@ func (forwarder *Forwarder) ForwardStream(
 		}
 		return rewritten, nil
 	})
-	invalidateRewrittenBodyHeaders(headers)
+	normalizePlainStreamingResponseHeaders(headers)
 
 	firstEvent, err := bufferFirstSSEEvent(streamBody)
 	if err != nil {
@@ -481,7 +481,6 @@ func (forwarder *Forwarder) newUpstreamRequest(
 	if stream && input.Group.InjectUsageOptions && forwarder != nil && forwarder.usageCapture != nil {
 		parsed = forwarder.usageCapture.injectStreamUsage(input.Dialect, parsed)
 	}
-	bodyChanged := !bytes.Equal(input.Request.Body, parsed.Body)
 	upstreamURL, err := input.Dialect.BuildUpstreamURL(input.Group.UpstreamURL, parsed)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("build upstream URL: %w", err)
@@ -495,15 +494,12 @@ func (forwarder *Forwarder) newUpstreamRequest(
 	request.ContentLength = int64(len(parsed.Body))
 	request.GetBody = nil
 	request.Header = cloneEndToEndHeaders(parsed.Header)
-	if bodyChanged {
-		invalidateRewrittenBodyHeaders(request.Header)
-	}
+	stripRepresentationMetadata(request.Header)
 	removeDownstreamCredentials(request.Header)
 	dialect.ApplyCredential(input.Dialect, request.Header, input.APIKey, input.Group.HeaderRules)
 	sanitizeUpstreamRequestHeaders(request.Header)
-	if stream || rewrite {
-		request.Header.Set("Accept-Encoding", "identity")
-	}
+	stripRepresentationMetadata(request.Header)
+	request.Header.Set("Accept-Encoding", "identity")
 	if _, exists := request.Header["User-Agent"]; !exists {
 		request.Header["User-Agent"] = nil
 	}
@@ -571,19 +567,12 @@ func (forwarder *Forwarder) prepareErrorBody(
 			return wire, safePlain
 		}
 	}
-	if bytes.Equal(downstreamPlain, plain) {
-		return bytes.Clone(wire), safePlain
-	}
-	safeWire, err := utils.CompressResponse(encoding, downstreamPlain)
-	if err != nil || int64(len(safeWire)) > maxErrorResponseBodyBytes {
-		if needsModelRewrite(input) {
-			wire, _ := failClosedErrorBody(headers)
-			return wire, safePlain
-		}
+	downstreamBody := bytes.Clone(downstreamPlain)
+	if int64(len(downstreamBody)) > maxDecompressedErrorBodyBytes {
 		return failClosedErrorBody(headers)
 	}
-	updateRewrittenBodyHeaders(headers, len(safeWire))
-	return safeWire, safePlain
+	rebuildPlainBufferedResponseHeaders(headers, len(downstreamBody))
+	return downstreamBody, safePlain
 }
 
 func isResolvedCredentialHeaderName(selected dialect.Dialect, name string) bool {

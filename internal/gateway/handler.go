@@ -15,6 +15,7 @@ import (
 
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/health"
+	"gpt-load/internal/platform/contentcoding"
 	"gpt-load/internal/platform/encryption"
 	"gpt-load/internal/platform/utils"
 	"gpt-load/internal/pricing"
@@ -269,6 +270,10 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 		handler.completeReason(ginContext, recorder, reasonAccessKeyRateLimited)
 		return
 	}
+	if !contentcoding.AcceptsIdentity(ginContext.Request.Header.Values("Accept-Encoding")) {
+		handler.completeReason(ginContext, recorder, reasonNotAcceptable)
+		return
+	}
 	if selectedRoute.Kind == endpointModels {
 		handler.writeVisibleModelList(ginContext, snapshot, accessKey, selectedRoute.Protocol)
 		return
@@ -295,24 +300,35 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 		allowedKeyRefs[ref.ID] = ref
 	}
 
-	body, err := readRequestBody(ginContext.Request.Body, maxRequestBodyBytes)
+	body, requestHeaders, err := readDecodedRequestBody(
+		ginContext.Request,
+		maxRequestBodyBytes,
+		maxRequestBodyBytes,
+	)
 	if err != nil {
 		if ginContext.Request.Context().Err() != nil {
 			recorder.completeCanceled(0)
 			return
 		}
-		if errors.Is(err, errRequestTooLarge) {
+		switch {
+		case errors.Is(err, contentcoding.ErrEncodedTooLarge),
+			errors.Is(err, contentcoding.ErrDecodedTooLarge),
+			errors.Is(err, errRequestTooLarge):
 			handler.completeReason(ginContext, recorder, reasonRequestTooLarge)
-			return
+		case errors.Is(err, contentcoding.ErrUnsupportedEncoding):
+			handler.completeReason(ginContext, recorder, reasonUnsupportedContentEncoding)
+		case errors.Is(err, contentcoding.ErrInvalidEncoding):
+			handler.completeReason(ginContext, recorder, reasonInvalidContentEncoding)
+		default:
+			handler.completeReason(ginContext, recorder, reasonInvalidProtocolRequest)
 		}
-		handler.completeReason(ginContext, recorder, reasonInvalidProtocolRequest)
 		return
 	}
 	parsed := &dialect.ParsedRequest{
 		Method:   ginContext.Request.Method,
 		Path:     ginContext.Request.URL.Path,
 		RawQuery: ginContext.Request.URL.RawQuery,
-		Header:   ginContext.Request.Header.Clone(),
+		Header:   requestHeaders,
 		Body:     body,
 	}
 	metadata, err := selectedDialect.InspectRequest(parsed)

@@ -84,17 +84,11 @@ func (forwarder *Forwarder) prepareSuccessRepresentation(
 	if preparedHeaders == nil {
 		preparedHeaders = make(http.Header)
 	}
-	preparedWire := bytes.Clone(wire)
-	if changed {
-		preparedWire, err = utils.CompressResponse(encoding, downstreamPlain)
-		if err != nil {
-			return preparedSuccessRepresentation{}, successRepresentationProtocolError("recompress response body")
-		}
-		if int64(len(preparedWire)) > maxNonStreamingResponseBodyBytes {
-			return preparedSuccessRepresentation{}, successRepresentationProtocolError("recompressed response body exceeds limit")
-		}
-		updateRewrittenBodyHeaders(preparedHeaders, len(preparedWire))
+	preparedWire := bytes.Clone(downstreamPlain)
+	if int64(len(preparedWire)) > maxNonStreamingResponseBodyBytes {
+		return preparedSuccessRepresentation{}, successRepresentationProtocolError("downstream response body exceeds limit")
 	}
+	rebuildPlainBufferedResponseHeaders(preparedHeaders, len(preparedWire))
 	if representationMetadataContainsSecrets(preparedHeaders, secrets) {
 		return preparedSuccessRepresentation{}, successRepresentationProtocolError("credential collision in rebuilt representation metadata")
 	}
