@@ -1,0 +1,756 @@
+=== gofmt -l ===
+
+=== go vet ===
+go: downloading github.com/gin-gonic/gin v1.12.0
+go: downloading go.uber.org/dig v1.19.0
+go: downloading github.com/sirupsen/logrus v1.9.4
+go: downloading gorm.io/gorm v1.31.2
+go: downloading github.com/joho/godotenv v1.5.1
+go: downloading github.com/andybalholm/brotli v1.2.2
+go: downloading github.com/klauspost/compress v1.19.1
+go: downloading github.com/glebarez/sqlite v1.11.0
+go: downloading github.com/nicksnyder/go-i18n/v2 v2.6.1
+go: downloading golang.org/x/text v0.40.0
+go: downloading golang.org/x/sys v0.47.0
+go: downloading golang.org/x/crypto v0.54.0
+go: downloading github.com/jinzhu/now v1.1.5
+go: downloading github.com/gin-contrib/sse v1.1.1
+go: downloading github.com/mattn/go-isatty v0.0.24
+go: downloading github.com/quic-go/quic-go v0.59.1
+go: downloading golang.org/x/net v0.56.0
+go: downloading github.com/glebarez/go-sqlite v1.22.0
+go: downloading modernc.org/sqlite v1.54.0
+go: downloading github.com/jinzhu/inflection v1.0.0
+go: downloading github.com/go-playground/validator/v10 v10.30.3
+go: downloading github.com/goccy/go-yaml v1.19.2
+go: downloading github.com/pelletier/go-toml/v2 v2.2.4
+go: downloading github.com/ugorji/go/codec v1.3.1
+go: downloading go.mongodb.org/mongo-driver/v2 v2.5.1
+go: downloading google.golang.org/protobuf v1.36.11
+go: downloading github.com/quic-go/qpack v0.6.0
+go: downloading modernc.org/libc v1.74.4
+go: downloading github.com/gabriel-vasile/mimetype v1.4.15
+go: downloading github.com/go-playground/universal-translator v0.18.1
+go: downloading github.com/leodido/go-urn v1.4.0
+go: downloading github.com/go-playground/locales v0.14.1
+go: downloading modernc.org/memory v1.11.0
+go: downloading github.com/google/uuid v1.6.0
+go: downloading github.com/dustin/go-humanize v1.0.1
+go: downloading modernc.org/mathutil v1.7.1
+go: downloading github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec
+
+=== focused tests ===
+--- FAIL: TestReadDecodedBodySupportsAllSingleEncodings (0.00s)
+    --- FAIL: TestReadDecodedBodySupportsAllSingleEncodings/zstd (0.00s)
+        contentcoding_test.go:69: ReadDecodedBody("zstd") = "", invalid content encoding
+            window size exceeded; want "{\"model\":\"test-model\",\"stream\":false}"
+FAIL
+FAIL	gpt-load/internal/platform/contentcoding	0.020s
+ok  	gpt-load/internal/platform/httpheader	0.004s
+time="2026-08-03T13:58:26Z" level=warning msg="[DATA] Authentication failed" event=data_plane_auth_failed peer_ip=192.0.2.1 plane=data total=1
+--- FAIL: TestTransparentModelRoutePreservesWire (0.02s)
+    dialects_integration_test.go:698: upstream Accept-Encoding = "identity", want HeaderRule gzip
+--- FAIL: TestForwarderBoundsDecompressedErrorBodies (0.87s)
+    --- FAIL: TestForwarderBoundsDecompressedErrorBodies/gzip (0.21s)
+        forward_test.go:357: exact limit result body lengths = 1048576/1048576, headers=http.Header{"Content-Length":[]string{"1048576"}, "Date":[]string{"Mon, 03 Aug 2026 13:58:34 GMT"}}
+    --- FAIL: TestForwarderBoundsDecompressedErrorBodies/br (0.22s)
+        forward_test.go:357: exact limit result body lengths = 1048576/1048576, headers=http.Header{"Content-Length":[]string{"1048576"}, "Date":[]string{"Mon, 03 Aug 2026 13:58:34 GMT"}}
+    --- FAIL: TestForwarderBoundsDecompressedErrorBodies/deflate (0.22s)
+        forward_test.go:357: exact limit result body lengths = 1048576/1048576, headers=http.Header{"Content-Length":[]string{"1048576"}, "Date":[]string{"Mon, 03 Aug 2026 13:58:34 GMT"}}
+    --- FAIL: TestForwarderBoundsDecompressedErrorBodies/zstd (0.21s)
+        forward_test.go:357: exact limit result body lengths = 1048576/1048576, headers=http.Header{"Content-Length":[]string{"1048576"}, "Date":[]string{"Mon, 03 Aug 2026 13:58:34 GMT"}}
+--- FAIL: TestForwarderFailsClosedWhenRedactionExpandsErrorBeyondBounds (0.15s)
+    --- FAIL: TestForwarderFailsClosedWhenRedactionExpandsErrorBeyondBounds/identity_wire_exceeds_limit_after_redaction (0.14s)
+        forward_test.go:408: result status=401 body=655360 classification=655360 encoding="" err=<nil>
+--- FAIL: TestForwarderFailsClosedWhenShortKeyMatchesContentEncoding (0.00s)
+    --- FAIL: TestForwarderFailsClosedWhenShortKeyMatchesContentEncoding/success (0.00s)
+        forward_test.go:879: result = gateway.UpstreamResult{StatusCode:200, Header:http.Header{"Content-Length":[]string{"16"}, "Date":[]string{"Mon, 03 Aug 2026 13:58:35 GMT"}}, Body:[]uint8{0x7b, 0x22, 0x65, 0x72, 0x72, 0x6f, 0x72, 0x22, 0x3a, 0x22, 0x73, 0x61, 0x66, 0x65, 0x22, 0x7d}, ClassificationBody:[]uint8(nil), ErrorSummary:"", Err:error(nil), RequestWritten:true, Committed:false, RetryableBeforeCommit:false, ProviderErrorBeforeCommit:false, Stream:gateway.StreamObservation{EndReason:0x0, ErrorSummary:""}, Usage:usage.Result{Tokens:usage.Tokens{UncachedInput:0, CacheRead:0, CacheWrite5M:0, CacheWrite1H:0, CacheWriteUnknown:0, Output:0}, State:"not_applicable", Diagnostics:usage.Diagnostics{flags:0x0, totalDelta:0, deltaPresent:false}}}
+    --- FAIL: TestForwarderFailsClosedWhenShortKeyMatchesContentEncoding/error (0.00s)
+        forward_test.go:885: result = gateway.UpstreamResult{StatusCode:401, Header:http.Header{"Content-Length":[]string{"16"}, "Date":[]string{"Mon, 03 Aug 2026 13:58:35 GMT"}}, Body:[]uint8{0x7b, 0x22, 0x65, 0x72, 0x72, 0x6f, 0x72, 0x22, 0x3a, 0x22, 0x73, 0x61, 0x66, 0x65, 0x22, 0x7d}, ClassificationBody:[]uint8{0x7b, 0x22, 0x65, 0x72, 0x72, 0x6f, 0x72, 0x22, 0x3a, 0x22, 0x73, 0x61, 0x66, 0x65, 0x22, 0x7d}, ErrorSummary:"safe", Err:error(nil), RequestWritten:true, Committed:false, RetryableBeforeCommit:false, ProviderErrorBeforeCommit:false, Stream:gateway.StreamObservation{EndReason:0x0, ErrorSummary:""}, Usage:usage.Result{Tokens:usage.Tokens{UncachedInput:0, CacheRead:0, CacheWrite5M:0, CacheWrite1H:0, CacheWriteUnknown:0, Output:0}, State:"not_applicable", Diagnostics:usage.Diagnostics{flags:0x0, totalDelta:0, deltaPresent:false}}}
+time="2026-08-03T13:58:35Z" level=warning msg="[DATA] Usage capture failure" phase=stream_observe plane=data protocol=openai-completions total=1
+time="2026-08-03T13:58:35Z" level=warning msg="[DATA] Usage capture failure" phase=stream_observe plane=data protocol=openai-completions total=1
+time="2026-08-03T13:58:35Z" level=warning msg="[DATA] Usage capture failure" phase=stream_observe plane=data protocol=openai-completions total=1
+time="2026-08-03T13:58:42Z" level=warning msg="[DATA] Usage capture failure" phase=stream_observe plane=data protocol=openai-completions total=1
+time="2026-08-03T13:58:43Z" level=warning msg="[DATA] Usage capture failure" phase=stream_observe plane=data protocol=openai-completions total=1
+time="2026-08-03T13:58:43Z" level=warning msg="[DATA] Usage capture failure" phase=stream_observe plane=data protocol=openai-completions total=1
+time="2026-08-03T13:58:43Z" level=warning msg="[DATA] Usage capture failure" phase=stream_observe plane=data protocol=openai-completions total=1
+time="2026-08-03T13:58:43Z" level=warning msg="[DATA] Usage capture failure" phase=stream_observe plane=data protocol=openai-completions total=1
+time="2026-08-03T13:58:43Z" level=warning msg="[DATA] Usage capture failure" phase=stream_observe plane=data protocol=openai-completions total=1
+time="2026-08-03T13:58:43Z" level=warning msg="[DATA] Usage capture failure" phase=stream_observe plane=data protocol=openai-completions total=1
+time="2026-08-03T13:58:43Z" level=warning msg="[DATA] Usage capture failure" phase=stream_observe plane=data protocol=openai-completions total=1
+time="2026-08-03T13:58:43Z" level=warning msg="[DATA] Usage capture failure" phase=stream_observe plane=data protocol=openai-completions total=1
+time="2026-08-03T13:58:43Z" level=warning msg="[DATA] Usage capture failure" phase=stream_observe plane=data protocol=openai-completions total=1
+--- FAIL: TestForwarderIsolatesAliasedModelFromNonStreamingErrors (0.00s)
+    --- FAIL: TestForwarderIsolatesAliasedModelFromNonStreamingErrors/gzip (0.00s)
+        forward_test.go:2546: decompress downstream body: failed to create gzip reader: gzip: invalid header
+--- FAIL: TestForwarderRewritesEscapedAliasedModelInJSONErrors (0.00s)
+    --- FAIL: TestForwarderRewritesEscapedAliasedModelInJSONErrors/gzip (0.00s)
+        forward_test.go:2610: decompress downstream body: failed to create gzip reader: gzip: invalid header
+--- FAIL: TestForwarderRedactsEscapedAPIKeyInJSONErrors (0.00s)
+    --- FAIL: TestForwarderRedactsEscapedAPIKeyInJSONErrors/gzip (0.00s)
+        forward_test.go:2673: decompress downstream body: failed to create gzip reader: gzip: invalid header
+--- FAIL: TestForwarderRedactsCompressedErrorAndPreservesEncoding (0.00s)
+    forward_test.go:2826: Content-Encoding = "", want gzip
+--- FAIL: TestForwarderPreservesUnchangedCompressedErrorWireBytes (0.00s)
+    forward_test.go:2862: wire body changed without redaction: got 7b226572726f72223a7b22636f6465223a22726174655f6c696d69746564227d7d want 1f8b08000000000000ffaa564a2d2aca2f52b2aa564ace4f4955b2522a4a2c498dcfc9cccd2c494d51aaad05040000ffff6c5a966921000000
+time="2026-08-03T13:58:43Z" level=warning msg="[DATA] Usage capture failure" phase=inject plane=data protocol=openai-completions total=1
+--- FAIL: TestForwardStreamInvalidatesRequestRepresentationMetadataOnlyWhenBodyChanges (0.00s)
+    --- FAIL: TestForwardStreamInvalidatesRequestRepresentationMetadataOnlyWhenBodyChanges/disabled_injection_preserves_metadata (0.00s)
+        forward_test.go:3251: Content-Digest = "", want preserved value "sha-256=:d2lyZQ==:"
+        forward_test.go:3251: Repr-Digest = "", want preserved value "sha-256=:cmVwcg==:"
+        forward_test.go:3251: Signature = "", want preserved value "sig1=:c2lnbmF0dXJl:"
+        forward_test.go:3251: Signature-Input = "", want preserved value "sig1=(\"content-digest\");created=1"
+        forward_test.go:3251: ETag = "", want preserved value "\"wire-v1\""
+        forward_test.go:3251: Digest = "", want preserved value "sha-256=wire-digest"
+        forward_test.go:3251: Content-MD5 = "", want preserved value "d2lyZQ=="
+        forward_test.go:3251: Content-Range = "", want preserved value "bytes 0-9/10"
+    --- FAIL: TestForwardStreamInvalidatesRequestRepresentationMetadataOnlyWhenBodyChanges/failed_injection_preserves_metadata_when_body_is_unchanged (0.00s)
+        forward_test.go:3251: ETag = "", want preserved value "\"wire-v1\""
+        forward_test.go:3251: Digest = "", want preserved value "sha-256=wire-digest"
+        forward_test.go:3251: Content-MD5 = "", want preserved value "d2lyZQ=="
+        forward_test.go:3251: Content-Range = "", want preserved value "bytes 0-9/10"
+        forward_test.go:3251: Content-Digest = "", want preserved value "sha-256=:d2lyZQ==:"
+        forward_test.go:3251: Repr-Digest = "", want preserved value "sha-256=:cmVwcg==:"
+        forward_test.go:3251: Signature = "", want preserved value "sig1=:c2lnbmF0dXJl:"
+        forward_test.go:3251: Signature-Input = "", want preserved value "sig1=(\"content-digest\");created=1"
+    --- FAIL: TestForwardStreamInvalidatesRequestRepresentationMetadataOnlyWhenBodyChanges/group_header_rules_can_add_fresh_metadata (0.00s)
+        forward_test.go:3256: Digest = "", want fresh Group HeaderRules value "sha-256=group-digest"
+        forward_test.go:3256: Signature = "", want fresh Group HeaderRules value "group-signature"
+time="2026-08-03T13:58:43Z" level=warning msg="[DATA] Usage capture failure" phase=inject plane=data protocol=openai-completions total=1
+time="2026-08-03T13:58:43Z" level=warning msg="[DATA] Usage capture failure" phase=inject plane=data protocol=openai-completions total=1
+time="2026-08-03T13:58:43Z" level=warning msg="[DATA] Usage capture failure" phase=inject plane=data protocol=openai-completions total=1
+time="2026-08-03T13:58:43Z" level=warning msg="[DATA] Usage capture failure" phase=inject plane=data protocol=openai-completions total=1
+time="2026-08-03T13:58:43Z" level=warning msg="[DATA] Usage capture failure" phase=inject plane=data protocol=openai-completions total=1
+time="2026-08-03T13:58:43Z" level=warning msg="[DATA] Authentication failed" event=data_plane_auth_failed peer_ip=192.0.2.1 plane=data total=1
+time="2026-08-03T13:58:43Z" level=warning msg="[DATA] Authentication failed" event=data_plane_auth_failed peer_ip=192.0.2.1 plane=data total=1
+time="2026-08-03T13:58:44Z" level=warning msg="[DATA] Authentication failed" event=data_plane_auth_failed peer_ip=192.0.2.1 plane=data total=1
+time="2026-08-03T13:58:45Z" level=warning msg="[DATA] Authentication failed" event=data_plane_auth_failed peer_ip=192.0.2.1 plane=data total=1
+time="2026-08-03T13:58:46Z" level=warning msg="[DATA] Authentication failed" event=data_plane_auth_failed peer_ip=192.0.2.1 plane=data total=1
+--- FAIL: TestForwardSuccessRepresentationPreservesUnchangedWireAndMetadata (0.01s)
+    --- FAIL: TestForwardSuccessRepresentationPreservesUnchangedWireAndMetadata/empty (0.00s)
+        response_representation_test.go:135: Content-Digest = "", want preserved value "sha-256=:d2lyZQ==:"
+        response_representation_test.go:135: Repr-Digest = "", want preserved value "sha-256=:cmVwcg==:"
+        response_representation_test.go:135: Signature = "", want preserved value "sig1=:c2lnbmF0dXJl:"
+        response_representation_test.go:135: Signature-Input = "", want preserved value "sig1=(\"content-digest\");created=1"
+        response_representation_test.go:135: ETag = "", want preserved value "\"wire-v1\""
+        response_representation_test.go:135: Digest = "", want preserved value "sha-256=wire-digest"
+        response_representation_test.go:135: Content-MD5 = "", want preserved value "d2lyZQ=="
+        response_representation_test.go:135: Content-Range = "", want preserved value "bytes 0-9/10"
+    --- FAIL: TestForwardSuccessRepresentationPreservesUnchangedWireAndMetadata/identity (0.00s)
+        response_representation_test.go:130: Content-Encoding = "", want "identity"
+    --- FAIL: TestForwardSuccessRepresentationPreservesUnchangedWireAndMetadata/gzip (0.00s)
+        response_representation_test.go:127: wire changed without a plain-body change:
+             got 7b226964223a22736166652d726573706f6e7365222c227573616765223a7b2270726f6d70745f746f6b656e73223a3130302c22636f6d706c6574696f6e5f746f6b656e73223a33307d7d
+            want 1f8b08000000000000ffaa56ca4c51b2522a4e4c4bd52d4a2d2ec8cf2b4e55d2512a2d4e4c4f55b2aa562a28cacf2d28892fc9cf4ecd2b56b2323430d0514acecf2dc8492dc9cccf838b1b1bd4d602020000ffff28a453a74b000000
+    --- FAIL: TestForwardSuccessRepresentationPreservesUnchangedWireAndMetadata/br (0.00s)
+        response_representation_test.go:127: wire changed without a plain-body change:
+             got 7b226964223a22736166652d726573706f6e7365222c227573616765223a7b2270726f6d70745f746f6b656e73223a3130302c22636f6d706c6574696f6e5f746f6b656e73223a33307d7d
+            want 1b4a000004a29dd37ef3ab97edb7450a6580b00928e38460b03ac15d5e87899c5050bbff3e5ac638a91667012176618fb5675f372e5e07f3aac2a1c036074bd0ff01
+    --- FAIL: TestForwardSuccessRepresentationPreservesUnchangedWireAndMetadata/deflate (0.00s)
+        response_representation_test.go:127: wire changed without a plain-body change:
+             got 7b226964223a22736166652d726573706f6e7365222c227573616765223a7b2270726f6d70745f746f6b656e73223a3130302c22636f6d706c6574696f6e5f746f6b656e73223a33307d7d
+            want 789caa56ca4c51b2522a4e4c4bd52d4a2d2ec8cf2b4e55d2512a2d4e4c4f55b2aa562a28cacf2d28892fc9cf4ecd2b56b2323430d0514acecf2dc8492dc9cccf838b1b1bd4d602020000ffffda911a58
+    --- FAIL: TestForwardSuccessRepresentationPreservesUnchangedWireAndMetadata/zstd (0.00s)
+        response_representation_test.go:127: wire changed without a plain-body change:
+             got 7b226964223a22736166652d726573706f6e7365222c227573616765223a7b2270726f6d70745f746f6b656e73223a3130302c22636f6d706c6574696f6e5f746f6b656e73223a33307d7d
+            want 28b52ffd04005902007b226964223a22736166652d726573706f6e7365222c227573616765223a7b2270726f6d70745f746f6b656e73223a3130302c22636f6d706c6574696f6e5f746f6b656e73223a33307d7dfc74f007
+--- FAIL: TestPrepareSuccessRepresentationRejectsUnchangedCredentialMetadataCollision (0.00s)
+    --- FAIL: TestPrepareSuccessRepresentationRejectsUnchangedCredentialMetadataCollision/Content-Encoding (0.00s)
+        response_representation_test.go:181: prepareSuccessRepresentation() = gateway.preparedSuccessRepresentation{headers:http.Header{"Content-Length":[]string{"22"}}, wire:[]uint8{0x7b, 0x22, 0x69, 0x64, 0x22, 0x3a, 0x22, 0x73, 0x61, 0x66, 0x65, 0x2d, 0x72, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x22, 0x7d}, plain:[]uint8{0x7b, 0x22, 0x69, 0x64, 0x22, 0x3a, 0x22, 0x73, 0x61, 0x66, 0x65, 0x2d, 0x72, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x22, 0x7d}, changed:false}, <nil>; want fail-closed protocol error
+    --- FAIL: TestPrepareSuccessRepresentationRejectsUnchangedCredentialMetadataCollision/ETag (0.00s)
+        response_representation_test.go:181: prepareSuccessRepresentation() = gateway.preparedSuccessRepresentation{headers:http.Header{"Content-Length":[]string{"22"}}, wire:[]uint8{0x7b, 0x22, 0x69, 0x64, 0x22, 0x3a, 0x22, 0x73, 0x61, 0x66, 0x65, 0x2d, 0x72, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x22, 0x7d}, plain:[]uint8{0x7b, 0x22, 0x69, 0x64, 0x22, 0x3a, 0x22, 0x73, 0x61, 0x66, 0x65, 0x2d, 0x72, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x22, 0x7d}, changed:false}, <nil>; want fail-closed protocol error
+    --- FAIL: TestPrepareSuccessRepresentationRejectsUnchangedCredentialMetadataCollision/Digest (0.00s)
+        response_representation_test.go:181: prepareSuccessRepresentation() = gateway.preparedSuccessRepresentation{headers:http.Header{"Content-Length":[]string{"22"}}, wire:[]uint8{0x7b, 0x22, 0x69, 0x64, 0x22, 0x3a, 0x22, 0x73, 0x61, 0x66, 0x65, 0x2d, 0x72, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x22, 0x7d}, plain:[]uint8{0x7b, 0x22, 0x69, 0x64, 0x22, 0x3a, 0x22, 0x73, 0x61, 0x66, 0x65, 0x2d, 0x72, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x22, 0x7d}, changed:false}, <nil>; want fail-closed protocol error
+    --- FAIL: TestPrepareSuccessRepresentationRejectsUnchangedCredentialMetadataCollision/Content-MD5 (0.00s)
+        response_representation_test.go:181: prepareSuccessRepresentation() = gateway.preparedSuccessRepresentation{headers:http.Header{"Content-Length":[]string{"22"}}, wire:[]uint8{0x7b, 0x22, 0x69, 0x64, 0x22, 0x3a, 0x22, 0x73, 0x61, 0x66, 0x65, 0x2d, 0x72, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x22, 0x7d}, plain:[]uint8{0x7b, 0x22, 0x69, 0x64, 0x22, 0x3a, 0x22, 0x73, 0x61, 0x66, 0x65, 0x2d, 0x72, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x22, 0x7d}, changed:false}, <nil>; want fail-closed protocol error
+    --- FAIL: TestPrepareSuccessRepresentationRejectsUnchangedCredentialMetadataCollision/Content-Range (0.00s)
+        response_representation_test.go:181: prepareSuccessRepresentation() = gateway.preparedSuccessRepresentation{headers:http.Header{"Content-Length":[]string{"22"}}, wire:[]uint8{0x7b, 0x22, 0x69, 0x64, 0x22, 0x3a, 0x22, 0x73, 0x61, 0x66, 0x65, 0x2d, 0x72, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x22, 0x7d}, plain:[]uint8{0x7b, 0x22, 0x69, 0x64, 0x22, 0x3a, 0x22, 0x73, 0x61, 0x66, 0x65, 0x2d, 0x72, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x22, 0x7d}, changed:false}, <nil>; want fail-closed protocol error
+    --- FAIL: TestPrepareSuccessRepresentationRejectsUnchangedCredentialMetadataCollision/Content-Digest (0.00s)
+        response_representation_test.go:181: prepareSuccessRepresentation() = gateway.preparedSuccessRepresentation{headers:http.Header{"Content-Length":[]string{"22"}}, wire:[]uint8{0x7b, 0x22, 0x69, 0x64, 0x22, 0x3a, 0x22, 0x73, 0x61, 0x66, 0x65, 0x2d, 0x72, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x22, 0x7d}, plain:[]uint8{0x7b, 0x22, 0x69, 0x64, 0x22, 0x3a, 0x22, 0x73, 0x61, 0x66, 0x65, 0x2d, 0x72, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x22, 0x7d}, changed:false}, <nil>; want fail-closed protocol error
+    --- FAIL: TestPrepareSuccessRepresentationRejectsUnchangedCredentialMetadataCollision/Repr-Digest (0.00s)
+        response_representation_test.go:181: prepareSuccessRepresentation() = gateway.preparedSuccessRepresentation{headers:http.Header{"Content-Length":[]string{"22"}}, wire:[]uint8{0x7b, 0x22, 0x69, 0x64, 0x22, 0x3a, 0x22, 0x73, 0x61, 0x66, 0x65, 0x2d, 0x72, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x22, 0x7d}, plain:[]uint8{0x7b, 0x22, 0x69, 0x64, 0x22, 0x3a, 0x22, 0x73, 0x61, 0x66, 0x65, 0x2d, 0x72, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x22, 0x7d}, changed:false}, <nil>; want fail-closed protocol error
+    --- FAIL: TestPrepareSuccessRepresentationRejectsUnchangedCredentialMetadataCollision/Signature (0.00s)
+        response_representation_test.go:181: prepareSuccessRepresentation() = gateway.preparedSuccessRepresentation{headers:http.Header{"Content-Length":[]string{"22"}}, wire:[]uint8{0x7b, 0x22, 0x69, 0x64, 0x22, 0x3a, 0x22, 0x73, 0x61, 0x66, 0x65, 0x2d, 0x72, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x22, 0x7d}, plain:[]uint8{0x7b, 0x22, 0x69, 0x64, 0x22, 0x3a, 0x22, 0x73, 0x61, 0x66, 0x65, 0x2d, 0x72, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x22, 0x7d}, changed:false}, <nil>; want fail-closed protocol error
+    --- FAIL: TestPrepareSuccessRepresentationRejectsUnchangedCredentialMetadataCollision/Signature-Input (0.00s)
+        response_representation_test.go:181: prepareSuccessRepresentation() = gateway.preparedSuccessRepresentation{headers:http.Header{"Content-Length":[]string{"22"}}, wire:[]uint8{0x7b, 0x22, 0x69, 0x64, 0x22, 0x3a, 0x22, 0x73, 0x61, 0x66, 0x65, 0x2d, 0x72, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x22, 0x7d}, plain:[]uint8{0x7b, 0x22, 0x69, 0x64, 0x22, 0x3a, 0x22, 0x73, 0x61, 0x66, 0x65, 0x2d, 0x72, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x22, 0x7d}, changed:false}, <nil>; want fail-closed protocol error
+    response_representation_test.go:209: non-collision representation = gateway.preparedSuccessRepresentation{headers:http.Header{"Content-Length":[]string{"22"}}, wire:[]uint8{0x7b, 0x22, 0x69, 0x64, 0x22, 0x3a, 0x22, 0x73, 0x61, 0x66, 0x65, 0x2d, 0x72, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x22, 0x7d}, plain:[]uint8{0x7b, 0x22, 0x69, 0x64, 0x22, 0x3a, 0x22, 0x73, 0x61, 0x66, 0x65, 0x2d, 0x72, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x22, 0x7d}, changed:false}, <nil>; want unchanged wire and framing
+--- FAIL: TestPrepareSuccessRepresentationRebuildsChangedBodyDespiteStaleCredentialMetadata (0.00s)
+    response_representation_test.go:247: rebuilt plain/error = ""/failed to create gzip reader: gzip: invalid header
+--- FAIL: TestPrepareSuccessRepresentationRemovesAliasedModelFromUnchangedMetadata (0.00s)
+    response_representation_test.go:291: unchanged safe headers = http.Header{"Content-Length":[]string{"22"}, "X-Safe":[]string{"kept"}}
+--- FAIL: TestForwardSuccessRepresentationRedactsAndRebuildsMetadata (0.01s)
+    --- FAIL: TestForwardSuccessRepresentationRedactsAndRebuildsMetadata/credential_redaction/identity (0.00s)
+        response_representation_test.go:355: Content-Encoding = "", want "identity"
+    --- FAIL: TestForwardSuccessRepresentationRedactsAndRebuildsMetadata/credential_redaction/gzip (0.00s)
+        response_representation_test.go:346: decompress downstream representation: failed to create gzip reader: gzip: invalid header
+    --- FAIL: TestForwardSuccessRepresentationRedactsAndRebuildsMetadata/credential_redaction/br (0.00s)
+        response_representation_test.go:346: decompress downstream representation: failed to read brotli data: brotli: PADDING_2
+    --- FAIL: TestForwardSuccessRepresentationRedactsAndRebuildsMetadata/credential_redaction/deflate (0.00s)
+        response_representation_test.go:346: decompress downstream representation: failed to create deflate reader: zlib: invalid header
+    --- FAIL: TestForwardSuccessRepresentationRedactsAndRebuildsMetadata/credential_redaction/zstd (0.00s)
+        response_representation_test.go:346: decompress downstream representation: failed to read zstd data: invalid input: magic number mismatch
+    --- FAIL: TestForwardSuccessRepresentationRedactsAndRebuildsMetadata/model_alias_rewrite/identity (0.00s)
+        response_representation_test.go:355: Content-Encoding = "", want "identity"
+    --- FAIL: TestForwardSuccessRepresentationRedactsAndRebuildsMetadata/model_alias_rewrite/gzip (0.00s)
+        response_representation_test.go:346: decompress downstream representation: failed to create gzip reader: gzip: invalid header
+    --- FAIL: TestForwardSuccessRepresentationRedactsAndRebuildsMetadata/model_alias_rewrite/br (0.00s)
+        response_representation_test.go:346: decompress downstream representation: failed to read brotli data: brotli: PADDING_2
+    --- FAIL: TestForwardSuccessRepresentationRedactsAndRebuildsMetadata/model_alias_rewrite/deflate (0.00s)
+        response_representation_test.go:346: decompress downstream representation: failed to create deflate reader: zlib: invalid header
+    --- FAIL: TestForwardSuccessRepresentationRedactsAndRebuildsMetadata/model_alias_rewrite/zstd (0.00s)
+        response_representation_test.go:346: decompress downstream representation: failed to read zstd data: invalid input: magic number mismatch
+--- FAIL: TestForwardSuccessRepresentationRejectsUnknownStackedMalformedAndPlainOverflow (0.16s)
+    --- FAIL: TestForwardSuccessRepresentationRejectsUnknownStackedMalformedAndPlainOverflow/Content-Encoding_credential_collision (0.00s)
+        response_representation_test.go:445: Forward() result = gateway.UpstreamResult{StatusCode:200, Header:http.Header{"Content-Length":[]string{"22"}, "Date":[]string{"Mon, 03 Aug 2026 13:58:46 GMT"}}, Body:[]uint8{0x7b, 0x22, 0x69, 0x64, 0x22, 0x3a, 0x22, 0x73, 0x61, 0x66, 0x65, 0x2d, 0x72, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x22, 0x7d}, ClassificationBody:[]uint8(nil), ErrorSummary:"", Err:error(nil), RequestWritten:true, Committed:false, RetryableBeforeCommit:false, ProviderErrorBeforeCommit:false, Stream:gateway.StreamObservation{EndReason:0x0, ErrorSummary:""}, Usage:usage.Result{Tokens:usage.Tokens{UncachedInput:0, CacheRead:0, CacheWrite5M:0, CacheWrite1H:0, CacheWriteUnknown:0, Output:0}, State:"not_applicable", Diagnostics:usage.Diagnostics{flags:0x0, totalDelta:0, deltaPresent:false}}}, want fail-closed post-write protocol error
+--- FAIL: TestForwardSuccessRepresentationExtractsUsageFromPlainBody (0.00s)
+    response_representation_test.go:731: decompress downstream response: failed to create gzip reader: gzip: invalid header
+time="2026-08-03T13:58:47Z" level=warning msg="[DATA] Usage capture failure" phase=stream_observe plane=data protocol=openai-completions total=1
+time="2026-08-03T13:58:47Z" level=warning msg="[DATA] Usage capture failure" phase=stream_observe plane=data protocol=openai-completions total=1
+time="2026-08-03T13:58:47Z" level=warning msg="[DATA] Usage capture failure" phase=inject plane=data protocol=openai-completions total=1
+time="2026-08-03T13:58:47Z" level=warning msg="[DATA] Usage capture failure" phase=stream_observe plane=data protocol=openai-completions total=1
+time="2026-08-03T13:58:47Z" level=warning msg="[DATA] Usage capture failure" phase=stream_observe plane=data protocol=openai-completions total=1
+time="2026-08-03T13:58:47Z" level=warning msg="[DATA] Usage capture failure" phase=stream_observe plane=data protocol=openai-completions total=1
+time="2026-08-03T13:58:47Z" level=warning msg="[DATA] Usage capture failure" phase=stream_observe plane=data protocol=openai-completions total=1
+time="2026-08-03T13:58:47Z" level=warning msg="[DATA] Usage capture failure" phase=stream_observe plane=data protocol=openai-completions total=1
+time="2026-08-03T13:58:47Z" level=warning msg="[DATA] Usage capture failure" phase=stream_constructor plane=data protocol=openai-completions total=1
+time="2026-08-03T13:58:47Z" level=warning msg="[DATA] Usage capture failure" phase=stream_constructor plane=data protocol=openai-completions total=1
+time="2026-08-03T13:58:47Z" level=warning msg="[DATA] Usage capture failure" phase=stream_observe plane=data protocol=openai-completions total=1
+time="2026-08-03T13:58:47Z" level=warning msg="[DATA] Usage capture failure" phase=stream_finalize plane=data protocol=openai-completions total=1
+time="2026-08-03T13:58:47Z" level=warning msg="[DATA] Usage capture failure" phase=stream_finalize plane=data protocol=openai-completions total=1
+time="2026-08-03T13:58:47Z" level=warning msg="[DATA] Usage capture failure" phase=stream_finalize plane=data protocol=openai-completions total=1
+time="2026-08-03T13:58:47Z" level=warning msg="[DATA] Usage capture failure" phase=inject plane=data protocol=openai-completions total=1
+time="2026-08-03T13:58:47Z" level=warning msg="[DATA] Usage capture failure" phase=inject plane=data protocol=openai-completions total=1
+time="2026-08-03T13:58:47Z" level=warning msg="[DATA] Usage capture failure" phase=inject plane=data protocol=openai-completions total=1
+time="2026-08-03T13:58:47Z" level=warning msg="[DATA] Usage capture failure" phase=inject plane=data protocol=openai-completions total=1
+time="2026-08-03T13:58:47Z" level=warning msg="[DATA] Usage capture failure" phase=stream_observe plane=data protocol=openai-completions total=1
+time="2026-08-03T13:58:47Z" level=warning msg="[DATA] Usage capture failure" phase=stream_observe plane=data protocol=openai-completions total=1
+time="2026-08-03T13:58:49Z" level=warning msg="[DATA] Usage capture failure" phase=extract plane=data protocol=openai-completions total=1
+time="2026-08-03T13:58:49Z" level=warning msg="[DATA] Usage capture failure" phase=extract plane=data protocol=openai-completions total=1
+time="2026-08-03T13:58:49Z" level=warning msg="[DATA] Usage capture failure" phase=extract plane=data protocol=openai-completions total=1
+time="2026-08-03T13:58:49Z" level=warning msg="[DATA] Usage capture failure" phase=extract plane=data protocol=openai-completions total=1
+time="2026-08-03T13:58:49Z" level=warning msg="[DATA] Usage capture failure" phase=extract plane=data protocol=openai-completions total=1
+time="2026-08-03T13:58:49Z" level=warning msg="[DATA] Usage capture failure" phase=extract plane=data protocol=openai-completions total=1
+time="2026-08-03T13:58:49Z" level=warning msg="[DATA] Usage capture failure" phase=extract plane=data protocol=openai-completions total=1
+time="2026-08-03T13:58:49Z" level=warning msg="[DATA] Usage capture failure" phase=decompress plane=data protocol=openai-completions total=1
+time="2026-08-03T13:58:49Z" level=warning msg="[DATA] Usage capture failure" phase=decompress plane=data protocol=openai-completions total=1
+time="2026-08-03T13:58:49Z" level=warning msg="[DATA] Usage capture failure" phase=decompress plane=data protocol=openai-completions total=1
+time="2026-08-03T13:58:49Z" level=warning msg="[DATA] Usage capture failure" phase=decompress plane=data protocol=openai-completions total=1
+time="2026-08-03T13:58:49Z" level=warning msg="[DATA] Usage capture failure" phase=decompress plane=data protocol=openai-completions total=1
+--- FAIL: TestForwardUsageCapturePreservesCompressedSuccessWire (0.00s)
+    usage_capture_test.go:1063: result = gateway.UpstreamResult{StatusCode:200, Header:http.Header{"Content-Length":[]string{"99"}, "Date":[]string{"Mon, 02 Jan 2006 15:04:05 GMT"}}, Body:[]uint8{0x7b, 0x22, 0x75, 0x73, 0x61, 0x67, 0x65, 0x22, 0x3a, 0x7b, 0x22, 0x70, 0x72, 0x6f, 0x6d, 0x70, 0x74, 0x5f, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x22, 0x3a, 0x31, 0x30, 0x30, 0x2c, 0x22, 0x63, 0x6f, 0x6d, 0x70, 0x6c, 0x65, 0x74, 0x69, 0x6f, 0x6e, 0x5f, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x22, 0x3a, 0x33, 0x30, 0x2c, 0x22, 0x70, 0x72, 0x6f, 0x6d, 0x70, 0x74, 0x5f, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x5f, 0x64, 0x65, 0x74, 0x61, 0x69, 0x6c, 0x73, 0x22, 0x3a, 0x7b, 0x22, 0x63, 0x61, 0x63, 0x68, 0x65, 0x64, 0x5f, 0x74, 0x6f, 0x6b, 0x65, 0x6e, 0x73, 0x22, 0x3a, 0x32, 0x30, 0x7d, 0x7d, 0x7d}, ClassificationBody:[]uint8(nil), ErrorSummary:"", Err:error(nil), RequestWritten:true, Committed:false, RetryableBeforeCommit:false, ProviderErrorBeforeCommit:false, Stream:gateway.StreamObservation{EndReason:0x0, ErrorSummary:""}, Usage:usage.Result{Tokens:usage.Tokens{UncachedInput:80, CacheRead:20, CacheWrite5M:0, CacheWrite1H:0, CacheWriteUnknown:0, Output:30}, State:"complete", Diagnostics:usage.Diagnostics{flags:0x0, totalDelta:0, deltaPresent:false}}}
+time="2026-08-03T13:58:49Z" level=warning msg="[DATA] Usage capture failure" phase=extract plane=data protocol=openai-completions total=1
+time="2026-08-03T13:58:49Z" level=warning msg="[DATA] Usage capture failure" phase=extract plane=data protocol=openai-completions total=1
+time="2026-08-03T13:58:49Z" level=warning msg="[DATA] Usage capture failure" phase=extract plane=data protocol=openai-completions total=1
+time="2026-08-03T13:58:49Z" level=warning msg="[DATA] Usage capture failure" phase=extract plane=data protocol=openai-completions total=1
+FAIL
+FAIL	gpt-load/internal/gateway	23.368s
+FAIL
+
+=== content-encoding expectations ===
+internal/gateway/content_coding_test.go:33:				request.Header.Set("Content-Encoding", encoding)
+internal/gateway/content_coding_test.go:44:			for _, name := range []string{"Content-Encoding", "Content-Length", "Digest", "Signature"} {
+internal/gateway/content_coding_test.go:58:	request.Header.Set("Content-Encoding", "gzip, br")
+internal/gateway/content_coding_test.go:64:	request.Header.Set("Content-Encoding", "gzip")
+internal/gateway/content_coding_test.go:72:	request.Header.Set("Content-Encoding", "gzip")
+internal/gateway/content_coding_test.go:85:				"Content-Encoding": "gzip",
+internal/gateway/content_coding_test.go:97:				"Content-Encoding": {"zstd"},
+internal/gateway/content_coding_test.go:120:	for _, name := range []string{"Content-Encoding", "Content-Length", "Digest"} {
+internal/gateway/content_coding_test.go:141:				writer.Header().Set("Content-Encoding", encoding)
+internal/gateway/content_coding_test.go:157:			if got := result.Header.Get("Content-Encoding"); got != "" {
+internal/gateway/content_coding_test.go:158:				t.Fatalf("Content-Encoding = %q", got)
+internal/gateway/content_coding_test.go:172:		writer.Header().Set("Content-Encoding", "gzip")
+internal/gateway/content_coding_test.go:189:	if got := result.Header.Get("Content-Encoding"); got != "" {
+internal/gateway/content_coding_test.go:190:		t.Fatalf("Content-Encoding = %q", got)
+internal/gateway/content_coding_test.go:201:		writer.Header().Set("Content-Encoding", "gzip")
+internal/gateway/content_coding_test.go:216:	if recorder.Body.Len() != 0 || recorder.Header().Get("Content-Encoding") != "" {
+internal/gateway/dialects_integration_test.go:1097:			Headers: http.Header{"Content-Encoding": {"gzip"}},
+internal/gateway/dialects_integration_test.go:1121:			Headers: http.Header{"Content-Encoding": {"gzip"}},
+internal/gateway/dialects_integration_test.go:1126:			Headers: http.Header{"Content-Encoding": {"br"}},
+internal/gateway/forward_test.go:344:					writer.Header().Set("Content-Encoding", encoding)
+internal/gateway/forward_test.go:355:					if !bytes.Equal(result.Body, wire) || !bytes.Equal(result.ClassificationBody, plain) ||
+internal/gateway/forward_test.go:356:						result.Header.Get("Content-Encoding") != encoding {
+internal/gateway/forward_test.go:360:					string(result.ClassificationBody) != redact.Placeholder || result.Header.Get("Content-Encoding") != "" {
+internal/gateway/forward_test.go:389:				wire, err = utils.CompressResponse(test.encoding, test.plain)
+internal/gateway/forward_test.go:396:					writer.Header().Set("Content-Encoding", test.encoding)
+internal/gateway/forward_test.go:407:				result.Header.Get("Content-Encoding") != "" {
+internal/gateway/forward_test.go:411:					result.Header.Get("Content-Encoding"), result.Err,
+internal/gateway/forward_test.go:425:	gzipWire, err := utils.CompressResponse("gzip", plain)
+internal/gateway/forward_test.go:445:			headers: http.Header{"Content-Encoding": {"gzip"}},
+internal/gateway/forward_test.go:455:				headers.Get("Content-Encoding") != "" {
+internal/gateway/forward_test.go:458:					len(wire), len(classification), headers.Get("Content-Encoding"),
+internal/gateway/forward_test.go:468:		wire, err := utils.CompressResponse(encoding, plain)
+internal/gateway/forward_test.go:609:		{name: "content encoding", upstreamModel: "gzip", headerName: "Content-Encoding", headerValue: "gzip"},
+internal/gateway/forward_test.go:842:				"Content-Encoding": {"identity"},
+internal/gateway/forward_test.go:866:			wire, err := utils.CompressResponse("gzip", []byte(`{"error":"safe"}`))
+internal/gateway/forward_test.go:871:				w.Header().Set("Content-Encoding", "gzip")
+internal/gateway/forward_test.go:884:				string(result.Body) != redact.Placeholder || result.Header.Get("Content-Encoding") != "" {
+internal/gateway/forward_test.go:893:		"Content-Encoding": {"identity"},
+internal/gateway/forward_test.go:909:		if strings.EqualFold(actualName, "Content-Encoding") {
+internal/gateway/forward_test.go:910:			t.Fatalf("Content-Encoding survived as %q: %#v", actualName, result.Header[actualName])
+internal/gateway/forward_test.go:1077:			writer.Header().Set("Content-Encoding", "gzip")
+internal/gateway/forward_test.go:1645:					writer.Header().Add("Content-Encoding", encoding)
+internal/gateway/forward_test.go:2507:				wire, err = utils.CompressResponse(encoding, plain)
+internal/gateway/forward_test.go:2516:					writer.Header().Set("Content-Encoding", encoding)
+internal/gateway/forward_test.go:2544:				downstreamBody, err = utils.DecompressResponse(encoding, result.Body)
+internal/gateway/forward_test.go:2556:				result.Header.Get("Content-Encoding") != encoding ||
+internal/gateway/forward_test.go:2577:			wire, err = utils.CompressResponse(encoding, plain)
+internal/gateway/forward_test.go:2586:					writer.Header().Set("Content-Encoding", encoding)
+internal/gateway/forward_test.go:2608:				downstreamBody, err = utils.DecompressResponse(encoding, result.Body)
+internal/gateway/forward_test.go:2644:			wire, err = utils.CompressResponse(encoding, plain)
+internal/gateway/forward_test.go:2653:					writer.Header().Set("Content-Encoding", encoding)
+internal/gateway/forward_test.go:2671:				downstreamBody, err = utils.DecompressResponse(encoding, result.Body)
+internal/gateway/forward_test.go:2809:	encoded, err := utils.CompressResponse("gzip", plain)
+internal/gateway/forward_test.go:2814:		writer.Header().Set("Content-Encoding", "gzip")
+internal/gateway/forward_test.go:2825:	if result.Header.Get("Content-Encoding") != "gzip" {
+internal/gateway/forward_test.go:2826:		t.Fatalf("Content-Encoding = %q, want gzip", result.Header.Get("Content-Encoding"))
+internal/gateway/forward_test.go:2828:	decoded, err := utils.DecompressResponse("gzip", result.Body)
+internal/gateway/forward_test.go:2845:	encoded, err := utils.CompressResponse("gzip", plain)
+internal/gateway/forward_test.go:2850:		writer.Header().Set("Content-Encoding", "gzip")
+internal/gateway/forward_test.go:2867:	if result.Header.Get("Content-Encoding") != "gzip" ||
+internal/gateway/forward_test.go:2876:		writer.Header().Set("Content-Encoding", "unsupported")
+internal/gateway/forward_test.go:2887:	if result.Header.Get("Content-Encoding") != "" ||
+internal/gateway/forward_test.go:2899:		writer.Header().Set("Content-Encoding", "gzip, br")
+internal/gateway/forward_test.go:2906:	if result.Header.Get("Content-Encoding") != "" ||
+internal/gateway/forward_test.go:2915:		writer.Header().Add("Content-Encoding", "identity")
+internal/gateway/forward_test.go:2916:		writer.Header().Add("Content-Encoding", "gzip")
+internal/gateway/forward_test.go:2926:	if len(result.Header.Values("Content-Encoding")) != 0 ||
+internal/gateway/forward_test.go:2935:		writer.Header().Set("Content-Encoding", "unsupported")
+internal/gateway/forward_test.go:2944:	if result.Header.Get("Content-Encoding") != "" ||
+internal/gateway/forward_test.go:2953:		writer.Header().Set("Content-Encoding", "gzip")
+internal/gateway/forward_test.go:2962:	if result.Header.Get("Content-Encoding") != "" ||
+internal/gateway/response_representation_test.go:50:		wire, err := utils.CompressResponse(encoding, plain)
+internal/gateway/response_representation_test.go:52:			t.Fatalf("CompressResponse(%q): %v", encoding, err)
+internal/gateway/response_representation_test.go:76:			writer.Header().Set("Content-Encoding", representation.encoding)
+internal/gateway/response_representation_test.go:78:		writer.Header().Set("Content-Length", strconv.Itoa(len(representation.wire)))
+internal/gateway/response_representation_test.go:80:		_, _ = writer.Write(representation.wire)
+internal/gateway/response_representation_test.go:126:			if !bytes.Equal(result.Body, representation.wire) {
+internal/gateway/response_representation_test.go:127:				t.Fatalf("wire changed without a plain-body change:\n got %x\nwant %x", result.Body, representation.wire)
+internal/gateway/response_representation_test.go:129:			if result.Header.Get("Content-Encoding") != representation.encoding {
+internal/gateway/response_representation_test.go:130:				t.Fatalf("Content-Encoding = %q, want %q", result.Header.Get("Content-Encoding"), representation.encoding)
+internal/gateway/response_representation_test.go:132:			if result.Header.Get("Content-Length") != strconv.Itoa(len(representation.wire)) {
+internal/gateway/response_representation_test.go:133:				t.Fatalf("Content-Length = %q, want %d", result.Header.Get("Content-Length"), len(representation.wire))
+internal/gateway/response_representation_test.go:149:		{name: "Content-Encoding", value: "identity", secret: "identity"},
+internal/gateway/response_representation_test.go:163:				"Content-Encoding": {"identity"},
+internal/gateway/response_representation_test.go:191:		"Content-Encoding": {"identity"},
+internal/gateway/response_representation_test.go:207:		result.headers.Get("Content-Encoding") != "identity" ||
+internal/gateway/response_representation_test.go:221:	wire, err := utils.CompressResponse("gzip", plain)
+internal/gateway/response_representation_test.go:226:		"Content-Encoding": {"gzip"},
+internal/gateway/response_representation_test.go:245:	gotPlain, err := utils.DecompressResponse("gzip", result.wire)
+internal/gateway/response_representation_test.go:249:	if result.headers.Get("Content-Encoding") != "gzip" ||
+internal/gateway/response_representation_test.go:263:		"Content-Encoding": {"identity"},
+internal/gateway/response_representation_test.go:288:	if result.headers.Get("Content-Encoding") != "identity" ||
+internal/gateway/response_representation_test.go:344:				plain, err := utils.DecompressResponse(representation.encoding, result.Body)
+internal/gateway/response_representation_test.go:354:				if result.Header.Get("Content-Encoding") != representation.encoding {
+internal/gateway/response_representation_test.go:355:					t.Fatalf("Content-Encoding = %q, want %q", result.Header.Get("Content-Encoding"), representation.encoding)
+internal/gateway/response_representation_test.go:368:	validGzip, err := utils.CompressResponse("gzip", []byte(`{"id":"safe-response"}`))
+internal/gateway/response_representation_test.go:403:			name:      "Content-Encoding credential collision",
+internal/gateway/response_representation_test.go:425:					writer.Header().Add("Content-Encoding", encoding)
+internal/gateway/response_representation_test.go:630:			wire, err := utils.CompressResponse(test.encoding, []byte(providerBody))
+internal/gateway/response_representation_test.go:679:	wire, err := utils.CompressResponse("gzip", plain)
+internal/gateway/response_representation_test.go:699:		writer.Header().Set("Content-Encoding", "gzip")
+internal/gateway/response_representation_test.go:729:	downstreamPlain, err := utils.DecompressResponse("gzip", result.Body)
+internal/gateway/response_representation_test.go:740:		!strings.EqualFold(result.Header.Get("Content-Encoding"), "gzip") {
+internal/gateway/security_integration_test.go:71:				writer.Header().Set("Content-Encoding", "gzip")
+internal/gateway/stream_integration_test.go:308:				Headers: http.Header{"Content-Encoding": {"gzip"}},
+internal/gateway/stream_integration_test.go:343:			Headers: http.Header{"Content-Encoding": {"gzip"}},
+internal/gateway/stream_integration_test.go:348:			Headers: http.Header{"Content-Encoding": {"br"}},
+internal/gateway/usage_capture_test.go:958:			wire, err := utils.CompressResponse(encoding, plain)
+internal/gateway/usage_capture_test.go:960:				t.Fatalf("CompressResponse(%q): %v", encoding, err)
+internal/gateway/usage_capture_test.go:969:			}}, http.Header{"Content-Encoding": {encoding}}, wire)
+internal/gateway/usage_capture_test.go:979:	tooLargeWire, err := utils.CompressResponse("gzip", tooLargePlain)
+internal/gateway/usage_capture_test.go:988:		{name: "multiple values", headers: http.Header{"Content-Encoding": {"identity", "gzip"}}, wire: []byte(`{}`)},
+internal/gateway/usage_capture_test.go:989:		{name: "comma stacked", headers: http.Header{"Content-Encoding": {"gzip, br"}}, wire: []byte(`{}`)},
+internal/gateway/usage_capture_test.go:990:		{name: "unknown", headers: http.Header{"Content-Encoding": {"unknown"}}, wire: []byte(`{}`)},
+internal/gateway/usage_capture_test.go:991:		{name: "corrupt gzip", headers: http.Header{"Content-Encoding": {"gzip"}}, wire: []byte("not-gzip")},
+internal/gateway/usage_capture_test.go:992:		{name: "decompressed over limit", headers: http.Header{"Content-Encoding": {"gzip"}}, wire: tooLargeWire},
+internal/gateway/usage_capture_test.go:1043:	wire, err := utils.CompressResponse("gzip", plain)
+internal/gateway/usage_capture_test.go:1048:		writer.Header().Set("Content-Encoding", "gzip")
+internal/gateway/usage_capture_test.go:1062:	if result.Usage != want || baseline.Usage != (usage.Result{State: usage.StateNotApplicable}) || !bytes.Equal(result.Body, wire) || result.Header.Get("Content-Length") != strconv.Itoa(len(wire)) {
+internal/platform/httpheader/policy_test.go:44:			{name: "Content-Encoding", want: true},
+internal/platform/utils/compression_utils_test.go:12:func TestDecompressResponseLimitedRejectsZstdWindowAboveLimit(t *testing.T) {
+internal/platform/utils/compression_utils_test.go:40:	compatDecoded, err := DecompressResponse("zstd", wire.Bytes())
+internal/platform/utils/compression_utils_test.go:45:	decoded, err := DecompressResponseLimited("zstd", wire.Bytes(), limit)
+internal/platform/utils/compression_utils_test.go:51:func TestDecompressResponseLimitedBoundsAllSupportedEncodings(t *testing.T) {
+internal/platform/utils/compression_utils_test.go:57:				decoded, err := DecompressResponseLimited(encoding, wire, 1<<20)
+internal/platform/utils/compression_utils_test.go:73:		wire, err := CompressResponse(encoding, plain)
+internal/platform/utils/compression_utils_test.go:91:func TestDecompressResponseSupportsHTTPDeflate(t *testing.T) {
+internal/platform/utils/compression_utils_test.go:102:	got, err := DecompressResponse("deflate", encoded.Bytes())
+internal/platform/utils/compression_utils_test.go:104:		t.Fatalf("DecompressResponse() error = %v", err)
+internal/platform/utils/compression_utils_test.go:107:		t.Fatalf("DecompressResponse() = %q, want %q", got, want)
+internal/platform/utils/compression_utils_test.go:111:func TestCompressAndDecompressResponseRoundTrip(t *testing.T) {
+internal/platform/utils/compression_utils_test.go:115:			encoded, err := CompressResponse(encoding, original)
+internal/platform/utils/compression_utils_test.go:117:				t.Fatalf("CompressResponse(%q) error = %v", encoding, err)
+internal/platform/utils/compression_utils_test.go:119:			decoded, err := DecompressResponse(encoding, encoded)
+internal/platform/utils/compression_utils_test.go:121:				t.Fatalf("DecompressResponse(%q) error = %v", encoding, err)
+internal/platform/utils/compression_utils_test.go:132:		if _, err := DecompressResponse(encoding, []byte("body")); err == nil {
+internal/platform/utils/compression_utils_test.go:133:			t.Fatalf("DecompressResponse(%q) error = nil", encoding)
+internal/platform/utils/compression_utils_test.go:135:		if _, err := CompressResponse(encoding, []byte("body")); err == nil {
+internal/platform/utils/compression_utils_test.go:136:			t.Fatalf("CompressResponse(%q) error = nil", encoding)
+internal/platform/utils/compression_utils_test.go:141:func TestDecompressResponseRejectsMalformedBody(t *testing.T) {
+internal/platform/utils/compression_utils_test.go:142:	if _, err := DecompressResponse("gzip", []byte("not gzip")); err == nil {
+internal/platform/utils/compression_utils_test.go:143:		t.Fatal("DecompressResponse(malformed gzip) error = nil")
+
+=== header rule validation references ===
+internal/state/runtime_settings_test.go:24:		HeaderRules:              HeaderRules{Set: map[string]string{}},
+internal/state/runtime_settings_test.go:87:func TestResolveRuntimeSettingsRejectsPresentNullHeaderRules(t *testing.T) {
+internal/state/runtime_settings_test.go:88:	_, err := ResolveRuntimeSettings(config.Settings{SettingHeaderRules: nil})
+internal/state/runtime_settings_test.go:90:		t.Fatal("ResolveRuntimeSettings() accepted present null header_rules")
+internal/state/runtime_settings_test.go:94:func TestParseHeaderRulesRejectsUnsafeSetNames(t *testing.T) {
+internal/state/runtime_settings_test.go:110:			err := ValidateRuntimeSetting(SettingHeaderRules, map[string]any{
+internal/state/runtime_settings_test.go:114:				t.Errorf("parseHeaderRules accepted unsafe set %q=%q", name, value)
+internal/state/runtime_settings_test.go:142:			if err := ValidateRuntimeSetting(SettingHeaderRules, test.value); err == nil {
+internal/state/runtime_settings_test.go:149:func TestParseHeaderRulesRequiresAPIKeyTemplateForCredentials(t *testing.T) {
+internal/state/runtime_settings_test.go:156:		err := ValidateRuntimeSetting(SettingHeaderRules, map[string]any{
+internal/state/runtime_settings_test.go:160:			t.Errorf("parseHeaderRules accepted literal credential %q", name)
+internal/state/runtime_settings_test.go:163:		err = ValidateRuntimeSetting(SettingHeaderRules, map[string]any{
+internal/state/runtime_settings_test.go:167:			t.Errorf("parseHeaderRules rejected template credential %q: %v", name, err)
+internal/state/runtime_settings_test.go:171:	err := ValidateRuntimeSetting(SettingHeaderRules, map[string]any{
+internal/state/runtime_settings_test.go:181:		t.Errorf("parseHeaderRules rejected credential removals: %v", err)
+internal/state/runtime_settings_test.go:184:	err = ValidateRuntimeSetting(SettingHeaderRules, map[string]any{
+internal/state/runtime_settings_test.go:191:		t.Errorf("parseHeaderRules rejected ordinary values: %v", err)
+internal/state/runtime_settings_test.go:201:		SettingHeaderRules: map[string]any{
+internal/state/runtime_settings_test.go:217:	wantRules := HeaderRules{Set: map[string]string{"X-Test": "value"}, Remove: []string{"X-Old"}}
+internal/state/runtime_settings_test.go:218:	if !reflect.DeepEqual(got.HeaderRules, wantRules) {
+internal/state/runtime_settings_test.go:219:		t.Fatalf("HeaderRules = %#v, want %#v", got.HeaderRules, wantRules)
+internal/state/runtime_settings_test.go:226:		SettingHeaderRules:    map[string]any{"set": map[string]any{"X-System": "system"}},
+internal/state/runtime_settings_test.go:233:		SettingHeaderRules:      map[string]any{"set": map[string]any{"X-Group": "group"}},
+internal/state/runtime_settings_test.go:241:	wantRules := HeaderRules{Set: map[string]string{"X-Group": "group"}}
+internal/state/runtime_settings_test.go:242:	if !reflect.DeepEqual(resolved.HeaderRules, wantRules) {
+internal/state/runtime_settings_test.go:243:		t.Fatalf("rules = %#v, want replacement %#v", resolved.HeaderRules, wantRules)
+internal/state/runtime_settings_test.go:247:func TestResolveGroupRuntimeSettingsRejectsPresentNullHeaderRules(t *testing.T) {
+internal/state/runtime_settings_test.go:250:		config.Settings{SettingHeaderRules: nil},
+internal/state/runtime_settings_test.go:253:		t.Fatal("ResolveGroupRuntimeSettings() accepted present null header_rules")
+internal/state/runtime_settings_test.go:284:		SettingHeaderRules,
+internal/state/runtime_settings_test.go:303:		SettingHeaderRules: map[string]any{"set": set, "remove": remove},
+internal/state/runtime_settings_test.go:310:	if got.HeaderRules.Set["X-Test"] != "original" || got.HeaderRules.Remove[0] != "X-Old" {
+internal/state/runtime_settings_test.go:311:		t.Fatalf("HeaderRules changed with input: %#v", got.HeaderRules)
+internal/state/runtime_settings_test.go:317:		SettingHeaderRules: map[string]any{
+internal/state/runtime_settings_test.go:329:	system.HeaderRules.Set["X-System"] = "mutated"
+internal/state/runtime_settings_test.go:330:	system.HeaderRules.Remove[0] = "X-Mutated"
+internal/state/runtime_settings_test.go:331:	if resolved.HeaderRules.Set["X-System"] != "system" || resolved.HeaderRules.Remove[0] != "X-Old" {
+internal/state/runtime_settings_test.go:332:		t.Fatalf("group rules changed with system settings: %#v", resolved.HeaderRules)
+internal/state/runtime_settings_test.go:389:		SettingHeaderRules: map[string]any{"set": map[string]any{"X-System": "system"}, "remove": []any{"X-Old"}},
+internal/state/runtime_settings_test.go:398:	first.HeaderRules.Set["X-System"] = "changed"
+internal/state/runtime_settings_test.go:399:	first.HeaderRules.Remove[0] = "X-Changed"
+internal/state/runtime_settings_test.go:404:	if base.HeaderRules.Set["X-System"] != "system" || base.HeaderRules.Remove[0] != "X-Old" ||
+internal/state/runtime_settings_test.go:405:		second.HeaderRules.Set["X-System"] != "system" || second.HeaderRules.Remove[0] != "X-Old" {
+internal/state/runtime_settings_test.go:406:		t.Fatalf("header rules aliased: base=%#v second=%#v", base.HeaderRules, second.HeaderRules)
+internal/state/snapshot.go:80:type HeaderRules struct {
+internal/state/snapshot.go:94:	HeaderRules        HeaderRules
+internal/state/snapshot.go:171:			HeaderRules:        resolved.HeaderRules,
+internal/state/runtime_settings.go:21:	SettingHeaderRules              = "header_rules"
+internal/state/runtime_settings.go:38:	HeaderRules              HeaderRules
+internal/state/runtime_settings.go:46:	HeaderRules        HeaderRules
+internal/state/runtime_settings.go:56:		HeaderRules:              HeaderRules{Set: map[string]string{}},
+internal/state/runtime_settings.go:69:		SettingHeaderRules,
+internal/state/runtime_settings.go:107:		case SettingHeaderRules:
+internal/state/runtime_settings.go:108:			rules, err := parseHeaderRules(value)
+internal/state/runtime_settings.go:112:			resolved.HeaderRules = rules
+internal/state/runtime_settings.go:154:		HeaderRules:        cloneHeaderRules(base.HeaderRules),
+internal/state/runtime_settings.go:183:		case SettingHeaderRules:
+internal/state/runtime_settings.go:184:			parsed, err := parseHeaderRules(value)
+internal/state/runtime_settings.go:188:			resolved.HeaderRules = parsed
+internal/state/runtime_settings.go:210:	case SettingHeaderRules:
+internal/state/runtime_settings.go:211:		_, err := parseHeaderRules(value)
+internal/state/runtime_settings.go:299:func parseHeaderRules(value any) (HeaderRules, error) {
+internal/state/runtime_settings.go:300:	rules := HeaderRules{Set: make(map[string]string)}
+internal/state/runtime_settings.go:303:		return HeaderRules{}, fmt.Errorf("header_rules must be an object")
+internal/state/runtime_settings.go:307:			return HeaderRules{}, fmt.Errorf("unknown header_rules field %q", key)
+internal/state/runtime_settings.go:314:			return HeaderRules{}, fmt.Errorf("header_rules.set must be an object")
+internal/state/runtime_settings.go:318:				return HeaderRules{}, fmt.Errorf("header_rules.set contains invalid header name %q", name)
+internal/state/runtime_settings.go:321:			if httpheader.IsForbiddenRequestRuleSetName(canonicalName) {
+internal/state/runtime_settings.go:322:				return HeaderRules{}, fmt.Errorf(
+internal/state/runtime_settings.go:323:					"header_rules.set cannot set forbidden header %q",
+internal/state/runtime_settings.go:329:				return HeaderRules{}, fmt.Errorf(
+internal/state/runtime_settings.go:330:					"header_rules.set contains duplicate header %q",
+internal/state/runtime_settings.go:337:				return HeaderRules{}, fmt.Errorf("header_rules.set.%s must be a string", name)
+internal/state/runtime_settings.go:340:				return HeaderRules{}, fmt.Errorf("header_rules.set.%s contains invalid header value", name)
+internal/state/runtime_settings.go:344:				return HeaderRules{}, fmt.Errorf(
+internal/state/runtime_settings.go:345:					"header_rules.set.%s credential value must contain ${API_KEY}",
+internal/state/runtime_settings.go:355:			return HeaderRules{}, fmt.Errorf("header_rules.remove must be an array")
+internal/state/runtime_settings.go:361:				return HeaderRules{}, fmt.Errorf("header_rules.remove[%d] must be a string", index)
+internal/state/runtime_settings.go:364:				return HeaderRules{}, fmt.Errorf(
+internal/state/runtime_settings.go:365:					"header_rules.remove[%d] contains invalid header name %q",
+internal/state/runtime_settings.go:373:				return HeaderRules{}, fmt.Errorf(
+internal/state/runtime_settings.go:374:					"header_rules.remove contains duplicate header %q",
+internal/state/runtime_settings.go:385:func cloneHeaderRules(source HeaderRules) HeaderRules {
+internal/state/runtime_settings.go:386:	cloned := HeaderRules{Set: make(map[string]string, len(source.Set))}
+internal/state/registry_test.go:412:		"EncryptedValue", "KeyHash", "Hash", "Mask", "HeaderRules",
+internal/state/loader/loader_test.go:212:		{name: "null header rules", key: state.SettingHeaderRules, value: "null"},
+internal/state/loader/loader_test.go:374:		Key:   "header_rules",
+internal/state/loader/loader_test.go:389:			"header_rules":{"set":{"X-Group":"group"},"remove":["X-Group-Remove"]}
+internal/state/loader/loader_test.go:422:		HeaderRules: state.HeaderRules{
+internal/state/loader/loader_test.go:453:	if len(view.HeaderRules.Set) != 1 || view.HeaderRules.Set["X-Group"] != "group" {
+internal/state/loader/loader_test.go:454:		t.Errorf("group header set rules = %#v, want whole group override", view.HeaderRules.Set)
+internal/state/loader/loader_test.go:456:	if len(view.HeaderRules.Remove) != 1 || view.HeaderRules.Remove[0] != "X-Group-Remove" {
+internal/state/loader/loader_test.go:457:		t.Errorf("group header remove rules = %#v, want group override", view.HeaderRules.Remove)
+internal/state/snapshot_test.go:392:func TestCompileMergesTimeoutsAndHeaderRules(t *testing.T) {
+internal/state/snapshot_test.go:396:		"header_rules": map[string]any{
+internal/state/snapshot_test.go:405:		"header_rules": map[string]any{
+internal/state/snapshot_test.go:421:		HeaderRules: HeaderRules{
+internal/state/snapshot_test.go:443:	wantRules := HeaderRules{
+internal/state/snapshot_test.go:447:	if !reflect.DeepEqual(group.HeaderRules, wantRules) {
+internal/state/snapshot_test.go:448:		t.Errorf("GroupView.HeaderRules = %#v, want %#v", group.HeaderRules, wantRules)
+internal/state/snapshot_test.go:463:		HeaderRules:              HeaderRules{Set: map[string]string{}},
+internal/state/snapshot_test.go:482:	wantRules := HeaderRules{Set: map[string]string{}}
+internal/state/snapshot_test.go:483:	if !reflect.DeepEqual(group.HeaderRules, wantRules) {
+internal/state/snapshot_test.go:484:		t.Errorf("GroupView.HeaderRules = %#v, want %#v", group.HeaderRules, wantRules)
+internal/state/snapshot_test.go:556:		"header_rules": map[string]any{
+internal/state/snapshot_test.go:565:	want := HeaderRules{
+internal/state/snapshot_test.go:569:	if got := snapshot.Groups[1].HeaderRules; !reflect.DeepEqual(got, want) {
+internal/state/snapshot_test.go:570:		t.Fatalf("GroupView.HeaderRules = %#v, want %#v", got, want)
+internal/state/snapshot_test.go:636:			groupSettings: config.Settings{"header_rules": []any{}},
+internal/state/snapshot_test.go:637:			wantErr:       "header_rules must be an object",
+internal/state/snapshot_test.go:641:			groupSettings: config.Settings{"header_rules": map[string]any{
+internal/state/snapshot_test.go:644:			wantErr: "header_rules.set must be an object",
+internal/state/snapshot_test.go:648:			groupSettings: config.Settings{"header_rules": map[string]any{
+internal/state/snapshot_test.go:651:			wantErr: "header_rules.set.X-Invalid must be a string",
+internal/state/snapshot_test.go:655:			groupSettings: config.Settings{"header_rules": map[string]any{
+internal/state/snapshot_test.go:658:			wantErr: "header_rules.set contains invalid header name \"\"",
+internal/state/snapshot_test.go:662:			groupSettings: config.Settings{"header_rules": map[string]any{
+internal/state/snapshot_test.go:665:			wantErr: "header_rules.set contains invalid header name \"Bad Header\"",
+internal/state/snapshot_test.go:669:			groupSettings: config.Settings{"header_rules": map[string]any{
+internal/state/snapshot_test.go:672:			wantErr: "header_rules.set.X-Credential contains invalid header value",
+internal/state/snapshot_test.go:676:			groupSettings: config.Settings{"header_rules": map[string]any{
+internal/state/snapshot_test.go:682:			wantErr: "header_rules.set contains duplicate header \"Authorization\"",
+internal/state/snapshot_test.go:686:			groupSettings: config.Settings{"header_rules": map[string]any{
+internal/state/snapshot_test.go:689:			wantErr: "header_rules.remove must be an array",
+internal/state/snapshot_test.go:693:			groupSettings: config.Settings{"header_rules": map[string]any{
+internal/state/snapshot_test.go:696:			wantErr: "header_rules.remove[1] must be a string",
+internal/state/snapshot_test.go:700:			groupSettings: config.Settings{"header_rules": map[string]any{
+internal/state/snapshot_test.go:703:			wantErr: "header_rules.remove[0] contains invalid header name \"Bad Header\"",
+internal/state/snapshot_test.go:707:			groupSettings: config.Settings{"header_rules": map[string]any{
+internal/state/snapshot_test.go:710:			wantErr: "unknown header_rules field \"append\"",
+internal/state/snapshot_test.go:733:	groupSettings := config.Settings{"header_rules": headerRules}
+internal/state/snapshot_test.go:745:	groupSettings["header_rules"] = map[string]any{}
+internal/state/snapshot_test.go:747:	wantRules := HeaderRules{
+internal/state/snapshot_test.go:751:	if got := snapshot.Groups[1].HeaderRules; !reflect.DeepEqual(got, wantRules) {
+internal/state/snapshot_test.go:752:		t.Errorf("GroupView.HeaderRules = %#v after input mutation, want %#v", got, wantRules)
+internal/control/discover_group_test.go:41:		Key: "header_rules", Value: `{"set":{"X-Version":"old"}}`,
+internal/control/discover_group_test.go:94:			rules state.HeaderRules,
+internal/control/discover_group_test.go:129:			return tx.Model(&models.SystemSetting{}).Where("key = ?", "header_rules").
+internal/control/discover_group_test.go:196:		listFn: func(context.Context, string, string, state.HeaderRules) ([]string, error) {
+internal/control/discover_group_test.go:240:		`{"header_rules":{"set":{"X-Group":"group"},"remove":["X-Remove"]}}`,
+internal/control/discover_group_test.go:246:		Key: "header_rules", Value: `{"set":{"X-System":"system"}}`,
+internal/control/discover_group_test.go:248:		t.Fatalf("seed system HeaderRules: %v", err)
+internal/control/discover_group_test.go:258:				rules state.HeaderRules,
+internal/control/discover_group_test.go:264:				wantRules := state.HeaderRules{
+internal/control/discover_group_test.go:268:					t.Fatalf("HeaderRules = %#v, want persisted Group override %#v", rules, wantRules)
+internal/control/discover_group_test.go:336:		listFn: func(context.Context, string, string, state.HeaderRules) ([]string, error) {
+internal/control/discover_group_test.go:403:				listFn: func(ctx context.Context, _, _ string, _ state.HeaderRules) ([]string, error) {
+internal/control/discover_group_test.go:437:		listFn: func(context.Context, string, string, state.HeaderRules) ([]string, error) {
+internal/control/discover_group_test.go:463:		listFn: func(ctx context.Context, _, _ string, _ state.HeaderRules) ([]string, error) {
+internal/control/group_settings_test.go:30:		"header_rules":{"set":{"X-Group":"value"},"remove":["X-Removed"]},
+internal/control/group_settings_test.go:54:		state.SettingHeaderRules,
+internal/control/group_settings_test.go:64:		!reflect.DeepEqual(got.Effective.HeaderRules.Set, map[string]string{"X-Group": "value"}) ||
+internal/control/group_settings_test.go:65:		!reflect.DeepEqual(got.Effective.HeaderRules.Remove, []string{"X-Removed"}) {
+internal/control/route_inspect_test.go:396:		"header_rules", "filters",
+internal/control/route_inspect_test.go:769:			state.HeaderRules,
+internal/control/mutation_audit_routes_test.go:900:					`{"settings":{"header_rules":{"set":{`+
+internal/control/group_models_test.go:220:			"header_rules":{"remove":["X-Trace"]}
+internal/control/group_models_test.go:276:		settings.Overrides[state.SettingHeaderRules] == nil ||
+internal/control/group_models_test.go:285:		len(settings.Effective.HeaderRules.Set) != 0 ||
+internal/control/group_models_test.go:286:		!reflect.DeepEqual(settings.Effective.HeaderRules.Remove, []string{"X-Trace"}) {
+internal/control/group_models_test.go:289:	if settings.Effective.HeaderRules.Set == nil || settings.Effective.HeaderRules.Remove == nil {
+internal/control/group_models_test.go:290:		t.Fatalf("effective header collections = %#v", settings.Effective.HeaderRules)
+internal/control/group_models_test.go:313:		!reflect.DeepEqual(settings.Effective.HeaderRules.Remove, view.HeaderRules.Remove) {
+internal/control/group_models_test.go:389:		listFn: func(context.Context, string, string, state.HeaderRules) ([]string, error) {
+internal/control/settings.go:23:type HeaderRulesResponse struct {
+internal/control/settings.go:33:	HeaderRules              HeaderRulesResponse `json:"header_rules"`
+internal/control/settings.go:338:	set := make(map[string]string, len(settings.HeaderRules.Set))
+internal/control/settings.go:339:	for name, value := range settings.HeaderRules.Set {
+internal/control/settings.go:342:	remove := append([]string{}, settings.HeaderRules.Remove...)
+internal/control/settings.go:362:			HeaderRules: HeaderRulesResponse{
+internal/control/discover_group.go:178:		keys: plaintextKeys, headerRules: compiledGroup.HeaderRules,
+internal/control/validation_test.go:103:		HeaderRules: state.HeaderRules{
+internal/control/validation_test.go:152:			value := group.HeaderRules.Set["X-Alpha"]
+internal/control/validation_test.go:153:			delete(group.HeaderRules.Set, "X-Alpha")
+internal/control/validation_test.go:154:			group.HeaderRules.Set["X-Renamed"] = value
+internal/control/validation_test.go:157:			group.HeaderRules.Set["X-Alpha"] = "changed"
+internal/control/validation_test.go:160:			group.HeaderRules.Remove[0] = "X-Changed"
+internal/control/validation_test.go:184:	first.HeaderRules.Set = map[string]string{
+internal/control/validation_test.go:188:	first.HeaderRules.Remove = []string{"X-Beta", "X-Old"}
+internal/control/validation_test.go:191:	second.HeaderRules.Set = map[string]string{
+internal/control/validation_test.go:195:	second.HeaderRules.Remove = []string{"x-old", "x-beta"}
+internal/control/validation_test.go:204:			"semantically equal HeaderRules signatures differ: %x != %x",
+internal/control/validation_test.go:392:		{name: "HeaderRules set", mutate: func(group *state.GroupView) {
+internal/control/validation_test.go:393:			group.HeaderRules.Set["X-Alpha"] = "changed-secret"
+internal/control/validation_test.go:395:		{name: "HeaderRules remove", mutate: func(group *state.GroupView) {
+internal/control/validation_test.go:396:			group.HeaderRules.Remove[0] = "X-Changed"
+internal/control/validation_test.go:663:	oldGroup.HeaderRules.Set["X-Secret"] = "sensitive-header-value"
+internal/control/validation_test.go:669:	currentGroup.HeaderRules.Set["X-Secret"] = "changed-sensitive-header-value"
+internal/control/validation_test.go:1197:func (*validationTestDialect) ListModels(context.Context, string, string, state.HeaderRules) ([]string, error) {
+internal/control/validation_test.go:1201:func (dialect *validationTestDialect) Probe(ctx context.Context, _ string, apiKey string, _ state.HeaderRules, model string) error {
+internal/control/validation_test.go:1271:		HeaderRules: state.HeaderRules{
+internal/control/validation_test.go:1285:	cloned.HeaderRules.Set = make(map[string]string, len(group.HeaderRules.Set))
+internal/control/validation_test.go:1286:	for name, value := range group.HeaderRules.Set {
+internal/control/validation_test.go:1287:		cloned.HeaderRules.Set[name] = value
+internal/control/validation_test.go:1289:	cloned.HeaderRules.Remove = append([]string(nil), group.HeaderRules.Remove...)
+internal/control/health_test.go:299:		"encrypted", "hash", "header_rules",
+internal/control/health_test.go:351:		"HeaderRules": {}, "Percentage": {}, "SuccessRate": {}, "Score": {},
+internal/control/catalog_discovery_merge_test.go:39:		listFn: func(context.Context, string, string, state.HeaderRules) ([]string, error) {
+internal/control/catalog_discovery_merge_test.go:94:		listFn: func(context.Context, string, string, state.HeaderRules) ([]string, error) {
+internal/control/discover_executor_test.go:22:	listFn func(context.Context, string, string, state.HeaderRules) ([]string, error)
+internal/control/discover_executor_test.go:44:	rules state.HeaderRules,
+internal/control/discover_executor_test.go:49:func (*recordingDiscoveryDialect) Probe(context.Context, string, string, state.HeaderRules, string) error {
+internal/control/discover_executor_test.go:65:				rules state.HeaderRules,
+internal/control/discover_executor_test.go:86:		headerRules: state.HeaderRules{Set: map[string]string{"X-Test": "draft"}},
+internal/control/discover_executor_test.go:115:				state.HeaderRules,
+internal/control/discover_executor_test.go:159:		listFn: func(context.Context, string, string, state.HeaderRules) ([]string, error) {
+internal/control/discover_executor_test.go:208:			listFn: func(ctx context.Context, _, _ string, _ state.HeaderRules) ([]string, error) {
+internal/control/discover_executor_test.go:245:			listFn: func(ctx context.Context, _, _ string, _ state.HeaderRules) ([]string, error) {
+internal/control/discover_executor_test.go:271:			listFn: func(discoveryCtx context.Context, _, _ string, _ state.HeaderRules) ([]string, error) {
+internal/control/discover_executor_test.go:303:			listFn: func(_ context.Context, baseURL, apiKey string, _ state.HeaderRules) ([]string, error) {
+internal/control/settings_etag_test.go:36:			HeaderRules: HeaderRulesResponse{
+internal/control/settings_etag_test.go:88:func TestSettingsDTOCanonicalizesHeaderRulesAndOverrides(t *testing.T) {
+internal/control/settings_etag_test.go:91:			HeaderRules: HeaderRulesResponse{
+internal/control/settings_etag_test.go:101:	if got := strings.Join(dto.Values.HeaderRules.Remove, ","); got != "A-Remove,X-Old" {
+internal/control/settings_etag_test.go:104:	if _, exists := dto.Values.HeaderRules.Set["x-zed"]; exists ||
+internal/control/settings_etag_test.go:105:		dto.Values.HeaderRules.Set["X-Zed"] != "last" ||
+internal/control/settings_etag_test.go:106:		dto.Values.HeaderRules.Set["A-Test"] != "first" {
+internal/control/settings_etag_test.go:107:		t.Fatalf("set = %#v", dto.Values.HeaderRules.Set)
+internal/control/upstream_keys_test.go:197:		`{"header_rules":{"set":{"X-Secret":"` + headerSecret + `"}}}`,
+internal/control/upstream_keys_test.go:1477:		listFn: func(context.Context, string, string, state.HeaderRules) ([]string, error) {
+internal/control/settings_occ_test.go:32:	const wantEnglish = `{"code":0,"data":{"overrides":[],"values":{"connect_timeout":15,"first_byte_timeout":120,"header_rules":{"remove":[],"set":{}},"inject_usage_options":true,"models_dev_auto_sync_enabled":true,"request_log_retention_days":7,"request_timeout":600,"stream_idle_timeout":300}},"message":"Success"}`
+internal/control/discover.go:84:		headerRules:   group.HeaderRules,
+internal/control/group_create_test.go:314:		listFn: func(_ context.Context, _, _ string, _ state.HeaderRules) ([]string, error) {
+internal/control/discover_executor.go:22:	headerRules   state.HeaderRules
+internal/control/server_phase1_test.go:28:		listFn: func(context.Context, string, string, state.HeaderRules) ([]string, error) {
+internal/control/settings_test.go:39:	if got.Values.HeaderRules.Set == nil || len(got.Values.HeaderRules.Set) != 0 {
+internal/control/settings_test.go:40:		t.Fatalf("header_rules.set = %#v, want empty map", got.Values.HeaderRules.Set)
+internal/control/settings_test.go:42:	if got.Values.HeaderRules.Remove == nil || len(got.Values.HeaderRules.Remove) != 0 {
+internal/control/settings_test.go:43:		t.Fatalf("header_rules.remove = %#v, want empty slice", got.Values.HeaderRules.Remove)
+internal/control/settings_test.go:340:func TestUpdateSettingsCanonicalizesValuesAndReturnsEffectiveHeaderRules(t *testing.T) {
+internal/control/settings_test.go:347:			state.SettingHeaderRules: json.RawMessage(` {
+internal/control/settings_test.go:356:	wantRules := HeaderRulesResponse{
+internal/control/settings_test.go:363:	if !reflect.DeepEqual(got.Values.HeaderRules, wantRules) {
+internal/control/settings_test.go:364:		t.Fatalf("header rules = %#v, want %#v", got.Values.HeaderRules, wantRules)
+internal/control/settings_test.go:367:	if err := fixture.db.First(&row, "key = ?", state.SettingHeaderRules).Error; err != nil {
+internal/control/settings_test.go:395:		`{"settings":{"header_rules":{"set":{"Authorization":"Bearer ${API_KEY}"}}}}`,
+internal/control/settings_test.go:401:	if err := fixture.db.First(&persisted, "key = ?", state.SettingHeaderRules).Error; err != nil {
+internal/control/settings_test.go:406:		t.Fatalf("persisted HeaderRules = %q, want template without provider token", persisted.Value)
+internal/control/settings_test.go:416:		`{"settings":{"header_rules":{"set":{"Authorization":"Bearer `+providerToken+`"}}}}`,
+internal/control/settings_test.go:426:	if err := fixture.db.Where("key = ?", state.SettingHeaderRules).Find(&rows).Error; err != nil {
+internal/control/settings_test.go:446:		{name: "unknown header rule", updates: map[string]json.RawMessage{state.SettingHeaderRules: json.RawMessage(`{"append":{}}`)}, wantErr: app_errors.ErrValidation},
+internal/control/settings_test.go:447:		{name: "case folded duplicate header", updates: map[string]json.RawMessage{state.SettingHeaderRules: json.RawMessage(`{"set":{"X-Test":"one","x-test":"two"}}`)}, wantErr: app_errors.ErrValidation},
+internal/control/settings_test.go:519:		{name: "duplicate header rules field", body: `{"settings":{"header_rules":{"set":{},"set":{}}}}`},
+internal/control/settings_test.go:520:		{name: "duplicate header set member", body: `{"settings":{"header_rules":{"set":{"X-Test":"one","X-Test":"two"}}}}`},
+internal/control/settings_test.go:521:		{name: "duplicate object nested in array", body: `{"settings":{"header_rules":{"remove":[{"future":1,"future":2}]}}}`},
+internal/control/settings_test.go:544:		`{"settings":{"request_timeout":9e2,"header_rules":null}}`,
+internal/control/settings_test.go:550:		!bytes.Equal(request.Settings[state.SettingHeaderRules], []byte("null")) {
+internal/control/discover_test.go:23:		Key: "header_rules",
+internal/control/discover_test.go:27:		t.Fatalf("seed system HeaderRules: %v", err)
+internal/control/discover_test.go:37:				rules state.HeaderRules,
+internal/control/discover_test.go:43:				wantRules := state.HeaderRules{
+internal/control/discover_test.go:51:					t.Fatalf("HeaderRules = %#v, want system defaults %#v", rules, wantRules)
+internal/control/discover_test.go:98:		listFn: func(context.Context, string, string, state.HeaderRules) ([]string, error) {
+internal/control/discover_test.go:143:			_ state.HeaderRules,
+internal/control/discover_test.go:231:		listFn: func(context.Context, string, string, state.HeaderRules) ([]string, error) {
+internal/control/discover_test.go:273:		listFn: func(context.Context, string, string, state.HeaderRules) ([]string, error) {
+internal/control/discover_test.go:311:			_ state.HeaderRules,
+internal/control/group_detail.go:20:	HeaderRules        HeaderRulesResponse `json:"header_rules"`
+internal/control/group_detail.go:72:	set := make(map[string]string, len(resolved.HeaderRules.Set))
+internal/control/group_detail.go:73:	for name, value := range resolved.HeaderRules.Set {
+internal/control/group_detail.go:81:		HeaderRules: HeaderRulesResponse{
+internal/control/group_detail.go:83:			Remove: append([]string{}, resolved.HeaderRules.Remove...),
+internal/control/server_test.go:564:				listFn: func(context.Context, string, string, state.HeaderRules) ([]string, error) {
+internal/control/server_test.go:1735:				state.HeaderRules,
+internal/control/server_test.go:1774:				state.HeaderRules,
+internal/control/server_test.go:1791:			listFn: func(context.Context, string, string, state.HeaderRules) ([]string, error) {
+internal/control/server_test.go:1810:			listFn: func(context.Context, string, string, state.HeaderRules) ([]string, error) {
+internal/control/server_test.go:1854:			listFn: func(context.Context, string, string, state.HeaderRules) ([]string, error) {
+internal/control/server_test.go:1887:			listFn: func(ctx context.Context, _ string, _ string, _ state.HeaderRules) ([]string, error) {
+internal/control/server_test.go:1937:		listFn: func(context.Context, string, string, state.HeaderRules) ([]string, error) {
+internal/control/server_test.go:1997:			listFn: func(context.Context, string, string, state.HeaderRules) ([]string, error) {
+internal/control/server_test.go:2184:		{name: "duplicate header rules field", method: http.MethodPut, auth: "Bearer test-auth-key", body: `{"settings":{"header_rules":{"set":{},"set":{}}}}`, wantStatus: http.StatusBadRequest, wantCode: "INVALID_JSON"},
+internal/control/server_test.go:2185:		{name: "duplicate header member", method: http.MethodPut, auth: "Bearer test-auth-key", body: `{"settings":{"header_rules":{"set":{"X-Test":"one","X-Test":"two"}}}}`, wantStatus: http.StatusBadRequest, wantCode: "INVALID_JSON"},
+internal/control/server_test.go:2186:		{name: "duplicate future object in array", method: http.MethodPut, auth: "Bearer test-auth-key", body: `{"settings":{"header_rules":{"remove":[{"x":1,"x":2}]}}}`, wantStatus: http.StatusBadRequest, wantCode: "INVALID_JSON"},
+internal/control/server_test.go:2197:		{name: "invalid header rules", method: http.MethodPut, auth: "Bearer test-auth-key", body: `{"settings":{"header_rules":{"append":{}}}}`, wantStatus: http.StatusBadRequest, wantCode: "VALIDATION_FAILED"},
+internal/control/server_test.go:2248:	const wantDefault = `{"code":0,"data":{"overrides":[],"values":{"connect_timeout":15,"first_byte_timeout":120,"header_rules":{"remove":[],"set":{}},"inject_usage_options":true,"models_dev_auto_sync_enabled":true,"request_log_retention_days":7,"request_timeout":600,"stream_idle_timeout":300}},"message":"Success"}`
+internal/control/server_test.go:2253:	update := serveSettingsRequest(t, engine, http.MethodPut, "test-auth-key", `{"settings":{"request_timeout":900,"header_rules":{"set":{},"remove":[]}}}`)
+internal/control/server_test.go:2254:	const wantUpdate = `{"code":0,"data":{"overrides":["header_rules","request_timeout"],"values":{"connect_timeout":15,"first_byte_timeout":120,"header_rules":{"remove":[],"set":{}},"inject_usage_options":true,"models_dev_auto_sync_enabled":true,"request_log_retention_days":7,"request_timeout":900,"stream_idle_timeout":300}},"message":"Success"}`
+internal/control/server_test.go:2259:	reset := serveSettingsRequest(t, engine, http.MethodPut, "test-auth-key", `{"settings":{"request_timeout":null,"header_rules":null}}`)
+internal/control/server_test.go:2317:		`{"settings":{"header_rules":{"set":{"X-Distinctive":"`+distinctiveValue+`"}}}}`,
+internal/control/server_test.go:2333:		!strings.Contains(get.Body.String(), `"overrides":["header_rules"]`) {
+internal/control/settings_etag.go:84:	setNames := make([]string, 0, len(settings.Values.HeaderRules.Set))
+internal/control/settings_etag.go:85:	for name := range settings.Values.HeaderRules.Set {
+internal/control/settings_etag.go:98:		set[textproto.CanonicalMIMEHeaderKey(name)] = settings.Values.HeaderRules.Set[name]
+internal/control/settings_etag.go:101:	removeByIdentity := make(map[string]string, len(settings.Values.HeaderRules.Remove))
+internal/control/settings_etag.go:102:	for _, name := range settings.Values.HeaderRules.Remove {
+internal/control/settings_etag.go:131:	settings.Values.HeaderRules.Set = set
+internal/control/settings_etag.go:132:	settings.Values.HeaderRules.Remove = remove
+internal/control/validation.go:185:		group.HeaderRules,
+internal/control/validation.go:281:	setParts := make([]headerSetPart, 0, len(group.HeaderRules.Set))
+internal/control/validation.go:282:	for name, value := range group.HeaderRules.Set {
+internal/control/validation.go:300:	removeParts := make([]string, len(group.HeaderRules.Remove))
+internal/control/validation.go:301:	for index, name := range group.HeaderRules.Remove {
+
+=== compression utility references ===
+./internal/platform/utils/compression_utils_test.go:12:func TestDecompressResponseLimitedRejectsZstdWindowAboveLimit(t *testing.T) {
+./internal/platform/utils/compression_utils_test.go:40:	compatDecoded, err := DecompressResponse("zstd", wire.Bytes())
+./internal/platform/utils/compression_utils_test.go:45:	decoded, err := DecompressResponseLimited("zstd", wire.Bytes(), limit)
+./internal/platform/utils/compression_utils_test.go:51:func TestDecompressResponseLimitedBoundsAllSupportedEncodings(t *testing.T) {
+./internal/platform/utils/compression_utils_test.go:57:				decoded, err := DecompressResponseLimited(encoding, wire, 1<<20)
+./internal/platform/utils/compression_utils_test.go:62:				} else if !errors.Is(err, ErrDecompressedResponseTooLarge) || decoded != nil {
+./internal/platform/utils/compression_utils_test.go:73:		wire, err := CompressResponse(encoding, plain)
+./internal/platform/utils/compression_utils_test.go:91:func TestDecompressResponseSupportsHTTPDeflate(t *testing.T) {
+./internal/platform/utils/compression_utils_test.go:102:	got, err := DecompressResponse("deflate", encoded.Bytes())
+./internal/platform/utils/compression_utils_test.go:104:		t.Fatalf("DecompressResponse() error = %v", err)
+./internal/platform/utils/compression_utils_test.go:107:		t.Fatalf("DecompressResponse() = %q, want %q", got, want)
+./internal/platform/utils/compression_utils_test.go:111:func TestCompressAndDecompressResponseRoundTrip(t *testing.T) {
+./internal/platform/utils/compression_utils_test.go:115:			encoded, err := CompressResponse(encoding, original)
+./internal/platform/utils/compression_utils_test.go:117:				t.Fatalf("CompressResponse(%q) error = %v", encoding, err)
+./internal/platform/utils/compression_utils_test.go:119:			decoded, err := DecompressResponse(encoding, encoded)
+./internal/platform/utils/compression_utils_test.go:121:				t.Fatalf("DecompressResponse(%q) error = %v", encoding, err)
+./internal/platform/utils/compression_utils_test.go:132:		if _, err := DecompressResponse(encoding, []byte("body")); err == nil {
+./internal/platform/utils/compression_utils_test.go:133:			t.Fatalf("DecompressResponse(%q) error = nil", encoding)
+./internal/platform/utils/compression_utils_test.go:135:		if _, err := CompressResponse(encoding, []byte("body")); err == nil {
+./internal/platform/utils/compression_utils_test.go:136:			t.Fatalf("CompressResponse(%q) error = nil", encoding)
+./internal/platform/utils/compression_utils_test.go:141:func TestDecompressResponseRejectsMalformedBody(t *testing.T) {
+./internal/platform/utils/compression_utils_test.go:142:	if _, err := DecompressResponse("gzip", []byte("not gzip")); err == nil {
+./internal/platform/utils/compression_utils_test.go:143:		t.Fatal("DecompressResponse(malformed gzip) error = nil")
+./internal/platform/utils/compression_utils.go:23:var ErrDecompressedResponseTooLarge = errors.New("decompressed response exceeds size limit")
+./internal/platform/utils/compression_utils.go:30:	RegisterDecompressor("gzip", &GzipDecompressor{})
+./internal/platform/utils/compression_utils.go:31:	RegisterDecompressor("br", &BrotliDecompressor{})
+./internal/platform/utils/compression_utils.go:32:	RegisterDecompressor("deflate", &DeflateDecompressor{})
+./internal/platform/utils/compression_utils.go:33:	RegisterDecompressor("zstd", &ZstdDecompressor{})
+./internal/platform/utils/compression_utils.go:36:// RegisterDecompressor allows registering new decompression algorithms
+./internal/platform/utils/compression_utils.go:37:func RegisterDecompressor(encoding string, decompressor Decompressor) {
+./internal/platform/utils/compression_utils.go:42:// DecompressResponse automatically decompresses response data based on Content-Encoding header
+./internal/platform/utils/compression_utils.go:43:func DecompressResponse(contentEncoding string, data []byte) ([]byte, error) {
+./internal/platform/utils/compression_utils.go:44:	return DecompressResponseLimited(contentEncoding, data, math.MaxInt64)
+./internal/platform/utils/compression_utils.go:47:// DecompressResponseLimited decompresses response data up to limit bytes.
+./internal/platform/utils/compression_utils.go:48:func DecompressResponseLimited(contentEncoding string, data []byte, limit int64) ([]byte, error) {
+./internal/platform/utils/compression_utils.go:58:			return nil, ErrDecompressedResponseTooLarge
+./internal/platform/utils/compression_utils.go:79:		return nil, ErrDecompressedResponseTooLarge
+./internal/platform/utils/compression_utils.go:84:// CompressResponse compresses response data based on Content-Encoding header.
+./internal/platform/utils/compression_utils.go:85:func CompressResponse(contentEncoding string, data []byte) ([]byte, error) {
+./internal/gateway/forward_test.go:389:				wire, err = utils.CompressResponse(test.encoding, test.plain)
+./internal/gateway/forward_test.go:425:	gzipWire, err := utils.CompressResponse("gzip", plain)
+./internal/gateway/forward_test.go:468:		wire, err := utils.CompressResponse(encoding, plain)
+./internal/gateway/forward_test.go:866:			wire, err := utils.CompressResponse("gzip", []byte(`{"error":"safe"}`))
+./internal/gateway/forward_test.go:2507:				wire, err = utils.CompressResponse(encoding, plain)
+./internal/gateway/forward_test.go:2544:				downstreamBody, err = utils.DecompressResponse(encoding, result.Body)
+./internal/gateway/forward_test.go:2577:			wire, err = utils.CompressResponse(encoding, plain)
+./internal/gateway/forward_test.go:2608:				downstreamBody, err = utils.DecompressResponse(encoding, result.Body)
+./internal/gateway/forward_test.go:2644:			wire, err = utils.CompressResponse(encoding, plain)
+./internal/gateway/forward_test.go:2671:				downstreamBody, err = utils.DecompressResponse(encoding, result.Body)
+./internal/gateway/forward_test.go:2809:	encoded, err := utils.CompressResponse("gzip", plain)
+./internal/gateway/forward_test.go:2828:	decoded, err := utils.DecompressResponse("gzip", result.Body)
+./internal/gateway/forward_test.go:2845:	encoded, err := utils.CompressResponse("gzip", plain)
+./internal/gateway/forward.go:532:	plain, err := utils.DecompressResponseLimited(encoding, wire, maxDecompressedErrorBodyBytes)
+./internal/gateway/usage_capture_test.go:958:			wire, err := utils.CompressResponse(encoding, plain)
+./internal/gateway/usage_capture_test.go:960:				t.Fatalf("CompressResponse(%q): %v", encoding, err)
+./internal/gateway/usage_capture_test.go:979:	tooLargeWire, err := utils.CompressResponse("gzip", tooLargePlain)
+./internal/gateway/usage_capture_test.go:1043:	wire, err := utils.CompressResponse("gzip", plain)
+./internal/gateway/response_representation.go:38:	originalPlain, err := utils.DecompressResponseLimited(
+./internal/gateway/usage_capture.go:306:	body, err := utils.DecompressResponseLimited(
+./internal/gateway/response_representation_test.go:50:		wire, err := utils.CompressResponse(encoding, plain)
+./internal/gateway/response_representation_test.go:52:			t.Fatalf("CompressResponse(%q): %v", encoding, err)
+./internal/gateway/response_representation_test.go:221:	wire, err := utils.CompressResponse("gzip", plain)
+./internal/gateway/response_representation_test.go:245:	gotPlain, err := utils.DecompressResponse("gzip", result.wire)
+./internal/gateway/response_representation_test.go:344:				plain, err := utils.DecompressResponse(representation.encoding, result.Body)
+./internal/gateway/response_representation_test.go:368:	validGzip, err := utils.CompressResponse("gzip", []byte(`{"id":"safe-response"}`))
+./internal/gateway/response_representation_test.go:630:			wire, err := utils.CompressResponse(test.encoding, []byte(providerBody))
+./internal/gateway/response_representation_test.go:679:	wire, err := utils.CompressResponse("gzip", plain)
+./internal/gateway/response_representation_test.go:729:	downstreamPlain, err := utils.DecompressResponse("gzip", result.Body)
