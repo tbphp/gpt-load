@@ -155,8 +155,8 @@ func usageStatScope(db *gorm.DB, input UsageQuery) *gorm.DB {
 	if input.GroupID != nil {
 		scope = scope.Where("group_id = ?", *input.GroupID)
 	}
-	if input.Model != "" {
-		scope = scope.Where("model = ?", input.Model)
+	if input.UpstreamModel != "" {
+		scope = scope.Where("model = ?", input.UpstreamModel)
 	}
 	return scope
 }
@@ -170,7 +170,8 @@ func validateUsageStatIntegrity(scope *gorm.DB) error {
 			THEN 1 ELSE 0 END), 0) AS invalid_bucket,
 		COALESCE(MAX(CASE
 			WHEN request_count < 0 OR success_count < 0 OR failure_count < 0
-				OR usage_missing_count < 0 OR partial_count < 0 OR unpriced_request_count < 0
+					OR usage_missing_count < 0 OR partial_count < 0 OR unpriced_request_count < 0
+					OR pricing_partial_count < 0
 				OR CASE
 					WHEN request_count < success_count THEN 1
 					WHEN request_count - success_count != failure_count THEN 1
@@ -179,7 +180,8 @@ func validateUsageStatIntegrity(scope *gorm.DB) error {
 			THEN 1 ELSE 0 END), 0) AS invalid_count,
 		COALESCE(MAX(CASE
 			WHEN uncached_input_tokens < 0 OR output_tokens < 0 OR cache_read_tokens < 0
-				OR cache_write_5m_tokens < 0 OR cache_write_1h_tokens < 0
+					OR cache_write_5m_tokens < 0 OR cache_write_1h_tokens < 0
+					OR cache_write_unknown_tokens < 0
 			THEN 1 ELSE 0 END), 0) AS invalid_token,
 		COALESCE(MAX(CASE
 			WHEN estimated_cost_nano_usd < 0
@@ -336,10 +338,12 @@ func addUsageAggregates(left, right UsageAggregate) (UsageAggregate, error) {
 		{"cache read tokens", left.CacheReadTokens, right.CacheReadTokens, &result.CacheReadTokens},
 		{"cache write 5m tokens", left.CacheWrite5MTokens, right.CacheWrite5MTokens, &result.CacheWrite5MTokens},
 		{"cache write 1h tokens", left.CacheWrite1HTokens, right.CacheWrite1HTokens, &result.CacheWrite1HTokens},
+		{"cache write unknown tokens", left.CacheWriteUnknownTokens, right.CacheWriteUnknownTokens, &result.CacheWriteUnknownTokens},
 		{"output tokens", left.OutputTokens, right.OutputTokens, &result.OutputTokens},
 		{"usage missing count", left.UsageMissingCount, right.UsageMissingCount, &result.UsageMissingCount},
 		{"partial count", left.PartialCount, right.PartialCount, &result.PartialCount},
 		{"unpriced request count", left.UnpricedRequestCount, right.UnpricedRequestCount, &result.UnpricedRequestCount},
+		{"pricing partial count", left.PricingPartialCount, right.PricingPartialCount, &result.PricingPartialCount},
 	}
 	for _, field := range fields {
 		value, ok := usage.CheckedAdd(field.left, field.right)
@@ -374,10 +378,12 @@ func validateUsageAggregate(aggregate UsageAggregate) error {
 		{"cache read tokens", aggregate.CacheReadTokens},
 		{"cache write 5m tokens", aggregate.CacheWrite5MTokens},
 		{"cache write 1h tokens", aggregate.CacheWrite1HTokens},
+		{"cache write unknown tokens", aggregate.CacheWriteUnknownTokens},
 		{"output tokens", aggregate.OutputTokens},
 		{"usage missing count", aggregate.UsageMissingCount},
 		{"partial count", aggregate.PartialCount},
 		{"unpriced request count", aggregate.UnpricedRequestCount},
+		{"pricing partial count", aggregate.PricingPartialCount},
 	}
 	for _, field := range fields {
 		if field.value < 0 {
@@ -394,6 +400,7 @@ func validateUsageAggregate(aggregate UsageAggregate) error {
 		aggregate.CacheReadTokens,
 		aggregate.CacheWrite5MTokens,
 		aggregate.CacheWrite1HTokens,
+		aggregate.CacheWriteUnknownTokens,
 		aggregate.OutputTokens,
 	} {
 		var added bool
@@ -417,11 +424,13 @@ const usageAggregateSelect = "" +
 	"COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens, " +
 	"COALESCE(SUM(cache_write_5m_tokens), 0) AS cache_write5_m_tokens, " +
 	"COALESCE(SUM(cache_write_1h_tokens), 0) AS cache_write1_h_tokens, " +
+	"COALESCE(SUM(cache_write_unknown_tokens), 0) AS cache_write_unknown_tokens, " +
 	"COALESCE(SUM(output_tokens), 0) AS output_tokens, " +
 	"COALESCE(SUM(estimated_cost_nano_usd), 0) AS estimated_cost_nano_usd, " +
 	"COALESCE(SUM(usage_missing_count), 0) AS usage_missing_count, " +
 	"COALESCE(SUM(partial_count), 0) AS partial_count, " +
-	"COALESCE(SUM(unpriced_request_count), 0) AS unpriced_request_count"
+	"COALESCE(SUM(unpriced_request_count), 0) AS unpriced_request_count, " +
+	"COALESCE(SUM(pricing_partial_count), 0) AS pricing_partial_count"
 
 type usageHourPoint struct {
 	BucketStartMS int64

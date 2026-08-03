@@ -10,6 +10,7 @@ export type GroupTimeoutKey =
   'connect_timeout' | 'first_byte_timeout' | 'request_timeout' | 'stream_idle_timeout'
 
 export interface GroupSettingsDraft {
+  provider_id: string | null
   name: string
   upstream_url: string
   protocols: GroupProtocol[]
@@ -78,6 +79,7 @@ export function buildGroupSettingsPatch(
   const protocols = enabledDataProtocols.filter((protocol) => draft.protocols.includes(protocol))
   const overrides = normalizeOverrides(draft.overrides)
   if (!protocols.includes('openai-completions')) delete overrides.inject_usage_options
+  if (draft.provider_id !== base.provider_id) patch.provider_id = draft.provider_id
   if (draft.name.trim() !== base.name) patch.name = draft.name.trim()
   if (draft.upstream_url.trim() !== base.upstream_url)
     patch.upstream_url = draft.upstream_url.trim()

@@ -506,6 +506,7 @@ func TestWriteConfigMakesCreatedGroupAndFirstKeyAtomicallyVisibleToDataPlane(t *
 		health.NewMutationCoordinator(),
 		nil,
 		nil,
+		nil,
 	)
 	engine := gin.New()
 	registerGatewayRoutes(t, engine, handler)

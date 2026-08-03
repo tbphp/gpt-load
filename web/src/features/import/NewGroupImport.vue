@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { useQueryClient } from '@tanstack/vue-query'
+import { useQuery, useQueryClient } from '@tanstack/vue-query'
 import { ArrowRight, Plus, RefreshCw } from '@lucide/vue'
 import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -15,10 +15,18 @@ import {
   importGroupKeys,
   isUpstreamUrlConflictData,
   type GroupCreateRequest,
+  type ModelDiscoveryRequest,
   type UpstreamUrlConflictData,
 } from '@/app/resources/groups'
 import { applyInvalidationPlan, mutationInvalidationPlans } from '@/app/resources/invalidation'
+import {
+  normalizeProviderSearch,
+  providerSuggestionsQueryOptions,
+  type ModelCandidate,
+  type ProviderSuggestion,
+} from '@/app/resources/providers'
 import { useUnsavedChanges } from '@/app/unsaved-changes'
+import { useDebouncedAction } from '@/app/use-debounced-action'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppDialog from '@/components/ui/AppDialog.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
@@ -27,15 +35,17 @@ import ModelAliasEditor from '@/features/models/ModelAliasEditor.vue'
 import ModelDiscoveryDrawer from '@/features/models/ModelDiscoveryDrawer.vue'
 import { isValidUpstreamBaseURL } from '@/lib/upstream-base-url'
 import {
+  appendSelectedCandidates,
   findModelNameConflicts,
+  mergeCandidateMetadata,
   modelDraftValidity,
   readModelNameConflicts,
   type ModelAliasEditorLabels,
   type ModelDiscoveryDrawerLabels,
   type ModelNameConflict,
 } from '@/features/models/model-draft'
+import ModelPricingStatus from '@/features/models/ModelPricingStatus.vue'
 
-import { findProviderPreset } from './channel-presets'
 import ImportConnectionSection from './ImportConnectionSection.vue'
 import ImportOperationNotice from './ImportOperationNotice.vue'
 import { useImportOperationOwner } from './import-operation-owner'
@@ -57,13 +67,12 @@ const createOperation = importOperationOwner.createGroup
 const appendOperation = importOperationOwner.importKeys
 
 function freshDraft(): ImportDraft {
-  const preset = findProviderPreset('openai')!
   return {
     mode: 'new',
-    preset_id: preset.id,
+    provider_id: null,
     name: '',
-    upstream_url: preset.upstream_url,
-    protocols: [...preset.protocols],
+    upstream_url: '',
+    protocols: [],
     keys: '',
     models: [],
   }
@@ -73,7 +82,7 @@ function cloneDraft(source: ImportDraft): ImportDraft {
   return {
     ...source,
     protocols: [...source.protocols],
-    models: source.models.map((model) => ({ ...model })),
+    models: source.models.map((model) => ({ ...model, sources: [...model.sources] })),
   }
 }
 
@@ -95,7 +104,13 @@ const draft = reactive<ImportDraft>(
   cloneDraft(operationDraft ?? props.initialDraft ?? defaultDraft),
 )
 let nextModelKey = Math.max(0, ...draft.models.map(({ key }) => key)) + 1
-const discoveryCandidates = ref<string[]>([])
+const discoveryCandidates = ref<ModelCandidate[]>([])
+const providerSearchInput = ref(draft.provider_id ?? '')
+const providerSearchQuery = ref(normalizeProviderSearch(providerSearchInput.value))
+const providerSearchDebounce = useDebouncedAction(250)
+const selectedProvider = ref<ProviderSuggestion | null>(null)
+const shouldApplyDefaultProvider = ref(!operationDraft && !props.initialDraft)
+const providerSuggestionsQuery = useQuery(providerSuggestionsQueryOptions(api, providerSearchQuery))
 const discoveryErrorKey = ref('')
 const discoveryLoading = ref(false)
 const discoveryDrawerOpen = ref(false)
@@ -248,6 +263,14 @@ const discoveryDrawerLabels = computed<ModelDiscoveryDrawerLabels>(() => ({
   retry: t('common.retry'),
   cancel: t('common.cancel'),
   confirm: t('import.models.drawer.confirm'),
+  pricingStatus: {
+    pending: t('import.models.pricing.pending'),
+    configured: t('import.models.pricing.configured'),
+  },
+  sources: {
+    catalog: t('import.models.sources.catalog'),
+    live: t('import.models.sources.live'),
+  },
 }))
 
 const unsavedChanges = useUnsavedChanges(dirty, { blocked: mutationPending })
@@ -275,9 +298,65 @@ function invalidateDiscovery(): void {
   discoveryErrorKey.value = ''
 }
 
-watch([() => draft.upstream_url, () => draft.keys, () => draft.protocols.join('\u0000')], () => {
-  invalidateDiscovery()
-})
+function cancelDefaultProvider(): void {
+  shouldApplyDefaultProvider.value = false
+}
+
+function setProviderSearch(value: string): void {
+  providerSearchInput.value = value
+  cancelDefaultProvider()
+  providerSearchDebounce.schedule(() => {
+    providerSearchQuery.value = normalizeProviderSearch(value)
+  })
+}
+
+function retryProviderSuggestions(): void {
+  providerSearchDebounce.cancel()
+  const normalizedInput = normalizeProviderSearch(providerSearchInput.value)
+  const normalizedQuery = normalizeProviderSearch(providerSearchQuery.value)
+  if (normalizedQuery !== normalizedInput) {
+    providerSearchQuery.value = normalizedInput
+    return
+  }
+  void providerSuggestionsQuery.refetch()
+}
+
+watch(
+  [
+    () => draft.provider_id,
+    () => draft.upstream_url,
+    () => draft.keys,
+    () => draft.protocols.join('\u0000'),
+  ],
+  invalidateDiscovery,
+)
+
+watch(
+  () => providerSuggestionsQuery.data.value?.items,
+  (providers) => {
+    if (!providers) return
+    const current = draft.provider_id
+      ? providers.find(({ provider_id }) => provider_id === draft.provider_id)
+      : undefined
+    if (current) selectedProvider.value = current
+    if (!shouldApplyDefaultProvider.value) return
+    if (JSON.stringify(snapshotDraft()) !== JSON.stringify(defaultDraft)) {
+      cancelDefaultProvider()
+      return
+    }
+    const provider = providers.find(({ official }) => official)
+    if (!provider) return
+    cancelDefaultProvider()
+    selectedProvider.value = provider
+    draft.provider_id = provider.provider_id
+    draft.upstream_url = provider.api_url ?? ''
+    draft.protocols = [...provider.protocols]
+    defaultDraft.provider_id = provider.provider_id
+    defaultDraft.upstream_url = provider.api_url ?? ''
+    defaultDraft.protocols = [...provider.protocols]
+  },
+  { immediate: true },
+)
 
 watch(
   () => JSON.stringify(snapshotDraft()),
@@ -286,37 +365,58 @@ watch(
   },
 )
 
-function applyPreset(id: ImportDraft['preset_id']): void {
+function selectProvider(provider: ProviderSuggestion | null): void {
   if (payloadLocked.value) return
-  draft.preset_id = id
-  const preset = findProviderPreset(id)
-  draft.upstream_url = preset?.upstream_url ?? ''
-  draft.protocols = preset ? [...preset.protocols] : []
+  cancelDefaultProvider()
+  selectedProvider.value = provider
+  draft.provider_id = provider?.provider_id ?? null
+  draft.upstream_url = provider?.api_url ?? ''
+  draft.protocols = provider ? [...provider.protocols] : []
 }
 
 function setProtocols(protocols: GroupProtocol[]): void {
+  cancelDefaultProvider()
   draft.protocols = protocols
+}
+
+function setUpstreamURL(value: string): void {
+  cancelDefaultProvider()
+  draft.upstream_url = value
 }
 
 function createManualRow(): ModelDraftItem {
   return {
     id: '',
+    name: '',
+    sources: [],
+    pricing_status: 'pending',
     alias: '',
     alias_enabled: false,
     editable_id: true,
-    source: 'manual',
     key: nextModelKey++,
   }
 }
 
 function updateModels(models: ModelDraftItem[]): void {
   serverModelConflicts.value = []
-  draft.models = models
+  const previousByKey = new Map(draft.models.map((item) => [item.key, item] as const))
+  draft.models = models.map((item) => {
+    const previous = previousByKey.get(item.key)
+    return previous && previous.id === item.id
+      ? { ...item, sources: [...item.sources] }
+      : {
+          ...item,
+          name: item.id,
+          sources: [],
+          pricing_status: 'pending',
+        }
+  })
 }
 
 function requestDiscovery(): void {
   if (!canDiscover.value) return
   const request = {
+    provider_id: draft.provider_id,
     upstream_url: draft.upstream_url.trim(),
     protocols: [...draft.protocols],
     keys: draft.keys,
@@ -333,14 +433,15 @@ function requestDiscovery(): void {
 }
 
 async function runDiscovery(
-  request: { upstream_url: string; protocols: GroupProtocol[]; keys: string },
+  request: ModelDiscoveryRequest,
   controller: AbortController,
   identity: number,
 ): Promise<void> {
   try {
     const result = await discoverModels(api, request, controller.signal)
     if (discoveryRequestIdentity !== identity || discoveryController !== controller) return
-    discoveryCandidates.value = [...new Set(result.models.map((id) => id.trim()).filter(Boolean))]
+    discoveryCandidates.value = result.models
+    draft.models = mergeCandidateMetadata(draft.models, result.models)
   } catch (cause: unknown) {
     if (
       cause instanceof RequestCancelledError ||
@@ -358,10 +459,11 @@ async function runDiscovery(
   }
 }
 
-function confirmCandidates(selectedCandidates: string[]): void {
-  const additions = createDiscoveredModelDraft(selectedCandidates, () => nextModelKey++)
+function confirmCandidates(selectedCandidates: ModelCandidate[]): void {
   serverModelConflicts.value = []
-  draft.models = [...draft.models, ...additions]
+  draft.models = appendSelectedCandidates(draft.models, selectedCandidates, (candidate) =>
+    createDiscoveredModelDraft([candidate], () => nextModelKey++).at(0)!,
+  )
   discoveryDrawerOpen.value = false
 }
 
@@ -372,6 +474,7 @@ function addManualModel(): void {
 function buildCreateBody(confirmSameURL: boolean): GroupCreateRequest {
   const name = draft.name.trim()
   return {
+    provider_id: draft.provider_id,
     ...(name ? { name } : {}),
     upstream_url: draft.upstream_url.trim(),
     protocols: [...draft.protocols],
@@ -534,6 +637,7 @@ function updateConflictDialog(open: boolean): void {
 
 onBeforeUnmount(() => {
   componentActive = false
+  providerSearchDebounce.cancel()
   cancelDiscovery()
   unregisterRecovery()
 })
@@ -552,9 +656,16 @@ onBeforeUnmount(() => {
     />
 
     <ProviderPresetPicker
-      :model-value="draft.preset_id"
+      :model-value="draft.provider_id"
+      :selected-provider="selectedProvider"
+      :providers="providerSuggestionsQuery.data.value?.items ?? []"
+      :search="providerSearchInput"
+      :loading="providerSuggestionsQuery.isFetching.value"
+      :error="providerSuggestionsQuery.isError.value"
       :disabled="payloadLocked"
-      @update:model-value="applyPreset"
+      @select="selectProvider"
+      @update:search="setProviderSearch"
+      @retry="retryProviderSuggestions"
     />
 
     <ImportConnectionSection
@@ -565,7 +676,7 @@ onBeforeUnmount(() => {
       :protocols-error="protocolsError"
       :disabled="payloadLocked"
       @update:name="draft.name = $event"
-      @update:upstream-url="draft.upstream_url = $event"
+      @update:upstream-url="setUpstreamURL"
       @update:protocols="setProtocols"
     />
 
@@ -603,9 +714,13 @@ onBeforeUnmount(() => {
         @update:model-value="updateModels"
       >
         <template #third-column="{ item }">
-          <span :class="['new-group-import__source', `new-group-import__source--${item.source}`]">
-            {{ t(`import.models.sources.${item.source}`) }}
-          </span>
+          <ModelPricingStatus
+            :status="item.pricing_status"
+            :labels="{
+              pending: t('import.models.pricing.pending'),
+              configured: t('import.models.pricing.configured'),
+            }"
+          />
         </template>
       </ModelAliasEditor>
     </section>
@@ -703,23 +818,6 @@ onBeforeUnmount(() => {
   min-width: 0;
   border-bottom: 1px solid var(--color-border-subtle);
   padding: 22px 0 var(--space-6);
-}
-
-.new-group-import__source {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--color-text-faint);
-  font-size: 10.8px;
-}
-
-.new-group-import__source::before {
-  width: 6px;
-  height: 6px;
-  flex: none;
-  border-radius: 50%;
-  background: var(--color-success);
-  content: '';
 }
 
 .new-group-import__conflict-groups > div {

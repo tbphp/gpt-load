@@ -2,6 +2,7 @@ package requestlog
 
 import (
 	"encoding/json"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -14,376 +15,220 @@ import (
 	"gpt-load/internal/usage"
 )
 
-func TestMapEventPersistsCompletedAtZeroUsageAndJSONArray(t *testing.T) {
-	location := time.FixedZone("test-offset", 8*60*60)
-	completedAt := time.Date(2026, time.July, 24, 20, 30, 0, 123, location)
-	event := telemetry.RequestEvent{
-		RequestID:     "00000000-0000-4000-8000-000000000101",
-		CompletedAt:   completedAt,
-		AccessKeyID:   17,
-		Protocol:      protocol.OpenAICompletions,
-		ClientModel:   "client-model",
-		UpstreamModel: "upstream-model",
-		Status:        telemetry.RequestStatusError,
-		StatusCode:    429,
-		ErrorCode:     "upstream_rate_limited",
-		ErrorSummary:  "Rate limit exceeded.",
-		DurationMs:    845,
-		AffinityHit:   true,
-		Attempts: []telemetry.Attempt{{
-			Sequence:        1,
-			GroupID:         12,
-			GroupName:       "Anthropic Primary",
-			KeyID:           34,
-			UpstreamModel:   "claude-sonnet-5",
-			StatusCode:      429,
-			DurationMs:      800,
-			FailureCategory: telemetry.FailureCategoryRateLimited,
-			Action:          telemetry.ActionCooldownKey,
-			WillRetry:       true,
-			ErrorCode:       "upstream_rate_limited",
-			ErrorSummary:    "Rate limit exceeded.",
-		}},
+func TestMapEventPersistsFrozenUsagePricingAndAttribution(t *testing.T) {
+	event := testEvent("00000000-0000-4000-8000-000000000101")
+	event.CompletedAt = time.Date(2026, time.July, 24, 20, 30, 0, 123, time.FixedZone("test", 8*60*60))
+	event.Protocol = protocol.OpenAICompletions
+	event.ClientModel = "client-alias"
+	event.Usage.Result = usage.Result{
+		State: usage.StatePartial,
+		Tokens: usage.Tokens{
+			UncachedInput:     1,
+			CacheRead:         2,
+			CacheWrite5M:      3,
+			CacheWrite1H:      4,
+			CacheWriteUnknown: 5,
+			Output:            6,
+		},
+	}
+	event.Usage.AttemptSequence = 1
+	event.Usage.KeyID = 8
+	event.Usage.Pricing = telemetry.PricingObservation{
+		PriceScopeKey:        "group:7",
+		UpstreamModel:        "upstream-model",
+		CostState:            string(pricing.CostStatePriced),
+		PricingCompleteness:  string(pricing.CompletenessPartial),
+		EstimatedCostNanoUSD: 123456,
 	}
 
-	row := mustMapEvent(t, redact.New(), event, nil)
+	row := mustMapEvent(t, redact.New(), event)
 	if row.ID != event.RequestID || row.CompletedAtMS != 1_784_896_200_000 {
-		t.Fatalf(
-			"identity/completed_at_ms = %q/%d, want %q/1784896200000",
-			row.ID,
-			row.CompletedAtMS,
-			event.RequestID,
-		)
+		t.Fatalf("identity/completed_at_ms = %q/%d", row.ID, row.CompletedAtMS)
 	}
-	if row.AccessKeyID != 17 || row.Protocol != string(protocol.OpenAICompletions) || row.ClientModel != "client-model" ||
-		row.UpstreamModel != "upstream-model" || row.Status != "error" || row.StatusCode != 429 ||
-		row.DurationMs != 845 || row.ErrorCode != "upstream_rate_limited" ||
-		row.ErrorSummary != "Rate limit exceeded." {
-		t.Fatalf("mapped request row = %+v", row)
+	if row.GroupID != 7 || row.ClientModel != "client-alias" || row.UpstreamModel != "upstream-model" {
+		t.Fatalf("persisted attribution/models = %+v", row)
 	}
-	if row.AffinityHit {
-		t.Fatal("AffinityHit = true, want false in M3")
+	if row.UncachedInputTokens != 1 || row.CacheReadTokens != 2 || row.CacheWrite5MTokens != 3 ||
+		row.CacheWrite1HTokens != 4 || row.CacheWriteUnknownTokens != 5 || row.OutputTokens != 6 {
+		t.Fatalf("persisted token dimensions = %+v", row)
 	}
-	if row.UncachedInputTokens != 0 || row.OutputTokens != 0 || row.CacheReadTokens != 0 ||
-		row.CacheWrite5MTokens != 0 || row.CacheWrite1HTokens != 0 || row.EstimatedCostNanoUSD != 0 {
-		t.Fatalf("usage fields are non-zero: %+v", row)
+	if row.UsageState != string(usage.StatePartial) || row.CostState != string(pricing.CostStatePriced) ||
+		row.PricingCompleteness != string(pricing.CompletenessPartial) || row.EstimatedCostNanoUSD != 123456 {
+		t.Fatalf("persisted frozen pricing = %+v", row)
 	}
 
 	var attempts []Attempt
 	if err := json.Unmarshal(row.Attempts, &attempts); err != nil {
 		t.Fatalf("unmarshal attempts: %v", err)
 	}
-	if len(attempts) != 1 || attempts[0].GroupID != 12 || attempts[0].FailureCategory != telemetry.FailureCategoryRateLimited ||
-		attempts[0].Action != telemetry.ActionCooldownKey || !attempts[0].WillRetry {
+	if len(attempts) != 1 || attempts[0].GroupID != 7 || attempts[0].KeyID != 8 {
 		t.Fatalf("attempts = %+v", attempts)
 	}
+}
 
-	zeroEvent := telemetry.RequestEvent{
-		CompletedAt: time.Date(1970, time.January, 1, 0, 0, 0, 0, time.UTC),
+func TestMapEventPersistsEveryValidFrozenPricingState(t *testing.T) {
+	tests := []struct {
+		name         string
+		usageState   usage.State
+		costState    pricing.CostState
+		completeness pricing.Completeness
+		cost         int64
+	}{
+		{name: "complete", usageState: usage.StateComplete, costState: pricing.CostStatePriced, completeness: pricing.CompletenessComplete, cost: 99},
+		{name: "partial priced", usageState: usage.StatePartial, costState: pricing.CostStatePriced, completeness: pricing.CompletenessPartial, cost: 49},
+		{name: "complete unpriced", usageState: usage.StateComplete, costState: pricing.CostStateUnpriced, completeness: pricing.CompletenessUnavailable},
+		{name: "missing", usageState: usage.StateMissing, costState: pricing.CostStateUnpriced, completeness: pricing.CompletenessUnavailable},
+		{name: "not applicable", usageState: usage.StateNotApplicable, costState: pricing.CostStateNotApplicable, completeness: pricing.CompletenessNotApplicable},
 	}
-	zeroAttempts := mustMapEvent(t, redact.New(), zeroEvent, nil)
-	if string(zeroAttempts.Attempts) != "[]" {
-		t.Fatalf("zero attempts JSON = %q, want []", zeroAttempts.Attempts)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			event := testEvent("state-" + test.name)
+			event.Usage.Result.State = test.usageState
+			event.Usage.AttemptSequence = 1
+			event.Usage.KeyID = 8
+			event.Usage.Pricing = telemetry.PricingObservation{
+				PriceScopeKey:        "provider:openai",
+				UpstreamModel:        event.UpstreamModel,
+				CostState:            string(test.costState),
+				PricingCompleteness:  string(test.completeness),
+				EstimatedCostNanoUSD: test.cost,
+			}
+			row := mustMapEvent(t, redact.New(), event)
+			if row.UsageState != string(test.usageState) || row.CostState != string(test.costState) ||
+				row.PricingCompleteness != string(test.completeness) || row.EstimatedCostNanoUSD != test.cost {
+				t.Fatalf("row state = %+v", row)
+			}
+		})
+	}
+}
+
+func TestMapEventRejectsInvalidFrozenObservationAtomically(t *testing.T) {
+	base := func() telemetry.RequestEvent {
+		event := testEvent("invalid-frozen")
+		event.Usage.Result = usage.Result{State: usage.StateComplete, Tokens: usage.Tokens{Output: 1}}
+		event.Usage.AttemptSequence = 1
+		event.Usage.KeyID = 8
+		event.Usage.Pricing = telemetry.PricingObservation{
+			PriceScopeKey: "group:7", UpstreamModel: event.UpstreamModel,
+			CostState: string(pricing.CostStatePriced), PricingCompleteness: string(pricing.CompletenessComplete),
+			EstimatedCostNanoUSD: 1,
+		}
+		return event
+	}
+	tests := []struct {
+		name   string
+		mutate func(*telemetry.RequestEvent)
+	}{
+		{name: "negative token", mutate: func(event *telemetry.RequestEvent) { event.Usage.Result.Tokens.Output = -1 }},
+		{name: "cross field overflow", mutate: func(event *telemetry.RequestEvent) {
+			event.Usage.Result.Tokens.UncachedInput = math.MaxInt64
+			event.Usage.Result.Tokens.Output = 1
+		}},
+		{name: "negative cost", mutate: func(event *telemetry.RequestEvent) { event.Usage.Pricing.EstimatedCostNanoUSD = -1 }},
+		{name: "priced without identity", mutate: func(event *telemetry.RequestEvent) { event.Usage.Pricing.PriceScopeKey = "" }},
+		{name: "invalid canonical scope", mutate: func(event *telemetry.RequestEvent) { event.Usage.Pricing.PriceScopeKey = "group:07" }},
+		{name: "group scope does not match bound group", mutate: func(event *telemetry.RequestEvent) {
+			event.Usage.Pricing.PriceScopeKey = "group:8"
+		}},
+		{name: "invalid matrix", mutate: func(event *telemetry.RequestEvent) {
+			event.Usage.Pricing.PricingCompleteness = string(pricing.CompletenessUnavailable)
+		}},
+		{name: "missing matching attempt", mutate: func(event *telemetry.RequestEvent) { event.Usage.AttemptSequence = 2 }},
+		{name: "inconsistent top model", mutate: func(event *telemetry.RequestEvent) { event.UpstreamModel = "different" }},
+		{name: "inconsistent pricing model", mutate: func(event *telemetry.RequestEvent) { event.Usage.Pricing.UpstreamModel = "different" }},
+		{name: "control character in bound model", mutate: func(event *telemetry.RequestEvent) {
+			model := "model\nname"
+			event.UpstreamModel = model
+			event.Attempts[0].UpstreamModel = model
+			event.Usage.Pricing.UpstreamModel = model
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			event := base()
+			test.mutate(&event)
+			if _, err := mapEvent(redact.New(), event); err == nil {
+				t.Fatal("mapEvent() error = nil")
+			}
+		})
+	}
+}
+
+func TestMapEventAllowsUnboundNoModelResourceOnlyAsNotApplicable(t *testing.T) {
+	event := telemetry.RequestEvent{
+		RequestID:   "resource",
+		CompletedAt: time.Now(),
+		Status:      telemetry.RequestStatusSuccess,
+		Usage: telemetry.UsageObservation{
+			Result: usage.Result{State: usage.StateNotApplicable},
+			Pricing: telemetry.PricingObservation{
+				CostState: string(pricing.CostStateNotApplicable), PricingCompleteness: string(pricing.CompletenessNotApplicable),
+			},
+		},
+	}
+	if _, err := mapEvent(redact.New(), event); err != nil {
+		t.Fatalf("mapEvent() error = %v", err)
+	}
+	event.Usage.Pricing.PriceScopeKey = "group:7"
+	if _, err := mapEvent(redact.New(), event); err == nil {
+		t.Fatal("unbound no-model resource with pricing identity was accepted")
+	}
+	event.Usage.Pricing.PriceScopeKey = ""
+	event.Usage.Result.State = usage.StateComplete
+	event.Usage.Pricing.CostState = string(pricing.CostStateUnpriced)
+	event.Usage.Pricing.PricingCompleteness = string(pricing.CompletenessUnavailable)
+	if _, err := mapEvent(redact.New(), event); err == nil {
+		t.Fatal("unbound billable usage was accepted")
 	}
 }
 
 func TestMapEventRejectsPreEpochCompletion(t *testing.T) {
 	event := testEvent("pre-epoch-completion")
 	event.CompletedAt = time.Unix(-1, 0)
-
-	if _, err := mapEvent(redact.New(), event, nil); err == nil {
-		t.Fatal("mapEvent() error = nil, want pre-epoch completion rejection")
+	if _, err := mapEvent(redact.New(), event); err == nil {
+		t.Fatal("mapEvent() error = nil")
 	}
 }
 
 func TestMapEventDefensivelyRedactsAndBoundsSummaries(t *testing.T) {
 	const secret = "sk-this-is-a-secret-value"
 	unsafeSummary := string([]byte{0xff}) + "\r\n\t " + secret + "   " + strings.Repeat("界", 500)
-	event := telemetry.RequestEvent{
-		ErrorSummary: unsafeSummary,
-		Attempts: []telemetry.Attempt{{
-			ErrorSummary: unsafeSummary,
-		}},
+	event := testEvent("redact")
+	event.ErrorSummary = unsafeSummary
+	event.Attempts[0].ErrorSummary = unsafeSummary
+	row := mustMapEvent(t, redact.New(), event)
+	if len(row.ErrorSummary) > maxSummaryBytes || !utf8.ValidString(row.ErrorSummary) ||
+		strings.Contains(row.ErrorSummary, secret) || !strings.HasSuffix(row.ErrorSummary, truncatedMarker) {
+		t.Fatalf("request summary was not sanitized: %q", row.ErrorSummary)
 	}
-
-	event.CompletedAt = time.Date(2026, time.July, 24, 12, 0, 0, 0, time.UTC)
-	row := mustMapEvent(t, redact.New(), event, nil)
-	if len(row.ErrorSummary) > maxSummaryBytes || !utf8.ValidString(row.ErrorSummary) {
-		t.Fatalf("request summary bytes/UTF-8 = %d/%t", len(row.ErrorSummary), utf8.ValidString(row.ErrorSummary))
-	}
-	if !strings.HasSuffix(row.ErrorSummary, truncatedMarker) {
-		t.Fatalf("request summary does not end with %q: %q", truncatedMarker, row.ErrorSummary)
-	}
-	if strings.Contains(row.ErrorSummary, secret) || strings.ContainsAny(row.ErrorSummary, "\r\n\t") ||
-		strings.Contains(row.ErrorSummary, "  ") {
-		t.Fatalf("request summary was not defensively sanitized: %q", row.ErrorSummary)
-	}
-
 	var attempts []Attempt
 	if err := json.Unmarshal(row.Attempts, &attempts); err != nil {
-		t.Fatalf("unmarshal attempts: %v", err)
+		t.Fatal(err)
 	}
-	if len(attempts) != 1 || len(attempts[0].ErrorSummary) > maxSummaryBytes ||
-		!utf8.ValidString(attempts[0].ErrorSummary) ||
-		strings.Contains(attempts[0].ErrorSummary, secret) ||
+	if len(attempts) != 1 || strings.Contains(attempts[0].ErrorSummary, secret) ||
 		!strings.HasSuffix(attempts[0].ErrorSummary, truncatedMarker) {
-		t.Fatalf("attempt summary was not defensively sanitized: %+v", attempts)
+		t.Fatalf("attempt summary was not sanitized: %+v", attempts)
 	}
 }
 
-func TestMapEventBoundsModelsAtUTF8Boundary(t *testing.T) {
-	const wantMaxModelBytes = 255
-	exactASCII := strings.Repeat("a", 255)
-	exactMultibyte := strings.Repeat("界", 85)
-	overlongASCII := strings.Repeat("b", 256)
-	overlongMultibyte := strings.Repeat("模", 86)
-	invalidAndOverlong := string([]byte{0xff}) + strings.Repeat("c", 255)
-	event := telemetry.RequestEvent{
-		ClientModel:   invalidAndOverlong,
-		UpstreamModel: overlongASCII,
-		Attempts: []telemetry.Attempt{
-			{Sequence: 1, UpstreamModel: overlongMultibyte},
-			{Sequence: 2, UpstreamModel: exactASCII},
-			{Sequence: 3, UpstreamModel: exactMultibyte},
-		},
-	}
-
-	projectedPriceTable := compileRequestLogTestPriceTable(
-		t,
-		strings.Repeat("b", wantMaxModelBytes-len(truncatedMarker))+truncatedMarker,
-		pricing.Prices{Output: pricing.Price{NanoUSDPerMillion: 1_000_000_000, Set: true}},
-	)
-	event.CompletedAt = time.Date(2026, time.July, 24, 12, 0, 0, 0, time.UTC)
-	row := mustMapEvent(t, redact.New(), event, projectedPriceTable)
-
-	assertProjectedModel := func(name, projected, original string, wantTruncated bool) {
-		t.Helper()
-		if len(projected) > wantMaxModelBytes || !utf8.ValidString(projected) {
-			t.Fatalf(
-				"%s bytes/UTF-8 = %d/%t, want <= %d/true",
-				name,
-				len(projected),
-				utf8.ValidString(projected),
-				wantMaxModelBytes,
-			)
-		}
-		if strings.Contains(projected, string([]byte{0xff})) {
-			t.Fatalf("%s retained invalid UTF-8: %q", name, projected)
-		}
-		if wantTruncated != strings.HasSuffix(projected, truncatedMarker) {
-			t.Fatalf(
-				"%s truncated marker = %t, want %t: %q",
-				name,
-				strings.HasSuffix(projected, truncatedMarker),
-				wantTruncated,
-				projected,
-			)
-		}
-		if !wantTruncated && projected != original {
-			t.Fatalf("%s = %q, want unchanged %q", name, projected, original)
-		}
-	}
-
-	assertProjectedModel("client model", row.ClientModel, invalidAndOverlong, true)
-	assertProjectedModel("overall upstream model", row.UpstreamModel, overlongASCII, true)
+func TestMapEventBoundsUnattributedAttemptModelsButRejectsOversizedBoundModel(t *testing.T) {
+	event := testEvent("model-bounds")
+	event.Attempts = append(event.Attempts, telemetry.Attempt{Sequence: 2, UpstreamModel: strings.Repeat("界", 100)})
+	row := mustMapEvent(t, redact.New(), event)
 	var attempts []Attempt
 	if err := json.Unmarshal(row.Attempts, &attempts); err != nil {
-		t.Fatalf("unmarshal attempts: %v", err)
+		t.Fatal(err)
 	}
-	if len(attempts) != 3 {
-		t.Fatalf("attempts = %d, want 3", len(attempts))
-	}
-	assertProjectedModel("attempt 1 upstream model", attempts[0].UpstreamModel, overlongMultibyte, true)
-	assertProjectedModel("attempt 2 upstream model", attempts[1].UpstreamModel, exactASCII, false)
-	assertProjectedModel("attempt 3 upstream model", attempts[2].UpstreamModel, exactMultibyte, false)
-	if row.CostState != string(pricing.CostStateUnpriced) {
-		t.Fatalf(
-			"cost state = %q, want unpriced because Quote must use untruncated telemetry model",
-			row.CostState,
-		)
+	if len(attempts[1].UpstreamModel) > maxModelBytes || !utf8.ValidString(attempts[1].UpstreamModel) ||
+		!strings.HasSuffix(attempts[1].UpstreamModel, truncatedMarker) {
+		t.Fatalf("unattributed attempt model = %q", attempts[1].UpstreamModel)
 	}
 
-	rawInvalidModel := "billable-" + string([]byte{0xff}) + "-model"
-	rawPriceTable := compileRequestLogTestPriceTable(
-		t,
-		rawInvalidModel,
-		pricing.Prices{Output: pricing.Price{NanoUSDPerMillion: 2_000_000_000, Set: true}},
-	)
-	pricedEvent := telemetry.RequestEvent{
-		UpstreamModel: rawInvalidModel,
-		Usage: telemetry.UsageObservation{Result: usage.Result{
-			State:  usage.StateComplete,
-			Tokens: usage.Tokens{Output: 1_000_000},
-		}},
-	}
-	pricedEvent.CompletedAt = time.Date(2026, time.July, 24, 12, 0, 0, 0, time.UTC)
-	pricedRow := mustMapEvent(t, redact.New(), pricedEvent, rawPriceTable)
-	if pricedRow.UpstreamModel == rawInvalidModel || !utf8.ValidString(pricedRow.UpstreamModel) {
-		t.Fatalf("priced row upstream model was not projected safely: %q", pricedRow.UpstreamModel)
-	}
-	if pricedRow.CostState != string(pricing.CostStatePriced) ||
-		pricedRow.EstimatedCostNanoUSD != 2_000_000_000 {
-		t.Fatalf(
-			"raw telemetry model quote = %q/%d, want priced/2000000000",
-			pricedRow.CostState,
-			pricedRow.EstimatedCostNanoUSD,
-		)
-	}
-}
-
-func TestMapEventPersistsUsageAttributionAndQuote(t *testing.T) {
-	table := compileRequestLogTestPriceTable(t, "actual-upstream", pricing.Prices{
-		UncachedInput: pricing.Price{NanoUSDPerMillion: 1_000_000_000, Set: true},
-		CacheRead:     pricing.Price{NanoUSDPerMillion: 2_000_000_000, Set: true},
-		CacheWrite5M:  pricing.Price{NanoUSDPerMillion: 3_000_000_000, Set: true},
-		CacheWrite1H:  pricing.Price{NanoUSDPerMillion: 4_000_000_000, Set: true},
-		Output:        pricing.Price{NanoUSDPerMillion: 5_000_000_000, Set: true},
-	})
-
-	t.Run("complete usage uses final attribution and all five token prices", func(t *testing.T) {
-		event := testEvent("usage-complete")
-		event.UpstreamModel = "actual-upstream"
-		event.Attempts[0].GroupID = 91
-		event.Attempts[0].UpstreamModel = "attempt-model-must-not-price"
-		event.Usage = telemetry.UsageObservation{
-			GroupID: 23,
-			Result: usage.Result{
-				State: usage.StateComplete,
-				Tokens: usage.Tokens{
-					UncachedInput: 1_000_000,
-					CacheRead:     2_000_000,
-					CacheWrite5M:  3_000_000,
-					CacheWrite1H:  4_000_000,
-					Output:        5_000_000,
-				},
-			},
-		}
-
-		row := mustMapEvent(t, redact.New(), event, table)
-
-		if row.GroupID != 23 || row.UpstreamModel != "actual-upstream" {
-			t.Fatalf("attribution = group:%d model:%q, want group:23 model:actual-upstream", row.GroupID, row.UpstreamModel)
-		}
-		if row.UncachedInputTokens != 1_000_000 || row.CacheReadTokens != 2_000_000 ||
-			row.CacheWrite5MTokens != 3_000_000 || row.CacheWrite1HTokens != 4_000_000 ||
-			row.OutputTokens != 5_000_000 {
-			t.Fatalf("persisted tokens = %+v", row)
-		}
-		if row.UsageState != string(usage.StateComplete) ||
-			row.CostState != string(pricing.CostStatePriced) ||
-			row.EstimatedCostNanoUSD != 55_000_000_000 {
-			t.Fatalf(
-				"usage/cost = %q/%q/%d, want complete/priced/55000000000",
-				row.UsageState,
-				row.CostState,
-				row.EstimatedCostNanoUSD,
-			)
-		}
-	})
-
-	t.Run("missing tokens are preserved and remain unpriced", func(t *testing.T) {
-		event := testEvent("usage-missing")
-		event.UpstreamModel = "actual-upstream"
-		event.Usage = telemetry.UsageObservation{
-			GroupID: 24,
-			Result: usage.Result{
-				State: usage.StateMissing,
-				Tokens: usage.Tokens{
-					UncachedInput: 6,
-					CacheRead:     7,
-					CacheWrite5M:  8,
-					CacheWrite1H:  9,
-					Output:        10,
-				},
-			},
-		}
-
-		row := mustMapEvent(t, redact.New(), event, table)
-
-		if row.UncachedInputTokens != 6 || row.CacheReadTokens != 7 ||
-			row.CacheWrite5MTokens != 8 || row.CacheWrite1HTokens != 9 ||
-			row.OutputTokens != 10 {
-			t.Fatalf("missing tokens were rewritten: %+v", row)
-		}
-		if row.UsageState != string(usage.StateMissing) ||
-			row.CostState != string(pricing.CostStateUnpriced) ||
-			row.EstimatedCostNanoUSD != 0 {
-			t.Fatalf(
-				"missing usage/cost = %q/%q/%d",
-				row.UsageState,
-				row.CostState,
-				row.EstimatedCostNanoUSD,
-			)
-		}
-	})
-
-	t.Run("non-2xx not applicable preserves final attribution and tokens", func(t *testing.T) {
-		event := testEvent("usage-not-applicable")
-		event.Status = telemetry.RequestStatusError
-		event.StatusCode = 429
-		event.UpstreamModel = "actual-upstream"
-		event.Usage = telemetry.UsageObservation{
-			GroupID: 25,
-			Result: usage.Result{
-				State: usage.StateNotApplicable,
-				Tokens: usage.Tokens{
-					UncachedInput: 11,
-					Output:        12,
-				},
-			},
-		}
-
-		row := mustMapEvent(t, redact.New(), event, table)
-
-		if row.GroupID != 25 || row.UpstreamModel != "actual-upstream" ||
-			row.UncachedInputTokens != 11 || row.OutputTokens != 12 {
-			t.Fatalf("not-applicable attribution/tokens = %+v", row)
-		}
-		if row.UsageState != string(usage.StateNotApplicable) ||
-			row.CostState != string(pricing.CostStateNotApplicable) ||
-			row.EstimatedCostNanoUSD != 0 {
-			t.Fatalf(
-				"not-applicable usage/cost = %q/%q/%d",
-				row.UsageState,
-				row.CostState,
-				row.EstimatedCostNanoUSD,
-			)
-		}
-	})
-}
-
-func TestMapEventHandlesNilPriceTableFailOpen(t *testing.T) {
-	for _, test := range []struct {
-		name      string
-		usage     usage.State
-		wantState pricing.CostState
-	}{
-		{name: "complete", usage: usage.StateComplete, wantState: pricing.CostStateUnpriced},
-		{name: "partial", usage: usage.StatePartial, wantState: pricing.CostStateUnpriced},
-		{name: "missing", usage: usage.StateMissing, wantState: pricing.CostStateUnpriced},
-		{name: "not applicable", usage: usage.StateNotApplicable, wantState: pricing.CostStateNotApplicable},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			event := testEvent("nil-price-" + test.name)
-			event.Usage.Result = usage.Result{
-				State: test.usage,
-				Tokens: usage.Tokens{
-					UncachedInput: 13,
-					CacheRead:     14,
-					CacheWrite5M:  15,
-					CacheWrite1H:  16,
-					Output:        17,
-				},
-			}
-
-			row := mustMapEvent(t, redact.New(), event, nil)
-
-			if row.UsageState != string(test.usage) || row.CostState != string(test.wantState) ||
-				row.EstimatedCostNanoUSD != 0 || row.UncachedInputTokens != 13 || row.CacheReadTokens != 14 ||
-				row.CacheWrite5MTokens != 15 || row.CacheWrite1HTokens != 16 ||
-				row.OutputTokens != 17 {
-				t.Fatalf("nil-table mapping = %+v", row)
-			}
-		})
+	overlong := strings.Repeat("x", maxModelBytes+1)
+	event.UpstreamModel = overlong
+	event.Attempts[0].UpstreamModel = overlong
+	event.Usage.Pricing.UpstreamModel = overlong
+	if _, err := mapEvent(redact.New(), event); err == nil {
+		t.Fatal("oversized bound model was accepted")
 	}
 }

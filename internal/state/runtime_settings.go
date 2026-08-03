@@ -14,13 +14,14 @@ import (
 )
 
 const (
-	SettingConnectTimeout          = "connect_timeout"
-	SettingFirstByteTimeout        = "first_byte_timeout"
-	SettingRequestTimeout          = "request_timeout"
-	SettingStreamIdleTimeout       = "stream_idle_timeout"
-	SettingHeaderRules             = "header_rules"
-	SettingInjectUsageOptions      = "inject_usage_options"
-	SettingRequestLogRetentionDays = "request_log_retention_days"
+	SettingConnectTimeout           = "connect_timeout"
+	SettingFirstByteTimeout         = "first_byte_timeout"
+	SettingRequestTimeout           = "request_timeout"
+	SettingStreamIdleTimeout        = "stream_idle_timeout"
+	SettingHeaderRules              = "header_rules"
+	SettingInjectUsageOptions       = "inject_usage_options"
+	SettingRequestLogRetentionDays  = "request_log_retention_days"
+	SettingModelsDevAutoSyncEnabled = "models_dev_auto_sync_enabled"
 )
 
 const (
@@ -30,13 +31,14 @@ const (
 )
 
 type RuntimeSettings struct {
-	ConnectTimeout          time.Duration
-	FirstByteTimeout        time.Duration
-	RequestTimeout          time.Duration
-	StreamIdleTimeout       time.Duration
-	HeaderRules             HeaderRules
-	InjectUsageOptions      bool
-	RequestLogRetentionDays int
+	ConnectTimeout           time.Duration
+	FirstByteTimeout         time.Duration
+	RequestTimeout           time.Duration
+	StreamIdleTimeout        time.Duration
+	HeaderRules              HeaderRules
+	InjectUsageOptions       bool
+	RequestLogRetentionDays  int
+	ModelsDevAutoSyncEnabled bool
 }
 
 type ResolvedGroupSettings struct {
@@ -47,13 +49,14 @@ type ResolvedGroupSettings struct {
 
 func DefaultRuntimeSettings() RuntimeSettings {
 	return RuntimeSettings{
-		ConnectTimeout:          15 * time.Second,
-		FirstByteTimeout:        120 * time.Second,
-		RequestTimeout:          600 * time.Second,
-		StreamIdleTimeout:       300 * time.Second,
-		HeaderRules:             HeaderRules{Set: map[string]string{}},
-		InjectUsageOptions:      true,
-		RequestLogRetentionDays: defaultRequestLogRetentionDays,
+		ConnectTimeout:           15 * time.Second,
+		FirstByteTimeout:         120 * time.Second,
+		RequestTimeout:           600 * time.Second,
+		StreamIdleTimeout:        300 * time.Second,
+		HeaderRules:              HeaderRules{Set: map[string]string{}},
+		InjectUsageOptions:       true,
+		RequestLogRetentionDays:  defaultRequestLogRetentionDays,
+		ModelsDevAutoSyncEnabled: true,
 	}
 }
 
@@ -65,7 +68,8 @@ func IsRuntimeSettingKey(key string) bool {
 		SettingStreamIdleTimeout,
 		SettingHeaderRules,
 		SettingInjectUsageOptions,
-		SettingRequestLogRetentionDays:
+		SettingRequestLogRetentionDays,
+		SettingModelsDevAutoSyncEnabled:
 		return true
 	default:
 		return false
@@ -123,6 +127,12 @@ func ResolveRuntimeSettings(settings config.Settings) (RuntimeSettings, error) {
 				return RuntimeSettings{}, err
 			}
 			resolved.RequestLogRetentionDays = days
+		case SettingModelsDevAutoSyncEnabled:
+			value, err := strictBoolean(key, value)
+			if err != nil {
+				return RuntimeSettings{}, err
+			}
+			resolved.ModelsDevAutoSyncEnabled = value
 		default:
 			return RuntimeSettings{}, fmt.Errorf("unknown runtime setting %q", key)
 		}
@@ -210,6 +220,9 @@ func ValidateRuntimeSetting(key string, value any) error {
 			minRequestLogRetentionDays,
 			maxRequestLogRetentionDays,
 		)
+		return err
+	case SettingModelsDevAutoSyncEnabled:
+		_, err := strictBoolean(key, value)
 		return err
 	default:
 		return fmt.Errorf("unknown runtime setting %q", key)

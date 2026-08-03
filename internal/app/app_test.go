@@ -17,7 +17,6 @@ import (
 	"time"
 
 	"gpt-load/internal/platform/config"
-	"gpt-load/internal/platform/encryption"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/platform/httproute"
 	"gpt-load/internal/platform/version"
@@ -278,16 +277,11 @@ func TestAppStartMigratesDatabaseAndServesHTTP(t *testing.T) {
 	if err != nil {
 		t.Fatalf("storage.Open() error = %v", err)
 	}
-	keyService, err := encryption.NewService("test-master-key")
-	if err != nil {
-		t.Fatalf("encryption.NewService() error = %v", err)
-	}
 	manager, runtimeState := newTestRuntimeState(db)
 
 	application := NewApp(AppParams{
 		Engine:           mustNewEngine(t),
 		Config:           testConfig(t),
-		Encryption:       keyService,
 		DB:               db,
 		StartupBootstrap: startupBootstrapFunc(noopStartupBootstrap),
 		RuntimeState:     runtimeState,
@@ -333,76 +327,40 @@ func TestAppStartMigratesDatabaseAndServesHTTP(t *testing.T) {
 	}
 }
 
-func TestAppStartUsesEncryptionForSchemaV1UpgradeBeforeRuntimeLoad(t *testing.T) {
+func TestAppStartRejectsUnreleasedLegacySchemaBeforeRuntimeLoad(t *testing.T) {
 	db, err := storage.Open(":memory:")
 	if err != nil {
 		t.Fatalf("storage.Open() error = %v", err)
 	}
-	keyService, err := encryption.NewService("schema-v1-app-test-master-key")
-	if err != nil {
-		t.Fatalf("encryption.NewService() error = %v", err)
-	}
 	for _, statement := range []string{
 		`CREATE TABLE schema_info (version integer PRIMARY KEY)`,
 		`INSERT INTO schema_info(version) VALUES (1)`,
-		`CREATE TABLE access_keys (
-			id integer PRIMARY KEY AUTOINCREMENT,
-			name varchar(255) NOT NULL,
-			key_value text NOT NULL,
-			key_hash varchar(128) NOT NULL UNIQUE,
-			status varchar(32) NOT NULL DEFAULT 'active'
-				CHECK (status IN ('active','disabled')),
-			filters json,
-			rpm_limit integer NOT NULL DEFAULT 0,
-			daily_cost_limit real NOT NULL DEFAULT 0,
-			monthly_cost_limit real NOT NULL DEFAULT 0,
-			created_at datetime,
-			updated_at datetime
-		)`,
 	} {
 		if err := db.Exec(statement).Error; err != nil {
 			t.Fatalf("create schema v1 fixture: %v", err)
 		}
 	}
-	const plaintext = "sk-gl-00112233445566778899aabbccdd7f2a"
-	ciphertext, err := keyService.Encrypt(plaintext)
-	if err != nil {
-		t.Fatalf("Encrypt() error = %v", err)
-	}
-	if err := db.Exec(`INSERT INTO access_keys
-		(name,key_value,key_hash,status,filters,rpm_limit,daily_cost_limit,monthly_cost_limit,created_at,updated_at)
-		VALUES (?,?,?,?,?,?,?,?,?,?)`,
-		"legacy", ciphertext, keyService.Hash(plaintext), "active",
-		`{"groups":[],"protocols":[],"models":[]}`, 0, 0, 0,
-		"2026-07-30T00:00:00Z", "2026-07-30T00:00:00Z",
-	).Error; err != nil {
-		t.Fatalf("insert legacy AccessKey: %v", err)
-	}
-
-	loadErr := errors.New("stop after schema upgrade")
+	runtimeLoadCalled := false
 	application := NewApp(AppParams{
 		Engine:           mustNewEngine(t),
 		Config:           testConfig(t),
-		Encryption:       keyService,
 		DB:               db,
 		StartupBootstrap: startupBootstrapFunc(noopStartupBootstrap),
 		RuntimeState: runtimeStateLoaderFunc(func(context.Context) error {
-			return loadErr
+			runtimeLoadCalled = true
+			return nil
 		}),
 		ControlRuntime: newControlRuntimeFake(nil, false),
 		RequestLogs:    newRequestLogRuntimeFake(nil, nil),
 	})
 	cleanupApp(t, application)
 
-	if err := application.Start(); !errors.Is(err, loadErr) {
-		t.Fatalf("Start() error = %v, want runtime load sentinel", err)
+	err = application.Start()
+	if err == nil || !strings.Contains(err.Error(), "unsupported schema version 1") {
+		t.Fatalf("Start() error = %v, want unsupported schema version 1", err)
 	}
-	var suffix string
-	if err := db.Raw("SELECT key_suffix FROM access_keys WHERE name = 'legacy'").Scan(&suffix).Error; err != nil {
-		t.Fatalf("read migrated suffix: %v", err)
-	}
-	if suffix != "7f2a" {
-		t.Fatalf("migrated suffix = %q, want 7f2a", suffix)
+	if runtimeLoadCalled {
+		t.Fatal("runtime state loaded after legacy schema rejection")
 	}
 }
 
@@ -411,18 +369,13 @@ func TestAppStartBootstrapsAfterMigrationBeforeRuntimeLoad(t *testing.T) {
 	if err != nil {
 		t.Fatalf("storage.Open() error = %v", err)
 	}
-	keyService, err := encryption.NewService("test-master-key")
-	if err != nil {
-		t.Fatalf("encryption.NewService() error = %v", err)
-	}
 
 	var order []string
 	loadErr := errors.New("stop before listen")
 	application := NewApp(AppParams{
-		Engine:     mustNewEngine(t),
-		Config:     testConfig(t),
-		Encryption: keyService,
-		DB:         db,
+		Engine: mustNewEngine(t),
+		Config: testConfig(t),
+		DB:     db,
 		StartupBootstrap: startupBootstrapFunc(func(context.Context) error {
 			for _, table := range []string{"groups", "access_keys", "system_settings"} {
 				if !db.Migrator().HasTable(table) {
@@ -454,17 +407,12 @@ func TestAppStartDrainsCommittedOperationsAfterRuntimeLoadBeforeListen(t *testin
 	if err != nil {
 		t.Fatalf("storage.Open() error = %v", err)
 	}
-	keyService, err := encryption.NewService("test-master-key")
-	if err != nil {
-		t.Fatalf("encryption.NewService() error = %v", err)
-	}
 
 	var order []string
 	recoveryErr := errors.New("durable recovery failed")
 	application := NewApp(AppParams{
 		Engine:           mustNewEngine(t),
 		Config:           testConfig(t),
-		Encryption:       keyService,
 		DB:               db,
 		StartupBootstrap: startupBootstrapFunc(noopStartupBootstrap),
 		RuntimeState: runtimeStateLoaderFunc(func(context.Context) error {
@@ -502,18 +450,13 @@ func TestAppStartRejectsBootstrapFailureBeforeRuntimeLoadAndListen(t *testing.T)
 	if err != nil {
 		t.Fatalf("storage.Open() error = %v", err)
 	}
-	keyService, err := encryption.NewService("test-master-key")
-	if err != nil {
-		t.Fatalf("encryption.NewService() error = %v", err)
-	}
 
 	bootstrapErr := errors.New("bootstrap failed")
 	loadCalled := false
 	application := NewApp(AppParams{
-		Engine:     mustNewEngine(t),
-		Config:     testConfig(t),
-		Encryption: keyService,
-		DB:         db,
+		Engine: mustNewEngine(t),
+		Config: testConfig(t),
+		DB:     db,
 		StartupBootstrap: startupBootstrapFunc(func(context.Context) error {
 			return bootstrapErr
 		}),
@@ -547,16 +490,11 @@ func TestAppStartRejectsRuntimeStateLoadFailureBeforeListen(t *testing.T) {
 	if err != nil {
 		t.Fatalf("storage.Open() error = %v", err)
 	}
-	keyService, err := encryption.NewService("test-master-key")
-	if err != nil {
-		t.Fatalf("encryption.NewService() error = %v", err)
-	}
 
 	loadErr := errors.New("corrupt runtime config")
 	application := NewApp(AppParams{
 		Engine:           mustNewEngine(t),
 		Config:           testConfig(t),
-		Encryption:       keyService,
 		DB:               db,
 		StartupBootstrap: startupBootstrapFunc(noopStartupBootstrap),
 		ControlRuntime:   newControlRuntimeFake(nil, false),
@@ -590,16 +528,11 @@ func TestAppReportsUnexpectedHTTPServeFailure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("storage.Open() error = %v", err)
 	}
-	keyService, err := encryption.NewService("test-master-key")
-	if err != nil {
-		t.Fatalf("encryption.NewService() error = %v", err)
-	}
 	_, runtimeState := newTestRuntimeState(db)
 
 	application := NewApp(AppParams{
 		Engine:           mustNewEngine(t),
 		Config:           testConfig(t),
-		Encryption:       keyService,
 		DB:               db,
 		StartupBootstrap: startupBootstrapFunc(noopStartupBootstrap),
 		RuntimeState:     runtimeState,
@@ -629,16 +562,11 @@ func TestAppStartsControlRuntimeAfterInitialization(t *testing.T) {
 	if err != nil {
 		t.Fatalf("storage.Open() error = %v", err)
 	}
-	keyService, err := encryption.NewService("test-master-key")
-	if err != nil {
-		t.Fatalf("encryption.NewService() error = %v", err)
-	}
 	loaded := make(chan struct{})
 	runtime := newControlRuntimeFake(loaded, false)
 	application := NewApp(AppParams{
 		Engine:           mustNewEngine(t),
 		Config:           testConfig(t),
-		Encryption:       keyService,
 		DB:               db,
 		StartupBootstrap: startupBootstrapFunc(noopStartupBootstrap),
 		RuntimeState: runtimeStateLoaderFunc(func(context.Context) error {
@@ -669,16 +597,11 @@ func TestAppDoesNotStartControlRuntimeWhenLoadFails(t *testing.T) {
 	if err != nil {
 		t.Fatalf("storage.Open() error = %v", err)
 	}
-	keyService, err := encryption.NewService("test-master-key")
-	if err != nil {
-		t.Fatalf("encryption.NewService() error = %v", err)
-	}
 	loadErr := errors.New("corrupt runtime config")
 	runtime := newControlRuntimeFake(nil, false)
 	application := NewApp(AppParams{
 		Engine:           mustNewEngine(t),
 		Config:           testConfig(t),
-		Encryption:       keyService,
 		DB:               db,
 		StartupBootstrap: startupBootstrapFunc(noopStartupBootstrap),
 		RuntimeState:     runtimeStateLoaderFunc(func(context.Context) error { return loadErr }),
@@ -708,17 +631,12 @@ func TestAppDoesNotStartControlRuntimeWhenListenFails(t *testing.T) {
 	if err != nil {
 		t.Fatalf("storage.Open() error = %v", err)
 	}
-	keyService, err := encryption.NewService("test-master-key")
-	if err != nil {
-		t.Fatalf("encryption.NewService() error = %v", err)
-	}
 	cfg := testConfig(t)
 	cfg.Server.Port = occupied.Addr().(*net.TCPAddr).Port
 	runtime := newControlRuntimeFake(nil, false)
 	application := NewApp(AppParams{
 		Engine:           mustNewEngine(t),
 		Config:           cfg,
-		Encryption:       keyService,
 		DB:               db,
 		StartupBootstrap: startupBootstrapFunc(noopStartupBootstrap),
 		RuntimeState:     runtimeStateLoaderFunc(func(context.Context) error { return nil }),
@@ -742,15 +660,10 @@ func TestAppStopCancelsAndWaitsForControlRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatalf("storage.Open() error = %v", err)
 	}
-	keyService, err := encryption.NewService("test-master-key")
-	if err != nil {
-		t.Fatalf("encryption.NewService() error = %v", err)
-	}
 	runtime := newControlRuntimeFake(nil, true)
 	application := NewApp(AppParams{
 		Engine:           mustNewEngine(t),
 		Config:           testConfig(t),
-		Encryption:       keyService,
 		DB:               db,
 		StartupBootstrap: startupBootstrapFunc(noopStartupBootstrap),
 		RuntimeState:     runtimeStateLoaderFunc(func(context.Context) error { return nil }),
@@ -806,15 +719,10 @@ func TestAppStopHonorsDeadlineWhileWaitingForControlRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatalf("storage.Open() error = %v", err)
 	}
-	keyService, err := encryption.NewService("test-master-key")
-	if err != nil {
-		t.Fatalf("encryption.NewService() error = %v", err)
-	}
 	runtime := newControlRuntimeFake(nil, true)
 	application := NewApp(AppParams{
 		Engine:           mustNewEngine(t),
 		Config:           testConfig(t),
-		Encryption:       keyService,
 		DB:               db,
 		StartupBootstrap: startupBootstrapFunc(noopStartupBootstrap),
 		RuntimeState:     runtimeStateLoaderFunc(func(context.Context) error { return nil }),
@@ -859,10 +767,6 @@ func TestAppStartsRequestLogAfterListenBeforeHTTPServe(t *testing.T) {
 	if err != nil {
 		t.Fatalf("storage.Open() error = %v", err)
 	}
-	keyService, err := encryption.NewService("test-master-key")
-	if err != nil {
-		t.Fatalf("encryption.NewService() error = %v", err)
-	}
 
 	boundListener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -894,7 +798,6 @@ func TestAppStartsRequestLogAfterListenBeforeHTTPServe(t *testing.T) {
 	application = NewApp(AppParams{
 		Engine:           mustNewEngine(t),
 		Config:           cfg,
-		Encryption:       keyService,
 		DB:               db,
 		StartupBootstrap: startupBootstrapFunc(noopStartupBootstrap),
 		RuntimeState:     runtimeStateLoaderFunc(func(context.Context) error { return nil }),
@@ -937,10 +840,6 @@ func TestAppRequestLogStartFailureClosesListenerWithoutServing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("storage.Open() error = %v", err)
 	}
-	keyService, err := encryption.NewService("test-master-key")
-	if err != nil {
-		t.Fatalf("encryption.NewService() error = %v", err)
-	}
 
 	boundListener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -956,7 +855,6 @@ func TestAppRequestLogStartFailureClosesListenerWithoutServing(t *testing.T) {
 	application := NewApp(AppParams{
 		Engine:           mustNewEngine(t),
 		Config:           cfg,
-		Encryption:       keyService,
 		DB:               db,
 		StartupBootstrap: startupBootstrapFunc(noopStartupBootstrap),
 		RuntimeState:     runtimeStateLoaderFunc(func(context.Context) error { return nil }),
@@ -1017,10 +915,6 @@ func TestAppStopDrainsRequestLogAfterLastHandlerEmitBeforeDatabaseClose(t *testi
 	if err != nil {
 		t.Fatalf("storage.Open() error = %v", err)
 	}
-	keyService, err := encryption.NewService("test-master-key")
-	if err != nil {
-		t.Fatalf("encryption.NewService() error = %v", err)
-	}
 	sqlDB, err := db.DB()
 	if err != nil {
 		t.Fatalf("db.DB() error = %v", err)
@@ -1062,7 +956,6 @@ func TestAppStopDrainsRequestLogAfterLastHandlerEmitBeforeDatabaseClose(t *testi
 	application := NewApp(AppParams{
 		Engine:           engine,
 		Config:           testConfig(t),
-		Encryption:       keyService,
 		DB:               db,
 		StartupBootstrap: startupBootstrapFunc(noopStartupBootstrap),
 		RuntimeState:     runtimeStateLoaderFunc(func(context.Context) error { return nil }),
@@ -1123,10 +1016,6 @@ func TestAppStopDeadlineJoinsRequestLogErrorAndClosesDatabase(t *testing.T) {
 	if err != nil {
 		t.Fatalf("storage.Open() error = %v", err)
 	}
-	keyService, err := encryption.NewService("test-master-key")
-	if err != nil {
-		t.Fatalf("encryption.NewService() error = %v", err)
-	}
 	sqlDB, err := db.DB()
 	if err != nil {
 		t.Fatalf("db.DB() error = %v", err)
@@ -1151,7 +1040,6 @@ func TestAppStopDeadlineJoinsRequestLogErrorAndClosesDatabase(t *testing.T) {
 	application := NewApp(AppParams{
 		Engine:           mustNewEngine(t),
 		Config:           testConfig(t),
-		Encryption:       keyService,
 		DB:               db,
 		StartupBootstrap: startupBootstrapFunc(noopStartupBootstrap),
 		RuntimeState:     runtimeStateLoaderFunc(func(context.Context) error { return nil }),

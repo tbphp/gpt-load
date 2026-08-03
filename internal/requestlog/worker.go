@@ -34,11 +34,13 @@ INSERT INTO usage_stats (
 	cache_read_tokens,
 	cache_write_5m_tokens,
 	cache_write_1h_tokens,
+	cache_write_unknown_tokens,
 	estimated_cost_nano_usd,
 	usage_missing_count,
 	partial_count,
-	unpriced_request_count
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	unpriced_request_count,
+	pricing_partial_count
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(bucket_start_ms, access_key_id, group_id, model) DO UPDATE SET
 	request_count = excluded.request_count,
 	success_count = excluded.success_count,
@@ -48,10 +50,12 @@ ON CONFLICT(bucket_start_ms, access_key_id, group_id, model) DO UPDATE SET
 	cache_read_tokens = excluded.cache_read_tokens,
 	cache_write_5m_tokens = excluded.cache_write_5m_tokens,
 	cache_write_1h_tokens = excluded.cache_write_1h_tokens,
+	cache_write_unknown_tokens = excluded.cache_write_unknown_tokens,
 	estimated_cost_nano_usd = excluded.estimated_cost_nano_usd,
 	usage_missing_count = excluded.usage_missing_count,
 	partial_count = excluded.partial_count,
-	unpriced_request_count = excluded.unpriced_request_count
+	unpriced_request_count = excluded.unpriced_request_count,
+	pricing_partial_count = excluded.pricing_partial_count
 `
 
 type realWorkerTimer struct {
@@ -120,18 +124,20 @@ type usageStatKey struct {
 }
 
 type usageStatDelta struct {
-	RequestCount         int64
-	SuccessCount         int64
-	FailureCount         int64
-	UncachedInputTokens  int64
-	OutputTokens         int64
-	CacheReadTokens      int64
-	CacheWrite5MTokens   int64
-	CacheWrite1HTokens   int64
-	EstimatedCostNanoUSD int64
-	UsageMissingCount    int64
-	PartialCount         int64
-	UnpricedRequestCount int64
+	RequestCount            int64
+	SuccessCount            int64
+	FailureCount            int64
+	UncachedInputTokens     int64
+	OutputTokens            int64
+	CacheReadTokens         int64
+	CacheWrite5MTokens      int64
+	CacheWrite1HTokens      int64
+	CacheWriteUnknownTokens int64
+	EstimatedCostNanoUSD    int64
+	UsageMissingCount       int64
+	PartialCount            int64
+	UnpricedRequestCount    int64
+	PricingPartialCount     int64
 }
 
 func writeRequestLogBatch(tx *gorm.DB, rows []models.RequestLog) error {
@@ -215,10 +221,12 @@ func writeRequestLogBatch(tx *gorm.DB, rows []models.RequestLog) error {
 			stat.CacheReadTokens,
 			stat.CacheWrite5MTokens,
 			stat.CacheWrite1HTokens,
+			stat.CacheWriteUnknownTokens,
 			stat.EstimatedCostNanoUSD,
 			stat.UsageMissingCount,
 			stat.PartialCount,
 			stat.UnpricedRequestCount,
+			stat.PricingPartialCount,
 		).Error; err != nil {
 			return fmt.Errorf("upsert usage stat: %w", err)
 		}
@@ -240,7 +248,7 @@ func buildUsageStatDeltas(rows []models.RequestLog) (map[usageStatKey]usageStatD
 			BucketStartMS: bucketStartMS,
 			AccessKeyID:   row.AccessKeyID,
 			GroupID:       row.GroupID,
-			Model:         row.ClientModel,
+			Model:         row.UpstreamModel,
 		}
 		delta := deltas[key]
 		if err := delta.addRow(row); err != nil {
@@ -290,6 +298,15 @@ func (delta *usageStatDelta) addRow(row models.RequestLog) error {
 			return err
 		}
 	}
+	if row.CostState == string(pricing.CostStatePriced) &&
+		row.PricingCompleteness == string(pricing.CompletenessPartial) {
+		if err := checkedInt64Add(&delta.PricingPartialCount, 1, "pricing_partial_count"); err != nil {
+			return err
+		}
+	}
+	if err := validatePersistedPricingState(row); err != nil {
+		return fmt.Errorf("aggregate request log %q: %w", row.ID, err)
+	}
 
 	if row.UsageState != string(usage.StateComplete) &&
 		row.UsageState != string(usage.StatePartial) {
@@ -305,6 +322,7 @@ func (delta *usageStatDelta) addRow(row models.RequestLog) error {
 		{name: "cache_read_tokens", target: &delta.CacheReadTokens, value: row.CacheReadTokens},
 		{name: "cache_write_5m_tokens", target: &delta.CacheWrite5MTokens, value: row.CacheWrite5MTokens},
 		{name: "cache_write_1h_tokens", target: &delta.CacheWrite1HTokens, value: row.CacheWrite1HTokens},
+		{name: "cache_write_unknown_tokens", target: &delta.CacheWriteUnknownTokens, value: row.CacheWriteUnknownTokens},
 	} {
 		if err := checkedInt64Add(field.target, field.value, field.name); err != nil {
 			return err
@@ -322,6 +340,37 @@ func (delta *usageStatDelta) addRow(row models.RequestLog) error {
 	}
 	delta.EstimatedCostNanoUSD = int64(cost)
 	return nil
+}
+
+func validatePersistedPricingState(row models.RequestLog) error {
+	for _, value := range [...]int64{
+		row.UncachedInputTokens,
+		row.OutputTokens,
+		row.CacheReadTokens,
+		row.CacheWrite5MTokens,
+		row.CacheWrite1HTokens,
+		row.CacheWriteUnknownTokens,
+	} {
+		if value < 0 {
+			return fmt.Errorf("negative token value")
+		}
+	}
+	if _, ok := usage.CheckedTotal(usage.Tokens{
+		UncachedInput:     row.UncachedInputTokens,
+		Output:            row.OutputTokens,
+		CacheRead:         row.CacheReadTokens,
+		CacheWrite5M:      row.CacheWrite5MTokens,
+		CacheWrite1H:      row.CacheWrite1HTokens,
+		CacheWriteUnknown: row.CacheWriteUnknownTokens,
+	}); !ok {
+		return fmt.Errorf("token total overflows int64")
+	}
+	return validateFrozenPricingState(
+		usage.State(row.UsageState),
+		pricing.CostState(row.CostState),
+		pricing.Completeness(row.PricingCompleteness),
+		row.EstimatedCostNanoUSD,
+	)
 }
 
 func checkedInt64Add(target *int64, value int64, field string) error {
@@ -413,9 +462,11 @@ func checkedUsageStatTotal(
 		{name: "cache_read_tokens", left: existing.CacheReadTokens, right: delta.CacheReadTokens, set: func(value int64) { total.CacheReadTokens = value }},
 		{name: "cache_write_5m_tokens", left: existing.CacheWrite5MTokens, right: delta.CacheWrite5MTokens, set: func(value int64) { total.CacheWrite5MTokens = value }},
 		{name: "cache_write_1h_tokens", left: existing.CacheWrite1HTokens, right: delta.CacheWrite1HTokens, set: func(value int64) { total.CacheWrite1HTokens = value }},
+		{name: "cache_write_unknown_tokens", left: existing.CacheWriteUnknownTokens, right: delta.CacheWriteUnknownTokens, set: func(value int64) { total.CacheWriteUnknownTokens = value }},
 		{name: "usage_missing_count", left: existing.UsageMissingCount, right: delta.UsageMissingCount, set: func(value int64) { total.UsageMissingCount = value }},
 		{name: "partial_count", left: existing.PartialCount, right: delta.PartialCount, set: func(value int64) { total.PartialCount = value }},
 		{name: "unpriced_request_count", left: existing.UnpricedRequestCount, right: delta.UnpricedRequestCount, set: func(value int64) { total.UnpricedRequestCount = value }},
+		{name: "pricing_partial_count", left: existing.PricingPartialCount, right: delta.PricingPartialCount, set: func(value int64) { total.PricingPartialCount = value }},
 	} {
 		value, ok := usage.CheckedAdd(field.left, field.right)
 		if !ok {
@@ -550,7 +601,7 @@ func (service *Service) writeBatch(ctx context.Context, events []queuedEvent) {
 	rows := make([]models.RequestLog, 0, len(events))
 	projectionFailures := 0
 	for _, event := range events {
-		row, err := mapEvent(service.redactor, event.Event, event.Prices)
+		row, err := mapEvent(service.redactor, event.Event)
 		if err != nil {
 			projectionFailures++
 			continue

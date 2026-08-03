@@ -9,7 +9,6 @@ import {
 
 export interface ModelDraftItem extends ModelDraftValue {
   key: number
-  pricing_status: 'priced' | 'unpriced'
 }
 
 export type { ModelNameConflict }
@@ -18,6 +17,8 @@ export { findModelNameConflicts }
 export function createModelDraft(items: readonly GroupModelItemDto[]): ModelDraftItem[] {
   return items.map((item, index) => ({
     id: item.id,
+    name: item.id,
+    sources: [],
     alias: item.alias,
     alias_enabled: item.alias_enabled,
     pricing_status: item.pricing_status,

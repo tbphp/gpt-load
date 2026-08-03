@@ -71,6 +71,7 @@ function cloneDraft(draft: SettingsDraft): SettingsDraft {
   return createSettingsDraft({
     values: draft.values,
     overrides: [...draft.overrides],
+    read_only: [...draft.readOnly],
   })
 }
 
@@ -109,7 +110,8 @@ export function useSettingsController(
       draft.value !== null &&
       conflicts.value.length === 0 &&
       validateSettingsSection(draft.value, 'request-forwarding') &&
-      validateSettingsSection(draft.value, 'logs-maintenance'),
+      validateSettingsSection(draft.value, 'logs-maintenance') &&
+      validateSettingsSection(draft.value, 'model-prices'),
   )
   const operationLocked = computed(() => pending.value || indeterminate.value || reconciling.value)
 

@@ -166,11 +166,13 @@ function confirmDiscard(): void {
 function settingLabel(key: RuntimeSettingKey): string {
   if (key === 'request_log_retention_days') return t('settings.logs.retention')
   if (key === 'header_rules') return t('settings.headers.title')
+  if (key === 'models_dev_auto_sync_enabled') return t('settings.modelPrices.autoSync')
   return t(`settings.runtime.${key}`)
 }
 
 function settingTarget(key: RuntimeSettingKey): string {
   if (key === 'header_rules') return 'settings-headers'
+  if (key === 'models_dev_auto_sync_enabled') return 'settings-model-prices'
   return `settings-value-${key}`
 }
 
@@ -181,7 +183,9 @@ async function focusTarget(key: RuntimeSettingKey): Promise<void> {
       ? 'settings-headers'
       : key === 'request_log_retention_days'
         ? 'settings-logs'
-        : 'settings-forwarding'
+        : key === 'models_dev_auto_sync_enabled'
+          ? 'settings-model-prices'
+          : 'settings-forwarding'
   selectSection(section)
   await nextTick()
   const target =
@@ -291,9 +295,17 @@ onBeforeUnmount(() => {
               @choose-mine="chooseMine"
               @choose-latest="chooseLatest"
             />
+            <ModelPricesSettingsSection
+              :base="base"
+              :draft="draft"
+              :disabled="operationLocked"
+              :conflicts="conflicts"
+              @change="updateDraft"
+              @choose-mine="chooseMine"
+              @choose-latest="chooseLatest"
+            />
           </template>
 
-          <ModelPricesSettingsSection />
           <SystemInfoSection />
         </div>
       </div>

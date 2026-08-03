@@ -49,7 +49,7 @@ For the maintained 1.4.x release documentation, visit the [official documentatio
 - **Four selectable native protocols:** OpenAI Completions, OpenAI Responses, Anthropic Messages, and Gemini requests are forwarded in their respective protocols. A Group may enable any combination. GPT-Load does not translate between protocols.
 - **Key and traffic management:** Groups, encrypted upstream keys, AccessKeys, model discovery, filtering and rate limits, scheduling, health state, cooldown, blacklist, and automatic weights.
 - **Control and observability:** runtime settings, route inspection, health views, RequestLog, and a Chinese, English, and Japanese admin UI.
-- **Usage and estimated cost:** usage extraction for the four protocols where the endpoint returns generation usage, 24-hour/30-day reports, per-request quality states, built-in prices, and user price overrides.
+- **Usage and estimated cost:** usage extraction for the four protocols where the endpoint returns generation usage, 24-hour/30-day reports, per-request quality states, exact four-slot model prices synchronized from Models.dev where available, and user-managed prices.
 
 The M3 control-plane UI and M4 usage/pricing scope are present in the local candidate, but their formal exit and public release are unfinished. Prices and costs are best-effort **estimates** derived from upstream usage and the active pricing rules. They are not a billing ledger, invoice, or provider bill, and historical requests are not repriced.
 
@@ -63,7 +63,7 @@ The M3 control-plane UI and M4 usage/pricing scope are present in the local cand
 - OpenAI Responses resource routing has no Key affinity. Stateful turns using `previous_response_id` or `conversation`, and later retrieve/delete/cancel/input-item calls, are reliable only with one upstream Key or an upstream that shares resource storage across Keys. Otherwise the selected upstream may return a resource-not-found error.
 - Upstream keys must be encrypted at rest with no plaintext fallback. 2.0.0 has no master-key rotation; `migrate-keys` remains an explicitly failing deferred command.
 - There is no automatic 1.x migration, in-place upgrade, or reverse synchronization.
-- There is no protocol conversion, online billing reconciliation, automatic price fetcher, online backup API, or backup CLI.
+- There is no protocol conversion, online billing reconciliation, online backup API, or backup CLI. Models.dev synchronization supplies estimation metadata only; it is not a provider bill or invoice.
 
 ## Quick start
 
@@ -190,12 +190,14 @@ print(response.output_text)
 
 The admin UI is served at `/`, and management APIs are under `/api`; both use `AUTH_KEY`. The UI covers Groups, upstream keys, AccessKeys, runtime settings, health, logs, route inspection, Usage, and model-price management. Current code and UI are the management API reference; this README intentionally avoids copying a route list that can drift.
 
+Automatic catalog synchronization is enabled by default and uses the control plane to fetch the fixed endpoint `https://models.dev/api.json`; startup remains asynchronous and can use the durable last-known-good catalog. Manual synchronization remains available. Data-plane requests never contact Models.dev.
+
 Usage/Cost quality boundaries:
 
-- `complete + priced` requests contribute to default token and estimated-cost totals.
-- `missing`, `partial`, and `unpriced` requests still contribute to request and quality counts but not to default token/cost totals. `complete + unpriced` requests are never assigned guessed prices.
+- `complete` and `partial` usage contribute their known token dimensions; `missing` usage contributes only request and quality counts.
+- `priced` requests contribute their known estimated cost. `pricing_partial` retains the calculable portion while reporting incomplete price coverage; `unpriced` requests are never assigned guessed prices.
 - A clean EOF on a stream does not guarantee complete usage, and compatible relays may omit the provider's official terminal usage.
-- The API's `pricing_policy` is read-only; the UI displays it but does not let user-defined price rules declare an internal pricing policy.
+- Prices match the exact upstream model within the Group's Provider or custom-Group scope. The four flat slots are input, output, cache read, and cache write; an explicit zero means free, while an unset slot remains unavailable.
 - Price changes affect future writes only. Historical RequestLog and UsageStat rows are not recalculated.
 - Current-process dropped/write-failure counters and durable database-window aggregates have different scopes.
 
@@ -210,6 +212,7 @@ Usage/Cost quality boundaries:
 | `DATABASE_DSN` | empty → `${DATA_DIR}/gpt-load.db` | Empty selects a managed SQLite database; every non-empty operator value is external, even if it names the same path |
 | `AUTH_KEY` | generated keyfile | Management bearer credential; an explicit value cannot contain whitespace; otherwise reads or creates `${DATA_DIR}/auth.key` |
 | `ENCRYPTION_KEY` | generated keyfile | Master key for encrypted upstream keys; otherwise reads or creates `${DATA_DIR}/encryption.key` |
+| `MODELS_DEV_AUTO_SYNC_ENABLED` | unset | Optional strict boolean override for Models.dev automatic synchronization; unset uses the runtime setting, which defaults to enabled |
 | `GRACEFUL_SHUTDOWN_TIMEOUT` | `10` | Graceful shutdown timeout in seconds |
 | `READ_TIMEOUT` | `60` | Maximum time to read a complete request, in seconds |
 | `IDLE_TIMEOUT` | `120` | Keep-alive idle timeout in seconds |

@@ -10,38 +10,10 @@ export default {
       clearSearch: 'プロバイダー検索をクリア',
       collapse: '閉じる',
       noMatches: '一致するプロバイダーはありません — カスタム接続は利用できます',
-      categories: {
-        native: 'ネイティブプロバイダー',
-        'openai-compatible': 'OpenAI 互換',
-      },
-      openai: {
-        name: 'OpenAI',
-        description: 'Chat Completions と Responses',
-      },
-      anthropic: {
-        name: 'Anthropic',
-        description: 'ネイティブ Messages プロトコル',
-      },
-      gemini: {
-        name: 'Gemini',
-        description: 'ネイティブ generateContent プロトコル',
-      },
-      deepseek: {
-        name: 'DeepSeek',
-        description: 'OpenAI 互換 · Chat Completions',
-      },
-      openrouter: {
-        name: 'OpenRouter',
-        description: 'モデル集約サービス · OpenAI 互換',
-      },
-      siliconflow: {
-        name: 'SiliconFlow',
-        description: 'サードパーティモデル · OpenAI 互換',
-      },
-      moonshot: {
-        name: 'Moonshot',
-        description: 'サードパーティモデル · OpenAI 互換',
-      },
+      catalog: 'プロバイダーカタログ',
+      loading: 'プロバイダーカタログを読み込み中…',
+      loadFailed: 'プロバイダーカタログを読み込めません',
+      protocolsUnavailable: 'プロトコル機能は未提供です',
       more: {
         name: 'その他のプリセット',
         description: 'サードパーティを検索するか、カスタム接続を使用します',
@@ -92,7 +64,7 @@ export default {
     connection: {
       title: '接続情報',
       description:
-        'プリセットが更新するのは URL とプロトコルだけで、名前、キー、モデルは保持されます',
+        'プロバイダー選択が更新するのは URL とプロトコルだけで、名前、キー、モデルは保持されます',
       name: 'Group 名',
       namePlaceholder: '空欄の場合はアップストリーム URL から生成します',
       url: 'アップストリームのベース URL',
@@ -135,7 +107,7 @@ export default {
       tableLabel: '公開予定モデル',
       id: 'モデル ID',
       alias: '公開モデル名',
-      source: '追加元',
+      source: '価格設定状況',
       actions: '操作',
       search: 'モデルまたはエイリアスを検索',
       searchLabel: '検索',
@@ -151,8 +123,12 @@ export default {
       locateFirstInvalid: '最初の問題へ移動',
       nameConflict: '公開モデル名「{name}」が重複しています',
       sources: {
-        manual: '手動追加',
-        discovered: '上流から取得',
+        catalog: 'カタログ',
+        live: '上流から取得',
+      },
+      pricing: {
+        pending: '未設定',
+        configured: '設定済み',
       },
       aliasFor: '{id} のエイリアス',
       manualId: '手動モデル ID',

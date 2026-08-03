@@ -39,6 +39,7 @@ func TestDecodeRequestLogRowsPreservesUsageCostAttribution(t *testing.T) {
 		EstimatedCostNanoUSD: 123_456_789,
 		UsageState:           string(usage.StateComplete),
 		CostState:            string(pricing.CostStatePriced),
+		PricingCompleteness:  string(pricing.CompletenessComplete),
 		Attempts:             models.JSON(`[]`),
 	}}
 
@@ -62,12 +63,13 @@ func TestDecodeRequestLogRowsPreservesUsageCostAttribution(t *testing.T) {
 
 func TestDecodeRequestLogRowsIgnoresHistoricalKeyMask(t *testing.T) {
 	rows := []models.RequestLog{{
-		ID:            "00000000-0000-4000-8000-000000000605",
-		CompletedAtMS: 1_785_110_400_000,
-		Protocol:      string(protocol.OpenAICompletions),
-		Status:        string(telemetry.RequestStatusSuccess),
-		UsageState:    string(usage.StateNotApplicable),
-		CostState:     string(pricing.CostStateNotApplicable),
+		ID:                  "00000000-0000-4000-8000-000000000605",
+		CompletedAtMS:       1_785_110_400_000,
+		Protocol:            string(protocol.OpenAICompletions),
+		Status:              string(telemetry.RequestStatusSuccess),
+		UsageState:          string(usage.StateNotApplicable),
+		CostState:           string(pricing.CostStateNotApplicable),
+		PricingCompleteness: string(pricing.CompletenessNotApplicable),
 		Attempts: models.JSON(
 			`[{"sequence":1,"group_id":7,"group_name":"Primary","key_id":11,"key_mask":"prov****safe","upstream_model":"model","status_code":200,"duration_ms":10,"failure_category":"ok","action":"terminate","will_retry":false,"error_code":"","error_summary":"","committed":true}]`,
 		),
@@ -93,13 +95,14 @@ func TestDecodeRequestLogRowsIgnoresHistoricalKeyMask(t *testing.T) {
 
 func TestDecodeRequestLogRowsRejectsInvalidUsageCostValues(t *testing.T) {
 	base := models.RequestLog{
-		ID:            "00000000-0000-4000-8000-000000000602",
-		CompletedAtMS: 1_785_110_400_000,
-		Protocol:      string(protocol.OpenAICompletions),
-		Status:        string(telemetry.RequestStatusSuccess),
-		UsageState:    string(usage.StateComplete),
-		CostState:     string(pricing.CostStatePriced),
-		Attempts:      models.JSON(`[]`),
+		ID:                  "00000000-0000-4000-8000-000000000602",
+		CompletedAtMS:       1_785_110_400_000,
+		Protocol:            string(protocol.OpenAICompletions),
+		Status:              string(telemetry.RequestStatusSuccess),
+		UsageState:          string(usage.StateComplete),
+		CostState:           string(pricing.CostStatePriced),
+		PricingCompleteness: string(pricing.CompletenessComplete),
+		Attempts:            models.JSON(`[]`),
 	}
 	tests := []struct {
 		name   string
@@ -158,20 +161,22 @@ func TestDecodeRequestLogRowsRejectsInvalidUsageCostValues(t *testing.T) {
 
 func TestDecodeRequestLogRowsAcceptsApprovedUsageCostMatrix(t *testing.T) {
 	tests := []struct {
-		name       string
-		usageState usage.State
-		costState  pricing.CostState
-		cost       int64
+		name         string
+		usageState   usage.State
+		costState    pricing.CostState
+		completeness pricing.Completeness
+		cost         int64
 	}{
-		{name: "complete priced", usageState: usage.StateComplete, costState: pricing.CostStatePriced, cost: 10_000_000},
-		{name: "complete unpriced", usageState: usage.StateComplete, costState: pricing.CostStateUnpriced},
-		{name: "partial priced", usageState: usage.StatePartial, costState: pricing.CostStatePriced, cost: 10_000_000},
-		{name: "partial unpriced", usageState: usage.StatePartial, costState: pricing.CostStateUnpriced},
-		{name: "missing unpriced", usageState: usage.StateMissing, costState: pricing.CostStateUnpriced},
+		{name: "complete priced", usageState: usage.StateComplete, costState: pricing.CostStatePriced, completeness: pricing.CompletenessComplete, cost: 10_000_000},
+		{name: "complete unpriced", usageState: usage.StateComplete, costState: pricing.CostStateUnpriced, completeness: pricing.CompletenessUnavailable},
+		{name: "partial priced", usageState: usage.StatePartial, costState: pricing.CostStatePriced, completeness: pricing.CompletenessPartial, cost: 10_000_000},
+		{name: "partial unpriced", usageState: usage.StatePartial, costState: pricing.CostStateUnpriced, completeness: pricing.CompletenessUnavailable},
+		{name: "missing unpriced", usageState: usage.StateMissing, costState: pricing.CostStateUnpriced, completeness: pricing.CompletenessUnavailable},
 		{
-			name:       "not applicable",
-			usageState: usage.StateNotApplicable,
-			costState:  pricing.CostStateNotApplicable,
+			name:         "not applicable",
+			usageState:   usage.StateNotApplicable,
+			costState:    pricing.CostStateNotApplicable,
+			completeness: pricing.CompletenessNotApplicable,
 		},
 	}
 	for _, test := range tests {
@@ -183,6 +188,7 @@ func TestDecodeRequestLogRowsAcceptsApprovedUsageCostMatrix(t *testing.T) {
 				Status:               string(telemetry.RequestStatusSuccess),
 				UsageState:           string(test.usageState),
 				CostState:            string(test.costState),
+				PricingCompleteness:  string(test.completeness),
 				EstimatedCostNanoUSD: test.cost,
 				Attempts:             models.JSON(`[]`),
 			}
@@ -353,13 +359,14 @@ func TestServiceListAppliesAllFiltersAndGroupJSON(t *testing.T) {
 	fromMS := from.UnixMilli()
 	toMS := to.UnixMilli()
 	page, err := service.List(context.Background(), ListQuery{
-		FromMS:      &fromMS,
-		ToMS:        &toMS,
-		GroupID:     &groupID,
-		ClientModel: "client-model",
-		AccessKeyID: &accessKeyID,
-		Status:      telemetry.RequestStatusError,
-		Limit:       50,
+		FromMS:        &fromMS,
+		ToMS:          &toMS,
+		GroupID:       &groupID,
+		ClientModel:   "client-model",
+		UpstreamModel: "different-upstream-model",
+		AccessKeyID:   &accessKeyID,
+		Status:        telemetry.RequestStatusError,
+		Limit:         50,
 	})
 	if err != nil {
 		t.Fatalf("filtered List() error = %v", err)
@@ -397,14 +404,18 @@ func TestServiceListGroupFilterUsesAnyAttemptWhileAttributionUsesFinalGroup(t *t
 	db := openRequestLogQueryDB(t)
 	event := testEvent("00000000-0000-4000-8000-000000000210")
 	event.Attempts = []telemetry.Attempt{
-		{Sequence: 1, GroupID: 12, UpstreamModel: "retry-model", WillRetry: true},
-		{Sequence: 2, GroupID: 13, UpstreamModel: "final-model"},
+		{Sequence: 1, GroupID: 12, KeyID: 1, UpstreamModel: "retry-model", WillRetry: true},
+		{Sequence: 2, GroupID: 13, KeyID: 2, UpstreamModel: "final-model"},
 	}
 	event.UpstreamModel = "final-model"
 	event.Usage = telemetry.UsageObservation{
-		GroupID: 13,
+		GroupID: 13, KeyID: 2, AttemptSequence: 2,
 		Result: usage.Result{
 			State: usage.StateNotApplicable,
+		},
+		Pricing: telemetry.PricingObservation{
+			PriceScopeKey: "group:13", UpstreamModel: "final-model",
+			CostState: string(pricing.CostStateNotApplicable), PricingCompleteness: string(pricing.CompletenessNotApplicable),
 		},
 	}
 	row := mustMapEvent(t, redact.New(), event, (*pricing.Table)(nil))

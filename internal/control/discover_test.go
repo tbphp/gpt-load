@@ -74,7 +74,10 @@ func TestDiscoverModelsUsesSystemDefaultsAndNormalizesSuccessfulResult(t *testin
 	if err != nil {
 		t.Fatalf("DiscoverModels() error = %v", err)
 	}
-	if !reflect.DeepEqual(result.Models, []string{"claude-z", "claude-a"}) {
+	if !reflect.DeepEqual(result.Models, []ModelCandidate{
+		{ID: "claude-z", Name: "claude-z", Sources: []string{"live"}, PricingStatus: PricingStatusPending},
+		{ID: "claude-a", Name: "claude-a", Sources: []string{"live"}, PricingStatus: PricingStatusPending},
+	}) {
 		t.Fatalf("models = %#v, want upstream order", result.Models)
 	}
 	wantCalls := []string{
@@ -159,7 +162,9 @@ func TestDiscoverModelsSupportsResponsesOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DiscoverModels() error = %v", err)
 	}
-	if !reflect.DeepEqual(result.Models, []string{"gpt-5"}) ||
+	if !reflect.DeepEqual(result.Models, []ModelCandidate{
+		{ID: "gpt-5", Name: "gpt-5", Sources: []string{"live"}, PricingStatus: PricingStatusPending},
+	}) ||
 		calls != 1 {
 		t.Fatalf("models/calls = %#v/%d", result.Models, calls)
 	}
@@ -232,7 +237,9 @@ func TestDiscoverModelsDoesNotReadOrMutateRuntimeState(t *testing.T) {
 		Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
 		Keys:        "sk-discovery",
 	})
-	if err != nil || !reflect.DeepEqual(result.Models, []string{"remote-only"}) {
+	if err != nil || !reflect.DeepEqual(result.Models, []ModelCandidate{
+		{ID: "remote-only", Name: "remote-only", Sources: []string{"live"}, PricingStatus: PricingStatusPending},
+	}) {
 		t.Fatalf("DiscoverModels() = %#v, %v", result, err)
 	}
 	if !reflect.DeepEqual(queryTables, map[string]int{"system_settings": 1}) {

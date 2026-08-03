@@ -60,11 +60,12 @@ func TestUsageCheckedTotal(t *testing.T) {
 		want   int64
 		wantOK bool
 	}{
-		{name: "five buckets", tokens: Tokens{UncachedInput: 1, CacheRead: 2, CacheWrite5M: 3, CacheWrite1H: 4, Output: 5}, want: 15, wantOK: true},
+		{name: "six buckets", tokens: Tokens{UncachedInput: 1, CacheRead: 2, CacheWrite5M: 3, CacheWrite1H: 4, CacheWriteUnknown: 5, Output: 6}, want: 21, wantOK: true},
 		{name: "negative uncached input", tokens: Tokens{UncachedInput: -1}},
 		{name: "negative cache read", tokens: Tokens{CacheRead: -1}},
 		{name: "negative cache write 5m", tokens: Tokens{CacheWrite5M: -1}},
 		{name: "negative cache write 1h", tokens: Tokens{CacheWrite1H: -1}},
+		{name: "negative cache write unknown", tokens: Tokens{CacheWriteUnknown: -1}},
 		{name: "negative output", tokens: Tokens{Output: -1}},
 		{name: "overflow", tokens: Tokens{UncachedInput: math.MaxInt64, Output: 1}},
 	}

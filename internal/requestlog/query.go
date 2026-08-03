@@ -44,6 +44,9 @@ func (service *Service) List(ctx context.Context, input ListQuery) (Page, error)
 	if input.ClientModel != "" {
 		query = query.Where("client_model = ?", input.ClientModel)
 	}
+	if input.UpstreamModel != "" {
+		query = query.Where("upstream_model = ?", input.UpstreamModel)
+	}
 	if input.AccessKeyID != nil {
 		query = query.Where("access_key_id = ?", *input.AccessKeyID)
 	}
@@ -106,37 +109,40 @@ func decodeRequestLogRows(rows []models.RequestLog) ([]Record, error) {
 			return nil, err
 		}
 		records = append(records, Record{
-			RequestID:            row.ID,
-			CompletedAtMS:        row.CompletedAtMS,
-			AccessKey:            AccessKeyRef{ID: row.AccessKeyID, Deleted: true},
-			Protocol:             protocol.Protocol(row.Protocol),
-			ClientModel:          row.ClientModel,
-			UpstreamModel:        row.UpstreamModel,
-			Status:               telemetry.RequestStatus(row.Status),
-			StatusCode:           row.StatusCode,
-			DurationMs:           row.DurationMs,
-			ErrorCode:            row.ErrorCode,
-			ErrorSummary:         row.ErrorSummary,
-			AffinityHit:          row.AffinityHit,
-			Attempts:             attempts,
-			GroupID:              row.GroupID,
-			UsageState:           usage.State(row.UsageState),
-			CostState:            pricing.CostState(row.CostState),
-			UncachedInputTokens:  row.UncachedInputTokens,
-			CacheReadTokens:      row.CacheReadTokens,
-			CacheWrite5MTokens:   row.CacheWrite5MTokens,
-			CacheWrite1HTokens:   row.CacheWrite1HTokens,
-			OutputTokens:         row.OutputTokens,
-			EstimatedCostNanoUSD: row.EstimatedCostNanoUSD,
+			RequestID:               row.ID,
+			CompletedAtMS:           row.CompletedAtMS,
+			AccessKey:               AccessKeyRef{ID: row.AccessKeyID, Deleted: true},
+			Protocol:                protocol.Protocol(row.Protocol),
+			ClientModel:             row.ClientModel,
+			UpstreamModel:           row.UpstreamModel,
+			Status:                  telemetry.RequestStatus(row.Status),
+			StatusCode:              row.StatusCode,
+			DurationMs:              row.DurationMs,
+			ErrorCode:               row.ErrorCode,
+			ErrorSummary:            row.ErrorSummary,
+			AffinityHit:             row.AffinityHit,
+			Attempts:                attempts,
+			GroupID:                 row.GroupID,
+			UsageState:              usage.State(row.UsageState),
+			CostState:               pricing.CostState(row.CostState),
+			PricingCompleteness:     pricing.Completeness(row.PricingCompleteness),
+			UncachedInputTokens:     row.UncachedInputTokens,
+			CacheReadTokens:         row.CacheReadTokens,
+			CacheWrite5MTokens:      row.CacheWrite5MTokens,
+			CacheWrite1HTokens:      row.CacheWrite1HTokens,
+			CacheWriteUnknownTokens: row.CacheWriteUnknownTokens,
+			OutputTokens:            row.OutputTokens,
+			EstimatedCostNanoUSD:    row.EstimatedCostNanoUSD,
 		})
 	}
 	return records, nil
 }
 
 func validateRequestLogUsageCost(row models.RequestLog) error {
-	if err := ValidateUsageCostState(
+	if err := validateFrozenPricingState(
 		usage.State(row.UsageState),
 		pricing.CostState(row.CostState),
+		pricing.Completeness(row.PricingCompleteness),
 		row.EstimatedCostNanoUSD,
 	); err != nil {
 		return fmt.Errorf("decode request log usage/cost: %w", err)
@@ -146,11 +152,22 @@ func validateRequestLogUsageCost(row models.RequestLog) error {
 		row.CacheReadTokens,
 		row.CacheWrite5MTokens,
 		row.CacheWrite1HTokens,
+		row.CacheWriteUnknownTokens,
 		row.OutputTokens,
 	} {
 		if value < 0 {
 			return fmt.Errorf("decode request log usage tokens: negative value")
 		}
+	}
+	if _, ok := usage.CheckedTotal(usage.Tokens{
+		UncachedInput:     row.UncachedInputTokens,
+		CacheRead:         row.CacheReadTokens,
+		CacheWrite5M:      row.CacheWrite5MTokens,
+		CacheWrite1H:      row.CacheWrite1HTokens,
+		CacheWriteUnknown: row.CacheWriteUnknownTokens,
+		Output:            row.OutputTokens,
+	}); !ok {
+		return fmt.Errorf("decode request log usage tokens: total overflow")
 	}
 	return nil
 }

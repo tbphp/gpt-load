@@ -634,6 +634,192 @@ func TestNoMethodRecomputesSortedAllowWithoutAuthentication(t *testing.T) {
 	}
 }
 
+func TestNoMethodPrefersStaticPathMethodsOverDynamicSibling(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	module := Module{
+		Name: "control", Owner: OwnerControl, Auth: AuthControl,
+		Authenticate:     func(*gin.Context) {},
+		MethodNotAllowed: respond(http.StatusMethodNotAllowed, "method not allowed"),
+		Routes: []Route{
+			{
+				Name: "sync", Methods: []string{http.MethodPost}, Path: "/items/sync",
+				Handlers: gin.HandlersChain{respond(http.StatusNoContent, "")},
+			},
+			{
+				Name: "update", Methods: []string{http.MethodPut}, Path: "/items/:id",
+				Handlers: gin.HandlersChain{respond(http.StatusNoContent, "")},
+			},
+			{
+				Name: "delete", Methods: []string{http.MethodDelete}, Path: "/items/:id",
+				Handlers: gin.HandlersChain{respond(http.StatusNoContent, "")},
+			},
+		},
+	}
+	registry := mustRegistry(t, module)
+	engine := gin.New()
+	if err := registry.Bind(engine); err != nil {
+		t.Fatalf("Bind() error = %v", err)
+	}
+
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/items/sync", nil))
+	if recorder.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("status = %d, want 405", recorder.Code)
+	}
+	if allow := recorder.Header().Get("Allow"); allow != http.MethodPost {
+		t.Fatalf("Allow = %q, want POST", allow)
+	}
+}
+
+func TestMatchedDynamicRouteDefersToMoreSpecificStaticSibling(t *testing.T) {
+	for _, method := range []string{http.MethodPut, http.MethodDelete} {
+		t.Run(method, func(t *testing.T) {
+			engine, calls := newStaticOwnershipTestEngine(t)
+			recorder := httptest.NewRecorder()
+			engine.ServeHTTP(
+				recorder,
+				httptest.NewRequest(method, "/items/sync", nil),
+			)
+
+			if recorder.Code != http.StatusMethodNotAllowed ||
+				recorder.Body.String() != "method not allowed" {
+				t.Fatalf(
+					"response = %d %q, want static-owner 405",
+					recorder.Code,
+					recorder.Body.String(),
+				)
+			}
+			if allow := recorder.Header().Get("Allow"); allow != http.MethodPost {
+				t.Fatalf("Allow = %q, want POST", allow)
+			}
+			if *calls != (staticOwnershipCalls{}) {
+				t.Fatalf("matched dynamic chain calls = %#v, want none", *calls)
+			}
+		})
+	}
+}
+
+func TestStaticOwnershipGuardPreservesOwnedAndEqualSpecificityRoutes(t *testing.T) {
+	tests := []struct {
+		name       string
+		method     string
+		path       string
+		wantStatus int
+		wantAllow  string
+		wantCalls  staticOwnershipCalls
+	}{
+		{
+			name: "owned static method", method: http.MethodPost, path: "/items/sync",
+			wantStatus: http.StatusCreated,
+			wantCalls: staticOwnershipCalls{
+				beforeAuth: 1, authenticate: 1, prepare: 1, staticHandler: 1,
+			},
+		},
+		{
+			name: "normal dynamic update", method: http.MethodPut, path: "/items/42",
+			wantStatus: http.StatusAccepted,
+			wantCalls: staticOwnershipCalls{
+				beforeAuth: 1, authenticate: 1, prepare: 1, updateHandler: 1,
+			},
+		},
+		{
+			name: "equal specificity dynamic delete", method: http.MethodDelete, path: "/items/42",
+			wantStatus: http.StatusNoContent,
+			wantCalls: staticOwnershipCalls{
+				beforeAuth: 1, authenticate: 1, prepare: 1, deleteHandler: 1,
+			},
+		},
+		{
+			name: "equal specificity allow", method: http.MethodPatch, path: "/items/42",
+			wantStatus: http.StatusMethodNotAllowed, wantAllow: "DELETE, PUT",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			engine, calls := newStaticOwnershipTestEngine(t)
+			recorder := httptest.NewRecorder()
+			engine.ServeHTTP(
+				recorder,
+				httptest.NewRequest(test.method, test.path, nil),
+			)
+			if recorder.Code != test.wantStatus {
+				t.Fatalf("status = %d, want %d: %s", recorder.Code, test.wantStatus, recorder.Body.String())
+			}
+			if allow := recorder.Header().Get("Allow"); allow != test.wantAllow {
+				t.Fatalf("Allow = %q, want %q", allow, test.wantAllow)
+			}
+			if *calls != test.wantCalls {
+				t.Fatalf("route chain calls = %#v, want %#v", *calls, test.wantCalls)
+			}
+		})
+	}
+}
+
+type staticOwnershipCalls struct {
+	beforeAuth    int
+	authenticate  int
+	prepare       int
+	staticHandler int
+	updateHandler int
+	deleteHandler int
+}
+
+func newStaticOwnershipTestEngine(
+	t *testing.T,
+) (*gin.Engine, *staticOwnershipCalls) {
+	t.Helper()
+	calls := &staticOwnershipCalls{}
+	module := Module{
+		Name: "control", Owner: OwnerControl, Auth: AuthControl,
+		BeforeAuth: gin.HandlersChain{func(*gin.Context) {
+			calls.beforeAuth++
+		}},
+		Authenticate: func(*gin.Context) {
+			calls.authenticate++
+		},
+		MethodNotAllowed: respond(http.StatusMethodNotAllowed, "method not allowed"),
+		Routes: []Route{
+			{
+				Name: "sync", Methods: []string{http.MethodPost}, Path: "/items/sync",
+				Prepare: gin.HandlersChain{func(*gin.Context) {
+					calls.prepare++
+				}},
+				Handlers: gin.HandlersChain{func(c *gin.Context) {
+					calls.staticHandler++
+					c.Status(http.StatusCreated)
+				}},
+			},
+			{
+				Name: "update", Methods: []string{http.MethodPut}, Path: "/items/:id",
+				Prepare: gin.HandlersChain{func(*gin.Context) {
+					calls.prepare++
+				}},
+				Handlers: gin.HandlersChain{func(c *gin.Context) {
+					calls.updateHandler++
+					c.Status(http.StatusAccepted)
+				}},
+			},
+			{
+				Name: "delete", Methods: []string{http.MethodDelete}, Path: "/items/:id",
+				Prepare: gin.HandlersChain{func(*gin.Context) {
+					calls.prepare++
+				}},
+				Handlers: gin.HandlersChain{func(c *gin.Context) {
+					calls.deleteHandler++
+					c.Status(http.StatusNoContent)
+				}},
+			},
+		},
+	}
+	registry := mustRegistry(t, module)
+	engine := gin.New()
+	if err := registry.Bind(engine); err != nil {
+		t.Fatalf("Bind() error = %v", err)
+	}
+	return engine, calls
+}
+
 func TestNoMethodTurnsSemanticallyInvalidPatternMatchInto404(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	authCalls := 0

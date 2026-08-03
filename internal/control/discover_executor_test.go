@@ -140,7 +140,9 @@ func TestExecuteModelDiscoveryUsesCanonicalOpenAIRepresentativeFirst(t *testing.
 	if err != nil {
 		t.Fatalf("executeModelDiscovery() error = %v", err)
 	}
-	if !reflect.DeepEqual(result.Models, []string{"gpt-5"}) {
+	if !reflect.DeepEqual(result.Models, []ModelCandidate{
+		{ID: "gpt-5", Name: "gpt-5", Sources: []string{"live"}, PricingStatus: PricingStatusPending},
+	}) {
 		t.Fatalf("models = %#v", result.Models)
 	}
 	if !reflect.DeepEqual(calls, []protocol.Protocol{

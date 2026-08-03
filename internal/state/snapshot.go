@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"gpt-load/internal/platform/config"
+	"gpt-load/internal/pricing"
 	"gpt-load/internal/protocol"
 )
 
@@ -20,6 +21,7 @@ type CompileInput struct {
 type GroupConfig struct {
 	ID              uint
 	Name            string
+	ProviderID      *string
 	UpstreamURL     string
 	ValidationModel string
 	Protocols       []protocol.Protocol
@@ -83,6 +85,7 @@ type HeaderRules struct {
 type GroupView struct {
 	ID                 uint
 	Name               string
+	ProviderID         *string
 	UpstreamURL        string
 	ValidationModel    string
 	Protocols          []protocol.Protocol
@@ -159,6 +162,7 @@ func Compile(input CompileInput) (*ConfigSnapshot, error) {
 		view := GroupView{
 			ID:                 group.ID,
 			Name:               group.Name,
+			ProviderID:         cloneStringPointer(group.ProviderID),
 			UpstreamURL:        group.UpstreamURL,
 			ValidationModel:    strings.TrimSpace(group.ValidationModel),
 			Protocols:          append([]protocol.Protocol(nil), group.Protocols...),
@@ -192,6 +196,14 @@ func newAccessKeyView(input AccessKeyConfig) AccessKeyView {
 		ID: input.ID, Name: input.Name, Status: input.Status,
 		Filters: cloneFilterSet(input.Filters), RPMLimit: input.RPMLimit,
 	}
+}
+
+func cloneStringPointer(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
 }
 
 func appendRouteTarget(index map[protocol.Protocol]map[string][]RouteTarget, group GroupConfig) {
@@ -248,6 +260,11 @@ func validateCompileInput(input CompileInput) error {
 			return fmt.Errorf("duplicate group id %d", group.ID)
 		}
 		groupIDs[group.ID] = struct{}{}
+		if group.ProviderID != nil {
+			if _, err := pricing.ProviderScopeKey(*group.ProviderID); err != nil {
+				return fmt.Errorf("group %d has invalid provider id: %w", group.ID, err)
+			}
+		}
 		if err := validateManualWeight(fmt.Sprintf("group %d", group.ID), group.WeightManual); err != nil {
 			return err
 		}

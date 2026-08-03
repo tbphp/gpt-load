@@ -13,10 +13,13 @@ import (
 
 	"gorm.io/gorm"
 
+	"gpt-load/internal/catalog"
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/health"
+	"gpt-load/internal/platform/config"
 	"gpt-load/internal/platform/encryption"
 	app_errors "gpt-load/internal/platform/errors"
+	"gpt-load/internal/pricing"
 	"gpt-load/internal/state"
 	stateloader "gpt-load/internal/state/loader"
 	"gpt-load/internal/storage/models"
@@ -33,6 +36,9 @@ type Service struct {
 	registry                    *state.KeyRegistry
 	registrySnapshot            func() []state.KeyRuntimeView
 	priceRuntime                *PriceRuntime
+	catalogRuntime              *catalog.Runtime
+	catalogSync                 *CatalogSyncCoordinator
+	modelsDevAutoSyncOverride   *bool
 	encryption                  encryption.Service
 	dialects                    dialect.Set
 	requestLogs                 RequestLogReader
@@ -63,6 +69,8 @@ func NewService(
 	manager *state.Manager,
 	registry *state.KeyRegistry,
 	priceRuntime *PriceRuntime,
+	catalogRuntime *catalog.Runtime,
+	cfg *config.Config,
 	encryptionService encryption.Service,
 	dialects dialect.Set,
 	requestLogs RequestLogReader,
@@ -74,8 +82,9 @@ func NewService(
 ) *Service {
 	service := &Service{
 		db: db, manager: manager, registry: registry,
-		priceRuntime: priceRuntime,
-		encryption:   encryptionService, dialects: dialects, requestLogs: requestLogs,
+		priceRuntime:   priceRuntime,
+		catalogRuntime: catalogRuntime,
+		encryption:     encryptionService, dialects: dialects, requestLogs: requestLogs,
 		usageStats: usageStats, homeStatistics: homeStatistics,
 		stats: stats, mutations: mutations, requestLogStats: requestLogStats,
 		modelDiscoveryTimeout: defaultModelDiscoveryTimeout,
@@ -84,12 +93,75 @@ func NewService(
 		now:                   time.Now,
 		operationRecoveryWake: make(chan struct{}, 1),
 	}
+	if cfg != nil && cfg.ModelsDevAutoSyncOverride != nil {
+		value := *cfg.ModelsDevAutoSyncOverride
+		service.modelsDevAutoSyncOverride = &value
+	}
 	service.publishSnapshot = manager.Publish
 	service.reconcileRegistryGroup = registry.ReconcileGroup
 	service.applyBatchRegistryMutation = service.applyGroupKeyBatchRegistryMutation
 	service.restoreBatchRegistryEntries = registry.RestoreGroupKeyEntriesExact
 	service.registrySnapshot = registry.Snapshot
 	return service
+}
+
+type configMutationPublication struct {
+	ConfigInput state.CompileInput
+	PriceTable  *pricing.Table
+}
+
+func (s *Service) writeGroupConfig(
+	ctx context.Context,
+	mutate func(*gorm.DB) error,
+	afterCommitBeforePublish func() error,
+) (*state.ConfigSnapshot, error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	if err := s.enforceOperationRecoveryBarrierLocked(ctx, 0); err != nil {
+		return nil, err
+	}
+
+	var catalogSnapshot *catalog.Snapshot
+	if s.catalogRuntime != nil {
+		catalogSnapshot = s.catalogRuntime.Load()
+	}
+	publication := configMutationPublication{}
+	err := s.withControlTransaction(ctx, func(tx *gorm.DB) error {
+		if err := mutate(tx); err != nil {
+			return err
+		}
+		if err := reconcileReferencedPrices(tx, catalogSnapshot); err != nil {
+			return err
+		}
+		input, err := stateloader.BuildCompileInput(ctx, tx)
+		if err != nil {
+			return err
+		}
+		if _, err := state.Compile(input); err != nil {
+			return err
+		}
+		priceTable, err := loadPriceTable(ctx, tx)
+		if err != nil {
+			return err
+		}
+		publication = configMutationPublication{ConfigInput: input, PriceTable: priceTable}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	s.priceRuntime.Publish(publication.PriceTable)
+	if afterCommitBeforePublish != nil {
+		if err := afterCommitBeforePublish(); err != nil {
+			return nil, newControlOperationError(stageApplyCommittedRegistryMutation)
+		}
+	}
+	snapshot, err := s.publishSnapshot(publication.ConfigInput)
+	if err != nil {
+		return nil, newControlOperationError(stagePublishCommittedSnapshot)
+	}
+	return snapshot, nil
 }
 
 func (s *Service) writeConfig(

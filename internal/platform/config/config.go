@@ -69,15 +69,16 @@ type DatabaseMetadata struct {
 
 // Config contains static environment configuration for the application process.
 type Config struct {
-	Server                ServerConfig
-	DataDir               string
-	DatabaseDSN           string
-	DatabaseMetadata      DatabaseMetadata
-	EncryptionKey         string
-	AuthKey               string
-	AuthKeyMetadata       SecretMetadata
-	EncryptionKeyMetadata SecretMetadata
-	Log                   LogConfig
+	Server                    ServerConfig
+	DataDir                   string
+	DatabaseDSN               string
+	DatabaseMetadata          DatabaseMetadata
+	EncryptionKey             string
+	AuthKey                   string
+	AuthKeyMetadata           SecretMetadata
+	EncryptionKeyMetadata     SecretMetadata
+	Log                       LogConfig
+	ModelsDevAutoSyncOverride *bool
 }
 
 // Settings is the dynamic settings shape shared by system and group layers.
@@ -153,6 +154,10 @@ func Load() (*Config, error) {
 	if logFormat != "text" && logFormat != "json" {
 		return nil, fmt.Errorf("LOG_FORMAT must be text or json")
 	}
+	modelsDevAutoSyncOverride, err := parseOptionalBool("MODELS_DEV_AUTO_SYNC_ENABLED")
+	if err != nil {
+		return nil, err
+	}
 
 	return &Config{
 		Server: ServerConfig{
@@ -173,7 +178,20 @@ func Load() (*Config, error) {
 			Level:  valueOrDefault("LOG_LEVEL", "info"),
 			Format: logFormat,
 		},
+		ModelsDevAutoSyncOverride: modelsDevAutoSyncOverride,
 	}, nil
+}
+
+func parseOptionalBool(key string) (*bool, error) {
+	value := os.Getenv(key)
+	if value == "" {
+		return nil, nil
+	}
+	parsed, err := strconv.ParseBool(value)
+	if err != nil {
+		return nil, fmt.Errorf("%s must be a boolean", key)
+	}
+	return &parsed, nil
 }
 
 func parsePositiveInt(key string, defaultValue int) (int, error) {

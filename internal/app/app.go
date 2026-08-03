@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"gpt-load/internal/platform/config"
-	"gpt-load/internal/platform/encryption"
 	"gpt-load/internal/platform/i18n"
 	"gpt-load/internal/platform/version"
 	"gpt-load/internal/storage"
@@ -27,7 +26,6 @@ import (
 type App struct {
 	engine           *gin.Engine
 	config           *config.Config
-	encryption       encryption.Service
 	db               *gorm.DB
 	runtimeState     RuntimeStateLoader
 	controlRuntime   ControlRuntime
@@ -76,7 +74,6 @@ type AppParams struct {
 
 	Engine           *gin.Engine
 	Config           *config.Config
-	Encryption       encryption.Service
 	DB               *gorm.DB
 	StartupBootstrap StartupBootstrap
 	StartupRecovery  StartupRecovery `optional:"true"`
@@ -102,7 +99,6 @@ func NewApp(params AppParams) *App {
 	return &App{
 		engine:           params.Engine,
 		config:           params.Config,
-		encryption:       params.Encryption,
 		db:               params.DB,
 		runtimeState:     params.RuntimeState,
 		controlRuntime:   params.ControlRuntime,
@@ -125,11 +121,7 @@ func (a *App) Start() error {
 	if err := i18n.Init(); err != nil {
 		return fmt.Errorf("initialize i18n: %w", err)
 	}
-	if err := storage.AutoMigrateWithEncryption(
-		a.db,
-		a.encryption,
-		a.config.DataDir,
-	); err != nil {
+	if err := storage.AutoMigrate(a.db); err != nil {
 		return err
 	}
 	if err := a.startupBootstrap.EnsureInitialState(context.Background()); err != nil {

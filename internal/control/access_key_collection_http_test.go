@@ -175,7 +175,7 @@ func TestAccessKeyCollectionHTTPReturnsLatestRequestTimeAndOmitsCollectionScope(
 		{
 			ID: "00000000-0000-4000-8000-000000000002", CompletedAtMS: 1_700_000_000_900,
 			AccessKeyID: used.ID, Protocol: "anthropic", ClientModel: "claude-sonnet",
-			UpstreamModel: "claude-sonnet", Status: "failed", Attempts: models.JSON(`[]`),
+			UpstreamModel: "claude-sonnet", Status: "error", Attempts: models.JSON(`[]`),
 		},
 	}).Error; err != nil {
 		t.Fatalf("create request logs: %v", err)

@@ -174,7 +174,7 @@ func TestBuildContainerWiresSingletonPriceRuntime(t *testing.T) {
 	err = dependencyContainer.Invoke(func(
 		controlService *control.Service,
 		runtime *control.PriceRuntime,
-		provider requestlog.PriceTableProvider,
+		provider gateway.PriceTableProvider,
 		requestLogService *requestlog.Service,
 		db *gorm.DB,
 	) {

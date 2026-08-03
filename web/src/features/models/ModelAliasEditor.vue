@@ -42,7 +42,7 @@ const validity = computed(() => modelDraftValidity(props.modelValue, props.confl
 const visibleRows = computed(() => {
   const query = search.value.trim().toLocaleLowerCase()
   return props.modelValue.flatMap((item, index) =>
-    !query || `${item.id} ${item.alias}`.toLocaleLowerCase().includes(query)
+    !query || `${item.id} ${item.name} ${item.alias}`.toLocaleLowerCase().includes(query)
       ? [{ item, index }]
       : [],
   )
@@ -61,7 +61,7 @@ function updateRow(
             ...patch,
             alias: patch.alias_enabled === false ? '' : (patch.alias ?? item.alias),
           } as T)
-        : ({ ...item } as T),
+        : ({ ...item, sources: [...item.sources] } as T),
     ),
   )
 }
@@ -69,7 +69,9 @@ function updateRow(
 function removeRow(index: number): void {
   emit(
     'update:modelValue',
-    props.modelValue.filter((_, current) => current !== index).map((item) => ({ ...item })),
+    props.modelValue
+      .filter((_, current) => current !== index)
+      .map((item) => ({ ...item, sources: [...item.sources] })),
   )
 }
 
@@ -77,7 +79,10 @@ async function addManual(): Promise<void> {
   if (props.disabled || !props.createRow) return
   search.value = ''
   const index = props.modelValue.length
-  emit('update:modelValue', [...props.modelValue.map((item) => ({ ...item })), props.createRow()])
+  emit('update:modelValue', [
+    ...props.modelValue.map((item) => ({ ...item, sources: [...item.sources] })),
+    props.createRow(),
+  ])
   await nextTick()
   root.value?.querySelector<HTMLInputElement>(`[data-model-id-index="${index}"]`)?.focus()
 }

@@ -29,7 +29,7 @@ func TestSettingsHTTPUsesCanonicalLocalizedStrongRepresentation(t *testing.T) {
 		t.Fatalf("English GET = %d %s", english.Code, english.Body.String())
 	}
 	assertSettingsRepresentationHeaders(t, english, "en-US")
-	const wantEnglish = `{"code":0,"data":{"overrides":[],"values":{"connect_timeout":15,"first_byte_timeout":120,"header_rules":{"remove":[],"set":{}},"inject_usage_options":true,"request_log_retention_days":7,"request_timeout":600,"stream_idle_timeout":300}},"message":"Success"}`
+	const wantEnglish = `{"code":0,"data":{"overrides":[],"values":{"connect_timeout":15,"first_byte_timeout":120,"header_rules":{"remove":[],"set":{}},"inject_usage_options":true,"models_dev_auto_sync_enabled":true,"request_log_retention_days":7,"request_timeout":600,"stream_idle_timeout":300}},"message":"Success"}`
 	if english.Body.String() != wantEnglish {
 		t.Fatalf("English body = %s, want %s", english.Body.String(), wantEnglish)
 	}
@@ -213,6 +213,8 @@ func TestSettingsETagIgnoresOtherResourcesAndSurvivesRuntimeReload(t *testing.T)
 		reloadedManager,
 		reloadedRegistry,
 		fixture.priceRuntime,
+		fixture.catalogRuntime,
+		nil,
 		fixture.encryption,
 		fixture.service.dialects,
 		fixture.service.requestLogs,

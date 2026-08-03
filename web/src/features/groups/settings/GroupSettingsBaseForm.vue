@@ -6,10 +6,20 @@ import { useI18n } from 'vue-i18n'
 import type { GroupProtocol } from '@/api/control/types'
 import { enabledDataProtocols } from '@/api/control/protocols'
 import UpstreamBaseURLHint from '@/components/config/UpstreamBaseURLHint.vue'
+import AppSearchInput from '@/components/ui/AppSearchInput.vue'
+import AppSelect from '@/components/ui/AppSelect.vue'
 import SegmentedControl from '@/components/ui/SegmentedControl.vue'
+
+interface ProviderOption {
+  value: string
+  label: string
+}
 
 const props = defineProps<{
   section: 'general' | 'routing'
+  providerId: string | null
+  providerSearch: string
+  providerOptions: ProviderOption[]
   name: string
   upstreamUrl: string
   validationModel: string | null
@@ -20,8 +30,12 @@ const props = defineProps<{
   nameError: string
   upstreamUrlError: string
   protocolsError: string
+  providerLoading: boolean
+  providerError: boolean
 }>()
 const emit = defineEmits<{
+  'update:providerId': [value: string | null]
+  'update:providerSearch': [value: string]
   'update:name': [value: string]
   'update:upstreamUrl': [value: string]
   'update:validationModel': [value: string | null]
@@ -40,6 +54,7 @@ const weightValid = computed(
     props.weightManual === null ||
     (Number.isInteger(props.weightManual) && props.weightManual >= 1 && props.weightManual <= 100),
 )
+const customProviderValue = 'custom:'
 
 function setWeightMode(value: string): void {
   if (props.pending) return
@@ -92,6 +107,35 @@ function setWeightMode(value: string): void {
           :duplicate-message="t('group.settings.base.urlPrefixDuplicate')"
         />
       </label>
+    </div>
+    <div class="group-settings__provider-row">
+      <span>
+        <strong>{{ t('group.settings.base.provider') }}</strong>
+        <small v-if="providerError" role="alert">
+          {{ t('group.settings.base.providerLoadFailed') }}
+        </small>
+        <small v-else>{{ t('group.settings.base.providerHelp') }}</small>
+      </span>
+      <div class="group-settings__provider-controls">
+        <AppSearchInput
+          :model-value="providerSearch"
+          :label="t('group.settings.base.providerSearch')"
+          :placeholder="t('group.settings.base.providerSearch')"
+          :clear-label="t('group.settings.base.providerClearSearch')"
+          :disabled="pending"
+          @update:model-value="emit('update:providerSearch', $event)"
+        />
+        <AppSelect
+          :model-value="providerId ?? customProviderValue"
+          :label="t('group.settings.base.provider')"
+          :options="providerOptions"
+          :disabled="pending || providerLoading"
+          size="compact"
+          @update:model-value="
+            emit('update:providerId', $event === customProviderValue ? null : $event)
+          "
+        />
+      </div>
     </div>
     <label class="group-settings__switch-row">
       <span class="group-settings__switch-copy">
@@ -261,6 +305,46 @@ fieldset {
   padding: 8px 2px;
 }
 
+.group-settings__provider-row {
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  border-top: 1px solid var(--color-border-subtle);
+  padding: 8px 2px;
+}
+
+.group-settings__provider-row > span {
+  display: grid;
+  gap: 2px;
+}
+
+.group-settings__provider-row strong {
+  font-size: 12.5px;
+}
+
+.group-settings__provider-row small {
+  color: var(--color-text-faint);
+  font-size: 11px;
+}
+
+.group-settings__provider-row small[role='alert'] {
+  color: var(--color-danger);
+}
+
+.group-settings__provider-controls {
+  display: grid;
+  width: min(100%, 420px);
+  grid-template-columns: minmax(160px, 1fr) minmax(130px, auto);
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.group-settings__provider-controls :deep(.app-select__trigger) {
+  width: 100%;
+}
+
 .group-settings__switch-copy {
   display: grid;
 }
@@ -419,6 +503,15 @@ fieldset {
     grid-column: auto;
   }
 
+  .group-settings__provider-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .group-settings__provider-controls {
+    width: 100%;
+  }
+
   .group-settings__field input:not([type='checkbox']) {
     min-height: var(--touch-target);
     font-size: 16px;
@@ -443,6 +536,12 @@ fieldset {
     right: 0;
     width: 42px;
     height: 24px;
+  }
+}
+
+@media (max-width: 560px) {
+  .group-settings__provider-controls {
+    grid-template-columns: 1fr;
   }
 }
 

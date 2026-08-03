@@ -23,14 +23,16 @@ type HomeStatisticsReader interface {
 }
 
 type homeStatisticsAggregateResponse struct {
-	RequestCount         int64  `json:"request_count"`
-	SuccessCount         int64  `json:"success_count"`
-	FailureCount         int64  `json:"failure_count"`
-	TotalTokens          int64  `json:"total_tokens"`
-	EstimatedCostNanoUSD string `json:"estimated_cost_nano_usd"`
-	UsageMissingCount    int64  `json:"usage_missing_count"`
-	PartialCount         int64  `json:"partial_count"`
-	UnpricedRequestCount int64  `json:"unpriced_request_count"`
+	RequestCount            int64  `json:"request_count"`
+	SuccessCount            int64  `json:"success_count"`
+	FailureCount            int64  `json:"failure_count"`
+	TotalTokens             int64  `json:"total_tokens"`
+	CacheWriteUnknownTokens int64  `json:"cache_write_unknown_tokens"`
+	EstimatedCostNanoUSD    string `json:"estimated_cost_nano_usd"`
+	UsageMissingCount       int64  `json:"usage_missing_count"`
+	PartialCount            int64  `json:"partial_count"`
+	UnpricedRequestCount    int64  `json:"unpriced_request_count"`
+	PricingPartialCount     int64  `json:"pricing_partial_count"`
 }
 
 type homeStatisticsSeriesResponse struct {
@@ -348,14 +350,16 @@ func mapHomeStatisticsAggregate(
 		)
 	}
 	return homeStatisticsAggregateResponse{
-		RequestCount:         mapped.RequestCount,
-		SuccessCount:         mapped.SuccessCount,
-		FailureCount:         mapped.FailureCount,
-		TotalTokens:          mapped.TotalTokens,
-		EstimatedCostNanoUSD: mapped.EstimatedCostNanoUSD,
-		UsageMissingCount:    mapped.UsageMissingCount,
-		PartialCount:         mapped.PartialCount,
-		UnpricedRequestCount: mapped.UnpricedRequestCount,
+		RequestCount:            mapped.RequestCount,
+		SuccessCount:            mapped.SuccessCount,
+		FailureCount:            mapped.FailureCount,
+		TotalTokens:             mapped.TotalTokens,
+		CacheWriteUnknownTokens: mapped.CacheWriteUnknownTokens,
+		EstimatedCostNanoUSD:    mapped.EstimatedCostNanoUSD,
+		UsageMissingCount:       mapped.UsageMissingCount,
+		PartialCount:            mapped.PartialCount,
+		UnpricedRequestCount:    mapped.UnpricedRequestCount,
+		PricingPartialCount:     mapped.PricingPartialCount,
 	}, nil
 }
 

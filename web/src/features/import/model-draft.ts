@@ -1,19 +1,15 @@
 import type { GroupProtocol } from '@/api/control/types'
 import type { GroupModelUpdateDto } from '@/app/resources/groups'
+import type { ModelCandidate } from '@/app/resources/providers'
 import { normalizedModels, type ModelDraftValue } from '@/features/models/model-draft'
 
-import type { ProviderPresetID } from './channel-presets'
-
-export type ImportModelSource = 'manual' | 'discovered'
-
 export interface ModelDraftItem extends ModelDraftValue {
-  source: ImportModelSource
   key: number
 }
 
 export interface ImportDraft {
   mode: 'new'
-  preset_id: ProviderPresetID
+  provider_id: string | null
   name: string
   upstream_url: string
   protocols: GroupProtocol[]
@@ -30,20 +26,22 @@ export interface ExistingGroupImportDraft {
 export type ImportRecoveryDraft = ImportDraft | ExistingGroupImportDraft
 
 export function createDiscoveredModelDraft(
-  ids: readonly string[],
+  candidates: readonly ModelCandidate[],
   nextKey: () => number,
 ): ModelDraftItem[] {
   const seen = new Set<string>()
-  return ids.flatMap((value) => {
-    const id = value.trim()
+  return candidates.flatMap((candidate) => {
+    const id = candidate.id.trim()
     if (!id || seen.has(id)) return []
     seen.add(id)
     return [
       {
         id,
+        name: candidate.name,
+        sources: [...candidate.sources],
+        pricing_status: candidate.pricing_status,
         alias: '',
         alias_enabled: false,
-        source: 'discovered' as const,
         key: nextKey(),
       },
     ]

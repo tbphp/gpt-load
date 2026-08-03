@@ -26,6 +26,7 @@ func CheckedTotal(tokens Tokens) (int64, bool) {
 		tokens.CacheRead,
 		tokens.CacheWrite5M,
 		tokens.CacheWrite1H,
+		tokens.CacheWriteUnknown,
 		tokens.Output,
 	} {
 		var ok bool

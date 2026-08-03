@@ -3,7 +3,6 @@ import { inject, type InjectionKey } from 'vue'
 import { isDataProtocol } from '@/api/control/protocols'
 import type { GroupProtocol } from '@/api/control/types'
 
-import { isProviderPresetID } from './channel-presets'
 import type { ImportRecoveryDraft, ModelDraftItem } from './model-draft'
 
 export const importRecoveryStorageKey = 'gpt-load.import-reauth-draft'
@@ -26,7 +25,7 @@ export interface ImportRecoveryService {
 }
 
 interface ImportRecoveryRecord {
-  version: 2
+  version: 3
   expires_at: number
   draft: ImportRecoveryDraft
 }
@@ -47,15 +46,40 @@ function hasOnlyFields(value: Record<string, unknown>, fields: readonly string[]
 function isModel(value: unknown): value is ModelDraftItem {
   return (
     isRecord(value) &&
-    hasOnlyFields(value, ['id', 'alias', 'alias_enabled', 'source', 'key']) &&
+    hasOnlyFields(value, [
+      'id',
+      'name',
+      'sources',
+      'pricing_status',
+      'alias',
+      'alias_enabled',
+      'editable_id',
+      'key',
+    ]) &&
     typeof value.id === 'string' &&
-    value.id.trim() !== '' &&
+    typeof value.name === 'string' &&
+    Array.isArray(value.sources) &&
+    value.sources.length <= 2 &&
+    value.sources.every((source) => source === 'catalog' || source === 'live') &&
+    new Set(value.sources).size === value.sources.length &&
+    (value.pricing_status === 'pending' || value.pricing_status === 'configured') &&
     typeof value.alias === 'string' &&
     typeof value.alias_enabled === 'boolean' &&
-    (value.source === 'manual' || value.source === 'discovered') &&
+    (value.editable_id === undefined || typeof value.editable_id === 'boolean') &&
     typeof value.key === 'number' &&
     Number.isSafeInteger(value.key) &&
     value.key > 0
+  )
+}
+
+function isProviderID(value: unknown): value is string | null {
+  return (
+    value === null ||
+    (typeof value === 'string' &&
+      value.length > 0 &&
+      value === value.trim() &&
+      !value.includes(':') &&
+      !/[\u0000-\u001f\u007f]/u.test(value))
   )
 }
 
@@ -63,7 +87,7 @@ function isNewImportDraft(value: Record<string, unknown>): boolean {
   if (!(
     hasOnlyFields(value, [
       'mode',
-      'preset_id',
+      'provider_id',
       'name',
       'upstream_url',
       'protocols',
@@ -71,7 +95,7 @@ function isNewImportDraft(value: Record<string, unknown>): boolean {
       'models',
     ]) &&
     value.mode === 'new' &&
-    isProviderPresetID(value.preset_id) &&
+    isProviderID(value.provider_id) &&
     typeof value.name === 'string' &&
     typeof value.upstream_url === 'string' &&
     Array.isArray(value.protocols) &&
@@ -112,7 +136,7 @@ function parseRecoveryRecord(raw: string): ImportRecoveryRecord | null {
     if (
       !isRecord(value) ||
       !hasOnlyFields(value, ['version', 'expires_at', 'draft']) ||
-      value.version !== 2 ||
+      value.version !== 3 ||
       typeof value.expires_at !== 'number' ||
       !Number.isFinite(value.expires_at) ||
       !isImportDraft(value.draft)
@@ -190,7 +214,7 @@ export function createImportRecoveryService(
     if (!deps.storage) return 'storage-unavailable'
 
     const record: ImportRecoveryRecord = {
-      version: 2,
+      version: 3,
       expires_at: deps.now() + importRecoveryTtlMs,
       draft,
     }

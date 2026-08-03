@@ -2,11 +2,12 @@ package usage
 
 // Tokens is the provider-neutral breakdown of billable tokens.
 type Tokens struct {
-	UncachedInput int64
-	CacheRead     int64
-	CacheWrite5M  int64
-	CacheWrite1H  int64
-	Output        int64
+	UncachedInput     int64
+	CacheRead         int64
+	CacheWrite5M      int64
+	CacheWrite1H      int64
+	CacheWriteUnknown int64
+	Output            int64
 }
 
 // State describes the completeness of a usage result.
@@ -127,11 +128,12 @@ type Result struct {
 
 // Patch updates one or more token fields in an accumulator.
 type Patch struct {
-	UncachedInput *int64
-	CacheRead     *int64
-	CacheWrite5M  *int64
-	CacheWrite1H  *int64
-	Output        *int64
-	Final         bool
-	Diagnostics   Diagnostics
+	UncachedInput     *int64
+	CacheRead         *int64
+	CacheWrite5M      *int64
+	CacheWrite1H      *int64
+	CacheWriteUnknown *int64
+	Output            *int64
+	Final             bool
+	Diagnostics       Diagnostics
 }

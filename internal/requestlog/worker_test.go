@@ -31,7 +31,6 @@ func TestServiceFlushesAtBatchSizeAndDelayInFIFOOrder(t *testing.T) {
 		}),
 		redact.New(),
 		timers.New,
-		newStaticPriceTableProvider(),
 	)
 	if err := service.Start(); err != nil {
 		t.Fatalf("Start() error = %v", err)
@@ -89,7 +88,6 @@ func TestServiceDropsFailedBatchAndContinues(t *testing.T) {
 		}),
 		redact.New(),
 		timers.New,
-		newStaticPriceTableProvider(),
 	)
 	if err := service.Start(); err != nil {
 		t.Fatalf("Start() error = %v", err)
@@ -126,7 +124,6 @@ func TestServiceDropsInvalidProjectionWithoutDiscardingValidRows(t *testing.T) {
 		}),
 		redact.New(),
 		timers.New,
-		newStaticPriceTableProvider(),
 	)
 	if err := service.Start(); err != nil {
 		t.Fatalf("Start() error = %v", err)
@@ -164,7 +161,6 @@ func TestServiceStopDrainsAndIsIdempotent(t *testing.T) {
 		}),
 		redact.New(),
 		newManualTimerFactory().New,
-		newStaticPriceTableProvider(),
 	)
 	if err := service.Start(); err != nil {
 		t.Fatalf("Start() error = %v", err)
@@ -220,7 +216,6 @@ func TestServiceStopDeadlineSeparatesPersistAndShutdownDrops(t *testing.T) {
 		}),
 		redact.New(),
 		newManualTimerFactory().New,
-		newStaticPriceTableProvider(),
 	)
 	if err := service.Start(); err != nil {
 		t.Fatalf("Start() error = %v", err)
@@ -261,7 +256,6 @@ func TestServiceStopDeadlineIsHardBoundaryWhenWriterIgnoresCancellation(t *testi
 		}),
 		redact.New(),
 		newManualTimerFactory().New,
-		newStaticPriceTableProvider(),
 	)
 	if err := service.Start(); err != nil {
 		t.Fatalf("Start() error = %v", err)
@@ -314,7 +308,6 @@ func TestServiceConcurrentStopHonorsOwnDeadlineWithoutDuplicateDrain(t *testing.
 		}),
 		redact.New(),
 		newManualTimerFactory().New,
-		newStaticPriceTableProvider(),
 	)
 	if err := service.Start(); err != nil {
 		t.Fatalf("Start() error = %v", err)
@@ -438,7 +431,7 @@ func TestWriteBatchInsertsOnlyNewRequestLogsAndAggregatesUsage(t *testing.T) {
 	if err := db.First(&persistedFirst, "id = ?", first.ID).Error; err != nil {
 		t.Fatalf("query first RequestLog: %v", err)
 	}
-	if persistedFirst.GroupID != 7 || persistedFirst.UpstreamModel != "upstream-aggregate-model" ||
+	if persistedFirst.GroupID != 7 || persistedFirst.UpstreamModel != "aggregate-model" ||
 		persistedFirst.UncachedInputTokens != 3 {
 		t.Fatalf("first-write-wins row = %+v", persistedFirst)
 	}
@@ -446,7 +439,7 @@ func TestWriteBatchInsertsOnlyNewRequestLogsAndAggregatesUsage(t *testing.T) {
 	if err := db.First(&persistedExisting, "id = ?", existing.ID).Error; err != nil {
 		t.Fatalf("query existing RequestLog: %v", err)
 	}
-	if persistedExisting.GroupID != 7 || persistedExisting.UpstreamModel != "upstream-aggregate-model" ||
+	if persistedExisting.GroupID != 7 || persistedExisting.UpstreamModel != "aggregate-model" ||
 		persistedExisting.UncachedInputTokens != 99 {
 		t.Fatalf("existing row was updated: %+v", persistedExisting)
 	}
@@ -494,6 +487,7 @@ func TestWriteBatchAggregatesStatusQualityAndCompletePricedTotals(t *testing.T) 
 
 	completeUnpriced := aggregationRow(aggregationRequestID(15), hour, 8, "quality-model")
 	completeUnpriced.CostState = string(pricing.CostStateUnpriced)
+	completeUnpriced.PricingCompleteness = string(pricing.CompletenessUnavailable)
 	completeUnpriced.UncachedInputTokens = 400
 	completeUnpriced.OutputTokens = 500
 	completeUnpriced.EstimatedCostNanoUSD = 0
@@ -502,13 +496,16 @@ func TestWriteBatchAggregatesStatusQualityAndCompletePricedTotals(t *testing.T) 
 	missing.Status = string(telemetry.RequestStatusError)
 	missing.UsageState = string(usage.StateMissing)
 	missing.CostState = string(pricing.CostStateUnpriced)
+	missing.PricingCompleteness = string(pricing.CompletenessUnavailable)
 	missing.UncachedInputTokens = 100
 	missing.EstimatedCostNanoUSD = 0
 
 	partialPriced := aggregationRow(aggregationRequestID(12), hour, 8, "quality-model")
 	partialPriced.Status = string(telemetry.RequestStatusIncomplete)
 	partialPriced.UsageState = string(usage.StatePartial)
+	partialPriced.PricingCompleteness = string(pricing.CompletenessPartial)
 	partialPriced.UncachedInputTokens = 200
+	partialPriced.CacheWriteUnknownTokens = 7
 	partialPriced.OutputTokens = 300
 	partialPriced.EstimatedCostNanoUSD = 2_500_000_000
 
@@ -516,12 +513,14 @@ func TestWriteBatchAggregatesStatusQualityAndCompletePricedTotals(t *testing.T) 
 	partialUnpriced.Status = string(telemetry.RequestStatusCanceled)
 	partialUnpriced.UsageState = string(usage.StatePartial)
 	partialUnpriced.CostState = string(pricing.CostStateUnpriced)
+	partialUnpriced.PricingCompleteness = string(pricing.CompletenessUnavailable)
 	partialUnpriced.EstimatedCostNanoUSD = 0
 
 	notApplicable := aggregationRow(aggregationRequestID(14), hour, 8, "quality-model")
 	notApplicable.Status = string(telemetry.RequestStatusError)
 	notApplicable.UsageState = string(usage.StateNotApplicable)
 	notApplicable.CostState = string(pricing.CostStateNotApplicable)
+	notApplicable.PricingCompleteness = string(pricing.CompletenessNotApplicable)
 	notApplicable.UncachedInputTokens = 700
 	notApplicable.OutputTokens = 800
 	notApplicable.EstimatedCostNanoUSD = 0
@@ -546,11 +545,12 @@ func TestWriteBatchAggregatesStatusQualityAndCompletePricedTotals(t *testing.T) 
 	}
 	if stat.RequestCount != 6 || stat.SuccessCount != 2 || stat.FailureCount != 4 ||
 		stat.UsageMissingCount != 1 || stat.PartialCount != 2 ||
-		stat.UnpricedRequestCount != 2 {
+		stat.UnpricedRequestCount != 2 || stat.PricingPartialCount != 1 {
 		t.Fatalf("status/quality counts = %+v", stat)
 	}
 	if stat.UncachedInputTokens != 602 || stat.OutputTokens != 804 || stat.CacheReadTokens != 3 ||
 		stat.CacheWrite5MTokens != 4 || stat.CacheWrite1HTokens != 5 ||
+		stat.CacheWriteUnknownTokens != 7 ||
 		stat.EstimatedCostNanoUSD != 3_750_000_000 {
 		t.Fatalf("complete/partial totals = %+v", stat)
 	}
@@ -572,7 +572,7 @@ func TestWriteBatchAggregatesStatusQualityAndCompletePricedTotals(t *testing.T) 
 	}
 }
 
-func TestWriteBatchSeparatesHourAccessGroupAndClientModelWithoutSkippingZeroDimensions(t *testing.T) {
+func TestWriteBatchSeparatesHourAccessGroupAndUpstreamModelWithoutSkippingZeroDimensions(t *testing.T) {
 	db := openRequestLogQueryDB(t)
 	location := time.FixedZone("utc-plus-eight", 8*60*60)
 	localHour := time.Date(2026, time.July, 24, 20, 0, 0, 0, location)
@@ -593,6 +593,9 @@ func TestWriteBatchSeparatesHourAccessGroupAndClientModelWithoutSkippingZeroDime
 	)
 	differentAccess.AccessKeyID = 2
 	rows = append(rows, differentAccess)
+	for index := range rows {
+		rows[index].ClientModel = "shared-client-alias"
+	}
 	if err := (&gormBatchWriter{db: db}).WriteBatch(context.Background(), rows); err != nil {
 		t.Fatalf("WriteBatch() error = %v", err)
 	}
@@ -815,6 +818,15 @@ func TestWriteBatchRejectsIntegerAndCostOverflow(t *testing.T) {
 		assertBatchWriterRejectsRowsWithoutChanges(t, db, nil, []models.RequestLog{first, second})
 	})
 
+	t.Run("batch unknown cache-write token overflow", func(t *testing.T) {
+		db := openRequestLogQueryDB(t)
+		first := aggregationRow(aggregationRequestID(49), hour, 12, "overflow-model")
+		first.CacheWriteUnknownTokens = math.MaxInt64
+		second := aggregationRow(aggregationRequestID(50), hour, 12, "overflow-model")
+		second.CacheWriteUnknownTokens = 1
+		assertBatchWriterRejectsRowsWithoutChanges(t, db, nil, []models.RequestLog{first, second})
+	})
+
 	t.Run("existing count overflow", func(t *testing.T) {
 		db := openRequestLogQueryDB(t)
 		existing := models.UsageStat{
@@ -851,6 +863,34 @@ func TestWriteBatchRejectsIntegerAndCostOverflow(t *testing.T) {
 			EstimatedCostNanoUSD: math.MaxInt64,
 		}
 		row := aggregationRow(aggregationRequestID(46), hour, 12, "overflow-model")
+		assertBatchWriterRejectsRowsWithoutChanges(t, db, &existing, []models.RequestLog{row})
+	})
+
+	t.Run("existing unknown cache-write token overflow", func(t *testing.T) {
+		db := openRequestLogQueryDB(t)
+		existing := models.UsageStat{
+			BucketStartMS:           1_784_905_200_000,
+			AccessKeyID:             1,
+			GroupID:                 12,
+			Model:                   "overflow-model",
+			CacheWriteUnknownTokens: math.MaxInt64,
+		}
+		row := aggregationRow(aggregationRequestID(51), hour, 12, "overflow-model")
+		row.CacheWriteUnknownTokens = 1
+		assertBatchWriterRejectsRowsWithoutChanges(t, db, &existing, []models.RequestLog{row})
+	})
+
+	t.Run("existing pricing partial count overflow", func(t *testing.T) {
+		db := openRequestLogQueryDB(t)
+		existing := models.UsageStat{
+			BucketStartMS:       1_784_905_200_000,
+			AccessKeyID:         1,
+			GroupID:             12,
+			Model:               "overflow-model",
+			PricingPartialCount: math.MaxInt64,
+		}
+		row := aggregationRow(aggregationRequestID(52), hour, 12, "overflow-model")
+		row.PricingCompleteness = string(pricing.CompletenessPartial)
 		assertBatchWriterRejectsRowsWithoutChanges(t, db, &existing, []models.RequestLog{row})
 	})
 
@@ -919,7 +959,6 @@ func TestWorkerCountsDuplicateReplayAsSuccessfulDeliveryWithoutReaggregation(t *
 		db,
 		redact.New(),
 		staticRetentionPolicy{days: 7},
-		newStaticPriceTableProvider(),
 	)
 	service.timerFactory = timers.New
 	if err := service.Start(); err != nil {
@@ -928,13 +967,19 @@ func TestWorkerCountsDuplicateReplayAsSuccessfulDeliveryWithoutReaggregation(t *
 
 	event := testEvent(aggregationRequestID(60))
 	event.UpstreamModel = "gpt-4o"
+	event.Attempts[0].UpstreamModel = "gpt-4o"
 	event.Usage = telemetry.UsageObservation{
-		GroupID: 14,
+		GroupID: 14, KeyID: 8, AttemptSequence: 1,
 		Result: usage.Result{
 			State:  usage.StateComplete,
 			Tokens: usage.Tokens{UncachedInput: 1_000_000, Output: 1_000_000},
 		},
+		Pricing: telemetry.PricingObservation{
+			PriceScopeKey: "group:14", UpstreamModel: "gpt-4o",
+			CostState: string(pricing.CostStateUnpriced), PricingCompleteness: string(pricing.CompletenessUnavailable),
+		},
 	}
+	event.Attempts[0].GroupID = 14
 	for attempt := uint64(1); attempt <= 2; attempt++ {
 		service.Emit(event)
 		receiveValue(t, timers.created).Fire()

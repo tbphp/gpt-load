@@ -148,7 +148,8 @@ func (s *Service) mapGroupDiscoveryTarget(
 		SystemSettings: systemSettings,
 		Groups: []state.GroupConfig{{
 			ID: rows.group.ID, Name: rows.group.Name, UpstreamURL: rows.group.UpstreamURL,
-			Protocols: protocols, Settings: settings, Enabled: true,
+			ProviderID: cloneString(rows.group.ProviderID),
+			Protocols:  protocols, Settings: settings, Enabled: true,
 		}},
 	})
 	if err != nil {
@@ -167,10 +168,15 @@ func (s *Service) mapGroupDiscoveryTarget(
 		}
 		plaintextKeys = append(plaintextKeys, plaintext)
 	}
+	priceScopeKey, err := PriceScopeKeyForGroup(rows.group)
+	if err != nil {
+		return discoveryTarget{}, fmt.Errorf("resolve persisted discovery price scope: %w", app_errors.ErrInternalServer)
+	}
 
 	return discoveryTarget{
 		baseURL: rows.group.UpstreamURL, protocols: protocols,
 		keys: plaintextKeys, headerRules: compiledGroup.HeaderRules,
+		providerID: cloneString(rows.group.ProviderID), priceScopeKey: priceScopeKey,
 	}, nil
 }
 

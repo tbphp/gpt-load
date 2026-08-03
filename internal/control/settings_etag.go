@@ -15,6 +15,7 @@ const settingsWireETagDomain = "gpt-load/settings-wire-v1"
 type SettingsDTO struct {
 	Values    SettingsValuesResponse `json:"values"`
 	Overrides []string               `json:"overrides"`
+	ReadOnly  []string               `json:"read_only,omitempty"`
 }
 
 type SettingsConflictData struct {
@@ -117,9 +118,19 @@ func canonicalizeSettingsDTO(settings SettingsDTO) SettingsDTO {
 		overrides = append(overrides, override)
 	}
 	sort.Strings(overrides)
+	readOnlySet := make(map[string]struct{}, len(settings.ReadOnly))
+	for _, key := range settings.ReadOnly {
+		readOnlySet[key] = struct{}{}
+	}
+	readOnly := make([]string, 0, len(readOnlySet))
+	for key := range readOnlySet {
+		readOnly = append(readOnly, key)
+	}
+	sort.Strings(readOnly)
 
 	settings.Values.HeaderRules.Set = set
 	settings.Values.HeaderRules.Remove = remove
 	settings.Overrides = overrides
+	settings.ReadOnly = readOnly
 	return settings
 }

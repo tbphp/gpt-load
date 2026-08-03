@@ -41,7 +41,11 @@ const ruleCount = computed(() => Object.keys(rules.value.set).length + rules.val
 const conflict = computed(() => props.conflicts.find((item) => item.key === key))
 
 function cloneDraft(): SettingsDraft {
-  return createSettingsDraft({ values: props.draft.values, overrides: [...props.draft.overrides] })
+  return createSettingsDraft({
+    values: props.draft.values,
+    overrides: [...props.draft.overrides],
+    read_only: [...props.draft.readOnly],
+  })
 }
 
 function clearEditorState(): void {

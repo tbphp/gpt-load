@@ -1,9 +1,17 @@
 package control
 
 import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
 	"sync/atomic"
 
+	"gorm.io/gorm"
+
+	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/pricing"
+	"gpt-load/internal/storage/models"
 )
 
 // PriceRuntime owns the current immutable pricing table.
@@ -27,4 +35,84 @@ func (runtime *PriceRuntime) Publish(table *pricing.Table) {
 		return
 	}
 	runtime.current.Store(table)
+}
+
+func loadPriceTable(ctx context.Context, tx *gorm.DB) (*pricing.Table, error) {
+	var rows []models.ModelPrice
+	if err := tx.WithContext(ctx).Order("id ASC").Find(&rows).Error; err != nil {
+		return nil, fmt.Errorf("load persisted model prices: %w", app_errors.ParseDBError(err))
+	}
+	rules := make([]pricing.Rule, 0, len(rows))
+	for _, row := range rows {
+		rule, err := persistedPriceRule(row)
+		if err != nil {
+			return nil, fmt.Errorf("decode persisted model price: %w", app_errors.ErrInternalServer)
+		}
+		rules = append(rules, rule)
+	}
+	table, err := pricing.NewTable(rules)
+	if err != nil {
+		return nil, fmt.Errorf("compile persisted model prices: %w", app_errors.ErrInternalServer)
+	}
+	return table, nil
+}
+
+func persistedPriceRule(row models.ModelPrice) (pricing.Rule, error) {
+	rule := pricing.Rule{
+		Identity: pricing.Identity{ScopeKey: row.PriceScopeKey, ModelID: row.ModelID},
+		Prices: pricing.Prices{
+			Input:      priceFromStoragePointer(row.InputPriceNanoUSDPerMillionTokens),
+			Output:     priceFromStoragePointer(row.OutputPriceNanoUSDPerMillionTokens),
+			CacheRead:  priceFromStoragePointer(row.CacheReadPriceNanoUSDPerMillionTokens),
+			CacheWrite: priceFromStoragePointer(row.CacheWritePriceNanoUSDPerMillionTokens),
+		},
+		IsManual: row.IsManual,
+	}
+	if len(row.ContextPriceTiers) == 0 {
+		if !rule.IsManual && strings.HasPrefix(rule.Identity.ScopeKey, "group:") &&
+			priceRuleHasConfiguredValue(rule) {
+			return pricing.Rule{}, fmt.Errorf("automatic custom Group price must be pending")
+		}
+		return rule, nil
+	}
+	normalized, err := models.NormalizeContextPriceTiers(row.ContextPriceTiers)
+	if err != nil {
+		return pricing.Rule{}, err
+	}
+	var tiers []models.ContextPriceTier
+	if err := json.Unmarshal(normalized, &tiers); err != nil {
+		return pricing.Rule{}, err
+	}
+	rule.ContextTiers = make([]pricing.ContextTier, 0, len(tiers))
+	for _, tier := range tiers {
+		rule.ContextTiers = append(rule.ContextTiers, pricing.ContextTier{
+			InputThresholdTokens: tier.ThresholdTokens,
+			Prices: pricing.Prices{
+				Input:      priceFromStoragePointer(tier.InputPriceNanoUSDPerMillionTokens),
+				Output:     priceFromStoragePointer(tier.OutputPriceNanoUSDPerMillionTokens),
+				CacheRead:  priceFromStoragePointer(tier.CacheReadPriceNanoUSDPerMillionTokens),
+				CacheWrite: priceFromStoragePointer(tier.CacheWritePriceNanoUSDPerMillionTokens),
+			},
+		})
+	}
+	if !rule.IsManual && strings.HasPrefix(rule.Identity.ScopeKey, "group:") &&
+		priceRuleHasConfiguredValue(rule) {
+		return pricing.Rule{}, fmt.Errorf("automatic custom Group price must be pending")
+	}
+	return rule, nil
+}
+
+func priceRuleHasConfiguredValue(rule pricing.Rule) bool {
+	return rule.Prices.Input.Set ||
+		rule.Prices.Output.Set ||
+		rule.Prices.CacheRead.Set ||
+		rule.Prices.CacheWrite.Set ||
+		len(rule.ContextTiers) > 0
+}
+
+func priceFromStoragePointer(value *int64) pricing.Price {
+	if value == nil {
+		return pricing.Price{}
+	}
+	return pricing.Price{NanoUSDPerMillion: pricing.NanoUSD(*value), Set: true}
 }

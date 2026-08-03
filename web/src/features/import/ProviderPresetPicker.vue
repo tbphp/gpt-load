@@ -3,66 +3,57 @@ import { Check } from '@lucide/vue'
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
+import type { ProviderSuggestion } from '@/app/resources/providers'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppSearchInput from '@/components/ui/AppSearchInput.vue'
+import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 
-import {
-  catalogProviderPresets,
-  featuredProviderPresets,
-  findProviderPreset,
-  type ProviderPreset,
-  type ProviderPresetCategory,
-  type ProviderPresetID,
-} from './channel-presets'
-
-const props = defineProps<{ modelValue: ProviderPresetID; disabled?: boolean }>()
-const emit = defineEmits<{ 'update:modelValue': [value: ProviderPresetID] }>()
+const props = defineProps<{
+  modelValue: string | null
+  selectedProvider: ProviderSuggestion | null
+  providers: readonly ProviderSuggestion[]
+  search: string
+  loading: boolean
+  error: boolean
+  disabled?: boolean
+}>()
+const emit = defineEmits<{
+  select: [provider: ProviderSuggestion | null]
+  'update:search': [value: string]
+  retry: []
+}>()
 const { t } = useI18n()
 
 const catalogOpen = ref(false)
-const search = ref('')
-const selectedCatalogPreset = computed(() => {
-  const preset = findProviderPreset(props.modelValue)
-  return preset?.featured === false ? preset : undefined
-})
+const featuredProviders = computed(() => props.providers.filter(({ official }) => official))
+const catalogProviders = computed(() => props.providers.filter(({ official }) => !official))
+const selectedCatalogProvider = computed(() =>
+  props.selectedProvider?.official === false ? props.selectedProvider : null,
+)
 const catalogSelected = computed(
-  () => props.modelValue === 'custom' || selectedCatalogPreset.value !== undefined,
+  () => props.modelValue === null || selectedCatalogProvider.value !== null,
 )
 const catalogCardMark = computed(() =>
-  props.modelValue === 'custom' ? '···' : (selectedCatalogPreset.value?.mark ?? '＋'),
+  props.modelValue === null ? '···' : selectedCatalogProvider.value?.mark || '＋',
 )
 const catalogCardName = computed(() =>
-  props.modelValue === 'custom'
+  props.modelValue === null
     ? t('import.presets.custom.name')
-    : selectedCatalogPreset.value
-      ? t(selectedCatalogPreset.value.nameKey)
+    : selectedCatalogProvider.value
+      ? selectedCatalogProvider.value.name
       : t('import.presets.more.name'),
 )
 const catalogCardDescription = computed(() =>
-  props.modelValue === 'custom'
+  props.modelValue === null
     ? t('import.presets.custom.description')
-    : selectedCatalogPreset.value
-      ? t(selectedCatalogPreset.value.descriptionKey)
+    : selectedCatalogProvider.value
+      ? providerDescription(selectedCatalogProvider.value)
       : t('import.presets.more.description'),
 )
-const categoryOrder: readonly ProviderPresetCategory[] = ['openai-compatible']
-const filteredCatalog = computed(() => {
-  const query = search.value.trim().toLocaleLowerCase()
-  return catalogProviderPresets.filter((preset) => {
-    if (!query) return true
-    return `${t(preset.nameKey)} ${t(preset.descriptionKey)}`.toLocaleLowerCase().includes(query)
-  })
-})
-const catalogGroups = computed(() =>
-  categoryOrder.flatMap((category) => {
-    const presets = filteredCatalog.value.filter((preset) => preset.category === category)
-    return presets.length ? [{ category, presets }] : []
-  }),
-)
 
-function choose(id: ProviderPresetID): void {
+function choose(provider: ProviderSuggestion | null): void {
   if (props.disabled) return
-  emit('update:modelValue', id)
+  emit('select', provider)
   catalogOpen.value = false
 }
 
@@ -71,12 +62,14 @@ function toggleCatalog(): void {
   catalogOpen.value = !catalogOpen.value
 }
 
-function categoryLabel(category: ProviderPresetCategory): string {
-  return t(`import.presets.categories.${category}`)
+function providerDescription(provider: ProviderSuggestion): string {
+  return provider.protocols.length
+    ? provider.protocols.join(' · ')
+    : t('import.presets.protocolsUnavailable')
 }
 
-function presetSelected(preset: ProviderPreset): boolean {
-  return props.modelValue === preset.id
+function providerSelected(provider: ProviderSuggestion): boolean {
+  return props.modelValue === provider.provider_id
 }
 </script>
 
@@ -91,20 +84,20 @@ function presetSelected(preset: ProviderPreset): boolean {
 
     <div class="preset-picker__featured">
       <button
-        v-for="preset in featuredProviderPresets"
-        :key="preset.id"
+        v-for="provider in featuredProviders"
+        :key="provider.provider_id"
         class="preset-picker__choice"
-        :class="{ 'preset-picker__choice--selected': presetSelected(preset) }"
+        :class="{ 'preset-picker__choice--selected': providerSelected(provider) }"
         type="button"
         :disabled="disabled"
-        :aria-pressed="presetSelected(preset)"
-        @click="choose(preset.id)"
+        :aria-pressed="providerSelected(provider)"
+        @click="choose(provider)"
       >
-        <span class="preset-picker__mark">{{ preset.mark }}</span>
-        <strong>{{ t(preset.nameKey) }}</strong>
-        <span class="preset-picker__description">{{ t(preset.descriptionKey) }}</span>
+        <span class="preset-picker__mark">{{ provider.mark }}</span>
+        <strong>{{ provider.name }}</strong>
+        <span class="preset-picker__description">{{ providerDescription(provider) }}</span>
         <Check
-          v-if="presetSelected(preset)"
+          v-if="providerSelected(provider)"
           class="preset-picker__selected-icon"
           :size="16"
           aria-hidden="true"
@@ -123,8 +116,8 @@ function presetSelected(preset: ProviderPreset): boolean {
         <span class="preset-picker__mark">{{ catalogCardMark }}</span>
         <strong>{{ catalogCardName }}</strong>
         <span class="preset-picker__description">{{ catalogCardDescription }}</span>
-        <span v-if="!catalogSelected" class="preset-picker__count">
-          {{ catalogProviderPresets.length }}
+        <span v-if="!catalogSelected && catalogProviders.length" class="preset-picker__count">
+          {{ catalogProviders.length }}
         </span>
         <Check
           v-if="catalogSelected"
@@ -138,39 +131,51 @@ function presetSelected(preset: ProviderPreset): boolean {
     <div v-if="catalogOpen" id="provider-preset-catalog" class="preset-picker__catalog">
       <div class="preset-picker__catalog-toolbar">
         <AppSearchInput
-          v-model="search"
+          :model-value="search"
           :label="t('import.presets.search')"
           :placeholder="t('import.presets.search')"
           :clear-label="t('import.presets.clearSearch')"
           :disabled="disabled"
+          @update:model-value="emit('update:search', $event)"
         />
         <AppButton variant="ghost" size="compact" :disabled="disabled" @click="catalogOpen = false">
           {{ t('import.presets.collapse') }}
         </AppButton>
       </div>
 
-      <div v-for="group in catalogGroups" :key="group.category" class="preset-picker__group">
-        <h3>{{ categoryLabel(group.category) }}</h3>
+      <div class="preset-picker__group">
+        <h3>{{ t('import.presets.catalog') }}</h3>
         <div class="preset-picker__options">
           <button
-            v-for="preset in group.presets"
-            :key="preset.id"
+            v-for="provider in catalogProviders"
+            :key="provider.provider_id"
             class="preset-picker__option"
             type="button"
             :disabled="disabled"
-            @click="choose(preset.id)"
+            @click="choose(provider)"
           >
-            <span class="preset-picker__mark">{{ preset.mark }}</span>
+            <span class="preset-picker__mark">{{ provider.mark || '···' }}</span>
             <span>
-              <strong>{{ t(preset.nameKey) }}</strong>
-              <small>{{ t(preset.descriptionKey) }}</small>
+              <strong>{{ provider.name }}</strong>
+              <small>{{ providerDescription(provider) }}</small>
             </span>
             <span aria-hidden="true">→</span>
           </button>
         </div>
       </div>
 
-      <p v-if="!filteredCatalog.length" class="preset-picker__empty">
+      <InlineFeedback v-if="loading" class="preset-picker__empty">
+        {{ t('import.presets.loading') }}
+      </InlineFeedback>
+      <InlineFeedback v-else-if="error" class="preset-picker__empty" tone="danger">
+        {{ t('import.presets.loadFailed') }}
+        <template #action>
+          <AppButton variant="link" size="inline" @click="emit('retry')">
+            {{ t('common.retry') }}
+          </AppButton>
+        </template>
+      </InlineFeedback>
+      <p v-else-if="search.trim() && !catalogProviders.length" class="preset-picker__empty">
         {{ t('import.presets.noMatches') }}
       </p>
 
@@ -178,7 +183,7 @@ function presetSelected(preset: ProviderPreset): boolean {
         class="preset-picker__custom"
         type="button"
         :disabled="disabled"
-        @click="choose('custom')"
+        @click="choose(null)"
       >
         <span class="preset-picker__mark">···</span>
         <span>

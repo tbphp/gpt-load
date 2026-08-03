@@ -2,7 +2,6 @@ package dialect
 
 import (
 	"fmt"
-	"math"
 	"net/http"
 	"strings"
 	"testing"
@@ -51,6 +50,7 @@ func TestUsageAnthropicCacheCreationMapping(t *testing.T) {
 		want        usage.Tokens
 		diagnostics []usage.DiagnosticCode
 		delta       *int64
+		wantErr     bool
 	}{
 		{
 			name: "detail wins when aggregate matches",
@@ -78,16 +78,21 @@ func TestUsageAnthropicCacheCreationMapping(t *testing.T) {
 			delta:       usageInt64(-2),
 		},
 		{
-			name:        "detail sum overflow is diagnosed without wrapping",
-			body:        `{"usage":{"input_tokens":80,"output_tokens":30,"cache_creation":{"ephemeral_5m_input_tokens":9223372036854775807,"ephemeral_1h_input_tokens":1},"cache_creation_input_tokens":9223372036854775807}}`,
-			want:        usage.Tokens{UncachedInput: 80, CacheWrite5M: math.MaxInt64, CacheWrite1H: 1, Output: 30},
-			diagnostics: []usage.DiagnosticCode{usage.DiagnosticInvalidNumber},
+			name:    "detail sum overflow is diagnosed without wrapping",
+			body:    `{"usage":{"input_tokens":80,"output_tokens":30,"cache_creation":{"ephemeral_5m_input_tokens":9223372036854775807,"ephemeral_1h_input_tokens":1},"cache_creation_input_tokens":9223372036854775807}}`,
+			wantErr: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result, err := extractor.ExtractUsage([]byte(tt.body))
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("ExtractUsage() error = nil, want checked overflow rejection")
+				}
+				return
+			}
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -520,7 +525,7 @@ func TestUsageAnthropicStreamEOFRemainsPartial(t *testing.T) {
 	requireUsageDiagnostics(t, result.Diagnostics)
 }
 
-func TestUsageAnthropicServerToolDetailRemainsUnpriced(t *testing.T) {
+func TestUsageAnthropicServerToolDetailProducesPartialKnownPrice(t *testing.T) {
 	stream := NewAnthropic(http.DefaultClient).NewUsageStreamExtractor()
 	observeUsageJSONL(t, stream, readUsageFixture(t, "anthropic", "server-tool.jsonl"))
 	result, finalized := stream.Finalize()
@@ -530,52 +535,53 @@ func TestUsageAnthropicServerToolDetailRemainsUnpriced(t *testing.T) {
 	}
 	requireUsageDiagnostics(t, result.Diagnostics, usage.DiagnosticUnsupportedBillableDetail)
 
-	table, err := pricing.Compile([]pricing.Rule{{
-		Pattern: "claude-test",
+	identity := pricing.Identity{ScopeKey: "group:1", ModelID: "claude-test"}
+	table, err := pricing.NewTable([]pricing.Rule{{
+		Identity: identity,
 		Prices: pricing.Prices{
-			UncachedInput: pricing.Price{NanoUSDPerMillion: 1_000_000_000, Set: true},
-			Output:        pricing.Price{NanoUSDPerMillion: 1_000_000_000, Set: true},
+			Input:  pricing.Price{NanoUSDPerMillion: 1_000_000_000, Set: true},
+			Output: pricing.Price{NanoUSDPerMillion: 1_000_000_000, Set: true},
 		},
-		Source: pricing.SourceUser,
 	}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if quote := table.Quote("claude-test", result); quote.State != pricing.CostStateUnpriced ||
-		quote.EstimatedCostNanoUSD != 0 {
-		t.Fatalf("Quote() = %+v, want unpriced zero", quote)
+	if quote := table.Quote(identity, result); quote.State != pricing.CostStatePriced ||
+		quote.Completeness != pricing.CompletenessPartial ||
+		quote.EstimatedCostNanoUSD != 110_000 {
+		t.Fatalf("Quote() = %+v, want partial known cost", quote)
 	}
 }
 
 func TestUsageAnthropicNonStreamServerToolDetailPricing(t *testing.T) {
-	table, err := pricing.Compile([]pricing.Rule{{
-		Pattern: "claude-test",
+	identity := pricing.Identity{ScopeKey: "group:1", ModelID: "claude-test"}
+	table, err := pricing.NewTable([]pricing.Rule{{
+		Identity: identity,
 		Prices: pricing.Prices{
-			UncachedInput: pricing.Price{NanoUSDPerMillion: 1_000_000_000, Set: true},
-			Output:        pricing.Price{NanoUSDPerMillion: 1_000_000_000, Set: true},
+			Input:  pricing.Price{NanoUSDPerMillion: 1_000_000_000, Set: true},
+			Output: pricing.Price{NanoUSDPerMillion: 1_000_000_000, Set: true},
 		},
-		Source: pricing.SourceUser,
 	}})
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	for _, tt := range []struct {
-		name        string
-		count       int
-		diagnostics []usage.DiagnosticCode
-		costState   pricing.CostState
+		name         string
+		count        int
+		diagnostics  []usage.DiagnosticCode
+		completeness pricing.Completeness
 	}{
 		{
-			name:        "nonzero detail is unpriced",
-			count:       2,
-			diagnostics: []usage.DiagnosticCode{usage.DiagnosticUnsupportedBillableDetail},
-			costState:   pricing.CostStateUnpriced,
+			name:         "nonzero detail is unpriced",
+			count:        2,
+			diagnostics:  []usage.DiagnosticCode{usage.DiagnosticUnsupportedBillableDetail},
+			completeness: pricing.CompletenessPartial,
 		},
 		{
-			name:      "zero detail is not diagnosed",
-			count:     0,
-			costState: pricing.CostStatePriced,
+			name:         "zero detail is not diagnosed",
+			count:        0,
+			completeness: pricing.CompletenessComplete,
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -592,8 +598,9 @@ func TestUsageAnthropicNonStreamServerToolDetailPricing(t *testing.T) {
 				t.Fatalf("ExtractUsage() = %#v", result)
 			}
 			requireUsageDiagnostics(t, result.Diagnostics, tt.diagnostics...)
-			if quote := table.Quote("claude-test", result); quote.State != tt.costState {
-				t.Fatalf("Quote() = %+v, want state %q", quote, tt.costState)
+			if quote := table.Quote(identity, result); quote.State != pricing.CostStatePriced ||
+				quote.Completeness != tt.completeness || quote.EstimatedCostNanoUSD != 110_000 {
+				t.Fatalf("Quote() = %+v, want priced completeness %q", quote, tt.completeness)
 			}
 		})
 	}

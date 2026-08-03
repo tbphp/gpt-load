@@ -96,6 +96,48 @@ func TestLoadAppliesEnvironmentOverrides(t *testing.T) {
 	}
 }
 
+func TestLoadModelsDevAutoSyncOverrideIsOptionalAndStrict(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		value   string
+		want    *bool
+		wantErr bool
+	}{
+		{name: "unset"},
+		{name: "true", value: "true", want: boolPointer(true)},
+		{name: "false", value: "false", want: boolPointer(false)},
+		{name: "strconv true syntax", value: "1", want: boolPointer(true)},
+		{name: "invalid", value: "enabled", wantErr: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			clearEnvironment(t)
+			t.Setenv("AUTH_KEY", "test-auth-key")
+			t.Setenv("MODELS_DEV_AUTO_SYNC_ENABLED", test.value)
+
+			cfg, err := Load()
+			if test.wantErr {
+				if err == nil {
+					t.Fatal("Load() error = nil, want strict boolean error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Load() error = %v", err)
+			}
+			if (cfg.ModelsDevAutoSyncOverride == nil) != (test.want == nil) {
+				t.Fatalf("ModelsDevAutoSyncOverride = %#v, want %#v", cfg.ModelsDevAutoSyncOverride, test.want)
+			}
+			if test.want != nil && *cfg.ModelsDevAutoSyncOverride != *test.want {
+				t.Fatalf("ModelsDevAutoSyncOverride = %t, want %t", *cfg.ModelsDevAutoSyncOverride, *test.want)
+			}
+		})
+	}
+}
+
+func boolPointer(value bool) *bool {
+	return &value
+}
+
 func TestLoadReportsEnvironmentSecretSources(t *testing.T) {
 	clearEnvironment(t)
 	t.Setenv("AUTH_KEY", "explicit-auth")
@@ -301,7 +343,7 @@ func clearEnvironment(t *testing.T) {
 	for _, key := range []string{
 		"HOST", "PORT", "DATA_DIR", "DATABASE_DSN", "ENCRYPTION_KEY", "AUTH_KEY",
 		"LOG_LEVEL", "LOG_FORMAT", "GRACEFUL_SHUTDOWN_TIMEOUT",
-		"READ_TIMEOUT", "IDLE_TIMEOUT",
+		"READ_TIMEOUT", "IDLE_TIMEOUT", "MODELS_DEV_AUTO_SYNC_ENABLED",
 	} {
 		t.Setenv(key, "")
 	}

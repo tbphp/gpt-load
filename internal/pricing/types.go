@@ -1,7 +1,5 @@
 package pricing
 
-import "time"
-
 // Price is a USD price per one million tokens. Set distinguishes zero from an
 // unavailable price.
 type Price struct {
@@ -11,36 +9,31 @@ type Price struct {
 
 // Prices is the provider-neutral price breakdown.
 type Prices struct {
-	UncachedInput Price
-	CacheRead     Price
-	CacheWrite5M  Price
-	CacheWrite1H  Price
-	Output        Price
+	Input      Price
+	Output     Price
+	CacheRead  Price
+	CacheWrite Price
 }
 
-// LongContextPolicy adjusts component prices after an input-token threshold.
-type LongContextPolicy struct {
+// Identity is the exact pricing identity of a real upstream model in one
+// canonical provider or group scope.
+type Identity struct {
+	ScopeKey string
+	ModelID  string
+}
+
+// ContextTier replaces all base prices once its inclusive threshold is met.
+type ContextTier struct {
 	InputThresholdTokens int64
-	InputMultiplier      Multiplier
-	OutputMultiplier     Multiplier
+	Prices               Prices
 }
 
-// Source identifies where a pricing rule came from.
-type Source string
-
-const (
-	SourceBuiltin Source = "builtin"
-	SourceUser    Source = "user"
-)
-
-// Rule matches an upstream model pattern to a price breakdown.
+// Rule is one exact scope and upstream-model price definition.
 type Rule struct {
-	Pattern           string
-	Prices            Prices
-	Source            Source
-	SourceURL         string
-	UpdatedAt         time.Time
-	LongContextPolicy *LongContextPolicy
+	Identity     Identity
+	Prices       Prices
+	ContextTiers []ContextTier
+	IsManual     bool
 }
 
 // CostState describes whether a usage result can be priced.
@@ -52,16 +45,24 @@ const (
 	CostStateNotApplicable CostState = "not_applicable"
 )
 
+// Completeness describes whether every billable usage dimension was priced.
+type Completeness string
+
+const (
+	CompletenessComplete      Completeness = "complete"
+	CompletenessPartial       Completeness = "partial"
+	CompletenessUnavailable   Completeness = "unavailable"
+	CompletenessNotApplicable Completeness = "not_applicable"
+)
+
 // Quote is a calculated request cost in nano USD.
 type Quote struct {
 	State                CostState
+	Completeness         Completeness
 	EstimatedCostNanoUSD NanoUSD
 }
 
-// Table is an immutable compiled set of pricing rules.
+// Table is an immutable exact pricing snapshot.
 type Table struct {
-	userExact       map[string]Rule
-	userPrefixes    []Rule
-	builtinExact    map[string]Rule
-	builtinPrefixes []Rule
+	rules map[Identity]Rule
 }

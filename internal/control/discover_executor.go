@@ -4,19 +4,24 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
+	"gpt-load/internal/catalog"
 	"gpt-load/internal/dialect"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
+	"gpt-load/internal/storage/models"
 )
 
 type discoveryTarget struct {
-	baseURL     string
-	protocols   []protocol.Protocol
-	keys        []string
-	headerRules state.HeaderRules
+	baseURL       string
+	protocols     []protocol.Protocol
+	keys          []string
+	headerRules   state.HeaderRules
+	providerID    *string
+	priceScopeKey string
 }
 
 func (s *Service) executeModelDiscovery(
@@ -66,7 +71,7 @@ func (s *Service) executeModelDiscovery(
 				)
 			}
 			if err == nil {
-				return ModelDiscoveryResult{Models: normalizeDiscoveredModels(models)}, nil
+				return s.mergeDiscoveredModels(discoveryCtx, normalizeDiscoveredModels(models), target)
 			}
 		}
 	}
@@ -77,6 +82,68 @@ func (s *Service) executeModelDiscovery(
 		"discover upstream models: %w",
 		app_errors.ErrBadGateway,
 	)
+}
+
+func (s *Service) mergeDiscoveredModels(
+	ctx context.Context,
+	live []string,
+	target discoveryTarget,
+) (ModelDiscoveryResult, error) {
+	var providerModels map[string]catalog.Model
+	if target.providerID != nil && s.catalogRuntime != nil {
+		if provider, exists := s.catalogRuntime.LoadProvider(*target.providerID); exists {
+			providerModels = provider.Models
+		}
+	}
+	rows := map[string]*models.ModelPrice{}
+	if target.priceScopeKey != "" && s.db != nil {
+		loaded, err := loadPriceRowsByScope(ctx, s.db, target.priceScopeKey)
+		if err != nil {
+			return ModelDiscoveryResult{}, err
+		}
+		rows = loaded
+	}
+
+	result := make([]ModelCandidate, 0, len(live)+len(providerModels))
+	seen := make(map[string]int, len(live)+len(providerModels))
+	for _, id := range live {
+		candidate := ModelCandidate{
+			ID: id, Name: id, Sources: []string{"live"},
+			PricingStatus: resolvePricingStatus(rows[id]),
+		}
+		if model, exists := providerModels[id]; exists {
+			if name := strings.TrimSpace(model.Name); name != "" {
+				candidate.Name = name
+			}
+			candidate.Sources = append(candidate.Sources, "catalog")
+		}
+		seen[id] = len(result)
+		result = append(result, candidate)
+	}
+	catalogOnly := make([]ModelCandidate, 0)
+	for id, model := range providerModels {
+		if _, duplicate := seen[id]; duplicate {
+			continue
+		}
+		name := strings.TrimSpace(model.Name)
+		if name == "" {
+			name = id
+		}
+		catalogOnly = append(catalogOnly, ModelCandidate{
+			ID: id, Name: name, Sources: []string{"catalog"},
+			PricingStatus: resolvePricingStatus(rows[id]),
+		})
+	}
+	sort.Slice(catalogOnly, func(left, right int) bool {
+		leftName := strings.ToLower(catalogOnly[left].Name)
+		rightName := strings.ToLower(catalogOnly[right].Name)
+		if leftName == rightName {
+			return catalogOnly[left].ID < catalogOnly[right].ID
+		}
+		return leftName < rightName
+	})
+	result = append(result, catalogOnly...)
+	return ModelDiscoveryResult{Models: result}, nil
 }
 
 func normalizeDiscoveredModels(values []string) []string {

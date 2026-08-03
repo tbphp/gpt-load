@@ -310,10 +310,12 @@ func validateHomeStatisticsAggregate(value UsageAggregate) error {
 		{name: "cache read tokens", value: value.CacheReadTokens},
 		{name: "cache write 5m tokens", value: value.CacheWrite5MTokens},
 		{name: "cache write 1h tokens", value: value.CacheWrite1HTokens},
+		{name: "cache write unknown tokens", value: value.CacheWriteUnknownTokens},
 		{name: "output tokens", value: value.OutputTokens},
 		{name: "usage missing count", value: value.UsageMissingCount},
 		{name: "partial count", value: value.PartialCount},
 		{name: "unpriced request count", value: value.UnpricedRequestCount},
+		{name: "pricing partial count", value: value.PricingPartialCount},
 	} {
 		if field.value > maxJSONSafeInteger {
 			return fmt.Errorf("%s exceeds JSON safe integer", field.name)

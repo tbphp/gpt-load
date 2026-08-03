@@ -29,19 +29,21 @@ type UsageStatReader interface {
 }
 
 type usageAggregateResponse struct {
-	RequestCount         int64  `json:"request_count"`
-	SuccessCount         int64  `json:"success_count"`
-	FailureCount         int64  `json:"failure_count"`
-	UncachedInputTokens  int64  `json:"uncached_input_tokens"`
-	CacheReadTokens      int64  `json:"cache_read_tokens"`
-	CacheWrite5MTokens   int64  `json:"cache_write_5m_tokens"`
-	CacheWrite1HTokens   int64  `json:"cache_write_1h_tokens"`
-	OutputTokens         int64  `json:"output_tokens"`
-	TotalTokens          int64  `json:"total_tokens"`
-	EstimatedCostNanoUSD string `json:"estimated_cost_nano_usd"`
-	UsageMissingCount    int64  `json:"usage_missing_count"`
-	PartialCount         int64  `json:"partial_count"`
-	UnpricedRequestCount int64  `json:"unpriced_request_count"`
+	RequestCount            int64  `json:"request_count"`
+	SuccessCount            int64  `json:"success_count"`
+	FailureCount            int64  `json:"failure_count"`
+	UncachedInputTokens     int64  `json:"uncached_input_tokens"`
+	CacheReadTokens         int64  `json:"cache_read_tokens"`
+	CacheWrite5MTokens      int64  `json:"cache_write_5m_tokens"`
+	CacheWrite1HTokens      int64  `json:"cache_write_1h_tokens"`
+	CacheWriteUnknownTokens int64  `json:"cache_write_unknown_tokens"`
+	OutputTokens            int64  `json:"output_tokens"`
+	TotalTokens             int64  `json:"total_tokens"`
+	EstimatedCostNanoUSD    string `json:"estimated_cost_nano_usd"`
+	UsageMissingCount       int64  `json:"usage_missing_count"`
+	PartialCount            int64  `json:"partial_count"`
+	UnpricedRequestCount    int64  `json:"unpriced_request_count"`
+	PricingPartialCount     int64  `json:"pricing_partial_count"`
 }
 
 type usageSeriesResponse struct {
@@ -126,7 +128,7 @@ func parseUsageQuery(rawQuery string, observedAtMS int64) (requestlog.UsageQuery
 		"from_ms":         {},
 		"to_ms":           {},
 		"group_id":        {},
-		"model":           {},
+		"upstream_model":  {},
 		"breakdown_order": {},
 	}
 	for key, value := range values {
@@ -212,11 +214,11 @@ func parseUsageQuery(rawQuery string, observedAtMS int64) (requestlog.UsageQuery
 		}
 		query.GroupID = &groupID
 	}
-	if value, ok := singleQueryValue(values, "model"); ok {
+	if value, ok := singleQueryValue(values, "upstream_model"); ok {
 		if !validUsageModel(value) {
 			return requestlog.UsageQuery{}, app_errors.ErrValidation
 		}
-		query.Model = value
+		query.UpstreamModel = value
 	}
 	if value, ok := singleQueryValue(values, "breakdown_order"); ok {
 		switch requestlog.UsageBreakdownOrder(value) {
@@ -363,7 +365,8 @@ func mapUsageAggregate(source requestlog.UsageAggregate) (usageAggregateResponse
 		source.RequestCount, source.SuccessCount, source.FailureCount,
 		source.UncachedInputTokens, source.CacheReadTokens, source.CacheWrite5MTokens,
 		source.CacheWrite1HTokens, source.OutputTokens, source.UsageMissingCount,
-		source.PartialCount, source.UnpricedRequestCount,
+		source.CacheWriteUnknownTokens, source.PartialCount, source.UnpricedRequestCount,
+		source.PricingPartialCount,
 	}
 	for _, value := range values {
 		if value < 0 || value > maxSafeInteger {
@@ -375,6 +378,7 @@ func mapUsageAggregate(source requestlog.UsageAggregate) (usageAggregateResponse
 		source.CacheReadTokens,
 		source.CacheWrite5MTokens,
 		source.CacheWrite1HTokens,
+		source.CacheWriteUnknownTokens,
 		source.OutputTokens,
 	)
 	if err != nil {
@@ -387,10 +391,12 @@ func mapUsageAggregate(source requestlog.UsageAggregate) (usageAggregateResponse
 		RequestCount: source.RequestCount, SuccessCount: source.SuccessCount, FailureCount: source.FailureCount,
 		UncachedInputTokens: source.UncachedInputTokens, CacheReadTokens: source.CacheReadTokens,
 		CacheWrite5MTokens: source.CacheWrite5MTokens, CacheWrite1HTokens: source.CacheWrite1HTokens,
-		OutputTokens: source.OutputTokens, TotalTokens: totalTokens,
+		CacheWriteUnknownTokens: source.CacheWriteUnknownTokens,
+		OutputTokens:            source.OutputTokens, TotalTokens: totalTokens,
 		EstimatedCostNanoUSD: strconv.FormatInt(source.EstimatedCostNanoUSD, 10),
 		UsageMissingCount:    source.UsageMissingCount, PartialCount: source.PartialCount,
 		UnpricedRequestCount: source.UnpricedRequestCount,
+		PricingPartialCount:  source.PricingPartialCount,
 	}, nil
 }
 

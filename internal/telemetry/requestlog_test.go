@@ -47,6 +47,20 @@ func TestRequestTelemetryContractUsesExactFieldAllowlist(t *testing.T) {
 			"ErrorSummary",
 			"Committed",
 		},
+		reflect.TypeOf(PricingObservation{}): {
+			"PriceScopeKey",
+			"UpstreamModel",
+			"CostState",
+			"PricingCompleteness",
+			"EstimatedCostNanoUSD",
+		},
+		reflect.TypeOf(UsageObservation{}): {
+			"Result",
+			"GroupID",
+			"KeyID",
+			"AttemptSequence",
+			"Pricing",
+		},
 	}
 
 	for typ, want := range allowlists {

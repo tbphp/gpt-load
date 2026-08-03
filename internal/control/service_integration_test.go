@@ -78,6 +78,7 @@ func TestControlWriteLockDoesNotBlockDataPlane(t *testing.T) {
 		health.NewMutationCoordinator(),
 		nil,
 		nil,
+		nil,
 	)
 	gin.SetMode(gin.ReleaseMode)
 	engine := gin.New()

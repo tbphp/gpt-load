@@ -112,17 +112,22 @@ export default {
     },
     modelPrices: {
       title: 'モデル価格',
-      description:
-        '組み込みルールと明示的な上書きを読み取り専用で要約します。価格編集は設定ドラフトに含まれません。',
-      loading: 'モデル価格を読み込み中…',
-      loadFailed: 'モデル価格を読み込めません。',
-      stale: 'バックグラウンド更新に失敗したため、モデル価格が古い可能性があります。',
-      units: {
-        usd_per_million_tokens: '100 万 tokens あたりの米ドル',
-      },
-      summary: '組み込み参照 {builtin} 件 · ユーザー上書き {overrides} 件 · {unit}',
-      latestOverrideAt: '最終更新: {time}。',
-      historyNote: '価格変更は今後のリクエストの見積もりにのみ影響し、履歴は再計算しません。',
+      description: 'Models.dev 自動同期の管理、手動同期、価格センターへの移動を行います',
+      autoSync: 'Models.dev 自動同期',
+      autoSyncHelp: '有効にすると、バックグラウンドでカタログと自動価格を更新します',
+      effectiveDetail: '現在の有効値は組み込み既定値から決まります',
+      environmentSource: '環境変数',
+      environmentDetail: 'プロセス環境がこの設定を制御しています',
+      environmentControlled: '環境で制御',
+      readOnly: '読み取り専用',
+      readOnlyReason: '有効値は環境変数から取得され、UI からデータベースへ保存されません',
+      manualSync: '手動同期',
+      manualSyncHelp: '自動同期とは独立して、カタログと自動価格を今すぐ更新します',
+      syncNow: '今すぐ同期',
+      syncSucceeded: 'モデルカタログと自動価格を同期しました',
+      syncFailed: 'モデルカタログと価格を同期できません',
+      proxyNote:
+        'カタログ同期はサーバー共通 HTTP クライアントを使用し、明示設定または環境のプロキシに従います',
       manage: 'モデル価格を管理',
     },
     system: {

@@ -234,6 +234,7 @@ func TestHandlerRetryDoesNotLeakFaultyInjectorMutationToNextGroup(t *testing.T) 
 		health.NewMutationCoordinator(),
 		nil,
 		sink,
+		nil,
 	)
 	handler.newRandom = func() *rand.Rand { return rand.New(zeroSource{}) }
 	handler.newRequestID = func() (string, error) { return fixedRequestID, nil }
@@ -1016,6 +1017,7 @@ func newStreamingGatewayEngine(t *testing.T, groups ...streamGatewayGroup) (*gin
 		dialect.NewSet(dialect.NewOpenAI(http.DefaultClient)),
 		health.NewStatsStore(),
 		health.NewMutationCoordinator(),
+		nil,
 		nil,
 		nil,
 	)

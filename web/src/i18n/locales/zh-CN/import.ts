@@ -10,38 +10,10 @@ export default {
       clearSearch: '清空渠道搜索',
       collapse: '收起',
       noMatches: '没有匹配的渠道，仍可使用自定义连接',
-      categories: {
-        native: '原生服务商',
-        'openai-compatible': 'OpenAI 兼容',
-      },
-      openai: {
-        name: 'OpenAI',
-        description: 'Chat Completions 与 Responses',
-      },
-      anthropic: {
-        name: 'Anthropic',
-        description: '原生 Messages 协议',
-      },
-      gemini: {
-        name: 'Gemini',
-        description: '原生 generateContent 协议',
-      },
-      deepseek: {
-        name: 'DeepSeek',
-        description: 'OpenAI 兼容 · Chat Completions',
-      },
-      openrouter: {
-        name: 'OpenRouter',
-        description: '模型聚合服务 · OpenAI 兼容',
-      },
-      siliconflow: {
-        name: 'SiliconFlow',
-        description: '第三方模型服务 · OpenAI 兼容',
-      },
-      moonshot: {
-        name: 'Moonshot',
-        description: '第三方模型服务 · OpenAI 兼容',
-      },
+      catalog: '渠道目录',
+      loading: '正在加载渠道目录…',
+      loadFailed: '无法加载渠道目录',
+      protocolsUnavailable: '协议能力未提供',
       more: {
         name: '更多预设',
         description: '搜索第三方渠道或使用自定义连接',
@@ -88,7 +60,7 @@ export default {
     },
     connection: {
       title: '连接信息',
-      description: '预设只更新地址和协议，不会覆盖名称、密钥或模型',
+      description: '选择渠道只更新地址和协议，不会覆盖名称、密钥或模型',
       name: '分组名称',
       namePlaceholder: '留空则根据上游地址自动生成',
       url: '上游基础地址',
@@ -129,7 +101,7 @@ export default {
       tableLabel: '待发布模型',
       id: '模型 ID',
       alias: '对外模型名称',
-      source: '来源',
+      source: '价格状态',
       actions: '操作',
       search: '搜索模型或别名',
       searchLabel: '搜索',
@@ -145,8 +117,12 @@ export default {
       locateFirstInvalid: '定位首个问题',
       nameConflict: '对外模型名称“{name}”重复',
       sources: {
-        manual: '手动添加',
-        discovered: '上游发现',
+        catalog: '渠道目录',
+        live: '上游发现',
+      },
+      pricing: {
+        pending: '待配置',
+        configured: '已配置',
       },
       aliasFor: '{id} 的别名',
       manualId: '手动模型 ID',

@@ -1,6 +1,9 @@
 package usage
 
-import "testing"
+import (
+	"math"
+	"testing"
+)
 
 func TestUsageAccumulatorStateTable(t *testing.T) {
 	zero := int64(0)
@@ -82,7 +85,7 @@ func TestUsageAccumulatorReplaceSnapshotExplicitZeroIsPresent(t *testing.T) {
 }
 
 func TestUsageAccumulatorMergePatchPreservesAbsentFieldsAndStickyFinality(t *testing.T) {
-	one, two, three := int64(1), int64(2), int64(3)
+	one, two, three, four := int64(1), int64(2), int64(3), int64(4)
 	var first Diagnostics
 	first.Add(DiagnosticNegativeValue)
 	var second Diagnostics
@@ -91,14 +94,14 @@ func TestUsageAccumulatorMergePatchPreservesAbsentFieldsAndStickyFinality(t *tes
 	if err := accumulator.MergePatch(Patch{UncachedInput: &one, Output: &one, Diagnostics: first}); err != nil {
 		t.Fatal(err)
 	}
-	if err := accumulator.MergePatch(Patch{CacheRead: &two, Output: &three, Final: true, Diagnostics: second}); err != nil {
+	if err := accumulator.MergePatch(Patch{CacheRead: &two, CacheWriteUnknown: &four, Output: &three, Final: true, Diagnostics: second}); err != nil {
 		t.Fatal(err)
 	}
 	if err := accumulator.MergePatch(Patch{}); err != nil {
 		t.Fatal(err)
 	}
 	result, ok := accumulator.Finalize(true)
-	if !ok || result.State != StateComplete || result.Tokens != (Tokens{UncachedInput: 1, CacheRead: 2, Output: 3}) ||
+	if !ok || result.State != StateComplete || result.Tokens != (Tokens{UncachedInput: 1, CacheRead: 2, CacheWriteUnknown: 4, Output: 3}) ||
 		!result.Diagnostics.Has(DiagnosticNegativeValue) || !result.Diagnostics.Has(DiagnosticInvalidNumber) {
 		t.Fatalf("merged result = %#v, %t", result, ok)
 	}
@@ -121,6 +124,21 @@ func TestUsageAccumulatorRejectsNegativePatchWithoutMutation(t *testing.T) {
 	}
 }
 
+func TestUsageAccumulatorRejectsNegativeUnknownCacheWriteWithoutMutation(t *testing.T) {
+	one, negative := int64(1), int64(-1)
+	var accumulator Accumulator
+	if err := accumulator.MergePatch(Patch{Output: &one}); err != nil {
+		t.Fatal(err)
+	}
+	if err := accumulator.MergePatch(Patch{CacheWriteUnknown: &negative}); err != ErrNegativePatch {
+		t.Fatalf("MergePatch negative unknown cache write = %v, want %v", err, ErrNegativePatch)
+	}
+	result, ok := accumulator.Finalize(true)
+	if !ok || result.Tokens != (Tokens{Output: 1}) {
+		t.Fatalf("state after rejected patch = %#v, %t", result, ok)
+	}
+}
+
 func TestUsageAccumulatorReplaceSnapshotRejectsNegativePatchWithoutMutation(t *testing.T) {
 	one, negative := int64(1), int64(-1)
 	var accumulator Accumulator
@@ -129,6 +147,39 @@ func TestUsageAccumulatorReplaceSnapshotRejectsNegativePatchWithoutMutation(t *t
 	}
 	if err := accumulator.ReplaceSnapshot(Patch{Output: &negative}); err != ErrNegativePatch {
 		t.Fatalf("ReplaceSnapshot negative = %v, want %v", err, ErrNegativePatch)
+	}
+	result, ok := accumulator.Finalize(true)
+	if !ok || result.State != StateComplete || result.Tokens != (Tokens{Output: 1}) {
+		t.Fatalf("state after rejected replacement = %#v, %t", result, ok)
+	}
+}
+
+func TestUsageAccumulatorMergeRejectsCrossFieldOverflowWithoutMutation(t *testing.T) {
+	maximum, one := int64(math.MaxInt64), int64(1)
+	var accumulator Accumulator
+	if err := accumulator.MergePatch(Patch{UncachedInput: &maximum}); err != nil {
+		t.Fatal(err)
+	}
+	if err := accumulator.MergePatch(Patch{Output: &one, Final: true}); err == nil {
+		t.Fatal("MergePatch cross-field overflow error = nil")
+	}
+	result, ok := accumulator.Finalize(true)
+	if !ok || result.State != StatePartial || result.Tokens != (Tokens{UncachedInput: math.MaxInt64}) {
+		t.Fatalf("state after rejected merge = %#v, %t", result, ok)
+	}
+}
+
+func TestUsageAccumulatorReplaceRejectsCrossFieldOverflowWithoutMutation(t *testing.T) {
+	maximum, one := int64(math.MaxInt64), int64(1)
+	var accumulator Accumulator
+	if err := accumulator.ReplaceSnapshot(Patch{Output: &one, Final: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := accumulator.ReplaceSnapshot(Patch{
+		UncachedInput: &maximum,
+		Output:        &one,
+	}); err == nil {
+		t.Fatal("ReplaceSnapshot cross-field overflow error = nil")
 	}
 	result, ok := accumulator.Finalize(true)
 	if !ok || result.State != StateComplete || result.Tokens != (Tokens{Output: 1}) {

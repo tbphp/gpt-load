@@ -95,7 +95,7 @@ const describedBy = computed(
   font-weight: 400;
 }
 
-.form-field :deep(input),
+.form-field :deep(input:not([data-input-inner])),
 .form-field :deep(textarea) {
   width: 100%;
   min-height: var(--control-lg);
@@ -118,17 +118,17 @@ const describedBy = computed(
   resize: vertical;
 }
 
-.form-field :deep(input[type='password']) {
+.form-field :deep(input[type='password']:not([data-input-inner])) {
   font-family: var(--font-mono);
 }
 
-.form-field :deep(input::placeholder),
+.form-field :deep(input:not([data-input-inner])::placeholder),
 .form-field :deep(textarea::placeholder) {
   color: var(--color-text-faint);
   opacity: 1;
 }
 
-.form-field--compact :deep(input) {
+.form-field--compact :deep(input:not([data-input-inner])) {
   min-height: var(--control-xs);
   padding-inline: 10px;
   font-size: var(--text-meta);
@@ -144,7 +144,7 @@ const describedBy = computed(
   line-height: 1.55;
 }
 
-.form-field :deep(input:disabled),
+.form-field :deep(input:not([data-input-inner]):disabled),
 .form-field :deep(textarea:disabled) {
   cursor: not-allowed;
   opacity: 0.55;
@@ -158,7 +158,7 @@ const describedBy = computed(
 }
 
 @media (max-width: 860px) {
-  .form-field--compact :deep(input) {
+  .form-field--compact :deep(input:not([data-input-inner])) {
     min-height: var(--touch-target);
   }
 }

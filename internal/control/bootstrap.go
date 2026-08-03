@@ -4,11 +4,12 @@ import (
 	"context"
 	"fmt"
 
+	"gorm.io/gorm"
+
+	"gpt-load/internal/catalog"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/storage/models"
-
-	"gorm.io/gorm"
 )
 
 const defaultAccessKeyMarker = models.InternalSystemSettingPrefix + "bootstrap.default_access_key.v1"
@@ -16,6 +17,10 @@ const defaultAccessKeyMarker = models.InternalSystemSettingPrefix + "bootstrap.d
 func (s *Service) EnsureInitialState(ctx context.Context) error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
+	var catalogSnapshot *catalog.Snapshot
+	if s.catalogRuntime != nil {
+		catalogSnapshot = s.catalogRuntime.Load()
+	}
 
 	var priceTable *pricing.Table
 	err := s.withControlTransaction(ctx, func(tx *gorm.DB) error {
@@ -53,6 +58,19 @@ func (s *Service) EnsureInitialState(ctx context.Context) error {
 			}
 		}
 
+		if catalogSnapshot != nil {
+			if err := reconcileCatalogAutomaticPrices(tx, catalogSnapshot); err != nil {
+				return err
+			}
+		}
+		if err := reconcileReferencedPrices(tx, catalogSnapshot); err != nil {
+			return err
+		}
+		if catalogSnapshot != nil {
+			if err := cleanupUnreferencedAutomaticPrices(tx); err != nil {
+				return err
+			}
+		}
 		var err error
 		priceTable, err = loadPriceTable(ctx, tx)
 		if err != nil {

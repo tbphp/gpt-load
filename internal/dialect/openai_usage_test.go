@@ -32,11 +32,13 @@ func TestUsageOpenAICanonicalFixtures(t *testing.T) {
 
 func TestUsageOpenAINonStreamOptionalFields(t *testing.T) {
 	extractor := NewOpenAI(http.DefaultClient)
+	negativeTen := int64(-10)
 	tests := []struct {
 		name        string
 		body        string
 		want        usage.Tokens
 		diagnostics []usage.DiagnosticCode
+		wantDelta   *int64
 	}{
 		{
 			name: "cached missing",
@@ -49,10 +51,21 @@ func TestUsageOpenAINonStreamOptionalFields(t *testing.T) {
 			want: usage.Tokens{UncachedInput: 100, Output: 30},
 		},
 		{
-			name:        "positive cache write is unrepresentable",
+			name:        "positive cache write uses unknown bucket",
 			body:        `{"usage":{"prompt_tokens":100,"completion_tokens":30,"total_tokens":130,"prompt_tokens_details":{"cached_tokens":20,"cache_write_tokens":5}}}`,
-			want:        usage.Tokens{UncachedInput: 80, CacheRead: 20, Output: 30},
+			want:        usage.Tokens{UncachedInput: 75, CacheRead: 20, CacheWriteUnknown: 5, Output: 30},
 			diagnostics: []usage.DiagnosticCode{usage.DiagnosticUnsupportedBillableDetail},
+		},
+		{
+			name: "cache read and write exceeding prompt are diagnosed",
+			body: `{"usage":{"prompt_tokens":100,"completion_tokens":30,"total_tokens":130,"prompt_tokens_details":{"cached_tokens":80,"cache_write_tokens":30}}}`,
+			want: usage.Tokens{CacheRead: 80, CacheWriteUnknown: 30, Output: 30},
+			diagnostics: []usage.DiagnosticCode{
+				usage.DiagnosticUnsupportedBillableDetail,
+				usage.DiagnosticNegativeValue,
+				usage.DiagnosticInconsistentTotal,
+			},
+			wantDelta: &negativeTen,
 		},
 		{
 			name:        "negative cache write is clamped",
@@ -78,8 +91,12 @@ func TestUsageOpenAINonStreamOptionalFields(t *testing.T) {
 				t.Fatalf("result = %#v, want complete with %#v", result, tt.want)
 			}
 			requireUsageDiagnostics(t, result.Diagnostics, tt.diagnostics...)
-			if _, ok := result.Diagnostics.TotalDelta(); ok {
+			delta, present := result.Diagnostics.TotalDelta()
+			if tt.wantDelta == nil && present {
 				t.Fatalf("TotalDelta() unexpectedly present: %#v", result.Diagnostics)
+			}
+			if tt.wantDelta != nil && (!present || delta != *tt.wantDelta) {
+				t.Fatalf("TotalDelta() = %d, %t, want %d, true", delta, present, *tt.wantDelta)
 			}
 		})
 	}
@@ -201,6 +218,7 @@ func TestUsageOpenAIClampsCachedAndChecksTotal(t *testing.T) {
 		want      usage.Tokens
 		wantDelta int64
 		code      usage.DiagnosticCode
+		wantErr   bool
 	}{
 		{
 			name: "cached exceeds prompt",
@@ -229,16 +247,21 @@ func TestUsageOpenAIClampsCachedAndChecksTotal(t *testing.T) {
 			code: usage.DiagnosticInvalidNumber,
 		},
 		{
-			name: "normalized total overflow",
-			body: `{"usage":{"prompt_tokens":9223372036854775807,"completion_tokens":1,"total_tokens":9223372036854775807}}`,
-			want: usage.Tokens{UncachedInput: 9223372036854775807, Output: 1},
-			code: usage.DiagnosticInvalidNumber,
+			name:    "normalized total overflow",
+			body:    `{"usage":{"prompt_tokens":9223372036854775807,"completion_tokens":1,"total_tokens":9223372036854775807}}`,
+			wantErr: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result, err := extractor.ExtractUsage([]byte(tt.body))
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("ExtractUsage() error = nil, want checked overflow rejection")
+				}
+				return
+			}
 			if err != nil {
 				t.Fatal(err)
 			}

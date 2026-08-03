@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -34,54 +33,7 @@ func newRequestLogTestService(db *gorm.DB) *Service {
 		db,
 		redact.New(),
 		staticRetentionPolicy{days: 7},
-		newStaticPriceTableProvider(),
 	)
-}
-
-type staticPriceTableProvider struct {
-	table *pricing.Table
-}
-
-func (provider *staticPriceTableProvider) Load() *pricing.Table {
-	if provider == nil {
-		return nil
-	}
-	return provider.table
-}
-
-func newStaticPriceTableProvider() *staticPriceTableProvider {
-	table, err := pricing.Compile(pricing.BuiltinRules())
-	if err != nil {
-		panic(err)
-	}
-	return &staticPriceTableProvider{table: table}
-}
-
-type publishingPriceTableProvider struct {
-	table atomic.Pointer[pricing.Table]
-	loads atomic.Uint64
-}
-
-func (provider *publishingPriceTableProvider) Load() *pricing.Table {
-	provider.loads.Add(1)
-	return provider.table.Load()
-}
-
-func (provider *publishingPriceTableProvider) Publish(table *pricing.Table) {
-	provider.table.Store(table)
-}
-
-func compileRequestLogTestPriceTable(t *testing.T, model string, prices pricing.Prices) *pricing.Table {
-	t.Helper()
-	table, err := pricing.Compile([]pricing.Rule{{
-		Pattern: model,
-		Prices:  prices,
-		Source:  pricing.SourceUser,
-	}})
-	if err != nil {
-		t.Fatalf("pricing.Compile() error = %v", err)
-	}
-	return table
 }
 
 type batchWriterFunc func(context.Context, []models.RequestLog) error
@@ -240,7 +192,7 @@ func aggregationRow(
 		GroupID:              groupID,
 		Protocol:             string(protocol.OpenAICompletions),
 		ClientModel:          model,
-		UpstreamModel:        "upstream-" + model,
+		UpstreamModel:        model,
 		Status:               string(telemetry.RequestStatusSuccess),
 		StatusCode:           200,
 		DurationMs:           10,
@@ -249,6 +201,7 @@ func aggregationRow(
 		EstimatedCostNanoUSD: 250_000_000,
 		UsageState:           string(usage.StateComplete),
 		CostState:            string(pricing.CostStatePriced),
+		PricingCompleteness:  string(pricing.CompletenessComplete),
 		Attempts:             models.JSON(`[]`),
 	}
 }
@@ -279,9 +232,17 @@ func testEvent(id string) telemetry.RequestEvent {
 			Action:          telemetry.ActionTerminate,
 		}},
 		Usage: telemetry.UsageObservation{
-			GroupID: 7,
+			GroupID:         7,
+			KeyID:           8,
+			AttemptSequence: 1,
 			Result: usage.Result{
 				State: usage.StateNotApplicable,
+			},
+			Pricing: telemetry.PricingObservation{
+				PriceScopeKey:       "group:7",
+				UpstreamModel:       "upstream-model",
+				CostState:           string(pricing.CostStateNotApplicable),
+				PricingCompleteness: string(pricing.CompletenessNotApplicable),
 			},
 		},
 	}
@@ -291,10 +252,10 @@ func mustMapEvent(
 	t testing.TB,
 	redactor *redact.Redactor,
 	event telemetry.RequestEvent,
-	prices *pricing.Table,
+	_ ...*pricing.Table,
 ) models.RequestLog {
 	t.Helper()
-	row, err := mapEvent(redactor, event, prices)
+	row, err := mapEvent(redactor, event)
 	if err != nil {
 		t.Fatalf("mapEvent() error = %v", err)
 	}

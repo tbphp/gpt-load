@@ -14,6 +14,7 @@ export type FailureCategory =
 
 export type GroupCollectionStatus = 'available' | 'unavailable' | 'disabled'
 export type GroupCollectionSort = 'status' | 'name' | 'keys' | 'created'
+export type ModelPricingStatus = 'pending' | 'configured'
 
 export interface GroupCollectionFilters {
   q?: string
@@ -34,6 +35,7 @@ export interface GroupCollectionSummaryDto {
 export interface GroupCollectionItemDto {
   id: number
   name: string
+  provider_id: string | null
   status: GroupCollectionStatus
   upstream_url: string
   protocols: GroupProtocol[]
@@ -58,6 +60,7 @@ export interface GroupCollectionResponseDto {
 export interface GroupSummaryDto {
   id: number
   name: string
+  provider_id: string | null
   service_status: GroupCollectionStatus
   upstream_url: string
   protocols: GroupProtocol[]
@@ -90,6 +93,7 @@ export interface GroupEffectiveConfigDto {
 
 export interface GroupSettingsDto {
   name: string
+  provider_id: string | null
   upstream_url: string
   protocols: GroupProtocol[]
   validation_model: string | null
@@ -104,13 +108,13 @@ export interface GroupModelItemDto {
   alias: string
   alias_enabled: boolean
   client_model: string
-  pricing_status: 'priced' | 'unpriced'
+  pricing_status: ModelPricingStatus
 }
 
 export interface GroupModelsDto {
   items: GroupModelItemDto[]
   total: number
-  unpriced: number
+  pending: number
 }
 
 export type GroupKeyStatus = 'available' | 'cooldown' | 'blacklisted' | 'disabled'

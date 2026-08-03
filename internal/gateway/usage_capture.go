@@ -52,7 +52,11 @@ func validCapturedUsage(result usage.Result) bool {
 		result.Tokens.CacheRead < 0 ||
 		result.Tokens.CacheWrite5M < 0 ||
 		result.Tokens.CacheWrite1H < 0 ||
+		result.Tokens.CacheWriteUnknown < 0 ||
 		result.Tokens.Output < 0 {
+		return false
+	}
+	if _, ok := usage.CheckedTotal(result.Tokens); !ok {
 		return false
 	}
 	switch result.State {

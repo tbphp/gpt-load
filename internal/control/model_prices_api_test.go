@@ -2,367 +2,243 @@ package control
 
 import (
 	"encoding/json"
-	"net/http"
-	"net/http/httptest"
-	"sort"
+	"errors"
+	"math"
+	"reflect"
 	"strings"
 	"testing"
-	"time"
 
-	"github.com/gin-gonic/gin"
-
-	"gpt-load/internal/platform/config"
-	"gpt-load/internal/pricing"
-	"gpt-load/internal/storage/models"
+	app_errors "gpt-load/internal/platform/errors"
 )
 
-func TestModelPriceAPIListsStableBuiltinAndUserRules(t *testing.T) {
-	fixture := newServiceFixture(t)
-	mustEnsureInitialPrices(t, fixture)
-	fixture.service.now = func() time.Time {
-		return time.Date(2026, time.July, 27, 12, 30, 0, 0, time.UTC)
-	}
-	zero := pricing.NanoUSD(0)
-	output := pricing.NanoUSD(7_500_000_000)
-	if err := fixture.service.UpsertModelPrice(t.Context(), ModelPriceInput{
-		Pattern: "z-user", UncachedInput: &zero, Output: &output,
-	}); err != nil {
-		t.Fatalf("seed z-user price: %v", err)
-	}
-	if err := fixture.service.UpsertModelPrice(t.Context(), ModelPriceInput{
-		Pattern: "a-user", Output: &output,
-	}); err != nil {
-		t.Fatalf("seed a-user price: %v", err)
+func TestParseModelPriceListQueryAcceptsFinalContract(t *testing.T) {
+	tests := []struct {
+		name       string
+		rawQuery   string
+		forceQuery bool
+		want       ModelPriceListQuery
+	}{
+		{
+			name: "defaults",
+			want: ModelPriceListQuery{
+				Usage:  ModelPriceUsageInUse,
+				Status: ModelPriceStatusAll,
+				Page:   1, PageSize: 20,
+			},
+		},
+		{
+			name:     "all filters and trimmed search",
+			rawQuery: "usage=unreferenced&status=pending&search=++GPT-5++&page=2&page_size=100",
+			want: ModelPriceListQuery{
+				Usage:  ModelPriceUsageUnreferenced,
+				Status: ModelPriceStatusPending,
+				Search: "GPT-5", Page: 2, PageSize: 100,
+			},
+		},
+		{
+			name:     "configured in-use",
+			rawQuery: "usage=in_use&status=configured&page=1&page_size=1",
+			want: ModelPriceListQuery{
+				Usage:  ModelPriceUsageInUse,
+				Status: ModelPriceStatusConfigured,
+				Page:   1, PageSize: 1,
+			},
+		},
+		{
+			name:     "all usage and status",
+			rawQuery: "usage=all&status=all&search=",
+			want: ModelPriceListQuery{
+				Usage:  ModelPriceUsageAll,
+				Status: ModelPriceStatusAll,
+				Page:   1, PageSize: 20,
+			},
+		},
 	}
 
-	recorder := serveModelPriceRequest(newModelPriceTestEngine(t, fixture), http.MethodGet, "/api/model-prices", "", true)
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("GET model prices = %d %s, want 200", recorder.Code, recorder.Body.String())
-	}
-	var envelope struct {
-		Code int `json:"code"`
-		Data struct {
-			PriceUnit string                       `json:"price_unit"`
-			Builtin   []modelPriceListTestResponse `json:"builtin"`
-			Overrides []modelPriceListTestResponse `json:"overrides"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err != nil {
-		t.Fatalf("decode GET response: %v", err)
-	}
-	if envelope.Code != 0 || envelope.Data.PriceUnit != "usd_per_million_tokens" ||
-		len(envelope.Data.Builtin) < 1 || len(envelope.Data.Overrides) != 2 {
-		t.Fatalf("GET envelope = %#v", envelope)
-	}
-	assertModelPriceResponseSorted(t, envelope.Data.Builtin)
-	assertModelPriceResponseSorted(t, envelope.Data.Overrides)
-
-	var builtin, userA, userZ *modelPriceListTestResponse
-	for index := range envelope.Data.Builtin {
-		item := &envelope.Data.Builtin[index]
-		switch item.Pattern {
-		case "gpt-5.6":
-			builtin = item
-		default:
-			if item.Source != string(pricing.SourceBuiltin) {
-				t.Fatalf("builtin partition contains source %q", item.Source)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, apiErr := parseModelPriceListQuery(test.rawQuery, test.forceQuery)
+			if apiErr != nil {
+				t.Fatalf("parseModelPriceListQuery() error = %v", apiErr)
 			}
-		}
-	}
-	for index := range envelope.Data.Overrides {
-		item := &envelope.Data.Overrides[index]
-		switch item.Pattern {
-		case "a-user":
-			userA = item
-		case "z-user":
-			userZ = item
-		}
-		if item.Source != string(pricing.SourceUser) {
-			t.Fatalf("override partition contains source %q", item.Source)
-		}
-	}
-	if builtin == nil || builtin.Source != string(pricing.SourceBuiltin) || builtin.SourceURL == nil ||
-		*builtin.SourceURL != "https://developers.openai.com/api/docs/pricing" ||
-		builtin.UpdatedAtMS != time.Date(2026, time.July, 26, 0, 0, 0, 0, time.UTC).UnixMilli() {
-		t.Fatalf("builtin response = %#v", builtin)
-	}
-	if len(builtin.Prices) != 5 ||
-		builtin.Prices["cache_write_5m_price_usd_per_million_tokens"] != nil ||
-		builtin.Prices["cache_write_1h_price_usd_per_million_tokens"] != nil {
-		t.Fatalf("builtin prices = %#v, want five values including null cache writes", builtin.Prices)
-	}
-	if userA == nil || userA.Source != string(pricing.SourceUser) || userA.SourceURL != nil ||
-		userA.UpdatedAtMS != time.Date(2026, time.July, 27, 12, 30, 0, 0, time.UTC).UnixMilli() {
-		t.Fatalf("a-user response = %#v", userA)
-	}
-	if userZ == nil || len(userZ.Prices) != 5 ||
-		userZ.Prices["input_price_usd_per_million_tokens"] == nil ||
-		*userZ.Prices["input_price_usd_per_million_tokens"] != "0" ||
-		userZ.Prices["cache_read_price_usd_per_million_tokens"] != nil ||
-		userZ.Prices["output_price_usd_per_million_tokens"] == nil ||
-		*userZ.Prices["output_price_usd_per_million_tokens"] != "7.5" {
-		t.Fatalf("z-user prices = %#v", userZ)
+			if !reflect.DeepEqual(got, test.want) {
+				t.Fatalf("parseModelPriceListQuery() = %#v, want %#v", got, test.want)
+			}
+		})
 	}
 }
 
-func TestModelPriceAPIListsReadOnlyPricingPolicy(t *testing.T) {
-	fixture := newServiceFixture(t)
-	mustEnsureInitialPrices(t, fixture)
-	output := pricing.NanoUSD(7_500_000_000)
-	if err := fixture.service.UpsertModelPrice(t.Context(), ModelPriceInput{
-		Pattern: "user-model", Output: &output,
-	}); err != nil {
-		t.Fatalf("seed user model price: %v", err)
+func TestParseModelPriceListQueryRejectsAmbiguousOrUnsafeInput(t *testing.T) {
+	tests := []struct {
+		name       string
+		rawQuery   string
+		forceQuery bool
+	}{
+		{name: "force empty", forceQuery: true},
+		{name: "unknown", rawQuery: "pattern=gpt"},
+		{name: "repeated", rawQuery: "usage=all&usage=in_use"},
+		{name: "empty usage", rawQuery: "usage="},
+		{name: "invalid usage", rawQuery: "usage=referenced"},
+		{name: "empty status", rawQuery: "status="},
+		{name: "invalid status", rawQuery: "status=priced"},
+		{name: "empty page", rawQuery: "page="},
+		{name: "zero page", rawQuery: "page=0"},
+		{name: "leading zero page", rawQuery: "page=01"},
+		{name: "signed page", rawQuery: "page=%2B1"},
+		{name: "negative page", rawQuery: "page=-1"},
+		{name: "unsafe page", rawQuery: "page=9007199254740992"},
+		{name: "empty page size", rawQuery: "page_size="},
+		{name: "oversized page size", rawQuery: "page_size=101"},
+		{name: "search too long", rawQuery: "search=" + strings.Repeat("界", 201)},
 	}
 
-	recorder := serveModelPriceRequest(
-		newModelPriceTestEngine(t, fixture),
-		http.MethodGet,
-		"/api/model-prices",
-		"",
-		true,
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, apiErr := parseModelPriceListQuery(test.rawQuery, test.forceQuery)
+			if apiErr != app_errors.ErrBadRequest {
+				t.Fatalf("parseModelPriceListQuery() error = %#v, want BAD_REQUEST", apiErr)
+			}
+		})
+	}
+}
+
+func TestParseModelPriceRowIDRequiresCanonicalPositiveSafeUint(t *testing.T) {
+	for _, value := range []string{"1", "9007199254740991"} {
+		got, err := parseModelPriceRowID(value)
+		if err != nil {
+			t.Fatalf("parseModelPriceRowID(%q) error = %v", value, err)
+		}
+		if uint64(got) == 0 {
+			t.Fatalf("parseModelPriceRowID(%q) = 0", value)
+		}
+	}
+
+	for _, value := range []string{"", "0", "00", "01", "+1", "-1", "9007199254740992", "18446744073709551616"} {
+		if _, err := parseModelPriceRowID(value); err == nil {
+			t.Fatalf("parseModelPriceRowID(%q) accepted invalid ID", value)
+		}
+	}
+}
+
+func TestNullableDecimalAcceptsOnlyExactUSDStringOrNull(t *testing.T) {
+	tests := []struct {
+		body string
+		want *int64
+	}{
+		{body: `null`},
+		{body: `"0"`, want: int64Pointer(0)},
+		{body: `"2.500000000"`, want: int64Pointer(2_500_000_000)},
+		{body: `"9223372036.854775807"`, want: int64Pointer(math.MaxInt64)},
+	}
+	for _, test := range tests {
+		var got nullableDecimal
+		if err := json.Unmarshal([]byte(test.body), &got); err != nil {
+			t.Fatalf("json.Unmarshal(%s) error = %v", test.body, err)
+		}
+		if !got.present || !pricePointerEqual(got.nanoUSD, test.want) {
+			t.Fatalf("json.Unmarshal(%s) = %#v, want present value %v", test.body, got, test.want)
+		}
+	}
+}
+
+func TestNullableDecimalClassifiesInvalidDecimalStringsAsValidation(t *testing.T) {
+	for _, body := range []string{
+		`""`, `" "`, `"1e3"`, `"+1"`, `"-1"`, `".5"`, `"1."`,
+		`"1.0000000000"`, `"9223372036.854775808"`,
+	} {
+		var got nullableDecimal
+		err := json.Unmarshal([]byte(body), &got)
+		if !errors.Is(err, app_errors.ErrValidation) {
+			t.Fatalf("json.Unmarshal(%s) error = %v, want VALIDATION_FAILED cause", body, err)
+		}
+	}
+}
+
+func TestNullableDecimalRejectsJSONNumbersAndContainers(t *testing.T) {
+	for _, body := range []string{`0`, `1.5`, `1e3`, `{}`, `[]`, `true`} {
+		var got nullableDecimal
+		if err := json.Unmarshal([]byte(body), &got); err == nil {
+			t.Fatalf("json.Unmarshal(%s) accepted non-string price", body)
+		}
+	}
+}
+
+func TestModelPriceUpdateRequestRequiresFullReplacementSlots(t *testing.T) {
+	request, apiErr := decodeModelPriceUpdateRequestForTest(
+		`{"input":"2.5","output":null,"cache_read":"0","cache_write":null}`,
 	)
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("GET model prices = %d %s, want 200", recorder.Code, recorder.Body.String())
+	if apiErr != nil {
+		t.Fatalf("decode request error = %v", apiErr)
 	}
-	var envelope struct {
-		Data struct {
-			Builtin []struct {
-				Pattern       string          `json:"pattern"`
-				PricingPolicy json.RawMessage `json:"pricing_policy"`
-			} `json:"builtin"`
-			Overrides []struct {
-				Pattern       string          `json:"pattern"`
-				PricingPolicy json.RawMessage `json:"pricing_policy"`
-			} `json:"overrides"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err != nil {
-		t.Fatalf("decode GET response: %v", err)
+	if request.ConfirmUnpriced ||
+		!pricePointerEqual(request.Input.nanoUSD, int64Pointer(2_500_000_000)) ||
+		request.Output.nanoUSD != nil ||
+		!pricePointerEqual(request.CacheRead.nanoUSD, int64Pointer(0)) ||
+		request.CacheWrite.nanoUSD != nil {
+		t.Fatalf("decoded request = %#v", request)
 	}
 
-	var policyModel, noPolicyModel, userModel json.RawMessage
-	for _, rule := range envelope.Data.Builtin {
-		switch rule.Pattern {
-		case "gpt-5.6":
-			policyModel = rule.PricingPolicy
-		case "gpt-5.5-pro":
-			noPolicyModel = rule.PricingPolicy
-		}
-	}
-	for _, rule := range envelope.Data.Overrides {
-		if rule.Pattern == "user-model" {
-			userModel = rule.PricingPolicy
-		}
-	}
-	var policy modelPricePolicyResponse
-	if len(policyModel) == 0 || string(policyModel) == "null" {
-		t.Fatalf("gpt-5.6 pricing_policy = %s, want object", policyModel)
-	}
-	if err := json.Unmarshal(policyModel, &policy); err != nil {
-		t.Fatalf("decode gpt-5.6 pricing_policy: %v", err)
-	}
-	wantPolicy := modelPricePolicyResponse{
-		InputThresholdTokens: 272_000,
-		InputMultiplier:      2,
-		OutputMultiplier:     1.5,
-	}
-	if policy != wantPolicy {
-		t.Fatalf("gpt-5.6 pricing_policy = %+v, want %+v", policy, wantPolicy)
-	}
-	if string(noPolicyModel) != "null" {
-		t.Fatalf("gpt-5.5-pro pricing_policy = %s, want null", noPolicyModel)
-	}
-	if string(userModel) != "null" {
-		t.Fatalf("user pricing_policy = %s, want null", userModel)
-	}
-}
-
-func TestModelPriceAPIPutStrictlyReplacesFivePrices(t *testing.T) {
-	fixture := newServiceFixture(t)
-	mustEnsureInitialPrices(t, fixture)
-	engine := newModelPriceTestEngine(t, fixture)
-
-	valid := `{"pattern":"replace-model","prices":{"input_price_usd_per_million_tokens":"1","output_price_usd_per_million_tokens":"5","cache_read_price_usd_per_million_tokens":"2","cache_write_5m_price_usd_per_million_tokens":"3","cache_write_1h_price_usd_per_million_tokens":"4"}}`
-	first := serveModelPriceRequest(engine, http.MethodPut, "/api/model-prices", valid, true)
-	if first.Code != http.StatusOK {
-		t.Fatalf("first PUT = %d %s", first.Code, first.Body.String())
-	}
-	replacement := `{"pattern":"replace-model","prices":{"input_price_usd_per_million_tokens":null,"output_price_usd_per_million_tokens":"9","cache_read_price_usd_per_million_tokens":"0","cache_write_5m_price_usd_per_million_tokens":null,"cache_write_1h_price_usd_per_million_tokens":null}}`
-	second := serveModelPriceRequest(engine, http.MethodPut, "/api/model-prices", replacement, true)
-	if second.Code != http.StatusOK {
-		t.Fatalf("replacement PUT = %d %s", second.Code, second.Body.String())
-	}
-	var row models.ModelPrice
-	if err := fixture.db.Where("pattern = ?", "replace-model").Take(&row).Error; err != nil {
-		t.Fatalf("read replacement row: %v", err)
-	}
-	if row.InputPriceNanoUSDPerMillionTokens != nil ||
-		row.CacheReadPriceNanoUSDPerMillionTokens == nil ||
-		*row.CacheReadPriceNanoUSDPerMillionTokens != 0 ||
-		row.CacheWrite5MPriceNanoUSDPerMillionTokens != nil ||
-		row.CacheWrite1HPriceNanoUSDPerMillionTokens != nil ||
-		row.OutputPriceNanoUSDPerMillionTokens == nil ||
-		*row.OutputPriceNanoUSDPerMillionTokens != 9_000_000_000 {
-		t.Fatalf("replacement row = %#v", row)
+	confirmed, apiErr := decodeModelPriceUpdateRequestForTest(
+		`{"input":null,"output":null,"cache_read":null,"cache_write":null,"confirm_unpriced":true}`,
+	)
+	if apiErr != nil || !confirmed.ConfirmUnpriced {
+		t.Fatalf("confirmed all-null request = %#v, %v", confirmed, apiErr)
 	}
 
 	for _, body := range []string{
-		strings.TrimSuffix(valid, "}") + `,"unknown":true}`,
-		strings.TrimSuffix(valid, "}") + `,"pricing_policy":null}`,
-		strings.Replace(valid, `"pattern":"replace-model"`, `"pattern":"strict-model","pattern":"other"`, 1),
-		strings.Replace(valid, `"cache_read_price_usd_per_million_tokens":"2"`, `"cache_read_price_usd_per_million_tokens":"2","cache_read_price_usd_per_million_tokens":"3"`, 1),
-		strings.Replace(valid, `,"cache_write_1h_price_usd_per_million_tokens":"4"`, "", 1),
-		strings.Replace(valid, `"1"`, "1", 1),
-		strings.Replace(valid, `"1"`, `"1e0"`, 1),
-		strings.Replace(valid, `"1"`, `" 1"`, 1),
-		valid + ` {}`,
+		`{}`,
+		`{"input":"1","output":"2","cache_read":"3"}`,
+		`{"input":"1","output":"2","cache_read":"3","cache_write":"4","input":"5"}`,
+		`{"input":"1","output":"2","cache_read":"3","cache_write":"4","model_id":"secret"}`,
+		`{"input":"1","output":"2","cache_read":"3","cache_write":"4","price_scope_key":"provider:secret"}`,
+		`{"input":"1","output":"2","cache_read":"3","cache_write":"4"} {}`,
+		`[]`,
 	} {
-		recorder := serveModelPriceRequest(engine, http.MethodPut, "/api/model-prices", body, true)
-		assertModelPriceAPIError(t, recorder, http.StatusBadRequest, "INVALID_JSON")
-	}
-}
-
-func TestModelPriceAPIDeleteValidatesSinglePatternAndIsIdempotent(t *testing.T) {
-	fixture := newServiceFixture(t)
-	mustEnsureInitialPrices(t, fixture)
-	value := pricing.NanoUSD(99_000_000_000)
-	if err := fixture.service.UpsertModelPrice(t.Context(), ModelPriceInput{Pattern: "gpt-4o", Output: &value}); err != nil {
-		t.Fatalf("seed override: %v", err)
-	}
-	engine := newModelPriceTestEngine(t, fixture)
-
-	for _, target := range []string{
-		"/api/model-prices",
-		"/api/model-prices?pattern=gpt-4o&pattern=other",
-		"/api/model-prices?unknown=value",
-	} {
-		recorder := serveModelPriceRequest(engine, http.MethodDelete, target, "", true)
-		assertModelPriceAPIError(t, recorder, http.StatusBadRequest, "BAD_REQUEST")
-	}
-	invalid := serveModelPriceRequest(engine, http.MethodDelete, "/api/model-prices?pattern=invalid%3Fpattern", "", true)
-	assertModelPriceAPIError(t, invalid, http.StatusBadRequest, "VALIDATION_FAILED")
-
-	for attempt := 0; attempt < 2; attempt++ {
-		recorder := serveModelPriceRequest(engine, http.MethodDelete, "/api/model-prices?pattern=gpt-4o", "", true)
-		if recorder.Code != http.StatusOK {
-			t.Fatalf("DELETE attempt %d = %d %s", attempt+1, recorder.Code, recorder.Body.String())
+		_, apiErr := decodeModelPriceUpdateRequestForTest(body)
+		if apiErr == nil {
+			t.Fatalf("decode request accepted %s", body)
 		}
 	}
-	rule, ok := fixture.priceRuntime.Load().Match("gpt-4o")
-	if !ok || rule.Source != pricing.SourceBuiltin ||
-		rule.Prices.Output.NanoUSDPerMillion != 10_000_000_000 {
-		t.Fatalf("runtime after idempotent DELETE = %#v, %t", rule, ok)
+}
+
+func TestModelPriceUpdateRequestClassifiesTypeAndDecimalErrors(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		wantCode string
+	}{
+		{name: "number", input: `1`, wantCode: app_errors.ErrInvalidJSON.Code},
+		{name: "exponent number", input: `1e3`, wantCode: app_errors.ErrInvalidJSON.Code},
+		{name: "exponent string", input: `"1e3"`, wantCode: app_errors.ErrValidation.Code},
+		{name: "negative string", input: `"-1"`, wantCode: app_errors.ErrValidation.Code},
+		{name: "precision", input: `"1.0000000000"`, wantCode: app_errors.ErrValidation.Code},
+		{name: "overflow", input: `"9223372036.854775808"`, wantCode: app_errors.ErrValidation.Code},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, apiErr := decodeModelPriceUpdateRequestForTest(
+				`{"input":` + test.input + `,"output":null,"cache_read":null,"cache_write":null}`,
+			)
+			if apiErr == nil || apiErr.Code != test.wantCode {
+				t.Fatalf("decode request error = %#v, want %s", apiErr, test.wantCode)
+			}
+		})
 	}
 }
 
-func TestModelPriceAPIRequiresAuthAndGetWaitsForPriceWrite(t *testing.T) {
-	fixture := newServiceFixture(t)
-	mustEnsureInitialPrices(t, fixture)
-	engine := newModelPriceTestEngine(t, fixture)
-
-	unauthorized := serveModelPriceRequest(engine, http.MethodGet, "/api/model-prices", "", false)
-	assertModelPriceAPIError(t, unauthorized, http.StatusUnauthorized, "UNAUTHORIZED")
-
-	fixture.service.writeMu.Lock()
-	locked := true
-	defer func() {
-		if locked {
-			fixture.service.writeMu.Unlock()
-		}
-	}()
-	value := int64(88_000_000_000)
-	if err := fixture.db.Create(&models.ModelPrice{
-		Pattern:                            "locked-write-model",
-		OutputPriceNanoUSDPerMillionTokens: &value,
-		Source:                             string(pricing.SourceUser),
-	}).Error; err != nil {
-		t.Fatalf("persist locked write row: %v", err)
+func decodeModelPriceUpdateRequestForTest(
+	body string,
+) (ModelPriceUpdateRequest, *app_errors.APIError) {
+	var request ModelPriceUpdateRequest
+	if err := decodeStrictControlJSONObject([]byte(body), &request); err != nil {
+		return ModelPriceUpdateRequest{}, mapControlJSONError(err)
 	}
-	done := make(chan *httptest.ResponseRecorder, 1)
-	go func() {
-		done <- serveModelPriceRequest(engine, http.MethodGet, "/api/model-prices", "", true)
-	}()
-	select {
-	case recorder := <-done:
-		t.Fatalf("GET completed while price write lock held: %d %s", recorder.Code, recorder.Body.String())
-	case <-time.After(50 * time.Millisecond):
+	if err := request.validate(); err != nil {
+		return ModelPriceUpdateRequest{}, mapControlJSONError(err)
 	}
-	if rule, ok := fixture.priceRuntime.Load().Match("locked-write-model"); ok || rule.Source == pricing.SourceUser {
-		t.Fatalf("runtime exposed locked DB write before publish: %#v, %t", rule, ok)
-	}
-	table, err := loadPriceTable(t.Context(), fixture.db)
-	if err != nil {
-		t.Fatalf("compile locked write table: %v", err)
-	}
-	fixture.priceRuntime.Publish(table)
-	fixture.service.writeMu.Unlock()
-	locked = false
-	select {
-	case recorder := <-done:
-		if recorder.Code != http.StatusOK {
-			t.Fatalf("GET after write unlock = %d %s", recorder.Code, recorder.Body.String())
-		}
-		if !strings.Contains(recorder.Body.String(), `"pattern":"locked-write-model"`) {
-			t.Fatalf("GET after write unlock missed published row: %s", recorder.Body.String())
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("GET did not complete after price write unlock")
-	}
+	return request, nil
 }
 
-func newModelPriceTestEngine(t *testing.T, fixture serviceFixture) *gin.Engine {
-	t.Helper()
-	initControlI18n(t)
-	engine := gin.New()
-	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
-	return engine
-}
-
-func serveModelPriceRequest(engine *gin.Engine, method, target, body string, authorized bool) *httptest.ResponseRecorder {
-	request := httptest.NewRequest(method, target, strings.NewReader(body))
-	if authorized {
-		request.Header.Set("Authorization", "Bearer test-auth-key")
-	}
-	if body != "" {
-		request.Header.Set("Content-Type", "application/json")
-	}
-	recorder := httptest.NewRecorder()
-	engine.ServeHTTP(recorder, request)
-	return recorder
-}
-
-func assertModelPriceAPIError(t *testing.T, recorder *httptest.ResponseRecorder, wantStatus int, wantCode string) {
-	t.Helper()
-	if recorder.Code != wantStatus {
-		t.Fatalf("response = %d %s, want %d", recorder.Code, recorder.Body.String(), wantStatus)
-	}
-	var envelope struct {
-		Code string `json:"code"`
-	}
-	if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err != nil {
-		t.Fatalf("decode error envelope: %v", err)
-	}
-	if envelope.Code != wantCode {
-		t.Fatalf("error code = %q, want %q", envelope.Code, wantCode)
-	}
-}
-
-type modelPriceListTestResponse struct {
-	Pattern     string             `json:"pattern"`
-	Source      string             `json:"source"`
-	Prices      map[string]*string `json:"prices"`
-	SourceURL   *string            `json:"source_url"`
-	UpdatedAtMS int64              `json:"updated_at_ms"`
-}
-
-func assertModelPriceResponseSorted(t *testing.T, rules []modelPriceListTestResponse) {
-	t.Helper()
-	patterns := make([]string, 0, len(rules))
-	for _, rule := range rules {
-		patterns = append(patterns, rule.Pattern)
-	}
-	if !sort.StringsAreSorted(patterns) {
-		t.Fatalf("patterns are not sorted: %#v", patterns)
-	}
+func int64Pointer(value int64) *int64 {
+	return &value
 }

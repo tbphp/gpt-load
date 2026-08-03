@@ -53,6 +53,7 @@ func mapGroupRowToState(group models.Group) (state.GroupConfig, error) {
 	}
 	return state.GroupConfig{
 		ID: group.ID, Name: group.Name, UpstreamURL: group.UpstreamURL,
+		ProviderID:      cloneString(group.ProviderID),
 		ValidationModel: validationModel,
 		Protocols:       protocols, Models: runtimeModels, Settings: settings,
 		WeightManual: cloneInt(group.WeightManual), Enabled: group.Enabled,

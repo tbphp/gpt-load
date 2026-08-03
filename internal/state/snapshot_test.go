@@ -422,8 +422,9 @@ func TestCompileMergesTimeoutsAndHeaderRules(t *testing.T) {
 			Set:    map[string]string{"X-System": "system"},
 			Remove: []string{"X-System-Remove"},
 		},
-		InjectUsageOptions:      true,
-		RequestLogRetentionDays: 7,
+		InjectUsageOptions:       true,
+		RequestLogRetentionDays:  7,
+		ModelsDevAutoSyncEnabled: true,
 	}
 	if !reflect.DeepEqual(snapshot.Settings, wantSettings) {
 		t.Errorf("ConfigSnapshot.Settings = %#v, want %#v", snapshot.Settings, wantSettings)
@@ -455,13 +456,14 @@ func TestCompileUsesDefaultRuntimeSettings(t *testing.T) {
 	}
 
 	wantSettings := RuntimeSettings{
-		ConnectTimeout:          15 * time.Second,
-		FirstByteTimeout:        120 * time.Second,
-		RequestTimeout:          600 * time.Second,
-		StreamIdleTimeout:       300 * time.Second,
-		HeaderRules:             HeaderRules{Set: map[string]string{}},
-		InjectUsageOptions:      true,
-		RequestLogRetentionDays: 7,
+		ConnectTimeout:           15 * time.Second,
+		FirstByteTimeout:         120 * time.Second,
+		RequestTimeout:           600 * time.Second,
+		StreamIdleTimeout:        300 * time.Second,
+		HeaderRules:              HeaderRules{Set: map[string]string{}},
+		InjectUsageOptions:       true,
+		RequestLogRetentionDays:  7,
+		ModelsDevAutoSyncEnabled: true,
 	}
 	if !reflect.DeepEqual(snapshot.Settings, wantSettings) {
 		t.Errorf("ConfigSnapshot.Settings = %#v, want %#v", snapshot.Settings, wantSettings)
@@ -495,6 +497,57 @@ func TestCompileFreezesInjectUsageOptionsInGroupView(t *testing.T) {
 	groupSettings[SettingInjectUsageOptions] = true
 	if snapshot.Groups[1].InjectUsageOptions {
 		t.Fatal("published GroupView changed with source config")
+	}
+}
+
+func TestCompileDeepClonesGroupProviderID(t *testing.T) {
+	providerID := "openai"
+	input := CompileInput{Groups: []GroupConfig{{
+		ID:          1,
+		Name:        "provider-group",
+		ProviderID:  &providerID,
+		UpstreamURL: "https://api.openai.com/v1",
+		Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
+		Models:      []ModelConfig{{ID: "gpt-4o"}},
+		Enabled:     true,
+	}}}
+
+	snapshot, err := Compile(input)
+	if err != nil {
+		t.Fatalf("Compile() error = %v", err)
+	}
+	providerID = "mutated-source"
+	*input.Groups[0].ProviderID = "mutated-input"
+
+	view := snapshot.Groups[1]
+	if view.ProviderID == nil || *view.ProviderID != "openai" {
+		t.Fatalf("GroupView.ProviderID = %v, want independent openai", view.ProviderID)
+	}
+}
+
+func TestCompileRejectsInvalidProviderIDForZeroModelAndDisabledGroups(t *testing.T) {
+	invalidProviderID := "OpenAI"
+	for _, test := range []struct {
+		name    string
+		enabled bool
+	}{
+		{name: "enabled zero-model Group", enabled: true},
+		{name: "disabled zero-model Group", enabled: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := Compile(CompileInput{Groups: []GroupConfig{{
+				ID:          1,
+				Name:        "corrupt-provider",
+				ProviderID:  &invalidProviderID,
+				UpstreamURL: "https://corrupt-provider.example/v1",
+				Protocols:   []protocol.Protocol{protocol.OpenAIResponses},
+				Models:      []ModelConfig{},
+				Enabled:     test.enabled,
+			}}})
+			if err == nil {
+				t.Fatal("Compile() error = nil, want invalid provider_id rejection")
+			}
+		})
 	}
 }
 

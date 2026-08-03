@@ -423,8 +423,9 @@ func TestLoaderMapsSystemAndGroupRows(t *testing.T) {
 			Set:    map[string]string{"X-System": "system"},
 			Remove: []string{"X-System-Remove"},
 		},
-		InjectUsageOptions:      true,
-		RequestLogRetentionDays: 7,
+		InjectUsageOptions:       true,
+		RequestLogRetentionDays:  7,
+		ModelsDevAutoSyncEnabled: true,
 	}
 	if !reflect.DeepEqual(snapshot.Settings, wantSettings) {
 		t.Fatalf("snapshot Settings = %#v, want %#v", snapshot.Settings, wantSettings)

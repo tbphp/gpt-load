@@ -111,18 +111,24 @@ export default {
     },
     modelPrices: {
       title: 'Model prices',
-      description:
-        'Read-only built-in and explicit-override summary; price editing is outside the Settings draft.',
-      loading: 'Loading model prices…',
-      loadFailed: 'Unable to load model prices.',
-      stale: 'Model prices may be stale because the background refresh failed.',
-      units: {
-        usd_per_million_tokens: 'USD per one million tokens',
-      },
-      summary: '{builtin} built-in references · {overrides} user overrides · {unit}',
-      latestOverrideAt: 'Last modified {time}.',
-      historyNote:
-        'Price changes affect estimates for future requests and do not recalculate history.',
+      description: 'Control automatic Models.dev sync, run a manual sync, or open the price center',
+      autoSync: 'Models.dev automatic sync',
+      autoSyncHelp: 'When enabled, background policy refreshes the catalog and automatic prices',
+      effectiveDetail: 'The current effective value comes from the built-in default',
+      environmentSource: 'Environment',
+      environmentDetail: 'The process environment controls this setting',
+      environmentControlled: 'Environment controlled',
+      readOnly: 'Read only',
+      readOnlyReason:
+        'The effective value comes from the environment and is never persisted by the UI',
+      manualSync: 'Manual sync',
+      manualSyncHelp:
+        'Independent of automatic sync; refreshes the catalog and automatic prices now',
+      syncNow: 'Sync now',
+      syncSucceeded: 'The model catalog and automatic prices are synced',
+      syncFailed: 'Unable to sync the model catalog and prices',
+      proxyNote:
+        'Catalog sync uses the shared server HTTP client and honors explicit or environment proxy configuration',
       manage: 'Manage model prices',
     },
     system: {

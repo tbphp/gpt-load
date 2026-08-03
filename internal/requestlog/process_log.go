@@ -17,13 +17,12 @@ const maxProcessSummaryBytes = 200
 func projectProcessLog(
 	redactor *redact.Redactor,
 	event telemetry.RequestEvent,
-	prices *pricing.Table,
 ) (logrus.Level, logrus.Fields, bool) {
 	if event.RequestID == "" {
 		return logrus.InfoLevel, nil, false
 	}
 
-	row, err := mapEvent(redactor, event, prices)
+	row, err := mapEvent(redactor, event)
 	if err != nil {
 		return logrus.InfoLevel, nil, false
 	}
@@ -71,6 +70,12 @@ func projectProcessLog(
 		row.CacheWrite5MTokens,
 		row.CacheWrite1HTokens,
 	)
+	if cacheWriteOK {
+		cacheWriteTokens, cacheWriteOK = usage.CheckedAdd(
+			cacheWriteTokens,
+			row.CacheWriteUnknownTokens,
+		)
+	}
 	if cacheWriteOK && cacheWriteTokens > 0 {
 		fields["cache_write_tokens"] = cacheWriteTokens
 	}
@@ -119,12 +124,11 @@ func attributedAttempt(event telemetry.RequestEvent) (uint, uint) {
 
 func (service *Service) logCompletedRequest(
 	event telemetry.RequestEvent,
-	prices *pricing.Table,
 ) {
 	defer func() {
 		_ = recover()
 	}()
-	level, fields, ok := projectProcessLog(service.redactor, event, prices)
+	level, fields, ok := projectProcessLog(service.redactor, event)
 	if !ok {
 		return
 	}

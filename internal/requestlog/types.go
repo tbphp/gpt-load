@@ -46,15 +46,16 @@ type Cursor struct {
 }
 
 type ListQuery struct {
-	FromMS      *int64
-	ToMS        *int64
-	GroupID     *uint
-	ClientModel string
-	AccessKeyID *uint
-	Status      telemetry.RequestStatus
-	RequestID   string
-	Limit       int
-	Cursor      *Cursor
+	FromMS        *int64
+	ToMS          *int64
+	GroupID       *uint
+	ClientModel   string
+	UpstreamModel string
+	AccessKeyID   *uint
+	Status        telemetry.RequestStatus
+	RequestID     string
+	Limit         int
+	Cursor        *Cursor
 }
 
 type AccessKeyRef struct {
@@ -64,28 +65,30 @@ type AccessKeyRef struct {
 }
 
 type Record struct {
-	RequestID            string
-	CompletedAtMS        int64
-	AccessKey            AccessKeyRef
-	Protocol             protocol.Protocol
-	ClientModel          string
-	UpstreamModel        string
-	Status               telemetry.RequestStatus
-	StatusCode           int
-	DurationMs           int64
-	ErrorCode            string
-	ErrorSummary         string
-	AffinityHit          bool
-	Attempts             []Attempt
-	GroupID              uint
-	UsageState           usage.State
-	CostState            pricing.CostState
-	UncachedInputTokens  int64
-	CacheReadTokens      int64
-	CacheWrite5MTokens   int64
-	CacheWrite1HTokens   int64
-	OutputTokens         int64
-	EstimatedCostNanoUSD int64
+	RequestID               string
+	CompletedAtMS           int64
+	AccessKey               AccessKeyRef
+	Protocol                protocol.Protocol
+	ClientModel             string
+	UpstreamModel           string
+	Status                  telemetry.RequestStatus
+	StatusCode              int
+	DurationMs              int64
+	ErrorCode               string
+	ErrorSummary            string
+	AffinityHit             bool
+	Attempts                []Attempt
+	GroupID                 uint
+	UsageState              usage.State
+	CostState               pricing.CostState
+	PricingCompleteness     pricing.Completeness
+	UncachedInputTokens     int64
+	CacheReadTokens         int64
+	CacheWrite5MTokens      int64
+	CacheWrite1HTokens      int64
+	CacheWriteUnknownTokens int64
+	OutputTokens            int64
+	EstimatedCostNanoUSD    int64
 }
 
 type Page struct {
@@ -112,24 +115,26 @@ type UsageQuery struct {
 	ToMS           int64
 	Granularity    UsageGranularity
 	GroupID        *uint
-	Model          string
+	UpstreamModel  string
 	Limit          int
 	BreakdownOrder UsageBreakdownOrder
 }
 
 type UsageAggregate struct {
-	RequestCount         int64
-	SuccessCount         int64
-	FailureCount         int64
-	UncachedInputTokens  int64
-	CacheReadTokens      int64
-	CacheWrite5MTokens   int64
-	CacheWrite1HTokens   int64
-	OutputTokens         int64
-	EstimatedCostNanoUSD int64
-	UsageMissingCount    int64
-	PartialCount         int64
-	UnpricedRequestCount int64
+	RequestCount            int64
+	SuccessCount            int64
+	FailureCount            int64
+	UncachedInputTokens     int64
+	CacheReadTokens         int64
+	CacheWrite5MTokens      int64
+	CacheWrite1HTokens      int64
+	CacheWriteUnknownTokens int64
+	OutputTokens            int64
+	EstimatedCostNanoUSD    int64
+	UsageMissingCount       int64
+	PartialCount            int64
+	UnpricedRequestCount    int64
+	PricingPartialCount     int64
 }
 
 type UsageSeriesPoint struct {

@@ -1,347 +1,358 @@
 <script setup lang="ts">
-import { ExternalLink, Pencil, TriangleAlert } from '@lucide/vue'
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { Pencil } from '@lucide/vue'
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import type { ModelPriceRuleDto, ModelPriceSource } from '@/app/resources/model-prices'
-import AppButton from '@/components/ui/AppButton.vue'
+import type { ModelPriceDto, ModelPriceStatus } from '@/app/resources/model-prices'
+import LedgerRecordList from '@/components/collection/LedgerRecordList.vue'
 import AppDateTime from '@/components/ui/AppDateTime.vue'
-import DataTable from '@/components/ui/DataTable.vue'
-import MobileRecordCard from '@/components/ui/MobileRecordCard.vue'
+import IconButton from '@/components/ui/IconButton.vue'
 import StatusBadge from '@/components/ui/StatusBadge.vue'
 
 import ModelPriceResetDialog from './ModelPriceResetDialog.vue'
-import { modelPricePatternKind } from './model-price-form'
-import { presentModelPriceRule } from './model-price-presenter'
+import { presentModelPrice } from './model-price-presenter'
 
 const props = defineProps<{
-  rules: ModelPriceRuleDto[]
-  source: ModelPriceSource
+  rows: ModelPriceDto[]
+  status: ModelPriceStatus
 }>()
 const emit = defineEmits<{
-  edit: [rule: ModelPriceRuleDto, trigger: HTMLElement]
+  edit: [row: ModelPriceDto, trigger: HTMLElement]
 }>()
-const { locale, n, t } = useI18n()
-const mobile = ref(false)
-let mediaQuery: MediaQueryList | undefined
-
-try {
-  mediaQuery = window.matchMedia('(max-width: 767px)')
-  mobile.value = mediaQuery.matches
-} catch {
-  mediaQuery = undefined
-}
+const { locale, t } = useI18n()
 
 const presentations = computed(() =>
-  props.rules.map((rule) =>
-    presentModelPriceRule(rule, {
-      fieldLabels: {
-        uncached_input: t('modelPrices.fields.uncached_input'),
-        cache_read: t('modelPrices.fields.cache_read'),
-        cache_write_5m: t('modelPrices.fields.cache_write_5m'),
-        cache_write_1h: t('modelPrices.fields.cache_write_1h'),
-        output: t('modelPrices.fields.output'),
-      },
-      notConfigured: t('modelPrices.notConfigured'),
-      explicitlyFree: t('modelPrices.explicitlyFree'),
-      configuredPrice: (price) => t('modelPrices.configuredPrice', { price }),
-      kindLabel: (pattern) => t(`modelPrices.kind.${modelPricePatternKind(pattern)}`),
-      sourceLabel: (source) => t(`modelPrices.source.${source}`),
-      policySummary: (policy) =>
-        t('modelPrices.builtin.longContext.summary', {
-          threshold: n(policy.input_threshold_tokens),
-          inputMultiplier: n(policy.input_multiplier),
-          outputMultiplier: n(policy.output_multiplier),
-        }),
+  props.rows.map((row) =>
+    presentModelPrice(row, {
+      unavailable: t('modelPrices.values.unavailable'),
+      free: t('modelPrices.values.free'),
+      configured: (value) => t('modelPrices.values.configured', { value }),
     }),
   ),
 )
-function sourceRule(index: number): ModelPriceRuleDto {
-  const rule = props.rules[index]
-  if (!rule) throw new Error(`MODEL_PRICE_SOURCE_MISSING:${index}`)
-  return rule
-}
 
-function edit(index: number, trigger: HTMLElement): void {
-  emit('edit', sourceRule(index), trigger)
+function edit(row: ModelPriceDto, trigger: HTMLElement): void {
+  emit('edit', row, trigger)
 }
-
-function updateMedia(event: MediaQueryListEvent): void {
-  mobile.value = event.matches
-}
-
-onMounted(() => mediaQuery?.addEventListener('change', updateMedia))
-onBeforeUnmount(() => mediaQuery?.removeEventListener('change', updateMedia))
 </script>
 
 <template>
-  <div class="model-price-collection">
-    <div v-if="mobile" class="model-price-collection__cards">
-      <MobileRecordCard
-        v-for="(record, index) in presentations"
-        :key="record.pattern"
-        :label="record.pattern"
-      >
-        <template #header>
-          <div class="model-price-card__identity">
-            <h3>{{ record.pattern }}</h3>
-            <StatusBadge>{{ record.kind }}</StatusBadge>
-          </div>
-          <StatusBadge>{{ record.source }}</StatusBadge>
-        </template>
+  <section class="model-price-section" :aria-labelledby="`model-price-${status}-title`">
+    <header class="model-price-section__heading">
+      <div>
+        <h2 :id="`model-price-${status}-title`">{{ t(`modelPrices.sections.${status}.title`) }}</h2>
+        <p>{{ t(`modelPrices.sections.${status}.description`) }}</p>
+      </div>
+      <span>{{ t('modelPrices.sections.count', { count: rows.length }) }}</span>
+    </header>
 
-        <p v-if="record.globalOverride" class="model-price-card__warning">
-          <TriangleAlert :size="14" aria-hidden="true" />
-          {{ t('modelPrices.globalUserOverride') }}
-        </p>
-        <details>
-          <summary>{{ t('modelPrices.details') }}</summary>
-          <dl>
-            <template v-for="price in record.priceRows" :key="price.field">
-              <dt>{{ price.label }}</dt>
-              <dd>{{ price.value }}</dd>
-            </template>
-            <dt>{{ t('modelPrices.table.source') }}</dt>
-            <dd>
-              <a
-                v-if="record.sourceUrl"
-                class="model-price-collection__source"
-                :href="record.sourceUrl"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                {{ t('modelPrices.builtin.source') }}
-                <ExternalLink :size="14" aria-hidden="true" />
-              </a>
-              <span v-else>
-                {{
-                  source === 'builtin'
-                    ? t('modelPrices.sourceUnavailable')
-                    : t('modelPrices.source.user')
-                }}
-              </span>
-            </dd>
-            <dt>{{ t('modelPrices.table.updatedAt') }}</dt>
-            <dd>
-              <AppDateTime :instant="record.updatedAt" :locale="locale" />
-            </dd>
-          </dl>
-          <p v-if="record.policySummary" class="model-price-collection__policy">
-            <StatusBadge>{{ t('modelPrices.builtin.longContext.label') }}</StatusBadge>
-            <span>{{ record.policySummary }}</span>
-          </p>
-        </details>
-
-        <template #actions>
-          <AppButton variant="ghost" @click="edit(index, $event.currentTarget as HTMLElement)">
-            <Pencil :size="15" aria-hidden="true" />{{
-              source === 'user'
-                ? t('modelPrices.overrides.edit')
-                : t('modelPrices.builtin.createOverride')
-            }}
-          </AppButton>
-          <ModelPriceResetDialog v-if="source === 'user'" :rule="sourceRule(index)" />
-        </template>
-      </MobileRecordCard>
-    </div>
-
-    <DataTable
-      v-else
-      :caption="
-        source === 'user' ? t('modelPrices.overrides.caption') : t('modelPrices.builtin.caption')
-      "
-      :scroll-hint="t('modelPrices.scrollHint')"
-      dense
+    <LedgerRecordList
+      :label="t(`modelPrices.sections.${status}.tableLabel`)"
+      :row-count="rows.length + 1"
+      grid-class="model-price-record-grid"
     >
-      <thead>
-        <tr>
-          <th scope="col" data-column-priority="high">{{ t('modelPrices.table.pattern') }}</th>
-          <th scope="col" data-column-priority="high">{{ t('modelPrices.table.kind') }}</th>
-          <th v-for="field in presentations[0]?.priceRows ?? []" :key="field.field" scope="col">
-            {{ field.label }}
-          </th>
-          <th scope="col">{{ t('modelPrices.table.source') }}</th>
-          <th scope="col">{{ t('modelPrices.table.updatedAt') }}</th>
-          <th scope="col" data-column-priority="high">{{ t('modelPrices.table.actions') }}</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr v-for="(record, index) in presentations" :key="record.pattern">
-          <td>
-            <code>{{ record.pattern }}</code>
-            <span v-if="record.globalOverride" class="model-price-collection__global-warning">
-              <TriangleAlert :size="14" aria-hidden="true" />
-              {{ t('modelPrices.globalUserOverride') }}
-            </span>
-            <div v-if="record.policySummary" class="model-price-collection__policy">
-              <StatusBadge>{{ t('modelPrices.builtin.longContext.label') }}</StatusBadge>
-              <span>{{ record.policySummary }}</span>
-            </div>
-          </td>
-          <td>
-            <StatusBadge>{{ record.kind }}</StatusBadge>
-            <span class="model-price-collection__source-label">{{ record.source }}</span>
-          </td>
-          <td v-for="price in record.priceRows" :key="price.field">
-            {{ price.value }}
-          </td>
-          <td>
-            <a
-              v-if="record.sourceUrl"
-              class="model-price-collection__source"
-              :href="record.sourceUrl"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              {{ t('modelPrices.builtin.source') }}
-              <ExternalLink :size="14" aria-hidden="true" />
-            </a>
-            <span v-else>
-              {{
-                source === 'builtin'
-                  ? t('modelPrices.sourceUnavailable')
-                  : t('modelPrices.source.user')
-              }}
-            </span>
-          </td>
-          <td>
-            <AppDateTime :instant="record.updatedAt" :locale="locale" />
-          </td>
-          <td>
-            <div class="model-price-collection__row-actions">
-              <AppButton variant="ghost" @click="edit(index, $event.currentTarget as HTMLElement)">
-                <Pencil :size="15" aria-hidden="true" />{{
-                  source === 'user'
-                    ? t('modelPrices.overrides.edit')
-                    : t('modelPrices.builtin.createOverride')
-                }}
-              </AppButton>
-              <ModelPriceResetDialog v-if="source === 'user'" :rule="sourceRule(index)" />
-            </div>
-          </td>
-        </tr>
-      </tbody>
-    </DataTable>
-  </div>
+      <template #header>
+        <span role="columnheader">{{ t('modelPrices.columns.identity') }}</span>
+        <span role="columnheader">{{ t('modelPrices.columns.status') }}</span>
+        <span role="columnheader">{{ t('modelPrices.columns.prices') }}</span>
+        <span role="columnheader">{{ t('modelPrices.columns.facts') }}</span>
+        <span role="columnheader">{{ t('modelPrices.columns.updatedAt') }}</span>
+        <span role="columnheader">{{ t('modelPrices.columns.actions') }}</span>
+      </template>
+
+      <article
+        v-for="(record, index) in presentations"
+        :key="record.row.id"
+        class="ledger-record-list__record model-price-record"
+        role="row"
+        :aria-rowindex="index + 2"
+      >
+        <div class="ledger-record-list__cell model-price-identity" role="cell">
+          <strong>{{ record.row.model_id }}</strong>
+          <span>
+            {{ t(`modelPrices.scope.${record.row.scope.kind}`) }} · {{ record.row.scope.label }}
+          </span>
+        </div>
+
+        <div class="ledger-record-list__cell model-price-status" role="cell">
+          <StatusBadge
+            size="compact"
+            :tone="record.row.pricing_status === 'configured' ? 'success' : 'warning'"
+          >
+            {{ t(`modelPrices.status.${record.row.pricing_status}`) }}
+          </StatusBadge>
+        </div>
+
+        <div class="ledger-record-list__cell model-price-slots" role="cell">
+          <div
+            v-for="slot in record.slots"
+            :key="slot.field"
+            class="model-price-slot"
+            :data-state="slot.state"
+          >
+            <span>{{ t(`modelPrices.fields.${slot.field}`) }}</span>
+            <strong>{{ slot.value }}</strong>
+          </div>
+          <p v-if="record.row.partial || record.row.has_context_tiers">
+            <span v-if="record.row.partial">{{ t('modelPrices.facts.partial') }}</span>
+            <span v-if="record.row.has_context_tiers">{{ t('modelPrices.facts.tiered') }}</span>
+          </p>
+        </div>
+
+        <div class="ledger-record-list__cell model-price-facts" role="cell">
+          <span class="mobile-label">{{ t('modelPrices.columns.facts') }}</span>
+          <strong>
+            {{
+              record.method === null
+                ? t('modelPrices.method.pending')
+                : t(`modelPrices.method.${record.method}`)
+            }}
+          </strong>
+          <small>
+            {{
+              t('modelPrices.references', {
+                entries: record.row.reference_count,
+                groups: record.row.reference_group_count,
+              })
+            }}
+          </small>
+        </div>
+
+        <div class="ledger-record-list__cell model-price-updated" role="cell">
+          <span class="mobile-label">{{ t('modelPrices.columns.updatedAt') }}</span>
+          <AppDateTime :instant="record.row.updated_at_ms" :locale="locale" />
+        </div>
+
+        <div class="ledger-record-list__cell model-price-actions" role="cell">
+          <IconButton
+            variant="ghost"
+            tone="action"
+            size="compact"
+            :label="t('modelPrices.edit.open', { model: record.row.model_id })"
+            @click="edit(record.row, $event.currentTarget as HTMLElement)"
+          >
+            <Pencil :size="15" aria-hidden="true" />
+          </IconButton>
+          <ModelPriceResetDialog v-if="record.row.can_reset" :row="record.row" action="reset" />
+          <ModelPriceResetDialog v-if="record.row.can_delete" :row="record.row" action="delete" />
+        </div>
+      </article>
+    </LedgerRecordList>
+  </section>
 </template>
 
 <style scoped>
-.model-price-collection {
-  min-width: 0;
-}
-
-.model-price-collection__cards {
+.model-price-section {
   display: grid;
-  gap: var(--space-3);
-}
-
-.model-price-card__identity {
   min-width: 0;
+  gap: var(--space-2-5);
 }
 
-.model-price-card__identity h3 {
-  margin: 0 0 var(--space-2);
+.model-price-section + .model-price-section {
+  margin-top: var(--space-6);
+}
+
+.model-price-section__heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.model-price-section__heading h2,
+.model-price-section__heading p {
+  margin: 0;
+}
+
+.model-price-section__heading h2 {
+  font-size: var(--text-body);
+}
+
+.model-price-section__heading p,
+.model-price-section__heading > span {
+  color: var(--color-text-faint);
+  font-size: var(--text-label-xs);
+}
+
+.model-price-section__heading p {
+  margin-top: var(--space-0-75);
+}
+
+.model-price-section__heading > span {
   font-family: var(--font-mono);
-  font-size: var(--text-lg);
-  overflow-wrap: anywhere;
 }
 
-.model-price-card__warning,
-.model-price-collection__global-warning {
+.model-price-record-grid {
+  --ledger-record-list-grid: minmax(150px, 1.15fr) 104px minmax(300px, 2.25fr) minmax(138px, 0.9fr)
+    126px 116px;
+  --ledger-record-list-column-gap: var(--space-3-5);
+  --ledger-record-list-record-min-height: 88px;
+  --ledger-record-list-record-padding: var(--space-3) 0;
+}
+
+.model-price-identity,
+.model-price-facts,
+.model-price-updated {
+  display: grid;
+  align-content: center;
+  gap: var(--space-1);
+}
+
+.model-price-identity strong {
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: var(--text-meta);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-price-identity span,
+.model-price-facts small,
+.model-price-updated {
+  color: var(--color-text-faint);
+  font-size: var(--text-label-xs);
+}
+
+.model-price-slots {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-1-75);
+}
+
+.model-price-slot {
+  min-width: 0;
+  border-left: 1px solid var(--color-border-subtle);
+  padding-left: var(--space-1-75);
+}
+
+.model-price-slot:first-child {
+  border-left: 0;
+  padding-left: 0;
+}
+
+.model-price-slot span {
+  display: block;
+  overflow: hidden;
+  color: var(--color-text-faint);
+  font-size: var(--text-label-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-price-slot strong {
+  display: block;
+  overflow: hidden;
+  margin-top: var(--space-0-5);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-price-slot[data-state='unavailable'] strong {
+  color: var(--color-text-faint);
+  font-family: var(--font-sans);
+  font-weight: 500;
+}
+
+.model-price-slot[data-state='free'] strong {
+  color: var(--color-success);
+}
+
+.model-price-slots > p {
+  display: flex;
+  grid-column: 1 / -1;
+  flex-wrap: wrap;
+  gap: var(--space-1-75);
+  margin: var(--space-0-5) 0 0;
+  color: var(--color-text-faint);
+  font-size: var(--text-label-xs);
+}
+
+.model-price-slots > p span + span::before {
+  content: '·';
+  margin-right: var(--space-1-75);
+}
+
+.model-price-facts strong {
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.model-price-actions {
   display: flex;
   align-items: center;
-  gap: var(--space-1);
-  color: var(--color-warning);
-  font-size: var(--text-xs);
-  font-weight: 650;
+  justify-content: flex-end;
+  gap: var(--space-0-5);
 }
 
-.model-price-card__warning {
-  margin: 0;
+.mobile-label {
+  display: none;
 }
 
-.model-price-collection details {
-  border-top: 1px solid var(--color-border-subtle);
-  padding-top: var(--space-3);
+@media (max-width: 1160px) {
+  .model-price-record-grid {
+    --ledger-record-list-grid: minmax(140px, 1.1fr) 96px minmax(280px, 2fr) minmax(120px, 0.8fr)
+      108px 108px;
+    --ledger-record-list-column-gap: var(--space-2-5);
+  }
 }
 
-.model-price-collection summary {
-  min-height: var(--touch-target);
-  color: var(--color-action);
-  cursor: pointer;
-  font-weight: 650;
+@media (max-width: 860px) {
+  .model-price-record-grid {
+    --ledger-record-list-card-grid: minmax(0, 1fr) auto;
+  }
+
+  .model-price-identity {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .model-price-status {
+    grid-column: 2;
+    grid-row: 1;
+    justify-self: end;
+  }
+
+  .model-price-slots {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .model-price-facts {
+    grid-column: 1;
+    grid-row: 3;
+  }
+
+  .model-price-updated {
+    grid-column: 2;
+    grid-row: 3;
+    text-align: right;
+  }
+
+  .model-price-actions {
+    grid-column: 1 / -1;
+    grid-row: 4;
+    justify-content: flex-end;
+    border-top: 1px solid var(--color-border-subtle);
+    padding-top: var(--space-2-5);
+  }
+
+  .mobile-label {
+    display: block;
+    color: var(--color-text-faint);
+    font-size: var(--text-label-xs);
+  }
 }
 
-.model-price-collection details dl {
-  display: grid;
-  grid-template-columns: minmax(8rem, auto) minmax(0, 1fr);
-  gap: var(--space-2);
-  margin: var(--space-3) 0 0;
-}
+@media (max-width: 560px) {
+  .model-price-section__heading {
+    align-items: flex-start;
+  }
 
-.model-price-collection details dt {
-  color: var(--color-text-muted);
-}
-
-.model-price-collection details dd {
-  min-width: 0;
-  margin: 0;
-  overflow-wrap: anywhere;
-}
-
-.model-price-collection code {
-  color: var(--color-code);
-  font-family: var(--font-mono);
-  white-space: nowrap;
-}
-
-.model-price-collection td:not(:first-child, :last-child) {
-  font-variant-numeric: tabular-nums;
-}
-
-.model-price-collection__source,
-.model-price-collection__row-actions {
-  display: inline-flex;
-  align-items: center;
-}
-
-.model-price-collection__source {
-  min-height: var(--touch-target);
-  gap: var(--space-1);
-  color: var(--color-action);
-  font-weight: 650;
-  white-space: nowrap;
-}
-
-.model-price-collection__source-label {
-  display: block;
-  margin-top: var(--space-1);
-  color: var(--color-text-muted);
-  font-size: var(--text-xs);
-}
-
-.model-price-collection__policy {
-  display: grid;
-  max-width: 22rem;
-  gap: var(--space-1);
-  margin: var(--space-2) 0 0;
-  color: var(--color-text-muted);
-  font-size: var(--text-xs);
-  line-height: var(--line-normal);
-  white-space: normal;
-}
-
-.model-price-collection__policy > :first-child {
-  width: fit-content;
-}
-
-.model-price-collection__global-warning {
-  margin-top: var(--space-1);
-  white-space: normal;
-}
-
-.model-price-collection__row-actions {
-  gap: var(--space-2);
-  white-space: nowrap;
+  .model-price-slots {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 </style>

@@ -7,6 +7,8 @@ var (
 	ErrFinalized = errors.New("usage accumulator finalized")
 	// ErrNegativePatch indicates a patch contains a negative token count.
 	ErrNegativePatch = errors.New("usage patch contains negative token count")
+	// ErrTokenOverflow indicates the combined token count exceeds int64.
+	ErrTokenOverflow = errors.New("usage token total overflows int64")
 )
 
 const (
@@ -14,6 +16,7 @@ const (
 	presenceCacheRead
 	presenceCacheWrite5M
 	presenceCacheWrite1H
+	presenceCacheWriteUnknown
 	presenceOutput
 )
 
@@ -35,11 +38,18 @@ func (a *Accumulator) ReplaceSnapshot(patch Patch) error {
 		return ErrNegativePatch
 	}
 
-	a.tokens = Tokens{}
-	a.presence = 0
-	a.diagnostics = patch.Diagnostics
-	a.final = patch.Final
-	a.apply(patch)
+	candidate := Accumulator{
+		diagnostics: patch.Diagnostics,
+		final:       patch.Final,
+	}
+	candidate.apply(patch)
+	if _, ok := CheckedTotal(candidate.tokens); !ok {
+		return ErrTokenOverflow
+	}
+	a.tokens = candidate.tokens
+	a.presence = candidate.presence
+	a.diagnostics = candidate.diagnostics
+	a.final = candidate.final
 	return nil
 }
 
@@ -52,9 +62,17 @@ func (a *Accumulator) MergePatch(patch Patch) error {
 		return ErrNegativePatch
 	}
 
-	a.apply(patch)
-	a.diagnostics.Merge(patch.Diagnostics)
-	a.final = a.final || patch.Final
+	candidate := *a
+	candidate.apply(patch)
+	candidate.diagnostics.Merge(patch.Diagnostics)
+	candidate.final = candidate.final || patch.Final
+	if _, ok := CheckedTotal(candidate.tokens); !ok {
+		return ErrTokenOverflow
+	}
+	a.tokens = candidate.tokens
+	a.presence = candidate.presence
+	a.diagnostics = candidate.diagnostics
+	a.final = candidate.final
 	return nil
 }
 
@@ -83,6 +101,7 @@ func validPatch(patch Patch) bool {
 		patch.CacheRead,
 		patch.CacheWrite5M,
 		patch.CacheWrite1H,
+		patch.CacheWriteUnknown,
 		patch.Output,
 	} {
 		if value != nil && *value < 0 {
@@ -108,6 +127,10 @@ func (a *Accumulator) apply(patch Patch) {
 	if patch.CacheWrite1H != nil {
 		a.tokens.CacheWrite1H = *patch.CacheWrite1H
 		a.presence |= presenceCacheWrite1H
+	}
+	if patch.CacheWriteUnknown != nil {
+		a.tokens.CacheWriteUnknown = *patch.CacheWriteUnknown
+		a.presence |= presenceCacheWriteUnknown
 	}
 	if patch.Output != nil {
 		a.tokens.Output = *patch.Output

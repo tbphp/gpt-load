@@ -10,38 +10,10 @@ export default {
       clearSearch: 'Clear provider search',
       collapse: 'Collapse',
       noMatches: 'No providers match; you can still use a custom connection',
-      categories: {
-        native: 'Native providers',
-        'openai-compatible': 'OpenAI compatible',
-      },
-      openai: {
-        name: 'OpenAI',
-        description: 'Chat Completions and Responses',
-      },
-      anthropic: {
-        name: 'Anthropic',
-        description: 'Native Messages protocol',
-      },
-      gemini: {
-        name: 'Gemini',
-        description: 'Native generateContent protocol',
-      },
-      deepseek: {
-        name: 'DeepSeek',
-        description: 'OpenAI compatible · Chat Completions',
-      },
-      openrouter: {
-        name: 'OpenRouter',
-        description: 'Model aggregator · OpenAI compatible',
-      },
-      siliconflow: {
-        name: 'SiliconFlow',
-        description: 'Third-party models · OpenAI compatible',
-      },
-      moonshot: {
-        name: 'Moonshot',
-        description: 'Third-party models · OpenAI compatible',
-      },
+      catalog: 'Provider catalog',
+      loading: 'Loading provider catalog…',
+      loadFailed: 'Unable to load the provider catalog',
+      protocolsUnavailable: 'Protocol capabilities unavailable',
       more: {
         name: 'More presets',
         description: 'Search third-party providers or use a custom connection',
@@ -93,7 +65,8 @@ export default {
     },
     connection: {
       title: 'Connection details',
-      description: 'Presets only update the URL and protocols, never the name, keys, or models',
+      description:
+        'Provider selection only updates the URL and protocols, never the name, keys, or models',
       name: 'Group name',
       namePlaceholder: 'Leave blank to generate it from the upstream URL',
       url: 'Upstream base URL',
@@ -136,7 +109,7 @@ export default {
       tableLabel: 'Models to publish',
       id: 'Model ID',
       alias: 'Public model name',
-      source: 'Source',
+      source: 'Pricing status',
       actions: 'Actions',
       search: 'Search models or aliases',
       searchLabel: 'Search',
@@ -152,8 +125,12 @@ export default {
       locateFirstInvalid: 'Go to first issue',
       nameConflict: 'Public model name “{name}” is duplicated',
       sources: {
-        manual: 'Manual',
-        discovered: 'Discovered',
+        catalog: 'Catalog',
+        live: 'Live discovery',
+      },
+      pricing: {
+        pending: 'Pending',
+        configured: 'Configured',
       },
       aliasFor: 'Alias for {id}',
       manualId: 'Manual model ID',

@@ -299,15 +299,6 @@ func (registry *Registry) Bind(engine *gin.Engine) error {
 	for _, route := range registry.routes {
 		module := registry.modules[route.moduleIndex]
 		declaration := module.Routes[route.routeIndex]
-		chainLength := len(engine.Handlers) + routeChainLength(module, declaration)
-		if chainLength >= ginMaximumHandlerChainLength {
-			return fmt.Errorf(
-				"module %q route %q has too many handlers after engine middleware: %d",
-				module.Name,
-				declaration.Name,
-				chainLength,
-			)
-		}
 		for _, method := range declaration.Methods {
 			patterns = append(patterns, routePattern{method: method, path: route.path})
 		}
@@ -322,10 +313,37 @@ func (registry *Registry) Bind(engine *gin.Engine) error {
 		return fmt.Errorf("preflight Gin engine routes: %w", err)
 	}
 
-	for _, route := range registry.routes {
+	ownershipGuards := make([]gin.HandlerFunc, len(registry.routes))
+	for routeIndex, route := range registry.routes {
 		module := registry.modules[route.moduleIndex]
 		declaration := module.Routes[route.routeIndex]
-		handlers := registry.routeHandlers(route.moduleIndex, declaration)
+		ownershipGuards[routeIndex] = registry.staticPathOwnershipGuard(
+			route.path,
+			runtimeRoutes,
+		)
+		chainLength := len(engine.Handlers) + routeChainLength(
+			module,
+			declaration,
+			ownershipGuards[routeIndex] != nil,
+		)
+		if chainLength >= ginMaximumHandlerChainLength {
+			return fmt.Errorf(
+				"module %q route %q has too many handlers after engine middleware: %d",
+				module.Name,
+				declaration.Name,
+				chainLength,
+			)
+		}
+	}
+
+	for routeIndex, route := range registry.routes {
+		module := registry.modules[route.moduleIndex]
+		declaration := module.Routes[route.routeIndex]
+		handlers := registry.routeHandlers(
+			route.moduleIndex,
+			declaration,
+			ownershipGuards[routeIndex],
+		)
 		for _, method := range declaration.Methods {
 			engine.Handle(method, route.path, handlers...)
 		}
@@ -341,10 +359,14 @@ func (registry *Registry) Bind(engine *gin.Engine) error {
 func (registry *Registry) routeHandlers(
 	moduleIndex int,
 	route Route,
+	ownershipGuard gin.HandlerFunc,
 ) gin.HandlersChain {
 	module := registry.modules[moduleIndex]
-	length := routeChainLength(module, route)
+	length := routeChainLength(module, route, ownershipGuard != nil)
 	handlers := make(gin.HandlersChain, 0, length)
+	if ownershipGuard != nil {
+		handlers = append(handlers, ownershipGuard)
+	}
 	if route.PathValidator != nil {
 		validator := route.PathValidator
 		notFound := module.NotFound
@@ -364,8 +386,15 @@ func (registry *Registry) routeHandlers(
 	return handlers
 }
 
-func routeChainLength(module Module, route Route) int {
+func routeChainLength(
+	module Module,
+	route Route,
+	hasOwnershipGuard bool,
+) int {
 	length := len(module.BeforeAuth) + len(route.Prepare) + len(route.Handlers)
+	if hasOwnershipGuard {
+		length++
+	}
 	if route.PathValidator != nil {
 		length++
 	}
@@ -373,6 +402,72 @@ func routeChainLength(module Module, route Route) int {
 		length++
 	}
 	return length
+}
+
+func (registry *Registry) staticPathOwnershipGuard(
+	matchedPattern string,
+	routes []runtimeRoute,
+) gin.HandlerFunc {
+	owners := make(map[string][]int)
+	for routeIndex, route := range routes {
+		if route.path == matchedPattern ||
+			!isStaticRoutePattern(route.path) ||
+			!matchPattern(matchedPattern, route.path) {
+			continue
+		}
+		owners[route.path] = append(owners[route.path], routeIndex)
+	}
+	if len(owners) == 0 {
+		return nil
+	}
+
+	return func(c *gin.Context) {
+		ownerRoutes, exists := owners[c.Request.URL.Path]
+		if !exists {
+			return
+		}
+		allowed := make(map[string]struct{})
+		ownerModuleIndex := -1
+		for _, routeIndex := range ownerRoutes {
+			route := routes[routeIndex]
+			if route.validator != nil && !route.validator(c.Request) {
+				continue
+			}
+			if ownerModuleIndex < 0 {
+				ownerModuleIndex = route.moduleIndex
+			}
+			for _, method := range route.methods {
+				allowed[method] = struct{}{}
+			}
+		}
+		if len(allowed) == 0 {
+			return
+		}
+		if _, exists := allowed[c.Request.Method]; exists {
+			return
+		}
+
+		methods := make([]string, 0, len(allowed))
+		for method := range allowed {
+			methods = append(methods, method)
+		}
+		sort.Strings(methods)
+		c.Header("Allow", strings.Join(methods, ", "))
+		var handler gin.HandlerFunc
+		if ownerModuleIndex >= 0 {
+			handler = registry.modules[ownerModuleIndex].MethodNotAllowed
+		}
+		invokeTerminal(c, http.StatusMethodNotAllowed, handler)
+	}
+}
+
+func isStaticRoutePattern(pattern string) bool {
+	for _, segment := range strings.Split(strings.TrimPrefix(pattern, "/"), "/") {
+		if strings.HasPrefix(segment, ":") || strings.HasPrefix(segment, "*") {
+			return false
+		}
+	}
+	return true
 }
 
 func (registry *Registry) handleNoRoute(c *gin.Context) {
@@ -403,7 +498,7 @@ func (registry *Registry) handleNoMethod(c *gin.Context) {
 		}
 	}
 
-	allowed := make(map[string]struct{})
+	validByMethod := make(map[string]int)
 	bestByMethod := make(map[string]int, len(ginAllowed))
 	bestSemantic := -1
 	bestRaw := -1
@@ -433,10 +528,21 @@ func (registry *Registry) handleNoMethod(c *gin.Context) {
 		if route.validator != nil && !route.validator(c.Request) {
 			continue
 		}
-		allowed[method] = struct{}{}
+		validByMethod[method] = routeIndex
 		if moreSpecific(route.path, registry.runtime, bestSemantic) {
 			bestSemantic = routeIndex
 		}
+	}
+	allowed := make(map[string]struct{}, len(validByMethod))
+	for method, routeIndex := range validByMethod {
+		if bestSemantic >= 0 && moreSpecific(
+			registry.runtime[bestSemantic].path,
+			registry.runtime,
+			routeIndex,
+		) {
+			continue
+		}
+		allowed[method] = struct{}{}
 	}
 
 	if len(allowed) == 0 {

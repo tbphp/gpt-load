@@ -1373,10 +1373,29 @@ func TestReleaseDockerSmokeCanUsePublishedSourceWithoutDeletingIt(t *testing.T) 
 		`docker pull --platform "${platform}" "${source_image}"`,
 		`docker image tag "${source_image}" "${image}"`,
 		`docker image rm "${image}"`,
-		"prices.data.overrides.some",
+		`model_price_list_path="/api/model-prices?usage=in_use&status=all&page=1&page_size=100"`,
+		`api_write PUT "/api/model-prices/${model_price_id}"`,
+		`item.scope.kind==="group"&&item.scope.id===groupID`,
+		`item.model_id===modelID`,
+		`!Number.isSafeInteger(matches[0].id)||matches[0].id<=0`,
+		`api_get "${model_price_list_path}" >"${task_tmp}/prices-second.json"`,
+		`matches[0].id!==priceID`,
+		`matches[0].method!=="user_set"||matches[0].pricing_status!=="configured"`,
+		`persisted.input!=="1"||persisted.output!=="2"`,
+		`persisted.cache_read!=="3"||persisted.cache_write!=="4"`,
 	} {
 		if !strings.Contains(script, required) {
 			t.Fatalf("release Docker smoke source-image mode does not contain %q", required)
+		}
+	}
+	for _, legacy := range []string{
+		"prices.data.overrides",
+		`"pattern":"task13-release-model"`,
+		`"cache_write_5m"`,
+		`"cache_write_1h"`,
+	} {
+		if strings.Contains(script, legacy) {
+			t.Fatalf("release Docker smoke retains legacy model-price contract %q", legacy)
 		}
 	}
 	if strings.Contains(script, `docker image rm "${source_image}"`) {

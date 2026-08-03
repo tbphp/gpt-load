@@ -75,7 +75,12 @@ export function mergeSettingsConflict(
     const mineChanged = !sameSettingsFieldIdentity(mineIdentity, baseIdentity)
     const latestChanged = !sameSettingsFieldIdentity(latestIdentity, baseIdentity)
 
-    if (mineChanged && latestChanged && !sameSettingsFieldIdentity(mineIdentity, latestIdentity)) {
+    if (
+      !latestIdentity.is_read_only &&
+      mineChanged &&
+      latestChanged &&
+      !sameSettingsFieldIdentity(mineIdentity, latestIdentity)
+    ) {
       conflicts.push({ key, mine: mineIdentity, latest: latestIdentity })
     }
   }
@@ -107,12 +112,13 @@ export function reconcileSettingsMutation(
   )
   const everyIntendedFieldApplied =
     changedKeys.length > 0 &&
-    changedKeys.every((key) =>
-      sameSettingsFieldIdentity(
-        draftFieldIdentity(draft, key),
-        settingsFieldIdentity(latest.settings, key),
-      ),
-    )
+    changedKeys.every((key) => {
+      const latestIdentity = settingsFieldIdentity(latest.settings, key)
+      return (
+        latestIdentity.is_read_only ||
+        sameSettingsFieldIdentity(draftFieldIdentity(draft, key), latestIdentity)
+      )
+    })
 
   return {
     kind: everyIntendedFieldApplied ? 'confirmed' : 'indeterminate',

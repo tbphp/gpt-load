@@ -129,6 +129,7 @@ func newDialectGatewayEngine(
 		health.NewMutationCoordinator(),
 		nil,
 		nil,
+		nil,
 	)
 	handler.newRandom = func() *rand.Rand { return rand.New(zeroSource{}) }
 	engine := gin.New()

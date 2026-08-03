@@ -49,7 +49,7 @@ GPT-Load 是一个用 Go 构建的自托管 AI API Key 聚合与原生协议网�
 - **四种可选原生协议**：OpenAI Completions、OpenAI Responses、Anthropic Messages 与 Gemini 请求分别按对应协议转发；Group 可以任意多选，不做协议互转。
 - **密钥与流量管理**：Group、加密上游 Key、AccessKey、模型发现、筛选与限流、调度、健康状态、cooldown、blacklist 和自动权重。
 - **控制与可观测性**：运行设置、路由检查、健康视图、RequestLog，以及中文、英文、日文管理 UI。
-- **用量与估算成本**：对四种协议中会返回生成 usage 的接口进行采集，提供 24 小时/30 天汇总、明细质量状态、内置价格和用户价格覆盖。
+- **用量与估算成本**：对四种协议中会返回生成 usage 的接口进行采集，提供 24 小时/30 天汇总、明细质量状态、可用时从 Models.dev 同步的精确四槽模型价格，以及用户管理的价格。
 
 M3 控制面 UI 与 M4 用量/定价范围已经进入本地候选，但正式出口与公开发布尚未完成。价格和成本是基于上游返回 usage 与当前价格规则的 best-effort **估算**，不是 billing ledger、发票或供应商账单，也不会对历史请求重新计价。
 
@@ -63,7 +63,7 @@ M3 控制面 UI 与 M4 用量/定价范围已经进入本地候选，但正式�
 - OpenAI Responses 资源路由暂时没有 Key 亲和。使用 `previous_response_id` 或 `conversation` 的有状态多轮，以及后续 retrieve/delete/cancel/input-items 请求，只有在单上游 Key 或上游跨 Key 共享资源存储时才可靠；否则可能由被选中的上游返回资源不存在。
 - 上游密钥必须静态加密，不允许明文回退；2.0.0 不支持主密钥轮换，`migrate-keys` 仍是明确失败的延后命令。
 - 不支持 1.x 数据自动迁移、原地升级或反向同步。
-- 不提供协议转换、在线账单对账、自动价格抓取、在线备份 API 或备份 CLI。
+- 不提供协议转换、在线账单对账、在线备份 API 或备份 CLI。Models.dev 同步只提供估算元数据，不是服务商账单或发票。
 
 ## 快速开始
 
@@ -189,12 +189,14 @@ print(response.output_text)
 
 管理 UI 位于 `/`，管理 API 位于 `/api`；两者都使用 `AUTH_KEY`。UI 包含 Group、上游 Key、AccessKey、运行设置、健康、日志、路由检查、Usage 与模型价格管理。完整管理 API 以当前代码和 UI 为准，本 README 不复制容易漂移的路由清单。
 
+模型目录自动同步默认启用，只在控制面访问固定端点 `https://models.dev/api.json`；启动过程保持异步，并可使用持久化的 last-known-good 目录。手动同步始终可用，数据面请求不会访问 Models.dev。
+
 Usage/Cost 质量边界：
 
-- `complete + priced` 请求进入默认 token 与估算成本汇总。
-- `missing`、`partial` 与 `unpriced` 仍进入请求数和对应质量计数，但不进入默认 token/成本汇总；`complete + unpriced` 也不会被猜价。
+- `complete` 与 `partial` usage 的已知 token 维度进入汇总；`missing` usage 只进入请求数和质量计数。
+- `priced` 请求的已知估算成本进入汇总；`pricing_partial` 会保留可计算部分并标记价格覆盖不完整，`unpriced` 请求不会被猜价。
 - 流式连接 clean EOF 不代表一定获得完整 usage；兼容中转站也可能不返回官方终态 usage。
-- API 返回的 `pricing_policy` 是只读字段；UI 只展示，用户自定义价格规则不能声明内部定价策略。
+- 价格按 Group 的 Provider 或自定义 Group 作用域精确匹配上游模型。四个平面价格槽为输入、输出、缓存读取和缓存写入；显式 `0` 表示免费，未设置表示不可估算。
 - 修改模型价格只影响后续写入，不重算历史 RequestLog 或 UsageStat。
 - 当前进程的 dropped/write-failure 计数与数据库窗口内的耐久汇总是不同口径。
 
@@ -209,6 +211,7 @@ Usage/Cost 质量边界：
 | `DATABASE_DSN` | 空 → `${DATA_DIR}/gpt-load.db` | 空值选择 managed SQLite；任何非空 operator 值都属于 external，即使文本与默认路径相同 |
 | `AUTH_KEY` | 自动生成 keyfile | 管理 bearer 凭据；显式值不能包含空白，留空时读取或创建 `${DATA_DIR}/auth.key` |
 | `ENCRYPTION_KEY` | 自动生成 keyfile | 加密上游 Key 的主密钥；留空时读取或创建 `${DATA_DIR}/encryption.key` |
+| `MODELS_DEV_AUTO_SYNC_ENABLED` | 未设置 | Models.dev 自动同步的可选严格布尔覆盖；未设置时使用运行设置，其默认启用 |
 | `GRACEFUL_SHUTDOWN_TIMEOUT` | `10` | 优雅停机超时，单位为秒 |
 | `READ_TIMEOUT` | `60` | 读取完整请求的最长时间，单位为秒 |
 | `IDLE_TIMEOUT` | `120` | keep-alive 空闲超时，单位为秒 |

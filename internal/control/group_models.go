@@ -8,7 +8,6 @@ import (
 	"gorm.io/gorm"
 
 	app_errors "gpt-load/internal/platform/errors"
-	"gpt-load/internal/pricing"
 	"gpt-load/internal/storage/models"
 )
 
@@ -17,17 +16,17 @@ type GroupModelsUpdateRequest struct {
 }
 
 type GroupModelResponse struct {
-	ID            string `json:"id"`
-	Alias         string `json:"alias"`
-	AliasEnabled  bool   `json:"alias_enabled"`
-	ClientModel   string `json:"client_model"`
-	PricingStatus string `json:"pricing_status"`
+	ID            string        `json:"id"`
+	Alias         string        `json:"alias"`
+	AliasEnabled  bool          `json:"alias_enabled"`
+	ClientModel   string        `json:"client_model"`
+	PricingStatus PricingStatus `json:"pricing_status"`
 }
 
 type GroupModelsResponse struct {
-	Items    []GroupModelResponse `json:"items"`
-	Total    int                  `json:"total"`
-	Unpriced int                  `json:"unpriced"`
+	Items   []GroupModelResponse `json:"items"`
+	Total   int                  `json:"total"`
+	Pending int                  `json:"pending"`
 }
 
 type ModelNameConflict struct {
@@ -55,36 +54,42 @@ func (s *Service) GetGroupModels(ctx context.Context, groupID uint) (GroupModels
 	if err := decodeGroupDiscoveryJSON(group.Models, &groupModels); err != nil {
 		return GroupModelsResponse{}, fmt.Errorf("decode group %d models: %w", group.ID, err)
 	}
-	table := s.priceRuntime.Load()
-	if table == nil {
-		return GroupModelsResponse{}, fmt.Errorf("pricing runtime unavailable: %w", app_errors.ErrInternalServer)
+	scopeKey, err := PriceScopeKeyForGroup(group)
+	if err != nil {
+		return GroupModelsResponse{}, fmt.Errorf("validate group %d price scope: %w", group.ID, app_errors.ErrInternalServer)
+	}
+	rows, err := loadPriceRowsByScope(ctx, s.db, scopeKey)
+	if err != nil {
+		return GroupModelsResponse{}, err
 	}
 
-	return mapGroupModelsResponse(groupModels, table), nil
+	return mapGroupModelsResponse(groupModels, rows)
 }
 
-func mapGroupModelsResponse(models []GroupModel, table *pricing.Table) GroupModelsResponse {
-	result := GroupModelsResponse{Items: make([]GroupModelResponse, 0, len(models))}
-	for _, model := range models {
+func mapGroupModelsResponse(
+	groupModels []GroupModel,
+	rows map[string]*models.ModelPrice,
+) (GroupModelsResponse, error) {
+	result := GroupModelsResponse{Items: make([]GroupModelResponse, 0, len(groupModels))}
+	for _, model := range groupModels {
 		item := GroupModelResponse{
 			ID:            model.ID,
 			Alias:         model.Alias,
 			AliasEnabled:  model.Alias != "",
 			ClientModel:   model.ID,
-			PricingStatus: "unpriced",
+			PricingStatus: PricingStatusPending,
 		}
 		if item.AliasEnabled {
 			item.ClientModel = model.Alias
 		}
-		if _, priced := table.Match(model.ID); priced {
-			item.PricingStatus = "priced"
-		} else {
-			result.Unpriced++
+		item.PricingStatus = resolvePricingStatus(rows[model.ID])
+		if item.PricingStatus == PricingStatusPending {
+			result.Pending++
 		}
 		result.Items = append(result.Items, item)
 	}
 	result.Total = len(result.Items)
-	return result
+	return result, nil
 }
 
 func (s *Service) UpdateGroupModels(
@@ -107,7 +112,8 @@ func (s *Service) UpdateGroupModels(
 		return GroupModelsResponse{}, fmt.Errorf("encode group models: %w", err)
 	}
 
-	_, err = s.writeConfig(ctx, func(tx *gorm.DB) error {
+	modelIDsChanged := false
+	_, err = s.writeGroupConfig(ctx, func(tx *gorm.DB) error {
 		group, err := loadGroupRow(tx, groupID)
 		if err != nil {
 			return err
@@ -115,6 +121,11 @@ func (s *Service) UpdateGroupModels(
 		if err := validateGroupRowCandidate(ctx, tx, group); err != nil {
 			return fmt.Errorf("validate existing group %d: %w", groupID, app_errors.ErrInternalServer)
 		}
+		var previous []GroupModel
+		if err := decodeGroupDiscoveryJSON(group.Models, &previous); err != nil {
+			return fmt.Errorf("decode group %d models: %w", groupID, app_errors.ErrInternalServer)
+		}
+		modelIDsChanged = group.ProviderID != nil && !sameGroupModelIDs(previous, normalized)
 
 		group.Models = models.JSON(encoded)
 		if err := validateGroupRowCandidate(ctx, tx, group); err != nil {
@@ -130,6 +141,9 @@ func (s *Service) UpdateGroupModels(
 	if err != nil {
 		return GroupModelsResponse{}, withControlOperationContext(err, groupID, 0)
 	}
+	if modelIDsChanged && s.catalogSync != nil {
+		s.catalogSync.RequestGroupSync()
+	}
 	result, err := s.GetGroupModels(ctx, groupID)
 	if err != nil {
 		return GroupModelsResponse{}, fmt.Errorf(
@@ -139,4 +153,23 @@ func (s *Service) UpdateGroupModels(
 		)
 	}
 	return result, nil
+}
+
+func sameGroupModelIDs(left, right []GroupModel) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	ids := make(map[string]struct{}, len(left))
+	for _, model := range left {
+		ids[model.ID] = struct{}{}
+	}
+	if len(ids) != len(right) {
+		return false
+	}
+	for _, model := range right {
+		if _, exists := ids[model.ID]; !exists {
+			return false
+		}
+	}
+	return true
 }

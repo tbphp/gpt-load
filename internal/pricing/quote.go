@@ -4,33 +4,41 @@ import "gpt-load/internal/usage"
 
 const tokensPerMillion = 1_000_000
 
+var (
+	directPriceMultiplier       = Multiplier{Numerator: 1, Denominator: 1}
+	cacheWriteOneHourMultiplier = Multiplier{Numerator: 8, Denominator: 5}
+)
+
 // Quote prices a finalized usage result without modifying it.
-func (table *Table) Quote(upstreamModel string, result usage.Result) Quote {
+func (table *Table) Quote(identity Identity, result usage.Result) Quote {
 	switch result.State {
 	case usage.StateNotApplicable:
-		return Quote{State: CostStateNotApplicable}
+		return Quote{State: CostStateNotApplicable, Completeness: CompletenessNotApplicable}
 	case usage.StateMissing:
-		return Quote{State: CostStateUnpriced}
+		return unavailableQuote()
 	case usage.StateComplete, usage.StatePartial:
 	default:
-		return Quote{State: CostStateUnpriced}
+		return unavailableQuote()
 	}
 
-	rule, ok := table.Match(upstreamModel)
-	if !ok || hasBlockingDiagnostic(result.Diagnostics) {
-		return Quote{State: CostStateUnpriced}
+	rule, ok := table.Lookup(identity)
+	if !ok {
+		return unavailableQuote()
 	}
-
+	if _, ok := usage.CheckedTotal(result.Tokens); !ok {
+		return unavailableQuote()
+	}
 	inputTokens, ok := checkedInputTokens(result.Tokens)
 	if !ok {
-		return Quote{State: CostStateUnpriced}
+		return unavailableQuote()
 	}
-	inputMultiplier := Multiplier{Numerator: 1, Denominator: 1}
-	outputMultiplier := Multiplier{Numerator: 1, Denominator: 1}
-	if policy := rule.LongContextPolicy; policy != nil &&
-		inputTokens > policy.InputThresholdTokens {
-		inputMultiplier = policy.InputMultiplier
-		outputMultiplier = policy.OutputMultiplier
+
+	prices := rule.Prices
+	for _, tier := range rule.ContextTiers {
+		if inputTokens < tier.InputThresholdTokens {
+			break
+		}
+		prices = tier.Prices
 	}
 
 	components := [...]struct {
@@ -38,29 +46,27 @@ func (table *Table) Quote(upstreamModel string, result usage.Result) Quote {
 		price      Price
 		multiplier Multiplier
 	}{
-		{tokens: result.Tokens.UncachedInput, price: rule.Prices.UncachedInput, multiplier: inputMultiplier},
-		{tokens: result.Tokens.CacheRead, price: rule.Prices.CacheRead, multiplier: inputMultiplier},
-		{tokens: result.Tokens.CacheWrite5M, price: rule.Prices.CacheWrite5M, multiplier: inputMultiplier},
-		{tokens: result.Tokens.CacheWrite1H, price: rule.Prices.CacheWrite1H, multiplier: inputMultiplier},
-		{tokens: result.Tokens.Output, price: rule.Prices.Output, multiplier: outputMultiplier},
+		{tokens: result.Tokens.UncachedInput, price: prices.Input, multiplier: directPriceMultiplier},
+		{tokens: result.Tokens.CacheRead, price: prices.CacheRead, multiplier: directPriceMultiplier},
+		{tokens: result.Tokens.CacheWrite5M, price: prices.CacheWrite, multiplier: directPriceMultiplier},
+		{tokens: result.Tokens.CacheWrite1H, price: prices.CacheWrite, multiplier: cacheWriteOneHourMultiplier},
+		{tokens: result.Tokens.Output, price: prices.Output, multiplier: directPriceMultiplier},
 	}
 
-	totalTokens := int64(0)
+	positiveBillable := result.Tokens.CacheWriteUnknown > 0
+	pricedPositive := false
+	partial := result.State == usage.StatePartial ||
+		result.Tokens.CacheWriteUnknown > 0 ||
+		hasIncompleteDiagnostic(result.Diagnostics)
 	cost := NanoUSD(0)
 	for _, component := range components {
-		if component.tokens < 0 {
-			return Quote{State: CostStateUnpriced}
-		}
-		var added bool
-		totalTokens, added = usage.CheckedAdd(totalTokens, component.tokens)
-		if !added {
-			return Quote{State: CostStateUnpriced}
-		}
 		if component.tokens == 0 {
 			continue
 		}
+		positiveBillable = true
 		if !component.price.Set {
-			return Quote{State: CostStateUnpriced}
+			partial = true
+			continue
 		}
 		componentCost, ok := QuoteComponent(
 			component.tokens,
@@ -68,14 +74,27 @@ func (table *Table) Quote(upstreamModel string, result usage.Result) Quote {
 			component.multiplier,
 		)
 		if !ok {
-			return Quote{State: CostStateUnpriced}
+			return unavailableQuote()
 		}
 		cost, ok = CheckedAddNanoUSD(cost, componentCost)
 		if !ok {
-			return Quote{State: CostStateUnpriced}
+			return unavailableQuote()
 		}
+		pricedPositive = true
 	}
-	return Quote{State: CostStatePriced, EstimatedCostNanoUSD: cost}
+
+	if positiveBillable && !pricedPositive {
+		return unavailableQuote()
+	}
+	completeness := CompletenessComplete
+	if partial {
+		completeness = CompletenessPartial
+	}
+	return Quote{
+		State:                CostStatePriced,
+		Completeness:         completeness,
+		EstimatedCostNanoUSD: cost,
+	}
 }
 
 func checkedInputTokens(tokens usage.Tokens) (int64, bool) {
@@ -85,10 +104,8 @@ func checkedInputTokens(tokens usage.Tokens) (int64, bool) {
 		tokens.CacheRead,
 		tokens.CacheWrite5M,
 		tokens.CacheWrite1H,
+		tokens.CacheWriteUnknown,
 	} {
-		if value < 0 {
-			return 0, false
-		}
 		var ok bool
 		total, ok = usage.CheckedAdd(total, value)
 		if !ok {
@@ -98,13 +115,18 @@ func checkedInputTokens(tokens usage.Tokens) (int64, bool) {
 	return total, true
 }
 
-func hasBlockingDiagnostic(diagnostics usage.Diagnostics) bool {
+func unavailableQuote() Quote {
+	return Quote{State: CostStateUnpriced, Completeness: CompletenessUnavailable}
+}
+
+func hasIncompleteDiagnostic(diagnostics usage.Diagnostics) bool {
 	for _, code := range [...]usage.DiagnosticCode{
 		usage.DiagnosticUnsupportedBillableDetail,
 		usage.DiagnosticNegativeValue,
 		usage.DiagnosticInvalidNumber,
 		usage.DiagnosticMissingRequiredField,
 		usage.DiagnosticInconsistentTotal,
+		usage.DiagnosticInvalidPayload,
 		usage.DiagnosticInvalidEventSequence,
 	} {
 		if diagnostics.Has(code) {

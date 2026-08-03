@@ -1,24 +1,33 @@
 <script setup lang="ts">
-import { RotateCcw } from '@lucide/vue'
+import { RotateCcw, Trash2 } from '@lucide/vue'
 import { useQueryClient } from '@tanstack/vue-query'
 import { onBeforeUnmount, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 
-import { useApiClient } from '@/api/client-context'
-import { resetModelPrice, type ModelPriceRuleDto } from '@/app/resources/model-prices'
-import { applyInvalidationPlan, mutationInvalidationPlans } from '@/app/resources/invalidation'
 import { RequestCancelledError } from '@/api/errors'
+import { useApiClient } from '@/api/client-context'
+import {
+  deleteModelPrice,
+  projectModelPriceMutationIssue,
+  resetModelPrice,
+  type ModelPriceDto,
+} from '@/app/resources/model-prices'
+import { applyInvalidationPlan, mutationInvalidationPlans } from '@/app/resources/invalidation'
 import AppConfirmDialog from '@/components/ui/AppConfirmDialog.vue'
+import IconButton from '@/components/ui/IconButton.vue'
 import InlineFeedback from '@/components/ui/InlineFeedback.vue'
 
-const props = defineProps<{ rule: ModelPriceRuleDto }>()
-const emit = defineEmits<{ reset: [] }>()
+const props = defineProps<{
+  row: ModelPriceDto
+  action: 'reset' | 'delete'
+}>()
+const emit = defineEmits<{ completed: [] }>()
 const client = useApiClient()
 const queryClient = useQueryClient()
 const { t } = useI18n()
 const open = ref(false)
 const pending = ref(false)
-const failed = ref(false)
+const failure = ref('')
 let controller: AbortController | undefined
 
 function clearRequest(): void {
@@ -31,24 +40,51 @@ function setOpen(value: boolean): void {
   if (!value && pending.value) return
   if (!value) {
     clearRequest()
-    failed.value = false
+    failure.value = ''
   }
   open.value = value
 }
 
-async function confirmReset(): Promise<void> {
+function failureMessage(error: unknown): string {
+  try {
+    const issue = projectModelPriceMutationIssue(error)
+    if (issue?.code === 'MODEL_PRICE_REFERENCED') {
+      return t('modelPrices.errors.referenced', {
+        entries: issue.reference_count,
+        groups: issue.reference_group_count,
+      })
+    }
+    if (issue?.code === 'MODEL_PRICE_AUTOMATIC_DELETE_FORBIDDEN') {
+      return t('modelPrices.errors.automaticDeleteForbidden')
+    }
+  } catch {
+    return t(`modelPrices.${props.action}.failed`)
+  }
+  return t(`modelPrices.${props.action}.failed`)
+}
+
+async function confirm(): Promise<void> {
   if (pending.value) return
   pending.value = true
-  failed.value = false
+  failure.value = ''
   controller = new AbortController()
   const activeController = controller
   try {
-    await resetModelPrice(client, props.rule.pattern, activeController.signal)
+    if (props.action === 'reset') {
+      await resetModelPrice(client, props.row.id, activeController.signal)
+    } else {
+      await deleteModelPrice(client, props.row.id, activeController.signal)
+    }
     if (controller !== activeController || !open.value) return
-    await applyInvalidationPlan(queryClient, mutationInvalidationPlans.modelPrice.reset)
+    await applyInvalidationPlan(
+      queryClient,
+      props.action === 'reset'
+        ? mutationInvalidationPlans.modelPrice.reset
+        : mutationInvalidationPlans.modelPrice.delete,
+    )
     if (controller !== activeController || !open.value) return
     open.value = false
-    emit('reset')
+    emit('completed')
   } catch (error: unknown) {
     if (
       controller === activeController &&
@@ -56,7 +92,7 @@ async function confirmReset(): Promise<void> {
       !activeController.signal.aborted &&
       !(error instanceof RequestCancelledError)
     ) {
-      failed.value = true
+      failure.value = failureMessage(error)
     }
   } finally {
     if (controller === activeController) {
@@ -71,47 +107,36 @@ onBeforeUnmount(clearRequest)
 
 <template>
   <AppConfirmDialog
+    appearance="ledger"
     :open="open"
-    :title="t('modelPrices.reset.title')"
-    :description="t('modelPrices.reset.description', { pattern: rule.pattern })"
-    :close-label="t('modelPrices.reset.close')"
+    :title="t(`modelPrices.${action}.title`)"
+    :description="t(`modelPrices.${action}.description`, { model: row.model_id })"
+    :close-label="t(`modelPrices.${action}.close`)"
     :cancel-label="t('common.cancel')"
-    :confirm-label="t('modelPrices.reset.confirm')"
-    tone="danger"
+    :confirm-label="t(`modelPrices.${action}.confirm`)"
+    :tone="action === 'delete' ? 'danger' : 'default'"
     :pending="pending"
     @update:open="setOpen"
-    @confirm="confirmReset"
+    @confirm="confirm"
   >
     <template #trigger>
-      <button type="button" class="model-price-reset__trigger" @click="setOpen(true)">
-        <RotateCcw :size="16" aria-hidden="true" />{{ t('modelPrices.reset.open') }}
-      </button>
+      <IconButton
+        variant="ghost"
+        :tone="action === 'delete' ? 'danger' : 'neutral'"
+        size="compact"
+        :label="t(`modelPrices.${action}.open`, { model: row.model_id })"
+        @click="setOpen(true)"
+      >
+        <RotateCcw v-if="action === 'reset'" :size="15" aria-hidden="true" />
+        <Trash2 v-else :size="15" aria-hidden="true" />
+      </IconButton>
     </template>
 
-    <div class="model-price-reset__body">
-      <InlineFeedback tone="warning">{{ t('modelPrices.reset.warning') }}</InlineFeedback>
-      <InlineFeedback v-if="failed" tone="danger">
-        {{ t('modelPrices.reset.failed') }}
-      </InlineFeedback>
-    </div>
+    <InlineFeedback tone="warning" appearance="ledger">
+      {{ t(`modelPrices.${action}.warning`) }}
+    </InlineFeedback>
+    <InlineFeedback v-if="failure" tone="danger" appearance="ledger">
+      {{ failure }}
+    </InlineFeedback>
   </AppConfirmDialog>
 </template>
-
-<style scoped>
-.model-price-reset__trigger {
-  display: inline-flex;
-  min-height: 44px;
-  align-items: center;
-  gap: var(--space-1);
-  border: 0;
-  background: transparent;
-  color: var(--color-danger);
-  font: inherit;
-  font-weight: 650;
-  cursor: pointer;
-}
-.model-price-reset__body {
-  display: grid;
-  gap: var(--space-4);
-}
-</style>

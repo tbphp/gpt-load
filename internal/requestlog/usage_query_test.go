@@ -39,7 +39,7 @@ func TestQueryUsageHourAggregatesFiltersAndLeavesSparseBucketsAbsent(t *testing.
 		ToMS:           start.Add(24 * time.Hour).UnixMilli(),
 		Granularity:    UsageGranularityHour,
 		GroupID:        &groupID,
-		Model:          "target",
+		UpstreamModel:  "target",
 		Limit:          100,
 		BreakdownOrder: UsageBreakdownOrderRequests,
 	})
@@ -246,7 +246,7 @@ func TestQueryUsageCountsDistinctBreakdownGroupsWithinFilters(t *testing.T) {
 				ToMS:           start.Add(time.Hour).UnixMilli(),
 				Granularity:    UsageGranularityHour,
 				GroupID:        test.groupID,
-				Model:          test.model,
+				UpstreamModel:  test.model,
 				Limit:          100,
 				BreakdownOrder: UsageBreakdownOrderRequests,
 			})

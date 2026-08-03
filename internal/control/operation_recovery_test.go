@@ -42,7 +42,7 @@ func TestOperationReplayRepairsPostCommitRegistryFailureWithoutRerunningMutation
 	if err := fixture.db.First(&operation).Error; err != nil {
 		t.Fatalf("read operation: %v", err)
 	}
-	if operation.LastCompletedStage != string(operationStageDBCommitted) ||
+	if operation.LastCompletedStage != string(operationStagePricesPublished) ||
 		operation.FailedStage != string(operationStageRegistryApplied) {
 		t.Fatalf("failed operation = %#v", operation)
 	}

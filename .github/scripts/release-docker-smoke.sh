@@ -250,23 +250,49 @@ group_response="$(
     ' "http://host.docker.internal:${fake_port}/v1" "${upstream_key}"
   )" "${group_idempotency_key}"
 )"
-printf '%s' "${group_response}" | node -e '
-  const fs=require("fs");
-  const value=JSON.parse(fs.readFileSync(0,"utf8"));
-  if(value.code!==0||value.data.group_name!=="Task13 Release Smoke Group") process.exit(1);
-'
+group_id="$(
+  printf '%s' "${group_response}" | node -e '
+    const fs=require("fs");
+    const value=JSON.parse(fs.readFileSync(0,"utf8"));
+    const group=value.data;
+    if(value.code!==0||!group||group.group_name!=="Task13 Release Smoke Group"||
+       !Number.isSafeInteger(group.group_id)||group.group_id<=0) process.exit(1);
+    process.stdout.write(String(group.group_id));
+  '
+)"
 unset group_response
+test -n "${group_id}"
 
-api_write PUT "/api/model-prices" '{
-  "pattern":"task13-release-model",
-  "prices":{
-    "uncached_input":1,
-    "cache_read":null,
-    "cache_write_5m":null,
-    "cache_write_1h":null,
-    "output":2
-  }
-}' >"${task_tmp}/price-create.json"
+model_price_list_path="/api/model-prices?usage=in_use&status=all&page=1&page_size=100"
+model_price_list="$(api_get "${model_price_list_path}")"
+model_price_id="$(
+  printf '%s' "${model_price_list}" | node -e '
+    const fs=require("fs");
+    const value=JSON.parse(fs.readFileSync(0,"utf8"));
+    const groupID=process.argv[1];
+    const modelID=process.argv[2];
+    const items=value.data&&value.data.items;
+    if(value.code!==0||!Array.isArray(items)) process.exit(1);
+    const matches=items.filter(item=>
+      item&&item.scope&&item.scope.kind==="group"&&item.scope.id===groupID&&
+      item.model_id===modelID
+    );
+    if(matches.length!==1||!Number.isSafeInteger(matches[0].id)||matches[0].id<=0) {
+      process.exit(1);
+    }
+    process.stdout.write(String(matches[0].id));
+  ' "${group_id}" "task13-release-model"
+)"
+unset model_price_list
+test -n "${model_price_id}"
+
+api_write PUT "/api/model-prices/${model_price_id}" '{
+  "input":"1",
+  "output":"2",
+  "cache_read":"3",
+  "cache_write":"4",
+  "confirm_unpriced":false
+}' >"${task_tmp}/price-update.json"
 
 access_key_idempotency_key="$(python3 -c 'import uuid; print(uuid.uuid4())')"
 access_response="$(
@@ -344,7 +370,7 @@ test "$(
 )" = "${encryption_hash_before}"
 
 api_get "/api/groups" >"${task_tmp}/groups-second.json"
-api_get "/api/model-prices" >"${task_tmp}/prices-second.json"
+api_get "${model_price_list_path}" >"${task_tmp}/prices-second.json"
 api_get "/api/usage?range=24h" >"${task_tmp}/usage-second.json"
 access_list="$(api_get "/api/access-keys")"
 printf '%s' "${access_list}" | node -e '
@@ -358,15 +384,31 @@ node -e '
   const groups=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
   const prices=JSON.parse(fs.readFileSync(process.argv[2],"utf8"));
   const usage=JSON.parse(fs.readFileSync(process.argv[3],"utf8"));
+  const groupID=process.argv[4];
+  const priceID=Number(process.argv[5]);
+  const modelID=process.argv[6];
   if(!groups.data.some(item=>item.name==="Task13 Release Smoke Group")) process.exit(1);
-  if(!prices.data.overrides.some(
-    item=>item.pattern==="task13-release-model"&&item.source==="user"
-  )) process.exit(1);
+  const items=prices.data&&prices.data.items;
+  if(!Array.isArray(items)||!Number.isSafeInteger(priceID)||priceID<=0) process.exit(1);
+  const matches=items.filter(item=>
+    item&&item.scope&&item.scope.kind==="group"&&item.scope.id===groupID&&
+    item.model_id===modelID
+  );
+  if(matches.length!==1||matches[0].id!==priceID||
+     matches[0].method!=="user_set"||matches[0].pricing_status!=="configured") {
+    process.exit(1);
+  }
+  const persisted=matches[0].prices;
+  if(!persisted||persisted.input!=="1"||persisted.output!=="2"||
+     persisted.cache_read!=="3"||persisted.cache_write!=="4") process.exit(1);
   if(usage.data.summary.request_count<1||usage.data.summary.total_tokens!==12) process.exit(1);
 ' \
   "${task_tmp}/groups-second.json" \
   "${task_tmp}/prices-second.json" \
-  "${task_tmp}/usage-second.json"
+  "${task_tmp}/usage-second.json" \
+  "${group_id}" \
+  "${model_price_id}" \
+  "task13-release-model"
 curl -fsS \
   -H "Authorization: Bearer ${access_key}" \
   "${base_url}/v1/models" >"${task_tmp}/models-second.json"

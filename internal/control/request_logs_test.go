@@ -35,6 +35,7 @@ func TestRequestLogEndpointRejectsUnknownDuplicateAndMalformedQueries(t *testing
 		{name: "duplicate", query: "limit=1&limit=2"},
 		{name: "number", query: "limit=not-a-number"},
 		{name: "old time query", query: "from=1784894400000"},
+		{name: "ambiguous legacy model", query: "model=client-model"},
 		{name: "time", query: "from_ms=not-a-time"},
 		{name: "time leading zero", query: "from_ms=01784894400000"},
 		{name: "time plus", query: "from_ms=%2B1784894400000"},
@@ -97,7 +98,8 @@ func TestRequestLogEndpointRejectsInvalidDomainValues(t *testing.T) {
 		{name: "group unsafe", query: "group_id=9007199254740992"},
 		{name: "access key zero", query: "access_key_id=0"},
 		{name: "access key unsafe", query: "access_key_id=9007199254740992"},
-		{name: "empty model", query: "model="},
+		{name: "empty client model", query: "client_model="},
+		{name: "empty upstream model", query: "upstream_model="},
 		{name: "equal range", query: "from_ms=" + equalTime + "&to_ms=" + equalTime},
 		{name: "reversed range", query: "from_ms=1784898000000&to_ms=1784894400000"},
 		{name: "unknown status", query: "status=unknown"},
@@ -156,15 +158,16 @@ func TestRequestLogEndpointReturnsOpaqueCursorAndSafeDTO(t *testing.T) {
 					AccessKey: requestlog.AccessKeyRef{
 						ID: 41, Name: &currentName,
 					},
-					Protocol:      protocol.OpenAICompletions,
-					ClientModel:   "client-model",
-					UpstreamModel: "upstream-model",
-					Status:        telemetry.RequestStatusSuccess,
-					StatusCode:    200,
-					DurationMs:    1234,
-					AffinityHit:   true,
-					UsageState:    usage.StateNotApplicable,
-					CostState:     pricing.CostStateNotApplicable,
+					Protocol:            protocol.OpenAICompletions,
+					ClientModel:         "client-model",
+					UpstreamModel:       "upstream-model",
+					Status:              telemetry.RequestStatusSuccess,
+					StatusCode:          200,
+					DurationMs:          1234,
+					AffinityHit:         true,
+					UsageState:          usage.StateNotApplicable,
+					CostState:           pricing.CostStateNotApplicable,
+					PricingCompleteness: pricing.CompletenessNotApplicable,
 					Attempts: []requestlog.Attempt{{
 						Sequence:        1,
 						GroupID:         12,
@@ -189,7 +192,8 @@ func TestRequestLogEndpointReturnsOpaqueCursorAndSafeDTO(t *testing.T) {
 		"from_ms=1784890800000",
 		"to_ms=1784898000000",
 		"group_id=12",
-		"model=client-model",
+		"client_model=client-model",
+		"upstream_model=upstream-model",
 		"access_key_id=41",
 		"status=success",
 		"request_id=00000000-0000-4000-8000-000000000501",
@@ -208,6 +212,7 @@ func TestRequestLogEndpointReturnsOpaqueCursorAndSafeDTO(t *testing.T) {
 		gotQuery.GroupID == nil || *gotQuery.GroupID != 12 ||
 		gotQuery.AccessKeyID == nil || *gotQuery.AccessKeyID != 41 ||
 		gotQuery.ClientModel != "client-model" ||
+		gotQuery.UpstreamModel != "upstream-model" ||
 		gotQuery.Status != telemetry.RequestStatusSuccess ||
 		gotQuery.RequestID != "00000000-0000-4000-8000-000000000501" {
 		t.Fatalf("parsed ListQuery = %#v", gotQuery)
@@ -289,20 +294,22 @@ func TestRequestLogEndpointReturnsOpaqueCursorAndSafeDTO(t *testing.T) {
 func TestRequestLogEndpointProjectsUsageCostAndNullGroupZero(t *testing.T) {
 	reader := &recordingRequestLogReader{pages: []requestlog.Page{{Items: []requestlog.Record{
 		{
-			RequestID:            "00000000-0000-4000-8000-000000000603",
-			CompletedAtMS:        time.Date(2026, time.July, 27, 0, 0, 0, 0, time.UTC).UnixMilli(),
-			Protocol:             protocol.OpenAICompletions,
-			Status:               telemetry.RequestStatusSuccess,
-			GroupID:              0,
-			UsageState:           usage.StateComplete,
-			CostState:            pricing.CostStatePriced,
-			UncachedInputTokens:  1,
-			CacheReadTokens:      2,
-			CacheWrite5MTokens:   3,
-			CacheWrite1HTokens:   4,
-			OutputTokens:         5,
-			EstimatedCostNanoUSD: 123_456_789_012,
-			Attempts:             []requestlog.Attempt{},
+			RequestID:               "00000000-0000-4000-8000-000000000603",
+			CompletedAtMS:           time.Date(2026, time.July, 27, 0, 0, 0, 0, time.UTC).UnixMilli(),
+			Protocol:                protocol.OpenAICompletions,
+			Status:                  telemetry.RequestStatusSuccess,
+			GroupID:                 0,
+			UsageState:              usage.StateComplete,
+			CostState:               pricing.CostStatePriced,
+			PricingCompleteness:     pricing.CompletenessComplete,
+			UncachedInputTokens:     1,
+			CacheReadTokens:         2,
+			CacheWrite5MTokens:      3,
+			CacheWrite1HTokens:      4,
+			CacheWriteUnknownTokens: 6,
+			OutputTokens:            5,
+			EstimatedCostNanoUSD:    123_456_789_012,
+			Attempts:                []requestlog.Attempt{},
 		},
 	}}}}
 	recorder := performRequestLogRequest(newRequestLogTestEngine(t, reader), "test-auth-key", "")
@@ -312,15 +319,17 @@ func TestRequestLogEndpointProjectsUsageCostAndNullGroupZero(t *testing.T) {
 	var envelope struct {
 		Data struct {
 			Items []struct {
-				GroupID              *uint  `json:"group_id"`
-				UsageState           string `json:"usage_state"`
-				CostState            string `json:"cost_state"`
-				UncachedInputTokens  int64  `json:"uncached_input_tokens"`
-				CacheReadTokens      int64  `json:"cache_read_tokens"`
-				CacheWrite5MTokens   int64  `json:"cache_write_5m_tokens"`
-				CacheWrite1HTokens   int64  `json:"cache_write_1h_tokens"`
-				OutputTokens         int64  `json:"output_tokens"`
-				EstimatedCostNanoUSD string `json:"estimated_cost_nano_usd"`
+				GroupID                 *uint  `json:"group_id"`
+				UsageState              string `json:"usage_state"`
+				CostState               string `json:"cost_state"`
+				PricingCompleteness     string `json:"pricing_completeness"`
+				UncachedInputTokens     int64  `json:"uncached_input_tokens"`
+				CacheReadTokens         int64  `json:"cache_read_tokens"`
+				CacheWrite5MTokens      int64  `json:"cache_write_5m_tokens"`
+				CacheWrite1HTokens      int64  `json:"cache_write_1h_tokens"`
+				CacheWriteUnknownTokens int64  `json:"cache_write_unknown_tokens"`
+				OutputTokens            int64  `json:"output_tokens"`
+				EstimatedCostNanoUSD    string `json:"estimated_cost_nano_usd"`
 			} `json:"items"`
 		} `json:"data"`
 	}
@@ -332,8 +341,10 @@ func TestRequestLogEndpointProjectsUsageCostAndNullGroupZero(t *testing.T) {
 	}
 	item := envelope.Data.Items[0]
 	if item.GroupID != nil || item.UsageState != "complete" || item.CostState != "priced" ||
+		item.PricingCompleteness != "complete" ||
 		item.UncachedInputTokens != 1 || item.CacheReadTokens != 2 ||
 		item.CacheWrite5MTokens != 3 || item.CacheWrite1HTokens != 4 ||
+		item.CacheWriteUnknownTokens != 6 ||
 		item.OutputTokens != 5 || item.EstimatedCostNanoUSD != "123456789012" {
 		t.Fatalf("usage/cost projection = %#v", item)
 	}
@@ -342,12 +353,13 @@ func TestRequestLogEndpointProjectsUsageCostAndNullGroupZero(t *testing.T) {
 func TestRequestLogResponseUsesNullModelsForProtocolOnlyResponsesResources(t *testing.T) {
 	result, err := mapRequestLogListResponse(requestlog.Page{
 		Items: []requestlog.Record{{
-			RequestID:   "00000000-0000-4000-8000-000000000503",
-			Protocol:    protocol.OpenAIResponses,
-			ClientModel: "",
-			Status:      telemetry.RequestStatusSuccess,
-			UsageState:  usage.StateNotApplicable,
-			CostState:   pricing.CostStateNotApplicable,
+			RequestID:           "00000000-0000-4000-8000-000000000503",
+			Protocol:            protocol.OpenAIResponses,
+			ClientModel:         "",
+			Status:              telemetry.RequestStatusSuccess,
+			UsageState:          usage.StateNotApplicable,
+			CostState:           pricing.CostStateNotApplicable,
+			PricingCompleteness: pricing.CompletenessNotApplicable,
 			Attempts: []requestlog.Attempt{{
 				Sequence:        1,
 				GroupID:         12,
@@ -440,7 +452,7 @@ func TestRequestLogUsageCostProjectionAcceptsMaximumSafeFinalGroupID(t *testing.
 	safeGroupID := uint64(maxSafeInteger)
 	record := requestlog.Record{
 		GroupID: uint(safeGroupID), UsageState: usage.StateComplete,
-		CostState: pricing.CostStatePriced,
+		CostState: pricing.CostStatePriced, PricingCompleteness: pricing.CompletenessComplete,
 	}
 	result, err := mapRequestLogListResponse(requestlog.Page{Items: []requestlog.Record{record}})
 	if err != nil {

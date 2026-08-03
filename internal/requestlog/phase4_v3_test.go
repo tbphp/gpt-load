@@ -11,12 +11,6 @@ import (
 )
 
 func TestMapEventV3PersistsMillisecondLedgerAndQuotesUpstreamModel(t *testing.T) {
-	prices := compileRequestLogTestPriceTable(t, "provider-model", pricing.Prices{
-		Output: pricing.Price{
-			NanoUSDPerMillion: pricing.NanoUSD(2_000_000_000),
-			Set:               true,
-		},
-	})
 	event := telemetry.RequestEvent{
 		RequestID:     "00000000-0000-4000-8000-000000004001",
 		CompletedAt:   time.Date(2026, time.July, 24, 12, 34, 56, 789_000_000, time.UTC),
@@ -25,16 +19,24 @@ func TestMapEventV3PersistsMillisecondLedgerAndQuotesUpstreamModel(t *testing.T)
 		UpstreamModel: "provider-model",
 		Status:        telemetry.RequestStatusSuccess,
 		StatusCode:    200,
+		Attempts: []telemetry.Attempt{{
+			Sequence: 1, GroupID: 73, KeyID: 9, UpstreamModel: "provider-model",
+		}},
 		Usage: telemetry.UsageObservation{
-			GroupID: 73,
+			GroupID: 73, KeyID: 9, AttemptSequence: 1,
 			Result: usage.Result{
 				State:  usage.StateComplete,
 				Tokens: usage.Tokens{Output: 1_000_000},
 			},
+			Pricing: telemetry.PricingObservation{
+				PriceScopeKey: "group:73", UpstreamModel: "provider-model",
+				CostState: string(pricing.CostStatePriced), PricingCompleteness: string(pricing.CompletenessComplete),
+				EstimatedCostNanoUSD: 2_000_000_000,
+			},
 		},
 	}
 
-	row := mustMapEvent(t, redact.New(), event, prices)
+	row := mustMapEvent(t, redact.New(), event)
 
 	if row.CompletedAtMS != 1_784_896_496_789 {
 		t.Fatalf("CompletedAtMS = %d, want 1784896496789", row.CompletedAtMS)

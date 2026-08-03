@@ -43,6 +43,68 @@ func (s *Server) HTTPModule() httproute.Module {
 		MethodNotAllowed:  controlMethodNotAllowed,
 		Routes: []httproute.Route{
 			controlRoute("control.auth.session", http.MethodGet, "/auth/session", s.handleAuthSession),
+			controlRoute(
+				"control.model-prices.list",
+				http.MethodGet,
+				"/model-prices",
+				s.handleListModelPrices,
+			),
+			controlRoute(
+				"control.provider-suggestions.list",
+				http.MethodGet,
+				"/provider-suggestions",
+				s.handleListProviderSuggestions,
+			),
+			controlRoute(
+				"control.provider-models.list",
+				http.MethodGet,
+				"/providers/:provider_id/models",
+				s.handleListProviderModels,
+			),
+			controlRoute(
+				"control.model-prices.sync",
+				http.MethodPost,
+				"/model-prices/sync",
+				s.auditMutation(newMutationDescriptor(
+					"model_prices_sync",
+					"model_price",
+					staticMutationLocator("model-prices:catalog"),
+				)),
+				s.handleSyncModelPrices,
+			),
+			controlRoute(
+				"control.model-prices.update",
+				http.MethodPut,
+				"/model-prices/:id",
+				s.auditMutation(newMutationDescriptor(
+					"model_price_update",
+					"model_price",
+					modelPriceMutationLocator,
+				)),
+				s.handleUpdateModelPrice,
+			),
+			controlRoute(
+				"control.model-prices.reset",
+				http.MethodPost,
+				"/model-prices/:id/reset",
+				s.auditMutation(newMutationDescriptor(
+					"model_price_reset",
+					"model_price",
+					modelPriceMutationLocator,
+				)),
+				s.handleResetModelPrice,
+			),
+			controlRoute(
+				"control.model-prices.delete",
+				http.MethodDelete,
+				"/model-prices/:id",
+				s.auditMutation(newMutationDescriptor(
+					"model_price_delete",
+					"model_price",
+					modelPriceMutationLocator,
+				)),
+				s.handleDeleteModelPrice,
+			),
 			controlRoute("control.home", http.MethodGet, "/home", s.handleHome),
 			controlRoute(
 				"control.home.statistics",
@@ -65,34 +127,6 @@ func (s *Server) HTTPModule() httproute.Module {
 					staticMutationLocator("settings:global"),
 				)),
 				s.handleUpdateSettings,
-			),
-			controlRoute(
-				"control.model-prices.list",
-				http.MethodGet,
-				"/model-prices",
-				s.handleListModelPrices,
-			),
-			controlRoute(
-				"control.model-prices.upsert",
-				http.MethodPut,
-				"/model-prices",
-				s.auditMutation(newMutationDescriptor(
-					"model_price_upsert",
-					"model_price",
-					staticMutationLocator("model-price:unknown"),
-				)),
-				s.handleUpsertModelPrice,
-			),
-			controlRoute(
-				"control.model-prices.reset",
-				http.MethodDelete,
-				"/model-prices",
-				s.auditMutation(newMutationDescriptor(
-					"model_price_reset",
-					"model_price",
-					staticMutationLocator("model-price:unknown"),
-				)),
-				s.handleResetModelPrice,
 			),
 			controlRoute("control.system.info", http.MethodGet, "/system/info", s.handleSystemInfo),
 			controlRoute(

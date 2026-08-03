@@ -8,16 +8,18 @@ import type {
 } from '@/app/resources/settings'
 import { runtimeSettingKeys } from '@/app/resources/settings'
 
-export type SettingsSection = 'request-forwarding' | 'logs-maintenance'
+export type SettingsSection = 'request-forwarding' | 'logs-maintenance' | 'model-prices'
 export type SettingsScope = SettingsSection | 'all'
 
 export interface SettingsDraft {
   values: SettingsValues
   overrides: Set<RuntimeSettingKey>
+  readOnly: Set<RuntimeSettingKey>
 }
 
 export interface SettingsFieldIdentity {
   is_override: boolean
+  is_read_only: boolean
   normalized_value: number | boolean | HeaderRulesDto
 }
 
@@ -30,6 +32,7 @@ const requestForwardingKeys: RuntimeSettingKey[] = [
   'inject_usage_options',
 ]
 const logsMaintenanceKeys: RuntimeSettingKey[] = ['request_log_retention_days']
+const modelPriceKeys: RuntimeSettingKey[] = ['models_dev_auto_sync_enabled']
 
 function cloneHeaderRules(value: HeaderRulesDto): HeaderRulesDto {
   return { set: { ...value.set }, remove: [...value.remove] }
@@ -40,7 +43,11 @@ function cloneValues(value: SettingsValues): SettingsValues {
 }
 
 export function createSettingsDraft(settings: SettingsDto): SettingsDraft {
-  return { values: cloneValues(settings.values), overrides: new Set(settings.overrides) }
+  return {
+    values: cloneValues(settings.values),
+    overrides: new Set(settings.overrides),
+    readOnly: new Set(settings.read_only),
+  }
 }
 
 export function setSettingsOverride(
@@ -52,11 +59,15 @@ export function setSettingsOverride(
   const next: SettingsDraft = {
     values: cloneValues(draft.values),
     overrides: new Set(draft.overrides),
+    readOnly: new Set(draft.readOnly),
   }
+  if (next.readOnly.has(key)) return next
   if (enabled) {
     next.overrides.add(key)
     if (key === 'inject_usage_options') {
       next.values.inject_usage_options = base.values.inject_usage_options
+    } else if (key === 'models_dev_auto_sync_enabled') {
+      next.values.models_dev_auto_sync_enabled = base.values.models_dev_auto_sync_enabled
     } else if (key !== 'header_rules') {
       next.values[key] = base.values[key]
     }
@@ -80,7 +91,6 @@ function normalizedWireValue(
   key: RuntimeSettingKey,
 ): number | boolean | HeaderRulesDto {
   if (key === 'header_rules') return normalizeHeaderRules(settings.header_rules)
-  if (key === 'inject_usage_options') return settings.inject_usage_options
   return settings[key]
 }
 
@@ -109,7 +119,9 @@ function sameValue(left: unknown, right: unknown): boolean {
 }
 
 export function settingsSectionKeys(section: SettingsSection): RuntimeSettingKey[] {
-  return [...(section === 'request-forwarding' ? requestForwardingKeys : logsMaintenanceKeys)]
+  if (section === 'request-forwarding') return [...requestForwardingKeys]
+  if (section === 'logs-maintenance') return [...logsMaintenanceKeys]
+  return [...modelPriceKeys]
 }
 
 export function settingsScopeKeys(scope: SettingsScope): RuntimeSettingKey[] {
@@ -122,6 +134,7 @@ export function settingsFieldIdentity(
 ): SettingsFieldIdentity {
   return {
     is_override: settings.overrides.includes(key),
+    is_read_only: settings.read_only.includes(key),
     normalized_value: normalizedIdentityValue(settings.values, key),
   }
 }
@@ -132,6 +145,7 @@ export function draftFieldIdentity(
 ): SettingsFieldIdentity {
   return {
     is_override: draft.overrides.has(key),
+    is_read_only: draft.readOnly.has(key),
     normalized_value: normalizedIdentityValue(draft.values, key),
   }
 }
@@ -142,6 +156,7 @@ export function sameSettingsFieldIdentity(
 ): boolean {
   return (
     left.is_override === right.is_override &&
+    left.is_read_only === right.is_read_only &&
     sameValue(left.normalized_value, right.normalized_value)
   )
 }
@@ -154,13 +169,18 @@ export function replaceDraftFieldFromSettings(
   const next: SettingsDraft = {
     values: cloneValues(draft.values),
     overrides: new Set(draft.overrides),
+    readOnly: new Set(draft.readOnly),
   }
+  if (settings.read_only.includes(key)) next.readOnly.add(key)
+  else next.readOnly.delete(key)
   if (settings.overrides.includes(key)) next.overrides.add(key)
   else next.overrides.delete(key)
   if (key === 'header_rules') {
     next.values.header_rules = cloneHeaderRules(settings.values.header_rules)
   } else if (key === 'inject_usage_options') {
     next.values.inject_usage_options = settings.values.inject_usage_options
+  } else if (key === 'models_dev_auto_sync_enabled') {
+    next.values.models_dev_auto_sync_enabled = settings.values.models_dev_auto_sync_enabled
   } else {
     next.values[key] = settings.values[key]
   }
@@ -174,7 +194,9 @@ export function buildSettingsPatch(
 ): SettingsPatch {
   const patch: SettingsPatch = {}
   const baseOverrides = new Set(base.overrides)
+  const readOnly = new Set(base.read_only)
   for (const key of settingsScopeKeys(scope)) {
+    if (readOnly.has(key) || draft.readOnly.has(key)) continue
     const wasOwned = baseOverrides.has(key)
     const isOwned = draft.overrides.has(key)
     if (wasOwned && !isOwned) {
@@ -207,6 +229,7 @@ export function rebaseSettingsDraft(
 
   for (const key of settingsScopeKeys(scope)) {
     if (!Object.prototype.hasOwnProperty.call(patch, key)) continue
+    if (rebased.readOnly.has(key)) continue
     const value = patch[key]
     if (value === null) {
       rebased.overrides.delete(key)
@@ -217,6 +240,8 @@ export function rebaseSettingsDraft(
       rebased.values.header_rules = cloneHeaderRules(value as HeaderRulesDto)
     } else if (key === 'inject_usage_options') {
       rebased.values.inject_usage_options = value as boolean
+    } else if (key === 'models_dev_auto_sync_enabled') {
+      rebased.values.models_dev_auto_sync_enabled = value as boolean
     } else {
       rebased.values[key] = value as number
     }
@@ -238,6 +263,7 @@ function asciiLower(value: string): string {
 }
 
 export function validateSettingsSection(draft: SettingsDraft, section: SettingsSection): boolean {
+  if (section === 'model-prices') return true
   if (section === 'logs-maintenance') {
     return (
       !draft.overrides.has('request_log_retention_days') ||

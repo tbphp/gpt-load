@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"hash"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -415,6 +416,14 @@ func TestForwardStreamUsageStateRequiresProviderFinalEvidence(t *testing.T) {
 				"data: [DONE]\n\n",
 			want: usage.StateComplete,
 		},
+		{
+			name:    "OpenAI first event is terminal usage",
+			dialect: dialect.NewOpenAI(http.DefaultClient),
+			path:    "/v1/chat/completions",
+			wire: "data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"completion_tokens\":13,\"total_tokens\":317,\"prompt_tokens\":304,\"prompt_tokens_details\":{\"cached_tokens\":0}}}\n\n" +
+				"data: [DONE]\n\n",
+			want: usage.StateComplete,
+		},
 		{name: "Anthropic partial", dialect: dialect.NewAnthropic(http.DefaultClient), path: "/v1/messages", wire: `data: {"type":"message_start","message":{"usage":{"input_tokens":80,"cache_read_input_tokens":20}}}` + "\n\n", want: usage.StatePartial},
 		{name: "Gemini partial", dialect: dialect.NewGemini(http.DefaultClient), path: "/v1beta/models/gemini:streamGenerateContent", wire: `data: {"usageMetadata":{"promptTokenCount":100,"cachedContentTokenCount":20,"candidatesTokenCount":30}}` + "\n\n", want: usage.StatePartial},
 		{name: "missing", dialect: dialect.NewOpenAI(http.DefaultClient), path: "/v1/chat/completions", wire: "data: {\"choices\":[{\"delta\":{}}]}\n\n", want: usage.StateMissing},
@@ -434,6 +443,32 @@ func TestForwardStreamUsageStateRequiresProviderFinalEvidence(t *testing.T) {
 				t.Fatalf("Usage state = %q, want %q", result.Usage.State, test.want)
 			}
 		})
+	}
+}
+
+func TestForwardStreamProviderErrorFirstEventIsObservedOnceAfterSafetyBoundary(t *testing.T) {
+	extractor := &countingUsageStreamExtractor{
+		result: usage.Result{State: usage.StateComplete, Tokens: usage.Tokens{Output: 1}},
+	}
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "text/event-stream")
+		_, _ = writer.Write([]byte("event: error\ndata: {\"error\":{\"message\":\"quota exhausted\"}}\n\n"))
+	}))
+	defer upstream.Close()
+
+	input := usageForwardInput(upstream.URL, usageExtractorDialect{
+		Dialect: dialect.NewOpenAI(http.DefaultClient),
+		stream:  func() dialect.UsageStreamExtractor { return extractor },
+	})
+	input.Group.Timeouts.StreamIdle = time.Second
+	result := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New()).ForwardStream(
+		context.Background(),
+		input,
+		newRecordingResponseWriter(),
+	)
+	if !result.ProviderErrorBeforeCommit || extractor.observeCalls != 1 ||
+		result.Usage != extractor.result {
+		t.Fatalf("result/observe calls = %#v/%d, want provider error and one safely buffered observation", result, extractor.observeCalls)
 	}
 }
 
@@ -898,6 +933,8 @@ func TestUsageCaptureBoundaryRejectsInvalidResults(t *testing.T) {
 		{State: usage.State("future")},
 		{State: usage.StateMissing, Tokens: usage.Tokens{Output: 1}},
 		{State: usage.StateComplete, Tokens: usage.Tokens{Output: -1}},
+		{State: usage.StateComplete, Tokens: usage.Tokens{CacheWriteUnknown: -1}},
+		{State: usage.StateComplete, Tokens: usage.Tokens{UncachedInput: math.MaxInt64, Output: 1}},
 	} {
 		boundary := newUsageCaptureBoundary()
 		got := boundary.extractNonStreaming(usageExtractorDialect{Dialect: dialect.NewOpenAI(http.DefaultClient), extract: func([]byte) (usage.Result, error) { return result, nil }}, make(http.Header), []byte(`{}`))

@@ -55,11 +55,22 @@ type Attempt struct {
 	Committed       bool
 }
 
+// PricingObservation is the frozen, dependency-neutral quote selected by the
+// gateway for the attempt whose usage is attributed to the request outcome.
+type PricingObservation struct {
+	PriceScopeKey        string
+	UpstreamModel        string
+	CostState            string
+	PricingCompleteness  string
+	EstimatedCostNanoUSD int64
+}
+
 type UsageObservation struct {
 	Result          usage.Result
 	GroupID         uint
 	KeyID           uint
 	AttemptSequence int
+	Pricing         PricingObservation
 }
 
 type RequestEvent struct {

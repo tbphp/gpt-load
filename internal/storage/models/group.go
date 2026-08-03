@@ -12,12 +12,13 @@ const (
 // Group is the persisted configuration for an upstream service group.
 // API DTOs and runtime state views must be defined outside the storage package.
 type Group struct {
-	ID              uint   `gorm:"primaryKey;autoIncrement"`
-	Name            string `gorm:"type:varchar(255);not null;uniqueIndex"`
-	UpstreamURL     string `gorm:"type:text;not null"`
-	Protocols       JSON   `gorm:"type:json;not null"`
-	Models          JSON   `gorm:"type:json;not null"`
-	ConvertEnabled  bool   `gorm:"not null;default:false"`
+	ID              uint    `gorm:"primaryKey;autoIncrement"`
+	Name            string  `gorm:"type:varchar(255);not null;uniqueIndex"`
+	ProviderID      *string `gorm:"type:varchar(255)"`
+	UpstreamURL     string  `gorm:"type:text;not null"`
+	Protocols       JSON    `gorm:"type:json;not null"`
+	Models          JSON    `gorm:"type:json;not null"`
+	ConvertEnabled  bool    `gorm:"not null;default:false"`
 	WeightManual    *int
 	ValidationModel *string       `gorm:"type:varchar(255)"`
 	Config          JSON          `gorm:"type:json"`

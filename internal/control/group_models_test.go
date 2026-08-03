@@ -8,8 +8,10 @@ import (
 	"testing"
 	"time"
 
+	"gpt-load/internal/catalog"
 	"gpt-load/internal/dialect"
 	app_errors "gpt-load/internal/platform/errors"
+	"gpt-load/internal/pricing"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 	"gpt-load/internal/storage/models"
@@ -17,8 +19,22 @@ import (
 
 func TestGetGroupModelsReturnsClientNamesAndPricingStatus(t *testing.T) {
 	fixture := newServiceFixture(t)
-	mustEnsureInitialPrices(t, fixture)
+	providerID := "openai"
+	fixture.catalogRuntime.Publish(&catalog.Snapshot{Providers: map[string]catalog.Provider{
+		"openai": {
+			ID: "openai",
+			Models: map[string]catalog.Model{
+				"gpt-4o": {
+					ID: "gpt-4o",
+					Cost: &catalog.ModelCost{Prices: pricing.Prices{
+						Input: pricing.Price{Set: true, NanoUSDPerMillion: 1},
+					}},
+				},
+			},
+		},
+	}})
 	created, err := fixture.service.CreateGroup(t.Context(), GroupCreateRequest{
+		ProviderID:  &providerID,
 		UpstreamURL: "https://model-read.example.com/v1",
 		Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
 		Models: optionalGroupModels{Set: true, Values: []GroupModel{
@@ -37,11 +53,11 @@ func TestGetGroupModelsReturnsClientNamesAndPricingStatus(t *testing.T) {
 	}
 	want := GroupModelsResponse{
 		Items: []GroupModelResponse{
-			{ID: "gpt-4o", Alias: "default", AliasEnabled: true, ClientModel: "default", PricingStatus: "priced"},
-			{ID: "missing-price", Alias: "", AliasEnabled: false, ClientModel: "missing-price", PricingStatus: "unpriced"},
+			{ID: "gpt-4o", Alias: "default", AliasEnabled: true, ClientModel: "default", PricingStatus: PricingStatusConfigured},
+			{ID: "missing-price", Alias: "", AliasEnabled: false, ClientModel: "missing-price", PricingStatus: PricingStatusPending},
 		},
-		Total:    2,
-		Unpriced: 1,
+		Total:   2,
+		Pending: 1,
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("GetGroupModels() = %#v, want %#v", got, want)
@@ -235,11 +251,11 @@ func TestUpdateGroupModelsReplacesAuthoritativeListAndPublishesOnce(t *testing.T
 	}
 	want := GroupModelsResponse{
 		Items: []GroupModelResponse{
-			{ID: "provider-b", Alias: "public-b", AliasEnabled: true, ClientModel: "public-b", PricingStatus: "unpriced"},
-			{ID: "provider-a", Alias: "public-a", AliasEnabled: true, ClientModel: "public-a", PricingStatus: "unpriced"},
+			{ID: "provider-b", Alias: "public-b", AliasEnabled: true, ClientModel: "public-b", PricingStatus: PricingStatusPending},
+			{ID: "provider-a", Alias: "public-a", AliasEnabled: true, ClientModel: "public-a", PricingStatus: PricingStatusPending},
 		},
-		Total:    2,
-		Unpriced: 2,
+		Total:   2,
+		Pending: 2,
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("models response = %#v, want %#v", got, want)
@@ -336,7 +352,7 @@ func TestUpdateGroupModelsAllowsEmptyList(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := GroupModelsResponse{Items: []GroupModelResponse{}, Total: 0, Unpriced: 0}
+	want := GroupModelsResponse{Items: []GroupModelResponse{}, Total: 0, Pending: 0}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("models response = %#v, want %#v", got, want)
 	}

@@ -49,7 +49,7 @@ GPT-Loadは、Goで構築されたセルフホスト型のAI APIキー集約・�
 - **4つの選択可能なネイティブプロトコル**：OpenAI Completions、OpenAI Responses、Anthropic Messages、Geminiのリクエストをそれぞれのプロトコルで転送します。Groupでは任意に複数選択でき、プロトコル間の変換は行いません。
 - **キーとトラフィックの管理**：Group、暗号化された上流Key、AccessKey、モデル検出、フィルターとレート制限、スケジューリング、ヘルス状態、cooldown、blacklist、自動重み付け。
 - **制御と可観測性**：ランタイム設定、ルート検査、ヘルス表示、RequestLog、中国語・英語・日本語の管理UI。
-- **使用量と推定コスト**：4プロトコルのうち生成usageを返すエンドポイントからusageを取得し、24時間/30日レポート、リクエスト単位の品質状態、組み込み価格、ユーザー価格の上書きを提供します。
+- **使用量と推定コスト**：4プロトコルのうち生成usageを返すエンドポイントからusageを取得し、24時間/30日レポート、リクエスト単位の品質状態、利用可能な場合にModels.devから同期する完全一致の4価格スロット、ユーザー管理価格を提供します。
 
 M3のコントロールプレーンUIとM4のusage/pricing範囲はローカル候補に含まれていますが、正式なリリース判断・承認と公開は未完了です。価格とコストは、上流から返されたusageと現在の価格ルールに基づくbest-effortの**推定値**です。billing ledger、請求書、プロバイダー請求ではなく、過去のリクエストを再計算することもありません。
 
@@ -63,7 +63,7 @@ M3のコントロールプレーンUIとM4のusage/pricing範囲はローカル�
 - OpenAI ResponsesのリソースルーティングにはKey affinityがありません。`previous_response_id`または`conversation`を使うステートフルな複数ターンと、後続のretrieve/delete/cancel/input-itemsは、上流Keyが1つの場合、または上流がKey間でリソースストレージを共有する場合だけ確実です。それ以外では、選択された上流からresource-not-foundが返る可能性があります。
 - 上流キーは必ず保存時に暗号化され、平文へのフォールバックはありません。2.0.0はマスターキーのローテーションに対応せず、`migrate-keys`は明示的に失敗する延期コマンドのままです。
 - 1.xデータの自動移行、インプレースアップグレード、逆同期には対応しません。
-- プロトコル変換、オンライン請求照合、自動価格取得、オンラインバックアップAPI、バックアップCLIは提供しません。
+- プロトコル変換、オンライン請求照合、オンラインバックアップAPI、バックアップCLIは提供しません。Models.dev同期が提供するのは推定用メタデータだけで、プロバイダー請求書やインボイスではありません。
 
 ## クイックスタート
 
@@ -190,12 +190,14 @@ print(response.output_text)
 
 管理UIは`/`、管理APIは`/api`で提供され、どちらも`AUTH_KEY`を使用します。UIにはGroup、上流キー、AccessKey、ランタイム設定、ヘルス、ログ、ルート検査、Usage、モデル価格管理があります。管理APIの事実源は現在のコードとUIであり、このREADMEでは変化しやすいルート一覧を複製しません。
 
+モデルカタログの自動同期はデフォルトで有効で、コントロールプレーンから固定エンドポイント`https://models.dev/api.json`へアクセスします。起動処理は非同期のままで、永続化したlast-known-goodカタログを利用できます。手動同期も常に利用でき、データプレーンのリクエストがModels.devへアクセスすることはありません。
+
 Usage/Costの品質境界：
 
-- `complete + priced`のリクエストだけが、デフォルトのtoken合計と推定コスト合計に入ります。
-- `missing`、`partial`、`unpriced`もリクエスト数と品質カウントには入りますが、デフォルトのtoken/コスト合計には入りません。`complete + unpriced`に推測価格を割り当てることもありません。
+- `complete`と`partial`のusageは既知のtoken次元を集計し、`missing` usageはリクエスト数と品質カウントだけに入ります。
+- `priced`リクエストは既知の推定コストを集計します。`pricing_partial`は計算可能な部分を保持しながら価格カバレッジ不足を示し、`unpriced`に推測価格を割り当てることはありません。
 - ストリームのclean EOFは完全なusageを保証せず、互換中継サービスがプロバイダー公式の終端usageを返さない場合もあります。
-- APIの`pricing_policy`は読み取り専用です。UIは表示のみを行い、ユーザー定義価格ルールから内部pricing policyを宣言することはできません。
+- 価格はGroupのProviderまたはカスタムGroupスコープ内で上流モデルに完全一致します。4つの平面価格スロットは入力、出力、キャッシュ読み取り、キャッシュ書き込みで、明示的な`0`は無料、未設定は推定不可を表します。
 - 価格変更は今後の書き込みにだけ影響し、過去のRequestLogやUsageStatは再計算されません。
 - 現在のプロセスにおけるdropped/write-failureカウンターと、データベース期間内の永続集計は異なる範囲です。
 
@@ -210,6 +212,7 @@ Usage/Costの品質境界：
 | `DATABASE_DSN` | 空 → `${DATA_DIR}/gpt-load.db` | 空ならmanaged SQLiteを選択。デフォルトと同じ文字列でも、operatorが設定した非空値はすべてexternal |
 | `AUTH_KEY` | keyfileを自動生成 | 管理bearer認証情報。明示値に空白は使用不可。空の場合`${DATA_DIR}/auth.key`を読み取りまたは作成 |
 | `ENCRYPTION_KEY` | keyfileを自動生成 | 上流キー暗号化用マスターキー。空の場合`${DATA_DIR}/encryption.key`を読み取りまたは作成 |
+| `MODELS_DEV_AUTO_SYNC_ENABLED` | 未設定 | Models.dev自動同期の任意の厳密なboolean override。未設定ではデフォルト有効のランタイム設定を使用 |
 | `GRACEFUL_SHUTDOWN_TIMEOUT` | `10` | グレースフルシャットダウンの秒数 |
 | `READ_TIMEOUT` | `60` | リクエスト全体を読み取る最大秒数 |
 | `IDLE_TIMEOUT` | `120` | keep-aliveのアイドルタイムアウト秒数 |

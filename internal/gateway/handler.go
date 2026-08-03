@@ -17,6 +17,7 @@ import (
 	"gpt-load/internal/health"
 	"gpt-load/internal/platform/encryption"
 	"gpt-load/internal/platform/utils"
+	"gpt-load/internal/pricing"
 	"gpt-load/internal/ratelimit"
 	"gpt-load/internal/scheduler"
 	"gpt-load/internal/state"
@@ -53,6 +54,11 @@ type AccessKeyRPMLimiter interface {
 	Allow(accessKeyID uint, limit int64) ratelimit.LimitDecision
 }
 
+// PriceTableProvider exposes the currently published immutable price table.
+type PriceTableProvider interface {
+	Load() *pricing.Table
+}
+
 type keyMutationCoordinator interface {
 	Do(uint, func())
 }
@@ -77,6 +83,7 @@ type Handler struct {
 	mutations           keyMutationCoordinator
 	limiter             AccessKeyRPMLimiter
 	requestLogSink      telemetry.RequestLogSink
+	priceTables         PriceTableProvider
 	newRandom           func() *rand.Rand
 	newRequestID        func() (string, error)
 	requestNow          func() time.Time
@@ -86,6 +93,30 @@ type Handler struct {
 	logger              *logrus.Logger
 	authFailureEvents   *utils.RateLimitedEventCounter
 	routeNotFoundEvents *utils.RateLimitedEventCounter
+}
+
+func (handler *Handler) freezeAttemptPricing(
+	selection scheduler.Selection,
+	applicable bool,
+) frozenAttemptPricing {
+	frozen := frozenAttemptPricing{
+		groupID:       selection.GroupID,
+		upstreamModel: optionalModelValue(selection.UpstreamModelID),
+		applicable:    applicable,
+	}
+	if handler != nil && handler.priceTables != nil {
+		frozen.table = handler.priceTables.Load()
+	}
+	var err error
+	if selection.Group.ProviderID != nil {
+		frozen.scopeKey, err = pricing.ProviderScopeKey(*selection.Group.ProviderID)
+	} else {
+		frozen.scopeKey, err = pricing.GroupScopeKey(selection.GroupID)
+	}
+	if err != nil {
+		frozen.scopeKey = ""
+	}
+	return frozen
 }
 
 func NewHandler(
@@ -98,6 +129,7 @@ func NewHandler(
 	mutations *health.MutationCoordinator,
 	limiter AccessKeyRPMLimiter,
 	requestLogSink telemetry.RequestLogSink,
+	priceTables PriceTableProvider,
 ) *Handler {
 	if limiter == nil {
 		limiter = unlimitedAccessKeyRPMLimiter{}
@@ -108,7 +140,7 @@ func NewHandler(
 	return &Handler{
 		manager: manager, registry: registry, encryption: encryptionService,
 		forwarder: forwarder, dialects: dialects, stats: stats, mutations: mutations,
-		limiter: limiter, requestLogSink: requestLogSink,
+		limiter: limiter, requestLogSink: requestLogSink, priceTables: priceTables,
 		newRandom:      func() *rand.Rand { return rand.New(rand.NewSource(rand.Int63())) },
 		newRequestID:   newRequestID,
 		requestNow:     time.Now,
@@ -444,6 +476,11 @@ func (handler *Handler) executeAttempts(
 			OnStreamReady: func() {
 				handler.recordSuccess(selectedKeyID, handler.now())
 			},
+		}
+		if recorder != nil {
+			recorder.freezeNextAttemptPricing(
+				handler.freezeAttemptPricing(selection, observeUsage),
+			)
 		}
 		attemptStarted := recorder.beforeForward()
 		var result UpstreamResult

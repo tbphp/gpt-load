@@ -15,6 +15,7 @@ import (
 	"gpt-load/internal/platform/canonicaljson"
 	"gpt-load/internal/platform/epochms"
 	app_errors "gpt-load/internal/platform/errors"
+	"gpt-load/internal/pricing"
 	stateloader "gpt-load/internal/state/loader"
 	"gpt-load/internal/storage/models"
 )
@@ -23,6 +24,7 @@ type operationStage string
 
 const (
 	operationStageDBCommitted       operationStage = "db_committed"
+	operationStagePricesPublished   operationStage = "prices_published"
 	operationStageRegistryApplied   operationStage = "registry_applied"
 	operationStageSnapshotPublished operationStage = "snapshot_published"
 	operationStageCompleted         operationStage = "completed"
@@ -37,11 +39,12 @@ type idempotentMutationResult struct {
 }
 
 type idempotentOperationInput struct {
-	IdempotencyKey string
-	DigestVersion  uint
-	RequestDigest  [32]byte
-	Kind           operationKind
-	Mutate         func(operationTransaction) (idempotentMutationResult, error)
+	IdempotencyKey  string
+	DigestVersion   uint
+	RequestDigest   [32]byte
+	Kind            operationKind
+	PrepareMutation func()
+	Mutate          func(operationTransaction) (idempotentMutationResult, error)
 }
 
 type idempotentOperationResult struct {
@@ -76,6 +79,7 @@ func operationRequiredStages(kind operationKind) ([]operationStage, error) {
 	case operationKindGroupCreate:
 		stages = []operationStage{
 			operationStageDBCommitted,
+			operationStagePricesPublished,
 			operationStageRegistryApplied,
 			operationStageSnapshotPublished,
 			operationStageCompleted,
@@ -167,6 +171,9 @@ func (s *Service) executeIdempotentOperation(
 	}
 	if recoveryErr := s.enforceOperationRecoveryBarrierLocked(ctx, 0); recoveryErr != nil {
 		return idempotentOperationResult{}, recoveryErr
+	}
+	if input.PrepareMutation != nil {
+		input.PrepareMutation()
 	}
 
 	requiredStages, err := operationRequiredStages(input.Kind)
@@ -339,6 +346,12 @@ func (s *Service) recoverOperationLocked(
 		stage := storedStages[index]
 		var stageErr error
 		switch stage {
+		case operationStagePricesPublished:
+			var table *pricing.Table
+			table, stageErr = loadPriceTable(ctx, s.db)
+			if stageErr == nil {
+				s.priceRuntime.Publish(table)
+			}
 		case operationStageRegistryApplied:
 			stageErr = s.recoverRegistryOperation(ctx, operation)
 		case operationStageSnapshotPublished:

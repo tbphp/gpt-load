@@ -283,7 +283,10 @@ func TestDiscoverGroupModelsUsesDisabledGroupAndActiveKeysInIDOrder(t *testing.T
 	if err != nil {
 		t.Fatalf("DiscoverGroupModels() error = %v", err)
 	}
-	if !reflect.DeepEqual(result.Models, []string{"z-model", "a-model"}) {
+	if !reflect.DeepEqual(result.Models, []ModelCandidate{
+		{ID: "z-model", Name: "z-model", Sources: []string{"live"}, PricingStatus: PricingStatusPending},
+		{ID: "a-model", Name: "a-model", Sources: []string{"live"}, PricingStatus: PricingStatusPending},
+	}) {
 		t.Fatalf("models = %#v, want upstream order", result.Models)
 	}
 	wantCalls := []string{

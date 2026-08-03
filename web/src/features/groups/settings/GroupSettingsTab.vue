@@ -14,7 +14,9 @@ import {
   invalidateGroupSettingsDependents,
   updateGroupSettings,
 } from '@/app/resources/groups'
+import { providerSuggestionsQueryOptions } from '@/app/resources/providers'
 import { useUnsavedChanges } from '@/app/unsaved-changes'
+import { useDebouncedAction } from '@/app/use-debounced-action'
 import { useTransientFlag } from '@/app/use-transient-flag'
 import HeaderRulesEditor from '@/components/config/HeaderRulesEditor.vue'
 import RuntimeOverrideRow from '@/components/config/RuntimeOverrideRow.vue'
@@ -46,6 +48,10 @@ const { t } = useI18n()
 const query = useQuery(groupSettingsQueryOptions(client, () => props.groupId))
 const saved = ref<GroupSettingsDto>()
 const draft = ref<GroupSettingsDraft>()
+const providerSearchInput = ref('')
+const providerSearch = ref('')
+const providerSearchDebounce = useDebouncedAction(250)
+const providerQuery = useQuery(providerSuggestionsQueryOptions(client, providerSearch))
 const pending = ref(false)
 const deletePending = ref(false)
 const deleted = ref(false)
@@ -60,6 +66,26 @@ const {
   show: showSavedFeedback,
 } = useTransientFlag(1_600)
 const timeoutKeys = groupTimeoutKeys
+const customProviderValue = 'custom:'
+const providerOptions = computed(() => {
+  const items = providerQuery.data.value?.items ?? []
+  const options = [
+    { value: customProviderValue, label: t('group.settings.base.providerCustom') },
+    ...items.map(({ provider_id, name }) => ({ value: provider_id, label: name })),
+  ]
+  const current = draft.value?.provider_id
+  if (current && !items.some(({ provider_id }) => provider_id === current)) {
+    options.push({ value: current, label: current })
+  }
+  return options
+})
+
+function setProviderSearch(value: string): void {
+  providerSearchInput.value = value
+  providerSearchDebounce.schedule(() => {
+    providerSearch.value = value
+  })
+}
 let controller: AbortController | undefined
 const navItems = computed(() => [
   { id: 'settings-general', label: t('group.settings.sections.general') },
@@ -293,6 +319,11 @@ onBeforeUnmount(() => {
         <div class="group-settings__content">
           <GroupSettingsBaseForm
             section="general"
+            :provider-id="draft.provider_id"
+            :provider-search="providerSearchInput"
+            :provider-options="providerOptions"
+            :provider-loading="providerQuery.isFetching.value"
+            :provider-error="providerQuery.isError.value"
             :name="draft.name"
             :upstream-url="draft.upstream_url"
             :validation-model="draft.validation_model"
@@ -303,6 +334,8 @@ onBeforeUnmount(() => {
             :name-error="nameError"
             :upstream-url-error="urlError"
             :protocols-error="protocolsError"
+            @update:provider-id="draft.provider_id = $event"
+            @update:provider-search="setProviderSearch"
             @update:name="draft.name = $event"
             @update:upstream-url="draft.upstream_url = $event"
             @update:validation-model="draft.validation_model = $event"
@@ -312,6 +345,11 @@ onBeforeUnmount(() => {
           />
           <GroupSettingsBaseForm
             section="routing"
+            :provider-id="draft.provider_id"
+            :provider-search="providerSearchInput"
+            :provider-options="providerOptions"
+            :provider-loading="providerQuery.isFetching.value"
+            :provider-error="providerQuery.isError.value"
             :name="draft.name"
             :upstream-url="draft.upstream_url"
             :validation-model="draft.validation_model"
@@ -322,6 +360,8 @@ onBeforeUnmount(() => {
             :name-error="nameError"
             :upstream-url-error="urlError"
             :protocols-error="protocolsError"
+            @update:provider-id="draft.provider_id = $event"
+            @update:provider-search="setProviderSearch"
             @update:name="draft.name = $event"
             @update:upstream-url="draft.upstream_url = $event"
             @update:validation-model="draft.validation_model = $event"

@@ -44,6 +44,41 @@ func TestGetSettingsReturnsSnapshotDefaultsAndNoOverrides(t *testing.T) {
 	if got.Overrides == nil {
 		t.Fatal("overrides = nil, want empty slice")
 	}
+	if !got.Values.ModelsDevAutoSyncEnabled || got.ReadOnly == nil || len(got.ReadOnly) != 0 {
+		t.Fatalf("Models.dev settings = %#v/%#v, want true and no read-only keys", got.Values, got.ReadOnly)
+	}
+}
+
+func TestModelsDevEnvironmentOverrideWinsAndIsReadOnlyWithoutPersistence(t *testing.T) {
+	fixture := newServiceFixture(t)
+	disabled := false
+	fixture.service.modelsDevAutoSyncOverride = &disabled
+
+	got, err := fixture.service.GetSettings(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Values.ModelsDevAutoSyncEnabled || !reflect.DeepEqual(got.ReadOnly, []string{state.SettingModelsDevAutoSyncEnabled}) {
+		t.Fatalf("GetSettings() = %#v, want effective false environment lock", got)
+	}
+
+	_, err = fixture.service.UpdateSettings(t.Context(), SettingsUpdateRequest{
+		Settings: map[string]json.RawMessage{
+			state.SettingModelsDevAutoSyncEnabled: json.RawMessage("true"),
+		},
+	})
+	if !errors.Is(err, app_errors.ErrValidation) {
+		t.Fatalf("UpdateSettings(environment locked) error = %v, want validation", err)
+	}
+	var count int64
+	if err := fixture.db.Model(&models.SystemSetting{}).
+		Where("key = ?", state.SettingModelsDevAutoSyncEnabled).
+		Count(&count).Error; err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("environment override persisted %d rows", count)
+	}
 }
 
 func TestUpdateSettingsInjectUsageOptionsBooleanAndNullReset(t *testing.T) {

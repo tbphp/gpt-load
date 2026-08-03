@@ -1,127 +1,152 @@
 export default {
   modelPrices: {
     title: 'Model prices',
-    description:
-      'Manage per-model prices used to estimate token costs. Built-in rules remain read-only.',
-    back: 'Back to Settings',
-    add: 'Add override',
+    back: 'Back to settings',
     loading: 'Loading model prices…',
-    loadFailed: 'Unable to load model prices.',
-    stale: 'Model prices may be stale because the background refresh failed.',
-    priceUnit: 'USD per one million tokens',
-    historyNote:
-      'Price changes affect future estimated costs. Historical usage and cost are not recalculated.',
-    modelIdentityNote:
-      'Rules match the upstream model ID after routing; the same model ID shares one global price across Groups.',
-    precedenceNote: 'User overrides take precedence over every built-in exact and prefix rule.',
-    wholeRuleNote:
-      'A user override replaces the whole five-slot rule. Unset slots do not fall back to built-in values.',
-    scrollHint: 'Scroll horizontally to inspect every model price column.',
-    details: 'Price fields and metadata',
-    sourceUnavailable: 'Source unavailable',
-    notConfigured: 'Not configured',
-    explicitlyFree: '$0 · Explicitly free',
-    configuredPrice: '${price} / 1M',
-    globalUserOverride: 'Global user override',
-    kind: {
-      exact: 'Exact model',
-      prefix: 'Prefix rule',
-      global: 'Global rule',
+    loadFailed: 'Unable to load model prices',
+    stale: 'The current list may be stale because the background refresh failed',
+    context:
+      'Prices use USD per 1M tokens and affect future cost estimates only; historical requests are not recalculated',
+    result: 'Showing {shown} of {total}',
+    filters: {
+      region: 'Filter model prices',
+      searchLabel: 'Search',
+      searchPlaceholder: 'Model ID, provider, or Group',
+      clearSearch: 'Clear search',
+      usageLabel: 'Usage',
+      statusLabel: 'Pricing status',
+      reset: 'Reset filters',
+      usage: {
+        in_use: 'In use',
+        unreferenced: 'Unreferenced',
+        all: 'All',
+      },
+      status: {
+        all: 'All',
+        pending: 'Pending',
+        configured: 'Configured',
+      },
     },
-    source: {
-      builtin: 'Built-in',
-      user: 'Override',
+    sync: {
+      action: 'Sync prices',
+      succeeded: 'The model catalog and automatic prices are synced',
+      failed: 'Unable to sync the model catalog and prices',
     },
-    fields: {
-      uncached_input: 'Uncached input',
-      cache_read: 'Cache read',
-      cache_write_5m: '5-minute cache write',
-      cache_write_1h: '1-hour cache write',
-      output: 'Output',
+    empty: {
+      title: 'No in-use model prices yet',
+      description: 'Sync the model catalog or configure models in a Group to get started',
+      noResultsTitle: 'No matching model prices',
+      noResultsDescription: 'Adjust the search, usage, or pricing-status filters and try again',
     },
-    table: {
-      pattern: 'Model pattern',
-      kind: 'Rule kind',
-      source: 'Source',
+    sections: {
+      count: '{count} entries',
+      pending: {
+        title: 'Pending pricing',
+        description: 'No price is currently available for cost estimation',
+        tableLabel: 'Pending model prices',
+      },
+      configured: {
+        title: 'Configured pricing',
+        description: 'Current four-slot prices and their ownership method',
+        tableLabel: 'Configured model prices',
+      },
+    },
+    columns: {
+      identity: 'Model / scope',
+      status: 'Status',
+      prices: 'Prices · USD / 1M',
+      facts: 'Method / references',
       updatedAt: 'Updated',
       actions: 'Actions',
     },
-    builtin: {
-      title: 'Built-in prices',
-      description: 'Read-only reference prices shipped with this version.',
-      empty: 'No built-in model prices',
-      emptyDescription: 'This build did not return any built-in price rules.',
-      caption: 'Built-in model price rules',
-      source: 'Official source',
-      createOverride: 'Create override',
-      longContext: {
-        label: 'Long-context policy',
-        summary:
-          'More than {threshold} input tokens: input prices ×{inputMultiplier}; output price ×{outputMultiplier}.',
-      },
+    status: {
+      pending: 'Pending',
+      configured: 'Configured',
     },
-    overrides: {
-      title: 'User overrides',
-      description:
-        'Each saved pattern replaces the complete matching rule with five explicit price slots.',
-      empty: 'No overrides configured',
-      emptyDescription: 'Add an exact, trailing-star prefix, or global override when needed.',
-      caption: 'User model price overrides',
-      edit: 'Edit',
+    scope: {
+      provider: 'Provider',
+      group: 'Group',
+    },
+    fields: {
+      input: 'Input',
+      output: 'Output',
+      cache_read: 'Cache read',
+      cache_write: 'Cache write',
+    },
+    values: {
+      unavailable: 'Unavailable',
+      free: 'Free',
+      configured: '${value}',
+    },
+    method: {
+      pending: 'No pricing method',
+      auto_sync: 'Synced from Models.dev',
+      user_override: 'Manual override',
+      user_set: 'Manually set',
+      user_marked_unpriced: 'Manually marked unpriced',
+    },
+    references: '{entries} references · {groups} Groups',
+    facts: {
+      partial: 'Incomplete upstream pricing',
+      tiered: 'Context-tier pricing available',
+    },
+    edit: {
+      open: 'Edit prices for {model}',
     },
     drawer: {
-      addTitle: 'Add model price override',
-      builtinTitle: 'Create override from built-in price',
-      editTitle: 'Edit model price override',
-      description: 'Configure an exact, prefix, or global price rule.',
-      close: 'Close model price editor',
-      pattern: 'Model pattern',
-      patternDescription:
-        'Use an exact model ID, one trailing * for a prefix, or a bare * for every model.',
-      patternReadonly: 'The pattern is fixed while editing. Add a new override to use another one.',
-      prices: 'Estimated prices',
-      priceDescription: 'USD per one million tokens. Empty means not configured; 0 is explicit.',
-      wholeReplacement:
-        'Saving replaces the whole rule for this pattern. All five price slots are submitted, including not configured values.',
-      globalWarning:
-        'All user rules take precedence over built-in rules. A bare * shadows every built-in price rule; more specific user rules still take precedence over *.',
-      globalConfirm: 'I understand that * shadows every built-in price rule.',
-      globalDialog: {
-        title: 'Create a global user price override?',
-        description:
-          'A bare * changes the estimated price rule for every model without a more specific user override.',
-        close: 'Close global price override confirmation',
-        precedence:
-          'This global user override takes precedence over every built-in exact and prefix rule.',
-        noFallback:
-          'Unset price slots do not fall back; the whole five-slot user rule replaces the built-in rule.',
-        futureOnly:
-          'The change applies only to future completed or Emit requests and does not recalculate history.',
-        reset: 'Reset restores the remaining user and built-in rules for future requests.',
-        confirm: 'Create global override',
-      },
-      save: 'Save override',
-      saveFailed: 'Unable to save the model price override. Your input is unchanged.',
+      title: 'Edit model prices',
+      description: 'Set four price slots; empty is unavailable and 0 is explicitly free',
+      close: 'Close the model price editor',
+      identity: 'Model identity',
+      identityDescription: 'The server owns the model and price scope; they cannot be edited here',
+      model: 'Model ID',
+      scope: 'Price scope',
+      currentStatus: 'Current status',
+      prices: 'Price slots',
+      priceDescription: 'Raw decimal precision is preserved; all prices use USD per 1M tokens',
+      unit: 'USD / 1M',
+      tierNote:
+        'This price has context tiers; saving manually replaces the tiered price with these four slots',
+      partialNote: 'Upstream pricing is incomplete; review each unavailable slot',
+      availableState: 'Empty is unavailable; 0 is free',
+      unpricedState: 'Leaving every slot empty marks this model unpriced',
+      save: 'Save prices',
+      saveFailed: 'Unable to save model prices; your input is preserved',
       errors: {
-        required: 'Enter a model pattern.',
-        too_long: 'Use at most 255 UTF-8 bytes.',
-        surrounding_whitespace: 'Remove leading or trailing whitespace.',
-        control_character: 'Control characters are not allowed.',
-        question_mark: 'Question marks are not allowed.',
-        star_position: 'Use at most one star, and only as the final character.',
-        invalid_price: 'Enter a finite number greater than or equal to 0.',
-        all_empty: 'Configure at least one of the five price slots.',
+        invalid_price:
+          'Enter a non-negative price with at most 9 decimals within the supported range',
+      },
+      unpricedConfirm: {
+        title: 'Mark this model unpriced?',
+        description: 'All four price slots for “{model}” will become unavailable',
+        close: 'Close unpriced confirmation',
+        warning:
+          'Future requests still record tokens, but cost is estimated as 0 and marked unpriced',
+        confirm: 'Confirm unpriced',
       },
     },
     reset: {
-      open: 'Reset',
-      title: 'Reset this model price override?',
-      description: 'Delete the “{pattern}” override rule.',
-      close: 'Close model price reset confirmation',
-      warning:
-        'After deletion, the next applicable user rule is used first, then a built-in rule. If no user or built-in rule matches, the model may be unpriced. Only this override is deleted; historical usage and cost are not recalculated.',
-      confirm: 'Reset override',
-      failed: 'Unable to reset the model price override.',
+      open: 'Restore automatic prices',
+      title: 'Restore automatic prices?',
+      description: 'Remove the manual prices for “{model}” and use catalog prices again',
+      close: 'Close automatic-price confirmation',
+      warning: 'The model returns to pending when the catalog has no matching price',
+      confirm: 'Restore automatic prices',
+      failed: 'Unable to restore automatic prices',
+    },
+    delete: {
+      open: 'Delete price entry',
+      title: 'Delete this price entry?',
+      description: 'Delete the unreferenced manual price entry for “{model}”',
+      close: 'Close price deletion confirmation',
+      warning: 'Only unreferenced manual entries can be deleted',
+      confirm: 'Delete entry',
+      failed: 'Unable to delete the price entry',
+    },
+    errors: {
+      referenced: 'This price has {entries} references across {groups} Groups',
+      automaticDeleteForbidden:
+        'Automatic prices cannot be deleted; make this a manual entry first',
     },
   },
 } as const

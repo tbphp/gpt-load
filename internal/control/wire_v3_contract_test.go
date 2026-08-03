@@ -113,42 +113,6 @@ func TestUsageMillisCostWireUsesIntegerBucketsAndStringCost(t *testing.T) {
 	)
 }
 
-func TestModelPriceWireUsesFiveNullableDecimalStrings(t *testing.T) {
-	zero := "0"
-	encoded, err := json.Marshal(modelPriceRuleResponse{
-		Prices: modelPriceValuesResponse{
-			InputPrice: &zero,
-		},
-		UpdatedAtMS: 1_784_894_400_000,
-	})
-	if err != nil {
-		t.Fatalf("json.Marshal() error = %v", err)
-	}
-	var document struct {
-		Prices      map[string]*string `json:"prices"`
-		UpdatedAtMS int64              `json:"updated_at_ms"`
-	}
-	if err := json.Unmarshal(encoded, &document); err != nil {
-		t.Fatalf("json.Unmarshal() error = %v", err)
-	}
-	wantPriceKeys := []string{
-		"input_price_usd_per_million_tokens",
-		"output_price_usd_per_million_tokens",
-		"cache_read_price_usd_per_million_tokens",
-		"cache_write_5m_price_usd_per_million_tokens",
-		"cache_write_1h_price_usd_per_million_tokens",
-	}
-	if len(document.Prices) != len(wantPriceKeys) ||
-		document.UpdatedAtMS != 1_784_894_400_000 {
-		t.Fatalf("ModelPrice JSON = %s", encoded)
-	}
-	for _, key := range wantPriceKeys {
-		if _, exists := document.Prices[key]; !exists {
-			t.Fatalf("ModelPrice JSON missing %q: %s", key, encoded)
-		}
-	}
-}
-
 func TestIdempotencyOperationMillisWireOmitsLegacyTimestampKey(t *testing.T) {
 	assertManagementWireObject(
 		t,

@@ -17,16 +17,46 @@ func TestCompilePublishesDefaultRuntimeSettingsWithoutGroups(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := RuntimeSettings{
-		ConnectTimeout:          15 * time.Second,
-		FirstByteTimeout:        120 * time.Second,
-		RequestTimeout:          600 * time.Second,
-		StreamIdleTimeout:       300 * time.Second,
-		HeaderRules:             HeaderRules{Set: map[string]string{}},
-		InjectUsageOptions:      true,
-		RequestLogRetentionDays: 7,
+		ConnectTimeout:           15 * time.Second,
+		FirstByteTimeout:         120 * time.Second,
+		RequestTimeout:           600 * time.Second,
+		StreamIdleTimeout:        300 * time.Second,
+		HeaderRules:              HeaderRules{Set: map[string]string{}},
+		InjectUsageOptions:       true,
+		RequestLogRetentionDays:  7,
+		ModelsDevAutoSyncEnabled: true,
 	}
 	if !reflect.DeepEqual(snapshot.Settings, want) {
 		t.Fatalf("Settings = %#v, want %#v", snapshot.Settings, want)
+	}
+}
+
+func TestModelsDevAutoSyncSettingDefaultsTrueAndIsSystemOnly(t *testing.T) {
+	defaults, err := ResolveRuntimeSettings(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !defaults.ModelsDevAutoSyncEnabled {
+		t.Fatal("ModelsDevAutoSyncEnabled = false, want default true")
+	}
+
+	disabled, err := ResolveRuntimeSettings(config.Settings{
+		SettingModelsDevAutoSyncEnabled: false,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if disabled.ModelsDevAutoSyncEnabled {
+		t.Fatal("ModelsDevAutoSyncEnabled = true, want persisted false")
+	}
+	if !IsRuntimeSettingKey(SettingModelsDevAutoSyncEnabled) {
+		t.Fatal("models_dev_auto_sync_enabled is not a public runtime setting")
+	}
+	if _, err := ResolveGroupRuntimeSettings(
+		defaults,
+		config.Settings{SettingModelsDevAutoSyncEnabled: false},
+	); err == nil {
+		t.Fatal("Group override accepted system-only models_dev_auto_sync_enabled")
 	}
 }
 

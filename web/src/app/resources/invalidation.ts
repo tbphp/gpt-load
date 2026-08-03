@@ -31,11 +31,21 @@ export const mutationInvalidationPlans = {
   group: {
     create: plan(
       [controlQueryKeys.groups.options(), controlQueryKeys.health()],
-      [controlQueryKeys.groups.collectionAll, controlQueryKeys.home.all],
+      [
+        controlQueryKeys.groups.collectionAll,
+        controlQueryKeys.home.all,
+        controlQueryKeys.modelPrices(),
+        controlQueryKeys.providers.modelsAll(),
+      ],
     ),
     delete: plan(
       [controlQueryKeys.groups.options(), controlQueryKeys.health()],
-      [controlQueryKeys.groups.collectionAll, controlQueryKeys.home.all],
+      [
+        controlQueryKeys.groups.collectionAll,
+        controlQueryKeys.home.all,
+        controlQueryKeys.modelPrices(),
+        controlQueryKeys.providers.modelsAll(),
+      ],
     ),
     importKeys: importedKeyResourcePlan,
   },
@@ -63,8 +73,38 @@ export const mutationInvalidationPlans = {
     reveal: plan(),
   },
   modelPrice: {
-    upsert: plan([controlQueryKeys.modelPrices()]),
-    reset: plan([controlQueryKeys.modelPrices()]),
+    update: plan(
+      [],
+      [
+        controlQueryKeys.modelPrices(),
+        controlQueryKeys.providers.modelsAll(),
+        controlQueryKeys.groups.modelsAll(),
+      ],
+    ),
+    reset: plan(
+      [],
+      [
+        controlQueryKeys.modelPrices(),
+        controlQueryKeys.providers.modelsAll(),
+        controlQueryKeys.groups.modelsAll(),
+      ],
+    ),
+    delete: plan(
+      [],
+      [
+        controlQueryKeys.modelPrices(),
+        controlQueryKeys.providers.modelsAll(),
+        controlQueryKeys.groups.modelsAll(),
+      ],
+    ),
+    sync: plan(
+      [],
+      [
+        controlQueryKeys.modelPrices(),
+        controlQueryKeys.providers.modelsAll(),
+        controlQueryKeys.groups.modelsAll(),
+      ],
+    ),
   },
 } as const
 

@@ -1,6 +1,7 @@
 package control
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -85,6 +86,14 @@ func groupKeysMutationLocator(c *gin.Context) string {
 
 func accessKeyMutationLocator(c *gin.Context) string {
 	return "access-key:" + mutationID(c.Param("id"))
+}
+
+func modelPriceMutationLocator(c *gin.Context) string {
+	id, err := parseModelPriceRowID(c.Param("id"))
+	if err != nil {
+		return "model-price:unknown"
+	}
+	return fmt.Sprintf("model-price:%d", id)
 }
 
 func mutationID(raw string) string {

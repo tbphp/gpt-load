@@ -29,7 +29,6 @@ func TestServiceEmitLogsAcceptedCompletionExactlyOnce(t *testing.T) {
 		}),
 		redact.New(),
 		timers.New,
-		newStaticPriceTableProvider(),
 	)
 	service.logger = newRequestLogJSONLogger(&output)
 	if err := service.Start(); err != nil {
@@ -62,7 +61,6 @@ func TestServiceEmitSkipsCompletionForEmptyIDAndInactiveLifecycle(t *testing.T) 
 		}),
 		redact.New(),
 		timers.New,
-		newStaticPriceTableProvider(),
 	)
 	service.logger = newRequestLogJSONLogger(&output)
 
@@ -109,7 +107,6 @@ func TestServiceEmitLoggerPanicDoesNotPreventEnqueue(t *testing.T) {
 		}),
 		redact.New(),
 		newManualTimerFactory().New,
-		newStaticPriceTableProvider(),
 	)
 	hook := &countingPanicLogHook{}
 	service.logger = logrus.New()
@@ -140,7 +137,6 @@ func TestServiceEmitCompletionSurvivesLaterWriteFailure(t *testing.T) {
 		}),
 		redact.New(),
 		timers.New,
-		newStaticPriceTableProvider(),
 	)
 	service.logger = newRequestLogJSONLogger(&output)
 	if err := service.Start(); err != nil {
@@ -172,7 +168,6 @@ func TestServiceEmitLifecycleAndDeepCopy(t *testing.T) {
 		}),
 		redact.New(),
 		timers.New,
-		newStaticPriceTableProvider(),
 	)
 
 	beforeStart := testEvent("before-start")
@@ -221,7 +216,6 @@ func TestServiceEmitLifecycleAndDeepCopy(t *testing.T) {
 		batchWriterFunc(func(context.Context, []models.RequestLog) error { return nil }),
 		redact.New(),
 		timers.New,
-		newStaticPriceTableProvider(),
 	)
 	if err := neverStarted.Stop(context.Background()); err != nil {
 		t.Fatalf("Stop() in new state error = %v", err)
@@ -232,10 +226,10 @@ func TestServiceEmitLifecycleAndDeepCopy(t *testing.T) {
 
 	for name, misconfigured := range map[string]*Service{
 		"nil database": NewService(
-			nil, redact.New(), staticRetentionPolicy{days: 7}, newStaticPriceTableProvider(),
+			nil, redact.New(), staticRetentionPolicy{days: 7},
 		),
 		"nil retention provider": NewService(
-			openRequestLogQueryDB(t), redact.New(), nil, newStaticPriceTableProvider(),
+			openRequestLogQueryDB(t), redact.New(), nil,
 		),
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -249,35 +243,17 @@ func TestServiceEmitLifecycleAndDeepCopy(t *testing.T) {
 	}
 }
 
-func TestServiceStartRequiresPublishedPriceTable(t *testing.T) {
-	db := openRequestLogQueryDB(t)
-	tests := []struct {
-		name     string
-		provider PriceTableProvider
-		want     string
-	}{
-		{
-			name: "nil provider",
-			want: "start request log service: price table provider is nil",
-		},
-		{
-			name:     "unpublished provider",
-			provider: &staticPriceTableProvider{},
-			want:     "start request log service: price table is not published",
-		},
+func TestServiceStartsWithoutPricingRuntime(t *testing.T) {
+	service := NewService(
+		openRequestLogQueryDB(t),
+		redact.New(),
+		staticRetentionPolicy{days: 7},
+	)
+	if err := service.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			service := NewService(
-				db,
-				redact.New(),
-				staticRetentionPolicy{days: 7},
-				tt.provider,
-			)
-			if err := service.Start(); err == nil || err.Error() != tt.want {
-				t.Fatalf("Start() error = %v, want %q", err, tt.want)
-			}
-		})
+	if err := service.Stop(context.Background()); err != nil {
+		t.Fatalf("Stop() error = %v", err)
 	}
 }
 
@@ -300,7 +276,6 @@ func TestServiceDropsNewEventAtExactQueueCapacity(t *testing.T) {
 		}),
 		redact.New(),
 		newManualTimerFactory().New,
-		newStaticPriceTableProvider(),
 	)
 	service.logger = newRequestLogJSONLogger(&output)
 	service.logger.SetLevel(logrus.WarnLevel)
@@ -349,7 +324,6 @@ func TestServiceConcurrentEmitStatsAndStop(t *testing.T) {
 		batchWriterFunc(func(context.Context, []models.RequestLog) error { return nil }),
 		redact.New(),
 		immediateTimerFactory,
-		newStaticPriceTableProvider(),
 	)
 	if err := service.Start(); err != nil {
 		t.Fatalf("Start() error = %v", err)
@@ -416,7 +390,6 @@ func TestServiceWarningsExcludeEventContentAndThrottle(t *testing.T) {
 		}),
 		redact.New(),
 		newManualTimerFactory().New,
-		newStaticPriceTableProvider(),
 	)
 	service.logger = logger
 	service.now = func() time.Time {
@@ -476,15 +449,7 @@ func TestServiceWarningsExcludeEventContentAndThrottle(t *testing.T) {
 	}
 }
 
-func TestEmitFreezesPriceTableBeforeWorkerFlush(t *testing.T) {
-	tableA := compileRequestLogTestPriceTable(t, "snapshot-model", pricing.Prices{
-		Output: pricing.Price{NanoUSDPerMillion: 1_000_000_000, Set: true},
-	})
-	tableB := compileRequestLogTestPriceTable(t, "snapshot-model", pricing.Prices{
-		Output: pricing.Price{NanoUSDPerMillion: 2_000_000_000, Set: true},
-	})
-	provider := &publishingPriceTableProvider{}
-	provider.Publish(tableA)
+func TestEmitPersistsGatewayFrozenQuoteWithoutRepricing(t *testing.T) {
 	timers := newManualTimerFactory()
 	writes := make(chan []models.RequestLog, 1)
 	var output bytes.Buffer
@@ -495,7 +460,6 @@ func TestEmitFreezesPriceTableBeforeWorkerFlush(t *testing.T) {
 		}),
 		redact.New(),
 		timers.New,
-		provider,
 	)
 	service.logger = newRequestLogJSONLogger(&output)
 	if err := service.Start(); err != nil {
@@ -504,9 +468,17 @@ func TestEmitFreezesPriceTableBeforeWorkerFlush(t *testing.T) {
 
 	eventA := testEvent("snapshot-a")
 	eventA.UpstreamModel = "snapshot-model"
+	eventA.Attempts[0].UpstreamModel = "snapshot-model"
 	eventA.Usage.Result = usage.Result{
 		State:  usage.StateComplete,
 		Tokens: usage.Tokens{Output: 1_000_000},
+	}
+	eventA.Usage.AttemptSequence = 1
+	eventA.Usage.KeyID = 8
+	eventA.Usage.Pricing = telemetry.PricingObservation{
+		PriceScopeKey: "group:7", UpstreamModel: "snapshot-model",
+		CostState: string(pricing.CostStatePriced), PricingCompleteness: string(pricing.CompletenessComplete),
+		EstimatedCostNanoUSD: 1_000_000_000,
 	}
 	service.Emit(eventA)
 	timer := receiveValue(t, timers.created)
@@ -517,12 +489,19 @@ func TestEmitFreezesPriceTableBeforeWorkerFlush(t *testing.T) {
 		t.Fatalf("snapshot-a completion entries = %#v", entries)
 	}
 
-	provider.Publish(tableB)
 	eventB := testEvent("snapshot-b")
 	eventB.UpstreamModel = "snapshot-model"
+	eventB.Attempts[0].UpstreamModel = "snapshot-model"
 	eventB.Usage.Result = usage.Result{
 		State:  usage.StateComplete,
 		Tokens: usage.Tokens{Output: 1_000_000},
+	}
+	eventB.Usage.AttemptSequence = 1
+	eventB.Usage.KeyID = 8
+	eventB.Usage.Pricing = telemetry.PricingObservation{
+		PriceScopeKey: "group:7", UpstreamModel: "snapshot-model",
+		CostState: string(pricing.CostStatePriced), PricingCompleteness: string(pricing.CompletenessComplete),
+		EstimatedCostNanoUSD: 2_000_000_000,
 	}
 	service.Emit(eventB)
 	timer.Fire()
@@ -533,9 +512,6 @@ func TestEmitFreezesPriceTableBeforeWorkerFlush(t *testing.T) {
 		rows[1].ID != "snapshot-b" ||
 		rows[1].EstimatedCostNanoUSD != 2_000_000_000 {
 		t.Fatalf("snapshot-priced rows = %+v, want A/1000000000 then B/2000000000", rows)
-	}
-	if got := provider.loads.Load(); got != 3 {
-		t.Fatalf("PriceTableProvider.Load calls = %d, want Start once plus one per Emit", got)
 	}
 	if err := service.Stop(context.Background()); err != nil {
 		t.Fatalf("Stop() error = %v", err)

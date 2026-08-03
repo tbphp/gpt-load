@@ -14,6 +14,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
+	"gpt-load/internal/catalog"
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/gateway"
 	"gpt-load/internal/health"
@@ -68,6 +69,7 @@ type serviceFixture struct {
 	manager         *state.Manager
 	registry        *state.KeyRegistry
 	priceRuntime    *PriceRuntime
+	catalogRuntime  *catalog.Runtime
 	encryption      encryption.Service
 	stats           *health.StatsStore
 	mutations       *health.MutationCoordinator
@@ -112,6 +114,16 @@ func newServiceFixture(t *testing.T) serviceFixture {
 	return newServiceFixtureWithDSN(t, ":memory:")
 }
 
+func mustEnsureInitialPrices(t *testing.T, fixture serviceFixture) {
+	t.Helper()
+	if err := fixture.service.EnsureInitialState(t.Context()); err != nil {
+		t.Fatalf("EnsureInitialState() error = %v", err)
+	}
+	if fixture.priceRuntime.Load() == nil {
+		t.Fatal("EnsureInitialState() did not publish PriceTable")
+	}
+}
+
 func newFileServiceFixture(t *testing.T) (serviceFixture, string) {
 	t.Helper()
 	dsn := filepath.Join(t.TempDir(), "control.db")
@@ -134,14 +146,18 @@ func newServiceFixtureWithDSN(t *testing.T, dsn string) serviceFixture {
 	mutations := health.NewMutationCoordinator()
 	requestLogStats := &staticRequestLogStatsReader{}
 	priceRuntime := NewPriceRuntime()
+	catalogRuntime := &catalog.Runtime{}
 	return serviceFixture{
 		db: db, manager: manager, registry: registry, encryption: keyService,
-		priceRuntime: priceRuntime, stats: stats, mutations: mutations, requestLogStats: requestLogStats,
+		priceRuntime: priceRuntime, catalogRuntime: catalogRuntime,
+		stats: stats, mutations: mutations, requestLogStats: requestLogStats,
 		service: NewService(
 			db,
 			manager,
 			registry,
 			priceRuntime,
+			catalogRuntime,
+			nil,
 			keyService,
 			dialect.NewSet(),
 			nil,

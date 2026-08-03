@@ -89,6 +89,7 @@ func openAIUsagePatch(root map[string]json.RawMessage, final bool) (usage.Patch,
 	diagnostics.Merge(totalDiagnostics)
 
 	var cached *int64
+	var cacheWriteUnknown *int64
 	if details, detailDiagnostics := usageOptionalObject(usageObject, "prompt_tokens_details"); details != nil {
 		diagnostics.Merge(detailDiagnostics)
 		cached, detailDiagnostics = usageInteger(details, "cached_tokens", false)
@@ -96,6 +97,7 @@ func openAIUsagePatch(root map[string]json.RawMessage, final bool) (usage.Patch,
 		cacheWrite, cacheWriteDiagnostics := usageInteger(details, "cache_write_tokens", false)
 		diagnostics.Merge(cacheWriteDiagnostics)
 		if cacheWrite != nil && *cacheWrite > 0 {
+			cacheWriteUnknown = cacheWrite
 			diagnostics.Add(usage.DiagnosticUnsupportedBillableDetail)
 		}
 	} else {
@@ -108,13 +110,23 @@ func openAIUsagePatch(root map[string]json.RawMessage, final bool) (usage.Patch,
 		cacheValue = *cached
 		patch.CacheRead = &cacheValue
 	}
+	cacheWriteValue := int64(0)
+	if cacheWriteUnknown != nil {
+		cacheWriteValue = *cacheWriteUnknown
+		patch.CacheWriteUnknown = &cacheWriteValue
+	}
 	if prompt != nil {
 		if cached == nil {
 			patch.CacheRead = &cacheValue
 		}
-		uncached, ok := usage.SubtractCached(*prompt, cacheValue)
-		if !ok {
-			uncached = 0
+		uncached := int64(0)
+		classifiedInput, classified := usage.CheckedAdd(cacheValue, cacheWriteValue)
+		if !classified {
+			patch.Diagnostics.Add(usage.DiagnosticInvalidNumber)
+			patch.Diagnostics.Add(usage.DiagnosticNegativeValue)
+		} else if derived, ok := usage.SubtractCached(*prompt, classifiedInput); ok {
+			uncached = derived
+		} else {
 			patch.Diagnostics.Add(usage.DiagnosticNegativeValue)
 		}
 		patch.UncachedInput = &uncached
@@ -129,6 +141,9 @@ func openAIUsagePatch(root map[string]json.RawMessage, final bool) (usage.Patch,
 	}
 	if patch.CacheRead != nil {
 		tokens.CacheRead = *patch.CacheRead
+	}
+	if patch.CacheWriteUnknown != nil {
+		tokens.CacheWriteUnknown = *patch.CacheWriteUnknown
 	}
 	if patch.Output != nil {
 		tokens.Output = *patch.Output

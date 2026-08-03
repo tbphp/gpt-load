@@ -10,6 +10,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 
+	"gpt-load/internal/catalog"
 	"gpt-load/internal/platform/canonicaljson"
 	app_errors "gpt-load/internal/platform/errors"
 	"gpt-load/internal/platform/utils"
@@ -21,6 +22,7 @@ import (
 
 type groupCreateDigestBody struct {
 	Name                   *string             `json:"name"`
+	ProviderID             *string             `json:"provider_id"`
 	UpstreamURL            string              `json:"upstream_url"`
 	Protocols              []protocol.Protocol `json:"protocols"`
 	Models                 []GroupModel        `json:"models"`
@@ -51,6 +53,7 @@ func (s *Service) CreateGroupIdempotent(
 	})
 	canonicalBody, err := canonicalIdempotencyBody(groupCreateDigestBody{
 		Name:                   normalized.explicitName,
+		ProviderID:             normalized.providerID,
 		UpstreamURL:            normalized.upstreamURL,
 		Protocols:              protocols,
 		Models:                 append([]GroupModel(nil), normalized.models...),
@@ -81,12 +84,18 @@ func (s *Service) CreateGroupIdempotent(
 			"Creating upstream group with a private or local host",
 		)
 	}
+	var catalogSnapshot *catalog.Snapshot
 
 	operationResult, err := s.executeIdempotentOperation(ctx, idempotentOperationInput{
 		IdempotencyKey: idempotencyKey,
 		DigestVersion:  1,
 		RequestDigest:  digest.Digest,
 		Kind:           operationKindGroupCreate,
+		PrepareMutation: func() {
+			if s.catalogRuntime != nil {
+				catalogSnapshot = s.catalogRuntime.Load()
+			}
+		},
 		Mutate: func(tx *gorm.DB) (idempotentMutationResult, error) {
 			if !normalized.confirmSameUpstreamURL {
 				conflicts, err := findGroupsByUpstreamURL(tx, normalized.upstreamURL)
@@ -118,6 +127,7 @@ func (s *Service) CreateGroupIdempotent(
 			}
 			group := models.Group{
 				Name:        name,
+				ProviderID:  cloneString(normalized.providerID),
 				UpstreamURL: normalized.upstreamURL,
 				Protocols:   models.JSON(encodedProtocols),
 				Models:      models.JSON(encodedModels),
@@ -141,11 +151,17 @@ func (s *Service) CreateGroupIdempotent(
 					err,
 				)
 			}
+			if err := reconcileReferencedPrices(tx, catalogSnapshot); err != nil {
+				return idempotentMutationResult{}, err
+			}
 			input, err := stateloader.BuildCompileInput(ctx, tx)
 			if err != nil {
 				return idempotentMutationResult{}, err
 			}
 			if _, err := state.Compile(input); err != nil {
+				return idempotentMutationResult{}, err
+			}
+			if _, err := loadPriceTable(ctx, tx); err != nil {
 				return idempotentMutationResult{}, err
 			}
 			result := GroupCreateResult{
@@ -168,6 +184,10 @@ func (s *Service) CreateGroupIdempotent(
 	var result GroupCreateResult
 	if err := json.Unmarshal(operationResult.CanonicalResult, &result); err != nil {
 		return GroupCreateResult{}, app_errors.ErrInternalServer
+	}
+	if !operationResult.Replayed && normalized.providerID != nil &&
+		len(normalized.models) > 0 && s.catalogSync != nil {
+		s.catalogSync.RequestGroupSync()
 	}
 	return result, nil
 }

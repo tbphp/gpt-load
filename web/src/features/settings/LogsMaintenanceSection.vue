@@ -52,7 +52,11 @@ watch(
 )
 
 function cloneDraft(): SettingsDraft {
-  return createSettingsDraft({ values: props.draft.values, overrides: [...props.draft.overrides] })
+  return createSettingsDraft({
+    values: props.draft.values,
+    overrides: [...props.draft.overrides],
+    read_only: [...props.draft.readOnly],
+  })
 }
 
 function setOwned(enabled: boolean): void {

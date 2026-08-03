@@ -11,6 +11,7 @@ import (
 	"gorm.io/gorm"
 
 	"gpt-load/internal/app"
+	"gpt-load/internal/catalog"
 	"gpt-load/internal/control"
 	"gpt-load/internal/dialect"
 	"gpt-load/internal/gateway"
@@ -47,6 +48,8 @@ func BuildContainer() (*dig.Container, error) {
 		state.NewManager,
 		state.NewKeyRegistry,
 		control.NewPriceRuntime,
+		control.NewCatalogBootstrap,
+		func(bootstrap *control.CatalogBootstrap) *catalog.Runtime { return bootstrap.Runtime },
 		health.NewStatsStore,
 		health.NewMutationCoordinator,
 		ratelimit.NewAccessKeyRPM,
@@ -56,7 +59,7 @@ func BuildContainer() (*dig.Container, error) {
 		func(manager *state.Manager) requestlog.RetentionPolicyProvider {
 			return retentionSnapshotProvider{manager: manager}
 		},
-		func(runtime *control.PriceRuntime) requestlog.PriceTableProvider {
+		func(runtime *control.PriceRuntime) gateway.PriceTableProvider {
 			return priceRuntimeProvider{runtime: runtime}
 		},
 		requestlog.NewService,
@@ -84,6 +87,9 @@ func BuildContainer() (*dig.Container, error) {
 		control.NewRuntime,
 		func(runtime *control.Runtime) app.ControlRuntime { return runtime },
 		httpclient.NewHTTPClientManager,
+		func(manager *httpclient.HTTPClientManager) *catalog.Client {
+			return catalog.NewClient(manager, "")
+		},
 		redact.New,
 		func(manager *httpclient.HTTPClientManager) *http.Client {
 			return manager.GetClient(&httpclient.Config{
@@ -116,6 +122,7 @@ func BuildContainer() (*dig.Container, error) {
 		func(forwarder *gateway.Forwarder) gateway.AttemptForwarder { return forwarder },
 		gateway.NewHandler,
 		control.NewService,
+		control.NewCatalogSyncCoordinator,
 		func(service *control.Service) app.StartupBootstrap { return service },
 		func(service *control.Service) app.StartupRecovery { return service },
 		control.NewServer,

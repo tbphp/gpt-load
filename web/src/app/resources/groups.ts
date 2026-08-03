@@ -20,6 +20,11 @@ import type {
 } from '@/api/control/types'
 import { InvalidResponseError } from '@/api/errors'
 import { controlQueryKeys, normalizeGroupCollectionFilters } from '@/app/query-keys'
+import {
+  projectModelCandidate,
+  projectProviderID,
+  type ModelCandidate,
+} from '@/app/resources/providers'
 
 import {
   assertNoSecretLikeFields,
@@ -36,6 +41,7 @@ import {
 const groupSummaryFields = [
   'id',
   'name',
+  'provider_id',
   'service_status',
   'upstream_url',
   'protocols',
@@ -44,6 +50,7 @@ const groupSummaryFields = [
 ] as const
 const groupSettingsFields = [
   'name',
+  'provider_id',
   'upstream_url',
   'protocols',
   'validation_model',
@@ -52,7 +59,7 @@ const groupSettingsFields = [
   'overrides',
   'effective',
 ] as const
-const groupModelsFields = ['items', 'total', 'unpriced'] as const
+const groupModelsFields = ['items', 'total', 'pending'] as const
 const groupModelItemFields = [
   'id',
   'alias',
@@ -65,6 +72,7 @@ const groupCollectionSummaryFields = ['total', 'available', 'unavailable', 'disa
 const groupCollectionItemFields = [
   'id',
   'name',
+  'provider_id',
   'status',
   'upstream_url',
   'protocols',
@@ -116,6 +124,7 @@ export type {
 
 export type GroupSettingsUpdateRequest = Partial<{
   name: string
+  provider_id: string | null
   upstream_url: string
   protocols: GroupProtocol[]
   validation_model: string | null
@@ -135,13 +144,14 @@ export interface GroupInUseData {
 }
 
 export interface ModelDiscoveryRequest {
+  provider_id: string | null
   upstream_url: string
   protocols: readonly GroupProtocol[]
   keys: string
 }
 
 export interface ModelDiscoveryResult {
-  models: string[]
+  models: ModelCandidate[]
 }
 
 export interface GroupModelUpdateDto {
@@ -156,6 +166,7 @@ export interface GroupModelsReplaceRequest {
 
 export interface GroupCreateRequest {
   name?: string
+  provider_id: string | null
   upstream_url: string
   protocols: readonly GroupProtocol[]
   models: GroupModelUpdateDto[]
@@ -188,6 +199,10 @@ function projectNonBlankString(value: unknown): string {
   const result = projectString(value)
   if (result.trim().length === 0) throw new InvalidResponseError()
   return result
+}
+
+function projectNullableProviderID(value: unknown): string | null {
+  return value === null ? null : projectProviderID(value)
 }
 
 function projectHeaderRules(value: unknown): HeaderRulesDto {
@@ -244,6 +259,7 @@ export function projectGroupSummary(value: unknown): GroupSummaryDto {
   return {
     id: projectSafeInteger(record.id, { minimum: 1 }),
     name: projectNonBlankString(record.name),
+    provider_id: projectNullableProviderID(record.provider_id),
     service_status: projectEnum(record.service_status, groupCollectionStatuses),
     upstream_url: projectHTTPURL(record.upstream_url),
     protocols,
@@ -261,6 +277,7 @@ export function projectGroupSettings(value: unknown): GroupSettingsDto {
   if (new Set(protocols).size !== protocols.length) throw new InvalidResponseError()
   return {
     name: projectNonBlankString(record.name),
+    provider_id: projectNullableProviderID(record.provider_id),
     upstream_url: projectHTTPURL(record.upstream_url),
     protocols,
     validation_model:
@@ -290,7 +307,7 @@ function projectGroupModelItem(value: unknown): GroupModelItemDto {
     alias,
     alias_enabled: aliasEnabled,
     client_model: clientModel,
-    pricing_status: projectEnum(record.pricing_status, ['priced', 'unpriced'] as const),
+    pricing_status: projectEnum(record.pricing_status, ['pending', 'configured'] as const),
   }
 }
 
@@ -299,16 +316,16 @@ export function projectGroupModels(value: unknown): GroupModelsDto {
   assertNoSecretLikeFields(record, groupModelsFields)
   const items = projectArray(record.items, projectGroupModelItem)
   const total = projectSafeInteger(record.total, { minimum: 0 })
-  const unpriced = projectSafeInteger(record.unpriced, { minimum: 0 })
+  const pending = projectSafeInteger(record.pending, { minimum: 0 })
   if (
     items.length !== total ||
-    unpriced > total ||
+    pending > total ||
     new Set(items.map(({ client_model }) => client_model)).size !== items.length ||
-    items.filter(({ pricing_status }) => pricing_status === 'unpriced').length !== unpriced
+    items.filter(({ pricing_status }) => pricing_status === 'pending').length !== pending
   ) {
     throw new InvalidResponseError()
   }
-  return { items, total, unpriced }
+  return { items, total, pending }
 }
 
 function projectKeyCounts(value: unknown): KeyCounts {
@@ -364,6 +381,7 @@ function projectGroupCollectionItem(value: unknown): GroupCollectionItemDto {
   return {
     id: projectSafeInteger(record.id, { minimum: 1 }),
     name: projectNonBlankString(record.name),
+    provider_id: projectNullableProviderID(record.provider_id),
     status,
     upstream_url: projectHTTPURL(record.upstream_url),
     protocols,
@@ -450,7 +468,9 @@ export function projectGroupOptions(value: unknown): GroupOptionDto[] {
 function projectDiscoveryResult(value: unknown): ModelDiscoveryResult {
   const record = projectRecord(value)
   assertNoSecretLikeFields(record, ['models'])
-  return { models: projectArray(record.models, projectNonBlankString) }
+  const models = projectArray(record.models, projectModelCandidate)
+  if (new Set(models.map(({ id }) => id)).size !== models.length) throw new InvalidResponseError()
+  return { models }
 }
 
 function projectGroupCreateResult(value: unknown): GroupCreateResult {
@@ -728,11 +748,21 @@ export async function invalidateGroupSummary(
   queryClient: QueryClient,
   groupID: number,
 ): Promise<void> {
-  await queryClient.invalidateQueries({
-    queryKey: controlQueryKeys.groups.summary(groupID),
-    exact: true,
-    refetchType: 'none',
-  })
+  await Promise.all([
+    queryClient.invalidateQueries({
+      queryKey: controlQueryKeys.groups.summary(groupID),
+      exact: true,
+      refetchType: 'none',
+    }),
+    queryClient.invalidateQueries({
+      queryKey: controlQueryKeys.modelPrices(),
+      refetchType: 'none',
+    }),
+    queryClient.invalidateQueries({
+      queryKey: controlQueryKeys.providers.modelsAll(),
+      refetchType: 'none',
+    }),
+  ])
 }
 
 /** Settings can change every Group representation; refresh active consumers and stale the rest. */
@@ -762,6 +792,14 @@ export async function invalidateGroupSettingsDependents(
     queryClient.invalidateQueries({
       queryKey: controlQueryKeys.groups.options(),
       exact: true,
+      refetchType: 'active',
+    }),
+    queryClient.invalidateQueries({
+      queryKey: controlQueryKeys.modelPrices(),
+      refetchType: 'active',
+    }),
+    queryClient.invalidateQueries({
+      queryKey: controlQueryKeys.providers.modelsAll(),
       refetchType: 'active',
     }),
   ])

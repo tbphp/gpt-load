@@ -37,7 +37,6 @@ func TestRetentionSweepUsesSnapshotRetentionPolicy(t *testing.T) {
 				db,
 				redact.New(),
 				staticRetentionPolicy{days: tt.days},
-				newStaticPriceTableProvider(),
 			)
 			createRetentionRow(t, db, 1, tt.cutoff.Add(-time.Nanosecond))
 			createRetentionRow(t, db, 2, tt.cutoff)
@@ -105,7 +104,6 @@ func TestRetentionSweepUsesFixedThirtyFiveDayIntegerUsageBoundary(t *testing.T) 
 		db,
 		redact.New(),
 		staticRetentionPolicy{days: 1},
-		newStaticPriceTableProvider(),
 	)
 	now := time.Date(2026, time.July, 24, 12, 34, 56, 789_000_000, time.UTC)
 	const usageCutoffMS int64 = 1_781_870_400_000

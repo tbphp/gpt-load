@@ -41,7 +41,11 @@ const timeoutKeys: TimeoutSettingKey[] = [
   'stream_idle_timeout',
 ]
 function cloneDraft(): SettingsDraft {
-  return createSettingsDraft({ values: props.draft.values, overrides: [...props.draft.overrides] })
+  return createSettingsDraft({
+    values: props.draft.values,
+    overrides: [...props.draft.overrides],
+    read_only: [...props.draft.readOnly],
+  })
 }
 
 function publish(key: RuntimeSettingKey, draft: SettingsDraft): void {

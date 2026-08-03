@@ -264,6 +264,7 @@ func groupCollectionPageItems(
 
 func cloneGroupCollectionItem(value GroupCollectionItem) GroupCollectionItem {
 	cloned := value
+	cloned.ProviderID = cloneString(value.ProviderID)
 	cloned.Protocols = append([]protocol.Protocol(nil), value.Protocols...)
 	return cloned
 }

@@ -2,171 +2,158 @@ package pricing
 
 import (
 	"fmt"
-	"sort"
+	"strconv"
 	"strings"
 	"unicode"
 )
 
-// Compile validates rules and creates an immutable lookup table.
-func Compile(rules []Rule) (*Table, error) {
-	table := &Table{
-		userExact:    make(map[string]Rule),
-		builtinExact: make(map[string]Rule),
+const (
+	maxProviderIDBytes = 246
+	maxModelIDBytes    = 255
+)
+
+// ProviderScopeKey builds the canonical scope for a Models.dev provider ID.
+func ProviderScopeKey(providerID string) (string, error) {
+	if len(providerID) == 0 || len(providerID) > maxProviderIDBytes {
+		return "", fmt.Errorf("provider ID must be 1 through %d ASCII bytes", maxProviderIDBytes)
 	}
+	separator := true
+	for _, character := range []byte(providerID) {
+		switch {
+		case character >= 'a' && character <= 'z', character >= '0' && character <= '9':
+			separator = false
+		case character == '.' || character == '-':
+			if separator {
+				return "", fmt.Errorf("provider ID must contain non-empty lowercase slug segments")
+			}
+			separator = true
+		default:
+			return "", fmt.Errorf("provider ID must contain only lowercase ASCII slug segments")
+		}
+	}
+	if separator {
+		return "", fmt.Errorf("provider ID must contain non-empty lowercase slug segments")
+	}
+	return "provider:" + providerID, nil
+}
+
+// GroupScopeKey builds the canonical scope for a positive group ID.
+func GroupScopeKey(groupID uint) (string, error) {
+	if groupID == 0 {
+		return "", fmt.Errorf("group ID must be positive")
+	}
+	return "group:" + strconv.FormatUint(uint64(groupID), 10), nil
+}
+
+// NewTable validates and deep-clones exact pricing rules.
+func NewTable(rules []Rule) (*Table, error) {
+	table := &Table{rules: make(map[Identity]Rule, len(rules))}
 	for _, rule := range rules {
 		if err := validateRule(rule); err != nil {
 			return nil, err
 		}
-		rule = cloneRule(rule)
-		if strings.HasSuffix(rule.Pattern, "*") {
-			if rule.Source == SourceUser {
-				table.userPrefixes = append(table.userPrefixes, rule)
-			} else {
-				table.builtinPrefixes = append(table.builtinPrefixes, rule)
-			}
-			continue
+		if _, exists := table.rules[rule.Identity]; exists {
+			return nil, fmt.Errorf("duplicate pricing identity %q/%q", rule.Identity.ScopeKey, rule.Identity.ModelID)
 		}
-		if rule.Source == SourceUser {
-			if _, exists := table.userExact[rule.Pattern]; exists {
-				return nil, fmt.Errorf("duplicate user pricing pattern %q", rule.Pattern)
-			}
-			table.userExact[rule.Pattern] = rule
-			continue
-		}
-		if _, exists := table.builtinExact[rule.Pattern]; exists {
-			return nil, fmt.Errorf("duplicate builtin pricing pattern %q", rule.Pattern)
-		}
-		table.builtinExact[rule.Pattern] = rule
-	}
-	sortPrefixes(table.userPrefixes)
-	sortPrefixes(table.builtinPrefixes)
-	if err := rejectDuplicatePrefixes(table.userPrefixes, SourceUser); err != nil {
-		return nil, err
-	}
-	if err := rejectDuplicatePrefixes(table.builtinPrefixes, SourceBuiltin); err != nil {
-		return nil, err
+		table.rules[rule.Identity] = cloneRule(rule)
 	}
 	return table, nil
 }
 
+// Lookup returns an immutable copy of the exact identity rule.
+func (table *Table) Lookup(identity Identity) (Rule, bool) {
+	if table == nil {
+		return Rule{}, false
+	}
+	rule, ok := table.rules[identity]
+	if !ok {
+		return Rule{}, false
+	}
+	return cloneRule(rule), true
+}
+
 func validateRule(rule Rule) error {
-	if err := ValidatePattern(rule.Pattern); err != nil {
+	if err := validateIdentity(rule.Identity); err != nil {
 		return err
 	}
-	if rule.Source != SourceBuiltin && rule.Source != SourceUser {
-		return fmt.Errorf("unsupported pricing source %q", rule.Source)
+	if err := validatePrices(rule.Prices); err != nil {
+		return err
 	}
+	previousThreshold := int64(-1)
+	for _, tier := range rule.ContextTiers {
+		if tier.InputThresholdTokens < 0 {
+			return fmt.Errorf("context tier threshold must be non-negative")
+		}
+		if tier.InputThresholdTokens <= previousThreshold {
+			return fmt.Errorf("context tier thresholds must be strictly increasing")
+		}
+		if err := validatePrices(tier.Prices); err != nil {
+			return err
+		}
+		if !hasSetPrice(tier.Prices) {
+			return fmt.Errorf("context tier must set at least one price")
+		}
+		previousThreshold = tier.InputThresholdTokens
+	}
+	return nil
+}
 
-	priceSet := false
-	for _, price := range [...]Price{
-		rule.Prices.UncachedInput,
-		rule.Prices.CacheRead,
-		rule.Prices.CacheWrite5M,
-		rule.Prices.CacheWrite1H,
-		rule.Prices.Output,
-	} {
+func validateIdentity(identity Identity) error {
+	if err := validateScopeKey(identity.ScopeKey); err != nil {
+		return err
+	}
+	if len(identity.ModelID) == 0 || len(identity.ModelID) > maxModelIDBytes {
+		return fmt.Errorf("model ID must be 1 through %d bytes", maxModelIDBytes)
+	}
+	if strings.TrimSpace(identity.ModelID) != identity.ModelID {
+		return fmt.Errorf("model ID must not have surrounding whitespace")
+	}
+	for _, character := range identity.ModelID {
+		if unicode.IsControl(character) {
+			return fmt.Errorf("model ID must not contain control characters")
+		}
+	}
+	return nil
+}
+
+func validateScopeKey(scopeKey string) error {
+	if providerID, ok := strings.CutPrefix(scopeKey, "provider:"); ok {
+		canonical, err := ProviderScopeKey(providerID)
+		if err != nil || canonical != scopeKey {
+			return fmt.Errorf("invalid provider scope key %q", scopeKey)
+		}
+		return nil
+	}
+	if groupText, ok := strings.CutPrefix(scopeKey, "group:"); ok {
+		parsed, err := strconv.ParseUint(groupText, 10, strconv.IntSize)
+		if err != nil {
+			return fmt.Errorf("invalid group scope key %q", scopeKey)
+		}
+		canonical, err := GroupScopeKey(uint(parsed))
+		if err != nil || canonical != scopeKey {
+			return fmt.Errorf("invalid group scope key %q", scopeKey)
+		}
+		return nil
+	}
+	return fmt.Errorf("invalid pricing scope key %q", scopeKey)
+}
+
+func validatePrices(prices Prices) error {
+	for _, price := range [...]Price{prices.Input, prices.Output, prices.CacheRead, prices.CacheWrite} {
 		if price.NanoUSDPerMillion < 0 {
 			return fmt.Errorf("pricing price must be non-negative")
 		}
-		priceSet = priceSet || price.Set
-	}
-	if !priceSet {
-		return fmt.Errorf("pricing rule must set at least one price")
-	}
-	if rule.Source == SourceBuiltin && (rule.SourceURL == "" || rule.UpdatedAt.IsZero()) {
-		return fmt.Errorf("builtin pricing rule requires source URL and update time")
-	}
-	if rule.Source == SourceUser && rule.SourceURL != "" {
-		return fmt.Errorf("user pricing rule must not have a source URL")
-	}
-	if policy := rule.LongContextPolicy; policy != nil {
-		if rule.Source != SourceBuiltin || strings.HasSuffix(rule.Pattern, "*") {
-			return fmt.Errorf("long-context policy requires an exact builtin pricing rule")
-		}
-		if policy.InputThresholdTokens <= 0 {
-			return fmt.Errorf("long-context input threshold must be positive")
-		}
-		if policy.InputMultiplier.Numerator <= 0 || policy.InputMultiplier.Denominator <= 0 ||
-			policy.OutputMultiplier.Numerator <= 0 || policy.OutputMultiplier.Denominator <= 0 {
-			return fmt.Errorf("long-context multipliers must be positive ratios")
-		}
 	}
 	return nil
 }
 
-// ValidatePattern validates a model-pricing exact or trailing-star prefix pattern.
-func ValidatePattern(pattern string) error {
-	if len(pattern) == 0 || len(pattern) > 255 {
-		return fmt.Errorf("pricing pattern must be 1 through 255 bytes")
-	}
-	if strings.TrimSpace(pattern) != pattern {
-		return fmt.Errorf("pricing pattern must not have surrounding whitespace")
-	}
-	for _, character := range pattern {
-		if unicode.IsControl(character) {
-			return fmt.Errorf("pricing pattern must not contain control characters")
-		}
-	}
-	starCount := strings.Count(pattern, "*")
-	if starCount > 1 || (starCount == 1 && !strings.HasSuffix(pattern, "*")) {
-		return fmt.Errorf("pricing pattern may contain one trailing star")
-	}
-	if strings.Contains(pattern, "?") {
-		return fmt.Errorf("pricing pattern must not contain question marks")
-	}
-	return nil
-}
-
-func sortPrefixes(rules []Rule) {
-	sort.Slice(rules, func(left, right int) bool {
-		leftPrefix := strings.TrimSuffix(rules[left].Pattern, "*")
-		rightPrefix := strings.TrimSuffix(rules[right].Pattern, "*")
-		if len(leftPrefix) != len(rightPrefix) {
-			return len(leftPrefix) > len(rightPrefix)
-		}
-		return rules[left].Pattern < rules[right].Pattern
-	})
-}
-
-func rejectDuplicatePrefixes(rules []Rule, source Source) error {
-	for index := 1; index < len(rules); index++ {
-		if rules[index-1].Pattern == rules[index].Pattern {
-			return fmt.Errorf("duplicate %s pricing pattern %q", source, rules[index].Pattern)
-		}
-	}
-	return nil
-}
-
-// Match finds the highest-priority rule for a non-empty upstream model.
-func (table *Table) Match(upstreamModel string) (Rule, bool) {
-	if table == nil || upstreamModel == "" {
-		return Rule{}, false
-	}
-	if rule, ok := table.userExact[upstreamModel]; ok {
-		return cloneRule(rule), true
-	}
-	if rule, ok := matchPrefix(table.userPrefixes, upstreamModel); ok {
-		return rule, true
-	}
-	if rule, ok := table.builtinExact[upstreamModel]; ok {
-		return cloneRule(rule), true
-	}
-	return matchPrefix(table.builtinPrefixes, upstreamModel)
-}
-
-func matchPrefix(rules []Rule, upstreamModel string) (Rule, bool) {
-	for _, rule := range rules {
-		if strings.HasPrefix(upstreamModel, strings.TrimSuffix(rule.Pattern, "*")) {
-			return cloneRule(rule), true
-		}
-	}
-	return Rule{}, false
+func hasSetPrice(prices Prices) bool {
+	return prices.Input.Set || prices.Output.Set || prices.CacheRead.Set || prices.CacheWrite.Set
 }
 
 func cloneRule(rule Rule) Rule {
-	if rule.LongContextPolicy != nil {
-		policy := *rule.LongContextPolicy
-		rule.LongContextPolicy = &policy
+	if rule.ContextTiers != nil {
+		rule.ContextTiers = append([]ContextTier(nil), rule.ContextTiers...)
 	}
 	return rule
 }

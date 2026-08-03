@@ -26,25 +26,28 @@ type HeaderRulesResponse struct {
 }
 
 type SettingsValuesResponse struct {
-	ConnectTimeout          int64               `json:"connect_timeout"`
-	FirstByteTimeout        int64               `json:"first_byte_timeout"`
-	RequestTimeout          int64               `json:"request_timeout"`
-	StreamIdleTimeout       int64               `json:"stream_idle_timeout"`
-	HeaderRules             HeaderRulesResponse `json:"header_rules"`
-	InjectUsageOptions      bool                `json:"inject_usage_options"`
-	RequestLogRetentionDays int                 `json:"request_log_retention_days"`
+	ConnectTimeout           int64               `json:"connect_timeout"`
+	FirstByteTimeout         int64               `json:"first_byte_timeout"`
+	RequestTimeout           int64               `json:"request_timeout"`
+	StreamIdleTimeout        int64               `json:"stream_idle_timeout"`
+	HeaderRules              HeaderRulesResponse `json:"header_rules"`
+	InjectUsageOptions       bool                `json:"inject_usage_options"`
+	RequestLogRetentionDays  int                 `json:"request_log_retention_days"`
+	ModelsDevAutoSyncEnabled bool                `json:"models_dev_auto_sync_enabled"`
 }
 
 type SettingsResponse struct {
 	Revision  uint64                 `json:"revision"`
 	Values    SettingsValuesResponse `json:"values"`
 	Overrides []string               `json:"overrides"`
+	ReadOnly  []string               `json:"read_only,omitempty"`
 }
 
 func (response SettingsResponse) DTO() SettingsDTO {
 	return canonicalizeSettingsDTO(SettingsDTO{
 		Values:    response.Values,
 		Overrides: response.Overrides,
+		ReadOnly:  response.ReadOnly,
 	})
 }
 
@@ -108,7 +111,7 @@ func (s *Service) getSettingsWithSnapshot(
 	if err := db.WithContext(ctx).Order("key ASC").Find(&rows).Error; err != nil {
 		return SettingsResponse{}, app_errors.ParseDBError(err)
 	}
-	return mapSettingsResponse(snapshot, rows), nil
+	return mapSettingsResponse(snapshot, rows, s.modelsDevAutoSyncOverride), nil
 }
 
 func (s *Service) UpdateSettings(
@@ -118,6 +121,9 @@ func (s *Service) UpdateSettings(
 	updates, err := normalizeSettingUpdates(request)
 	if err != nil {
 		return SettingsResponse{}, err
+	}
+	if s.modelsDevAutoSyncOverride != nil && settingRequestContains(request, state.SettingModelsDevAutoSyncEnabled) {
+		return SettingsResponse{}, app_errors.ErrValidation
 	}
 
 	_, err = s.writeConfig(ctx, func(tx *gorm.DB) error {
@@ -138,6 +144,9 @@ func (s *Service) UpdateSettingsIfMatch(
 	updates, err := normalizeSettingUpdates(request)
 	if err != nil {
 		return settingsWireRepresentation{}, err
+	}
+	if s.modelsDevAutoSyncOverride != nil && settingRequestContains(request, state.SettingModelsDevAutoSyncEnabled) {
+		return settingsWireRepresentation{}, app_errors.ErrValidation
 	}
 
 	s.writeMu.Lock()
@@ -276,6 +285,11 @@ func normalizeSettingUpdates(request SettingsUpdateRequest) ([]persistedSettingU
 	return updates, nil
 }
 
+func settingRequestContains(request SettingsUpdateRequest, key string) bool {
+	_, exists := request.Settings[key]
+	return exists
+}
+
 func decodeSettingValue(raw []byte) (any, error) {
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.UseNumber()
@@ -296,6 +310,7 @@ func decodeSettingValue(raw []byte) (any, error) {
 func mapSettingsResponse(
 	snapshot *state.ConfigSnapshot,
 	rows []models.SystemSetting,
+	modelsDevAutoSyncOverride *bool,
 ) SettingsResponse {
 	settings := snapshot.Settings
 	set := make(map[string]string, len(settings.HeaderRules.Set))
@@ -309,6 +324,12 @@ func mapSettingsResponse(
 			overrides = append(overrides, row.Key)
 		}
 	}
+	readOnly := make([]string, 0)
+	modelsDevAutoSyncEnabled := settings.ModelsDevAutoSyncEnabled
+	if modelsDevAutoSyncOverride != nil {
+		modelsDevAutoSyncEnabled = *modelsDevAutoSyncOverride
+		readOnly = append(readOnly, state.SettingModelsDevAutoSyncEnabled)
+	}
 	return SettingsResponse{
 		Revision: snapshot.Revision,
 		Values: SettingsValuesResponse{
@@ -320,10 +341,12 @@ func mapSettingsResponse(
 				Set:    set,
 				Remove: remove,
 			},
-			InjectUsageOptions:      settings.InjectUsageOptions,
-			RequestLogRetentionDays: settings.RequestLogRetentionDays,
+			InjectUsageOptions:       settings.InjectUsageOptions,
+			RequestLogRetentionDays:  settings.RequestLogRetentionDays,
+			ModelsDevAutoSyncEnabled: modelsDevAutoSyncEnabled,
 		},
 		Overrides: overrides,
+		ReadOnly:  readOnly,
 	}
 }
 

@@ -170,9 +170,10 @@ func TestHomeStatisticsHTTPDefaultsToDense24HoursAndMapsExactWire(t *testing.T) 
 				RequestCount: 8, SuccessCount: 6, FailureCount: 2,
 				UncachedInputTokens: 11, CacheReadTokens: 12,
 				CacheWrite5MTokens: 13, CacheWrite1HTokens: 14,
-				OutputTokens: 15, EstimatedCostNanoUSD: 58_200_000_000,
+				CacheWriteUnknownTokens: 16,
+				OutputTokens:            15, EstimatedCostNanoUSD: 58_200_000_000,
 				UsageMissingCount: 1, PartialCount: 2,
-				UnpricedRequestCount: 3,
+				UnpricedRequestCount: 3, PricingPartialCount: 4,
 			}
 			report.Series[0].UsageAggregate = requestlog.UsageAggregate{
 				RequestCount: 4,
@@ -235,14 +236,16 @@ func TestHomeStatisticsHTTPDefaultsToDense24HoursAndMapsExactWire(t *testing.T) 
 			ToMS         int64                       `json:"to_ms"`
 			ObservedAtMS int64                       `json:"observed_at_ms"`
 			Summary      struct {
-				RequestCount         int64  `json:"request_count"`
-				SuccessCount         int64  `json:"success_count"`
-				FailureCount         int64  `json:"failure_count"`
-				TotalTokens          int64  `json:"total_tokens"`
-				EstimatedCostNanoUSD string `json:"estimated_cost_nano_usd"`
-				UsageMissingCount    int64  `json:"usage_missing_count"`
-				PartialCount         int64  `json:"partial_count"`
-				UnpricedRequestCount int64  `json:"unpriced_request_count"`
+				RequestCount            int64  `json:"request_count"`
+				SuccessCount            int64  `json:"success_count"`
+				FailureCount            int64  `json:"failure_count"`
+				TotalTokens             int64  `json:"total_tokens"`
+				CacheWriteUnknownTokens int64  `json:"cache_write_unknown_tokens"`
+				EstimatedCostNanoUSD    string `json:"estimated_cost_nano_usd"`
+				UsageMissingCount       int64  `json:"usage_missing_count"`
+				PartialCount            int64  `json:"partial_count"`
+				UnpricedRequestCount    int64  `json:"unpriced_request_count"`
+				PricingPartialCount     int64  `json:"pricing_partial_count"`
 			} `json:"summary"`
 			Series []struct {
 				BucketStartMS int64 `json:"bucket_start_ms"`
@@ -288,11 +291,13 @@ func TestHomeStatisticsHTTPDefaultsToDense24HoursAndMapsExactWire(t *testing.T) 
 		envelope.Data.Summary.RequestCount != 8 ||
 		envelope.Data.Summary.SuccessCount != 6 ||
 		envelope.Data.Summary.FailureCount != 2 ||
-		envelope.Data.Summary.TotalTokens != 65 ||
+		envelope.Data.Summary.TotalTokens != 81 ||
+		envelope.Data.Summary.CacheWriteUnknownTokens != 16 ||
 		envelope.Data.Summary.EstimatedCostNanoUSD != "58200000000" ||
 		envelope.Data.Summary.UsageMissingCount != 1 ||
 		envelope.Data.Summary.PartialCount != 2 ||
 		envelope.Data.Summary.UnpricedRequestCount != 3 ||
+		envelope.Data.Summary.PricingPartialCount != 4 ||
 		len(envelope.Data.Series) != 24 ||
 		envelope.Data.Series[0].RequestCount != 4 ||
 		envelope.Data.Series[0].FailureCount != 1 ||

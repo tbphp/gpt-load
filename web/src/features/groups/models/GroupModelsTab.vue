@@ -13,6 +13,7 @@ import {
   replaceGroupModelsResource,
 } from '@/app/resources/groups'
 import { invalidateGroupSummary } from '@/app/resources/groups'
+import type { ModelCandidate } from '@/app/resources/providers'
 import { useUnsavedChanges } from '@/app/unsaved-changes'
 import { useTransientFlag } from '@/app/use-transient-flag'
 import AppButton from '@/components/ui/AppButton.vue'
@@ -23,10 +24,13 @@ import StickySaveBar from '@/components/ui/StickySaveBar.vue'
 import ModelAliasEditor from '@/features/models/ModelAliasEditor.vue'
 import ModelDiscoveryDrawer from '@/features/models/ModelDiscoveryDrawer.vue'
 import {
+  appendSelectedCandidates,
+  mergeCandidateMetadata,
   readModelNameConflicts,
   type ModelAliasEditorLabels,
   type ModelDiscoveryDrawerLabels,
 } from '@/features/models/model-draft'
+import ModelPricingStatus from '@/features/models/ModelPricingStatus.vue'
 
 import {
   createModelDraft,
@@ -54,7 +58,7 @@ const modelEditor = ref<{
   focusFirstInvalid: () => Promise<void>
 }>()
 const emptyConfirmOpen = ref(false)
-const candidates = ref<string[]>([])
+const candidates = ref<ModelCandidate[]>([])
 const {
   value: savedFeedback,
   clear: clearSavedFeedback,
@@ -111,8 +115,8 @@ const canSave = computed(
     emptyIDIndexes.value.size === 0 &&
     emptyAliasIndexes.value.size === 0,
 )
-const unpriced = computed(
-  () => draft.value.filter((item) => item.pricing_status === 'unpriced').length,
+const pendingPricingCount = computed(
+  () => draft.value.filter((item) => item.pricing_status === 'pending').length,
 )
 const currentModelIDs = computed(() => draft.value.map((item) => item.id.trim()).filter(Boolean))
 const knownPricingStatusByID = computed(
@@ -137,8 +141,8 @@ const aliasEditorLabels = computed<ModelAliasEditorLabels>(() => ({
   add: t('group.modelEditor.add'),
   addInline: t('group.modelEditor.addInline'),
   count: (count) =>
-    unpriced.value
-      ? t('group.modelEditor.summary', { count, unpriced: unpriced.value })
+    pendingPricingCount.value
+      ? t('group.modelEditor.summary', { count, pending: pendingPricingCount.value })
       : t('group.modelEditor.total', { count }),
   empty: t('group.modelEditor.empty'),
   noMatches: t('group.modelEditor.noMatches'),
@@ -164,6 +168,14 @@ const discoveryDrawerLabels = computed<ModelDiscoveryDrawerLabels>(() => ({
   retry: t('common.retry'),
   cancel: t('common.cancel'),
   confirm: t('group.modelEditor.drawer.confirm'),
+  pricingStatus: {
+    pending: t('group.modelEditor.pricingStatus.pending'),
+    configured: t('group.modelEditor.pricingStatus.configured'),
+  },
+  sources: {
+    catalog: t('group.modelEditor.sources.catalog'),
+    live: t('group.modelEditor.sources.live'),
+  },
 }))
 useUnsavedChanges(dirty, { blocked: computed(() => pending.value !== null) })
 
@@ -177,7 +189,7 @@ watch(
     if (!models || dirty.value || pending.value) return
     const next = createModelDraft(models.items).map((item) => ({ ...item, key: nextKey++ }))
     saved.value = next
-    draft.value = next.map((item) => ({ ...item }))
+    draft.value = next.map((item) => ({ ...item, sources: [...item.sources] }))
     serverConflicts.value = []
     saveError.value = ''
   },
@@ -194,20 +206,24 @@ function updateModels(models: ModelDraftItem[]): void {
       ...item,
       pricing_status:
         previous && previous.id === item.id ? item.pricing_status : pricingStatusForID(item.id),
+      name: previous && previous.id === item.id ? item.name : item.id,
+      sources: previous && previous.id === item.id ? [...item.sources] : [],
     }
   })
 }
 
 function pricingStatusForID(id: string): ModelDraftItem['pricing_status'] {
-  return knownPricingStatusByID.value.get(id.trim()) ?? 'unpriced'
+  return knownPricingStatusByID.value.get(id.trim()) ?? 'pending'
 }
 
 function createManualRow(): ModelDraftItem {
   return {
     id: '',
+    name: '',
+    sources: [],
     alias: '',
     alias_enabled: false,
-    pricing_status: 'unpriced',
+    pricing_status: 'pending',
     editable_id: true,
     key: nextKey++,
   }
@@ -233,7 +249,8 @@ async function runDiscovery(): Promise<void> {
   try {
     const result = await discoverGroupModels(client, props.groupId, active.signal)
     if (controller !== active) return
-    candidates.value = [...new Set(result.models.map((id) => id.trim()).filter(Boolean))]
+    candidates.value = result.models
+    draft.value = mergeCandidateMetadata(draft.value, result.models)
   } catch (cause: unknown) {
     if (cause instanceof RequestCancelledError || controller !== active) return
     discoveryError.value =
@@ -248,19 +265,16 @@ async function runDiscovery(): Promise<void> {
   }
 }
 
-function confirmCandidates(selectedCandidates: string[]): void {
-  const present = new Set(draft.value.map((item) => item.id.trim()))
-  const additions = selectedCandidates
-    .map((id) => id.trim())
-    .filter((id) => id && !present.has(id))
-    .map((id) => ({
-      id,
-      alias: '',
-      alias_enabled: false,
-      pricing_status: pricingStatusForID(id),
-      key: nextKey++,
-    }))
-  draft.value = [...draft.value, ...additions]
+function confirmCandidates(selectedCandidates: ModelCandidate[]): void {
+  draft.value = appendSelectedCandidates(draft.value, selectedCandidates, (candidate) => ({
+    id: candidate.id,
+    name: candidate.name,
+    sources: [...candidate.sources],
+    alias: '',
+    alias_enabled: false,
+    pricing_status: candidate.pricing_status,
+    key: nextKey++,
+  }))
   serverConflicts.value = []
   saveError.value = ''
   drawerOpen.value = false
@@ -295,7 +309,7 @@ async function save(): Promise<void> {
     if (controller !== active) return
     const next = createModelDraft(result.items).map((item) => ({ ...item, key: nextKey++ }))
     saved.value = next
-    draft.value = next.map((item) => ({ ...item }))
+    draft.value = next.map((item) => ({ ...item, sources: [...item.sources] }))
     serverConflicts.value = []
     emptyConfirmOpen.value = false
     cacheGroupModels(queryClient, props.groupId, result)
@@ -329,7 +343,7 @@ function discard(): void {
   clearSavedFeedback()
   serverConflicts.value = []
   saveError.value = ''
-  draft.value = saved.value.map((item) => ({ ...item }))
+  draft.value = saved.value.map((item) => ({ ...item, sources: [...item.sources] }))
 }
 
 onBeforeUnmount(() => {
@@ -377,9 +391,13 @@ onBeforeUnmount(() => {
         @update:model-value="updateModels"
       >
         <template #third-column="{ item }">
-          <span :class="['group-models__pricing', `group-models__pricing--${item.pricing_status}`]">
-            {{ t(`group.modelEditor.pricingStatus.${item.pricing_status}`) }}
-          </span>
+          <ModelPricingStatus
+            :status="item.pricing_status"
+            :labels="{
+              pending: t('group.modelEditor.pricingStatus.pending'),
+              configured: t('group.modelEditor.pricingStatus.configured'),
+            }"
+          />
         </template>
       </ModelAliasEditor>
       <ModelDiscoveryDrawer
@@ -466,30 +484,6 @@ onBeforeUnmount(() => {
   gap: 0;
   min-width: 0;
   padding-top: var(--detail-panel-padding-top);
-}
-
-.group-models__pricing--priced {
-  color: var(--color-success);
-}
-
-.group-models__pricing--unpriced {
-  color: var(--color-warning);
-}
-
-.group-models__pricing {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11px;
-  white-space: nowrap;
-}
-.group-models__pricing::before {
-  width: 6px;
-  height: 6px;
-  flex: none;
-  border-radius: 50%;
-  background: currentColor;
-  content: '';
 }
 
 @media (max-width: 800px) {

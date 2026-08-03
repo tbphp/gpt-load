@@ -279,18 +279,6 @@ func TestControlMutationRejectsDuplicateJSONWithoutSideEffects(t *testing.T) {
 			body:   `{"settings":{"request_timeout":900,"request_timeout":901}}`,
 		},
 		{
-			name:   "model price",
-			method: http.MethodPut,
-			path:   "/api/model-prices",
-			body: `{"pattern":"duplicate-model","prices":{` +
-				`"input_price_usd_per_million_tokens":"1",` +
-				`"output_price_usd_per_million_tokens":"6",` +
-				`"cache_read_price_usd_per_million_tokens":"2",` +
-				`"cache_read_price_usd_per_million_tokens":"3",` +
-				`"cache_write_5m_price_usd_per_million_tokens":"4",` +
-				`"cache_write_1h_price_usd_per_million_tokens":"5"}}`,
-		},
-		{
 			name:   "route inspector",
 			method: http.MethodPost,
 			path:   "/api/route/inspect",
@@ -1587,10 +1575,10 @@ func TestUpdateGroupModelsEndpointIDsAuthNotFoundAndSuccessDTO(t *testing.T) {
 	}
 	want := GroupModelsResponse{
 		Items: []GroupModelResponse{{
-			ID: "provider-new", Alias: "new-public", AliasEnabled: true, ClientModel: "new-public", PricingStatus: "unpriced",
+			ID: "provider-new", Alias: "new-public", AliasEnabled: true, ClientModel: "new-public", PricingStatus: PricingStatusPending,
 		}},
-		Total:    1,
-		Unpriced: 1,
+		Total:   1,
+		Pending: 1,
 	}
 	if !reflect.DeepEqual(result, want) {
 		t.Fatalf("success models response = %#v, want %#v", result, want)
@@ -1752,9 +1740,12 @@ func TestModelDiscoveryHTTPContract(t *testing.T) {
 		if response.Code != 0 || len(response.Data) != 1 {
 			t.Fatalf("response = %#v", response)
 		}
-		var models []string
+		var models []ModelCandidate
 		if err := json.Unmarshal(response.Data["models"], &models); err != nil ||
-			!reflect.DeepEqual(models, []string{"z-model", "a-model"}) {
+			!reflect.DeepEqual(models, []ModelCandidate{
+				{ID: "z-model", Name: "z-model", Sources: []string{"live"}, PricingStatus: PricingStatusPending},
+				{ID: "a-model", Name: "a-model", Sources: []string{"live"}, PricingStatus: PricingStatusPending},
+			}) {
 			t.Fatalf("models = %#v, error=%v", models, err)
 		}
 	})
@@ -2023,9 +2014,12 @@ func TestServerGroupModelDiscoveryBodyContract(t *testing.T) {
 				if body.Code != 0 || len(body.Data) != 1 {
 					t.Fatalf("success response = %#v", body)
 				}
-				var gotModels []string
+				var gotModels []ModelCandidate
 				if err := json.Unmarshal(body.Data["models"], &gotModels); err != nil ||
-					!reflect.DeepEqual(gotModels, []string{"z-model", "a-model"}) {
+					!reflect.DeepEqual(gotModels, []ModelCandidate{
+						{ID: "z-model", Name: "z-model", Sources: []string{"live"}, PricingStatus: PricingStatusPending},
+						{ID: "a-model", Name: "a-model", Sources: []string{"live"}, PricingStatus: PricingStatusPending},
+					}) {
 					t.Fatalf("models = %#v, error=%v", gotModels, err)
 				}
 			})
@@ -2237,13 +2231,13 @@ func TestSettingsHTTPStableSuccessEnvelopeUpdateAndReset(t *testing.T) {
 	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
 
 	get := serveSettingsRequest(t, engine, http.MethodGet, "test-auth-key", "")
-	const wantDefault = `{"code":0,"data":{"overrides":[],"values":{"connect_timeout":15,"first_byte_timeout":120,"header_rules":{"remove":[],"set":{}},"inject_usage_options":true,"request_log_retention_days":7,"request_timeout":600,"stream_idle_timeout":300}},"message":"Success"}`
+	const wantDefault = `{"code":0,"data":{"overrides":[],"values":{"connect_timeout":15,"first_byte_timeout":120,"header_rules":{"remove":[],"set":{}},"inject_usage_options":true,"models_dev_auto_sync_enabled":true,"request_log_retention_days":7,"request_timeout":600,"stream_idle_timeout":300}},"message":"Success"}`
 	if get.Code != http.StatusOK || strings.TrimSpace(get.Body.String()) != wantDefault {
 		t.Fatalf("default response = %d %s, want %s", get.Code, get.Body.String(), wantDefault)
 	}
 
 	update := serveSettingsRequest(t, engine, http.MethodPut, "test-auth-key", `{"settings":{"request_timeout":900,"header_rules":{"set":{},"remove":[]}}}`)
-	const wantUpdate = `{"code":0,"data":{"overrides":["header_rules","request_timeout"],"values":{"connect_timeout":15,"first_byte_timeout":120,"header_rules":{"remove":[],"set":{}},"inject_usage_options":true,"request_log_retention_days":7,"request_timeout":900,"stream_idle_timeout":300}},"message":"Success"}`
+	const wantUpdate = `{"code":0,"data":{"overrides":["header_rules","request_timeout"],"values":{"connect_timeout":15,"first_byte_timeout":120,"header_rules":{"remove":[],"set":{}},"inject_usage_options":true,"models_dev_auto_sync_enabled":true,"request_log_retention_days":7,"request_timeout":900,"stream_idle_timeout":300}},"message":"Success"}`
 	if update.Code != http.StatusOK || strings.TrimSpace(update.Body.String()) != wantUpdate {
 		t.Fatalf("update response = %d %s, want %s", update.Code, update.Body.String(), wantUpdate)
 	}
@@ -2351,6 +2345,8 @@ func TestSettingsHTTPFiltersPrivateRowsAndDoesNotLogValues(t *testing.T) {
 		state.NewManager(),
 		fixture.registry,
 		fixture.priceRuntime,
+		fixture.catalogRuntime,
+		nil,
 		fixture.encryption,
 		fixture.service.dialects,
 		fixture.service.requestLogs,

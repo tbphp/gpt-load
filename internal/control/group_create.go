@@ -21,6 +21,7 @@ import (
 
 type GroupCreateRequest struct {
 	Name                   *string             `json:"name"`
+	ProviderID             *string             `json:"provider_id"`
 	UpstreamURL            string              `json:"upstream_url"`
 	Protocols              []protocol.Protocol `json:"protocols"`
 	Models                 optionalGroupModels `json:"models"`
@@ -45,6 +46,7 @@ type UpstreamURLConflictData struct {
 }
 
 type normalizedGroupCreate struct {
+	providerID             *string
 	upstreamURL            string
 	hostname               string
 	protocols              []protocol.Protocol
@@ -72,7 +74,7 @@ func (s *Service) CreateGroup(ctx context.Context, request GroupCreateRequest) (
 
 	result := GroupCreateResult{}
 	requestedEntries := make([]state.KeyEntry, 0, len(normalized.keys.candidates))
-	_, err = s.writeConfig(ctx, func(tx *gorm.DB) error {
+	_, err = s.writeGroupConfig(ctx, func(tx *gorm.DB) error {
 		if !normalized.confirmSameUpstreamURL {
 			conflicts, err := findGroupsByUpstreamURL(tx, normalized.upstreamURL)
 			if err != nil {
@@ -100,6 +102,7 @@ func (s *Service) CreateGroup(ctx context.Context, request GroupCreateRequest) (
 		}
 		group := models.Group{
 			Name:        name,
+			ProviderID:  cloneString(normalized.providerID),
 			UpstreamURL: normalized.upstreamURL,
 			Protocols:   models.JSON(encodedProtocols),
 			Models:      models.JSON(encodedModels),
@@ -127,6 +130,9 @@ func (s *Service) CreateGroup(ctx context.Context, request GroupCreateRequest) (
 	if err != nil {
 		return GroupCreateResult{}, err
 	}
+	if normalized.providerID != nil && len(normalized.models) > 0 && s.catalogSync != nil {
+		s.catalogSync.RequestGroupSync()
+	}
 	return result, nil
 }
 
@@ -145,6 +151,10 @@ func (s *Service) normalizeGroupCreate(
 	explicitName, err := normalizeGroupName(request.Name)
 	if err != nil {
 		return normalizedGroupCreate{}, err
+	}
+	providerID, err := normalizeProviderID(request.ProviderID)
+	if err != nil {
+		return normalizedGroupCreate{}, app_errors.ErrValidation
 	}
 	if !request.Models.Set {
 		return normalizedGroupCreate{}, app_errors.ErrValidation
@@ -173,13 +183,15 @@ func (s *Service) normalizeGroupCreate(
 		SystemSettings: systemSettings,
 		Groups: []state.GroupConfig{{
 			ID: 1, Name: "candidate", UpstreamURL: upstreamURL,
-			Protocols: protocols, Models: runtimeModels, Settings: config.Settings{}, Enabled: true,
+			ProviderID: providerID,
+			Protocols:  protocols, Models: runtimeModels, Settings: config.Settings{}, Enabled: true,
 		}}})
 	if err != nil {
 		return normalizedGroupCreate{}, app_errors.ErrValidation
 	}
 
 	return normalizedGroupCreate{
+		providerID:  providerID,
 		upstreamURL: upstreamURL, hostname: hostname, protocols: protocols,
 		explicitName: explicitName, models: groupModels,
 		encodedConfig: models.JSON(`{}`), keys: keys,

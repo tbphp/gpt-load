@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"strings"
+	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
 
@@ -13,139 +15,163 @@ import (
 	"gpt-load/internal/pricing"
 )
 
-type modelPriceValuesResponse struct {
-	InputPrice        *string `json:"input_price_usd_per_million_tokens"`
-	OutputPrice       *string `json:"output_price_usd_per_million_tokens"`
-	CacheReadPrice    *string `json:"cache_read_price_usd_per_million_tokens"`
-	CacheWrite5MPrice *string `json:"cache_write_5m_price_usd_per_million_tokens"`
-	CacheWrite1HPrice *string `json:"cache_write_1h_price_usd_per_million_tokens"`
+const (
+	defaultModelPriceListPage     int64 = 1
+	defaultModelPriceListPageSize int64 = 20
+	maxModelPriceListPageSize     int64 = 100
+	maxModelPriceSearchRunes            = 200
+)
+
+type ModelPriceUsage string
+
+const (
+	ModelPriceUsageInUse        ModelPriceUsage = "in_use"
+	ModelPriceUsageUnreferenced ModelPriceUsage = "unreferenced"
+	ModelPriceUsageAll          ModelPriceUsage = "all"
+)
+
+type ModelPriceListStatus string
+
+const (
+	ModelPriceStatusPending    ModelPriceListStatus = "pending"
+	ModelPriceStatusConfigured ModelPriceListStatus = "configured"
+	ModelPriceStatusAll        ModelPriceListStatus = "all"
+)
+
+type ModelPriceListQuery struct {
+	Usage    ModelPriceUsage
+	Status   ModelPriceListStatus
+	Search   string
+	Page     int64
+	PageSize int64
 }
 
-type modelPriceValuesInput struct {
-	UncachedInput *pricing.NanoUSD
-	CacheRead     *pricing.NanoUSD
-	CacheWrite5M  *pricing.NanoUSD
-	CacheWrite1H  *pricing.NanoUSD
-	Output        *pricing.NanoUSD
+type nullableDecimal struct {
+	present bool
+	nanoUSD *int64
 }
 
-type modelPricePolicyResponse struct {
-	InputThresholdTokens int64   `json:"input_threshold_tokens"`
-	InputMultiplier      float64 `json:"input_multiplier"`
-	OutputMultiplier     float64 `json:"output_multiplier"`
+type ModelPriceUpdateRequest struct {
+	Input           nullableDecimal `json:"input"`
+	Output          nullableDecimal `json:"output"`
+	CacheRead       nullableDecimal `json:"cache_read"`
+	CacheWrite      nullableDecimal `json:"cache_write"`
+	ConfirmUnpriced bool            `json:"confirm_unpriced"`
 }
 
-type modelPriceRuleResponse struct {
-	Pattern       string                    `json:"pattern"`
-	Source        pricing.Source            `json:"source"`
-	Prices        modelPriceValuesResponse  `json:"prices"`
-	SourceURL     *string                   `json:"source_url"`
-	UpdatedAtMS   int64                     `json:"updated_at_ms"`
-	PricingPolicy *modelPricePolicyResponse `json:"pricing_policy"`
-}
-
-type modelPriceListResponse struct {
-	PriceUnit string                   `json:"price_unit"`
-	Builtin   []modelPriceRuleResponse `json:"builtin"`
-	Overrides []modelPriceRuleResponse `json:"overrides"`
-}
-
-type modelPriceUpsertRequest struct {
-	input ModelPriceInput
-}
-
-func (request *modelPriceUpsertRequest) UnmarshalJSON(data []byte) error {
-	if err := rejectDuplicateJSONFields(data); err != nil {
-		return err
-	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(data, &object); err != nil {
-		return err
-	}
-	if len(object) != 2 {
-		return fmt.Errorf("model price request must contain pattern and prices")
-	}
-	patternRaw, hasPattern := object["pattern"]
-	pricesRaw, hasPrices := object["prices"]
-	if !hasPattern || !hasPrices {
-		return fmt.Errorf("model price request must contain pattern and prices")
-	}
-	var pattern string
-	if err := json.Unmarshal(patternRaw, &pattern); err != nil {
-		return fmt.Errorf("decode model price pattern: %w", err)
-	}
-	prices, err := decodeModelPriceValues(pricesRaw)
-	if err != nil {
-		return err
-	}
-	request.input = ModelPriceInput{
-		Pattern:       pattern,
-		UncachedInput: prices.UncachedInput,
-		CacheRead:     prices.CacheRead,
-		CacheWrite5M:  prices.CacheWrite5M,
-		CacheWrite1H:  prices.CacheWrite1H,
-		Output:        prices.Output,
+func (request ModelPriceUpdateRequest) validate() error {
+	if !request.Input.present ||
+		!request.Output.present ||
+		!request.CacheRead.present ||
+		!request.CacheWrite.present {
+		return fmt.Errorf("all four model price slots are required: %w", app_errors.ErrValidation)
 	}
 	return nil
 }
 
-func decodeModelPriceValues(data json.RawMessage) (modelPriceValuesInput, error) {
-	trimmed := bytes.TrimSpace(data)
-	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) || trimmed[0] != '{' {
-		return modelPriceValuesInput{}, fmt.Errorf("model price prices must be an object")
+func (value *nullableDecimal) UnmarshalJSON(data []byte) error {
+	value.present = true
+	value.nanoUSD = nil
+	if bytes.Equal(bytes.TrimSpace(data), []byte("null")) {
+		return nil
 	}
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(trimmed, &object); err != nil {
-		return modelPriceValuesInput{}, err
+
+	var decimal string
+	if err := json.Unmarshal(data, &decimal); err != nil {
+		return err
 	}
-	if len(object) != 5 {
-		return modelPriceValuesInput{}, fmt.Errorf("model price prices must contain five values")
+	parsed, err := pricing.ParseUSD(decimal)
+	if err != nil {
+		return fmt.Errorf("parse model price decimal: %v: %w", err, app_errors.ErrValidation)
 	}
-	keys := []string{
-		"input_price_usd_per_million_tokens",
-		"output_price_usd_per_million_tokens",
-		"cache_read_price_usd_per_million_tokens",
-		"cache_write_5m_price_usd_per_million_tokens",
-		"cache_write_1h_price_usd_per_million_tokens",
-	}
-	values := make([]*pricing.NanoUSD, len(keys))
-	for index, key := range keys {
-		raw, exists := object[key]
-		if !exists {
-			return modelPriceValuesInput{}, fmt.Errorf("model price prices must contain %s", key)
-		}
-		value, err := decodeNullableModelPrice(raw)
-		if err != nil {
-			return modelPriceValuesInput{}, fmt.Errorf("decode model price %s: %w", key, err)
-		}
-		values[index] = value
-	}
-	return modelPriceValuesInput{
-		UncachedInput: values[0],
-		Output:        values[1],
-		CacheRead:     values[2],
-		CacheWrite5M:  values[3],
-		CacheWrite1H:  values[4],
-	}, nil
+	nanoUSD := int64(parsed)
+	value.nanoUSD = &nanoUSD
+	return nil
 }
 
-func decodeNullableModelPrice(raw json.RawMessage) (*pricing.NanoUSD, error) {
-	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
-		return nil, nil
+func parseModelPriceListQuery(
+	rawQuery string,
+	forceQuery bool,
+) (ModelPriceListQuery, *app_errors.APIError) {
+	query := ModelPriceListQuery{
+		Usage: ModelPriceUsageInUse, Status: ModelPriceStatusAll,
+		Page: defaultModelPriceListPage, PageSize: defaultModelPriceListPageSize,
 	}
-	var value string
-	if err := json.Unmarshal(raw, &value); err != nil {
-		return nil, err
+	if forceQuery && rawQuery == "" {
+		return ModelPriceListQuery{}, app_errors.ErrBadRequest
 	}
-	parsed, err := pricing.ParseUSD(value)
+	values, err := url.ParseQuery(rawQuery)
 	if err != nil {
-		return nil, err
+		return ModelPriceListQuery{}, app_errors.ErrBadRequest
 	}
-	return &parsed, nil
+	for key, entries := range values {
+		switch key {
+		case "usage", "status", "search", "page", "page_size":
+		default:
+			return ModelPriceListQuery{}, app_errors.ErrBadRequest
+		}
+		if len(entries) != 1 {
+			return ModelPriceListQuery{}, app_errors.ErrBadRequest
+		}
+	}
+
+	if entries, exists := values["usage"]; exists {
+		query.Usage = ModelPriceUsage(entries[0])
+		switch query.Usage {
+		case ModelPriceUsageInUse, ModelPriceUsageUnreferenced, ModelPriceUsageAll:
+		default:
+			return ModelPriceListQuery{}, app_errors.ErrBadRequest
+		}
+	}
+	if entries, exists := values["status"]; exists {
+		query.Status = ModelPriceListStatus(entries[0])
+		switch query.Status {
+		case ModelPriceStatusPending, ModelPriceStatusConfigured, ModelPriceStatusAll:
+		default:
+			return ModelPriceListQuery{}, app_errors.ErrBadRequest
+		}
+	}
+	if entries, exists := values["search"]; exists {
+		query.Search = strings.TrimSpace(entries[0])
+		if utf8.RuneCountInString(query.Search) > maxModelPriceSearchRunes {
+			return ModelPriceListQuery{}, app_errors.ErrBadRequest
+		}
+	}
+	if entries, exists := values["page"]; exists {
+		page, err := parseCanonicalSafeUint(entries[0])
+		if err != nil || page == 0 {
+			return ModelPriceListQuery{}, app_errors.ErrBadRequest
+		}
+		query.Page = int64(page)
+	}
+	if entries, exists := values["page_size"]; exists {
+		pageSize, err := parseCanonicalSafeUint(entries[0])
+		if err != nil || pageSize == 0 || pageSize > uint64(maxModelPriceListPageSize) {
+			return ModelPriceListQuery{}, app_errors.ErrBadRequest
+		}
+		query.PageSize = int64(pageSize)
+	}
+	return query, nil
+}
+
+func parseModelPriceRowID(value string) (uint, error) {
+	parsed, err := parseCanonicalSafeUint(value)
+	if err != nil || parsed == 0 || parsed > uint64(^uint(0)) {
+		return 0, fmt.Errorf("model price ID must be a canonical positive safe integer")
+	}
+	return uint(parsed), nil
 }
 
 func (s *Server) handleListModelPrices(c *gin.Context) {
-	result, err := s.service.ListModelPrices(c.Request.Context())
+	query, apiErr := parseModelPriceListQuery(
+		c.Request.URL.RawQuery,
+		c.Request.URL.ForceQuery,
+	)
+	if apiErr != nil {
+		writeServiceError(c, "list_model_prices", apiErr)
+		return
+	}
+	result, err := s.service.ListModelPrices(c.Request.Context(), query)
 	if err != nil {
 		writeServiceError(c, "list_model_prices", err)
 		return
@@ -153,91 +179,71 @@ func (s *Server) handleListModelPrices(c *gin.Context) {
 	response.SuccessI18n(c, "common.success", result)
 }
 
-func (s *Server) handleUpsertModelPrice(c *gin.Context) {
-	var request modelPriceUpsertRequest
+func (s *Server) handleUpdateModelPrice(c *gin.Context) {
+	id, ok := modelPriceID(c, "update_model_price")
+	if !ok || !modelPriceMutationQueryIsEmpty(c, "update_model_price") {
+		return
+	}
+	var request ModelPriceUpdateRequest
 	if err := bindStrictJSON(c, &request); err != nil {
-		writeServiceError(c, "upsert_model_price", mapControlJSONError(err))
+		writeServiceError(c, "update_model_price", mapControlJSONError(err))
 		return
 	}
-	if pricing.ValidatePattern(request.input.Pattern) == nil {
-		setMutationResourceLocator(
-			c,
-			"model-price:"+request.input.Pattern,
-		)
-	}
-	if err := s.service.UpsertModelPrice(c.Request.Context(), request.input); err != nil {
-		writeServiceError(c, "upsert_model_price", err)
+	if err := request.validate(); err != nil {
+		writeServiceError(c, "update_model_price", mapControlJSONError(err))
 		return
 	}
-	response.SuccessI18n(c, "common.success", nil)
+	result, err := s.service.UpdateModelPrice(c.Request.Context(), id, request)
+	if err != nil {
+		writeServiceError(c, "update_model_price", err)
+		return
+	}
+	response.SuccessI18n(c, "common.success", result)
 }
 
 func (s *Server) handleResetModelPrice(c *gin.Context) {
-	pattern, apiErr := parseModelPricePattern(c.Request.URL.RawQuery)
-	if apiErr != nil {
-		writeServiceError(c, "reset_model_price", apiErr)
+	id, ok := modelPriceID(c, "reset_model_price")
+	if !ok || !modelPriceMutationQueryIsEmpty(c, "reset_model_price") {
 		return
 	}
-	setMutationResourceLocator(c, "model-price:"+pattern)
-	if err := s.service.ResetModelPrice(c.Request.Context(), pattern); err != nil {
+	if err := bindOptionalEmptyJSONObject(c); err != nil {
+		writeServiceError(c, "reset_model_price", mapControlJSONError(err))
+		return
+	}
+	result, err := s.service.ResetModelPrice(c.Request.Context(), id)
+	if err != nil {
 		writeServiceError(c, "reset_model_price", err)
+		return
+	}
+	response.SuccessI18n(c, "common.success", result)
+}
+
+func (s *Server) handleDeleteModelPrice(c *gin.Context) {
+	id, ok := modelPriceID(c, "delete_model_price")
+	if !ok || !modelPriceMutationQueryIsEmpty(c, "delete_model_price") {
+		return
+	}
+	if err := s.service.DeleteModelPrice(c.Request.Context(), id); err != nil {
+		writeServiceError(c, "delete_model_price", err)
 		return
 	}
 	response.SuccessI18n(c, "common.success", nil)
 }
 
-func parseModelPricePattern(rawQuery string) (string, *app_errors.APIError) {
-	values, err := url.ParseQuery(rawQuery)
+func modelPriceID(c *gin.Context, operation string) (uint, bool) {
+	id, err := parseModelPriceRowID(c.Param("id"))
 	if err != nil {
-		return "", app_errors.ErrBadRequest
+		writeServiceError(c, operation, app_errors.ErrBadRequest)
+		return 0, false
 	}
-	patternValues, ok := values["pattern"]
-	if len(values) != 1 || !ok || len(patternValues) != 1 {
-		return "", app_errors.ErrBadRequest
-	}
-	if err := pricing.ValidatePattern(patternValues[0]); err != nil {
-		return "", app_errors.ErrValidation
-	}
-	return patternValues[0], nil
+	setMutationResourceLocator(c, fmt.Sprintf("model-price:%d", id))
+	return id, true
 }
 
-func newModelPriceRuleResponse(rule pricing.Rule) (modelPriceRuleResponse, error) {
-	updatedAtMS, err := safeEpochMilliseconds(rule.UpdatedAt)
-	if err != nil {
-		return modelPriceRuleResponse{}, app_errors.ErrInternalServer
+func modelPriceMutationQueryIsEmpty(c *gin.Context, operation string) bool {
+	if c.Request.URL.RawQuery == "" && !c.Request.URL.ForceQuery {
+		return true
 	}
-	result := modelPriceRuleResponse{
-		Pattern: rule.Pattern, Source: rule.Source, UpdatedAtMS: updatedAtMS,
-		Prices: modelPriceValuesResponse{
-			InputPrice:        modelPriceValuePointer(rule.Prices.UncachedInput),
-			OutputPrice:       modelPriceValuePointer(rule.Prices.Output),
-			CacheReadPrice:    modelPriceValuePointer(rule.Prices.CacheRead),
-			CacheWrite5MPrice: modelPriceValuePointer(rule.Prices.CacheWrite5M),
-			CacheWrite1HPrice: modelPriceValuePointer(rule.Prices.CacheWrite1H),
-		},
-	}
-	if rule.SourceURL != "" {
-		sourceURL := rule.SourceURL
-		result.SourceURL = &sourceURL
-	}
-	if rule.LongContextPolicy != nil {
-		result.PricingPolicy = &modelPricePolicyResponse{
-			InputThresholdTokens: rule.LongContextPolicy.InputThresholdTokens,
-			InputMultiplier:      modelPriceMultiplier(rule.LongContextPolicy.InputMultiplier),
-			OutputMultiplier:     modelPriceMultiplier(rule.LongContextPolicy.OutputMultiplier),
-		}
-	}
-	return result, nil
-}
-
-func modelPriceValuePointer(price pricing.Price) *string {
-	if !price.Set {
-		return nil
-	}
-	value := pricing.FormatUSD(price.NanoUSDPerMillion)
-	return &value
-}
-
-func modelPriceMultiplier(value pricing.Multiplier) float64 {
-	return float64(value.Numerator) / float64(value.Denominator)
+	writeServiceError(c, operation, app_errors.ErrBadRequest)
+	return false
 }

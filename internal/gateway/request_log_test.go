@@ -24,6 +24,7 @@ import (
 	"gpt-load/internal/platform/encryption"
 	platformhttp "gpt-load/internal/platform/httpclient"
 	"gpt-load/internal/platform/redact"
+	"gpt-load/internal/pricing"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/ratelimit"
 	"gpt-load/internal/scheduler"
@@ -75,6 +76,31 @@ func (limiter *recordingAccessKeyRPMLimiter) snapshot() []rpmLimiterCall {
 type recordingRequestLogSink struct {
 	mu     sync.Mutex
 	events []telemetry.RequestEvent
+}
+
+type mutableGatewayPriceTableProvider struct {
+	mu    sync.Mutex
+	table *pricing.Table
+	loads int
+}
+
+func (provider *mutableGatewayPriceTableProvider) Load() *pricing.Table {
+	provider.mu.Lock()
+	defer provider.mu.Unlock()
+	provider.loads++
+	return provider.table
+}
+
+func (provider *mutableGatewayPriceTableProvider) Publish(table *pricing.Table) {
+	provider.mu.Lock()
+	defer provider.mu.Unlock()
+	provider.table = table
+}
+
+func (provider *mutableGatewayPriceTableProvider) LoadCount() int {
+	provider.mu.Lock()
+	defer provider.mu.Unlock()
+	return provider.loads
 }
 
 type usageObservingStreamRetryForwarder struct {
@@ -196,8 +222,53 @@ func TestHandlerRecordsProtocolOnlyResponsesResourceWithoutFabricatingModels(t *
 		event.UpstreamModel != "" ||
 		len(event.Attempts) != 1 ||
 		event.Attempts[0].UpstreamModel != "" ||
-		event.Usage.Result.State != usage.StateNotApplicable {
+		event.Usage.Result.State != usage.StateNotApplicable ||
+		event.Usage.Pricing != (telemetry.PricingObservation{
+			CostState: "not_applicable", PricingCompleteness: "not_applicable",
+		}) {
 		t.Fatalf("event = %#v", event)
+	}
+}
+
+func TestHandlerBillableResponsesUsageWithoutModelIsUnpriced(t *testing.T) {
+	forwarder := &scriptedForwarder{results: []UpstreamResult{{
+		StatusCode: http.StatusOK,
+		Header:     make(http.Header),
+		Body:       []byte(`{"id":"resp_123"}`),
+		Usage: usage.Result{
+			State:  usage.StateComplete,
+			Tokens: usage.Tokens{UncachedInput: 10},
+		},
+		RequestWritten: true,
+	}}}
+	sink := &recordingRequestLogSink{}
+	engine, handler, manager, _ := newRequestLogHandlerTestRuntime(
+		t, forwarder, &recordingAccessKeyRPMLimiter{}, sink, "sk-first",
+	)
+	if _, err := manager.Publish(state.CompileInput{
+		Groups: []state.GroupConfig{{
+			ID: 1, Name: "responses", UpstreamURL: "http://upstream.invalid",
+			Protocols: []protocol.Protocol{protocol.OpenAIResponses}, Enabled: true,
+		}},
+		AccessKeys: []state.AccessKeyConfig{{
+			ID: 1, Name: "client", KeyHash: handler.encryption.Hash("gl-client"),
+			Status: state.AccessKeyStatusActive,
+		}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	handler.dialects = dialect.NewSet(dialect.NewOpenAIResponses(http.DefaultClient))
+	handler.priceTables = &mutableGatewayPriceTableProvider{table: mustGatewayPriceTable(t, 1, true)}
+
+	request := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"input":"ping"}`))
+	request.Header.Set("Authorization", "Bearer gl-client")
+	engine.ServeHTTP(httptest.NewRecorder(), request)
+
+	events := sink.snapshot()
+	if len(events) != 1 || events[0].Usage.Pricing != (telemetry.PricingObservation{
+		CostState: "unpriced", PricingCompleteness: "unavailable",
+	}) {
+		t.Fatalf("events = %#v", events)
 	}
 }
 
@@ -253,7 +324,13 @@ func TestRequestRecorderInvalidAttemptIndexDoesNotForgeUsageAttribution(t *testi
 			recorder.bindUsage(index, usage.Result{State: usage.StateComplete, Tokens: usage.Tokens{Output: 30}}, true)
 			recorder.emit()
 
-			if got := sink.events[0].Usage; got != (telemetry.UsageObservation{Result: usage.Result{State: usage.StateNotApplicable}}) {
+			if got := sink.events[0].Usage; got != (telemetry.UsageObservation{
+				Result: usage.Result{State: usage.StateNotApplicable},
+				Pricing: telemetry.PricingObservation{
+					CostState:           "not_applicable",
+					PricingCompleteness: "not_applicable",
+				},
+			}) {
 				t.Fatalf("Usage = %#v", got)
 			}
 		})
@@ -291,6 +368,162 @@ func TestHandlerPublishesUsageForActualNonStreamingResponseAttempt(t *testing.T)
 	if len(events) != 1 || events[0].Usage.Result != (usage.Result{State: usage.StateComplete, Tokens: usage.Tokens{UncachedInput: 80, CacheRead: 20, Output: 30}}) || events[0].Usage.GroupID != 1 || events[0].Usage.KeyID != 2 || events[0].Usage.AttemptSequence != 2 {
 		t.Fatalf("events = %#v", events)
 	}
+}
+
+func TestHandlerFreezesAttemptPriceBeforeForward(t *testing.T) {
+	first := mustGatewayPriceTable(t, 2_000_000_000, true)
+	second := mustGatewayPriceTable(t, 9_000_000_000, true)
+	provider := &mutableGatewayPriceTableProvider{table: first}
+	forwarder := &scriptedForwarder{results: []UpstreamResult{{
+		StatusCode: http.StatusOK,
+		Header:     make(http.Header),
+		Body:       []byte(`{"ok":true}`),
+		Usage: usage.Result{
+			State:  usage.StateComplete,
+			Tokens: usage.Tokens{UncachedInput: 1_000_000},
+		},
+		RequestWritten: true,
+	}}}
+	forwarder.onCall = func(int) { provider.Publish(second) }
+	sink := &recordingRequestLogSink{}
+	engine, handler, _, _ := newRequestLogHandlerTestRuntime(
+		t, forwarder, &recordingAccessKeyRPMLimiter{}, sink, "sk-first",
+	)
+	handler.priceTables = provider
+
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/v1/chat/completions",
+		strings.NewReader(`{"model":"gpt-4o"}`),
+	)
+	request.Header.Set("Authorization", "Bearer gl-client")
+	engine.ServeHTTP(httptest.NewRecorder(), request)
+
+	events := sink.snapshot()
+	if len(events) != 1 {
+		t.Fatalf("events = %#v", events)
+	}
+	want := telemetry.PricingObservation{
+		PriceScopeKey:        "group:1",
+		UpstreamModel:        "gpt-4o",
+		CostState:            string(pricing.CostStatePriced),
+		PricingCompleteness:  string(pricing.CompletenessComplete),
+		EstimatedCostNanoUSD: 2_000_000_000,
+	}
+	if events[0].Usage.Pricing != want {
+		t.Fatalf("frozen pricing = %#v, want %#v", events[0].Usage.Pricing, want)
+	}
+	if provider.LoadCount() != 1 {
+		t.Fatalf("PriceTableProvider.Load calls = %d, want 1", provider.LoadCount())
+	}
+}
+
+func TestRequestRecorderPreservesKnownCostWhenUsedOutputPriceIsUnavailable(t *testing.T) {
+	table := mustGatewayPriceTable(t, 2_000_000_000, false)
+	recorder := newRequestRecorder(
+		&recordingRequestLogSink{}, "partial-price", time.Unix(100, 0), 1,
+		protocol.OpenAICompletions, func() time.Time { return time.Unix(101, 0) },
+	)
+	model := "gpt-4o"
+	recorder.freezeNextAttemptPricing(frozenAttemptPricing{
+		groupID: 1, scopeKey: "group:1", upstreamModel: model, table: table, applicable: true,
+	})
+	index := recorder.appendAttempt(
+		scheduler.Selection{
+			GroupID: 1, Group: state.GroupView{Name: "group"}, KeyID: 2,
+			UpstreamModelID: &model,
+		},
+		UpstreamResult{StatusCode: http.StatusOK},
+		telemetry.FailureCategoryOK, telemetry.ActionTerminate, "", "",
+		time.Unix(100, 0), time.Unix(101, 0),
+	)
+	recorder.completeResponse(UpstreamResult{
+		StatusCode: http.StatusOK,
+		Usage: usage.Result{
+			State:  usage.StateComplete,
+			Tokens: usage.Tokens{UncachedInput: 1_000_000, Output: 1_000_000},
+		},
+	}, health.Result{}, model, index)
+
+	if got := recorder.usage.Pricing; got != (telemetry.PricingObservation{
+		PriceScopeKey: "group:1", UpstreamModel: model,
+		CostState: "priced", PricingCompleteness: "partial",
+		EstimatedCostNanoUSD: 2_000_000_000,
+	}) {
+		t.Fatalf("partial pricing = %#v", got)
+	}
+}
+
+func TestHandlerUsesSelectedProviderModelForPricingInsteadOfAliasOrBodyModel(t *testing.T) {
+	providerID := "openai"
+	model := "provider-model"
+	table, err := pricing.NewTable([]pricing.Rule{{
+		Identity: pricing.Identity{ScopeKey: "provider:openai", ModelID: model},
+		Prices: pricing.Prices{Input: pricing.Price{
+			NanoUSDPerMillion: 3_000_000_000, Set: true,
+		}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	forwarder := &scriptedForwarder{results: []UpstreamResult{{
+		StatusCode: http.StatusOK, Header: make(http.Header),
+		Body: []byte(`{"model":"body-model"}`), RequestWritten: true,
+		Usage: usage.Result{State: usage.StateComplete, Tokens: usage.Tokens{UncachedInput: 1_000_000}},
+	}}}
+	sink := &recordingRequestLogSink{}
+	engine, handler, manager, _ := newRequestLogHandlerTestRuntime(
+		t, forwarder, &recordingAccessKeyRPMLimiter{}, sink, "sk-first",
+	)
+	if _, err := manager.Publish(state.CompileInput{
+		Groups: []state.GroupConfig{{
+			ID: 1, Name: "provider", ProviderID: &providerID,
+			UpstreamURL: "http://upstream.invalid",
+			Protocols:   []protocol.Protocol{protocol.OpenAICompletions},
+			Models:      []state.ModelConfig{{ID: model, Alias: "client-alias"}}, Enabled: true,
+		}},
+		AccessKeys: []state.AccessKeyConfig{{
+			ID: 1, Name: "client", KeyHash: handler.encryption.Hash("gl-client"),
+			Status: state.AccessKeyStatusActive,
+		}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	handler.priceTables = &mutableGatewayPriceTableProvider{table: table}
+	request := httptest.NewRequest(
+		http.MethodPost, "/v1/chat/completions",
+		strings.NewReader(`{"model":"client-alias"}`),
+	)
+	request.Header.Set("Authorization", "Bearer gl-client")
+	engine.ServeHTTP(httptest.NewRecorder(), request)
+
+	events := sink.snapshot()
+	if len(events) != 1 || events[0].ClientModel != "client-alias" ||
+		events[0].UpstreamModel != model || events[0].Usage.Pricing != (telemetry.PricingObservation{
+		PriceScopeKey: "provider:openai", UpstreamModel: model,
+		CostState: "priced", PricingCompleteness: "complete",
+		EstimatedCostNanoUSD: 3_000_000_000,
+	}) {
+		t.Fatalf("events = %#v", events)
+	}
+}
+
+func mustGatewayPriceTable(t *testing.T, input int64, outputSet bool) *pricing.Table {
+	t.Helper()
+	prices := pricing.Prices{
+		Input: pricing.Price{NanoUSDPerMillion: pricing.NanoUSD(input), Set: true},
+	}
+	if outputSet {
+		prices.Output = pricing.Price{NanoUSDPerMillion: pricing.NanoUSD(input), Set: true}
+	}
+	table, err := pricing.NewTable([]pricing.Rule{{
+		Identity: pricing.Identity{ScopeKey: "group:1", ModelID: "gpt-4o"},
+		Prices:   prices,
+	}})
+	if err != nil {
+		t.Fatalf("NewTable() error = %v", err)
+	}
+	return table
 }
 
 func TestHandlerDiscardsPreCommitStreamUsageOnRetry(t *testing.T) {
@@ -408,6 +641,84 @@ func TestHandlerFirstProviderErrorRequestLogContract(t *testing.T) {
 	}
 }
 
+func TestHandlerRetryExhaustionUsesProviderErrorAttemptAndItsFrozenPrice(t *testing.T) {
+	firstTable := mustGatewayPriceTable(t, 2_000_000_000, true)
+	secondTable := mustGatewayPriceTable(t, 9_000_000_000, true)
+	thirdTable := mustGatewayPriceTable(t, 15_000_000_000, true)
+	provider := &mutableGatewayPriceTableProvider{table: firstTable}
+	forwarder := &scriptedForwarder{streamResults: []UpstreamResult{
+		withProviderErrorBeforeCommit(UpstreamResult{
+			StatusCode:         http.StatusOK,
+			Header:             http.Header{"Retry-After": {"1"}},
+			ClassificationBody: []byte(`{"error":{"type":"rate_limit_error"}}`),
+			ErrorSummary:       fixedErrorSummary("upstream_sse_error"),
+			RequestWritten:     true,
+			Usage: usage.Result{
+				State:  usage.StateComplete,
+				Tokens: usage.Tokens{UncachedInput: 1_000_000},
+			},
+		}),
+		{
+			StatusCode:         http.StatusUnauthorized,
+			Header:             make(http.Header),
+			Body:               []byte(`{"error":"invalid key"}`),
+			ClassificationBody: []byte(`{"error":"invalid key"}`),
+			RequestWritten:     true,
+		},
+		{Err: errors.New("dial failed"), RetryableBeforeCommit: true},
+	}}
+	forwarder.onStreamCall = func(index int, _ http.ResponseWriter) {
+		switch index {
+		case 0:
+			provider.Publish(secondTable)
+		case 1:
+			provider.Publish(thirdTable)
+		}
+	}
+
+	sink := &recordingRequestLogSink{}
+	engine, handler, _, _ := newRequestLogHandlerTestRuntime(
+		t,
+		forwarder,
+		&recordingAccessKeyRPMLimiter{},
+		sink,
+		"sk-first",
+		"sk-second",
+		"sk-third",
+	)
+	handler.newRandom = func() *rand.Rand { return rand.New(zeroSource{}) }
+	handler.priceTables = provider
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/v1/chat/completions",
+		strings.NewReader(`{"model":"gpt-4o","stream":true}`),
+	)
+	request.Header.Set("Authorization", "Bearer gl-client")
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, request)
+
+	events := sink.snapshot()
+	if response.Code != http.StatusBadGateway || len(events) != 1 ||
+		len(events[0].Attempts) != 3 {
+		t.Fatalf("response/events = %d/%#v", response.Code, events)
+	}
+	event := events[0]
+	if event.Usage.GroupID != 1 || event.Usage.KeyID != 1 ||
+		event.Usage.AttemptSequence != 1 || event.Usage.Pricing != (telemetry.PricingObservation{
+		PriceScopeKey:        "group:1",
+		UpstreamModel:        "gpt-4o",
+		CostState:            string(pricing.CostStatePriced),
+		PricingCompleteness:  string(pricing.CompletenessComplete),
+		EstimatedCostNanoUSD: 2_000_000_000,
+	}) {
+		t.Fatalf("selected usage/pricing = %#v, want first provider-error attempt", event.Usage)
+	}
+	if !event.Attempts[0].WillRetry || !event.Attempts[1].WillRetry ||
+		event.Attempts[2].WillRetry || provider.LoadCount() != 3 {
+		t.Fatalf("attempt retry flags/provider loads = %#v/%d", event.Attempts, provider.LoadCount())
+	}
+}
+
 func TestHandlerRememberedLastResponseKeepsOriginalUsageAttempt(t *testing.T) {
 	sink := &recordingRequestLogSink{}
 	forwarder := &scriptedForwarder{results: []UpstreamResult{
@@ -459,7 +770,13 @@ func TestHandlerTransportAndNoCandidateUsageRemainUnattributed(t *testing.T) {
 			request.Header.Set("Authorization", "Bearer gl-client")
 			engine.ServeHTTP(httptest.NewRecorder(), request)
 			events := sink.snapshot()
-			if len(events) != 1 || events[0].Usage != (telemetry.UsageObservation{Result: usage.Result{State: usage.StateNotApplicable}}) {
+			if len(events) != 1 || events[0].Usage != (telemetry.UsageObservation{
+				Result: usage.Result{State: usage.StateNotApplicable},
+				Pricing: telemetry.PricingObservation{
+					CostState:           "not_applicable",
+					PricingCompleteness: "not_applicable",
+				},
+			}) {
 				t.Fatalf("events = %#v", events)
 			}
 		})
@@ -824,6 +1141,7 @@ func TestHandlerUsesFrozenRPMLimitAcrossSnapshotPublish(t *testing.T) {
 		health.NewMutationCoordinator(),
 		limiter,
 		telemetry.NoopRequestLogSink{},
+		nil,
 	)
 	handler.newRequestID = func() (string, error) { return fixedRequestID, nil }
 	engine := gin.New()

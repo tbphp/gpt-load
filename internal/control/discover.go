@@ -6,19 +6,21 @@ import (
 
 	"gpt-load/internal/platform/config"
 	app_errors "gpt-load/internal/platform/errors"
+	"gpt-load/internal/pricing"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/state"
 	stateloader "gpt-load/internal/state/loader"
 )
 
 type ModelDiscoveryRequest struct {
+	ProviderID  *string             `json:"provider_id,omitempty"`
 	UpstreamURL string              `json:"upstream_url"`
 	Protocols   []protocol.Protocol `json:"protocols"`
 	Keys        string              `json:"keys"`
 }
 
 type ModelDiscoveryResult struct {
-	Models []string `json:"models"`
+	Models []ModelCandidate `json:"models"`
 }
 
 func (s *Service) DiscoverModels(
@@ -36,6 +38,10 @@ func (s *Service) DiscoverModels(
 	protocols, err := normalizeGroupProtocols(request.Protocols)
 	if err != nil {
 		return ModelDiscoveryResult{}, err
+	}
+	providerID, err := normalizeProviderID(request.ProviderID)
+	if err != nil {
+		return ModelDiscoveryResult{}, app_errors.ErrValidation
 	}
 	keys, err := s.normalizeUpstreamKeys(request.Keys)
 	if err != nil {
@@ -67,10 +73,16 @@ func (s *Service) DiscoverModels(
 	for _, candidate := range keys.candidates {
 		plaintextKeys = append(plaintextKeys, candidate.plaintext)
 	}
+	priceScopeKey := ""
+	if providerID != nil {
+		priceScopeKey, _ = pricing.ProviderScopeKey(*providerID)
+	}
 	return s.executeModelDiscovery(ctx, discoveryTarget{
-		baseURL:     baseURL,
-		protocols:   protocols,
-		keys:        plaintextKeys,
-		headerRules: group.HeaderRules,
+		baseURL:       baseURL,
+		protocols:     protocols,
+		keys:          plaintextKeys,
+		headerRules:   group.HeaderRules,
+		providerID:    providerID,
+		priceScopeKey: priceScopeKey,
 	})
 }

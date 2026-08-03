@@ -7,6 +7,7 @@ import (
 	"gorm.io/gorm"
 
 	app_errors "gpt-load/internal/platform/errors"
+	"gpt-load/internal/pricing"
 	"gpt-load/internal/storage/models"
 )
 
@@ -63,10 +64,18 @@ func (s *Service) DeleteGroup(ctx context.Context, groupID uint) error {
 		return app_errors.ErrBadRequest
 	}
 	var deletedKeyIDs []uint
-	_, err := s.writeConfig(ctx, func(tx *gorm.DB) error {
+	providerReferencesChanged := false
+	_, err := s.writeGroupConfig(ctx, func(tx *gorm.DB) error {
 		var group models.Group
-		if err := tx.Select("id").Where("id = ?", groupID).Take(&group).Error; err != nil {
+		if err := tx.Where("id = ?", groupID).Take(&group).Error; err != nil {
 			return app_errors.ParseDBError(err)
+		}
+		if group.ProviderID != nil {
+			var groupModels []GroupModel
+			if err := decodeGroupDiscoveryJSON(group.Models, &groupModels); err != nil {
+				return fmt.Errorf("decode group %d models: %w", groupID, app_errors.ErrInternalServer)
+			}
+			providerReferencesChanged = len(groupModels) > 0
 		}
 		references, err := explicitGroupReferences(tx, groupID)
 		if err != nil {
@@ -87,6 +96,14 @@ func (s *Service) DeleteGroup(ctx context.Context, groupID uint) error {
 		if err := tx.Delete(&group).Error; err != nil {
 			return app_errors.ParseDBError(err)
 		}
+		scopeKey, scopeErr := pricing.GroupScopeKey(group.ID)
+		if scopeErr != nil {
+			return fmt.Errorf("validate deleted Group price scope: %w", app_errors.ErrInternalServer)
+		}
+		if err := tx.Where("price_scope_key = ?", scopeKey).
+			Delete(&models.ModelPrice{}).Error; err != nil {
+			return app_errors.ParseDBError(err)
+		}
 		return nil
 	}, func() error {
 		s.registry.RemoveGroup(groupID)
@@ -97,5 +114,11 @@ func (s *Service) DeleteGroup(ctx context.Context, groupID uint) error {
 		}
 		return nil
 	})
-	return withControlOperationContext(err, groupID, 0)
+	if err != nil {
+		return withControlOperationContext(err, groupID, 0)
+	}
+	if providerReferencesChanged && s.catalogSync != nil {
+		s.catalogSync.RequestGroupSync()
+	}
+	return nil
 }

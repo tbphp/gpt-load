@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"gpt-load/internal/platform/epochms"
@@ -23,11 +24,13 @@ const (
 func mapEvent(
 	redactor *redact.Redactor,
 	event telemetry.RequestEvent,
-	prices *pricing.Table,
 ) (models.RequestLog, error) {
 	completedAtMS, err := epochms.FromTime(event.CompletedAt)
 	if err != nil {
 		return models.RequestLog{}, fmt.Errorf("map request event completion time: %w", err)
+	}
+	if err := validateFrozenObservation(event); err != nil {
+		return models.RequestLog{}, fmt.Errorf("map request event usage/pricing: %w", err)
 	}
 
 	attempts := make([]Attempt, 0, len(event.Attempts))
@@ -54,37 +57,197 @@ func mapEvent(
 	}
 
 	result := event.Usage.Result
-	quote := pricing.Quote{State: pricing.CostStateUnpriced}
-	if prices != nil {
-		quote = prices.Quote(event.UpstreamModel, result)
-	} else if result.State == usage.StateNotApplicable {
-		quote.State = pricing.CostStateNotApplicable
-	}
+	pricingObservation := event.Usage.Pricing
 
 	return models.RequestLog{
-		ID:                   event.RequestID,
-		CompletedAtMS:        completedAtMS,
-		AccessKeyID:          event.AccessKeyID,
-		GroupID:              event.Usage.GroupID,
-		Protocol:             string(event.Protocol),
-		ClientModel:          redactIdentityValue(redactor, projectModel(event.ClientModel)),
-		UpstreamModel:        redactIdentityValue(redactor, projectModel(event.UpstreamModel)),
-		Status:               string(event.Status),
-		StatusCode:           event.StatusCode,
-		DurationMs:           event.DurationMs,
-		ErrorCode:            event.ErrorCode,
-		ErrorSummary:         sanitizeSummary(redactor, event.ErrorSummary),
-		AffinityHit:          false,
-		UncachedInputTokens:  result.Tokens.UncachedInput,
-		OutputTokens:         result.Tokens.Output,
-		CacheReadTokens:      result.Tokens.CacheRead,
-		CacheWrite5MTokens:   result.Tokens.CacheWrite5M,
-		CacheWrite1HTokens:   result.Tokens.CacheWrite1H,
-		EstimatedCostNanoUSD: int64(quote.EstimatedCostNanoUSD),
-		UsageState:           string(result.State),
-		CostState:            string(quote.State),
-		Attempts:             models.JSON(encodedAttempts),
+		ID:                      event.RequestID,
+		CompletedAtMS:           completedAtMS,
+		AccessKeyID:             event.AccessKeyID,
+		GroupID:                 event.Usage.GroupID,
+		Protocol:                string(event.Protocol),
+		ClientModel:             redactIdentityValue(redactor, projectModel(event.ClientModel)),
+		UpstreamModel:           redactIdentityValue(redactor, projectModel(event.UpstreamModel)),
+		Status:                  string(event.Status),
+		StatusCode:              event.StatusCode,
+		DurationMs:              event.DurationMs,
+		ErrorCode:               event.ErrorCode,
+		ErrorSummary:            sanitizeSummary(redactor, event.ErrorSummary),
+		AffinityHit:             false,
+		UncachedInputTokens:     result.Tokens.UncachedInput,
+		OutputTokens:            result.Tokens.Output,
+		CacheReadTokens:         result.Tokens.CacheRead,
+		CacheWrite5MTokens:      result.Tokens.CacheWrite5M,
+		CacheWrite1HTokens:      result.Tokens.CacheWrite1H,
+		CacheWriteUnknownTokens: result.Tokens.CacheWriteUnknown,
+		EstimatedCostNanoUSD:    pricingObservation.EstimatedCostNanoUSD,
+		UsageState:              string(result.State),
+		CostState:               pricingObservation.CostState,
+		PricingCompleteness:     pricingObservation.PricingCompleteness,
+		Attempts:                models.JSON(encodedAttempts),
 	}, nil
+}
+
+func validateFrozenObservation(event telemetry.RequestEvent) error {
+	result := event.Usage.Result
+	for _, value := range [...]int64{
+		result.Tokens.UncachedInput,
+		result.Tokens.CacheRead,
+		result.Tokens.CacheWrite5M,
+		result.Tokens.CacheWrite1H,
+		result.Tokens.CacheWriteUnknown,
+		result.Tokens.Output,
+	} {
+		if value < 0 {
+			return fmt.Errorf("negative usage token value")
+		}
+	}
+	if _, ok := usage.CheckedTotal(result.Tokens); !ok {
+		return fmt.Errorf("usage token total overflows int64")
+	}
+
+	pricingObservation := event.Usage.Pricing
+	costState := pricing.CostState(pricingObservation.CostState)
+	completeness := pricing.Completeness(pricingObservation.PricingCompleteness)
+	if err := validateFrozenPricingState(
+		result.State,
+		costState,
+		completeness,
+		pricingObservation.EstimatedCostNanoUSD,
+	); err != nil {
+		return err
+	}
+	if pricingObservation.PriceScopeKey != "" &&
+		!validFrozenScopeKey(pricingObservation.PriceScopeKey) {
+		return fmt.Errorf("invalid price scope key")
+	}
+	if pricingObservation.UpstreamModel != "" &&
+		!validRawModel(pricingObservation.UpstreamModel) {
+		return fmt.Errorf("invalid pricing upstream model")
+	}
+	if costState == pricing.CostStatePriced &&
+		(pricingObservation.PriceScopeKey == "" || pricingObservation.UpstreamModel == "") {
+		return fmt.Errorf("priced observation requires exact identity")
+	}
+
+	usageBound := event.Usage.GroupID != 0 || event.Usage.KeyID != 0 ||
+		event.Usage.AttemptSequence != 0
+	if !usageBound {
+		if result.State != usage.StateNotApplicable {
+			return fmt.Errorf("billable usage requires attempt attribution")
+		}
+		if pricingObservation.PriceScopeKey != "" || pricingObservation.UpstreamModel != "" {
+			return fmt.Errorf("unbound no-model usage must not carry pricing identity")
+		}
+		return nil
+	}
+	if event.Usage.GroupID == 0 || event.Usage.KeyID == 0 || event.Usage.AttemptSequence < 1 {
+		return fmt.Errorf("partial usage attribution")
+	}
+	if groupText, ok := strings.CutPrefix(pricingObservation.PriceScopeKey, "group:"); ok {
+		var pricedGroupID uint64
+		if _, err := fmt.Sscan(groupText, &pricedGroupID); err != nil ||
+			pricedGroupID != uint64(event.Usage.GroupID) {
+			return fmt.Errorf("group price scope does not match usage attribution")
+		}
+	}
+
+	matchingAttempts := 0
+	boundModel := ""
+	for _, attempt := range event.Attempts {
+		if attempt.Sequence == event.Usage.AttemptSequence &&
+			attempt.GroupID == event.Usage.GroupID &&
+			attempt.KeyID == event.Usage.KeyID {
+			matchingAttempts++
+			boundModel = attempt.UpstreamModel
+		}
+	}
+	if matchingAttempts != 1 {
+		return fmt.Errorf("usage attribution must match exactly one attempt")
+	}
+	if !validRawModelOrEmpty(boundModel) || !validRawModelOrEmpty(event.UpstreamModel) {
+		return fmt.Errorf("invalid selected upstream model")
+	}
+	if event.UpstreamModel != boundModel ||
+		pricingObservation.UpstreamModel != boundModel {
+		return fmt.Errorf("inconsistent bound upstream model")
+	}
+	return nil
+}
+
+func validateFrozenPricingState(
+	usageState usage.State,
+	costState pricing.CostState,
+	completeness pricing.Completeness,
+	estimatedCostNanoUSD int64,
+) error {
+	if estimatedCostNanoUSD < 0 {
+		return fmt.Errorf("invalid estimated cost")
+	}
+	switch usageState {
+	case usage.StateNotApplicable:
+		if costState != pricing.CostStateNotApplicable ||
+			completeness != pricing.CompletenessNotApplicable ||
+			estimatedCostNanoUSD != 0 {
+			return fmt.Errorf("invalid not-applicable pricing observation")
+		}
+	case usage.StateMissing:
+		if costState != pricing.CostStateUnpriced ||
+			completeness != pricing.CompletenessUnavailable ||
+			estimatedCostNanoUSD != 0 {
+			return fmt.Errorf("invalid missing-usage pricing observation")
+		}
+	case usage.StateComplete, usage.StatePartial:
+		switch costState {
+		case pricing.CostStateUnpriced:
+			if completeness != pricing.CompletenessUnavailable || estimatedCostNanoUSD != 0 {
+				return fmt.Errorf("invalid unpriced pricing observation")
+			}
+		case pricing.CostStatePriced:
+			if completeness != pricing.CompletenessComplete &&
+				completeness != pricing.CompletenessPartial {
+				return fmt.Errorf("invalid priced completeness")
+			}
+		default:
+			return fmt.Errorf("invalid billable cost state")
+		}
+	default:
+		return fmt.Errorf("invalid usage state")
+	}
+	return nil
+}
+
+func validFrozenScopeKey(scopeKey string) bool {
+	if providerID, ok := strings.CutPrefix(scopeKey, "provider:"); ok {
+		canonical, err := pricing.ProviderScopeKey(providerID)
+		return err == nil && canonical == scopeKey
+	}
+	if groupText, ok := strings.CutPrefix(scopeKey, "group:"); ok {
+		var groupID uint64
+		if _, err := fmt.Sscan(groupText, &groupID); err != nil || groupID == 0 {
+			return false
+		}
+		canonical, err := pricing.GroupScopeKey(uint(groupID))
+		return err == nil && canonical == scopeKey
+	}
+	return false
+}
+
+func validRawModelOrEmpty(model string) bool {
+	return model == "" || validRawModel(model)
+}
+
+func validRawModel(model string) bool {
+	if len(model) > maxModelBytes || !utf8.ValidString(model) ||
+		strings.ToValidUTF8(model, "\uFFFD") != model ||
+		strings.TrimSpace(model) != model {
+		return false
+	}
+	for _, value := range model {
+		if unicode.IsControl(value) {
+			return false
+		}
+	}
+	return true
 }
 
 func redactIdentityValue(redactor *redact.Redactor, value string) string {

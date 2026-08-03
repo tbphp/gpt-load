@@ -29,6 +29,7 @@ func TestOperationRequiredStagesAreKindSpecificAndDetached(t *testing.T) {
 			kind: operationKindGroupCreate,
 			want: []operationStage{
 				operationStageDBCommitted,
+				operationStagePricesPublished,
 				operationStageRegistryApplied,
 				operationStageSnapshotPublished,
 				operationStageCompleted,

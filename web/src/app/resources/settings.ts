@@ -23,12 +23,16 @@ export const runtimeSettingKeys = [
   'header_rules',
   'inject_usage_options',
   'request_log_retention_days',
+  'models_dev_auto_sync_enabled',
 ] as const
 
 export type RuntimeSettingKey = (typeof runtimeSettingKeys)[number]
 export type TimeoutSettingKey = Exclude<
   RuntimeSettingKey,
-  'header_rules' | 'inject_usage_options' | 'request_log_retention_days'
+  | 'header_rules'
+  | 'inject_usage_options'
+  | 'request_log_retention_days'
+  | 'models_dev_auto_sync_enabled'
 >
 
 export interface SettingsValues {
@@ -39,11 +43,13 @@ export interface SettingsValues {
   header_rules: HeaderRulesDto
   inject_usage_options: boolean
   request_log_retention_days: number
+  models_dev_auto_sync_enabled: boolean
 }
 
 export interface SettingsDto {
   values: SettingsValues
   overrides: RuntimeSettingKey[]
+  read_only: RuntimeSettingKey[]
 }
 
 export type SettingsPatch = Partial<{
@@ -54,6 +60,7 @@ export type SettingsPatch = Partial<{
   header_rules: HeaderRulesDto | null
   inject_usage_options: boolean | null
   request_log_retention_days: number | null
+  models_dev_auto_sync_enabled: boolean | null
 }>
 
 export interface SettingsResource {
@@ -63,7 +70,7 @@ export interface SettingsResource {
 
 const strongSettingsETag = /^"(?<token>sha256-[0-9a-f]{64})"$/
 const strongSettingsETagToken = /^sha256-[0-9a-f]{64}$/
-const settingsFields = ['values', 'overrides'] as const
+const settingsFields = ['values', 'overrides', 'read_only'] as const
 const settingsValueFields = [...runtimeSettingKeys] as const
 
 function invalidResponse(): never {
@@ -100,6 +107,15 @@ export function projectSettings(value: unknown): SettingsDto {
     return projected as RuntimeSettingKey
   })
   if (new Set(overrides).size !== overrides.length) invalidResponse()
+  const readOnly =
+    record.read_only === undefined
+      ? []
+      : projectArray(record.read_only, (key) => {
+          const projected = projectString(key)
+          if (!runtimeSettingKeys.includes(projected as RuntimeSettingKey)) invalidResponse()
+          return projected as RuntimeSettingKey
+        })
+  if (new Set(readOnly).size !== readOnly.length) invalidResponse()
 
   return {
     values: {
@@ -113,8 +129,10 @@ export function projectSettings(value: unknown): SettingsDto {
         minimum: 1,
         maximum: 365,
       }),
+      models_dev_auto_sync_enabled: projectBoolean(values.models_dev_auto_sync_enabled),
     },
     overrides,
+    read_only: readOnly,
   }
 }
 

@@ -34,6 +34,7 @@ type GroupCollectionKeyCounts struct {
 type GroupCollectionItem struct {
 	ID          uint                     `json:"id"`
 	Name        string                   `json:"name"`
+	ProviderID  *string                  `json:"provider_id"`
 	Status      GroupCollectionStatus    `json:"status"`
 	UpstreamURL string                   `json:"upstream_url"`
 	Protocols   []protocol.Protocol      `json:"protocols"`
@@ -61,6 +62,10 @@ func cloneGroupRows(rows []models.Group) []models.Group {
 		if rows[index].WeightManual != nil {
 			value := *rows[index].WeightManual
 			cloned[index].WeightManual = &value
+		}
+		if rows[index].ProviderID != nil {
+			value := *rows[index].ProviderID
+			cloned[index].ProviderID = &value
 		}
 		if rows[index].ValidationModel != nil {
 			value := *rows[index].ValidationModel
@@ -282,6 +287,7 @@ func mapGroupCollectionRecords(
 		record := groupCollectionRecord{
 			GroupCollectionItem: GroupCollectionItem{
 				ID: group.ID, Name: group.Name, UpstreamURL: group.UpstreamURL,
+				ProviderID: cloneString(group.ProviderID),
 				Protocols:  append([]protocol.Protocol(nil), protocols...),
 				ModelCount: int64(len(groupModels)),
 			},

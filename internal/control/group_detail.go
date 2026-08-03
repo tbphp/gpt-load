@@ -27,6 +27,7 @@ type GroupEffectiveConfigResponse struct {
 type GroupSummaryResponse struct {
 	ID            uint                  `json:"id"`
 	Name          string                `json:"name"`
+	ProviderID    *string               `json:"provider_id"`
 	ServiceStatus GroupCollectionStatus `json:"service_status"`
 	UpstreamURL   string                `json:"upstream_url"`
 	Protocols     []protocol.Protocol   `json:"protocols"`
@@ -49,6 +50,7 @@ func (s *Service) GetGroupSummary(ctx context.Context, groupID uint) (GroupSumma
 		return GroupSummaryResponse{
 			ID:            record.ID,
 			Name:          record.Name,
+			ProviderID:    cloneString(record.ProviderID),
 			ServiceStatus: record.Status,
 			UpstreamURL:   record.UpstreamURL,
 			Protocols:     append([]protocol.Protocol(nil), record.Protocols...),

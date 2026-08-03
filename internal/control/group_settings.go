@@ -22,6 +22,7 @@ var errGroupSettingsUpstreamChangeConfirmationRequired = &app_errors.APIError{
 
 type GroupSettingsResponse struct {
 	Name            string                       `json:"name"`
+	ProviderID      *string                      `json:"provider_id"`
 	UpstreamURL     string                       `json:"upstream_url"`
 	Protocols       []protocol.Protocol          `json:"protocols"`
 	ValidationModel *string                      `json:"validation_model"`
@@ -33,6 +34,7 @@ type GroupSettingsResponse struct {
 
 type GroupSettingsUpdateRequest struct {
 	Name                  optionalField[string]              `json:"name"`
+	ProviderID            optionalField[string]              `json:"provider_id"`
 	UpstreamURL           optionalField[string]              `json:"upstream_url"`
 	Protocols             optionalField[[]protocol.Protocol] `json:"protocols"`
 	ValidationModel       optionalField[string]              `json:"validation_model"`
@@ -44,6 +46,8 @@ type GroupSettingsUpdateRequest struct {
 
 type normalizedGroupSettingsUpdate struct {
 	name                  *string
+	providerID            *string
+	providerIDSet         bool
 	upstreamURL           *string
 	protocols             []protocol.Protocol
 	protocolsSet          bool
@@ -107,6 +111,7 @@ func groupSettingsResponse(
 	}
 	return GroupSettingsResponse{
 		Name:            group.Name,
+		ProviderID:      cloneString(group.ProviderID),
 		UpstreamURL:     group.UpstreamURL,
 		Protocols:       protocols,
 		ValidationModel: cloneString(group.ValidationModel),
@@ -139,7 +144,7 @@ func normalizeGroupSettingsUpdate(
 			return normalizedGroupSettingsUpdate{}, app_errors.ErrValidation
 		}
 	}
-	if !request.Name.Set && !request.UpstreamURL.Set && !request.Protocols.Set &&
+	if !request.Name.Set && !request.ProviderID.Set && !request.UpstreamURL.Set && !request.Protocols.Set &&
 		!request.ValidationModel.Set && !request.Enabled.Set && !request.WeightManual.Set &&
 		!request.Overrides.Set {
 		return normalizedGroupSettingsUpdate{}, app_errors.ErrBadRequest
@@ -152,6 +157,16 @@ func normalizeGroupSettingsUpdate(
 			return normalizedGroupSettingsUpdate{}, err
 		}
 		result.name = value
+	}
+	if request.ProviderID.Set {
+		result.providerIDSet = true
+		if !request.ProviderID.Null {
+			value, err := normalizeProviderID(&request.ProviderID.Value)
+			if err != nil {
+				return normalizedGroupSettingsUpdate{}, app_errors.ErrValidation
+			}
+			result.providerID = value
+		}
 	}
 	if request.UpstreamURL.Set {
 		value, _, err := normalizeUpstreamBaseURL(request.UpstreamURL.Value)
@@ -218,7 +233,8 @@ func (s *Service) UpdateGroupSettings(
 	}
 
 	var committed models.Group
-	snapshot, err := s.writeConfig(ctx, func(tx *gorm.DB) error {
+	providerReferencesChanged := false
+	snapshot, err := s.writeGroupConfig(ctx, func(tx *gorm.DB) error {
 		group, err := loadGroupRow(tx, groupID)
 		if err != nil {
 			return err
@@ -227,10 +243,21 @@ func (s *Service) UpdateGroupSettings(
 			return fmt.Errorf("validate existing group %d: %w", groupID, app_errors.ErrInternalServer)
 		}
 
-		updates := make(map[string]any, 7)
+		updates := make(map[string]any, 8)
 		if normalized.name != nil {
 			group.Name = *normalized.name
 			updates["name"] = group.Name
+		}
+		if normalized.providerIDSet {
+			if !optionalStringsEqual(group.ProviderID, normalized.providerID) {
+				var groupModels []GroupModel
+				if err := decodeGroupDiscoveryJSON(group.Models, &groupModels); err != nil {
+					return fmt.Errorf("decode group %d models: %w", groupID, app_errors.ErrInternalServer)
+				}
+				providerReferencesChanged = len(groupModels) > 0
+			}
+			group.ProviderID = cloneString(normalized.providerID)
+			updates["provider_id"] = cloneString(normalized.providerID)
 		}
 		if normalized.upstreamURL != nil {
 			currentURL, _, normalizeErr := normalizeUpstreamBaseURL(group.UpstreamURL)
@@ -294,11 +321,21 @@ func (s *Service) UpdateGroupSettings(
 	if err != nil {
 		return GroupSettingsResponse{}, withControlOperationContext(err, groupID, 0)
 	}
+	if providerReferencesChanged && s.catalogSync != nil {
+		s.catalogSync.RequestGroupSync()
+	}
 	result, err := groupSettingsResponse(committed, snapshot.Settings)
 	if err != nil {
 		return GroupSettingsResponse{}, err
 	}
 	return result, nil
+}
+
+func optionalStringsEqual(left, right *string) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return *left == *right
 }
 
 func validateGroupInjectUsageOptionsConstraint(group models.Group) error {

@@ -14,6 +14,7 @@ import (
 
 	"gpt-load/internal/health"
 	"gpt-load/internal/platform/redact"
+	"gpt-load/internal/pricing"
 	"gpt-load/internal/protocol"
 	"gpt-load/internal/scheduler"
 	"gpt-load/internal/state"
@@ -34,6 +35,14 @@ type requestOutcome struct {
 	upstreamModel string
 }
 
+type frozenAttemptPricing struct {
+	groupID       uint
+	scopeKey      string
+	upstreamModel string
+	table         *pricing.Table
+	applicable    bool
+}
+
 type requestRecorder struct {
 	sink            telemetry.RequestLogSink
 	requestID       string
@@ -43,6 +52,9 @@ type requestRecorder struct {
 	clientModel     string
 	usageApplicable bool
 	attempts        []telemetry.Attempt
+	attemptPricing  []frozenAttemptPricing
+	pendingPricing  frozenAttemptPricing
+	pricingPending  bool
 	outcome         requestOutcome
 	usage           telemetry.UsageObservation
 	now             func() time.Time
@@ -50,6 +62,14 @@ type requestRecorder struct {
 	emitted         bool
 
 	pendingRetry int
+}
+
+func (recorder *requestRecorder) freezeNextAttemptPricing(frozen frozenAttemptPricing) {
+	if recorder == nil {
+		return
+	}
+	recorder.pendingPricing = frozen
+	recorder.pricingPending = true
 }
 
 func newRequestRecorder(
@@ -66,7 +86,13 @@ func newRequestRecorder(
 		pendingRetry:    -1,
 		redactor:        redact.New(),
 		usageApplicable: true,
-		usage:           telemetry.UsageObservation{Result: usage.Result{State: usage.StateNotApplicable}},
+		usage: telemetry.UsageObservation{
+			Result: usage.Result{State: usage.StateNotApplicable},
+			Pricing: telemetry.PricingObservation{
+				CostState:           string(pricing.CostStateNotApplicable),
+				PricingCompleteness: string(pricing.CompletenessNotApplicable),
+			},
+		},
 	}
 }
 
@@ -223,6 +249,13 @@ func (recorder *requestRecorder) appendAttempt(
 		attempt.ErrorSummary = fixedErrorSummary(attempt.ErrorCode)
 	}
 	recorder.attempts = append(recorder.attempts, attempt)
+	frozen := frozenAttemptPricing{}
+	if recorder.pricingPending {
+		frozen = recorder.pendingPricing
+	}
+	recorder.attemptPricing = append(recorder.attemptPricing, frozen)
+	recorder.pendingPricing = frozenAttemptPricing{}
+	recorder.pricingPending = false
 	return len(recorder.attempts) - 1
 }
 
@@ -349,12 +382,49 @@ func (recorder *requestRecorder) bindUsage(
 	} else if !validCapturedUsage(result) {
 		result = usage.Result{State: usage.StateMissing}
 	}
+	frozen := frozenAttemptPricing{}
+	if attemptIndex < len(recorder.attemptPricing) {
+		frozen = recorder.attemptPricing[attemptIndex]
+	}
+	pricingObservation := quoteFrozenAttempt(frozen, result)
 	recorder.usage = telemetry.UsageObservation{
 		Result:          result,
 		GroupID:         attempt.GroupID,
 		KeyID:           attempt.KeyID,
 		AttemptSequence: attempt.Sequence,
+		Pricing:         pricingObservation,
 	}
+}
+
+func quoteFrozenAttempt(
+	frozen frozenAttemptPricing,
+	result usage.Result,
+) telemetry.PricingObservation {
+	observation := telemetry.PricingObservation{
+		PriceScopeKey:       frozen.scopeKey,
+		UpstreamModel:       frozen.upstreamModel,
+		CostState:           string(pricing.CostStateUnpriced),
+		PricingCompleteness: string(pricing.CompletenessUnavailable),
+	}
+	if frozen.upstreamModel == "" {
+		observation.PriceScopeKey = ""
+	}
+	if result.State == usage.StateNotApplicable || !frozen.applicable {
+		observation.CostState = string(pricing.CostStateNotApplicable)
+		observation.PricingCompleteness = string(pricing.CompletenessNotApplicable)
+		return observation
+	}
+	if frozen.table == nil || frozen.scopeKey == "" || frozen.upstreamModel == "" {
+		return observation
+	}
+	quote := frozen.table.Quote(pricing.Identity{
+		ScopeKey: frozen.scopeKey,
+		ModelID:  frozen.upstreamModel,
+	}, result)
+	observation.CostState = string(quote.State)
+	observation.PricingCompleteness = string(quote.Completeness)
+	observation.EstimatedCostNanoUSD = int64(quote.EstimatedCostNanoUSD)
+	return observation
 }
 
 func (recorder *requestRecorder) completeTransport(value reason, upstreamModel string) {

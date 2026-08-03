@@ -1,10 +1,15 @@
+import type { ModelPricingStatus } from '@/api/control/types'
 import type { GroupModelUpdateDto } from '@/app/resources/groups'
+import type { ModelCandidate, ModelCandidateSource } from '@/app/resources/providers'
 
 export type ModelDraftKey = string | number
 
 export interface ModelDraftValue extends GroupModelUpdateDto {
   key: ModelDraftKey
   editable_id?: boolean
+  name: string
+  sources: ModelCandidateSource[]
+  pricing_status: ModelPricingStatus
 }
 
 export interface ModelNameConflict {
@@ -56,6 +61,41 @@ export interface ModelDiscoveryDrawerLabels {
   retry: string
   cancel: string
   confirm: string
+  pricingStatus: Record<ModelPricingStatus, string>
+  sources: Record<ModelCandidateSource, string>
+}
+
+export function mergeCandidateMetadata<T extends ModelDraftValue>(
+  draft: readonly T[],
+  candidates: readonly ModelCandidate[],
+): T[] {
+  const byID = new Map(candidates.map((candidate) => [candidate.id, candidate] as const))
+  return draft.map((item) => {
+    const candidate = byID.get(item.id.trim())
+    return candidate
+      ? ({
+          ...item,
+          name: candidate.name,
+          sources: [...candidate.sources],
+          pricing_status: candidate.pricing_status,
+        } as T)
+      : ({ ...item, sources: [...item.sources] } as T)
+  })
+}
+
+export function appendSelectedCandidates<T extends ModelDraftValue>(
+  draft: readonly T[],
+  selected: readonly ModelCandidate[],
+  create: (candidate: ModelCandidate) => T,
+): T[] {
+  const result = mergeCandidateMetadata(draft, selected)
+  const present = new Set(result.map(({ id }) => id.trim()).filter(Boolean))
+  for (const candidate of selected) {
+    if (present.has(candidate.id)) continue
+    present.add(candidate.id)
+    result.push(create(candidate))
+  }
+  return result
 }
 
 export function readModelNameConflicts(value: unknown): ModelNameConflict[] {

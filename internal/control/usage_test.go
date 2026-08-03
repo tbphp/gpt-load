@@ -110,7 +110,7 @@ func TestUsageAPIDefaultsToFixedUTCAligned24HoursAndReturnsZeroArrays(t *testing
 	if query.Granularity != requestlog.UsageGranularityHour ||
 		query.FromMS != time.Date(2026, time.July, 26, 5, 0, 0, 0, time.UTC).UnixMilli() ||
 		query.ToMS != time.Date(2026, time.July, 27, 5, 0, 0, 0, time.UTC).UnixMilli() ||
-		query.GroupID != nil || query.Model != "" || query.Limit != 100 ||
+		query.GroupID != nil || query.UpstreamModel != "" || query.Limit != 100 ||
 		query.BreakdownOrder != requestlog.UsageBreakdownOrderRequests {
 		t.Fatalf("default UsageQuery = %#v", query)
 	}
@@ -172,19 +172,24 @@ func TestUsageAPIDefaultsToFixedUTCAligned24HoursAndReturnsZeroArrays(t *testing
 func TestUsageAPISelectsThirtyUTCDaysAndAppliesFilters(t *testing.T) {
 	now := time.Date(2026, time.July, 27, 12, 0, 0, 0, time.UTC)
 	reader := &recordingUsageStatReader{report: requestlog.UsageReport{
-		Summary: requestlog.UsageAggregate{RequestCount: 1, UncachedInputTokens: 2, OutputTokens: 3},
+		Summary: requestlog.UsageAggregate{
+			RequestCount: 1, UncachedInputTokens: 2, CacheWriteUnknownTokens: 4,
+			OutputTokens: 3, PricingPartialCount: 1,
+		},
 		Series: []requestlog.UsageSeriesPoint{{
 			BucketStartMS: time.Date(2026, time.June, 28, 0, 0, 0, 0, time.UTC).UnixMilli(),
 			BucketEndMS:   time.Date(2026, time.June, 29, 0, 0, 0, 0, time.UTC).UnixMilli(),
 			UsageAggregate: requestlog.UsageAggregate{
-				RequestCount: 1, UncachedInputTokens: 2, OutputTokens: 3,
+				RequestCount: 1, UncachedInputTokens: 2, CacheWriteUnknownTokens: 4,
+				OutputTokens: 3, PricingPartialCount: 1,
 				EstimatedCostNanoUSD: 1_123_456_789_012,
 			},
 		}},
 		Breakdown: []requestlog.UsageBreakdown{{
 			GroupID: 9, Model: "upstream-model",
 			UsageAggregate: requestlog.UsageAggregate{
-				RequestCount: 1, UncachedInputTokens: 2, OutputTokens: 3,
+				RequestCount: 1, UncachedInputTokens: 2, CacheWriteUnknownTokens: 4,
+				OutputTokens: 3, PricingPartialCount: 1,
 				EstimatedCostNanoUSD: 250_000_000,
 			},
 		}},
@@ -195,7 +200,7 @@ func TestUsageAPISelectsThirtyUTCDaysAndAppliesFilters(t *testing.T) {
 	recorder := performUsageRequest(
 		engine,
 		"test-auth-key",
-		"range=30d&group_id=9&model=upstream-model&breakdown_order=cost",
+		"range=30d&group_id=9&upstream_model=upstream-model&breakdown_order=cost",
 	)
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("response = %d %s", recorder.Code, recorder.Body.String())
@@ -208,7 +213,7 @@ func TestUsageAPISelectsThirtyUTCDaysAndAppliesFilters(t *testing.T) {
 		query.FromMS != time.Date(2026, time.June, 28, 0, 0, 0, 0, time.UTC).UnixMilli() ||
 		query.ToMS != time.Date(2026, time.July, 28, 0, 0, 0, 0, time.UTC).UnixMilli() ||
 		query.GroupID == nil || *query.GroupID != 9 ||
-		query.Model != "upstream-model" || query.Limit != 100 ||
+		query.UpstreamModel != "upstream-model" || query.Limit != 100 ||
 		query.BreakdownOrder != requestlog.UsageBreakdownOrderCost {
 		t.Fatalf("30 day UsageQuery = %#v", query)
 	}
@@ -221,18 +226,24 @@ func TestUsageAPISelectsThirtyUTCDaysAndAppliesFilters(t *testing.T) {
 			Order       requestlog.UsageBreakdownOrder `json:"breakdown_order"`
 			GroupCount  int64                          `json:"breakdown_group_count"`
 			Summary     struct {
-				TotalTokens          int64  `json:"total_tokens"`
-				EstimatedCostNanoUSD string `json:"estimated_cost_nano_usd"`
+				TotalTokens             int64  `json:"total_tokens"`
+				CacheWriteUnknownTokens int64  `json:"cache_write_unknown_tokens"`
+				PricingPartialCount     int64  `json:"pricing_partial_count"`
+				EstimatedCostNanoUSD    string `json:"estimated_cost_nano_usd"`
 			} `json:"summary"`
 			Series []struct {
-				BucketStartMS        int64  `json:"bucket_start_ms"`
-				TotalTokens          int64  `json:"total_tokens"`
-				EstimatedCostNanoUSD string `json:"estimated_cost_nano_usd"`
+				BucketStartMS           int64  `json:"bucket_start_ms"`
+				TotalTokens             int64  `json:"total_tokens"`
+				CacheWriteUnknownTokens int64  `json:"cache_write_unknown_tokens"`
+				PricingPartialCount     int64  `json:"pricing_partial_count"`
+				EstimatedCostNanoUSD    string `json:"estimated_cost_nano_usd"`
 			} `json:"series"`
 			Breakdown []struct {
-				GroupID              uint   `json:"group_id"`
-				Model                string `json:"model"`
-				EstimatedCostNanoUSD string `json:"estimated_cost_nano_usd"`
+				GroupID                 uint   `json:"group_id"`
+				Model                   string `json:"model"`
+				CacheWriteUnknownTokens int64  `json:"cache_write_unknown_tokens"`
+				PricingPartialCount     int64  `json:"pricing_partial_count"`
+				EstimatedCostNanoUSD    string `json:"estimated_cost_nano_usd"`
 			} `json:"breakdown"`
 		} `json:"data"`
 	}
@@ -245,14 +256,20 @@ func TestUsageAPISelectsThirtyUTCDaysAndAppliesFilters(t *testing.T) {
 		envelope.Data.ToMS != time.Date(2026, time.July, 28, 0, 0, 0, 0, time.UTC).UnixMilli() ||
 		envelope.Data.Order != requestlog.UsageBreakdownOrderCost ||
 		envelope.Data.GroupCount != 1 ||
-		envelope.Data.Summary.TotalTokens != 5 ||
+		envelope.Data.Summary.TotalTokens != 9 ||
+		envelope.Data.Summary.CacheWriteUnknownTokens != 4 ||
+		envelope.Data.Summary.PricingPartialCount != 1 ||
 		envelope.Data.Summary.EstimatedCostNanoUSD != "0" ||
 		len(envelope.Data.Series) != 1 ||
 		envelope.Data.Series[0].BucketStartMS != time.Date(2026, time.June, 28, 0, 0, 0, 0, time.UTC).UnixMilli() ||
-		envelope.Data.Series[0].TotalTokens != 5 ||
+		envelope.Data.Series[0].TotalTokens != 9 ||
+		envelope.Data.Series[0].CacheWriteUnknownTokens != 4 ||
+		envelope.Data.Series[0].PricingPartialCount != 1 ||
 		envelope.Data.Series[0].EstimatedCostNanoUSD != "1123456789012" ||
 		len(envelope.Data.Breakdown) != 1 || envelope.Data.Breakdown[0].GroupID != 9 ||
 		envelope.Data.Breakdown[0].Model != "upstream-model" ||
+		envelope.Data.Breakdown[0].CacheWriteUnknownTokens != 4 ||
+		envelope.Data.Breakdown[0].PricingPartialCount != 1 ||
 		envelope.Data.Breakdown[0].EstimatedCostNanoUSD != "250000000" {
 		t.Fatalf("usage response = %#v", envelope.Data)
 	}
@@ -271,11 +288,11 @@ func TestUsageAPIValidatesModelAsUTF8BytesWithoutBoundaryWhitespaceOrControls(t 
 		"model variant",
 	}
 	for _, model := range validModels {
-		recorder := performUsageRequest(engine, "test-auth-key", "model="+url.QueryEscape(model))
+		recorder := performUsageRequest(engine, "test-auth-key", "upstream_model="+url.QueryEscape(model))
 		if recorder.Code != http.StatusOK {
 			t.Fatalf("valid model %q response = %d %s", model, recorder.Code, recorder.Body.String())
 		}
-		if got := reader.queries[len(reader.queries)-1].Model; got != model {
+		if got := reader.queries[len(reader.queries)-1].UpstreamModel; got != model {
 			t.Fatalf("reader model = %q, want %q", got, model)
 		}
 	}
@@ -285,12 +302,12 @@ func TestUsageAPIValidatesModelAsUTF8BytesWithoutBoundaryWhitespaceOrControls(t 
 		name  string
 		query string
 	}{
-		{name: "invalid UTF-8", query: "model=%FF"},
-		{name: "leading whitespace", query: "model=" + url.QueryEscape(" model")},
-		{name: "trailing whitespace", query: "model=" + url.QueryEscape("model\u3000")},
-		{name: "embedded control", query: "model=" + url.QueryEscape("model\x00id")},
-		{name: "DEL control", query: "model=" + url.QueryEscape("model\x7fid")},
-		{name: "256 UTF-8 bytes", query: "model=" + url.QueryEscape(strings.Repeat("a", 253)+"猫")},
+		{name: "invalid UTF-8", query: "upstream_model=%FF"},
+		{name: "leading whitespace", query: "upstream_model=" + url.QueryEscape(" model")},
+		{name: "trailing whitespace", query: "upstream_model=" + url.QueryEscape("model\u3000")},
+		{name: "embedded control", query: "upstream_model=" + url.QueryEscape("model\x00id")},
+		{name: "DEL control", query: "upstream_model=" + url.QueryEscape("model\x7fid")},
+		{name: "256 UTF-8 bytes", query: "upstream_model=" + url.QueryEscape(strings.Repeat("a", 253)+"猫")},
 	}
 	for _, test := range invalidModels {
 		t.Run(test.name, func(t *testing.T) {
@@ -326,7 +343,8 @@ func TestUsageAPIRejectsStrictInvalidQueriesWithoutCallingReader(t *testing.T) {
 		{query: "group_id=1&group_id=2", code: "BAD_REQUEST"},
 		{query: "group_id=9007199254740992", code: "VALIDATION_FAILED"},
 		{query: "group_id=-1", code: "BAD_REQUEST"},
-		{query: "model=", code: "VALIDATION_FAILED"},
+		{query: "model=legacy", code: "BAD_REQUEST"},
+		{query: "upstream_model=", code: "VALIDATION_FAILED"},
 		{query: "breakdown_order=", code: "VALIDATION_FAILED"},
 		{query: "breakdown_order=unknown", code: "VALIDATION_FAILED"},
 		{
@@ -454,7 +472,7 @@ func TestUsageAPIReturnsUnattributedAggregateFromSQLite(t *testing.T) {
 		t.Fatalf("create unattributed UsageStat: %v", err)
 	}
 	fixture.service.now = func() time.Time { return now }
-	fixture.service.usageStats = requestlog.NewService(fixture.db, nil, nil, nil)
+	fixture.service.usageStats = requestlog.NewService(fixture.db, nil, nil)
 	engine := gin.New()
 	NewServer(&config.Config{AuthKey: "test-auth-key"}, fixture.service).RegisterRoutes(engine)
 

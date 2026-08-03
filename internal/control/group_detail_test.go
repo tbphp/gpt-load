@@ -57,7 +57,7 @@ func TestGetGroupSummaryUsesCollectionServiceStatusAndOnlyReturnsHeaderCounts(t 
 				t.Fatal(err)
 			}
 			wantFields := map[string]struct{}{
-				"id": {}, "name": {}, "service_status": {}, "upstream_url": {},
+				"id": {}, "name": {}, "provider_id": {}, "service_status": {}, "upstream_url": {},
 				"protocols": {}, "key_count": {}, "model_count": {},
 			}
 			for name := range fields {

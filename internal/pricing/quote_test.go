@@ -3,382 +3,228 @@ package pricing
 import (
 	"math"
 	"testing"
-	"time"
 
 	"gpt-load/internal/usage"
 )
 
-func TestQuoteRoundsFiveTokenComponentsBeforeSumming(t *testing.T) {
-	t.Parallel()
-
-	table := mustCompile(t, Rule{
-		Pattern: "model",
-		Prices: Prices{
-			UncachedInput: fixedPrice(1),
-			CacheRead:     fixedPrice(1),
-			CacheWrite5M:  fixedPrice(1),
-			CacheWrite1H:  fixedPrice(1),
-			Output:        fixedPrice(1),
-		},
-		Source: SourceUser,
-	})
-	quote := table.Quote("model", usage.Result{
-		Tokens: usage.Tokens{
-			UncachedInput: 500_000,
-			CacheRead:     500_000,
-			CacheWrite5M:  500_000,
-			CacheWrite1H:  500_000,
-			Output:        500_000,
-		},
-		State: usage.StateComplete,
-	})
-	if quote.State != CostStatePriced {
-		t.Fatalf("Quote() state = %q, want %q", quote.State, CostStatePriced)
-	}
-	if quote.EstimatedCostNanoUSD != 5 {
-		t.Fatalf("Quote() cost = %d, want 5 nano USD", quote.EstimatedCostNanoUSD)
-	}
-}
-
-func TestQuoteAppliesBuiltinLongContextPolicyAtStrictThreshold(t *testing.T) {
-	t.Parallel()
-
-	table := mustCompile(t, Rule{
-		Pattern: "gpt-5.6",
-		Prices: Prices{
-			UncachedInput: fixedPrice(1_000_000_000),
-			CacheRead:     fixedPrice(2_000_000_000),
-			CacheWrite5M:  fixedPrice(3_000_000_000),
-			CacheWrite1H:  fixedPrice(4_000_000_000),
-			Output:        fixedPrice(5_000_000_000),
-		},
-		Source:            SourceBuiltin,
-		SourceURL:         "https://builtin.example/pricing",
-		UpdatedAt:         time.Date(2026, 7, 26, 0, 0, 0, 0, time.UTC),
-		LongContextPolicy: testLongContextPolicy(),
-	})
+func TestQuoteMapsUsageStatesBeforeLookup(t *testing.T) {
+	var table *Table
 	tests := []struct {
-		name   string
-		tokens usage.Tokens
-		want   NanoUSD
+		name  string
+		state usage.State
+		want  Quote
 	}{
-		{
-			name: "equal threshold does not multiply",
-			tokens: usage.Tokens{
-				UncachedInput: 68_000,
-				CacheRead:     68_000,
-				CacheWrite5M:  68_000,
-				CacheWrite1H:  68_000,
-				Output:        1_000_000,
-			},
-			want: 5_680_000_000,
-		},
-		{
-			name: "one token over multiplies every input price and output price",
-			tokens: usage.Tokens{
-				UncachedInput: 68_000,
-				CacheRead:     68_000,
-				CacheWrite5M:  68_000,
-				CacheWrite1H:  68_001,
-				Output:        1_000_000,
-			},
-			want: 8_860_008_000,
-		},
+		{name: "not applicable", state: usage.StateNotApplicable, want: Quote{State: CostStateNotApplicable, Completeness: CompletenessNotApplicable}},
+		{name: "missing", state: usage.StateMissing, want: Quote{State: CostStateUnpriced, Completeness: CompletenessUnavailable}},
+		{name: "unknown", state: usage.State("unknown"), want: Quote{State: CostStateUnpriced, Completeness: CompletenessUnavailable}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			result := usage.Result{
-				Tokens: test.tokens,
-				State:  usage.StateComplete,
-			}
-			before := result.Tokens
-
-			quote := table.Quote("gpt-5.6", result)
-
-			if quote.State != CostStatePriced {
-				t.Fatalf("Quote() state = %q, want %q", quote.State, CostStatePriced)
-			}
-			if quote.EstimatedCostNanoUSD != test.want {
-				t.Fatalf("Quote() cost = %d, want %d nano USD", quote.EstimatedCostNanoUSD, test.want)
-			}
-			if result.Tokens != before {
-				t.Fatalf("Quote() mutated tokens: got %+v, want %+v", result.Tokens, before)
+			if got := table.Quote(Identity{}, usage.Result{State: test.state}); got != test.want {
+				t.Fatalf("Quote() = %#v, want %#v", got, test.want)
 			}
 		})
 	}
 }
 
-func TestQuoteFailsClosedOnMissingPriceAndOverflow(t *testing.T) {
-	t.Parallel()
-
-	baseRule := Rule{
-		Pattern: "model",
-		Prices: Prices{
-			UncachedInput: fixedPrice(1),
-			CacheRead:     fixedPrice(1),
-			CacheWrite5M:  fixedPrice(1),
-			CacheWrite1H:  fixedPrice(1),
-			Output:        fixedPrice(1),
+func TestQuoteUsesHighestEligibleTierAtInclusiveBoundary(t *testing.T) {
+	identity := Identity{ScopeKey: "provider:openai", ModelID: "gpt-4.1"}
+	table := mustTable(t, Rule{
+		Identity: identity,
+		Prices:   Prices{Input: fixedPrice(1)},
+		ContextTiers: []ContextTier{
+			{InputThresholdTokens: 0, Prices: Prices{Input: fixedPrice(2)}},
+			{InputThresholdTokens: 1_000_000, Prices: Prices{Input: fixedPrice(3)}},
 		},
-		Source:            SourceBuiltin,
-		SourceURL:         "https://builtin.example/pricing",
-		UpdatedAt:         time.Date(2026, 7, 26, 0, 0, 0, 0, time.UTC),
-		LongContextPolicy: testLongContextPolicy(),
-	}
-	missingPrice := baseRule
-	missingPrice.Prices.CacheWrite1H = Price{}
-	componentOverflow := baseRule
-	componentOverflow.Prices.Output = fixedPrice(math.MaxInt64)
-	sumOverflow := baseRule
-	sumOverflow.Prices.UncachedInput = fixedPrice(math.MaxInt64)
-	sumOverflow.Prices.Output = fixedPrice(1)
-
-	tests := []struct {
-		name   string
-		rule   Rule
-		tokens usage.Tokens
-	}{
-		{
-			name: "four-input token sum overflow",
-			rule: baseRule,
-			tokens: usage.Tokens{
-				UncachedInput: math.MaxInt64,
-				CacheRead:     1,
-			},
-		},
-		{
-			name: "missing used component price",
-			rule: missingPrice,
-			tokens: usage.Tokens{
-				UncachedInput: 272_000,
-				CacheWrite1H:  1,
-			},
-		},
-		{
-			name:   "component result overflow",
-			rule:   componentOverflow,
-			tokens: usage.Tokens{Output: 1_000_001},
-		},
-		{
-			name: "final sum overflow",
-			rule: sumOverflow,
-			tokens: usage.Tokens{
-				UncachedInput: 1_000_000,
-				Output:        1_000_000,
-			},
-		},
-		{
-			name:   "multiplied result overflow",
-			rule:   componentOverflow,
-			tokens: usage.Tokens{UncachedInput: 272_001, Output: 1_000_000},
-		},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			quote := mustCompile(t, test.rule).Quote("model", usage.Result{
-				Tokens: test.tokens,
-				State:  usage.StateComplete,
-			})
-			if quote.State != CostStateUnpriced || quote.EstimatedCostNanoUSD != 0 {
-				t.Fatalf("Quote() = %+v, want unpriced zero", quote)
-			}
-		})
-	}
-}
-
-func TestQuoteUserOverridesDoNotInheritBuiltinLongContextPolicy(t *testing.T) {
-	t.Parallel()
-
-	for _, pattern := range []string{"gpt-5.6", "gpt-5.*", "*"} {
-		t.Run(pattern, func(t *testing.T) {
-			rules := BuiltinRules()
-			rules = append(rules, Rule{
-				Pattern: pattern,
-				Prices: Prices{
-					UncachedInput: fixedPrice(1_000_000_000),
-					Output:        fixedPrice(1_000_000_000),
-				},
-				Source: SourceUser,
-			})
-			table, err := Compile(rules)
-			if err != nil {
-				t.Fatalf("Compile() error = %v", err)
-			}
-
-			quote := table.Quote("gpt-5.6", usage.Result{
-				Tokens: usage.Tokens{
-					UncachedInput: 272_001,
-					Output:        1_000_000,
-				},
-				State: usage.StateComplete,
-			})
-
-			if quote.State != CostStatePriced {
-				t.Fatalf("Quote() state = %q, want %q", quote.State, CostStatePriced)
-			}
-			if quote.EstimatedCostNanoUSD != 1_272_001_000 {
-				t.Fatalf("Quote() cost = %d, want 1272001000 nano USD", quote.EstimatedCostNanoUSD)
-			}
-		})
-	}
-}
-
-func TestQuoteDistinguishesUnsetFromExplicitZero(t *testing.T) {
-	t.Parallel()
-
-	explicitZero := mustCompile(t, Rule{
-		Pattern: "zero",
-		Prices:  Prices{Output: fixedPrice(0)},
-		Source:  SourceUser,
 	})
-	zeroOutput := explicitZero.Quote("zero", usage.Result{
-		Tokens: usage.Tokens{Output: 1},
+
+	quote := table.Quote(identity, usage.Result{
+		Tokens: usage.Tokens{UncachedInput: 1_000_000},
 		State:  usage.StateComplete,
 	})
-	if zeroOutput.State != CostStatePriced || zeroOutput.EstimatedCostNanoUSD != 0 {
-		t.Fatalf("explicit zero quote = %+v, want priced zero", zeroOutput)
+	want := Quote{State: CostStatePriced, Completeness: CompletenessComplete, EstimatedCostNanoUSD: 3}
+	if quote != want {
+		t.Fatalf("Quote() = %#v, want highest inclusive tier %#v", quote, want)
 	}
+}
 
-	unsetRead := explicitZero.Quote("zero", usage.Result{
-		Tokens: usage.Tokens{CacheRead: 1},
+func TestQuoteTierReplacesBaseSlotsWithoutFallback(t *testing.T) {
+	identity := Identity{ScopeKey: "group:7", ModelID: "claude-sonnet"}
+	table := mustTable(t, Rule{
+		Identity: identity,
+		Prices:   Prices{Input: fixedPrice(10), Output: fixedPrice(20)},
+		ContextTiers: []ContextTier{{
+			InputThresholdTokens: 1,
+			Prices:               Prices{Input: fixedPrice(30)},
+		}},
+	})
+
+	quote := table.Quote(identity, usage.Result{
+		Tokens: usage.Tokens{UncachedInput: 1_000_000, Output: 1_000_000},
 		State:  usage.StateComplete,
 	})
-	if unsetRead.State != CostStateUnpriced || unsetRead.EstimatedCostNanoUSD != 0 {
-		t.Fatalf("unset cache read quote = %+v, want unpriced zero", unsetRead)
-	}
-
-	zeroTokens := explicitZero.Quote("zero", usage.Result{State: usage.StateComplete})
-	if zeroTokens.State != CostStatePriced || zeroTokens.EstimatedCostNanoUSD != 0 {
-		t.Fatalf("zero-token quote = %+v, want priced zero", zeroTokens)
+	want := Quote{State: CostStatePriced, Completeness: CompletenessPartial, EstimatedCostNanoUSD: 30}
+	if quote != want {
+		t.Fatalf("Quote() = %#v, want tier input only with no output fallback %#v", quote, want)
 	}
 }
 
-func TestQuoteMapsUsageAndDiagnosticsToCostState(t *testing.T) {
-	t.Parallel()
-
-	table := mustCompile(t, Rule{
-		Pattern: "model",
-		Prices:  Prices{Output: fixedPrice(1_000_000_000)},
-		Source:  SourceUser,
+func TestQuotePricesCacheWriteFiveMinutesDirectlyAndOneHourAtExactEightFifths(t *testing.T) {
+	identity := Identity{ScopeKey: "provider:anthropic", ModelID: "claude-sonnet"}
+	table := mustTable(t, Rule{Identity: identity, Prices: Prices{CacheWrite: fixedPrice(5)}})
+	quote := table.Quote(identity, usage.Result{
+		Tokens: usage.Tokens{CacheWrite5M: 1_000_000, CacheWrite1H: 1_000_000},
+		State:  usage.StateComplete,
 	})
-	assertUnpriced := func(t *testing.T, quote Quote) {
-		t.Helper()
-		if quote.State != CostStateUnpriced || quote.EstimatedCostNanoUSD != 0 {
-			t.Fatalf("Quote() = %+v, want unpriced zero", quote)
-		}
+	want := Quote{State: CostStatePriced, Completeness: CompletenessComplete, EstimatedCostNanoUSD: 13}
+	if quote != want {
+		t.Fatalf("Quote() = %#v, want direct 5m plus exact 8/5 1h %#v", quote, want)
 	}
-	assertUnpriced(t, table.Quote("missing", usage.Result{State: usage.StateComplete}))
-	if quote := table.Quote("model", usage.Result{State: usage.StateNotApplicable}); quote.State != CostStateNotApplicable || quote.EstimatedCostNanoUSD != 0 {
-		t.Fatalf("not-applicable quote = %+v, want not_applicable zero", quote)
-	}
-	assertUnpriced(t, table.Quote("model", usage.Result{State: usage.StateMissing}))
-	for _, state := range []usage.State{usage.StateComplete, usage.StatePartial} {
-		quote := table.Quote("model", usage.Result{Tokens: usage.Tokens{Output: 1}, State: state})
-		if quote.State != CostStatePriced {
-			t.Errorf("%s quote state = %q, want %q", state, quote.State, CostStatePriced)
-		}
-	}
-	for _, diagnostic := range []usage.DiagnosticCode{
-		usage.DiagnosticUnsupportedBillableDetail,
-		usage.DiagnosticNegativeValue,
-		usage.DiagnosticInvalidNumber,
-		usage.DiagnosticMissingRequiredField,
-		usage.DiagnosticInconsistentTotal,
-		usage.DiagnosticInvalidEventSequence,
-	} {
-		var diagnostics usage.Diagnostics
-		diagnostics.Add(diagnostic)
-		quote := table.Quote("model", usage.Result{
-			Tokens:      usage.Tokens{Output: 1},
-			State:       usage.StateComplete,
-			Diagnostics: diagnostics,
-		})
-		if quote.State != CostStateUnpriced || quote.EstimatedCostNanoUSD != 0 {
-			t.Errorf("diagnostic %q quote = %+v, want unpriced zero", diagnostic, quote)
-		}
-	}
-	for _, diagnostic := range []usage.DiagnosticCode{
-		usage.DiagnosticCacheWriteDefaulted5M,
-		usage.DiagnosticInvalidPayload,
-	} {
-		var diagnostics usage.Diagnostics
-		diagnostics.Add(diagnostic)
-		quote := table.Quote("model", usage.Result{
-			Tokens:      usage.Tokens{Output: 1},
-			State:       usage.StateComplete,
-			Diagnostics: diagnostics,
-		})
-		if quote.State != CostStatePriced {
-			t.Errorf("diagnostic %q quote state = %q, want %q", diagnostic, quote.State, CostStatePriced)
-		}
-	}
-	assertUnpriced(t, table.Quote("model", usage.Result{State: usage.State("unknown")}))
 }
 
-func TestQuoteRejectsNegativeTokensAndTokenTotalOverflow(t *testing.T) {
-	t.Parallel()
-
-	table := mustCompile(t, Rule{
-		Pattern: "model",
-		Prices: Prices{
-			UncachedInput: fixedPrice(0),
-			CacheRead:     fixedPrice(0),
-			CacheWrite5M:  fixedPrice(0),
-			CacheWrite1H:  fixedPrice(0),
-			Output:        fixedPrice(0),
-		},
-		Source: SourceUser,
+func TestQuoteIncludesUnknownCacheWriteInTierButNeverChargesIt(t *testing.T) {
+	identity := Identity{ScopeKey: "provider:anthropic", ModelID: "claude-sonnet"}
+	table := mustTable(t, Rule{
+		Identity: identity,
+		Prices:   Prices{Input: fixedPrice(1), CacheWrite: fixedPrice(math.MaxInt64)},
+		ContextTiers: []ContextTier{{
+			InputThresholdTokens: 1_000_000,
+			Prices:               Prices{Input: fixedPrice(2), CacheWrite: fixedPrice(math.MaxInt64)},
+		}},
 	})
-	perFieldOverflow := int64(math.MaxInt64/5 + 1)
+	quote := table.Quote(identity, usage.Result{
+		Tokens: usage.Tokens{UncachedInput: 999_999, CacheWriteUnknown: 1},
+		State:  usage.StateComplete,
+	})
+	want := Quote{State: CostStatePriced, Completeness: CompletenessPartial, EstimatedCostNanoUSD: 2}
+	if quote != want {
+		t.Fatalf("Quote() = %#v, want unknown to select tier but remain unbilled %#v", quote, want)
+	}
+}
+
+func TestQuotePreservesKnownCostWhenAnotherPositiveComponentIsUnavailable(t *testing.T) {
+	identity := Identity{ScopeKey: "provider:openai", ModelID: "gpt-4.1"}
+	table := mustTable(t, Rule{Identity: identity, Prices: Prices{Input: fixedPrice(7)}})
+	quote := table.Quote(identity, usage.Result{
+		Tokens: usage.Tokens{UncachedInput: 1_000_000, Output: 1},
+		State:  usage.StateComplete,
+	})
+	want := Quote{State: CostStatePriced, Completeness: CompletenessPartial, EstimatedCostNanoUSD: 7}
+	if quote != want {
+		t.Fatalf("Quote() = %#v, want known input cost retained %#v", quote, want)
+	}
+}
+
+func TestQuoteCompleteUsageDiagnosticsDetermineCompletenessWithoutDiscardingKnownCost(t *testing.T) {
+	identity := Identity{ScopeKey: "provider:openai", ModelID: "gpt-4.1"}
+	table := mustTable(t, Rule{Identity: identity, Prices: Prices{Input: fixedPrice(9)}})
 	tests := []struct {
-		name   string
-		tokens usage.Tokens
+		name             string
+		diagnostic       usage.DiagnosticCode
+		wantCompleteness Completeness
 	}{
-		{
-			name:   "negative token",
-			tokens: usage.Tokens{UncachedInput: -1},
-		},
-		{
-			name: "five-field total overflow",
-			tokens: usage.Tokens{
-				UncachedInput: perFieldOverflow,
-				CacheRead:     perFieldOverflow,
-				CacheWrite5M:  perFieldOverflow,
-				CacheWrite1H:  perFieldOverflow,
-				Output:        perFieldOverflow,
-			},
-		},
+		{name: "unsupported billable detail", diagnostic: usage.DiagnosticUnsupportedBillableDetail, wantCompleteness: CompletenessPartial},
+		{name: "negative value", diagnostic: usage.DiagnosticNegativeValue, wantCompleteness: CompletenessPartial},
+		{name: "invalid number", diagnostic: usage.DiagnosticInvalidNumber, wantCompleteness: CompletenessPartial},
+		{name: "missing required field", diagnostic: usage.DiagnosticMissingRequiredField, wantCompleteness: CompletenessPartial},
+		{name: "inconsistent total", diagnostic: usage.DiagnosticInconsistentTotal, wantCompleteness: CompletenessPartial},
+		{name: "invalid payload", diagnostic: usage.DiagnosticInvalidPayload, wantCompleteness: CompletenessPartial},
+		{name: "invalid event sequence", diagnostic: usage.DiagnosticInvalidEventSequence, wantCompleteness: CompletenessPartial},
+		{name: "cache write defaulted 5m", diagnostic: usage.DiagnosticCacheWriteDefaulted5M, wantCompleteness: CompletenessComplete},
 	}
+
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			quote := table.Quote("model", usage.Result{
-				Tokens: test.tokens,
-				State:  usage.StateComplete,
+			var diagnostics usage.Diagnostics
+			diagnostics.Add(test.diagnostic)
+			quote := table.Quote(identity, usage.Result{
+				Tokens:      usage.Tokens{UncachedInput: 1_000_000},
+				State:       usage.StateComplete,
+				Diagnostics: diagnostics,
 			})
-			if quote.State != CostStateUnpriced || quote.EstimatedCostNanoUSD != 0 {
-				t.Fatalf("Quote() = %+v, want unpriced zero", quote)
+			want := Quote{State: CostStatePriced, Completeness: test.wantCompleteness, EstimatedCostNanoUSD: 9}
+			if quote != want {
+				t.Fatalf("Quote() = %#v, want known cost with completeness %q", quote, test.wantCompleteness)
 			}
 		})
 	}
 }
 
-func mustCompile(t *testing.T, rules ...Rule) *Table {
-	t.Helper()
-	table, err := Compile(rules)
-	if err != nil {
-		t.Fatalf("Compile() error = %v", err)
+func TestQuoteSeparatesPricedStateFromCompleteness(t *testing.T) {
+	identity := Identity{ScopeKey: "provider:openai", ModelID: "gpt-4.1"}
+	tests := []struct {
+		name   string
+		result usage.Result
+		want   Quote
+	}{
+		{name: "positive all null", result: usage.Result{Tokens: usage.Tokens{Output: 1}, State: usage.StateComplete}, want: Quote{State: CostStateUnpriced, Completeness: CompletenessUnavailable}},
+		{name: "zero exact rule", result: usage.Result{State: usage.StateComplete}, want: Quote{State: CostStatePriced, Completeness: CompletenessComplete}},
+		{name: "zero partial usage", result: usage.Result{State: usage.StatePartial}, want: Quote{State: CostStatePriced, Completeness: CompletenessPartial}},
 	}
-	return table
+	for _, manual := range []bool{false, true} {
+		allNull := mustTable(t, Rule{Identity: identity, IsManual: manual})
+		for _, test := range tests {
+			t.Run(test.name, func(t *testing.T) {
+				if got := allNull.Quote(identity, test.result); got != test.want {
+					t.Fatalf("Quote() = %#v, want %#v", got, test.want)
+				}
+			})
+		}
+
+		if got := allNull.Quote(Identity{ScopeKey: identity.ScopeKey, ModelID: "missing"}, usage.Result{State: usage.StateComplete}); got != (Quote{State: CostStateUnpriced, Completeness: CompletenessUnavailable}) {
+			t.Fatalf("missing exact rule Quote() = %#v, want unpriced unavailable", got)
+		}
+	}
+
+	explicitZero := mustTable(t, Rule{Identity: identity, Prices: Prices{Output: fixedPrice(0)}})
+	want := Quote{State: CostStatePriced, Completeness: CompletenessComplete}
+	if got := explicitZero.Quote(identity, usage.Result{Tokens: usage.Tokens{Output: 1}, State: usage.StateComplete}); got != want {
+		t.Fatalf("explicit zero Quote() = %#v, want priced complete zero %#v", got, want)
+	}
 }
 
-func fixedPrice(value NanoUSD) Price {
-	return Price{NanoUSDPerMillion: value, Set: true}
+func TestQuoteRejectsNegativeTokensAndOverflowFailClosed(t *testing.T) {
+	identity := Identity{ScopeKey: "provider:openai", ModelID: "gpt-4.1"}
+	table := mustTable(t, Rule{Identity: identity, Prices: Prices{
+		Input: fixedPrice(math.MaxInt64), Output: fixedPrice(math.MaxInt64),
+		CacheRead: fixedPrice(0), CacheWrite: fixedPrice(0),
+	}})
+	want := Quote{State: CostStateUnpriced, Completeness: CompletenessUnavailable}
+	tests := []struct {
+		name   string
+		tokens usage.Tokens
+	}{
+		{name: "negative input", tokens: usage.Tokens{UncachedInput: -1}},
+		{name: "negative cache read", tokens: usage.Tokens{CacheRead: -1}},
+		{name: "negative cache write 5m", tokens: usage.Tokens{CacheWrite5M: -1}},
+		{name: "negative cache write 1h", tokens: usage.Tokens{CacheWrite1H: -1}},
+		{name: "negative cache write unknown", tokens: usage.Tokens{CacheWriteUnknown: -1}},
+		{name: "negative output", tokens: usage.Tokens{Output: -1}},
+		{name: "input class overflow", tokens: usage.Tokens{UncachedInput: math.MaxInt64, CacheRead: 1}},
+		{name: "component cost overflow", tokens: usage.Tokens{UncachedInput: math.MaxInt64}},
+		{name: "summed cost overflow", tokens: usage.Tokens{UncachedInput: 500_000, Output: 500_000}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := table.Quote(identity, usage.Result{Tokens: test.tokens, State: usage.StateComplete}); got != want {
+				t.Fatalf("Quote() = %#v, want fail-closed %#v", got, want)
+			}
+		})
+	}
 }
 
-func testLongContextPolicy() *LongContextPolicy {
-	return &LongContextPolicy{
-		InputThresholdTokens: 272_000,
-		InputMultiplier:      Multiplier{Numerator: 2, Denominator: 1},
-		OutputMultiplier:     Multiplier{Numerator: 3, Denominator: 2},
+func TestQuotePartialUsageKeepsKnownCostAndPartialCompleteness(t *testing.T) {
+	identity := Identity{ScopeKey: "group:3", ModelID: "gemini-2.5-pro"}
+	table := mustTable(t, Rule{Identity: identity, Prices: Prices{Output: fixedPrice(4)}})
+	var diagnostics usage.Diagnostics
+	diagnostics.Add(usage.DiagnosticInvalidPayload)
+	quote := table.Quote(identity, usage.Result{
+		Tokens:      usage.Tokens{Output: 1_000_000},
+		State:       usage.StatePartial,
+		Diagnostics: diagnostics,
+	})
+	want := Quote{State: CostStatePriced, Completeness: CompletenessPartial, EstimatedCostNanoUSD: 4}
+	if quote != want {
+		t.Fatalf("Quote() = %#v, want partial known cost %#v", quote, want)
 	}
 }

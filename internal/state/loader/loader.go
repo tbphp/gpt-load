@@ -284,6 +284,7 @@ func mapSystemAndGroups(rows compileRows) (state.CompileInput, error) {
 		input.Groups = append(input.Groups, state.GroupConfig{
 			ID:              row.ID,
 			Name:            row.Name,
+			ProviderID:      cloneStringPointer(row.ProviderID),
 			UpstreamURL:     row.UpstreamURL,
 			ValidationModel: validationModel,
 			Protocols:       append([]protocol.Protocol(nil), protocols...),
@@ -294,6 +295,14 @@ func mapSystemAndGroups(rows compileRows) (state.CompileInput, error) {
 		})
 	}
 	return input, nil
+}
+
+func cloneStringPointer(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
 }
 
 func mapAccessKeys(rows []models.AccessKey) ([]state.AccessKeyConfig, error) {
