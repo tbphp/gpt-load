@@ -30,19 +30,21 @@ type sseRewriteStream struct {
 	body    io.ReadCloser
 	rewrite sseEventPayloadRewriter
 
-	pending     []byte
-	output      []byte
-	scratch     []byte
-	scanner     sseRewriteBoundaryScanner
-	deferredErr error
-	finished    bool
-	closed      bool
+	pending         []byte
+	output          []byte
+	scratch         []byte
+	scanner         sseRewriteBoundaryScanner
+	deferredErr     error
+	readEndedEvent  bool
+	outputEndsEvent bool
+	finished        bool
+	closed          bool
 }
 
 func newSSEEventRewriteStream(
 	body io.ReadCloser,
 	rewrite sseEventPayloadRewriter,
-) io.ReadCloser {
+) *sseRewriteStream {
 	return &sseRewriteStream{
 		body: body, rewrite: rewrite,
 		scratch: make([]byte, streamReadBufferSize),
@@ -55,6 +57,9 @@ func (stream *sseRewriteStream) Read(target []byte) (int, error) {
 	}
 	stream.readMu.Lock()
 	defer stream.readMu.Unlock()
+	stream.mu.Lock()
+	stream.readEndedEvent = false
+	stream.mu.Unlock()
 
 	zeroReads := 0
 	for {
@@ -72,10 +77,13 @@ func (stream *sseRewriteStream) Read(target []byte) (int, error) {
 			stream.output = stream.output[read:]
 			if len(stream.output) == 0 {
 				stream.output = nil
+				stream.readEndedEvent = stream.readEndedEvent || stream.outputEndsEvent
+				stream.outputEndsEvent = false
 			}
 			stream.mu.Unlock()
 			return read, nil
 		}
+		hadOptionalLF := stream.scanner.optionalLineFeed
 		optionalLF, overflow := stream.scanner.ConsumeOptionalLineFeed(
 			stream.pending,
 			stream.deferredErr != nil,
@@ -91,8 +99,12 @@ func (stream *sseRewriteStream) Read(target []byte) (int, error) {
 				stream.pending = nil
 			}
 			stream.output = []byte{'\n'}
+			stream.outputEndsEvent = true
 			stream.mu.Unlock()
 			continue
+		}
+		if hadOptionalLF && !stream.scanner.optionalLineFeed {
+			stream.readEndedEvent = true
 		}
 
 		eventEnd, complete := stream.scanner.Find(stream.pending)
@@ -130,6 +142,7 @@ func (stream *sseRewriteStream) Read(target []byte) (int, error) {
 			}
 			stream.scanner.AfterEvent(eventEnd, len(rewritten))
 			stream.output = rewritten
+			stream.outputEndsEvent = !stream.scanner.optionalLineFeed
 			stream.mu.Unlock()
 			continue
 		}
@@ -191,6 +204,17 @@ func (stream *sseRewriteStream) Read(target []byte) (int, error) {
 	}
 }
 
+func (stream *sseRewriteStream) consumeReadEventBoundary() bool {
+	if stream == nil {
+		return false
+	}
+	stream.mu.Lock()
+	defer stream.mu.Unlock()
+	ended := stream.readEndedEvent
+	stream.readEndedEvent = false
+	return ended
+}
+
 func (stream *sseRewriteStream) Close() error {
 	stream.mu.Lock()
 	if stream.closed {
@@ -203,6 +227,7 @@ func (stream *sseRewriteStream) Close() error {
 	stream.rewrite = nil
 	stream.pending = nil
 	stream.output = nil
+	stream.outputEndsEvent = false
 	stream.scratch = nil
 	stream.scanner.Reset()
 	stream.deferredErr = nil
@@ -217,6 +242,7 @@ func (stream *sseRewriteStream) Close() error {
 func (stream *sseRewriteStream) finishLocked() {
 	stream.pending = nil
 	stream.output = nil
+	stream.outputEndsEvent = false
 	stream.deferredErr = nil
 	stream.finished = true
 	stream.scanner.Reset()

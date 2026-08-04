@@ -286,7 +286,7 @@ func (forwarder *Forwarder) ForwardStream(
 		}
 	}
 	firstPayloadPending := true
-	streamBody = newSSEEventRewriteStream(streamBody, func(
+	rewrittenStream := newSSEEventRewriteStream(streamBody, func(
 		event dialect.StreamEvent,
 		errorEvent bool,
 	) ([]byte, error) {
@@ -352,6 +352,7 @@ func (forwarder *Forwarder) ForwardStream(
 		}
 		return rewritten, nil
 	})
+	streamBody = rewrittenStream
 	invalidateRewrittenBodyHeaders(headers)
 
 	firstEvent, err := bufferFirstSSEEvent(streamBody)
@@ -415,11 +416,27 @@ func (forwarder *Forwarder) ForwardStream(
 		result.Stream = observeStreamTermination(ctx, err, streamEvents)
 		return result
 	}
-	if err := pumpStream(deadline.ctx, streamBody, streamWriter, input.Group.Timeouts.StreamIdle); err != nil {
+	if rewrittenStream.consumeReadEventBoundary() {
+		streamEvents.markTerminalForwarded()
+	}
+	if err := pumpStreamWithFlushObserver(
+		deadline.ctx,
+		streamBody,
+		streamWriter,
+		input.Group.Timeouts.StreamIdle,
+		func() {
+			if rewrittenStream.consumeReadEventBoundary() {
+				streamEvents.markTerminalForwarded()
+			}
+		},
+	); err != nil {
 		result.Err = err
 	}
 	if result.Err == nil {
 		result.Err = streamEvents.validateEOF()
+		if result.Err == nil && rewrittenStream.consumeReadEventBoundary() {
+			streamEvents.markTerminalForwarded()
+		}
 	}
 	result.Stream = observeStreamTermination(ctx, result.Err, streamEvents)
 	return result
