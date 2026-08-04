@@ -1927,6 +1927,18 @@ func TestHandlerContentCodingInspectionUsesDecodedBody(t *testing.T) {
 				request.Header.Set("Content-Encoding", string(encoding))
 			}
 			request.Header["content-length"] = []string{"stale-client-length"}
+			for name, value := range map[string]string{
+				"ETag":            `"stale"`,
+				"Digest":          "sha-256=stale",
+				"Content-MD5":     "stale-md5",
+				"Content-Range":   "bytes 0-1/2",
+				"Content-Digest":  "sha-256=:c3RhbGU=:",
+				"Repr-Digest":     "sha-256=:c3RhbGU=:",
+				"Signature":       "stale-signature",
+				"Signature-Input": "stale-signature-input",
+			} {
+				request.Header.Set(name, value)
+			}
 			recorder := httptest.NewRecorder()
 			engine.ServeHTTP(recorder, request)
 
@@ -1942,11 +1954,21 @@ func TestHandlerContentCodingInspectionUsesDecodedBody(t *testing.T) {
 			if !bytes.Equal(parsed.Body, plaintext) || forwarder.streamInputs[0].ExternalModel != "gpt-4o" {
 				t.Fatalf("parsed body/model = %s / %q", parsed.Body, forwarder.streamInputs[0].ExternalModel)
 			}
-			if values := headerFieldValues(parsed.Header, "Content-Encoding"); len(values) != 0 {
-				t.Fatalf("parsed Content-Encoding = %#v, want absent", values)
-			}
-			if values := headerFieldValues(parsed.Header, "Content-Length"); len(values) != 0 {
-				t.Fatalf("parsed Content-Length = %#v, want absent", values)
+			for _, name := range []string{
+				"Content-Encoding",
+				"Content-Length",
+				"ETag",
+				"Digest",
+				"Content-MD5",
+				"Content-Range",
+				"Content-Digest",
+				"Repr-Digest",
+				"Signature",
+				"Signature-Input",
+			} {
+				if values := headerFieldValues(parsed.Header, name); len(values) != 0 {
+					t.Fatalf("parsed %s = %#v, want absent", name, values)
+				}
 			}
 		})
 	}

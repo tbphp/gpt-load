@@ -790,7 +790,23 @@ func TestTransparentModelRoutePreservesWire(t *testing.T) {
 	if receivedHeader.Get("Accept-Encoding") != "identity" {
 		t.Fatalf("upstream Accept-Encoding = %q, want final identity normalization", receivedHeader.Get("Accept-Encoding"))
 	}
-	assertRepresentationMetadata(t, recorder.Header(), true)
+	for name, want := range map[string]string{
+		"ETag":           `"wire-v1"`,
+		"Digest":         "sha-256=wire-digest",
+		"Content-MD5":    "d2lyZQ==",
+		"Content-Digest": "sha-256=:d2lyZQ==:",
+		"Repr-Digest":    "sha-256=:cmVwcg==:",
+	} {
+		if got := recorder.Header().Get(name); got != want {
+			t.Errorf("%s = %q, want preserved value %q", name, got, want)
+		}
+	}
+	if got := recorder.Header().Get("Content-Range"); got != "" {
+		t.Errorf("Content-Range = %q, want absent for 200 response", got)
+	}
+	if recorder.Header().Get("Signature") != "" || recorder.Header().Get("Signature-Input") != "" {
+		t.Errorf("downstream response retained signatures: %#v", recorder.Header())
+	}
 }
 
 func TestGatewayRewritesAliasedStreams(t *testing.T) {

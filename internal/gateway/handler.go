@@ -19,6 +19,7 @@ import (
 	"gpt-load/internal/health"
 	"gpt-load/internal/platform/contentcoding"
 	"gpt-load/internal/platform/encryption"
+	platformheader "gpt-load/internal/platform/httpheader"
 	"gpt-load/internal/platform/utils"
 	"gpt-load/internal/pricing"
 	"gpt-load/internal/ratelimit"
@@ -337,8 +338,7 @@ func (handler *Handler) Handle(ginContext *gin.Context) {
 		return
 	}
 	requestHeaders := ginContext.Request.Header.Clone()
-	deleteHeaderField(requestHeaders, "Content-Encoding")
-	deleteHeaderField(requestHeaders, "Content-Length")
+	platformheader.StripRequestRepresentationMetadata(requestHeaders)
 	parsed := &dialect.ParsedRequest{
 		Method:   ginContext.Request.Method,
 		Path:     ginContext.Request.URL.Path,

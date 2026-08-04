@@ -27,12 +27,21 @@ func NormalizeUpstreamRequestRepresentation(request *http.Request, finalBodyLeng
 	} else {
 		request.Header = request.Header.Clone()
 	}
-	for _, name := range requestRepresentationMetadataNames {
-		deleteField(request.Header, name)
-	}
+	StripRequestRepresentationMetadata(request.Header)
 	deleteField(request.Header, "Accept-Encoding")
 	request.Header.Set("Accept-Encoding", "identity")
 	request.ContentLength = finalBodyLength
+}
+
+// StripRequestRepresentationMetadata removes headers bound to the original
+// HTTP request representation, regardless of their field-name casing.
+func StripRequestRepresentationMetadata(headers http.Header) {
+	if headers == nil {
+		return
+	}
+	for _, name := range requestRepresentationMetadataNames {
+		deleteField(headers, name)
+	}
 }
 
 func deleteField(headers http.Header, target string) {

@@ -754,6 +754,11 @@ var representationMetadataHeaderNames = [...]string{
 	"Signature-Input",
 }
 
+func stripDownstreamResponseSignatures(headers http.Header) {
+	deleteHeaderField(headers, "Signature")
+	deleteHeaderField(headers, "Signature-Input")
+}
+
 func invalidateRewrittenBodyHeaders(headers http.Header) {
 	for _, name := range representationMetadataHeaderNames {
 		if strings.EqualFold(name, "Content-Encoding") {
@@ -990,6 +995,7 @@ func sanitizeForwardResponseHeaders(
 	additionalSecrets ...string,
 ) http.Header {
 	headers := cloneEndToEndHeaders(source)
+	stripDownstreamResponseSignatures(headers)
 	deleted := endToEndHeaderCleanupDeletedField(source, headers)
 	namesToDelete := make([]string, 0)
 	for actualName, values := range headers {

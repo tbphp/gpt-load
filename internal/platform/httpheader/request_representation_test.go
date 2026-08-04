@@ -81,6 +81,44 @@ func TestNormalizeUpstreamRequestRepresentationInitializesNilHeader(t *testing.T
 	}
 }
 
+func TestStripRequestRepresentationMetadataRemovesCaseCollidingFields(t *testing.T) {
+	headers := http.Header{
+		"Content-Encoding": {"gzip"},
+		"content-length":   {"123"},
+		"eTAG":             {`"stale"`},
+		"dIGEST":           {"sha-256=stale"},
+		"content-md5":      {"stale-md5"},
+		"content-range":    {"bytes 0-1/2"},
+		"content-digest":   {"sha-256=:c3RhbGU=12:"},
+		"repr-digest":      {"sha-256=:c3RhbGU=12:"},
+		"signature":        {"stale-signature"},
+		"signature-input":  {"sig1=(\"etag\")"},
+		"Content-Type":     {"application/json"},
+	}
+
+	StripRequestRepresentationMetadata(headers)
+
+	for _, name := range []string{
+		"Content-Encoding",
+		"Content-Length",
+		"ETag",
+		"Digest",
+		"Content-MD5",
+		"Content-Range",
+		"Content-Digest",
+		"Repr-Digest",
+		"Signature",
+		"Signature-Input",
+	} {
+		if values := headerFieldValues(headers, name); values != nil {
+			t.Errorf("%s values = %#v, want absent", name, values)
+		}
+	}
+	if got := headers.Get("Content-Type"); got != "application/json" {
+		t.Fatalf("Content-Type = %q, want preserved value", got)
+	}
+}
+
 func headerFieldValues(headers http.Header, target string) []string {
 	var values []string
 	for name, fieldValues := range headers {

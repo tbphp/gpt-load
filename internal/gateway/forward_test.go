@@ -877,7 +877,7 @@ func TestSanitizeForwardResponseHeadersPreservesSafeContentTypeFieldNameCollisio
 	}
 }
 
-func TestSanitizeForwardResponseHeadersInvalidatesSignaturesOnlyAfterDeletion(t *testing.T) {
+func TestSanitizeForwardResponseHeadersAlwaysDropsSignatures(t *testing.T) {
 	const upstreamModel = "provider-model"
 	for _, test := range []struct {
 		name   string
@@ -921,7 +921,7 @@ func TestSanitizeForwardResponseHeadersInvalidatesSignaturesOnlyAfterDeletion(t 
 		})
 	}
 
-	t.Run("alias without deletion preserves signatures", func(t *testing.T) {
+	t.Run("alias without deletion still removes signatures", func(t *testing.T) {
 		source := http.Header{
 			"X-Safe":          {"kept"},
 			"Signature":       {"sig"},
@@ -930,12 +930,12 @@ func TestSanitizeForwardResponseHeadersInvalidatesSignaturesOnlyAfterDeletion(t 
 		got := sanitizeForwardResponseHeaders(source, ForwardInput{
 			ExternalModel: "public-model", UpstreamModelID: upstreamModel,
 		})
-		if got.Get("Signature") != "sig" || got.Get("Signature-Input") != "input" {
-			t.Fatalf("unchanged Header set lost signatures: %#v", got)
+		if got.Get("Signature") != "" || got.Get("Signature-Input") != "" {
+			t.Fatalf("unchanged Header set retained signatures: %#v", got)
 		}
 	})
 
-	t.Run("no alias preserves signatures", func(t *testing.T) {
+	t.Run("no alias still removes signatures", func(t *testing.T) {
 		source := http.Header{
 			"X-Upstream":      {"selected=" + upstreamModel},
 			"Signature":       {"sig"},
@@ -944,8 +944,8 @@ func TestSanitizeForwardResponseHeadersInvalidatesSignaturesOnlyAfterDeletion(t 
 		got := sanitizeForwardResponseHeaders(source, ForwardInput{
 			ExternalModel: upstreamModel, UpstreamModelID: upstreamModel,
 		})
-		if got.Get("Signature") != "sig" || got.Get("Signature-Input") != "input" {
-			t.Fatalf("non-alias Header set lost signatures: %#v", got)
+		if got.Get("Signature") != "" || got.Get("Signature-Input") != "" {
+			t.Fatalf("non-alias Header set retained signatures: %#v", got)
 		}
 	})
 }
@@ -3596,6 +3596,66 @@ func TestForwardStreamRejectsContentEncodingListedAsConnectionToken(t *testing.T
 	}
 }
 
+func TestForwarderDropsSignaturesFromUnchangedIdentityResponse(t *testing.T) {
+	plain := []byte(`{"id":"safe"}`)
+	clients := platformhttp.NewHTTPClientManager()
+	input := streamForwardInput("https://api.example.test")
+	input.ObserveUsage = false
+	input.Request.Body = []byte(`{"model":"gpt-4o"}`)
+	clients.GetClient(nonStreamingClientConfig(input.Group.Timeouts)).Transport = forwarderRoundTripper(func(request *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header: http.Header{
+				"Content-Length":  {strconv.Itoa(len(plain))},
+				"ETag":            {`"wire-v1"`},
+				"Signature":       {"sig"},
+				"Signature-Input": {`sig1=("etag")`},
+			},
+			Body:          io.NopCloser(bytes.NewReader(plain)),
+			ContentLength: int64(len(plain)),
+			Request:       request,
+		}, nil
+	})
+
+	result := NewForwarder(clients, redact.New()).Forward(context.Background(), input)
+	if result.Err != nil || !bytes.Equal(result.Body, plain) || !reflect.DeepEqual(headerFieldValues(result.Header, "ETag"), []string{`"wire-v1"`}) {
+		t.Fatalf("Forward() result = %#v, bodyEqual=%t etag=%#v want unchanged identity representation with safe validator", result, bytes.Equal(result.Body, plain), headerFieldValues(result.Header, "ETag"))
+	}
+	if len(headerFieldValues(result.Header, "Signature")) != 0 ||
+		len(headerFieldValues(result.Header, "Signature-Input")) != 0 {
+		t.Fatalf("unchanged identity response retained signatures: %#v", result.Header)
+	}
+}
+
+func TestForwarderBodylessResponseDropsUnchangedIdentitySignatures(t *testing.T) {
+	clients := platformhttp.NewHTTPClientManager()
+	input := streamForwardInput("https://api.example.test")
+	input.ObserveUsage = false
+	input.Request.Method = http.MethodHead
+	clients.GetClient(nonStreamingClientConfig(input.Group.Timeouts)).Transport = forwarderRoundTripper(func(request *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header: http.Header{
+				"Content-Length":  {"12"},
+				"ETag":            {`"wire-v1"`},
+				"Signature":       {"sig"},
+				"Signature-Input": {`sig1=("etag")`},
+			},
+			Body:    io.NopCloser(strings.NewReader("")),
+			Request: request,
+		}, nil
+	})
+
+	result := NewForwarder(clients, redact.New()).Forward(context.Background(), input)
+	if result.Err != nil || result.StatusCode != http.StatusOK || !reflect.DeepEqual(headerFieldValues(result.Header, "ETag"), []string{`"wire-v1"`}) {
+		t.Fatalf("Forward() result = %#v, etag=%#v want unchanged bodyless representation with safe validator", result, headerFieldValues(result.Header, "ETag"))
+	}
+	if len(headerFieldValues(result.Header, "Signature")) != 0 ||
+		len(headerFieldValues(result.Header, "Signature-Input")) != 0 {
+		t.Fatalf("unchanged bodyless response retained signatures: %#v", result.Header)
+	}
+}
+
 type forwarderRoundTripper func(*http.Request) (*http.Response, error)
 
 func (roundTrip forwarderRoundTripper) RoundTrip(request *http.Request) (*http.Response, error) {
@@ -3950,14 +4010,12 @@ func setRepresentationMetadata(headers http.Header) {
 func assertRepresentationMetadata(t *testing.T, headers http.Header, wantPreserved bool) {
 	t.Helper()
 	want := map[string]string{
-		"ETag":            `"wire-v1"`,
-		"Digest":          "sha-256=wire-digest",
-		"Content-MD5":     "d2lyZQ==",
-		"Content-Range":   "bytes 0-9/10",
-		"Content-Digest":  "sha-256=:d2lyZQ==:",
-		"Repr-Digest":     "sha-256=:cmVwcg==:",
-		"Signature":       "sig1=:c2lnbmF0dXJl:",
-		"Signature-Input": `sig1=("content-digest");created=1`,
+		"ETag":           `"wire-v1"`,
+		"Digest":         "sha-256=wire-digest",
+		"Content-MD5":    "d2lyZQ==",
+		"Content-Range":  "bytes 0-9/10",
+		"Content-Digest": "sha-256=:d2lyZQ==:",
+		"Repr-Digest":    "sha-256=:cmVwcg==:",
 	}
 	for name, value := range want {
 		got := headers.Get(name)
@@ -3966,6 +4024,11 @@ func assertRepresentationMetadata(t *testing.T, headers http.Header, wantPreserv
 		}
 		if !wantPreserved && got != "" {
 			t.Errorf("%s = %q, want removed after body rewrite", name, got)
+		}
+	}
+	for _, name := range []string{"Signature", "Signature-Input"} {
+		if got := headers.Get(name); got != "" {
+			t.Errorf("%s = %q, want removed from downstream response", name, got)
 		}
 	}
 }

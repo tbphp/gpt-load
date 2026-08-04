@@ -75,12 +75,48 @@ func normalizeBufferedResponse(
 			len(headerFieldValues(normalized, "Content-Length")) > 0
 		deleteHeaderField(normalized, "Content-Length")
 	}
+	normalizeBufferedContentRange(status, normalized)
 	if representationHeadersChanged {
 		deleteHeaderField(normalized, "Signature")
 		deleteHeaderField(normalized, "Signature-Input")
 	}
+	stripDownstreamResponseSignatures(normalized)
 
 	return normalized, policy.writeBody
+}
+
+func normalizeBufferedContentRange(status int, headers http.Header) {
+	switch status {
+	case http.StatusPartialContent:
+		return
+	case http.StatusRequestedRangeNotSatisfiable:
+		if hasSafeUnsatisfiedContentRange(headers) {
+			return
+		}
+	}
+	deleteHeaderField(headers, "Content-Range")
+}
+
+func hasSafeUnsatisfiedContentRange(headers http.Header) bool {
+	values := headerFieldValues(headers, "Content-Range")
+	if len(values) != 1 {
+		return false
+	}
+	parts := strings.Fields(values[0])
+	if len(parts) != 2 || !strings.EqualFold(parts[0], "bytes") {
+		return false
+	}
+	rangeParts := strings.Split(parts[1], "/")
+	if len(rangeParts) != 2 || rangeParts[0] != "*" || rangeParts[1] == "" {
+		return false
+	}
+	for _, character := range rangeParts[1] {
+		if character < '0' || character > '9' {
+			return false
+		}
+	}
+	_, err := strconv.ParseUint(rangeParts[1], 10, 63)
+	return err == nil
 }
 
 func singleNonNegativeContentLength(headers http.Header) (string, bool) {

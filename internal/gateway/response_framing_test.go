@@ -178,14 +178,72 @@ func TestNormalizeBufferedResponse(t *testing.T) {
 	}
 }
 
-func TestNormalizeBufferedResponseInvalidatesSignaturesAfterRepresentationHeaderChanges(t *testing.T) {
+func TestNormalizeBufferedResponseFiltersContentRangeByStatus(t *testing.T) {
 	tests := []struct {
-		name               string
-		method             string
-		status             int
-		headers            http.Header
-		body               []byte
-		wantSignaturesGone bool
+		name             string
+		status           int
+		headers          http.Header
+		body             []byte
+		wantContentRange string
+	}{
+		{
+			name:   "ordinary success has no range semantics",
+			status: http.StatusOK,
+			headers: http.Header{
+				"Content-Range": {"bytes 0-2/3"},
+			},
+			body: []byte("abc"),
+		},
+		{
+			name:   "not modified has no range semantics",
+			status: http.StatusNotModified,
+			headers: http.Header{
+				"Content-Range": {"bytes 0-2/3"},
+			},
+		},
+		{
+			name:   "partial content preserves range",
+			status: http.StatusPartialContent,
+			headers: http.Header{
+				"Content-Range": {"bytes 0-2/3"},
+			},
+			body:             []byte("abc"),
+			wantContentRange: "bytes 0-2/3",
+		},
+		{
+			name:   "range not satisfiable preserves valid unsatisfied range",
+			status: http.StatusRequestedRangeNotSatisfiable,
+			headers: http.Header{
+				"Content-Range": {"bytes */3"},
+			},
+			wantContentRange: "bytes */3",
+		},
+		{
+			name:   "range not satisfiable removes malformed range",
+			status: http.StatusRequestedRangeNotSatisfiable,
+			headers: http.Header{
+				"Content-Range": {"bytes 0-2/3"},
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			gotHeaders, _ := normalizeBufferedResponse(http.MethodGet, test.status, test.headers, test.body)
+			if got := gotHeaders.Get("Content-Range"); got != test.wantContentRange {
+				t.Fatalf("Content-Range = %q, want %q; headers=%#v", got, test.wantContentRange, gotHeaders)
+			}
+		})
+	}
+}
+
+func TestNormalizeBufferedResponseAlwaysDropsSignatures(t *testing.T) {
+	tests := []struct {
+		name    string
+		method  string
+		status  int
+		headers http.Header
+		body    []byte
 	}{
 		{
 			name:   "head removes noncanonical identity coding",
@@ -197,7 +255,6 @@ func TestNormalizeBufferedResponseInvalidatesSignaturesAfterRepresentationHeader
 				"sIgNaTuRe":        {"sig"},
 				"sIgNaTuRe-InPuT":  {`sig1=("content-encoding")`},
 			},
-			wantSignaturesGone: true,
 		},
 		{
 			name:   "not modified removes identity coding",
@@ -209,7 +266,6 @@ func TestNormalizeBufferedResponseInvalidatesSignaturesAfterRepresentationHeader
 				"Signature":        {"sig"},
 				"Signature-Input":  {`sig1=("content-encoding")`},
 			},
-			wantSignaturesGone: true,
 		},
 		{
 			name:   "no content deletes length",
@@ -220,7 +276,6 @@ func TestNormalizeBufferedResponseInvalidatesSignaturesAfterRepresentationHeader
 				"Signature":       {"sig"},
 				"Signature-Input": {`sig1=("content-length")`},
 			},
-			wantSignaturesGone: true,
 		},
 		{
 			name:   "reset content deletes nonzero length",
@@ -231,10 +286,9 @@ func TestNormalizeBufferedResponseInvalidatesSignaturesAfterRepresentationHeader
 				"Signature":       {"sig"},
 				"Signature-Input": {`sig1=("content-length")`},
 			},
-			wantSignaturesGone: true,
 		},
 		{
-			name:   "unchanged head framing preserves signatures",
+			name:   "unchanged head framing removes signatures",
 			method: http.MethodHead,
 			status: http.StatusOK,
 			headers: http.Header{
@@ -244,7 +298,7 @@ func TestNormalizeBufferedResponseInvalidatesSignaturesAfterRepresentationHeader
 			},
 		},
 		{
-			name:   "unchanged not modified framing preserves signatures",
+			name:   "unchanged not modified framing removes signatures",
 			method: http.MethodGet,
 			status: http.StatusNotModified,
 			headers: http.Header{
@@ -258,14 +312,8 @@ func TestNormalizeBufferedResponseInvalidatesSignaturesAfterRepresentationHeader
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			got, _ := normalizeBufferedResponse(test.method, test.status, test.headers, test.body)
-			if test.wantSignaturesGone {
-				if len(headerFieldValues(got, "Signature")) != 0 || len(headerFieldValues(got, "Signature-Input")) != 0 {
-					t.Fatalf("normalized headers retained invalid signatures: %#v", got)
-				}
-				return
-			}
-			if got.Get("Signature") != "sig" || got.Get("Signature-Input") != `sig1=("content-length")` {
-				t.Fatalf("normalized headers discarded unchanged signatures: %#v", got)
+			if len(headerFieldValues(got, "Signature")) != 0 || len(headerFieldValues(got, "Signature-Input")) != 0 {
+				t.Fatalf("normalized headers retained signatures: %#v", got)
 			}
 		})
 	}
