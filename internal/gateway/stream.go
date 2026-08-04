@@ -276,6 +276,16 @@ type streamWatchdogController interface {
 }
 
 func pumpStream(ctx context.Context, body io.ReadCloser, writer *streamWriteController, idleTimeout time.Duration) error {
+	return pumpStreamWithFlushObserver(ctx, body, writer, idleTimeout, nil)
+}
+
+func pumpStreamWithFlushObserver(
+	ctx context.Context,
+	body io.ReadCloser,
+	writer *streamWriteController,
+	idleTimeout time.Duration,
+	afterFlush func(),
+) error {
 	if body == nil || writer == nil || writer.writer == nil {
 		return fmt.Errorf("stream body and downstream writer are required")
 	}
@@ -284,7 +294,7 @@ func pumpStream(ctx context.Context, body io.ReadCloser, writer *streamWriteCont
 	}
 
 	watchdog := newStreamWatchdog(body, idleTimeout)
-	return pumpStreamWithWatchdog(ctx, body, writer, watchdog)
+	return pumpStreamWithWatchdogObserver(ctx, body, writer, watchdog, afterFlush)
 }
 
 func pumpStreamWithWatchdog(
@@ -292,6 +302,16 @@ func pumpStreamWithWatchdog(
 	body io.ReadCloser,
 	writer *streamWriteController,
 	watchdog streamWatchdogController,
+) error {
+	return pumpStreamWithWatchdogObserver(ctx, body, writer, watchdog, nil)
+}
+
+func pumpStreamWithWatchdogObserver(
+	ctx context.Context,
+	body io.ReadCloser,
+	writer *streamWriteController,
+	watchdog streamWatchdogController,
+	afterFlush func(),
 ) error {
 	watchdog.reset()
 	stopCancellation := context.AfterFunc(ctx, func() {
@@ -334,6 +354,9 @@ func pumpStreamWithWatchdog(
 					kind: streamFailureDownstreamWrite,
 					err:  fmt.Errorf("flush upstream stream: %w", flushErr),
 				}
+			}
+			if afterFlush != nil {
+				afterFlush()
 			}
 		}
 		if err != nil {

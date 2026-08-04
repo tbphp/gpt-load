@@ -1681,10 +1681,15 @@ func TestHandlerRecordsCommittedStreamTerminalMatrix(t *testing.T) {
 	}
 	tests := []terminalCase{
 		{
-			name: "clean EOF",
+			name: "clean terminal survives later request cancellation",
 			observation: StreamObservation{
 				EndReason: StreamEndCleanEOF,
 			},
+			err: &streamFailure{
+				kind: streamFailureClientCanceled,
+				err:  context.Canceled,
+			},
+			cancelRequest:  true,
 			wantStatus:     telemetry.RequestStatusSuccess,
 			wantCategory:   telemetry.FailureCategoryOK,
 			wantHTTPStatus: http.StatusOK,

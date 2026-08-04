@@ -6,6 +6,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -15,6 +17,32 @@ import (
 	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/usage"
 )
+
+type cancelAfterFlushResponseWriter struct {
+	*recordingResponseWriter
+	cancel   context.CancelFunc
+	cancelAt int
+}
+
+func (writer *cancelAfterFlushResponseWriter) FlushError() error {
+	writer.flushes++
+	if writer.flushes == writer.cancelAt {
+		writer.cancel()
+	}
+	return nil
+}
+
+type releaseAfterFlushResponseWriter struct {
+	*recordingResponseWriter
+	release     func()
+	releaseOnce sync.Once
+}
+
+func (writer *releaseAfterFlushResponseWriter) FlushError() error {
+	writer.flushes++
+	writer.releaseOnce.Do(writer.release)
+	return nil
+}
 
 func TestResponsesSSETerminalLifecycleAndUsage(t *testing.T) {
 	t.Parallel()
@@ -103,6 +131,144 @@ func TestResponsesSSETerminalLifecycleAndUsage(t *testing.T) {
 				)
 			}
 		})
+	}
+}
+
+func TestResponsesSSECompletedFlushWinsOverLaterClientCancellation(t *testing.T) {
+	t.Parallel()
+
+	first := "data: {\"type\":\"response.output_text.delta\",\"delta\":\"ok\"}\n\n"
+	terminal := "event: response.completed\n" +
+		"data: {\"response\":{\"usage\":{\"input_tokens\":100,\"output_tokens\":30,\"total_tokens\":130}}}\n\n"
+	upstream := httptest.NewServer(http.HandlerFunc(func(
+		writer http.ResponseWriter,
+		request *http.Request,
+	) {
+		writer.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(writer, first+terminal)
+		writer.(http.Flusher).Flush()
+		<-request.Context().Done()
+	}))
+	defer upstream.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	downstream := &cancelAfterFlushResponseWriter{
+		recordingResponseWriter: newRecordingResponseWriter(),
+		cancel:                  cancel,
+		cancelAt:                2,
+	}
+	result := NewForwarder(
+		platformhttp.NewHTTPClientManager(),
+		redact.New(),
+	).ForwardStream(
+		ctx,
+		responsesStreamForwardInput(upstream.URL),
+		downstream,
+	)
+
+	wantUsage := usage.Result{
+		State:  usage.StateComplete,
+		Tokens: usage.Tokens{UncachedInput: 100, Output: 30},
+	}
+	if !errors.Is(result.Err, context.Canceled) || !result.Committed ||
+		result.Stream.EndReason != StreamEndCleanEOF ||
+		result.Usage != wantUsage ||
+		downstream.status != http.StatusOK ||
+		downstream.body.String() != first+terminal {
+		t.Fatalf("ForwardStream() result/downstream = %#v / %#v", result, downstream)
+	}
+}
+
+func TestResponsesSSEForwardsCompleteTerminalEventBeforeContinuing(t *testing.T) {
+	t.Parallel()
+
+	first := "data: {\"type\":\"response.output_text.delta\",\"delta\":\"ok\"}\n\n"
+	terminal := "event: response.completed\n" +
+		"data: {\"response\":{\"output\":[{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"" +
+		strings.Repeat("x", streamReadBufferSize*2) +
+		"\"}]}],\"usage\":{\"input_tokens\":100,\"output_tokens\":30,\"total_tokens\":130}}}\n\n"
+	upstream := httptest.NewServer(http.HandlerFunc(func(
+		writer http.ResponseWriter,
+		_ *http.Request,
+	) {
+		writer.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(writer, first+terminal)
+	}))
+	defer upstream.Close()
+
+	downstream := newRecordingResponseWriter()
+	result := NewForwarder(
+		platformhttp.NewHTTPClientManager(),
+		redact.New(),
+	).ForwardStream(
+		context.Background(),
+		responsesStreamForwardInput(upstream.URL),
+		downstream,
+	)
+
+	wantUsage := usage.Result{
+		State:  usage.StateComplete,
+		Tokens: usage.Tokens{UncachedInput: 100, Output: 30},
+	}
+	if result.Err != nil || !result.Committed ||
+		result.Stream.EndReason != StreamEndCleanEOF ||
+		result.Usage != wantUsage ||
+		downstream.status != http.StatusOK ||
+		downstream.body.String() != first+terminal {
+		t.Fatalf(
+			"ForwardStream() result/body length = %#v / %d, want complete terminal length %d",
+			result,
+			downstream.body.Len(),
+			len(first+terminal),
+		)
+	}
+}
+
+func TestResponsesSSEPreservesSplitCRLFAfterTerminal(t *testing.T) {
+	t.Parallel()
+
+	first := "data: {\"type\":\"response.output_text.delta\",\"delta\":\"ok\"}\n\n"
+	terminalPrefix := "event: response.completed\r\n" +
+		"data: {\"response\":{\"usage\":{\"input_tokens\":100,\"output_tokens\":30,\"total_tokens\":130}}}\r\n" +
+		"\r"
+	release := make(chan struct{})
+	upstream := httptest.NewServer(http.HandlerFunc(func(
+		writer http.ResponseWriter,
+		_ *http.Request,
+	) {
+		writer.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(writer, first+terminalPrefix)
+		writer.(http.Flusher).Flush()
+		<-release
+		_, _ = io.WriteString(writer, "\n")
+		writer.(http.Flusher).Flush()
+	}))
+	defer upstream.Close()
+
+	downstream := &releaseAfterFlushResponseWriter{
+		recordingResponseWriter: newRecordingResponseWriter(),
+		release:                 func() { close(release) },
+	}
+	result := NewForwarder(
+		platformhttp.NewHTTPClientManager(),
+		redact.New(),
+	).ForwardStream(
+		context.Background(),
+		responsesStreamForwardInput(upstream.URL),
+		downstream,
+	)
+
+	wantUsage := usage.Result{
+		State:  usage.StateComplete,
+		Tokens: usage.Tokens{UncachedInput: 100, Output: 30},
+	}
+	if result.Err != nil || !result.Committed ||
+		result.Stream.EndReason != StreamEndCleanEOF ||
+		result.Usage != wantUsage ||
+		downstream.status != http.StatusOK ||
+		downstream.body.String() != first+terminalPrefix+"\n" {
+		t.Fatalf("ForwardStream() result/body = %#v / %q", result, downstream.body.String())
 	}
 }
 
@@ -247,8 +413,7 @@ func TestResponsesSSERejectsEventsAfterTerminalWithoutReplacingUsage(t *testing.
 		State:  usage.StateComplete,
 		Tokens: usage.Tokens{UncachedInput: 100, Output: 30},
 	}
-	if !errors.Is(result.Err, ErrUpstreamProtocol) ||
-		!result.Committed ||
+	if !errors.Is(result.Err, ErrUpstreamProtocol) || !result.Committed ||
 		result.Stream.EndReason != StreamEndUpstreamProtocolError ||
 		result.Usage != wantUsage ||
 		downstream.body.String() != terminal {

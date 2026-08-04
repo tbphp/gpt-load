@@ -52,6 +52,7 @@ type streamEventObserver struct {
 	classifier          dialect.StreamEventClassifier
 	terminalRequired    bool
 	sawTerminal         bool
+	terminalForwarded   bool
 	terminalDisposition dialect.StreamEventDisposition
 	eventCount          int
 	firstProviderError  bool
@@ -168,6 +169,14 @@ func (observer *streamEventObserver) finalizeUsage() usage.Result {
 	return observer.usage.finalize()
 }
 
+func (observer *streamEventObserver) markTerminalForwarded() bool {
+	if observer == nil || !observer.sawTerminal {
+		return false
+	}
+	observer.terminalForwarded = true
+	return true
+}
+
 func (observer *streamEventObserver) endObservation() StreamObservation {
 	if observer == nil {
 		return StreamObservation{EndReason: StreamEndCleanEOF}
@@ -204,6 +213,15 @@ func observeStreamTermination(
 	events *streamEventObserver,
 ) StreamObservation {
 	observation := events.endObservation()
+	if events != nil && events.terminalForwarded {
+		if errors.Is(err, ErrUpstreamProtocol) {
+			return prioritizeStreamObservation(nil, err, observation)
+		}
+		if errors.Is(err, context.Canceled) ||
+			(ctx != nil && errors.Is(ctx.Err(), context.Canceled)) {
+			return observation
+		}
+	}
 	return prioritizeStreamObservation(ctx, err, observation)
 }
 
