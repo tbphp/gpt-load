@@ -115,6 +115,13 @@ func (forwarder *Forwarder) Forward(ctx context.Context, input ForwardInput) Ups
 				RequestWritten: true,
 			}
 		}
+		if response.StatusCode == http.StatusPartialContent &&
+			!hasSafeHeadContentRange(representationHeaders) {
+			return UpstreamResult{
+				Err:            fmt.Errorf("%w: invalid HEAD partial Content-Range", ErrUpstreamProtocol),
+				RequestWritten: true,
+			}
+		}
 		safeHeaders := sanitizeForwardResponseHeaders(representationHeaders, input, knownSecrets...)
 		safeHeaders, _ = normalizeBufferedResponse(
 			input.Request.Method,
@@ -289,7 +296,7 @@ func (forwarder *Forwarder) ForwardStream(
 	rewrittenStream := newSSEEventRewriteStream(streamBody, func(
 		event dialect.StreamEvent,
 		errorEvent bool,
-	) ([]byte, error) {
+	) (sseEventRewriteResult, error) {
 		firstPayload := firstPayloadPending
 		firstPayloadPending = false
 		safePayload := event.Payload
@@ -302,20 +309,22 @@ func (forwarder *Forwarder) ForwardStream(
 				int64(maxSSEEventBytes),
 			)
 			if !ok {
-				return nil, fmt.Errorf("%w: redact upstream SSE credential", ErrUpstreamProtocol)
+				return sseEventRewriteResult{}, fmt.Errorf("%w: redact upstream SSE credential", ErrUpstreamProtocol)
 			}
 		}
 		safeEvent := dialect.StreamEvent{
 			Name:    event.Name,
 			Payload: safePayload,
 		}
+		wasTerminal := streamEvents.sawTerminal
 		providerError, err := streamEvents.classify(
 			safeEvent,
 			errorEvent,
 		)
 		if err != nil {
-			return nil, err
+			return sseEventRewriteResult{}, err
 		}
+		terminal := !wasTerminal && streamEvents.sawTerminal
 		if !firstPayload {
 			streamEvents.observeUsageEvent(safeEvent)
 		}
@@ -331,7 +340,7 @@ func (forwarder *Forwarder) ForwardStream(
 			)
 		}
 		if !rewriteModel {
-			return safePayload, nil
+			return sseEventRewriteResult{body: safePayload, terminal: terminal}, nil
 		}
 		if providerError {
 			var ok bool
@@ -342,15 +351,15 @@ func (forwarder *Forwarder) ForwardStream(
 				int64(maxSSEEventBytes),
 			)
 			if !ok {
-				return nil, fmt.Errorf("%w: rewrite upstream SSE model literal", ErrUpstreamProtocol)
+				return sseEventRewriteResult{}, fmt.Errorf("%w: rewrite upstream SSE model literal", ErrUpstreamProtocol)
 			}
-			return safePayload, nil
+			return sseEventRewriteResult{body: safePayload, terminal: terminal}, nil
 		}
 		rewritten, err := rewriter.RewriteResponseModel(safePayload, input.ExternalModel)
 		if err != nil {
-			return nil, fmt.Errorf("%w: rewrite upstream response model: %v", ErrUpstreamProtocol, err)
+			return sseEventRewriteResult{}, fmt.Errorf("%w: rewrite upstream response model: %v", ErrUpstreamProtocol, err)
 		}
-		return rewritten, nil
+		return sseEventRewriteResult{body: rewritten, terminal: terminal}, nil
 	})
 	streamBody = rewrittenStream
 	invalidateRewrittenBodyHeaders(headers)
@@ -416,7 +425,7 @@ func (forwarder *Forwarder) ForwardStream(
 		result.Stream = observeStreamTermination(ctx, err, streamEvents)
 		return result
 	}
-	if rewrittenStream.consumeReadEventBoundary() {
+	if rewrittenStream.consumeReadTerminalBoundary() {
 		streamEvents.markTerminalForwarded()
 	}
 	if err := pumpStreamWithFlushObserver(
@@ -425,7 +434,7 @@ func (forwarder *Forwarder) ForwardStream(
 		streamWriter,
 		input.Group.Timeouts.StreamIdle,
 		func() {
-			if rewrittenStream.consumeReadEventBoundary() {
+			if rewrittenStream.consumeReadTerminalBoundary() {
 				streamEvents.markTerminalForwarded()
 			}
 		},
@@ -434,7 +443,7 @@ func (forwarder *Forwarder) ForwardStream(
 	}
 	if result.Err == nil {
 		result.Err = streamEvents.validateEOF()
-		if result.Err == nil && rewrittenStream.consumeReadEventBoundary() {
+		if result.Err == nil && rewrittenStream.consumeReadTerminalBoundary() {
 			streamEvents.markTerminalForwarded()
 		}
 	}

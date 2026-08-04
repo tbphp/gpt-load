@@ -20,8 +20,9 @@ func newSSERewriteStream(
 	}
 	return newSSEEventRewriteStream(
 		body,
-		func(event dialect.StreamEvent, providerError bool) ([]byte, error) {
-			return rewrite(event.Payload, providerError)
+		func(event dialect.StreamEvent, providerError bool) (sseEventRewriteResult, error) {
+			body, err := rewrite(event.Payload, providerError)
+			return sseEventRewriteResult{body: body}, err
 		},
 	)
 }

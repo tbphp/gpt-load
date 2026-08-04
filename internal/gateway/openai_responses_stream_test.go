@@ -180,6 +180,46 @@ func TestResponsesSSECompletedFlushWinsOverLaterClientCancellation(t *testing.T)
 	}
 }
 
+func TestResponsesSSELargeTerminalAfterPureCREventDoesNotMarkPartialTerminalForwarded(t *testing.T) {
+	first := "event: response.output_text.delta\r" +
+		"data: {\"type\":\"response.output_text.delta\",\"delta\":\"ok\"}\r\r"
+	terminal := "event: response.completed\n" +
+		"data: {\"response\":{\"output\":[{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"" +
+		strings.Repeat("x", streamReadBufferSize*2) +
+		"\"}]}],\"usage\":{\"input_tokens\":100,\"output_tokens\":30,\"total_tokens\":130}}}\n\n"
+	upstream := httptest.NewServer(http.HandlerFunc(func(
+		writer http.ResponseWriter,
+		_ *http.Request,
+	) {
+		writer.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(writer, first+terminal)
+	}))
+	defer upstream.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	downstream := &cancelAfterFlushResponseWriter{
+		recordingResponseWriter: newRecordingResponseWriter(),
+		cancel:                  cancel,
+		cancelAt:                2,
+	}
+	result := NewForwarder(
+		platformhttp.NewHTTPClientManager(),
+		redact.New(),
+	).ForwardStream(
+		ctx,
+		responsesStreamForwardInput(upstream.URL),
+		downstream,
+	)
+
+	if !errors.Is(result.Err, context.Canceled) ||
+		result.Stream.EndReason != StreamEndClientCanceled ||
+		downstream.body.Len() <= len(first) ||
+		downstream.body.Len() >= len(first+terminal) {
+		t.Fatalf("ForwardStream() result = %#v, want client cancellation before terminal forwarding", result)
+	}
+}
+
 func TestResponsesSSEForwardsCompleteTerminalEventBeforeContinuing(t *testing.T) {
 	t.Parallel()
 

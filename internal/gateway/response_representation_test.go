@@ -265,6 +265,68 @@ func TestPrepareSuccessRepresentationValidatesPartialContentRangeAgainstPlaintex
 	}
 }
 
+func TestHasSafeHeadContentRange(t *testing.T) {
+	tests := []struct {
+		name    string
+		headers http.Header
+		want    bool
+	}{
+		{
+			name: "matching content length",
+			headers: http.Header{
+				"Content-Length": {"3"},
+				"Content-Range":  {"bytes 10-12/100"},
+			},
+			want: true,
+		},
+		{
+			name: "wildcard total",
+			headers: http.Header{
+				"Content-Length": {"3"},
+				"Content-Range":  {"bytes 10-12/*"},
+			},
+			want: true,
+		},
+		{
+			name: "content length absent",
+			headers: http.Header{
+				"Content-Range": {"bytes 10-12/100"},
+			},
+			want: true,
+		},
+		{
+			name: "content length mismatch",
+			headers: http.Header{
+				"Content-Length": {"4"},
+				"Content-Range":  {"bytes 10-12/100"},
+			},
+		},
+		{
+			name: "invalid bounds",
+			headers: http.Header{
+				"Content-Length": {"3"},
+				"Content-Range":  {"bytes 12-10/100"},
+			},
+		},
+		{
+			name: "case colliding content range",
+			headers: http.Header{
+				"Content-Length": {"3"},
+				"Content-Range":  {"bytes 10-12/100"},
+				"content-range":  {"bytes 10-12/100"},
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := hasSafeHeadContentRange(test.headers); got != test.want {
+				t.Fatalf("hasSafeHeadContentRange() = %t, want %t", got, test.want)
+			}
+		})
+	}
+}
+
 func TestPrepareSuccessRepresentationRejectsChangedPartialContent(t *testing.T) {
 	const (
 		upstreamModel = "provider-model"

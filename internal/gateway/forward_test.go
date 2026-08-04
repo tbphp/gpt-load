@@ -3404,6 +3404,25 @@ func TestForwarderBodylessResponseSemantics(t *testing.T) {
 	}
 }
 
+func TestForwarderHeadPartialContentRejectsInvalidContentRange(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Length", "3")
+		writer.Header().Set("Content-Range", "bytes 10-5/100")
+		writer.WriteHeader(http.StatusPartialContent)
+	}))
+	defer upstream.Close()
+
+	input := streamForwardInput(upstream.URL)
+	input.ObserveUsage = false
+	input.Request.Method = http.MethodHead
+	result := NewForwarder(platformhttp.NewHTTPClientManager(), redact.New()).Forward(
+		context.Background(), input,
+	)
+	if !errors.Is(result.Err, ErrUpstreamProtocol) || !result.RequestWritten {
+		t.Fatalf("Forward() result = %#v, want written upstream protocol error", result)
+	}
+}
+
 func TestForwarderBodylessResponseInvalidatesSignaturesAfterHeaderNormalization(t *testing.T) {
 	tests := []struct {
 		name             string

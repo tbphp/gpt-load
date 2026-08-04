@@ -18,10 +18,15 @@ var (
 	errSSEEventIncomplete = errors.New("stream ended with an incomplete SSE event")
 )
 
+type sseEventRewriteResult struct {
+	body     []byte
+	terminal bool
+}
+
 type sseEventPayloadRewriter func(
 	dialect.StreamEvent,
 	bool,
-) ([]byte, error)
+) (sseEventRewriteResult, error)
 
 type sseRewriteStream struct {
 	readMu sync.Mutex
@@ -30,15 +35,16 @@ type sseRewriteStream struct {
 	body    io.ReadCloser
 	rewrite sseEventPayloadRewriter
 
-	pending         []byte
-	output          []byte
-	scratch         []byte
-	scanner         sseRewriteBoundaryScanner
-	deferredErr     error
-	readEndedEvent  bool
-	outputEndsEvent bool
-	finished        bool
-	closed          bool
+	pending            []byte
+	output             []byte
+	scratch            []byte
+	scanner            sseRewriteBoundaryScanner
+	deferredErr        error
+	readEndedTerminal  bool
+	outputEndsEvent    bool
+	outputEndsTerminal bool
+	finished           bool
+	closed             bool
 }
 
 func newSSEEventRewriteStream(
@@ -58,7 +64,7 @@ func (stream *sseRewriteStream) Read(target []byte) (int, error) {
 	stream.readMu.Lock()
 	defer stream.readMu.Unlock()
 	stream.mu.Lock()
-	stream.readEndedEvent = false
+	stream.readEndedTerminal = false
 	stream.mu.Unlock()
 
 	zeroReads := 0
@@ -77,13 +83,15 @@ func (stream *sseRewriteStream) Read(target []byte) (int, error) {
 			stream.output = stream.output[read:]
 			if len(stream.output) == 0 {
 				stream.output = nil
-				stream.readEndedEvent = stream.readEndedEvent || stream.outputEndsEvent
+				if stream.outputEndsEvent {
+					stream.readEndedTerminal = stream.readEndedTerminal || stream.outputEndsTerminal
+				}
 				stream.outputEndsEvent = false
+				stream.outputEndsTerminal = false
 			}
 			stream.mu.Unlock()
 			return read, nil
 		}
-		hadOptionalLF := stream.scanner.optionalLineFeed
 		optionalLF, overflow := stream.scanner.ConsumeOptionalLineFeed(
 			stream.pending,
 			stream.deferredErr != nil,
@@ -99,12 +107,10 @@ func (stream *sseRewriteStream) Read(target []byte) (int, error) {
 				stream.pending = nil
 			}
 			stream.output = []byte{'\n'}
-			stream.outputEndsEvent = true
+			stream.outputEndsEvent = false
+			stream.outputEndsTerminal = false
 			stream.mu.Unlock()
 			continue
-		}
-		if hadOptionalLF && !stream.scanner.optionalLineFeed {
-			stream.readEndedEvent = true
 		}
 
 		eventEnd, complete := stream.scanner.Find(stream.pending)
@@ -129,7 +135,7 @@ func (stream *sseRewriteStream) Read(target []byte) (int, error) {
 				stream.mu.Unlock()
 				return 0, err
 			}
-			if len(rewritten) > maxSSEEventBytes {
+			if len(rewritten.body) > maxSSEEventBytes {
 				stream.mu.Lock()
 				stream.finishLocked()
 				stream.mu.Unlock()
@@ -140,9 +146,10 @@ func (stream *sseRewriteStream) Read(target []byte) (int, error) {
 				stream.mu.Unlock()
 				return 0, io.ErrClosedPipe
 			}
-			stream.scanner.AfterEvent(eventEnd, len(rewritten))
-			stream.output = rewritten
-			stream.outputEndsEvent = !stream.scanner.optionalLineFeed
+			stream.scanner.AfterEvent(eventEnd, len(rewritten.body))
+			stream.output = rewritten.body
+			stream.outputEndsEvent = true
+			stream.outputEndsTerminal = rewritten.terminal
 			stream.mu.Unlock()
 			continue
 		}
@@ -204,14 +211,14 @@ func (stream *sseRewriteStream) Read(target []byte) (int, error) {
 	}
 }
 
-func (stream *sseRewriteStream) consumeReadEventBoundary() bool {
+func (stream *sseRewriteStream) consumeReadTerminalBoundary() bool {
 	if stream == nil {
 		return false
 	}
 	stream.mu.Lock()
 	defer stream.mu.Unlock()
-	ended := stream.readEndedEvent
-	stream.readEndedEvent = false
+	ended := stream.readEndedTerminal
+	stream.readEndedTerminal = false
 	return ended
 }
 
@@ -227,7 +234,9 @@ func (stream *sseRewriteStream) Close() error {
 	stream.rewrite = nil
 	stream.pending = nil
 	stream.output = nil
+	stream.readEndedTerminal = false
 	stream.outputEndsEvent = false
+	stream.outputEndsTerminal = false
 	stream.scratch = nil
 	stream.scanner.Reset()
 	stream.deferredErr = nil
@@ -242,7 +251,9 @@ func (stream *sseRewriteStream) Close() error {
 func (stream *sseRewriteStream) finishLocked() {
 	stream.pending = nil
 	stream.output = nil
+	stream.readEndedTerminal = false
 	stream.outputEndsEvent = false
+	stream.outputEndsTerminal = false
 	stream.deferredErr = nil
 	stream.finished = true
 	stream.scanner.Reset()
@@ -353,9 +364,9 @@ type sseEventLine struct {
 func rewriteSSEEventWithMetadata(
 	event []byte,
 	rewrite sseEventPayloadRewriter,
-) ([]byte, error) {
+) (sseEventRewriteResult, error) {
 	if rewrite == nil {
-		return nil, fmt.Errorf("SSE rewrite callback is required")
+		return sseEventRewriteResult{}, fmt.Errorf("SSE rewrite callback is required")
 	}
 	lines := splitSSEEventLines(event)
 	dataValues := make([][]byte, 0)
@@ -374,11 +385,11 @@ func rewriteSSEEventWithMetadata(
 		dataValues = append(dataValues, lines[index].data)
 	}
 	if firstDataLine < 0 {
-		return bytes.Clone(event), nil
+		return sseEventRewriteResult{body: bytes.Clone(event)}, nil
 	}
 	payload := bytes.Join(dataValues, []byte{'\n'})
 	if len(payload) == 0 || bytes.Equal(payload, []byte("[DONE]")) {
-		return bytes.Clone(event), nil
+		return sseEventRewriteResult{body: bytes.Clone(event)}, nil
 	}
 	errorEvent := bytes.Equal(eventName, []byte("error")) || isSSEErrorPayload(payload)
 	rewritten, err := rewrite(dialect.StreamEvent{
@@ -386,19 +397,20 @@ func rewriteSSEEventWithMetadata(
 		Payload: payload,
 	}, errorEvent)
 	if err != nil {
-		return nil, fmt.Errorf("rewrite SSE event payload: %w", err)
+		return sseEventRewriteResult{}, fmt.Errorf("rewrite SSE event payload: %w", err)
 	}
-	if bytes.Equal(rewritten, payload) {
-		return bytes.Clone(event), nil
+	if bytes.Equal(rewritten.body, payload) {
+		rewritten.body = bytes.Clone(event)
+		return rewritten, nil
 	}
 
 	var output bytes.Buffer
-	output.Grow(len(event) - len(payload) + len(rewritten))
+	output.Grow(len(event) - len(payload) + len(rewritten.body))
 	for index, line := range lines {
 		switch {
 		case index == firstDataLine:
 			_, _ = output.WriteString("data: ")
-			_, _ = output.Write(rewritten)
+			_, _ = output.Write(rewritten.body)
 			_, _ = output.Write(line.terminator)
 		case line.isData:
 			continue
@@ -407,7 +419,8 @@ func rewriteSSEEventWithMetadata(
 			_, _ = output.Write(line.terminator)
 		}
 	}
-	return output.Bytes(), nil
+	rewritten.body = output.Bytes()
+	return rewritten, nil
 }
 
 func parseSSEEventName(line []byte) ([]byte, bool) {
