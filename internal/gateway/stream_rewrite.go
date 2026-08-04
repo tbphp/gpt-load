@@ -234,7 +234,6 @@ func (stream *sseRewriteStream) Close() error {
 	stream.rewrite = nil
 	stream.pending = nil
 	stream.output = nil
-	stream.readEndedTerminal = false
 	stream.outputEndsEvent = false
 	stream.outputEndsTerminal = false
 	stream.scratch = nil

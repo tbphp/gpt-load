@@ -32,6 +32,41 @@ func (writer *cancelAfterFlushResponseWriter) FlushError() error {
 	return nil
 }
 
+type cancelAfterFlushWaitForCloseResponseWriter struct {
+	*recordingResponseWriter
+	cancel   context.CancelFunc
+	closed   <-chan struct{}
+	cancelAt int
+}
+
+func (writer *cancelAfterFlushWaitForCloseResponseWriter) FlushError() error {
+	writer.flushes++
+	if writer.flushes == writer.cancelAt {
+		writer.cancel()
+		select {
+		case <-writer.closed:
+		case <-time.After(time.Second):
+			return errors.New("timed out waiting for stream close")
+		}
+	}
+	return nil
+}
+
+type closeNotifyingReadCloser struct {
+	reader    io.Reader
+	closed    chan struct{}
+	closeOnce sync.Once
+}
+
+func (body *closeNotifyingReadCloser) Read(target []byte) (int, error) {
+	return body.reader.Read(target)
+}
+
+func (body *closeNotifyingReadCloser) Close() error {
+	body.closeOnce.Do(func() { close(body.closed) })
+	return nil
+}
+
 type releaseAfterFlushResponseWriter struct {
 	*recordingResponseWriter
 	release     func()
@@ -175,6 +210,45 @@ func TestResponsesSSECompletedFlushWinsOverLaterClientCancellation(t *testing.T)
 		result.Stream.EndReason != StreamEndCleanEOF ||
 		result.Usage != wantUsage ||
 		downstream.status != http.StatusOK ||
+		downstream.body.String() != first+terminal {
+		t.Fatalf("ForwardStream() result/downstream = %#v / %#v", result, downstream)
+	}
+}
+
+func TestResponsesSSECompletedFlushKeepsTerminalBoundaryWhenCloseRacesAfterFlush(t *testing.T) {
+	first := "data: {\"type\":\"response.output_text.delta\",\"delta\":\"ok\"}\n\n"
+	terminal := "event: response.completed\n" +
+		"data: {\"response\":{\"usage\":{\"input_tokens\":100,\"output_tokens\":30,\"total_tokens\":130}}}\n\n"
+	closed := make(chan struct{})
+	body := &closeNotifyingReadCloser{
+		reader: strings.NewReader(first + terminal),
+		closed: closed,
+	}
+	clients := platformhttp.NewHTTPClientManager()
+	input := responsesStreamForwardInput("https://api.example.test")
+	clients.GetClient(streamingClientConfig(input.Group.Timeouts)).Transport = forwarderRoundTripper(func(request *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header: http.Header{
+				"Content-Type": {"text/event-stream"},
+			},
+			Body:    body,
+			Request: request,
+		}, nil
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	downstream := &cancelAfterFlushWaitForCloseResponseWriter{
+		recordingResponseWriter: newRecordingResponseWriter(),
+		cancel:                  cancel,
+		closed:                  closed,
+		cancelAt:                2,
+	}
+	result := NewForwarder(clients, redact.New()).ForwardStream(ctx, input, downstream)
+
+	if !errors.Is(result.Err, context.Canceled) || !result.Committed ||
+		result.Stream.EndReason != StreamEndCleanEOF ||
 		downstream.body.String() != first+terminal {
 		t.Fatalf("ForwardStream() result/downstream = %#v / %#v", result, downstream)
 	}
