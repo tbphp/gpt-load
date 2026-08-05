@@ -194,6 +194,7 @@ func TestHandlerCoordinatesCooldownMutation(t *testing.T) {
 	close(coordinator.releaseEntry)
 	observed := receiveTestSignal(t, coordinator.observed, "cooldown mutation observation")
 	if observed.cooldownCalls != 1 || observed.stats != (health.KeyStats{
+		Problem:             1,
 		ConsecutiveProblem:  1,
 		LastFailureCategory: health.FailureCategoryRateLimited,
 		LastStatusCode:      http.StatusTooManyRequests,
@@ -349,6 +350,7 @@ func TestHandlerRecordsCooldownFailureContext(t *testing.T) {
 		)
 	}
 	if got, want := stats.Snapshot(1, now), (health.KeyStats{
+		Problem:             1,
 		ConsecutiveProblem:  1,
 		LastFailureCategory: health.FailureCategoryRateLimited,
 		LastStatusCode:      http.StatusTooManyRequests,
@@ -441,6 +443,7 @@ func TestHandlerCoordinatesAttributableFailureMutation(t *testing.T) {
 		observed.blacklistCalls != 1 ||
 		observed.stats != (health.KeyStats{
 			Failure:             1,
+			Problem:             1,
 			ConsecutiveFailure:  1,
 			ConsecutiveProblem:  1,
 			LastFailureCategory: health.FailureCategoryInvalidKey,
@@ -510,7 +513,7 @@ func TestGatewayFailureAndValidationRecoveryFailureFirstKeepsRegistryAndStatsFai
 		t.Fatalf("blacklisted keys = %#v, want %#v", got, want)
 	}
 	if got, want := stats.Snapshot(1, now), (health.KeyStats{
-		Failure: 2, ConsecutiveFailure: 2, ConsecutiveProblem: 2,
+		Failure: 2, Problem: 2, ConsecutiveFailure: 2, ConsecutiveProblem: 2,
 	}); got != want {
 		t.Fatalf("stats = %#v, want %#v", got, want)
 	}
@@ -569,7 +572,7 @@ func TestGatewayFailureAndValidationRecoveryRecoveryFirstLeavesNewFailure(t *tes
 		t.Fatalf("active refs = %#v, want generation 2 after recovery then failure", refs)
 	}
 	if got, want := stats.Snapshot(1, now), (health.KeyStats{
-		Failure: 1, ConsecutiveFailure: 1, ConsecutiveProblem: 1,
+		Failure: 1, Problem: 1, ConsecutiveFailure: 1, ConsecutiveProblem: 1,
 	}); got != want {
 		t.Fatalf("stats = %#v, want %#v", got, want)
 	}
@@ -664,6 +667,7 @@ func TestHandlerRecordsNonStreamingResultStatsByAction(t *testing.T) {
 			},
 			want: health.KeyStats{
 				Failure:             1,
+				Problem:             1,
 				ConsecutiveFailure:  1,
 				ConsecutiveProblem:  1,
 				LastFailureCategory: health.FailureCategoryInvalidKey,
@@ -685,6 +689,7 @@ func TestHandlerRecordsNonStreamingResultStatsByAction(t *testing.T) {
 				ClassificationBody: []byte(`{"error":"rate limit"}`), RequestWritten: true,
 			},
 			want: health.KeyStats{
+				Problem:             1,
 				ConsecutiveProblem:  1,
 				LastFailureCategory: health.FailureCategoryRateLimited,
 				LastStatusCode:      http.StatusTooManyRequests,
@@ -697,6 +702,7 @@ func TestHandlerRecordsNonStreamingResultStatsByAction(t *testing.T) {
 				ClassificationBody: []byte(`{"error":"model not found"}`), RequestWritten: true,
 			},
 			want: health.KeyStats{
+				Problem:             1,
 				ConsecutiveProblem:  1,
 				LastFailureCategory: health.FailureCategoryModelUnavailable,
 				LastStatusCode:      http.StatusNotFound,
@@ -772,6 +778,7 @@ func TestHandlerRecordsInvalidKeyPerAttempt(t *testing.T) {
 
 	if got := stats.Snapshot(1, now); got != (health.KeyStats{
 		Failure:             1,
+		Problem:             1,
 		ConsecutiveFailure:  1,
 		ConsecutiveProblem:  1,
 		LastFailureCategory: health.FailureCategoryInvalidKey,

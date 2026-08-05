@@ -39,18 +39,23 @@ watch(
       :model-value="modelValue"
       @update:model-value="(value) => typeof value === 'string' && emit('update:modelValue', value)"
     >
-      <TabsList class="app-tabs__list" :aria-label="label">
-        <TabsTrigger
-          v-for="item in items"
-          :key="item.value"
-          class="app-tabs__trigger"
-          :value="item.value"
-          :data-tab-value="item.value"
-        >
-          <span>{{ item.label }}</span>
-          <span v-if="item.count !== undefined" class="app-tabs__count">{{ item.count }}</span>
-        </TabsTrigger>
-      </TabsList>
+      <div class="app-tabs__bar">
+        <TabsList class="app-tabs__list" :aria-label="label">
+          <TabsTrigger
+            v-for="item in items"
+            :key="item.value"
+            class="app-tabs__trigger"
+            :value="item.value"
+            :data-tab-value="item.value"
+          >
+            <span>{{ item.label }}</span>
+            <span v-if="item.count !== undefined" class="app-tabs__count">{{ item.count }}</span>
+          </TabsTrigger>
+        </TabsList>
+        <div v-if="$slots.actions" class="app-tabs__actions">
+          <slot name="actions" />
+        </div>
+      </div>
       <TabsContent class="app-tabs__content" :value="modelValue">
         <slot />
       </TabsContent>
@@ -66,12 +71,27 @@ watch(
   display: grid;
   gap: var(--space-5);
 }
+.app-tabs__bar {
+  display: flex;
+  min-width: 0;
+  align-items: flex-end;
+  gap: var(--space-4);
+  border-bottom: 1px solid var(--color-border-subtle);
+}
 .app-tabs__list {
   display: flex;
+  min-width: 0;
   max-width: 100%;
+  flex: 1 1 auto;
   gap: var(--space-1);
   overflow-x: auto;
-  border-bottom: 1px solid var(--color-border-subtle);
+  border-bottom: 0;
+}
+.app-tabs__actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  padding-bottom: 9px;
 }
 .app-tabs__trigger {
   display: inline-flex;
@@ -107,6 +127,8 @@ watch(
 }
 .app-tabs--detail .app-tabs__list {
   gap: var(--space-6);
+}
+.app-tabs--detail .app-tabs__bar {
   border-top: 1px solid var(--color-border-control);
 }
 .app-tabs--detail .app-tabs__trigger {
@@ -127,6 +149,15 @@ watch(
 
   .app-tabs--detail .app-tabs__trigger {
     min-height: var(--detail-tab-min-height-compact);
+  }
+}
+@media (max-width: 560px) {
+  .app-tabs__bar {
+    gap: var(--space-2);
+  }
+
+  .app-tabs__actions {
+    padding-bottom: 7px;
   }
 }
 @media (prefers-reduced-motion: reduce) {

@@ -49,7 +49,7 @@ func TestStatsStoreRecordAggregatesRollingWindow(t *testing.T) {
 	store.RecordFailure(1, FailureCategoryAmbiguous, 0, base.Add(-5*time.Minute))
 
 	got := store.Snapshot(1, base)
-	want := KeyStats{Success: 2, Failure: 1}
+	want := KeyStats{Success: 2, Failure: 1, Problem: 1}
 	if got != want {
 		t.Fatalf("Snapshot() = %#v, want %#v", got, want)
 	}
@@ -76,7 +76,7 @@ func TestStatsStoreRecordDiscardsOlderSlotCollision(t *testing.T) {
 		store.RecordSuccess(1, base)
 
 		got := store.Snapshot(1, base.Add(5*time.Minute))
-		want := KeyStats{Failure: 1, ConsecutiveFailure: 1, ConsecutiveProblem: 1}
+		want := KeyStats{Failure: 1, Problem: 1, ConsecutiveFailure: 1, ConsecutiveProblem: 1}
 		if got != want {
 			t.Fatalf("Snapshot() = %#v, want %#v", got, want)
 		}
@@ -104,13 +104,13 @@ func TestStatsStoreConsecutiveFailureLifecycle(t *testing.T) {
 	store.RecordFailure(1, FailureCategoryAmbiguous, 0, base.Add(-5*time.Minute))
 	store.RecordFailure(1, FailureCategoryAmbiguous, 0, base.Add(-4*time.Minute))
 	if got, want := store.Snapshot(1, base), (KeyStats{
-		Failure: 1, ConsecutiveFailure: 2, ConsecutiveProblem: 2,
+		Failure: 1, Problem: 1, ConsecutiveFailure: 2, ConsecutiveProblem: 2,
 	}); got != want {
 		t.Fatalf("after failures Snapshot() = %#v, want %#v", got, want)
 	}
 
 	store.RecordSuccess(1, base)
-	if got, want := store.Snapshot(1, base), (KeyStats{Success: 1, Failure: 1}); got != want {
+	if got, want := store.Snapshot(1, base), (KeyStats{Success: 1, Failure: 1, Problem: 1}); got != want {
 		t.Fatalf("after success Snapshot() = %#v, want %#v", got, want)
 	}
 }
@@ -121,6 +121,7 @@ func TestStatsStoreProblemContextLifecycle(t *testing.T) {
 
 	store.RecordProblem(7, FailureCategoryRateLimited, 429, base)
 	if got, want := store.Snapshot(7, base), (KeyStats{
+		Problem:             1,
 		ConsecutiveProblem:  1,
 		LastFailureCategory: FailureCategoryRateLimited,
 		LastStatusCode:      429,
@@ -131,6 +132,7 @@ func TestStatsStoreProblemContextLifecycle(t *testing.T) {
 	store.RecordFailure(7, FailureCategoryInvalidKey, 401, base.Add(time.Second))
 	if got, want := store.Snapshot(7, base), (KeyStats{
 		Failure:             1,
+		Problem:             2,
 		ConsecutiveFailure:  1,
 		ConsecutiveProblem:  2,
 		LastFailureCategory: FailureCategoryInvalidKey,
@@ -143,6 +145,7 @@ func TestStatsStoreProblemContextLifecycle(t *testing.T) {
 	if got, want := store.Snapshot(7, base), (KeyStats{
 		Success: 1,
 		Failure: 1,
+		Problem: 2,
 	}); got != want {
 		t.Fatalf("after success Snapshot() = %#v, want %#v", got, want)
 	}
@@ -158,6 +161,7 @@ func TestStatsStoreOlderEventDoesNotReplaceLatestFailureContext(t *testing.T) {
 	got := store.Snapshot(7, base)
 	want := KeyStats{
 		Failure:             1,
+		Problem:             2,
 		ConsecutiveFailure:  1,
 		ConsecutiveProblem:  1,
 		LastFailureCategory: FailureCategoryInvalidKey,
@@ -203,7 +207,7 @@ func TestStatsStoreClearProblemStatePreservesRollingBuckets(t *testing.T) {
 	store.ClearProblemState(7)
 
 	got := store.Snapshot(7, base)
-	want := KeyStats{Success: 1, Failure: 2}
+	want := KeyStats{Success: 1, Failure: 2, Problem: 2}
 	if got != want {
 		t.Fatalf("Snapshot() after ClearProblemState = %#v, want %#v", got, want)
 	}
@@ -227,7 +231,7 @@ func TestStatsStoreResetUnknownAndZeroKeyIsNoop(t *testing.T) {
 	store.RecordFailure(7, FailureCategoryAmbiguous, 0, base)
 	store.Reset(0)
 	if got, want := store.Snapshot(7, base), (KeyStats{
-		Failure: 1, ConsecutiveFailure: 1, ConsecutiveProblem: 1,
+		Failure: 1, Problem: 1, ConsecutiveFailure: 1, ConsecutiveProblem: 1,
 	}); got != want {
 		t.Fatalf("Snapshot() after Reset(0) = %#v, want %#v", got, want)
 	}

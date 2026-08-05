@@ -362,7 +362,7 @@ func TestValidationWorkerFailureGenerationChangesDuringProbeRejectsRecovery(t *t
 		t.Fatalf("blacklisted keys = %#v, want stale recovery rejected as %#v", got, want)
 	}
 	if got, want := stats.Snapshot(7, now), (health.KeyStats{
-		Failure: 1, ConsecutiveFailure: 1, ConsecutiveProblem: 1,
+		Failure: 1, Problem: 1, ConsecutiveFailure: 1, ConsecutiveProblem: 1,
 	}); got != want {
 		t.Fatalf("stats after stale recovery = %#v, want %#v", got, want)
 	}

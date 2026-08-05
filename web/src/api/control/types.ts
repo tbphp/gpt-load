@@ -221,8 +221,8 @@ export interface HealthProblemKeyDto {
   cooldown_until_ms: number | null
   failure_count: number
   recent_success_count: number
-  recent_failure_count: number
-  consecutive_failure_count: number
+  recent_problem_count: number
+  consecutive_problem_count: number
   weight_manual: number | null
   weight_auto: number
   recovery: HealthRecoveryDto

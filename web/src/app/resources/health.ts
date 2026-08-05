@@ -53,8 +53,8 @@ const problemKeyFields = [
   'cooldown_until_ms',
   'failure_count',
   'recent_success_count',
-  'recent_failure_count',
-  'consecutive_failure_count',
+  'recent_problem_count',
+  'consecutive_problem_count',
   'weight_manual',
   'weight_auto',
   'recovery',
@@ -168,8 +168,8 @@ function projectProblemKey(value: unknown): HealthProblemKeyDto {
     cooldown_until_ms: cooldownUntilMS,
     failure_count: projectSafeInteger(record.failure_count, { minimum: 0 }),
     recent_success_count: projectSafeInteger(record.recent_success_count, { minimum: 0 }),
-    recent_failure_count: projectSafeInteger(record.recent_failure_count, { minimum: 0 }),
-    consecutive_failure_count: projectSafeInteger(record.consecutive_failure_count, {
+    recent_problem_count: projectSafeInteger(record.recent_problem_count, { minimum: 0 }),
+    consecutive_problem_count: projectSafeInteger(record.consecutive_problem_count, {
       minimum: 0,
     }),
     weight_manual:
@@ -236,11 +236,11 @@ export function healthQueryOptions(client: ApiClient, intervalMs?: number) {
   return queryOptions({
     queryKey: controlQueryKeys.health(),
     queryFn: ({ signal }) => getRuntimeHealth(client, signal),
+    refetchOnWindowFocus: false,
     ...(intervalMs !== undefined
       ? {
           refetchInterval: intervalMs,
           refetchIntervalInBackground: false,
-          refetchOnWindowFocus: false,
         }
       : {}),
   })

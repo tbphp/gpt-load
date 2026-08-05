@@ -4,28 +4,34 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { useApiClient } from '@/api/client-context'
-import {
-  healthQueryOptions,
-  type HealthProblemKeyDto,
-  type KeyCounts,
-} from '@/app/resources/health'
-import { groupDetailLocation } from '@/app/route-locations'
-import AppDateTime from '@/components/ui/AppDateTime.vue'
+import { healthQueryOptions, type HealthProblemKeyDto } from '@/app/resources/health'
 import QueryFeedback from '@/components/ui/QueryFeedback.vue'
-import StatusBadge from '@/components/ui/StatusBadge.vue'
-import SurfaceCard from '@/components/ui/SurfaceCard.vue'
+import SkeletonBlock from '@/components/ui/SkeletonBlock.vue'
 import { formatLocalInstant } from '@/lib/format'
 
+import GroupHealthCollection from './GroupHealthCollection.vue'
 import HealthProblemCollection from './HealthProblemCollection.vue'
+import HealthSummaryStrip from './HealthSummaryStrip.vue'
+import RequestLogHealthCard from './RequestLogHealthCard.vue'
+
+interface ProblemItem {
+  key: HealthProblemKeyDto
+  kind: 'cooldown' | 'blacklisted'
+  tone: 'warning' | 'danger'
+}
+
+interface RecoveryDisplay {
+  relative: string
+  exact: string
+}
 
 const client = useApiClient()
 const { locale, t } = useI18n()
-
-const healthQuery = useQuery(healthQueryOptions(client, 10_000))
+const healthQuery = useQuery(healthQueryOptions(client))
 
 const isVisible = ref(document.visibilityState !== 'hidden')
 const elapsedMs = ref(0)
-const expandedKeyIds = ref(new Set<number>())
+const groupsExpanded = ref(false)
 let elapsedTimer: ReturnType<typeof setInterval> | undefined
 let elapsedStartedAt = 0
 
@@ -35,80 +41,60 @@ const hasStaleData = computed(
 const timerShouldRun = computed(
   () => isVisible.value && healthQuery.data.value !== undefined && !healthQuery.isError.value,
 )
-const problemSections = computed(() => [
-  {
-    kind: 'cooldown',
-    label: t('monitor.health.problems.cooldown'),
-    tone: 'warning' as const,
-    keys: healthQuery.data.value?.cooldown_keys ?? [],
-  },
-  {
-    kind: 'blacklisted',
-    label: t('monitor.health.problems.blacklisted'),
-    tone: 'danger' as const,
-    keys: healthQuery.data.value?.blacklisted_keys ?? [],
-  },
-])
-const remainingByKey = computed(() =>
+const problemItems = computed<ProblemItem[]>(() => {
+  const data = healthQuery.data.value
+  if (!data) return []
+  const groupCounts = new Map(data.groups.map((group) => [group.id, group.counts]))
+  const items: ProblemItem[] = [
+    ...data.cooldown_keys.map((key) => ({
+      key,
+      kind: 'cooldown' as const,
+      tone: 'warning' as const,
+    })),
+    ...data.blacklisted_keys.map((key) => ({
+      key,
+      kind: 'blacklisted' as const,
+      tone: 'danger' as const,
+    })),
+  ]
+
+  return items.sort((left, right) => {
+    const leftUnavailable = groupCounts.get(left.key.group_id)?.available === 0 ? 0 : 1
+    const rightUnavailable = groupCounts.get(right.key.group_id)?.available === 0 ? 0 : 1
+    const leftKind = left.kind === 'blacklisted' ? 0 : 1
+    const rightKind = right.kind === 'blacklisted' ? 0 : 1
+    const leftRecovery = left.key.cooldown_until_ms ?? Number.MAX_SAFE_INTEGER
+    const rightRecovery = right.key.cooldown_until_ms ?? Number.MAX_SAFE_INTEGER
+    return (
+      leftUnavailable - rightUnavailable ||
+      leftKind - rightKind ||
+      leftRecovery - rightRecovery ||
+      left.key.group_name.localeCompare(right.key.group_name) ||
+      left.key.key_id - right.key.key_id
+    )
+  })
+})
+const focusContentHeight = computed(() => {
+  const rowHeight = 76
+  const headerHeight = 38
+  const compactMinimum = 196
+  const visibleRows = Math.min(problemItems.value.length, 3)
+  return Math.max(compactMinimum, headerHeight + visibleRows * rowHeight)
+})
+const recoveryByKey = computed<Record<number, RecoveryDisplay | undefined>>(() =>
   Object.fromEntries(
-    problemSections.value.flatMap((section) =>
-      section.keys.map((key) => [key.key_id, remainingTime(key)]),
-    ),
+    problemItems.value.map((item) => [item.key.key_id, recoveryDisplay(item.key)]),
   ),
 )
-const requestLogCounters = computed(() => {
-  const requestLog = healthQuery.data.value?.request_log
-  if (!requestLog) return []
-  return [
-    {
-      label: t('monitor.health.requestLog.enqueued'),
-      value: requestLog.enqueued_total,
-    },
-    {
-      label: t('monitor.health.requestLog.persisted'),
-      value: requestLog.persisted_total,
-    },
-    {
-      label: t('monitor.health.requestLog.droppedNotRunning'),
-      value: requestLog.dropped_not_running_total,
-    },
-    {
-      label: t('monitor.health.requestLog.droppedQueueFull'),
-      value: requestLog.dropped_queue_full_total,
-    },
-    {
-      label: t('monitor.health.requestLog.droppedStopping'),
-      value: requestLog.dropped_stopping_total,
-    },
-    {
-      label: t('monitor.health.requestLog.droppedPersistFailed'),
-      value: requestLog.dropped_persist_failed_total,
-    },
-    {
-      label: t('monitor.health.requestLog.droppedShutdown'),
-      value: requestLog.dropped_shutdown_total,
-    },
-    {
-      label: t('monitor.health.requestLog.droppedTotal'),
-      value: requestLog.dropped_total,
-    },
-    {
-      label: t('monitor.health.requestLog.writeFailures'),
-      value: requestLog.write_failure_total,
-    },
-    {
-      label: t('monitor.health.requestLog.retentionFailures'),
-      value: requestLog.retention_delete_failure_total,
-    },
-    {
-      label: t('monitor.health.requestLog.queueDepth'),
-      value: requestLog.queue_depth,
-    },
-    {
-      label: t('monitor.health.requestLog.queueCapacity'),
-      value: requestLog.queue_capacity,
-    },
-  ]
+const earliestCooldown = computed<RecoveryDisplay | null>(() => {
+  const earliest = problemItems.value
+    .filter((item) => item.kind === 'cooldown' && item.key.cooldown_until_ms !== null)
+    .sort(
+      (left, right) =>
+        (left.key.cooldown_until_ms ?? Number.MAX_SAFE_INTEGER) -
+        (right.key.cooldown_until_ms ?? Number.MAX_SAFE_INTEGER),
+    )[0]
+  return earliest ? (recoveryByKey.value[earliest.key.key_id] ?? null) : null
 })
 
 function stopElapsedTimer(): void {
@@ -141,9 +127,7 @@ watch(
 watch([isVisible, () => healthQuery.isError.value], syncElapsedTimer)
 
 function handleVisibilityChange(): void {
-  const wasVisible = isVisible.value
   isVisible.value = document.visibilityState !== 'hidden'
-  if (!wasVisible && isVisible.value) void healthQuery.refetch()
 }
 
 onMounted(() => document.addEventListener('visibilitychange', handleVisibilityChange))
@@ -152,70 +136,56 @@ onBeforeUnmount(() => {
   stopElapsedTimer()
 })
 
-function summaryTone(counts: KeyCounts): 'success' | 'warning' | 'danger' | 'neutral' {
-  if (counts.total === 0) return 'neutral'
-  if (counts.available === 0) return 'danger'
-  if (counts.cooldown > 0 || counts.blacklisted > 0) return 'warning'
-  return 'success'
-}
-
-function summaryLabel(counts: KeyCounts): string {
-  if (counts.total === 0) return t('monitor.health.status.empty')
-  if (counts.available === 0) return t('monitor.health.status.unavailable')
-  if (counts.cooldown > 0 || counts.blacklisted > 0) {
-    return t('monitor.health.status.exceptions')
+function remainingLabel(totalSeconds: number): string {
+  if (totalSeconds >= 3_600) {
+    return t('monitor.health.recovery.hoursMinutes', {
+      hours: Math.floor(totalSeconds / 3_600),
+      minutes: Math.floor((totalSeconds % 3_600) / 60),
+    })
   }
-  return t('monitor.health.status.clear')
-}
-
-function groupStatusLabel(enabled: boolean, counts: KeyCounts): string {
-  if (!enabled) return t('monitor.health.groups.disabled')
-  if (counts.total === 0) return t('monitor.health.groups.emptyKeys')
-  if (counts.available === 0) return t('monitor.health.groups.unavailable')
-  if (counts.cooldown > 0 || counts.blacklisted > 0) {
-    return t('monitor.health.groups.attention')
+  if (totalSeconds >= 60) {
+    return t('monitor.health.recovery.minutesSeconds', {
+      minutes: Math.floor(totalSeconds / 60),
+      seconds: totalSeconds % 60,
+    })
   }
-  return t('monitor.health.groups.available')
+  return t('monitor.health.recovery.seconds', { seconds: totalSeconds })
 }
 
-function groupStatusTone(
-  enabled: boolean,
-  counts: KeyCounts,
-): 'success' | 'warning' | 'danger' | 'neutral' {
-  if (!enabled) return 'neutral'
-  if (counts.total === 0) return 'neutral'
-  if (counts.available === 0) return 'danger'
-  if (counts.cooldown > 0 || counts.blacklisted > 0) return 'warning'
-  return 'success'
-}
-
-function toggleExpanded(keyId: number): void {
-  const next = new Set(expandedKeyIds.value)
-  if (next.has(keyId)) next.delete(keyId)
-  else next.add(keyId)
-  expandedKeyIds.value = next
-}
-
-function remainingTime(key: HealthProblemKeyDto): string {
+function recoveryDisplay(key: HealthProblemKeyDto): RecoveryDisplay | undefined {
   const observedAtMS = healthQuery.data.value?.observed_at_ms
-  if (key.cooldown_until_ms === null || observedAtMS === undefined) return ''
+  if (key.cooldown_until_ms === null || observedAtMS === undefined) return undefined
   const remainingSeconds = Math.max(
     0,
     Math.ceil((key.cooldown_until_ms - (observedAtMS + elapsedMs.value)) / 1_000),
   )
-  const minutes = Math.floor(remainingSeconds / 60)
-  const seconds = String(remainingSeconds % 60).padStart(2, '0')
-  return `${minutes}:${seconds}`
+  return {
+    relative: remainingLabel(remainingSeconds),
+    exact: t('monitor.health.recovery.exact', {
+      time: formatLocalInstant(key.cooldown_until_ms, locale.value),
+    }),
+  }
 }
+
+async function refresh(): Promise<void> {
+  await healthQuery.refetch()
+}
+
+defineExpose({ refresh })
 </script>
 
 <template>
-  <div class="health-tab">
-    <QueryFeedback
-      v-if="healthQuery.isPending.value"
-      state="loading"
-      :message="t('monitor.health.loading')"
-    />
+  <div class="health-tab" :aria-busy="healthQuery.isFetching.value ? 'true' : undefined">
+    <div v-if="healthQuery.isFetching.value" class="health-loading" aria-busy="true">
+      <span class="sr-only">{{ t('monitor.health.loading') }}</span>
+      <SkeletonBlock height="130px" />
+      <div class="health-loading__focus">
+        <SkeletonBlock height="266px" />
+        <SkeletonBlock height="266px" />
+      </div>
+      <SkeletonBlock height="300px" />
+    </div>
+
     <QueryFeedback
       v-else-if="healthQuery.isError.value && !healthQuery.data.value"
       state="error"
@@ -233,293 +203,58 @@ function remainingTime(key: HealthProblemKeyDto): string {
         @retry="healthQuery.refetch()"
       />
 
-      <SurfaceCard class="health-card health-summary">
-        <header class="health-card__heading">
-          <div>
-            <h2>{{ t('monitor.health.summary.title') }}</h2>
-            <p>{{ t('monitor.health.summary.description') }}</p>
-          </div>
-          <StatusBadge :tone="summaryTone(healthQuery.data.value.counts)">
-            {{ summaryLabel(healthQuery.data.value.counts) }}
-          </StatusBadge>
-        </header>
-
-        <div class="health-meta">
-          <span>{{
-            t('monitor.health.summary.revision', {
-              revision: healthQuery.data.value.snapshot_revision,
-            })
-          }}</span>
-          <span>{{
-            t('monitor.health.summary.observedAt', {
-              time: formatLocalInstant(healthQuery.data.value.observed_at_ms, locale),
-            })
-          }}</span>
-        </div>
-
-        <div class="count-grid">
-          <span>{{
-            t('monitor.health.counts.total', { total: healthQuery.data.value.counts.total })
-          }}</span>
-          <span>{{
-            t('monitor.health.counts.available', {
-              available: healthQuery.data.value.counts.available,
-            })
-          }}</span>
-          <span>{{
-            t('monitor.health.counts.cooldown', {
-              cooldown: healthQuery.data.value.counts.cooldown,
-            })
-          }}</span>
-          <span>{{
-            t('monitor.health.counts.blacklisted', {
-              blacklisted: healthQuery.data.value.counts.blacklisted,
-            })
-          }}</span>
-          <span>{{
-            t('monitor.health.counts.disabled', {
-              disabled: healthQuery.data.value.counts.disabled,
-            })
-          }}</span>
-        </div>
-      </SurfaceCard>
-
-      <section class="health-section" aria-labelledby="health-groups-heading">
-        <header class="health-section__heading">
-          <div>
-            <h2 id="health-groups-heading">{{ t('monitor.health.groups.title') }}</h2>
-            <p>{{ t('monitor.health.groups.description') }}</p>
-          </div>
-        </header>
-
-        <p v-if="healthQuery.data.value.groups.length === 0" class="health-empty">
-          {{ t('monitor.health.groups.empty') }}
-        </p>
-        <div v-else class="group-health-grid">
-          <SurfaceCard
-            v-for="group in healthQuery.data.value.groups"
-            :key="group.id"
-            class="health-card group-health-card"
-          >
-            <header class="health-card__heading">
-              <RouterLink class="group-link" :to="groupDetailLocation(group.id)">
-                {{ group.name }} · #{{ group.id }}
-              </RouterLink>
-              <StatusBadge :tone="groupStatusTone(group.enabled, group.counts)">
-                {{ groupStatusLabel(group.enabled, group.counts) }}
-              </StatusBadge>
-            </header>
-            <div class="count-grid count-grid--compact">
-              <span>{{ t('monitor.health.counts.total', { total: group.counts.total }) }}</span>
-              <span>{{
-                t('monitor.health.counts.available', { available: group.counts.available })
-              }}</span>
-              <span>{{
-                t('monitor.health.counts.cooldown', { cooldown: group.counts.cooldown })
-              }}</span>
-              <span>{{
-                t('monitor.health.counts.blacklisted', {
-                  blacklisted: group.counts.blacklisted,
-                })
-              }}</span>
-              <span>{{
-                t('monitor.health.counts.disabled', { disabled: group.counts.disabled })
-              }}</span>
-            </div>
-          </SurfaceCard>
-        </div>
-      </section>
-
-      <HealthProblemCollection
-        :sections="problemSections"
-        :expanded-key-ids="expandedKeyIds"
-        :remaining-by-key="remainingByKey"
-        @toggle="toggleExpanded"
+      <HealthSummaryStrip
+        :counts="healthQuery.data.value.counts"
+        :earliest-cooldown="earliestCooldown"
       />
 
-      <SurfaceCard class="health-card request-log-health">
-        <header class="health-card__heading">
-          <div>
-            <h2>{{ t('monitor.health.requestLog.title') }}</h2>
-            <p>{{ t('monitor.health.requestLog.description') }}</p>
-          </div>
-        </header>
+      <div
+        class="health-focus-grid"
+        :style="{ '--health-focus-content-height': `${focusContentHeight}px` }"
+      >
+        <HealthProblemCollection
+          :items="problemItems"
+          :recovery-by-key="recoveryByKey"
+          :stats-window-seconds="healthQuery.data.value.stats_window_seconds"
+          :available-count="healthQuery.data.value.counts.available"
+        />
+        <RequestLogHealthCard :stats="healthQuery.data.value.request_log" />
+      </div>
 
-        <dl class="request-log-grid">
-          <div v-for="counter in requestLogCounters" :key="counter.label">
-            <dt>{{ counter.label }}</dt>
-            <dd>{{ counter.value }}</dd>
-          </div>
-          <div>
-            <dt>{{ t('monitor.health.requestLog.lastWriteFailureAt') }}</dt>
-            <dd>
-              <AppDateTime
-                v-if="healthQuery.data.value.request_log.last_write_failure_at_ms !== null"
-                :instant="healthQuery.data.value.request_log.last_write_failure_at_ms"
-                :locale="locale"
-              />
-              <span v-else>{{ t('monitor.health.none') }}</span>
-            </dd>
-          </div>
-          <div>
-            <dt>{{ t('monitor.health.requestLog.lastRetentionFailureAt') }}</dt>
-            <dd>
-              <AppDateTime
-                v-if="healthQuery.data.value.request_log.last_retention_failure_at_ms !== null"
-                :instant="healthQuery.data.value.request_log.last_retention_failure_at_ms"
-                :locale="locale"
-              />
-              <span v-else>{{ t('monitor.health.none') }}</span>
-            </dd>
-          </div>
-        </dl>
-      </SurfaceCard>
+      <GroupHealthCollection
+        :groups="healthQuery.data.value.groups"
+        :expanded="groupsExpanded"
+        @toggle="groupsExpanded = !groupsExpanded"
+      />
     </template>
   </div>
 </template>
 
 <style scoped>
 .health-tab,
-.health-section {
-  display: grid;
-  gap: var(--space-5);
-}
-
-.health-card {
+.health-loading {
   display: grid;
   min-width: 0;
-  gap: var(--space-4);
-  padding: var(--space-6);
+  gap: var(--space-6);
 }
 
-.health-card__heading,
-.health-section__heading {
-  display: flex;
-  min-width: 0;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--space-4);
-}
-
-.health-card__heading > div,
-.health-section__heading > div {
-  min-width: 0;
-}
-
-.health-card__heading h2,
-.health-section__heading h2 {
-  margin: 0;
-  font-size: 1rem;
-}
-
-.health-card__heading p,
-.health-section__heading p {
-  margin: var(--space-1) 0 0;
-  color: var(--color-text-muted);
-}
-
-.health-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  color: var(--color-text-muted);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.8125rem;
-}
-
-.health-meta span,
-.count-grid span {
-  border-radius: var(--radius-tag);
-  background: var(--color-tag);
-  padding: 6px 10px;
-}
-
-.count-grid {
+.health-focus-grid,
+.health-loading__focus {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: var(--space-2);
-}
-
-.count-grid span {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  text-align: center;
-}
-
-.group-health-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
-  gap: var(--space-4);
-}
-
-.group-link {
-  display: inline-flex;
-  min-width: 44px;
-  max-width: 100%;
-  min-height: 44px;
-  align-items: center;
-  color: var(--color-action);
-  font-weight: 700;
-  overflow-wrap: anywhere;
-  text-decoration: underline;
-  text-decoration-color: transparent;
-  text-underline-offset: 3px;
-}
-
-.group-link:hover {
-  text-decoration-color: currentColor;
-}
-
-.health-empty {
-  margin: 0;
-  border: 1px dashed var(--color-border-subtle);
-  border-radius: var(--radius-control);
-  background: var(--color-surface-sunken);
-  color: var(--color-text-muted);
-  padding: var(--space-4);
-}
-
-.request-log-grid dd {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-}
-
-.request-log-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
-  gap: var(--space-3);
-  margin: 0;
-}
-
-.request-log-grid div {
   min-width: 0;
-}
-
-.request-log-grid dt {
-  color: var(--color-text-muted);
-  font-size: 0.8125rem;
-}
-
-.request-log-grid dd {
-  margin: var(--space-1) 0 0;
-  overflow-wrap: anywhere;
-  font-weight: 700;
+  grid-template-columns: minmax(0, 2fr) minmax(320px, 0.82fr);
+  align-items: start;
+  gap: 20px;
 }
 
 .health-tab :deep(.query-feedback--error > span) {
   color: var(--color-text);
 }
 
-@media (max-width: 759px) {
-  .health-card__heading {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .count-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .count-grid span {
-    text-align: left;
+@media (max-width: 1099px) {
+  .health-focus-grid,
+  .health-loading__focus {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 </style>

@@ -77,7 +77,7 @@ func TestRestoreGroupKeyClearsProblemStateAndReturnsItem(t *testing.T) {
 			if !exists || view.Blacklisted || !view.CooldownUntil.IsZero() || view.FailureCount != 0 || view.WeightAuto != 64 {
 				t.Fatalf("restored Registry view = %#v, exists=%t", view, exists)
 			}
-			if stats := fixture.stats.Snapshot(row.ID, now); stats != (health.KeyStats{Success: 8, Failure: 4}) {
+			if stats := fixture.stats.Snapshot(row.ID, now); stats != (health.KeyStats{Success: 8, Failure: 4, Problem: 4}) {
 				t.Fatalf("restored stats = %#v", stats)
 			}
 		})

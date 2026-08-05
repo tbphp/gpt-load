@@ -135,8 +135,8 @@ func TestRuntimeHealthReturnsMutuallyExclusiveCurrentState(t *testing.T) {
 		got.CooldownKeys[0].LastStatusCode == nil ||
 		*got.CooldownKeys[0].LastStatusCode != 429 ||
 		got.CooldownKeys[0].RecentSuccessCount != 1 ||
-		got.CooldownKeys[0].RecentFailureCount != 0 ||
-		got.CooldownKeys[0].ConsecutiveFailureCount != 1 ||
+		got.CooldownKeys[0].RecentProblemCount != 1 ||
+		got.CooldownKeys[0].ConsecutiveProblemCount != 1 ||
 		got.CooldownKeys[0].Recovery.Mode != "cooldown_expiry" {
 		t.Fatalf("cooldown details = %#v", got.CooldownKeys)
 	}
@@ -145,7 +145,7 @@ func TestRuntimeHealthReturnsMutuallyExclusiveCurrentState(t *testing.T) {
 		got.BlacklistedKeys[0].LastFailureCategory != "invalid_key" ||
 		got.BlacklistedKeys[0].LastStatusCode == nil ||
 		*got.BlacklistedKeys[0].LastStatusCode != 401 ||
-		got.BlacklistedKeys[0].ConsecutiveFailureCount != 1 ||
+		got.BlacklistedKeys[0].ConsecutiveProblemCount != 1 ||
 		got.BlacklistedKeys[0].Recovery.Mode != "validation_probe" ||
 		got.BlacklistedKeys[0].Recovery.AtMS != nil {
 		t.Fatalf("blacklisted details = %#v", got.BlacklistedKeys)
@@ -155,6 +155,65 @@ func TestRuntimeHealthReturnsMutuallyExclusiveCurrentState(t *testing.T) {
 		*got.RequestLog.LastWriteFailureAtMS != now.Add(-time.Minute).UnixMilli() ||
 		got.RequestLog.LastRetentionFailureAtMS != nil {
 		t.Fatalf("request log stats = %#v", got.RequestLog)
+	}
+}
+
+func TestRuntimeHealthExposesProblemCountsInsteadOfFailureAliases(t *testing.T) {
+	fixture := newServiceFixture(t)
+	now := healthNow()
+	fixture.service.now = func() time.Time { return now }
+	if _, err := fixture.manager.Publish(state.CompileInput{Groups: []state.GroupConfig{{
+		ID: 1, Name: "active", Protocols: []protocol.Protocol{protocol.OpenAICompletions},
+		Models: []state.ModelConfig{{ID: "model"}}, Enabled: true,
+	}}}); err != nil {
+		t.Fatalf("Publish() error = %v", err)
+	}
+	if err := fixture.registry.Replace([]state.KeyEntry{{
+		ID: 11, GroupID: 1, Status: state.KeyStatusActive,
+		CooldownUntil:  now.Add(time.Minute),
+		EncryptedValue: encryptHealthKey(t, fixture, "rate-limit-secret-safe"),
+	}}); err != nil {
+		t.Fatalf("Replace() error = %v", err)
+	}
+	fixture.stats.RecordSuccess(11, now.Add(-2*time.Minute))
+	fixture.stats.RecordProblem(11, health.FailureCategoryRateLimited, 429, now.Add(-time.Minute))
+	fixture.stats.RecordFailure(11, health.FailureCategoryInvalidKey, 401, now)
+
+	result, err := fixture.service.RuntimeHealth()
+	if err != nil {
+		t.Fatalf("RuntimeHealth() error = %v", err)
+	}
+	body, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+	var document struct {
+		CooldownKeys []map[string]json.RawMessage `json:"cooldown_keys"`
+	}
+	if err := json.Unmarshal(body, &document); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if len(document.CooldownKeys) != 1 {
+		t.Fatalf("cooldown key count = %d, want 1", len(document.CooldownKeys))
+	}
+	key := document.CooldownKeys[0]
+	for field, want := range map[string]uint64{
+		"recent_success_count":      1,
+		"recent_problem_count":      2,
+		"consecutive_problem_count": 2,
+	} {
+		var got uint64
+		if err := json.Unmarshal(key[field], &got); err != nil {
+			t.Fatalf("decode %s: %v", field, err)
+		}
+		if got != want {
+			t.Fatalf("%s = %d, want %d", field, got, want)
+		}
+	}
+	for _, obsolete := range []string{"recent_failure_count", "consecutive_failure_count"} {
+		if _, exists := key[obsolete]; exists {
+			t.Fatalf("health response still exposes obsolete field %q", obsolete)
+		}
 	}
 }
 

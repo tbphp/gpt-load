@@ -14,6 +14,7 @@ const (
 type KeyStats struct {
 	Success             uint64
 	Failure             uint64
+	Problem             uint64
 	ConsecutiveFailure  uint64
 	ConsecutiveProblem  uint64
 	LastFailureCategory FailureCategory
@@ -30,6 +31,7 @@ type statsBucket struct {
 	valid   bool
 	success uint64
 	failure uint64
+	problem uint64
 }
 
 type keyStatsWindow struct {
@@ -99,17 +101,18 @@ func (store *StatsStore) record(
 		store.windows[keyID] = window
 	}
 
-	if event != statsEventProblem {
-		bucket := &window.buckets[slot]
-		if !bucket.valid || minute > bucket.minute {
-			*bucket = statsBucket{minute: minute, valid: true}
-		} else if minute < bucket.minute {
-			return
-		}
+	bucket := &window.buckets[slot]
+	if !bucket.valid || minute > bucket.minute {
+		*bucket = statsBucket{minute: minute, valid: true}
+	} else if minute < bucket.minute {
+		return
+	}
 
-		if event == statsEventSuccess {
-			bucket.success++
-		} else {
+	if event == statsEventSuccess {
+		bucket.success++
+	} else {
+		bucket.problem++
+		if event == statsEventFailure {
 			bucket.failure++
 		}
 	}
@@ -187,6 +190,7 @@ func (store *StatsStore) Snapshot(keyID uint, now time.Time) KeyStats {
 		}
 		stats.Success += bucket.success
 		stats.Failure += bucket.failure
+		stats.Problem += bucket.problem
 	}
 	return stats
 }

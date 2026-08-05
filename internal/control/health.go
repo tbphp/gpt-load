@@ -51,8 +51,8 @@ type healthProblemKeyResponse struct {
 	CooldownUntilMS         *int64                 `json:"cooldown_until_ms"`
 	FailureCount            int                    `json:"failure_count"`
 	RecentSuccessCount      uint64                 `json:"recent_success_count"`
-	RecentFailureCount      uint64                 `json:"recent_failure_count"`
-	ConsecutiveFailureCount uint64                 `json:"consecutive_failure_count"`
+	RecentProblemCount      uint64                 `json:"recent_problem_count"`
+	ConsecutiveProblemCount uint64                 `json:"consecutive_problem_count"`
 	WeightManual            *int                   `json:"weight_manual"`
 	WeightAuto              int                    `json:"weight_auto"`
 	Recovery                healthRecoveryResponse `json:"recovery"`
@@ -251,8 +251,8 @@ func (service *Service) RuntimeHealth() (runtimeHealthResponse, error) {
 			LastStatusCode:          optionalHealthStatusCode(lastStatusCode),
 			FailureCount:            key.FailureCount,
 			RecentSuccessCount:      stats.Success,
-			RecentFailureCount:      stats.Failure,
-			ConsecutiveFailureCount: stats.ConsecutiveProblem,
+			RecentProblemCount:      stats.Problem,
+			ConsecutiveProblemCount: stats.ConsecutiveProblem,
 			WeightManual:            cloneInt(key.WeightManual),
 			WeightAuto:              key.WeightAuto,
 		}

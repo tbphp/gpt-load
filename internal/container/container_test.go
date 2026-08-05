@@ -843,7 +843,7 @@ func TestContainerHealthEndpointReadsSharedStatsStore(t *testing.T) {
 			Data struct {
 				BlacklistedKeys []struct {
 					KeyID              uint   `json:"key_id"`
-					RecentFailureCount uint64 `json:"recent_failure_count"`
+					RecentProblemCount uint64 `json:"recent_problem_count"`
 				} `json:"blacklisted_keys"`
 			} `json:"data"`
 		}
@@ -852,7 +852,7 @@ func TestContainerHealthEndpointReadsSharedStatsStore(t *testing.T) {
 		}
 		if len(envelope.Data.BlacklistedKeys) != 1 ||
 			envelope.Data.BlacklistedKeys[0].KeyID != 1 ||
-			envelope.Data.BlacklistedKeys[0].RecentFailureCount != 1 {
+			envelope.Data.BlacklistedKeys[0].RecentProblemCount != 1 {
 			t.Fatalf("blacklisted stats = %#v", envelope.Data.BlacklistedKeys)
 		}
 	})
