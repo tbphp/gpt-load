@@ -2,6 +2,7 @@ package utils
 
 import (
 	"bytes"
+	"sort"
 
 	"github.com/sirupsen/logrus"
 )
@@ -18,8 +19,53 @@ func newCompactTextFormatter() *compactTextFormatter {
 		textFormatter: logrus.TextFormatter{
 			FullTimestamp:   true,
 			TimestampFormat: compactLogTimestampFormat,
+			SortingFunc:     sortCompactLogFields,
 		},
 	}
+}
+
+var compactLogFieldPriority = map[string]int{
+	// logrus 固定字段必须保持在日志头部。
+	"time":  -600,
+	"level": -500,
+	"msg":   -400,
+	"error": -300,
+	"func":  -200,
+	"file":  -100,
+
+	// 请求完成日志按事件、结果、请求、性能、路由和诊断信息分组。
+	"event":      0,
+	"status":     10,
+	"http":       20,
+	"proto":      30,
+	"model":      40,
+	"up_model":   50,
+	"duration":   60,
+	"in_tokens":  70,
+	"out_tokens": 80,
+	"cost_usd":   90,
+	"ak_id":      100,
+	"group":      110,
+	"kid":        120,
+	"attempts":   130,
+	"usage":      140,
+	"cost_state": 150,
+	"err":        160,
+	"err_msg":    170,
+}
+
+func sortCompactLogFields(keys []string) {
+	sort.SliceStable(keys, func(left, right int) bool {
+		leftPriority, leftKnown := compactLogFieldPriority[keys[left]]
+		rightPriority, rightKnown := compactLogFieldPriority[keys[right]]
+		if leftKnown && rightKnown && leftPriority != rightPriority {
+			return leftPriority < rightPriority
+		}
+		if leftKnown != rightKnown {
+			return leftKnown
+		}
+		return keys[left] < keys[right]
+	})
 }
 
 func (formatter *compactTextFormatter) Format(entry *logrus.Entry) ([]byte, error) {

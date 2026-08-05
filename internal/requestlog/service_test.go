@@ -42,9 +42,11 @@ func TestServiceEmitLogsAcceptedCompletionExactlyOnce(t *testing.T) {
 	}
 	entries := processLogEntries(t, output.Bytes())
 	if len(entries) != 1 ||
-		entries[0]["req_id"] != "accepted" ||
 		entries[0]["msg"] != "[DATA] Request completed" {
 		t.Fatalf("completion entries = %#v, want accepted event", entries)
+	}
+	if _, exists := entries[0]["req_id"]; exists {
+		t.Fatalf("completion entry contains redundant req_id field: %#v", entries[0])
 	}
 	if _, exists := entries[0]["plane"]; exists {
 		t.Fatalf("completion entry contains redundant plane field: %#v", entries[0])
@@ -155,7 +157,7 @@ func TestServiceEmitCompletionSurvivesLaterWriteFailure(t *testing.T) {
 		t.Fatalf("WriteFailureTotal = %d, want 1", got)
 	}
 	entries := processLogEntries(t, output.Bytes())
-	if len(entries) != 1 || entries[0]["req_id"] != "persist-failed" {
+	if len(entries) != 1 || entries[0]["msg"] != "[DATA] Request completed" {
 		t.Fatalf("completion entries = %#v, want persisted-failed event", entries)
 	}
 }
@@ -306,7 +308,7 @@ func TestServiceDropsNewEventAtExactQueueCapacity(t *testing.T) {
 		t.Fatalf("stats at capacity = %+v", stats)
 	}
 	entries := processLogEntries(t, output.Bytes())
-	if len(entries) != 1 || entries[0]["req_id"] != "must-drop" {
+	if len(entries) != 1 || entries[0]["msg"] != "[DATA] Request completed" {
 		t.Fatalf("queue-full completion entries = %#v", entries)
 	}
 
@@ -488,7 +490,6 @@ func TestEmitPersistsGatewayFrozenQuoteWithoutRepricing(t *testing.T) {
 	timer := receiveValue(t, timers.created)
 	entries := processLogEntries(t, output.Bytes())
 	if len(entries) != 1 ||
-		entries[0]["req_id"] != "snapshot-a" ||
 		entries[0]["cost_usd"] != "1" {
 		t.Fatalf("snapshot-a completion entries = %#v", entries)
 	}

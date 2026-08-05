@@ -110,3 +110,44 @@ func TestSetupLoggerTextFormatKeepsFieldsCompact(t *testing.T) {
 		})
 	}
 }
+
+func TestCompactTextFormatterOrdersRequestFieldsByPriority(t *testing.T) {
+	formatter := newCompactTextFormatter()
+	formatter.textFormatter.ForceColors = true
+
+	entry := logrus.NewEntry(logrus.New())
+	entry.Time = time.Date(2026, time.August, 5, 22, 12, 39, 0, time.FixedZone("CST", 8*60*60))
+	entry.Level = logrus.InfoLevel
+	entry.Message = "[DATA] Request completed"
+	entry.Data = logrus.Fields{
+		"kid":        1,
+		"out_tokens": 486,
+		"model":      "gpt-5.6-luna",
+		"event":      "data_plane_request_completed",
+		"cost_usd":   "0.00496768",
+		"in_tokens":  123068,
+		"duration":   "30.2s",
+		"status":     "success",
+		"proto":      "openai-responses",
+		"group":      1,
+		"ak_id":      1,
+	}
+
+	formatted, err := formatter.Format(entry)
+	if err != nil {
+		t.Fatalf("format request log entry: %v", err)
+	}
+	text := string(formatted)
+	wantOrder := []string{
+		"event", "status", "proto", "model", "duration",
+		"in_tokens", "out_tokens", "cost_usd", "ak_id", "group", "kid",
+	}
+	previous := -1
+	for _, key := range wantOrder {
+		position := strings.Index(text, "\x1b[36m"+key+"\x1b[0m=")
+		if position <= previous {
+			t.Fatalf("field %q position = %d, previous = %d, formatted log = %q", key, position, previous, text)
+		}
+		previous = position
+	}
+}
