@@ -409,10 +409,13 @@ func TestCreateGroupPrivateHostLogContainsOnlyHostname(t *testing.T) {
 	if !strings.Contains(logText, "127.0.0.1") {
 		t.Fatalf("private warning missing hostname: %s", logText)
 	}
-	for _, required := range []string{"[CONTROL]", "plane=control"} {
+	for _, required := range []string{"[CONTROL]"} {
 		if !strings.Contains(logText, required) {
 			t.Fatalf("private warning missing %q: %s", required, logText)
 		}
+	}
+	if strings.Contains(logText, "plane=control") {
+		t.Fatalf("private warning contains redundant plane field: %s", logText)
 	}
 	for _, forbidden := range []string{
 		rawURL,

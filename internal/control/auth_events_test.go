@@ -106,7 +106,6 @@ func TestAuthenticateEventsCountLockedRequestsWithoutRepeatingTransition(
 	authEvent := controlEventsNamed(events, "control_plane_auth_failed")[0]
 	if authEvent["peer_ip"] != "192.0.2.60" ||
 		authEvent["level"] != "warning" ||
-		authEvent["plane"] != "control" ||
 		authEvent["msg"] != "[CONTROL] Authentication failed" {
 		t.Fatalf("auth event = %#v", authEvent)
 	}
@@ -114,7 +113,6 @@ func TestAuthenticateEventsCountLockedRequestsWithoutRepeatingTransition(
 	if lockEvent["peer_ip"] != "192.0.2.60" ||
 		lockEvent["retry_after_seconds"] != float64(authLockDuration/time.Second) ||
 		lockEvent["level"] != "warning" ||
-		lockEvent["plane"] != "control" ||
 		lockEvent["msg"] != "[CONTROL] Peer locked out" {
 		t.Fatalf("lock event = %#v", lockEvent)
 	}

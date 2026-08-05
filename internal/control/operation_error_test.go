@@ -103,7 +103,6 @@ func TestLogServiceErrorUsesOnlyFixedOperationContext(t *testing.T) {
 	logText := logs.String()
 	for _, required := range []string{
 		`"msg":"[CONTROL] Operation failed"`,
-		`"plane":"control"`,
 		`"operation":"list_group_keys"`,
 		`"stage":"validate_db_registry_pair"`,
 		`"mismatch_kind":"weight_manual"`,
@@ -113,6 +112,9 @@ func TestLogServiceErrorUsesOnlyFixedOperationContext(t *testing.T) {
 		if !strings.Contains(logText, required) {
 			t.Fatalf("log output missing %q: %s", required, logText)
 		}
+	}
+	if strings.Contains(logText, `"plane"`) {
+		t.Fatalf("log output contains redundant plane field: %s", logText)
 	}
 	for _, forbidden := range []string{secretCause, err.Error()} {
 		if strings.Contains(logText, forbidden) {

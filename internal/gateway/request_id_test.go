@@ -117,9 +117,11 @@ func TestHandlerRequestIDGenerationFailurePreservesDataPlaneAndSkipsEmit(t *test
 	if err := json.Unmarshal(logs.Bytes(), &entry); err != nil {
 		t.Fatalf("decode request ID warning: %v", err)
 	}
-	if entry["plane"] != "data" ||
-		entry["msg"] != "[DATA] Request telemetry disabled" {
+	if entry["msg"] != "[DATA] Request telemetry disabled" {
 		t.Fatalf("request ID warning = %#v", entry)
+	}
+	if _, exists := entry["plane"]; exists {
+		t.Fatalf("request ID warning contains redundant plane field: %#v", entry)
 	}
 }
 

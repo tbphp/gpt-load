@@ -505,7 +505,6 @@ func assertMutationEvent(
 		"status_code":      float64(statusCode),
 		"error_code":       errorCode,
 		"level":            level,
-		"plane":            "control",
 		"msg":              "[CONTROL] Mutation completed",
 	}
 	for field, wantValue := range want {

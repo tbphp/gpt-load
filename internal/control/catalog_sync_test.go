@@ -93,8 +93,8 @@ func TestCatalogSyncEmitsLifecycleLogsWithoutLeakingFailureDetails(t *testing.T)
 		if got := events[index]["outcome"]; got != want {
 			t.Fatalf("catalog sync event %d outcome = %#v, want %q", index, got, want)
 		}
-		if events[index]["plane"] != "control" {
-			t.Fatalf("catalog sync event %d plane = %#v", index, events[index]["plane"])
+		if _, exists := events[index]["plane"]; exists {
+			t.Fatalf("catalog sync event %d contains redundant plane field: %#v", index, events[index])
 		}
 	}
 	if events[2]["skip_reason"] != "auto_sync_disabled" {

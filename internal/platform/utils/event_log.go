@@ -83,10 +83,10 @@ func LogPlaneBestEffort(
 		return
 	}
 
-	projected := make(logrus.Fields, len(fields)+1)
+	projected := make(logrus.Fields, len(fields))
 	for name, value := range fields {
 		projected[name] = value
 	}
-	projected["plane"] = string(plane)
+	delete(projected, "plane")
 	LogBestEffort(logger, level, projected, prefix+message)
 }

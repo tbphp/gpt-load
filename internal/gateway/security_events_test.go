@@ -60,7 +60,6 @@ func TestGatewaySecurityEventsUseIndependentCounters(t *testing.T) {
 	if authEvent["peer_ip"] != "192.0.2.10" ||
 		authEvent["total"] != float64(1) ||
 		authEvent["level"] != "warning" ||
-		authEvent["plane"] != "data" ||
 		authEvent["msg"] != "[DATA] Authentication failed" {
 		t.Fatalf("auth event = %#v", authEvent)
 	}
@@ -69,7 +68,6 @@ func TestGatewaySecurityEventsUseIndependentCounters(t *testing.T) {
 		routeEvent["access_key_id"] != float64(1) ||
 		routeEvent["total"] != float64(1) ||
 		routeEvent["level"] != "warning" ||
-		routeEvent["plane"] != "data" ||
 		routeEvent["msg"] != "[DATA] Route not found" {
 		t.Fatalf("route event = %#v", routeEvent)
 	}

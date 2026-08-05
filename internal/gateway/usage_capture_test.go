@@ -531,7 +531,7 @@ func TestNewUsageCaptureBoundaryUsesStandardLoggerConfiguration(t *testing.T) {
 	boundary.recordFailure("stream_observe", protocol.OpenAICompletions)
 	if hook.calls != 1 ||
 		!bytes.Contains(logs.Bytes(), []byte(`"msg":"[DATA] Usage capture failure"`)) ||
-		!bytes.Contains(logs.Bytes(), []byte(`"plane":"data"`)) ||
+		bytes.Contains(logs.Bytes(), []byte(`"plane"`)) ||
 		!bytes.Contains(logs.Bytes(), []byte(`"level":"warning"`)) {
 		t.Fatalf("standard logger output/hooks = %q/%d", logs.String(), hook.calls)
 	}

@@ -8,6 +8,7 @@ import (
 	"gpt-load/internal/platform/redact"
 	"gpt-load/internal/platform/utils"
 	"gpt-load/internal/pricing"
+	"gpt-load/internal/storage/models"
 	"gpt-load/internal/telemetry"
 	"gpt-load/internal/usage"
 )
@@ -60,24 +61,8 @@ func projectProcessLog(
 	if attemptCount := len(event.Attempts); attemptCount != 1 {
 		fields["attempt_count"] = attemptCount
 	}
-	if row.UncachedInputTokens > 0 {
-		fields["uncached_input_tokens"] = row.UncachedInputTokens
-	}
-	if row.CacheReadTokens > 0 {
-		fields["cache_read_tokens"] = row.CacheReadTokens
-	}
-	cacheWriteTokens, cacheWriteOK := usage.CheckedAdd(
-		row.CacheWrite5MTokens,
-		row.CacheWrite1HTokens,
-	)
-	if cacheWriteOK {
-		cacheWriteTokens, cacheWriteOK = usage.CheckedAdd(
-			cacheWriteTokens,
-			row.CacheWriteUnknownTokens,
-		)
-	}
-	if cacheWriteOK && cacheWriteTokens > 0 {
-		fields["cache_write_tokens"] = cacheWriteTokens
+	if inputTokens, ok := processInputTokens(row); ok && inputTokens > 0 {
+		fields["input_tokens"] = inputTokens
 	}
 	if row.OutputTokens > 0 {
 		fields["output_tokens"] = row.OutputTokens
@@ -109,6 +94,24 @@ func projectProcessLog(
 	}
 
 	return level, fields, true
+}
+
+func processInputTokens(row models.RequestLog) (int64, bool) {
+	total := int64(0)
+	for _, value := range [...]int64{
+		row.UncachedInputTokens,
+		row.CacheReadTokens,
+		row.CacheWrite5MTokens,
+		row.CacheWrite1HTokens,
+		row.CacheWriteUnknownTokens,
+	} {
+		var ok bool
+		total, ok = usage.CheckedAdd(total, value)
+		if !ok {
+			return 0, false
+		}
+	}
+	return total, true
 }
 
 func attributedAttempt(event telemetry.RequestEvent) (uint, uint) {

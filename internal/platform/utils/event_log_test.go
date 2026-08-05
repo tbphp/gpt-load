@@ -94,26 +94,23 @@ func TestLogBestEffortWritesStructuredEntry(t *testing.T) {
 	}
 }
 
-func TestLogPlaneBestEffortAddsCanonicalPlaneAndPrefix(t *testing.T) {
+func TestLogPlaneBestEffortAddsPrefixWithoutRedundantPlaneField(t *testing.T) {
 	tests := []struct {
 		name        string
 		plane       LogPlane
 		message     string
-		wantPlane   string
 		wantMessage string
 	}{
 		{
 			name:        "data",
 			plane:       LogPlaneData,
 			message:     "Request completed",
-			wantPlane:   "data",
 			wantMessage: "[DATA] Request completed",
 		},
 		{
 			name:        "control",
 			plane:       LogPlaneControl,
 			message:     "Mutation completed",
-			wantPlane:   "control",
 			wantMessage: "[CONTROL] Mutation completed",
 		},
 	}
@@ -142,10 +139,11 @@ func TestLogPlaneBestEffortAddsCanonicalPlaneAndPrefix(t *testing.T) {
 			if err := json.Unmarshal(output.Bytes(), &entry); err != nil {
 				t.Fatalf("decode log entry: %v", err)
 			}
-			if entry["event"] != "probe" ||
-				entry["plane"] != test.wantPlane ||
-				entry["msg"] != test.wantMessage {
+			if entry["event"] != "probe" || entry["msg"] != test.wantMessage {
 				t.Fatalf("entry = %#v", entry)
+			}
+			if _, exists := entry["plane"]; exists {
+				t.Fatalf("entry contains redundant plane field: %#v", entry)
 			}
 			if fields["plane"] != "caller-value" || len(fields) != 2 {
 				t.Fatalf("caller fields mutated: %#v", fields)

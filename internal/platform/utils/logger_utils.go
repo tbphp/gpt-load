@@ -28,9 +28,6 @@ func SetupLogger(config LogConfig) {
 			TimestampFormat: "2006-01-02T15:04:05.000Z07:00",
 		})
 	} else {
-		logrus.SetFormatter(&logrus.TextFormatter{
-			FullTimestamp:   true,
-			TimestampFormat: "2006-01-02 15:04:05",
-		})
+		logrus.SetFormatter(newCompactTextFormatter())
 	}
 }

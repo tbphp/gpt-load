@@ -45,7 +45,7 @@ func processLogEntries(t *testing.T, output []byte) []map[string]any {
 	return entries
 }
 
-func TestProjectProcessLogUsesFrozenPricingAndAllUsageDimensions(t *testing.T) {
+func TestProjectProcessLogUsesFrozenPricingAndInputOutputTotals(t *testing.T) {
 	event := testEvent("00000000-0000-4000-8000-000000000501")
 	event.Protocol = protocol.OpenAICompletions
 	event.Status = telemetry.RequestStatusError
@@ -77,8 +77,7 @@ func TestProjectProcessLogUsesFrozenPricingAndAllUsageDimensions(t *testing.T) {
 		"protocol": string(protocol.OpenAICompletions), "access_key_id": uint(42),
 		"client_model": "client-model", "upstream_model": "upstream-model",
 		"group_id": uint(7), "key_id": uint(8), "duration_ms": int64(25),
-		"uncached_input_tokens": int64(1), "cache_read_tokens": int64(2),
-		"cache_write_tokens": int64(12), "output_tokens": int64(6),
+		"input_tokens": int64(15), "output_tokens": int64(6),
 		"usage_state": "partial", "estimated_cost_nano_usd": int64(55_000),
 		"error_code": "upstream_error", "error_summary": "provider failed",
 	}
