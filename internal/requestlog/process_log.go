@@ -36,41 +36,41 @@ func projectProcessLog(
 	}
 
 	fields := logrus.Fields{
-		"event":         "data_plane_request_completed",
-		"request_id":    row.ID,
-		"status":        row.Status,
-		"protocol":      row.Protocol,
-		"access_key_id": row.AccessKeyID,
-		"duration_ms":   row.DurationMs,
+		"event":    "data_plane_request_completed",
+		"req_id":   row.ID,
+		"status":   row.Status,
+		"proto":    row.Protocol,
+		"ak_id":    row.AccessKeyID,
+		"duration": utils.FormatDurationMS(row.DurationMs),
 	}
 	if row.StatusCode != http.StatusOK {
-		fields["status_code"] = row.StatusCode
+		fields["http"] = row.StatusCode
 	}
 	if row.ClientModel != "" {
-		fields["client_model"] = row.ClientModel
+		fields["model"] = row.ClientModel
 	}
 	if row.UpstreamModel != "" && row.UpstreamModel != row.ClientModel {
-		fields["upstream_model"] = row.UpstreamModel
+		fields["up_model"] = row.UpstreamModel
 	}
 	if groupID > 0 {
-		fields["group_id"] = groupID
+		fields["group"] = groupID
 	}
 	if keyID > 0 {
-		fields["key_id"] = keyID
+		fields["key"] = keyID
 	}
 	if attemptCount := len(event.Attempts); attemptCount != 1 {
-		fields["attempt_count"] = attemptCount
+		fields["attempts"] = attemptCount
 	}
 	if inputTokens, ok := processInputTokens(row); ok && inputTokens > 0 {
-		fields["input_tokens"] = inputTokens
+		fields["in_tokens"] = inputTokens
 	}
 	if row.OutputTokens > 0 {
-		fields["output_tokens"] = row.OutputTokens
+		fields["out_tokens"] = row.OutputTokens
 	}
 	if row.UsageState != "" &&
 		row.UsageState != string(usage.StateComplete) &&
 		row.UsageState != string(usage.StateNotApplicable) {
-		fields["usage_state"] = row.UsageState
+		fields["usage"] = row.UsageState
 	}
 	if row.CostState != "" &&
 		row.CostState != string(pricing.CostStatePriced) &&
@@ -78,18 +78,18 @@ func projectProcessLog(
 		fields["cost_state"] = row.CostState
 	}
 	if row.CostState == string(pricing.CostStatePriced) {
-		fields["estimated_cost_nano_usd"] = row.EstimatedCostNanoUSD
+		fields["cost_usd"] = utils.FormatNanoUSD(row.EstimatedCostNanoUSD)
 	}
 	if event.Status != telemetry.RequestStatusSuccess {
 		if row.ErrorCode != "" {
-			fields["error_code"] = row.ErrorCode
+			fields["err"] = row.ErrorCode
 		}
 		if summary := sanitizeSummaryLimit(
 			redactor,
 			event.ErrorSummary,
 			maxProcessSummaryBytes,
 		); summary != "" {
-			fields["error_summary"] = summary
+			fields["err_msg"] = summary
 		}
 	}
 

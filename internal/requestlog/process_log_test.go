@@ -52,6 +52,7 @@ func TestProjectProcessLogUsesFrozenPricingAndInputOutputTotals(t *testing.T) {
 	event.StatusCode = http.StatusBadGateway
 	event.ErrorCode = "upstream_error"
 	event.ErrorSummary = "provider failed"
+	event.DurationMs = 58_773
 	event.Usage.AttemptSequence = 1
 	event.Usage.KeyID = 8
 	event.Usage.Result = usage.Result{
@@ -72,14 +73,14 @@ func TestProjectProcessLogUsesFrozenPricingAndInputOutputTotals(t *testing.T) {
 		t.Fatalf("projection = %t/%s", ok, level)
 	}
 	want := logrus.Fields{
-		"event": "data_plane_request_completed", "request_id": event.RequestID,
-		"status": "error", "status_code": http.StatusBadGateway,
-		"protocol": string(protocol.OpenAICompletions), "access_key_id": uint(42),
-		"client_model": "client-model", "upstream_model": "upstream-model",
-		"group_id": uint(7), "key_id": uint(8), "duration_ms": int64(25),
-		"input_tokens": int64(15), "output_tokens": int64(6),
-		"usage_state": "partial", "estimated_cost_nano_usd": int64(55_000),
-		"error_code": "upstream_error", "error_summary": "provider failed",
+		"event": "data_plane_request_completed", "req_id": event.RequestID,
+		"status": "error", "http": http.StatusBadGateway,
+		"proto": string(protocol.OpenAICompletions), "ak_id": uint(42),
+		"model": "client-model", "up_model": "upstream-model",
+		"group": uint(7), "key": uint(8), "duration": "58.8s",
+		"in_tokens": int64(15), "out_tokens": int64(6),
+		"usage": "partial", "cost_usd": "0.000055",
+		"err": "upstream_error", "err_msg": "provider failed",
 	}
 	assertProcessFields(t, fields, want)
 }
@@ -105,7 +106,7 @@ func TestProjectProcessLogUsesStatusLevelAndConditionalDiagnostics(t *testing.T)
 		if !ok || level != test.level {
 			t.Fatalf("status %q projection = %t/%s", test.status, ok, level)
 		}
-		_, hasCode := fields["error_code"]
+		_, hasCode := fields["err"]
 		if hasCode != (test.status != telemetry.RequestStatusSuccess) {
 			t.Fatalf("status %q error_code presence = %t", test.status, hasCode)
 		}
@@ -123,10 +124,10 @@ func TestProjectProcessLogOmitsDefaultAndZeroValueFields(t *testing.T) {
 		t.Fatalf("projection = %t/%s", ok, level)
 	}
 	want := logrus.Fields{
-		"event": "data_plane_request_completed", "request_id": event.RequestID,
-		"status": "success", "protocol": "anthropic", "access_key_id": uint(42),
-		"client_model": "client-model", "group_id": uint(7), "key_id": uint(8),
-		"duration_ms": int64(25),
+		"event": "data_plane_request_completed", "req_id": event.RequestID,
+		"status": "success", "proto": "anthropic", "ak_id": uint(42),
+		"model": "client-model", "group": uint(7), "key": uint(8),
+		"duration": "25ms",
 	}
 	assertProcessFields(t, fields, want)
 }
@@ -143,8 +144,8 @@ func TestProjectProcessLogPreservesNoCandidateDiagnostics(t *testing.T) {
 		},
 	}
 	level, fields, ok := projectProcessLog(redact.New(), event)
-	if !ok || level != logrus.WarnLevel || fields["attempt_count"] != 0 ||
-		fields["error_code"] != "no_available_candidate" {
+	if !ok || level != logrus.WarnLevel || fields["attempts"] != 0 ||
+		fields["err"] != "no_available_candidate" {
 		t.Fatalf("no-candidate fields = %#v", fields)
 	}
 }
@@ -174,7 +175,7 @@ func TestProjectProcessLogOmitsMissingAttribution(t *testing.T) {
 	if !ok {
 		t.Fatal("projection skipped")
 	}
-	for _, name := range []string{"group_id", "key_id", "group_name", "upstream_model"} {
+	for _, name := range []string{"group", "key", "group_name", "up_model"} {
 		if value, exists := fields[name]; exists {
 			t.Fatalf("%s = %#v, want omitted", name, value)
 		}
