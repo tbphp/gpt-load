@@ -38,16 +38,19 @@ const cacheRows = computed(() => {
   ].filter(({ value }) => value !== '0')
 })
 const formula = computed(() => {
-  const value = receipt.value
-  if (!value) return '—'
-  const parts = value.line_items.map(formatFormulaLine)
-  const prefix = value.context_threshold_tokens
-    ? `${t('monitor.logs.receipt.contextTier', {
-        value: formatLogTokenCount(value.context_threshold_tokens, locale.value),
-      })}: `
-    : ''
-  const expression = parts.length > 0 ? parts.join(' + ') : '0'
-  return `${prefix}${expression} = ${formatEstimatedCost(value.total_nano_usd, locale.value)}`
+  const lines = receipt.value?.line_items ?? []
+  const input = lines
+    .filter((line) => line.code !== 'output')
+    .map(formatFormulaLine)
+    .join(' + ')
+  const output = lines
+    .filter((line) => line.code === 'output')
+    .map(formatFormulaLine)
+    .join(' + ')
+  return {
+    input: input || '—',
+    output: output || '—',
+  }
 })
 
 function statusTone(status: string): 'success' | 'danger' | 'warning' | 'neutral' {
@@ -63,21 +66,15 @@ function attemptTone(attempt: RequestLogAttemptDto): 'success' | 'danger' | 'war
 }
 
 function formatFormulaLine(line: RequestLogPricingLineDto): string {
-  const label = t(`monitor.logs.receipt.lines.${line.code}`)
   const quantity = formatLogTokenCount(line.quantity, locale.value)
   if (line.state === 'unpriced' || line.rate_nano_usd_per_million === null) {
-    return `(${label} ${quantity} × — = —)`
+    return `${quantity} × —`
   }
   const multiplier =
     line.multiplier.numerator === line.multiplier.denominator
       ? ''
       : ` × ${line.multiplier.numerator}/${line.multiplier.denominator}`
-  const amount =
-    line.amount_nano_usd === null ? '—' : formatEstimatedCost(line.amount_nano_usd, locale.value)
-  return `(${label} ${quantity} × ${formatEstimatedCost(
-    line.rate_nano_usd_per_million,
-    locale.value,
-  )}/1M${multiplier} = ${amount})`
+  return `${quantity} × ${formatEstimatedCost(line.rate_nano_usd_per_million, locale.value)}/1M${multiplier}`
 }
 
 function accessKeyLabel(): string {
@@ -242,7 +239,10 @@ function groupLabel(): string {
           </div>
           <div class="log-detail__wide">
             <dt>{{ t('monitor.logs.receipt.formula') }}</dt>
-            <dd class="log-detail__formula">{{ formula }}</dd>
+            <dd class="log-detail__formula">
+              <span>{{ t('monitor.logs.receipt.input') }} = {{ formula.input }}</span>
+              <span>{{ t('monitor.logs.receipt.output') }} = {{ formula.output }}</span>
+            </dd>
           </div>
         </dl>
       </section>
@@ -393,6 +393,8 @@ function groupLabel(): string {
 }
 
 .log-detail__formula {
+  display: grid;
+  gap: 4px;
   font-family: var(--font-mono);
   line-height: 1.6;
 }

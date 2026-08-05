@@ -688,15 +688,8 @@ export default {
       },
       receipt: {
         formula: 'Cost calculation',
-        contextTier: 'Context ≥ {value}',
-        lines: {
-          input: 'Standard input',
-          cache_read: 'Cache read',
-          cache_write_5m: 'Cache write 5m',
-          cache_write_1h: 'Cache write 1h',
-          cache_write: 'Cache write',
-          output: 'Output',
-        },
+        input: 'Input',
+        output: 'Output',
       },
     },
   },

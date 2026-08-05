@@ -668,15 +668,8 @@ export default {
       },
       receipt: {
         formula: '成本计算',
-        contextTier: '上下文 ≥ {value}',
-        lines: {
-          input: '标准输入',
-          cache_read: '缓存读取',
-          cache_write_5m: '缓存写入 5m',
-          cache_write_1h: '缓存写入 1h',
-          cache_write: '缓存写入',
-          output: '输出',
-        },
+        input: '输入',
+        output: '输出',
       },
     },
   },

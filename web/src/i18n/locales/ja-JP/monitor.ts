@@ -684,15 +684,8 @@ export default {
       },
       receipt: {
         formula: 'コスト計算',
-        contextTier: 'コンテキスト ≥ {value}',
-        lines: {
-          input: '標準入力',
-          cache_read: 'キャッシュ読み取り',
-          cache_write_5m: 'キャッシュ書き込み 5m',
-          cache_write_1h: 'キャッシュ書き込み 1h',
-          cache_write: 'キャッシュ書き込み',
-          output: '出力',
-        },
+        input: '入力',
+        output: '出力',
       },
     },
   },
